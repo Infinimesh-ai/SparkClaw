@@ -17,9 +17,23 @@ if (process.argv.includes("--sparkclaw-client-store=1")) {
     list: () => storeInvoke("list"),
     create: (title) => storeInvoke("create", { title }),
     read: (conversation_id) => storeInvoke("read", { conversation_id }),
-    enqueue: (conversation_id, content) => storeInvoke("enqueue", { conversation_id, content }),
+    enqueue: (conversation_id, content, local_file_ids = []) => storeInvoke("enqueue", {
+      conversation_id, content, ...(local_file_ids.length ? { local_file_ids } : {}),
+    }),
+    submit: (request_id) => storeInvoke("submit", { request_id }),
+    reconcile: (request_id) => storeInvoke("reconcile", { request_id }),
+    cancel: (request_id) => storeInvoke("cancel", { request_id }),
     saveFile: (conversation_id, name, bytes) => storeInvoke("saveFile", { conversation_id, name, bytes }),
     exportFile: (file_id) => storeInvoke("exportFile", { file_id }),
+  }));
+  const mailInvoke = (operation, fields = {}) => ipcRenderer.invoke("sparkclaw-mail-sync:invoke", {
+    schema_version: 1, operation, ...fields,
+  });
+  contextBridge.exposeInMainWorld("sparkclawMailSync", Object.freeze({
+    catalog: () => mailInvoke("catalog"),
+    refreshCatalog: () => mailInvoke("refreshCatalog"),
+    read: (mailbox_id) => mailInvoke("read", { mailbox_id }),
+    sync: (mailbox_id) => mailInvoke("sync", { mailbox_id }),
   }));
 }
 
@@ -41,6 +55,8 @@ contextBridge.exposeInMainWorld("sparkclawDesktop", Object.freeze({
     return () => ipcRenderer.removeListener("sparkclaw-local-backend:state", wrapped);
   },
   state: () => invoke("state"),
+  selectConversation: (local_conversation_id) => invoke("selectConversation", { local_conversation_id }),
+  grantBrowserHost: () => invoke("grantBrowserHost"),
   createPersonal: (url) => invoke("createPersonal", url ? { url } : {}),
   navigatePersonal: (pageRef, url) => invoke("navigatePersonal", { page_ref: pageRef, url }),
   personalNavigation: (pageRef, action) => invoke("personalNavigation", { page_ref: pageRef, action }),

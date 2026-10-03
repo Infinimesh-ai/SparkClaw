@@ -4,6 +4,7 @@ export type DesktopPage = {
   page_ref: string;
   role: DesktopPageRole;
   task_id: string;
+  local_conversation_id?: string;
   title: string;
   url: string;
   presented: boolean;
@@ -73,6 +74,8 @@ export type SparkClawDesktop = {
   loginStartup(enabled?: boolean): Promise<{ supported: boolean; enabled: boolean }>;
   onLocalConnection(listener: (status: DesktopConnectionStatus) => void): () => void;
   state(): Promise<DesktopState>;
+  selectConversation?(localConversationID: string): Promise<{ page_ref: string }>;
+  grantBrowserHost?(): Promise<{ granted: boolean }>;
   createPersonal(url?: string): Promise<{ page_ref: string }>;
   navigatePersonal(pageRef: string, url: string): Promise<{ completed: true }>;
   personalNavigation(pageRef: string, action: "back" | "forward" | "reload"): Promise<{ completed: true }>;

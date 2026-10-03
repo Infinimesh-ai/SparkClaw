@@ -31,7 +31,7 @@ describe("R3 local workbench", () => {
       .mockResolvedValue({ id: "task", request_id: "request", status: "awaiting_runtime", created_at: "" });
     window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
       read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue,
-      saveFile: vi.fn(), exportFile: vi.fn() };
+      saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn() };
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
       localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client" })) } as unknown as SparkClawDesktop;
     const host = document.createElement("div"); const root = createRoot(host);
@@ -51,6 +51,58 @@ describe("R3 local workbench", () => {
       expect(host.textContent).toContain("Execution has not been submitted");
       expect(enqueue).toHaveBeenLastCalledWith(row.id, "Keep this local input");
       expect(fetch).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it("submits only by explicit action, refreshes durable state, and keeps unknown tasks from resend", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    const row = { id: "conversation", title: "Local conversation", created_at: "", updated_at: "" };
+    let task = { id: "task", request_id: "request", status: "awaiting_runtime", explicitly_submitted: 0, created_at: "" };
+    const submit = vi.fn(async () => { task = { ...task, status: "unknown", explicitly_submitted: 1 }; throw new Error("Admission response lost"); });
+    const reconcile = vi.fn(async () => task);
+    const selectConversation = vi.fn(async () => ({ page_ref: "" }));
+    window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
+      read: vi.fn(async () => ({ messages: [], tasks: [task], files: [] })), enqueue: vi.fn(),
+      saveFile: vi.fn(), exportFile: vi.fn(), submit, reconcile, cancel: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, selectConversation,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client" })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"); const root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      await act(async () => host.querySelector<HTMLButtonElement>("nav button")!.click());
+      expect(submit).not.toHaveBeenCalled();
+      expect(selectConversation).toHaveBeenCalledWith("conversation");
+      const button = [...host.querySelectorAll<HTMLButtonElement>(".localTaskActions button")].find((item) => item.textContent === "Submit")!;
+      await act(async () => button.click());
+      expect(submit).toHaveBeenCalledWith("request");
+      expect(host.textContent).toContain("Outcome uncertain");
+      expect(host.textContent).toContain("Admission response lost");
+      expect([...host.querySelectorAll(".localTaskActions button")].some((item) => item.textContent === "Submit")).toBe(false);
+      await act(async () => host.querySelector<HTMLButtonElement>(".localTaskActions button")!.click());
+      expect(reconcile).toHaveBeenCalledWith("request");
+      expect(submit).toHaveBeenCalledTimes(1);
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it("keeps local input available offline and provides reachable reconnection", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    const row = { id: "conversation", title: "Offline conversation", created_at: "", updated_at: "" };
+    const retryLocalConnection = vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client" }));
+    window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
+      read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue: vi.fn(),
+      saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, retryLocalConnection,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "service_unavailable", client_id: "client" })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"); const root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      await act(async () => host.querySelector<HTMLButtonElement>("nav button")!.click());
+      expect(host.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(false);
+      expect(host.textContent).toContain("Offline. Your device conversations");
+      const reconnect = [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Reconnect")!;
+      await act(async () => reconnect.click());
+      expect(retryLocalConnection).toHaveBeenCalledTimes(1);
+      expect(host.textContent).not.toContain("Offline. Your device conversations");
     } finally { await act(async () => root.unmount()); }
   });
 });

@@ -6,6 +6,12 @@ Date: 2026-09-30. Delivery branch: `codex/sparkclaw-r3`. This records staged imp
 
 Design inputs: [client/backend R3](client-backend-architecture-design.md), [Mac LAN design](macos-lan-desktop-design.md), [Mac connection guide](macos-connection-guide.md).
 
+## Current continuation scope (2026-10-03)
+
+The user clarified that InfiniCenter is not connected and its coordination process is out of scope for this round. Continue the remaining R3 implementation from the SparkClaw repository without waiting for InfiniCenter integration or decision 0031 review. The September 30 center checks, proposal and requests below remain historical records; this does not mark 0031 accepted, and it is no longer a prerequisite for this round.
+
+The user will build on Mac after the remaining Linux/shared implementation and applicable verification are complete. Do not compile, cross-build or sign Mac here. Mac hardware/Keychain/signing/upgrade checks follow source completion and are performed by the user. Existing interface compatibility, identity isolation, deduplication and unknown-effect reconciliation remain technical verification requirements in this repository. Do not migrate legacy test data or equate implementation with production cutover.
+
 ## Reconciled baseline
 
 Before editing, document-tool dependencies were prepared. Gateway build/vet/full tests, Desktop 17 tests, WebChat 169 tests and WebChat build passed on Linux ARM64, Node 26.2.0, npm 11.17.0, Go 1.25.5. The incumbent desktop auto-loaded a private local token, consumed backend sessions/history and ran a loopback adapter. Client issuance/revocation existed, but the settings navigation did not expose the paired-client component. None of this qualified R3.
@@ -16,7 +22,7 @@ InfiniCenter confirmed ProjectGroup-2; no unread SparkClaw inbox letters or prop
 
 | Phase | Delivered scope | Gate and remaining work |
 |---|---|---|
-| P0 | Data/identity separation, fresh local schema, local context limits, and external retention proposal | Partial: 0031 is proposed; backend temporary-content/control whitelist and remote execution envelopes still require implementation and acceptance |
+| P0 | Data/identity separation, fresh local schema, local context limits, and historical external retention proposal | Partial: backend temporary-content/control whitelist and remote execution envelopes still require implementation and verification; 0031 is not a prerequisite for this round |
 | P1 | Main-owned SQLite ClientStore, local conversations/files, atomic input + immutable bounded context + request-ID transaction; scoped IPC and local desktop workbench | Partial: network ExecutionClient/context submission and Workflow isolation are not activated; saved input is explicitly not submitted |
 | P2 | Independent initial/recovery credential tooling, reachable device settings, desktop user-input unlock, secure credential reuse and secret-free versioned LAN descriptor | Partial: Linux/shared verification recorded below; install-identity server binding, execution/event ACK and mailbox revision/cursor/tombstone synchronization remain pending |
 | P3 | R3 production disables the old local adapter instead of dispatching to an unauthorized substitute | Not delivered: authenticated WSS Broker, common BrowserHostAdapter, remote leases, per-conversation pages and write reconciliation |
@@ -77,6 +83,6 @@ Device/login synthetic UI fixtures were inspected at 1440 and 390 pixels. The ne
 
 Delivery remote: `origin` (`https://github.com/Infinimesh-ai/SparkClaw.git`), branch `codex/sparkclaw-r3`. The handoff reports the final pushed HEAD SHA; record that SHA with Mac results. [Mac commands and connection prerequisites](macos-connection-guide.md#3-synchronize-and-build-on-mac) include Node/npm, architecture selection, actual initial/recovery tools and required pre-existing LAN HTTPS. No production deployment, real credential use, mail operation, legacy-data migration, Mac compile/cross-build/signing or cleanup of active ledgers was performed.
 
-The 0031 counterpart review is the next required coordination gate. Do not mark P0 accepted or proceed to the incompatible backend storage/execution cutover, BrowserHostAdapter/WSS or external result expiry before the required decision is accepted. The new local receipt helpers remain on the delivery branch until a production ExecutionClient calls them; do not merge unused helpers to main. Future submission must be explicit and must not replay this tranche's local `awaiting_runtime` queue automatically.
+Under the user's October 3 scope, this round does not wait for the center or 0031 review. The next gate is implementing and verifying P0's backend temporary/control field allowlist, frozen budgets and execution envelopes in this repository; validate existing public-interface compatibility in code and tests. The new local receipt helpers remain on the delivery branch until a production ExecutionClient calls them; do not merge unused helpers to main. Future submission must be explicit and must not replay this tranche's local `awaiting_runtime` queue automatically.
 
-Once 0031 is accepted, finish P0's backend temporary/control field allowlist and frozen budgets, then P1 context execution, P2 delivery/mail sync, P3 Broker/host grants, P4 output/cleanup fault matrix and P5 exact-SHA Mac qualification in order. Failed or absent evidence keeps its acceptance gate open.
+Finish P0, then P1 context execution, P2 delivery/mail sync, P3 Broker/host grants, P4 output/cleanup fault matrix and P5 client source/build preparation in order. After the remaining Linux/shared implementation and applicable verification pass, hand off the exact SHA for user-run Mac builds and dedicated qualification. Failed or absent evidence keeps its acceptance gate open.

@@ -6,6 +6,12 @@
 
 实施依据：[客户端／后端 R3](client-backend-architecture-design.md)、[Mac LAN 设计](macos-lan-desktop-design.md)、[Mac 连接指南](macos-connection-guide.md)。
 
+## 当前推进约定（2026-10-03）
+
+用户明确当前未接入 InfiniCenter，本轮无需考虑其协调流程。因此，本轮 R3 剩余实现以 SparkClaw 本仓库为依据，不等待 InfiniCenter 接入或决策 0031 的评审，不把它们作为推进前置门。下文 2026-09-30 的中枢检查、提案及请求仅保留为历史记录，不表示 0031 已获接受，也不再阻塞本轮工作。
+
+用户决定先完成剩余 Linux／共享实现和适用验收，再进行 Mac 编译。当前不编译、交叉构建或签名 Mac；Mac 实机／Keychain／签名／升级专项在源码完成后由用户验证。现有接口兼容性、身份隔离、防重和未知副作用对账仍是本仓库的技术验证要求，不迁移旧测试数据，不把代码开发等同于生产切换。
+
 ## 核对的基线
 
 修改前完成 document-tools 环境准备。Linux ARM64、Node 26.2.0、npm 11.17.0、Go 1.25.5 上 Gateway build/vet/全量测试、桌面 17 项、WebChat 169 项及前端构建通过。原桌面自动载入本机私有 Token，消费后端 session/history，运行回环 adapter。设备签发／撤销存在，但设置导航未接入设备组件；这些均不能证明 R3。
@@ -16,7 +22,7 @@ InfiniCenter 确认 ProjectGroup-2；会话开始无未处理 SparkClaw 来信�
 
 | 阶段 | 本次交付范围 | 门槛与剩余工作 |
 |---|---|---|
-| P0 | 数据／身份拆分、全新本地 Schema、本地上下文限制、外部留存提案 | 部分完成：0031 为 proposed；后端临时内容／控制字段白名单、远程执行信封仍需实现与验收 |
+| P0 | 数据／身份拆分、全新本地 Schema、本地上下文限制、历史外部留存提案 | 部分完成：后端临时内容／控制字段白名单、远程执行信封仍需实现与验收；0031 不作为本轮前置门 |
 | P1 | 主进程 SQLite ClientStore、本地对话／文件、输入＋不可变有界上下文＋请求 ID 同事务保存、受限 IPC 与本地桌面工作台 | 部分完成：网络 ExecutionClient／上下文提交及 Workflow 隔离未启用；本地保存明确不表示提交执行 |
 | P2 | 独立首次／恢复领取工具、真实设备设置、桌面用户输入解锁、安全凭据复用、无密钥的版本化 LAN 描述符 | 部分完成：下文记录 Linux／共享验证；服务端安装身份绑定、执行事件／ACK、邮箱 revision／cursor／tombstone 同步待完成 |
 | P3 | R3 正式路径关闭旧本地 adapter，不派发到未经授权的替代宿主 | 未交付：鉴权 WSS Broker、统一 BrowserHostAdapter、远程租约、按对话页面及写操作对账 |
@@ -79,6 +85,6 @@ Pinned HTTPS 测试覆盖实际 TLS 主机名／证书链／指纹、错误 Owne
 
 交付 remote 为 `origin`（`https://github.com/Infinimesh-ai/SparkClaw.git`），分支 `codex/sparkclaw-r3`。交接消息给出最终已推送 HEAD SHA，Mac 结果绑定同一 SHA。[Mac 命令及连接前置条件](macos-connection-guide.md#3-mac-同步代码与构建)包含 Node／npm、架构选择、实际首次领取／恢复工具及先行配置的 LAN HTTPS。本次未生产部署、使用真实凭据、操作邮件、迁移旧数据、编译／交叉构建／签名 Mac 或清理活动账本。
 
-0031 的对端评审是下一项必要协调门。accepted 前不把 P0 标为通过，不推进不兼容的后端存储／执行切换、BrowserHostAdapter／WSS 或外部结果过期变更。本地交付 receipt helper 在真实 ExecutionClient 接入前留在交付分支，不把没有生产调用方的 helper 合入 main。未来提交必须显式发起，不自动重放本批 `awaiting_runtime` 本地队列。
+按 2026-10-03 最新用户约定，本轮不等待中枢或 0031 评审。下一门是本仓库 P0 后端临时／控制字段白名单、冻结预算和执行信封的实现及验证，现有对外接口兼容性由代码和测试验证。本地交付 receipt helper 在真实 ExecutionClient 接入前留在交付分支，不把没有生产调用方的 helper 合入 main。未来提交必须显式发起，不自动重放本批 `awaiting_runtime` 本地队列。
 
-0031 accepted 后，先补完 P0 后端临时／控制字段白名单和冻结预算，再按顺序完成 P1 上下文执行、P2 交付／邮箱同步、P3 Broker／宿主授权、P4 输出／清理故障矩阵、P5 同 SHA Mac 验收。失败或缺失证据继续保留阶段门。
+先补完 P0，再按顺序完成 P1 上下文执行、P2 交付／邮箱同步、P3 Broker／宿主授权、P4 输出／清理故障矩阵及 P5 客户端源码／构建准备。剩余 Linux／共享实现和适用验收完成后，再交用户进行同 SHA Mac 编译及专项验收。失败或缺失证据继续保留阶段门。

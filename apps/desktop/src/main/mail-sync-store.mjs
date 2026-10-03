@@ -72,7 +72,7 @@ export class MailSyncStore {
     const key=scopeKey(scope);mailboxID(mailbox);
     required(plain(response) && Object.keys(response).sort().join(',') === ['schema_version','mailbox_id','epoch','mode','base_sequence','sequence','events','cursor','more'].sort().join(','), 'Invalid mail sync envelope');
     required(response.schema_version===1 && response.mailbox_id===mailbox && /^[a-f0-9]{32}$/u.test(response.epoch) && ['snapshot','delta'].includes(response.mode) && typeof response.cursor==='string' && response.cursor.length<=1024 && typeof response.more==='boolean' && Number.isSafeInteger(response.sequence) && response.sequence>=0 && Number.isSafeInteger(response.base_sequence) && response.base_sequence>=0 && response.base_sequence<=response.sequence, 'Invalid mail sync revision');
-    required(Array.isArray(response.events) && response.events.length<=MAIL_PAGE_LIMIT && Buffer.byteLength(JSON.stringify(response))<=1024*1024+8192, 'Mail sync page exceeds capacity');
+    required(Array.isArray(response.events) && response.events.length<=MAIL_PAGE_LIMIT && Buffer.byteLength(JSON.stringify(response))<=1024*1024, 'Mail sync page exceeds capacity');
     let sequence=response.base_sequence;
     const seen=new Set();
     for(const event of response.events){required(plain(event) && Object.keys(event).every((k)=>['sequence','id','deleted','mail'].includes(k)) && ID.test(event.id) && typeof event.deleted==='boolean' && Number.isSafeInteger(event.sequence), 'Invalid mail sync event');

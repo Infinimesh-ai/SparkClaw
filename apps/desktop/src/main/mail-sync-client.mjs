@@ -12,7 +12,7 @@ export class MailSyncClient {
     if(!response.ok)throw new Error('Mail service is unavailable; the last complete cache is retained');
     if(this.getConnection()!==connection) throw new Error('Mail login changed while synchronizing');
     const reader=response.body?.getReader();if(!reader)throw new Error('Mail response is empty');const chunks=[];let size=0;
-    try {for(;;){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>1024*1024+8192)throw new Error('Mail response exceeds capacity');chunks.push(value);}}finally{await reader.cancel().catch(()=>{});}
+    try {for(;;){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>1024*1024)throw new Error('Mail response exceeds capacity');chunks.push(value);}}finally{await reader.cancel().catch(()=>{});}
     if(this.getConnection()!==connection) throw new Error('Mail login changed while synchronizing');
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
   }

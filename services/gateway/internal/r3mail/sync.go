@@ -390,7 +390,7 @@ func (s *Service) Sync(ctx context.Context, owner, mailbox, raw string, limit in
 			m := state.Records[ids[index]]
 			event := Event{Sequence: state.Sequence, ID: m.ID, Mail: &m}
 			b, _ := json.Marshal(event)
-			if bytes+len(b) > MaxPageBytes {
+			if bytes+len(b) > MaxPageBytes-8192 {
 				break
 			}
 			out.Events = append(out.Events, event)
@@ -410,7 +410,7 @@ func (s *Service) Sync(ctx context.Context, owner, mailbox, raw string, limit in
 				continue
 			}
 			b, _ := json.Marshal(event)
-			if len(out.Events) >= limit || bytes+len(b) > MaxPageBytes {
+			if len(out.Events) >= limit || bytes+len(b) > MaxPageBytes-8192 {
 				out.More = true
 				break
 			}
@@ -421,6 +421,13 @@ func (s *Service) Sync(ctx context.Context, owner, mailbox, raw string, limit in
 		c.Sequence = latest
 	}
 	out.Cursor = encode(c)
+	encoded, err := json.Marshal(out)
+	if err != nil {
+		return out, err
+	}
+	if len(encoded) > MaxPageBytes {
+		return Response{}, ErrLimit
+	}
 	return out, nil
 }
 func (s *Service) String() string { return fmt.Sprintf("bounded mail sync (%d events)", MaxEvents) }

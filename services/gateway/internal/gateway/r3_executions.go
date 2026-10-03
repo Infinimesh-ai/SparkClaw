@@ -96,7 +96,7 @@ func (s *Server) r3Install(w http.ResponseWriter, r *http.Request) {
 		SchemaVersion  int    `json:"schema_version"`
 		InstallationID string `json:"installation_id"`
 	}
-	if err = readJSON(r, &input); err != nil || input.SchemaVersion != 1 {
+	if err = readR3JSON(r, &input); err != nil || input.SchemaVersion != 1 {
 		writeError(w, 400, errors.New("invalid R3 installation"))
 		return
 	}
@@ -176,7 +176,7 @@ func (s *Server) r3Ack(w http.ResponseWriter, r *http.Request) {
 		Digest   string `json:"digest"`
 		Durable  bool   `json:"durable"`
 	}
-	if err = readJSON(r, &input); err != nil {
+	if err = readR3JSON(r, &input); err != nil {
 		writeError(w, 400, errors.New("invalid R3 receipt"))
 		return
 	}
@@ -187,6 +187,9 @@ func (s *Server) r3Ack(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"state": "delivered"})
 }
 func (s *Server) r3Cancel(w http.ResponseWriter, r *http.Request) {
+	if !emptyR3Request(w, r) {
+		return
+	}
 	p, err := s.r3Principal(r)
 	if err != nil {
 		writeError(w, 403, err)

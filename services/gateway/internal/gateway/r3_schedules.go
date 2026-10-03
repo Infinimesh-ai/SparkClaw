@@ -108,7 +108,7 @@ func (s *Server) r3ScheduleRegister(w http.ResponseWriter, r *http.Request) {
 		Context       string    `json:"context"`
 		Digest        string    `json:"digest"`
 	}
-	if err = readJSON(r, &input); err != nil || input.SchemaVersion != 1 {
+	if err = readR3JSON(r, &input); err != nil || input.SchemaVersion != 1 {
 		writeError(w, 400, errors.New("invalid R3 schedule lease"))
 		return
 	}
@@ -158,6 +158,9 @@ func (s *Server) r3ScheduleRegister(w http.ResponseWriter, r *http.Request) {
 	s.writeR3Schedule(w, p, e.RequestID, entry)
 }
 func (s *Server) r3ScheduleRenew(w http.ResponseWriter, r *http.Request) {
+	if !emptyR3Request(w, r) {
+		return
+	}
 	p, err := s.r3Principal(r)
 	if err != nil {
 		writeError(w, 403, err)
@@ -181,6 +184,9 @@ func (s *Server) r3ScheduleRenew(w http.ResponseWriter, r *http.Request) {
 	s.writeR3Schedule(w, p, r.PathValue("request"), entry)
 }
 func (s *Server) r3ScheduleCancel(w http.ResponseWriter, r *http.Request) {
+	if !emptyR3Request(w, r) {
+		return
+	}
 	p, err := s.r3Principal(r)
 	if err != nil {
 		writeError(w, 403, err)

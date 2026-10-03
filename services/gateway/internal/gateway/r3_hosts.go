@@ -50,7 +50,7 @@ func (s *Server) r3HostGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct{}
-	if err = readJSON(r, &input); err != nil {
+	if err = readR3JSON(r, &input); err != nil {
 		writeError(w, 400, errors.New("invalid browser grant request"))
 		return
 	}
@@ -105,7 +105,7 @@ func (s *Server) r3HostReconcile(w http.ResponseWriter, r *http.Request) {
 		Digest    string `json:"digest"`
 		Outcome   string `json:"outcome"`
 	}
-	if err = readJSON(r, &input); err != nil {
+	if err = readR3JSON(r, &input); err != nil {
 		writeError(w, 400, errors.New("invalid browser reconciliation"))
 		return
 	}
@@ -116,6 +116,9 @@ func (s *Server) r3HostReconcile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"recorded": true})
 }
 func (s *Server) r3HostRevoke(w http.ResponseWriter, r *http.Request) {
+	if !emptyR3Request(w, r) {
+		return
+	}
 	p, err := s.r3Principal(r)
 	if err != nil {
 		writeError(w, 403, err)

@@ -39,6 +39,7 @@ import { MailSyncClient } from "./mail-sync-client.mjs";
 import { MailSyncCapability } from "./mail-sync-capability.mjs";
 import { ClientStoreCapability } from "./client-store-capability.mjs";
 import { exportLocalFile } from "./export-local-file.mjs";
+import { configureWorkbenchPermissions } from "./workbench-permissions.mjs";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DESKTOP_ICON_PATH = path.join(MODULE_DIR, "..", "assets", "icon.png");
@@ -507,16 +508,7 @@ function secureSession(targetSession) {
 }
 
 function configureWorkbenchSession(targetSession, targetWindow, speechOrigin) {
-  const trusted = (webContents, origin) => webContents === targetWindow.webContents &&
-    canonicalOrigin(origin) === "sparkclaw-app://workbench";
-  targetSession.setPermissionCheckHandler((webContents, permission, origin, details) =>
-    trusted(webContents, origin) && permission === "media" && details?.mediaType === "audio");
-  targetSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
-    const requestingOrigin = details?.requestingUrl ? originOf(details.requestingUrl) : "";
-    const mediaTypes = Array.isArray(details?.mediaTypes) ? details.mediaTypes : [];
-    callback(trusted(webContents, requestingOrigin) && permission === "media" &&
-      mediaTypes.includes("audio") && !mediaTypes.includes("video"));
-  });
+  configureWorkbenchPermissions(targetSession, targetWindow);
   targetSession.webRequest.onBeforeRequest({ urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"] }, (details, callback) => {
     callback({ cancel: !qualification || desktopAuth.status.state !== "connected" || canonicalOrigin(details.url) !== speechOrigin.replace(/^http/u, "ws") });
   });
@@ -526,10 +518,6 @@ function configureWorkbenchSession(targetSession, targetWindow, speechOrigin) {
     const requestHeaders = { ...details.requestHeaders, Origin: speechOrigin };
     callback({ requestHeaders });
   });
-}
-
-function originOf(raw) {
-  return canonicalOrigin(raw);
 }
 
 function canonicalOrigin(raw) {

@@ -5,8 +5,8 @@ import { parseBackendDescriptor, loadLocalBackendDescriptor, loadLocalBackendCon
 import { isTLSIdentityError, pinnedHTTPSFetch } from "./pinned-https.mjs";
 
 export class DesktopAuth {
-  constructor({ vault, descriptorPath, legacyPaths, qualification = false, requireLAN = false, fetcher, onChange = () => {}, onLock = () => {} }) {
-    Object.assign(this, { vault, descriptorPath, legacyPaths, qualification, requireLAN, fetcher, onChange, onLock });
+  constructor({ vault, descriptorPath, legacyPaths, installationID, qualification = false, requireLAN = false, fetcher, onChange = () => {}, onLock = () => {} }) {
+    Object.assign(this, { vault, descriptorPath, legacyPaths, installationID, qualification, requireLAN, fetcher, onChange, onLock });
     this.requests = new Set();
     this.generation = 0;
     this.vaultOperations = Promise.resolve();
@@ -103,6 +103,20 @@ export class DesktopAuth {
   }
 
   async authorizedFetch(raw, init = {}) {
+    return this.#authorizedFetch(raw, init, 1 << 20);
+  }
+
+  // Only trusted main-process R3 clients call this; the renderer proxy keeps
+  // the ordinary 1 MiB ceiling. Origin, pinned TLS and logout fencing are shared.
+  async authorizedR3Fetch(raw, init = {}) {
+    const url = new URL(raw);
+    if (!/^\/api\/r3\/(executions|inputs)(\/|$)/u.test(url.pathname) || url.search || url.hash || url.username || url.password) {
+      throw new Error("R3 backend path is invalid");
+    }
+    return this.#authorizedFetch(raw, init, 8 * 1024 * 1024);
+  }
+
+  async #authorizedFetch(raw, init, byteLimit) {
     if (this.status.state !== "connected" || !this.connection) return new Response(null, { status: 401 });
     const url = new URL(raw);
     if (url.origin !== this.descriptor.origin) throw new Error("Backend origin is invalid");
@@ -130,7 +144,7 @@ export class DesktopAuth {
             if (chunk.done) { requests.delete(controller); stream.close(); }
             else {
               bytes += chunk.value.length;
-              if (bytes > 1 << 20) { controller.abort(); requests.delete(controller); await reader.cancel(); stream.error(new Error("Backend response exceeds the allowed size")); }
+              if (bytes > byteLimit) { controller.abort(); requests.delete(controller); await reader.cancel(); stream.error(new Error("Backend response exceeds the allowed size")); }
               else stream.enqueue(chunk.value);
             }
           } catch (error) { requests.delete(controller); stream.error(error); }
@@ -183,6 +197,20 @@ export class DesktopAuth {
           ![body.owner_id, body.client_id].every((value) => typeof value === "string" && value.length > 0 && value.length <= 160)) {
         return { state: "identity_conflict" };
       }
+      if (this.installationID) {
+        if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(this.installationID)) return { state: "identity_conflict" };
+        const binding = await this.#fetch()(`${candidate.origin}/api/r3/installations`, {
+          method: "POST", headers: { Authorization: candidate.authorization, "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ schema_version: 1, installation_id: this.installationID }),
+          redirect: "manual", signal: AbortSignal.timeout(5000),
+        });
+        if (binding.status === 401 || binding.status === 403) return { state: "invalid_authentication" };
+        if (binding.status === 409 || (binding.status >= 300 && binding.status < 400)) return { state: "identity_conflict" };
+        if (!binding.ok) return { state: "service_unavailable" };
+        const bound = await boundedJSON(binding, 4096);
+        if (bound.schema_version !== 1 || bound.installation_id !== this.installationID ||
+            bound.client_id !== body.client_id || bound.owner_id !== body.owner_id || bound.deployment_id !== body.deployment_id) return { state: "identity_conflict" };
+      } else if (!this.qualification) return { state: "incomplete_setup" };
       return { state: "connected", identity: { ownerID: body.owner_id, clientID: body.client_id } };
     } catch (error) { return { state: isTLSIdentityError(error) ? "identity_conflict" : "service_unavailable" }; }
   }
@@ -197,6 +225,21 @@ export class DesktopAuth {
     this.onChange(this.status);
     return this.status;
   }
+}
+
+async function boundedJSON(response, limit) {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("Missing backend response");
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    total += chunk.value.byteLength;
+    if (total > limit) { await reader.cancel(); throw new Error("Backend response exceeds the allowed size"); }
+    chunks.push(Buffer.from(chunk.value));
+  }
+  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
 }
 
 function descriptorBinding(descriptor) {

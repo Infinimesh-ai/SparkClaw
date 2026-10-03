@@ -39,11 +39,12 @@ test("HTTPS validates CA, hostname and leaf pin before transmitting any credenti
   assert.equal(requests, 1);
   await assert.rejects(pinnedHTTPSFetch(base)("https://elsewhere.example/identity", init), /origin differs/);
   let saved;
-  const auth = new DesktopAuth({ vault: { available: () => true, clear: async () => { saved = undefined; }, save: async (value) => { saved = value; } }, fetcher: () => { throw new Error("LAN must use pinned transport"); } });
+  const installationID = "12345678-1234-4123-8123-123456789abc";
+  const auth = new DesktopAuth({ installationID, vault: { available: () => true, clear: async () => { saved = undefined; }, save: async (value) => { saved = value; } }, fetcher: () => { throw new Error("LAN must use pinned transport"); } });
   auth.descriptor = { schemaVersion: 2, ...base, deploymentID: "deployment", ownerID: "expected-owner" };
   const token = "synthetic-issued-credential-" + "x".repeat(32);
   authorization = `Bearer ${token}`;
-  body = { deployment_id: "deployment", owner_id: "wrong-owner", client_id: "device" };
+  body = { schema_version: 1, installation_id: installationID, deployment_id: "deployment", owner_id: "wrong-owner", client_id: "device" };
   assert.equal((await auth.login(token)).state, "identity_conflict");
   assert.equal(saved, undefined, "wrong Owner cannot unlock or persist a credential");
   body.owner_id = "expected-owner";

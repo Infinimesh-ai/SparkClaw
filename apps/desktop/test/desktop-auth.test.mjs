@@ -10,7 +10,8 @@ import { parseBackendDescriptor } from "../src/main/local-backend.mjs";
 
 const token = "synthetic-test-credential-" + "x".repeat(32);
 const descriptor = { schema_version: 1, origin: "http://127.0.0.1:18790", deployment_id: "test-deployment" };
-const identity = { deployment_id: "test-deployment", owner_id: "test-owner", client_id: "test-device" };
+const installationID = "12345678-1234-4123-8123-123456789abc";
+const identity = { schema_version: 1, installation_id: installationID, deployment_id: "test-deployment", owner_id: "test-owner", client_id: "test-device" };
 const encryptionKey = crypto.randomBytes(32);
 const secureStorage = {
   isEncryptionAvailable: () => true,
@@ -34,7 +35,7 @@ async function fixture(t, storage = secureStorage) {
   const descriptorPath = path.join(directory, "backend.json");
   await fs.writeFile(descriptorPath, JSON.stringify(descriptor), { mode: 0o600 });
   const vault = new SecureCredentialStore({ directory: path.join(directory, "authentication"), safeStorage: storage, platform: "linux" });
-  const options = { descriptorPath, vault, fetcher: async () => new Response(JSON.stringify(identity)) };
+  const options = { descriptorPath, vault, installationID, fetcher: async () => new Response(JSON.stringify(identity)) };
   return { options, directory, vault, auth: new DesktopAuth(options) };
 }
 
@@ -151,6 +152,46 @@ test("auth IPC permits only the workbench main frame", () => {
   assert.throws(() => authorizeWorkbenchSender({ sender: {}, senderFrame: mainFrame }, window), /not trusted/);
   mainFrame.url = "https://malicious.example";
   assert.throws(() => authorizeWorkbenchSender({ sender: window.webContents, senderFrame: mainFrame }, window), /not trusted/);
+});
+
+test("production login binds the installation before saving a credential and fails closed on drift", async (t) => {
+  const { auth, vault } = await fixture(t);
+  await auth.initialize();
+  const calls = [];
+  auth.fetcher = async (url, init) => {
+    calls.push(url);
+    if (url.endsWith("/installations")) {
+      assert.equal(init.method, "POST");
+      assert.equal(new Headers(init.headers).get("authorization"), `Bearer ${token}`);
+      assert.deepEqual(JSON.parse(init.body), { schema_version: 1, installation_id: installationID });
+      assert.equal(await vault.load(), undefined, "binding precedes credential persistence");
+    }
+    return new Response(JSON.stringify(identity));
+  };
+  assert.equal((await auth.login(token)).state, "connected");
+  assert.deepEqual(calls, ["http://127.0.0.1:18790/api/workbench/identity", "http://127.0.0.1:18790/api/r3/installations"]);
+  await auth.logout();
+  auth.fetcher = async (url) => new Response(JSON.stringify(url.endsWith("/installations") ? { ...identity, installation_id: crypto.randomUUID() } : identity));
+  assert.equal((await auth.login(token)).state, "identity_conflict");
+  assert.equal(await vault.load(), undefined);
+  const noInstallation = new DesktopAuth({ ...auth, vault, installationID: undefined });
+  noInstallation.descriptor = auth.descriptor;
+  assert.equal((await noInstallation.login(token)).state, "incomplete_setup");
+});
+
+test("R3 response expansion remains bounded and inaccessible to ordinary renderer paths", async (t) => {
+  const { auth } = await fixture(t);
+  await auth.initialize(); await auth.login(token);
+  auth.fetcher = async () => new Response("x".repeat(2 * 1024 * 1024));
+  const normal = await auth.authorizedFetch(`${descriptor.origin}/api/clients`);
+  await assert.rejects(normal.arrayBuffer(), /allowed size/);
+  const r3 = await auth.authorizedR3Fetch(`${descriptor.origin}/api/r3/executions/test`);
+  assert.equal((await r3.arrayBuffer()).byteLength, 2 * 1024 * 1024);
+  await assert.rejects(auth.authorizedR3Fetch(`${descriptor.origin}/api/sessions`), /path/);
+  await assert.rejects(auth.authorizedR3Fetch(`${descriptor.origin}/api/r3/executions/test?token=x`), /path/);
+  auth.fetcher = async () => new Response("x".repeat(8 * 1024 * 1024 + 1));
+  const tooLarge = await auth.authorizedR3Fetch(`${descriptor.origin}/api/r3/executions/test`);
+  await assert.rejects(tooLarge.arrayBuffer(), /allowed size/);
 });
 
 test("logout during slow encrypted save fences stale login without deleting a newer device credential", async (t) => {

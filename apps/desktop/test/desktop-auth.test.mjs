@@ -30,7 +30,7 @@ const secureStorage = {
 };
 
 async function fixture(t, storage = secureStorage) {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-auth-"));
+  const directory = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "sparkclaw-auth-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const descriptorPath = path.join(directory, "backend.json");
   await fs.writeFile(descriptorPath, JSON.stringify(descriptor), { mode: 0o600 });

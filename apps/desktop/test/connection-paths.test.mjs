@@ -12,7 +12,7 @@ const execFileAsync = promisify(execFile);
 const installer = path.resolve(import.meta.dirname, "../../../scripts/configure-desktop-connection.mjs");
 
 test("packaged desktop finds provisioned backend without a launcher or environment overrides", async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-desktop-paths-"));
+  const root = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "sparkclaw-desktop-paths-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const runtime = path.join(root, "runtime");
   const configHome = path.join(root, "config");
@@ -36,7 +36,7 @@ test("packaged desktop finds provisioned backend without a launcher or environme
 });
 
 test("packaged desktop reads an existing legacy path configuration directly", async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-desktop-legacy-"));
+  const root = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "sparkclaw-desktop-legacy-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const configHome = path.join(root, "config");
   const configDir = path.join(configHome, "sparkclaw");

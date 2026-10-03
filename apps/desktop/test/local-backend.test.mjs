@@ -7,7 +7,7 @@ import test from "node:test";
 import { loadLocalBackendConnection, loadLocalBackendDescriptor, verifyLocalBackend } from "../src/main/local-backend.mjs";
 
 async function fixture(t, descriptor = {}, credential = {}) {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-local-backend-"));
+  const directory = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "sparkclaw-local-backend-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   await fs.chmod(directory, 0o700);
   const descriptorPath = path.join(directory, "local-workbench.json");

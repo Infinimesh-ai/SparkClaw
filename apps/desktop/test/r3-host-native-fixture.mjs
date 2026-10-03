@@ -66,12 +66,22 @@ try {
   await step("A", "release"); await step("A", "acquire", {}, "task_A_second"); assert.equal(registry.conversationPages.get("A").webContents.id, aContentsID);
   const resumed = await step("A", "read"); assert.match(resumed.text, /Counter: 1/); assert.match(resumed.text, /Draft: A local draft/);
   assert.equal(registry.conversationPages.size, 2); assert.equal(registry.connections.size, 2);
+  await assert.rejects(step("A", "open_system_browser", { url: `${descriptor.origin}/fixture` }), /fenced/);
+  // A granted Host page cannot escape into an independent popup. This is
+  // fixture-owned DOM instrumentation, not an operation exposed on the wire.
+  await aPage.webContents.executeJavaScript(`(()=>{const button=document.createElement('button');button.textContent='Popup';button.onclick=()=>window.open('/fixture?conversation=popup');document.body.append(button)})()`);
+  snapshot = await step("A", "snapshot");
+  const popupButton = snapshot.snapshot.controls.find((item) => item.name === "Popup"); assert.ok(popupButton);
+  await step("A", "click", { ref: popupButton.ref, snapshot_id: snapshot.snapshot_id });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(BrowserWindow.getAllWindows().length, 1);
+  assert.equal(registry.conversationPages.size, 2); assert.equal(registry.connections.size, 2);
   snapshot = await step("A", "snapshot"); button = snapshot.snapshot.controls.find((item) => item.name === "Increment"); interruptWrite = true;
   await assert.rejects(step("A", "click", { ref: button.ref, snapshot_id: snapshot.snapshot_id }), /reconciliation|unknown/);
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(registry.records.size, 0); assert.equal(agent.journal.unknown({ owner_id: "qualification-owner", client_id: "qualification-client", installation_id: "qualification-installation" }).length, 1);
   const fences = await (await auth.authorizedFetch(`${descriptor.origin}/qualify/fences`)).json(); assert.equal(fences.length, 1); assert.equal(fences[0].state, "unknown");
-  console.log(JSON.stringify({ event: "sparkclaw_r3_native_qualification", passed: true, electron: process.versions.electron, chromium: process.versions.chrome, real_embedded_views: true, actual_embedded_click_and_fill: true, conversations: 2, rapid_switches: 20, same_view_released_reacquired: true, late_reply_cannot_select_other_page: true, response_loss_fenced_unknown_write: true, standalone_browser: false, production_data: false }));
+  console.log(JSON.stringify({ event: "sparkclaw_r3_native_qualification", passed: true, platform: process.platform, architecture: process.arch, electron: process.versions.electron, chromium: process.versions.chrome, real_embedded_views: true, actual_embedded_click_and_fill: true, conversations: 2, rapid_switches: 20, same_view_released_reacquired: true, late_reply_cannot_select_other_page: true, system_browser_command_rejected: true, host_popup_blocked: true, response_loss_fenced_unknown_write: true, standalone_browser: false, production_data: false }));
   await agent.stop(); window.destroy(); app.exit(0);
 } catch (error) { console.error(error.stack); await agent?.stop().catch(() => {}); window?.destroy(); app.exit(1); }
 });

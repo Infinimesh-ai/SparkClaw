@@ -16,6 +16,10 @@ import (
 	"time"
 )
 
+func readRepository(repo store.EmailRepository) Repository {
+	return Repository{OwnerStatus: repo.GetEmailOwnerStatus, Mailbox: repo.GetEmailMailbox, Mailboxes: repo.ListEmailMailboxes}
+}
+
 type projection struct{ rows []emailmanagement.MessageView }
 
 func (p *projection) ClientSyncMessages(_ context.Context, q store.EmailQuery) (emailmanagement.MessagesView, error) {
@@ -45,7 +49,7 @@ func TestDurableSnapshotDeltaTombstonesAndIsolation(t *testing.T) {
 	b := box(t, repo)
 	p := &projection{rows: []emailmanagement.MessageView{row(b, "a", "First"), row(b, "b", "Second")}}
 	root := t.TempDir()
-	s, e := New(root, repo, p)
+	s, e := New(root, readRepository(repo), p)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -57,7 +61,7 @@ func TestDurableSnapshotDeltaTombstonesAndIsolation(t *testing.T) {
 	if last.More || len(last.Events) != 1 || last.Sequence != 2 {
 		t.Fatalf("bad second page %+v", last)
 	}
-	s, e = New(root, repo, p)
+	s, e = New(root, readRepository(repo), p)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -102,7 +106,7 @@ func TestSnapshotChangeGapEpochAndDiskFailure(t *testing.T) {
 	b := box(t, repo)
 	p := &projection{rows: []emailmanagement.MessageView{row(b, "a", "First"), row(b, "b", "Second")}}
 	root := t.TempDir()
-	s, _ := New(root, repo, p)
+	s, _ := New(root, readRepository(repo), p)
 	first := mustSync(t, s, b, "", 1)
 	p.rows[0].Subject = "New"
 	if _, e := s.Sync(t.Context(), "owner", b.ID, first.Cursor, 1); !errors.Is(e, ErrReset) {
@@ -132,7 +136,7 @@ func TestSnapshotChangeGapEpochAndDiskFailure(t *testing.T) {
 	if e = os.WriteFile(fail, []byte("fixture"), 0600); e != nil {
 		t.Fatal(e)
 	}
-	bad, _ := New(fail, repo, p)
+	bad, _ := New(fail, readRepository(repo), p)
 	if _, e = bad.Sync(t.Context(), "owner", b.ID, "", 10); e == nil {
 		t.Fatal("disk failure claimed synchronized")
 	}
@@ -144,7 +148,7 @@ func TestLimitsAndNarrowProjection(t *testing.T) {
 	v.BodyText = strings.Repeat("x", 65*1024)
 	v.Verification = &emailmanagement.VerificationView{Purpose: "never-cache"}
 	p := &projection{rows: []emailmanagement.MessageView{v}}
-	s, _ := New(t.TempDir(), repo, p)
+	s, _ := New(t.TempDir(), readRepository(repo), p)
 	out := mustSync(t, s, b, "", 100)
 	raw, _ := json.Marshal(out)
 	if strings.Contains(string(raw), "never-cache") || !out.Events[0].Mail.BodyTruncated || out.Events[0].Mail.BodyText != "" {
@@ -168,7 +172,7 @@ func TestSnapshotEntireEncodedPageFitsTrustedOneMiBTransport(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		p.rows = append(p.rows, row(b, fmt.Sprintf("mail-%d", i), strings.Repeat("s", 220*1024)))
 	}
-	s, err := New(t.TempDir(), repo, p)
+	s, err := New(t.TempDir(), readRepository(repo), p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +217,7 @@ func TestFileBackendAuthoritativeCollectorContinuesWithoutClient(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	s, _ := New(filepath.Join(root, "sync"), repo, projection)
+	s, _ := New(filepath.Join(root, "sync"), readRepository(repo), projection)
 	admit := func(id string) {
 		t.Helper()
 		_, e := repo.AdmitEmailDiscovery(t.Context(), store.EmailDiscoveryCommand{EmailCommand: store.EmailCommand{OwnerID: "owner", CommandKey: id}, MailboxID: b.ID, BindingGeneration: b.BindingGeneration, ObservedAt: time.Now(), Members: []store.EmailDiscoveryMember{{ProviderMessageID: id, ProviderSelectionID: id, Direction: "inbound", Folder: "inbox", SourceTime: time.Now()}}, Coverage: "partial"})
@@ -235,7 +239,7 @@ func TestFileBackendAuthoritativeCollectorContinuesWithoutClient(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	s, _ = New(filepath.Join(root, "sync"), restarted, projection)
+	s, _ = New(filepath.Join(root, "sync"), readRepository(restarted), projection)
 	later := mustSync(t, s, b, first.Cursor, 100)
 	if len(later.Events) != 1 || later.Events[0].Deleted || later.Sequence != 2 {
 		t.Fatalf("offline collector update lost %+v", later)

@@ -32,7 +32,7 @@ func TestR3MailHTTPInstallationSnapshotAndVerifiedAttachment(t *testing.T) {
 	runtime := agent.NewRuntime(f.repo, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 	projection, e := emailmanagement.New(f.repo, f.browser, emailautomation.DefaultRegistry(), nil, nil, emailmanagement.Options{WorkspaceRoot: f.root})
 	f.must(e)
-	sync, e := r3mail.New(filepath.Join(f.root, "mail-sync"), projection, projection)
+	sync, e := r3mail.New(filepath.Join(f.root, "mail-sync"), r3mail.Repository{OwnerStatus: projection.ClientSyncOwnerStatus, Mailbox: projection.ClientSyncMailbox, Mailboxes: projection.ClientSyncMailboxes}, projection)
 	f.must(e)
 	instance := New(cfg, f.repo, tools, runtime, WithEmailManagement(projection), WithR3MailSync(sync), WithR3Executions(filepath.Join(f.root, "r3-control"), nil))
 	instance.BindLifecycleContext(t.Context())

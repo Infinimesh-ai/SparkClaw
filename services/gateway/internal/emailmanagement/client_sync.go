@@ -11,19 +11,19 @@ import (
 
 // These typed reads let client mail synchronization use the same authoritative
 // repository as collection without adding mail to Gateway's general Store.
-func (s *Service) GetEmailOwnerStatus(ctx context.Context, owner string) (app.EmailOwnerStatus, error) {
+func (s *Service) ClientSyncOwnerStatus(ctx context.Context, owner string) (app.EmailOwnerStatus, error) {
 	return s.repository.GetEmailOwnerStatus(ctx, owner)
 }
 
-func (s *Service) GetEmailMailbox(ctx context.Context, owner, mailbox string) (app.EmailMailbox, bool, error) {
+func (s *Service) ClientSyncMailbox(ctx context.Context, owner, mailbox string) (app.EmailMailbox, bool, error) {
 	return s.repository.GetEmailMailbox(ctx, owner, mailbox)
 }
 
-func (s *Service) ListEmailMailboxes(ctx context.Context, owner string) ([]app.EmailMailbox, error) {
+func (s *Service) ClientSyncMailboxes(ctx context.Context, owner string) ([]app.EmailMailbox, error) {
 	return s.repository.ListEmailMailboxes(ctx, owner)
 }
 
-func (s *Service) GetEmailMail(ctx context.Context, owner, mail string) (app.EmailMail, bool, error) {
+func (s *Service) ClientSyncMail(ctx context.Context, owner, mail string) (app.EmailMail, bool, error) {
 	return s.repository.GetEmailMail(ctx, owner, mail)
 }
 

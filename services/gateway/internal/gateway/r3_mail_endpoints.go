@@ -28,7 +28,7 @@ func (s *Server) r3MailAttachment(w http.ResponseWriter, r *http.Request) {
 		writeR3MailError(w, r3mail.ErrInvalid)
 		return
 	}
-	mail, found, err := s.emailManagement.GetEmailMail(r.Context(), principal.OwnerID, r.PathValue("mail"))
+	mail, found, err := s.emailManagement.ClientSyncMail(r.Context(), principal.OwnerID, r.PathValue("mail"))
 	if err != nil {
 		writeR3MailError(w, err)
 		return

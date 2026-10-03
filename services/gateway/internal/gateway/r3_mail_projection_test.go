@@ -19,7 +19,7 @@ func TestR3MailTypedDeleteConflictReplayAndDurableTombstone(t *testing.T) {
 	projection, e := emailmanagement.New(f.repo, f.browser, emailautomation.DefaultRegistry(), nil, nil, emailmanagement.Options{WorkspaceRoot: f.root})
 	f.must(e)
 	root := filepath.Join(f.root, "r3-mail")
-	sync, e := r3mail.New(root, f.repo, projection)
+	sync, e := r3mail.New(root, r3mail.Repository{OwnerStatus: f.repo.GetEmailOwnerStatus, Mailbox: f.repo.GetEmailMailbox, Mailboxes: f.repo.ListEmailMailboxes}, projection)
 	f.must(e)
 	initial, e := sync.Sync(t.Context(), f.owner, f.box.ID, "", 100)
 	f.must(e)
@@ -47,7 +47,7 @@ func TestR3MailTypedDeleteConflictReplayAndDurableTombstone(t *testing.T) {
 	if _, e = f.repo.DeleteEmailConversation(t.Context(), command); store.StoreErrorCodeOf(e) != store.StoreErrorConflict {
 		t.Fatalf("changed command-key replay accepted %v", e)
 	}
-	sync, e = r3mail.New(root, f.repo, projection)
+	sync, e = r3mail.New(root, r3mail.Repository{OwnerStatus: f.repo.GetEmailOwnerStatus, Mailbox: f.repo.GetEmailMailbox, Mailboxes: f.repo.ListEmailMailboxes}, projection)
 	f.must(e)
 	delta, e := sync.Sync(t.Context(), f.owner, f.box.ID, initial.Cursor, 100)
 	f.must(e)

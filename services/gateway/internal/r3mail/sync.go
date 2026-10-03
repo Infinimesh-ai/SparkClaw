@@ -34,10 +34,10 @@ const MaxStateBytes = 32 * 1024 * 1024
 const MaxRecords = 20000
 const MaxEvents = 4096
 
-type Repository interface {
-	GetEmailOwnerStatus(context.Context, string) (app.EmailOwnerStatus, error)
-	GetEmailMailbox(context.Context, string, string) (app.EmailMailbox, bool, error)
-	ListEmailMailboxes(context.Context, string) ([]app.EmailMailbox, error)
+type Repository struct {
+	OwnerStatus func(context.Context, string) (app.EmailOwnerStatus, error)
+	Mailbox     func(context.Context, string, string) (app.EmailMailbox, bool, error)
+	Mailboxes   func(context.Context, string) ([]app.EmailMailbox, error)
 }
 type Projection interface {
 	ClientSyncMessages(context.Context, store.EmailQuery) (emailmanagement.MessagesView, error)
@@ -50,7 +50,7 @@ type Service struct {
 }
 
 func New(root string, repository Repository, projection Projection) (*Service, error) {
-	if !filepath.IsAbs(root) || repository == nil || projection == nil {
+	if !filepath.IsAbs(root) || repository.OwnerStatus == nil || repository.Mailbox == nil || repository.Mailboxes == nil || projection == nil {
 		return nil, ErrInvalid
 	}
 	// Deliberately lazy: constructing the server never touches configured data.
@@ -150,7 +150,7 @@ func (s *Service) Mailboxes(ctx context.Context, owner string) ([]emailmanagemen
 	if !validID(owner) {
 		return nil, ErrInvalid
 	}
-	boxes, e := s.repository.ListEmailMailboxes(ctx, owner)
+	boxes, e := s.repository.Mailboxes(ctx, owner)
 	if e != nil {
 		return nil, e
 	}
@@ -245,14 +245,14 @@ func (s *Service) refresh(ctx context.Context, owner, mailbox string) (State, er
 	if e != nil {
 		return state, e
 	}
-	if _, found, e := s.repository.GetEmailMailbox(ctx, owner, mailbox); e != nil {
+	if _, found, e := s.repository.Mailbox(ctx, owner, mailbox); e != nil {
 		return state, e
 	} else if !found {
 		return state, ErrNotFound
 	}
 	var records map[string]Message
 	for attempt := 0; attempt < 3; attempt++ {
-		before, e := s.repository.GetEmailOwnerStatus(ctx, owner)
+		before, e := s.repository.OwnerStatus(ctx, owner)
 		if e != nil {
 			return state, e
 		}
@@ -293,7 +293,7 @@ func (s *Service) refresh(ctx context.Context, owner, mailbox string) (State, er
 			}
 			next = page.NextCursor
 		}
-		after, e := s.repository.GetEmailOwnerStatus(ctx, owner)
+		after, e := s.repository.OwnerStatus(ctx, owner)
 		if e != nil {
 			return state, e
 		}

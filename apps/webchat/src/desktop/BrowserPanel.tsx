@@ -38,13 +38,13 @@ const copy = {
   },
 } as const;
 
-export function BrowserPanel({ language }: { language: Language }) {
+export function BrowserPanel({ language, localConversationID }: { language: Language; localConversationID?: string }) {
   const desktop = desktopCapability();
   const text = copy[language];
   const hostRef = useRef<HTMLDivElement | null>(null);
   const boundsRevision = useRef(0);
   const [state, setState] = useState<DesktopState | null>(null);
-  const [surface, setSurface] = useState<"launcher" | "browser">("launcher");
+  const [surface, setSurface] = useState<"launcher" | "browser">(localConversationID === undefined ? "launcher" : "browser");
   const [selectedPageRef, setSelectedPageRef] = useState("");
   const [address, setAddress] = useState("");
   const [error, setError] = useState("");
@@ -89,7 +89,13 @@ export function BrowserPanel({ language }: { language: Language }) {
     };
   }, [desktop, surface, wide]);
 
-  const pages = useMemo(() => state?.pages ?? [], [state]);
+  const pages = useMemo(() => (state?.pages ?? []).filter((page) => localConversationID === undefined || page.role === "personal" || (page as DesktopPage & { local_conversation_id?: string }).local_conversation_id === localConversationID), [state, localConversationID]);
+  useEffect(() => {
+    if (localConversationID === undefined) return;
+    setSelectedPageRef("");
+    setSurface("browser");
+    setError("");
+  }, [localConversationID]);
   const presented = pages.find((page) => page.page_ref === state?.presentation.presented_page_ref);
   const activePage = presented ?? pages.find((page) => page.page_ref === selectedPageRef) ?? pages[0];
   const blankPage = activePage?.role === "personal" && activePage.url === "about:blank";

@@ -281,7 +281,8 @@ func (a *ScopedAdapter) Call(ctx context.Context, tool string, args map[string]a
 	}
 	operation := map[string]string{"browser.open": "navigate", "browser.navigate": "navigate", "browser.read": "read", "browser.snapshot": "snapshot", "browser.click": "click", "browser.type": "fill", "browser.select": "select", "browser.screenshot": "screenshot", "browser.wait": "wait", "browser.close": "release"}[tool]
 	if tool == "browser.list_tabs" {
-		return browserautomation.Result{Tool: tool, Pages: []any{map[string]any{"page_id": binding.PageID}}, Untrusted: true, Provider: "r3_host"}, nil
+		pages := []any{map[string]any{"page_id": binding.PageID, "url": a.activeURL, "selected": true, "session_generation": binding.PageGeneration}}
+		return browserautomation.Result{Tool: tool, Output: map[string]any{"pages": pages}, Pages: pages, Untrusted: true, Provider: "r3_host"}, nil
 	}
 	if tool == "browser.focus" {
 		return browserautomation.Result{}, errors.New("embedded page presentation belongs to the local conversation selection")
@@ -352,9 +353,14 @@ func (a *ScopedAdapter) Call(ctx context.Context, tool string, args map[string]a
 		return browserautomation.Result{}, fmt.Errorf("invalid host result: %w", err)
 	}
 	text, _ := decoded["text"].(string)
-	result := browserautomation.Result{Tool: tool, Output: decoded, Text: text, Pages: []any{}, SessionGeneration: binding.PageGeneration, Untrusted: true, Provider: "r3_host", BrowserMode: "autonomous", Presentation: "visible", SurfaceVisible: true}
+	if operation == "wait" && text == "" {
+		text = string(output)
+	}
+	result := browserautomation.Result{Tool: tool, RawTool: operation, Output: decoded, Text: text, Pages: []any{}, SessionGeneration: binding.PageGeneration, Untrusted: true, Provider: "r3_host", BrowserMode: "autonomous", Presentation: "visible", SurfaceVisible: true}
 	if operation == "navigate" {
-		result.Pages = []any{map[string]any{"page_id": binding.PageID, "url": decoded["url"]}}
+		// Workflow consumes only the selected page in this task's scoped browser
+		// session. This does not select or present another local conversation.
+		result.Pages = []any{map[string]any{"page_id": binding.PageID, "url": decoded["url"], "selected": true, "session_generation": binding.PageGeneration}}
 	}
 	return result, nil
 }
@@ -379,6 +385,9 @@ func (a *ScopedAdapter) ReadPage(ctx context.Context, url string, args map[strin
 	read.Untrusted = true
 	read.ReadSource = "client_embedded_webcontents"
 	read.SessionGeneration = result.SessionGeneration
+	if read.Actions == nil {
+		read.Actions = []string{}
+	}
 	return read, nil
 }
 func (a *ScopedAdapter) ReleaseSession(_ map[string]any) error {

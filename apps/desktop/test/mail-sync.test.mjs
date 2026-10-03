@@ -14,6 +14,7 @@ const mail=(id,subject=id)=>({id,mailbox_id:'box',version:1,subject,from:'sender
 const event=(id,sequence,deleted=false)=>({id,sequence,deleted,...(deleted?{}:{mail:mail(id)})});
 const response=(mode,sequence,base,events,cursor,more=false)=>({schema_version:1,mailbox_id:'box',epoch,mode,base_sequence:base,sequence,events,cursor,more});
 function fixture(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'sparkclaw-mail-sync-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));return root;}
+function deferred(){let resolve;const promise=new Promise((done)=>{resolve=done;});return {promise,resolve};}
 test('mail cache scopes, durable snapshots and tombstones replace together after restart',(t)=>{
  const root=fixture(t);let store=new MailSyncStore(root);
  store.apply(scope,'box',response('snapshot',1,1,[event('old',1)],'old-cursor'),'');
@@ -76,4 +77,50 @@ test('verified mail attachment copies become local files; backend loss, tamper a
  original=bytes;local.db.exec("CREATE TRIGGER mail_copy_disk_full BEFORE INSERT ON files BEGIN SELECT RAISE(ABORT,'disk full'); END;");await assert.rejects(client.saveAttachment('box','a','part-1',conversation.id),/disk full/);assert.equal(local.read(scope,conversation.id).files.length,1);assert.equal(original,bytes);
  const before=calls;await assert.rejects(client.saveAttachment('box','a','missing',conversation.id),/available attachment/);assert.equal(calls,before);
  cache.close();local.close();
+});
+
+test('suspend aborts a slow sync, fences its late page and preserves a restarted same-mailbox sync',async(t)=>{
+ const store=new MailSyncStore(fixture(t));store.apply(scope,'box',response('snapshot',1,1,[event('a',1)],'first'),'');
+ const connection={origin:'https://backend.invalid',authorization:'Bearer synthetic',deploymentID:'deployment',ownerID:'owner',clientID:'client'};
+ const old=deferred(),fresh=deferred(),oldEntered=deferred(),freshEntered=deferred();let oldSignal;let calls=0;
+ const fetcher=async(_url,init)=>{if(++calls===1){oldSignal=init.signal;oldEntered.resolve();return old.promise;}freshEntered.resolve();return fresh.promise;};
+ const client=new MailSyncClient({store,getConnection:()=>connection,getFetch:()=>fetcher,installationID:'installation'});
+ const pending=client.sync('box');const oldRejected=assert.rejects(pending,/paused/);await oldEntered.promise;client.close();assert.equal(oldSignal.aborted,true);
+ assert.equal(client.read('box').messages[0].id,'a');await assert.rejects(client.sync('box'),/paused/);
+ client.start();const resumed=client.sync('box');await freshEntered.promise;
+ old.resolve(new Response(JSON.stringify(response('delta',2,1,[event('stale',2)],'stale'))));await oldRejected;
+ assert.equal(store.cursor(scope,'box'),'first');assert.equal(client.sync('box'),resumed);
+ fresh.resolve(new Response(JSON.stringify(response('delta',2,1,[event('fresh',2)],'resumed'))));await resumed;
+ assert.equal(store.cursor(scope,'box'),'resumed');assert.deepEqual(client.read('box').messages.map(value=>value.id),['a','fresh']);client.close();store.close();
+});
+
+test('a suspended late cursor-reset response cannot clear committed mail or snapshot cursor',async(t)=>{
+ const store=new MailSyncStore(fixture(t));store.apply(scope,'box',response('snapshot',1,1,[event('a',1)],'first'),'');
+ const connection={origin:'https://backend.invalid',authorization:'Bearer synthetic',deploymentID:'deployment',ownerID:'owner',clientID:'client'};
+ const entered=deferred(),late=deferred();const fetcher=async()=>{entered.resolve();return late.promise;};
+ const client=new MailSyncClient({store,getConnection:()=>connection,getFetch:()=>fetcher,installationID:'installation'});
+ const pending=client.sync('box');const rejected=assert.rejects(pending,/paused/);await entered.promise;client.close();client.start();late.resolve(new Response('{}',{status:409}));await rejected;
+ assert.equal(store.cursor(scope,'box'),'first');assert.equal(client.read('box').messages[0].id,'a');client.close();store.close();
+});
+
+test('suspend during a slow catalog body keeps its abort signal active and leaves offline catalog readable',async(t)=>{
+ const store=new MailSyncStore(fixture(t));store.catalog(scope,[{id:'box',address:'cached@example.com',provider:'gmail'}]);
+ const connection={origin:'https://backend.invalid',authorization:'Bearer synthetic',deploymentID:'deployment',ownerID:'owner',clientID:'client'};
+ const entered=deferred(),release=deferred();let signal;
+ const fetcher=async(_url,init)=>{signal=init.signal;return new Response(new ReadableStream({async pull(controller){entered.resolve();await release.promise;controller.enqueue(new TextEncoder().encode(JSON.stringify({mailboxes:[{id:'box',address:'late@example.com',provider:'gmail'}]})));controller.close();}}));};
+ const client=new MailSyncClient({store,getConnection:()=>connection,getFetch:()=>fetcher,installationID:'installation'});
+ const pending=client.refreshCatalog();const rejected=assert.rejects(pending,/paused/);await entered.promise;client.close();assert.equal(signal.aborted,true);assert.equal(client.catalog()[0].address,'cached@example.com');client.start();release.resolve();await rejected;
+ assert.equal(client.catalog()[0].address,'cached@example.com');client.close();store.close();
+});
+
+test('suspended attachment response cannot save a late copy after restart',async(t)=>{
+ const store=new MailSyncStore(fixture(t));const local=new ClientStore(fixture(t));const conversation=local.create(scope,'Attachment lifecycle');
+ const bytes=Buffer.from('synthetic attachment');const part={id:'part-1',name:'report.txt',size:bytes.length,available:true,sha256:`sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`};
+ const projected=mail('a');projected.attachments=[part];store.apply(scope,'box',response('snapshot',1,1,[{...event('a',1),mail:projected}],'first'),'');
+ const connection={origin:'https://backend.invalid',authorization:'Bearer synthetic',deploymentID:'deployment',ownerID:'owner',clientID:'client'};
+ const entered=deferred(),late=deferred();let signal;let calls=0;
+ const fetcher=async(_url,init)=>{if(++calls===1){signal=init.signal;entered.resolve();return late.promise;}return new Response(bytes);};
+ const client=new MailSyncClient({store,localStore:local,getConnection:()=>connection,getFetch:()=>fetcher,getFileFetch:()=>fetcher,installationID:'installation'});
+ const pending=client.saveAttachment('box','a','part-1',conversation.id);const rejected=assert.rejects(pending,/paused/);await entered.promise;client.close();assert.equal(signal.aborted,true);assert.equal(local.read(scope,conversation.id).files.length,0);
+ client.start();await client.saveAttachment('box','a','part-1',conversation.id);late.resolve(new Response(bytes));await rejected;assert.equal(local.read(scope,conversation.id).files.length,1);assert.equal(store.cursor(scope,'box'),'first');client.close();local.close();store.close();
 });

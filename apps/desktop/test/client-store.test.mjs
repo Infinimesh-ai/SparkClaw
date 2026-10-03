@@ -113,7 +113,7 @@ test("newer schemas and insecure/symlink storage fail closed without deleting us
   const root = fixture(t);
   let store = new ClientStore(root);
   store.create(scope, "preserve");
-  store.db.exec("PRAGMA user_version=4");
+  store.db.exec("PRAGMA user_version=5");
   store.close();
   assert.throws(() => new ClientStore(root), /newer/);
   const db = new DatabaseSync(path.join(root, "client.sqlite"));
@@ -153,7 +153,7 @@ test("schema 1 upgrade preserves installation and saved requests without enablin
   assert.equal(store.request(scope, request).context_json, envelope);
   assert.equal(store.request(scope, request).explicitly_submitted, 0);
   assert.deepEqual(store.pending(scope), []);
-  assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 3);
+  assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 4);
   store.close();
 });
 

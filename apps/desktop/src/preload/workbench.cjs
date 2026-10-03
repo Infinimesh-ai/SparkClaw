@@ -23,6 +23,7 @@ if (process.argv.includes("--sparkclaw-client-store=1")) {
     submit: (request_id) => storeInvoke("submit", { request_id }),
     reconcile: (request_id) => storeInvoke("reconcile", { request_id }),
     cancel: (request_id) => storeInvoke("cancel", { request_id }),
+    decideApproval: (request_id, approval_id, digest, decision) => storeInvoke("decideApproval", { request_id, approval_id, digest, decision }),
     scheduleCreate: (conversation_id, content, due_at) => storeInvoke("scheduleCreate", { conversation_id, content, due_at }),
     scheduleCheck: (request_id) => storeInvoke("scheduleCheck", { request_id }),
     scheduleCancel: (request_id) => storeInvoke("scheduleCancel", { request_id }),

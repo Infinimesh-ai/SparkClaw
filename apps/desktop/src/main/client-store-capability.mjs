@@ -33,7 +33,11 @@ export class ClientStoreCapability {
         return this.store.create(scope, request.title);
       case "read":
         keys(request, ["conversation_id"]);
-        return this.store.read(scope, request.conversation_id);
+        {
+          const content = this.store.read(scope, request.conversation_id);
+          if (this.execution) content.tasks = content.tasks.map((task) => ({ ...task, approvals: this.execution.approvals(scope, task.request_id) }));
+          return content;
+        }
       case "enqueue":
         keys(request, ["conversation_id", "content", ...(Object.hasOwn(request, "local_file_ids") ? ["local_file_ids"] : [])]);
         return this.store.enqueue(scope, request.conversation_id, request.content, request.local_file_ids);
@@ -43,6 +47,10 @@ export class ClientStoreCapability {
         keys(request, ["request_id"]);
         if (!this.execution) throw new Error("Execution client is unavailable");
         return this.execution[request.operation](scope, request.request_id);
+      case "decideApproval":
+        keys(request, ["request_id", "approval_id", "digest", "decision"]);
+        if (!this.execution) throw new Error("Execution client is unavailable");
+        return this.execution.decideApproval(scope, request.request_id, request.approval_id, request.digest, request.decision);
       case "scheduleCreate":
         keys(request, ["conversation_id", "content", "due_at"]);
         if (!this.schedules) throw new Error("Schedule client is unavailable");

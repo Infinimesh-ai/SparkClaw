@@ -20,6 +20,10 @@
 .localTaskRow p { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0 0 8px; overflow-wrap: anywhere; }
 .localTaskRow code { font-size: 12px; color: var(--text-secondary); }
 .localTaskRow small { display: block; margin-bottom: 8px; color: var(--text-secondary); line-height: 1.6; }
+.localApproval { padding-block: 16px; border-block-start: 1px solid var(--border-subtle); }
+.localApproval h3 { font-size: 15px; margin-block: 0 8px; }
+.localApproval > p { display: block; max-width: 70ch; line-height: 1.65; }
+.localApproval pre { max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; margin-block: 8px 12px; color: var(--text-primary); background: var(--surface-muted); border-radius: var(--radius-control); }
 .localSchedules { margin-block: 24px; }
 .localSchedules > p, .localUnknownWrite p { max-width: 70ch; line-height: 1.65; color: var(--text-secondary); }
 .localSchedules form { display: grid; gap: 8px; max-width: 70ch; }

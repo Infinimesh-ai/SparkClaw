@@ -5,7 +5,7 @@ import { InspectorColumn, type PanelTab } from "../components/inspector";
 import { WorkspaceSettingsSidebar } from "../components/settingsSidebar";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY, type Language } from "../i18n";
 import { applyAppearance } from "../lib/appearance";
-import { clientStore, type LocalConversation, type LocalConversationContent, type LocalTask } from "./clientStore";
+import { clientStore, type LocalConversation, type LocalConversationContent, type LocalTask, type LocalApproval } from "./clientStore";
 import { desktopCapability } from "./capability";
 import type { DesktopConnectionStatus, DesktopState } from "./types";
 import { MailCachePanel } from "./MailCachePanel";
@@ -119,6 +119,13 @@ export function LocalWorkbench() {
       await reload();
     }
   }
+  async function decideApproval(task: LocalTask, approval: LocalApproval, decision: "approve" | "reject") {
+    const id = selected;
+    try {
+      await store.decideApproval(task.request_id, approval.approval_id, approval.digest, decision);
+      setNotice(decision === "approve" ? (zh ? "批准决定已接收，任务将继续执行。" : "Approval accepted. The task can continue.") : (zh ? "拒绝决定已接收。" : "Rejection accepted."));
+    } finally { if (selectedRef.current === id) setContent(await store.read(id)); await reload(); }
+  }
   async function schedule(event: FormEvent) {
     event.preventDefault();
     const id = selected;
@@ -214,6 +221,19 @@ export function LocalWorkbench() {
               <p><code>{task.request_id}</code><span>{taskLabel(task.status, zh)}</span></p>
               {task.status === "unknown" && <small>{zh ? "执行结果不确定，不能自动重发。可继续查询原请求。" : "Execution outcome is uncertain. Check the original request; it cannot be resent automatically."}</small>}
               {task.status === "delivery_expired" && <small>{zh ? "后端结果已过期，无法恢复本机尚未保存的内容。" : "The backend result expired. Content not saved locally can no longer be recovered."}</small>}
+              {(task.approvals ?? []).map((approval) => {
+                const pending = ["pending", "decision_pending"].includes(approval.state);
+                const expired = Date.parse(approval.expires_at) <= Date.now();
+                return <section className="localApproval" key={approval.approval_id} aria-label={zh ? "任务操作审批" : "Task action approval"}>
+                  <h3>{approval.tool}</h3><p>{approval.summary}</p>
+                  <pre aria-label={zh ? "操作参数" : "Action parameters"}>{JSON.stringify(approval.arguments, null, 2)}</pre>
+                  <p role="status">{pending && expired ? (zh ? "审批已过期，只保留本机记录。" : "Approval expired. Only the device record remains.") : approvalLabel(approval.state, zh)}</p>
+                  {pending && !expired && !approval.actionable && <small>{zh ? "这是本机缓存。请查询原任务以核实当前审批；离线或未核实时不能批准。" : "This is a device cache. Check the original task to verify the current approval. Offline or unverified approvals cannot be approved."}</small>}
+                  {pending && !expired && <div className="localTaskActions">{(["approve", "reject"] as const).filter((decision) => !approval.decision || approval.decision === decision).map((decision) => <button type="button" key={decision} disabled={busy || connection?.state !== "connected" || !approval.actionable} onClick={() => void action(() => decideApproval(task, approval, decision))}>
+                    {approval.decision ? (decision === "approve" ? (zh ? "重试原批准决定" : "Retry original approval") : (zh ? "重试原拒绝决定" : "Retry original rejection")) : (decision === "approve" ? (zh ? "批准此操作" : "Approve this action") : (zh ? "拒绝此操作" : "Reject this action"))}
+                  </button>)}</div>}
+                </section>;
+              })}
               <div className="localTaskActions">
                 {["awaiting_runtime", "submission_pending"].includes(task.status) && <button type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(() => execute(task, "submit"))}><Send size={14} />{task.status === "awaiting_runtime" ? (zh ? "提交执行" : "Submit") : (zh ? "重试原请求" : "Retry original request")}</button>}
                 {task.explicitly_submitted === 1 && task.status !== "delivered" && <button type="button" disabled={busy} onClick={() => void action(() => execute(task, "reconcile"))}><RefreshCw size={14} />{zh ? "查询状态" : "Check status"}</button>}
@@ -274,4 +294,15 @@ function scheduleLabel(state: string, zh: boolean) {
     run_now: ["已作为新请求执行", "Started as a new request"], canceled: ["已取消", "Canceled"],
   };
   return labels[state]?.[zh ? 0 : 1] ?? taskLabel(state, zh);
+}
+
+function approvalLabel(state: LocalApproval["state"], zh: boolean) {
+  const labels: Record<LocalApproval["state"], [string, string]> = {
+    pending: ["等待你明确批准或拒绝", "Waiting for your explicit approval or rejection"],
+    decision_pending: ["决定已保存，后端接收结果待核对", "Decision saved; backend receipt awaiting reconciliation"],
+    approved: ["已批准", "Approved"], rejected: ["已拒绝", "Rejected"], resolved: ["后端已不再等待此审批", "The backend no longer awaits this approval"],
+    expired: ["审批已结束或过期，本机记录只读", "Approval ended or expired. The device record is read-only"],
+    decision_unknown: ["决定接收结果不确定，本机记录只读", "Decision receipt is uncertain. The device record is read-only"],
+  };
+  return labels[state][zh ? 0 : 1];
 }

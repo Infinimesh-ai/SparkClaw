@@ -11,6 +11,7 @@ export class ExecutionClient {
   constructor({ auth, store, getIdentity, intervalMS = 5000, onChange = () => {} }) {
     Object.assign(this, { auth, store, getIdentity, intervalMS, onChange });
     this.operations = new Map();
+    this.verifiedApprovals = new Map();
     this.controller = new AbortController();
     this.closed = false;
   }
@@ -24,7 +25,7 @@ export class ExecutionClient {
     return this;
   }
 
-  close() { this.closed = true; this.controller.abort(); clearInterval(this.timer); this.timer = undefined; }
+  close() { this.closed = true; this.verifiedApprovals.clear(); this.controller.abort(); clearInterval(this.timer); this.timer = undefined; }
 
   async submit(scope, requestID) {
     scope = this.#boundScope(scope);
@@ -85,6 +86,56 @@ export class ExecutionClient {
     });
   }
 
+  approvals(scope, requestID) {
+    const verification = this.verifiedApprovals.get(requestID);
+    const current = this.getIdentity();
+    const task = this.store.request(scope, requestID);
+    const active = !this.closed && this.auth.status.state === "connected" && current &&
+      task.status === "running" && JSON.stringify([scope.deployment_id, scope.owner_id, scope.client_id]) ===
+      JSON.stringify([current.deployment_id, current.owner_id, current.client_id]) && verification?.generation === this.auth.generation &&
+      verification?.expiresAt > Date.now() && verification?.verifiedAt > Date.now() - 30000;
+    return this.store.approvals(scope, requestID).map((approval) => ({ ...approval,
+      actionable: Boolean(active && ["pending", "decision_pending"].includes(approval.state) && verification.ids.has(`${approval.approval_id}:${approval.digest}`)),
+    }));
+  }
+
+  async decideApproval(scope, requestID, approvalID, digest, decision) {
+    scope = this.#boundScope(scope);
+    return this.#serialized(scope, requestID, async () => {
+      if (typeof approvalID !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u.test(approvalID) ||
+          typeof digest !== "string" || !/^[a-f0-9]{64}$/u.test(digest) || !["approve", "reject"].includes(decision)) throw new Error("Invalid approval decision");
+      let row = this.store.approvals(scope, requestID).find((approval) => approval.approval_id === approvalID);
+      if (!row || row.digest !== digest || (row.decision && row.decision !== decision)) throw new Error("Approval identity, digest or decision mismatch");
+      if (["approved", "rejected"].includes(row.state)) return { resolved: true };
+      const task = this.store.request(scope, requestID);
+      // A cached local row is display-only. Every explicit decision starts with
+      // a fresh authenticated lookup of this exact active execution.
+      if (!await this.#lookup(scope, task)) throw new Error("Approval execution is unavailable");
+      row = this.approvals(scope, requestID).find((approval) => approval.approval_id === approvalID);
+      if (row && ["approved", "rejected"].includes(row.state) && row.decision === decision) return { resolved: true };
+      if (!row?.actionable || row.digest !== digest) throw new Error("Approval expired or requires renewed verification");
+      this.store.approvalDecision(scope, requestID, approvalID, digest, decision);
+      this.onChange();
+      try {
+        const response = await this.#fetch(scope, `/api/r3/executions/${requestID}/approvals/${encodeURIComponent(approvalID)}`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ digest, decision }),
+        });
+        if (!response.ok) { await response.body?.cancel(); throw new Error("Approval decision is awaiting reconciliation"); }
+        const receipt = await json(response);
+        this.#sameIdentity(scope);
+        if (receipt?.resolved !== true || Object.keys(receipt).join(",") !== "resolved") throw new Error("Invalid approval receipt");
+        this.store.approvalDecision(scope, requestID, approvalID, digest, decision, true);
+        await this.#lookup(scope, task);
+        return { resolved: true };
+      } catch (error) {
+        // A lost decision response never replays the execution or chooses a
+        // decision automatically. Lookup updates the retained original row.
+        await this.#lookup(scope, task).catch(() => {});
+        throw error;
+      } finally { this.onChange(); }
+    });
+  }
+
   async reconcilePending() {
     if (this.closed || this.polling || this.auth.status.state !== "connected") return;
     const scope = this.getIdentity();
@@ -103,7 +154,7 @@ export class ExecutionClient {
     const receipt = this.store.receipt(scope, task.request_id);
     if (receipt && !receipt.acknowledged) { await this.#ack(scope, receipt); return true; }
     const response = await this.#fetch(scope, `/api/r3/executions/${task.request_id}`);
-    if (response.status === 404) { await response.body?.cancel(); return false; }
+    if (response.status === 404) { this.verifiedApprovals.delete(task.request_id); await response.body?.cancel(); return false; }
     if (!response.ok) { await response.body?.cancel(); throw new Error("Execution status is unavailable"); }
     await this.#accept(scope, task, await json(response));
     return true;
@@ -113,6 +164,12 @@ export class ExecutionClient {
     this.#sameIdentity(scope);
     if (!event || event.schema_version !== 1 || event.request_id !== task.request_id ||
         event.input_digest !== task.input_digest || !SERVER_STATES.has(event.state)) throw new Error("Execution identity or digest mismatch");
+    const pending = event.pending_approvals ?? [];
+    this.store.syncApprovals(scope, task.request_id, pending, event.state, event.execution_expires_at);
+    if (pending.length) {
+      this.verifiedApprovals.set(task.request_id, { generation: this.auth.generation, expiresAt: Date.parse(event.execution_expires_at),
+        verifiedAt: Date.now(), ids: new Set(pending.map((approval) => `${approval.approval_id}:${approval.digest}`)) });
+    } else this.verifiedApprovals.delete(task.request_id);
     if (event.state !== "completed") {
       if (event.result) throw new Error("Unexpected execution result");
       this.store.setExecutionState(scope, task.request_id, event.state);

@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocalWorkbench } from "./LocalWorkbench";
 import type { SparkClawDesktop } from "./types";
+import type { LocalApproval } from "./clientStore";
 import { LANGUAGE_STORAGE_KEY } from "../i18n";
 
 beforeEach(() => {
@@ -31,7 +32,7 @@ describe("R3 local workbench", () => {
       .mockResolvedValue({ id: "task", request_id: "request", status: "awaiting_runtime", created_at: "" });
     window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
       read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue,
-      saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+      saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
       localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client" })) } as unknown as SparkClawDesktop;
     const host = document.createElement("div"); const root = createRoot(host);
@@ -64,7 +65,7 @@ describe("R3 local workbench", () => {
     const selectConversation = vi.fn(async () => ({ page_ref: "" }));
     window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
       read: vi.fn(async () => ({ messages: [], tasks: [task], files: [] })), enqueue: vi.fn(),
-      saveFile: vi.fn(), exportFile: vi.fn(), submit, reconcile, cancel: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+      saveFile: vi.fn(), exportFile: vi.fn(), submit, reconcile, cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
     window.sparkclawClientStore.onChange = (listener) => { changed = listener; return () => {}; };
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, selectConversation,
       localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client" })) } as unknown as SparkClawDesktop;
@@ -95,7 +96,7 @@ describe("R3 local workbench", () => {
     const retryLocalConnection = vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client" }));
     window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
       read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue: vi.fn(),
-      saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+      saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, retryLocalConnection,
       localConnection: vi.fn(async () => ({ schema_version: 1, state: "service_unavailable", client_id: "client" })) } as unknown as SparkClawDesktop;
     const host = document.createElement("div"); const root = createRoot(host);
@@ -122,7 +123,7 @@ describe("R3 local workbench", () => {
     const scheduleRunNow = vi.fn(async () => { schedules = [{ ...schedules[0], state: "run_now" }]; return schedules[0]; });
     window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
       read: vi.fn(async () => ({ messages: [], tasks: [], files: [], schedules })), enqueue: vi.fn(),
-      saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(),
+      saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
       scheduleCreate, scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow };
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
       localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client" })) } as unknown as SparkClawDesktop;
@@ -146,6 +147,76 @@ describe("R3 local workbench", () => {
       expect(scheduleRunNow).toHaveBeenCalledWith("schedule-request");
       expect(host.textContent).toContain("Started as a new request");
       expect([...host.querySelectorAll<HTMLButtonElement>("button")].some((button) => button.textContent === "Run now as a new request")).toBe(false);
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it.each(["approve", "reject"] as const)("shows exact parameters and sends only the explicit %s decision while a slow receipt is pending", async (decision) => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    const row = { id: "conversation", title: "Approval conversation", created_at: "", updated_at: "" };
+    let approval: LocalApproval = { approval_id: "approval", digest: "a".repeat(64), tool: "browser.type", summary: "Type into the selected website field",
+      arguments: { field_ref: "field", text: "<script>Synthetic text</script>" }, state: "pending", expires_at: new Date(Date.now() + 60000).toISOString(), actionable: true };
+    let release: () => void = () => {};
+    const receipt = new Promise<void>((resolve) => { release = resolve; });
+    const decideApproval = vi.fn(async () => { await receipt; approval = { ...approval, state: decision === "approve" ? "approved" : "rejected", decision, actionable: false }; return { resolved: true as const }; });
+    window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
+      read: vi.fn(async () => ({ messages: [], tasks: [{ id: "task", request_id: "original-request", status: "running", explicitly_submitted: 1, created_at: "", approvals: [approval] }], files: [] })),
+      enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval,
+      scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client" })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"); const root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      await act(async () => host.querySelector<HTMLButtonElement>("nav button")!.click());
+      expect(host.querySelector(".localApproval h3")!.textContent).toBe("browser.type");
+      expect(host.querySelector(".localApproval pre")!.textContent).toContain("<script>Synthetic text</script>");
+      expect(host.querySelector(".localApproval script")).toBeNull();
+      expect(decideApproval).not.toHaveBeenCalled();
+      const button = [...host.querySelectorAll<HTMLButtonElement>(".localApproval button")].find((item) => item.textContent === (decision === "approve" ? "Approve this action" : "Reject this action"))!;
+      await act(async () => button.click());
+      expect(decideApproval).toHaveBeenCalledWith("original-request", "approval", approval.digest, decision);
+      expect([...host.querySelectorAll<HTMLButtonElement>(".localApproval button")].every((item) => item.disabled)).toBe(true);
+      await act(async () => button.click());
+      expect(decideApproval).toHaveBeenCalledTimes(1);
+      await act(async () => release());
+      expect(host.textContent).toContain(decision === "approve" ? "Approval accepted" : "Rejection accepted");
+      expect(host.querySelectorAll(".localApproval button").length).toBe(0);
+      expect(window.sparkclawClientStore!.submit).not.toHaveBeenCalled();
+    } finally { release(); await act(async () => root.unmount()); }
+  });
+
+  it("keeps cached, expired and uncertain approvals read-only, with only the original saved choice available for retry", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    const row = { id: "conversation", title: "Cached approvals", created_at: "", updated_at: "" };
+    const base: LocalApproval = { approval_id: "cached", digest: "a".repeat(64), tool: "browser.type", summary: "Cached action", arguments: { text: "Synthetic" },
+      state: "pending", expires_at: new Date(Date.now() + 60000).toISOString(), actionable: false };
+    const approvals: LocalApproval[] = [base, { ...base, approval_id: "expired", expires_at: new Date(Date.now() - 1).toISOString(), actionable: true },
+      { ...base, approval_id: "unknown", state: "decision_unknown", decision: "approve", actionable: false },
+      { ...base, approval_id: "retry", state: "decision_pending", decision: "reject", actionable: true }];
+    const decideApproval = vi.fn();
+    window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
+      read: vi.fn(async () => ({ messages: [], tasks: [{ id: "task", request_id: "original-request", status: "running", explicitly_submitted: 1, created_at: "", approvals }], files: [] })),
+      enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval,
+      scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client" })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"); const root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      await act(async () => host.querySelector<HTMLButtonElement>("nav button")!.click());
+      const sections = [...host.querySelectorAll(".localApproval")];
+      expect([...sections[0].querySelectorAll<HTMLButtonElement>("button")].every((button) => button.disabled)).toBe(true);
+      expect(sections[0].textContent).toContain("Check the original task");
+      expect(sections[1].textContent).toContain("Approval expired");
+      expect(sections[1].querySelectorAll("button").length).toBe(0);
+      expect(sections[2].textContent).toContain("Decision receipt is uncertain");
+      expect(sections[2].querySelectorAll("button").length).toBe(0);
+      expect(sections[3].querySelectorAll("button").length).toBe(1);
+      const retry = sections[3].querySelector<HTMLButtonElement>("button")!;
+      expect(retry.textContent).toBe("Retry original rejection");
+      await act(async () => retry.click());
+      expect(decideApproval).toHaveBeenCalledWith("original-request", "retry", base.digest, "reject");
+      expect(decideApproval).toHaveBeenCalledTimes(1);
     } finally { await act(async () => root.unmount()); }
   });
 });

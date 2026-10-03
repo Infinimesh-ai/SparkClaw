@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-export const CLIENT_SCHEMA_VERSION = 3;
+export const CLIENT_SCHEMA_VERSION = 4;
 export const CLIENT_LIMITS = Object.freeze({
   inputBytes: 16 * 1024,
   contextBytes: 96 * 1024,
@@ -35,6 +35,7 @@ export class ClientStore {
       if (version === 0) this.#initialize();
       if (version < 2) this.#upgrade();
       if (version < 3) this.#upgradeSchedules();
+      if (version < 4) this.#upgradeApprovals();
       this.installationID = this.db.prepare("SELECT value FROM metadata WHERE key='installation_id'").get().value;
       // Incomplete atomic file writes are never treated as delivered files.
       const committedFiles = new Set(this.db.prepare("SELECT id FROM files").all().map((file) => file.id));
@@ -95,6 +96,15 @@ export class ClientStore {
     });
   }
 
+  #upgradeApprovals() {
+    this.#transaction(() => {
+      this.db.exec(`CREATE TABLE execution_approvals(request_id TEXT NOT NULL REFERENCES tasks(request_id),
+        approval_id TEXT NOT NULL,digest TEXT NOT NULL,tool TEXT NOT NULL,summary TEXT NOT NULL,
+        arguments_json TEXT NOT NULL,state TEXT NOT NULL,decision TEXT,expires_at TEXT NOT NULL,
+        PRIMARY KEY(request_id,approval_id)); PRAGMA user_version=4;`);
+    });
+  }
+
   list(scope) {
     return this.db.prepare("SELECT id,title,created_at,updated_at FROM conversations WHERE scope=? ORDER BY updated_at DESC,id")
       .all(scopeKey(scope));
@@ -113,7 +123,8 @@ export class ClientStore {
     this.#conversation(scope, conversationID);
     return {
       messages: this.db.prepare("SELECT id,role,content,created_at FROM messages WHERE conversation_id=? ORDER BY rowid").all(conversationID),
-      tasks: this.db.prepare("SELECT id,request_id,status,explicitly_submitted,created_at FROM tasks WHERE conversation_id=? ORDER BY rowid").all(conversationID),
+      tasks: this.db.prepare("SELECT id,request_id,status,explicitly_submitted,created_at FROM tasks WHERE conversation_id=? ORDER BY rowid").all(conversationID)
+        .map((task) => ({ ...task, approvals: this.approvals(scope, task.request_id) })),
       files: this.db.prepare("SELECT id,name,sha256,size,created_at FROM files WHERE conversation_id=? ORDER BY rowid").all(conversationID),
       schedules: this.db.prepare(`SELECT s.* FROM schedules s JOIN tasks t ON t.request_id=s.request_id
         WHERE t.conversation_id=? ORDER BY s.rowid`).all(conversationID),
@@ -219,6 +230,53 @@ export class ClientStore {
     if (!task) throw new Error("Local request not found");
     if (hash(task.context_json) !== task.input_digest) throw new Error("Local immutable context verification failed");
     return task;
+  }
+
+  approvals(scope, requestID) {
+    this.request(scope, requestID);
+    return this.db.prepare("SELECT approval_id,digest,tool,summary,arguments_json,state,decision,expires_at FROM execution_approvals WHERE request_id=? ORDER BY rowid")
+      .all(requestID).map(({ arguments_json, ...row }) => ({ ...row, arguments: JSON.parse(arguments_json) }));
+  }
+
+  syncApprovals(scope, requestID, pending, executionState, expiresAt) {
+    this.request(scope, requestID);
+    if (!Array.isArray(pending) || pending.length > 32 || (pending.length && executionState !== "running")) throw new Error("Invalid active approval state");
+    if (pending.length && (typeof expiresAt !== "string" || !Number.isFinite(Date.parse(expiresAt)))) throw new Error("Invalid approval deadline");
+    const seen = new Set();
+    for (const row of pending) {
+      if (!row || Object.keys(row).sort().join(",") !== "approval_id,arguments,digest,summary,tool" ||
+          typeof row.approval_id !== "string" || !ID.test(row.approval_id) || seen.has(row.approval_id) ||
+          typeof row.digest !== "string" || !/^[a-f0-9]{64}$/u.test(row.digest) || typeof row.tool !== "string" || !ID.test(row.tool) ||
+          typeof row.summary !== "string" || row.summary.includes("\u0000") || !row.arguments ||
+          typeof row.arguments !== "object" || Array.isArray(row.arguments) || Buffer.byteLength(JSON.stringify(row)) > 64 * 1024) throw new Error("Invalid approval snapshot");
+      seen.add(row.approval_id);
+    }
+    this.#transaction(() => {
+      for (const row of pending) {
+        const prior = this.db.prepare("SELECT * FROM execution_approvals WHERE request_id=? AND approval_id=?").get(requestID, row.approval_id);
+        const argumentsJSON = JSON.stringify(row.arguments);
+        if (prior) {
+          if (prior.digest !== row.digest || prior.tool !== row.tool || prior.arguments_json !== argumentsJSON || prior.summary !== row.summary || prior.expires_at !== expiresAt) throw new Error("Approval replay changed content or deadline");
+        } else this.db.prepare("INSERT INTO execution_approvals VALUES(?,?,?,?,?,?,'pending',NULL,?)")
+          .run(requestID, row.approval_id, row.digest, row.tool, row.summary, argumentsJSON, expiresAt);
+      }
+      for (const prior of this.db.prepare("SELECT approval_id,state,decision FROM execution_approvals WHERE request_id=?").all(requestID)) {
+        if (seen.has(prior.approval_id) || !["pending", "decision_pending"].includes(prior.state)) continue;
+        const state = prior.decision ? "decision_unknown" : executionState === "running" ? "resolved" : "expired";
+        this.db.prepare("UPDATE execution_approvals SET state=? WHERE request_id=? AND approval_id=?").run(state, requestID, prior.approval_id);
+      }
+    });
+  }
+
+  approvalDecision(scope, requestID, approvalID, digest, decision, resolved = false) {
+    const row = this.approvals(scope, requestID).find((approval) => approval.approval_id === approvalID);
+    if (!row || row.digest !== digest || !["approve", "reject"].includes(decision)) throw new Error("Approval identity or digest mismatch");
+    if (row.decision && row.decision !== decision) throw new Error("Approval decision cannot be reversed");
+    if (!["pending", "decision_pending", "approved", "rejected"].includes(row.state)) throw new Error("Approval is no longer actionable");
+    const state = resolved ? (decision === "approve" ? "approved" : "rejected") : "decision_pending";
+    this.db.prepare("UPDATE execution_approvals SET state=?,decision=? WHERE request_id=? AND approval_id=?")
+      .run(state, decision, requestID, approvalID);
+    return { resolved };
   }
 
   markSubmitted(scope, requestID) {

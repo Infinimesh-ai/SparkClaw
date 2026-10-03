@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/macos-connection-guide.md)
 
+See the [Mac acceptance record](macos-r3-acceptance.md) for the subsequent native ARM64 build, launch, qualification-tool repairs and actual M01–M12 status. This guide's original “current Linux environment” statements describe source delivery and do not restrict a later local Mac session explicitly authorized by the user.
+
 Companions: [Client and backend architecture R3](client-backend-architecture-design.md) and [macOS desktop design R3](macos-lan-desktop-design.md).
 
 Date: 2026-10-03. The user confirmed the build workflow: develop and validate on the current Linux environment, deliver source through a Git push, then the user synchronizes and compiles on their Mac. Do not compile, cross-build, package, sign or notarize Mac artifacts in the current environment. P0–P5 Linux/shared runtime source is complete; Mac build and hardware qualification are not claimed by this guide.

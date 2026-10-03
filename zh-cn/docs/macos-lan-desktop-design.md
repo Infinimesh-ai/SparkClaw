@@ -2,6 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/macos-lan-desktop-design.md)
 
+后续 Mac 本机已取得部分原生构建和隔离验收证据，详见[Mac 实际记录](macos-r3-acceptance.md)。本文的完整 M01–M12 目标继续适用，未执行项目仍待验。
+
 日期：2026-10-03。版本：R3。状态：产品边界已确认，Linux／共享本地数据拆分、LAN 控制已实现，Mac 实机验收待完成。跨平台目标以[客户端与后端架构 R3](client-backend-architecture-design.md) 为准。本文同时取代原 R2.1 和中间修订 R2.2，P0–P5 Linux／共享源码、适用检查及剩余 Mac 阶段门见[实施记录](client-r3-implementation.md)，不表示生产部署或 Mac 实机验收通过。
 
 **Mac 呈现业务结果，持久保存自己的非邮箱用户数据，并且只在内嵌浏览器中执行获授权的浏览器命令。Linux 后端负责业务处理及邮箱权威存储。** Linux 客户端也遵循相同规则，包括与后端同机部署时。

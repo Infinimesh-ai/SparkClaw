@@ -2,6 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/client-r3-implementation.md)
 
+后续 Mac 本机会话已完成 ARM64 开发包构建、启动和部分隔离检查，见[Mac 实际验收记录](macos-r3-acceptance.md)。下文保留 Linux／共享交付时的历史范围；不表示完整 M01–M12 已通过。
+
 日期：2026-10-03。交付分支：`codex/sparkclaw-r3`。P0–P5 Linux／共享源码与适用隔离检查已完成。本记录表示源码交付，生产切换和 Mac 验收仍待完成；用户在代码完成后自行编译 Mac。本轮未进行 Mac 编译／交叉构建／签名、旧测试数据迁移或生产数据操作。
 
 设计依据：[客户端／后端 R3](client-backend-architecture-design.md)、[Mac LAN 设计](macos-lan-desktop-design.md)、[Mac 连接指南](macos-connection-guide.md)。

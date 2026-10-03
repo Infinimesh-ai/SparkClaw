@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/client-r3-implementation.md)
 
+A subsequent local Mac session completed the ARM64 development build, launch and scoped isolated checks; see the [actual Mac acceptance record](macos-r3-acceptance.md). The text below preserves the historical Linux/shared delivery scope and does not claim full M01–M12 acceptance.
+
 Date: 2026-10-03. Delivery branch: `codex/sparkclaw-r3`. P0–P5 Linux/shared source and applicable isolated checks are delivered. This is source delivery, not production cutover or Mac acceptance. The user builds on Mac after code completion. No Mac compile/cross-build/signing, legacy test-data migration or production-data operation occurred.
 
 Design inputs: [client/backend R3](client-backend-architecture-design.md), [Mac LAN design](macos-lan-desktop-design.md), [Mac connection guide](macos-connection-guide.md).

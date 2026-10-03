@@ -2,6 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/macos-connection-guide.md)
 
+后续 Mac 本机 ARM64 构建、启动、验收工具修复及 M01–M12 实际状态见[Mac 验收记录](macos-r3-acceptance.md)。本指南原来的“当前 Linux 环境”描述属于源码交付阶段，不限制用户明确授权的后续 Mac 本机会话。
+
 配套文档：[客户端与后端架构 R3](client-backend-architecture-design.md) 和 [macOS 桌面端设计 R3](macos-lan-desktop-design.md)。
 
 日期：2026-10-03。用户已明确构建方式：当前 Linux 环境开发并验证，通过 Git 推送交付源码，由用户在 Mac 同步并编译。当前环境不进行 Mac 编译、交叉构建、打包、签名或公证。P0–P5 Linux／共享 runtime 源码已完成；本指南不表示已完成 Mac 构建或实机验收。

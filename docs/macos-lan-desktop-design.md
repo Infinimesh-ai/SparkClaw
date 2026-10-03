@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/macos-lan-desktop-design.md)
 
+The subsequent local Mac session obtained scoped native build and isolated evidence; see the [actual Mac record](macos-r3-acceptance.md). The full M01–M12 targets below still apply, and unexecuted cases remain pending.
+
 Date: 2026-10-03. Revision: R3. Status: Linux/shared local-data separation and LAN control are implemented; physical-Mac qualification is pending. The authoritative cross-platform target is [Client and backend architecture R3](client-backend-architecture-design.md). This revision supersedes both the original R2.1 and the intervening R2.2; The [implementation ledger](client-r3-implementation.md) records P0–P5 Linux/shared source, scoped checks and outstanding Mac gates; production deployment and Mac qualification are not claimed.
 
 **Mac presents business results, persists its own non-mail user data, and executes authorized browser commands only in its embedded browser. The Linux backend performs business processing and stores authoritative mail.** The same rule applies to a Linux client, including when it shares a machine with the backend.

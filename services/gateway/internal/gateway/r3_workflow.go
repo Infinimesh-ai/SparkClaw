@@ -266,8 +266,14 @@ func (s *Server) continueR3Approvals(ctx context.Context, service *r3execution.S
 				result.Message.Content = "Action rejected. The requested operation was not executed."
 				return result, nil
 			}
-			if _, err = runtime.ExecuteApprovedToolCall(ctx, resolved); err != nil {
+			executed, err := runtime.ExecuteApprovedToolCall(ctx, resolved)
+			if err != nil {
 				return agent.Result{}, err
+			}
+			if executed.Status.Failed() {
+				// A tool failure may follow a partial external write. Do not
+				// claim completion or replay this temporary computation.
+				return agent.Result{}, r3execution.ErrUnavailable
 			}
 		}
 		if count == 0 {

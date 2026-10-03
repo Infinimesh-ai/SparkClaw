@@ -24,7 +24,7 @@ import (
 // Exercise the installed-client HTTP decision channel with a real policy-gated
 // tool and the same continuation helper used by transient agent workflows.
 func TestR3HTTPApprovalRunsOriginalToolOnlyAfterExplicitDecision(t *testing.T) {
-	for _, decision := range []string{"approve", "reject"} {
+	for _, decision := range []string{"approve", "reject", "approve_failed"} {
 		t.Run(decision, func(t *testing.T) {
 			root := t.TempDir()
 			cfg := testConfig(root)
@@ -50,7 +50,11 @@ func TestR3HTTPApprovalRunsOriginalToolOnlyAfterExplicitDecision(t *testing.T) {
 				if err != nil {
 					return r3execution.Output{}, err
 				}
-				invocation, err := runtime.InvokeToolManually(ctx, "files.write_draft", map[string]any{"path": "approved.txt", "content": "synthetic approved bytes"}, session.ID)
+				target := "approved.txt"
+				if decision == "approve_failed" {
+					target = filepath.Join("..", filepath.Base(root)+"-outside.txt")
+				}
+				invocation, err := runtime.InvokeToolManually(ctx, "files.write_draft", map[string]any{"path": target, "content": "synthetic approved bytes"}, session.ID)
 				if err != nil || invocation.Approval == nil {
 					return r3execution.Output{}, r3execution.ErrUnavailable
 				}
@@ -113,7 +117,11 @@ func TestR3HTTPApprovalRunsOriginalToolOnlyAfterExplicitDecision(t *testing.T) {
 			}
 			approval := status.PendingApprovals[0]
 			route := "/api/r3/executions/" + e.RequestID + "/approvals/" + approval.ApprovalID
-			body, _ := json.Marshal(map[string]any{"digest": approval.Digest, "decision": decision})
+			explicitDecision := decision
+			if decision == "approve_failed" {
+				explicitDecision = "approve"
+			}
+			body, _ := json.Marshal(map[string]any{"digest": approval.Digest, "decision": explicitDecision})
 			if code, _ := request("POST", route, body, "55555555-5555-4555-8555-555555555555"); code != 403 {
 				t.Fatal("wrong installation", code)
 			}
@@ -126,6 +134,15 @@ func TestR3HTTPApprovalRunsOriginalToolOnlyAfterExplicitDecision(t *testing.T) {
 			instance.r3Executions.Wait()
 			_, raw = request("GET", "/api/r3/executions/"+e.RequestID, nil, install)
 			_ = json.Unmarshal(raw, &status)
+			if decision == "approve_failed" {
+				if status.State != "unknown" || status.Result != nil {
+					t.Fatal("failed tool falsely completed", string(raw))
+				}
+				if _, err := os.Stat(filepath.Join(filepath.Dir(root), filepath.Base(root)+"-outside.txt")); !os.IsNotExist(err) {
+					t.Fatal("failed tool wrote outside workspace", err)
+				}
+				return
+			}
 			if status.State != "completed" || status.Result == nil {
 				t.Fatal(string(raw))
 			}

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-export const CLIENT_SCHEMA_VERSION = 2;
+export const CLIENT_SCHEMA_VERSION = 3;
 export const CLIENT_LIMITS = Object.freeze({
   inputBytes: 16 * 1024,
   contextBytes: 96 * 1024,
@@ -34,6 +34,7 @@ export class ClientStore {
       if (version > CLIENT_SCHEMA_VERSION) throw new Error("ClientStore schema is newer than this application; preserve data and upgrade");
       if (version === 0) this.#initialize();
       if (version < 2) this.#upgrade();
+      if (version < 3) this.#upgradeSchedules();
       this.installationID = this.db.prepare("SELECT value FROM metadata WHERE key='installation_id'").get().value;
       // Incomplete atomic file writes are never treated as delivered files.
       const committedFiles = new Set(this.db.prepare("SELECT id FROM files").all().map((file) => file.id));
@@ -85,6 +86,15 @@ export class ClientStore {
     });
   }
 
+  #upgradeSchedules() {
+    this.#transaction(() => {
+      this.db.exec(`CREATE TABLE schedules(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id),
+        due_at TEXT NOT NULL, state TEXT NOT NULL, lease_expires_at TEXT, created_at TEXT NOT NULL,
+        recovery_request_id TEXT REFERENCES tasks(request_id));
+        PRAGMA user_version=3;`);
+    });
+  }
+
   list(scope) {
     return this.db.prepare("SELECT id,title,created_at,updated_at FROM conversations WHERE scope=? ORDER BY updated_at DESC,id")
       .all(scopeKey(scope));
@@ -105,10 +115,12 @@ export class ClientStore {
       messages: this.db.prepare("SELECT id,role,content,created_at FROM messages WHERE conversation_id=? ORDER BY rowid").all(conversationID),
       tasks: this.db.prepare("SELECT id,request_id,status,explicitly_submitted,created_at FROM tasks WHERE conversation_id=? ORDER BY rowid").all(conversationID),
       files: this.db.prepare("SELECT id,name,sha256,size,created_at FROM files WHERE conversation_id=? ORDER BY rowid").all(conversationID),
+      schedules: this.db.prepare(`SELECT s.* FROM schedules s JOIN tasks t ON t.request_id=s.request_id
+        WHERE t.conversation_id=? ORDER BY s.rowid`).all(conversationID),
     };
   }
 
-  enqueue(scope, conversationID, content, localFileIDs = []) {
+  enqueue(scope, conversationID, content, localFileIDs = [], scheduleDueAt, recoveringScheduleID) {
     this.#conversation(scope, conversationID);
     content = boundedText(content, CLIENT_LIMITS.inputBytes, "Input").trim();
     if (!content) throw new Error("Input is empty");
@@ -137,12 +149,63 @@ export class ClientStore {
       this.db.prepare("INSERT INTO messages VALUES(?,?,?,?,?)")
         .run(crypto.randomUUID(), conversationID, "user", content, now);
       this.db.prepare("INSERT INTO tasks(id,conversation_id,request_id,input_digest,context_json,status,created_at) VALUES(?,?,?,?,?,?,?)")
-        .run(taskID, conversationID, requestID, digest, snapshot, "awaiting_runtime", now);
+        .run(taskID, conversationID, requestID, digest, snapshot, scheduleDueAt ? "scheduled_local" : "awaiting_runtime", now);
+      if (scheduleDueAt) this.db.prepare("INSERT INTO schedules(request_id,due_at,state,created_at) VALUES(?,?,?,?)").run(requestID, scheduleDueAt, "saved", now);
+      if (recoveringScheduleID) this.db.prepare("UPDATE schedules SET state='run_now',recovery_request_id=? WHERE request_id=?").run(requestID, recoveringScheduleID);
       this.db.prepare("UPDATE conversations SET updated_at=? WHERE id=?").run(now, conversationID);
     });
     // Network submission is deliberately a separate operation. This return is
     // durable local queuing, not server acceptance or completed execution.
-    return { id: taskID, request_id: requestID, status: "awaiting_runtime", created_at: now };
+    return { id: taskID, request_id: requestID, status: scheduleDueAt ? "scheduled_local" : "awaiting_runtime", created_at: now };
+  }
+
+  schedule(scope, conversationID, content, dueAt, now = Date.now()) {
+    if (typeof dueAt !== "string" || !Number.isFinite(Date.parse(dueAt)) ||
+        Date.parse(dueAt) <= now || Date.parse(dueAt) > now + 24 * 60 * 60 * 1000) throw new Error("Schedule must be within the next 24 hours");
+    const task = this.enqueue(scope, conversationID, content, [], new Date(dueAt).toISOString());
+    return this.scheduledRequest(scope, task.request_id);
+  }
+
+  scheduledRequest(scope, requestID) {
+    const task = this.request(scope, requestID);
+    const schedule = this.db.prepare("SELECT * FROM schedules WHERE request_id=?").get(requestID);
+    if (!schedule) throw new Error("Local schedule not found");
+    return { ...task, ...schedule };
+  }
+
+  runScheduledNow(scope, requestID) {
+    const schedule = this.scheduledRequest(scope, requestID);
+    if (!["missed", "admission_rejected"].includes(schedule.state)) throw new Error("Only an unexecuted missed schedule can run now");
+    return this.enqueue(scope, schedule.conversation_id, JSON.parse(schedule.context_json).messages.at(-1).content, [], undefined, requestID);
+  }
+
+  schedulePending(scope) {
+    return this.db.prepare(`SELECT s.request_id FROM schedules s JOIN tasks t ON t.request_id=s.request_id
+      JOIN conversations c ON c.id=t.conversation_id WHERE c.scope=? AND s.state IN
+      ('saved','registering','leased','cancel_pending') ORDER BY s.due_at,s.rowid`).all(scopeKey(scope));
+  }
+
+  markScheduleRegistered(scope, requestID) {
+    this.scheduledRequest(scope, requestID);
+    this.#transaction(() => {
+      this.db.prepare("UPDATE tasks SET explicitly_submitted=1,status='schedule_pending',updated_at=? WHERE request_id=?")
+        .run(new Date().toISOString(), requestID);
+      this.db.prepare("UPDATE schedules SET state='registering' WHERE request_id=?").run(requestID);
+    });
+    return this.scheduledRequest(scope, requestID);
+  }
+
+  setScheduleState(scope, requestID, state, leaseExpiresAt = null) {
+    this.scheduledRequest(scope, requestID);
+    if (!["saved", "registering", "leased", "cancel_pending", "canceled", "missed", "accepted", "running", "completed", "delivered", "unknown", "delivery_expired", "failed", "admission_rejected", "run_now"].includes(state)) throw new Error("Invalid schedule state");
+    if (leaseExpiresAt !== null && (typeof leaseExpiresAt !== "string" || !Number.isFinite(Date.parse(leaseExpiresAt)))) throw new Error("Invalid schedule lease deadline");
+    this.#transaction(() => {
+      this.db.prepare("UPDATE schedules SET state=?,lease_expires_at=? WHERE request_id=?").run(state, leaseExpiresAt, requestID);
+      if (["missed", "canceled", "admission_rejected"].includes(state)) {
+        this.db.prepare("UPDATE tasks SET status=?,updated_at=? WHERE request_id=?").run(`schedule_${state}`, new Date().toISOString(), requestID);
+      }
+    });
+    return this.scheduledRequest(scope, requestID);
   }
 
   context(scope, requestID) {
@@ -186,6 +249,8 @@ export class ClientStore {
     if (receipt) state = receipt.acknowledged ? "delivered" : "saved";
     this.db.prepare("UPDATE tasks SET status=?,updated_at=? WHERE request_id=?")
       .run(state, new Date().toISOString(), requestID);
+    this.db.prepare("UPDATE schedules SET state=? WHERE request_id=? AND state NOT IN ('run_now','missed','admission_rejected')")
+      .run(state === "saved" ? "completed" : state, requestID);
     return this.request(scope, requestID);
   }
 
@@ -204,6 +269,7 @@ export class ClientStore {
     this.#transaction(() => {
       this.db.prepare("UPDATE deliveries SET acknowledged=1 WHERE request_id=? AND sequence=?").run(requestID, sequence);
       this.db.prepare("UPDATE tasks SET status='delivered',updated_at=? WHERE request_id=?").run(new Date().toISOString(), requestID);
+      this.db.prepare("UPDATE schedules SET state='delivered' WHERE request_id=?").run(requestID);
     });
   }
 
@@ -248,6 +314,7 @@ export class ClientStore {
           this.db.prepare("INSERT INTO delivery_files VALUES(?,?,?,?)").run(request_id, sequence, record.id, record.remote_id);
         }
         this.db.prepare("UPDATE tasks SET status='saved',updated_at=? WHERE request_id=?").run(now, request_id);
+        this.db.prepare("UPDATE schedules SET state='completed' WHERE request_id=?").run(request_id);
         this.db.prepare("UPDATE conversations SET updated_at=? WHERE id=?").run(now, task.conversation_id);
       });
       committed = true;

@@ -110,7 +110,7 @@ export class DesktopAuth {
   // the ordinary 1 MiB ceiling. Origin, pinned TLS and logout fencing are shared.
   async authorizedR3Fetch(raw, init = {}) {
     const url = new URL(raw);
-    if (!/^\/api\/r3\/(executions|inputs)(\/|$)/u.test(url.pathname) || url.search || url.hash || url.username || url.password) {
+    if (!/^\/api\/r3\/(executions|inputs|schedules)(\/|$)/u.test(url.pathname) || url.search || url.hash || url.username || url.password) {
       throw new Error("R3 backend path is invalid");
     }
     return this.#authorizedFetch(raw, init, 8 * 1024 * 1024);

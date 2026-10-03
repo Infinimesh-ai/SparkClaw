@@ -1,8 +1,8 @@
 const CHANNEL = "sparkclaw-client-store:invoke";
 
 export class ClientStoreCapability {
-  constructor({ ipcMain, window, store, execution, getIdentity, exportFile }) {
-    Object.assign(this, { ipcMain, window, store, execution, getIdentity, exportFile });
+  constructor({ ipcMain, window, store, execution, schedules, getIdentity, exportFile }) {
+    Object.assign(this, { ipcMain, window, store, execution, schedules, getIdentity, exportFile });
   }
   start() {
     this.ipcMain.handle(CHANNEL, (event, request) => this.dispatch(event, request));
@@ -43,6 +43,16 @@ export class ClientStoreCapability {
         keys(request, ["request_id"]);
         if (!this.execution) throw new Error("Execution client is unavailable");
         return this.execution[request.operation](scope, request.request_id);
+      case "scheduleCreate":
+        keys(request, ["conversation_id", "content", "due_at"]);
+        if (!this.schedules) throw new Error("Schedule client is unavailable");
+        return this.schedules.create(scope, request.conversation_id, request.content, request.due_at);
+      case "scheduleCheck":
+      case "scheduleCancel":
+      case "scheduleRunNow":
+        keys(request, ["request_id"]);
+        if (!this.schedules) throw new Error("Schedule client is unavailable");
+        return this.schedules[{ scheduleCheck: "reconcile", scheduleCancel: "cancel", scheduleRunNow: "runNow" }[request.operation]](scope, request.request_id);
       case "saveFile":
         keys(request, ["conversation_id", "name", "bytes"]);
         return this.store.saveFile(scope, request.conversation_id, request.name, request.bytes);

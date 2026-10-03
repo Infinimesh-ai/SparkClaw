@@ -237,3 +237,27 @@ func TestTemporaryContentBudgetRejectsBeforeRetainingPayload(t *testing.T) {
 		t.Fatal("cumulative capacity", err)
 	}
 }
+
+func TestDuplicateInputNamesRejectBeforeAdmissionAndCannotOverwrite(t *testing.T) {
+	s, e, _ := setup(t, func(context.Context, Envelope, map[string][]byte) (Output, error) {
+		t.Fatal("ambiguous request executed")
+		return Output{}, nil
+	})
+	for _, body := range []string{"first source", "second source"} {
+		file := File{ID: newUUID(), Name: "notes.md", Size: len(body), SHA256: Digest([]byte(body))}
+		if err := s.Upload(e.OwnerID, e.ClientID, e.InstallationID, e.RequestID, file.ID, file.SHA256, []byte(body)); err != nil {
+			t.Fatal(err)
+		}
+		e.InputFiles = append(e.InputFiles, file)
+	}
+	raw, _ := json.Marshal(e)
+	if _, err := Decode(raw, Digest(raw)); err == nil {
+		t.Fatal("duplicate filenames decoded")
+	}
+	if _, err := s.Submit(t.Context(), e, Digest(raw)); !errors.Is(err, ErrConflict) {
+		t.Fatal(err)
+	}
+	if _, err := s.Lookup(e.OwnerID, e.ClientID, e.RequestID); !errors.Is(err, ErrNotFound) {
+		t.Fatal("request admitted", err)
+	}
+}

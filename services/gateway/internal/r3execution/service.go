@@ -247,16 +247,18 @@ func (s *Service) Submit(ctx context.Context, e Envelope, digest string) (Status
 		}
 		files = map[string][]byte{}
 		size := ContextBytes
+		names := map[string]bool{}
 		for _, manifest := range e.InputFiles {
 			data, ok := st.files[manifest.ID]
 			if !ok || len(data) != manifest.Size || Digest(data) != manifest.SHA256 || !validName(manifest.Name) || !UUID(manifest.ID) {
 				s.mu.Unlock()
 				return Status{}, ErrConflict
 			}
-			if _, exists := files[manifest.ID]; exists {
+			if _, exists := files[manifest.ID]; exists || names[manifest.Name] {
 				s.mu.Unlock()
 				return Status{}, ErrConflict
 			}
+			names[manifest.Name] = true
 			size += len(data)
 			files[manifest.ID] = data
 		}

@@ -92,7 +92,9 @@ func (s *Server) executeR3Workflow(ctx context.Context, e r3execution.Envelope, 
 	attachments := []app.MessageAttachment{}
 	inputNames := map[string]bool{}
 	for _, manifest := range e.InputFiles {
-		name := manifest.ID + "-" + manifest.Name
+		// The user-visible name is also the temporary locator. Admission
+		// rejects duplicate names, so explicit references never select another input.
+		name := manifest.Name
 		if strings.ContainsAny(name, "/\\\x00") {
 			return r3execution.Output{}, errors.New("invalid temporary input name")
 		}

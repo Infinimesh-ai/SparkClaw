@@ -120,6 +120,13 @@ func Decode(raw []byte, digest string) (Envelope, error) {
 	if !json.Valid(raw) || e.SchemaVersion != 1 || !identityPattern.MatchString(e.OwnerID) || !identityPattern.MatchString(e.ClientID) || !identityPattern.MatchString(e.DeploymentID) || !UUID(e.InstallationID) || !UUID(e.RequestID) || !UUID(e.ConversationID) || !UUID(e.TaskID) || len(e.Messages) == 0 || len(e.Messages) > ContextMessages {
 		return e, errors.New("invalid R3 execution identity or context")
 	}
+	fileNames := map[string]bool{}
+	for _, file := range e.InputFiles {
+		if !validName(file.Name) || fileNames[file.Name] {
+			return e, errors.New("R3 input filenames must be valid and unique")
+		}
+		fileNames[file.Name] = true
+	}
 	for _, m := range e.Messages {
 		if (m.Role != "user" && m.Role != "assistant") || len(m.Content) > InputBytes || strings.ContainsRune(m.Content, 0) {
 			return e, errors.New("invalid R3 context message")

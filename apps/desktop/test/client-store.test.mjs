@@ -173,3 +173,17 @@ test("large assistant output is bounded safely in future context without changin
   assert.equal(context.messages.at(-1).content, "follow up");
   store.close();
 });
+
+
+test("duplicate displayed input filenames cannot create an ambiguous request or overwrite a file", (t) => {
+ const store = new ClientStore(fixture(t));
+ const conversation = store.create(scope, "duplicate filename fixture");
+ const first = store.saveFile(scope, conversation.id, "notes.md", new TextEncoder().encode("first source"));
+ const second = store.saveFile(scope, conversation.id, "notes.md", new TextEncoder().encode("second source"));
+ assert.throws(() => store.enqueue(scope, conversation.id, "Edit notes.md", [first.id, second.id]), /different names/);
+ assert.deepEqual(store.read(scope, conversation.id).tasks, []);
+ assert.deepEqual(store.read(scope, conversation.id).messages, []);
+ assert.equal(new TextDecoder().decode(store.file(scope, first.id).content), "first source");
+ assert.equal(new TextDecoder().decode(store.file(scope, second.id).content), "second source");
+ store.close();
+});

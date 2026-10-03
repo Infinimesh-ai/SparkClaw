@@ -143,6 +143,7 @@ export class ClientStore {
       this.file(scope, id);
       return record;
     });
+    if (new Set(inputFiles.map((file) => file.name)).size !== inputFiles.length) throw new Error("Selected input files need different names");
     const requestID = crypto.randomUUID();
     const taskID = crypto.randomUUID();
     const now = new Date().toISOString();

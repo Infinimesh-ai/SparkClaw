@@ -50,6 +50,8 @@ export class PageRegistry {
       record.binding = localBinding;
       this.requireConnection(connectionID).tabIDs.add(record.tabID);
     }
+    // Local ownership survives releasing the remote controller's lease.
+    record.hostConversationID = conversationID;
     record.hostBinding = Object.freeze({ ...binding });
     if (this.selectedConversationID === conversationID) this.presentation.showTask(record);
     this.#changed();
@@ -199,7 +201,7 @@ export class PageRegistry {
   showByRef(pageRef, role) {
     const record = this.getByRef(pageRef);
     if (record.role !== role) throw new Error("Page role is invalid");
-    if (record.hostBinding && record.hostBinding.local_conversation_id !== this.selectedConversationID) throw new Error("Page belongs to another conversation");
+    if (record.hostConversationID && record.hostConversationID !== this.selectedConversationID) throw new Error("Page belongs to another conversation");
     if (role === "personal") this.presentation.showPersonal(record);
     else this.presentation.showTask(record);
     this.#changed();
@@ -382,12 +384,12 @@ export class PageRegistry {
   #secureRecord(record) {
     const { webContents } = record;
     webContents.on("will-navigate", (event, url) => {
-      if (!record.hostBinding) return;
+      if (!record.hostConversationID) return;
       try { const target = new URL(url); if (target.protocol !== "https:" || target.username || target.password) event.preventDefault(); }
       catch { event.preventDefault(); }
     });
     webContents.on("will-redirect", (event, url) => {
-      if (!record.hostBinding) return;
+      if (!record.hostConversationID) return;
       try { const target = new URL(url); if (target.protocol !== "https:" || target.username || target.password) event.preventDefault(); }
       catch { event.preventDefault(); }
     });
@@ -425,7 +427,7 @@ export class PageRegistry {
       if (!record.destroyed) this.destroy(record.tabID, "target_closed");
     });
     webContents.setWindowOpenHandler((details) => {
-      if (record.destroyed || record.hostBinding) return { action: "deny" };
+      if (record.destroyed || record.hostConversationID) return { action: "deny" };
       queueMicrotask(() => {
         try {
           const popup = this.#createRecord({

@@ -161,6 +161,39 @@ func TestLimitsAndNarrowProjection(t *testing.T) {
 	}
 }
 
+func TestSnapshotEntireEncodedPageFitsTrustedOneMiBTransport(t *testing.T) {
+	repo := store.NewMemoryStore()
+	b := box(t, repo)
+	p := &projection{}
+	for i := 0; i < 10; i++ {
+		p.rows = append(p.rows, row(b, fmt.Sprintf("mail-%d", i), strings.Repeat("s", 220*1024)))
+	}
+	s, err := New(t.TempDir(), repo, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor, received, pages := "", 0, 0
+	for {
+		out := mustSync(t, s, b, cursor, 100)
+		encoded, err := json.Marshal(out)
+		if err != nil || len(encoded) > MaxPageBytes {
+			t.Fatalf("oversized complete envelope %d: %v", len(encoded), err)
+		}
+		received += len(out.Events)
+		pages++
+		if !out.More {
+			break
+		}
+		cursor = out.Cursor
+		if pages > 10 {
+			t.Fatal("bounded snapshot did not progress")
+		}
+	}
+	if received != 10 || pages < 2 {
+		t.Fatalf("snapshot not fully paged: mails=%d pages=%d", received, pages)
+	}
+}
+
 type noBrowser struct{}
 
 func (noBrowser) AdmitIntake(context.Context, string, string) (app.EmailAdmissionBinding, error) {

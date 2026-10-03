@@ -116,6 +116,12 @@ export class DesktopAuth {
     return this.#authorizedFetch(raw, init, 8 * 1024 * 1024);
   }
 
+  async authorizedR3MailFileFetch(raw, init = {}) {
+    const url = new URL(raw);
+    if (!/^\/api\/r3\/mail\/[^/]+\/messages\/[^/]+\/attachments\/[^/]+$/u.test(url.pathname) || url.search || url.hash || url.username || url.password || (init.method && init.method !== "GET")) throw new Error("Mail attachment path is invalid");
+    return this.#authorizedFetch(raw, init, 64 * 1024 * 1024);
+  }
+
   async #authorizedFetch(raw, init, byteLimit) {
     if (this.status.state !== "connected" || !this.connection) return new Response(null, { status: 401 });
     const url = new URL(raw);

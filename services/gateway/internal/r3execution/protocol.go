@@ -69,13 +69,23 @@ type Result struct {
 	Digest   string `json:"digest"`
 	Payload  string `json:"payload"`
 }
+type PendingApproval struct {
+	ApprovalID string         `json:"approval_id"`
+	Digest     string         `json:"digest"`
+	Tool       string         `json:"tool"`
+	Summary    string         `json:"summary"`
+	Arguments  map[string]any `json:"arguments"`
+}
+
 type Status struct {
-	SchemaVersion int        `json:"schema_version"`
-	RequestID     string     `json:"request_id"`
-	InputDigest   string     `json:"input_digest"`
-	State         string     `json:"state"`
-	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
-	Result        *Result    `json:"result,omitempty"`
+	ExecutionExpiresAt *time.Time        `json:"execution_expires_at,omitempty"`
+	PendingApprovals   []PendingApproval `json:"pending_approvals,omitempty"`
+	SchemaVersion      int               `json:"schema_version"`
+	RequestID          string            `json:"request_id"`
+	InputDigest        string            `json:"input_digest"`
+	State              string            `json:"state"`
+	ExpiresAt          *time.Time        `json:"expires_at,omitempty"`
+	Result             *Result           `json:"result,omitempty"`
 }
 
 // Fence is the complete durable control field allowlist. No maps, arbitrary

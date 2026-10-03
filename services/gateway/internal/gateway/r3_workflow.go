@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
@@ -107,6 +108,10 @@ func (s *Server) executeR3Workflow(ctx context.Context, e r3execution.Envelope, 
 	if err != nil {
 		return r3execution.Output{}, err
 	}
+	result, err = s.continueR3Approvals(ctx, service, e, local, runtime, budget, result)
+	if err != nil {
+		return r3execution.Output{}, err
+	}
 	out := r3execution.Output{Content: result.Message.Content, Files: map[string][]byte{}}
 	size := len(out.Content)
 	entries := 0
@@ -195,4 +200,94 @@ func r3MemorySweep(controlRoot string) error {
 		}
 	}
 	return nil
+}
+
+// Continue only the original temporary run after an installed client explicitly
+// approves its immutable arguments. Client context never supplies authority.
+func (s *Server) continueR3Approvals(ctx context.Context, service *r3execution.Service, e r3execution.Envelope, local *store.MemoryStore, runtime agent.Runtime, budget *r3execution.Budget, result agent.Result) (agent.Result, error) {
+	for round := 0; result.Run.State == "approval_pending"; round++ {
+		if round >= 32 {
+			return agent.Result{}, r3execution.ErrCapacity
+		}
+		pending, err := local.ListApprovals(ctx, app.ApprovalStatusPending)
+		if err != nil {
+			return agent.Result{}, err
+		}
+		count := 0
+		for _, approval := range pending {
+			if approval.RunID != result.Run.ID {
+				continue
+			}
+			count++
+			public := map[string]any{}
+			for key, value := range approval.Arguments {
+				if !strings.HasPrefix(key, "_") {
+					public[key] = value
+				}
+			}
+			row, err := r3execution.NewPendingApproval(approval.ID, approval.Tool, approval.Summary, public)
+			if err != nil {
+				return agent.Result{}, err
+			}
+			if err = budget.Admit(row); err != nil {
+				return agent.Result{}, err
+			}
+			decision, err := service.AwaitApproval(ctx, e, row)
+			if err != nil {
+				return agent.Result{}, err
+			}
+			if err = ctx.Err(); err != nil {
+				return agent.Result{}, err
+			}
+			status := app.ApprovalStatusApproved
+			if decision == "reject" {
+				status = app.ApprovalStatusRejected
+			}
+			resolved, err := local.ResolveApproval(ctx, approval.ID, status, "")
+			if err != nil {
+				return agent.Result{}, err
+			}
+			if status == app.ApprovalStatusRejected {
+				call, found, err := local.GetToolCall(ctx, approval.ToolCallID)
+				if err != nil || !found {
+					return agent.Result{}, r3execution.ErrUnavailable
+				}
+				now := time.Now().UTC()
+				call.Status = app.ToolCallStatusRejected
+				call.Error = "owner rejected approval"
+				call.CompletedAt = &now
+				if _, err = local.SaveToolCall(ctx, call); err != nil {
+					return agent.Result{}, err
+				}
+				// Reject terminates this temporary workflow; remaining calls never run.
+				result.Run.State = "blocked"
+				result.Message.Content = "Action rejected. The requested operation was not executed."
+				return result, nil
+			}
+			if _, err = runtime.ExecuteApprovedToolCall(ctx, resolved); err != nil {
+				return agent.Result{}, err
+			}
+		}
+		if count == 0 {
+			return agent.Result{}, r3execution.ErrUnavailable
+		}
+		resumed, ok, err := runtime.ResumeRunAfterApproval(ctx, result.Run.SessionID, result.Run.ID)
+		if err != nil {
+			return agent.Result{}, err
+		}
+		if ok {
+			result = resumed
+		} else {
+			if err = runtime.CompleteRunIfApprovalsResolved(ctx, result.Run.ID); err != nil {
+				return agent.Result{}, err
+			}
+			run, found, err := local.GetRun(ctx, result.Run.ID)
+			if err != nil || !found || run.State == "approval_pending" {
+				return agent.Result{}, r3execution.ErrUnavailable
+			}
+			result.Run = run
+			result.Message.Content = "Approved operation completed."
+		}
+	}
+	return result, nil
 }

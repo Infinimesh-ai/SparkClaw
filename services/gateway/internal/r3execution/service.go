@@ -28,6 +28,7 @@ type Service struct {
 	key       []byte
 	control   control
 	execute   Executor
+	approvals map[string]map[string]*approvalWait
 	active    map[string]context.CancelFunc
 	inputs    map[string]*staged
 	now       func() time.Time
@@ -63,7 +64,7 @@ func New(root string, execute Executor) (*Service, error) {
 			lock.Close()
 		}
 	}()
-	s := &Service{root: root, lock: lock, execute: execute, control: control{Version: 1, Installations: map[string]string{}, Fences: map[string]Fence{}}, active: map[string]context.CancelFunc{}, inputs: map[string]*staged{}, now: func() time.Time { return time.Now().UTC() }}
+	s := &Service{root: root, lock: lock, execute: execute, control: control{Version: 1, Installations: map[string]string{}, Fences: map[string]Fence{}}, approvals: map[string]map[string]*approvalWait{}, active: map[string]context.CancelFunc{}, inputs: map[string]*staged{}, now: func() time.Time { return time.Now().UTC() }}
 	keyPath := filepath.Join(root, "spool.key")
 	key, err := readPrivate(keyPath, 32)
 	if errors.Is(err, os.ErrNotExist) {
@@ -326,6 +327,7 @@ func (s *Service) run(ctx context.Context, key string, e Envelope, files map[str
 func (s *Service) finish(key string, out Output, executionErr error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	delete(s.approvals, key)
 	if cancel := s.active[key]; cancel != nil {
 		cancel()
 		delete(s.active, key)
@@ -400,7 +402,11 @@ func (s *Service) finish(key string, out Output, executionErr error) {
 	}
 }
 func statusFor(f Fence) Status {
-	return Status{SchemaVersion: 1, RequestID: f.RequestID, InputDigest: f.InputDigest, State: f.State, ExpiresAt: f.ExpiresAt}
+	status := Status{SchemaVersion: 1, RequestID: f.RequestID, InputDigest: f.InputDigest, State: f.State, ExpiresAt: f.ExpiresAt}
+	if f.State == "accepted" || f.State == "running" {
+		status.ExecutionExpiresAt = &f.Deadline
+	}
+	return status
 }
 func (s *Service) Lookup(owner, client, request string) (Status, error) {
 	s.mu.Lock()
@@ -411,6 +417,13 @@ func (s *Service) Lookup(owner, client, request string) (Status, error) {
 		return Status{}, ErrNotFound
 	}
 	status := statusFor(f)
+	if f.State == "accepted" || f.State == "running" {
+		if !f.Deadline.After(s.now()) {
+			status.State = "unknown"
+		} else {
+			status.PendingApprovals = s.pendingLocked(key)
+		}
+	}
 	if f.State == "completed" {
 		if f.ExpiresAt == nil || !f.ExpiresAt.After(s.now()) {
 			status.State = "delivery_expired"
@@ -486,6 +499,7 @@ func (s *Service) Cancel(owner, client, request string) error {
 	if f.State == "accepted" || f.State == "running" {
 		f.State = "unknown"
 		s.control.Fences[key] = f
+		delete(s.approvals, key)
 		if cancel := s.active[key]; cancel != nil {
 			cancel()
 		}
@@ -557,6 +571,7 @@ func (s *Service) Close() {
 	s.closeOnce.Do(func() {
 		s.mu.Lock()
 		s.closed = true
+		s.approvals = map[string]map[string]*approvalWait{}
 		for _, cancel := range s.active {
 			cancel()
 		}

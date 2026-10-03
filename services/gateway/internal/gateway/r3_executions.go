@@ -67,6 +67,7 @@ func (s *Server) registerR3ExecutionRoutes() {
 	s.mux.HandleFunc("POST /api/r3/executions", s.r3Submit)
 	s.mux.HandleFunc("GET /api/r3/executions/{request}", s.r3Lookup)
 	s.mux.HandleFunc("POST /api/r3/executions/{request}/ack", s.r3Ack)
+	s.mux.HandleFunc("POST /api/r3/executions/{request}/approvals/{approval}", s.r3ResolveApproval)
 	s.mux.HandleFunc("POST /api/r3/executions/{request}/cancel", s.r3Cancel)
 	s.mux.HandleFunc("GET /api/r3/executions/{request}/files/{file}", s.r3File)
 }
@@ -226,4 +227,25 @@ func (s *Server) r3File(w http.ResponseWriter, r *http.Request) {
 // Retain compile-time callback context checking in this assembly file.
 var _ r3execution.Executor = func(context.Context, r3execution.Envelope, map[string][]byte) (r3execution.Output, error) {
 	return r3execution.Output{}, nil
+}
+
+func (s *Server) r3ResolveApproval(w http.ResponseWriter, r *http.Request) {
+	p, err := s.r3Principal(r)
+	if err != nil {
+		writeError(w, 403, err)
+		return
+	}
+	var input struct {
+		Digest   string `json:"digest"`
+		Decision string `json:"decision"`
+	}
+	if err = readR3JSON(r, &input); err != nil {
+		writeError(w, 400, errors.New("invalid R3 approval decision"))
+		return
+	}
+	if err = s.r3Executions.ResolveApproval(p.OwnerID, p.ClientID, r.PathValue("request"), r.PathValue("approval"), input.Digest, input.Decision); err != nil {
+		r3Error(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"resolved": true})
 }

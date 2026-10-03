@@ -37,6 +37,11 @@ export type DesktopState = {
     permission: string;
     media_types: string[];
   }>;
+  browser_host?: {
+    state: string;
+    role: "client_embedded";
+    unknown_writes: Array<{ command_id: string; digest: string; local_conversation_id: string; local_task_id: string }>;
+  };
   presentation: {
     panel_bounds: { x: number; y: number; width: number; height: number };
     insufficient_space: boolean;
@@ -76,6 +81,7 @@ export type SparkClawDesktop = {
   state(): Promise<DesktopState>;
   selectConversation?(localConversationID: string): Promise<{ page_ref: string }>;
   grantBrowserHost?(): Promise<{ granted: boolean }>;
+  reconcileBrowserHost?(commandID: string, digest: string, outcome: "observed_completed" | "observed_not_applied"): Promise<{ completed: true }>;
   createPersonal(url?: string): Promise<{ page_ref: string }>;
   navigatePersonal(pageRef: string, url: string): Promise<{ completed: true }>;
   personalNavigation(pageRef: string, action: "back" | "forward" | "reload"): Promise<{ completed: true }>;

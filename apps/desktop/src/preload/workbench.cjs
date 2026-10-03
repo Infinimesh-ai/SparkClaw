@@ -23,8 +23,18 @@ if (process.argv.includes("--sparkclaw-client-store=1")) {
     submit: (request_id) => storeInvoke("submit", { request_id }),
     reconcile: (request_id) => storeInvoke("reconcile", { request_id }),
     cancel: (request_id) => storeInvoke("cancel", { request_id }),
+    scheduleCreate: (conversation_id, content, due_at) => storeInvoke("scheduleCreate", { conversation_id, content, due_at }),
+    scheduleCheck: (request_id) => storeInvoke("scheduleCheck", { request_id }),
+    scheduleCancel: (request_id) => storeInvoke("scheduleCancel", { request_id }),
+    scheduleRunNow: (request_id) => storeInvoke("scheduleRunNow", { request_id }),
     saveFile: (conversation_id, name, bytes) => storeInvoke("saveFile", { conversation_id, name, bytes }),
     exportFile: (file_id) => storeInvoke("exportFile", { file_id }),
+    onChange: (listener) => {
+      if (typeof listener !== "function") throw new TypeError("ClientStore listener is invalid");
+      const wrapped = () => listener();
+      ipcRenderer.on("sparkclaw-client-store:changed", wrapped);
+      return () => ipcRenderer.removeListener("sparkclaw-client-store:changed", wrapped);
+    },
   }));
   const mailInvoke = (operation, fields = {}) => ipcRenderer.invoke("sparkclaw-mail-sync:invoke", {
     schema_version: 1, operation, ...fields,
@@ -34,6 +44,7 @@ if (process.argv.includes("--sparkclaw-client-store=1")) {
     refreshCatalog: () => mailInvoke("refreshCatalog"),
     read: (mailbox_id) => mailInvoke("read", { mailbox_id }),
     sync: (mailbox_id) => mailInvoke("sync", { mailbox_id }),
+    saveAttachment: (mailbox_id, mail_id, part_id, conversation_id) => mailInvoke("saveAttachment", { mailbox_id, mail_id, part_id, conversation_id }),
   }));
 }
 
@@ -57,6 +68,7 @@ contextBridge.exposeInMainWorld("sparkclawDesktop", Object.freeze({
   state: () => invoke("state"),
   selectConversation: (local_conversation_id) => invoke("selectConversation", { local_conversation_id }),
   grantBrowserHost: () => invoke("grantBrowserHost"),
+  reconcileBrowserHost: (command_id, digest, outcome) => invoke("reconcileBrowserHost", { command_id, digest, outcome }),
   createPersonal: (url) => invoke("createPersonal", url ? { url } : {}),
   navigatePersonal: (pageRef, url) => invoke("navigatePersonal", { page_ref: pageRef, url }),
   personalNavigation: (pageRef, action) => invoke("personalNavigation", { page_ref: pageRef, action }),

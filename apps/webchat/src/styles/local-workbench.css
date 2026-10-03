@@ -1,3 +1,5 @@
+.shell.localWorkbench { grid-template-columns: 244px minmax(0, 1fr); }
+.shell.localWorkbench .sidebar { display: flex; }
 .localWorkbench .topbar { justify-content: space-between; }
 .localWorkbench .topbar h1 { margin: 0; font-size: 18px; font-weight: 600; }
 .localWorkbench .localConversationList { flex: 1; min-height: 0; overflow: auto; margin-block: 18px; }
@@ -18,6 +20,12 @@
 .localTaskRow p { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0 0 8px; overflow-wrap: anywhere; }
 .localTaskRow code { font-size: 12px; color: var(--text-secondary); }
 .localTaskRow small { display: block; margin-bottom: 8px; color: var(--text-secondary); line-height: 1.6; }
+.localSchedules { margin-block: 24px; }
+.localSchedules > p, .localUnknownWrite p { max-width: 70ch; line-height: 1.65; color: var(--text-secondary); }
+.localSchedules form { display: grid; gap: 8px; max-width: 70ch; }
+.localSchedules textarea, .localSchedules input { width: 100%; padding: 10px 12px; color: var(--text-primary); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-control); }
+.localSchedules form button { justify-self: start; padding: 10px 12px; border-radius: var(--radius-control); color: var(--text-primary); background: var(--surface-muted); }
+.localUnknownWrite { margin-block: 20px; padding-block: 12px; border-block: 1px solid var(--border-strong); }
 .localTaskActions, .localComposerActions { display: flex; gap: 8px; flex-wrap: wrap; }
 .localTaskActions button, .localComposerActions button, .localBrowserGrant { display: flex; gap: 6px; align-items: center; border-radius: var(--radius-control); padding: 8px 12px; background: var(--surface-muted); color: var(--text-primary); }
 .localTaskActions button:disabled, .localComposerActions button:disabled, .localBrowserGrant:disabled { opacity: .5; cursor: not-allowed; }
@@ -47,12 +55,10 @@
 }
 @media (max-width: 700px) {
   .shell.localWorkbench { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 100dvh; overflow: visible; }
-  .shell.localWorkbench .sidebar { gap: 10px; padding: 12px 16px; }
+  .shell.localWorkbench .sidebar { height: auto; gap: 10px; padding: 12px 16px; }
   .shell.localWorkbench .workspace { height: calc(100dvh - 220px); min-height: 520px; }
   .localWorkbench .localConversationList { display: flex; gap: 8px; flex: 0 0 auto; margin-block: 0; max-height: 70px; overflow-x: auto; }
   .localWorkbench .localConversationList button { width: auto; min-width: 140px; max-width: 220px; }
   .localWorkbench .sidebarFooter { display: flex; gap: 8px; padding: 0; }
   .localWorkbench .topbar { padding-inline: 16px; }
 }
-.shell.localWorkbench { grid-template-columns: 244px minmax(0, 1fr); }
-.shell.localWorkbench .sidebar { display: flex; }

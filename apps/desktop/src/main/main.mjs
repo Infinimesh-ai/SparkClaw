@@ -199,12 +199,12 @@ async function start() {
     executionClient = new ExecutionClient({ auth: desktopAuth, store: localStore, getIdentity: localIdentity, onChange: localChanged }).start();
     scheduleClient = new ScheduleClient({ auth: desktopAuth, store: localStore, execution: executionClient, getIdentity: localIdentity, onChange: localChanged }).start();
     mailStore = new MailSyncStore(path.join(app.getPath("userData"), "client-r3", "mail"));
+    // DesktopAuth binds this installation before publishing connected state.
     mailClient = new MailSyncClient({
       store: mailStore, localStore, getConnection: () => desktopAuth.connection,
       getFetch: () => desktopAuth.authorizedFetch.bind(desktopAuth),
       getFileFetch: () => desktopAuth.authorizedR3MailFileFetch.bind(desktopAuth),
       installationID: localStore.installationID,
-      ensureInstallation: () => executionClient.register(),
     });
     if (desktopAuth.status.state === "connected") mailClient.start();
     else mailClient.close();
@@ -293,12 +293,10 @@ async function start() {
     browserHost: browserHost ? {
       snapshot: () => browserHost.snapshot(),
       grant: async () => {
-        await executionClient.register();
         await prepareBrowserHostScope();
         return browserHost.grant();
       },
       reconcile: async (...args) => {
-        await executionClient.register();
         await prepareBrowserHostScope();
         return browserHost.reconcile(...args);
       },

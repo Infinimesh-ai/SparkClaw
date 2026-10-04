@@ -410,6 +410,16 @@ class RemoteComposeTest(unittest.TestCase):
         )
         self.assertIn('if [[ -n "$SPEECH_RUNTIME_VERSION" ]]; then', doctor)
 
+    def test_doctor_loads_desktop_lan_settings_before_credential_check(self) -> None:
+        doctor = DOCTOR_SCRIPT.read_text(encoding="utf-8")
+        loaded_names = doctor.split("for name in", 1)[1].split("; do", 1)[0]
+
+        self.assertIn("SPARKCLAW_DESKTOP_TLS_DIR", loaded_names)
+        self.assertIn("SPARKCLAW_DESKTOP_PUBLIC_ORIGIN", loaded_names)
+        self.assertIn('--client-origin "$SPARKCLAW_DESKTOP_PUBLIC_ORIGIN"', doctor)
+        self.assertIn('--client-tls-cert "$SPARKCLAW_DESKTOP_TLS_DIR/server.crt"', doctor)
+        self.assertIn('--client-tls-ca "$SPARKCLAW_DESKTOP_TLS_DIR/ca.crt"', doctor)
+
 
 if __name__ == "__main__":
     unittest.main()

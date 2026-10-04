@@ -29,7 +29,7 @@ export default async function auditPackage(context) {
   if (context.electronPlatformName === "darwin") {
     const plist = await fs.readFile(path.join(resources, "..", "Info.plist"), "utf8");
     const icon = plist.match(/<key>CFBundleIconFile<\/key>\s*<string>([^<]+)<\/string>/u)?.[1];
-    if (!icon || /electron/iu.test(icon) || path.basename(icon) !== icon) throw new Error("Mac package must use the SparkClaw application icon");
+    if (!icon || /electron/iu.test(icon) || path.basename(icon) !== icon) throw new Error("Mac package must use the SparkX application icon");
     await fs.access(path.join(resources, icon.endsWith(".icns") ? icon : `${icon}.icns`));
   }
   const webchat = path.join(resources, "webchat");

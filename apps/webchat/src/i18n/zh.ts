@@ -2,7 +2,7 @@ import { en } from "./en";
 
 export const zh = {
     app: {
-      name: "SparkClaw",
+      name: "SparkX",
       tagline: "本地 Agent Runtime",
     },
     common: {
@@ -99,8 +99,8 @@ export const zh = {
       replyAll: "回复全部",
       messageDetails: "邮件详情与管理",
       me: "我",
-      tellHowToReply: "告诉 SparkClaw 你想怎么回复",
-      replyPolishHelp: "先写下要表达的意思，SparkClaw 会整理成一封可编辑的回复草稿。",
+      tellHowToReply: "告诉 SparkX 你想怎么回复",
+      replyPolishHelp: "先写下要表达的意思，SparkX 会整理成一封可编辑的回复草稿。",
       replyIntent: "回复要求",
       replyIntentPlaceholder: "例如：确认周二下午可以参加，并请对方提前发会议链接……",
       replyDraftEditable: "只生成可编辑草稿，发送前你可以继续修改",
@@ -254,7 +254,7 @@ export const zh = {
     },
     chat: {
       emptyTitle: "已准备好执行有边界的本地任务。",
-      placeholder: "交给 SparkClaw 一件事，让想法开始行动…",
+      placeholder: "交给 SparkX 一件事，让想法开始行动…",
       send: "发送消息",
       upload: "上传文档",
       chooseFile: "选择已有文件",
@@ -320,7 +320,7 @@ export const zh = {
       removeAttachment: "移除附件",
       you: "你",
       requirement: "要求",
-      assistant: "SparkClaw",
+      assistant: "SparkX",
       requestedMedia: "请求的媒体",
       requestedMediaUnverified: "请求的媒体（尚未验证）",
       waiting: "正在思考。",
@@ -342,17 +342,17 @@ export const zh = {
       unauthorized: "Token 认证失败",
       retryConnection: "重试",
       desktopConnection: {
-        checking: "正在检查本机 SparkClaw 服务…",
-        reconnecting: "正在重新连接本机 SparkClaw 服务…",
+        checking: "正在检查本机 SparkX 服务…",
+        reconnecting: "正在重新连接本机 SparkX 服务…",
         incomplete_setup: "桌面端本机配置未完成。请修复安装文件后重试。",
-        service_unavailable: "本机 SparkClaw 服务不可用。",
+        service_unavailable: "本机 SparkX 服务不可用。",
         invalid_authentication: "桌面凭据无效或已撤销。",
         identity_conflict: "本机服务身份与此桌面安装不匹配。",
         web: ""
       }
     },
     errors: {
-      connect: "无法连接 SparkClaw Gateway",
+      connect: "无法连接 SparkX Gateway",
       createSession: "无法创建会话",
       renameSession: "无法重命名会话",
       deleteSession: "无法删除会话",
@@ -394,7 +394,7 @@ export const zh = {
       taskPlan: "计划",
       planUnavailable: "计划暂时不可用，请在成员机器重新上线后重试。",
       workspaceDataTitle: "允许访问工作区数据",
-      workspaceDataReason: "外部 AI 正在请求 SparkClaw 访问工作区数据；目前尚未查询文件或读取元数据。",
+      workspaceDataReason: "外部 AI 正在请求 SparkX 访问工作区数据；目前尚未查询文件或读取元数据。",
       requester: "请求方",
       requestedData: "请求的数据",
       unverified: "尚未验证",
@@ -447,7 +447,7 @@ export const zh = {
     schedules: {
       title: "定时任务",
       createTitle: "直接描述你想安排的任务",
-      createDescription: "写下要做什么、何时执行和是否重复，SparkClaw 会沿用现有任务链路完成创建。",
+      createDescription: "写下要做什么、何时执行和是否重复，SparkX 会沿用现有任务链路完成创建。",
       createPlaceholder: "例如：每个工作日早上 9 点整理昨天的项目进展，并把摘要发给我",
       createAction: "创建定时任务",
       creating: "正在创建…",
@@ -562,7 +562,7 @@ export const zh = {
 	  browserEmailSetDefault: "设为默认邮箱 Provider",
 	  browserEmailOpenLogin: "打开登录浏览器",
 	  browserEmailLoginOpened: "登录浏览器已打开",
-	  browserEmailLoginOpenedDetail: "请在 SparkClaw 专用浏览器中完成登录，然后检查连接。",
+	  browserEmailLoginOpenedDetail: "请在 SparkX 专用浏览器中完成登录，然后检查连接。",
 	  browserEmailCheckSucceeded: "邮箱登录有效",
 	  browserEmailCheckSucceededDetail: "此 Provider 已可用于发送邮件。",
 	  browserEmailLoginRequired: "需要登录",

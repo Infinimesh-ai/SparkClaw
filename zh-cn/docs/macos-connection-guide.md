@@ -50,7 +50,7 @@ npm --workspace @sparkclaw/desktop run dist:mac-arm64
 # Intel 替代命令：npm --workspace @sparkclaw/desktop run dist:mac-x64
 ```
 
-脚本清空旧 WebChat Token／origin 环境变量，构建 UI、检查受管资产，再运行禁用发布的本机 electron-builder。产物在 `apps/desktop/dist/`，文件名为 `SparkClaw-0.1.0-mac-ARCH.dmg` 和 `.zip`。源码 GUI 排障可运行：
+脚本清空旧 WebChat Token／origin 环境变量，构建 UI、检查受管资产，再运行禁用发布的本机 electron-builder。产物在 `apps/desktop/dist/`，文件名为 `SparkX-0.1.0-mac-ARCH.dmg` 和 `.zip`。源码 GUI 排障可运行：
 
 ```sh
 npm run build:desktop-ui

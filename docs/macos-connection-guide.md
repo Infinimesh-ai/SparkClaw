@@ -50,7 +50,7 @@ npm --workspace @sparkclaw/desktop run dist:mac-arm64
 # Intel alternative: npm --workspace @sparkclaw/desktop run dist:mac-x64
 ```
 
-The script builds UI with old WebChat Token/origin variables cleared, checks managed assets and runs local electron-builder with publishing disabled. Outputs are under `apps/desktop/dist/`: `SparkClaw-0.1.0-mac-ARCH.dmg` and `.zip`. Source GUI diagnosis on Mac uses:
+The script builds UI with old WebChat Token/origin variables cleared, checks managed assets and runs local electron-builder with publishing disabled. Outputs are under `apps/desktop/dist/`: `SparkX-0.1.0-mac-ARCH.dmg` and `.zip`. Source GUI diagnosis on Mac uses:
 
 ```sh
 npm run build:desktop-ui

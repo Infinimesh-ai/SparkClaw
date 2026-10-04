@@ -82,7 +82,7 @@ let scheduleClient;
 let browserHostPreparation = Promise.resolve();
 
 void app.whenReady().then(start).catch((error) => {
-  process.stderr.write(`SparkClaw Electron failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
+  process.stderr.write(`SparkX Electron failed: ${error instanceof Error ? error.message : "unknown error"}\n`);
   app.exit(1);
 });
 
@@ -92,7 +92,7 @@ async function start() {
     if (url.hostname !== "extension-connect" || url.pathname !== "") {
       return new Response("Not found", { status: 404, headers: { "content-type": "text/plain" } });
     }
-    return new Response("<!doctype html><meta charset=utf-8><title>SparkClaw task</title>", {
+    return new Response("<!doctype html><meta charset=utf-8><title>SparkX task</title>", {
       headers: {
         "content-type": "text/html; charset=utf-8",
         "content-security-policy": "default-src 'none'",
@@ -172,7 +172,7 @@ async function start() {
   workbenchSession.protocol.handle("sparkclaw-app", workbenchProtocolHandler(webchatDistPath(), desktopAuth));
 
   window = new BrowserWindow({
-    title: qualification ? "SparkClaw Electron Qualification" : "SparkClaw",
+    title: qualification ? "SparkX Electron Qualification" : "SparkX",
     icon: DESKTOP_ICON_PATH,
     width: 1440,
     height: 900,
@@ -281,7 +281,7 @@ async function start() {
     workbench: window,
     downloadsRoot: qualification
       ? path.join(app.getPath("userData"), "owner-downloads")
-      : path.join(app.getPath("downloads"), "SparkClaw"),
+      : path.join(app.getPath("downloads"), "SparkX"),
     shell,
     onChange: () => desktopCapability?.changed(),
   }).start();
@@ -625,7 +625,7 @@ function workbenchDocument() {
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
     <style>html,body{margin:0;background:#111827;color:#e5e7eb;font:14px system-ui;height:100%}
     main{padding:24px;width:700px}h1{font-size:20px}code{color:#93c5fd}</style>
-    <main><h1>SparkClaw Desktop</h1><p>Electron browser runtime is ready.</p>
+    <main><h1>SparkX Desktop</h1><p>Electron browser runtime is ready.</p>
     <p>Task pages are presented behind a native input shield.</p></main>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }

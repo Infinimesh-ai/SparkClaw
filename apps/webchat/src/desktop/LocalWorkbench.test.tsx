@@ -36,7 +36,7 @@ describe("R3 local workbench", () => {
     try {
       await act(async () => root.render(<LocalWorkbench />));
       await act(async () => host.querySelector<HTMLButtonElement>(".sessionSelect")!.click());
-      expect(host.querySelector(".message.assistant .messageMeta")?.textContent).toContain("SparkClaw");
+      expect(host.querySelector(".message.assistant .messageMeta")?.textContent).toContain("SparkX");
       expect(host.querySelectorAll(".composer .uploadButton")).toHaveLength(2);
       expect(host.querySelector(".composer .emailEntryButton")).not.toBeNull();
       expect(host.querySelector(".composer .voiceControl")).not.toBeNull();

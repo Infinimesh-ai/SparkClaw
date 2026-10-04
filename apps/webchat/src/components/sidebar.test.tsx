@@ -78,6 +78,8 @@ describe("SessionSidebar navigation and conversations", () => {
     );
 
     expect(markup).toContain("Review the launch plan");
+    expect(markup).toContain('<span class="workbenchBrandName">Spark<span>X</span></span>');
+    expect(markup).not.toContain('<span class="workbenchBrandName">Spark<span>Claw</span></span>');
     expect(markup).toContain(">Schedule</span>");
     expect(markup.indexOf("sidebarScheduleLink")).toBeLessThan(markup.indexOf("conversationListHeader"));
     expect(markup).toContain("Recent tasks");

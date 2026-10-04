@@ -1,6 +1,6 @@
 export const en = {
     app: {
-      name: "SparkClaw",
+      name: "SparkX",
       tagline: "Local agent runtime",
     },
     common: {
@@ -97,8 +97,8 @@ export const en = {
       replyAll: "Reply all",
       messageDetails: "Email details and management",
       me: "Me",
-      tellHowToReply: "Tell SparkClaw how you want to reply",
-      replyPolishHelp: "Write the meaning you want to convey. SparkClaw will turn it into an editable reply draft.",
+      tellHowToReply: "Tell SparkX how you want to reply",
+      replyPolishHelp: "Write the meaning you want to convey. SparkX will turn it into an editable reply draft.",
       replyIntent: "Reply intent",
       replyIntentPlaceholder: "For example: confirm Tuesday afternoon and ask them to send the meeting link…",
       replyDraftEditable: "Creates an editable draft; you can change it before sending",
@@ -252,7 +252,7 @@ export const en = {
     },
     chat: {
       emptyTitle: "Ready for bounded local work.",
-      placeholder: "Give SparkClaw a task. Put your idea into motion…",
+      placeholder: "Give SparkX a task. Put your idea into motion…",
       send: "Send message",
       upload: "Upload document",
       chooseFile: "Choose uploaded file",
@@ -318,7 +318,7 @@ export const en = {
       removeAttachment: "Remove attachment",
       you: "You",
       requirement: "Requirement",
-      assistant: "SparkClaw",
+      assistant: "SparkX",
       requestedMedia: "Requested media",
       requestedMediaUnverified: "Requested media (not yet verified)",
       waiting: "Thinking.",
@@ -340,17 +340,17 @@ export const en = {
       unauthorized: "Token authentication failed",
       retryConnection: "Retry",
       desktopConnection: {
-        checking: "Checking the local SparkClaw service…",
-        reconnecting: "Reconnecting to the local SparkClaw service…",
+        checking: "Checking the local SparkX service…",
+        reconnecting: "Reconnecting to the local SparkX service…",
         incomplete_setup: "Desktop local setup is incomplete. Repair the installation files, then retry.",
-        service_unavailable: "The local SparkClaw service is unavailable.",
+        service_unavailable: "The local SparkX service is unavailable.",
         invalid_authentication: "The desktop credential is invalid or revoked.",
         identity_conflict: "The local service identity does not match this desktop installation.",
         web: ""
       }
     },
     errors: {
-      connect: "Failed to connect to SparkClaw Gateway",
+      connect: "Failed to connect to SparkX Gateway",
       createSession: "Could not create session",
       renameSession: "Could not rename session",
       deleteSession: "Could not delete session",
@@ -392,7 +392,7 @@ export const en = {
       taskPlan: "Plan",
       planUnavailable: "Plan temporarily unavailable. Retry after the member machine reconnects.",
       workspaceDataTitle: "Allow workspace data access",
-      workspaceDataReason: "An external AI is asking SparkClaw to access workspace data. No file lookup or metadata read has happened yet.",
+      workspaceDataReason: "An external AI is asking SparkX to access workspace data. No file lookup or metadata read has happened yet.",
       requester: "Requester",
       requestedData: "Requested data",
       unverified: "Not yet verified",
@@ -445,7 +445,7 @@ export const en = {
     schedules: {
       title: "Scheduled tasks",
       createTitle: "Describe the task you want to schedule",
-      createDescription: "Say what to do, when to run it, and whether it repeats. SparkClaw will use the existing task flow to create it.",
+      createDescription: "Say what to do, when to run it, and whether it repeats. SparkX will use the existing task flow to create it.",
       createPlaceholder: "For example: Every weekday at 9 AM, summarize yesterday's project progress and send it to me",
       createAction: "Create scheduled task",
       creating: "Creating…",
@@ -560,7 +560,7 @@ export const en = {
 	  browserEmailSetDefault: "Set as default email provider",
 	  browserEmailOpenLogin: "Open login browser",
 	  browserEmailLoginOpened: "Login browser opened",
-	  browserEmailLoginOpenedDetail: "Complete sign-in in the SparkClaw browser, then check the connection.",
+	  browserEmailLoginOpenedDetail: "Complete sign-in in the SparkX browser, then check the connection.",
 	  browserEmailCheckSucceeded: "Email login is valid",
 	  browserEmailCheckSucceededDetail: "This provider is ready to send email.",
 	  browserEmailLoginRequired: "Login required",

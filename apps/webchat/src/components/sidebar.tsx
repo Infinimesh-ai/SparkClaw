@@ -67,7 +67,7 @@ export function SessionSidebar<T extends SidebarConversation>({
   const accountInitial = (accountName.match(/[A-Z\p{L}]/gu) ?? Array.from(accountName))
     .slice(0, 2)
     .join("")
-    .toLocaleUpperCase() || "SC";
+    .toLocaleUpperCase() || "SX";
   const accountContext = accountEmail || copy.local;
 
   useEffect(() => {
@@ -94,7 +94,7 @@ export function SessionSidebar<T extends SidebarConversation>({
       <div className="brandRow">
         <button className="brand" type="button" onClick={() => onNavigate?.("chat")} title={text.app.tagline}>
           <img className="workbenchBrandMark" src={workbenchMark} alt="" aria-hidden="true" />
-          <span className="workbenchBrandName">Spark<span>Claw</span></span>
+          <span className="workbenchBrandName">Spark<span>X</span></span>
         </button>
         <button className="iconButton subtle" onClick={onToggleSidebar} title={copy.toggleNav} aria-label={copy.toggleNav}>
           <PanelLeft size={17} />

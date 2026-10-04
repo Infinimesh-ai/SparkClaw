@@ -19,7 +19,7 @@ test("afterPack audits a synthetic ASAR/resources tree without compiling any Mac
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const source = path.join(directory, "source");
   const output = path.join(directory, "output");
-  const resources = path.join(output, "SparkClaw.app", "Contents", "Resources");
+  const resources = path.join(output, "SparkX.app", "Contents", "Resources");
   await fs.mkdir(path.join(source, "src", "main"), { recursive: true });
   await fs.mkdir(path.join(resources, "webchat", "assets"), { recursive: true });
   await fs.writeFile(path.join(source, "package.json"), "{}");
@@ -27,10 +27,10 @@ test("afterPack audits a synthetic ASAR/resources tree without compiling any Mac
   await fs.writeFile(path.join(resources, "webchat", "index.html"), "<!doctype html>");
   await fs.writeFile(path.join(resources, "webchat", "assets", "main.js"), "// synthetic built UI");
   await createPackage(source, path.join(resources, "app.asar"));
-  const context = { electronPlatformName: "darwin", appOutDir: output, packager: { appInfo: { productFilename: "SparkClaw" } } };
+  const context = { electronPlatformName: "darwin", appOutDir: output, packager: { appInfo: { productFilename: "SparkX" } } };
   const plistPath = path.join(resources, "..", "Info.plist");
   await fs.writeFile(plistPath, "<plist><dict><key>CFBundleIconFile</key><string>electron.icns</string></dict></plist>");
-  await assert.rejects(auditPackage(context), /SparkClaw application icon/);
+  await assert.rejects(auditPackage(context), /SparkX application icon/);
   await fs.writeFile(plistPath, "<plist><dict><key>CFBundleIconFile</key><string>icon.icns</string></dict></plist>");
   await fs.writeFile(path.join(resources, "icon.icns"), "synthetic icon");
   await auditPackage(context);
@@ -42,6 +42,11 @@ test("afterPack audits a synthetic ASAR/resources tree without compiling any Mac
 
 test("Mac packaging entry points exist and Linux refuses to invoke any Mac build", async () => {
   const pkg = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url)));
+  assert.equal(pkg.build.productName, "SparkX");
+  assert.equal(pkg.build.appId, "ai.infinimesh.sparkclaw");
+  assert.equal(pkg.name, "@sparkclaw/desktop");
+  assert.equal(pkg.build.linux.artifactName, "SparkX-${version}-linux-${arch}.${ext}");
+  assert.equal(pkg.build.mac.artifactName, "SparkX-${version}-mac-${arch}.${ext}");
   assert.equal(pkg.scripts["dist:mac-arm64"], "node scripts/package-macos.mjs --arch arm64");
   assert.equal(pkg.scripts["dist:mac-x64"], "node scripts/package-macos.mjs --arch x64");
   assert.equal(pkg.build.afterPack, "./scripts/audit-package.mjs");

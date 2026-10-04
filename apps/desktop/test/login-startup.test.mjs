@@ -9,12 +9,13 @@ test("Linux login startup writes a persistent launcher and can turn it off", asy
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-login-startup-"));
   try {
     const launcher = path.join(home, ".config", "autostart", "sparkclaw.desktop");
-    assert.deepEqual(await linuxLoginStartup({ home, executable: "/opt/SparkClaw/SparkClaw.AppImage", enabled: undefined }), { supported: true, enabled: false });
-    assert.deepEqual(await linuxLoginStartup({ home, executable: "/opt/SparkClaw/SparkClaw.AppImage", enabled: true }), { supported: true, enabled: true });
+    assert.deepEqual(await linuxLoginStartup({ home, executable: "/opt/SparkX/SparkX.AppImage", enabled: undefined }), { supported: true, enabled: false });
+    assert.deepEqual(await linuxLoginStartup({ home, executable: "/opt/SparkX/SparkX.AppImage", enabled: true }), { supported: true, enabled: true });
     const content = await fs.readFile(launcher, "utf8");
-    assert.match(content, /^Exec="\/opt\/SparkClaw\/SparkClaw.AppImage"$/m);
+    assert.match(content, /^Name=SparkX$/m);
+    assert.match(content, /^Exec="\/opt\/SparkX\/SparkX.AppImage"$/m);
     assert.equal((await fs.stat(launcher)).mode & 0o777, 0o600);
-    assert.deepEqual(await linuxLoginStartup({ home, executable: "/opt/SparkClaw/SparkClaw.AppImage", enabled: false }), { supported: true, enabled: false });
+    assert.deepEqual(await linuxLoginStartup({ home, executable: "/opt/SparkX/SparkX.AppImage", enabled: false }), { supported: true, enabled: false });
   } finally {
     await fs.rm(home, { recursive: true, force: true });
   }

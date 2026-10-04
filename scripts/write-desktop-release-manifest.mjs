@@ -34,7 +34,7 @@ const dependency = async (name, fallback) => {
 };
 const manifest = {
   schema_version: 1,
-  product: "SparkClaw Desktop",
+  product: "SparkX Desktop",
   version: packageVersion,
   platform: "linux",
   architecture: "arm64",

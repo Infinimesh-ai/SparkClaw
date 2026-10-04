@@ -30,7 +30,7 @@ try {
   }), { mode: 0o600 });
   await fs.writeFile(credentialPath, JSON.stringify({
     schema_version: 1, deployment_id: "qualification-deployment", client_id: "qualification-desktop",
-    owner_id: "owner", client_name: "SparkClaw Desktop Qualification", token: DESKTOP_TOKEN,
+    owner_id: "owner", client_name: "SparkX Desktop Qualification", token: DESKTOP_TOKEN,
   }), { mode: 0o600 });
   const configHome = path.join(temporary, "config");
   const env = { ...process.env, DISPLAY: display, XDG_CONFIG_HOME: configHome };
@@ -50,7 +50,7 @@ try {
       const extracted = path.join(temporary, "deb-root");
       await fs.mkdir(extracted);
       await run("dpkg-deb", ["--extract", filename, extracted]);
-      executable = path.join(extracted, "opt", "SparkClaw", "sparkclaw");
+      executable = path.join(extracted, "opt", "SparkX", "sparkx");
     } else {
       const extracted = path.join(temporary, "appimage-root");
       await fs.mkdir(extracted);

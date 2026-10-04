@@ -65,6 +65,7 @@
       "artifactName": "SparkX-${version}-linux-${arch}.${ext}"
     },
     "deb": {
+      "packageName": "sparkclaw",
       "priority": "optional"
     },
     "mac": {

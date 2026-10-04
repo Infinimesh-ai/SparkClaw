@@ -47,6 +47,8 @@ try {
     if (artifact.name.endsWith(".deb")) {
       const field = await run("dpkg-deb", ["--field", filename, "Architecture"]);
       assert.equal(field.stdout.trim(), "arm64");
+      const packageName = await run("dpkg-deb", ["--field", filename, "Package"]);
+      assert.equal(packageName.stdout.trim(), "sparkclaw");
       const extracted = path.join(temporary, "deb-root");
       await fs.mkdir(extracted);
       await run("dpkg-deb", ["--extract", filename, extracted]);
@@ -59,7 +61,9 @@ try {
     }
     const userData = path.join(temporary, artifact.name.replaceAll(/[^a-zA-Z0-9]/gu, "-"));
     const adapterDirectory = path.join(userData, "adapter");
-    const ready = await launchAndStop(executable, ["--qualification-workbench", "--disable-gpu"], {
+    // A non-root extraction cannot retain chrome-sandbox's root ownership. Production
+    // installs still use Electron's sandbox; only this disposable package probe disables it.
+    const ready = await launchAndStop(executable, ["--qualification-workbench", "--disable-gpu", "--no-sandbox"], {
       ...env,
       SPARKCLAW_DESKTOP_USER_DATA_DIR: userData,
       SPARKCLAW_ELECTRON_ADAPTER_SOCKET: path.join(adapterDirectory, "electron-adapter.sock"),

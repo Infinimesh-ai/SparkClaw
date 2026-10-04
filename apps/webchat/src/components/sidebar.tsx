@@ -1,44 +1,49 @@
 // Session sidebar: the schedule entry, task conversation list, and direct actions.
-import { useEffect, useRef, useState } from "react";
-import { CalendarDays, MoreHorizontal, PanelLeft, Pencil, Save, Search, Settings, SquarePen, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { CalendarDays, LogOut, MoreHorizontal, PanelLeft, Pencil, Save, Search, Settings, SquarePen, Trash2, X } from "lucide-react";
 import { workbenchCopy, type WorkspacePage } from "./workbench";
 import workbenchMark from "../../../desktop/src/assets/icon.png";
 import type { Copy, Language } from "../i18n";
 import type { OwnerProfile, Session } from "../api/types";
 import { shortId } from "../lib/format";
 
-type SessionSidebarProps = {
+type SidebarConversation = Pick<Session, "id" | "title"> & { source?: string };
+
+type SessionSidebarProps<T extends SidebarConversation> = {
   text: Copy;
   language: Language;
   page: WorkspacePage;
   ownerProfile: OwnerProfile | null;
-  sessions: Session[];
+  sessions: T[];
   activeSession: string;
-  editingSession: string;
-  sessionTitleDraft: string;
-  sessionActionId: string;
+  editingSession?: string;
+  sessionTitleDraft?: string;
+  sessionActionId?: string;
   onCreateSession: () => void;
-  onSelectSession: (session: Session) => void;
-  onStartRename: (session: Session) => void;
-  onCancelRename: () => void;
-  onRenameSubmit: (sessionId: string) => void;
-  onTitleDraftChange: (value: string) => void;
-  onDeleteSession: (sessionId: string) => void;
+  onSelectSession: (session: T) => void;
+  onStartRename?: (session: T) => void;
+  onCancelRename?: () => void;
+  onRenameSubmit?: (sessionId: string) => void;
+  onTitleDraftChange?: (value: string) => void;
+  onDeleteSession?: (sessionId: string) => void;
   onNavigate?: (page: WorkspacePage) => void;
   onSearch: () => void;
   onToggleSidebar?: () => void;
+  onLogout?: () => void;
+  busy?: boolean;
+  listNotice?: ReactNode;
 };
 
-export function SessionSidebar({
+export function SessionSidebar<T extends SidebarConversation>({
   text,
   language,
   page,
   ownerProfile,
   sessions,
   activeSession,
-  editingSession,
-  sessionTitleDraft,
-  sessionActionId,
+  editingSession = "",
+  sessionTitleDraft = "",
+  sessionActionId = "",
   onCreateSession,
   onSelectSession,
   onStartRename,
@@ -48,8 +53,11 @@ export function SessionSidebar({
   onDeleteSession,
   onNavigate,
   onSearch,
-  onToggleSidebar
-}: SessionSidebarProps) {
+  onToggleSidebar,
+  onLogout,
+  busy = false,
+  listNotice
+}: SessionSidebarProps<T>) {
   const copy = workbenchCopy[language];
   const visibleSessions = sessions.filter((session) => session.source !== "mcp");
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -109,12 +117,13 @@ export function SessionSidebar({
           <button className="conversationHeaderButton" onClick={onSearch} title={copy.search} aria-label={copy.search}>
             <Search size={15.5} strokeWidth={1.7} />
           </button>
-          <button className="conversationHeaderButton newConversationButton" onClick={onCreateSession} title={text.nav.newSession} aria-label={text.nav.newSession}>
+          <button className="conversationHeaderButton newConversationButton" disabled={busy} onClick={onCreateSession} title={text.nav.newSession} aria-label={text.nav.newSession}>
             <SquarePen size={16} strokeWidth={1.6} />
           </button>
         </div>
       </div>
-      <div className="sessionList" aria-label={text.nav.sessions}>
+      <nav className="sessionList" aria-label={text.nav.sessions}>
+        {listNotice}
         {visibleSessions.map((session) => (
           <div className={`sessionItem ${page === "chat" && session.id === activeSession ? "active" : ""}`} key={session.id}>
             {editingSession === session.id ? (
@@ -122,13 +131,13 @@ export function SessionSidebar({
                 className="sessionRenameForm"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  onRenameSubmit(session.id);
+                  onRenameSubmit?.(session.id);
                 }}
               >
                 <input
                   aria-label={text.nav.renameSession}
                   value={sessionTitleDraft}
-                  onChange={(event) => onTitleDraftChange(event.target.value)}
+                  onChange={(event) => onTitleDraftChange?.(event.target.value)}
                   disabled={sessionActionId === session.id}
                 />
                 <button className="miniIconButton" disabled={!sessionTitleDraft.trim() || sessionActionId === session.id} title={text.nav.saveSessionName}>
@@ -140,23 +149,23 @@ export function SessionSidebar({
               </form>
             ) : (
               <>
-                <button className="sessionSelect" onClick={() => onSelectSession(session)}>
+                <button className="sessionSelect" disabled={busy} aria-current={page === "chat" && session.id === activeSession ? "page" : undefined} onClick={() => onSelectSession(session)}>
                   <span>{session.title}</span>
                   <small>{shortId(session.id)}</small>
                 </button>
-                <div className="sessionActions">
-                  <button className="miniIconButton" onClick={() => onStartRename(session)} disabled={sessionActionId === session.id} title={text.nav.renameSession}>
+                {(onStartRename || onDeleteSession) && <div className="sessionActions">
+                  {onStartRename && <button className="miniIconButton" onClick={() => onStartRename?.(session)} disabled={sessionActionId === session.id} title={text.nav.renameSession}>
                     <Pencil size={13} />
-                  </button>
-                  <button className="miniIconButton dangerIcon" onClick={() => onDeleteSession(session.id)} disabled={sessionActionId === session.id} title={text.nav.deleteSession}>
+                  </button>}
+                  {onDeleteSession && <button className="miniIconButton dangerIcon" onClick={() => onDeleteSession?.(session.id)} disabled={sessionActionId === session.id} title={text.nav.deleteSession}>
                     <Trash2 size={13} />
-                  </button>
-                </div>
+                  </button>}
+                </div>}
               </>
             )}
           </div>
         ))}
-      </div>
+      </nav>
       <div className="sidebarFooter">
         <div className="sidebarAccount" ref={accountMenuRef}>
           {accountMenuOpen && <div className="sidebarAccountMenu" role="menu">
@@ -179,6 +188,7 @@ export function SessionSidebar({
               <Settings size={16} />
               <span>{copy.settings}</span>
             </button>
+            {onLogout && <button className="sidebarAccountMenuItem" type="button" role="menuitem" onClick={() => { setAccountMenuOpen(false); onLogout(); }}><LogOut size={16} /><span>{language === "zh" ? "退出登录" : "Sign out"}</span></button>}
           </div>}
           <button
             className="sidebarAccountTrigger"

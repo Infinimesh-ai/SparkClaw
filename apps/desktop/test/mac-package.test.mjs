@@ -28,6 +28,11 @@ test("afterPack audits a synthetic ASAR/resources tree without compiling any Mac
   await fs.writeFile(path.join(resources, "webchat", "assets", "main.js"), "// synthetic built UI");
   await createPackage(source, path.join(resources, "app.asar"));
   const context = { electronPlatformName: "darwin", appOutDir: output, packager: { appInfo: { productFilename: "SparkClaw" } } };
+  const plistPath = path.join(resources, "..", "Info.plist");
+  await fs.writeFile(plistPath, "<plist><dict><key>CFBundleIconFile</key><string>electron.icns</string></dict></plist>");
+  await assert.rejects(auditPackage(context), /SparkClaw application icon/);
+  await fs.writeFile(plistPath, "<plist><dict><key>CFBundleIconFile</key><string>icon.icns</string></dict></plist>");
+  await fs.writeFile(path.join(resources, "icon.icns"), "synthetic icon");
   await auditPackage(context);
   const result = JSON.parse(await fs.readFile(path.join(resources, "client-package-audit.json")));
   assert.equal(result.platform, "darwin"); assert.equal(result.ui_files, 2);

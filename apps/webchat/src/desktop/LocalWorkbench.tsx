@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { FileDown, LogOut, Plus, Settings, Send, RefreshCw, X, Globe2 } from "lucide-react";
+import { FileDown, Paperclip, Save, Send, RefreshCw, X, Globe2, PanelLeft, Mail } from "lucide-react";
+import { SessionSidebar } from "../components/sidebar";
+import { TaskSearch, WorkbenchWelcome, workbenchCopy } from "../components/workbench";
 import { api } from "../api/client";
 import { InspectorColumn, type PanelTab } from "../components/inspector";
 import { WorkspaceSettingsSidebar } from "../components/settingsSidebar";
@@ -21,6 +23,7 @@ export function LocalWorkbench() {
   const desktop = desktopCapability()!;
   const [language, setLanguage] = useState<Language>(initialLanguage);
   const zh = language === "zh";
+  const copy = workbenchCopy[language];
   const [conversations, setConversations] = useState<LocalConversation[]>([]);
   const [selected, setSelected] = useState("");
   const selectedRef = useRef(selected); selectedRef.current = selected;
@@ -36,6 +39,10 @@ export function LocalWorkbench() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [settings, setSettings] = useState(false);
+  const [page, setPage] = useState<"chat" | "schedules">("chat");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mailOpen, setMailOpen] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [tab, setTab] = useState<PanelTab>("devices");
   const [currentClientID, setCurrentClientID] = useState("");
@@ -47,6 +54,8 @@ export function LocalWorkbench() {
   }, [zh]);
   const reload = useCallback(async () => { setConversations(await store.list()); }, [store]);
   const select = useCallback(async (id: string) => {
+    setPage("chat");
+    if (selectedRef.current === id) return;
     selectedRef.current = id; setSelected(id); setContent(emptyContent); setDraft(""); setInputFiles([]); setScheduleDraft(""); setScheduleDate("");
     const generation = ++readGeneration.current;
     await desktop.selectConversation?.(id);
@@ -95,11 +104,20 @@ export function LocalWorkbench() {
       await reload(); await select(conversation.id);
     });
   }
+  async function ensureConversation() {
+    if (selectedRef.current) return selectedRef.current;
+    const conversation = await store.create(zh ? "新对话" : "New conversation");
+    await desktop.selectConversation?.(conversation.id);
+    selectedRef.current = conversation.id; setSelected(conversation.id); setContent(emptyContent);
+    await reload();
+    return conversation.id;
+  }
   async function save(event: FormEvent, submit = false) {
     event.preventDefault();
-    const text = draft.trim(); const id = selected;
-    if (!text || !id) return;
+    const text = draft.trim();
+    if (!text) return;
     await action(async () => {
+      const id = await ensureConversation();
       const task = inputFiles.length ? await store.enqueue(id, text, inputFiles) : await store.enqueue(id, text);
       if (selectedRef.current === id) {
         setDraft(""); setInputFiles([]); setContent(await store.read(id));
@@ -143,10 +161,10 @@ export function LocalWorkbench() {
     finally { if (selectedRef.current === id) setContent(await store.read(id)); await reload(); }
   }
   async function saveFile(file?: File) {
-    if (!file || !selected) return;
-    const id = selected;
+    if (!file) return;
     await action(async () => {
       if (file.size > 64 * 1024 * 1024) throw new Error(zh ? "文件超过 64 MiB。请选择较小的文件。" : "File exceeds 64 MiB. Choose a smaller file.");
+      const id = await ensureConversation();
       await store.saveFile(id, file.name, new Uint8Array(await file.arrayBuffer()));
       if (selectedRef.current === id) setContent(await store.read(id));
       setNotice(zh ? "文件已验证并保存到本机。" : "File verified and saved on this device.");
@@ -157,34 +175,34 @@ export function LocalWorkbench() {
     setLanguage(next); window.localStorage.setItem(LANGUAGE_STORAGE_KEY, next);
   }
 
-  return <div className="shell workbench localWorkbench">
+  const home = page === "chat" && !mailOpen && !content.messages.length && !content.tasks.length && !content.files.length;
+  return <div className={`shell workbench localWorkbench ${settings ? "settingsPageMode" : sidebarCollapsed ? "sidebarCollapsed" : ""}`}>
     {settings ? <WorkspaceSettingsSidebar text={dictionaries[language]} language={language} tab={tab}
       pendingApprovalCount={0} pendingCandidateCount={0} onTabChange={setTab} onBack={() => setSettings(false)}
-      availableTabs={["devices", "appearance"]} /> : <aside className="sidebar">
-      <div className="brandRow"><strong>SparkClaw</strong></div>
-      <button className="primaryButton" type="button" disabled={busy} onClick={() => void create()}><Plus size={16} />{zh ? "新建本地对话" : "New local conversation"}</button>
-      <nav className="localConversationList" aria-label={zh ? "本机对话" : "Device conversations"}>
-        {loading && <p role="status">{zh ? "正在读取本机对话…" : "Loading device conversations…"}</p>}
-        {!loading && !conversations.length && <p>{zh ? "本机还没有对话。新建一个即可开始保存。" : "No conversations on this device. Create one to start saving."}</p>}
-        {conversations.map((conversation) => <button key={conversation.id} type="button" aria-current={selected === conversation.id ? "page" : undefined}
-          disabled={busy} onClick={() => void select(conversation.id).catch(surfaceError)}>{conversation.title}</button>)}
-      </nav>
-      <div className="sidebarFooter">
-        <button className="sidebarAccountMenuItem" type="button" onClick={() => setSettings(true)}><Settings size={16} />{zh ? "设置" : "Settings"}</button>
-        <button className="sidebarAccountMenuItem" type="button" onClick={() => void logout().catch(surfaceError)}><LogOut size={16} />{zh ? "退出登录" : "Sign out"}</button>
-      </div>
-    </aside>}
-    <main className={`workspace ${browserOpen && !settings ? "localWithBrowser" : ""}`} aria-busy={busy}>
-      <header className="topbar"><h1>{settings ? (zh ? "设置" : "Settings") : (zh ? "本机工作台" : "Device workspace")}</h1>
-        {!settings && typeof desktop.state === "function" && <button className="localBrowserToggle" type="button" aria-expanded={browserOpen} onClick={() => setBrowserOpen((open) => !open)}><Globe2 size={16} />{browserOpen ? (zh ? "收起浏览器" : "Hide browser") : (zh ? "浏览器" : "Browser")}</button>}
-        <select aria-label={zh ? "语言" : "Language"} value={language} onChange={(event) => changeLanguage(event.target.value as Language)}>
-          <option value="zh">简体中文</option><option value="en">English</option>
-        </select>
-      </header>
+      availableTabs={["devices", "appearance"]} /> : <SessionSidebar
+      text={dictionaries[language]} language={language} page={page} ownerProfile={null}
+      sessions={conversations} activeSession={selected} busy={busy}
+      onCreateSession={() => void create()} onSelectSession={(conversation) => void select(conversation.id).catch(surfaceError)}
+      onNavigate={(next) => { if (next === "settings") setSettings(true); else if (next === "schedules") setPage("schedules"); else void create(); }}
+      onSearch={() => setSearchOpen(true)} onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
+      onLogout={() => void logout().catch(surfaceError)}
+      listNotice={loading ? <p className="localListNotice" role="status">{zh ? "正在读取本机对话…" : "Loading device conversations…"}</p> : !conversations.length ? <p className="localListNotice">{copy.empty}</p> : undefined}
+    />}
+    <main className={`${settings ? "settingsPageMain" : "workspace"} ${browserOpen && !settings ? "localWithBrowser" : ""}`} aria-busy={busy}>
+      {!settings && <header className="topbar">
+        <button className="iconButton sidebarToggle" type="button" aria-label={copy.toggleNav} onClick={() => setSidebarCollapsed((current) => !current)}><PanelLeft size={18} /></button>
+        <span className="workspaceLabel">{copy.local}</span>
+        <div className="topbarActions">
+          {typeof desktop.state === "function" && <button className={`iconButton ${browserOpen ? "active" : ""}`} type="button" aria-label={zh ? "浏览器" : "Browser"} title={zh ? "浏览器" : "Browser"} aria-expanded={browserOpen} onClick={() => setBrowserOpen((open) => !open)}><Globe2 size={18} /></button>}
+          <select aria-label={zh ? "语言" : "Language"} value={language} onChange={(event) => changeLanguage(event.target.value as Language)}>
+            <option value="zh">简体中文</option><option value="en">English</option>
+          </select>
+        </div>
+      </header>}
       {error && <div className="localFeedback" role="alert"><p>{error}</p><button type="button" onClick={() => void reload().then(() => setError("")).catch(surfaceError)}>{zh ? "重试读取" : "Retry loading"}</button></div>}
       {notice && <p className="localFeedback" role="status">{notice}</p>}
       {connection?.state === "service_unavailable" && <div className="localFeedback" role="status"><p>{zh ? "当前离线，本机对话和文件仍可读取。重新连接后可查询已提交的原请求。" : "Offline. Your device conversations and files remain available. Reconnect to check your submitted requests."}</p><button type="button" disabled={busy} onClick={() => void action(async () => { setConnection(await desktop.retryLocalConnection()); })}>{zh ? "重新连接" : "Reconnect"}</button></div>}
-      {settings ? <div className="localSettingsContent"><InspectorColumn settingsPage showTabs={false} tab={tab} onTabChange={setTab}
+      {settings ? <div className="settingsPageContent"><header className="settingsPageHeader"><h1>{copy.settingsTitles[tab]}</h1><p>{copy.settingsDescriptions[tab]}</p></header><InspectorColumn settingsPage showTabs={false} tab={tab} onTabChange={setTab}
         text={dictionaries[language]} language={language} pendingApprovalCount={0} pendingCandidateCount={0}
         toolCalls={[]} approvals={[]} candidates={[]} memories={[]} traceRun={null} traceList={[]} traceLoading={false}
         ready={null} modelCalls={[]} auditEvents={[]} artifacts={[]} episodes={[]} evalRuns={[]} runtimeConfig={null}
@@ -194,18 +212,14 @@ export function LocalWorkbench() {
         setConnectors={() => {}} setRuntimeConfig={() => {}} setOwnerProfile={() => {}}
         onLanguageChange={changeLanguage} onOpenSchedules={() => {}} currentClientID={currentClientID}
         onCurrentClientRevoked={logout} onLogout={logout} /></div> : <>
-        <div className="localHistory">
-          <p className="localPhaseNotice">{zh ? "对话和文件保存在本机。只有点击提交才会执行；断线后按原请求查询，执行结果保存成功后才确认接收。" : "Conversations and files stay on this device. Submit explicitly to execute. Reconnection checks the same request; results are acknowledged after local saving succeeds."}</p>
-          <MailCachePanel language={language} conversationID={selected} onFileSaved={() => {
+        <section className={`chatColumn localChat ${home ? "homeChat" : ""}`} hidden={page !== "chat"}>
+        <div className="messageList localHistory">
+          {home && <WorkbenchWelcome language={language} />}
+          {mailOpen && <MailCachePanel language={language} conversationID={selected} onFileSaved={() => {
             const id = selectedRef.current;
             const generation = readGeneration.current;
             if (id) void store.read(id).then((next) => { if (selectedRef.current === id && readGeneration.current === generation) setContent(next); }).catch(surfaceError);
-          }} />
-          {!selected && <p>{zh ? "选择或新建本地对话。" : "Select or create a local conversation."}</p>}
-          {selected && desktop.grantBrowserHost && <button className="localBrowserGrant" type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(async () => {
-            await desktop.grantBrowserHost!();
-            setNotice(zh ? "已授权本机浏览器执行当前设备的任务。" : "This device's browser is authorized for its tasks.");
-          })}>{zh ? "授权本机浏览器" : "Authorize this browser"}</button>}
+          }} />}
           {browserState?.browser_host?.unknown_writes.filter((command) => command.local_conversation_id === selected).map((command) => <section className="localUnknownWrite" role="alert" key={command.command_id}>
             <h2>{zh ? "浏览器操作结果不确定" : "Browser action outcome uncertain"}</h2>
             <p>{zh ? "此操作不能重发。先独立检查网站的实际状态，再记录你已确认的结果。" : "This action cannot be resent. Inspect the actual website state independently, then record the outcome you verified."}</p>
@@ -246,7 +260,23 @@ export function LocalWorkbench() {
                 const result = await store.exportFile(file.id);
                 if (result.saved) setNotice(zh ? "已另存文件。" : "File exported.");
               })}><FileDown size={16} />{zh ? "另存" : "Export"}</button></div>)}</section>}
-          {selected && <details className="localSchedules"><summary>{zh ? "单次定时任务" : "Single-run scheduled tasks"}</summary>
+
+        </div>
+        <div className="composerDock">
+          <form className="composer localComposer" onSubmit={(event) => void save(event)}>
+            <textarea id="localDraft" aria-label={zh ? "本地输入" : "Local input"} placeholder={zh ? "告诉我你想做什么…" : "What would you like to do?"} value={draft} onChange={(event) => setDraft(event.target.value)} disabled={busy} rows={3} />
+            <label className="uploadButton localFileInput" title={zh ? "保存本机文件" : "Save a local file"}><Paperclip size={18} /><input type="file" aria-label={zh ? "保存本机文件" : "Save a local file"} disabled={busy} onChange={(event) => { void saveFile(event.target.files?.[0]); event.target.value = ""; }} /></label>
+            <button className="iconButton emailEntryButton" type="button" aria-label={zh ? "邮件" : "Mail"} title={zh ? "邮件" : "Mail"} aria-expanded={mailOpen} onClick={() => setMailOpen((open) => !open)}><Mail size={18} /></button>
+            <button className="iconButton localSaveButton" type="submit" aria-label={zh ? "保存到本机" : "Save on this device"} title={zh ? "保存到本机" : "Save on this device"} disabled={!draft.trim() || busy}><Save size={18} /></button>
+            <button className="sendButton" type="button" aria-label={zh ? "保存并提交" : "Save and submit"} title={zh ? "保存并提交" : "Save and submit"} disabled={!draft.trim() || busy || connection?.state !== "connected"} onClick={(event) => void save(event, true)}><Send size={16} /></button>
+          </form>
+          <p className="localSaveHint">{zh ? "对话保存在本机 · 点击发送才会执行" : "Saved on this device · Send to execute"}</p>
+        </div>
+        </section>
+        {page === "schedules" && <div className="workbenchPage schedulePage">
+          <header className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div></header>
+          {!selected && <div className="localScheduleEmpty"><p>{zh ? "先选择或新建一个任务，再安排执行时间。" : "Choose or create a task to schedule it."}</p><button className="primaryButton" type="button" onClick={() => void create()}>{copy.newTask}</button></div>}
+          {selected && <section className="localSchedules">
             <p>{zh ? "定义保存在本机，可安排未来 24 小时内的一次执行。设备必须保持在线；离线错过到期时间不会补跑，可明确点击立即执行新请求。" : "Definitions stay on this device. Schedule one execution within the next 24 hours and keep this device online. Missed offline work does not catch up; Run now explicitly creates a new request."}</p>
             {(content.schedules ?? []).map((item) => <div className="localTaskRow" key={item.request_id}><p><span>{new Date(item.due_at).toLocaleString(zh ? "zh-CN" : "en-US")}</span><span>{scheduleLabel(item.state, zh)}</span></p>
               <div className="localTaskActions">
@@ -258,18 +288,15 @@ export function LocalWorkbench() {
               <label htmlFor="scheduleDate">{zh ? "本地到期时间" : "Due time in your local timezone"}</label><input id="scheduleDate" type="datetime-local" value={scheduleDate} disabled={busy} onChange={(event) => setScheduleDate(event.target.value)} />
               <button type="submit" disabled={busy || !scheduleDraft.trim() || !scheduleDate}>{zh ? "保存单次定时任务" : "Save single-run schedule"}</button>
             </form>
-          </details>}
-        </div>
-        <form className="localComposer" onSubmit={(event) => void save(event)}>
-          <label htmlFor="localDraft">{zh ? "本地输入" : "Local input"}</label>
-          <textarea id="localDraft" value={draft} onChange={(event) => setDraft(event.target.value)} disabled={!selected || busy} rows={4} />
-          <div><label className="localFileInput">{zh ? "保存本机文件" : "Save a local file"}<input type="file" disabled={!selected || busy} onChange={(event) => {
-            void saveFile(event.target.files?.[0]); event.target.value = "";
-          }} /></label><div className="localComposerActions"><button type="submit" disabled={!selected || !draft.trim() || busy}>{zh ? "保存到本机" : "Save on this device"}</button><button className="primaryButton" type="button" disabled={!selected || !draft.trim() || busy || connection?.state !== "connected"} onClick={(event) => void save(event, true)}><Send size={16} />{busy ? (zh ? "正在处理…" : "Working…") : (zh ? "保存并提交" : "Save and submit")}</button></div></div>
-        </form>
-        {browserOpen && typeof desktop.state === "function" && <BrowserPanel language={language} localConversationID={selected} />}
+          </section>}
+        </div>}
+        {browserOpen && typeof desktop.state === "function" && <BrowserPanel language={language} localConversationID={selected} toolbar={<div className="localBrowserAuthorization">{selected && desktop.grantBrowserHost && <button className="localBrowserGrant" type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(async () => {
+            await desktop.grantBrowserHost!();
+            setNotice(zh ? "已授权本机浏览器执行当前设备的任务。" : "This device's browser is authorized for its tasks.");
+          })}>{zh ? "授权本机浏览器" : "Authorize this browser"}</button>}</div>} />}
       </>}
     </main>
+    {searchOpen && <TaskSearch language={language} sessions={conversations} onSelect={(conversation) => { setSearchOpen(false); void select(conversation.id).catch(surfaceError); }} onClose={() => setSearchOpen(false)} />}
   </div>;
 }
 

@@ -68,6 +68,7 @@
       "priority": "optional"
     },
     "mac": {
+      "icon": "src/assets/icon.png",
       "category": "public.app-category.productivity",
       "hardenedRuntime": true,
       "identity": null,

@@ -38,7 +38,7 @@ describe("R3 local workbench", () => {
     const host = document.createElement("div"); const root = createRoot(host);
     try {
       await act(async () => root.render(<LocalWorkbench />));
-      const rowButton = [...host.querySelectorAll<HTMLButtonElement>("nav button")].find((button) => button.textContent === row.title)!;
+      const rowButton = [...host.querySelectorAll<HTMLButtonElement>("nav button")].find((button) => button.textContent?.includes(row.title))!;
       await act(async () => rowButton.click());
       const input = host.querySelector<HTMLTextAreaElement>("#localDraft")!;
       await act(async () => {
@@ -51,6 +51,44 @@ describe("R3 local workbench", () => {
       await act(async () => host.querySelector("form.localComposer")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
       expect(host.textContent).toContain("Execution has not been submitted");
       expect(enqueue).toHaveBeenLastCalledWith(row.id, "Keep this local input");
+      expect(fetch).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it("starts from the shared welcome and saves the first input locally without duplicate conversations after a disk failure", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    const row = { id: "conversation", title: "New conversation", created_at: "", updated_at: "" };
+    const fetch = vi.fn(() => { throw new Error("unexpected network request"); });
+    vi.stubGlobal("fetch", fetch);
+    const create = vi.fn(async () => row);
+    const enqueue = vi.fn().mockRejectedValueOnce(new Error("Disk full")).mockResolvedValue({ id: "task", request_id: "request", status: "awaiting_runtime", created_at: "" });
+    const submit = vi.fn();
+    window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => create.mock.calls.length ? [row] : []), create,
+      read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue, submit,
+      saveFile: vi.fn(), exportFile: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
+      scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client" })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"); const root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      expect(host.querySelector(".workbenchWelcome h1")!.textContent).toBe("What should we do?");
+      expect(host.querySelector(".workbenchBrandMark")!.getAttribute("src")).toBe(host.querySelector(".welcomeBrandMark")!.getAttribute("src"));
+      expect(create).not.toHaveBeenCalled();
+      const input = host.querySelector<HTMLTextAreaElement>("#localDraft")!;
+      expect(input.disabled).toBe(false);
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Keep my first draft");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      const save = () => host.querySelector("form.localComposer")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await act(async () => { save(); });
+      expect(input.value).toBe("Keep my first draft");
+      expect(host.textContent).toContain("Disk full");
+      await act(async () => { save(); });
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(enqueue).toHaveBeenLastCalledWith(row.id, "Keep my first draft");
+      expect(submit).not.toHaveBeenCalled();
       expect(fetch).not.toHaveBeenCalled();
     } finally { await act(async () => root.unmount()); }
   });
@@ -131,6 +169,7 @@ describe("R3 local workbench", () => {
     try {
       await act(async () => root.render(<LocalWorkbench />));
       await act(async () => host.querySelector<HTMLButtonElement>("nav button")!.click());
+      await act(async () => host.querySelector<HTMLButtonElement>(".sidebarScheduleLink")!.click());
       expect(scheduleCreate).not.toHaveBeenCalled();
       await act(async () => {
         const draft = host.querySelector<HTMLTextAreaElement>("#scheduleDraft")!;

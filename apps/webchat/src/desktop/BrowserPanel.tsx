@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -38,7 +38,7 @@ const copy = {
   },
 } as const;
 
-export function BrowserPanel({ language, localConversationID }: { language: Language; localConversationID?: string }) {
+export function BrowserPanel({ language, localConversationID, toolbar }: { language: Language; localConversationID?: string; toolbar?: ReactNode }) {
   const desktop = desktopCapability();
   const text = copy[language];
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -171,6 +171,7 @@ export function BrowserPanel({ language, localConversationID }: { language: Lang
   };
 
   return <aside className={`taskInspector desktopBrowserPanel ${wide ? "wide" : ""}`} aria-label={language === "zh" ? "桌面侧栏工具" : "Desktop panel tools"}>
+    {toolbar}
     {surface === "launcher" ? <nav className="desktopToolLauncher" aria-label={text.tools}>
       <button type="button" onClick={() => setSurface("browser")}>
         <Globe2 size={17} />

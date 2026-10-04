@@ -72,8 +72,8 @@ export function WorkbenchWelcome({ language }: { language: Language }) {
   </div>;
 }
 
-export function TaskSearch({ language, sessions, onSelect, onClose }: {
-  language: Language; sessions: Session[]; onSelect: (session: Session) => void; onClose: () => void;
+export function TaskSearch<T extends Pick<Session, "id" | "title"> & { source?: string }>({ language, sessions, onSelect, onClose }: {
+  language: Language; sessions: T[]; onSelect: (session: T) => void; onClose: () => void;
 }) {
   const copy = workbenchCopy[language];
   const dialogRef = useRef<HTMLDialogElement>(null);

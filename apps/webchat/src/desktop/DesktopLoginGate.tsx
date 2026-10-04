@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { initialLanguage, type Language } from "../i18n";
 import { desktopCapability } from "./capability";
 import type { DesktopBackendDescriptor, DesktopConnectionStatus } from "./types";
+import workbenchMark from "../../../desktop/src/assets/icon.png";
 import "./desktop-login.css";
 
 const copy = {
@@ -82,7 +83,7 @@ export function DesktopLoginGate({ children }: { children: ReactNode }) {
   return <main className="desktopLogin" aria-busy={busy}>
     <section className="desktopLoginContent" aria-labelledby="desktopLoginTitle">
       <div className="desktopLoginHeading">
-        <h1 id="desktopLoginTitle">{text.title}</h1>
+        <h1 id="desktopLoginTitle"><img src={workbenchMark} alt="" aria-hidden="true" />{text.title}</h1>
         <select aria-label={text.language} value={language} onChange={(event) => setLanguage(event.target.value as Language)}>
           <option value="zh">简体中文</option><option value="en">English</option>
         </select>

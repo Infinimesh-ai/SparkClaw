@@ -1,0 +1,15 @@
+# Optional R3 LAN ingress. Keys and certificates are provisioned outside Git.
+services:
+  gateway:
+    environment:
+      SPARKCLAW_GATEWAY_TLS_CERT_FILE: /run/sparkclaw/tls/server.crt
+      SPARKCLAW_GATEWAY_TLS_KEY_FILE: /run/sparkclaw/tls/server.key
+    shm_size: 512m
+    volumes:
+      - ${SPARKCLAW_DESKTOP_TLS_DIR:?set an absolute private TLS directory}:/run/sparkclaw/tls:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('https').get('https://127.0.0.1:18789/healthz',{ca:require('fs').readFileSync('/run/sparkclaw/tls/ca.crt')},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+  webchat:
+    volumes:
+      - ${SPARKCLAW_DESKTOP_TLS_DIR:?set an absolute private TLS directory}:/run/sparkclaw/tls:ro
+      - ./images/webchat-tls.nginx.conf.template:/etc/nginx/templates/default.conf.template:ro

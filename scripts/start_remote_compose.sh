@@ -107,6 +107,7 @@ compose_args=(
 if [[ "$JINGSI_LAN" == true ]]; then
   compose_args+=(-f "$JINGSI_COMPOSE_FILE")
 fi
+sparkclaw_configure_desktop_tls "$ROOT" "$webchat_port"
 compose_args+=(--profile product)
 services=(postgres sandbox-runner gotenberg gateway webchat)
 
@@ -139,10 +140,9 @@ sparkclaw_export_profile_env "$EFFECTIVE_ENV_FILE"
 browser_pid="$(sparkclaw_browser_main_pid "$EFFECTIVE_ENV_FILE")"
 "${docker_cmd[@]}" "${compose_args[@]}" up -d --build --wait --wait-timeout 600 "${services[@]}"
 
-ready_url="${SPARKCLAW_GATEWAY_READY_URL:-http://127.0.0.1:$webchat_port/readyz}"
 gateway_ready=false
 for _ in $(seq 1 30); do
-  ready_json="$(curl -fsS --connect-timeout 2 --max-time 5 "$ready_url" 2>/dev/null || true)"
+  ready_json="$(curl -fsS "${ready_curl_args[@]}" --connect-timeout 2 --max-time 5 "$ready_url" 2>/dev/null || true)"
   if [[ -n "$ready_json" ]]; then
     if printf '%s' "$ready_json" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' &&
       printf '%s' "$ready_json" | grep -Fq '"model_mode":"external"' &&

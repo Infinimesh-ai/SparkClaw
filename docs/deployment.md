@@ -161,6 +161,18 @@ before containers are changed.
 Models, state services, and the sandbox runner remain bound to localhost or the
 private Docker network.
 
+For R3 Mac clients, set `SPARKCLAW_DESKTOP_TLS_DIR=/absolute/private/tls` in the
+selected private environment file. Both start commands then apply
+`docker/compose.desktop-tls.yaml`: the same workbench port serves HTTPS, proxies
+to native Gateway HTTPS with CA and hostname verification, and forwards Host
+WebSocket upgrades. The directory must contain `ca.crt`, `server.crt` and an
+owner-only `server.key`; keep the CA private key elsewhere. The leaf certificate
+must cover the LAN address, `127.0.0.1` for readiness and `gateway` for the private
+upstream. Gateway remains unpublished. Clients receive a public v2 descriptor
+with the CA, leaf fingerprint, deployment and Owner; each gets an independent
+credential. Startup and boot reconciliation use the same TLS overlay and verified
+readiness probe. The default without this machine override remains HTTP.
+
 Both product modes keep `SPARKCLAW_API_TOKEN` empty and require per-client
 Gateway bearer credentials. Deployment creates `data/runtime/local-workbench.json`
 and the mode-`0600` `data/runtime/desktop-client.json`, then Gateway registers

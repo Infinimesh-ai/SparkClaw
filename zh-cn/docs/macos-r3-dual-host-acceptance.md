@@ -2,6 +2,18 @@
 
 > 语言：简体中文 | [English](../../docs/macos-r3-dual-host-acceptance.md)
 
+## 生产切换与 Mac 安装 — 2026-10-04
+
+用户随后明确授权直接切换生产、停止独立实例并安装 Mac 包。GB10 生产入口现为 `https://192.168.20.252:18790`，保留部署 `e1fef71f-dbcb-4eac-95b6-6987646f3ade` 和 Owner `owner`。以当前 main 产品源码 `6fa64910`（应用代码与下述安装包源码相同）重建 Gateway/WebChat 镜像；本提交加入本次使用的可选 TLS Compose overlay 及启动集成。既有 PostgreSQL 数据、邮箱 Profile、凭据身份和外部账本均保留。
+
+- 已从校验过的 ARM64 DMG 安装到 `/Applications/SparkClaw.app`；已安装 `app.asar` SHA-256 为 `e7ecff0881b0e229040e0505129386c58ff6253b796c20985e419317f0e048bc`，与构建产物一致。配置公开的生产 v2 连接描述后，用户亲自领取并输入独立的“Mac Production 20261004”凭据；真实 GUI 已进入 Device workspace，设置中确认当前设备 active。仍为同一内部未签名／未公证包。
+- 生产入口和私有 Gateway 上游均验证 TLS，Host WSS 升级通过 Nginx。CA 私钥位于证书挂载目录之外；叶证书覆盖 LAN 地址、`127.0.0.1`、`gateway`，SHA-256 为 `ea41dfb21a9c70a0f4b924d5903ab480370283fcb8a5ad6f095d53ec5642dc3e`，有效期至 2027-10-04 05:57:53 UTC。GB10 公开连接描述位于 `/home/infinimesh/.local/share/sparkclaw/production-connection.json`。
+- 五个本地模型服务以及 PostgreSQL／Gateway／sandbox／Gotenberg 健康。保留现有浏览器 Profile，通过受支持安装入口更新配套 App-CLI／Controller／Bridge，browser／controller／executor 用户服务均 active。系统自启单元已按当前仓库路径重装，并补充本机 Node 26 和用户 bus 环境；已 enabled，实际 systemd 启动结果为 `Result=success`、`active/exited`。这不等于操作系统重启验收。
+- 部署 Python 回归 31 项、shell 语法和真实容器 `nginx -t` 通过。两台机器均验证生产 readiness；独立设备认证／安装绑定、Host WSS welcome、授权邮箱目录、一次真实本地模型执行及客户端持久保存／ACK（`delivered`）通过。测试请求 `aecc9f71-8d49-4bd2-84e9-39ef1a4e445c` 于上海时间 14:17 完成，临时测试设备均已撤销。此前两处夹具错误（遗漏空 JSON 请求体、选错 fetch helper）已修正，失败报告保留，均未提交模型任务。本轮没有新增发信。
+- 已停止 `25543` 独立 Gateway 和两台 expiry-soak worker，数据及证据保留于 `/home/infinimesh/.cache/sparkclaw-r3-dual-FZMMvi`；未结束的 soak 明确标为 `canceled_for_production_cutover`，不记为通过。完整 M01–M12 及真实 24 小时过期验收仍未完成。
+
+切换前已将 PostgreSQL dump、私有运行配置归档和服务／容器元数据以私有权限保存在 `/home/infinimesh/.local/share/sparkclaw/r3-production-backup-20261004-XFxaGw`，构建／启动／测试日志与脱敏生产检查报告也保存在该目录。未迁移旧测试历史。可选 HTTPS 部署配置见[部署指南](deployment.md)。InfiniCenter 状态及 0031 评审记录本次用户授权的 SparkClaw 生产切换；0031 仍 proposed，既有 JingSi／App-CLI Schema 和留存义务保持不变。
+
 ## 主分支与 Mac 安装包交付 — 2026-10-04
 
 阶段收尾后，用户要求合并主分支并重新编译 Mac 桌面端。`main` 从 `13755fbc4b3da0220dbb252de5651252681d996b` 快进合入全部 67 个 R3 提交，落点为 `5fe3ce8e540be9d46e0652651484ef15441296cf`；本记录为随后的纯文档提交。安装包准确源码为 `5fe3ce8e…`，包含当前工作台页面。前一阶段“不合并主分支”的范围是历史记录；完整 M01–M12 和生产切换仍未完成。

@@ -122,6 +122,15 @@ owner 可读的 `data/memory/gateway-credentials.key`；只有 Compose PostgreSQ
 这四条命令是唯一产品入口。宿主机调试命令和定向模型 benchmark helper 不是部署模式。
 已退役的 `online` 名称与托管 chat 加本地辅助模型的混合运行态不再受支持。
 
+R3 Mac 客户端需要 HTTPS。在所选私有环境文件中设置
+`SPARKCLAW_DESKTOP_TLS_DIR=/绝对路径/私有TLS目录` 后，两种启动命令都会加载
+`docker/compose.desktop-tls.yaml`：原工作台端口提供 HTTPS，以校验 CA 和主机名的
+HTTPS 连接 Gateway，并转发 Host WebSocket 升级。目录包含 `ca.crt`、`server.crt`
+和仅属主可读的 `server.key`，CA 私钥另存；服务证书须覆盖局域网地址、健康检查的
+`127.0.0.1` 和内部上游的 `gateway`。Gateway 仍不发布主机端口。客户端使用含 CA、
+叶证书指纹、部署和 Owner 的公开 v2 描述及独立设备凭据。启动和开机恢复均使用同一
+TLS overlay 及验证证书的健康检查；未设置该机器配置时仍使用默认 HTTP。
+
 WebChat 是唯一应用入口，host port `18790` 默认绑定 `0.0.0.0`。设置
 `SPARKCLAW_WEBCHAT_PORT` 可以发布另一个 host port；容器与 Nginx listener 仍使用内部
 端口 `18790`。Gateway 不发布 host port；WebChat 通过私有 `sparkclaw_internal` network，

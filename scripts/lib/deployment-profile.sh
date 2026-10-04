@@ -1,5 +1,25 @@
 #!/usr/bin/env bash
 
+# Configure the caller's Compose and readiness arguments together so restart
+# and boot reconciliation cannot silently return an installed TLS entry to HTTP.
+sparkclaw_configure_desktop_tls() {
+  local root="$1" port="$2" file
+  ready_url="${SPARKCLAW_GATEWAY_READY_URL:-http://127.0.0.1:$port/readyz}"
+  ready_curl_args=()
+  [[ -n "${SPARKCLAW_DESKTOP_TLS_DIR:-}" ]] || return 0
+  [[ "$SPARKCLAW_DESKTOP_TLS_DIR" == /* ]] || {
+    echo "SPARKCLAW_DESKTOP_TLS_DIR must be absolute" >&2; return 1;
+  }
+  for file in ca.crt server.crt server.key; do
+    [[ -f "$SPARKCLAW_DESKTOP_TLS_DIR/$file" && -r "$SPARKCLAW_DESKTOP_TLS_DIR/$file" ]] || {
+      echo "Desktop TLS file is missing or unreadable: $file" >&2; return 1;
+    }
+  done
+  compose_args+=(-f "$root/docker/compose.desktop-tls.yaml")
+  ready_url="${SPARKCLAW_GATEWAY_READY_URL:-https://127.0.0.1:$port/readyz}"
+  ready_curl_args=(--cacert "$SPARKCLAW_DESKTOP_TLS_DIR/ca.crt")
+}
+
 sparkclaw_guard_credential_key() {
   local deploy_root="$1"
   local effective_env_file="$2"
@@ -144,6 +164,7 @@ sparkclaw_private_override_allowed() {
   case "$key" in
     HF_TOKEN|HUGGING_FACE_HUB_TOKEN|OPENAI_API_KEY) return 0 ;;
     SPARKCLAW_CONTAINER_UID|SPARKCLAW_CONTAINER_GID) return 0 ;;
+    SPARKCLAW_DESKTOP_TLS_DIR) return 0 ;;
     SPARKCLAW_WEBCHAT_BIND|SPARKCLAW_WEBCHAT_PORT|SPARKCLAW_WEBCHAT_PROXY_TOKEN|SPARKCLAW_DEPLOYMENT_ID|SPARKCLAW_DESKTOP_CLIENT_FILE|SPARKCLAW_LOCAL_MANAGEMENT_FILE|SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR|SPARKCLAW_DESKTOP_EXECUTABLE) return 0 ;;
     SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT) return 0 ;;
     SPARKCLAW_BROWSER_EXTENSION_RUNTIME_DIR_HOST|SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET|SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET_HOST|SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID|SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS) return 0 ;;

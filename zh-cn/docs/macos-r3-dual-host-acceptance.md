@@ -2,6 +2,23 @@
 
 > 语言：简体中文 | [English](../../docs/macos-r3-dual-host-acceptance.md)
 
+## 主分支与 Mac 安装包交付 — 2026-10-04
+
+阶段收尾后，用户要求合并主分支并重新编译 Mac 桌面端。`main` 从 `13755fbc4b3da0220dbb252de5651252681d996b` 快进合入全部 67 个 R3 提交，落点为 `5fe3ce8e540be9d46e0652651484ef15441296cf`；本记录为随后的纯文档提交。安装包准确源码为 `5fe3ce8e…`，包含当前工作台页面。前一阶段“不合并主分支”的范围是历史记录；完整 M01–M12 和生产切换仍未完成。
+
+本次复跑通过：Mac Desktop 90、WebChat 193、凭据 14（设置 `TMPDIR=/private/tmp`）、Electron Node/SQLite 49、原生 R3 Host 和三进程 Mac 安全存储检查。同一 Git 源码快照在 GB10 新建隔离目录通过 Go build/vet/全量测试（57 个有测试的包）。首次在 Mac 执行后端测试因 Linux `/dev/shm` 和 canonical 路径要求失败，默认 Mac 临时目录也触发凭据路径拒绝；初始失败保留在本地日志，不记为 Mac 后端通过。
+
+原生 ARM64 打包、受管资产、安装包白名单及 `hdiutil verify` 通过。包内 34 个源码文件、5 个 UI 文件与工作区逐字节一致。新包使用全新隔离 Profile，从正常产品入口启动（`qualification=false`），实际 GUI 显示凭据登录页并正常退出；用户已有 Profile 和运行后端未升级。本包仍为未签名、未公证的内部开发版。已核对 InfiniCenter 簇／inbox／契约并为 0031 追加评审，状态保持 proposed；不修改既有 JingSi／App-CLI 契约或代替对端接受。
+
+| `apps/desktop/dist/` 下本次替换产物 | SHA-256 |
+|---|---|
+| `SparkClaw-0.1.0-mac-arm64.dmg` | `64543ba57cea7c773ab1f4c00060975ff13b585e97c36bfb2b1f8ca37d8ce9be` |
+| `SparkClaw-0.1.0-mac-arm64.zip` | `2b49b932dd543fbaf6635e937985ab4d6a753bd47235edb3a81468ac53e9b954` |
+
+构建及检查日志保留在本地 `.cache/r3-main-release-20261004/`。下文旧安装包哈希只对应上次构建，不代表本次替换产物；本次交付未新增发信、凭据恢复、系统重启或生产切换。
+
+## 前一阶段收尾
+
 更新：2026-10-04，Asia/Shanghai；阶段收尾核对截至 13:20。下列实机执行证据取得于 2026-10-03～04。分支：`codex/sparkclaw-r3`。本记录接续[首轮 Mac 记录](macos-r3-acceptance.md)。用户授权当前 Mac 与 `infinimesh@192.168.20.252` 双端验收，并明确 Mac 仅用于内部测试。**本阶段已收尾；完整 M01–M12 尚未全部通过，后续操作与完成标准见文末。**
 
 ## 环境与准确版本

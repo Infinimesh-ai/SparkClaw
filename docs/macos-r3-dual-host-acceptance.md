@@ -2,6 +2,23 @@
 
 > Language: English | [简体中文](../zh-cn/docs/macos-r3-dual-host-acceptance.md)
 
+## Main-branch and Mac package delivery — 2026-10-04
+
+After phase closure, the user requested the main-branch merge and a fresh Mac desktop build. `main` fast-forwards from `13755fbc4b3da0220dbb252de5651252681d996b` through all 67 R3 commits to `5fe3ce8e540be9d46e0652651484ef15441296cf`; this record is a subsequent documentation-only commit. The package source is exactly `5fe3ce8e…`, with the current bundled workbench. The earlier phase's exclusion of main merges is historical. Full M01–M12 and production rollout remain incomplete.
+
+Fresh verification passed: Mac Desktop 90, WebChat 193, credential 14 (with `TMPDIR=/private/tmp`), Electron Node/SQLite 49, native R3 Host and three-process Mac secure-storage checks. The same Git source snapshot passed Go build/vet/full tests on GB10 in a new isolated directory (57 tested packages). Initial Mac backend tests could not satisfy Linux `/dev/shm` and canonical-path requirements; default Mac temporary paths also failed credential path guards. Those failures are retained in the local logs, not reported as Mac backend passes.
+
+Native ARM64 packaging, managed assets, package allowlists and `hdiutil verify` passed. All 34 packaged source files and five UI files match the workspace bytes. The rebuilt application launched with a fresh disposable profile through the normal product entry (`qualification=false`); the actual GUI displayed the credential gate and quit normally. The user's existing profile and running backend were not upgraded. This remains an unsigned, unnotarized internal development build. InfiniCenter registry/inbox/contracts were checked; 0031 received a review and remains proposed, without changing existing JingSi/App-CLI contracts or claiming counterpart acceptance.
+
+| Replacement artifact under `apps/desktop/dist/` | SHA-256 |
+|---|---|
+| `SparkClaw-0.1.0-mac-arm64.dmg` | `64543ba57cea7c773ab1f4c00060975ff13b585e97c36bfb2b1f8ca37d8ce9be` |
+| `SparkClaw-0.1.0-mac-arm64.zip` | `2b49b932dd543fbaf6635e937985ab4d6a753bd47235edb3a81468ac53e9b954` |
+
+Build and verification logs are retained locally in `.cache/r3-main-release-20261004/`. Earlier package hashes below describe the preceding build, not these replacements. No new mail, credential recovery, OS reboot or production cutover was performed for this delivery.
+
+## Previous phase closure
+
 Updated: 2026-10-04, Asia/Shanghai; phase-close verification through 13:20. Physical checks below were executed on 2026-10-03–04. Branch: `codex/sparkclaw-r3`. This continues the [initial Mac record](macos-r3-acceptance.md). The user authorized this Mac and `infinimesh@192.168.20.252` for paired testing and limited the Mac to internal use. **This phase is closed; full M01–M12 acceptance remains incomplete. Follow-up actions and completion criteria are recorded below.**
 
 ## Environment and exact versions

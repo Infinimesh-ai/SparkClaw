@@ -22,6 +22,7 @@ MANIFEST = ROOT / "configs" / "browser-bridge-artifacts.json"
 SOURCE = ROOT / "tools" / "browser-bridge"
 LAUNCHER = ROOT / "scripts" / "sparkclaw-browser-launcher.sh"
 CONTROLLER_SETUP = ROOT / "scripts" / "setup-browser-controller.sh"
+BROWSER_SETUP = ROOT / "scripts" / "setup-browser.sh"
 GATEWAY_DOCKERFILE = ROOT / "docker" / "images" / "gateway.Dockerfile"
 FOCUS_HELPER = ROOT / "tools" / "browser-controller" / "src" / "browser-bridge-focus.py"
 
@@ -150,6 +151,20 @@ class BrowserBridgeArtifactTest(unittest.TestCase):
         self.assertIn("TimeoutStopSec=60", script)
         self.assertIn("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1", script)
         self.assertIn('npm --prefix "$PACKAGE_DIR" ls --depth=0 --omit=dev', script)
+
+    def test_browser_update_drains_application_services_before_restart(self) -> None:
+        script = BROWSER_SETUP.read_text(encoding="utf-8")
+        executor_stop = script.index("systemctl --user stop sparkclaw-app-cli-executor.service")
+        controller_stop = script.index("systemctl --user stop sparkclaw-browser-controller.service")
+        browser_install = script.index('bash "$ROOT/scripts/install-browser.sh"')
+        controller_install = script.index('bash "$ROOT/scripts/setup-browser-controller.sh"')
+
+        self.assertLess(executor_stop, controller_stop)
+        self.assertLess(controller_stop, browser_install)
+        self.assertLess(browser_install, controller_install)
+        drain_block = script.split('if [[ ${#mode[@]} -eq 0 ]]; then', 1)[1].split("\nfi", 1)[0]
+        self.assertIn("sparkclaw-app-cli-executor.service", drain_block)
+        self.assertIn("sparkclaw-browser-controller.service", drain_block)
 
     def test_gateway_image_contains_only_the_controller_smoke_client(self) -> None:
         dockerfile = GATEWAY_DOCKERFILE.read_text(encoding="utf-8")

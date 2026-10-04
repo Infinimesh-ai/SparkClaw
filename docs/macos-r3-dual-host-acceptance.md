@@ -2,6 +2,18 @@
 
 > Language: English | [简体中文](../zh-cn/docs/macos-r3-dual-host-acceptance.md)
 
+## Mac/Linux frontend and icon synchronization — 2026-10-04
+
+The user requested that the installed Mac frontend and icon match Linux after the merge. Identical source bundles had still selected two different renderers: R3 Desktop used a simplified LocalWorkbench, while the Linux production workbench used the shared sidebar/welcome/composer layout. Mac packaging also omitted its icon setting and fell back to `electron.icns`.
+
+Product source `5e3814ff266bf0c583188bf86808aea17922a6ca` now reuses the production sidebar, branding, task search, welcome and settings layout in LocalWorkbench, together with the existing composer styles. Mail remains accessible from the composer; schedules use the sidebar entry and browser authorization remains in the browser panel. The welcome screen accepts first input directly, creates its local conversation only when saving, and retains the draft on a failed save without duplicate conversations or automatic execution. R3 local data, explicit submission, request reconciliation and approval boundaries are retained.
+
+Mac packaging explicitly uses the same PNG as Linux and rejects a fallback Electron icon during afterPack. The installed Mac ICNS at 512×512 decodes to exactly the same RGBA pixels as Linux's installed icon; source PNG SHA-256 is `acfd3a6e0cad248aa55c9c6d4a5486008c449bf3b05f4f9c39e40b2144a27365`. The rebuilt app was installed at `/Applications/SparkClaw.app` with the previous app/package retained for rollback. Existing secure login restored automatically; the actual GUI showed the branded welcome/composer/sidebar and opened the current active device's settings.
+
+WebChat passed 194 tests and Desktop passed 90; the final LocalWorkbench check also passed after the same-conversation navigation adjustment. Native ARM64 packaging, package audit and DMG verification passed. All 33 installed desktop source files and five bundled UI files match the build. The Linux production WebChat image was rebuilt from the same source and its readiness passed. CSS, PNG and PCM assets match Mac byte-for-byte. JS matches after accounting for the existing desktop build's removal of browser-token fallback; index HTML differs only in that JS hash filename. This is shared presentation with the existing runtime authentication boundary, not a migration back to legacy server conversation storage.
+
+Replacement DMG SHA-256: `47fe2f8123d22f8d2a215652965d5704be6916812292b378ca7707e3dc7b71a4`; ZIP: `687b90f8fa22dff30c289a65e5f34b638cfdbc8f506316e4aa889967e2b8543b`. These replace the older same-name artifacts below. Current metadata is in `apps/desktop/dist/r3-mac-arm64-release.json` and `SHA256SUMS`; verification/rollback evidence is in `.cache/r3-ui-sync-20261004/` on Mac and `/home/infinimesh/.local/share/sparkclaw/r3-ui-sync-20261004` on GB10. Production remains HTTPS `18790`; no backend protocol or cross-project contract changed.
+
 ## Production cutover and Mac installation — 2026-10-04
 
 The user subsequently authorized switching directly to production, stopping the isolated instance and installing the Mac package. GB10 production now serves `https://192.168.20.252:18790`; deployment `e1fef71f-dbcb-4eac-95b6-6987646f3ade` and Owner `owner` are preserved. The current main product source (`6fa64910`, identical application code to the package source below) was rebuilt into the Gateway/WebChat images. This commit adds the optional TLS Compose overlay and startup integration used by this deployment. Existing PostgreSQL data, mailbox Profiles, credential identities and external ledgers are retained.

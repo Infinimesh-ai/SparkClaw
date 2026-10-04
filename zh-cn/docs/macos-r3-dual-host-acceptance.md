@@ -2,6 +2,18 @@
 
 > 语言：简体中文 | [English](../../docs/macos-r3-dual-host-acceptance.md)
 
+## Mac／Linux 前端与图标同步 — 2026-10-04
+
+用户要求主分支合并后，Mac 已安装前端和图标与 Linux 保持同步。此前虽然打包同一前端源码，R3 Desktop 实际渲染的是简化版 LocalWorkbench，Linux 生产工作台则使用共享侧栏／欢迎页／输入区；Mac 打包还漏配图标，回退到了 `electron.icns`。
+
+产品源码 `5e3814ff266bf0c583188bf86808aea17922a6ca` 已让 LocalWorkbench 复用生产工作台的侧栏、品牌标识、任务搜索、欢迎页、设置布局及输入区样式。邮件通过输入区入口访问，日程使用侧栏入口，浏览器授权置于浏览器面板。首页可直接输入，保存时才创建本机对话；保存失败保留草稿，重试不重复创建对话，也不自动提交执行。保留 R3 本机数据、显式提交、原请求对账及审批边界。
+
+Mac 打包显式使用 Linux 同一 PNG，并在 afterPack 拒绝 Electron 默认图标。已安装 Mac ICNS 的 512×512 解码 RGBA 像素与 Linux 已安装图标完全一致；源 PNG SHA-256 为 `acfd3a6e0cad248aa55c9c6d4a5486008c449bf3b05f4f9c39e40b2144a27365`。重建应用已安装至 `/Applications/SparkClaw.app`，旧应用及安装包保留用于回退。原有安全登录自动恢复，真实 GUI 已显示统一品牌欢迎页／输入区／侧栏，并打开当前 active 设备的设置。
+
+WebChat 194 项、Desktop 90 项通过；最后对“返回同一对话保留草稿”的调整后，LocalWorkbench 定向检查再次通过。原生 ARM64 打包、包审计和 DMG 校验通过；已安装的 33 个桌面源码文件、5 个前端文件与构建一致。Linux 生产 WebChat 镜像已以同一源码重建，readiness 通过；CSS／PNG／PCM 与 Mac 逐字节相同。JS 仅因桌面既有构建禁用浏览器 Token 回退而不同，扣除该处后完全相同，HTML 仅 JS 哈希文件名不同。这是共享界面表现并保留原认证边界，不将 R3 对话改回旧服务端存储。
+
+替换 DMG SHA-256：`47fe2f8123d22f8d2a215652965d5704be6916812292b378ca7707e3dc7b71a4`；ZIP：`687b90f8fa22dff30c289a65e5f34b638cfdbc8f506316e4aa889967e2b8543b`。下文同名旧制品已被替换，当前清单见 `apps/desktop/dist/r3-mac-arm64-release.json` 及 `SHA256SUMS`；验证／回退证据见 Mac `.cache/r3-ui-sync-20261004/` 和 GB10 `/home/infinimesh/.local/share/sparkclaw/r3-ui-sync-20261004`。生产仍使用 HTTPS `18790`，未改后端协议或跨项目契约。
+
 ## 生产切换与 Mac 安装 — 2026-10-04
 
 用户随后明确授权直接切换生产、停止独立实例并安装 Mac 包。GB10 生产入口现为 `https://192.168.20.252:18790`，保留部署 `e1fef71f-dbcb-4eac-95b6-6987646f3ade` 和 Owner `owner`。以当前 main 产品源码 `6fa64910`（应用代码与下述安装包源码相同）重建 Gateway/WebChat 镜像；本提交加入本次使用的可选 TLS Compose overlay 及启动集成。既有 PostgreSQL 数据、邮箱 Profile、凭据身份和外部账本均保留。

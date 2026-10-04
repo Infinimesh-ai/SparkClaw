@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocalWorkbench } from "./LocalWorkbench";
 import type { SparkClawDesktop } from "./types";
 import type { LocalApproval } from "./clientStore";
-import { LANGUAGE_STORAGE_KEY } from "../i18n";
+import { dictionaries, LANGUAGE_STORAGE_KEY } from "../i18n";
 
 beforeEach(() => {
   const values = new Map<string, string>();
@@ -23,7 +23,37 @@ afterEach(() => {
 });
 
 describe("R3 local workbench", () => {
-  it("saves locally without loading shared history or submitting tasks, and preserves input on disk failure", async () => {
+  it("uses the shared Linux conversation, mailbox and complete settings presentation", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    const row = { id: "conversation", title: "Parity conversation", created_at: "", updated_at: "" };
+    window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
+      read: vi.fn(async () => ({ messages: [{ id: "message", role: "assistant" as const, content: "Shared renderer", created_at: "2026-10-04T00:00:00Z" }], tasks: [], files: [] })), enqueue: vi.fn(),
+      saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
+      scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "service_unavailable", client_id: "client" })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"); const root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      await act(async () => host.querySelector<HTMLButtonElement>(".sessionSelect")!.click());
+      expect(host.querySelector(".message.assistant .messageMeta")?.textContent).toContain("SparkClaw");
+      expect(host.querySelectorAll(".composer .uploadButton")).toHaveLength(2);
+      expect(host.querySelector(".composer .emailEntryButton")).not.toBeNull();
+      expect(host.querySelector(".composer .voiceControl")).not.toBeNull();
+      expect(host.querySelector<HTMLTextAreaElement>(".composer textarea")?.placeholder).toBe(dictionaries.en.chat.placeholder);
+      await act(async () => host.querySelectorAll<HTMLButtonElement>(".composer .uploadButton")[1]!.click());
+      expect(host.querySelector(".documentPickerOverlay")?.textContent).toContain(dictionaries.en.chat.noUploadedFiles);
+      await act(async () => host.querySelector<HTMLButtonElement>(".documentPickerHeader .attachmentRemove")!.click());
+      await act(async () => host.querySelector<HTMLButtonElement>(".sidebarAccountTrigger")!.click());
+      const settings = [...host.querySelectorAll<HTMLButtonElement>(".sidebarAccountMenuItem")].find((button) => button.textContent === "Workspace settings")!;
+      await act(async () => settings.click());
+      expect([...host.querySelectorAll<HTMLButtonElement>(".settingsPageNavigation button")].map((button) => button.textContent?.trim())).toEqual([
+        "General", "Appearance", "Devices & credentials", "Models & tools", "Permissions", "Connections", "Memory", "Approvals", "Timeline"
+      ]);
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it("uses the shared send surface without loading gateway history and preserves input on disk failure", async () => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
     const row = { id: "conversation", title: "Local conversation", created_at: "", updated_at: "" };
     const fetch = vi.fn(() => { throw new Error("unexpected network request"); });
@@ -40,18 +70,19 @@ describe("R3 local workbench", () => {
       await act(async () => root.render(<LocalWorkbench />));
       const rowButton = [...host.querySelectorAll<HTMLButtonElement>("nav button")].find((button) => button.textContent?.includes(row.title))!;
       await act(async () => rowButton.click());
-      const input = host.querySelector<HTMLTextAreaElement>("#localDraft")!;
+      const input = host.querySelector<HTMLTextAreaElement>("form.composer textarea")!;
       await act(async () => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Keep this local input");
         input.dispatchEvent(new Event("input", { bubbles: true }));
       });
-      await act(async () => host.querySelector("form.localComposer")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      await act(async () => host.querySelector("form.composer")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
       expect(host.textContent).toContain("Disk full");
       expect(input.value).toBe("Keep this local input");
-      await act(async () => host.querySelector("form.localComposer")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-      expect(host.textContent).toContain("Execution has not been submitted");
+      await act(async () => host.querySelector("form.composer")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      expect(host.textContent).toContain("Input saved and submitted");
       expect(enqueue).toHaveBeenLastCalledWith(row.id, "Keep this local input");
-      expect(fetch).not.toHaveBeenCalled();
+      expect(window.sparkclawClientStore!.submit).toHaveBeenCalledWith("request");
+      expect((fetch.mock.calls as unknown[][]).some((call) => String(call[0]).includes("/api/sessions"))).toBe(false);
     } finally { await act(async () => root.unmount()); }
   });
 
@@ -75,21 +106,21 @@ describe("R3 local workbench", () => {
       expect(host.querySelector(".workbenchWelcome h1")!.textContent).toBe("What should we do?");
       expect(host.querySelector(".workbenchBrandMark")!.getAttribute("src")).toBe(host.querySelector(".welcomeBrandMark")!.getAttribute("src"));
       expect(create).not.toHaveBeenCalled();
-      const input = host.querySelector<HTMLTextAreaElement>("#localDraft")!;
+      const input = host.querySelector<HTMLTextAreaElement>("form.composer textarea")!;
       expect(input.disabled).toBe(false);
       await act(async () => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Keep my first draft");
         input.dispatchEvent(new Event("input", { bubbles: true }));
       });
-      const save = () => host.querySelector("form.localComposer")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      const save = () => host.querySelector("form.composer")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
       await act(async () => { save(); });
       expect(input.value).toBe("Keep my first draft");
       expect(host.textContent).toContain("Disk full");
       await act(async () => { save(); });
       expect(create).toHaveBeenCalledTimes(1);
       expect(enqueue).toHaveBeenLastCalledWith(row.id, "Keep my first draft");
-      expect(submit).not.toHaveBeenCalled();
-      expect(fetch).not.toHaveBeenCalled();
+      expect(submit).toHaveBeenCalledWith("request");
+      expect((fetch.mock.calls as unknown[][]).some((call) => String(call[0]).includes("/api/sessions"))).toBe(false);
     } finally { await act(async () => root.unmount()); }
   });
 
@@ -141,7 +172,7 @@ describe("R3 local workbench", () => {
     try {
       await act(async () => root.render(<LocalWorkbench />));
       await act(async () => host.querySelector<HTMLButtonElement>("nav button")!.click());
-      expect(host.querySelector<HTMLTextAreaElement>("#localDraft")!.disabled).toBe(false);
+      expect(host.querySelector<HTMLTextAreaElement>("form.composer textarea")!.disabled).toBe(false);
       expect(host.textContent).toContain("Offline. Your device conversations");
       const reconnect = [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Reconnect")!;
       await act(async () => reconnect.click());

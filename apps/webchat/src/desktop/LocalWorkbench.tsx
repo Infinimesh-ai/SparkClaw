@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { FileDown, Paperclip, Save, Send, RefreshCw, X, Globe2, PanelLeft, Mail } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { FileDown, Send, RefreshCw, X, PanelLeft, PanelRight } from "lucide-react";
 import { SessionSidebar } from "../components/sidebar";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy } from "../components/workbench";
 import { api } from "../api/client";
@@ -10,8 +10,19 @@ import { applyAppearance } from "../lib/appearance";
 import { clientStore, type LocalConversation, type LocalConversationContent, type LocalTask, type LocalApproval } from "./clientStore";
 import { desktopCapability } from "./capability";
 import type { DesktopConnectionStatus, DesktopState } from "./types";
-import { MailCachePanel } from "./MailCachePanel";
 import { BrowserPanel } from "./BrowserPanel";
+import { MessageBubble } from "../components/messages";
+import { ComposerDocumentPicker, ComposerSurface } from "../components/composer";
+import { useVoiceInput } from "../hooks/useVoiceInput";
+import type { VoiceDraftAnchor } from "../hooks/useVoiceInput";
+import { insertVoiceTranscript } from "../lib/voiceDraft";
+import { usePassiveNotifications } from "../hooks/usePassiveNotifications";
+import { NotificationCenter } from "../components/notificationCenter";
+import type {
+  Approval, ArtifactObject, AuditEvent, Client, ConnectorStatus, EpisodeSummary, EvalRun, Memory,
+  MemoryCandidate, MessageAttachment, ModelCall, NotificationBinding, OwnerProfile, PublicConfig,
+  ReadyStatus, RunTrace, ToolCall, TraceMetadata
+} from "../api/types";
 import "../styles/local-workbench.css";
 
 const emptyContent: LocalConversationContent = { messages: [], tasks: [], files: [] };
@@ -30,6 +41,7 @@ export function LocalWorkbench() {
   const readGeneration = useRef(0);
   const [content, setContent] = useState(emptyContent);
   const [draft, setDraft] = useState("");
+  const draftRef = useRef(draft); draftRef.current = draft;
   const [inputFiles, setInputFiles] = useState<string[]>([]);
   const [scheduleDraft, setScheduleDraft] = useState("");
   const [scheduleDate, setScheduleDate] = useState("");
@@ -42,17 +54,56 @@ export function LocalWorkbench() {
   const [page, setPage] = useState<"chat" | "schedules">("chat");
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [mailOpen, setMailOpen] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
-  const [tab, setTab] = useState<PanelTab>("devices");
+  const [documentPickerOpen, setDocumentPickerOpen] = useState(false);
+  const [tab, setTab] = useState<PanelTab>("timeline");
   const [currentClientID, setCurrentClientID] = useState("");
   const [connection, setConnection] = useState<DesktopConnectionStatus>();
   const [browserState, setBrowserState] = useState<DesktopState>();
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [ready, setReady] = useState<ReadyStatus | null>(null);
+  const [runtimeConfig, setRuntimeConfig] = useState<PublicConfig | null>(null);
+  const [ownerProfile, setOwnerProfile] = useState<OwnerProfile | null>(null);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [connectors, setConnectors] = useState<ConnectorStatus[]>([]);
+  const [notificationBindings, setNotificationBindings] = useState<NotificationBinding[]>([]);
+  const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [candidates, setCandidates] = useState<MemoryCandidate[]>([]);
+  const [memories, setMemories] = useState<Memory[]>([]);
+  const [evalRuns, setEvalRuns] = useState<EvalRun[]>([]);
+  const [artifacts, setArtifacts] = useState<ArtifactObject[]>([]);
+  const [traceList, setTraceList] = useState<TraceMetadata[]>([]);
+  const [traceRun, setTraceRun] = useState<RunTrace | null>(null);
+  const [traceLoading, setTraceLoading] = useState(false);
+  const [toolCalls] = useState<ToolCall[]>([]);
+  const [modelCalls] = useState<ModelCall[]>([]);
+  const [auditEvents] = useState<AuditEvent[]>([]);
+  const [episodes] = useState<EpisodeSummary[]>([]);
 
-  const surfaceError = useCallback((err: unknown) => {
-    setError(err instanceof Error ? err.message : zh ? "本地保存失败，请重试。" : "Local save failed. Try again.");
+  const surfaceError = useCallback((err: unknown, fallback = zh ? "本地保存失败，请重试。" : "Local save failed. Try again.") => {
+    setError(err instanceof Error ? err.message : fallback);
   }, [zh]);
   const reload = useCallback(async () => { setConversations(await store.list()); }, [store]);
+  const refreshGlobal = useCallback(async () => {
+    const config = await api.config();
+    setRuntimeConfig(config);
+    const results = await Promise.allSettled([
+      api.ready(), api.owner(), api.clients(), api.connectors(), api.notificationBindings(), api.approvals(),
+      api.memoryCandidates(), api.memories(), api.evalRuns(), api.artifacts(), api.traces()
+    ]);
+    const [readyResult, owner, clientList, connectorList, bindingList, approvalList, candidateList, memoryList, evalList, artifactList, traces] = results;
+    if (readyResult.status === "fulfilled") setReady(readyResult.value);
+    if (owner.status === "fulfilled") setOwnerProfile(owner.value);
+    if (clientList.status === "fulfilled") setClients(clientList.value.clients ?? []);
+    if (connectorList.status === "fulfilled") setConnectors(connectorList.value.connectors ?? []);
+    if (bindingList.status === "fulfilled") setNotificationBindings(bindingList.value.bindings ?? []);
+    if (approvalList.status === "fulfilled") setApprovals(approvalList.value.approvals ?? []);
+    if (candidateList.status === "fulfilled") setCandidates(candidateList.value.memory_candidates ?? []);
+    if (memoryList.status === "fulfilled") setMemories(memoryList.value.memories ?? []);
+    if (evalList.status === "fulfilled") setEvalRuns(evalList.value.eval_runs ?? []);
+    if (artifactList.status === "fulfilled") setArtifacts(artifactList.value.artifacts ?? []);
+    if (traces.status === "fulfilled") setTraceList(traces.value.traces ?? []);
+  }, []);
   const select = useCallback(async (id: string) => {
     setPage("chat");
     if (selectedRef.current === id) return;
@@ -78,6 +129,10 @@ export function LocalWorkbench() {
     return () => { active = false; unsubscribe?.(); unsubscribeBrowser?.(); ++readGeneration.current; };
   }, [desktop, store, surfaceError]);
   useEffect(() => {
+    if (connection?.state !== "connected") return;
+    void refreshGlobal().catch(() => undefined);
+  }, [connection?.state, refreshGlobal]);
+  useEffect(() => {
     if (!selected) return;
     let active = true;
     const refresh = () => {
@@ -91,6 +146,28 @@ export function LocalWorkbench() {
     const unsubscribe = store.onChange?.(refresh);
     return () => { active = false; unsubscribe?.(); window.clearInterval(timer); };
   }, [selected, store, surfaceError]);
+
+  const applyVoiceTranscript = useCallback((result: { text: string }, anchor: VoiceDraftAnchor) => {
+    if (anchor.sessionId !== selectedRef.current || draftRef.current !== anchor.draft) return false;
+    const start = Math.min(anchor.selectionStart, draftRef.current.length);
+    const end = Math.min(Math.max(anchor.selectionEnd, start), draftRef.current.length);
+    const inserted = insertVoiceTranscript(draftRef.current, result.text, start, end);
+    draftRef.current = inserted.value;
+    setDraft(inserted.value);
+    window.requestAnimationFrame(() => {
+      composerInputRef.current?.focus();
+      composerInputRef.current?.setSelectionRange(inserted.caret, inserted.caret);
+    });
+    return true;
+  }, []);
+  const voice = useVoiceInput({
+    speech: ready?.speech ?? null,
+    sessionId: selected,
+    language: runtimeConfig?.speech.default_language ?? "auto",
+    externallyDisabled: busy || !selected,
+    onTranscript: applyVoiceTranscript
+  });
+  const passiveNotifications = usePassiveNotifications(connection?.state === "connected");
 
   async function action(operation: () => Promise<void>) {
     if (busyRef.current) return;
@@ -112,10 +189,9 @@ export function LocalWorkbench() {
     await reload();
     return conversation.id;
   }
-  async function save(event: FormEvent, submit = false) {
-    event.preventDefault();
+  async function save(submit = true) {
     const text = draft.trim();
-    if (!text) return;
+    if (!text && !inputFiles.length) return;
     await action(async () => {
       const id = await ensureConversation();
       const task = inputFiles.length ? await store.enqueue(id, text, inputFiles) : await store.enqueue(id, text);
@@ -123,7 +199,7 @@ export function LocalWorkbench() {
         setDraft(""); setInputFiles([]); setContent(await store.read(id));
       }
       await reload();
-      setNotice(zh ? "已保存到本机，尚未提交执行。" : "Saved on this device. Execution has not been submitted.");
+      setNotice(zh ? "已保存到本机。" : "Saved on this device.");
       if (submit) {
         await execute(task, "submit", id);
         setNotice(zh ? "输入已保存并提交，可在任务记录中查看状态。" : "Input saved and submitted. Follow its status in the task records.");
@@ -161,26 +237,54 @@ export function LocalWorkbench() {
     finally { if (selectedRef.current === id) setContent(await store.read(id)); await reload(); }
   }
   async function saveFile(file?: File) {
-    if (!file) return;
+    if (!file) return undefined;
+    let saved: Awaited<ReturnType<typeof store.saveFile>> | undefined;
     await action(async () => {
       if (file.size > 64 * 1024 * 1024) throw new Error(zh ? "文件超过 64 MiB。请选择较小的文件。" : "File exceeds 64 MiB. Choose a smaller file.");
       const id = await ensureConversation();
-      await store.saveFile(id, file.name, new Uint8Array(await file.arrayBuffer()));
+      saved = await store.saveFile(id, file.name, new Uint8Array(await file.arrayBuffer()));
+      setInputFiles((current) => saved && !current.includes(saved.id) ? [...current, saved.id] : current);
       if (selectedRef.current === id) setContent(await store.read(id));
       setNotice(zh ? "文件已验证并保存到本机。" : "File verified and saved on this device.");
     });
+    return saved;
   }
   async function logout() { await desktop.logout!(); }
   function changeLanguage(next: Language) {
-    setLanguage(next); window.localStorage.setItem(LANGUAGE_STORAGE_KEY, next);
+    setLanguage(next);
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, next);
+    document.documentElement.lang = next === "zh" ? "zh-CN" : "en";
+    void api.updateLanguage(next).then(setOwnerProfile).catch(() => undefined);
+  }
+  async function openTrace(runID: string) {
+    setTraceLoading(true);
+    try { setTraceRun(await api.trace(runID)); }
+    catch (err) { surfaceError(err, dictionaries[language].errors.trace); }
+    finally { setTraceLoading(false); }
   }
 
-  const home = page === "chat" && !mailOpen && !content.messages.length && !content.tasks.length && !content.files.length;
+  const text = dictionaries[language];
+  const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
+  const pendingCandidates = candidates.filter((candidate) => candidate.status === "pending");
+  const activeAttachments = useMemo<MessageAttachment[]>(() => inputFiles.map((id) => {
+    const file = content.files.find((item) => item.id === id);
+    return { artifact_id: id, rel_path: `local:${id}`, name: file?.name ?? id, bytes: file?.size };
+  }), [content.files, inputFiles]);
+  const localDocuments = useMemo<ArtifactObject[]>(() => content.files.map((file) => ({
+    id: file.id,
+    kind: "document",
+    backend: "client_store",
+    key: file.name,
+    uri: `local:${file.id}`,
+    content_type: "",
+    bytes: file.size,
+    created_at: file.created_at
+  })), [content.files]);
+  const home = page === "chat" && !content.messages.length && !content.tasks.length && !content.files.length;
   return <div className={`shell workbench localWorkbench ${settings ? "settingsPageMode" : sidebarCollapsed ? "sidebarCollapsed" : ""}`}>
-    {settings ? <WorkspaceSettingsSidebar text={dictionaries[language]} language={language} tab={tab}
-      pendingApprovalCount={0} pendingCandidateCount={0} onTabChange={setTab} onBack={() => setSettings(false)}
-      availableTabs={["devices", "appearance"]} /> : <SessionSidebar
-      text={dictionaries[language]} language={language} page={page} ownerProfile={null}
+    {settings ? <WorkspaceSettingsSidebar text={text} language={language} tab={tab}
+      pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length} onTabChange={setTab} onBack={() => setSettings(false)} /> : <SessionSidebar
+      text={text} language={language} page={page} ownerProfile={ownerProfile}
       sessions={conversations} activeSession={selected} busy={busy}
       onCreateSession={() => void create()} onSelectSession={(conversation) => void select(conversation.id).catch(surfaceError)}
       onNavigate={(next) => { if (next === "settings") setSettings(true); else if (next === "schedules") setPage("schedules"); else void create(); }}
@@ -188,38 +292,34 @@ export function LocalWorkbench() {
       onLogout={() => void logout().catch(surfaceError)}
       listNotice={loading ? <p className="localListNotice" role="status">{zh ? "正在读取本机对话…" : "Loading device conversations…"}</p> : !conversations.length ? <p className="localListNotice">{copy.empty}</p> : undefined}
     />}
-    <main className={`${settings ? "settingsPageMain" : "workspace"} ${browserOpen && !settings ? "localWithBrowser" : ""}`} aria-busy={busy}>
+    <main className={`${settings ? "settingsPageMain" : "workspace desktopWorkbench"} ${browserOpen && !settings ? "withInspector" : ""}`} aria-busy={busy}>
       {!settings && <header className="topbar">
         <button className="iconButton sidebarToggle" type="button" aria-label={copy.toggleNav} onClick={() => setSidebarCollapsed((current) => !current)}><PanelLeft size={18} /></button>
         <span className="workspaceLabel">{copy.local}</span>
         <div className="topbarActions">
-          {typeof desktop.state === "function" && <button className={`iconButton ${browserOpen ? "active" : ""}`} type="button" aria-label={zh ? "浏览器" : "Browser"} title={zh ? "浏览器" : "Browser"} aria-expanded={browserOpen} onClick={() => setBrowserOpen((open) => !open)}><Globe2 size={18} /></button>}
-          <select aria-label={zh ? "语言" : "Language"} value={language} onChange={(event) => changeLanguage(event.target.value as Language)}>
-            <option value="zh">简体中文</option><option value="en">English</option>
-          </select>
+          <NotificationCenter notifications={passiveNotifications.notifications} unreadCount={passiveNotifications.unreadCount}
+            open={passiveNotifications.open} toast={passiveNotifications.toast} error={passiveNotifications.error}
+            language={language} text={text} onToggle={() => passiveNotifications.setOpen((current) => !current)}
+            onDismissToast={passiveNotifications.dismissToast} onRead={passiveNotifications.markRead} onReadAll={passiveNotifications.markAllRead} />
+          {typeof desktop.state === "function" && <button className={`iconButton rightSidebarToggle ${browserOpen ? "active" : ""}`} type="button" aria-label={copy.toggleInspector} title={zh ? "浏览器" : "Browser"} aria-expanded={browserOpen} onClick={() => setBrowserOpen((open) => !open)}><PanelRight size={18} /></button>}
         </div>
       </header>}
       {error && <div className="localFeedback" role="alert"><p>{error}</p><button type="button" onClick={() => void reload().then(() => setError("")).catch(surfaceError)}>{zh ? "重试读取" : "Retry loading"}</button></div>}
       {notice && <p className="localFeedback" role="status">{notice}</p>}
       {connection?.state === "service_unavailable" && <div className="localFeedback" role="status"><p>{zh ? "当前离线，本机对话和文件仍可读取。重新连接后可查询已提交的原请求。" : "Offline. Your device conversations and files remain available. Reconnect to check your submitted requests."}</p><button type="button" disabled={busy} onClick={() => void action(async () => { setConnection(await desktop.retryLocalConnection()); })}>{zh ? "重新连接" : "Reconnect"}</button></div>}
-      {settings ? <div className="settingsPageContent"><header className="settingsPageHeader"><h1>{copy.settingsTitles[tab]}</h1><p>{copy.settingsDescriptions[tab]}</p></header><InspectorColumn settingsPage showTabs={false} tab={tab} onTabChange={setTab}
-        text={dictionaries[language]} language={language} pendingApprovalCount={0} pendingCandidateCount={0}
-        toolCalls={[]} approvals={[]} candidates={[]} memories={[]} traceRun={null} traceList={[]} traceLoading={false}
-        ready={null} modelCalls={[]} auditEvents={[]} artifacts={[]} episodes={[]} evalRuns={[]} runtimeConfig={null}
-        ownerProfile={null} clients={[]} connectors={[]} notificationBindings={[]} onOpenTrace={() => {}}
-        setError={setError} surfaceError={surfaceError} refreshGlobal={async () => { await api.clients(); }}
-        refreshActiveSession={async () => {}} setEvalRuns={() => {}} setNotificationBindings={() => {}}
-        setConnectors={() => {}} setRuntimeConfig={() => {}} setOwnerProfile={() => {}}
+      {settings ? <div className="settingsPageContent"><header className="settingsPageHeader"><h1>{copy.settingsTitles[tab]}</h1>{tab !== "memory" && tab !== "approvals" && <p>{copy.settingsDescriptions[tab]}</p>}</header><InspectorColumn settingsPage showTabs={false} tab={tab} onTabChange={setTab}
+        text={text} language={language} pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length}
+        toolCalls={toolCalls} approvals={approvals} candidates={candidates} memories={memories} traceRun={traceRun} traceList={traceList} traceLoading={traceLoading}
+        ready={ready} modelCalls={modelCalls} auditEvents={auditEvents} artifacts={artifacts} episodes={episodes} evalRuns={evalRuns} runtimeConfig={runtimeConfig}
+        ownerProfile={ownerProfile} clients={clients} connectors={connectors} notificationBindings={notificationBindings} onOpenTrace={(runID) => void openTrace(runID)}
+        setError={setError} surfaceError={surfaceError} refreshGlobal={refreshGlobal}
+        refreshActiveSession={async () => {}} setEvalRuns={setEvalRuns} setNotificationBindings={setNotificationBindings}
+        setConnectors={setConnectors} setRuntimeConfig={setRuntimeConfig} setOwnerProfile={setOwnerProfile}
         onLanguageChange={changeLanguage} onOpenSchedules={() => {}} currentClientID={currentClientID}
         onCurrentClientRevoked={logout} onLogout={logout} /></div> : <>
         <section className={`chatColumn localChat ${home ? "homeChat" : ""}`} hidden={page !== "chat"}>
         <div className="messageList localHistory">
           {home && <WorkbenchWelcome language={language} />}
-          {mailOpen && <MailCachePanel language={language} conversationID={selected} onFileSaved={() => {
-            const id = selectedRef.current;
-            const generation = readGeneration.current;
-            if (id) void store.read(id).then((next) => { if (selectedRef.current === id && readGeneration.current === generation) setContent(next); }).catch(surfaceError);
-          }} />}
           {browserState?.browser_host?.unknown_writes.filter((command) => command.local_conversation_id === selected).map((command) => <section className="localUnknownWrite" role="alert" key={command.command_id}>
             <h2>{zh ? "浏览器操作结果不确定" : "Browser action outcome uncertain"}</h2>
             <p>{zh ? "此操作不能重发。先独立检查网站的实际状态，再记录你已确认的结果。" : "This action cannot be resent. Inspect the actual website state independently, then record the outcome you verified."}</p>
@@ -229,7 +329,9 @@ export function LocalWorkbench() {
               setNotice(zh ? "已记录核实结果，没有重发浏览器操作。" : "Verified outcome recorded. The browser action was not resent.");
             })}>{outcome === "observed_completed" ? (zh ? "我已核实操作完成" : "I verified the action completed") : (zh ? "我已核实操作未生效" : "I verified no change occurred")}</button>)}</div>}
           </section>)}
-          {content.messages.map((message) => <article className={`message ${message.role}`} key={message.id}><p>{message.content}</p></article>)}
+          {content.messages.map((message) => <MessageBubble key={message.id}
+            message={{ ...message, session_id: selected }} streamStatuses={[]} text={text} language={language}
+            onFeedback={async () => {}} />)}
           {!!content.tasks.length && <section className="localTaskList" aria-label={zh ? "任务记录" : "Task records"} aria-live="polite"><h2>{zh ? "任务记录" : "Task records"} ({content.tasks.length})</h2>
             {content.tasks.map((task) => <div className="localTaskRow" key={task.id}>
               <p><code>{task.request_id}</code><span>{taskLabel(task.status, zh)}</span></p>
@@ -262,16 +364,23 @@ export function LocalWorkbench() {
               })}><FileDown size={16} />{zh ? "另存" : "Export"}</button></div>)}</section>}
 
         </div>
-        <div className="composerDock">
-          <form className="composer localComposer" onSubmit={(event) => void save(event)}>
-            <textarea id="localDraft" aria-label={zh ? "本地输入" : "Local input"} placeholder={zh ? "告诉我你想做什么…" : "What would you like to do?"} value={draft} onChange={(event) => setDraft(event.target.value)} disabled={busy} rows={3} />
-            <label className="uploadButton localFileInput" title={zh ? "保存本机文件" : "Save a local file"}><Paperclip size={18} /><input type="file" aria-label={zh ? "保存本机文件" : "Save a local file"} disabled={busy} onChange={(event) => { void saveFile(event.target.files?.[0]); event.target.value = ""; }} /></label>
-            <button className="iconButton emailEntryButton" type="button" aria-label={zh ? "邮件" : "Mail"} title={zh ? "邮件" : "Mail"} aria-expanded={mailOpen} onClick={() => setMailOpen((open) => !open)}><Mail size={18} /></button>
-            <button className="iconButton localSaveButton" type="submit" aria-label={zh ? "保存到本机" : "Save on this device"} title={zh ? "保存到本机" : "Save on this device"} disabled={!draft.trim() || busy}><Save size={18} /></button>
-            <button className="sendButton" type="button" aria-label={zh ? "保存并提交" : "Save and submit"} title={zh ? "保存并提交" : "Save and submit"} disabled={!draft.trim() || busy || connection?.state !== "connected"} onClick={(event) => void save(event, true)}><Send size={16} /></button>
-          </form>
-          <p className="localSaveHint">{zh ? "对话保存在本机 · 点击发送才会执行" : "Saved on this device · Send to execute"}</p>
-        </div>
+        <ComposerSurface text={text} language={language} activeSession={selected} activeInput={draft}
+          activeAttachments={activeAttachments} busy={busy} voice={voice} composerInputRef={composerInputRef}
+          canCompose canSend={connection?.state === "connected"}
+          onInputChange={(value) => { draftRef.current = value; setDraft(value); }}
+          onUploadDocument={saveFile}
+          onChooseDocument={() => setDocumentPickerOpen(true)}
+          onOpenAttachment={async (attachment) => {
+            const result = await store.exportFile(attachment.artifact_id ?? "");
+            if (result.saved) setNotice(zh ? "已另存文件。" : "File exported.");
+          }}
+          onRemoveAttachment={(attachment) => setInputFiles((current) => current.filter((id) => id !== attachment.artifact_id))}
+          onSend={() => void save(true)} />
+        {documentPickerOpen && <ComposerDocumentPicker documents={localDocuments} text={text} language={language}
+          onChoose={(document) => {
+            setInputFiles((current) => current.includes(document.id) ? current : [...current, document.id]);
+            setDocumentPickerOpen(false);
+          }} onClose={() => setDocumentPickerOpen(false)} />}
         </section>
         {page === "schedules" && <div className="workbenchPage schedulePage">
           <header className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div></header>

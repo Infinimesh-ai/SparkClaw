@@ -1,24 +1,9 @@
-/* Reuse the production workbench shell, sidebar, welcome and composer styles. */
-.localChat { display: flex; flex-direction: column; min-width: 0; width: 100%; }
+/* Desktop-only execution records complement the shared production workbench UI. */
 .localChat[hidden] { display: none; }
-.localHistory { flex: 1; min-height: 0; overflow: auto; }
 .localListNotice { padding: 4px 12px; color: var(--text-secondary); font-size: 12px; line-height: 1.65; }
-.localWorkbench .topbar select { width: auto; padding: 4px 6px; border: 0; color: var(--text-secondary); background: transparent; font-size: 12px; }
-.localWorkbench .composer.localComposer { grid-template-columns: 32px 32px 32px minmax(0, 1fr) 32px; }
-.localComposer .localSaveButton { grid-column: 3; grid-row: 2; }
-.localWorkbench .localComposer .sendButton { grid-column: 5; }
-.localComposer .localFileInput { display: grid; place-items: center; position: relative; cursor: pointer; color: var(--text-secondary); }
-.localFileInput input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-.localFileInput:focus-within { outline: 2px solid var(--cyber-blue); outline-offset: 2px; }
-.localSaveHint { margin: 10px 0 0; color: var(--text-tertiary); font-size: 11px; text-align: center; }
-.localWithBrowser .localChat, .localWithBrowser .schedulePage { width: auto; margin-inline-end: 640px; }
-.localWorkbench .localWithBrowser .desktopBrowserPanel { width: min(640px, 100%); }
-.localWorkbench .localWithBrowser .desktopBrowserPanel.wide { width: min(760px, 100%); }
 .localBrowserAuthorization:empty { display: none; }
 .localBrowserAuthorization { padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); }
 .localScheduleEmpty { color: var(--text-secondary); }
-.localHistory .message { padding: 14px 18px; margin-block: 16px; }
-.localHistory .message p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; }
 .localPhaseNotice { max-width: 70ch; margin-block: 0 28px; color: var(--text-secondary); line-height: 1.65; }
 .localHistory details p { font-size: 12px; overflow-wrap: anywhere; color: var(--text-secondary); }
 .localHistory h2 { font-size: 15px; margin-block: 24px 8px; }
@@ -48,7 +33,3 @@
 .localFeedback { margin: 12px 32px; color: var(--text-primary); line-height: 1.5; }
 .localFeedback[role=alert] { color: var(--crimson-danger); }
 .localFeedback button { padding: 8px 12px; border-radius: var(--radius-control); background: var(--surface-muted); color: var(--text-primary); }
-
-@media (max-width: 1100px) {
-  .localWithBrowser .localChat, .localWithBrowser .schedulePage { margin-inline-end: 0; }
-}

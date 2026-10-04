@@ -374,7 +374,7 @@ export function InspectorColumn({
       </div>}
 
       {tab === "timeline" && <ToolTimelinePanel calls={toolCalls} text={text} onTrace={onOpenTrace} />}
-      {tab === "approvals" && !settingsPage && (
+      {tab === "approvals" && (
         <ApprovalPanel
           approvals={approvals}
           text={text}
@@ -384,7 +384,7 @@ export function InspectorColumn({
           onModifyPlan={(id, plan) => void modifyApprovalPlan(id, plan)}
         />
       )}
-      {tab === "memory" && !settingsPage && (
+      {tab === "memory" && (
         <MemoryPanel
           candidates={candidates}
           memories={memories}

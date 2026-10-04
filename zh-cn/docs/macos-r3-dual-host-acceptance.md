@@ -2,6 +2,14 @@
 
 > 语言：简体中文 | [English](../../docs/macos-r3-dual-host-acceptance.md)
 
+## 前端呈现完全收敛 — 2026-10-04
+
+Mac R3 工作台不再为对话、输入区、邮箱或设置维护另一套呈现。`LocalWorkbench` 现在使用生产 `MessageBubble` 渲染本机消息；两端共同使用同一个 `ComposerSurface`，覆盖上传、选择已有文件、富邮箱窗口、语音输入、草稿输入和发送。Mac 顶栏也改用生产通知入口及浏览器检查面板样式。设置开放完整层级，复用与 Linux 相同的各级设置面板及实时全局设置数据；从设置页选择“记忆”或“审批”时，共享面板也会正常显示。
+
+呈现收敛不把 R3 对话所有权迁回 Gateway。Mac 对话、消息、所选文件、执行请求和日程仍保存在客户端本机。桌面网关策略只放行设置、邮箱、通知、语音、诊断等共享呈现／全局 API，并明确拒绝旧服务端会话历史、服务端日程、服务端上传和运行反馈。回归测试同时约束共享 Mac 界面与这条负向边界。
+
+WebChat 195 项、Desktop 92 项通过；生产 WebChat 构建、受管 preload 检查、双语 102 份文档检查、原生 ARM64 包审计及 `hdiutil verify` 均通过。重建包已安装至 `/Applications/SparkClaw.app`，未改动其 Application Support 数据。已安装 ASAR SHA-256 为 `8a561577edb85cbc01813d4dfcbd216b5a41e834388975943a49f9b1cca7aedf`；DMG 为 `18a88d1e300abac1a1ecfbfcf7266c02c529b759acfa5182c905abbeb88940cf`，ZIP 为 `9e47041019ad04c4efa2d24f296de502f1b522076fe8677d2cc28e730d509845`。原始安装应用及一次中间替换均已可恢复地移入 macOS 废纸篓。重启后的真实 GUI 保留已认证 Owner 与本机对话，成功打开完整富邮箱窗口，显示全部 9 项设置入口，加载“连接”的下级页面，并打开与 Linux 相同的文件选择窗口。本次未重新部署生产服务。
+
 ## Mac／Linux 前端与图标同步 — 2026-10-04
 
 用户要求主分支合并后，Mac 已安装前端和图标与 Linux 保持同步。此前虽然打包同一前端源码，R3 Desktop 实际渲染的是简化版 LocalWorkbench，Linux 生产工作台则使用共享侧栏／欢迎页／输入区；Mac 打包还漏配图标，回退到了 `electron.icns`。

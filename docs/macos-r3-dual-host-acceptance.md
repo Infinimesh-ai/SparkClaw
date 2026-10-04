@@ -2,6 +2,14 @@
 
 > Language: English | [简体中文](../zh-cn/docs/macos-r3-dual-host-acceptance.md)
 
+## Full frontend presentation convergence — 2026-10-04
+
+The Mac R3 workbench no longer maintains a parallel presentation for conversations, the composer, mail or settings. `LocalWorkbench` now renders local messages with the production `MessageBubble`, and both renderers use the same `ComposerSurface` for uploads, document selection, the rich mail window, voice input, draft input and sending. The Mac top bar also uses the production notification entry and browser-inspector treatment. The complete settings hierarchy is available, with the same nested settings panels and live global settings data as Linux; the shared memory and approval routes now render their panels when selected from the settings page.
+
+The presentation convergence does not move R3 conversation ownership back to the Gateway. Mac conversations, messages, selected files, execution requests and schedules remain client-local. The desktop gateway policy exposes only shared presentation/global APIs such as settings, mail, notifications, speech and diagnostics, while explicitly rejecting legacy session history, server schedules, server uploads and run feedback. Regression coverage asserts both the shared Mac surface and this negative boundary.
+
+WebChat passed 195 tests and Desktop passed 92; the production WebChat build, managed-preload check, bilingual 102-file documentation check, native ARM64 package audit and `hdiutil verify` passed. The rebuilt package was installed at `/Applications/SparkClaw.app` without changing its Application Support data. Installed ASAR SHA-256 is `8a561577edb85cbc01813d4dfcbd216b5a41e834388975943a49f9b1cca7aedf`; DMG is `18a88d1e300abac1a1ecfbfcf7266c02c529b759acfa5182c905abbeb88940cf`, and ZIP is `9e47041019ad04c4efa2d24f296de502f1b522076fe8677d2cc28e730d509845`. The original and one intermediate app replacement were moved recoverably to the macOS Trash. The relaunched GUI retained its authenticated owner and local conversation, opened the full rich mail window, showed all nine settings routes, loaded the nested Connections surface, and opened the same document picker as Linux. No production service was redeployed.
+
 ## Mac/Linux frontend and icon synchronization — 2026-10-04
 
 The user requested that the installed Mac frontend and icon match Linux after the merge. Identical source bundles had still selected two different renderers: R3 Desktop used a simplified LocalWorkbench, while the Linux production workbench used the shared sidebar/welcome/composer layout. Mac packaging also omitted its icon setting and fell back to `electron.icns`.

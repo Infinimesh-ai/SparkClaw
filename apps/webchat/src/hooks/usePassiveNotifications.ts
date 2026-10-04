@@ -20,7 +20,7 @@ function boundedSeen(freshIds: Iterable<string>, previous: Set<string>) {
   return next;
 }
 
-export function usePassiveNotifications() {
+export function usePassiveNotifications(enabled = true) {
   const [notifications, setNotifications] = useState<PassiveNotification[]>([]);
   const [open, setOpen] = useState(false);
   const [toast, setToast] = useState<PassiveNotification | null>(null);
@@ -54,6 +54,7 @@ export function usePassiveNotifications() {
   }, [load]);
 
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     let cursor = "";
     let initialized = false;
@@ -94,7 +95,7 @@ export function usePassiveNotifications() {
     }
     void subscribe();
     return () => controller.abort();
-  }, [load]);
+  }, [enabled, load]);
 
   useEffect(() => {
     if (!toast) return;

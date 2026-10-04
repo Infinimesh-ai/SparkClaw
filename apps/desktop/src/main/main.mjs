@@ -40,6 +40,7 @@ import { MailSyncCapability } from "./mail-sync-capability.mjs";
 import { ClientStoreCapability } from "./client-store-capability.mjs";
 import { exportLocalFile } from "./export-local-file.mjs";
 import { configureWorkbenchPermissions } from "./workbench-permissions.mjs";
+import { proxyAPIAllowed } from "./workbench-proxy-policy.mjs";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DESKTOP_ICON_PATH = path.join(MODULE_DIR, "..", "assets", "icon.png");
@@ -575,10 +576,6 @@ function workbenchProtocolHandler(root, auth) {
       });
     }
   };
-}
-
-export function proxyAPIAllowed(pathname) {
-  return pathname === "/api/workbench/identity" || pathname === "/api/clients" || /^\/api\/clients\/[^/]+\/revoke$/u.test(pathname);
 }
 
 function proxyTarget(url, origin) {

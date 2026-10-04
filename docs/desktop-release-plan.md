@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-release-plan.md)
 >
-> Candidate status: rebuilt and package-qualified on 2026-09-23 (Asia/Shanghai). This plan is preparation, not authorization to switch production, delete a profile, or perform real provider effects.
+> Candidate status: rebuilt, package-qualified, and installed on the GB10 Linux desktop on 2026-10-04 (Asia/Shanghai). This plan does not authorize deleting a profile or performing real provider effects.
 
 The [shared local backend design](local-shared-backend-design.md) is included in
 this candidate: LAN Web and local desktop use one workbench port without
@@ -11,19 +11,20 @@ deployment still requires the acceptance and authorization below.
 
 ## Candidate Identity
 
-The candidate is Linux/ARM64 SparkClaw Desktop `0.1.0`, built with Electron `44.4.3`, bundled Chromium `152.0.7977.130`, and Electron Node `24.21.0`. Its control compatibility baseline is Browser Bridge `1.0.26`, Playwright MCP `0.0.80`, CLI `0.1.19`, and Playwright `1.63.0-alpha-2026-08-31`.
+The candidate is Linux/ARM64 SparkX Desktop `0.1.0`, built with Electron `44.4.3`, bundled Chromium `152.0.7977.130`, and Electron Node `24.21.0`. Its control compatibility baseline is Browser Bridge `1.0.28`, Playwright MCP `0.0.80`, CLI `0.1.19`, and Playwright `1.63.0-alpha-2026-08-31`.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| `SparkClaw-0.1.0-linux-arm64.AppImage` | 126,631,016 | `bb14c8ce347ecb0154423973bf40a8a688a5f66096af75c97b8c4d86cc68b8bc` |
-| `SparkClaw-0.1.0-linux-arm64.deb` | 94,359,320 | `1f5843bf45bb136aa9e91c498a0706c04eee39c2d1ecb6d77c724ecd877906fc` |
+| `SparkX-0.1.0-linux-arm64.AppImage` | 126,684,368 | `04101a9bd513f7e4601cd0f3532f89eadc511350512330cc4aa6b11da544fc29` |
+| `SparkX-0.1.0-linux-arm64.deb` | 94,403,348 | `dfe304a3af233b70fd73e3eebbb19687007c9f1d223619b0487f2d1d671fb889` |
 
 The generated sources of truth are `apps/desktop/dist/release-manifest.json` and `apps/desktop/dist/SHA256SUMS`. Rebuilding changes the hashes; regenerate this table before release. The packaged icon and target-host desktop entry still require owner acceptance.
 
 ## Evidence Already Complete
 
 - `npm run qualify:desktop` uses a runner-owned Xvfb and disposable user data. It covers actual MCP and CLI, task/personal isolation, nested targets and popups, native input exclusion, approved automation, downloads, managed scripts, background execution, close-to-hide, renderer/main crashes, persistent browser state, generation invalidation, and no automatic replay of unknown effects.
-- `npm run qualify:desktop-artifacts` checks both hashes and DEB architecture, independently extracts each artifact, launches the packaged app without launcher-provided connection environment variables, and proves owner-only connection discovery, packaged WebChat, bounded desktop IPC, installation-provisioned Gateway identity plus HTTP/SSE proxying, speech WebSocket Origin rewriting, and browser-panel creation.
+- `npm run qualify:desktop-artifacts` checks both hashes, DEB architecture, and the stable `sparkclaw` package identity, independently extracts each artifact, launches the packaged app without launcher-provided connection environment variables, and proves owner-only connection discovery, packaged WebChat, bounded desktop IPC, installation-provisioned Gateway identity plus HTTP/SSE proxying, speech WebSocket Origin rewriting, and browser-panel creation.
+- On GB10, the DEB upgraded the existing `sparkclaw` package in place, installed `/opt/SparkX/sparkx`, removed the superseded `/opt/SparkClaw` root, preserved `~/.config/@sparkclaw/desktop`, and opened an X11 window titled `SparkX Workbench` with renderer sandboxing enabled.
 - `npm run qualify:local-shared-backend` uses disposable PostgreSQL and a Docker-network LAN client to prove separate desktop/Web identities for one Owner, empty startup, bidirectional CRUD, sub-two-second invalidation, identical file bytes, and rejection of forged local-source headers.
 - These are isolated software-rendered tests. They do not certify a clean target OS, real GPU/DPI/native IME/audio/video devices, operating-system microphone prompts, or provider login policies.
 
@@ -31,7 +32,7 @@ The generated sources of truth are `apps/desktop/dist/release-manifest.json` and
 
 Verify `sha256sum -c SHA256SUMS` before using either artifact.
 
-For a system package, install with `sudo apt install ./SparkClaw-0.1.0-linux-arm64.deb`. Update by verifying and installing the complete newer DEB; do not mix application files from two releases. Roll back only by explicitly installing a previously retained, verified whole DEB after stopping the candidate.
+For a system package, install with `sudo apt install ./SparkX-0.1.0-linux-arm64.deb`. The display name, executable, and install root are SparkX, while the Debian package identity intentionally remains `sparkclaw` so an existing installation upgrades in place. Update by verifying and installing the complete newer DEB; do not mix application files from two releases. Roll back only by explicitly installing a previously retained, verified whole DEB after stopping the candidate.
 
 For a portable trial, mark the AppImage executable and run it directly. Replace it atomically with a newly verified complete AppImage for updates. Keep the previous verified file only as an operator-controlled whole-release rollback candidate; the application does not select engines or silently fall back.
 
@@ -58,7 +59,7 @@ Only after explicit release authorization:
 
 1. Record the current deployed release, service state, `open:browser` behavior, configuration and rollback commands. Back up configuration and existing data according to the normal operator guide; do not transform or merge browser profiles.
 2. Stop admission of new browser tasks and let accepted tasks reach a known terminal state. Unknown outcomes remain unknown and are not replayed.
-3. Install the verified candidate and launch SparkClaw Desktop. Establish required website sessions through normal owner login.
+3. Install the verified candidate and launch SparkX Desktop. Establish required website sessions through normal owner login.
 4. Configure Browser Controller with the Electron adapter socket and secret-file paths, restart only the affected controller service, and pass the read-only smoke.
 5. Change the single production `open:browser`/service entry to Electron as one release step. Do not expose an engine selector and do not retain an automatic old-engine fallback.
 6. Validate Gateway readiness, ordinary WebChat, personal browsing, task observation, one approved non-destructive task, downloads, speech, lifecycle, and audit/error reporting.

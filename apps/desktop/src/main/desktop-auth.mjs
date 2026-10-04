@@ -3,6 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { parseBackendDescriptor, loadLocalBackendDescriptor, loadLocalBackendConnection } from "./local-backend.mjs";
 import { isTLSIdentityError, pinnedHTTPSFetch } from "./pinned-https.mjs";
+import { createConnectionCredential, parseConnectionCredential } from "./connection-credential.mjs";
 
 export class DesktopAuth {
   constructor({ vault, descriptorPath, legacyPaths, installationID, qualification = false, requireLAN = false, fetcher, onChange = () => {}, onLock = () => {} }) {
@@ -86,6 +87,24 @@ export class DesktopAuth {
     if (generation !== this.generation) return this.status;
     this.connection = Object.freeze(record);
     return this.#set("connected");
+  }
+
+  async enroll(value) {
+    const parsed = parseConnectionCredential(value);
+    await this.configure(parsed.descriptor);
+    return this.login(parsed.token);
+  }
+
+  connectionCredential(token) {
+    if (!this.descriptor) throw new Error("Backend identity is unavailable");
+    return createConnectionCredential({
+      schema_version: this.descriptor.schemaVersion,
+      origin: this.descriptor.origin,
+      deployment_id: this.descriptor.deploymentID,
+      ...(this.descriptor.ownerID ? { owner_id: this.descriptor.ownerID } : {}),
+      ...(this.descriptor.certificateSHA256 ? { tls_certificate_sha256: this.descriptor.certificateSHA256 } : {}),
+      ...(this.descriptor.ca ? { tls_ca_pem: this.descriptor.ca } : {}),
+    }, token);
   }
 
   async retry() {

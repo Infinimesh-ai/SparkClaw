@@ -69,6 +69,7 @@ async function visitDevices(host: HTMLElement, language: Language = "en") {
 }
 
 beforeEach(() => {
+  delete window.sparkclawDesktop;
   const storage = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => storage.get(key) ?? null,
@@ -86,6 +87,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  delete window.sparkclawDesktop;
   for (const root of roots.splice(0)) await act(async () => root.unmount());
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -130,6 +132,22 @@ describe("device credentials through the production settings route", () => {
     await act(async () => button(host, dictionaries.en.settings.hideClientToken).click());
     expect(host.textContent).not.toContain(issued.token);
     expect(host.querySelector(".issuedClientCredential")).toBeNull();
+  });
+
+  it("packages a newly issued token as one desktop connection credential", async () => {
+    const connectionCredential = vi.fn(async (token: string) => `sparkclaw-connect-v1.${token}-bundle`);
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, connectionCredential,
+      loginStartup: async () => ({ supported: false, enabled: false }) } as unknown as NonNullable<typeof window.sparkclawDesktop>;
+    const { host } = await render(<SettingsRoute />);
+    await visitDevices(host);
+    await act(async () => button(host, dictionaries.en.settings.issueClient).click());
+    const bundled = `sparkclaw-connect-v1.${issued.token}-bundle`;
+    expect(connectionCredential).toHaveBeenCalledWith(issued.token);
+    expect(host.querySelector(".issuedClientCredential code")?.textContent).toBe(bundled);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    await act(async () => button(host, dictionaries.en.common.copy).click());
+    expect(writeText).toHaveBeenCalledWith(bundled);
   });
 
   it("preserves one request key and name after a lost response and blocks concurrent issuance", async () => {

@@ -91,42 +91,30 @@ R3 组件实现后，记录后端可达的 HTTPS origin、部署身份／证书�
    npm run credentials:initial -- --name "我的 Mac"
    ```
 
-   新 Token 只展示一次，同时显示部署、Owner 和设备 ID。stdin／stdout／stderr 均须为 TTY。非默认私有运行目录可加 `--runtime-dir /绝对路径/runtime`。不在 Mac 运行该工具，不复制预置 Desktop Token；管理权限只能通过私有 Unix socket 使用。
-2. 已有可用设备时，打开**设置 → 设备与凭据**，填写名称、签发／复制新凭据，安全登录后收起明文。列表只展示元数据和撤销状态，不能查看旧 Token。
-3. 在 Mac 登录界面粘贴部署用户提供的**公开 v2 连接 JSON**，再输入此设备凭据：
-
-   ```json
-   {
-     "schema_version": 2,
-     "origin": "https://your-backend.lan",
-     "deployment_id": "ACTUAL_DEPLOYMENT_ID",
-     "owner_id": "ACTUAL_OWNER_ID",
-     "tls_certificate_sha256": "ACTUAL_LOWERCASE_64_HEX_LEAF_CERTIFICATE_SHA256"
-   }
-   ```
-
-   替换全部占位符。私有 PKI 可另含 `tls_ca_pem`，内容为公开 CA 证书；JSON 不能包含私钥或 Token。Mac 强制 v2 HTTPS，发送凭据前核验证书链、主机名及叶证书指纹；指纹不能替代证书验证。可配置 Gateway 原生 TLS，使用成对绝对路径 `gateway.tls_cert_file`／`gateway.tls_key_file`，或 `SPARKCLAW_GATEWAY_TLS_CERT_FILE`／`SPARKCLAW_GATEWAY_TLS_KEY_FILE`。证书须覆盖 LAN 主机名，私钥须为 Gateway 用户拥有的普通私有文件，不能为 symlink。也可由反向代理通过 HTTPS upstream 连接 Gateway，确保 WSS Host 请求实际以 TLS 到达；转发头不能代替 TLS，仅终止 TLS 后转发 HTTP 的代理不能接入 Host。本次交付不生成证书、不修改运行服务、不配置生产入口。
-4. 主进程通过系统安全存储保护加密凭据（Mac 使用 Electron safeStorage／Keychain），同一设备后续复用。退出／撤销／切换后端清除凭据并锁定界面，保留本机对话／文件。服务端安装 ID 注册已实现，接收 R3 传输前核验签发客户端身份。
-5. 未知签发结果沿用原命令／名称／请求 key 重试；已完成领取不重显旧 Token。全部设备不可用，或重启／十分钟窗口到期导致明文不可恢复时，明确恢复**准确的遗失设备 ID**（替换 `LOST_DEVICE_ID`）：
+   工具只展示一次 `sparkclaw-connect-v1...` 连接凭据，同时显示部署、Owner 和设备 ID。这一个值已经包含公开的固定后端身份和本设备 bearer，不再单独打印原始 bearer。stdin／stdout／stderr 均须为 TTY。非默认私有运行目录可加 `--runtime-dir /绝对路径/runtime`。不在 Mac 运行该工具，不复制预置 Desktop Token；管理权限只能通过私有 Unix socket 使用。
+2. 已有可用 SparkX 桌面端时，打开**设置 → 设备与凭据**，填写名称、签发／复制连接凭据，安全登录后收起。普通浏览器仍只能签发原始访问 Token；目标是另一台下载的桌面客户端时，请从已登录桌面端签发。列表只展示元数据和撤销状态，不能查看旧秘密。
+3. 在目标 Mac 的单个**连接凭据**输入框粘贴完整凭据，再点**解锁**，不再单独填写后端连接说明。主进程在本地解包，发送 bearer 前仍核验证书链、主机名和叶证书指纹；整个 bundle 属于秘密，指纹也不能替代证书验证。后端部署需按[部署文档](deployment.md#产品入口)同时设置 `SPARKCLAW_DESKTOP_TLS_DIR` 与 `SPARKCLAW_DESKTOP_PUBLIC_ORIGIN`，初始化流程据此取得公开 CA 和叶证书指纹。本功能不生成证书，也不配置生产入口。
+4. 主进程通过系统安全存储保护加密凭据（Mac 使用 Electron safeStorage／Keychain），同一设备后续复用。退出／撤销，或使用另一份连接凭据注册时，会清除旧凭据并按需锁定界面，同时保留本机对话／文件。服务端安装 ID 注册会在接收 R3 传输前核验签发客户端身份。
+5. 未知签发结果沿用原命令／名称／请求 key 重试；已完成领取不重显旧连接凭据。全部设备不可用，或重启／十分钟窗口到期导致明文不可恢复时，明确恢复**准确的遗失设备 ID**（替换 `LOST_DEVICE_ID`）：
 
    ```sh
    npm run credentials:recover -- --revoke-id LOST_DEVICE_ID --name "替代 Mac"
    ```
 
-   工具先撤销该设备再签发替代凭据。Token 不进入 Git、构建、截图或反馈日志；排障仅保留脱敏 ID／错误状态。
+   工具先撤销该设备再签发替代凭据。连接凭据和 Token 均不进入 Git、构建、截图或反馈日志；排障仅保留脱敏 ID／错误状态。
 
 ### 5.2 登录与验收
 
 下表为完整目标验收矩阵。Linux／共享源码已启用本机保存、设备管理／登录、明确执行／输出交付、邮箱同步及 Host WSS；生产切换未执行，全部 Mac M01–M12 均需用户在交付 SHA 上提供证据。
 
-首次启动先确认后端地址并验证证书／服务身份，在客户端登录界面输入 SparkClaw 服务访问凭据；由后端验证并绑定当前安装身份，成功后才解锁任务、邮箱同步等获授权服务。凭据由 Mac 主进程安全保存到 Keychain，不提交到 Git、编译配置或反馈日志。后续有效凭据可恢复连接，失效／吊销、退出或切换后端时重新登录。
+首次启动只需粘贴一份 SparkClaw 连接凭据。主进程从中取得后端身份与 bearer、验证 TLS，再由后端绑定当前安装身份；成功后才解锁任务、邮箱同步等获授权服务。凭据由 Mac 主进程安全保存到 Keychain，不提交到 Git、编译配置或反馈日志。后续有效凭据可恢复连接，失效／吊销、退出或改用另一后端凭据时重新登录。
 
 服务解锁后，浏览器功能仍需独立宿主授权，再由 Mac main 主动建立 WSS，注册 host_id／runtime_generation／能力并取得角色限定宿主租约；裸 CDP 和 Linux 私有 Adapter secret 不对外暴露。使用真实 LAN 入口并核对证书主机名，Git 可访问不代表产品网络或服务权限已经可用。
 
 | 检查 | 预期证据 |
 |---|---|
 | 凭据领取与管理 | 后端初始化及实际“设置 → 设备与凭据”均可达；每设备独立签发、一次性展示／复制、同设备复用、同键重试、遗失恢复和撤销生效，明文不进入日志／Git |
-| 首次凭据解锁 | 新安装必须输入 SparkClaw 凭据并经后端验证；错误／吊销凭据不能访问任务、邮箱或浏览器控制；重启恢复、退出、换后端及 Keychain 行为正确 |
+| 首次凭据解锁 | 新安装只有一个连接凭据输入框，不再单独填写后端 JSON；错误／吊销凭据不能访问任务、邮箱或浏览器控制；重启恢复、退出、换后端及 Keychain 行为正确 |
 | 非邮箱本地数据 | Mac 创建对话 A、Linux 创建 B；分别重启后保留自己的消息、任务历史和文件，对方客户端不会自动出现该对话 |
 | 后端邮箱同步 | 两端收到获授权邮箱的版本／删除；离线缓存、游标重置可恢复；清除本地缓存不删除后端邮件 |
 | 浏览器适配层 | 使用无外部副作用测试页，通过同一后端适配层分别在 Mac 和 Linux 导航、输入随机标记、读取 DOM、接收事件并取消 |

@@ -78,6 +78,11 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Downloaded SparkX desktops now unlock with one backend-issued
+  `sparkclaw-connect-v1...` connection credential instead of a separate public
+  backend JSON and device token. Linux first/recovery issuance and signed-in
+  desktop device settings produce the bundle; main still validates CA,
+  hostname, and pinned leaf fingerprint before transmitting the bearer.
 - Accepted Electron's bundled Chromium as the sole desktop browser architecture,
   with native personal/task views and an Electron adapter preserving the existing
   Controller, Playwright MCP/CLI, task ownership, and fixed-script control model.

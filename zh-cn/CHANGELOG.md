@@ -58,6 +58,10 @@
 
 ### Changed
 
+- 下载后的 SparkX 桌面端改为使用一份后端签发的 `sparkclaw-connect-v1...`
+  连接凭据解锁，不再分别填写公开后端 JSON 与设备 Token。Linux 首次／恢复领取命令和
+  已登录桌面端的设备设置都会生成该 bundle；主进程仍在发送 bearer 前校验 CA、主机名和
+  固定的叶证书指纹。
 - 确立 Electron 自带 Chromium 为唯一桌面浏览器架构，使用原生个人／任务视图，
   通过 Electron 适配层保留现有 Controller、Playwright MCP/CLI、任务归属及固定脚本
   控制模式。双语设计明确脚本能力迁移、新 Session 登录、后台常驻和如实故障恢复；

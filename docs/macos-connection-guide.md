@@ -91,42 +91,30 @@ These tools require this commit's Gateway/provisioning on the **Linux backend ho
    npm run credentials:initial -- --name "My Mac"
    ```
 
-   It displays a new Token once, with deployment, Owner and device ID. All three standard streams must be TTYs. A non-default private runtime directory uses `--runtime-dir /absolute/runtime`. Do not run this on Mac or copy a preprovisioned Desktop Token. Management authority works only over the private Unix socket.
-2. With a usable device, open **Settings → Devices & credentials**, enter a device name, issue/copy the credential, and hide it after secure login. The list shows metadata and revocation only; it cannot reveal old Tokens.
-3. Paste the administrator's **public v2 connection JSON** into Mac login, then enter this device's credential:
-
-   ```json
-   {
-     "schema_version": 2,
-     "origin": "https://your-backend.lan",
-     "deployment_id": "ACTUAL_DEPLOYMENT_ID",
-     "owner_id": "ACTUAL_OWNER_ID",
-     "tls_certificate_sha256": "ACTUAL_LOWERCASE_64_HEX_LEAF_CERTIFICATE_SHA256"
-   }
-   ```
-
-   Replace every placeholder. Private PKI may also supply `tls_ca_pem`, containing the public CA certificate. No Token/private key belongs in this JSON. Mac requires v2 HTTPS and verifies chain, hostname and leaf pin before bearer transmission. A pin does not bypass certificate validation. Configure the optional native Gateway TLS listener with paired absolute `gateway.tls_cert_file` / `gateway.tls_key_file` paths (or `SPARKCLAW_GATEWAY_TLS_CERT_FILE` / `SPARKCLAW_GATEWAY_TLS_KEY_FILE`). The certificate must cover the LAN hostname, and the key must be a regular owner-only file owned by the Gateway user, not a symlink. Alternatively, a reverse proxy must connect to Gateway through HTTPS upstream so WSS Host requests arrive with real TLS; forwarding headers do not qualify. A proxy terminating TLS and forwarding HTTP cannot admit the Host. This delivery does not create certificates, modify a running service or configure production ingress.
-4. Main saves encrypted credentials protected by OS secure storage (Mac Keychain through Electron safeStorage). The same device reuses its credential. Logout/revocation/backend changes clear credentials and lock UI, preserving local conversations/files. Server installation-ID registration is implemented and checks the issued client before accepting R3 transports.
-5. Unknown issuance outcomes reuse the original command/name/request key. Completed retrievals never redisplay a Token. Total device lockout or unrecoverable plaintext after restart/ten-minute expiry requires recovery of the **exact lost device ID** (replace `LOST_DEVICE_ID`):
+   It displays one `sparkclaw-connect-v1...` connection credential once, with deployment, Owner and device ID. The value already contains the public pinned backend identity and this device's bearer; the raw bearer is not printed separately. All three standard streams must be TTYs. A non-default private runtime directory uses `--runtime-dir /absolute/runtime`. Do not run this on Mac or copy a preprovisioned Desktop Token. Management authority works only over the private Unix socket.
+2. With a usable SparkX desktop, open **Settings → Devices & credentials**, enter a device name, issue/copy the connection credential, and hide it after secure login. A normal browser can still issue only a raw access Token; use a signed-in desktop when the target is another downloaded desktop. The list shows metadata and revocation only and cannot reveal an old secret.
+3. On the target Mac, paste the complete connection credential into the single **Connection credential** field and choose **Unlock**. There is no separate backend-description step. Main decodes the bundle locally and still verifies the HTTPS chain, hostname and leaf certificate pin before sending the bearer; the bundle is a secret, while a pin never bypasses certificate validation. The backend deployment must set both `SPARKCLAW_DESKTOP_TLS_DIR` and `SPARKCLAW_DESKTOP_PUBLIC_ORIGIN` as described in [Deployment](deployment.md#product-entrypoints), so provisioning can derive the public CA and leaf fingerprint. This does not create certificates or configure production ingress.
+4. Main saves encrypted credentials protected by OS secure storage (Mac Keychain through Electron safeStorage). The same device reuses its credential. Logout/revocation or enrollment with another connection credential clears the old credential and locks UI as appropriate, preserving local conversations/files. Server installation-ID registration checks the issued client before accepting R3 transports.
+5. Unknown issuance outcomes reuse the original command/name/request key. Completed retrievals never redisplay a connection credential. Total device lockout or unrecoverable plaintext after restart/ten-minute expiry requires recovery of the **exact lost device ID** (replace `LOST_DEVICE_ID`):
 
    ```sh
    npm run credentials:recover -- --revoke-id LOST_DEVICE_ID --name "Replacement Mac"
    ```
 
-   Recovery revokes that device before issuing a replacement. Keep Tokens out of Git, builds, screenshots and feedback logs; retain only redacted IDs/error states.
+   Recovery revokes that device before issuing a replacement. Keep connection credentials and Tokens out of Git, builds, screenshots and feedback logs; retain only redacted IDs/error states.
 
 ### 5.2 Login and acceptance
 
 The table below is the complete target acceptance matrix. Linux/shared source enables local saving, device management/login, explicit execution/output delivery, mailbox sync and Host WSS. Production cutover remains unperformed. All Mac M01–M12 require user evidence on the delivered SHA.
 
-On first launch, confirm the backend address and verify its certificate/service identity, then enter the SparkClaw service credential in the client login UI. The backend verifies it and binds this installation before unlocking authorized tasks, mail synchronization and other services. Mac main securely persists login credentials in Keychain, never in Git, build configuration or feedback logs. Valid credentials support later reconnection; invalidation/revocation, logout or backend changes require login again.
+On first launch, paste the single SparkClaw connection credential. Main extracts the backend identity and bearer, verifies TLS, and lets the backend bind this installation before unlocking authorized tasks, mail synchronization and other services. Mac main securely persists login credentials in Keychain, never in Git, build configuration or feedback logs. Valid credentials support later reconnection; invalidation/revocation, logout or a different backend credential requires login again.
 
 After service unlock, browser features still require a separate host grant. Mac main then opens the outbound WSS channel, registers host_id/runtime_generation/capabilities and receives its role-scoped host lease. Keep raw CDP and private Linux Adapter secrets inaccessible. Use the actual LAN entrance and verify certificate-hostname matching; Git access proves neither product connectivity nor service permission.
 
 | Check | Expected evidence |
 |---|---|
 | Credential retrieval and management | Backend initialization and actual “Settings → Devices & credentials” navigation work; separate per-device issuance, one-time display/copy, same-device reuse, same-key retries, loss recovery and effective revocation, with no plaintext in logs/Git |
-| First credential unlock | A fresh install requires SparkClaw credential entry and backend verification; invalid/revoked credentials cannot access tasks, mail or browser control; restart recovery, logout, backend change and Keychain behavior work correctly |
+| First credential unlock | A fresh install has one connection-credential field and no separate backend JSON step; invalid/revoked credentials cannot access tasks, mail or browser control; restart recovery, logout, backend change and Keychain behavior work correctly |
 | Local non-mail data | Create Mac conversation A and Linux conversation B. Restart each client and verify its own messages, task history and files persist. Neither conversation automatically appears on the other client |
 | Backend mail sync | Both clients receive authorized mailbox revisions/deletions; offline cache and cursor reset recover. Clearing a local cache does not delete backend mail |
 | Browser adapter | Use harmless test pages to navigate, type a random marker, read DOM, receive events and cancel through the same backend adapter on Mac and Linux |

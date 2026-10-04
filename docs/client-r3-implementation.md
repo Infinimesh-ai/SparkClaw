@@ -20,7 +20,7 @@ At September 30, local SQLite/files, secure login, credential retrieval/device m
 |---|---|---|
 | P0 | Frozen byte/deadline/control allowlists; installed-client identity; durable admission/deduplication fences; memory-only Workflow repository, owned tmpfs workspace and encrypted delivery spool | Physical power-loss/full-disk and Mac hardware evidence; production cutover excluded |
 | P1 | Main-owned ClientStore schema 4; explicit immutable context submission, input files, ExecutionClient, scoped local task/message/file/approval persistence, explicit approval continuation and cancellation/status reconciliation | Real Mac GUI and model/provider use on the delivered SHA |
-| P2 | Initial/recovery credential tools, reachable device settings, pinned LAN login and installation binding; durable result receipt/ACK; revisioned mailbox catalog/snapshot/delta/tombstones and offline cache | Real LAN/Mac Keychain and paired physical clients |
+| P2 | One-step initial/recovery connection credentials, reachable device settings, pinned LAN login and installation binding; durable result receipt/ACK; revisioned mailbox catalog/snapshot/delta/tombstones and offline cache | Real LAN/Mac Keychain and paired physical clients |
 | P3 | Authenticated outbound WSS Broker/Host, common acquisition/embedded adapter roles, resource-side leases, actual per-conversation Electron pages, closed native operations and explicit unknown-write reconciliation | Mac embedded pages, supported real sites/popups and physical sleep/quit matrix |
 | P4 | Verified input/output and mail-attachment copies, private atomic local saves, durable ACK only after save; expiry/restart/failure/cleanup and hash/path checks | Physical disk-full/power-loss and Mac download/permission checks |
 | P5 | Integrated desktop main/preload/UI, isolated Linux/native verification, client-only Mac packaging source and exact user build commands; delivery through the R3 branch | User-run Mac compilation, M01–M12, architecture/signing/notarization/upgrades; production cutover |
@@ -55,6 +55,8 @@ Admission persists the request fence before execution. Same ID/digest queries re
 ## Protocol and client composition
 
 All `/api/r3/*` requests require an issued authenticated device. Except installation registration, they also require the server-bound `X-SparkClaw-Installation`. HTTPS/WSS validate certificate chain, hostname and pin before credentials; no redirects, raw CDP or inbound client listener.
+
+Desktop enrollment uses one opaque `sparkclaw-connect-v1...` value containing the public v2 pinned backend descriptor and one issued device token. The main process parses it, persists the descriptor separately from the encrypted token, and performs the same TLS checks before any bearer transmission. This local enrollment envelope does not change the Gateway bearer or R3 wire protocols.
 
 | Transport | Implemented operation |
 |---|---|

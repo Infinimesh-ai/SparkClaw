@@ -164,7 +164,7 @@ sparkclaw_private_override_allowed() {
   case "$key" in
     HF_TOKEN|HUGGING_FACE_HUB_TOKEN|OPENAI_API_KEY) return 0 ;;
     SPARKCLAW_CONTAINER_UID|SPARKCLAW_CONTAINER_GID) return 0 ;;
-    SPARKCLAW_DESKTOP_TLS_DIR) return 0 ;;
+    SPARKCLAW_DESKTOP_TLS_DIR|SPARKCLAW_DESKTOP_PUBLIC_ORIGIN) return 0 ;;
     SPARKCLAW_WEBCHAT_BIND|SPARKCLAW_WEBCHAT_PORT|SPARKCLAW_WEBCHAT_PROXY_TOKEN|SPARKCLAW_DEPLOYMENT_ID|SPARKCLAW_DESKTOP_CLIENT_FILE|SPARKCLAW_LOCAL_MANAGEMENT_FILE|SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR|SPARKCLAW_DESKTOP_EXECUTABLE) return 0 ;;
     SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT) return 0 ;;
     SPARKCLAW_BROWSER_EXTENSION_RUNTIME_DIR_HOST|SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET|SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET_HOST|SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID|SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS) return 0 ;;
@@ -373,6 +373,28 @@ sparkclaw_validate_product_profile() {
     printf 'SPARKCLAW_PAIRING_REQUIRED must be true for product entrypoints\n' >&2
     return 1
   }
+  local desktop_tls_dir desktop_public_origin
+  desktop_tls_dir="$(sparkclaw_profile_value "$product_file" "$mode_file" "$private_file" SPARKCLAW_DESKTOP_TLS_DIR '')"
+  desktop_public_origin="$(sparkclaw_profile_value "$product_file" "$mode_file" "$private_file" SPARKCLAW_DESKTOP_PUBLIC_ORIGIN '')"
+  if [[ -n "$desktop_tls_dir" || -n "$desktop_public_origin" ]]; then
+    [[ -n "$desktop_tls_dir" && -n "$desktop_public_origin" ]] || {
+      printf 'SPARKCLAW_DESKTOP_TLS_DIR and SPARKCLAW_DESKTOP_PUBLIC_ORIGIN must be configured together\n' >&2
+      return 1
+    }
+    [[ "$desktop_tls_dir" == /* ]] || {
+      printf 'SPARKCLAW_DESKTOP_TLS_DIR must be absolute\n' >&2
+      return 1
+    }
+    node - "$desktop_public_origin" <<'NODE' || {
+const value = process.argv[2];
+let url;
+try { url = new URL(value); } catch { process.exit(1); }
+if (url.protocol !== "https:" || url.origin !== value || url.pathname !== "/" || url.search || url.hash || url.username || url.password) process.exit(1);
+NODE
+      printf 'SPARKCLAW_DESKTOP_PUBLIC_ORIGIN must be a canonical HTTPS origin\n' >&2
+      return 1
+    }
+  fi
   for key in \
     SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES:200000 \
     SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES:72000 \

@@ -9,6 +9,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { pinnedHTTPSFetch } from "../src/main/pinned-https.mjs";
 import { DesktopAuth } from "../src/main/desktop-auth.mjs";
+import { createConnectionCredential } from "../src/main/connection-credential.mjs";
 
 test("HTTPS validates CA, hostname and leaf pin before transmitting any credential", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-tls-"));
@@ -63,4 +64,12 @@ test("HTTPS validates CA, hostname and leaf pin before transmitting any credenti
   assert.equal((await auth.login(token)).state, "connected");
   assert.equal(saved.clientID, "device");
   assert.equal(saved.ownerID, "expected-owner");
+
+  const enrolledDescriptor = { schema_version: 2, origin, deployment_id: "deployment", owner_id: "expected-owner",
+    tls_certificate_sha256: digest, tls_ca_pem: cert.toString("utf8").trim() };
+  const enrolled = new DesktopAuth({ installationID, descriptorPath: path.join(directory, "backend.json"), requireLAN: true,
+    vault: { available: () => true, clear: async () => { saved = undefined; }, save: async (value) => { saved = value; } } });
+  assert.equal((await enrolled.enroll(createConnectionCredential(enrolledDescriptor, token))).state, "connected");
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, "backend.json"), "utf8")), enrolledDescriptor);
+  assert.equal(enrolled.connectionCredential(token), createConnectionCredential(enrolledDescriptor, token));
 });

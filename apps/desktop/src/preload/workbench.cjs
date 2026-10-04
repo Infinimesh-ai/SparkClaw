@@ -58,6 +58,8 @@ contextBridge.exposeInMainWorld("sparkclawDesktop", Object.freeze({
   retryLocalConnection: () => ipcRenderer.invoke("sparkclaw-local-backend:retry"),
   configureBackend: (descriptor) => ipcRenderer.invoke("sparkclaw-local-backend:configure", descriptor),
   login: (token) => ipcRenderer.invoke("sparkclaw-local-backend:login", token),
+  enroll: (credential) => ipcRenderer.invoke("sparkclaw-local-backend:enroll", credential),
+  connectionCredential: (token) => ipcRenderer.invoke("sparkclaw-local-backend:connection-credential", token),
   logout: () => ipcRenderer.invoke("sparkclaw-local-backend:logout"),
   loginStartup: (enabled) => ipcRenderer.invoke("sparkclaw-desktop:login-startup", enabled),
   onLocalConnection: (listener) => {

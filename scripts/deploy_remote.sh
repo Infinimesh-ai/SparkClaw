@@ -216,6 +216,11 @@ workbench_provision_args=(
   --origin "http://127.0.0.1:$webchat_port"
   --deployment-id "$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_DEPLOYMENT_ID '')"
 )
+desktop_tls_dir="$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_DESKTOP_TLS_DIR '')"
+desktop_public_origin="$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_DESKTOP_PUBLIC_ORIGIN '')"
+if [[ -n "$desktop_tls_dir" ]]; then
+  workbench_provision_args+=(--client-origin "$desktop_public_origin" --client-tls-cert "$desktop_tls_dir/server.crt" --client-tls-ca "$desktop_tls_dir/ca.crt")
+fi
 if [[ "$MODE" == "check" ]]; then
   workbench_provision_args+=(--check)
 fi

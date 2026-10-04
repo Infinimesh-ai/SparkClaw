@@ -10,6 +10,7 @@ import { api, APIError, clearAPIToken } from "../api/client";
 import type { Copy, Language } from "../i18n";
 import { isBindingSetupPending } from "../lib/connectors";
 import { notificationBindingErrorMessage } from "../lib/bindingError";
+import { desktopCapability } from "../desktop/capability";
 import {
   ApprovalPanel,
   MemoryPanel,
@@ -257,7 +258,10 @@ export function InspectorColumn({
   async function issueClient(name: string, idempotencyKey: string) {
     try {
       setError("");
-      return await api.issueClient(name, idempotencyKey);
+      const issued = await api.issueClient(name, idempotencyKey);
+      const desktop = desktopCapability();
+      if (!desktop?.connectionCredential) return issued;
+      return { ...issued, connection_credential: await desktop.connectionCredential(issued.token) };
     } catch (err) {
       if (err instanceof APIError && err.status === 401) surfaceError(new APIError(401, text.auth.unauthorized), text.auth.unauthorized);
       throw err;

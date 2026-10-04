@@ -159,6 +159,11 @@ workbench_provision_args=(
   --origin "$webchat_base_url"
   --deployment-id "$(dotenv_value SPARKCLAW_DEPLOYMENT_ID)"
 )
+desktop_tls_dir="$(dotenv_value SPARKCLAW_DESKTOP_TLS_DIR)"
+desktop_public_origin="$(dotenv_value SPARKCLAW_DESKTOP_PUBLIC_ORIGIN)"
+if [[ -n "$desktop_tls_dir" ]]; then
+  workbench_provision_args+=(--client-origin "$desktop_public_origin" --client-tls-cert "$desktop_tls_dir/server.crt" --client-tls-ca "$desktop_tls_dir/ca.crt")
+fi
 if [[ "$MODE" == "check" ]]; then
   workbench_provision_args+=(--check)
 fi

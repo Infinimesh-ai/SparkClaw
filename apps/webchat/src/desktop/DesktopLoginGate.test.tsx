@@ -21,14 +21,14 @@ describe("desktop secure login gate", () => {
   });
   afterEach(() => { delete window.sparkclawDesktop; window.localStorage.clear(); vi.unstubAllGlobals(); });
 
-  it("blocks the protected child until verified login and clears token input without renderer storage", async () => {
+  it("blocks the protected child until one-step enrollment and clears the credential without renderer storage", async () => {
     window.localStorage.setItem("sparkclaw.language", "en");
     let listener: (status: DesktopConnectionStatus) => void = () => {};
     const desktop = {
       runtimeKind: "electron", capabilityVersion: 1,
       localConnection: async () => locked,
       onLocalConnection: (callback: typeof listener) => { listener = callback; return () => {}; },
-      login: vi.fn(async () => ({ ...locked, state: "invalid_authentication" as const })),
+      enroll: vi.fn(async () => ({ ...locked, state: "invalid_authentication" as const })),
       retryLocalConnection: vi.fn(async () => locked),
     } as unknown as SparkClawDesktop;
     window.sparkclawDesktop = desktop;
@@ -40,13 +40,13 @@ describe("desktop secure login gate", () => {
       expect(host.textContent).toContain(locked.backend!.origin);
       const input = host.querySelector<HTMLInputElement>("#desktopCredential")!;
       await act(async () => {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "test-user-credential");
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "sparkclaw-connect-v1.test-user-credential");
         input.dispatchEvent(new Event("input", { bubbles: true }));
       });
       await act(async () => {
         input.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
       });
-      expect(desktop.login).toHaveBeenCalledWith("test-user-credential");
+      expect(desktop.enroll).toHaveBeenCalledWith("sparkclaw-connect-v1.test-user-credential");
       expect(input.value).toBe("");
       expect(host.textContent).toContain("rejected or revoked");
       expect(window.localStorage.setItem).toHaveBeenCalledTimes(1);
@@ -62,7 +62,7 @@ describe("desktop secure login gate", () => {
     window.sparkclawDesktop = {
       runtimeKind: "electron", capabilityVersion: 1,
       localConnection: async () => ({ ...locked, state: "service_unavailable", client_id: "device" }),
-      login: vi.fn(), onLocalConnection: (callback: typeof listener) => { listener = callback; return () => {}; },
+      enroll: vi.fn(), onLocalConnection: (callback: typeof listener) => { listener = callback; return () => {}; },
     } as unknown as SparkClawDesktop;
     const host = document.createElement("div"); const root = createRoot(host);
     try {

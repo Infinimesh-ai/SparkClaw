@@ -6,6 +6,7 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { test } from "node:test";
 import { claimCredential, parseCredentialArguments, issuedClientID, socketRequest } from "../lib/credentials.mjs";
+import { parseConnectionCredential } from "../../apps/desktop/src/main/connection-credential.mjs";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const secret = "fake_credential_only_for_isolated_tests_0000000000";
@@ -16,6 +17,13 @@ async function fixture(t) {
   const result = spawnSync(process.execPath, [path.join(root, "scripts/provision-local-workbench.mjs"), "--runtime-dir", runtime, "--origin", "http://127.0.0.1:18790", "--deployment-id", "fake-deployment"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   const admin = JSON.parse(await fs.readFile(path.join(runtime, "local-management.json"), "utf8"));
+  await fs.writeFile(path.join(runtime, "client-backend.json"), JSON.stringify({
+    schema_version: 2,
+    origin: "https://sparkclaw.test:18790",
+    deployment_id: admin.deployment_id,
+    owner_id: admin.owner_id,
+    tls_certificate_sha256: "a".repeat(64),
+  }), { mode: 0o600 });
   const directory = path.join(runtime, "management");
   const socketPath = path.join(directory, "credentials.sock");
   const server = http.createServer((_, response) => { response.end("{}"); });
@@ -56,11 +64,14 @@ async function assertNoSecretInRecords(f) {
 test("initial persists key before issue, displays once, and completed repeat makes no issue", async t => {
   const f = await fixture(t);
   await claimCredential(f.options, f.deps);
-  assert.equal(f.printed().split(secret).length - 1, 1);
+  const encoded = f.printed().match(/sparkclaw-connect-v1\.[A-Za-z0-9_-]+/u)?.[0];
+  assert.ok(encoded);
+  assert.equal(parseConnectionCredential(encoded).token, secret);
+  assert.equal(f.printed().includes(secret), false, "the raw token is never printed separately");
   const before = f.calls.length;
   await claimCredential({ ...f.options, name: "Another name" }, f.deps);
   assert.equal(f.calls.length, before);
-  assert.equal(f.printed().split(secret).length - 1, 1);
+  assert.equal(f.printed().match(/sparkclaw-connect-v1\./gu)?.length, 1);
   await assertNoSecretInRecords(f);
 });
 
@@ -131,8 +142,8 @@ test("all redirected streams reject before any file access or request", async ()
   assert.equal(child.stdout, "");
 });
 
-test("non-private descriptor, management credential, directory and socket fail before issuance", async t => {
-  for (const name of ["local-workbench.json", "local-management.json", "management", "management/credentials.sock"]) {
+test("non-private descriptor, management credential, client backend, directory and socket fail before issuance", async t => {
+  for (const name of ["local-workbench.json", "local-management.json", "client-backend.json", "management", "management/credentials.sock"]) {
     const f = await fixture(t);
     const filename = path.join(f.runtime, name);
     await fs.chmod(filename, name === "management" ? 0o755 : 0o644);
@@ -141,8 +152,8 @@ test("non-private descriptor, management credential, directory and socket fail b
   }
 });
 
-test("symlink runtime, credential, descriptor, journal and socket fail closed", async t => {
-  for (const name of ["local-workbench.json", "local-management.json", "management/credentials.sock", "management/initial.json"]) {
+test("symlink runtime, credential, descriptors, journal and socket fail closed", async t => {
+  for (const name of ["local-workbench.json", "local-management.json", "client-backend.json", "management/credentials.sock", "management/initial.json"]) {
     const f = await fixture(t);
     const filename = path.join(f.runtime, name);
     if (name.endsWith("initial.json")) await fs.writeFile(filename, "{}", { mode: 0o600 });
@@ -163,6 +174,17 @@ test("wrong deployment identity or user client identity prevents issuance", asyn
     await assert.rejects(claimCredential(f.options, { ...f.deps, request: async () => ({ status: 200, body: { deployment_id: f.admin.deployment_id, owner_id: f.admin.owner_id, client_id: f.admin.client_id, [mismatch]: "wrong" } }) }), /identity verification/u);
   }
   assert.equal(f.printed(), "");
+});
+
+test("a mismatched public client backend cannot redirect an issued token", async t => {
+  for (const field of ["deployment_id", "owner_id"]) {
+    const f = await fixture(t);
+    const filename = path.join(f.runtime, "client-backend.json");
+    const backend = JSON.parse(await fs.readFile(filename, "utf8"));
+    await fs.writeFile(filename, JSON.stringify({ ...backend, [field]: "other" }), { mode: 0o600 });
+    await assert.rejects(claimCredential(f.options, f.deps), /identity does not match/u);
+    assert.equal(f.calls.length, 0);
+  }
 });
 
 test("actual Unix HTTP transport uses saved management secret and no network requests", async t => {
@@ -201,6 +223,25 @@ test("provisioner refuses symlink or public runtime instead of changing its perm
   assert.notEqual(child.status, 0);
   assert.equal((await fs.stat(f.runtime)).mode & 0o777, 0o755);
   assert.ok(!child.stdout.includes(f.admin.token));
+});
+
+test("provisioner derives and checks the public pinned backend descriptor", async t => {
+  const runtime = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-client-backend-"));
+  await fs.chmod(runtime, 0o700);
+  t.after(() => fs.rm(runtime, { recursive: true, force: true }));
+  const key = path.join(runtime, "server.key");
+  const cert = path.join(runtime, "server.crt");
+  const generated = spawnSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=sparkclaw.test", "-keyout", key, "-out", cert], { encoding: "utf8" });
+  assert.equal(generated.status, 0, generated.stderr);
+  const args = [path.join(root, "scripts/provision-local-workbench.mjs"), "--runtime-dir", runtime, "--origin", "http://127.0.0.1:18790", "--deployment-id", "deployment", "--client-origin", "https://sparkclaw.test:18790", "--client-tls-cert", cert, "--client-tls-ca", cert];
+  const provisioned = spawnSync(process.execPath, args, { encoding: "utf8" });
+  assert.equal(provisioned.status, 0, provisioned.stderr);
+  const backend = JSON.parse(await fs.readFile(path.join(runtime, "client-backend.json"), "utf8"));
+  assert.equal(backend.origin, "https://sparkclaw.test:18790");
+  assert.match(backend.tls_certificate_sha256, /^[a-f0-9]{64}$/u);
+  assert.match(backend.tls_ca_pem, /^-----BEGIN CERTIFICATE-----/u);
+  const checked = spawnSync(process.execPath, [...args, "--check"], { encoding: "utf8" });
+  assert.equal(checked.status, 0, checked.stderr);
 });
 
 test("management HTTP deadline is absolute even when responses keep dripping", async t => {
@@ -254,8 +295,11 @@ sys.exit(child.wait())`;
   });
   const first = await run();
   const second = await run();
-  assert.ok(first.includes(secret));
-  assert.ok(!second.includes(secret));
+  const delivered = first.match(/sparkclaw-connect-v1\.[A-Za-z0-9_-]+/u)?.[0];
+  assert.ok(delivered);
+  assert.equal(parseConnectionCredential(delivered).token, secret);
+  assert.ok(!first.includes(secret));
+  assert.ok(!second.includes("sparkclaw-connect-v1."));
   assert.equal(issues, 1);
   await assertNoSecretInRecords(f);
 });

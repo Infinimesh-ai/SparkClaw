@@ -3,6 +3,8 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { assertPrivateDirectory, assertNoSymlinkPath, readPrivateJSON, writePrivateJSON, canonicalLoopbackOrigin, validateProvisioning, nonempty } from "./private-workbench.mjs";
+import { createConnectionCredential } from "../../apps/desktop/src/main/connection-credential.mjs";
+import { parseBackendDescriptor } from "../../apps/desktop/src/main/local-backend.mjs";
 
 export function parseCredentialArguments(args) {
   const options = { mode: args.shift(), runtimeDirectory: process.env.SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR || path.resolve("data/runtime"), name: "", revokeID: "" };
@@ -28,7 +30,13 @@ export async function claimCredential(options, { input = process.stdin, output =
   const descriptor = await readPrivateJSON(path.join(runtime, "local-workbench.json"));
   if (descriptor?.schema_version !== 1 || !nonempty(descriptor.deployment_id)) throw new Error("local workbench descriptor is invalid");
   canonicalLoopbackOrigin(descriptor.origin);
+  const clientBackend = await readPrivateJSON(path.join(runtime, "client-backend.json"), { optional: true });
+  if (!clientBackend) throw new Error("LAN desktop issuance is not configured; set SPARKCLAW_DESKTOP_TLS_DIR and SPARKCLAW_DESKTOP_PUBLIC_ORIGIN, then redeploy");
   const management = validateProvisioning(await readPrivateJSON(path.join(runtime, "local-management.json")), descriptor.deployment_id);
+  const parsedClientBackend = parseBackendDescriptor(clientBackend);
+  if (parsedClientBackend.schemaVersion !== 2 || parsedClientBackend.deploymentID !== descriptor.deployment_id || parsedClientBackend.ownerID !== management.owner_id) {
+    throw new Error("LAN client backend identity does not match this deployment");
+  }
   const managementDirectory = path.join(runtime, "management");
   await assertPrivateDirectory(managementDirectory);
   const socketPath = path.join(managementDirectory, "credentials.sock");
@@ -72,12 +80,13 @@ export async function claimCredential(options, { input = process.stdin, output =
     }
     if (![200, 201].includes(result.status)) throw new Error("issuance was not confirmed; rerun the same command and device name to retry the saved request key");
     if (!nonempty(result.body?.token) || !/^[A-Za-z0-9_-]{32,512}$/u.test(result.body.token) || result.body.client?.id !== journal.client_id || result.body.client?.owner_id !== management.owner_id || result.body.client?.name !== journal.name || result.body.client?.revoked_at) throw new Error("issuance response failed identity validation; revoke the recorded device before attempting replacement");
+    const connectionCredential = createConnectionCredential(clientBackend, result.body.token);
     // Mark delivery before printing: even a crash while displaying cannot make
     // a completed retrieval print a credential a second time. No secret enters
     // the journal; a lost terminal display requires explicit revoke/reissue.
     journal = { ...journal, state: "completed", updated_at: now() };
     await writePrivateJSON(journalPath, journal);
-    output.write(`\nDevice: ${journal.name}\nDeployment: ${journal.deployment_id}\nOwner: ${management.owner_id}\nDevice ID: ${journal.client_id}\nSparkClaw service login credential (shown once):\n${result.body.token}\n\nEnter it in the target client's first-login screen. Keep it in that client's secure credential storage.\n`);
+    output.write(`\nDevice: ${journal.name}\nDeployment: ${journal.deployment_id}\nOwner: ${management.owner_id}\nDevice ID: ${journal.client_id}\nSparkClaw connection credential (shown once):\n${connectionCredential}\n\nPaste it into the target client's unlock screen. Keep it secret.\n`);
     return { completed: true, clientID: journal.client_id };
   } finally {
     await unlock();

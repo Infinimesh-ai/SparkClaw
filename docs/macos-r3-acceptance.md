@@ -90,7 +90,7 @@ Default Electron icon and UI chunk >500 KiB warnings did not block packaging. `n
 
 ## Follow-up manual procedure
 
-1. Prepare a separate non-production Linux R3 backend/client and record exact SHAs. Use a public v2 HTTPS description and separately issued Mac credential; enter tokens only in the application, following the [connection guide](macos-connection-guide.md#51-where-credentials-come-from).
+1. Prepare a separate non-production Linux R3 backend/client and record exact SHAs. Issue one `sparkclaw-connect-v1...` Mac connection credential and paste it only into the application, following the [connection guide](macos-connection-guide.md#51-where-to-obtain-the-credential).
 2. Use the retained dedicated Mac profile for login, independent Host authorization and M01/M11/M12, then paired non-mail isolation and mail synchronization. Create new data only; do not import old test history.
 3. Maintain an active lease on a harmless fixture page and separately exercise network loss, sleep/lid, quit/restart, revocation and lost-write-response behavior; explicitly reconcile unknown results. Without an actual lease, do not claim full M07.
 4. Record display, permission, microphone (only when required) and supported-site results. Formal distribution needs applicable user-provided Developer ID/notarization configuration, followed by separate signing and upgrade/rollback qualification. Bypassing Gatekeeper is not a pass.

@@ -90,7 +90,7 @@ ELECTRON_RUN_AS_NODE=1 node_modules/electron/dist/Electron.app/Contents/MacOS/El
 
 ## 后续人工步骤
 
-1. 准备独立的非生产 Linux R3 后端和 Linux 客户端，记录其准确 SHA，使用公开 v2 HTTPS 连接描述和专门签发的 Mac 设备凭据；Token 只输入应用，按[连接指南](macos-connection-guide.md#51-凭据从哪里取得)领取。
+1. 准备独立的非生产 Linux R3 后端和 Linux 客户端，记录其准确 SHA，签发一份 `sparkclaw-connect-v1...` Mac 连接凭据并只粘贴到应用中，按[连接指南](macos-connection-guide.md#51-凭据从哪里取得)领取。
 2. 在本轮保留的专用 Mac profile 完成登录、宿主独立授权及 M01／M11／M12，再做两端非邮箱隔离和邮箱同步。只使用本轮新建数据，不导入旧测试历史。
 3. 在无副作用页上保持活动租约，分别执行断网、睡眠／合盖、退出／重启、撤销和写入丢响应，观测未知结果并明确核对；缺少真实租约时不宣称完成 M07。
 4. 补录显示器、权限、麦克风（确需启用时）和支持站点结果。正式发行需要用户提供适用的 Developer ID／公证配置，再独立执行签名发行流程和升级／回退；不要通过绕过 Gatekeeper 记为通过。

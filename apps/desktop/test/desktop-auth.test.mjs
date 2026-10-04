@@ -43,6 +43,8 @@ test("production first launch requires user credential; encrypted restart binds 
   const { auth, options, vault } = await fixture(t);
   assert.equal((await auth.initialize()).state, "locked");
   assert.equal((await auth.login(token)).state, "connected");
+  await assert.rejects(auth.enroll("not-a-connection-credential"), /invalid/u);
+  assert.equal(auth.status.state, "connected", "malformed enrollment cannot replace an active connection");
   const ciphertext = await fs.readFile(vault.filename);
   assert.ok(!ciphertext.includes(Buffer.from(token)));
   assert.ok(!JSON.stringify(auth.status).includes(token));

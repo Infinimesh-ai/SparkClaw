@@ -410,6 +410,7 @@ export type Client = {
 export type IssuedClientCredential = {
   client: Client;
   token: string;
+  connection_credential?: string;
 };
 
 export type WorkbenchInvalidation = {

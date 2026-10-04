@@ -122,14 +122,18 @@ owner 可读的 `data/memory/gateway-credentials.key`；只有 Compose PostgreSQ
 这四条命令是唯一产品入口。宿主机调试命令和定向模型 benchmark helper 不是部署模式。
 已退役的 `online` 名称与托管 chat 加本地辅助模型的混合运行态不再受支持。
 
-R3 Mac 客户端需要 HTTPS。在所选私有环境文件中设置
-`SPARKCLAW_DESKTOP_TLS_DIR=/绝对路径/私有TLS目录` 后，两种启动命令都会加载
+R3 Mac 客户端需要 HTTPS。在所选私有环境文件中同时设置
+`SPARKCLAW_DESKTOP_TLS_DIR=/绝对路径/私有TLS目录` 与准确的客户端入口（例如
+`SPARKCLAW_DESKTOP_PUBLIC_ORIGIN=https://sparkclaw.lan:18790`），两者必须成对配置。
+两种启动命令随后都会加载
 `docker/compose.desktop-tls.yaml`：原工作台端口提供 HTTPS，以校验 CA 和主机名的
 HTTPS 连接 Gateway，并转发 Host WebSocket 升级。目录包含 `ca.crt`、`server.crt`
 和仅属主可读的 `server.key`，CA 私钥另存；服务证书须覆盖局域网地址、健康检查的
-`127.0.0.1` 和内部上游的 `gateway`。Gateway 仍不发布主机端口。客户端使用含 CA、
-叶证书指纹、部署和 Owner 的公开 v2 描述及独立设备凭据。启动和开机恢复均使用同一
-TLS overlay 及验证证书的健康检查；未设置该机器配置时仍使用默认 HTTP。
+`127.0.0.1` 和内部上游的 `gateway`。Gateway 仍不发布主机端口。初始化会根据配置的
+入口与证书生成 `data/runtime/client-backend.json`，其中包含 CA、叶证书指纹、部署和
+Owner；签发时再把这份公开身份与独立设备 Token 合为一份 `sparkclaw-connect-v1...`
+连接凭据。启动与开机恢复会核验同一描述、TLS overlay 及验证证书的健康检查。两项机器
+配置均未设置时仍使用默认 HTTP，也不能签发供下载桌面端直接使用的连接凭据。
 
 WebChat 是唯一应用入口，host port `18790` 默认绑定 `0.0.0.0`。设置
 `SPARKCLAW_WEBCHAT_PORT` 可以发布另一个 host port；容器与 Nginx listener 仍使用内部
@@ -146,11 +150,13 @@ WebChat 是唯一应用入口，host port `18790` 默认绑定 `0.0.0.0`。设�
 launcher 配置。产品不再监听 `18795`，普通工作台也不再使用 pairing bootstrap。
 
 “设置 → 设备与凭据”已通过真实设置路由接通经认证的列表、一次性签发／复制／收起及撤销。
+已登录桌面端会把新 Token 与已经验证的公开后端身份打包，使目标桌面端只需复制一份连接
+凭据；普通浏览器仍显示原始 Token，并提示应在已登录 SparkX 桌面端签发桌面连接凭据。
 桌面主进程通过 Electron safeStorage 保存加密凭据；Mac 由 Keychain 保护，Linux 拒绝明文
 回退。[R3 阶段记录](client-r3-implementation.md)区分这些已实现范围与尚未完成的任务执行、
 邮箱同步及 Mac 实机验收。
 
-每台设备独立签发，同一设备后续连接复用有效凭据，不能复制预置 Desktop Token 到其他设备。
+每台设备独立签发连接凭据，同一设备后续连接复用安全存储的 Token，不能复制预置 Desktop Token 到其他设备。
 现有浏览器存储按 service origin 和 deployment 隔离；桌面凭据绑定经验证的后端／Owner／设备身份。
 Gateway client token、MCP Access Ticket、ISCP pairing ticket 与 Browser Controller credential
 仍是彼此独立的 authority。
@@ -167,12 +173,13 @@ npm run credentials:recover -- --revoke-id LOST_DEVICE_ID --name "替代 Mac"
 
 两条命令都支持 `--runtime-dir /绝对路径/runtime`；省略时使用
 `SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR` 或当前 checkout 的 `data/runtime`。
-恢复先撤销指定遗失设备，再申请替代设备凭据。已完成的领取不会重新显示旧 Token。
+恢复先撤销指定遗失设备，再申请替代设备凭据。已完成的领取不会重新显示旧连接凭据。
 未完成的重试复用落盘的请求 key 和设备名称；后端重启或十分钟明文窗口到期后，必须显式
-撤销并重新签发。私有领取记录只保存身份、请求 key、状态和时间；Token 仅在本命令交互终端
-显示，不进入普通部署输出或领取记录。
+撤销并重新签发。私有领取记录只保存身份、请求 key、状态和时间；命令只打印一份不透明
+连接凭据，不再单独打印原始 Token，任何秘密都不进入普通部署输出或领取记录。
 
-初始化还创建独立的 `local-management.json`（0600）和 `management/` 目录（0700），
+初始化还创建 `client-backend.json`（0600）、独立的 `local-management.json`（0600）和
+`management/` 目录（0700），
 均须由部署用户拥有，路径不得含符号链接；描述符和凭据文件均使用 0600。Gateway 在该目录
 创建 `management/credentials.sock`（0600）。Compose 只读挂载描述符文件，仅允许写入
 management 子目录；容器配置的 UID/GID 必须与部署用户一致。Socket 只开放现有身份验证、

@@ -138,10 +138,11 @@ check_browser_controller() {
 }
 
 check_workbench_credentials() {
-  node "$ROOT/scripts/provision-local-workbench.mjs" --check \
-    --runtime-dir "${SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR:-$ROOT/data/runtime}" \
-    --origin "http://127.0.0.1:${SPARKCLAW_WEBCHAT_PORT:-18790}" \
-    --deployment-id "${SPARKCLAW_DEPLOYMENT_ID:-}"
+  local -a arguments=(--check --runtime-dir "${SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR:-$ROOT/data/runtime}" --origin "http://127.0.0.1:${SPARKCLAW_WEBCHAT_PORT:-18790}" --deployment-id "${SPARKCLAW_DEPLOYMENT_ID:-}")
+  if [[ -n "${SPARKCLAW_DESKTOP_TLS_DIR:-}" ]]; then
+    arguments+=(--client-origin "$SPARKCLAW_DESKTOP_PUBLIC_ORIGIN" --client-tls-cert "$SPARKCLAW_DESKTOP_TLS_DIR/server.crt" --client-tls-ca "$SPARKCLAW_DESKTOP_TLS_DIR/ca.crt")
+  fi
+  node "$ROOT/scripts/provision-local-workbench.mjs" "${arguments[@]}"
 }
 
 check_npm_install_script_approvals() {

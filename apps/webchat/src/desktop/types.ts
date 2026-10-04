@@ -75,6 +75,8 @@ export type SparkClawDesktop = {
   retryLocalConnection(): Promise<DesktopConnectionStatus>;
   configureBackend?(descriptor: DesktopBackendDescriptor): Promise<DesktopConnectionStatus>;
   login?(token: string): Promise<DesktopConnectionStatus>;
+  enroll?(credential: string): Promise<DesktopConnectionStatus>;
+  connectionCredential?(token: string): Promise<string>;
   logout?(): Promise<DesktopConnectionStatus>;
   loginStartup(enabled?: boolean): Promise<{ supported: boolean; enabled: boolean }>;
   onLocalConnection(listener: (status: DesktopConnectionStatus) => void): () => void;

@@ -161,17 +161,24 @@ before containers are changed.
 Models, state services, and the sandbox runner remain bound to localhost or the
 private Docker network.
 
-For R3 Mac clients, set `SPARKCLAW_DESKTOP_TLS_DIR=/absolute/private/tls` in the
-selected private environment file. Both start commands then apply
+For R3 Mac clients, set both
+`SPARKCLAW_DESKTOP_TLS_DIR=/absolute/private/tls` and the exact client-facing
+origin, for example `SPARKCLAW_DESKTOP_PUBLIC_ORIGIN=https://sparkclaw.lan:18790`,
+in the selected private environment file. They must be configured together.
+Both start commands then apply
 `docker/compose.desktop-tls.yaml`: the same workbench port serves HTTPS, proxies
 to native Gateway HTTPS with CA and hostname verification, and forwards Host
 WebSocket upgrades. The directory must contain `ca.crt`, `server.crt` and an
 owner-only `server.key`; keep the CA private key elsewhere. The leaf certificate
 must cover the LAN address, `127.0.0.1` for readiness and `gateway` for the private
-upstream. Gateway remains unpublished. Clients receive a public v2 descriptor
-with the CA, leaf fingerprint, deployment and Owner; each gets an independent
-credential. Startup and boot reconciliation use the same TLS overlay and verified
-readiness probe. The default without this machine override remains HTTP.
+upstream. Gateway remains unpublished. Provisioning derives
+`data/runtime/client-backend.json` from the configured origin and certificates,
+including the CA, leaf fingerprint, deployment and Owner. Issuance combines that
+public identity with each independent device token as one
+`sparkclaw-connect-v1...` connection credential. Startup and boot reconciliation
+verify the same descriptor, TLS overlay and readiness probe. The default without
+both machine overrides remains HTTP and cannot issue a downloaded desktop
+connection credential.
 
 Both product modes keep `SPARKCLAW_API_TOKEN` empty and require per-client
 Gateway bearer credentials. Deployment creates `data/runtime/local-workbench.json`
@@ -183,12 +190,17 @@ ordinary workbench pairing bootstrap.
 
 **Settings → Devices & credentials** now exposes authenticated listing,
 one-time issuance/copy/hide and revocation through the actual settings route.
+A signed-in desktop packages a new token with its already verified public backend
+identity, so the target desktop receives one copyable connection credential. A
+normal browser still displays the raw token and directs desktop enrollment to a
+signed-in SparkX desktop.
 The desktop main owns login and encrypted credential persistence through
 Electron safeStorage; Mac uses Keychain, and Linux rejects plaintext fallback.
 The [R3 phase ledger](client-r3-implementation.md) distinguishes these scoped
 implementations from pending execution, mailbox and Mac hardware qualification.
 
-Each device receives a separate credential and reuses it for later connections;
+Each device receives a separate connection credential and reuses its securely
+stored token for later connections;
 never copy the preprovisioned Desktop Token to another device. Existing browser
 storage is namespaced by service origin and deployment. Desktop credentials
 are bound to the verified backend/Owner/client identity. Gateway client tokens, MCP Access Tickets, ISCP pairing
@@ -208,14 +220,15 @@ npm run credentials:recover -- --revoke-id LOST_DEVICE_ID --name "Replacement Ma
 Both commands accept `--runtime-dir /absolute/runtime`; otherwise they use
 `SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR` or this checkout's `data/runtime`.
 Recovery revokes the specified lost device before requesting a replacement. A
-completed retrieval never displays the old token again. Pending retries reuse
+completed retrieval never displays the old connection credential again. Pending retries reuse
 the saved request key and device name; service restart or the ten-minute
 plaintext window expiring requires explicit revoke/reissue. The private journal
-stores only identity, request key, status and timestamps. Tokens appear only in
-this command's interactive terminal, never normal deployment output or journals.
+stores only identity, request key, status and timestamps. The command prints one
+opaque connection credential; it never prints the raw token separately, and no
+secret enters normal deployment output or journals.
 
-Provisioning also creates an independent `local-management.json` (0600) and
-`management/` directory (0700). They must be owned by the deployment user, with
+Provisioning also creates `client-backend.json` (0600), an independent
+`local-management.json` (0600), and `management/` directory (0700). They must be owned by the deployment user, with
 no symbolic-link paths; descriptors and credentials also use 0600. Gateway
 creates `management/credentials.sock` (0600) under that directory. Compose
 mounts descriptor files read-only and only the management subdirectory writable.

@@ -45,6 +45,8 @@ export function PairedClientsSettings({
   const visibleClients = loadedClients ?? clients;
   const listLoading = loading || clientsLoading;
   const listFailed = Boolean(loadError || clientsError);
+  const issuedLabel = issued?.connection_credential ? text.settings.issuedClientConnectionCredential : text.settings.issuedClientToken;
+  const issuedWarning = issued?.connection_credential ? text.settings.issuedClientConnectionCredentialWarning : text.settings.issuedClientTokenWarning;
 
   async function loadClients() {
     if (!reload.current) return;
@@ -126,7 +128,7 @@ export function PairedClientsSettings({
   async function copyToken() {
     if (!issued) return;
     try {
-      await navigator.clipboard.writeText(issued.token);
+      await navigator.clipboard.writeText(issued.connection_credential ?? issued.token);
       if (mounted.current) setCopyFeedback(text.settings.clientTokenCopied);
     } catch {
       if (mounted.current) setCopyFeedback(text.settings.clientTokenCopyFailed);
@@ -193,10 +195,10 @@ export function PairedClientsSettings({
         <KeyRound size={14} /> {busy === "issue" ? text.settings.issuingClient : pending ? text.settings.retryClientIssuance : text.settings.issueClient}
       </button>
       {issued && <div className="issuedClientCredential" role="status">
-        <strong>{text.settings.issuedClientToken}</strong>
+        <strong>{issuedLabel}</strong>
         <small>{issued.client.name} · {issued.client.id}</small>
-        <code tabIndex={0} aria-label={text.settings.issuedClientToken}>{issued.token}</code>
-        <small>{text.settings.issuedClientTokenWarning}</small>
+        <code tabIndex={0} aria-label={issuedLabel}>{issued.connection_credential ?? issued.token}</code>
+        <small>{issuedWarning}</small>
         <div className="clientCredentialActions">
           <button type="button" className="ghost" onClick={() => void copyToken()}><Copy size={14} /> {text.common.copy}</button>
           <button type="button" className="ghost" onClick={() => { setIssued(null); setCopyFeedback(""); }}>{text.settings.hideClientToken}</button>

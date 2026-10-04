@@ -154,6 +154,8 @@ async function start() {
   trustedHandler("sparkclaw-local-backend:retry", () => desktopAuth.retry());
   trustedHandler("sparkclaw-local-backend:configure", (descriptor) => desktopAuth.configure(descriptor));
   trustedHandler("sparkclaw-local-backend:login", (token) => desktopAuth.login(token));
+  trustedHandler("sparkclaw-local-backend:enroll", (credential) => desktopAuth.enroll(credential));
+  trustedHandler("sparkclaw-local-backend:connection-credential", (token) => desktopAuth.connectionCredential(token));
   trustedHandler("sparkclaw-local-backend:logout", () => desktopAuth.logout());
   trustedHandler("sparkclaw-desktop:login-startup", async (enabled) => {
     if (!app.isPackaged) return { supported: false, enabled: false };

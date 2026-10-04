@@ -4,12 +4,14 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { assertNoSymlinkPath, assertPrivateDirectory, readPrivateJSON, writePrivateJSON } from "./lib/private-workbench.mjs";
+import { parseBackendDescriptor } from "../apps/desktop/src/main/local-backend.mjs";
 
 const options = parseArguments(process.argv.slice(2));
 const runtimeDirectory = path.resolve(options.runtimeDirectory);
 const descriptorPath = path.join(runtimeDirectory, "local-workbench.json");
 const credentialPath = path.join(runtimeDirectory, "desktop-client.json");
 const managementPath = path.join(runtimeDirectory, "local-management.json");
+const clientBackendPath = path.join(runtimeDirectory, "client-backend.json");
 const managementDirectory = path.join(runtimeDirectory, "management");
 
 if (!options.check) {
@@ -23,6 +25,7 @@ await assertPrivateDirectory(managementDirectory);
 const existingDescriptor = await readOptionalJSON(descriptorPath);
 const existingCredential = await readOptionalJSON(credentialPath);
 const existingManagement = await readOptionalJSON(managementPath);
+const existingClientBackend = await readOptionalJSON(clientBackendPath);
 const persistedDeploymentID = stringField(existingCredential?.deployment_id) || stringField(existingDescriptor?.deployment_id);
 const requestedDeploymentID = stringField(options.deploymentID);
 if (persistedDeploymentID && requestedDeploymentID && persistedDeploymentID !== requestedDeploymentID) {
@@ -35,6 +38,11 @@ if (options.check) {
   validateDescriptor(existingDescriptor, options.origin, deploymentID);
   validateCredential(existingCredential, deploymentID);
   validateManagementCredential(existingManagement, existingCredential, deploymentID);
+  if (options.clientOrigin) {
+    if (!existingClientBackend) throw new Error("client-backend.json is missing");
+    const expected = await createClientBackend(options, deploymentID, existingCredential.owner_id);
+    if (JSON.stringify(existingClientBackend) !== JSON.stringify(expected)) throw new Error("client-backend.json does not match the configured LAN identity");
+  } else if (existingClientBackend) throw new Error("client-backend.json exists but LAN desktop issuance is not configured");
 } else {
   const credential = existingCredential || {
     schema_version: 1,
@@ -46,6 +54,7 @@ if (options.check) {
     token: crypto.randomBytes(32).toString("base64url"),
   };
   validateCredential(credential, deploymentID);
+  const clientBackend = options.clientOrigin ? await createClientBackend(options, deploymentID, credential.owner_id) : undefined;
   if (!existingCredential) {
     await writeAtomicJSON(credentialPath, credential, { replace: false });
   }
@@ -57,18 +66,23 @@ if (options.check) {
     origin: options.origin,
     deployment_id: deploymentID,
   }, { replace: true });
+  if (clientBackend) await writeAtomicJSON(clientBackendPath, clientBackend, { replace: true });
+  else if (existingClientBackend) await fs.rm(clientBackendPath);
 }
 
 process.stdout.write(`${deploymentID}\n`);
 
 function parseArguments(args) {
-  const result = { runtimeDirectory: "", origin: "", deploymentID: "", check: false };
+  const result = { runtimeDirectory: "", origin: "", deploymentID: "", clientOrigin: "", clientTLSCert: "", clientTLSCA: "", check: false };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === "--check") result.check = true;
     else if (argument === "--runtime-dir") result.runtimeDirectory = args[++index] || "";
     else if (argument === "--origin") result.origin = args[++index] || "";
     else if (argument === "--deployment-id") result.deploymentID = args[++index] || "";
+    else if (argument === "--client-origin") result.clientOrigin = args[++index] || "";
+    else if (argument === "--client-tls-cert") result.clientTLSCert = args[++index] || "";
+    else if (argument === "--client-tls-ca") result.clientTLSCA = args[++index] || "";
     else throw new Error(`unknown argument: ${argument}`);
   }
   if (!path.isAbsolute(result.runtimeDirectory)) throw new Error("--runtime-dir must be absolute");
@@ -76,7 +90,44 @@ function parseArguments(args) {
   if (url.origin !== result.origin || url.protocol !== "http:" || !["127.0.0.1", "[::1]"].includes(url.hostname)) {
     throw new Error("--origin must be a canonical HTTP loopback origin");
   }
+  const clientValues = [result.clientOrigin, result.clientTLSCert, result.clientTLSCA];
+  if (clientValues.some(Boolean) && !clientValues.every(Boolean)) throw new Error("LAN client provisioning requires --client-origin, --client-tls-cert and --client-tls-ca together");
+  if (result.clientOrigin) {
+    if (!path.isAbsolute(result.clientTLSCert) || !path.isAbsolute(result.clientTLSCA)) throw new Error("LAN client TLS paths must be absolute");
+    const clientURL = new URL(result.clientOrigin);
+    if (clientURL.protocol !== "https:" || clientURL.origin !== result.clientOrigin || clientURL.pathname !== "/" || clientURL.search || clientURL.hash || clientURL.username || clientURL.password) {
+      throw new Error("--client-origin must be a canonical HTTPS origin");
+    }
+  }
   return result;
+}
+
+async function createClientBackend(options, deploymentID, ownerID) {
+  const [certificatePEM, caPEM] = await Promise.all([
+    readPublicCertificate(options.clientTLSCert, "server certificate"),
+    readPublicCertificate(options.clientTLSCA, "CA certificate"),
+  ]);
+  let certificate;
+  try { certificate = new crypto.X509Certificate(certificatePEM); }
+  catch { throw new Error("LAN server certificate is invalid"); }
+  try { new crypto.X509Certificate(caPEM); }
+  catch { throw new Error("LAN CA certificate is invalid"); }
+  const descriptor = {
+    schema_version: 2,
+    origin: options.clientOrigin,
+    deployment_id: deploymentID,
+    owner_id: ownerID,
+    tls_certificate_sha256: crypto.createHash("sha256").update(certificate.raw).digest("hex"),
+    tls_ca_pem: caPEM.trim(),
+  };
+  parseBackendDescriptor(descriptor);
+  return descriptor;
+}
+
+async function readPublicCertificate(filename, label) {
+  const value = await fs.readFile(filename, "utf8");
+  if (!value.trim() || Buffer.byteLength(value) > 32768) throw new Error(`LAN ${label} is missing or too large`);
+  return value;
 }
 
 async function readOptionalJSON(filename) {

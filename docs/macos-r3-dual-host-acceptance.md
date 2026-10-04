@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/macos-r3-dual-host-acceptance.md)
 
-Updated: 2026-10-03, Asia/Shanghai. Branch: `codex/sparkclaw-r3`. This continues the [initial Mac record](macos-r3-acceptance.md). The user authorized this Mac and `infinimesh@192.168.20.252` for paired testing and limited the Mac to internal use. **Executed evidence is listed below; full M01–M12 acceptance remains incomplete.**
+Updated: 2026-10-04, Asia/Shanghai. Most physical checks below were executed on 2026-10-03. Branch: `codex/sparkclaw-r3`. This continues the [initial Mac record](macos-r3-acceptance.md). The user authorized this Mac and `infinimesh@192.168.20.252` for paired testing and limited the Mac to internal use. **Executed evidence is listed below; full M01–M12 acceptance remains incomplete.**
 
 ## Environment and exact versions
 
@@ -63,7 +63,7 @@ The existing browser Controller runs `/home/infinimesh/.local/share/sparkclaw/qu
 | `0f24edc2610499ffa5b75ac24735f322b0076fdf` | local conversation ownership was lost on lease release; retained ownership constrains display/navigation/popups; actual paired crash recovery passed |
 | `86176211a7c51abb6ab8680f14e884fc06934430` | temporary OS key-store decryption failure must not destroy ciphertext; access stays locked without protected requests, and a later normal process can recover |
 
-An operator mistake is also recorded: a bare Electron fixture read the ordinary SparkClaw Profile under a different Keychain application identity. Old startup logic cleared the saved GUI login. No token was extracted or local history deleted; the final repair protects subsequent decryption failures. The user must re-enter the original token in the actual product GUI. Login restoration has not been marked passed.
+An operator mistake is also recorded: a bare Electron fixture read the ordinary SparkClaw Profile under a different Keychain application identity. Old startup logic cleared the saved GUI login. No token was extracted or local history deleted; the final repair protects subsequent decryption failures. On 2026-10-04 the user confirmed the original token was lost. Old Mac GUI client `client_web_sigBFXKm2wzNAefA-Kz0wJCN` was revoked through the isolated management socket at 13:04:19.696 (Asia/Shanghai), with server metadata verified. A replacement has not yet been retrieved. `recover-mac-gui.sh` is prepared and shell-syntax checked for user-only real-terminal retrieval and entry in the product GUI. Login restoration is not marked passed. The original installation UUID, conversation, unsubmitted request and file hash were verified again. The new client gets a new local scope; original history remains in its original scope, without cross-client migration.
 
 ## Current M01–M12 status
 
@@ -99,6 +99,6 @@ Final artifacts were built from `86176211a7c51abb6ab8680f14e884fc06934430`; subs
 | `SparkClaw-0.1.0-mac-arm64.dmg` | `5bcd1995dfa44b22d81d30c8039e4879e10f55585fe2c87532726828f03cf278` |
 | `SparkClaw-0.1.0-mac-arm64.zip` | `c1c78688c25192ef7cd4a085033b2c2c1996f1c067d0410fbb1392a2b71d677b` |
 
-Ignored private evidence lives in `.cache/dual-host-acceptance/`: build/native-test/network/crash/lease/real-mail logs, artifact manifests, fixture sources/hashes and original receipts. Temporary automated credentials remain in private mode-600 files, outside Git/packages. `start-product.sh` starts the actual internal installation. After restoring original GUI login and Mac mail sync, refresh `reboot-baseline.json`, actually reboot macOS, then run `verify-post-reboot.mjs` under Electron Node. It requires a changed OS boot epoch and checks local message/file/unsubmitted request/mail cache/encrypted vault; app restart cannot substitute for M02. Actual GUI Keychain unlocking and absence of Linux copies must also be observed.
+Ignored private evidence lives in `.cache/dual-host-acceptance/`: build/native-test/network/crash/lease/real-mail logs, artifact manifests, fixture sources/hashes and original receipts. Temporary automated credentials remain in private mode-600 files, outside Git/packages. `start-product.sh` starts the actual internal installation. After independent credential recovery/login and Mac mail sync, use `prepare-recovered-manual-state.mjs` to create fresh acceptance content without copying old content, refresh `reboot-baseline.json` with the active identity/expected file/encrypted-vault hash and status `ready_for_os_reboot`, actually reboot macOS, then run `verify-post-reboot.mjs` under Electron Node. It requires a changed OS boot epoch and checks local message/file/unsubmitted request/mail cache/encrypted vault; app restart cannot substitute for M02. Actual GUI Keychain unlocking and absence of Linux copies must also be observed.
 
 The `25544` facade is stopped. The isolated `25543` Gateway, two real 24-hour check processes and Mac test profile are retained. No startup service/production deployment was added. Test certificates expire after two days.

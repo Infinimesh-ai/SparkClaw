@@ -2,7 +2,7 @@
 
 > 语言：简体中文 | [English](../../docs/macos-r3-dual-host-acceptance.md)
 
-更新：2026-10-03，Asia/Shanghai。分支：`codex/sparkclaw-r3`。本记录接续[首轮 Mac 记录](macos-r3-acceptance.md)。用户授权当前 Mac 与 `infinimesh@192.168.20.252` 双端验收，并明确 Mac 仅用于内部测试。**已执行证据如下；完整 M01–M12 尚未全部通过。**
+更新：2026-10-04，Asia/Shanghai。下列实机执行证据主要取得于 2026-10-03。分支：`codex/sparkclaw-r3`。本记录接续[首轮 Mac 记录](macos-r3-acceptance.md)。用户授权当前 Mac 与 `infinimesh@192.168.20.252` 双端验收，并明确 Mac 仅用于内部测试。**已执行证据如下；完整 M01–M12 尚未全部通过。**
 
 ## 环境与准确版本
 
@@ -63,7 +63,7 @@ Mac 完全退出后，GB10 再次采集了唯一新 QQ 邮件：`cap_072ff1b4c90
 | `0f24edc2610499ffa5b75ac24735f322b0076fdf` | 租约释放后丢失本地对话归属；保留持久归属并约束显示／导航／弹窗，双端实际崩溃恢复通过 |
 | `86176211a7c51abb6ab8680f14e884fc06934430` | 临时安全存储解密失败不得销毁密文；保持锁定且不发受保护请求，后续正常进程可恢复 |
 
-操作失误也如实记录：裸 Electron 夹具读取普通 SparkClaw Profile 时不能使用同一 Keychain 身份，旧逻辑清除了 GUI 保存的登录。没有读出 Token，也没有删除本地历史；上述最后一项修复已保护后续解密失败。当前需要用户在实际产品 GUI 重新输入原 Token；没有把未恢复的登录写成通过。
+操作失误也如实记录：裸 Electron 夹具读取普通 SparkClaw Profile 时不能使用同一 Keychain 身份，旧逻辑清除了 GUI 保存的登录。没有读出 Token，也没有删除本地历史；上述最后一项修复已保护后续解密失败。2026-10-04 用户确认原 Token 已丢失。旧 Mac GUI Client `client_web_sigBFXKm2wzNAefA-Kz0wJCN` 已于 13:04:19.696（Asia/Shanghai）经隔离管理 socket 撤销，服务端元数据复核成功；新凭据尚未领取。`recover-mac-gui.sh` 已准备并通过 shell 语法检查，只由用户在真实终端领取、输入产品 GUI；没有把未恢复的登录写成通过。原安装 UUID、本地对话、未提交请求与文件摘要再次核对完整。新 Client 使用新的本地作用域，原历史保持原作用域，不做跨 Client 迁移。
 
 ## M01–M12 当前状态
 
@@ -99,6 +99,6 @@ Mac 完全退出后，GB10 再次采集了唯一新 QQ 邮件：`cap_072ff1b4c90
 | `SparkClaw-0.1.0-mac-arm64.dmg` | `5bcd1995dfa44b22d81d30c8039e4879e10f55585fe2c87532726828f03cf278` |
 | `SparkClaw-0.1.0-mac-arm64.zip` | `c1c78688c25192ef7cd4a085033b2c2c1996f1c067d0410fbb1392a2b71d677b` |
 
-忽略的私有证据位于 `.cache/dual-host-acceptance/`：构建／原生测试／网络／页面崩溃／租约／真实邮件日志、安装包 manifest、夹具源及摘要、原件 receipt；临时自动化凭据仅在私有 mode-600 文件中，不进入 Git 或安装包。`start-product.sh` 启动实际内部安装包。待用户恢复原登录并完成 Mac 邮件同步后，刷新 `reboot-baseline.json`，实际重启 macOS，再以 Electron Node 运行 `verify-post-reboot.mjs`；脚本要求系统 boot epoch 改变，验证本地消息／文件／未提交请求／邮箱缓存／加密 vault，不会用应用重启代替 M02。最后仍需观察实际 GUI Keychain 解锁及核对 Linux 无副本。
+忽略的私有证据位于 `.cache/dual-host-acceptance/`：构建／原生测试／网络／页面崩溃／租约／真实邮件日志、安装包 manifest、夹具源及摘要、原件 receipt；临时自动化凭据仅在私有 mode-600 文件中，不进入 Git 或安装包。`start-product.sh` 启动实际内部安装包。待用户完成独立凭据恢复登录与 Mac 邮件同步后，使用 `prepare-recovered-manual-state.mjs` 创建全新验收内容（不复制旧内容），刷新 `reboot-baseline.json` 的活跃身份、预期文件、加密 vault 摘要并置为 `ready_for_os_reboot`，实际重启 macOS，再以 Electron Node 运行 `verify-post-reboot.mjs`；脚本要求系统 boot epoch 改变，验证本地消息／文件／未提交请求／邮箱缓存／加密 vault，不会用应用重启代替 M02。最后仍需观察实际 GUI Keychain 解锁及核对 Linux 无副本。
 
 `25544` facade 已关闭；隔离 `25543` Gateway、两个真实 24 小时检查进程及 Mac 测试 Profile 暂保留。没有新增开机服务或生产部署；测试证书两天后过期。

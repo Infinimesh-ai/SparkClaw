@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { FileDown, Send, RefreshCw, X, PanelLeft, PanelRight } from "lucide-react";
+import { FileDown, PanelLeft, PanelRight } from "lucide-react";
 import { SessionSidebar } from "../components/sidebar";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy } from "../components/workbench";
 import { api } from "../api/client";
@@ -80,7 +80,7 @@ export function LocalWorkbench() {
   const [auditEvents] = useState<AuditEvent[]>([]);
   const [episodes] = useState<EpisodeSummary[]>([]);
 
-  const surfaceError = useCallback((err: unknown, fallback = zh ? "本地保存失败，请重试。" : "Local save failed. Try again.") => {
+  const surfaceError = useCallback((err: unknown, fallback = zh ? "操作失败，请重试。" : "Something went wrong. Try again.") => {
     setError(err instanceof Error ? err.message : fallback);
   }, [zh]);
   const reload = useCallback(async () => { setConversations(await store.list()); }, [store]);
@@ -199,15 +199,13 @@ export function LocalWorkbench() {
         setDraft(""); setInputFiles([]); setContent(await store.read(id));
       }
       await reload();
-      setNotice(zh ? "已保存到本机。" : "Saved on this device.");
       if (submit) {
-        await execute(task, "submit", id);
-        setNotice(zh ? "输入已保存并提交，可在任务记录中查看状态。" : "Input saved and submitted. Follow its status in the task records.");
+        await submitTask(task, id);
       }
     });
   }
-  async function execute(task: LocalTask, operation: "submit" | "reconcile" | "cancel", id = selected) {
-    try { await store[operation](task.request_id); }
+  async function submitTask(task: LocalTask, id: string) {
+    try { await store.submit(task.request_id); }
     finally {
       if (selectedRef.current === id) setContent(await store.read(id));
       await reload();
@@ -245,7 +243,7 @@ export function LocalWorkbench() {
       saved = await store.saveFile(id, file.name, new Uint8Array(await file.arrayBuffer()));
       setInputFiles((current) => saved && !current.includes(saved.id) ? [...current, saved.id] : current);
       if (selectedRef.current === id) setContent(await store.read(id));
-      setNotice(zh ? "文件已验证并保存到本机。" : "File verified and saved on this device.");
+      setNotice(zh ? "文件已添加。" : "File added.");
     });
     return saved;
   }
@@ -290,7 +288,7 @@ export function LocalWorkbench() {
       onNavigate={(next) => { if (next === "settings") setSettings(true); else if (next === "schedules") setPage("schedules"); else void create(); }}
       onSearch={() => setSearchOpen(true)} onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
       onLogout={() => void logout().catch(surfaceError)}
-      listNotice={loading ? <p className="localListNotice" role="status">{zh ? "正在读取本机对话…" : "Loading device conversations…"}</p> : !conversations.length ? <p className="localListNotice">{copy.empty}</p> : undefined}
+      listNotice={loading ? <p className="localListNotice" role="status">{zh ? "正在读取对话…" : "Loading conversations…"}</p> : !conversations.length ? <p className="localListNotice">{copy.empty}</p> : undefined}
     />}
     <main className={`${settings ? "settingsPageMain" : "workspace desktopWorkbench"} ${browserOpen && !settings ? "withInspector" : ""}`} aria-busy={busy}>
       {!settings && <header className="topbar">
@@ -306,7 +304,7 @@ export function LocalWorkbench() {
       </header>}
       {error && <div className="localFeedback" role="alert"><p>{error}</p><button type="button" onClick={() => void reload().then(() => setError("")).catch(surfaceError)}>{zh ? "重试读取" : "Retry loading"}</button></div>}
       {notice && <p className="localFeedback" role="status">{notice}</p>}
-      {connection?.state === "service_unavailable" && <div className="localFeedback" role="status"><p>{zh ? "当前离线，本机对话和文件仍可读取。重新连接后可查询已提交的原请求。" : "Offline. Your device conversations and files remain available. Reconnect to check your submitted requests."}</p><button type="button" disabled={busy} onClick={() => void action(async () => { setConnection(await desktop.retryLocalConnection()); })}>{zh ? "重新连接" : "Reconnect"}</button></div>}
+      {connection?.state === "service_unavailable" && <div className="localFeedback" role="status"><p>{zh ? "连接暂时不可用，请重新连接后继续。" : "Connection unavailable. Reconnect to continue."}</p><button type="button" disabled={busy} onClick={() => void action(async () => { setConnection(await desktop.retryLocalConnection()); })}>{zh ? "重新连接" : "Reconnect"}</button></div>}
       {settings ? <div className="settingsPageContent"><header className="settingsPageHeader"><h1>{copy.settingsTitles[tab]}</h1>{tab !== "memory" && tab !== "approvals" && <p>{copy.settingsDescriptions[tab]}</p>}</header><InspectorColumn settingsPage showTabs={false} tab={tab} onTabChange={setTab}
         text={text} language={language} pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length}
         toolCalls={toolCalls} approvals={approvals} candidates={candidates} memories={memories} traceRun={traceRun} traceList={traceList} traceLoading={traceLoading}
@@ -332,32 +330,23 @@ export function LocalWorkbench() {
           {content.messages.map((message) => <MessageBubble key={message.id}
             message={{ ...message, session_id: selected }} streamStatuses={[]} text={text} language={language}
             onFeedback={async () => {}} />)}
-          {!!content.tasks.length && <section className="localTaskList" aria-label={zh ? "任务记录" : "Task records"} aria-live="polite"><h2>{zh ? "任务记录" : "Task records"} ({content.tasks.length})</h2>
-            {content.tasks.map((task) => <div className="localTaskRow" key={task.id}>
-              <p><code>{task.request_id}</code><span>{taskLabel(task.status, zh)}</span></p>
-              {task.status === "unknown" && <small>{zh ? "执行结果不确定，不能自动重发。可继续查询原请求。" : "Execution outcome is uncertain. Check the original request; it cannot be resent automatically."}</small>}
-              {task.status === "delivery_expired" && <small>{zh ? "后端结果已过期，无法恢复本机尚未保存的内容。" : "The backend result expired. Content not saved locally can no longer be recovered."}</small>}
-              {(task.approvals ?? []).map((approval) => {
+          {content.tasks.flatMap((task) => (task.approvals ?? [])
+            .filter((approval) => ["pending", "decision_pending", "decision_unknown"].includes(approval.state))
+            .map((approval) => ({ task, approval }))).map(({ task, approval }) => {
                 const pending = ["pending", "decision_pending"].includes(approval.state);
                 const expired = Date.parse(approval.expires_at) <= Date.now();
-                return <section className="localApproval" key={approval.approval_id} aria-label={zh ? "任务操作审批" : "Task action approval"}>
+                return <section className="localApproval" key={`${task.id}:${approval.approval_id}`} aria-label={zh ? "操作审批" : "Action approval"}>
                   <h3>{approval.tool}</h3><p>{approval.summary}</p>
                   <pre aria-label={zh ? "操作参数" : "Action parameters"}>{JSON.stringify(approval.arguments, null, 2)}</pre>
-                  <p role="status">{pending && expired ? (zh ? "审批已过期，只保留本机记录。" : "Approval expired. Only the device record remains.") : approvalLabel(approval.state, zh)}</p>
-                  {pending && !expired && !approval.actionable && <small>{zh ? "这是本机缓存。请查询原任务以核实当前审批；离线或未核实时不能批准。" : "This is a device cache. Check the original task to verify the current approval. Offline or unverified approvals cannot be approved."}</small>}
+                  <p role="status">{pending && expired ? (zh ? "审批已过期，无法继续操作。" : "Approval expired. It can no longer be acted on.") : approvalLabel(approval.state, zh)}</p>
+                  {pending && !expired && !approval.actionable && <small>{zh ? "请刷新当前执行后再决定；未核实的审批不能操作。" : "Refresh the current operation before deciding. Unverified approvals cannot be acted on."}</small>}
                   {pending && !expired && <div className="localTaskActions">{(["approve", "reject"] as const).filter((decision) => !approval.decision || approval.decision === decision).map((decision) => <button type="button" key={decision} disabled={busy || connection?.state !== "connected" || !approval.actionable} onClick={() => void action(() => decideApproval(task, approval, decision))}>
                     {approval.decision ? (decision === "approve" ? (zh ? "重试原批准决定" : "Retry original approval") : (zh ? "重试原拒绝决定" : "Retry original rejection")) : (decision === "approve" ? (zh ? "批准此操作" : "Approve this action") : (zh ? "拒绝此操作" : "Reject this action"))}
                   </button>)}</div>}
                 </section>;
-              })}
-              <div className="localTaskActions">
-                {["awaiting_runtime", "submission_pending"].includes(task.status) && <button type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(() => execute(task, "submit"))}><Send size={14} />{task.status === "awaiting_runtime" ? (zh ? "提交执行" : "Submit") : (zh ? "重试原请求" : "Retry original request")}</button>}
-                {task.explicitly_submitted === 1 && task.status !== "delivered" && <button type="button" disabled={busy} onClick={() => void action(() => execute(task, "reconcile"))}><RefreshCw size={14} />{zh ? "查询状态" : "Check status"}</button>}
-                {["submission_pending", "accepted", "running", "cancel_pending"].includes(task.status) && <button type="button" disabled={busy} onClick={() => void action(() => execute(task, "cancel"))}><X size={14} />{zh ? "取消任务" : "Cancel"}</button>}
-              </div>
-            </div>)}</section>}
-          {!!content.files.length && <section aria-label={zh ? "本机文件" : "Device files"}><h2>{zh ? "本机文件" : "Device files"}</h2>
-            {content.files.map((file) => <div className="localFileRow" key={file.id}><label><input type="checkbox" disabled={busy || file.size > 8 * 1024 * 1024} checked={inputFiles.includes(file.id)} onChange={(event) => setInputFiles((current) => event.target.checked ? [...current, file.id] : current.filter((id) => id !== file.id))} />{file.name}<small>{file.size > 8 * 1024 * 1024 ? (zh ? "仅本地保存，超过执行附件 8 MiB 限制" : "Local copy; exceeds the 8 MiB execution attachment limit") : (zh ? "加入下一条输入" : "Attach to next input")}</small></label><small>{new Intl.NumberFormat().format(file.size)} B</small>
+          })}
+          {!!content.files.length && <section aria-label={zh ? "文件" : "Files"}><h2>{zh ? "文件" : "Files"}</h2>
+            {content.files.map((file) => <div className="localFileRow" key={file.id}><label><input type="checkbox" disabled={busy || file.size > 8 * 1024 * 1024} checked={inputFiles.includes(file.id)} onChange={(event) => setInputFiles((current) => event.target.checked ? [...current, file.id] : current.filter((id) => id !== file.id))} />{file.name}<small>{file.size > 8 * 1024 * 1024 ? (zh ? "超过执行附件 8 MiB 限制" : "Exceeds the 8 MiB execution attachment limit") : (zh ? "加入下一条输入" : "Attach to next input")}</small></label><small>{new Intl.NumberFormat().format(file.size)} B</small>
               <button type="button" disabled={busy} onClick={() => void action(async () => {
                 const result = await store.exportFile(file.id);
                 if (result.saved) setNotice(zh ? "已另存文件。" : "File exported.");
@@ -386,7 +375,7 @@ export function LocalWorkbench() {
           <header className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div></header>
           {!selected && <div className="localScheduleEmpty"><p>{zh ? "先选择或新建一个任务，再安排执行时间。" : "Choose or create a task to schedule it."}</p><button className="primaryButton" type="button" onClick={() => void create()}>{copy.newTask}</button></div>}
           {selected && <section className="localSchedules">
-            <p>{zh ? "定义保存在本机，可安排未来 24 小时内的一次执行。设备必须保持在线；离线错过到期时间不会补跑，可明确点击立即执行新请求。" : "Definitions stay on this device. Schedule one execution within the next 24 hours and keep this device online. Missed offline work does not catch up; Run now explicitly creates a new request."}</p>
+            <p>{zh ? "可安排未来 24 小时内的一次执行。设备必须保持在线；离线错过到期时间不会补跑，可明确点击立即执行新请求。" : "Schedule one execution within the next 24 hours and keep this device online. Missed offline work does not catch up; Run now explicitly creates a new request."}</p>
             {(content.schedules ?? []).map((item) => <div className="localTaskRow" key={item.request_id}><p><span>{new Date(item.due_at).toLocaleString(zh ? "zh-CN" : "en-US")}</span><span>{scheduleLabel(item.state, zh)}</span></p>
               <div className="localTaskActions">
                 {["saved", "registering", "leased", "cancel_pending"].includes(item.state) && <><button type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleCheck"))}>{zh ? "检查租约" : "Check lease"}</button><button type="button" disabled={busy} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleCancel"))}>{zh ? "取消定时任务" : "Cancel schedule"}</button></>}
@@ -409,19 +398,6 @@ export function LocalWorkbench() {
   </div>;
 }
 
-function taskLabel(status: string, zh: boolean) {
-  const labels: Record<string, [string, string]> = {
-    awaiting_runtime: ["未提交执行", "Not submitted"], submission_pending: ["提交待确认", "Submission awaiting confirmation"],
-    scheduled_local: ["定时任务定义已保存", "Scheduled definition saved"], schedule_pending: ["定时任务待执行", "Scheduled execution pending"],
-    schedule_missed: ["定时任务已错过", "Schedule missed"], schedule_canceled: ["定时任务已取消", "Schedule canceled"], schedule_admission_rejected: ["定时准入被拒绝", "Scheduled admission rejected"],
-    accepted: ["后端已接收", "Accepted"], running: ["正在执行", "Running"], cancel_pending: ["取消待确认", "Cancellation awaiting confirmation"],
-    saved: ["已保存，待确认接收", "Saved locally; acknowledgement pending"], delivered: ["已保存并确认接收", "Saved and acknowledged"],
-    failed: ["执行失败", "Failed"], canceled: ["已取消", "Canceled"], unknown: ["执行结果不确定", "Outcome uncertain"],
-    delivery_expired: ["结果已过期", "Result expired"],
-  };
-  return labels[status]?.[zh ? 0 : 1] ?? (zh ? "状态待确认" : "Status awaiting confirmation");
-}
-
 function scheduleLabel(state: string, zh: boolean) {
   const labels: Record<string, [string, string]> = {
     saved: ["定义已保存，尚未注册", "Definition saved; not registered"], registering: ["注册待确认", "Registration awaiting confirmation"],
@@ -429,7 +405,7 @@ function scheduleLabel(state: string, zh: boolean) {
     missed: ["离线或租约过期，已错过", "Missed while offline or lease expired"], admission_rejected: ["后端未准入", "Backend admission rejected"],
     run_now: ["已作为新请求执行", "Started as a new request"], canceled: ["已取消", "Canceled"],
   };
-  return labels[state]?.[zh ? 0 : 1] ?? taskLabel(state, zh);
+  return labels[state]?.[zh ? 0 : 1] ?? (zh ? "状态待确认" : "Status awaiting confirmation");
 }
 
 function approvalLabel(state: LocalApproval["state"], zh: boolean) {
@@ -437,8 +413,8 @@ function approvalLabel(state: LocalApproval["state"], zh: boolean) {
     pending: ["等待你明确批准或拒绝", "Waiting for your explicit approval or rejection"],
     decision_pending: ["决定已保存，后端接收结果待核对", "Decision saved; backend receipt awaiting reconciliation"],
     approved: ["已批准", "Approved"], rejected: ["已拒绝", "Rejected"], resolved: ["后端已不再等待此审批", "The backend no longer awaits this approval"],
-    expired: ["审批已结束或过期，本机记录只读", "Approval ended or expired. The device record is read-only"],
-    decision_unknown: ["决定接收结果不确定，本机记录只读", "Decision receipt is uncertain. The device record is read-only"],
+    expired: ["审批已结束或过期", "Approval ended or expired"],
+    decision_unknown: ["决定接收结果不确定，当前不能继续操作", "Decision receipt is uncertain. No further action is currently available"],
   };
   return labels[state][zh ? 0 : 1];
 }

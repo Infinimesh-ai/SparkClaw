@@ -1,4 +1,4 @@
-/* Desktop-only execution records complement the shared production workbench UI. */
+/* Desktop-only controls complement the shared production workbench UI. */
 .localChat[hidden] { display: none; }
 .localListNotice { padding: 4px 12px; color: var(--text-secondary); font-size: 12px; line-height: 1.65; }
 .localBrowserAuthorization:empty { display: none; }

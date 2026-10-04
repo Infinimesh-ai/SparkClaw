@@ -218,7 +218,7 @@ export class ExecutionClient {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sequence: receipt.sequence, digest: receipt.digest, durable: true }),
     });
-    if (!response.ok) { await response.body?.cancel(); throw new Error("Saved locally; delivery acknowledgement is pending"); }
+    if (!response.ok) { await response.body?.cancel(); throw new Error("Delivery acknowledgement is pending"); }
     await response.body?.cancel();
     this.#sameIdentity(scope);
     this.store.acknowledge(scope, receipt.request_id, receipt.sequence, receipt.digest);
@@ -226,7 +226,7 @@ export class ExecutionClient {
 
   #fetch(scope, route, init) {
     this.#sameIdentity(scope);
-    if (this.closed || this.auth.status.state !== "connected") throw new Error("Execution backend is unavailable; local input is preserved");
+    if (this.closed || this.auth.status.state !== "connected") throw new Error("Execution backend is unavailable; your input is preserved");
     const headers = new Headers(init?.headers);
     headers.set("X-SparkClaw-Installation", this.store.installationID);
     return this.auth.authorizedR3Fetch(`${this.auth.descriptor.origin}${route}`, { ...init, headers, signal: this.controller.signal });

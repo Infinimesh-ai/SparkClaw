@@ -79,7 +79,8 @@ describe("R3 local workbench", () => {
       expect(host.textContent).toContain("Disk full");
       expect(input.value).toBe("Keep this local input");
       await act(async () => host.querySelector("form.composer")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-      expect(host.textContent).toContain("Input saved and submitted");
+      expect(host.textContent).not.toContain("Input saved");
+      expect(host.querySelector(".localTaskList")).toBeNull();
       expect(enqueue).toHaveBeenLastCalledWith(row.id, "Keep this local input");
       expect(window.sparkclawClientStore!.submit).toHaveBeenCalledWith("request");
       expect((fetch.mock.calls as unknown[][]).some((call) => String(call[0]).includes("/api/sessions"))).toBe(false);
@@ -124,7 +125,7 @@ describe("R3 local workbench", () => {
     } finally { await act(async () => root.unmount()); }
   });
 
-  it("submits only by explicit action, refreshes durable state, and keeps unknown tasks from resend", async () => {
+  it("keeps execution records out of the conversation without replaying unresolved work", async () => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
     const row = { id: "conversation", title: "Local conversation", created_at: "", updated_at: "" };
     let task = { id: "task", request_id: "request", status: "awaiting_runtime", explicitly_submitted: 0, created_at: "" };
@@ -133,7 +134,7 @@ describe("R3 local workbench", () => {
     let changed: () => void = () => {};
     const selectConversation = vi.fn(async () => ({ page_ref: "" }));
     window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
-      read: vi.fn(async () => ({ messages: [], tasks: [task], files: [] })), enqueue: vi.fn(),
+      read: vi.fn(async () => ({ messages: [{ id: "message", role: "user" as const, content: "Keep the conversation clean", created_at: "2026-10-04T00:00:00Z" }], tasks: [task], files: [] })), enqueue: vi.fn(),
       saveFile: vi.fn(), exportFile: vi.fn(), submit, reconcile, cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
     window.sparkclawClientStore.onChange = (listener) => { changed = listener; return () => {}; };
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, selectConversation,
@@ -144,18 +145,15 @@ describe("R3 local workbench", () => {
       await act(async () => host.querySelector<HTMLButtonElement>("nav button")!.click());
       expect(submit).not.toHaveBeenCalled();
       expect(selectConversation).toHaveBeenCalledWith("conversation");
-      const button = [...host.querySelectorAll<HTMLButtonElement>(".localTaskActions button")].find((item) => item.textContent === "Submit")!;
-      await act(async () => button.click());
-      expect(submit).toHaveBeenCalledWith("request");
-      expect(host.textContent).toContain("Outcome uncertain");
-      expect(host.textContent).toContain("Admission response lost");
-      expect([...host.querySelectorAll(".localTaskActions button")].some((item) => item.textContent === "Submit")).toBe(false);
-      await act(async () => host.querySelector<HTMLButtonElement>(".localTaskActions button")!.click());
-      expect(reconcile).toHaveBeenCalledWith("request");
-      expect(submit).toHaveBeenCalledTimes(1);
+      expect(host.textContent).toContain("Keep the conversation clean");
+      expect(host.querySelector(".localTaskList")).toBeNull();
+      expect(host.textContent).not.toContain("request");
+      expect(host.textContent).not.toContain("Not submitted");
       task = { ...task, status: "delivered" };
       await act(async () => changed());
-      expect(host.textContent).toContain("Saved and acknowledged");
+      expect(host.textContent).not.toContain("Saved and acknowledged");
+      expect(submit).not.toHaveBeenCalled();
+      expect(reconcile).not.toHaveBeenCalled();
     } finally { await act(async () => root.unmount()); }
   });
 
@@ -173,11 +171,11 @@ describe("R3 local workbench", () => {
       await act(async () => root.render(<LocalWorkbench />));
       await act(async () => host.querySelector<HTMLButtonElement>("nav button")!.click());
       expect(host.querySelector<HTMLTextAreaElement>("form.composer textarea")!.disabled).toBe(false);
-      expect(host.textContent).toContain("Offline. Your device conversations");
+      expect(host.textContent).toContain("Connection unavailable");
       const reconnect = [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Reconnect")!;
       await act(async () => reconnect.click());
       expect(retryLocalConnection).toHaveBeenCalledTimes(1);
-      expect(host.textContent).not.toContain("Offline. Your device conversations");
+      expect(host.textContent).not.toContain("Connection unavailable");
     } finally { await act(async () => root.unmount()); }
   });
 
@@ -238,6 +236,7 @@ describe("R3 local workbench", () => {
     try {
       await act(async () => root.render(<LocalWorkbench />));
       await act(async () => host.querySelector<HTMLButtonElement>("nav button")!.click());
+      expect(host.querySelector(".localTaskList")).toBeNull();
       expect(host.querySelector(".localApproval h3")!.textContent).toBe("browser.type");
       expect(host.querySelector(".localApproval pre")!.textContent).toContain("<script>Synthetic text</script>");
       expect(host.querySelector(".localApproval script")).toBeNull();
@@ -276,7 +275,7 @@ describe("R3 local workbench", () => {
       await act(async () => host.querySelector<HTMLButtonElement>("nav button")!.click());
       const sections = [...host.querySelectorAll(".localApproval")];
       expect([...sections[0].querySelectorAll<HTMLButtonElement>("button")].every((button) => button.disabled)).toBe(true);
-      expect(sections[0].textContent).toContain("Check the original task");
+      expect(sections[0].textContent).toContain("Refresh the current operation");
       expect(sections[1].textContent).toContain("Approval expired");
       expect(sections[1].querySelectorAll("button").length).toBe(0);
       expect(sections[2].textContent).toContain("Decision receipt is uncertain");

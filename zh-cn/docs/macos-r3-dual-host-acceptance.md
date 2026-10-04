@@ -8,7 +8,7 @@
 
 产品源码 `5e3814ff266bf0c583188bf86808aea17922a6ca` 已让 LocalWorkbench 复用生产工作台的侧栏、品牌标识、任务搜索、欢迎页、设置布局及输入区样式。邮件通过输入区入口访问，日程使用侧栏入口，浏览器授权置于浏览器面板。首页可直接输入，保存时才创建本机对话；保存失败保留草稿，重试不重复创建对话，也不自动提交执行。保留 R3 本机数据、显式提交、原请求对账及审批边界。
 
-Mac 打包显式使用 Linux 同一 PNG，并在 afterPack 拒绝 Electron 默认图标。已安装 Mac ICNS 的 512×512 解码 RGBA 像素与 Linux 已安装图标完全一致；源 PNG SHA-256 为 `acfd3a6e0cad248aa55c9c6d4a5486008c449bf3b05f4f9c39e40b2144a27365`。重建应用已安装至 `/Applications/SparkClaw.app`，旧应用及安装包保留用于回退。原有安全登录自动恢复，真实 GUI 已显示统一品牌欢迎页／输入区／侧栏，并打开当前 active 设备的设置。
+Mac 打包显式使用 Linux 同一 PNG，并在 afterPack 拒绝 Electron 默认图标。已安装 Mac ICNS 的 512×512 解码 RGBA 像素与 Linux 已安装图标完全一致；源 PNG SHA-256 为 `acfd3a6e0cad248aa55c9c6d4a5486008c449bf3b05f4f9c39e40b2144a27365`。重建应用已安装至 `/Applications/SparkClaw.app`。用户随后要求删除旧版，四个旧应用副本及上一版 DMG／ZIP 备份已移入 macOS 废纸篓；废纸篓之外仅保留当前安装应用和当前构建产物。原有安全登录自动恢复，真实 GUI 已显示统一品牌欢迎页／输入区／侧栏，并打开当前 active 设备的设置。
 
 WebChat 194 项、Desktop 90 项通过；最后对“返回同一对话保留草稿”的调整后，LocalWorkbench 定向检查再次通过。原生 ARM64 打包、包审计和 DMG 校验通过；已安装的 33 个桌面源码文件、5 个前端文件与构建一致。Linux 生产 WebChat 镜像已以同一源码重建，readiness 通过；CSS／PNG／PCM 与 Mac 逐字节相同。JS 仅因桌面既有构建禁用浏览器 Token 回退而不同，扣除该处后完全相同，HTML 仅 JS 哈希文件名不同。这是共享界面表现并保留原认证边界，不将 R3 对话改回旧服务端存储。
 

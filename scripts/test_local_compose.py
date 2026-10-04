@@ -13,6 +13,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "start_local_compose.sh"
+DEPLOY_SCRIPT = ROOT / "scripts" / "deploy_local.sh"
 COMPOSE = ROOT / "docker" / "compose.yaml"
 MODELS_COMPOSE = ROOT / "docker" / "compose.models.local.yaml"
 DEV_COMPOSE = ROOT / "docker" / "compose.dev.yaml"
@@ -232,6 +233,22 @@ class LocalComposeTest(unittest.TestCase):
         ):
             self.assertNotIn(retired, scripts)
         self.assertFalse(any("online" in name or "cloud" in name for name in scripts))
+
+    def test_deploy_uses_the_tls_aware_gateway_probe(self) -> None:
+        deploy = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn('sparkclaw_configure_desktop_tls "$ROOT" "$webchat_port"', deploy)
+        self.assertIn(
+            'curl -fsS "${ready_curl_args[@]}" --max-time 3 "$webchat_probe_base_url/"',
+            deploy,
+        )
+        self.assertIn(
+            'curl -fsS "${ready_curl_args[@]}" --max-time 5 "$ready_url"',
+            deploy,
+        )
+        self.assertIn('printf \'  WebChat (local): %s\\n\' "$webchat_probe_base_url"', deploy)
+        self.assertIn('printf \'  WebChat (LAN):   %s\\n\' "$desktop_public_origin"', deploy)
+        self.assertNotIn('$webchat_base_url/readyz', deploy)
 
     def test_mock_dev_compose_does_not_inherit_a_product_mode(self) -> None:
         result = subprocess.run(

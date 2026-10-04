@@ -164,6 +164,20 @@ desktop_public_origin="$(dotenv_value SPARKCLAW_DESKTOP_PUBLIC_ORIGIN)"
 if [[ -n "$desktop_tls_dir" ]]; then
   workbench_provision_args+=(--client-origin "$desktop_public_origin" --client-tls-cert "$desktop_tls_dir/server.crt" --client-tls-ca "$desktop_tls_dir/ca.crt")
 fi
+export SPARKCLAW_DESKTOP_TLS_DIR="$desktop_tls_dir"
+export SPARKCLAW_DESKTOP_PUBLIC_ORIGIN="$desktop_public_origin"
+gateway_ready_url="$(dotenv_value SPARKCLAW_GATEWAY_READY_URL)"
+if [[ -n "$gateway_ready_url" ]]; then
+  export SPARKCLAW_GATEWAY_READY_URL="$gateway_ready_url"
+else
+  unset SPARKCLAW_GATEWAY_READY_URL
+fi
+# Reuse the same TLS-aware readiness contract as start_local_compose.sh. The
+# Compose overlay is applied by that script; deploy_local.sh needs its URL and
+# CA arguments for the final ingress verification below.
+compose_args=()
+sparkclaw_configure_desktop_tls "$ROOT" "$webchat_port" || fail "invalid desktop TLS readiness configuration"
+webchat_probe_base_url="${ready_url%/readyz}"
 if [[ "$MODE" == "check" ]]; then
   workbench_provision_args+=(--check)
 fi
@@ -367,15 +381,15 @@ bash scripts/start_local_compose.sh
 
 webchat_ready=false
 for _ in $(seq 1 60); do
-  if curl -fsS --max-time 3 "$webchat_base_url/" >/dev/null 2>&1; then
+  if curl -fsS "${ready_curl_args[@]}" --max-time 3 "$webchat_probe_base_url/" >/dev/null 2>&1; then
     webchat_ready=true
     break
   fi
   sleep 2
 done
-[[ "$webchat_ready" == true ]] || fail "Gateway is ready, but WebChat did not respond at $webchat_base_url"
+[[ "$webchat_ready" == true ]] || fail "Gateway is ready, but WebChat did not respond at $webchat_probe_base_url"
 
-ready_json="$(curl -fsS --max-time 5 "$webchat_base_url/readyz")"
+ready_json="$(curl -fsS "${ready_curl_args[@]}" --max-time 5 "$ready_url")"
 printf '%s' "$ready_json" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' || fail "Gateway ready check returned an unexpected response"
 
 case "$(printf '%s' "$autostart_enabled" | tr '[:upper:]' '[:lower:]')" in
@@ -396,11 +410,13 @@ fi
 log "deployment complete"
 printf '  First-client credential (backend deployment user, interactive terminal): npm run credentials:initial -- --runtime-dir "%s" --name "My Mac"\n' "$workbench_runtime_dir"
 printf '  Lost-device recovery: npm run credentials:recover -- --runtime-dir "%s" --revoke-id <lost-device-id> --name "Replacement device"\n' "$workbench_runtime_dir"
-printf '  WebChat (local): http://127.0.0.1:%s\n' "$webchat_port"
-if [[ -n "$lan_ip" ]]; then
+printf '  WebChat (local): %s\n' "$webchat_probe_base_url"
+if [[ -n "$desktop_public_origin" ]]; then
+  printf '  WebChat (LAN):   %s\n' "$desktop_public_origin"
+elif [[ -n "$lan_ip" ]]; then
   printf '  WebChat (LAN):   http://%s:%s\n' "$lan_ip" "$webchat_port"
 fi
-printf '  Gateway ready:  http://127.0.0.1:%s/readyz (WebChat ingress)\n' "$webchat_port"
+printf '  Gateway ready:  %s (WebChat ingress)\n' "$ready_url"
 "${docker_cmd[@]}" ps \
   --filter label=com.docker.compose.project=sparkclaw \
   --format '  {{.Names}}: {{.Status}}'

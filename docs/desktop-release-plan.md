@@ -15,8 +15,8 @@ The candidate is Linux/ARM64 SparkX Desktop `0.1.0`, built with Electron `44.4.3
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|
-| `SparkX-0.1.0-linux-arm64.AppImage` | 126,684,368 | `04101a9bd513f7e4601cd0f3532f89eadc511350512330cc4aa6b11da544fc29` |
-| `SparkX-0.1.0-linux-arm64.deb` | 94,403,348 | `dfe304a3af233b70fd73e3eebbb19687007c9f1d223619b0487f2d1d671fb889` |
+| `SparkX-0.1.0-linux-arm64.AppImage` | 126,684,311 | `4b85336096fc0ea0bcf204c2f0a4c846f37e3bb29b495e8020ef933b7a2aba02` |
+| `SparkX-0.1.0-linux-arm64.deb` | 94,403,476 | `32d0916bfc03059686ed510a0b7640d39c96391a444ccdab63e6da0095d9aa60` |
 
 The generated sources of truth are `apps/desktop/dist/release-manifest.json` and `apps/desktop/dist/SHA256SUMS`. Rebuilding changes the hashes; regenerate this table before release. The packaged icon and target-host desktop entry still require owner acceptance.
 

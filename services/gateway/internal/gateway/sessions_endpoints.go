@@ -210,6 +210,11 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if err := validateWorkbenchInput(input); err != nil {
+		writeError(w, http.StatusRequestEntityTooLarge, err)
+		return
+	}
+
 	if strings.TrimSpace(input.Content) == "" && len(input.Attachments) == 0 {
 		writeError(w, http.StatusBadRequest, errors.New("content or an attachment is required"))
 		return
@@ -294,6 +299,11 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if err := validateWorkbenchInput(input); err != nil {
+		writeError(w, http.StatusRequestEntityTooLarge, err)
+		return
+	}
+
 	if strings.TrimSpace(input.Content) == "" && len(input.Attachments) == 0 {
 		writeError(w, http.StatusBadRequest, errors.New("content or an attachment is required"))
 		return

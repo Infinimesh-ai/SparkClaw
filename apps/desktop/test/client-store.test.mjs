@@ -56,7 +56,7 @@ test("message, immutable context and request key commit together; disk failure n
 });
 
 test("context is bounded by bytes/count and cannot carry authorization roles", (t) => {
-  const history = Array.from({ length: 80 }, (_, i) => ({ role: "user", content: `${i}: ${"中".repeat(5000)}` }));
+  const history = Array.from({ length: 80 }, (_, i) => ({ role: "user", content: `${i}: ${"中".repeat(Math.floor((CLIENT_LIMITS.inputBytes - 10) / 3))}` }));
   const context = boundedContext(history);
   assert.ok(context.length < CLIENT_LIMITS.contextMessages);
   assert.ok(Buffer.byteLength(JSON.stringify(context)) <= CLIENT_LIMITS.contextBytes);

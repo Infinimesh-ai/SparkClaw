@@ -11,6 +11,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/workbench"
 )
 
 type webMessageInput struct {
@@ -19,6 +20,10 @@ type webMessageInput struct {
 	TargetEndpointID app.EndpointID            `json:"target_endpoint_id,omitempty"`
 	Schedule         *scheduleActionInput      `json:"schedule_action,omitempty"`
 	ClientTimezone   string                    `json:"client_timezone,omitempty"`
+}
+
+func validateWorkbenchInput(input webMessageInput) error {
+	return workbench.ValidateInput(input.Content)
 }
 
 func (s *Server) webMessageIngress(ctx context.Context, r *http.Request, session app.Session, target app.EndpointID, clientTimezone string) (app.MessageIngressContext, error) {

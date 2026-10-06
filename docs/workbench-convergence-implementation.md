@@ -59,3 +59,21 @@ and release qualification are still being implemented. Each following commit
 must add its actual validation here before these gates are declared complete.
 No push, main merge, running-service deployment or real-data deletion is authorized
 by this implementation record.
+
+## Common context admission
+
+`configs/workbench-limits.json` is the limit source; the checked generator projects
+constants into Go and the packaged desktop client. Both workbenches accept up to
+64 KiB UTF-8 owner input; submitted context is at most 1 MiB/32 messages. The model
+context selector uses the same last-eight conversation rule and UTF-8 message
+bounds for host and submitted repositories. Active model token admission remains
+authoritative: these byte caps do not promise that every 64 KiB input fits the
+configured embedding/guard models. The larger transport allowance removes the
+old desktop-only 16 KiB bottleneck and leaves room for the selected history.
+Result/file and 24-hour delivery limits are unchanged.
+
+Focused tests compare host FileStore and submitted MemoryStore selection, reject
+cross-conversation history, verify UTF-8 boundaries and equal 64 KiB HTTP/envelope
+admission, and check generated contract freshness. Go build/vet plus agent,
+workbench and execution packages passed; all 116 desktop tests passed after the
+new limits and scheduler integration.

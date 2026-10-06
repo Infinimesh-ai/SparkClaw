@@ -11,15 +11,17 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
 const (
-	InputBytes      = 16 << 10
-	ContextBytes    = 96 << 10
-	ContextMessages = 32
+	InputBytes      = app.WorkbenchInputBytes
+	ContextBytes    = app.WorkbenchContextBytes
+	ContextMessages = app.WorkbenchContextMessages
 	TaskBytes       = 32 << 20
 	OwnerBytes      = 256 << 20
-	ResultBytes     = 8 << 20
+	ResultBytes     = app.WorkbenchResultBytes
 	MaxFences       = 100000
 	ExecutionBudget = 15 * time.Minute
 	ResultRetention = 24 * time.Hour

@@ -2,16 +2,10 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { WORKBENCH_LIMITS } from "../shared/workbench-limits.mjs";
 
 export const CLIENT_SCHEMA_VERSION = 5;
-export const CLIENT_LIMITS = Object.freeze({
-  inputBytes: 16 * 1024,
-  contextBytes: 96 * 1024,
-  contextMessages: 32,
-  fileBytes: 64 * 1024 * 1024,
-  resultBytes: 8 * 1024 * 1024,
-  resultFiles: 32,
-});
+export const CLIENT_LIMITS = WORKBENCH_LIMITS;
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u;

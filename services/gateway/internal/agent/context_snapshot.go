@@ -9,10 +9,11 @@ import (
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/workbench"
 )
 
 const (
-	defaultContextMessageLimit     = 8
+	defaultContextMessageLimit     = app.WorkbenchSelectedMessages
 	defaultContextEpisodeLimit     = 4
 	defaultContextToolLimit        = 6
 	contextMessageCandidateLimit   = 256
@@ -194,31 +195,7 @@ func isContextImageAttachment(attachment app.MessageAttachment) bool {
 }
 
 func recentContextMessages(messages []app.Message, currentRunID string, limit int) []app.Message {
-	if limit <= 0 || len(messages) == 0 {
-		return nil
-	}
-	filtered := make([]app.Message, 0, len(messages))
-	for _, message := range messages {
-		if message.RunID == currentRunID {
-			continue
-		}
-		role := strings.TrimSpace(message.Role)
-		if role != "user" && role != "assistant" {
-			continue
-		}
-		if strings.TrimSpace(message.Content) == "" && len(message.Attachments) == 0 {
-			continue
-		}
-		filtered = append(filtered, message)
-	}
-	if len(filtered) == 0 {
-		return nil
-	}
-	start := len(filtered) - limit
-	if start < 0 {
-		start = 0
-	}
-	return append([]app.Message(nil), filtered[start:]...)
+	return workbench.SelectMessages(messages, currentRunID, limit)
 }
 
 func recentContextEpisodes(episodes []app.EpisodeSummary, limit int) []app.EpisodeSummary {

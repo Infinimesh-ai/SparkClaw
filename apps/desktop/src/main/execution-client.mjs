@@ -27,18 +27,21 @@ export class ExecutionClient {
 
   close() { this.closed = true; this.verifiedApprovals.clear(); this.controller.abort(); clearInterval(this.timer); this.timer = undefined; }
 
-  async submit(scope, requestID) {
+  async submit(scope, requestID, { canSubmit = () => true } = {}) {
     scope = this.#boundScope(scope);
     return this.#serialized(scope, requestID, async () => {
+      if (!canSubmit()) throw new Error("Execution submission availability changed");
       const { first, task } = this.store.markSubmitted(scope, requestID);
       if (!first) {
-        const found = await this.#lookup(scope, task);
-        // A user may explicitly retry an unadmitted request with the SAME ID.
-        // A persisted unknown fence or terminal state never reaches this path.
-        if (found || task.status !== "submission_pending") return this.#view(scope, requestID);
+        // Even a 404 cannot prove that a lost admission had no external effect.
+        // Explicit buttons and background recovery both reconcile the original
+        // request; another execution always requires a new user request ID.
+        await this.#lookup(scope, task);
+        return this.#view(scope, requestID);
       }
       try {
         await this.#uploadInputs(scope, task);
+        if (!canSubmit()) throw new Error("Execution submission availability changed");
         const response = await this.#fetch(scope, "/api/r3/executions", {
           method: "POST", headers: { "Content-Type": "application/json", "X-R3-Digest": task.input_digest }, body: task.context_json,
         });

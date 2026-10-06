@@ -95,7 +95,7 @@ test("lost admission response reconciles same ID and unknown fence never trigger
   assert.equal(gets, 2);
 });
 
-test("unadmitted request requires explicit same-ID retry; background reconciliation sends no POST", async (t) => {
+test("lost admission followed by 404 never permits same-ID POST on explicit or background reconciliation", async (t) => {
   const submittedBodies = [];
   let available = false;
   const f = fixture(t, async (_url, init) => {
@@ -110,8 +110,8 @@ test("unadmitted request requires explicit same-ID retry; background reconciliat
   f.restart(); available = true;
   await f.client.reconcilePending();
   assert.equal(submittedBodies.length, 1);
-  assert.equal((await f.client.submit(scope, f.task.request_id)).status, "accepted");
-  assert.equal(submittedBodies[0], submittedBodies[1]);
+  assert.equal((await f.client.submit(scope, f.task.request_id)).status, "submission_pending");
+  assert.equal(submittedBodies.length, 1, "a missing remote fence is not permission to replay a write");
 });
 
 test("lost ACK survives client restart, deduplicates output and does not resubmit work", async (t) => {

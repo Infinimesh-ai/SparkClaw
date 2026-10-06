@@ -5,22 +5,38 @@
 This document is the current implementation source of truth. Component contracts
 and explicitly marked target designs are linked from the [documentation index](index.md).
 
-## R3 client/backend target and current baseline
+## Workbench deployments and convergence
 
-The user-confirmed 2026-09-30 target is [Client and backend architecture R3](client-backend-architecture-design.md):
-the backend performs business processing and durably stores mail; each client
-durably stores its own non-mail conversations, messages, task history and files.
-Clients connect over the LAN; loopback is only a colocated deployment detail.
-Backend acquisition browsers and client embedded browsers have separate roles,
-controlled through one adapter. Client automation stays in its embedded browser.
-Only mail synchronizes across clients; there is no shared conversation database.
+WebChat uses the deployment host's Store and files; desktop uses its own local
+SQLite/files, bounded execution submission, durable result delivery and remote
+browser-host control. These desktop facilities are implemented on main. The
+[implementation ledger](client-r3-implementation.md) and [Mac/Linux follow-up](macos-r3-dual-host-acceptance.md)
+separate source delivery, recorded deployment and remaining qualification.
 
-The sections below still describe the implemented central Store/runtime baseline.
-Local client storage, bounded context/result delivery, remote browser control and
-clean-start cutover are pending; they are not already available through the current API.
-The user confirmed no legacy test-data migration. Use R3 for target ownership and cutover rules, and the baseline below to
-assess existing code. Accepted external integration contracts remain in force
-until their own decision and compatibility process completes.
+The user-confirmed 2026-10-06 model treats both as normal workbenches with local
+persistence: WebChat's workbench data is colocated with the execution service;
+desktop data is on the desktop host. Locality describes physical placement, not
+a separate business model or a requirement for browser-local storage. Existing
+WebChat workspace visibility stays intact; separate desktop workbenches do not
+automatically synchronize non-mail history. Mail remains backend-authoritative.
+
+The confirmed scheduling target is workbench-owned triggering: occurrences due
+while the workbench is offline are skipped permanently, without catch-up after
+reconnect or restart. For WebChat, availability refers to its host workbench
+service; closing a browser tab does not stop that service. This scheduling
+convergence is planned, as detailed in the convergence plan below.
+
+Both entries already use Agent Runtime, while orchestration, runtime assembly
+and some capabilities still differ. The [convergence plan](workbench-runtime-convergence-design.md)
+defines the proposed common boundaries, stable naming, direct protocol cutover
+and validation phases. Its implementation is pending. The sections below describe
+the existing Gateway runtime and host services, not a claim that desktop history
+is held in the host Store or that both entry paths are already identical.
+
+Backend acquisition and desktop embedded browsers retain their distinct resource
+roles. The user confirmed that development-stage refactoring need not support old
+devices or migrate existing data: use a matched release and fresh storage. Accepted
+external contracts remain subject to their own coordination process.
 
 ## Product Boundary
 

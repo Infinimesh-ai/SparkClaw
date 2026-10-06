@@ -1,0 +1,61 @@
+# Workbench convergence implementation
+
+> Language: English | [简体中文](../zh-cn/docs/workbench-convergence-implementation.md)
+
+Date: 2026-10-06. Implementation branch: `codex/workbench-runtime-convergence`.
+Starting commit: `9b92968d`. This record covers source and isolated verification,
+not a running-service upgrade. The [design](workbench-runtime-convergence-design.md)
+defines the confirmed product behavior.
+
+## Phase 0: baseline and boundaries
+
+All eight design/architecture/index documents exactly matched the source checkout
+before editing, including section 6.1. The source checkout remains untouched.
+InfiniCenter was found on the known Linux host at `/home/infinimesh/InfiniCenter`.
+Registry, empty inbox, central C0001, proposed 0031, and the accepted JingSi,
+App-CLI and IMMS contracts were reviewed. The implementation review is appended
+to 0031; it remains proposed. No external protocol or retention change is accepted
+by this internal plan.
+
+| Area | Starting behavior | Disposition |
+|---|---|---|
+| History | Host Store versus desktop SQLite/files | Preserve local ownership and authenticated scope; unify selection rules |
+| Runtime | Desktop constructs a second ToolHub and policy | Share live providers, policy and registry; isolate repositories and resource adapters |
+| Context | Host typed history versus desktop 32-message, 96 KiB envelope | Separate transport bounds from common model-context selection |
+| Host resources | Host workspace and acquisition browser versus explicitly bound desktop Host | Preserve resource authorization; no implicit access to another workbench |
+| Delivery | Host result persistence versus desktop verified files and ACK | Preserve durable completion and query-only recovery; no retry of uncertain writes |
+| Schedules | Host overdue scan; desktop renewable backend lease | Explicit behavior change: local occurrence claims, permanently missed offline rounds |
+| Mail | Backend authoritative; desktop cache | Preserve one collector and service authority |
+| External callers | JingSi durable results/events, App-CLI journals, IMMS evidence | Unchanged frozen contracts and retention; no reset/import |
+
+Baseline environment: macOS ARM64, Go 1.25.12, Node 26.2.0/npm 11; isolated
+Linux ARM64 Go 1.25.5/Node 26.2.0. Declared document dependencies were installed
+with `npm run setup:document-tools` before tests on both hosts.
+
+| Baseline check | Result |
+|---|---|
+| Mac Go build | Passed |
+| Mac Go full tests | Existing failures in Gateway, cmd/sparkclaw and browser-host tests: canonical temporary-path guards and Linux `/dev/shm` requirement; remaining packages passed |
+| Linux Go build / vet / full tests | Passed in a fresh isolated source snapshot, with central JingSi conformance manifest |
+| Desktop | 102 passed, no skips |
+| WebChat | 196 passed; TypeScript/Vite build passed |
+| Bilingual docs/local links | 103 English documents checked after phase-1 guide updates |
+
+Mac logs are under ignored `.cache/convergence/`; Linux baseline logs and snapshot
+are under `/home/infinimesh/.cache/sparkclaw-convergence-20261006-DIrlhW`.
+Tests use isolated files and do not connect to production business services.
+
+## Phase 1: current guides
+
+The README, architecture/index, Store and WebChat guides now distinguish host
+workbench persistence from execution content. The Mac guide uses `main`, points
+to dated native evidence, and no longer describes already-delivered facilities
+as unimplemented. Existing hardware acceptance gaps remain explicit.
+
+## Remaining phase gates
+
+Public runtime assembly, workbench behavior, neutral naming/API/storage cutover
+and release qualification are still being implemented. Each following commit
+must add its actual validation here before these gates are declared complete.
+No push, main merge, running-service deployment or real-data deletion is authorized
+by this implementation record.

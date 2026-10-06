@@ -2,6 +2,16 @@
 
 > Language: English | [简体中文](../zh-cn/docs/client-backend-architecture-design.md)
 
+> Current applicability (2026-10-06): R3 source is on main; subsequent merge and
+> scoped production deployment are recorded in the [Mac/Linux follow-up](macos-r3-dual-host-acceptance.md).
+> The [workbench and execution service convergence plan](workbench-runtime-convergence-design.md)
+> clarifies the current product direction: WebChat also owns local persistence,
+> colocated with the execution service, and both workbenches share a business model.
+> The user also confirmed a development-stage direct cutover with no old-device
+> compatibility or existing-data migration. The dated gates below describe the
+> original delivery scope; follow the new plan for current initialization and release
+> rules. WebChat is a normal workbench. Resource and external-contract boundaries still apply.
+
 Date: 2026-10-03. Status: the user confirmed product ownership, no legacy test-data migration, offline task behavior, and section 2's backend temporary-processing/control-record boundary including the 24-hour maximum for undelivered results; P0–P5 Linux/shared source and applicable isolated checks are complete; Mac qualification and production cutover remain pending. See the [implementation and acceptance ledger](client-r3-implementation.md). This is the target architecture for SparkClaw's own clients. [Architecture](architecture.md), [Store](store.md), and [WebChat](webchat.md) describe the current implementation where explicitly marked. This document does not claim deployment, data deletion or changes to accepted cross-project contracts.
 
 ## 1. Confirmed boundary

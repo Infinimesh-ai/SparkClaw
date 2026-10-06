@@ -2,10 +2,11 @@
 
 > 语言：[English](../../docs/store.md) | 简体中文
 
-> R3 范围说明（2026-09-30）：下文 repository 描述已实现的后端 Store。
-> [客户端／后端目标架构](client-backend-architecture-design.md) 将非邮箱用户历史／文件移到
-> 各客户端，后端保留邮箱及有界处理／控制状态。拆分和全新存储切换尚待完成，旧测试数据不迁移；本轮文档修订
-> 不执行记录删除，也不表示 API 已改变。
+WebChat 将工作台历史和文件保存在部署主机的 Store 和文件系统；桌面端使用自己的
+SQLite 和本机文件。共用执行服务不会自动同步工作台历史。邮件仍以后端为权威。
+下文仓储服务于主机工作台和权威服务；临时执行内容及交付回执有独立生命周期。
+分阶段实施和全新存储切换见[统一重构方案](workbench-runtime-convergence-design.md)。
+新版本的正常重启必须保留其新建数据。
 
 Store package 是 SparkClaw 的 durable state 边界。它向业务 owner 暴露小型、类型化
 repository，在 memory、file 与 PostgreSQL backend 上实现同一契约，并向 Gateway 组装层

@@ -6,21 +6,11 @@ See the [Mac acceptance record](macos-r3-acceptance.md) for the subsequent nativ
 
 Companions: [Client and backend architecture R3](client-backend-architecture-design.md) and [macOS desktop design R3](macos-lan-desktop-design.md).
 
-Date: 2026-10-03. The user confirmed the build workflow: develop and validate on the current Linux environment, deliver source through a Git push, then the user synchronizes and compiles on their Mac. Do not compile, cross-build, package, sign or notarize Mac artifacts in the current environment. P0–P5 Linux/shared runtime source is complete; Mac build and hardware qualification are not claimed by this guide.
+Date: 2026-10-06. Main contains the desktop workbench and packaging entrypoints. WebChat stores local data on its deployment host, desktop stores it on the desktop host, and mail stays backend-authoritative; see the [convergence plan](workbench-runtime-convergence-design.md). Product connectivity uses HTTPS and an outbound authenticated WSS host channel. A remote Mac uses the deployment host's reachable LAN origin, not Mac's own localhost.
 
-The Linux backend processes business work and stores mail. Each client stores its own non-mail data; existing test data is not migrated. Product connectivity uses LAN HTTPS and an outbound authenticated WSS host channel. A colocated Linux client may use loopback; a remote Mac addresses the Linux host's reachable LAN origin, not Mac's own localhost.
+## 1. Build and qualification responsibilities
 
-## 1. Work split
-
-| Owner | Responsibility |
-|---|---|
-| Current Linux environment | Implement backend/client source, build scripts and configuration; run applicable Linux, shared-code and protocol checks; prepare source delivery through Git |
-| User on Mac | Synchronize the delivered commit; install locked build dependencies; compile/package locally, launch the GUI and perform Mac hardware checks; signing/notarization, when required, also runs on Mac |
-| Follow-up fixes | Diagnose supplied build logs/test results, fix and push another identified commit; the user synchronizes and rebuilds on Mac |
-
-Mac compilation is not a prerequisite for Linux implementation or source delivery. Label results separately as Linux/shared checks, user-reported Mac build, and Mac hardware qualification. Passing one does not prove the others.
-
-This workflow does not require Mac SSH access, Remote Login, SFTP delivery or an agent-run remote build. Do not request Mac login details or configure remote access for this delivery path; any later remote debugging would be a separately requested activity. Git authentication on Mac uses the user's existing setup.
+Validate backend/shared behavior on Linux; build the matching desktop architecture and qualify native behavior on Mac. Record source delivery, build, deployment and physical qualification separately with exact SHAs. Existing ARM64 builds and GUI evidence are in the [dual-host record](macos-r3-dual-host-acceptance.md); full M01–M12 remains incomplete, and each release requires its own validation. Normal source builds do not require remote Mac access.
 
 ## 2. Source delivery record
 
@@ -28,7 +18,7 @@ Each build handoff identifies the pushed remote/branch and exact commit SHA, req
 
 Include lockfiles, necessary build configuration, source and versioned managed assets in the delivery. The Mac may check out the full repository, including backend source, but builds the client without deploying Linux Gateway, models or App-CLI Registry/Executor. The client package includes UI, ClientStore, Browser Host Agent, Electron/Bridge and verified page assets; exclude server database dumps, credentials, private test data and platform-incompatible binaries.
 
-Mac ARM64 and x64 packaging scripts now exist. This tranche supports local conversations/files, device management, secure login, explicit task execution/output delivery, mailbox cache/sync, single-run online schedules and browser Host control; see the [phase ledger](client-r3-implementation.md). Mac build/signing/hardware are unverified. Packages are unsigned development builds (`mac.identity=null`), audited against the public client allowlist before distributables are created.
+Mac ARM64 and x64 packaging scripts now exist. This tranche supports local conversations/files, device management, secure login, explicit task execution/output delivery, mailbox cache/sync, single-run online schedules and browser Host control; see the [phase ledger](client-r3-implementation.md). Mac ARM64 builds and partial physical qualification have evidence; signing, notarization and full physical qualification remain incomplete. Packages are unsigned development builds (`mac.identity=null`), audited against the public client allowlist before distributables are created.
 
 ## 3. Synchronize and build on Mac
 
@@ -37,8 +27,8 @@ Preserve local changes and synchronize without rewriting history:
 ```sh
 git status --short
 git fetch origin
-git switch codex/sparkclaw-r3
-git pull --ff-only origin codex/sparkclaw-r3
+git switch main
+git pull --ff-only origin main
 git rev-parse HEAD
 ```
 
@@ -57,7 +47,7 @@ npm run build:desktop-ui
 npm run dev:desktop
 ```
 
-Mac does not build the Go backend. Linux calls to the Mac packager are rejected; no Mac artifact was built in this delivery. Record the exact SHA and command even if the build fails.
+Mac does not build the Go backend. Linux calls to the Mac packager are rejected; previous artifacts do not replace rebuilding the current version. Record the exact SHA and command even if the build fails.
 
 ## 4. Local Mac preparation
 
@@ -77,9 +67,9 @@ For GUI qualification, log into the Mac desktop, connect power, and put Mac and 
 
 Build-error feedback should include commit SHA, macOS/CPU architecture, Node/npm versions, exact failed command and redacted error output. GUI/network failures additionally need the case ID and backend version. Do not include passwords, keys, tokens or personal mail contents.
 
-## 5. R3 product connection and qualification
+## 5. Product connection and qualification
 
-After the R3 components exist, record the backend's reachable HTTPS origin, deployment identity/certificate fingerprint, paired Owner/client/host identifiers, selected build versions, and the actual client-local data root. Inspect free space and the local schema version. Keep secrets out of the record. Application pairing and host permission are distinct; Git synchronization does not provision either.
+Before connecting, record the backend's reachable HTTPS origin, deployment identity/certificate fingerprint, paired Owner/client/host identifiers, selected build versions, and the actual client-local data root. Inspect free space and the local schema version. Keep secrets out of the record. Application pairing and host permission are distinct; Git synchronization does not provision either.
 
 ### 5.1 Where to obtain the credential
 
@@ -94,7 +84,7 @@ These tools require this commit's Gateway/provisioning on the **Linux backend ho
    It displays one `sparkclaw-connect-v1...` connection credential once, with deployment, Owner and device ID. The value already contains the public pinned backend identity and this device's bearer; the raw bearer is not printed separately. All three standard streams must be TTYs. A non-default private runtime directory uses `--runtime-dir /absolute/runtime`. Do not run this on Mac or copy a preprovisioned Desktop Token. Management authority works only over the private Unix socket.
 2. With a usable SparkX desktop, open **Settings → Devices & credentials**, enter a device name, issue/copy the connection credential, and hide it after secure login. A normal browser can still issue only a raw access Token; use a signed-in desktop when the target is another downloaded desktop. The list shows metadata and revocation only and cannot reveal an old secret.
 3. On the target Mac, paste the complete connection credential into the single **Connection credential** field and choose **Unlock**. There is no separate backend-description step. Main decodes the bundle locally and still verifies the HTTPS chain, hostname and leaf certificate pin before sending the bearer; the bundle is a secret, while a pin never bypasses certificate validation. The backend deployment must set both `SPARKCLAW_DESKTOP_TLS_DIR` and `SPARKCLAW_DESKTOP_PUBLIC_ORIGIN` as described in [Deployment](deployment.md#product-entrypoints), so provisioning can derive the public CA and leaf fingerprint. This does not create certificates or configure production ingress.
-4. Main saves encrypted credentials protected by OS secure storage (Mac Keychain through Electron safeStorage). The same device reuses its credential. Logout/revocation or enrollment with another connection credential clears the old credential and locks UI as appropriate, preserving local conversations/files. Server installation-ID registration checks the issued client before accepting R3 transports.
+4. Main saves encrypted credentials protected by OS secure storage (Mac Keychain through Electron safeStorage). The same device reuses its credential. Logout/revocation or enrollment with another connection credential clears the old credential and locks UI as appropriate, preserving local conversations/files. Server installation-ID registration checks the issued client before accepting workbench execution transports.
 5. Unknown issuance outcomes reuse the original command/name/request key. Completed retrievals never redisplay a connection credential. Total device lockout or unrecoverable plaintext after restart/ten-minute expiry requires recovery of the **exact lost device ID** (replace `LOST_DEVICE_ID`):
 
    ```sh

@@ -6,21 +6,11 @@
 
 配套文档：[客户端与后端架构 R3](client-backend-architecture-design.md) 和 [macOS 桌面端设计 R3](macos-lan-desktop-design.md)。
 
-日期：2026-10-03。用户已明确构建方式：当前 Linux 环境开发并验证，通过 Git 推送交付源码，由用户在 Mac 同步并编译。当前环境不进行 Mac 编译、交叉构建、打包、签名或公证。P0–P5 Linux／共享 runtime 源码已完成；本指南不表示已完成 Mac 构建或实机验收。
+日期：2026-10-06。主分支已包含桌面工作台和打包入口。WebChat 的本地数据在部署主机，桌面工作台的本地数据在桌面主机，邮件由后端保存；具体收敛范围见[统一重构方案](workbench-runtime-convergence-design.md)。产品连接采用 HTTPS 和客户端主动建立的认证 WSS。远程 Mac 连接部署主机的可达 LAN origin；不能使用 Mac 自己的 localhost 代指远端。
 
-Linux 后端负责业务处理及邮箱保存，各客户端保存自己的非邮箱数据，不迁移旧测试数据。产品连接使用局域网 HTTPS 和客户端主动建立的鉴权 WSS；同机 Linux 可用回环地址，异机 Mac 连接 Linux 主机可达的 LAN origin，而不是 Mac 自己的 localhost。
+## 1. 构建与验收分工
 
-## 1. 执行分工
-
-| 负责方 | 工作范围 |
-|---|---|
-| 当前 Linux 环境 | 实现后端／客户端源码、构建脚本与配置；运行适用的 Linux、共享代码及协议检查；准备通过 Git 交付源码 |
-| 用户的 Mac | 同步交付提交，安装锁定的构建依赖，在本机编译／打包、启动 GUI 并完成 Mac 实机检查；需要签名／公证时也在 Mac 执行 |
-| 后续修复 | 根据用户提供的构建日志／验收结果定位问题，修复并推送明确的新提交；用户在 Mac 同步后重新编译 |
-
-Mac 编译不作为 Linux 实施或源码交付的前置条件。验证结果分别记录为 Linux／共享代码检查、用户反馈的 Mac 构建、Mac 实机验收，不能用其中一项推定其他项通过。
-
-本流程不要求 Mac SSH 接入、远程登录、SFTP 交付或由 Agent 远程代编译，不为本次交付索取 Mac 登录信息或配置远程访问。以后确需远程排障时另按用户请求进行；Mac 上 Git 认证沿用用户自己的配置。
+在 Linux 验证后端及共享行为，在 Mac 本机编译对应架构的桌面包并验证原生宿主。源码交付、构建、部署与实机验收分别记录准确 SHA 和结果。已有 ARM64 构建与 GUI 证据见[双机记录](macos-r3-dual-host-acceptance.md)，完整 M01–M12 尚未完成；新版本需要自己的验证记录。无需为正常源码构建配置远程 Mac 登录。
 
 ## 2. 源码交付记录
 
@@ -28,7 +18,7 @@ Mac 编译不作为 Linux 实施或源码交付的前置条件。验证结果分
 
 交付包含锁文件、必要构建配置、源码及版本化受管资产。Mac 可以同步完整仓库（包含后端源码），但只构建客户端，不部署 Linux Gateway、模型或 App-CLI Registry／Executor。客户端安装包包含 UI、ClientStore、Browser Host Agent、Electron／Bridge 和已验证页面资产，不包含服务端数据库转储、凭据、私有测试数据或不兼容平台的二进制。
 
-Mac ARM64／x64 本机打包脚本已经实现。本批支持本机对话／文件、设备管理、安全登录、明确任务执行／输出交付、邮箱缓存／同步、单次在线定时任务及浏览器 Host 控制，见[阶段记录](client-r3-implementation.md)。Mac 构建／签名／实机仍待验证。当前包为未签名开发构建（`mac.identity=null`），生成安装包前执行公开客户端白名单审计，不能视为正式签名发行版。
+Mac ARM64／x64 本机打包脚本已经实现。本批支持本机对话／文件、设备管理、安全登录、明确任务执行／输出交付、邮箱缓存／同步、单次在线定时任务及浏览器 Host 控制，见[阶段记录](client-r3-implementation.md)。已有 Mac ARM64 构建及部分实机证据；签名、公证和完整实机验收未完成。当前包为未签名开发构建（`mac.identity=null`），生成安装包前执行公开客户端白名单审计，不能视为正式签名发行版。
 
 ## 3. Mac 同步代码与构建
 
@@ -37,8 +27,8 @@ Mac ARM64／x64 本机打包脚本已经实现。本批支持本机对话／文�
 ```sh
 git status --short
 git fetch origin
-git switch codex/sparkclaw-r3
-git pull --ff-only origin codex/sparkclaw-r3
+git switch main
+git pull --ff-only origin main
 git rev-parse HEAD
 ```
 
@@ -57,7 +47,7 @@ npm run build:desktop-ui
 npm run dev:desktop
 ```
 
-Mac 无需编译 Go 后端。Linux 调用 Mac 打包入口会被拒绝；本次未生成 Mac 产物。构建失败也记录准确 SHA 和实际命令。
+Mac 无需编译 Go 后端。Linux 调用 Mac 打包入口会被拒绝；已有产物不能代替当前版本重新构建。构建失败也记录准确 SHA 和实际命令。
 
 ## 4. Mac 本机准备
 
@@ -77,9 +67,9 @@ GUI 验收时登录 Mac 桌面、接通电源，并让 Mac 与 Linux 连接可�
 
 构建报错反馈包含 commit SHA、macOS／CPU 架构、Node／npm 版本、失败命令和脱敏错误输出。GUI／网络问题另附用例编号和后端版本，不包含密码、密钥、token 或个人邮件正文。
 
-## 5. R3 产品连接与验收
+## 5. 产品连接与验收
 
-R3 组件实现后，记录后端可达的 HTTPS origin、部署身份／证书指纹、已配对的 Owner／客户端／宿主标识、所用构建版本及实际客户端本地数据根目录，检查可用空间和本地 Schema 版本；记录中不包含密钥。应用配对与宿主权限是两项授权，Git 同步不能代替它们。
+连接前，记录后端可达的 HTTPS origin、部署身份／证书指纹、已配对的 Owner／客户端／宿主标识、所用构建版本及实际客户端本地数据根目录，检查可用空间和本地 Schema 版本；记录中不包含密钥。应用配对与宿主权限是两项授权，Git 同步不能代替它们。
 
 ### 5.1 凭据从哪里取得
 

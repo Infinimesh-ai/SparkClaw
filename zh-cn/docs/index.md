@@ -2,18 +2,20 @@
 
 > 语言： [English](../../docs/index.md) | 简体中文
 
-本索引区分已实现 runtime 与明确标注的目标设计。R3 架构调整期间保留现行基线文档，
-用于核对代码及验收证据；它们不覆盖新目标的数据归属规则。
+本索引区分已实现 runtime、待实施重构和带日期的验收证据。WebChat 与桌面端都是正常工作台
+部署形态，都拥有本地持久化；WebChat 数据与执行服务同机。下列统一重构方案记录已确认模型
+和剩余实施工作。
 
-- [客户端 R3 实施与验收](client-r3-implementation.md) — 分阶段进度、适用证据与源码交付。
+- [客户端 R3 实施与验收](client-r3-implementation.md) — 历史阶段记录与源码交付；后续合并／部署证据由该记录链接进入。
 
 ## 从这里开始
 
 | 文档 | 用途 | 权威范围 |
 |---|---|---|
 | [README](../README.md) | 项目概览、快速启动和当前状态 | 项目入口 |
-| [架构](architecture.md) | 当前实现、runtime 拓扑及 R3 目标入口 | 实现事实来源 |
-| [客户端与后端架构 R3](client-backend-architecture-design.md) | 后端业务／邮箱核心、客户端本地非邮箱数据、LAN、内嵌控制及全新存储切换 | 用户已确认目标，实施待完成 |
+| [架构](architecture.md) | 当前实现、runtime 拓扑和工作台归属 | 实现事实来源 |
+| [工作台与执行服务统一重构](workbench-runtime-convergence-design.md) | 公共业务处理、主机／桌面本地持久化、中性命名、API 直接切换、全新初始化与验收 | 产品方向已确认，重构待实施 |
+| [客户端与后端架构 R3](client-backend-architecture-design.md) | 原客户端归属、LAN、内嵌控制和切换设计 | 历史设计，结合当前适用说明与后续证据阅读 |
 | [部署](deployment.md) | 本地、Compose、DGX Spark、状态、备份和排障 | 运维手册 |
 | [开发](development.md) | 仓库结构、实现规则、验证和扩展流程 | 贡献者手册 |
 | [Workflow 能力矩阵](workflow-capabilities.md) | 当前 Workflow runtime 确切可执行的能力 | 用户可见能力清单 |

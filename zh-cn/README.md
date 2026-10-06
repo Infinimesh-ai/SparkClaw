@@ -6,6 +6,8 @@
 
 SparkClaw 将本地模型变成一个有边界、可审计的个人工作流系统。它面向单个本地 AI 工作站 owner，强调本地优先的数据处理、明确的工具契约、危险动作审批、trace、artifact 和可重复评测。当前本地模型形态使用一个响应快的 `fast` MoE chat 模型，并常驻 embedding 与 guard 端点；`deep` 模型暂不接入默认产品 runtime。
 
+WebChat 与 SparkX 桌面端都是正常支持的工作台。WebChat 的历史和文件保存在部署主机，桌面端保存在桌面主机；两者使用执行服务，邮件仍以后端为权威。当前实施与验收边界见[工作台统一重构方案](docs/workbench-runtime-convergence-design.md)。
+
 项目已经过了早期规划阶段。本 README 是入口；完整当前文档集合见
 [文档索引](docs/index.md)。建议从以下文档开始：
 

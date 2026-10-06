@@ -2,6 +2,12 @@
 
 > 语言：简体中文 | [English](../../docs/client-backend-architecture-design.md)
 
+> 当前适用范围（2026-10-06）：R3 源码已进入 main，后续合并和限定范围的生产部署记录在
+> [Mac/Linux 后续验收](macos-r3-dual-host-acceptance.md)。[工作台与执行服务统一重构方案](workbench-runtime-convergence-design.md)
+> 明确当前产品方向：WebChat 同样拥有本地持久化，只是与执行服务同机；两种工作台共用业务模型。
+> 用户同时确认研发阶段直接切换，无须旧设备兼容或现有数据迁移。下文带日期的阶段门属于原交付
+> 范围，当前初始化与发布规则以新方案为准。WebChat 属于正常工作台，资源和外部契约边界仍适用。
+
 日期：2026-10-03。P0–P5 Linux／共享源码与适用隔离检查完成，具体交付范围及剩余阶段门见[实施与验收记录](client-r3-implementation.md)。状态：用户已确认产品边界、不迁移旧测试数据、离线任务策略，以及第 2 节后端临时处理／控制记录边界和未交付结果最长 24 小时的保留规则；Mac 验收与生产架构切换待完成。本文是 SparkClaw 自有客户端的目标架构；[架构](architecture.md)、[Store](store.md) 和 [WebChat](webchat.md) 中标明的内容仍描述现行实现。本文不表示已经部署、清除数据或修改已接受的跨项目契约。
 
 ## 1. 已确认的边界

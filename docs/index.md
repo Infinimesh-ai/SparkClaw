@@ -2,19 +2,21 @@
 
 > Language: English | [简体中文](../zh-cn/docs/index.md)
 
-This index distinguishes the implemented runtime from explicitly marked target
-designs. During the R3 transition, current baseline documents remain available for
-code/qualification evidence; they do not override the new target's data ownership.
+This index distinguishes the implemented runtime, proposed refactoring and dated
+qualification evidence. WebChat and desktop are normal workbench deployments:
+both own local persistence, with WebChat data colocated with the execution service.
+The convergence plan below records the confirmed model and remaining implementation work.
 
-- [Client R3 implementation and acceptance](client-r3-implementation.md) — phase ledger, scoped evidence and source handoff.
+- [Client R3 implementation and acceptance](client-r3-implementation.md) — historical phase ledger and source handoff; subsequent merge/deployment evidence is linked from that record.
 
 ## Start Here
 
 | Document | Purpose | Authority |
 |---|---|---|
 | [README](../README.md) | Project overview, quick start, and current status | Product entry point |
-| [Architecture](architecture.md) | Current implementation, runtime topology and entry to the R3 target | Implementation source of truth |
-| [Client and backend architecture R3](client-backend-architecture-design.md) | Backend business/mail core; client-local non-mail data, LAN connection, embedded control and clean-start cutover | User-confirmed target; implementation pending |
+| [Architecture](architecture.md) | Current implementation, runtime topology and workbench ownership | Implementation source of truth |
+| [Workbench and execution service convergence](workbench-runtime-convergence-design.md) | Shared business processing, host/desktop local persistence, neutral names, direct API cutover, fresh initialization and acceptance | Product direction confirmed; refactoring pending |
+| [Client and backend architecture R3](client-backend-architecture-design.md) | Original client ownership, LAN, embedded control and cutover design | Historical design; read its current applicability note and subsequent evidence |
 | [Deployment](deployment.md) | Local, Compose, DGX Spark, state, backup, and troubleshooting | Operator guide |
 | [Development](development.md) | Repository map, implementation rules, validation, and extension workflow | Contributor guide |
 | [Workflow capability matrix](workflow-capabilities.md) | Exactly what the current Workflow runtime can execute | User-visible capability inventory |

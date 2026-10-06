@@ -54,7 +54,6 @@ func (s *Server) clientConnectionContext(ctx context.Context, clientID string) (
 }
 
 func (s *Server) cancelClientConnections(clientID string) {
-	s.revokeR3Schedules(clientID)
 	s.r3Mu.Lock()
 	broker := s.r3Broker
 	s.r3Mu.Unlock()

@@ -69,7 +69,6 @@ type Repository interface {
 type Server struct {
 	r3Broker                  *r3browser.Broker
 	r3Mail                    *r3mail.Service
-	r3Schedules               *r3ScheduleRegistry
 	r3Mu                      sync.Mutex
 	r3Root                    string
 	r3Executor                r3execution.Executor
@@ -446,7 +445,6 @@ func (s *Server) WaitForBackgroundWork(ctx context.Context) error {
 func (s *Server) routes() {
 	s.registerR3ExecutionRoutes()
 	s.registerR3MailRoutes()
-	s.registerR3ScheduleRoutes()
 	s.registerR3HostRoutes()
 	s.mux.HandleFunc("GET /healthz", s.healthz)
 	s.mux.HandleFunc("GET /readyz", s.readyz)

@@ -114,7 +114,7 @@ func installedGatewayFixture(t *testing.T) (http.Handler, string) {
 	}
 	tools := toolhub.New(cfg, backend)
 	t.Cleanup(func() { _ = tools.Close() })
-	instance := gateway.New(cfg, backend, tools, agent.Runtime{}, gateway.WithExecutions(filepath.Join(root, "r3"), nil))
+	instance := gateway.New(cfg, backend, tools, agent.Runtime{}, gateway.WithExecutions(filepath.Join(root, "execution"), nil))
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	instance.BindLifecycleContext(ctx)

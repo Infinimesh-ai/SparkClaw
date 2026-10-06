@@ -76,18 +76,34 @@ func (s *Server) browserHostConnect(w http.ResponseWriter, r *http.Request) {
 	broker.ServeHost(r.Context(), w, r, hostIdentity(p, r))
 }
 func (s *Server) browserHostFences(w http.ResponseWriter, r *http.Request) {
-	p, err := s.executionPrincipal(r)
+	p, _, err := s.executionReadPrincipal(r)
 	if err != nil {
 		writeError(w, 403, err)
 		return
 	}
-	broker, err := s.browserHostBroker()
-	if err != nil {
-		writeExecutionError(w, err)
-		return
+	s.executionMu.Lock()
+	broker, root := s.browserBroker, s.executionRoot
+	s.executionMu.Unlock()
+	var fences []browserhost.Fence
+	if broker != nil {
+		fences = broker.Fences(hostIdentity(p, r))
+	} else {
+		if root == "" {
+			root = s.cfg.State.Path + ".execution"
+		}
+		absolute, pathErr := filepath.Abs(root)
+		if pathErr != nil {
+			writeExecutionError(w, pathErr)
+			return
+		}
+		fences, err = browserhost.ReadFences(filepath.Join(absolute, "browser-control"), hostIdentity(p, r))
+		if err != nil {
+			writeExecutionError(w, err)
+			return
+		}
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, 200, map[string]any{"fences": broker.Fences(hostIdentity(p, r))})
+	writeJSON(w, 200, map[string]any{"fences": fences})
 }
 func (s *Server) browserHostReconcile(w http.ResponseWriter, r *http.Request) {
 	p, err := s.executionPrincipal(r)

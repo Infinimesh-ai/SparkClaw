@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserhost"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -18,7 +21,10 @@ import (
 )
 
 func TestExecutionInstalledGETAfterRestartDoesNotStartOrMutateService(t *testing.T) {
-	root := t.TempDir()
+	root, rootErr := filepath.EvalSymlinks(t.TempDir())
+	if rootErr != nil {
+		t.Fatal(rootErr)
+	}
 	controlRoot := filepath.Join(root, "execution")
 	const install = "11111111-1111-4111-8111-111111111111"
 	const token = "read-only-execution-test-client-token"
@@ -100,6 +106,16 @@ func TestExecutionInstalledGETAfterRestartDoesNotStartOrMutateService(t *testing
 		}
 		return out
 	}
+
+	browserRoot := filepath.Join(controlRoot, "browser-control")
+	if err := os.Mkdir(browserRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	fence := browserhost.Fence{CommandID: "command", Scope: browserhost.Scope{Identity: browserhost.Identity{OwnerID: e.OwnerID, ClientID: e.ClientID, InstallationID: install}, ConversationID: "conversation", TaskID: "task"}, Write: true, State: "dispatched", UpdatedAt: time.Now().UTC()}
+	rawFence, _ := json.Marshal(fence)
+	if err := os.WriteFile(filepath.Join(browserRoot, "command.json"), rawFence, 0600); err != nil {
+		t.Fatal(err)
+	}
 	before := snapshot()
 	if w := request(route, token, install); w.Code != 200 {
 		t.Fatalf("status %d %s", w.Code, w.Body.String())
@@ -111,6 +127,18 @@ func TestExecutionInstalledGETAfterRestartDoesNotStartOrMutateService(t *testing
 		if w := request(route, pair[0], pair[1]); w.Code != 403 {
 			t.Fatalf("identity bypass %d %s", w.Code, w.Body.String())
 		}
+	}
+
+	if w := request("/api/v1/browser/hosts/fences", token, install); w.Code != 200 || !strings.Contains(w.Body.String(), `"state":"unknown"`) {
+		t.Fatalf("browser fence GET %d %s", w.Code, w.Body.String())
+	}
+	for _, route := range []string{"/api/v1/mail/mailboxes", "/api/v1/mail/mailbox/messages/mail/attachments/part"} {
+		if w := request(route, token, install); w.Code != 503 {
+			t.Fatalf("mail read %d %s", w.Code, w.Body.String())
+		}
+	}
+	if server.browserBroker != nil {
+		t.Fatal("GET initialized writable browser broker")
 	}
 	if server.executions != nil {
 		t.Fatal("GET initialized writable execution service")

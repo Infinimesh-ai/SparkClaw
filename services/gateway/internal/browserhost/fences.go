@@ -28,7 +28,9 @@ type Fence struct {
 	UpdatedAt           time.Time `json:"updated_at"`
 }
 
-func loadFences(root string) (map[string]Fence, error) {
+func loadFences(root string) (map[string]Fence, error) { return readFences(root, true) }
+
+func readFences(root string, create bool) (map[string]Fence, error) {
 	if !filepath.IsAbs(root) {
 		return nil, errors.New("browser control root must be absolute")
 	}
@@ -41,10 +43,15 @@ func loadFences(root string) (map[string]Fence, error) {
 			return nil, errors.New("browser control path is unsafe")
 		}
 	}
-	if err := os.MkdirAll(root, 0700); err != nil {
-		return nil, err
+	if create {
+		if err := os.MkdirAll(root, 0700); err != nil {
+			return nil, err
+		}
 	}
 	info, err := os.Lstat(root)
+	if !create && errors.Is(err, os.ErrNotExist) {
+		return map[string]Fence{}, nil
+	}
 	if err != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
 		return nil, errors.New("browser control root must be private")
 	}
@@ -122,4 +129,29 @@ func persistFence(root string, fence Fence) error {
 	}
 	defer dir.Close()
 	return dir.Sync()
+}
+
+// ReadFences projects interrupted command receipts from private storage without
+// creating the broker, changing timestamps or persisting terminal transitions.
+func ReadFences(root string, identity Identity) ([]Fence, error) {
+	if !identity.valid() {
+		return nil, ErrFence
+	}
+	fences, err := readFences(root, false)
+	if err != nil {
+		return nil, err
+	}
+	out := []Fence{}
+	for _, f := range fences {
+		if f.Scope.Identity != identity {
+			continue
+		}
+		if f.State == "dispatched" && f.Write {
+			f.State = "unknown"
+		}
+		if f.State == "unknown" {
+			out = append(out, f)
+		}
+	}
+	return out, nil
 }

@@ -15,7 +15,7 @@ func (s *Server) registerMailSyncRoutes() {
 }
 
 func (s *Server) mailSyncAttachment(w http.ResponseWriter, r *http.Request) {
-	principal, err := s.executionPrincipal(r)
+	principal, _, err := s.executionReadPrincipal(r)
 	if err != nil {
 		writeJSON(w, http.StatusForbidden, map[string]any{"code": "installation_required"})
 		return
@@ -44,7 +44,7 @@ func (s *Server) mailSyncAttachment(w http.ResponseWriter, r *http.Request) {
 	s.getEmailMessageFile(w, clone)
 }
 func (s *Server) mailSyncMailboxes(w http.ResponseWriter, r *http.Request) {
-	principal, err := s.executionPrincipal(r)
+	principal, _, err := s.executionReadPrincipal(r)
 	if err != nil {
 		writeJSON(w, http.StatusForbidden, map[string]any{"code": "installation_required"})
 		return

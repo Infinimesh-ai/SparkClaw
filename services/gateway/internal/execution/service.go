@@ -88,20 +88,7 @@ func New(root string, execute Executor) (*Service, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	for key, f := range s.control.Fences {
-		if key != keyFor(f.OwnerID, f.ClientID, f.RequestID) || !UUID(f.RequestID) || !UUID(f.InstallationID) || !digestPattern.MatchString(f.InputDigest) || f.CreatedAt.IsZero() || f.Deadline.IsZero() {
-			return nil, errors.New("invalid workbench durable fence")
-		}
-		switch f.State {
-		case "accepted", "running":
-			f.State = "unknown"
-			s.control.Fences[key] = f
-		case "completed", "delivered", "delivery_expired", "failed", "canceled", "unknown":
-		default:
-			return nil, errors.New("invalid workbench fence state")
-		}
-	}
-	if err = s.validateWorkbenchFences(); err != nil {
+	if err = s.validateControl(); err != nil {
 		return nil, err
 	}
 	if err = s.Sweep(); err != nil {
@@ -439,7 +426,7 @@ func (s *Service) Lookup(owner, client, request string) (Status, error) {
 			status.State = "delivery_expired"
 			return status, nil
 		}
-		if Digest([]byte(content.Payload)) != f.ResultDigest {
+		if validateResultBundle(f, content) != nil {
 			return Status{}, ErrUnavailable
 		}
 		status.Result = &Result{Sequence: 1, Digest: f.ResultDigest, Payload: content.Payload}
@@ -460,6 +447,9 @@ func (s *Service) File(owner, client, request, file string) ([]byte, error) {
 	content, err := s.unseal(key)
 	if err != nil {
 		return nil, ErrExpired
+	}
+	if validateResultBundle(f, content) != nil {
+		return nil, ErrUnavailable
 	}
 	raw, ok := content.Files[file]
 	if !ok {
@@ -586,4 +576,24 @@ func (s *Service) Close() {
 			_ = s.lock.Close()
 		}
 	})
+}
+
+func (s *Service) validateControl() error {
+	if s.control.Version != 2 || s.control.Fences == nil || s.control.Installations == nil || s.control.WorkbenchFences == nil || len(s.control.Fences)+len(s.control.WorkbenchFences) > MaxFences {
+		return errors.New("invalid execution control ledger")
+	}
+	for key, f := range s.control.Fences {
+		if key != keyFor(f.OwnerID, f.ClientID, f.RequestID) || !UUID(f.RequestID) || !UUID(f.InstallationID) || !digestPattern.MatchString(f.InputDigest) || f.CreatedAt.IsZero() || f.Deadline.IsZero() {
+			return errors.New("invalid workbench durable fence")
+		}
+		switch f.State {
+		case "accepted", "running":
+			f.State = "unknown"
+			s.control.Fences[key] = f
+		case "completed", "delivered", "delivery_expired", "failed", "canceled", "unknown":
+		default:
+			return errors.New("invalid workbench fence state")
+		}
+	}
+	return s.validateWorkbenchFences()
 }

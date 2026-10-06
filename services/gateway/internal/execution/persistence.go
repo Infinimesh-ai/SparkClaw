@@ -60,7 +60,11 @@ func readPrivate(path string, limit int64) ([]byte, error) {
 		return nil, err
 	}
 	defer f.Close()
-	return io.ReadAll(io.LimitReader(f, limit+1))
+	raw, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if int64(len(raw)) > limit {
+		return nil, errors.New("execution private file exceeds limit")
+	}
+	return raw, err
 }
 func atomicFile(path string, raw []byte) error {
 	f, err := os.CreateTemp(filepath.Dir(path), ".pending-")

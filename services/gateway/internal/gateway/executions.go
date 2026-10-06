@@ -156,12 +156,12 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, status)
 }
 func (s *Server) lookupExecution(w http.ResponseWriter, r *http.Request) {
-	p, err := s.executionPrincipal(r)
+	p, reader, err := s.executionReadPrincipal(r)
 	if err != nil {
 		writeError(w, 403, err)
 		return
 	}
-	status, err := s.executions.Lookup(p.OwnerID, p.ClientID, r.PathValue("request"))
+	status, err := reader.Lookup(p.OwnerID, p.ClientID, r.PathValue("request"))
 	if err != nil {
 		writeExecutionError(w, err)
 		return
@@ -211,12 +211,12 @@ func (s *Server) cancelExecution(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, status)
 }
 func (s *Server) executionFile(w http.ResponseWriter, r *http.Request) {
-	p, err := s.executionPrincipal(r)
+	p, reader, err := s.executionReadPrincipal(r)
 	if err != nil {
 		writeError(w, 403, err)
 		return
 	}
-	raw, err := s.executions.File(p.OwnerID, p.ClientID, r.PathValue("request"), r.PathValue("file"))
+	raw, err := reader.File(p.OwnerID, p.ClientID, r.PathValue("request"), r.PathValue("file"))
 	if err != nil {
 		writeExecutionError(w, err)
 		return
@@ -260,4 +260,35 @@ func (s *Server) prepareExecutionWorkspaces(root string) error {
 		return nil
 	}
 	return executionMemorySweep(root)
+}
+
+func (s *Server) executionReadPrincipal(r *http.Request) (requestPrincipal, execution.Reader, error) {
+	p := principalForRequest(r)
+	if !p.Authenticated || p.ClientID == "" {
+		return p, nil, errors.New("execution requires an issued device credential")
+	}
+	s.executionMu.Lock()
+	service, root := s.executions, s.executionRoot
+	s.executionMu.Unlock()
+	var reader execution.Reader = service
+	if service == nil {
+		if root == "" {
+			root = s.cfg.State.Path + ".execution"
+		}
+		if strings.TrimSpace(root) == ".execution" {
+			return p, nil, execution.ErrUnavailable
+		}
+		absolute, err := filepath.Abs(root)
+		if err != nil {
+			return p, nil, err
+		}
+		reader, err = execution.Read(absolute)
+		if err != nil {
+			return p, nil, err
+		}
+	}
+	if err := reader.Installation(p.OwnerID, p.ClientID, r.Header.Get("X-SparkClaw-Installation")); err != nil {
+		return p, nil, err
+	}
+	return p, reader, nil
 }

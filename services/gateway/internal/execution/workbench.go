@@ -1,12 +1,8 @@
 package execution
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -250,24 +246,7 @@ type WorkbenchReader interface {
 // ReadWorkbench opens a read-only atomic snapshot before this process admits
 // work. Interrupted execution is projected unknown without modifying its fence.
 func ReadWorkbench(root string) (WorkbenchReader, error) {
-	raw, err := readPrivate(filepath.Join(root, "control.json"), 64<<20)
-	if errors.Is(err, os.ErrNotExist) {
-		return &Service{closed: true, control: control{WorkbenchFences: map[string]workbenchFence{}}, now: func() time.Time { return time.Now().UTC() }}, nil
-	}
-	if err != nil {
-		return nil, ErrUnavailable
-	}
-	var ledger control
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&ledger) != nil || !json.Valid(raw) || ledger.Version != 2 || ledger.WorkbenchFences == nil || len(ledger.WorkbenchFences)+len(ledger.Fences) > MaxFences {
-		return nil, ErrUnavailable
-	}
-	reader := &Service{closed: true, control: ledger, now: func() time.Time { return time.Now().UTC() }}
-	if err := reader.validateWorkbenchFences(); err != nil {
-		return nil, ErrUnavailable
-	}
-	return reader, nil
+	return readSnapshot(root, false)
 }
 
 func (s *Service) ListWorkbench(binding WorkbenchBinding, cursor string, attention bool) ([]WorkbenchStatus, string, error) {

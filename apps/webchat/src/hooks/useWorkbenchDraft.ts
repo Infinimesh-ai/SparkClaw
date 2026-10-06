@@ -12,15 +12,17 @@ export function useWorkbenchDraft(adapter: WorkbenchDraftAdapter, onError: (erro
   const latest = useRef(draft);
   const errorHandler = useRef(onError); errorHandler.current = onError;
   const controllerToken = useRef<symbol | null>(null);
-  const drafts = useMemo(() => {
-    const token = Symbol("draft-controller"); controllerToken.current = token;
-    return new WorkbenchDrafts(adapter, {
+  const controller = useMemo(() => {
+    const token = Symbol("draft-controller");
+    return { token, drafts: new WorkbenchDrafts(adapter, {
     onChange: (id, value, state) => {
       if (active.current && controllerToken.current === token && current.current === id) { latest.current = value; setDraft(value); setStatus(state); setLoaded(true); }
     },
     onError: (error) => { if (active.current && controllerToken.current === token) errorHandler.current(error); },
-    });
+    }) };
   }, [adapter]);
+  const drafts = controller.drafts;
+  controllerToken.current = controller.token;
   const select = useCallback(async (id: string) => {
     const request = ++generation.current;
     const previousID = current.current;

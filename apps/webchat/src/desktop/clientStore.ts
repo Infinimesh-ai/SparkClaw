@@ -4,6 +4,7 @@ export type LocalApproval = { approval_id: string; digest: string; tool: string;
   state: "pending" | "decision_pending" | "approved" | "rejected" | "resolved" | "expired" | "decision_unknown";
   decision?: "approve" | "reject" | null; expires_at: string; actionable?: boolean };
 export type LocalTask = { id: string; request_id: string; status: string; explicitly_submitted?: number; created_at: string; approvals?: LocalApproval[] };
+export type LocalDraft = { scope_key: string; content: string; local_file_ids: string[]; revision: number };
 export type LocalFile = { id: string; name: string; size: number; sha256: string; created_at: string };
 export type LocalSchedule = { request_id: string; schedule_id: string; due_at: string; state: string;
   interval_ms: number; definition_state: "active" | "completed" | "canceled"; missed_count: number;
@@ -14,6 +15,10 @@ export type ClientStoreAPI = {
   list: () => Promise<LocalConversation[]>;
   create: (title: string) => Promise<LocalConversation>;
   read: (id: string) => Promise<LocalConversationContent>;
+  draft: (id: string) => Promise<LocalDraft>;
+  saveDraft: (id: string, content: string, localFileIDs: string[], revision: number, expectedScope: string) => Promise<LocalDraft>;
+  moveWelcomeDraft: (id: string, revision: number, expectedScope: string) => Promise<{ source: LocalDraft; draft: LocalDraft }>;
+  enqueueDraft: (id: string, draftID: string, revision: number, expectedScope: string) => Promise<{ task: LocalTask; draft: LocalDraft }>;
   enqueue: (id: string, content: string, localFileIDs?: string[]) => Promise<LocalTask>;
   submit: (requestID: string) => Promise<LocalTask>;
   reconcile: (requestID: string) => Promise<LocalTask>;

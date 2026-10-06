@@ -4,8 +4,31 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocalWorkbench } from "./LocalWorkbench";
 import type { SparkClawDesktop } from "./types";
-import type { LocalApproval } from "./clientStore";
+import type { LocalApproval, LocalDraft } from "./clientStore";
 import { dictionaries, LANGUAGE_STORAGE_KEY } from "../i18n";
+
+function draftAPI() {
+  const rows = new Map<string, LocalDraft>();
+  const read = (id: string) => rows.get(id) ?? { scope_key: "test-scope", content: "", local_file_ids: [], revision: 0 };
+  return {
+    draft: vi.fn(async (id: string) => read(id)),
+    saveDraft: vi.fn(async (id: string, content: string, local_file_ids: string[], revision: number) => {
+      if (read(id).revision !== revision) throw new Error("Draft revision conflict");
+      const value = { scope_key: "test-scope", content, local_file_ids, revision: revision + 1 }; rows.set(id, value); return value;
+    }),
+    moveWelcomeDraft: vi.fn(async (id: string, revision: number) => {
+      const value = read(""); if (value.revision !== revision) throw new Error("Draft revision conflict");
+      const source = { scope_key: "test-scope", content: "", local_file_ids: [], revision: revision + 1 }; const draft = { ...value, revision: 1 };
+      rows.set("", source); rows.set(id, draft); return { source, draft };
+    }),
+    enqueueDraft: vi.fn(async (id: string, draftID: string, revision: number) => {
+      const value = read(draftID); if (value.revision !== revision) throw new Error("Draft revision conflict");
+      const enqueue = window.sparkclawClientStore!.enqueue;
+      const task = value.local_file_ids.length ? await enqueue(id, value.content.trim(), value.local_file_ids) : await enqueue(id, value.content.trim());
+      const draft = { scope_key: "test-scope", content: "", local_file_ids: [], revision: revision + 1 }; rows.set(draftID, draft); return { task, draft };
+    }),
+  };
+}
 
 beforeEach(() => {
   const values = new Map<string, string>();
@@ -26,7 +49,7 @@ describe("R3 local workbench", () => {
   it("uses the shared Linux conversation, mailbox and complete settings presentation", async () => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
     const row = { id: "conversation", title: "Parity conversation", created_at: "", updated_at: "" };
-    window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => [row]), create: vi.fn(async () => row),
       read: vi.fn(async () => ({ messages: [{ id: "message", role: "assistant" as const, content: "Shared renderer", created_at: "2026-10-04T00:00:00Z" }], tasks: [], files: [] })), enqueue: vi.fn(),
       saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
       scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
@@ -60,7 +83,7 @@ describe("R3 local workbench", () => {
     vi.stubGlobal("fetch", fetch);
     const enqueue = vi.fn().mockRejectedValueOnce(new Error("Disk full"))
       .mockResolvedValue({ id: "task", request_id: "request", status: "awaiting_runtime", created_at: "" });
-    window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => [row]), create: vi.fn(async () => row),
       read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue,
       saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
@@ -95,7 +118,7 @@ describe("R3 local workbench", () => {
     const create = vi.fn(async () => row);
     const enqueue = vi.fn().mockRejectedValueOnce(new Error("Disk full")).mockResolvedValue({ id: "task", request_id: "request", status: "awaiting_runtime", created_at: "" });
     const submit = vi.fn();
-    window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => create.mock.calls.length ? [row] : []), create,
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => create.mock.calls.length ? [row] : []), create,
       read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue, submit,
       saveFile: vi.fn(), exportFile: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
       scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
@@ -125,6 +148,38 @@ describe("R3 local workbench", () => {
     } finally { await act(async () => root.unmount()); }
   });
 
+  it("restores durable drafts after navigation and remount, while selection flushes without sending", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    const rows = ["First", "Second"].map((title) => ({ id: title.toLowerCase(), title, created_at: "", updated_at: "" }));
+    const drafts = draftAPI();
+    await drafts.saveDraft("first", "restored draft", [], 0);
+    const enqueue = vi.fn(); const submit = vi.fn();
+    window.sparkclawClientStore = { schemaVersion: 1, ...drafts, list: vi.fn(async () => rows), create: vi.fn(async () => rows[0]),
+      read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue, submit,
+      saveFile: vi.fn(), exportFile: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
+      scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client" })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"); let root = createRoot(host);
+    const choose = async (title: string) => { await act(async () => [...host.querySelectorAll<HTMLButtonElement>(".sessionSelect")].find((button) => button.textContent?.includes(title))!.click()); };
+    try {
+      await act(async () => root.render(<LocalWorkbench />)); await choose("First");
+      const input = () => host.querySelector<HTMLTextAreaElement>("form.composer textarea")!;
+      expect(input().value).toBe("restored draft");
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input(), "edited draft");
+        input().dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await choose("Second"); expect(input().value).toBe("");
+      await choose("First"); expect(input().value).toBe("edited draft");
+      await act(async () => root.unmount()); root = createRoot(host);
+      await act(async () => root.render(<LocalWorkbench />)); await choose("First");
+      expect(input().value).toBe("edited draft");
+      expect(host.textContent).toContain("Draft saved on this device");
+      expect(enqueue).not.toHaveBeenCalled(); expect(submit).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it("keeps execution records out of the conversation without replaying unresolved work", async () => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
     const row = { id: "conversation", title: "Local conversation", created_at: "", updated_at: "" };
@@ -133,7 +188,7 @@ describe("R3 local workbench", () => {
     const reconcile = vi.fn(async () => task);
     let changed: () => void = () => {};
     const selectConversation = vi.fn(async () => ({ page_ref: "" }));
-    window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => [row]), create: vi.fn(async () => row),
       read: vi.fn(async () => ({ messages: [{ id: "message", role: "user" as const, content: "Keep the conversation clean", created_at: "2026-10-04T00:00:00Z" }], tasks: [task], files: [] })), enqueue: vi.fn(),
       saveFile: vi.fn(), exportFile: vi.fn(), submit, reconcile, cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
     window.sparkclawClientStore.onChange = (listener) => { changed = listener; return () => {}; };
@@ -161,7 +216,7 @@ describe("R3 local workbench", () => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
     const row = { id: "conversation", title: "Offline conversation", created_at: "", updated_at: "" };
     const retryLocalConnection = vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client" }));
-    window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => [row]), create: vi.fn(async () => row),
       read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue: vi.fn(),
       saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, retryLocalConnection,
@@ -188,7 +243,7 @@ describe("R3 local workbench", () => {
       schedules = [schedule]; return schedule;
     });
     const scheduleRunNow = vi.fn(async () => { schedules = [{ ...schedules[0], state: "run_now" }]; return schedules[0]; });
-    window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => [row]), create: vi.fn(async () => row),
       read: vi.fn(async () => ({ messages: [], tasks: [], files: [], schedules })), enqueue: vi.fn(),
       saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
       scheduleCreate, scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow };
@@ -229,7 +284,7 @@ describe("R3 local workbench", () => {
     let release: () => void = () => {};
     const receipt = new Promise<void>((resolve) => { release = resolve; });
     const decideApproval = vi.fn(async () => { await receipt; approval = { ...approval, state: decision === "approve" ? "approved" : "rejected", decision, actionable: false }; return { resolved: true as const }; });
-    window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => [row]), create: vi.fn(async () => row),
       read: vi.fn(async () => ({ messages: [], tasks: [{ id: "task", request_id: "original-request", status: "running", explicitly_submitted: 1, created_at: "", approvals: [approval] }], files: [] })),
       enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval,
       scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
@@ -266,7 +321,7 @@ describe("R3 local workbench", () => {
       { ...base, approval_id: "unknown", state: "decision_unknown", decision: "approve", actionable: false },
       { ...base, approval_id: "retry", state: "decision_pending", decision: "reject", actionable: true }];
     const decideApproval = vi.fn();
-    window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => [row]), create: vi.fn(async () => row),
       read: vi.fn(async () => ({ messages: [], tasks: [{ id: "task", request_id: "original-request", status: "running", explicitly_submitted: 1, created_at: "", approvals }], files: [] })),
       enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval,
       scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };

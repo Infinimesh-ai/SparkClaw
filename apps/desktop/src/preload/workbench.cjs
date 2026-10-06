@@ -17,6 +17,10 @@ if (process.argv.includes("--sparkclaw-client-store=1")) {
     list: () => storeInvoke("list"),
     create: (title) => storeInvoke("create", { title }),
     read: (conversation_id) => storeInvoke("read", { conversation_id }),
+    draft: (conversation_id) => storeInvoke("draft", { conversation_id }),
+    saveDraft: (conversation_id, content, local_file_ids, revision, expected_scope) => storeInvoke("saveDraft", { conversation_id, content, local_file_ids, revision, expected_scope }),
+    moveWelcomeDraft: (conversation_id, revision, expected_scope) => storeInvoke("moveWelcomeDraft", { conversation_id, revision, expected_scope }),
+    enqueueDraft: (conversation_id, draft_conversation_id, revision, expected_scope) => storeInvoke("enqueueDraft", { conversation_id, draft_conversation_id, revision, expected_scope }),
     enqueue: (conversation_id, content, local_file_ids = []) => storeInvoke("enqueue", {
       conversation_id, content, ...(local_file_ids.length ? { local_file_ids } : {}),
     }),

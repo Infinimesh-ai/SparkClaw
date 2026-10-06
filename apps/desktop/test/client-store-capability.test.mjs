@@ -35,3 +35,20 @@ test("schedule IPC carries recurrence to main and cannot inject a submission cla
   await assert.rejects(capability.dispatch(event, { ...request, submission_claim: "forged" }), /fields/);
   await assert.rejects(capability.dispatch(event, { ...request, lease_expires_at: request.due_at }), /fields/);
 });
+
+test("draft IPC fences delayed welcome autosave after identity changes", async () => {
+  const frame = { url: "sparkclaw-app://workbench/index.html" };
+  const webContents = { mainFrame: frame };
+  let identity = { deployment_id: "deployment", owner_id: "owner", client_id: "client" };
+  let writes = 0;
+  const capability = new ClientStoreCapability({ window: { webContents }, getIdentity: () => identity,
+    store: { draft: () => ({ content: "", local_file_ids: [], revision: 0 }),
+      saveDraft: () => { writes++; return { content: "old scope text", local_file_ids: [], revision: 1 }; } } });
+  const event = { sender: webContents, senderFrame: frame };
+  const snapshot = await capability.dispatch(event, { schema_version: 1, operation: "draft", conversation_id: "" });
+  const save = { schema_version: 1, operation: "saveDraft", conversation_id: "", content: "old scope text", local_file_ids: [], revision: 0, expected_scope: snapshot.scope_key };
+  await capability.dispatch(event, save); assert.equal(writes, 1);
+  identity = { ...identity, owner_id: "another-owner" };
+  await assert.rejects(capability.dispatch(event, save), /authentication changed/);
+  assert.equal(writes, 1);
+});

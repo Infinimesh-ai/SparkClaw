@@ -7,12 +7,13 @@ import { InspectorColumn, type PanelTab } from "../components/inspector";
 import { WorkspaceSettingsSidebar } from "../components/settingsSidebar";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY, type Language } from "../i18n";
 import { applyAppearance } from "../lib/appearance";
-import { clientStore, type LocalConversation, type LocalConversationContent, type LocalTask, type LocalApproval } from "./clientStore";
+import { clientStore, type LocalConversation, type LocalConversationContent, type LocalTask, type LocalApproval, type LocalDraft } from "./clientStore";
 import { desktopCapability } from "./capability";
 import type { DesktopConnectionStatus, DesktopState } from "./types";
 import { BrowserPanel } from "./BrowserPanel";
 import { MessageBubble } from "../components/messages";
 import { ComposerDocumentPicker, ComposerSurface } from "../components/composer";
+import { useWorkbenchDraft } from "../hooks/useWorkbenchDraft";
 import { useVoiceInput } from "../hooks/useVoiceInput";
 import type { VoiceDraftAnchor } from "../hooks/useVoiceInput";
 import { insertVoiceTranscript } from "../lib/voiceDraft";
@@ -40,9 +41,8 @@ export function LocalWorkbench() {
   const selectedRef = useRef(selected); selectedRef.current = selected;
   const readGeneration = useRef(0);
   const [content, setContent] = useState(emptyContent);
-  const [draft, setDraft] = useState("");
-  const draftRef = useRef(draft); draftRef.current = draft;
-  const [inputFiles, setInputFiles] = useState<string[]>([]);
+  const draftRef = useRef("");
+  const inputFilesRef = useRef<string[]>([]);
   const [scheduleDraft, setScheduleDraft] = useState("");
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleInterval, setScheduleInterval] = useState(0);
@@ -84,6 +84,23 @@ export function LocalWorkbench() {
   const surfaceError = useCallback((err: unknown, fallback = zh ? "操作失败，请重试。" : "Something went wrong. Try again.") => {
     setError(err instanceof Error ? err.message : fallback);
   }, [zh]);
+  const draftScopes = useMemo(() => new Map<string, string>(), [store, currentClientID]);
+  const draftAdapter = useMemo(() => ({
+    load: async (id: string) => {
+      const value = await store.draft(id); draftScopes.set(id, value.scope_key); return workbenchDraft(value);
+    },
+    save: async (id: string, value: import("../lib/workbenchDraft").WorkbenchDraft) =>
+      workbenchDraft(await store.saveDraft(id, value.content, value.attachment_ids, value.revision, draftScopes.get(id) ?? "")),
+  }), [store, draftScopes]);
+  const drafts = useWorkbenchDraft(draftAdapter, surfaceError);
+  const draft = drafts.draft.content; draftRef.current = draft;
+  const inputFiles = drafts.draft.attachment_ids; inputFilesRef.current = inputFiles;
+  const setDraft = drafts.content;
+  const selectDraft = drafts.select;
+  const setInputFiles = (update: string[] | ((current: string[]) => string[])) => {
+    const value = typeof update === "function" ? update(inputFilesRef.current) : update;
+    inputFilesRef.current = value; drafts.attachments(value);
+  };
   const reload = useCallback(async () => { setConversations(await store.list()); }, [store]);
   const refreshGlobal = useCallback(async () => {
     const config = await api.config();
@@ -108,12 +125,14 @@ export function LocalWorkbench() {
   const select = useCallback(async (id: string) => {
     setPage("chat");
     if (selectedRef.current === id) return;
-    selectedRef.current = id; setSelected(id); setContent(emptyContent); setDraft(""); setInputFiles([]); setScheduleDraft(""); setScheduleDate("");
     const generation = ++readGeneration.current;
+    await selectDraft(id);
+    if (generation !== readGeneration.current) return;
+    selectedRef.current = id; setSelected(id); setContent(emptyContent); setScheduleDraft(""); setScheduleDate("");
     await desktop.selectConversation?.(id);
     const next = await store.read(id);
     if (selectedRef.current === id && readGeneration.current === generation) setContent(next);
-  }, [desktop, store]);
+  }, [desktop, store, selectDraft]);
   useEffect(() => {
     applyAppearance();
     let active = true;
@@ -183,26 +202,32 @@ export function LocalWorkbench() {
     });
   }
   async function ensureConversation() {
-    if (selectedRef.current) return selectedRef.current;
-    const conversation = await store.create(zh ? "新对话" : "New conversation");
-    await desktop.selectConversation?.(conversation.id);
-    selectedRef.current = conversation.id; setSelected(conversation.id); setContent(emptyContent);
-    await reload();
-    return conversation.id;
+    if (!selectedRef.current) {
+      const conversation = await store.create(zh ? "新对话" : "New conversation");
+      selectedRef.current = conversation.id; setSelected(conversation.id); setContent(emptyContent);
+      await desktop.selectConversation?.(conversation.id);
+      await reload();
+    }
+    const id = selectedRef.current;
+    if (drafts.id() === "") {
+      const source = await drafts.flush();
+      const moved = await store.moveWelcomeDraft(id, source.revision, draftScopes.get("") ?? "");
+      drafts.accept("", workbenchDraft(moved.source));
+      await selectDraft(id);
+    }
+    return id;
   }
   async function save(submit = true) {
-    const text = draft.trim();
-    if (!text && !inputFiles.length) return;
+    if (!draft.trim() && !inputFiles.length) return;
     await action(async () => {
       const id = await ensureConversation();
-      const task = inputFiles.length ? await store.enqueue(id, text, inputFiles) : await store.enqueue(id, text);
-      if (selectedRef.current === id) {
-        setDraft(""); setInputFiles([]); setContent(await store.read(id));
-      }
+      const saved = await drafts.flush();
+      const sourceID = drafts.id();
+      const queued = await store.enqueueDraft(id, sourceID, saved.revision, draftScopes.get(sourceID) ?? "");
+      drafts.accept(sourceID, workbenchDraft(queued.draft));
+      if (selectedRef.current === id) setContent(await store.read(id));
       await reload();
-      if (submit) {
-        await submitTask(task, id);
-      }
+      if (submit) await submitTask(queued.task, id);
     });
   }
   async function submitTask(task: LocalTask, id: string) {
@@ -356,7 +381,7 @@ export function LocalWorkbench() {
         </div>
         <ComposerSurface text={text} language={language} activeSession={selected} activeInput={draft}
           activeAttachments={activeAttachments} busy={busy} voice={voice} composerInputRef={composerInputRef}
-          canCompose canSend={connection?.state === "connected"}
+          canCompose={drafts.ready} canSend={connection?.state === "connected" && drafts.ready}
           onInputChange={(value) => { draftRef.current = value; setDraft(value); }}
           onUploadDocument={saveFile}
           onChooseDocument={() => setDocumentPickerOpen(true)}
@@ -366,6 +391,7 @@ export function LocalWorkbench() {
           }}
           onRemoveAttachment={(attachment) => setInputFiles((current) => current.filter((id) => id !== attachment.artifact_id))}
           onSend={() => void save(true)} />
+        <small className="localDraftStatus" role="status">{drafts.status === "saved" ? (zh ? "草稿已保存到本机" : "Draft saved on this device") : drafts.status === "error" ? (zh ? "草稿尚未保存，请保留此窗口并重试" : "Draft not saved. Keep this window open and retry") : drafts.status === "loading" ? (zh ? "读取草稿中" : "Loading draft") : (zh ? "正在保存草稿" : "Saving draft")}</small>{drafts.status === "error" && <button type="button" onClick={() => void drafts.flush().catch(surfaceError)}>{zh ? "重试保存草稿" : "Retry saving draft"}</button>}
         {documentPickerOpen && <ComposerDocumentPicker documents={localDocuments} text={text} language={language}
           onChoose={(document) => {
             setInputFiles((current) => current.includes(document.id) ? current : [...current, document.id]);
@@ -424,3 +450,5 @@ function approvalLabel(state: LocalApproval["state"], zh: boolean) {
   };
   return labels[state][zh ? 0 : 1];
 }
+
+function workbenchDraft(value: LocalDraft) { return { content: value.content, attachment_ids: value.local_file_ids, revision: value.revision }; }

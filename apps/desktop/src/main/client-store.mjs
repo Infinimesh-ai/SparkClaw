@@ -4,7 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { WORKBENCH_LIMITS } from "../shared/workbench-limits.mjs";
 
-export const CLIENT_SCHEMA_VERSION = 5;
+export const CLIENT_SCHEMA_VERSION = 6;
 export const CLIENT_LIMITS = WORKBENCH_LIMITS;
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
@@ -49,6 +49,8 @@ export class ClientStore {
           created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
         CREATE TABLE messages(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id),
           role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL, created_at TEXT NOT NULL);
+        CREATE TABLE drafts(scope TEXT NOT NULL, conversation_id TEXT NOT NULL, content TEXT NOT NULL,
+          local_file_ids TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(scope,conversation_id));
         CREATE TABLE tasks(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id),
           request_id TEXT UNIQUE NOT NULL, input_digest TEXT NOT NULL, context_json TEXT NOT NULL,
           status TEXT NOT NULL, created_at TEXT NOT NULL, explicitly_submitted INTEGER NOT NULL DEFAULT 0,
@@ -107,7 +109,52 @@ export class ClientStore {
     };
   }
 
-  enqueue(scope, conversationID, content, localFileIDs = [], scheduleSpec, recoveringScheduleID) {
+  draft(scope, conversationID) {
+    if (conversationID !== "") this.#conversation(scope, conversationID);
+    const row = this.db.prepare("SELECT content,local_file_ids,revision FROM drafts WHERE scope=? AND conversation_id=?").get(scopeKey(scope), conversationID);
+    return row ? { ...row, local_file_ids: JSON.parse(row.local_file_ids) } : { content: "", local_file_ids: [], revision: 0 };
+  }
+
+  saveDraft(scope, conversationID, content, localFileIDs, revision) {
+    boundedText(content, CLIENT_LIMITS.inputBytes, "Draft");
+    if (!Number.isSafeInteger(revision) || revision < 0 || !Array.isArray(localFileIDs) || localFileIDs.length > CLIENT_LIMITS.resultFiles ||
+        new Set(localFileIDs).size !== localFileIDs.length) throw new Error("Invalid draft revision or attachments");
+    for (const id of localFileIDs) {
+      uuid(id);
+      if (!this.db.prepare("SELECT id FROM files WHERE id=? AND conversation_id=?").get(id, conversationID)) throw new Error("Draft file is not in this conversation");
+      this.file(scope, id);
+    }
+    return this.#transaction(() => {
+      const prior = this.draft(scope, conversationID);
+      if (prior.revision !== revision) throw new Error("Draft changed in another editor; reload before saving");
+      this.db.prepare(`INSERT INTO drafts VALUES(?,?,?,?,?) ON CONFLICT(scope,conversation_id) DO UPDATE SET
+        content=excluded.content,local_file_ids=excluded.local_file_ids,revision=excluded.revision`)
+        .run(scopeKey(scope), conversationID, content, JSON.stringify(localFileIDs), revision + 1);
+      return this.draft(scope, conversationID);
+    });
+  }
+
+  moveWelcomeDraft(scope, conversationID, revision) {
+    return this.#transaction(() => {
+      const source = this.draft(scope, "");
+      const destination = this.draft(scope, conversationID);
+      if (!conversationID || source.revision !== revision || destination.revision !== 0) throw new Error("Draft changed before moving to the conversation");
+      this.db.prepare("INSERT INTO drafts VALUES(?,?,?,?,1)").run(scopeKey(scope), conversationID, source.content, JSON.stringify(source.local_file_ids));
+      this.db.prepare(`INSERT INTO drafts VALUES(?,'','','[]',1) ON CONFLICT(scope,conversation_id) DO UPDATE SET
+        content='',local_file_ids='[]',revision=drafts.revision+1`).run(scopeKey(scope));
+      return { source: this.draft(scope, ""), draft: this.draft(scope, conversationID) };
+    });
+  }
+
+  enqueueDraft(scope, conversationID, draftConversationID, revision) {
+    if (draftConversationID !== "" && draftConversationID !== conversationID) throw new Error("Draft belongs to a different conversation");
+    const draft = this.draft(scope, draftConversationID);
+    const task = this.enqueue(scope, conversationID, draft.content, draft.local_file_ids, undefined, undefined,
+      { conversationID: draftConversationID, revision });
+    return { task, draft: this.draft(scope, draftConversationID) };
+  }
+
+  enqueue(scope, conversationID, content, localFileIDs = [], scheduleSpec, recoveringScheduleID, consumedDraft) {
     this.#conversation(scope, conversationID);
     content = boundedText(content, CLIENT_LIMITS.inputBytes, "Input").trim();
     if (!content) throw new Error("Input is empty");
@@ -124,6 +171,7 @@ export class ClientStore {
     const taskID = crypto.randomUUID();
     const now = new Date().toISOString();
     this.#transaction(() => {
+      if (consumedDraft && this.draft(scope, consumedDraft.conversationID).revision !== consumedDraft.revision) throw new Error("Draft changed before submission; review the saved draft");
       if (recoveringScheduleID && this.scheduledRequest(scope, recoveringScheduleID).state !== "missed") throw new Error("Only an unexecuted missed schedule can run now");
       const history = this.db.prepare("SELECT role,content FROM messages WHERE conversation_id=? ORDER BY rowid DESC LIMIT ?")
         .all(conversationID, CLIENT_LIMITS.contextMessages).reverse();
@@ -146,6 +194,8 @@ export class ClientStore {
       }
       if (recoveringScheduleID) this.db.prepare("UPDATE schedules SET state='run_now',recovery_request_id=? WHERE request_id=?").run(requestID, recoveringScheduleID);
       this.db.prepare("UPDATE conversations SET updated_at=? WHERE id=?").run(now, conversationID);
+      if (consumedDraft) this.db.prepare("UPDATE drafts SET content='',local_file_ids='[]',revision=revision+1 WHERE scope=? AND conversation_id=?")
+        .run(scopeKey(scope), consumedDraft.conversationID);
     });
     // Network submission is deliberately a separate operation. This return is
     // durable local queuing, not server acceptance or completed execution.

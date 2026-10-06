@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 const CHANNEL = "sparkclaw-client-store:invoke";
 
 export class ClientStoreCapability {
@@ -24,6 +25,9 @@ export class ClientStoreCapability {
       throw new Error("Invalid ClientStore request");
     }
     const scope = { deployment_id: identity.deployment_id, owner_id: identity.owner_id, client_id: identity.client_id };
+    const draftScope = crypto.createHash("sha256").update(JSON.stringify(scope)).digest("hex");
+    const draftResult = (value) => ({ ...value, scope_key: draftScope });
+    const verifyDraftScope = () => { if (request.expected_scope !== draftScope) throw new Error("Draft authentication changed; reload this workbench"); };
     switch (request.operation) {
       case "list":
         keys(request, []);
@@ -37,6 +41,27 @@ export class ClientStoreCapability {
           const content = this.store.read(scope, request.conversation_id);
           if (this.execution) content.tasks = content.tasks.map((task) => ({ ...task, approvals: this.execution.approvals(scope, task.request_id) }));
           return content;
+        }
+      case "draft":
+        keys(request, ["conversation_id"]);
+        return draftResult(this.store.draft(scope, request.conversation_id));
+      case "saveDraft":
+        keys(request, ["conversation_id", "content", "local_file_ids", "revision", "expected_scope"]);
+        verifyDraftScope();
+        return draftResult(this.store.saveDraft(scope, request.conversation_id, request.content, request.local_file_ids, request.revision));
+      case "moveWelcomeDraft":
+        keys(request, ["conversation_id", "revision", "expected_scope"]);
+        verifyDraftScope();
+        {
+          const moved = this.store.moveWelcomeDraft(scope, request.conversation_id, request.revision);
+          return { source: draftResult(moved.source), draft: draftResult(moved.draft) };
+        }
+      case "enqueueDraft":
+        keys(request, ["conversation_id", "draft_conversation_id", "revision", "expected_scope"]);
+        verifyDraftScope();
+        {
+          const queued = this.store.enqueueDraft(scope, request.conversation_id, request.draft_conversation_id, request.revision);
+          return { ...queued, draft: draftResult(queued.draft) };
         }
       case "enqueue":
         keys(request, ["conversation_id", "content", ...(Object.hasOwn(request, "local_file_ids") ? ["local_file_ids"] : [])]);

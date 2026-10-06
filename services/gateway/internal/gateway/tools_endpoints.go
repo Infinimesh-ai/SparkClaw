@@ -14,7 +14,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 )
 
 func (s *Server) updateToolPolicy(w http.ResponseWriter, r *http.Request) {
@@ -58,8 +57,7 @@ func (s *Server) updateToolPolicy(w http.ResponseWriter, r *http.Request) {
 	s.cfg.Security.DeniedTools = deny
 	s.cfg.Security.ApprovalRequiredTools = approvalRequired
 	s.cfg.Security.OperatorControls = controls
-	s.policies = policy.New(s.cfg)
-	s.runtime = s.runtime.WithPolicy(s.policies)
+	s.policies.Update(s.cfg)
 	s.addAudit(r.Context(), app.AuditEvent{
 		Actor:   "owner",
 		Type:    "tool_policy.updated",

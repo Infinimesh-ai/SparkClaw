@@ -2,6 +2,7 @@ package policy
 
 import (
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -18,15 +19,45 @@ type Decision struct {
 }
 
 type Engine struct {
-	cfg config.Config
+	current *atomic.Pointer[config.Config]
 }
 
 func New(cfg config.Config) Engine {
-	return Engine{cfg: cfg}
+	e := Engine{current: &atomic.Pointer[config.Config]{}}
+	e.Update(cfg)
+	return e
+}
+
+// Update publishes one immutable policy snapshot to every runtime scope.
+// Copy mutable policy inputs before publishing the snapshot.
+func (e Engine) Update(cfg config.Config) {
+	cfg.Security.DeniedTools = slices.Clone(cfg.Security.DeniedTools)
+	cfg.Security.ApprovalRequiredTools = slices.Clone(cfg.Security.ApprovalRequiredTools)
+	controls := &cfg.Security.OperatorControls
+	controls.WebAccess = clonePolicyBool(controls.WebAccess)
+	controls.WorkspaceFiles = clonePolicyBool(controls.WorkspaceFiles)
+	controls.ShellCommands = clonePolicyBool(controls.ShellCommands)
+	e.current.Store(&cfg)
+}
+
+func clonePolicyBool(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	clone := *value
+	return &clone
+}
+
+func (e Engine) snapshot() config.Config {
+	if e.current == nil {
+		return config.Config{}
+	}
+	return *e.current.Load()
 }
 
 func (e Engine) MayExpose(def app.ToolDefinition) Decision {
-	if slices.Contains(e.cfg.Security.DeniedTools, def.Name) || !operatorAllows(def, e.cfg.Security.OperatorControls) {
+	cfg := e.snapshot()
+	if slices.Contains(cfg.Security.DeniedTools, def.Name) || !operatorAllows(def, cfg.Security.OperatorControls) {
 		return Decision{Allowed: false, Reason: "tool is denied by static exposure policy"}
 	}
 	return Decision{Allowed: true, Reason: "tool is statically exposable"}
@@ -37,11 +68,12 @@ func (e Engine) MayExpose(def app.ToolDefinition) Decision {
 // PolicyExecutionContext only where the invocation is genuinely
 // owner-principal (manual invocation, diagnostics).
 func (e Engine) Decide(def app.ToolDefinition, args map[string]any, execution app.PolicyExecutionContext) Decision {
-	if slices.Contains(e.cfg.Security.DeniedTools, def.Name) || !operatorAllows(def, e.cfg.Security.OperatorControls) {
+	cfg := e.snapshot()
+	if slices.Contains(cfg.Security.DeniedTools, def.Name) || !operatorAllows(def, cfg.Security.OperatorControls) {
 		return Decision{Allowed: false, Reason: "tool is denied by policy"}
 	}
 	decision := Decision{Allowed: true, Reason: "allowed by default policy"}
-	if def.RequiresApproval || slices.Contains(e.cfg.Security.ApprovalRequiredTools, def.Name) || def.Risk == app.RiskDangerous && e.cfg.Security.ApprovalRequiredForDangerousTools || operatorNeedsApproval(def, e.cfg.Security.OperatorControls) {
+	if def.RequiresApproval || slices.Contains(cfg.Security.ApprovalRequiredTools, def.Name) || def.Risk == app.RiskDangerous && cfg.Security.ApprovalRequiredForDangerousTools || operatorNeedsApproval(def, cfg.Security.OperatorControls) {
 		decision.RequiresApproval = true
 		decision.Reason = "approval required by risk policy"
 	}
@@ -50,10 +82,10 @@ func (e Engine) Decide(def app.ToolDefinition, args map[string]any, execution ap
 		decision.RequiresApproval = true
 		decision.Reason = "external MCP AI workspace data access requires owner approval"
 	}
-	if def.Sandbox == "required" || def.Sandbox != "remote" && (def.Risk == app.RiskReversible || def.Risk == app.RiskDangerous) && e.cfg.Security.SandboxRequiredForMutatingTools {
+	if def.Sandbox == "required" || def.Sandbox != "remote" && (def.Risk == app.RiskReversible || def.Risk == app.RiskDangerous) && cfg.Security.SandboxRequiredForMutatingTools {
 		decision.RequiresSandbox = true
 	}
-	if def.Risk == app.RiskDangerous && e.cfg.Security.DangerousToolsRequireDeepVerification {
+	if def.Risk == app.RiskDangerous && cfg.Security.DangerousToolsRequireDeepVerification {
 		decision.RequiresDeep = true
 	}
 	decision.Resources = resourcesFromArgs(args)

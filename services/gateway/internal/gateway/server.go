@@ -300,7 +300,7 @@ func NewWithTrace(cfg config.Config, st Repository, tools *toolhub.ToolHub, runt
 		models:                  modelrouter.New(cfg),
 		traces:                  traces,
 		artifacts:               artifacts,
-		policies:                policy.New(cfg),
+		policies:                runtime.PolicyEngine(),
 		speech:                  speech.NewDisabled(cfg.Speech),
 		mux:                     http.NewServeMux(),
 		started:                 time.Now().UTC(),

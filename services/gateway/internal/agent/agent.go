@@ -120,6 +120,9 @@ func (r Runtime) WithArtifactStore(artifacts artifact.Store) Runtime {
 	return r
 }
 
+// PolicyEngine returns the live policy shared by all execution scopes.
+func (r Runtime) PolicyEngine() policy.Engine { return r.policy }
+
 func (r Runtime) WithPolicy(policyEngine policy.Engine) Runtime {
 	r.policy = policyEngine
 	r.exposure = newToolExposureEngine(r.store, r.tools, policyEngine)

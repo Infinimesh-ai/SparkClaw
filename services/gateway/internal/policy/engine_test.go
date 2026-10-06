@@ -125,3 +125,26 @@ func TestExecutionContextCannotDowngradeRegisteredApproval(t *testing.T) {
 		t.Fatalf("empty execution context downgraded registered approval: %#v", decision)
 	}
 }
+
+func TestPolicyUpdatesReachExistingExecutionScopes(t *testing.T) {
+	cfg := config.Default()
+	engine := New(cfg)
+	scope := engine
+	tool := app.ToolDefinition{Name: "files.write_draft", Risk: app.RiskDraft}
+	if !scope.Decide(tool, nil, app.PolicyExecutionContext{}).Allowed {
+		t.Fatal("initial policy denied tool")
+	}
+	cfg.Security.DeniedTools = []string{tool.Name}
+	engine.Update(cfg)
+	// Caller slice reuse must not mutate an already-published policy.
+	cfg.Security.DeniedTools[0] = "unrelated"
+	if scope.MayExpose(tool).Allowed || scope.Decide(tool, nil, app.PolicyExecutionContext{}).Allowed {
+		t.Fatal("existing scope ignored policy revocation")
+	}
+	cfg.Security.DeniedTools = nil
+	cfg.Security.ApprovalRequiredTools = []string{tool.Name}
+	engine.Update(cfg)
+	if decision := scope.Decide(tool, nil, app.PolicyExecutionContext{}); !decision.Allowed || !decision.RequiresApproval {
+		t.Fatalf("scope missed current approval policy: %+v", decision)
+	}
+}

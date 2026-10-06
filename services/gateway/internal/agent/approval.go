@@ -117,6 +117,20 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 	if !ok {
 		return app.ToolCall{}, fmt.Errorf("tool %q not found", call.Tool)
 	}
+	// Owner approval does not override a policy revocation published while the
+	// call was suspended. Every entry point resumes against the live engine.
+	if decision := r.policy.MayExpose(def); !decision.Allowed {
+		now := time.Now().UTC()
+		call.Status = app.ToolCallStatusFailedAfterApproval
+		call.CompletedAt = &now
+		call.Error = decision.Reason
+		call.ErrorCode = string(app.ToolErrorPolicyBlocked)
+		call.ObservationSummary = adaptToolResult(toolResultAdapterInput{Call: call, Err: fmt.Errorf("%s", call.Error), MaxBytes: r.observationSummaryLimit()})
+		if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
+			return app.ToolCall{}, fmt.Errorf("persist revoked tool approval: %w", saveErr)
+		}
+		return call, nil
+	}
 	if def.ArgumentsImmutable && compactToolArgsFingerprint(call.Arguments) != compactToolArgsFingerprint(approval.Arguments) {
 		now := time.Now().UTC()
 		call.Status = app.ToolCallStatusFailedAfterApproval

@@ -206,3 +206,24 @@ func TestWorkbenchApprovalDeliveryFailureRetainsDefinitiveFailure(t *testing.T) 
 		t.Fatalf("approval replay %d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestWorkbenchRejectionSerializesWithoutRequiringContinuationAuthority(t *testing.T) {
+	s, st, session, binding, _, call := pendingWorkbenchFixture(t, "approval_pending")
+	closeWorkbenchFixture(t, s, binding, "cancel")
+	release := s.tryAdmitSessionMessage(session.ID)
+	if release == nil {
+		t.Fatal("fixture admission busy")
+	}
+	w := admissionHTTP(s, "POST", "/api/approvals/"+call.ApprovalID+"/reject", continuationToken, `{}`)
+	release()
+	if w.Code != 409 {
+		t.Fatalf("rejection raced session worker: %d %s", w.Code, w.Body.String())
+	}
+	approval, found := storetest.MustGetApproval(t, st, call.ApprovalID)
+	if !found || approval.Status != app.ApprovalStatusPending {
+		t.Fatal("busy rejection mutated approval")
+	}
+	if w := admissionHTTP(s, "POST", "/api/approvals/"+call.ApprovalID+"/reject", continuationToken, `{}`); w.Code != 200 {
+		t.Fatalf("idle terminal rejection requires authority: %d %s", w.Code, w.Body.String())
+	}
+}

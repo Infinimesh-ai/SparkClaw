@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -287,6 +288,16 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		return
 	}
 	var workbenchContinuation *workbenchAdmission
+	if !mcpRun && status == app.ApprovalStatusRejected {
+		// Rejection needs no execution authority, but must not race another
+		// approval continuation or a fresh message mutating this session.
+		releaseSession := s.tryAdmitSessionMessage(approval.SessionID)
+		if releaseSession == nil {
+			writeWorkbenchAdmissionError(w, execution.ErrConflict)
+			return
+		}
+		defer releaseSession()
+	}
 	if !mcpRun && status == app.ApprovalStatusApproved {
 		session, found, lookupErr := s.sessionForRequest(r.Context(), r, approval.SessionID)
 		if lookupErr != nil {

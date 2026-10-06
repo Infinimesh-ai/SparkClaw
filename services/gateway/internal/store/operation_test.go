@@ -101,6 +101,14 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationSessionUpdateTitle, Repository: "SessionRepository",
 			Method: "UpdateSessionTitle", Mode: operationWrite, Timeout: timeoutTransaction,
 		},
+		OperationWorkbenchDraftGet: {
+			ID: OperationWorkbenchDraftGet, Repository: "SessionRepository",
+			Method: "GetWorkbenchDraft", Mode: operationRead, Timeout: timeoutRead,
+		},
+		OperationWorkbenchDraftSave: {
+			ID: OperationWorkbenchDraftSave, Repository: "SessionRepository",
+			Method: "SaveWorkbenchDraft", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
 		OperationSessionDelete: {
 			ID: OperationSessionDelete, Repository: "SessionRepository",
 			Method: "DeleteSession", Mode: operationWrite, Timeout: timeoutTransaction,

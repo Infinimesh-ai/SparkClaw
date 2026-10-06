@@ -98,6 +98,8 @@ type ConnectorRepository interface {
 }
 
 type SessionRepository interface {
+	GetWorkbenchDraft(context.Context, string, string) (app.WorkbenchDraft, error)
+	SaveWorkbenchDraft(context.Context, string, string, app.WorkbenchDraft) (app.WorkbenchDraft, error)
 	CreateSession(context.Context, string) (app.Session, error)
 	CreateSessionWithScope(context.Context, string, string, string, string, bool) (app.Session, error)
 	ListSessions(context.Context) ([]app.Session, error)

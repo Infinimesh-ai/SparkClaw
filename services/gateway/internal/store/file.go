@@ -38,6 +38,7 @@ type FileStoreOptions struct {
 }
 
 type Snapshot struct {
+	WorkbenchDrafts       map[string]app.WorkbenchDraft        `json:"workbench_drafts,omitempty"`
 	EmailRecords          map[string]EmailRecord               `json:"email_management_records,omitempty"`
 	Sessions              map[string]app.Session               `json:"sessions"`
 	Clients               map[string]app.Client                `json:"clients"`

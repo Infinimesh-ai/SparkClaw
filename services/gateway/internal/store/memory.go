@@ -11,6 +11,7 @@ type MemoryStore struct {
 	transientContentAdmission         func(any) error
 	mu                                sync.RWMutex
 	operationTimeouts                 OperationTimeouts
+	workbenchDrafts                   map[string]app.WorkbenchDraft
 	sessions                          map[string]app.Session
 	sessionWriteHighWater             map[string]time.Time
 	sessionNow                        func() time.Time
@@ -84,6 +85,7 @@ func NewMemoryStoreWithOptions(timeouts OperationTimeouts) *MemoryStore {
 	defaultOwner := app.DefaultOwnerProfile()
 	return &MemoryStore{
 		operationTimeouts:                 normalizeOperationTimeouts(timeouts),
+		workbenchDrafts:                   map[string]app.WorkbenchDraft{},
 		sessions:                          map[string]app.Session{},
 		sessionWriteHighWater:             map[string]time.Time{},
 		sessionNow:                        time.Now,

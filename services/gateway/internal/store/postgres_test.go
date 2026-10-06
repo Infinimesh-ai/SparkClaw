@@ -777,7 +777,7 @@ func TestPostgresStoreListsAllConnectorSettings(t *testing.T) {
 func truncatePostgresStore(t *testing.T, st *PostgresStore) {
 	t.Helper()
 	_, err := st.db.Exec(context.Background(), `
-		TRUNCATE mcp_operations, mcp_bindings, mcp_access_tickets, iscp_onboardings, message_delivery_records, message_receive_records, channel_inbox_updates, external_chat_messages, external_chat_sessions, weixin_chat_messages, weixin_chat_sessions, passive_notifications, connector_settings,
+		TRUNCATE workbench_drafts, mcp_operations, mcp_bindings, mcp_access_tickets, iscp_onboardings, message_delivery_records, message_receive_records, channel_inbox_updates, external_chat_messages, external_chat_sessions, weixin_chat_messages, weixin_chat_sessions, passive_notifications, connector_settings,
 			credential_secrets, notification_bindings, reminder_deliveries, reminders, events, audit_events, owners, eval_runs,
 			artifact_objects, episode_summaries, memories, memory_candidates, approvals, document_records, tool_calls,
 			model_calls, run_feedback, messages, agent_runs, sessions

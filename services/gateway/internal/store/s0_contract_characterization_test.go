@@ -89,14 +89,14 @@ var s0RepositoryMethods = map[string][]string{
 		"AdvanceWorkbenchSchedule", "ClaimDueReminders", "GetReminder", "ListReminderDeliveries", "ListReminders", "SaveReminder", "SaveReminderDelivery", "UpdatePendingReminder",
 	},
 	"SessionRepository": {
-		"CreateSession", "CreateSessionWithScope", "DeleteSession", "GetSession", "ListSessions", "UpdateSessionTitle",
+		"CreateSession", "CreateSessionWithScope", "DeleteSession", "GetSession", "GetWorkbenchDraft", "ListSessions", "SaveWorkbenchDraft", "UpdateSessionTitle",
 	},
 }
 
 func TestS0RepositoryMethodCatalogCharacterization(t *testing.T) {
 	typeOfBackend := reflect.TypeOf((*testBackend)(nil)).Elem()
-	if typeOfBackend.NumMethod() != 156 {
-		t.Fatalf("repository method count = %d, want migrated baseline 156", typeOfBackend.NumMethod())
+	if typeOfBackend.NumMethod() != 158 {
+		t.Fatalf("repository method count = %d, want migrated baseline 158", typeOfBackend.NumMethod())
 	}
 
 	owners := make(map[string]string, typeOfBackend.NumMethod())
@@ -195,7 +195,7 @@ func s4RepositoryLikeType(expression ast.Expr) bool {
 
 func TestS0SnapshotShapeCharacterization(t *testing.T) {
 	want := []string{
-		"EmailRecords:email_management_records,omitempty", "Sessions:sessions", "Clients:clients", "OwnerProfile:owner_profile", "OwnerProfiles:owner_profiles,omitempty",
+		"WorkbenchDrafts:workbench_drafts,omitempty", "EmailRecords:email_management_records,omitempty", "Sessions:sessions", "Clients:clients", "OwnerProfile:owner_profile", "OwnerProfiles:owner_profiles,omitempty",
 		"PairingCodes:pairing_codes", "ISCPOnboardings:iscp_onboardings,omitempty", "MCPAccessTickets:mcp_access_tickets,omitempty",
 		"MCPBindings:mcp_bindings,omitempty", "MCPOperations:mcp_operations,omitempty", "Messages:messages", "RunFeedback:run_feedback",
 		"Runs:runs", "ModelCalls:model_calls", "ToolCalls:tool_calls", "DocumentRecords:document_records,omitempty", "Approvals:approvals",

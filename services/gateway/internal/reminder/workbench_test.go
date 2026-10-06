@@ -3,6 +3,7 @@ package reminder
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -13,6 +14,26 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
+
+func TestOnlineWorkbenchBatchBacklogRemainsEligible(t *testing.T) {
+	st := store.NewMemoryStore()
+	due := time.Now().UTC().Truncate(time.Microsecond)
+	for i := 0; i < tickBatchLimit+1; i++ {
+		saveWorkbenchSchedule(t, st, fmt.Sprintf("online-%d", i), due, "")
+	}
+	now := due.Add(-time.Second)
+	calls := 0
+	s := NewMessageScheduler(st, messagecontrol.NewScheduleRegistry(st), publisherFunc(func(context.Context, app.MessageEnvelope) error { calls++; return nil }), 0)
+	s.now = func() time.Time { return now }
+	mustSchedulerTick(t, s, t.Context())
+	now = due.Add(time.Second)
+	mustSchedulerTick(t, s, t.Context())
+	now = due.Add(2 * time.Second)
+	mustSchedulerTick(t, s, t.Context())
+	if calls != tickBatchLimit+1 {
+		t.Fatalf("continuously online batch backlog lost: published %d, want %d", calls, tickBatchLimit+1)
+	}
+}
 
 func saveWorkbenchSchedule(t *testing.T, st testScheduleRepository, id string, due time.Time, recurrence string) app.MessageSchedule {
 	t.Helper()

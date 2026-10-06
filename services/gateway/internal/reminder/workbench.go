@@ -18,7 +18,8 @@ func (s *Scheduler) claimDue(ctx context.Context) ([]app.MessageSchedule, error)
 	defer s.pollMu.Unlock()
 	pulse := s.now()
 	now := pulse.UTC()
-	s.eligibleAfter = s.lastPoll.UTC()
+	// Keep one availability horizon across healthy ticks. Bounded scans and
+	// worker queues can delay online occurrences without making them offline.
 	wallElapsed := now.Sub(s.lastPoll.UTC())
 	clockGap := wallElapsed - pulse.Sub(s.lastPoll)
 	if s.lastPoll.IsZero() || s.unavailable || now.Before(s.lastPoll) || wallElapsed > 2*s.interval || clockGap > 250*time.Millisecond || s.publisher == nil {

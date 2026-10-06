@@ -256,3 +256,22 @@ test("corrupted durable files block ACK retry after restart and preserve receipt
   assert.equal(acks, previous);
   assert.equal(f.store.request(scope, f.task.request_id).status, "saved");
 });
+
+test("close/start fences an in-flight response even when authentication generation is unchanged", async (t) => {
+  let release; let sent = false;
+  const pending = new Promise((resolve) => { release = resolve; });
+  const f = fixture(t, async (_url, init) => {
+    if (init.method === "POST") { sent = true; await pending; }
+    return new Response(JSON.stringify(event(f, "completed", result())));
+  });
+  f.auth.generation = 1;
+  const submission = f.client.submit(scope, f.task.request_id);
+  await new Promise((resolve) => setImmediate(resolve)); assert.equal(sent, true);
+  f.client.close();
+  // Restarting the client object must not make the old response authoritative.
+  // Disable its independent reconciler for this stale-response-only test.
+  f.client.reconcilePending = async () => {};
+  f.client.start(); release();
+  await assert.rejects(submission, /authentication changed/);
+  assert.equal(f.store.receipt(scope, f.task.request_id), null);
+});

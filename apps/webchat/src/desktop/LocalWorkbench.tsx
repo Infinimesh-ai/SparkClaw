@@ -45,6 +45,7 @@ export function LocalWorkbench() {
   const [inputFiles, setInputFiles] = useState<string[]>([]);
   const [scheduleDraft, setScheduleDraft] = useState("");
   const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleInterval, setScheduleInterval] = useState(0);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [loading, setLoading] = useState(true);
@@ -223,10 +224,10 @@ export function LocalWorkbench() {
     const id = selected;
     if (!id || !scheduleDraft.trim() || !scheduleDate) return;
     await action(async () => {
-      await store.scheduleCreate(id, scheduleDraft.trim(), new Date(scheduleDate).toISOString());
+      await store.scheduleCreate(id, scheduleDraft.trim(), new Date(scheduleDate).toISOString(), scheduleInterval);
       if (selectedRef.current === id) { setScheduleDraft(""); setScheduleDate(""); setContent(await store.read(id)); }
       await reload();
-      setNotice(zh ? "单次任务定义已保存。到期执行需要设备保持连接并续租。" : "Single-run definition saved. Execution at the due time requires this device to remain connected and renew its lease.");
+      setNotice(zh ? "定时任务已保存。到期时工作台须在线；离线轮次永久跳过。" : "Schedule saved. Keep the workbench online when due; offline occurrences are permanently skipped.");
     });
   }
   async function scheduleAction(requestID: string, operation: "scheduleCheck" | "scheduleCancel" | "scheduleRunNow") {
@@ -375,16 +376,19 @@ export function LocalWorkbench() {
           <header className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div></header>
           {!selected && <div className="localScheduleEmpty"><p>{zh ? "先选择或新建一个任务，再安排执行时间。" : "Choose or create a task to schedule it."}</p><button className="primaryButton" type="button" onClick={() => void create()}>{copy.newTask}</button></div>}
           {selected && <section className="localSchedules">
-            <p>{zh ? "可安排未来 24 小时内的一次执行。设备必须保持在线；离线错过到期时间不会补跑，可明确点击立即执行新请求。" : "Schedule one execution within the next 24 hours and keep this device online. Missed offline work does not catch up; Run now explicitly creates a new request."}</p>
-            {(content.schedules ?? []).map((item) => <div className="localTaskRow" key={item.request_id}><p><span>{new Date(item.due_at).toLocaleString(zh ? "zh-CN" : "en-US")}</span><span>{scheduleLabel(item.state, zh)}</span></p>
+            <p>{zh ? "首次执行可安排在未来 366 天内，并可按固定时长重复。工作台须保持在线；离线、休眠或重启期间错过的轮次不会补跑。循环任务的未来轮次仍可执行。" : "Schedule a first execution within 366 days, optionally repeating at a fixed interval. Keep the workbench online. Occurrences missed during offline time, sleep or restart stay skipped; future repetitions can still run."}</p>
+            {(content.schedules ?? []).map((item) => <div className="localTaskRow" key={item.request_id}><p><span>{new Date(item.due_at).toLocaleString(zh ? "zh-CN" : "en-US")}</span><span>{scheduleLabel(item.state, zh)}</span>{item.missed_count > 1 && <span>{zh ? `已跳过 ${item.missed_count} 个轮次` : `${item.missed_count} occurrences skipped`}</span>}</p>
               <div className="localTaskActions">
-                {["saved", "registering", "leased", "cancel_pending"].includes(item.state) && <><button type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleCheck"))}>{zh ? "检查租约" : "Check lease"}</button><button type="button" disabled={busy} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleCancel"))}>{zh ? "取消定时任务" : "Cancel schedule"}</button></>}
-                {["missed", "admission_rejected"].includes(item.state) && <button type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleRunNow"))}>{zh ? "立即执行新请求" : "Run now as a new request"}</button>}
+                {["saved", "claimed", "submission_pending", "accepted", "running", "cancel_pending", "unknown"].includes(item.state) && <button type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleCheck"))}>{zh ? "刷新状态" : "Refresh status"}</button>}
+                {(item.definition_state === "active" || ["claimed", "submission_pending", "accepted", "running", "cancel_pending"].includes(item.state)) && <button type="button" disabled={busy} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleCancel"))}>{zh ? "取消定时任务" : "Cancel schedule"}</button>}
+                {item.state === "missed" && <button type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleRunNow"))}>{zh ? "立即执行新请求" : "Run now as a new request"}</button>}
               </div>
             </div>)}
             <form onSubmit={(event) => void schedule(event)}><label htmlFor="scheduleDraft">{zh ? "定时任务输入" : "Scheduled task input"}</label><textarea id="scheduleDraft" rows={2} value={scheduleDraft} disabled={busy} onChange={(event) => setScheduleDraft(event.target.value)} />
               <label htmlFor="scheduleDate">{zh ? "本地到期时间" : "Due time in your local timezone"}</label><input id="scheduleDate" type="datetime-local" value={scheduleDate} disabled={busy} onChange={(event) => setScheduleDate(event.target.value)} />
-              <button type="submit" disabled={busy || !scheduleDraft.trim() || !scheduleDate}>{zh ? "保存单次定时任务" : "Save single-run schedule"}</button>
+              <label htmlFor="scheduleInterval">{zh ? "重复间隔" : "Repeat interval"}</label><select id="scheduleInterval" value={scheduleInterval} disabled={busy} onChange={(event) => setScheduleInterval(Number(event.target.value))}>
+                <option value={0}>{zh ? "仅一次" : "Once"}</option><option value={3600000}>{zh ? "每 1 小时" : "Every 1 hour"}</option><option value={86400000}>{zh ? "每 24 小时" : "Every 24 hours"}</option><option value={604800000}>{zh ? "每 7 天" : "Every 7 days"}</option>
+              </select><button type="submit" disabled={busy || !scheduleDraft.trim() || !scheduleDate}>{zh ? "保存定时任务" : "Save schedule"}</button>
             </form>
           </section>}
         </div>}
@@ -400,9 +404,11 @@ export function LocalWorkbench() {
 
 function scheduleLabel(state: string, zh: boolean) {
   const labels: Record<string, [string, string]> = {
-    saved: ["定义已保存，尚未注册", "Definition saved; not registered"], registering: ["注册待确认", "Registration awaiting confirmation"],
-    leased: ["已注册，保持连接才能到期执行", "Leased; stay connected until due"], cancel_pending: ["取消待确认", "Cancellation awaiting confirmation"],
-    missed: ["离线或租约过期，已错过", "Missed while offline or lease expired"], admission_rejected: ["后端未准入", "Backend admission rejected"],
+    saved: ["已保存，等待本机到期调度", "Saved; waiting for local due time"], claimed: ["已领取轮次，提交待核对", "Occurrence claimed; submission awaiting reconciliation"],
+    submission_pending: ["提交待核对", "Submission awaiting reconciliation"], cancel_pending: ["取消待确认", "Cancellation awaiting confirmation"],
+    accepted: ["执行服务已接收", "Execution accepted"], running: ["执行中", "Running"], completed: ["结果已保存，确认待送达", "Result saved; acknowledgement pending"],
+    delivered: ["结果已保存并确认", "Result saved and acknowledged"], failed: ["执行失败", "Execution failed"], unknown: ["执行结果不确定，仅核对原请求", "Outcome uncertain; reconcile original request only"],
+    delivery_expired: ["交付已过期", "Delivery expired"], missed: ["已错过，永久跳过", "Missed; permanently skipped"],
     run_now: ["已作为新请求执行", "Started as a new request"], canceled: ["已取消", "Canceled"],
   };
   return labels[state]?.[zh ? 0 : 1] ?? (zh ? "状态待确认" : "Status awaiting confirmation");

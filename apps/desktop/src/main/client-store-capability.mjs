@@ -52,9 +52,9 @@ export class ClientStoreCapability {
         if (!this.execution) throw new Error("Execution client is unavailable");
         return this.execution.decideApproval(scope, request.request_id, request.approval_id, request.digest, request.decision);
       case "scheduleCreate":
-        keys(request, ["conversation_id", "content", "due_at"]);
+        keys(request, ["conversation_id", "content", "due_at", "interval_ms"]);
         if (!this.schedules) throw new Error("Schedule client is unavailable");
-        return this.schedules.create(scope, request.conversation_id, request.content, request.due_at);
+        return this.schedules.create(scope, request.conversation_id, request.content, request.due_at, request.interval_ms);
       case "scheduleCheck":
       case "scheduleCancel":
       case "scheduleRunNow":

@@ -179,12 +179,12 @@ describe("R3 local workbench", () => {
     } finally { await act(async () => root.unmount()); }
   });
 
-  it("persists a single-run definition from the explicit schedule form and offers new-request recovery only when missed", async () => {
+  it.each([0, 3600000])("persists the explicit schedule interval %i and offers new-request recovery only when missed", async (intervalMS) => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
     const row = { id: "conversation", title: "Scheduled conversation", created_at: "", updated_at: "" };
-    let schedules: Array<{ request_id: string; due_at: string; state: string }> = [];
+    let schedules: import("./clientStore").LocalSchedule[] = [];
     const scheduleCreate = vi.fn(async (_id: string, _content: string, dueAt: string) => {
-      const schedule = { request_id: "schedule-request", due_at: dueAt, state: "missed" };
+      const schedule = { request_id: "schedule-request", schedule_id: "schedule-request", interval_ms: intervalMS, definition_state: "completed" as const, missed_count: 1, due_at: dueAt, state: "missed" };
       schedules = [schedule]; return schedule;
     });
     const scheduleRunNow = vi.fn(async () => { schedules = [{ ...schedules[0], state: "run_now" }]; return schedules[0]; });
@@ -207,9 +207,12 @@ describe("R3 local workbench", () => {
         const date = host.querySelector<HTMLInputElement>("#scheduleDate")!;
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(date, "2026-10-03T20:00");
         date.dispatchEvent(new Event("input", { bubbles: true }));
+        const interval = host.querySelector<HTMLSelectElement>("#scheduleInterval")!;
+        interval.value = String(intervalMS);
+        interval.dispatchEvent(new Event("change", { bubbles: true }));
       });
       await act(async () => host.querySelector<HTMLFormElement>(".localSchedules form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-      expect(scheduleCreate).toHaveBeenCalledWith("conversation", "Run this once", new Date("2026-10-03T20:00").toISOString());
+      expect(scheduleCreate).toHaveBeenCalledWith("conversation", "Run this once", new Date("2026-10-03T20:00").toISOString(), intervalMS);
       const recover = [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Run now as a new request")!;
       await act(async () => recover.click());
       expect(scheduleRunNow).toHaveBeenCalledWith("schedule-request");

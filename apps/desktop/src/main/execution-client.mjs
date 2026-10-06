@@ -3,6 +3,7 @@ import { CLIENT_LIMITS, parseResultPayload } from "./client-store.mjs";
 
 const SERVER_STATES = new Set(["accepted", "running", "completed", "failed", "canceled", "unknown", "delivery_expired", "delivered"]);
 const AUTH_GENERATION = Symbol("execution_auth_generation");
+const CLIENT_LIFETIME = Symbol("execution_client_lifetime");
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
 
 // The main process owns credentials and immutable requests. Timers can only
@@ -14,6 +15,7 @@ export class ExecutionClient {
     this.verifiedApprovals = new Map();
     this.controller = new AbortController();
     this.closed = false;
+    this.lifetime = 0;
   }
 
   start() {
@@ -25,13 +27,13 @@ export class ExecutionClient {
     return this;
   }
 
-  close() { this.closed = true; this.verifiedApprovals.clear(); this.controller.abort(); clearInterval(this.timer); this.timer = undefined; }
+  close() { this.lifetime++; this.closed = true; this.verifiedApprovals.clear(); this.controller.abort(); clearInterval(this.timer); this.timer = undefined; }
 
-  async submit(scope, requestID, { canSubmit = () => true } = {}) {
+  async submit(scope, requestID, { canSubmit = () => true, scheduleClaim } = {}) {
     scope = this.#boundScope(scope);
     return this.#serialized(scope, requestID, async () => {
       if (!canSubmit()) throw new Error("Execution submission availability changed");
-      const { first, task } = this.store.markSubmitted(scope, requestID);
+      const { first, task } = this.store.markSubmitted(scope, requestID, scheduleClaim);
       if (!first) {
         // Even a 404 cannot prove that a lost admission had no external effect.
         // Explicit buttons and background recovery both reconcile the original
@@ -40,7 +42,7 @@ export class ExecutionClient {
         return this.#view(scope, requestID);
       }
       try {
-        await this.#uploadInputs(scope, task);
+        if (JSON.parse(task.context_json).input_files?.length) await this.#uploadInputs(scope, task);
         if (!canSubmit()) throw new Error("Execution submission availability changed");
         const response = await this.#fetch(scope, "/api/r3/executions", {
           method: "POST", headers: { "Content-Type": "application/json", "X-R3-Digest": task.input_digest }, body: task.context_json,
@@ -238,9 +240,10 @@ export class ExecutionClient {
     const current = this.getIdentity();
     if (this.closed || !current || JSON.stringify([scope.deployment_id, scope.owner_id, scope.client_id]) !==
         JSON.stringify([current.deployment_id, current.owner_id, current.client_id]) ||
-        (Object.hasOwn(scope, AUTH_GENERATION) && scope[AUTH_GENERATION] !== this.auth.generation)) throw new Error("Execution authentication changed");
+        (Object.hasOwn(scope, AUTH_GENERATION) && scope[AUTH_GENERATION] !== this.auth.generation) ||
+        (Object.hasOwn(scope, CLIENT_LIFETIME) && scope[CLIENT_LIFETIME] !== this.lifetime)) throw new Error("Execution authentication changed");
   }
-  #boundScope(scope) { return { ...scope, [AUTH_GENERATION]: this.auth.generation }; }
+  #boundScope(scope) { return { ...scope, [AUTH_GENERATION]: this.auth.generation, [CLIENT_LIFETIME]: this.lifetime }; }
   #view(scope, requestID) {
     const task = this.store.request(scope, requestID);
     return { id: task.id, request_id: task.request_id, status: task.status,

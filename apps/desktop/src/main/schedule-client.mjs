@@ -1,100 +1,85 @@
-const ACTIVE = new Set(["saved", "registering", "leased"]);
-const EXECUTION = new Set(["accepted", "running", "completed", "delivered", "unknown", "delivery_expired", "failed", "canceled"]);
 const AUTH_GENERATION = Symbol("schedule_auth_generation");
+const CANCELABLE = new Set(["submission_pending", "accepted", "running", "cancel_pending"]);
 
-// Single-run definitions are client-owned. The server sees only a renewable,
-// memory-only lease; offline/expired leases never promise a future execution.
+// The workbench owns both future definitions and due-time admission. The backend
+// only sees ordinary execution requests, after an exclusive durable local claim.
 export class ScheduleClient {
-  constructor({ auth, store, execution, getIdentity, intervalMS = 10000, now = Date.now, onChange = () => {} }) {
+  constructor({ auth, store, execution, getIdentity, intervalMS = 1000, now = Date.now, onChange = () => {} }) {
     Object.assign(this, { auth, store, execution, getIdentity, intervalMS, now, onChange });
     this.operations = new Map();
-    this.controller = new AbortController();
-    this.closed = false;
+    this.closed = true;
+    this.epoch = 0;
   }
+
   start() {
-    this.closed = false;
-    if (this.controller.signal.aborted) this.controller = new AbortController();
+    if (this.closed) { this.closed = false; this.epoch++; this.online = undefined; }
+    this.#availability();
     if (!this.timer) this.timer = setInterval(() => void this.reconcilePending().catch(() => {}), this.intervalMS);
     this.timer.unref?.();
     void this.reconcilePending().catch(() => {});
     return this;
   }
-  close() { this.closed = true; this.controller.abort(); clearInterval(this.timer); this.timer = undefined; }
 
-  async create(scope, conversationID, content, dueAt) {
+  // Authentication loss and Electron powerMonitor suspend both break continuity.
+  // A later start never inherits a due-time admission window from the prior run.
+  close() { this.closed = true; this.epoch++; this.online = undefined; clearInterval(this.timer); this.timer = undefined; }
+
+  async create(scope, conversationID, content, dueAt, intervalMS = 0) {
     scope = this.#boundScope(scope);
     this.#sameIdentity(scope);
-    const schedule = this.store.schedule(scope, conversationID, content, dueAt, this.now());
+    const schedule = this.store.schedule(scope, conversationID, content, dueAt, this.now(), intervalMS);
     this.onChange();
-    // Persistence precedes all remote registration, including an offline save.
-    if (this.auth.status.state === "connected") {
-      try { await this.reconcile(scope, schedule.request_id); }
-      catch (error) {
-        this.#sameIdentity(scope);
-        // The explicit definition is already committed. A lost registration
-        // leaves its same ID for lookup/renew; returning it prevents UI retries
-        // from accidentally creating a second scheduled definition.
-      }
-    }
     return this.#view(scope, schedule.request_id);
   }
 
+  // Explicit status checks obey the same availability horizon as timer ticks.
+  // No future registration or renewal API exists.
   async reconcile(scope, requestID) {
     scope = this.#boundScope(scope);
+    const available = this.#availability();
     return this.#serialized(scope, requestID, async () => {
-      let schedule = this.store.scheduledRequest(scope, requestID);
-      if (!ACTIVE.has(schedule.state) && schedule.state !== "cancel_pending") return this.#view(scope, requestID);
-      if (this.closed || this.auth.status.state !== "connected") return this.#view(scope, requestID);
-      // Lookup before any registration/renew after restart prevents two fires.
-      if (schedule.explicitly_submitted && await this.#lookupExecution(scope, schedule)) return this.#view(scope, requestID);
-      const leaseValid = schedule.lease_expires_at && Date.parse(schedule.lease_expires_at) > this.now();
-      if (schedule.state === "cancel_pending") {
-        if (!leaseValid) this.store.setScheduleState(scope, requestID, "canceled");
-        return this.#view(scope, requestID);
-      }
-      if (Date.parse(schedule.due_at) <= this.now() && !leaseValid) {
-        this.store.setScheduleState(scope, requestID, "missed");
-        this.onChange();
-        return this.#view(scope, requestID);
-      }
-      if (schedule.state === "leased") {
-        const response = await this.#fetch(scope, `/api/r3/schedules/${requestID}/renew`, {});
-        if (response.status !== 404) {
-          await this.#accept(scope, schedule, response);
-          return this.#view(scope, requestID);
+      const schedule = this.store.scheduledRequest(scope, requestID);
+      if (schedule.state === "saved" && Date.parse(schedule.due_at) <= this.now()) {
+        if (!available || available !== this.#availability() || Date.parse(schedule.due_at) <= available.since) {
+          this.store.missSchedule(scope, requestID, this.now());
+        } else {
+          const claim = this.store.claimSchedule(scope, requestID, this.now());
+          if (claim) {
+            this.onChange();
+            try {
+              await this.execution.submit(scope, requestID, { scheduleClaim: claim,
+                canSubmit: () => { this.#sameIdentity(scope); return available === this.#availability(); } });
+            } catch (error) {
+              // An unconsumed capability proves dispatch never started. Once
+              // consumed, an uncertain write stays on ordinary reconciliation.
+              this.store.missUnsentScheduleClaim(scope, requestID, claim);
+              throw error;
+            }
+          }
         }
-        await response.body?.cancel();
-        if (await this.#lookupExecution(scope, schedule)) return this.#view(scope, requestID);
-        if (Date.parse(schedule.due_at) <= this.now()) {
-          this.store.setScheduleState(scope, requestID, "missed");
-          this.onChange();
-          return this.#view(scope, requestID);
-        }
+      } else if (schedule.explicitly_submitted && available) {
+        // Includes a crash between claim and POST and a lost admission response.
+        // A 404 cannot turn the original claim back into a runnable occurrence.
+        await this.execution.reconcile(scope, requestID);
       }
-      schedule = this.store.markScheduleRegistered(scope, requestID);
-      const response = await this.#fetch(scope, "/api/r3/schedules/lease", {
-        schema_version: 1, due_at: schedule.due_at, context: schedule.context_json, digest: schedule.input_digest,
-      });
-      await this.#accept(scope, schedule, response);
+      this.onChange();
       return this.#view(scope, requestID);
+    }).catch((error) => {
+      // A disk or connection failure ends due-time availability. A later scan
+      // cannot use the previous online horizon to catch up an unclaimed row.
+      this.online = undefined;
+      throw error;
     });
   }
 
   async cancel(scope, requestID) {
     scope = this.#boundScope(scope);
     return this.#serialized(scope, requestID, async () => {
-      const schedule = this.store.scheduledRequest(scope, requestID);
-      if (!ACTIVE.has(schedule.state) && schedule.state !== "cancel_pending") throw new Error("Schedule cannot be canceled");
-      this.store.setScheduleState(scope, requestID, "cancel_pending", schedule.lease_expires_at);
-      if (!schedule.explicitly_submitted) {
-        this.store.setScheduleState(scope, requestID, "canceled"); this.onChange(); return this.#view(scope, requestID);
-      }
-      const response = await this.#fetch(scope, `/api/r3/schedules/${requestID}/cancel`, {});
-      if (response.status === 404) {
-        await response.body?.cancel();
-        if (!await this.#lookupExecution(scope, schedule)) this.store.setScheduleState(scope, requestID, "canceled");
-      } else await this.#accept(scope, schedule, response);
+      // Canceling a definition always cancels future occurrences locally, even
+      // offline. Already admitted work retains ordinary cancellation semantics.
+      const schedule = this.store.cancelSchedule(scope, requestID);
       this.onChange();
+      if (schedule.explicitly_submitted && CANCELABLE.has(schedule.status)) await this.execution.cancel(scope, requestID);
       return this.#view(scope, requestID);
     });
   }
@@ -102,8 +87,6 @@ export class ScheduleClient {
   async runNow(scope, requestID) {
     scope = this.#boundScope(scope);
     return this.#serialized(scope, requestID, async () => {
-      const schedule = this.store.scheduledRequest(scope, requestID);
-      if (!["missed", "admission_rejected"].includes(schedule.state)) throw new Error("Only an unexecuted missed schedule can run now");
       const task = this.store.runScheduledNow(scope, requestID);
       this.onChange();
       await this.execution.submit(scope, task.request_id);
@@ -112,11 +95,15 @@ export class ScheduleClient {
   }
 
   async reconcilePending() {
-    if (this.closed || this.polling || this.auth.status.state !== "connected") return;
+    if (this.closed || this.polling) return;
+    this.#availability();
     const scope = this.getIdentity();
     if (!scope) return;
     this.polling = true;
     try {
+      // Limit network concurrency; future rows are advanced atomically with each
+      // claim. A continuously-online delayed tick can admit the due occurrences
+      // in later ticks; a recovery scan instead compresses all missed due times.
       const rows = this.store.schedulePending(scope);
       for (let i = 0; i < rows.length && !this.closed; i += 4) {
         await Promise.allSettled(rows.slice(i, i + 4).map((row) => this.reconcile(scope, row.request_id)));
@@ -124,63 +111,25 @@ export class ScheduleClient {
     } finally { this.polling = false; }
   }
 
-  async #accept(scope, schedule, response) {
-    if (!response.ok) { await response.body?.cancel(); throw new Error("Schedule lease is unavailable; the local definition is preserved"); }
-    const event = await json(response);
-    this.#sameIdentity(scope);
-    if (event?.schema_version !== 1 || event.request_id !== schedule.request_id) throw new Error("Schedule response identity mismatch");
-    if (event.state === "leased") {
-      const expires = Date.parse(event.lease_expires_at);
-      if (!Number.isFinite(expires) || expires <= this.now() || expires > this.now() + 60000) throw new Error("Invalid schedule lease deadline");
-      this.store.setScheduleState(scope, schedule.request_id, "leased", event.lease_expires_at);
-    } else if (event.state === "admission_rejected" || event.state === "canceled") {
-      this.store.setScheduleState(scope, schedule.request_id, event.state);
-    } else if (EXECUTION.has(event.state)) {
-      await this.execution.reconcile(scope, schedule.request_id);
-      this.#recordExecution(scope, schedule.request_id, event.state);
-    } else throw new Error("Invalid schedule lease state");
-    this.onChange();
-  }
-
-  async #lookupExecution(scope, schedule) {
-    this.#sameIdentity(scope);
-    const response = await this.auth.authorizedR3Fetch(`${this.auth.descriptor.origin}/api/r3/executions/${schedule.request_id}`, {
-      headers: { "X-SparkClaw-Installation": this.store.installationID },
-      signal: this.controller.signal,
-    });
-    if (response.status === 404) { await response.body?.cancel(); return false; }
-    if (!response.ok) { await response.body?.cancel(); throw new Error("Scheduled execution status is unavailable"); }
-    const event = await json(response);
-    this.#sameIdentity(scope);
-    if (event?.schema_version !== 1 || event.request_id !== schedule.request_id || event.input_digest !== schedule.input_digest || !EXECUTION.has(event.state)) throw new Error("Scheduled execution identity mismatch");
-    await this.execution.reconcile(scope, schedule.request_id);
-    this.#recordExecution(scope, schedule.request_id, event.state);
-    this.onChange();
-    return true;
-  }
-
-  #fetch(scope, route, value) {
-    this.#sameIdentity(scope);
-    if (this.closed || this.auth.status.state !== "connected") throw new Error("Schedule backend is unavailable; the local definition is preserved");
-    return this.auth.authorizedR3Fetch(`${this.auth.descriptor.origin}${route}`, {
-      method: "POST", headers: { "Content-Type": "application/json", "X-SparkClaw-Installation": this.store.installationID }, body: JSON.stringify(value),
-      signal: this.controller.signal,
-    });
-  }
-  #recordExecution(scope, requestID, state) {
-    const task = this.store.request(scope, requestID);
-    this.store.setScheduleState(scope, requestID, task.status === "delivered" ? "delivered" : task.status === "saved" ? "completed" : state);
+  #availability() {
+    if (this.closed || this.auth.status.state !== "connected") { this.online = undefined; return undefined; }
+    const identity = JSON.stringify(this.getIdentity());
+    if (!this.online || this.online.generation !== this.auth.generation || this.online.identity !== identity || this.now() < this.online.since) {
+      this.online = { since: this.now(), generation: this.auth.generation, identity, epoch: this.epoch };
+    }
+    return this.online;
   }
   #sameIdentity(scope) {
     const current = this.getIdentity();
-    if (this.closed || !current || JSON.stringify([scope.deployment_id, scope.owner_id, scope.client_id]) !==
+    if (!current || JSON.stringify([scope.deployment_id, scope.owner_id, scope.client_id]) !==
         JSON.stringify([current.deployment_id, current.owner_id, current.client_id]) ||
         (Object.hasOwn(scope, AUTH_GENERATION) && scope[AUTH_GENERATION] !== this.auth.generation)) throw new Error("Schedule authentication changed");
   }
   #boundScope(scope) { return { ...scope, [AUTH_GENERATION]: this.auth.generation }; }
   #view(scope, requestID) {
     const schedule = this.store.scheduledRequest(scope, requestID);
-    return { request_id: requestID, due_at: schedule.due_at, state: schedule.state, lease_expires_at: schedule.lease_expires_at };
+    return Object.fromEntries(["request_id", "schedule_id", "due_at", "state", "interval_ms", "definition_state", "claimed_at", "missed_count", "missed_until", "recovery_request_id"]
+      .map((key) => [key, schedule[key]]));
   }
   #serialized(scope, requestID, operation) {
     this.#sameIdentity(scope);
@@ -190,10 +139,4 @@ export class ScheduleClient {
     this.operations.set(key, pending);
     return pending.finally(() => { if (this.operations.get(key) === pending) this.operations.delete(key); });
   }
-}
-
-async function json(response) {
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength > 8 * 1024 * 1024) throw new Error("Schedule response exceeds result budget");
-  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
 }

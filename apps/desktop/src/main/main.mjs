@@ -65,6 +65,7 @@ protocol.registerSchemesAsPrivileged([{
 if (!app.requestSingleInstanceLock()) app.quit();
 
 let quitting = false;
+let suspended = false;
 let window;
 let adapter;
 let scriptHost;
@@ -123,7 +124,7 @@ async function start() {
     fetcher: electronNet.fetch,
     onChange: (status) => {
       if (quitting) return;
-      if (status.state === "connected") {
+      if (status.state === "connected" && !suspended) {
         executionClient?.start();
         scheduleClient?.start();
         mailClient?.start();
@@ -235,12 +236,14 @@ async function start() {
     if (!quitting) void window.loadURL(workbenchURL);
   });
   powerMonitor.on("suspend", () => {
+    suspended = true;
     executionClient?.close();
     scheduleClient?.close();
     mailClient?.close();
     void browserHost?.suspend();
   });
   powerMonitor.on("resume", () => {
+    suspended = false;
     void desktopAuth.retry();
   });
 

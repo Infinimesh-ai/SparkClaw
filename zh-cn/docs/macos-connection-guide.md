@@ -2,6 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/macos-connection-guide.md)
 
+当前源码发布：全新存储、登记、API 路径与重启行为见[配套工作台发布指南](workbench-release.md)；具体验证边界见[实施记录](workbench-convergence-implementation.md)。
+
 后续 Mac 本机 ARM64 构建、启动、验收工具修复及 M01–M12 实际状态见[Mac 验收记录](macos-r3-acceptance.md)。本指南原来的“当前 Linux 环境”描述属于源码交付阶段，不限制用户明确授权的后续 Mac 本机会话。
 
 配套文档：[客户端与后端架构 R3](client-backend-architecture-design.md) 和 [macOS 桌面端设计 R3](macos-lan-desktop-design.md)。

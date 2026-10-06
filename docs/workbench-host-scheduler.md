@@ -66,3 +66,5 @@ and submitted presentation. These checks change neither a running service nor re
 data. Native host suspend/resume qualification is separate hardware evidence for
 the exact matched release; clock-injection tests are not a claim of physical sleep
 acceptance.
+
+Production dispatch keeps one bounded pending batch and selects between worker delivery and timer pulses. Worker backpressure cannot stop availability observation: the 105-task slow-worker regression keeps all continuously-online occurrences eligible, while an injected real availability gap still misses unclaimed overdue occurrences.

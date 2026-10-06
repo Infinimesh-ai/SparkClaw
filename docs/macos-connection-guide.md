@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/macos-connection-guide.md)
 
+Current source release: follow the [matched workbench release guide](workbench-release.md) for fresh storage, enrollment, API paths and restart behavior; see the [implementation ledger](workbench-convergence-implementation.md) for exact validation boundaries.
+
 See the [Mac acceptance record](macos-r3-acceptance.md) for the subsequent native ARM64 build, launch, qualification-tool repairs and actual M01–M12 status. This guide's original “current Linux environment” statements describe source delivery and do not restrict a later local Mac session explicitly authorized by the user.
 
 Companions: [Client and backend architecture R3](client-backend-architecture-design.md) and [macOS desktop design R3](macos-lan-desktop-design.md).
@@ -18,7 +20,7 @@ Each build handoff identifies the pushed remote/branch and exact commit SHA, req
 
 Include lockfiles, necessary build configuration, source and versioned managed assets in the delivery. The Mac may check out the full repository, including backend source, but builds the client without deploying Linux Gateway, models or App-CLI Registry/Executor. The client package includes UI, ClientStore, Browser Host Agent, Electron/Bridge and verified page assets; exclude server database dumps, credentials, private test data and platform-incompatible binaries.
 
-Mac ARM64 and x64 packaging scripts now exist. This tranche supports local conversations/files, device management, secure login, explicit task execution/output delivery, mailbox cache/sync, single-run online schedules and browser Host control; see the [phase ledger](client-r3-implementation.md). Mac ARM64 builds and partial physical qualification have evidence; signing, notarization and full physical qualification remain incomplete. Packages are unsigned development builds (`mac.identity=null`), audited against the public client allowlist before distributables are created.
+Mac ARM64 and x64 packaging scripts now exist. This tranche supports local conversations/files, device management, secure login, explicit task execution/output delivery, mailbox cache/sync, one-time and recurring workbench-local schedules and browser Host control; see the [phase ledger](client-r3-implementation.md). Mac ARM64 builds and partial physical qualification have evidence; signing, notarization and full physical qualification remain incomplete. Packages are unsigned development builds (`mac.identity=null`), audited against the public client allowlist before distributables are created.
 
 ## 3. Synchronize and build on Mac
 

@@ -2,9 +2,13 @@
 
 > 语言： [English](../../docs/index.md) | 简体中文
 
-本索引区分已实现 runtime、待实施重构和带日期的验收证据。WebChat 与桌面端都是正常工作台
+- [工作台实施记录](workbench-convergence-implementation.md) — 源码变更、验证及保留历史引用。
+- [配套工作台发布](workbench-release.md) — 全新初始化、API／存储路径及恢复。
+- [草稿](workbench-drafts.md)、[主机计划](workbench-host-scheduler.md)、[桌面计划](desktop-scheduling.md) — 已实现持久化与到期行为。
+
+本索引区分已实现 runtime、源码发布和带日期的验收证据。WebChat 与桌面端都是正常工作台
 部署形态，都拥有本地持久化；WebChat 数据与执行服务同机。下列统一重构方案记录已确认模型
-和剩余实施工作。
+和发布证据。
 
 - [客户端 R3 实施与验收](client-r3-implementation.md) — 历史阶段记录与源码交付；后续合并／部署证据由该记录链接进入。
 
@@ -14,7 +18,7 @@
 |---|---|---|
 | [README](../README.md) | 项目概览、快速启动和当前状态 | 项目入口 |
 | [架构](architecture.md) | 当前实现、runtime 拓扑和工作台归属 | 实现事实来源 |
-| [工作台与执行服务统一重构](workbench-runtime-convergence-design.md) | 公共业务处理、主机／桌面本地持久化、中性命名、API 直接切换、全新初始化与验收 | 产品方向已确认，重构待实施 |
+| [工作台与执行服务统一重构](workbench-runtime-convergence-design.md) | 公共业务处理、主机／桌面本地持久化、中性命名、API 直接切换、全新初始化与验收 | 源码分支已实现，验收边界见实施记录 |
 | [客户端与后端架构 R3](client-backend-architecture-design.md) | 原客户端归属、LAN、内嵌控制和切换设计 | 历史设计，结合当前适用说明与后续证据阅读 |
 | [部署](deployment.md) | 本地、Compose、DGX Spark、状态、备份和排障 | 运维手册 |
 | [开发](development.md) | 仓库结构、实现规则、验证和扩展流程 | 贡献者手册 |
@@ -32,12 +36,12 @@
 | [模型输入输出容量契约](model-capacity-contract-design.md) | 已接受的物理窗口与输出能力等级契约、超长问题拒绝、最终 admission、完成状态处理和 fail-fast profile 权威 |
 | [消息与定时任务](messaging-and-scheduling.md) | 消息进入、Endpoint/Schedule Registry、Delivery Gateway、Web 直接发送和 Timer 执行 |
 | [浏览器 Runtime](browser-runtime.md) | 当前持久 Chromium、SparkClaw Browser Bridge、Owner-scoped Controller、Task-tab 所有权、登录 Handoff、部署与安全约束 |
-| [桌面客户端与内置浏览器设计](desktop-client-embedded-browser-design.md) | 既有 Electron／原生视图实现及 Controller / Playwright 适配基线；R3 新增客户端本地存储与 LAN 宿主控制，尚待实施 |
+| [桌面客户端与内置浏览器设计](desktop-client-embedded-browser-design.md) | 既有 Electron／原生视图实现及 Controller / Playwright 适配基线；客户端本地存储与 LAN 宿主控制已实现，当前归属见架构指南 |
 | [Electron 桌面浏览器实施交接](desktop-electron-implementation-handoff.md) | 四阶段实施记录、代码入口、资格证据和剩余用户验收门槛 |
 | [桌面发布与切换方案](desktop-release-plan.md) | 候选哈希、安装／更新／卸载策略、目标主机验收、原子切换与整版回滚 |
 | [Web 与桌面客户端共享本机后端设计](local-shared-backend-design.md) | 已实现基线：共享 Gateway／PostgreSQL 与客户端刷新；R3 替代非邮箱共享存储及桌面仅回环限制 |
-| [macOS 桌面端设计 R3](macos-lan-desktop-design.md) | 重评 R2.1／R2.2：本地非邮箱数据、后端邮箱同步、LAN 身份及统一的客户端仅内嵌浏览器控制；实施待完成 |
-| [Mac 源码同步与连接指南](macos-connection-guide.md) | Git 推送交付，由用户在 Mac 同步并编译；当前环境不构建 Mac，按提交记录 R3 连接与实机验收 |
+| [macOS 桌面端设计 R3](macos-lan-desktop-design.md) | 重评 R2.1／R2.2：本地非邮箱数据、后端邮箱同步、LAN 身份及统一的客户端仅内嵌浏览器控制；历史设计，已有部分原生证据与剩余实机门禁 |
+| [Mac 源码同步与连接指南](macos-connection-guide.md) | 配套 Mac 源码／构建命令，按提交记录连接与实机验收 |
 | [导出 AI 平台对话：登录与 workspace 保存](ai-conversation-export-design.md) | 与浏览器／文档同级的四平台分支；监听油猴下载、原始 JSON 入 workspace 与文件回执 |
 | [AI 对话时间线批量导出](ai-conversation-batch-export.md) | RevivalStack 批量控件、原生 Bridge CLI、校验后的文件进度、集合检索与覆盖限制 |
 | [Playwright 扩展浏览器迁移设计](playwright-extension-browser-design.md) | 已完成的 Browser Bridge MCP 与确定性 CLI Lane 迁移设计和验收记录 |

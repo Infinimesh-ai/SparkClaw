@@ -2,6 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-client-embedded-browser-design.md)
 
+> 历史设计：当前工作台行为与全新初始化路径以[架构](architecture.md)、[实施记录](workbench-convergence-implementation.md)和[发布指南](workbench-release.md)为准。下文保留原有日期下的设计理由与验收证据。
+
 > 状态：用户于 2026-09-21 确立架构。纯软件实施阶段已完成，ARM64 候选版本已通过
 > 资格验证；Provider 凭据、目标硬件和发布／切换仍由用户最终验收。Electron 自带
 > Chromium 是唯一目标浏览器运行时；当前生产浏览器尚未切换。

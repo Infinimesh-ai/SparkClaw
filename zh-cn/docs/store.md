@@ -2,6 +2,8 @@
 
 > 语言：[English](../../docs/store.md) | 简体中文
 
+当前源码发布：全新存储、登记、API 路径与重启行为见[配套工作台发布指南](workbench-release.md)；具体验证边界见[实施记录](workbench-convergence-implementation.md)。
+
 WebChat 将工作台历史和文件保存在部署主机的 Store 和文件系统；桌面端使用自己的
 SQLite 和本机文件。共用执行服务不会自动同步工作台历史。邮件仍以后端为权威。
 下文仓储服务于主机工作台和权威服务；临时执行内容及交付回执有独立生命周期。

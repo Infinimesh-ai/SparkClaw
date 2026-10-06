@@ -6,7 +6,7 @@
 
 SparkClaw turns local models into a bounded, auditable personal workflow system. It is designed for a single owner on a local AI workstation, with local-first data handling, explicit tool contracts, approval-gated risky actions, traces, artifacts and repeatable evals. The current local-model shape uses one responsive `fast` MoE chat model, plus resident embedding and guard endpoints. The `deep` model is temporarily excluded from the default product runtime.
 
-WebChat and the SparkX desktop are supported workbenches. WebChat keeps history and files on the deployment host; desktop keeps them on its own host. Both use the execution service, while mail remains backend-authoritative. See the [workbench convergence plan](docs/workbench-runtime-convergence-design.md) for current implementation and qualification boundaries.
+WebChat and the SparkX desktop are supported workbenches. WebChat keeps history and files on the deployment host; desktop keeps them on its own host. Both use the execution service, while mail remains backend-authoritative. See the [implementation record](docs/workbench-convergence-implementation.md) and [matched release guide](docs/workbench-release.md) for verification and fresh-storage requirements.
 
 The project is past the initial planning stage. This README is the entry point;
 the [documentation index](docs/index.md) lists the complete current set. Start

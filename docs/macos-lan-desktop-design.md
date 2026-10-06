@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/macos-lan-desktop-design.md)
 
+> Historical design: current workbench behavior and clean-start paths are defined by the [architecture](architecture.md), [implementation ledger](workbench-convergence-implementation.md) and [release guide](workbench-release.md). The dated rationale and qualification evidence below remain historical.
+
 The subsequent local Mac session obtained scoped native build and isolated evidence; see the [actual Mac record](macos-r3-acceptance.md). The full M01–M12 targets below still apply, and unexecuted cases remain pending.
 
 Date: 2026-10-03. Revision: R3. Status: Linux/shared local-data separation and LAN control are implemented; physical-Mac qualification is pending. The authoritative cross-platform target is [Client and backend architecture R3](client-backend-architecture-design.md). This revision supersedes both the original R2.1 and the intervening R2.2; The [implementation ledger](client-r3-implementation.md) records P0–P5 Linux/shared source, scoped checks and outstanding Mac gates; production deployment and Mac qualification are not claimed.

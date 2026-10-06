@@ -2,6 +2,8 @@
 
 > 语言： [English](../../docs/deployment.md) | 简体中文
 
+当前源码发布：全新存储、登记、API 路径与重启行为见[配套工作台发布指南](workbench-release.md)；具体验证边界见[实施记录](workbench-convergence-implementation.md)。
+
 本文档定义 SparkClaw 唯一支持的两套产品部署。全本地部署在 NVIDIA GB10 上拥有五个
 模型服务；全远端部署使用五个版本化公网模型端点。两者都运行 PostgreSQL、Sandbox Runner、
 Gotenberg、Gateway 与 WebChat。
@@ -122,7 +124,7 @@ owner 可读的 `data/memory/gateway-credentials.key`；只有 Compose PostgreSQ
 这四条命令是唯一产品入口。宿主机调试命令和定向模型 benchmark helper 不是部署模式。
 已退役的 `online` 名称与托管 chat 加本地辅助模型的混合运行态不再受支持。
 
-R3 Mac 客户端需要 HTTPS。在所选私有环境文件中同时设置
+Mac 桌面工作台需要 HTTPS。在所选私有环境文件中同时设置
 `SPARKCLAW_DESKTOP_TLS_DIR=/绝对路径/私有TLS目录` 与准确的客户端入口（例如
 `SPARKCLAW_DESKTOP_PUBLIC_ORIGIN=https://sparkclaw.lan:18790`），两者必须成对配置。
 两种启动命令随后都会加载

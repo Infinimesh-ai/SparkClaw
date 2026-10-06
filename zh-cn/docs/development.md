@@ -2,6 +2,8 @@
 
 > 语言： [English](../../docs/development.md) | 简体中文
 
+工作台入口：`internal/workbench` 选择有界上下文，`internal/execution` 控制已接收请求，`internal/browserhost` 负责浏览器授权与传输，`internal/mailsync` 投影权威邮箱。`agent.WithExecutionScope` 复用活动提供方、注册表和策略；主机 Store 与桌面 SQLite／文件适配持久化。运行 `npm run check:workbench-contract`、`npm run test:desktop`、`npm run test:webchat` 及相关 Go 检查；原生覆盖为 `qualify:desktop-host`、Mac 的 `qualify:desktop-mac-client` 与独立 Linux `qualify:desktop` fixture，详见[实施记录](workbench-convergence-implementation.md)。
+
 本文档是贡献者入口。修改行为前先阅读系统职责[架构](architecture.md)、已发布用户表面
 [Workflow 能力矩阵](workflow-capabilities.md)，以及[文档索引](index.md)中的相关专项手册。
 

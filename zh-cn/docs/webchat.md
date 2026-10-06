@@ -2,6 +2,8 @@
 
 > 语言： [English](../../docs/webchat.md) | 简体中文
 
+当前源码发布：全新存储、登记、API 路径与重启行为见[配套工作台发布指南](workbench-release.md)；具体验证边界见[实施记录](workbench-convergence-implementation.md)。
+
 WebChat 是正常支持的工作台，本地持久化位于部署主机，与执行服务同机。
 浏览器标签页访问同一个已授权工作区，无须改用浏览器 IndexedDB。
 桌面工作台使用自己的 SQLite／文件和认证连接；两者采用相同业务模型，

@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store.md)
 
+Current source release: follow the [matched workbench release guide](workbench-release.md) for fresh storage, enrollment, API paths and restart behavior; see the [implementation ledger](workbench-convergence-implementation.md) for exact validation boundaries.
+
 WebChat persists its workbench history and files in the deployment host's Store and
 filesystem; desktop persists its own history in SQLite and local files. Sharing an
 execution service does not synchronize their histories. Mail remains authoritative

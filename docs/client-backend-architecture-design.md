@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/client-backend-architecture-design.md)
 
+> Historical design: current workbench behavior and clean-start paths are defined by the [architecture](architecture.md), [implementation ledger](workbench-convergence-implementation.md) and [release guide](workbench-release.md). The dated rationale and qualification evidence below remain historical.
+
 > Current applicability (2026-10-06): R3 source is on main; subsequent merge and
 > scoped production deployment are recorded in the [Mac/Linux follow-up](macos-r3-dual-host-acceptance.md).
 > The [workbench and execution service convergence plan](workbench-runtime-convergence-design.md)

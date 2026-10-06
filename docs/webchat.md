@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/webchat.md)
 
+Current source release: follow the [matched workbench release guide](workbench-release.md) for fresh storage, enrollment, API paths and restart behavior; see the [implementation ledger](workbench-convergence-implementation.md) for exact validation boundaries.
+
 WebChat is a supported workbench whose local persistence lives on its deployment
 host, alongside the execution service. Browser tabs use the same authorized host
 workspace; browser IndexedDB is not required. Desktop uses its own SQLite/files

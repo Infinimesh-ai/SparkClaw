@@ -4,6 +4,8 @@
 >
 > 日期：2026-09-22（Asia/Shanghai）。状态：实现完成，隔离资格验证通过。生产部署、真实设备麦克风／HTTPS 验收与发布切换仍须单独授权；本文不表示已完成生产部署。
 
+> 历史设计：当前工作台行为与全新初始化路径以[架构](architecture.md)、[实施记录](workbench-convergence-implementation.md)和[发布指南](workbench-release.md)为准。下文保留原有日期下的设计理由与验收证据。
+
 > R3 目标更新（2026-09-30）：本文记录已实现的共享状态基线，不再决定未来数据归属。
 > R3 还要求每个客户端首次登录用 SparkClaw 凭据解锁；下文安装时预配置凭据的自动登录不是新客户端首次登录规则。
 > [客户端／后端 R3](client-backend-architecture-design.md) 将共享对话／历史／文件改为客户端本地

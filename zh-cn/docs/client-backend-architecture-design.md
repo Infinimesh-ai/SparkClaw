@@ -2,6 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/client-backend-architecture-design.md)
 
+> 历史设计：当前工作台行为与全新初始化路径以[架构](architecture.md)、[实施记录](workbench-convergence-implementation.md)和[发布指南](workbench-release.md)为准。下文保留原有日期下的设计理由与验收证据。
+
 > 当前适用范围（2026-10-06）：R3 源码已进入 main，后续合并和限定范围的生产部署记录在
 > [Mac/Linux 后续验收](macos-r3-dual-host-acceptance.md)。[工作台与执行服务统一重构方案](workbench-runtime-convergence-design.md)
 > 明确当前产品方向：WebChat 同样拥有本地持久化，只是与执行服务同机；两种工作台共用业务模型。

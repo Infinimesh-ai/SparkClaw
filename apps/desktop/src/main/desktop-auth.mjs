@@ -130,17 +130,17 @@ export class DesktopAuth {
     return this.#authorizedFetch(raw, init, 1 << 20);
   }
 
-  // Only trusted main-process R3 clients call this; the renderer proxy keeps
+  // Only trusted main-process workbench clients call this; the renderer proxy keeps
   // the ordinary 1 MiB ceiling. Origin, pinned TLS and logout fencing are shared.
-  async authorizedR3Fetch(raw, init = {}) {
+  async authorizedExecutionFetch(raw, init = {}) {
     const url = new URL(raw);
     if (!/^\/api\/r3\/(executions|inputs|schedules)(\/|$)/u.test(url.pathname) || url.search || url.hash || url.username || url.password) {
-      throw new Error("R3 backend path is invalid");
+      throw new Error("workbench backend path is invalid");
     }
     return this.#authorizedFetch(raw, init, 8 * 1024 * 1024);
   }
 
-  async authorizedR3MailFileFetch(raw, init = {}) {
+  async authorizedMailFileFetch(raw, init = {}) {
     const url = new URL(raw);
     if (!/^\/api\/r3\/mail\/[^/]+\/messages\/[^/]+\/attachments\/[^/]+$/u.test(url.pathname) || url.search || url.hash || url.username || url.password || (init.method && init.method !== "GET")) throw new Error("Mail attachment path is invalid");
     return this.#authorizedFetch(raw, init, 64 * 1024 * 1024);

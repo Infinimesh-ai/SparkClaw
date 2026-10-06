@@ -24,9 +24,9 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserhost"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/gateway"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/r3browser"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/gorilla/websocket"
@@ -114,7 +114,7 @@ func installedGatewayFixture(t *testing.T) (http.Handler, string) {
 	}
 	tools := toolhub.New(cfg, backend)
 	t.Cleanup(func() { _ = tools.Close() })
-	instance := gateway.New(cfg, backend, tools, agent.Runtime{}, gateway.WithR3Executions(filepath.Join(root, "r3"), nil))
+	instance := gateway.New(cfg, backend, tools, agent.Runtime{}, gateway.WithExecutions(filepath.Join(root, "r3"), nil))
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	instance.BindLifecycleContext(ctx)
@@ -123,10 +123,10 @@ func installedGatewayFixture(t *testing.T) (http.Handler, string) {
 
 const nativeTLSInstallation = "11111111-1111-4111-8111-111111111111"
 
-func nativeTLSGrant(t *testing.T, client *http.Client, baseURL, token string) r3browser.Grant {
+func nativeTLSGrant(t *testing.T, client *http.Client, baseURL, token string) browserhost.Grant {
 	t.Helper()
 	nativeTLSRequest(t, client, baseURL, token, "/api/r3/installations", `{"schema_version":1,"installation_id":"`+nativeTLSInstallation+`"}`, "", nil)
-	var grant r3browser.Grant
+	var grant browserhost.Grant
 	nativeTLSRequest(t, client, baseURL, token, "/api/r3/hosts/grants", `{}`, nativeTLSInstallation, &grant)
 	if grant.HostID == "" || grant.Token == "" {
 		t.Fatal("real Gateway host grant missing")
@@ -166,7 +166,7 @@ func nativeTLSRequest(t *testing.T, client *http.Client, baseURL, token, route, 
 	}
 }
 
-func nativeTLSHostHeaders(token string, grant r3browser.Grant) http.Header {
+func nativeTLSHostHeaders(token string, grant browserhost.Grant) http.Header {
 	return http.Header{"Authorization": {"Bearer " + token}, "X-Sparkclaw-Installation": {nativeTLSInstallation}, "X-Sparkclaw-Host-Id": {grant.HostID}, "X-Sparkclaw-Host-Grant": {grant.Token}, "X-Sparkclaw-Runtime": {"temporary-tls-generation"}}
 }
 
@@ -202,7 +202,7 @@ func TestNativeGatewayHTTPSInstalledHostWSSAndRevocation(t *testing.T) {
 	if err := conn.ReadJSON(&welcome); err != nil || welcome.Type != "welcome" || welcome.HostID != grant.HostID || welcome.Epoch == "" {
 		t.Fatalf("real Broker welcome over native Gateway TLS: %+v %v", welcome, err)
 	}
-	if err := conn.WriteJSON(r3browser.Message{SchemaVersion: 1, Type: "heartbeat"}); err != nil {
+	if err := conn.WriteJSON(browserhost.Message{SchemaVersion: 1, Type: "heartbeat"}); err != nil {
 		t.Fatal(err)
 	}
 	var renew struct {

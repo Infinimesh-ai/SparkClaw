@@ -11,7 +11,7 @@ import { SecureCredentialStore } from "../src/main/secure-credential-store.mjs";
 const root = process.env.SPARKCLAW_MAC_QUALIFICATION_ROOT;
 const token = process.env.SPARKCLAW_MAC_QUALIFICATION_TOKEN;
 const phase = process.argv[2];
-app.setName("SparkClaw R3 Qualification");
+app.setName("SparkClaw workbench Qualification");
 app.setPath("userData", path.join(root, "profile"));
 let store, schedules, execution;
 app.whenReady().then(async () => {

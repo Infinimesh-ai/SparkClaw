@@ -12,14 +12,14 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/r3execution"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type admittedWorkbenchKey struct{}
 type workbenchAdmission struct {
-	lease         *r3execution.WorkbenchLease
-	binding       r3execution.WorkbenchBinding
+	lease         *execution.WorkbenchLease
+	binding       execution.WorkbenchBinding
 	closeOnce     sync.Once
 	release       func()
 	snapshot      agent.WorkbenchContext
@@ -40,16 +40,16 @@ func (a *workbenchAdmission) close() {
 }
 
 type workbenchRequestStatus struct {
-	r3execution.WorkbenchStatus
+	execution.WorkbenchStatus
 	Result *agent.Result `json:"result,omitempty"`
 }
 
-func workbenchBinding(r *http.Request, session app.Session, requestID string) r3execution.WorkbenchBinding {
+func workbenchBinding(r *http.Request, session app.Session, requestID string) execution.WorkbenchBinding {
 	principal := principalForRequest(r)
-	return r3execution.WorkbenchBinding{OwnerID: principal.OwnerID, ActorID: principal.ActorID, ClientID: principal.ClientID, WorkspaceID: r3execution.Digest([]byte(filepath.Clean(session.WorkspaceRoot))), SessionID: session.ID, RequestID: requestID}
+	return execution.WorkbenchBinding{OwnerID: principal.OwnerID, ActorID: principal.ActorID, ClientID: principal.ClientID, WorkspaceID: execution.Digest([]byte(filepath.Clean(session.WorkspaceRoot))), SessionID: session.ID, RequestID: requestID}
 }
 
-func (s *Server) admittedWorkbenchResult(ctx context.Context, binding r3execution.WorkbenchBinding, status r3execution.WorkbenchStatus) (workbenchRequestStatus, error) {
+func (s *Server) admittedWorkbenchResult(ctx context.Context, binding execution.WorkbenchBinding, status execution.WorkbenchStatus) (workbenchRequestStatus, error) {
 	out := workbenchRequestStatus{WorkbenchStatus: status}
 	if status.State == "running" {
 		return out, nil
@@ -62,7 +62,7 @@ func (s *Server) admittedWorkbenchResult(ctx context.Context, binding r3executio
 		if status.State == "unknown" || status.State == "failed" {
 			return out, nil
 		}
-		return out, r3execution.ErrUnavailable
+		return out, execution.ErrUnavailable
 	}
 	out.MessageID = result.Message.ID
 	out.Result = &result
@@ -78,7 +78,7 @@ func (s *Server) admitWorkbenchMessage(r *http.Request, session app.Session, inp
 	if input.DraftRevision != nil && *input.DraftRevision < 0 {
 		return nil, nil, errors.New("draft_revision cannot be negative")
 	}
-	if !r3execution.UUID(input.RequestID) {
+	if !execution.UUID(input.RequestID) {
 		return nil, nil, errors.New("request_id must be a UUID")
 	}
 	binding := workbenchBinding(r, session, input.RequestID)
@@ -89,24 +89,24 @@ func (s *Server) admitWorkbenchMessage(r *http.Request, session app.Session, inp
 	if err != nil {
 		return nil, nil, err
 	}
-	binding.InputDigest = r3execution.Digest(raw)
+	binding.InputDigest = execution.Digest(raw)
 	binding.SubmittedDraftRevision = input.DraftRevision
-	service, err := s.r3ExecutionService()
+	service, err := s.executionService()
 	if err != nil {
 		return nil, nil, err
 	}
 	if status, lookupErr := service.LookupWorkbenchClaim(binding); lookupErr == nil {
 		if status.InputDigest != binding.InputDigest {
-			return nil, nil, r3execution.ErrConflict
+			return nil, nil, execution.ErrConflict
 		}
 		previous, err := s.admittedWorkbenchResult(r.Context(), binding, status)
 		return nil, &previous, err
-	} else if !errors.Is(lookupErr, r3execution.ErrNotFound) {
+	} else if !errors.Is(lookupErr, execution.ErrNotFound) {
 		return nil, nil, lookupErr
 	}
 	releaseSession := s.tryAdmitSessionMessage(session.ID)
 	if releaseSession == nil {
-		return nil, nil, r3execution.ErrConflict
+		return nil, nil, execution.ErrConflict
 	}
 	executionCtx, finish := s.detachedExecutionContext()
 	executionCtx, releaseClient, err := s.clientConnectionContext(executionCtx, binding.ClientID)
@@ -140,7 +140,7 @@ func (s *Server) admitWorkbenchMessage(r *http.Request, session app.Session, inp
 	if err != nil || message.ID != lease.InputMessageID || message.SessionID != session.ID || message.Role != "user" || message.Content != input.Content || !slices.Equal(message.Attachments, attachments) {
 		admission.close()
 		if err == nil {
-			err = r3execution.ErrUnavailable
+			err = execution.ErrUnavailable
 		}
 		return nil, nil, err
 	}
@@ -177,7 +177,7 @@ func (s *Server) finishWorkbenchMessage(admission *workbenchAdmission, result ag
 	persisted, found, err := s.runtime.LookupRunResult(context.WithoutCancel(admission.lease.Context), admission.binding.SessionID, result.Run.ID)
 	if err != nil || !found || !persistedWorkbenchResultValid(persisted) || persisted.Message.ID != result.Message.ID || persisted.Run.State != result.Run.State {
 		_ = admission.lease.Finish("unknown", "")
-		return r3execution.ErrUnavailable
+		return execution.ErrUnavailable
 	}
 	state := persisted.Run.State
 	if deliveryErr != nil {
@@ -198,13 +198,13 @@ func (s *Server) getWorkbenchRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	service, err := s.workbenchReader()
 	if err != nil {
-		r3Error(w, err)
+		writeExecutionError(w, err)
 		return
 	}
 	binding := workbenchBinding(r, session, r.PathValue("request"))
 	status, err := service.LookupWorkbench(binding)
 	if err != nil {
-		r3Error(w, err)
+		writeExecutionError(w, err)
 		return
 	}
 	result, err := s.admittedWorkbenchResult(r.Context(), binding, status)
@@ -217,11 +217,11 @@ func (s *Server) getWorkbenchRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // Reading request status must not create storage, run cleanup or advance state.
-func (s *Server) workbenchReader() (r3execution.WorkbenchReader, error) {
-	s.r3Mu.Lock()
-	service := s.r3Executions
-	root := s.r3Root
-	s.r3Mu.Unlock()
+func (s *Server) workbenchReader() (execution.WorkbenchReader, error) {
+	s.executionMu.Lock()
+	service := s.executions
+	root := s.executionRoot
+	s.executionMu.Unlock()
 	if service != nil {
 		return service, nil
 	}
@@ -229,13 +229,13 @@ func (s *Server) workbenchReader() (r3execution.WorkbenchReader, error) {
 		root = s.cfg.State.Path + ".r3"
 	}
 	if root == ".r3" {
-		return nil, r3execution.ErrUnavailable
+		return nil, execution.ErrUnavailable
 	}
 	absolute, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
-	return r3execution.ReadWorkbench(absolute)
+	return execution.ReadWorkbench(absolute)
 }
 
 func (s *Server) listWorkbenchRequests(w http.ResponseWriter, r *http.Request) {
@@ -250,13 +250,13 @@ func (s *Server) listWorkbenchRequests(w http.ResponseWriter, r *http.Request) {
 	}
 	reader, err := s.workbenchReader()
 	if err != nil {
-		r3Error(w, err)
+		writeExecutionError(w, err)
 		return
 	}
 	binding := workbenchBinding(r, session, "")
 	rows, next, err := reader.ListWorkbench(binding, r.URL.Query().Get("cursor"), r.URL.Query().Get("attention") == "1")
 	if err != nil {
-		r3Error(w, err)
+		writeExecutionError(w, err)
 		return
 	}
 	projected := make([]workbenchRequestStatus, 0, len(rows))
@@ -290,15 +290,15 @@ func (s *Server) cancelWorkbenchRequest(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusNotFound, errors.New("session not found"))
 		return
 	}
-	service, err := s.r3ExecutionService()
+	service, err := s.executionService()
 	if err != nil {
-		r3Error(w, err)
+		writeExecutionError(w, err)
 		return
 	}
 	binding := workbenchBinding(r, session, r.PathValue("request"))
 	status, err := service.CancelWorkbench(binding)
 	if err != nil {
-		r3Error(w, err)
+		writeExecutionError(w, err)
 		return
 	}
 	result, err := s.admittedWorkbenchResult(r.Context(), binding, status)
@@ -318,13 +318,13 @@ func writeWorkbenchAdmissionError(w http.ResponseWriter, err error) {
 		writeError(w, status, public)
 		return
 	}
-	r3Error(w, err)
+	writeExecutionError(w, err)
 }
 
 // Approval and browser-login continuations retain the original request budget
 // and credential binding even when another owner device approves the action.
-func (s *Server) beginWorkbenchContinuation(ctx context.Context, scope r3execution.WorkbenchBinding, runID string, lockSession bool) (*workbenchAdmission, error) {
-	service, err := s.r3ExecutionService()
+func (s *Server) beginWorkbenchContinuation(ctx context.Context, scope execution.WorkbenchBinding, runID string, lockSession bool) (*workbenchAdmission, error) {
+	service, err := s.executionService()
 	if err != nil {
 		return nil, err
 	}
@@ -336,13 +336,13 @@ func (s *Server) beginWorkbenchContinuation(ctx context.Context, scope r3executi
 	if lockSession {
 		releaseSession = s.tryAdmitSessionMessage(scope.SessionID)
 		if releaseSession == nil {
-			return nil, r3execution.ErrConflict
+			return nil, execution.ErrConflict
 		}
 	}
 	connected, releaseClient, err := s.clientConnectionContext(ctx, binding.ClientID)
 	if err != nil {
 		releaseSession()
-		return nil, r3execution.ErrConflict
+		return nil, execution.ErrConflict
 	}
 	// A second owner's device may approve, but revoking either the original
 	// execution credential or this active approving credential cancels the work.
@@ -351,7 +351,7 @@ func (s *Server) beginWorkbenchContinuation(ctx context.Context, scope r3executi
 		if attachErr != nil {
 			releaseClient()
 			releaseSession()
-			return nil, r3execution.ErrConflict
+			return nil, execution.ErrConflict
 		}
 		releaseOriginal := releaseClient
 		releaseClient = func() { releaseApprover(); releaseOriginal() }
@@ -366,7 +366,7 @@ func (s *Server) beginWorkbenchContinuation(ctx context.Context, scope r3executi
 	return &workbenchAdmission{lease: lease, binding: binding, release: func() { releaseClient(); releaseSession() }}, nil
 }
 
-func (s *Server) workbenchBrowserContinuation(ctx context.Context, scope r3execution.WorkbenchBinding, run app.AgentRun, parent *workbenchAdmission) (context.Context, error) {
+func (s *Server) workbenchBrowserContinuation(ctx context.Context, scope execution.WorkbenchBinding, run app.AgentRun, parent *workbenchAdmission) (context.Context, error) {
 	admission, err := s.beginWorkbenchContinuation(ctx, scope, run.ID, false)
 	if err != nil {
 		return nil, err

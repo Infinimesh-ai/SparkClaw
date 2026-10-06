@@ -27,7 +27,7 @@ function matchesPrefix(pathname, prefix) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
-// The R3 Mac renderer may use the same global settings, mail and presentation
+// The workbench Mac renderer may use the same global settings, mail and presentation
 // APIs as WebChat. Conversation history, schedules and uploads remain owned by
 // the client-local store and are deliberately absent from this allowlist.
 export function proxyAPIAllowed(pathname) {

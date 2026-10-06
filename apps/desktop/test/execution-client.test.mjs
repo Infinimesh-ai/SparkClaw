@@ -15,7 +15,7 @@ function fixture(t, fetcher) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sparkclaw-r3-client-"));
   let store = new ClientStore(directory);
   let identity = scope;
-  const auth = { status: { state: "connected" }, descriptor: { origin: "http://127.0.0.1:18790" }, authorizedR3Fetch: fetcher };
+  const auth = { status: { state: "connected" }, descriptor: { origin: "http://127.0.0.1:18790" }, authorizedExecutionFetch: fetcher };
   let client;
   const createClient = () => new ExecutionClient({ auth, store, getIdentity: () => identity });
   client = createClient();
@@ -68,7 +68,7 @@ test("real HTTP chain preserves explicit immutable submission, verified files an
   auth.connection = { authorization: "Bearer synthetic-issued-client-token" };
   auth.status = { state: "connected" };
   f.auth.descriptor = auth.descriptor;
-  f.auth.authorizedR3Fetch = auth.authorizedR3Fetch.bind(auth);
+  f.auth.authorizedExecutionFetch = auth.authorizedExecutionFetch.bind(auth);
   await f.client.reconcilePending();
   assert.deepEqual(calls, [], "saved input never replays automatically");
   const completed = await f.client.submit(scope, f.task.request_id);

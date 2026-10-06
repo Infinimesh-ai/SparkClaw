@@ -234,7 +234,7 @@ export class ExecutionClient {
     if (this.closed || this.auth.status.state !== "connected") throw new Error("Execution backend is unavailable; your input is preserved");
     const headers = new Headers(init?.headers);
     headers.set("X-SparkClaw-Installation", this.store.installationID);
-    return this.auth.authorizedR3Fetch(`${this.auth.descriptor.origin}${route}`, { ...init, headers, signal: this.controller.signal });
+    return this.auth.authorizedExecutionFetch(`${this.auth.descriptor.origin}${route}`, { ...init, headers, signal: this.controller.signal });
   }
   #sameIdentity(scope) {
     const current = this.getIdentity();

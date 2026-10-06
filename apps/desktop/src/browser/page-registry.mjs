@@ -25,7 +25,7 @@ export class PageRegistry {
     this.changeListener = typeof listener === "function" ? listener : null;
   }
 
-  // R3 host pages retain one actual embedded view per local conversation.
+  // workbench host pages retain one actual embedded view per local conversation.
   // A lease binds exactly one controller; releasing it never selects another
   // conversation or makes the page available to the legacy relay.
   acquireHostPage(binding) {

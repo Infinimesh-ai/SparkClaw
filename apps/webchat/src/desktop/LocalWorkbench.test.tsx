@@ -45,7 +45,7 @@ afterEach(() => {
   vi.unstubAllGlobals(); vi.restoreAllMocks(); window.localStorage.clear();
 });
 
-describe("R3 local workbench", () => {
+describe("workbench local workbench", () => {
   it("uses the shared Linux conversation, mailbox and complete settings presentation", async () => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
     const row = { id: "conversation", title: "Parity conversation", created_at: "", updated_at: "" };

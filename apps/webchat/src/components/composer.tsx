@@ -47,7 +47,7 @@ export type ComposerSurfaceProps = {
   onSend: () => void;
 };
 
-// The composer chrome is shared by the browser/Linux workbench and the R3
+// The composer chrome is shared by the browser/Linux workbench and the workbench
 // desktop adapter. Data operations stay injected so a client-local desktop
 // conversation never has to masquerade as a gateway session just to retain
 // the same presentation.

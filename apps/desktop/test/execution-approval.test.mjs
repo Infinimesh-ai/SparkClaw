@@ -22,7 +22,7 @@ function fixture(t) {
   let pending = [approval]; let state = "running";
   let identity = scope;
   const auth = { generation: 1, status: { state: "connected" }, descriptor: { origin: "http://127.0.0.1:18790" },
-    authorizedR3Fetch: async (url, init = {}) => {
+    authorizedExecutionFetch: async (url, init = {}) => {
       calls.push({ url, method: init.method || "GET", body: init.body });
       if (init.method === "POST") { pending = []; return new Response(JSON.stringify({ resolved: true })); }
       return new Response(JSON.stringify(event()));
@@ -57,7 +57,7 @@ test("real slow approval HTTP response serializes duplicate explicit decisions w
   const auth = new DesktopAuth({ qualification: true, fetcher: fetch });
   auth.descriptor = { schemaVersion: 1, origin: `http://127.0.0.1:${server.address().port}` };
   auth.connection = { authorization: "Bearer synthetic-issued-client" }; auth.status = { state: "connected" };
-  f.auth.descriptor = auth.descriptor; f.auth.authorizedR3Fetch = auth.authorizedR3Fetch.bind(auth);
+  f.auth.descriptor = auth.descriptor; f.auth.authorizedExecutionFetch = auth.authorizedExecutionFetch.bind(auth);
   await f.client.reconcilePending();
   assert.equal(decisions, 0, "status polling never chooses an approval");
   const first = f.client.decideApproval(scope, f.task.request_id, approval.approval_id, approval.digest, "approve");
@@ -100,8 +100,8 @@ test("cached approvals stay read-only after restart/offline until same-identity 
 test("lost approval receipt checks the original request and leaves an uncertain read-only decision", async (t) => {
   const f = fixture(t);
   await f.client.reconcile(scope, f.task.request_id);
-  const fetcher = f.auth.authorizedR3Fetch;
-  f.auth.authorizedR3Fetch = async (url, init) => {
+  const fetcher = f.auth.authorizedExecutionFetch;
+  f.auth.authorizedExecutionFetch = async (url, init) => {
     if (init.method === "POST") { f.calls.push({ url, method: "POST", body: init.body }); f.setPending([]); throw new Error("receipt lost after acceptance"); }
     return fetcher(url, init);
   };
@@ -117,8 +117,8 @@ test("lost approval receipt checks the original request and leaves an uncertain 
 test("lost unaccepted decision may be retried explicitly only with the identical decision and digest", async (t) => {
   const f = fixture(t);
   await f.client.reconcile(scope, f.task.request_id);
-  const fetcher = f.auth.authorizedR3Fetch; let lost = true;
-  f.auth.authorizedR3Fetch = async (url, init) => { if (init.method === "POST" && lost) throw new Error("request not received"); return fetcher(url, init); };
+  const fetcher = f.auth.authorizedExecutionFetch; let lost = true;
+  f.auth.authorizedExecutionFetch = async (url, init) => { if (init.method === "POST" && lost) throw new Error("request not received"); return fetcher(url, init); };
   await assert.rejects(f.client.decideApproval(scope, f.task.request_id, approval.approval_id, approval.digest, "reject"), /not received/);
   assert.equal(f.store.approvals(scope, f.task.request_id)[0].state, "decision_pending");
   await assert.rejects(f.client.decideApproval(scope, f.task.request_id, approval.approval_id, approval.digest, "approve"), /mismatch/);
@@ -131,22 +131,22 @@ test("expired, changed digest, foreign scope and old credential generation canno
   await f.client.reconcile(scope, f.task.request_id);
   await assert.rejects(f.client.decideApproval({ ...scope, client_id: "other" }, f.task.request_id, approval.approval_id, approval.digest, "approve"), /authentication changed/);
   await assert.rejects(f.client.decideApproval(scope, f.task.request_id, approval.approval_id, "b".repeat(64), "approve"), /mismatch/);
-  const fetcher = f.auth.authorizedR3Fetch;
-  f.auth.authorizedR3Fetch = async (...args) => { const response = await fetcher(...args); f.auth.generation++; return response; };
+  const fetcher = f.auth.authorizedExecutionFetch;
+  f.auth.authorizedExecutionFetch = async (...args) => { const response = await fetcher(...args); f.auth.generation++; return response; };
   await assert.rejects(f.client.decideApproval(scope, f.task.request_id, approval.approval_id, approval.digest, "approve"), /authentication changed/);
   assert.equal(f.calls.filter((call) => call.method === "POST").length, 0);
-  f.auth.authorizedR3Fetch = async () => new Response(JSON.stringify({ ...f.event(), execution_expires_at: new Date(Date.now() - 1).toISOString() }));
+  f.auth.authorizedExecutionFetch = async () => new Response(JSON.stringify({ ...f.event(), execution_expires_at: new Date(Date.now() - 1).toISOString() }));
   // A changed absolute deadline is an immutable replay violation, also fail-closed.
   await assert.rejects(f.client.decideApproval(scope, f.task.request_id, approval.approval_id, approval.digest, "approve"), /deadline/);
 });
 
 test("an approval with an expired or missing active deadline is never actionable", async (t) => {
   const f = fixture(t);
-  f.auth.authorizedR3Fetch = async () => new Response(JSON.stringify({ ...f.event(), execution_expires_at: undefined }));
+  f.auth.authorizedExecutionFetch = async () => new Response(JSON.stringify({ ...f.event(), execution_expires_at: undefined }));
   await assert.rejects(f.client.reconcile(scope, f.task.request_id), /deadline/);
   assert.deepEqual(f.store.approvals(scope, f.task.request_id), []);
   const expiredDeadline = new Date(Date.now() - 1000).toISOString();
-  f.auth.authorizedR3Fetch = async () => new Response(JSON.stringify({ ...f.event(), execution_expires_at: expiredDeadline }));
+  f.auth.authorizedExecutionFetch = async () => new Response(JSON.stringify({ ...f.event(), execution_expires_at: expiredDeadline }));
   await f.client.reconcile(scope, f.task.request_id);
   assert.equal(f.client.approvals(scope, f.task.request_id)[0].actionable, false);
   await assert.rejects(f.client.decideApproval(scope, f.task.request_id, approval.approval_id, approval.digest, "approve"), /expired/);
@@ -156,10 +156,10 @@ test("an approval with an expired or missing active deadline is never actionable
 test("a late decision response from an old credential generation cannot confirm the local receipt", async (t) => {
   const f = fixture(t);
   await f.client.reconcile(scope, f.task.request_id);
-  const fetcher = f.auth.authorizedR3Fetch;
+  const fetcher = f.auth.authorizedExecutionFetch;
   let started; const posted = new Promise((resolve) => { started = resolve; });
   let release; const response = new Promise((resolve) => { release = resolve; });
-  f.auth.authorizedR3Fetch = async (url, init) => {
+  f.auth.authorizedExecutionFetch = async (url, init) => {
     if (init.method !== "POST") return fetcher(url, init);
     started(); return response;
   };

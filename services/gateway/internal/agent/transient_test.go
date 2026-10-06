@@ -86,7 +86,7 @@ func TestTransientWeatherUsesActiveInfoWithoutPersistentContent(t *testing.T) {
 		t.Fatalf("transient tool evidence leaked: count=%d err=%v", len(calls), err)
 	}
 
-	// A stopped R3 approval can leave a suspended dependency. Release must
+	// A stopped workbench approval can leave a suspended dependency. Release must
 	// remove it even when no later approval-resume call takes place.
 	ctx, finish := runs.Begin(t.Context(), result.Run.ID)
 	if err := runs.Use(result.Run.ID, "infinimesh-info", 1); err != nil {

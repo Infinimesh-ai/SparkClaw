@@ -208,7 +208,7 @@ async function start() {
     mailClient = new MailSyncClient({
       store: mailStore, localStore, getConnection: () => desktopAuth.connection,
       getFetch: () => desktopAuth.authorizedFetch.bind(desktopAuth),
-      getFileFetch: () => desktopAuth.authorizedR3MailFileFetch.bind(desktopAuth),
+      getFileFetch: () => desktopAuth.authorizedMailFileFetch.bind(desktopAuth),
       installationID: localStore.installationID,
     });
     if (desktopAuth.status.state === "connected") mailClient.start();
@@ -311,7 +311,7 @@ async function start() {
     runtimeGeneration,
     authorizeSession: () => qualification || desktopAuth.status.state === "connected",
   }).start();
-  // The UDS adapter is a qualified legacy Linux transport. R3 production
+  // The UDS adapter is a qualified legacy Linux transport. workbench production
   // browser execution uses the explicitly granted outbound Host transport. macOS
   // never reads Linux adapter secrets or starts the legacy owner service.
   if (qualification && process.platform === "linux") {
@@ -562,8 +562,8 @@ function workbenchProtocolHandler(root, auth) {
         if (state === "identity_conflict") return new Response("Backend identity conflict", { status: 409 });
         if (["invalid_authentication", "locked", "secure_storage_unavailable"].includes(state)) return new Response("Desktop authentication is locked", { status: 401 });
         if (state !== "connected") return new Response("Backend is unavailable", { status: 503 });
-        // Legacy session/history APIs have no place in the R3 local workbench.
-        if (!qualification && !proxyAPIAllowed(new URL(proxy).pathname)) return new Response("R3 service is not available in this phase", { status: 501 });
+        // Legacy session/history APIs have no place in the workbench local workbench.
+        if (!qualification && !proxyAPIAllowed(new URL(proxy).pathname)) return new Response("workbench service is not available in this phase", { status: 501 });
         try { return await proxyWorkbenchRequest(auth, request, proxy); }
         catch { return new Response("Backend is unavailable", { status: 503 }); }
       }

@@ -145,7 +145,7 @@ func NewMemoryStoreWithOptions(timeouts OperationTimeouts) *MemoryStore {
 	}
 }
 
-// WithTransientContentAdmission is used only by an isolated in-memory R3
+// WithTransientContentAdmission is used only by an isolated in-memory workbench
 // execution. It does not alter persistent backend repository contracts.
 func (s *MemoryStore) WithTransientContentAdmission(admit func(any) error) *MemoryStore {
 	s.transientContentAdmission = admit

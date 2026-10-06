@@ -1,4 +1,4 @@
-# Optional R3 LAN ingress. Keys and certificates are provisioned outside Git.
+# Optional workbench LAN ingress. Keys and certificates are provisioned outside Git.
 services:
   gateway:
     environment:

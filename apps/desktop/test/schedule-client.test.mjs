@@ -16,7 +16,7 @@ function fixture(t) {
   let identity = scope;
   const calls = []; const states = new Map();
   const auth = { generation: 1, status: { state: "connected" }, descriptor: { origin: "http://127.0.0.1:18790" },
-    authorizedR3Fetch: async (url, init = {}) => {
+    authorizedExecutionFetch: async (url, init = {}) => {
       calls.push({ url, method: init.method || "GET", body: init.body });
       assert.equal(new Headers(init.headers).get("x-sparkclaw-installation"), store.installationID);
       assert.ok(url.includes("/executions"), "scheduling uses only the ordinary execution API");
@@ -173,7 +173,7 @@ test("lost due-time submit and 404 never resubmit on restart, scheduler scan or 
   const f = fixture(t);
   const row = await f.client.create(scope, f.conversation.id, "uncertain once", f.due());
   let posts = 0; let gets = 0;
-  f.auth.authorizedR3Fetch = async (_url, init) => {
+  f.auth.authorizedExecutionFetch = async (_url, init) => {
     if (init.method === "POST") { posts++; throw new Error("response lost"); }
     gets++; return new Response(null, { status: 404 });
   };
@@ -225,8 +225,8 @@ test("definition and claim disk failures cannot cause a send or partial future r
 test("auth change after POST fences stale response; a future occurrence retains its identity", async (t) => {
   const f = fixture(t);
   const row = await f.client.create(scope, f.conversation.id, "stale generation", f.due(), 60000);
-  const fetcher = f.auth.authorizedR3Fetch;
-  f.auth.authorizedR3Fetch = async (...args) => { const response = await fetcher(...args); f.auth.generation++; return response; };
+  const fetcher = f.auth.authorizedExecutionFetch;
+  f.auth.authorizedExecutionFetch = async (...args) => { const response = await fetcher(...args); f.auth.generation++; return response; };
   f.advance(60000);
   await assert.rejects(f.client.reconcile(scope, row.request_id), /authentication changed/);
   assert.equal(f.rows()[0].state, "claimed"); assert.equal(f.rows()[1].state, "saved"); assert.equal(f.posts().length, 1);

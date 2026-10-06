@@ -18,9 +18,9 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/r3execution"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
@@ -43,7 +43,7 @@ func persistAdmittedStreamFixture(t *testing.T, ctx context.Context, st interfac
 	store.ConversationRepository
 }, sessionID string, result agent.Result) agent.Result {
 	t.Helper()
-	lease := ctx.Value(admittedWorkbenchKey{}).(*r3execution.WorkbenchLease)
+	lease := ctx.Value(admittedWorkbenchKey{}).(*execution.WorkbenchLease)
 	var err error
 	result.Run, err = st.SaveRun(ctx, app.AgentRun{ID: lease.RunID, SessionID: sessionID, State: "completed", StartedAt: time.Now().UTC()})
 	if err != nil {
@@ -76,9 +76,9 @@ func admissionFileServer(t *testing.T, root string) (*Server, *store.FileStore) 
 	s := New(cfg, st, tools, runtime)
 	s.BindLifecycleContext(t.Context())
 	t.Cleanup(func() {
-		s.r3Mu.Lock()
-		service := s.r3Executions
-		s.r3Mu.Unlock()
+		s.executionMu.Lock()
+		service := s.executions
+		s.executionMu.Unlock()
 		if service != nil {
 			service.Close()
 		}
@@ -141,7 +141,7 @@ func TestWorkbenchRequestPersistsOnceAcrossRestartAndGETDoesNotWrite(t *testing.
 	if w := admissionHTTP(s, "POST", route, admissionToken, changed); w.Code != 409 {
 		t.Fatalf("accepted changed attachment %d %s", w.Code, w.Body.String())
 	}
-	s.r3Executions.Close()
+	s.executions.Close()
 	s2, st2 := admissionFileServer(t, root)
 	ledger := filepath.Join(root, "workbench-state.json.r3", "control.json")
 	before, err := os.ReadFile(ledger)
@@ -153,7 +153,7 @@ func TestWorkbenchRequestPersistsOnceAcrossRestartAndGETDoesNotWrite(t *testing.
 	if recovered.RunID != result.Run.ID || recovered.Result == nil || recovered.State != "completed" {
 		t.Fatalf("recovered=%+v", recovered)
 	}
-	if s2.r3Executions != nil {
+	if s2.executions != nil {
 		t.Fatal("GET started a writable execution service")
 	}
 	list := admissionHTTP(s2, "GET", "/api/sessions/"+session.ID+"/requests", admissionToken, "")
@@ -308,7 +308,7 @@ func TestWorkbenchCancelAndClientRevocationCancelAdmittedRunWithoutReplay(t *tes
 					t.Fatalf("cross-owner access %d %s", w.Code, w.Body.String())
 				}
 			}
-			s.r3Executions.Close()
+			s.executions.Close()
 		})
 	}
 }
@@ -317,7 +317,7 @@ func TestWorkbenchDoesNotDeclareUnpersistedResultComplete(t *testing.T) {
 	s, st := admissionFileServer(t, t.TempDir())
 	session := storetest.MustCreateSession(t, st, "missing durable result")
 	s.streamMessage = func(ctx context.Context, sessionID, _ string, _ []agent.MessageAttachment, _ app.MessageIngressContext, _ agent.StreamHandler) (agent.Result, error) {
-		lease := ctx.Value(admittedWorkbenchKey{}).(*r3execution.WorkbenchLease)
+		lease := ctx.Value(admittedWorkbenchKey{}).(*execution.WorkbenchLease)
 		return agent.Result{Run: app.AgentRun{ID: lease.RunID, SessionID: sessionID, State: "completed"}, Message: app.Message{ID: "fake-success", SessionID: sessionID}}, nil
 	}
 	id := testWorkbenchRequestID()
@@ -384,11 +384,11 @@ func TestWorkbenchCanceledOrRevokedPendingApprovalCannotExecute(t *testing.T) {
 			if _, err := st.RegisterClient(t.Context(), app.Client{ID: "second", OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, Name: "second", TokenHash: hashSecret("second-client-test-token")}); err != nil {
 				t.Fatal(err)
 			}
-			service, err := s.r3ExecutionService()
+			service, err := s.executionService()
 			if err != nil {
 				t.Fatal(err)
 			}
-			binding := r3execution.WorkbenchBinding{OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, ClientID: "host-client", WorkspaceID: r3execution.Digest([]byte(session.WorkspaceRoot)), SessionID: session.ID, RequestID: testWorkbenchRequestID(), InputDigest: r3execution.Digest([]byte("input")), ContextDigest: r3execution.Digest([]byte("context")), ContextBefore: time.Now().UTC()}
+			binding := execution.WorkbenchBinding{OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID, ClientID: "host-client", WorkspaceID: execution.Digest([]byte(session.WorkspaceRoot)), SessionID: session.ID, RequestID: testWorkbenchRequestID(), InputDigest: execution.Digest([]byte("input")), ContextDigest: execution.Digest([]byte("context")), ContextBefore: time.Now().UTC()}
 			lease, _, err := service.BeginWorkbench(t.Context(), binding)
 			if err != nil {
 				t.Fatal(err)

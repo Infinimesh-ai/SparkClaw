@@ -14,7 +14,7 @@ server {
   ssl_protocols TLSv1.2 TLSv1.3;
   error_page 497 =308 https://$http_host$request_uri;
 
-  # R3 Host admission requires TLS on the Gateway connection itself.
+  # workbench Host admission requires TLS on the Gateway connection itself.
   proxy_ssl_verify on;
   proxy_ssl_trusted_certificate /run/sparkclaw/tls/ca.crt;
   proxy_ssl_server_name on;

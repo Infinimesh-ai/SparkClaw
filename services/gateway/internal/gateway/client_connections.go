@@ -55,10 +55,10 @@ func (s *Server) clientConnectionContext(ctx context.Context, clientID string) (
 }
 
 func (s *Server) cancelClientConnections(clientID string) {
-	s.r3Mu.Lock()
-	broker := s.r3Broker
-	service := s.r3Executions
-	s.r3Mu.Unlock()
+	s.executionMu.Lock()
+	broker := s.browserBroker
+	service := s.executions
+	s.executionMu.Unlock()
 	if service != nil {
 		if err := service.RevokeWorkbenchClient(clientID); err != nil {
 			slog.Warn("workbench revocation fence persistence unavailable")

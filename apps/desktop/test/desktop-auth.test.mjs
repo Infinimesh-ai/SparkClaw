@@ -227,18 +227,18 @@ test("production login binds the installation before saving a credential and fai
   assert.equal((await noInstallation.login(token)).state, "incomplete_setup");
 });
 
-test("R3 response expansion remains bounded and inaccessible to ordinary renderer paths", async (t) => {
+test("workbench response expansion remains bounded and inaccessible to ordinary renderer paths", async (t) => {
   const { auth } = await fixture(t);
   await auth.initialize(); await auth.login(token);
   auth.fetcher = async () => new Response("x".repeat(2 * 1024 * 1024));
   const normal = await auth.authorizedFetch(`${descriptor.origin}/api/clients`);
   await assert.rejects(normal.arrayBuffer(), /allowed size/);
-  const r3 = await auth.authorizedR3Fetch(`${descriptor.origin}/api/r3/executions/test`);
+  const r3 = await auth.authorizedExecutionFetch(`${descriptor.origin}/api/r3/executions/test`);
   assert.equal((await r3.arrayBuffer()).byteLength, 2 * 1024 * 1024);
-  await assert.rejects(auth.authorizedR3Fetch(`${descriptor.origin}/api/sessions`), /path/);
-  await assert.rejects(auth.authorizedR3Fetch(`${descriptor.origin}/api/r3/executions/test?token=x`), /path/);
+  await assert.rejects(auth.authorizedExecutionFetch(`${descriptor.origin}/api/sessions`), /path/);
+  await assert.rejects(auth.authorizedExecutionFetch(`${descriptor.origin}/api/r3/executions/test?token=x`), /path/);
   auth.fetcher = async () => new Response("x".repeat(8 * 1024 * 1024 + 1));
-  const tooLarge = await auth.authorizedR3Fetch(`${descriptor.origin}/api/r3/executions/test`);
+  const tooLarge = await auth.authorizedExecutionFetch(`${descriptor.origin}/api/r3/executions/test`);
   await assert.rejects(tooLarge.arrayBuffer(), /allowed size/);
 });
 

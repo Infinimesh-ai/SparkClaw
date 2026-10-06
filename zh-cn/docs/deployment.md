@@ -6,6 +6,31 @@
 模型服务；全远端部署使用五个版本化公网模型端点。两者都运行 PostgreSQL、Sandbox Runner、
 Gotenberg、Gateway 与 WebChat。
 
+## 本机浏览器访问
+
+已实现的独立入口在后端宿主提供 `http://127.0.0.1:18794`，也接受同端口的
+`localhost` 及系统可用时的 IPv6 回环地址。产品配置默认
+`SPARKCLAW_LOCAL_WEBCHAT_ENABLED=true`，独立 Gateway 调试默认关闭。在所选私有部署
+环境中覆盖这个唯一开关或 `SPARKCLAW_LOCAL_WEBCHAT_PORT`，再使用正常的 `start:local`
+或 `start:remote` 协调服务。启用本机入口时，普通 Gateway 认证必须保持开启；非法开关值／端口拒绝启动。
+
+产品容器要求原生 Linux host networking，不能把 Docker Desktop 虚拟机回环地址当作
+真实宿主来源证据。独立镜像提供 WebChat 页面，仅通过
+`data/runtime/local-webchat/workbench.sock` 连接 Gateway。配置工具生成独立的
+`local-webchat.json`（0600）及 Socket 目录（0700），UID/GID 与 Gateway 一致。
+不增加 Gateway 宿主 TCP 端口，不复用桌面凭据或管理 Socket 权限。正常协调准备私有配置，
+`--check` 只检查。权限错误或身份不符导致本机 readiness 失败，独立客户端保留原有认证通路。
+
+局域网上线验收使用现有验证证书的 TLS overlay；两套启动脚本均通过
+`SPARKCLAW_DESKTOP_TLS_DIR` 选择它。本机 HTTP 无需浏览器信任证书，也不改变
+LAN／桌面的端口和证书要求。同机通过 LAN 地址访问仍须浏览器凭据。本机用户把回环端口
+转发给远端属于主动转授 Owner 权限，仍须保持配置的 Host／Origin／端口。
+
+关闭开关并重新协调后，本机入口及 Gateway 私有 Socket 关闭；禁用的入口容器保持空闲健康。
+重新启用不复活已撤销 Client。浏览器不获得 Cookie 会话或 Bearer：每次请求校验来源证明，
+流最长 30 分钟，重连重新校验。浏览器保留失效凭据时，使用显式本机恢复操作，不能靠清空
+浏览器业务数据修复认证。验收与未完成项见[设计文档](local-webchat-access-design.md)。
+
 ## 前置条件
 
 两种产品模式都要求：
@@ -135,7 +160,7 @@ Owner；签发时再把这份公开身份与独立设备 Token 合为一份 `spa
 连接凭据。启动与开机恢复会核验同一描述、TLS overlay 及验证证书的健康检查。两项机器
 配置均未设置时仍使用默认 HTTP，也不能签发供下载桌面端直接使用的连接凭据。
 
-WebChat 是唯一应用入口，host port `18790` 默认绑定 `0.0.0.0`。设置
+使用凭据的 LAN WebChat 入口在 host port `18790` 默认绑定 `0.0.0.0`。设置
 `SPARKCLAW_WEBCHAT_PORT` 可以发布另一个 host port；容器与 Nginx listener 仍使用内部
 端口 `18790`。Gateway 不发布 host port；WebChat 通过私有 `sparkclaw_internal` network，
 把选定路由代理到 `gateway:18789`。WebChat 必须只在本机可达时设置
@@ -143,7 +168,7 @@ WebChat 是唯一应用入口，host port `18790` 默认绑定 `0.0.0.0`。设�
 容器前失败。
 模型、状态服务和 sandbox runner 仍绑定 localhost 或私有 Docker network。
 
-两种产品模式都保持 `SPARKCLAW_API_TOKEN` 为空，并要求逐客户端 Gateway bearer credential。
+两种产品模式都保持 `SPARKCLAW_API_TOKEN` 为空；网络入口要求逐客户端 Gateway bearer credential，独立本机 WebChat 入口使用前述私有授权。
 部署会生成 `data/runtime/local-workbench.json` 与 mode-`0600` 的
 `data/runtime/desktop-client.json`，随后由 Gateway 在 PostgreSQL 中登记稳定的 Desktop Client。
 已安装的桌面 launcher 只把两个绝对路径传给 Electron；token 不进入应用包、WebChat 资源或
@@ -274,7 +299,7 @@ Deadline；其他 Probe 保持 45 秒上限。关闭官方扩展任务页可能�
 连接，因此 Controller 只识别这一精确的 Page-closed 终态，并随后回收 Metadata-bound Daemon。
 资格 Chromium 保持运行，私有 Runtime Directory 恢复为空，且没有调用 Send Operation。
 
-Gateway 仍只在 Docker 内部可达，WebChat 默认把唯一普通工作台入口发布在 `18790`。该拓扑
+Gateway 的 TCP 接口仍只在 Docker 内部可达，WebChat 默认在 `18790` 发布凭据工作台入口，另在宿主回环 `18794` 提供本机访问。该拓扑
 不安装 TLS 或防火墙规则，因此此端口只应放在 Owner 可信网络中。局域网浏览器需要麦克风采集
 时，应使用满足 secure-context 要求的 HTTPS reverse proxy。
 

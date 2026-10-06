@@ -61,6 +61,7 @@ code/qualification evidence; they do not override the new target's data ownershi
 | [Generic external MCP safeguards](generic-mcp-safeguards-design.md) | Generic catalog filtering/classification plus bounded redacted results and approval persistence shared with the fixed LocalMind task adapter |
 | [Per-owner connector activation](connector-owner-runtime-design.md) | Accepted issue #13 design for owner-isolated settings, shared channel workers, cache coherence, drain semantics, and restart reconciliation |
 | [WebChat](webchat.md) | Owner workbench responsibilities, API ownership, refresh model, and frontend verification |
+| [Local WebChat access design](local-webchat-access-design.md) | Implemented host-loopback ingress, private Owner authority, explicit credential recovery and isolated qualification; physical Linux/LAN rollout gates remain |
 | [Settings and integration configuration](settings-integration-configuration-design.md) | Implemented settings directory and encrypted household multi-credential configuration for Info and outbound LocalMind MCP |
 
 ## Operations And Governance

@@ -1,7 +1,7 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { KeyRound, PanelLeft, PanelRight, PlugZap, Plus, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PanelLeft, PanelRight, Plus, X } from "lucide-react";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy, type WorkspacePage } from "./components/workbench";
-import { api, APIError, apiToken, clearAPIToken, saveAPIToken, streamWorkbenchInvalidations } from "./api/client";
+import { api, APIError, saveAPIToken, streamWorkbenchInvalidations } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
 import type { Language } from "./i18n";
 import { BrowserPanel } from "./desktop/BrowserPanel";
@@ -19,6 +19,8 @@ import { NotificationCenter } from "./components/notificationCenter";
 import { ScheduleBar, ScheduleCreateDialog } from "./components/schedules";
 import { SessionSidebar } from "./components/sidebar";
 import { WorkspaceSettingsSidebar } from "./components/settingsSidebar";
+import { WorkbenchAccess } from "./components/workbenchAccess";
+import { useWorkbenchAccess } from "./hooks/useWorkbenchAccess";
 import { useDeliveryTarget } from "./hooks/useDeliveryTarget";
 import { usePassiveNotifications } from "./hooks/usePassiveNotifications";
 import { useSchedules } from "./hooks/useSchedules";
@@ -89,31 +91,22 @@ export function App() {
   draftsBySessionRef.current = draftsBySession;
   const [attachmentsBySession, setAttachmentsBySession] = useState<Record<string, MessageAttachment[]>>({});
   const [busy, setBusy] = useState(false);
-  const [tokenInput, setTokenInput] = useState("");
   const [error, setErrorMessage] = useState("");
-  // True when the current error came from a 401 response, i.e. the gateway
-  // rejected our credentials and the token recovery UI applies.
-  // Detected from the typed APIError status, never from display strings.
-  const [authRecovery, setAuthRecovery] = useState(false);
-  const [pairRuntimeOpen, setPairRuntimeOpen] = useState(false);
-  const [authEpoch, setAuthEpoch] = useState(0);
   const [notice, setNotice] = useState("");
   const [desktopConnectionState, setDesktopConnectionState] = useState("checking");
-  const passiveNotifications = usePassiveNotifications();
+  const access = useWorkbenchAccess(!desktop || desktopConnectionState === "connected");
+  const passiveNotifications = usePassiveNotifications(Boolean(access.identity));
 
   const setError = useCallback((message: string) => {
-    setAuthRecovery(false);
-    setPairRuntimeOpen(false);
     setErrorMessage(message);
   }, []);
 
   const surfaceError = useCallback((err: unknown, fallback: string) => {
     const unauthorized = err instanceof APIError && err.status === 401;
     if (desktop && unauthorized) setDesktopConnectionState("invalid_authentication");
-    setAuthRecovery(!desktop && unauthorized);
-    if (!unauthorized) setPairRuntimeOpen(false);
+    if (unauthorized) access.invalidate(err);
     setErrorMessage(err instanceof Error && err.message ? err.message : fallback);
-  }, [desktop]);
+  }, [desktop, access.invalidate]);
   const [tab, setTab] = useState<PanelTab>("timeline");
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const settingsReturnPageRef = useRef<WorkspacePage>("chat");
@@ -127,12 +120,17 @@ export function App() {
   useEffect(() => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
-    let active = true;
-    void api.updateLanguage(language).then((profile) => {
-      if (active) setOwnerProfile(profile);
-    }).catch(() => undefined);
-    return () => { active = false; };
   }, [language]);
+
+  function changeLanguage(next: Language) {
+    setLanguage(next);
+    if (!access.identity) return;
+    void api.updateLanguage(next).then(setOwnerProfile).catch((err) => surfaceError(err, text.errors.connect));
+  }
+
+  useEffect(() => {
+    if (access.error) surfaceError(access.error, text.errors.connect);
+  }, [access.error, surfaceError, text.errors.connect]);
 
   const activeInput = activeSession ? draftsBySession[activeSession] ?? "" : "";
   const activeAttachments = activeSession ? attachmentsBySession[activeSession] ?? [] : [];
@@ -286,25 +284,25 @@ export function App() {
   });
 
   useEffect(() => {
-    if (desktop && desktopConnectionState !== "connected") return;
+    if (!access.identity) return;
     let cancelled = false;
     async function boot() {
       try {
         setError("");
-        await Promise.all([refreshSessionList(), api.workbenchIdentity(), refreshGlobal(), refreshDeliverySurface()]);
+        await Promise.all([refreshSessionList(), refreshGlobal(), refreshDeliverySurface()]);
         if (cancelled) return;
       } catch (err) {
-        surfaceError(err, dictionaries[initialLanguage()].errors.connect);
+        if (!cancelled) surfaceError(err, dictionaries[initialLanguage()].errors.connect);
       }
     }
     void boot();
     return () => {
       cancelled = true;
     };
-  }, [desktop, desktopConnectionState, refreshDeliverySurface, refreshGlobal, refreshSessionList]);
+  }, [access.identity, refreshDeliverySurface, refreshGlobal, refreshSessionList, setError, surfaceError]);
 
   useEffect(() => {
-    if (authRecovery || (!apiToken() && (!desktop || desktopConnectionState !== "connected"))) return;
+    if (!access.identity) return;
     let stopped = false;
     let retryTimer = 0;
     let flushTimer = 0;
@@ -369,14 +367,13 @@ export function App() {
       window.removeEventListener("online", foregroundReconcile);
       document.removeEventListener("visibilitychange", foregroundReconcile);
     };
-  }, [authEpoch, authRecovery, desktop, desktopConnectionState, refreshDeliverySurface, refreshGlobal, refreshSession, refreshSessionList, surfaceError, text.auth.unauthorized]);
+  }, [access.identity, refreshDeliverySurface, refreshGlobal, refreshSession, refreshSessionList, surfaceError, text.auth.unauthorized]);
 
   async function retryDesktopConnection() {
     if (!desktop) return;
     setDesktopConnectionState("reconnecting");
     const status = await desktop.retryLocalConnection().catch(() => ({ state: "service_unavailable" } as const));
     setDesktopConnectionState(status.state);
-    if (status.state === "connected") await bootstrappedRefresh().catch((err) => surfaceError(err, text.errors.connect));
   }
 
   const pendingApprovals = useMemo(() => approvals.filter((approval) => approval.status === "pending"), [approvals]);
@@ -404,7 +401,7 @@ export function App() {
     speech: ready?.speech ?? null,
     sessionId: activeSession,
     language: runtimeConfig?.speech.default_language ?? "auto",
-    externallyDisabled: busy || !activeSession || active?.source === "mcp",
+    externallyDisabled: !access.identity || busy || !activeSession || active?.source === "mcp",
     onTranscript: applyVoiceTranscript
   });
   async function send(content = activeInput, sessionId = activeSession) {
@@ -560,24 +557,19 @@ export function App() {
     }
   }
 
-  async function submitToken(event: FormEvent) {
-    event.preventDefault();
-    const token = tokenInput.trim();
+  async function submitToken(token: string) {
     if (!token) return;
-    try {
-      setError("");
-      saveAPIToken(token);
-      setAuthEpoch((current) => current + 1);
-      await bootstrappedRefresh();
-      setTokenInput("");
-    } catch (err) {
-      clearAPIToken();
-      surfaceError(err, text.auth.unauthorized);
-    }
+    saveAPIToken(token);
+    await reconnect();
   }
 
-  async function bootstrappedRefresh() {
-    await Promise.all([refreshSessionList(), api.workbenchIdentity(), refreshGlobal(), refreshDeliverySurface()]);
+  async function reconnect(local = false) {
+    try {
+      setError("");
+      await access.connect(local);
+    } catch (err) {
+      surfaceError(err, text.auth.unauthorized);
+    }
   }
 
   function navigate(next: WorkspacePage) {
@@ -607,7 +599,7 @@ export function App() {
   }
 
   async function newTask(prompt = "") {
-    if (busy || voice.active) return;
+    if (!access.identity || busy || voice.active) return;
     const session = await createSession();
     if (!session) return;
     if (window.matchMedia("(max-width: 700px)").matches) setSidebarCollapsed(false);
@@ -653,7 +645,7 @@ export function App() {
     }
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
-  }, [busy, voice.active, createSession]);
+  }, [access.identity, busy, voice.active, createSession]);
 
   useEffect(() => {
     if (page !== "schedules") setScheduleCreateOpen(false);
@@ -667,7 +659,7 @@ export function App() {
   }, [page, tab]);
 
   useEffect(() => {
-    if (page !== "settings" || !["models-tools", "permissions", "connections"].includes(tab) || authRecovery) return;
+    if (!access.identity || page !== "settings" || !["models-tools", "permissions", "connections"].includes(tab)) return;
     let active = true;
     void api.config().then((config) => {
       if (active) setRuntimeConfig(config);
@@ -682,7 +674,7 @@ export function App() {
       });
     }
     return () => { active = false; };
-  }, [authRecovery, page, surfaceError, tab, text.errors.connectorUpdate, text.settings.unavailable]);
+  }, [access.identity, page, surfaceError, tab, text.errors.connectorUpdate, text.settings.unavailable]);
 
   function renderInspectorColumn(connectionsOnly = false, showTabs = true) {
     return (
@@ -713,6 +705,9 @@ export function App() {
         runtimeConfig={runtimeConfig}
         ownerProfile={ownerProfile}
         clients={clients}
+        currentClientID={access.identity?.client_id}
+        accessMode={access.identity?.access_mode}
+        onCurrentClientRevoked={async () => access.invalidate(new APIError(401, text.auth.unauthorized))}
         connectors={connectors}
         notificationBindings={notificationBindings}
         onOpenTrace={(runId) => void openTrace(runId)}
@@ -725,7 +720,7 @@ export function App() {
         setConnectors={setConnectors}
         setRuntimeConfig={setRuntimeConfig}
         setOwnerProfile={setOwnerProfile}
-        onLanguageChange={setLanguage}
+        onLanguageChange={changeLanguage}
         onOpenSchedules={() => navigate("schedules")}
       />
     );
@@ -733,6 +728,17 @@ export function App() {
 
   const settingsPageTitle = copy.settingsTitles[tab];
   const settingsPageDescription = tab === "memory" || tab === "approvals" ? "" : copy.settingsDescriptions[tab];
+
+  if (!access.identity && !desktop) {
+    return <main className="shell workbench accessGate gateway-offline">
+      <section className="workspace homeWorkspace">
+        <header className="topbar"><span className="workspaceLabel">{copy.local}</span></header>
+        <WorkbenchAccess text={text} language={language} connecting={access.connecting} error={error}
+          onToken={submitToken} onLocal={() => reconnect(true)} onRetry={() => reconnect()} />
+        <WorkbenchWelcome language={language} />
+      </section>
+    </main>;
+  }
 
   return (
     <main className={`shell workbench ${page === "settings" ? "settingsPageMode" : ""} ${sidebarCollapsed ? "sidebarCollapsed" : ""} ${ready?.ok ? "gateway-ready" : "gateway-offline"}`}>
@@ -766,7 +772,7 @@ export function App() {
       {page !== "settings" && <section className={`workspace ${error ? "hasError" : ""} ${showHome ? "homeWorkspace" : ""} ${fullPanel ? "panelWorkspace" : ""} ${inspectorOpen && page === "chat" ? "withInspector" : ""} ${desktopCapability() ? "desktopWorkbench" : ""}`}>
         <header className="topbar">
           <button className="iconButton sidebarToggle" onClick={() => setSidebarCollapsed(current => !current)} aria-label={copy.toggleNav}><PanelLeft size={18} /></button>
-          <span className="workspaceLabel">{copy.local}</span>
+          <span className="workspaceLabel">{access.identity?.access_mode === "local" ? text.auth.localAccess : copy.local}</span>
           <div className="topbarActions">
             <NotificationCenter
               notifications={passiveNotifications.notifications}
@@ -785,33 +791,7 @@ export function App() {
           </div>
         </header>
 
-        {error && (authRecovery || (!ready && showHome)) && (
-          <div className={`connectionNotice ${pairRuntimeOpen ? "pairing" : ""}`} role="status">
-            <span className="connectionNoticeIcon" aria-hidden="true"><PlugZap size={17} /></span>
-            <span className="connectionNoticeCopy">
-              <strong>{copy.connectGateway}</strong>
-              <small>{copy.connectGatewayDescription}</small>
-            </span>
-            {pairRuntimeOpen ? (
-              <div className="authActions connectionNoticeAuth">
-                <form className="tokenForm" onSubmit={(event) => void submitToken(event)}>
-                  <input
-                    aria-label={text.auth.gatewayToken}
-                    value={tokenInput}
-                    onChange={(event) => setTokenInput(event.target.value)}
-                    placeholder={text.auth.gatewayToken}
-                    type="password"
-                  />
-                  <button type="submit" disabled={!tokenInput.trim()} title={text.common.saveToken}>
-                    <KeyRound size={15} />
-                  </button>
-                </form>
-              </div>
-            ) : <button className="connectionNoticeAction" type="button" onClick={() => setPairRuntimeOpen(true)}>{copy.pairRuntime}</button>}
-          </div>
-        )}
-
-        {error && !authRecovery && (ready || !showHome) && (
+        {error && (
           <div className="errorBanner">
             <span>{error}</span>
           </div>
@@ -899,16 +879,6 @@ export function App() {
         />
         <section className="settingsPageMain">
           <div className="settingsPageContent">
-            {authRecovery && !desktop && <div className="connectionNotice settingsConnectionNotice" role="status">
-              <span className="connectionNoticeIcon" aria-hidden="true"><PlugZap size={17} /></span>
-              <span className="connectionNoticeCopy"><strong>{copy.connectGateway}</strong><small>{copy.connectGatewayDescription}</small></span>
-              {pairRuntimeOpen ? <div className="authActions connectionNoticeAuth">
-                <form className="tokenForm" onSubmit={(event) => void submitToken(event)}>
-                  <input aria-label={text.auth.gatewayToken} value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} placeholder={text.auth.gatewayToken} type="password" />
-                  <button type="submit" disabled={!tokenInput.trim()} title={text.common.saveToken}><KeyRound size={15} /></button>
-                </form>
-              </div> : <button className="connectionNoticeAction" type="button" onClick={() => setPairRuntimeOpen(true)}>{copy.pairRuntime}</button>}
-            </div>}
             <header className="settingsPageHeader">
               <h1>{settingsPageTitle}</h1>
               {settingsPageDescription && <p>{settingsPageDescription}</p>}

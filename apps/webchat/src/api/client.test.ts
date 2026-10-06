@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MessageStreamDeliveryError } from "../lib/messageStream";
-import { api, APIError, apiToken, bindAPITokenToDeployment, clearAPIToken, saveAPIToken, documentFileURL, messageStreamRequestBody, scheduleActionRequestBody, scheduleCreateRequestBody, streamWorkbenchInvalidations } from "./client";
+import { api, APIError, apiToken, bindAPITokenToDeployment, clearAPIToken, saveAPIToken, documentFileURL, fetchAuthedBlob, messageStreamRequestBody, onAPIUnauthorized, scheduleActionRequestBody, scheduleCreateRequestBody, streamWorkbenchInvalidations } from "./client";
 
 describe("email refresh request identity", () => {
   let values: Map<string, string>;
@@ -184,5 +184,60 @@ describe("workbench invalidation stream", () => {
       method: "GET",
       headers: expect.objectContaining({ Authorization: "Bearer web-client-token", Accept: "text/event-stream" })
     }));
+  });
+});
+
+describe("local WebChat request admission", () => {
+  beforeEach(() => vi.stubGlobal("localStorage", { getItem: () => null }));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("marks tokenless identity, binary, speech and stream requests with the same nonsecret proof", async () => {
+    const fetcher = vi.fn(async (url: string) => url.includes("/stream") ? sseResponse(": heartbeat\n\n") : {
+      ok: true,
+      json: async () => ({ deployment_id: "d", owner_id: "o", access_mode: "local", client_id: "" }),
+      blob: async () => new Blob(["file"])
+    });
+    vi.stubGlobal("fetch", fetcher);
+    await api.workbenchIdentity();
+    await fetchAuthedBlob("/api/documents/file?path=test.txt");
+    await api.createSpeechRealtimeSession("s1", "r1", "auto");
+    await streamWorkbenchInvalidations(new AbortController().signal, () => {});
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    for (const call of vi.mocked(fetch).mock.calls) {
+      const headers = new Headers(call[1]?.headers);
+      expect(headers.get("X-SparkClaw-Local-WebChat")).toBe("1");
+      expect(headers.has("Authorization")).toBe(false);
+    }
+  });
+
+  it("does not send the local marker to a different origin", async () => {
+    const fetcher = vi.fn(async () => ({ ok: true, blob: async () => new Blob() }));
+    vi.stubGlobal("fetch", fetcher);
+    await fetchAuthedBlob("https://remote.example/api/documents/file?path=test.txt");
+    expect(new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers).has("X-SparkClaw-Local-WebChat")).toBe(false);
+  });
+
+  it("leaves desktop authentication to its host transport", async () => {
+    vi.stubGlobal("sparkclawDesktop", { runtimeKind: "electron", capabilityVersion: 1 });
+    const fetcher = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true }) }));
+    vi.stubGlobal("fetch", fetcher);
+    await api.ready();
+    const headers = new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers);
+    expect(headers.has("X-SparkClaw-Local-WebChat")).toBe(false);
+    expect(headers.has("Authorization")).toBe(false);
+  });
+
+  it("never retries or downgrades a rejected bearer, including binary requests", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => "revoked-token" });
+    const fetcher = vi.fn(async () => ({ ok: false, status: 401, json: async () => ({ error: "revoked" }) }));
+    vi.stubGlobal("fetch", fetcher);
+    const rejected = vi.fn();
+    const stop = onAPIUnauthorized(rejected);
+    await expect(fetchAuthedBlob("/api/documents/file?path=test.txt")).rejects.toMatchObject({ status: 401 });
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(rejected).toHaveBeenCalledOnce();
+    expect(apiToken()).toBe("revoked-token");
+    expect(new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers).get("Authorization")).toBe("Bearer revoked-token");
+    stop();
   });
 });

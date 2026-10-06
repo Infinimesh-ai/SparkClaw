@@ -6,7 +6,7 @@
 import { useCallback, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { FileSearch, Gauge, MemoryStick, ScrollText, Settings, ShieldAlert } from "lucide-react";
-import { api, APIError, clearAPIToken } from "../api/client";
+import { api, APIError } from "../api/client";
 import type { Copy, Language } from "../i18n";
 import { isBindingSetupPending } from "../lib/connectors";
 import { notificationBindingErrorMessage } from "../lib/bindingError";
@@ -112,6 +112,7 @@ export function InspectorColumn({
   ownerProfile,
   clients,
   currentClientID,
+  accessMode,
   clientsLoading,
   clientsError,
   onReloadClients,
@@ -144,11 +145,10 @@ export function InspectorColumn({
 
   async function endClientLogin() {
     if (onCurrentClientRevoked) { await onCurrentClientRevoked(); return; }
-    // The browser client retains its legacy token store. Desktop callers
-    // supply the main-process logout callback that also stops host channels.
-    clearAPIToken();
+    // Keep the rejected credential until the owner explicitly chooses a new
+    // credential or local recovery. Reloading without it would silently
+    // switch a local browser to host authority after self-revocation.
     surfaceError(new APIError(401, text.auth.unauthorized), text.auth.unauthorized);
-    window.location.reload();
   }
 
   async function checkSettingsStatus(section: WorkspaceSettingsSection) {
@@ -435,6 +435,7 @@ export function InspectorColumn({
           ownerProfile={ownerProfile}
           clients={clients}
           currentClientID={currentClientID ?? authenticatedClientID}
+          accessMode={accessMode}
           clientsLoading={clientsLoading}
           clientsError={clientsError}
           onReloadClients={reloadClients}

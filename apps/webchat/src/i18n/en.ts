@@ -336,6 +336,10 @@ export const en = {
       saveCorrection: "Save correction"
     },
     auth: {
+      localAccess: "Local access",
+      checkingAccess: "Checking access…",
+      useLocalAccess: "Clear credential and use local access",
+      configuredToken: "This deployment provides a fixed access token. Update its configuration to use another credential or local access.",
       gatewayToken: "Gateway token",
       unauthorized: "Token authentication failed",
       retryConnection: "Retry",

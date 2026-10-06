@@ -10,6 +10,7 @@ import "errors"
 type ToolErrorCode string
 
 const (
+	ToolErrorResourceUnavailable ToolErrorCode = "tool_resource_unavailable"
 	// ToolErrorUnsafeClickTarget: the click target was rejected by the
 	// bounded browser.interaction contract (consequential action label).
 	ToolErrorUnsafeClickTarget ToolErrorCode = "unsafe_click_target"

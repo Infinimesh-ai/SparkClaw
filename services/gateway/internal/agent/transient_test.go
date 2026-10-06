@@ -10,7 +10,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationrun"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
@@ -52,11 +51,11 @@ func TestTransientWeatherUsesActiveInfoWithoutPersistentContent(t *testing.T) {
 	cfg.Workspaces.DefaultRoot, cfg.Workspaces.Allowlist = root, []string{root}
 	cfg.Storage.ArtifactDir = filepath.Join(root, "artifacts")
 	local := store.NewMemoryStore()
-	tools := toolhub.New(cfg, local)
-	defer tools.Close()
 	artifacts := artifact.NewStore(cfg.Storage)
-	tools.WithArtifactStore(artifacts)
-	runtime, release := parent.WithTransientRepositories(local, tools, policy.New(cfg), artifacts)
+	runtime, release, err := parent.WithExecutionScope(local, toolhub.ExecutionResources{OwnerID: app.DefaultOwnerID, WorkspaceRoot: root, Artifacts: artifacts})
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer func() {
 		if err := release(t.Context()); err != nil {
 			t.Error(err)

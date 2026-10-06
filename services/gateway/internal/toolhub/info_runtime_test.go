@@ -70,7 +70,7 @@ func TestSharedInfoRuntimeFollowsCredentialChanges(t *testing.T) {
 	cfg := config.Default()
 	cfg.Tools.Web.Search.Enabled = true
 	parent := New(cfg, store.NewMemoryStore())
-	local := New(cfg, store.NewMemoryStore()).WithSharedInfoRuntime(parent)
+	local, _, session := executionScopeFixture(t, parent, nil)
 	t.Cleanup(func() { _ = parent.Close(); _ = local.Close() })
 	runs := integrationrun.New()
 	parent.WithIntegrationRuns(runs)
@@ -79,14 +79,14 @@ func TestSharedInfoRuntimeFollowsCredentialChanges(t *testing.T) {
 	if !local.InfoConfigured() {
 		t.Fatal("transient hub missed activated household credentials")
 	}
-	if _, err := local.Execute(t.Context(), "weather.lookup", map[string]any{"location": "杭州"}, "", "weather"); err != nil {
+	if _, err := local.Execute(t.Context(), "weather.lookup", map[string]any{"location": "杭州"}, session.ID, "weather"); err != nil {
 		t.Fatal(err)
 	}
 	ctx, finish := runs.Begin(t.Context(), "transient-search")
 	defer finish(false)
 	result := make(chan error, 1)
 	go func() {
-		_, err := local.Execute(ctx, "web.search", map[string]any{"query": "test"}, "", "transient-search")
+		_, err := local.Execute(ctx, "web.search", map[string]any{"query": "test"}, session.ID, "transient-search")
 		result <- err
 	}()
 	<-old.started
@@ -97,13 +97,13 @@ func TestSharedInfoRuntimeFollowsCredentialChanges(t *testing.T) {
 	if app.ToolErrorCodeFrom(context.Cause(ctx)) != app.ToolErrorInfoCredentialsChanged {
 		t.Fatal("credential switch did not cancel transient run")
 	}
-	if _, err := local.Execute(t.Context(), "weather.lookup", map[string]any{"location": "杭州"}, "", "new-weather"); app.ToolErrorCodeFrom(err) != app.ToolErrorInfoNotConfigured {
+	if _, err := local.Execute(t.Context(), "weather.lookup", map[string]any{"location": "杭州"}, session.ID, "new-weather"); app.ToolErrorCodeFrom(err) != app.ToolErrorInfoNotConfigured {
 		t.Fatalf("cleared credentials still usable: %v", err)
 	}
 	parent.ReplaceInfoAdapters(old, &weatherInfoStub{response: dedicatedWeatherResponse()})
 	betweenStages, finishStages := runs.Begin(t.Context(), "between-stages")
 	defer finishStages(false)
-	if _, err := local.Execute(betweenStages, "weather.lookup", map[string]any{"location": "杭州"}, "", "between-stages"); err != nil {
+	if _, err := local.Execute(betweenStages, "weather.lookup", map[string]any{"location": "杭州"}, session.ID, "between-stages"); err != nil {
 		t.Fatal(err)
 	}
 	parent.ReplaceInfoAdapters(old, &weatherInfoStub{response: dedicatedWeatherResponse()})

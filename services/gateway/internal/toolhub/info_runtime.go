@@ -34,15 +34,6 @@ func newInfoRuntime(search websearch.Adapter, weather WeatherInfoAdapter) *infoR
 	return &infoRuntime{search: search, weather: weather, generation: 1, calls: map[uint64]infoCall{}}
 }
 
-// WithSharedInfoRuntime binds an execution-local hub to the active credential
-// controller, including future replacements and cancellation of in-flight calls.
-// Repositories, artifacts and browser adapters remain owned by the local hub.
-// Call only during assembly, before the receiving hub executes any tools.
-func (h *ToolHub) WithSharedInfoRuntime(source *ToolHub) *ToolHub {
-	h.info = source.info
-	return h
-}
-
 func (h *ToolHub) WithIntegrationRuns(registry *integrationrun.Registry) *ToolHub {
 	if h != nil && h.info != nil {
 		h.info.mu.Lock()

@@ -13,7 +13,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/r3browser"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/r3execution"
 
@@ -44,24 +43,11 @@ func (s *Server) executeR3Workflow(ctx context.Context, e r3execution.Envelope, 
 			execErr = r3execution.ErrUnavailable
 		}
 	}()
-	cfg := s.cfg
-	cfg.Workspaces.DefaultRoot = filepath.Join(root, "workspace")
-	cfg.Workspaces.Allowlist = []string{cfg.Workspaces.DefaultRoot}
-	cfg.Storage.ArtifactBackend = "filesystem"
-	cfg.Storage.ArtifactDir = filepath.Join(root, "artifacts")
-	cfg.Storage.TraceDir = ""
-	cfg.Storage.LogDir = ""
-	cfg.State.Path = ""
-	cfg.State.DSN = ""
-	cfg.Security.ToolPolicyPath = ""
-	cfg.Memory.Enabled = false
-	cfg.Tools.Reminders.Enabled = false
-	cfg.Tools.Notifications.Channels = nil
-	cfg.MCPServers = nil
-	cfg.Runtime.RunMaxDurationSeconds = int(r3execution.ExecutionBudget / time.Second)
-	cfg.Runtime.RunMaxObservationBytes = min(cfg.Runtime.RunMaxObservationBytes, 1<<20)
-	cfg.Security.DeniedTools = append(append([]string{}, cfg.Security.DeniedTools...), "shell.run", "notify.send", "memory.save", "memory.delete", "reminders.create", "reminders.update", "reminders.cancel")
-	if err = os.MkdirAll(cfg.Workspaces.DefaultRoot, 0700); err != nil {
+	workspace := filepath.Join(root, "workspace")
+	storage := s.cfg.Storage
+	storage.ArtifactBackend = "filesystem"
+	storage.ArtifactDir = filepath.Join(root, "artifacts")
+	if err = os.MkdirAll(workspace, 0700); err != nil {
 		return r3execution.Output{}, err
 	}
 	budget := r3execution.NewBudget(r3execution.TaskBytes)
@@ -71,22 +57,26 @@ func (s *Server) executeR3Workflow(ctx context.Context, e r3execution.Envelope, 
 		}
 	}
 	local := store.NewMemoryStore().WithTransientContentAdmission(budget.Admit)
-	tools := toolhub.New(cfg, local)
-	defer tools.Close()
-	// BrowserHostAdapter is installed here after the Broker tranche is merged.
-	if err = s.bindR3Browser(tools, e); err != nil {
+	broker, err := s.r3HostBroker()
+	if err != nil {
 		return r3execution.Output{}, err
 	}
-	artifacts := r3execution.TemporaryArtifacts{Store: artifact.NewStore(cfg.Storage), Budget: budget}
-	tools.WithArtifactStore(artifacts)
-	runtime, releaseRuntime := s.runtime.WithTransientRepositories(local, tools, policy.New(cfg), artifacts)
+	browser := broker.ForScope(r3browser.Scope{Identity: r3browser.Identity{OwnerID: e.OwnerID, ClientID: e.ClientID, InstallationID: e.InstallationID}, ConversationID: e.ConversationID, TaskID: e.TaskID})
+	artifacts := r3execution.TemporaryArtifacts{Store: artifact.NewStore(storage), Budget: budget}
+	runtime, releaseRuntime, err := s.runtime.WithExecutionScope(local, toolhub.ExecutionResources{
+		OwnerID: e.OwnerID, WorkspaceRoot: workspace, Artifacts: artifacts, Browser: browser,
+		MaxDuration: r3execution.ExecutionBudget, MaxObservationBytes: 1 << 20,
+	})
+	if err != nil {
+		return r3execution.Output{}, err
+	}
 	defer func() {
 		if err := releaseRuntime(ctx); err != nil {
 			answer = r3execution.Output{}
 			execErr = r3execution.ErrUnavailable
 		}
 	}()
-	session, err := local.CreateSessionWithScope(ctx, "R3 temporary execution", e.OwnerID, cfg.Workspaces.DefaultRoot, "webchat", false)
+	session, err := local.CreateSessionWithScope(ctx, "Workbench execution", e.OwnerID, workspace, "webchat", false)
 	if err != nil {
 		return r3execution.Output{}, err
 	}
@@ -104,7 +94,7 @@ func (s *Server) executeR3Workflow(ctx context.Context, e r3execution.Envelope, 
 		if strings.ContainsAny(name, "/\\\x00") {
 			return r3execution.Output{}, errors.New("invalid temporary input name")
 		}
-		if err = os.WriteFile(filepath.Join(cfg.Workspaces.DefaultRoot, name), inputs[manifest.ID], 0600); err != nil {
+		if err = os.WriteFile(filepath.Join(workspace, name), inputs[manifest.ID], 0600); err != nil {
 			return r3execution.Output{}, err
 		}
 		inputNames[name] = true
@@ -123,7 +113,7 @@ func (s *Server) executeR3Workflow(ctx context.Context, e r3execution.Envelope, 
 	out := r3execution.Output{Content: result.Message.Content, Files: map[string][]byte{}}
 	size := len(out.Content)
 	entries := 0
-	err = filepath.WalkDir(cfg.Workspaces.DefaultRoot, func(path string, entry fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(workspace, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -137,7 +127,7 @@ func (s *Server) executeR3Workflow(ctx context.Context, e r3execution.Envelope, 
 		if entries > 1000 || entry.Type()&os.ModeSymlink != 0 {
 			return r3execution.ErrCapacity
 		}
-		relative, _ := filepath.Rel(cfg.Workspaces.DefaultRoot, path)
+		relative, _ := filepath.Rel(workspace, path)
 		if inputNames[relative] {
 			return nil
 		}
@@ -171,15 +161,6 @@ func r3MemoryWorkspace(controlRoot string) (string, error) {
 		return "", errors.New("R3 memory-backed tool workspace unavailable")
 	}
 	return os.MkdirTemp("/dev/shm", r3WorkspacePrefix(controlRoot))
-}
-
-func (s *Server) bindR3Browser(tools *toolhub.ToolHub, e r3execution.Envelope) error {
-	broker, err := s.r3HostBroker()
-	if err != nil {
-		return err
-	}
-	tools.WithBrowserAutomationAdapter(broker.ForScope(r3browser.Scope{Identity: r3browser.Identity{OwnerID: e.OwnerID, ClientID: e.ClientID, InstallationID: e.InstallationID}, ConversationID: e.ConversationID, TaskID: e.TaskID}))
-	return nil
 }
 
 func r3WorkspacePrefix(controlRoot string) string {

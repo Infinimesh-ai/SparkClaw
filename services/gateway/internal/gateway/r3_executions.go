@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -50,9 +51,11 @@ func (s *Server) r3ExecutionService() (*r3execution.Service, error) {
 	if err != nil {
 		return nil, r3execution.ErrUnavailable
 	}
-	if err = r3MemorySweep(absolute); err != nil {
+	// Memory-backed workspaces belong to the installed execution adapter.
+	// Host workbench admission needs only the common durable control service.
+	if err = s.prepareExecutionWorkspaces(absolute); err != nil {
 		service.Close()
-		return nil, r3execution.ErrUnavailable
+		return nil, err
 	}
 	service.Start(s.executionContext())
 	s.r3Executions = service
@@ -248,4 +251,13 @@ func (s *Server) r3ResolveApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"resolved": true})
+}
+
+func (s *Server) prepareExecutionWorkspaces(root string) error {
+	// A host-only Gateway may run without Linux tmpfs. Installed execution still
+	// requires r3MemoryWorkspace and fails explicitly when that resource is absent.
+	if _, err := os.Stat("/dev/shm"); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return r3MemorySweep(root)
 }

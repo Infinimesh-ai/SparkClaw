@@ -64,7 +64,7 @@ func New(root string, execute Executor) (*Service, error) {
 			lock.Close()
 		}
 	}()
-	s := &Service{root: root, lock: lock, execute: execute, control: control{Version: 1, Installations: map[string]string{}, Fences: map[string]Fence{}}, approvals: map[string]map[string]*approvalWait{}, active: map[string]context.CancelFunc{}, inputs: map[string]*staged{}, now: func() time.Time { return time.Now().UTC() }}
+	s := &Service{root: root, lock: lock, execute: execute, control: control{Version: 2, Installations: map[string]string{}, Fences: map[string]Fence{}, WorkbenchFences: map[string]workbenchFence{}}, approvals: map[string]map[string]*approvalWait{}, active: map[string]context.CancelFunc{}, inputs: map[string]*staged{}, now: func() time.Time { return time.Now().UTC() }}
 	keyPath := filepath.Join(root, "spool.key")
 	key, err := readPrivate(keyPath, 32)
 	if errors.Is(err, os.ErrNotExist) {
@@ -82,7 +82,7 @@ func New(root string, execute Executor) (*Service, error) {
 	if err == nil {
 		decoder := json.NewDecoder(strings.NewReader(string(raw)))
 		decoder.DisallowUnknownFields()
-		if err = decoder.Decode(&s.control); err != nil || !json.Valid(raw) || s.control.Version != 1 || s.control.Fences == nil || s.control.Installations == nil || len(s.control.Fences) > MaxFences {
+		if err = decoder.Decode(&s.control); err != nil || !json.Valid(raw) || s.control.Version != 2 || s.control.Fences == nil || s.control.Installations == nil || s.control.WorkbenchFences == nil || len(s.control.Fences)+len(s.control.WorkbenchFences) > MaxFences {
 			return nil, errors.New("invalid R3 control ledger")
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -100,6 +100,9 @@ func New(root string, execute Executor) (*Service, error) {
 		default:
 			return nil, errors.New("invalid R3 fence state")
 		}
+	}
+	if err = s.validateWorkbenchFences(); err != nil {
+		return nil, err
 	}
 	if err = s.Sweep(); err != nil {
 		return nil, err
@@ -271,7 +274,7 @@ func (s *Service) Submit(ctx context.Context, e Envelope, digest string) (Status
 	if st != nil {
 		reservation = 0
 	}
-	if len(s.control.Fences) >= MaxFences || s.reservationLocked(e.OwnerID)+reservation > OwnerBytes || len(s.active) >= 8 {
+	if len(s.control.Fences)+len(s.control.WorkbenchFences) >= MaxFences || s.reservationLocked(e.OwnerID)+reservation > OwnerBytes || len(s.active) >= 8 {
 		s.mu.Unlock()
 		return Status{}, ErrCapacity
 	}

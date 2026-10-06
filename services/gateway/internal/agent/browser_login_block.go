@@ -412,6 +412,13 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 			"original run for browser login block was not found", userReply)
 		return Result{}, false, nil
 	}
+	if guard, ok := ctx.Value(workbenchContinuationKey{}).(WorkbenchContinuation); ok {
+		next, beginErr := guard(ctx, run)
+		if beginErr != nil {
+			return Result{}, true, beginErr
+		}
+		ctx = next
+	}
 	ctx, endRun := r.bindIntegrationRun(ctx, run.ID)
 	defer endRun()
 	if run.Workflow != nil && run.Workflow.Browser != nil &&

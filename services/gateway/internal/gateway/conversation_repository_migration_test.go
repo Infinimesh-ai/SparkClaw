@@ -55,10 +55,10 @@ func TestConversationMessageAPIsRedactStoreFailures(t *testing.T) {
 		wantEvent  string
 	}{
 		{name: "request", path: "/api/sessions/" + session.ID + "/messages", wantStatus: http.StatusServiceUnavailable},
-		{name: "stream", path: "/api/sessions/" + session.ID + "/messages/stream", wantStatus: http.StatusCreated, wantEvent: "event: error"},
+		{name: "stream", path: "/api/sessions/" + session.ID + "/messages/stream", wantStatus: http.StatusServiceUnavailable},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			response, err := http.Post(testServer.URL+testCase.path, "application/json", bytes.NewBufferString(`{"content":"hello"}`))
+			response, err := http.Post(testServer.URL+testCase.path, "application/json", bytes.NewBufferString(`{"request_id":"`+testWorkbenchRequestID()+`","content":"hello"}`))
 			if err != nil {
 				t.Fatal(err)
 			}

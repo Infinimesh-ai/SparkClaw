@@ -271,6 +271,9 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 			AuthorizedContextData: strings.TrimSpace(authorizedContext),
 		},
 	}
+	if snapshot, ok := ctx.Value(workbenchContextKey{}).(WorkbenchContext); ok && snapshot.sessionID == sessionID {
+		run.StartedAt = snapshot.Before
+	}
 	if run.ID == "" {
 		run.ID = app.NewID("run")
 	}

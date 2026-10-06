@@ -315,6 +315,9 @@ func NewWithTrace(cfg config.Config, st Repository, tools *toolhub.ToolHub, runt
 		workbenchEvents:         newWorkbenchEventHub(),
 	}
 	s.streamMessage = func(ctx context.Context, sessionID, content string, attachments []agent.MessageAttachment, ingress app.MessageIngressContext, emit agent.StreamHandler) (agent.Result, error) {
+		if admission, ok := ctx.Value(admittedWorkbenchKey{}).(*r3execution.WorkbenchLease); ok {
+			return s.runtime.HandleAdmittedWorkbenchMessage(ctx, sessionID, admission.InputMessageID, admission.RunID, content, attachments, ingress, nil, emit)
+		}
 		return s.runtime.HandleMessageStreamWithIngress(ctx, sessionID, content, attachments, ingress, emit)
 	}
 	for _, option := range options {
@@ -543,6 +546,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/sessions/{id}/messages", s.listMessages)
 	s.mux.HandleFunc("POST /api/sessions/{id}/messages/stream", s.postMessageStream)
 	s.mux.HandleFunc("POST /api/sessions/{id}/messages", s.postMessage)
+	s.mux.HandleFunc("GET /api/sessions/{id}/requests/{request}", s.getWorkbenchRequest)
+	s.mux.HandleFunc("GET /api/sessions/{id}/requests", s.listWorkbenchRequests)
+	s.mux.HandleFunc("POST /api/sessions/{id}/requests/{request}/cancel", s.cancelWorkbenchRequest)
 	s.mux.HandleFunc("GET /api/sessions/{id}/events", s.listEvents)
 	s.mux.HandleFunc("GET /api/sessions/{id}/events/stream", s.streamSessionEvents)
 	s.mux.HandleFunc("GET /api/jingsi/v0/readyz", s.jingSiLANGuard(s.readyJingSiLAN))

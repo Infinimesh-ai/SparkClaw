@@ -13,9 +13,10 @@ import (
 )
 
 type control struct {
-	Version       int               `json:"schema_version"`
-	Installations map[string]string `json:"installations"`
-	Fences        map[string]Fence  `json:"fences"`
+	Version         int                       `json:"schema_version"`
+	Installations   map[string]string         `json:"installations"`
+	Fences          map[string]Fence          `json:"fences"`
+	WorkbenchFences map[string]workbenchFence `json:"workbench_fences"`
 }
 type bundle struct {
 	Payload string            `json:"payload"`

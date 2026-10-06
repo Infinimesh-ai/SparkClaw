@@ -219,47 +219,56 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("content or an attachment is required"))
 		return
 	}
-	releaseAdmission := s.tryAdmitSessionMessage(sessionID)
-	if releaseAdmission == nil {
-		writeError(w, http.StatusConflict, errors.New("another message is already running for this conversation"))
+	if input.Schedule != nil && input.Schedule.Operation == app.RouteOperationCreate {
+		writeError(w, http.StatusBadRequest, errors.New("schedule creation uses POST /api/schedules"))
 		return
 	}
-	defer releaseAdmission()
-	executionCtx, finishExecution := s.detachedExecutionContext()
-	defer finishExecution()
-	var result agent.Result
+	target := input.TargetEndpointID
 	if input.Schedule != nil {
-		if input.Schedule.Operation == app.RouteOperationCreate {
-			writeError(w, http.StatusBadRequest, errors.New("schedule creation uses POST /api/schedules"))
-			return
-		}
-		ingress, ingressErr := s.webMessageIngress(r.Context(), r, session, "", input.ClientTimezone)
-		if ingressErr != nil {
-			writeError(w, http.StatusBadRequest, ingressErr)
-			return
-		}
-		result, err = s.runtime.HandleScheduleActionWithIngress(executionCtx, sessionID, input.Content, input.Schedule.agentAction(), ingress)
-	} else {
-		ingress, ingressErr := s.webMessageIngress(r.Context(), r, session, input.TargetEndpointID, input.ClientTimezone)
-		if ingressErr != nil {
-			status := deliveryHTTPStatus(errorCode(ingressErr))
-			if input.TargetEndpointID != "" && errorCode(ingressErr) == "" {
-				status = http.StatusServiceUnavailable
-			}
-			writeError(w, status, ingressErr)
-			return
-		}
-		result, err = s.runtime.HandleMessageWithIngress(executionCtx, sessionID, "", "", input.Content, sanitizeMessageAttachments(input.Attachments), ingress)
+		target = ""
 	}
+	ingress, err := s.webMessageIngress(r.Context(), r, session, target, input.ClientTimezone)
 	if err != nil {
-		writeConversationError(w, http.StatusInternalServerError, err)
+		status := deliveryHTTPStatus(errorCode(err))
+		if target != "" && errorCode(err) == "" {
+			status = http.StatusServiceUnavailable
+		}
+		writeError(w, status, err)
 		return
 	}
-	if _, err := s.deliverAgentResult(executionCtx, result); err != nil {
-		writeConversationError(w, http.StatusBadGateway, err)
+	admission, previous, err := s.admitWorkbenchMessage(r, session, input, ingress)
+	if err != nil {
+		writeWorkbenchAdmissionError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, result)
+	if previous != nil {
+		writeJSON(w, http.StatusOK, previous)
+		return
+	}
+	defer admission.close()
+	var action *agent.ScheduleAction
+	if input.Schedule != nil {
+		value := input.Schedule.agentAction()
+		action = &value
+	}
+	result, err := s.runtime.HandleAdmittedWorkbenchMessage(admission.context(), sessionID, admission.lease.InputMessageID, admission.lease.RunID, input.Content, sanitizeMessageAttachments(input.Attachments), ingress, action, nil)
+	var deliveryErr error
+	if err == nil {
+		_, deliveryErr = s.deliverAgentResult(admission.context(), result)
+	}
+	if finishErr := s.finishWorkbenchMessage(admission, result, err, deliveryErr); finishErr != nil {
+		writeConversationError(w, http.StatusInternalServerError, finishErr)
+		return
+	}
+	if deliveryErr != nil {
+		writeConversationError(w, http.StatusBadGateway, deliveryErr)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, struct {
+		agent.Result
+		DraftRevision *int64 `json:"draft_revision,omitempty"`
+	}{result, admission.lease.DraftRevision})
 }
 
 type scheduleActionInput struct {
@@ -317,15 +326,23 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err)
 		return
 	}
-	releaseAdmission := s.tryAdmitSessionMessage(sessionID)
-	if releaseAdmission == nil {
-		writeError(w, http.StatusConflict, errors.New("another message is already running for this conversation"))
+	if input.Schedule != nil {
+		writeError(w, http.StatusBadRequest, errors.New("schedule actions use the message endpoint"))
+		return
+	}
+	admission, previous, err := s.admitWorkbenchMessage(r, session, input, ingress)
+	if err != nil {
+		writeWorkbenchAdmissionError(w, err)
+		return
+	}
+	if previous != nil {
+		writeJSON(w, http.StatusOK, previous)
 		return
 	}
 	workerStarted := false
 	defer func() {
 		if !workerStarted {
-			releaseAdmission()
+			admission.close()
 		}
 	}()
 	initialEvents, err := s.store.EventsAfter(r.Context(), sessionID, "")
@@ -355,7 +372,11 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	// Event name must stay in sync with MESSAGE_STREAM_STARTED_EVENT in
 	// apps/webchat/src/lib/messageStream.ts: the webchat client keys its
 	// accepted/not-accepted failure disposition on this exact string.
-	if err := send("message.stream.started", map[string]string{"session_id": sessionID}); err != nil {
+	started := map[string]any{"session_id": sessionID, "request_id": input.RequestID, "run_id": admission.lease.RunID}
+	if admission.lease.DraftRevision != nil {
+		started["draft_revision"] = *admission.lease.DraftRevision
+	}
+	if err := send("message.stream.started", started); err != nil {
 		return
 	}
 	attachments := sanitizeMessageAttachments(input.Attachments)
@@ -372,13 +393,12 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	}
 	modelEvents := make(chan agent.StreamEvent, 16)
 	results := make(chan streamResult, 1)
-	executionCtx, finishExecution := s.detachedExecutionContext()
+	executionCtx := admission.context()
 	s.streamWG.Add(1)
 	workerStarted = true
 	go func() {
 		defer s.streamWG.Done()
-		defer releaseAdmission()
-		defer finishExecution()
+		defer admission.close()
 		result, err := s.streamMessage(executionCtx, sessionID, input.Content, attachments, ingress, func(event agent.StreamEvent) error {
 			select {
 			case <-r.Context().Done():
@@ -390,6 +410,9 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 		var deliveryErr error
 		if err == nil {
 			_, deliveryErr = s.deliverAgentResult(executionCtx, result)
+		}
+		if finishErr := s.finishWorkbenchMessage(admission, result, err, deliveryErr); finishErr != nil {
+			err = finishErr
 		}
 		results <- streamResult{result: result, err: err, deliveryErr: deliveryErr}
 		close(modelEvents)

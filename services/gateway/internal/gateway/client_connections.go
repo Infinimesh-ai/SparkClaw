@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 )
 
@@ -56,7 +57,13 @@ func (s *Server) clientConnectionContext(ctx context.Context, clientID string) (
 func (s *Server) cancelClientConnections(clientID string) {
 	s.r3Mu.Lock()
 	broker := s.r3Broker
+	service := s.r3Executions
 	s.r3Mu.Unlock()
+	if service != nil {
+		if err := service.RevokeWorkbenchClient(clientID); err != nil {
+			slog.Warn("workbench revocation fence persistence unavailable")
+		}
+	}
 	if broker != nil {
 		broker.RevokeClientHosts(clientID)
 	}

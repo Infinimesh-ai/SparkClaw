@@ -8,12 +8,10 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/r3browser"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/r3execution"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
@@ -85,17 +83,11 @@ func TestR3InstalledClientControlHTTPMatchesClosedRequestShapes(t *testing.T) {
 			t.Fatal("invalid grant shape", invalid, code)
 		}
 	}
-	e := r3execution.Envelope{SchemaVersion: 1, DeploymentID: cfg.Gateway.DeploymentID, OwnerID: "owner-host", ClientID: "host-client", InstallationID: installation, ConversationID: "22222222-2222-4222-8222-222222222222", TaskID: "33333333-3333-4333-8333-333333333333", RequestID: "44444444-4444-4444-8444-444444444444", Messages: []r3execution.Message{{Role: "user", Content: "synthetic future task"}}}
-	contextJSON, _ := json.Marshal(e)
-	leaseJSON, _ := json.Marshal(map[string]any{"schema_version": 1, "due_at": time.Now().UTC().Add(time.Hour), "context": string(contextJSON), "digest": r3execution.Digest(contextJSON)})
-	if code, body := request("/api/r3/schedules/lease", string(leaseJSON), installation); code != 200 || !bytes.Contains(body, []byte(`"state":"leased"`)) {
-		t.Fatalf("schedule registration %d %s", code, body)
+	// Scheduled work is owned by the host scheduler; the removed installed
+	// lease endpoints must not accept or retain future task context.
+	for _, route := range []string{"/api/r3/schedules/lease", "/api/r3/schedules/request/renew", "/api/r3/schedules/request/cancel"} {
+		if code, body := request(route, `{}`, installation); code != http.StatusNotFound {
+			t.Fatalf("removed lease route %s: %d %s", route, code, body)
+		}
 	}
-	if code, _ := request("/api/r3/schedules/"+e.RequestID+"/renew", `{}`, installation); code != 200 {
-		t.Fatal("renew", code)
-	}
-	if code, _ := request("/api/r3/schedules/"+e.RequestID+"/cancel", `{}`, installation); code != 200 {
-		t.Fatal("cancel", code)
-	}
-
 }

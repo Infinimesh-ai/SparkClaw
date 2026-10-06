@@ -15,6 +15,8 @@ import (
 )
 
 type webMessageInput struct {
+	RequestID        string                    `json:"request_id"`
+	DraftRevision    *int64                    `json:"draft_revision,omitempty"`
 	Content          string                    `json:"content"`
 	Attachments      []agent.MessageAttachment `json:"attachments"`
 	TargetEndpointID app.EndpointID            `json:"target_endpoint_id,omitempty"`

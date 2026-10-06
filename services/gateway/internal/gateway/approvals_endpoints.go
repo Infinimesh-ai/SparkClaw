@@ -286,6 +286,29 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		s.resolveHappyPlanApproval(w, r, approval, status, input.Note)
 		return
 	}
+	var workbenchContinuation *workbenchAdmission
+	if !mcpRun {
+		session, found, lookupErr := s.sessionForRequest(r.Context(), r, approval.SessionID)
+		if lookupErr != nil {
+			writeSessionStoreError(w, lookupErr)
+			return
+		}
+		if !found {
+			writeError(w, http.StatusNotFound, errors.New("session not found"))
+			return
+		}
+		ctx, finish := s.detachedExecutionContext()
+		defer finish()
+		workbenchContinuation, err = s.beginWorkbenchContinuation(ctx, workbenchBinding(r, session, ""), approval.RunID, true)
+		if err != nil {
+			writeWorkbenchAdmissionError(w, err)
+			return
+		}
+		if workbenchContinuation != nil {
+			defer workbenchContinuation.close()
+			r = r.WithContext(workbenchContinuation.context())
+		}
+	}
 	candidate, err := s.store.ResolveApproval(r.Context(), approval.ID, status, input.Note)
 	approval, err = store.ReconcileApprovalWrite(r.Context(), s.store, candidate, err)
 	if err != nil {
@@ -374,6 +397,17 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 			return
 		}
 		executionStatus = string(app.MCPOperationFailed)
+	}
+	if workbenchContinuation != nil {
+		result, found, lookupErr := s.runtime.LookupRunResult(r.Context(), approval.SessionID, approval.RunID)
+		if lookupErr != nil || !found {
+			writeConversationError(w, http.StatusServiceUnavailable, errors.New("persisted approval result unavailable"))
+			return
+		}
+		if finishErr := s.finishWorkbenchMessage(workbenchContinuation, result, nil, nil); finishErr != nil {
+			writeConversationError(w, http.StatusServiceUnavailable, finishErr)
+			return
+		}
 	}
 	s.refreshTrace(r.Context(), approval.RunID)
 	writeJSON(w, http.StatusOK, map[string]any{

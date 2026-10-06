@@ -31,31 +31,8 @@ func startLocalCredentialManagement(ctx context.Context, cfg config.Config, repo
 		return nil, errors.New("local management Owner is unavailable")
 	}
 	directory := filepath.Join(filepath.Dir(cfg.Gateway.LocalManagementFile), "management")
-	if err := checkPrivateLocalDirectory(directory); err != nil {
-		return nil, err
-	}
-	socket := filepath.Join(directory, "credentials.sock")
-	if existing, err := os.Lstat(socket); err == nil {
-		if existing.Mode()&os.ModeSocket == 0 || existing.Mode().Perm() != 0o600 || !localFileOwnedByCurrentUser(existing) {
-			return nil, errors.New("local management socket is not controlled by the deployment user")
-		}
-		// Never replace a live listener, including another Gateway process.
-		if connection, err := net.DialTimeout("unix", socket, 200*time.Millisecond); err == nil {
-			connection.Close()
-			return nil, errors.New("local credential management is already running")
-		}
-		if err := os.Remove(socket); err != nil {
-			return nil, err
-		}
-	} else if !os.IsNotExist(err) {
-		return nil, err
-	}
-	listener, err := net.Listen("unix", socket)
+	listener, err := listenPrivateLocalSocket(directory, "credentials.sock")
 	if err != nil {
-		return nil, fmt.Errorf("listen on local management socket: %w", err)
-	}
-	if err := os.Chmod(socket, 0o600); err != nil {
-		listener.Close()
 		return nil, err
 	}
 	actorID := credential.ActorID
@@ -72,4 +49,35 @@ func startLocalCredentialManagement(ctx context.Context, cfg config.Config, repo
 	}
 	go func() { _ = httpServer.Serve(listener) }()
 	return httpServer, nil
+}
+
+func listenPrivateLocalSocket(directory, name string) (net.Listener, error) {
+	if err := checkPrivateLocalDirectory(directory); err != nil {
+		return nil, err
+	}
+	socket := filepath.Join(directory, name)
+	if existing, err := os.Lstat(socket); err == nil {
+		if existing.Mode()&os.ModeSocket == 0 || existing.Mode().Perm() != 0o600 || !localFileOwnedByCurrentUser(existing) {
+			return nil, errors.New("local management socket is not controlled by the deployment user")
+		}
+		// Never replace a live listener, including another Gateway process.
+		if connection, err := net.DialTimeout("unix", socket, 200*time.Millisecond); err == nil {
+			connection.Close()
+			return nil, errors.New("private local listener is already running")
+		}
+		if err := os.Remove(socket); err != nil {
+			return nil, err
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		return nil, fmt.Errorf("listen on private local socket: %w", err)
+	}
+	if err := os.Chmod(socket, 0o600); err != nil {
+		listener.Close()
+		return nil, err
+	}
+	return listener, nil
 }

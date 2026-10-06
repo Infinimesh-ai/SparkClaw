@@ -84,10 +84,18 @@ export function LocalWorkbench() {
   const surfaceError = useCallback((err: unknown, fallback = zh ? "操作失败，请重试。" : "Something went wrong. Try again.") => {
     setError(err instanceof Error ? err.message : fallback);
   }, [zh]);
-  const draftScopes = useMemo(() => new Map<string, string>(), [store, currentClientID]);
+  const scopeError = useRef(surfaceError); scopeError.current = surfaceError;
+  const localScopeKey = JSON.stringify([
+    Boolean(connection && ["connected", "reconnecting", "service_unavailable"].includes(connection.state)),
+    connection?.backend?.deployment_id, connection?.owner_id, currentClientID,
+  ]);
+  const draftScopes = useMemo(() => new Map<string, string>(), [store, localScopeKey]);
   const draftAdapter = useMemo(() => ({
     load: async (id: string) => {
-      const value = await store.draft(id); draftScopes.set(id, value.scope_key); return workbenchDraft(value);
+      const value = await store.draft(id);
+      const expected = draftScopes.get(id);
+      if (expected && expected !== value.scope_key) throw new Error("Draft authentication changed; reload this workbench");
+      draftScopes.set(id, value.scope_key); return workbenchDraft(value);
     },
     save: async (id: string, value: import("../lib/workbenchDraft").WorkbenchDraft) =>
       workbenchDraft(await store.saveDraft(id, value.content, value.attachment_ids, value.revision, draftScopes.get(id) ?? "")),
@@ -136,8 +144,6 @@ export function LocalWorkbench() {
   useEffect(() => {
     applyAppearance();
     let active = true;
-    void store.list().then((rows) => { if (active) setConversations(rows); }).catch(surfaceError)
-      .finally(() => { if (active) setLoading(false); });
     const connectionChanged = (status: DesktopConnectionStatus) => {
       if (active) { setCurrentClientID(status.client_id ?? ""); setConnection(status); }
     };
@@ -148,6 +154,14 @@ export function LocalWorkbench() {
     const unsubscribeBrowser = desktop.onState?.(browserChanged);
     return () => { active = false; unsubscribe?.(); unsubscribeBrowser?.(); ++readGeneration.current; };
   }, [desktop, store, surfaceError]);
+  useEffect(() => {
+    let active = true;
+    ++readGeneration.current; selectedRef.current = "";
+    setSelected(""); setContent(emptyContent); setConversations([]); setLoading(true);
+    void store.list().then((rows) => { if (active) setConversations(rows); }).catch((error) => { if (active) scopeError.current(error); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [store, localScopeKey]);
   useEffect(() => {
     if (connection?.state !== "connected") return;
     void refreshGlobal().catch(() => undefined);
@@ -179,7 +193,7 @@ export function LocalWorkbench() {
       composerInputRef.current?.setSelectionRange(inserted.caret, inserted.caret);
     });
     return true;
-  }, []);
+  }, [setDraft]);
   const voice = useVoiceInput({
     speech: ready?.speech ?? null,
     sessionId: selected,
@@ -391,7 +405,10 @@ export function LocalWorkbench() {
           }}
           onRemoveAttachment={(attachment) => setInputFiles((current) => current.filter((id) => id !== attachment.artifact_id))}
           onSend={() => void save(true)} />
-        <small className="localDraftStatus" role="status">{drafts.status === "saved" ? (zh ? "草稿已保存到本机" : "Draft saved on this device") : drafts.status === "error" ? (zh ? "草稿尚未保存，请保留此窗口并重试" : "Draft not saved. Keep this window open and retry") : drafts.status === "loading" ? (zh ? "读取草稿中" : "Loading draft") : (zh ? "正在保存草稿" : "Saving draft")}</small>{drafts.status === "error" && <button type="button" onClick={() => void drafts.flush().catch(surfaceError)}>{zh ? "重试保存草稿" : "Retry saving draft"}</button>}
+        <small className="localDraftStatus" role="status">{drafts.status === "saved" ? (zh ? "草稿已保存到本机" : "Draft saved on this device") : drafts.status === "error" ? (zh ? "草稿尚未保存，请保留此窗口并重试" : "Draft not saved. Keep this window open and retry") : drafts.status === "loading" ? (zh ? "读取草稿中" : "Loading draft") : (zh ? "正在保存草稿" : "Saving draft")}</small>{drafts.status === "error" && <div className="localDraftRecovery">
+          <button type="button" onClick={() => void drafts.flush().catch(surfaceError)}>{zh ? "重试保存草稿" : "Retry saving draft"}</button>
+          <button type="button" onClick={() => void drafts.saveCurrentOverLatest().catch(surfaceError)}>{zh ? "用我的输入替换已保存草稿" : "Replace saved draft with my text"}</button>
+        </div>}
         {documentPickerOpen && <ComposerDocumentPicker documents={localDocuments} text={text} language={language}
           onChoose={(document) => {
             setInputFiles((current) => current.includes(document.id) ? current : [...current, document.id]);

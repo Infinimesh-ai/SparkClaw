@@ -54,4 +54,20 @@ describe("workbench draft queue", () => {
     expect((await drafts.load("one")).content).toBe("one changed");
     expect(load).toHaveBeenCalledTimes(2); drafts.dispose();
   });
+  it("keeps conflicting text until the user explicitly saves it over the current revision", async () => {
+    let remote = { content: "original", attachment_ids: [] as string[], revision: 0 };
+    const save = vi.fn(async (_id: string, value: WorkbenchDraft) => {
+      if (value.revision !== remote.revision) throw new Error("revision conflict");
+      remote = { ...value, revision: value.revision + 1 }; return remote;
+    });
+    const drafts = new WorkbenchDrafts({ load: async () => remote, save });
+    await drafts.load("one"); drafts.edit("one", { content: "my visible text", attachment_ids: [] });
+    remote = { ...remote, content: "other editor text", revision: 2 };
+    await expect(drafts.flush("one")).rejects.toThrow("conflict");
+    await expect(drafts.flush("one")).rejects.toThrow("conflict");
+    expect((await drafts.load("one")).content).toBe("my visible text");
+    expect(await drafts.saveCurrentOverLatest("one")).toEqual({ content: "my visible text", attachment_ids: [], revision: 3 });
+    expect(save.mock.calls.at(-1)?.[1].revision).toBe(2); drafts.dispose();
+  });
+
 });

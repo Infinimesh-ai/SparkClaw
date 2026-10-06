@@ -12,7 +12,11 @@ The queue debounces typing for 250 ms, serializes writes and uses compare-and-se
 revisions. A late save receipt cannot replace newer typing. Switching conversations
 flushes the current draft first; a failed flush leaves the current draft available
 and exposes the error. The UI shows whether a draft is saved or pending and offers
-a save retry after failure. Unsaved edits are not reported as durable. Disposal
+a save retry after failure. A revision conflict keeps the visible text; the explicit
+“Replace saved draft with my text” action reads the current revision and saves the
+retained text against it. Ordinary retry never silently replaces a newer draft.
+An authenticated scope change rejects this recovery as well as delayed saves.
+Unsaved edits are not reported as durable. Disposal
 flushes pending edits, but abrupt process loss before a persistence receipt can
 still lose the pending keystrokes.
 
@@ -34,7 +38,7 @@ conversation draft.
 
 The desktop implementation initializes the selected development schema directly;
 there is no old-schema migration or draft import. Verification at this commit:
-121 desktop tests, 202 WebChat tests across 48 files, and the WebChat type check and
+121 desktop tests, 204 WebChat tests across 48 files, and the WebChat type check and
 production build passed. Focused cases cover restart persistence, scope isolation,
 attachment ownership, CAS conflicts, disk failure, atomic enqueue/clear, delayed
 save receipts, navigation/remount and preservation of edits during in-flight saves.

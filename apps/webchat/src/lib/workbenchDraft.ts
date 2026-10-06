@@ -70,6 +70,24 @@ export class WorkbenchDrafts {
     return entry.dirty ? this.flush(id) : copy(entry.value);
   }
 
+  // An explicit user choice: keep the visible text over the newly read saved
+  // revision. Ordinary retries never advance a conflicting revision themselves.
+  async saveCurrentOverLatest(id: string): Promise<WorkbenchDraft> {
+    const entry = this.entry(id);
+    clearTimeout(entry.timer); entry.timer = undefined;
+    await entry.write?.catch(() => undefined);
+    const epoch = entry.epoch;
+    const write = this.adapter.load(id).then((latest) => {
+      if (entry.epoch !== epoch) return copy(entry.value);
+      entry.value = { ...entry.value, revision: latest.revision };
+      entry.dirty = true; entry.sequence++;
+      return copy(entry.value);
+    }).finally(() => { if (entry.write === write) entry.write = undefined; });
+    entry.write = write;
+    await write;
+    return this.flush(id);
+  }
+
   accept(id: string, value: WorkbenchDraft) {
     const entry = this.entry(id);
     clearTimeout(entry.timer); entry.timer = undefined;

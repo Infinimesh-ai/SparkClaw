@@ -170,6 +170,10 @@ describe("R3 local workbench", () => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input(), "edited draft");
         input().dispatchEvent(new Event("input", { bubbles: true }));
       });
+      drafts.draft.mockRejectedValueOnce(new Error("Cannot load second draft"));
+      await choose("Second");
+      expect(input().value).toBe("edited draft"); expect(input().disabled).toBe(false);
+      expect(host.textContent).toContain("Cannot load second draft");
       await choose("Second"); expect(input().value).toBe("");
       await choose("First"); expect(input().value).toBe("edited draft");
       await act(async () => root.unmount()); root = createRoot(host);
@@ -177,6 +181,41 @@ describe("R3 local workbench", () => {
       expect(input().value).toBe("edited draft");
       expect(host.textContent).toContain("Draft saved on this device");
       expect(enqueue).not.toHaveBeenCalled(); expect(submit).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it("fences pending welcome autosave and clears prior local content when authenticated owner changes", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    let owner = "first-owner";
+    let changed: (status: import("./types").DesktopConnectionStatus) => void = () => {};
+    const writes: string[] = [];
+    const drafts = draftAPI();
+    window.sparkclawClientStore = { schemaVersion: 1, ...drafts,
+      draft: vi.fn(async () => ({ scope_key: owner, content: owner === "first-owner" ? "" : "new owner's draft", local_file_ids: [], revision: 0 })),
+      saveDraft: vi.fn(async (_id, content, local_file_ids, revision, expectedScope) => {
+        if (expectedScope !== owner) throw new Error("Draft authentication changed");
+        writes.push(content); return { scope_key: owner, content, local_file_ids, revision: revision + 1 };
+      }), list: vi.fn(async () => []), create: vi.fn(), read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })),
+      enqueue: vi.fn(), submit: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
+      scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", owner_id: owner, client_id: "client" })),
+      onLocalConnection: (listener: typeof changed) => { changed = listener; return () => {}; } } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"); const root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      const input = host.querySelector<HTMLTextAreaElement>("form.composer textarea")!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "old private text");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => {
+        owner = "second-owner";
+        changed({ schema_version: 1, state: "connected", owner_id: owner, client_id: "client" });
+      });
+      expect(input.value).toBe("new owner's draft");
+      expect(writes).toEqual([]);
+      expect(window.sparkclawClientStore.submit).not.toHaveBeenCalled();
     } finally { await act(async () => root.unmount()); }
   });
 

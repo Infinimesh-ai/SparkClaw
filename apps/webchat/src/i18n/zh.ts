@@ -330,7 +330,7 @@ export const zh = {
       approvalPending: "等待审批",
       approvalApproved: "审批已通过",
       approvalRejected: "审批已拒绝",
-      streamDetached: "连接已中断——任务仍在后台继续执行，完成后结果会显示在这里。",
+      streamDetached: "连接已中断，正在查询原请求的结果，不会再次提交。",
       dismissNotice: "关闭提示",
       correction: "修正内容",
       helpful: "标记有用",

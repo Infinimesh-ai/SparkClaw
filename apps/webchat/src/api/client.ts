@@ -51,6 +51,8 @@ import type {
   WorkbenchInvalidation
 } from "./types";
 import { MESSAGE_STREAM_DELIVERY_FAILED_EVENT, MessageStreamDeliveryError } from "../lib/messageStream";
+import { newWorkbenchRequestID, validateWorkbenchRequestStatus, type WorkbenchRequestStatus } from "../lib/workbenchRequest";
+import type { WorkbenchDraft } from "../lib/workbenchDraft";
 import { clientTimezone } from "../lib/timezone";
 import { emailQuery } from "./email";
 import { desktopCapability, desktopGatewayBase } from "../desktop/capability";
@@ -171,6 +173,8 @@ function streamErrorMessage(data: unknown, fallback: string) {
 }
 
 type SendMessageStreamHandlers = {
+  requestID?: string;
+  draftRevision?: number;
   signal?: AbortSignal;
   targetEndpointId?: string;
   onEvent?: (event: string, data: unknown) => void;
@@ -179,8 +183,10 @@ type SendMessageStreamHandlers = {
   onError?: (error: Error) => void;
 };
 
-export function messageStreamRequestBody(content: string, attachments: MessageAttachment[], targetEndpointId = "", timezone = "") {
+export function messageStreamRequestBody(content: string, attachments: MessageAttachment[], targetEndpointId = "", timezone = "", requestID = newWorkbenchRequestID(), draftRevision?: number) {
   return {
+    request_id: requestID,
+    ...(draftRevision === undefined ? {} : { draft_revision: draftRevision }),
     content,
     attachments,
     ...(targetEndpointId ? { target_endpoint_id: targetEndpointId } : {}),
@@ -188,8 +194,9 @@ export function messageStreamRequestBody(content: string, attachments: MessageAt
   };
 }
 
-export function scheduleActionRequestBody(content: string, action: ScheduleAction, timezone = "") {
+export function scheduleActionRequestBody(content: string, action: ScheduleAction, timezone = "", requestID = newWorkbenchRequestID()) {
   return {
+    request_id: requestID,
     content,
     schedule_action: action,
     ...(timezone ? { client_timezone: timezone } : {})
@@ -650,12 +657,36 @@ export const api = {
   deleteSession: (sessionId: string) =>
     request<Session>(`/api/sessions/${sessionId}`, { method: "DELETE" }),
   messages: (sessionId: string) => request<{ messages: Message[] }>(`/api/sessions/${sessionId}/messages`),
+  workbenchDraft: (sessionId: string) => request<WorkbenchDraft>(sessionId ? `/api/sessions/${encodeURIComponent(sessionId)}/draft` : "/api/workbench/draft"),
+  saveWorkbenchDraft: (sessionId: string, draft: WorkbenchDraft) => request<WorkbenchDraft>(sessionId ? `/api/sessions/${encodeURIComponent(sessionId)}/draft` : "/api/workbench/draft", { method: "PUT", body: JSON.stringify(draft) }),
+  workbenchRequests: async (sessionId: string) => {
+    const rows: WorkbenchRequestStatus[] = [];
+    const cursors = new Set<string>();
+    let cursor = "";
+    do {
+      const query = new URLSearchParams({ attention: "1", ...(cursor ? { cursor } : {}) });
+      const page = await request<{ requests: WorkbenchRequestStatus[]; next_cursor?: string }>(`/api/sessions/${encodeURIComponent(sessionId)}/requests?${query}`);
+      rows.push(...(page.requests ?? []).map((status) => validateWorkbenchRequestStatus(status, status.request_id)));
+      cursor = page.next_cursor ?? "";
+      if (cursor && cursors.has(cursor)) throw new Error("Workbench request pagination did not advance");
+      cursors.add(cursor);
+    } while (cursor);
+    return rows;
+  },
+  workbenchRequest: async (sessionId: string, requestID: string) => {
+    const status = await request<WorkbenchRequestStatus>(`/api/sessions/${encodeURIComponent(sessionId)}/requests/${encodeURIComponent(requestID)}`);
+    return validateWorkbenchRequestStatus(status, requestID);
+  },
+  cancelWorkbenchRequest: async (sessionId: string, requestID: string) => {
+    const status = await request<WorkbenchRequestStatus>(`/api/sessions/${encodeURIComponent(sessionId)}/requests/${encodeURIComponent(requestID)}/cancel`, { method: "POST", body: "{}" });
+    return validateWorkbenchRequestStatus(status, requestID);
+  },
   sendMessageStream: async (sessionId: string, content: string, attachments: MessageAttachment[] = [], handlers: SendMessageStreamHandlers = {}) => {
     await requestEventStream(
       `/api/sessions/${sessionId}/messages/stream`,
       {
         method: "POST",
-        body: JSON.stringify(messageStreamRequestBody(content, attachments, handlers.targetEndpointId, clientTimezone())),
+        body: JSON.stringify(messageStreamRequestBody(content, attachments, handlers.targetEndpointId, clientTimezone(), handlers.requestID, handlers.draftRevision)),
         signal: handlers.signal
       },
       (event, rawData) => {

@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { KeyRound, PanelLeft, PanelRight, PlugZap, Plus, X } from "lucide-react";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy, type WorkspacePage } from "./components/workbench";
+import { WorkbenchRequests } from "./components/workbenchRequests";
 import { api, APIError, apiToken, clearAPIToken, saveAPIToken, streamWorkbenchInvalidations } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
 import type { Language } from "./i18n";
@@ -23,9 +24,11 @@ import { useDeliveryTarget } from "./hooks/useDeliveryTarget";
 import { usePassiveNotifications } from "./hooks/usePassiveNotifications";
 import { useSchedules } from "./hooks/useSchedules";
 import { useSessionCrud } from "./hooks/useSessionCrud";
+import { useHostWorkbenchDrafts } from "./hooks/useHostWorkbenchDrafts";
 import { useVoiceInput } from "./hooks/useVoiceInput";
 import type { VoiceDraftAnchor } from "./hooks/useVoiceInput";
 import { hasPersistedResultMessage, MESSAGE_STREAM_STARTED_EVENT, messageStreamFailureDisposition } from "./lib/messageStream";
+import { newWorkbenchRequestID, type WorkbenchRequestStatus } from "./lib/workbenchRequest";
 import { insertVoiceTranscript } from "./lib/voiceDraft";
 import { applyAppearance } from "./lib/appearance";
 import type {
@@ -65,6 +68,8 @@ export function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [requestsBySession, setRequestsBySession] = useState<Record<string, WorkbenchRequestStatus[]>>({});
+  const unconfirmedRequests = useRef<Record<string, Record<string, WorkbenchRequestStatus>>>({});
   const [streamStatusesByMessage, setStreamStatusesByMessage] = useState<Record<string, StreamStatus[]>>({});
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
   const [modelCalls, setModelCalls] = useState<ModelCall[]>([]);
@@ -84,10 +89,6 @@ export function App() {
   const [traceRun, setTraceRun] = useState<RunTrace | null>(null);
   const [traceList, setTraceList] = useState<TraceMetadata[]>([]);
   const [traceLoading, setTraceLoading] = useState(false);
-  const [draftsBySession, setDraftsBySession] = useState<Record<string, string>>({});
-  const draftsBySessionRef = useRef(draftsBySession);
-  draftsBySessionRef.current = draftsBySession;
-  const [attachmentsBySession, setAttachmentsBySession] = useState<Record<string, MessageAttachment[]>>({});
   const [busy, setBusy] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
   const [error, setErrorMessage] = useState("");
@@ -114,6 +115,16 @@ export function App() {
     if (!unauthorized) setPairRuntimeOpen(false);
     setErrorMessage(err instanceof Error && err.message ? err.message : fallback);
   }, [desktop]);
+  const drafts = useHostWorkbenchDrafts(authEpoch, (err) => surfaceError(err, text.errors.message));
+  const { content: draftsBySession, files: attachmentsBySession, setDraftsBySession, setAttachmentsBySession } = drafts;
+  const draftsBySessionRef = useRef(draftsBySession);
+  draftsBySessionRef.current = draftsBySession;
+  const selectedSource = sessions.find((session) => session.id === activeSession)?.source;
+  useEffect(() => {
+    if (selectedSource === "mcp") return;
+    void drafts.repository.load(activeSession).catch((err) => surfaceError(err, text.errors.message));
+    return () => { void drafts.repository.flush(activeSession).catch((err) => surfaceError(err, text.errors.message)); };
+  }, [activeSession, selectedSource, drafts.repository, surfaceError, text.errors.message]);
   const [tab, setTab] = useState<PanelTab>("timeline");
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const settingsReturnPageRef = useRef<WorkspacePage>("chat");
@@ -134,20 +145,25 @@ export function App() {
     return () => { active = false; };
   }, [language]);
 
-  const activeInput = activeSession ? draftsBySession[activeSession] ?? "" : "";
-  const activeAttachments = activeSession ? attachmentsBySession[activeSession] ?? [] : [];
+  const activeInput = draftsBySession[activeSession] ?? "";
+  const activeAttachments = attachmentsBySession[activeSession] ?? [];
+  const draftAlreadySubmitted = (requestsBySession[activeSession] ?? []).some((request) =>
+    request.submitted_draft_revision !== undefined && request.submitted_draft_revision === drafts.revisions[activeSession]);
 
   const refreshSession = useCallback(async (sessionId: string) => {
     if (!sessionId) return;
     const generation = (sessionRefreshGenerationRef.current[sessionId] ?? 0) + 1;
     sessionRefreshGenerationRef.current[sessionId] = generation;
-    const [messageList, callList, modelCallList, auditList, episodeList] = await Promise.all([
+    const [messageList, callList, modelCallList, auditList, episodeList, requestList] = await Promise.all([
       api.messages(sessionId),
       api.toolCalls(sessionId),
       api.modelCalls(sessionId),
       api.audit(sessionId),
-      api.episodes(sessionId)
+      api.episodes(sessionId),
+      api.workbenchRequests(sessionId)
     ]);
+    const unresolved = Object.keys(unconfirmedRequests.current[sessionId] ?? {});
+    const reconciled = await Promise.allSettled(unresolved.map((requestID) => api.workbenchRequest(sessionId, requestID)));
     if (sessionRefreshGenerationRef.current[sessionId] !== generation || activeSessionRef.current !== sessionId) return;
     if (activeMessageStreamRef.current !== sessionId) {
       setMessages(messageList.messages ?? []);
@@ -156,6 +172,13 @@ export function App() {
     setModelCalls(modelCallList.model_calls ?? []);
     setAuditEvents(auditList.audit_events ?? []);
     setEpisodes(episodeList.episodes ?? []);
+    const unconfirmed = unconfirmedRequests.current[sessionId] ?? {};
+    for (const result of reconciled) if (result.status === "fulfilled") {
+      delete unconfirmed[result.value.request_id];
+      if (!requestList.some((request) => request.request_id === result.value.request_id)) requestList.push(result.value);
+    }
+    for (const request of requestList) delete unconfirmed[request.request_id];
+    setRequestsBySession((current) => ({ ...current, [sessionId]: [...Object.values(unconfirmed), ...requestList] }));
   }, []);
 
   useEffect(() => {
@@ -411,15 +434,30 @@ export function App() {
     const trimmed = content.trim();
     const attachments = attachmentsBySession[sessionId] ?? [];
     const session = sessions.find((item) => item.id === sessionId);
-    if (!sessionId || session?.source === "mcp" || (!trimmed && attachments.length === 0) || busy || voice.active) return;
-    const userMessageId = `local-user-${Date.now()}`;
+    if (session?.source === "mcp" || (!trimmed && attachments.length === 0) || busy || voice.active || (sessionId === activeSession && draftAlreadySubmitted)) return;
+    const requestID = newWorkbenchRequestID();
+    const userMessageId = `local-user-${requestID}`;
     const assistantMessageId = `local-assistant-${Date.now()}`;
     let streamAccepted = false;
+    let attempted = false;
     try {
       setBusy(true);
       setError("");
       setNotice("");
-      setDraftsBySession((current) => ({ ...current, [sessionId]: "" }));
+      if (!sessionId) {
+        const welcome = await drafts.repository.flush("");
+        const created = await createSession();
+        if (!created) return;
+        sessionId = created.id;
+        drafts.repository.edit(sessionId, content, attachments);
+        await drafts.repository.flush(sessionId);
+        // The new conversation is durable before the welcome copy is cleared.
+        // A conflict preserves the newer welcome revision without replaying it.
+        await drafts.repository.clear("", welcome.revision).catch((err) => {
+          if (!(err instanceof APIError && err.status === 409)) throw err;
+        });
+      }
+      const submittedDraft = await drafts.repository.flush(sessionId);
       activeMessageStreamRef.current = sessionId;
       const now = new Date().toISOString();
       setMessages((current) => [
@@ -427,17 +465,24 @@ export function App() {
         { id: userMessageId, session_id: sessionId, role: "user", content: trimmed, attachments, created_at: now },
         { id: assistantMessageId, session_id: sessionId, role: "assistant", content: "", created_at: now }
       ]);
-      setAttachmentsBySession((current) => ({ ...current, [sessionId]: [] }));
       setStreamStatusesByMessage((current) => ({
         ...current,
         [assistantMessageId]: [{ id: "waiting", type: "waiting", text: text.chat.waiting }]
       }));
       let receivedDelta = false;
+      attempted = true;
+      const localStatus: WorkbenchRequestStatus = { schema_version: 1, request_id: requestID, input_digest: "0".repeat(64), state: "running", submitted_draft_revision: submittedDraft.revision };
+      unconfirmedRequests.current[sessionId] = { ...unconfirmedRequests.current[sessionId], [requestID]: localStatus };
+      setRequestsBySession((current) => ({ ...current, [sessionId]: [localStatus, ...(current[sessionId] ?? [])] }));
       await api.sendMessageStream(sessionId, trimmed, attachments, {
+        requestID,
+        draftRevision: submittedDraft.revision,
         targetEndpointId: sessionId === activeSession ? activeTargetEndpointID : "",
         onEvent: (event, data) => {
-          if (event === MESSAGE_STREAM_STARTED_EVENT) {
+        if (event === MESSAGE_STREAM_STARTED_EVENT) {
             streamAccepted = true;
+            const revision = (data as { draft_revision?: number })?.draft_revision;
+            if (typeof revision === "number") drafts.repository.accept(sessionId, { content: "", attachment_ids: [], revision });
           }
           const status = streamStatusFromEvent(event, data, text);
           if (!status) return;
@@ -458,6 +503,7 @@ export function App() {
           );
         },
         onFinal: (result) => {
+          delete unconfirmedRequests.current[sessionId]?.[requestID];
           if (!hasPersistedResultMessage(result.message)) {
             setMessages((current) => current.filter((message) => message.id !== assistantMessageId));
             setStreamStatusesByMessage((current) => {
@@ -484,7 +530,6 @@ export function App() {
       }
       const [sessionList] = await Promise.all([api.sessions(), refreshSession(sessionId), refreshGlobal()]);
       setSessions(sessionList.sessions ?? []);
-      setAttachmentsBySession((current) => ({ ...current, [sessionId]: [] }));
     } catch (err) {
       setMessages((current) => current.filter((message) => message.id !== userMessageId && message.id !== assistantMessageId));
       setStreamStatusesByMessage((current) => {
@@ -495,23 +540,36 @@ export function App() {
       if (activeMessageStreamRef.current === sessionId) {
         activeMessageStreamRef.current = "";
       }
+      // A response lost before the first SSE event can still have been admitted.
+      // Query the original identity; never infer a safe replay from a network error.
+      if (attempted && !streamAccepted && !(err instanceof APIError && [400, 401, 403, 413, 422].includes(err.status))) {
+        try {
+          const status = await api.workbenchRequest(sessionId, requestID);
+          unconfirmedRequests.current[sessionId][requestID] = status;
+          streamAccepted = true;
+        } catch {
+          // Not-found is not a durable negative fence. Keep an uncertain submit
+          // on the refresh path, including when the lookup connection also fails.
+          streamAccepted = true;
+          const current = unconfirmedRequests.current[sessionId]?.[requestID];
+          if (current) current.state = "unknown";
+        }
+      }
+      if (attempted && !streamAccepted) {
+        delete unconfirmedRequests.current[sessionId]?.[requestID];
+        setRequestsBySession((current) => ({ ...current, [sessionId]: (current[sessionId] ?? []).filter((request) => request.request_id !== requestID) }));
+      }
       const disposition = messageStreamFailureDisposition(streamAccepted, err);
       if (disposition === "delivery_failed") {
         // The run finished and its result is persisted server-side, but the
-        // outbound delivery failed: surface the real delivery error and give
-        // the draft back so the owner can retry the send.
-        setDraftsBySession((current) => ({ ...current, [sessionId]: trimmed }));
-        setAttachmentsBySession((current) => ({ ...current, [sessionId]: attachments }));
+        // outbound delivery failed. The workflow is already persisted; show
+        // the delivery error without offering its side effects as a fresh draft.
         setError(err instanceof Error && err.message ? `${text.errors.delivery}: ${err.message}` : text.errors.delivery);
       } else if (disposition === "restore_draft") {
-        setDraftsBySession((current) => ({ ...current, [sessionId]: trimmed }));
-        setAttachmentsBySession((current) => ({ ...current, [sessionId]: attachments }));
         surfaceError(err, text.errors.message);
       } else {
-        // The gateway accepted the run and keeps executing it server-side;
-        // losing the stream is not a failure, so surface an informational
-        // notice instead of an error banner.
-        setAttachmentsBySession((current) => ({ ...current, [sessionId]: [] }));
+        // Reconcile the original request. A disconnected response alone cannot
+        // prove whether the workflow is still running or already finished.
         setNotice(text.chat.streamDetached);
       }
       try {
@@ -521,6 +579,7 @@ export function App() {
         // Best-effort recovery refresh; surface only the original stream error.
       }
     } finally {
+      if (streamAccepted) await drafts.repository.reload(sessionId).catch((err) => surfaceError(err, text.errors.message));
       if (activeMessageStreamRef.current === sessionId) {
         activeMessageStreamRef.current = "";
       }
@@ -845,6 +904,13 @@ export function App() {
         /> : null}</div>}
 
         {page === "chat" && <section className={`chatColumn ${showHome ? "homeChat" : ""}`}>
+          <WorkbenchRequests requests={requestsBySession[activeSession] ?? []} language={language}
+            onRefresh={(requestID) => { const sessionId = activeSession; void api.workbenchRequest(sessionId, requestID).then((status) => {
+              if (unconfirmedRequests.current[sessionId]?.[requestID]) unconfirmedRequests.current[sessionId][requestID] = status;
+              setRequestsBySession((current) => ({ ...current, [sessionId]: (current[sessionId] ?? []).map((request) => request.request_id === requestID ? status : request) }));
+              return refreshSession(sessionId);
+            }).catch((err) => surfaceError(err, text.errors.message)); }}
+            onCancel={(requestID) => { void api.cancelWorkbenchRequest(activeSession, requestID).then(() => refreshSession(activeSession)).catch((err) => surfaceError(err, text.errors.message)); }} />
           <div className="messageList" aria-label={showHome ? text.chat.emptyTitle : undefined}>
             {messages.length === 0 ? (
               <WorkbenchWelcome language={language} />
@@ -862,6 +928,16 @@ export function App() {
               ))
             )}
           </div>
+          {active?.source !== "mcp" && <div className="draftStatus" role="status">
+            {draftAlreadySubmitted && <span>{language === "zh" ? "此版本草稿已提交，请先检查原请求状态。" : "This draft revision was submitted. Check the original request status."} </span>}
+            {language === "zh"
+              ? drafts.status[activeSession] === "saved" ? "草稿已保存" : drafts.status[activeSession] === "error" ? "草稿尚未保存" : "正在保存草稿…"
+              : drafts.status[activeSession] === "saved" ? "Draft saved" : drafts.status[activeSession] === "error" ? "Draft not saved" : "Saving draft…"}
+            {drafts.status[activeSession] === "error" && <>
+              <button type="button" onClick={() => void (drafts.loaded[activeSession] ? drafts.repository.flush(activeSession) : drafts.repository.load(activeSession)).catch((err) => surfaceError(err, text.errors.message))}>{language === "zh" ? "重试" : "Retry"}</button>
+              {drafts.loaded[activeSession] && <button type="button" onClick={() => void drafts.repository.keepAndSave(activeSession).catch((err) => surfaceError(err, text.errors.message))}>{language === "zh" ? "保留我的草稿并保存" : "Keep my draft and save"}</button>}
+            </>}
+          </div>}
           {active?.source !== "mcp" && (
             <ComposerDock
               text={text}
@@ -870,6 +946,8 @@ export function App() {
               activeInput={activeInput}
               activeAttachments={activeAttachments}
               busy={busy}
+              canCompose={drafts.loaded[activeSession] === true}
+              canSend={drafts.loaded[activeSession] === true && !draftAlreadySubmitted && (!activeSession || requestsBySession[activeSession] !== undefined)}
               voice={voice}
               composerInputRef={composerInputRef}
               setDraftsBySession={setDraftsBySession}

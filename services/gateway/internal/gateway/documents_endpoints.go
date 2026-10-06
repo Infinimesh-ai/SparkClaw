@@ -329,7 +329,7 @@ func (s *Server) workspaceRootForRequest(ctx context.Context, r *http.Request, s
 			return "", false, err
 		}
 		if !ok {
-			if strings.TrimSpace(principalForRequest(r).ClientID) == "" {
+			if !principalForRequest(r).ownerScoped() {
 				return strings.TrimSpace(s.cfg.Workspaces.DefaultRoot), true, nil
 			}
 			return "", false, nil
@@ -347,7 +347,7 @@ func (s *Server) workspaceRootForRequest(ctx context.Context, r *http.Request, s
 		return strings.TrimSpace(profile.WorkspaceRoot), true, nil
 	}
 	principal := principalForRequest(r)
-	if strings.TrimSpace(principal.ClientID) != "" && principal.OwnerID != app.DefaultOwnerID {
+	if principal.ownerScoped() && principal.OwnerID != app.DefaultOwnerID {
 		return "", false, nil
 	}
 	return strings.TrimSpace(s.cfg.Workspaces.DefaultRoot), true, nil

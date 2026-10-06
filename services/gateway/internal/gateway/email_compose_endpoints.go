@@ -11,15 +11,15 @@ import (
 )
 
 func (s *Server) registerEmailComposeRoutes() {
-	s.mux.HandleFunc("GET /api/email/compose-capabilities", s.emailComposeCapabilities)
-	s.mux.HandleFunc("GET /api/email/sent-sources", s.emailSentSources)
-	s.mux.HandleFunc("GET /api/email/drafts", s.listEmailDrafts)
-	s.mux.HandleFunc("GET /api/email/drafts/{draft}", s.listEmailDrafts)
-	s.mux.HandleFunc("POST /api/email/drafts", s.saveEmailDraft)
-	s.mux.HandleFunc("POST /api/email/replies/polish", s.polishEmailReply)
-	s.mux.HandleFunc("PUT /api/email/drafts/{draft}", s.saveEmailDraft)
-	s.mux.HandleFunc("POST /api/email/drafts/{draft}/send", s.sendEmailDraft)
-	s.mux.HandleFunc("POST /api/email/drafts/{draft}/reconcile", s.reconcileEmailDraft)
+	s.handleWorkbench("GET /api/email/compose-capabilities", s.emailComposeCapabilities)
+	s.handleWorkbench("GET /api/email/sent-sources", s.emailSentSources)
+	s.handleWorkbench("GET /api/email/drafts", s.listEmailDrafts)
+	s.handleWorkbench("GET /api/email/drafts/{draft}", s.listEmailDrafts)
+	s.handleWorkbench("POST /api/email/drafts", s.saveEmailDraft)
+	s.handleWorkbench("POST /api/email/replies/polish", s.polishEmailReply)
+	s.handleWorkbench("PUT /api/email/drafts/{draft}", s.saveEmailDraft)
+	s.handleWorkbench("POST /api/email/drafts/{draft}/send", s.sendEmailDraft)
+	s.handleWorkbench("POST /api/email/drafts/{draft}/reconcile", s.reconcileEmailDraft)
 }
 
 func (s *Server) polishEmailReply(w http.ResponseWriter, r *http.Request) {

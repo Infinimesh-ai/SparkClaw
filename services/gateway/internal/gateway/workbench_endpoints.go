@@ -8,7 +8,7 @@ import (
 
 func (s *Server) getWorkbenchIdentity(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
-	if !principal.Authenticated || strings.TrimSpace(principal.ClientID) == "" {
+	if !principal.Authenticated || (strings.TrimSpace(principal.ClientID) == "" && principal.LocalAccessID == "") {
 		writeError(w, http.StatusUnauthorized, errors.New("a Client bearer token is required"))
 		return
 	}
@@ -18,9 +18,15 @@ func (s *Server) getWorkbenchIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	mode := "credential"
+	if principal.LocalAccessID != "" {
+		mode = "local"
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"deployment_id": deploymentID,
-		"owner_id":      principal.OwnerID,
-		"client_id":     principal.ClientID,
+		"deployment_id":   deploymentID,
+		"owner_id":        principal.OwnerID,
+		"client_id":       principal.ClientID,
+		"access_mode":     mode,
+		"local_access_id": principal.LocalAccessID,
 	})
 }

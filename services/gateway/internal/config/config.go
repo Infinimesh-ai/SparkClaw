@@ -78,6 +78,15 @@ func Load(path string) (Config, error) {
 			return Config{}, errors.New("SPARKCLAW_LOCAL_MANAGEMENT_FILE requires SPARKCLAW_DEPLOYMENT_ID")
 		}
 	}
+	cfg.Gateway.LocalWebChatFile = strings.TrimSpace(cfg.Gateway.LocalWebChatFile)
+	if cfg.Gateway.LocalWebChatEnabled {
+		if !filepath.IsAbs(cfg.Gateway.LocalWebChatFile) || cfg.Gateway.DeploymentID == "" {
+			return Config{}, errors.New("local WebChat requires an absolute SPARKCLAW_LOCAL_WEBCHAT_FILE and SPARKCLAW_DEPLOYMENT_ID")
+		}
+		if !cfg.Gateway.PairingRequired && strings.TrimSpace(cfg.Gateway.APIToken) == "" {
+			return Config{}, errors.New("local WebChat requires ordinary Gateway authentication to remain enabled")
+		}
+	}
 	if token := cfg.Gateway.WebChatProxyToken; token != "" && !webChatProxyTokenPattern.MatchString(token) {
 		return Config{}, errors.New("Gateway WebChat proxy token must be 43-128 base64url characters")
 	}

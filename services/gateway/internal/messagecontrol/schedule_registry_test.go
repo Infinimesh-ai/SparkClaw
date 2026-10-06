@@ -65,3 +65,31 @@ func TestScheduleRegistryRejectsCrossOwnerReturnEndpoint(t *testing.T) {
 func textContent(prefix, text string) app.MessageContent {
 	return app.MessageContent{Parts: []app.MessagePart{{ID: prefix + ":text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: text}}}
 }
+
+func TestScheduleOriginComesFromOwnedSessionNotReturnDestination(t *testing.T) {
+	for _, source := range []string{"webchat", "schedule", "telegram", "mcp"} {
+		t.Run(source, func(t *testing.T) {
+			st := store.NewMemoryStore()
+			session := storetest.MustCreateSessionWithScope(t, st, source, app.DefaultOwnerID, t.TempDir(), source, source == "schedule")
+			now := time.Now().UTC()
+			schedule := app.MessageSchedule{
+				ID: app.ScheduleID("origin_" + source), SessionID: session.ID, DueTime: now.Add(time.Hour), Timezone: "UTC", DedupeKey: source, Status: "pending",
+				Spec: app.ScheduleSpec{SchemaVersion: app.ScheduleSpecSchemaVersion, OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID,
+					WorkbenchOwned: source != "webchat" && source != "schedule",
+					Payload:        app.SchedulePayload{Content: textContent(source, "run later")},
+					ReturnRoute:    app.ReturnRoute{Mode: app.ReturnNowhere}, Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID}},
+			}
+			saved, err := NewScheduleRegistry(st).Save(t.Context(), schedule)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if saved.Spec.WorkbenchOwned != (source == "webchat" || source == "schedule") {
+				t.Fatalf("forged ownership persisted: %#v", saved)
+			}
+			schedule.Spec.OwnerID, schedule.Spec.ActorID, schedule.Spec.Authorization.PrincipalID = "other", "other", "other"
+			if _, err := NewScheduleRegistry(st).Save(t.Context(), schedule); err == nil {
+				t.Fatal("cross-owner no-return schedule admitted")
+			}
+		})
+	}
+}

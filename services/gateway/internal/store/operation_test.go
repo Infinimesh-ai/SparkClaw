@@ -481,6 +481,10 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationReminderList, Repository: "ScheduleRepository",
 			Method: "ListReminders", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationWorkbenchScheduleAdvance: {
+			ID: OperationWorkbenchScheduleAdvance, Repository: "ScheduleRepository",
+			Method: "AdvanceWorkbenchSchedule", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
 		OperationReminderClaimDue: {
 			ID: OperationReminderClaimDue, Repository: "ScheduleRepository",
 			Method: "ClaimDueReminders", Mode: operationWrite, Timeout: timeoutWrite,

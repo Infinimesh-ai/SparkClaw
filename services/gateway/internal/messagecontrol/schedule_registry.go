@@ -174,6 +174,14 @@ func (r *ScheduleRegistry) reminderForSchedule(ctx context.Context, schedule app
 			return app.Reminder{}, errors.New("schedule return endpoint does not belong to the authorized owner")
 		}
 	}
+	session, exists, err := r.store.GetSession(ctx, schedule.SessionID)
+	if err != nil {
+		return app.Reminder{}, err
+	}
+	if !exists || session.OwnerID != schedule.Spec.OwnerID {
+		return app.Reminder{}, errors.New("schedule session does not belong to the authorized owner")
+	}
+	schedule.Spec.WorkbenchOwned = session.Source == "webchat" || session.Source == "schedule"
 	reminder := app.Reminder{}
 	if existing, ok, err := r.store.GetReminder(ctx, string(schedule.ID)); err != nil {
 		return app.Reminder{}, err

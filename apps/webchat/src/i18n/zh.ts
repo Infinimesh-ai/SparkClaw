@@ -461,6 +461,8 @@ export const zh = {
       weekly: "每周",
       monthly: "每月",
       refreshing: "正在刷新定时任务",
+      statusMissed: "离线已跳过",
+      statusSubmitted: "已提交",
       statusPending: "等待中",
       statusSending: "执行中",
       collapse: "收起定时任务",

@@ -459,6 +459,8 @@ export const en = {
       weekly: "Weekly",
       monthly: "Monthly",
       refreshing: "Refreshing scheduled tasks",
+      statusMissed: "Skipped while offline",
+      statusSubmitted: "Submitted",
       statusPending: "Pending",
       statusSending: "Sending",
       collapse: "Collapse scheduled tasks",

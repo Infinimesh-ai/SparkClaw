@@ -44,12 +44,15 @@ type SchedulePayload struct {
 // ScheduleSpec freezes the owner request and delivery context that the Timer
 // republishes through the ordinary Message Runtime when the schedule is due.
 type ScheduleSpec struct {
-	SchemaVersion int                  `json:"schema_version"`
-	OwnerID       string               `json:"owner_id"`
-	ActorID       string               `json:"actor_id"`
-	Payload       SchedulePayload      `json:"payload"`
-	ReturnRoute   ReturnRoute          `json:"return_route"`
-	Authorization MessageAuthorization `json:"authorization"`
+	// WorkbenchOwned is derived from the persisted originating session by the
+	// registry. It does not describe the delivery destination.
+	WorkbenchOwned bool                 `json:"workbench_owned,omitempty"`
+	SchemaVersion  int                  `json:"schema_version"`
+	OwnerID        string               `json:"owner_id"`
+	ActorID        string               `json:"actor_id"`
+	Payload        SchedulePayload      `json:"payload"`
+	ReturnRoute    ReturnRoute          `json:"return_route"`
+	Authorization  MessageAuthorization `json:"authorization"`
 }
 
 type MessageSchedule struct {

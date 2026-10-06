@@ -360,6 +360,11 @@ func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
 		t.Fatal("production assembly did not start the reminder scheduler")
 	}
 
+	// Establish the host scheduler online boundary before this occurrence
+	// becomes due. Startup-overdue workbench tasks are intentionally skipped.
+	if _, err := services.reminderScheduler.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC()
 	schedule := app.MessageSchedule{
 		ID: app.ScheduleID("schedule-web-production"), SessionID: session.ID,
@@ -371,7 +376,7 @@ func TestProductionAssemblyPersistsScheduledWebMessage(t *testing.T) {
 			ReturnRoute:   app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: messagecontrol.WebEndpointID(session.ID)},
 			Authorization: app.MessageAuthorization{PrincipalID: app.DefaultOwnerID},
 		},
-		DueTime: now.Add(-time.Second), Timezone: "UTC", DedupeKey: "schedule-web-production", Status: "pending",
+		DueTime: now, Timezone: "UTC", DedupeKey: "schedule-web-production", Status: "pending",
 		CreatedAt: now.Add(-time.Minute), UpdatedAt: now.Add(-time.Minute),
 	}
 	if _, err := messagecontrol.NewScheduleRegistry(st).Save(t.Context(), schedule); err != nil {

@@ -204,6 +204,7 @@ type MemoryRepository interface {
 }
 
 type ScheduleRepository interface {
+	AdvanceWorkbenchSchedule(context.Context, string, time.Time, time.Time, app.ReminderDelivery) (app.Reminder, error)
 	SaveReminder(context.Context, app.Reminder) (app.Reminder, error)
 	UpdatePendingReminder(context.Context, app.Reminder, time.Time) (app.Reminder, error)
 	GetReminder(context.Context, string) (app.Reminder, bool, error)

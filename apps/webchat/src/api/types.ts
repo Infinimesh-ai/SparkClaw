@@ -17,7 +17,7 @@ export type Schedule = {
   due_time: string;
   timezone: string;
   recurrence?: string;
-  status: "pending" | "sending";
+  status: "pending" | "sending" | "missed" | "submitted";
   updated_at: string;
   editable: boolean;
   cancelable: boolean;

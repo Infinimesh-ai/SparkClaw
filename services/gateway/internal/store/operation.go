@@ -158,6 +158,7 @@ const (
 	OperationReminderUpdatePending       StoreOperation = "reminder.update_pending"
 	OperationReminderGet                 StoreOperation = "reminder.get"
 	OperationReminderList                StoreOperation = "reminder.list"
+	OperationWorkbenchScheduleAdvance    StoreOperation = "workbench_schedule.advance"
 	OperationReminderClaimDue            StoreOperation = "reminder.claim_due"
 	OperationReminderDeliverySave        StoreOperation = "reminder_delivery.save"
 	OperationReminderDeliveryList        StoreOperation = "reminder_delivery.list"
@@ -658,6 +659,10 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationReminderList: {
 		ID: OperationReminderList, Repository: "ScheduleRepository",
 		Method: "ListReminders", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationWorkbenchScheduleAdvance: {
+		ID: OperationWorkbenchScheduleAdvance, Repository: "ScheduleRepository",
+		Method: "AdvanceWorkbenchSchedule", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
 	OperationReminderClaimDue: {
 		ID: OperationReminderClaimDue, Repository: "ScheduleRepository",

@@ -167,9 +167,10 @@ func (s *PostgresStore) ListReminders(ctx context.Context, filter app.ReminderFi
 		WHERE ($1 = '' OR status = $1)
 			AND ($2::timestamptz IS NULL OR due_time >= $2::timestamptz)
 			AND ($3::timestamptz IS NULL OR due_time <= $3::timestamptz)
+			AND (NOT $5 OR schedule_spec->>'workbench_owned' = 'true')
 		ORDER BY due_time ASC, id ASC
 		LIMIT $4
-	`, filter.Status, from, to, limit)
+	`, filter.Status, from, to, limit, filter.WorkbenchOnly)
 	if err != nil {
 		return nil, classifySchedulePostgresError(OperationReminderList, ctx, err)
 	}
@@ -202,8 +203,9 @@ func (s *PostgresStore) ClaimDueReminders(ctx context.Context, now, staleBefore 
 		SET status = 'sending', updated_at = $1
 		WHERE id IN (
 			SELECT id FROM reminders
-			WHERE (status = 'pending' AND due_time <= $1)
-				OR (status = 'sending' AND updated_at <= $2)
+			WHERE ((status = 'pending' AND due_time <= $1)
+				OR (status = 'sending' AND updated_at <= $2))
+				AND coalesce(schedule_spec->>'workbench_owned', 'false') <> 'true'
 			ORDER BY due_time ASC, id ASC
 			LIMIT $3
 			FOR UPDATE SKIP LOCKED
@@ -248,7 +250,8 @@ func (s *PostgresStore) SaveReminderDelivery(ctx context.Context, delivery app.R
 		UPDATE reminders
 		SET last_delivery_id = $1,
 			last_error = $2,
-			status = CASE WHEN $3 = 'sent' THEN 'sent' WHEN $3 = 'failed' THEN 'failed' ELSE status END,
+			status = CASE WHEN schedule_spec->>'workbench_owned' = 'true' AND status <> 'submitted' THEN status
+				WHEN $3 = 'sent' THEN 'sent' WHEN $3 = 'failed' THEN 'failed' ELSE status END,
 			sent_at = CASE WHEN $3 = 'sent' THEN $4 ELSE sent_at END,
 			delivery_attempt = $5,
 			updated_at = GREATEST($6, updated_at + interval '1 microsecond')

@@ -177,6 +177,7 @@ func TestRemindersCreateRequiresRecipientWhenWebSessionHasMultipleWeixinBindings
 func TestRemindersCreateResolvesExplicitWeixinRecipientFromWebSession(t *testing.T) {
 	cfg := config.Default()
 	st := store.NewMemoryStore()
+	session := storetest.MustCreateSession(t, st, "Web scheduled message")
 	now := time.Now().UTC()
 	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
 		ID:             "bind_a",
@@ -209,7 +210,7 @@ func TestRemindersCreateResolvesExplicitWeixinRecipientFromWebSession(t *testing
 		"due_time":  "2026-07-01T09:00:00+08:00",
 		"channel":   "weixin",
 		"recipient": "用户B",
-	}, "web_session", "run_web")
+	}, session.ID, "run_web")
 	if err != nil {
 		t.Fatal(err)
 	}

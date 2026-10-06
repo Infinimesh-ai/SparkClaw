@@ -1,0 +1,15 @@
+# Host workbench scheduling
+
+> Language: English | [简体中文](../zh-cn/docs/workbench-host-scheduler.md)
+
+The WebChat workbench owns its schedule definitions and occurrence ledger on its deployment host. Closing a browser tab does not stop the host scheduler. This follows the shared [workbench architecture](architecture.md); connector-owned schedules remain service responsibilities.
+
+The Schedule Registry derives ownership from the persisted, authorized originating session (`webchat` or the hidden `schedule` session), independently of the return destination. A request cannot set this authority. Before publishing an online occurrence, the repository atomically records its stable request ID and advances a recurring definition to its next occurrence. Memory, File and PostgreSQL implement the same compare-and-swap operation. The file snapshot persists both the definition and occurrence ledger together.
+
+The first scan after startup, a failed repository access, unavailable publisher, a poll gap exceeding two normal intervals, or a detected wall/monotonic clock suspension gap consumes due workbench occurrences as `missed`. A continuous healthy interval admits only occurrences due since the previous poll. This preserves normal timer jitter while preventing an overdue backlog from becoming runnable. Each scan is bounded; older missed occurrences keep their original due times until recorded. Future recurring occurrences remain eligible.
+
+A workbench occurrence's ledger ID is also its Message Runtime envelope ID; the run ID is `run_` followed by that ID. If submission fails ambiguously, the record becomes `unknown` with reconciliation required. Restart never republishes a submitted or missed occurrence. Recurring definitions already contain their next due time, so a crash between admission and result persistence neither replays the old occurrence nor loses the future definition. Service-owned connector schedules retain their existing retry/reclaim rules.
+
+The WebChat task list displays one-time missed occurrences as “Skipped while offline” and unfinished submitted occurrences as “Submitted”. It does not offer to edit, rearm or automatically resubmit these occurrences. Historical occurrence records remain in the host repository; they are not synchronized to desktop installations.
+
+Validation on 2026-10-06: affected Memory/File contract tests, restart/concurrent scheduler tests, rollback and unknown-commit tests passed; the same Store contract passed against a fresh isolated PostgreSQL 16/pgvector container. WebChat schedule tests, bilingual translation checks and the production build passed. No running service or real data was modified. Native host suspend/resume qualification remains part of the matched release's hardware acceptance.

@@ -53,7 +53,7 @@ Host drafts are workbench-local data stored beside WebChat conversations on the 
 
 A PUT supplies `content`, `attachment_ids` and the last read `revision`. The repository preserves whitespace, atomically compares that revision, and returns the next revision plus `updated_at`. A stale version returns HTTP 409. Clearing saves an empty draft with a new revision; it does not remove the version fence. Consequently a late autosave from another tab cannot recreate text already cleared by a newer operation. GET is read-only, and neither saving nor loading a draft submits execution.
 
-The Store currently permits at most 1 MiB of UTF-8 draft text and 64 attachment references, each at most 4 KiB. These are draft-storage bounds, not execution-admission limits. References do not grant file authority: normal attachment/resource validation still applies at execution admission. Drafts contain no executable approval authority.
+Both repositories use the common contract's 64 KiB UTF-8 text and 32 selected-file bounds. A host presentation reference is at most 4 KiB. References do not grant file authority: normal attachment/resource validation still applies at execution admission. Drafts contain no executable approval authority.
 
 Memory, the default File snapshot and PostgreSQL implement the same `SessionRepository` methods. File commits cover the content and revision together, with definite-failure rollback and unknown-outcome fencing. PostgreSQL uses a fresh `workbench_drafts` table and transactional compare-and-swap. Session deletion removes its draft; an Owner's welcome draft is unaffected. No old draft import or migration path is provided.
 

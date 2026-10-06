@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -90,6 +91,27 @@ func exerciseWorkbenchDraftContract(t *testing.T, repository testBackend, restar
 	otherWelcome, err := repository.GetWorkbenchDraft(t.Context(), "other-owner", "")
 	if err != nil || otherWelcome.Content != "" || otherWelcome.Revision != 0 {
 		t.Fatalf("welcome isolation=%#v err=%v", otherWelcome, err)
+	}
+	bounded := app.WorkbenchDraft{Content: strings.Repeat("x", app.WorkbenchInputBytes)}
+	for i := 0; i < app.WorkbenchResultFiles; i++ {
+		bounded.AttachmentIDs = append(bounded.AttachmentIDs, strings.Repeat("r", i+1))
+	}
+	bounded, err = repository.SaveWorkbenchDraft(t.Context(), "limits-owner", "", bounded)
+	if err != nil {
+		t.Fatalf("common draft bound rejected: %v", err)
+	}
+	oversized := bounded
+	oversized.Content += "x"
+	if _, err = repository.SaveWorkbenchDraft(t.Context(), "limits-owner", "", oversized); StoreErrorCodeOf(err) != StoreErrorInvalid {
+		t.Fatalf("oversized draft accepted: %v", err)
+	}
+	oversized = bounded
+	oversized.AttachmentIDs = append(append([]string{}, bounded.AttachmentIDs...), "extra")
+	if _, err = repository.SaveWorkbenchDraft(t.Context(), "limits-owner", "", oversized); StoreErrorCodeOf(err) != StoreErrorInvalid {
+		t.Fatalf("oversized selection accepted: %v", err)
+	}
+	if current, err := repository.GetWorkbenchDraft(t.Context(), "limits-owner", ""); err != nil || current.Revision != bounded.Revision || current.Content != bounded.Content {
+		t.Fatalf("rejected draft changed committed content: revision=%d err=%v", current.Revision, err)
 	}
 	// Exactly one writer can consume a loaded revision; an empty clear keeps a
 	// durable revision tombstone instead of resetting to zero.

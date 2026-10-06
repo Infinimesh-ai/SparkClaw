@@ -11,8 +11,8 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
-const MaxWorkbenchDraftBytes = 1 << 20
-const MaxWorkbenchDraftAttachments = 64
+const MaxWorkbenchDraftBytes = app.WorkbenchInputBytes
+const MaxWorkbenchDraftAttachments = app.WorkbenchResultFiles
 
 var ErrWorkbenchDraftConflict = errors.New("workbench draft revision changed")
 

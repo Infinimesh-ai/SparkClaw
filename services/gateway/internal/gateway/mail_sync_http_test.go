@@ -20,12 +20,12 @@ import (
 
 func TestExecutionMailHTTPInstallationSnapshotAndVerifiedAttachment(t *testing.T) {
 	f := newEmailHTTPFixture(t)
-	mail := f.receive("r3-http", time.Now())
+	mail := f.receive("execution-http", time.Now())
 	cfg := testConfig(f.root)
 	cfg.Gateway.PairingRequired = true
-	cfg.Gateway.DeploymentID = "r3-mail-deployment"
+	cfg.Gateway.DeploymentID = "execution-mail-deployment"
 	const token = "synthetic-mail-issued-client-token-long-enough"
-	_, e := f.repo.RegisterClient(t.Context(), app.Client{ID: "r3-mail-client", OwnerID: f.owner, Name: "workbench Mail", TokenHash: hashSecret(token)})
+	_, e := f.repo.RegisterClient(t.Context(), app.Client{ID: "execution-mail-client", OwnerID: f.owner, Name: "workbench Mail", TokenHash: hashSecret(token)})
 	f.must(e)
 	tools := toolhub.New(cfg, f.repo)
 	t.Cleanup(func() { _ = tools.Close() })
@@ -34,7 +34,7 @@ func TestExecutionMailHTTPInstallationSnapshotAndVerifiedAttachment(t *testing.T
 	f.must(e)
 	sync, e := mailsync.New(filepath.Join(f.root, "mail-sync"), mailsync.Repository{OwnerStatus: projection.ClientSyncOwnerStatus, Mailbox: projection.ClientSyncMailbox, Mailboxes: projection.ClientSyncMailboxes}, projection)
 	f.must(e)
-	instance := New(cfg, f.repo, tools, runtime, WithEmailManagement(projection), WithMailSync(sync), WithExecutions(filepath.Join(f.root, "r3-control"), nil))
+	instance := New(cfg, f.repo, tools, runtime, WithEmailManagement(projection), WithMailSync(sync), WithExecutions(filepath.Join(f.root, "execution-control"), nil))
 	instance.BindLifecycleContext(t.Context())
 	const install = "11111111-1111-4111-8111-111111111111"
 	request := func(method, path, body, installation string) *httptest.ResponseRecorder {
@@ -47,16 +47,16 @@ func TestExecutionMailHTTPInstallationSnapshotAndVerifiedAttachment(t *testing.T
 		instance.Handler().ServeHTTP(w, r)
 		return w
 	}
-	if w := request("GET", "/api/r3/mail/mailboxes", "", install); w.Code != 403 {
+	if w := request("GET", "/api/v1/mail/mailboxes", "", install); w.Code != 403 {
 		t.Fatalf("unregistered installation: %d", w.Code)
 	}
-	if w := request("POST", "/api/r3/installations", `{"schema_version":1,"installation_id":"`+install+`"}`, install); w.Code != 200 {
+	if w := request("POST", "/api/v1/installations", `{"schema_version":1,"installation_id":"`+install+`"}`, install); w.Code != 200 {
 		t.Fatalf("install %d %s", w.Code, w.Body.String())
 	}
-	if w := request("GET", "/api/r3/mail/mailboxes", "", install); w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte(f.box.Address)) {
+	if w := request("GET", "/api/v1/mail/mailboxes", "", install); w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte(f.box.Address)) {
 		t.Fatalf("catalog %d %s", w.Code, w.Body.String())
 	}
-	endpoint := "/api/r3/mail/" + f.box.ID + "/sync"
+	endpoint := "/api/v1/mail/" + f.box.ID + "/sync"
 	w := request("POST", endpoint, `{"cursor":"","limit":100}`, install)
 	if w.Code != 200 {
 		t.Fatalf("sync %d %s", w.Code, w.Body.String())
@@ -80,11 +80,11 @@ func TestExecutionMailHTTPInstallationSnapshotAndVerifiedAttachment(t *testing.T
 			t.Fatalf("invalid sync accepted %d", w.Code)
 		}
 	}
-	file := "/api/r3/mail/" + f.box.ID + "/messages/" + mail.ID + "/attachments/part-1"
+	file := "/api/v1/mail/" + f.box.ID + "/messages/" + mail.ID + "/attachments/part-1"
 	if w := request("GET", file, "", ""); w.Code != 403 {
 		t.Fatalf("missing install file access %d", w.Code)
 	}
-	if w := request("GET", file, "", install); w.Code != 200 || w.Body.String() != "Attachment evidence r3-http" {
+	if w := request("GET", file, "", install); w.Code != 200 || w.Body.String() != "Attachment evidence execution-http" {
 		t.Fatalf("verified file %d %s", w.Code, w.Body.String())
 	}
 	if w := request("GET", strings.Replace(file, f.box.ID, "wrong-mailbox", 1), "", install); w.Code != 404 {

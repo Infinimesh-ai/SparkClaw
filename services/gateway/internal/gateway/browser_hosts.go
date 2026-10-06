@@ -32,11 +32,11 @@ func hostIdentity(p requestPrincipal, r *http.Request) browserhost.Identity {
 	return browserhost.Identity{OwnerID: p.OwnerID, ClientID: p.ClientID, InstallationID: r.Header.Get("X-SparkClaw-Installation")}
 }
 func (s *Server) registerBrowserHostRoutes() {
-	s.mux.HandleFunc("POST /api/r3/hosts/grants", s.browserHostGrant)
-	s.mux.HandleFunc("GET /api/r3/hosts/connect", s.browserHostConnect)
-	s.mux.HandleFunc("GET /api/r3/hosts/fences", s.browserHostFences)
-	s.mux.HandleFunc("POST /api/r3/hosts/reconcile", s.browserHostReconcile)
-	s.mux.HandleFunc("POST /api/r3/hosts/{host}/revoke", s.browserHostRevoke)
+	s.mux.HandleFunc("POST /api/v1/browser/hosts/grants", s.browserHostGrant)
+	s.mux.HandleFunc("GET /api/v1/browser/hosts/connect", s.browserHostConnect)
+	s.mux.HandleFunc("GET /api/v1/browser/hosts/fences", s.browserHostFences)
+	s.mux.HandleFunc("POST /api/v1/browser/hosts/reconcile", s.browserHostReconcile)
+	s.mux.HandleFunc("POST /api/v1/browser/hosts/{host}/revoke", s.browserHostRevoke)
 }
 func (s *Server) browserHostGrant(w http.ResponseWriter, r *http.Request) {
 	p, err := s.executionPrincipal(r)

@@ -1,5 +1,5 @@
-// Package execution owns client-originated temporary executions. It never
-// imports a legacy session or writes non-mail content into the product Store.
+// Package execution owns durable request control for workbench execution.
+// Submitted execution content is temporary; host content stays in the host Store.
 package execution
 
 import (

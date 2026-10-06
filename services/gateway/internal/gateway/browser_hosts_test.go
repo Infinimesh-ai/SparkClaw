@@ -21,16 +21,16 @@ func TestExecutionInstalledClientControlHTTPMatchesClosedRequestShapes(t *testin
 	root := t.TempDir()
 	cfg := testConfig(root)
 	cfg.Gateway.PairingRequired = true
-	cfg.Gateway.DeploymentID = "r3-host-http"
+	cfg.Gateway.DeploymentID = "execution-host-http"
 	backend := store.NewMemoryStore()
-	const token = "synthetic-r3-host-http-token-long-enough"
+	const token = "synthetic-execution-host-http-token-long-enough"
 	_, err := backend.RegisterClient(t.Context(), app.Client{ID: "host-client", OwnerID: "owner-host", Name: "fixture", TokenHash: hashSecret(token)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	tools := toolhub.New(cfg, backend)
 	defer tools.Close()
-	instance := New(cfg, backend, tools, agent.Runtime{}, WithExecutions(filepath.Join(root, "r3"), nil))
+	instance := New(cfg, backend, tools, agent.Runtime{}, WithExecutions(filepath.Join(root, "execution"), nil))
 	instance.BindLifecycleContext(t.Context())
 	server := httptest.NewServer(instance.Handler())
 	defer server.Close()
@@ -55,37 +55,37 @@ func TestExecutionInstalledClientControlHTTPMatchesClosedRequestShapes(t *testin
 		}
 		return res.StatusCode, raw
 	}
-	if code, _ := request("/api/r3/hosts/grants", `{}`, installation); code != 403 {
+	if code, _ := request("/api/v1/browser/hosts/grants", `{}`, installation); code != 403 {
 		t.Fatal("unbound install", code)
 	}
-	if code, _ := request("/api/r3/installations", `{"schema_version":1,"installation_id":"`+installation+`"}`, ""); code != 200 {
+	if code, _ := request("/api/v1/installations", `{"schema_version":1,"installation_id":"`+installation+`"}`, ""); code != 200 {
 		t.Fatal("bind", code)
 	}
-	if code, _ := request("/api/r3/hosts/grants", `{}`, ""); code != 403 {
+	if code, _ := request("/api/v1/browser/hosts/grants", `{}`, ""); code != 403 {
 		t.Fatal("missing install header", code)
 	}
-	if code, _ := request("/api/r3/hosts/grants", `{"installation_id":"`+installation+`"}`, installation); code != 400 {
+	if code, _ := request("/api/v1/browser/hosts/grants", `{"installation_id":"`+installation+`"}`, installation); code != 400 {
 		t.Fatal("body broadening", code)
 	}
-	code, raw := request("/api/r3/hosts/grants", `{}`, installation)
+	code, raw := request("/api/v1/browser/hosts/grants", `{}`, installation)
 	var grant browserhost.Grant
 	if err := json.Unmarshal(raw, &grant); err != nil || code != 200 || grant.HostID == "" {
 		t.Fatalf("grant: %d %s %v", code, raw, err)
 	}
-	if code, _ := request("/api/r3/hosts/"+grant.HostID+"/revoke", `{}`, installation); code != 200 {
+	if code, _ := request("/api/v1/browser/hosts/"+grant.HostID+"/revoke", `{}`, installation); code != 200 {
 		t.Fatal("revoke", code)
 	}
-	if code, _ := request("/api/r3/hosts/reconcile", `{"installation_id":"`+installation+`","command_id":"fixture","digest":"bad","outcome":"observed_completed"}`, installation); code != 400 {
+	if code, _ := request("/api/v1/browser/hosts/reconcile", `{"installation_id":"`+installation+`","command_id":"fixture","digest":"bad","outcome":"observed_completed"}`, installation); code != 400 {
 		t.Fatal("reconcile broadening", code)
 	}
 	for _, invalid := range []string{`null`, `{} {}`, `{"unsafe":true}`} {
-		if code, _ := request("/api/r3/hosts/grants", invalid, installation); code != 400 {
+		if code, _ := request("/api/v1/browser/hosts/grants", invalid, installation); code != 400 {
 			t.Fatal("invalid grant shape", invalid, code)
 		}
 	}
 	// Scheduled work is owned by the host scheduler; the removed installed
 	// lease endpoints must not accept or retain future task context.
-	for _, route := range []string{"/api/r3/schedules/lease", "/api/r3/schedules/request/renew", "/api/r3/schedules/request/cancel"} {
+	for _, route := range []string{"/api/v1/schedules/lease", "/api/v1/schedules/request/renew", "/api/v1/schedules/request/cancel"} {
 		if code, body := request(route, `{}`, installation); code != http.StatusNotFound {
 			t.Fatalf("removed lease route %s: %d %s", route, code, body)
 		}

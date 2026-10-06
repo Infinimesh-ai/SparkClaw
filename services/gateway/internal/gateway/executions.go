@@ -21,7 +21,7 @@ func (s *Server) executionPrincipal(r *http.Request) (requestPrincipal, error) {
 	if err != nil {
 		return p, err
 	}
-	if r.URL.Path != "/api/r3/installations" {
+	if r.URL.Path != "/api/v1/installations" {
 		err = service.Installation(p.OwnerID, p.ClientID, r.Header.Get("X-SparkClaw-Installation"))
 	}
 	return p, err
@@ -34,9 +34,9 @@ func (s *Server) executionService() (*execution.Service, error) {
 	}
 	root := s.executionRoot
 	if root == "" {
-		root = s.cfg.State.Path + ".r3"
+		root = s.cfg.State.Path + ".execution"
 	}
-	if strings.TrimSpace(root) == ".r3" {
+	if strings.TrimSpace(root) == ".execution" {
 		return nil, execution.ErrUnavailable
 	}
 	absolute, err := filepath.Abs(root)
@@ -65,14 +65,14 @@ func WithExecutions(root string, execute execution.Executor) Option {
 	return func(s *Server) { s.executionRoot = root; s.executionExecutor = execute }
 }
 func (s *Server) registerExecutionRoutes() {
-	s.mux.HandleFunc("POST /api/r3/installations", s.installExecutionClient)
-	s.mux.HandleFunc("PUT /api/r3/inputs/{request}/files/{file}", s.uploadExecutionInput)
-	s.mux.HandleFunc("POST /api/r3/executions", s.submitExecution)
-	s.mux.HandleFunc("GET /api/r3/executions/{request}", s.lookupExecution)
-	s.mux.HandleFunc("POST /api/r3/executions/{request}/ack", s.ackExecution)
-	s.mux.HandleFunc("POST /api/r3/executions/{request}/approvals/{approval}", s.resolveExecutionApproval)
-	s.mux.HandleFunc("POST /api/r3/executions/{request}/cancel", s.cancelExecution)
-	s.mux.HandleFunc("GET /api/r3/executions/{request}/files/{file}", s.executionFile)
+	s.mux.HandleFunc("POST /api/v1/installations", s.installExecutionClient)
+	s.mux.HandleFunc("PUT /api/v1/inputs/{request}/files/{file}", s.uploadExecutionInput)
+	s.mux.HandleFunc("POST /api/v1/executions", s.submitExecution)
+	s.mux.HandleFunc("GET /api/v1/executions/{request}", s.lookupExecution)
+	s.mux.HandleFunc("POST /api/v1/executions/{request}/ack", s.ackExecution)
+	s.mux.HandleFunc("POST /api/v1/executions/{request}/approvals/{approval}", s.resolveExecutionApproval)
+	s.mux.HandleFunc("POST /api/v1/executions/{request}/cancel", s.cancelExecution)
+	s.mux.HandleFunc("GET /api/v1/executions/{request}/files/{file}", s.executionFile)
 }
 func writeExecutionError(w http.ResponseWriter, err error) {
 	status := http.StatusBadRequest
@@ -121,7 +121,7 @@ func (s *Server) uploadExecutionInput(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 413, errors.New("workbench file is oversized"))
 		return
 	}
-	err = s.executions.Upload(p.OwnerID, p.ClientID, r.Header.Get("X-SparkClaw-Installation"), r.PathValue("request"), r.PathValue("file"), r.Header.Get("X-R3-Digest"), raw)
+	err = s.executions.Upload(p.OwnerID, p.ClientID, r.Header.Get("X-SparkClaw-Installation"), r.PathValue("request"), r.PathValue("file"), r.Header.Get("X-SparkClaw-Digest"), raw)
 	if err != nil {
 		writeExecutionError(w, err)
 		return
@@ -139,7 +139,7 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 413, errors.New("workbench context is oversized"))
 		return
 	}
-	e, err := execution.Decode(raw, r.Header.Get("X-R3-Digest"))
+	e, err := execution.Decode(raw, r.Header.Get("X-SparkClaw-Digest"))
 	if err != nil {
 		writeExecutionError(w, err)
 		return
@@ -148,7 +148,7 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 		writeExecutionError(w, execution.ErrConflict)
 		return
 	}
-	status, err := s.executions.Submit(s.executionContext(), e, r.Header.Get("X-R3-Digest"))
+	status, err := s.executions.Submit(s.executionContext(), e, r.Header.Get("X-SparkClaw-Digest"))
 	if err != nil {
 		writeExecutionError(w, err)
 		return

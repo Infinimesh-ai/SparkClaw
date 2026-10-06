@@ -16,10 +16,10 @@ app.whenReady().then(async () => {
 try {
   const cert = await fs.readFile(path.join(root, "cert.pem"));
   const descriptor = { schemaVersion: 2, origin: process.env.SPARKCLAW_HOST_QUALIFICATION_ORIGIN, ca: cert.toString(), certificateSHA256: crypto.createHash("sha256").update(new crypto.X509Certificate(cert).raw).digest("hex") };
-  const authorization = "Bearer isolated-r3-native-qualification";
+  const authorization = "Bearer isolated-host-native-qualification";
   const fetcher = pinnedHTTPSFetch(descriptor);
   const auth = { descriptor, status: { state: "connected" }, connection: { ownerID: "qualification-owner", clientID: "qualification-client", authorization }, authorizedFetch: (url, options = {}) => fetcher(url, { ...options, headers: { ...options.headers, Authorization: authorization } }) };
-  const browserSession = session.fromPartition("persist:r3-native-qualification");
+  const browserSession = session.fromPartition("persist:host-native-qualification");
   // The synthetic self-signed fixture is explicitly trusted in this isolated
   // profile. WSS transport independently verifies chain+hostname+leaf pin.
   browserSession.setCertificateVerifyProc((request, callback) => { const valid = request.hostname === "127.0.0.1" && crypto.createHash("sha256").update(new crypto.X509Certificate(request.certificate.data).raw).digest("hex") === descriptor.certificateSHA256; callback(valid ? 0 : -2); });

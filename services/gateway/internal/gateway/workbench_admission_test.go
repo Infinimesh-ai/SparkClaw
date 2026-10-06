@@ -143,7 +143,7 @@ func TestWorkbenchRequestPersistsOnceAcrossRestartAndGETDoesNotWrite(t *testing.
 	}
 	s.executions.Close()
 	s2, st2 := admissionFileServer(t, root)
-	ledger := filepath.Join(root, "workbench-state.json.r3", "control.json")
+	ledger := filepath.Join(root, "workbench-state.json.execution", "control.json")
 	before, err := os.ReadFile(ledger)
 	if err != nil {
 		t.Fatal(err)

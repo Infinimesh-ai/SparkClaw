@@ -345,7 +345,7 @@ func NewWithTrace(cfg config.Config, st Repository, tools *toolhub.ToolHub, runt
 		})
 	}
 	if s.mailSync == nil && s.emailManagement != nil {
-		root, _ := filepath.Abs(s.cfg.State.Path + ".r3/mail")
+		root, _ := filepath.Abs(s.cfg.State.Path + ".mailsync")
 		service, err := mailsync.New(root, mailsync.Repository{OwnerStatus: s.emailManagement.ClientSyncOwnerStatus, Mailbox: s.emailManagement.ClientSyncMailbox, Mailboxes: s.emailManagement.ClientSyncMailboxes}, s.emailManagement)
 		if err == nil {
 			s.mailSync = service

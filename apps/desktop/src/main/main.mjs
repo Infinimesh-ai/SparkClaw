@@ -113,7 +113,7 @@ async function start() {
   protocol.handle("sparkclaw-internal", internalProtocolHandler);
   browserSession.protocol.handle("sparkclaw-internal", internalProtocolHandler);
   const qualificationPaths = qualification ? await localBackendPaths().catch(() => undefined) : undefined;
-  if (!qualification) localStore = new ClientStore(path.join(app.getPath("userData"), "client-r3"));
+  if (!qualification) localStore = new ClientStore(path.join(app.getPath("userData"), "workbench"));
   desktopAuth = new DesktopAuth({
     installationID: localStore?.installationID,
     vault: new SecureCredentialStore({ directory: path.join(app.getPath("userData"), "authentication"), safeStorage }),
@@ -203,7 +203,7 @@ async function start() {
     };
     executionClient = new ExecutionClient({ auth: desktopAuth, store: localStore, getIdentity: localIdentity, onChange: localChanged }).start();
     scheduleClient = new ScheduleClient({ auth: desktopAuth, store: localStore, execution: executionClient, getIdentity: localIdentity, onChange: localChanged }).start();
-    mailStore = new MailSyncStore(path.join(app.getPath("userData"), "client-r3", "mail"));
+    mailStore = new MailSyncStore(path.join(app.getPath("userData"), "workbench", "mail"));
     // DesktopAuth binds this installation before publishing connected state.
     mailClient = new MailSyncClient({
       store: mailStore, localStore, getConnection: () => desktopAuth.connection,
@@ -311,9 +311,9 @@ async function start() {
     runtimeGeneration,
     authorizeSession: () => qualification || desktopAuth.status.state === "connected",
   }).start();
-  // The UDS adapter is a qualified legacy Linux transport. workbench production
+  // The UDS adapter is a frozen Linux qualification transport. Production
   // browser execution uses the explicitly granted outbound Host transport. macOS
-  // never reads Linux adapter secrets or starts the legacy owner service.
+  // never reads Linux adapter secrets or starts the qualification owner service.
   if (qualification && process.platform === "linux") {
   adapter = new ElectronAdapterServer({
     socketPath: adapterSocketPath(),
@@ -562,8 +562,8 @@ function workbenchProtocolHandler(root, auth) {
         if (state === "identity_conflict") return new Response("Backend identity conflict", { status: 409 });
         if (["invalid_authentication", "locked", "secure_storage_unavailable"].includes(state)) return new Response("Desktop authentication is locked", { status: 401 });
         if (state !== "connected") return new Response("Backend is unavailable", { status: 503 });
-        // Legacy session/history APIs have no place in the workbench local workbench.
-        if (!qualification && !proxyAPIAllowed(new URL(proxy).pathname)) return new Response("workbench service is not available in this phase", { status: 501 });
+        // Desktop conversations stay in the local Store; proxy only supported services.
+        if (!qualification && !proxyAPIAllowed(new URL(proxy).pathname)) return new Response("Service is unavailable in this workbench", { status: 501 });
         try { return await proxyWorkbenchRequest(auth, request, proxy); }
         catch { return new Response("Backend is unavailable", { status: 503 }); }
       }

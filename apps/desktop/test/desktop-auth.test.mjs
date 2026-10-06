@@ -217,7 +217,7 @@ test("production login binds the installation before saving a credential and fai
     return new Response(JSON.stringify(identity));
   };
   assert.equal((await auth.login(token)).state, "connected");
-  assert.deepEqual(calls, ["http://127.0.0.1:18790/api/workbench/identity", "http://127.0.0.1:18790/api/r3/installations"]);
+  assert.deepEqual(calls, ["http://127.0.0.1:18790/api/workbench/identity", "http://127.0.0.1:18790/api/v1/installations"]);
   await auth.logout();
   auth.fetcher = async (url) => new Response(JSON.stringify(url.endsWith("/installations") ? { ...identity, installation_id: crypto.randomUUID() } : identity));
   assert.equal((await auth.login(token)).state, "identity_conflict");
@@ -233,12 +233,12 @@ test("workbench response expansion remains bounded and inaccessible to ordinary 
   auth.fetcher = async () => new Response("x".repeat(2 * 1024 * 1024));
   const normal = await auth.authorizedFetch(`${descriptor.origin}/api/clients`);
   await assert.rejects(normal.arrayBuffer(), /allowed size/);
-  const r3 = await auth.authorizedExecutionFetch(`${descriptor.origin}/api/r3/executions/test`);
-  assert.equal((await r3.arrayBuffer()).byteLength, 2 * 1024 * 1024);
+  const execution = await auth.authorizedExecutionFetch(`${descriptor.origin}/api/v1/executions/test`);
+  assert.equal((await execution.arrayBuffer()).byteLength, 2 * 1024 * 1024);
   await assert.rejects(auth.authorizedExecutionFetch(`${descriptor.origin}/api/sessions`), /path/);
-  await assert.rejects(auth.authorizedExecutionFetch(`${descriptor.origin}/api/r3/executions/test?token=x`), /path/);
+  await assert.rejects(auth.authorizedExecutionFetch(`${descriptor.origin}/api/v1/executions/test?token=x`), /path/);
   auth.fetcher = async () => new Response("x".repeat(8 * 1024 * 1024 + 1));
-  const tooLarge = await auth.authorizedExecutionFetch(`${descriptor.origin}/api/r3/executions/test`);
+  const tooLarge = await auth.authorizedExecutionFetch(`${descriptor.origin}/api/v1/executions/test`);
   await assert.rejects(tooLarge.arrayBuffer(), /allowed size/);
 });
 

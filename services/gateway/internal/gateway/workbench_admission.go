@@ -226,9 +226,9 @@ func (s *Server) workbenchReader() (execution.WorkbenchReader, error) {
 		return service, nil
 	}
 	if root == "" {
-		root = s.cfg.State.Path + ".r3"
+		root = s.cfg.State.Path + ".execution"
 	}
-	if root == ".r3" {
+	if root == ".execution" {
 		return nil, execution.ErrUnavailable
 	}
 	absolute, err := filepath.Abs(root)

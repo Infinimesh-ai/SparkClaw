@@ -29,10 +29,10 @@ func TestExecutionHTTPApprovalRunsOriginalToolOnlyAfterExplicitDecision(t *testi
 			root := t.TempDir()
 			cfg := testConfig(root)
 			cfg.Gateway.PairingRequired = true
-			cfg.Gateway.DeploymentID = "r3-approval"
+			cfg.Gateway.DeploymentID = "execution-approval"
 			cfg.Security.ApprovalRequiredTools = append(cfg.Security.ApprovalRequiredTools, "files.write_draft")
 			shared := store.NewMemoryStore()
-			const token = "synthetic-r3-approval-device-token-long-enough"
+			const token = "synthetic-execution-approval-device-token-long-enough"
 			const install = "11111111-1111-4111-8111-111111111111"
 			if _, err := shared.RegisterClient(t.Context(), app.Client{ID: "client", OwnerID: "owner", Name: "fixture", TokenHash: hashSecret(token)}); err != nil {
 				t.Fatal(err)
@@ -72,7 +72,7 @@ func TestExecutionHTTPApprovalRunsOriginalToolOnlyAfterExplicitDecision(t *testi
 				}
 				return output, nil
 			}
-			instance = New(cfg, shared, tools, agent.Runtime{}, WithExecutions(filepath.Join(root, "r3"), execute))
+			instance = New(cfg, shared, tools, agent.Runtime{}, WithExecutions(filepath.Join(root, "execution"), execute))
 			instance.BindLifecycleContext(t.Context())
 			server := httptest.NewServer(instance.Handler())
 			defer server.Close()
@@ -81,7 +81,7 @@ func TestExecutionHTTPApprovalRunsOriginalToolOnlyAfterExplicitDecision(t *testi
 				req, _ := http.NewRequest(method, server.URL+path, bytes.NewReader(raw))
 				req.Header.Set("Authorization", "Bearer "+token)
 				req.Header.Set("X-SparkClaw-Installation", installation)
-				req.Header.Set("X-R3-Digest", execution.Digest(raw))
+				req.Header.Set("X-SparkClaw-Digest", execution.Digest(raw))
 				req.Header.Set("Content-Type", "application/json")
 				res, err := server.Client().Do(req)
 				if err != nil {
@@ -91,18 +91,18 @@ func TestExecutionHTTPApprovalRunsOriginalToolOnlyAfterExplicitDecision(t *testi
 				body, _ := io.ReadAll(res.Body)
 				return res.StatusCode, body
 			}
-			if code, raw := request("POST", "/api/r3/installations", []byte(`{"schema_version":1,"installation_id":"`+install+`"}`), install); code != 200 {
+			if code, raw := request("POST", "/api/v1/installations", []byte(`{"schema_version":1,"installation_id":"`+install+`"}`), install); code != 200 {
 				t.Fatal(code, string(raw))
 			}
 			e := execution.Envelope{SchemaVersion: 1, DeploymentID: cfg.Gateway.DeploymentID, OwnerID: "owner", ClientID: "client", InstallationID: install, ConversationID: "22222222-2222-4222-8222-222222222222", TaskID: "33333333-3333-4333-8333-333333333333", RequestID: "44444444-4444-4444-8444-444444444444", Messages: []execution.Message{{Role: "user", Content: "synthetic context"}}}
 			raw, _ := json.Marshal(e)
-			if code, body := request("POST", "/api/r3/executions", raw, install); code != 202 {
+			if code, body := request("POST", "/api/v1/executions", raw, install); code != 202 {
 				t.Fatal(code, string(body))
 			}
 			var status execution.Status
 			deadline := time.Now().Add(3 * time.Second)
 			for time.Now().Before(deadline) {
-				_, raw = request("GET", "/api/r3/executions/"+e.RequestID, nil, install)
+				_, raw = request("GET", "/api/v1/executions/"+e.RequestID, nil, install)
 				_ = json.Unmarshal(raw, &status)
 				if len(status.PendingApprovals) > 0 {
 					break
@@ -116,7 +116,7 @@ func TestExecutionHTTPApprovalRunsOriginalToolOnlyAfterExplicitDecision(t *testi
 				t.Fatal("tool ran before approval", err)
 			}
 			approval := status.PendingApprovals[0]
-			route := "/api/r3/executions/" + e.RequestID + "/approvals/" + approval.ApprovalID
+			route := "/api/v1/executions/" + e.RequestID + "/approvals/" + approval.ApprovalID
 			explicitDecision := decision
 			if decision == "approve_failed" {
 				explicitDecision = "approve"
@@ -132,7 +132,7 @@ func TestExecutionHTTPApprovalRunsOriginalToolOnlyAfterExplicitDecision(t *testi
 				t.Fatal(code, string(raw))
 			}
 			instance.executions.Wait()
-			_, raw = request("GET", "/api/r3/executions/"+e.RequestID, nil, install)
+			_, raw = request("GET", "/api/v1/executions/"+e.RequestID, nil, install)
 			_ = json.Unmarshal(raw, &status)
 			if decision == "approve_failed" {
 				if status.State != "unknown" || status.Result != nil {

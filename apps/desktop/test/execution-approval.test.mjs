@@ -12,7 +12,7 @@ import { ClientStoreCapability } from "../src/main/client-store-capability.mjs";
 const scope = { deployment_id: "deployment", owner_id: "owner", client_id: "client" };
 const approval = { approval_id: "approval_test", digest: "a".repeat(64), tool: "browser.type", summary: "Type the supplied text into the selected website field", arguments: { text: "Synthetic input", field_ref: "field_test" } };
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sparkclaw-r3-approval-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sparkclaw-execution-approval-"));
   let store = new ClientStore(root);
   const conversation = store.create(scope, "approval test");
   const task = store.enqueue(scope, conversation.id, "request browser typing");
@@ -45,7 +45,7 @@ test("real slow approval HTTP response serializes duplicate explicit decisions w
     assert.equal(request.headers.authorization, "Bearer synthetic-issued-client");
     assert.equal(request.headers["x-sparkclaw-installation"], f.store.installationID);
     if (request.method === "POST") {
-      assert.equal(request.url, `/api/r3/executions/${f.task.request_id}/approvals/approval_test`);
+      assert.equal(request.url, `/api/v1/executions/${f.task.request_id}/approvals/approval_test`);
       const chunks = []; for await (const chunk of request) chunks.push(chunk);
       assert.deepEqual(JSON.parse(Buffer.concat(chunks)), { digest: approval.digest, decision: "approve" });
       decisions++; started(); await wait;

@@ -9,15 +9,15 @@ import (
 
 func WithMailSync(service *mailsync.Service) Option { return func(s *Server) { s.mailSync = service } }
 func (s *Server) registerMailSyncRoutes() {
-	s.mux.HandleFunc("GET /api/r3/mail/mailboxes", s.mailSyncMailboxes)
-	s.mux.HandleFunc("POST /api/r3/mail/{mailbox}/sync", s.syncMail)
-	s.mux.HandleFunc("GET /api/r3/mail/{mailbox}/messages/{mail}/attachments/{part}", s.mailSyncAttachment)
+	s.mux.HandleFunc("GET /api/v1/mail/mailboxes", s.mailSyncMailboxes)
+	s.mux.HandleFunc("POST /api/v1/mail/{mailbox}/sync", s.syncMail)
+	s.mux.HandleFunc("GET /api/v1/mail/{mailbox}/messages/{mail}/attachments/{part}", s.mailSyncAttachment)
 }
 
 func (s *Server) mailSyncAttachment(w http.ResponseWriter, r *http.Request) {
 	principal, err := s.executionPrincipal(r)
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"code": "r3_installation_required"})
+		writeJSON(w, http.StatusForbidden, map[string]any{"code": "installation_required"})
 		return
 	}
 	if s.emailManagement == nil {
@@ -46,11 +46,11 @@ func (s *Server) mailSyncAttachment(w http.ResponseWriter, r *http.Request) {
 func (s *Server) mailSyncMailboxes(w http.ResponseWriter, r *http.Request) {
 	principal, err := s.executionPrincipal(r)
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"code": "r3_installation_required"})
+		writeJSON(w, http.StatusForbidden, map[string]any{"code": "installation_required"})
 		return
 	}
 	if s.mailSync == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"code": "r3_mail_unavailable"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"code": "mail_sync_unavailable"})
 		return
 	}
 	if len(r.URL.Query()) != 0 {
@@ -68,11 +68,11 @@ func (s *Server) mailSyncMailboxes(w http.ResponseWriter, r *http.Request) {
 func (s *Server) syncMail(w http.ResponseWriter, r *http.Request) {
 	principal, err := s.executionPrincipal(r)
 	if err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]any{"code": "r3_installation_required"})
+		writeJSON(w, http.StatusForbidden, map[string]any{"code": "installation_required"})
 		return
 	}
 	if s.mailSync == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"code": "r3_mail_unavailable"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"code": "mail_sync_unavailable"})
 		return
 	}
 	var input struct {
@@ -92,16 +92,16 @@ func (s *Server) syncMail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 func writeMailSyncError(w http.ResponseWriter, err error) {
-	status, code := http.StatusServiceUnavailable, "r3_mail_unavailable"
+	status, code := http.StatusServiceUnavailable, "mail_sync_unavailable"
 	switch {
 	case errors.Is(err, mailsync.ErrReset):
-		status, code = http.StatusConflict, "r3_mail_reset_required"
+		status, code = http.StatusConflict, "mail_sync_reset_required"
 	case errors.Is(err, mailsync.ErrInvalid):
-		status, code = http.StatusBadRequest, "r3_mail_invalid"
+		status, code = http.StatusBadRequest, "mail_sync_invalid"
 	case errors.Is(err, mailsync.ErrNotFound):
-		status, code = http.StatusNotFound, "r3_mail_not_found"
+		status, code = http.StatusNotFound, "mail_sync_not_found"
 	case errors.Is(err, mailsync.ErrLimit):
-		status, code = http.StatusInsufficientStorage, "r3_mail_capacity"
+		status, code = http.StatusInsufficientStorage, "mail_sync_capacity"
 	}
 	writeJSON(w, status, map[string]any{"code": code})
 }

@@ -32,13 +32,13 @@ func main() {
 		fmt.Fprint(w, `<!doctype html><title>workbench native fixture</title><h1 id="conversation"></h1><button id="increment">Increment</button><div id="counter">Counter: 0</div><label>Name<input id="name"></label><div id="draft"></div><script>document.querySelector('#conversation').textContent='Conversation '+new URL(location.href).searchParams.get('conversation');let n=0;document.querySelector('#increment').onclick=()=>document.querySelector('#counter').textContent='Counter: '+(++n);document.querySelector('#name').oninput=()=>document.querySelector('#draft').textContent='Draft: '+document.querySelector('#name').value;</script>`)
 	})
 	authorized := func(w http.ResponseWriter, r *http.Request) bool {
-		if r.Header.Get("Authorization") != "Bearer isolated-r3-native-qualification" {
+		if r.Header.Get("Authorization") != "Bearer isolated-host-native-qualification" {
 			http.Error(w, "unauthorized", 401)
 			return false
 		}
 		return true
 	}
-	mux.HandleFunc("POST /api/r3/hosts/grants", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/v1/browser/hosts/grants", func(w http.ResponseWriter, r *http.Request) {
 		if !authorized(w, r) {
 			return
 		}
@@ -60,7 +60,7 @@ func main() {
 		}
 		json.NewEncoder(w).Encode(grant)
 	})
-	mux.HandleFunc("GET /api/r3/hosts/connect", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/v1/browser/hosts/connect", func(w http.ResponseWriter, r *http.Request) {
 		if !authorized(w, r) || r.Header.Get("X-SparkClaw-Installation") != identity.InstallationID {
 			return
 		}
@@ -115,7 +115,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(output)
 	})
-	mux.HandleFunc("GET /api/r3/hosts/fences", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/v1/browser/hosts/fences", func(w http.ResponseWriter, r *http.Request) {
 		if !authorized(w, r) || r.Header.Get("X-SparkClaw-Installation") != identity.InstallationID {
 			http.Error(w, "installation rejected", 403)
 			return

@@ -8,7 +8,7 @@ import (
 )
 
 func TestExecutionStartupRemovesOnlyOwnedDeploymentMemoryWorkspaces(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "r3")
+	root := filepath.Join(t.TempDir(), "execution")
 	scratch, err := executionMemoryWorkspace(root)
 	if err != nil {
 		t.Fatal(err)

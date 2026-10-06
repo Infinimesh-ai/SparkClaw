@@ -134,7 +134,7 @@ export class DesktopAuth {
   // the ordinary 1 MiB ceiling. Origin, pinned TLS and logout fencing are shared.
   async authorizedExecutionFetch(raw, init = {}) {
     const url = new URL(raw);
-    if (!/^\/api\/r3\/(executions|inputs|schedules)(\/|$)/u.test(url.pathname) || url.search || url.hash || url.username || url.password) {
+    if (!/^\/api\/v1\/(executions|inputs)(\/|$)/u.test(url.pathname) || url.search || url.hash || url.username || url.password) {
       throw new Error("workbench backend path is invalid");
     }
     return this.#authorizedFetch(raw, init, 8 * 1024 * 1024);
@@ -142,7 +142,7 @@ export class DesktopAuth {
 
   async authorizedMailFileFetch(raw, init = {}) {
     const url = new URL(raw);
-    if (!/^\/api\/r3\/mail\/[^/]+\/messages\/[^/]+\/attachments\/[^/]+$/u.test(url.pathname) || url.search || url.hash || url.username || url.password || (init.method && init.method !== "GET")) throw new Error("Mail attachment path is invalid");
+    if (!/^\/api\/v1\/mail\/[^/]+\/messages\/[^/]+\/attachments\/[^/]+$/u.test(url.pathname) || url.search || url.hash || url.username || url.password || (init.method && init.method !== "GET")) throw new Error("Mail attachment path is invalid");
     return this.#authorizedFetch(raw, init, 64 * 1024 * 1024);
   }
 
@@ -229,7 +229,7 @@ export class DesktopAuth {
       }
       if (this.installationID) {
         if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(this.installationID)) return { state: "identity_conflict" };
-        const binding = await this.#fetch()(`${candidate.origin}/api/r3/installations`, {
+        const binding = await this.#fetch()(`${candidate.origin}/api/v1/installations`, {
           method: "POST", headers: { Authorization: candidate.authorization, "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify({ schema_version: 1, installation_id: this.installationID }),
           redirect: "manual", signal: AbortSignal.timeout(5000),

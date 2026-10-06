@@ -44,8 +44,8 @@ export class ExecutionClient {
       try {
         if (JSON.parse(task.context_json).input_files?.length) await this.#uploadInputs(scope, task);
         if (!canSubmit()) throw new Error("Execution submission availability changed");
-        const response = await this.#fetch(scope, "/api/r3/executions", {
-          method: "POST", headers: { "Content-Type": "application/json", "X-R3-Digest": task.input_digest }, body: task.context_json,
+        const response = await this.#fetch(scope, "/api/v1/executions", {
+          method: "POST", headers: { "Content-Type": "application/json", "X-SparkClaw-Digest": task.input_digest }, body: task.context_json,
         });
         if (!response.ok) {
           await response.body?.cancel();
@@ -80,7 +80,7 @@ export class ExecutionClient {
       if (!task.explicitly_submitted || !["submission_pending", "accepted", "running", "cancel_pending"].includes(task.status)) throw new Error("Task cannot be canceled");
       this.store.setExecutionState(scope, requestID, "cancel_pending");
       try {
-        const response = await this.#fetch(scope, `/api/r3/executions/${requestID}/cancel`, {
+        const response = await this.#fetch(scope, `/api/v1/executions/${requestID}/cancel`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
         });
         if (!response.ok) { await response.body?.cancel(); throw new Error("Execution cancellation is awaiting reconciliation"); }
@@ -122,7 +122,7 @@ export class ExecutionClient {
       this.store.approvalDecision(scope, requestID, approvalID, digest, decision);
       this.onChange();
       try {
-        const response = await this.#fetch(scope, `/api/r3/executions/${requestID}/approvals/${encodeURIComponent(approvalID)}`, {
+        const response = await this.#fetch(scope, `/api/v1/executions/${requestID}/approvals/${encodeURIComponent(approvalID)}`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ digest, decision }),
         });
         if (!response.ok) { await response.body?.cancel(); throw new Error("Approval decision is awaiting reconciliation"); }
@@ -158,7 +158,7 @@ export class ExecutionClient {
   async #lookup(scope, task) {
     const receipt = this.store.receipt(scope, task.request_id);
     if (receipt && !receipt.acknowledged) { await this.#ack(scope, receipt); return true; }
-    const response = await this.#fetch(scope, `/api/r3/executions/${task.request_id}`);
+    const response = await this.#fetch(scope, `/api/v1/executions/${task.request_id}`);
     if (response.status === 404) { this.verifiedApprovals.delete(task.request_id); await response.body?.cancel(); return false; }
     if (!response.ok) { await response.body?.cancel(); throw new Error("Execution status is unavailable"); }
     await this.#accept(scope, task, await json(response));
@@ -190,7 +190,7 @@ export class ExecutionClient {
     for (const manifest of payload.files) {
       bytes += manifest.size;
       if (bytes > CLIENT_LIMITS.resultBytes) throw new Error("Delivery exceeds result budget");
-      const response = await this.#fetch(scope, `/api/r3/executions/${task.request_id}/files/${encodeURIComponent(manifest.id)}`);
+      const response = await this.#fetch(scope, `/api/v1/executions/${task.request_id}/files/${encodeURIComponent(manifest.id)}`);
       if (!response.ok) { await response.body?.cancel(); throw new Error("Delivered file is unavailable"); }
       const content = new Uint8Array(await response.arrayBuffer());
       if (content.byteLength !== manifest.size || sha256(content) !== manifest.sha256) throw new Error("Delivered file verification failed");
@@ -206,8 +206,8 @@ export class ExecutionClient {
     for (const manifest of envelope.input_files || []) {
       const file = this.store.file(scope, manifest.id);
       if (file.content.byteLength !== manifest.size || sha256(file.content) !== manifest.sha256) throw new Error("Local input file verification failed");
-      const response = await this.#fetch(scope, `/api/r3/inputs/${task.request_id}/files/${manifest.id}`, {
-        method: "PUT", headers: { "Content-Type": "application/octet-stream", "X-R3-Digest": manifest.sha256,
+      const response = await this.#fetch(scope, `/api/v1/inputs/${task.request_id}/files/${manifest.id}`, {
+        method: "PUT", headers: { "Content-Type": "application/octet-stream", "X-SparkClaw-Digest": manifest.sha256,
           "X-SparkClaw-Installation": this.store.installationID }, body: file.content,
       });
       if (!response.ok) { await response.body?.cancel(); throw new Error("Input file upload was not accepted"); }
@@ -219,7 +219,7 @@ export class ExecutionClient {
     this.#sameIdentity(scope);
     // Reverify disk contents immediately before exposing a durable ACK.
     this.store.receipt(scope, receipt.request_id);
-    const response = await this.#fetch(scope, `/api/r3/executions/${receipt.request_id}/ack`, {
+    const response = await this.#fetch(scope, `/api/v1/executions/${receipt.request_id}/ack`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sequence: receipt.sequence, digest: receipt.digest, durable: true }),
     });

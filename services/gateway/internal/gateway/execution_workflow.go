@@ -164,7 +164,7 @@ func executionMemoryWorkspace(controlRoot string) (string, error) {
 }
 
 func executionWorkspacePrefix(controlRoot string) string {
-	return "sparkclaw-r3-" + execution.Digest([]byte(controlRoot))[:16] + "-"
+	return "sparkclaw-execution-" + execution.Digest([]byte(controlRoot))[:16] + "-"
 }
 func executionMemorySweep(controlRoot string) error {
 	entries, err := os.ReadDir("/dev/shm")

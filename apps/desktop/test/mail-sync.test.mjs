@@ -69,7 +69,7 @@ test('verified mail attachment copies become local files; backend loss, tamper a
  const attachment={id:'part-1',name:'report.bin',size:bytes.length,available:true,sha256:hash};
  const projection=mail('a');projection.attachments=[attachment];cache.apply(scope,'box',response('snapshot',1,1,[{...event('a',1),mail:projection}],'first'),'');
  const connection={origin:'https://backend.invalid',authorization:'Bearer synthetic',deploymentID:'deployment',ownerID:'owner',clientID:'client'};
- let original=bytes;let calls=0;const fetcher=async(url,init)=>{calls++;assert.equal(new URL(url).pathname,'/api/r3/mail/box/messages/a/attachments/part-1');assert.equal(init.headers['X-SparkClaw-Installation'],'installation');return original?new Response(original):new Response(null,{status:404});};
+ let original=bytes;let calls=0;const fetcher=async(url,init)=>{calls++;assert.equal(new URL(url).pathname,'/api/v1/mail/box/messages/a/attachments/part-1');assert.equal(init.headers['X-SparkClaw-Installation'],'installation');return original?new Response(original):new Response(null,{status:404});};
  const client=new MailSyncClient({store:cache,localStore:local,getConnection:()=>connection,getFetch:()=>{throw new Error('ordinary proxy must not transfer attachments');},getFileFetch:()=>fetcher,installationID:'installation'});
  const saved=await client.saveAttachment('box','a','part-1',conversation.id);assert.equal(saved.size,bytes.length);assert.deepEqual(local.file(scope,saved.id).content,bytes);
  original=undefined;await assert.rejects(client.saveAttachment('box','a','part-1',conversation.id),/unavailable/);assert.deepEqual(local.file(scope,saved.id).content,bytes);

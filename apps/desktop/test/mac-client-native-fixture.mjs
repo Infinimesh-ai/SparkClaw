@@ -18,7 +18,7 @@ app.whenReady().then(async () => {
   try {
     assert.equal(process.platform, "darwin");
     assert.ok(safeStorage.isEncryptionAvailable(), "Mac Keychain encryption must be available");
-    store = new ClientStore(path.join(root, "profile", "client-r3"));
+    store = new ClientStore(path.join(root, "profile", "workbench"));
     const scope = { deployment_id: "qualification-deployment", owner_id: "qualification-owner", client_id: "qualification-client" };
     const vault = new SecureCredentialStore({ directory: path.join(root, "profile", "authentication"), safeStorage });
     const auth = new DesktopAuth({ vault, descriptorPath: path.join(root, "profile", "backend.json"), installationID: store.installationID, requireLAN: true });

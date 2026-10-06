@@ -267,7 +267,7 @@ func (a *ScopedAdapter) Health(ctx context.Context, _ map[string]any) (browserau
 	if err != nil {
 		return browserautomation.Result{}, err
 	}
-	return browserautomation.Result{Tool: "browser.status", Output: map[string]any{"ok": true, "configured": true, "status": "ready", "state": "ready", "role": a.host.Capabilities().Role, "host_id": binding.HostID, "page_id": binding.PageID}, Pages: []any{}, SessionGeneration: binding.PageGeneration, Untrusted: true, Provider: "r3_host"}, nil
+	return browserautomation.Result{Tool: "browser.status", Output: map[string]any{"ok": true, "configured": true, "status": "ready", "state": "ready", "role": a.host.Capabilities().Role, "host_id": binding.HostID, "page_id": binding.PageID}, Pages: []any{}, SessionGeneration: binding.PageGeneration, Untrusted: true, Provider: "browser_host"}, nil
 }
 func (a *ScopedAdapter) Call(ctx context.Context, tool string, args map[string]any) (browserautomation.Result, error) {
 	a.mu.Lock()
@@ -282,7 +282,7 @@ func (a *ScopedAdapter) Call(ctx context.Context, tool string, args map[string]a
 	operation := map[string]string{"browser.open": "navigate", "browser.navigate": "navigate", "browser.read": "read", "browser.snapshot": "snapshot", "browser.click": "click", "browser.type": "fill", "browser.select": "select", "browser.screenshot": "screenshot", "browser.wait": "wait", "browser.close": "release"}[tool]
 	if tool == "browser.list_tabs" {
 		pages := []any{map[string]any{"page_id": binding.PageID, "url": a.activeURL, "selected": true, "session_generation": binding.PageGeneration}}
-		return browserautomation.Result{Tool: tool, Output: map[string]any{"pages": pages}, Pages: pages, Untrusted: true, Provider: "r3_host"}, nil
+		return browserautomation.Result{Tool: tool, Output: map[string]any{"pages": pages}, Pages: pages, Untrusted: true, Provider: "browser_host"}, nil
 	}
 	if tool == "browser.focus" {
 		return browserautomation.Result{}, errors.New("embedded page presentation belongs to the local conversation selection")
@@ -356,7 +356,7 @@ func (a *ScopedAdapter) Call(ctx context.Context, tool string, args map[string]a
 	if operation == "wait" && text == "" {
 		text = string(output)
 	}
-	result := browserautomation.Result{Tool: tool, RawTool: operation, Output: decoded, Text: text, Pages: []any{}, SessionGeneration: binding.PageGeneration, Untrusted: true, Provider: "r3_host", BrowserMode: "autonomous", Presentation: "visible", SurfaceVisible: true}
+	result := browserautomation.Result{Tool: tool, RawTool: operation, Output: decoded, Text: text, Pages: []any{}, SessionGeneration: binding.PageGeneration, Untrusted: true, Provider: "browser_host", BrowserMode: "autonomous", Presentation: "visible", SurfaceVisible: true}
 	if operation == "navigate" {
 		// Workflow consumes only the selected page in this task's scoped browser
 		// session. This does not select or present another local conversation.
@@ -380,7 +380,7 @@ func (a *ScopedAdapter) ReadPage(ctx context.Context, url string, args map[strin
 	if err = json.Unmarshal(raw, &read); err != nil {
 		return read, err
 	}
-	read.Provider = "r3_host"
+	read.Provider = "browser_host"
 	read.Rendered = true
 	read.Untrusted = true
 	read.ReadSource = "client_embedded_webcontents"

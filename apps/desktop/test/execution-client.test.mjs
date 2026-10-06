@@ -12,7 +12,7 @@ import { DesktopAuth } from "../src/main/desktop-auth.mjs";
 const scope = { deployment_id: "deployment", owner_id: "owner", client_id: "client" };
 const hash = (value) => crypto.createHash("sha256").update(value).digest("hex");
 function fixture(t, fetcher) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sparkclaw-r3-client-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sparkclaw-execution-client-"));
   let store = new ClientStore(directory);
   let identity = scope;
   const auth = { status: { state: "connected" }, descriptor: { origin: "http://127.0.0.1:18790" }, authorizedExecutionFetch: fetcher };
@@ -43,9 +43,9 @@ test("real HTTP chain preserves explicit immutable submission, verified files an
     const body = Buffer.concat(chunks);
     calls.push({ method: request.method, path: request.url });
     assert.equal(request.headers.authorization, "Bearer synthetic-issued-client-token");
-    if (request.url === "/api/r3/executions" && request.method === "POST") {
+    if (request.url === "/api/v1/executions" && request.method === "POST") {
       const envelope = JSON.parse(body);
-      assert.equal(hash(body), request.headers["x-r3-digest"]);
+      assert.equal(hash(body), request.headers["x-sparkclaw-digest"]);
       assert.equal(envelope.installation_id, request.headers["x-sparkclaw-installation"]);
       assert.equal(envelope.messages.at(-1).content, "test input");
       accepted = event(f, "completed", result("Complete", [{ id: "output1", name: "report.txt", size: output.length, sha256: hash(output) }]));
@@ -73,7 +73,7 @@ test("real HTTP chain preserves explicit immutable submission, verified files an
   assert.deepEqual(calls, [], "saved input never replays automatically");
   const completed = await f.client.submit(scope, f.task.request_id);
   assert.equal(completed.status, "delivered");
-  assert.equal(calls.filter((call) => call.method === "POST" && call.path === "/api/r3/executions").length, 1);
+  assert.equal(calls.filter((call) => call.method === "POST" && call.path === "/api/v1/executions").length, 1);
   f.restart();
   await f.client.reconcilePending();
   assert.equal(f.store.read(scope, f.conversation.id).files.length, 1);
@@ -233,7 +233,7 @@ test("explicit selected files are frozen locally, uploaded before POST and canno
   target = f.store.enqueue(scope, f.conversation.id, "read selected file", [file.id]);
   await f.client.submit(scope, target.request_id);
   assert.equal(calls[0].method, "PUT"); assert.equal(calls[1].method, "POST");
-  assert.equal(hash(calls[0].body), calls[0].headers.get("x-r3-digest"));
+  assert.equal(hash(calls[0].body), calls[0].headers.get("x-sparkclaw-digest"));
   const envelope = JSON.parse(calls[1].body);
   assert.deepEqual(envelope.input_files, [{ id: file.id, name: file.name, size: file.size, sha256: file.sha256 }]);
   assert.ok(calls.every((call) => call.headers.get("x-sparkclaw-installation") === f.store.installationID));

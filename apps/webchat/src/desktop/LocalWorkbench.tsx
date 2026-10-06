@@ -28,7 +28,7 @@ import "../styles/local-workbench.css";
 
 const emptyContent: LocalConversationContent = { messages: [], tasks: [], files: [] };
 
-// Desktop workbench has its own data path. It never mounts App's legacy shared-session
+// The desktop workbench owns local conversations. The host App uses its own Store
 // hooks. Server-dependent features become available only as their phases pass.
 export function LocalWorkbench() {
   const store = clientStore()!;

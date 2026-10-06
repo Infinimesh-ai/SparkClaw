@@ -33,7 +33,7 @@ func TestExecutionRealDocumentWorkflowWaitsForInstalledClientApproval(t *testing
 		{"attached_document_approve", "Edit the attached document and replace Original reflection with Improved reflection.", "approve"},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
-			root, err := os.MkdirTemp("/dev/shm", "sparkclaw-r3-workflow-approval-test-")
+			root, err := os.MkdirTemp("/dev/shm", "sparkclaw-execution-workflow-approval-test-")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -45,10 +45,10 @@ func TestExecutionRealDocumentWorkflowWaitsForInstalledClientApproval(t *testing
 			cfg.Model.Fast.BaseURL, cfg.Model.Deep.BaseURL = model.URL, model.URL
 			cfg.Model.Embedding.BaseURL, cfg.Model.Guard.BaseURL = model.URL, model.URL
 			cfg.Gateway.PairingRequired = true
-			cfg.Gateway.DeploymentID = "r3-real-workflow-approval"
+			cfg.Gateway.DeploymentID = "execution-real-workflow-approval"
 			cfg.Security.ApprovalRequiredTools = append(cfg.Security.ApprovalRequiredTools, "text.replace_text")
 			shared := store.NewMemoryStore()
-			const token = "synthetic-r3-real-document-workflow-installed-client-token"
+			const token = "synthetic-execution-real-document-workflow-installed-client-token"
 			const install = "11111111-1111-4111-8111-111111111111"
 			if _, err = shared.RegisterClient(t.Context(), app.Client{ID: "workflow-client", OwnerID: "workflow-owner", Name: "synthetic fixture", TokenHash: hashSecret(token)}); err != nil {
 				t.Fatal(err)
@@ -59,7 +59,7 @@ func TestExecutionRealDocumentWorkflowWaitsForInstalledClientApproval(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			controlRoot := filepath.Join(root, "r3")
+			controlRoot := filepath.Join(root, "execution")
 			// A nil executor selects the real executeWorkbenchWorkflow implementation.
 			instance := New(cfg, shared, tools, runtime, WithExecutions(controlRoot, nil))
 			lifecycle, cancel := context.WithCancel(t.Context())
@@ -81,7 +81,7 @@ func TestExecutionRealDocumentWorkflowWaitsForInstalledClientApproval(t *testing
 				}
 				req.Header.Set("Authorization", "Bearer "+token)
 				req.Header.Set("X-SparkClaw-Installation", install)
-				req.Header.Set("X-R3-Digest", execution.Digest(raw))
+				req.Header.Set("X-SparkClaw-Digest", execution.Digest(raw))
 				req.Header.Set("Content-Type", "application/json")
 				res, err := server.Client().Do(req)
 				if err != nil {
@@ -94,23 +94,23 @@ func TestExecutionRealDocumentWorkflowWaitsForInstalledClientApproval(t *testing
 				}
 				return res.StatusCode, body
 			}
-			if code, raw := request("POST", "/api/r3/installations", []byte(`{"schema_version":1,"installation_id":"`+install+`"}`)); code != 200 {
+			if code, raw := request("POST", "/api/v1/installations", []byte(`{"schema_version":1,"installation_id":"`+install+`"}`)); code != 200 {
 				t.Fatalf("installation binding: %d %s", code, raw)
 			}
 			const original = "# Notes\nOriginal reflection\n"
 			const updated = "# Notes\nImproved reflection\n"
 			input := execution.File{ID: "55555555-5555-4555-8555-555555555555", Name: "notes.md", Size: len(original), SHA256: execution.Digest([]byte(original))}
 			e := execution.Envelope{SchemaVersion: 1, DeploymentID: cfg.Gateway.DeploymentID, OwnerID: "workflow-owner", ClientID: "workflow-client", InstallationID: install, ConversationID: "22222222-2222-4222-8222-222222222222", TaskID: "33333333-3333-4333-8333-333333333333", RequestID: "44444444-4444-4444-8444-444444444444", Messages: []execution.Message{{Role: "user", Content: fixture.goal}}, InputFiles: []execution.File{input}}
-			if code, raw := request("PUT", "/api/r3/inputs/"+e.RequestID+"/files/"+input.ID, []byte(original)); code != 200 {
+			if code, raw := request("PUT", "/api/v1/inputs/"+e.RequestID+"/files/"+input.ID, []byte(original)); code != 200 {
 				t.Fatalf("frozen input upload: %d %s", code, raw)
 			}
 			raw, _ := json.Marshal(e)
-			if code, body := request("POST", "/api/r3/executions", raw); code != 202 {
+			if code, body := request("POST", "/api/v1/executions", raw); code != 202 {
 				t.Fatalf("real workflow submit: %d %s", code, body)
 			}
 			lookup := func() execution.Status {
 				t.Helper()
-				code, body := request("GET", "/api/r3/executions/"+e.RequestID, nil)
+				code, body := request("GET", "/api/v1/executions/"+e.RequestID, nil)
 				var status execution.Status
 				if err := json.Unmarshal(body, &status); err != nil || code != 200 {
 					t.Fatalf("execution status: %d %s %v", code, body, err)
@@ -179,7 +179,7 @@ func TestExecutionRealDocumentWorkflowWaitsForInstalledClientApproval(t *testing
 				t.Fatalf("expected real semantic routing and one editor proposal: %v", counts)
 			}
 			decisionJSON, _ := json.Marshal(map[string]string{"digest": approval.Digest, "decision": fixture.decision})
-			if code, body := request("POST", "/api/r3/executions/"+e.RequestID+"/approvals/"+approval.ApprovalID, decisionJSON); code != 200 {
+			if code, body := request("POST", "/api/v1/executions/"+e.RequestID+"/approvals/"+approval.ApprovalID, decisionJSON); code != 200 {
 				t.Fatalf("explicit installed-client decision: %d %s", code, body)
 			}
 			deadline = time.Now().Add(5 * time.Second)
@@ -201,7 +201,7 @@ func TestExecutionRealDocumentWorkflowWaitsForInstalledClientApproval(t *testing
 				if len(payload.Files) != 1 || payload.Files[0].Name != outputPath || payload.Files[0].SHA256 != execution.Digest([]byte(updated)) {
 					t.Fatalf("approved real document editor did not return its actual copy: %+v", payload)
 				}
-				if code, document := request("GET", "/api/r3/executions/"+e.RequestID+"/files/"+payload.Files[0].ID, nil); code != 200 || string(document) != updated {
+				if code, document := request("GET", "/api/v1/executions/"+e.RequestID+"/files/"+payload.Files[0].ID, nil); code != 200 || string(document) != updated {
 					t.Fatalf("approved real document bytes: %d %q", code, document)
 				}
 			} else if len(payload.Files) != 0 || !strings.Contains(payload.Content, "rejected") {

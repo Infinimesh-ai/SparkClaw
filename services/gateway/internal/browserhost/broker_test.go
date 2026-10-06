@@ -86,7 +86,7 @@ func TestAuthenticatedGrantIdentityAndTLSBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest("GET", "https://example.test/api/r3/hosts/connect", nil)
+	request := httptest.NewRequest("GET", "https://example.test/api/v1/browser/hosts/connect", nil)
 	request.Header.Set("X-SparkClaw-Host-ID", grant.HostID)
 	request.Header.Set("X-SparkClaw-Host-Grant", grant.Token)
 	request.Header.Set("X-SparkClaw-Runtime", "runtime_test")

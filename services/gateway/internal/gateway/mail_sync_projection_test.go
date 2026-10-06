@@ -15,15 +15,15 @@ import (
 // calls this command: authoritative writes retain existing CAS/key semantics.
 func TestExecutionMailTypedDeleteConflictReplayAndDurableTombstone(t *testing.T) {
 	f := newEmailHTTPFixture(t)
-	mail := f.assign(f.receive("r3-delete-fixture", time.Now()), "")
+	mail := f.assign(f.receive("execution-delete-fixture", time.Now()), "")
 	projection, e := emailmanagement.New(f.repo, f.browser, emailautomation.DefaultRegistry(), nil, nil, emailmanagement.Options{WorkspaceRoot: f.root})
 	f.must(e)
-	root := filepath.Join(f.root, "r3-mail")
+	root := filepath.Join(f.root, "execution-mail")
 	sync, e := mailsync.New(root, mailsync.Repository{OwnerStatus: f.repo.GetEmailOwnerStatus, Mailbox: f.repo.GetEmailMailbox, Mailboxes: f.repo.ListEmailMailboxes}, projection)
 	f.must(e)
 	initial, e := sync.Sync(t.Context(), f.owner, f.box.ID, "", 100)
 	f.must(e)
-	if len(initial.Events) != 1 || initial.Events[0].Mail.BodyText != "unique-contract-term-r3-delete-fixture" || len(initial.Events[0].Mail.Attachments) != 1 {
+	if len(initial.Events) != 1 || initial.Events[0].Mail.BodyText != "unique-contract-term-execution-delete-fixture" || len(initial.Events[0].Mail.Attachments) != 1 {
 		t.Fatalf("incomplete projection %+v", initial)
 	}
 	conversation, found, e := f.repo.GetEmailConversation(t.Context(), f.owner, mail.ConversationID)

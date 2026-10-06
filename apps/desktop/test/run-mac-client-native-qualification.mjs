@@ -22,14 +22,14 @@ try {
   await run("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1", "-keyout", path.join(temporary, "key.pem"), "-out", path.join(temporary, "cert.pem")], { timeout: 15000, maxBuffer: 1 << 20 });
   const [key, cert] = await Promise.all([fs.readFile(path.join(temporary, "key.pem")), fs.readFile(path.join(temporary, "cert.pem"))]);
   server = https.createServer({ key, cert }, async (request, response) => {
-    if (request.method === "POST" && request.url === "/api/r3/executions") executionPosts++;
-    if (request.url.startsWith("/api/r3/schedules/")) scheduleLeaseRequests++;
-    if (["POST", "PUT", "PATCH"].includes(request.method) && request.url !== "/api/r3/installations") businessWrites++;
+    if (request.method === "POST" && request.url === "/api/v1/executions") executionPosts++;
+    if (request.url.startsWith("/api/v1/schedules/")) scheduleLeaseRequests++;
+    if (["POST", "PUT", "PATCH"].includes(request.method) && request.url !== "/api/v1/installations") businessWrites++;
     if (revoked || request.headers.authorization !== `Bearer ${token}`) { response.writeHead(401).end(); return; }
     if (request.method === "GET" && request.url === "/api/workbench/identity") {
       identityRequests++; response.end(JSON.stringify(identity)); return;
     }
-    if (request.method === "POST" && request.url === "/api/r3/installations") {
+    if (request.method === "POST" && request.url === "/api/v1/installations") {
       let input = "";
       for await (const chunk of request) { input += chunk; if (input.length > 4096) { response.writeHead(413).end(); return; } }
       const value = JSON.parse(input);

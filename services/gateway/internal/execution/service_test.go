@@ -17,7 +17,7 @@ func fixture() Envelope {
 }
 func setup(t *testing.T, execute Executor) (*Service, Envelope, string) {
 	t.Helper()
-	s, err := New(filepath.Join(t.TempDir(), "r3"), execute)
+	s, err := New(filepath.Join(t.TempDir(), "execution"), execute)
 	if err != nil {
 		t.Fatal(err)
 	}

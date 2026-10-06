@@ -8,7 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.
 if (!["linux", "darwin"].includes(process.platform)) throw new Error("Native workbench qualification requires Linux or macOS");
 // macOS's /var temporary directory is a symlink. Use its canonical parent
 // without weakening the Broker's private-path checks.
-const temporary = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "sparkclaw-r3-native-"));
+const temporary = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "sparkclaw-execution-native-"));
 let xvfb, broker;
 const run = promisify(execFile);
 try {

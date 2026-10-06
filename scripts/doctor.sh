@@ -50,6 +50,8 @@ for name in \
   SPARKCLAW_AUTOSTART_ENABLED \
   SPARKCLAW_DEPLOYMENT_ID \
   SPARKCLAW_WEBCHAT_PORT \
+  SPARKCLAW_LOCAL_WEBCHAT_ENABLED \
+  SPARKCLAW_LOCAL_WEBCHAT_PORT \
   SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR \
   SPARKCLAW_DESKTOP_TLS_DIR \
   SPARKCLAW_DESKTOP_PUBLIC_ORIGIN \
@@ -140,7 +142,7 @@ check_browser_controller() {
 }
 
 check_workbench_credentials() {
-  local -a arguments=(--check --runtime-dir "${SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR:-$ROOT/data/runtime}" --origin "http://127.0.0.1:${SPARKCLAW_WEBCHAT_PORT:-18790}" --deployment-id "${SPARKCLAW_DEPLOYMENT_ID:-}")
+  local -a arguments=(--check --runtime-dir "${SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR:-$ROOT/data/runtime}" --origin "http://127.0.0.1:${SPARKCLAW_WEBCHAT_PORT:-18790}" --deployment-id "${SPARKCLAW_DEPLOYMENT_ID:-}" --local-webchat-enabled "${SPARKCLAW_LOCAL_WEBCHAT_ENABLED:-false}")
   if [[ -n "${SPARKCLAW_DESKTOP_TLS_DIR:-}" ]]; then
     arguments+=(--client-origin "$SPARKCLAW_DESKTOP_PUBLIC_ORIGIN" --client-tls-cert "$SPARKCLAW_DESKTOP_TLS_DIR/server.crt" --client-tls-ca "$SPARKCLAW_DESKTOP_TLS_DIR/ca.crt")
   fi
@@ -163,6 +165,7 @@ check "Node.js 26" node -e 'if (process.versions.node.split(".")[0] !== "26") pr
 check "npm 11" bash -lc '[[ "$(npm --version)" == 11.* ]]'
 check "npm install scripts approved" check_npm_install_script_approvals
 check "local credential provisioning" check_workbench_credentials
+check "local WebChat host" sparkclaw_require_local_webchat_host
 check "Node document dependencies" node -e 'for (const name of ["@mozilla/readability", "jsdom", "exceljs"]) require(name)'
 check "Python 3.12" python3 -c 'import sys; raise SystemExit(sys.version_info[:2] != (3, 12))'
 check "pip" python3 -m pip --version

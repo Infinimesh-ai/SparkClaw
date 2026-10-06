@@ -61,6 +61,7 @@ sparkclaw_validate_product_profile local "$PRODUCT_ENV" "$MODE_ENV" "$PRIVATE_EN
 EFFECTIVE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/sparkclaw-local-env.XXXXXX")"
 sparkclaw_merge_profile_env "$PRODUCT_ENV" "$MODE_ENV" "$PRIVATE_ENV" "$EFFECTIVE_ENV_FILE"
 sparkclaw_export_profile_env "$EFFECTIVE_ENV_FILE"
+sparkclaw_require_local_webchat_host
 webchat_port="$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$PRIVATE_ENV" SPARKCLAW_WEBCHAT_PORT 18790)"
 sparkclaw_tcp_port_valid "$webchat_port" || {
   echo "SPARKCLAW_WEBCHAT_PORT must be an integer between 1 and 65535" >&2
@@ -72,6 +73,14 @@ workbench_provision_args=(--check --runtime-dir "$workbench_runtime_dir" --origi
 if [[ -n "${SPARKCLAW_DESKTOP_TLS_DIR:-}" ]]; then
   workbench_provision_args+=(--client-origin "$SPARKCLAW_DESKTOP_PUBLIC_ORIGIN" --client-tls-cert "$SPARKCLAW_DESKTOP_TLS_DIR/server.crt" --client-tls-ca "$SPARKCLAW_DESKTOP_TLS_DIR/ca.crt")
 fi
+# First check the existing desktop deployment without changing its identity.
+node "$ROOT/scripts/provision-local-workbench.mjs" "${workbench_provision_args[@]}" >/dev/null
+# A normal reconcile can create only the newly enabled local WebChat material;
+# --check remains strictly read-only, including when upgrading an old runtime.
+if [[ "$MODE" != "check" ]]; then
+  workbench_provision_args=("${workbench_provision_args[@]:1}")
+fi
+workbench_provision_args+=(--local-webchat-enabled "$SPARKCLAW_LOCAL_WEBCHAT_ENABLED")
 node "$ROOT/scripts/provision-local-workbench.mjs" "${workbench_provision_args[@]}" >/dev/null
 
 sparkclaw_check_browser_runtime "$ROOT" "$EFFECTIVE_ENV_FILE"
@@ -98,11 +107,11 @@ if [[ "$JINGSI_LAN" == true ]]; then
 fi
 sparkclaw_configure_desktop_tls "$ROOT" "$webchat_port"
 compose_args+=(--profile product --profile models-local)
-services=(postgres sandbox-runner gotenberg gateway webchat)
+services=(postgres sandbox-runner gotenberg gateway webchat local-webchat)
 
 if [[ "$MODE" == "check" ]]; then
   "${docker_cmd[@]}" "${compose_args[@]}" config --quiet
-  echo "SparkClaw local configuration valid: five local models plus five application services; Browser Bridge ready"
+  echo "SparkClaw local configuration valid: five local models plus six application services; Browser Bridge ready"
   exit 0
 fi
 
@@ -133,5 +142,6 @@ done
 "${docker_cmd[@]}" "${compose_args[@]}" exec -T gateway \
   node /app/scripts/browser_controller_smoke.mjs
 sparkclaw_assert_browser_pid_alive "$browser_pid"
+sparkclaw_check_local_webchat_ready
 
 echo "SparkClaw local runtime ready: five local models, PostgreSQL, Sandbox Runner, Gotenberg, Gateway, WebChat, and Browser Bridge"

@@ -60,6 +60,11 @@ class DeployRemoteTest(unittest.TestCase):
             repository = temp_path / "repository"
             for part in ("scripts", "docker", "configs"):
                 shutil.copytree(ROOT / part, repository / part, ignore=shutil.ignore_patterns("__pycache__"))
+            # Provisioning validates the desktop descriptor through its owning
+            # module; copy that production dependency into the isolated fixture.
+            desktop_backend = Path("apps/desktop/src/main/local-backend.mjs")
+            (repository / desktop_backend).parent.mkdir(parents=True)
+            shutil.copy2(ROOT / desktop_backend, repository / desktop_backend)
             for part in ("workspaces", "memory", "traces", "artifacts", "logs", "eval"):
                 folder = repository / "data" / part
                 folder.mkdir(parents=True)
@@ -83,9 +88,14 @@ class DeployRemoteTest(unittest.TestCase):
                     "schema_version": 1, "deployment_id": "deployment-test", "client_id": "local_management_test",
                     "owner_id": "owner", "client_name": "Local management test", "token": "m" * 48,
                 }), encoding="utf-8")
+                (runtime_dir / "local-webchat.json").write_text(json.dumps({
+                    "schema_version": 1, "deployment_id": "deployment-test", "client_id": "local_webchat_test",
+                    "owner_id": "owner", "client_name": "Local WebChat test", "token": "w" * 48,
+                }), encoding="utf-8")
                 for runtime_file in runtime_dir.iterdir():
                     runtime_file.chmod(0o600)
                 (runtime_dir / "management").mkdir(mode=0o700)
+                (runtime_dir / "local-webchat").mkdir(mode=0o700)
                 private_text = (
                     "SPARKCLAW_DEPLOYMENT_ID=deployment-test\n"
                     "SPARKCLAW_DESKTOP_CLIENT_FILE=/run/sparkclaw/runtime/desktop-client.json\n"

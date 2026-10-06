@@ -16,6 +16,7 @@ data/logs/*
 data/traces/*
 data/artifacts/*
 data/memory/*
+data/runtime
 data/eval/*
 data/workspaces/.sparkclaw
 data/browser-profiles

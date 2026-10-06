@@ -217,6 +217,7 @@ func applyValuesThroughBindings(t *testing.T, values map[string]string) Config {
 // nonGatewayProductKeys are product.env entries the gateway binary never
 // reads directly; each is consumed by the listed component instead.
 var nonGatewayProductKeys = map[string]string{
+	"SPARKCLAW_LOCAL_WEBCHAT_PORT":                       "host-network local-webchat ingress port",
 	"SPARKCLAW_WEBCHAT_BIND":                             "compose webchat port mapping",
 	"SPARKCLAW_WEBCHAT_PORT":                             "compose webchat port mapping",
 	"SPARKCLAW_JINGSI_LAN_BIND":                          "compose.jingsi-lan.yaml listener",
@@ -350,6 +351,7 @@ func TestProductEnvOverridesAreExplicit(t *testing.T) {
 		"Adapters.PPTXVisualQA.BaseURL":            " -> http://gotenberg:3000",
 		"Adapters.PPTXVisualQA.Phase":              "disabled -> shadow",
 		"Gateway.Bind":                             "127.0.0.1 -> 0.0.0.0",
+		"Gateway.LocalWebChatEnabled":              "false -> true",
 		"Gateway.PairingRequired":                  "false -> true",
 		"ISCPPairing.TokenEnv":                     " -> SPARKCLAW_ISCP_AUTHORITY_TOKEN",
 		"Model.CapacityProfile":                    "dgx-spark-dual-light-v1 -> sparkclaw-product-v1",
@@ -393,6 +395,7 @@ func TestComposeGatewayFallbacksMatchGoDefaults(t *testing.T) {
 		"Adapters.PPTXVisualQA.BaseURL":      " -> http://gotenberg:3000",
 		"Adapters.PPTXVisualQA.Phase":        "disabled -> shadow",
 		"Gateway.LocalManagementFile":        " -> /run/sparkclaw/runtime/local-management.json",
+		"Gateway.LocalWebChatFile":           " -> /run/sparkclaw/runtime/local-webchat.json",
 		"Gateway.Bind":                       "127.0.0.1 -> 0.0.0.0",
 		"Gateway.PairingRequired":            "false -> true",
 		"Model.Fast.BaseURL":                 "http://127.0.0.1:8001/v1 -> http://sparkclaw-fast:8001/v1",

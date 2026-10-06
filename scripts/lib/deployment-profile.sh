@@ -20,6 +20,26 @@ sparkclaw_configure_desktop_tls() {
   ready_curl_args=(--cacert "$SPARKCLAW_DESKTOP_TLS_DIR/ca.crt")
 }
 
+# Product peer-address proof requires the real Linux host network namespace.
+# Docker Desktop's VM loopback is not the user's host loopback.
+sparkclaw_require_local_webchat_host() {
+  [[ "${SPARKCLAW_LOCAL_WEBCHAT_ENABLED:-false}" == true ]] || return 0
+  [[ "$(uname -s)" == Linux ]] || {
+    echo "Local WebChat product ingress requires a native Linux Docker host; Docker Desktop is unsupported. Set SPARKCLAW_LOCAL_WEBCHAT_ENABLED=false to use the authenticated LAN/TLS entry only." >&2
+    return 1
+  }
+}
+
+sparkclaw_check_local_webchat_ready() {
+  [[ "${SPARKCLAW_LOCAL_WEBCHAT_ENABLED:-false}" == true ]] || return 0
+  local origin="http://127.0.0.1:${SPARKCLAW_LOCAL_WEBCHAT_PORT:-18794}"
+  curl --fail --silent --show-error --connect-timeout 2 --max-time 5 "$origin/readyz" >/dev/null || {
+    echo "Local WebChat readiness failed at $origin" >&2
+    return 1
+  }
+  printf 'Local WebChat: %s\n' "$origin"
+}
+
 sparkclaw_guard_credential_key() {
   local deploy_root="$1"
   local effective_env_file="$2"
@@ -165,6 +185,7 @@ sparkclaw_private_override_allowed() {
     HF_TOKEN|HUGGING_FACE_HUB_TOKEN|OPENAI_API_KEY) return 0 ;;
     SPARKCLAW_CONTAINER_UID|SPARKCLAW_CONTAINER_GID) return 0 ;;
     SPARKCLAW_DESKTOP_TLS_DIR|SPARKCLAW_DESKTOP_PUBLIC_ORIGIN) return 0 ;;
+    SPARKCLAW_LOCAL_WEBCHAT_ENABLED|SPARKCLAW_LOCAL_WEBCHAT_PORT) return 0 ;;
     SPARKCLAW_WEBCHAT_BIND|SPARKCLAW_WEBCHAT_PORT|SPARKCLAW_WEBCHAT_PROXY_TOKEN|SPARKCLAW_DEPLOYMENT_ID|SPARKCLAW_DESKTOP_CLIENT_FILE|SPARKCLAW_LOCAL_MANAGEMENT_FILE|SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR|SPARKCLAW_DESKTOP_EXECUTABLE) return 0 ;;
     SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT) return 0 ;;
     SPARKCLAW_BROWSER_EXTENSION_RUNTIME_DIR_HOST|SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET|SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET_HOST|SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID|SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS) return 0 ;;
@@ -347,6 +368,17 @@ sparkclaw_validate_product_profile() {
   )
 
   sparkclaw_validate_profile_layers "$product_file" "$mode_file" "$private_file" || return 1
+  value="$(sparkclaw_profile_value "$product_file" "$mode_file" "$private_file" SPARKCLAW_LOCAL_WEBCHAT_ENABLED false)"
+  [[ "$value" == true || "$value" == false ]] || {
+    echo "SPARKCLAW_LOCAL_WEBCHAT_ENABLED must be true or false" >&2; return 1;
+  }
+  value="$(sparkclaw_profile_value "$product_file" "$mode_file" "$private_file" SPARKCLAW_LOCAL_WEBCHAT_PORT 18794)"
+  sparkclaw_tcp_port_valid "$value" || {
+    echo "SPARKCLAW_LOCAL_WEBCHAT_PORT must be an integer between 1 and 65535" >&2; return 1;
+  }
+  [[ "$value" != "$(sparkclaw_profile_value "$product_file" "$mode_file" "$private_file" SPARKCLAW_WEBCHAT_PORT 18790)" ]] || {
+    echo "SPARKCLAW_LOCAL_WEBCHAT_PORT must differ from SPARKCLAW_WEBCHAT_PORT" >&2; return 1;
+  }
   value="$(sparkclaw_profile_value "$product_file" "$mode_file" "$private_file" SPARKCLAW_DEPLOYMENT_PROFILE '')"
   [[ "$value" == "$expected_profile" ]] || {
     printf 'SPARKCLAW_DEPLOYMENT_PROFILE must be %s for this entrypoint\n' "$expected_profile" >&2

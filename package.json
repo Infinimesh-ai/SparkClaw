@@ -80,6 +80,7 @@
     "check:app-cli-projections": "node scripts/sync-app-cli-projections.mjs --check",
     "credentials:initial": "node scripts/credentials.mjs initial",
     "credentials:recover": "node scripts/credentials.mjs recover",
+    "test:local-webchat-deployment": "python3 -m unittest scripts.test_local_workbench_provisioning scripts.test_local_compose scripts.test_remote_compose",
     "test:credentials": "node --test scripts/test/credentials.test.mjs"
   },
   "engines": {

@@ -32,11 +32,16 @@ def profile_values(*paths: Path) -> dict[str, str]:
     return values
 
 
-def compose_config(mode_profile: Path, *, local_models: bool) -> dict[str, object]:
+def compose_config(mode_profile: Path, *, local_models: bool, overlays: tuple[str, ...] = ()) -> dict[str, object]:
     with tempfile.TemporaryDirectory() as directory:
         effective = Path(directory) / "effective.env"
         values = profile_values(PRODUCT_PROFILE, mode_profile)
         values["SPARKCLAW_WEBCHAT_PROXY_TOKEN"] = TEST_PROXY_TOKEN
+        if "compose.desktop-tls.yaml" in overlays:
+            values["SPARKCLAW_DESKTOP_TLS_DIR"] = str(Path(directory).resolve() / "tls")
+        if "compose.jingsi-lan.yaml" in overlays:
+            values["SPARKCLAW_JINGSI_LAN_BIND"] = "192.168.1.2"
+            values["SPARKCLAW_JINGSI_SESSION_ID"] = "fixture-session"
         effective.write_text(
             "".join(f"{key}={value}\n" for key, value in values.items()),
             encoding="utf-8",
@@ -51,6 +56,8 @@ def compose_config(mode_profile: Path, *, local_models: bool) -> dict[str, objec
         ]
         if local_models:
             command.extend(["-f", str(MODELS_COMPOSE)])
+        for overlay in overlays:
+            command.extend(["-f", str(ROOT / "docker" / overlay)])
         command.extend(["--profile", "product"])
         if local_models:
             command.extend(["--profile", "models-local"])
@@ -108,7 +115,7 @@ class RemoteComposeTest(unittest.TestCase):
         *args: str,
     ) -> tuple[subprocess.CompletedProcess[str], list[list[str]], list[list[str]]]:
         with tempfile.TemporaryDirectory() as directory:
-            temp_path = Path(directory)
+            temp_path = Path(directory).resolve()
             private_env = temp_path / ".env.remote"
             docker = temp_path / "docker"
             curl = temp_path / "curl"
@@ -139,9 +146,14 @@ class RemoteComposeTest(unittest.TestCase):
                 "schema_version": 1, "deployment_id": "deployment-test", "client_id": "local_management_test",
                 "owner_id": "owner", "client_name": "Local management test", "token": "m" * 48,
             }), encoding="utf-8")
+            (runtime_dir / "local-webchat.json").write_text(json.dumps({
+                "schema_version": 1, "deployment_id": "deployment-test", "client_id": "local_webchat_test",
+                "owner_id": "owner", "client_name": "Local WebChat test", "token": "w" * 48,
+            }), encoding="utf-8")
             for runtime_file in runtime_dir.iterdir():
                 runtime_file.chmod(0o600)
             (runtime_dir / "management").mkdir(mode=0o700)
+            (runtime_dir / "local-webchat").mkdir(mode=0o700)
             private_env.write_text(
                 f"SPARKCLAW_WEBCHAT_PROXY_TOKEN={TEST_PROXY_TOKEN}\n"
                 "SPARKCLAW_DEPLOYMENT_ID=deployment-test\n"
@@ -154,7 +166,11 @@ class RemoteComposeTest(unittest.TestCase):
             curl.write_text(textwrap.dedent(FAKE_CURL), encoding="utf-8")
             browser_setup.write_text(textwrap.dedent(FAKE_BROWSER_SETUP), encoding="utf-8")
             systemctl.write_text(textwrap.dedent(FAKE_SYSTEMCTL), encoding="utf-8")
-            for executable in (docker, curl, browser_setup, systemctl):
+            uname = temp_path / "uname"
+            uname.write_text('#!/usr/bin/env bash\necho "${SPARKCLAW_TEST_UNAME:-Linux}"\n', encoding="utf-8")
+            realpath = temp_path / "realpath"
+            realpath.write_text('#!/usr/bin/env python3\nfrom pathlib import Path\nimport sys\nprint(Path(sys.argv[-1]).resolve())\n', encoding="utf-8")
+            for executable in (docker, curl, browser_setup, systemctl, uname, realpath):
                 executable.chmod(0o755)
             docker_log = temp_path / "docker.jsonl"
             curl_log = temp_path / "curl.jsonl"
@@ -186,7 +202,7 @@ class RemoteComposeTest(unittest.TestCase):
                 curl_calls = [json.loads(line) for line in curl_log.read_text().splitlines()]
             return result, docker_calls, curl_calls
 
-    def test_remote_stops_local_models_before_five_application_services(self) -> None:
+    def test_remote_stops_local_models_before_six_application_services(self) -> None:
         result, docker_calls, curl_calls = self.run_script("SPARKCLAW_WEBCHAT_PORT=19876\n")
 
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -209,8 +225,8 @@ class RemoteComposeTest(unittest.TestCase):
         )
         self.assertLess(stop_index, up_index)
         self.assertEqual(
-            up_call[-5:],
-            ["postgres", "sandbox-runner", "gotenberg", "gateway", "webchat"],
+            up_call[-6:],
+            ["postgres", "sandbox-runner", "gotenberg", "gateway", "webchat", "local-webchat"],
         )
         self.assertTrue(any("sparkclaw-remote-env." in argument for argument in up_call))
         self.assertIn(str(COMPOSE), up_call)
@@ -221,8 +237,10 @@ class RemoteComposeTest(unittest.TestCase):
         self.assertIn(str(MODELS_COMPOSE), stop_call)
         self.assertNotIn(str(COMPOSE), stop_call)
         self.assertNotIn("compose.dual-light.yaml", " ".join(stop_call))
-        self.assertEqual(len(curl_calls), 1)
+        self.assertEqual(len(curl_calls), 2)
         self.assertIn("http://127.0.0.1:19876/readyz", curl_calls[0])
+        self.assertIn("http://127.0.0.1:18794/readyz", curl_calls[1])
+        self.assertIn("Local WebChat: http://127.0.0.1:18794", result.stdout)
 
     def test_check_never_stops_or_starts_containers(self) -> None:
         result, docker_calls, curl_calls = self.run_script("", "--check")
@@ -342,7 +360,7 @@ class RemoteComposeTest(unittest.TestCase):
     def test_local_and_remote_common_application_services_are_identical(self) -> None:
         local = compose_config(LOCAL_PROFILE, local_models=True)
         remote = compose_config(REMOTE_PROFILE, local_models=False)
-        common_services = ("postgres", "sandbox-runner", "gotenberg", "gateway", "webchat")
+        common_services = ("postgres", "sandbox-runner", "gotenberg", "gateway", "webchat", "local-webchat")
         allowed_gateway_environment_differences = {
             "SPARKCLAW_DEPLOYMENT_PROFILE",
             "SPARKCLAW_FAST_BASE_URL",
@@ -396,6 +414,41 @@ class RemoteComposeTest(unittest.TestCase):
             self.assertEqual(config["services"][service]["restart"], "unless-stopped")
         self.assertFalse(any(name.startswith("sparkclaw-") for name in config["services"]))
         self.assertFalse((ROOT / "docker" / "compose.remote.yaml").exists())
+
+    def test_local_webchat_compose_preserves_host_peer_proof_and_private_owner_files(self) -> None:
+        for mode, local_models in [(LOCAL_PROFILE, True), (REMOTE_PROFILE, False)]:
+            with self.subTest(mode=mode.name):
+                config = compose_config(mode, local_models=local_models)
+                local = config["services"]["local-webchat"]
+                gateway = config["services"]["gateway"]
+                self.assertEqual(local["network_mode"], "host")
+                self.assertFalse(local.get("ports"))
+                self.assertFalse(local.get("networks"))
+                self.assertEqual(local["user"], gateway["user"])
+                self.assertTrue(local["read_only"])
+                self.assertEqual(local["environment"]["SPARKCLAW_LOCAL_WEBCHAT_ENABLED"], "true")
+                self.assertEqual(gateway["environment"]["SPARKCLAW_LOCAL_WEBCHAT_ENABLED"], "true")
+                self.assertEqual(gateway["environment"]["SPARKCLAW_LOCAL_WEBCHAT_FILE"], "/run/sparkclaw/runtime/local-webchat.json")
+                self.assertEqual(local["healthcheck"]["test"], ["CMD", "local-webchat", "--check"])
+                self.assertEqual(local["depends_on"]["gateway"]["condition"], "service_healthy")
+                for service in [local, gateway]:
+                    mounts = {volume["target"]: volume for volume in service["volumes"]}
+                    self.assertTrue(mounts["/run/sparkclaw/runtime"]["read_only"])
+                    self.assertFalse(mounts["/run/sparkclaw/runtime/local-webchat"].get("read_only", False))
+                    self.assertNotIn("/usr/share/sparkclaw/webchat", mounts)
+                self.assertEqual(config["services"]["webchat"]["ports"][0]["published"], "18790")
+
+    def test_local_webchat_remains_separate_with_tls_and_jingsi_overlays(self) -> None:
+        config = compose_config(REMOTE_PROFILE, local_models=False, overlays=("compose.desktop-tls.yaml", "compose.jingsi-lan.yaml"))
+        local = config["services"]["local-webchat"]
+        self.assertEqual(local["network_mode"], "host")
+        self.assertFalse(local.get("ports"))
+        self.assertEqual(local["environment"]["SPARKCLAW_LOCAL_WEBCHAT_PORT"], "18794")
+        self.assertNotIn("SPARKCLAW_GATEWAY_TLS_CERT_FILE", local["environment"])
+        gateway = config["services"]["gateway"]
+        self.assertEqual(gateway["environment"]["SPARKCLAW_JINGSI_LAN_ENABLED"], "true")
+        self.assertEqual(gateway["environment"]["SPARKCLAW_GATEWAY_TLS_CERT_FILE"], "/run/sparkclaw/tls/server.crt")
+        self.assertEqual({port["published"] for port in config["services"]["webchat"]["ports"]}, {"18790", "18793"})
 
     def test_remote_doctor_does_not_pin_the_provider_runtime_version(self) -> None:
         local = profile_values(LOCAL_PROFILE)

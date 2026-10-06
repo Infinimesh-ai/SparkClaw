@@ -7,6 +7,8 @@ import (
 	"sync"
 )
 
+var errClientConnectionRevoked = errors.New("client is revoked or unavailable")
+
 // Each authenticated request is attached before its persisted revocation is
 // checked again, closing the authenticate/revoke race for long-lived streams.
 // The registry retains cancellation functions only, never bearer credentials.
@@ -47,7 +49,7 @@ func (s *Server) clientConnectionContext(ctx context.Context, clientID string) (
 	if err != nil || !found || client.RevokedAt != nil {
 		release()
 		if err == nil {
-			err = errors.New("client is revoked or unavailable")
+			err = errClientConnectionRevoked
 		}
 		return connected, func() {}, err
 	}

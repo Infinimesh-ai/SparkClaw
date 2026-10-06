@@ -287,7 +287,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		return
 	}
 	var workbenchContinuation *workbenchAdmission
-	if !mcpRun {
+	if !mcpRun && status == app.ApprovalStatusApproved {
 		session, found, lookupErr := s.sessionForRequest(r.Context(), r, approval.SessionID)
 		if lookupErr != nil {
 			writeSessionStoreError(w, lookupErr)
@@ -359,6 +359,12 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 				executionStatus = string(workflowResult.Status)
 			}
 			if receipt, err := s.deliverAgentResult(r.Context(), result); err != nil {
+				if workbenchContinuation != nil {
+					if finishErr := s.finishWorkbenchMessage(workbenchContinuation, result, nil, err); finishErr != nil {
+						writeConversationError(w, http.StatusServiceUnavailable, finishErr)
+						return
+					}
+				}
 				writeError(w, http.StatusBadGateway, err)
 				return
 			} else {

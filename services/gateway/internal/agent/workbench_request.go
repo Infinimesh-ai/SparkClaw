@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -53,6 +54,11 @@ func (r Runtime) PrepareWorkbenchContext(ctx context.Context, sessionID string) 
 func WithWorkbenchContext(ctx context.Context, snapshot WorkbenchContext) context.Context {
 	return context.WithValue(ctx, workbenchContextKey{}, snapshot)
 }
+
+// ErrWorkbenchContinuationClosed permits cleanup of a stale browser block,
+// never continuation of the original tools. Temporary admission errors must not
+// use this sentinel.
+var ErrWorkbenchContinuationClosed = errors.New("original workbench request cannot resume")
 
 type WorkbenchContinuation func(context.Context, app.AgentRun) (context.Context, error)
 type workbenchContinuationKey struct{}

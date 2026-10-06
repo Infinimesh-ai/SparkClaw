@@ -414,6 +414,12 @@ func (r Runtime) resumeBrowserLoginBlock(ctx context.Context, sessionID, userRep
 	}
 	if guard, ok := ctx.Value(workbenchContinuationKey{}).(WorkbenchContinuation); ok {
 		next, beginErr := guard(ctx, run)
+		if errors.Is(beginErr, ErrWorkbenchContinuationClosed) {
+			if err := r.retireClosedWorkbenchBrowserBlock(ctx, run, block); err != nil {
+				return Result{}, true, err
+			}
+			return Result{}, false, nil
+		}
 		if beginErr != nil {
 			return Result{}, true, beginErr
 		}
@@ -1249,6 +1255,37 @@ func (r Runtime) resolveBrowserHandoffResult(ctx context.Context, result Result,
 	})
 
 	return result, nil
+}
+
+// A terminal request fence can never authorize its old tools. Retire its
+// review state before admitting this fresh message to the ordinary workflow.
+// Persistence failures keep the session closed rather than bypassing the block.
+func (r Runtime) retireClosedWorkbenchBrowserBlock(ctx context.Context, run app.AgentRun, block app.BrowserLoginBlock) error {
+	now := time.Now().UTC()
+	if run.State == "browser_login_blocked" || run.State == "approval_pending" {
+		run.State = "blocked"
+		run.CompletedAt = &now
+		if run.Workflow != nil {
+			run.Workflow.Status = app.WorkflowStatusBlocked
+		}
+		if _, err := r.saveRun(ctx, run); err != nil {
+			return err
+		}
+	}
+	block.Status = app.BrowserLoginBlockStatusCanceled
+	block.LastError = "workbench_request_closed"
+	block.ResolvedAt = &now
+	_, err := r.store.UpdateBrowserLoginBlock(ctx, block, block.Version)
+	if errors.Is(err, store.ErrBrowserHandoffConflict) {
+		current, found, readErr := r.store.GetBrowserLoginBlock(ctx, block.ID)
+		if readErr != nil {
+			return readErr
+		}
+		if found && !app.BrowserHandoffStatusActive(current.Status) {
+			return nil
+		}
+	}
+	return err
 }
 
 // finishBrowserLoginBlockTerminal persists a terminal (resolved/canceled/

@@ -342,7 +342,10 @@ func (s *Server) beginWorkbenchContinuation(ctx context.Context, scope execution
 	connected, releaseClient, err := s.clientConnectionContext(ctx, binding.ClientID)
 	if err != nil {
 		releaseSession()
-		return nil, execution.ErrConflict
+		if errors.Is(err, errClientConnectionRevoked) {
+			return nil, errors.Join(execution.ErrConflict, execution.ErrContinuationClosed)
+		}
+		return nil, execution.ErrUnavailable
 	}
 	// A second owner's device may approve, but revoking either the original
 	// execution credential or this active approving credential cancels the work.
@@ -369,6 +372,9 @@ func (s *Server) beginWorkbenchContinuation(ctx context.Context, scope execution
 func (s *Server) workbenchBrowserContinuation(ctx context.Context, scope execution.WorkbenchBinding, run app.AgentRun, parent *workbenchAdmission) (context.Context, error) {
 	admission, err := s.beginWorkbenchContinuation(ctx, scope, run.ID, false)
 	if err != nil {
+		if errors.Is(err, execution.ErrContinuationClosed) || errors.Is(err, execution.ErrExpired) {
+			return nil, agent.ErrWorkbenchContinuationClosed
+		}
 		return nil, err
 	}
 	if admission == nil {

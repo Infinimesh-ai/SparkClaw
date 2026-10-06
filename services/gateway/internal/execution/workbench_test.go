@@ -213,6 +213,9 @@ func TestWorkbenchContinuationSharesOriginalBudgetAndTerminalFence(t *testing.T)
 				if err == nil || continued != nil {
 					t.Fatal("continued fenced request")
 				}
+				if stop != "expired" && !errors.Is(err, ErrContinuationClosed) {
+					t.Fatalf("terminal authority lacks cleanup classification: %v", err)
+				}
 				return
 			}
 			if err != nil {
@@ -222,8 +225,8 @@ func TestWorkbenchContinuationSharesOriginalBudgetAndTerminalFence(t *testing.T)
 			if !actual.Equal(deadline) {
 				t.Fatal("continuation extended original budget")
 			}
-			if duplicate, err := s.ContinueWorkbench(t.Context(), b); err == nil || duplicate != nil {
-				t.Fatal("concurrent continuation admitted")
+			if duplicate, err := s.ContinueWorkbench(t.Context(), b); !errors.Is(err, ErrConflict) || errors.Is(err, ErrContinuationClosed) || duplicate != nil {
+				t.Fatalf("busy continuation must not authorize cleanup: %v", err)
 			}
 			if err := s.RevokeWorkbenchClient(b.ClientID); err != nil {
 				t.Fatal(err)

@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+// ErrContinuationClosed marks an original request that can never resume.
+// A busy running lease remains an ordinary conflict, not terminal authority.
+var ErrContinuationClosed = errors.New("workbench continuation is closed")
+
 // WorkbenchBinding is derived from authenticated host workspace access. It is
 // not an installation and carries no conversation content or credentials.
 type WorkbenchBinding struct {
@@ -343,7 +347,10 @@ func (s *Service) ContinueWorkbench(ctx context.Context, binding WorkbenchBindin
 		return nil, ErrNotFound
 	}
 	if f.State != "approval_pending" && f.State != "browser_login_blocked" {
-		return nil, ErrConflict
+		if f.State == "running" {
+			return nil, ErrConflict
+		}
+		return nil, errors.Join(ErrConflict, ErrContinuationClosed)
 	}
 	if !f.Deadline.After(s.now()) {
 		return nil, ErrExpired

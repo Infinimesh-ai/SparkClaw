@@ -176,9 +176,14 @@ policy_write_status="$(curl -sS -o "$TMP_DIR/policy-write-denied.json" -w '%{htt
 cat > data/workspaces/missing-before-restore.txt <<'EOF'
 Policy refresh preflight target.
 EOF
+python3 - "$TMP_DIR/policy-agent-message.json" <<'PY'
+import json, sys, uuid
+with open(sys.argv[1], "w") as output:
+    json.dump({"request_id": str(uuid.uuid4()), "content": "Read missing-before-restore.txt"}, output)
+PY
 policy_agent_read_status="$(curl -sS -o "$TMP_DIR/policy-agent-read-approval.json" -w '%{http_code}' -X POST "$GATEWAY_URL/api/sessions/$SESSION_ID/messages" \
   -H 'Content-Type: application/json' \
-  -d '{"content":"Read missing-before-restore.txt"}')"
+  --data-binary "@$TMP_DIR/policy-agent-message.json")"
 if [[ "$policy_agent_read_status" != "201" ]]; then
   echo "agent policy read expected HTTP 201, got $policy_agent_read_status"
   cat "$TMP_DIR/policy-agent-read-approval.json"
@@ -500,9 +505,10 @@ send_prompt() {
   local prompt="$1"
   local output="$TMP_DIR/send-prompt.json"
   local status
+  printf '%s' "$prompt" | python3 -c 'import json,sys,uuid; json.dump({"request_id":str(uuid.uuid4()),"content":sys.stdin.read()},sys.stdout)' > "$TMP_DIR/send-prompt-body.json"
   status="$(curl -sS -o "$output" -w '%{http_code}' -X POST "$GATEWAY_URL/api/sessions/$SESSION_ID/messages" \
     -H 'Content-Type: application/json' \
-    -d "{\"content\":$(printf '%s' "$prompt" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}")"
+    --data-binary "@$TMP_DIR/send-prompt-body.json")"
   if [[ "$status" != "201" ]]; then
     echo "send_prompt expected HTTP 201, got $status"
     echo "prompt=$prompt"

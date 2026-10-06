@@ -77,10 +77,9 @@ class LocalComposeTest(unittest.TestCase):
         private_extra: str = "",
         args: tuple[str, ...] = (),
         ambient_extra: dict[str, str] | None = None,
-        local_webchat_provisioned: bool = True,
     ) -> tuple[subprocess.CompletedProcess[str], list[list[str]], list[list[str]]]:
         with tempfile.TemporaryDirectory() as directory:
-            temp_path = Path(directory).resolve()
+            temp_path = Path(directory)
             docker = temp_path / "docker"
             curl = temp_path / "curl"
             browser_setup = temp_path / "setup-browser.sh"
@@ -107,18 +106,9 @@ class LocalComposeTest(unittest.TestCase):
                 "schema_version": 1, "deployment_id": "deployment-test", "client_id": "local_management_test",
                 "owner_id": "owner", "client_name": "Local management test", "token": "m" * 48,
             }), encoding="utf-8")
-            (runtime_dir / "local-webchat.json").write_text(json.dumps({
-                "schema_version": 1, "deployment_id": "deployment-test", "client_id": "local_webchat_test",
-                "owner_id": "owner", "client_name": "Local WebChat test", "token": "w" * 48,
-            }), encoding="utf-8")
             for runtime_file in runtime_dir.iterdir():
                 runtime_file.chmod(0o600)
             (runtime_dir / "management").mkdir(mode=0o700)
-            (runtime_dir / "local-webchat").mkdir(mode=0o700)
-            desktop_snapshot = (runtime_dir / "desktop-client.json").read_bytes()
-            if not local_webchat_provisioned:
-                (runtime_dir / "local-webchat.json").unlink()
-                (runtime_dir / "local-webchat").rmdir()
             private_env.write_text(
                 f"SPARKCLAW_WEBCHAT_PROXY_TOKEN={TEST_PROXY_TOKEN}\n"
                 f"SPARKCLAW_WEBCHAT_PORT={port}\n"
@@ -132,9 +122,7 @@ class LocalComposeTest(unittest.TestCase):
             curl.write_text(textwrap.dedent(FAKE_CURL), encoding="utf-8")
             browser_setup.write_text(textwrap.dedent(FAKE_BROWSER_SETUP), encoding="utf-8")
             systemctl.write_text(textwrap.dedent(FAKE_SYSTEMCTL), encoding="utf-8")
-            uname = temp_path / "uname"
-            uname.write_text('#!/usr/bin/env bash\necho "${SPARKCLAW_TEST_UNAME:-Linux}"\n', encoding="utf-8")
-            for executable in (docker, curl, browser_setup, systemctl, uname):
+            for executable in (docker, curl, browser_setup, systemctl):
                 executable.chmod(0o755)
             docker_log = temp_path / "docker.jsonl"
             curl_log = temp_path / "curl.jsonl"
@@ -161,12 +149,6 @@ class LocalComposeTest(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            self.assertEqual((runtime_dir / "desktop-client.json").read_bytes(), desktop_snapshot)
-            if not local_webchat_provisioned:
-                enabled = "SPARKCLAW_LOCAL_WEBCHAT_ENABLED=false" not in private_extra
-                self.assertEqual((runtime_dir / "local-webchat.json").exists(), result.returncode == 0 and "--check" not in args and enabled)
-                if result.returncode == 0 and "--check" not in args:
-                    self.assertEqual((runtime_dir / "local-webchat").stat().st_mode & 0o777, 0o700)
             docker_calls = []
             if docker_log.exists():
                 docker_calls = [json.loads(line) for line in docker_log.read_text().splitlines()]
@@ -175,7 +157,7 @@ class LocalComposeTest(unittest.TestCase):
                 curl_calls = [json.loads(line) for line in curl_log.read_text().splitlines()]
             return result, docker_calls, curl_calls
 
-    def test_local_start_owns_models_and_six_application_services(self) -> None:
+    def test_local_start_owns_models_and_five_application_services(self) -> None:
         result, docker_calls, curl_calls = self.run_script()
 
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -190,16 +172,14 @@ class LocalComposeTest(unittest.TestCase):
             self.assertIn(service, model_up)
         app_up = next(call for call in docker_calls if "up" in call and "gateway" in call)
         self.assertEqual(
-            app_up[-6:],
-            ["postgres", "sandbox-runner", "gotenberg", "gateway", "webchat", "local-webchat"],
+            app_up[-5:],
+            ["postgres", "sandbox-runner", "gotenberg", "gateway", "webchat"],
         )
         self.assertTrue(any("sparkclaw-local-env." in argument for argument in app_up))
         self.assertIn(str(MODELS_COMPOSE), app_up)
         self.assertNotIn("sparkclaw.remote.env", " ".join(app_up))
-        self.assertEqual(len(curl_calls), 2)
+        self.assertEqual(len(curl_calls), 1)
         self.assertIn("http://127.0.0.1:19876/readyz", curl_calls[0])
-        self.assertIn("http://127.0.0.1:18794/readyz", curl_calls[1])
-        self.assertIn("Local WebChat: http://127.0.0.1:18794", result.stdout)
         smoke_call = next(call for call in docker_calls if "exec" in call)
         self.assertIn("/app/scripts/browser_controller_smoke.mjs", smoke_call)
 
@@ -211,49 +191,6 @@ class LocalComposeTest(unittest.TestCase):
         self.assertTrue(any("config" in call for call in docker_calls))
         self.assertFalse(any("up" in call or "stop" in call or "exec" in call for call in docker_calls))
         self.assertEqual(curl_calls, [])
-
-    def test_disabled_local_webchat_is_reconciled_without_probing_or_advertising_local_access(self) -> None:
-        result, docker_calls, curl_calls = self.run_script(private_extra="SPARKCLAW_LOCAL_WEBCHAT_ENABLED=false\n")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        app_up = next(call for call in docker_calls if "up" in call and "gateway" in call)
-        self.assertIn("local-webchat", app_up, "reconcile must stop a previously enabled listener")
-        self.assertEqual(len(curl_calls), 1)
-        self.assertNotIn("Local WebChat:", result.stdout)
-
-    def test_enabled_product_ingress_rejects_docker_desktop_host(self) -> None:
-        result, docker_calls, _ = self.run_script(args=("--check",), ambient_extra={"SPARKCLAW_TEST_UNAME": "Darwin"})
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("native Linux Docker host", result.stderr)
-        self.assertEqual(docker_calls, [])
-
-    def test_private_local_webchat_switch_and_port_are_validated_before_docker(self) -> None:
-        for setting in ["SPARKCLAW_LOCAL_WEBCHAT_ENABLED=yes", "SPARKCLAW_LOCAL_WEBCHAT_PORT=0", "SPARKCLAW_LOCAL_WEBCHAT_PORT=65536", "SPARKCLAW_LOCAL_WEBCHAT_PORT=19876"]:
-            with self.subTest(setting=setting):
-                result, docker_calls, _ = self.run_script(private_extra=setting + "\n", args=("--check",))
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("SPARKCLAW_LOCAL_WEBCHAT", result.stderr)
-                self.assertEqual(docker_calls, [])
-
-    def test_local_webchat_custom_port_is_ready_before_url_is_advertised(self) -> None:
-        result, _, curl_calls = self.run_script(private_extra="SPARKCLAW_LOCAL_WEBCHAT_PORT=19877\n")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("http://127.0.0.1:19877/readyz", curl_calls[-1])
-        self.assertIn("Local WebChat: http://127.0.0.1:19877", result.stdout)
-
-    def test_existing_deployment_can_enable_local_webchat_through_normal_reconcile(self) -> None:
-        result, docker_calls, _ = self.run_script(local_webchat_provisioned=False)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(any("local-webchat" in call and "up" in call for call in docker_calls))
-
-    def test_check_does_not_provision_local_webchat_during_an_upgrade(self) -> None:
-        result, docker_calls, _ = self.run_script(local_webchat_provisioned=False, args=("--check",))
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(docker_calls, [])
-
-    def test_disabled_legacy_start_prepares_private_mount_before_compose(self) -> None:
-        result, docker_calls, _ = self.run_script(local_webchat_provisioned=False, private_extra="SPARKCLAW_LOCAL_WEBCHAT_ENABLED=false\n")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(any("local-webchat" in call and "up" in call for call in docker_calls))
 
     def test_local_entry_rejects_remote_model_override(self) -> None:
         result, docker_calls, _ = self.run_script(

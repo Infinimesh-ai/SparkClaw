@@ -74,7 +74,7 @@ func (s *Server) sessionForRequest(ctx context.Context, r *http.Request, session
 		return app.Session{}, false, err
 	}
 	principal := principalForRequest(r)
-	if principal.ownerScoped() && sessionOwnerID(session) != principal.OwnerID {
+	if strings.TrimSpace(principal.ClientID) != "" && sessionOwnerID(session) != principal.OwnerID {
 		return app.Session{}, false, nil
 	}
 	return session, true, nil

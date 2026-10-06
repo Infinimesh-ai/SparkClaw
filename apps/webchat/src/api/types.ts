@@ -960,10 +960,3 @@ export interface AIPlatformLoginOverview {
   profile_id: string;
   providers: AIPlatformLoginStatus[];
 }
-export type WorkbenchIdentity = {
-  deployment_id: string;
-  owner_id: string;
-  client_id: string;
-  access_mode: "local" | "credential";
-  local_access_id?: string;
-};

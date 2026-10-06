@@ -12,8 +12,6 @@
 > mail synchronization, and supports LAN desktop connections. Cutover is pending, with no legacy test-data migration;
 > the behavior and evidence below apply to the current implementation only.
 
-> Local-access amendment (2026-10-06): the separate [local WebChat ingress](local-webchat-access-design.md) adds an explicit host-loopback Web-only exception to the browser token rule below. The original shared entrance and independent desktops still require their credentials. No anonymous enrollment is added to that shared entrance. Its implementation does not migrate browser storage to R3.
-
 ## 1. Goal And Scope
 
 One host runs one SparkClaw Gateway, PostgreSQL database, and business file store. The ordinary browser workbench and Electron workbench access that backend and share the same Owner's conversations, messages, tasks, email, memory, approvals, and configuration. Desktop startup connects to the host service automatically, without server selection or pairing.

@@ -48,8 +48,7 @@ import type {
   SpeechTranscriptionResult,
   TraceMetadata,
   ToolCall,
-  WorkbenchInvalidation,
-  WorkbenchIdentity
+  WorkbenchInvalidation
 } from "./types";
 import { MESSAGE_STREAM_DELIVERY_FAILED_EVENT, MessageStreamDeliveryError } from "../lib/messageStream";
 import { clientTimezone } from "../lib/timezone";
@@ -60,51 +59,6 @@ import type { EmailVerification, EmailDraft, EmailDraftInput, EmailReplyPolishIn
 const API_BASE = desktopCapability() ? desktopGatewayBase() : import.meta.env.VITE_SPARKCLAW_API_BASE || "";
 const TOKEN_STORAGE_KEY = "sparkclaw.api_token";
 const DEPLOYMENT_STORAGE_KEY = "sparkclaw.deployment_id";
-const UNAUTHORIZED_EVENT = "sparkclaw:unauthorized";
-
-export function hasConfiguredAPIToken() {
-  return Boolean(import.meta.env.VITE_SPARKCLAW_API_TOKEN);
-}
-
-export function localAccessAvailable() {
-  return !desktopCapability() && sameOrigin(apiRoute("/api/workbench/identity"));
-}
-
-function sameOrigin(url: string) {
-  try {
-    const target = new URL(url, window.location.href);
-    return target.origin === window.location.origin && ["http:", "https:"].includes(target.protocol);
-  } catch {
-    return false;
-  }
-}
-
-function requestHeaders(url: string, init?: HeadersInit) {
-  const headers: Record<string, string> = Object.fromEntries(new Headers(init).entries());
-  const token = apiToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  if (!desktopCapability() && sameOrigin(url)) headers["X-SparkClaw-Local-WebChat"] = "1";
-  return headers;
-}
-
-export function onAPIUnauthorized(listener: (error: APIError) => void) {
-  const handler = (event: Event) => listener((event as CustomEvent<APIError>).detail);
-  window.addEventListener(UNAUTHORIZED_EVENT, handler);
-  return () => window.removeEventListener(UNAUTHORIZED_EVENT, handler);
-}
-
-async function responseError(response: Response, requestToken: string) {
-  const body = await response.json().catch(() => ({})) as { error?: unknown; code?: unknown; retryable?: unknown };
-  const error = new APIError(response.status,
-    typeof body.error === "string" ? body.error : `HTTP ${response.status}`,
-    typeof body.code === "string" ? body.code : "", body.retryable === true, body);
-  // A late response for the previous credential must not disconnect a newly
-  // authenticated browser. No request is retried or downgraded here.
-  if (response.status === 401 && requestToken === apiToken()) {
-    window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT, { detail: error }));
-  }
-  return error;
-}
 
 export class APIError extends Error {
   readonly status: number;
@@ -123,9 +77,9 @@ export class APIError extends Error {
 
 export function apiToken() {
 	if (desktopCapability()) return "";
-	return import.meta.env.VITE_SPARKCLAW_API_TOKEN ||
-		window.localStorage.getItem(pendingTokenStorageKey()) ||
-		window.localStorage.getItem(tokenStorageKey()) || "";
+	return import.meta.env.VITE_SPARKCLAW_API_TOKEN ??
+		window.localStorage.getItem(pendingTokenStorageKey()) ??
+		window.localStorage.getItem(tokenStorageKey()) ?? "";
 }
 
 export function saveAPIToken(token: string) {
@@ -185,18 +139,26 @@ function clearEmailRefreshGuard() {
 }
 
 async function request<T>(path: string, init?: RequestInit, base = API_BASE): Promise<T> {
-  const url = `${base}${path}`;
-  const token = apiToken();
-  const headers = requestHeaders(url, init?.headers);
+  const headers: Record<string, string> = {
+    ...(apiToken() ? { Authorization: `Bearer ${apiToken()}` } : {}),
+    ...((init?.headers as Record<string, string> | undefined) ?? {})
+  };
   if (!(init?.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
   }
-  const response = await fetch(url, {
+  const response = await fetch(`${base}${path}`, {
     ...init,
     headers
   });
   if (!response.ok) {
-    throw await responseError(response, token);
+    const body = await response.json().catch(() => ({})) as { error?: unknown; code?: unknown; retryable?: unknown };
+    throw new APIError(
+      response.status,
+      typeof body.error === "string" ? body.error : `HTTP ${response.status}`,
+      typeof body.code === "string" ? body.code : "",
+      body.retryable === true,
+      body
+    );
   }
   return response.json() as Promise<T>;
 }
@@ -242,21 +204,27 @@ export function scheduleCreateRequestBody(content: string, timezone = "") {
 }
 
 async function requestEventStream(path: string, init: RequestInit, onBlock: (event: string, data: string) => void) {
-  const url = `${API_BASE}${path}`;
-  const token = apiToken();
   const headers: Record<string, string> = {
+    ...(apiToken() ? { Authorization: `Bearer ${apiToken()}` } : {}),
     Accept: "text/event-stream",
-    ...requestHeaders(url, init.headers)
+    ...((init.headers as Record<string, string> | undefined) ?? {})
   };
   if (!(init.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
   }
-  const response = await fetch(url, {
+  const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers
   });
   if (!response.ok) {
-    throw await responseError(response, token);
+    const body = await response.json().catch(() => ({})) as { error?: unknown; code?: unknown; retryable?: unknown };
+    throw new APIError(
+      response.status,
+      typeof body.error === "string" ? body.error : `HTTP ${response.status}`,
+      typeof body.code === "string" ? body.code : "",
+      body.retryable === true,
+      body
+    );
   }
   if (!response.body) {
     throw new Error("Streaming response body is unavailable");
@@ -359,9 +327,9 @@ export async function fetchAuthedBlob(url: string, signal?: AbortSignal) {
   const token = apiToken();
   const response = await fetch(url, {
     signal,
-    headers: requestHeaders(url)
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined
   });
-  if (!response.ok) throw await responseError(response, token);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.blob();
 }
 
@@ -417,8 +385,8 @@ export async function openEmailFile(mailId: string, partId = "", name = "origina
 export const api = {
   ready: () => request<ReadyStatus>("/readyz"),
   workbenchIdentity: async () => {
-    const identity = await request<WorkbenchIdentity>("/api/workbench/identity", { signal: AbortSignal.timeout(5000) });
-    if (identity.access_mode !== "local") bindAPITokenToDeployment(identity.deployment_id);
+    const identity = await request<{ deployment_id: string; owner_id: string; client_id: string }>("/api/workbench/identity", { signal: AbortSignal.timeout(5000) });
+    bindAPITokenToDeployment(identity.deployment_id);
     return identity;
   },
   speechStatus: () => request<SpeechStatus>("/api/speech/status"),
@@ -471,7 +439,7 @@ export const api = {
     const query = params.toString();
     return request<{ bindings: NotificationBinding[] }>(`/api/notification-bindings${query ? `?${query}` : ""}`);
   },
-  notifications: (signal?: AbortSignal) => request<{ notifications: PassiveNotification[]; unread_count: number }>("/api/notifications", { signal }),
+  notifications: () => request<{ notifications: PassiveNotification[]; unread_count: number }>("/api/notifications"),
   markNotificationRead: (id: string) =>
     request<{ notification: PassiveNotification; unread_count: number }>(`/api/notifications/${encodeURIComponent(id)}/read`, {
       method: "POST",

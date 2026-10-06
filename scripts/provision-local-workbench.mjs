@@ -13,8 +13,6 @@ const credentialPath = path.join(runtimeDirectory, "desktop-client.json");
 const managementPath = path.join(runtimeDirectory, "local-management.json");
 const clientBackendPath = path.join(runtimeDirectory, "client-backend.json");
 const managementDirectory = path.join(runtimeDirectory, "management");
-const localWebChatDirectory = path.join(runtimeDirectory, "local-webchat");
-const localWebChatPath = path.join(runtimeDirectory, "local-webchat.json");
 
 if (!options.check) {
   await assertNoSymlinkPath(runtimeDirectory);
@@ -23,14 +21,11 @@ if (!options.check) {
 await assertPrivateDirectory(runtimeDirectory);
 if (!options.check) await fs.mkdir(managementDirectory, { mode: 0o700 }).catch(error => { if (error.code !== "EEXIST") throw error; });
 await assertPrivateDirectory(managementDirectory);
-if (!options.check) await fs.mkdir(localWebChatDirectory, { mode: 0o700 }).catch(error => { if (error.code !== "EEXIST") throw error; });
-if (!options.check || options.localWebChatEnabled) await assertPrivateDirectory(localWebChatDirectory);
 
 const existingDescriptor = await readOptionalJSON(descriptorPath);
 const existingCredential = await readOptionalJSON(credentialPath);
 const existingManagement = await readOptionalJSON(managementPath);
 const existingClientBackend = await readOptionalJSON(clientBackendPath);
-const existingLocalWebChat = options.localWebChatEnabled ? await readOptionalJSON(localWebChatPath) : null;
 const persistedDeploymentID = stringField(existingCredential?.deployment_id) || stringField(existingDescriptor?.deployment_id);
 const requestedDeploymentID = stringField(options.deploymentID);
 if (persistedDeploymentID && requestedDeploymentID && persistedDeploymentID !== requestedDeploymentID) {
@@ -43,7 +38,6 @@ if (options.check) {
   validateDescriptor(existingDescriptor, options.origin, deploymentID);
   validateCredential(existingCredential, deploymentID);
   validateManagementCredential(existingManagement, existingCredential, deploymentID);
-  if (options.localWebChatEnabled) validateLocalWebChatCredential(existingLocalWebChat, existingCredential, existingManagement, deploymentID);
   if (options.clientOrigin) {
     if (!existingClientBackend) throw new Error("client-backend.json is missing");
     const expected = await createClientBackend(options, deploymentID, existingCredential.owner_id);
@@ -67,11 +61,6 @@ if (options.check) {
   const management = existingManagement || { ...credential, client_id: `local_management_${crypto.randomUUID().replaceAll("-", "")}`, client_name: "Local credential management", token: crypto.randomBytes(32).toString("base64url") };
   validateManagementCredential(management, credential, deploymentID);
   if (!existingManagement) await writeAtomicJSON(managementPath, management, { replace: false });
-  if (options.localWebChatEnabled) {
-    const localWebChat = existingLocalWebChat || { ...credential, client_id: `local_webchat_${crypto.randomUUID().replaceAll("-", "")}`, client_name: "Local WebChat", token: crypto.randomBytes(32).toString("base64url") };
-    validateLocalWebChatCredential(localWebChat, credential, management, deploymentID);
-    if (!existingLocalWebChat) await writeAtomicJSON(localWebChatPath, localWebChat, { replace: false });
-  }
   await writeAtomicJSON(descriptorPath, {
     schema_version: 1,
     origin: options.origin,
@@ -84,7 +73,7 @@ if (options.check) {
 process.stdout.write(`${deploymentID}\n`);
 
 function parseArguments(args) {
-  const result = { runtimeDirectory: "", origin: "", deploymentID: "", clientOrigin: "", clientTLSCert: "", clientTLSCA: "", localWebChatEnabled: false, check: false };
+  const result = { runtimeDirectory: "", origin: "", deploymentID: "", clientOrigin: "", clientTLSCert: "", clientTLSCA: "", check: false };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === "--check") result.check = true;
@@ -94,11 +83,6 @@ function parseArguments(args) {
     else if (argument === "--client-origin") result.clientOrigin = args[++index] || "";
     else if (argument === "--client-tls-cert") result.clientTLSCert = args[++index] || "";
     else if (argument === "--client-tls-ca") result.clientTLSCA = args[++index] || "";
-    else if (argument === "--local-webchat-enabled") {
-      const value = args[++index];
-      if (value !== "true" && value !== "false") throw new Error("--local-webchat-enabled must be true or false");
-      result.localWebChatEnabled = value === "true";
-    }
     else throw new Error(`unknown argument: ${argument}`);
   }
   if (!path.isAbsolute(result.runtimeDirectory)) throw new Error("--runtime-dir must be absolute");
@@ -166,16 +150,6 @@ function validateCredential(value, deploymentID) {
 function validateManagementCredential(value, desktop, deploymentID) {
   validateCredential(value, deploymentID);
   if (!value.client_id.startsWith("local_management_") || value.client_id === desktop.client_id || value.token === desktop.token) throw new Error("local-management.json must contain an independent host management identity");
-}
-
-function validateLocalWebChatCredential(value, desktop, management, deploymentID) {
-  if (value?.schema_version !== 1 || value.deployment_id !== deploymentID ||
-      !stringField(value.client_id).startsWith("local_webchat_") || !stringField(value.client_name) ||
-      value.owner_id !== desktop.owner_id || (value.actor_id || value.owner_id) !== (desktop.actor_id || desktop.owner_id) ||
-      !/^[A-Za-z0-9_-]{32,512}$/u.test(stringField(value.token)) ||
-      [desktop, management].some(other => value.client_id === other.client_id || value.token === other.token)) {
-    throw new Error("local-webchat.json must contain an independent local WebChat identity bound to this deployment Owner");
-  }
 }
 
 async function writeAtomicJSON(filename, value, options) {

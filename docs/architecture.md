@@ -5,24 +5,6 @@
 This document is the current implementation source of truth. Component contracts
 and explicitly marked target designs are linked from the [documentation index](index.md).
 
-## Local WebChat Authority
-
-The separate host-loopback `local-webchat` process serves the existing Web UI and
-uses a private authenticated Unix socket to Gateway. Its exact-origin request
-proof confers an independent local Owner principal, represented by `local_access_id`
-and `access_mode=local`, never a dummy or persisted device Client. The network
-Gateway, LAN/desktop credentials, MCP/ISCP, JingSi and R3 host grants retain their
-admission rules. Workbench route registration explicitly enrolls allowed handlers
-on both transports; other routes remain network-only. Upstream CSP policies are
-preserved while the ingress adds framing denial. This access change does not
-implement browser R3 storage. See [Local WebChat access](local-webchat-access-design.md)
-for implementation and qualification scope.
-
-The local principal remains scoped to its provisioned Owner for sessions,
-profiles, documents and approvals. Mutation admission audits record the local
-identity and registered route without request bodies, queries or secrets;
-business outcome audits retain their existing owners.
-
 ## R3 client/backend target and current baseline
 
 The user-confirmed 2026-09-30 target is [Client and backend architecture R3](client-backend-architecture-design.md):
@@ -642,7 +624,6 @@ projections. They must not maintain competing literal maps or duplicate stores.
 |---|---|
 | Gateway | `gateway:18789` (Docker internal, no host publication) |
 | WebChat | `0.0.0.0:18790` |
-| Local WebChat | `127.0.0.1:18794` and `[::1]:18794` when available |
 | JingSi LAN presentation | `<selected RFC1918 host>:18793` (optional overlay only) |
 | Browser eval fixture | `127.0.0.1:18791` |
 | Sandbox runner | `127.0.0.1:18889` |

@@ -26,8 +26,6 @@ type speechRealtimeTicket struct {
 	tokenHash       string
 	ownerID         string
 	clientID        string
-	principal       requestPrincipal
-	localEntrance   localWebChatEntrance
 	sessionID       string
 	requestID       string
 	language        string
@@ -101,8 +99,6 @@ func (s *Server) postSpeechRealtimeSession(w http.ResponseWriter, r *http.Reques
 		maxAudioSeconds: speechMaxAudioSeconds(s.cfg),
 		expiresAt:       now.Add(time.Duration(speech.RealtimeTicketTTL) * time.Second), auditCtx: context.WithoutCancel(r.Context()), session: realtime,
 	}
-	ticket.principal = principal
-	ticket.localEntrance, _ = r.Context().Value(localWebChatEntranceKey{}).(localWebChatEntrance)
 	s.speechRealtimeMu.Lock()
 	s.speechRealtimeTickets[ticket.tokenHash] = ticket
 	s.speechRealtimeTicketIDs[ticket.id] = ticket.tokenHash
@@ -152,14 +148,7 @@ func (s *Server) deleteSpeechRealtimeSession(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) getSpeechRealtime(w http.ResponseWriter, r *http.Request) {
-	entrance, _ := r.Context().Value(localWebChatEntranceKey{}).(localWebChatEntrance)
-	// Check source before consuming a ticket, so a copied URL cannot burn the
-	// legitimate holder's single use. The public TCP handler has no entrance.
-	if entrance.ID != "" && r.Header.Get("Origin") != entrance.Origin {
-		writeError(w, http.StatusForbidden, errors.New("local speech Origin does not match its entrance"))
-		return
-	}
-	ticket := s.consumeSpeechRealtimeTicket(r.URL.Query().Get("ticket"), entrance)
+	ticket := s.consumeSpeechRealtimeTicket(r.URL.Query().Get("ticket"))
 	if ticket == nil {
 		writeSpeechError(w, http.StatusUnauthorized, speech.NewError(speech.CodeInvalidRequest, "realtime speech ticket is invalid or expired", false, nil))
 		return
@@ -171,7 +160,7 @@ func (s *Server) getSpeechRealtime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer release()
-	r = r.WithContext(context.WithValue(connected, requestPrincipalContextKey{}, ticket.principal))
+	r = r.WithContext(connected)
 	upgrader := websocket.Upgrader{
 		HandshakeTimeout: time.Duration(speech.RealtimeConnectTimeout) * time.Second,
 		CheckOrigin:      sameOriginWebSocket,
@@ -462,17 +451,13 @@ func absInt64(value int64) int64 {
 	return value
 }
 
-func (s *Server) consumeSpeechRealtimeTicket(raw string, entrance localWebChatEntrance) *speechRealtimeTicket {
+func (s *Server) consumeSpeechRealtimeTicket(raw string) *speechRealtimeTicket {
 	if len(raw) < 32 || len(raw) > 128 {
 		return nil
 	}
 	hash := hashSecret(raw)
 	s.speechRealtimeMu.Lock()
 	ticket := s.speechRealtimeTickets[hash]
-	if ticket != nil && ticket.localEntrance != entrance {
-		s.speechRealtimeMu.Unlock()
-		return nil
-	}
 	if ticket != nil {
 		delete(s.speechRealtimeTickets, hash)
 		delete(s.speechRealtimeTicketIDs, ticket.id)

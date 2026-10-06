@@ -231,15 +231,6 @@ type requestPrincipal struct {
 	ActorID       string
 	ClientID      string
 	Authenticated bool
-	// LocalAccessID identifies a private workbench authority, never a Client.
-	LocalAccessID string
-}
-
-// ownerScoped distinguishes authenticated workbench identities from the legacy
-// global development/static-token principal. A local identity has no Client ID
-// but is still strictly bound to its provisioned Owner.
-func (p requestPrincipal) ownerScoped() bool {
-	return strings.TrimSpace(p.ClientID) != "" || p.LocalAccessID != ""
 }
 
 func defaultRequestPrincipal() requestPrincipal {

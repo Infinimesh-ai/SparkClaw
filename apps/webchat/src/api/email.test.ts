@@ -58,7 +58,7 @@ describe("email owner API", () => {
     expect(clicks[0].download).toBe("untrusted.html");
     expect(clicks[0].href).toBe("blob:mail-download");
     expect(clicks[0].target).toBe("");
-    expect(fetcher.mock.calls[0]).toEqual(["/api/email/messages/mail-1/file?part_id=part-2", expect.objectContaining({ headers: { Authorization: "Bearer owner-token", "X-SparkClaw-Local-WebChat": "1" } })]);
+    expect(fetcher.mock.calls[0]).toEqual(["/api/email/messages/mail-1/file?part_id=part-2", expect.objectContaining({ headers: { Authorization: "Bearer owner-token" } })]);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(revoke).toHaveBeenCalledWith("blob:mail-download");
   });

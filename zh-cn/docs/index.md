@@ -60,7 +60,6 @@
 | [通用外部 MCP 安全防护](generic-mcp-safeguards-design.md) | 通用 catalog 过滤/分类，以及与固定 LocalMind task adapter 共享的有界脱敏结果和 approval 持久化防护 |
 | [按 Owner 的 Connector 启用](connector-owner-runtime-design.md) | Issue #13 已接受设计：owner 隔离 setting、共享 channel worker、缓存一致性、排空语义与重启协调 |
 | [WebChat](webchat.md) | owner 工作台职责、API 权威、刷新模型和前端验证 |
-| [本机 WebChat 访问设计](local-webchat-access-design.md) | 已实现宿主回环入口、私有 Owner 授权与显式凭据恢复，并通过隔离验收；真实 Linux／LAN 上线验收待完成 |
 | [设置与集成配置](settings-integration-configuration-design.md) | 已实现的设置目录，以及 Info 和出站 LocalMind MCP 的家庭级加密多凭据配置 |
 
 ## 运维与治理

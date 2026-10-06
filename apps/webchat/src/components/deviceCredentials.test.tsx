@@ -80,7 +80,7 @@ beforeEach(() => {
   refreshGlobal.mockClear();
   endLogin.mockClear();
   vi.spyOn(api, "integrations").mockResolvedValue({ integrations: [] });
-  vi.spyOn(api, "workbenchIdentity").mockResolvedValue({ deployment_id: "deployment", owner_id: "owner", client_id: current.id, access_mode: "credential" });
+  vi.spyOn(api, "workbenchIdentity").mockResolvedValue({ deployment_id: "deployment", owner_id: "owner", client_id: current.id });
   vi.spyOn(api, "clients").mockResolvedValue({ clients: [current] });
   vi.spyOn(api, "issueClient").mockResolvedValue(issued);
   vi.spyOn(api, "revokeClient").mockResolvedValue({ ...current, revoked_at: "2026-09-30T05:00:00Z" });
@@ -94,19 +94,6 @@ afterEach(async () => {
 });
 
 describe("device credentials through the production settings route", () => {
-  it("allows local access to revoke the last device without treating local access as a device", async () => {
-    const revoke = vi.fn(async () => {});
-    const { host } = await render(<PairedClientsSettings clients={[current]} text={dictionaries.en} language="en"
-      currentClientID="" accessMode="local" onRevokeClient={revoke} onCurrentClientRevoked={endLogin} />);
-    expect(host.textContent).toContain(dictionaries.en.auth.localAccess);
-    expect(host.textContent).not.toContain(dictionaries.en.settings.clientsIdentityUnavailable);
-    const button = host.querySelector<HTMLButtonElement>(`button[aria-label="${dictionaries.en.settings.revokeClient}: Linux"]`)!;
-    expect(button.disabled).toBe(false);
-    await act(async () => button.click());
-    expect(revoke).toHaveBeenCalledWith(current.id);
-    expect(endLogin).not.toHaveBeenCalled();
-    expect(host.querySelector(".pill")).toBeNull();
-  });
   it.each(["en", "zh"] as const)("finds the section by search and loads confirmed device metadata in %s", async (language) => {
     const { host } = await render(<SettingsRoute language={language} />);
     await visitDevices(host, language);

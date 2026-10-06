@@ -6,13 +6,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 ::-webkit-scrollbar-thumb { background: #d1d5dc; }
 .workbench { grid-template-columns: 244px minmax(0, 1fr); gap: 0; padding: 0; height: 100dvh; min-height: 0; overflow: hidden; }
 .workbench .connectionBar { display: none; }
-.workbench.accessGate { grid-template-columns: minmax(0, 1fr); }
-.workbench.accessGate .workspace { overflow-y: auto; }
-.workbench.accessGate .workbenchWelcome { margin: auto; padding: 48px 24px; }
-.workbench.accessGate .connectionNotice { grid-template-columns: 34px minmax(0, 1fr); }
-.workbench.accessGate .connectionNoticeCopy small { display: block; white-space: normal; overflow: visible; }
-.workbench.accessGate .connectionNoticeAuth { grid-column: 1 / -1; min-width: 0; width: 100%; flex-wrap: wrap; justify-content: flex-start; }
-.workbench.accessGate .connectionNoticeAction { white-space: normal; text-align: left; }
 
 .desktopConnectionBanner {
   position: fixed;

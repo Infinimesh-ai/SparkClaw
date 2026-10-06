@@ -118,13 +118,6 @@ func main() {
 	if managementServer != nil {
 		defer managementServer.Close()
 	}
-	localWebChatServer, localWebChatErr := startLocalWebChat(serverCtx, cfg, st, server)
-	if localWebChatErr != nil {
-		slog.Error("local WebChat is unavailable", "error", localWebChatErr)
-	}
-	if localWebChatServer != nil {
-		defer localWebChatServer.Close()
-	}
 	httpServer := &http.Server{
 		Addr:              server.Addr(),
 		Handler:           server.Handler(),
@@ -151,9 +144,6 @@ func main() {
 	defer cancel()
 	if managementServer != nil {
 		_ = managementServer.Shutdown(shutdownCtx)
-	}
-	if localWebChatServer != nil {
-		_ = localWebChatServer.Shutdown(shutdownCtx)
 	}
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		slog.Error("gateway shutdown failed", "error", err)

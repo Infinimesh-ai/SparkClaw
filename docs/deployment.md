@@ -7,41 +7,6 @@ full-local deployment owns five model services on an NVIDIA GB10 host; the
 full-remote deployment uses five versioned public model endpoints. Both run
 PostgreSQL, Sandbox Runner, Gotenberg, Gateway, and WebChat.
 
-## Local Browser Access
-
-The implemented local WebChat ingress serves `http://127.0.0.1:18794` (also
-`localhost` and IPv6 loopback when available) on the backend host. The product
-profile enables `SPARKCLAW_LOCAL_WEBCHAT_ENABLED=true`; standalone Gateway defaults
-to disabled. Override that single switch or `SPARKCLAW_LOCAL_WEBCHAT_PORT` in the
-selected private deployment environment, then use the normal `start:local` or
-`start:remote` reconciliation. An enabled ingress requires ordinary Gateway
-authentication to remain enabled. Invalid booleans/ports fail validation.
-
-The product ingress requires native Linux host networking; Docker Desktop's VM
-loopback is not accepted as evidence of host locality. A separate image serves
-WebChat assets and connects to Gateway only through
-`data/runtime/local-webchat/workbench.sock`. Provisioning creates independent
-`local-webchat.json` (0600) and a 0700 socket directory with the same UID/GID as
-Gateway. No Gateway host TCP port, desktop credential or management-socket grant
-is added. Normal reconciliation prepares the private inputs; `--check` is read-only.
-Unsafe/mismatched provisioning fails local readiness while ordinary authenticated
-clients retain their existing access.
-
-Use the existing verified desktop TLS overlay for qualified LAN access:
-`SPARKCLAW_DESKTOP_TLS_DIR` selects it in both startup scripts. Local HTTP does
-not require browser certificate trust and does not change the LAN/desktop port or
-certificate policy. Opening the LAN address, even on the backend machine, still
-requires that browser's credential. A host user's loopback tunnel delegates local
-Owner access intentionally; preserve the configured Host/Origin/port.
-
-Disabling and reconciling closes the local entrance and Gateway's private socket;
-the disabled ingress container stays idle and healthy. Re-enabling does not revive
-revoked Clients. No browser Cookie or bearer is created: request proof is checked
-per call, streams are bounded to 30 minutes and reconnect with fresh checks.
-Existing invalid browser credentials require the explicit local-recovery action.
-Do not erase browser data to repair authentication. See the
-[design and acceptance ledger](local-webchat-access-design.md).
-
 ## Prerequisites
 
 Both product modes require:
@@ -185,7 +150,7 @@ These are the only product entrypoints. Host-only debug commands and targeted
 model benchmark helpers are not deployment modes. The retired `online` name and
 the hosted-chat/local-auxiliary mixed runtime are not supported.
 
-The credential-based LAN WebChat ingress binds host port `18790` to
+WebChat is the only application ingress and binds host port `18790` to
 `0.0.0.0` by default. Set `SPARKCLAW_WEBCHAT_PORT` to publish another host port;
 the container and Nginx listener remain on internal port `18790`. Gateway is not
 published on the host; WebChat proxies its selected routes to `gateway:18789`
@@ -216,8 +181,7 @@ both machine overrides remains HTTP and cannot issue a downloaded desktop
 connection credential.
 
 Both product modes keep `SPARKCLAW_API_TOKEN` empty and require per-client
-Gateway bearer credentials on the network entrance. The separate local WebChat
-entrance uses the private authority described above. Deployment creates `data/runtime/local-workbench.json`
+Gateway bearer credentials. Deployment creates `data/runtime/local-workbench.json`
 and the mode-`0600` `data/runtime/desktop-client.json`, then Gateway registers
 that stable desktop Client in PostgreSQL. The installed desktop launcher passes
 both absolute paths to Electron; no token is placed in the application bundle,
@@ -381,9 +345,8 @@ the controller recognizes only that exact page-closed terminal class and then
 reaps the metadata-bound daemon. The qualification Chromium stays running, the
 private runtime directories return to empty, and no send operation is invoked.
 
-Gateway TCP remains Docker-internal and WebChat publishes the credential-based
-workbench entrance on `18790` by default, alongside the host-loopback local
-entrance on `18794`. This topology installs neither TLS
+Gateway remains Docker-internal and WebChat publishes the only ordinary
+workbench entrance on `18790` by default. This topology installs neither TLS
 nor firewall rules, so restrict that port to an owner-trusted network. Use an
 HTTPS reverse proxy when LAN microphone capture is required by browser
 secure-context policy.

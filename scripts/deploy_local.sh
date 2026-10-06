@@ -155,7 +155,6 @@ workbench_runtime_dir="$(dotenv_value SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR)"
 workbench_runtime_dir="${workbench_runtime_dir:-$ROOT/data/runtime}"
 [[ "$workbench_runtime_dir" == /* ]] || fail "SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR must be absolute"
 workbench_provision_args=(
-  --local-webchat-enabled "$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_LOCAL_WEBCHAT_ENABLED false)"
   --runtime-dir "$workbench_runtime_dir"
   --origin "$webchat_base_url"
   --deployment-id "$(dotenv_value SPARKCLAW_DEPLOYMENT_ID)"

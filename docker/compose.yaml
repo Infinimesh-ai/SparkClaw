@@ -23,8 +23,6 @@ services:
       SPARKCLAW_DEPLOYMENT_ID: ${SPARKCLAW_DEPLOYMENT_ID:-}
       SPARKCLAW_DESKTOP_CLIENT_FILE: ${SPARKCLAW_DESKTOP_CLIENT_FILE:-}
       SPARKCLAW_LOCAL_MANAGEMENT_FILE: ${SPARKCLAW_LOCAL_MANAGEMENT_FILE:-/run/sparkclaw/runtime/local-management.json}
-      SPARKCLAW_LOCAL_WEBCHAT_ENABLED: ${SPARKCLAW_LOCAL_WEBCHAT_ENABLED:-false}
-      SPARKCLAW_LOCAL_WEBCHAT_FILE: /run/sparkclaw/runtime/local-webchat.json
       SPARKCLAW_DEPLOYMENT_PROFILE: ${SPARKCLAW_DEPLOYMENT_PROFILE:?select deploy:local/start:local or deploy:remote/start:remote}
       SPARKCLAW_WORKSPACE_ROOT: ${SPARKCLAW_WORKSPACE_ROOT:-/var/lib/sparkclaw/workspaces}
       SPARKCLAW_TRACE_DIR: ${SPARKCLAW_TRACE_DIR:-/var/lib/sparkclaw/traces}
@@ -165,7 +163,6 @@ services:
       - ../data/logs:/var/log/sparkclaw
       - ${SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR:-../data/runtime}:/run/sparkclaw/runtime:ro
       - ${SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR:-../data/runtime}/management:/run/sparkclaw/runtime/management
-      - ${SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR:-../data/runtime}/local-webchat:/run/sparkclaw/runtime/local-webchat
       - ${SPARKCLAW_BROWSER_EXTENSION_RUNTIME_DIR_HOST:-/run/user/1000/sparkclaw/browser-controller}:/run/sparkclaw/browser-controller:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:18789/healthz').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
@@ -230,36 +227,6 @@ services:
         condition: service_healthy
     networks:
       - sparkclaw_internal
-
-  # Native Linux only: host networking preserves the actual TCP loopback peer.
-  # Never replace this with a published Docker bridge port.
-  local-webchat:
-    profiles: ["product"]
-    build:
-      context: ..
-      dockerfile: docker/images/local-webchat.Dockerfile
-    user: "${SPARKCLAW_CONTAINER_UID:-1000}:${SPARKCLAW_CONTAINER_GID:-1000}"
-    restart: unless-stopped
-    network_mode: host
-    read_only: true
-    cap_drop: ["ALL"]
-    security_opt: ["no-new-privileges:true"]
-    environment:
-      SPARKCLAW_LOCAL_WEBCHAT_ENABLED: ${SPARKCLAW_LOCAL_WEBCHAT_ENABLED:-false}
-      SPARKCLAW_LOCAL_WEBCHAT_PORT: ${SPARKCLAW_LOCAL_WEBCHAT_PORT:-18794}
-      SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR: /run/sparkclaw/runtime
-      SPARKCLAW_LOCAL_WEBCHAT_ASSETS: /usr/share/sparkclaw/webchat
-    volumes:
-      - ${SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR:-../data/runtime}:/run/sparkclaw/runtime:ro
-      - ${SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR:-../data/runtime}/local-webchat:/run/sparkclaw/runtime/local-webchat
-    depends_on:
-      gateway:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "local-webchat", "--check"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
 
   postgres:
     profiles: ["product", "eval"]

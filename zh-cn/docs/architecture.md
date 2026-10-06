@@ -4,18 +4,6 @@
 
 本文档是当前实现的事实来源。专项契约及明确标注的目标设计从[文档索引](index.md)进入。
 
-## 本机 WebChat 权限
-
-独立宿主回环进程 `local-webchat` 提供现有 Web UI，经私有认证 Unix Socket 连接
-Gateway。精确同源请求证明授予独立的本机 Owner 主体，以 `local_access_id` 和
-`access_mode=local` 表达，不伪造或持久化成设备 Client。网络 Gateway、LAN／桌面凭据、
-MCP／ISCP、JingSi 及 R3 宿主授权保留原有准入。工作台路由在唯一注册点显式加入两种
-传输，其余路由不进入本机表。入口保留上游 CSP 并追加禁止嵌入策略。此次访问改造
-不实施浏览器 R3 存储，实施与验收范围见[本机 WebChat 设计](local-webchat-access-design.md)。
-
-本机主体的会话、配置档案、文件和审批访问仍限定于部署绑定的 Owner。变更准入审计
-记录本机身份及已注册路由，不保存请求正文、查询参数或秘密；原有业务组件继续记录结果审计。
-
 ## R3 客户端／后端目标与当前基线
 
 用户于 2026-09-30 确认的目标见[客户端与后端架构 R3](client-backend-architecture-design.md)：
@@ -475,7 +463,6 @@ Provider/UI 通过 owner package 和 public projection 消费这些契约，不�
 |---|---|
 | Gateway | `gateway:18789`（Docker 内部，不发布 host port） |
 | WebChat | `0.0.0.0:18790` |
-| 本机 WebChat | `127.0.0.1:18794` 和可用时的 `[::1]:18794` |
 | JingSi LAN presentation | `<指定 RFC1918 host>:18793`（仅可选 overlay） |
 | Browser eval fixture | `127.0.0.1:18791` |
 | Sandbox runner | `127.0.0.1:18889` |

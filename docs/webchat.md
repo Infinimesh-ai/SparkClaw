@@ -37,16 +37,12 @@ The workbench includes:
 
 ## State And Refresh
 
-Startup verifies workbench identity before private reads and subscriptions. The
-controlled host-loopback entrance returns `access_mode=local` and requires no
-manual token; LAN and independent clients retain bearer login. The UI shows
-“Local access” and permits Owner device management without a fake Client ID.
-A rejected stored token remains rejected until the user explicitly clears the
-current credential and selects local access; this never deletes conversation
-history or bypasses a fixed build-time token. Connection and authentication
-failures remain visible. Reconnection rereads state without replaying mutations;
-language updates occur only after explicit selection. See
-[Local WebChat access](local-webchat-access-design.md).
+Startup loads readiness first, then authentication and private state. Bearer
+tokens come from `VITE_SPARKCLAW_API_TOKEN` or the token form. Authentication
+failures remain visible; language switching does not depend on Gateway
+availability. An authenticated Owner can issue a separate Web Client in
+Settings; the token is displayed once and entered on the target browser. No
+pairing proxy or `18795` listener participates in the ordinary workbench flow.
 
 State is separated into global data and active-session data. Authenticated
 fetch-based workbench invalidations drive prompt refreshes, with foreground

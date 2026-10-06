@@ -4,8 +4,6 @@
 
 Date: 2026-10-03. Status: the user confirmed product ownership, no legacy test-data migration, offline task behavior, and section 2's backend temporary-processing/control-record boundary including the 24-hour maximum for undelivered results; P0–P5 Linux/shared source and applicable isolated checks are complete; Mac qualification and production cutover remain pending. See the [implementation and acceptance ledger](client-r3-implementation.md). This is the target architecture for SparkClaw's own clients. [Architecture](architecture.md), [Store](store.md), and [WebChat](webchat.md) describe the current implementation where explicitly marked. This document does not claim deployment, data deletion or changes to accepted cross-project contracts.
 
-> Local Web exception (2026-10-06): [Local WebChat access](local-webchat-access-design.md) allows the existing browser UI on the controlled host-loopback entrance to use independent local Owner authority without manual credential entry. Independent desktop installations keep first-login unlock. Browser R3 installation and local storage remain a separate phase; local Owner authority alone grants no installation or executable host capability.
-
 ## 1. Confirmed boundary
 
 The backend is the business processing core. Clients present results, accept user actions, store their own non-mail data, and provide constrained local execution facilities. They connect over the LAN. A client currently using a loopback address is colocated with the backend; this is a deployment choice, not a different product architecture.

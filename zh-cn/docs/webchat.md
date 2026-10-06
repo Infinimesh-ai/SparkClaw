@@ -30,13 +30,10 @@ approval、trace、persistence、delivery、schedule 和 connector binding 的�
 
 ## 状态与刷新
 
-启动先核验工作台身份，再读取私有数据和订阅事件。受控回环入口返回
-`access_mode=local`，界面显示“本机访问”，无需输入 Token，可管理全部设备；
-LAN／独立客户端仍须凭据。保存的 Token 被拒绝时，不自动降级；用户显式选择清除当前
-凭据并使用本机访问，不删除会话历史，也不绕过固定的构建 Token。重连只重读状态，
-语言更新仅在用户明确选择后发送。验收范围见
-[本机 WebChat 访问](local-webchat-access-design.md)。
-
+启动先加载 readiness，再处理 authentication 和 private state。Bearer token 来自
+`VITE_SPARKCLAW_API_TOKEN` 或 token 表单。认证失败保持可见，语言切换不依赖 Gateway。已认证
+Owner 可在设置中签发独立 Web Client；token 只展示一次并由用户填入目标浏览器。普通工作台流程
+不再使用 pairing proxy，也不监听 `18795`。
 
 状态分为 global data 和 active-session data。带认证的 fetch SSE workbench invalidation 触发刷新，
 前台每五秒对账兜底；初次连接、队列溢出和 Gateway 重启都会 full resync，过期响应由 generation

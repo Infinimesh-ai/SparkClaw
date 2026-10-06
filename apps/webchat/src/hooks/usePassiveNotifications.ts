@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, APIError, streamPassiveNotifications } from "../api/client";
+import { api, streamPassiveNotifications } from "../api/client";
 import type { PassiveNotification } from "../api/types";
 
 // Bound on the duplicate-suppression set: newest ids win, older ones age out.
@@ -34,9 +34,8 @@ export function usePassiveNotifications(enabled = true) {
     [notifications]
   );
 
-  const load = useCallback(async (signal?: AbortSignal) => {
-    const result = await api.notifications(signal);
-    if (signal?.aborted) return "";
+  const load = useCallback(async () => {
+    const result = await api.notifications();
     const list = result.notifications ?? [];
     // Union instead of replace: ids the realtime stream already delivered
     // stay suppressed even when the list window has moved past them.
@@ -68,12 +67,10 @@ export function usePassiveNotifications(enabled = true) {
       while (!controller.signal.aborted) {
         if (!initialized) {
           try {
-            cursor = await load(controller.signal);
-            if (controller.signal.aborted) return;
+            cursor = await load();
             initialized = true;
             delay = RECONNECT_BASE_DELAY_MS;
-          } catch (err) {
-            if (controller.signal.aborted || (err instanceof APIError && err.status === 401)) return;
+          } catch {
             await backoff();
             continue;
           }
@@ -82,7 +79,6 @@ export function usePassiveNotifications(enabled = true) {
           await streamPassiveNotifications(cursor, {
             signal: controller.signal,
             onNotification: (notification) => {
-              if (controller.signal.aborted) return;
               cursor = notification.id;
               if (seen.current.has(notification.id)) return;
               seen.current = boundedSeen([notification.id], seen.current);
@@ -90,8 +86,8 @@ export function usePassiveNotifications(enabled = true) {
               setToast(notification);
             }
           });
-        } catch (err) {
-          if (controller.signal.aborted || (err instanceof APIError && err.status === 401)) return;
+        } catch {
+          if (controller.signal.aborted) return;
         }
         initialized = false;
         await backoff();

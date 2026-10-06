@@ -133,7 +133,7 @@ func (h *workbenchEventHub) ownerIDs() []string {
 
 func (s *Server) streamWorkbenchEvents(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
-	if !principal.Authenticated || (strings.TrimSpace(principal.ClientID) == "" && principal.LocalAccessID == "") {
+	if !principal.Authenticated || strings.TrimSpace(principal.ClientID) == "" {
 		writeError(w, http.StatusUnauthorized, fmt.Errorf("a Client bearer token is required"))
 		return
 	}

@@ -338,10 +338,6 @@ export const zh = {
       saveCorrection: "保存修正"
     },
     auth: {
-      localAccess: "本机访问",
-      checkingAccess: "正在验证访问权限…",
-      useLocalAccess: "清除当前凭据并使用本机访问",
-      configuredToken: "此部署固定提供了访问凭据。请修改部署配置后再使用其他凭据或本机访问。",
       gatewayToken: "Gateway token",
       unauthorized: "Token 认证失败",
       retryConnection: "重试",

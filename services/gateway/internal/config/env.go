@@ -152,14 +152,6 @@ var envBindings = []envBinding{
 	{name: "SPARKCLAW_DEPLOYMENT_ID", doc: "Persistent identity of this SparkClaw product installation.", apply: envString(func(c *Config) *string { return &c.Gateway.DeploymentID })},
 	{name: "SPARKCLAW_DESKTOP_CLIENT_FILE", doc: "Restricted local desktop Client provisioning file.", apply: envString(func(c *Config) *string { return &c.Gateway.DesktopClientFile })},
 	{name: "SPARKCLAW_LOCAL_MANAGEMENT_FILE", doc: "Private host-only credential management file; never authorizes network requests.", apply: envString(func(c *Config) *string { return &c.Gateway.LocalManagementFile })},
-	{name: "SPARKCLAW_LOCAL_WEBCHAT_ENABLED", doc: "Enable the separate private local WebChat socket; true or false, disabled in standalone Gateway.", apply: func(c *Config, value string) error {
-		if value != "true" && value != "false" {
-			return fmt.Errorf("SPARKCLAW_LOCAL_WEBCHAT_ENABLED must be true or false")
-		}
-		c.Gateway.LocalWebChatEnabled = value == "true"
-		return nil
-	}},
-	{name: "SPARKCLAW_LOCAL_WEBCHAT_FILE", doc: "Private provisioning for the independent local WebChat ingress; never a network bearer.", apply: envString(func(c *Config) *string { return &c.Gateway.LocalWebChatFile })},
 	{name: "SPARKCLAW_WEBCHAT_PROXY_TOKEN", doc: "Private token that authenticates the WebChat reverse proxy for pairing bootstrap.", apply: envString(func(c *Config) *string { return &c.Gateway.WebChatProxyToken })},
 	{name: "SPARKCLAW_BRIDGE_TOKEN", doc: "Dedicated bearer for the loopback ISCP bridge dispatch routes.", apply: envString(func(c *Config) *string { return &c.Gateway.BridgeToken })},
 	{name: "SPARKCLAW_JINGSI_LAN_ENABLED", doc: "Enable the JingSi LAN listener.", apply: envBool(func(c *Config) *bool { return &c.JingSiLAN.Enabled })},

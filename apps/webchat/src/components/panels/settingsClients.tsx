@@ -1,12 +1,11 @@
 import { Copy, KeyRound, LogOut, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { APIError } from "../../api/client";
-import type { Client, IssuedClientCredential, WorkbenchIdentity } from "../../api/types";
+import type { Client, IssuedClientCredential } from "../../api/types";
 import type { Copy as CopyText, Language } from "../../i18n";
 import { formatDateTime } from "../../lib/format";
 
 export type ClientSettingsActions = {
-  accessMode?: WorkbenchIdentity["access_mode"];
   currentClientID?: string;
   clientsLoading?: boolean;
   clientsError?: string;
@@ -18,7 +17,7 @@ export type ClientSettingsActions = {
 type IssuanceRequest = { name: string; key: string };
 
 export function PairedClientsSettings({
-  clients, text, language, currentClientID, accessMode, clientsLoading = false, clientsError = "",
+  clients, text, language, currentClientID, clientsLoading = false, clientsError = "",
   onIssueClient, onRevokeClient, onReloadClients, onCurrentClientRevoked, onLogout
 }: ClientSettingsActions & {
   clients: Client[];
@@ -46,7 +45,6 @@ export function PairedClientsSettings({
   const visibleClients = loadedClients ?? clients;
   const listLoading = loading || clientsLoading;
   const listFailed = Boolean(loadError || clientsError);
-  const identityKnown = Boolean(currentClientID) || accessMode === "local";
   const issuedLabel = issued?.connection_credential ? text.settings.issuedClientConnectionCredential : text.settings.issuedClientToken;
   const issuedWarning = issued?.connection_credential ? text.settings.issuedClientConnectionCredentialWarning : text.settings.issuedClientTokenWarning;
 
@@ -191,7 +189,6 @@ export function PairedClientsSettings({
       {onReloadClients && <button type="button" className="ghost" disabled={listLoading} onClick={() => void loadClients()}><RefreshCw size={14} /> {text.settings.refreshClients}</button>}
     </div>
     <p className="muted">{text.settings.clientsDescription}</p>
-    {accessMode === "local" && <p className="muted">{text.auth.localAccess}</p>}
     {onIssueClient && <div className="clientIssuance">
       <label><span>{text.settings.newWebClient}</span><input value={clientName} disabled={Boolean(pending) || Boolean(busy) || Boolean(issued)} maxLength={80} onChange={(event) => setClientName(event.target.value)} placeholder={text.settings.webClientDefaultName} /></label>
       <button className="approve" type="button" disabled={Boolean(busy) || Boolean(issued) || Boolean(recovery)} onClick={() => void issueClient()}>
@@ -218,7 +215,7 @@ export function PairedClientsSettings({
       {onReloadClients && <button type="button" className="ghost" disabled={listLoading} onClick={() => void loadClients()}>{text.settings.retryClients}</button>}
     </div>}
     {!listLoading && !listFailed && visibleClients.length === 0 && <span className="muted">{text.settings.noClients}</span>}
-    {!listLoading && visibleClients.length > 0 && !identityKnown && <p className="credentialValidationFeedback error" role="alert">{text.settings.clientsIdentityUnavailable}</p>}
+    {!listLoading && visibleClients.length > 0 && !currentClientID && <p className="credentialValidationFeedback error" role="alert">{text.settings.clientsIdentityUnavailable}</p>}
     {visibleClients.length > 0 && <div className="clientList">
       {visibleClients.map((client) => <div className="clientItem" key={client.id}>
         <div>
@@ -228,7 +225,7 @@ export function PairedClientsSettings({
           <small>{client.last_seen_at ? <>{text.settings.seen}: <time dateTime={client.last_seen_at} title={client.last_seen_at}>{formatDateTime(client.last_seen_at, language)}</time></> : text.settings.notSeen}</small>
           <small>{client.revoked_at ? <>{text.common.revoked}: <time dateTime={client.revoked_at} title={client.revoked_at}>{formatDateTime(client.revoked_at, language)}</time></> : text.settings.active}</small>
         </div>
-        {!client.revoked_at && <button type="button" className="reject" onClick={() => void revokeClient(client)} disabled={Boolean(busy) || !identityKnown} aria-label={`${text.settings.revokeClient}: ${client.name}`} title={text.settings.revokeClient}><Trash2 size={14} /></button>}
+        {!client.revoked_at && <button type="button" className="reject" onClick={() => void revokeClient(client)} disabled={Boolean(busy) || !currentClientID} aria-label={`${text.settings.revokeClient}: ${client.name}`} title={text.settings.revokeClient}><Trash2 size={14} /></button>}
       </div>)}
     </div>}
     {actionError && <p className="credentialValidationFeedback error" role="alert">{actionError}</p>}

@@ -212,7 +212,6 @@ sparkclaw_tcp_port_valid "$webchat_port" || fail "SPARKCLAW_WEBCHAT_PORT must be
 workbench_runtime_dir="$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR "$ROOT/data/runtime")"
 [[ "$workbench_runtime_dir" == /* ]] || fail "SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR must be absolute"
 workbench_provision_args=(
-  --local-webchat-enabled "$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_LOCAL_WEBCHAT_ENABLED false)"
   --runtime-dir "$workbench_runtime_dir"
   --origin "http://127.0.0.1:$webchat_port"
   --deployment-id "$(sparkclaw_profile_value "$PRODUCT_ENV" "$MODE_ENV" "$ENV_FILE" SPARKCLAW_DEPLOYMENT_ID '')"

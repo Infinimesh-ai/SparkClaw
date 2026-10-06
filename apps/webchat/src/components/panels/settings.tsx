@@ -70,7 +70,6 @@ export function SettingsPanel({
   ownerProfile,
   clients,
   currentClientID,
-  accessMode,
   clientsLoading,
   clientsError,
   onReloadClients,
@@ -180,7 +179,7 @@ export function SettingsPanel({
 
   if (section === "devices") {
     return <div className="panelStack settingsPanel settingsSurface">
-      <PairedClientsSettings clients={clients} text={text} language={language} currentClientID={currentClientID} accessMode={accessMode}
+      <PairedClientsSettings clients={clients} text={text} language={language} currentClientID={currentClientID}
         clientsLoading={clientsLoading} clientsError={clientsError} onReloadClients={onReloadClients}
         onIssueClient={onIssueClient} onRevokeClient={onRevokeClient} onCurrentClientRevoked={onCurrentClientRevoked} onLogout={onLogout} />
     </div>;
@@ -453,7 +452,7 @@ export function SettingsPanel({
             <span>{detailTitle}</span>
           </button>
           {detail === "owner" && <OwnerProfileSettings ownerProfile={ownerProfile} text={text} onUpdateOwner={onUpdateOwner} />}
-          {detail === "clients" && <PairedClientsSettings clients={clients} text={text} language={language} currentClientID={currentClientID} accessMode={accessMode}
+          {detail === "clients" && <PairedClientsSettings clients={clients} text={text} language={language} currentClientID={currentClientID}
             clientsLoading={clientsLoading} clientsError={clientsError} onReloadClients={onReloadClients}
             onIssueClient={onIssueClient} onRevokeClient={onRevokeClient} onCurrentClientRevoked={onCurrentClientRevoked} onLogout={onLogout} />}
           {detail === "language" && (

@@ -523,7 +523,7 @@ func (s *Server) approvalVisibleToRequest(ctx context.Context, r *http.Request, 
 		}
 	}
 	if sessionID == "" {
-		return !principalForRequest(r).ownerScoped(), nil
+		return strings.TrimSpace(principalForRequest(r).ClientID) == "", nil
 	}
 	_, visible, err := s.sessionForRequest(ctx, r, sessionID)
 	return visible, err

@@ -91,7 +91,7 @@ func (s *Server) updateOwnerLanguage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listOwnerProfiles(w http.ResponseWriter, r *http.Request) {
 	principal := principalForRequest(r)
-	if principal.ownerScoped() {
+	if strings.TrimSpace(principal.ClientID) != "" {
 		profile, found, err := s.ownerProfileForRequest(r)
 		if err != nil {
 			writeOwnerStoreError(w, err)
@@ -180,7 +180,7 @@ func (s *Server) patchOwnerProfile(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) ownerProfileForRequest(r *http.Request) (app.OwnerProfile, bool, error) {
 	principal := principalForRequest(r)
-	if !principal.ownerScoped() {
+	if strings.TrimSpace(principal.ClientID) == "" {
 		profile, err := s.store.GetOwnerProfile(r.Context())
 		return profile, err == nil, err
 	}
@@ -196,7 +196,7 @@ func (s *Server) ownerProfileForRequest(r *http.Request) (app.OwnerProfile, bool
 
 func ownerPathVisibleToPrincipal(r *http.Request, ownerID string) bool {
 	principal := principalForRequest(r)
-	return !principal.ownerScoped() || strings.TrimSpace(ownerID) == principal.OwnerID
+	return strings.TrimSpace(principal.ClientID) == "" || strings.TrimSpace(ownerID) == principal.OwnerID
 }
 
 func writeOwnerStoreError(w http.ResponseWriter, err error) {

@@ -79,7 +79,13 @@ func (s *Server) executeR3Workflow(ctx context.Context, e r3execution.Envelope, 
 	}
 	artifacts := r3execution.TemporaryArtifacts{Store: artifact.NewStore(cfg.Storage), Budget: budget}
 	tools.WithArtifactStore(artifacts)
-	runtime := s.runtime.WithTransientRepositories(local, tools, policy.New(cfg), artifacts)
+	runtime, releaseRuntime := s.runtime.WithTransientRepositories(local, tools, policy.New(cfg), artifacts)
+	defer func() {
+		if err := releaseRuntime(ctx); err != nil {
+			answer = r3execution.Output{}
+			execErr = r3execution.ErrUnavailable
+		}
+	}()
 	session, err := local.CreateSessionWithScope(ctx, "R3 temporary execution", e.OwnerID, cfg.Workspaces.DefaultRoot, "webchat", false)
 	if err != nil {
 		return r3execution.Output{}, err

@@ -48,6 +48,8 @@ ClientStore 位于 `userData/client-r3`，由 main 管理 SQLite WAL／FULL，sc
 
 每次 R3 执行只接收明确提交的不可变客户端上下文。新建 MemoryStore／ToolHub／policy／artifact 组合共享编译 Workflow 和模型路由，但不使用旧历史、trace、常驻提醒／消息路由、MCP、持久审批或 memory。工具文件使用按部署隔离、归属受控的 tmpfs 目录，不进入普通工作区；Linux 实现要求 tmpfs。完成／取消／到期清理；启动只移除本部署归属正确的过期目录。输入上传仅暂存内存。临时输入保留唯一可见文件名，使按文件名引用直接可用；主进程排队和服务端准入均拒绝重名附件，不覆盖或猜选文件。生成交付包使用 AES-256-GCM、私有原子文件和 0600 密钥，不在普通 artifact 仓储写明文输出归档。
 
+执行内 ToolHub 的天气和网页搜索使用后端当前激活的 Info 凭据运行时，包括启动后在设置中激活的凭据。仅共享适配器代际和取消状态，观测、生成的天气卡片与历史仍保留在临时执行仓储。凭据切换会取消依赖旧代际的任务，也覆盖工具阶段之间的间隙；执行结束时清理暂停任务的临时依赖。仅根据启动环境凭据重建 Info 客户端不能满足这一要求。
+
 持久执行控制只包含 Owner／client／installation／request ID、输入 digest、枚举状态及创建／期限／生成／过期时间和结果 digest。不保存 prompt、标题、上下文、本地会话 ID、DOM、文档正文或生成输出。浏览器 fence／journal 只保留命令 digest、身份／page／lease 代际和枚举结果，不保留参数、DOM 或输出。邮箱 revision 是类型化后端邮件记录，与非邮箱控制分离。
 
 准入先持久 request fence 再执行。同 ID／digest 查询原状态，内容漂移拒绝。被中断的 accepted／running 恢复为 `unknown`，不重执行。读取结果先检查绝对期限，GET 不写入。ACK 要求 sequence／digest 匹配及客户端持久 receipt，先持久 `delivered` 再删除 spool。重启、丢 ACK 或清理不删除防重记录。私有进程锁阻止两个执行 spool 写入者。

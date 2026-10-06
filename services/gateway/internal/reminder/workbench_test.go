@@ -35,6 +35,88 @@ func TestOnlineWorkbenchBatchBacklogRemainsEligible(t *testing.T) {
 	}
 }
 
+func TestProductionWorkbenchBackpressureKeepsObservingAvailability(t *testing.T) {
+	for _, offlineGap := range []bool{false, true} {
+		t.Run(fmt.Sprint("offline_gap=", offlineGap), func(t *testing.T) {
+			st := store.NewMemoryStore()
+			base := time.Now().UTC().Truncate(time.Microsecond)
+			due := base.Add(time.Microsecond)
+			const total = 2*tickBatchLimit + 5
+			for i := 0; i < total; i++ {
+				saveWorkbenchSchedule(t, st, fmt.Sprintf("backpressure-%03d", i), due, "")
+			}
+			var elapsed, published atomic.Int64
+			release := make(chan struct{})
+			var releaseOnce sync.Once
+			unblock := func() { releaseOnce.Do(func() { close(release) }) }
+			publisher := publisherFunc(func(ctx context.Context, _ app.MessageEnvelope) error {
+				select {
+				case <-release:
+					published.Add(1)
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			})
+			s := NewMessageScheduler(st, messagecontrol.NewScheduleRegistry(st), publisher, 0)
+			s.interval = 5 * time.Millisecond
+			s.now = func() time.Time { return base.Add(time.Duration(elapsed.Load())) }
+			ctx, cancel := context.WithCancel(t.Context())
+			done := make(chan struct{})
+			go func() { s.Run(ctx); close(done) }()
+			t.Cleanup(func() { unblock(); cancel(); <-done })
+			waitFor := func(label string, condition func() bool) {
+				t.Helper()
+				deadline := time.Now().Add(2 * time.Second)
+				for !condition() {
+					if time.Now().After(deadline) {
+						t.Fatalf("timed out waiting for %s", label)
+					}
+					time.Sleep(time.Millisecond)
+				}
+			}
+			observed := func(want time.Time) bool {
+				s.pollMu.Lock()
+				defer s.pollMu.Unlock()
+				return s.lastPoll.Equal(want)
+			}
+			waitFor("initial online pulse", func() bool { return observed(base) })
+			elapsed.Store(int64(time.Microsecond))
+			waitFor("two claimed batches with occupied workers and a full queue", func() bool {
+				schedule := mustSchedulerReminder(t, st, fmt.Sprintf("backpressure-%03d", 2*tickBatchLimit-1))
+				return schedule.Status == "submitted"
+			})
+			if offlineGap {
+				elapsed.Store(int64(time.Second))
+				waitFor("offline gap while backpressured", func() bool { return observed(base.Add(time.Second)) })
+			} else {
+				// Each real pulse is within the online threshold, but together they
+				// exceed it. A poll loop blocked on queue writes misses these pulses.
+				for step := 1; step <= 3; step++ {
+					offset := time.Microsecond + time.Duration(step)*s.interval
+					elapsed.Store(int64(offset))
+					waitFor("online pulse while backpressured", func() bool { return observed(base.Add(offset)) })
+				}
+			}
+			unblock()
+			want := int64(total)
+			if offlineGap {
+				want = 2 * tickBatchLimit
+			}
+			waitFor("claimed work to finish", func() bool { return published.Load() == want })
+			waitFor("remaining due occurrences to be accounted for", func() bool {
+				return mustSchedulerReminder(t, st, fmt.Sprintf("backpressure-%03d", total-1)).Status != "pending"
+			})
+			for i := 2 * tickBatchLimit; i < total; i++ {
+				status := mustSchedulerReminder(t, st, fmt.Sprintf("backpressure-%03d", i)).Status
+				if offlineGap && status != "missed" || !offlineGap && status != "submitted" && status != "sent" {
+					t.Fatalf("backlogged occurrence status=%s offline_gap=%t", status, offlineGap)
+				}
+			}
+		})
+	}
+}
+
 func saveWorkbenchSchedule(t *testing.T, st testScheduleRepository, id string, due time.Time, recurrence string) app.MessageSchedule {
 	t.Helper()
 	session, err := st.CreateSessionWithScope(t.Context(), "Host schedule", app.DefaultOwnerID, "", "schedule", true)

@@ -80,7 +80,12 @@ func (s *Scheduler) Run(ctx context.Context) {
 			}
 		}()
 	}
+	var pending []app.MessageSchedule
 	poll := func() bool {
+		if len(pending) != 0 {
+			s.observePoll()
+			return true
+		}
 		schedules, err := s.claimDue(ctx)
 		if err != nil {
 			slog.Warn("scheduled message claim unavailable", "code", store.StoreErrorCodeOf(err))
@@ -88,13 +93,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 				return false
 			}
 		}
-		for _, schedule := range schedules {
-			select {
-			case jobs <- schedule:
-			case <-ctx.Done():
-				return false
-			}
-		}
+		pending = schedules
 		return true
 	}
 	poll()
@@ -105,9 +104,16 @@ func (s *Scheduler) Run(ctx context.Context) {
 		workers.Wait()
 	}()
 	for {
+		var ready chan<- app.MessageSchedule
+		var next app.MessageSchedule
+		if len(pending) != 0 {
+			ready, next = jobs, pending[0]
+		}
 		select {
 		case <-ctx.Done():
 			return
+		case ready <- next:
+			pending = pending[1:]
 		case <-ticker.C:
 			if !poll() {
 				return

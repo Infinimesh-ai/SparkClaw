@@ -16,16 +16,7 @@ import (
 func (s *Scheduler) claimDue(ctx context.Context) ([]app.MessageSchedule, error) {
 	s.pollMu.Lock()
 	defer s.pollMu.Unlock()
-	pulse := s.now()
-	now := pulse.UTC()
-	// Keep one availability horizon across healthy ticks. Bounded scans and
-	// worker queues can delay online occurrences without making them offline.
-	wallElapsed := now.Sub(s.lastPoll.UTC())
-	clockGap := wallElapsed - pulse.Sub(s.lastPoll)
-	if s.lastPoll.IsZero() || s.unavailable || now.Before(s.lastPoll) || wallElapsed > 2*s.interval || clockGap > 250*time.Millisecond || s.publisher == nil {
-		s.eligibleAfter = now
-	}
-	s.lastPoll = pulse
+	now := s.observePollLocked()
 	s.unavailable = true
 	workbench, err := s.claimWorkbenchDue(ctx, now)
 	if err != nil {
@@ -37,6 +28,28 @@ func (s *Scheduler) claimDue(ctx context.Context) ([]app.MessageSchedule, error)
 	}
 	s.unavailable = false
 	return append(workbench, service...), nil
+}
+
+// Backpressure is still online time. Observe timer pulses while a bounded batch
+// waits for workers, so queue congestion cannot masquerade as process suspension.
+func (s *Scheduler) observePoll() {
+	s.pollMu.Lock()
+	defer s.pollMu.Unlock()
+	s.observePollLocked()
+}
+
+func (s *Scheduler) observePollLocked() time.Time {
+	pulse := s.now()
+	now := pulse.UTC()
+	// Keep one availability horizon across healthy ticks. Bounded scans and
+	// worker queues can delay online occurrences without making them offline.
+	wallElapsed := now.Sub(s.lastPoll.UTC())
+	clockGap := wallElapsed - pulse.Sub(s.lastPoll)
+	if s.lastPoll.IsZero() || s.unavailable || now.Before(s.lastPoll) || wallElapsed > 2*s.interval || clockGap > 250*time.Millisecond || s.publisher == nil {
+		s.eligibleAfter = now
+	}
+	s.lastPoll = pulse
+	return now
 }
 
 func (s *Scheduler) claimWorkbenchDue(ctx context.Context, now time.Time) ([]app.MessageSchedule, error) {

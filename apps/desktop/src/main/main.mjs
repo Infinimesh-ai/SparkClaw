@@ -112,13 +112,13 @@ async function start() {
   secureSession(browserSession);
   protocol.handle("sparkclaw-internal", internalProtocolHandler);
   browserSession.protocol.handle("sparkclaw-internal", internalProtocolHandler);
-  const legacyPaths = await localBackendPaths().catch(() => undefined);
+  const qualificationPaths = qualification ? await localBackendPaths().catch(() => undefined) : undefined;
   if (!qualification) localStore = new ClientStore(path.join(app.getPath("userData"), "client-r3"));
   desktopAuth = new DesktopAuth({
     installationID: localStore?.installationID,
     vault: new SecureCredentialStore({ directory: path.join(app.getPath("userData"), "authentication"), safeStorage }),
     descriptorPath: path.join(app.getPath("userData"), "backend.json"),
-    legacyPaths,
+    qualificationPaths,
     qualification,
     requireLAN: process.platform === "darwin" && !qualification,
     fetcher: electronNet.fetch,

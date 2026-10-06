@@ -35,7 +35,7 @@ test("packaged desktop finds provisioned backend without a launcher or environme
   await assert.rejects(resolveDesktopConnectionPaths({ env, home: root, packaged: true }), /owner-only/);
 });
 
-test("packaged desktop reads an existing legacy path configuration directly", async (t) => {
+test("qualification path discovery does not read an old launcher configuration", async (t) => {
   const root = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "sparkclaw-desktop-legacy-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const configHome = path.join(root, "config");
@@ -46,8 +46,10 @@ test("packaged desktop reads an existing legacy path configuration directly", as
   await fs.writeFile(path.join(configDir, "desktop-launcher.conf"),
     `executable=/old/app\ndescriptor=${descriptorPath}\ncredential=${credentialPath}\n`, { mode: 0o600 });
   const env = { XDG_CONFIG_HOME: configHome };
-  assert.deepEqual(await resolveDesktopConnectionPaths({ env, home: root, packaged: true }),
-    { descriptorPath, credentialPath });
+  await assert.rejects(resolveDesktopConnectionPaths({ env, home: root, packaged: true }), /paths are not configured/);
+  await fs.chmod(path.join(configDir, "desktop-launcher.conf"), 0o000);
+  await assert.rejects(resolveDesktopConnectionPaths({ env, home: root, packaged: true }), /paths are not configured/,
+    "even an unreadable old launcher is ignored");
   await fs.writeFile(path.join(configDir, "desktop-connection.json"), "{}", { mode: 0o600 });
   await assert.rejects(resolveDesktopConnectionPaths({ env, home: root, packaged: true }), /configuration is invalid/);
 });

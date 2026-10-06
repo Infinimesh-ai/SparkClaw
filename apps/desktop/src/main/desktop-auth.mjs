@@ -6,8 +6,8 @@ import { isTLSIdentityError, pinnedHTTPSFetch } from "./pinned-https.mjs";
 import { createConnectionCredential, parseConnectionCredential } from "./connection-credential.mjs";
 
 export class DesktopAuth {
-  constructor({ vault, descriptorPath, legacyPaths, installationID, qualification = false, requireLAN = false, fetcher, onChange = () => {}, onLock = () => {} }) {
-    Object.assign(this, { vault, descriptorPath, legacyPaths, installationID, qualification, requireLAN, fetcher, onChange, onLock });
+  constructor({ vault, descriptorPath, qualificationPaths, installationID, qualification = false, requireLAN = false, fetcher, onChange = () => {}, onLock = () => {} }) {
+    Object.assign(this, { vault, descriptorPath, qualificationPaths, installationID, qualification, requireLAN, fetcher, onChange, onLock });
     this.requests = new Set();
     this.generation = 0;
     this.vaultOperations = Promise.resolve();
@@ -15,16 +15,15 @@ export class DesktopAuth {
   }
 
   async initialize() {
-    try { this.descriptor = await loadLocalBackendDescriptor({ descriptorPath: this.descriptorPath }); }
-    catch {
-      try { this.descriptor = await loadLocalBackendDescriptor(this.legacyPaths); } catch { return this.#set("incomplete_setup"); }
-    }
+    const qualificationPaths = this.qualification === true ? this.qualificationPaths : undefined;
+    try { this.descriptor = await loadLocalBackendDescriptor(qualificationPaths || { descriptorPath: this.descriptorPath }); }
+    catch { return this.#set("incomplete_setup"); }
     if (this.requireLAN && this.descriptor.schemaVersion !== 2) {
       this.descriptor = undefined;
       return this.#set("incomplete_setup");
     }
-    if (this.qualification && this.legacyPaths) {
-      try { this.connection = await loadLocalBackendConnection(this.legacyPaths); return this.retry(); } catch { /* new-install gate */ }
+    if (qualificationPaths) {
+      try { this.connection = await loadLocalBackendConnection(qualificationPaths); return this.retry(); } catch { /* new-install gate */ }
     }
     if (!this.vault.available()) return this.#set("secure_storage_unavailable");
     try {

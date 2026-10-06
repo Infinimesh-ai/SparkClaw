@@ -30,31 +30,8 @@ export async function resolveDesktopConnectionPaths({ env = process.env, home, p
     return validatePaths({ descriptorPath: config.descriptor_path, credentialPath: config.credential_path });
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
+    throw new Error("Desktop local-backend paths are not configured");
   }
-
-  // Existing installations may have only the path-only launcher configuration.
-  // Read it inside Electron so the package's own desktop entry can launch directly.
-  const legacyPath = path.join(path.dirname(configPath), "desktop-launcher.conf");
-  let legacy;
-  try {
-    legacy = await readPrivateConfig(legacyPath);
-  } catch (error) {
-    if (error?.code === "ENOENT") throw new Error("Desktop local-backend paths are not configured");
-    throw error;
-  }
-  const values = new Map();
-  for (const line of legacy.split(/\r?\n/u)) {
-    if (!line || line.startsWith("#")) continue;
-    const delimiter = line.indexOf("=");
-    if (delimiter <= 0) throw new Error("Desktop launcher configuration is invalid");
-    const key = line.slice(0, delimiter);
-    if (!new Set(["executable", "descriptor", "credential"]).has(key) || values.has(key)) {
-      throw new Error("Desktop launcher configuration is invalid");
-    }
-    values.set(key, line.slice(delimiter + 1));
-  }
-  if (values.size !== 3) throw new Error("Desktop launcher configuration is incomplete");
-  return validatePaths({ descriptorPath: values.get("descriptor"), credentialPath: values.get("credential") });
 }
 
 export function pathsInRuntime(runtimeDirectory) {

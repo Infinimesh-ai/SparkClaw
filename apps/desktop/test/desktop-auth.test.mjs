@@ -114,14 +114,43 @@ test("401 and explicit logout clear the secret, abort protected channels, and ca
   assert.equal(await vault.load(), undefined);
 });
 
-test("provisioned legacy desktop token is never read in production but qualified loopback fixture still works", async (t) => {
+test("normal startup never reads injected fixture paths, including when its descriptor is missing or invalid", async (t) => {
+  const { options, directory } = await fixture(t);
+  let reads = 0;
+  const qualificationPaths = {
+    get descriptorPath() { reads++; throw new Error("fixture descriptor must not be read"); },
+    get credentialPath() { reads++; throw new Error("fixture credential must not be read"); },
+  };
+  assert.equal((await new DesktopAuth({ ...options, qualificationPaths }).initialize()).state, "locked");
+  await fs.unlink(options.descriptorPath);
+  assert.equal((await new DesktopAuth({ ...options, qualificationPaths }).initialize()).state, "incomplete_setup");
+  await fs.writeFile(options.descriptorPath, "invalid", { mode: 0o600 });
+  assert.equal((await new DesktopAuth({ ...options, qualificationPaths }).initialize()).state, "incomplete_setup");
+  assert.equal(reads, 0);
+
+  const oldDescriptor = path.join(directory, "local-workbench.json");
+  await fs.writeFile(oldDescriptor, JSON.stringify(descriptor), { mode: 0o600 });
+  const oldOption = { descriptorPath: oldDescriptor, credentialPath: path.join(directory, "desktop-client.json") };
+  assert.equal((await new DesktopAuth({ ...options, legacyPaths: oldOption }).initialize()).state, "incomplete_setup",
+    "the removed legacy option cannot recover an invalid selected descriptor");
+});
+
+test("qualification explicitly selects its injected loopback fixture and token", async (t) => {
   const { options, directory } = await fixture(t);
   const credentialPath = path.join(directory, "desktop-client.json");
   await fs.writeFile(credentialPath, JSON.stringify({ schema_version: 1, deployment_id: identity.deployment_id,
     owner_id: identity.owner_id, client_id: identity.client_id, client_name: "fixture", token }), { mode: 0o600 });
-  const legacyPaths = { descriptorPath: options.descriptorPath, credentialPath };
-  assert.equal((await new DesktopAuth({ ...options, legacyPaths }).initialize()).state, "locked");
-  assert.equal((await new DesktopAuth({ ...options, legacyPaths, qualification: true }).initialize()).state, "connected");
+  const qualificationPaths = { descriptorPath: options.descriptorPath, credentialPath };
+  const auth = new DesktopAuth({ ...options, descriptorPath: path.join(directory, "missing.json"), qualificationPaths, qualification: true,
+    vault: { available() { throw new Error("fixture must not use the vault"); } } });
+  assert.equal((await auth.initialize()).state, "connected");
+  assert.equal(auth.connection.authorization, `Bearer ${token}`);
+
+  await fs.writeFile(qualificationPaths.descriptorPath, "invalid", { mode: 0o600 });
+  const chosenDescriptorPath = path.join(directory, "chosen.json");
+  await fs.writeFile(chosenDescriptorPath, JSON.stringify(descriptor), { mode: 0o600 });
+  assert.equal((await new DesktopAuth({ ...options, descriptorPath: chosenDescriptorPath, qualificationPaths, qualification: true }).initialize()).state,
+    "incomplete_setup", "an invalid qualification fixture does not fall back to another descriptor");
 });
 
 test("descriptor grammar never loosens legacy loopback or accepts embedded secrets", () => {
@@ -152,11 +181,11 @@ test("LAN-required startup and configuration reject v1 before credential use whi
   assert.equal(await fs.readFile(options.descriptorPath, "utf8"), configured, "rejected v1 cannot replace the LAN description");
   assert.equal((await new DesktopAuth({ ...options, requireLAN: true }).initialize()).state, "locked");
 
-  const legacyDescriptorPath = path.join(directory, "legacy-workbench.json");
-  await fs.writeFile(legacyDescriptorPath, JSON.stringify(descriptor), { mode: 0o600 });
-  const fallback = new DesktopAuth({ ...options, requireLAN: true, descriptorPath: path.join(directory, "missing.json"),
-    legacyPaths: { descriptorPath: legacyDescriptorPath, credentialPath: path.join(directory, "desktop-client.json") } });
-  assert.equal((await fallback.initialize()).state, "incomplete_setup", "path discovery cannot bypass the LAN requirement");
+  const fixtureDescriptorPath = path.join(directory, "fixture-workbench.json");
+  await fs.writeFile(fixtureDescriptorPath, JSON.stringify(descriptor), { mode: 0o600 });
+  const qualified = new DesktopAuth({ ...options, requireLAN: true, qualification: true, descriptorPath: path.join(directory, "missing.json"),
+    qualificationPaths: { descriptorPath: fixtureDescriptorPath, credentialPath: path.join(directory, "desktop-client.json") } });
+  assert.equal((await qualified.initialize()).state, "incomplete_setup", "qualification cannot bypass the LAN requirement");
 
   const linux = new DesktopAuth({ ...options, requireLAN: false });
   assert.equal((await linux.configure(descriptor)).state, "locked");

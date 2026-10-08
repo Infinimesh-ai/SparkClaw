@@ -57,6 +57,22 @@ describe("desktop secure login gate", () => {
     } finally { await act(async () => root.unmount()); }
   });
 
+  it("explains ISCP installation conflicts without reporting an HTTPS certificate error", async () => {
+    window.localStorage.setItem("sparkclaw.language", "en");
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: async () => ({ schema_version: 1, state: "identity_conflict", test_mode: true,
+        backend: { schema_version: 3, transport: "iscp", origin: "https://iscp.invalid", deployment_id: "deployment" } }),
+      enroll: vi.fn(), onLocalConnection: () => () => {},
+    } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"), root = createRoot(host);
+    try {
+      await act(async () => root.render(<DesktopLoginGate><div data-protected="true">Local</div></DesktopLoginGate>));
+      expect(host.querySelector(".desktopLoginStatus")?.textContent).toContain("Client installation binding");
+      expect(host.querySelector(".desktopLoginStatus")?.textContent).not.toContain("certificate");
+      expect(host.querySelector("[data-protected]")).toBeNull();
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it("keeps saved device's local workbench available during an outage and hides it after logout", async () => {
     let listener: (status: DesktopConnectionStatus) => void = () => {};
     window.sparkclawDesktop = {

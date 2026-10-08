@@ -25,7 +25,7 @@ import { PageRegistry } from "../browser/page-registry.mjs";
 import { BrowserHostAgent } from "../browser/host-agent.mjs";
 import { adapterSecretPath, adapterSocketPath } from "../browser/protocol.mjs";
 import { BrowserPresentation } from "./presentation.mjs";
-import { DesktopCapability } from "./desktop-capability.mjs";
+import { DesktopCapability, isDesktopSessionAuthorized } from "./desktop-capability.mjs";
 import { DesktopAuth, authorizeWorkbenchSender } from "./desktop-auth.mjs";
 import { SecureCredentialStore } from "./secure-credential-store.mjs";
 import { OwnerBrowserServices } from "./owner-browser-services.mjs";
@@ -42,12 +42,14 @@ import { exportLocalFile } from "./export-local-file.mjs";
 import { configureWorkbenchPermissions } from "./workbench-permissions.mjs";
 import { proxyAPIAllowed } from "./workbench-proxy-policy.mjs";
 import { bindWorkbenchActivation } from "./workbench-activation.mjs";
+import { resolveISCPLaunchProfile } from "./iscp-launch-profile.mjs";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DESKTOP_ICON_PATH = path.join(MODULE_DIR, "..", "assets", "icon.png");
 const workbenchQualification = process.argv.includes("--qualification-workbench");
 const qualification = process.argv.includes("--qualification") || workbenchQualification;
-const configuredUserData = process.env.SPARKCLAW_DESKTOP_USER_DATA_DIR?.trim();
+const defaultUserData = app.getPath("userData");
+const { configuredUserData, iscpProfilePath, allowLocalISCPTest } = resolveISCPLaunchProfile({ defaultUserData, qualification });
 if (configuredUserData) {
   if (!path.isAbsolute(configuredUserData)) throw new Error("Desktop user-data path must be absolute");
   app.setPath("userData", configuredUserData);
@@ -122,13 +124,16 @@ async function start() {
     qualification,
     requireLAN: process.platform === "darwin" && !qualification,
     fetcher: electronNet.fetch,
+    iscpProfilePath, allowLocalISCPTest, packaged: app.isPackaged, resourcesPath: process.resourcesPath,
     onChange: (status) => {
       if (quitting) return;
       if (status.state === "connected" && !suspended) {
         executionClient?.start();
         scheduleClient?.start();
-        mailClient?.start();
-        void prepareBrowserHostScope().catch(() => {});
+        if (status.backend?.transport !== "iscp") {
+          mailClient?.start();
+          void prepareBrowserHostScope().catch(() => {});
+        }
       } else {
         executionClient?.close();
         scheduleClient?.close();
@@ -203,6 +208,7 @@ async function start() {
     };
     executionClient = new ExecutionClient({ auth: desktopAuth, store: localStore, getIdentity: localIdentity, onChange: localChanged }).start();
     scheduleClient = new ScheduleClient({ auth: desktopAuth, store: localStore, execution: executionClient, getIdentity: localIdentity, onChange: localChanged }).start();
+    if (desktopAuth.descriptor?.transport !== "iscp") {
     mailStore = new MailSyncStore(path.join(app.getPath("userData"), "workbench", "mail"));
     // DesktopAuth binds this installation before publishing connected state.
     mailClient = new MailSyncClient({
@@ -214,9 +220,11 @@ async function start() {
     if (desktopAuth.status.state === "connected") mailClient.start();
     else mailClient.close();
     mailCapability = new MailSyncCapability({ ipcMain, window, client: mailClient }).start();
+    }
     localStoreCapability = new ClientStoreCapability({
       ipcMain, window, store: localStore, execution: executionClient, schedules: scheduleClient,
       getIdentity: localIdentity,
+      getCapabilities: () => desktopAuth.status.capabilities,
       exportFile: (file) => exportLocalFile(file, { dialog, window }),
     }).start();
   }
@@ -237,6 +245,7 @@ async function start() {
   });
   powerMonitor.on("suspend", () => {
     suspended = true;
+    desktopAuth.suspend();
     executionClient?.close();
     scheduleClient?.close();
     mailClient?.close();
@@ -273,7 +282,7 @@ async function start() {
     qualification,
   });
   scriptHost.setRegistry(registry);
-  if (!qualification) {
+  if (!qualification && desktopAuth.descriptor?.transport !== "iscp") {
     browserHost = new BrowserHostAgent({
       auth: desktopAuth, registry, userDataDir: app.getPath("userData"),
       onChange: () => desktopCapability?.changed(),
@@ -309,7 +318,8 @@ async function start() {
       },
     } : null,
     runtimeGeneration,
-    authorizeSession: () => qualification || desktopAuth.status.state === "connected",
+    authorizeSession: () => qualification || isDesktopSessionAuthorized(desktopAuth),
+    getCapabilities: () => desktopAuth?.status.capabilities,
   }).start();
   // The UDS adapter is a frozen Linux qualification transport. Production
   // browser execution uses the explicitly granted outbound Host transport. macOS
@@ -349,7 +359,7 @@ async function start() {
 
   bindWorkbenchActivation(app, () => window);
   app.on("window-all-closed", () => {});
-  app.on("before-quit", () => { quitting = true; });
+  app.on("before-quit", () => { quitting = true; desktopAuth.close(); executionClient?.close(); scheduleClient?.close(); mailClient?.close(); });
   process.on("SIGINT", () => void shutdown());
   process.on("SIGTERM", () => void shutdown());
 }
@@ -422,6 +432,7 @@ async function waitForWorkbench() {
 }
 
 async function shutdown() {
+  desktopAuth?.close();
   if (quitting) return;
   quitting = true;
   executionClient?.close();
@@ -648,7 +659,7 @@ function shieldDocument() {
 
 function localIdentity() {
   const connection = desktopAuth?.connection;
-  if (!connection || !["connected", "reconnecting", "service_unavailable"].includes(desktopAuth.status.state)) return null;
+  if (!connection || (connection.transport === "iscp" && !connection.identityVerified) || !["connected", "reconnecting", "service_unavailable"].includes(desktopAuth.status.state)) return null;
   return { deployment_id: connection.deploymentID, owner_id: connection.ownerID, client_id: connection.clientID };
 }
 

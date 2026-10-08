@@ -26,8 +26,10 @@ export class SecureCredentialStore {
       if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o777) !== 0o600 ||
           (this.uid !== undefined && info.uid !== this.uid) || info.size > 65536) throw new Error("Credential vault is invalid");
       const record = JSON.parse(this.safeStorage.decryptString(await fs.readFile(this.filename)));
-      if (record?.schema_version !== 1 || typeof record.authorization !== "string" ||
-          !record.authorization.startsWith("Bearer ") || typeof record.binding !== "string" ||
+      const validCredential = record?.transport === "iscp" ? record.schema_version === 2 && record.authorization === undefined &&
+        path.isAbsolute(record.configPath || "") && record.testMode === true : record?.schema_version === 1 &&
+        typeof record.authorization === "string" && record.authorization.startsWith("Bearer ");
+      if (!validCredential || typeof record.binding !== "string" ||
           ![record.clientID, record.ownerID, record.deploymentID].every((value) => typeof value === "string" && value.length > 0 && value.length <= 160)) {
         throw new Error("Credential vault is invalid");
       }
@@ -42,7 +44,7 @@ export class SecureCredentialStore {
   async save(record) {
     if (!this.available()) throw new Error("Secure credential storage is unavailable");
     await this.#directory();
-    const encrypted = this.safeStorage.encryptString(JSON.stringify({ ...record, schema_version: 1 }));
+    const encrypted = this.safeStorage.encryptString(JSON.stringify({ ...record, schema_version: record.transport === "iscp" ? 2 : 1 }));
     const temporary = path.join(this.directory, `credential-${crypto.randomUUID()}.tmp`);
     try {
       const file = await fs.open(temporary, "wx", 0o600);

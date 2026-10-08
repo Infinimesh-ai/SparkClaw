@@ -39,6 +39,8 @@ export type ComposerSurfaceProps = {
   choosingDocument?: boolean;
   canCompose?: boolean;
   canSend?: boolean;
+  filesEnabled?: boolean;
+  mailEnabled?: boolean;
   onInputChange: (value: string) => void;
   onUploadDocument: (file: File) => void | Promise<unknown>;
   onChooseDocument: () => void | Promise<void>;
@@ -64,6 +66,8 @@ export function ComposerSurface({
   choosingDocument = false,
   canCompose = Boolean(activeSession),
   canSend = canCompose,
+  filesEnabled = true,
+  mailEnabled = true,
   onInputChange,
   onUploadDocument,
   onChooseDocument,
@@ -118,11 +122,11 @@ export function ComposerSurface({
           const file = event.target.files?.[0];
           if (file) void Promise.resolve(onUploadDocument(file)).finally(() => { if (uploadInputRef.current) uploadInputRef.current.value = ""; });
         }} />
-      <button className="uploadButton" type="button" disabled={busy || uploadingDocument || !canCompose}
+      <button className="uploadButton" type="button" disabled={busy || uploadingDocument || !canCompose || !filesEnabled}
         title={uploadingDocument ? text.chat.uploading : text.chat.upload} onClick={() => uploadInputRef.current?.click()}><Upload size={18} /></button>
-      <button className="uploadButton" type="button" disabled={busy || choosingDocument || !canCompose}
+      <button className="uploadButton" type="button" disabled={busy || choosingDocument || !canCompose || !filesEnabled}
         title={choosingDocument ? text.chat.choosingFile : text.chat.chooseFile} onClick={() => void onChooseDocument()}><FileSearch size={18} /></button>
-      <EmailPopupEntry text={text} language={language} />
+      {mailEnabled && <EmailPopupEntry text={text} language={language} />}
       <VoiceInputControl voice={voice} text={text} onToggle={() => voice.toggle(currentVoiceAnchor())} />
       <textarea ref={composerInputRef} value={activeInput} onChange={(event) => onInputChange(event.target.value)} onKeyDown={keyDown}
         onCompositionStart={() => setIsComposingInput(true)} onCompositionEnd={() => { setIsComposingInput(false); setCompositionEndedAt(Date.now()); }}
@@ -195,6 +199,8 @@ type ComposerDockProps = {
   busy: boolean;
   canCompose?: boolean;
   canSend?: boolean;
+  filesEnabled?: boolean;
+  mailEnabled?: boolean;
   voice: ReturnType<typeof useVoiceInput>;
   composerInputRef: MutableRefObject<HTMLTextAreaElement | null>;
   setDraftsBySession: Dispatch<SetStateAction<Record<string, string>>>;

@@ -10,6 +10,7 @@
   "desktopName": "sparkx",
   "main": "src/main/main.mjs",
   "scripts": {
+    "predev": "node ../../scripts/build-iscp-helper.mjs",
     "dev": "electron src/main/main.mjs",
     "test": "node --test test/*.test.mjs",
     "qualify": "node test/run-isolated-qualification.mjs",
@@ -42,9 +43,14 @@
     "files": [
       "src/**/*",
       "bin/**/*",
+      "!bin/iscp-workbench*",
       "package.json"
     ],
     "extraResources": [
+      {
+        "from": "bin/iscp-workbench",
+        "to": "iscp-workbench"
+      },
       {
         "from": "../webchat/dist",
         "to": "webchat",

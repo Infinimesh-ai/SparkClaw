@@ -29,6 +29,11 @@ func (r Runtime) WithExecutionScope(st ExecutionRepository, resources toolhub.Ex
 	r.traces = nil
 	r.exposure = newToolExposureEngine(st, tools, r.policy)
 	r.messageControl = nil
+	if resources.TextOnly {
+		// Email admission can probe the live browser before tool dispatch. The
+		// text profile cannot borrow that service even though tools are hidden.
+		r.emailAdmission = nil
+	}
 	return r, func(ctx context.Context) error {
 		var cleanupErr error
 		if r.integrationRuns != nil {

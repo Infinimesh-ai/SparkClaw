@@ -39,8 +39,8 @@ export type DesktopState = {
   }>;
   browser_host?: {
     state: string;
-    role: "client_embedded";
-    unknown_writes: Array<{ command_id: string; digest: string; local_conversation_id: string; local_task_id: string }>;
+    role?: "client_embedded";
+    unknown_writes?: Array<{ command_id: string; digest: string; local_conversation_id: string; local_task_id: string }>;
   };
   presentation: {
     panel_bounds: { x: number; y: number; width: number; height: number };
@@ -50,7 +50,16 @@ export type DesktopState = {
 };
 
 export type DesktopBackendDescriptor = {
-  schema_version: 1 | 2;
+  schema_version: 1 | 2 | 3;
+  transport?: "iscp";
+  client_id?: string;
+  domain_id?: string;
+  initiator_device_id?: string;
+  responder_device_id?: string;
+  responder_key_thumbprint?: string;
+  relay_url?: string;
+  relay_profile?: "production" | "local-lab";
+  test_mode?: true;
   origin: string;
   deployment_id: string;
   owner_id?: string;
@@ -62,6 +71,9 @@ export type DesktopConnectionStatus = {
   schema_version: 1;
   state: "connected" | "reconnecting" | "incomplete_setup" | "service_unavailable" | "invalid_authentication" | "identity_conflict" | "locked" | "secure_storage_unavailable";
   backend?: DesktopBackendDescriptor;
+  test_mode?: true;
+  transport_stage?: string;
+  capabilities?: { operations: readonly string[]; files: boolean; mail: boolean; browser: boolean; speech: boolean; approvals: boolean; settings: boolean };
   client_id?: string;
   owner_id?: string;
 };

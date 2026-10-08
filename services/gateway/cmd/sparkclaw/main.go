@@ -105,6 +105,15 @@ func main() {
 		slog.Error("failed to start gateway services", "error", err)
 		os.Exit(1)
 	}
+	workbenchISCP, err := startWorkbenchISCP(serverCtx, cfg, server)
+	if err != nil {
+		cancelServerCtx()
+		slog.Error("failed to start ISCP workbench responder", "error", err)
+		os.Exit(1)
+	}
+	if workbenchISCP != nil {
+		defer workbenchISCP.Close()
+	}
 	storeRuntime.StartRecovery(serverCtx)
 	if failed, err := runtime.FailInterruptedRuns(serverCtx); err != nil {
 		slog.Warn("could not fail runs interrupted by the previous process", "error", err)
@@ -139,6 +148,9 @@ func main() {
 	defer stop()
 	<-ctx.Done()
 	cancelServerCtx()
+	if workbenchISCP != nil {
+		_ = workbenchISCP.Close()
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

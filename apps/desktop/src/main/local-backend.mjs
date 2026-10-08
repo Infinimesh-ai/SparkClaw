@@ -48,6 +48,28 @@ export async function loadLocalBackendDescriptor({ descriptorPath, uid = process
 }
 
 export function parseBackendDescriptor(descriptor) {
+  if (descriptor?.schema_version === 3) {
+    const keys = ["schema_version", "transport", "origin", "deployment_id", "owner_id", "client_id", "domain_id", "initiator_device_id", "responder_device_id", "responder_key_thumbprint", "relay_url", "relay_profile", "test_mode"];
+    assertExactKeys(descriptor, new Set(keys), "ISCP workbench description", ["relay_profile"]);
+    if (descriptor.transport !== "iscp" || descriptor.test_mode !== true || descriptor.origin !== "https://iscp.invalid" ||
+        typeof descriptor.responder_key_thumbprint !== "string" || !/^[A-Za-z0-9_-]{20,128}$/u.test(descriptor.responder_key_thumbprint)) throw new Error("ISCP workbench description is invalid");
+    const relayURL = requiredString(descriptor.relay_url, "ISCP Relay address", 512);
+    const relay = new URL(relayURL);
+    const relayProfile = descriptor.relay_profile ?? "production";
+    if (!["production", "local-lab"].includes(relayProfile)) throw new Error("ISCP Relay profile is invalid");
+    if (relay.username || relay.password || relay.search || relay.hash) throw new Error("ISCP Relay address is invalid");
+    if (relayProfile === "local-lab") {
+      const loopback = relay.hostname === "localhost" || relay.hostname === "[::1]" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/u.test(relay.hostname);
+      if (!["http:", "ws:"].includes(relay.protocol) || !loopback || relayURL !== relay.origin) throw new Error("Local ISCP Relay must use a canonical HTTP/WS loopback origin");
+    } else if (!["https:", "wss:"].includes(relay.protocol)) throw new Error("Production ISCP Relay requires HTTPS/WSS");
+    return Object.freeze({ schemaVersion: 3, transport: "iscp", origin: descriptor.origin,
+      deploymentID: requiredString(descriptor.deployment_id, "deployment identity", 160),
+      ownerID: requiredString(descriptor.owner_id, "Owner identity", 160), clientID: requiredString(descriptor.client_id, "Client identity", 160),
+      domainID: requiredString(descriptor.domain_id, "ISCP domain identity", 160),
+      initiatorDeviceID: requiredString(descriptor.initiator_device_id, "ISCP initiator identity", 160),
+      responderDeviceID: requiredString(descriptor.responder_device_id, "ISCP responder identity", 160),
+      responderKeyThumbprint: descriptor.responder_key_thumbprint, relayURL, relayProfile, testMode: true });
+  }
 	if (descriptor?.schema_version === 2) {
 		assertExactKeys(descriptor, LAN_DESCRIPTOR_KEYS, "LAN workbench description", ["tls_ca_pem"]);
 		const origin = canonicalHTTPSOrigin(descriptor.origin);

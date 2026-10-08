@@ -13,6 +13,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserhost"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
 
@@ -33,7 +34,18 @@ func (s *Server) executeWorkbenchWorkflow(ctx context.Context, e execution.Envel
 	if err != nil {
 		return execution.Output{}, err
 	}
-	root, err := executionMemoryWorkspace(service.Root())
+	textOnly, _ := ctx.Value(textOnlyExecutionContextKey{}).(bool)
+	var root string
+	if textOnly {
+		if len(e.InputFiles) != 0 || len(inputs) != 0 {
+			return execution.Output{}, errors.New("text-only execution does not accept files")
+		}
+		// This workspace holds empty directories only. Tool exposure and explicit
+		// invocation are disabled below; message context stays in MemoryStore.
+		root, err = os.MkdirTemp("", "sparkclaw-text-execution-")
+	} else {
+		root, err = executionMemoryWorkspace(service.Root())
+	}
 	if err != nil {
 		return execution.Output{}, err
 	}
@@ -57,15 +69,18 @@ func (s *Server) executeWorkbenchWorkflow(ctx context.Context, e execution.Envel
 		}
 	}
 	local := store.NewMemoryStore().WithTransientContentAdmission(budget.Admit)
-	broker, err := s.browserHostBroker()
-	if err != nil {
-		return execution.Output{}, err
+	var browser browserautomation.Adapter
+	if !textOnly {
+		broker, err := s.browserHostBroker()
+		if err != nil {
+			return execution.Output{}, err
+		}
+		browser = broker.ForScope(browserhost.Scope{Identity: browserhost.Identity{OwnerID: e.OwnerID, ClientID: e.ClientID, InstallationID: e.InstallationID}, ConversationID: e.ConversationID, TaskID: e.TaskID})
 	}
-	browser := broker.ForScope(browserhost.Scope{Identity: browserhost.Identity{OwnerID: e.OwnerID, ClientID: e.ClientID, InstallationID: e.InstallationID}, ConversationID: e.ConversationID, TaskID: e.TaskID})
 	artifacts := execution.TemporaryArtifacts{Store: artifact.NewStore(storage), Budget: budget}
 	runtime, releaseRuntime, err := s.runtime.WithExecutionScope(local, toolhub.ExecutionResources{
 		OwnerID: e.OwnerID, WorkspaceRoot: workspace, Artifacts: artifacts, Browser: browser,
-		MaxDuration: execution.ExecutionBudget, MaxObservationBytes: 1 << 20,
+		MaxDuration: execution.ExecutionBudget, MaxObservationBytes: 1 << 20, TextOnly: textOnly,
 	})
 	if err != nil {
 		return execution.Output{}, err

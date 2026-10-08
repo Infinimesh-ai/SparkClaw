@@ -2,8 +2,8 @@ import crypto from "node:crypto";
 const CHANNEL = "sparkclaw-client-store:invoke";
 
 export class ClientStoreCapability {
-  constructor({ ipcMain, window, store, execution, schedules, getIdentity, exportFile }) {
-    Object.assign(this, { ipcMain, window, store, execution, schedules, getIdentity, exportFile });
+  constructor({ ipcMain, window, store, execution, schedules, getIdentity, exportFile, getCapabilities = () => undefined }) {
+    Object.assign(this, { ipcMain, window, store, execution, schedules, getIdentity, exportFile, getCapabilities });
   }
   start() {
     this.ipcMain.handle(CHANNEL, (event, request) => this.dispatch(event, request));
@@ -24,6 +24,9 @@ export class ClientStoreCapability {
     if (!request || typeof request !== "object" || Array.isArray(request) || request.schema_version !== 1) {
       throw new Error("Invalid ClientStore request");
     }
+    const capabilities = this.getCapabilities();
+    if (capabilities?.files === false && ["saveFile", "exportFile"].includes(request.operation)) throw new Error("Files are unavailable through this transport");
+    if (capabilities?.approvals === false && request.operation === "decideApproval") throw new Error("Approvals are unavailable through this transport");
     const scope = { deployment_id: identity.deployment_id, owner_id: identity.owner_id, client_id: identity.client_id };
     const draftScope = crypto.createHash("sha256").update(JSON.stringify(scope)).digest("hex");
     const draftResult = (value) => ({ ...value, scope_key: draftScope });

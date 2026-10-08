@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "relay_profile": "local-lab",
+  "deployment_id": "sparkclaw-iscp-local-test",
+  "owner_id": "owner",
+  "client_id": "sparkx-iscp-local-test"
+}

@@ -90,6 +90,10 @@ type GatewayConfig struct {
 	DeploymentID        string `json:"-"`
 	DesktopClientFile   string `json:"-"`
 	LocalManagementFile string `json:"-"`
+	// Workbench ISCP is an explicitly selected, isolated test transport. Its
+	// configuration contains credential references and is never projected.
+	WorkbenchISCPConfig    string `json:"-"`
+	WorkbenchISCPLocalTest bool   `json:"-"`
 	// WebChatProxyToken authenticates the private WebChat reverse proxy only
 	// for the local pairing bootstrap. It is never a client or owner token.
 	WebChatProxyToken string `json:"-"`

@@ -69,20 +69,25 @@ type PeerAuthorization struct {
 // externally-issued dual-grant contract.
 const BundleModeManaged = "managed"
 
+// BundleModeWorkbenchLocalLab represents real credentials issued by the
+// isolated reference Relay. Its public signer is separate from session grants.
+const BundleModeWorkbenchLocalLab = "workbench-local-lab"
+
 type EnrollmentBundle struct {
-	Type              string                  `json:"type"`
-	Mode              string                  `json:"mode,omitempty"`
-	DomainID          string                  `json:"domain_id"`
-	DeviceID          string                  `json:"device_id"`
-	RelayID           string                  `json:"relay_id"`
-	RelayBaseURL      string                  `json:"relay_base_url"`
-	RelayWebSocketURL string                  `json:"relay_websocket_url"`
-	TrustRootIdentity identity.DeviceIdentity `json:"trust_root_identity"`
-	Access            RelayCredential         `json:"access"`
-	Refresh           RelayCredential         `json:"refresh"`
-	Peers             []PeerAuthorization     `json:"peers"`
-	IssuedAt          time.Time               `json:"issued_at"`
-	ExpiresAt         time.Time               `json:"expires_at"`
+	Type                string                   `json:"type"`
+	Mode                string                   `json:"mode,omitempty"`
+	DomainID            string                   `json:"domain_id"`
+	DeviceID            string                   `json:"device_id"`
+	RelayID             string                   `json:"relay_id"`
+	RelayBaseURL        string                   `json:"relay_base_url"`
+	RelayWebSocketURL   string                   `json:"relay_websocket_url"`
+	TrustRootIdentity   identity.DeviceIdentity  `json:"trust_root_identity"`
+	RelaySignerIdentity *identity.DeviceIdentity `json:"relay_signer_identity,omitempty"`
+	Access              RelayCredential          `json:"access"`
+	Refresh             RelayCredential          `json:"refresh"`
+	Peers               []PeerAuthorization      `json:"peers"`
+	IssuedAt            time.Time                `json:"issued_at"`
+	ExpiresAt           time.Time                `json:"expires_at"`
 }
 
 type DeviceFiles struct {
@@ -353,6 +358,34 @@ func (b EnrollmentBundle) Validate(now time.Time) error {
 		if peer.OutboundGrant.SubjectDeviceID != b.DeviceID || peer.OutboundGrant.Audience != peer.Identity.DeviceID {
 			return errors.New("peer outbound grant binding is invalid")
 		}
+	}
+	return nil
+}
+
+// ValidateCredentials checks cloud enrollment independently of the legacy
+// Bridge's grant direction. An enrolled device can use a separate application
+// issuer while retaining its cloud Trust Root and rotated access credentials.
+func (b EnrollmentBundle) ValidateCredentials(now time.Time) error {
+	if b.Type != EnrollmentBundleType || strings.TrimSpace(b.DomainID) == "" || strings.TrimSpace(b.DeviceID) == "" || strings.TrimSpace(b.RelayID) == "" {
+		return errors.New("enrollment identity and Relay fields are required")
+	}
+	for _, credential := range []RelayCredential{b.Access, b.Refresh} {
+		if credential.DomainID != b.DomainID || credential.DeviceID != b.DeviceID || strings.TrimSpace(credential.Token) == "" || credential.ExpiresAt.IsZero() {
+			return errors.New("Relay credential is not bound to the enrolled device")
+		}
+	}
+	if !now.Before(b.Refresh.ExpiresAt) {
+		return errors.New("enrollment Relay refresh credential expired")
+	}
+	if b.Mode == BundleModeWorkbenchLocalLab {
+		if b.RelaySignerIdentity == nil || b.RelaySignerIdentity.DomainID != b.DomainID || b.RelaySignerIdentity.DeviceID == "" {
+			return errors.New("local Relay signer pin is required")
+		}
+	} else if b.TrustRootIdentity.DeviceID == "" || b.TrustRootIdentity.DomainID == "" {
+		return errors.New("cloud Trust Root identity is required")
+	}
+	if b.IssuedAt.IsZero() || b.ExpiresAt.IsZero() || !b.IssuedAt.Before(b.ExpiresAt) || !now.Before(b.ExpiresAt) {
+		return errors.New("cloud enrollment is incomplete or expired")
 	}
 	return nil
 }

@@ -78,6 +78,9 @@ func Load(path string) (Config, error) {
 			return Config{}, errors.New("SPARKCLAW_LOCAL_MANAGEMENT_FILE requires SPARKCLAW_DEPLOYMENT_ID")
 		}
 	}
+	if err := normalizeWorkbenchISCPConfig(&cfg.Gateway); err != nil {
+		return Config{}, err
+	}
 	if token := cfg.Gateway.WebChatProxyToken; token != "" && !webChatProxyTokenPattern.MatchString(token) {
 		return Config{}, errors.New("Gateway WebChat proxy token must be 43-128 base64url characters")
 	}

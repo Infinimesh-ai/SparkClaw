@@ -9,7 +9,7 @@ import auditPackage, { auditApplicationEntries } from "../scripts/audit-package.
 
 test("client package audit permits only public sources and the owned bridge dependency", () => {
   auditApplicationEntries(["/package.json", "/src/main/main.mjs", "/src/main/secure-credential-store.mjs", "/src/assets/icon.png", "/bin/sparkclaw-electron-browser.mjs", "/node_modules/@sparkclaw/browser-bridge/src/relay-connection.mjs"]);
-  for (const entry of ["/data/runtime/desktop-client.json", "/services/gateway/gateway", "/.env", "/src/private/key.pem", "/src/credential.sqlite", "/node_modules/unknown-dependency/index.js", "/src/../data/secrets.json"]) {
+  for (const entry of ["/data/runtime/desktop-client.json", "/services/gateway/gateway", "/.env", "/src/private/key.pem", "/src/credential.sqlite", "/src/iscp-launch-profile.json", "/src/desktop-profile.json", "/node_modules/unknown-dependency/index.js", "/src/../data/secrets.json"]) {
     assert.throws(() => auditApplicationEntries([entry]), /allowlist|unapproved/);
   }
 });
@@ -33,9 +33,15 @@ test("afterPack audits a synthetic ASAR/resources tree without compiling any Mac
   await assert.rejects(auditPackage(context), /SparkX application icon/);
   await fs.writeFile(plistPath, "<plist><dict><key>CFBundleIconFile</key><string>icon.icns</string></dict></plist>");
   await fs.writeFile(path.join(resources, "icon.icns"), "synthetic icon");
+  await assert.rejects(auditPackage(context), /ENOENT/);
+  const helperPath = path.join(resources, "iscp-workbench");
+  await fs.writeFile(helperPath, "synthetic helper", { mode: 0o600 });
+  await assert.rejects(auditPackage(context), /executable ISCP helper/);
+  await fs.chmod(helperPath, 0o755);
   await auditPackage(context);
   const result = JSON.parse(await fs.readFile(path.join(resources, "client-package-audit.json")));
   assert.equal(result.platform, "darwin"); assert.equal(result.ui_files, 2);
+  assert.match(result.iscp_helper_sha256, /^[a-f0-9]{64}$/u);
   await fs.writeFile(path.join(resources, "webchat", "backend.json"), "{}");
   await assert.rejects(auditPackage(context), /allowlist/);
 });

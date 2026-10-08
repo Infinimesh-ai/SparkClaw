@@ -76,15 +76,16 @@ export function DesktopLoginGate({ children }: { children: ReactNode }) {
           <option value="zh">简体中文</option><option value="en">English</option>
         </select>
       </div>
-      <p>{text.description}</p>
-      <p className="desktopLoginStatus" role="status">{status ? text[status.state] : text.checking}</p>
+      <p>{status?.test_mode ? (language === "zh" ? "ISCP 本地测试连接，授权配置由隔离启动器导入。" : "ISCP local test connection. The isolated launcher imports authorization configuration.") : text.description}</p>
+      <p className="desktopLoginStatus" role="status">{status?.test_mode && status.state === "identity_conflict" ? (language === "zh" ? "ISCP 对端身份或 Client 安装绑定不一致。请使用原来的工作台数据目录，或为独立安装配置独立 Client。" : "The ISCP peer identity or Client installation binding conflicts. Use the original workbench data directory, or a separate Client for another installation.") : status ? text[status.state] : text.checking}</p>
+      {status?.test_mode && status.transport_stage && <p role="status">ISCP: {status.transport_stage}</p>}
       {status?.backend && <dl className="desktopLoginIdentity">
         <dt>{text.backend}</dt><dd>{status.backend.origin}</dd>
         <dt>{text.deployment}</dt><dd>{status.backend.deployment_id}</dd>
         {status.backend.owner_id && <><dt>{text.owner}</dt><dd>{status.backend.owner_id}</dd></>}
         {status.backend.tls_certificate_sha256 && <><dt>{text.certificate}</dt><dd>{status.backend.tls_certificate_sha256}</dd></>}
       </dl>}
-      <form onSubmit={unlock}>
+      {status?.test_mode ? <button type="button" disabled={busy} onClick={() => void action(() => desktop.retryLocalConnection())}>{text.retry}</button> : <form onSubmit={unlock}>
         <label htmlFor="desktopCredential">{text.credential}</label>
         <p id="desktopCredentialHelp">{text.credentialHelp}</p>
         <input id="desktopCredential" type="password" aria-describedby="desktopCredentialHelp" value={credential} onChange={(event) => setCredential(event.target.value)} autoComplete="off" spellCheck={false} required maxLength={98_304} disabled={busy || status?.state === "secure_storage_unavailable"} />
@@ -93,7 +94,7 @@ export function DesktopLoginGate({ children }: { children: ReactNode }) {
           <button className="desktopLoginSecondary" type="button" disabled={busy} onClick={() => void action(() => desktop.retryLocalConnection())}>{text.retry}</button>
         </div>
         <p>{text.source}</p>
-      </form>
+      </form>}
       {error && <p className="desktopLoginError" role="alert">{error}</p>}
       <p className="desktopLoginStorage">{text.storage}</p>
     </section>

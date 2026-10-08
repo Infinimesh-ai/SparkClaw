@@ -25,6 +25,9 @@ type ExecutionResources struct {
 	Browser             browserautomation.Adapter
 	MaxDuration         time.Duration
 	MaxObservationBytes int
+	// TextOnly is a trusted admission restriction. It removes every tool from
+	// exposure and rejects invocation, including dynamic/provider tools.
+	TextOnly bool
 }
 
 type executionResource string
@@ -35,6 +38,7 @@ const (
 	resourceSandboxWorkspace   executionResource = "sandbox workspace binding"
 	resourceAcquisitionBrowser executionResource = "authorized acquisition browser"
 	resourceExternalLedger     executionResource = "external connector retention ledger"
+	resourceToolExecution      executionResource = "tool execution unavailable in the text-only profile"
 )
 
 // WithExecutionScope derives a content-isolated hub from the active services.
@@ -78,6 +82,9 @@ func (h *ToolHub) WithExecutionScope(st Repository, resources ExecutionResources
 func (h *ToolHub) unavailableResource(name string) executionResource {
 	if h.resources == nil {
 		return ""
+	}
+	if h.resources.TextOnly {
+		return resourceToolExecution
 	}
 	if _, dynamic := h.registry.origins[name]; dynamic {
 		return resourceExternalLedger

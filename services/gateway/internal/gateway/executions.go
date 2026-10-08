@@ -148,7 +148,11 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 		writeExecutionError(w, execution.ErrConflict)
 		return
 	}
-	status, err := s.executions.Submit(s.executionContext(), e, r.Header.Get("X-SparkClaw-Digest"))
+	executionCtx := s.executionContext()
+	if textOnly, _ := r.Context().Value(textOnlyExecutionContextKey{}).(bool); textOnly {
+		executionCtx = context.WithValue(executionCtx, textOnlyExecutionContextKey{}, true)
+	}
+	status, err := s.executions.Submit(executionCtx, e, r.Header.Get("X-SparkClaw-Digest"))
 	if err != nil {
 		writeExecutionError(w, err)
 		return

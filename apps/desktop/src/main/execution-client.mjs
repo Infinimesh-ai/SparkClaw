@@ -33,6 +33,8 @@ export class ExecutionClient {
     scope = this.#boundScope(scope);
     return this.#serialized(scope, requestID, async () => {
       if (!canSubmit()) throw new Error("Execution submission availability changed");
+      const original = this.store.request(scope, requestID);
+      if (!original.explicitly_submitted) this.auth.validateExecutionRequest?.(original.context_json);
       const { first, task } = this.store.markSubmitted(scope, requestID, scheduleClaim);
       if (!first) {
         // Even a 404 cannot prove that a lost admission had no external effect.
@@ -149,8 +151,11 @@ export class ExecutionClient {
     try {
       const requests = this.store.pending(scope);
       // Keep network concurrency and shutdown work bounded.
-      for (let i = 0; i < requests.length && !this.closed; i += 4) {
-        await Promise.allSettled(requests.slice(i, i + 4).map((task) => this.reconcile(scope, task.request_id)));
+      // The four-call ISCP budget also serves startup presentation and local
+      // schedule dispatch. Recovery leaves room for those ordinary clients.
+      const width = this.auth.descriptor?.transport === "iscp" ? 1 : 4;
+      for (let i = 0; i < requests.length && !this.closed; i += width) {
+        await Promise.allSettled(requests.slice(i, i + width).map((task) => this.reconcile(scope, task.request_id)));
       }
     } finally { this.polling = false; }
   }

@@ -3,7 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocalWorkbench } from "./LocalWorkbench";
-import type { SparkClawDesktop } from "./types";
+import { api } from "../api/client";
+import type { SparkClawDesktop, DesktopState } from "./types";
 import type { LocalApproval, LocalDraft } from "./clientStore";
 import { dictionaries, LANGUAGE_STORAGE_KEY } from "../i18n";
 
@@ -46,6 +47,61 @@ afterEach(() => {
 });
 
 describe("workbench local workbench", () => {
+  it("ISCP startup reads real config, owner and readiness while gating unsupported services", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    const config = vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
+    vi.spyOn(api, "ready").mockResolvedValue({ ok: true, workspace_root: "/test", trace_dir: "/test/traces", state_backend: "file", state_path: "/test/state", model_mode: "mock", gateway_binding: "local-test",
+      speech: { enabled: false, ready: false, state: "disabled", backend: "", model: "", supports_streaming: false, accepted_content_types: [], max_audio_seconds: 0, max_upload_bytes: 0 },
+      resident_services: [], credential_vault: { ready: true, state: "ready" } });
+    vi.spyOn(api, "owner").mockResolvedValue({ id: "owner", display_name: "ISCP owner", created_at: "2026-10-08T00:00:00Z", updated_at: "2026-10-08T00:00:00Z" });
+    const unsupported = [vi.spyOn(api, "clients"), vi.spyOn(api, "connectors"), vi.spyOn(api, "notifications"), vi.spyOn(api, "approvals"), vi.spyOn(api, "artifacts")];
+    const fetch = vi.fn(() => { throw new Error("Unsupported request"); }); vi.stubGlobal("fetch", fetch);
+    const row = { id: "conversation", title: "New conversation", created_at: "", updated_at: "" };
+    const create = vi.fn(async () => row);
+    const enqueue = vi.fn(async () => ({ id: "task", request_id: "request", status: "awaiting_runtime", created_at: "" }));
+    const submit = vi.fn();
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => create.mock.calls.length ? [row] : []), create,
+      read: vi.fn(async () => ({ messages: submit.mock.calls.length ? [{ id: "message", role: "assistant" as const, content: "ISCP response", created_at: "2026-10-08T00:00:00Z" }] : [], tasks: [], files: [] })), enqueue,
+      saveFile: vi.fn(), exportFile: vi.fn(), submit, reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
+      scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    const state = vi.fn();
+    let stateChanged: (snapshot: DesktopState) => void = () => {};
+    const unavailableBrowser: DesktopState = { schema_version: 1, capability_version: 1, runtime_kind: "electron", runtime_generation: "test", revision: 2,
+      pages: [], downloads: [], permissions: [], browser_host: { state: "unavailable" }, presentation: { panel_bounds: { x: 0, y: 0, width: 640, height: 720 }, insufficient_space: false, presented_page_ref: "" } };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, state,
+      onState: (listener: typeof stateChanged) => { stateChanged = listener; return () => {}; },
+      selectConversation: vi.fn(async () => { stateChanged(unavailableBrowser); return { page_ref: "" }; }),
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", test_mode: true,
+        backend: { schema_version: 3, transport: "iscp", origin: "https://iscp.invalid", deployment_id: "deployment" } })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"), root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      expect(config).toHaveBeenCalledTimes(1);
+      for (const spy of unsupported) expect(spy).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled(); expect(state).not.toHaveBeenCalled();
+      expect(host.textContent).toContain("ISCP local test");
+      expect(host.querySelectorAll<HTMLButtonElement>(".composer .uploadButton")).toHaveLength(2);
+      for (const button of host.querySelectorAll<HTMLButtonElement>(".composer .uploadButton")) expect(button.disabled).toBe(true);
+      expect(host.querySelector(".emailEntryButton")).toBeNull(); expect(host.querySelector(".rightSidebarToggle")).toBeNull();
+      const input = host.querySelector<HTMLTextAreaElement>("form.composer textarea")!; expect(input.disabled).toBe(false);
+      await act(async () => host.querySelector<HTMLButtonElement>(".sidebarAccountTrigger")!.click());
+      const settings = [...host.querySelectorAll<HTMLButtonElement>(".sidebarAccountMenuItem")].find((button) => button.textContent === "Workspace settings")!;
+      await act(async () => settings.click());
+      expect(host.querySelector(".settingsPageContent")).toBeNull(); expect(host.textContent).toContain("Settings are unavailable");
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "First ISCP request");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => host.querySelector("form.composer")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(window.sparkclawDesktop!.selectConversation).toHaveBeenCalledWith(row.id);
+      expect(enqueue).toHaveBeenCalledWith(row.id, "First ISCP request");
+      expect(submit).toHaveBeenCalledWith("request");
+      expect(host.textContent).toContain("ISCP response");
+      expect(host.querySelector("form.composer")).not.toBeNull();
+      expect(fetch).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); }
+  });
   it("uses the shared Linux conversation, mailbox and complete settings presentation", async () => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
     const row = { id: "conversation", title: "Parity conversation", created_at: "", updated_at: "" };

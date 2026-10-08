@@ -32,6 +32,7 @@ type RelayClient struct {
 	profile        string
 	timeout        time.Duration
 	client         *http.Client
+	credentialOnly bool
 
 	mu         sync.RWMutex
 	enrollment EnrollmentBundle
@@ -64,6 +65,40 @@ func NewRelayClient(profile, enrollmentPath string, enrollment EnrollmentBundle,
 		client:         &http.Client{Timeout: timeout},
 		enrollment:     enrollment,
 	}, nil
+}
+
+// NewRelayCredentialClient uses enrolled cloud access credentials without
+// importing Bridge session-grant semantics. End-to-end workbench grants and
+// issuer pins remain entirely separate from this cloud credential bundle.
+func NewRelayCredentialClient(profile, enrollmentPath string, enrollment EnrollmentBundle, device identity.Device, timeout time.Duration) (*RelayClient, error) {
+	if err := ValidateWorkbenchRelayURLs(profile, enrollment.RelayBaseURL, enrollment.RelayWebSocketURL); err != nil {
+		return nil, err
+	}
+	if profile == ProfileLocalLab && enrollment.Mode != BundleModeWorkbenchLocalLab {
+		return nil, errors.New("local-lab Relay requires reference enrollment")
+	}
+	if profile == ProfileProduction && enrollment.Mode == BundleModeWorkbenchLocalLab {
+		return nil, errors.New("production Relay rejects local-lab enrollment")
+	}
+	if err := enrollment.ValidateCredentials(time.Now().UTC()); err != nil {
+		return nil, err
+	}
+	client, err := NewRelayClient(profile, enrollmentPath, enrollment, device, timeout)
+	if err != nil {
+		return nil, err
+	}
+	client.credentialOnly = true
+	if profile == ProfileLocalLab {
+		client.client.Transport = &http.Transport{Proxy: nil}
+	}
+	return client, nil
+}
+
+func (c *RelayClient) validateEnrollment(bundle EnrollmentBundle, now time.Time) error {
+	if c.credentialOnly {
+		return bundle.ValidateCredentials(now)
+	}
+	return bundle.Validate(now)
 }
 
 func (c *RelayClient) Enrollment() EnrollmentBundle {
@@ -122,8 +157,56 @@ func (c *RelayClient) submit(ctx context.Context, value any) error {
 }
 
 func (c *RelayClient) RunOnce(ctx context.Context, handle func(context.Context, json.RawMessage) error) error {
+	return c.RunOnceReady(ctx, handle, nil)
+}
+
+// RunOnceReady reports the authenticated receive connection before reading
+// messages. Session initiators must wait for this point before sending Hello.
+func (c *RelayClient) RunOnceReady(ctx context.Context, handle func(context.Context, json.RawMessage) error, onReady func()) error {
+	if c.credentialOnly && c.profile == ProfileLocalLab {
+		return c.runLocalDrainPolling(ctx, handle, onReady)
+	}
+	return c.runSocketOnce(ctx, handle, onReady)
+}
+
+// The locked reference Relay intentionally authenticates, drains its current
+// queue and closes each WebSocket. A normal drained frame completes one poll,
+// not the peer's encrypted session. Expose one logical receive lifetime and
+// one readiness callback while repeating authenticated bounded drain polls.
+func (c *RelayClient) runLocalDrainPolling(ctx context.Context, handle func(context.Context, json.RawMessage) error, onReady func()) error {
+	ready := false
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err := c.runSocketOnce(ctx, handle, func() {
+			if !ready {
+				ready = true
+				if onReady != nil {
+					onReady()
+				}
+			}
+		}); err != nil {
+			return err
+		}
+		// 1s plus processing leaves room below reference's shared 120/IP/min
+		// allowance for access-PoP POSTs, initial discovery and enrollment.
+		timer := time.NewTimer(time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (c *RelayClient) runSocketOnce(ctx context.Context, handle func(context.Context, json.RawMessage) error, onReady func()) error {
 	bundle := c.Enrollment()
 	dialer := websocket.Dialer{HandshakeTimeout: c.timeout, Proxy: http.ProxyFromEnvironment}
+	if c.credentialOnly && c.profile == ProfileLocalLab {
+		dialer.Proxy = nil
+	}
 	connection, response, err := dialer.DialContext(ctx, bundle.RelayWebSocketURL, nil)
 	if err != nil {
 		if response != nil {
@@ -135,6 +218,14 @@ func (c *RelayClient) RunOnce(ctx context.Context, handle func(context.Context, 
 	connection.SetReadLimit(relayMaxBody)
 	stopClose := context.AfterFunc(ctx, func() { _ = connection.Close() })
 	defer stopClose()
+	// Authentication reads and writes must not outlive the dial timeout when
+	// a reachable Relay stalls before sending challenge or authenticated ready.
+	if err := connection.SetReadDeadline(time.Now().Add(c.timeout)); err != nil {
+		return errors.New("set Relay authentication read deadline")
+	}
+	if err := connection.SetWriteDeadline(time.Now().Add(c.timeout)); err != nil {
+		return errors.New("set Relay authentication write deadline")
+	}
 
 	var challenge relayMessage
 	if err := connection.ReadJSON(&challenge); err != nil {
@@ -161,7 +252,20 @@ func (c *RelayClient) RunOnce(ctx context.Context, handle func(context.Context, 
 	if ready.State != "ready" {
 		return errors.New("Relay did not enter ready state")
 	}
+	if err := connection.SetReadDeadline(time.Time{}); err != nil {
+		return errors.New("clear Relay authentication read deadline")
+	}
+	if onReady != nil {
+		onReady()
+	}
 	for {
+		if c.credentialOnly {
+			// A responder can wait without an active session. Bound this idle
+			// read too so a silently broken receive socket eventually reconnects.
+			if err := connection.SetReadDeadline(time.Now().Add(2 * time.Minute)); err != nil {
+				return errors.New("set Relay receive liveness deadline")
+			}
+		}
 		var message relayMessage
 		if err := connection.ReadJSON(&message); err != nil {
 			if ctx.Err() != nil {
@@ -236,7 +340,7 @@ func (c *RelayClient) refresh(ctx context.Context) error {
 	updated := c.enrollment
 	updated.Access = credentials.Access
 	updated.Refresh = credentials.Refresh
-	if err := updated.Validate(now); err != nil {
+	if err := c.validateEnrollment(updated, now); err != nil {
 		return fmt.Errorf("validate refreshed Relay credentials: %w", err)
 	}
 	if err := SaveEnrollment(c.enrollmentPath, updated); err != nil {
@@ -302,7 +406,7 @@ func (c *RelayClient) UpdateEnrollment(mutate func(*EnrollmentBundle)) error {
 	defer c.mu.Unlock()
 	updated := c.enrollment
 	mutate(&updated)
-	if err := updated.Validate(time.Now().UTC()); err != nil {
+	if err := c.validateEnrollment(updated, time.Now().UTC()); err != nil {
 		return fmt.Errorf("validate updated enrollment: %w", err)
 	}
 	if err := SaveEnrollment(c.enrollmentPath, updated); err != nil {

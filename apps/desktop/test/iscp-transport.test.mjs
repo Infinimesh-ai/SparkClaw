@@ -1,0 +1,98 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { EventEmitter } from "node:events";
+import { PassThrough, Writable } from "node:stream";
+import { ISCPTransport, ISCP_OPERATIONS, ISCP_PROFILE, mapISCPRequest, iscpHelperExecutable } from "../src/main/iscp-transport.mjs";
+
+const origin = "https://iscp.invalid";
+const requestID = "12345678-1234-4123-8123-123456789abc";
+const hello = { ipc_version: 1, type: "hello", operations: ISCP_OPERATIONS, max_request_bytes: 65536, max_response_bytes: 65536 };
+function fixture(t, handler = (call, child) => child.send({ ipc_version: 1, type: "response", id: call.id, response: { type: "task.result", profile: ISCP_PROFILE, id: call.request.id, status: 200, body: { ok: true } } }), options = {}) {
+  const children = []; const spawns = []; const calls = [];
+  const spawnProcess = (executable, args, spawnOptions) => {
+    spawns.push({ executable, args, spawnOptions });
+    const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.exitCode = null;
+    child.send = (frame) => child.stdout.write(`${JSON.stringify(frame)}\n`);
+    child.kill = () => { child.exitCode = 0; child.emit("exit", 0); };
+    child.stdin = new Writable({ write(chunk, _encoding, done) { const call = JSON.parse(chunk); calls.push(call); handler(call, child); done(); } });
+    children.push(child);
+    queueMicrotask(() => { child.send(options.hello || hello); child.send({ ipc_version: 1, type: "state", state: "transport_ready" }); });
+    return child;
+  };
+  const transport = new ISCPTransport({ configPath: "/private/test/config.json", origin, spawnProcess, timeoutMS: 100, ...options });
+  t.after(() => transport.close());
+  return { transport, children, spawns, calls };
+}
+
+test("fixed helper process, compatible hello and manifest precede JSON RPC; exact original JSON survives IPC", async (t) => {
+  const f = fixture(t);
+  await f.transport.start();
+  const raw = '{ "request_id" : "12345678-1234-4123-8123-123456789abc",\n "messages" : [] }';
+  assert.deepEqual(await (await f.transport.fetch(`${origin}/api/v1/executions`, { method: "POST", body: raw })).json(), { ok: true });
+  assert.equal(f.calls[0].request.operation, "execution.submit");
+  assert.equal(f.calls[0].request.body, undefined);
+  assert.equal(Buffer.from(f.calls[0].body_base64, "base64").toString("utf8"), raw);
+  assert.equal(f.spawns[0].executable, iscpHelperExecutable());
+  assert.deepEqual(f.spawns[0].args, ["-config", "/private/test/config.json"]);
+  assert.equal(iscpHelperExecutable({ packaged: true, resourcesPath: "/package/resources" }), "/package/resources/iscp-workbench");
+  assert.deepEqual(f.spawns[0].spawnOptions.stdio, ["pipe", "pipe", "pipe"]);
+});
+
+test("only the fixed workbench operations are reachable and input limits fail before a pipe write", async (t) => {
+  const f = fixture(t); await f.transport.start();
+  for (const [route, method] of [["/api/email", "GET"], ["/api/owner", "PUT"], ["/api/config?x=1", "GET"], [`/api/v1/executions/${requestID}/files/output`, "GET"], ["/api/browser/extension", "POST"]]) {
+    await assert.rejects(f.transport.fetch(`${origin}${route}`, { method }), /unavailable|invalid/u);
+  }
+  await assert.rejects(f.transport.fetch("https://another.invalid/api/config"), /invalid/u);
+  await assert.rejects(f.transport.fetch(`${origin}/api/v1/executions`, { method: "POST", body: JSON.stringify({ input_files: [{}] }) }), /File/u);
+  await assert.rejects(f.transport.fetch(`${origin}/api/v1/executions`, { method: "POST", body: JSON.stringify({ content: "x".repeat(65536) }) }), /limit/u);
+  assert.equal(f.calls.length, 0);
+  assert.equal(mapISCPRequest(`${origin}/api/v1/executions/${requestID}/ack`, { method: "POST", body: "{}" }, origin).request_id, requestID);
+});
+
+test("incompatible hello, malformed frames, oversized frames and unknown states close the process", async (t) => {
+  const incompatible = fixture(t, undefined, { hello: { ...hello, ipc_version: 2 } });
+  await assert.rejects(incompatible.transport.start(), /unavailable/u);
+  for (const malformed of ["{\n", `${"x".repeat(74000)}`, `${JSON.stringify({ ipc_version: 1, type: "state", state: "connected" })}\n`]) {
+    const f = fixture(t); await f.transport.start();
+    f.children[0].stdout.write(malformed);
+    assert.equal(f.transport.state, "disconnected"); assert.equal(f.children[0].exitCode, 0);
+  }
+});
+
+test("four outstanding calls are bounded; abort, deadline and exit reject while old process frames cannot recover readiness", async (t) => {
+  const f = fixture(t, () => {}, { timeoutMS: 40 }); await f.transport.start();
+  const controller = new AbortController();
+  const pending = [f.transport.fetch(`${origin}/api/config`, { signal: controller.signal }), ...Array.from({ length: 3 }, () => f.transport.fetch(`${origin}/api/config`))];
+  const observed = pending.map((promise) => promise.catch((error) => error.message));
+  await assert.rejects(f.transport.fetch(`${origin}/api/config`), /concurrency/u);
+  controller.abort();
+  assert.match(await observed[0], /canceled/u);
+  const timed = await Promise.all(observed.slice(1)); assert.ok(timed.every((error) => /deadline/u.test(error)));
+  const exited = f.transport.fetch(`${origin}/api/config`); const rejection = assert.rejects(exited, /unavailable/u);
+  f.children[0].emit("exit", 1); await rejection;
+  assert.equal(f.transport.state, "disconnected");
+  await f.transport.start();
+  f.children[0].send({ ipc_version: 1, type: "state", state: "authorization_expired" });
+  assert.equal(f.transport.state, "transport_ready");
+});
+
+test("response correlation and profile are validated, including body and status bounds", async (t) => {
+  for (const patch of [{ id: "different" }, { profile: "other" }, { status: 700 }, { body: { content: "x".repeat(65536) } }]) {
+    const f = fixture(t, (call, child) => child.send({ ipc_version: 1, type: "response", id: call.id, response: { type: "task.result", profile: ISCP_PROFILE, id: call.request.id, status: 200, ...patch } }));
+    await f.transport.start();
+    await assert.rejects(f.transport.fetch(`${origin}/api/config`), /unavailable/u);
+    assert.equal(f.transport.state, "disconnected");
+  }
+});
+
+
+test("helper verified public peer identity must exactly match the selected profile", async (t) => {
+  const expectedIdentity = { domain_id: "domain", initiator_device_id: "desktop", responder_device_id: "gateway", responder_key_thumbprint: "thumbprint", relay_url: "https://relay.example.test" };
+  for (const identity of [undefined, { ...expectedIdentity, responder_device_id: "other" }]) {
+    const f = fixture(t, undefined, { expectedIdentity, hello: { ...hello, identity } });
+    await assert.rejects(f.transport.start(), /unavailable/u); assert.equal(f.transport.state, "identity_conflict");
+  }
+  const valid = fixture(t, undefined, { expectedIdentity, hello: { ...hello, identity: expectedIdentity } });
+  await valid.transport.start(); assert.equal(valid.transport.state, "transport_ready");
+});

@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import crypto from "node:crypto";
 
-const privatePattern = /(?:^|\/)(?:\.git|\.env(?:\.[^/]*)?|data|runtime|qualifications?|private|credentials?|\.tools|services|configs|InfiniCenter)(?:\/|$)|(?:^|\/)(?:desktop-client|local-workbench|desktop-connection|backend|credential)\.(?:json|bin)$|\.(?:pem|key|sqlite(?:-wal|-shm)?|db|dump)$/iu;
+const privatePattern = /(?:^|\/)(?:\.git|\.env(?:\.[^/]*)?|data|runtime|qualifications?|private|credentials?|\.tools|services|configs|InfiniCenter)(?:\/|$)|(?:^|\/)(?:desktop-client|desktop-profile|iscp-launch-profile|local-workbench|desktop-connection|backend|credential)\.(?:json|bin)$|\.(?:pem|key|sqlite(?:-wal|-shm)?|db|dump)$/iu;
 const desktopRoots = ["package.json", "src", "bin", "node_modules"];
 
 export function auditApplicationEntries(entries) {
@@ -33,6 +34,10 @@ export default async function auditPackage(context) {
     await fs.access(path.join(resources, icon.endsWith(".icns") ? icon : `${icon}.icns`));
   }
   const webchat = path.join(resources, "webchat");
+  const helper = path.join(resources, "iscp-workbench");
+  const helperInfo = await fs.lstat(helper);
+  if (!helperInfo.isFile() || helperInfo.isSymbolicLink() || !(helperInfo.mode & 0o111)) throw new Error("Installation package requires an executable ISCP helper");
+  const helperSHA256 = crypto.createHash("sha256").update(await fs.readFile(helper)).digest("hex");
   const entries = await walk(webchat);
   if (!entries.includes("index.html") || entries.some((entry) => privatePattern.test(entry) || !/\.(?:html|js|css|png|svg|woff2|json|ico)$/iu.test(entry))) {
     throw new Error("Installation package WebChat resources are outside the built UI allowlist");
@@ -41,6 +46,7 @@ export default async function auditPackage(context) {
     schema_version: 1, platform: context.electronPlatformName,
     client_scope: "public_client_source_and_ui", application_entries: listPackage(path.join(resources, "app.asar")).length,
     ui_files: entries.length,
+    iscp_helper_sha256: helperSHA256,
   }), { mode: 0o644 });
 }
 

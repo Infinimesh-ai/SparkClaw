@@ -2,8 +2,13 @@ const INVOKE_CHANNEL = "sparkclaw-desktop:invoke";
 const STATE_CHANNEL = "sparkclaw-desktop:state";
 const TRUSTED_ORIGIN = "sparkclaw-app://workbench";
 
+export function isDesktopSessionAuthorized(auth) {
+  return auth?.status.state === "connected" && Boolean(auth.connection) &&
+    (auth.descriptor?.transport !== "iscp" || (auth.connection.transport === "iscp" && auth.connection.identityVerified === true));
+}
+
 export class DesktopCapability {
-  constructor({ ipcMain, window, registry, presentation, browserServices, runtimeGeneration, authorizeSession = () => true, browserHost = null }) {
+  constructor({ ipcMain, window, registry, presentation, browserServices, runtimeGeneration, authorizeSession = () => true, getCapabilities = () => undefined, browserHost = null }) {
     this.ipcMain = ipcMain;
     this.window = window;
     this.registry = registry;
@@ -11,6 +16,7 @@ export class DesktopCapability {
     this.browserServices = browserServices;
     this.runtimeGeneration = runtimeGeneration;
     this.authorizeSession = authorizeSession;
+    this.getCapabilities = getCapabilities;
     this.browserHost = browserHost;
     this.revision = 1;
     this.layoutRevision = 0;
@@ -57,6 +63,9 @@ export class DesktopCapability {
     if (!this.authorizeSession()) throw new Error("Desktop session is locked");
     if (!plainObject(request) || request.schema_version !== 1 || typeof request.operation !== "string") {
       throw new Error("Desktop capability request is invalid");
+    }
+    if (this.getCapabilities()?.browser === false && !["state", "selectConversation"].includes(request.operation)) {
+      throw new Error("Browser operations are unavailable through this transport");
     }
     switch (request.operation) {
       case "selectConversation":

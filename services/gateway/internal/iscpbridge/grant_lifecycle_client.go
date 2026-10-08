@@ -32,6 +32,11 @@ const (
 	grantLifecycleMaxRetryAfter   = 5 * time.Minute
 )
 
+// ErrGrantRenewalResultExpired means the original request succeeded with a
+// verified Grant that has since expired. It was durably retired; the caller
+// may attempt a fresh renewal, but must not authorize with the expired result.
+var ErrGrantRenewalResultExpired = errors.New("confirmed Grant renewal result expired; retry with a fresh request")
+
 // GrantLifecycleHTTPError contains only a status and bounded pacing hint. The
 // issuer's response text and possession proof never enter diagnostics.
 type GrantLifecycleHTTPError struct {
@@ -234,6 +239,9 @@ func (c *GrantLifecycleClient) Renew(ctx context.Context, previous trust.Grant) 
 	if err != nil {
 		return trust.Grant{}, err
 	}
+	if !time.Now().UTC().Before(grant.ExpiresAt) {
+		return trust.Grant{}, c.retireExpiredResult(grant, cap)
+	}
 	if err := c.verifyResult(grant, c.pending.Previous, cap, true); err != nil {
 		return trust.Grant{}, err
 	}
@@ -329,7 +337,11 @@ func (c *GrantLifecycleClient) capability(ctx context.Context, previous trust.Gr
 }
 
 func (c *GrantLifecycleClient) verifyResult(grant, previous trust.Grant, cap descriptor.TrustRootDescriptor, extension bool) error {
-	if err := verifyGrantContinuity(c.provider, grant, previous, c.issuer, c.relayID, time.Now().UTC(), extension); err != nil {
+	return c.verifyResultAt(grant, previous, cap, extension, time.Now().UTC())
+}
+
+func (c *GrantLifecycleClient) verifyResultAt(grant, previous trust.Grant, cap descriptor.TrustRootDescriptor, extension bool, now time.Time) error {
+	if err := verifyGrantContinuity(c.provider, grant, previous, c.issuer, c.relayID, now, extension); err != nil {
 		return err
 	}
 	authorizationUntil, _ := time.Parse(time.RFC3339Nano, cap.Metadata["authorization_expires_at"])
@@ -337,6 +349,19 @@ func (c *GrantLifecycleClient) verifyResult(grant, previous trust.Grant, cap des
 		return errors.New("Grant result exceeds the pinned authorization expiry")
 	}
 	return nil
+}
+
+func (c *GrantLifecycleClient) retireExpiredResult(grant trust.Grant, cap descriptor.TrustRootDescriptor) error {
+	// Verify the issuer's success at a historically valid instant, with every
+	// original renewal bound. This only resolves its outcome: neither the
+	// expired Grant nor an older revocation epoch replaces the caller's fence.
+	if err := c.verifyResultAt(grant, c.pending.Previous, cap, true, grant.NotBefore); err != nil {
+		return err
+	}
+	if err := c.clearPending(); err != nil {
+		return err
+	}
+	return ErrGrantRenewalResultExpired
 }
 
 func (c *GrantLifecycleClient) decodeGrant(raw []byte) (trust.Grant, error) {

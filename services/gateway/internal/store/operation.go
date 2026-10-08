@@ -28,6 +28,8 @@ const (
 type StoreOperation string
 
 const (
+	OperationWorkbenchDraftGet           StoreOperation = "workbench_draft.get"
+	OperationWorkbenchDraftSave          StoreOperation = "workbench_draft.save"
 	OperationReadEmailPresentations      StoreOperation = "email_management.ReadEmailPresentations"
 	OperationEnsureEmailPresentations    StoreOperation = "email_management.EnsureEmailPresentations"
 	OperationGetEmailPresentation        StoreOperation = "email_management.GetEmailPresentation"
@@ -158,6 +160,7 @@ const (
 	OperationReminderUpdatePending       StoreOperation = "reminder.update_pending"
 	OperationReminderGet                 StoreOperation = "reminder.get"
 	OperationReminderList                StoreOperation = "reminder.list"
+	OperationWorkbenchScheduleAdvance    StoreOperation = "workbench_schedule.advance"
 	OperationReminderClaimDue            StoreOperation = "reminder.claim_due"
 	OperationReminderDeliverySave        StoreOperation = "reminder_delivery.save"
 	OperationReminderDeliveryList        StoreOperation = "reminder_delivery.list"
@@ -398,6 +401,14 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationSessionUpdateTitle: {
 		ID: OperationSessionUpdateTitle, Repository: "SessionRepository",
 		Method: "UpdateSessionTitle", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationWorkbenchDraftGet: {
+		ID: OperationWorkbenchDraftGet, Repository: "SessionRepository",
+		Method: "GetWorkbenchDraft", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationWorkbenchDraftSave: {
+		ID: OperationWorkbenchDraftSave, Repository: "SessionRepository",
+		Method: "SaveWorkbenchDraft", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
 	OperationSessionDelete: {
 		ID: OperationSessionDelete, Repository: "SessionRepository",
@@ -658,6 +669,10 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationReminderList: {
 		ID: OperationReminderList, Repository: "ScheduleRepository",
 		Method: "ListReminders", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationWorkbenchScheduleAdvance: {
+		ID: OperationWorkbenchScheduleAdvance, Repository: "ScheduleRepository",
+		Method: "AdvanceWorkbenchSchedule", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
 	OperationReminderClaimDue: {
 		ID: OperationReminderClaimDue, Repository: "ScheduleRepository",

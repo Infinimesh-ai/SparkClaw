@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/messaging-and-scheduling.md)
 
+Host workbench sends require a UUID `request_id` on both message POST endpoints. Optional `draft_revision` binds the saved draft. Persisted request identity is recorded before execution; lost responses are reconciled through `GET /api/sessions/{id}/requests/{request}`, without replay. Host workbench schedules use the [local occurrence rules](workbench-host-scheduler.md); external connector schedules retain their own contracts. See the [release API reference](workbench-release.md#matched-api-surface).
+
 This document is the current contract for message ingress, result delivery,
 third-party direct sends, and scheduled messages. It replaces the Message
 Control migration, connector and Gateway assembly plans, Web outbound design,

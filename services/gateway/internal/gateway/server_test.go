@@ -936,7 +936,7 @@ func TestMessageStreamExecutionSurvivesClientDisconnect(t *testing.T) {
 	defer ts.Close()
 	sessionID := createTestSession(t, ts.URL)
 	requestCtx, cancelRequest := context.WithCancel(context.Background())
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, ts.URL+"/api/sessions/"+sessionID+"/messages/stream", bytes.NewBufferString(`{"content":"long running request"}`))
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, ts.URL+"/api/sessions/"+sessionID+"/messages/stream", bytes.NewBufferString(`{"request_id":"11111111-1111-4111-8111-111111111111","content":"long running request"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3556,7 +3556,7 @@ func sendTestMessage(t *testing.T, baseURL, sessionID, content string) {
 
 func sendTestMessageResult(t *testing.T, baseURL, sessionID, content string) map[string]any {
 	t.Helper()
-	body, _ := json.Marshal(map[string]string{"content": content})
+	body, _ := json.Marshal(map[string]string{"request_id": testWorkbenchRequestID(), "content": content})
 	resp, err := http.Post(baseURL+"/api/sessions/"+sessionID+"/messages", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
@@ -3623,6 +3623,7 @@ func testConfig(root string) config.Config {
 	cfg := configtest.MustLoadDefault()
 	cfg.Model.Mock = true
 	cfg.Workspaces.DefaultRoot = root
+	cfg.State.Path = filepath.Join(root, "workbench-state.json")
 	cfg.Workspaces.Allowlist = []string{root}
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")

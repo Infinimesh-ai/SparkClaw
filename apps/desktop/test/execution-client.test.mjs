@@ -12,10 +12,10 @@ import { DesktopAuth } from "../src/main/desktop-auth.mjs";
 const scope = { deployment_id: "deployment", owner_id: "owner", client_id: "client" };
 const hash = (value) => crypto.createHash("sha256").update(value).digest("hex");
 function fixture(t, fetcher) {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sparkclaw-r3-client-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sparkclaw-execution-client-"));
   let store = new ClientStore(directory);
   let identity = scope;
-  const auth = { status: { state: "connected" }, descriptor: { origin: "http://127.0.0.1:18790" }, authorizedR3Fetch: fetcher };
+  const auth = { status: { state: "connected" }, descriptor: { origin: "http://127.0.0.1:18790" }, authorizedExecutionFetch: fetcher };
   let client;
   const createClient = () => new ExecutionClient({ auth, store, getIdentity: () => identity });
   client = createClient();
@@ -43,9 +43,9 @@ test("real HTTP chain preserves explicit immutable submission, verified files an
     const body = Buffer.concat(chunks);
     calls.push({ method: request.method, path: request.url });
     assert.equal(request.headers.authorization, "Bearer synthetic-issued-client-token");
-    if (request.url === "/api/r3/executions" && request.method === "POST") {
+    if (request.url === "/api/v1/executions" && request.method === "POST") {
       const envelope = JSON.parse(body);
-      assert.equal(hash(body), request.headers["x-r3-digest"]);
+      assert.equal(hash(body), request.headers["x-sparkclaw-digest"]);
       assert.equal(envelope.installation_id, request.headers["x-sparkclaw-installation"]);
       assert.equal(envelope.messages.at(-1).content, "test input");
       accepted = event(f, "completed", result("Complete", [{ id: "output1", name: "report.txt", size: output.length, sha256: hash(output) }]));
@@ -68,12 +68,12 @@ test("real HTTP chain preserves explicit immutable submission, verified files an
   auth.connection = { authorization: "Bearer synthetic-issued-client-token" };
   auth.status = { state: "connected" };
   f.auth.descriptor = auth.descriptor;
-  f.auth.authorizedR3Fetch = auth.authorizedR3Fetch.bind(auth);
+  f.auth.authorizedExecutionFetch = auth.authorizedExecutionFetch.bind(auth);
   await f.client.reconcilePending();
   assert.deepEqual(calls, [], "saved input never replays automatically");
   const completed = await f.client.submit(scope, f.task.request_id);
   assert.equal(completed.status, "delivered");
-  assert.equal(calls.filter((call) => call.method === "POST" && call.path === "/api/r3/executions").length, 1);
+  assert.equal(calls.filter((call) => call.method === "POST" && call.path === "/api/v1/executions").length, 1);
   f.restart();
   await f.client.reconcilePending();
   assert.equal(f.store.read(scope, f.conversation.id).files.length, 1);
@@ -95,7 +95,7 @@ test("lost admission response reconciles same ID and unknown fence never trigger
   assert.equal(gets, 2);
 });
 
-test("unadmitted request requires explicit same-ID retry; background reconciliation sends no POST", async (t) => {
+test("lost admission followed by 404 never permits same-ID POST on explicit or background reconciliation", async (t) => {
   const submittedBodies = [];
   let available = false;
   const f = fixture(t, async (_url, init) => {
@@ -110,8 +110,8 @@ test("unadmitted request requires explicit same-ID retry; background reconciliat
   f.restart(); available = true;
   await f.client.reconcilePending();
   assert.equal(submittedBodies.length, 1);
-  assert.equal((await f.client.submit(scope, f.task.request_id)).status, "accepted");
-  assert.equal(submittedBodies[0], submittedBodies[1]);
+  assert.equal((await f.client.submit(scope, f.task.request_id)).status, "submission_pending");
+  assert.equal(submittedBodies.length, 1, "a missing remote fence is not permission to replay a write");
 });
 
 test("lost ACK survives client restart, deduplicates output and does not resubmit work", async (t) => {
@@ -233,7 +233,7 @@ test("explicit selected files are frozen locally, uploaded before POST and canno
   target = f.store.enqueue(scope, f.conversation.id, "read selected file", [file.id]);
   await f.client.submit(scope, target.request_id);
   assert.equal(calls[0].method, "PUT"); assert.equal(calls[1].method, "POST");
-  assert.equal(hash(calls[0].body), calls[0].headers.get("x-r3-digest"));
+  assert.equal(hash(calls[0].body), calls[0].headers.get("x-sparkclaw-digest"));
   const envelope = JSON.parse(calls[1].body);
   assert.deepEqual(envelope.input_files, [{ id: file.id, name: file.name, size: file.size, sha256: file.sha256 }]);
   assert.ok(calls.every((call) => call.headers.get("x-sparkclaw-installation") === f.store.installationID));
@@ -255,4 +255,23 @@ test("corrupted durable files block ACK retry after restart and preserve receipt
   await assert.rejects(f.client.reconcile(scope, f.task.request_id), /verification/);
   assert.equal(acks, previous);
   assert.equal(f.store.request(scope, f.task.request_id).status, "saved");
+});
+
+test("close/start fences an in-flight response even when authentication generation is unchanged", async (t) => {
+  let release; let sent = false;
+  const pending = new Promise((resolve) => { release = resolve; });
+  const f = fixture(t, async (_url, init) => {
+    if (init.method === "POST") { sent = true; await pending; }
+    return new Response(JSON.stringify(event(f, "completed", result())));
+  });
+  f.auth.generation = 1;
+  const submission = f.client.submit(scope, f.task.request_id);
+  await new Promise((resolve) => setImmediate(resolve)); assert.equal(sent, true);
+  f.client.close();
+  // Restarting the client object must not make the old response authoritative.
+  // Disable its independent reconciler for this stale-response-only test.
+  f.client.reconcilePending = async () => {};
+  f.client.start(); release();
+  await assert.rejects(submission, /authentication changed/);
+  assert.equal(f.store.receipt(scope, f.task.request_id), null);
 });

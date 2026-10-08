@@ -65,3 +65,26 @@ describe("ScheduleCreateDialog", () => {
     expect(onCreate).not.toHaveBeenCalled();
   });
 });
+
+describe("ScheduleBar offline occurrences", () => {
+  it("shows permanent skips and only advertises a pending future occurrence as next", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { ScheduleBar } = await import("./schedules");
+    const base = {
+      text: "Scheduled request", timezone: "UTC", updated_at: "2026-10-06T10:00:00Z",
+      editable: false, cancelable: false, endpoint: { status: "not_applicable" as const },
+    };
+    const html = renderToStaticMarkup(<ScheduleBar
+      schedules={[
+        { ...base, id: "missed", title: "Skipped task", status: "missed", due_time: "2026-10-06T09:00:00Z" },
+        { ...base, id: "submitted", title: "Original request", status: "submitted", due_time: "2026-10-06T10:00:00Z" },
+      ]}
+      open loading={false} busyId="" language="en" text={dictionaries.en}
+      onToggle={() => {}} onRefresh={() => {}} onEdit={async () => {}} onDelete={async () => {}}
+    />);
+    expect(html).toContain("Skipped while offline");
+    expect(html).toContain("Submitted");
+    expect(html).toContain("No current scheduled tasks.");
+    expect(html).not.toContain(">Next ");
+  });
+});

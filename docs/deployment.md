@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/deployment.md)
 
+Current source release: follow the [matched workbench release guide](workbench-release.md) for fresh storage, enrollment, API paths and restart behavior; see the [implementation ledger](workbench-convergence-implementation.md) for exact validation boundaries.
+
 This document defines the two supported SparkClaw product deployments. The
 full-local deployment owns five model services on an NVIDIA GB10 host; the
 full-remote deployment uses five versioned public model endpoints. Both run
@@ -161,7 +163,7 @@ before containers are changed.
 Models, state services, and the sandbox runner remain bound to localhost or the
 private Docker network.
 
-For R3 Mac clients, set both
+For Mac desktop workbenches, set both
 `SPARKCLAW_DESKTOP_TLS_DIR=/absolute/private/tls` and the exact client-facing
 origin, for example `SPARKCLAW_DESKTOP_PUBLIC_ORIGIN=https://sparkclaw.lan:18790`,
 in the selected private environment file. They must be configured together.

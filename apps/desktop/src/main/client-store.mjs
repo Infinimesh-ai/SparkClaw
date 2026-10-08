@@ -2,16 +2,10 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { WORKBENCH_LIMITS } from "../shared/workbench-limits.mjs";
 
-export const CLIENT_SCHEMA_VERSION = 4;
-export const CLIENT_LIMITS = Object.freeze({
-  inputBytes: 16 * 1024,
-  contextBytes: 96 * 1024,
-  contextMessages: 32,
-  fileBytes: 64 * 1024 * 1024,
-  resultBytes: 8 * 1024 * 1024,
-  resultFiles: 32,
-});
+export const CLIENT_SCHEMA_VERSION = 6;
+export const CLIENT_LIMITS = WORKBENCH_LIMITS;
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u;
@@ -31,11 +25,8 @@ export class ClientStore {
     try {
       this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
       const version = this.db.prepare("PRAGMA user_version").get().user_version;
-      if (version > CLIENT_SCHEMA_VERSION) throw new Error("ClientStore schema is newer than this application; preserve data and upgrade");
+      if (version !== 0 && version !== CLIENT_SCHEMA_VERSION) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
       if (version === 0) this.#initialize();
-      if (version < 2) this.#upgrade();
-      if (version < 3) this.#upgradeSchedules();
-      if (version < 4) this.#upgradeApprovals();
       this.installationID = this.db.prepare("SELECT value FROM metadata WHERE key='installation_id'").get().value;
       // Incomplete atomic file writes are never treated as delivered files.
       const committedFiles = new Set(this.db.prepare("SELECT id FROM files").all().map((file) => file.id));
@@ -58,50 +49,36 @@ export class ClientStore {
           created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
         CREATE TABLE messages(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id),
           role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL, created_at TEXT NOT NULL);
+        CREATE TABLE drafts(scope TEXT NOT NULL, conversation_id TEXT NOT NULL, content TEXT NOT NULL,
+          local_file_ids TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(scope,conversation_id));
         CREATE TABLE tasks(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id),
           request_id TEXT UNIQUE NOT NULL, input_digest TEXT NOT NULL, context_json TEXT NOT NULL,
-          status TEXT NOT NULL, created_at TEXT NOT NULL);
+          status TEXT NOT NULL, created_at TEXT NOT NULL, explicitly_submitted INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT, submission_claim TEXT);
         CREATE TABLE files(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id),
           name TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE deliveries(request_id TEXT NOT NULL REFERENCES tasks(request_id), sequence INTEGER NOT NULL,
-          digest TEXT NOT NULL, PRIMARY KEY(request_id, sequence));
-        CREATE INDEX conversations_by_scope ON conversations(scope, updated_at);
-        PRAGMA user_version=1;
-      `);
-      this.db.prepare("INSERT INTO metadata VALUES('installation_id',?)").run(crypto.randomUUID());
-    });
-  }
-
-  #upgrade() {
-    this.#transaction(() => {
-      this.db.exec(`
-        ALTER TABLE tasks ADD COLUMN explicitly_submitted INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE tasks ADD COLUMN updated_at TEXT;
-        ALTER TABLE deliveries ADD COLUMN acknowledged INTEGER NOT NULL DEFAULT 0;
+          digest TEXT NOT NULL, acknowledged INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(request_id, sequence));
         CREATE TABLE delivery_files(request_id TEXT NOT NULL, sequence INTEGER NOT NULL,
           file_id TEXT NOT NULL REFERENCES files(id), remote_id TEXT NOT NULL,
           PRIMARY KEY(request_id, sequence, remote_id),
           FOREIGN KEY(request_id, sequence) REFERENCES deliveries(request_id, sequence));
-        PRAGMA user_version=2;
+        CREATE TABLE schedule_definitions(id TEXT PRIMARY KEY, interval_ms INTEGER NOT NULL,
+          state TEXT NOT NULL CHECK(state IN ('active','completed','canceled')));
+        CREATE TABLE schedules(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id),
+          schedule_id TEXT NOT NULL REFERENCES schedule_definitions(id), due_at TEXT NOT NULL,
+          state TEXT NOT NULL, created_at TEXT NOT NULL, claimed_at TEXT,
+          missed_count INTEGER NOT NULL DEFAULT 0, missed_until TEXT,
+          recovery_request_id TEXT REFERENCES tasks(request_id), UNIQUE(schedule_id,due_at));
+        CREATE INDEX schedules_by_due ON schedules(state,due_at);
+        CREATE TABLE execution_approvals(request_id TEXT NOT NULL REFERENCES tasks(request_id),
+          approval_id TEXT NOT NULL,digest TEXT NOT NULL,tool TEXT NOT NULL,summary TEXT NOT NULL,
+          arguments_json TEXT NOT NULL,state TEXT NOT NULL,decision TEXT,expires_at TEXT NOT NULL,
+          PRIMARY KEY(request_id,approval_id));
+        CREATE INDEX conversations_by_scope ON conversations(scope, updated_at);
+        PRAGMA user_version=${CLIENT_SCHEMA_VERSION};
       `);
-    });
-  }
-
-  #upgradeSchedules() {
-    this.#transaction(() => {
-      this.db.exec(`CREATE TABLE schedules(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id),
-        due_at TEXT NOT NULL, state TEXT NOT NULL, lease_expires_at TEXT, created_at TEXT NOT NULL,
-        recovery_request_id TEXT REFERENCES tasks(request_id));
-        PRAGMA user_version=3;`);
-    });
-  }
-
-  #upgradeApprovals() {
-    this.#transaction(() => {
-      this.db.exec(`CREATE TABLE execution_approvals(request_id TEXT NOT NULL REFERENCES tasks(request_id),
-        approval_id TEXT NOT NULL,digest TEXT NOT NULL,tool TEXT NOT NULL,summary TEXT NOT NULL,
-        arguments_json TEXT NOT NULL,state TEXT NOT NULL,decision TEXT,expires_at TEXT NOT NULL,
-        PRIMARY KEY(request_id,approval_id)); PRAGMA user_version=4;`);
+      this.db.prepare("INSERT INTO metadata VALUES('installation_id',?)").run(crypto.randomUUID());
     });
   }
 
@@ -126,12 +103,58 @@ export class ClientStore {
       tasks: this.db.prepare("SELECT id,request_id,status,explicitly_submitted,created_at FROM tasks WHERE conversation_id=? ORDER BY rowid").all(conversationID)
         .map((task) => ({ ...task, approvals: this.approvals(scope, task.request_id) })),
       files: this.db.prepare("SELECT id,name,sha256,size,created_at FROM files WHERE conversation_id=? ORDER BY rowid").all(conversationID),
-      schedules: this.db.prepare(`SELECT s.* FROM schedules s JOIN tasks t ON t.request_id=s.request_id
+      schedules: this.db.prepare(`SELECT s.*,d.interval_ms,d.state AS definition_state FROM schedules s
+        JOIN schedule_definitions d ON d.id=s.schedule_id JOIN tasks t ON t.request_id=s.request_id
         WHERE t.conversation_id=? ORDER BY s.rowid`).all(conversationID),
     };
   }
 
-  enqueue(scope, conversationID, content, localFileIDs = [], scheduleDueAt, recoveringScheduleID) {
+  draft(scope, conversationID) {
+    if (conversationID !== "") this.#conversation(scope, conversationID);
+    const row = this.db.prepare("SELECT content,local_file_ids,revision FROM drafts WHERE scope=? AND conversation_id=?").get(scopeKey(scope), conversationID);
+    return row ? { ...row, local_file_ids: JSON.parse(row.local_file_ids) } : { content: "", local_file_ids: [], revision: 0 };
+  }
+
+  saveDraft(scope, conversationID, content, localFileIDs, revision) {
+    boundedText(content, CLIENT_LIMITS.inputBytes, "Draft");
+    if (!Number.isSafeInteger(revision) || revision < 0 || !Array.isArray(localFileIDs) || localFileIDs.length > CLIENT_LIMITS.resultFiles ||
+        new Set(localFileIDs).size !== localFileIDs.length) throw new Error("Invalid draft revision or attachments");
+    for (const id of localFileIDs) {
+      uuid(id);
+      if (!this.db.prepare("SELECT id FROM files WHERE id=? AND conversation_id=?").get(id, conversationID)) throw new Error("Draft file is not in this conversation");
+      this.file(scope, id);
+    }
+    return this.#transaction(() => {
+      const prior = this.draft(scope, conversationID);
+      if (prior.revision !== revision) throw new Error("Draft changed in another editor; reload before saving");
+      this.db.prepare(`INSERT INTO drafts VALUES(?,?,?,?,?) ON CONFLICT(scope,conversation_id) DO UPDATE SET
+        content=excluded.content,local_file_ids=excluded.local_file_ids,revision=excluded.revision`)
+        .run(scopeKey(scope), conversationID, content, JSON.stringify(localFileIDs), revision + 1);
+      return this.draft(scope, conversationID);
+    });
+  }
+
+  moveWelcomeDraft(scope, conversationID, revision) {
+    return this.#transaction(() => {
+      const source = this.draft(scope, "");
+      const destination = this.draft(scope, conversationID);
+      if (!conversationID || source.revision !== revision || destination.revision !== 0) throw new Error("Draft changed before moving to the conversation");
+      this.db.prepare("INSERT INTO drafts VALUES(?,?,?,?,1)").run(scopeKey(scope), conversationID, source.content, JSON.stringify(source.local_file_ids));
+      this.db.prepare(`INSERT INTO drafts VALUES(?,'','','[]',1) ON CONFLICT(scope,conversation_id) DO UPDATE SET
+        content='',local_file_ids='[]',revision=drafts.revision+1`).run(scopeKey(scope));
+      return { source: this.draft(scope, ""), draft: this.draft(scope, conversationID) };
+    });
+  }
+
+  enqueueDraft(scope, conversationID, draftConversationID, revision) {
+    if (draftConversationID !== "" && draftConversationID !== conversationID) throw new Error("Draft belongs to a different conversation");
+    const draft = this.draft(scope, draftConversationID);
+    const task = this.enqueue(scope, conversationID, draft.content, draft.local_file_ids, undefined, undefined,
+      { conversationID: draftConversationID, revision });
+    return { task, draft: this.draft(scope, draftConversationID) };
+  }
+
+  enqueue(scope, conversationID, content, localFileIDs = [], scheduleSpec, recoveringScheduleID, consumedDraft) {
     this.#conversation(scope, conversationID);
     content = boundedText(content, CLIENT_LIMITS.inputBytes, "Input").trim();
     if (!content) throw new Error("Input is empty");
@@ -148,6 +171,8 @@ export class ClientStore {
     const taskID = crypto.randomUUID();
     const now = new Date().toISOString();
     this.#transaction(() => {
+      if (consumedDraft && this.draft(scope, consumedDraft.conversationID).revision !== consumedDraft.revision) throw new Error("Draft changed before submission; review the saved draft");
+      if (recoveringScheduleID && this.scheduledRequest(scope, recoveringScheduleID).state !== "missed") throw new Error("Only an unexecuted missed schedule can run now");
       const history = this.db.prepare("SELECT role,content FROM messages WHERE conversation_id=? ORDER BY rowid DESC LIMIT ?")
         .all(conversationID, CLIENT_LIMITS.contextMessages).reverse();
       const envelope = { schema_version: 1, ...scope, installation_id: this.installationID,
@@ -161,63 +186,120 @@ export class ClientStore {
       this.db.prepare("INSERT INTO messages VALUES(?,?,?,?,?)")
         .run(crypto.randomUUID(), conversationID, "user", content, now);
       this.db.prepare("INSERT INTO tasks(id,conversation_id,request_id,input_digest,context_json,status,created_at) VALUES(?,?,?,?,?,?,?)")
-        .run(taskID, conversationID, requestID, digest, snapshot, scheduleDueAt ? "scheduled_local" : "awaiting_runtime", now);
-      if (scheduleDueAt) this.db.prepare("INSERT INTO schedules(request_id,due_at,state,created_at) VALUES(?,?,?,?)").run(requestID, scheduleDueAt, "saved", now);
+        .run(taskID, conversationID, requestID, digest, snapshot, scheduleSpec ? "scheduled_local" : "awaiting_runtime", now);
+      if (scheduleSpec) {
+        this.db.prepare("INSERT INTO schedule_definitions VALUES(?,?,'active')").run(requestID, scheduleSpec.intervalMS);
+        this.db.prepare("INSERT INTO schedules(request_id,schedule_id,due_at,state,created_at) VALUES(?,?,?,'saved',?)")
+          .run(requestID, requestID, scheduleSpec.dueAt, now);
+      }
       if (recoveringScheduleID) this.db.prepare("UPDATE schedules SET state='run_now',recovery_request_id=? WHERE request_id=?").run(requestID, recoveringScheduleID);
       this.db.prepare("UPDATE conversations SET updated_at=? WHERE id=?").run(now, conversationID);
+      if (consumedDraft) this.db.prepare("UPDATE drafts SET content='',local_file_ids='[]',revision=revision+1 WHERE scope=? AND conversation_id=?")
+        .run(scopeKey(scope), consumedDraft.conversationID);
     });
     // Network submission is deliberately a separate operation. This return is
     // durable local queuing, not server acceptance or completed execution.
-    return { id: taskID, request_id: requestID, status: scheduleDueAt ? "scheduled_local" : "awaiting_runtime", created_at: now };
+    return { id: taskID, request_id: requestID, status: scheduleSpec ? "scheduled_local" : "awaiting_runtime", created_at: now };
   }
 
-  schedule(scope, conversationID, content, dueAt, now = Date.now()) {
+  schedule(scope, conversationID, content, dueAt, now = Date.now(), intervalMS = 0) {
+    const maxDelay = 366 * 24 * 60 * 60 * 1000;
     if (typeof dueAt !== "string" || !Number.isFinite(Date.parse(dueAt)) ||
-        Date.parse(dueAt) <= now || Date.parse(dueAt) > now + 24 * 60 * 60 * 1000) throw new Error("Schedule must be within the next 24 hours");
-    const task = this.enqueue(scope, conversationID, content, [], new Date(dueAt).toISOString());
+        Date.parse(dueAt) <= now || Date.parse(dueAt) > now + maxDelay) throw new Error("Schedule must be within the next 366 days");
+    if (!Number.isSafeInteger(intervalMS) || intervalMS < 0 ||
+        (intervalMS !== 0 && (intervalMS < 60000 || intervalMS > maxDelay))) throw new Error("Schedule interval must be 0 or between one minute and 366 days");
+    const task = this.enqueue(scope, conversationID, content, [], { dueAt: new Date(dueAt).toISOString(), intervalMS });
     return this.scheduledRequest(scope, task.request_id);
   }
 
   scheduledRequest(scope, requestID) {
     const task = this.request(scope, requestID);
-    const schedule = this.db.prepare("SELECT * FROM schedules WHERE request_id=?").get(requestID);
+    const schedule = this.db.prepare(`SELECT s.*,d.interval_ms,d.state AS definition_state FROM schedules s
+      JOIN schedule_definitions d ON d.id=s.schedule_id WHERE s.request_id=?`).get(requestID);
     if (!schedule) throw new Error("Local schedule not found");
     return { ...task, ...schedule };
   }
 
   runScheduledNow(scope, requestID) {
     const schedule = this.scheduledRequest(scope, requestID);
-    if (!["missed", "admission_rejected"].includes(schedule.state)) throw new Error("Only an unexecuted missed schedule can run now");
+    if (schedule.state !== "missed") throw new Error("Only an unexecuted missed schedule can run now");
     return this.enqueue(scope, schedule.conversation_id, JSON.parse(schedule.context_json).messages.at(-1).content, [], undefined, requestID);
   }
 
   schedulePending(scope) {
     return this.db.prepare(`SELECT s.request_id FROM schedules s JOIN tasks t ON t.request_id=s.request_id
       JOIN conversations c ON c.id=t.conversation_id WHERE c.scope=? AND s.state IN
-      ('saved','registering','leased','cancel_pending') ORDER BY s.due_at,s.rowid`).all(scopeKey(scope));
+      ('saved','claimed','submission_pending','cancel_pending') ORDER BY s.due_at,s.rowid`).all(scopeKey(scope));
   }
 
-  markScheduleRegistered(scope, requestID) {
-    this.scheduledRequest(scope, requestID);
-    this.#transaction(() => {
-      this.db.prepare("UPDATE tasks SET explicitly_submitted=1,status='schedule_pending',updated_at=? WHERE request_id=?")
-        .run(new Date().toISOString(), requestID);
-      this.db.prepare("UPDATE schedules SET state='registering' WHERE request_id=?").run(requestID);
+  claimSchedule(scope, requestID, now) {
+    return this.#transaction(() => {
+      const schedule = this.scheduledRequest(scope, requestID);
+      if (schedule.state !== "saved" || schedule.definition_state !== "active" || Date.parse(schedule.due_at) > now) return null;
+      const claim = crypto.randomUUID();
+      // Claim and submission intent are one durable transaction. Only this live
+      // dispatch gets the capability to make the first POST; restart only GETs.
+      this.db.prepare("UPDATE tasks SET explicitly_submitted=1,status='submission_pending',submission_claim=?,updated_at=? WHERE request_id=?")
+        .run(claim, new Date(now).toISOString(), requestID);
+      this.db.prepare("UPDATE schedules SET state='claimed',claimed_at=? WHERE request_id=?").run(new Date(now).toISOString(), requestID);
+      this.#advanceSchedule(schedule, Date.parse(schedule.due_at) + schedule.interval_ms, now);
+      return claim;
     });
-    return this.scheduledRequest(scope, requestID);
   }
 
-  setScheduleState(scope, requestID, state, leaseExpiresAt = null) {
-    this.scheduledRequest(scope, requestID);
-    if (!["saved", "registering", "leased", "cancel_pending", "canceled", "missed", "accepted", "running", "completed", "delivered", "unknown", "delivery_expired", "failed", "admission_rejected", "run_now"].includes(state)) throw new Error("Invalid schedule state");
-    if (leaseExpiresAt !== null && (typeof leaseExpiresAt !== "string" || !Number.isFinite(Date.parse(leaseExpiresAt)))) throw new Error("Invalid schedule lease deadline");
-    this.#transaction(() => {
-      this.db.prepare("UPDATE schedules SET state=?,lease_expires_at=? WHERE request_id=?").run(state, leaseExpiresAt, requestID);
-      if (["missed", "canceled", "admission_rejected"].includes(state)) {
-        this.db.prepare("UPDATE tasks SET status=?,updated_at=? WHERE request_id=?").run(`schedule_${state}`, new Date().toISOString(), requestID);
-      }
+  missUnsentScheduleClaim(scope, requestID, claim) {
+    return this.#transaction(() => {
+      const schedule = this.scheduledRequest(scope, requestID);
+      if (schedule.submission_claim !== claim || schedule.status !== "submission_pending") return;
+      this.db.prepare("UPDATE tasks SET submission_claim=NULL,explicitly_submitted=0,status='schedule_missed' WHERE request_id=?").run(requestID);
+      this.db.prepare("UPDATE schedules SET state='missed',missed_count=1,missed_until=due_at WHERE request_id=?").run(requestID);
     });
-    return this.scheduledRequest(scope, requestID);
+  }
+
+  missSchedule(scope, requestID, now) {
+    return this.#transaction(() => {
+      const schedule = this.scheduledRequest(scope, requestID);
+      if (schedule.state !== "saved" || Date.parse(schedule.due_at) > now) return false;
+      const due = Date.parse(schedule.due_at);
+      const count = schedule.interval_ms ? Math.floor((now - due) / schedule.interval_ms) + 1 : 1;
+      const lastDue = due + (count - 1) * schedule.interval_ms;
+      // A closed-form missed range bounds a years-long offline scan. Every
+      // skipped due time remains derivable from due_at/interval/count; none is queued.
+      this.db.prepare("UPDATE schedules SET state='missed',missed_count=?,missed_until=? WHERE request_id=?")
+        .run(count, new Date(lastDue).toISOString(), requestID);
+      this.db.prepare("UPDATE tasks SET status='schedule_missed',updated_at=? WHERE request_id=?").run(new Date(now).toISOString(), requestID);
+      this.#advanceSchedule(schedule, lastDue + schedule.interval_ms, now);
+      return true;
+    });
+  }
+
+  cancelSchedule(scope, requestID) {
+    return this.#transaction(() => {
+      const schedule = this.scheduledRequest(scope, requestID);
+      this.db.prepare("UPDATE schedule_definitions SET state='canceled' WHERE id=?").run(schedule.schedule_id);
+      this.db.prepare(`UPDATE schedules SET state='canceled' WHERE schedule_id=? AND
+        (state='saved' OR request_id IN (SELECT request_id FROM tasks WHERE submission_claim IS NOT NULL))`).run(schedule.schedule_id);
+      this.db.prepare(`UPDATE tasks SET status='schedule_canceled',submission_claim=NULL WHERE request_id IN
+        (SELECT request_id FROM schedules WHERE schedule_id=? AND state='canceled')`).run(schedule.schedule_id);
+      return this.scheduledRequest(scope, requestID);
+    });
+  }
+
+  #advanceSchedule(schedule, nextDue, now) {
+    if (!schedule.interval_ms) {
+      this.db.prepare("UPDATE schedule_definitions SET state='completed' WHERE id=?").run(schedule.schedule_id);
+      return;
+    }
+    const requestID = crypto.randomUUID();
+    const taskID = crypto.randomUUID();
+    // Recurrence preserves the explicitly saved input/context. It receives a
+    // distinct durable occurrence/request ID, never reuses the prior execution.
+    const snapshot = JSON.stringify({ ...JSON.parse(schedule.context_json), local_task_id: taskID, request_id: requestID });
+    const created = new Date(now).toISOString();
+    this.db.prepare("INSERT INTO tasks(id,conversation_id,request_id,input_digest,context_json,status,created_at) VALUES(?,?,?,?,?,'scheduled_local',?)")
+      .run(taskID, schedule.conversation_id, requestID, hash(snapshot), snapshot, created);
+    this.db.prepare("INSERT INTO schedules(request_id,schedule_id,due_at,state,created_at) VALUES(?,?,?,'saved',?)")
+      .run(requestID, schedule.schedule_id, new Date(nextDue).toISOString(), created);
   }
 
   context(scope, requestID) {
@@ -280,10 +362,14 @@ export class ClientStore {
     return { resolved };
   }
 
-  markSubmitted(scope, requestID) {
+  markSubmitted(scope, requestID, scheduleClaim) {
     return this.#transaction(() => {
       const task = this.request(scope, requestID);
-      if (task.explicitly_submitted) return { first: false, task };
+      if (task.explicitly_submitted) {
+        if (!scheduleClaim || task.submission_claim !== scheduleClaim || task.status !== "submission_pending") return { first: false, task };
+        this.db.prepare("UPDATE tasks SET submission_claim=NULL WHERE request_id=?").run(requestID);
+        return { first: true, task: this.request(scope, requestID) };
+      }
       if (task.status !== "awaiting_runtime") throw new Error("Task cannot be submitted");
       this.db.prepare("UPDATE tasks SET explicitly_submitted=1,status='submission_pending',updated_at=? WHERE request_id=?")
         .run(new Date().toISOString(), requestID);
@@ -308,7 +394,7 @@ export class ClientStore {
     if (receipt) state = receipt.acknowledged ? "delivered" : "saved";
     this.db.prepare("UPDATE tasks SET status=?,updated_at=? WHERE request_id=?")
       .run(state, new Date().toISOString(), requestID);
-    this.db.prepare("UPDATE schedules SET state=? WHERE request_id=? AND state NOT IN ('run_now','missed','admission_rejected')")
+    this.db.prepare("UPDATE schedules SET state=? WHERE request_id=? AND state NOT IN ('run_now','missed')")
       .run(state === "saved" ? "completed" : state, requestID);
     return this.request(scope, requestID);
   }

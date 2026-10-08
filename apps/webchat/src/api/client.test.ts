@@ -54,25 +54,53 @@ describe("documentFileURL", () => {
 });
 
 describe("messageStreamRequestBody", () => {
+  it("loads every page of unresolved request identities", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => null });
+    const base = { schema_version: 1, input_digest: "a".repeat(64), state: "unknown" };
+    const fetch = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ requests: [{ ...base, request_id: "newer" }], next_cursor: "newer" }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ requests: [{ ...base, request_id: "older" }] }) });
+    vi.stubGlobal("fetch", fetch);
+    try {
+      expect((await api.workbenchRequests("session")).map((row) => row.request_id)).toEqual(["newer", "older"]);
+      expect(fetch.mock.calls[1][0]).toContain("attention=1&cursor=newer");
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("preserves the explicit request identity across a lost-response lookup", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => null });
+    const requestID = "11111111-1111-4111-8111-111111111111";
+    const status = { schema_version: 1, request_id: requestID, input_digest: "a".repeat(64), state: "unknown" };
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => status }));
+    vi.stubGlobal("fetch", fetch);
+    try {
+      expect(messageStreamRequestBody("hello", [], "", "", requestID).request_id).toBe(requestID);
+      expect(await api.workbenchRequest("session", requestID)).toEqual(status);
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(fetch.mock.calls[0]).toEqual([expect.stringContaining(`/api/sessions/session/requests/${requestID}`), expect.not.objectContaining({ method: "POST" })]);
+    } finally { vi.unstubAllGlobals(); }
+  });
   it("changes only the final target when an endpoint is selected", () => {
     const attachments = [{ artifact_id: "artifact-file", name: "report.txt", rel_path: "uploads/report.txt" }];
     expect(messageStreamRequestBody("Summarize this report", attachments, "endpoint-selected")).toEqual({
+      request_id: expect.stringMatching(/^[a-f0-9-]{36}$/u),
       content: "Summarize this report",
       attachments,
       target_endpoint_id: "endpoint-selected"
     });
     expect(messageStreamRequestBody("Summarize this report", attachments)).toEqual({
+      request_id: expect.stringMatching(/^[a-f0-9-]{36}$/u),
       content: "Summarize this report",
       attachments
     });
 
     expect(messageStreamRequestBody("", attachments, "endpoint-selected")).toEqual({
+      request_id: expect.stringMatching(/^[a-f0-9-]{36}$/u),
       content: "",
       attachments,
       target_endpoint_id: "endpoint-selected"
     });
 
     expect(messageStreamRequestBody("hello", [], "", "America/New_York")).toEqual({
+      request_id: expect.stringMatching(/^[a-f0-9-]{36}$/u),
       content: "hello",
       attachments: [],
       client_timezone: "America/New_York"
@@ -91,6 +119,7 @@ describe("scheduleActionRequestBody", () => {
   it("sends the browser timezone with schedule mutations", () => {
     const action = { operation: "delete" as const, schedule_id: "schedule-1", expected_updated_at: "2026-08-19T01:00:00Z" };
     expect(scheduleActionRequestBody("Delete schedule", action, "America/New_York")).toEqual({
+      request_id: expect.stringMatching(/^[a-f0-9-]{36}$/u),
       content: "Delete schedule",
       schedule_action: action,
       client_timezone: "America/New_York"

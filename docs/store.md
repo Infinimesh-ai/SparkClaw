@@ -2,11 +2,15 @@
 
 > Language: English | [简体中文](../zh-cn/docs/store.md)
 
-> R3 scope note (2026-09-30): the repositories below describe the implemented
-> backend Store. The [client/backend target](client-backend-architecture-design.md)
-> moves non-mail user history/files to each client and keeps backend mail plus
-> bounded processing/control state. That split and clean-start cutover are pending;
-> legacy test-data migration is excluded. This documentation change does not delete records or implement new API behavior.
+Current source release: follow the [matched workbench release guide](workbench-release.md) for fresh storage, enrollment, API paths and restart behavior; see the [implementation ledger](workbench-convergence-implementation.md) for exact validation boundaries.
+
+WebChat persists its workbench history and files in the deployment host's Store and
+filesystem; desktop persists its own history in SQLite and local files. Sharing an
+execution service does not synchronize their histories. Mail remains authoritative
+in the backend. The repositories below cover the host workbench and authoritative
+services; transient execution content and delivery receipts have separate lifetimes.
+See the [convergence plan](workbench-runtime-convergence-design.md) for the staged
+implementation and fresh-storage cutover. Normal restarts preserve new data.
 
 The Store package is SparkClaw's durable-state boundary. It exposes small,
 typed repositories to business owners, implements those contracts on memory,

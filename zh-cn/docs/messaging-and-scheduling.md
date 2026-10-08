@@ -2,6 +2,8 @@
 
 > 语言： [English](../../docs/messaging-and-scheduling.md) | 简体中文
 
+主机工作台两个消息 POST 入口都要求 UUID `request_id`，可选 `draft_revision` 绑定已保存草稿。执行前持久记录请求身份；丢失响应后通过 `GET /api/sessions/{id}/requests/{request}` 查询，不重放。主机工作台计划遵循[本地轮次规则](workbench-host-scheduler.md)，外部连接器计划保留原契约；API 见[发布指南](workbench-release.md)。
+
 本文档是消息进入、结果 delivery、第三方直接发送和定时消息的当前契约，替代 Message
 Control 迁移、connector/Gateway assembly 计划、Web outbound 设计、worktree 计划和
 定时任务设计记录。

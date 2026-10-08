@@ -3,6 +3,7 @@ import { CLIENT_LIMITS, parseResultPayload } from "./client-store.mjs";
 
 const SERVER_STATES = new Set(["accepted", "running", "completed", "failed", "canceled", "unknown", "delivery_expired", "delivered"]);
 const AUTH_GENERATION = Symbol("execution_auth_generation");
+const CLIENT_LIFETIME = Symbol("execution_client_lifetime");
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
 
 // The main process owns credentials and immutable requests. Timers can only
@@ -14,6 +15,7 @@ export class ExecutionClient {
     this.verifiedApprovals = new Map();
     this.controller = new AbortController();
     this.closed = false;
+    this.lifetime = 0;
   }
 
   start() {
@@ -25,22 +27,25 @@ export class ExecutionClient {
     return this;
   }
 
-  close() { this.closed = true; this.verifiedApprovals.clear(); this.controller.abort(); clearInterval(this.timer); this.timer = undefined; }
+  close() { this.lifetime++; this.closed = true; this.verifiedApprovals.clear(); this.controller.abort(); clearInterval(this.timer); this.timer = undefined; }
 
-  async submit(scope, requestID) {
+  async submit(scope, requestID, { canSubmit = () => true, scheduleClaim } = {}) {
     scope = this.#boundScope(scope);
     return this.#serialized(scope, requestID, async () => {
-      const { first, task } = this.store.markSubmitted(scope, requestID);
+      if (!canSubmit()) throw new Error("Execution submission availability changed");
+      const { first, task } = this.store.markSubmitted(scope, requestID, scheduleClaim);
       if (!first) {
-        const found = await this.#lookup(scope, task);
-        // A user may explicitly retry an unadmitted request with the SAME ID.
-        // A persisted unknown fence or terminal state never reaches this path.
-        if (found || task.status !== "submission_pending") return this.#view(scope, requestID);
+        // Even a 404 cannot prove that a lost admission had no external effect.
+        // Explicit buttons and background recovery both reconcile the original
+        // request; another execution always requires a new user request ID.
+        await this.#lookup(scope, task);
+        return this.#view(scope, requestID);
       }
       try {
-        await this.#uploadInputs(scope, task);
-        const response = await this.#fetch(scope, "/api/r3/executions", {
-          method: "POST", headers: { "Content-Type": "application/json", "X-R3-Digest": task.input_digest }, body: task.context_json,
+        if (JSON.parse(task.context_json).input_files?.length) await this.#uploadInputs(scope, task);
+        if (!canSubmit()) throw new Error("Execution submission availability changed");
+        const response = await this.#fetch(scope, "/api/v1/executions", {
+          method: "POST", headers: { "Content-Type": "application/json", "X-SparkClaw-Digest": task.input_digest }, body: task.context_json,
         });
         if (!response.ok) {
           await response.body?.cancel();
@@ -75,7 +80,7 @@ export class ExecutionClient {
       if (!task.explicitly_submitted || !["submission_pending", "accepted", "running", "cancel_pending"].includes(task.status)) throw new Error("Task cannot be canceled");
       this.store.setExecutionState(scope, requestID, "cancel_pending");
       try {
-        const response = await this.#fetch(scope, `/api/r3/executions/${requestID}/cancel`, {
+        const response = await this.#fetch(scope, `/api/v1/executions/${requestID}/cancel`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
         });
         if (!response.ok) { await response.body?.cancel(); throw new Error("Execution cancellation is awaiting reconciliation"); }
@@ -117,7 +122,7 @@ export class ExecutionClient {
       this.store.approvalDecision(scope, requestID, approvalID, digest, decision);
       this.onChange();
       try {
-        const response = await this.#fetch(scope, `/api/r3/executions/${requestID}/approvals/${encodeURIComponent(approvalID)}`, {
+        const response = await this.#fetch(scope, `/api/v1/executions/${requestID}/approvals/${encodeURIComponent(approvalID)}`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ digest, decision }),
         });
         if (!response.ok) { await response.body?.cancel(); throw new Error("Approval decision is awaiting reconciliation"); }
@@ -153,7 +158,7 @@ export class ExecutionClient {
   async #lookup(scope, task) {
     const receipt = this.store.receipt(scope, task.request_id);
     if (receipt && !receipt.acknowledged) { await this.#ack(scope, receipt); return true; }
-    const response = await this.#fetch(scope, `/api/r3/executions/${task.request_id}`);
+    const response = await this.#fetch(scope, `/api/v1/executions/${task.request_id}`);
     if (response.status === 404) { this.verifiedApprovals.delete(task.request_id); await response.body?.cancel(); return false; }
     if (!response.ok) { await response.body?.cancel(); throw new Error("Execution status is unavailable"); }
     await this.#accept(scope, task, await json(response));
@@ -185,7 +190,7 @@ export class ExecutionClient {
     for (const manifest of payload.files) {
       bytes += manifest.size;
       if (bytes > CLIENT_LIMITS.resultBytes) throw new Error("Delivery exceeds result budget");
-      const response = await this.#fetch(scope, `/api/r3/executions/${task.request_id}/files/${encodeURIComponent(manifest.id)}`);
+      const response = await this.#fetch(scope, `/api/v1/executions/${task.request_id}/files/${encodeURIComponent(manifest.id)}`);
       if (!response.ok) { await response.body?.cancel(); throw new Error("Delivered file is unavailable"); }
       const content = new Uint8Array(await response.arrayBuffer());
       if (content.byteLength !== manifest.size || sha256(content) !== manifest.sha256) throw new Error("Delivered file verification failed");
@@ -201,8 +206,8 @@ export class ExecutionClient {
     for (const manifest of envelope.input_files || []) {
       const file = this.store.file(scope, manifest.id);
       if (file.content.byteLength !== manifest.size || sha256(file.content) !== manifest.sha256) throw new Error("Local input file verification failed");
-      const response = await this.#fetch(scope, `/api/r3/inputs/${task.request_id}/files/${manifest.id}`, {
-        method: "PUT", headers: { "Content-Type": "application/octet-stream", "X-R3-Digest": manifest.sha256,
+      const response = await this.#fetch(scope, `/api/v1/inputs/${task.request_id}/files/${manifest.id}`, {
+        method: "PUT", headers: { "Content-Type": "application/octet-stream", "X-SparkClaw-Digest": manifest.sha256,
           "X-SparkClaw-Installation": this.store.installationID }, body: file.content,
       });
       if (!response.ok) { await response.body?.cancel(); throw new Error("Input file upload was not accepted"); }
@@ -214,7 +219,7 @@ export class ExecutionClient {
     this.#sameIdentity(scope);
     // Reverify disk contents immediately before exposing a durable ACK.
     this.store.receipt(scope, receipt.request_id);
-    const response = await this.#fetch(scope, `/api/r3/executions/${receipt.request_id}/ack`, {
+    const response = await this.#fetch(scope, `/api/v1/executions/${receipt.request_id}/ack`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sequence: receipt.sequence, digest: receipt.digest, durable: true }),
     });
@@ -229,15 +234,16 @@ export class ExecutionClient {
     if (this.closed || this.auth.status.state !== "connected") throw new Error("Execution backend is unavailable; your input is preserved");
     const headers = new Headers(init?.headers);
     headers.set("X-SparkClaw-Installation", this.store.installationID);
-    return this.auth.authorizedR3Fetch(`${this.auth.descriptor.origin}${route}`, { ...init, headers, signal: this.controller.signal });
+    return this.auth.authorizedExecutionFetch(`${this.auth.descriptor.origin}${route}`, { ...init, headers, signal: this.controller.signal });
   }
   #sameIdentity(scope) {
     const current = this.getIdentity();
     if (this.closed || !current || JSON.stringify([scope.deployment_id, scope.owner_id, scope.client_id]) !==
         JSON.stringify([current.deployment_id, current.owner_id, current.client_id]) ||
-        (Object.hasOwn(scope, AUTH_GENERATION) && scope[AUTH_GENERATION] !== this.auth.generation)) throw new Error("Execution authentication changed");
+        (Object.hasOwn(scope, AUTH_GENERATION) && scope[AUTH_GENERATION] !== this.auth.generation) ||
+        (Object.hasOwn(scope, CLIENT_LIFETIME) && scope[CLIENT_LIFETIME] !== this.lifetime)) throw new Error("Execution authentication changed");
   }
-  #boundScope(scope) { return { ...scope, [AUTH_GENERATION]: this.auth.generation }; }
+  #boundScope(scope) { return { ...scope, [AUTH_GENERATION]: this.auth.generation, [CLIENT_LIFETIME]: this.lifetime }; }
   #view(scope, requestID) {
     const task = this.store.request(scope, requestID);
     return { id: task.id, request_id: task.request_id, status: task.status,

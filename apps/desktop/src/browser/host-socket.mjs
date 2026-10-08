@@ -8,7 +8,7 @@ import { EventEmitter } from "node:events";
 export function connectPinnedHostSocket(descriptor, headers, { signal } = {}) {
   if (descriptor.schemaVersion !== 2) return Promise.reject(new Error("Browser host requires pinned HTTPS LAN configuration"));
   return new Promise((resolve, reject) => {
-    const url = new URL("/api/r3/hosts/connect", descriptor.origin);
+    const url = new URL("/api/v1/browser/hosts/connect", descriptor.origin);
     if (url.protocol !== "https:" || url.origin !== descriptor.origin) return reject(new Error("Browser host origin is invalid"));
     const key = crypto.randomBytes(16).toString("base64");
     const request = https.request(url, {

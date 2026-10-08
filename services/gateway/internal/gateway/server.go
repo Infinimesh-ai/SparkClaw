@@ -17,22 +17,22 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/binding"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browsercontrol"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserhost"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailmanagement"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationconfig"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscppairing"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiruntime"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mailsync"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpaccess"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpintegration"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/r3browser"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/r3execution"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/r3mail"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
@@ -67,13 +67,12 @@ type Repository interface {
 }
 
 type Server struct {
-	r3Broker                  *r3browser.Broker
-	r3Mail                    *r3mail.Service
-	r3Schedules               *r3ScheduleRegistry
-	r3Mu                      sync.Mutex
-	r3Root                    string
-	r3Executor                r3execution.Executor
-	r3Executions              *r3execution.Service
+	browserBroker             *browserhost.Broker
+	mailSync                  *mailsync.Service
+	executionMu               sync.Mutex
+	executionRoot             string
+	executionExecutor         execution.Executor
+	executions                *execution.Service
 	cfg                       config.Config
 	store                     Repository
 	tools                     *toolhub.ToolHub
@@ -301,7 +300,7 @@ func NewWithTrace(cfg config.Config, st Repository, tools *toolhub.ToolHub, runt
 		models:                  modelrouter.New(cfg),
 		traces:                  traces,
 		artifacts:               artifacts,
-		policies:                policy.New(cfg),
+		policies:                runtime.PolicyEngine(),
 		speech:                  speech.NewDisabled(cfg.Speech),
 		mux:                     http.NewServeMux(),
 		started:                 time.Now().UTC(),
@@ -316,6 +315,9 @@ func NewWithTrace(cfg config.Config, st Repository, tools *toolhub.ToolHub, runt
 		workbenchEvents:         newWorkbenchEventHub(),
 	}
 	s.streamMessage = func(ctx context.Context, sessionID, content string, attachments []agent.MessageAttachment, ingress app.MessageIngressContext, emit agent.StreamHandler) (agent.Result, error) {
+		if admission, ok := ctx.Value(admittedWorkbenchKey{}).(*execution.WorkbenchLease); ok {
+			return s.runtime.HandleAdmittedWorkbenchMessage(ctx, sessionID, admission.InputMessageID, admission.RunID, content, attachments, ingress, nil, emit)
+		}
 		return s.runtime.HandleMessageStreamWithIngress(ctx, sessionID, content, attachments, ingress, emit)
 	}
 	for _, option := range options {
@@ -342,11 +344,11 @@ func NewWithTrace(cfg config.Config, st Repository, tools *toolhub.ToolHub, runt
 			return s.connectors.Enabled(ownerID, "mcp")
 		})
 	}
-	if s.r3Mail == nil && s.emailManagement != nil {
-		root, _ := filepath.Abs(s.cfg.State.Path + ".r3/mail")
-		service, err := r3mail.New(root, r3mail.Repository{OwnerStatus: s.emailManagement.ClientSyncOwnerStatus, Mailbox: s.emailManagement.ClientSyncMailbox, Mailboxes: s.emailManagement.ClientSyncMailboxes}, s.emailManagement)
+	if s.mailSync == nil && s.emailManagement != nil {
+		root, _ := filepath.Abs(s.cfg.State.Path + ".mailsync")
+		service, err := mailsync.New(root, mailsync.Repository{OwnerStatus: s.emailManagement.ClientSyncOwnerStatus, Mailbox: s.emailManagement.ClientSyncMailbox, Mailboxes: s.emailManagement.ClientSyncMailboxes}, s.emailManagement)
 		if err == nil {
-			s.r3Mail = service
+			s.mailSync = service
 		}
 	}
 	s.routes()
@@ -424,9 +426,9 @@ func (s *Server) WaitForBackgroundWork(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
 		s.streamWG.Wait()
-		s.r3Mu.Lock()
-		executions := s.r3Executions
-		s.r3Mu.Unlock()
+		s.executionMu.Lock()
+		executions := s.executions
+		s.executionMu.Unlock()
 		if executions != nil {
 			executions.Wait()
 		}
@@ -444,10 +446,9 @@ func (s *Server) WaitForBackgroundWork(ctx context.Context) error {
 }
 
 func (s *Server) routes() {
-	s.registerR3ExecutionRoutes()
-	s.registerR3MailRoutes()
-	s.registerR3ScheduleRoutes()
-	s.registerR3HostRoutes()
+	s.registerExecutionRoutes()
+	s.registerMailSyncRoutes()
+	s.registerBrowserHostRoutes()
 	s.mux.HandleFunc("GET /healthz", s.healthz)
 	s.mux.HandleFunc("GET /readyz", s.readyz)
 	s.mux.HandleFunc("GET /metrics", s.metrics)
@@ -531,6 +532,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/deliveries/{id}", s.getDelivery)
 	s.mux.HandleFunc("POST /api/deliveries/{id}/retry", s.retryDelivery)
 	s.mux.HandleFunc("GET /api/message-history", s.listMessageHistory)
+	s.mux.HandleFunc("GET /api/sessions/{id}/draft", s.getWorkbenchDraft)
+	s.mux.HandleFunc("PUT /api/sessions/{id}/draft", s.saveWorkbenchDraft)
+	s.mux.HandleFunc("GET /api/workbench/draft", s.getWorkbenchDraft)
+	s.mux.HandleFunc("PUT /api/workbench/draft", s.saveWorkbenchDraft)
 	s.mux.HandleFunc("GET /api/schedules", s.listCurrentSchedules)
 	s.mux.HandleFunc("POST /api/schedules", s.createSchedule)
 	s.mux.HandleFunc("GET /api/sessions", s.listSessions)
@@ -541,6 +546,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/sessions/{id}/messages", s.listMessages)
 	s.mux.HandleFunc("POST /api/sessions/{id}/messages/stream", s.postMessageStream)
 	s.mux.HandleFunc("POST /api/sessions/{id}/messages", s.postMessage)
+	s.mux.HandleFunc("GET /api/sessions/{id}/requests/{request}", s.getWorkbenchRequest)
+	s.mux.HandleFunc("GET /api/sessions/{id}/requests", s.listWorkbenchRequests)
+	s.mux.HandleFunc("POST /api/sessions/{id}/requests/{request}/cancel", s.cancelWorkbenchRequest)
 	s.mux.HandleFunc("GET /api/sessions/{id}/events", s.listEvents)
 	s.mux.HandleFunc("GET /api/sessions/{id}/events/stream", s.streamSessionEvents)
 	s.mux.HandleFunc("GET /api/jingsi/v0/readyz", s.jingSiLANGuard(s.readyJingSiLAN))

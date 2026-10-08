@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/workbench-runtime-convergence-design.md)
 
-Date: 2026-10-06. Status: product direction confirmed; technical refactoring plan proposed, implementation pending. Source baseline: local `main` at `9b92968d`. A source revision does not establish the version of a running service or installed application.
+Date: 2026-10-06. Status: merged into local `main` on 2026-10-08 from `codex/workbench-runtime-convergence`; source verification and release limits are recorded in the [implementation ledger](workbench-convergence-implementation.md). Production cutover is not performed. Source baseline: local `main` at `9b92968d`. A source revision does not establish the version of a running service or installed application.
 
 SparkClaw keeps both WebChat and desktop workbenches. Both own local persistence and use the same business execution model. WebChat's local data resides on its deployment host, alongside the execution service; desktop data resides on the desktop host. Physical placement and connection methods do not define separate business architectures.
 
@@ -28,9 +28,9 @@ Separate browser tabs accessing the same authorized WebChat workspace continue t
 
 Co-location does not authorize the execution core to read arbitrary workbench history or files. The workbench supplies the admitted context and resources through explicit boundaries, whether the transfer is local or remote. Shared semantics do not require the same database engine, wire transport, process or operating-system facilities.
 
-## 2. Current implementation and gaps
+## 2. Starting implementation and gaps
 
-The following is a source inventory, not a deployed-service acceptance record.
+The following preserves the `9b92968d` source inventory before this refactor. Old paths and limits in this table are baseline evidence, not current usage instructions. See the [release guide](workbench-release.md) for current paths and initialization.
 
 | Area | Current source | Refactoring gap |
 |---|---|---|
@@ -49,7 +49,7 @@ Historical source delivery, main merge, deployment and hardware qualification ar
 
 ## 3. Target responsibilities
 
-The following names describe proposed responsibilities, not interfaces already implemented. Prefer existing packages and narrow interfaces over a new general-purpose framework.
+The following responsibilities are implemented through the existing packages and adapters; see the implementation ledger for concrete source entry points and capability boundaries. Prefer existing packages and narrow interfaces over a new general-purpose framework.
 
 | Responsibility | Owns | Boundary |
 |---|---|---|
@@ -152,9 +152,9 @@ Remove `/api/r3/schedules/*` lease registration/renewal/cancel handling for work
 
 ## 7. Code names and API convergence
 
-Use business responsibilities in new names. The following mapping is a proposed implementation starting point, subject to package-boundary review in phase 0.
+Use business responsibilities in new names. The following records the completed mapping from the source baseline.
 
-| Current name | Proposed direction |
+| Baseline name | Implemented direction |
 |---|---|
 | `internal/r3execution` | `internal/execution`, owning admitted work and result delivery |
 | `internal/r3browser` | `internal/browserhost`, owning host broker/transport/authority |
@@ -166,9 +166,9 @@ Use business responsibilities in new names. The following mapping is a proposed 
 
 Keep real version identifiers: Workflow/profile `r3` revisions, schema versions, `sparkclaw-connect-v1`, historical acceptance IDs and frozen external protocols are not branch-name cleanup targets. Rename branch-derived persistent paths as part of this cutover. Maintain a reviewed list of genuine revision/historical/external references instead of requiring zero `r3` matches.
 
-Proposed canonical routes use `/api/v1` with responsibility-based resources, rather than an R3 or desktop namespace:
+Current canonical routes use `/api/v1` with responsibility-based resources, rather than an R3 or desktop namespace:
 
-| Existing route family | Proposed canonical family |
+| Retired route family | Current canonical family |
 |---|---|
 | `/api/r3/installations` | `/api/v1/installations` |
 | `/api/r3/inputs/...` | `/api/v1/inputs/...` |
@@ -178,7 +178,7 @@ Proposed canonical routes use `/api/v1` with responsibility-based resources, rat
 | `/api/r3/schedules/...` | Remove the future-lease API; workbench-local scheduling submits due work through `/api/v1/executions` |
 | `X-R3-Digest` | `X-SparkClaw-Digest` |
 
-These names are proposals, not available endpoints or accepted external contracts. Workbench schedule CRUD belongs to its host API or desktop IPC adapter; it does not require a new backend future-lease API. Existing `/api/sessions/*` workbench CRUD and message projections are not automatically aliases for execution submission. Inventory all consumers before deciding their long-term resource layout; unrelated `/api/*` surfaces need no simultaneous version migration.
+The canonical product routes are implemented together with their callers; retired routes are unavailable. This changes no accepted external contract. Workbench schedule CRUD belongs to its host API or desktop IPC adapter; it does not require a new backend future-lease API. Existing `/api/sessions/*` workbench CRUD and message projections are not automatically aliases for execution submission. Inventory all consumers before deciding their long-term resource layout; unrelated `/api/*` surfaces need no simultaneous version migration.
 
 Use one coordinated development cutover:
 
@@ -236,7 +236,7 @@ Run common behavior scenarios through both persistence adapters. Compare domain 
 | Retention | Temporary cleanup cannot delete either workbench's local history; result expiry is absolute; mail and required external ledgers keep their contracts |
 | Documentation | Bilingual mirrors and local links pass; current guides match source, deployment evidence and remaining acceptance limits |
 
-During code implementation run affected Go/desktop/WebChat tests per phase. Completion requires the engineering baseline's Go build/vet/full tests, applicable race checks, desktop/WebChat tests and builds, relevant native qualifications, new API/clean-start checks and bilingual documentation checks. Set up declared document-tool dependencies before interpreting ToolHub failures. Default file-backed behavior must be covered alongside affected Memory/PostgreSQL paths. The present documentation-only change requires documentation/link checks and diff review, not a runtime deployment.
+During code implementation run affected Go/desktop/WebChat tests per phase. Completion requires the engineering baseline's Go build/vet/full tests, applicable race checks, desktop/WebChat tests and builds, relevant native qualifications, new API/clean-start checks and bilingual documentation checks. Set up declared document-tool dependencies before interpreting ToolHub failures. Default file-backed behavior must be covered alongside affected Memory/PostgreSQL paths. Source validation results are recorded in the implementation ledger; no production deployment is part of this change.
 
 If a development release fails, stop it and restore one matched workbench/service build with a fresh, version-appropriate development dataset, or fix forward. Do not build cross-version schema recovery or old-device compatibility. Stop or cancel owned work before replacing the environment; uncertain external effects remain uncertain, and old tasks must not be replayed after reset. Normal runtime recovery within the selected release still uses its durable request/receipt records.
 
@@ -246,4 +246,4 @@ This plan proposes SparkClaw-internal convergence. It changes no accepted JingSi
 
 Before a change affects another project or an external contract, follow the root AGENTS protocol: inspect InfiniCenter contracts and outstanding reviews, file the decision, obtain accepted status, then update contract and qualification together. Record externally visible progress in `clusters/ProjectGroup-2/status/sparkclaw.md`.
 
-Coordination status for this draft: no local InfiniCenter checkout was found, and the attempted `GB10` SSH name could not be resolved. Central inbox, proposed decisions and current contracts have not been verified or updated. This draft records the local product discussion only and makes no cross-project acceptance claim. Restore access and complete that check in phase 0 before any externally observable implementation or contract change.
+Phase 0 coordination (2026-10-06): InfiniCenter is accessible through the known Linux host at `/home/infinimesh/InfiniCenter`. The cluster registry, empty SparkClaw inbox, central C0001 and accepted JingSi/App-CLI/IMMS contracts were checked. A SparkClaw review was appended to 0031, which remains proposed. This implementation changes only internal workbench behavior and does not alter external schemas, result/event retention, journals or evidence obligations. No counterpart code changes are required for that scope.

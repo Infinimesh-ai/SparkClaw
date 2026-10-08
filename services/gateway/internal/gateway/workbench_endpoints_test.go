@@ -659,7 +659,7 @@ func TestSessionMessageAdmissionRejectsConcurrentSubmission(t *testing.T) {
 	}
 
 	firstContext, cancelFirst := context.WithCancel(context.Background())
-	firstRequest := httptest.NewRequest(http.MethodPost, "/api/sessions/"+session.ID+"/messages/stream", strings.NewReader(`{"content":"first"}`)).WithContext(firstContext)
+	firstRequest := httptest.NewRequest(http.MethodPost, "/api/sessions/"+session.ID+"/messages/stream", strings.NewReader(`{"request_id":"11111111-1111-4111-8111-111111111111","content":"first"}`)).WithContext(firstContext)
 	firstRequest.SetPathValue("id", session.ID)
 	firstResponse := httptest.NewRecorder()
 	firstDone := make(chan struct{})
@@ -679,7 +679,7 @@ func TestSessionMessageAdmissionRejectsConcurrentSubmission(t *testing.T) {
 		t.Fatal("disconnected stream handler did not return")
 	}
 
-	secondRequest := httptest.NewRequest(http.MethodPost, "/api/sessions/"+session.ID+"/messages/stream", strings.NewReader(`{"content":"second"}`))
+	secondRequest := httptest.NewRequest(http.MethodPost, "/api/sessions/"+session.ID+"/messages/stream", strings.NewReader(`{"request_id":"22222222-2222-4222-8222-222222222222","content":"second"}`))
 	secondRequest.SetPathValue("id", session.ID)
 	secondResponse := httptest.NewRecorder()
 	server.postMessageStream(secondResponse, secondRequest)

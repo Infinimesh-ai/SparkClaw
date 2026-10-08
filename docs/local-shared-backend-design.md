@@ -4,6 +4,8 @@
 >
 > Date: 2026-09-22 (Asia/Shanghai). Status: implementation complete and isolated qualification passed. Production deployment, real-device microphone/HTTPS acceptance, and release cutover remain separately authorized activities; this document is not a production deployment claim.
 
+> Historical design: current workbench behavior and clean-start paths are defined by the [architecture](architecture.md), [implementation ledger](workbench-convergence-implementation.md) and [release guide](workbench-release.md). The dated rationale and qualification evidence below remain historical.
+
 > R3 target update (2026-09-30): this document is the implemented shared-state baseline,
 > not the future data-ownership rule. R3 also requires SparkClaw credential unlock on
 > each client's first login; preprovisioned automatic login below is not the new rule.

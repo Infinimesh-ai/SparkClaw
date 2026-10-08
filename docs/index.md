@@ -2,10 +2,14 @@
 
 > Language: English | [简体中文](../zh-cn/docs/index.md)
 
-This index distinguishes the implemented runtime, proposed refactoring and dated
+- [Workbench implementation](workbench-convergence-implementation.md) — source changes, validation and reviewed historical references.
+- [Matched workbench release](workbench-release.md) — fresh initialization, API/storage paths and recovery.
+- [Drafts](workbench-drafts.md), [host schedules](workbench-host-scheduler.md), [desktop schedules](desktop-scheduling.md) — implemented persistence and due-time semantics.
+
+This index distinguishes the implemented runtime, source release and dated
 qualification evidence. WebChat and desktop are normal workbench deployments:
 both own local persistence, with WebChat data colocated with the execution service.
-The convergence plan below records the confirmed model and remaining implementation work.
+The design and implementation ledger below record the confirmed model and release evidence.
 
 - [Client R3 implementation and acceptance](client-r3-implementation.md) — historical phase ledger and source handoff; subsequent merge/deployment evidence is linked from that record.
 
@@ -15,7 +19,7 @@ The convergence plan below records the confirmed model and remaining implementat
 |---|---|---|
 | [README](../README.md) | Project overview, quick start, and current status | Product entry point |
 | [Architecture](architecture.md) | Current implementation, runtime topology and workbench ownership | Implementation source of truth |
-| [Workbench and execution service convergence](workbench-runtime-convergence-design.md) | Shared business processing, host/desktop local persistence, neutral names, direct API cutover, fresh initialization and acceptance | Product direction confirmed; refactoring pending |
+| [Workbench and execution service convergence](workbench-runtime-convergence-design.md) | Shared business processing, host/desktop local persistence, neutral names, direct API cutover, fresh initialization and acceptance | Implemented on main; qualification limits in the implementation ledger |
 | [Client and backend architecture R3](client-backend-architecture-design.md) | Original client ownership, LAN, embedded control and cutover design | Historical design; read its current applicability note and subsequent evidence |
 | [Deployment](deployment.md) | Local, Compose, DGX Spark, state, backup, and troubleshooting | Operator guide |
 | [Development](development.md) | Repository map, implementation rules, validation, and extension workflow | Contributor guide |
@@ -34,12 +38,12 @@ The convergence plan below records the confirmed model and remaining implementat
 | [Model input and output capacity contract](model-capacity-contract-design.md) | Accepted physical-window and output-capability-class contract, oversized-question rejection, final admission, completion handling, and fail-fast profile authority |
 | [Messaging and scheduling](messaging-and-scheduling.md) | Message ingress, Endpoint/Schedule registries, Delivery Gateway, Web direct sends, and Timer execution |
 | [Browser runtime](browser-runtime.md) | Current persistent Chromium, SparkClaw Browser Bridge, owner-scoped Controller, task-tab ownership, login handoff, deployment, and security |
-| [Desktop client and embedded browser design](desktop-client-embedded-browser-design.md) | Existing Electron/native-view implementation and Controller / Playwright adapter baseline; R3 adds client-local storage and LAN host control, still pending |
+| [Desktop client and embedded browser design](desktop-client-embedded-browser-design.md) | Existing Electron/native-view implementation and Controller / Playwright adapter baseline; client-local storage and LAN host control are implemented; current ownership is in the architecture guide |
 | [Electron desktop browser implementation handoff](desktop-electron-implementation-handoff.md) | Implemented phase record, code entry points, qualification evidence, and remaining owner acceptance gates |
 | [Desktop release and cutover plan](desktop-release-plan.md) | Candidate hashes, install/update/uninstall policy, target-host acceptance, atomic cutover, and whole-release rollback |
 | [Web and desktop shared local backend design](local-shared-backend-design.md) | Implemented baseline: shared Gateway/PostgreSQL and client refresh; R3 replaces shared non-mail storage and loopback-only desktop placement |
-| [macOS desktop design R3](macos-lan-desktop-design.md) | Reassesses R2.1/R2.2: local non-mail data, backend mail sync, LAN identity and unified embedded-only browser control; implementation pending |
-| [Mac source synchronization and connection guide](macos-connection-guide.md) | Git source delivery for user-run Mac synchronization/builds; no Mac builds in the current environment; commit-specific R3 connection and hardware qualification |
+| [macOS desktop design R3](macos-lan-desktop-design.md) | Reassesses R2.1/R2.2: local non-mail data, backend mail sync, LAN identity and unified embedded-only browser control; historical design; scoped native evidence and remaining hardware gates |
+| [Mac source synchronization and connection guide](macos-connection-guide.md) | Matched Mac source/build commands; commit-specific connection and hardware qualification |
 | [Export AI platform conversations: login and workspace persistence](ai-conversation-export-design.md) | Four AI-provider branches alongside browser/document; listen for userscript downloads, preserve original JSON in session workspace and return receipts |
 | [AI conversation timeline batch export](ai-conversation-batch-export.md) | RevivalStack batch controls, native Bridge CLI, verified file checkpoints, discovered collections and coverage limits |
 | [Playwright Extension browser migration design](playwright-extension-browser-design.md) | Completed migration design and acceptance record for the Browser Bridge MCP and deterministic CLI lanes |

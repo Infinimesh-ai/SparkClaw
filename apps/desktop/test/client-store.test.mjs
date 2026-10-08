@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { ClientStore, CLIENT_LIMITS, boundedContext } from "../src/main/client-store.mjs";
+import { ClientStore, CLIENT_SCHEMA_VERSION, CLIENT_LIMITS, boundedContext } from "../src/main/client-store.mjs";
 
 const scope = { deployment_id: "deployment_test", owner_id: "owner_test", client_id: "client_test" };
 function fixture(t) {
@@ -56,7 +56,7 @@ test("message, immutable context and request key commit together; disk failure n
 });
 
 test("context is bounded by bytes/count and cannot carry authorization roles", (t) => {
-  const history = Array.from({ length: 80 }, (_, i) => ({ role: "user", content: `${i}: ${"中".repeat(5000)}` }));
+  const history = Array.from({ length: 80 }, (_, i) => ({ role: "user", content: `${i}: ${"中".repeat(Math.floor((CLIENT_LIMITS.inputBytes - 10) / 3))}` }));
   const context = boundedContext(history);
   assert.ok(context.length < CLIENT_LIMITS.contextMessages);
   assert.ok(Buffer.byteLength(JSON.stringify(context)) <= CLIENT_LIMITS.contextBytes);
@@ -109,13 +109,13 @@ test("local files are atomic, hash verified, owner scoped, and never expose arbi
   store.close();
 });
 
-test("newer schemas and insecure/symlink storage fail closed without deleting user data", (t) => {
+test("unsupported schemas and insecure/symlink storage fail closed without deleting user data", (t) => {
   const root = fixture(t);
   let store = new ClientStore(root);
   store.create(scope, "preserve");
-  store.db.exec("PRAGMA user_version=5");
+  store.db.exec(`PRAGMA user_version=${CLIENT_SCHEMA_VERSION + 1}`);
   store.close();
-  assert.throws(() => new ClientStore(root), /newer/);
+  assert.throws(() => new ClientStore(root), /unsupported/);
   const db = new DatabaseSync(path.join(root, "client.sqlite"));
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM conversations").get().n, 1);
   db.close();
@@ -126,35 +126,17 @@ test("newer schemas and insecure/symlink storage fail closed without deleting us
   assert.throws(() => new ClientStore(symlink), /private/);
 });
 
-test("schema 1 upgrade preserves installation and saved requests without enabling replay", (t) => {
+test("old development schemas are rejected without migration, import or deletion", (t) => {
   const root = fixture(t);
-  const databasePath = path.join(root, "client.sqlite");
-  fs.closeSync(fs.openSync(databasePath, "wx", 0o600));
-  const db = new DatabaseSync(databasePath);
-  const installation = crypto.randomUUID();
-  const conversation = crypto.randomUUID();
-  const task = crypto.randomUUID();
-  const request = crypto.randomUUID();
-  const envelope = JSON.stringify({ schema_version: 1, ...scope, installation_id: installation,
-    local_conversation_id: conversation, local_task_id: task, request_id: request, messages: [{ role: "user", content: "saved before upgrade" }] });
-  db.exec(`CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);
-    CREATE TABLE conversations(id TEXT PRIMARY KEY,scope TEXT NOT NULL,title TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
-    CREATE TABLE messages(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id),role TEXT NOT NULL,content TEXT NOT NULL,created_at TEXT NOT NULL);
-    CREATE TABLE tasks(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id),request_id TEXT UNIQUE NOT NULL,input_digest TEXT NOT NULL,context_json TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL);
-    CREATE TABLE files(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id),name TEXT NOT NULL,sha256 TEXT NOT NULL,size INTEGER NOT NULL,created_at TEXT NOT NULL);
-    CREATE TABLE deliveries(request_id TEXT NOT NULL REFERENCES tasks(request_id),sequence INTEGER NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(request_id,sequence));
-    PRAGMA user_version=1;`);
-  db.prepare("INSERT INTO metadata VALUES('installation_id',?)").run(installation);
-  db.prepare("INSERT INTO conversations VALUES(?,?,?,?,?)").run(conversation, JSON.stringify(Object.values(scope)), "prior conversation", "", "");
-  db.prepare("INSERT INTO tasks VALUES(?,?,?,?,?,?,?)").run(task, conversation, request, digest(envelope), envelope, "awaiting_runtime", "");
-  db.close();
   const store = new ClientStore(root);
-  assert.equal(store.installationID, installation);
-  assert.equal(store.request(scope, request).context_json, envelope);
-  assert.equal(store.request(scope, request).explicitly_submitted, 0);
-  assert.deepEqual(store.pending(scope), []);
-  assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 4);
+  const conversation = store.create(scope, "preserve old directory");
+  store.db.exec("PRAGMA user_version=4");
   store.close();
+  assert.throws(() => new ClientStore(root), /unsupported/);
+  const db = new DatabaseSync(path.join(root, "client.sqlite"));
+  assert.equal(db.prepare("PRAGMA user_version").get().user_version, 4);
+  assert.equal(db.prepare("SELECT title FROM conversations WHERE id=?").get(conversation.id).title, "preserve old directory");
+  db.close();
 });
 
 test("large assistant output is bounded safely in future context without changing the local result", (t) => {

@@ -51,7 +51,7 @@ var migratedFileAdmissions = map[string]string{
 	"AddMemoryCandidate": "admitMigrated", "ResolveMemoryCandidate": "admitMigrated", "ListMemoryCandidates": "admitMigrated",
 	"SearchMemories": "admitMigrated", "UpdateMemory": "admitMigrated", "DeleteMemory": "admitMigrated", "PruneMemories": "admitMigrated",
 	"SaveReminder": "admitMigrated", "UpdatePendingReminder": "admitMigrated", "GetReminder": "admitMigrated", "ListReminders": "admitMigrated",
-	"ClaimDueReminders": "admitMigrated", "SaveReminderDelivery": "admitMigrated", "ListReminderDeliveries": "admitMigrated",
+	"GetWorkbenchDraft": "admitMigrated", "SaveWorkbenchDraft": "admitMigrated", "AdvanceWorkbenchSchedule": "admitMigrated", "ClaimDueReminders": "admitMigrated", "SaveReminderDelivery": "admitMigrated", "ListReminderDeliveries": "admitMigrated",
 	"CreatePassiveNotification": "admitMigrated", "GetPassiveNotification": "admitMigrated",
 	"ListPassiveNotifications": "admitMigrated", "CountUnreadPassiveNotifications": "admitMigrated",
 	"MarkPassiveNotificationRead": "admitMigrated", "MarkAllPassiveNotificationsRead": "admitMigrated",

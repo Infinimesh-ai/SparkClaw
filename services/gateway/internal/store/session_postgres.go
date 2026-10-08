@@ -42,6 +42,7 @@ type sessionDeleteStatement struct {
 }
 
 var sessionDeleteStatements = []sessionDeleteStatement{
+	{sql: `DELETE FROM workbench_drafts WHERE session_id=$1`},
 	{sql: `DELETE FROM reminder_deliveries WHERE reminder_id IN (SELECT id FROM reminders WHERE session_id=$1)`},
 	{sql: `DELETE FROM run_feedback WHERE session_id=$1`},
 	{sql: `DELETE FROM approvals WHERE session_id=$1`},

@@ -122,7 +122,7 @@ export function ScheduleBar({ schedules, open, loading, busyId, language, text, 
   const [editing, setEditing] = useState<Schedule | null>(null);
   const [deleting, setDeleting] = useState<Schedule | null>(null);
   const [draft, setDraft] = useState<ScheduleEditDraft>({ text: "", dueTime: "", timezone: "", recurrence: "" });
-  const next = schedules[0];
+  const next = schedules.find((schedule) => schedule.status === "pending");
   const patternLabels = {
     oneTime: text.schedules.oneTime,
     daily: text.schedules.daily,
@@ -169,7 +169,7 @@ export function ScheduleBar({ schedules, open, loading, busyId, language, text, 
           <div className="scheduleBarIdentity">
             <Clock3 size={16} />
             <strong>{text.schedules.title}</strong>
-            <span className="scheduleCount">{schedules.length} {text.schedules.activeSuffix}</span>
+            <span className="scheduleCount">{schedules.filter((schedule) => schedule.status !== "missed").length} {text.schedules.activeSuffix}</span>
           </div>
           <p className="scheduleNext">
             {next ? `${text.schedules.nextRun} ${formatScheduleTime(next, language)}` : text.schedules.noCurrent}
@@ -197,7 +197,7 @@ export function ScheduleBar({ schedules, open, loading, busyId, language, text, 
                   <span className="scheduleEndpoint" title={endpoint}>{endpoint}</span>
                   <span className="schedulePattern" title={schedule.recurrence}>{schedulePattern(schedule, patternLabels)}</span>
                   <time dateTime={schedule.due_time}>{formatScheduleTime(schedule, language)}</time>
-                  <span className={`scheduleState ${schedule.status}`}>{schedule.status === "sending" ? text.schedules.statusSending : text.schedules.statusPending}</span>
+                  <span className={`scheduleState ${schedule.status}`}>{schedule.status === "sending" ? text.schedules.statusSending : schedule.status === "missed" ? text.schedules.statusMissed : schedule.status === "submitted" ? text.schedules.statusSubmitted : text.schedules.statusPending}</span>
                   <div className="scheduleRowActions">
                     <button className="miniIconButton" type="button" onClick={() => beginEdit(schedule)} disabled={!schedule.editable || busy} title={schedule.editable ? text.schedules.edit : text.schedules.editUnavailable}>
                       <Pencil size={13} />

@@ -112,7 +112,7 @@ func (s *Server) listCurrentSchedules(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]publicSchedule, 0, len(schedules))
 	for _, schedule := range schedules {
-		if schedule.Status != "pending" && schedule.Status != "sending" {
+		if schedule.Status != "pending" && schedule.Status != "sending" && !(schedule.Spec.WorkbenchOwned && (schedule.Status == "missed" || schedule.Status == "submitted")) {
 			continue
 		}
 		if schedule.Spec.OwnerID != principal.OwnerID || schedule.Spec.ActorID != principal.ActorID {

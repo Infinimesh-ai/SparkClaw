@@ -47,7 +47,7 @@ export type ComposerSurfaceProps = {
   onSend: () => void;
 };
 
-// The composer chrome is shared by the browser/Linux workbench and the R3
+// The composer chrome is shared by the browser/Linux workbench and the workbench
 // desktop adapter. Data operations stay injected so a client-local desktop
 // conversation never has to masquerade as a gateway session just to retain
 // the same presentation.
@@ -108,7 +108,7 @@ export function ComposerSurface({
             : <FileSearch size={15} />}
           <span>{attachment.name || attachment.rel_path}</span>
         </button>
-        <button type="button" className="attachmentRemove" title={text.chat.removeAttachment} onClick={() => onRemoveAttachment(attachment)}><X size={14} /></button>
+        <button type="button" className="attachmentRemove" title={text.chat.removeAttachment} disabled={busy} onClick={() => onRemoveAttachment(attachment)}><X size={14} /></button>
       </div>)}
     </div>}
     <form className="composer" onSubmit={submit}>
@@ -193,6 +193,8 @@ type ComposerDockProps = {
   activeInput: string;
   activeAttachments: MessageAttachment[];
   busy: boolean;
+  canCompose?: boolean;
+  canSend?: boolean;
   voice: ReturnType<typeof useVoiceInput>;
   composerInputRef: MutableRefObject<HTMLTextAreaElement | null>;
   setDraftsBySession: Dispatch<SetStateAction<Record<string, string>>>;
@@ -209,6 +211,8 @@ export function ComposerDock({
   activeInput,
   activeAttachments,
   busy,
+  canCompose = Boolean(activeSession),
+  canSend = canCompose,
   voice,
   composerInputRef,
   setDraftsBySession,
@@ -222,7 +226,6 @@ export function ComposerDock({
   const [documentPickerOpen, setDocumentPickerOpen] = useState(false);
   const [uploadingDocument, setUploadingDocument] = useState(false);
   function stageAttachment(attachment: MessageAttachment) {
-    if (!activeSession) return;
     setAttachmentsBySession((current) => {
       const existing = current[activeSession] ?? [];
       return {
@@ -233,7 +236,7 @@ export function ComposerDock({
   }
 
   async function uploadDocument(file: File | null) {
-    if (!file || !activeSession || uploadingDocument) return;
+    if (!file || uploadingDocument) return;
     try {
       setUploadingDocument(true);
       setError("");
@@ -260,7 +263,7 @@ export function ComposerDock({
   }
 
   async function openDocumentPicker() {
-    if (!activeSession || choosingDocument) return;
+    if (choosingDocument) return;
     try {
       setChoosingDocument(true);
       setError("");
@@ -276,7 +279,6 @@ export function ComposerDock({
   }
 
   function chooseAvailableDocument(document: ArtifactObject) {
-    if (!activeSession) return;
     const attachment: MessageAttachment = {
       artifact_id: document.id,
       name: fileNameFromPath(document.key),
@@ -290,7 +292,6 @@ export function ComposerDock({
   }
 
   function removeAttachment(sessionId: string, attachment: MessageAttachment) {
-    if (!sessionId) return;
     setAttachmentsBySession((current) => ({
       ...current,
       [sessionId]: (current[sessionId] ?? []).filter((item) => item !== attachment)
@@ -300,9 +301,10 @@ export function ComposerDock({
   return (
     <>
       <ComposerSurface text={text} language={language} activeSession={activeSession} activeInput={activeInput}
-        activeAttachments={activeAttachments} busy={busy} voice={voice} composerInputRef={composerInputRef}
+        activeAttachments={activeAttachments} busy={busy} voice={voice} composerInputRef={composerInputRef} canCompose={canCompose}
+        canSend={canSend && !uploadingDocument && !choosingDocument && !documentPickerOpen}
         uploadingDocument={uploadingDocument} choosingDocument={choosingDocument}
-        onInputChange={(value) => { if (activeSession) setDraftsBySession((current) => ({ ...current, [activeSession]: value })); }}
+        onInputChange={(value) => setDraftsBySession((current) => ({ ...current, [activeSession]: value }))}
         onUploadDocument={(file) => uploadDocument(file)} onChooseDocument={openDocumentPicker}
         onOpenAttachment={(attachment) => openDocumentFile(attachment.rel_path, activeSession).catch(() => undefined)}
         onRemoveAttachment={(attachment) => removeAttachment(activeSession, attachment)} onSend={onSend} />

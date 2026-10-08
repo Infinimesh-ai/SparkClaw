@@ -243,6 +243,19 @@ func postJSON(t *testing.T, url string, payload any) *http.Response {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if strings.Contains(url, "/api/sessions/") && (strings.HasSuffix(url, "/messages") || strings.HasSuffix(url, "/messages/stream")) {
+		var input map[string]any
+		if err := json.Unmarshal(raw, &input); err != nil {
+			t.Fatal(err)
+		}
+		if _, exists := input["request_id"]; !exists {
+			input["request_id"] = testWorkbenchRequestID()
+		}
+		raw, err = json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	resp, err := http.Post(url, "application/json", bytes.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
@@ -285,8 +298,8 @@ func TestMessageStreamDeliveryFailureEmitsDistinctEvent(t *testing.T) {
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	server := New(cfg, st, tools, runtime, WithMessageDelivery(endpoints, providers, delivery.NewGateway(endpoints, providers, nil)))
 
-	server.streamMessage = func(_ context.Context, _ string, _ string, _ []agent.MessageAttachment, ingress app.MessageIngressContext, _ agent.StreamHandler) (agent.Result, error) {
-		return agent.Result{WorkflowResult: &app.WorkflowResult{
+	server.streamMessage = func(ctx context.Context, sessionID string, _ string, _ []agent.MessageAttachment, ingress app.MessageIngressContext, _ agent.StreamHandler) (agent.Result, error) {
+		return persistAdmittedStreamFixture(t, ctx, st, sessionID, agent.Result{WorkflowResult: &app.WorkflowResult{
 			SchemaVersion: app.WorkflowResultSchemaVersion,
 			ID:            "result-delivery-failed",
 			OwnerID:       ingress.OwnerID,
@@ -296,7 +309,7 @@ func TestMessageStreamDeliveryFailureEmitsDistinctEvent(t *testing.T) {
 				ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "run finished",
 			}}},
 			ReturnRoute: ingress.ReturnRoute,
-		}}, nil
+		}}), nil
 	}
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()

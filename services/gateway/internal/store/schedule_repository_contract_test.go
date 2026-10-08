@@ -39,6 +39,7 @@ func TestScheduleRepositoryMemoryAndFileContract(t *testing.T) {
 				}
 			}
 			exerciseScheduleRepositoryContract(t, repository, restart)
+			exerciseWorkbenchScheduleContract(t, repository, restart)
 		})
 	}
 }
@@ -55,6 +56,7 @@ func TestPostgresScheduleRepositoryConfiguredContract(t *testing.T) {
 	defer repository.Close()
 	truncatePostgresStore(t, repository)
 	exerciseScheduleRepositoryContract(t, repository, nil)
+	exerciseWorkbenchScheduleContract(t, repository, nil)
 }
 
 func exerciseScheduleRepositoryContract(t *testing.T, repository testBackend, restart func() testBackend) {

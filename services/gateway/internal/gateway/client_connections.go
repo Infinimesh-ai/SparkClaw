@@ -3,8 +3,11 @@ package gateway
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 )
+
+var errClientConnectionRevoked = errors.New("client is revoked or unavailable")
 
 // Each authenticated request is attached before its persisted revocation is
 // checked again, closing the authenticate/revoke race for long-lived streams.
@@ -46,7 +49,7 @@ func (s *Server) clientConnectionContext(ctx context.Context, clientID string) (
 	if err != nil || !found || client.RevokedAt != nil {
 		release()
 		if err == nil {
-			err = errors.New("client is revoked or unavailable")
+			err = errClientConnectionRevoked
 		}
 		return connected, func() {}, err
 	}
@@ -54,10 +57,15 @@ func (s *Server) clientConnectionContext(ctx context.Context, clientID string) (
 }
 
 func (s *Server) cancelClientConnections(clientID string) {
-	s.revokeR3Schedules(clientID)
-	s.r3Mu.Lock()
-	broker := s.r3Broker
-	s.r3Mu.Unlock()
+	s.executionMu.Lock()
+	broker := s.browserBroker
+	service := s.executions
+	s.executionMu.Unlock()
+	if service != nil {
+		if err := service.RevokeWorkbenchClient(clientID); err != nil {
+			slog.Warn("workbench revocation fence persistence unavailable")
+		}
+	}
 	if broker != nil {
 		broker.RevokeClientHosts(clientID)
 	}

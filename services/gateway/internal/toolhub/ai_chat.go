@@ -23,7 +23,7 @@ func aiChatDefinition() app.ToolDefinition {
 		Risk:         app.RiskDraft, Idempotent: false, TimeoutMS: 95000, Sandbox: "forbidden", Audit: "always"}
 }
 func aiChatRegistration() toolRegistration {
-	return workflowRegistration(toolRegistration{enabled: browserAutomationEnabled, run: argsSessionContext((*ToolHub).aiChatExport)}, "ai_chat.export", nil, app.OutcomeAdapterGeneric, "Save one AI conversation's original userscript JSON into workspace.", "Use in ai_chat provider branches with an explicit conversation URL.", "Not for sending prompts, public research, summaries, memory processing or batch export.", app.ToolEffectExternalRead, app.ToolEffectWorkspaceWrite)
+	return workflowRegistration(toolRegistration{resource: resourceAcquisitionBrowser, enabled: browserAutomationEnabled, run: argsSessionContext((*ToolHub).aiChatExport)}, "ai_chat.export", nil, app.OutcomeAdapterGeneric, "Save one AI conversation's original userscript JSON into workspace.", "Use in ai_chat provider branches with an explicit conversation URL.", "Not for sending prompts, public research, summaries, memory processing or batch export.", app.ToolEffectExternalRead, app.ToolEffectWorkspaceWrite)
 }
 func (h *ToolHub) aiChatExport(ctx context.Context, args map[string]any, sessionID string) (Result, error) {
 	if h.aiChatExporter == nil {

@@ -7,12 +7,13 @@ import { InspectorColumn, type PanelTab } from "../components/inspector";
 import { WorkspaceSettingsSidebar } from "../components/settingsSidebar";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY, type Language } from "../i18n";
 import { applyAppearance } from "../lib/appearance";
-import { clientStore, type LocalConversation, type LocalConversationContent, type LocalTask, type LocalApproval } from "./clientStore";
+import { clientStore, type LocalConversation, type LocalConversationContent, type LocalTask, type LocalApproval, type LocalDraft } from "./clientStore";
 import { desktopCapability } from "./capability";
 import type { DesktopConnectionStatus, DesktopState } from "./types";
 import { BrowserPanel } from "./BrowserPanel";
 import { MessageBubble } from "../components/messages";
 import { ComposerDocumentPicker, ComposerSurface } from "../components/composer";
+import { useWorkbenchDraft } from "../hooks/useWorkbenchDraft";
 import { useVoiceInput } from "../hooks/useVoiceInput";
 import type { VoiceDraftAnchor } from "../hooks/useVoiceInput";
 import { insertVoiceTranscript } from "../lib/voiceDraft";
@@ -27,7 +28,7 @@ import "../styles/local-workbench.css";
 
 const emptyContent: LocalConversationContent = { messages: [], tasks: [], files: [] };
 
-// Desktop R3 has its own data path. It never mounts App's legacy shared-session
+// The desktop workbench owns local conversations. The host App uses its own Store
 // hooks. Server-dependent features become available only as their phases pass.
 export function LocalWorkbench() {
   const store = clientStore()!;
@@ -40,11 +41,11 @@ export function LocalWorkbench() {
   const selectedRef = useRef(selected); selectedRef.current = selected;
   const readGeneration = useRef(0);
   const [content, setContent] = useState(emptyContent);
-  const [draft, setDraft] = useState("");
-  const draftRef = useRef(draft); draftRef.current = draft;
-  const [inputFiles, setInputFiles] = useState<string[]>([]);
+  const draftRef = useRef("");
+  const inputFilesRef = useRef<string[]>([]);
   const [scheduleDraft, setScheduleDraft] = useState("");
   const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleInterval, setScheduleInterval] = useState(0);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [loading, setLoading] = useState(true);
@@ -83,6 +84,31 @@ export function LocalWorkbench() {
   const surfaceError = useCallback((err: unknown, fallback = zh ? "操作失败，请重试。" : "Something went wrong. Try again.") => {
     setError(err instanceof Error ? err.message : fallback);
   }, [zh]);
+  const scopeError = useRef(surfaceError); scopeError.current = surfaceError;
+  const localScopeKey = JSON.stringify([
+    Boolean(connection && ["connected", "reconnecting", "service_unavailable"].includes(connection.state)),
+    connection?.backend?.deployment_id, connection?.owner_id, currentClientID,
+  ]);
+  const draftScopes = useMemo(() => new Map<string, string>(), [store, localScopeKey]);
+  const draftAdapter = useMemo(() => ({
+    load: async (id: string) => {
+      const value = await store.draft(id);
+      const expected = draftScopes.get(id);
+      if (expected && expected !== value.scope_key) throw new Error("Draft authentication changed; reload this workbench");
+      draftScopes.set(id, value.scope_key); return workbenchDraft(value);
+    },
+    save: async (id: string, value: import("../lib/workbenchDraft").WorkbenchDraft) =>
+      workbenchDraft(await store.saveDraft(id, value.content, value.attachment_ids, value.revision, draftScopes.get(id) ?? "")),
+  }), [store, draftScopes]);
+  const drafts = useWorkbenchDraft(draftAdapter, surfaceError);
+  const draft = drafts.draft.content; draftRef.current = draft;
+  const inputFiles = drafts.draft.attachment_ids; inputFilesRef.current = inputFiles;
+  const setDraft = drafts.content;
+  const selectDraft = drafts.select;
+  const setInputFiles = (update: string[] | ((current: string[]) => string[])) => {
+    const value = typeof update === "function" ? update(inputFilesRef.current) : update;
+    inputFilesRef.current = value; drafts.attachments(value);
+  };
   const reload = useCallback(async () => { setConversations(await store.list()); }, [store]);
   const refreshGlobal = useCallback(async () => {
     const config = await api.config();
@@ -107,17 +133,17 @@ export function LocalWorkbench() {
   const select = useCallback(async (id: string) => {
     setPage("chat");
     if (selectedRef.current === id) return;
-    selectedRef.current = id; setSelected(id); setContent(emptyContent); setDraft(""); setInputFiles([]); setScheduleDraft(""); setScheduleDate("");
     const generation = ++readGeneration.current;
+    await selectDraft(id);
+    if (generation !== readGeneration.current) return;
+    selectedRef.current = id; setSelected(id); setContent(emptyContent); setScheduleDraft(""); setScheduleDate("");
     await desktop.selectConversation?.(id);
     const next = await store.read(id);
     if (selectedRef.current === id && readGeneration.current === generation) setContent(next);
-  }, [desktop, store]);
+  }, [desktop, store, selectDraft]);
   useEffect(() => {
     applyAppearance();
     let active = true;
-    void store.list().then((rows) => { if (active) setConversations(rows); }).catch(surfaceError)
-      .finally(() => { if (active) setLoading(false); });
     const connectionChanged = (status: DesktopConnectionStatus) => {
       if (active) { setCurrentClientID(status.client_id ?? ""); setConnection(status); }
     };
@@ -128,6 +154,14 @@ export function LocalWorkbench() {
     const unsubscribeBrowser = desktop.onState?.(browserChanged);
     return () => { active = false; unsubscribe?.(); unsubscribeBrowser?.(); ++readGeneration.current; };
   }, [desktop, store, surfaceError]);
+  useEffect(() => {
+    let active = true;
+    ++readGeneration.current; selectedRef.current = "";
+    setSelected(""); setContent(emptyContent); setConversations([]); setLoading(true);
+    void store.list().then((rows) => { if (active) setConversations(rows); }).catch((error) => { if (active) scopeError.current(error); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [store, localScopeKey]);
   useEffect(() => {
     if (connection?.state !== "connected") return;
     void refreshGlobal().catch(() => undefined);
@@ -159,7 +193,7 @@ export function LocalWorkbench() {
       composerInputRef.current?.setSelectionRange(inserted.caret, inserted.caret);
     });
     return true;
-  }, []);
+  }, [setDraft]);
   const voice = useVoiceInput({
     speech: ready?.speech ?? null,
     sessionId: selected,
@@ -182,26 +216,32 @@ export function LocalWorkbench() {
     });
   }
   async function ensureConversation() {
-    if (selectedRef.current) return selectedRef.current;
-    const conversation = await store.create(zh ? "新对话" : "New conversation");
-    await desktop.selectConversation?.(conversation.id);
-    selectedRef.current = conversation.id; setSelected(conversation.id); setContent(emptyContent);
-    await reload();
-    return conversation.id;
+    if (!selectedRef.current) {
+      const conversation = await store.create(zh ? "新对话" : "New conversation");
+      selectedRef.current = conversation.id; setSelected(conversation.id); setContent(emptyContent);
+      await desktop.selectConversation?.(conversation.id);
+      await reload();
+    }
+    const id = selectedRef.current;
+    if (drafts.id() === "") {
+      const source = await drafts.flush();
+      const moved = await store.moveWelcomeDraft(id, source.revision, draftScopes.get("") ?? "");
+      drafts.accept("", workbenchDraft(moved.source));
+      await selectDraft(id);
+    }
+    return id;
   }
   async function save(submit = true) {
-    const text = draft.trim();
-    if (!text && !inputFiles.length) return;
+    if (!draft.trim() && !inputFiles.length) return;
     await action(async () => {
       const id = await ensureConversation();
-      const task = inputFiles.length ? await store.enqueue(id, text, inputFiles) : await store.enqueue(id, text);
-      if (selectedRef.current === id) {
-        setDraft(""); setInputFiles([]); setContent(await store.read(id));
-      }
+      const saved = await drafts.flush();
+      const sourceID = drafts.id();
+      const queued = await store.enqueueDraft(id, sourceID, saved.revision, draftScopes.get(sourceID) ?? "");
+      drafts.accept(sourceID, workbenchDraft(queued.draft));
+      if (selectedRef.current === id) setContent(await store.read(id));
       await reload();
-      if (submit) {
-        await submitTask(task, id);
-      }
+      if (submit) await submitTask(queued.task, id);
     });
   }
   async function submitTask(task: LocalTask, id: string) {
@@ -223,10 +263,10 @@ export function LocalWorkbench() {
     const id = selected;
     if (!id || !scheduleDraft.trim() || !scheduleDate) return;
     await action(async () => {
-      await store.scheduleCreate(id, scheduleDraft.trim(), new Date(scheduleDate).toISOString());
+      await store.scheduleCreate(id, scheduleDraft.trim(), new Date(scheduleDate).toISOString(), scheduleInterval);
       if (selectedRef.current === id) { setScheduleDraft(""); setScheduleDate(""); setContent(await store.read(id)); }
       await reload();
-      setNotice(zh ? "单次任务定义已保存。到期执行需要设备保持连接并续租。" : "Single-run definition saved. Execution at the due time requires this device to remain connected and renew its lease.");
+      setNotice(zh ? "定时任务已保存。到期时工作台须在线；离线轮次永久跳过。" : "Schedule saved. Keep the workbench online when due; offline occurrences are permanently skipped.");
     });
   }
   async function scheduleAction(requestID: string, operation: "scheduleCheck" | "scheduleCancel" | "scheduleRunNow") {
@@ -355,7 +395,7 @@ export function LocalWorkbench() {
         </div>
         <ComposerSurface text={text} language={language} activeSession={selected} activeInput={draft}
           activeAttachments={activeAttachments} busy={busy} voice={voice} composerInputRef={composerInputRef}
-          canCompose canSend={connection?.state === "connected"}
+          canCompose={drafts.ready} canSend={connection?.state === "connected" && drafts.ready}
           onInputChange={(value) => { draftRef.current = value; setDraft(value); }}
           onUploadDocument={saveFile}
           onChooseDocument={() => setDocumentPickerOpen(true)}
@@ -365,6 +405,10 @@ export function LocalWorkbench() {
           }}
           onRemoveAttachment={(attachment) => setInputFiles((current) => current.filter((id) => id !== attachment.artifact_id))}
           onSend={() => void save(true)} />
+        <small className="localDraftStatus" role="status">{drafts.status === "saved" ? (zh ? "草稿已保存到本机" : "Draft saved on this device") : drafts.status === "error" ? (zh ? "草稿尚未保存，请保留此窗口并重试" : "Draft not saved. Keep this window open and retry") : drafts.status === "loading" ? (zh ? "读取草稿中" : "Loading draft") : (zh ? "正在保存草稿" : "Saving draft")}</small>{drafts.status === "error" && <div className="localDraftRecovery">
+          <button type="button" onClick={() => void drafts.flush().catch(surfaceError)}>{zh ? "重试保存草稿" : "Retry saving draft"}</button>
+          <button type="button" onClick={() => void drafts.saveCurrentOverLatest().catch(surfaceError)}>{zh ? "用我的输入替换已保存草稿" : "Replace saved draft with my text"}</button>
+        </div>}
         {documentPickerOpen && <ComposerDocumentPicker documents={localDocuments} text={text} language={language}
           onChoose={(document) => {
             setInputFiles((current) => current.includes(document.id) ? current : [...current, document.id]);
@@ -375,16 +419,19 @@ export function LocalWorkbench() {
           <header className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div></header>
           {!selected && <div className="localScheduleEmpty"><p>{zh ? "先选择或新建一个任务，再安排执行时间。" : "Choose or create a task to schedule it."}</p><button className="primaryButton" type="button" onClick={() => void create()}>{copy.newTask}</button></div>}
           {selected && <section className="localSchedules">
-            <p>{zh ? "可安排未来 24 小时内的一次执行。设备必须保持在线；离线错过到期时间不会补跑，可明确点击立即执行新请求。" : "Schedule one execution within the next 24 hours and keep this device online. Missed offline work does not catch up; Run now explicitly creates a new request."}</p>
-            {(content.schedules ?? []).map((item) => <div className="localTaskRow" key={item.request_id}><p><span>{new Date(item.due_at).toLocaleString(zh ? "zh-CN" : "en-US")}</span><span>{scheduleLabel(item.state, zh)}</span></p>
+            <p>{zh ? "首次执行可安排在未来 366 天内，并可按固定时长重复。工作台须保持在线；离线、休眠或重启期间错过的轮次不会补跑。循环任务的未来轮次仍可执行。" : "Schedule a first execution within 366 days, optionally repeating at a fixed interval. Keep the workbench online. Occurrences missed during offline time, sleep or restart stay skipped; future repetitions can still run."}</p>
+            {(content.schedules ?? []).map((item) => <div className="localTaskRow" key={item.request_id}><p><span>{new Date(item.due_at).toLocaleString(zh ? "zh-CN" : "en-US")}</span><span>{scheduleLabel(item.state, zh)}</span>{item.missed_count > 1 && <span>{zh ? `已跳过 ${item.missed_count} 个轮次` : `${item.missed_count} occurrences skipped`}</span>}</p>
               <div className="localTaskActions">
-                {["saved", "registering", "leased", "cancel_pending"].includes(item.state) && <><button type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleCheck"))}>{zh ? "检查租约" : "Check lease"}</button><button type="button" disabled={busy} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleCancel"))}>{zh ? "取消定时任务" : "Cancel schedule"}</button></>}
-                {["missed", "admission_rejected"].includes(item.state) && <button type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleRunNow"))}>{zh ? "立即执行新请求" : "Run now as a new request"}</button>}
+                {["saved", "claimed", "submission_pending", "accepted", "running", "cancel_pending", "unknown"].includes(item.state) && <button type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleCheck"))}>{zh ? "刷新状态" : "Refresh status"}</button>}
+                {(item.definition_state === "active" || ["claimed", "submission_pending", "accepted", "running", "cancel_pending"].includes(item.state)) && <button type="button" disabled={busy} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleCancel"))}>{zh ? "取消定时任务" : "Cancel schedule"}</button>}
+                {item.state === "missed" && <button type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleRunNow"))}>{zh ? "立即执行新请求" : "Run now as a new request"}</button>}
               </div>
             </div>)}
             <form onSubmit={(event) => void schedule(event)}><label htmlFor="scheduleDraft">{zh ? "定时任务输入" : "Scheduled task input"}</label><textarea id="scheduleDraft" rows={2} value={scheduleDraft} disabled={busy} onChange={(event) => setScheduleDraft(event.target.value)} />
               <label htmlFor="scheduleDate">{zh ? "本地到期时间" : "Due time in your local timezone"}</label><input id="scheduleDate" type="datetime-local" value={scheduleDate} disabled={busy} onChange={(event) => setScheduleDate(event.target.value)} />
-              <button type="submit" disabled={busy || !scheduleDraft.trim() || !scheduleDate}>{zh ? "保存单次定时任务" : "Save single-run schedule"}</button>
+              <label htmlFor="scheduleInterval">{zh ? "重复间隔" : "Repeat interval"}</label><select id="scheduleInterval" value={scheduleInterval} disabled={busy} onChange={(event) => setScheduleInterval(Number(event.target.value))}>
+                <option value={0}>{zh ? "仅一次" : "Once"}</option><option value={3600000}>{zh ? "每 1 小时" : "Every 1 hour"}</option><option value={86400000}>{zh ? "每 24 小时" : "Every 24 hours"}</option><option value={604800000}>{zh ? "每 7 天" : "Every 7 days"}</option>
+              </select><button type="submit" disabled={busy || !scheduleDraft.trim() || !scheduleDate}>{zh ? "保存定时任务" : "Save schedule"}</button>
             </form>
           </section>}
         </div>}
@@ -400,9 +447,11 @@ export function LocalWorkbench() {
 
 function scheduleLabel(state: string, zh: boolean) {
   const labels: Record<string, [string, string]> = {
-    saved: ["定义已保存，尚未注册", "Definition saved; not registered"], registering: ["注册待确认", "Registration awaiting confirmation"],
-    leased: ["已注册，保持连接才能到期执行", "Leased; stay connected until due"], cancel_pending: ["取消待确认", "Cancellation awaiting confirmation"],
-    missed: ["离线或租约过期，已错过", "Missed while offline or lease expired"], admission_rejected: ["后端未准入", "Backend admission rejected"],
+    saved: ["已保存，等待本机到期调度", "Saved; waiting for local due time"], claimed: ["已领取轮次，提交待核对", "Occurrence claimed; submission awaiting reconciliation"],
+    submission_pending: ["提交待核对", "Submission awaiting reconciliation"], cancel_pending: ["取消待确认", "Cancellation awaiting confirmation"],
+    accepted: ["执行服务已接收", "Execution accepted"], running: ["执行中", "Running"], completed: ["结果已保存，确认待送达", "Result saved; acknowledgement pending"],
+    delivered: ["结果已保存并确认", "Result saved and acknowledged"], failed: ["执行失败", "Execution failed"], unknown: ["执行结果不确定，仅核对原请求", "Outcome uncertain; reconcile original request only"],
+    delivery_expired: ["交付已过期", "Delivery expired"], missed: ["已错过，永久跳过", "Missed; permanently skipped"],
     run_now: ["已作为新请求执行", "Started as a new request"], canceled: ["已取消", "Canceled"],
   };
   return labels[state]?.[zh ? 0 : 1] ?? (zh ? "状态待确认" : "Status awaiting confirmation");
@@ -418,3 +467,5 @@ function approvalLabel(state: LocalApproval["state"], zh: boolean) {
   };
   return labels[state][zh ? 0 : 1];
 }
+
+function workbenchDraft(value: LocalDraft) { return { content: value.content, attachment_ids: value.local_file_ids, revision: value.revision }; }

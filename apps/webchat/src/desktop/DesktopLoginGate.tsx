@@ -51,7 +51,7 @@ export function DesktopLoginGate({ children }: { children: ReactNode }) {
     return () => { active = false; unsubscribe(); };
   }, [desktop]);
 
-  // The legacy web app and pre-R3 qualification fixtures use their existing
+  // The host WebChat and explicit qualification fixtures use their own
   // entry point. A saved device may open its local workbench during an outage.
   if (!desktop?.enroll || status?.state === "connected" ||
       (status?.client_id && ["service_unavailable", "reconnecting"].includes(status.state))) return children;

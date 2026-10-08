@@ -1,0 +1,9 @@
+{
+  "inputBytes": 65536,
+  "contextBytes": 1048576,
+  "contextMessages": 32,
+  "selectedMessages": 8,
+  "fileBytes": 67108864,
+  "resultBytes": 8388608,
+  "resultFiles": 32
+}

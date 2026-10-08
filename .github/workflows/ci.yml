@@ -132,8 +132,8 @@ jobs:
         run: npm run test:desktop
       - name: Verify generated managed-script preload
         run: npm run check:desktop-managed-scripts
-      - name: Qualify R3 outbound host on actual embedded pages
-        run: npm run qualify:desktop-r3
+      - name: Qualify workbench outbound host on actual embedded pages
+        run: npm run qualify:desktop-host
       - name: Install and qualify the paired application release
         run: |
           npm ci --prefix tools/browser-controller

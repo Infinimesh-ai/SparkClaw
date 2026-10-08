@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { proxyAPIAllowed } from "../src/main/workbench-proxy-policy.mjs";
 
-test("R3 desktop exposes the shared presentation APIs", () => {
+test("workbench desktop exposes the shared presentation APIs", () => {
   for (const pathname of [
     "/readyz",
     "/api/config",
@@ -21,7 +21,7 @@ test("R3 desktop exposes the shared presentation APIs", () => {
   ]) assert.equal(proxyAPIAllowed(pathname), true, pathname);
 });
 
-test("R3 desktop keeps conversation and scheduling ownership local", () => {
+test("workbench desktop keeps conversation and scheduling ownership local", () => {
   for (const pathname of [
     "/api/sessions",
     "/api/sessions/session-1/messages",

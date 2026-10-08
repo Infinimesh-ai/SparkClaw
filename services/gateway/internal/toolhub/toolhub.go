@@ -52,11 +52,13 @@ type ToolHub struct {
 	info                  *infoRuntime
 	browser               browserautomation.Adapter
 	managedBrowserWindows *managedBrowserWindowRegistry
-	ocr                   documentocr.Adapter
+	ocr                   *documentOCRProvider
 	ocrRuntime            *documentOCRRuntime
 	pptxVisualQA          pptxVisualQARunner
 	documents             *document.Pipeline
 	lifecycle             *toolHubLifecycle
+	ownsProviders         bool
+	resources             *ExecutionResources
 	connectorGate         func(ownerID, channel string) bool
 	emailSender           EmailSender
 	emailReader           EmailReader
@@ -178,7 +180,8 @@ func New(cfg config.Config, st Repository) *ToolHub {
 		reminders:             remindertarget.NewResolver(st),
 		info:                  newInfoRuntime(searchInfo, weatherInfo),
 		managedBrowserWindows: newManagedBrowserWindowRegistry(),
-		ocr:                   ocrAdapter,
+		ocr:                   newDocumentOCRProvider(ocrAdapter),
+		ownsProviders:         true,
 		ocrRuntime:            newDocumentOCRRuntime(cfg.Adapters.DocumentOCR, ocrAdapter, ocrConstructorErr),
 		lifecycle:             &toolHubLifecycle{},
 	}
@@ -209,12 +212,15 @@ func (h *ToolHub) Close() error {
 		return nil
 	}
 	h.lifecycle.closeOnce.Do(func() {
+		if h.resources != nil {
+			h.ocrRuntime.clearContentCache()
+		}
 		var errs []error
 		errs = append(errs, h.closeManagedBrowserWindows())
 		if h.browser != nil {
 			errs = append(errs, h.browser.Close())
 		}
-		if h.ocr != nil {
+		if h.ownsProviders && h.ocr != nil {
 			errs = append(errs, h.ocr.Close())
 		}
 		h.lifecycle.closeErr = errors.Join(errs...)
@@ -251,7 +257,7 @@ func (h *ToolHub) WithWeatherInfoAdapter(adapter WeatherInfoAdapter) *ToolHub {
 }
 
 func (h *ToolHub) WithDocumentOCRAdapter(adapter documentocr.Adapter) *ToolHub {
-	h.ocr = adapter
+	h.ocr.replace(adapter)
 	if h.ocrRuntime == nil {
 		h.ocrRuntime = newDocumentOCRRuntime(h.cfg.Adapters.DocumentOCR, adapter, nil)
 	} else {
@@ -279,6 +285,9 @@ func (h *ToolHub) Definitions() []app.ToolDefinition {
 	defer h.registry.mu.RUnlock()
 	defs := make([]app.ToolDefinition, 0, len(h.registry.defs))
 	for _, def := range h.registry.defs {
+		if h.unavailableResource(def.Name) != "" {
+			continue
+		}
 		defs = append(defs, def)
 	}
 	slices.SortFunc(defs, func(a, b app.ToolDefinition) int {
@@ -378,6 +387,9 @@ func (h *ToolHub) Config() config.Config {
 }
 
 func (h *ToolHub) forSession(ctx context.Context, sessionID string) (*ToolHub, error) {
+	if err := h.validateExecutionSession(ctx, sessionID); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(sessionID) == "" || h.store == nil {
 		return h, nil
 	}
@@ -431,6 +443,9 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 	def, ok := h.Definition(name)
 	if !ok {
 		return Result{}, fmt.Errorf("tool %q not found", name)
+	}
+	if err := h.requireResource(name); err != nil {
+		return Result{}, err
 	}
 	if err := validateInput(def, args); err != nil {
 		return Result{}, err

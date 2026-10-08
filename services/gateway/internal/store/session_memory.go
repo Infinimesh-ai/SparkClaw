@@ -252,6 +252,7 @@ func (s *MemoryStore) deleteSession(ctx context.Context, id string, mcpInvocatio
 			runIDs[runID] = true
 		}
 	}
+	delete(s.workbenchDrafts, workbenchDraftKey(session.OwnerID, id))
 	delete(s.sessions, id)
 	delete(s.messages, id)
 	delete(s.toolCallIDsBySession, id)

@@ -207,3 +207,38 @@ func testScheduleReminder(id, ownerID, actorID, status string, due time.Time, te
 		Channel: "test", Recipient: "private-recipient", Status: status, CreatedAt: due.Add(-time.Hour), UpdatedAt: due.Add(-time.Hour), ScheduleSpec: &spec,
 	}
 }
+
+func TestWorkbenchSchedulesExposeMissedAndSubmittedWithoutRearming(t *testing.T) {
+	cfg := testConfig(t.TempDir())
+	st := store.NewMemoryStore()
+	for _, status := range []string{"missed", "submitted"} {
+		reminder := testScheduleReminder("host-"+status, app.DefaultOwnerID, app.DefaultOwnerID, status, time.Now().Add(-time.Hour), status)
+		reminder.ScheduleSpec.WorkbenchOwned = true
+		if _, err := st.SaveReminder(t.Context(), reminder); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tools := toolhub.New(cfg, st)
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	ts := httptest.NewServer(New(cfg, st, tools, runtime).Handler())
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/api/schedules")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Schedules []publicSchedule `json:"schedules"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Schedules) != 2 {
+		t.Fatalf("projection = %#v", result)
+	}
+	for _, schedule := range result.Schedules {
+		if schedule.Editable || schedule.Cancelable || (schedule.Status != "missed" && schedule.Status != "submitted") {
+			t.Fatalf("occurrence became runnable/editable: %#v", schedule)
+		}
+	}
+}

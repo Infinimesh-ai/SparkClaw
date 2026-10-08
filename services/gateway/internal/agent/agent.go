@@ -120,6 +120,9 @@ func (r Runtime) WithArtifactStore(artifacts artifact.Store) Runtime {
 	return r
 }
 
+// PolicyEngine returns the live policy shared by all execution scopes.
+func (r Runtime) PolicyEngine() policy.Engine { return r.policy }
+
 func (r Runtime) WithPolicy(policyEngine policy.Engine) Runtime {
 	r.policy = policyEngine
 	r.exposure = newToolExposureEngine(r.store, r.tools, policyEngine)
@@ -267,6 +270,9 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 			ReturnRoute: envelope.ReturnRoute, MCP: invocation, ClientTimezone: clientTimezone,
 			AuthorizedContextData: strings.TrimSpace(authorizedContext),
 		},
+	}
+	if snapshot, ok := ctx.Value(workbenchContextKey{}).(WorkbenchContext); ok && snapshot.sessionID == sessionID {
+		run.StartedAt = snapshot.Before
 	}
 	if run.ID == "" {
 		run.ID = app.NewID("run")

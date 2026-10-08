@@ -6,8 +6,8 @@ import { isTLSIdentityError, pinnedHTTPSFetch } from "./pinned-https.mjs";
 import { createConnectionCredential, parseConnectionCredential } from "./connection-credential.mjs";
 
 export class DesktopAuth {
-  constructor({ vault, descriptorPath, legacyPaths, installationID, qualification = false, requireLAN = false, fetcher, onChange = () => {}, onLock = () => {} }) {
-    Object.assign(this, { vault, descriptorPath, legacyPaths, installationID, qualification, requireLAN, fetcher, onChange, onLock });
+  constructor({ vault, descriptorPath, qualificationPaths, installationID, qualification = false, requireLAN = false, fetcher, onChange = () => {}, onLock = () => {} }) {
+    Object.assign(this, { vault, descriptorPath, qualificationPaths, installationID, qualification, requireLAN, fetcher, onChange, onLock });
     this.requests = new Set();
     this.generation = 0;
     this.vaultOperations = Promise.resolve();
@@ -15,16 +15,15 @@ export class DesktopAuth {
   }
 
   async initialize() {
-    try { this.descriptor = await loadLocalBackendDescriptor({ descriptorPath: this.descriptorPath }); }
-    catch {
-      try { this.descriptor = await loadLocalBackendDescriptor(this.legacyPaths); } catch { return this.#set("incomplete_setup"); }
-    }
+    const qualificationPaths = this.qualification === true ? this.qualificationPaths : undefined;
+    try { this.descriptor = await loadLocalBackendDescriptor(qualificationPaths || { descriptorPath: this.descriptorPath }); }
+    catch { return this.#set("incomplete_setup"); }
     if (this.requireLAN && this.descriptor.schemaVersion !== 2) {
       this.descriptor = undefined;
       return this.#set("incomplete_setup");
     }
-    if (this.qualification && this.legacyPaths) {
-      try { this.connection = await loadLocalBackendConnection(this.legacyPaths); return this.retry(); } catch { /* new-install gate */ }
+    if (qualificationPaths) {
+      try { this.connection = await loadLocalBackendConnection(qualificationPaths); return this.retry(); } catch { /* new-install gate */ }
     }
     if (!this.vault.available()) return this.#set("secure_storage_unavailable");
     try {
@@ -131,19 +130,19 @@ export class DesktopAuth {
     return this.#authorizedFetch(raw, init, 1 << 20);
   }
 
-  // Only trusted main-process R3 clients call this; the renderer proxy keeps
+  // Only trusted main-process workbench clients call this; the renderer proxy keeps
   // the ordinary 1 MiB ceiling. Origin, pinned TLS and logout fencing are shared.
-  async authorizedR3Fetch(raw, init = {}) {
+  async authorizedExecutionFetch(raw, init = {}) {
     const url = new URL(raw);
-    if (!/^\/api\/r3\/(executions|inputs|schedules)(\/|$)/u.test(url.pathname) || url.search || url.hash || url.username || url.password) {
-      throw new Error("R3 backend path is invalid");
+    if (!/^\/api\/v1\/(executions|inputs)(\/|$)/u.test(url.pathname) || url.search || url.hash || url.username || url.password) {
+      throw new Error("workbench backend path is invalid");
     }
     return this.#authorizedFetch(raw, init, 8 * 1024 * 1024);
   }
 
-  async authorizedR3MailFileFetch(raw, init = {}) {
+  async authorizedMailFileFetch(raw, init = {}) {
     const url = new URL(raw);
-    if (!/^\/api\/r3\/mail\/[^/]+\/messages\/[^/]+\/attachments\/[^/]+$/u.test(url.pathname) || url.search || url.hash || url.username || url.password || (init.method && init.method !== "GET")) throw new Error("Mail attachment path is invalid");
+    if (!/^\/api\/v1\/mail\/[^/]+\/messages\/[^/]+\/attachments\/[^/]+$/u.test(url.pathname) || url.search || url.hash || url.username || url.password || (init.method && init.method !== "GET")) throw new Error("Mail attachment path is invalid");
     return this.#authorizedFetch(raw, init, 64 * 1024 * 1024);
   }
 
@@ -230,7 +229,7 @@ export class DesktopAuth {
       }
       if (this.installationID) {
         if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(this.installationID)) return { state: "identity_conflict" };
-        const binding = await this.#fetch()(`${candidate.origin}/api/r3/installations`, {
+        const binding = await this.#fetch()(`${candidate.origin}/api/v1/installations`, {
           method: "POST", headers: { Authorization: candidate.authorization, "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify({ schema_version: 1, installation_id: this.installationID }),
           redirect: "manual", signal: AbortSignal.timeout(5000),

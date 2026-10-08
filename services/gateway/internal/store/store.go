@@ -98,6 +98,8 @@ type ConnectorRepository interface {
 }
 
 type SessionRepository interface {
+	GetWorkbenchDraft(context.Context, string, string) (app.WorkbenchDraft, error)
+	SaveWorkbenchDraft(context.Context, string, string, app.WorkbenchDraft) (app.WorkbenchDraft, error)
 	CreateSession(context.Context, string) (app.Session, error)
 	CreateSessionWithScope(context.Context, string, string, string, string, bool) (app.Session, error)
 	ListSessions(context.Context) ([]app.Session, error)
@@ -204,6 +206,7 @@ type MemoryRepository interface {
 }
 
 type ScheduleRepository interface {
+	AdvanceWorkbenchSchedule(context.Context, string, time.Time, time.Time, app.ReminderDelivery) (app.Reminder, error)
 	SaveReminder(context.Context, app.Reminder) (app.Reminder, error)
 	UpdatePendingReminder(context.Context, app.Reminder, time.Time) (app.Reminder, error)
 	GetReminder(context.Context, string) (app.Reminder, bool, error)

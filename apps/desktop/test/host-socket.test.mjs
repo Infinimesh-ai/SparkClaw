@@ -18,7 +18,7 @@ test("outbound WSS validates chain, hostname and certificate pin before credenti
  let requests = 0; let redirect = false; const sockets = new Set();
  const server = https.createServer({ key, cert });
  server.on("upgrade", (request, socket) => {
-   requests++; assert.equal(request.url, "/api/r3/hosts/connect");assert.equal(request.headers.authorization, "Bearer synthetic");
+   requests++; assert.equal(request.url, "/api/v1/browser/hosts/connect");assert.equal(request.headers.authorization, "Bearer synthetic");
    sockets.add(socket);socket.on("close", () => sockets.delete(socket));
    if (redirect) { socket.end("HTTP/1.1 302 Found\r\nLocation: https://elsewhere.test\r\nContent-Length: 0\r\n\r\n");return; }
    const accept = crypto.createHash("sha1").update(request.headers["sec-websocket-key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64");

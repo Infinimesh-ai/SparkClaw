@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-client-embedded-browser-design.md)
 
+> Historical design: current workbench behavior and clean-start paths are defined by the [architecture](architecture.md), [implementation ledger](workbench-convergence-implementation.md) and [release guide](workbench-release.md). The dated rationale and qualification evidence below remain historical.
+
 > Status: architecture accepted by the owner on 2026-09-21. All software-only
 > implementation phases are complete and the ARM64 candidates are qualified;
 > provider credentials, target hardware, and release/cutover remain owner gates.

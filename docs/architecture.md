@@ -7,36 +7,33 @@ and explicitly marked target designs are linked from the [documentation index](i
 
 ## Workbench deployments and convergence
 
-WebChat uses the deployment host's Store and files; desktop uses its own local
-SQLite/files, bounded execution submission, durable result delivery and remote
-browser-host control. These desktop facilities are implemented on main. The
-[implementation ledger](client-r3-implementation.md) and [Mac/Linux follow-up](macos-r3-dual-host-acceptance.md)
-separate source delivery, recorded deployment and remaining qualification.
+WebChat persists conversations, drafts, files and schedules in the deployment-host
+Store/files; desktop persists them in its own SQLite/files. Browser tabs retain
+access to the same authorized host workspace. Separate workbenches do not
+replicate non-mail history. Mail remains authoritative in the backend service.
 
-The user-confirmed 2026-10-06 model treats both as normal workbenches with local
-persistence: WebChat's workbench data is colocated with the execution service;
-desktop data is on the desktop host. Locality describes physical placement, not
-a separate business model or a requirement for browser-local storage. Existing
-WebChat workspace visibility stays intact; separate desktop workbenches do not
-automatically synchronize non-mail history. Mail remains backend-authoritative.
+Both use the common context selector, live model/provider runtime, ToolHub
+registry, active policy and execution control. `internal/execution` owns request
+identity, deadlines, cancellation, approval continuation and result state;
+`agent.WithExecutionScope` supplies the admitted repository, artifacts and resources
+without constructing another business runtime. Unsupported scoped resources are
+reported as unavailable; an embedded desktop browser is not the host acquisition
+browser and does not grant access to arbitrary host files or history.
 
-The confirmed scheduling target is workbench-owned triggering: occurrences due
-while the workbench is offline are skipped permanently, without catch-up after
-reconnect or restart. For WebChat, availability refers to its host workbench
-service; closing a browser tab does not stop that service. This scheduling
-convergence is planned, as detailed in the convergence plan below.
+Host and desktop drafts share revisioned editing behavior with their own adapters.
+Host submission records a durable request fence and user message before clearing
+the submitted draft. Unknown submissions reconcile the original request without
+replay. Each workbench triggers its own schedules: an occurrence due offline is
+permanently missed, while recurring definitions retain future occurrences. Closing
+a WebChat tab does not stop the host scheduler; a desktop main process needs a
+usable authenticated connection and suspension breaks its availability window.
 
-Both entries already use Agent Runtime, while orchestration, runtime assembly
-and some capabilities still differ. The [convergence plan](workbench-runtime-convergence-design.md)
-defines the proposed common boundaries, stable naming, direct protocol cutover
-and validation phases. Its implementation is pending. The sections below describe
-the existing Gateway runtime and host services, not a claim that desktop history
-is held in the host Store or that both entry paths are already identical.
-
-Backend acquisition and desktop embedded browsers retain their distinct resource
-roles. The user confirmed that development-stage refactoring need not support old
-devices or migrate existing data: use a matched release and fresh storage. Accepted
-external contracts remain subject to their own coordination process.
+The source branch implements the [convergence design](workbench-runtime-convergence-design.md).
+See the [implementation ledger](workbench-convergence-implementation.md) for tests
+and remaining hardware limits, and the [matched release guide](workbench-release.md)
+for `/api/v1` paths and fresh storage. This implementation is merged into local main as of 2026-10-08. Deployment,
+installed application updates and real-data operations require their own scope.
+Frozen external protocol and retention contracts remain unchanged.
 
 ## Product Boundary
 

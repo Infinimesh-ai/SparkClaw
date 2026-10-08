@@ -44,6 +44,10 @@ type Scheduler struct {
 	now                 func() time.Time
 	interval            time.Duration
 	maxDeliveryAttempts int
+	pollMu              sync.Mutex
+	lastPoll            time.Time
+	eligibleAfter       time.Time
+	unavailable         bool
 }
 
 func NewMessageScheduler(st Repository, schedules *messagecontrol.ScheduleRegistry, publisher MessagePublisher, maxDeliveryAttempts int) *Scheduler {
@@ -52,7 +56,7 @@ func NewMessageScheduler(st Repository, schedules *messagecontrol.ScheduleRegist
 	}
 	return &Scheduler{
 		store: st, schedules: schedules, publisher: publisher,
-		now:                 func() time.Time { return time.Now().UTC() },
+		now:                 time.Now,
 		interval:            pollInterval,
 		maxDeliveryAttempts: maxDeliveryAttempts,
 	}
@@ -76,20 +80,20 @@ func (s *Scheduler) Run(ctx context.Context) {
 			}
 		}()
 	}
+	var pending []app.MessageSchedule
 	poll := func() bool {
-		now := s.now().UTC()
-		schedules, err := s.schedules.ClaimDue(ctx, now, now.Add(-sendingLease), tickBatchLimit)
+		if len(pending) != 0 {
+			s.observePoll()
+			return true
+		}
+		schedules, err := s.claimDue(ctx)
 		if err != nil {
 			slog.Warn("scheduled message claim unavailable", "code", store.StoreErrorCodeOf(err))
-			return ctx.Err() == nil
-		}
-		for _, schedule := range schedules {
-			select {
-			case jobs <- schedule:
-			case <-ctx.Done():
+			if ctx.Err() != nil {
 				return false
 			}
 		}
+		pending = schedules
 		return true
 	}
 	poll()
@@ -100,9 +104,16 @@ func (s *Scheduler) Run(ctx context.Context) {
 		workers.Wait()
 	}()
 	for {
+		var ready chan<- app.MessageSchedule
+		var next app.MessageSchedule
+		if len(pending) != 0 {
+			ready, next = jobs, pending[0]
+		}
 		select {
 		case <-ctx.Done():
 			return
+		case ready <- next:
+			pending = pending[1:]
 		case <-ticker.C:
 			if !poll() {
 				return
@@ -111,13 +122,12 @@ func (s *Scheduler) Run(ctx context.Context) {
 	}
 }
 
-// Tick remains a synchronous compatibility API for deterministic tests and
-// explicit administrative calls. The production ticker never calls it.
+// Tick runs the same availability and occurrence rules synchronously for
+// deterministic tests. The production ticker dispatches claimed work to workers.
 func (s *Scheduler) Tick(ctx context.Context) ([]app.ReminderDelivery, error) {
-	now := s.now().UTC()
-	due, err := s.schedules.ClaimDue(ctx, now, now.Add(-sendingLease), tickBatchLimit)
-	if err != nil {
-		return nil, err
+	due, claimErr := s.claimDue(ctx)
+	if claimErr != nil && len(due) == 0 {
+		return nil, claimErr
 	}
 	deliveries := make([]app.ReminderDelivery, 0, len(due))
 	for _, schedule := range due {
@@ -127,7 +137,7 @@ func (s *Scheduler) Tick(ctx context.Context) ([]app.ReminderDelivery, error) {
 		}
 		deliveries = append(deliveries, delivery)
 	}
-	return deliveries, nil
+	return deliveries, claimErr
 }
 
 func (s *Scheduler) process(ctx context.Context, schedule app.MessageSchedule) (app.ReminderDelivery, error) {
@@ -139,12 +149,21 @@ func (s *Scheduler) process(ctx context.Context, schedule app.MessageSchedule) (
 	deliveryRecord := app.ReminderDelivery{
 		ID: app.NewID("rdel"), ReminderID: string(schedule.ID), Status: "sent", RetryState: "none", Attempt: attempt, CreatedAt: s.now().UTC(),
 	}
+	if schedule.Spec.WorkbenchOwned {
+		deliveryRecord.ID = workbenchOccurrenceID(schedule)
+		dedupeKey = deliveryRecord.ID
+	}
 	deliveryRecord.Provider = "message-runtime"
 	deliveryRecord.ProviderStatus = "published"
 	if s.publisher == nil {
 		deliveryRecord.Status, deliveryRecord.ProviderStatus, deliveryRecord.Error, deliveryRecord.RetryState = "failed", "failed", "scheduled message publisher is unavailable", "blocked"
 	} else if err := s.publisher.Publish(ctx, scheduledEnvelope(schedule, dedupeKey, s.now().UTC())); err != nil {
 		deliveryRecord.Status, deliveryRecord.ProviderStatus, deliveryRecord.Error, deliveryRecord.RetryState = "failed", "failed", err.Error(), retryState(err)
+	}
+	if schedule.Spec.WorkbenchOwned && deliveryRecord.Status == "failed" {
+		// Publication may have admitted an execution before its response was
+		// lost. Preserve the original request ID for reconciliation only.
+		deliveryRecord.Status, deliveryRecord.ProviderStatus, deliveryRecord.RetryState = "unknown", "unknown", "reconcile"
 	}
 	if deliveryRecord.Status == "sent" && deliveryRecord.SentAt.IsZero() {
 		deliveryRecord.SentAt = s.now().UTC()
@@ -159,6 +178,9 @@ func (s *Scheduler) process(ctx context.Context, schedule app.MessageSchedule) (
 	if err != nil {
 		return deliveryRecord, err
 	}
+	if schedule.Spec.WorkbenchOwned {
+		return deliveryRecord, nil
+	}
 	if err := s.rearm(ctx, string(schedule.ID), deliveryRecord); err != nil {
 		return deliveryRecord, err
 	}
@@ -166,9 +188,13 @@ func (s *Scheduler) process(ctx context.Context, schedule app.MessageSchedule) (
 }
 
 func scheduledEnvelope(schedule app.MessageSchedule, dedupeKey string, createdAt time.Time) app.MessageEnvelope {
+	id := "env_" + string(schedule.ID) + "_" + fmt.Sprint(schedule.DueTime.UTC().Unix())
+	if schedule.Spec.WorkbenchOwned {
+		id = workbenchOccurrenceID(schedule)
+	}
 	return app.MessageEnvelope{
 		SchemaVersion: app.MessageEnvelopeSchemaVersion,
-		ID:            "env_" + string(schedule.ID) + "_" + fmt.Sprint(schedule.DueTime.UTC().Unix()), IdempotencyKey: dedupeKey,
+		ID:            id, IdempotencyKey: dedupeKey,
 		CorrelationID: schedule.SessionID, CausationID: schedule.RunID,
 		Source:  app.MessageSourceContext{Kind: app.MessageSourceTimer, Adapter: "timer", ScheduleID: schedule.ID},
 		OwnerID: schedule.Spec.OwnerID, ActorID: schedule.Spec.ActorID, Content: schedule.Spec.Payload.Content,

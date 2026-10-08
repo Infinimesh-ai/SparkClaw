@@ -17,15 +17,19 @@ const identity = { deployment_id: "qualification-deployment", owner_id: "qualifi
 const sockets = new Set();
 let server, installation, revoked = false;
 let identityRequests = 0, installationRequests = 0, streamRequests = 0;
+let executionPosts = 0, scheduleLeaseRequests = 0, businessWrites = 0;
 try {
-  await run("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1", "-keyout", path.join(temporary, "key.pem"), "-out", path.join(temporary, "cert.pem")]);
+  await run("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1", "-keyout", path.join(temporary, "key.pem"), "-out", path.join(temporary, "cert.pem")], { timeout: 15000, maxBuffer: 1 << 20 });
   const [key, cert] = await Promise.all([fs.readFile(path.join(temporary, "key.pem")), fs.readFile(path.join(temporary, "cert.pem"))]);
   server = https.createServer({ key, cert }, async (request, response) => {
+    if (request.method === "POST" && request.url === "/api/v1/executions") executionPosts++;
+    if (request.url.startsWith("/api/v1/schedules/")) scheduleLeaseRequests++;
+    if (["POST", "PUT", "PATCH"].includes(request.method) && request.url !== "/api/v1/installations") businessWrites++;
     if (revoked || request.headers.authorization !== `Bearer ${token}`) { response.writeHead(401).end(); return; }
     if (request.method === "GET" && request.url === "/api/workbench/identity") {
       identityRequests++; response.end(JSON.stringify(identity)); return;
     }
-    if (request.method === "POST" && request.url === "/api/r3/installations") {
+    if (request.method === "POST" && request.url === "/api/v1/installations") {
       let input = "";
       for await (const chunk of request) { input += chunk; if (input.length > 4096) { response.writeHead(413).end(); return; } }
       const value = JSON.parse(input);
@@ -53,14 +57,26 @@ try {
   delete environment.ELECTRON_RUN_AS_NODE;
   for (const phase of ["prepare", "restore", "revoke"]) {
     revoked = phase === "revoke";
+    if (phase === "restore") {
+      const expected = JSON.parse(await fs.readFile(path.join(temporary, "expected.json"), "utf8"));
+      const untilDue = Date.parse(expected.due_at) - Date.now() + 25;
+      assert.ok(Number.isFinite(untilDue) && untilDue <= 5000);
+      // No scheduler process runs during this short synthetic offline interval.
+      if (untilDue > 0) await new Promise((resolve) => setTimeout(resolve, untilDue));
+    }
     const result = await run(electron, [path.join(root, "apps/desktop/test/mac-client-native-fixture.mjs"), phase], { cwd: root, timeout: 60000, maxBuffer: 1 << 20, env: environment });
     process.stdout.write(result.stdout);
   }
   assert.equal(installationRequests, 3);
   assert.equal(identityRequests, 3);
   assert.equal(streamRequests, 1);
+  assert.equal(executionPosts, 0, "restart/revocation must not POST an overdue execution");
+  assert.equal(scheduleLeaseRequests, 0, "future work must never be registered with the backend");
+  assert.equal(businessWrites, 0, "local drafts and recovery do not upload business content");
   console.log(JSON.stringify({ event: "sparkclaw_mac_client_native_qualification", passed: true, platform: process.platform, architecture: process.arch,
     fresh_electron_processes: 3, real_safe_storage: true, encrypted_credential_restart: true, local_data_retained_on_logout_and_revoke: true,
+    drafts_and_selected_file_refs_restart: true, recurring_schedule_restart: true, offline_occurrence_missed: true,
+    future_occurrence_retained_after_revoke: true, execution_posts: executionPosts, schedule_lease_requests: scheduleLeaseRequests,
     backend: "synthetic_loopback_https_identity_only", business_content_uploaded: false, production_data: false }));
 } finally {
   for (const socket of sockets) socket.destroy();

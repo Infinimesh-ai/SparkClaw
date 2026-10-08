@@ -177,6 +177,12 @@ func (h *ToolHub) parseDocumentOCR(ctx context.Context, input documentocr.Reques
 	if h == nil || h.ocrRuntime == nil || h.ocr == nil || !h.ocr.Enabled() {
 		return h.recordDocumentOCRBypass(ctx, metadata, "disabled", "ocr_adapter_disabled")
 	}
+	lease := h.ocr.begin(ctx)
+	defer lease.finish()
+	ctx = lease.ctx
+	if err := context.Cause(ctx); err != nil {
+		return documentOCRInvocation{Err: err, Status: "cancelled", ReasonCode: "provider_changed"}
+	}
 	ownerID := strings.TrimSpace(metadata.OwnerID)
 	if ownerID == "" {
 		var err error
@@ -193,7 +199,7 @@ func (h *ToolHub) parseDocumentOCR(ctx context.Context, input documentocr.Reques
 		metadata.PreprocessingVersion,
 		documentOCROutputNormalizationVersion,
 	)
-	flightKey := ownerID + "\x00" + logicalKey
+	flightKey := ownerID + "\x00" + strconv.FormatUint(lease.generation, 10) + "\x00" + logicalKey
 
 	h.ocrRuntime.mu.Lock()
 	if entry, ok := h.ocrRuntime.cache[flightKey]; ok {
@@ -230,7 +236,7 @@ func (h *ToolHub) parseDocumentOCR(ctx context.Context, input documentocr.Reques
 
 	started := time.Now().UTC()
 	modelCallID := app.NewID("mcall")
-	result, callErr := h.ocr.Parse(ctx, input)
+	result, callErr := lease.parse(input)
 	completed := time.Now().UTC()
 	status := documentOCRResultStatus(result, callErr)
 	reasonCode := documentOCRReasonCode(result, callErr)
@@ -252,7 +258,7 @@ func (h *ToolHub) parseDocumentOCR(ctx context.Context, input documentocr.Reques
 		errorText = callErr.Error()
 	}
 	if h.store != nil {
-		if _, err := h.store.SaveModelCall(ctx, app.ModelCall{
+		if _, err := h.store.SaveModelCall(context.WithoutCancel(ctx), app.ModelCall{
 			ID: modelCallID, SessionID: metadata.SessionID, RunID: metadata.RunID,
 			Lane: "ocr", Profile: provider, Model: model, Operation: "document_ocr", Status: modelStatus,
 			LatencyMS: completed.Sub(started).Milliseconds(), Error: errorText, StartedAt: started, CompletedAt: &completed,
@@ -537,4 +543,13 @@ func prometheusLabel(value string) string {
 	value = strings.ReplaceAll(value, "\n", "\\n")
 	value = strings.ReplaceAll(value, "\"", "\\\"")
 	return "\"" + value + "\""
+}
+
+// clearContentCache releases content owned by a completed execution scope.
+func (r *documentOCRRuntime) clearContentCache() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cache = map[string]*documentOCRCacheEntry{}
+	r.cacheOrder.Init()
+	r.cacheBytes = 0
 }

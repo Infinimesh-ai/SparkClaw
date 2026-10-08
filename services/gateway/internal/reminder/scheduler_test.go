@@ -10,7 +10,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 )
 
 type blockingPublisher struct {
@@ -73,7 +72,10 @@ type testScheduleRepository interface {
 
 func saveTestSchedule(t *testing.T, st testScheduleRepository, id string, due time.Time, recurrence string) app.MessageSchedule {
 	t.Helper()
-	session := storetest.MustCreateSession(t, st, "Scheduled message")
+	session, err := st.CreateSessionWithScope(t.Context(), "Scheduled message", app.DefaultOwnerID, "", "telegram", false)
+	if err != nil {
+		t.Fatal(err)
+	}
 	schedule := app.MessageSchedule{
 		ID: app.ScheduleID(id), SessionID: session.ID, DueTime: due.UTC(), Timezone: "UTC", Recurrence: recurrence,
 		DedupeKey: id, Status: "pending", CreatedAt: due.Add(-time.Hour), UpdatedAt: due.Add(-time.Hour),

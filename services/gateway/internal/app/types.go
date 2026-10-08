@@ -226,10 +226,11 @@ type Reminder struct {
 }
 
 type ReminderFilter struct {
-	Status string
-	From   *time.Time
-	To     *time.Time
-	Limit  int
+	WorkbenchOnly bool
+	Status        string
+	From          *time.Time
+	To            *time.Time
+	Limit         int
 }
 
 type ReminderDelivery struct {

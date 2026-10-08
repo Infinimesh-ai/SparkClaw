@@ -365,3 +365,6 @@
     transform: rotate(360deg);
   }
 }
+
+.scheduleStatusDot.missed { background: var(--text-secondary); }
+.scheduleState.missed { color: var(--text-secondary); }

@@ -13,7 +13,7 @@
     "dev": "electron src/main/main.mjs",
     "test": "node --test test/*.test.mjs",
     "qualify": "node test/run-isolated-qualification.mjs",
-    "qualify:r3": "node test/run-r3-host-native-qualification.mjs",
+    "qualify:host": "node test/run-host-native-qualification.mjs",
     "qualify:mac-client": "node test/run-mac-client-native-qualification.mjs",
     "dist:linux-arm64": "electron-builder --linux AppImage deb --arm64 --publish never",
     "dist:mac-arm64": "node scripts/package-macos.mjs --arch arm64",

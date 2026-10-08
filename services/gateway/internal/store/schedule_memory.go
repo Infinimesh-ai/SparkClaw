@@ -84,6 +84,9 @@ func (s *MemoryStore) ListReminders(ctx context.Context, filter app.ReminderFilt
 	}
 	out := []app.Reminder{}
 	for _, reminder := range s.reminders {
+		if filter.WorkbenchOnly && !isWorkbenchReminder(reminder) {
+			continue
+		}
 		if filter.Status != "" && reminder.Status != filter.Status {
 			continue
 		}
@@ -122,6 +125,9 @@ func (s *MemoryStore) ClaimDueReminders(ctx context.Context, now, staleBefore ti
 	staleBefore = postgresTime(staleBefore)
 	claimed := []app.Reminder{}
 	for _, reminder := range s.reminders {
+		if isWorkbenchReminder(reminder) {
+			continue
+		}
 		switch reminder.Status {
 		case "pending":
 			if reminder.DueTime.After(now) {
@@ -173,8 +179,10 @@ func (s *MemoryStore) SaveReminderDelivery(ctx context.Context, delivery app.Rem
 	reminder.DeliveryAttempt = delivery.Attempt
 	if delivery.Status == "sent" {
 		reminder.SentAt = cloneTimePointer(&delivery.SentAt)
-		reminder.Status = "sent"
-	} else if delivery.Status == "failed" {
+		if !isWorkbenchReminder(reminder) || reminder.Status == "submitted" {
+			reminder.Status = "sent"
+		}
+	} else if delivery.Status == "failed" && (!isWorkbenchReminder(reminder) || reminder.Status == "submitted") {
 		reminder.Status = "failed"
 	}
 	reminder.UpdatedAt = nextRepositoryTime(now, reminder.UpdatedAt)

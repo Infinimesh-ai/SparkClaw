@@ -14,7 +14,7 @@ const WRITE = new Set(["click", "fill", "select"]);
 export class BrowserHostAgent {
   constructor({ auth, registry, userDataDir, onChange = () => {}, connect = connectPinnedHostSocket, execute = nativePageCommand }) {
     Object.assign(this, { auth, registry, onChange, connect, execute });
-    this.journal = new HostJournal(path.join(userDataDir, "client-r3", "browser-journal"));
+    this.journal = new HostJournal(path.join(userDataDir, "workbench", "browser-journal"));
     this.runtime = registry.runtimeGeneration;
     this.state = "ungranted";
     this.generation = 0;
@@ -40,7 +40,7 @@ export class BrowserHostAgent {
     if (!this.scope || this.auth.status.state !== "connected" || this.auth.descriptor?.schemaVersion !== 2) throw new Error("Browser host requires connected pinned HTTPS LAN identity");
     const generation = ++this.generation;
     this.#disconnect("reconnecting");
-    const response = await this.auth.authorizedFetch(`${this.auth.descriptor.origin}/api/r3/hosts/grants`, {
+    const response = await this.auth.authorizedFetch(`${this.auth.descriptor.origin}/api/v1/browser/hosts/grants`, {
       method: "POST", headers: { "content-type": "application/json", "X-SparkClaw-Installation": this.scope.installation_id }, body: "{}",
     });
     if (!response.ok) throw new Error("Browser host permission was rejected");
@@ -92,7 +92,7 @@ export class BrowserHostAgent {
   async refreshFences() {
     if (!this.scope || this.auth.status.state !== "connected") throw new Error("Browser reconciliation identity is unavailable");
     const generation = this.generation; const scope = this.scope;
-    const response = await this.auth.authorizedFetch(`${this.auth.descriptor.origin}/api/r3/hosts/fences`, { headers: { "X-SparkClaw-Installation": scope.installation_id } });
+    const response = await this.auth.authorizedFetch(`${this.auth.descriptor.origin}/api/v1/browser/hosts/fences`, { headers: { "X-SparkClaw-Installation": scope.installation_id } });
     if (!response.ok) throw new Error("Browser write fences are unavailable");
     const result = await response.json();
     if (generation !== this.generation || scope !== this.scope) throw new Error("Browser reconciliation identity changed");
@@ -119,7 +119,7 @@ export class BrowserHostAgent {
     const scopedKeys = ["owner_id", "client_id", "installation_id"];
     const localBound = local && local.digest === digest && scopedKeys.every((key) => local[key] === this.scope?.[key]);
     if (!(remote?.digest === digest || localBound && local.state === "unknown") || local && !localBound) throw new Error("Browser write reconciliation is invalid");
-    const response = await this.auth.authorizedFetch(`${this.auth.descriptor.origin}/api/r3/hosts/reconcile`, { method: "POST", headers: { "content-type": "application/json", "X-SparkClaw-Installation": this.scope.installation_id }, body: JSON.stringify({ command_id: commandID, digest, outcome }) });
+    const response = await this.auth.authorizedFetch(`${this.auth.descriptor.origin}/api/v1/browser/hosts/reconcile`, { method: "POST", headers: { "content-type": "application/json", "X-SparkClaw-Installation": this.scope.installation_id }, body: JSON.stringify({ command_id: commandID, digest, outcome }) });
     if (!response.ok) throw new Error("Backend write reconciliation failed");
     if (local) await this.journal.reconcile(commandID, digest, outcome, Boolean(remote));
     else await this.journal.recordReconciled(remote, outcome);

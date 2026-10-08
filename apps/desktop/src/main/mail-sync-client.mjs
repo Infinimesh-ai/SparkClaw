@@ -26,7 +26,7 @@ export class MailSyncClient {
     const controller=new AbortController();this.controllers.add(controller);
     const signal=AbortSignal.any([controller.signal,AbortSignal.timeout(30000)]);
     try {
-      const response=await this.getFileFetch()(`${connection.origin}/api/r3/mail/${encodeURIComponent(mailbox)}/messages/${encodeURIComponent(mailID)}/attachments/${encodeURIComponent(partID)}`,{method:'GET',headers:{Authorization:connection.authorization,'X-SparkClaw-Installation':this.installationID},redirect:'manual',signal});
+      const response=await this.getFileFetch()(`${connection.origin}/api/v1/mail/${encodeURIComponent(mailbox)}/messages/${encodeURIComponent(mailID)}/attachments/${encodeURIComponent(partID)}`,{method:'GET',headers:{Authorization:connection.authorization,'X-SparkClaw-Installation':this.installationID},redirect:'manual',signal});
       this.#assertActive(generation,signal);
       if(!response.ok)throw new Error('The mail attachment is unavailable; synchronize and retry');
       const reader=response.body?.getReader();if(!reader)throw new Error('Attachment response is empty');
@@ -58,7 +58,7 @@ export class MailSyncClient {
       return JSON.parse(Buffer.concat(chunks).toString('utf8'));
     } finally {this.controllers.delete(controller);}
   }
-  async refreshCatalog(){const generation=this.generation;this.#assertActive(generation);const connection=this.#connection();await this.ensureInstallation();this.#assertActive(generation);const result=await this.#request('/api/r3/mail/mailboxes',{},generation);this.#assertActive(generation);if(this.getConnection()!==connection)throw new Error('Mail login changed');return this.store.catalog(scope(connection),result.mailboxes);}
+  async refreshCatalog(){const generation=this.generation;this.#assertActive(generation);const connection=this.#connection();await this.ensureInstallation();this.#assertActive(generation);const result=await this.#request('/api/v1/mail/mailboxes',{},generation);this.#assertActive(generation);if(this.getConnection()!==connection)throw new Error('Mail login changed');return this.store.catalog(scope(connection),result.mailboxes);}
   sync(mailbox){
     const connection=this.#connection();const key=JSON.stringify([scope(connection),mailbox]);
     if(this.inflight.has(key))return this.inflight.get(key);
@@ -74,7 +74,7 @@ export class MailSyncClient {
       if(this.getConnection()!==connection)throw new Error('Mail login changed');
       const cursor=this.store.cursor(identity,mailbox);
       let response;
-      try {response=await this.#request(`/api/r3/mail/${encodeURIComponent(mailbox)}/sync`,{method:'POST',body:JSON.stringify({cursor,limit:100})},generation);}
+      try {response=await this.#request(`/api/v1/mail/${encodeURIComponent(mailbox)}/sync`,{method:'POST',body:JSON.stringify({cursor,limit:100})},generation);}
       catch(error){this.#assertActive(generation);if(error.code==='MAIL_RESET'&&resets++<3){this.store.reset(identity,mailbox);continue;}throw error;}
       this.#assertActive(generation);
       const cached=this.store.apply(identity,mailbox,response,cursor);if(!response.more)return cached;

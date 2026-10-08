@@ -2,8 +2,10 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-iscp-connection-design.md)
 >
-> 日期：2026-10-08。状态：文本实现、隔离验证、真实本地 Docker reference Relay 执行／重连及原生窗口正向 Send 通过，模型为 mock。
+> 日期：2026-10-08。状态：实现已推送，本地 Docker reference Relay 验收通过；已安装 SparkX 连接既有远端后端，真实模型正向回复与持久 ACK 通过。
 > 范围：实现 SparkX／Gateway 本地联调，不使用 InfiniCenter。
+
+初始隔离实验使用独立 Gateway 与 mock 模型；第 10 节将同一本地 Relay 接入用户既有远端 Gateway、真实模型和已安装 SparkX，保留该部署的公网 TLS ingress。
 
 ## 1. 当前目标
 
@@ -237,7 +239,7 @@ sequenceDiagram
 
 最终自动 Docker 轮次三项全过、零跳过，用时约 34.5 秒。正常与重连均获得 57 字节正向回复，`successful_mock_answer=true`、`submit_count=1`、`lookup_count=2`、`ack_count=1`、`direct_gateway_http_calls=0`。每个原 request 只有一个 delivered Gateway fence，input／result digest 一致。故意重启其一次性 reference Relay 后，测试重新 inspect 动态宿主端口，重登记明确拒绝 `local Relay signer changed`，并确认原 enrollment 凭据未被改写。本机测试日志为 `/tmp/sparkclaw-iscp-local-docker.log`。
 
-Node.js 锁定 26.2.0，Go 验证使用 1.25.12。Linux 检查使用当前源码并清除退休的 runtime image browser 变量。未改变 store interface。本文报告的所有模型执行均使用显式 mock 模型，经真实共享文本 runtime；真实模型、扩展工作台和已安装／部署版本另行验收。
+Node.js 锁定 26.2.0，Go 验证使用 1.25.12。Linux 检查使用当前源码并清除退休的 runtime image browser 变量。未改变 store interface。上述隔离 Docker 验收使用显式 mock 模型，经真实共享文本 runtime；第 10 节单独记录已安装 SparkX 与既有远端部署的真实模型验收。
 
 ## 9. 运行私有本地实验
 
@@ -312,3 +314,35 @@ npm run test:iscp-docker
 它建立并清理自己的本地 Relay／Gateway／network，验证实际设备登记，以及缺少签名 PoP 时登记返回 HTTP 401 的拒绝，再运行正常及重连的正向业务，对照 Gateway 唯一 admission 和 input／result digest。最后重启其一次性 reference Relay，要求拒绝变更的 descriptor signer 并保持原 enrollment。此项区别于隔离 fixture，模型仍为 mock。
 
 完整 Gateway execution 测试按既有 workspace 契约在 Linux 执行；隔离 fixture 的合成凭据不发送给托管服务。
+
+## 10. 已安装 SparkX 与既有远端后端验收
+
+2026-10-08，实现提交 `a0f48a3ec33df511ff2794a55ad61cfae1cfdcc2` 已推送到 `main`；`210.16.177.239` 的 `/home/ubuntu/SparkClaw` 通过 `git pull --ff-only` 同步。实际 Gateway 与匹配的 WebChat 已升级为 `sparkclaw-gateway:iscp-a0f48a3e`、`sparkclaw-webchat:iscp-a0f48a3e`。保留原 deployment `431c00ce-b780-42e3-9d25-c25c87c8c011`、Owner、PostgreSQL 状态、模型配置、workspace、TLS 和既有 Client；为本轮评测新增已签发 Client `sparkx-iscp-remote-8143225e` 与两个独立 Relay 设备。
+
+评测复用已运行的本地 reference Relay `http://127.0.0.1:51206`，没有在服务器另起 Relay，也不使用托管 Relay。后端通过受控 TCP 链路连接同一个钉住身份的 Relay：
+
+```text
+已安装 SparkX → 本地 Docker reference Relay
+远端 Gateway → 其 Docker bridge 上的 iscp-relay:28881
+  → 远端 loopback TCP 43569 → SSH reverse forward
+  → Mac loopback TCP 53006 → Docker TCP forwarder → 同一 reference Relay
+```
+
+forwarder 只转发 Relay TCP 流量，不解释业务请求或持有凭据。独立源地址为 reference Relay 共享的每 IP 轮询限额留出空间；SDK 登记、签名 Relay pin、固定 peer、加密 Hello／Ready 与业务权限校验仍生效。公网 `https://210.16.177.239:18790` 继续使用既有 CA 验证，健康检查正常；本轮桌面 execution 不经该 HTTPS transport。
+
+`/Applications/SparkX.app` 已更新为通过审计的 Mac arm64 包，内含 helper。持久私有启动选择使正常启动直接使用 ISCP，无需环境变量或 qualification mode。专属 user-data 是新的 Client scope；旧 HTTPS 数据与原安装应用已备份，没有导入新 scope。本轮不代表旧 R3 历史迁移或完整工作台能力验收。
+
+| 验收 | 实际结果 |
+|---|---|
+| 真实模型与状态 | 加密 `presentation.ready` 返回 `model_mode=external`、`state_backend=postgres` |
+| submit 响应丢失后重连 | 真实模型回复 `Hello! How can I help you today?`（32 字节）；新 helper session 恢复原 request，一次 submit、三次 lookup、一次 ACK、零 Gateway 业务 HTTP 直连 |
+| 已安装原生窗口 | 中文文本任务获得 174 字节正向真实模型回复，使用原生 OS 安全存储与持久启动选择 |
+| 持久结果 | 原生 SQLite 与真实 Gateway control 的 request `ace0b350-665d-4156-8976-6442e4385a01` 均为 delivered，输入／结果 digest 一致，交付已 ACK |
+| 凭据轮换与正常重启 | 强制经过 SDK refresh，确认轮换凭据写入独立可写 enrollment mount，再通过持久选择重开已安装 SparkX，恢复原中文会话，新真实模型任务返回 `重启验证通过。` |
+| 恢复准备 | 升级前保存原容器／image 配置、PostgreSQL custom dump 和 memory／control archive；dump catalog 验证通过 |
+
+原生结果 digest 为 `a89abc0a64c1a03dd756664b083b36fb3b0baf82e161b481673ef7a9d2468340`。私有评测目录是 `/Users/dev/.cache/sparkclaw-iscp/remote-switch-20261008-8143225e`，其 `evidence/native-real-model.json`、`evidence/native-after-restart.json`、`evidence/real-model-reconnect.json` 与 NDJSON 分别保留回执。远端备份是 `/home/ubuntu/sparkclaw-backups/20261008-before-iscp-8143225e`。秘密及机器专属部署脚本均不进入 Git 或应用包。升级执行 PostgreSQL migration 18，旧 binary 会拒绝该 migration ledger，不能仅替换 binary 回滚；恢复旧版本需配套数据库与状态备份。
+
+enrollment 存储必须可写，供 SDK 轮换凭据。最初远端评测把全部私有配置只读挂载，首次 refresh 会轮换服务端凭据却无法写回本地。现已用独立私有 `gateway-credentials` 目录可写挂载到 `/run/sparkclaw/iscp-credentials`，密钥和 profile 仍只读。同一设备通过签名 PoP、沿用原 Relay pin 重新登记后，立即强制 refresh，确认磁盘上 access 有效期更新且 refresh 凭据改变；`evidence/credential-refresh.json` 保存检查。隔离本地 runner 原本已可写挂载私有 lab 目录。私有 `renew-grant.mjs` 只刷新两端相同权限的 Grant；执行前退出 SparkX，执行后重开以完成新握手。
+
+当前仍是显式的纯文本 local-test profile，邮件、文件、审批、Browser Host 和语音不可用。需保持当前内存 Relay、Docker TCP forwarder、SSH control connection 与远端 user-service TCP link 运行；重启 Relay 会使 signer pin 与 enrollment 失效。普通 lab `up`／`down` 管理的是隔离 mock Gateway，不管理本轮远端评测，不能用它们刷新或关闭远端链路。常规远端 Compose 重建也需要重新应用私有 ISCP 评测配置。三十分钟 Grant 到期后，由同 issuer 重新签发并完成新握手，不绕过有效期或扩权。以上证明真实后端文本执行与交付，不代表生产登记、managed Grant renewal 或完整产品发布。

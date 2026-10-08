@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-iscp-connection-design.md)
 >
-> Date: 2026-10-08. Status: text implementation, isolated validation, real local Docker reference Relay execution/reconnect, and positive native-window Send pass with the mock model.
+> Date: 2026-10-08. Status: implementation pushed, local Docker reference Relay acceptance passed, and installed SparkX connected to the existing remote backend with a positive real-model reply and durable ACK.
 > Scope: implement local SparkX/Gateway integration, without InfiniCenter.
 
 ## 1. Current objective
@@ -21,6 +21,8 @@ Real SparkX window or separately labeled desktop smoke process
 ```
 
 The Relay is compiled from the SDK module version locked in `services/gateway/go.mod`, without changing upstream source. A Bridge unit test or an injected Relay is isolated evidence; acceptance against this real Relay is recorded separately. The explicit mock model provides reproducible text output through the shared Gateway runtime.
+
+The initial isolated lab below uses its own Gateway and mock model. Section 10 extends the same local Relay to the user's existing remote Gateway, real model and installed SparkX, preserving that deployment's public TLS ingress.
 
 SparkX initiates every encrypted session; SparkClaw responds. The issuer supplies grants during preparation and does not forward business traffic. Both peers connect to Relay; Gateway business HTTP has no published port.
 
@@ -237,7 +239,7 @@ Positive acceptance checks the answer outcome as well as durable delivery. Earli
 
 The final automatic Docker run passed all three tests with zero skipped in about 34.5 seconds. Normal and reconnect each returned the 57-byte positive answer with `successful_mock_answer=true`, `submit_count=1`, `lookup_count=2`, `ack_count=1`, and `direct_gateway_http_calls=0`. Each original request has one delivered Gateway fence with the same input/result digests. After intentionally restarting its disposable reference Relay, the test inspected its new dynamic host port, rejected re-registration with `local Relay signer changed`, and confirmed that the original enrollment credentials remained intact. The local test log is `/tmp/sparkclaw-iscp-local-docker.log`.
 
-The locked Node.js runtime is 26.2.0 and Go validation uses 1.25.12. Linux checks use current source and clear retired runtime-image browser variables. No store interface changes are required. Every model execution reported here uses the explicit mock model through the real shared text runtime; real-model execution, expanded workbench capabilities, and an installed/deployed release remain separate.
+The locked Node.js runtime is 26.2.0 and Go validation uses 1.25.12. Linux checks use current source and clear retired runtime-image browser variables. No store interface changes are required. The isolated Docker acceptance above uses the explicit mock model through the real shared text runtime. Section 10 separately records installed SparkX and real-model acceptance against the existing remote deployment.
 
 ## 9. Running the private local lab
 
@@ -312,3 +314,35 @@ npm run test:iscp-docker
 This creates and cleans up its own local Relay/Gateway/network, tests actual device registration and the observed HTTP 401 rejection of registration without signed PoP, then normal and reconnect positive business runs with unique Gateway admission and matching input/result digests. It finally restarts its disposable reference Relay and requires rejection of the changed descriptor signer without overwriting the old enrollment. It is distinct from isolated fixtures and uses the mock model.
 
 Keep full Gateway execution checks on Linux as required by the existing workspace contract. Isolated fixtures never forward their synthetic credentials to a hosted service.
+
+## 10. Installed SparkX and existing remote backend acceptance
+
+On 2026-10-08, implementation commit `a0f48a3ec33df511ff2794a55ad61cfae1cfdcc2` was pushed to `main`; `/home/ubuntu/SparkClaw` on `210.16.177.239` synchronized by `git pull --ff-only`. The actual Gateway and matching WebChat were upgraded to images `sparkclaw-gateway:iscp-a0f48a3e` and `sparkclaw-webchat:iscp-a0f48a3e`. The existing deployment `431c00ce-b780-42e3-9d25-c25c87c8c011`, Owner, PostgreSQL state, model configuration, workspaces, TLS and existing Clients were retained. A new issued Client, `sparkx-iscp-remote-8143225e`, and two distinct Relay devices were added specifically for this evaluation.
+
+The evaluation reuses the already running local reference Relay at `http://127.0.0.1:51206`; it does not deploy another Relay on the server or use a hosted Relay. The backend reaches the same pinned Relay through controlled TCP links:
+
+```text
+Installed SparkX → local Docker reference Relay
+Remote Gateway → iscp-relay:28881 on its Docker bridge
+  → remote loopback TCP port 43569 → SSH reverse forward
+  → Mac loopback TCP port 53006 → Docker TCP forwarder → same reference Relay
+```
+
+The forwarders carry Relay TCP traffic without interpreting business requests or holding credentials. Separate source addresses leave room under the reference Relay's shared per-IP polling limit. SDK enrollment, the signed Relay pin, fixed peers, encrypted Hello/Ready and business permission remain enforced. The public HTTPS endpoint at `https://210.16.177.239:18790` remains healthy with its existing verified CA; it is not the desktop execution transport in this evaluation.
+
+`/Applications/SparkX.app` was updated with the audited Mac arm64 package and bundled helper. Its persistent private launch selection activates ISCP on a normal launch, without environment flags or qualification mode. The dedicated user-data directory contains a new Client scope; the previous HTTPS data and installed app were backed up rather than imported into this scope. This does not establish migration of old R3 history or full workbench capability acceptance.
+
+| Acceptance | Observed result |
+|---|---|
+| Actual model and state | Encrypted `presentation.ready` reports `model_mode=external`, `state_backend=postgres` |
+| Lost submit response and reconnect | Real-model reply `Hello! How can I help you today?` (32 bytes); fresh helper session, original request recovery, one submit, three lookups, one ACK, zero direct Gateway HTTP calls |
+| Installed native window | Chinese text task produced a positive 174-byte real-model answer; native OS secure storage and the persistent launch selection were used |
+| Durable result | Both native SQLite and real Gateway control record request `ace0b350-665d-4156-8976-6442e4385a01` as delivered, with matching input/result digests and acknowledged delivery |
+| Credential rotation and normal restart | Forced the SDK refresh path, verified rotated credentials persisted in a dedicated writable enrollment mount, then reopened installed SparkX through the persistent selection, restored its Chinese conversation and received `重启验证通过。` from a new real-model task |
+| Recovery preparation | Original container/image configuration, PostgreSQL custom dump and memory/control archive retained before upgrade; dump catalog validation passed |
+
+The native result digest is `a89abc0a64c1a03dd756664b083b36fb3b0baf82e161b481673ef7a9d2468340`. The private evaluation directory is `/Users/dev/.cache/sparkclaw-iscp/remote-switch-20261008-8143225e`; its `evidence/native-real-model.json`, `evidence/native-after-restart.json`, `evidence/real-model-reconnect.json` and NDJSON retain the separate receipts. Remote backup is `/home/ubuntu/sparkclaw-backups/20261008-before-iscp-8143225e`. Secrets and these machine-specific deployment scripts are outside Git and the application package. The upgrade applies PostgreSQL migration 18; reverting only the binary is insufficient because the prior binary rejects that migration ledger. Recovery to the prior version requires the corresponding database and state backup.
+
+Enrollment storage must be writable for SDK credential rotation. The initial remote evaluation mounted all private configuration read-only, so its first refresh could rotate the server credential without persisting it locally. This was corrected by a separate private `gateway-credentials` mount at `/run/sparkclaw/iscp-credentials`; keys and profiles remain read-only. The same device was re-enrolled with signed PoP and the existing Relay pin, and an immediate forced refresh verified new access validity and changed refresh credentials on disk. `evidence/credential-refresh.json` records this check. The local isolated runner already mounts its private lab directory writable. The private `renew-grant.mjs` refreshes only the same grant scope on both peers; quit SparkX before running it and reopen afterward for a new handshake.
+
+This remains the explicit text-only local-test profile. Mail, files, approvals, Browser Host and voice remain unavailable. It requires the current in-memory Relay, Docker TCP forwarder, SSH control connection and remote user-service TCP link to stay running. Restarting the Relay invalidates its signer pin and enrollment. The ordinary lab `up`/`down` commands manage the isolated mock Gateway, not this remote evaluation; do not use them to refresh or tear down the remote connection. A normal remote Compose reconciliation also needs the private ISCP evaluation configuration reapplied. Reissue the same thirty-minute grant and complete a fresh handshake when it expires; do not bypass expiry or extend permissions. These results establish real backend text execution and delivery, not production enrollment, managed grant renewal or a complete product release.

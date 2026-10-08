@@ -21,19 +21,28 @@ type Binding struct {
 }
 
 type Config struct {
-	SchemaVersion          int      `json:"schema_version"`
-	Mode                   string   `json:"mode"`
-	Role                   string   `json:"role"`
-	RelayProfile           string   `json:"relay_profile,omitempty"`
-	IdentityDirectory      string   `json:"identity_directory"`
-	IdentityKeyBackend     string   `json:"identity_key_backend"`
-	IdentityKeyringService string   `json:"identity_keyring_service,omitempty"`
-	EnrollmentFile         string   `json:"enrollment_file"`
-	PeerIdentityFile       string   `json:"peer_identity_file"`
-	IssuerIdentityFile     string   `json:"issuer_identity_file"`
-	GrantFile              string   `json:"grant_file"`
-	Permission             string   `json:"permission,omitempty"`
-	Binding                *Binding `json:"binding,omitempty"`
+	SchemaVersion          int                 `json:"schema_version"`
+	Mode                   string              `json:"mode"`
+	Role                   string              `json:"role"`
+	RelayProfile           string              `json:"relay_profile,omitempty"`
+	IdentityDirectory      string              `json:"identity_directory"`
+	IdentityKeyBackend     string              `json:"identity_key_backend"`
+	IdentityKeyringService string              `json:"identity_keyring_service,omitempty"`
+	EnrollmentFile         string              `json:"enrollment_file"`
+	PeerIdentityFile       string              `json:"peer_identity_file"`
+	IssuerIdentityFile     string              `json:"issuer_identity_file"`
+	GrantFile              string              `json:"grant_file"`
+	Permission             string              `json:"permission,omitempty"`
+	Binding                *Binding            `json:"binding,omitempty"`
+	GrantRenewal           *GrantRenewalConfig `json:"grant_renewal,omitempty"`
+}
+
+// GrantRenewalConfig points to the separately pinned local issuer. Relay
+// credentials and the issuer's management credential are never used here.
+type GrantRenewalConfig struct {
+	URL                 string `json:"url"`
+	PendingFile         string `json:"pending_file"`
+	PollIntervalSeconds int    `json:"poll_interval_seconds,omitempty"`
 }
 
 // PublicIdentity is derived from the validated enrollment and pinned peer,
@@ -82,6 +91,9 @@ func LoadConfig(path string) (Config, error) {
 			*field = filepath.Join(base, *field)
 		}
 	}
+	if cfg.GrantRenewal != nil && !filepath.IsAbs(cfg.GrantRenewal.PendingFile) {
+		cfg.GrantRenewal.PendingFile = filepath.Join(base, cfg.GrantRenewal.PendingFile)
+	}
 	if err := cfg.Validate(); err != nil {
 		return cfg, err
 	}
@@ -111,6 +123,17 @@ func (c Config) Validate() error {
 	}
 	if c.Permission != "" && c.Permission != Permission {
 		return errors.New("unsupported workbench permission")
+	}
+	if c.GrantRenewal != nil {
+		if err := iscpbridge.ValidateGrantLifecycleURL(c.GrantRenewal.URL); err != nil {
+			return err
+		}
+		if c.GrantRenewal.PendingFile == "" || !filepath.IsAbs(c.GrantRenewal.PendingFile) || c.GrantRenewal.PendingFile == c.GrantFile || c.GrantRenewal.PendingFile == c.EnrollmentFile {
+			return errors.New("grant renewal requires an independent absolute private pending file")
+		}
+		if c.GrantRenewal.PollIntervalSeconds < 0 || c.GrantRenewal.PollIntervalSeconds > 300 {
+			return errors.New("grant renewal polling interval must be between 1 and 300 seconds")
+		}
 	}
 	if c.Binding != nil {
 		for _, id := range []string{c.Binding.DeploymentID, c.Binding.OwnerID, c.Binding.ClientID} {
@@ -200,7 +223,13 @@ func loadMaterial(cfg Config) (material, error) {
 			return m, errors.New("local test grant issuer must be separate from the cloud Trust Root")
 		}
 	}
-	if err := verifyGrant(cfg, m, time.Now().UTC()); err != nil {
+	verificationTime := time.Now().UTC()
+	if cfg.GrantRenewal != nil && !verificationTime.Before(m.grant.ExpiresAt) {
+		// A signed expired seed can recover through the explicitly configured
+		// lifecycle. Runtime admission still verifies against the actual time.
+		verificationTime = m.grant.ExpiresAt.Add(-time.Nanosecond)
+	}
+	if err := verifyGrant(cfg, m, verificationTime); err != nil {
 		return m, err
 	}
 	return m, nil

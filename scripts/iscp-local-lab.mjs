@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { assertNoSymlinkPath, assertPrivateDirectory, readPrivateJSON, writePrivateJSON } from "./lib/private-workbench.mjs";
-import { buildRelay, command, containerState, dockerArch, labLabel, relayContainerURL, relayContainerWS, startRelay, stopLab, waitRelay } from "./lib/iscp-docker-lab.mjs";
+import { buildRelay, command, containerState, dockerArch, issuerContainerURL, labLabel, relayContainerURL, relayContainerWS, startIssuer, startRelay, stopLab, waitRelay } from "./lib/iscp-docker-lab.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const gatewayRoot = path.join(root, "services/gateway");
@@ -75,7 +75,7 @@ export async function prepareLab(inputFile, directory) {
     deployment_id: input.deployment_id, owner_id: input.owner_id, client_id: input.client_id,
     domain_id: `local-${labID}`, relay_id: `relay-${labID}`, desktop_device_id: `sparkx-${labID}`, gateway_device_id: `sparkclaw-${labID}`,
     network: `sparkclaw-iscp-${labID}`, ingress_network: `sparkclaw-iscp-ingress-${labID}`,
-    relay_container: `sparkclaw-iscp-relay-${labID}`, gateway_container: `sparkclaw-iscp-gateway-${labID}`, created_at: new Date().toISOString() };
+    relay_container: `sparkclaw-iscp-relay-${labID}`, gateway_container: `sparkclaw-iscp-gateway-${labID}`, issuer_container: `sparkclaw-iscp-issuer-${labID}`, created_at: new Date().toISOString() };
   try {
     process.stdout.write("Building the locked upstream ISCP reference Relay source for Docker...\n");
     metadata.source = await buildRelay(root, directory, dockerArch());
@@ -95,6 +95,15 @@ export async function prepareLab(inputFile, directory) {
     command("go", ["build", "-trimpath", "-o", issuerBinary, "./cmd/iscp-local-issuer"], { cwd: gatewayRoot });
     command(issuerBinary, ["-init", "-directory", path.join(directory, "issuer"), "-subject-identity", path.join(directory, "desktop/device.identity.json"), "-audience-identity", path.join(directory, "gateway/device.identity.json"), "-relay-id", metadata.relay_id]);
     await issueGrant(directory);
+    command(issuerBinary, ["-authorize-renewal", "-config", path.join(directory, "issuer/issuer.json"), "-grant-file", path.join(directory, "grant.json"), "-authorization-hours", "24"]);
+    const issuerConfig = await readPrivateJSON(path.join(directory, "issuer/issuer.json"));
+    await write(path.join(directory, "issuer/issuer-container.json"), issuerContainerConfig(issuerConfig, directory));
+    command("go", ["build", "-trimpath", "-o", path.join(directory, "bin/issuer-linux"), "./cmd/iscp-local-issuer"], { cwd: gatewayRoot, env: { ...process.env, GOOS: "linux", GOARCH: metadata.source.goarch, CGO_ENABLED: "0" } });
+    metadata.issuer_binary_sha256 = crypto.createHash("sha256").update(await fs.readFile(path.join(directory, "bin/issuer-linux"))).digest("hex");
+    await startIssuer(metadata, directory);
+    await waitIssuerRenewal(metadata, directory);
+    metadata.grant_renewal = true;
+    metadata.renewal_authorization_hours = 24;
     await writeProfiles(directory, metadata, desktop.identity, gateway.identity);
     await write(path.join(directory, "run.json"), metadata);
     process.stdout.write(`Local reference Relay ready at ${metadata.relay_url}; both devices registered with signed PoP.\n`);
@@ -105,16 +114,31 @@ export async function prepareLab(inputFile, directory) {
   }
 }
 
+export function issuerContainerConfig(config, directory) {
+  const paths = ["directory", "subject_identity_file", "audience_identity_file"];
+  if (paths.some(key => typeof config[key] !== "string" || !config[key].startsWith(directory + path.sep))) throw new Error("Issuer paths must remain inside this private lab");
+  return { ...config, ...Object.fromEntries(paths.map(key => [key, "/lab" + config[key].slice(directory.length)])) };
+}
+
+export function helperRenewalConfig(directory, role, issuerURL) {
+  const url = new URL(issuerURL);
+  if (!["desktop", "gateway"].includes(role) || !path.isAbsolute(directory) || url.protocol !== "http:" || url.origin !== issuerURL ||
+      !["127.0.0.1", "[::1]", "localhost", "iscp-local-issuer"].includes(url.hostname)) throw new Error("Invalid local issuer renewal route");
+  return { url: issuerURL, pending_file: path.join(directory, role, "pending-grant.json"), poll_interval_seconds: 10 };
+}
+
 async function writeProfiles(directory, metadata, desktopIdentity, gatewayIdentity) {
   const binding = { deployment_id: metadata.deployment_id, owner_id: metadata.owner_id, client_id: metadata.client_id };
   for (const [role, name, other] of [["initiator", "desktop", "gateway"], ["responder", "gateway", "desktop"]]) {
     const profile = { schema_version: 1, mode: "local-test", relay_profile: "local-lab", role,
       identity_directory: path.join(directory, name), identity_key_backend: "file",
       enrollment_file: path.join(directory, name, "enrollment.json"), peer_identity_file: path.join(directory, other, "device.identity.json"),
-      issuer_identity_file: path.join(directory, "issuer/issuer.identity.json"), grant_file: path.join(directory, "grant.json"), permission: "sparkclaw.workbench.v1", binding };
+      issuer_identity_file: path.join(directory, "issuer/issuer.identity.json"), grant_file: path.join(directory, "grant.json"), permission: "sparkclaw.workbench.v1", binding,
+      grant_renewal: helperRenewalConfig(directory, name, metadata.issuer_url) };
     await write(path.join(directory, `${name}-helper.json`), profile);
     if (name === "gateway") {
       const containerProfile = Object.fromEntries(Object.entries(profile).map(([key, value]) => [key, typeof value === "string" && value.startsWith(directory + path.sep) ? "/lab" + value.slice(directory.length) : value]));
+      containerProfile.grant_renewal = { ...profile.grant_renewal, url: issuerContainerURL, pending_file: "/lab" + profile.grant_renewal.pending_file.slice(directory.length) };
       await write(path.join(directory, "gateway-container-helper.json"), containerProfile);
     }
   }
@@ -137,6 +161,38 @@ async function writeProfiles(directory, metadata, desktopIdentity, gatewayIdenti
   config.state.credential_key_file = "/lab/state/gateway-credentials.key";
   config.storage = { ...config.storage, trace_dir: "/lab/state/traces", log_dir: "/lab/state/logs", artifact_dir: "/lab/state/artifacts" };
   await write(path.join(directory, "gateway-config.json"), config);
+}
+
+export function validateIssuerRenewalCapability(capability, metadata, issuerIdentity, now = Date.now()) {
+  const descriptor = capability?.descriptor, fields = descriptor?.metadata;
+  const issued = Date.parse(descriptor?.issued_at), expires = Date.parse(descriptor?.expires_at), authorizedUntil = Date.parse(fields?.authorization_expires_at);
+  const expected = { purpose: "sparkclaw-local-grant-renewal", grant_renewal: "true", issuer_device_id: issuerIdentity.device_id,
+    relay_id: metadata.relay_id, subject_device_id: metadata.desktop_device_id, audience_device_id: metadata.gateway_device_id, permission: "sparkclaw.workbench.v1" };
+  if (capability?.type !== "iscp.signed_descriptor.v2" || capability.descriptor_type !== "iscp.trust_root.descriptor.v2" || descriptor?.type !== "iscp.trust_root.descriptor.v2" ||
+      descriptor.trust_root_id !== issuerIdentity.device_id || descriptor.domain_id !== metadata.domain_id ||
+      Object.entries(expected).some(([key, value]) => fields?.[key] !== value) ||
+      !Number.isFinite(issued) || !Number.isFinite(expires) || !Number.isFinite(authorizedUntil) || issued > now + 5000 || expires <= now || expires > authorizedUntil || expires - issued > 300000) {
+    throw new Error("Local issuer did not return the fixed-pair SDK renewal capability");
+  }
+}
+
+async function waitIssuerRenewal(metadata, directory, timeout = 15000) {
+  const issuerIdentity = await readPrivateJSON(path.join(directory, "issuer/issuer.identity.json"));
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${metadata.issuer_url}/v1/renewal-capability`, { signal: AbortSignal.timeout(1000), redirect: "error" });
+      if (response.ok) {
+        const raw = await response.text();
+        if (Buffer.byteLength(raw) <= 65536) {
+          validateIssuerRenewalCapability(JSON.parse(raw), metadata, issuerIdentity);
+          return;
+        }
+      }
+    } catch { /* Startup is bounded; the helper verifies the SDK signature and pin. */ }
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  throw new Error("Local issuer renewal capability startup timed out");
 }
 
 async function issueGrant(directory) {
@@ -181,10 +237,13 @@ export async function upLab(directory) {
   await assertPrivateDirectory(directory);
   await assertDesktopStopped(directory);
   const metadata = await readPrivateJSON(path.join(directory, "run.json"));
+  if (metadata.grant_renewal !== true || !metadata.issuer_container || !metadata.issuer_url || !metadata.issuer_started_at) throw new Error("This lab has no managed issuer renewal service; prepare a fresh lab");
   const relay = containerState(metadata.relay_container, metadata.lab_id);
   if (!relay?.State.Running || (metadata.relay_started_at && relay.State.StartedAt !== metadata.relay_started_at)) throw new Error("Reference Relay stopped or restarted; prepare a fresh lab to pin its new signer and enroll devices");
   await waitRelay(metadata.relay_url);
-  await issueGrant(directory);
+  const issuer = containerState(metadata.issuer_container, metadata.lab_id);
+  if (!issuer?.State.Running || issuer.State.StartedAt !== metadata.issuer_started_at || issuer.Image !== metadata.issuer_runtime_image_id) throw new Error("Managed issuer stopped or changed; prepare a fresh lab without resetting the old renewal authorization");
+  await waitIssuerRenewal(metadata, directory);
   await verifyLab(directory);
   command("go", ["build", "-trimpath", "-o", path.join(directory, "bin/gateway-linux"), "./cmd/sparkclaw"], { cwd: gatewayRoot, env: { ...process.env, GOOS: "linux", GOARCH: metadata.source.goarch, CGO_ENABLED: "0" } });
   metadata.gateway_binary_sha256 = crypto.createHash("sha256").update(await fs.readFile(path.join(directory, "bin/gateway-linux"))).digest("hex");

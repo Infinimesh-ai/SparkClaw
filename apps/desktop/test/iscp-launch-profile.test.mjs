@@ -44,6 +44,15 @@ test("explicit environment wins over persisted selection, while qualification ne
   assert.throws(() => f.resolve(), /invalid JSON/u);
 });
 
+test("persisted normal launch accepts helper-owned optional renewal configuration without additional environment", async (t) => {
+  const f = await fixture(t); await f.writeSelection();
+  const helper = JSON.parse(await fs.readFile(f.helper, "utf8"));
+  await fs.writeFile(f.helper, JSON.stringify({ ...helper, grant_renewal: { url: "http://127.0.0.1:19891/v1/grants/current", pending_file: path.join(f.directory, "pending-grant.json"), poll_interval_seconds: 10 } }));
+  const choice = f.resolve();
+  assert.equal(choice.source, "persisted"); assert.equal(choice.iscpProfilePath, f.profile);
+  assert.equal(choice.allowLocalISCPTest, true); assert.equal(choice.grant_renewal, undefined);
+});
+
 test("persistent selection fails closed for incomplete, extra-secret, non-test or default-directory choices", async (t) => {
   const f = await fixture(t);
   for (const selection of [{ ...f.selection, schema_version: 2 }, { ...f.selection, test_mode: false }, { ...f.selection, token: "must-not-be-here" },

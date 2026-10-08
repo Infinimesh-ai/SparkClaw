@@ -63,23 +63,27 @@ type callResult struct {
 }
 
 type Endpoint struct {
-	config          Config
-	material        material
-	provider        iscpcrypto.Provider
-	relay           RelayTransport
-	handler         Handler
-	onState         func(string)
-	mu              sync.Mutex
-	session         *activeSession
-	stale           []string
-	pending         map[string]chan callResult
-	stateName       string
-	lastHelloAt     time.Time
-	cancel          context.CancelFunc
-	running, closed bool
-	slots           chan struct{}
-	workers         sync.WaitGroup
-	verifyDiscovery func(context.Context) error
+	config           Config
+	material         material
+	provider         iscpcrypto.Provider
+	relay            RelayTransport
+	handler          Handler
+	onState          func(string)
+	mu               sync.Mutex
+	grantMu          sync.RWMutex
+	renewalMu        sync.Mutex
+	lifecycle        *iscpbridge.GrantLifecycleClient
+	lifecycleWorkers sync.WaitGroup
+	session          *activeSession
+	stale            []string
+	pending          map[string]chan callResult
+	stateName        string
+	lastHelloAt      time.Time
+	cancel           context.CancelFunc
+	running, closed  bool
+	slots            chan struct{}
+	workers          sync.WaitGroup
+	verifyDiscovery  func(context.Context) error
 }
 
 func NewEndpoint(cfg Config, handler Handler, onState func(string)) (*Endpoint, error) {
@@ -116,6 +120,13 @@ func newEndpoint(cfg Config, m material, relay RelayTransport, handler Handler, 
 		return nil, errors.New("workbench responder requires a handler")
 	}
 	e := &Endpoint{config: cfg, material: m, provider: iscpcrypto.NewProvider(), relay: relay, handler: handler, onState: onState, pending: map[string]chan callResult{}, slots: make(chan struct{}, MaxConcurrent)}
+	if cfg.GrantRenewal != nil {
+		client, err := iscpbridge.NewGrantLifecycleClient(cfg.GrantRenewal.URL, cfg.GrantRenewal.PendingFile, m.device, m.issuer, m.enrollment.RelayID, m.grant, 5*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		e.lifecycle = client
+	}
 	if cfg.Role == RoleResponder && cfg.EffectiveRelayProfile() == iscpbridge.ProfileLocalLab {
 		// The isolated reference queue outlives a Gateway process. A Hello
 		// predating this responder cannot recover keys from its old process;
@@ -152,12 +163,18 @@ func (e *Endpoint) Run(ctx context.Context) error {
 	e.mu.Unlock()
 	defer func() {
 		cancel()
+		e.lifecycleWorkers.Wait()
 		e.mu.Lock()
 		e.resetLocked()
 		e.mu.Unlock()
 		e.workers.Wait()
 		e.setState("disconnected")
 	}()
+	if e.lifecycle != nil {
+		_ = e.refreshAuthorization(ctx)
+		e.lifecycleWorkers.Add(1)
+		go func() { defer e.lifecycleWorkers.Done(); e.runGrantLifecycle(ctx) }()
+	}
 	backoff := time.Second
 	for ctx.Err() == nil {
 		if e.verifyDiscovery != nil {
@@ -221,7 +238,7 @@ func (e *Endpoint) sessionLoop(ctx context.Context, stopConnection context.Cance
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
-			if err := verifyGrant(e.config, e.material, now.UTC()); err != nil {
+			if err := verifyGrant(e.config, e.grantMaterial(), now.UTC()); err != nil {
 				e.mu.Lock()
 				e.resetLocked()
 				e.mu.Unlock()
@@ -261,12 +278,13 @@ func (e *Endpoint) sessionLoop(ctx context.Context, stopConnection context.Cance
 }
 
 func (e *Endpoint) initiate(ctx context.Context) error {
-	if err := verifyGrant(e.config, e.material, time.Now().UTC()); err != nil {
+	m := e.grantMaterial()
+	if err := verifyGrant(e.config, m, time.Now().UTC()); err != nil {
 		e.setState("authorization_expired")
 		return err
 	}
 	id := newUUID()
-	local, err := session.CreateHello(e.provider, e.material.device, id, e.material.peer.DeviceID, e.material.grant.GrantID, time.Now().UTC())
+	local, err := session.CreateHello(e.provider, m.device, id, m.peer.DeviceID, m.grant.GrantID, time.Now().UTC())
 	if err != nil {
 		return errors.New("create workbench Hello")
 	}
@@ -328,7 +346,7 @@ func (e *Endpoint) receive(ctx context.Context, raw json.RawMessage) error {
 	if env.Type != envelope.TypeSecureEnvelope || env.DomainID != b.DomainID || env.SenderDeviceID != e.material.peer.DeviceID || env.RecipientDeviceID != b.DeviceID || env.Route.RelayID != b.RelayID || env.Route.TTLSeconds <= 0 || env.Route.TTLSeconds > 30 || !uuidPattern.MatchString(env.SessionID) || !uuidPattern.MatchString(env.MessageID) {
 		return errors.New("workbench envelope identity or route mismatch")
 	}
-	if err := verifyGrant(e.config, e.material, time.Now().UTC()); err != nil {
+	if err := verifyGrant(e.config, e.grantMaterial(), time.Now().UTC()); err != nil {
 		return err
 	}
 	switch env.PayloadType {
@@ -388,6 +406,11 @@ func (e *Endpoint) acceptHello(ctx context.Context, env envelope.SecureEnvelope)
 	if now.Sub(hello.IssuedAt) > handshakeTimeout {
 		return nil
 	}
+	if e.config.Role == RoleResponder && hello.GrantID != e.grantMaterial().grant.GrantID && e.lifecycle != nil {
+		// A newly renewed initiator can arrive before the periodic current-
+		// grant poll. Only the already verified, fresh peer Hello triggers it.
+		_ = e.refreshAuthorization(ctx)
+	}
 	e.mu.Lock()
 	if slices.Contains(e.stale, env.SessionID) {
 		e.mu.Unlock()
@@ -396,7 +419,7 @@ func (e *Endpoint) acceptHello(ctx context.Context, env envelope.SecureEnvelope)
 	var local session.LocalHello
 	var err error
 	if e.config.Role == RoleResponder {
-		if hello.GrantID != e.material.grant.GrantID {
+		if hello.GrantID != e.grantMaterial().grant.GrantID {
 			e.mu.Unlock()
 			return errors.New("workbench initiator grant ID mismatch")
 		}
@@ -487,7 +510,7 @@ func (e *Endpoint) sendPayload(ctx context.Context, payloadType string, raw []by
 	if len(raw) > MaxMessageBytes {
 		return errors.New("workbench payload exceeds limit")
 	}
-	if err := verifyGrant(e.config, e.material, time.Now().UTC()); err != nil {
+	if err := verifyGrant(e.config, e.grantMaterial(), time.Now().UTC()); err != nil {
 		return err
 	}
 	e.mu.Lock()
@@ -641,7 +664,7 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 		defer func() { <-e.slots }()
 		callCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 		defer cancel()
-		if verifyGrant(e.config, e.material, time.Now().UTC()) != nil {
+		if verifyGrant(e.config, e.grantMaterial(), time.Now().UTC()) != nil {
 			return
 		}
 		response := e.handler(callCtx, request)

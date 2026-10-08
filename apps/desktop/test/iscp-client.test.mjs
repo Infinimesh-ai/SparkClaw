@@ -83,6 +83,20 @@ test("normal ISCP auth requires manifest, exact identity and installation, retai
   assert.ok(await f.vault.load());
 });
 
+test("optional helper grant renewal stays private and needs no Desktop authentication or profile changes", async (t) => {
+  const f = await fixture(t);
+  const helper = JSON.parse(await fs.readFile(f.helperPath, "utf8"));
+  const renewal = { url: "http://127.0.0.1:19891/v1/grants/current", pending_file: path.join(f.directory, "pending-grant.json"), poll_interval_seconds: 10 };
+  await fs.writeFile(f.helperPath, JSON.stringify({ ...helper, grant_renewal: renewal }));
+  await f.start();
+  assert.equal(f.auth.status.state, "connected");
+  const publicStatus = JSON.stringify(f.auth.status), saved = JSON.stringify(await f.vault.load());
+  for (const privateValue of [renewal.url, renewal.pending_file, "grant_renewal"]) {
+    assert.ok(!publicStatus.includes(privateValue)); assert.ok(!saved.includes(privateValue));
+  }
+  assert.equal(f.directHTTP, 0);
+});
+
 test("authenticated ISCP admits normal workbench IPC without Bearer and still fences browser operations and locked sessions", async (t) => {
   const f = await fixture(t); await f.start();
   assert.equal(f.auth.connection.authorization, undefined);

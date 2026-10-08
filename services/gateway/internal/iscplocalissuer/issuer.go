@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	iscpcrypto "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
@@ -39,6 +40,7 @@ type Issuer struct {
 	relayID   string
 	token     string
 	auditFile string
+	directory string
 	Now       func() time.Time
 }
 
@@ -132,21 +134,53 @@ func Load(configPath string) (*Issuer, error) {
 	if err != nil || len(token) < 32 {
 		return nil, errors.New("invalid management credential")
 	}
-	return &Issuer{device: identity.Device{Identity: public, Private: key}, subject: subject, audience: audience, relayID: cfg.RelayID, token: string(token), auditFile: filepath.Join(cfg.Directory, "issuance.jsonl"), Now: time.Now}, nil
+	i := &Issuer{device: identity.Device{Identity: public, Private: key}, subject: subject, audience: audience, relayID: cfg.RelayID, token: string(token), auditFile: filepath.Join(cfg.Directory, "issuance.jsonl"), directory: cfg.Directory, Now: time.Now}
+	if _, err = i.readRenewalState(); err != nil {
+		return nil, err
+	}
+	return i, nil
 }
 
 func (i *Issuer) Sign(ttl time.Duration) (trust.Grant, error) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	if ttl <= 0 || ttl > 30*time.Minute {
+	if ttl < time.Second || ttl > 30*time.Minute || ttl%time.Second != 0 {
 		return trust.Grant{}, errors.New("grant TTL must be between 1 second and 30 minutes")
 	}
+	var grant trust.Grant
+	err := i.withRenewalState(func(state *renewalState) (bool, error) {
+		if state.Authorization != nil && int(ttl/time.Second) != state.TTLSeconds {
+			return false, errors.New("authorized grant TTL cannot change")
+		}
+		var err error
+		now := i.Now().UTC()
+		issuedTTL := ttl
+		if state.Authorization != nil {
+			if err := authorizationError(state, now); err != nil {
+				return false, err
+			}
+			issuedTTL = authorizationBoundedTTL(ttl, state.Authorization.ExpiresAt, now)
+			if issuedTTL < time.Second {
+				return false, errors.New("authorization has less than one second remaining")
+			}
+		}
+		grant, err = i.signGrantAt(issuedTTL, now)
+		if err != nil {
+			return false, err
+		}
+		state.CurrentGrant = &grant
+		state.TTLSeconds = int(ttl / time.Second)
+		return true, nil
+	})
+	return grant, err
+}
+
+// signGrantAt is called under the cross-process state lock. Only public grant
+// provenance reaches the issuance journal.
+func (i *Issuer) signGrantAt(ttl time.Duration, now time.Time) (trust.Grant, error) {
 	provider := iscpcrypto.NewProvider()
 	thumbprint, err := identity.Thumbprint(i.subject)
 	if err != nil {
 		return trust.Grant{}, err
 	}
-	now := i.Now().UTC().Truncate(time.Second)
 	grant, err := trust.SignGrant(provider, i.device, trust.Grant{
 		GrantID:         "local-grant-" + iscpcrypto.Base64URL(iscpcrypto.RandomBytes(16)),
 		SubjectDeviceID: i.subject.DeviceID, Audience: i.audience.DeviceID,
@@ -156,16 +190,20 @@ func (i *Issuer) Sign(ttl time.Duration) (trust.Grant, error) {
 	if err != nil {
 		return trust.Grant{}, err
 	}
-	if info, err := os.Lstat(i.auditFile); err == nil && (!info.Mode().IsRegular() || info.Mode().Perm() != 0o600) {
+	if info, err := os.Lstat(i.auditFile); err == nil && (!info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() > maxRenewalStateBytes) {
 		return trust.Grant{}, errors.New("issuance journal is not private")
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return trust.Grant{}, errors.New("issuance journal unavailable")
 	}
-	journal, err := os.OpenFile(i.auditFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	fd, err := syscall.Open(i.auditFile, syscall.O_CREAT|syscall.O_WRONLY|syscall.O_APPEND|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return trust.Grant{}, errors.New("issuance journal unavailable")
 	}
+	journal := os.NewFile(uintptr(fd), "issuance journal")
 	defer journal.Close()
+	if info, err := journal.Stat(); err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() > maxRenewalStateBytes {
+		return trust.Grant{}, errors.New("issuance journal is not private")
+	}
 	if err = json.NewEncoder(journal).Encode(map[string]any{"grant_id": grant.GrantID, "subject_device_id": grant.SubjectDeviceID, "audience": grant.Audience, "expires_at": grant.ExpiresAt, "issuer_kid": i.device.Identity.PublicKey.KID}); err != nil {
 		return trust.Grant{}, errors.New("issuance journal unavailable")
 	}
@@ -180,6 +218,9 @@ func (i *Issuer) Sign(ttl time.Duration) (trust.Grant, error) {
 func (i *Issuer) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
+		if i.handleRenewal(w, r) {
+			return
+		}
 		if r.Method != "POST" || r.URL.Path != "/v1/grants" || r.URL.RawQuery != "" {
 			http.NotFound(w, r)
 			return
@@ -216,15 +257,11 @@ func (i *Issuer) Handler() http.Handler {
 }
 
 func readPrivate(path string) ([]byte, error) {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() > 65536 {
-		return nil, errors.New("private issuer file is missing or invalid")
-	}
-	return os.ReadFile(path)
+	return readPrivateBounded(path, 65536)
 }
 func readIdentity(path string) (identity.DeviceIdentity, error) {
 	var value identity.DeviceIdentity
-	raw, err := os.ReadFile(path)
+	raw, err := readBoundedFile(path, 65536, false)
 	if err != nil || len(raw) > 65536 {
 		return value, errors.New("peer identity file unavailable")
 	}

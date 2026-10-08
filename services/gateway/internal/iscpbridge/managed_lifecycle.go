@@ -41,6 +41,11 @@ const (
 // grantRenewalWindow mirrors the platform rule: renewal becomes eligible
 // min(24h, grant_ttl/5) before expiry (spec/device-lifecycle.md).
 func grantRenewalWindow(grant trust.Grant) time.Duration {
+	return GrantRenewalWindow(grant)
+}
+
+// GrantRenewalWindow is the shared eligibility lead: min(24h, grant TTL/5).
+func GrantRenewalWindow(grant trust.Grant) time.Duration {
 	ttl := grant.ExpiresAt.Sub(grant.NotBefore)
 	window := ttl / 5
 	if window > 24*time.Hour {
@@ -50,6 +55,66 @@ func grantRenewalWindow(grant trust.Grant) time.Duration {
 		window = time.Hour
 	}
 	return window
+}
+
+// VerifyGrantRenewal verifies a fresh signed result against the previously
+// authorized snapshot, even when that snapshot has since expired. Silent
+// renewal extends its expiry; it cannot change keys, scope or relay bindings.
+func VerifyGrantRenewal(provider iscpcrypto.Provider, grant, previous trust.Grant, issuer identity.DeviceIdentity, relayID string, now time.Time) error {
+	return verifyGrantContinuity(provider, grant, previous, issuer, relayID, now, true)
+}
+
+func verifyGrantContinuity(provider iscpcrypto.Provider, grant, previous trust.Grant, issuer identity.DeviceIdentity, relayID string, now time.Time, requireExtension bool) error {
+	if err := verifyGrantSnapshot(provider, previous, issuer, relayID); err != nil {
+		return err
+	}
+	if err := verifyGrantPairingBounds(grant, previous); err != nil {
+		return err
+	}
+	if grant.Issuer != issuer.DeviceID || grant.Signature.Alg != "Ed25519" || grant.Signature.KID != issuer.PublicKey.KID || grant.GrantID == "" ||
+		!slices.Equal(grant.Permissions, previous.Permissions) || !slices.Equal(grant.RelayConstraints, previous.RelayConstraints) || grant.RevocationEpoch < previous.RevocationEpoch {
+		return errors.New("renewed Trust Grant changes the authorized scope, signer or revocation epoch")
+	}
+	if grant.ExpiresAt.Before(previous.ExpiresAt) || (requireExtension && !grant.ExpiresAt.After(previous.ExpiresAt)) ||
+		grant.ExpiresAt.Sub(grant.NotBefore) <= 0 || grant.ExpiresAt.Sub(grant.NotBefore) > previous.ExpiresAt.Sub(previous.NotBefore) {
+		return errors.New("renewed Trust Grant exceeds or rolls back the authorized lifetime")
+	}
+	if !requireExtension && grant.ExpiresAt.Equal(previous.ExpiresAt) {
+		actual, _ := json.Marshal(grant)
+		baseline, _ := json.Marshal(previous)
+		if !bytes.Equal(actual, baseline) {
+			return errors.New("current Trust Grant changes authorization without extending its lifetime")
+		}
+	}
+	if err := trust.VerifyGrant(provider, grant, issuer, trust.VerifyOptions{Audience: previous.Audience, SubjectDeviceID: previous.SubjectDeviceID,
+		ConfirmationThumbprint: previous.ConfirmationThumbprint, Permission: previous.Permissions[0], RelayID: relayID, CurrentRevocationEpoch: previous.RevocationEpoch, Now: now}); err != nil {
+		return errors.New("renewed Trust Grant verification failed")
+	}
+	return nil
+}
+
+func verifyGrantSnapshot(provider iscpcrypto.Provider, grant trust.Grant, issuer identity.DeviceIdentity, relayID string) error {
+	if grant.GrantID == "" || grant.Issuer != issuer.DeviceID || grant.Signature.Alg != "Ed25519" || grant.Signature.KID != issuer.PublicKey.KID ||
+		grant.SubjectDeviceID == "" || grant.Audience == "" || grant.ConfirmationThumbprint == "" || len(grant.Permissions) == 0 || !grant.ExpiresAt.After(grant.NotBefore) {
+		return errors.New("previous Trust Grant snapshot is invalid")
+	}
+	if err := trust.VerifyGrant(provider, grant, issuer, trust.VerifyOptions{Audience: grant.Audience, SubjectDeviceID: grant.SubjectDeviceID,
+		ConfirmationThumbprint: grant.ConfirmationThumbprint, Permission: grant.Permissions[0], RelayID: relayID, CurrentRevocationEpoch: grant.RevocationEpoch, Now: grant.NotBefore}); err != nil {
+		return errors.New("previous Trust Grant snapshot signature is invalid")
+	}
+	return nil
+}
+
+func verifyGrantPairingBounds(grant, previous trust.Grant) error {
+	if grant.Audience != previous.Audience || grant.SubjectDeviceID != previous.SubjectDeviceID || grant.ConfirmationThumbprint != previous.ConfirmationThumbprint {
+		return errors.New("renewed Trust Grant deviates from the authorized pairing")
+	}
+	for _, permission := range grant.Permissions {
+		if !slices.Contains(previous.Permissions, permission) {
+			return errors.New("renewed Trust Grant widens the authorized permissions")
+		}
+	}
+	return nil
 }
 
 // fetchRelayCapabilities re-reads the relay descriptor's metadata capability
@@ -209,15 +274,8 @@ func (s *Service) autoRenewGrant(ctx context.Context, client *http.Client, peer 
 	// Bounds: silent renewal extends the pairing's lifetime and nothing else.
 	// A renewal may drop permissions but must never add one — widening is an
 	// authorization change and requires a human-approved re-pairing.
-	if renewal.Grant.Audience != previous.Audience ||
-		renewal.Grant.SubjectDeviceID != previous.SubjectDeviceID ||
-		renewal.Grant.ConfirmationThumbprint != previous.ConfirmationThumbprint {
-		return errors.New("renewed Trust Grant deviates from the authorized pairing")
-	}
-	for _, granted := range renewal.Grant.Permissions {
-		if !slices.Contains(previous.Permissions, granted) {
-			return errors.New("renewed Trust Grant widens the authorized permissions")
-		}
+	if err := verifyGrantPairingBounds(renewal.Grant, previous); err != nil {
+		return err
 	}
 	if err := s.relay.UpdateEnrollment(func(b *EnrollmentBundle) {
 		for index := range b.Peers {

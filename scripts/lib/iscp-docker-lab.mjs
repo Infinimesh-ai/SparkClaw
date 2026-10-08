@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 export const labLabel = "io.sparkclaw.iscp.lab";
 export const relayContainerURL = "http://iscp-relay:8080";
 export const relayContainerWS = "ws://iscp-relay:8080/v2/relay/connect";
+export const issuerContainerURL = "http://iscp-local-issuer:8080";
 
 export function command(executable, args, options = {}) {
   const result = spawnSync(executable, args, { stdio: "pipe", timeout: 120000, maxBuffer: 4 << 20, ...options });
@@ -82,14 +83,36 @@ export async function startRelay(metadata) {
   await waitRelay(metadata.relay_url);
 }
 
+export function issuerContainerArguments(metadata, directory, uid = process.getuid()) {
+  if (!path.isAbsolute(directory) || !metadata.issuer_container || !metadata.source?.image_id) throw new Error("Issuer requires a private prepared lab and pinned runtime image");
+  return ["create", "--name", metadata.issuer_container, "--label", `${labLabel}=${metadata.lab_id}`,
+    "--network", metadata.ingress_network, "--publish", "127.0.0.1::8080", "--user", String(uid),
+    "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--log-opt", "max-size=10m", "--log-opt", "max-file=2",
+    "--mount", `type=bind,source=${directory},target=/lab`, "--entrypoint", "/lab/bin/issuer-linux", metadata.source.image_id,
+    "-config", "/lab/issuer/issuer-container.json", "-listen", "0.0.0.0:8080", "-allow-container-listen"];
+}
+
+export async function startIssuer(metadata, directory) {
+  command("docker", issuerContainerArguments(metadata, directory));
+  command("docker", ["network", "connect", "--alias", "iscp-local-issuer", metadata.network, metadata.issuer_container]);
+  command("docker", ["start", metadata.issuer_container]);
+  const container = containerState(metadata.issuer_container, metadata.lab_id);
+  const binding = container?.NetworkSettings.Ports["8080/tcp"]?.[0];
+  if (!container?.State.Running || binding?.HostIp !== "127.0.0.1" || !/^\d+$/u.test(binding.HostPort || "")) throw new Error("Issuer must run with a loopback-only published port");
+  metadata.issuer_url = `http://127.0.0.1:${binding.HostPort}`;
+  metadata.issuer_started_at = container.State.StartedAt;
+  metadata.issuer_runtime_image_id = container.Image;
+}
+
 export async function stopLab(metadata, directory) {
   // Names alone never authorize deletion: check this lab's ownership label.
-  for (const name of [metadata.gateway_container, metadata.relay_container]) {
+  for (const name of [metadata.gateway_container, metadata.issuer_container, metadata.relay_container]) {
     if (!name) continue;
     const container = containerState(name, metadata.lab_id);
     if (!container) continue;
     const result = spawnSync("docker", ["logs", name], { timeout: 15000, stdio: "pipe", maxBuffer: 16 << 20 });
-    if (directory) await fs.writeFile(path.join(directory, "evidence", name === metadata.relay_container ? "relay.log" : "gateway.log"), Buffer.concat([result.stdout || Buffer.alloc(0), result.stderr || Buffer.alloc(0)]), { mode: 0o600 });
+    const log = name === metadata.relay_container ? "relay.log" : name === metadata.issuer_container ? "issuer.log" : "gateway.log";
+    if (directory) await fs.writeFile(path.join(directory, "evidence", log), Buffer.concat([result.stdout || Buffer.alloc(0), result.stderr || Buffer.alloc(0)]), { mode: 0o600 });
     command("docker", ["rm", "--force", name]);
   }
   for (const name of [metadata.network, metadata.ingress_network]) {

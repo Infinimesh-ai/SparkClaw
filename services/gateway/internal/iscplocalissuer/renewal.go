@@ -80,6 +80,9 @@ func writeProtocolError(w http.ResponseWriter, err error) {
 
 func (i *Issuer) handleRenewal(w http.ResponseWriter, r *http.Request) bool {
 	switch r.URL.Path {
+	case iscpauth.DeletePath, iscpauth.DeleteReceiptPath:
+		i.authorizationDelete(w, r)
+		return true
 	case iscpauth.StatusPath:
 		i.authorizationStatus(w, r)
 		return true

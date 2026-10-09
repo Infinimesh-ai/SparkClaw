@@ -73,21 +73,22 @@ type pendingGrantRenewal struct {
 // one durable logical request: key, proof and encoded body all survive unknown
 // outcomes. Call CommitRenewal only after the returned Grant has been saved.
 type GrantLifecycleClient struct {
-	mu            sync.Mutex
-	baseURL       string
-	pendingFile   string
-	device        identity.Device
-	issuer        identity.DeviceIdentity
-	relayID       string
-	provider      iscpcrypto.Provider
-	http          *http.Client
-	previous      trust.Grant
-	pending       *pendingGrantRenewal
-	completed     *trust.Grant
-	retryAt       time.Time
-	statusRetryAt time.Time
-	standing      bool
-	revoked       bool
+	mu             sync.Mutex
+	baseURL        string
+	pendingFile    string
+	device         identity.Device
+	issuer         identity.DeviceIdentity
+	relayID        string
+	provider       iscpcrypto.Provider
+	http           *http.Client
+	previous       trust.Grant
+	pending        *pendingGrantRenewal
+	completed      *trust.Grant
+	retryAt        time.Time
+	statusRetryAt  time.Time
+	controlRetryAt time.Time
+	standing       bool
+	revoked        bool
 }
 
 // ValidateGrantLifecycleURL permits TLS issuer endpoints and explicit local
@@ -352,6 +353,8 @@ func (c *GrantLifecycleClient) request(ctx context.Context, method, path, key st
 	retryAt := c.retryAt
 	if path == iscpauth.StatusPath {
 		retryAt = c.statusRetryAt
+	} else if path == iscpauth.DeletePath || path == iscpauth.DeleteReceiptPath {
+		retryAt = c.controlRetryAt
 	}
 	if delay := time.Until(retryAt); delay > 0 {
 		return nil, &GrantLifecycleHTTPError{StatusCode: 429, delay: delay}
@@ -375,6 +378,8 @@ func (c *GrantLifecycleClient) request(ctx context.Context, method, path, key st
 			status.delay = boundedLifecycleRetryAfter(response.Header.Get("Retry-After"), time.Now().UTC())
 			if path == iscpauth.StatusPath {
 				c.statusRetryAt = time.Now().UTC().Add(status.delay)
+			} else if path == iscpauth.DeletePath || path == iscpauth.DeleteReceiptPath {
+				c.controlRetryAt = time.Now().UTC().Add(status.delay)
 			} else {
 				c.retryAt = time.Now().UTC().Add(status.delay)
 			}

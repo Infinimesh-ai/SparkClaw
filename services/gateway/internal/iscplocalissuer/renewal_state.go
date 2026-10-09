@@ -36,12 +36,13 @@ type renewalScope struct {
 }
 
 type renewalAuthorization struct {
-	AuthorizedAt time.Time `json:"authorized_at"`
-	ExpiresAt    time.Time `json:"expires_at"`
-	Revoked      bool      `json:"revoked"`
-	Lifetime     string    `json:"lifetime,omitempty"`
-	Revision     uint64    `json:"revision,omitempty"`
-	Scopes       []string  `json:"scopes,omitempty"`
+	AuthorizedAt time.Time                 `json:"authorized_at"`
+	ExpiresAt    time.Time                 `json:"expires_at"`
+	Revoked      bool                      `json:"revoked"`
+	Lifetime     string                    `json:"lifetime,omitempty"`
+	Revision     uint64                    `json:"revision,omitempty"`
+	Scopes       []string                  `json:"scopes,omitempty"`
+	Deletion     *iscpauth.DeletionReceipt `json:"deletion,omitempty"`
 }
 
 type idempotencyRecord struct {
@@ -94,6 +95,9 @@ func (i *Issuer) readRenewalState() (*renewalState, error) {
 		if state.SchemaVersion == 2 {
 			if iscpauth.ValidateScopes(auth.Scopes) != nil || auth.AuthorizedAt.IsZero() || auth.Lifetime != iscpauth.UntilRevoked || !auth.ExpiresAt.IsZero() || auth.Revision == 0 || state.CurrentGrant.RevocationEpoch > auth.Revision || (!auth.Revoked && state.CurrentGrant.RevocationEpoch != auth.Revision) {
 				return nil, errors.New("invalid permanent authorization")
+			}
+			if d := auth.Deletion; d != nil && (!auth.Revoked || !validIdempotencyKey(d.OperationID) || d.ExpectedRevision == 0 || d.ExpectedRevision == ^uint64(0) || d.AuthorizationRevision != d.ExpectedRevision+1 || d.AuthorizationRevision != auth.Revision || d.State != iscpauth.Revoked || d.DeletedAt.IsZero()) {
+				return nil, errors.New("invalid authorization deletion receipt")
 			}
 		} else if auth.AuthorizedAt.IsZero() || duration < 24*time.Hour || duration > 365*24*time.Hour || auth.Lifetime != "" || auth.Revision != 0 || len(auth.Scopes) != 0 {
 			return nil, errors.New("invalid renewal authorization")

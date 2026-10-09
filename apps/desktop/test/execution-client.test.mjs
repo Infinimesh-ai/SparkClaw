@@ -221,6 +221,15 @@ test("cancel and expired delivery preserve distinct terminal states without crea
   assert.equal(f.store.read(scope, f.conversation.id).messages.length, 1);
 });
 
+test("ordinary HTTP lookup errors do not infer the ISCP oversized-delivery terminal", async (t) => {
+  const f = fixture(t, async () => new Response(null, { status: 413 }));
+  f.store.markSubmitted(scope, f.task.request_id);
+  f.store.setExecutionState(scope, f.task.request_id, "accepted");
+  await assert.rejects(f.client.reconcile(scope, f.task.request_id), /status is unavailable/u);
+  assert.equal(f.store.request(scope, f.task.request_id).status, "accepted");
+  assert.equal(f.store.pending(scope).length, 1);
+});
+
 test("explicit selected files are frozen locally, uploaded before POST and cannot be changed on retry", async (t) => {
   const calls = []; let target;
   const f = fixture(t, async (url, init) => {

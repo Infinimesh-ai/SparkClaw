@@ -403,7 +403,7 @@ export class ClientStore {
   setExecutionState(scope, requestID, state) {
     const task = this.request(scope, requestID);
     if (!task.explicitly_submitted) throw new Error("Task has not been explicitly submitted");
-    if (!["submission_pending", "accepted", "running", "cancel_pending", "failed", "canceled", "unknown", "delivery_expired", "delivered"].includes(state)) {
+    if (!["submission_pending", "accepted", "running", "cancel_pending", "failed", "canceled", "unknown", "delivery_expired", "delivery_too_large", "delivered"].includes(state)) {
       throw new Error("Invalid execution state");
     }
     // A durable delivery remains retryable for ACK after a lost response or expiry.

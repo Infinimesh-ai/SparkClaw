@@ -175,6 +175,17 @@ export class ExecutionClient {
     if (receipt && !receipt.acknowledged) { await this.#ack(scope, receipt); return true; }
     const response = await this.#fetch(scope, `/api/v1/executions/${task.request_id}`);
     if (response.status === 404) { this.verifiedApprovals.delete(task.request_id); await response.body?.cancel(); return false; }
+    // A bodyless v1 lookup cannot exceed an input budget. Its authenticated 413
+    // denotes a result that this transport cannot deliver, not absent execution.
+    // Preserve the original ID without truncating, ACKing or polling forever.
+    if (this.auth.descriptor?.transport === "iscp" && response.status === 413) {
+      await response.body?.cancel();
+      this.#sameIdentity(scope);
+      this.verifiedApprovals.delete(task.request_id);
+      this.store.syncApprovals(scope, task.request_id, [], "delivery_too_large");
+      this.store.setExecutionState(scope, task.request_id, "delivery_too_large");
+      return true;
+    }
     if (!response.ok) { await response.body?.cancel(); throw new Error("Execution status is unavailable"); }
     await this.#accept(scope, task, await json(response));
     return true;

@@ -288,6 +288,39 @@ test("local ISCP capacity rejection preserves unsent input across restart and an
   assert.equal(f.directHTTP, 0);
 });
 
+test("oversized ISCP lookup becomes a durable delivery terminal without output, ACK or automatic polling", async (t) => {
+  const f = await fixture(t); await f.start();
+  const conversation = f.store.create(scope, "oversized result"), task = f.store.enqueue(scope, conversation.id, "one request");
+  f.handler = (request) => request.operation === "execution.submit"
+    ? { status: 200, body: { schema_version: 1, request_id: task.request_id, input_digest: f.store.request(scope, task.request_id).input_digest, state: "accepted" } }
+    : { status: 413, error: "arbitrary diagnostic text is not a control signal" };
+  await f.execution.submit(scope, task.request_id);
+  assert.equal((await f.execution.reconcile(scope, task.request_id)).status, "delivery_too_large");
+  assert.equal(f.store.receipt(scope, task.request_id), null);
+  assert.equal(f.store.read(scope, conversation.id).messages.length, 1);
+  assert.equal(f.store.read(scope, conversation.id).files.length, 0);
+  assert.equal(f.store.pending(scope).length, 0);
+  const lookups = f.calls.filter((call) => call.operation === "execution.lookup").length;
+  await f.restart(); await f.execution.reconcilePending();
+  assert.equal(f.store.request(scope, task.request_id).status, "delivery_too_large");
+  assert.equal(f.calls.filter((call) => call.operation === "execution.lookup").length, lookups);
+  assert.equal((await f.execution.submit(scope, task.request_id)).status, "delivery_too_large");
+  assert.equal(f.calls.filter((call) => call.operation === "execution.submit").length, 1);
+  assert.equal(f.calls.filter((call) => call.operation === "execution.ack").length, 0);
+  assert.equal(f.directHTTP, 0);
+});
+
+test("an oversized submit response is reconciled as undeliverable without treating it as an unsent request", async (t) => {
+  const f = await fixture(t); await f.start();
+  const conversation = f.store.create(scope, "oversized immediate result"), task = f.store.enqueue(scope, conversation.id, "one request");
+  f.handler = () => ({ status: 413 });
+  await assert.rejects(f.execution.submit(scope, task.request_id), /not accepted/u);
+  assert.equal(f.store.request(scope, task.request_id).status, "delivery_too_large");
+  assert.equal(f.store.request(scope, task.request_id).explicitly_submitted, 1);
+  assert.equal(f.store.receipt(scope, task.request_id), null);
+  assert.deepEqual(f.calls.filter((call) => call.operation.startsWith("execution.")).map((call) => call.operation), ["execution.submit", "execution.lookup"]);
+});
+
 
 test("binding rejection fences other responses and preserves reauthorization config without reconnecting automatically", async (t) => {
   const f = await fixture(t); await f.start(); const generation = f.auth.generation;

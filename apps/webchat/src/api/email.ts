@@ -212,6 +212,6 @@ export type EmailDraft = {
 };
 export type EmailDraftInput = Pick<EmailDraft, "mailbox_id" | "mode" | "reply_mail_id" | "to" | "cc" | "subject" | "body"> & { id?: string; expected_version: number; attachments?: { local_file_id: string }[] };
 export type EmailReplyPolishInput = { id: string; mail_id: string; instruction: string; language: "en" | "zh" };
-export type EmailComposeCapabilities = { compose: boolean; reply: boolean; reply_all: boolean; cc: boolean; max_to: number; reply_reason?: string };
+export type EmailComposeCapabilities = { compose: boolean; reply: boolean; reply_all: boolean; cc: boolean; max_to: number; reply_reason?: string; workspace_attachments?: boolean; max_attachments?: number; max_attachment_bytes?: number };
 
 export type EmailVerification = { purpose: string; state: "validity_unknown" | "not_expired" | "expired"; expires_at?: string; server_now: string; can_reveal: boolean; code?: string; timing_evidence?: string; source_time?: string; received_at?: string };

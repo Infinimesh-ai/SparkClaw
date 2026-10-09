@@ -7,6 +7,7 @@ import { isTLSIdentityError, pinnedHTTPSFetch } from "./pinned-https.mjs";
 import { createConnectionCredential, parseConnectionCredential } from "./connection-credential.mjs";
 import { projectISCPCapabilities } from "./iscp-capabilities.mjs";
 import { loadISCPProfile } from "./iscp-profile.mjs";
+import { LANMailClient } from "./lan-mail-client.mjs";
 import { ISCPTransport, ISCP_OPERATIONS, ISCP_BODY_BYTES, ISCPRequestNotSentError, mapISCPRequest } from "./iscp-transport.mjs";
 
 export class DesktopAuth {
@@ -223,7 +224,10 @@ export class DesktopAuth {
   }
 
   async authorizedFetch(raw, init = {}) {
-    return this.#authorizedFetch(raw, init, 1 << 20);
+    // The mail domain permits a 200 KiB body whose JSON escaping may expand
+    // sixfold. Keep this narrow exception aligned with its encoded limit.
+    const mailDraft = /^\/api\/email\/drafts(?:\/|$)/u.test(new URL(raw).pathname);
+    return this.#authorizedFetch(raw, init, mailDraft ? 2 << 20 : 1 << 20);
   }
 
   // Only trusted main-process workbench clients call this; the renderer proxy keeps
@@ -248,14 +252,34 @@ export class DesktopAuth {
     if (url.origin !== this.descriptor.origin) throw new Error("Backend origin is invalid");
     if (this.descriptor.transport === "iscp" && !this.transport?.capabilities) mapISCPRequest(raw, init, this.descriptor.origin);
     const generation = this.generation;
-    const mailMutation = this.descriptor.transport === "iscp" && (init.method || "GET").toUpperCase() === "POST" && /^\/api\/email\/drafts(?:\/[^/]+\/send)?$/u.test(url.pathname) && !url.search;
-    const requestTimeout = mailMutation ? 180000 : 30000;
+    const mailMutation = ["POST", "PUT"].includes((init.method || "GET").toUpperCase()) && /^\/api\/email\/drafts(?:\/[^/]+(?:\/send)?)?$/u.test(url.pathname) && !url.search;
+    const mailLogin = (init.method || "GET").toUpperCase() === "POST" && /^\/api\/email\/providers\/(outlook|qq_mail|gmail)\/(check|login-browser)$/u.test(url.pathname) && !url.search;
+    const requestTimeout = mailMutation || mailLogin ? 180000 : 30000;
     const controller = new AbortController();
     this.requests.add(controller);
     const headers = new Headers(init.headers);
     if (this.descriptor.transport !== "iscp") headers.set("authorization", this.connection.authorization);
     try {
-      const response = await this.#fetch()(raw, { ...init, headers, redirect: "manual", signal: AbortSignal.any([controller.signal, AbortSignal.timeout(requestTimeout), ...(init.signal ? [init.signal] : [])]) });
+      const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(requestTimeout), ...(init.signal ? [init.signal] : [])]);
+      let fetcher = this.#fetch();
+      if (this.descriptor.schemaVersion === 2 && this.installationID && url.pathname.startsWith("/api/email/")) {
+        const scope = { deployment_id: this.connection.deploymentID, owner_id: this.connection.ownerID, client_id: this.connection.clientID, installation_id: this.installationID };
+        const scopeKey = JSON.stringify(scope);
+        if (this.lanMailScope !== scopeKey) {
+          this.lanMail = new LANMailClient({ root: path.join(path.dirname(this.descriptorPath), "lan-mail-mutations"), scope, readLocalFile: this.readLocalFile,
+            generation: () => this.generation, ready: () => this.status.state === "connected" });
+          this.lanMailScope = scopeKey;
+        }
+        const pinned = fetcher;
+        fetcher = (target, options) => this.lanMail.fetch(target, options, (nextTarget, nextOptions) => {
+          if (generation !== this.generation || !this.connection) throw new Error("Attachment authentication changed");
+          const trusted = new Headers(nextOptions.headers);
+          trusted.set("authorization", this.connection.authorization);
+          trusted.set("X-SparkClaw-Installation", this.installationID);
+          return pinned(nextTarget, { ...nextOptions, headers: trusted, redirect: "manual", signal });
+        });
+      }
+      const response = await fetcher(raw, { ...init, headers, redirect: "manual", signal });
       if (generation !== this.generation) { controller.abort(); return new Response(null, { status: 401 }); }
       if (response.status === 401 || (this.descriptor.transport === "iscp" && !this.transport?.capabilities && response.status === 403)) {
         if (this.descriptor.transport === "iscp") {

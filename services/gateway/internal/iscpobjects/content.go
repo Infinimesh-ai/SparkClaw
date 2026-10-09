@@ -24,6 +24,13 @@ func (s *Store) Put(ctx context.Context, b Binding, purpose, name, mediaType str
 	idBytes[6] = (idBytes[6] & 15) | 80
 	idBytes[8] = (idBytes[8] & 63) | 128
 	id := fmt.Sprintf("%x-%x-%x-%x-%x", idBytes[:4], idBytes[4:6], idBytes[6:8], idBytes[8:10], idBytes[10:])
+	return s.PutWithID(ctx, b, id, purpose, name, mediaType, raw)
+}
+
+// PutWithID preserves an explicit upload identity across a lost receipt. A new
+// transfer ID allows a fresh upload after an older object's absolute expiry;
+// reusing an expired ID never revives its tombstone or extends its deadline.
+func (s *Store) PutWithID(ctx context.Context, b Binding, id, purpose, name, mediaType string, raw []byte) (wb.ObjectReference, error) {
 	c, err := s.Open(ctx, b, OpenRequest{id, purpose, name, mediaType, int64(len(raw)), digest(raw)})
 	if err != nil {
 		return wb.ObjectReference{}, err

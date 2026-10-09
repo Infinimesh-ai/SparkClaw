@@ -258,6 +258,18 @@ func TestMailSendAttachmentPurposeHasAbsoluteDayRetentionAndBoundedSize(t *testi
 	if _, err = os.Stat(filepath.Join(s.dir(ref.ObjectID), "object.bin")); !os.IsNotExist(err) {
 		t.Fatal("expired mail payload not removed", err)
 	}
+	if _, err = s.PutWithID(ctx, b, ref.ObjectID, app.EmailSendAttachmentPurpose, "reviewed.txt", "text/plain", []byte("desktop bytes")); err == nil {
+		t.Fatal("expired transfer revived its tombstone")
+	}
+	freshID, _ := newID()
+	fresh, err := s.PutWithID(ctx, b, freshID, app.EmailSendAttachmentPurpose, "reviewed.txt", "text/plain", []byte("desktop bytes"))
+	if err != nil || fresh.ObjectID == ref.ObjectID || fresh.ExpiresAt == ref.ExpiresAt {
+		t.Fatal("fresh transfer could not upload same bytes after expiry", err)
+	}
+	replayed, err := s.PutWithID(ctx, b, freshID, app.EmailSendAttachmentPurpose, "reviewed.txt", "text/plain", []byte("desktop bytes"))
+	if err != nil || replayed != fresh {
+		t.Fatal("fresh transfer replay changed object or deadline", err)
+	}
 	id, _ := newID()
 	if _, err = s.Open(ctx, b, OpenRequest{id, app.EmailSendAttachmentPurpose, "too-big.bin", "application/octet-stream", app.EmailSendMaxAttachmentBytes + 1, digest(nil)}); err == nil {
 		t.Fatal("mail purpose admitted more than 10 MiB")

@@ -44,10 +44,36 @@ beforeEach(() => {
 
 afterEach(() => {
   delete window.sparkclawClientStore; delete window.sparkclawDesktop;
+  delete window.sparkclawMailSync;
   vi.unstubAllGlobals(); vi.restoreAllMocks(); window.localStorage.clear();
 });
 
 describe("workbench local workbench", () => {
+  it("LAN mail opens the shared draft panel only after fresh capabilities allow local attachments", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}")));
+    vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
+    vi.spyOn(api, "owner").mockResolvedValue({ id: "owner", display_name: "LAN owner", created_at: "today", updated_at: "today" });
+    vi.spyOn(api, "emailDrafts").mockResolvedValue({ items: [] });
+    let resolveCapabilities!: (value: Awaited<ReturnType<typeof api.emailComposeCapabilities>>) => void;
+    const capability = vi.spyOn(api, "emailComposeCapabilities").mockImplementation(() => new Promise(resolve => { resolveCapabilities = resolve; }));
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => []), create: vi.fn(),
+      read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(),
+      submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawMailSync = { catalog: vi.fn(async () => [{ id: "box", address: "owner@example.test", provider: "outlook" }]), refreshCatalog: vi.fn(), read: vi.fn(async () => ({ mailbox_id: "box", sequence: 0, synced_at: "", messages: [] })), sync: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner", backend: { schema_version: 2, origin: "https://backend.test", deployment_id: "deployment" } })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"), root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      expect(capability).not.toHaveBeenCalled();
+      await act(async () => [...host.querySelectorAll<HTMLButtonElement>(".topbarActions button")].find(button => button.textContent === "Mail")!.click());
+      expect(capability).toHaveBeenCalledTimes(1);
+      expect(host.querySelector('[aria-label="Local workspace file"]')).toBeNull();
+      await act(async () => resolveCapabilities({ compose: true, reply: true, reply_all: true, cc: true, max_to: 100, workspace_attachments: true }));
+      expect(host.querySelector('[aria-label="Local workspace file"]')).not.toBeNull();
+      expect(host.textContent).not.toContain("ISCP connection");
+    } finally { await act(async () => root.unmount()); }
+  });
   it("ISCP startup reads real config, owner and readiness while gating unsupported services", async () => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
     const config = vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);

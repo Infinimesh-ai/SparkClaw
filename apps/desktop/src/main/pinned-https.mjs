@@ -8,6 +8,11 @@ export function pinnedHTTPSFetch(descriptor) {
     const url = new URL(raw);
     if (url.origin !== descriptor.origin || url.protocol !== "https:") return reject(new Error("Backend origin differs from pinned identity"));
     const body = init.body === undefined ? undefined : Buffer.from(init.body);
+    const method = (init.method || "GET").toUpperCase();
+    const mailTransfer = method === "POST" && url.pathname === "/api/v1/mail/attachments";
+    const mailMutation = ["POST", "PUT"].includes(method) && /^\/api\/email\/drafts(?:\/[^/]+(?:\/send)?)?$/u.test(url.pathname);
+    const mailLogin = method === "POST" && /^\/api\/email\/providers\/(outlook|qq_mail|gmail)\/(check|login-browser)$/u.test(url.pathname);
+    const timeout = !url.search && (mailTransfer || mailMutation || mailLogin) ? 180000 : 30000;
     const headers = new Headers(init.headers);
     if (body !== undefined) {
       // Node does not automatically frame DELETE bodies. Use the encoded byte
@@ -22,7 +27,7 @@ export function pinnedHTTPSFetch(descriptor) {
       // transmit any HTTP header, including the bearer. Never bypass PKI.
       agent: false,
       ca: descriptor.ca,
-      signal: AbortSignal.any([AbortSignal.timeout(30000), ...(init.signal ? [init.signal] : [])]),
+      signal: AbortSignal.any([AbortSignal.timeout(timeout), ...(init.signal ? [init.signal] : [])]),
       checkServerIdentity(hostname, certificate) {
         const error = tls.checkServerIdentity(hostname, certificate);
         if (error) return error;
@@ -43,7 +48,7 @@ export function pinnedHTTPSFetch(descriptor) {
       } else resolve(new Response(Readable.toWeb(response), { status, headers }));
     });
     request.on("error", reject);
-    request.setTimeout(30000, () => request.destroy(new Error("Backend request timed out")));
+    request.setTimeout(timeout, () => request.destroy(new Error("Backend request timed out")));
     if (body !== undefined) request.write(body);
     request.end();
   });

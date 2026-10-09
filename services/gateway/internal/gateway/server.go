@@ -25,6 +25,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationconfig"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpobjects"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscppairing"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mailsync"
@@ -74,6 +75,8 @@ type Server struct {
 	executionRoot             string
 	executionExecutor         execution.Executor
 	executions                *execution.Service
+	mailObjectsMu             sync.Mutex
+	mailObjects               *iscpobjects.Store
 	cfg                       config.Config
 	store                     Repository
 	tools                     *toolhub.ToolHub
@@ -386,6 +389,7 @@ func (s *Server) BindLifecycleContext(ctx context.Context) {
 	s.lifecycleMu.Lock()
 	s.lifecycleCtx = ctx
 	s.lifecycleMu.Unlock()
+	s.restoreLANMailObjects()
 	s.startWorkbenchEventMonitor(ctx)
 	if s.jingsiRuntime != nil {
 		s.jingsiRuntime.Start(ctx)

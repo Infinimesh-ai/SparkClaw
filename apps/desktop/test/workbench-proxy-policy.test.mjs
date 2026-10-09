@@ -27,6 +27,8 @@ test("workbench desktop keeps conversation and scheduling ownership local", () =
     "/api/sessions/session-1/messages",
     "/api/schedules",
     "/api/documents/upload",
+    "/api/v1/mail/attachments",
+    "/api/v1/mail/attachments/object-id",
     "/api/documents/available",
     "/api/runs/run-1/feedback",
     "/api/unknown",

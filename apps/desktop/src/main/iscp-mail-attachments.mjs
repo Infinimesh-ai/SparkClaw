@@ -16,7 +16,7 @@ export async function prepareMailAttachments(transport, request, signal) {
   const scope = { deployment_id: binding.deployment_id, owner_id: binding.owner_id, client_id: binding.client_id };
   const fence = () => {
     signal?.throwIfAborted();
-    if (generation !== transport.generation || scopeKey !== transport.objectScopeKey || transport.state !== "transport_ready") throw new Error("ISCP authentication changed");
+    if (generation !== transport.generation || scopeKey !== transport.objectScopeKey || transport.state !== "transport_ready") throw new Error("Attachment authentication changed");
   };
   const read = id => {
     fence();

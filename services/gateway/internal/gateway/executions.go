@@ -108,6 +108,10 @@ func (s *Server) installExecutionClient(w http.ResponseWriter, r *http.Request) 
 		writeExecutionError(w, err)
 		return
 	}
+	if _, err = s.lanMailObjectStore(); err != nil {
+		writeExecutionError(w, execution.ErrUnavailable)
+		return
+	}
 	writeJSON(w, 200, map[string]any{"schema_version": 1, "installation_id": input.InstallationID, "owner_id": p.OwnerID, "client_id": p.ClientID, "deployment_id": s.cfg.Gateway.DeploymentID})
 }
 func (s *Server) uploadExecutionInput(w http.ResponseWriter, r *http.Request) {

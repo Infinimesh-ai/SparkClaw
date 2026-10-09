@@ -59,6 +59,7 @@ export function LocalWorkbench() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
+  const [lanMail, setLANMail] = useState({ compose: false, workspace_attachments: false });
   const [browserOpen, setBrowserOpen] = useState(false);
   const [documentPickerOpen, setDocumentPickerOpen] = useState(false);
   const [tab, setTab] = useState<PanelTab>("timeline");
@@ -71,6 +72,14 @@ export function LocalWorkbench() {
     approvals: surfaceEnabled(connection, "approvals"), notifications: surfaceEnabled(connection, "notifications"),
     settingsOwner: surfaceEnabled(connection, "settings_owner"), settingsConnectors: surfaceEnabled(connection, "settings_connectors"), settingsCredentials: surfaceEnabled(connection, "settings_credentials"),
   };
+  useEffect(() => {
+    let active = true;
+    setLANMail({ compose: false, workspace_attachments: false });
+    if (!iscp && connection?.state === "connected" && mailOpen) {
+      void api.emailComposeCapabilities().then(value => { if (active) setLANMail({ compose: value.compose === true, workspace_attachments: value.workspace_attachments === true }); }).catch(() => {});
+    }
+    return () => { active = false; };
+  }, [iscp, mailOpen, connection?.state, connection?.backend?.deployment_id, connection?.owner_id, connection?.client_id]);
   const settingsTabs: PanelTab[] | undefined = iscp ? ["appearance", "devices", ...(capabilities.settingsOwner ? ["settings" as const] : []), ...(capabilities.settingsConnectors || surfaceEnabled(connection, "mail_settings") ? ["connections" as const] : []), ...(capabilities.settingsCredentials ? ["models-tools" as const] : [])] : undefined;
   const [browserState, setBrowserState] = useState<DesktopState>();
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -353,7 +362,7 @@ export function LocalWorkbench() {
         <button className="iconButton sidebarToggle" type="button" aria-label={copy.toggleNav} onClick={() => setSidebarCollapsed((current) => !current)}><PanelLeft size={18} /></button>
         <span className="workspaceLabel">{copy.local}</span>
         <div className="topbarActions">
-          {iscp && capabilities.mail && <button type="button" onClick={() => setMailOpen(value => !value)}>{zh ? "邮箱" : "Mail"}</button>}
+          {capabilities.mail && <button type="button" onClick={() => setMailOpen(value => !value)}>{zh ? "邮箱" : "Mail"}</button>}
           <NotificationCenter notifications={passiveNotifications.notifications} unreadCount={passiveNotifications.unreadCount}
             open={passiveNotifications.open} toast={passiveNotifications.toast} error={passiveNotifications.error}
             language={language} text={text} onToggle={() => passiveNotifications.setOpen((current) => !current)}
@@ -377,7 +386,7 @@ export function LocalWorkbench() {
         onCurrentClientRevoked={logout} onLogout={logout} />}</div> : <>
         <section className={`chatColumn localChat ${home ? "homeChat" : ""}`} hidden={page !== "chat"}>
         <div className="messageList localHistory">
-          {iscp && capabilities.mail && mailOpen && <MailCachePanel language={language} conversationID={selected} attachmentsEnabled={surfaceEnabled(connection, "mail_attachments")} sendEnabled={surfaceEnabled(connection,"mail_send")} sendAttachmentsEnabled={surfaceEnabled(connection,"mail_send_attachments")} onFileSaved={async () => { if(selected) setContent(await store.read(selected)); }}/>}
+          {capabilities.mail && mailOpen && <MailCachePanel language={language} conversationID={selected} attachmentsEnabled={surfaceEnabled(connection, "mail_attachments")} sendEnabled={iscp ? surfaceEnabled(connection,"mail_send") : lanMail.compose} sendAttachmentsEnabled={iscp ? surfaceEnabled(connection,"mail_send_attachments") : lanMail.workspace_attachments} onFileSaved={async () => { if(selected) setContent(await store.read(selected)); }}/>}
           {home && <WorkbenchWelcome language={language} />}
           {capabilities.browser && browserState?.browser_host?.unknown_writes?.filter((command) => command.local_conversation_id === selected).map((command) => <section className="localUnknownWrite" role="alert" key={command.command_id}>
             <h2>{zh ? "浏览器操作结果不确定" : "Browser action outcome uncertain"}</h2>

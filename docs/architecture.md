@@ -32,6 +32,15 @@ a local file. Backend service configuration and required authorization/execution
 control records retain their separate service ownership. Shared data is not
 public or automatically accessible across Owners.
 
+Outgoing desktop mail attachments use only owned ClientStore `local_file_id`
+selections. Main verifies local bytes before upload and again before sending the
+reviewed version. LAN HTTPS admits the fixed-purpose mail object API only for an
+authenticated Client and registered installation; ordinary host HTTP cannot enable
+it. LAN and ISCP reuse the bounded object store and backend mail business service:
+at most five files / 10 MiB total, bound to deployment, Owner, Client and
+installation, with an absolute maximum 24-hour lifetime. Receipt reconciliation
+after an uncertain send never rereads, uploads or sends the attachment again.
+
 WebChat persists conversations, drafts, files and schedules in the deployment-host
 Store/files; desktop persists them in its own SQLite/files. Browser tabs retain
 access to the same authorized host workspace. Separate workbenches do not

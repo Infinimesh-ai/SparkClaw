@@ -21,9 +21,11 @@ test("HTTPS validates CA, hostname and leaf pin before transmitting any credenti
   let requests = 0;
   let authorization = "Bearer synthetic-test-token";
   let body = { connected: true };
+  let mailHandler;
   const server = https.createServer({ key, cert }, async (request, response) => {
     requests++;
     assert.equal(request.headers.authorization, authorization);
+    if (mailHandler && (request.url.startsWith("/api/email/") || request.url === "/api/v1/mail/attachments")) return mailHandler(request, response);
     if (request.method === "DELETE") {
       const chunks = [];
       for await (const chunk of request) chunks.push(chunk);
@@ -72,4 +74,45 @@ test("HTTPS validates CA, hostname and leaf pin before transmitting any credenti
   assert.equal((await enrolled.enroll(createConnectionCredential(enrolledDescriptor, token))).state, "connected");
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, "backend.json"), "utf8")), enrolledDescriptor);
   assert.equal(enrolled.connectionCredential(token), createConnectionCredential(enrolledDescriptor, token));
+
+  // Exercise the installed auth adapter, pinned HTTPS and exact binary size
+  // together. Caller-supplied installation headers cannot replace main's scope.
+  const mailBytes = Buffer.alloc(10 * 1024 * 1024, 97);
+  const mailHash = crypto.createHash("sha256").update(mailBytes).digest("hex");
+  const fileID = crypto.randomUUID();
+  const object = { object_id: crypto.randomUUID(), version: 1, size: mailBytes.length, sha256: mailHash, purpose: "mail_send_attachment", name: "local.bin", expires_at: new Date(Date.now() + 86400000).toISOString() };
+  let uploads = 0, saves = 0, sends = 0;
+  let draft = { id: "tls-draft", version: 1, state: "draft", attachments: [{ local_file_id: fileID, object, name: object.name, size_bytes: object.size, sha256: `sha256:${mailHash}` }] };
+  enrolled.readLocalFile = (scope, id) => {
+    assert.deepEqual(scope, { deployment_id: "deployment", owner_id: "expected-owner", client_id: "device" });
+    assert.equal(id, fileID);
+    return { content: Buffer.from(mailBytes), name: object.name, size: mailBytes.length, sha256: mailHash };
+  };
+  mailHandler = async (request, response) => {
+    assert.equal(request.headers["x-sparkclaw-installation"], installationID);
+    if (request.url.endsWith("compose-capabilities")) return response.end(JSON.stringify({ compose: true, workspace_attachments: true }));
+    const chunks = []; for await (const chunk of request) chunks.push(chunk);
+    const bytes = Buffer.concat(chunks);
+    if (request.url === "/api/v1/mail/attachments") {
+      uploads++; assert.deepEqual(bytes, mailBytes); assert.equal(request.headers["x-sparkclaw-digest"], mailHash);
+      return response.end(JSON.stringify(object));
+    }
+    if (request.method === "GET") return response.end(JSON.stringify(draft));
+    if (request.url.endsWith("/send")) { sends++; draft = { ...draft, state: "sent" }; }
+    else { saves++; assert.deepEqual(JSON.parse(bytes).attachments, [{ local_file_id: fileID, object }]); }
+    response.end(JSON.stringify(draft));
+  };
+  const mailSave = await enrolled.authorizedFetch(`${origin}/api/email/drafts`, { method: "POST", headers: { "x-sparkclaw-installation": "forged-renderer-installation" }, body: JSON.stringify({ id: draft.id, attachments: [{ local_file_id: fileID }] }) });
+  assert.equal(mailSave.status, 200); assert.equal((await mailSave.json()).id, draft.id);
+  const mailSend = await enrolled.authorizedFetch(`${origin}/api/email/drafts/${draft.id}/send`, { method: "POST", body: JSON.stringify({ expected_version: 1, idempotency_key: "reviewed" }) });
+  assert.equal((await mailSend.json()).state, "sent");
+  assert.deepEqual([uploads, saves, sends], [1, 1, 1]);
+  mailHandler = undefined;
+  const budgets = [];
+  const timeout = AbortSignal.timeout.bind(AbortSignal);
+  t.mock.method(AbortSignal, "timeout", milliseconds => { budgets.push(milliseconds); return timeout(milliseconds); });
+  for (const [route, method] of [["/api/email/providers/qq_mail/check", "POST"], ["/api/email/providers/outlook/login-browser", "POST"], ["/api/v1/mail/attachments", "POST"], ["/api/owner", "POST"], ["/api/email/providers/other/check", "POST"]]) {
+    await (await pinnedHTTPSFetch(base)(origin + route, { ...init, headers: { authorization }, method })).arrayBuffer();
+  }
+  assert.deepEqual(budgets, [180000, 180000, 180000, 30000, 30000]);
 });

@@ -12,6 +12,9 @@ import (
 )
 
 func (s *Server) registerEmailComposeRoutes() {
+	s.mux.HandleFunc("POST /api/v1/mail/attachments", s.uploadLANMailAttachment)
+	s.mux.HandleFunc("GET /api/v1/mail/attachments/{object}", s.describeLANMailAttachment)
+	s.mux.HandleFunc("DELETE /api/v1/mail/attachments/{object}", s.releaseLANMailAttachment)
 	s.mux.HandleFunc("GET /api/email/compose-capabilities", s.emailComposeCapabilities)
 	s.mux.HandleFunc("GET /api/email/sent-sources", s.emailSentSources)
 	s.mux.HandleFunc("GET /api/email/drafts", s.listEmailDrafts)
@@ -51,14 +54,22 @@ func (s *Server) emailComposeCapabilities(w http.ResponseWriter, r *http.Request
 		return
 	}
 	capabilities := s.emailManagement.ComposeCapabilities()
-	// Host HTTP has no authenticated SparkX local object resolver. Its compose
-	// support remains available, but attachment send is an ISCP capability only.
-	capabilities.WorkspaceAttachments = false
+	_, err := s.lanMailObjectAccess(r)
+	// Ordinary WebChat/HTTP has no verified desktop installation. Only the
+	// authenticated TLS workbench can publish local attachment objects.
+	capabilities.WorkspaceAttachments = capabilities.WorkspaceAttachments && err == nil
 	writeJSON(w, http.StatusOK, capabilities)
 }
 func (s *Server) listEmailDrafts(w http.ResponseWriter, r *http.Request) {
 	if !s.emailManagementReady(w) {
 		return
+	}
+	if id := r.URL.Query().Get("draft"); id != "" && r.PathValue("draft") == "" {
+		if len(r.URL.Query()) != 1 || len(r.URL.Query()["draft"]) != 1 {
+			writeEmailComposeError(w, emailmanagement.ErrInvalidInput)
+			return
+		}
+		r.SetPathValue("draft", id)
 	}
 	if r.PathValue("draft") == "" {
 		q, err := emailRequestQuery(r)
@@ -137,7 +148,7 @@ func (s *Server) saveEmailDraft(w http.ResponseWriter, r *http.Request) {
 	for i, attachment := range input.Attachments {
 		attachments[i] = app.EmailSendAttachment{LocalFileID: attachment.LocalFileID, Object: attachment.Object}
 	}
-	draft, err := s.emailManagement.SaveDraft(r.Context(), principalForRequest(r).OwnerID, store.EmailDraft{Attachments: attachments, ID: input.ID, MailboxID: input.MailboxID, Mode: input.Mode, ReplyMailID: input.ReplyMailID, To: input.To, CC: input.CC, Subject: input.Subject, Body: input.Body}, input.ExpectedVersion)
+	draft, err := s.emailManagement.SaveDraft(s.withLANMailObjects(r), principalForRequest(r).OwnerID, store.EmailDraft{Attachments: attachments, ID: input.ID, MailboxID: input.MailboxID, Mode: input.Mode, ReplyMailID: input.ReplyMailID, To: input.To, CC: input.CC, Subject: input.Subject, Body: input.Body}, input.ExpectedVersion)
 	if err != nil {
 		writeEmailComposeError(w, err)
 		return
@@ -156,7 +167,7 @@ func (s *Server) sendEmailDraft(w http.ResponseWriter, r *http.Request) {
 		writeEmailManagementError(w, emailmanagement.ErrInvalidInput)
 		return
 	}
-	draft, err := s.emailManagement.SendDraft(r.Context(), principalForRequest(r).OwnerID, r.PathValue("draft"), input.ExpectedVersion, input.IdempotencyKey)
+	draft, err := s.emailManagement.SendDraft(s.withLANMailObjects(r), principalForRequest(r).OwnerID, r.PathValue("draft"), input.ExpectedVersion, input.IdempotencyKey)
 	if err != nil {
 		writeEmailComposeError(w, err)
 		return

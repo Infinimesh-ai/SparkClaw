@@ -14,15 +14,19 @@ The user confirmed that the project is still in development: old devices and exi
 
 1. WebChat and desktop are supported workbench deployments. Neither is a legacy or exceptional product path.
 2. Workbench conversations, messages, drafts, task history and user files are locally persisted. For WebChat, “local” means its deployment host, not the device displaying a browser tab; browser IndexedDB storage is not required.
-3. Business processing has one source of truth for context rules, routing, Workflow execution, active credentials, tool registration, policy, approval verification and result semantics.
-4. Mail remains authoritative in the mail service. Workbench caches and explicitly saved attachment copies retain their separate ownership.
+3. All business logic runs in the SparkClaw backend: context rules, routing, model calls, Workflow execution, active credentials, tool registration, policy, approval verification and result semantics. SparkX provides presentation, local data/resource adapters and the connection; local safety checks do not grant business execution authority.
+4. Shared mail data, including mail-service drafts and send records, remains authoritative in the backend mail service within its authenticated ownership scope. Conversation drafts are workbench-local. Mail caches and explicitly saved attachment copies retain their separate ownership.
 5. Deliver one matched workbench/service version and fresh storage. Development devices may be re-enrolled; old installation identities, credentials, histories and delivery records need not carry forward.
 6. Each workbench schedules its own tasks. If it is offline when an occurrence becomes due, that occurrence is skipped permanently: no execution, catch-up or automatic recovery after reconnection/restart. The execution service does not host future workbench schedules.
 
 | Deployment | Workbench persistence | Connection to execution service | Business model |
 |---|---|---|---|
-| WebChat | Deployment-host database and files, colocated with the service | Browser HTTP/SSE reaches the host; host components may call the shared service in-process | Shared |
-| Desktop | Desktop database and files | Renderer IPC to main, then authenticated HTTPS/WSS | Shared |
+| WebChat | Deployment-host database and files, colocated with the service | Browser HTTP/SSE reaches the host; host components may call the shared service in-process | SparkClaw backend |
+| Desktop | Desktop database and files | Renderer IPC to main, then authenticated LAN HTTPS/WSS or ISCP | SparkClaw backend |
+
+The user reconfirmed this relationship on 2026-10-09. Transport selection does not
+move business logic into SparkX or permanent desktop data into Gateway. See
+[Architecture](architecture.md) for the client, backend and shared-data boundary.
 
 Separate browser tabs accessing the same authorized WebChat workspace continue to see that workspace. This plan does not turn each tab/device into a new isolated database. Separate desktop installations keep their own workbench data. A common Owner or execution service does not introduce automatic desktop-to-desktop or WebChat-to-desktop conversation replication.
 

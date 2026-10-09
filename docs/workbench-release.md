@@ -19,7 +19,8 @@ cutover; an ordinary restart reopens them.
 | Host WebChat conversations, drafts, history and schedule definitions/occurrences | The selected backend Store; use File or PostgreSQL for restart persistence |
 | Execution admission, request identity and delivery control | `State.Path + ".execution"` |
 | Mail synchronization control | `State.Path + ".mailsync"`; mailbox content remains backend-authoritative |
-| Desktop conversations, drafts, tasks, files and schedules | `<userData>/workbench` on that installation |
+| Desktop conversations, conversation drafts, tasks, files and schedules | `<userData>/workbench` on that installation |
+| Shared mailbox content, mail-service drafts and send records | Backend mail service, within the authenticated ownership scope |
 | Desktop mail cache | `<userData>/workbench/mail`; a local projection of the backend mailbox |
 | Desktop selected backend and encrypted credential | `<userData>/backend.json` and the secure credential vault under that same profile |
 

@@ -11,6 +11,12 @@ The existing text transport and renewal evidence are in the [local ISCP integrat
 
 Keep the same Gateway domain services, execution service, ToolHub and Policy. ISCP adds transport and explicit business adapters. Desktop non-mail history, drafts, files and schedules remain desktop-local; mail remains backend-authoritative. Do not replicate WebChat history into the desktop or create another runtime.
 
+The user reconfirmed the [client/backend relationship](architecture.md) on
+2026-10-09: all business logic is processed by SparkClaw; SparkX owns its local
+workbench data and presentation. LAN and ISCP are alternative connections to
+that same backend. Local file validation, transfer and browser-host commands are
+resource adapters, not permission to move business decisions into the client.
+
 Review decisions, 2026-10-09: standing connection/device authorization is permanent until the user manually deletes it; local Relay changes must not create a protocol fork incompatible with the online Relay; Gateway restart terminates tasks awaiting approval, without restoring their wait or automatically continuing execution. These guide the implementation. Existing evidence for twenty-four-hour authorization and the original reference Relay describes the implemented baseline, not a rollout of these decisions.
 
 | Order | Deliverable | Prerequisites | UI eligible for release |

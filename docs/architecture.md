@@ -7,6 +7,31 @@ and explicitly marked target designs are linked from the [documentation index](i
 
 ## Workbench deployments and convergence
 
+Relationship reconfirmed by the user on 2026-10-09: SparkX is the desktop client
+and SparkClaw is its business backend. All business logic belongs to SparkClaw:
+intent interpretation, model calls, workflow/tool orchestration, permission and
+approval decisions, mail processing and authoritative execution results. SparkX
+owns presentation, user input, local persistence, connection handling and access
+to its host's resources. Local integrity checks and host adapters enforce that
+data boundary; they do not constitute another business engine or replace backend
+validation. A local timer submits an ordinary backend task, not a local workflow.
+
+The desktop connects through authenticated LAN HTTPS/WSS or ISCP. These are
+connection adapters to the same backend business services, with the same data
+ownership and authorization semantics. Capability availability may differ by
+qualified transport support. Selecting ISCP does not permit silent LAN fallback.
+
+Desktop workbench data belongs to its installation: conversations, conversation
+drafts, task history, files and saved results. The backend receives only explicitly
+admitted context/resources and retains execution copies within their defined
+lifetime; processing a file does not move its permanent ownership to the backend.
+Mail data, including mail-service drafts and send records, is backend-authoritative
+and can be shared within the authenticated ownership scope. A desktop mail cache
+is a projection; an attachment explicitly saved into the desktop workbench becomes
+a local file. Backend service configuration and required authorization/execution
+control records retain their separate service ownership. Shared data is not
+public or automatically accessible across Owners.
+
 WebChat persists conversations, drafts, files and schedules in the deployment-host
 Store/files; desktop persists them in its own SQLite/files. Browser tabs retain
 access to the same authorized host workspace. Separate workbenches do not

@@ -7,6 +7,10 @@
 
 ## 1. 目标、基线与实施顺序
 
+用户于 2026-10-09 再次确认[客户端与后端关系](architecture.md)：所有业务逻辑交由
+SparkClaw 处理，SparkX 负责本机工作台数据与界面。局域网和 ISCP 是连接同一后端的两种
+方式。本机文件校验、传输和浏览器宿主命令属于资源适配，不把业务裁决移到客户端。
+
 现有文本链路和续签证据见[本地 ISCP 联调设计](desktop-iscp-connection-design.md)。当前应用 profile 为 `sparkclaw.workbench.transport.v1`，仅包含 identity、installation bind、三项 presentation 读取以及 execution submit／lookup／cancel／ack 共九个操作。文件、设置、通知、审批、邮件、浏览器和语音不能因 ISCP 已连接就视为可用。此前审计出的文本并发、授权到期恢复和超限结果问题已纳入首批修复，实施记录见 9.1 节。
 
 业务仍使用同一套 Gateway domain service、execution、ToolHub 和 Policy；ISCP 只增加传输和明确的业务适配。桌面非邮件历史、草稿、文件和定时继续由桌面本地保存；邮件以后端为事实来源。不把 WebChat 历史同步到桌面，也不复制一套运行时。

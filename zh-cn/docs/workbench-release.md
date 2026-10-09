@@ -13,7 +13,8 @@
 | 主机 WebChat 对话、草稿、历史、调度定义和轮次 | 所选后端 Store；需要重启持久化时使用 File 或 PostgreSQL |
 | 执行接收、请求身份与投递控制 | `State.Path + ".execution"` |
 | 邮件同步控制 | `State.Path + ".mailsync"`；邮箱内容的权威来源仍是后端 |
-| 桌面对话、草稿、任务、文件和调度 | 该安装的 `<userData>/workbench` |
+| 桌面对话、会话草稿、任务、文件和调度 | 该安装的 `<userData>/workbench` |
+| 共享邮箱内容、邮件服务草稿与发送记录 | 后端邮件服务，受已认证的归属范围约束 |
 | 桌面邮件缓存 | `<userData>/workbench/mail`；后端邮箱的本地投影 |
 | 桌面选定后端与加密凭据 | `<userData>/backend.json` 及同一配置目录下的安全凭据仓库 |
 

@@ -2,6 +2,8 @@ package integrationconfig
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -100,6 +102,8 @@ type Error struct {
 
 func (e *Error) Error() string {
 	switch e.Code {
+	case "credential_revision_conflict":
+		return "credential status revision conflict"
 	case "integration_not_found":
 		return "integration was not found"
 	case "credential_not_found":
@@ -254,6 +258,9 @@ func (c *Controller) Get(_ context.Context, id string) (Status, error) {
 func (c *Controller) AddInfoCredential(ctx context.Context, input AddInfoCredentialInput) (Status, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.checkStatusPrecondition(ctx, InfoID); err != nil {
+		return Status{}, err
+	}
 	label, err := validateLabel(input.Label)
 	if err != nil {
 		return Status{}, err
@@ -287,6 +294,9 @@ func (c *Controller) AddInfoCredential(ctx context.Context, input AddInfoCredent
 func (c *Controller) AddLocalMindCredential(ctx context.Context, input AddLocalMindCredentialInput) (Status, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.checkStatusPrecondition(ctx, LocalMindID); err != nil {
+		return Status{}, err
+	}
 	label, err := validateLabel(input.Label)
 	if err != nil {
 		return Status{}, err
@@ -316,6 +326,9 @@ func (c *Controller) AddLocalMindCredential(ctx context.Context, input AddLocalM
 func (c *Controller) Activate(ctx context.Context, id, credentialID string, useOperator bool) (Status, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.checkStatusPrecondition(ctx, id); err != nil {
+		return Status{}, err
+	}
 	if !knownIntegration(id) {
 		return Status{}, newError("integration_not_found", false, nil)
 	}
@@ -362,6 +375,9 @@ func (c *Controller) activationHealthyLocked(id string) bool {
 func (c *Controller) Check(ctx context.Context, id, credentialID string) (Status, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.checkStatusPrecondition(ctx, id); err != nil {
+		return Status{}, err
+	}
 	if !knownIntegration(id) {
 		return Status{}, newError("integration_not_found", false, nil)
 	}
@@ -418,6 +434,9 @@ func (c *Controller) Check(ctx context.Context, id, credentialID string) (Status
 func (c *Controller) Delete(ctx context.Context, id, credentialID string) (Status, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.checkStatusPrecondition(ctx, id); err != nil {
+		return Status{}, err
+	}
 	if !knownIntegration(id) {
 		return Status{}, newError("integration_not_found", false, nil)
 	}
@@ -753,3 +772,24 @@ func zero(value []byte) {
 
 var _ BindingVault = (*credential.Vault)(nil)
 var _ AuditRepository = (store.AuditRepository)(nil)
+
+// StatusRevision is an opaque public metadata revision. Credential material is
+// deliberately excluded from both this projection and the conditional token.
+func StatusRevision(status Status) string {
+	raw, _ := json.Marshal(status)
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+type statusPreconditionKey struct{}
+
+func WithStatusPrecondition(ctx context.Context, revision string) context.Context {
+	return context.WithValue(ctx, statusPreconditionKey{}, revision)
+}
+func (c *Controller) checkStatusPrecondition(ctx context.Context, id string) error {
+	expected, conditional := ctx.Value(statusPreconditionKey{}).(string)
+	if conditional && (expected == "" || expected != StatusRevision(c.statusLocked(id))) {
+		return newError("credential_revision_conflict", false, nil)
+	}
+	return nil
+}

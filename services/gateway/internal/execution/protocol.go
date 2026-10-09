@@ -79,7 +79,37 @@ type PendingApproval struct {
 	Arguments  map[string]any `json:"arguments"`
 }
 
+type TerminationReason string
+
+const (
+	TerminationGatewayRestartedAwaitingApproval TerminationReason = "gateway_restarted_awaiting_approval"
+	TerminationGatewayRestartedAfterApproval    TerminationReason = "gateway_restarted_after_approval"
+)
+
+type ApprovalState string
+
+const (
+	ApprovalPending         ApprovalState = "pending"
+	ApprovalDecided         ApprovalState = "decided"
+	ApprovalDecisionUnknown ApprovalState = "decision_unknown"
+	ApprovalInvalidated     ApprovalState = "invalidated"
+)
+
+// ApprovalRecord is a bounded control receipt, never a continuation. Tool names,
+// summaries, arguments and model context remain in the live computation only.
+type ApprovalRecord struct {
+	ApprovalID string        `json:"approval_id"`
+	Digest     string        `json:"digest"`
+	Revision   uint64        `json:"revision"`
+	State      ApprovalState `json:"state"`
+	Decision   string        `json:"decision,omitempty"`
+	DecidedAt  *time.Time    `json:"decided_at,omitempty"`
+}
+
 type Status struct {
+	Revision           uint64            `json:"revision,omitempty"`
+	TerminationReason  TerminationReason `json:"termination_reason,omitempty"`
+	ApprovalReceipts   []ApprovalRecord  `json:"approval_receipts,omitempty"`
 	ExecutionExpiresAt *time.Time        `json:"execution_expires_at,omitempty"`
 	PendingApprovals   []PendingApproval `json:"pending_approvals,omitempty"`
 	SchemaVersion      int               `json:"schema_version"`
@@ -93,17 +123,20 @@ type Status struct {
 // Fence is the complete durable control field allowlist. No maps, arbitrary
 // diagnostic strings, context, titles, prompts or tool outputs may be added.
 type Fence struct {
-	OwnerID        string     `json:"owner_id"`
-	ClientID       string     `json:"client_id"`
-	InstallationID string     `json:"installation_id"`
-	RequestID      string     `json:"request_id"`
-	InputDigest    string     `json:"input_digest"`
-	State          string     `json:"state"`
-	CreatedAt      time.Time  `json:"created_at"`
-	Deadline       time.Time  `json:"deadline"`
-	GeneratedAt    *time.Time `json:"generated_at,omitempty"`
-	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
-	ResultDigest   string     `json:"result_digest,omitempty"`
+	Revision          uint64            `json:"revision,omitempty"`
+	TerminationReason TerminationReason `json:"termination_reason,omitempty"`
+	Approvals         []ApprovalRecord  `json:"approvals,omitempty"`
+	OwnerID           string            `json:"owner_id"`
+	ClientID          string            `json:"client_id"`
+	InstallationID    string            `json:"installation_id"`
+	RequestID         string            `json:"request_id"`
+	InputDigest       string            `json:"input_digest"`
+	State             string            `json:"state"`
+	CreatedAt         time.Time         `json:"created_at"`
+	Deadline          time.Time         `json:"deadline"`
+	GeneratedAt       *time.Time        `json:"generated_at,omitempty"`
+	ExpiresAt         *time.Time        `json:"expires_at,omitempty"`
+	ResultDigest      string            `json:"result_digest,omitempty"`
 }
 
 func Digest(raw []byte) string { h := sha256.Sum256(raw); return hex.EncodeToString(h[:]) }

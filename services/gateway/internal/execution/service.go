@@ -33,6 +33,7 @@ type Service struct {
 	inputs    map[string]*staged
 	now       func() time.Time
 	start     sync.Once
+	lifecycle context.Context
 	wg        sync.WaitGroup
 }
 
@@ -64,7 +65,7 @@ func New(root string, execute Executor) (*Service, error) {
 			lock.Close()
 		}
 	}()
-	s := &Service{root: root, lock: lock, execute: execute, control: control{Version: 2, Installations: map[string]string{}, Fences: map[string]Fence{}, WorkbenchFences: map[string]workbenchFence{}}, approvals: map[string]map[string]*approvalWait{}, active: map[string]context.CancelFunc{}, inputs: map[string]*staged{}, now: func() time.Time { return time.Now().UTC() }}
+	s := &Service{root: root, lock: lock, execute: execute, control: control{Version: controlVersion, Installations: map[string]string{}, Fences: map[string]Fence{}, WorkbenchFences: map[string]workbenchFence{}}, approvals: map[string]map[string]*approvalWait{}, active: map[string]context.CancelFunc{}, inputs: map[string]*staged{}, now: func() time.Time { return time.Now().UTC() }}
 	keyPath := filepath.Join(root, "spool.key")
 	key, err := readPrivate(keyPath, 32)
 	if errors.Is(err, os.ErrNotExist) {
@@ -82,7 +83,7 @@ func New(root string, execute Executor) (*Service, error) {
 	if err == nil {
 		decoder := json.NewDecoder(strings.NewReader(string(raw)))
 		decoder.DisallowUnknownFields()
-		if err = decoder.Decode(&s.control); err != nil || !json.Valid(raw) || s.control.Version != 2 || s.control.Fences == nil || s.control.Installations == nil || s.control.WorkbenchFences == nil || len(s.control.Fences)+len(s.control.WorkbenchFences) > MaxFences {
+		if err = decoder.Decode(&s.control); err != nil || !json.Valid(raw) || s.control.Fences == nil || s.control.Installations == nil || s.control.WorkbenchFences == nil || len(s.control.Fences)+len(s.control.WorkbenchFences) > MaxFences {
 			return nil, errors.New("invalid workbench control ledger")
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -100,17 +101,15 @@ func New(root string, execute Executor) (*Service, error) {
 func (s *Service) Root() string { return s.root }
 func (s *Service) Start(ctx context.Context) {
 	s.start.Do(func() {
+		s.mu.Lock()
+		s.lifecycle = ctx
+		s.mu.Unlock()
 		go func() {
 			ticker := time.NewTicker(time.Minute)
 			defer ticker.Stop()
 			for {
 				select {
 				case <-ctx.Done():
-					s.mu.Lock()
-					for _, cancel := range s.active {
-						cancel()
-					}
-					s.mu.Unlock()
 					s.Close()
 					return
 				case <-ticker.C:
@@ -266,7 +265,7 @@ func (s *Service) Submit(ctx context.Context, e Envelope, digest string) (Status
 		return Status{}, ErrCapacity
 	}
 	now := s.now()
-	f := Fence{OwnerID: e.OwnerID, ClientID: e.ClientID, InstallationID: e.InstallationID, RequestID: e.RequestID, InputDigest: digest, State: "accepted", CreatedAt: now, Deadline: now.Add(ExecutionBudget)}
+	f := Fence{OwnerID: e.OwnerID, ClientID: e.ClientID, InstallationID: e.InstallationID, RequestID: e.RequestID, InputDigest: digest, State: "accepted", Revision: 1, CreatedAt: now, Deadline: now.Add(ExecutionBudget)}
 	s.control.Fences[key] = f
 	if err := s.saveLocked(); err != nil {
 		delete(s.control.Fences, key)
@@ -294,6 +293,7 @@ func (s *Service) run(ctx context.Context, key string, e Envelope, files map[str
 		return
 	}
 	f.State = "running"
+	f.Revision++
 	s.control.Fences[key] = f
 	if err := s.saveLocked(); err != nil {
 		s.mu.Unlock()
@@ -328,6 +328,16 @@ func (s *Service) finish(key string, out Output, executionErr error) {
 	if f.State != "running" {
 		return
 	}
+	// Execution contexts inherit Gateway shutdown directly, so their worker
+	// may finish before Start's shutdown goroutine acquires the service lock.
+	if len(f.Approvals) > 0 && s.lifecycle != nil && s.lifecycle.Err() != nil {
+		interruptApprovalExecution(&f)
+		s.control.Fences[key] = f
+		_ = s.saveLocked()
+		return
+	}
+	f.Revision++
+	invalidateApprovals(&f)
 	if executionErr != nil {
 		f.State = "failed"
 		if errors.Is(executionErr, context.Canceled) || errors.Is(executionErr, context.DeadlineExceeded) || errors.Is(executionErr, ErrUnavailable) {
@@ -366,7 +376,10 @@ func (s *Service) finish(key string, out Output, executionErr error) {
 		return
 	}
 	content.Payload = string(raw)
-	testEnvelope, _ := json.Marshal(Status{SchemaVersion: 1, RequestID: f.RequestID, InputDigest: f.InputDigest, State: "completed", Result: &Result{Sequence: 1, Digest: Digest(raw), Payload: content.Payload}})
+	testStatus := statusFor(f)
+	testStatus.State, testStatus.ExecutionExpiresAt = "completed", nil
+	testStatus.Result = &Result{Sequence: 1, Digest: Digest(raw), Payload: content.Payload}
+	testEnvelope, _ := json.Marshal(testStatus)
 	if len(testEnvelope) > ResultBytes-4096 {
 		f.State = "failed"
 		s.control.Fences[key] = f
@@ -394,7 +407,7 @@ func (s *Service) finish(key string, out Output, executionErr error) {
 	}
 }
 func statusFor(f Fence) Status {
-	status := Status{SchemaVersion: 1, RequestID: f.RequestID, InputDigest: f.InputDigest, State: f.State, ExpiresAt: f.ExpiresAt}
+	status := Status{Revision: f.Revision, TerminationReason: f.TerminationReason, ApprovalReceipts: approvalReceipts(f), SchemaVersion: 1, RequestID: f.RequestID, InputDigest: f.InputDigest, State: f.State, ExpiresAt: f.ExpiresAt}
 	if f.State == "accepted" || f.State == "running" {
 		status.ExecutionExpiresAt = &f.Deadline
 	}
@@ -476,6 +489,7 @@ func (s *Service) Ack(owner, client, request string, sequence int, digest string
 	}
 	prior := f
 	f.State = "delivered"
+	f.Revision++
 	s.control.Fences[key] = f
 	if err := s.saveLocked(); err != nil {
 		s.control.Fences[key] = prior
@@ -493,6 +507,8 @@ func (s *Service) Cancel(owner, client, request string) error {
 	}
 	if f.State == "accepted" || f.State == "running" {
 		f.State = "unknown"
+		f.Revision++
+		invalidateApprovals(&f)
 		s.control.Fences[key] = f
 		delete(s.approvals, key)
 		if cancel := s.active[key]; cancel != nil {
@@ -512,6 +528,7 @@ func (s *Service) Sweep() error {
 			keep[filepath.Base(s.contentPath(key))] = true
 		} else if f.State == "completed" {
 			f.State = "delivery_expired"
+			f.Revision++
 			s.control.Fences[key] = f
 		}
 	}
@@ -566,6 +583,19 @@ func (s *Service) Close() {
 	s.closeOnce.Do(func() {
 		s.mu.Lock()
 		s.closed = true
+		// Persist interruption before canceling waiters. A decision serialized
+		// before this lock keeps its receipt; one arriving later is rejected.
+		changed := false
+		for key, f := range s.control.Fences {
+			if (f.State == "running" || f.State == "accepted") && len(f.Approvals) > 0 {
+				interruptApprovalExecution(&f)
+				s.control.Fences[key] = f
+				changed = true
+			}
+		}
+		if changed {
+			_ = s.saveLocked()
+		}
 		s.approvals = map[string]map[string]*approvalWait{}
 		for _, cancel := range s.active {
 			cancel()
@@ -579,21 +609,39 @@ func (s *Service) Close() {
 }
 
 func (s *Service) validateControl() error {
-	if s.control.Version != 2 || s.control.Fences == nil || s.control.Installations == nil || s.control.WorkbenchFences == nil || len(s.control.Fences)+len(s.control.WorkbenchFences) > MaxFences {
+	if s.control.Version != 2 && s.control.Version != controlVersion {
+		return errors.New("invalid execution control version")
+	}
+	if s.control.Fences == nil || s.control.Installations == nil || s.control.WorkbenchFences == nil || len(s.control.Fences)+len(s.control.WorkbenchFences) > MaxFences {
 		return errors.New("invalid execution control ledger")
 	}
 	for key, f := range s.control.Fences {
 		if key != keyFor(f.OwnerID, f.ClientID, f.RequestID) || !UUID(f.RequestID) || !UUID(f.InstallationID) || !digestPattern.MatchString(f.InputDigest) || f.CreatedAt.IsZero() || f.Deadline.IsZero() {
 			return errors.New("invalid workbench durable fence")
 		}
+		if s.control.Version == 2 {
+			// v2 had no approval control. Preserve every existing request and
+			// workbench binding; never infer that an old running task was safe.
+			if f.Revision != 0 || len(f.Approvals) != 0 || f.TerminationReason != "" {
+				return errors.New("invalid v2 approval control")
+			}
+			f.Revision = 1
+		}
+		if err := validateApprovalControl(f); err != nil {
+			return err
+		}
 		switch f.State {
 		case "accepted", "running":
-			f.State = "unknown"
-			s.control.Fences[key] = f
+			interruptApprovalExecution(&f)
 		case "completed", "delivered", "delivery_expired", "failed", "canceled", "unknown":
 		default:
 			return errors.New("invalid workbench fence state")
 		}
+		s.control.Fences[key] = f
 	}
-	return s.validateWorkbenchFences()
+	if err := s.validateWorkbenchFences(); err != nil {
+		return err
+	}
+	s.control.Version = controlVersion
+	return nil
 }

@@ -71,7 +71,7 @@ func TestApprovalBoundDecisionIdempotencyAndNoDurableContent(t *testing.T) {
 		t.Fatal("resolved decision still actionable")
 	}
 	ledger, _ := os.ReadFile(filepath.Join(s.Root(), "control.json"))
-	if strings.Contains(string(ledger), "canary") || strings.Contains(string(ledger), row.ApprovalID) {
+	if strings.Contains(string(ledger), "canary") || !strings.Contains(string(ledger), row.ApprovalID) {
 		t.Fatal("approval content entered durable control")
 	}
 	close(finish)
@@ -131,7 +131,14 @@ func TestPendingApprovalCancelRestartAndDeadlineNeverReplay(t *testing.T) {
 			}
 			defer restarted.Close()
 			status, err := restarted.Submit(t.Context(), e, digest)
-			if err != nil || status.State != "unknown" || len(status.PendingApprovals) != 0 || effects.Load() != 0 {
+			expected := "unknown"
+			if end == "restart" {
+				expected = "failed"
+				if status.TerminationReason != TerminationGatewayRestartedAwaitingApproval {
+					t.Fatal("missing restart termination reason", status)
+				}
+			}
+			if err != nil || status.State != expected || len(status.PendingApprovals) != 0 || effects.Load() != 0 {
 				t.Fatal(status, err, effects.Load())
 			}
 		})

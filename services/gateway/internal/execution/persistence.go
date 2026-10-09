@@ -12,6 +12,8 @@ import (
 	"syscall"
 )
 
+const controlVersion = 3
+
 type control struct {
 	Version         int                       `json:"schema_version"`
 	Installations   map[string]string         `json:"installations"`

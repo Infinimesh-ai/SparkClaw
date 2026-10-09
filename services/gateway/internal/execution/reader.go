@@ -21,7 +21,7 @@ type Reader interface {
 func Read(root string) (Reader, error) { return readSnapshot(root, true) }
 
 func readSnapshot(root string, withContent bool) (*Service, error) {
-	reader := &Service{root: root, closed: true, now: func() time.Time { return time.Now().UTC() }, control: control{Version: 2, Installations: map[string]string{}, Fences: map[string]Fence{}, WorkbenchFences: map[string]workbenchFence{}}}
+	reader := &Service{root: root, closed: true, now: func() time.Time { return time.Now().UTC() }, control: control{Version: controlVersion, Installations: map[string]string{}, Fences: map[string]Fence{}, WorkbenchFences: map[string]workbenchFence{}}}
 	if !filepath.IsAbs(root) {
 		return nil, ErrUnavailable
 	}

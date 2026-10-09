@@ -41,6 +41,13 @@ at most five files / 10 MiB total, bound to deployment, Owner, Client and
 installation, with an absolute maximum 24-hour lifetime. Receipt reconciliation
 after an uncertain send never rereads, uploads or sends the attachment again.
 
+An open desktop mail editor retains unsaved fields and local attachment selections
+in memory during capability refresh or reconnection for the same verified identity.
+It disables backend actions while their current permissions or connection are
+unavailable, and never autosaves or resends on recovery. Revocation, locking or an
+identity change clears the editor. These temporary inputs do not replace the
+backend's authoritative draft version or explicit send confirmation.
+
 WebChat persists conversations, drafts, files and schedules in the deployment-host
 Store/files; desktop persists them in its own SQLite/files. Browser tabs retain
 access to the same authorized host workspace. Separate workbenches do not

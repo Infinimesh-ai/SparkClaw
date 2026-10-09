@@ -12,7 +12,7 @@ function blank(mailboxID: string): EmailDraft {
 
 // This editor uses only the registered mail draft operations. The saved version
 // is the confirmation boundary; an uncertain send stays locked for reconciliation.
-export function ISCPMailDraftPanel({ language, mailboxID, address, attachmentsEnabled = false }: { language: Language; mailboxID: string; address: string; attachmentsEnabled?: boolean }) {
+export function ISCPMailDraftPanel({ language, mailboxID, address, enabled = true, attachmentsEnabled = false }: { language: Language; mailboxID: string; address: string; enabled?: boolean; attachmentsEnabled?: boolean }) {
   const zh = language === "zh";
   const [draft, setDraft] = useState<EmailDraft>(() => blank(mailboxID));
   const [to, setTo] = useState("");
@@ -33,12 +33,16 @@ export function ISCPMailDraftPanel({ language, mailboxID, address, attachmentsEn
   const locked = !["draft", "failed"].includes(draft.state);
   useEffect(() => {
     active.current = true;
+    return () => { active.current = false; };
+  }, [mailboxID]);
+  useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     void api.emailDrafts({ mailbox_id: mailboxID, limit: 50 }, controller.signal).then(page => {
       if (!controller.signal.aborted) { setItems(page.items); setCursor(page.next_cursor || ""); }
     }).catch(reason => { if (!controller.signal.aborted) setError(String(reason.message || reason)); });
-    return () => { active.current = false; controller.abort(); };
-  }, [mailboxID]);
+    return () => { controller.abort(); };
+  }, [mailboxID, enabled]);
 
   useEffect(() => {
     if (!attachmentsEnabled) return;
@@ -62,7 +66,7 @@ export function ISCPMailDraftPanel({ language, mailboxID, address, attachmentsEn
     setItems(rows => [value, ...rows.filter(row => row.id !== value.id)]);
   }
   async function run(work: () => Promise<void>) {
-    if (action.current) return;
+    if (!enabled || action.current) return;
     action.current = true; setBusy(true); setError(""); setNotice("");
     try { await work(); }
     catch (reason) {
@@ -80,7 +84,7 @@ export function ISCPMailDraftPanel({ language, mailboxID, address, attachmentsEn
     if (attachmentIDs.length >= 5) { setError(zh ? "最多可添加 5 个附件。" : "Choose at most 5 attachments."); return; }
     setAttachmentIDs(ids => [...ids, file.id]); setPendingFile(""); setReview(null); setNotice(""); setError("");
   }
-  const canSave = !busy && !locked && !reloadRequired && !attachmentIDs.some(id => id.startsWith("legacy:")) && !pendingFile.trim() && (attachmentsEnabled || !attachmentIDs.length);
+  const canSave = enabled && !busy && !locked && !reloadRequired && !attachmentIDs.some(id => id.startsWith("legacy:")) && !pendingFile.trim() && (attachmentsEnabled || !attachmentIDs.length);
   async function save(forReview: boolean) {
     if (!canSave) return;
     await run(async () => {
@@ -94,7 +98,7 @@ export function ISCPMailDraftPanel({ language, mailboxID, address, attachmentsEn
   }
   async function send() {
     const snapshot = review;
-    if (!snapshot || snapshot.id !== draft.id || snapshot.version !== draft.version || locked || (!attachmentsEnabled && snapshot.attachments?.length)) return;
+    if (!enabled || !snapshot || snapshot.id !== draft.id || snapshot.version !== draft.version || locked || (!attachmentsEnabled && snapshot.attachments?.length)) return;
     await run(async () => {
       setReview(null);
       const unknown = { ...snapshot, state: "unknown" as const };
@@ -120,12 +124,13 @@ export function ISCPMailDraftPanel({ language, mailboxID, address, attachmentsEn
   return <section className="emailComposer" aria-label={zh ? "ISCP 邮件草稿" : "ISCP mail drafts"}>
     <h3>{zh ? "草稿与发送" : "Drafts and sending"}</h3>
     <p>{zh ? `发件邮箱：${address}。发送前会展示已保存的邮件版本供你确认。` : `Sending from ${address}. Review the saved message version before sending.`}</p>
+    {!enabled && <p role="status">{zh ? "邮件操作暂不可用。未保存的编辑保留在本窗口中；连接与授权恢复后可继续保存和发送。" : "Mail actions are unavailable. Unsaved edits remain in this window; saving and sending can resume after connection and authorization recover."}</p>}
     <div><button type="button" disabled={busy} onClick={() => { setDraft(blank(mailboxID)); setTo(""); setCC(""); setAttachmentIDs([]); setPendingFile(""); setReloadRequired(false); setReview(null); setError(""); setNotice(""); }}>{zh ? "新草稿" : "New draft"}</button>
-      <select aria-label={zh ? "选择草稿" : "Select draft"} disabled={busy} value={items.some(item => item.id === draft.id) ? draft.id : ""} onChange={event => { const id = event.target.value; if (id) void run(async () => { remember(await api.emailDraftSnapshot(id)); setReview(null); }); }}>
+      <select aria-label={zh ? "选择草稿" : "Select draft"} disabled={busy || !enabled} value={items.some(item => item.id === draft.id) ? draft.id : ""} onChange={event => { const id = event.target.value; if (id) void run(async () => { remember(await api.emailDraftSnapshot(id)); setReview(null); }); }}>
         <option value="">{zh ? "未保存的草稿" : "Unsaved draft"}</option>
         {items.map(item => <option key={item.id} value={item.id}>{item.subject || (zh ? "无主题" : "No subject")} · {item.state}</option>)}
       </select>
-      {cursor && <button type="button" disabled={busy} onClick={() => void run(async () => { const page = await api.emailDrafts({ mailbox_id: mailboxID, cursor, limit: 50 }); if (active.current) { setItems(rows => [...rows, ...page.items.filter(item => !rows.some(row => row.id === item.id))]); setCursor(page.next_cursor || ""); } })}>{zh ? "更多草稿" : "More drafts"}</button>}
+      {cursor && <button type="button" disabled={busy || !enabled} onClick={() => void run(async () => { const page = await api.emailDrafts({ mailbox_id: mailboxID, cursor, limit: 50 }); if (active.current) { setItems(rows => [...rows, ...page.items.filter(item => !rows.some(row => row.id === item.id))]); setCursor(page.next_cursor || ""); } })}>{zh ? "更多草稿" : "More drafts"}</button>}
     </div>
     <fieldset disabled={busy || locked || !!review}>
       <label>{zh ? "收件人" : "To"}<input aria-label={zh ? "收件人" : "To"} value={to} onChange={event => { setTo(event.target.value); setReview(null); setNotice(""); }}/></label>
@@ -140,15 +145,15 @@ export function ISCPMailDraftPanel({ language, mailboxID, address, attachmentsEn
       <strong>{review.subject}</strong><pre className="emailOriginalBody">{review.body}</pre>
       <MailAttachmentManifest language={language} attachments={review.attachments || []}/>
       <button type="button" disabled={busy} onClick={() => setReview(null)}>{zh ? "返回修改" : "Edit message"}</button>
-      <button type="button" disabled={busy || (!attachmentsEnabled && !!review.attachments?.length)} onClick={() => void send()}>{zh ? "确认发送此版本" : "Confirm sending this version"}</button>
+      <button type="button" disabled={busy || !enabled || (!attachmentsEnabled && !!review.attachments?.length)} onClick={() => void send()}>{zh ? "确认发送此版本" : "Confirm sending this version"}</button>
     </section>}
     {!review && !locked && <footer><button type="button" disabled={!canSave} onClick={() => void save(false)}>{zh ? "保存草稿" : "Save draft"}</button><button type="button" disabled={!canReview} onClick={() => void save(true)}>{zh ? "检查并发送" : "Review and send"}</button></footer>}
-    {reloadRequired && <p role="status">{zh ? "草稿或附件已变化，此次未发送。请重新读取草稿，再保存并确认当前文件。重新读取会替换未保存的编辑。" : "The draft or its attachments changed; this attempt was not sent. Reload the draft, then save and review the current files. Reloading replaces unsaved edits."} <button type="button" disabled={busy} onClick={() => void run(async () => { remember(await api.emailDraftSnapshot(draft.id)); setReview(null); })}>{zh ? "重新读取草稿" : "Reload draft"}</button></p>}
+    {reloadRequired && <p role="status">{zh ? "草稿或附件已变化，此次未发送。请重新读取草稿，再保存并确认当前文件。重新读取会替换未保存的编辑。" : "The draft or its attachments changed; this attempt was not sent. Reload the draft, then save and review the current files. Reloading replaces unsaved edits."} <button type="button" disabled={busy || !enabled} onClick={() => void run(async () => { remember(await api.emailDraftSnapshot(draft.id)); setReview(null); })}>{zh ? "重新读取草稿" : "Reload draft"}</button></p>}
     {!review && (draft.attachments?.length || 0) > 0 && <MailAttachmentManifest language={language} attachments={draft.attachments || []}/>}
     {["sending", "unknown"].includes(draft.state) && <p role="status">{zh ? "发送结果不确定。请核对原发送记录；此邮件不会自动重发。" : "Send outcome is unknown. Reconcile the original send record; this message will not be sent again automatically."}</p>}
     {draft.state === "sent" && <p role="status">{draft.confirmation_source === "owner_confirmed_capture" ? (zh ? "已根据核对的邮件原件确认发送。" : "Sending was confirmed against the captured mail.") : (zh ? "服务方已确认发送。" : "The provider confirmed sending.")} {draft.receipt?.provider_message_id && <span>{zh ? "服务方回执" : "Provider receipt"}: {draft.receipt.provider_message_id} · {draft.receipt.provider}</span>} {draft.sent_mail_id ? `${zh ? "邮件记录" : "Mail receipt"}: ${draft.sent_mail_id}` : (zh ? "收件证据仍待关联。" : "Delivery evidence has not been linked yet.")}</p>}
     {draft.state === "failed" && <p role="alert">{zh ? "服务方确认发送失败：" : "The provider reported a failed send: "}{draft.error_code}</p>}
-    {locked && <button type="button" disabled={busy} onClick={() => void reconcile()}>{zh ? "核对发送结果" : "Reconcile send outcome"}</button>}
+    {locked && <button type="button" disabled={busy || !enabled} onClick={() => void reconcile()}>{zh ? "核对发送结果" : "Reconcile send outcome"}</button>}
     {notice && <p role="status">{notice}</p>}{error && <p role="alert">{error}</p>}
   </section>;
 }

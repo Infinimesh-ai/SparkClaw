@@ -47,6 +47,29 @@ it("requires confirmation of an immutable saved version and presents the provide
 
 const attachment = { local_file_id: "12345678-1234-4123-8123-123456789abc", name: "summary.pdf", size_bytes: 8123, sha256: "b".repeat(64) };
 
+it("retains a reviewed version while disabling sends and reconciliation until permission recovers", async () => {
+  const send = vi.spyOn(api, "sendEmailDraft").mockRejectedValue(new Error("Reply lost"));
+  const reconcile = vi.spyOn(api, "reconcileEmailDraft").mockResolvedValue({ ...draft, state: "unknown" });
+  const f = await fixture();
+  const enabled = async (value: boolean) => { await act(async () => f.root.render(<ISCPMailDraftPanel language="en" mailboxID="box" address="owner@example.com" enabled={value}/>)); };
+  const button = (label: string) => [...f.host.querySelectorAll("button")].find(item => item.textContent === label)!;
+  try {
+    await f.click("Review and send");
+    await enabled(false);
+    expect(f.host.querySelector('[aria-label="Send confirmation"]')!.textContent).toContain("Confirm sending version 5");
+    expect(button("Confirm sending this version").disabled).toBe(true);
+    await f.click("Confirm sending this version"); expect(send).not.toHaveBeenCalled();
+    await enabled(true);
+    expect(send).not.toHaveBeenCalled();
+    await f.click("Confirm sending this version"); expect(send).toHaveBeenCalledOnce();
+    await enabled(false);
+    expect(button("Reconcile send outcome").disabled).toBe(true);
+    await f.click("Reconcile send outcome"); expect(reconcile).not.toHaveBeenCalled();
+    await enabled(true); await f.click("Reconcile send outcome");
+    expect(reconcile).toHaveBeenCalledWith("draft"); expect(send).toHaveBeenCalledOnce();
+  } finally { await act(async () => f.root.unmount()); }
+});
+
 it("selects only existing local files and reviews the exact saved attachment manifest", async () => {
   const send = vi.spyOn(api, "sendEmailDraft").mockResolvedValue({ ...draft, attachments: [attachment], version: 6, state: "sent" });
   const f = await fixture(draft, true);

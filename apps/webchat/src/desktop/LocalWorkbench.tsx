@@ -65,6 +65,8 @@ export function LocalWorkbench() {
   const [tab, setTab] = useState<PanelTab>("timeline");
   const [currentClientID, setCurrentClientID] = useState("");
   const [connection, setConnection] = useState<DesktopConnectionStatus>();
+  const mailScope = mailEditorScope(connection);
+  const lastMailScope = useRef("");
   const iscp = connection?.backend?.transport === "iscp";
   const capabilities = {
     files: surfaceEnabled(connection, "files"), mail: surfaceEnabled(connection, "mail_read"),
@@ -171,7 +173,14 @@ export function LocalWorkbench() {
     applyAppearance();
     let active = true;
     const connectionChanged = (status: DesktopConnectionStatus) => {
-      if (active) { setCurrentClientID(status.client_id ?? ""); setConnection(status); }
+      if (active) {
+        const scope = mailEditorScope(status);
+        // Clear even when a lock/revocation and a new connection are delivered
+        // in one React batch. Temporary capability loss is not an identity change.
+        if (!scope || scope !== lastMailScope.current) setMailOpen(false);
+        lastMailScope.current = scope;
+        setCurrentClientID(status.client_id ?? ""); setConnection(status);
+      }
     };
     void desktop.localConnection().then(connectionChanged).catch(surfaceError);
     const unsubscribe = desktop.onLocalConnection?.(connectionChanged);
@@ -362,7 +371,7 @@ export function LocalWorkbench() {
         <button className="iconButton sidebarToggle" type="button" aria-label={copy.toggleNav} onClick={() => setSidebarCollapsed((current) => !current)}><PanelLeft size={18} /></button>
         <span className="workspaceLabel">{copy.local}</span>
         <div className="topbarActions">
-          {capabilities.mail && <button type="button" onClick={() => setMailOpen(value => !value)}>{zh ? "邮箱" : "Mail"}</button>}
+          {(capabilities.mail || mailOpen && mailScope) && <button type="button" onClick={() => setMailOpen(value => !value)}>{zh ? "邮箱" : "Mail"}</button>}
           <NotificationCenter notifications={passiveNotifications.notifications} unreadCount={passiveNotifications.unreadCount}
             open={passiveNotifications.open} toast={passiveNotifications.toast} error={passiveNotifications.error}
             language={language} text={text} onToggle={() => passiveNotifications.setOpen((current) => !current)}
@@ -386,7 +395,12 @@ export function LocalWorkbench() {
         onCurrentClientRevoked={logout} onLogout={logout} />}</div> : <>
         <section className={`chatColumn localChat ${home ? "homeChat" : ""}`} hidden={page !== "chat"}>
         <div className="messageList localHistory">
-          {capabilities.mail && mailOpen && <MailCachePanel language={language} conversationID={selected} attachmentsEnabled={surfaceEnabled(connection, "mail_attachments")} sendEnabled={iscp ? surfaceEnabled(connection,"mail_send") : lanMail.compose} sendAttachmentsEnabled={iscp ? surfaceEnabled(connection,"mail_send_attachments") : lanMail.workspace_attachments} onFileSaved={async () => { if(selected) setContent(await store.read(selected)); }}/>}
+          {mailScope && mailOpen && <MailCachePanel key={mailScope} language={language} conversationID={selected}
+            enabled={connection?.state === "connected" && capabilities.mail}
+            attachmentsEnabled={connection?.state === "connected" && surfaceEnabled(connection, "mail_attachments")}
+            sendEnabled={connection?.state === "connected" && capabilities.mail && (iscp ? surfaceEnabled(connection,"mail_send") : lanMail.compose)}
+            sendAttachmentsEnabled={connection?.state === "connected" && (iscp ? surfaceEnabled(connection,"mail_send_attachments") : lanMail.workspace_attachments)}
+            onFileSaved={async () => { if(selected) setContent(await store.read(selected)); }}/>}
           {home && <WorkbenchWelcome language={language} />}
           {capabilities.browser && browserState?.browser_host?.unknown_writes?.filter((command) => command.local_conversation_id === selected).map((command) => <section className="localUnknownWrite" role="alert" key={command.command_id}>
             <h2>{zh ? "浏览器操作结果不确定" : "Browser action outcome uncertain"}</h2>
@@ -506,3 +520,13 @@ function approvalLabel(state: LocalApproval["state"], zh: boolean) {
 }
 
 function workbenchDraft(value: LocalDraft) { return { content: value.content, attachment_ids: value.local_file_ids, revision: value.revision }; }
+
+// Retain only this verified identity's in-memory edits while its connection is
+// recovering. Neither short Grants nor capability revisions own the editor.
+function mailEditorScope(status: DesktopConnectionStatus | undefined) {
+  if (!status || !["connected", "reconnecting", "service_unavailable"].includes(status.state) || status.authorization_deletion ||
+      !status.backend?.deployment_id || !status.owner_id || !status.client_id) return "";
+  const backend = status.backend;
+  return JSON.stringify([backend.transport || "lan", backend.origin, backend.deployment_id, status.owner_id, status.client_id,
+    backend.domain_id, backend.initiator_device_id, backend.responder_device_id, backend.responder_key_thumbprint, backend.tls_certificate_sha256]);
+}

@@ -99,6 +99,13 @@ Controller 拥有私有 Unix Socket，并监管有界 MCP 与 CLI Process。每�
 一个 Task Page，并绑定 Controller、Session、Page 和 Credential Generation。每次 Observation
 和 Action 执行前都会检查所有权。Owner Tab 永远不会被选中、读取、修改或关闭。
 
+内部 `page.read` 可选传入当前任务页新鲜快照中的 `ref`，定向读取该元素的子树，
+复用 `page.click` 的页面与引用归属检查；已脱离、过期、未观察和跨页引用均被拒绝。
+不接受选择器、祖先遍历或调用方代码；省略 `ref` 时维持原有整页读取行为。
+HTML 在惰性文档中投影，排除 head/script/style 等非界面内容，保留表单元素和祖先属性。
+整页与子树读取均不修改页面，先遵守 120,000 字符硬限，再应用调用方的 `max_chars`
+上限。这是 Controller 内部能力，不改变 SparkX 或 Relay 传输协议，也不扩大授权。
+
 MCP 承载通用 Browser Adapter。CLI 只运行六个已注册 Provider Handler：QQ 邮箱、Outlook
 和 Gmail 各自的 Probe 与 Send Revision 1。Caller 不能提供 Playwright Code、Selector、
 JavaScript、Command、Storage Access、Network Interception 或任意文件路径。

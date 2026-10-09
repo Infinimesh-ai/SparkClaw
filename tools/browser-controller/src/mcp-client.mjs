@@ -275,8 +275,8 @@ export class PlaywrightMCPClient {
         exactArgs(args, [], ["page_id"]);
         return this.#pageInfo(optionalPageID(args.page_id));
       case "page.read":
-        exactArgs(args, [], ["page_id", "max_chars"]);
-        return this.#readPage(optionalPageID(args.page_id), optionalMaximum(args.max_chars));
+        exactArgs(args, [], ["page_id", "max_chars", "ref"]);
+        return this.#readPage(optionalPageID(args.page_id), optionalMaximum(args.max_chars), args.ref);
       case "page.navigate":
         exactArgs(args, ["url"], ["page_id"]);
         return this.#navigate(optionalPageID(args.page_id), requiredURL(args.url));
@@ -418,9 +418,18 @@ export class PlaywrightMCPClient {
     }
   }
 
-  async #readPage(candidate, maximum) {
-    const page = await this.#selectPage(candidate);
-    const result = normalizePageRead(await this.#evaluate(PAGE_READ_FUNCTION), maximum);
+  async #readPage(candidate, maximum, ref) {
+    const page = ref === undefined ? await this.#selectPage(candidate) : await this.#requireFreshRef(candidate, ref);
+    let value;
+    if (ref === undefined) value = await this.#evaluate(PAGE_READ_FUNCTION);
+    else {
+      const result = await this.#callJSONTool("browser_evaluate", {
+        target: requiredRef(ref), function: PAGE_READ_FUNCTION,
+      }, undefined, ref);
+      value = parseJSONResult(result.payload.result);
+      if (value?.error === "browser_page_stale") throw pageStale("observed read target is detached or belongs to another document");
+    }
+    const result = normalizePageRead(value, maximum);
     return { page: { page_id: page.pageID, ...result } };
   }
 
@@ -606,8 +615,8 @@ export class PlaywrightMCPClient {
     for (const page of this.pages.values()) page.refs = null;
   }
 
-  async #callJSONTool(name, args, timeoutMS) {
-    const result = await this.#callTool(name, { ...args, _meta: { json: true } }, timeoutMS);
+  async #callJSONTool(name, args, timeoutMS, staleReadRef) {
+    const result = await this.#callTool(name, { ...args, _meta: { json: true } }, timeoutMS, staleReadRef);
     const text = result?.content?.find((item) => item?.type === "text")?.text;
     if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > MAX_MCP_RESPONSE_BYTES) {
       throw clientContractError();
@@ -625,9 +634,15 @@ export class PlaywrightMCPClient {
     return { payload, images };
   }
 
-  async #callTool(name, args, timeoutMS) {
+  async #callTool(name, args, timeoutMS, staleReadRef) {
     const result = await this.rpc.request("tools/call", { name, arguments: args }, timeoutMS);
     if (result?.isError) {
+      // The pinned MCP resolves a snapshot ref before calling the read function.
+      // A detached node therefore fails here rather than in the DOM guard above.
+      const missing = staleReadRef && `Ref ${staleReadRef} not found in the current page snapshot. Try capturing new snapshot.`;
+      if (missing && result.content?.some(item => item.type === "text" && typeof item.text === "string" && item.text.includes(missing))) {
+        throw pageStale("observed read target is no longer available");
+      }
       throw new ControllerError("browser_extension_unavailable", "browser extension is unavailable", {
         status: 503,
         retryable: true,

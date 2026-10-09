@@ -71,6 +71,8 @@ test('bounded page read exposes form ownership after large non-interface markup 
 test('page read retains both the hard 120k bounds and the caller truncation', {skip:!enabled}, async t => {
   const page = await pageFor(t);
   await page.setContent(`<html><head><script type="application/json">${'h'.repeat(150000)}</script></head><body><main>${'x'.repeat(150000)}</main></body></html>`);
+  assert.deepEqual(await page.evaluate(`(${PAGE_READ_FUNCTION})(document.createElement('div'))`),{error:'browser_page_stale'});
+  assert.deepEqual(await page.evaluate(`(${PAGE_READ_FUNCTION})(document.implementation.createHTMLDocument('').body)`),{error:'browser_page_stale'});
   const result = await page.evaluate(`(${PAGE_READ_FUNCTION})()`);
   assert.equal(result.html.length,120000);
   assert.equal(result.text.length,120000);

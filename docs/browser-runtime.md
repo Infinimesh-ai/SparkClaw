@@ -119,6 +119,17 @@ session, page, and credential generations. Every observation and action is
 checked against that ownership before execution. Owner tabs are never selected,
 read, changed, or closed.
 
+The internal `page.read` operation accepts an optional `ref` from the current
+task page's fresh snapshot to read that element's subtree. It uses the same
+page/ref ownership checks as `page.click`; detached, stale, unobserved, and
+cross-page references are rejected. It accepts no selector, ancestor traversal,
+or caller-supplied code. Without `ref`, the existing whole-page behavior remains.
+HTML is projected through an inert document without head/script/style and other
+non-interface markup; form elements and ancestor attributes are retained. Both
+whole-page and subtree reads remain read-only and are truncated at 120,000
+characters, then at the caller's `max_chars` limit. This Controller capability
+does not change SparkX or Relay transport protocols or broaden authorization.
+
 MCP serves the generic browser adapter. CLI runs only six registered provider
 handlers: probe and send revision 1 for QQ Mail, Outlook, and Gmail. Callers
 cannot supply Playwright code, selectors, JavaScript, commands, storage access,

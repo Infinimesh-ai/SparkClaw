@@ -35,6 +35,10 @@ type Service struct {
 	start     sync.Once
 	lifecycle context.Context
 	wg        sync.WaitGroup
+	// In-process admission fence; persistent issuer revocation is checked at
+	// the Gateway boundary after a restart. Existing execution fences remain.
+	revokedClients  map[string]bool
+	revocationDirty bool
 }
 
 func keyFor(owner, client, request string) string { return owner + "\x00" + client + "\x00" + request }
@@ -226,6 +230,10 @@ func (s *Service) Submit(ctx context.Context, e Envelope, digest string) (Status
 			return Status{}, ErrConflict
 		}
 		return s.Lookup(e.OwnerID, e.ClientID, e.RequestID)
+	}
+	if s.revokedClients[e.ClientID] {
+		s.mu.Unlock()
+		return Status{}, ErrExpired
 	}
 	var files map[string][]byte
 	st := s.inputs[key]

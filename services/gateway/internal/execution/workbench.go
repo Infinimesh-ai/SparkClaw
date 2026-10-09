@@ -116,6 +116,9 @@ func (s *Service) BeginWorkbench(ctx context.Context, binding WorkbenchBinding) 
 		}
 		return nil, workbenchStatus(previous), nil
 	}
+	if s.revokedClients[binding.ClientID] {
+		return nil, WorkbenchStatus{}, ErrExpired
+	}
 	if !digestPattern.MatchString(binding.ContextDigest) || binding.ContextBefore.IsZero() || binding.SubmittedDraftRevision != nil && *binding.SubmittedDraftRevision < 0 {
 		return nil, WorkbenchStatus{}, ErrConflict
 	}
@@ -346,6 +349,9 @@ func (s *Service) ContinueWorkbench(ctx context.Context, binding WorkbenchBindin
 	if !found || !sameWorkbenchAuthority(f.WorkbenchBinding, binding) {
 		return nil, ErrNotFound
 	}
+	if s.revokedClients[binding.ClientID] {
+		return nil, errors.Join(ErrExpired, ErrContinuationClosed)
+	}
 	if f.State != "approval_pending" && f.State != "browser_login_blocked" {
 		if f.State == "running" {
 			return nil, ErrConflict
@@ -371,21 +377,41 @@ func (s *Service) ContinueWorkbench(ctx context.Context, binding WorkbenchBindin
 func (s *Service) RevokeWorkbenchClient(clientID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	changed := false
+	if s.revokedClients == nil {
+		s.revokedClients = map[string]bool{}
+	}
+	s.revokedClients[clientID] = true
+	for key, f := range s.control.Fences {
+		if f.ClientID != clientID || (f.State != "accepted" && f.State != "running") {
+			continue
+		}
+		f.State = "unknown"
+		f.Revision++
+		invalidateApprovals(&f)
+		s.control.Fences[key] = f
+		delete(s.approvals, key)
+		if cancel := s.active[key]; cancel != nil {
+			cancel()
+		}
+		s.revocationDirty = true
+	}
 	for key, f := range s.control.WorkbenchFences {
 		if f.ClientID == clientID && (f.State == "running" || f.State == "approval_pending" || f.State == "browser_login_blocked") {
 			f.State = "unknown"
 			s.control.WorkbenchFences[key] = f
-			changed = true
+			s.revocationDirty = true
 			if cancel := s.active[key]; cancel != nil {
 				cancel()
 			}
 		}
 	}
-	if changed {
+	if s.revocationDirty {
+		// Persistence failure cannot restore admission or actionable waits.
+		// Retain the dirty marker so an idempotent retry persists the fence.
 		if err := s.saveLocked(); err != nil {
 			return ErrUnavailable
 		}
+		s.revocationDirty = false
 	}
 	return nil
 }

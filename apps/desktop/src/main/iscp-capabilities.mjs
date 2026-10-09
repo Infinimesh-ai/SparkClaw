@@ -18,11 +18,20 @@ const SURFACES = Object.freeze({
 });
 const DEPENDENCIES = { mail_read: ['events'], mail_attachments: ['mail_read', 'files'], mail_send: ['mail_read', 'files', 'approvals'], mail_send_attachments: ['mail_send'], browser: ['files', 'approvals', 'events'], speech_recording: ['files'], speech_realtime: ['speech_recording', 'events'], speech_playback: ['speech_realtime'] };
 
+export function isISCPCapabilityReportCurrent(manifest, report, now = Date.now()) {
+  return manifest?.schema_version === 2 && manifest.profile === 'sparkclaw.workbench.transport.v2' &&
+    typeof manifest.session_id === 'string' && manifest.session_id.length > 0 &&
+    Number.isSafeInteger(manifest.authorization_revision) && manifest.authorization_revision > 0 &&
+    Date.parse(manifest.expires_at) > now && report?.schema_version === 2 &&
+    report.profile === manifest.profile && report.session_id === manifest.session_id &&
+    report.authorization_revision === manifest.authorization_revision && Date.parse(report.expires_at) > now;
+}
+
 // A permission advertisement is necessary, but is never a release certificate.
 // Qualification is private launcher configuration, not a renderer-controlled bit.
 export function projectISCPCapabilities(manifest, report, now = Date.now()) {
   const operations = Array.isArray(manifest?.operations) ? manifest.operations : [];
-  const valid = manifest?.schema_version === 2 && manifest.profile === 'sparkclaw.workbench.transport.v2' && typeof manifest.session_id === 'string' && manifest.session_id.length > 0 && Number.isSafeInteger(manifest.authorization_revision) && manifest.authorization_revision > 0 && Date.parse(manifest.expires_at) > now && report?.schema_version === 2 && report.profile === manifest.profile && report.session_id === manifest.session_id && report.authorization_revision === manifest.authorization_revision && Date.parse(report.expires_at) > now;
+  const valid = isISCPCapabilityReportCurrent(manifest, report, now);
   const granted = new Set(operations);
   const rows = new Map((Array.isArray(report?.capabilities) ? report.capabilities : []).map((row) => [row.id, row]));
   const surfaces = {};

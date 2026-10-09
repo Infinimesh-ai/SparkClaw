@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { parseBackendDescriptor, loadLocalBackendDescriptor, loadLocalBackendConnection } from "./local-backend.mjs";
 import { isTLSIdentityError, pinnedHTTPSFetch } from "./pinned-https.mjs";
 import { createConnectionCredential, parseConnectionCredential } from "./connection-credential.mjs";
-import { projectISCPCapabilities } from "./iscp-capabilities.mjs";
+import { isISCPCapabilityReportCurrent, projectISCPCapabilities } from "./iscp-capabilities.mjs";
 import { loadISCPProfile } from "./iscp-profile.mjs";
 import { LANMailClient } from "./lan-mail-client.mjs";
 import { ISCPTransport, ISCP_OPERATIONS, ISCP_BODY_BYTES, ISCPRequestNotSentError, mapISCPRequest } from "./iscp-transport.mjs";
@@ -127,9 +127,9 @@ export class DesktopAuth {
     if (this.descriptor.transport === "iscp") {
       if (result.state === "connected") {
         if (this.transport.capabilities) {
-          try { this.capabilityReport = await this.transport.invoke("capabilities.get"); }
-          catch { this.capabilityReport = undefined; }
-          if (generation !== this.generation) return this.status;
+          const refreshed = await this.#readCapabilityReport(generation);
+          if (!refreshed.current) return this.status;
+          if (refreshed.error) this.capabilityReport = undefined;
           this.#scheduleCapabilityRefresh();
         }
         this.reconnectAttempt = 0;
@@ -193,6 +193,7 @@ export class DesktopAuth {
 
   async logout(state = "locked") {
     clearTimeout(this.capabilityTimer);
+    clearTimeout(this.capabilityExpiryTimer);
     const generation = ++this.generation;
     this.connection = undefined;
     clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined;
@@ -330,7 +331,7 @@ export class DesktopAuth {
   }
 
   suspend() {
-    this.suspended = true; clearTimeout(this.capabilityTimer); ++this.generation; clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined;
+    this.suspended = true; clearTimeout(this.capabilityTimer); clearTimeout(this.capabilityExpiryTimer); ++this.generation; clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined;
     for (const request of this.requests) request.abort();
     this.requests.clear(); this.transport?.close();
     if (this.descriptor?.transport === "iscp" && this.connection) this.#set("service_unavailable");
@@ -402,15 +403,57 @@ export class DesktopAuth {
     return this.retry();
   }
 
-  #scheduleCapabilityRefresh() {
+  async #readCapabilityReport(generation) {
+    const transport = this.transport;
+    const current = () => generation === this.generation && transport === this.transport;
+    try {
+      const report = await transport.invoke("capabilities.get");
+      if (!current()) return { current: false };
+      if (!isISCPCapabilityReportCurrent(transport.capabilities, report)) throw new Error("ISCP capability report is invalid");
+      this.capabilityReport = report;
+      return { current: true };
+    } catch (error) {
+      return { current: current(), error };
+    }
+  }
+
+  #scheduleCapabilityRefresh(attempt = 0, delayMS = 30000) {
     clearTimeout(this.capabilityTimer);
-    this.capabilityTimer=setTimeout(async()=>{
-      if(this.status.state!=="connected"||this.suspended||this.authorizationRevoked)return;
-      const generation=this.generation;
-      try{const report=await this.transport.invoke("capabilities.get");if(generation!==this.generation)return;this.capabilityReport=report;}
-      catch{if(generation!==this.generation)return;this.capabilityReport=undefined;}
-      this.#set("connected");this.#scheduleCapabilityRefresh();
-    },30000);this.capabilityTimer.unref?.();
+    this.capabilityTimer = setTimeout(async () => {
+      if (this.status.state !== "connected" || this.suspended || this.authorizationRevoked) return;
+      const refreshed = await this.#readCapabilityReport(this.generation);
+      if (!refreshed.current) return;
+      if (refreshed.error) {
+        // Only local admission proves this read never reached the helper. A
+        // remote 429, timeout, protocol failure or changed authorization closes
+        // the projection immediately; none may extend the last report's TTL.
+        const capacity = refreshed.error instanceof ISCPRequestNotSentError && refreshed.error.reason === "capacity";
+        if (capacity && attempt < 4) {
+          if (!isISCPCapabilityReportCurrent(this.transport?.capabilities, this.capabilityReport)) {
+            this.capabilityReport = undefined;
+            this.#set("connected");
+          }
+          this.#scheduleCapabilityRefresh(attempt + 1, 250 * 2 ** attempt);
+          return;
+        }
+        this.capabilityReport = undefined;
+      }
+      this.#set("connected");
+      this.#scheduleCapabilityRefresh();
+    }, delayMS);
+    this.capabilityTimer.unref?.();
+  }
+
+  #scheduleCapabilityExpiry() {
+    clearTimeout(this.capabilityExpiryTimer);
+    if (this.status.state !== "connected" || !isISCPCapabilityReportCurrent(this.transport?.capabilities, this.capabilityReport)) return;
+    const expires = Math.min(Date.parse(this.transport.capabilities.expires_at), Date.parse(this.capabilityReport.expires_at));
+    this.capabilityExpiryTimer = setTimeout(() => {
+      // Publishing again runs the normal binding and expiry checks. In-flight
+      // reads and bounded capacity retries cannot keep an expired report live.
+      this.#set("connected");
+    }, Math.max(1, expires - Date.now()));
+    this.capabilityExpiryTimer.unref?.();
   }
 
   #scheduleReconnect() {
@@ -484,6 +527,7 @@ export class DesktopAuth {
       ...(this.descriptor.certificateSHA256 ? { tls_certificate_sha256: this.descriptor.certificateSHA256 } : {}),
     } } : {}), ...(this.descriptor?.transport === "iscp" ? { transport_stage: this.transportStage, test_mode: true,
       capabilities: projectISCPCapabilities(this.transport?.capabilities, this.capabilityReport) } : {}), ...(this.connection && (this.connection.transport !== "iscp" || this.connection.identityVerified) ? { client_id: this.connection.clientID, owner_id: this.connection.ownerID } : {}) });
+    this.#scheduleCapabilityExpiry();
     this.onChange(this.status);
     return this.status;
   }

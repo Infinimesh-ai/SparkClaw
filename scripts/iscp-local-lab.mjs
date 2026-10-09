@@ -98,7 +98,7 @@ export async function prepareLab(inputFile, directory, { expansion = false, capa
     if (expansion) {
       const registry = JSON.parse(await fs.readFile(path.join(root, "services/gateway/internal/iscpworkbench/operations.json"), "utf8"));
       metadata.qualified_operations = registry.map(spec => spec.name);
-      metadata.authorization_scopes = [...new Set([...registry.map(spec => spec.scope), "tool.files.read", "tool.files.search", "tool.files.write_draft"])].sort();
+      metadata.authorization_scopes = [...new Set([...registry.map(spec => spec.scope), "files.read", "tool.files.read", "tool.files.search", "tool.files.write_draft"])].sort();
     }
     command(issuerBinary, ["-authorize-renewal", "-config", path.join(directory, "issuer/issuer.json"), "-grant-file", path.join(directory, "grant.json"), "-authorization-hours", "0", ...(expansion ? ["-authorization-scopes", metadata.authorization_scopes.join(",")] : [])]);
     const issuerConfig = await readPrivateJSON(path.join(directory, "issuer/issuer.json"));

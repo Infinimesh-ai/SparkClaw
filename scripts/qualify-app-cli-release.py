@@ -72,7 +72,7 @@ def fixture_release(source, target):
 
 def main():
     with tempfile.TemporaryDirectory(prefix="app-cli-paired-") as temp:
-        base = Path(temp)
+        base = Path(temp).resolve()
         consumer = base / "consumer"
         (consumer / "scripts").mkdir(parents=True)
         (consumer / "configs").mkdir()

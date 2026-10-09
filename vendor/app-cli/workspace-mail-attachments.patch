@@ -1,0 +1,431 @@
+--- a/applications/mail/build-bindings.mjs
++++ b/applications/mail/build-bindings.mjs
+@@ -43,7 +43,7 @@
+           timeoutMS: name === 'watch' ? 300000 : entry.timeoutMS, backgroundBeforeNavigation: read,
+           codeEnabled: name !== 'probe', readOnlyCode: ['read', 'discover', 'capture', 'collect_page', 'watch'].includes(name),
+           downloadEnabled: ['read', 'capture', 'collect_page'].includes(name),
+-          awaitedRead: ['gmail', 'qq_mail'].includes(provider) && ['read', 'discover', 'capture', 'collect_page', 'watch'].includes(name),
++          awaitedRead: name === 'send' || ['gmail', 'qq_mail'].includes(provider) && ['read', 'discover', 'capture', 'collect_page', 'watch'].includes(name),
+           effectSelectors: [entry.effectSelector, ...entry.effectSelectors ?? []].filter(Boolean),
+           deniedURLs: provider === 'outlook' ? [{origin: 'https://www.microsoft.com',
+             path: '^/[a-z]{2}-[a-z]{2}/microsoft-365/outlook/email-and-calendar-software-microsoft-outlook/?$', query: {deeplink: '/mail/'}}] : [],
+--- a/applications/mail/handlers.mjs
++++ b/applications/mail/handlers.mjs
+@@ -25,7 +25,10 @@
+ 
+ async function prepare(entry, input, context) {
+   const page = new MailPage(context.browser, entry, context);
+-  if (entry.operation === 'send') await context.browser.call('setSecrets', secrets(input));
++  if (entry.operation === 'send') {
++    page.sendSecrets = secrets(input);
++    await context.browser.call('setSecrets', page.sendSecrets);
++  }
+   if (!context.browser.reused) await page.navigate(entry.loginURL);
+   if (entry.operation !== 'probe') await page.prepareBackgroundPage();
+   if (entry.operation === 'collect_page') await page.prepareMailRound(input.discovery.account_address, context.browser.reused);
+--- a/applications/mail/input-schema.mjs
++++ b/applications/mail/input-schema.mjs
+@@ -27,7 +27,9 @@
+   if (operation === 'send') {
+     const legacy = object({...common, message: object({recipient: address, subject: text(998), body}, ['recipient', 'body'])});
+     const message = object({to: {type: 'array', minItems: 1, maxItems: 100, items: address},
+-      cc: {type: 'array', maxItems: 100, items: address}, subject: text(998), body}, ['to', 'body']);
++      cc: {type: 'array', maxItems: 100, items: address}, subject: text(998), body,
++      attachments: {type:'array', maxItems:5, items:object({path:text(512), name:{type:'string',minLength:1,maxLength:255},
++        size_bytes:{type:'integer',minimum:0,maximum:10485760}, sha256:hash})}}, ['to', 'body']);
+     const reply = object({account_address: address, provider_message_id: providerID, provider_selection_id: providerID,
+       provider_thread_id: providerID, folder: text(1032), subject: text(4000)},
+     ['account_address', 'provider_message_id', 'provider_selection_id', 'folder', 'subject']);
+--- a/applications/mail/lib/managed-send.mjs
++++ b/applications/mail/lib/managed-send.mjs
+@@ -1,3 +1,4 @@
++import {validateAttachments,uploadManagedAttachments,verifyManagedAttachments} from './workspace-attachments.mjs';
+ import {OUTLOOK_SENT_BASELINE_EXPRESSION,OUTLOOK_SEND_VERIFICATION_EXPRESSION} from './outlook-send-proof.mjs';
+ import crypto from 'node:crypto';
+ import {QQMAIL_SENT_FOLDER_SELECTOR,QQMAIL_SENT_BASELINE_EXPRESSION,QQMAIL_SENT_VERIFICATION_EXPRESSION} from './qqmail-send-proof.mjs';
+@@ -14,7 +15,7 @@
+  if(!exact(input,['schema_version','operation','invocation_id','provider','account','message','account_address'],['mode','reply_target'])||input.schema_version!==1||input.operation!=='send'||input.provider!==provider||input.account!=='default'||!/^[A-Za-z0-9._:-]{1,128}$/u.test(input.invocation_id||''))throw fail('email_send_invalid_input');
+  const address=v=>typeof v==='string'&&v.length<=320&&/^[^\s<>@\x00-\x1f]+@[^\s<>@\x00-\x1f]+\.[^\s<>@\x00-\x1f]+$/u.test(v);
+  const mode=input.mode??'compose',m=input.message;
+- if(!address(input.account_address)||!['compose','reply','reply_all','reconcile'].includes(mode)||!exact(m,['to','body'],['cc','subject'])||!Array.isArray(m.to)||!m.to.length||m.to.length>100||!Array.isArray(m.cc??[])||(m.cc??[]).length>100||m.to.length+(m.cc??[]).length>100||[...m.to,...m.cc??[]].some(v=>!address(v)))throw fail('email_send_invalid_input');
++ if(!address(input.account_address)||!['compose','reply','reply_all','reconcile'].includes(mode)||!exact(m,['to','body'],['cc','subject','attachments'])||!Array.isArray(m.to)||!m.to.length||m.to.length>100||!Array.isArray(m.cc??[])||(m.cc??[]).length>100||m.to.length+(m.cc??[]).length>100||[...m.to,...m.cc??[]].some(v=>!address(v)))throw fail('email_send_invalid_input');
+  const normalize=v=>{const i=v.lastIndexOf('@');return v.slice(0,i)+'@'+v.slice(i+1).toLowerCase()};
+  const recipients=[...m.to,...m.cc??[]].map(normalize);if(new Set(recipients).size!==recipients.length)throw fail('email_send_invalid_input');
+  if(!exact(m.body,['format','content'])||m.body.format!=='text'||typeof m.body.content!=='string'||!m.body.content.trim()||m.body.content.includes('\0')||Buffer.byteLength(m.body.content)>204800||typeof(m.subject??'')!=='string'||/[\r\n\0]/u.test(m.subject??'')||[...m.subject??''].length>998)throw fail('email_send_invalid_input');
+@@ -23,7 +24,8 @@
+  const t=input.reply_target;
+  if(!exact(t,['account_address','provider_message_id','provider_selection_id','folder','subject'],['provider_thread_id'])||normalize(t.account_address)!==normalize(input.account_address)||['provider_message_id','provider_selection_id'].some(k=>typeof t[k]!=='string'||!/^[A-Za-z0-9_+=:.\/~\-]{1,1024}$/u.test(t[k]))||!['inbox','sent','all'].includes(t.folder)&&!/^qq:[1-9][0-9]{3,9}$/u.test(t.folder)||typeof t.subject!=='string'||t.subject.length>4000)throw fail('email_send_invalid_input');
+  }
+- return {...input,account_address:normalize(input.account_address),mode,message:{to:[...m.to],cc:[...m.cc??[]],subject:m.subject??'',body:{format:'text',content:m.body.content}},recipientDigest:`sha256:${crypto.createHash('sha256').update(JSON.stringify({to:m.to,cc:m.cc??[]})).digest('hex')}`};
++ const attachments=validateAttachments(m.attachments,mode);
++ return {...input,account_address:normalize(input.account_address),mode,message:{to:[...m.to],cc:[...m.cc??[]],subject:m.subject??'',body:{format:'text',content:m.body.content},...(attachments.length?{attachments}:{})},recipientDigest:`sha256:${crypto.createHash('sha256').update(JSON.stringify({to:m.to,cc:m.cc??[]})).digest('hex')}`};
+ }
+ 
+ async function sendAccountHash(tab,provider){
+@@ -109,10 +111,15 @@
+  if(!editor.ready)throw fail('email_draft_fields_unverified');
+  if(editor.has_subject)await tab.fill(CONTROL('subject'),request.message.subject);
+  await tab.fill(CONTROL('body'),request.message.body.content);
++ const readback=await verifyManagedDraft(tab,provider,request);
++ return {target,recipientDisplayHash:readback.recipient_display_hash};
++}
++
++export async function verifyManagedDraft(tab,provider,request){
+  const readback=await native(tab,provider,'readback');
+  if(readback.to_hash!==addressDigest(request.message.to)||readback.cc_hash!==addressDigest(request.message.cc)||readback.subject_hash!==digest(request.message.subject)||readback.body_hash!==digest(request.message.body.content.replace(/\r\n?/gu,'\n'))||!readback.send_ready||!readback.linked)throw fail('email_draft_fields_unverified');
+  await verifySendAccount(tab,provider,request.account_address);
+- return {target,recipientDisplayHash:readback.recipient_display_hash};
++ return readback;
+ }
+ 
+ export async function discardManagedDraft(tab,provider){
+@@ -156,7 +163,7 @@
+    if(!Array.isArray(sentBaseline?.ids)||sentBaseline.ids.length>1000||sentBaseline.ids.some(id=>typeof id!=='string'||!id||id.length>1024))throw fail('email_send_precondition_failed');
+   }
+   phase='prepare_draft';
+-  try{prepared=await prepareManagedDraft(tab,provider,request);await tab.inspect(`()=>(${sentDOM.toString()})(${JSON.stringify(provider)},true)`);claimed=await journal.write('dispatching');}catch(error){try{await discardManagedDraft(tab,provider)}catch{}throw error}
++  try{prepared=await prepareManagedDraft(tab,provider,request);await uploadManagedAttachments(tab,provider,runtime.emailWorkspaceRoot,request.message.attachments,runtime.beforeEffect);await verifyManagedDraft(tab,provider,request);await verifyManagedAttachments(tab,provider,request.message.attachments);await tab.inspect(`()=>(${sentDOM.toString()})(${JSON.stringify(provider)},true)`);claimed=await journal.write('dispatching');}catch(error){try{await discardManagedDraft(tab,provider)}catch{}throw error}
+   if(!claimed){try{await discardManagedDraft(tab,provider)}catch{}return unknown;}
+   attempted=true;
+   await tab.inspect('()=>{if(globalThis.__sparkclawManagedMail)globalThis.__sparkclawManagedMail.sendAttempted=true;return {marked:true}}');
+--- a/applications/mail/lib/send-journal.mjs
++++ b/applications/mail/lib/send-journal.mjs
+@@ -1,3 +1,4 @@
++import {attachmentMessageFingerprint} from './workspace-attachments.mjs';
+ import fs from 'node:fs/promises';
+ import path from 'node:path';
+ import crypto from 'node:crypto';
+@@ -11,7 +12,7 @@
+  const realRoot=await fs.realpath(workspace),realDirectory=await fs.realpath(directory);
+  if(!realDirectory.startsWith(realRoot+path.sep))throw Object.assign(new Error('email_send_journal_unavailable'),{code:'email_send_journal_unavailable'});
+  const file=path.join(directory,hash(request.invocation_id)+'.json');
+- const fingerprint=hash(JSON.stringify(canonical({provider:request.provider,account:account(request.account_address),message:request.message,target:request.reply_target??null})));
++ const fingerprint=hash(JSON.stringify(canonical({provider:request.provider,account:account(request.account_address),message:attachmentMessageFingerprint(request.message),target:request.reply_target??null})));
+  let saved=null;
+  try{const stat=await fs.lstat(file);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>32000)throw new Error('invalid');saved=JSON.parse(await fs.readFile(file,'utf8'));if(saved.fingerprint!==fingerprint||request.mode!=='reconcile'&&saved.mode!==request.mode)throw Object.assign(new Error('email_send_journal_conflict'),{code:'email_send_journal_conflict'});}catch(e){if(e.code!=='ENOENT')throw e;}
+  return {saved,async write(stage,receipt){const next={schema_version:1,fingerprint,mode:request.mode==='reconcile'?saved?.mode:request.mode,stage,receipt:receipt??null,updated_at:new Date().toISOString()};const temp=file+'.'+crypto.randomUUID()+'.tmp';const f=await fs.open(temp,'wx',0o600);try{await f.writeFile(JSON.stringify(next));await f.sync();}finally{await f.close()}if(stage==='dispatching'){try{await fs.link(temp,file)}catch(e){if(e.code!=='EEXIST')throw e;return false}finally{await fs.unlink(temp)}}else{await fs.rename(temp,file)}const d=await fs.open(directory,'r');try{await d.sync()}finally{await d.close()}saved=next;this.saved=next;return true;}};
+--- /dev/null
++++ b/applications/mail/lib/workspace-attachments.mjs
+@@ -0,0 +1,264 @@
++import fs from 'node:fs/promises';
++import {constants} from 'node:fs';
++import path from 'node:path';
++import crypto from 'node:crypto';
++
++export const ATTACHMENT_COUNT = 5;
++export const ATTACHMENT_BYTES = 10 << 20;
++const fail = code => Object.assign(new Error(code), {code});
++const invalid = () => fail('email_attachment_invalid');
++const digest = value => crypto.createHash('sha256').update(value).digest('hex');
++
++export function validateAttachments(value, mode) {
++  if (value === undefined) return [];
++  if (!Array.isArray(value) || value.length > ATTACHMENT_COUNT) throw invalid();
++  let total = 0;
++  const paths = new Set();
++  return value.map(item => {
++    if (!item || Object.keys(item).sort().join(',') !== 'name,path,sha256,size_bytes' ||
++        typeof item.name !== 'string' || !item.name || Buffer.byteLength(item.name) > 255 ||
++        /[\\/:\x00-\x1f\x7f]/u.test(item.name) || item.name.startsWith('.') ||
++        (item.path && paths.has(item.path)) || !Number.isSafeInteger(item.size_bytes) || item.size_bytes < 0 ||
++        !/^sha256:[a-f0-9]{64}$/u.test(item.sha256) || typeof item.path !== 'string') throw invalid();
++    const components = item.path.split('/');
++    if (!(mode === 'reconcile' && item.path === '') &&
++        (components.length !== 3 || !/^\.sparkclaw-mail-send-[a-f0-9]{32}$/u.test(components[0]) ||
++        !/^[a-f0-9]{2}$/u.test(components[1]) || components[2] !== item.name)) throw invalid();
++    total += item.size_bytes;
++    if (total > ATTACHMENT_BYTES) throw fail('email_attachment_limit');
++    if (item.path) paths.add(item.path);
++    return {...item};
++  });
++}
++
++export function attachmentMessageFingerprint(message) {
++  if (!message.attachments?.length) {
++    const {attachments, ...legacy} = message;
++    return legacy;
++  }
++  return {...message, attachments: message.attachments.map(({name, size_bytes, sha256}) => ({name, size_bytes, sha256}))};
++}
++
++// The Gateway publishes an owner-private, frozen copy only after validating
++// the user's workspace reference. Never let an application argument select an
++// arbitrary host file, even when the browser and Gateway share the workspace.
++export async function verifyWorkspaceAttachments(workspace, values) {
++  const attachments = validateAttachments(values, 'compose');
++  if (!attachments.length) return [];
++  if (typeof workspace !== 'string' || !path.isAbsolute(workspace) ||
++      await fs.realpath(workspace) !== path.resolve(workspace)) throw invalid();
++  const verified = [];
++  for (const item of attachments) {
++    let directory = workspace;
++    for (const segment of item.path.split('/').slice(0, -1)) {
++      directory = path.join(directory, segment);
++      const info = await fs.lstat(directory);
++      if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid() ||
++          (info.mode & 0o077) || await fs.realpath(directory) !== directory) throw invalid();
++    }
++    const filename = path.join(directory, item.name);
++    const handle = await fs.open(filename, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
++    try {
++      const before = await handle.stat();
++      if (!before.isFile() || before.uid !== process.getuid() || (before.mode & 0o077) ||
++          before.size !== item.size_bytes || before.nlink !== 1) throw invalid();
++      const bytes = Buffer.alloc(item.size_bytes + 1);
++      let count = 0;
++      while (count < bytes.length) {
++        const next = await handle.read(bytes, count, bytes.length - count, count);
++        if (!next.bytesRead) break;
++        count += next.bytesRead;
++      }
++      const after = await handle.stat(), current = await fs.lstat(filename);
++      if (count !== item.size_bytes || 'sha256:' + digest(bytes.subarray(0, count)) !== item.sha256 ||
++          before.ino !== current.ino || before.dev !== current.dev || current.isSymbolicLink() ||
++          before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs ||
++          await fs.realpath(filename) !== filename) throw fail('email_attachment_changed');
++      verified.push({name:item.name, bytes:bytes.subarray(0,count)});
++    } finally { await handle.close(); }
++  }
++  return verified;
++}
++
++// Serialized into the owned composer. It never reads arbitrary page-selected
++// files; native File objects must match the already confirmed manifest.
++export function attachmentDOM(provider, phase, expected) {
++  const state = globalThis.__sparkclawManagedMail;
++  const visible = node => node?.isConnected && node.getBoundingClientRect().width > 0 &&
++    node.getBoundingClientRect().height > 0 && getComputedStyle(node).visibility !== 'hidden';
++  if (!state?.ownershipChecked || state.provider !== provider || !state.root?.isConnected ||
++      !state.body?.isConnected || !state.root.contains(state.body) || state.sendAttempted) return {error:'email_draft_fields_unverified'};
++  // Recognize attachment-specific rows only. An unrelated title or aria-label
++  // matching the filename is never proof that the provider accepted a file.
++  const rowSelector = provider === 'gmail' ? '.aQH .dL' :
++    provider === 'outlook' ? '[data-attachment-id]' : '.attachment-item,.attach-item';
++  const rows = [...state.root.querySelectorAll(rowSelector)].filter(visible);
++  if (phase === 'prepare') {
++    if (state.attachmentPrepared) return {error:'email_attachment_invalid'};
++    if (rows.length) return {error:'email_existing_attachments'};
++    const inputs = [...state.root.querySelectorAll('input[type="file"]')].filter(node => !node.disabled && !node.webkitdirectory);
++    if (inputs.length > 1) return {error:'email_attachment_control_unavailable'};
++    let selector, chooser = false;
++    if (inputs.length === 1) {
++      inputs[0].setAttribute('data-sc-mail-attachment-input', 'true');
++      state.attachmentInput = inputs[0];
++      selector = '[data-sc-mail-attachment-input="true"]';
++    } else {
++      const attach = [...state.root.querySelectorAll('button,[role="button"],a')].filter(node => visible(node) &&
++        /^(Attach files|Attach file|Add attachment|附件|添加附件|添加文件|附加文件|附加)(?:$|\s*\()/u.test(node.getAttribute('aria-label') || node.getAttribute('data-tooltip') || node.textContent.trim()));
++      if (attach.length !== 1) return {error:'email_attachment_control_unavailable'};
++      attach[0].setAttribute('data-sc-mail-attachment-chooser', 'true');
++      state.attachmentButton = attach[0];
++      selector = '[data-sc-mail-attachment-chooser="true"]'; chooser = true;
++    }
++    state.attachmentPrepared = true;
++    state.attachmentProof = null;
++    const changed = event => {
++      if (event.target !== state.attachmentInput) return;
++      document.removeEventListener('change', changed, true);
++      const files = [...event.target.files];
++      state.attachmentProof = Promise.all(files.map(async file => ({name:file.name, size_bytes:file.size,
++        sha256:'sha256:'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer())), value=>value.toString(16).padStart(2,'0')).join('')})));
++    };
++    document.addEventListener('change', changed, true);
++    state.attachmentCleanup = () => document.removeEventListener('change', changed, true);
++    return {selector, chooser};
++  }
++  if (phase === 'ready') {
++    const root = state.root;
++    if (!state.send?.isConnected || !visible(state.send) || state.send.disabled || state.send.getAttribute('aria-disabled') === 'true') return {ready:false};
++    const pending = [...root.querySelectorAll('[role="progressbar"],[aria-busy="true"],.attachment-uploading,.uploading,input[type="file"][aria-invalid="true"]')].some(visible);
++    if (pending) return {ready:false};
++    if ([...root.querySelectorAll('[role="alert"],.attachment-error,.upload-error')].some(visible)) return {error:'email_attachment_upload_failed'};
++    if (rows.length !== expected.length) return {ready:false};
++    const remaining = [...expected];
++    for (const row of rows) {
++      const names = [...row.querySelectorAll('.vI,.vJ,.vK,[data-attachment-name],[title],[aria-label]')]
++        .filter(visible).flatMap(node => [node.getAttribute('data-attachment-name'),node.getAttribute('title'),node.getAttribute('aria-label'),node.textContent?.trim()].filter(Boolean));
++      const index = remaining.findIndex(item => names.includes(item.name));
++      const remove = [...row.querySelectorAll('button,[role="button"],a')].some(node => visible(node) &&
++        !node.disabled && node.getAttribute('aria-disabled') !== 'true' &&
++        /^(Remove attachment|Remove|Delete attachment|Delete|移除附件|删除附件|移除|删除)(?:$|[ :：])/u.test(node.getAttribute('aria-label') || node.getAttribute('data-tooltip') || node.textContent?.trim()));
++      if (index < 0 || !remove) return {ready:false};
++      remaining.splice(index, 1);
++    }
++    return {ready:remaining.length === 0, count:rows.length};
++  }
++  return {error:'email_attachment_invalid'};
++}
++
++// Use a bounded byte channel, never a pathname handoff. Closing a verified file
++// descriptor and later asking the browser driver to reopen its path permits a
++// symlink substitution before upload. These buffers are the approved snapshot.
++export async function verifyManagedAttachments(tab, provider, attachments) {
++  if (!attachments?.length) return;
++  const result=(await tab.inspect(`async()=>{
++    const expected=${JSON.stringify(attachments)};
++    const result=(${attachmentDOM.toString()})(${JSON.stringify(provider)},'ready',expected);
++    if(!result.ready)return result;
++    const state=globalThis.__sparkclawManagedMail,input=state.attachmentInput;
++    if(input?.isConnected){
++      if(!state.root.contains(input))return {error:'email_attachment_control_unavailable'};
++      const files=[...input.files];
++      // Providers may clear their file input after a completed upload. If it
++      // still contains files, do not accept a replacement with the same label.
++      if(files.length){
++        const actual=await Promise.all(files.map(async file=>({name:file.name,size_bytes:file.size,
++          sha256:'sha256:'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('')})));
++        const manifest=expected.map(({name,size_bytes,sha256})=>({name,size_bytes,sha256}));
++        if(JSON.stringify(actual)!==JSON.stringify(manifest))return {error:'email_attachment_changed'};
++      }
++    }
++    return (${attachmentDOM.toString()})(${JSON.stringify(provider)},'ready',expected);
++  }`))?.result;
++  if(result?.ready!==true||result.count!==attachments.length)throw fail(result?.error||'email_attachment_upload_unverified');
++}
++
++export async function uploadManagedAttachments(tab, provider, workspace, attachments, beforeEffect) {
++  if (!attachments?.length) return;
++  const run = code => tab.runReadCode('/* app-cli:awaited-code:v1 */\n' + code);
++  const files = await verifyWorkspaceAttachments(workspace, attachments);
++  const expected = attachments.map(({name,size_bytes,sha256})=>({name,size_bytes,sha256}));
++  if (typeof tab.setAttachmentSecrets !== 'function' || !Number.isSafeInteger(tab.attachmentSecretSlots) || tab.attachmentSecretSlots < 1) throw fail('email_send_configuration_error');
++  const token = crypto.randomUUID();
++  const target = (await tab.inspect(`()=>(${attachmentDOM.toString()})(${JSON.stringify(provider)},'prepare',[])`))?.result;
++  if (!target?.selector || target.error) throw fail(target?.error || 'email_attachment_control_unavailable');
++  if (typeof beforeEffect !== 'function') throw fail('email_send_configuration_error');
++  beforeEffect();
++  try {
++    await run(`async page=>page.evaluate(({token,manifest})=>{
++      const state=globalThis.__sparkclawManagedMail;
++      if(!state?.ownershipChecked||!state.root?.isConnected||state.sendAttempted)throw new Error('email_draft_fields_unverified');
++      state.attachmentTransfer={token,manifest,root:state.root,body:state.body,send:state.send,bytes:manifest.map(item=>new Uint8Array(item.size_bytes)),offsets:manifest.map(()=>0)};
++      return true;
++    },${JSON.stringify({token,manifest:expected})})`);
++    const chunks=[];
++    for(let index=0;index<files.length;index++)for(let offset=0;offset<files[index].bytes.length;offset+=45*1024)
++      chunks.push({token,index,offset,data:files[index].bytes.subarray(offset,offset+45*1024).toString('base64')});
++    const batchSize=Math.min(8,tab.attachmentSecretSlots);
++    for(let batch=0;batch<chunks.length;batch+=batchSize){
++      // The CLI includes source snippets in its diagnostics. Register each
++      // bounded batch before executing it so binary contents stay redacted.
++      await tab.setAttachmentSecrets(chunks.slice(batch,batch+batchSize).map(chunk=>chunk.data));
++      for(const value of chunks.slice(batch,batch+batchSize)){
++        await run(`async page=>page.evaluate(value=>{
++          const state=globalThis.__sparkclawManagedMail,t=state?.attachmentTransfer;
++          if(!state?.root?.isConnected||state.sendAttempted||t?.token!==value.token||t.offsets[value.index]!==value.offset)throw new Error('email_attachment_invalid');
++          const part=Uint8Array.from(atob(value.data),char=>char.charCodeAt(0));
++          if(part.length>46080||value.offset+part.length>t.bytes[value.index].length)throw new Error('email_attachment_limit');
++          t.bytes[value.index].set(part,value.offset);t.offsets[value.index]+=part.length;
++          return true;
++        },${JSON.stringify(value)})`);
++      }
++    }
++    // File/DataTransfer is the browser's native file-input data path. Construct
++    // the files only after all chunks match the confirmed hash; no host file
++    // path is visible to or reopened by the browser/CLI process.
++    const proof = await run(`async page => {
++      if (${JSON.stringify(target.chooser)}) {
++        const pending=page.waitForEvent('filechooser',{timeout:5000});pending.catch(()=>{});
++        await page.locator(${JSON.stringify(target.selector)}).click({timeout:5000});
++        const chooser=await pending;
++        await chooser.element().evaluate(node=>{const state=globalThis.__sparkclawManagedMail;if(!state?.root?.isConnected||!state.root.contains(state.body)||!state.root.contains(state.attachmentButton)||!state.root.contains(node))throw new Error('email_draft_fields_unverified');state.attachmentInput=node;});
++      }
++      return page.evaluate(async token=>{
++        const state=globalThis.__sparkclawManagedMail,t=state?.attachmentTransfer,input=state?.attachmentInput;
++        const valid=()=>globalThis.__sparkclawManagedMail===state&&state?.ownershipChecked&&state.root?.isConnected&&!state.sendAttempted&&t?.token===token&&t.root===state.root&&t.body===state.body&&t.send===state.send&&state.root.contains(state.body)&&state.root.contains(state.send)&&state.root.contains(input)&&input.type==='file'&&!input.disabled&&!input.webkitdirectory&&(t.bytes.length<2||input.multiple);
++        if(!valid())throw new Error('email_attachment_control_unavailable');
++        for(let i=0;i<t.bytes.length;i++){
++          const hash='sha256:'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',t.bytes[i])),b=>b.toString(16).padStart(2,'0')).join('');
++          if(t.offsets[i]!==t.manifest[i].size_bytes||hash!==t.manifest[i].sha256)throw new Error('email_attachment_changed');
++        }
++        // Digests yield to the page event loop; recheck ownership immediately
++        // before dispatch so moving or disabling an input cannot redirect data.
++        if(!valid())throw new Error('email_attachment_control_unavailable');
++        const transfer=new DataTransfer();
++        for(let i=0;i<t.bytes.length;i++)transfer.items.add(new File([t.bytes[i]],t.manifest[i].name,{type:'application/octet-stream'}));
++        input.files=transfer.files;
++        input.dispatchEvent(new Event('input',{bubbles:true,composed:true}));
++        input.dispatchEvent(new Event('change',{bubbles:true}));
++        if(!state.attachmentProof)throw new Error('email_attachment_unverified');
++        return await state.attachmentProof;
++      },${JSON.stringify(token)});
++    }`);
++    if (JSON.stringify(proof) !== JSON.stringify(expected)) throw fail('email_attachment_changed');
++    const result = await run(`async page=>page.evaluate(async expected=>{
++      const deadline=Date.now()+20000;
++      for(;;){
++        const status=(${attachmentDOM.toString()})(${JSON.stringify(provider)},'ready',expected);
++        if(status.error||status.ready)return status;
++        if(Date.now()>=deadline)return {ready:false};
++        await new Promise(resolve=>setTimeout(resolve,100));
++      }
++    },${JSON.stringify(expected)})`);
++    if (result?.ready !== true || result.count !== attachments.length) throw fail(result?.error || 'email_attachment_upload_unverified');
++  } finally {
++    for(const file of files)file.bytes.fill(0);
++    await run(`async page=>page.evaluate(token=>{
++      const state=globalThis.__sparkclawManagedMail;
++      if(state?.attachmentTransfer?.token===token){for(const bytes of state.attachmentTransfer.bytes)bytes.fill(0);delete state.attachmentTransfer;}
++      state?.attachmentCleanup?.();return true;
++    },${JSON.stringify(token)})`).catch(()=>{});
++    await tab.setAttachmentSecrets([]).catch(()=>{});
++  }
++}
+--- a/applications/mail/runtime/mail-page.mjs
++++ b/applications/mail/runtime/mail-page.mjs
+@@ -129,6 +129,7 @@
+       await client.prepareBackgroundPage();
+     },
+     signal: client.signal,
++    beforeEffect: client.beforeEffect,
+     withTaskTab: async (operation, callback) => {
+       if (operation !== registration.operation) throw clientContractError();
+       return await callback(
+@@ -139,6 +140,9 @@
+     withSendTab: async callback => {
+       if(registration.operation!=="send")throw clientContractError();
+       return callback({
++        attachmentSecretSlots: 104 - Object.keys(client.sendSecrets ?? {}).length,
++        setAttachmentSecrets: chunks => client.browser.call('setSecrets', {...client.sendSecrets,
++          ...Object.fromEntries(chunks.map((value,index)=>[`EMAIL_ATTACHMENT_CHUNK_${index}`,value]))}),
+         inspect:expression=>client.gmailTab().inspect(expression),
+         click:selector=>client.click(selector),
+         fill:(selector,value)=>{
+--- a/applications/mail/runtime/provider-scripts.mjs
++++ b/applications/mail/runtime/provider-scripts.mjs
+@@ -66,7 +66,7 @@
+     operation: "send",
+     effectSelectors:[MANAGED_SEND_SELECTOR],
+     scriptID: "qqmail.send",
+-    revision: 1,
++    revision: 2,
+     loginURL: "https://wx.mail.qq.com/",
+     origins: ["https://mail.qq.com", "https://wx.mail.qq.com"],
+     timeoutMS: 180_000,
+@@ -105,7 +105,7 @@
+     operation: "send",
+     effectSelectors:[MANAGED_SEND_SELECTOR],
+     scriptID: "outlook.send",
+-    revision: 1,
++    revision: 2,
+     loginURL: "https://outlook.live.com/mail/0/sentitems",
+     origins: [
+       "https://outlook.live.com",
+@@ -143,7 +143,7 @@
+     operation: "send",
+     effectSelectors:[MANAGED_SEND_SELECTOR],
+     scriptID: "gmail.send",
+-    revision: 1,
++    revision: 2,
+     loginURL: GMAIL_REGISTRATION_URL,
+     origins: ["https://mail.google.com", "https://accounts.google.com"],
+     timeoutMS: 180_000,
+@@ -250,7 +250,7 @@
+     ...value,
+     validate: value.validate ?? ((input) => validateScriptInput(value.provider, value.operation, input)),
+     origins: Object.freeze([...value.origins]),
+-    sourceFiles: Object.freeze([...new Set([...value.sourceFiles,...(value.operation==="send"?["lib/managed-send.mjs","lib/managed-send-dom.mjs","lib/send-journal.mjs","read.mjs","lib/read-capture.mjs","lib/receipt-time.mjs","lib/gmail-list.mjs","lib/outlook-list.mjs","lib/qqmail-list.mjs","lib/provider-account.mjs","lib/network-reader.mjs","userscripts/lib/outlook-early-bridge.mjs","userscripts/lib/qqmail-mark-read.mjs"]:[])])]),
++    sourceFiles: Object.freeze([...new Set([...value.sourceFiles,...(value.operation==="send"?["lib/managed-send.mjs","lib/managed-send-dom.mjs","lib/send-journal.mjs","lib/workspace-attachments.mjs","input-schema.mjs","read.mjs","lib/read-capture.mjs","lib/receipt-time.mjs","lib/gmail-list.mjs","lib/outlook-list.mjs","lib/qqmail-list.mjs","lib/provider-account.mjs","lib/network-reader.mjs","userscripts/lib/outlook-early-bridge.mjs","userscripts/lib/qqmail-mark-read.mjs"]:[])])]),
+   });
+ }
+ 

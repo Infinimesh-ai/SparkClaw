@@ -120,9 +120,9 @@ export class ISCPTransport {
         this.hello = true; continue;
       }
       if (frame.type === "state") {
-        if (!["verifying_relay", "discovery_failed", "connecting", "relay_ready", "handshaking", "transport_ready", "disconnected", "authorization_expired", "closed"].includes(frame.state)) { this.#fail("disconnected"); return; }
+        if (!["verifying_relay", "discovery_failed", "connecting", "relay_ready", "handshaking", "transport_ready", "disconnected", "authorization_expired", "authorization_revoked", "closed"].includes(frame.state)) { this.#fail("disconnected"); return; }
         if (frame.state === "discovery_failed") { this.#fail("disconnected"); return; }
-        if (["disconnected", "authorization_expired", "closed"].includes(frame.state)) { this.#fail(frame.state); return; }
+        if (["disconnected", "authorization_expired", "authorization_revoked", "closed"].includes(frame.state)) { this.#fail(frame.state); return; }
         this.#state(frame.state);
         if (frame.state === "transport_ready") { clearTimeout(this.readyTimer); this.readyResolve?.(); this.readyResolve = this.readyReject = this.readyPromise = undefined; }
       } else if (frame.type === "response") {

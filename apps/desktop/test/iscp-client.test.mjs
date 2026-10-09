@@ -204,12 +204,36 @@ test("oversize and file tasks fail before marking submission, preserving locally
   assert.equal(f.calls.filter((call) => call.operation === "execution.submit").length, 0);
 });
 
-test("sleep and helper outage advance generations and preserve the recoverable encrypted config", async (t) => {
+test("sleep and transient Grant expiry preserve private authorization and automatically reverify identity", async (t) => {
   const f = await fixture(t); await f.start(); const previous = f.auth.generation;
   f.auth.suspend(); assert.ok(f.auth.generation > previous); assert.equal(f.auth.status.state, "service_unavailable");
   assert.ok(await f.vault.load()); await f.auth.retry(); assert.equal(f.auth.status.state, "connected");
+  const saved = await f.vault.load(), beforeExpiry = f.auth.generation, identities = f.calls.filter((call) => call.operation === "workbench.identity").length;
   f.children.at(-1).send({ ipc_version: 1, type: "state", state: "authorization_expired" });
-  assert.equal(f.auth.status.state, "invalid_authentication"); assert.ok(await f.vault.load());
+  assert.equal(f.auth.status.state, "service_unavailable"); assert.ok(f.auth.generation > beforeExpiry);
+  assert.ok(f.auth.reconnectTimer); assert.deepEqual(await f.vault.load(), saved);
+  for (let tries = 0; f.auth.status.state !== "connected" && tries < 200; tries++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(f.auth.status.state, "connected");
+  assert.equal(f.calls.filter((call) => call.operation === "workbench.identity").length, identities + 1);
+  assert.equal(f.calls.filter((call) => call.operation === "installation.bind").length, identities + 1);
+  assert.deepEqual(await f.vault.load(), saved); assert.equal(f.directHTTP, 0);
+});
+
+test("verified standing-authorization revocation fences in-flight work and cannot automatically or manually reconnect", async (t) => {
+  const f = await fixture(t); await f.start();
+  const saved = await f.vault.load(), generation = f.auth.generation, spawns = f.children.length;
+  f.handler = () => undefined;
+  const old = f.auth.authorizedFetch(`${descriptor.origin}/api/config`);
+  const rejected = assert.rejects(old, /unavailable/u);
+  const child = f.children.at(-1);
+  child.send({ ipc_version: 1, type: "state", state: "authorization_revoked" });
+  await rejected;
+  assert.equal(f.auth.status.state, "invalid_authentication");
+  assert.ok(f.auth.generation > generation); assert.equal(f.auth.reconnectTimer, undefined);
+  child.send({ ipc_version: 1, type: "state", state: "transport_ready" });
+  assert.equal((await f.auth.retry()).state, "invalid_authentication");
+  assert.equal(f.children.length, spawns); assert.deepEqual(await f.vault.load(), saved);
+  assert.equal(f.directHTTP, 0);
 });
 
 

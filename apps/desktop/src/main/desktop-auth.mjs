@@ -113,6 +113,7 @@ export class DesktopAuth {
   }
 
   async retry() {
+    if (this.descriptor?.transport === "iscp" && this.authorizationRevoked) return this.#set("invalid_authentication");
     if (!this.connection) return this.#set(this.descriptor ? "locked" : "incomplete_setup");
     this.suspended = false;
     clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined;
@@ -270,22 +271,26 @@ export class DesktopAuth {
         packaged: this.packaged, resourcesPath: this.resourcesPath,
         onState: (state) => {
           this.transportStage = state;
-          if (["verifying_relay", "connecting", "relay_ready", "handshaking"].includes(state) && this.connection && !this.suspended) {
+          if (["verifying_relay", "connecting", "relay_ready", "handshaking"].includes(state) && this.connection && !this.suspended && !this.authorizationRevoked) {
             if (this.status.state === "connected") {
               ++this.generation; this.needsIdentity = true;
               for (const request of this.requests) request.abort(); this.requests.clear();
             }
             this.#set("reconnecting");
           }
-          if (state === "transport_ready" && this.needsIdentity && this.connection && !this.suspended) {
+          if (state === "transport_ready" && this.needsIdentity && this.connection && !this.suspended && !this.authorizationRevoked) {
             this.needsIdentity = false;
             queueMicrotask(() => { if (this.connection && !this.suspended) void this.retry(); });
           }
-          if (["disconnected", "authorization_expired", "identity_conflict"].includes(state) && this.connection && !this.suspended) {
+          if (["disconnected", "authorization_expired", "authorization_revoked", "identity_conflict"].includes(state) && this.connection && !this.suspended) {
             ++this.generation;
             for (const request of this.requests) request.abort(); this.requests.clear();
-            this.#set(state === "identity_conflict" ? "identity_conflict" : state === "authorization_expired" ? "invalid_authentication" : "service_unavailable");
-            if (state === "disconnected") this.#scheduleReconnect();
+            // Expired short Grants can be renewed under the retained standing
+            // authorization. Only the helper's verified revocation is final.
+            if (state === "authorization_revoked") this.authorizationRevoked = true;
+            clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined;
+            this.#set(this.authorizationRevoked ? "invalid_authentication" : state === "identity_conflict" ? "identity_conflict" : "service_unavailable");
+            if (["disconnected", "authorization_expired"].includes(state)) this.#scheduleReconnect();
           }
         } });
     } catch { return this.#set("locked"); }
@@ -293,7 +298,7 @@ export class DesktopAuth {
   }
 
   #scheduleReconnect() {
-    if (this.descriptor?.transport !== "iscp" || !this.connection || this.suspended || this.reconnectTimer) return;
+    if (this.descriptor?.transport !== "iscp" || !this.connection || this.suspended || this.authorizationRevoked || this.reconnectTimer) return;
     const delay = Math.min(30000, 1000 * 2 ** Math.min(this.reconnectAttempt || 0, 5));
     this.reconnectAttempt = (this.reconnectAttempt || 0) + 1;
     this.reconnectTimer = setTimeout(() => { this.reconnectTimer = undefined; void this.retry(); }, delay);

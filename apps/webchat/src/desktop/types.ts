@@ -73,7 +73,7 @@ export type DesktopConnectionStatus = {
   backend?: DesktopBackendDescriptor;
   test_mode?: true;
   transport_stage?: string;
-  capabilities?: { operations: readonly string[]; files: boolean; mail: boolean; browser: boolean; speech: boolean; approvals: boolean; settings: boolean };
+  capabilities?: { operations: readonly string[]; files: boolean; mail: boolean; browser: boolean; speech: boolean; approvals: boolean; settings: boolean; notifications?: boolean; events?: boolean; surfaces?: Record<string,{ enabled: boolean; reason: string }> };
   client_id?: string;
   owner_id?: string;
 };
@@ -90,6 +90,7 @@ export type SparkClawDesktop = {
   enroll?(credential: string): Promise<DesktopConnectionStatus>;
   connectionCredential?(token: string): Promise<string>;
   logout?(): Promise<DesktopConnectionStatus>;
+  transcribeRecording?(request: { session_id: string; request_id: string; language: string; bytes: Uint8Array }): Promise<import("../api/types").SpeechTranscriptionResult>;
   loginStartup(enabled?: boolean): Promise<{ supported: boolean; enabled: boolean }>;
   onLocalConnection(listener: (status: DesktopConnectionStatus) => void): () => void;
   state(): Promise<DesktopState>;

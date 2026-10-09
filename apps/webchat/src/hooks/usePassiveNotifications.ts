@@ -20,11 +20,12 @@ function boundedSeen(freshIds: Iterable<string>, previous: Set<string>) {
   return next;
 }
 
-export function usePassiveNotifications(enabled = true) {
+export function usePassiveNotifications(enabled = true, transport: "stream" | "poll" = "stream") {
   const [notifications, setNotifications] = useState<PassiveNotification[]>([]);
   const [open, setOpen] = useState(false);
   const [toast, setToast] = useState<PassiveNotification | null>(null);
   const [error, setError] = useState("");
+  const watermark = useRef<string | undefined>(undefined);
   const seen = useRef(new Set<string>());
 
   // Derived from the notification list instead of double-bookkeeping a
@@ -37,6 +38,7 @@ export function usePassiveNotifications(enabled = true) {
   const load = useCallback(async () => {
     const result = await api.notifications();
     const list = result.notifications ?? [];
+    watermark.current = result.watermark;
     // Union instead of replace: ids the realtime stream already delivered
     // stay suppressed even when the list window has moved past them.
     seen.current = boundedSeen(list.map((notification) => notification.id), seen.current);
@@ -54,7 +56,13 @@ export function usePassiveNotifications(enabled = true) {
   }, [load]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) { setNotifications([]); watermark.current = undefined; return; }
+    if (transport === "poll") {
+      let active = true, running = false;
+      const poll = async () => { if (!active || running) return; running = true; try { await load(); } catch (err) { if(active) setError(err instanceof Error ? err.message : String(err)); } finally { running = false; } };
+      void poll(); const timer = window.setInterval(() => void poll(), 30000);
+      return () => { active = false; window.clearInterval(timer); };
+    }
     const controller = new AbortController();
     let cursor = "";
     let initialized = false;
@@ -95,7 +103,7 @@ export function usePassiveNotifications(enabled = true) {
     }
     void subscribe();
     return () => controller.abort();
-  }, [enabled, load]);
+  }, [enabled, load, transport]);
 
   useEffect(() => {
     if (!toast) return;
@@ -116,7 +124,8 @@ export function usePassiveNotifications(enabled = true) {
 
   const markAllRead = useCallback(async () => {
     try {
-      await api.markAllNotificationsRead();
+      await api.markAllNotificationsRead(watermark.current);
+      if (transport === "poll") { await load(); setToast(null); return; }
       const readAt = new Date().toISOString();
       setNotifications((current) => current.map((item) => (item.read_at ? item : { ...item, read_at: readAt, updated_at: readAt })));
       setToast(null);
@@ -124,7 +133,7 @@ export function usePassiveNotifications(enabled = true) {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, []);
+  }, [transport, load]);
 
   return {
     notifications,

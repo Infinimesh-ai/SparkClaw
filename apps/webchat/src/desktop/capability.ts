@@ -13,3 +13,9 @@ export function desktopGatewayBase() {
 export function desktopSpeechBase() {
   return desktopCapability()?.speechBase ?? "";
 }
+
+export function surfaceEnabled(connection: import("./types").DesktopConnectionStatus | undefined, surface: string) {
+  if (!connection) return false;
+  if (connection.backend?.transport !== "iscp") return true;
+  return connection.capabilities?.surfaces?.[surface]?.enabled === true;
+}

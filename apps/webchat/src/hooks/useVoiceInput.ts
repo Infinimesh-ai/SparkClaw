@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { desktopCapability } from "../desktop/capability";
 import { api } from "../api/client";
 import type { SpeechStatus, SpeechTranscriptionResult } from "../api/types";
 import { PCMInputCapture, VoiceCaptureError } from "../audio/pcmCapture";
@@ -61,6 +62,7 @@ type VoiceOperation = {
 };
 
 type Options = {
+  iscp?: boolean;
   speech: SpeechStatus | null;
   sessionId: string;
   language: string;
@@ -70,7 +72,7 @@ type Options = {
 
 const RETRY_AUDIO_TTL_MS = 5 * 60 * 1000;
 
-export function useVoiceInput({ speech, sessionId, language, externallyDisabled, onTranscript }: Options) {
+export function useVoiceInput({ speech, sessionId, language, externallyDisabled, onTranscript, iscp = false }: Options) {
   const [machine, dispatch] = useReducer(reduceVoiceOperation, initialVoiceOperationState);
   const [level, setLevel] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -94,7 +96,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     selectedDeviceId
   } = microphone;
   const realtimeReady = Boolean(
-    capabilityReady && speech?.supports_streaming && speech.realtime?.protocol === "sparkclaw.speech.realtime.v1" &&
+    !iscp && capabilityReady && speech?.supports_streaming && speech.realtime?.protocol === "sparkclaw.speech.realtime.v1" &&
     speech.realtime.sample_rate === 16_000 && speech.realtime.channels === 1 && speech.realtime.bits_per_sample === 16
   );
   const state: VoiceInputState = supported && capabilityReady ? machine.phase : "disabled";
@@ -179,7 +181,11 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     const controller = new AbortController();
     current.controller = controller;
     try {
-      const result = await api.transcribeSpeech(
+      const result = iscp ? await (async () => {
+        const desktop = desktopCapability();
+        if (!desktop?.transcribeRecording) throw new Error("Recorded transcription is unavailable");
+        return desktop.transcribeRecording({ session_id: current.anchor.sessionId, request_id: current.requestId, language: language || "auto", bytes: new Uint8Array(await current.wav!.arrayBuffer()) });
+      })() : await api.transcribeSpeech(
         current.anchor.sessionId,
         current.requestId,
         language || "auto",
@@ -207,7 +213,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
       }
       failOperation(current, error);
     }
-  }, [applyResult, failOperation, language]);
+  }, [applyResult, failOperation, language, iscp]);
 
   const encodeAndTranscribe = useCallback(async (current: VoiceOperation, captured: CapturedPCM, recovering: boolean) => {
     if (operation.current !== current) return;
@@ -227,6 +233,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
   }, [failOperation, maxAudioSeconds, speech?.max_upload_bytes, transcribe]);
 
   const recoverBatch = useCallback((current: VoiceOperation, _failure: unknown, captured?: CapturedPCM) => {
+    if (iscp) { void current.capture?.cancel(); failOperation(current, { code: "voice_capture_interrupted" }); return Promise.resolve(); }
     if (current.recovery) return current.recovery;
     current.recovery = (async () => {
       if (operation.current !== current) return;
@@ -247,7 +254,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
       await encodeAndTranscribe(current, fallbackCapture, true);
     })().catch((error) => failOperation(current, error));
     return current.recovery;
-  }, [clearTimers, encodeAndTranscribe, failOperation]);
+  }, [clearTimers, encodeAndTranscribe, failOperation, iscp]);
 
   useEffect(() => {
     recoverRef.current = recoverBatch;
@@ -505,9 +512,9 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
   }, [cancel, sessionId, stopPreview]);
 
   useEffect(() => {
-    if ((!supported || !capabilityReady) && operation.current) void cancel();
+    if ((!supported || !capabilityReady || iscp && externallyDisabled) && operation.current) void cancel();
     if (!supported || !capabilityReady) void stopPreview();
-  }, [cancel, capabilityReady, stopPreview, supported]);
+  }, [cancel, capabilityReady, stopPreview, supported, externallyDisabled, iscp]);
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {

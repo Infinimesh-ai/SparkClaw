@@ -79,15 +79,19 @@ describe("workbench local workbench", () => {
       expect(config).toHaveBeenCalledTimes(1);
       for (const spy of unsupported) expect(spy).not.toHaveBeenCalled();
       expect(fetch).not.toHaveBeenCalled(); expect(state).not.toHaveBeenCalled();
-      expect(host.textContent).toContain("ISCP local test");
+      expect(host.textContent).toContain("ISCP connection");
       expect(host.querySelectorAll<HTMLButtonElement>(".composer .uploadButton")).toHaveLength(2);
       for (const button of host.querySelectorAll<HTMLButtonElement>(".composer .uploadButton")) expect(button.disabled).toBe(true);
       expect(host.querySelector(".emailEntryButton")).toBeNull(); expect(host.querySelector(".rightSidebarToggle")).toBeNull();
-      const input = host.querySelector<HTMLTextAreaElement>("form.composer textarea")!; expect(input.disabled).toBe(false);
+      let input = host.querySelector<HTMLTextAreaElement>("form.composer textarea")!; expect(input.disabled).toBe(false);
       await act(async () => host.querySelector<HTMLButtonElement>(".sidebarAccountTrigger")!.click());
       const settings = [...host.querySelectorAll<HTMLButtonElement>(".sidebarAccountMenuItem")].find((button) => button.textContent === "Workspace settings")!;
       await act(async () => settings.click());
-      expect(host.querySelector(".settingsPageContent")).toBeNull(); expect(host.textContent).toContain("Settings are unavailable");
+      expect(host.querySelector(".settingsPageContent")).not.toBeNull();
+      expect([...host.querySelectorAll(".settingsPageNavigation button")].map(button => button.textContent?.trim())).toEqual(["Appearance"]);
+      for (const spy of unsupported) expect(spy).not.toHaveBeenCalled();
+      await act(async () => host.querySelector<HTMLButtonElement>(".settingsPageBack")!.click());
+      input = host.querySelector<HTMLTextAreaElement>("form.composer textarea")!;
       await act(async () => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "First ISCP request");
         input.dispatchEvent(new Event("input", { bubbles: true }));

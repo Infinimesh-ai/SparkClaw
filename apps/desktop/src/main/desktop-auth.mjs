@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { parseBackendDescriptor, loadLocalBackendDescriptor, loadLocalBackendConnection } from "./local-backend.mjs";
 import { isTLSIdentityError, pinnedHTTPSFetch } from "./pinned-https.mjs";
 import { createConnectionCredential, parseConnectionCredential } from "./connection-credential.mjs";
+import { projectISCPCapabilities } from "./iscp-capabilities.mjs";
 import { loadISCPProfile } from "./iscp-profile.mjs";
 import { ISCPTransport, ISCP_OPERATIONS, ISCP_BODY_BYTES, ISCPRequestNotSentError, mapISCPRequest } from "./iscp-transport.mjs";
 
@@ -123,6 +124,11 @@ export class DesktopAuth {
     if (generation !== this.generation) return this.status;
     if (this.descriptor.transport === "iscp") {
       if (result.state === "connected") {
+        if (this.transport.capabilities) {
+          try { this.capabilityReport = await this.transport.invoke("capabilities.get"); }
+          catch { this.capabilityReport = undefined; }
+          if (generation !== this.generation) return this.status;
+        }
         this.reconnectAttempt = 0;
         if (!this.connection.identityVerified) {
           const verified = Object.freeze({ ...this.connection, identityVerified: true });
@@ -154,9 +160,21 @@ export class DesktopAuth {
 
   validateExecutionRequest(body) {
     if (this.descriptor?.transport !== "iscp") return;
+    if(this.transport?.capabilities) {
+      const value=JSON.parse(body);
+      if(Buffer.byteLength(body)>8*1024*1024 || value.input_files?.length && !this.status.capabilities?.files) throw new Error("ISCP input capability or budget is unavailable; your draft is retained");
+      return;
+    }
     const request = mapISCPRequest(`${this.descriptor.origin}/api/v1/executions`, { method: "POST", body }, this.descriptor.origin);
     const overhead = Buffer.byteLength(JSON.stringify({ ...request, id: crypto.randomUUID() })) - Buffer.byteLength(JSON.stringify(request.body));
     if (Buffer.byteLength(body) > ISCP_BODY_BYTES || Buffer.byteLength(body) + overhead > 65536) throw new Error("ISCP request exceeds the 64 KiB test profile limit; your draft is retained");
+  }
+
+  async invokeISCP(operation, body, options = {}) {
+    if(this.descriptor?.transport !== "iscp" || this.status.state !== "connected") throw new Error("ISCP connection is unavailable");
+    const generation=this.generation;const value=await this.transport.invoke(operation,body,options);
+    if(generation!==this.generation)throw new Error("ISCP authentication changed");
+    return value;
   }
 
   async authorizedFetch(raw, init = {}) {
@@ -183,7 +201,7 @@ export class DesktopAuth {
     if (this.status.state !== "connected" || !this.connection) return new Response(null, { status: 401 });
     const url = new URL(raw);
     if (url.origin !== this.descriptor.origin) throw new Error("Backend origin is invalid");
-    if (this.descriptor.transport === "iscp") mapISCPRequest(raw, init, this.descriptor.origin);
+    if (this.descriptor.transport === "iscp" && !this.transport?.capabilities) mapISCPRequest(raw, init, this.descriptor.origin);
     const generation = this.generation;
     const controller = new AbortController();
     this.requests.add(controller);
@@ -192,7 +210,7 @@ export class DesktopAuth {
     try {
       const response = await this.#fetch()(raw, { ...init, headers, redirect: "manual", signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30000), ...(init.signal ? [init.signal] : [])]) });
       if (generation !== this.generation) { controller.abort(); return new Response(null, { status: 401 }); }
-      if (response.status === 401 || (this.descriptor.transport === "iscp" && response.status === 403)) {
+      if (response.status === 401 || (this.descriptor.transport === "iscp" && !this.transport?.capabilities && response.status === 403)) {
         if (this.descriptor.transport === "iscp") {
           ++this.generation; clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined;
           for (const request of this.requests) request.abort(); this.requests.clear();
@@ -266,9 +284,12 @@ export class DesktopAuth {
       if (!saved || saved.binding !== binding || saved.configPath !== profile.configPath || saved.transport !== "iscp") await this.vault.save(record);
       this.connection = Object.freeze(record);
       this.transport = this.transportFactory({ configPath: profile.helperConfigPath, origin: this.descriptor.origin,
+        expectedBinding: { deployment_id: this.descriptor.deploymentID, owner_id: this.descriptor.ownerID, client_id: this.descriptor.clientID },
         expectedIdentity: { domain_id: this.descriptor.domainID, initiator_device_id: this.descriptor.initiatorDeviceID,
           responder_device_id: this.descriptor.responderDeviceID, responder_key_thumbprint: this.descriptor.responderKeyThumbprint, relay_url: this.descriptor.relayURL, relay_profile: this.descriptor.relayProfile },
         packaged: this.packaged, resourcesPath: this.resourcesPath,
+        journalRoot: path.join(path.dirname(this.descriptorPath), "iscp-objects"),
+        onCapabilities: () => { if(this.status.state === "connected") this.#set("connected"); },
         onState: (state) => {
           this.transportStage = state;
           if (["verifying_relay", "connecting", "relay_ready", "handshaking"].includes(state) && this.connection && !this.suspended && !this.authorizationRevoked) {
@@ -367,7 +388,7 @@ export class DesktopAuth {
         responder_key_thumbprint: this.descriptor.responderKeyThumbprint, relay_url: this.descriptor.relayURL, relay_profile: this.descriptor.relayProfile, test_mode: true } : {}),
       ...(this.descriptor.certificateSHA256 ? { tls_certificate_sha256: this.descriptor.certificateSHA256 } : {}),
     } } : {}), ...(this.descriptor?.transport === "iscp" ? { transport_stage: this.transportStage, test_mode: true,
-      capabilities: { operations: ISCP_OPERATIONS, files: false, mail: false, browser: false, speech: false, approvals: false, settings: false } } : {}), ...(this.connection && (this.connection.transport !== "iscp" || this.connection.identityVerified) ? { client_id: this.connection.clientID, owner_id: this.connection.ownerID } : {}) });
+      capabilities: projectISCPCapabilities(this.transport?.capabilities, this.capabilityReport) } : {}), ...(this.connection && (this.connection.transport !== "iscp" || this.connection.identityVerified) ? { client_id: this.connection.clientID, owner_id: this.connection.ownerID } : {}) });
     this.onChange(this.status);
     return this.status;
   }

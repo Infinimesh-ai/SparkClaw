@@ -446,14 +446,14 @@ export const api = {
     const query = params.toString();
     return request<{ bindings: NotificationBinding[] }>(`/api/notification-bindings${query ? `?${query}` : ""}`);
   },
-  notifications: () => request<{ notifications: PassiveNotification[]; unread_count: number }>("/api/notifications"),
+  notifications: () => request<{ notifications: PassiveNotification[]; unread_count: number; watermark?: string }>("/api/notifications"),
   markNotificationRead: (id: string) =>
     request<{ notification: PassiveNotification; unread_count: number }>(`/api/notifications/${encodeURIComponent(id)}/read`, {
       method: "POST",
       body: "{}"
     }),
-  markAllNotificationsRead: () =>
-    request<{ updated: number; unread_count: number }>("/api/notifications/read-all", { method: "POST", body: "{}" }),
+  markAllNotificationsRead: (watermark?: string) =>
+    request<{ updated: number; unread_count: number }>("/api/notifications/read-all", { method: "POST", body: JSON.stringify(watermark ? { watermark } : {}) }),
   connectors: () => request<{ connectors: ConnectorStatus[] }>("/api/connectors"),
   integrations: () => request<{ integrations: IntegrationStatus[] }>("/api/integrations"),
   emailProviders: () => request<{ providers: EmailProviderStatus[] }>("/api/email/providers"),

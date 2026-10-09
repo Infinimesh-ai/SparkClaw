@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { FileDown, PanelLeft, PanelRight } from "lucide-react";
 import { SessionSidebar } from "../components/sidebar";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy } from "../components/workbench";
+import { ISCPSettingsPanel } from "./ISCPSettingsPanel";
+import { surfaceEnabled } from "./capability";
 import { api } from "../api/client";
 import { InspectorColumn, type PanelTab } from "../components/inspector";
 import { WorkspaceSettingsSidebar } from "../components/settingsSidebar";
@@ -61,6 +63,13 @@ export function LocalWorkbench() {
   const [currentClientID, setCurrentClientID] = useState("");
   const [connection, setConnection] = useState<DesktopConnectionStatus>();
   const iscp = connection?.backend?.transport === "iscp";
+  const capabilities = {
+    files: surfaceEnabled(connection, "files"), mail: surfaceEnabled(connection, "mail_read"),
+    browser: surfaceEnabled(connection, "browser"), speech: surfaceEnabled(connection, "speech_recording"),
+    approvals: surfaceEnabled(connection, "approvals"), notifications: surfaceEnabled(connection, "notifications"),
+    settingsOwner: surfaceEnabled(connection, "settings_owner"), settingsConnectors: surfaceEnabled(connection, "settings_connectors"), settingsCredentials: surfaceEnabled(connection, "settings_credentials"),
+  };
+  const settingsTabs: PanelTab[] | undefined = iscp ? ["appearance", ...(capabilities.settingsOwner ? ["settings" as const] : []), ...(capabilities.settingsConnectors ? ["connections" as const] : []), ...(capabilities.settingsCredentials ? ["models-tools" as const] : [])] : undefined;
   const [browserState, setBrowserState] = useState<DesktopState>();
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [ready, setReady] = useState<ReadyStatus | null>(null);
@@ -143,10 +152,10 @@ export function LocalWorkbench() {
     await selectDraft(id);
     if (generation !== readGeneration.current) return;
     selectedRef.current = id; setSelected(id); setContent(emptyContent); setScheduleDraft(""); setScheduleDate("");
-    if (!iscp) await desktop.selectConversation?.(id);
+    if (capabilities.browser) await desktop.selectConversation?.(id);
     const next = await store.read(id);
     if (selectedRef.current === id && readGeneration.current === generation) setContent(next);
-  }, [desktop, store, selectDraft, iscp]);
+  }, [desktop, store, selectDraft, capabilities.browser]);
   useEffect(() => {
     applyAppearance();
     let active = true;
@@ -156,10 +165,10 @@ export function LocalWorkbench() {
     void desktop.localConnection().then(connectionChanged).catch(surfaceError);
     const unsubscribe = desktop.onLocalConnection?.(connectionChanged);
     const browserChanged = (state: DesktopState) => { if (active) setBrowserState(state); };
-    if (connection?.backend && !iscp && typeof desktop.state === "function") void desktop.state().then(browserChanged).catch(surfaceError);
+    if (connection?.backend && capabilities.browser && typeof desktop.state === "function") void desktop.state().then(browserChanged).catch(surfaceError);
     const unsubscribeBrowser = desktop.onState?.(browserChanged);
     return () => { active = false; unsubscribe?.(); unsubscribeBrowser?.(); ++readGeneration.current; };
-  }, [desktop, store, surfaceError, iscp, connection?.backend?.origin]);
+  }, [desktop, store, surfaceError, capabilities.browser, connection?.backend?.origin]);
   useEffect(() => {
     let active = true;
     ++readGeneration.current; selectedRef.current = "";
@@ -204,10 +213,11 @@ export function LocalWorkbench() {
     speech: ready?.speech ?? null,
     sessionId: selected,
     language: runtimeConfig?.speech.default_language ?? "auto",
-    externallyDisabled: busy || !selected || iscp,
+    externallyDisabled: busy || !selected || !capabilities.speech,
+    iscp,
     onTranscript: applyVoiceTranscript
   });
-  const passiveNotifications = usePassiveNotifications(connection?.state === "connected" && !iscp);
+  const passiveNotifications = usePassiveNotifications(connection?.state === "connected" && capabilities.notifications, iscp ? "poll" : "stream");
 
   async function action(operation: () => Promise<void>) {
     if (busyRef.current) return;
@@ -327,11 +337,11 @@ export function LocalWorkbench() {
   const home = page === "chat" && !content.messages.length && !content.tasks.length && !content.files.length;
   return <div className={`shell workbench localWorkbench ${settings ? "settingsPageMode" : sidebarCollapsed ? "sidebarCollapsed" : ""}`}>
     {settings ? <WorkspaceSettingsSidebar text={text} language={language} tab={tab}
-      pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length} onTabChange={setTab} onBack={() => setSettings(false)} /> : <SessionSidebar
+      pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length} availableTabs={settingsTabs} onTabChange={setTab} onBack={() => setSettings(false)} /> : <SessionSidebar
       text={text} language={language} page={page} ownerProfile={ownerProfile}
       sessions={conversations} activeSession={selected} busy={busy}
       onCreateSession={() => void create()} onSelectSession={(conversation) => void select(conversation.id).catch(surfaceError)}
-      onNavigate={(next) => { if (next === "settings") { if (iscp) setNotice(zh ? "ISCP 测试连接暂不支持设置。" : "Settings are unavailable through the ISCP test connection."); else setSettings(true); } else if (next === "schedules") setPage("schedules"); else void create(); }}
+      onNavigate={(next) => { if (next === "settings") { if (iscp) setTab(capabilities.settingsOwner ? "settings" : "appearance"); setSettings(true); } else if (next === "schedules") setPage("schedules"); else void create(); }}
       onSearch={() => setSearchOpen(true)} onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
       onLogout={() => void logout().catch(surfaceError)}
       listNotice={loading ? <p className="localListNotice" role="status">{zh ? "正在读取对话…" : "Loading conversations…"}</p> : !conversations.length ? <p className="localListNotice">{copy.empty}</p> : undefined}
@@ -345,14 +355,14 @@ export function LocalWorkbench() {
             open={passiveNotifications.open} toast={passiveNotifications.toast} error={passiveNotifications.error}
             language={language} text={text} onToggle={() => passiveNotifications.setOpen((current) => !current)}
             onDismissToast={passiveNotifications.dismissToast} onRead={passiveNotifications.markRead} onReadAll={passiveNotifications.markAllRead} />
-          {!iscp && typeof desktop.state === "function" && <button className={`iconButton rightSidebarToggle ${browserOpen ? "active" : ""}`} type="button" aria-label={copy.toggleInspector} title={zh ? "浏览器" : "Browser"} aria-expanded={browserOpen} onClick={() => setBrowserOpen((open) => !open)}><PanelRight size={18} /></button>}
+          {capabilities.browser && typeof desktop.state === "function" && <button className={`iconButton rightSidebarToggle ${browserOpen ? "active" : ""}`} type="button" aria-label={copy.toggleInspector} title={zh ? "浏览器" : "Browser"} aria-expanded={browserOpen} onClick={() => setBrowserOpen((open) => !open)}><PanelRight size={18} /></button>}
         </div>
       </header>}
-      {iscp && <p className="localFeedback" role="status">{zh ? "ISCP 本地测试连接：支持文本任务和本机定时，文件、邮件、浏览器、语音、审批和设置暂不可用。" : "ISCP local test: text tasks and local schedules are available. Files, mail, browser, voice, approvals and settings are unavailable."}</p>}
+      {iscp && <p className="localFeedback" role="status">{zh ? "ISCP 连接：每项功能按授权、依赖和验收状态启用。未开放功能保持关闭。" : "ISCP connection: features require authorization, dependencies and qualification. Unavailable features remain disabled."}</p>}
       {error && <div className="localFeedback" role="alert"><p>{error}</p><button type="button" onClick={() => void reload().then(async () => { if (iscp && connection?.state === "connected") await refreshGlobal(); setError(""); }).catch(surfaceError)}>{zh ? "重试读取" : "Retry loading"}</button></div>}
       {notice && <p className="localFeedback" role="status">{notice}</p>}
       {connection?.state === "service_unavailable" && <div className="localFeedback" role="status"><p>{zh ? "连接暂时不可用，请重新连接后继续。" : "Connection unavailable. Reconnect to continue."}</p><button type="button" disabled={busy} onClick={() => void action(async () => { setConnection(await desktop.retryLocalConnection()); })}>{zh ? "重新连接" : "Reconnect"}</button></div>}
-      {settings ? <div className="settingsPageContent"><header className="settingsPageHeader"><h1>{copy.settingsTitles[tab]}</h1>{tab !== "memory" && tab !== "approvals" && <p>{copy.settingsDescriptions[tab]}</p>}</header><InspectorColumn settingsPage showTabs={false} tab={tab} onTabChange={setTab}
+      {settings ? <div className="settingsPageContent"><header className="settingsPageHeader"><h1>{copy.settingsTitles[tab]}</h1>{tab !== "memory" && tab !== "approvals" && <p>{copy.settingsDescriptions[tab]}</p>}</header>{iscp && connection ? <ISCPSettingsPanel connection={connection} tab={tab} text={text} language={language}/> : <InspectorColumn settingsPage showTabs={false} tab={tab} onTabChange={setTab}
         text={text} language={language} pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length}
         toolCalls={toolCalls} approvals={approvals} candidates={candidates} memories={memories} traceRun={traceRun} traceList={traceList} traceLoading={traceLoading}
         ready={ready} modelCalls={modelCalls} auditEvents={auditEvents} artifacts={artifacts} episodes={episodes} evalRuns={evalRuns} runtimeConfig={runtimeConfig}
@@ -361,11 +371,11 @@ export function LocalWorkbench() {
         refreshActiveSession={async () => {}} setEvalRuns={setEvalRuns} setNotificationBindings={setNotificationBindings}
         setConnectors={setConnectors} setRuntimeConfig={setRuntimeConfig} setOwnerProfile={setOwnerProfile}
         onLanguageChange={changeLanguage} onOpenSchedules={() => {}} currentClientID={currentClientID}
-        onCurrentClientRevoked={logout} onLogout={logout} /></div> : <>
+        onCurrentClientRevoked={logout} onLogout={logout} />}</div> : <>
         <section className={`chatColumn localChat ${home ? "homeChat" : ""}`} hidden={page !== "chat"}>
         <div className="messageList localHistory">
           {home && <WorkbenchWelcome language={language} />}
-          {!iscp && browserState?.browser_host?.unknown_writes?.filter((command) => command.local_conversation_id === selected).map((command) => <section className="localUnknownWrite" role="alert" key={command.command_id}>
+          {capabilities.browser && browserState?.browser_host?.unknown_writes?.filter((command) => command.local_conversation_id === selected).map((command) => <section className="localUnknownWrite" role="alert" key={command.command_id}>
             <h2>{zh ? "浏览器操作结果不确定" : "Browser action outcome uncertain"}</h2>
             <p>{zh ? "此操作不能重发。先独立检查网站的实际状态，再记录你已确认的结果。" : "This action cannot be resent. Inspect the actual website state independently, then record the outcome you verified."}</p>
             {desktop.reconcileBrowserHost && <div className="localTaskActions">{(["observed_completed", "observed_not_applied"] as const).map((outcome) => <button type="button" disabled={busy || connection?.state !== "connected"} key={outcome} onClick={() => void action(async () => {
@@ -393,13 +403,13 @@ export function LocalWorkbench() {
                   <pre aria-label={zh ? "操作参数" : "Action parameters"}>{JSON.stringify(approval.arguments, null, 2)}</pre>
                   <p role="status">{pending && expired ? (zh ? "审批已过期，无法继续操作。" : "Approval expired. It can no longer be acted on.") : approvalLabel(approval.state, zh)}</p>
                   {pending && !expired && !approval.actionable && <small>{zh ? "请刷新当前执行后再决定；未核实的审批不能操作。" : "Refresh the current operation before deciding. Unverified approvals cannot be acted on."}</small>}
-                  {pending && !expired && <div className="localTaskActions">{(["approve", "reject"] as const).filter((decision) => !approval.decision || approval.decision === decision).map((decision) => <button type="button" key={decision} disabled={busy || connection?.state !== "connected" || (!approval.actionable || iscp)} onClick={() => void action(() => decideApproval(task, approval, decision))}>
+                  {pending && !expired && <div className="localTaskActions">{(["approve", "reject"] as const).filter((decision) => !approval.decision || approval.decision === decision).map((decision) => <button type="button" key={decision} disabled={busy || connection?.state !== "connected" || (!approval.actionable || !capabilities.approvals)} onClick={() => void action(() => decideApproval(task, approval, decision))}>
                     {approval.decision ? (decision === "approve" ? (zh ? "重试原批准决定" : "Retry original approval") : (zh ? "重试原拒绝决定" : "Retry original rejection")) : (decision === "approve" ? (zh ? "批准此操作" : "Approve this action") : (zh ? "拒绝此操作" : "Reject this action"))}
                   </button>)}</div>}
                 </section>;
           })}
           {!!content.files.length && <section aria-label={zh ? "文件" : "Files"}><h2>{zh ? "文件" : "Files"}</h2>
-            {content.files.map((file) => <div className="localFileRow" key={file.id}><label><input type="checkbox" disabled={busy || iscp || file.size > 8 * 1024 * 1024} checked={inputFiles.includes(file.id)} onChange={(event) => setInputFiles((current) => event.target.checked ? [...current, file.id] : current.filter((id) => id !== file.id))} />{file.name}<small>{file.size > 8 * 1024 * 1024 ? (zh ? "超过执行附件 8 MiB 限制" : "Exceeds the 8 MiB execution attachment limit") : (zh ? "加入下一条输入" : "Attach to next input")}</small></label><small>{new Intl.NumberFormat().format(file.size)} B</small>
+            {content.files.map((file) => <div className="localFileRow" key={file.id}><label><input type="checkbox" disabled={busy || !capabilities.files || file.size > 8 * 1024 * 1024} checked={inputFiles.includes(file.id)} onChange={(event) => setInputFiles((current) => event.target.checked ? [...current, file.id] : current.filter((id) => id !== file.id))} />{file.name}<small>{file.size > 8 * 1024 * 1024 ? (zh ? "超过执行附件 8 MiB 限制" : "Exceeds the 8 MiB execution attachment limit") : (zh ? "加入下一条输入" : "Attach to next input")}</small></label><small>{new Intl.NumberFormat().format(file.size)} B</small>
               <button type="button" disabled={busy} onClick={() => void action(async () => {
                 const result = await store.exportFile(file.id);
                 if (result.saved) setNotice(zh ? "已另存文件。" : "File exported.");
@@ -408,7 +418,7 @@ export function LocalWorkbench() {
         </div>
         <ComposerSurface text={text} language={language} activeSession={selected} activeInput={draft}
           activeAttachments={activeAttachments} busy={busy} voice={voice} composerInputRef={composerInputRef}
-          filesEnabled={Boolean(connection && !iscp)} mailEnabled={Boolean(connection && !iscp)}
+          filesEnabled={capabilities.files} mailEnabled={capabilities.mail}
           canCompose={drafts.ready} canSend={connection?.state === "connected" && drafts.ready && (!iscp || Boolean(runtimeConfig && ready && ownerProfile))}
           onInputChange={(value) => { draftRef.current = value; setDraft(value); }}
           onUploadDocument={saveFile}
@@ -449,7 +459,7 @@ export function LocalWorkbench() {
             </form>
           </section>}
         </div>}
-        {!iscp && browserOpen && typeof desktop.state === "function" && <BrowserPanel language={language} localConversationID={selected} toolbar={<div className="localBrowserAuthorization">{selected && desktop.grantBrowserHost && <button className="localBrowserGrant" type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(async () => {
+        {capabilities.browser && browserOpen && typeof desktop.state === "function" && <BrowserPanel language={language} localConversationID={selected} toolbar={<div className="localBrowserAuthorization">{selected && desktop.grantBrowserHost && <button className="localBrowserGrant" type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(async () => {
             await desktop.grantBrowserHost!();
             setNotice(zh ? "已授权本机浏览器执行当前设备的任务。" : "This device's browser is authorized for its tasks.");
           })}>{zh ? "授权本机浏览器" : "Authorize this browser"}</button>}</div>} />}

@@ -114,3 +114,18 @@ test("helper verified public peer identity must exactly match the selected profi
   const valid = fixture(t, undefined, { expectedIdentity, hello: { ...hello, identity: expectedIdentity } });
   await valid.transport.start(); assert.equal(valid.transport.state, "transport_ready");
 });
+
+test('v2 negotiation routes only registered operations, uses CAS and unwraps metadata without exposing credentials', async t=>{
+ const fs=await import('node:fs');const os=await import('node:os');const path=await import('node:path');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'iscp-v2-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const capabilities={schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',revision:'2',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),binding:{deployment_id:'d',owner_id:'o',client_id:'c'},operations:['settings.owner.get','settings.owner.patch','operations.receipt']};
+ let revision='a'.repeat(64);
+ const f=fixture(t,(call,child)=>{const body=call.body_base64?JSON.parse(Buffer.from(call.body_base64,'base64')):undefined;
+  if(call.request.operation==='settings.owner.patch'){assert.equal(call.request.expected_revision,revision);assert.match(call.request.operation_id,/^[a-f0-9-]{36}$/);assert.equal(body.display_name,'updated');revision='b'.repeat(64);}
+  child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:capabilities.profile,id:call.id,status:200,body:{revision,value:{display_name:call.request.operation.endsWith('patch')?'updated':'original'}}}});
+ },{journalRoot:root});await f.transport.start();f.children[0].send({ipc_version:1,type:'capabilities',capabilities});
+ assert.equal((await(await f.transport.fetch(`${origin}/api/owner`)).json()).display_name,'original');
+ assert.equal((await(await f.transport.fetch(`${origin}/api/owner`,{method:'POST',body:JSON.stringify({display_name:'updated'})})).json()).display_name,'updated');
+ await assert.rejects(f.transport.fetch(`${origin}/api/owner?url=https://elsewhere.test`),/invalid|unavailable/);
+ assert.equal(f.calls.length,2);
+});

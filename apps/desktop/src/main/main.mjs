@@ -164,6 +164,14 @@ async function start() {
   trustedHandler("sparkclaw-local-backend:enroll", (credential) => desktopAuth.enroll(credential));
   trustedHandler("sparkclaw-local-backend:connection-credential", (token) => desktopAuth.connectionCredential(token));
   trustedHandler("sparkclaw-local-backend:logout", () => desktopAuth.logout());
+  trustedHandler("sparkclaw-speech:transcribe", async (request) => {
+    if(desktopAuth.descriptor?.transport !== "iscp" || desktopAuth.status.capabilities?.speech !== true || desktopAuth.status.state !== "connected") throw new Error("Recorded transcription is unavailable");
+    if(!request || Object.keys(request).sort().join() !== "bytes,language,request_id,session_id" || !(request.bytes instanceof Uint8Array) || request.bytes.length > 3*1024*1024 || request.bytes.length < 44 || !/^voice-[a-f0-9-]{36}$/u.test(request.request_id) || !/^[a-f0-9-]{36}$/u.test(request.session_id) || typeof request.language !== "string" || request.language.length > 32) throw new Error("Recording is invalid");
+    const generation=desktopAuth.generation;
+    const object=await desktopAuth.transport.objects.upload(request.bytes,{purpose:"speech_audio",name:"recording.wav",media_type:"audio/wav"});
+    if(generation!==desktopAuth.generation)throw new Error("Recording authorization changed");
+    return desktopAuth.invokeISCP("speech.transcribe", {session_id:request.session_id,request_id:request.request_id,language:request.language,audio_object:object});
+  });
   trustedHandler("sparkclaw-desktop:login-startup", async (enabled) => {
     if (!app.isPackaged) return { supported: false, enabled: false };
     if (typeof enabled !== "undefined" && typeof enabled !== "boolean") throw new TypeError("Invalid login startup value");
@@ -521,7 +529,7 @@ function secureSession(targetSession) {
 }
 
 function configureWorkbenchSession(targetSession, targetWindow, speechOrigin) {
-  configureWorkbenchPermissions(targetSession, targetWindow);
+  configureWorkbenchPermissions(targetSession, targetWindow, () => desktopAuth?.status.state === "connected" && (desktopAuth.descriptor?.transport !== "iscp" || desktopAuth.status.capabilities?.speech === true));
   targetSession.webRequest.onBeforeRequest({ urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"] }, (details, callback) => {
     callback({ cancel: !qualification || desktopAuth.status.state !== "connected" || canonicalOrigin(details.url) !== speechOrigin.replace(/^http/u, "ws") });
   });

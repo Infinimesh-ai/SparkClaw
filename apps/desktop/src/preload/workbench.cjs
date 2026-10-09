@@ -65,6 +65,7 @@ contextBridge.exposeInMainWorld("sparkclawDesktop", Object.freeze({
   enroll: (credential) => ipcRenderer.invoke("sparkclaw-local-backend:enroll", credential),
   connectionCredential: (token) => ipcRenderer.invoke("sparkclaw-local-backend:connection-credential", token),
   logout: () => ipcRenderer.invoke("sparkclaw-local-backend:logout"),
+  transcribeRecording: (request) => ipcRenderer.invoke("sparkclaw-speech:transcribe", request),
   loginStartup: (enabled) => ipcRenderer.invoke("sparkclaw-desktop:login-startup", enabled),
   onLocalConnection: (listener) => {
     if (typeof listener !== "function") throw new TypeError("Desktop connection listener is invalid");

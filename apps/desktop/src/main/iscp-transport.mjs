@@ -2,6 +2,10 @@ import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { mapV2Route, requireOperation } from "./iscp-routes.mjs";
+import { ISCPMutationJournal } from "./iscp-mutation-journal.mjs";
+import { ISCPObjectClient } from "./iscp-object-client.mjs";
+export const ISCP_V2_PROFILE = "sparkclaw.workbench.transport.v2";
 
 export const ISCP_PROFILE = "sparkclaw.workbench.transport.v1";
 export const ISCP_OPERATIONS = Object.freeze(["workbench.identity", "installation.bind", "presentation.config", "presentation.owner", "presentation.ready", "execution.submit", "execution.lookup", "execution.cancel", "execution.ack"]);
@@ -28,8 +32,9 @@ export function iscpHelperExecutable({ packaged = false, resourcesPath } = {}) {
 // Private pipes are the only Desktop ↔ helper boundary. The helper owns SDK
 // credentials and encrypted Relay traffic; this adapter accepts fixed RPC only.
 export class ISCPTransport {
-  constructor({ configPath, origin, expectedIdentity, packaged = false, resourcesPath, spawnProcess = spawn, timeoutMS = 30000, onState = () => {} }) {
-    Object.assign(this, { configPath, origin, expectedIdentity, packaged, resourcesPath, spawnProcess, timeoutMS, onState });
+  constructor({ configPath, origin, expectedIdentity, expectedBinding, packaged = false, resourcesPath, spawnProcess = spawn, timeoutMS = 30000, onState = () => {}, onCapabilities = () => {}, journalRoot }) {
+    Object.assign(this, { configPath, origin, expectedIdentity, expectedBinding, packaged, resourcesPath, spawnProcess, timeoutMS, onState, onCapabilities, journalRoot });
+    this.resourceRevisions = new Map();
     this.pending = new Map(); this.generation = 0; this.state = "closed";
   }
 
@@ -64,6 +69,7 @@ export class ISCPTransport {
     this.readyResolve = this.readyReject = this.readyPromise = undefined;
     for (const call of this.pending.values()) call.reject(new Error("ISCP transport is unavailable"));
     this.pending.clear();
+    this.capabilities = undefined; this.onCapabilities(undefined);
     const child = this.child; this.child = undefined;
     child?.stdin.destroy(); child?.kill();
     if (child) { const timer = setTimeout(() => { if (child.exitCode === null) child.kill("SIGKILL"); }, 1000); timer.unref?.(); }
@@ -73,29 +79,125 @@ export class ISCPTransport {
 
   async fetch(raw, init = {}) {
     if (this.state !== "transport_ready") throw new ISCPRequestNotSentError("ISCP transport is unavailable", "unavailable");
-    let request;
-    try { request = mapISCPRequest(raw, init, this.origin); }
-    catch (error) { throw new ISCPRequestNotSentError(error.message); }
+    if (!this.capabilities) {
+      let request;
+      try { request = mapISCPRequest(raw, init, this.origin); }
+      catch (error) { throw new ISCPRequestNotSentError(error.message); }
+      return this.#dispatch(request, init, typeof init.body === "string" ? init.body : init.body === undefined ? undefined : new TextDecoder("utf-8", { fatal: true }).decode(init.body));
+    }
+    const url = new URL(raw);
+    if(url.origin !== this.origin) throw new ISCPRequestNotSentError("ISCP backend path is invalid");
+    const method = (init.method || "GET").toUpperCase();
+    let body;
+    if(init.body !== undefined && init.body !== null) {
+      try {body=JSON.parse(typeof init.body === "string" ? init.body : new TextDecoder("utf-8",{fatal:true}).decode(init.body));}
+      catch {throw new ISCPRequestNotSentError("ISCP request body must be JSON");}
+    }
+    let mapped;
+    try { mapped=mapV2Route(url,method,body); }
+    catch(error) {
+      // v1 base operations remain valid inside the v2 envelope, including the
+      // original execution request whose byte digest must survive unchanged.
+      try { mapped=mapISCPRequest(raw,init,this.origin,true); }
+      catch {throw new ISCPRequestNotSentError(error.message);}
+    }
+    const headers=new Headers(init.headers);
+    const request={...mapped,type:"task.invoke",profile:ISCP_V2_PROFILE,
+      ...(headers.get("x-sparkclaw-installation")?{installation_id:headers.get("x-sparkclaw-installation")}:{}),
+      ...(headers.get("x-sparkclaw-digest")?{input_digest:headers.get("x-sparkclaw-digest")}:{}),
+      ...(init.operationID?{operation_id:init.operationID}:{}),...(init.expectedRevision?{expected_revision:init.expectedRevision}:{})};
+    const rawBody=init.body === undefined ? undefined : typeof init.body === "string" ? init.body : new TextDecoder("utf-8",{fatal:true}).decode(init.body);
+    if(request.operation.startsWith("settings.") || request.operation.startsWith("notifications.")) return this.#presentation(request,init,rawBody);
+    return this.#request(request,init,rawBody);
+  }
+
+  async #presentation(request,init,rawBody) {
+    const spec=requireOperation(request.operation);
+    const family=request.operation.split(".")[1];
+    const resource=request.operation.startsWith("notifications.") ? "notifications" : family==='owner' ? 'owner' : family==='connectors' ? 'connectors' : `integration:${request.params?.integration_id || ''}`;
+    let record;
+    if(spec.mutation) {
+      if(!this.mutations)throw new ISCPRequestNotSentError("Durable settings recovery is unavailable");
+      const prior=this.mutations.read(resource);
+      if(prior) {
+        const receipt=await this.invoke('operations.receipt',undefined,{params:{operation_id:prior.operation_id},signal:init.signal});
+        if(receipt.state!=='completed'||!receipt.response)throw new Error("The previous change has an unknown outcome; it will not be repeated");
+        this.mutations.complete(resource,prior.operation_id);
+        if(!this.mutations.matches(prior,request))throw new Error("The previous change was reconciled. Review the current value before making another change");
+        return this.#presentationResponse(resource,new Response(JSON.stringify(receipt.response.body),{status:receipt.response.status}));
+      }
+      record=this.mutations.begin(resource,request,this.resourceRevisions.get(resource));
+      request={...request,operation_id:record.operation_id,...(record.expected_revision?{expected_revision:record.expected_revision}:{})};
+    }
+    let response;
+    try {response=await this.#request(request,init,rawBody);}
+    catch(error){if(record && error instanceof ISCPRequestNotSentError)this.mutations.complete(resource,record.operation_id);throw error;}
+    if(record)this.mutations.complete(resource,record.operation_id);
+    return this.#presentationResponse(resource,response);
+  }
+
+  async #presentationResponse(resource,response) {
+    if(!response.ok)return response;
+    const result=await response.json();
+    if(result && typeof result.revision==='string' && Object.hasOwn(result,'value')) {
+      this.resourceRevisions.set(resource,result.revision);
+      for(const [id,revision] of Object.entries(result.value?.resource_revisions||{}))this.resourceRevisions.set(`integration:${id}`,revision);
+      return new Response(JSON.stringify(result.value),{status:response.status,headers:{'content-type':'application/json'}});
+    }
+    return new Response(JSON.stringify(result),{status:response.status,headers:{'content-type':'application/json'}});
+  }
+
+  async invoke(operation,body,options={}) {
+    const spec=requireOperation(operation);
+    const request={type:"task.invoke",profile:ISCP_V2_PROFILE,operation,...(body!==undefined?{body}:{}),
+      ...(options.params?{params:options.params}:{}),...(options.operationID?{operation_id:options.operationID}:{}),
+      ...(options.expectedRevision?{expected_revision:options.expectedRevision}:{}),
+      ...(options.installationID?{installation_id:options.installationID}:{}),...(options.requestID?{request_id:options.requestID}:{})};
+    if(spec.mutation&&!request.operation_id)request.operation_id=crypto.randomUUID();
+    const response=await this.#request(request,options,body===undefined?undefined:JSON.stringify(body));
+    const result=await response.json();
+    if(!response.ok){const error=new Error(result.error||"ISCP operation failed");error.code=result.error_code;error.status=response.status;error.retryable=result.retryable===true;throw error;}
+    return result;
+  }
+
+  async #request(request,init,rawBody) {
+    if(!this.capabilities || Date.parse(this.capabilities.expires_at)<=Date.now() || !this.capabilities.operations.includes(request.operation)) throw new ISCPRequestNotSentError("This capability is unavailable through ISCP");
+    if(rawBody!==undefined && Buffer.byteLength(rawBody)>ISCP_BODY_BYTES) {
+      if(!this.objects)throw new ISCPRequestNotSentError("Object transfer is unavailable");
+      const object=await this.objects.upload(Buffer.from(rawBody),{purpose:request.operation==='execution.submit'?'execution_request':'request_body',name:'request.json',media_type:'application/json'},init.signal);
+      request={...request,body_object:object};delete request.body;rawBody=undefined;
+    }
+    const spec=requireOperation(request.operation);
+    if(spec.mutation&&!request.operation_id)request.operation_id=crypto.randomUUID();
+    const response=await this.#dispatch(request,init,rawBody);
+    return response;
+  }
+
+  async #dispatch(request,init,rawBody) {
+    if(this.state!=="transport_ready")throw new ISCPRequestNotSentError("ISCP transport is unavailable","unavailable");
     if (this.pending.size >= 4) throw new ISCPRequestNotSentError("ISCP request concurrency limit reached", "capacity");
     if (init.signal?.aborted) throw new ISCPRequestNotSentError("ISCP request was canceled", "canceled");
-    const id = crypto.randomUUID(); request.id = id;
+    const id=crypto.randomUUID();request={...request,id};
     if (Buffer.byteLength(JSON.stringify(request)) > MAX_BYTES) throw new ISCPRequestNotSentError("ISCP request exceeds the test profile limit");
-    return new Promise((resolve, reject) => {
-      const signal = init.signal;
-      const finish = (handler, value) => {
-        clearTimeout(timer); signal?.removeEventListener("abort", cancel); this.pending.delete(id); handler(value);
-      };
-      const cancel = () => finish(reject, new Error("ISCP request was canceled"));
-      const timer = setTimeout(() => finish(reject, new Error("ISCP request deadline exceeded")), this.timeoutMS);
-      this.pending.set(id, { request, resolve: (value) => finish(resolve, value), reject: (error) => finish(reject, error) });
-      signal?.addEventListener("abort", cancel, { once: true });
-      try {
-        const { body, ...wireRequest } = request;
-        const rawBody = init.body === undefined || init.body === null ? undefined : (typeof init.body === "string" ? init.body : new TextDecoder("utf-8", { fatal: true }).decode(init.body));
-        this.child.stdin.write(`${JSON.stringify({ ipc_version: 1, type: "call", id, request: wireRequest, ...(rawBody !== undefined ? { body_base64: Buffer.from(rawBody, "utf8").toString("base64") } : {}) })}\n`);
-      }
-      catch { this.#fail("disconnected"); }
+    const generation=this.generation;
+    const response=await new Promise((resolve,reject)=>{
+      const signal=init.signal;
+      const finish=(handler,value)=>{clearTimeout(timer);signal?.removeEventListener("abort",cancel);this.pending.delete(id);handler(value);};
+      const cancel=()=>finish(reject,new Error("ISCP request was canceled"));
+      const timer=setTimeout(()=>finish(reject,new Error("ISCP request deadline exceeded")),this.timeoutMS);
+      this.pending.set(id,{request,resolve:(value)=>finish(resolve,value),reject:(error)=>finish(reject,error)});
+      signal?.addEventListener("abort",cancel,{once:true});
+      try {const {body,...wireRequest}=request;this.child.stdin.write(`${JSON.stringify({ipc_version:1,type:"call",id,request:wireRequest,...(rawBody!==undefined?{body_base64:Buffer.from(rawBody,"utf8").toString("base64")}: {})})}\n`);}
+      catch {this.#fail("disconnected");}
     });
+    if(generation!==this.generation)throw new Error("ISCP authentication changed");
+    if(response.body_object) {
+      if(!this.objects)throw new Error("Object transfer is unavailable");
+      const bytes=await this.objects.download(response.body_object,init.signal);
+      return new Response(bytes,{status:response.status,headers:{"content-type":response.body_object.media_type||"application/json"}});
+    }
+    const body=response.body===undefined?null:JSON.stringify(response.body);
+    return new Response(body,{status:response.status,headers:{"content-type":"application/json",...(response.error_code?{"x-sparkclaw-error-code":response.error_code}:{})}});
   }
 
   #read(chunk) {
@@ -119,7 +221,14 @@ export class ISCPTransport {
         }
         this.hello = true; continue;
       }
-      if (frame.type === "state") {
+      if (frame.type === "capabilities") {
+        const value=frame.capabilities;
+        if(value?.schema_version!==2||value.profile!==ISCP_V2_PROFILE||!Array.isArray(value.operations)||value.operations.length>256||!value.operations.every((op)=>typeof op==='string')||!Number.isSafeInteger(value.authorization_revision)||value.authorization_revision<1||!Number.isFinite(Date.parse(value.expires_at))||Date.parse(value.expires_at)<=Date.now()||!value.binding) {this.#fail("disconnected");return;}
+        if(this.expectedBinding && Object.keys(this.expectedBinding).some((key)=>value.binding[key]!==this.expectedBinding[key])){this.#fail("identity_conflict");return;}
+        this.capabilities=Object.freeze(value);
+        if(this.journalRoot){this.objects=new ISCPObjectClient({root:path.join(this.journalRoot,'objects'),scope:value.binding,call:this.invoke.bind(this)});this.mutations=new ISCPMutationJournal(path.join(this.journalRoot,'mutations'),value.binding);}
+        this.onCapabilities(value);
+      } else if (frame.type === "state") {
         if (!["verifying_relay", "discovery_failed", "connecting", "relay_ready", "handshaking", "transport_ready", "disconnected", "authorization_expired", "authorization_revoked", "closed"].includes(frame.state)) { this.#fail("disconnected"); return; }
         if (frame.state === "discovery_failed") { this.#fail("disconnected"); return; }
         if (["disconnected", "authorization_expired", "authorization_revoked", "closed"].includes(frame.state)) { this.#fail(frame.state); return; }
@@ -129,12 +238,12 @@ export class ISCPTransport {
         const call = this.pending.get(frame.id);
         if (!call) continue; // Late canceled calls cannot cross the request fence.
         const response = frame.response;
-        if (response?.type !== "task.result" || response.profile !== ISCP_PROFILE || response.id !== call.request.id ||
+        if (response?.type !== "task.result" || response.profile !== call.request.profile || response.id !== call.request.id ||
             !Number.isInteger(response.status) || response.status < 200 || response.status > 599 ||
             Buffer.byteLength(JSON.stringify(response)) > MAX_BYTES || (response.error !== undefined && typeof response.error !== "string")) { this.#fail("disconnected"); return; }
         const body = response.body === undefined ? null : JSON.stringify(response.body);
         if ([204, 205, 304].includes(response.status) && body !== null) { this.#fail("disconnected"); return; }
-        call.resolve(new Response(body, { status: response.status, headers: { "content-type": "application/json" } }));
+        call.resolve(response);
       } else { this.#fail("disconnected"); return; }
     }
   }
@@ -143,7 +252,7 @@ export class ISCPTransport {
   #state(state) { this.state = state; this.onState(state); }
 }
 
-export function mapISCPRequest(raw, init, origin) {
+export function mapISCPRequest(raw, init, origin, expanded = false) {
   const url = new URL(raw);
   if (url.origin !== origin || url.search || url.hash || url.username || url.password || /%/u.test(url.pathname)) throw new Error("ISCP backend path is invalid");
   const method = (init.method || "GET").toUpperCase();
@@ -163,12 +272,12 @@ export function mapISCPRequest(raw, init, origin) {
   let body;
   if (init.body !== undefined && init.body !== null) {
     const rawBody = typeof init.body === "string" ? init.body : new TextDecoder("utf-8", { fatal: true }).decode(init.body);
-    if (Buffer.byteLength(rawBody) > ISCP_BODY_BYTES) throw new Error("ISCP request exceeds the test profile limit");
+    if (!expanded && Buffer.byteLength(rawBody) > ISCP_BODY_BYTES) throw new Error("ISCP request exceeds the test profile limit");
     try { body = JSON.parse(rawBody); } catch { throw new Error("ISCP request body must be JSON"); }
   }
   if (method === "GET" && body !== undefined) throw new Error("ISCP request body is invalid");
   if (operation === "execution.submit") {
-    if (body?.input_files?.length) throw new Error("File inputs are unavailable through ISCP");
+    if (!expanded && body?.input_files?.length) throw new Error("File inputs are unavailable through ISCP");
     requestID = body?.request_id;
     if (!UUID.test(requestID || "")) throw new Error("ISCP execution request identity is invalid");
   }

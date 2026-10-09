@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { projectISCPCapabilities } from '../src/main/iscp-capabilities.mjs';
+const manifest={schema_version:2,profile:'sparkclaw.workbench.transport.v2',expires_at:new Date(Date.now()+60000).toISOString(),operations:['settings.owner.get','settings.owner.patch']};
+const row={id:'settings_owner',qualified:true,supported:true,permitted:true,dependencies_ready:true,enabled:true};
+test('UI projection requires negotiated authorization and all qualification gates independently',()=>{
+ assert.equal(projectISCPCapabilities(manifest,{capabilities:[row]}).settings,true);
+ for(const field of ['qualified','supported','permitted','dependencies_ready','enabled'])assert.equal(projectISCPCapabilities(manifest,{capabilities:[{...row,[field]:false}]}).settings,false);
+ assert.equal(projectISCPCapabilities({...manifest,operations:['settings.owner.get']},{capabilities:[row]}).settings,false);
+ assert.equal(projectISCPCapabilities(manifest,{capabilities:[row]},Date.now()+120000).settings,false);
+ assert.equal(projectISCPCapabilities(undefined).files,false);
+});

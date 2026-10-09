@@ -13,6 +13,7 @@ export type LocalConversationContent = { messages: LocalMessage[]; tasks: LocalT
 export type ClientStoreAPI = {
   schemaVersion: 1;
   list: () => Promise<LocalConversation[]>;
+  listFiles: () => Promise<LocalFile[]>;
   create: (title: string) => Promise<LocalConversation>;
   read: (id: string) => Promise<LocalConversationContent>;
   draft: (id: string) => Promise<LocalDraft>;

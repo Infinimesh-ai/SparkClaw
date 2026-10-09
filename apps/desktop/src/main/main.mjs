@@ -125,6 +125,7 @@ async function start() {
   if (!qualification) localStore = new ClientStore(path.join(app.getPath("userData"), "workbench"));
   desktopAuth = new DesktopAuth({
     installationID: localStore?.installationID,
+    readLocalFile: (scope, id, byteLimit) => localStore.file(scope, id, byteLimit),
     vault: new SecureCredentialStore({ directory: path.join(app.getPath("userData"), "authentication"), safeStorage }),
     descriptorPath: path.join(app.getPath("userData"), "backend.json"),
     qualificationPaths,

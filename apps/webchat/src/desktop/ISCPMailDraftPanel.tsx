@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, APIError } from "../api/client";
 import type { EmailDraft } from "../api/email";
 import type { Language } from "../i18n";
+import { clientStore, type LocalFile } from "./clientStore";
 import { MailAttachmentManifest, WorkspaceMailAttachments } from "./MailDraftAttachments";
 
 const addresses = (value: string) => value.split(/[,;\n]/).map(part => part.trim()).filter(Boolean);
@@ -16,8 +17,10 @@ export function ISCPMailDraftPanel({ language, mailboxID, address, attachmentsEn
   const [draft, setDraft] = useState<EmailDraft>(() => blank(mailboxID));
   const [to, setTo] = useState("");
   const [cc, setCC] = useState("");
-  const [attachmentPaths, setAttachmentPaths] = useState<string[]>([]);
-  const [pendingPath, setPendingPath] = useState("");
+  const [attachmentIDs, setAttachmentIDs] = useState<string[]>([]);
+  const [pendingFile, setPendingFile] = useState("");
+  const [fileRevision, setFileRevision] = useState(0);
+  const [localFiles, setLocalFiles] = useState<LocalFile[]>([]);
   const [items, setItems] = useState<EmailDraft[]>([]);
   const [cursor, setCursor] = useState("");
   const [review, setReview] = useState<EmailDraft | null>(null);
@@ -37,11 +40,24 @@ export function ISCPMailDraftPanel({ language, mailboxID, address, attachmentsEn
     return () => { active.current = false; controller.abort(); };
   }, [mailboxID]);
 
+  useEffect(() => {
+    if (!attachmentsEnabled) return;
+    let alive = true;
+    const store = clientStore();
+    const refresh = () => {
+      if (!store?.listFiles) { setError(zh ? "本机工作区文件不可用。" : "Local workspace files are unavailable."); return; }
+      void store.listFiles().then(files => { if (alive) setLocalFiles(files); }).catch(reason => { if (alive) setError(String(reason.message || reason)); });
+    };
+    refresh();
+    const unsubscribe = store?.onChange?.(refresh);
+    return () => { alive = false; unsubscribe?.(); };
+  }, [attachmentsEnabled, mailboxID, zh, fileRevision]);
+
   function remember(value: EmailDraft) {
     if (!active.current) return;
     if (value.mailbox_id !== mailboxID) throw new Error("Mail draft mailbox differs");
     setDraft(value); setTo(value.to.join(", ")); setCC(value.cc.join(", "));
-    setAttachmentPaths((value.attachments || []).map(item => item.path)); setPendingPath("");
+    setAttachmentIDs((value.attachments || []).map(item => item.local_file_id || `legacy:${item.path || item.name}`)); setPendingFile("");
     setReloadRequired(false);
     setItems(rows => [value, ...rows.filter(row => row.id !== value.id)]);
   }
@@ -59,20 +75,16 @@ export function ISCPMailDraftPanel({ language, mailboxID, address, attachmentsEn
   }
   function edit(patch: Partial<EmailDraft>) { setDraft(value => ({ ...value, ...patch })); setReview(null); setNotice(""); }
   function addAttachment() {
-    const path = pendingPath.trim();
-    // This is input guidance only. Gateway resolves and validates the workspace
-    // boundary and is the sole authority for the saved file manifest.
-    if (!path || /^(?:[a-z][a-z\d+.-]*:|\/)/i.test(path) || path.includes("\\") || path.split("/").some(part => !part || part === "." || part === "..")) {
-      setError(zh ? "请填写工作区内的相对文件路径。" : "Enter a relative file path within the workspace."); return;
-    }
-    if (attachmentPaths.includes(path)) { setError(zh ? "此文件已在附件清单中。" : "This file is already attached."); return; }
-    setAttachmentPaths(paths => [...paths, path]); setPendingPath(""); setReview(null); setNotice(""); setError("");
+    const file = localFiles.find(item => item.id === pendingFile);
+    if (!file || attachmentIDs.includes(file.id)) return;
+    if (attachmentIDs.length >= 5) { setError(zh ? "最多可添加 5 个附件。" : "Choose at most 5 attachments."); return; }
+    setAttachmentIDs(ids => [...ids, file.id]); setPendingFile(""); setReview(null); setNotice(""); setError("");
   }
-  const canSave = !busy && !locked && !reloadRequired && !pendingPath.trim() && (attachmentsEnabled || !attachmentPaths.length);
+  const canSave = !busy && !locked && !reloadRequired && !attachmentIDs.some(id => id.startsWith("legacy:")) && !pendingFile.trim() && (attachmentsEnabled || !attachmentIDs.length);
   async function save(forReview: boolean) {
     if (!canSave) return;
     await run(async () => {
-      const value = await api.saveEmailDraftSnapshot({ id: draft.id, expected_version: draft.version, mailbox_id: mailboxID, mode: draft.mode, reply_mail_id: draft.reply_mail_id, to: addresses(to), cc: addresses(cc), subject: draft.subject, body: draft.body, attachments: attachmentPaths.map(path => ({ path })) });
+      const value = await api.saveEmailDraftSnapshot({ id: draft.id, expected_version: draft.version, mailbox_id: mailboxID, mode: draft.mode, reply_mail_id: draft.reply_mail_id, to: addresses(to), cc: addresses(cc), subject: draft.subject, body: draft.body, attachments: attachmentIDs.map(local_file_id => ({ local_file_id })) });
       remember(value);
       if (active.current) {
         setReview(forReview ? structuredClone(value) : null);
@@ -108,7 +120,7 @@ export function ISCPMailDraftPanel({ language, mailboxID, address, attachmentsEn
   return <section className="emailComposer" aria-label={zh ? "ISCP 邮件草稿" : "ISCP mail drafts"}>
     <h3>{zh ? "草稿与发送" : "Drafts and sending"}</h3>
     <p>{zh ? `发件邮箱：${address}。发送前会展示已保存的邮件版本供你确认。` : `Sending from ${address}. Review the saved message version before sending.`}</p>
-    <div><button type="button" disabled={busy} onClick={() => { setDraft(blank(mailboxID)); setTo(""); setCC(""); setAttachmentPaths([]); setPendingPath(""); setReloadRequired(false); setReview(null); setError(""); setNotice(""); }}>{zh ? "新草稿" : "New draft"}</button>
+    <div><button type="button" disabled={busy} onClick={() => { setDraft(blank(mailboxID)); setTo(""); setCC(""); setAttachmentIDs([]); setPendingFile(""); setReloadRequired(false); setReview(null); setError(""); setNotice(""); }}>{zh ? "新草稿" : "New draft"}</button>
       <select aria-label={zh ? "选择草稿" : "Select draft"} disabled={busy} value={items.some(item => item.id === draft.id) ? draft.id : ""} onChange={event => { const id = event.target.value; if (id) void run(async () => { remember(await api.emailDraftSnapshot(id)); setReview(null); }); }}>
         <option value="">{zh ? "未保存的草稿" : "Unsaved draft"}</option>
         {items.map(item => <option key={item.id} value={item.id}>{item.subject || (zh ? "无主题" : "No subject")} · {item.state}</option>)}
@@ -120,7 +132,7 @@ export function ISCPMailDraftPanel({ language, mailboxID, address, attachmentsEn
       <label>{zh ? "抄送" : "CC"}<input aria-label={zh ? "抄送" : "CC"} value={cc} onChange={event => { setCC(event.target.value); setReview(null); setNotice(""); }}/></label>
       <label>{zh ? "主题" : "Subject"}<input aria-label={zh ? "主题" : "Subject"} value={draft.subject} maxLength={998} onChange={event => edit({ subject: event.target.value })}/></label>
       <label>{zh ? "正文" : "Body"}<textarea aria-label={zh ? "正文" : "Body"} value={draft.body} maxLength={262144} rows={6} onChange={event => edit({ body: event.target.value })}/></label>
-      {(attachmentsEnabled || attachmentPaths.length > 0) && <WorkspaceMailAttachments language={language} paths={attachmentPaths} pendingPath={pendingPath} onPendingPath={value => { setPendingPath(value); setReview(null); setNotice(""); }} onAdd={addAttachment} onRemove={path => { setAttachmentPaths(paths => paths.filter(item => item !== path)); setReview(null); setNotice(""); }} enabled={attachmentsEnabled}/>}
+      {(attachmentsEnabled || attachmentIDs.length > 0) && <WorkspaceMailAttachments language={language} ids={attachmentIDs} onRefresh={() => setFileRevision(value => value + 1)} files={localFiles} saved={draft.attachments || []} pendingFile={pendingFile} onPendingFile={value => { setPendingFile(value); setReview(null); setNotice(""); }} onAdd={addAttachment} onRemove={path => { setAttachmentIDs(paths => paths.filter(item => item !== path)); setReview(null); setNotice(""); }} enabled={attachmentsEnabled}/>}
     </fieldset>
     {review && <section role="region" aria-label={zh ? "发送确认" : "Send confirmation"}>
       <p>{zh ? `确认发送版本 ${review.version}` : `Confirm sending version ${review.version}`}</p>

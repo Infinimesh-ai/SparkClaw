@@ -102,7 +102,7 @@ test("local files are atomic, hash verified, owner scoped, and never expose arbi
   assert.throws(() => store.saveFile(scope, conversation.id, "../private", bytes), /name/);
   assert.throws(() => store.file({ ...scope, client_id: "other" }, file.id), /not found/);
   fs.writeFileSync(path.join(root, "files", file.id), "tampered");
-  assert.throws(() => store.file(scope, file.id), /verification/);
+  assert.throws(() => store.file(scope, file.id), /verification|changed/);
   store.db.exec("CREATE TRIGGER fail_manifest BEFORE INSERT ON files BEGIN SELECT RAISE(ABORT,'disk full'); END;");
   assert.throws(() => store.saveFile(scope, conversation.id, "failure.txt", bytes), /disk full/);
   assert.equal(fs.readdirSync(path.join(root, "files")).length, 1);

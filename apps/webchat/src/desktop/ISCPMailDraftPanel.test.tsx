@@ -7,8 +7,9 @@ import type { EmailDraft } from "../api/email";
 import { ISCPMailDraftPanel } from "./ISCPMailDraftPanel";
 
 const draft: EmailDraft = { id: "draft", version: 4, mailbox_id: "box", mode: "compose", to: ["recipient@example.com"], cc: [], subject: "Reviewed subject", body: "Reviewed content", state: "draft" };
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); delete window.sparkclawClientStore; });
 async function fixture(value = draft, attachmentsEnabled = false) {
+  Object.defineProperty(window, "sparkclawClientStore", { configurable: true, value: { listFiles: vi.fn(async () => [{ id: attachment.local_file_id, name: attachment.name, size: attachment.size_bytes, sha256: attachment.sha256, created_at: "today" }]) } });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.spyOn(api, "emailDrafts").mockResolvedValue({ items: [value] });
   const read = vi.spyOn(api, "emailDraftSnapshot").mockResolvedValue(value);
@@ -22,7 +23,8 @@ async function fixture(value = draft, attachmentsEnabled = false) {
     expect(element).toBeTruthy();
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(element, text); element.dispatchEvent(new Event("input", { bubbles: true })); });
   };
-  return { host, root, click, input, save, read };
+  const selectFile = async () => { await act(async () => { const select = host.querySelector<HTMLSelectElement>('[aria-label="Local workspace file"]')!; select.value = attachment.local_file_id; select.dispatchEvent(new Event("change", { bubbles: true })); }); };
+  return { host, root, click, input, selectFile, save, read };
 }
 
 it("requires confirmation of an immutable saved version and presents the provider receipt", async () => {
@@ -43,27 +45,24 @@ it("requires confirmation of an immutable saved version and presents the provide
   } finally { await act(async () => f.root.unmount()); }
 });
 
-const attachment = { path: "reports/summary.pdf", name: "summary.pdf", size_bytes: 8123, sha256: "b".repeat(64) };
+const attachment = { local_file_id: "12345678-1234-4123-8123-123456789abc", name: "summary.pdf", size_bytes: 8123, sha256: "b".repeat(64) };
 
-it("adds only relative workspace paths and reviews the server's exact saved attachment manifest", async () => {
+it("selects only existing local files and reviews the exact saved attachment manifest", async () => {
   const send = vi.spyOn(api, "sendEmailDraft").mockResolvedValue({ ...draft, attachments: [attachment], version: 6, state: "sent" });
   const f = await fixture(draft, true);
   f.save.mockResolvedValue({ ...draft, attachments: [attachment], version: 5 });
   try {
     expect(f.host.querySelector('input[type="file"]')).toBeNull();
-    for (const invalid of ["/tmp/secret", "../outside.txt", "file:///tmp/secret", "reports/../secret", "C:\\secret.txt"]) {
-      await f.input("Workspace relative file path", invalid); await f.click("Add attachment");
-      expect(f.host.querySelector('[aria-label="Remove attachment ' + invalid + '"]')).toBeNull();
-      expect(f.save).not.toHaveBeenCalled();
-    }
-    await f.input("Workspace relative file path", attachment.path);
+    expect(f.host.querySelector('input[aria-label="Workspace relative file path"]')).toBeNull();
+    expect(f.host.querySelector('[aria-label="Local workspace file"]')!.textContent).toContain(attachment.name);
+    await f.selectFile();
     const reviewButton = [...f.host.querySelectorAll("button")].find(button => button.textContent === "Review and send")!;
     expect(reviewButton.disabled).toBe(true);
     await f.click("Add attachment"); await f.click("Review and send");
-    expect(f.save).toHaveBeenCalledWith(expect.objectContaining({ attachments: [{ path: attachment.path }] }));
+    expect(f.save).toHaveBeenCalledWith(expect.objectContaining({ attachments: [{ local_file_id: attachment.local_file_id }] }));
     const review = f.host.querySelector('[aria-label="Send confirmation"]')!;
     expect(review.textContent).toContain(attachment.name);
-    expect(review.textContent).toContain(attachment.path);
+    expect(review.textContent).not.toContain("Gateway workspace");
     expect(review.textContent).toContain("8,123 B");
     expect(review.textContent).toContain(attachment.sha256);
     expect(send).not.toHaveBeenCalled();
@@ -77,7 +76,7 @@ it("removing an attachment requires a newly saved version and a new explicit con
   const f = await fixture({ ...draft, attachments: [attachment] }, true);
   try {
     await f.click("Review and send"); await f.click("Edit message");
-    await act(async () => f.host.querySelector<HTMLButtonElement>(`[aria-label="Remove attachment ${attachment.path}"]`)!.click());
+    await act(async () => f.host.querySelector<HTMLButtonElement>(`[aria-label="Remove attachment ${attachment.local_file_id}"]`)!.click());
     expect(f.host.querySelector('[aria-label="Send confirmation"]')).toBeNull();
     f.save.mockResolvedValue({ ...draft, version: 6, attachments: [] });
     await f.click("Review and send");
@@ -111,7 +110,7 @@ it("blocks attachment sending when its individual capability is unavailable and 
   try {
     expect(f.host.querySelector('[aria-label="Workspace relative file path"]')).toBeNull();
     expect([...f.host.querySelectorAll("button")].find(button => button.textContent === "Review and send")!.disabled).toBe(true);
-    await act(async () => f.host.querySelector<HTMLButtonElement>(`[aria-label="Remove attachment ${attachment.path}"]`)!.click());
+    await act(async () => f.host.querySelector<HTMLButtonElement>(`[aria-label="Remove attachment ${attachment.local_file_id}"]`)!.click());
     f.save.mockResolvedValue({ ...draft, version: 5, attachments: [] });
     await f.click("Review and send");
     expect(f.save).toHaveBeenLastCalledWith(expect.objectContaining({ attachments: [] }));
@@ -138,7 +137,7 @@ it("keeps an over-limit or inaccessible attachment out of the confirmation when 
   const send = vi.spyOn(api, "sendEmailDraft");
   const f = await fixture(draft, true);
   try {
-    await f.input("Workspace relative file path", "exports/too-large.bin"); await f.click("Add attachment");
+    await f.selectFile(); await f.click("Add attachment");
     f.save.mockRejectedValue(new APIError(400, "Attachment byte limit exceeded", "email_attachment_invalid"));
     await f.click("Review and send");
     expect(f.host.querySelector('[aria-label="Send confirmation"]')).toBeNull();
@@ -158,7 +157,7 @@ it("reloads a changed draft version before another save can produce a send confi
     f.read.mockResolvedValue({ ...draft, version: 8, attachments: [attachment] });
     f.save.mockResolvedValue({ ...draft, version: 9, attachments: [attachment] });
     await f.click("Reload draft"); await f.click("Review and send");
-    expect(f.save).toHaveBeenLastCalledWith(expect.objectContaining({ expected_version: 8, attachments: [{ path: attachment.path }] }));
+    expect(f.save).toHaveBeenLastCalledWith(expect.objectContaining({ expected_version: 8, attachments: [{ local_file_id: attachment.local_file_id }] }));
     expect(f.host.querySelector('[aria-label="Send confirmation"]')!.textContent).toContain("version 9");
   } finally { await act(async () => f.root.unmount()); }
 });
@@ -174,5 +173,33 @@ it("locks an unknown send and only reconciles the original draft without sending
     await f.click("Reconcile send outcome");
     expect(reconcile).toHaveBeenCalledWith("draft"); expect(send).toHaveBeenCalledOnce();
     expect(f.host.querySelector("fieldset")!.disabled).toBe(true);
+  } finally { await act(async () => f.root.unmount()); }
+});
+
+it("refreshes the owned local inventory without discarding the mail draft or selecting an external path", async () => {
+  const f = await fixture(draft, true);
+  try {
+    const second = { id: "87654321-4321-4321-8321-123456789abc", name: "new-local.txt", size: 20, sha256: "d".repeat(64), created_at: "today" };
+    vi.mocked(window.sparkclawClientStore!.listFiles).mockResolvedValue([second]);
+    await f.click("Refresh local files");
+    const select = f.host.querySelector<HTMLSelectElement>('[aria-label="Local workspace file"]')!;
+    expect(select.textContent).toContain("new-local.txt"); expect(select.textContent).not.toContain(attachment.name);
+    expect(f.host.querySelector<HTMLInputElement>('[aria-label="Subject"]')!.value).toBe(draft.subject);
+    await act(async () => { select.value = second.id; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    await f.click("Add attachment"); await f.click("Save draft");
+    expect(f.save).toHaveBeenCalledWith(expect.objectContaining({ attachments: [{ local_file_id: second.id }] }));
+  } finally { await act(async () => f.root.unmount()); }
+});
+
+it("does not turn legacy Gateway paths into local sources and permits explicit removal", async () => {
+  const legacy = { path: "gateway/report.txt", name: "report.txt", size_bytes: 1, sha256: "a".repeat(64) };
+  const f = await fixture({ ...draft, attachments: [legacy] }, true);
+  try {
+    expect(f.host.textContent).toContain("This old attachment source is unavailable");
+    expect(f.host.querySelector<HTMLInputElement>('input[aria-label="Workspace relative file path"]')).toBeNull();
+    await act(async () => f.host.querySelector<HTMLButtonElement>('[aria-label="Remove attachment legacy:gateway/report.txt"]')!.click());
+    f.save.mockResolvedValue({ ...draft, attachments: [], version: 5 });
+    await f.click("Review and send");
+    expect(f.save).toHaveBeenCalledWith(expect.objectContaining({ attachments: [] }));
   } finally { await act(async () => f.root.unmount()); }
 });

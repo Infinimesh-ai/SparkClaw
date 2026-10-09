@@ -172,10 +172,74 @@ test('v2 text-only grants retain their authorized basic owner presentation',asyn
 
 test('lost mail send responses reconcile durable operation receipts before any new mail mutation',async t=>{
  const fs=await import('node:fs');const os=await import('node:os');const path=await import('node:path');const root=fs.mkdtempSync(path.join(os.tmpdir(),'iscp-mail-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
- let sentID;const f=fixture(t,(call,child)=>{if(call.request.operation==='mail.drafts.send'){sentID=call.request.operation_id;return;}assert.equal(call.request.operation,'operations.receipt');assert.equal(call.request.params.operation_id,sentID);child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:{state:'completed',operation_id:sentID,response:{status:200,body:{id:'draft',state:'sent'}}}}});},{journalRoot:root,timeoutMS:20});await f.transport.start();
- f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:['mail.drafts.send','operations.receipt'],binding:{deployment_id:'d',owner_id:'o',client_id:'c'}}});
+ let sentID;const f=fixture(t,(call,child)=>{if(call.request.operation==='mail.drafts.list'){child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:{id:'draft',version:4,state:'draft',attachments:[]}}});return;}if(call.request.operation==='mail.drafts.send'){sentID=call.request.operation_id;return;}assert.equal(call.request.operation,'operations.receipt');assert.equal(call.request.params.operation_id,sentID);child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:{state:'completed',operation_id:sentID,response:{status:200,body:{id:'draft',state:'sent'}}}}});},{journalRoot:root,timeoutMS:20});await f.transport.start();
+ f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:['mail.drafts.list','mail.drafts.send','operations.receipt'],binding:{deployment_id:'d',owner_id:'o',client_id:'c'}}});
  const request={method:'POST',body:JSON.stringify({expected_version:4,idempotency_key:requestID})};
  await assert.rejects(f.transport.fetch(`${origin}/api/email/drafts/draft/send`,request),/deadline/);
  assert.equal((await(await f.transport.fetch(`${origin}/api/email/drafts/draft/send`,request)).json()).state,'sent');
- assert.deepEqual(f.calls.map(call=>call.request.operation),['mail.drafts.send','operations.receipt']);
+ assert.deepEqual(f.calls.map(call=>call.request.operation),['mail.drafts.list','mail.drafts.send','operations.receipt']);
+});
+
+test('unknown mail send fence permits explicit reconciliation without touching local files or repeating send', async t => {
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'iscp-mail-unknown-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const f = fixture(t, (call, child) => {
+    let body;
+    if (call.request.operation === 'mail.drafts.list') body = { id: 'draft', version: 4, state: 'draft', attachments: [] };
+    else if (call.request.operation === 'mail.drafts.send') return;
+    else if (call.request.operation === 'operations.receipt') body = { state: 'unknown' };
+    else if (call.request.operation === 'mail.drafts.reconcile') body = { id: 'draft', version: 5, state: 'sent' };
+    else assert.fail('unexpected operation');
+    child.send({ ipc_version: 1, type: 'response', id: call.id, response: { type: 'task.result', profile: 'sparkclaw.workbench.transport.v2', id: call.id, status: 200, body } });
+  }, { journalRoot: root, timeoutMS: 20, readLocalFile() { assert.fail('receipt recovery read a local file'); } });
+  await f.transport.start();
+  f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities: { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session', authorization_revision: 1, expires_at: new Date(Date.now() + 60000).toISOString(), operations: ['mail.drafts.list', 'mail.drafts.send', 'mail.drafts.reconcile', 'operations.receipt'], binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' } } });
+  const request = { method: 'POST', body: JSON.stringify({ expected_version: 4, idempotency_key: requestID }) };
+  await assert.rejects(f.transport.fetch(`${origin}/api/email/drafts/draft/send`, request), /deadline/);
+  await assert.rejects(f.transport.fetch(`${origin}/api/email/drafts/draft/send`, request), /unknown/);
+  const reconciled = await f.transport.fetch(`${origin}/api/email/drafts/draft/reconcile`, { method: 'POST', body: '{}' });
+  assert.equal((await reconciled.json()).state, 'sent');
+  assert.equal(f.calls.filter(call => call.request.operation === 'mail.drafts.send').length, 1);
+  assert.ok(f.transport.mutations.read('mail-draft:draft'));
+});
+
+test('lost attachment save reconciles original receipt before consulting changed local files or expired uploads', async t => {
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path'), crypto = await import('node:crypto');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'iscp-mail-save-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const fileID = crypto.randomUUID(), bytes = Buffer.from('local bytes'), hash = crypto.createHash('sha256').update(bytes).digest('hex');
+  const f = fixture(t, (call, child) => {
+    if (call.request.operation === 'mail.drafts.save') return;
+    assert.equal(call.request.operation, 'operations.receipt');
+    child.send({ ipc_version: 1, type: 'response', id: call.id, response: { type: 'task.result', profile: 'sparkclaw.workbench.transport.v2', id: call.id, status: 200, body: { state: 'completed', response: { status: 200, body: { id: 'draft', version: 1 } } } } });
+  }, { journalRoot: root, timeoutMS: 20, canSendMailAttachments: () => true, readLocalFile: () => ({ name: 'local.txt', size: bytes.length, sha256: hash, content: Buffer.from(bytes) }) });
+  await f.transport.start();
+  f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities: { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session', authorization_revision: 1, expires_at: new Date(Date.now() + 60000).toISOString(), operations: ['mail.drafts.save', 'operations.receipt'], binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' } } });
+  let uploads = 0;
+  f.transport.objects.upload = async () => { uploads++; return { object_id: 'one-object', version: 1, size: bytes.length, sha256: hash, purpose: 'mail_send_attachment', name: 'local.txt' }; };
+  const request = { method: 'POST', body: JSON.stringify({ id: 'draft', attachments: [{ local_file_id: fileID }] }) };
+  await assert.rejects(f.transport.fetch(`${origin}/api/email/drafts`, request), /deadline/);
+  f.transport.readLocalFile = () => { assert.fail('unknown save reread deleted source'); };
+  f.transport.objects.upload = () => { assert.fail('unknown save uploaded again'); };
+  assert.equal((await (await f.transport.fetch(`${origin}/api/email/drafts`, request)).json()).version, 1);
+  assert.equal(uploads, 1);
+  assert.deepEqual(f.calls.map(call => call.request.operation), ['mail.drafts.save', 'operations.receipt']);
+});
+
+test('mail save can complete beyond the ordinary 30-second call deadline without relaxing other operations', async t => {
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'iscp-mail-budget-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const f = fixture(t, (call, child) => {
+    setTimeout(() => child.send({ ipc_version: 1, type: 'response', id: call.id, response: { type: 'task.result', profile: 'sparkclaw.workbench.transport.v2', id: call.id, status: 200, body: { id: 'draft', version: 1 } } }), 45000);
+  }, { journalRoot: root, timeoutMS: 30000 });
+  await f.transport.start();
+  f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities: { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session', authorization_revision: 1, expires_at: new Date(Date.now() + 300000).toISOString(), operations: ['mail.drafts.save', 'mail.drafts.list'], binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' } } });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const saving = f.transport.fetch(`${origin}/api/email/drafts`, { method: 'POST', body: JSON.stringify({ id: 'draft', attachments: [] }) });
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+  assert.equal(f.calls.length, 1);
+  t.mock.timers.tick(45000);
+  assert.equal((await (await saving).json()).version, 1);
+  const reading = f.transport.fetch(`${origin}/api/email/drafts`);
+  const rejected = assert.rejects(reading, /deadline/);
+  t.mock.timers.tick(30000); await rejected;
 });

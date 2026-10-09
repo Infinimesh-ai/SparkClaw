@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { captureFileBoundary, readOwnedFile } from "./local-file-boundary.mjs";
 import { WORKBENCH_LIMITS } from "../shared/workbench-limits.mjs";
 
 export const CLIENT_SCHEMA_VERSION = 8;
@@ -19,6 +20,7 @@ export class ClientStore {
     this.root = root;
     this.filesRoot = path.join(root, "files");
     privateDirectory(this.filesRoot);
+    this.fileBoundary = captureFileBoundary(this.filesRoot);
     const databasePath = path.join(root, "client.sqlite");
     privateFile(databasePath);
     this.db = new DatabaseSync(databasePath);
@@ -581,16 +583,21 @@ export class ClientStore {
     }
   }
 
-  file(scope, fileID) {
+  listFiles(scope) {
+    return this.db.prepare(`SELECT f.id,f.name,f.size,f.sha256,f.created_at FROM files f JOIN conversations c ON c.id=f.conversation_id
+      WHERE c.scope=? ORDER BY f.created_at DESC,f.id`).all(scopeKey(scope));
+  }
+
+  file(scope, fileID, byteLimit = CLIENT_LIMITS.fileBytes) {
     uuid(fileID);
     const record = this.db.prepare(`SELECT f.* FROM files f JOIN conversations c ON c.id=f.conversation_id
       WHERE f.id=? AND c.scope=?`).get(fileID, scopeKey(scope));
     if (!record) throw new Error("Local file not found");
-    const filename = path.join(this.filesRoot, fileID);
-    privateFile(filename, false);
-    const content = fs.readFileSync(filename);
+    if (!Number.isSafeInteger(byteLimit) || byteLimit < 0 || byteLimit > CLIENT_LIMITS.fileBytes || record.size > byteLimit) throw new Error("Local file exceeds the read limit");
+    validFileName(record.name);
+    const content = readOwnedFile(this.fileBoundary, fileID, record.size);
     if (content.byteLength !== record.size || hash(content) !== record.sha256) throw new Error("Local file verification failed");
-    return { name: record.name, content };
+    return { ...record, content };
   }
 
   close() { this.db.close(); }

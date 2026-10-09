@@ -10,8 +10,8 @@ import { loadISCPProfile } from "./iscp-profile.mjs";
 import { ISCPTransport, ISCP_OPERATIONS, ISCP_BODY_BYTES, ISCPRequestNotSentError, mapISCPRequest } from "./iscp-transport.mjs";
 
 export class DesktopAuth {
-  constructor({ vault, descriptorPath, qualificationPaths, installationID, qualification = false, requireLAN = false, fetcher, iscpProfilePath, allowLocalISCPTest = false, packaged = false, resourcesPath, transportFactory = (options) => new ISCPTransport(options), onChange = () => {}, onLock = () => {} }) {
-    Object.assign(this, { vault, descriptorPath, qualificationPaths, installationID, qualification, requireLAN, fetcher, iscpProfilePath, allowLocalISCPTest, packaged, resourcesPath, transportFactory, onChange, onLock });
+  constructor({ readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification = false, requireLAN = false, fetcher, iscpProfilePath, allowLocalISCPTest = false, packaged = false, resourcesPath, transportFactory = (options) => new ISCPTransport(options), onChange = () => {}, onLock = () => {} }) {
+    Object.assign(this, { readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification, requireLAN, fetcher, iscpProfilePath, allowLocalISCPTest, packaged, resourcesPath, transportFactory, onChange, onLock });
     this.requests = new Set();
     this.generation = 0;
     this.vaultOperations = Promise.resolve();
@@ -248,12 +248,14 @@ export class DesktopAuth {
     if (url.origin !== this.descriptor.origin) throw new Error("Backend origin is invalid");
     if (this.descriptor.transport === "iscp" && !this.transport?.capabilities) mapISCPRequest(raw, init, this.descriptor.origin);
     const generation = this.generation;
+    const mailMutation = this.descriptor.transport === "iscp" && (init.method || "GET").toUpperCase() === "POST" && /^\/api\/email\/drafts(?:\/[^/]+\/send)?$/u.test(url.pathname) && !url.search;
+    const requestTimeout = mailMutation ? 180000 : 30000;
     const controller = new AbortController();
     this.requests.add(controller);
     const headers = new Headers(init.headers);
     if (this.descriptor.transport !== "iscp") headers.set("authorization", this.connection.authorization);
     try {
-      const response = await this.#fetch()(raw, { ...init, headers, redirect: "manual", signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30000), ...(init.signal ? [init.signal] : [])]) });
+      const response = await this.#fetch()(raw, { ...init, headers, redirect: "manual", signal: AbortSignal.any([controller.signal, AbortSignal.timeout(requestTimeout), ...(init.signal ? [init.signal] : [])]) });
       if (generation !== this.generation) { controller.abort(); return new Response(null, { status: 401 }); }
       if (response.status === 401 || (this.descriptor.transport === "iscp" && !this.transport?.capabilities && response.status === 403)) {
         if (this.descriptor.transport === "iscp") {
@@ -340,7 +342,8 @@ export class DesktopAuth {
         expectedIdentity: { domain_id: this.descriptor.domainID, initiator_device_id: this.descriptor.initiatorDeviceID,
           responder_device_id: this.descriptor.responderDeviceID, responder_key_thumbprint: this.descriptor.responderKeyThumbprint, relay_url: this.descriptor.relayURL, relay_profile: this.descriptor.relayProfile },
         packaged: this.packaged, resourcesPath: this.resourcesPath,
-        installationID: this.installationID,
+        installationID: this.installationID, readLocalFile: this.readLocalFile,
+        canSendMailAttachments: () => projectISCPCapabilities(this.transport?.capabilities, this.capabilityReport).surfaces.mail_send_attachments.enabled,
         journalRoot: path.join(path.dirname(this.descriptorPath), "iscp-objects"),
         onCapabilities: () => { if(this.status.state === "connected") this.#set("connected"); },
         onState: (state) => {

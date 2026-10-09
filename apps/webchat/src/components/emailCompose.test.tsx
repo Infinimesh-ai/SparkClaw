@@ -19,7 +19,7 @@ describe("email compose safety", () => {
     const host = document.createElement("div"); const root = createRoot(host);
     try {
       await act(async () => root.render(<EmailCompose target={{ mode: "compose", draftId: "d" }} mailboxes={mailboxes} text={text} language="zh" onClose={() => {}} onBeforeClose={() => {}}/>));
-      expect(host.textContent).toContain("reports/a.pdf"); expect(host.textContent).toContain("a".repeat(64));
+      expect(host.textContent).toContain("a.pdf"); expect(host.textContent).toContain("旧附件来源已失效"); expect(host.textContent).toContain("a".repeat(64));
       expect(host.querySelector("fieldset")!.disabled).toBe(true);
       for (const label of [text.email.saveDraft, text.email.send]) {
         const button = [...host.querySelectorAll("button")].find(value => value.textContent === label)!;

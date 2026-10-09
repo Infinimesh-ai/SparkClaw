@@ -15,6 +15,7 @@ if (process.argv.includes("--sparkclaw-client-store=1")) {
   contextBridge.exposeInMainWorld("sparkclawClientStore", Object.freeze({
     schemaVersion: 1,
     list: () => storeInvoke("list"),
+    listFiles: () => storeInvoke("listFiles"),
     create: (title) => storeInvoke("create", { title }),
     read: (conversation_id) => storeInvoke("read", { conversation_id }),
     draft: (conversation_id) => storeInvoke("draft", { conversation_id }),

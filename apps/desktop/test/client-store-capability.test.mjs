@@ -52,3 +52,18 @@ test("draft IPC fences delayed welcome autosave after identity changes", async (
   await assert.rejects(capability.dispatch(event, save), /authentication changed/);
   assert.equal(writes, 1);
 });
+
+test("local file inventory accepts no renderer path or scope and requires the qualified files surface", async () => {
+  const frame = { url: "sparkclaw-app://workbench/index.html" }, webContents = { mainFrame: null }; webContents.mainFrame = frame;
+  const identity = { deployment_id: "d", owner_id: "o", client_id: "c" };
+  let enabled = true, calls = 0;
+  const capability = new ClientStoreCapability({ window: { webContents }, getIdentity: () => identity,
+    getCapabilities: () => ({ files: enabled }), store: { listFiles(scope) { calls++; assert.deepEqual(scope, identity); return []; } } });
+  const event = { sender: webContents, senderFrame: frame }, request = { schema_version: 1, operation: "listFiles" };
+  assert.deepEqual(await capability.dispatch(event, request), []);
+  await assert.rejects(capability.dispatch(event, { ...request, path: "/tmp" }), /fields/);
+  await assert.rejects(capability.dispatch(event, { ...request, owner_id: "another" }), /fields/);
+  enabled = false;
+  await assert.rejects(capability.dispatch(event, request), /unavailable/);
+  assert.equal(calls, 1);
+});

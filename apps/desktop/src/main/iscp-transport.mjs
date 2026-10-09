@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { mapV2Route, requireOperation } from "./iscp-routes.mjs";
 import { ISCPMutationJournal } from "./iscp-mutation-journal.mjs";
+import { LocalMailAttachmentError, localAttachmentErrorResponse, prepareMailAttachments } from "./iscp-mail-attachments.mjs";
 import { ISCPObjectClient } from "./iscp-object-client.mjs";
 export const ISCP_V2_PROFILE = "sparkclaw.workbench.transport.v2";
 
@@ -32,9 +33,10 @@ export function iscpHelperExecutable({ packaged = false, resourcesPath } = {}) {
 // Private pipes are the only Desktop ↔ helper boundary. The helper owns SDK
 // credentials and encrypted Relay traffic; this adapter accepts fixed RPC only.
 export class ISCPTransport {
-  constructor({ configPath, origin, expectedIdentity, expectedBinding, installationID, packaged = false, resourcesPath, spawnProcess = spawn, timeoutMS = 30000, onState = () => {}, onCapabilities = () => {}, journalRoot }) {
-    Object.assign(this, { configPath, origin, expectedIdentity, expectedBinding, installationID, packaged, resourcesPath, spawnProcess, timeoutMS, onState, onCapabilities, journalRoot });
+  constructor({ readLocalFile, canSendMailAttachments = () => false, configPath, origin, expectedIdentity, expectedBinding, installationID, packaged = false, resourcesPath, spawnProcess = spawn, timeoutMS = 30000, onState = () => {}, onCapabilities = () => {}, journalRoot }) {
+    Object.assign(this, { readLocalFile, canSendMailAttachments, configPath, origin, expectedIdentity, expectedBinding, installationID, packaged, resourcesPath, spawnProcess, timeoutMS, onState, onCapabilities, journalRoot });
     this.resourceRevisions = new Map();
+    this.presentationPending = new Set();
     this.pending = new Map(); this.generation = 0; this.state = "closed";
   }
 
@@ -148,7 +150,14 @@ export class ISCPTransport {
   async #presentation(request,init,rawBody) {
     const spec=requireOperation(request.operation);
     const family=request.operation.split(".")[1];
-    const resource=request.operation.startsWith("mail.drafts.") ? `mail-draft:${request.params?.draft || request.body?.id || "list"}` : request.operation === "execution.approval" ? `approval:${request.params?.request_id}:${request.params?.approval_id}` : request.operation.startsWith("notifications.") ? "notifications" : family==='owner' ? 'owner' : family==='connectors' ? 'connectors' : `integration:${request.params?.integration_id || ''}`;
+    const resource=request.operation.startsWith("mail.drafts.") ? `mail-draft:${request.params?.draft || request.body?.id || "list"}${request.operation === "mail.drafts.reconcile" ? ":reconcile" : ""}` : request.operation === "execution.approval" ? `approval:${request.params?.request_id}:${request.params?.approval_id}` : request.operation.startsWith("notifications.") ? "notifications" : family==='owner' ? 'owner' : family==='connectors' ? 'connectors' : `integration:${request.params?.integration_id || ''}`;
+    if (this.presentationPending.has(resource)) throw new ISCPRequestNotSentError("A change to this resource is already in progress", "capacity");
+    this.presentationPending.add(resource);
+    try { return await this.#applyPresentation(resource, spec, request, init, rawBody); }
+    finally { this.presentationPending.delete(resource); }
+  }
+
+  async #applyPresentation(resource,spec,request,init,rawBody) {
     let record;
     if(spec.mutation) {
       if(!this.mutations)throw new ISCPRequestNotSentError("Durable settings recovery is unavailable");
@@ -160,7 +169,14 @@ export class ISCPTransport {
         if(!this.mutations.matches(prior,request))throw new Error("The previous change was reconciled. Review the current value before making another change");
         return this.#presentationResponse(resource,new Response(JSON.stringify(receipt.response.body),{status:receipt.response.status}));
       }
-      record=this.mutations.begin(resource,request,this.resourceRevisions.get(resource));
+      const original = request, generation = this.generation, scopeKey = this.objectScopeKey;
+      try { request = await prepareMailAttachments(this, request, init.signal); }
+      catch (error) { if (error instanceof LocalMailAttachmentError) return localAttachmentErrorResponse(error); throw error; }
+      if (generation !== this.generation || scopeKey !== this.objectScopeKey) throw new ISCPRequestNotSentError("ISCP authentication changed", "unavailable");
+      if (request !== original) rawBody = JSON.stringify(request.body);
+      // Fingerprint the renderer's immutable local IDs, not disposable transfer
+      // references. Receipt replay must work after source deletion/object expiry.
+      record=this.mutations.begin(resource,original,this.resourceRevisions.get(resource));
       request={...request,operation_id:record.operation_id,...(record.expected_revision?{expected_revision:record.expected_revision}:{})};
     }
     let response;
@@ -222,7 +238,8 @@ export class ISCPTransport {
       const signal=init.signal;
       const finish=(handler,value)=>{clearTimeout(timer);signal?.removeEventListener("abort",cancel);this.pending.delete(id);handler(value);};
       const cancel=()=>finish(reject,new Error("ISCP request was canceled"));
-      const timer=setTimeout(()=>finish(reject,new Error("ISCP request deadline exceeded")),this.timeoutMS);
+      const timeoutMS = ["mail.drafts.save", "mail.drafts.send"].includes(request.operation) && this.timeoutMS === 30000 ? 180000 : this.timeoutMS;
+      const timer=setTimeout(()=>finish(reject,new Error("ISCP request deadline exceeded")),timeoutMS);
       this.pending.set(id,{request,capacityClass,resolve:(value)=>finish(resolve,value),reject:(error)=>finish(reject,error)});
       signal?.addEventListener("abort",cancel,{once:true});
       try {const {body,...wireRequest}=request;this.child.stdin.write(`${JSON.stringify({ipc_version:1,type:"call",id,request:wireRequest,...(rawBody!==undefined?{body_base64:Buffer.from(rawBody,"utf8").toString("base64")}: {})})}\n`);}

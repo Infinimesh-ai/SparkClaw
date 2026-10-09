@@ -25,7 +25,7 @@ export class ClientStoreCapability {
       throw new Error("Invalid ClientStore request");
     }
     const capabilities = this.getCapabilities();
-    if (capabilities?.files === false && ["saveFile", "exportFile"].includes(request.operation)) throw new Error("Files are unavailable through this transport");
+    if (capabilities?.files === false && ["saveFile", "exportFile", "listFiles"].includes(request.operation)) throw new Error("Files are unavailable through this transport");
     if (capabilities?.approvals === false && request.operation === "decideApproval") throw new Error("Approvals are unavailable through this transport");
     const scope = { deployment_id: identity.deployment_id, owner_id: identity.owner_id, client_id: identity.client_id };
     const draftScope = crypto.createHash("sha256").update(JSON.stringify(scope)).digest("hex");
@@ -35,6 +35,9 @@ export class ClientStoreCapability {
       case "list":
         keys(request, []);
         return this.store.list(scope);
+      case "listFiles":
+        keys(request, []);
+        return this.store.listFiles(scope);
       case "create":
         keys(request, ["title"]);
         return this.store.create(scope, request.title);

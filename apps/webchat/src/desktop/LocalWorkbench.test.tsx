@@ -12,6 +12,7 @@ function draftAPI() {
   const rows = new Map<string, LocalDraft>();
   const read = (id: string) => rows.get(id) ?? { scope_key: "test-scope", content: "", local_file_ids: [], revision: 0 };
   return {
+    listFiles: vi.fn(async () => []),
     draft: vi.fn(async (id: string) => read(id)),
     saveDraft: vi.fn(async (id: string, content: string, local_file_ids: string[], revision: number) => {
       if (read(id).revision !== revision) throw new Error("Draft revision conflict");

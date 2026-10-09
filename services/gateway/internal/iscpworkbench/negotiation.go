@@ -154,6 +154,7 @@ func (e *Endpoint) negotiate(ctx context.Context, id string) {
 	body := json.RawMessage(`{"transport_negotiation":{"profiles":["sparkclaw.workbench.transport.v2","sparkclaw.workbench.transport.v1"]}}`)
 	r, err := e.Call(ctx, Request{Type: RequestType, Profile: Profile, ID: newUUID(), Operation: OperationIdentity, Body: body})
 	if err != nil {
+		e.negotiationFailed(id)
 		return
 	}
 	if r.Status == 400 || r.Status == 404 || r.Status == 501 {
@@ -199,10 +200,13 @@ func validateNegotiation(c TransportCapabilities, id string) error {
 
 func (e *Endpoint) negotiationFailed(id string) {
 	e.mu.Lock()
-	if e.session != nil && e.session.id == id {
+	current := e.session != nil && e.session.id == id
+	if current {
 		e.session.negotiating = false
 		e.session.nextNegotiationAt = time.Now().Add(5 * time.Second)
 	}
 	e.mu.Unlock()
-	e.setState("capability_negotiation_failed")
+	if current {
+		e.setState("capability_negotiation_failed")
+	}
 }

@@ -273,6 +273,10 @@ func (e *Endpoint) sessionLoop(ctx context.Context, stopConnection context.Cance
 				s.timePing = now
 			}
 			e.mu.Unlock()
+			if refresh {
+				e.workers.Add(1)
+				go e.negotiate(ctx, s.id)
+			}
 			if timedOut {
 				e.setState("disconnected")
 				// An authenticated but stalled receive socket must be replaced;

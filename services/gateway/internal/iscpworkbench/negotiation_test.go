@@ -153,3 +153,61 @@ func TestV2ChunkCiphertextFitsStandardEnvelopeAndUsesBulkPriority(t *testing.T) 
 		t.Fatal("bulk class did not use standard low-priority route")
 	}
 }
+
+func TestV2RefreshRunsBeforeRealCapabilityExpiry(t *testing.T) {
+	i, r, _ := v2Endpoints(t, true)
+	initial, _ := i.Negotiated()
+	deadline := time.Now().Add(1800 * time.Millisecond)
+	for _, e := range []*Endpoint{i, r} {
+		e.mu.Lock()
+		e.session.capabilities.ExpiresAt = deadline
+		e.mu.Unlock()
+	}
+	// Cross the original expiry in elapsed time: a timer condition alone is not
+	// evidence that a refresh worker was actually dispatched and received.
+	timer := time.NewTimer(time.Until(deadline) + 200*time.Millisecond)
+	defer timer.Stop()
+	<-timer.C
+	updated, ok := i.Negotiated()
+	if !ok || updated.SessionID != initial.SessionID || !updated.ExpiresAt.After(deadline.Add(time.Minute)) {
+		t.Fatalf("capability was not refreshed before its original expiry: %+v", updated)
+	}
+	response, err := i.Call(context.Background(), Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: OperationSettingsOwnerGet})
+	if err != nil || response.Status != 200 {
+		t.Fatalf("business failed beyond previous manifest expiry: %+v %v", response, err)
+	}
+}
+func TestV2NegotiationLocalFailureClearsFlagAndSchedulesRetry(t *testing.T) {
+	i, _, _ := v2Endpoints(t, true)
+	for n := 0; n < MaxConcurrent; n++ {
+		i.slots <- struct{}{}
+	}
+	i.mu.Lock()
+	id := i.session.id
+	i.session.negotiating = true
+	i.mu.Unlock()
+	i.workers.Add(1)
+	i.negotiate(context.Background(), id)
+	i.mu.Lock()
+	stuck := i.session.negotiating
+	retry := i.session.nextNegotiationAt
+	i.mu.Unlock()
+	for n := 0; n < MaxConcurrent; n++ {
+		<-i.slots
+	}
+	if stuck || !retry.After(time.Now()) {
+		t.Fatalf("local negotiation failure stuck or unpaced: negotiating=%v retry=%v", stuck, retry)
+	}
+	i.mu.Lock()
+	i.session.capabilities.ExpiresAt = time.Now().Add(1800 * time.Millisecond)
+	i.session.nextNegotiationAt = time.Now()
+	previous := i.session.capabilities.ExpiresAt
+	i.mu.Unlock()
+	timer := time.NewTimer(2100 * time.Millisecond)
+	defer timer.Stop()
+	<-timer.C
+	cap, ok := i.Negotiated()
+	if !ok || !cap.ExpiresAt.After(previous.Add(time.Minute)) {
+		t.Fatal("released capacity did not allow the scheduled retry")
+	}
+}

@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -170,5 +172,57 @@ func TestEmailComposeHTTPDraftPagesDoNotLoseOlderDrafts(t *testing.T) {
 	}
 	if w := f.request("GET", "/api/email/drafts?limit=2&mailbox_id=other&cursor="+url.QueryEscape(page.NextCursor), ""); w.Code != 400 {
 		t.Fatal("draft cursor crossed scope")
+	}
+}
+
+func TestEmailComposeHTTPAttachmentPreconditionsAndLegacyDraft(t *testing.T) {
+	f := newEmailHTTPFixture(t)
+	f.must(os.WriteFile(filepath.Join(f.root, "report.txt"), []byte("reviewed version one"), 0600))
+	makeInput := func(id string, version int, attachments any) string {
+		body := map[string]any{"id": id, "mailbox_id": f.box.ID, "expected_version": version, "to": []string{"recipient@example.test"}, "subject": "Review", "body": "Confirmed"}
+		if attachments != nil {
+			body["attachments"] = attachments
+		}
+		raw, err := json.Marshal(body)
+		f.must(err)
+		return string(raw)
+	}
+	assertCode := func(response *httptest.ResponseRecorder, status int, code string) {
+		t.Helper()
+		var result struct {
+			Code string `json:"code"`
+		}
+		if response.Code != status || json.Unmarshal(response.Body.Bytes(), &result) != nil || result.Code != code {
+			t.Fatalf("response %d %s", response.Code, response.Body.String())
+		}
+	}
+	assertCode(f.request("POST", "/api/email/drafts", makeInput("escape", 0, []any{map[string]any{"path": "../outside"}})), 400, "email_attachment_invalid")
+	// Clients cannot nominate a name, digest, remote URL or frozen staging path.
+	assertCode(f.request("POST", "/api/email/drafts", makeInput("forged", 0, []any{map[string]any{"path": "report.txt", "sha256": "forged"}})), 400, "email_invalid_request")
+	first := emailDecode[store.EmailDraft](t, f.request("POST", "/api/email/drafts", makeInput("attachment", 0, []any{map[string]any{"path": "report.txt"}})), 200)
+	if len(first.Attachments) != 1 || first.Attachments[0].SizeBytes != 20 {
+		t.Fatalf("manifest %+v", first.Attachments)
+	}
+	f.must(os.WriteFile(filepath.Join(f.root, "report.txt"), []byte("edited"), 0600))
+	assertCode(f.request("POST", "/api/email/drafts/attachment/send", `{"expected_version":1,"idempotency_key":"old-click"}`), 409, "email_attachment_changed")
+	saved := emailDecode[store.EmailDraft](t, f.request("GET", "/api/email/drafts/attachment", ""), 200)
+	if saved.State != "draft" || saved.Version != 1 {
+		t.Fatal("precondition consumed draft")
+	}
+	updated := emailDecode[store.EmailDraft](t, f.request("PUT", "/api/email/drafts/attachment", makeInput("attachment", 1, []any{map[string]any{"path": "report.txt"}})), 200)
+	if updated.Version != 2 || updated.Attachments[0].SHA256 == first.Attachments[0].SHA256 {
+		t.Fatal("save did not refresh reviewed version")
+	}
+	assertCode(f.request("POST", "/api/email/drafts/attachment/send", `{"expected_version":1,"idempotency_key":"stale-review"}`), 409, "email_conflict")
+	sent := emailDecode[store.EmailDraft](t, f.request("POST", "/api/email/drafts/attachment/send", `{"expected_version":2,"idempotency_key":"new-reviewed-click"}`), 200)
+	if sent.State != "sent" || sent.Snapshot.Attachments[0] != updated.Attachments[0] {
+		t.Fatal("reviewed manifest missing from sent snapshot")
+	}
+	legacy := emailDecode[store.EmailDraft](t, f.request("POST", "/api/email/drafts", makeInput("legacy", 0, nil)), 200)
+	if len(legacy.Attachments) != 0 {
+		t.Fatal("legacy draft gained attachments")
+	}
+	if out := emailDecode[store.EmailDraft](t, f.request("POST", "/api/email/drafts/legacy/send", `{"expected_version":1,"idempotency_key":"legacy-click"}`), 200); out.State != "sent" {
+		t.Fatal("legacy draft cannot send")
 	}
 }

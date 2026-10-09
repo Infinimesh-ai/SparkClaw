@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -30,7 +31,18 @@ type iscpDomainResult struct {
 // authorization and the Gateway's current per-operation scope admission. It
 // never accepts a route, HTTP method or caller-selected principal.
 func (s *Server) NewWorkbenchISCPDomainHandler(cfg iscpworkbench.Config) (iscpworkbench.Handler, error) {
-	journal, err := newISCPDomainReceipts(s.executionRoot)
+	root := s.executionRoot
+	if root == "" {
+		root = s.cfg.State.Path + ".execution"
+	}
+	if root == ".execution" {
+		return nil, errors.New("ISCP durable operation storage is unavailable")
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	journal, err := newISCPDomainReceipts(absolute)
 	if err != nil {
 		return nil, err
 	}

@@ -17,6 +17,18 @@ import (
 func domainTestContext(t *testing.T) context.Context {
 	return context.WithValue(t.Context(), requestPrincipalContextKey{}, requestPrincipal{Authenticated: true, OwnerID: "iscp-owner", ActorID: "iscp-actor", ClientID: "iscp-desktop-client"})
 }
+
+func TestISCPDomainStartsBeforeExecutionServiceInitialization(t *testing.T) {
+	server, _, cfg, _ := workbenchISCPFixture(t, nil)
+	server.executionRoot = ""
+	server.cfg.State.Path = filepath.Join(t.TempDir(), "state.json")
+	if _, err := server.NewWorkbenchISCPDomainHandler(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(server.cfg.State.Path + ".execution/iscp-domain-receipts/key"); err != nil || !info.Mode().IsRegular() {
+		t.Fatal("startup did not initialize durable operation key", err)
+	}
+}
 func domainTestRequest(operation string, body []byte) iscpworkbench.Request {
 	request := workbenchISCPRequest(operation, body)
 	request.Profile = "sparkclaw.workbench.transport.v2"

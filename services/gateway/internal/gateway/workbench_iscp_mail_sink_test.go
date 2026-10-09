@@ -101,6 +101,10 @@ func TestISCPDomainMailLoopbackLostReceiptReconcilesWithoutResend(t *testing.T) 
 		t.Fatal(err)
 	}
 	ctx := domainTestContext(t)
+	invalid := handler(ctx, domainTestRequest("mail.drafts.save", []byte(`{"id":"unsupported-attachment","attachments":[{"object_id":"untrusted"}]}`)))
+	if invalid.Status != 400 {
+		t.Fatal("provider without attachment support accepted a manifest")
+	}
 	body := strings.Repeat("x", 200<<10)
 	raw, _ := json.Marshal(map[string]any{"id": "loopback-draft", "expected_version": 0, "mailbox_id": box.ID, "to": []string{"sink@example.test"}, "subject": "isolated send", "body": body})
 	save := domainTestRequest("mail.drafts.save", raw)
@@ -111,7 +115,17 @@ func TestISCPDomainMailLoopbackLostReceiptReconcilesWithoutResend(t *testing.T) 
 	if replay := handler(ctx, save); replay.Status != 200 || !bytes.Equal(saved.Body, replay.Body) {
 		t.Fatal("large saved draft lacked durable receipt")
 	}
-	send := domainTestRequest("mail.drafts.send", []byte(`{"expected_version":1,"idempotency_key":"loopback-send-once"}`))
+	// An edit after review invalidates the old expected-version confirmation.
+	edited, _ := json.Marshal(map[string]any{"id": "loopback-draft", "expected_version": 1, "mailbox_id": box.ID, "to": []string{"sink@example.test"}, "subject": "isolated send amended", "body": body})
+	if result := handler(ctx, domainTestRequest("mail.drafts.save", edited)); result.Status != 200 {
+		t.Fatal("draft edit failed", result.Status)
+	}
+	stale := domainTestRequest("mail.drafts.send", []byte(`{"expected_version":1,"idempotency_key":"stale-review"}`))
+	stale.Params = map[string]string{"draft": "loopback-draft"}
+	if result := handler(ctx, stale); result.Status != 409 {
+		t.Fatal("stale send review was accepted", result.Status)
+	}
+	send := domainTestRequest("mail.drafts.send", []byte(`{"expected_version":2,"idempotency_key":"loopback-send-once"}`))
 	send.Params = map[string]string{"draft": "loopback-draft"}
 	result := handler(ctx, send)
 	var unknown store.EmailDraft

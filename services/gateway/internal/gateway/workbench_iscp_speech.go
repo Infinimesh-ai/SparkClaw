@@ -115,6 +115,15 @@ func (a *iscpDomainAdapter) speech(ctx context.Context, request iscpworkbench.Re
 			return domainError(413, "speech_audio_too_long")
 		}
 		if err = session.session.WriteAudio(ctx, input.Sequence-1, raw); err != nil {
+			// Provider delivery may already have happened. End this recording instead
+			// of accepting a retry that could append the same PCM twice.
+			session.closed = true
+			session.cancel()
+			_ = session.session.Close()
+			if len(session.events) < 64 {
+				session.sequence++
+				session.events = append(session.events, iscpSpeechEvent{session.sequence, speech.RealtimeEvent{Event: "error", Code: "speech_frame_outcome_unknown"}})
+			}
 			return domainSpeechError(err)
 		}
 		session.last = input.Sequence
@@ -128,11 +137,11 @@ func (a *iscpDomainAdapter) speech(ctx context.Context, request iscpworkbench.Re
 		if session.closed || session.ctx.Err() != nil {
 			return domainError(409, "speech_session_closed")
 		}
-		if session.finished {
-			return domainJSON(200, map[string]bool{"finishing": true})
-		}
 		if input.LastSequence == 0 || input.LastSequence != session.last || input.TotalSamples != session.samples {
 			return domainError(409, "speech_frame_conflict")
+		}
+		if session.finished {
+			return domainJSON(200, map[string]bool{"finishing": true})
 		}
 		if err := session.session.Finish(ctx, input.LastSequence-1, input.TotalSamples*1000/speech.RealtimeSampleRate, input.Reason); err != nil {
 			return domainSpeechError(err)

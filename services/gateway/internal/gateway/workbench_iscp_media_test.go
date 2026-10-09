@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -254,5 +255,41 @@ func TestISCPDomainQuietSpeechStreamClosesOnStandingAuthorizationRevocation(t *t
 	defer session.mu.Unlock()
 	if !session.closed || len(session.events) != 1 || session.events[0].Event.Code != "authorization_closed" {
 		t.Fatal("missing terminal revocation receipt")
+	}
+}
+
+type iscpUncertainAudioProvider struct {
+	*fakeGatewayRealtimeSession
+	calls int
+}
+
+func (p *iscpUncertainAudioProvider) WriteAudio(context.Context, uint32, []byte) error {
+	p.calls++
+	return errors.New("provider disconnected after accepting bytes")
+}
+func TestISCPDomainUncertainAudioFrameStopsInsteadOfReplayingProviderBytes(t *testing.T) {
+	server, _, cfg, textHandler := workbenchISCPFixture(t, nil)
+	bindWorkbenchISCP(t, textHandler)
+	server.speech = &fakeSpeechTranscriber{}
+	provider := &iscpUncertainAudioProvider{fakeGatewayRealtimeSession: newFakeGatewayRealtimeSession()}
+	ctx, cancel := context.WithCancel(domainTestContext(t))
+	defer cancel()
+	adapter := &iscpDomainAdapter{server: server, config: cfg, speechSessions: map[string]*iscpSpeechSession{}}
+	principal, _, err := adapter.executionIdentity(ctx, domainTestRequest("speech.session.frame", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := &iscpSpeechSession{id: "stream", scope: adapter.transientScopeFromContext(ctx, principal, iscpTestInstallation), session: provider, ctx: ctx, cancel: cancel, digests: map[uint32]string{}}
+	adapter.speechSessions[session.id] = session
+	body, _ := json.Marshal(map[string]any{"session_id": "stream", "sequence": 1, "pcm16": base64.StdEncoding.EncodeToString(make([]byte, 3200))})
+	request := domainTestRequest("speech.session.frame", body)
+	if result := adapter.speech(ctx, request); result.status < 400 {
+		t.Fatal("unknown delivery accepted")
+	}
+	if result := adapter.speech(domainTestContext(t), request); result.status != 409 {
+		t.Fatal("closed stream resumed", result)
+	}
+	if provider.calls != 1 || !session.closed || len(session.events) != 1 || session.events[0].Event.Code != "speech_frame_outcome_unknown" {
+		t.Fatal("uncertain audio was duplicated or hidden")
 	}
 }

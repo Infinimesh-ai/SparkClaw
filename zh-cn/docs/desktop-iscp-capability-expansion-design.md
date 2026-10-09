@@ -2,7 +2,7 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-iscp-capability-expansion-design.md)
 >
-> 日期：2026-10-09。状态：首批实现已通过隔离验证；P1–P5 尚未发布。已实现子集见 9.1 节。
+> 日期：2026-10-09。状态：P1–P5 适配及按能力开放的桌面界面已实现，验收范围见 9.2 节；现有安装和部署未改动。
 > 范围：SparkX 经本地 Docker ISCP Relay 连接 SparkClaw，按依赖顺序补齐业务。允许调整本地 Relay，但必须保持与在线 Relay 的协议兼容；本轮不切换在线部署。
 
 ## 1. 目标、基线与实施顺序
@@ -296,7 +296,54 @@ Execution 控制存储从 v2 迁移到 v3。**旧二进制不能读取 v3。** �
 
 验证：授权／execution／Gateway 定向 race；桌面 158 项；WebChat 220 项及生产构建；本地 lab 六项，包含真实固定版本 Docker Relay、实际 Gateway 执行、helper 重连和零 Gateway 直连 HTTP 调用。Docker 模型明确为 mock。控制时钟的永久授权及注入网络的撤销测试不是真实两年持续运行、原生应用验收或在线 Relay 验收。隔离 Linux 全量 Go 检查及 Go build/vet 通过；macOS 基线中缺少 `/dev/shm` 和路径符号链接导致的失败由 Linux 环境验证覆盖。
 
-P1 能力协商／注册表、逐操作权限、设置、通知尚待实现。P2–P5 业务适配与原生发布门禁仍待完成。未升级已安装 SparkX 或运行中的部署。配置及祖先锚点均未找到 InfiniCenter，因此未修改跨项目契约或中枢状态。
+以上是首批检查点，9.2 节取代其待实现清单。未升级已安装 SparkX 或运行中的部署。配置及祖先锚点均未找到 InfiniCenter，因此未修改跨项目契约或中枢状态。
+
+## 9.2 全阶段实现与验收，2026-10-09
+
+P1–P5 复用既有领域服务，没有另造执行器，也没有任意 HTTP 隧道。唯一操作清单为 `services/gateway/internal/iscpworkbench/operations.json`，用 `node scripts/sync-iscp-operations.mjs --check` 检查桌面投影。两端私有 helper 配置必须明确选择 `["sparkclaw.workbench.transport.v2", "sparkclaw.workbench.transport.v1"]`。`qualified_capabilities` 填逐个操作名，默认空；签名授权 scopes 与部署验收资格相互独立。旧配置、原 Grant 接入新 responder 时仍严格保留 v1 九操作。
+
+| 阶段 | 已实现 | 证据及仍需区分的验收 |
+|---|---|---|
+| P1 | 绑定会话且有到期时间的能力清单、签名精确权限、当前设备永久授权、设备证明绑定的删除与回执查询、显式重新授权、Owner／连接器／凭证 CAS、加密修改回执、通知水位 | 真实 issuer／加密链路／默认 file Gateway 测试；原生设置界面保存与读回、Keychain；未配置真实 provider 的凭证不声称可用性验收 |
+| P2 | 共用私有对象存储、8 KiB 分块与两份额度、hash、持久检查点续传、配额与清理、执行输入输出、大型 typed JSON | 真实 Docker Relay 8／64 MiB 容量实测；半途签名 Grant 到期并续期后继续原传输；原生文件上传／执行结果／ACK；修改版与未修改参考 Relay 兼容 |
+| P3 | 持久审批版本／摘要／决策回执、重启终结、持久有界事件窗口、加密游标与 outbox、SQLite 投影和游标提交后 ACK、缺口重建 | 审批／拒绝／重放／重启／丢响应测试；真实受控文档读写及产物；三后端事件窗口、epoch、丢 ACK 与保留期缺口 |
+| P4 | 后端权威邮件缓存／附件读取／版本化草稿、明确发送确认与结果核对；既有 Browser Broker 的 ISCP poll；精确工具白名单传入共用 ToolHub／Policy | 真实文档工具、受控邮件接收端与持久回执、原生 Chromium 读取／填写／点击／截图与丢失写回执栅栏。真实邮件 provider 和浏览器展示配置分别验收。现有邮件 provider 不支持发送附件清单，因此附件发送明确保持不可用 |
+| P5 | 录音 WAV 对象、持久请求回执与取消；有界 PCM 帧、provider ACK、partial／final／cancel 与撤销取消 | 受控 provider 协议测试；真实麦克风／语料／延迟依赖该部署配置 ASR。现有系统无回放／双向 provider，明确返回 `provider_unsupported` 并保持关闭 |
+
+删除永久授权走 helper `authorization_delete`／`authorization_delete_receipt` 控制 IPC，用原设备 PoP 访问固定 issuer；Relay／Grant 不可用后仍可核对。`authorizations.list` 只返回当前设备的新鲜签名授权，Gateway 无权冒充设备删除；通用 `authorizations.delete` 返回 `device_authorization_control_required`。桌面先持久化原删除 ID 与预期 revision。重新授权需要 issuer 操作员明确执行 `-reauthorize-permanent -expected-revision … -operation-id … -authorization-scopes … -grant-file …`，两端导入新 Grant，再由用户点击“检查新安装的授权”。续期和重启均不能扩大 scopes 或恢复删除的授权。
+
+本机 Docker Relay 实测（每个尺寸各上传／下载一次，控制请求全程采样）：
+
+| 内容大小 | 上传 | 下载 | 控制请求 p95 |
+|---|---:|---:|---:|
+| 8 MiB | 38.63 秒 | 44.57 秒 | 两种尺寸全程 41.49 毫秒 |
+| 64 MiB | 353.40 秒 | 403.58 秒 | 同一控制请求样本序列 |
+
+两个下载文件的 SHA-256 均与输入相同。事先固定门槛为 8 MiB 每方向 90 秒、64 MiB 每方向 600 秒、控制 p95 2,000 毫秒。首轮 64 MiB 暴露五分钟后未派发能力刷新 worker 的缺陷；已补真实经过到期时间的回归测试并完整重跑通过，没有放宽门槛。原生设置／文件／事件／重连 fixture 的 Chromium NetLog 与 HTTP／WS 阻断记录中，直连业务尝试数均为 0。
+
+验证：Linux Go 65 个有测试的包通过（另六个包无测试），Go build／vet、针对性 race、真实 PostgreSQL 18 CAS／事件窗口／重新连接测试、Desktop 186 项、WebChat 227 项与构建、两个生成契约检查、110 份双语文档镜像检查通过。原生应用使用 Electron 44.4.3／Chromium 152.0.7977.130。Mac arm64 未签名候选 ZIP 已构建，未覆盖现有安装，SHA-256 为 `f9de06ab7f5b8bfa4d272b27feb8ba795d407f61127dfdbdb046f337b974aff1`。原生业务测试仍受其明确标注的受控模型／provider 范围限制。
+
+独立 Browser Host 原生 fixture 使用真实 `WebContentsView`、生产 Broker 和适配器，通过固定 issuer／本地 Relay 加密轮询宿主。受控页面读取、填写和截图成功，PNG 为 18,609 字节；实际点击生效后丢失回执，两端账本各保留一条 `unknown`，重复该命令被拒绝，点击计数仍为一。Gateway HTTP 直连和 Host WebSocket 尝试均为零。macOS fixture 明确激活应用／Dock，并关闭窗口遮挡和 renderer 后台节流，使合成器能产生帧。这只验证该前台 fixture 配置，不代表生产应用默认后台设置的截图行为已经验收。[机器可读验收摘要](../../docs/evidence/iscp-expansion-2026-10-09.json) 同时保留这些限制与源码／产物 hash。
+
+存储与恢复：执行控制 v3、issuer 状态 v2、桌面 SQLite v8（v6／v7 迁移保留本机历史）。旧程序不得打开新版账本。对象和执行结果保留 24 小时，未完成上传一小时过期。领域回执使用加密有界账本（65,536 条／512 MiB），在产生副作用前预留结果空间。普通文件／邮件附件最大 64 MiB，执行输入／结果 8 MiB，执行上下文 1 MiB，单任务暂存 32 MiB。录音受实际 ASR 上传配置与 25 MiB 上限共同约束。原生截图保留 64 KiB capture、96 KiB reply JSON 限制。能力清单公布实际业务上限，不把普通文件容量当成所有领域容量。撤销后后续交付在授权检查处被拒绝；磁盘对象按有界清理器的 TTL 清除。
+
+本地 Relay 优化通过 `prepare-expansion --capacity-relay` 明确启用。构建器复制 checksum 锁定的 ISCP `v0.2.0-rc.1` 到私有 lab，记录修改前后源码及二进制 hash，只调整 local-lab 调度与速率；不修改模块缓存、SDK、PoP、注册、envelope、路由或 message／drained 帧。流连接检测关闭的 peer，避免废弃连接吃掉后续消息。未修改的参考 Relay 已通过 v2 设置／分块／重连和严格 v1 检查。这是隔离协议兼容证据，未测试或改动在线部署。
+
+复现命令（路径必须为独立的私有测试目录，不得指向现有部署）：
+
+```sh
+node scripts/build-iscp-helper.mjs
+node scripts/iscp-local-lab.mjs prepare-expansion --input /private/path/input.json --directory /private/path/lab --capacity-relay
+node scripts/iscp-local-lab.mjs up --directory /private/path/lab
+node scripts/iscp-expansion-capacity.mjs /private/path/lab
+node scripts/iscp-expansion-compatibility.mjs /private/path/reference-lab
+SPARKCLAW_ISCP_NATIVE_LAB=/private/tmp/native-lab node_modules/.bin/electron scripts/iscp-native-expansion-fixture.mjs
+node apps/desktop/test/run-host-iscp-native-qualification.mjs /private/tmp/browser-host-lab
+```
+
+兼容测试单独准备不带优化的 `prepare-expansion` lab；原生界面另用全新 capacity lab。Browser Host runner 需要自己的已准备 capacity lab，且 lab Gateway 处于停止状态；它自行启动真实 Gateway 测试进程，固定证书的 HTTPS 监听只提供受控页面与测试驱动路由。一个 Client 绑定一个持久 installation，不得让互不相关的桌面 Store 并发共用 lab。原生工作台 fixture 导入真实应用入口，操作设置界面和沙盒 IPC，保存截图与 Chromium NetLog，在 Gateway 业务端口不发布的条件下检查执行交付；还会阻断原生直连 HTTP／WS，暂停 Relay 后验证重连不会重新提交。该 fixture 明确使用 mock 模型，不代表真实模型语义、邮件 provider 或麦克风识别验收。测试候选开关不是生产发布开关。
+
+发布状态：实现代码与隔离候选可用于最后验收。真实邮件／ASR provider、部署实际使用的浏览器展示配置及逐个受控工具必须有各自正向业务证据才能在生产开放。不支持的邮件附件发送及 TTS／双向语音保持关闭，音频不会冒充 ASR 或回退 HTTP。现有安装、远端部署与在线 Relay 保持原状。配置锚点仍无 InfiniCenter，因此不声称中枢批准，也未改动共用上游协议。
 
 ## 10. 关联设计
 

@@ -1,0 +1,242 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "implemented_with_per_capability_release_gates",
+  "review_source_commit": "1178fcba64b71c3b912431045aaa45c5c9aed80c",
+  "scope": "Local isolated candidates; not an installed or online deployment release",
+  "accepted_user_decisions": [
+    "Standing authorization is permanent until manual deletion",
+    "Local Relay changes preserve online protocol carriage",
+    "Gateway restart terminates tasks awaiting approval"
+  ],
+  "validation": {
+    "linux_go_tested_packages": 65,
+    "linux_go_packages_without_tests": 6,
+    "go_build": true,
+    "go_vet": true,
+    "focused_race": true,
+    "postgresql_18_real_cas_event_window_reopen": true,
+    "desktop_tests_passed": 186,
+    "webchat_tests_passed": 227,
+    "webchat_production_build": true,
+    "generated_contract_checks_passed": 2,
+    "bilingual_document_mirrors": 110
+  },
+  "candidate_artifacts": [
+    {
+      "path": "apps/desktop/dist/SparkX-0.1.0-mac-arm64.zip",
+      "bytes": 135833047,
+      "sha256": "f9de06ab7f5b8bfa4d272b27feb8ba795d407f61127dfdbdb046f337b974aff1",
+      "signed": false,
+      "replaced_existing_installation": false
+    },
+    {
+      "path": "apps/desktop/dist/SparkX-0.1.0-mac-arm64.dmg",
+      "bytes": 136018897,
+      "sha256": "43eefbe2d1f69b8683a2b30fd6145e71c2b6483d9de694d049d9baabdeabc5dc",
+      "signed": false,
+      "replaced_existing_installation": false
+    }
+  ],
+  "capacity": {
+    "thresholds": {
+      "upload_8m_seconds": 90,
+      "download_8m_seconds": 90,
+      "upload_64m_seconds": 600,
+      "download_64m_seconds": 600,
+      "control_p95_ms": 2000
+    },
+    "samples": [
+      {
+        "mib": 8,
+        "upload_seconds": 38.633214625,
+        "download_seconds": 44.565494333,
+        "sha256": "aa033873b057006ccfccb79016869405f1ee488fc4e59ccef04cf450e0a5858e"
+      },
+      {
+        "mib": 64,
+        "upload_seconds": 353.39873545899997,
+        "download_seconds": 403.58302983400006,
+        "sha256": "a8e0c6306d860a66471f0578c39f543c5fbc4a384bb29abfcdeb17347c32a97f"
+      }
+    ],
+    "control_p95_ms": 41.491792000015266,
+    "passed": true,
+    "source": {
+      "module": "github.com/Infinimesh-ai/ISCP",
+      "version": "v0.2.0-rc.1",
+      "module_sum": "h1:d2Epn12InLrGF6nOZ5aEGat5CFxryKRKYbOzEbIRg6A=",
+      "capacity_patch": {
+        "mode": "compatible-capacity-v1",
+        "reference_server_sha256": "5ea95c022c05fb504cbb63047432a52543151428ffb7fd8eda0c1f09b87e511b",
+        "patched_server_sha256": "dd13f2248c90ed0a8d6ba1a9b5e85fe9df27982d2d19efe24cf152095884cfd7",
+        "local_requests_per_minute": 12000,
+        "stream_lifetime_seconds": 600,
+        "drain_tick_ms": 10
+      },
+      "relay_binary_sha256": "8dd54ba5e01d1273edcf2b1d926fcade3b3876b34072be65d6c8d7b6faa92029",
+      "image": "sparkclaw-iscp-relay:0.2.0-rc.1-8dd54ba5e01d",
+      "image_id": "sha256:776d5c0796309b38729e445ebc61c7e3d64ca81b8e5327044503195025d40fb2",
+      "goarch": "arm64"
+    },
+    "control_samples": 1937,
+    "network_evidence_scope": "No Gateway business ports published; native workbench independently instruments outbound attempts. The original benchmark constant HTTP counter is not treated as measurement."
+  },
+  "compatibility": {
+    "reference_compatibility": {
+      "checks": [
+        "v2_settings_write_and_receipt",
+        "v2_standard_envelope_chunk_roundtrip",
+        "v2_reconnect_preserves_business_state",
+        "v1_exact_nine_operations_and_identity"
+      ],
+      "passed": true,
+      "source": {
+        "module": "github.com/Infinimesh-ai/ISCP",
+        "version": "v0.2.0-rc.1",
+        "module_sum": "h1:d2Epn12InLrGF6nOZ5aEGat5CFxryKRKYbOzEbIRg6A=",
+        "relay_binary_sha256": "466ff53ceca7497cddc008a91ebac759a064167463fd30c26bff058ccf00209c",
+        "image": "sparkclaw-iscp-relay:0.2.0-rc.1-466ff53ceca7",
+        "image_id": "sha256:aa4dc4977600ee9b20e0be69c90ab53f93093dd2d35d942aee29a73343d7b359",
+        "goarch": "arm64"
+      },
+      "network_evidence_scope": "Isolated unpublished Gateway business ports; no per-process native observation in this protocol fixture"
+    },
+    "modified_compatibility": {
+      "checks": [
+        "v2_settings_write_and_receipt",
+        "v2_standard_envelope_chunk_roundtrip",
+        "v2_reconnect_preserves_business_state",
+        "v1_exact_nine_operations_and_identity"
+      ],
+      "passed": true,
+      "source": {
+        "module": "github.com/Infinimesh-ai/ISCP",
+        "version": "v0.2.0-rc.1",
+        "module_sum": "h1:d2Epn12InLrGF6nOZ5aEGat5CFxryKRKYbOzEbIRg6A=",
+        "capacity_patch": {
+          "mode": "compatible-capacity-v1",
+          "reference_server_sha256": "5ea95c022c05fb504cbb63047432a52543151428ffb7fd8eda0c1f09b87e511b",
+          "patched_server_sha256": "dd13f2248c90ed0a8d6ba1a9b5e85fe9df27982d2d19efe24cf152095884cfd7",
+          "local_requests_per_minute": 12000,
+          "stream_lifetime_seconds": 600,
+          "drain_tick_ms": 10
+        },
+        "relay_binary_sha256": "8dd54ba5e01d1273edcf2b1d926fcade3b3876b34072be65d6c8d7b6faa92029",
+        "image": "sparkclaw-iscp-relay:0.2.0-rc.1-8dd54ba5e01d",
+        "image_id": "sha256:776d5c0796309b38729e445ebc61c7e3d64ca81b8e5327044503195025d40fb2",
+        "goarch": "arm64"
+      },
+      "gateway_binary_sha256": "4031a2a0a61696e9ea6ce19d36f02e3c460a856a36940f2f509b47f4a81f04b5",
+      "helper_binary_sha256": "e8850c6c3739d063582cf9250fddab1cd9a6bdf39fb2125cf0334193b52efaf2",
+      "gateway_business_ports_published": false,
+      "network_evidence_scope": "Isolated unpublished Gateway business ports; no per-process native observation in this protocol fixture"
+    }
+  },
+  "native_workbench": {
+    "electron": "44.4.3",
+    "chromium": "152.0.7977.130",
+    "source": {
+      "module": "github.com/Infinimesh-ai/ISCP",
+      "version": "v0.2.0-rc.1",
+      "module_sum": "h1:d2Epn12InLrGF6nOZ5aEGat5CFxryKRKYbOzEbIRg6A=",
+      "capacity_patch": {
+        "mode": "compatible-capacity-v1",
+        "reference_server_sha256": "5ea95c022c05fb504cbb63047432a52543151428ffb7fd8eda0c1f09b87e511b",
+        "patched_server_sha256": "dd13f2248c90ed0a8d6ba1a9b5e85fe9df27982d2d19efe24cf152095884cfd7",
+        "local_requests_per_minute": 12000,
+        "stream_lifetime_seconds": 600,
+        "drain_tick_ms": 10
+      },
+      "relay_binary_sha256": "8dd54ba5e01d1273edcf2b1d926fcade3b3876b34072be65d6c8d7b6faa92029",
+      "image": "sparkclaw-iscp-relay:0.2.0-rc.1-8dd54ba5e01d",
+      "image_id": "sha256:7f85d1bb28280064ec96fece8ef0e5576b630dbe92333a5b00b20250e61e99c2",
+      "goarch": "arm64"
+    },
+    "topology": "isolated Docker Gateway without published business ports",
+    "model": "mock",
+    "checks": [
+      "native_keychain_and_current_capability_projection",
+      "real_settings_UI_saved_and_read_through_ISCP_with_HTTP_blocked",
+      "native_local_file_upload_execution_delivery_and_ACK",
+      "native_bounded_notification_reader",
+      "native_event_projection_committed_before_ACK",
+      "Relay_interruption_has_no_HTTP_rescue_and_original_delivery_survives_reconnect"
+    ],
+    "direct_gateway_business_attempts": 0,
+    "passed": true
+  },
+  "native_browser_host": {
+    "event": "sparkclaw_host_iscp_native_qualification",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "electron": "44.4.3",
+    "chromium": "152.0.7977.130",
+    "direct_business_attempts": 0,
+    "host_websocket_attempts": 0,
+    "native_clicks": 1,
+    "screenshot_window_visible": true,
+    "screenshot_window_focused": false,
+    "selected_conversation": "native",
+    "presented_host_page": true,
+    "surface": {
+      "visible": true,
+      "bounds": {
+        "x": 550,
+        "y": 70,
+        "width": 640,
+        "height": 720
+      },
+      "attached": true,
+      "loading": false,
+      "two_frames": true
+    },
+    "read_and_reversible_fill": true,
+    "native_screenshot_bytes": 18609,
+    "observed_counter": "Counter: 1",
+    "unknown_write_not_repeated": true,
+    "production_gateway_adapters": true,
+    "pinned_issuer_and_reference_relay": true,
+    "host_channel": "iscp_poll_reply",
+    "real_electron_webcontents": true,
+    "iscp_operations": {
+      "browser.host.close": 1,
+      "browser.host.grant": 1,
+      "browser.host.poll": 10,
+      "browser.host.register": 1,
+      "browser.host.reply": 8,
+      "browser.receipt": 1,
+      "capabilities.get": 1,
+      "installation.bind": 1
+    },
+    "screenshot_passed": true,
+    "local_unknown_receipts": 1,
+    "backend_unknown_receipts": 1,
+    "production_data": false,
+    "passed": true,
+    "screenshot_bytes": 18609,
+    "fixture_configuration": {
+      "mac_regular_activation": true,
+      "dock_shown": true,
+      "disable_backgrounding_occluded_windows": true,
+      "disable_renderer_backgrounding": true,
+      "production_code_modified_for_compositor": false
+    },
+    "controlled_page_and_debug_driver_https": "Separately pinned local TLS; not a Gateway business fallback"
+  },
+  "raw_evidence_sha256": {
+    "capacity": "f6d3c289077597f6b6c2bb2a9f6be8ea97ecf473d255b6c0127a5fd63612c7a3",
+    "reference_compatibility": "514c5b6efb19fbe057ca8fc7544a77ac285fa40c87760e4378591d0f9d995a8d",
+    "modified_compatibility": "8e4175e15d825dc2ee330f905e2fe10fabbf33ef9e7fcdd683da296899570cf3",
+    "native_workbench": "2dc5bd436287c3b44b9a70b51f0470e3ef1b8e63908a916f19c8eb662f917f2d",
+    "native_browser_host": "8ce6e274ee0fdf46c26120e31454754c25ef0444869a0ee29b7df63bcfad69d8"
+  },
+  "limits": [
+    "Mail provider readiness and real ASR microphone/corpus/latency require deployment-specific positive evidence",
+    "Mail attachment sending is unsupported by the existing provider",
+    "TTS/playback/duplex has no existing provider and remains unsupported",
+    "Native browser screenshot verification uses explicit foreground activation and disables occluded/renderer backgrounding; production default background behavior is not qualified",
+    "All added production capabilities default closed until individually qualified",
+    "InfiniCenter was unavailable at configured ancestor anchors; no central acceptance or shared upstream protocol change is claimed"
+  ]
+}

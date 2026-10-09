@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-iscp-capability-expansion-design.md)
 >
-> Date: 2026-10-09. Status: initial implementation slice verified in isolation; P1–P5 are not released. See section 9.1 for the implemented subset.
+> Date: 2026-10-09. Status: P1–P5 adapters and gated desktop surfaces implemented; qualification is recorded in section 9.2. Installed deployments are unchanged.
 > Scope: SparkX connects to SparkClaw through the local Docker ISCP Relay. Local Relay changes are permitted but must preserve protocol compatibility with the online Relay; this work does not switch the deployment online.
 
 ## 1. Objective, baseline and implementation order
@@ -296,7 +296,54 @@ Execution control storage migrates v2 to v3. **Old binaries cannot read v3.** Do
 
 Validation: focused authorization/execution/Gateway race tests; 158 desktop tests; 220 WebChat tests and production build; six local-lab cases including real pinned Docker Relay, actual Gateway execution, helper reconnect and zero direct Gateway HTTP calls. The Docker model is explicitly mocked. Controlled-clock permanence and injected-network revocation tests are not a real two-year soak, native-app acceptance or online Relay acceptance. Isolated Linux full Go tests and Go build/vet passed; Linux validation covers the macOS baseline failures caused by missing `/dev/shm` and symbolic-link paths.
 
-P1 capability negotiation/registry, operation-specific permissions, settings and notifications are still pending. P2–P5 business adapters and native release gates remain pending. Existing installed SparkX and running deployments were not upgraded. InfiniCenter was unavailable at the configured ancestor anchors, so no cross-project contract or central status was modified.
+This was the initial checkpoint; section 9.2 supersedes its pending implementation list. Existing installed SparkX and running deployments were not upgraded. InfiniCenter was unavailable at the configured ancestor anchors, so no cross-project contract or central status was modified.
+
+## 9.2 Full implementation and qualification, 2026-10-09
+
+P1–P5 use the same existing domain services; there is no second execution engine or arbitrary HTTP tunnel. The canonical inventory is `services/gateway/internal/iscpworkbench/operations.json`; `node scripts/sync-iscp-operations.mjs --check` verifies the desktop projection. Both private helper profiles must explicitly select `["sparkclaw.workbench.transport.v2", "sparkclaw.workbench.transport.v1"]`. `qualified_capabilities` contains individual operation names and defaults to empty. Signed authorization scopes are independent of that deployment qualification. v1 remains exactly nine operations, including when an old configuration and original Grant connect to a new responder.
+
+| Phase | Implemented | Evidence and remaining qualification |
+|---|---|---|
+| P1 | Session-bound expiring manifests, signed exact scopes, permanent own-device authorization, proof-bound deletion/reconciliation, explicit reauthorization, Owner/connector/credential CAS, encrypted mutation receipts, notification watermarks | Real issuer/crypto/default file Gateway tests; native settings UI save/read and Keychain; no provider credential usability is claimed without a configured provider |
+| P2 | Shared private object store, 8 KiB chunks/two credits, hashes, resumable durable checkpoints, bounded quotas/expiry, execution input/output and large typed JSON | Real local Docker Relay 8/64 MiB capacity test; signed Grant expiry/renewal during partial upload; native local file upload/execution result/ACK; modified and unmodified reference Relay compatibility |
+| P3 | Durable approval revisions/digests/decision receipts, restart termination, bounded persistent event window, encrypted cursor/outbox, persist-before-ACK SQLite projection and cursor-gap reset | Approval/reject/replay/restart and response-loss tests; actual governed document read/edit/artifact tests; event epoch, lost ACK and retention-gap tests on repository backends |
+| P4 | Backend-authoritative mail cache/attachment reads/versioned drafts and explicit send confirmation/reconciliation; existing Browser Broker over ISCP polling; exact per-tool allowlist into shared ToolHub/Policy | Real document tools; controlled mail sink with durable receipts; native Chromium read/fill/click/screenshot and lost-write fencing. Actual mail providers and browser presentation configurations qualify separately. The existing mail provider cannot send attachment manifests, so attachment sending remains explicitly unsupported |
+| P5 | Recorded WAV objects with durable request reconciliation/cancel; bounded PCM streaming frames, provider ACKs, partial/final/cancel events and revocation cancellation | Controlled provider protocol tests; live microphone/corpus/provider latency gates still require that deployment's configured ASR. Playback/duplex has no existing provider and explicitly reports `provider_unsupported`; it remains disabled |
+
+Standing authorization deletion uses helper `authorization_delete` / `authorization_delete_receipt` control IPC and subject-device PoP against the pinned issuer. It continues to reconcile after the Relay/Grant is unavailable. `authorizations.list` reports only the current device's fresh signed policy; the Gateway cannot impersonate the subject device to delete authorization. Generic `authorizations.delete` returns `device_authorization_control_required`. The desktop persists the original deletion ID and expected revision before sending. A new authorization requires the issuer operator's explicit `-reauthorize-permanent -expected-revision … -operation-id … -authorization-scopes … -grant-file …`, both peers importing its new Grant, and the user's **Check newly installed authorization** action. Neither renewal nor restart expands scopes or restores deleted consent.
+
+Recorded capacity on local Docker Relay (one upload/download per size; control p95 is sampled throughout):
+
+| Payload | Upload | Download | Control p95 |
+|---|---:|---:|---:|
+| 8 MiB | 38.63 s | 44.57 s | 41.49 ms across both sizes |
+| 64 MiB | 353.40 s | 403.58 s | same control sample series |
+
+Both downloaded SHA-256 values match their inputs. The predeclared limits were 90 seconds per 8 MiB direction, 600 seconds per 64 MiB direction and 2,000 ms control p95. The first 64 MiB attempt exposed a missing capability-refresh worker after five minutes; an elapsed-time regression and a full rerun now pass. No capacity threshold was relaxed. Chromium NetLog and native HTTP/WS blocking observed zero direct business attempts during the native settings/file/event/reconnect fixture.
+
+Validation: 65 Linux Go packages passed (six additional packages have no tests), Go build/vet, focused race checks, real PostgreSQL 18 CAS/event-window/reopen tests, 186 desktop tests, 227 WebChat tests/build, both generated contract checks and 110 bilingual documentation mirrors. The native application test uses Electron 44.4.3 / Chromium 152.0.7977.130. The unsigned Mac arm64 candidate ZIP was built without replacing the installed application. Its SHA-256 is `f9de06ab7f5b8bfa4d272b27feb8ba795d407f61127dfdbdb046f337b974aff1`. Native business tests retain their explicitly controlled model/provider scope.
+
+The separate native Browser Host fixture uses real `WebContentsView`, the production Broker and adapters, and encrypted host polling through the pinned issuer/local Relay. It read and filled the controlled page, returned an 18,609-byte PNG, then lost a click reply after the actual effect. Both journals retained one `unknown`; repeating that command was rejected and the click count remained one. Direct Gateway HTTP and Host WebSocket attempts were zero. On macOS the fixture explicitly activates the app/dock and disables occluded-window and renderer backgrounding so its compositor produces frames. This qualifies that foreground fixture configuration; it does not establish screenshot behavior under the production app's default background settings. The machine-readable [qualification summary](evidence/iscp-expansion-2026-10-09.json) records these limits with source/artifact hashes.
+
+Storage and recovery: execution control v3, issuer state v2, desktop SQLite v8 (migration from v6/v7 preserves local history). Old binaries must not open newer ledgers. Objects and execution results retain a 24-hour recovery window; in-progress transfers expire after one hour. Domain receipts use an encrypted bounded journal (65,536 records / 512 MiB), reserving result space before effects. Generic files/mail attachments allow 64 MiB, execution inputs/results 8 MiB, execution context 1 MiB and task staging 32 MiB. Recorded audio is bounded by the configured ASR upload limit and 25 MiB. Native screenshots retain their existing 64 KiB capture limit and 96 KiB reply-JSON limit. Manifests expose effective limits, rather than treating generic file capacity as every domain's capacity. Revocation rejects subsequent delivery immediately at the authorization fence; disk objects then expire under the bounded janitor.
+
+Local Relay optimization is opt-in with `prepare-expansion --capacity-relay`. The builder copies the checksum-locked ISCP `v0.2.0-rc.1` source into the private lab, records before/after source and binary hashes, and changes only local-lab scheduling/rate limits. It does not edit the module cache, SDK, PoP, enrollment, envelopes, routes or message/drained frames. The stream detects closed peers so an abandoned connection cannot consume later messages. The unmodified reference Relay passes v2 settings/chunks/reconnect and exact-v1 checks. This is isolated protocol compatibility evidence; an online deployment has not been tested or changed.
+
+Reproducible checks (all paths below are disposable private lab directories, never an existing deployment):
+
+```sh
+node scripts/build-iscp-helper.mjs
+node scripts/iscp-local-lab.mjs prepare-expansion --input /private/path/input.json --directory /private/path/lab --capacity-relay
+node scripts/iscp-local-lab.mjs up --directory /private/path/lab
+node scripts/iscp-expansion-capacity.mjs /private/path/lab
+node scripts/iscp-expansion-compatibility.mjs /private/path/reference-lab
+SPARKCLAW_ISCP_NATIVE_LAB=/private/tmp/native-lab node_modules/.bin/electron scripts/iscp-native-expansion-fixture.mjs
+node apps/desktop/test/run-host-iscp-native-qualification.mjs /private/tmp/browser-host-lab
+```
+
+Prepare a separate unmodified `prepare-expansion` lab for compatibility, and a fresh capacity lab for native UI. The Browser Host runner requires its own prepared capacity lab with the lab Gateway stopped; it starts a real Gateway test process, while its pinned HTTPS listener serves only the controlled page and test-driver routes. One Client is bound to one persisted installation; do not reuse one lab concurrently across unrelated desktop stores. The native workbench fixture imports the real application entry point, operates the settings UI and sandboxed IPC, saves a screenshot/Chromium NetLog and checks execution delivery with Gateway business ports unpublished. It also blocks native direct HTTP/WS, interrupts Relay and verifies reconnect without resubmission. Its model is explicitly mocked; it does not qualify semantic model output, mail-provider behavior or microphone recognition. Candidate lab flags are not production release flags.
+
+Release state: implementation is available for final review in source and isolated candidates. Provider-dependent mail/ASR, the deployment's actual browser presentation configuration and each individually governed tool require their recorded positive business evidence before production enablement. Unsupported mail attachment sending and TTS/duplex stay closed; audio is not silently replaced by ASR or HTTP. Existing installations, remote deployments and online Relay remain untouched. InfiniCenter is still absent at the configured anchors; no central acceptance or shared upstream protocol change is claimed.
 
 ## 10. Related designs
 

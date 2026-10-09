@@ -25,6 +25,7 @@ type iscpDomainAdapter struct {
 	speechMu       sync.Mutex
 	eventMu        sync.Mutex
 	speechSessions map[string]*iscpSpeechSession
+	recordings     map[string]context.CancelFunc
 }
 type iscpDomainResult struct {
 	status int
@@ -51,7 +52,7 @@ func (s *Server) NewWorkbenchISCPDomainHandler(cfg iscpworkbench.Config) (iscpwo
 	if err != nil {
 		return nil, err
 	}
-	adapter := &iscpDomainAdapter{server: s, config: cfg, receipts: journal, speechSessions: map[string]*iscpSpeechSession{}}
+	adapter := &iscpDomainAdapter{server: s, config: cfg, receipts: journal, speechSessions: map[string]*iscpSpeechSession{}, recordings: map[string]context.CancelFunc{}}
 	return adapter.handle, nil
 }
 func (a *iscpDomainAdapter) handle(ctx context.Context, request iscpworkbench.Request) iscpworkbench.Response {
@@ -79,9 +80,9 @@ func (a *iscpDomainAdapter) handle(ctx context.Context, request iscpworkbench.Re
 		Body      json.RawMessage
 	}{request.Operation, request.Params, request.ExpectedRevision, request.Body})
 	digest := execution.Digest(digestRaw)
-	// The owner lock serializes related resources across multiple Client peers;
-	// repository-level preconditions still arbitrate non-ISCP concurrent writes.
-	unlock := a.server.lockApproval("iscp-domain:" + principal.OwnerID)
+	// Serialize the same durable operation only. Typed domain CAS arbitrates
+	// resources, while cancellation remains available during long provider calls.
+	unlock := a.server.lockApproval("iscp-operation:" + scope + "\x00" + request.OperationID)
 	defer unlock()
 	a.receipts.mu.Lock()
 	defer a.receipts.mu.Unlock()
@@ -106,7 +107,9 @@ func (a *iscpDomainAdapter) handle(ctx context.Context, request iscpworkbench.Re
 	if err = a.receipts.save(scope, request.OperationID, receipt); err != nil {
 		return respond(domainError(503, "operation_receipt_unavailable"))
 	}
+	a.receipts.mu.Unlock()
 	result := a.dispatch(ctx, request)
+	a.receipts.mu.Lock()
 	// Never erase an intent on cancellation or uncertain persistence. The client
 	// reconciles business state and cannot turn a lost response into a second write.
 	if ctx.Err() != nil {

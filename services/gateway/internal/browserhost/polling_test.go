@@ -1,7 +1,9 @@
 package browserhost
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -73,6 +75,36 @@ func TestPollingHostSharesCommandFencesAndReplaysUnacknowledgedMessages(t *testi
 		t.Fatal(err)
 	case <-time.After(time.Second):
 		t.Fatal("acquire timeout")
+	}
+	captured := make(chan json.RawMessage, 1)
+	go func() {
+		raw, err := broker.Dispatch(t.Context(), binding, "poll_capture", "screenshot", map[string]any{})
+		if err != nil {
+			failure <- err
+			return
+		}
+		captured <- raw
+	}()
+	command = pollCommand()
+	output, _ := json.Marshal(map[string]any{"data": base64.StdEncoding.EncodeToString(make([]byte, 64<<10)), "mimeType": "image/png", "page_id": binding.PageID})
+	oversized, _ := json.Marshal(map[string]any{"data": string(make([]byte, 96<<10))})
+	reply := Message{SchemaVersion: 1, Type: "result", CommandID: command.CommandID, Binding: &command.Binding, Status: "completed", Output: oversized}
+	if err = broker.ReceivePolling(testIdentity, grant.HostID, epoch, reply); !errors.Is(err, ErrFence) {
+		t.Fatal("oversized capture accepted", err)
+	}
+	reply.Output = output
+	if err = broker.ReceivePolling(testIdentity, grant.HostID, epoch, reply); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case raw := <-captured:
+		if !bytes.Equal(raw, output) {
+			t.Fatal("capture corrupted")
+		}
+	case err := <-failure:
+		t.Fatal(err)
+	case <-time.After(time.Second):
+		t.Fatal("capture timeout")
 	}
 	go func() {
 		_, err := broker.Dispatch(t.Context(), binding, "poll_write", "fill", map[string]any{"ref": "snap:e1", "snapshot_id": "snap", "value": "private"})

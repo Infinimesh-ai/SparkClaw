@@ -99,13 +99,8 @@ func (s *Server) NewWorkbenchISCPObjectHandler(cfg iscpworkbench.Config, next is
 			return iscpworkbench.Response{Type: iscpworkbench.ResponseType, Profile: request.Profile, ID: request.ID, Status: 200, Object: &ref}
 		}
 		if request.Object != nil {
-			purpose := "context"
-			limit := int64(1 << 20)
-			if request.Operation == iscpworkbench.OperationSubmit || request.Operation == iscpworkbench.OperationToolsInvoke {
-				purpose = "execution_request"
-				limit = execution.ContextBytes
-			}
-			if request.Object.Purpose != purpose {
+			limit, permitted := domainBodyObjectLimit(request.Operation, request.Object.Purpose)
+			if !permitted {
 				return failed(400, "invalid_body_object_purpose")
 			}
 			raw, err := objects.ReadAll(ctx, binding, *request.Object, limit)
@@ -142,4 +137,20 @@ func domainPutObject(ctx context.Context, purpose, name, mediaType string, raw [
 		return iscpworkbench.ObjectReference{}, errors.New("object service unavailable")
 	}
 	return access.store.Put(ctx, access.binding, purpose, name, mediaType, raw)
+}
+
+// Body purposes have independent budgets. Execution input is always the original
+// envelope bytes and cannot borrow the larger general domain JSON allowance.
+func domainBodyObjectLimit(operation, purpose string) (int64, bool) {
+	if operation == iscpworkbench.OperationSubmit || operation == iscpworkbench.OperationToolsInvoke {
+		return execution.ContextBytes, purpose == "execution_request"
+	}
+	switch purpose {
+	case "context":
+		return 1 << 20, true
+	case "request_body":
+		return 8 << 20, true
+	default:
+		return 0, false
+	}
 }

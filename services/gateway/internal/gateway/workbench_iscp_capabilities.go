@@ -104,7 +104,7 @@ func (a *iscpDomainAdapter) capabilityLimits() map[string]any {
 		"active_transfers": limits.MaxTransfers, "object_records": limits.MaxRecords,
 		"upload_ttl_seconds": int64(limits.UploadTTL / time.Second), "object_retention_seconds": int64(limits.Retention / time.Second),
 		"execution_retention_seconds": int64(execution.ResultRetention / time.Second), "execution_task_bytes": execution.TaskBytes, "execution_owner_bytes": execution.OwnerBytes,
-		"purpose_bytes":        map[string]int64{"context": 1 << 20, "execution_request": execution.ContextBytes, "execution_input": execution.InputBytes, "execution_result": execution.ResultBytes, "file": limits.MaxObjectBytes, "mail_attachment": limits.MaxObjectBytes, "event_snapshot": 8 << 20, "browser_capture": 8 << 20, "speech_recording": min(25<<20, a.server.cfg.Speech.MaxUploadBytes), "speech_audio": min(25<<20, a.server.cfg.Speech.MaxUploadBytes)},
+		"purpose_bytes":        map[string]int64{"context": 1 << 20, "request_body": 8 << 20, "execution_request": execution.ContextBytes, "execution_input": execution.ResultBytes, "execution_result": execution.ResultBytes, "file": limits.MaxObjectBytes, "mail_attachment": limits.MaxObjectBytes, "event_snapshot": 8 << 20, "browser_capture": 8 << 20, "speech_recording": min(25<<20, a.server.cfg.Speech.MaxUploadBytes), "speech_audio": min(25<<20, a.server.cfg.Speech.MaxUploadBytes)},
 		"speech_frame_samples": speech.RealtimeFrameSamples, "speech_frame_ms": speech.RealtimeFrameMS, "speech_unacked_ms": speech.RealtimeMaxUnackedMS,
 		"browser_capture_effective_bytes": 64 << 10, "browser_reply_json_bytes": 96 << 10,
 		"event_unacked_packets": 1, "event_packet_items": 100, "event_cursor_ttl_seconds": 86400,

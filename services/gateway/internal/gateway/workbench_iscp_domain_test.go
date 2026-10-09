@@ -156,11 +156,13 @@ func TestISCPDomainIntentCrashNeverReplaysMutation(t *testing.T) {
 	request := domainTestRequest("settings.owner.patch", []byte(`{"display_name":"never execute"}`))
 	request.ExpectedRevision = "original"
 	raw, _ := json.Marshal(struct {
-		Operation string
-		Params    map[string]string
-		Revision  string
-		Body      json.RawMessage
-	}{request.Operation, request.Params, request.ExpectedRevision, request.Body})
+		Operation   string
+		Params      map[string]string
+		Revision    string
+		RequestID   string
+		InputDigest string
+		Body        json.RawMessage
+	}{request.Operation, request.Params, request.ExpectedRevision, request.RequestID, request.InputDigest, request.Body})
 	if err = journal.save("iscp-test-deployment\x00iscp-owner\x00iscp-desktop-client\x00"+iscpTestInstallation, request.OperationID, iscpDomainReceipt{Version: 1, Digest: execution.Digest(raw)}); err != nil {
 		t.Fatal(err)
 	}

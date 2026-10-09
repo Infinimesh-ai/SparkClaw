@@ -54,7 +54,7 @@ func (a *iscpDomainAdapter) speech(ctx context.Context, request iscpworkbench.Re
 		if domainDecode(request.Body, &input) != nil || !execution.UUID(input.SessionID) || !speechRequestIDPattern.MatchString(input.RequestID) {
 			return domainError(400, "invalid_input")
 		}
-		key := a.receiptScope(principal, request.InstallationID) + "\x00" + input.SessionID + "\x00" + input.RequestID
+		key := a.transientScopeFromContext(ctx, principal, request.InstallationID) + "\x00" + input.SessionID + "\x00" + input.RequestID
 		a.speechMu.Lock()
 		cancel := a.recordings[key]
 		a.speechMu.Unlock()
@@ -84,7 +84,7 @@ func (a *iscpDomainAdapter) speech(ctx context.Context, request iscpworkbench.Re
 	a.speechMu.Lock()
 	session := a.speechSessions[input.SessionID]
 	a.speechMu.Unlock()
-	if session == nil || session.scope != a.receiptScope(principal, request.InstallationID) {
+	if session == nil || session.scope != a.transientScopeFromContext(ctx, principal, request.InstallationID) {
 		return domainError(404, "speech_session_not_found")
 	}
 	session.mu.Lock()
@@ -199,11 +199,14 @@ func (a *iscpDomainAdapter) transcribe(ctx context.Context, request iscpworkbenc
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(a.server.cfg.Speech.TimeoutSeconds)*time.Second)
 	defer cancel()
+	if authorized, ok := iscpworkbench.SessionFromContext(ctx); ok && authorized.CheckAuthorization != nil {
+		go watchISCPRecordingAuthorization(requestCtx, cancel, authorized)
+	}
 	principal, _, err := a.executionIdentity(ctx, request)
 	if err != nil {
 		return domainError(403, "installation_required")
 	}
-	key := a.receiptScope(principal, request.InstallationID) + "\x00" + input.SessionID + "\x00" + input.RequestID
+	key := a.transientScopeFromContext(ctx, principal, request.InstallationID) + "\x00" + input.SessionID + "\x00" + input.RequestID
 	a.speechMu.Lock()
 	if a.recordings == nil {
 		a.recordings = map[string]context.CancelFunc{}
@@ -242,7 +245,7 @@ func (a *iscpDomainAdapter) openSpeech(ctx context.Context, request iscpworkbenc
 	if !a.server.cfg.Speech.Enabled || a.server.cfg.Speech.Backend == "disabled" || !status.Ready || !status.SupportsStreaming {
 		return domainError(503, "speech_stream_unavailable")
 	}
-	scope := a.receiptScope(principal, request.InstallationID)
+	scope := a.transientScopeFromContext(ctx, principal, request.InstallationID)
 	a.speechMu.Lock()
 	defer a.speechMu.Unlock()
 	if len(a.speechSessions) >= 128 {
@@ -359,6 +362,25 @@ func watchISCPSpeechAuthorization(session *iscpSpeechSession, authorization iscp
 			session.cancel()
 			_ = session.session.Close()
 			return
+		}
+	}
+}
+
+func watchISCPRecordingAuthorization(ctx context.Context, cancel context.CancelFunc, authorization iscpworkbench.SessionInfo) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			checked, stop := context.WithTimeout(ctx, 3*time.Second)
+			policy, err := authorization.CheckAuthorization(checked)
+			stop()
+			if err != nil || policy.Revision != authorization.GrantRevision || !policy.Allows("speech.transcribe") {
+				cancel()
+				return
+			}
 		}
 	}
 }

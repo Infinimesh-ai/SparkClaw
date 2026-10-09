@@ -24,7 +24,7 @@ func TestISCPDomainEventOutboxReplaysUntilACKAndFencesScopeEpoch(t *testing.T) {
 		t.Fatal(err)
 	}
 	adapter := &iscpDomainAdapter{server: server, config: cfg, receipts: journal}
-	session := iscpworkbench.SessionInfo{Scopes: []string{"notifications.read", "settings.read"}}
+	session := iscpworkbench.SessionInfo{GrantRevision: 1, Scopes: []string{"notifications.read", "settings.read"}}
 	ctx := domainTestContext(t)
 	call := func(op string, body any) iscpDomainResult {
 		raw, _ := json.Marshal(body)
@@ -92,6 +92,11 @@ func TestISCPDomainEventOutboxReplaysUntilACKAndFencesScopeEpoch(t *testing.T) {
 	if r := call(iscpworkbench.OperationEventsPull, map[string]any{"cursor": next.Cursor}); r.status != 409 {
 		t.Fatal("replaced cursor accepted", r)
 	}
+	session.GrantRevision++
+	if r := call(iscpworkbench.OperationEventsPull, map[string]any{"cursor": newer.Cursor}); r.status != 409 {
+		t.Fatal("cursor crossed authorization revision", r)
+	}
+	session.GrantRevision--
 	server.started = server.started.Add(time.Second)
 	if r := call(iscpworkbench.OperationEventsPull, map[string]any{"cursor": newer.Cursor}); r.status != 409 {
 		t.Fatal("restart cursor accepted", r)
@@ -143,5 +148,24 @@ func TestISCPDomainToolsUseExistingExecutionLedgerAndFilteredDefinitions(t *test
 	session.Scopes = []string{"tools.invoke"}
 	if result := adapter.toolsWithSession(ctx, request, session); result.status != 403 {
 		t.Fatal("generic tool scope granted wildcard")
+	}
+}
+
+func TestISCPDomainObjectPurposeBudgetsKeepExecutionEnvelopeBounded(t *testing.T) {
+	for _, operation := range []string{iscpworkbench.OperationSubmit, iscpworkbench.OperationToolsInvoke} {
+		if _, ok := domainBodyObjectLimit(operation, "request_body"); ok {
+			t.Fatal("execution borrowed generic body budget")
+		}
+		if limit, ok := domainBodyObjectLimit(operation, "execution_request"); !ok || limit != execution.ContextBytes {
+			t.Fatal(limit, ok)
+		}
+	}
+	for purpose, want := range map[string]int64{"context": 1 << 20, "request_body": 8 << 20} {
+		if limit, ok := domainBodyObjectLimit(iscpworkbench.OperationBrowserHostReply, purpose); !ok || limit != want {
+			t.Fatal(purpose, limit, ok)
+		}
+	}
+	if _, ok := domainBodyObjectLimit(iscpworkbench.OperationBrowserHostReply, "speech_audio"); ok {
+		t.Fatal("unrelated object purpose admitted")
 	}
 }

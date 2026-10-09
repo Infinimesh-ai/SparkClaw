@@ -103,7 +103,7 @@ func (a *iscpDomainAdapter) eventsWithSession(ctx context.Context, request iscpw
 	if !ok {
 		return domainError(503, "events_unavailable")
 	}
-	scope := a.receiptScope(principal, request.InstallationID)
+	scope := a.transientScope(principal, request.InstallationID, session)
 	epoch := a.server.started.UTC().Format(time.RFC3339Nano)
 	a.eventMu.Lock()
 	defer a.eventMu.Unlock()

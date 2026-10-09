@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -73,12 +75,17 @@ func (a *iscpDomainAdapter) handle(ctx context.Context, request iscpworkbench.Re
 		return respond(domainError(400, "operation_id_required"))
 	}
 	scope := a.receiptScope(principal, request.InstallationID)
+	if domainTransientOperation(request.Operation) {
+		scope = a.transientScopeFromContext(ctx, principal, request.InstallationID)
+	}
 	digestRaw, _ := json.Marshal(struct {
-		Operation string
-		Params    map[string]string
-		Revision  string
-		Body      json.RawMessage
-	}{request.Operation, request.Params, request.ExpectedRevision, request.Body})
+		Operation   string
+		Params      map[string]string
+		Revision    string
+		RequestID   string
+		InputDigest string
+		Body        json.RawMessage
+	}{request.Operation, request.Params, request.ExpectedRevision, request.RequestID, request.InputDigest, request.Body})
 	digest := execution.Digest(digestRaw)
 	// Serialize the same durable operation only. Typed domain CAS arbitrates
 	// resources, while cancellation remains available during long provider calls.
@@ -140,6 +147,9 @@ func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.
 		a.receipts.mu.Lock()
 		defer a.receipts.mu.Unlock()
 		receipt, found, err := a.receipts.load(a.receiptScope(principal, request.InstallationID), request.Params["operation_id"])
+		if err == nil && !found {
+			receipt, found, err = a.receipts.load(a.transientScopeFromContext(ctx, principal, request.InstallationID), request.Params["operation_id"])
+		}
 		if err != nil {
 			return domainError(503, "operation_receipt_unavailable")
 		}
@@ -236,4 +246,16 @@ func domainNow() time.Time { return time.Now().UTC() }
 
 func (a *iscpDomainAdapter) receiptScope(principal requestPrincipal, installation string) string {
 	return a.config.Binding.DeploymentID + "\x00" + principal.OwnerID + "\x00" + principal.ClientID + "\x00" + installation
+}
+
+func (a *iscpDomainAdapter) transientScope(principal requestPrincipal, installation string, session iscpworkbench.SessionInfo) string {
+	return a.receiptScope(principal, installation) + "\x00authorization:" + strconv.FormatUint(session.GrantRevision, 10)
+}
+func (a *iscpDomainAdapter) transientScopeFromContext(ctx context.Context, principal requestPrincipal, installation string) string {
+	session, _ := iscpworkbench.SessionFromContext(ctx)
+	return a.transientScope(principal, installation, session)
+}
+
+func domainTransientOperation(operation string) bool {
+	return strings.HasPrefix(operation, "events.") || strings.HasPrefix(operation, "speech.session.") || strings.HasPrefix(operation, "browser.host.") || operation == iscpworkbench.OperationSpeechCancel
 }

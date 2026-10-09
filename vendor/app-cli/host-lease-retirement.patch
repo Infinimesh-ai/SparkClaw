@@ -1,0 +1,71 @@
+--- a/src/host-port.mjs
++++ b/src/host-port.mjs
+@@ -173,33 +173,48 @@
+   async drop(lease, {park = false, invalidate = false} = {}) {
+     if (lease.dropping) return lease.dropping;
+     lease.retired = true; lease.abort.abort();
+-    lease.slot.retiring = (lease.slot.retiring ?? 0) + 1;
+-    lease.dropping = (async () => {
++    const slot = lease.slot;
++    slot.retiring = (slot.retiring ?? 0) + 1;
++    // Retirement revokes access immediately, but cleanup decisions for a shared
++    // page must be serialized. Set membership can still include another lease
++    // whose retirement was requested while the page action was draining.
++    lease.dropping = (slot.retirementQueue ?? Promise.resolve()).catch(() => {}).then(async () => {
+       try {
+         // Finish an aborted action before releasing its scheduler reservation.
+-        // Keep the last stamp until close: publishing an empty lease first
+-        // would race the daemon watchdog against explicit page cleanup.
+-        await lease.slot.queue?.catch(() => {});
+-        if (invalidate) {
+-          await this.dispose(lease.slot);
+-        } else {
+-          lease.slot.leases.delete(lease.id);
+-          if (park && !lease.slot.leases.size && lease.slot.idleMS) {
+-            lease.slot.idleUntil = this.clock() + lease.slot.idleMS;
+-            lease.slot.idleDeadline = this.monotonic() + lease.slot.idleMS;
+-          }
+-          if (!lease.slot.leases.size && !lease.slot.idleUntil) await this.dispose(lease.slot);
+-          else {
+-            await this.driver.updateLease(lease.slot.handle, this.stamp(lease.slot));
+-            await this.driver.revokeActivity?.(lease.slot.handle, lease.id, lease.kind);
++        await slot.queue?.catch(() => {});
++        // An earlier retirement or epoch change may already have closed this
++        // resource. A later release only acknowledges its lease, never revives
++        // the page or publishes a new stamp for the disposed handle.
++        if (this.resources.get(slot.key) === slot) {
++          if (invalidate || slot.fenced || slot.disposing) {
++            await this.dispose(slot);
++          } else {
++            slot.leases.delete(lease.id);
++            const active = [...slot.leases].some(id => {
++              const other = this.leases.get(id);
++              return other && !other.retired;
++            });
++            if (park && !active && slot.idleMS) {
++              slot.idleUntil = this.clock() + slot.idleMS;
++              slot.idleDeadline = this.monotonic() + slot.idleMS;
++            }
++            const idle = slot.idleUntil > this.clock() && slot.idleDeadline > this.monotonic();
++            // Keep the last stamp until close: publishing no active lease and
++            // no bounded idle lease races the watchdog against explicit cleanup.
++            if (!active && !idle) await this.dispose(slot);
++            else {
++              await this.driver.updateLease(slot.handle, this.stamp(slot));
++              await this.driver.revokeActivity?.(slot.handle, lease.id, lease.kind);
++            }
+           }
+         }
+         this.leases.delete(lease.id);
+         this.released.set(lease.id, lease);
+         while (this.released.size > 1024) this.released.delete(this.released.keys().next().value);
+-      } catch (error) {lease.slot.fenced = true; lease.dropping = null; throw error;}
+-      finally {lease.slot.retiring--;}
+-    })();
++      } catch (error) {slot.fenced = true; lease.dropping = null; throw error;}
++      finally {slot.retiring--;}
++    });
++    slot.retirementQueue = lease.dropping;
+     return lease.dropping;
+   }
+   async dispose(slot) {

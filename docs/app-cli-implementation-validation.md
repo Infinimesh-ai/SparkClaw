@@ -257,6 +257,44 @@ Real login expiry, credential rotation, account switching, final browser-saved
 download and unpassed send modes cannot be marked accepted. Historical Gmail
 coverage gaps and current processing warnings remain visible.
 
+## Concurrent Host lease retirement: 2026-10-09
+
+The local paired release `0.3.0-sparkclaw.14` fixes simultaneous watch/read
+retirement. Both leases previously became retired before either cleanup resumed;
+counting their remaining set entries published an empty activity stamp with no
+idle authority. The daemon watchdog could then close the page before explicit
+Host cleanup and correctly leave an unproven-cleanup fence.
+
+Retirement now aborts each lease immediately and serializes cleanup decisions for
+the shared resource. Only non-retired activities count toward retention; the last
+release closes directly, and subsequent releases cannot republish a disposed
+resource. Explicit parking remains bounded. Actual expiry and epoch revocation
+still close the page, and unknown cleanup failures remain fenced, including
+`page_closed`; the fix does not reinterpret that error as proven cleanup.
+
+The deterministic fixture combines the real Host port, atomic lease file writer
+and daemon watchdog, inspecting every publication without sleeps. Both concurrent
+orders fail against `.13` and pass against `.14`. All eight retirement, active
+watch, parked expiry, immediate abort, epoch revocation and cleanup-fence cases
+pass. Isolated Linux Controller verification passes **157** tests with **8**
+real-Chromium cases skipped; macOS passes **140** with **25** platform/browser
+cases skipped. Paired installation, tamper/mixed-release rejection, compatible
+whole-set rollback, retained durable state and increasing epochs pass in disposable
+state. No installed service or provider business acceptance is claimed here.
+
+Reproduce from the retained `.13` bundle with
+`python3 scripts/build-lease-retirement-release.py --check` using Node 26 and
+installed Controller dependencies. Only `src/host-port.mjs`, package versions and
+release metadata change in the runtime; the wheel updates its version and bound
+runtime digest. All **14** Reader source/assets files remain byte-identical,
+including their versions; browser component policy, Go provider projection and
+Desktop managed Reader projection have no changes. Projection checks pass.
+The `.14` runtime manifest digest is
+`ae1786b8140cb456ed8183ba7b275a3611be67c5d4ba7c3c4214b6967f642fea`;
+artifact digests and the reproducible local patch chain are recorded in the
+consumer release manifest. Existing `.13` artifacts remain unchanged. The
+separate watch error-code normalization issue is outside this patch.
+
 ## Rebuild and consume a release
 
 In the App-CLI fork, commit the reviewed implementation and run:

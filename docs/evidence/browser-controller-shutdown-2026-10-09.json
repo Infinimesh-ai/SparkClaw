@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "source_baseline": "8cc81708",
+  "scope": "Controller shutdown after a stopped Executor or failed owned resource cleanup; no deployed changes or provider business actions",
+  "observed_deployment": {
+    "host": "work2",
+    "executor_stop_started_utc": "2026-10-09T09:14:25Z",
+    "executor_stop_completed_utc": "2026-10-09T09:14:26Z",
+    "controller_stop_started_utc": "2026-10-09T09:14:26Z",
+    "controller_sigkill_utc": "2026-10-09T09:15:26Z",
+    "systemd_result": "timeout",
+    "timeout_stop_seconds": 60,
+    "kill_mode": "control-group",
+    "preceding_event": {"event": "mail_observer_poll_failed", "provider": "outlook", "code": "BACKEND_EXECUTION_FAILED"},
+    "private_journal_sha256": "ae62b65367ac0b9b0e67a46b639fd74d82d9ffeacda9c8990dcb403327714eee",
+    "post_stop_checkpoint_report": "Owned PID/profile/CLI/cgroup checks were clear and no cleanup fence was present; reported by the deployment task.",
+    "inference_limit": "The journal has no shutdown phase trace or process stack. The reproduced failure chain is consistent with this event sequence, but is not asserted to be the unique path taken by the deployed process."
+  },
+  "isolated_pre_fix_reproduction": {
+    "classes": ["BrowserController", "MailObserverFeed", "AppCLIClientFactory", "MailboxClient", "ApplicationHostDriver", "HTTP Unix server"],
+    "external_boundary": "Executor control returns BACKEND_EXECUTION_FAILED; no browser or mailbox accessed",
+    "shutdown_rejected_after_ms": 1,
+    "factory_close_calls": 0,
+    "host_close_calls": 0,
+    "public_listener_open": false,
+    "private_event_listener_open": true,
+    "cleanup_fence": false,
+    "conclusion": "Shutdown rejects immediately but a referenced private event listener prevents process exit; the configured systemd deadline is a last-resort kill, not a completed bounded drain."
+  },
+  "fix": {
+    "controller": "Continue factory and ordinary reservation cleanup after feed cancellation fails. Factory-owned application reservations drain through Host cleanup; do not falsely resolve business completion or indefinitely await a reservation after its cleanup has failed.",
+    "host_driver": "Settle all owned handle cleanup attempts, close private event connections/listener in finally, preserve the first error and any cleanup fence.",
+    "unchanged": ["App-CLI .15 wheel/runtime", "Reader and Tampermonkey assets", "authorization and cancellation boundaries", "systemd stop timeout", "online service state"]
+  },
+  "verification": {
+    "regression_tests": 6,
+    "real_listeners": "Public HTTP and private Host Unix listeners with active connections; the HTTP request deliberately waits for its remaining JSON body and is closed on shutdown.",
+    "cases": ["stopped Executor cancellation", "normal cleanup", "separate MCP reservation drain", "owned process reap failure", "feed and page dual failure", "one failing handle does not skip another handle"],
+    "macos": {"passed": 152, "skipped": 25, "failed": 0},
+    "isolated_linux": {"passed": 169, "skipped": 8, "failed": 0},
+    "skip_scope": "Platform-specific or opt-in actual Chromium qualification; no real provider acceptance inferred",
+    "deployed_graceful_stop": "Pending coordinated deployment and target-host validation"
+  }
+}

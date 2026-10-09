@@ -377,13 +377,22 @@ export class BrowserController {
     const reservations = [this.active, ...this.providerReservations.values()].filter(Boolean);
     for (const reservation of reservations) reservation.abortController.abort();
     this.shutdownPromise = (async () => {
-      await this.mailObserverFeed.close();
-      const applicationClose = this.scriptFactory?.close();
-      await Promise.all(reservations.map(async reservation => {
-        if (reservation.lane === "mcp" && reservation.client) await this.#releaseReservation(reservation);
-        else await reservation.done.promise;
-      }));
-      await applicationClose;
+      let failure;
+      try {await this.mailObserverFeed.close();} catch (error) {failure = error;}
+      // Executor cancellation can fail after it has stopped. Local Host cleanup
+      // must still run, including closing its private event listener.
+      const outcomes = await Promise.allSettled([
+        Promise.resolve().then(() => this.scriptFactory?.close()),
+        ...reservations.map(async reservation => {
+          // The factory owns these reservations and drains their Host resources.
+          // Failed cleanup retains its fence, but may never resolve done.
+          if (reservation.lane === 'app-cli' && this.scriptFactory?.managesLifecycle) return;
+          if (reservation.lane === "mcp" && reservation.client) await this.#releaseReservation(reservation);
+          else await reservation.done.promise;
+        }),
+      ]);
+      failure ??= outcomes.find(result => result.status === 'rejected')?.reason;
+      if (failure) throw failure;
     })();
     await this.shutdownPromise;
   }

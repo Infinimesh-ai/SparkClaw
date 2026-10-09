@@ -295,6 +295,32 @@ artifact digests and the reproducible local patch chain are recorded in the
 consumer release manifest. Existing `.13` artifacts remain unchanged. The
 separate watch error-code normalization issue is outside this patch.
 
+## Controller shutdown failure cleanup: 2026-10-09
+
+The work2 stop journal records Executor exit at 09:14:26 UTC followed by
+Controller's 60-second systemd deadline and SIGKILL. It has no shutdown phase
+trace, so it cannot identify a unique internal blocking point. An isolated
+reproduction establishes a matching defect: cancelling a watch after Executor
+exit rejects `MailObserverFeed.close`, skips factory/Host cleanup and leaves the
+private event listener referenced. Public HTTP closes and shutdown rejects in
+1 ms, but the process cannot exit naturally. The 60 seconds is the external kill
+deadline, not a successful bounded drain.
+
+Controller now attempts factory and ordinary reservation cleanup even after feed
+failure. Host-owned application reservations finish through factory cleanup;
+failed cleanup remains fenced without falsely completing business work. The
+driver settles all owned handles and closes private event connections/listener in
+`finally`, preserving the original failure and persistent cleanup fence. App-CLI
+`.15`, Reader assets, authority rules and service deadlines are unchanged.
+
+Six real-class regressions include both Unix listeners, an incomplete actual HTTP
+request, an ordinary MCP reservation, stopped Executor cancellation, normal
+shutdown, page/reaping failures and multiple handle cleanup. macOS passes **152**
+tests with **25** platform/browser skips; isolated Linux passes **169** with **8**
+actual-Chromium skips. No running service was changed during this check; a new
+target-host graceful stop still needs coordinated validation. See the
+[sanitized evidence and inference limits](evidence/browser-controller-shutdown-2026-10-09.json).
+
 ## Rebuild and consume a release
 
 In the App-CLI fork, commit the reviewed implementation and run:

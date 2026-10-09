@@ -190,9 +190,20 @@ export class ApplicationHostDriver {
     if (failure) throw failure;
   }
   async shutdown() {
-    await Promise.all([...this.handles].map(handle => this.close(handle)));
-    for (const socket of this.connections) socket.destroy();
-    if (this.events) await new Promise(resolve => this.events.close(resolve));
-    if (this.eventSocket) await fs.rm(this.eventSocket, {force: true});
+    let failure;
+    try {
+      const outcomes = await Promise.allSettled([...this.handles].map(handle => this.close(handle)));
+      failure = outcomes.find(result => result.status === 'rejected')?.reason;
+    } catch (error) {failure = error;}
+    finally {
+      // Failed owned-page cleanup retains its fence and original error. It
+      // must not keep this unrelated listener alive until systemd kills us.
+      for (const socket of this.connections) socket.destroy();
+      try {if (this.events) await new Promise(resolve => this.events.close(resolve));}
+      catch (error) {failure ??= error;}
+      try {if (this.eventSocket) await fs.rm(this.eventSocket, {force: true});}
+      catch (error) {failure ??= error;}
+    }
+    if (failure) throw failure;
   }
 }

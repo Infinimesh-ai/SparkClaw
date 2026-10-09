@@ -124,6 +124,14 @@ App-CLI 修复共享页并发初始化、watch/有限读取执行通道、空闲
 
 使用 Node 26 及已安装 Controller 依赖，执行 `python3 scripts/build-lease-retirement-release.py --check`，可从保留的 `.13` 制品逐字节重建。runtime 仅修改 `src/host-port.mjs`、包版本及发行元数据；wheel 仅更新版本和绑定的 runtime 摘要。**14** 个 Reader 源码/资产文件逐字节相同，版本不变；浏览器组件 policy、Go 供应商投影及 Desktop 托管 Reader 投影无变化，投影检查通过。`.14` runtime 清单摘要为 `ae1786b8140cb456ed8183ba7b275a3611be67c5d4ba7c3c4214b6967f642fea`；制品摘要及可重建本地补丁链记录于消费发行清单，既有 `.13` 制品保持不变。独立的 watch 错误码规范化问题不在本补丁范围。
 
+## Controller 停止失败后的清理：2026-10-09
+
+work2 停止日志显示 Executor 于 UTC 09:14:26 退出，Controller 随后达到 systemd 60 秒停止期限并被 SIGKILL。日志没有关闭阶段跟踪，不能确定线上唯一阻塞位置。隔离复现确认了与现象相符的缺陷：Executor 退出后取消 watch 失败，使 `MailObserverFeed.close` 拒绝，跳过 factory/Host 清理，私有事件监听器仍保持引用。公共 HTTP 已关闭，停止调用在 1 毫秒内报错，但进程无法自然退出；60 秒是外部强杀期限，不是已成功完成的有界排空。
+
+现在 feed 关闭失败后，Controller 仍尝试 factory 和普通 reservation 清理。Host 拥有的应用 reservation 由 factory 完成资源清理；失败时保持围栏，不虚假完成业务任务。driver 等待所有拥有的 handle 清理结束，并在 `finally` 关闭私有事件连接/监听器，保留原错误与持久清理围栏。App-CLI `.15`、Reader 资产、授权边界及服务停止期限均不变。
+
+新增 **6** 项真实类组合回归包含两个 Unix 监听器、未完成请求体的真实 HTTP 请求、普通 MCP reservation、Executor 停止后的取消失败、正常关闭、页面/进程回收失败及多 handle 清理。macOS **152** 项通过、**25** 项平台/浏览器跳过；隔离 Linux **169** 项通过、**8** 项真实 Chromium 跳过。本次检查未修改运行服务，新代码在目标主机的优雅停止仍需协调验证。详见[脱敏证据与推断边界](../../docs/evidence/browser-controller-shutdown-2026-10-09.json)。
+
 ## 构建与消费发行
 
 先在 App-CLI fork 提交审核后的源码，然后构建：

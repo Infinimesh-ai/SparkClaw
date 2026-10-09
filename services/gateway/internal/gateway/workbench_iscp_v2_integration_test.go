@@ -36,6 +36,10 @@ type v2EncryptedFixture struct {
 func newV2EncryptedFixture(t *testing.T, executor execution.Executor) *v2EncryptedFixture {
 	t.Helper()
 	server, _, local, _ := workbenchISCPFixture(t, executor)
+	return startV2EncryptedFixture(t, server, local, nil, nil)
+}
+func startV2EncryptedFixture(t *testing.T, server *Server, local wb.Config, extraScopes, extraQualified []string) *v2EncryptedFixture {
+	t.Helper()
 	clientCfg, serverCfg := workbenchEncryptedConfigurations(t, local.Binding)
 	issuerDir := filepath.Join(t.TempDir(), "issuer")
 	_, err := iscplocalissuer.Initialize(issuerDir, filepath.Join(clientCfg.IdentityDirectory, iscpbridge.IdentityFileName), filepath.Join(serverCfg.IdentityDirectory, iscpbridge.IdentityFileName), "isolated-relay")
@@ -61,6 +65,7 @@ func newV2EncryptedFixture(t *testing.T, executor execution.Executor) *v2Encrypt
 		}
 	}
 	scopes := []string{"workbench.text", "workbench.control", "settings.read", "settings.write", "objects.read", "objects.write", "notifications.read", "approvals.read", "approvals.decide"}
+	scopes = append(scopes, extraScopes...)
 	slices.Sort(scopes)
 	if err = issuer.AuthorizePermanentScopes(clientCfg.GrantFile, scopes); err != nil {
 		t.Fatal(err)
@@ -68,6 +73,7 @@ func newV2EncryptedFixture(t *testing.T, executor execution.Executor) *v2Encrypt
 	issuerHTTP := httptest.NewServer(issuer.Handler())
 	t.Cleanup(issuerHTTP.Close)
 	qualified := []string{wb.OperationSettingsOwnerGet, wb.OperationSettingsOwnerPatch, wb.OperationSettingsCredentialsAdd, wb.OperationOperationsReceipt, wb.OperationTransferOpen, wb.OperationTransferStatus, wb.OperationTransferChunk, wb.OperationTransferCommit, wb.OperationTransferAbort, wb.OperationObjectDescribe, wb.OperationObjectRead, wb.OperationObjectRelease, wb.OperationExecutionInputPut, wb.OperationExecutionFileGet, wb.OperationApprovalsList, wb.OperationApprovalsGet, wb.OperationApprovalsDecide, wb.OperationExecutionApproval}
+	qualified = append(qualified, extraQualified...)
 	for _, cfg := range []*wb.Config{&clientCfg, &serverCfg} {
 		cfg.ApplicationProfiles = []string{wb.ProfileV2, wb.Profile}
 		cfg.GrantRenewal = &wb.GrantRenewalConfig{URL: issuerHTTP.URL, AuthorizationLifetime: "until_revoked", PendingFile: filepath.Join(cfg.IdentityDirectory, "pending.json")}

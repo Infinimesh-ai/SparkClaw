@@ -204,6 +204,7 @@ export type EmailPresentation = {
 
 export type EmailDraft = {
   id: string; version: number; mailbox_id: string; mode: "compose" | "reply" | "reply_all";
+  receipt?: {provider:string;status:string;recipient_digest:string;provider_message_id?:string;provider_thread_id?:string};
   reply_mail_id?: string; conversation_id?: string; to: string[]; cc: string[]; subject: string; body: string;
   state: "draft" | "sending" | "sent" | "failed" | "unknown"; error_code?: string; send_key?: string; sent_mail_id?: string; timeline_mail_id?: string; confirmation_source?: string; reconciled_at?: string;
 };

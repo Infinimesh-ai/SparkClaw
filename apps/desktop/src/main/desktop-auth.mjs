@@ -447,7 +447,7 @@ export class DesktopAuth {
   }
 
   #set(state) {
-    this.status = Object.freeze({ schema_version: 1, state, ...(this.deletionIntent ? { authorization_deletion: { state: this.deletionIntent.state, operation_id: this.deletionIntent.operation_id } } : {}), ...(this.descriptor ? { backend: {
+    this.status = Object.freeze({ schema_version: 1, state, ...(this.transport?.capabilities?.authorization_revision ? {authorization_revision:this.transport.capabilities.authorization_revision} : {}), ...(this.deletionIntent ? { authorization_deletion: { state: this.deletionIntent.state, operation_id: this.deletionIntent.operation_id } } : {}), ...(this.descriptor ? { backend: {
       schema_version: this.descriptor.schemaVersion || 1,
       origin: this.descriptor.origin, deployment_id: this.descriptor.deploymentID,
       ...(this.descriptor.ownerID ? { owner_id: this.descriptor.ownerID } : {}),

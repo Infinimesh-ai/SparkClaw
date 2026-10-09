@@ -495,6 +495,9 @@ export const api = {
     request<{ items: EmailPresentation[] }>("/api/email/presentations/ensure", { method: "POST", body: JSON.stringify({ target_kind: kind, target_ids: ids, language, retry }), signal }),
   emailComposeCapabilities: () => request<EmailComposeCapabilities>("/api/email/compose-capabilities"),
   emailDrafts: (filters: EmailFilters = {}, signal?: AbortSignal) => request<{ items: EmailDraft[]; next_cursor?: string }>(`/api/email/drafts${emailQuery(filters)}`, { signal }),
+  // ISCP's canonical collection operations carry resource IDs explicitly.
+  emailDraftSnapshot: (id: string) => request<EmailDraft>(`/api/email/drafts?draft=${encodeURIComponent(id)}`),
+  saveEmailDraftSnapshot: (body: EmailDraftInput) => request<EmailDraft>("/api/email/drafts", { method: "POST", body: JSON.stringify(body) }),
   emailDraft: (id: string) => request<EmailDraft>(`/api/email/drafts/${encodeURIComponent(id)}`),
   saveEmailDraft: (body: EmailDraftInput) => request<EmailDraft>(body.id ? `/api/email/drafts/${encodeURIComponent(body.id)}` : "/api/email/drafts", { method: body.id ? "PUT" : "POST", body: JSON.stringify(body) }),
   polishEmailReply: (body: EmailReplyPolishInput) => request<EmailDraft>("/api/email/replies/polish", { method: "POST", body: JSON.stringify(body) }),

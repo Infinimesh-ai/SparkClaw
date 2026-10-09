@@ -161,3 +161,21 @@ test('v2 bulk and audio windows leave a reserved control slot while excess bulk 
  assert.doesNotThrow(()=>f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:[],binding:{deployment_id:'d',owner_id:'o',client_id:'c'}}}));
  assert.equal(f.transport.state,'disconnected');assert.equal(f.transport.capabilities,undefined);
  });
+
+test('v2 text-only grants retain their authorized basic owner presentation',async t=>{
+ const f=fixture(t,(call,child)=>{assert.equal(call.request.operation,'presentation.owner');child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:{id:'owner'}}});});await f.transport.start();
+ f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:['presentation.owner'],binding:{deployment_id:'d',owner_id:'o',client_id:'c'}}});
+ assert.equal((await(await f.transport.fetch(`${origin}/api/owner`)).json()).id,'owner');
+ await assert.rejects(f.transport.fetch(`${origin}/api/owner`,{method:'POST',body:'{}'}),ISCPRequestNotSentError);
+ assert.equal(f.calls.length,1);
+});
+
+test('lost mail send responses reconcile durable operation receipts before any new mail mutation',async t=>{
+ const fs=await import('node:fs');const os=await import('node:os');const path=await import('node:path');const root=fs.mkdtempSync(path.join(os.tmpdir(),'iscp-mail-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ let sentID;const f=fixture(t,(call,child)=>{if(call.request.operation==='mail.drafts.send'){sentID=call.request.operation_id;return;}assert.equal(call.request.operation,'operations.receipt');assert.equal(call.request.params.operation_id,sentID);child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:{state:'completed',operation_id:sentID,response:{status:200,body:{id:'draft',state:'sent'}}}}});},{journalRoot:root,timeoutMS:20});await f.transport.start();
+ f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:['mail.drafts.send','operations.receipt'],binding:{deployment_id:'d',owner_id:'o',client_id:'c'}}});
+ const request={method:'POST',body:JSON.stringify({expected_version:4,idempotency_key:requestID})};
+ await assert.rejects(f.transport.fetch(`${origin}/api/email/drafts/draft/send`,request),/deadline/);
+ assert.equal((await(await f.transport.fetch(`${origin}/api/email/drafts/draft/send`,request)).json()).state,'sent');
+ assert.deepEqual(f.calls.map(call=>call.request.operation),['mail.drafts.send','operations.receipt']);
+});

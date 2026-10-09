@@ -128,7 +128,7 @@ export class ISCPTransport {
       catch {throw new ISCPRequestNotSentError("ISCP request body must be JSON");}
     }
     let mapped;
-    try { mapped=mapV2Route(url,method,body); }
+    try { mapped=mapV2Route(url,method,body); if(!this.capabilities.operations.includes(mapped.operation)) { try { mapped=mapISCPRequest(raw,init,this.origin,true); } catch { /* The qualified operation itself will reject before send. */ } } }
     catch(error) {
       // v1 base operations remain valid inside the v2 envelope, including the
       // original execution request whose byte digest must survive unchanged.
@@ -141,14 +141,14 @@ export class ISCPTransport {
       ...(headers.get("x-sparkclaw-digest")?{input_digest:headers.get("x-sparkclaw-digest")}:{}),
       ...(init.operationID?{operation_id:init.operationID}:{}),...(init.expectedRevision?{expected_revision:init.expectedRevision}:{})};
     const rawBody=init.body === undefined ? undefined : typeof init.body === "string" ? init.body : new TextDecoder("utf-8",{fatal:true}).decode(init.body);
-    if(request.operation.startsWith("settings.") || request.operation.startsWith("notifications.") || request.operation === "execution.approval") return this.#presentation(request,init,rawBody);
+    if(request.operation.startsWith("settings.") || request.operation.startsWith("notifications.") || request.operation.startsWith("mail.drafts.") || request.operation === "execution.approval") return this.#presentation(request,init,rawBody);
     return this.#request(request,init,rawBody);
   }
 
   async #presentation(request,init,rawBody) {
     const spec=requireOperation(request.operation);
     const family=request.operation.split(".")[1];
-    const resource=request.operation === "execution.approval" ? `approval:${request.params?.request_id}:${request.params?.approval_id}` : request.operation.startsWith("notifications.") ? "notifications" : family==='owner' ? 'owner' : family==='connectors' ? 'connectors' : `integration:${request.params?.integration_id || ''}`;
+    const resource=request.operation.startsWith("mail.drafts.") ? `mail-draft:${request.params?.draft || request.body?.id || "list"}` : request.operation === "execution.approval" ? `approval:${request.params?.request_id}:${request.params?.approval_id}` : request.operation.startsWith("notifications.") ? "notifications" : family==='owner' ? 'owner' : family==='connectors' ? 'connectors' : `integration:${request.params?.integration_id || ''}`;
     let record;
     if(spec.mutation) {
       if(!this.mutations)throw new ISCPRequestNotSentError("Durable settings recovery is unavailable");
@@ -198,7 +198,7 @@ export class ISCPTransport {
     if(!this.capabilities || Date.parse(this.capabilities.expires_at)<=Date.now() || !this.capabilities.operations.includes(request.operation)) throw new ISCPRequestNotSentError("This capability is unavailable through ISCP");
     if(rawBody!==undefined && Buffer.byteLength(rawBody)>ISCP_BODY_BYTES) {
       if(!this.objects)throw new ISCPRequestNotSentError("Object transfer is unavailable");
-      const object=await this.objects.upload(Buffer.from(rawBody),{purpose:request.operation==='execution.submit'?'execution_request':'request_body',name:'request.json',media_type:'application/json'},init.signal);
+      const object=await this.objects.upload(Buffer.from(rawBody),{purpose:['execution.submit','tools.invoke'].includes(request.operation)?'execution_request':'request_body',name:'request.json',media_type:'application/json'},init.signal);
       request={...request,body_object:object};delete request.body;rawBody=undefined;
     }
     const spec=requireOperation(request.operation);

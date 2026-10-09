@@ -73,6 +73,7 @@ export type DesktopConnectionStatus = {
   backend?: DesktopBackendDescriptor;
   test_mode?: true;
   transport_stage?: string;
+  authorization_revision?: number;
   authorization_deletion?: { state: "pending" | "revoked"; operation_id: string };
   capabilities?: { operations: readonly string[]; files: boolean; mail: boolean; browser: boolean; speech: boolean; approvals: boolean; settings: boolean; notifications?: boolean; events?: boolean; surfaces?: Record<string,{ enabled: boolean; reason: string }> };
   client_id?: string;

@@ -62,6 +62,9 @@ try {
   const direct = (network.events || []).filter(event => /^https?:|^wss?:/u.test(event.params?.url || ''));
   assert.equal(direct.length, 0, 'Native Chromium HTTP/WS URL events');
   evidence.gateway_fixture_sha256 = binarySHA256;
+  evidence.integrated_source_commit = (await run('git', ['rev-parse', 'HEAD'], { cwd: root })).stdout.trim();
+  evidence.integrated_source_tree = (await run('git', ['rev-parse', 'HEAD^{tree}'], { cwd: root })).stdout.trim();
+  evidence.tracked_source_changes = (await run('git', ['diff', '--name-only', 'HEAD', '--', 'apps', 'services', 'scripts', 'configs', 'vendor'], { cwd: root })).stdout.trim().split('\n').filter(Boolean);
   evidence.gateway_business_ports_published = false;
   evidence.desktop_data_mounted_into_gateway = false;
   evidence.iscp_operations = operations;

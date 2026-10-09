@@ -29,10 +29,13 @@ func (s *MemoryStore) ReadEventWindow(ctx context.Context, after string, limit i
 		return EventWindow{}, err
 	}
 	if limit < 1 || limit > EventWindowLimit {
-		return EventWindow{}, errors.New("invalid event window limit")
+		return EventWindow{}, storeError(ctx, OperationAuditEventWindow, StoreErrorInvalid, errors.New("invalid event window limit"))
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if err := operationContextError(OperationAuditEventWindow, ctx); err != nil {
+		return EventWindow{}, err
+	}
 	out := EventWindow{Events: []app.Event{}, Cursor: after, CursorFound: after == ""}
 	if tail {
 		out.CursorFound = true
@@ -72,7 +75,7 @@ func (s *PostgresStore) ReadEventWindow(ctx context.Context, after string, limit
 		return EventWindow{}, err
 	}
 	if limit < 1 || limit > EventWindowLimit {
-		return EventWindow{}, errors.New("invalid event window limit")
+		return EventWindow{}, storeError(ctx, OperationAuditEventWindow, StoreErrorInvalid, errors.New("invalid event window limit"))
 	}
 	out := EventWindow{Events: []app.Event{}, Cursor: after, CursorFound: after == ""}
 	if tail {

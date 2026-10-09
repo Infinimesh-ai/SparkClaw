@@ -44,7 +44,16 @@ async function guard(page) {
       if (stamp.activities.some(item => item.kind !== 'watch' && !live(item))) throw new Error('host_action_expired');
       // A watch has its own activity lease. Its expiration never closes a
       // page while another authorized activity is still using that page.
-      if (!activities.some(item => item.kind === 'watch')) await (await applicationHook())?.suspend?.(page);
+      if (!activities.some(item => item.kind === 'watch')) {
+        try {await (await applicationHook())?.suspend?.(page);}
+        catch (error) {
+          // A valid Reader lease also covers its initial navigation. The old
+          // document can disappear during this local observer suspension;
+          // retry on the next guard tick, never retire the authorized page.
+          // Lease validation above and every other hook failure stay closed.
+          if (!/Execution context was destroyed|Cannot find context with specified id/u.test(String(error?.message))) throw error;
+        }
+      }
     } catch {
       closed = true; clearInterval(timer);
       try {await (await applicationHook())?.dispose?.(page);} catch {}

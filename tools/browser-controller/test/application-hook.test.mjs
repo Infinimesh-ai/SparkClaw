@@ -7,7 +7,7 @@ import vm from 'node:vm';
 import {EventEmitter} from 'node:events';
 import {createRequire} from 'node:module';
 
-async function fixture(t, activities) {
+async function fixture(t, activities, observer = false) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'application-lease-'));
   t.after(() => fs.rm(root, {recursive: true, force: true}));
   const file = path.join(root, 'lease.json');
@@ -20,6 +20,12 @@ async function fixture(t, activities) {
     process: {env: {APP_CLI_LEASE_FILE: file, APP_CLI_AWAITED_CODE: '1'}},
     Date: {now: () => now}, performance: {now: () => monotonic},
     setInterval: fn => {tick = fn; return {unref() {}};}, clearInterval() {}};
+  if (observer) {
+    const module = path.join(root, 'observer.cjs'), config = path.join(root, 'hook.json');
+    await fs.writeFile(module, 'module.exports = {suspend: page => page.suspend(), dispose: async () => {}}');
+    await fs.writeFile(config, JSON.stringify({module}));
+    context.process.env.APP_CLI_HOOK_CONFIG = config;
+  }
   vm.runInNewContext(await fs.readFile(new URL('../src/application-hook.cjs', import.meta.url), 'utf8'), context);
   const hook = context.module.exports;
   await hook.guard(page);
@@ -47,6 +53,21 @@ test('watch expiry preserves a separately leased read; expiry or epoch change cl
   const f = await fixture(t, [{id: 'watch', kind: 'watch', expires_ms: 1100}, {id: 'read', kind: 'read', expires_ms: 1500}]);
   f.advance(101); await f.tick(); assert.equal(f.closes(), 0);
   await f.write({epoch: 2}); await f.tick(); assert.equal(f.closes(), 1);
+});
+test('navigation during observer suspension preserves the valid read and retries suspension', async t => {
+  const f = await fixture(t, [{id: 'read', kind: 'read', expires_ms: 5000}], true);
+  let calls = 0;
+  f.page.suspend = async () => {
+    if (++calls === 1) throw new Error('page.evaluate: Execution context was destroyed, most likely because of a navigation.');
+  };
+  await f.tick(); assert.equal(f.closes(), 0);
+  await f.tick(); assert.equal(calls, 2); assert.equal(f.closes(), 0);
+  f.advance(4001); await f.tick(); assert.equal(f.closes(), 1);
+});
+test('unknown suspension failures still close the owned page with a valid lease', async t => {
+  const f = await fixture(t, [{id: 'read', kind: 'read', expires_ms: 5000}], true);
+  f.page.suspend = async () => {throw new Error('observer suspension failed');};
+  await f.tick(); assert.equal(f.closes(), 1);
 });
 test('only the explicitly enabled, marked in-memory application read skips ambient completion', async t => {
   const f = await fixture(t, [{id: 'read', kind: 'read', expires_ms: 5000}]);

@@ -70,7 +70,7 @@ func TestWorkbenchISCPV2RealDocumentToolRequiresApproval(t *testing.T) {
 				}
 			})
 			local := wb.Config{SchemaVersion: 1, Mode: "local-test", Role: wb.RoleResponder, Binding: &wb.Binding{DeploymentID: cfg.Gateway.DeploymentID, OwnerID: "iscp-owner", ClientID: "iscp-desktop-client"}}
-			f := startV2EncryptedFixture(t, server, local, []string{"tools.invoke", "tool.files.read", "tool.text.replace_text"}, []string{wb.OperationToolsInvoke})
+			f := startV2EncryptedFixture(t, server, local, []string{"tools.invoke", "tool.files.read", "tool.observation.read", "tool.text.replace_text"}, []string{wb.OperationToolsInvoke})
 			f.bind(t)
 			const original = "# Notes\nOriginal reflection\n"
 			const updated = "# Notes\nImproved reflection\n"
@@ -110,7 +110,7 @@ func TestWorkbenchISCPV2RealDocumentToolRequiresApproval(t *testing.T) {
 				time.Sleep(10 * time.Millisecond)
 			}
 			if status.State != "running" || len(status.PendingApprovals) != 1 || status.Result != nil {
-				t.Fatalf("real editor did not reach approval: %+v (model calls %v)", status, calls.snapshot())
+				t.Fatalf("real editor did not reach approval: %+v result=%+v (model calls %v)", status, status.Result, calls.snapshot())
 			}
 			approval := status.PendingApprovals[0]
 			if approval.Tool != "text.replace_text" {

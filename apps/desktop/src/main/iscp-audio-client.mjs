@@ -14,17 +14,19 @@ export class ISCPSpeechClient {
    if(!ID.test(request.request_id)||!ID.test(request.session_id)||typeof request.language!=='string'||request.language.length>32)throw new Error('Invalid speech session identity');
    const generation=auth.generation,abort=new AbortController();this.openingAbort=abort;this.opening=true;
    let result;try{result=await auth.invokeISCP('speech.session.open',{session_id:request.session_id,request_id:request.request_id,language:request.language},{signal:abort.signal});}finally{this.opening=false;}
-   if(generation!==auth.generation||!ID.test(result.session_id))throw new Error('Speech authorization changed');
-   this.sessions.set(result.session_id,{generation,abort,inflight:0,next:1,samples:0,finished:false});return result;
+   if(generation!==auth.generation||abort.signal.aborted||!ID.test(result.session_id))throw new Error('Speech authorization changed');
+   const ready=result.ready;
+   if(ready?.event!=='ready'||ready.protocol!=='sparkclaw.speech.realtime.v1'||ready.format?.sample_rate!==16000||ready.format.channels!==1||ready.format.bits_per_sample!==16||ready.format.frame_ms!==100||ready.limits?.max_frame_samples!==1600||!Number.isFinite(ready.limits.max_audio_seconds)||ready.limits.max_audio_seconds<=0||ready.limits.max_audio_seconds>300){abort.abort();void auth.invokeISCP('speech.session.cancel',{session_id:result.session_id}).catch(()=>{});throw new Error('Invalid speech negotiation');}
+   this.sessions.set(result.session_id,{generation,abort,inflight:0,next:1,samples:0,maxSamples:ready.limits.max_audio_seconds*16000,finished:false});return result;
   }
   const state=this.sessions.get(request.session_id);
   if(!state||state.generation!==auth.generation)throw new Error('Speech session is unavailable');
   const common={session_id:request.session_id},options={signal:state.abort.signal};
   if(request.action==='cancel'){this.sessions.delete(request.session_id);state.abort.abort();return auth.invokeISCP('speech.session.cancel',common);}
   if(request.action==='frame'){
-   if(state.finished||state.inflight>=2||!(request.bytes instanceof Uint8Array)||request.bytes.length<2||request.bytes.length>3200||request.bytes.length%2||request.sequence!==state.next||state.samples+request.bytes.length/2>16000*300)throw new Error('Speech sequence or credit window exceeded');
+   if(state.finished||state.inflight>=2||!(request.bytes instanceof Uint8Array)||request.bytes.length<2||request.bytes.length>3200||request.bytes.length%2||request.sequence!==state.next||state.samples+request.bytes.length/2>state.maxSamples)throw new Error('Speech sequence or credit window exceeded');
    state.inflight++;state.next++;state.samples+=request.bytes.length/2;
-   try{return await auth.invokeISCP('speech.session.frame',{...common,sequence:request.sequence,pcm16:Buffer.from(request.bytes).toString('base64')},options);}
+   try{const result=await auth.invokeISCP('speech.session.frame',{...common,sequence:request.sequence,pcm16:Buffer.from(request.bytes).toString('base64')},options);if(result.accepted_sequence!==request.sequence)throw new Error('Speech acknowledgement differs');return result;}
    catch(error){this.sessions.delete(request.session_id);state.abort.abort();throw error;}finally{state.inflight--;}
   }
   if(request.action==='events'){

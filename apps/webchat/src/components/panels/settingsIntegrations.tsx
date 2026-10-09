@@ -24,13 +24,15 @@ export function IntegrationCredentialSettings({
   status,
   text,
   language,
-  onStatus
+  onStatus,
+  loadStatus = api.integration
 }: {
   id: IntegrationID;
   status: IntegrationStatus | null;
   text: Copy;
   language: Language;
   onStatus: (status: IntegrationStatus) => void;
+  loadStatus?: (id: IntegrationID) => Promise<IntegrationStatus>;
 }) {
   const [label, setLabel] = useState("");
   const [licenseId, setLicenseId] = useState("");
@@ -44,7 +46,7 @@ export function IntegrationCredentialSettings({
     if (status) return;
     let active = true;
     setBusy("load");
-    api.integration(id)
+    loadStatus(id)
       .then((next) => { if (active) onStatus(next); })
       .catch((reason) => {
         if (active) {
@@ -53,7 +55,7 @@ export function IntegrationCredentialSettings({
       })
       .finally(() => { if (active) setBusy(""); });
     return () => { active = false; };
-  }, [id, onStatus, status, text.errors.integration]);
+  }, [id, loadStatus, onStatus, status, text.errors.integration]);
 
   function clearCredentialInputs() {
     setLabel("");
@@ -80,7 +82,7 @@ export function IntegrationCredentialSettings({
       });
       if (options.refreshStatusOnError) {
         try {
-          onStatus(await api.integration(id));
+          onStatus(await loadStatus(id));
         } catch {
           // Retain the original action error when the status refresh also fails.
         }
@@ -147,7 +149,7 @@ export function IntegrationCredentialSettings({
     if (busy) return;
     setBusy("refresh");
     setFeedback(null);
-    try { onStatus(await api.integration(id)); }
+    try { onStatus(await loadStatus(id)); }
     catch (reason) { setFeedback({ tone: "error", title: text.errors.integration, message: errorMessage(reason, text.errors.integration) }); }
     finally { setBusy(""); }
   }

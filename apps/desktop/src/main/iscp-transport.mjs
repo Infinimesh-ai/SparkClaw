@@ -57,7 +57,7 @@ export class ISCPTransport {
           if(frame.type!=='authorization_receipt'||frame.id!==id){finish(new Error('Authorization receipt identity differs'));return;}
           if(frame.error){finish(new Error('Authorization deletion requires reconciliation'));return;}
           const receipt=frame.receipt;
-          if(receipt?.operation_id!==operationID||receipt.expected_revision!==expectedRevision||!Number.isSafeInteger(receipt.authorization_revision)||receipt.authorization_revision<=expectedRevision||receipt.state!=='revoked'||!Number.isFinite(Date.parse(receipt.deleted_at))){finish(new Error('Authorization receipt is invalid'));return;}
+          if(receipt?.operation_id!==operationID||receipt.expected_revision!==expectedRevision||!Number.isSafeInteger(receipt.authorization_revision)||receipt.authorization_revision!==expectedRevision+1||receipt.state!=='revoked'||!Number.isFinite(Date.parse(receipt.deleted_at))){finish(new Error('Authorization receipt is invalid'));return;}
           finish(undefined,receipt);return;
         }
       });
@@ -262,10 +262,12 @@ export class ISCPTransport {
       }
       if (frame.type === "capabilities") {
         const value=frame.capabilities;
-        if(value?.schema_version!==2||value.profile!==ISCP_V2_PROFILE||!Array.isArray(value.operations)||value.operations.length>256||!value.operations.every((op)=>typeof op==='string')||!Number.isSafeInteger(value.authorization_revision)||value.authorization_revision<1||!Number.isFinite(Date.parse(value.expires_at))||Date.parse(value.expires_at)<=Date.now()||!value.binding) {this.#fail("disconnected");return;}
+        if(value?.schema_version!==2||value.profile!==ISCP_V2_PROFILE||typeof value.session_id!=='string'||!value.session_id||value.session_id.length>160||!Array.isArray(value.operations)||value.operations.length>256||!value.operations.every((op)=>typeof op==='string')||!Number.isSafeInteger(value.authorization_revision)||value.authorization_revision<1||!Number.isFinite(Date.parse(value.expires_at))||Date.parse(value.expires_at)<=Date.now()||!value.binding) {this.#fail("disconnected");return;}
         if(this.expectedBinding && Object.keys(this.expectedBinding).some((key)=>value.binding[key]!==this.expectedBinding[key])){this.#fail("identity_conflict");return;}
-        this.capabilities=Object.freeze(value);
+        try {
         if(this.journalRoot){const scope={...value.binding,installation_id:this.installationID,authorization_revision:value.authorization_revision};const key=JSON.stringify(scope);if(this.objectScopeKey!==key){this.objects=new ISCPObjectClient({root:path.join(this.journalRoot,'objects'),scope,call:this.invoke.bind(this)});this.mutations=new ISCPMutationJournal(path.join(this.journalRoot,'mutations'),scope);this.objectScopeKey=key;}}
+        } catch {this.#fail('disconnected');return;}
+        this.capabilities=Object.freeze(value);
         this.onCapabilities(value);
       } else if (frame.type === "state") {
         if (!["verifying_relay", "discovery_failed", "connecting", "relay_ready", "handshaking", "negotiating", "capability_negotiation_failed", "transport_ready", "disconnected", "authorization_expired", "authorization_revoked", "closed"].includes(frame.state)) { this.#fail("disconnected"); return; }

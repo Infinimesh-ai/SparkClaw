@@ -12,6 +12,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type iscpEventCursor struct {
@@ -87,9 +88,20 @@ func (a *iscpDomainAdapter) eventSnapshot(ctx context.Context, principal request
 	return json.Marshal(snapshot)
 }
 func (a *iscpDomainAdapter) events(ctx context.Context, request iscpworkbench.Request) iscpDomainResult {
+	session, authenticated := iscpworkbench.SessionFromContext(ctx)
+	if !authenticated {
+		return domainError(403, "authenticated_session_required")
+	}
+	return a.eventsWithSession(ctx, request, session)
+}
+func (a *iscpDomainAdapter) eventsWithSession(ctx context.Context, request iscpworkbench.Request, session iscpworkbench.SessionInfo) iscpDomainResult {
 	principal, _, err := a.executionIdentity(ctx, request)
 	if err != nil {
 		return domainError(403, "installation_required")
+	}
+	reader, ok := a.server.store.(store.EventWindowReader)
+	if !ok {
+		return domainError(503, "events_unavailable")
 	}
 	scope := a.receiptScope(principal, request.InstallationID)
 	epoch := a.server.started.UTC().Format(time.RFC3339Nano)
@@ -108,10 +120,6 @@ func (a *iscpDomainAdapter) events(ctx context.Context, request iscpworkbench.Re
 				return domainError(400, "invalid_input")
 			}
 		}
-		session, ok := iscpworkbench.SessionFromContext(ctx)
-		if !ok {
-			return domainError(403, "authenticated_session_required")
-		}
 		permissions := iscpEventCategoryScopes()
 		if len(input.Categories) == 0 {
 			for category, permission := range permissions {
@@ -129,14 +137,11 @@ func (a *iscpDomainAdapter) events(ctx context.Context, request iscpworkbench.Re
 		}
 		// Read durable event boundary first; a concurrent post-snapshot event may be
 		// repeated, but can never disappear behind the snapshot boundary.
-		rows, err := a.server.store.EventsAfter(ctx, "", "")
+		window, err := reader.ReadEventWindow(ctx, "", store.EventWindowLimit, true)
 		if err != nil {
 			return domainError(503, "events_unavailable")
 		}
-		last := ""
-		if len(rows) > 0 {
-			last = rows[len(rows)-1].ID
-		}
+		last := window.Cursor
 		snapshot, err := a.eventSnapshot(ctx, principal, input.RequestIDs, input.Categories)
 		if err != nil {
 			return domainExecutionError(err)
@@ -178,10 +183,6 @@ func (a *iscpDomainAdapter) events(ctx context.Context, request iscpworkbench.Re
 	if err != nil || !found || json.Unmarshal(receipt.Body, &state) != nil || state.ID != cursor.ID || state.Epoch != epoch || state.Revision < cursor.Revision || (cursor.Revision < state.Acknowledged && request.Operation != iscpworkbench.OperationEventsAck) || !state.Expires.After(domainNow()) {
 		return domainError(409, "cursor_gap")
 	}
-	session, authenticated := iscpworkbench.SessionFromContext(ctx)
-	if !authenticated {
-		return domainError(403, "authenticated_session_required")
-	}
 	permissions := iscpEventCategoryScopes()
 	for _, category := range state.Categories {
 		if !slices.Contains(session.Scopes, permissions[category]) {
@@ -211,11 +212,11 @@ func (a *iscpDomainAdapter) events(ctx context.Context, request iscpworkbench.Re
 	if state.Acknowledged < state.Revision {
 		return iscpDomainResult{status: 200, body: state.Packet}
 	}
-	rows, err := a.server.store.EventsAfter(ctx, "", state.LastEvent)
+	window, err := reader.ReadEventWindow(ctx, state.LastEvent, store.EventWindowLimit, false)
 	if err != nil {
 		return domainError(503, "events_unavailable")
 	}
-	if len(rows) > 512 {
+	if !window.CursorFound || window.More {
 		return domainError(409, "cursor_gap")
 	}
 	snapshot, err := a.eventSnapshot(ctx, principal, state.Requests, state.Categories)
@@ -227,7 +228,7 @@ func (a *iscpDomainAdapter) events(ctx context.Context, request iscpworkbench.Re
 	if limit == 0 {
 		limit = 100
 	}
-	for _, row := range rows {
+	for _, row := range window.Events {
 		if len(events) >= limit {
 			break
 		}

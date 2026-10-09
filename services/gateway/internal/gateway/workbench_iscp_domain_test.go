@@ -237,3 +237,41 @@ func TestISCPDomainApprovalBindsDigestRevisionAndNeverDuplicatesContinuation(t *
 		t.Fatalf("duplicate continuation %+v effects=%d", got, effects.Load())
 	}
 }
+
+func TestISCPDomainReceiptQuotaRejectsBeforeMutation(t *testing.T) {
+	server, repo, cfg, _ := workbenchISCPFixture(t, nil)
+	handler, err := server.NewWorkbenchISCPDomainHandler(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := domainTestContext(t)
+	read := handler(ctx, domainTestRequest("settings.owner.get", nil))
+	var state struct{ Revision string }
+	if json.Unmarshal(read.Body, &state) != nil {
+		t.Fatal("invalid owner revision")
+	}
+	path := filepath.Join(server.executionRoot, "iscp-domain-receipts", "isolated-sparse-quota")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = file.Truncate(domainReceiptTotalBytes); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	file.Close()
+	before, found, err := repo.GetOwnerProfileByID(ctx, "iscp-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := domainTestRequest("settings.owner.patch", []byte(`{"display_name":"must not take effect"}`))
+	request.ExpectedRevision = state.Revision
+	response := handler(ctx, request)
+	if response.Status != 507 {
+		t.Fatalf("unreserved mutation admitted: %+v", response)
+	}
+	after, exists, err := repo.GetOwnerProfileByID(ctx, "iscp-owner")
+	if err != nil || exists != found || !after.UpdatedAt.Equal(before.UpdatedAt) || after.DisplayName != before.DisplayName {
+		t.Fatal("quota rejection changed owner state")
+	}
+}

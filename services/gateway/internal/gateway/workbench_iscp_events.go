@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"os"
 	"slices"
 	"time"
 
@@ -99,10 +98,7 @@ func (a *iscpDomainAdapter) eventsWithSession(ctx context.Context, request iscpw
 	if err != nil {
 		return domainError(403, "installation_required")
 	}
-	reader, ok := a.server.store.(store.EventWindowReader)
-	if !ok {
-		return domainError(503, "events_unavailable")
-	}
+	reader := a.server.store
 	scope := a.transientScope(principal, request.InstallationID, session)
 	epoch := a.server.started.UTC().Format(time.RFC3339Nano)
 	a.eventMu.Lock()
@@ -148,14 +144,7 @@ func (a *iscpDomainAdapter) eventsWithSession(ctx context.Context, request iscpw
 		}
 		// One bounded subscription per authenticated installation. A new snapshot
 		// replaces the previous generation; old cursors cannot ACK the new state.
-		if _, found, err := a.receipts.load(scope, "event-subscription"); err != nil {
-			return domainError(503, "events_unavailable")
-		} else if !found {
-			entries, err := os.ReadDir(a.receipts.root)
-			if err != nil || len(entries) >= 65536 {
-				return domainError(507, "event_capacity")
-			}
-		}
+
 		state := iscpEventState{ID: app.NewID("iscp_events"), Revision: 1, Epoch: epoch, LastEvent: last, Requests: input.RequestIDs, Categories: input.Categories, Snapshot: snapshot, Expires: domainNow().Add(24 * time.Hour)}
 		cursor, err := a.sealEventCursor(iscpEventCursor{state.ID, scope, state.Revision, state.Expires})
 		if err != nil {
@@ -266,6 +255,11 @@ func (a *iscpDomainAdapter) saveEventState(scope string, state iscpEventState) e
 	raw, err := json.Marshal(state)
 	if err != nil {
 		return err
+	}
+	a.receipts.mu.Lock()
+	defer a.receipts.mu.Unlock()
+	if !a.receipts.hasCapacity(int64(len(raw)) + 1024) {
+		return execution.ErrCapacity
 	}
 	return a.receipts.save(scope, "event-subscription", iscpDomainReceipt{Version: 1, Digest: "event-subscription", Operation: iscpworkbench.OperationEventsPull, Complete: true, Status: 200, Body: raw})
 }

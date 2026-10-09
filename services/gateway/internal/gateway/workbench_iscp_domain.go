@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -106,17 +105,18 @@ func (a *iscpDomainAdapter) handle(ctx context.Context, request iscpworkbench.Re
 		}
 		return respond(iscpDomainResult{status: receipt.Status, body: receipt.Body})
 	}
-	entries, scanErr := os.ReadDir(a.receipts.root)
-	if scanErr != nil || len(entries) >= 65536 {
+	if !a.receipts.hasCapacity(domainReceiptMaxBytes) {
 		return respond(domainError(507, "operation_receipt_capacity"))
 	}
 	receipt = iscpDomainReceipt{Version: 1, Digest: digest, Operation: request.Operation}
 	if err = a.receipts.save(scope, request.OperationID, receipt); err != nil {
 		return respond(domainError(503, "operation_receipt_unavailable"))
 	}
+	a.receipts.reserved += domainReceiptMaxBytes
 	a.receipts.mu.Unlock()
 	result := a.dispatch(ctx, request)
 	a.receipts.mu.Lock()
+	a.receipts.reserved -= domainReceiptMaxBytes
 	// Never erase an intent on cancellation or uncertain persistence. The client
 	// reconciles business state and cannot turn a lost response into a second write.
 	if ctx.Err() != nil {

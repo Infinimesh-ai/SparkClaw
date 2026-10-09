@@ -18,10 +18,16 @@ import (
 // uncertainty fence: a process loss after it never starts the mutation twice.
 // Completed responses are encrypted because settings may contain private data.
 type iscpDomainReceipts struct {
-	root string
-	aead cipher.AEAD
-	mu   sync.Mutex
+	root     string
+	aead     cipher.AEAD
+	mu       sync.Mutex
+	reserved int64
 }
+
+const domainReceiptMaxBytes = (8 << 20) + (64 << 10)
+const domainReceiptTotalBytes = 512 << 20
+const domainReceiptRecords = 65536
+
 type iscpDomainReceipt struct {
 	Version   int             `json:"version"`
 	Digest    string          `json:"digest"`
@@ -96,8 +102,8 @@ func (j *iscpDomainReceipts) load(scope, id string) (iscpDomainReceipt, bool, er
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
 		return iscpDomainReceipt{}, false, errors.New("unsafe receipt")
 	}
-	sealed, err := io.ReadAll(io.LimitReader(f, 256<<10))
-	if err != nil || len(sealed) <= j.aead.NonceSize() {
+	sealed, err := io.ReadAll(io.LimitReader(f, domainReceiptMaxBytes+128))
+	if err != nil || len(sealed) <= j.aead.NonceSize() || len(sealed) > domainReceiptMaxBytes+64 {
 		return iscpDomainReceipt{}, false, errors.New("invalid receipt")
 	}
 	raw, err := j.aead.Open(nil, sealed[:j.aead.NonceSize()], sealed[j.aead.NonceSize():], []byte(scope+"\x00"+id))
@@ -112,7 +118,7 @@ func (j *iscpDomainReceipts) load(scope, id string) (iscpDomainReceipt, bool, er
 }
 func (j *iscpDomainReceipts) save(scope, id string, receipt iscpDomainReceipt) error {
 	raw, err := json.Marshal(receipt)
-	if err != nil || len(raw) > 128<<10 {
+	if err != nil || len(raw) > domainReceiptMaxBytes {
 		return errors.New("receipt exceeds limit")
 	}
 	nonce := make([]byte, j.aead.NonceSize())
@@ -145,4 +151,26 @@ func (j *iscpDomainReceipts) save(scope, id string, receipt iscpDomainReceipt) e
 	}
 	defer dir.Close()
 	return dir.Sync()
+}
+
+// Called under mu. Reserve a maximum result before a mutation can have effects.
+// Incomplete intents found after restart never execute, so only this process's
+// active calls reserve future bytes in addition to durable file sizes.
+func (j *iscpDomainReceipts) hasCapacity(reserve int64) bool {
+	entries, err := os.ReadDir(j.root)
+	if err != nil || len(entries) >= domainReceiptRecords {
+		return false
+	}
+	total := j.reserved + reserve
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			return false
+		}
+		total += info.Size()
+		if total > domainReceiptTotalBytes {
+			return false
+		}
+	}
+	return true
 }

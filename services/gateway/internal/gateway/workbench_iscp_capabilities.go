@@ -5,10 +5,12 @@ import (
 	"slices"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpobjects"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type iscpDomainCapability struct {
@@ -41,7 +43,9 @@ func (a *iscpDomainAdapter) capabilities(ctx context.Context, request iscpworkbe
 		speechReady = status.Ready
 		speechStreaming = status.Ready && status.SupportsStreaming
 	}
-	mailSend := a.server.emailManagement != nil && a.server.emailManagement.ComposeCapabilities().Compose
+	mailSend := a.mailSendReady(ctx, a.config.Binding.OwnerID)
+	_, browserErr := a.server.browserHostBroker()
+	browserReady := browserErr == nil
 	toolsReady := len(a.server.workbenchExecutionAuthorization(session).AllowedTools) > 0
 	families := []family{
 		{"tools", []string{iscpworkbench.OperationToolsList, iscpworkbench.OperationToolsInvoke}, toolsReady},
@@ -50,7 +54,7 @@ func (a *iscpDomainAdapter) capabilities(ctx context.Context, request iscpworkbe
 		{"mail_read", []string{iscpworkbench.OperationMailMailboxes, iscpworkbench.OperationMailSync, iscpworkbench.OperationMailMessage}, a.server.mailSync != nil && a.server.emailManagement != nil},
 		{"mail_attachments", []string{iscpworkbench.OperationMailAttachment, iscpworkbench.OperationObjectRead}, a.server.emailManagement != nil},
 		{"mail_send", []string{iscpworkbench.OperationMailDraftsList, iscpworkbench.OperationMailDraftsSave, iscpworkbench.OperationMailDraftsSend, iscpworkbench.OperationMailDraftsReconcile}, mailSend},
-		{"browser", []string{iscpworkbench.OperationBrowserHostGrant, iscpworkbench.OperationBrowserHostRegister, iscpworkbench.OperationBrowserHostPoll, iscpworkbench.OperationBrowserHostReply, iscpworkbench.OperationBrowserHostHeartbeat, iscpworkbench.OperationBrowserHostClose, iscpworkbench.OperationBrowserHostRevoke, iscpworkbench.OperationBrowserReceipt, iscpworkbench.OperationBrowserReconcile}, true},
+		{"browser", []string{iscpworkbench.OperationBrowserHostGrant, iscpworkbench.OperationBrowserHostRegister, iscpworkbench.OperationBrowserHostPoll, iscpworkbench.OperationBrowserHostReply, iscpworkbench.OperationBrowserHostHeartbeat, iscpworkbench.OperationBrowserHostClose, iscpworkbench.OperationBrowserHostRevoke, iscpworkbench.OperationBrowserReceipt, iscpworkbench.OperationBrowserReconcile}, browserReady},
 		{"speech_recording", []string{iscpworkbench.OperationSpeechStatus, iscpworkbench.OperationSpeechTranscribe, iscpworkbench.OperationTransferOpen, iscpworkbench.OperationTransferChunk, iscpworkbench.OperationTransferCommit, iscpworkbench.OperationTransferStatus, iscpworkbench.OperationTransferAbort, iscpworkbench.OperationObjectRelease}, speechReady},
 		{"speech_realtime", []string{iscpworkbench.OperationSpeechSessionOpen, iscpworkbench.OperationSpeechSessionFrame, iscpworkbench.OperationSpeechSessionFinish, iscpworkbench.OperationSpeechSessionCancel, iscpworkbench.OperationSpeechSessionEvents}, speechStreaming},
 		{"settings_owner", []string{iscpworkbench.OperationSettingsOwnerGet, iscpworkbench.OperationSettingsOwnerPatch}, true},
@@ -98,7 +102,7 @@ func (a *iscpDomainAdapter) capabilityLimits() map[string]any {
 	limits := iscpobjects.DefaultLimits()
 	return map[string]any{
 		"message_bytes": iscpworkbench.MaxMessageBytes, "notification_watermark_items": 500,
-		"operation_receipt_retention": "until_manual_authorization_deletion", "operation_receipt_records": 65536,
+		"operation_receipt_retention": "durable_bounded_journal", "operation_receipt_records": domainReceiptRecords, "operation_receipt_max_bytes": domainReceiptMaxBytes, "operation_receipt_total_bytes": domainReceiptTotalBytes,
 		"chunk_bytes": iscpobjects.ChunkBytes, "transfer_window": iscpobjects.Window,
 		"object_max_bytes": limits.MaxObjectBytes, "object_owner_bytes": limits.MaxOwnerBytes, "object_total_bytes": limits.MaxTotalBytes,
 		"active_transfers": limits.MaxTransfers, "object_records": limits.MaxRecords,
@@ -109,4 +113,28 @@ func (a *iscpDomainAdapter) capabilityLimits() map[string]any {
 		"browser_capture_effective_bytes": 64 << 10, "browser_reply_json_bytes": 96 << 10,
 		"event_unacked_packets": 1, "event_packet_items": 100, "event_cursor_ttl_seconds": 86400,
 	}
+}
+
+func (a *iscpDomainAdapter) mailSendReady(ctx context.Context, owner string) bool {
+	if a.server.emailManagement == nil || !a.server.emailManagement.ComposeCapabilities().Compose {
+		return false
+	}
+	repository, ok := a.server.store.(store.EmailRepository)
+	if !ok {
+		return false
+	}
+	boxes, err := repository.ListEmailMailboxes(ctx, owner)
+	if err != nil {
+		return false
+	}
+	for _, box := range boxes {
+		if !box.Active {
+			continue
+		}
+		setting, found, err := a.server.store.GetEmailProviderSetting(ctx, owner, box.Provider)
+		if err == nil && found && setting.Enabled && setting.State == app.EmailStateReady {
+			return true
+		}
+	}
+	return false
 }

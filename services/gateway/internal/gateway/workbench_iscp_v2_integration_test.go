@@ -20,6 +20,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscplocalissuer"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpobjects"
 	wb "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
+	"github.com/Infinimesh-ai/ISCP/pkg/iscp/trust"
 )
 
 // This fixture uses a real pinned issuer HTTP server and the production Gateway
@@ -31,6 +32,8 @@ type v2EncryptedFixture struct {
 	network  *workbenchEncryptedRelayNetwork
 	ctx      context.Context
 	revision uint64
+	configs  []wb.Config
+	seed     trust.Grant
 }
 
 func newV2EncryptedFixture(t *testing.T, executor execution.Executor) *v2EncryptedFixture {
@@ -38,7 +41,7 @@ func newV2EncryptedFixture(t *testing.T, executor execution.Executor) *v2Encrypt
 	server, _, local, _ := workbenchISCPFixture(t, executor)
 	return startV2EncryptedFixture(t, server, local, nil, nil)
 }
-func startV2EncryptedFixture(t *testing.T, server *Server, local wb.Config, extraScopes, extraQualified []string) *v2EncryptedFixture {
+func startV2EncryptedFixture(t *testing.T, server *Server, local wb.Config, extraScopes, extraQualified []string, grantTTL ...time.Duration) *v2EncryptedFixture {
 	t.Helper()
 	clientCfg, serverCfg := workbenchEncryptedConfigurations(t, local.Binding)
 	issuerDir := filepath.Join(t.TempDir(), "issuer")
@@ -50,7 +53,11 @@ func startV2EncryptedFixture(t *testing.T, server *Server, local wb.Config, extr
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant, err := issuer.Sign(30 * time.Minute)
+	ttl := 30 * time.Minute
+	if len(grantTTL) != 0 {
+		ttl = grantTTL[0]
+	}
+	grant, err := issuer.Sign(ttl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +83,7 @@ func startV2EncryptedFixture(t *testing.T, server *Server, local wb.Config, extr
 	qualified = append(qualified, extraQualified...)
 	for _, cfg := range []*wb.Config{&clientCfg, &serverCfg} {
 		cfg.ApplicationProfiles = []string{wb.ProfileV2, wb.Profile}
-		cfg.GrantRenewal = &wb.GrantRenewalConfig{URL: issuerHTTP.URL, AuthorizationLifetime: "until_revoked", PendingFile: filepath.Join(cfg.IdentityDirectory, "pending.json")}
+		cfg.GrantRenewal = &wb.GrantRenewalConfig{URL: issuerHTTP.URL, AuthorizationLifetime: "until_revoked", PendingFile: filepath.Join(cfg.IdentityDirectory, "pending.json"), PollIntervalSeconds: 1}
 		cfg.QualifiedCapabilities = qualified
 	}
 	handler, err := server.NewWorkbenchISCPHandler(serverCfg)
@@ -100,7 +107,7 @@ func startV2EncryptedFixture(t *testing.T, server *Server, local wb.Config, extr
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if cap, ok := client.Negotiated(); ok && cap.Profile == wb.ProfileV2 {
-			return &v2EncryptedFixture{server, client, network, ctx, grant.RevocationEpoch}
+			return &v2EncryptedFixture{server: server, client: client, network: network, ctx: ctx, revision: grant.RevocationEpoch, configs: []wb.Config{clientCfg, serverCfg}, seed: grant}
 		}
 		time.Sleep(5 * time.Millisecond)
 	}

@@ -50,6 +50,30 @@
       "attachments": 0,
       "smtp_receiving_alias_verified_from_synthetic_original_to": true,
       "account_or_subject_or_body_recorded": false
+    },
+    "runtime15_qualification": {
+      "paired_release": ".15",
+      "intake_http_status": 200,
+      "mailbox_version": 1,
+      "intake_enabled": true,
+      "receipt_interval_start": "2026-09-24T00:00:00Z",
+      "receipt_interval_end": "2026-09-25T00:00:00Z",
+      "discovery_candidates": 7,
+      "scanned_rows": 7,
+      "scan_complete": true,
+      "query_qualified": true,
+      "limited": false,
+      "original_capture_status": "collected",
+      "original_files": 1,
+      "verified_bytes": 10423,
+      "all_referenced_file_hashes_verified": true,
+      "read_state": "unread",
+      "mark_read_called": false,
+      "attachments": 0,
+      "smtp_receiving_alias_verified_from_synthetic_original_to": true,
+      "account_or_subject_or_body_recorded": false,
+      "duration_seconds": 111.55,
+      "same_path_regression_passed": true
     }
   },
   "qq_mail": {
@@ -202,6 +226,46 @@
       "owner_scope_unchanged": true,
       "existing_records_or_fence_removed": false,
       "original_download_qualified": false
+    },
+    "installed_qualification": {
+      "paired_release": ".15",
+      "receipt_interval_start": "2026-09-24T00:00:00Z",
+      "receipt_interval_end": "2026-09-25T00:00:00Z",
+      "discovery_candidates": 11,
+      "scanned_rows": 11,
+      "scan_complete": true,
+      "query_qualified": true,
+      "limited": false,
+      "original_capture_status": "collected",
+      "original_files": 1,
+      "verified_bytes": 6374,
+      "all_referenced_file_hashes_verified": true,
+      "read_state": "read",
+      "mark_read_called": false,
+      "attachments": 0,
+      "duration_seconds": 73.31,
+      "owner_scope_unchanged": true,
+      "existing_records_or_fence_removed": false,
+      "account_or_subject_or_body_recorded": false,
+      "first_attempt": {
+        "duration_seconds": 94.44,
+        "phase": "interval_discovery",
+        "controller_phase": "runReadCode",
+        "controller_command": "run-code",
+        "controller_reason": "process_exit_context_destroyed",
+        "executor_status": "blocked",
+        "executor_reason": "BROWSER_EXTENSION_UNAVAILABLE",
+        "executor_epoch": 9,
+        "effects": 0
+      },
+      "single_read_only_retry_after_recovery": {
+        "failed_exclusive_lease_retired": true,
+        "only_valid_watch_leases_remained": true,
+        "both_providers_resumed_completed_collect_page": true,
+        "services_restarts": 0,
+        "cleanup_fence_present": false,
+        "scope_and_interval_unchanged": true
+      }
     }
   },
   "cleanup_recovery": {
@@ -247,9 +311,10 @@
     }
   },
   "limits": [
-    "Outlook original download passed with no attachments; incoming attachment transfer remains separately unqualified.",
-    "QQ bounded discovery passed, but historical original capture requires the receipt-bound .15 fix and a new live run.",
-    "The .15 candidate has not been deployed by this commit.",
+    "Outlook and QQ .15 each passed one bounded historical original download; both selected messages contained zero attachments.",
+    "QQ .15 passed after one explicitly recorded transient context-destroyed failure and one same-scope, same-window retry.",
+    "Actual received attachment transfer remains separately unqualified.",
+    "The old Controller shutdown timeout is separately tracked and still requires its independently reviewed cleanup fix.",
     "No send, reply or mark-read was attempted."
   ],
   "installed_follow_up": {
@@ -285,7 +350,7 @@
   "qq_receipt_bound_candidate": {
     "release": "0.3.0-sparkclaw.15",
     "runtime_digest": "edec9341d86fb838072f84502a4277196dd42b8398a66b855838a9875cc03191",
-    "deployed": false,
+    "deployed": true,
     "discovery_preserves_validated_receipt_time": true,
     "capture_interval_half_width_milliseconds": 1000,
     "requires_exact_message_selection_account_and_receipt_time": true,
@@ -323,5 +388,52 @@
     "go_projection_bytes_unchanged": true,
     "new_gateway_error_mapping_required": false,
     "deployment_requires_stopped_gateway_and_paired_checkpoint": true
+  },
+  "installed_runtime15": {
+    "source": "8cc8170854d702b789468b6c9b36055ab9f0aeac",
+    "release": "0.3.0-sparkclaw.15",
+    "runtime_digest": "edec9341d86fb838072f84502a4277196dd42b8398a66b855838a9875cc03191",
+    "gateway_image_unchanged": true,
+    "gateway_healthy": true,
+    "services_all_active": true,
+    "components_actual_scripts_check_passed": true,
+    "reader_policy_unchanged": true,
+    "browser_components_staged": false,
+    "cleanup_fence_present": false,
+    "checkpoint": {
+      "name": "mail-runtime15-20261009T091420Z",
+      "postgres_sha256": "ad2eaf2264aeb83d807dfc4861933c37bb13201afe69b3688eeaaecc6ab3ad28",
+      "postgres_restore_list_valid": true,
+      "paired_state_sha256": "f248ed6c7584ae4393c862d8d648c3bf42d83a23302265b16c706ceae65d8055",
+      "paired_state_bytes": 135607188,
+      "includes_memory_runtime_workspaces_app_cli_profile_units_env_and_components": true,
+      "stop_order": [
+        "gateway",
+        "executor",
+        "controller",
+        "browser"
+      ],
+      "all_owned_processes_absent": true,
+      "all_service_cgroups_empty": true,
+      "cleanup_fence_before": false
+    },
+    "controller_shutdown": {
+      "systemd_stop_timeout_seconds": 60,
+      "systemd_result": "timeout",
+      "systemd_final_signal": "SIGKILL",
+      "resource_cleanup_proven_after_exit": true,
+      "separate_shutdown_fix_pending": true
+    },
+    "post_original_health": {
+      "gateway_healthy": true,
+      "all_three_services_active": true,
+      "all_three_services_restarts": 0,
+      "cleanup_fence_present": false,
+      "both_providers_capture_completed": true,
+      "both_providers_collect_page_resumed": true,
+      "executor_epoch": 9,
+      "paired_install_check": true,
+      "actual_managed_components_check": true
+    }
   }
 }

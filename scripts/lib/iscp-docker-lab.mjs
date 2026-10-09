@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { prepareCapacityRelay } from "./iscp-relay-capacity.mjs";
 
 export const labLabel = "io.sparkclaw.iscp.lab";
 export const relayContainerURL = "http://iscp-relay:8080";
@@ -26,21 +27,23 @@ export function dockerArch() {
   return result;
 }
 
-export async function buildRelay(root, directory, arch) {
+export async function buildRelay(root, directory, arch, { capacity = false } = {}) {
   const module = JSON.parse(command("go", ["list", "-m", "-json", "github.com/Infinimesh-ai/ISCP"], { cwd: root }));
   if (!module.Dir || !module.Version || !module.Sum || module.Replace) throw new Error("The local Relay requires the checksum-locked, unreplaced ISCP Go module");
   command("go", ["mod", "verify"], { cwd: path.join(root, "services/gateway"), env: { ...process.env, GOWORK: "off" } });
   const context = path.join(directory, "relay-build");
   await fs.mkdir(context, { mode: 0o700 });
   const binary = path.join(context, "relayd");
+  const sourceDirectory = capacity ? path.join(directory, "relay-source") : module.Dir;
+  const capacityPatch = capacity ? await prepareCapacityRelay(module.Dir, sourceDirectory) : undefined;
   command("go", ["build", "-trimpath", "-ldflags=-s -w", "-o", binary, "./services/relay-reference/cmd/relayd"], {
-    cwd: module.Dir, env: { ...process.env, GOWORK: "off", CGO_ENABLED: "0", GOOS: "linux", GOARCH: arch },
+    cwd: sourceDirectory, env: { ...process.env, GOWORK: "off", CGO_ENABLED: "0", GOOS: "linux", GOARCH: arch },
   });
   const hash = crypto.createHash("sha256").update(await fs.readFile(binary)).digest("hex");
   const image = `sparkclaw-iscp-relay:${module.Version.replace(/^v/u, "")}-${hash.slice(0, 12)}`;
   command("docker", ["build", "--network=none", "--pull=false", "--file", path.join(root, "docker/images/iscp-relay-local.Dockerfile"), "--tag", image, context]);
   const imageID = command("docker", ["image", "inspect", image, "--format", "{{.Id}}"]);
-  return { module: module.Path, version: module.Version, module_sum: module.Sum, relay_binary_sha256: hash, image, image_id: imageID, goarch: arch };
+  return { module: module.Path, version: module.Version, module_sum: module.Sum, ...(capacityPatch ? { capacity_patch: capacityPatch } : {}), relay_binary_sha256: hash, image, image_id: imageID, goarch: arch };
 }
 
 export function containerState(name, labID) {
@@ -72,7 +75,8 @@ export async function startRelay(metadata) {
     "--network", metadata.ingress_network, "--publish", "127.0.0.1::8080",
     "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--log-opt", "max-size=10m", "--log-opt", "max-file=2",
     "--env", "ISCP_PROFILE=local-lab", "--env", `ISCP_DOMAIN_ID=${metadata.domain_id}`, "--env", `ISCP_RELAY_ID=${metadata.relay_id}`,
-    "--env", `ISCP_RELAY_BASE_URL=${relayContainerURL}`, "--env", `ISCP_RELAY_WS_URL=${relayContainerWS}`, metadata.source.image]);
+    "--env", `ISCP_RELAY_BASE_URL=${relayContainerURL}`, "--env", `ISCP_RELAY_WS_URL=${relayContainerWS}`,
+    ...(metadata.source.capacity_patch ? ["--env", "SPARKCLAW_ISCP_CAPACITY=1"] : []), metadata.source.image]);
   command("docker", ["network", "connect", "--alias", "iscp-relay", metadata.network, metadata.relay_container]);
   command("docker", ["start", metadata.relay_container]);
   const container = containerState(metadata.relay_container, metadata.lab_id);

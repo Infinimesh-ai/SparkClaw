@@ -63,7 +63,7 @@ async function enrolledPeer(name, directory) {
 
 async function write(filename, value) { await writePrivateJSON(filename, value, { replace: false }); }
 
-export async function prepareLab(inputFile, directory) {
+export async function prepareLab(inputFile, directory, { expansion = false, capacityRelay = false } = {}) {
   if (!path.isAbsolute(directory) || directory === root || directory.startsWith(root + path.sep)) throw new Error("Use a new absolute private test directory outside the repository");
   const input = validateLabInput(await readPrivateJSON(inputFile));
   await assertNoSymlinkPath(directory);
@@ -77,8 +77,8 @@ export async function prepareLab(inputFile, directory) {
     network: `sparkclaw-iscp-${labID}`, ingress_network: `sparkclaw-iscp-ingress-${labID}`,
     relay_container: `sparkclaw-iscp-relay-${labID}`, gateway_container: `sparkclaw-iscp-gateway-${labID}`, issuer_container: `sparkclaw-iscp-issuer-${labID}`, created_at: new Date().toISOString() };
   try {
-    process.stdout.write("Building the locked upstream ISCP reference Relay source for Docker...\n");
-    metadata.source = await buildRelay(root, directory, dockerArch());
+    process.stdout.write(capacityRelay ? "Building the locked ISCP reference Relay with compatible local capacity scheduling...\n" : "Building the locked upstream ISCP reference Relay source for Docker...\n");
+    metadata.source = await buildRelay(root, directory, dockerArch(), { capacity: capacityRelay });
     await startRelay(metadata);
     const enrollBinary = path.join(directory, "bin/iscp-local-enroll");
     command("go", ["build", "-trimpath", "-o", enrollBinary, "./cmd/iscp-local-enroll"], { cwd: gatewayRoot });
@@ -95,7 +95,12 @@ export async function prepareLab(inputFile, directory) {
     command("go", ["build", "-trimpath", "-o", issuerBinary, "./cmd/iscp-local-issuer"], { cwd: gatewayRoot });
     command(issuerBinary, ["-init", "-directory", path.join(directory, "issuer"), "-subject-identity", path.join(directory, "desktop/device.identity.json"), "-audience-identity", path.join(directory, "gateway/device.identity.json"), "-relay-id", metadata.relay_id]);
     await issueGrant(directory);
-    command(issuerBinary, ["-authorize-renewal", "-config", path.join(directory, "issuer/issuer.json"), "-grant-file", path.join(directory, "grant.json"), "-authorization-hours", "0"]);
+    if (expansion) {
+      const registry = JSON.parse(await fs.readFile(path.join(root, "services/gateway/internal/iscpworkbench/operations.json"), "utf8"));
+      metadata.qualified_operations = registry.map(spec => spec.name);
+      metadata.authorization_scopes = [...new Set([...registry.map(spec => spec.scope), "tool.files.read", "tool.files.search", "tool.files.write_draft"])].sort();
+    }
+    command(issuerBinary, ["-authorize-renewal", "-config", path.join(directory, "issuer/issuer.json"), "-grant-file", path.join(directory, "grant.json"), "-authorization-hours", "0", ...(expansion ? ["-authorization-scopes", metadata.authorization_scopes.join(",")] : [])]);
     const issuerConfig = await readPrivateJSON(path.join(directory, "issuer/issuer.json"));
     await write(path.join(directory, "issuer/issuer-container.json"), issuerContainerConfig(issuerConfig, directory));
     command("go", ["build", "-trimpath", "-o", path.join(directory, "bin/issuer-linux"), "./cmd/iscp-local-issuer"], { cwd: gatewayRoot, env: { ...process.env, GOOS: "linux", GOARCH: metadata.source.goarch, CGO_ENABLED: "0" } });
@@ -135,6 +140,10 @@ async function writeProfiles(directory, metadata, desktopIdentity, gatewayIdenti
       enrollment_file: path.join(directory, name, "enrollment.json"), peer_identity_file: path.join(directory, other, "device.identity.json"),
       issuer_identity_file: path.join(directory, "issuer/issuer.identity.json"), grant_file: path.join(directory, "grant.json"), permission: "sparkclaw.workbench.v1", binding,
       grant_renewal: helperRenewalConfig(directory, name, metadata.issuer_url) };
+    if (metadata.qualified_operations) {
+      profile.application_profiles = ["sparkclaw.workbench.transport.v2", "sparkclaw.workbench.transport.v1"];
+      profile.qualified_capabilities = metadata.qualified_operations;
+    }
     await write(path.join(directory, `${name}-helper.json`), profile);
     if (name === "gateway") {
       const containerProfile = Object.fromEntries(Object.entries(profile).map(([key, value]) => [key, typeof value === "string" && value.startsWith(directory + path.sep) ? "/lab" + value.slice(directory.length) : value]));
@@ -333,10 +342,13 @@ async function main() {
   const options = {};
   for (let index = 0; index < args.length; index++) {
     if (args[index] === "--reconnect") { options.reconnect = true; continue; }
+    if (args[index] === "--capacity-relay") { options.capacityRelay = true; continue; }
     if (!["--input", "--directory"].includes(args[index]) || !args[index + 1]) throw new Error("Use prepare --input <private JSON> --directory <new absolute directory>, or verify/up/smoke/run/down --directory <prepared directory>");
     options[args[index].slice(2)] = args[++index];
   }
+  if (options.capacityRelay && action !== "prepare-expansion") throw new Error("--capacity-relay requires explicit prepare-expansion");
   if (action === "prepare" && options.input && options.directory) await prepareLab(options.input, options.directory);
+  else if (action === "prepare-expansion" && options.input && options.directory) await prepareLab(options.input, options.directory, { expansion: true, capacityRelay: options.capacityRelay === true });
   else if (action === "verify" && options.directory) await verifyLab(options.directory);
   else if (action === "up" && options.directory) await upLab(options.directory);
   else if (action === "smoke" && options.directory) await smokeLab(options.directory, options.reconnect);
@@ -346,7 +358,7 @@ async function main() {
     await assertDesktopStopped(options.directory);
     await stopLab(await readPrivateJSON(path.join(options.directory, "run.json")), options.directory);
     process.stdout.write("Removed this lab's Docker services; private profiles/state/evidence retained. Prepare a new lab before starting a new reference Relay.\n");
-  } else throw new Error("Choose prepare, verify, up, smoke, run or down with the required paths");
+  } else throw new Error("Choose prepare, prepare-expansion, verify, up, smoke, run or down with the required paths");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

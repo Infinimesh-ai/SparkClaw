@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "desktop_local_boundary_qualified_real_provider_delivery_pending",
+  "correction": "Workspace was already defined as the originating SparkX desktop host's workbench data. The earlier Gateway-source implementation was incorrect.",
+  "supersedes_mail_boundary_evidence": "iscp-workspace-mail-2026-10-09.json",
+  "source_boundary": {
+    "authority": "Scoped ClientStore local_file_id in the originating SparkX installation",
+    "local_storage": "<userData>/workbench/files",
+    "renderer_input": "Existing owned local_file_id only; no filesystem paths or object references",
+    "main_process": "Verify private regular local file and recorded manifest before upload and send",
+    "transport": "Existing encrypted ISCP chunked object transfer",
+    "gateway_input": "Committed mail_send_attachment object bound to deployment, Owner, Client, installation and authorization revision",
+    "gateway_workspace_source_read": false,
+    "max_files": 5,
+    "max_total_bytes": 10485760,
+    "object_absolute_retention_seconds": 86400,
+    "unknown_send": "Receipt-only reconciliation; no source read, reupload or resend"
+  },
+  "baseline": {
+    "desktop_tests": 193,
+    "webchat_tests": 237,
+    "go_build": true,
+    "focused_go_tests": true
+  },
+  "validation": {
+    "linux_go_tested_packages": 65,
+    "linux_go_packages_without_tests": 6,
+    "go_build": true,
+    "go_vet": true,
+    "affected_go_race": true,
+    "real_postgresql_object_manifest_snapshots_CAS_restart": true,
+    "desktop_tests": 216,
+    "webchat_tests": 239,
+    "webchat_build": true,
+    "linux_local_file_boundary_tests": 27,
+    "bilingual_documentation_mirrors": 110,
+    "native_mail_boundary": true,
+    "packaged_source_and_helper_match": true
+  },
+  "native_mail": {
+    "passed": true,
+    "checks": [
+      "fresh_qualified_mail_attachment_capability_in_native_renderer",
+      "desktop_file_change_invalidates_old_confirmation_before_any_provider_effect",
+      "desktop_owned_file_transferred_without_gateway_source_access_or_decoy_read",
+      "renderer_saved_and_confirmed_manifest_delivers_identical_bytes_to_loopback_sink",
+      "lost_provider_receipt_remains_unknown_until_reconciliation_and_never_resends",
+      "10MiB_desktop_source_encrypted_transfer_and_exact_sink_bytes"
+    ],
+    "desktop_object_capacity": {
+      "bytes": 10485760,
+      "sha256": "sha256:b5eec3f68ef64d15e82dad91ff908582c5f081e61a62e22427af9bec2cd35f8d",
+      "transfer_review_ms": 43727,
+      "no_external_email": true
+    },
+    "gateway_fixture_sha256": "c3abd36b7b44055291db2a658fbef53c694ad75fc06f16c46d2f7c4a8192af19",
+    "desktop_data_mounted_into_gateway": false,
+    "gateway_business_ports_published": false,
+    "direct_business_http_ws_attempts": 0,
+    "chromium_http_ws_url_events": 0,
+    "iscp_operations": {
+      "browser.receipt": 2,
+      "capabilities.get": 2,
+      "events.ack": 24,
+      "events.pull": 23,
+      "events.snapshot": 1,
+      "installation.bind": 1,
+      "mail.drafts.list": 6,
+      "mail.drafts.reconcile": 1,
+      "mail.drafts.save": 4,
+      "mail.drafts.send": 3,
+      "mail.mailboxes": 1,
+      "notifications.list": 2,
+      "object.describe": 1,
+      "presentation.config": 1,
+      "presentation.ready": 1,
+      "settings.owner.get": 1,
+      "transfer.chunk": 1282,
+      "transfer.commit": 3,
+      "transfer.open": 3,
+      "workbench.identity": 1
+    },
+    "tracked_source_changes": [],
+    "qualification_scope": "controlled loopback only; no third-party account and no external email",
+    "effects": 3,
+    "reconciles": 1,
+    "evidence_file_sha256": "bec24eb497c94598c397a498e05aede8aeabdc7911426ba156e5e1e6ed0962da",
+    "gateway_decoy_sha256": "sha256:42626bff7734145519e44a38a95e51567935f6123bbe3a81850c62f5fa0bdafb"
+  },
+  "candidate_artifacts": [
+    {
+      "path": "apps/desktop/dist/SparkX-0.1.0-mac-arm64.zip",
+      "bytes": 135839696,
+      "sha256": "b355c011cd1ee45110671ca9f8d57f98591e9c24de7742635498b427db938402",
+      "signed": false,
+      "packaged_source_and_helper_match": true,
+      "installed": false
+    },
+    {
+      "path": "apps/desktop/dist/SparkX-0.1.0-mac-arm64.dmg",
+      "bytes": 136034210,
+      "sha256": "5cad9cb9c27a506ae861ad6a8ad37f360882f6714e61d1639f1a7a7728935b29",
+      "signed": false,
+      "packaged_source_and_helper_match": true,
+      "installed": false
+    }
+  ],
+  "deferred_by_user": [
+    "ASR",
+    "TTS"
+  ],
+  "remaining_external_acceptance": "Real Gmail/Outlook/QQ delivery requires a logged-in test account, recipient and explicit send authorization; controlled sinks do not qualify it.",
+  "release_boundaries": [
+    "No external email sent",
+    "Installed SparkX, online Relay and remote services unchanged",
+    "InfiniCenter unavailable at the configured ancestor anchors; no central or shared-protocol acceptance claimed"
+  ],
+  "review_source_commit": "c00e0a20189262daabb10755062ec0846eaf314e",
+  "review_source_tree": "7f657bac28064fb0e6f6fc1ab90b61df3004e683",
+  "source_file_sha256": {
+    "apps/desktop/src/main/client-store.mjs": "de972453f01a0784795dfce888258e91c79b14003dc4ce70aafb618499e45693",
+    "apps/desktop/src/main/local-file-boundary.mjs": "5607a53f37319d5665b4e1fa9299d89f9a3d57d50aedbb9ef6a6b4e98f1256dc",
+    "apps/desktop/src/main/iscp-mail-attachments.mjs": "669158c8b9a7256a3c3c93831c5c683a51b9ded7b7682ccb3b19a6a8f73bd8a6",
+    "apps/desktop/src/main/iscp-transport.mjs": "c06fcb0f2968870e2f4a15806a14f44ef8fb125dcdc8e09db1453fef0c01eae1",
+    "apps/desktop/src/main/desktop-auth.mjs": "41ca10449d96051afdd7278ba190e1da24b3438d38dcf6b73d2998bc69ecfe71",
+    "apps/webchat/src/desktop/ISCPMailDraftPanel.tsx": "9fccb2f050c9764f7784a83387757cd42e5ff1fa201cbca9c6bc02623ce9a34a",
+    "apps/webchat/src/desktop/MailDraftAttachments.tsx": "a513f31a59b87b18e84613617e64917c3b11648b76d80b44fe758fa626e537e1",
+    "services/gateway/internal/emailmanagement/compose_attachments.go": "c9c5720aa0d4dea81b95aa994036af49cc84bfd72e70348fce21593f9ffdad53",
+    "services/gateway/internal/gateway/workbench_iscp_mail_objects.go": "d836fae52d8dde4ccf5cc5115bbc409e2286192dbdaf60734bdce5c23f393a0a",
+    "services/gateway/internal/iscpworkbench/endpoint_rpc.go": "d643fac0c759e3a7cc4f3725d3474b442b05ccbac49033857e78053cb1b7e76f"
+  },
+  "unchanged_app_cli_release": {
+    "id": "0.3.0-sparkclaw.12",
+    "runtime_digest": "0fa21372bf0933c400de45ae8d0b47283f13dea75f4e42ba753c578e9b31af0e",
+    "retained_prior_capacity_evidence": "Actual Controller/CLI provider upload: 10 MiB, 228 chunks, 123240 ms within 180000 ms; this is separate from the native desktop object-transfer test."
+  }
+}

@@ -356,18 +356,34 @@ playback or duplex behavior. The remaining non-audio implementation and local
 acceptance follow-up is recorded in
 [the qualification evidence](evidence/iscp-workspace-mail-2026-10-09.json).
 
-Mail drafts accept only relative references to regular files in the authenticated
-Owner's Gateway workspace. Absolute paths, URLs, traversal, hidden/private paths,
-symbolic links and multiply linked files are rejected. This is not an arbitrary
-file upload from the desktop computer. At most five files, totaling 10 MiB, may be
-attached. Saved drafts return the authoritative path, name, size and SHA-256;
-confirmation is bound to that draft version and manifest. File modification or
-deletion requires saving and reviewing a new version. ISCP attachment operations
-additionally require the explicitly granted `files.read` scope, checked against
-the exact draft loaded for sending before its version CAS.
+**Boundary correction:** workspace means the originating SparkX installation's
+desktop-local workbench data, as already defined in the [convergence
+design](workbench-runtime-convergence-design.md). It does not mean the Gateway
+Owner workspace. The earlier path-based implementation and its attachment
+acceptance evidence are superseded; this was an implementation error, not a new
+product boundary requested by the user.
 
-The Gateway opens path components with no-follow descriptors, bounds the read,
-and freezes the approved bytes in a private per-send directory. The application
+The mail editor selects existing, scoped local file IDs from
+`<userData>/workbench/files`. The main process resolves those IDs through
+ClientStore, verifies the recorded name, size and hash and uploads the bytes using
+the existing encrypted ISCP object transfer. Arbitrary paths, unowned files,
+symlinks, hard links and nonregular files are rejected. At most five files,
+totaling 10 MiB, may be attached. The saved draft includes the local file ID,
+verified object reference, name, size and SHA-256. Confirmation binds that saved
+version and manifest; main verifies the local file again before sending. A
+changed, removed or unavailable file requires explicit selection, saving and
+review. A pending unknown send is reconciled before any new local read or upload.
+
+Gateway accepts only completed `mail_send_attachment` objects for the current
+deployment, Owner, Client, installation and authorization revision, with explicit
+`files.read` permission. It reads object metadata from its object store, never
+from a source pathname. Objects retain their absolute expiry of at most 24 hours;
+expiry, release or a different binding cannot fall back to a Gateway file. The
+permanent authorization decision does not extend temporary file retention.
+
+The Gateway freezes the verified transferred bytes in a private per-send
+directory solely for the provider runtime. This temporary copy does not confer
+authority to read Gateway workspace source files. The application
 runtime validates that snapshot and uploads its in-memory contents through
 bounded, redacted chunks and the browser File/DataTransfer input path. It never
 hands the browser a pathname to reopen. Ownership and hashes are checked before
@@ -396,7 +412,7 @@ upload channel, not production ISCP routing. macOS's legacy process reaper remai
 Linux-only; the fixture separately proves CLI exit and cleans its own processes.
 Linux Controller tests cover that platform's ownership and process-cleanup path.
 
-The real SparkX renderer/main/preload → encrypted ISCP → Linux Gateway → controlled
+The earlier real SparkX renderer/main/preload → encrypted ISCP → Linux Gateway → controlled
 mail sink path passed changed-file rejection, saved-manifest review, exact bytes,
 lost-response reconciliation and one effect per invocation. Native direct business
 HTTP/WS attempts and Chromium business URL events were zero. Real PostgreSQL
@@ -405,7 +421,9 @@ real Chromium tests exercise the provider-shaped upload controls, path replaceme
 input movement during hashing, and final attachment verification. These controlled
 pages and sinks do **not** establish Gmail, Outlook or QQ Mail production DOM or
 delivery qualification; that last check needs a logged-in test account, a recipient
-and explicit approval to send the reviewable test message. Provider-dependent
+and explicit approval to send the reviewable test message. The original source
+fixture incorrectly placed files on Gateway; it cannot qualify the desktop-local
+boundary. Provider-dependent
 surfaces remain independently closed until that check succeeds.
 
 The production Browser Host entry point now passes seven capture states without
@@ -424,12 +442,35 @@ InfiniCenter remains unavailable at the configured anchors; no central acceptanc
 is claimed. Candidate packages and the exact validation counts/hashes are recorded
 in the evidence file above for the user's final acceptance.
 
-Final checks: 65 Go test packages, build/vet and focused race; 193 Desktop tests;
+Historical pre-correction checks: 65 Go test packages, build/vet and focused race; 193 Desktop tests;
 237 WebChat tests and production build; 142 Linux Controller tests (one unrelated
 opt-in download fixture skipped); 23 focused attachment checks, including seven
 real Chromium cases; paired-release install/reproduction/rollback and 110 bilingual
 documentation mirrors. Use the standalone capacity fixture with
 `SPARKCLAW_MAIL_CAPACITY_TEST=1 node tools/browser-controller/test/qualify-workspace-mail-capacity.mjs`.
+
+## 9.4 Desktop-local attachment correction, 2026-10-09
+
+The native acceptance fixture now creates desktop user data outside every Gateway
+Docker bind mount. A same-name Gateway file contains different decoy bytes.
+The fixture imports the production SparkX main/preload/renderer, selects owned
+local file IDs and verifies encrypted transfer, exact sink bytes, rejection after
+desktop-file corruption, and receipt reconciliation after local-file removal.
+It separately exercises the 10 MiB object-transfer ceiling. The mail save/send
+deadline is bounded at 180 seconds across desktop and ISCP layers; unrelated RPC
+deadlines remain unchanged. Real-provider delivery and ASR/TTS are outside this
+controlled qualification. Results are recorded in
+[the corrected evidence](evidence/iscp-desktop-mail-boundary-2026-10-09.json).
+
+The integrated source passed 65 Linux Go test packages, build/vet, focused race,
+real PostgreSQL manifest/CAS/restart checks, 216 Desktop tests, 239 WebChat tests,
+production UI build, 27 Linux local-file checks and 110 bilingual mirrors. Native
+mail qualification passed all six boundary/recovery checks with three controlled
+sink effects and one receipt reconciliation. Transferring and saving the 10 MiB
+desktop file for review took 43.727 seconds; its sink hash and bytes matched.
+Gateway had no mount of the desktop data, and native direct business HTTP/WS
+attempts and Chromium business URL events were zero. The first native run exposed
+a local error-code mapping defect; its correction passed the complete rerun.
 
 ## 10. Related designs
 

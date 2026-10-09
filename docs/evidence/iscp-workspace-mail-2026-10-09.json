@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "date": "2026-10-09",
-  "status": "local_non_audio_qualified_real_mail_account_pending",
+  "status": "superseded_mail_source_boundary_incorrect",
   "review_source_commit": "d8857e6887a9f6572e0c43c705327de8cec10ccc",
   "scope": "Source and isolated candidates; no installed or remote deployment upgraded",
   "deferred_by_user": [
@@ -12,7 +12,7 @@
     "Permanent authorization until explicit deletion",
     "Local Relay changes retain online protocol compatibility",
     "Gateway restart terminates approval-waiting tasks",
-    "Only Owner Gateway workspace files may be sent as attachments"
+    "Only owned files in the originating SparkX desktop host workbench data may be sent as attachments"
   ],
   "validation": {
     "linux_go_tested_packages": 65,
@@ -37,7 +37,7 @@
     "controller_linux_skip_scope": "Existing opt-in Chromium download fixture, not part of changed mail upload channel"
   },
   "attachment_contract": {
-    "workspace": "Authenticated Owner Gateway workspace, not arbitrary desktop files",
+    "workspace": "Historical incorrect implementation: Gateway workspace; superseded and not accepted",
     "max_files": 5,
     "max_total_bytes": 10485760,
     "extra_iscp_scope": "files.read",
@@ -167,7 +167,8 @@
         "sha256": "sha256:d74c6b52adbb0814f62aa6a1b8d64c24e8e655188e167ed11c85466c79a38f2d"
       }
     ],
-    "evidence_file_sha256": "c6f8d53367f879da835a4f1f337f984e4795964a26b20f6a8ebe096369346253"
+    "evidence_file_sha256": "c6f8d53367f879da835a4f1f337f984e4795964a26b20f6a8ebe096369346253",
+    "desktop_source_boundary_qualified": false
   },
   "native_authorization": {
     "settings_confirmation": true,
@@ -279,7 +280,8 @@
       "sha256": "2d353ec6ad4703decd60711783334ee0c77daa8c416c35f86c814f2feb3521eb",
       "signed": false,
       "packaged_source_and_helper_match": true,
-      "installed": false
+      "installed": false,
+      "superseded": true
     },
     {
       "path": "apps/desktop/dist/SparkX-0.1.0-mac-arm64.dmg",
@@ -287,17 +289,14 @@
       "sha256": "6471cbc88dc83a5fc0414c9925922f250b972fdfe331061254e4b5edbbc9905c",
       "signed": false,
       "packaged_source_and_helper_match": true,
-      "installed": false
+      "installed": false,
+      "superseded": true
     }
   ],
   "remaining_external_acceptance": {
     "real_mail_provider_delivery": {
       "status": "needs_logged_in_test_account_recipient_and_explicit_send_approval",
-      "draft_subject": "SparkX ISCP 附件验收 2026-10-09",
-      "draft_body": "这是一封功能验收测试邮件，附件仅包含固定测试文本。",
-      "workspace_attachment": "iscp-acceptance-20261009/attachment.txt",
-      "attachment_bytes": 45,
-      "attachment_sha256": "ac17ffca3acfaad8f3a0dab062ca03587e26b46fd74ec749f96609e70d12ddb5"
+      "previous_gateway_source_test_plan": "withdrawn; a desktop-owned local file is required"
     }
   },
   "release_boundaries": [
@@ -305,5 +304,6 @@
     "Provider-dependent capabilities remain individually closed until positive deployment evidence",
     "Existing installed SparkX, online Relay and remote services unchanged",
     "InfiniCenter unavailable at configured ancestor anchors; no cross-project acceptance claimed"
-  ]
+  ],
+  "superseded_reason": "The attachment source was incorrectly implemented as Gateway workspace. The user reiterated the pre-existing desktop-local SparkX workbench boundary. These historical mail tests and packages do not qualify that boundary."
 }

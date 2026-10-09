@@ -351,9 +351,13 @@ node apps/desktop/test/run-host-iscp-native-qualification.mjs /private/tmp/brows
 
 用户明确暂缓 ASR 与 TTS 验收，其既有 provider 开放条件保持不变；普通回归测试通过不代表麦克风识别、播放或双向语音验收。其余非语音实现与本地验收补充结果见[机器可读证据](../../docs/evidence/iscp-workspace-mail-2026-10-09.json)。
 
-邮件草稿只接受当前已认证 Owner 在 Gateway workspace 内的普通文件相对路径，拒绝绝对路径、URL、路径逃逸、隐藏／私有目录、符号链接和多硬链接文件，不接受从桌面电脑任意选择文件上传。最多五个文件、合计 10 MiB。保存草稿后返回权威路径、文件名、大小与 SHA-256；确认绑定该草稿版本及附件清单。文件修改或删除后必须重新保存并审阅。ISCP 附件操作另需明确授予 `files.read`，权限检查针对本次实际读取的发送草稿，并与随后版本 CAS 绑定。
+**数据边界纠正：**workspace 指发起请求的 SparkX 安装在桌面宿主机上的工作台数据，沿用[收敛设计](workbench-runtime-convergence-design.md)的既有定义，并非 Gateway Owner workspace。此前基于 Gateway 路径的实现及其附件验收证据已被替代；这是实现理解错误，不是用户新提出的数据边界。
 
-Gateway 用不跟随链接的目录描述符逐层打开路径，限制读取大小，将确认的字节冻结到私有发送目录。应用运行时校验冻结副本，使用内存字节、有界且脱敏的分块和浏览器 File／DataTransfer 文件输入路径上传，不把路径交给浏览器重新读取。派发前复核控件归属与哈希，点击发送前再次核对附件清单；缺失、额外、上传中或失败的附件均阻止发送。临时副本有数量限制，完成或重启后清理。结果未知时保留原 invocation 与持久防重发记录，核对不会再次上传或发送。回执身份排除一次性的暂存路径，但保留文件名、大小和哈希。旧的无附件草稿继续兼容。
+邮件编辑器从 `<userData>/workbench/files` 已归属于当前作用域的本地文件中选择文件 ID。主进程经 ClientStore 解析 ID、校验登记的文件名／大小／哈希，再使用既有加密 ISCP 对象传输提交字节。拒绝任意路径、未归属文件、符号链接、硬链接和非常规文件。最多五个文件、合计 10 MiB。保存的草稿包含本地文件 ID、已校验的对象引用、名称、大小与 SHA-256。确认绑定该保存版本及清单，主进程发送前再次核验本机文件；文件变化、删除或不可用时必须显式重新选择、保存并审阅。存在结果未知的发送时，先核对原回执，不再次读取或上传本机文件。
+
+Gateway 只接受当前 deployment、Owner、Client、installation 与授权 revision 绑定且已经完整提交的 `mail_send_attachment` 对象，并要求明确的 `files.read` 权限。元数据以对象存储实际记录为准，绝不按源文件路径读取。对象保留最多 24 小时的绝对到期限制；到期、释放或绑定变化都不能回退读取 Gateway 文件。永久授权不延长临时文件的保留期。
+
+Gateway 将已校验的传输字节冻结到私有发送目录，仅供 provider 运行时使用；此临时副本不授予读取 Gateway workspace 源文件的权限。应用运行时校验冻结副本，使用内存字节、有界且脱敏的分块和浏览器 File／DataTransfer 文件输入路径上传，不把路径交给浏览器重新读取。派发前复核控件归属与哈希，点击发送前再次核对附件清单；缺失、额外、上传中或失败的附件均阻止发送。临时副本有数量限制，完成或重启后清理。结果未知时保留原 invocation 与持久防重发记录，核对不会再次上传或发送。回执身份排除一次性的暂存路径，但保留文件名、大小和哈希。旧的无附件草稿继续兼容。
 
 应用运行时使用基于固定 `.11` bundle 的显式本地 App-CLI `.12` 增量。`vendor/app-cli/workspace-mail-attachments.patch` 可直接评审；`python3 scripts/build-workspace-mail-release.py --check` 可重复构建 runtime、Python wheel 和配套 release 元数据。元数据分别记录上游原始 commit 与本地补丁摘要。Runtime protocol 2.0、Host protocol 1.0 不变；安装器继续拒绝混用版本及文件篡改，整套回滚保留持久账本。这不是上游 App-CLI 发布，也未变更跨项目契约。
 
@@ -365,7 +369,13 @@ Gateway 用不跟随链接的目录描述符逐层打开路径，限制读取大
 
 永久授权删除也已走真实设置界面：停止 Relay 并重启 issuer 与桌面应用后，仍恢复同一份签名删除回执，业务请求继续被拒绝。等待审批时重启终结沿用此前真实进程 SIGKILL 与持久账本重开的验收证据。本次未升级现有安装、远端服务或在线 Relay。配置锚点仍无 InfiniCenter，不声称中枢批准。供用户最后验收的候选包、准确检查数量与哈希记录于上述证据文件。
 
-最终检查：Go 65 个测试包、build／vet 和定向 race；Desktop 193 项；WebChat 237 项与生产构建；Linux Controller 142 项（一个无关的下载 opt-in fixture 跳过）；附件专项 23 项，其中七项使用真实 Chromium；配套 release 的安装／重复构建／回滚；110 份双语文档镜像。独立容量重现命令为 `SPARKCLAW_MAIL_CAPACITY_TEST=1 node tools/browser-controller/test/qualify-workspace-mail-capacity.mjs`。
+纠正前的历史检查：Go 65 个测试包、build／vet 和定向 race；Desktop 193 项；WebChat 237 项与生产构建；Linux Controller 142 项（一个无关的下载 opt-in fixture 跳过）；附件专项 23 项，其中七项使用真实 Chromium；配套 release 的安装／重复构建／回滚；110 份双语文档镜像。原邮件 fixture 将源文件放在 Gateway，不能据此认定桌面本机数据边界通过。独立容量重现命令为 `SPARKCLAW_MAIL_CAPACITY_TEST=1 node tools/browser-controller/test/qualify-workspace-mail-capacity.mjs`。
+
+## 9.4 桌面本机附件边界纠正，2026-10-09
+
+原生验收 fixture 现在将桌面用户数据建在所有 Gateway Docker 挂载范围之外，同时在 Gateway 放置内容不同的同名干扰文件。测试导入生产 SparkX main／preload／renderer，选择已归属的本地文件 ID，验证加密传输、接收字节一致、本机文件损坏后拒发，以及删除本机源文件后仍可核对原发送回执；另覆盖 10 MiB 对象传输上限。邮件保存／发送在桌面和 ISCP 各层统一使用有界 180 秒期限，其他 RPC 期限不变。此受控验收不包含真实 provider 投递及 ASR／TTS。结果见[纠正后的证据](../../docs/evidence/iscp-desktop-mail-boundary-2026-10-09.json)。
+
+集成代码通过 Linux Go 65 个测试包、build／vet、定向 race、真实 PostgreSQL 清单／CAS／重启验证、Desktop 216 项、WebChat 239 项与生产构建、Linux 本机文件边界 27 项及 110 份双语镜像检查。原生邮件六项边界与恢复检查通过，受控接收端三次发送各生效一次、一次原回执核对。10 MiB 本机文件传输并保存供审阅耗时 43.727 秒，接收字节与哈希一致。Gateway 未挂载桌面数据目录，原生直连业务 HTTP／WS 尝试和 Chromium 业务 URL 事件均为零。首轮原生测试发现的本机错误码映射缺陷已修正，并通过整轮重跑。
 
 ## 10. 关联设计
 

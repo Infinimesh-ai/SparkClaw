@@ -10,8 +10,9 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Added
 
-- ISCP mail drafts can review and send only regular files from the Owner's
-  Gateway workspace, with version-bound names/sizes/hashes, immutable upload
+- ISCP mail drafts can review and send only owned local files from SparkX's
+  desktop workbench data, with version-bound names/sizes/hashes, encrypted file
+  transfer and immutable upload
   bytes, a separate `files.read` permission and durable unknown-send fencing.
   The paired local App-CLI `.12` release is reproducible from its recorded patch.
   Production-default native background capture and permanent authorization

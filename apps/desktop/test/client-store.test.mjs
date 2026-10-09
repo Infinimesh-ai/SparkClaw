@@ -169,3 +169,21 @@ test("duplicate displayed input filenames cannot create an ambiguous request or 
  assert.equal(new TextDecoder().decode(store.file(scope, second.id).content), "second source");
  store.close();
 });
+
+test('ISCP schema upgrades preserve existing installations, history, drafts and file bytes',t=>{
+ for(const version of [6,7]){
+  const root=fixture(t);let store=new ClientStore(root);
+  const installation=store.installationID,conversation=store.create(scope,'existing history');
+  const bytes=Buffer.from('existing attachment'),file=store.saveFile(scope,conversation.id,'existing.txt',bytes);
+  const task=store.enqueue(scope,conversation.id,'existing user message',[file.id]);
+  store.saveDraft(scope,conversation.id,'unsent draft',[file.id],0);const before=store.read(scope,conversation.id),inputDigest=store.request(scope,task.request_id).input_digest;
+  if(version===6)store.db.exec('DROP TABLE execution_projection; DROP TABLE event_projection; PRAGMA user_version=6;');
+  else store.db.exec('ALTER TABLE event_projection DROP COLUMN epoch; PRAGMA user_version=7;');
+  store.close();store=new ClientStore(root);
+  try{
+   assert.equal(store.installationID,installation);assert.equal(store.db.prepare('PRAGMA user_version').get().user_version,CLIENT_SCHEMA_VERSION);
+   assert.deepEqual(store.read(scope,conversation.id),before);assert.equal(store.request(scope,task.request_id).input_digest,inputDigest);
+   assert.equal(store.draft(scope,conversation.id).content,'unsent draft');assert.deepEqual(store.file(scope,file.id).content,bytes);
+  }finally{store.close();}
+ }
+});

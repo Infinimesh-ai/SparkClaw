@@ -152,7 +152,9 @@ export function ISCPMailDraftPanel({ language, mailboxID, address, enabled = tru
     {!review && (draft.attachments?.length || 0) > 0 && <MailAttachmentManifest language={language} attachments={draft.attachments || []}/>}
     {["sending", "unknown"].includes(draft.state) && <p role="status">{zh ? "发送结果不确定。请核对原发送记录；此邮件不会自动重发。" : "Send outcome is unknown. Reconcile the original send record; this message will not be sent again automatically."}</p>}
     {draft.state === "sent" && <p role="status">{draft.confirmation_source === "owner_confirmed_capture" ? (zh ? "已根据核对的邮件原件确认发送。" : "Sending was confirmed against the captured mail.") : (zh ? "服务方已确认发送。" : "The provider confirmed sending.")} {draft.receipt?.provider_message_id && <span>{zh ? "服务方回执" : "Provider receipt"}: {draft.receipt.provider_message_id} · {draft.receipt.provider}</span>} {draft.sent_mail_id ? `${zh ? "邮件记录" : "Mail receipt"}: ${draft.sent_mail_id}` : (zh ? "收件证据仍待关联。" : "Delivery evidence has not been linked yet.")}</p>}
-    {draft.state === "failed" && <p role="alert">{zh ? "服务方确认发送失败：" : "The provider reported a failed send: "}{draft.error_code}</p>}
+    {draft.state === "failed" && <p role="alert">{draft.error_code === "email_send_not_dispatched"
+      ? (zh ? "已确认本次尝试未提交发送。请重新审核后再发送。" : "This attempt was not submitted for sending. Review the message again before sending.")
+      : <>{zh ? "服务方确认发送失败：" : "The provider reported a failed send: "}{draft.error_code}</>}</p>}
     {locked && <button type="button" disabled={busy || !enabled} onClick={() => void reconcile()}>{zh ? "核对发送结果" : "Reconcile send outcome"}</button>}
     {notice && <p role="status">{notice}</p>}{error && <p role="alert">{error}</p>}
   </section>;

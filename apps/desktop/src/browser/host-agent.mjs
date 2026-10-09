@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import path from "node:path";
+import { connectISCPHostChannel } from "./iscp-host-channel.mjs";
 import { connectPinnedHostSocket } from "./host-socket.mjs";
 import { HostJournal } from "./host-journal.mjs";
 import { nativePageCommand } from "./native-page-commands.mjs";
@@ -37,10 +38,10 @@ export class BrowserHostAgent {
   // Invoked only by trusted main-frame explicit user activation. Credentials
   // and host grant never cross IPC or become local renderer configuration.
   async grant() {
-    if (!this.scope || this.auth.status.state !== "connected" || this.auth.descriptor?.schemaVersion !== 2) throw new Error("Browser host requires connected pinned HTTPS LAN identity");
+    if (!this.scope || this.auth.status.state !== "connected" || (this.auth.descriptor?.transport === "iscp" ? this.auth.status.capabilities?.browser !== true : this.auth.descriptor?.schemaVersion !== 2)) throw new Error("Browser host requires connected pinned HTTPS LAN identity");
     const generation = ++this.generation;
     this.#disconnect("reconnecting");
-    const response = await this.auth.authorizedFetch(`${this.auth.descriptor.origin}/api/v1/browser/hosts/grants`, {
+    const response = await this.#fetch("browser.host.grant", "/api/v1/browser/hosts/grants", {
       method: "POST", headers: { "content-type": "application/json", "X-SparkClaw-Installation": this.scope.installation_id }, body: "{}",
     });
     if (!response.ok) throw new Error("Browser host permission was rejected");
@@ -49,7 +50,8 @@ export class BrowserHostAgent {
     this.grantRecord = grant;
     const abort = new AbortController(); this.abort = abort;
     try {
-      const socket = await this.connect(this.auth.descriptor, {
+      const connect = this.auth.descriptor?.transport === "iscp" ? (_descriptor, headers, options) => connectISCPHostChannel(this.auth, headers, options) : this.connect;
+      const socket = await connect(this.auth.descriptor, {
         Authorization: this.auth.connection.authorization,
         "X-SparkClaw-Installation": this.scope.installation_id,
         "X-SparkClaw-Host-ID": grant.host_id,
@@ -92,7 +94,7 @@ export class BrowserHostAgent {
   async refreshFences() {
     if (!this.scope || this.auth.status.state !== "connected") throw new Error("Browser reconciliation identity is unavailable");
     const generation = this.generation; const scope = this.scope;
-    const response = await this.auth.authorizedFetch(`${this.auth.descriptor.origin}/api/v1/browser/hosts/fences`, { headers: { "X-SparkClaw-Installation": scope.installation_id } });
+    const response = await this.#fetch("browser.receipt", "/api/v1/browser/hosts/fences", { headers: { "X-SparkClaw-Installation": scope.installation_id } });
     if (!response.ok) throw new Error("Browser write fences are unavailable");
     const result = await response.json();
     if (generation !== this.generation || scope !== this.scope) throw new Error("Browser reconciliation identity changed");
@@ -119,11 +121,17 @@ export class BrowserHostAgent {
     const scopedKeys = ["owner_id", "client_id", "installation_id"];
     const localBound = local && local.digest === digest && scopedKeys.every((key) => local[key] === this.scope?.[key]);
     if (!(remote?.digest === digest || localBound && local.state === "unknown") || local && !localBound) throw new Error("Browser write reconciliation is invalid");
-    const response = await this.auth.authorizedFetch(`${this.auth.descriptor.origin}/api/v1/browser/hosts/reconcile`, { method: "POST", headers: { "content-type": "application/json", "X-SparkClaw-Installation": this.scope.installation_id }, body: JSON.stringify({ command_id: commandID, digest, outcome }) });
+    const response = await this.#fetch("browser.reconcile", "/api/v1/browser/hosts/reconcile", { method: "POST", headers: { "content-type": "application/json", "X-SparkClaw-Installation": this.scope.installation_id }, body: JSON.stringify({ command_id: commandID, digest, outcome }) });
     if (!response.ok) throw new Error("Backend write reconciliation failed");
     if (local) await this.journal.reconcile(commandID, digest, outcome, Boolean(remote));
     else await this.journal.recordReconciled(remote, outcome);
     this.remoteFences.delete(commandID); this.onChange(); return this.snapshot();
+  }
+  async #fetch(operation,route,init) {
+    if(this.auth.descriptor?.transport !== "iscp")return this.auth.authorizedFetch(`${this.auth.descriptor.origin}${route}`,init);
+    const body=init?.body?JSON.parse(init.body):{};
+    const result=await this.auth.invokeISCP(operation,body,{installationID:this.scope.installation_id});
+    return new Response(JSON.stringify(result),{status:200,headers:{'content-type':'application/json'}});
   }
   #renew(message) {
     if (message.connection_epoch !== this.epoch || !Array.isArray(message.bindings) || message.bindings.length > 32) { this.#disconnect("fenced"); return; }

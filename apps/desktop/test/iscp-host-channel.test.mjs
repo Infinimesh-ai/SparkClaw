@@ -1,0 +1,7 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {connectISCPHostChannel} from '../src/browser/iscp-host-channel.mjs';
+test('browser pseudo channel uses ISCP register/poll/reply/close and never reconnects control leases',async()=>{
+ const calls=[];const auth={generation:1,status:{state:'connected',capabilities:{browser:true}},invokeISCP:async(op,body)=>{calls.push({op,body});if(op==='browser.host.register')return{host_id:'host',connection_epoch:'epoch'};if(op==='browser.host.poll')return{messages:[{sequence:1,body:{schema_version:1,type:'welcome'}},{sequence:2,body:{schema_version:1,type:'command',command_id:'command'}}]};return{};}};
+ const socket=await connectISCPHostChannel(auth,{'X-SparkClaw-Host-ID':'host','X-SparkClaw-Host-Grant':'secret','X-SparkClaw-Runtime':'runtime','X-SparkClaw-Installation':'installation'});
+ const messages=[];await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('timed out')),100);socket.on('message',message=>{messages.push(message);if(messages.length===2){clearTimeout(timeout);resolve();}});});
+ socket.send({schema_version:1,type:'result',command_id:'command'});socket.close();await Promise.resolve();assert.deepEqual(messages.map(message=>message.type),['welcome','command']);assert.ok(calls.some(call=>call.op==='browser.host.reply'));assert.ok(calls.some(call=>call.op==='browser.host.close'));assert.equal(calls.filter(call=>call.op==='browser.host.register').length,1);
+});

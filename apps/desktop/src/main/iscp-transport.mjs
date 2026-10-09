@@ -32,10 +32,37 @@ export function iscpHelperExecutable({ packaged = false, resourcesPath } = {}) {
 // Private pipes are the only Desktop ↔ helper boundary. The helper owns SDK
 // credentials and encrypted Relay traffic; this adapter accepts fixed RPC only.
 export class ISCPTransport {
-  constructor({ configPath, origin, expectedIdentity, expectedBinding, packaged = false, resourcesPath, spawnProcess = spawn, timeoutMS = 30000, onState = () => {}, onCapabilities = () => {}, journalRoot }) {
-    Object.assign(this, { configPath, origin, expectedIdentity, expectedBinding, packaged, resourcesPath, spawnProcess, timeoutMS, onState, onCapabilities, journalRoot });
+  constructor({ configPath, origin, expectedIdentity, expectedBinding, installationID, packaged = false, resourcesPath, spawnProcess = spawn, timeoutMS = 30000, onState = () => {}, onCapabilities = () => {}, journalRoot }) {
+    Object.assign(this, { configPath, origin, expectedIdentity, expectedBinding, installationID, packaged, resourcesPath, spawnProcess, timeoutMS, onState, onCapabilities, journalRoot });
     this.resourceRevisions = new Map();
     this.pending = new Map(); this.generation = 0; this.state = "closed";
+  }
+
+  async control(type, operationID, expectedRevision) {
+    if(!["authorization_delete","authorization_delete_receipt"].includes(type)||!UUID.test(operationID)||!Number.isSafeInteger(expectedRevision)||expectedRevision<1)throw new Error("Authorization deletion identity is invalid");
+    const id=crypto.randomUUID();
+    return new Promise((resolve,reject)=>{
+      const child=this.spawnProcess(iscpHelperExecutable(this),["-config",this.configPath,"-control-only"],{stdio:["pipe","pipe","pipe"],windowsHide:true});
+      let buffer=Buffer.alloc(0),done=false,verified=false;
+      const finish=(error,value)=>{if(done)return;done=true;clearTimeout(timer);child.stdin.destroy();child.kill();error?reject(error):resolve(value);};
+      const timer=setTimeout(()=>finish(new Error("Authorization deletion requires reconciliation")),this.timeoutMS);
+      child.stderr.on('data',()=>{});child.on('error',()=>finish(new Error('Authorization control is unavailable')));child.on('exit',()=>finish(new Error('Authorization control is unavailable')));child.stdin.on('error',()=>finish(new Error('Authorization control is unavailable')));
+      child.stdout.on('data',chunk=>{
+        buffer=Buffer.concat([buffer,chunk]);if(buffer.length>FRAME_BYTES){finish(new Error('Authorization receipt exceeds bounds'));return;}
+        for(;;){const offset=buffer.indexOf(10);if(offset<0)return;const line=buffer.subarray(0,offset);buffer=buffer.subarray(offset+1);let frame;try{frame=JSON.parse(line);}catch{finish(new Error('Authorization receipt is invalid'));return;}
+          if(frame.ipc_version!==1){finish(new Error('Authorization receipt is invalid'));return;}
+          if(frame.type==='hello') {if(frame.control_only!==true||this.expectedIdentity&&Object.keys(this.expectedIdentity).some(key=>frame.identity?.[key]!==this.expectedIdentity[key])){finish(new Error('Authorization control identity differs'));return;}verified=true;continue;}
+          if(frame.type==='state')continue;
+          if(!verified){finish(new Error('Authorization receipt preceded identity'));return;}
+          if(frame.type!=='authorization_receipt'||frame.id!==id){finish(new Error('Authorization receipt identity differs'));return;}
+          if(frame.error){finish(new Error('Authorization deletion requires reconciliation'));return;}
+          const receipt=frame.receipt;
+          if(receipt?.operation_id!==operationID||receipt.expected_revision!==expectedRevision||!Number.isSafeInteger(receipt.authorization_revision)||receipt.authorization_revision<=expectedRevision||receipt.state!=='revoked'||!Number.isFinite(Date.parse(receipt.deleted_at))){finish(new Error('Authorization receipt is invalid'));return;}
+          finish(undefined,receipt);return;
+        }
+      });
+      child.stdin.write(`${JSON.stringify({ipc_version:1,type,id,operation_id:operationID,expected_revision:expectedRevision})}\n`);
+    });
   }
 
   async start() {
@@ -89,6 +116,13 @@ export class ISCPTransport {
     if(url.origin !== this.origin) throw new ISCPRequestNotSentError("ISCP backend path is invalid");
     const method = (init.method || "GET").toUpperCase();
     let body;
+    if(init.body instanceof Uint8Array && method === 'PUT') {
+      const mapped=mapV2Route(url,method);
+      if(mapped.operation!=='execution.input.put'||!this.objects)throw new ISCPRequestNotSentError("Binary input is unavailable");
+      const headers=new Headers(init.headers);
+      const object=await this.objects.upload(init.body,{purpose:'execution_input',name:mapped.params.file_id,media_type:'application/octet-stream'},init.signal);
+      return this.#request({...mapped,type:'task.invoke',profile:ISCP_V2_PROFILE,body_object:object,request_id:mapped.params.request_id,installation_id:headers.get('x-sparkclaw-installation'),input_digest:headers.get('x-sparkclaw-digest')},init);
+    }
     if(init.body !== undefined && init.body !== null) {
       try {body=JSON.parse(typeof init.body === "string" ? init.body : new TextDecoder("utf-8",{fatal:true}).decode(init.body));}
       catch {throw new ISCPRequestNotSentError("ISCP request body must be JSON");}
@@ -102,7 +136,7 @@ export class ISCPTransport {
       catch {throw new ISCPRequestNotSentError(error.message);}
     }
     const headers=new Headers(init.headers);
-    const request={...mapped,type:"task.invoke",profile:ISCP_V2_PROFILE,
+    const request={...mapped,...(this.installationID?{installation_id:this.installationID}:{}),type:"task.invoke",profile:ISCP_V2_PROFILE,...(mapped.params?.request_id?{request_id:mapped.params.request_id}:{}),
       ...(headers.get("x-sparkclaw-installation")?{installation_id:headers.get("x-sparkclaw-installation")}:{}),
       ...(headers.get("x-sparkclaw-digest")?{input_digest:headers.get("x-sparkclaw-digest")}:{}),
       ...(init.operationID?{operation_id:init.operationID}:{}),...(init.expectedRevision?{expected_revision:init.expectedRevision}:{})};
@@ -152,11 +186,11 @@ export class ISCPTransport {
     const request={type:"task.invoke",profile:ISCP_V2_PROFILE,operation,...(body!==undefined?{body}:{}),
       ...(options.params?{params:options.params}:{}),...(options.operationID?{operation_id:options.operationID}:{}),
       ...(options.expectedRevision?{expected_revision:options.expectedRevision}:{}),
-      ...(options.installationID?{installation_id:options.installationID}:{}),...(options.requestID?{request_id:options.requestID}:{})};
+      ...((options.installationID||this.installationID)?{installation_id:options.installationID||this.installationID}:{}),...(options.requestID?{request_id:options.requestID}:{})};
     if(spec.mutation&&!request.operation_id)request.operation_id=crypto.randomUUID();
     const response=await this.#request(request,options,body===undefined?undefined:JSON.stringify(body));
     const result=await response.json();
-    if(!response.ok){const error=new Error(result.error||"ISCP operation failed");error.code=result.error_code;error.status=response.status;error.retryable=result.retryable===true;throw error;}
+    if(!response.ok){const error=new Error(result.error||"ISCP operation failed");error.code=result.error_code||response.headers.get("x-sparkclaw-error-code");error.status=response.status;error.retryable=result.retryable===true||response.headers.get("x-sparkclaw-retryable")==="true";throw error;}
     return result;
   }
 
@@ -196,8 +230,9 @@ export class ISCPTransport {
       const bytes=await this.objects.download(response.body_object,init.signal);
       return new Response(bytes,{status:response.status,headers:{"content-type":response.body_object.media_type||"application/json"}});
     }
-    const body=response.body===undefined?null:JSON.stringify(response.body);
-    return new Response(body,{status:response.status,headers:{"content-type":"application/json",...(response.error_code?{"x-sparkclaw-error-code":response.error_code}:{})}});
+    const payload=response.status>=400 && response.body===undefined ? {error:response.error||"ISCP operation failed",error_code:response.error_code||"operation_failed",retryable:response.retryable===true,...(response.retry_after_ms?{retry_after_ms:response.retry_after_ms}:{})} : response.body;
+    const body=payload===undefined?null:JSON.stringify(payload);
+    return new Response(body,{status:response.status,headers:{"content-type":"application/json",...(response.error_code?{"x-sparkclaw-error-code":response.error_code}:{}),...(response.retryable!==undefined?{"x-sparkclaw-retryable":String(response.retryable)}:{})}});
   }
 
   #read(chunk) {
@@ -226,10 +261,10 @@ export class ISCPTransport {
         if(value?.schema_version!==2||value.profile!==ISCP_V2_PROFILE||!Array.isArray(value.operations)||value.operations.length>256||!value.operations.every((op)=>typeof op==='string')||!Number.isSafeInteger(value.authorization_revision)||value.authorization_revision<1||!Number.isFinite(Date.parse(value.expires_at))||Date.parse(value.expires_at)<=Date.now()||!value.binding) {this.#fail("disconnected");return;}
         if(this.expectedBinding && Object.keys(this.expectedBinding).some((key)=>value.binding[key]!==this.expectedBinding[key])){this.#fail("identity_conflict");return;}
         this.capabilities=Object.freeze(value);
-        if(this.journalRoot){this.objects=new ISCPObjectClient({root:path.join(this.journalRoot,'objects'),scope:value.binding,call:this.invoke.bind(this)});this.mutations=new ISCPMutationJournal(path.join(this.journalRoot,'mutations'),value.binding);}
+        if(this.journalRoot){const scope={...value.binding,installation_id:this.installationID,authorization_revision:value.authorization_revision};const key=JSON.stringify(scope);if(this.objectScopeKey!==key){this.objects=new ISCPObjectClient({root:path.join(this.journalRoot,'objects'),scope,call:this.invoke.bind(this)});this.mutations=new ISCPMutationJournal(path.join(this.journalRoot,'mutations'),scope);this.objectScopeKey=key;}}
         this.onCapabilities(value);
       } else if (frame.type === "state") {
-        if (!["verifying_relay", "discovery_failed", "connecting", "relay_ready", "handshaking", "transport_ready", "disconnected", "authorization_expired", "authorization_revoked", "closed"].includes(frame.state)) { this.#fail("disconnected"); return; }
+        if (!["verifying_relay", "discovery_failed", "connecting", "relay_ready", "handshaking", "negotiating", "capability_negotiation_failed", "transport_ready", "disconnected", "authorization_expired", "authorization_revoked", "closed"].includes(frame.state)) { this.#fail("disconnected"); return; }
         if (frame.state === "discovery_failed") { this.#fail("disconnected"); return; }
         if (["disconnected", "authorization_expired", "authorization_revoked", "closed"].includes(frame.state)) { this.#fail(frame.state); return; }
         this.#state(frame.state);

@@ -7,7 +7,7 @@ type Cache = { mailbox_id:string; sequence:number; synced_at:string; messages:Ca
 type MailCapability = { catalog():Promise<Mailbox[]>; refreshCatalog():Promise<Mailbox[]>; read(mailbox:string):Promise<Cache>; sync(mailbox:string):Promise<Cache>; saveAttachment?(mailbox:string,mail:string,part:string,conversation:string):Promise<unknown> };
 declare global {interface Window {sparkclawMailSync?:MailCapability;}}
 
-export function MailCachePanel({language,conversationID="",onFileSaved}: {language:Language;conversationID?:string;onFileSaved?:()=>void|Promise<void>}) {
+export function MailCachePanel({language,conversationID="",onFileSaved,attachmentsEnabled=true}: {language:Language;conversationID?:string;onFileSaved?:()=>void|Promise<void>;attachmentsEnabled?:boolean}) {
   const capability=window.sparkclawMailSync;
   const zh=language==="zh";
   const [boxes,setBoxes]=useState<Mailbox[]>([]);
@@ -51,7 +51,7 @@ export function MailCachePanel({language,conversationID="",onFileSaved}: {langua
       {mail.summary&&<p>{mail.summary}</p>}{mail.body_text&&<p style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{mail.body_text}</p>}
       {mail.body_truncated&&<p>{zh?"正文超出本机缓存限额，可联网读取原件。":"The body exceeds the cache limit. Read the original while online."}</p>}
       {!!mail.attachments.length&&<><ul>{mail.attachments.map((part)=><li key={part.id}>{part.name} · {new Intl.NumberFormat().format(part.size)} B {zh?"（附件原件保留在服务端）":"(original retained on backend)"}
-        {part.available&&capability.saveAttachment&&<button type="button" disabled={busy||!conversationID||part.size>64*1024*1024} onClick={()=>void savePart(mail.id,part.id)}>{zh?"复制到本机对话":"Copy to device conversation"}</button>}</li>)}</ul>
+        {part.available&&capability.saveAttachment&&<button type="button" disabled={busy||!attachmentsEnabled||!conversationID||part.size>64*1024*1024} onClick={()=>void savePart(mail.id,part.id)}>{zh?"复制到本机对话":"Copy to device conversation"}</button>}</li>)}</ul>
         {!conversationID&&<p>{zh?"选择一个本机对话以保存附件副本。":"Select a device conversation to save an attachment copy."}</p>}</>}
     </details>)}
   </section>;

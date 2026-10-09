@@ -88,7 +88,7 @@ describe("workbench local workbench", () => {
       const settings = [...host.querySelectorAll<HTMLButtonElement>(".sidebarAccountMenuItem")].find((button) => button.textContent === "Workspace settings")!;
       await act(async () => settings.click());
       expect(host.querySelector(".settingsPageContent")).not.toBeNull();
-      expect([...host.querySelectorAll(".settingsPageNavigation button")].map(button => button.textContent?.trim())).toEqual(["Appearance"]);
+      expect([...host.querySelectorAll(".settingsPageNavigation button")].map(button => button.textContent?.trim())).toEqual(["Appearance", "Devices & credentials"]);
       for (const spy of unsupported) expect(spy).not.toHaveBeenCalled();
       await act(async () => host.querySelector<HTMLButtonElement>(".settingsPageBack")!.click());
       input = host.querySelector<HTMLTextAreaElement>("form.composer textarea")!;

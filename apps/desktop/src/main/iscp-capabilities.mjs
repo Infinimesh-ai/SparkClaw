@@ -11,7 +11,7 @@ const SURFACES = Object.freeze({
   mail_send: ['mail.send'],
   browser: ['browser.host.grant', 'browser.host.revoke', 'browser.command', 'browser.receipt', 'browser.reconcile'],
   speech_recording: ['speech.status', 'speech.transcribe', 'speech.cancel'],
-  speech_realtime: ['audio.session.open', 'audio.session.control', 'audio.session.close', 'audio.frame'],
+  speech_realtime: ['speech.session.open', 'speech.session.frame', 'speech.session.events', 'speech.session.finish', 'speech.session.cancel'],
   speech_playback: ['audio.playback'],
 });
 const DEPENDENCIES = { mail_read: ['events'], mail_attachments: ['mail_read', 'files'], mail_send: ['mail_read', 'files', 'approvals'], browser: ['files', 'approvals', 'events'], speech_recording: ['files'], speech_realtime: ['speech_recording', 'events'], speech_playback: ['speech_realtime'] };
@@ -20,7 +20,7 @@ const DEPENDENCIES = { mail_read: ['events'], mail_attachments: ['mail_read', 'f
 // Qualification is private launcher configuration, not a renderer-controlled bit.
 export function projectISCPCapabilities(manifest, report, now = Date.now()) {
   const operations = Array.isArray(manifest?.operations) ? manifest.operations : [];
-  const valid = manifest?.schema_version === 2 && manifest.profile === 'sparkclaw.workbench.transport.v2' && Date.parse(manifest.expires_at) > now;
+  const valid = manifest?.schema_version === 2 && manifest.profile === 'sparkclaw.workbench.transport.v2' && Date.parse(manifest.expires_at) > now && report?.schema_version === 2 && report.profile === manifest.profile && report.session_id === manifest.session_id && report.authorization_revision === manifest.authorization_revision && Date.parse(report.expires_at) > now;
   const granted = new Set(operations);
   const rows = new Map((Array.isArray(report?.capabilities) ? report.capabilities : []).map((row) => [row.id, row]));
   const surfaces = {};

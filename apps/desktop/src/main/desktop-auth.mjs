@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import syncFS from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { parseBackendDescriptor, loadLocalBackendDescriptor, loadLocalBackendConnection } from "./local-backend.mjs";
@@ -128,6 +129,7 @@ export class DesktopAuth {
           try { this.capabilityReport = await this.transport.invoke("capabilities.get"); }
           catch { this.capabilityReport = undefined; }
           if (generation !== this.generation) return this.status;
+          this.#scheduleCapabilityRefresh();
         }
         this.reconnectAttempt = 0;
         if (!this.connection.identityVerified) {
@@ -146,7 +148,33 @@ export class DesktopAuth {
     return this.#set(result.state);
   }
 
+  async deleteAuthorization() {
+    if(this.descriptor?.transport!=="iscp"||!this.transport)throw new Error("Authorization management is unavailable");
+    let intent=this.deletionIntent;
+    if(!intent) {
+      const revision=this.transport.capabilities?.authorization_revision;
+      if(!Number.isSafeInteger(revision)||revision<1)throw new Error("Reconnect to verify the authorization before deletion");
+      intent={schema_version:1,profile:this.iscpProfilePath,binding:descriptorBinding(this.descriptor),operation_id:crypto.randomUUID(),expected_revision:revision,state:"pending"};
+      this.#saveDeletionIntent(intent);
+    }
+    this.authorizationRevoked=true;this.suspend();await this.onLock();this.#set("invalid_authentication");
+    try {
+      const receipt=await this.transport.control("authorization_delete",intent.operation_id,intent.expected_revision);
+      this.#saveDeletionIntent({...intent,state:"revoked",receipt});
+    } finally { this.#set("invalid_authentication"); }
+    return this.status;
+  }
+
+  #saveDeletionIntent(intent) {
+    const filename=path.join(path.dirname(this.descriptorPath),"authorization-deletion.json"), temporary=filename+"."+crypto.randomUUID()+".tmp";
+    syncFS.mkdirSync(path.dirname(filename),{recursive:true,mode:0o700});const fd=syncFS.openSync(temporary,"wx",0o600);
+    try{syncFS.writeFileSync(fd,JSON.stringify(intent));syncFS.fsyncSync(fd);}finally{syncFS.closeSync(fd);}
+    syncFS.renameSync(temporary,filename);const directory=syncFS.openSync(path.dirname(filename),'r');try{syncFS.fsyncSync(directory);}finally{syncFS.closeSync(directory);}
+    this.deletionIntent=intent;
+  }
+
   async logout(state = "locked") {
+    clearTimeout(this.capabilityTimer);
     const generation = ++this.generation;
     this.connection = undefined;
     clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined;
@@ -259,7 +287,7 @@ export class DesktopAuth {
   }
 
   suspend() {
-    this.suspended = true; ++this.generation; clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined;
+    this.suspended = true; clearTimeout(this.capabilityTimer); ++this.generation; clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined;
     for (const request of this.requests) request.abort();
     this.requests.clear(); this.transport?.close();
     if (this.descriptor?.transport === "iscp" && this.connection) this.#set("service_unavailable");
@@ -272,6 +300,13 @@ export class DesktopAuth {
     let profile;
     try { profile = await loadISCPProfile(this.iscpProfilePath); } catch { return this.#set("incomplete_setup"); }
     this.descriptor = profile.descriptor;
+    try {
+      const filename=path.join(path.dirname(this.descriptorPath),"authorization-deletion.json");
+      const info=await fs.lstat(filename);if(!info.isFile()||info.isSymbolicLink()||(info.mode&0o077)||info.size>8192)throw new Error("Authorization deletion record is unsafe");
+      const intent=JSON.parse(await fs.readFile(filename,"utf8"));
+      if(intent.schema_version!==1||intent.profile!==this.iscpProfilePath||intent.binding!==descriptorBinding(this.descriptor))throw new Error("Authorization deletion binding differs");
+      this.deletionIntent=intent;this.authorizationRevoked=true;
+    } catch(error) {if(error.code!=="ENOENT")return this.#set("locked");}
     if (!this.vault.available()) return this.#set("secure_storage_unavailable");
     try {
       const binding = descriptorBinding(this.descriptor);
@@ -288,11 +323,12 @@ export class DesktopAuth {
         expectedIdentity: { domain_id: this.descriptor.domainID, initiator_device_id: this.descriptor.initiatorDeviceID,
           responder_device_id: this.descriptor.responderDeviceID, responder_key_thumbprint: this.descriptor.responderKeyThumbprint, relay_url: this.descriptor.relayURL, relay_profile: this.descriptor.relayProfile },
         packaged: this.packaged, resourcesPath: this.resourcesPath,
+        installationID: this.installationID,
         journalRoot: path.join(path.dirname(this.descriptorPath), "iscp-objects"),
         onCapabilities: () => { if(this.status.state === "connected") this.#set("connected"); },
         onState: (state) => {
           this.transportStage = state;
-          if (["verifying_relay", "connecting", "relay_ready", "handshaking"].includes(state) && this.connection && !this.suspended && !this.authorizationRevoked) {
+          if (["verifying_relay", "connecting", "relay_ready", "handshaking", "negotiating", "capability_negotiation_failed"].includes(state) && this.connection && !this.suspended && !this.authorizationRevoked) {
             if (this.status.state === "connected") {
               ++this.generation; this.needsIdentity = true;
               for (const request of this.requests) request.abort(); this.requests.clear();
@@ -315,7 +351,22 @@ export class DesktopAuth {
           }
         } });
     } catch { return this.#set("locked"); }
+    if(this.deletionIntent) {
+      if(this.deletionIntent.state==='pending')try{await this.deleteAuthorization();}catch{/* Keep the durable pending intent visible. */}
+      return this.#set("invalid_authentication");
+    }
     return this.retry();
+  }
+
+  #scheduleCapabilityRefresh() {
+    clearTimeout(this.capabilityTimer);
+    this.capabilityTimer=setTimeout(async()=>{
+      if(this.status.state!=="connected"||this.suspended||this.authorizationRevoked)return;
+      const generation=this.generation;
+      try{const report=await this.transport.invoke("capabilities.get");if(generation!==this.generation)return;this.capabilityReport=report;}
+      catch{if(generation!==this.generation)return;this.capabilityReport=undefined;}
+      this.#set("connected");this.#scheduleCapabilityRefresh();
+    },30000);this.capabilityTimer.unref?.();
   }
 
   #scheduleReconnect() {
@@ -379,7 +430,7 @@ export class DesktopAuth {
   }
 
   #set(state) {
-    this.status = Object.freeze({ schema_version: 1, state, ...(this.descriptor ? { backend: {
+    this.status = Object.freeze({ schema_version: 1, state, ...(this.deletionIntent ? { authorization_deletion: { state: this.deletionIntent.state, operation_id: this.deletionIntent.operation_id } } : {}), ...(this.descriptor ? { backend: {
       schema_version: this.descriptor.schemaVersion || 1,
       origin: this.descriptor.origin, deployment_id: this.descriptor.deploymentID,
       ...(this.descriptor.ownerID ? { owner_id: this.descriptor.ownerID } : {}),

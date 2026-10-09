@@ -129,3 +129,16 @@ test('v2 negotiation routes only registered operations, uses CAS and unwraps met
  await assert.rejects(f.transport.fetch(`${origin}/api/owner?url=https://elsewhere.test`),/invalid|unavailable/);
  assert.equal(f.calls.length,2);
 });
+
+test('authorization deletion uses isolated control helper and verifies durable receipt identity after revoked session',async t=>{
+ const operationID='12345678-1234-4123-8123-123456789abc';let args;
+ const transport=new ISCPTransport({configPath:'/private/config.json',origin,expectedIdentity:{domain_id:'domain'},timeoutMS:100,
+ spawnProcess:(_executable,argv)=>{args=argv;const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>{};child.stdin=new Writable({write(chunk,_encoding,done){const request=JSON.parse(chunk);queueMicrotask(()=>{child.stdout.write(JSON.stringify({ipc_version:1,type:'hello',control_only:true,identity:{domain_id:'domain'}})+'\n');child.stdout.write(JSON.stringify({ipc_version:1,type:'authorization_receipt',id:request.id,receipt:{operation_id:request.operation_id,expected_revision:request.expected_revision,authorization_revision:request.expected_revision+1,state:'revoked',deleted_at:new Date().toISOString()}})+'\n');});done();}});return child;}});
+ const receipt=await transport.control('authorization_delete_receipt',operationID,5);assert.equal(receipt.state,'revoked');assert.deepEqual(args,['-config','/private/config.json','-control-only']);assert.equal(transport.state,'closed');
+});
+
+test('bodyless typed errors retain their code and trusted installation across internal calls',async t=>{
+ const f=fixture(t,(call,child)=>{assert.equal(call.request.installation_id,requestID);child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:409,error:'Requires reconciliation',error_code:'operation_outcome_unknown',retryable:false}});},{installationID:requestID});
+ await f.transport.start();f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{schema_version:2,profile:'sparkclaw.workbench.transport.v2',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:['operations.receipt'],binding:{deployment_id:'d',owner_id:'o',client_id:'c'}}});
+ await assert.rejects(f.transport.invoke('operations.receipt',undefined,{params:{operation_id:requestID}}),error=>error.status===409&&error.code==='operation_outcome_unknown'&&error.retryable===false);
+});

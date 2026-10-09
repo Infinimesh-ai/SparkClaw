@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { desktopCapability } from "../desktop/capability";
 import { api, streamPassiveNotifications } from "../api/client";
 import type { PassiveNotification } from "../api/types";
 
@@ -61,7 +62,8 @@ export function usePassiveNotifications(enabled = true, transport: "stream" | "p
       let active = true, running = false;
       const poll = async () => { if (!active || running) return; running = true; try { await load(); } catch (err) { if(active) setError(err instanceof Error ? err.message : String(err)); } finally { running = false; } };
       void poll(); const timer = window.setInterval(() => void poll(), 30000);
-      return () => { active = false; window.clearInterval(timer); };
+      const unsubscribe=desktopCapability()?.onBackendEvents?.(event=>{if(event.categories.includes("notifications"))void poll();});
+      return () => { active = false; window.clearInterval(timer); unsubscribe?.(); };
     }
     const controller = new AbortController();
     let cursor = "";

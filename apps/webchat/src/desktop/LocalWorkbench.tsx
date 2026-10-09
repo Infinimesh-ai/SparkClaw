@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { FileDown, PanelLeft, PanelRight } from "lucide-react";
 import { SessionSidebar } from "../components/sidebar";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy } from "../components/workbench";
+import { MailCachePanel } from "./MailCachePanel";
 import { ISCPSettingsPanel } from "./ISCPSettingsPanel";
 import { surfaceEnabled } from "./capability";
 import { api } from "../api/client";
@@ -57,6 +58,7 @@ export function LocalWorkbench() {
   const [page, setPage] = useState<"chat" | "schedules">("chat");
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mailOpen, setMailOpen] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [documentPickerOpen, setDocumentPickerOpen] = useState(false);
   const [tab, setTab] = useState<PanelTab>("timeline");
@@ -69,7 +71,7 @@ export function LocalWorkbench() {
     approvals: surfaceEnabled(connection, "approvals"), notifications: surfaceEnabled(connection, "notifications"),
     settingsOwner: surfaceEnabled(connection, "settings_owner"), settingsConnectors: surfaceEnabled(connection, "settings_connectors"), settingsCredentials: surfaceEnabled(connection, "settings_credentials"),
   };
-  const settingsTabs: PanelTab[] | undefined = iscp ? ["appearance", ...(capabilities.settingsOwner ? ["settings" as const] : []), ...(capabilities.settingsConnectors ? ["connections" as const] : []), ...(capabilities.settingsCredentials ? ["models-tools" as const] : [])] : undefined;
+  const settingsTabs: PanelTab[] | undefined = iscp ? ["appearance", "devices", ...(capabilities.settingsOwner ? ["settings" as const] : []), ...(capabilities.settingsConnectors ? ["connections" as const] : []), ...(capabilities.settingsCredentials ? ["models-tools" as const] : [])] : undefined;
   const [browserState, setBrowserState] = useState<DesktopState>();
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [ready, setReady] = useState<ReadyStatus | null>(null);
@@ -214,7 +216,7 @@ export function LocalWorkbench() {
     sessionId: selected,
     language: runtimeConfig?.speech.default_language ?? "auto",
     externallyDisabled: busy || !selected || !capabilities.speech,
-    iscp,
+    iscp, iscpRealtime: surfaceEnabled(connection, "speech_realtime"),
     onTranscript: applyVoiceTranscript
   });
   const passiveNotifications = usePassiveNotifications(connection?.state === "connected" && capabilities.notifications, iscp ? "poll" : "stream");
@@ -351,6 +353,7 @@ export function LocalWorkbench() {
         <button className="iconButton sidebarToggle" type="button" aria-label={copy.toggleNav} onClick={() => setSidebarCollapsed((current) => !current)}><PanelLeft size={18} /></button>
         <span className="workspaceLabel">{copy.local}</span>
         <div className="topbarActions">
+          {iscp && capabilities.mail && <button type="button" onClick={() => setMailOpen(value => !value)}>{zh ? "邮箱" : "Mail"}</button>}
           <NotificationCenter notifications={passiveNotifications.notifications} unreadCount={passiveNotifications.unreadCount}
             open={passiveNotifications.open} toast={passiveNotifications.toast} error={passiveNotifications.error}
             language={language} text={text} onToggle={() => passiveNotifications.setOpen((current) => !current)}
@@ -374,6 +377,7 @@ export function LocalWorkbench() {
         onCurrentClientRevoked={logout} onLogout={logout} />}</div> : <>
         <section className={`chatColumn localChat ${home ? "homeChat" : ""}`} hidden={page !== "chat"}>
         <div className="messageList localHistory">
+          {iscp && capabilities.mail && mailOpen && <MailCachePanel language={language} conversationID={selected} attachmentsEnabled={surfaceEnabled(connection, "mail_attachments")} onFileSaved={async () => { if(selected) setContent(await store.read(selected)); }}/>}
           {home && <WorkbenchWelcome language={language} />}
           {capabilities.browser && browserState?.browser_host?.unknown_writes?.filter((command) => command.local_conversation_id === selected).map((command) => <section className="localUnknownWrite" role="alert" key={command.command_id}>
             <h2>{zh ? "浏览器操作结果不确定" : "Browser action outcome uncertain"}</h2>
@@ -418,7 +422,7 @@ export function LocalWorkbench() {
         </div>
         <ComposerSurface text={text} language={language} activeSession={selected} activeInput={draft}
           activeAttachments={activeAttachments} busy={busy} voice={voice} composerInputRef={composerInputRef}
-          filesEnabled={capabilities.files} mailEnabled={capabilities.mail}
+          filesEnabled={capabilities.files} mailEnabled={!iscp && capabilities.mail}
           canCompose={drafts.ready} canSend={connection?.state === "connected" && drafts.ready && (!iscp || Boolean(runtimeConfig && ready && ownerProfile))}
           onInputChange={(value) => { draftRef.current = value; setDraft(value); }}
           onUploadDocument={saveFile}

@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import type { SpeechStatus, SpeechTranscriptionResult } from "../api/types";
 import { PCMInputCapture, VoiceCaptureError } from "../audio/pcmCapture";
 import type { CapturedPCM } from "../audio/pcmCapture";
+import { ISCPSpeechRealtimeClient } from "../audio/iscpSpeech";
 import { SpeechRealtimeClient } from "../audio/realtimeSpeech";
 import type { SpeechRealtimeFailure } from "../audio/realtimeSpeech";
 import {
@@ -44,7 +45,7 @@ type VoiceOperation = {
   anchor: VoiceDraftAnchor;
   requestId: string;
   capture?: PCMInputCapture;
-  realtime?: SpeechRealtimeClient;
+  realtime?: SpeechRealtimeClient | ISCPSpeechRealtimeClient;
   realtimeCaptureStarted: boolean;
   realtimeSetupFailure?: SpeechRealtimeFailure;
   ticketId?: string;
@@ -63,6 +64,7 @@ type VoiceOperation = {
 
 type Options = {
   iscp?: boolean;
+  iscpRealtime?: boolean;
   speech: SpeechStatus | null;
   sessionId: string;
   language: string;
@@ -72,7 +74,7 @@ type Options = {
 
 const RETRY_AUDIO_TTL_MS = 5 * 60 * 1000;
 
-export function useVoiceInput({ speech, sessionId, language, externallyDisabled, onTranscript, iscp = false }: Options) {
+export function useVoiceInput({ speech, sessionId, language, externallyDisabled, onTranscript, iscp = false, iscpRealtime = false }: Options) {
   const [machine, dispatch] = useReducer(reduceVoiceOperation, initialVoiceOperationState);
   const [level, setLevel] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -96,7 +98,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     selectedDeviceId
   } = microphone;
   const realtimeReady = Boolean(
-    !iscp && capabilityReady && speech?.supports_streaming && speech.realtime?.protocol === "sparkclaw.speech.realtime.v1" &&
+    (iscp ? iscpRealtime : true) && capabilityReady && speech?.supports_streaming && speech.realtime?.protocol === "sparkclaw.speech.realtime.v1" &&
     speech.realtime.sample_rate === 16_000 && speech.realtime.channels === 1 && speech.realtime.bits_per_sample === 16
   );
   const state: VoiceInputState = supported && capabilityReady ? machine.phase : "disabled";
@@ -411,21 +413,21 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     try {
       const controller = new AbortController();
       current.setupController = controller;
-      const ticket = await api.createSpeechRealtimeSession(
+      const ticket = iscp ? null : await api.createSpeechRealtimeSession(
         current.anchor.sessionId,
         current.requestId,
         language || "auto",
         controller.signal
       );
-      current.ticketId = ticket.id;
-      const realtime = await SpeechRealtimeClient.connect(ticket, {
-        onPartial: (event) => {
+      current.ticketId = ticket?.id;
+      const handlers = {
+        onPartial: (event: { revision: number; text: string; language: string; audioEndMs: number }) => {
           if (generation.current !== id || operation.current !== current || current.recovery) return;
           setPartial((previous) => !previous || event.revision > previous.revision
             ? { revision: event.revision, text: event.text, language: event.language, frozen: false }
             : previous);
         },
-        onFailure: (failure) => {
+        onFailure: (failure: SpeechRealtimeFailure) => {
           if (generation.current !== id || operation.current !== current) return;
           if (!current.realtimeCaptureStarted) {
             current.realtimeSetupFailure = failure;
@@ -433,7 +435,8 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
           }
           void recoverRef.current?.(current, failure);
         }
-      });
+      };
+      const realtime = iscp ? await ISCPSpeechRealtimeClient.connect({session_id:current.anchor.sessionId,request_id:current.requestId,language:language || "auto"},handlers) : await SpeechRealtimeClient.connect(ticket!,handlers);
       current.ticketId = undefined;
       current.setupController = undefined;
       if (current.realtimeSetupFailure) {
@@ -470,10 +473,11 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
       current.realtime = undefined;
       setPartial(null);
       if (generation.current !== id || operation.current !== current) return;
+      if (iscp) { await current.capture?.cancel(); failOperation(current, error); return; }
       dispatch({ type: "realtime_unavailable" });
       await startBatchCapture(current);
     }
-  }, [capabilityReady, clearDeviceFallback, encodeAndTranscribe, externallyDisabled, failOperation, handleCapturedSamples, language, noteDefaultFallback, realtimeReady, recoverBatch, refreshDevices, releaseUnusedTicket, selectedDeviceId, silenceMode, startBatchCapture, startCaptureTimers, stopPreview, supported]);
+  }, [capabilityReady, clearDeviceFallback, encodeAndTranscribe, externallyDisabled, failOperation, handleCapturedSamples, language, noteDefaultFallback, realtimeReady, recoverBatch, refreshDevices, releaseUnusedTicket, selectedDeviceId, silenceMode, startBatchCapture, startCaptureTimers, stopPreview, supported, iscp]);
 
   const retry = useCallback(() => {
     const current = operation.current;

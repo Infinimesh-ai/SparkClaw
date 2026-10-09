@@ -39,6 +39,8 @@ import { MailSyncClient } from "./mail-sync-client.mjs";
 import { MailSyncCapability } from "./mail-sync-capability.mjs";
 import { ClientStoreCapability } from "./client-store-capability.mjs";
 import { exportLocalFile } from "./export-local-file.mjs";
+import { ISCPEventClient } from "./iscp-event-client.mjs";
+import { ISCPSpeechClient } from "./iscp-audio-client.mjs";
 import { configureWorkbenchPermissions } from "./workbench-permissions.mjs";
 import { proxyAPIAllowed } from "./workbench-proxy-policy.mjs";
 import { bindWorkbenchActivation } from "./workbench-activation.mjs";
@@ -90,6 +92,9 @@ void app.whenReady().then(start).catch((error) => {
   app.exit(1);
 });
 
+let iscpEvents;
+let iscpSpeech;
+
 async function start() {
   const internalProtocolHandler = (request) => {
     const url = new URL(request.url);
@@ -129,13 +134,16 @@ async function start() {
       if (quitting) return;
       if (status.state === "connected" && !suspended) {
         executionClient?.start();
+        if(status.capabilities?.events)iscpEvents?.start();else iscpEvents?.close();
         scheduleClient?.start();
-        if (status.backend?.transport !== "iscp") {
-          mailClient?.start();
-          void prepareBrowserHostScope().catch(() => {});
-        }
+        if (status.backend?.transport !== "iscp" || status.capabilities?.mail === true) mailClient?.start();
+        else mailClient?.close();
+        if (status.backend?.transport !== "iscp" || status.capabilities?.browser === true) void prepareBrowserHostScope().catch(() => {});
+        else void browserHost?.suspend();
       } else {
         executionClient?.close();
+        iscpEvents?.close();
+        iscpSpeech?.close();
         scheduleClient?.close();
         mailClient?.close();
         void browserHost?.suspend();
@@ -144,6 +152,8 @@ async function start() {
     },
     onLock: async () => {
       executionClient?.close();
+      iscpEvents?.close();
+      iscpSpeech?.close();
       scheduleClient?.close();
       mailClient?.close();
       await browserHost?.stop();
@@ -163,14 +173,19 @@ async function start() {
   trustedHandler("sparkclaw-local-backend:login", (token) => desktopAuth.login(token));
   trustedHandler("sparkclaw-local-backend:enroll", (credential) => desktopAuth.enroll(credential));
   trustedHandler("sparkclaw-local-backend:connection-credential", (token) => desktopAuth.connectionCredential(token));
+  trustedHandler("sparkclaw-local-backend:delete-authorization", () => desktopAuth.deleteAuthorization());
   trustedHandler("sparkclaw-local-backend:logout", () => desktopAuth.logout());
+  iscpSpeech = new ISCPSpeechClient(desktopAuth);
+  trustedHandler("sparkclaw-speech:stream", (request) => iscpSpeech.dispatch(request));
   trustedHandler("sparkclaw-speech:transcribe", async (request) => {
     if(desktopAuth.descriptor?.transport !== "iscp" || desktopAuth.status.capabilities?.speech !== true || desktopAuth.status.state !== "connected") throw new Error("Recorded transcription is unavailable");
     if(!request || Object.keys(request).sort().join() !== "bytes,language,request_id,session_id" || !(request.bytes instanceof Uint8Array) || request.bytes.length > 3*1024*1024 || request.bytes.length < 44 || !/^voice-[a-f0-9-]{36}$/u.test(request.request_id) || !/^[a-f0-9-]{36}$/u.test(request.session_id) || typeof request.language !== "string" || request.language.length > 32) throw new Error("Recording is invalid");
     const generation=desktopAuth.generation;
-    const object=await desktopAuth.transport.objects.upload(request.bytes,{purpose:"speech_audio",name:"recording.wav",media_type:"audio/wav"});
+    const object=await desktopAuth.transport.objects.upload(request.bytes,{purpose:"speech_recording",name:"recording.wav",media_type:"audio/wav"});
     if(generation!==desktopAuth.generation)throw new Error("Recording authorization changed");
-    return desktopAuth.invokeISCP("speech.transcribe", {session_id:request.session_id,request_id:request.request_id,language:request.language,audio_object:object});
+    const result=await desktopAuth.invokeISCP("speech.transcribe", {session_id:request.session_id,request_id:request.request_id,language:request.language,audio_object:object});
+    try{await desktopAuth.invokeISCP("object.release",{object_id:object.object_id,version:object.version});return {...result,audio_retained:false};}
+    catch{return {...result,audio_retained:true,audio_expires_at:object.expires_at};}
   });
   trustedHandler("sparkclaw-desktop:login-startup", async (enabled) => {
     if (!app.isPackaged) return { supported: false, enabled: false };
@@ -215,8 +230,11 @@ async function start() {
       if (window && !window.isDestroyed()) window.webContents.send("sparkclaw-client-store:changed");
     };
     executionClient = new ExecutionClient({ auth: desktopAuth, store: localStore, getIdentity: localIdentity, onChange: localChanged }).start();
+    iscpEvents = new ISCPEventClient({ auth: desktopAuth, store: localStore, execution: executionClient, getIdentity: localIdentity,
+      onEvents: (event) => { localChanged(); if(window&&!window.isDestroyed())window.webContents.send("sparkclaw-backend-events",event); } });
+    if(desktopAuth.status.capabilities?.events)iscpEvents.start();
     scheduleClient = new ScheduleClient({ auth: desktopAuth, store: localStore, execution: executionClient, getIdentity: localIdentity, onChange: localChanged }).start();
-    if (desktopAuth.descriptor?.transport !== "iscp") {
+    {
     mailStore = new MailSyncStore(path.join(app.getPath("userData"), "workbench", "mail"));
     // DesktopAuth binds this installation before publishing connected state.
     mailClient = new MailSyncClient({
@@ -225,9 +243,9 @@ async function start() {
       getFileFetch: () => desktopAuth.authorizedMailFileFetch.bind(desktopAuth),
       installationID: localStore.installationID,
     });
-    if (desktopAuth.status.state === "connected") mailClient.start();
+    if (desktopAuth.status.state === "connected" && (desktopAuth.descriptor?.transport !== "iscp" || desktopAuth.status.capabilities?.mail === true)) mailClient.start();
     else mailClient.close();
-    mailCapability = new MailSyncCapability({ ipcMain, window, client: mailClient }).start();
+    mailCapability = new MailSyncCapability({ ipcMain, window, client: mailClient, getCapabilities: () => desktopAuth.status.capabilities }).start();
     }
     localStoreCapability = new ClientStoreCapability({
       ipcMain, window, store: localStore, execution: executionClient, schedules: scheduleClient,
@@ -290,7 +308,7 @@ async function start() {
     qualification,
   });
   scriptHost.setRegistry(registry);
-  if (!qualification && desktopAuth.descriptor?.transport !== "iscp") {
+  if (!qualification) {
     browserHost = new BrowserHostAgent({
       auth: desktopAuth, registry, userDataDir: app.getPath("userData"),
       onChange: () => desktopCapability?.changed(),
@@ -673,7 +691,7 @@ function localIdentity() {
 
 function prepareBrowserHostScope() {
   browserHostPreparation = browserHostPreparation.catch(() => {}).then(async () => {
-    if (quitting || !browserHost || !localStore || desktopAuth.status.state !== "connected") return;
+    if (quitting || !browserHost || !localStore || desktopAuth.status.state !== "connected" || desktopAuth.descriptor?.transport === "iscp" && !desktopAuth.status.capabilities?.browser) return;
     const connection = desktopAuth.connection;
     const scope = browserHost.scope;
     if (scope?.installation_id !== localStore.installationID || scope.owner_id !== connection.ownerID || scope.client_id !== connection.clientID) {

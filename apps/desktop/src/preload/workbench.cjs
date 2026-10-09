@@ -64,9 +64,16 @@ contextBridge.exposeInMainWorld("sparkclawDesktop", Object.freeze({
   login: (token) => ipcRenderer.invoke("sparkclaw-local-backend:login", token),
   enroll: (credential) => ipcRenderer.invoke("sparkclaw-local-backend:enroll", credential),
   connectionCredential: (token) => ipcRenderer.invoke("sparkclaw-local-backend:connection-credential", token),
+  deleteAuthorization: () => ipcRenderer.invoke("sparkclaw-local-backend:delete-authorization"),
   logout: () => ipcRenderer.invoke("sparkclaw-local-backend:logout"),
+  speechStream: (request) => ipcRenderer.invoke("sparkclaw-speech:stream", request),
   transcribeRecording: (request) => ipcRenderer.invoke("sparkclaw-speech:transcribe", request),
   loginStartup: (enabled) => ipcRenderer.invoke("sparkclaw-desktop:login-startup", enabled),
+  onBackendEvents: (listener) => {
+    if(typeof listener !== 'function')throw new TypeError('Event listener is invalid');
+    const wrapped=(_event,value)=>listener(value);ipcRenderer.on('sparkclaw-backend-events',wrapped);
+    return ()=>ipcRenderer.removeListener('sparkclaw-backend-events',wrapped);
+  },
   onLocalConnection: (listener) => {
     if (typeof listener !== "function") throw new TypeError("Desktop connection listener is invalid");
     const wrapped = (_event, status) => listener(status);

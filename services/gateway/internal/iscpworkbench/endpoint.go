@@ -51,6 +51,8 @@ type activeSession struct {
 	local                           session.LocalHello
 	state                           *session.State
 	manifest                        bool
+	capabilities                    *TransportCapabilities
+	negotiating                     bool
 	started, timeReceived, timePing time.Time
 	messageCount                    int
 	cancel                          context.CancelFunc
@@ -70,6 +72,7 @@ type Endpoint struct {
 	relay                RelayTransport
 	handler              Handler
 	onState              func(string)
+	onCapabilities       func(TransportCapabilities)
 	mu                   sync.Mutex
 	grantMu              sync.RWMutex
 	renewalMu            sync.Mutex
@@ -258,6 +261,10 @@ func (e *Endpoint) sessionLoop(ctx context.Context, stopConnection context.Cance
 				e.resetLocked()
 				s = nil
 				missing = true
+			}
+			refresh := s != nil && s.manifest && !s.negotiating && s.capabilities != nil && s.capabilities.Profile == ProfileV2 && time.Until(s.capabilities.ExpiresAt) < 3*time.Minute && e.config.Role == RoleInitiator
+			if refresh {
+				s.negotiating = true
 			}
 			ping := s != nil && s.manifest && now.Sub(s.timePing) >= heartbeatInterval
 			if ping {
@@ -623,15 +630,22 @@ func (e *Endpoint) acceptManifest(raw []byte, id string) error {
 		return errors.New("unexpected or replayed workbench manifest")
 	}
 	e.session.manifest = true
+	negotiate := e.config.Role == RoleInitiator && e.config.supportsV2()
+	e.session.negotiating = negotiate
+	ctx := e.session.ctx
 	e.mu.Unlock()
-	e.setState("transport_ready")
+	if negotiate {
+		e.setState("negotiating")
+		e.workers.Add(1)
+		go e.negotiate(ctx, id)
+	} else {
+		e.installCapabilities(e.capabilitiesFor(id, Profile))
+	}
 	return nil
 }
 
 func (e *Endpoint) acceptResponse(raw []byte) error {
-	if e.config.Role != RoleInitiator {
-		return errors.New("responder cannot receive workbench results")
-	}
+
 	var response Response
 	if err := strictDecode(raw, &response); err != nil {
 		return errors.New("invalid workbench response")
@@ -651,9 +665,7 @@ func (e *Endpoint) acceptResponse(raw []byte) error {
 }
 
 func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) error {
-	if e.config.Role != RoleResponder {
-		return errors.New("initiator cannot receive workbench invocations")
-	}
+
 	var request Request
 	if err := strictDecode(raw, &request); err != nil {
 		return errors.New("invalid workbench request")
@@ -666,6 +678,16 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 		e.mu.Unlock()
 		return errors.New("request session was replaced")
 	}
+	profile := Profile
+	if e.session.capabilities != nil {
+		profile = e.session.capabilities.Profile
+	}
+	spec, _ := LookupOperation(request.Operation)
+	if (request.Profile == ProfileV2 && (profile != ProfileV2 || e.session.capabilities == nil || !time.Now().Before(e.session.capabilities.ExpiresAt))) || (e.config.Role == RoleInitiator && spec.Direction != "reverse") || (e.config.Role == RoleResponder && spec.Direction != "forward") {
+		e.mu.Unlock()
+		return errors.New("operation not admitted by negotiated direction/profile")
+	}
+	info := SessionInfo{SessionID: id, Profile: profile, GrantRevision: e.grantMaterial().grant.RevocationEpoch, Binding: e.config.Binding, QualifiedOperations: slices.Clone(e.config.QualifiedCapabilities)}
 	if _, ok := e.session.seenRequests[request.ID]; ok {
 		e.mu.Unlock()
 		return errors.New("replayed workbench request ID")
@@ -686,7 +708,16 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 		if e.checkAuthorization(callCtx) != nil || verifyGrant(e.config, e.grantMaterial(), time.Now().UTC()) != nil {
 			return
 		}
-		response := e.handler(callCtx, request)
+		if negotiationRequest(request) && e.config.Role == RoleResponder {
+			_ = e.answerNegotiation(callCtx, id, request)
+			return
+		}
+		callCtx = context.WithValue(callCtx, sessionInfoKey{}, info)
+		response := Response{Status: 501, Code: ErrorCapabilityUnavailable, Error: "operation handler unavailable"}
+		if e.handler != nil {
+			response = e.handler(callCtx, request)
+		}
+		response.Profile = request.Profile
 		response.ID = request.ID
 		if callCtx.Err() != nil {
 			return
@@ -697,7 +728,18 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 }
 
 func (e *Endpoint) sendResponse(ctx context.Context, id string, response Response) error {
-	response.Type, response.Profile = ResponseType, Profile
+	response.Type = ResponseType
+	if response.Profile == "" {
+		response.Profile = Profile
+	}
+	if response.Profile == Profile {
+		response.Code = ""
+		response.Retryable = false
+		response.RetryAfterMS = 0
+		response.Object = nil
+	} else if response.Status >= 400 && response.Code == "" {
+		response.Code = CodeForStatus(response.Status)
+	}
 	if response.Validate() != nil {
 		response.Body = nil
 		response.Status = 500
@@ -710,6 +752,9 @@ func (e *Endpoint) sendResponse(ctx context.Context, id string, response Respons
 	if len(raw) > MaxResponseBytes {
 		response.Body = nil
 		response.Status = 413
+		if response.Profile == ProfileV2 {
+			response.Code = ErrorResourceLimit
+		}
 		response.Error = "workbench result exceeds transport limit"
 		raw, _ = json.Marshal(response)
 	}
@@ -717,8 +762,9 @@ func (e *Endpoint) sendResponse(ctx context.Context, id string, response Respons
 }
 
 func (e *Endpoint) Call(ctx context.Context, request Request) (Response, error) {
-	if e.config.Role != RoleInitiator {
-		return Response{}, errors.New("only the desktop initiator may call workbench operations")
+	spec, ok := LookupOperation(request.Operation)
+	if !ok || (e.config.Role == RoleResponder && spec.Direction != "reverse") || (e.config.Role == RoleInitiator && spec.Direction != "forward") {
+		return Response{}, errors.New("operation direction denied")
 	}
 	if err := request.Validate(); err != nil {
 		return Response{}, err
@@ -739,6 +785,10 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (Response, error) 
 	if e.closed || e.session == nil || !e.session.manifest {
 		e.mu.Unlock()
 		return Response{}, errors.New("workbench transport is not ready")
+	}
+	if request.Profile == ProfileV2 && (e.session.capabilities == nil || e.session.capabilities.Profile != ProfileV2 || !time.Now().Before(e.session.capabilities.ExpiresAt)) {
+		e.mu.Unlock()
+		return Response{}, errors.New("v2 profile is not negotiated")
 	}
 	if _, exists := e.pending[request.ID]; exists {
 		e.mu.Unlock()

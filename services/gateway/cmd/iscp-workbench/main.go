@@ -23,11 +23,12 @@ import (
 const ipcVersion = 1
 
 type callFrame struct {
-	IPCVersion int                   `json:"ipc_version"`
-	Type       string                `json:"type"`
-	ID         string                `json:"id,omitempty"`
-	Request    iscpworkbench.Request `json:"request,omitempty"`
-	BodyBase64 string                `json:"body_base64,omitempty"`
+	IPCVersion int                    `json:"ipc_version"`
+	Type       string                 `json:"type"`
+	ID         string                 `json:"id,omitempty"`
+	Request    iscpworkbench.Request  `json:"request,omitempty"`
+	Response   iscpworkbench.Response `json:"response,omitempty"`
+	BodyBase64 string                 `json:"body_base64,omitempty"`
 }
 
 type ipcWriter struct {
@@ -68,20 +69,26 @@ func main() {
 		fmt.Fprintln(os.Stderr, "ISCP workbench helper requires desktop initiator role")
 		os.Exit(1)
 	}
-	endpoint, err := iscpworkbench.NewEndpoint(cfg, nil, func(state string) {
+	bridge := newReverseBridge(writer)
+	endpoint, err := iscpworkbench.NewEndpoint(cfg, bridge.handle, func(state string) {
 		_ = writer.send(map[string]any{"ipc_version": ipcVersion, "type": "state", "state": state})
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ISCP workbench initialization failed:", err)
 		os.Exit(1)
 	}
+	endpoint.SetCapabilitiesHandler(func(c iscpworkbench.TransportCapabilities) {
+		if c.Profile == iscpworkbench.ProfileV2 {
+			_ = writer.send(map[string]any{"ipc_version": ipcVersion, "type": "capabilities", "capabilities": c})
+		}
+	})
 	defer endpoint.Close()
 	if err := writer.send(map[string]any{"ipc_version": ipcVersion, "type": "hello", "identity": publicIdentity, "operations": iscpworkbench.Operations(), "max_request_bytes": iscpworkbench.MaxRequestBytes, "max_response_bytes": iscpworkbench.MaxResponseBytes}); err != nil {
 		os.Exit(1)
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := serve(ctx, os.Stdin, writer, endpoint); err != nil {
+	if err := serveWithReverse(ctx, os.Stdin, writer, endpoint, bridge); err != nil {
 		fmt.Fprintln(os.Stderr, "ISCP workbench helper stopped:", err)
 		os.Exit(1)
 	}
@@ -94,6 +101,9 @@ type caller interface {
 }
 
 func serve(ctx context.Context, input io.Reader, writer *ipcWriter, endpoint caller) error {
+	return serveWithReverse(ctx, input, writer, endpoint, nil)
+}
+func serveWithReverse(ctx context.Context, input io.Reader, writer *ipcWriter, endpoint caller, bridge *reverseBridge) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	runDone := make(chan struct{})
@@ -130,6 +140,13 @@ func serve(ctx context.Context, input io.Reader, writer *ipcWriter, endpoint cal
 			frame, err := decodeCall(line)
 			if err != nil {
 				return err
+			}
+			if frame.Type == "reverse_response" {
+				if bridge == nil {
+					return errors.New("unexpected reverse response")
+				}
+				bridge.accept(frame.ID, frame.Response)
+				continue
 			}
 			if frame.Type == "shutdown" {
 				cancel()
@@ -170,6 +187,12 @@ func decodeCall(line []byte) (callFrame, error) {
 		return frame, errors.New("unsupported private IPC version or trailing data")
 	}
 	if frame.Type == "shutdown" {
+		return frame, nil
+	}
+	if frame.Type == "reverse_response" {
+		if frame.ID == "" || len(frame.ID) > 200 || frame.Response.Validate() != nil {
+			return frame, errors.New("invalid reverse response")
+		}
 		return frame, nil
 	}
 	if frame.Type != "call" || frame.ID == "" || len(frame.ID) > 200 {

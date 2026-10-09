@@ -1,0 +1,1032 @@
+[
+  {
+    "name": "workbench.identity",
+    "constant": "OperationIdentity",
+    "version": 1,
+    "direction": "forward",
+    "scope": "workbench.text",
+    "mutation": false,
+    "recovery": "original_request",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "installation.bind",
+    "constant": "OperationBind",
+    "version": 1,
+    "direction": "forward",
+    "scope": "workbench.text",
+    "mutation": true,
+    "recovery": "original_request",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "presentation.config",
+    "constant": "OperationConfig",
+    "version": 1,
+    "direction": "forward",
+    "scope": "workbench.text",
+    "mutation": false,
+    "recovery": "original_request",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "presentation.owner",
+    "constant": "OperationOwner",
+    "version": 1,
+    "direction": "forward",
+    "scope": "workbench.text",
+    "mutation": false,
+    "recovery": "original_request",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "presentation.ready",
+    "constant": "OperationReady",
+    "version": 1,
+    "direction": "forward",
+    "scope": "workbench.text",
+    "mutation": false,
+    "recovery": "original_request",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "execution.submit",
+    "constant": "OperationSubmit",
+    "version": 1,
+    "direction": "forward",
+    "scope": "workbench.text",
+    "mutation": true,
+    "recovery": "original_request",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "execution.lookup",
+    "constant": "OperationLookup",
+    "version": 1,
+    "direction": "forward",
+    "scope": "workbench.text",
+    "mutation": false,
+    "recovery": "original_request",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "execution.cancel",
+    "constant": "OperationCancel",
+    "version": 1,
+    "direction": "forward",
+    "scope": "workbench.text",
+    "mutation": true,
+    "recovery": "original_request",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "execution.ack",
+    "constant": "OperationAck",
+    "version": 1,
+    "direction": "forward",
+    "scope": "workbench.text",
+    "mutation": true,
+    "recovery": "original_request",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "capabilities.get",
+    "constant": "OperationCapabilitiesGet",
+    "version": 2,
+    "direction": "forward",
+    "scope": "workbench.text",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "settings.owner.get",
+    "constant": "OperationSettingsOwnerGet",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "GET",
+      "path": "/api/owner"
+    }
+  },
+  {
+    "name": "settings.owner.patch",
+    "constant": "OperationSettingsOwnerPatch",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "POST",
+      "path": "/api/owner"
+    }
+  },
+  {
+    "name": "settings.connectors.list",
+    "constant": "OperationSettingsConnectorsList",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "GET",
+      "path": "/api/connectors"
+    }
+  },
+  {
+    "name": "settings.connectors.patch",
+    "constant": "OperationSettingsConnectorsPatch",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "channel"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/connectors/{channel}"
+    }
+  },
+  {
+    "name": "settings.integrations.list",
+    "constant": "OperationSettingsIntegrationsList",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "GET",
+      "path": "/api/integrations"
+    }
+  },
+  {
+    "name": "settings.credentials.add",
+    "constant": "OperationSettingsCredentialsAdd",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "integration_id"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/integrations/{integration_id}/credentials"
+    }
+  },
+  {
+    "name": "settings.credentials.activate",
+    "constant": "OperationSettingsCredentialsActivate",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "integration_id"
+    ],
+    "http": {
+      "method": "PUT",
+      "path": "/api/integrations/{integration_id}/active-credential"
+    }
+  },
+  {
+    "name": "settings.credentials.check",
+    "constant": "OperationSettingsCredentialsCheck",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "integration_id",
+      "credential_id"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/integrations/{integration_id}/credentials/{credential_id}/check"
+    }
+  },
+  {
+    "name": "settings.credentials.delete",
+    "constant": "OperationSettingsCredentialsDelete",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "integration_id",
+      "credential_id"
+    ],
+    "http": {
+      "method": "DELETE",
+      "path": "/api/integrations/{integration_id}/credentials/{credential_id}"
+    }
+  },
+  {
+    "name": "authorizations.list",
+    "constant": "OperationAuthorizationsList",
+    "version": 2,
+    "direction": "forward",
+    "scope": "authorization.manage",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "authorizations.delete",
+    "constant": "OperationAuthorizationsDelete",
+    "version": 2,
+    "direction": "forward",
+    "scope": "authorization.manage",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "notifications.list",
+    "constant": "OperationNotificationsList",
+    "version": 2,
+    "direction": "forward",
+    "scope": "notifications.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "limit",
+      "after"
+    ],
+    "http": {
+      "method": "GET",
+      "path": "/api/notifications"
+    }
+  },
+  {
+    "name": "notifications.read",
+    "constant": "OperationNotificationsRead",
+    "version": 2,
+    "direction": "forward",
+    "scope": "notifications.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "id"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/notifications/{id}/read"
+    }
+  },
+  {
+    "name": "notifications.read_all",
+    "constant": "OperationNotificationsReadAll",
+    "version": 2,
+    "direction": "forward",
+    "scope": "notifications.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "POST",
+      "path": "/api/notifications/read-all"
+    }
+  },
+  {
+    "name": "transfer.open",
+    "constant": "OperationTransferOpen",
+    "version": 2,
+    "direction": "forward",
+    "scope": "objects.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "transfer.status",
+    "constant": "OperationTransferStatus",
+    "version": 2,
+    "direction": "forward",
+    "scope": "objects.write",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "transfer.chunk",
+    "constant": "OperationTransferChunk",
+    "version": 2,
+    "direction": "forward",
+    "scope": "objects.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "transfer.commit",
+    "constant": "OperationTransferCommit",
+    "version": 2,
+    "direction": "forward",
+    "scope": "objects.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "transfer.abort",
+    "constant": "OperationTransferAbort",
+    "version": 2,
+    "direction": "forward",
+    "scope": "objects.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "object.describe",
+    "constant": "OperationObjectDescribe",
+    "version": 2,
+    "direction": "forward",
+    "scope": "objects.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "object.read",
+    "constant": "OperationObjectRead",
+    "version": 2,
+    "direction": "forward",
+    "scope": "objects.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "object.release",
+    "constant": "OperationObjectRelease",
+    "version": 2,
+    "direction": "forward",
+    "scope": "objects.read",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "approvals.list",
+    "constant": "OperationApprovalsList",
+    "version": 2,
+    "direction": "forward",
+    "scope": "approvals.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "status"
+    ],
+    "http": {
+      "method": "GET",
+      "path": "/api/approvals"
+    }
+  },
+  {
+    "name": "approvals.get",
+    "constant": "OperationApprovalsGet",
+    "version": 2,
+    "direction": "forward",
+    "scope": "approvals.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "id"
+    ],
+    "http": {
+      "method": "GET",
+      "path": "/api/approvals/{id}"
+    }
+  },
+  {
+    "name": "approvals.decide",
+    "constant": "OperationApprovalsDecide",
+    "version": 2,
+    "direction": "forward",
+    "scope": "approvals.decide",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "id",
+      "decision"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/approvals/{id}/{decision}"
+    }
+  },
+  {
+    "name": "events.snapshot",
+    "constant": "OperationEventsSnapshot",
+    "version": 2,
+    "direction": "forward",
+    "scope": "events.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "events.pull",
+    "constant": "OperationEventsPull",
+    "version": 2,
+    "direction": "forward",
+    "scope": "events.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "events.ack",
+    "constant": "OperationEventsAck",
+    "version": 2,
+    "direction": "forward",
+    "scope": "events.read",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "events.subscribe",
+    "constant": "OperationEventsSubscribe",
+    "version": 2,
+    "direction": "forward",
+    "scope": "events.read",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "events.resume",
+    "constant": "OperationEventsResume",
+    "version": 2,
+    "direction": "forward",
+    "scope": "events.read",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "events.unsubscribe",
+    "constant": "OperationEventsUnsubscribe",
+    "version": 2,
+    "direction": "forward",
+    "scope": "events.read",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "state.snapshot",
+    "constant": "OperationStateSnapshot",
+    "version": 2,
+    "direction": "forward",
+    "scope": "events.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "mail.mailboxes",
+    "constant": "OperationMailMailboxes",
+    "version": 2,
+    "direction": "forward",
+    "scope": "mail.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "GET",
+      "path": "/api/v1/mail/mailboxes"
+    }
+  },
+  {
+    "name": "mail.sync",
+    "constant": "OperationMailSync",
+    "version": 2,
+    "direction": "forward",
+    "scope": "mail.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "mailbox"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/v1/mail/{mailbox}/sync"
+    }
+  },
+  {
+    "name": "mail.message",
+    "constant": "OperationMailMessage",
+    "version": 2,
+    "direction": "forward",
+    "scope": "mail.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "mail.attachment",
+    "constant": "OperationMailAttachment",
+    "version": 2,
+    "direction": "forward",
+    "scope": "mail.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "mailbox",
+      "mail",
+      "part"
+    ],
+    "http": {
+      "method": "GET",
+      "path": "/api/v1/mail/{mailbox}/messages/{mail}/attachments/{part}"
+    }
+  },
+  {
+    "name": "mail.send",
+    "constant": "OperationMailSend",
+    "version": 2,
+    "direction": "forward",
+    "scope": "mail.send",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "mail.drafts.list",
+    "constant": "OperationMailDraftsList",
+    "version": 2,
+    "direction": "forward",
+    "scope": "mail.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "draft",
+      "limit",
+      "offset"
+    ],
+    "http": {
+      "method": "GET",
+      "path": "/api/email/drafts"
+    }
+  },
+  {
+    "name": "mail.drafts.save",
+    "constant": "OperationMailDraftsSave",
+    "version": 2,
+    "direction": "forward",
+    "scope": "mail.send",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "draft"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/email/drafts"
+    }
+  },
+  {
+    "name": "mail.drafts.send",
+    "constant": "OperationMailDraftsSend",
+    "version": 2,
+    "direction": "forward",
+    "scope": "mail.send",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "draft"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/email/drafts/{draft}/send"
+    }
+  },
+  {
+    "name": "mail.drafts.reconcile",
+    "constant": "OperationMailDraftsReconcile",
+    "version": 2,
+    "direction": "forward",
+    "scope": "mail.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "draft"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/email/drafts/{draft}/reconcile"
+    }
+  },
+  {
+    "name": "browser.host.register",
+    "constant": "OperationBrowserHostRegister",
+    "version": 2,
+    "direction": "forward",
+    "scope": "browser.control",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "browser.host.poll",
+    "constant": "OperationBrowserHostPoll",
+    "version": 2,
+    "direction": "forward",
+    "scope": "browser.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "browser.host.reply",
+    "constant": "OperationBrowserHostReply",
+    "version": 2,
+    "direction": "forward",
+    "scope": "browser.control",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "browser.host.heartbeat",
+    "constant": "OperationBrowserHostHeartbeat",
+    "version": 2,
+    "direction": "forward",
+    "scope": "browser.control",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "browser.host.close",
+    "constant": "OperationBrowserHostClose",
+    "version": 2,
+    "direction": "forward",
+    "scope": "browser.control",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "browser.host.grant",
+    "constant": "OperationBrowserHostGrant",
+    "version": 2,
+    "direction": "forward",
+    "scope": "browser.control",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "browser.host.revoke",
+    "constant": "OperationBrowserHostRevoke",
+    "version": 2,
+    "direction": "forward",
+    "scope": "browser.control",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "browser.command",
+    "constant": "OperationBrowserCommand",
+    "version": 2,
+    "direction": "reverse",
+    "scope": "browser.control",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "browser.receipt",
+    "constant": "OperationBrowserReceipt",
+    "version": 2,
+    "direction": "forward",
+    "scope": "browser.control",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "browser.reconcile",
+    "constant": "OperationBrowserReconcile",
+    "version": 2,
+    "direction": "forward",
+    "scope": "browser.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "tools.list",
+    "constant": "OperationToolsList",
+    "version": 2,
+    "direction": "forward",
+    "scope": "tools.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "tools.invoke",
+    "constant": "OperationToolsInvoke",
+    "version": 2,
+    "direction": "forward",
+    "scope": "tools.invoke",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "speech.status",
+    "constant": "OperationSpeechStatus",
+    "version": 2,
+    "direction": "forward",
+    "scope": "speech.transcribe",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "speech.transcribe",
+    "constant": "OperationSpeechTranscribe",
+    "version": 2,
+    "direction": "forward",
+    "scope": "speech.transcribe",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "speech.cancel",
+    "constant": "OperationSpeechCancel",
+    "version": 2,
+    "direction": "forward",
+    "scope": "speech.transcribe",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "speech.session.open",
+    "constant": "OperationSpeechSessionOpen",
+    "version": 2,
+    "direction": "forward",
+    "scope": "speech.transcribe",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "speech.session.frame",
+    "constant": "OperationSpeechSessionFrame",
+    "version": 2,
+    "direction": "forward",
+    "scope": "speech.transcribe",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "speech.session.finish",
+    "constant": "OperationSpeechSessionFinish",
+    "version": 2,
+    "direction": "forward",
+    "scope": "speech.transcribe",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "speech.session.cancel",
+    "constant": "OperationSpeechSessionCancel",
+    "version": 2,
+    "direction": "forward",
+    "scope": "speech.transcribe",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "audio.session.open",
+    "constant": "OperationAudioSessionOpen",
+    "version": 2,
+    "direction": "forward",
+    "scope": "speech.realtime",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "audio.session.control",
+    "constant": "OperationAudioSessionControl",
+    "version": 2,
+    "direction": "forward",
+    "scope": "speech.realtime",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "audio.session.close",
+    "constant": "OperationAudioSessionClose",
+    "version": 2,
+    "direction": "forward",
+    "scope": "speech.realtime",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "audio.frame",
+    "constant": "OperationAudioFrame",
+    "version": 2,
+    "direction": "forward",
+    "scope": "speech.realtime",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": []
+  },
+  {
+    "name": "operations.receipt",
+    "constant": "OperationOperationsReceipt",
+    "version": 2,
+    "direction": "forward",
+    "scope": "workbench.control",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "operation_id"
+    ]
+  }
+]

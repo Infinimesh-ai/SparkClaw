@@ -95,7 +95,7 @@ func testMaterials(t *testing.T) (material, material) {
 	}
 	cloud.Identity.PublicKey.KID = "cloud-trust-prod-1"
 	thumbprint, _ := identity.Thumbprint(desktop.Identity)
-	grant, err := trust.SignGrant(provider, issuer, trust.Grant{GrantID: newUUID(), SubjectDeviceID: desktop.Identity.DeviceID, Audience: backend.Identity.DeviceID, ConfirmationThumbprint: thumbprint, Permissions: []string{Permission}, RelayConstraints: []string{"relay-test"}, NotBefore: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)})
+	grant, err := trust.SignGrant(provider, issuer, trust.Grant{GrantID: newUUID(), RevocationEpoch: 1, SubjectDeviceID: desktop.Identity.DeviceID, Audience: backend.Identity.DeviceID, ConfirmationThumbprint: thumbprint, Permissions: []string{Permission}, RelayConstraints: []string{"relay-test"}, NotBefore: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}

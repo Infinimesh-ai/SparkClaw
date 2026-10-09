@@ -22,6 +22,8 @@ type Binding struct {
 }
 
 type Config struct {
+	ApplicationProfiles    []string            `json:"application_profiles,omitempty"`
+	QualifiedCapabilities  []string            `json:"qualified_capabilities,omitempty"`
 	SchemaVersion          int                 `json:"schema_version"`
 	Mode                   string              `json:"mode"`
 	Role                   string              `json:"role"`
@@ -106,6 +108,25 @@ func LoadConfig(path string) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if len(c.ApplicationProfiles) > 2 {
+		return errors.New("too many application profiles")
+	}
+	seen := map[string]bool{}
+	for _, p := range c.ApplicationProfiles {
+		if (p != Profile && p != ProfileV2) || seen[p] {
+			return errors.New("invalid application profile")
+		}
+		seen[p] = true
+	}
+	if c.supportsV2() && !seen[Profile] {
+		return errors.New("v2 requires the v1 negotiation carrier")
+	}
+	for _, name := range c.QualifiedCapabilities {
+		if _, ok := LookupOperation(name); !ok {
+			return errors.New("unknown qualified operation")
+		}
+	}
+
 	if c.SchemaVersion != 1 || c.Mode != "local-test" {
 		return errors.New("workbench requires explicit schema 1 local-test configuration")
 	}

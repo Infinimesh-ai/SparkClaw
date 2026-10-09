@@ -77,6 +77,14 @@ func (s *Server) NewWorkbenchISCPHandler(cfg iscpworkbench.Config) (iscpworkbenc
 				return workbenchV2Error(request, 403, "installation_binding_unavailable")
 			}
 		}
+		if request.Operation == iscpworkbench.OperationAuthorizationsList {
+			return workbenchV2Authorization(connected, request, session, principal)
+		}
+		if request.Operation == iscpworkbench.OperationAuthorizationsDelete {
+			// Only the subject device can sign deletion. A Gateway must never
+			// impersonate it or weaken the receipt-only post-revocation channel.
+			return workbenchV2Error(request, 409, "device_authorization_control_required")
+		}
 		return workbenchV2Result(objects(connected, request))
 	}, nil
 }

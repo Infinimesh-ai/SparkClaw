@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
@@ -18,13 +19,17 @@ import (
 )
 
 type iscpDomainAdapter struct {
-	server   *Server
-	config   iscpworkbench.Config
-	receipts *iscpDomainReceipts
+	server         *Server
+	config         iscpworkbench.Config
+	receipts       *iscpDomainReceipts
+	speechMu       sync.Mutex
+	eventMu        sync.Mutex
+	speechSessions map[string]*iscpSpeechSession
 }
 type iscpDomainResult struct {
 	status int
 	body   json.RawMessage
+	object *iscpworkbench.ObjectReference
 }
 
 // NewWorkbenchISCPDomainHandler is only mounted behind the Endpoint's pinned
@@ -46,12 +51,12 @@ func (s *Server) NewWorkbenchISCPDomainHandler(cfg iscpworkbench.Config) (iscpwo
 	if err != nil {
 		return nil, err
 	}
-	adapter := &iscpDomainAdapter{server: s, config: cfg, receipts: journal}
+	adapter := &iscpDomainAdapter{server: s, config: cfg, receipts: journal, speechSessions: map[string]*iscpSpeechSession{}}
 	return adapter.handle, nil
 }
 func (a *iscpDomainAdapter) handle(ctx context.Context, request iscpworkbench.Request) iscpworkbench.Response {
 	respond := func(result iscpDomainResult) iscpworkbench.Response {
-		return iscpworkbench.Response{Type: iscpworkbench.ResponseType, Profile: request.Profile, ID: request.ID, Status: result.status, Body: result.body}
+		return iscpworkbench.Response{Type: iscpworkbench.ResponseType, Profile: request.Profile, ID: request.ID, Status: result.status, Body: result.body, Object: result.object}
 	}
 	if ctx.Err() != nil {
 		return respond(domainError(401, "authorization_closed"))
@@ -91,7 +96,7 @@ func (a *iscpDomainAdapter) handle(ctx context.Context, request iscpworkbench.Re
 		if !receipt.Complete {
 			return respond(domainError(409, "operation_outcome_unknown"))
 		}
-		return respond(iscpDomainResult{receipt.Status, receipt.Body})
+		return respond(iscpDomainResult{status: receipt.Status, body: receipt.Body})
 	}
 	entries, scanErr := os.ReadDir(a.receipts.root)
 	if scanErr != nil || len(entries) >= 65536 {
@@ -120,6 +125,8 @@ func domainMutation(operation string) bool {
 
 func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.Request) iscpDomainResult {
 	switch request.Operation {
+	case iscpworkbench.OperationToolsList, iscpworkbench.OperationToolsInvoke:
+		return a.tools(ctx, request)
 	case iscpworkbench.OperationCapabilitiesGet:
 		return a.capabilities(ctx, request)
 	case iscpworkbench.OperationOperationsReceipt:
@@ -151,6 +158,12 @@ func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.
 		return a.connectors(ctx, request)
 	case iscpworkbench.OperationSettingsIntegrationsList, iscpworkbench.OperationSettingsCredentialsAdd, iscpworkbench.OperationSettingsCredentialsActivate, iscpworkbench.OperationSettingsCredentialsCheck, iscpworkbench.OperationSettingsCredentialsDelete:
 		return a.integrations(ctx, request)
+	case iscpworkbench.OperationSpeechStatus, iscpworkbench.OperationSpeechTranscribe, iscpworkbench.OperationSpeechCancel, iscpworkbench.OperationSpeechSessionOpen, iscpworkbench.OperationSpeechSessionFrame, iscpworkbench.OperationSpeechSessionFinish, iscpworkbench.OperationSpeechSessionCancel, iscpworkbench.OperationSpeechSessionEvents:
+		return a.speech(ctx, request)
+	case iscpworkbench.OperationEventsSnapshot, iscpworkbench.OperationStateSnapshot, iscpworkbench.OperationEventsPull, iscpworkbench.OperationEventsAck, iscpworkbench.OperationEventsSubscribe, iscpworkbench.OperationEventsResume, iscpworkbench.OperationEventsUnsubscribe:
+		return a.events(ctx, request)
+	case iscpworkbench.OperationMailMailboxes, iscpworkbench.OperationMailSync, iscpworkbench.OperationMailMessage, iscpworkbench.OperationMailAttachment, iscpworkbench.OperationMailDraftsList, iscpworkbench.OperationMailDraftsSave, iscpworkbench.OperationMailSend, iscpworkbench.OperationMailDraftsSend, iscpworkbench.OperationMailDraftsReconcile:
+		return a.mail(ctx, request)
 	case iscpworkbench.OperationBrowserHostGrant, iscpworkbench.OperationBrowserHostRegister, iscpworkbench.OperationBrowserHostPoll, iscpworkbench.OperationBrowserHostReply, iscpworkbench.OperationBrowserHostHeartbeat, iscpworkbench.OperationBrowserHostClose, iscpworkbench.OperationBrowserHostRevoke, iscpworkbench.OperationBrowserReceipt, iscpworkbench.OperationBrowserReconcile:
 		return a.browser(ctx, request)
 	case iscpworkbench.OperationApprovalsList, iscpworkbench.OperationApprovalsGet, iscpworkbench.OperationApprovalsDecide, iscpworkbench.OperationExecutionApproval:
@@ -166,11 +179,11 @@ func domainJSON(status int, value any) iscpDomainResult {
 	if err != nil {
 		return domainError(500, "response_encoding_failed")
 	}
-	return iscpDomainResult{status, raw}
+	return iscpDomainResult{status: status, body: raw}
 }
 func domainError(status int, code string) iscpDomainResult {
 	raw, _ := json.Marshal(map[string]any{"code": code, "retryable": false})
-	return iscpDomainResult{status, raw}
+	return iscpDomainResult{status: status, body: raw}
 }
 func domainRevision(value any) string { raw, _ := json.Marshal(value); return execution.Digest(raw) }
 func domainValue(value any) iscpDomainResult {
@@ -202,7 +215,7 @@ func domainHTTP(ctx context.Context, request iscpworkbench.Request, method strin
 	for key, value := range params {
 		r.SetPathValue(key, value)
 	}
-	writer := &workbenchISCPWriter{header: make(http.Header)}
+	writer := &workbenchISCPWriter{header: make(http.Header), limit: 8 << 20}
 	handler(writer, r)
 	if writer.oversized {
 		return domainError(413, "response_too_large")
@@ -210,7 +223,11 @@ func domainHTTP(ctx context.Context, request iscpworkbench.Request, method strin
 	if writer.status == 0 {
 		writer.status = 200
 	}
-	return iscpDomainResult{writer.status, append(json.RawMessage(nil), writer.body.Bytes()...)}
+	var canonical bytes.Buffer
+	if err := json.Compact(&canonical, writer.body.Bytes()); err != nil {
+		return domainError(502, "invalid_domain_response")
+	}
+	return iscpDomainResult{status: writer.status, body: append(json.RawMessage(nil), canonical.Bytes()...)}
 }
 func domainNow() time.Time { return time.Now().UTC() }
 

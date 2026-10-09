@@ -101,7 +101,7 @@ func (s *Server) NewWorkbenchISCPObjectHandler(cfg iscpworkbench.Config, next is
 		if request.Object != nil {
 			purpose := "context"
 			limit := int64(1 << 20)
-			if request.Operation == iscpworkbench.OperationSubmit {
+			if request.Operation == iscpworkbench.OperationSubmit || request.Operation == iscpworkbench.OperationToolsInvoke {
 				purpose = "execution_request"
 				limit = execution.ContextBytes
 			}

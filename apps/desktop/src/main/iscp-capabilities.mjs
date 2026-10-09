@@ -9,12 +9,13 @@ const SURFACES = Object.freeze({
   mail_read: ['mail.mailboxes', 'mail.sync', 'mail.message'],
   mail_attachments: ['mail.attachment'],
   mail_send: ['mail.drafts.list', 'mail.drafts.save', 'mail.drafts.send', 'mail.drafts.reconcile'],
+  mail_send_attachments: ['mail.drafts.list', 'mail.drafts.save', 'mail.drafts.send', 'mail.drafts.reconcile'],
   browser: ['browser.host.grant', 'browser.host.revoke', 'browser.host.register', 'browser.host.poll', 'browser.host.reply', 'browser.host.heartbeat', 'browser.host.close', 'browser.receipt', 'browser.reconcile'],
   speech_recording: ['speech.status', 'speech.transcribe', 'speech.cancel'],
   speech_realtime: ['speech.session.open', 'speech.session.frame', 'speech.session.events', 'speech.session.finish', 'speech.session.cancel'],
   speech_playback: ['audio.playback'],
 });
-const DEPENDENCIES = { mail_read: ['events'], mail_attachments: ['mail_read', 'files'], mail_send: ['mail_read', 'files', 'approvals'], browser: ['files', 'approvals', 'events'], speech_recording: ['files'], speech_realtime: ['speech_recording', 'events'], speech_playback: ['speech_realtime'] };
+const DEPENDENCIES = { mail_read: ['events'], mail_attachments: ['mail_read', 'files'], mail_send: ['mail_read', 'files', 'approvals'], mail_send_attachments: ['mail_send'], browser: ['files', 'approvals', 'events'], speech_recording: ['files'], speech_realtime: ['speech_recording', 'events'], speech_playback: ['speech_realtime'] };
 
 // A permission advertisement is necessary, but is never a release certificate.
 // Qualification is private launcher configuration, not a renderer-controlled bit.

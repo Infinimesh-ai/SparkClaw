@@ -12,11 +12,27 @@ const draft: EmailDraft = { id: "d", version: 1, mailbox_id: "box", mode: "compo
 const mailboxes = [{ id: "box", version: 1, provider: "gmail" as const, address: "owner@example.com", intake_enabled: false, active_binding: true, state: "ready" }];
 afterEach(() => vi.restoreAllMocks());
 describe("email compose safety", () => {
+  it("shows workspace attachment manifests and prevents the legacy editor from silently dropping or sending them", async () => {
+    vi.spyOn(api, "emailComposeCapabilities").mockResolvedValue({ compose: true, reply: true, reply_all: true, cc: true, max_to: 100 });
+    vi.spyOn(api, "emailDraft").mockResolvedValue({ ...draft, attachments: [{ path: "reports/a.pdf", name: "a.pdf", size_bytes: 123, sha256: "a".repeat(64) }] });
+    const save = vi.spyOn(api, "saveEmailDraft"); const send = vi.spyOn(api, "sendEmailDraft");
+    const host = document.createElement("div"); const root = createRoot(host);
+    try {
+      await act(async () => root.render(<EmailCompose target={{ mode: "compose", draftId: "d" }} mailboxes={mailboxes} text={text} language="zh" onClose={() => {}} onBeforeClose={() => {}}/>));
+      expect(host.textContent).toContain("reports/a.pdf"); expect(host.textContent).toContain("a".repeat(64));
+      expect(host.querySelector("fieldset")!.disabled).toBe(true);
+      for (const label of [text.email.saveDraft, text.email.send]) {
+        const button = [...host.querySelectorAll("button")].find(value => value.textContent === label)!;
+        expect(button.disabled).toBe(true); await act(async () => button.click());
+      }
+      expect(save).not.toHaveBeenCalled(); expect(send).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); }
+  });
   it("polishes a reply intent, keeps the result editable, and sends the edited native reply directly", async () => {
     vi.spyOn(api, "emailComposeCapabilities").mockResolvedValue({ compose: true, reply: true, reply_all: true, cc: true, max_to: 100 });
     const polished: EmailDraft = { ...draft, mode: "reply", reply_mail_id: "incoming", body: "周二下午可以参加，请发会议链接。" };
     const polish = vi.spyOn(api, "polishEmailReply").mockResolvedValue(polished);
-    const save = vi.spyOn(api, "saveEmailDraft").mockImplementation(async (value) => ({ ...polished, ...value, id: "d", version: 2 }));
+    const save = vi.spyOn(api, "saveEmailDraft").mockImplementation(async (value) => ({ ...polished, ...value, attachments: [], id: "d", version: 2 }));
     const send = vi.spyOn(api, "sendEmailDraft").mockResolvedValue({ ...polished, version: 3, state: "sent", conversation_id: "topic" });
     const onSent = vi.fn();
     const host = document.createElement("div"); const root = createRoot(host);

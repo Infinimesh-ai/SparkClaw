@@ -8,7 +8,7 @@ type Cache = { mailbox_id:string; sequence:number; synced_at:string; messages:Ca
 type MailCapability = { catalog():Promise<Mailbox[]>; refreshCatalog():Promise<Mailbox[]>; read(mailbox:string):Promise<Cache>; sync(mailbox:string):Promise<Cache>; saveAttachment?(mailbox:string,mail:string,part:string,conversation:string):Promise<unknown> };
 declare global {interface Window {sparkclawMailSync?:MailCapability;}}
 
-export function MailCachePanel({language,conversationID="",onFileSaved,attachmentsEnabled=true,sendEnabled=false}: {language:Language;conversationID?:string;onFileSaved?:()=>void|Promise<void>;attachmentsEnabled?:boolean;sendEnabled?:boolean}) {
+export function MailCachePanel({language,conversationID="",onFileSaved,attachmentsEnabled=true,sendEnabled=false,sendAttachmentsEnabled=false}: {language:Language;conversationID?:string;onFileSaved?:()=>void|Promise<void>;attachmentsEnabled?:boolean;sendEnabled?:boolean;sendAttachmentsEnabled?:boolean}) {
   const capability=window.sparkclawMailSync;
   const zh=language==="zh";
   const [boxes,setBoxes]=useState<Mailbox[]>([]);
@@ -48,7 +48,7 @@ export function MailCachePanel({language,conversationID="",onFileSaved,attachmen
     {cache?.synced_at&&<p role="status">{synced?(zh?"同步完成":"Synchronized"):(zh?"本机缓存":"Device cache")} · {new Date(cache.synced_at).toLocaleString(language==="zh"?"zh-CN":"en-US")}</p>}
     {!boxes.length&&!busy&&<p>{zh?"点击更新邮箱列表以读取已授权的邮箱。":"Refresh mailboxes to load your authorized mailboxes."}</p>}
     {cache&&!cache.messages.length&&<p>{zh?"此邮箱尚无已缓存的邮件。":"No cached mail in this mailbox yet."}</p>}
-    {sendEnabled&&selected&&<ISCPMailDraftPanel key={selected} language={language} mailboxID={selected} address={boxes.find(box=>box.id===selected)?.address||""}/>}
+    {sendEnabled&&selected&&<ISCPMailDraftPanel key={selected} language={language} mailboxID={selected} address={boxes.find(box=>box.id===selected)?.address||""} attachmentsEnabled={sendAttachmentsEnabled}/>}
     {cache?.messages.map((mail)=><details key={mail.id}><summary>{mail.subject||(zh?"无主题":"No subject")} · {mail.from}</summary>
       {mail.summary&&<p>{mail.summary}</p>}{mail.body_text&&<p style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{mail.body_text}</p>}
       {mail.body_truncated&&<p>{zh?"正文超出本机缓存限额，可联网读取原件。":"The body exceeds the cache limit. Read the original while online."}</p>}

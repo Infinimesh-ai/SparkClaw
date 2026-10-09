@@ -202,13 +202,15 @@ export type EmailPresentation = {
   error_code?: string;
 };
 
+export type EmailDraftAttachment = { path: string; name: string; size_bytes: number; sha256: string };
 export type EmailDraft = {
   id: string; version: number; mailbox_id: string; mode: "compose" | "reply" | "reply_all";
   receipt?: {provider:string;status:string;recipient_digest:string;provider_message_id?:string;provider_thread_id?:string};
   reply_mail_id?: string; conversation_id?: string; to: string[]; cc: string[]; subject: string; body: string;
+  attachments?: EmailDraftAttachment[];
   state: "draft" | "sending" | "sent" | "failed" | "unknown"; error_code?: string; send_key?: string; sent_mail_id?: string; timeline_mail_id?: string; confirmation_source?: string; reconciled_at?: string;
 };
-export type EmailDraftInput = Pick<EmailDraft, "mailbox_id" | "mode" | "reply_mail_id" | "to" | "cc" | "subject" | "body"> & { id?: string; expected_version: number };
+export type EmailDraftInput = Pick<EmailDraft, "mailbox_id" | "mode" | "reply_mail_id" | "to" | "cc" | "subject" | "body"> & { id?: string; expected_version: number; attachments?: { path: string }[] };
 export type EmailReplyPolishInput = { id: string; mail_id: string; instruction: string; language: "en" | "zh" };
 export type EmailComposeCapabilities = { compose: boolean; reply: boolean; reply_all: boolean; cc: boolean; max_to: number; reply_reason?: string };
 

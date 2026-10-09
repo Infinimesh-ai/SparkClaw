@@ -377,7 +377,7 @@ export function LocalWorkbench() {
         onCurrentClientRevoked={logout} onLogout={logout} />}</div> : <>
         <section className={`chatColumn localChat ${home ? "homeChat" : ""}`} hidden={page !== "chat"}>
         <div className="messageList localHistory">
-          {iscp && capabilities.mail && mailOpen && <MailCachePanel language={language} conversationID={selected} attachmentsEnabled={surfaceEnabled(connection, "mail_attachments")} sendEnabled={surfaceEnabled(connection,"mail_send")} onFileSaved={async () => { if(selected) setContent(await store.read(selected)); }}/>}
+          {iscp && capabilities.mail && mailOpen && <MailCachePanel language={language} conversationID={selected} attachmentsEnabled={surfaceEnabled(connection, "mail_attachments")} sendEnabled={surfaceEnabled(connection,"mail_send")} sendAttachmentsEnabled={surfaceEnabled(connection,"mail_send_attachments")} onFileSaved={async () => { if(selected) setContent(await store.read(selected)); }}/>}
           {home && <WorkbenchWelcome language={language} />}
           {capabilities.browser && browserState?.browser_host?.unknown_writes?.filter((command) => command.local_conversation_id === selected).map((command) => <section className="localUnknownWrite" role="alert" key={command.command_id}>
             <h2>{zh ? "浏览器操作结果不确定" : "Browser action outcome uncertain"}</h2>

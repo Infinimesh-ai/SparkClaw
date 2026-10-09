@@ -5,6 +5,7 @@ import type { EmailComposeCapabilities, EmailDraft, EmailMailbox, EmailMessage }
 import type { Copy, Language } from "../i18n";
 import { formatDateTime } from "../lib/format";
 import { emailErrorLabel, emailSendFailureLabel } from "./emailCommon";
+import { MailAttachmentManifest } from "../desktop/MailDraftAttachments";
 
 export type EmailComposeTarget = { mode: "compose" | "reply" | "reply_all"; mailId?: string; mailboxId?: string; draftId?: string; instanceId?: string };
 const splitAddresses = (value: string) => value.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
@@ -57,7 +58,10 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
     return () => { mounted = false; active.current = false; };
   }, [target, variant]);
   const mode = draft?.mode ?? target.mode;
-  const locked = draft && !["draft", "failed"].includes(draft.state);
+  // Workspace attachments require the saved-manifest confirmation editor. The
+  // legacy direct-send editor must neither hide nor silently drop those files.
+  const hasWorkspaceAttachments = !!draft?.attachments?.length;
+  const locked = hasWorkspaceAttachments || draft && !["draft", "failed"].includes(draft.state);
   const tooManyRecipients = Boolean(capabilities && splitAddresses(to).length + splitAddresses(cc).length > capabilities.max_to);
   const unsupported = tooManyRecipients || !capabilities || !capabilities[mode] || !capabilities.cc && splitAddresses(cc).length > 0 || splitAddresses(to).length > capabilities.max_to;
   async function polish() {
@@ -146,6 +150,7 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
       {compact && <p className="emailReplyRecipient">{text.email.replyRecipient}: {to}</p>}
       <label className={compact ? "emailReplyBody" : undefined}>{compact ? text.email.editPolishedReply : text.email.body}<textarea rows={compact ? 7 : 8} value={body} placeholder={text.email.bodyPlaceholder} onChange={(e) => { setBody(e.target.value); setSaved(false); }} /></label>
     </fieldset>
+    {hasWorkspaceAttachments && <><MailAttachmentManifest language={language} attachments={draft?.attachments || []}/><p role="status">{language === "zh" ? "此草稿含工作区附件。请在 SparkX 邮件草稿中编辑并确认附件后发送。" : "This draft includes workspace attachments. Edit it in SparkX mail drafts and confirm the attachment list before sending."}</p></>}
     {error ? <p role="alert">{emailErrorLabel(error, text)}</p> : null}
     {unsupported && !busy && <p className="emailWarning">{tooManyRecipients ? text.email.recipientLimit : text.email.sendUnsupported}</p>}
     {draft?.state === "sent" && <div role="status"><p>{draft.confirmation_source === "owner_confirmed_capture" ? text.email.sendOwnerConfirmed : text.email.sendSucceeded}</p><p>{draft.sent_mail_id ? text.email.sendEvidenceLinked : text.email.sendEvidencePending}</p>

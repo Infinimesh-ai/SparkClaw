@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -11,13 +12,20 @@ import (
 
 func v2Endpoints(t *testing.T, responderV2 bool) (*Endpoint, *Endpoint, *testRelayBus) {
 	t.Helper()
+	return profileEndpoints(t, true, responderV2)
+}
+func profileEndpoints(t *testing.T, initiatorV2, responderV2 bool) (*Endpoint, *Endpoint, *testRelayBus) {
+	t.Helper()
 	dmat, bmat := testMaterials(t)
 	bus := &testRelayBus{peers: map[string]*testRelay{}}
 	d := &testRelay{bus: bus, inbox: make(chan json.RawMessage, 128), disrupt: make(chan struct{}, 1)}
 	b := &testRelay{bus: bus, inbox: make(chan json.RawMessage, 128), disrupt: make(chan struct{}, 1)}
 	bus.peers[dmat.device.Identity.DeviceID] = d
 	bus.peers[bmat.device.Identity.DeviceID] = b
-	cfg := Config{Role: RoleInitiator, ApplicationProfiles: []string{ProfileV2, Profile}}
+	cfg := Config{Role: RoleInitiator}
+	if initiatorV2 {
+		cfg.ApplicationProfiles = []string{ProfileV2, Profile}
+	}
 	initiator, err := newEndpoint(cfg, dmat, d, func(ctx context.Context, r Request) Response {
 		return Response{Status: 200, Body: json.RawMessage(`{"host":true}`)}
 	}, nil)
@@ -26,8 +34,9 @@ func v2Endpoints(t *testing.T, responderV2 bool) (*Endpoint, *Endpoint, *testRel
 	}
 	cfg.Role = RoleResponder
 	cfg.Binding = &Binding{"deployment", "owner", "client"}
-	if !responderV2 {
-		cfg.ApplicationProfiles = nil
+	cfg.ApplicationProfiles = nil
+	if responderV2 {
+		cfg.ApplicationProfiles = []string{ProfileV2, Profile}
 	}
 	responder, err := newEndpoint(cfg, bmat, b, func(ctx context.Context, r Request) Response {
 		info, ok := SessionFromContext(ctx)
@@ -46,7 +55,7 @@ func v2Endpoints(t *testing.T, responderV2 bool) (*Endpoint, *Endpoint, *testRel
 	t.Cleanup(func() { cancel(); _ = initiator.Close(); _ = responder.Close(); <-done; <-done })
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if c, ok := initiator.Negotiated(); ok && (c.Profile == ProfileV2 || !responderV2) {
+		if c, ok := initiator.Negotiated(); ok && (c.Profile == ProfileV2 || !initiatorV2 || !responderV2) {
 			return initiator, responder, bus
 		}
 		time.Sleep(time.Millisecond)
@@ -209,5 +218,36 @@ func TestV2NegotiationLocalFailureClearsFlagAndSchedulesRetry(t *testing.T) {
 	cap, ok := i.Negotiated()
 	if !ok || !cap.ExpiresAt.After(previous.Add(time.Minute)) {
 		t.Fatal("released capacity did not allow the scheduled retry")
+	}
+}
+
+// Legacy configurations and already issued Grants have no application-profile
+// extension. A new v2-capable responder must remain passive until an explicit
+// offer, so an old initiator retains precisely the original text contract.
+func TestLegacyClientWithExistingGrantUsesExactV1OnV2Responder(t *testing.T) {
+	i, r, _ := profileEndpoints(t, false, true)
+	originalOperations := []string{"workbench.identity", "installation.bind", "presentation.config", "presentation.owner", "presentation.ready", "execution.submit", "execution.lookup", "execution.cancel", "execution.ack"}
+	c, ok := i.Negotiated()
+	if !ok || c.Profile != Profile || c.SchemaVersion != 1 || !slices.Equal(c.Operations, originalOperations) || i.config.ApplicationProfiles != nil {
+		t.Fatalf("legacy configuration was silently upgraded: %+v", c)
+	}
+	grantBefore, err := json.Marshal(i.grantMaterial().grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := json.RawMessage(`{"messages":["legacy original bytes"]}`)
+	response, err := i.Call(t.Context(), Request{Type: RequestType, Profile: Profile, ID: newUUID(), Operation: OperationSubmit, RequestID: newUUID(), InstallationID: newUUID(), Body: body})
+	if err != nil || response.Profile != Profile || string(response.Body) != string(body) {
+		t.Fatalf("legacy exact body failed: %+v %v", response, err)
+	}
+	if c, ok = r.Negotiated(); !ok || c.Profile != Profile || !slices.Equal(c.Operations, originalOperations) {
+		t.Fatalf("v2 responder upgraded a passive legacy session: %+v", c)
+	}
+	if _, err = i.Call(t.Context(), Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: OperationSettingsOwnerGet}); err == nil {
+		t.Fatal("legacy session admitted v2")
+	}
+	grantAfter, err := json.Marshal(i.grantMaterial().grant)
+	if err != nil || string(grantAfter) != string(grantBefore) {
+		t.Fatal("compatibility path rewrote an issued Grant")
 	}
 }

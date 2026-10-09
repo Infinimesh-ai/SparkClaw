@@ -212,3 +212,11 @@ func TestEmailComposeHTTPRejectsHostPathAttachmentsAndPreservesTextDrafts(t *tes
 		t.Fatal("legacy draft cannot send")
 	}
 }
+
+func TestEmailComposeHTTPCapabilitiesDoNotAdvertiseDesktopAttachmentAccess(t *testing.T) {
+	f := newEmailHTTPFixture(t)
+	capabilities := emailDecode[emailmanagement.ComposeCapabilities](t, f.request("GET", "/api/email/compose-capabilities", ""), 200)
+	if !capabilities.Compose || capabilities.WorkspaceAttachments {
+		t.Fatalf("HTTP capability differs from available transport: %+v", capabilities)
+	}
+}

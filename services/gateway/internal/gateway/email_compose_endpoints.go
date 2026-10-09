@@ -50,7 +50,11 @@ func (s *Server) emailComposeCapabilities(w http.ResponseWriter, r *http.Request
 	if !s.emailManagementReady(w) {
 		return
 	}
-	writeJSON(w, http.StatusOK, s.emailManagement.ComposeCapabilities())
+	capabilities := s.emailManagement.ComposeCapabilities()
+	// Host HTTP has no authenticated SparkX local object resolver. Its compose
+	// support remains available, but attachment send is an ISCP capability only.
+	capabilities.WorkspaceAttachments = false
+	writeJSON(w, http.StatusOK, capabilities)
 }
 func (s *Server) listEmailDrafts(w http.ResponseWriter, r *http.Request) {
 	if !s.emailManagementReady(w) {

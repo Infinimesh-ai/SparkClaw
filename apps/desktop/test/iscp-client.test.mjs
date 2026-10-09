@@ -7,7 +7,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
 import { DesktopAuth } from "../src/main/desktop-auth.mjs";
-import { ISCPTransport, ISCP_OPERATIONS, ISCP_PROFILE } from "../src/main/iscp-transport.mjs";
+import { ISCPTransport, ISCP_OPERATIONS, ISCP_PROFILE, ISCPRequestNotSentError } from "../src/main/iscp-transport.mjs";
 import { SecureCredentialStore } from "../src/main/secure-credential-store.mjs";
 import { ClientStore } from "../src/main/client-store.mjs";
 import { ExecutionClient } from "../src/main/execution-client.mjs";
@@ -319,6 +319,26 @@ test("an oversized submit response is reconciled as undeliverable without treati
   assert.equal(f.store.request(scope, task.request_id).explicitly_submitted, 1);
   assert.equal(f.store.receipt(scope, task.request_id), null);
   assert.deepEqual(f.calls.filter((call) => call.operation.startsWith("execution.")).map((call) => call.operation), ["execution.submit", "execution.lookup"]);
+});
+
+test("local ACK rejection cannot restore an already submitted execution's unsent intent", async (t) => {
+  const f = await fixture(t); await f.start();
+  const conversation = f.store.create(scope, "busy ACK"), task = f.store.enqueue(scope, conversation.id, "one execution");
+  const fetcher = f.auth.transport.fetch.bind(f.auth.transport);
+  let rejectACK = true;
+  f.auth.transport.fetch = async (url, init) => {
+    if (url.endsWith("/ack") && rejectACK) throw new ISCPRequestNotSentError("ISCP request concurrency limit reached", "capacity");
+    return fetcher(url, init);
+  };
+  f.handler = (request) => ({ status: 200, body: request.operation === "execution.submit" ? completed(f.store.request(scope, task.request_id)) : {} });
+  await assert.rejects(f.execution.submit(scope, task.request_id), /concurrency/u);
+  assert.equal(f.store.request(scope, task.request_id).status, "saved");
+  assert.equal(f.store.request(scope, task.request_id).explicitly_submitted, 1);
+  assert.equal(f.store.receipt(scope, task.request_id).acknowledged, 0);
+  rejectACK = false; await f.execution.reconcilePending();
+  assert.equal(f.store.request(scope, task.request_id).status, "delivered");
+  assert.equal(f.calls.filter((call) => call.operation === "execution.submit").length, 1);
+  assert.equal(f.store.read(scope, conversation.id).messages.length, 2);
 });
 
 

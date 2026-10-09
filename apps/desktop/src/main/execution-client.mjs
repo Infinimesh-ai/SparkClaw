@@ -53,10 +53,12 @@ export class ExecutionClient {
       if (this.auth.status.state !== "connected") throw new Error("Execution backend is unavailable; your input is preserved");
       const { first, task } = this.store.markSubmitted(scope, requestID, scheduleClaim);
       if (!first) { await this.#lookup(scope, task); return this.#view(scope, requestID); }
+      let admissionResponseReceived = false;
       try {
         const response = await this.#fetch(scope, "/api/v1/executions", {
           method: "POST", headers: { "Content-Type": "application/json", "X-SparkClaw-Digest": task.input_digest }, body: task.context_json,
         });
+        admissionResponseReceived = true;
         if (!response.ok) {
           await response.body?.cancel();
           if ([400, 413, 422].includes(response.status)) this.store.setExecutionState(scope, requestID, "failed");
@@ -64,7 +66,7 @@ export class ExecutionClient {
         }
         await this.#accept(scope, task, await json(response));
       } catch (error) {
-        if (error instanceof ISCPRequestNotSentError) this.store.restoreUnsentSubmission(scope, requestID, scheduleClaim);
+        if (!admissionResponseReceived && error instanceof ISCPRequestNotSentError) this.store.restoreUnsentSubmission(scope, requestID, scheduleClaim);
         // Only the transport's local pre-write proof releases the intent. Once
         // sent, even a lookup 404 cannot authorize replay of this execution.
         else await this.#lookup(scope, this.store.request(scope, requestID)).catch(() => {});

@@ -82,6 +82,9 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 		info.Scopes = slices.Clone(policy.Scopes)
 		info.CheckAuthorization = e.AuthorizationPolicy
 		callCtx = context.WithValue(callCtx, sessionInfoKey{}, info)
+		if request.Profile == ProfileV2 {
+			callCtx = context.WithValue(callCtx, capacityContextKey{}, spec.CapacityClass)
+		}
 		response := Response{Status: 501, Code: ErrorCapabilityUnavailable, Error: "operation handler unavailable"}
 		if e.handler != nil {
 			response = e.handler(callCtx, request)
@@ -144,6 +147,9 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (Response, error) 
 	}
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
+	if request.Profile == ProfileV2 {
+		ctx = context.WithValue(ctx, capacityContextKey{}, spec.CapacityClass)
+	}
 	slots := e.operationSlots(request)
 	select {
 	case slots <- struct{}{}:

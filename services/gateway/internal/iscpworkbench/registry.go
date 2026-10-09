@@ -103,3 +103,20 @@ func OperationCapacity(name string) (string, int) {
 	}
 	return spec.CapacityClass, CapacityLimit(spec.CapacityClass)
 }
+
+type capacityContextKey struct{}
+
+func capacityPriority(class string) int {
+	switch class {
+	case "control":
+		return 9
+	case "audio":
+		return 7
+	case "events":
+		return 6
+	case "bulk":
+		return 1
+	default:
+		return 5
+	}
+}

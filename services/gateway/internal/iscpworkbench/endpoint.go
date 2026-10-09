@@ -544,7 +544,14 @@ func (e *Endpoint) sendPayload(ctx context.Context, payloadType string, raw []by
 		e.mu.Unlock()
 		return errors.New("workbench encrypted session is not ready")
 	}
-	env, err := envelope.Encrypt(e.provider, s.state, newUUID(), payloadType, envelope.Route{RelayID: e.material.enrollment.RelayID, TTLSeconds: 30, Priority: 5}, raw)
+	priority := 5
+	if class, ok := ctx.Value(capacityContextKey{}).(string); ok {
+		priority = capacityPriority(class)
+	}
+	if (payloadType == pingType || payloadType == pongType) && s.capabilities != nil && s.capabilities.Profile == ProfileV2 {
+		priority = 9
+	}
+	env, err := envelope.Encrypt(e.provider, s.state, newUUID(), payloadType, envelope.Route{RelayID: e.material.enrollment.RelayID, TTLSeconds: 30, Priority: priority}, raw)
 	e.mu.Unlock()
 	if err != nil {
 		return errors.New("encrypt workbench payload")

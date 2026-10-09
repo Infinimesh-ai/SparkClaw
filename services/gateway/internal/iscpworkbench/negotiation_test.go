@@ -2,7 +2,9 @@ package iscpworkbench
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -124,5 +126,30 @@ func TestV2ControlRemainsAvailableWithBulkCreditsExhausted(t *testing.T) {
 	resp, err := i.Call(context.Background(), Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: OperationTransferAbort, Body: json.RawMessage(`{"transfer_id":"x"}`)})
 	if err != nil || resp.Status != 200 {
 		t.Fatalf("bulk starvation blocked control: %+v %v", resp, err)
+	}
+}
+
+func TestV2ChunkCiphertextFitsStandardEnvelopeAndUsesBulkPriority(t *testing.T) {
+	i, _, bus := v2Endpoints(t, true)
+	raw := make([]byte, 8192)
+	body, _ := json.Marshal(map[string]any{"transfer_id": newUUID(), "index": 0, "offset": 0, "sha256": strings.Repeat("a", 64), "data_base64": base64.StdEncoding.EncodeToString(raw)})
+	r, err := i.Call(context.Background(), Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: OperationTransferChunk, Body: body})
+	if err != nil || r.Status != 200 {
+		t.Fatalf("chunk carriage %+v %v", r, err)
+	}
+	bus.mu.Lock()
+	defer bus.mu.Unlock()
+	found := false
+	for _, env := range bus.envelopes {
+		if env.Route.Priority == 1 {
+			encoded, _ := json.Marshal(env)
+			if len(encoded) > 32<<10 {
+				t.Fatalf("8KiB chunk envelope exceeds 32KiB: %d", len(encoded))
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("bulk class did not use standard low-priority route")
 	}
 }

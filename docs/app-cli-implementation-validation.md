@@ -418,3 +418,25 @@ archives the diagnostic and removes this **Host cleanup fence only**. Then rerun
 setup/check. Never remove `authority.json`, ledger, grant index or send journal.
 
 The initial Windows CI run exposed locale-dependent Unicode fixture reads; explicit UTF-8 fixed both failures. The final matrix is green.
+
+## 2026-10-09 native attachment and send recovery candidate
+
+The matched `.16` runtime associates Outlook's shared Ribbon file action with the
+single owned composer and the exact input activated by its native file chooser.
+It rejects ambiguous composers/actions, image-only inputs, foreign chooser events
+and replaced inputs before uploading verified desktop-origin bytes. QQ's ready-row
+contract remains subject to actual provider qualification.
+
+Receipt reconciliation compares immutable reviewed attachment metadata without
+reopening an expired staging path. An authenticated inactive original task may
+return a durable `not_sent` proof bound to invocation, task, intent, resource,
+release binding and ledger epoch. The `.15` QQ migration is limited to the exact
+pinned binding and recorded pre-dispatch failure; missing journals alone never
+prove non-delivery. Gateway resolves only the same draft version and send attempt,
+retains the original evidence, then allows a new review. Unknown or dispatching
+attempts remain fenced and are never resent automatically.
+
+[Candidate evidence](evidence/mail-native-attachments-candidate-2026-10-09.json)
+records 59 combination tests, 12 real Chromium fixtures, paired artifact
+reproduction and install/rollback checks. These checks do not establish actual
+provider dispatch, delivery or incoming attachment acceptance.

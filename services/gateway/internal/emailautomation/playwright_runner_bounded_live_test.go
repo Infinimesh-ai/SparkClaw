@@ -56,9 +56,12 @@ func TestPlaywrightExtensionBoundedOriginal(t *testing.T) {
 	controller := browsercontrol.New(vault, client, ext.ProfileID)
 	controller.Initialize(ctx)
 	defer controller.Close()
-	status, err := controller.Check(ctx)
-	if err != nil {
-		t.Fatalf("controller check: %s", browsercontrol.ErrorCode(err))
+	// Initialize reads the saved credential generation; each runner operation
+	// authenticates it normally. An exclusive credential revalidation would
+	// conflict with the production resident observers during this live check.
+	status := controller.Status(ctx)
+	if !status.Configured || status.CredentialGeneration <= 0 {
+		t.Fatal("configured credential generation required")
 	}
 	runner := NewPlaywrightRunner(&liveEmailController{Service: controller, t: t})
 	probe, err := runner.Probe(ctx, provider, app.NewID("bounded_probe"), uint64(status.CredentialGeneration))

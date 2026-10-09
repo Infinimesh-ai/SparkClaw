@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { ControllerError, invalidRequest } from "./errors.mjs";
 import { collectSnapshotRefs, comparePlaywrightRefs } from "./playwright-output.mjs";
-import { BACKGROUND_CLICK_FUNCTION } from "./dom-actions.mjs";
+import { BACKGROUND_CLICK_FUNCTION, PAGE_READ_FUNCTION } from "./dom-actions.mjs";
 import { clientError, pageStale, clientContractError } from "./mcp-errors.mjs";
 import { electronConnectionEnvironment, registerElectronConnection } from "./electron-adapter-client.mjs";
 import { MAX_MCP_RESPONSE_BYTES, StdioJSONRPC, waitForExit } from "./mcp-stdio-rpc.mjs";
@@ -68,7 +68,6 @@ const REQUIRED_TOOLS = new Set([
 ]);
 
 const PAGE_INFO_FUNCTION = "() => ({ url: location.href, title: document.title, ready_state: document.readyState })";
-const PAGE_READ_FUNCTION = "() => ({ url: location.href, title: document.title, ready_state: document.readyState, lang: document.documentElement?.lang || '', text: (document.body?.innerText || document.documentElement?.innerText || '').slice(0, 120000), html: (document.documentElement?.outerHTML || '').slice(0, 120000), scroll_height: document.documentElement?.scrollHeight || 0 })";
 const BRIDGE_HANDOFF_FUNCTION = "() => \"sparkclaw-browser-bridge-handoff-v1\"";
 
 export class PlaywrightMCPClientFactory {

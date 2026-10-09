@@ -1,3 +1,21 @@
+export const PAGE_READ_FUNCTION = `() => {
+  // Keep non-interface markup from consuming the existing bounded HTML budget.
+  // Import into a document without a browsing context: neither custom-element
+  // constructors nor scripts run, and the live page and its listeners stay intact.
+  const inert = document.implementation.createHTMLDocument('');
+  const projection = document.documentElement ? inert.importNode(document.documentElement, true) : null;
+  for (const node of projection?.querySelectorAll('head,script,style,noscript,template,link,meta') || []) node.remove();
+  return {
+    url: location.href,
+    title: document.title,
+    ready_state: document.readyState,
+    lang: document.documentElement?.lang || '',
+    text: (document.body?.innerText || document.documentElement?.innerText || '').slice(0, 120000),
+    html: (projection?.outerHTML || '').slice(0, 120000),
+    scroll_height: document.documentElement?.scrollHeight || 0,
+  };
+}`;
+
 export const BACKGROUND_CLICK_FUNCTION = `(element) => {
   if (!(element instanceof Element) || !element.isConnected || typeof element.click !== "function") return false;
   const style = getComputedStyle(element);

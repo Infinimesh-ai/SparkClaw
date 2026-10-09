@@ -1,0 +1,263 @@
+--- a/applications/mail/client.mjs
++++ b/applications/mail/client.mjs
+@@ -5,0 +6,8 @@
++import {attachmentMessageFingerprint, validateAttachments} from './lib/workspace-attachments.mjs';
++
++function reconciliationIntent(input) {
++  // Receipt lookup compares approved bytes, not the expired upload location.
++  // Validate first so projecting metadata cannot hide extra attachment fields.
++  validateAttachments(input.message.attachments, 'reconcile');
++  return {...input, message: attachmentMessageFingerprint(input.message)};
++}
+@@ -58 +66 @@
+-      requireCondition(digest(args) === digest(original.arguments), 'REQUEST_KEY_CONFLICT');
++      requireCondition(digest(reconciliationIntent(args)) === digest(reconciliationIntent(original.arguments)), 'REQUEST_KEY_CONFLICT');
+--- a/applications/mail/handlers.mjs
++++ b/applications/mail/handlers.mjs
+@@ -4,0 +5 @@
++import {createNotSentReceipt, legacyNotSentReceipt, validateNotSentBinding} from './lib/send-recovery.mjs';
+@@ -46 +47,3 @@
+-    const result = await entry.handler(input, {emailWorkspaceRoot: context.resource.workspace_root});
++    const result = await entry.handler(input, {emailWorkspaceRoot: context.resource.workspace_root, originalMode: original.mode,
++      reconcileNotSentReceipt: request => legacyNotSentReceipt(request, context)});
++    validateNotSentBinding(result, input, context);
+@@ -57 +60,3 @@
+-    const result = await entry.handler(input, createProviderRuntime(page, entry));
++    const runtime = createProviderRuntime(page, entry);
++    if (entry.operation === 'send') runtime.notSentReceipt = (request, reason) => createNotSentReceipt(request, context, reason, 'pre_dispatch_failure');
++    const result = await entry.handler(input, runtime);
+--- a/applications/mail/lib/managed-send.mjs
++++ b/applications/mail/lib/managed-send.mjs
+@@ -146 +146 @@
+- const journal=await openSendJournal(runtime.emailWorkspaceRoot,request);
++ const journal=await openSendJournal(runtime.emailWorkspaceRoot,request,runtime.originalMode);
+@@ -149 +149,6 @@
+- if(request.mode==='reconcile'||journal.saved?.stage==='dispatching')return unknown;
++ if(request.mode==='reconcile'&&journal.saved?.stage==='not_sent')return journal.saved.receipt;
++ if(request.mode==='reconcile'&&!journal.saved&&runtime.reconcileNotSentReceipt){
++  const receipt=runtime.reconcileNotSentReceipt(request);
++  if(receipt&&await journal.write('not_sent',receipt))return receipt;
++ }
++ if(request.mode==='reconcile'||journal.saved)return unknown;
+@@ -191,3 +196,10 @@
+-  if(attempted)throw fail('send_outcome_unknown');throw error
+- }
+-}
++  if(attempted)throw fail('send_outcome_unknown');
++  // A positive, create-only failure receipt races the same dispatch claim.
++  // Retain the original failure/effect; recovery remains an explicit lookup.
++  if(!journal.saved&&runtime.notSentReceipt){
++   const receipt=runtime.notSentReceipt(request,error.code);
++   if(receipt)try{await journal.write('not_sent',receipt)}catch{}
++  }
++  throw error
++ }
++}
+--- a/applications/mail/lib/send-journal.mjs
++++ b/applications/mail/lib/send-journal.mjs
+@@ -8 +8 @@
+-export async function openSendJournal(workspace,request){
++export async function openSendJournal(workspace,request,originalMode){
+@@ -18 +18 @@
+- return {saved,async write(stage,receipt){const next={schema_version:1,fingerprint,mode:request.mode==='reconcile'?saved?.mode:request.mode,stage,receipt:receipt??null,updated_at:new Date().toISOString()};const temp=file+'.'+crypto.randomUUID()+'.tmp';const f=await fs.open(temp,'wx',0o600);try{await f.writeFile(JSON.stringify(next));await f.sync();}finally{await f.close()}if(stage==='dispatching'){try{await fs.link(temp,file)}catch(e){if(e.code!=='EEXIST')throw e;return false}finally{await fs.unlink(temp)}}else{await fs.rename(temp,file)}const d=await fs.open(directory,'r');try{await d.sync()}finally{await d.close()}saved=next;this.saved=next;return true;}};
++ return {saved,async write(stage,receipt){if(stage==='sent'&&saved?.stage!=='dispatching')return false;const next={schema_version:1,fingerprint,mode:request.mode==='reconcile'?(saved?.mode??originalMode):request.mode,stage,receipt:receipt??null,updated_at:new Date().toISOString()};const temp=file+'.'+crypto.randomUUID()+'.tmp';const f=await fs.open(temp,'wx',0o600);try{await f.writeFile(JSON.stringify(next));await f.sync();}finally{await f.close()}if(stage==='dispatching'||stage==='not_sent'){try{await fs.link(temp,file)}catch(e){if(e.code!=='EEXIST')throw e;return false}finally{await fs.unlink(temp)}}else{await fs.rename(temp,file)}const d=await fs.open(directory,'r');try{await d.sync()}finally{await d.close()}saved=next;this.saved=next;return true;}};
+--- a/applications/mail/lib/send-recovery.mjs
++++ b/applications/mail/lib/send-recovery.mjs
+@@ -0,0 +1,34 @@
++import {requireCondition} from '../../../src/protocol.mjs';
++
++// Release .15 QQ binding: this exact script wraps every error after dispatch as
++// SEND_OUTCOME_UNKNOWN. This compatibility rule is not a generic error mapping.
++export const QQ15 = 'e4375abe5b06a033a818ed6a3659d88067c26c7727bbf45848f231274ab5ae97';
++const digest = /^[a-f0-9]{64}$/u;
++const id = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
++const failures = new Set(['EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED','EMAIL_ATTACHMENT_UPLOAD_FAILED','EMAIL_ATTACHMENT_UNVERIFIED']);
++
++export function createNotSentReceipt(request, context, error, kind) {
++  const reason = typeof error === 'string' ? error.toUpperCase() : '';
++  const evidence = context.executionEvidence;
++  if (!failures.has(reason) || !evidence || !id.test(evidence.task_id) ||
++      !['intent_digest','resource_digest','binding_digest'].every(key => digest.test(evidence[key])) ||
++      !Number.isSafeInteger(evidence.ledger_epoch) || evidence.ledger_epoch < 1) return null;
++  return {schema_version:1,provider:request.provider,status:'not_sent',recipient_digest:request.recipientDigest,
++    not_sent:{schema_version:1,kind,invocation_id:request.invocation_id,...evidence,reason}};
++}
++
++export function legacyNotSentReceipt(request, context) {
++  const previous = context.reconciliation;
++  if (request.provider !== 'qq_mail' || context.executionEvidence?.binding_digest !== QQ15 ||
++      previous?.status !== 'uncertain' || previous.effect !== 1 || previous.reason !== 'EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED') return null;
++  return createNotSentReceipt(request,context,previous.reason,'legacy_15_pre_dispatch_failure');
++}
++
++export function validateNotSentBinding(result, input, context) {
++  if (result?.status !== 'not_sent') return;
++  const proof = result.not_sent, expected = context.executionEvidence;
++  requireCondition(proof && expected && proof.invocation_id === input.invocation_id &&
++    ['task_id','intent_digest','resource_digest','binding_digest'].every(key => proof[key] === expected[key]) &&
++    Number.isSafeInteger(proof.ledger_epoch) && proof.ledger_epoch > 0 && proof.ledger_epoch <= expected.ledger_epoch,
++    'SEND_OUTCOME_UNKNOWN');
++}
+--- a/applications/mail/lib/workspace-attachments.mjs
++++ b/applications/mail/lib/workspace-attachments.mjs
+@@ -95,0 +96,52 @@
++  const label = node => node.getAttribute('aria-label') || node.getAttribute('data-tooltip') || node.textContent.trim();
++  const enabled = node => visible(node) && !node.disabled && node.getAttribute('aria-disabled') !== 'true';
++  const sameOutlookComposer = () => {
++    const bodies = [...document.querySelectorAll('[contenteditable="true"][aria-label="Message body"],[contenteditable="true"][aria-label="Email body"],[contenteditable="true"][aria-label="邮件正文"],[contenteditable="true"][aria-label="消息正文"]')].filter(visible);
++    return globalThis.__sparkclawManagedMail === state && state.ownershipChecked && !state.sendAttempted &&
++      state.root.isConnected && state.body.isConnected && state.send?.isConnected &&
++      state.root.contains(state.body) && state.root.contains(state.send) && bodies.length === 1 && bodies[0] === state.body;
++  };
++  if (phase === 'diagnostic') {
++    const attrs = node => ({tag:node.tagName.toLowerCase(),classes:[...node.classList].filter(v=>/^[a-zA-Z0-9_-]{1,64}$/u.test(v)).slice(0,8),
++      role:['button','menuitem','progressbar','alert'].includes(node.getAttribute('role'))?node.getAttribute('role'):null,
++      visible:!!visible(node),disabled:node.disabled===true||node.getAttribute('aria-disabled')==='true',
++      attachment_id:node.hasAttribute('data-attachment-id'),expected_name:expected.some(item=>[node.getAttribute('title'),node.getAttribute('aria-label'),node.textContent?.trim()].includes(item.name)),
++      remove:/^(Remove attachment|Remove|Delete attachment|Delete|移除附件|删除附件|移除|删除)(?:$|[ :：])/u.test(label(node))});
++    const named = [...state.root.querySelectorAll('[title],[aria-label],span,div')].slice(0,4096)
++      .filter(n=>n.children.length<3&&expected.some(item=>[n.getAttribute('title'),n.getAttribute('aria-label'),n.textContent?.trim()].includes(item.name))).slice(0,5);
++    const name_contexts = named.map(n=>{const ancestors=[];for(let p=n,i=0;p&&p!==state.root&&i<4;p=p.parentElement,i++)ancestors.push({node:attrs(p),children:[...p.children].slice(0,8).map(attrs)});return ancestors;});
++    const shared_context=state.attachmentShared?{valid:state.attachmentContextValid?.()===true,
++      expanded:state.attachmentButton?.getAttribute('aria-expanded')==='true',input_activated:!!state.attachmentActivatedInput,
++      menus:[...document.querySelectorAll('[role="menu"]')].filter(n=>visible(n)&&!state.attachmentPriorMenus.has(n)).slice(0,3)
++        .map(n=>({node:attrs(n),actions:[...n.querySelectorAll('[role="menuitem"],button')].slice(0,12).map(a=>({...attrs(a),
++          local_file:/^(Browse this computer|Browse computer|浏览此计算机|浏览这台计算机|Upload from this device|从此设备上传)$/u.test(label(a))}))}))}:null;
++    return {owned:true,provider,name_contexts,shared_context,body_count:provider==='outlook'?(sameOutlookComposer()?1:0):state.root.querySelectorAll('[contenteditable="true"]').length,
++      known_rows:rows.length,inputs:[...state.root.querySelectorAll('input[type="file"]')].slice(0,8).map(n=>({disabled:n.disabled,directory:n.webkitdirectory,multiple:n.multiple,accept:n.accept===''?'any':n.accept==='image/*'?'image':'restricted'})),
++      attachment_nodes:[...state.root.querySelectorAll('[class*="attach"],[class*="Attach"],[data-attachment-id]')].slice(0,24).map(attrs),
++      controls:[...state.root.querySelectorAll('button,[role="button"],[data-a11y="button"],a')].slice(0,32).map(attrs)};
++  }
++  if (state.attachmentShared && phase !== 'prepare' && !state.attachmentContextValid?.()) return {error:'email_attachment_control_unavailable'};
++  if (phase === 'chooser_menu') {
++    if (!state.attachmentShared || !state.attachmentContextValid() || state.attachmentButton.getAttribute('aria-expanded') !== 'true') return {error:'email_attachment_control_unavailable'};
++    const menus = [...document.querySelectorAll('[role="menu"]')].filter(n=>visible(n)&&!state.attachmentPriorMenus.has(n));
++    if (menus.length !== 1) return {error:'email_attachment_control_unavailable'};
++    const actions = [...menus[0].querySelectorAll('[role="menuitem"],button')].filter(n=>enabled(n)&&/^(Browse this computer|Browse computer|浏览此计算机|浏览这台计算机|Upload from this device|从此设备上传)$/u.test(label(n)));
++    if (actions.length !== 1) return {error:'email_attachment_control_unavailable'};
++    state.attachmentMenu = menus[0]; state.attachmentMenuAction = actions[0];
++    actions[0].setAttribute('data-sc-mail-local-file-action','true');
++    // Bind only the file-input activation nested in this exact native menu click.
++    // A different chooser event, including one from a global decoy, is insufficient.
++    const activated = event => {
++      if (event.target === actions[0] || actions[0].contains(event.target)) {
++        if (!state.attachmentContextValid() || !event.isTrusted) return;
++        state.attachmentNativeActivation = true;
++        setTimeout(()=>{state.attachmentNativeActivation=false;},0);
++      } else if (state.attachmentNativeActivation && event.target instanceof HTMLInputElement && event.target.type === 'file') {
++        if (state.attachmentActivatedInput) state.attachmentActivationAmbiguous = true;
++        else state.attachmentActivatedInput = event.target;
++      }
++    };
++    document.addEventListener('click',activated,true);
++    state.attachmentActivationCleanup = () => document.removeEventListener('click',activated,true);
++    return {selector:'[data-sc-mail-local-file-action="true"]'};
++  }
+@@ -108,0 +161,15 @@
++      if (attach.length === 0 && provider === 'outlook' && sameOutlookComposer()) {
++        // Current Outlook uses a shared Ribbon instead of nesting its chooser
++        // in MailCompose. Prove its active composer and native event association.
++        state.body.focus();
++        if (document.activeElement !== state.body) return {error:'email_attachment_control_unavailable'};
++        const ribbon = [...document.querySelectorAll('button[data-automation-type="RibbonFlyoutAnchor"][aria-haspopup="true"]')]
++          .filter(n=>enabled(n)&&n.closest('[data-automation-type="RibbonBottomBarContainer"]')&&/^(Attach files|Attach file|附加文件)$/u.test(label(n)));
++        if (ribbon.length !== 1) return {error:'email_attachment_control_unavailable'};
++        attach.push(ribbon[0]); state.attachmentShared = true;
++        const root=state.root,body=state.body,send=state.send,button=ribbon[0],ribbonRoot=button.closest('[data-automation-type="RibbonBottomBarContainer"]');
++        state.attachmentContextValid=()=>sameOutlookComposer()&&state.root===root&&state.body===body&&state.send===send&&
++          button.isConnected&&button.closest('[data-automation-type="RibbonBottomBarContainer"]')===ribbonRoot&&enabled(button);
++        state.attachmentPriorMenus=new Set([...document.querySelectorAll('[role="menu"]')].filter(visible));
++        state.attachmentPriorInputs=new Map([...document.querySelectorAll('input[type="file"][data-testid="local-computer-filein"]')].map(n=>[n,n.parentElement]));
++      }
+@@ -124,2 +191,9 @@
+-    state.attachmentCleanup = () => document.removeEventListener('change', changed, true);
+-    return {selector, chooser};
++    state.attachmentInputValid = () => {
++      const input=state.attachmentInput;
++      if(!input?.isConnected||input.ownerDocument!==document||input.type!=='file'||input.disabled||input.webkitdirectory)return false;
++      if(!state.attachmentShared)return state.root.contains(input);
++      return state.attachmentContextValid()&&state.attachmentActivatedInput===input&&!state.attachmentActivationAmbiguous&&
++        state.attachmentPriorInputs.has(input)&&state.attachmentPriorInputs.get(input)===input.parentElement&&input.accept==='';
++    };
++    state.attachmentCleanup = () => {document.removeEventListener('change', changed, true);state.attachmentActivationCleanup?.();};
++    return {selector, chooser, shared:state.attachmentShared===true};
+@@ -127,0 +202 @@
++    if(state.attachmentShared&&!state.attachmentInputValid?.())return {error:'email_attachment_control_unavailable'};
+@@ -161 +236 @@
+-      if(!state.root.contains(input))return {error:'email_attachment_control_unavailable'};
++      if(!state.attachmentInputValid?.())return {error:'email_attachment_control_unavailable'};
+@@ -183,0 +259,11 @@
++  const diagnostic = async phase => {
++    if(process.env.APP_CLI_MAIL_SEND_EVIDENCE!=='1')return;
++    try {
++      const result=(await tab.inspect(`()=>(${attachmentDOM.toString()})(${JSON.stringify(provider)},'diagnostic',${JSON.stringify(expected)})`))?.result;
++      if(result?.owned===true){
++        let record={event:'mail_attachment_pre_dispatch',provider,phase,structure:result};
++        if(Buffer.byteLength(JSON.stringify(record))>16000)record={...record,structure:{...result,attachment_nodes:[],controls:[],truncated:true}};
++        if(Buffer.byteLength(JSON.stringify(record))<=16000)process.stderr.write(JSON.stringify(record)+'\n');
++      }
++    } catch {}
++  };
+@@ -185 +271 @@
+-  if (!target?.selector || target.error) throw fail(target?.error || 'email_attachment_control_unavailable');
++  if (!target?.selector || target.error) {await diagnostic('prepare');throw fail(target?.error || 'email_attachment_control_unavailable');}
+@@ -218,0 +305,7 @@
++        let selector=${JSON.stringify(target.selector)};
++        if(${JSON.stringify(target.shared)}){
++          await page.locator(selector).click({timeout:5000});
++          const menu=await page.evaluate(()=>(${attachmentDOM.toString()})(${JSON.stringify(provider)},'chooser_menu',[]));
++          if(!menu?.selector||menu.error)throw new Error(menu?.error||'email_attachment_control_unavailable');
++          selector=menu.selector;
++        }
+@@ -220 +313 @@
+-        await page.locator(${JSON.stringify(target.selector)}).click({timeout:5000});
++        await page.locator(selector).click({timeout:5000});
+@@ -222 +315,7 @@
+-        await chooser.element().evaluate(node=>{const state=globalThis.__sparkclawManagedMail;if(!state?.root?.isConnected||!state.root.contains(state.body)||!state.root.contains(state.attachmentButton)||!state.root.contains(node))throw new Error('email_draft_fields_unverified');state.attachmentInput=node;});
++        await page.evaluate(node=>{
++          const state=globalThis.__sparkclawManagedMail;
++          if(!state?.root?.isConnected||!state.root.contains(state.body)||
++            (state.attachmentShared?(!state.attachmentContextValid?.()||state.attachmentActivatedInput!==node||state.attachmentActivationAmbiguous):(!state.root.contains(state.attachmentButton)||!state.root.contains(node))))throw new Error('email_draft_fields_unverified');
++          state.attachmentInput=node;
++          if(!state.attachmentInputValid?.())throw new Error('email_attachment_control_unavailable');
++        },chooser.element());
+@@ -226 +325 @@
+-        const valid=()=>globalThis.__sparkclawManagedMail===state&&state?.ownershipChecked&&state.root?.isConnected&&!state.sendAttempted&&t?.token===token&&t.root===state.root&&t.body===state.body&&t.send===state.send&&state.root.contains(state.body)&&state.root.contains(state.send)&&state.root.contains(input)&&input.type==='file'&&!input.disabled&&!input.webkitdirectory&&(t.bytes.length<2||input.multiple);
++        const valid=()=>globalThis.__sparkclawManagedMail===state&&state?.ownershipChecked&&state.root?.isConnected&&!state.sendAttempted&&t?.token===token&&t.root===state.root&&t.body===state.body&&t.send===state.send&&state.root.contains(state.body)&&state.root.contains(state.send)&&state.attachmentInputValid?.()&&(t.bytes.length<2||input.multiple);
+@@ -254,0 +354,3 @@
++  } catch(error) {
++    await diagnostic('upload');
++    throw error;
+--- a/applications/mail/output-schema.mjs
++++ b/applications/mail/output-schema.mjs
+@@ -0,0 +1 @@
++import {QQ15} from './lib/send-recovery.mjs';
+@@ -13,2 +14,9 @@
+-    Object.assign(properties, {status: {const: 'sent'}, recipient_digest: {type: 'string', pattern: '^sha256:[a-f0-9]{64}$'},
+-      provider_message_id: text, provider_thread_id: text}); required.push('status', 'recipient_digest');
++    const hash = {type:'string',pattern:'^[a-f0-9]{64}$'}, id = {type:'string',pattern:'^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'};
++    Object.assign(properties, {status: {enum: ['sent','not_sent']}, recipient_digest: {type: 'string', pattern: '^sha256:[a-f0-9]{64}$'},
++      provider_message_id: text, provider_thread_id: text, not_sent:{type:'object',additionalProperties:false,
++        properties:{schema_version:{const:1},kind:{enum:provider==='qq_mail'?['pre_dispatch_failure','legacy_15_pre_dispatch_failure']:['pre_dispatch_failure']},
++          invocation_id:id,task_id:id,intent_digest:hash,resource_digest:hash,binding_digest:hash,
++          ledger_epoch:{type:'integer',minimum:1},reason:{enum:['EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED','EMAIL_ATTACHMENT_UPLOAD_FAILED','EMAIL_ATTACHMENT_UNVERIFIED']}},
++        required:['schema_version','kind','invocation_id','task_id','intent_digest','resource_digest','binding_digest','ledger_epoch','reason'],
++        allOf:[{if:{properties:{kind:{const:'legacy_15_pre_dispatch_failure'}}},then:{properties:{binding_digest:{const:QQ15},reason:{const:'EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED'}}}}]}});
++    required.push('status', 'recipient_digest');
+@@ -35 +43,5 @@
+-  return {type: 'object', properties, required, additionalProperties: false};
++  const schema = {type: 'object', properties, required, additionalProperties: false};
++  if (command === 'send') schema.allOf = [{if:{properties:{status:{const:'not_sent'}}},
++    then:{required:['not_sent'],not:{anyOf:[{required:['provider_message_id']},{required:['provider_thread_id']}]}},
++    else:{not:{required:['not_sent']}}}];
++  return schema;
+--- a/src/executor.mjs
++++ b/src/executor.mjs
+@@ -141,0 +142 @@
++      requireCondition(intentDigest(original) === row.intent && digest(resource) === row.resource_digest, 'TASK_ACCESS_DENIED');
+@@ -152,0 +154,5 @@
++        executionEvidence: Object.freeze({task_id: row.id, intent_digest: row.intent,
++          resource_digest: row.resource_digest, binding_digest: resource.binding_digest, ledger_epoch: this.ledger.epoch}),
++        // Captured before the running transition, after authenticated lookup and
++        // the !active admission check. Applications cannot supply these facts.
++        reconciliation: reconcile ? Object.freeze({status: row.status, reason: row.reason, effect: row.effect}) : null,

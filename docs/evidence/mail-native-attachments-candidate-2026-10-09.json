@@ -1,0 +1,119 @@
+{
+  "date": "2026-10-09",
+  "status": "candidate_only_real_delivery_not_qualified",
+  "runtime_release": "0.3.0-sparkclaw.16",
+  "runtime_digest": "203b86cadf22414dd331a24042110e00f19976204180b79fae56311674ae794e",
+  "artifacts": {
+    "python_dependencies": {
+      "file": "python-requirements.txt",
+      "sha256": "e99394c278eed0e2ee36f7a1289c0327af0a355b1726472a8296563d5fb0fde6"
+    },
+    "runtime": {
+      "file": "infinimesh-app-cli-runtime-0.3.0-sparkclaw.16.tgz",
+      "sha256": "f0810215a16173d6a5491cf859430cc9ea921a73521ce5086bfbe01008ca92e9"
+    },
+    "wheel": {
+      "file": "infinimesh_app_cli-0.3.0+sparkclaw.16-py3-none-any.whl",
+      "sha256": "8f69655ce8098e133b0e07ff2f10276d84ed51f2ad966d59528a85868eaddb16"
+    }
+  },
+  "live_diagnostic": {
+    "backend_source": "67739e9d",
+    "active_runtime": "0.3.0-sparkclaw.15",
+    "transport": "existing authenticated Controller owned session snapshot and bounded observed-ref page.read",
+    "outlook": {
+      "full_page_truncated_at_chars": 120000,
+      "observed_composer_ref": "e33",
+      "composer_subtree_chars": 8392,
+      "composer_body_count": 1,
+      "composer_file_inputs": 0,
+      "composer_attach_controls": 0,
+      "composer_tag": "div",
+      "composer_classes": [
+        "cBeRi",
+        "dMm6A",
+        "AiSsJ"
+      ],
+      "ribbon_button": {
+        "aria_label": "附加文件",
+        "aria_haspopup": "true",
+        "automation_type": "RibbonFlyoutAnchor",
+        "ancestor_automation_type": "RibbonBottomBarContainer",
+        "ancestor_id": "innerRibbonContainer"
+      },
+      "global_file_inputs": 4,
+      "image_only_inputs": 1,
+      "unrestricted_inputs": 3,
+      "global_input_test_id": "local-computer-filein",
+      "ribbon_snapshot_ref_available": false,
+      "normal_send_upload_not_executed": true
+    },
+    "qq_mail": {
+      "authenticated_home_loaded": true,
+      "snapshot_custom_controls": "generic data-a11y controls; no observed compose action selected",
+      "existing_unknown_draft_untouched": true,
+      "uploaded_row_contract_observed": false
+    },
+    "diagnostic_composers": "new empty Outlook composers only; owned task pages released; provider draft discard is not claimed",
+    "previous_cleanup_unknown_preserved": true,
+    "mail_send_called": false,
+    "attachment_upload_called": false,
+    "live_services_restarted": false
+  },
+  "original_attempts_preserved": [
+    {
+      "provider": "outlook",
+      "invocation": "email_send_4bd942e55c5b15cd",
+      "outcome": "failed",
+      "reason": "EMAIL_ATTACHMENT_CONTROL_UNAVAILABLE",
+      "effect": 0,
+      "dispatch_journal_observed": false
+    },
+    {
+      "provider": "qq_mail",
+      "invocation": "email_send_3a6e7e8d9873646f",
+      "task_id": "dc5e51be-cbb0-4e5c-85f9-65785270bca0",
+      "outcome": "uncertain",
+      "reason": "EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED",
+      "effect": 1,
+      "dispatch_journal_observed": false,
+      "absence_alone_is_not_negative_proof": true
+    }
+  ],
+  "candidate": {
+    "outlook_external_input_authority": "unique active owned composer; exact visible Ribbon action; new local-file menu; trusted native action with nested file-input activation; same native chooser element adopted into main document; immutable root/body/send/input/parent identity checked before upload and confirmation",
+    "arbitrary_global_input_selection": false,
+    "recovery_delta_commits": [
+      "54c95d51",
+      "6a2fd19c"
+    ],
+    "qq_ready_assertion_changed": false,
+    "reader_bytes_changed": false,
+    "browser_policy_changed": false,
+    "desktop_preload_changed": false,
+    "diagnostic": {
+      "gate": "APP_CLI_MAIL_SEND_EVIDENCE=1",
+      "event": "mail_attachment_pre_dispatch",
+      "sink": "Executor stderr / sparkclaw-app-cli-executor.service journal",
+      "max_record_bytes": 16000,
+      "only_pre_dispatch_failure": true,
+      "private_text_or_html": false
+    }
+  },
+  "verification": {
+    "focused_combination_pass": 59,
+    "focused_combination_skip": 0,
+    "native_chromium_fixture_pass": 12,
+    "native_chromium_fixture_skip": 0,
+    "linux_controller_pass": 195,
+    "linux_controller_browser_gated_skip": 23,
+    "paired_reproduction": true,
+    "isolated_paired_install_tamper_drift_mixed_release_rollback": true,
+    "durable_state_and_epoch_preserved": true,
+    "app_cli_consumer_projection_check": true,
+    "desktop_managed_preload_check": true,
+    "fixture_is_not_provider_delivery_qualification": true,
+    "final_artifact_source_identical_to_browser_fixture_source": true
+  },
+  "next_gate": "Root reviewed paired Gateway/runtime upgrade, preserve Reader generation, explicit negative reconciliation of old QQ attempt, normal SparkX authorized send one at a time; validate actual native attachment rows and provider dispatch/delivery."
+}

@@ -74,3 +74,14 @@ func (r ObjectReference) Validate() error {
 	}
 	return nil
 }
+
+// TransportError distinguishes failures proven to precede Relay submission from
+// unknown outcomes. Message prose is diagnostic and never a retry contract.
+type TransportError struct {
+	Code               ErrorCode
+	Status             int
+	Retryable, NotSent bool
+	Message            string
+}
+
+func (e *TransportError) Error() string { return e.Message }

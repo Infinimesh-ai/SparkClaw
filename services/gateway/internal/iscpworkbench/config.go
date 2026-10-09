@@ -80,7 +80,12 @@ func (c Config) EffectiveRelayProfile() string {
 	return c.RelayProfile
 }
 
-func LoadConfig(path string) (Config, error) {
+func LoadConfig(path string) (Config, error) { return loadConfig(path, false) }
+
+// LoadControlConfig validates pinned identity and historical Grant continuity
+// without requiring live Relay credentials for deletion receipt recovery.
+func LoadControlConfig(path string) (Config, error) { return loadConfig(path, true) }
+func loadConfig(path string, controlOnly bool) (Config, error) {
 	var cfg Config
 	if err := readJSONFile(path, &cfg, true); err != nil {
 		return cfg, fmt.Errorf("load workbench configuration: %w", err)
@@ -101,7 +106,7 @@ func LoadConfig(path string) (Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return cfg, err
 	}
-	if _, err := loadMaterial(cfg); err != nil {
+	if _, err := loadMaterialMode(cfg, controlOnly); err != nil {
 		return cfg, err
 	}
 	return cfg, nil
@@ -179,7 +184,8 @@ type material struct {
 	grant      trust.Grant
 }
 
-func loadMaterial(cfg Config) (material, error) {
+func loadMaterial(cfg Config) (material, error) { return loadMaterialMode(cfg, false) }
+func loadMaterialMode(cfg Config, controlOnly bool) (material, error) {
 	var m material
 	if err := cfg.Validate(); err != nil {
 		return m, err
@@ -214,8 +220,12 @@ func loadMaterial(cfg Config) (material, error) {
 	if err := readJSONFile(cfg.GrantFile, &m.grant, true); err != nil {
 		return m, errors.New("load local workbench grant")
 	}
-	if err := validateEnrollment(m.enrollment, m.device.Identity, cfg.EffectiveRelayProfile(), time.Now().UTC()); err != nil {
-		return m, err
+	if !controlOnly {
+		if err := validateEnrollment(m.enrollment, m.device.Identity, cfg.EffectiveRelayProfile(), time.Now().UTC()); err != nil {
+			return m, err
+		}
+	} else if cfg.GrantRenewal == nil || m.enrollment.Type != iscpbridge.EnrollmentBundleType || m.enrollment.DomainID != m.device.Identity.DomainID || m.enrollment.DeviceID != m.device.Identity.DeviceID || m.enrollment.RelayID == "" {
+		return m, errors.New("invalid authorization control enrollment binding")
 	}
 	if m.peer.DomainID != m.device.Identity.DomainID || m.peer.DeviceID == m.device.Identity.DeviceID || m.peer.DeviceID == "" {
 		return m, errors.New("workbench peer identity binding is invalid")
@@ -233,6 +243,9 @@ func loadMaterial(cfg Config) (material, error) {
 	// unlike enrolled device IDs. Pin their exact KID and public bytes without
 	// substituting a device thumbprint convention for the cloud key namespace.
 	if cfg.EffectiveRelayProfile() == iscpbridge.ProfileLocalLab {
+		if m.enrollment.RelaySignerIdentity == nil {
+			return m, errors.New("missing pinned local Relay signer")
+		}
 		if err := iscpbridge.ValidateLocalRelaySigner(*m.enrollment.RelaySignerIdentity); err != nil {
 			return m, err
 		}

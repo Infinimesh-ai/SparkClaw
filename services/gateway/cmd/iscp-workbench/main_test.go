@@ -69,3 +69,21 @@ func (c *pipeCaller) DeleteAuthorization(context.Context, string, uint64) (iscpa
 func (c *pipeCaller) AuthorizationDeletionReceipt(context.Context, string, uint64) (iscpauth.DeletionReceipt, error) {
 	return iscpauth.DeletionReceipt{}, nil
 }
+
+func TestControlOnlyRejectsBusinessPipeFrames(t *testing.T) {
+	body := `{"ipc_version":1,"type":"call","id":"x","request":{"type":"task.invoke","profile":"sparkclaw.workbench.transport.v1","id":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","operation":"workbench.identity"}}` + "\n"
+	var output bytes.Buffer
+	err := serveFrames(context.Background(), strings.NewReader(body), &ipcWriter{writer: &output}, &pipeCaller{}, nil, true)
+	if err == nil {
+		t.Fatal("control-only pipe accepted a business call")
+	}
+}
+func TestDeletionControlSchema(t *testing.T) {
+	valid := `{"ipc_version":1,"type":"authorization_delete_receipt","id":"receipt","operation_id":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","expected_revision":1}`
+	if _, err := decodeCall([]byte(valid)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeCall([]byte(strings.Replace(valid, `"expected_revision":1`, `"expected_revision":0`, 1))); err == nil {
+		t.Fatal("zero deletion revision accepted")
+	}
+}

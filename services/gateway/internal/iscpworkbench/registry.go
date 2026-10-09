@@ -10,17 +10,18 @@ import (
 var registryFiles embed.FS
 
 type OperationSpec struct {
-	Name         string         `json:"name"`
-	Constant     string         `json:"constant"`
-	Version      int            `json:"version"`
-	Direction    string         `json:"direction"`
-	Scope        string         `json:"scope"`
-	Mutation     bool           `json:"mutation"`
-	Recovery     string         `json:"recovery"`
-	LimitBytes   int            `json:"limit_bytes"`
-	Dependencies []string       `json:"dependencies"`
-	Params       []string       `json:"params"`
-	HTTP         *OperationHTTP `json:"http,omitempty"`
+	CapacityClass string         `json:"capacity_class"`
+	Name          string         `json:"name"`
+	Constant      string         `json:"constant"`
+	Version       int            `json:"version"`
+	Direction     string         `json:"direction"`
+	Scope         string         `json:"scope"`
+	Mutation      bool           `json:"mutation"`
+	Recovery      string         `json:"recovery"`
+	LimitBytes    int            `json:"limit_bytes"`
+	Dependencies  []string       `json:"dependencies"`
+	Params        []string       `json:"params"`
+	HTTP          *OperationHTTP `json:"http,omitempty"`
 }
 type OperationHTTP struct {
 	Method string `json:"method"`
@@ -81,4 +82,24 @@ func OperationsV2() []string {
 		out = append(out, s.Name)
 	}
 	return out
+}
+
+// CapacityLimit reserves cancellation/control and event/audio capacity even while
+// bulk transfer workers are occupied. Every class remains independently bounded.
+func CapacityLimit(class string) int {
+	switch class {
+	case "control", "events":
+		return 1
+	case "bulk", "audio":
+		return 2
+	default:
+		return MaxConcurrent
+	}
+}
+func OperationCapacity(name string) (string, int) {
+	spec, ok := LookupOperation(name)
+	if !ok {
+		return "business", MaxConcurrent
+	}
+	return spec.CapacityClass, CapacityLimit(spec.CapacityClass)
 }

@@ -105,3 +105,24 @@ func TestV1RejectsV2FieldsAndV2RejectsUnregisteredParams(t *testing.T) {
 		t.Fatal("unregistered tunnel parameter accepted")
 	}
 }
+
+func TestV2ControlRemainsAvailableWithBulkCreditsExhausted(t *testing.T) {
+	i, _, _ := v2Endpoints(t, true)
+	bulk := i.classSlots["bulk"]
+	for j := 0; j < cap(bulk); j++ {
+		bulk <- struct{}{}
+	}
+	defer func() {
+		for len(bulk) > 0 {
+			<-bulk
+		}
+	}()
+	_, err := i.Call(context.Background(), Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: OperationObjectRead})
+	if err == nil {
+		t.Fatal("exhausted bulk window admitted a read")
+	}
+	resp, err := i.Call(context.Background(), Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: OperationTransferAbort, Body: json.RawMessage(`{"transfer_id":"x"}`)})
+	if err != nil || resp.Status != 200 {
+		t.Fatalf("bulk starvation blocked control: %+v %v", resp, err)
+	}
+}

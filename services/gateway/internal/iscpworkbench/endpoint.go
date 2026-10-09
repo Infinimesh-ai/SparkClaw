@@ -53,6 +53,7 @@ type activeSession struct {
 	manifest                        bool
 	capabilities                    *TransportCapabilities
 	negotiating                     bool
+	nextNegotiationAt               time.Time
 	started, timeReceived, timePing time.Time
 	messageCount                    int
 	cancel                          context.CancelFunc
@@ -87,6 +88,7 @@ type Endpoint struct {
 	running, closed      bool
 	authorizationRevoked bool
 	slots                chan struct{}
+	classSlots           map[string]chan struct{}
 	workers              sync.WaitGroup
 	verifyDiscovery      func(context.Context) error
 }
@@ -124,7 +126,7 @@ func newEndpoint(cfg Config, m material, relay RelayTransport, handler Handler, 
 	if cfg.Role == RoleResponder && handler == nil {
 		return nil, errors.New("workbench responder requires a handler")
 	}
-	e := &Endpoint{config: cfg, material: m, provider: iscpcrypto.NewProvider(), relay: relay, handler: handler, onState: onState, pending: map[string]chan callResult{}, slots: make(chan struct{}, MaxConcurrent)}
+	e := &Endpoint{config: cfg, material: m, provider: iscpcrypto.NewProvider(), relay: relay, handler: handler, onState: onState, pending: map[string]chan callResult{}, slots: make(chan struct{}, MaxConcurrent), classSlots: map[string]chan struct{}{"control": make(chan struct{}, CapacityLimit("control")), "bulk": make(chan struct{}, CapacityLimit("bulk")), "events": make(chan struct{}, CapacityLimit("events")), "audio": make(chan struct{}, CapacityLimit("audio"))}}
 	if cfg.GrantRenewal != nil {
 		client, err := iscpbridge.NewGrantLifecycleClient(cfg.GrantRenewal.URL, cfg.GrantRenewal.PendingFile, m.device, m.issuer, m.enrollment.RelayID, m.grant, 5*time.Second)
 		if err != nil {
@@ -262,7 +264,7 @@ func (e *Endpoint) sessionLoop(ctx context.Context, stopConnection context.Cance
 				s = nil
 				missing = true
 			}
-			refresh := s != nil && s.manifest && !s.negotiating && s.capabilities != nil && s.capabilities.Profile == ProfileV2 && time.Until(s.capabilities.ExpiresAt) < 3*time.Minute && e.config.Role == RoleInitiator
+			refresh := s != nil && s.manifest && !s.negotiating && e.config.supportsV2() && !now.Before(s.nextNegotiationAt) && (s.capabilities == nil || s.capabilities.Profile == ProfileV2 && time.Until(s.capabilities.ExpiresAt) < 3*time.Minute) && e.config.Role == RoleInitiator
 			if refresh {
 				s.negotiating = true
 			}
@@ -571,7 +573,11 @@ func (e *Endpoint) acceptEncrypted(ctx context.Context, env envelope.SecureEnvel
 		return errors.New("workbench business payload received before verified manifest")
 	}
 	s.messageCount++
-	if s.messageCount > maxSessionMessages {
+	limit := maxSessionMessages
+	if s.capabilities != nil && s.capabilities.Profile == ProfileV2 {
+		limit = 65536
+	}
+	if s.messageCount > limit {
 		e.mu.Unlock()
 		return errors.New("workbench session message limit exceeded")
 	}
@@ -694,15 +700,16 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 	}
 	e.session.seenRequests[request.ID] = struct{}{}
 	e.mu.Unlock()
+	slots := e.operationSlots(request)
 	select {
-	case e.slots <- struct{}{}:
+	case slots <- struct{}{}:
 	default:
-		return e.sendResponse(ctx, id, Response{ID: request.ID, Status: 429, Error: "workbench concurrency limit exceeded"})
+		return e.sendResponse(ctx, id, Response{Profile: request.Profile, ID: request.ID, Status: 429, Code: ErrorThrottled, Retryable: true, RetryAfterMS: 250, Error: "workbench concurrency limit exceeded"})
 	}
 	e.workers.Add(1)
 	go func() {
 		defer e.workers.Done()
-		defer func() { <-e.slots }()
+		defer func() { <-slots }()
 		callCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 		defer cancel()
 		policy, policyErr := e.AuthorizationPolicy(callCtx)
@@ -778,12 +785,13 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (Response, error) 
 	}
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
+	slots := e.operationSlots(request)
 	select {
-	case e.slots <- struct{}{}:
+	case slots <- struct{}{}:
 	default:
-		return Response{}, errors.New("workbench concurrency limit exceeded")
+		return Response{}, &TransportError{Code: ErrorThrottled, Status: 429, Retryable: true, NotSent: true, Message: "workbench concurrency limit exceeded"}
 	}
-	defer func() { <-e.slots }()
+	defer func() { <-slots }()
 	e.mu.Lock()
 	if e.closed || e.session == nil || !e.session.manifest {
 		e.mu.Unlock()
@@ -856,4 +864,14 @@ func newUUID() string {
 	raw[6] = (raw[6] & 15) | 64
 	raw[8] = (raw[8] & 63) | 128
 	return fmt.Sprintf("%x-%x-%x-%x-%x", raw[:4], raw[4:6], raw[6:8], raw[8:10], raw[10:])
+}
+
+func (e *Endpoint) operationSlots(r Request) chan struct{} {
+	if r.Profile == ProfileV2 {
+		class, _ := OperationCapacity(r.Operation)
+		if slots := e.classSlots[class]; slots != nil {
+			return slots
+		}
+	}
+	return e.slots
 }

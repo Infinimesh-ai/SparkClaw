@@ -161,7 +161,7 @@ func (e *Endpoint) negotiate(ctx context.Context, id string) {
 		return
 	}
 	if r.Status != 200 {
-		e.setState("capability_negotiation_failed")
+		e.negotiationFailed(id)
 		return
 	}
 	var reply negotiationReply
@@ -171,7 +171,7 @@ func (e *Endpoint) negotiate(ctx context.Context, id string) {
 	}
 	c := *reply.Negotiation
 	if err := validateNegotiation(c, id); err != nil || c.AuthorizationRevision != e.grantMaterial().grant.RevocationEpoch || (e.config.Binding != nil && (c.Binding == nil || *c.Binding != *e.config.Binding)) {
-		e.setState("capability_negotiation_failed")
+		e.negotiationFailed(id)
 		return
 	}
 	e.installCapabilities(c)
@@ -195,4 +195,14 @@ func validateNegotiation(c TransportCapabilities, id string) error {
 		}
 	}
 	return nil
+}
+
+func (e *Endpoint) negotiationFailed(id string) {
+	e.mu.Lock()
+	if e.session != nil && e.session.id == id {
+		e.session.negotiating = false
+		e.session.nextNegotiationAt = time.Now().Add(5 * time.Second)
+	}
+	e.mu.Unlock()
+	e.setState("capability_negotiation_failed")
 }

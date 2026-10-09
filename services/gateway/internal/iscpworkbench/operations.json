@@ -9,7 +9,8 @@
     "recovery": "original_request",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "installation.bind",
@@ -21,7 +22,8 @@
     "recovery": "original_request",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "presentation.config",
@@ -33,7 +35,8 @@
     "recovery": "original_request",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "presentation.owner",
@@ -45,7 +48,8 @@
     "recovery": "original_request",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "presentation.ready",
@@ -57,7 +61,8 @@
     "recovery": "original_request",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "execution.submit",
@@ -69,7 +74,8 @@
     "recovery": "original_request",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "execution.lookup",
@@ -81,7 +87,8 @@
     "recovery": "original_request",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "execution.cancel",
@@ -93,7 +100,8 @@
     "recovery": "original_request",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "control"
   },
   {
     "name": "execution.ack",
@@ -105,7 +113,8 @@
     "recovery": "original_request",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "control"
   },
   {
     "name": "capabilities.get",
@@ -117,7 +126,8 @@
     "recovery": "read",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "control"
   },
   {
     "name": "settings.owner.get",
@@ -133,7 +143,8 @@
     "http": {
       "method": "GET",
       "path": "/api/owner"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "settings.owner.patch",
@@ -149,7 +160,8 @@
     "http": {
       "method": "POST",
       "path": "/api/owner"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "settings.connectors.list",
@@ -165,7 +177,8 @@
     "http": {
       "method": "GET",
       "path": "/api/connectors"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "settings.connectors.patch",
@@ -183,7 +196,8 @@
     "http": {
       "method": "PATCH",
       "path": "/api/connectors/{channel}"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "settings.integrations.list",
@@ -199,7 +213,8 @@
     "http": {
       "method": "GET",
       "path": "/api/integrations"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "settings.credentials.add",
@@ -217,7 +232,8 @@
     "http": {
       "method": "POST",
       "path": "/api/integrations/{integration_id}/credentials"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "settings.credentials.activate",
@@ -235,7 +251,8 @@
     "http": {
       "method": "PUT",
       "path": "/api/integrations/{integration_id}/active-credential"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "settings.credentials.check",
@@ -254,7 +271,8 @@
     "http": {
       "method": "POST",
       "path": "/api/integrations/{integration_id}/credentials/{credential_id}/check"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "settings.credentials.delete",
@@ -273,7 +291,8 @@
     "http": {
       "method": "DELETE",
       "path": "/api/integrations/{integration_id}/credentials/{credential_id}"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "authorizations.list",
@@ -285,7 +304,8 @@
     "recovery": "read",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "authorizations.delete",
@@ -297,7 +317,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "notifications.list",
@@ -316,7 +337,8 @@
     "http": {
       "method": "GET",
       "path": "/api/notifications"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "notifications.read",
@@ -334,7 +356,8 @@
     "http": {
       "method": "POST",
       "path": "/api/notifications/{id}/read"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "notifications.read_all",
@@ -350,7 +373,8 @@
     "http": {
       "method": "POST",
       "path": "/api/notifications/read-all"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "transfer.open",
@@ -362,7 +386,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "bulk"
   },
   {
     "name": "transfer.status",
@@ -374,7 +399,8 @@
     "recovery": "read",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "bulk"
   },
   {
     "name": "transfer.chunk",
@@ -386,7 +412,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "bulk"
   },
   {
     "name": "transfer.commit",
@@ -398,7 +425,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "bulk"
   },
   {
     "name": "transfer.abort",
@@ -410,7 +438,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "control"
   },
   {
     "name": "object.describe",
@@ -422,7 +451,8 @@
     "recovery": "read",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "bulk"
   },
   {
     "name": "object.read",
@@ -434,7 +464,8 @@
     "recovery": "read",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "bulk"
   },
   {
     "name": "object.release",
@@ -446,7 +477,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "control"
   },
   {
     "name": "approvals.list",
@@ -460,7 +492,8 @@
     "dependencies": [],
     "params": [
       "request_id"
-    ]
+    ],
+    "capacity_class": "business"
   },
   {
     "name": "approvals.get",
@@ -476,7 +509,8 @@
       "request_id",
       "approval_id",
       "id"
-    ]
+    ],
+    "capacity_class": "business"
   },
   {
     "name": "approvals.decide",
@@ -492,7 +526,8 @@
       "request_id",
       "approval_id",
       "id"
-    ]
+    ],
+    "capacity_class": "business"
   },
   {
     "name": "events.snapshot",
@@ -504,7 +539,8 @@
     "recovery": "read",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "events"
   },
   {
     "name": "events.pull",
@@ -516,7 +552,8 @@
     "recovery": "read",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "events"
   },
   {
     "name": "events.ack",
@@ -528,7 +565,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "control"
   },
   {
     "name": "events.subscribe",
@@ -540,7 +578,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "events"
   },
   {
     "name": "events.resume",
@@ -552,7 +591,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "events"
   },
   {
     "name": "events.unsubscribe",
@@ -564,7 +604,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "control"
   },
   {
     "name": "state.snapshot",
@@ -576,7 +617,8 @@
     "recovery": "read",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "events"
   },
   {
     "name": "mail.mailboxes",
@@ -592,7 +634,8 @@
     "http": {
       "method": "GET",
       "path": "/api/v1/mail/mailboxes"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "mail.sync",
@@ -610,7 +653,8 @@
     "http": {
       "method": "POST",
       "path": "/api/v1/mail/{mailbox}/sync"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "mail.message",
@@ -622,7 +666,8 @@
     "recovery": "read",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "mail.attachment",
@@ -642,7 +687,8 @@
     "http": {
       "method": "GET",
       "path": "/api/v1/mail/{mailbox}/messages/{mail}/attachments/{part}"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "mail.send",
@@ -654,7 +700,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "mail.drafts.list",
@@ -674,7 +721,8 @@
     "http": {
       "method": "GET",
       "path": "/api/email/drafts"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "mail.drafts.save",
@@ -692,7 +740,8 @@
     "http": {
       "method": "POST",
       "path": "/api/email/drafts"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "mail.drafts.send",
@@ -710,7 +759,8 @@
     "http": {
       "method": "POST",
       "path": "/api/email/drafts/{draft}/send"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "mail.drafts.reconcile",
@@ -728,7 +778,8 @@
     "http": {
       "method": "POST",
       "path": "/api/email/drafts/{draft}/reconcile"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "browser.host.register",
@@ -740,7 +791,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "browser.host.poll",
@@ -752,7 +804,8 @@
     "recovery": "read",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "browser.host.reply",
@@ -764,7 +817,8 @@
     "recovery": "command_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "browser.host.heartbeat",
@@ -776,7 +830,8 @@
     "recovery": "stream_sequence",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "browser.host.close",
@@ -788,7 +843,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "control"
   },
   {
     "name": "browser.host.grant",
@@ -800,7 +856,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "browser.host.revoke",
@@ -812,7 +869,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "control"
   },
   {
     "name": "browser.command",
@@ -824,7 +882,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "browser.receipt",
@@ -836,7 +895,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "browser.reconcile",
@@ -848,7 +908,8 @@
     "recovery": "read",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "tools.list",
@@ -860,7 +921,8 @@
     "recovery": "read",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "tools.invoke",
@@ -872,7 +934,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "speech.status",
@@ -884,7 +947,8 @@
     "recovery": "read",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "speech.transcribe",
@@ -896,7 +960,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "speech.cancel",
@@ -908,7 +973,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "control"
   },
   {
     "name": "speech.session.open",
@@ -920,7 +986,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "speech.session.frame",
@@ -932,7 +999,8 @@
     "recovery": "stream_sequence",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "audio"
   },
   {
     "name": "speech.session.finish",
@@ -944,7 +1012,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "control"
   },
   {
     "name": "speech.session.cancel",
@@ -956,7 +1025,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "control"
   },
   {
     "name": "audio.session.open",
@@ -968,7 +1038,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "business"
   },
   {
     "name": "audio.session.control",
@@ -980,7 +1051,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "control"
   },
   {
     "name": "audio.session.close",
@@ -992,7 +1064,8 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "control"
   },
   {
     "name": "audio.frame",
@@ -1004,7 +1077,8 @@
     "recovery": "stream_sequence",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": []
+    "params": [],
+    "capacity_class": "audio"
   },
   {
     "name": "operations.receipt",
@@ -1018,7 +1092,8 @@
     "dependencies": [],
     "params": [
       "operation_id"
-    ]
+    ],
+    "capacity_class": "control"
   },
   {
     "name": "execution.approval",
@@ -1037,7 +1112,8 @@
     "http": {
       "method": "POST",
       "path": "/api/v1/executions/{request_id}/approvals/{approval_id}"
-    }
+    },
+    "capacity_class": "business"
   },
   {
     "name": "execution.input.put",
@@ -1056,7 +1132,8 @@
     "http": {
       "method": "PUT",
       "path": "/api/v1/inputs/{request_id}/files/{file_id}"
-    }
+    },
+    "capacity_class": "bulk"
   },
   {
     "name": "execution.file.get",
@@ -1075,6 +1152,7 @@
     "http": {
       "method": "GET",
       "path": "/api/v1/executions/{request_id}/files/{file_id}"
-    }
+    },
+    "capacity_class": "bulk"
   }
 ]

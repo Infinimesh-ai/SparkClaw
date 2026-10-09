@@ -47,18 +47,45 @@ func (w *ipcWriter) send(value any) error {
 
 func main() {
 	configPath := flag.String("config", "", "private workbench configuration")
+	controlOnly := flag.Bool("control-only", false, "serve proof-bound authorization deletion and receipt control without Relay")
 	check := flag.Bool("check", false, "validate private profile without contacting Relay")
 	flag.Parse()
 	if *configPath == "" || flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "usage: iscp-workbench -config <path> [-check]")
 		os.Exit(2)
 	}
-	cfg, err := iscpworkbench.LoadConfig(*configPath)
+	var cfg iscpworkbench.Config
+	var err error
+	if *controlOnly {
+		cfg, err = iscpworkbench.LoadControlConfig(*configPath)
+	} else {
+		cfg, err = iscpworkbench.LoadConfig(*configPath)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ISCP workbench profile validation failed:", err)
 		os.Exit(1)
 	}
 	writer := &ipcWriter{writer: os.Stdout}
+	if *controlOnly {
+		control, err := iscpworkbench.NewAuthorizationControl(cfg)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "authorization control profile validation failed")
+			os.Exit(1)
+		}
+		defer control.Close()
+		if *check {
+			_ = writer.send(map[string]any{"valid": true, "control_only": true, "identity": control.PublicIdentity()})
+			return
+		}
+		_ = writer.send(map[string]any{"ipc_version": ipcVersion, "type": "hello", "control_only": true, "identity": control.PublicIdentity(), "operations": []string{}})
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		if err := serveFrames(ctx, os.Stdin, writer, control, nil, true); err != nil {
+			fmt.Fprintln(os.Stderr, "authorization control helper stopped:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	publicIdentity, err := cfg.PublicIdentity()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ISCP workbench identity validation failed")
@@ -109,6 +136,9 @@ func serve(ctx context.Context, input io.Reader, writer *ipcWriter, endpoint cal
 	return serveWithReverse(ctx, input, writer, endpoint, nil)
 }
 func serveWithReverse(ctx context.Context, input io.Reader, writer *ipcWriter, endpoint caller, bridge *reverseBridge) error {
+	return serveFrames(ctx, input, writer, endpoint, bridge, false)
+}
+func serveFrames(ctx context.Context, input io.Reader, writer *ipcWriter, endpoint caller, bridge *reverseBridge, controlOnly bool) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	runDone := make(chan struct{})
@@ -133,6 +163,10 @@ func serveWithReverse(ctx context.Context, input io.Reader, writer *ipcWriter, e
 	var calls sync.WaitGroup
 	defer func() { cancel(); calls.Wait() }()
 	slots := make(chan struct{}, iscpworkbench.MaxConcurrent)
+	classSlots := map[string]chan struct{}{}
+	for _, class := range []string{"control", "bulk", "events", "audio"} {
+		classSlots[class] = make(chan struct{}, iscpworkbench.CapacityLimit(class))
+	}
 	controls := make(chan struct{}, 1)
 	for {
 		select {
@@ -146,6 +180,9 @@ func serveWithReverse(ctx context.Context, input io.Reader, writer *ipcWriter, e
 			frame, err := decodeCall(line)
 			if err != nil {
 				return err
+			}
+			if controlOnly && frame.Type != "authorization_delete" && frame.Type != "authorization_delete_receipt" && frame.Type != "shutdown" {
+				return errors.New("authorization control mode rejects business frames")
 			}
 			if frame.Type == "authorization_delete" || frame.Type == "authorization_delete_receipt" {
 				select {
@@ -186,22 +223,35 @@ func serveWithReverse(ctx context.Context, input io.Reader, writer *ipcWriter, e
 				cancel()
 				return nil
 			}
+			callSlots := slots
+			if frame.Request.Profile == iscpworkbench.ProfileV2 {
+				class, _ := iscpworkbench.OperationCapacity(frame.Request.Operation)
+				if c := classSlots[class]; c != nil {
+					callSlots = c
+				}
+			}
 			select {
-			case slots <- struct{}{}:
+			case callSlots <- struct{}{}:
 			default:
 				_ = writeResponse(writer, frame.ID, iscpworkbench.Response{Type: iscpworkbench.ResponseType, Profile: iscpworkbench.Profile, ID: frame.Request.ID, Status: 429, Error: "workbench concurrency limit exceeded"})
 				continue
 			}
 			calls.Add(1)
-			go func(frame callFrame) {
+			go func(frame callFrame, callSlots chan struct{}) {
 				defer calls.Done()
-				defer func() { <-slots }()
+				defer func() { <-callSlots }()
 				response, err := endpoint.Call(ctx, frame.Request)
 				if err != nil {
-					response = iscpworkbench.Response{Type: iscpworkbench.ResponseType, Profile: iscpworkbench.Profile, ID: frame.Request.ID, Status: 503, Error: "ISCP workbench call failed"}
+					response = iscpworkbench.Response{Type: iscpworkbench.ResponseType, Profile: frame.Request.Profile, ID: frame.Request.ID, Status: 503, Error: "ISCP workbench call failed"}
+					var transportError *iscpworkbench.TransportError
+					if errors.As(err, &transportError) && frame.Request.Profile == iscpworkbench.ProfileV2 {
+						response.Status = transportError.Status
+						response.Code = transportError.Code
+						response.Retryable = transportError.Retryable
+					}
 				}
 				_ = writeResponse(writer, frame.ID, response)
-			}(frame)
+			}(frame, callSlots)
 		}
 	}
 }

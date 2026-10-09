@@ -28,6 +28,28 @@
       "id": "0.3.0-sparkclaw.13",
       "runtime_digest": "c848df6ab6846366fc83e3dab966ef458be25d0f5b3c5cff3b91fa2da8df4818",
       "live_qualified": false
+    },
+    "installed_qualification": {
+      "paired_release": ".14",
+      "intake_http_status": 200,
+      "mailbox_version": 1,
+      "intake_enabled": true,
+      "receipt_interval_start": "2026-09-24T00:00:00Z",
+      "receipt_interval_end": "2026-09-25T00:00:00Z",
+      "discovery_candidates": 7,
+      "scanned_rows": 7,
+      "scan_complete": true,
+      "query_qualified": true,
+      "limited": false,
+      "original_capture_status": "collected",
+      "original_files": 1,
+      "verified_bytes": 10423,
+      "all_referenced_file_hashes_verified": true,
+      "read_state": "unread",
+      "mark_read_called": false,
+      "attachments": 0,
+      "smtp_receiving_alias_verified_from_synthetic_original_to": true,
+      "account_or_subject_or_body_recorded": false
     }
   },
   "qq_mail": {
@@ -163,7 +185,24 @@
         }
       }
     ],
-    "cleanup_fence_present": false
+    "cleanup_fence_present": false,
+    "bounded_history_before_fix": {
+      "paired_release": ".14",
+      "receipt_interval_start": "2026-09-24T00:00:00Z",
+      "receipt_interval_end": "2026-09-25T00:00:00Z",
+      "discovery_candidates": 11,
+      "scanned_rows": 11,
+      "scan_complete": true,
+      "query_qualified": true,
+      "limited": false,
+      "capture_status": "uncertain",
+      "capture_reason": "EMAIL_NETWORK_LIST_UNQUALIFIED",
+      "public_error": "email_source_recovery_pending",
+      "root_cause": "QQ discovery omitted received_at; independent pinned capture used an ordinary first folder page and a broad fallback that did not prove the old target.",
+      "owner_scope_unchanged": true,
+      "existing_records_or_fence_removed": false,
+      "original_download_qualified": false
+    }
   },
   "cleanup_recovery": {
     "original_error": {
@@ -208,8 +247,81 @@
     }
   },
   "limits": [
-    "QQ completed rounds had zero candidates, so original download and received attachment transfer are not yet qualified.",
-    "Outlook .13 candidate must be installed as a matched runtime/wheel/Controller consumer/userscript set before live acceptance.",
-    "No send or reply was attempted."
-  ]
+    "Outlook original download passed with no attachments; incoming attachment transfer remains separately unqualified.",
+    "QQ bounded discovery passed, but historical original capture requires the receipt-bound .15 fix and a new live run.",
+    "The .15 candidate has not been deployed by this commit.",
+    "No send, reply or mark-read was attempted."
+  ],
+  "installed_follow_up": {
+    "source": "b0afadec",
+    "paired_release": "0.3.0-sparkclaw.14",
+    "runtime_digest": "ae1786b8140cb456ed8183ba7b275a3611be67c5d4ba7c3c4214b6967f642fea",
+    "managed_extension_version": "5.5.0.10",
+    "managed_extension_patch_revision": 10,
+    "reader_policy_generation": "1:f17cbfc0ce14a82623e6e0ac7529869c11b26f2d7919c048e5e099fa9adcab49",
+    "reader_policy_consumed_at": "2026-10-09T08:42:39.973Z",
+    "all_four_actual_script_hashes_checked": true,
+    "normal_browser_startup_parameters_restored": true,
+    "all_three_services_active": true,
+    "cleanup_fence_present": false,
+    "gateway_binary_unchanged": true,
+    "policy_diagnostic": {
+      "mandatory_policy_loader_path_confirmed": true,
+      "parse_rejection_observed": false,
+      "initial_60_second_readiness_timed_out": true,
+      "eventual_consumption_preceded_runtime14_restart": true,
+      "delayed_import_cause_proven": false
+    },
+    "pre14_backup": {
+      "bytes": 125836310,
+      "sha256": "be76802b22987221dad923ea4d07b8556d0bb02466073c391cc857ef1231767f",
+      "includes_profile_state_runtime_components_and_units": true
+    },
+    "retirement_fix": {
+      "concurrent_idle_lease_race_fixed_in_release": ".14",
+      "subsequent_original_checks_created_no_cleanup_fence": true
+    }
+  },
+  "qq_receipt_bound_candidate": {
+    "release": "0.3.0-sparkclaw.15",
+    "runtime_digest": "edec9341d86fb838072f84502a4277196dd42b8398a66b855838a9875cc03191",
+    "deployed": false,
+    "discovery_preserves_validated_receipt_time": true,
+    "capture_interval_half_width_milliseconds": 1000,
+    "requires_exact_message_selection_account_and_receipt_time": true,
+    "missing_or_invalid_time_fails_before_browser_list": true,
+    "new_regressions": 6,
+    "regressions_fail_on_prior_runtime": 5,
+    "controller_mac": {
+      "passed": 146,
+      "skipped": 25,
+      "failed": 0
+    },
+    "controller_linux": {
+      "passed": 163,
+      "skipped_real_chromium": 8,
+      "failed": 0
+    },
+    "go_packages_passed": [
+      "internal/emailautomation",
+      "internal/browsercontrol"
+    ],
+    "paired_release_reproduced": true,
+    "consumer_projections_current": true,
+    "paired_linux": {
+      "python": "3.14.4",
+      "node": "26.2.0",
+      "fresh_install": true,
+      "mixed_release_rejected": true,
+      "file_tamper_rejected": true,
+      "live_host_and_executor_activation_rejected": true,
+      "whole_set_rollback": true,
+      "durable_state_preserved": true,
+      "epoch_monotonic": true
+    },
+    "reader_and_policy_bytes_unchanged": true,
+    "go_projection_bytes_unchanged": true,
+    "new_gateway_error_mapping_required": false,
+    "deployment_requires_stopped_gateway_and_paired_checkpoint": true
+  }
 }

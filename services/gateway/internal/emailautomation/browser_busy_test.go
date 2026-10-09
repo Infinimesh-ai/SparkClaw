@@ -42,7 +42,7 @@ func TestBrowserBusyYieldsAndRetriesOnlyBeforeScriptExecution(t *testing.T) {
 	}
 	c.requests = nil
 	c.err = &browsercontrol.Error{Code: browsercontrol.CodeControllerUnavailable, Retryable: true}
-	_, err := runner.Send(t.Context(), provider, SendRequest{Provider: provider.ID, Account: app.EmailAccountDefault, Recipient: "test@example.com", Body: "test", InvocationID: "send:no-replay", BrowserCredentialGeneration: 7, ProbeRevision: 1, ScriptRevision: 1})
+	_, err := runner.Send(t.Context(), provider, SendRequest{Provider: provider.ID, Account: app.EmailAccountDefault, Recipient: "test@example.com", Body: "test", InvocationID: "send:no-replay", BrowserCredentialGeneration: 7, ProbeRevision: provider.Probe.Revision, ScriptRevision: provider.Send.Revision})
 	if ErrorCode(err) != app.ToolErrorEmailSendOutcomeUnknown || len(c.requests) != 1 {
 		t.Fatalf("ambiguous send replayed: calls=%d code=%s", len(c.requests), ErrorCode(err))
 	}

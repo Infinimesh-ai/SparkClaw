@@ -56,11 +56,12 @@ func (f *fakeScriptRunner) Send(_ context.Context, _ Provider, request SendReque
 }
 
 func TestControllerLoginCheckAndAdmissionPersistOnlyBoundedStatus(t *testing.T) {
+	provider, _ := DefaultRegistry().Get(app.EmailProviderGmail)
 	st := store.NewMemoryStore()
 	browser := &fakeLoginBrowser{}
 	checkedAt := time.Date(2026, 9, 3, 8, 0, 0, 0, time.UTC)
 	runner := &fakeScriptRunner{probeResult: ProbeResult{
-		Provider: app.EmailProviderGmail, AccountHint: "a***@gmail.com", Generation: 11, Revision: 1, CheckedAt: checkedAt,
+		Provider: app.EmailProviderGmail, AccountHint: "a***@gmail.com", Generation: 11, Revision: provider.Probe.Revision, CheckedAt: checkedAt,
 	}}
 	controller := NewController(st, DefaultRegistry(), browser, runner)
 
@@ -99,7 +100,7 @@ func TestControllerLoginCheckAndAdmissionPersistOnlyBoundedStatus(t *testing.T) 
 		t.Fatal(err)
 	}
 	if binding.Provider != app.EmailProviderGmail || binding.Account != app.EmailAccountDefault || binding.AccountHint != "a***@gmail.com" ||
-		binding.SettingVersion != updated.Version+1 || binding.BrowserCredentialGeneration != 11 || binding.ProbeRevision != 1 || binding.SendScriptRevision != 1 ||
+		binding.SettingVersion != updated.Version+1 || binding.BrowserCredentialGeneration != 11 || binding.ProbeRevision != provider.Probe.Revision || binding.SendScriptRevision != provider.Send.Revision ||
 		!binding.ValidatedAt.Equal(checkedAt) {
 		t.Fatalf("admission binding = %#v", binding)
 	}

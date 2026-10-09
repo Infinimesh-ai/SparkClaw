@@ -28,11 +28,11 @@ func TestPlaywrightRunnerBindsFixedScriptsAndCredentialGeneration(t *testing.T) 
 		t.Fatal(err)
 	}
 	if probe.Provider != app.EmailProviderGmail || probe.AccountHint != "a***@gmail.com" ||
-		probe.Generation != 7 || probe.Revision != 1 || !probe.CheckedAt.Equal(runner.now()) {
+		probe.Generation != 7 || probe.Revision != provider.Probe.Revision || !probe.CheckedAt.Equal(runner.now()) {
 		t.Fatalf("probe = %#v", probe)
 	}
 	if len(controller.requests) != 1 || controller.requests[0].ScriptID != "gmail.login_probe" ||
-		controller.requests[0].Revision != 1 || controller.requests[0].CredentialGeneration != 7 {
+		controller.requests[0].Revision != provider.Probe.Revision || controller.requests[0].CredentialGeneration != 7 {
 		t.Fatalf("probe request = %#v", controller.requests)
 	}
 
@@ -40,18 +40,18 @@ func TestPlaywrightRunnerBindsFixedScriptsAndCredentialGeneration(t *testing.T) 
 		Provider: app.EmailProviderGmail, Account: app.EmailAccountDefault,
 		Recipient: "alice@example.com", Subject: "subject", Body: "Exact body\nsecond line",
 		InvocationID: "send:playwright", BrowserCredentialGeneration: 7,
-		ProbeRevision: 1, ScriptRevision: 1, SettingVersion: 2,
+		ProbeRevision: provider.Probe.Revision, ScriptRevision: provider.Send.Revision, SettingVersion: 2,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Provider != app.EmailProviderGmail || result.Status != "sent" ||
 		result.RecipientDigest != recipientDigest("alice@example.com") ||
-		result.BrowserCredentialGeneration != 7 || result.ScriptRevision != 1 {
+		result.BrowserCredentialGeneration != 7 || result.ScriptRevision != provider.Send.Revision {
 		t.Fatalf("send result = %#v", result)
 	}
 	if len(controller.requests) != 2 || controller.requests[1].ScriptID != "gmail.send" ||
-		controller.requests[1].Operation != "send" {
+		controller.requests[1].Operation != "send" || controller.requests[1].Revision != provider.Send.Revision {
 		t.Fatalf("send request = %#v", controller.requests)
 	}
 	encoded, err := json.Marshal(controller.requests[1].Input)
@@ -81,7 +81,7 @@ func TestPlaywrightRunnerRejectsStaleCredentialBeforeControllerInvocation(t *tes
 	_, err := runner.Send(t.Context(), provider, SendRequest{
 		Provider: app.EmailProviderGmail, Account: app.EmailAccountDefault,
 		Recipient: "alice@example.com", Body: "body", InvocationID: "send:stale",
-		BrowserCredentialGeneration: 7, ProbeRevision: 1, ScriptRevision: 1, SettingVersion: 1,
+		BrowserCredentialGeneration: 7, ProbeRevision: provider.Probe.Revision, ScriptRevision: provider.Send.Revision, SettingVersion: 1,
 	})
 	if ErrorCode(err) != app.ToolErrorEmailAdmissionStale || len(controller.requests) != 0 {
 		t.Fatalf("stale error=%v code=%q requests=%#v", err, ErrorCode(err), controller.requests)
@@ -101,7 +101,7 @@ func TestPlaywrightRunnerPreservesProviderFailureAndUnknownTransportOutcome(t *t
 	request := SendRequest{
 		Provider: app.EmailProviderGmail, Account: app.EmailAccountDefault,
 		Recipient: "alice@example.com", Body: "body", InvocationID: "send:unknown",
-		BrowserCredentialGeneration: 7, ProbeRevision: 1, ScriptRevision: 1, SettingVersion: 1,
+		BrowserCredentialGeneration: 7, ProbeRevision: provider.Probe.Revision, ScriptRevision: provider.Send.Revision, SettingVersion: 1,
 	}
 	if _, err := runner.Send(t.Context(), provider, request); ErrorCode(err) != app.ToolErrorEmailSendOutcomeUnknown {
 		t.Fatalf("provider failure=%v code=%q", err, ErrorCode(err))
@@ -115,6 +115,43 @@ func TestPlaywrightRunnerPreservesProviderFailureAndUnknownTransportOutcome(t *t
 	controller.err = errors.New("untyped")
 	if _, err := runner.Probe(t.Context(), provider, "probe:failed", 0); ErrorCode(err) != app.ToolErrorEmailProviderUnavailable {
 		t.Fatalf("probe failure=%v code=%q", err, ErrorCode(err))
+	}
+}
+
+func TestPlaywrightRunnerAttachmentFailuresAreTypedAndNeverRetried(t *testing.T) {
+	provider, _ := DefaultRegistry().Get(app.EmailProviderGmail)
+	for _, test := range []struct {
+		scriptCode string
+		want       app.ToolErrorCode
+	}{
+		{"email_attachment_invalid", app.ToolErrorEmailInvalidInput},
+		{"email_attachment_limit", app.ToolErrorEmailInvalidInput},
+		{"email_existing_attachments", app.ToolErrorEmailDraftConflict},
+		{"email_attachment_control_unavailable", app.ToolErrorEmailPageContractChanged},
+		{"email_attachment_changed", app.ToolErrorEmailDraftVerificationFailed},
+		{"email_attachment_unverified", app.ToolErrorEmailSendOutcomeUnknown},
+		{"email_attachment_upload_unverified", app.ToolErrorEmailSendOutcomeUnknown},
+		{"email_attachment_upload_failed", app.ToolErrorEmailSendOutcomeUnknown},
+	} {
+		t.Run(test.scriptCode, func(t *testing.T) {
+			controller := &fakePlaywrightController{
+				status: browsercontrol.Status{Configured: true, CredentialGeneration: 7},
+				result: browsercontrol.ScriptExecutionResult{
+					State: "failed", CredentialGeneration: 7,
+					Result: json.RawMessage(`{"schema_version":1,"status":"error","provider":"gmail","code":"` + test.scriptCode + `"}`),
+				},
+			}
+			_, err := NewPlaywrightRunner(controller).Send(t.Context(), provider, SendRequest{
+				Provider: provider.ID, Account: app.EmailAccountDefault,
+				Recipient: "alice@example.com", Body: "body", InvocationID: "send:attachment-error",
+				BrowserCredentialGeneration: 7, ProbeRevision: provider.Probe.Revision,
+				ScriptRevision: provider.Send.Revision, SettingVersion: 1,
+			})
+			var typed *Error
+			if !errors.As(err, &typed) || typed.Code != test.want || typed.Retryable() || len(controller.requests) != 1 {
+				t.Fatalf("attachment failure=%v code=%q calls=%d", err, ErrorCode(err), len(controller.requests))
+			}
+		})
 	}
 }
 

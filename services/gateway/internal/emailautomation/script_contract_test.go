@@ -110,12 +110,15 @@ func TestScriptErrorCodesCoverEveryEmittedCode(t *testing.T) {
 
 var (
 	scriptErrorConstructorPattern = regexp.MustCompile(`new (?:QQMailScriptError|OutlookCliError|GmailCliError)\(\s*"([a-z0-9_]+)"`)
-	scriptErrorTemplatePattern    = regexp.MustCompile("new QQMailScriptError\\(\\s*`([^`]*)`")
-	envelopeCodePattern           = regexp.MustCompile(`\b(?:code|error):\s*["']([a-z0-9_]+)["']`)
-	classifierReturnPattern       = regexp.MustCompile(`\breturn "([a-z0-9]+(?:_[a-z0-9]+)+)"`)
-	codeParameterHelperPattern    = regexp.MustCompile(`function (\w+)\(([^)]*)\)`)
-	codeParameterPattern          = regexp.MustCompile(`^(?:errorCode|invalidCode|code)(?:\s*=\s*"([a-z0-9_]+)")?$`)
-	literalArgumentPattern        = regexp.MustCompile(`^"([a-z0-9_]+)"$`)
+	// Browser-evaluated attachment checks throw Error with a bounded email code.
+	scriptPageErrorPattern     = regexp.MustCompile(`new Error\(\s*["'](email_[a-z0-9_]+)["']`)
+	scriptErrorFallbackPattern = regexp.MustCompile(`\b(?:fail|failure|error|networkError|managedSendError)\([^;\n]*\|\|\s*["']([a-z0-9_]+)["']\s*\)`)
+	scriptErrorTemplatePattern = regexp.MustCompile("new QQMailScriptError\\(\\s*`([^`]*)`")
+	envelopeCodePattern        = regexp.MustCompile(`\b(?:code|error):\s*["']([a-z0-9_]+)["']`)
+	classifierReturnPattern    = regexp.MustCompile(`\breturn "([a-z0-9]+(?:_[a-z0-9]+)+)"`)
+	codeParameterHelperPattern = regexp.MustCompile(`function (\w+)\(([^)]*)\)`)
+	codeParameterPattern       = regexp.MustCompile(`^(?:errorCode|invalidCode|code)(?:\s*=\s*"([a-z0-9_]+)")?$`)
+	literalArgumentPattern     = regexp.MustCompile(`^"([a-z0-9_]+)"$`)
 )
 
 // scriptErrorCodeLiterals extracts every failure code a provider script can
@@ -129,6 +132,11 @@ func scriptErrorCodeLiterals(source string) []string {
 	}
 	for _, match := range scriptErrorConstructorPattern.FindAllStringSubmatch(source, -1) {
 		codes = append(codes, match[1])
+	}
+	for _, pattern := range []*regexp.Regexp{scriptPageErrorPattern, scriptErrorFallbackPattern} {
+		for _, match := range pattern.FindAllStringSubmatch(source, -1) {
+			codes = append(codes, match[1])
+		}
 	}
 	codes = append(codes, envelopeCodeLiterals(source)...)
 	for _, match := range classifierReturnPattern.FindAllStringSubmatch(source, -1) {

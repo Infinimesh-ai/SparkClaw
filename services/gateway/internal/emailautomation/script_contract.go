@@ -122,6 +122,8 @@ var scriptErrorCodes = map[string]app.ToolErrorCode{
 	"email_send_configuration_error":      app.ToolErrorEmailNotConfigured,
 	"email_send_journal_conflict":         app.ToolErrorEmailDraftConflict,
 	"email_existing_draft":                app.ToolErrorEmailDraftConflict,
+	"email_existing_attachments":          app.ToolErrorEmailDraftConflict,
+	"email_attachment_changed":            app.ToolErrorEmailDraftVerificationFailed,
 	"email_reply_target_unverified":       app.ToolErrorEmailDraftVerificationFailed,
 	"email_reply_control_unavailable":     app.ToolErrorEmailDraftVerificationFailed,
 	"email_reply_editor_unverified":       app.ToolErrorEmailDraftVerificationFailed,
@@ -141,6 +143,8 @@ var scriptErrorCodes = map[string]app.ToolErrorCode{
 	"invalid_subject":           app.ToolErrorEmailInvalidInput,
 	"invalid_body":              app.ToolErrorEmailInvalidInput,
 	"body_too_large":            app.ToolErrorEmailInvalidInput,
+	"email_attachment_invalid":  app.ToolErrorEmailInvalidInput,
+	"email_attachment_limit":    app.ToolErrorEmailInvalidInput,
 
 	"email_network_list_unqualified":       app.ToolErrorEmailPageContractChanged,
 	"email_incremental_unqualified":        app.ToolErrorEmailPageContractChanged,
@@ -152,6 +156,7 @@ var scriptErrorCodes = map[string]app.ToolErrorCode{
 	"email_network_interval_required":      app.ToolErrorEmailPageContractChanged,
 	"email_network_read_failed":            app.ToolErrorEmailProviderUnavailable,
 	"page_contract_changed":                app.ToolErrorEmailPageContractChanged,
+	"email_attachment_control_unavailable": app.ToolErrorEmailPageContractChanged,
 	"email_login_evidence_conflict":        app.ToolErrorEmailPageContractChanged,
 	"provider_origin_mismatch":             app.ToolErrorEmailPageContractChanged,
 	"email_account_identity_mismatch":      app.ToolErrorEmailPageContractChanged,
@@ -173,6 +178,11 @@ var scriptErrorCodes = map[string]app.ToolErrorCode{
 	"send_unavailable":       app.ToolErrorEmailSendControlUnverified,
 
 	"send_outcome_unknown": app.ToolErrorEmailSendOutcomeUnknown,
+	// An incomplete upload or missing proof may have changed the provider draft.
+	// Keep its durable receipt unknown until reconciliation; never retry it.
+	"email_attachment_unverified":        app.ToolErrorEmailSendOutcomeUnknown,
+	"email_attachment_upload_unverified": app.ToolErrorEmailSendOutcomeUnknown,
+	"email_attachment_upload_failed":     app.ToolErrorEmailSendOutcomeUnknown,
 
 	"login_probe_timeout": app.ToolErrorEmailScriptTimeout,
 

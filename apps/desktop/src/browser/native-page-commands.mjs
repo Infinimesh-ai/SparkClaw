@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 const WORLD = 1004;
+const CAPTURE_WIDTH = 480;
 const hash = (value) => crypto.createHash("sha256").update(typeof value === "string" ? value : JSON.stringify(value)).digest("hex");
 const execute = (record, code) => record.webContents.executeJavaScriptInIsolatedWorld(WORLD, [{ code }]);
 
@@ -68,8 +69,7 @@ export async function nativePageCommand(record, operation, args, binding, fence)
     fence(); return { page_id: binding.page_id, snapshot_id: args.snapshot_id, typed: args.ref, draft_only: true };
   }
   if (operation === "screenshot") {
-    const capture = await record.webContents.capturePage(); fence();
-    const data = capture.resize({ width: 480 }).toPNG();
+    const data = await captureScreenshot(record, fence);
     if (data.length > 64 << 10) throw new Error("Screenshot exceeds the bounded output budget");
     return { page_id: binding.page_id, data: data.toString("base64"), mimeType: "image/png" };
   }
@@ -79,4 +79,49 @@ export async function nativePageCommand(record, operation, args, binding, fence)
 function lookup(args) {
   return `const state=globalThis.__sparkclawBrowserRefs;if(!state||state.snapshotID!==${JSON.stringify(args.snapshot_id)}||state.url!==location.href)throw Error('Snapshot is stale');
     const element=state.refs.get(${JSON.stringify(args.ref)});if(!element||!element.isConnected)throw Error('Reference is stale');`;
+}
+
+async function captureScreenshot(record, fence) {
+  try {
+    const image = await captureDeadline(record.webContents.capturePage(), 5000);
+    fence();
+    if (image.isEmpty()) throw new Error("Browser display surface is unavailable");
+    return image.resize({ width: CAPTURE_WIDTH }).toPNG();
+  } catch (error) {
+    fence();
+    // A never-presented WebContentsView has no native display surface. Ask
+    // Chromium to render only our fixed task viewport, leaving the selected
+    // conversation, window visibility and owner focus unchanged. No debugger
+    // method or parameters are accepted from the wire, and an existing
+    // debugger session must never be displaced.
+    const debuggerSession = record.webContents.debugger;
+    if (record.webContents.isDestroyed() || debuggerSession.isAttached()) throw error;
+    const { width, height } = record.view.getBounds();
+    debuggerSession.attach("1.3");
+    try {
+      const result = await captureDeadline(debuggerSession.sendCommand("Page.captureScreenshot", {
+        format: "png", fromSurface: true, captureBeyondViewport: true,
+        clip: { x: 0, y: 0, width, height, scale: CAPTURE_WIDTH / width },
+      }), 3000);
+      fence();
+      // Electron display scale differs between Retina and ordinary displays.
+      // Normalize both native and Chromium captures to the same output width.
+      const { nativeImage } = await import("electron");
+      fence();
+      const image = nativeImage.createFromBuffer(Buffer.from(result.data, "base64"));
+      if (image.isEmpty()) throw new Error("Browser screenshot is empty");
+      return image.resize({ width: CAPTURE_WIDTH }).toPNG();
+    } finally {
+      if (!record.webContents.isDestroyed() && debuggerSession.isAttached()) debuggerSession.detach();
+    }
+  }
+}
+
+async function captureDeadline(promise, milliseconds) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Browser screenshot timed out")), milliseconds);
+    })]);
+  } finally { clearTimeout(timer); }
 }

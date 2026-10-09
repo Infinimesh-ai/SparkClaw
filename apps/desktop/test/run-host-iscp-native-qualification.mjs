@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { ClientStore } from "../src/main/client-store.mjs";
 import { assertPrivateDirectory, readPrivateJSON, writePrivateJSON } from "../../../scripts/lib/private-workbench.mjs";
 
 // Prepare an independent disposable lab with iscp-local-lab prepare-expansion
@@ -14,7 +15,8 @@ if (!["linux", "darwin"].includes(process.platform) || process.argv.length !== 3
 await assertPrivateDirectory(lab);
 const metadata = await readPrivateJSON(path.join(lab, "run.json"));
 if (!metadata.qualified_operations?.includes("browser.host.poll")) throw new Error("An explicitly qualified disposable expansion lab is required");
-const run = promisify(execFile);
+const exec = promisify(execFile);
+const run = (command,args,options={}) => exec(command,args,{timeout:180000,killSignal:"SIGKILL",...options});
 try {
   const { stdout } = await run("docker", ["inspect", metadata.gateway_container, "--format", "{{.State.Running}}"]);
   if (stdout.trim() === "true") throw new Error("Stop this lab's Gateway before using its device identity for the fixture");
@@ -22,8 +24,14 @@ try {
 const temporary = await fs.mkdtemp(path.join(lab, "native-host-"));
 await fs.chmod(temporary, 0o700);
 await fs.mkdir(path.join(temporary, "bin"), { mode: 0o700 });
-const installationID = crypto.randomUUID();
+await fs.mkdir(path.join(temporary, "profile"), { mode: 0o700 });
+const store = new ClientStore(path.join(temporary, "profile", "workbench"));
+const installationID = store.installationID;
+store.close();
 const token = crypto.randomBytes(32).toString("base64url");
+const sourceFiles = ["apps/desktop/src/main/main.mjs", "apps/desktop/src/main/presentation.mjs", "apps/desktop/src/browser/page-registry.mjs", "apps/desktop/src/browser/host-agent.mjs", "apps/desktop/src/browser/native-page-commands.mjs"];
+const desktopSource = { revision: (await run("git",["rev-parse","HEAD"],{cwd:root})).stdout.trim(), files:{} };
+for (const name of sourceFiles) desktopSource.files[name] = crypto.createHash("sha256").update(await fs.readFile(path.join(root,name))).digest("hex");
 let broker, xvfb;
 try {
   const enrollment = await readPrivateJSON(path.join(lab, "gateway/enrollment.json"));
@@ -36,9 +44,13 @@ try {
     if (peer === "gateway") profile.enrollment_file = path.join(temporary, "gateway-enrollment.json");
     await writePrivateJSON(path.join(temporary, `${peer}-helper.json`), profile);
   }
+  const desktopProfile = await readPrivateJSON(path.join(lab, "desktop-profile.json"));
+  desktopProfile.helper_config = path.join(temporary, "desktop-helper.json");
+  await writePrivateJSON(path.join(temporary, "desktop-profile.json"), desktopProfile);
   await run("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1", "-keyout", path.join(temporary, "key.pem"), "-out", path.join(temporary, "cert.pem")]);
   await fs.chmod(path.join(temporary, "key.pem"), 0o600);
-  await run("go", ["build", "-o", path.join(temporary, "bin/iscp-workbench"), "./cmd/iscp-workbench"], { cwd: path.join(root, "services/gateway") });
+  await fs.mkdir(path.join(root, "apps/desktop/bin"), {recursive:true});
+  await run("go", ["build", "-o", path.join(root, "apps/desktop/bin/iscp-workbench"), "./cmd/iscp-workbench"], { cwd: path.join(root, "services/gateway") });
   const binary = path.join(temporary, "bin/native-broker-fixture");
   await run("go", ["test", "-c", "-o", binary, "./internal/gateway"], { cwd: path.join(root, "services/gateway") });
   const env = { ...process.env, SPARKCLAW_HOST_ISCP_FIXTURE_ROOT: temporary, SPARKCLAW_HOST_ISCP_FIXTURE_TOKEN: token, SPARKCLAW_HOST_ISCP_INSTALLATION: installationID };
@@ -64,7 +76,7 @@ try {
   }) : undefined;
   const electron = process.env.SPARKCLAW_HOST_TEST_ELECTRON || (await import("electron")).default;
   const flags = process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : [];
-  const result = await run(electron, [path.join(root, "apps/desktop/test/host-iscp-native-fixture.mjs"), ...flags], { cwd: root, timeout: 100000, maxBuffer: 1 << 20, env: { ...env, ...(display ? { DISPLAY: display } : {}), SPARKCLAW_HOST_ISCP_FIXTURE_ORIGIN: origin } });
+  const result = await run(electron, [path.join(root, "apps/desktop/test/host-iscp-native-fixture.mjs"), ...flags], { cwd: root, timeout: 100000, killSignal: "SIGKILL", maxBuffer: 1 << 20, env: { ...env, ...(display ? { DISPLAY: display } : {}), SPARKCLAW_HOST_ISCP_FIXTURE_ORIGIN: origin } });
   process.stdout.write(result.stdout);
   const evidence = await readPrivateJSON(path.join(temporary, "evidence.json"));
   if (evidence.passed !== true) throw new Error(`Native evidence failed: ${evidence.error || "missing successful receipt"}`);
@@ -80,6 +92,7 @@ try {
   const retained = await readPrivateJSON(evidenceFile, { optional: true });
   if (retained) {
     retained.source = metadata.source;
+    retained.desktop_source = desktopSource;
     await writePrivateJSON(evidenceFile, retained);
     console.log(JSON.stringify({ evidence_file: evidenceFile, passed: retained.passed === true }));
   }

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import {pathToFileURL} from 'node:url';
 import {spawn} from 'node:child_process';
 import fs from 'node:fs/promises';
 import http from 'node:http';
@@ -23,7 +25,7 @@ async function fixture(t){
   await client.createTaskPage();await client.execute('page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});
   const call=code=>client.rpc.request('tools/call',{name:'browser_run_code_unsafe',arguments:{code:marker+code}},15000);
   const inspect=()=>client.rpc.request('tools/call',{name:'browser_evaluate',arguments:{function:'()=>({available:true})'}},15000);
-  return {call,inspect};
+  return {call,inspect,client,root:await fs.realpath(root)};
 }
 const ownedTransfer=`async page=>{
  const pending=page.waitForEvent('filechooser',{timeout:3000});await page.locator('#choose').click();const chooser=await pending;
@@ -53,4 +55,35 @@ test('real pinned wrapper refuses multiple same-call chooser events',{skip:!enab
  }`);
  assert.equal(result.isError,true);assert.match(JSON.stringify(result),/host_owned_chooser_unverified/);
  const inspected=await f.inspect();assert.equal(inspected.isError,true);assert.match(JSON.stringify(inspected),/does not handle the modal state/);
+});
+
+// This exercises the installed wrapper with the actual application upload code,
+// not a lookalike setInputFiles/path upload or an unwrapped Chromium page.
+test('actual shared-Ribbon byte upload survives the pinned MCP wrapper and final inspection',{skip:!enabled,timeout:30000},async t=>{
+ const runtime=process.env.APP_CLI_RECOVERY_RUNTIME_ROOT?pathToFileURL(path.resolve(process.env.APP_CLI_RECOVERY_RUNTIME_ROOT)+path.sep):new URL('../',import.meta.resolve('@infinimesh/app-cli-runtime/release'));
+ const {uploadManagedAttachments,verifyManagedAttachments}=await import(new URL('applications/mail/lib/workspace-attachments.mjs',runtime));
+ const f=await fixture(t);
+ const request=async(name,args)=>{
+   const result=await f.client.rpc.request('tools/call',{name,arguments:args},15000);
+   assert.notEqual(result.isError,true,JSON.stringify(result));
+   const text=result.content.filter(item=>item.type==='text').map(item=>item.text).join('\n');
+   const match=text.match(/### Result\n([\s\S]*?)(?:\n### |$)/u);assert.ok(match,text);
+   return JSON.parse(match[1].trim());
+ };
+ await request('browser_evaluate',{function:`()=>{
+   document.body.innerHTML='<div data-automation-type="RibbonBottomBarContainer"><button data-automation-type="RibbonFlyoutAnchor" aria-haspopup="true" aria-expanded="false" aria-label="Attach files">Attach</button></div><div><input id="decoy" type="file" data-testid="local-computer-filein" multiple hidden><input id="actual" type="file" data-testid="local-computer-filein" multiple hidden></div><div id="composer"><div contenteditable="true" aria-label="Message body">Synthetic body</div><button id="send">Send</button><div id="rows"></div></div>';
+   const root=document.getElementById('composer'),input=document.getElementById('actual'),button=document.querySelector('[aria-haspopup]');
+   window.__sparkclawManagedMail={provider:'outlook',ownershipChecked:true,root,body:root.querySelector('[contenteditable]'),send:root.querySelector('#send')};
+   window.sendClicks=0;window.uploadCount=0;root.querySelector('#send').onclick=()=>sendClicks++;
+   button.onclick=()=>setTimeout(()=>{button.setAttribute('aria-expanded','true');const menu=document.createElement('div');menu.setAttribute('role','menu');const action=document.createElement('button');action.setAttribute('role','menuitem');action.textContent='Browse this computer';action.onclick=()=>input.click();menu.append(action);document.body.append(menu);},100);
+   input.onchange=()=>{uploadCount++;for(const file of input.files){const row=document.createElement('div');row.setAttribute('data-attachment-id','fixture');const name=document.createElement('span');name.title=file.name;name.textContent=file.name;const remove=document.createElement('button');remove.setAttribute('aria-label','Remove attachment');remove.textContent='Remove';row.append(name,remove);document.getElementById('rows').append(row);}};
+   return true;
+ }`});
+ const bytes=Buffer.from('Synthetic wrapper bytes\n'),name='wrapper.txt',relative=`.sparkclaw-mail-send-${'d'.repeat(32)}/00/${name}`;
+ await fs.mkdir(path.dirname(path.join(f.root,relative)),{recursive:true,mode:0o700});await fs.writeFile(path.join(f.root,relative),bytes,{mode:0o600});
+ const manifest=[{path:relative,name,size_bytes:bytes.length,sha256:'sha256:'+crypto.createHash('sha256').update(bytes).digest('hex')}];
+ const tab={attachmentSecretSlots:8,setAttachmentSecrets:async()=>{},runReadCode:code=>request('browser_run_code_unsafe',{code}),inspect:async code=>({result:await request('browser_evaluate',{function:code})})};
+ let effects=0;await uploadManagedAttachments(tab,'outlook',f.root,manifest,()=>effects++);
+ await verifyManagedAttachments(tab,'outlook',manifest);
+ assert.deepEqual(await request('browser_evaluate',{function:'()=>({sendClicks,uploadCount})'}),{sendClicks:0,uploadCount:1});assert.equal(effects,1);
 });

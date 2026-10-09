@@ -30,6 +30,7 @@ async function fixture(t,mode='normal') {
     window.__sparkclawManagedMail={provider:'outlook',ownershipChecked:true,root,body,send:document.getElementById('send')};
     window.uploads=[];window.sendClicks=0;window.__sparkclawManagedMail.send.onclick=()=>window.sendClicks++;
     button.onclick=()=>{
+      const mount=()=>{
       button.setAttribute('aria-expanded','true');
       const menu=document.createElement('div');menu.setAttribute('role','menu');
       const action=document.createElement('button');action.setAttribute('role','menuitem');action.textContent='浏览此计算机';menu.append(action);
@@ -39,6 +40,7 @@ async function fixture(t,mode='normal') {
         if(mode==='unrelated-chooser')setTimeout(()=>input.click(),30);else input.click();
       };
       document.body.append(menu);
+      };if(mode==='delayed-menu')setTimeout(mount,250);else mount();
     };
     for(const input of document.querySelectorAll('input[type="file"]'))input.addEventListener('change',async()=>{
       for(const file of input.files){
@@ -70,6 +72,10 @@ test('shared Outlook Ribbon binds native chooser to the owned composer, never gl
   assert.deepEqual(await f.page.evaluate(()=>uploads),[{id:'actual',name:'native.txt',bytes:[...f.bytes]}]);
   assert.equal(f.effects(),1);assert.equal(await f.page.evaluate(()=>sendClicks),0);
 });
+test('shared Ribbon waits for its bounded asynchronously rendered local-file menu',{skip:!enabled},async t=>{
+  const f=await fixture(t,'delayed-menu');await uploadManagedAttachments(f.tab,'outlook',f.root,f.manifest,f.before);await verifyManagedAttachments(f.tab,'outlook',f.manifest);
+  assert.deepEqual(await f.page.evaluate(()=>uploads),[{id:'actual',name:'native.txt',bytes:[...f.bytes]}]);assert.equal(await f.page.evaluate(()=>sendClicks),0);
+});
 test('owned native chooser is checked in the main document, not its isolated utility world',{skip:!enabled},async t=>{
   const f=await fixture(t,'owned-chooser');await uploadManagedAttachments(f.tab,'outlook',f.root,f.manifest,f.before);await verifyManagedAttachments(f.tab,'outlook',f.manifest);
   assert.deepEqual(await f.page.evaluate(()=>uploads),[{id:'actual',name:'native.txt',bytes:[...f.bytes]}]);assert.equal(await f.page.evaluate(()=>sendClicks),0);
@@ -87,7 +93,7 @@ for(const mode of ['ambiguous-composer','ambiguous-ribbon','ambiguous-menu','ima
 for(const mode of ['relocated-input','replaced-input','changed-composer'])test(`shared chooser binding remains pinned after native selection: ${mode}`,{skip:!enabled},async t=>{
   const f=await fixture(t),run=f.tab.runReadCode;
   f.tab.runReadCode=async code=>{
-    if(code.includes('return page.evaluate(async token'))await f.page.evaluate(mode=>{
+    if(code.includes('const transferred=await page.evaluate(async token'))await f.page.evaluate(mode=>{
       const original=crypto.subtle.digest.bind(crypto.subtle);let changed=false;
       crypto.subtle.digest=(...args)=>{if(!changed){changed=true;const input=document.getElementById('actual');
         if(mode==='relocated-input')document.getElementById('other').append(input);

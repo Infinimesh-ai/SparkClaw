@@ -1,0 +1,122 @@
+{
+  "date": "2026-10-09",
+  "status": "candidate_only_live_provider_send_delivery_pending",
+  "runtime_release": "0.3.0-sparkclaw.17",
+  "runtime_digest": "8b070a693d197b5bd94af7631737b94a5ed8172dee0b6b484418f7f4645c657a",
+  "artifacts": {
+    "python_dependencies": {
+      "file": "python-requirements.txt",
+      "sha256": "e99394c278eed0e2ee36f7a1289c0327af0a355b1726472a8296563d5fb0fde6"
+    },
+    "runtime": {
+      "file": "infinimesh-app-cli-runtime-0.3.0-sparkclaw.17.tgz",
+      "sha256": "6bfd7bfac884530fdaa2274ab1d0703b80731f9a3fd07541aceb800bf30374e9"
+    },
+    "wheel": {
+      "file": "infinimesh_app_cli-0.3.0+sparkclaw.17-py3-none-any.whl",
+      "sha256": "846684533fadea97e5236c7d0182a810a44d8d2609ef3be2b7d86048dc6e04b8"
+    }
+  },
+  "local_patch": {
+    "base_id": "0.3.0-sparkclaw.16",
+    "base_runtime_digest": "203b86cadf22414dd331a24042110e00f19976204180b79fae56311674ae794e",
+    "patch_file": "native-mail-cards.patch",
+    "patch_sha256": "0e3cd5ba0d5f6b9f94431377ad59fc1724da93ba3cebfde05a74cfd8a5eb2748"
+  },
+  "live_input_evidence": {
+    "redacted_structural_evidence_sha256": {
+      "mail16-qq-attachment-structure.jsonl": "df72bbceed26d53d95f00ea3dcf7614cf7327245fa0321ab4bcc04cc7f602c1a",
+      "mail16-outlook-attachment-structure.jsonl": "dc3a222a33fefccf796b27c4511f4c1bcfbf3e657cdc2c49cbdb5f59e6b3eb4d"
+    },
+    "qq_mail": {
+      "canonical_row": "mail-compose-attaches-wrap / mail-compose-attaches / attach-cards / mail-compose-attach-card.attach-card-success",
+      "exact_name_path": "attach-card-content / attach-file-info / file-name-wrap",
+      "legacy_row_count": 0,
+      "hidden_mirror_ancestor": "draft-body-attaches-float-bar-wrap",
+      "original_effect": 1,
+      "original_unknown_preserved": true
+    },
+    "outlook": {
+      "invocation": "email_send_0434355074de988f",
+      "task_id": "c654aa0e-e7de-49f7-9114-a702d320874a",
+      "shared_context_valid": true,
+      "expanded": true,
+      "unique_local_file_menu_action": true,
+      "input_activated": false,
+      "host_error": "browser_extension_unavailable",
+      "host_reason": "process_exit_action_timeout",
+      "precise_timed_out_substep": "not recoverable from persisted diagnostic",
+      "old16_generic_failure_is_not_negative_proof": true
+    }
+  },
+  "fixes": {
+    "qq_ready": "Count all owned cards before canonical location/success checks. Exclude only known mirrors proven hidden along the ancestor chain. Require exact full name and verified manifest bytes; visible mirrors, duplicate/pending/failed/foreign cards reject.",
+    "outlook_menu": "Bounded five-second menu rendering wait, preserving uniqueness and native event binding. Delayed rendering is covered by fixtures, not established as the old live timeout root cause.",
+    "wrapper": "Real pinned MCP Tab retains native chooser modal after application byte upload. Matching Controller hook clears only one same-call native chooser object and its exact input after production ACK; no prior or other modal allowed.",
+    "ack": "Production upload writes Node page acknowledgement only after exact returned manifest match and repeated root/body/send/input identity validation.",
+    "future_recovery": "BROWSER_EXTENSION_UNAVAILABLE is accepted only in a durable bound live pre-dispatch negative proof; no legacy16 terminal-error unlock.",
+    "diagnostic": "Existing APP_CLI_MAIL_SEND_EVIDENCE adds only bounded fixed stage/action booleans; no body/account/full HTML/attachment filename."
+  },
+  "validation": {
+    "final_installed_artifact_focused_tests": {
+      "passed": 80,
+      "failed": 0,
+      "skipped": 0
+    },
+    "linux_controller_full": {
+      "passed": 208,
+      "failed": 0,
+      "browser_gated_skipped": 46
+    },
+    "real_wrapper_production_upload": {
+      "headless_local_synthetic_page": true,
+      "production_upload_module_used": true,
+      "upload_count": 1,
+      "send_clicks": 0,
+      "final_inspect_passed": true,
+      "deployed_bridge_test": false
+    },
+    "reproducible_pair": true,
+    "consumer_projection_check": true,
+    "desktop_managed_preload_check": true,
+    "paired_qualification": {
+      "fresh_install": true,
+      "config_drift_rejected": true,
+      "installed_tamper_rejected": true,
+      "mixed_python_runtime_rejected": true,
+      "mixed_consumer_rejected": true,
+      "live_host_activation_rejected": true,
+      "live_executor_activation_rejected": true,
+      "whole_set_rollback": true,
+      "durable_state_preserved": true,
+      "epoch_monotonic": true
+    }
+  },
+  "compatibility": {
+    "requires_matching_controller_hook_commit": "d6707300",
+    "reader_assets_unchanged": true,
+    "reader_asset_files_compared": 14,
+    "browser_policy_changed": false,
+    "desktop_preload_changed": false,
+    "go_provider_projection_changed": false,
+    "runtime_changed_files": [
+      "applications/mail/lib/send-recovery.mjs",
+      "applications/mail/lib/workspace-attachments.mjs",
+      "applications/mail/output-schema.mjs",
+      "bindings/mail-gmail.json",
+      "bindings/mail-outlook.json",
+      "bindings/mail-qq-mail.json",
+      "npm-shrinkwrap.json",
+      "package.json",
+      "release.json"
+    ],
+    "stage_browser_components": false
+  },
+  "actions_in_this_candidate_work": {
+    "remote_read_only_logs": true,
+    "remote_browser_actions": false,
+    "send_or_retry": false,
+    "service_restart_or_deploy": false,
+    "db_or_old_unknown_record_mutation": false
+  }
+}

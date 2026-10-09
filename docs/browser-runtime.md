@@ -271,6 +271,19 @@ npm run qualify:playwright-email -- --profile remote
 Never use qualification to send a real message. Email send retains exact-content
 approval, one-attempt execution, and terminal unknown-outcome handling.
 
+## Managed mail attachment runtime
+
+App-CLI `.17` and its matching Controller hook are one compatibility set. QQ
+counts every owned attachment card, excludes only the known mirror proven hidden
+through its ancestor chain, and requires canonical success, exact filename and
+verified bytes. Outlook waits up to five seconds for its owned Ribbon menu.
+After native selection and byte proof, the Controller clears only the unique
+same-call chooser whose object and input match the application's acknowledgement;
+existing, foreign or ambiguous modals remain closed. This internal cleanup adds
+no path upload or public Host operation. Reader assets and installed browser
+policy remain unchanged; do not restage browser components for this delta.
+Controlled Chromium/MCP fixtures do not establish live provider delivery.
+
 ## Security Invariants
 
 - Treat the Bridge as browser-wide privileged code even though SparkClaw limits

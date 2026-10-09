@@ -230,6 +230,16 @@ npm run qualify:playwright-email -- --profile remote
 不得使用资格验证发送真实邮件。Email Send 继续保留 Exact-content Approval、One-attempt
 Execution 和 Terminal Unknown-outcome Handling。
 
+## 受管邮箱附件运行时
+
+App-CLI `.17` 与对应 Controller Hook 必须配套升级。QQ 会统计 owned composer
+内的全部附件卡片，仅排除经祖先链可见性验证确实隐藏的已知镜像，并要求卡片位置、
+成功状态、完整文件名及字节证明一致。Outlook 对其 owned Ribbon 菜单最多等待五秒。
+原生选择与字节证明完成后，Controller 只清理同次调用产生、对象和 input 均与应用
+回执完全相同的唯一 chooser；已有、外来或多义 modal 继续拒绝。该内部清理不增加
+路径上传或公开 Host 操作。Reader 资源及已安装浏览器 policy 不变，本增量不得重新
+stage 浏览器组件。受控 Chromium/MCP fixture 通过不等于真实 Provider 投递通过。
+
 ## 安全不变量
 
 - 即使 SparkClaw 把每个 Client 限制在 Task-owned Tab，仍要把 Bridge 视为 Browser-wide

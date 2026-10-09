@@ -735,7 +735,7 @@
     "constant": "OperationMailDraftsSave",
     "version": 2,
     "direction": "forward",
-    "scope": "mail.send",
+    "scope": "mail.drafts.write",
     "mutation": true,
     "recovery": "operation_receipt",
     "limit_bytes": 63488,

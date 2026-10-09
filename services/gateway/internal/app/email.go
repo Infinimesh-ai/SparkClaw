@@ -150,13 +150,14 @@ type EmailSendRequest struct {
 }
 
 type EmailSendResult struct {
-	ProviderThreadID            string `json:"provider_thread_id,omitempty"`
-	Provider                    string `json:"provider"`
-	Status                      string `json:"status"`
-	RecipientDigest             string `json:"recipient_digest"`
-	ProviderMessageID           string `json:"provider_message_id,omitempty"`
-	BrowserCredentialGeneration uint64 `json:"browser_credential_generation"`
-	ScriptRevision              int    `json:"script_revision"`
+	NotSent                     *EmailNotSentProof `json:"not_sent,omitempty"`
+	ProviderThreadID            string             `json:"provider_thread_id,omitempty"`
+	Provider                    string             `json:"provider"`
+	Status                      string             `json:"status"`
+	RecipientDigest             string             `json:"recipient_digest"`
+	ProviderMessageID           string             `json:"provider_message_id,omitempty"`
+	BrowserCredentialGeneration uint64             `json:"browser_credential_generation"`
+	ScriptRevision              int                `json:"script_revision"`
 }
 
 // EmailReadRequest binds discovery or capture to Runtime-owned admission.

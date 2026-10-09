@@ -299,6 +299,16 @@ func (s *Service) ReconcileDraft(ctx context.Context, owner, id string) (store.E
 			}
 			d = result.Draft
 		}
+		if receipt.Status == "not_sent" {
+			if receipt.Provider != box.Provider || !receipt.NotSent.ValidFor(snap.InvocationID, receipt.Provider) || receipt.ProviderMessageID != "" || receipt.ProviderThreadID != "" {
+				return d, ErrConflict
+			}
+			result, err := s.repository.ChangeEmailDraft(ctx, store.EmailDraftCommand{OwnerID: owner, Action: "resolve_not_sent", Draft: store.EmailDraft{ID: id, State: "failed"}, ExpectedVersion: d.Version, SendKey: d.SendKey, ErrorCode: "email_send_not_dispatched", Receipt: &receipt})
+			if err != nil {
+				return d, err
+			}
+			d = result.Draft
+		}
 	}
 	out, err := s.repository.ChangeEmailDraft(ctx, store.EmailDraftCommand{OwnerID: owner, Action: "reconcile", Draft: store.EmailDraft{ID: id}})
 	return out.Draft, err

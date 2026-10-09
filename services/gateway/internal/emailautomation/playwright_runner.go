@@ -213,19 +213,23 @@ func (r *PlaywrightRunner) Send(
 		return SendResult{}, playwrightScriptFailure(provider, result.Result)
 	}
 	var output struct {
-		SchemaVersion     int    `json:"schema_version"`
-		Status            string `json:"status"`
-		Provider          string `json:"provider"`
-		RecipientDigest   string `json:"recipient_digest"`
-		ProviderMessageID string `json:"provider_message_id,omitempty"`
-		ProviderThreadID  string `json:"provider_thread_id,omitempty"`
+		SchemaVersion     int                    `json:"schema_version"`
+		Status            string                 `json:"status"`
+		Provider          string                 `json:"provider"`
+		RecipientDigest   string                 `json:"recipient_digest"`
+		ProviderMessageID string                 `json:"provider_message_id,omitempty"`
+		ProviderThreadID  string                 `json:"provider_thread_id,omitempty"`
+		NotSent           *app.EmailNotSentProof `json:"not_sent,omitempty"`
 	}
 	if err := decodeStrictJSON(result.Result, &output); err != nil ||
-		output.SchemaVersion != 1 || (output.Status != "sent" && !(request.Mode != "" && output.Status == "unknown")) || output.Provider != provider.ID ||
+		output.SchemaVersion != 1 || (output.Status != "sent" && !(request.Mode != "" && output.Status == "unknown") && !(request.Mode == "reconcile" && output.Status == "not_sent")) || output.Provider != provider.ID ||
 		output.RecipientDigest != expectedDigest ||
 		!validSendProviderID(output.ProviderMessageID, request.Mode != "") || !validSendProviderID(output.ProviderThreadID, request.Mode != "") ||
 		result.CredentialGeneration != generation {
 		return SendResult{}, codedError(app.ToolErrorEmailScriptInvalidOutput, "Email send script returned an invalid result")
+	}
+	if (output.Status == "not_sent" && (!output.NotSent.ValidFor(request.InvocationID, provider.ID) || output.ProviderMessageID != "" || output.ProviderThreadID != "")) || (output.Status != "not_sent" && output.NotSent != nil) {
+		return SendResult{}, codedError(app.ToolErrorEmailScriptInvalidOutput, "Email negative send proof does not match the original invocation")
 	}
 	if output.Status == "unknown" && request.Mode != "reconcile" {
 		return SendResult{}, codedError(app.ToolErrorEmailSendOutcomeUnknown, "Email send outcome is pending confirmation")
@@ -233,6 +237,7 @@ func (r *PlaywrightRunner) Send(
 	return SendResult{
 		Provider: provider.ID, Status: output.Status, RecipientDigest: output.RecipientDigest,
 		ProviderMessageID: output.ProviderMessageID, ProviderThreadID: output.ProviderThreadID,
+		NotSent:                     output.NotSent,
 		BrowserCredentialGeneration: uint64(result.CredentialGeneration), ScriptRevision: provider.Send.Revision,
 	}, nil
 }

@@ -150,14 +150,19 @@ func changeEmailDraft(e *emailEngine, c EmailDraftCommand) (EmailDraftResult, er
 		d.ReconciledAt = &at
 		d.Version++
 
-	case "finish", "resolve":
+	case "finish", "resolve", "resolve_not_sent":
+		if c.Action == "resolve_not_sent" {
+			if !ok || d.Version != c.ExpectedVersion || (d.State != "unknown" && d.State != "sending") || d.Snapshot == nil || d.SentMailID != "" || d.TimelineMailID != "" || c.Draft.State != "failed" || c.Receipt == nil || c.Receipt.Status != "not_sent" || !c.Receipt.NotSent.ValidFor(d.Snapshot.InvocationID, c.Receipt.Provider) || c.Receipt.ProviderMessageID != "" || c.Receipt.ProviderThreadID != "" {
+				return EmailDraftResult{}, errEmailConflict
+			}
+		}
 		if ok && c.Action == "resolve" && d.State == "sent" && d.SendKey == c.SendKey && string(emailJSON(d.Receipt)) == string(emailJSON(c.Receipt)) {
 			return EmailDraftResult{Draft: d}, nil
 		}
 		if !ok {
 			return EmailDraftResult{}, errEmailNotFound
 		}
-		if d.SendKey != c.SendKey || (d.State != "sending" && !(c.Action == "resolve" && (d.State == "unknown" || d.State == "sent"))) {
+		if d.SendKey != c.SendKey || (d.State != "sending" && !(c.Action == "resolve_not_sent" && d.State == "unknown") && !(c.Action == "resolve" && (d.State == "unknown" || d.State == "sent"))) {
 			return EmailDraftResult{}, errEmailConflict
 		}
 		if c.Draft.State != "sent" && c.Draft.State != "failed" && c.Draft.State != "unknown" {
@@ -168,6 +173,9 @@ func changeEmailDraft(e *emailEngine, c EmailDraftCommand) (EmailDraftResult, er
 		d.Receipt = c.Receipt
 		if c.Receipt != nil {
 			d.ConfirmationSource = "provider_receipt"
+			if c.Action == "resolve_not_sent" {
+				d.ConfirmationSource = "runtime_not_sent_proof"
+			}
 		}
 		attempt, found := emailGet[EmailDraftSnapshot](e, "send_snapshot", emailID(d.ID, c.SendKey))
 		if !found {

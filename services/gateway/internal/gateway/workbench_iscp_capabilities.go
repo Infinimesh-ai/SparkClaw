@@ -10,7 +10,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpobjects"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type iscpDomainCapability struct {
@@ -121,11 +120,7 @@ func (a *iscpDomainAdapter) mailSendReady(ctx context.Context, owner string) boo
 	if a.server.emailManagement == nil || !a.server.emailManagement.ComposeCapabilities().Compose {
 		return false
 	}
-	repository, ok := a.server.store.(store.EmailRepository)
-	if !ok {
-		return false
-	}
-	boxes, err := repository.ListEmailMailboxes(ctx, owner)
+	boxes, err := a.server.store.ListEmailMailboxes(ctx, owner)
 	if err != nil {
 		return false
 	}

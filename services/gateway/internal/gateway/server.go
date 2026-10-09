@@ -64,6 +64,7 @@ type Repository interface {
 	store.ExternalChatRepository
 	store.MCPRepository
 	DeleteMCPInvocationSession(context.Context, string) (app.Session, error)
+	ListEmailMailboxes(context.Context, string) ([]app.EmailMailbox, error)
 }
 
 type Server struct {

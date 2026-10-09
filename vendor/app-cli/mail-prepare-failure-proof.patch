@@ -1,0 +1,13 @@
+--- a/applications/mail/lib/send-recovery.mjs
++++ b/applications/mail/lib/send-recovery.mjs
+@@ -13 +13,4 @@
+-  if (!failures.has(reason) || !evidence || !id.test(evidence.task_id) ||
++  // Only the live, pre-dispatch catch may attest this failure. A historical
++  // terminal error (or missing journal) does not establish the dispatch phase.
++  const supported = failures.has(reason) || kind === 'pre_dispatch_failure' && reason === 'BROWSER_EXTENSION_UNAVAILABLE';
++  if (!supported || !evidence || !id.test(evidence.task_id) ||
+--- a/applications/mail/output-schema.mjs
++++ b/applications/mail/output-schema.mjs
+@@ -19 +19 @@
+-          ledger_epoch:{type:'integer',minimum:1},reason:{enum:['EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED','EMAIL_ATTACHMENT_UPLOAD_FAILED','EMAIL_ATTACHMENT_UNVERIFIED']}},
++          ledger_epoch:{type:'integer',minimum:1},reason:{enum:['EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED','EMAIL_ATTACHMENT_UPLOAD_FAILED','EMAIL_ATTACHMENT_UNVERIFIED','BROWSER_EXTENSION_UNAVAILABLE']}},

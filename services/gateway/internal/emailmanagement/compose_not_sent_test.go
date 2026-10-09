@@ -16,6 +16,7 @@ type negativeComposeBrowser struct {
 	reconciles      int
 	wrongInvocation bool
 	original        string
+	reason          string
 }
 
 func (b *negativeComposeBrowser) ReconcileSendForOwner(_ context.Context, _ string, r app.EmailSendRequest) (app.EmailSendResult, error) {
@@ -25,15 +26,21 @@ func (b *negativeComposeBrowser) ReconcileSendForOwner(_ context.Context, _ stri
 	if b.wrongInvocation {
 		invocation = "other-invocation"
 	}
-	return app.EmailSendResult{Provider: "gmail", Status: "not_sent", NotSent: &app.EmailNotSentProof{SchemaVersion: 1, Kind: "pre_dispatch_failure", InvocationID: invocation, TaskID: "original-task", IntentDigest: strings.Repeat("a", 64), ResourceDigest: strings.Repeat("b", 64), BindingDigest: strings.Repeat("c", 64), LedgerEpoch: 2, Reason: "EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED"}}, nil
+	return app.EmailSendResult{Provider: "gmail", Status: "not_sent", NotSent: &app.EmailNotSentProof{SchemaVersion: 1, Kind: "pre_dispatch_failure", InvocationID: invocation, TaskID: "original-task", IntentDigest: strings.Repeat("a", 64), ResourceDigest: strings.Repeat("b", 64), BindingDigest: strings.Repeat("c", 64), LedgerEpoch: 2, Reason: b.reason}}, nil
 }
 func TestComposeReconcileNegativeProofRetainsDraftAndDoesNotSend(t *testing.T) {
+	for _, reason := range []string{"EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED", "BROWSER_EXTENSION_UNAVAILABLE"} {
+		t.Run(reason, func(t *testing.T) { testComposeNegativeProof(t, reason) })
+	}
+}
+
+func testComposeNegativeProof(t *testing.T, reason string) {
 	repo := store.NewMemoryStore()
 	box, err := repo.BindEmailMailbox(t.Context(), store.EmailBindCommand{EmailCommand: store.EmailCommand{OwnerID: "owner", CommandKey: "bind"}, Provider: "gmail", Address: "owner@example.test", Boundary: time.Now()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	browser := &negativeComposeBrowser{composeFixture: &composeFixture{intakeFixture: &intakeFixture{}, address: "owner@example.test", resultError: errors.New("unknown upload outcome")}}
+	browser := &negativeComposeBrowser{composeFixture: &composeFixture{intakeFixture: &intakeFixture{}, address: "owner@example.test", resultError: errors.New("unknown preparation outcome")}, reason: reason}
 	service := &Service{repository: repo, browser: browser}
 	draft, err := service.SaveDraft(t.Context(), "owner", store.EmailDraft{ID: "same-draft", MailboxID: box.ID, To: []string{"sink@example.test"}, Subject: "Reviewed", Body: "Body"}, 0)
 	if err != nil {

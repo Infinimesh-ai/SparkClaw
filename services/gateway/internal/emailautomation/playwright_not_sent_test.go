@@ -17,7 +17,7 @@ func TestPlaywrightRunnerNotSentRequiresReconcileAndBoundTypedProof(t *testing.T
 		t.Fatal(err)
 	}
 	proof := &app.EmailNotSentProof{SchemaVersion: 1, Kind: "legacy_15_pre_dispatch_failure", InvocationID: request.InvocationID, TaskID: "original-task", IntentDigest: strings.Repeat("a", 64), ResourceDigest: strings.Repeat("b", 64), BindingDigest: app.EmailLegacy15QQBindingDigest, LedgerEpoch: 13, Reason: "EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED"}
-	for _, change := range []string{"valid", "no-proof", "other-invocation", "bad-digest", "sent-id", "wrong-recipient", "unknown-field", "send-mode", "unknown-kind", "sent-with-proof", "legacy-wrong-binding", "legacy-wrong-reason"} {
+	for _, change := range []string{"valid", "no-proof", "other-invocation", "bad-digest", "sent-id", "wrong-recipient", "unknown-field", "send-mode", "unknown-kind", "sent-with-proof", "legacy-wrong-binding", "legacy-wrong-reason", "legacy-browser-unavailable"} {
 		t.Run(change, func(t *testing.T) {
 			r := request
 			p := *proof
@@ -27,6 +27,8 @@ func TestPlaywrightRunnerNotSentRequiresReconcileAndBoundTypedProof(t *testing.T
 				p.BindingDigest = strings.Repeat("c", 64)
 			case "legacy-wrong-reason":
 				p.Reason = "EMAIL_ATTACHMENT_UPLOAD_FAILED"
+			case "legacy-browser-unavailable":
+				p.Reason = "BROWSER_EXTENSION_UNAVAILABLE"
 			case "no-proof":
 				delete(result, "not_sent")
 			case "other-invocation":
@@ -58,6 +60,38 @@ func TestPlaywrightRunnerNotSentRequiresReconcileAndBoundTypedProof(t *testing.T
 				}
 			} else if ErrorCode(err) != app.ToolErrorEmailScriptInvalidOutput {
 				t.Fatalf("%s accepted: %+v %v", change, receipt, err)
+			}
+			if len(controller.requests) != 1 {
+				t.Fatalf("unexpected retry count %d", len(controller.requests))
+			}
+		})
+	}
+}
+
+func TestPlaywrightRunnerReconcilesFutureOutlookPreparationProof(t *testing.T) {
+	provider, _ := DefaultRegistry().Get(app.EmailProviderOutlook)
+	request := SendRequest{Provider: provider.ID, Account: app.EmailAccountDefault, Mode: "reconcile", AccountAddress: "owner@example.test", To: []string{"sink@example.test"}, Subject: "Approved", Body: "Body", InvocationID: "original-invocation", BrowserCredentialGeneration: 7, ProbeRevision: provider.Probe.Revision, ScriptRevision: provider.Send.Revision}
+	digest, err := validateComposeRequest(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof := &app.EmailNotSentProof{SchemaVersion: 1, Kind: "pre_dispatch_failure", InvocationID: request.InvocationID, TaskID: "original-task", IntentDigest: strings.Repeat("a", 64), ResourceDigest: strings.Repeat("b", 64), BindingDigest: strings.Repeat("c", 64), LedgerEpoch: 15, Reason: "BROWSER_EXTENSION_UNAVAILABLE"}
+	for _, mode := range []string{"reconcile", "compose"} {
+		t.Run(mode, func(t *testing.T) {
+			r := request
+			r.Mode = mode
+			raw, err := json.Marshal(map[string]any{"schema_version": 1, "provider": provider.ID, "status": "not_sent", "recipient_digest": digest, "not_sent": proof})
+			if err != nil {
+				t.Fatal(err)
+			}
+			controller := &fakePlaywrightController{status: browsercontrol.Status{Configured: true, CredentialGeneration: 7}, result: browsercontrol.ScriptExecutionResult{State: "completed", CredentialGeneration: 7, Result: raw}}
+			receipt, err := NewPlaywrightRunner(controller).Send(t.Context(), provider, r)
+			if mode == "reconcile" {
+				if err != nil || receipt.Status != "not_sent" || receipt.NotSent == nil || *receipt.NotSent != *proof {
+					t.Fatalf("receipt=%+v err=%v", receipt, err)
+				}
+			} else if ErrorCode(err) != app.ToolErrorEmailScriptInvalidOutput {
+				t.Fatalf("compose accepted negative receipt: %+v %v", receipt, err)
 			}
 			if len(controller.requests) != 1 {
 				t.Fatalf("unexpected retry count %d", len(controller.requests))

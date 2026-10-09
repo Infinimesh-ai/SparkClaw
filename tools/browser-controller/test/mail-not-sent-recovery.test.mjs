@@ -24,12 +24,16 @@ const archive = new URL('../../../vendor/app-cli/infinimesh-app-cli-runtime-0.3.
 const extracted = spawnSync('tar',['-xOf',archive.pathname,'package/bindings/mail-qq-mail.json'],{encoding:'utf8',timeout:5000});
 assert.equal(extracted.status,0,extracted.stderr);
 const oldBinding=JSON.parse(extracted.stdout);
-const args = () => ({schema_version:1,operation:'send',provider:'qq_mail',account:'default',
+const outlookArchive = new URL('../../../vendor/app-cli/infinimesh-app-cli-runtime-0.3.0-sparkclaw.16.tgz',import.meta.url);
+const outlookExtracted = spawnSync('tar',['-xOf',outlookArchive.pathname,'package/bindings/mail-outlook.json'],{encoding:'utf8',timeout:5000});
+assert.equal(outlookExtracted.status,0,outlookExtracted.stderr);
+const outlook16Binding=JSON.parse(outlookExtracted.stdout);
+const args = (provider='qq_mail') => ({schema_version:1,operation:'send',provider,account:'default',
   account_address:'owner@example.test',invocation_id:'reviewed-invocation',mode:'compose',
   message:{to:['sink@example.test'],cc:[],subject:'Reviewed',body:{format:'text',content:'Body'},attachments:[
     {name:'file.txt',size_bytes:1,sha256:'sha256:'+'a'.repeat(64),path:`.sparkclaw-mail-send-${'a'.repeat(32)}/00/file.txt`}]}});
 
-async function fixture(t,{reason='EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED',binding=oldBinding,future=false}={}) {
+async function fixture(t,{reason='EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED',binding=oldBinding,future=false,prepareFailure=false,releaseFailure=false}={}) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'mail-negative-proof-'));
   fs.chmodSync(root,0o700); t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const key=path.join(root,'key');fs.writeFileSync(key,crypto.randomBytes(32),{mode:0o600});
@@ -38,25 +42,45 @@ async function fixture(t,{reason='EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED',binding=ol
   let executor;
   t.after(async()=>{await executor?.close();ledger.close();});
   const resource={binding_digest:digest(binding),workspace_root:root};
+  const provider=binding.application.provider;
   const request={protocol_version:'2.0',operation:'invoke',app:binding.manifest.id,command:'send',request_key:'original-key',
-    arguments:args(),deadline_ms:Date.now()+60000};
+    arguments:args(provider),deadline_ms:Date.now()+60000};
   const grant={principal:'product-owner',owner:'owner',app:request.app,command:'send',request_key:request.request_key,
     side_effect:binding.manifest.commands.find(v=>v.name==='send').side_effect,intent_digest:intentDigest(request),
     operations:['invoke','lookup','status','reconcile','resume'],access_expires_ms:Date.now()+120000,
     execution_expires_ms:request.deadline_ms,max_deadline_ms:request.deadline_ms,task_id:null,revision:1};
   request.authorization_ref=authorization.issue(grant,resource);
-  let sendEffects=0,hostAcquires=0;
+  let sendEffects=0,hostAcquires=0,releaseCalls=0,prepareCalls=0;
   const handlers=await mailHandlers();
   const handlerName=binding.commands.send.handler;
   const originals={...handlers,[handlerName]:{async run(input,context){
     context.beforeEffect();sendEffects++;
-    if(future)await sendManagedMail(input,'qq_mail',{emailWorkspaceRoot:root,
+    if(releaseFailure){
+      // Controlled provider outcome: persist a dispatch and a sent receipt
+      // before the Executor's separate host-release boundary fails.
+      const request=validateManagedSend(input,provider),journal=await openSendJournal(root,request);
+      const receipt={schema_version:1,provider,status:'sent',recipient_digest:request.recipientDigest};
+      assert.equal(await journal.write('dispatching'),true);
+      assert.equal(await journal.write('sent',receipt),true);
+      return {data:receipt};
+    }
+    if(future)await sendManagedMail(input,provider,{emailWorkspaceRoot:root,
       notSentReceipt:(r,error)=>createNotSentReceipt(r,context,error,'pre_dispatch_failure'),
-      withSendTab:async()=>{throw Object.assign(new Error(reason),{code:reason.toLowerCase()});}});
+      withSendTab:async callback=>{
+        const failure=()=>{throw Object.assign(new Error(reason),{code:reason.toLowerCase()});};
+        if(!prepareFailure)return failure();
+        let reads=0;
+        return callback({async runReadCode(){return true;},async inspect(){
+          if(++reads===1)return {result:{ids:[]}}; // Outlook sent baseline.
+          prepareCalls++;return failure(); // Account verification in prepareManagedDraft.
+        },async click(){assert.fail('preparation failure must never click Send');}});
+      }}).catch(error=>{throw Object.assign(error,{code:error.code.toUpperCase()});});
     throw Object.assign(new Error(reason),{code:reason});
   }}};
   executor=new Executor({ledger,authorization,bindings:[binding],handlers:originals,
-    host:{async acquire(){return {async release(){}};}}});
+    host:{async acquire(){return {async release(){
+      if(++releaseCalls===1&&releaseFailure)throw Object.assign(new Error(reason),{code:reason});
+    }};}}});
   const started=await executor.control(request);
   await assert.rejects(executor.control({protocol_version:'2.0',operation:'reconcile',app:request.app,command:'send',
     authorization_ref:request.authorization_ref,task_id:started.task.id}),{code:'INVALID_TASK_STATE'});
@@ -64,8 +88,8 @@ async function fixture(t,{reason='EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED',binding=ol
   assert.equal(ledger.get(started.task.id).status,'uncertain');
   assert.equal(ledger.get(started.task.id).effect,1);
   await executor.close();
-  const current=structuredClone(oldBinding);
-  current.manifest.commands.find(v=>v.name==='send').output_schema=outputSchema('qq_mail','send');
+  const current=structuredClone(binding);
+  current.manifest.commands.find(v=>v.name==='send').output_schema=outputSchema(provider,'send');
   current.manifest_digest=digest(current.manifest);
   const recoveryOptions={authorization,bindings:[current],handlers,
     host:{async acquire(){hostAcquires++;assert.fail('receipt reconciliation acquired a browser');}}};
@@ -79,7 +103,8 @@ async function fixture(t,{reason='EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED',binding=ol
   };
   return {root,get ledger(){return ledger;},request,resource,reconcile,control,get executor(){return executor;},taskID:started.task.id,
     async restart(){await executor.close();ledger.close();ledger=new Ledger(path.join(root,'ledger'));executor=new Executor({...recoveryOptions,ledger});},
-    journal:()=>openSendJournal(root,validateManagedSend(request.arguments,'qq_mail')),
+    journal:()=>openSendJournal(root,validateManagedSend(request.arguments,provider)),
+    boundaryCalls:()=>({prepareCalls,releaseCalls}),
     effects:()=>({sendEffects,hostAcquires})};
 }
 
@@ -135,6 +160,60 @@ test('future pre-dispatch proof survives a lost failure reply and cannot be repl
   assert.equal(f.ledger.epoch,2);
   assert.equal(f.ledger.get(f.taskID).effect,1);
   assert.deepEqual(f.effects(),{sendEffects:1,hostAcquires:0});
+});
+
+test('future Outlook preparation failure persists bound proof before recovery without sending',async t=>{
+  const f=await fixture(t,{binding:outlook16Binding,future:true,prepareFailure:true,reason:'BROWSER_EXTENSION_UNAVAILABLE'});
+  const persisted=(await f.journal()).saved;
+  assert.equal(persisted.stage,'not_sent');
+  assert.equal(persisted.receipt.not_sent.reason,'BROWSER_EXTENSION_UNAVAILABLE');
+  assert.equal(persisted.receipt.not_sent.kind,'pre_dispatch_failure');
+  assert.equal(persisted.receipt.not_sent.intent_digest,intentDigest(f.request));
+  assert.equal(persisted.receipt.not_sent.resource_digest,digest(f.resource));
+  assert.equal(f.ledger.get(f.taskID).status,'uncertain','original outcome stays uncertain until explicit reconciliation');
+  assert.equal(f.ledger.get(f.taskID).reason,'BROWSER_EXTENSION_UNAVAILABLE');
+  assert.ok(f.boundaryCalls().prepareCalls>0);
+  assert.equal(await (await f.journal()).write('dispatching'),false);
+  await f.restart();
+  const result=await f.reconcile();
+  assert.equal(result.task.status,'completed');
+  assert.deepEqual(result.data,persisted.receipt);
+  assert.equal(f.ledger.get(f.taskID).effect,1);
+  assert.deepEqual(f.effects(),{sendEffects:1,hostAcquires:0});
+});
+
+test('old .16 Outlook terminal browser error and absent journal provide no pre-dispatch proof',async t=>{
+  const f=await fixture(t,{binding:outlook16Binding,reason:'BROWSER_EXTENSION_UNAVAILABLE'});
+  assert.equal((await f.journal()).saved,null);
+  await f.restart();
+  assert.equal((await f.reconcile()).task.status,'uncertain');
+  assert.equal((await f.journal()).saved,null);
+  assert.equal(f.ledger.get(f.taskID).effect,1);
+  assert.deepEqual(f.effects(),{sendEffects:1,hostAcquires:0});
+});
+
+test('post-dispatch release failure is never converted into a negative receipt',async t=>{
+  for(const loseJournal of [false,true])await t.test(loseJournal?'independent journal loss':'durable sent receipt',async t=>{
+    // This is a fault injected at the Executor/host contract, not a claim that
+    // the production Host's cached cleanup failure permits a second release.
+    const f=await fixture(t,{binding:outlook16Binding,releaseFailure:true,reason:'BROWSER_EXTENSION_UNAVAILABLE'});
+    assert.equal(f.boundaryCalls().releaseCalls,2);
+    assert.equal(f.ledger.get(f.taskID).reason,'BROWSER_EXTENSION_UNAVAILABLE');
+    assert.equal((await f.journal()).saved.stage,'sent');
+    if(loseJournal)fs.rmSync(path.join(f.root,'email-send'),{recursive:true}); // Local failure fixture only.
+    const result=await f.reconcile();
+    if(loseJournal){
+      assert.equal(result.task.status,'uncertain');
+      assert.equal((await f.journal()).saved,null);
+    }else{
+      assert.equal(result.task.status,'completed');
+      assert.equal(result.data.status,'sent');
+      assert.equal(result.data.not_sent,undefined);
+      assert.equal((await f.journal()).saved.stage,'sent');
+    }
+    assert.equal(f.ledger.get(f.taskID).effect,1);
+    assert.deepEqual(f.effects(),{sendEffects:1,hostAcquires:0});
+  });
 });
 
 test('negative and dispatch claims are mutually exclusive across concurrent journal readers',async t=>{

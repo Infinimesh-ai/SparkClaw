@@ -33,7 +33,7 @@ func (p *EmailNotSentProof) ValidFor(invocation, provider string) bool {
 		return provider == EmailProviderQQMail && p.BindingDigest == EmailLegacy15QQBindingDigest && p.Reason == "EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED"
 	}
 	switch p.Reason {
-	case "EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED", "EMAIL_ATTACHMENT_UPLOAD_FAILED", "EMAIL_ATTACHMENT_UNVERIFIED":
+	case "EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED", "EMAIL_ATTACHMENT_UPLOAD_FAILED", "EMAIL_ATTACHMENT_UNVERIFIED", "BROWSER_EXTENSION_UNAVAILABLE":
 		return true
 	default:
 		return false

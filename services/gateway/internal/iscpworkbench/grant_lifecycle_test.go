@@ -3,6 +3,7 @@ package iscpworkbench
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscplocalissuer"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/identity"
@@ -201,5 +203,104 @@ func TestExpiredSeedOnlyBootstrapsWithExplicitRenewalAndStillFailsAdmission(t *t
 	bad.GrantRenewal.URL = "http://210.16.177.239:8080"
 	if bad.Validate() == nil {
 		t.Fatal("arbitrary insecure public renewal endpoint accepted")
+	}
+}
+
+func TestPermanentRevocationStopsInflightAndFutureBusinessBeforeGrantExpiry(t *testing.T) {
+	i, dCfg, bCfg, original := lifecycleFixture(t)
+	if err := i.AuthorizePermanentRenewal(dCfg.GrantFile); err != nil {
+		t.Fatal(err)
+	}
+	dCfg.GrantRenewal.AuthorizationLifetime = iscpauth.UntilRevoked
+	bCfg.GrantRenewal.AuthorizationLifetime = iscpauth.UntilRevoked
+	bus := &testRelayBus{peers: map[string]*testRelay{}}
+	d := &testRelay{bus: bus, inbox: make(chan json.RawMessage, 128), disrupt: make(chan struct{}, 1)}
+	b := &testRelay{bus: bus, inbox: make(chan json.RawMessage, 128), disrupt: make(chan struct{}, 1)}
+	bus.peers["desktop"], bus.peers["gateway"] = d, b
+	started, canceled := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	initiator, err := NewEndpointWithRelay(dCfg, d, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	responder, err := NewEndpointWithRelay(bCfg, b, func(ctx context.Context, _ Request) Response {
+		calls.Add(1)
+		close(started)
+		<-ctx.Done()
+		close(canceled)
+		return Response{Status: 200, Body: json.RawMessage(`{"private":"result"}`)}
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	done := make(chan struct{}, 2)
+	go func() { _ = responder.Run(ctx); done <- struct{}{} }()
+	go func() { _ = initiator.Run(ctx); done <- struct{}{} }()
+	t.Cleanup(func() {
+		cancel()
+		_ = initiator.Close()
+		_ = responder.Close()
+		for range 2 {
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Error("revoked endpoint did not stop")
+			}
+		}
+	})
+	waitReady(t, initiator)
+	waitReady(t, responder)
+	result := make(chan error, 1)
+	go func() {
+		_, err := initiator.Call(ctx, Request{Type: RequestType, Profile: Profile, ID: newUUID(), Operation: OperationIdentity})
+		result <- err
+	}()
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("handler not admitted")
+	}
+	if err := i.RevokeRenewal(); err != nil {
+		t.Fatal(err)
+	}
+	if err := responder.refreshAuthorization(ctx); !errors.Is(err, iscpbridge.ErrAuthorizationRevoked) {
+		t.Fatalf("revocation not detected: %v", err)
+	}
+	select {
+	case <-canceled:
+	case <-ctx.Done():
+		t.Fatal("inflight handler survived revocation")
+	}
+	if err := initiator.checkAuthorization(ctx); !errors.Is(err, iscpbridge.ErrAuthorizationRevoked) {
+		t.Fatal(err)
+	}
+	if err := <-result; err == nil {
+		t.Fatal("business result returned after revocation")
+	}
+	if !time.Now().Before(original.ExpiresAt) {
+		t.Fatal("test did not exercise still-valid Grant")
+	}
+	if _, err := initiator.Call(ctx, Request{Type: RequestType, Profile: Profile, ID: newUUID(), Operation: OperationIdentity}); err == nil {
+		t.Fatal("new call admitted after deletion")
+	}
+	for _, endpoint := range []*Endpoint{initiator, responder} {
+		endpoint.mu.Lock()
+		state := endpoint.stateName
+		endpoint.mu.Unlock()
+		if state != "authorization_revoked" {
+			t.Fatalf("signed revocation overwritten: %s", state)
+		}
+	}
+	restarted, err := NewEndpointWithRelay(dCfg, d, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	if err := restarted.checkAuthorization(context.Background()); !errors.Is(err, iscpbridge.ErrAuthorizationRevoked) {
+		t.Fatalf("restart restored deleted consent: %v", err)
+	}
+	if calls.Load() != 1 {
+		t.Fatal("execution repeated")
 	}
 }

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
+
 	iscpcrypto "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/descriptor"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/identity"
@@ -57,7 +59,7 @@ func authorizationError(state *renewalState, now time.Time) error {
 	if state.Authorization.Revoked {
 		return failure(403, "renewal_authorization_revoked")
 	}
-	if !now.Before(state.Authorization.ExpiresAt) {
+	if !state.Authorization.ExpiresAt.IsZero() && !now.Before(state.Authorization.ExpiresAt) {
 		return failure(410, "renewal_authorization_expired")
 	}
 	return nil
@@ -78,6 +80,9 @@ func writeProtocolError(w http.ResponseWriter, err error) {
 
 func (i *Issuer) handleRenewal(w http.ResponseWriter, r *http.Request) bool {
 	switch r.URL.Path {
+	case iscpauth.StatusPath:
+		i.authorizationStatus(w, r)
+		return true
 	case RenewalCapabilityPath:
 		if r.Method != http.MethodGet || r.URL.RawQuery != "" {
 			writeProtocolError(w, failure(405, "method_not_allowed"))
@@ -130,7 +135,7 @@ func (i *Issuer) readCapability() (descriptor.SignedDescriptor, error) {
 		return descriptor.SignedDescriptor{}, err
 	}
 	now := i.Now().UTC()
-	if err = authorizationError(state, now); err != nil {
+	if err = authorizationError(state, now); err != nil && !(state.SchemaVersion == 2 && state.Authorization != nil) {
 		return descriptor.SignedDescriptor{}, err
 	}
 	return i.capability(state, now)
@@ -149,15 +154,20 @@ func validIdempotencyKey(key string) bool {
 }
 
 func (i *Issuer) capability(state *renewalState, now time.Time) (descriptor.SignedDescriptor, error) {
+	return descriptor.Sign(iscpcrypto.NewProvider(), i.device, trustRootDescriptorType, i.capabilityBody(state, now), now)
+}
+
+func (i *Issuer) capabilityBody(state *renewalState, now time.Time) descriptor.TrustRootDescriptor {
 	expires := now.Add(5 * time.Minute)
-	if state.Authorization.ExpiresAt.Before(expires) {
+	if !state.Authorization.ExpiresAt.IsZero() && state.Authorization.ExpiresAt.Before(expires) {
 		expires = state.Authorization.ExpiresAt
 	}
 	key := i.device.Identity.PublicKey
 	body := descriptor.TrustRootDescriptor{Type: trustRootDescriptorType, TrustRootID: i.device.Identity.DeviceID, DomainID: i.device.Identity.DomainID,
 		Keys: []descriptor.PublicKey{{KTY: key.KTY, Use: "descriptor-signature", KID: key.KID, Public: key.Public}}, IssuedAt: now, ExpiresAt: expires,
-		Metadata: map[string]string{"purpose": "sparkclaw-local-grant-renewal", "grant_renewal": "true", "issuer_device_id": i.device.Identity.DeviceID, "relay_id": i.relayID, "subject_device_id": i.subject.DeviceID, "audience_device_id": i.audience.DeviceID, "permission": Permission, "authorization_expires_at": state.Authorization.ExpiresAt.Format(time.RFC3339Nano)}}
-	return descriptor.Sign(iscpcrypto.NewProvider(), i.device, trustRootDescriptorType, body, now)
+		Metadata: map[string]string{"purpose": "sparkclaw-local-grant-renewal", "grant_renewal": "true", "issuer_device_id": i.device.Identity.DeviceID, "relay_id": i.relayID, "subject_device_id": i.subject.DeviceID, "audience_device_id": i.audience.DeviceID, "permission": Permission}}
+	state.policy(now).AddTo(body.Metadata)
+	return body
 }
 
 func (i *Issuer) deviceGrant(path, key string, raw []byte) (int, []byte, error) {
@@ -170,7 +180,7 @@ func (i *Issuer) deviceGrant(path, key string, raw []byte) (int, []byte, error) 
 		}
 		dirty := false
 		for cachedKey, cached := range state.Idempotency {
-			if cached.Status == 200 && !now.Before(cached.ExpiresAt) {
+			if !cached.ExpiresAt.IsZero() && !now.Before(cached.ExpiresAt) {
 				delete(state.Idempotency, cachedKey)
 				dirty = true
 			}
@@ -233,7 +243,7 @@ func (i *Issuer) deviceGrant(path, key string, raw []byte) (int, []byte, error) 
 			}
 			state.Nonces[nonceKey] = input.IdentityProof.IssuedAt.Add(proofFreshness + time.Second)
 			var err error
-			grant, err = i.signGrantAt(ttl, now)
+			grant, err = i.signGrantAt(ttl, now, state.CurrentGrant.RevocationEpoch)
 			if err != nil {
 				return true, err
 			}
@@ -250,6 +260,10 @@ func (i *Issuer) deviceGrant(path, key string, raw []byte) (int, []byte, error) 
 		record := idempotencyRecord{BodySHA256: bodyHash, Status: status, Response: response}
 		if path == CurrentGrantPath {
 			record.ExpiresAt = now.Add(proofFreshness)
+		} else if state.SchemaVersion == 2 {
+			// Bound permanent-authorization history. After seven days both the
+			// old Grant and its proof are expired, so pruning cannot mint it again.
+			record.ExpiresAt = grant.ExpiresAt.Add(7 * 24 * time.Hour)
 		}
 		state.Idempotency[cacheKey] = record
 		return true, nil
@@ -258,6 +272,9 @@ func (i *Issuer) deviceGrant(path, key string, raw []byte) (int, []byte, error) 
 }
 
 func authorizationBoundedTTL(policyTTL time.Duration, deadline, now time.Time) time.Duration {
+	if deadline.IsZero() {
+		return policyTTL
+	}
 	remaining := deadline.Sub(now).Truncate(time.Second)
 	if remaining < policyTTL {
 		return remaining

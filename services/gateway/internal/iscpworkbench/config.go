@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	iscpcrypto "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/identity"
@@ -40,9 +41,10 @@ type Config struct {
 // GrantRenewalConfig points to the separately pinned local issuer. Relay
 // credentials and the issuer's management credential are never used here.
 type GrantRenewalConfig struct {
-	URL                 string `json:"url"`
-	PendingFile         string `json:"pending_file"`
-	PollIntervalSeconds int    `json:"poll_interval_seconds,omitempty"`
+	URL                   string `json:"url"`
+	AuthorizationLifetime string `json:"authorization_lifetime,omitempty"`
+	PendingFile           string `json:"pending_file"`
+	PollIntervalSeconds   int    `json:"poll_interval_seconds,omitempty"`
 }
 
 // PublicIdentity is derived from the validated enrollment and pinned peer,
@@ -125,6 +127,9 @@ func (c Config) Validate() error {
 		return errors.New("unsupported workbench permission")
 	}
 	if c.GrantRenewal != nil {
+		if c.GrantRenewal.AuthorizationLifetime != "" && c.GrantRenewal.AuthorizationLifetime != iscpauth.UntilRevoked {
+			return errors.New("unsupported Grant authorization lifetime")
+		}
 		if err := iscpbridge.ValidateGrantLifecycleURL(c.GrantRenewal.URL); err != nil {
 			return err
 		}

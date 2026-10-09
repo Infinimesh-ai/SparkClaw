@@ -21,7 +21,8 @@ func (e *Endpoint) grantMaterial() material {
 // Renewal changes authorization, not the execution identity or the active
 // encrypted session. In-flight original requests keep their durable fence;
 // subsequent handshakes use the new Grant ID.
-func (e *Endpoint) refreshAuthorization(ctx context.Context) error {
+func (e *Endpoint) refreshAuthorization(ctx context.Context) (resultErr error) {
+	defer func() { e.observeAuthorizationError(resultErr) }()
 	if e.lifecycle == nil {
 		return nil
 	}
@@ -66,6 +67,9 @@ func (e *Endpoint) runGrantLifecycle(ctx context.Context) {
 	if lead := iscpbridge.GrantRenewalWindow(e.grantMaterial().grant) / 2; lead < interval {
 		interval = max(time.Second, lead)
 	}
+	if e.lifecycle.UsesStandingAuthorization() {
+		interval = min(interval, 10*time.Second)
+	}
 	delay := interval
 	for {
 		timer := time.NewTimer(delay)
@@ -87,6 +91,12 @@ func (e *Endpoint) runGrantLifecycle(ctx context.Context) {
 		var retry interface{ RetryAfter() time.Duration }
 		if errors.As(err, &retry) && retry.RetryAfter() > delay {
 			delay = retry.RetryAfter()
+		}
+		// The lifecycle client independently paces renewal/current and status.
+		// Keep checking standing authorization while renewal is backed off,
+		// including when an accepted execution has no new business messages.
+		if e.lifecycle.UsesStandingAuthorization() {
+			delay = min(interval, 10*time.Second)
 		}
 	}
 }
@@ -132,4 +142,35 @@ func saveCurrentGrant(path string, grant trust.Grant) error {
 		return errors.New("sync current grant directory")
 	}
 	return nil
+}
+
+// Every business dispatch/result requires a fresh proof-bound issuer check.
+// A failed check blocks that operation; only signed revocation tears down the
+// authorization and cancels detached Gateway work through onState.
+func (e *Endpoint) checkAuthorization(ctx context.Context) error {
+	if e.lifecycle == nil {
+		return nil
+	}
+	err := e.lifecycle.CheckAuthorization(ctx)
+	e.observeAuthorizationError(err)
+	return err
+}
+
+func (e *Endpoint) observeAuthorizationError(err error) {
+	if !errors.Is(err, iscpbridge.ErrAuthorizationRevoked) {
+		return
+	}
+	e.mu.Lock()
+	if e.authorizationRevoked {
+		e.mu.Unlock()
+		return
+	}
+	e.authorizationRevoked = true
+	e.resetLocked()
+	cancel := e.cancel
+	e.mu.Unlock()
+	e.setState("authorization_revoked")
+	if cancel != nil {
+		cancel()
+	}
 }

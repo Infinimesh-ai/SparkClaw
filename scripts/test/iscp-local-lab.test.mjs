@@ -53,7 +53,7 @@ test("issuer runtime is pinned, lab-owned, isolated and publishes only loopback 
   assert.throws(() => issuerContainerConfig({ ...config, directory: "/private/another-lab" }, directory), /inside/u);
   const desktop = helperRenewalConfig(directory, "desktop", "http://127.0.0.1:19091"), gateway = helperRenewalConfig(directory, "gateway", "http://iscp-local-issuer:8080");
   assert.notEqual(desktop.pending_file, gateway.pending_file); assert.equal(desktop.poll_interval_seconds, 10);
-  assert.deepEqual(Object.keys(desktop).sort(), ["pending_file", "poll_interval_seconds", "url"]);
+  assert.deepEqual(Object.keys(desktop).sort(), ["authorization_lifetime", "pending_file", "poll_interval_seconds", "url"]);
   for (const url of ["http://remote.example", "http://0.0.0.0:8080", "http://127.0.0.1:19091/v1/current", "http://user:password@127.0.0.1:19091"]) assert.throws(() => helperRenewalConfig(directory, "desktop", url));
 });
 
@@ -63,6 +63,16 @@ test("issuer startup requires the SDK descriptor envelope, fixed pair and bounde
     type: "iscp.trust_root.descriptor.v2", trust_root_id: "issuer", domain_id: "domain", issued_at: new Date(now).toISOString(), expires_at: new Date(now + 300000).toISOString(),
     metadata: { purpose: "sparkclaw-local-grant-renewal", grant_renewal: "true", issuer_device_id: "issuer", relay_id: "relay", subject_device_id: "desktop", audience_device_id: "gateway", permission: "sparkclaw.workbench.v1", authorization_expires_at: new Date(now + 86400000).toISOString() } } });
   assert.doesNotThrow(() => validateIssuerRenewalCapability(capability(), metadata, issuer, now));
+  const permanent = capability();
+  delete permanent.descriptor.metadata.authorization_expires_at;
+  Object.assign(permanent.descriptor.metadata, { authorization_version: "2", authorization_lifetime: "until_revoked", authorization_state: "active", authorization_revision: "1" });
+  const pinned = { ...metadata, authorization_lifetime: "until_revoked" };
+  assert.doesNotThrow(() => validateIssuerRenewalCapability(permanent, pinned, issuer, now));
+  assert.throws(() => validateIssuerRenewalCapability(capability(), pinned, issuer, now));
+  for (const change of [fields => fields.authorization_state = "revoked", fields => fields.authorization_revision = "0", fields => fields.authorization_revision = "18446744073709551616", fields => fields.authorization_expires_at = ""]) {
+    const value = structuredClone(permanent); change(value.descriptor.metadata);
+    assert.throws(() => validateIssuerRenewalCapability(value, pinned, issuer, now));
+  }
   for (const change of [value => value.type = "ad-hoc-capability", value => value.descriptor_type = "iscp.device.identity.v2", value => value.descriptor.domain_id = "another",
     value => value.descriptor.metadata.grant_renewal = "false", value => value.descriptor.metadata.subject_device_id = "another", value => value.descriptor.metadata.permission = "unrestricted",
     value => value.descriptor.expires_at = new Date(now + 360000).toISOString(), value => value.descriptor.metadata.authorization_expires_at = new Date(now + 1000).toISOString()]) {

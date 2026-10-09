@@ -95,15 +95,15 @@ export async function prepareLab(inputFile, directory) {
     command("go", ["build", "-trimpath", "-o", issuerBinary, "./cmd/iscp-local-issuer"], { cwd: gatewayRoot });
     command(issuerBinary, ["-init", "-directory", path.join(directory, "issuer"), "-subject-identity", path.join(directory, "desktop/device.identity.json"), "-audience-identity", path.join(directory, "gateway/device.identity.json"), "-relay-id", metadata.relay_id]);
     await issueGrant(directory);
-    command(issuerBinary, ["-authorize-renewal", "-config", path.join(directory, "issuer/issuer.json"), "-grant-file", path.join(directory, "grant.json"), "-authorization-hours", "24"]);
+    command(issuerBinary, ["-authorize-renewal", "-config", path.join(directory, "issuer/issuer.json"), "-grant-file", path.join(directory, "grant.json"), "-authorization-hours", "0"]);
     const issuerConfig = await readPrivateJSON(path.join(directory, "issuer/issuer.json"));
     await write(path.join(directory, "issuer/issuer-container.json"), issuerContainerConfig(issuerConfig, directory));
     command("go", ["build", "-trimpath", "-o", path.join(directory, "bin/issuer-linux"), "./cmd/iscp-local-issuer"], { cwd: gatewayRoot, env: { ...process.env, GOOS: "linux", GOARCH: metadata.source.goarch, CGO_ENABLED: "0" } });
     metadata.issuer_binary_sha256 = crypto.createHash("sha256").update(await fs.readFile(path.join(directory, "bin/issuer-linux"))).digest("hex");
     await startIssuer(metadata, directory);
+    metadata.authorization_lifetime = "until_revoked";
     await waitIssuerRenewal(metadata, directory);
     metadata.grant_renewal = true;
-    metadata.renewal_authorization_hours = 24;
     await writeProfiles(directory, metadata, desktop.identity, gateway.identity);
     await write(path.join(directory, "run.json"), metadata);
     process.stdout.write(`Local reference Relay ready at ${metadata.relay_url}; both devices registered with signed PoP.\n`);
@@ -124,7 +124,7 @@ export function helperRenewalConfig(directory, role, issuerURL) {
   const url = new URL(issuerURL);
   if (!["desktop", "gateway"].includes(role) || !path.isAbsolute(directory) || url.protocol !== "http:" || url.origin !== issuerURL ||
       !["127.0.0.1", "[::1]", "localhost", "iscp-local-issuer"].includes(url.hostname)) throw new Error("Invalid local issuer renewal route");
-  return { url: issuerURL, pending_file: path.join(directory, role, "pending-grant.json"), poll_interval_seconds: 10 };
+  return { url: issuerURL, authorization_lifetime: "until_revoked", pending_file: path.join(directory, role, "pending-grant.json"), poll_interval_seconds: 10 };
 }
 
 async function writeProfiles(directory, metadata, desktopIdentity, gatewayIdentity) {
@@ -166,12 +166,16 @@ async function writeProfiles(directory, metadata, desktopIdentity, gatewayIdenti
 export function validateIssuerRenewalCapability(capability, metadata, issuerIdentity, now = Date.now()) {
   const descriptor = capability?.descriptor, fields = descriptor?.metadata;
   const issued = Date.parse(descriptor?.issued_at), expires = Date.parse(descriptor?.expires_at), authorizedUntil = Date.parse(fields?.authorization_expires_at);
+  const permanent = fields?.authorization_version === "2" && fields.authorization_lifetime === "until_revoked" && fields.authorization_state === "active" &&
+    /^[1-9][0-9]*$/u.test(fields.authorization_revision ?? "") && BigInt(fields.authorization_revision) <= 18446744073709551615n && !Object.hasOwn(fields, "authorization_expires_at");
+  const legacy = !fields?.authorization_version && !fields?.authorization_lifetime && !fields?.authorization_state && !fields?.authorization_revision && Number.isFinite(authorizedUntil) && expires <= authorizedUntil;
+  const policyValid = metadata.authorization_lifetime === "until_revoked" ? permanent : permanent || legacy;
   const expected = { purpose: "sparkclaw-local-grant-renewal", grant_renewal: "true", issuer_device_id: issuerIdentity.device_id,
     relay_id: metadata.relay_id, subject_device_id: metadata.desktop_device_id, audience_device_id: metadata.gateway_device_id, permission: "sparkclaw.workbench.v1" };
   if (capability?.type !== "iscp.signed_descriptor.v2" || capability.descriptor_type !== "iscp.trust_root.descriptor.v2" || descriptor?.type !== "iscp.trust_root.descriptor.v2" ||
       descriptor.trust_root_id !== issuerIdentity.device_id || descriptor.domain_id !== metadata.domain_id ||
       Object.entries(expected).some(([key, value]) => fields?.[key] !== value) ||
-      !Number.isFinite(issued) || !Number.isFinite(expires) || !Number.isFinite(authorizedUntil) || issued > now + 5000 || expires <= now || expires > authorizedUntil || expires - issued > 300000) {
+      !Number.isFinite(issued) || !Number.isFinite(expires) || !policyValid || issued > now + 5000 || expires <= now || expires <= issued || expires - issued > 300000) {
     throw new Error("Local issuer did not return the fixed-pair SDK renewal capability");
   }
 }

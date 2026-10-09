@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	iscpcrypto "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/envelope"
@@ -63,27 +64,28 @@ type callResult struct {
 }
 
 type Endpoint struct {
-	config           Config
-	material         material
-	provider         iscpcrypto.Provider
-	relay            RelayTransport
-	handler          Handler
-	onState          func(string)
-	mu               sync.Mutex
-	grantMu          sync.RWMutex
-	renewalMu        sync.Mutex
-	lifecycle        *iscpbridge.GrantLifecycleClient
-	lifecycleWorkers sync.WaitGroup
-	session          *activeSession
-	stale            []string
-	pending          map[string]chan callResult
-	stateName        string
-	lastHelloAt      time.Time
-	cancel           context.CancelFunc
-	running, closed  bool
-	slots            chan struct{}
-	workers          sync.WaitGroup
-	verifyDiscovery  func(context.Context) error
+	config               Config
+	material             material
+	provider             iscpcrypto.Provider
+	relay                RelayTransport
+	handler              Handler
+	onState              func(string)
+	mu                   sync.Mutex
+	grantMu              sync.RWMutex
+	renewalMu            sync.Mutex
+	lifecycle            *iscpbridge.GrantLifecycleClient
+	lifecycleWorkers     sync.WaitGroup
+	session              *activeSession
+	stale                []string
+	pending              map[string]chan callResult
+	stateName            string
+	lastHelloAt          time.Time
+	cancel               context.CancelFunc
+	running, closed      bool
+	authorizationRevoked bool
+	slots                chan struct{}
+	workers              sync.WaitGroup
+	verifyDiscovery      func(context.Context) error
 }
 
 func NewEndpoint(cfg Config, handler Handler, onState func(string)) (*Endpoint, error) {
@@ -126,6 +128,9 @@ func newEndpoint(cfg Config, m material, relay RelayTransport, handler Handler, 
 			return nil, err
 		}
 		e.lifecycle = client
+		if cfg.GrantRenewal.AuthorizationLifetime == iscpauth.UntilRevoked {
+			client.RequireStandingAuthorization()
+		}
 	}
 	if cfg.Role == RoleResponder && cfg.EffectiveRelayProfile() == iscpbridge.ProfileLocalLab {
 		// The isolated reference queue outlives a Gateway process. A Hello
@@ -138,7 +143,7 @@ func newEndpoint(cfg Config, m material, relay RelayTransport, handler Handler, 
 
 func (e *Endpoint) setState(state string) {
 	e.mu.Lock()
-	if e.closed && state != "closed" {
+	if (e.closed && state != "closed") || (e.authorizationRevoked && state != "authorization_revoked" && state != "closed") {
 		e.mu.Unlock()
 		return
 	}
@@ -278,6 +283,9 @@ func (e *Endpoint) sessionLoop(ctx context.Context, stopConnection context.Cance
 }
 
 func (e *Endpoint) initiate(ctx context.Context) error {
+	if err := e.checkAuthorization(ctx); err != nil {
+		return err
+	}
 	m := e.grantMaterial()
 	if err := verifyGrant(e.config, m, time.Now().UTC()); err != nil {
 		e.setState("authorization_expired")
@@ -392,6 +400,9 @@ func handshakeDecode(env envelope.SecureEnvelope, value any) error {
 }
 
 func (e *Endpoint) acceptHello(ctx context.Context, env envelope.SecureEnvelope) error {
+	if err := e.checkAuthorization(ctx); err != nil {
+		return err
+	}
 	var hello session.Hello
 	if err := handshakeDecode(env, &hello); err != nil {
 		return errors.New("invalid workbench Hello")
@@ -507,6 +518,11 @@ func (e *Endpoint) acceptReady(ctx context.Context, env envelope.SecureEnvelope)
 }
 
 func (e *Endpoint) sendPayload(ctx context.Context, payloadType string, raw []byte, id string) error {
+	if payloadType == RequestType || payloadType == ResponseType {
+		if err := e.checkAuthorization(ctx); err != nil {
+			return err
+		}
+	}
 	if len(raw) > MaxMessageBytes {
 		return errors.New("workbench payload exceeds limit")
 	}
@@ -579,6 +595,9 @@ func (e *Endpoint) acceptEncrypted(ctx context.Context, env envelope.SecureEnvel
 		}
 		return nil
 	case ResponseType:
+		if err := e.checkAuthorization(ctx); err != nil {
+			return err
+		}
 		return e.acceptResponse(raw)
 	case RequestType:
 		return e.acceptRequest(sessionCtx, raw, env.SessionID)
@@ -664,7 +683,7 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 		defer func() { <-e.slots }()
 		callCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 		defer cancel()
-		if verifyGrant(e.config, e.grantMaterial(), time.Now().UTC()) != nil {
+		if e.checkAuthorization(callCtx) != nil || verifyGrant(e.config, e.grantMaterial(), time.Now().UTC()) != nil {
 			return
 		}
 		response := e.handler(callCtx, request)

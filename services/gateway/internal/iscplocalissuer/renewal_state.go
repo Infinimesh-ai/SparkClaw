@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
+
 	iscpcrypto "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/identity"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/trust"
@@ -37,6 +39,8 @@ type renewalAuthorization struct {
 	AuthorizedAt time.Time `json:"authorized_at"`
 	ExpiresAt    time.Time `json:"expires_at"`
 	Revoked      bool      `json:"revoked"`
+	Lifetime     string    `json:"lifetime,omitempty"`
+	Revision     uint64    `json:"revision,omitempty"`
 }
 
 type idempotencyRecord struct {
@@ -45,7 +49,8 @@ type idempotencyRecord struct {
 	// Bytes, rather than RawMessage, preserve the exact successful wire response.
 	Response []byte `json:"response"`
 	// Current is a read-only local adapter: its retries need only cover proof
-	// freshness. Renewal responses remain recoverable until authorization ends.
+	// freshness. Bounded-policy renewal responses live until consent ends;
+	// permanent-policy receipts expire seven days after their Grant.
 	ExpiresAt time.Time `json:"expires_at,omitempty"`
 }
 
@@ -72,7 +77,7 @@ func (i *Issuer) readRenewalState() (*renewalState, error) {
 		return nil, err
 	}
 	var state renewalState
-	if decode(raw, &state) != nil || state.SchemaVersion != 1 || state.Scope != i.scope() || len(state.Idempotency) > maxIdempotencyRecords || len(state.Nonces) > maxNonceRecords {
+	if decode(raw, &state) != nil || (state.SchemaVersion != 1 && state.SchemaVersion != 2) || state.Scope != i.scope() || len(state.Idempotency) > maxIdempotencyRecords || len(state.Nonces) > maxNonceRecords {
 		return nil, errors.New("invalid renewal state")
 	}
 	if state.CurrentGrant != nil {
@@ -85,9 +90,15 @@ func (i *Issuer) readRenewalState() (*renewalState, error) {
 	}
 	if auth := state.Authorization; auth != nil {
 		duration := auth.ExpiresAt.Sub(auth.AuthorizedAt)
-		if auth.AuthorizedAt.IsZero() || duration < 24*time.Hour || duration > 365*24*time.Hour {
+		if state.SchemaVersion == 2 {
+			if auth.AuthorizedAt.IsZero() || auth.Lifetime != iscpauth.UntilRevoked || !auth.ExpiresAt.IsZero() || auth.Revision == 0 || state.CurrentGrant.RevocationEpoch > auth.Revision || (!auth.Revoked && state.CurrentGrant.RevocationEpoch != auth.Revision) {
+				return nil, errors.New("invalid permanent authorization")
+			}
+		} else if auth.AuthorizedAt.IsZero() || duration < 24*time.Hour || duration > 365*24*time.Hour || auth.Lifetime != "" || auth.Revision != 0 {
 			return nil, errors.New("invalid renewal authorization")
 		}
+	} else if state.SchemaVersion == 2 {
+		return nil, errors.New("permanent authorization missing")
 	}
 	for key, record := range state.Idempotency {
 		if len(key) != 64 || len(record.BodySHA256) != 64 || len(record.Response) > 8192 || !json.Valid(record.Response) || (record.Status != 200 && record.Status != 201) {
@@ -199,7 +210,7 @@ func hashBytes(value []byte) string {
 
 func (i *Issuer) validateGrant(grant trust.Grant) (int, error) {
 	ttl := grant.ExpiresAt.Sub(grant.NotBefore)
-	if ttl < time.Second || ttl > 30*time.Minute || ttl%time.Second != 0 || grant.GrantID == "" || grant.Issuer != i.device.Identity.DeviceID || grant.Signature.Alg != "Ed25519" || grant.Signature.KID != i.device.Identity.PublicKey.KID || grant.RevocationEpoch != 1 || len(grant.Permissions) != 1 || grant.Permissions[0] != Permission || len(grant.RelayConstraints) != 1 || grant.RelayConstraints[0] != i.relayID {
+	if ttl < time.Second || ttl > 30*time.Minute || ttl%time.Second != 0 || grant.GrantID == "" || grant.Issuer != i.device.Identity.DeviceID || grant.Signature.Alg != "Ed25519" || grant.Signature.KID != i.device.Identity.PublicKey.KID || grant.RevocationEpoch == 0 || len(grant.Permissions) != 1 || grant.Permissions[0] != Permission || len(grant.RelayConstraints) != 1 || grant.RelayConstraints[0] != i.relayID {
 		return 0, errors.New("grant scope or TTL is invalid")
 	}
 	thumbprint, err := identity.Thumbprint(i.subject)
@@ -208,7 +219,7 @@ func (i *Issuer) validateGrant(grant trust.Grant) (int, error) {
 	}
 	// Historical verification preserves recoverability after the short Grant
 	// expires. Authorization is separately checked against the real current time.
-	err = trust.VerifyGrant(iscpcrypto.NewProvider(), grant, i.device.Identity, trust.VerifyOptions{Audience: i.audience.DeviceID, SubjectDeviceID: i.subject.DeviceID, ConfirmationThumbprint: thumbprint, Permission: Permission, RelayID: i.relayID, CurrentRevocationEpoch: 1, Now: grant.NotBefore})
+	err = trust.VerifyGrant(iscpcrypto.NewProvider(), grant, i.device.Identity, trust.VerifyOptions{Audience: i.audience.DeviceID, SubjectDeviceID: i.subject.DeviceID, ConfirmationThumbprint: thumbprint, Permission: Permission, RelayID: i.relayID, CurrentRevocationEpoch: grant.RevocationEpoch, Now: grant.NotBefore})
 	return int(ttl / time.Second), err
 }
 
@@ -231,6 +242,9 @@ func (i *Issuer) AuthorizeRenewal(grantFile string, authorizationHours int) erro
 		return err
 	}
 	return i.withRenewalState(func(state *renewalState) (bool, error) {
+		if state.SchemaVersion == 2 {
+			return false, errors.New("permanent authorization cannot be replaced by a bounded policy")
+		}
 		if state.CurrentGrant != nil {
 			current, _ := json.Marshal(state.CurrentGrant)
 			supplied, _ := json.Marshal(grant)
@@ -256,6 +270,15 @@ func (i *Issuer) RevokeRenewal() error {
 	return i.withRenewalState(func(state *renewalState) (bool, error) {
 		if state.Authorization == nil {
 			return false, errors.New("renewal authorization not found")
+		}
+		if state.Authorization.Revoked {
+			return false, nil
+		}
+		if state.SchemaVersion == 2 {
+			if state.Authorization.Revision == ^uint64(0) {
+				return false, errors.New("authorization revision exhausted")
+			}
+			state.Authorization.Revision++
 		}
 		state.Authorization.Revoked = true
 		return true, nil

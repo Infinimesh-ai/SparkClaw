@@ -31,7 +31,14 @@ func (s *Server) StartWorkbenchISCP(ctx context.Context, cfg iscpworkbench.Confi
 		return nil, errors.New("ISCP responder Client is unavailable")
 	}
 	connected, cancel := context.WithCancel(connected)
-	endpoint, err := iscpworkbench.NewEndpoint(cfg, handler, onState)
+	endpoint, err := iscpworkbench.NewEndpoint(cfg, handler, func(state string) {
+		if state == "authorization_revoked" {
+			s.cancelClientConnections(cfg.Binding.ClientID)
+		}
+		if onState != nil {
+			onState(state)
+		}
+	})
 	if err != nil {
 		cancel()
 		release()

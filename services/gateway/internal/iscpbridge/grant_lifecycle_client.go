@@ -18,7 +18,8 @@ import (
 	"sync"
 	"time"
 
-	iscpconfig "github.com/Infinimesh-ai/ISCP/pkg/iscp/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
+
 	iscpcrypto "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/descriptor"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/identity"
@@ -72,18 +73,21 @@ type pendingGrantRenewal struct {
 // one durable logical request: key, proof and encoded body all survive unknown
 // outcomes. Call CommitRenewal only after the returned Grant has been saved.
 type GrantLifecycleClient struct {
-	mu          sync.Mutex
-	baseURL     string
-	pendingFile string
-	device      identity.Device
-	issuer      identity.DeviceIdentity
-	relayID     string
-	provider    iscpcrypto.Provider
-	http        *http.Client
-	previous    trust.Grant
-	pending     *pendingGrantRenewal
-	completed   *trust.Grant
-	retryAt     time.Time
+	mu            sync.Mutex
+	baseURL       string
+	pendingFile   string
+	device        identity.Device
+	issuer        identity.DeviceIdentity
+	relayID       string
+	provider      iscpcrypto.Provider
+	http          *http.Client
+	previous      trust.Grant
+	pending       *pendingGrantRenewal
+	completed     *trust.Grant
+	retryAt       time.Time
+	statusRetryAt time.Time
+	standing      bool
+	revoked       bool
 }
 
 // ValidateGrantLifecycleURL permits TLS issuer endpoints and explicit local
@@ -302,40 +306,6 @@ func (c *GrantLifecycleClient) newRequest() (string, []byte, error) {
 	return key, body, nil
 }
 
-func (c *GrantLifecycleClient) capability(ctx context.Context, previous trust.Grant) (descriptor.TrustRootDescriptor, error) {
-	var cap descriptor.TrustRootDescriptor
-	raw, err := c.request(ctx, http.MethodGet, "/v1/renewal-capability", "", nil)
-	if err != nil {
-		return cap, err
-	}
-	var signed descriptor.SignedDescriptor
-	if strictUnmarshal(raw, &signed) != nil || strictUnmarshal(signed.Descriptor, &cap) != nil {
-		return cap, errors.New("invalid Grant renewal capability descriptor")
-	}
-	now := time.Now().UTC()
-	if signed.Type != descriptor.TypeSignedDescriptor || signed.DescriptorType != "iscp.trust_root.descriptor.v2" || cap.Type != signed.DescriptorType ||
-		signed.SignedBy != c.issuer.DeviceID || signed.Signature.Alg != "Ed25519" || signed.Signature.KID != c.issuer.PublicKey.KID ||
-		cap.TrustRootID != c.issuer.DeviceID || cap.DomainID != c.issuer.DomainID || cap.IssuedAt.After(now.Add(time.Second)) || !now.Before(cap.ExpiresAt) ||
-		!cap.ExpiresAt.After(cap.IssuedAt) || cap.ExpiresAt.Sub(cap.IssuedAt) > 5*time.Minute || signed.SignedAt.Before(cap.IssuedAt) || signed.SignedAt.After(now.Add(time.Second)) {
-		return cap, errors.New("Grant renewal capability signer or validity mismatch")
-	}
-	if len(cap.Keys) != 1 || cap.Keys[0].KTY != "Ed25519" || cap.Keys[0].Use != "descriptor-signature" || cap.Keys[0].KID != c.issuer.PublicKey.KID ||
-		cap.Keys[0].Public != c.issuer.PublicKey.Public || (cap.Keys[0].State != "" && cap.Keys[0].State != "active") {
-		return cap, errors.New("Grant renewal capability key differs from pinned issuer")
-	}
-	metadata := cap.Metadata
-	authorizationUntil, parseErr := time.Parse(time.RFC3339Nano, metadata["authorization_expires_at"])
-	if metadata["purpose"] != GrantRenewalCapabilityPurpose || metadata["grant_renewal"] != "true" || metadata["issuer_device_id"] != c.issuer.DeviceID ||
-		metadata["relay_id"] != c.relayID || metadata["subject_device_id"] != previous.SubjectDeviceID || metadata["audience_device_id"] != previous.Audience ||
-		len(previous.Permissions) != 1 || metadata["permission"] != previous.Permissions[0] || parseErr != nil || !now.Before(authorizationUntil) || cap.ExpiresAt.After(authorizationUntil) {
-		return cap, errors.New("Grant renewal capability authorization binding or expiry mismatch")
-	}
-	if descriptor.Verify(c.provider, signed, c.issuer, iscpconfig.DefaultGate(iscpconfig.ProfileProduction), now) != nil {
-		return cap, errors.New("Grant renewal capability signature verification failed")
-	}
-	return cap, nil
-}
-
 func (c *GrantLifecycleClient) verifyResult(grant, previous trust.Grant, cap descriptor.TrustRootDescriptor, extension bool) error {
 	return c.verifyResultAt(grant, previous, cap, extension, time.Now().UTC())
 }
@@ -344,8 +314,11 @@ func (c *GrantLifecycleClient) verifyResultAt(grant, previous trust.Grant, cap d
 	if err := verifyGrantContinuity(c.provider, grant, previous, c.issuer, c.relayID, now, extension); err != nil {
 		return err
 	}
-	authorizationUntil, _ := time.Parse(time.RFC3339Nano, cap.Metadata["authorization_expires_at"])
-	if grant.ExpiresAt.After(authorizationUntil) {
+	policy, err := iscpauth.Parse(cap.Metadata)
+	if err != nil {
+		return err
+	}
+	if policy.Lifetime == iscpauth.Bounded && grant.ExpiresAt.After(policy.ExpiresAt) {
 		return errors.New("Grant result exceeds the pinned authorization expiry")
 	}
 	return nil
@@ -376,7 +349,11 @@ func (c *GrantLifecycleClient) decodeGrant(raw []byte) (trust.Grant, error) {
 }
 
 func (c *GrantLifecycleClient) request(ctx context.Context, method, path, key string, body []byte) ([]byte, error) {
-	if delay := time.Until(c.retryAt); delay > 0 {
+	retryAt := c.retryAt
+	if path == iscpauth.StatusPath {
+		retryAt = c.statusRetryAt
+	}
+	if delay := time.Until(retryAt); delay > 0 {
 		return nil, &GrantLifecycleHTTPError{StatusCode: 429, delay: delay}
 	}
 	request, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bytes.NewReader(body))
@@ -396,7 +373,11 @@ func (c *GrantLifecycleClient) request(ctx context.Context, method, path, key st
 		status := &GrantLifecycleHTTPError{StatusCode: response.StatusCode}
 		if response.StatusCode == http.StatusTooManyRequests {
 			status.delay = boundedLifecycleRetryAfter(response.Header.Get("Retry-After"), time.Now().UTC())
-			c.retryAt = time.Now().UTC().Add(status.delay)
+			if path == iscpauth.StatusPath {
+				c.statusRetryAt = time.Now().UTC().Add(status.delay)
+			} else {
+				c.retryAt = time.Now().UTC().Add(status.delay)
+			}
 		}
 		return nil, status
 	}

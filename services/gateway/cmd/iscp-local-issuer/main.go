@@ -32,7 +32,7 @@ func run() error {
 	authorize := flag.Bool("authorize-renewal", false, "authorize fixed-scope short grant renewal")
 	revoke := flag.Bool("revoke-renewal", false, "revoke the existing renewal authorization")
 	grantFile := flag.String("grant-file", "", "private current grant file for explicit renewal authorization")
-	authorizationHours := flag.Int("authorization-hours", 24, "absolute authorization lifetime, 24 to 8760 hours")
+	authorizationHours := flag.Int("authorization-hours", 0, "0 authorizes until manual deletion; 24 to 8760 retains the legacy bounded policy")
 	listen := flag.String("listen", "127.0.0.1:0", "local issuer listen address")
 	containerListen := flag.Bool("allow-container-listen", false, "allow local-test container address 0.0.0.0:8080")
 	flag.Parse()
@@ -48,6 +48,9 @@ func run() error {
 		return err
 	}
 	if *authorize {
+		if *authorizationHours == 0 {
+			return issuer.AuthorizePermanentRenewal(*grantFile)
+		}
 		return issuer.AuthorizeRenewal(*grantFile, *authorizationHours)
 	}
 	if *revoke {

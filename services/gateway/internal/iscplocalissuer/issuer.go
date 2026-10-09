@@ -162,7 +162,11 @@ func (i *Issuer) Sign(ttl time.Duration) (trust.Grant, error) {
 				return false, errors.New("authorization has less than one second remaining")
 			}
 		}
-		grant, err = i.signGrantAt(issuedTTL, now)
+		epoch := uint64(1)
+		if state.CurrentGrant != nil {
+			epoch = state.CurrentGrant.RevocationEpoch
+		}
+		grant, err = i.signGrantAt(issuedTTL, now, epoch)
 		if err != nil {
 			return false, err
 		}
@@ -175,7 +179,7 @@ func (i *Issuer) Sign(ttl time.Duration) (trust.Grant, error) {
 
 // signGrantAt is called under the cross-process state lock. Only public grant
 // provenance reaches the issuance journal.
-func (i *Issuer) signGrantAt(ttl time.Duration, now time.Time) (trust.Grant, error) {
+func (i *Issuer) signGrantAt(ttl time.Duration, now time.Time, epoch uint64) (trust.Grant, error) {
 	provider := iscpcrypto.NewProvider()
 	thumbprint, err := identity.Thumbprint(i.subject)
 	if err != nil {
@@ -185,7 +189,7 @@ func (i *Issuer) signGrantAt(ttl time.Duration, now time.Time) (trust.Grant, err
 		GrantID:         "local-grant-" + iscpcrypto.Base64URL(iscpcrypto.RandomBytes(16)),
 		SubjectDeviceID: i.subject.DeviceID, Audience: i.audience.DeviceID,
 		ConfirmationThumbprint: thumbprint, Permissions: []string{Permission},
-		RelayConstraints: []string{i.relayID}, NotBefore: now, ExpiresAt: now.Add(ttl), RevocationEpoch: 1,
+		RelayConstraints: []string{i.relayID}, NotBefore: now, ExpiresAt: now.Add(ttl), RevocationEpoch: epoch,
 	})
 	if err != nil {
 		return trust.Grant{}, err

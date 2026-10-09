@@ -349,3 +349,20 @@ func readBounded(path string, limit int64) ([]byte, error) {
 	defer f.Close()
 	return io.ReadAll(io.LimitReader(f, limit+1))
 }
+
+// Run owns expiry cleanup independently of new uploads. The Gateway runs it
+// under its lifecycle context; cancellation stops the worker and bounds scans.
+func (s *Store) Run(ctx context.Context) error {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if err := s.Reconcile(ctx); err != nil {
+				return err
+			}
+		}
+	}
+}

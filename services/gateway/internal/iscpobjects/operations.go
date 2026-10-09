@@ -361,9 +361,7 @@ func (s *Store) Handle(ctx context.Context, b Binding, q wb.Request) (wb.Respons
 			case wb.OperationObjectRead:
 				value, err = s.Read(ctx, b, in.ObjectID, in.Version, in.Offset, in.Length)
 			default:
-				if _, err = s.Describe(ctx, b, in.ObjectID, in.Version); err == nil {
-					value, err = s.terminal(ctx, b, in.ObjectID, "released")
-				}
+				value, err = s.Release(ctx, b, in.ObjectID, in.Version)
 			}
 		}
 	default:
@@ -388,4 +386,25 @@ func (s *Store) Handle(ctx context.Context, b Binding, q wb.Request) (wb.Respons
 	}
 	response.Body, _ = json.Marshal(value)
 	return response, true
+}
+
+// Release replays its terminal receipt without requiring content to still be
+// downloadable. It cannot substitute a different object version or principal.
+func (s *Store) Release(ctx context.Context, b Binding, id string, version uint64) (Checkpoint, error) {
+	s.mu.Lock()
+	r, err := s.read(id)
+	s.mu.Unlock()
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	if r.Binding != b {
+		return Checkpoint{}, failure(wb.ErrorPermissionDenied, 403, "object principal mismatch")
+	}
+	if r.Object.Version != version {
+		return Checkpoint{}, failure(wb.ErrorRevisionConflict, 409, "object version mismatch")
+	}
+	if r.State != "committed" && r.State != "released" {
+		return Checkpoint{}, failure(wb.ErrorObjectExpired, 410, "object is no longer available")
+	}
+	return s.terminal(ctx, b, id, "released")
 }

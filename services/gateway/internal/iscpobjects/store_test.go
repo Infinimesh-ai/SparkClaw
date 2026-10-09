@@ -195,3 +195,23 @@ func TestRepeatedPublicationKeepsOriginalReceiptAndReservation(t *testing.T) {
 		t.Fatal("repeated lookup reserved objects repeatedly")
 	}
 }
+
+func TestReleaseReplaysAfterPayloadRemoval(t *testing.T) {
+	s := testStore(t)
+	b := binding()
+	ref, err := s.Put(context.Background(), b, "file", "release.bin", "application/octet-stream", []byte("release"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.Release(context.Background(), b, ref.ObjectID, ref.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.Release(context.Background(), b, ref.ObjectID, ref.Version)
+	if err != nil || again.State != first.State || again.Object != first.Object {
+		t.Fatal("lost release receipt was not recoverable")
+	}
+	if _, err = s.Release(context.Background(), b, ref.ObjectID, ref.Version+1); err == nil {
+		t.Fatal("release accepted wrong version")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 
@@ -31,6 +32,14 @@ func (s *Server) NewWorkbenchISCPObjectHandler(cfg iscpworkbench.Config, next is
 	if err != nil {
 		return nil, err
 	}
+	if lifecycle := s.executionContext(); lifecycle.Done() != nil {
+		go func() {
+			if err := objects.Run(lifecycle); err != nil && lifecycle.Err() == nil {
+				slog.Warn("ISCP object expiry cleanup stopped")
+			}
+		}()
+	}
+
 	return func(ctx context.Context, request iscpworkbench.Request) iscpworkbench.Response {
 		failed := func(status int, code string) iscpworkbench.Response {
 			result := domainError(status, code)

@@ -113,8 +113,8 @@ func TestWorkbenchISCPNativeMailQualificationFixture(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(workspace, "reports"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	initial := []byte("Initial native workspace attachment before explicit review.\n")
-	if err := os.WriteFile(filepath.Join(workspace, "reports/native-attachment.txt"), initial, 0600); err != nil {
+	decoy := []byte("Gateway decoy: these bytes must never be attached by SparkX.\n")
+	if err := os.WriteFile(filepath.Join(workspace, "reports/native-attachment.txt"), decoy, 0600); err != nil {
 		t.Fatal(err)
 	}
 	transport, err := iscpworkbench.LoadConfig(filepath.Join(lab, "gateway-container-helper.json"))
@@ -238,8 +238,8 @@ func TestWorkbenchISCPNativeMailQualificationFixture(t *testing.T) {
 	}
 	defer endpoint.Close()
 	go func() { _ = endpoint.Run(lifecycle) }()
-	digest := sha256.Sum256(initial)
-	if err := writeEvidence("ready.json", map[string]any{"mailbox_id": box.ID, "initial_sha256": "sha256:" + hex.EncodeToString(digest[:]), "gateway_business_listener": false}); err != nil {
+	digest := sha256.Sum256(decoy)
+	if err := writeEvidence("ready.json", map[string]any{"mailbox_id": box.ID, "gateway_decoy_sha256": "sha256:" + hex.EncodeToString(digest[:]), "gateway_business_listener": false}); err != nil {
 		t.Fatal(err)
 	}
 	<-lifecycle.Done()

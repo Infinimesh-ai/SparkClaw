@@ -21,7 +21,9 @@ assert.ok(containerState(metadata.relay_container, metadata.lab_id)?.State.Runni
 assert.ok(!containerState(metadata.gateway_container, metadata.lab_id)?.State.Running, 'The normal lab Gateway must be stopped before using the fixture identity');
 const fixture = path.join(lab, 'native-mail');
 await fs.mkdir(fixture, { mode: 0o700 });
-await fs.mkdir(path.join(fixture, 'userdata'), { mode: 0o700 });
+// Keep the desktop source outside every Gateway bind mount. A shared fixture
+// directory would hide an accidental return to Gateway-local source paths.
+const desktopData = await fs.mkdtemp('/private/tmp/sparkx-mail-local-');
 const run = promisify(execFile);
 const container = `${metadata.gateway_container}-mail-fixture`;
 let started = false;
@@ -34,7 +36,7 @@ try {
   await run('docker', ['run', '--detach', '--name', container, '--label', `${labLabel}=${metadata.lab_id}`, '--network', metadata.network,
     '--user', String(process.getuid()), '--mount', `type=bind,source=${lab},target=/lab`, '--entrypoint', '/lab/bin/native-mail-fixture',
     '--env', 'SPARKCLAW_MAIL_ISCP_FIXTURE_ROOT=/lab', '--env', 'SPARKCLAW_MODEL_CAPACITY_CATALOG=', '--env', 'SPARKCLAW_BROWSER_PROFILE_DIR=', '--env', 'SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE=',
-    '--log-opt', 'max-size=10m', '--log-opt', 'max-file=1', 'sparkclaw-gateway:latest', '-test.run', '^TestWorkbenchISCPNativeMailQualificationFixture$', '-test.timeout', '240s'], { timeout: 30000 });
+    '--log-opt', 'max-size=10m', '--log-opt', 'max-file=1', 'sparkclaw-gateway:latest', '-test.run', '^TestWorkbenchISCPNativeMailQualificationFixture$', '-test.timeout', '420s'], { timeout: 30000 });
   started = true;
   const deadline = Date.now() + 15000;
   let ready;
@@ -47,19 +49,21 @@ try {
   assert.ok(ready, 'Linux mail fixture is ready');
   const state = containerState(container, metadata.lab_id);
   assert.equal(Object.keys(state.HostConfig.PortBindings || {}).length, 0, 'Gateway business ports are not published');
+  assert.ok(state.Mounts.every(mount => desktopData !== mount.Source && !desktopData.startsWith(mount.Source + path.sep)), 'Desktop data is not mounted into Gateway');
   assert.equal(ready.gateway_business_listener, false);
   const electron = (await import('electron')).default;
-  const result = await run(electron, [path.join(root, 'apps/desktop/test/mail-iscp-native-fixture.mjs')], { cwd: root, timeout: 190000, maxBuffer: 2 << 20, env: { ...process.env, SPARKCLAW_MAIL_ISCP_FIXTURE_ROOT: lab } });
+  const result = await run(electron, [path.join(root, 'apps/desktop/test/mail-iscp-native-fixture.mjs')], { cwd: root, timeout: 370000, maxBuffer: 2 << 20, env: { ...process.env, SPARKCLAW_MAIL_ISCP_FIXTURE_ROOT: lab, SPARKCLAW_MAIL_LOCAL_DATA: desktopData } });
   process.stdout.write(result.stdout);
   const evidence = await readPrivateJSON(path.join(fixture, 'evidence.json'));
   assert.equal(evidence.passed, true, evidence.error);
   const operations = await readPrivateJSON(path.join(fixture, 'operations.json'));
-  for (const name of ['mail.mailboxes', 'mail.drafts.list', 'mail.drafts.save', 'mail.drafts.send', 'mail.drafts.reconcile']) assert.ok(operations[name] > 0, `Actual ISCP operation ${name}`);
+  for (const name of ['transfer.open', 'transfer.chunk', 'transfer.commit', 'mail.mailboxes', 'mail.drafts.list', 'mail.drafts.save', 'mail.drafts.send', 'mail.drafts.reconcile']) assert.ok(operations[name] > 0, `Actual ISCP operation ${name}`);
   const network = JSON.parse(await fs.readFile(path.join(fixture, 'native-network.json'), 'utf8'));
   const direct = (network.events || []).filter(event => /^https?:|^wss?:/u.test(event.params?.url || ''));
   assert.equal(direct.length, 0, 'Native Chromium HTTP/WS URL events');
   evidence.gateway_fixture_sha256 = binarySHA256;
   evidence.gateway_business_ports_published = false;
+  evidence.desktop_data_mounted_into_gateway = false;
   evidence.iscp_operations = operations;
   evidence.chromium_http_ws_url_events = direct.length;
   await writePrivateJSON(path.join(fixture, 'evidence.json'), evidence);
@@ -74,4 +78,5 @@ try {
   throw error;
 } finally {
   if (started && containerState(container, metadata.lab_id)) await run('docker', ['rm', '--force', container], { timeout: 30000 });
+  await fs.rm(desktopData, { recursive: true, force: true });
 }

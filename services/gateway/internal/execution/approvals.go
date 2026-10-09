@@ -98,6 +98,15 @@ func (s *Service) AwaitApproval(ctx context.Context, e Envelope, row PendingAppr
 }
 
 func (s *Service) DecideApproval(owner, client, request, id, digest, decision string) error {
+	return s.decideApproval(owner, client, request, id, digest, decision, nil)
+}
+
+// DecideApprovalAtRevision binds an ISCP decision to the exact published state.
+// The precondition and durable decision share the execution cancellation lock.
+func (s *Service) DecideApprovalAtRevision(owner, client, request, id, digest, decision string, revision uint64) error {
+	return s.decideApproval(owner, client, request, id, digest, decision, &revision)
+}
+func (s *Service) decideApproval(owner, client, request, id, digest, decision string, revision *uint64) error {
 	if !digestPattern.MatchString(digest) || (decision != "approve" && decision != "reject") {
 		return ErrConflict
 	}
@@ -107,6 +116,9 @@ func (s *Service) DecideApproval(owner, client, request, id, digest, decision st
 	f, found := s.control.Fences[key]
 	if !found {
 		return ErrNotFound
+	}
+	if revision != nil && *revision != f.Revision {
+		return ErrConflict
 	}
 	if s.closed || f.State != "running" || !f.Deadline.After(s.now()) {
 		return ErrExpired

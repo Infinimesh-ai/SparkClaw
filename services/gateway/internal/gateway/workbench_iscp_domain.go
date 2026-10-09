@@ -102,13 +102,10 @@ func (a *iscpDomainAdapter) handle(ctx context.Context, request iscpworkbench.Re
 	return respond(result)
 }
 func domainMutation(operation string) bool {
-	switch operation {
-	case iscpworkbench.OperationSettingsOwnerPatch, iscpworkbench.OperationSettingsConnectorsPatch, iscpworkbench.OperationSettingsCredentialsAdd, iscpworkbench.OperationSettingsCredentialsActivate, iscpworkbench.OperationSettingsCredentialsCheck, iscpworkbench.OperationSettingsCredentialsDelete, iscpworkbench.OperationNotificationsRead, iscpworkbench.OperationNotificationsReadAll, iscpworkbench.OperationApprovalsDecide, iscpworkbench.OperationMailDraftsSave, iscpworkbench.OperationMailDraftsSend, iscpworkbench.OperationMailDraftsReconcile, iscpworkbench.OperationSpeechTranscribe:
-		return true
-	default:
-		return false
-	}
+	spec, found := iscpworkbench.LookupOperation(operation)
+	return found && spec.Recovery == "operation_receipt"
 }
+
 func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.Request) iscpDomainResult {
 	switch request.Operation {
 	case iscpworkbench.OperationCapabilitiesGet:
@@ -142,6 +139,8 @@ func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.
 		return a.connectors(ctx, request)
 	case iscpworkbench.OperationSettingsIntegrationsList, iscpworkbench.OperationSettingsCredentialsAdd, iscpworkbench.OperationSettingsCredentialsActivate, iscpworkbench.OperationSettingsCredentialsCheck, iscpworkbench.OperationSettingsCredentialsDelete:
 		return a.integrations(ctx, request)
+	case iscpworkbench.OperationApprovalsList, iscpworkbench.OperationApprovalsGet, iscpworkbench.OperationApprovalsDecide, iscpworkbench.OperationExecutionApproval:
+		return a.approvals(ctx, request)
 	case iscpworkbench.OperationNotificationsList, iscpworkbench.OperationNotificationsRead, iscpworkbench.OperationNotificationsReadAll:
 		return a.notifications(ctx, request)
 	default:

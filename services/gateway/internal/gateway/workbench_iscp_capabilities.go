@@ -36,6 +36,7 @@ func (a *iscpDomainAdapter) capabilities(ctx context.Context, request iscpworkbe
 		{"settings_owner", []string{iscpworkbench.OperationSettingsOwnerGet, iscpworkbench.OperationSettingsOwnerPatch}, true},
 		{"settings_connectors", []string{iscpworkbench.OperationSettingsConnectorsList, iscpworkbench.OperationSettingsConnectorsPatch}, a.server.connectors != nil},
 		{"settings_credentials", []string{iscpworkbench.OperationSettingsIntegrationsList, iscpworkbench.OperationSettingsCredentialsAdd, iscpworkbench.OperationSettingsCredentialsActivate, iscpworkbench.OperationSettingsCredentialsCheck, iscpworkbench.OperationSettingsCredentialsDelete}, a.server.integrations != nil},
+		{"approvals", []string{iscpworkbench.OperationApprovalsList, iscpworkbench.OperationApprovalsGet, iscpworkbench.OperationApprovalsDecide}, true},
 		{"notifications", []string{iscpworkbench.OperationNotificationsList, iscpworkbench.OperationNotificationsRead, iscpworkbench.OperationNotificationsReadAll}, true},
 	}
 	capabilities := make([]iscpDomainCapability, 0, len(families))

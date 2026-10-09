@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
@@ -157,5 +159,67 @@ func TestISCPDomainIntentCrashNeverReplaysMutation(t *testing.T) {
 	result := handler(domainTestContext(t), request)
 	if result.Status != 409 || !bytes.Contains(result.Body, []byte("operation_outcome_unknown")) {
 		t.Fatalf("intent was replayed %+v", result)
+	}
+}
+
+func TestISCPDomainApprovalBindsDigestRevisionAndNeverDuplicatesContinuation(t *testing.T) {
+	var server *Server
+	var effects atomic.Int32
+	pending, _ := execution.NewPendingApproval("approval_domain", "files.write", "isolated approval", map[string]any{"name": "safe.txt"})
+	execute := func(ctx context.Context, e execution.Envelope, _ map[string][]byte) (execution.Output, error) {
+		decision, err := server.executions.AwaitApproval(ctx, e, pending)
+		if err == nil && decision == "approve" {
+			effects.Add(1)
+		}
+		return execution.Output{Content: "finished"}, err
+	}
+	created, _, cfg, textHandler := workbenchISCPFixture(t, execute)
+	server = created
+	bindWorkbenchISCP(t, textHandler)
+	envelope := workbenchISCPEnvelope()
+	raw, _ := json.Marshal(envelope)
+	if got := textHandler(t.Context(), workbenchISCPRequest(iscpworkbench.OperationSubmit, raw)); got.Status != 202 {
+		t.Fatalf("submit %+v", got)
+	}
+	handler, err := server.NewWorkbenchISCPDomainHandler(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := domainTestContext(t)
+	list := domainTestRequest("approvals.list", nil)
+	list.Params = map[string]string{"request_id": iscpTestRequest}
+	var snapshot struct {
+		Revision    string                      `json:"revision"`
+		InputDigest string                      `json:"input_digest"`
+		Approvals   []execution.PendingApproval `json:"approvals"`
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		result := handler(ctx, list)
+		json.Unmarshal(result.Body, &snapshot)
+		if len(snapshot.Approvals) > 0 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if len(snapshot.Approvals) != 1 {
+		t.Fatal("approval never appeared")
+	}
+	body, _ := json.Marshal(map[string]string{"digest": pending.Digest, "decision": "approve", "input_digest": snapshot.InputDigest})
+	decide := domainTestRequest("approvals.decide", body)
+	decide.Params = map[string]string{"request_id": iscpTestRequest, "approval_id": pending.ApprovalID}
+	decide.ExpectedRevision = "0"
+	if got := handler(ctx, decide); got.Status != 409 || effects.Load() != 0 {
+		t.Fatalf("stale approval %+v", got)
+	}
+	decide.OperationID = domainTestRequest("next", nil).ID
+	decide.ExpectedRevision = snapshot.Revision
+	accepted := handler(ctx, decide)
+	if accepted.Status != 200 {
+		t.Fatalf("approval %+v", accepted)
+	}
+	server.executions.Wait()
+	if got := handler(ctx, decide); got.Status != 200 || !bytes.Equal(got.Body, accepted.Body) || effects.Load() != 1 {
+		t.Fatalf("duplicate continuation %+v effects=%d", got, effects.Load())
 	}
 }

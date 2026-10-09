@@ -17,7 +17,8 @@ import {startUnixServer} from '../src/http-server.mjs';
 // Real lifecycle classes and both Unix listeners, with only the external
 // Executor/browser actions replaced. Never connect to a running deployment.
 async function fixture(t, {cancelFailure, pageFailure, reapFailure} = {}) {
-  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'application-shutdown-')));
+  // Darwin's per-user temporary prefix leaves little Unix-socket path space.
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sd-')));
   const runtimeRoot = path.join(root, 'cli-runtime');
   const driver = new ApplicationHostDriver({runtimeRoot}); await driver.prepare();
   const peer = net.createConnection(driver.eventSocket); await once(peer, 'connect');

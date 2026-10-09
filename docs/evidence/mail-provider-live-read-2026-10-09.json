@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "target": "work2",
+  "gateway_source": "0d1ab651",
+  "controller_fix_source": "bdb4b63e",
+  "deployed_controller_source": "3deaaad9",
+  "no_email_sent": true,
+  "asr_tts_deferred": true,
+  "outlook": {
+    "probe_ready": true,
+    "intake_before": {
+      "http_status": 422,
+      "gateway_error": "email_page_contract_changed",
+      "executor_state": "waiting_confirmation",
+      "executor_reason": "EMAIL_ACCOUNT_IDENTITY_UNAVAILABLE"
+    },
+    "controlled_diagnostic": {
+      "controller_session": true,
+      "arbitrary_javascript": false,
+      "mailbox_shell_present": true,
+      "account_tree_nodes": 0,
+      "visible_text_has_address": false,
+      "navigation_toggle_present": true,
+      "page_content_recorded": false
+    },
+    "candidate_release": {
+      "id": "0.3.0-sparkclaw.13",
+      "runtime_digest": "c848df6ab6846366fc83e3dab966ef458be25d0f5b3c5cff3b91fa2da8df4818",
+      "live_qualified": false
+    }
+  },
+  "qq_mail": {
+    "schema_version": 1,
+    "provider": "qq_mail",
+    "records": [
+      {
+        "app": "mail-qq-mail",
+        "command": "collect_page",
+        "status": "completed",
+        "reason": null,
+        "captures": 0,
+        "failures": 0,
+        "candidates": 0,
+        "coverage": {
+          "scope": "inbound_received",
+          "scan_complete": true,
+          "scanned_rows": 0,
+          "unsupported_rows": 0,
+          "limited": false
+        }
+      },
+      {
+        "app": "mail-qq-mail",
+        "command": "collect_page",
+        "status": "completed",
+        "reason": null,
+        "captures": 0,
+        "failures": 0,
+        "candidates": 0,
+        "coverage": {
+          "scope": "inbound_received",
+          "scan_complete": true,
+          "scanned_rows": 0,
+          "unsupported_rows": 0,
+          "limited": false
+        }
+      },
+      {
+        "app": "mail-qq-mail",
+        "command": "collect_page",
+        "status": "completed",
+        "reason": null,
+        "captures": 0,
+        "failures": 0,
+        "candidates": 0,
+        "coverage": {
+          "scope": "inbound_received",
+          "scan_complete": true,
+          "scanned_rows": 0,
+          "unsupported_rows": 0,
+          "limited": false
+        }
+      },
+      {
+        "app": "mail-qq-mail",
+        "command": "collect_page",
+        "status": "completed",
+        "reason": null,
+        "captures": 0,
+        "failures": 0,
+        "candidates": 0,
+        "coverage": {
+          "scope": "inbound_received",
+          "scan_complete": true,
+          "scanned_rows": 0,
+          "unsupported_rows": 0,
+          "limited": false
+        }
+      },
+      {
+        "app": "mail-qq-mail",
+        "command": "collect_page",
+        "status": "completed",
+        "reason": null,
+        "captures": 0,
+        "failures": 0,
+        "candidates": 0,
+        "coverage": {
+          "scope": "inbound_received",
+          "scan_complete": true,
+          "scanned_rows": 0,
+          "unsupported_rows": 0,
+          "limited": false
+        }
+      },
+      {
+        "app": "mail-qq-mail",
+        "command": "collect_page",
+        "status": "completed",
+        "reason": null,
+        "captures": 0,
+        "failures": 0,
+        "candidates": 0,
+        "coverage": {
+          "scope": "inbound_received",
+          "scan_complete": true,
+          "scanned_rows": 0,
+          "unsupported_rows": 0,
+          "limited": false
+        }
+      },
+      {
+        "app": "mail-qq-mail",
+        "command": "collect_page",
+        "status": "completed",
+        "reason": null,
+        "captures": 0,
+        "failures": 0,
+        "candidates": 0,
+        "coverage": {
+          "scope": "inbound_received",
+          "scan_complete": true,
+          "scanned_rows": 0,
+          "unsupported_rows": 0,
+          "limited": false
+        }
+      },
+      {
+        "app": "mail-qq-mail",
+        "command": "collect_page",
+        "status": "completed",
+        "reason": null,
+        "captures": 0,
+        "failures": 0,
+        "candidates": 0,
+        "coverage": {
+          "scope": "inbound_received",
+          "scan_complete": true,
+          "scanned_rows": 0,
+          "unsupported_rows": 0,
+          "limited": false
+        }
+      }
+    ],
+    "cleanup_fence_present": false
+  },
+  "cleanup_recovery": {
+    "original_error": {
+      "phase": "navigate",
+      "reason": "process_exit_page_closed",
+      "command": "goto"
+    },
+    "cleanup_error": {
+      "phase": "close_page",
+      "reason": "process_exit_page_closed",
+      "command": "tab-list"
+    },
+    "services_stopped": [
+      "executor",
+      "controller",
+      "browser"
+    ],
+    "recorded_pids_absent": true,
+    "profile_processes_absent": true,
+    "owned_cli_processes_absent": true,
+    "managed_cgroups_empty": true,
+    "fence_archived_without_deletion": true,
+    "fresh_runtime_created_after_proof": true,
+    "gateway_or_database_restarted": false
+  },
+  "validation": {
+    "linux_controller_lifecycle_tests": 29,
+    "identity_fixtures": 5,
+    "reproduced_releases": [
+      "0.3.0-sparkclaw.12",
+      "0.3.0-sparkclaw.13"
+    ],
+    "managed_userscripts_generated_check": true,
+    "binding_generated_check": true,
+    "consumer_projections_check": true,
+    "paired_release_fresh_install_tamper_mixed_release_rollback": true,
+    "mac_controller_tests": {
+      "passed": 132,
+      "skipped_linux_or_opt_in": 25,
+      "failed": 0,
+      "temporary_directory": "canonical /private/tmp"
+    }
+  },
+  "limits": [
+    "QQ completed rounds had zero candidates, so original download and received attachment transfer are not yet qualified.",
+    "Outlook .13 candidate must be installed as a matched runtime/wheel/Controller consumer/userscript set before live acceptance.",
+    "No send or reply was attempted."
+  ]
+}

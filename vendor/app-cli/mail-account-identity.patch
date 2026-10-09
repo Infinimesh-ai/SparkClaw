@@ -1,0 +1,35 @@
+--- a/applications/mail/userscripts/lib/reader-core.mjs
++++ b/applications/mail/userscripts/lib/reader-core.mjs
+@@ -59,8 +59,19 @@
+     }
+     return btoa(binary);
+   };
++  function observedAccount() {
++    const current = config.account();
++    // A collapsed Outlook folder pane has no mailbox-address DOM. The
++    // document-start bridge already observes the same-origin startup response
++    // needed for inbox scope; its mailbox identity is independent of UI layout.
++    const startup = config.provider === 'outlook' && idPattern.test(inbox?.id || '') &&
++      typeof inbox?.account === 'string' && inbox.account.length <= 320 &&
++      /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(inbox.account) ? inbox.account : '';
++    if (current && startup && current.toLowerCase() !== startup.toLowerCase()) failure('email_account_identity_mismatch');
++    return current || startup;
++  }
+   function checkedAccount(expected) {
+-    const current = config.account();
++    const current = observedAccount();
+     if (!current) failure('email_account_identity_unavailable');
+     if (account && account !== current.toLowerCase()) {
+       records.clear(); pageTokens.clear(); binding = null; listRequest = null; networkQuery = null; nativeQueryReply = null; inbox = null; transport?.dispose();
+@@ -479,9 +490,8 @@
+   Object.defineProperty(window, 'SparkClawMailReader', {configurable:true, value:Object.freeze({
+     armRangeSearch(request){checkedAccount(request.account_address);if(!transport?.armRangeSearch)failure('email_network_list_unqualified');return transport.armRangeSearch(request);},
+     version:'0.2.0', provider:config.provider, checkAccount({account_address}) {
+-      const current=config.account()?.toLowerCase();
+-      if(!current)failure('email_account_identity_unavailable');
+-      if(account && account!==current || account_address?.toLowerCase()!==current)failure('email_account_identity_mismatch');
++      if(typeof account_address !== 'string' || !account_address)failure('email_account_identity_mismatch');
++      checkedAccount(account_address);
+       return true;
+     }, diagnostics:()=>({original:{state:originalState,responseOrigin,response:originalResponse?{...originalResponse}:null},list:{stage:listStage,template:Boolean(listRequest),body:Array.isArray(listRequest?.body),paging:Array.isArray(listRequest?.body?.[0]?.[15])},inbox:Boolean(inbox),records:records.size,transport:transport?.diagnostics?.()}), snapshot, resetRound,
+     listPage:request=>inRound(listPage,request), prepareOriginal:request=>inRound(prepareOriginal,request), prepareRetainedOriginal:request=>inRound(prepareRetainedOriginal,request), markRead, dispose,

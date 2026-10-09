@@ -165,6 +165,23 @@ export class DesktopAuth {
     return this.status;
   }
 
+  async checkNewAuthorization() {
+    const intent=this.deletionIntent;
+    if(!intent||intent.state!=="revoked"||!intent.receipt||!this.transport||!this.connection)throw new Error("First reconcile the original authorization deletion");
+    const profile=await loadISCPProfile(this.iscpProfilePath);
+    if(descriptorBinding(profile.descriptor)!==intent.binding)throw new Error("A new authorization must retain the selected backend identity");
+    this.transport.close();this.transport.configPath=profile.helperConfigPath;
+    const result=await this.#identity(this.connection);
+    if(result.state!=="connected"||!Number.isSafeInteger(this.transport.capabilities?.authorization_revision)||this.transport.capabilities.authorization_revision<=intent.receipt.authorization_revision) {this.transport.close();throw new Error("No newer verified authorization is installed");}
+    const report=await this.transport.invoke("capabilities.get");
+    if(report.authorization_revision!==this.transport.capabilities.authorization_revision){this.transport.close();throw new Error("New authorization revision differs");}
+    const filename=path.join(path.dirname(this.descriptorPath),"authorization-deletion.json");
+    await fs.rename(filename,path.join(path.dirname(filename),`authorization-deletion.${intent.operation_id}.revoked.json`));
+    const directory=syncFS.openSync(path.dirname(filename),'r');try{syncFS.fsyncSync(directory);}finally{syncFS.closeSync(directory);}
+    this.deletionIntent=undefined;this.authorizationRevoked=false;this.suspended=false;this.capabilityReport=report;
+    return this.retry();
+  }
+
   #saveDeletionIntent(intent) {
     const filename=path.join(path.dirname(this.descriptorPath),"authorization-deletion.json"), temporary=filename+"."+crypto.randomUUID()+".tmp";
     syncFS.mkdirSync(path.dirname(filename),{recursive:true,mode:0o700});const fd=syncFS.openSync(temporary,"wx",0o600);

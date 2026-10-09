@@ -90,6 +90,7 @@ export type SparkClawDesktop = {
   login?(token: string): Promise<DesktopConnectionStatus>;
   enroll?(credential: string): Promise<DesktopConnectionStatus>;
   connectionCredential?(token: string): Promise<string>;
+  checkNewAuthorization?(): Promise<DesktopConnectionStatus>;
   deleteAuthorization?(): Promise<DesktopConnectionStatus>;
   logout?(): Promise<DesktopConnectionStatus>;
   speechStream?(request: Record<string, unknown>): Promise<unknown>;

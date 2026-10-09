@@ -13,3 +13,13 @@ test('upload resumes original transfer after lost chunk receipt; download verifi
  assert.deepEqual(await restarted.download(object),bytes);const after=new ISCPObjectClient(options);assert.deepEqual(await after.download(object),bytes);assert.equal(downloaded.length,3);
  const chunk=fs.readdirSync(root).find(name=>name.endsWith('.0.chunk'));fs.writeFileSync(path.join(root,chunk),Buffer.alloc(8192));await assert.rejects(after.download(object),/integrity/);
 });
+
+test('download disk quotas preserve the last checkpoint and expiry removes only transfer cache files',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'iscp-quota-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const bytes=Buffer.alloc(20000,4);let reads=0;
+ const object={object_id:'object',version:1,size:bytes.length,sha256:hash(bytes),expires_at:new Date(Date.now()+60000).toISOString()};
+ const options={root,scope:{owner:'owner'},call:async(_op,body)=>{reads++;const content=bytes.subarray(body.offset,body.offset+body.length);return{offset:body.offset,data_base64:content.toString('base64'),sha256:hash(content)};}};
+ const bounded=new ISCPObjectClient({...options,diskQuota:10000});await assert.rejects(bounded.download(object),/quota/);
+ const resumed=new ISCPObjectClient({...options,diskQuota:30000});assert.deepEqual(await resumed.download(object),bytes);assert.equal(reads,4);
+ for(const name of fs.readdirSync(root).filter(name=>name.endsWith('.json'))){const filename=path.join(root,name),row=JSON.parse(fs.readFileSync(filename));row.expires_at=new Date(0).toISOString();fs.writeFileSync(filename,JSON.stringify(row));}
+ new ISCPObjectClient(options);assert.deepEqual(fs.readdirSync(root),[]);
+});

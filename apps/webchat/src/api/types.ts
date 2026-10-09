@@ -387,7 +387,8 @@ export type SpeechTranscriptionResult = {
   duration_ms: number;
   inference_ms: number;
   model?: string;
-  audio_retained: false;
+  audio_retained: boolean;
+  audio_expires_at?: string;
 };
 
 export type OwnerProfile = {

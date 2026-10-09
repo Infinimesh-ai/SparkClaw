@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld("sparkclawDesktop", Object.freeze({
   login: (token) => ipcRenderer.invoke("sparkclaw-local-backend:login", token),
   enroll: (credential) => ipcRenderer.invoke("sparkclaw-local-backend:enroll", credential),
   connectionCredential: (token) => ipcRenderer.invoke("sparkclaw-local-backend:connection-credential", token),
+  checkNewAuthorization: () => ipcRenderer.invoke("sparkclaw-local-backend:check-new-authorization"),
   deleteAuthorization: () => ipcRenderer.invoke("sparkclaw-local-backend:delete-authorization"),
   logout: () => ipcRenderer.invoke("sparkclaw-local-backend:logout"),
   speechStream: (request) => ipcRenderer.invoke("sparkclaw-speech:stream", request),

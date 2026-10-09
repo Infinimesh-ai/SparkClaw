@@ -142,3 +142,13 @@ test('bodyless typed errors retain their code and trusted installation across in
  await f.transport.start();f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{schema_version:2,profile:'sparkclaw.workbench.transport.v2',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:['operations.receipt'],binding:{deployment_id:'d',owner_id:'o',client_id:'c'}}});
  await assert.rejects(f.transport.invoke('operations.receipt',undefined,{params:{operation_id:requestID}}),error=>error.status===409&&error.code==='operation_outcome_unknown'&&error.retryable===false);
 });
+
+test('v2 bulk and audio windows leave a reserved control slot while excess bulk fails before send',async t=>{
+ const operations=['object.read','speech.session.frame','execution.cancel'];
+ const f=fixture(t,(call,child)=>{if(call.request.operation==='execution.cancel')child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:{state:'canceled'}}});});
+ await f.transport.start();f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{schema_version:2,profile:'sparkclaw.workbench.transport.v2',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations,binding:{deployment_id:'d',owner_id:'o',client_id:'c'}}});
+ const pending=[...Array.from({length:2},()=>f.transport.invoke('object.read',{}).catch(()=>{})),...Array.from({length:2},()=>f.transport.invoke('speech.session.frame',{}).catch(()=>{}))];
+ await assert.rejects(f.transport.invoke('object.read',{}),ISCPRequestNotSentError);
+ assert.equal((await(await f.transport.fetch(`${origin}/api/v1/executions/${requestID}/cancel`,{method:'POST',body:'{}'})).json()).state,'canceled');
+ f.transport.close();await Promise.all(pending);
+});

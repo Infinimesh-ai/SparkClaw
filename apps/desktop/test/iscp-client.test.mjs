@@ -34,24 +34,36 @@ async function fixture(t) {
   let store = new ClientStore(path.join(directory, "workbench")); let auth, execution;
   const f = { directory, profilePath, helperPath, vault, calls, children, descriptor, ready: true, identity: scope,
     handler: () => ({ status: 404 }), get store() { return store; }, get auth() { return auth; }, get execution() { return execution; }, get directHTTP() { return directHTTP; } };
-  const spawnProcess = () => {
+  const spawnProcess = (_executable, args = []) => {
+    const controlOnly=args.includes("-control-only");
     const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.exitCode = null;
     child.send = (frame) => child.stdout.write(`${JSON.stringify(frame)}\n`);
     child.kill = () => { child.exitCode = 0; child.emit("exit", 0); };
     child.stdin = new Writable({ write(bytes, _encoding, done) {
-      const frame = JSON.parse(bytes); const request = frame.request;
+      const frame = JSON.parse(bytes);
+      if(controlOnly){
+        f.revoked=true;f.receipt??={operation_id:frame.operation_id,expected_revision:frame.expected_revision,authorization_revision:frame.expected_revision+1,state:"revoked",deleted_at:new Date().toISOString()};
+        if(!f.loseDeletion)queueMicrotask(()=>child.send({ipc_version:1,type:"authorization_receipt",id:frame.id,receipt:f.receipt}));
+        done();return;
+      }
+      const request = frame.request;
       if (frame.body_base64 !== undefined) { request.body = JSON.parse(Buffer.from(frame.body_base64, "base64").toString("utf8")); request.originalBody = Buffer.from(frame.body_base64, "base64").toString("utf8"); }
       calls.push(request);
       let result;
       if (request.operation === "workbench.identity") result = { status: 200, body: { schema_version: 1, ...f.identity } };
       else if (request.operation === "installation.bind") result = { status: 200, body: { schema_version: 1, installation_id: request.body.installation_id, ...f.identity } };
+      else if(request.operation === "capabilities.get")result={status:200,body:{schema_version:2,profile:"sparkclaw.workbench.transport.v2",session_id:"session",authorization_revision:f.revision||1,expires_at:new Date(Date.now()+60000).toISOString(),capabilities:[]}};
       else result = f.handler(request, child);
-      if (result) child.send({ ipc_version: 1, type: "response", id: frame.id, response: { type: "task.result", profile: ISCP_PROFILE, id: request.id, ...result } });
+      if (result) child.send({ ipc_version: 1, type: "response", id: frame.id, response: { type: "task.result", profile: request.profile, id: request.id, ...result } });
       done();
     } });
     children.push(child);
     queueMicrotask(() => { child.send({ ipc_version: 1, type: "hello", operations: ISCP_OPERATIONS, max_request_bytes: 65536, max_response_bytes: 65536,
-      identity: { domain_id: descriptor.domain_id, initiator_device_id: descriptor.initiator_device_id, responder_device_id: descriptor.responder_device_id, responder_key_thumbprint: descriptor.responder_key_thumbprint, relay_url: descriptor.relay_url, relay_profile: descriptor.relay_profile ?? "production" } }); if (f.ready) child.send({ ipc_version: 1, type: "state", state: "transport_ready" }); });
+      control_only:controlOnly,identity: { domain_id: descriptor.domain_id, initiator_device_id: descriptor.initiator_device_id, responder_device_id: descriptor.responder_device_id, responder_key_thumbprint: descriptor.responder_key_thumbprint, relay_url: descriptor.relay_url, relay_profile: descriptor.relay_profile ?? "production" } });
+      if(controlOnly)return;
+      if(f.revoked){child.send({ipc_version:1,type:"state",state:"authorization_revoked"});return;}
+      if(f.v2)child.send({ipc_version:1,type:"capabilities",capabilities:{schema_version:2,profile:"sparkclaw.workbench.transport.v2",session_id:"session",authorization_revision:f.revision||1,expires_at:new Date(Date.now()+60000).toISOString(),binding:scope,operations:[...ISCP_OPERATIONS,"capabilities.get"]}});
+      if (f.ready) child.send({ ipc_version: 1, type: "state", state: "transport_ready" }); });
     return child;
   };
   f.newAuth = (overrides = {}) => new DesktopAuth({ vault, descriptorPath: path.join(directory, "backend.json"), installationID: store.installationID, requireLAN: true,
@@ -365,4 +377,14 @@ test("local-lab Relay is explicit, loopback only, and must match the helper's se
   await assert.rejects(loadISCPProfile(f.profilePath), /configuration/u);
   await fs.writeFile(f.helperPath, JSON.stringify({ schema_version: 1, mode: "local-test", role: "initiator", relay_profile: "local-lab", binding: scope }));
   assert.equal((await loadISCPProfile(f.profilePath)).descriptor.relayProfile, "local-lab");
+});
+
+test("manual deletion keeps an offline intent and only explicit fresh authorization can clear its tombstone",async t=>{
+ const f=await fixture(t);f.v2=true;f.revision=1;await f.start();assert.equal(f.auth.status.state,"connected");
+ f.loseDeletion=true;await assert.rejects(f.auth.deleteAuthorization(),/reconciliation/);assert.equal(f.auth.status.authorization_deletion.state,"pending");
+ const intent=JSON.parse(await fs.readFile(path.join(f.directory,"authorization-deletion.json"),"utf8"));assert.equal(intent.expected_revision,1);
+ f.loseDeletion=false;await f.restart();assert.equal(f.auth.status.authorization_deletion.state,"revoked");assert.equal(f.auth.status.state,"invalid_authentication");
+ await assert.rejects(f.auth.checkNewAuthorization(),/No newer/);assert.equal(f.auth.status.authorization_deletion.state,"revoked");
+ f.revoked=false;f.revision=3;assert.equal((await f.auth.checkNewAuthorization()).state,"connected");assert.equal(f.auth.status.authorization_deletion,undefined);
+ assert.ok((await fs.readdir(f.directory)).some(name=>name===`authorization-deletion.${intent.operation_id}.revoked.json`));assert.equal(f.directHTTP,0);
 });

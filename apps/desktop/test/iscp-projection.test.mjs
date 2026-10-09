@@ -18,6 +18,14 @@ test('event snapshots and cursors commit together and reject previous-principal 
  const {store,root}=fixture(t);
  store.commitEventProjection(scope,{previous_cursor:'',cursor:'opaque-1',revision:1,snapshot:{execution:{state:'running'}}});
  assert.throws(()=>store.commitEventProjection(scope,{previous_cursor:'',cursor:'opaque-2',revision:2,snapshot:{}}),/cursor/);
- const other={...scope,owner_id:'other'}; assert.deepEqual(store.eventProjection(other),{cursor:'',revision:0,snapshot:{}});
- const reopened=new ClientStore(root);try{assert.deepEqual(reopened.eventProjection(scope),{cursor:'opaque-1',revision:1,snapshot:{execution:{state:'running'}}});}finally{reopened.close();}
+ const other={...scope,owner_id:'other'}; assert.deepEqual(store.eventProjection(other),{cursor:'',revision:0,snapshot:{},epoch:''});
+ const reopened=new ClientStore(root);try{assert.deepEqual(reopened.eventProjection(scope),{cursor:'opaque-1',revision:1,snapshot:{execution:{state:'running'}},epoch:''});}finally{reopened.close();}
+});
+
+test('new gateway epochs need an explicit authoritative reset before replacing a higher cursor revision',t=>{
+ const {store}=fixture(t);
+ store.commitEventProjection(scope,{previous_cursor:'',cursor:'old',revision:9,epoch:'old',reset:true,snapshot:{}});
+ assert.throws(()=>store.commitEventProjection(scope,{previous_cursor:'old',cursor:'new',revision:1,epoch:'new',snapshot:{}}),/cursor/);
+ store.commitEventProjection(scope,{previous_cursor:'old',cursor:'new',revision:1,epoch:'new',reset:true,snapshot:{}});
+ assert.equal(store.eventProjection(scope).epoch,'new');
 });

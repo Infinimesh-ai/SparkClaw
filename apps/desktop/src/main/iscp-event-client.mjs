@@ -15,12 +15,12 @@ export class ISCPEventClient {
    else try{reply=await this.auth.invokeISCP('events.pull',{cursor:previous.cursor,limit:100},{signal:controller.signal});}
    catch(error){if(!['cursor_gap','cursor_invalid','cursor_expired','snapshot_required'].includes(error.code))throw error;reply=await snapshot();}
    same();
-   if(typeof reply.cursor!=='string'||!reply.cursor||reply.cursor.length>4096||!Number.isSafeInteger(reply.revision)||reply.revision<1||!Array.isArray(reply.events??[])||(reply.events??[]).length>100)throw new Error('Invalid event response');
+   if(typeof reply.epoch!=="string"||!reply.epoch||reply.epoch.length>160||typeof reply.cursor!=='string'||!reply.cursor||reply.cursor.length>4096||!Number.isSafeInteger(reply.revision)||reply.revision<1||!Array.isArray(reply.events??[])||(reply.events??[]).length>100)throw new Error('Invalid event response');
    const events=reply.events??[];
-   let sequence=previous.revision;
+   let sequence=reply.reset===true&&reply.epoch!==previous.epoch?0:previous.revision;
    for(const event of events){if(!Number.isSafeInteger(event.sequence)||event.sequence<=sequence||typeof event.category!=='string'||!['tasks','approvals','notifications','settings','email'].includes(event.category))throw new Error('Invalid event sequence');sequence=event.sequence;}
    if(events.length&&!reply.snapshot)throw new Error('Event changed without an authoritative snapshot');
-   this.store.commitEventProjection(scope,{previous_cursor:previous.cursor,cursor:reply.cursor,revision:reply.revision,snapshot:reply.snapshot??previous.snapshot});
+   this.store.commitEventProjection(scope,{previous_cursor:previous.cursor,cursor:reply.cursor,revision:reply.revision,snapshot:reply.snapshot??previous.snapshot,epoch:reply.epoch,reset:reply.reset===true});
    same();
    await this.auth.invokeISCP('events.ack',{cursor:reply.cursor},{signal:controller.signal});
    same();

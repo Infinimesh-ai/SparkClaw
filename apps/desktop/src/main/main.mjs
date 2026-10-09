@@ -173,6 +173,7 @@ async function start() {
   trustedHandler("sparkclaw-local-backend:login", (token) => desktopAuth.login(token));
   trustedHandler("sparkclaw-local-backend:enroll", (credential) => desktopAuth.enroll(credential));
   trustedHandler("sparkclaw-local-backend:connection-credential", (token) => desktopAuth.connectionCredential(token));
+  trustedHandler("sparkclaw-local-backend:check-new-authorization", () => desktopAuth.checkNewAuthorization());
   trustedHandler("sparkclaw-local-backend:delete-authorization", () => desktopAuth.deleteAuthorization());
   trustedHandler("sparkclaw-local-backend:logout", () => desktopAuth.logout());
   iscpSpeech = new ISCPSpeechClient(desktopAuth);

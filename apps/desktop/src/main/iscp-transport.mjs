@@ -141,14 +141,14 @@ export class ISCPTransport {
       ...(headers.get("x-sparkclaw-digest")?{input_digest:headers.get("x-sparkclaw-digest")}:{}),
       ...(init.operationID?{operation_id:init.operationID}:{}),...(init.expectedRevision?{expected_revision:init.expectedRevision}:{})};
     const rawBody=init.body === undefined ? undefined : typeof init.body === "string" ? init.body : new TextDecoder("utf-8",{fatal:true}).decode(init.body);
-    if(request.operation.startsWith("settings.") || request.operation.startsWith("notifications.")) return this.#presentation(request,init,rawBody);
+    if(request.operation.startsWith("settings.") || request.operation.startsWith("notifications.") || request.operation === "execution.approval") return this.#presentation(request,init,rawBody);
     return this.#request(request,init,rawBody);
   }
 
   async #presentation(request,init,rawBody) {
     const spec=requireOperation(request.operation);
     const family=request.operation.split(".")[1];
-    const resource=request.operation.startsWith("notifications.") ? "notifications" : family==='owner' ? 'owner' : family==='connectors' ? 'connectors' : `integration:${request.params?.integration_id || ''}`;
+    const resource=request.operation === "execution.approval" ? `approval:${request.params?.request_id}:${request.params?.approval_id}` : request.operation.startsWith("notifications.") ? "notifications" : family==='owner' ? 'owner' : family==='connectors' ? 'connectors' : `integration:${request.params?.integration_id || ''}`;
     let record;
     if(spec.mutation) {
       if(!this.mutations)throw new ISCPRequestNotSentError("Durable settings recovery is unavailable");
@@ -209,7 +209,11 @@ export class ISCPTransport {
 
   async #dispatch(request,init,rawBody) {
     if(this.state!=="transport_ready")throw new ISCPRequestNotSentError("ISCP transport is unavailable","unavailable");
-    if (this.pending.size >= 4) throw new ISCPRequestNotSentError("ISCP request concurrency limit reached", "capacity");
+    const capacityClass=request.profile===ISCP_V2_PROFILE?requireOperation(request.operation).capacity_class:'v1';
+    const capacities={v1:4,business:4,control:1,bulk:2,events:1,audio:2};
+    if(!Object.hasOwn(capacities,capacityClass))throw new ISCPRequestNotSentError("ISCP capacity class is unavailable");
+    const occupied=[...this.pending.values()].filter(call=>call.capacityClass===capacityClass).length;
+    if(occupied>=capacities[capacityClass])throw new ISCPRequestNotSentError("ISCP request concurrency limit reached","capacity");
     if (init.signal?.aborted) throw new ISCPRequestNotSentError("ISCP request was canceled", "canceled");
     const id=crypto.randomUUID();request={...request,id};
     if (Buffer.byteLength(JSON.stringify(request)) > MAX_BYTES) throw new ISCPRequestNotSentError("ISCP request exceeds the test profile limit");
@@ -219,7 +223,7 @@ export class ISCPTransport {
       const finish=(handler,value)=>{clearTimeout(timer);signal?.removeEventListener("abort",cancel);this.pending.delete(id);handler(value);};
       const cancel=()=>finish(reject,new Error("ISCP request was canceled"));
       const timer=setTimeout(()=>finish(reject,new Error("ISCP request deadline exceeded")),this.timeoutMS);
-      this.pending.set(id,{request,resolve:(value)=>finish(resolve,value),reject:(error)=>finish(reject,error)});
+      this.pending.set(id,{request,capacityClass,resolve:(value)=>finish(resolve,value),reject:(error)=>finish(reject,error)});
       signal?.addEventListener("abort",cancel,{once:true});
       try {const {body,...wireRequest}=request;this.child.stdin.write(`${JSON.stringify({ipc_version:1,type:"call",id,request:wireRequest,...(rawBody!==undefined?{body_base64:Buffer.from(rawBody,"utf8").toString("base64")}: {})})}\n`);}
       catch {this.#fail("disconnected");}

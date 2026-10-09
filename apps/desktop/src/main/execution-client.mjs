@@ -137,7 +137,8 @@ export class ExecutionClient {
       this.onChange();
       try {
         const response = await this.#fetch(scope, `/api/v1/executions/${requestID}/approvals/${encodeURIComponent(approvalID)}`, {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ digest, decision }),
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ digest, decision, ...(this.auth.descriptor?.transport === "iscp" ? {input_digest:task.input_digest} : {}) }),
+          ...(this.auth.descriptor?.transport === "iscp" ? {expectedRevision:String(this.store.executionProjection(scope,requestID).revision)} : {}),
         });
         if (!response.ok) { await response.body?.cancel(); throw new Error("Approval decision is awaiting reconciliation"); }
         const receipt = await json(response);

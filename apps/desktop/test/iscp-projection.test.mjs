@@ -29,3 +29,13 @@ test('new gateway epochs need an explicit authoritative reset before replacing a
  store.commitEventProjection(scope,{previous_cursor:'old',cursor:'new',revision:1,epoch:'new',reset:true,snapshot:{}});
  assert.equal(store.eventProjection(scope).epoch,'new');
 });
+
+test('same-epoch subscription replacement requires an explicit reset and completed tasks never resume',t=>{
+ const {store,task}=fixture(t);
+ store.commitEventProjection(scope,{previous_cursor:'',cursor:'old',revision:9,epoch:'epoch',reset:true,snapshot:{old:true}});
+ assert.throws(()=>store.commitEventProjection(scope,{previous_cursor:'old',cursor:'fresh',revision:1,epoch:'epoch',snapshot:{}}),/cursor/);
+ store.commitEventProjection(scope,{previous_cursor:'old',cursor:'fresh',revision:1,epoch:'epoch',reset:true,snapshot:{fresh:true}});
+ assert.deepEqual(store.eventProjection(scope).snapshot,{fresh:true});
+ store.acceptExecutionProjection(scope,{request_id:task.request_id,revision:2,state:'completed'});
+ for(const state of ['running','approval_pending','browser_login_blocked'])assert.throws(()=>store.acceptExecutionProjection(scope,{request_id:task.request_id,revision:3,state}),/Terminal/);
+});

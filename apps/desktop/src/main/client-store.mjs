@@ -342,7 +342,7 @@ export class ClientStore {
       const previous = this.executionProjection(scope, event.request_id);
       if (event.revision < previous.revision) return false;
       if (event.revision === previous.revision && (previous.event_state !== event.state || previous.termination_reason !== (event.termination_reason ?? "") || JSON.stringify(previous.approval_receipts) !== JSON.stringify(receipts))) throw new Error("Execution revision conflict");
-      if (["failed", "canceled", "unknown", "delivery_expired", "delivered"].includes(previous.event_state) && ["accepted", "running"].includes(event.state)) throw new Error("Terminal execution cannot return to running");
+      if (["completed", "failed", "canceled", "unknown", "delivery_expired", "delivered"].includes(previous.event_state) && ["accepted", "running", "approval_pending", "browser_login_blocked"].includes(event.state)) throw new Error("Terminal execution cannot return to running");
       this.db.prepare(`INSERT INTO execution_projection VALUES(?,?,?,?,?) ON CONFLICT(request_id) DO UPDATE SET
         revision=excluded.revision,termination_reason=excluded.termination_reason,approval_receipts=excluded.approval_receipts,event_state=excluded.event_state`)
         .run(event.request_id, event.revision, event.termination_reason ?? "", JSON.stringify(receipts), event.state);
@@ -366,7 +366,7 @@ export class ClientStore {
         !snapshot || typeof snapshot !== "object" || Array.isArray(snapshot) || Buffer.byteLength(JSON.stringify(snapshot)) > CLIENT_LIMITS.resultBytes) throw new Error("Invalid event projection");
     return this.#transaction(() => {
       const previous = this.eventProjection(scope);
-      if (previous.cursor !== previous_cursor || (epoch === previous.epoch ? revision < previous.revision : !reset)) throw new Error("Event cursor conflict; obtain an authoritative snapshot");
+      if (previous.cursor !== previous_cursor || (!reset && (epoch !== previous.epoch || revision < previous.revision))) throw new Error("Event cursor conflict; obtain an authoritative snapshot");
       this.db.prepare(`INSERT INTO event_projection VALUES(?,?,?,?,?) ON CONFLICT(scope) DO UPDATE SET
         cursor=excluded.cursor,revision=excluded.revision,snapshot=excluded.snapshot,epoch=excluded.epoch`).run(scopeKey(scope), cursor, revision, JSON.stringify(snapshot), epoch);
       return this.eventProjection(scope);

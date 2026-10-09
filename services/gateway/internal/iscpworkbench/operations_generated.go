@@ -77,4 +77,7 @@ const (
 	OperationAudioSessionClose = "audio.session.close"
 	OperationAudioFrame = "audio.frame"
 	OperationOperationsReceipt = "operations.receipt"
+	OperationExecutionApproval = "execution.approval"
+	OperationExecutionInputPut = "execution.input.put"
+	OperationExecutionFileGet = "execution.file.get"
 )

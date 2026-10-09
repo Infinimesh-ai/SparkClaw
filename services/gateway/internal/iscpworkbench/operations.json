@@ -181,7 +181,7 @@
       "channel"
     ],
     "http": {
-      "method": "POST",
+      "method": "PATCH",
       "path": "/api/connectors/{channel}"
     }
   },
@@ -459,12 +459,8 @@
     "limit_bytes": 63488,
     "dependencies": [],
     "params": [
-      "status"
-    ],
-    "http": {
-      "method": "GET",
-      "path": "/api/approvals"
-    }
+      "request_id"
+    ]
   },
   {
     "name": "approvals.get",
@@ -477,12 +473,10 @@
     "limit_bytes": 63488,
     "dependencies": [],
     "params": [
+      "request_id",
+      "approval_id",
       "id"
-    ],
-    "http": {
-      "method": "GET",
-      "path": "/api/approvals/{id}"
-    }
+    ]
   },
   {
     "name": "approvals.decide",
@@ -495,13 +489,10 @@
     "limit_bytes": 63488,
     "dependencies": [],
     "params": [
-      "id",
-      "decision"
-    ],
-    "http": {
-      "method": "POST",
-      "path": "/api/approvals/{id}/{decision}"
-    }
+      "request_id",
+      "approval_id",
+      "id"
+    ]
   },
   {
     "name": "events.snapshot",
@@ -727,8 +718,8 @@
     "version": 2,
     "direction": "forward",
     "scope": "mail.read",
-    "mutation": false,
-    "recovery": "read",
+    "mutation": true,
+    "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
     "params": [
@@ -770,7 +761,7 @@
     "direction": "forward",
     "scope": "browser.control",
     "mutation": true,
-    "recovery": "operation_receipt",
+    "recovery": "command_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
     "params": []
@@ -782,7 +773,7 @@
     "direction": "forward",
     "scope": "browser.control",
     "mutation": true,
-    "recovery": "operation_receipt",
+    "recovery": "stream_sequence",
     "limit_bytes": 63488,
     "dependencies": [],
     "params": []
@@ -938,7 +929,7 @@
     "direction": "forward",
     "scope": "speech.transcribe",
     "mutation": true,
-    "recovery": "operation_receipt",
+    "recovery": "stream_sequence",
     "limit_bytes": 63488,
     "dependencies": [],
     "params": []
@@ -1010,7 +1001,7 @@
     "direction": "forward",
     "scope": "speech.realtime",
     "mutation": true,
-    "recovery": "operation_receipt",
+    "recovery": "stream_sequence",
     "limit_bytes": 63488,
     "dependencies": [],
     "params": []
@@ -1028,5 +1019,62 @@
     "params": [
       "operation_id"
     ]
+  },
+  {
+    "name": "execution.approval",
+    "constant": "OperationExecutionApproval",
+    "version": 2,
+    "direction": "forward",
+    "scope": "approvals.decide",
+    "mutation": true,
+    "recovery": "original_request",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "request_id",
+      "approval_id"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/v1/executions/{request_id}/approvals/{approval_id}"
+    }
+  },
+  {
+    "name": "execution.input.put",
+    "constant": "OperationExecutionInputPut",
+    "version": 2,
+    "direction": "forward",
+    "scope": "objects.write",
+    "mutation": true,
+    "recovery": "original_request",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "request_id",
+      "file_id"
+    ],
+    "http": {
+      "method": "PUT",
+      "path": "/api/v1/inputs/{request_id}/files/{file_id}"
+    }
+  },
+  {
+    "name": "execution.file.get",
+    "constant": "OperationExecutionFileGet",
+    "version": 2,
+    "direction": "forward",
+    "scope": "objects.read",
+    "mutation": false,
+    "recovery": "original_request",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "request_id",
+      "file_id"
+    ],
+    "http": {
+      "method": "GET",
+      "path": "/api/v1/executions/{request_id}/files/{file_id}"
+    }
   }
 ]

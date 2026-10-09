@@ -53,6 +53,7 @@ func (a *iscpDomainAdapter) capabilities(ctx context.Context, request iscpworkbe
 		{"mail_read", []string{iscpworkbench.OperationMailMailboxes, iscpworkbench.OperationMailSync, iscpworkbench.OperationMailMessage}, a.server.mailSync != nil && a.server.emailManagement != nil},
 		{"mail_attachments", []string{iscpworkbench.OperationMailAttachment, iscpworkbench.OperationObjectRead}, a.server.emailManagement != nil},
 		{"mail_send", []string{iscpworkbench.OperationMailDraftsList, iscpworkbench.OperationMailDraftsSave, iscpworkbench.OperationMailDraftsSend, iscpworkbench.OperationMailDraftsReconcile}, mailSend},
+		{"mail_send_attachments", []string{iscpworkbench.OperationMailDraftsList, iscpworkbench.OperationMailDraftsSave, iscpworkbench.OperationMailDraftsSend, iscpworkbench.OperationMailDraftsReconcile}, mailSend && a.server.emailManagement.ComposeCapabilities().WorkspaceAttachments},
 		{"browser", []string{iscpworkbench.OperationBrowserHostGrant, iscpworkbench.OperationBrowserHostRegister, iscpworkbench.OperationBrowserHostPoll, iscpworkbench.OperationBrowserHostReply, iscpworkbench.OperationBrowserHostHeartbeat, iscpworkbench.OperationBrowserHostClose, iscpworkbench.OperationBrowserHostRevoke, iscpworkbench.OperationBrowserReceipt, iscpworkbench.OperationBrowserReconcile}, browserReady},
 		{"speech_recording", []string{iscpworkbench.OperationSpeechStatus, iscpworkbench.OperationSpeechTranscribe, iscpworkbench.OperationTransferOpen, iscpworkbench.OperationTransferChunk, iscpworkbench.OperationTransferCommit, iscpworkbench.OperationTransferStatus, iscpworkbench.OperationTransferAbort, iscpworkbench.OperationObjectRelease}, speechReady},
 		{"speech_realtime", []string{iscpworkbench.OperationSpeechSessionOpen, iscpworkbench.OperationSpeechSessionFrame, iscpworkbench.OperationSpeechSessionFinish, iscpworkbench.OperationSpeechSessionCancel, iscpworkbench.OperationSpeechSessionEvents}, speechStreaming},
@@ -80,6 +81,9 @@ func (a *iscpDomainAdapter) capabilities(ctx context.Context, request iscpworkbe
 			}
 			operations = append(operations, name)
 		}
+		if family.id == "mail_send_attachments" && !slices.Contains(session.Scopes, "files.read") {
+			capability.Permitted = false
+		}
 		capability.Enabled = capability.Supported && capability.Permitted && capability.Qualified && capability.DependenciesReady
 		switch {
 		case !capability.Supported:
@@ -93,7 +97,6 @@ func (a *iscpDomainAdapter) capabilities(ctx context.Context, request iscpworkbe
 		}
 		capabilities = append(capabilities, capability)
 	}
-	capabilities = append(capabilities, iscpDomainCapability{ID: "mail_send_attachments", Supported: false, Reason: "provider_unsupported", Operations: []string{}})
 	capabilities = append(capabilities, iscpDomainCapability{ID: "speech_playback", Supported: false, Reason: "provider_unsupported", Operations: []string{}})
 	return domainJSON(200, map[string]any{"schema_version": 2, "profile": session.Profile, "session_id": session.SessionID, "deployment_id": a.config.Binding.DeploymentID, "revision": domainRevision(capabilities), "authorization_revision": session.GrantRevision, "expires_at": domainNow().Add(2 * time.Minute), "permissions": session.Scopes, "capabilities": capabilities, "operations": operations, "limits": a.capabilityLimits()})
 }
@@ -110,7 +113,7 @@ func (a *iscpDomainAdapter) capabilityLimits() map[string]any {
 		"execution_retention_seconds": int64(execution.ResultRetention / time.Second), "execution_task_bytes": execution.TaskBytes, "execution_owner_bytes": execution.OwnerBytes,
 		"purpose_bytes":        map[string]int64{"context": 1 << 20, "request_body": 8 << 20, "execution_request": execution.ContextBytes, "execution_input": execution.ResultBytes, "execution_result": execution.ResultBytes, "file": limits.MaxObjectBytes, "mail_attachment": limits.MaxObjectBytes, "event_snapshot": 8 << 20, "browser_capture": 8 << 20, "speech_recording": min(25<<20, a.server.cfg.Speech.MaxUploadBytes), "speech_audio": min(25<<20, a.server.cfg.Speech.MaxUploadBytes)},
 		"speech_frame_samples": speech.RealtimeFrameSamples, "speech_frame_ms": speech.RealtimeFrameMS, "speech_unacked_ms": speech.RealtimeMaxUnackedMS,
-		"mail_send_attachment_supported":  false,
+		"mail_send_attachment_supported": true, "mail_send_max_attachments": app.EmailSendMaxAttachments, "mail_send_attachment_bytes": app.EmailSendMaxAttachmentBytes,
 		"browser_capture_effective_bytes": 64 << 10, "browser_reply_json_bytes": 96 << 10,
 		"event_unacked_packets": 1, "event_packet_items": 100, "event_cursor_ttl_seconds": 86400,
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailmanagement"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"io"
@@ -103,15 +104,18 @@ func (s *Server) saveEmailDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		ID              string   `json:"id"`
-		ExpectedVersion int64    `json:"expected_version"`
-		MailboxID       string   `json:"mailbox_id"`
-		Mode            string   `json:"mode"`
-		ReplyMailID     string   `json:"reply_mail_id"`
-		To              []string `json:"to"`
-		CC              []string `json:"cc"`
-		Subject         string   `json:"subject"`
-		Body            string   `json:"body"`
+		ID              string `json:"id"`
+		ExpectedVersion int64  `json:"expected_version"`
+		Attachments     []struct {
+			Path string `json:"path"`
+		} `json:"attachments"`
+		MailboxID   string   `json:"mailbox_id"`
+		Mode        string   `json:"mode"`
+		ReplyMailID string   `json:"reply_mail_id"`
+		To          []string `json:"to"`
+		CC          []string `json:"cc"`
+		Subject     string   `json:"subject"`
+		Body        string   `json:"body"`
 	}
 	if decodeEmailCompose(r, &input) != nil {
 		writeEmailManagementError(w, emailmanagement.ErrInvalidInput)
@@ -124,7 +128,11 @@ func (s *Server) saveEmailDraft(w http.ResponseWriter, r *http.Request) {
 		}
 		input.ID = id
 	}
-	draft, err := s.emailManagement.SaveDraft(r.Context(), principalForRequest(r).OwnerID, store.EmailDraft{ID: input.ID, MailboxID: input.MailboxID, Mode: input.Mode, ReplyMailID: input.ReplyMailID, To: input.To, CC: input.CC, Subject: input.Subject, Body: input.Body}, input.ExpectedVersion)
+	attachments := make([]app.EmailSendAttachment, len(input.Attachments))
+	for i, attachment := range input.Attachments {
+		attachments[i].Path = attachment.Path
+	}
+	draft, err := s.emailManagement.SaveDraft(r.Context(), principalForRequest(r).OwnerID, store.EmailDraft{Attachments: attachments, ID: input.ID, MailboxID: input.MailboxID, Mode: input.Mode, ReplyMailID: input.ReplyMailID, To: input.To, CC: input.CC, Subject: input.Subject, Body: input.Body}, input.ExpectedVersion)
 	if err != nil {
 		writeEmailComposeError(w, err)
 		return
@@ -151,6 +159,15 @@ func (s *Server) sendEmailDraft(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, draft)
 }
 func writeEmailComposeError(w http.ResponseWriter, err error) {
+	if errors.Is(err, emailmanagement.ErrAttachmentInvalid) || errors.Is(err, emailmanagement.ErrAttachmentChanged) {
+		status, code := http.StatusBadRequest, emailmanagement.ErrAttachmentInvalid.Error()
+		if errors.Is(err, emailmanagement.ErrAttachmentChanged) {
+			status, code = http.StatusConflict, emailmanagement.ErrAttachmentChanged.Error()
+		}
+		writeJSON(w, status, map[string]any{"code": code, "error": "Workspace attachments must be saved and reviewed again before sending.", "retryable": false})
+		return
+	}
+
 	for _, known := range []error{emailmanagement.ErrComposeUnavailable, emailmanagement.ErrNativeReplyUnavailable, emailmanagement.ErrMultipleRecipientsUnavailable, emailmanagement.ErrReplyPolishUnavailable} {
 		if errors.Is(err, known) {
 			writeJSON(w, http.StatusConflict, map[string]any{"code": known.Error(), "error": "Email action is unavailable; the draft is retained.", "retryable": false})

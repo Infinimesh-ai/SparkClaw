@@ -113,6 +113,9 @@ func (s *Service) Start(parent context.Context) {
 	if s.cancel != nil {
 		return
 	}
+	if err := s.cleanupAttachmentStages(); err != nil {
+		slog.Warn("email attachment staging cleanup failed", "code", safeCode(err))
+	}
 	ctx, cancel := context.WithCancel(parent)
 	s.cancel, s.done = cancel, make(chan struct{})
 	go func() {

@@ -99,7 +99,21 @@ type EmailReplyTarget struct {
 	Subject string `json:"subject"`
 }
 
+// EmailSendAttachment is the Gateway-authoritative workspace manifest. StagedPath
+// is a short-lived private copy supplied only to the trusted browser runtime.
+type EmailSendAttachment struct {
+	Path       string `json:"path"`
+	Name       string `json:"name"`
+	SizeBytes  int64  `json:"size_bytes"`
+	SHA256     string `json:"sha256"`
+	StagedPath string `json:"-"`
+}
+
+const EmailSendMaxAttachments = 5
+const EmailSendMaxAttachmentBytes int64 = 10 << 20
+
 type EmailSendRequest struct {
+	Attachments                 []EmailSendAttachment
 	To                          []string
 	CC                          []string
 	Mode                        string

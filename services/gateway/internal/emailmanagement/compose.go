@@ -22,17 +22,20 @@ type ComposeBrowser interface {
 	ReconcileSendForOwner(context.Context, string, app.EmailSendRequest) (app.EmailSendResult, error)
 }
 type ComposeCapabilities struct {
-	Compose     bool   `json:"compose"`
-	Reply       bool   `json:"reply"`
-	ReplyAll    bool   `json:"reply_all"`
-	CC          bool   `json:"cc"`
-	MaxTo       int    `json:"max_to"`
-	ReplyReason string `json:"reply_reason"`
+	Compose              bool   `json:"compose"`
+	Reply                bool   `json:"reply"`
+	ReplyAll             bool   `json:"reply_all"`
+	CC                   bool   `json:"cc"`
+	MaxTo                int    `json:"max_to"`
+	WorkspaceAttachments bool   `json:"workspace_attachments"`
+	MaxAttachments       int    `json:"max_attachments"`
+	MaxAttachmentBytes   int64  `json:"max_attachment_bytes"`
+	ReplyReason          string `json:"reply_reason"`
 }
 
 func (s *Service) ComposeCapabilities() ComposeCapabilities {
 	_, browser := s.browser.(ComposeBrowser)
-	return ComposeCapabilities{Compose: browser, Reply: browser, ReplyAll: browser, CC: browser, MaxTo: 100}
+	return ComposeCapabilities{Compose: browser, Reply: browser, ReplyAll: browser, CC: browser, MaxTo: 100, WorkspaceAttachments: browser && s.opts.WorkspaceRoot != "", MaxAttachments: app.EmailSendMaxAttachments, MaxAttachmentBytes: app.EmailSendMaxAttachmentBytes}
 }
 func (s *Service) Drafts(ctx context.Context, owner, id string) ([]store.EmailDraft, error) {
 	r := s.repository
@@ -160,6 +163,10 @@ func (s *Service) SaveDraft(ctx context.Context, owner string, d store.EmailDraf
 	if err != nil {
 		return d, err
 	}
+	d.Attachments, _, err = s.readDraftAttachments(ctx, owner, d.Attachments, false)
+	if err != nil {
+		return d, err
+	}
 	out, err := r.ChangeEmailDraft(ctx, store.EmailDraftCommand{OwnerID: owner, Action: "save", Draft: d, ExpectedVersion: expected})
 	return out.Draft, err
 }
@@ -177,6 +184,9 @@ func (s *Service) SendDraft(ctx context.Context, owner, id string, expected int6
 	// Replays observe durable state without another probe or browser side effect.
 	if d.SendKey == key && key != "" {
 		return d, nil
+	}
+	if d.Version != expected || (d.State != "draft" && d.State != "failed") {
+		return d, ErrConflict
 	}
 	if len(d.To) == 0 || len(d.To)+len(d.CC) > 100 {
 		return d, ErrInvalidInput
@@ -208,6 +218,15 @@ func (s *Service) SendDraft(ctx context.Context, owner, id string, expected int6
 	if binding.Provider != mailbox.Provider {
 		return d, ErrConflict
 	}
+	attachments, contents, err := s.readDraftAttachments(ctx, owner, d.Attachments, true)
+	if err != nil {
+		return d, err
+	}
+	attachments, cleanup, err := s.stageAttachments(attachments, contents)
+	if err != nil {
+		return d, ErrAttachmentChanged
+	}
+	defer cleanup()
 	claimed, err := r.ChangeEmailDraft(ctx, store.EmailDraftCommand{OwnerID: owner, Action: "begin", Draft: store.EmailDraft{ID: id}, ExpectedVersion: expected, SendKey: key})
 	if err != nil {
 		return d, err
@@ -215,7 +234,7 @@ func (s *Service) SendDraft(ctx context.Context, owner, id string, expected int6
 	if !claimed.Execute {
 		return claimed.Draft, nil
 	}
-	receipt, sendErr := browser.SendForOwner(ctx, owner, app.EmailSendRequest{Provider: binding.Provider, Account: binding.Account, To: d.To, CC: d.CC, Mode: d.Mode, AccountAddress: mailbox.Address, ReplyTarget: d.ReplyTarget, Subject: d.Subject, Body: d.Body, InvocationID: claimed.Draft.Snapshot.InvocationID, BrowserCredentialGeneration: binding.BrowserCredentialGeneration, ProbeRevision: binding.ProbeRevision, ScriptRevision: binding.SendScriptRevision, SettingVersion: binding.SettingVersion})
+	receipt, sendErr := browser.SendForOwner(ctx, owner, app.EmailSendRequest{Attachments: attachments, Provider: binding.Provider, Account: binding.Account, To: d.To, CC: d.CC, Mode: d.Mode, AccountAddress: mailbox.Address, ReplyTarget: d.ReplyTarget, Subject: d.Subject, Body: d.Body, InvocationID: claimed.Draft.Snapshot.InvocationID, BrowserCredentialGeneration: binding.BrowserCredentialGeneration, ProbeRevision: binding.ProbeRevision, ScriptRevision: binding.SendScriptRevision, SettingVersion: binding.SettingVersion})
 	state, code := "sent", ""
 	var proof *app.EmailSendResult
 	if sendErr != nil {
@@ -263,7 +282,7 @@ func (s *Service) ReconcileDraft(ctx context.Context, owner, id string) (store.E
 			return d, err
 		}
 		snap := d.Snapshot
-		receipt, err := browser.ReconcileSendForOwner(ctx, owner, app.EmailSendRequest{Provider: binding.Provider, Account: binding.Account, Mode: "reconcile", AccountAddress: box.Address, To: snap.To, CC: snap.CC, Subject: snap.Subject, Body: snap.Body, ReplyTarget: snap.ReplyTarget, InvocationID: snap.InvocationID, BrowserCredentialGeneration: binding.BrowserCredentialGeneration, ProbeRevision: binding.ProbeRevision, ScriptRevision: binding.SendScriptRevision, SettingVersion: binding.SettingVersion})
+		receipt, err := browser.ReconcileSendForOwner(ctx, owner, app.EmailSendRequest{Attachments: snap.Attachments, Provider: binding.Provider, Account: binding.Account, Mode: "reconcile", AccountAddress: box.Address, To: snap.To, CC: snap.CC, Subject: snap.Subject, Body: snap.Body, ReplyTarget: snap.ReplyTarget, InvocationID: snap.InvocationID, BrowserCredentialGeneration: binding.BrowserCredentialGeneration, ProbeRevision: binding.ProbeRevision, ScriptRevision: binding.SendScriptRevision, SettingVersion: binding.SettingVersion})
 		if err != nil {
 			return d, err
 		}

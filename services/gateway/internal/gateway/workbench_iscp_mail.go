@@ -2,9 +2,11 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strconv"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
@@ -12,6 +14,10 @@ import (
 )
 
 func (a *iscpDomainAdapter) mail(ctx context.Context, request iscpworkbench.Request) iscpDomainResult {
+	session, _ := iscpworkbench.SessionFromContext(ctx)
+	return a.mailWithSession(ctx, request, session)
+}
+func (a *iscpDomainAdapter) mailWithSession(ctx context.Context, request iscpworkbench.Request, session iscpworkbench.SessionInfo) iscpDomainResult {
 	principal, _, err := a.executionIdentity(ctx, request)
 	if err != nil {
 		return domainError(403, "installation_required")
@@ -84,8 +90,20 @@ func (a *iscpDomainAdapter) mail(ctx context.Context, request iscpworkbench.Requ
 		}
 		return domainJSON(200, page)
 	case iscpworkbench.OperationMailDraftsSave:
+		var input struct {
+			Attachments []json.RawMessage `json:"attachments"`
+		}
+		if json.Unmarshal(request.Body, &input) == nil && len(input.Attachments) > 0 && !slices.Contains(session.Scopes, "files.read") {
+			return domainError(403, "permission_denied")
+		}
 		return domainHTTP(ctx, request, http.MethodPost, a.server.saveEmailDraft, map[string]string{"draft": request.Params["draft"]})
 	case iscpworkbench.OperationMailSend, iscpworkbench.OperationMailDraftsSend:
+		if a.server.emailManagement != nil {
+			drafts, err := a.server.emailManagement.Drafts(ctx, principal.OwnerID, request.Params["draft"])
+			if err == nil && len(drafts) > 0 && len(drafts[0].Attachments) > 0 && !slices.Contains(session.Scopes, "files.read") {
+				return domainError(403, "permission_denied")
+			}
+		}
 		return domainHTTP(ctx, request, http.MethodPost, a.server.sendEmailDraft, map[string]string{"draft": request.Params["draft"]})
 	case iscpworkbench.OperationMailDraftsReconcile:
 		return domainHTTP(ctx, request, http.MethodPost, a.server.reconcileEmailDraft, map[string]string{"draft": request.Params["draft"]})

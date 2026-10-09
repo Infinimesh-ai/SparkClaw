@@ -166,6 +166,12 @@ func (r *PlaywrightRunner) Send(
 		AccountAddress string                `json:"account_address,omitempty"`
 		ReplyTarget    *app.EmailReplyTarget `json:"reply_target,omitempty"`
 		Message        struct {
+			Attachments []struct {
+				Path      string `json:"path"`
+				Name      string `json:"name"`
+				SizeBytes int64  `json:"size_bytes"`
+				SHA256    string `json:"sha256"`
+			} `json:"attachments,omitempty"`
 			Recipient string   `json:"recipient,omitempty"`
 			To        []string `json:"to,omitempty"`
 			CC        []string `json:"cc,omitempty"`
@@ -179,6 +185,14 @@ func (r *PlaywrightRunner) Send(
 	input.Mode = request.Mode
 	input.AccountAddress = request.AccountAddress
 	input.ReplyTarget = request.ReplyTarget
+	for _, attachment := range request.Attachments {
+		input.Message.Attachments = append(input.Message.Attachments, struct {
+			Path      string `json:"path"`
+			Name      string `json:"name"`
+			SizeBytes int64  `json:"size_bytes"`
+			SHA256    string `json:"sha256"`
+		}{Path: attachment.StagedPath, Name: attachment.Name, SizeBytes: attachment.SizeBytes, SHA256: attachment.SHA256})
+	}
 	input.Message.To = request.To
 	input.Message.CC = request.CC
 	input.Message.Recipient = request.Recipient

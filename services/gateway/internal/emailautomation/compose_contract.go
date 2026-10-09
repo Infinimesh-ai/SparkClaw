@@ -4,12 +4,33 @@ import (
 	"encoding/json"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"net/mail"
+	"path"
+	"regexp"
 	"strings"
 )
+
+var sendAttachmentDigest = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+var sendAttachmentStagedDirectory = regexp.MustCompile(`^\.sparkclaw-mail-send-[a-f0-9]{32}/[0-9a-f]{2}$`)
 
 func validateComposeRequest(r SendRequest) (string, error) {
 	invalid := func() (string, error) {
 		return "", codedError(app.ToolErrorEmailInvalidInput, "Email compose binding is invalid")
+	}
+	if len(r.Attachments) > app.EmailSendMaxAttachments {
+		return invalid()
+	}
+	var attachmentBytes int64
+	for _, attachment := range r.Attachments {
+		if r.Mode == "" || attachment.Name == "" || len(attachment.Name) > 255 || strings.HasPrefix(attachment.Name, ".") || path.Base(attachment.Name) != attachment.Name || strings.ContainsAny(attachment.Name, "\\:\x00\r\n") || attachment.SizeBytes < 0 || attachment.SizeBytes > app.EmailSendMaxAttachmentBytes || !sendAttachmentDigest.MatchString(attachment.SHA256) {
+			return invalid()
+		}
+		if r.Mode != "reconcile" && (!sendAttachmentStagedDirectory.MatchString(path.Dir(attachment.StagedPath)) || path.Base(attachment.StagedPath) != attachment.Name) {
+			return invalid()
+		}
+		attachmentBytes += attachment.SizeBytes
+		if attachmentBytes > app.EmailSendMaxAttachmentBytes {
+			return invalid()
+		}
 	}
 	if r.Mode == "" && len(r.To) == 0 && len(r.CC) == 0 && r.ReplyTarget == nil && r.AccountAddress == "" {
 		if err := validateMessage(r.Recipient, r.Subject, r.Body); err != nil {

@@ -9,46 +9,48 @@ import (
 
 // EmailDraft is owner-isolated. A frozen snapshot is never edited after Send.
 type EmailDraft struct {
-	ConfirmationSource string                `json:"confirmation_source,omitempty"`
-	TimelineMailID     string                `json:"timeline_mail_id,omitempty"`
-	ReplyTarget        *app.EmailReplyTarget `json:"reply_target,omitempty"`
-	ReplyInputVersion  int64                 `json:"reply_input_version,omitempty"`
-	SentMailID         string                `json:"sent_mail_id,omitempty"`
-	ReconciledAt       *time.Time            `json:"reconciled_at,omitempty"`
-	ID                 string                `json:"id"`
-	OwnerID            string                `json:"owner_id"`
-	Version            int64                 `json:"version"`
-	MailboxID          string                `json:"mailbox_id"`
-	MailboxGeneration  int64                 `json:"mailbox_generation"`
-	Mode               string                `json:"mode"`
-	ReplyMailID        string                `json:"reply_mail_id,omitempty"`
-	ConversationID     string                `json:"conversation_id,omitempty"`
-	To                 []string              `json:"to"`
-	CC                 []string              `json:"cc"`
-	Subject            string                `json:"subject"`
-	Body               string                `json:"body"`
-	State              string                `json:"state"`
-	ErrorCode          string                `json:"error_code,omitempty"`
-	SendKey            string                `json:"send_key,omitempty"`
-	Snapshot           *EmailDraftSnapshot   `json:"snapshot,omitempty"`
-	Receipt            *app.EmailSendResult  `json:"receipt,omitempty"`
-	UpdatedAt          time.Time             `json:"updated_at"`
+	Attachments        []app.EmailSendAttachment `json:"attachments,omitempty"`
+	ConfirmationSource string                    `json:"confirmation_source,omitempty"`
+	TimelineMailID     string                    `json:"timeline_mail_id,omitempty"`
+	ReplyTarget        *app.EmailReplyTarget     `json:"reply_target,omitempty"`
+	ReplyInputVersion  int64                     `json:"reply_input_version,omitempty"`
+	SentMailID         string                    `json:"sent_mail_id,omitempty"`
+	ReconciledAt       *time.Time                `json:"reconciled_at,omitempty"`
+	ID                 string                    `json:"id"`
+	OwnerID            string                    `json:"owner_id"`
+	Version            int64                     `json:"version"`
+	MailboxID          string                    `json:"mailbox_id"`
+	MailboxGeneration  int64                     `json:"mailbox_generation"`
+	Mode               string                    `json:"mode"`
+	ReplyMailID        string                    `json:"reply_mail_id,omitempty"`
+	ConversationID     string                    `json:"conversation_id,omitempty"`
+	To                 []string                  `json:"to"`
+	CC                 []string                  `json:"cc"`
+	Subject            string                    `json:"subject"`
+	Body               string                    `json:"body"`
+	State              string                    `json:"state"`
+	ErrorCode          string                    `json:"error_code,omitempty"`
+	SendKey            string                    `json:"send_key,omitempty"`
+	Snapshot           *EmailDraftSnapshot       `json:"snapshot,omitempty"`
+	Receipt            *app.EmailSendResult      `json:"receipt,omitempty"`
+	UpdatedAt          time.Time                 `json:"updated_at"`
 }
 type EmailDraftSnapshot struct {
-	ReplyTarget  *app.EmailReplyTarget `json:"reply_target,omitempty"`
-	State        string                `json:"state"`
-	ErrorCode    string                `json:"error_code,omitempty"`
-	Receipt      *app.EmailSendResult  `json:"receipt,omitempty"`
-	UpdatedAt    time.Time             `json:"updated_at"`
-	InvocationID string                `json:"invocation_id"`
-	Version      int64                 `json:"version"`
-	MailboxID    string                `json:"mailbox_id"`
-	To           []string              `json:"to"`
-	CC           []string              `json:"cc"`
-	Subject      string                `json:"subject"`
-	Body         string                `json:"body"`
-	Mode         string                `json:"mode"`
-	ReplyMailID  string                `json:"reply_mail_id,omitempty"`
+	Attachments  []app.EmailSendAttachment `json:"attachments,omitempty"`
+	ReplyTarget  *app.EmailReplyTarget     `json:"reply_target,omitempty"`
+	State        string                    `json:"state"`
+	ErrorCode    string                    `json:"error_code,omitempty"`
+	Receipt      *app.EmailSendResult      `json:"receipt,omitempty"`
+	UpdatedAt    time.Time                 `json:"updated_at"`
+	InvocationID string                    `json:"invocation_id"`
+	Version      int64                     `json:"version"`
+	MailboxID    string                    `json:"mailbox_id"`
+	To           []string                  `json:"to"`
+	CC           []string                  `json:"cc"`
+	Subject      string                    `json:"subject"`
+	Body         string                    `json:"body"`
+	Mode         string                    `json:"mode"`
+	ReplyMailID  string                    `json:"reply_mail_id,omitempty"`
 }
 type EmailDraftCommand struct {
 	OwnerID         string
@@ -106,7 +108,7 @@ func changeEmailDraft(e *emailEngine, c EmailDraftCommand) (EmailDraftResult, er
 		if d.Version != c.ExpectedVersion || (d.State != "draft" && d.State != "failed") {
 			return EmailDraftResult{}, errEmailConflict
 		}
-		snapshot := EmailDraftSnapshot{State: "sending", UpdatedAt: e.now, InvocationID: app.NewID("email_send"), Version: d.Version, MailboxID: d.MailboxID, To: d.To, CC: d.CC, Subject: d.Subject, Body: d.Body, Mode: d.Mode, ReplyMailID: d.ReplyMailID, ReplyTarget: d.ReplyTarget}
+		snapshot := EmailDraftSnapshot{Attachments: d.Attachments, State: "sending", UpdatedAt: e.now, InvocationID: app.NewID("email_send"), Version: d.Version, MailboxID: d.MailboxID, To: d.To, CC: d.CC, Subject: d.Subject, Body: d.Body, Mode: d.Mode, ReplyMailID: d.ReplyMailID, ReplyTarget: d.ReplyTarget}
 		emailPut(e, "send_snapshot", emailID(d.ID, c.SendKey), d.ID, "", "", "", e.now.String(), snapshot)
 		d.Snapshot = &snapshot
 		d.SendKey = c.SendKey

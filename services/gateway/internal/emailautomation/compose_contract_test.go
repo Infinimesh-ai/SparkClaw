@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browsercontrol"
+	"strings"
 	"testing"
 )
 
@@ -60,5 +61,25 @@ func TestManagedComposeRunnerPreservesNativeReplyWire(t *testing.T) {
 				t.Fatal("recipient topology lost")
 			}
 		})
+	}
+}
+
+func TestComposeAttachmentManifestRequiresPrivateStaging(t *testing.T) {
+	request := SendRequest{Provider: "gmail", Account: "default", Mode: "compose", AccountAddress: "owner@example.test", To: []string{"recipient@example.test"}, Subject: "s", Body: "b", Attachments: []app.EmailSendAttachment{{Name: "reviewed.txt", SizeBytes: 4, SHA256: "sha256:" + strings.Repeat("a", 64), StagedPath: ".sparkclaw-mail-send-" + strings.Repeat("b", 32) + "/00/reviewed.txt"}}}
+	if _, err := validateComposeRequest(request); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutate := range []func(*app.EmailSendAttachment){func(a *app.EmailSendAttachment) { a.StagedPath = "/tmp/reviewed.txt" }, func(a *app.EmailSendAttachment) { a.StagedPath = "documents/reviewed.txt" }, func(a *app.EmailSendAttachment) { a.Name = "../escape" }, func(a *app.EmailSendAttachment) { a.SizeBytes = app.EmailSendMaxAttachmentBytes + 1 }, func(a *app.EmailSendAttachment) { a.SHA256 = "forged" }} {
+		candidate := request
+		candidate.Attachments = append([]app.EmailSendAttachment{}, request.Attachments...)
+		mutate(&candidate.Attachments[0])
+		if _, err := validateComposeRequest(candidate); err == nil {
+			t.Fatal("unsafe attachment accepted")
+		}
+	}
+	request.Mode = "reconcile"
+	request.Attachments[0].StagedPath = ""
+	if _, err := validateComposeRequest(request); err != nil {
+		t.Fatal("receipt-only reconciliation required file", err)
 	}
 }

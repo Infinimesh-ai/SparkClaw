@@ -3,6 +3,7 @@ package store
 import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -29,7 +30,7 @@ func TestEmailDraftSendFenceSurvivesRestartAndConcurrentClicks(t *testing.T) {
 				t.Cleanup(st.Close)
 				repo = st
 			}
-			saved, err := repo.ChangeEmailDraft(t.Context(), EmailDraftCommand{OwnerID: "owner", Action: "save", Draft: EmailDraft{ID: "d", Mode: "compose", To: []string{"recipient@example.test"}, Body: "frozen"}})
+			saved, err := repo.ChangeEmailDraft(t.Context(), EmailDraftCommand{OwnerID: "owner", Action: "save", Draft: EmailDraft{ID: "d", Mode: "compose", To: []string{"recipient@example.test"}, Body: "frozen", Attachments: []app.EmailSendAttachment{{Path: "report.txt", Name: "report.txt", SizeBytes: 8, SHA256: "sha256:" + strings.Repeat("a", 64)}}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -60,7 +61,7 @@ func TestEmailDraftSendFenceSurvivesRestartAndConcurrentClicks(t *testing.T) {
 				repo = s
 			}
 			v, err := repo.ChangeEmailDraft(t.Context(), EmailDraftCommand{OwnerID: "owner", Action: "begin", Draft: EmailDraft{ID: "d"}, ExpectedVersion: 1, SendKey: "click"})
-			if err != nil || v.Execute || v.Draft.Snapshot.Body != "frozen" {
+			if err != nil || v.Execute || v.Draft.Snapshot.Body != "frozen" || len(v.Draft.Snapshot.Attachments) != 1 || v.Draft.Snapshot.Attachments[0] != saved.Draft.Attachments[0] {
 				t.Fatalf("replay=%+v err=%v", v, err)
 			}
 			if _, err := repo.ChangeEmailDraft(t.Context(), EmailDraftCommand{OwnerID: "owner", Action: "begin", Draft: EmailDraft{ID: "d"}, ExpectedVersion: v.Draft.Version, SendKey: "different"}); err == nil {

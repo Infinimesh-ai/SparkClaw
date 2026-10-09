@@ -102,8 +102,8 @@ func TestISCPDomainMailLoopbackLostReceiptReconcilesWithoutResend(t *testing.T) 
 	}
 	ctx := domainTestContext(t)
 	invalid := handler(ctx, domainTestRequest("mail.drafts.save", []byte(`{"id":"unsupported-attachment","attachments":[{"object_id":"untrusted"}]}`)))
-	if invalid.Status != 400 {
-		t.Fatal("provider without attachment support accepted a manifest")
+	if invalid.Status != 403 {
+		t.Fatal("mail scope without workspace read accepted an attachment manifest")
 	}
 	body := strings.Repeat("x", 200<<10)
 	raw, _ := json.Marshal(map[string]any{"id": "loopback-draft", "expected_version": 0, "mailbox_id": box.ID, "to": []string{"sink@example.test"}, "subject": "isolated send", "body": body})

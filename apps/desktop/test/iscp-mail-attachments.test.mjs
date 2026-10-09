@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import test from "node:test";
-import { prepareMailAttachments } from "../src/main/iscp-mail-attachments.mjs";
+import { prepareMailAttachments, localAttachmentErrorResponse, LocalMailAttachmentError } from "../src/main/iscp-mail-attachments.mjs";
 const id = crypto.randomUUID();
+test("pre-send local rejection preserves the renderer API error code", async () => {
+  const response = localAttachmentErrorResponse(new LocalMailAttachmentError("Changed before send", "email_attachment_changed"));
+  assert.equal(response.status, 409);
+  // The shared renderer API client reads `code`; error_code alone silently
+  // turned a proven pre-send rejection into an unknown-send UI fence.
+  assert.equal((await response.json()).code, "email_attachment_changed");
+});
 const bytes = Buffer.from("local desktop data");
 const hash = crypto.createHash("sha256").update(bytes).digest("hex");
 const object = { object_id: "object-local", version: 1, size: bytes.length, sha256: hash, purpose: "mail_send_attachment", name: "local.txt" };

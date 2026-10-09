@@ -72,7 +72,7 @@ export async function prepareMailAttachments(transport, request, signal) {
 }
 
 export function localAttachmentErrorResponse(error) {
-  return new Response(JSON.stringify({ error: error.message, error_code: error.code, retryable: false }), {
+  return new Response(JSON.stringify({ error: error.message, code: error.code, error_code: error.code, retryable: false }), {
     status: error.code === "email_attachment_invalid" ? 400 : 409,
     headers: { "content-type": "application/json", "x-sparkclaw-error-code": error.code },
   });

@@ -17,7 +17,7 @@ func TestPlaywrightRunnerNotSentRequiresReconcileAndBoundTypedProof(t *testing.T
 		t.Fatal(err)
 	}
 	proof := &app.EmailNotSentProof{SchemaVersion: 1, Kind: "legacy_15_pre_dispatch_failure", InvocationID: request.InvocationID, TaskID: "original-task", IntentDigest: strings.Repeat("a", 64), ResourceDigest: strings.Repeat("b", 64), BindingDigest: app.EmailLegacy15QQBindingDigest, LedgerEpoch: 13, Reason: "EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED"}
-	for _, change := range []string{"valid", "no-proof", "other-invocation", "bad-digest", "sent-id", "wrong-recipient", "unknown-field", "send-mode", "unknown-kind", "sent-with-proof", "legacy-wrong-binding", "legacy-wrong-reason", "legacy-browser-unavailable"} {
+	for _, change := range []string{"valid", "no-proof", "other-invocation", "bad-digest", "sent-id", "wrong-recipient", "unknown-field", "send-mode", "unknown-kind", "sent-with-proof", "legacy-wrong-binding", "legacy-wrong-reason", "legacy-browser-unavailable", "legacy-attachment-control-unavailable", "legacy-draft-fields-unverified"} {
 		t.Run(change, func(t *testing.T) {
 			r := request
 			p := *proof
@@ -29,6 +29,10 @@ func TestPlaywrightRunnerNotSentRequiresReconcileAndBoundTypedProof(t *testing.T
 				p.Reason = "EMAIL_ATTACHMENT_UPLOAD_FAILED"
 			case "legacy-browser-unavailable":
 				p.Reason = "BROWSER_EXTENSION_UNAVAILABLE"
+			case "legacy-attachment-control-unavailable":
+				p.Reason = "EMAIL_ATTACHMENT_CONTROL_UNAVAILABLE"
+			case "legacy-draft-fields-unverified":
+				p.Reason = "EMAIL_DRAFT_FIELDS_UNVERIFIED"
 			case "no-proof":
 				delete(result, "not_sent")
 			case "other-invocation":
@@ -69,13 +73,19 @@ func TestPlaywrightRunnerNotSentRequiresReconcileAndBoundTypedProof(t *testing.T
 }
 
 func TestPlaywrightRunnerReconcilesFutureOutlookPreparationProof(t *testing.T) {
+	for _, reason := range []string{"BROWSER_EXTENSION_UNAVAILABLE", "EMAIL_ATTACHMENT_CONTROL_UNAVAILABLE", "EMAIL_DRAFT_FIELDS_UNVERIFIED"} {
+		t.Run(reason, func(t *testing.T) { testFutureOutlookPreparationProof(t, reason) })
+	}
+}
+
+func testFutureOutlookPreparationProof(t *testing.T, reason string) {
 	provider, _ := DefaultRegistry().Get(app.EmailProviderOutlook)
 	request := SendRequest{Provider: provider.ID, Account: app.EmailAccountDefault, Mode: "reconcile", AccountAddress: "owner@example.test", To: []string{"sink@example.test"}, Subject: "Approved", Body: "Body", InvocationID: "original-invocation", BrowserCredentialGeneration: 7, ProbeRevision: provider.Probe.Revision, ScriptRevision: provider.Send.Revision}
 	digest, err := validateComposeRequest(request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	proof := &app.EmailNotSentProof{SchemaVersion: 1, Kind: "pre_dispatch_failure", InvocationID: request.InvocationID, TaskID: "original-task", IntentDigest: strings.Repeat("a", 64), ResourceDigest: strings.Repeat("b", 64), BindingDigest: strings.Repeat("c", 64), LedgerEpoch: 15, Reason: "BROWSER_EXTENSION_UNAVAILABLE"}
+	proof := &app.EmailNotSentProof{SchemaVersion: 1, Kind: "pre_dispatch_failure", InvocationID: request.InvocationID, TaskID: "original-task", IntentDigest: strings.Repeat("a", 64), ResourceDigest: strings.Repeat("b", 64), BindingDigest: strings.Repeat("c", 64), LedgerEpoch: 15, Reason: reason}
 	for _, mode := range []string{"reconcile", "compose"} {
 		t.Run(mode, func(t *testing.T) {
 			r := request

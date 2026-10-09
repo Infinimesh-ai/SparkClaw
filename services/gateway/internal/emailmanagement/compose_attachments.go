@@ -18,6 +18,22 @@ import (
 
 var ErrAttachmentInvalid = errors.New("email_attachment_invalid")
 var ErrAttachmentChanged = errors.New("email_attachment_changed")
+var ErrAttachmentPermission = errors.New("email_attachment_permission_denied")
+
+type attachmentReadPermissionKey struct{}
+
+// WithAttachmentReadPermission carries the caller's workspace permission into
+// the single authoritative draft read. Trusted owner HTTP calls retain their
+// existing workspace access; restricted transports must always supply a value.
+func WithAttachmentReadPermission(ctx context.Context, permitted bool) context.Context {
+	return context.WithValue(ctx, attachmentReadPermissionKey{}, permitted)
+}
+func checkAttachmentPermission(ctx context.Context, attachments []app.EmailSendAttachment) error {
+	if permitted, restricted := ctx.Value(attachmentReadPermissionKey{}).(bool); len(attachments) > 0 && restricted && !permitted {
+		return ErrAttachmentPermission
+	}
+	return nil
+}
 
 func (s *Service) attachmentWorkspace(ctx context.Context, owner string) (string, error) {
 	profile, found, err := s.repository.GetOwnerProfileByID(ctx, owner)
@@ -36,6 +52,9 @@ func (s *Service) attachmentWorkspace(ctx context.Context, owner string) (string
 func (s *Service) readDraftAttachments(ctx context.Context, owner string, attachments []app.EmailSendAttachment, verify bool) ([]app.EmailSendAttachment, [][]byte, error) {
 	if len(attachments) == 0 {
 		return nil, nil, nil
+	}
+	if err := checkAttachmentPermission(ctx, attachments); err != nil {
+		return nil, nil, err
 	}
 	invalid := ErrAttachmentInvalid
 	if verify {

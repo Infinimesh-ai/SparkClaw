@@ -159,6 +159,11 @@ func (s *Server) sendEmailDraft(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, draft)
 }
 func writeEmailComposeError(w http.ResponseWriter, err error) {
+	if errors.Is(err, emailmanagement.ErrAttachmentPermission) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"code": "permission_denied", "error": "Workspace file read permission is required for attachments.", "retryable": false})
+		return
+	}
+
 	if errors.Is(err, emailmanagement.ErrAttachmentInvalid) || errors.Is(err, emailmanagement.ErrAttachmentChanged) {
 		status, code := http.StatusBadRequest, emailmanagement.ErrAttachmentInvalid.Error()
 		if errors.Is(err, emailmanagement.ErrAttachmentChanged) {

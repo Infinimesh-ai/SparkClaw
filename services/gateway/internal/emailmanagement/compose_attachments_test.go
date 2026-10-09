@@ -255,3 +255,34 @@ func TestComposeAttachmentsChangedMissingSymlinkOwnerAndLimits(t *testing.T) {
 		}
 	}
 }
+
+func TestComposeAttachmentsPreserveDistinctFilesWithSameBasename(t *testing.T) {
+	root := t.TempDir()
+	service := &Service{repository: store.NewMemoryStore(), opts: Options{WorkspaceRoot: root}}
+	for directory, body := range map[string]string{"first": "first-reviewed", "second": "second-reviewed"} {
+		if err := os.Mkdir(filepath.Join(root, directory), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, directory, "report.txt"), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest, contents, err := service.readDraftAttachments(t.Context(), "owner", []app.EmailSendAttachment{{Path: "first/report.txt"}, {Path: "second/report.txt"}}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged, cleanup, err := service.stageAttachments(manifest, contents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if len(staged) != 2 || staged[0].StagedPath == staged[1].StagedPath || staged[0].Name != "report.txt" || staged[1].Name != "report.txt" || staged[0].SHA256 == staged[1].SHA256 {
+		t.Fatalf("same-name files collapsed %+v", staged)
+	}
+	for i, item := range staged {
+		raw, err := os.ReadFile(filepath.Join(root, item.StagedPath))
+		if err != nil || !bytes.Equal(raw, contents[i]) || filepath.Base(item.StagedPath) != item.Name {
+			t.Fatalf("staged %d mismatch %v", i, err)
+		}
+	}
+}

@@ -180,6 +180,9 @@ func (s *Service) SendDraft(ctx context.Context, owner, id string, expected int6
 	if err != nil {
 		return store.EmailDraft{}, err
 	}
+	if len(rows) != 1 {
+		return store.EmailDraft{}, ErrNotFound
+	}
 	d := rows[0]
 	// Replays observe durable state without another probe or browser side effect.
 	if d.SendKey == key && key != "" {
@@ -187,6 +190,9 @@ func (s *Service) SendDraft(ctx context.Context, owner, id string, expected int6
 	}
 	if d.Version != expected || (d.State != "draft" && d.State != "failed") {
 		return d, ErrConflict
+	}
+	if err := checkAttachmentPermission(ctx, d.Attachments); err != nil {
+		return d, err
 	}
 	if len(d.To) == 0 || len(d.To)+len(d.CC) > 100 {
 		return d, ErrInvalidInput

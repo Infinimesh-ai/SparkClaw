@@ -139,6 +139,8 @@ func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.
 		return a.connectors(ctx, request)
 	case iscpworkbench.OperationSettingsIntegrationsList, iscpworkbench.OperationSettingsCredentialsAdd, iscpworkbench.OperationSettingsCredentialsActivate, iscpworkbench.OperationSettingsCredentialsCheck, iscpworkbench.OperationSettingsCredentialsDelete:
 		return a.integrations(ctx, request)
+	case iscpworkbench.OperationBrowserHostGrant, iscpworkbench.OperationBrowserHostRegister, iscpworkbench.OperationBrowserHostPoll, iscpworkbench.OperationBrowserHostReply, iscpworkbench.OperationBrowserHostHeartbeat, iscpworkbench.OperationBrowserHostClose, iscpworkbench.OperationBrowserHostRevoke, iscpworkbench.OperationBrowserReceipt, iscpworkbench.OperationBrowserReconcile:
+		return a.browser(ctx, request)
 	case iscpworkbench.OperationApprovalsList, iscpworkbench.OperationApprovalsGet, iscpworkbench.OperationApprovalsDecide, iscpworkbench.OperationExecutionApproval:
 		return a.approvals(ctx, request)
 	case iscpworkbench.OperationNotificationsList, iscpworkbench.OperationNotificationsRead, iscpworkbench.OperationNotificationsReadAll:

@@ -21,7 +21,7 @@ type hostConnection struct {
 	identity                            Identity
 	hostID, runtime, epoch, grantDigest string
 	grantExpires                        time.Time
-	conn                                *websocket.Conn
+	conn                                hostWire
 	mu                                  sync.Mutex
 	closed                              chan struct{}
 	once                                sync.Once
@@ -208,50 +208,10 @@ func (b *Broker) ServeHost(ctx context.Context, w http.ResponseWriter, r *http.R
 		if err := decoder.Decode(&message); err != nil || message.SchemaVersion != 1 {
 			return
 		}
-		switch message.Type {
-		case "heartbeat":
-			if message.Binding != nil || message.CommandID != "" || len(message.Output) != 0 {
-				return
-			}
-			b.mu.Lock()
-			if b.hosts[identity.key()] != host || !b.now().Before(expires) {
-				b.mu.Unlock()
-				return
-			}
-			host.lastHeartbeat = b.now()
-			bindings := make([]Binding, 0, len(host.leases))
-			for id, binding := range host.leases {
-				binding.LeaseExpiresAt = minTime(b.now().Add(LeaseDuration), expires)
-				host.leases[id] = binding
-				bindings = append(bindings, binding)
-			}
-			b.mu.Unlock()
-			conn.SetReadDeadline(time.Now().Add(LeaseDuration))
-			if err := host.send(map[string]any{"schema_version": 1, "type": "renew", "bindings": bindings, "connection_epoch": host.epoch}); err != nil {
-				return
-			}
-		case "result":
-			if message.Binding == nil || message.CommandID == "" || len(message.Output) > 96<<10 || (message.Status != "completed" && message.Status != "failed" && message.Status != "unknown") {
-				return
-			}
-			b.mu.Lock()
-			fence, ok := b.fences[message.CommandID]
-			pending := host.pending[message.CommandID]
-			valid := ok && fence.State == "dispatched" && pending != nil && b.hosts[identity.key()] == host && message.Binding.Scope == fence.Scope && message.Binding.HostID == fence.HostID && message.Binding.RuntimeGeneration == fence.RuntimeGeneration && message.Binding.ConnectionEpoch == fence.ConnectionEpoch && message.Binding.LeaseID == fence.LeaseID && message.Binding.PageID == fence.PageID && message.Binding.PageGeneration == fence.PageGeneration && message.Binding.AuthorizationDigest == fence.AuthorizationDigest
-			if valid {
-				lease, live := host.leases[fence.LeaseID]
-				valid = live && b.now().Before(lease.LeaseExpiresAt)
-			}
-			if valid {
-				select {
-				case pending <- message:
-				default:
-				}
-			}
-			b.mu.Unlock()
-		default:
+		if err := b.receiveHostMessage(host, message); err != nil {
 			return
 		}
+		conn.SetReadDeadline(time.Now().Add(LeaseDuration))
 	}
 }
 func minTime(a, c time.Time) time.Time {
@@ -457,4 +417,63 @@ func (b *Broker) Fences(identity Identity) []Fence {
 		}
 	}
 	return out
+}
+
+// hostWire keeps command admission, leases and fences shared by WSS and ISCP.
+type hostWire interface {
+	SetWriteDeadline(time.Time) error
+	WriteJSON(any) error
+	Close() error
+}
+
+func (b *Broker) receiveHostMessage(host *hostConnection, message Message) error {
+	identity, expires := host.identity, host.grantExpires
+	if message.SchemaVersion != 1 {
+		return ErrFence
+	}
+	switch message.Type {
+	case "heartbeat":
+		if message.Binding != nil || message.CommandID != "" || len(message.Output) != 0 {
+			return ErrFence
+		}
+		b.mu.Lock()
+		if b.hosts[identity.key()] != host || !b.now().Before(expires) {
+			b.mu.Unlock()
+			return ErrFence
+		}
+		host.lastHeartbeat = b.now()
+		bindings := make([]Binding, 0, len(host.leases))
+		for id, binding := range host.leases {
+			binding.LeaseExpiresAt = minTime(b.now().Add(LeaseDuration), expires)
+			host.leases[id] = binding
+			bindings = append(bindings, binding)
+		}
+		b.mu.Unlock()
+
+		if err := host.send(map[string]any{"schema_version": 1, "type": "renew", "bindings": bindings, "connection_epoch": host.epoch}); err != nil {
+			return ErrFence
+		}
+	case "result":
+		if message.Binding == nil || message.CommandID == "" || len(message.Output) > 96<<10 || (message.Status != "completed" && message.Status != "failed" && message.Status != "unknown") {
+			return ErrFence
+		}
+		b.mu.Lock()
+		fence, ok := b.fences[message.CommandID]
+		pending := host.pending[message.CommandID]
+		valid := ok && fence.State == "dispatched" && pending != nil && b.hosts[identity.key()] == host && message.Binding.Scope == fence.Scope && message.Binding.HostID == fence.HostID && message.Binding.RuntimeGeneration == fence.RuntimeGeneration && message.Binding.ConnectionEpoch == fence.ConnectionEpoch && message.Binding.LeaseID == fence.LeaseID && message.Binding.PageID == fence.PageID && message.Binding.PageGeneration == fence.PageGeneration && message.Binding.AuthorizationDigest == fence.AuthorizationDigest
+		if valid {
+			lease, live := host.leases[fence.LeaseID]
+			valid = live && b.now().Before(lease.LeaseExpiresAt)
+		}
+		if valid {
+			select {
+			case pending <- message:
+			default:
+			}
+		}
+		b.mu.Unlock()
+	default:
+		return ErrFence
+	}
+	return nil
 }

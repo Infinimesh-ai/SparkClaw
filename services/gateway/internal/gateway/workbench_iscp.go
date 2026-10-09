@@ -30,7 +30,7 @@ type workbenchISCPOperation struct {
 // NewWorkbenchISCPHandler resolves one cryptographically pinned peer's local
 // binding. Only Endpoint may expose it to a peer, after its grant, Hello, Ready,
 // manifest and encrypted message checks. No bearer or HTTP URL is tunneled.
-func (s *Server) NewWorkbenchISCPHandler(cfg iscpworkbench.Config) (iscpworkbench.Handler, error) {
+func (s *Server) newWorkbenchISCPTextHandler(cfg iscpworkbench.Config) (iscpworkbench.Handler, error) {
 	if cfg.SchemaVersion != 1 || cfg.Role != iscpworkbench.RoleResponder || cfg.Mode != "local-test" || cfg.Binding == nil || cfg.Binding.DeploymentID == "" || cfg.Binding.OwnerID == "" || cfg.Binding.ClientID == "" {
 		return nil, errors.New("ISCP workbench requires a fixed responder and complete local Client binding")
 	}
@@ -52,6 +52,7 @@ func (s *Server) NewWorkbenchISCPHandler(cfg iscpworkbench.Config) (iscpworkbenc
 		iscpworkbench.OperationAck:      {http.MethodPost, "/api/v1/executions/{request}/ack", true, s.ackExecution},
 	}
 	return func(ctx context.Context, request iscpworkbench.Request) iscpworkbench.Response {
+		authorization, expanded := ctx.Value(executionAuthorizationKey{}).(executionAuthorization)
 		result := func(status int, message string) iscpworkbench.Response {
 			return iscpworkbench.Response{Type: iscpworkbench.ResponseType, Profile: iscpworkbench.Profile, ID: request.ID, Status: status, Error: message}
 		}
@@ -61,7 +62,11 @@ func (s *Server) NewWorkbenchISCPHandler(cfg iscpworkbench.Config) (iscpworkbenc
 		if request.Type != iscpworkbench.RequestType || request.Profile != iscpworkbench.Profile || !execution.UUID(request.ID) {
 			return result(http.StatusBadRequest, "invalid ISCP workbench request")
 		}
-		if len(request.Body) > iscpworkbench.MaxBodyBytes {
+		bodyLimit := iscpworkbench.MaxBodyBytes
+		if expanded {
+			bodyLimit = execution.ContextBytes
+		}
+		if len(request.Body) > bodyLimit {
 			return result(http.StatusRequestEntityTooLarge, "ISCP input exceeds the text profile limit")
 		}
 		op, found := operations[request.Operation]
@@ -91,7 +96,7 @@ func (s *Server) NewWorkbenchISCPHandler(cfg iscpworkbench.Config) (iscpworkbenc
 			if envelope.RequestID != request.RequestID {
 				return result(http.StatusConflict, "execution request ID conflicts with its envelope")
 			}
-			if len(envelope.InputFiles) != 0 {
+			if len(envelope.InputFiles) != 0 && (!expanded || !authorization.AllowFiles) {
 				return result(http.StatusNotImplemented, "ISCP text profile does not support input files or attachments")
 			}
 		}
@@ -103,7 +108,7 @@ func (s *Server) NewWorkbenchISCPHandler(cfg iscpworkbench.Config) (iscpworkbenc
 		connected, cancel := context.WithTimeout(connected, 30*time.Second)
 		defer cancel()
 		connected = context.WithValue(connected, requestPrincipalContextKey{}, principal)
-		connected = context.WithValue(connected, textOnlyExecutionContextKey{}, true)
+		connected = context.WithValue(connected, textOnlyExecutionContextKey{}, !expanded || (!authorization.AllowFiles && len(authorization.AllowedTools) == 0))
 		r := &http.Request{Method: op.method, URL: &url.URL{Path: op.path}, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(request.Body))}
 		r = r.WithContext(connected)
 		r.SetPathValue("request", request.RequestID)
@@ -111,6 +116,9 @@ func (s *Server) NewWorkbenchISCPHandler(cfg iscpworkbench.Config) (iscpworkbenc
 		r.Header.Set("X-SparkClaw-Installation", request.InstallationID)
 		r.Header.Set("X-SparkClaw-Digest", request.InputDigest)
 		writer := &workbenchISCPWriter{header: make(http.Header)}
+		if expanded {
+			writer.limit = execution.TaskBytes * 2
+		}
 		op.handler(writer, r)
 		if connected.Err() != nil {
 			return result(http.StatusUnauthorized, "ISCP authorization is closed")
@@ -121,7 +129,7 @@ func (s *Server) NewWorkbenchISCPHandler(cfg iscpworkbench.Config) (iscpworkbenc
 		response := result(writer.status, "")
 		response.Body = json.RawMessage(writer.body.Bytes())
 		raw, err := json.Marshal(response)
-		if err != nil || len(raw) > iscpworkbench.MaxMessageBytes {
+		if err != nil || (!expanded && len(raw) > iscpworkbench.MaxMessageBytes) {
 			return result(http.StatusRequestEntityTooLarge, "ISCP response exceeds the text profile limit")
 		}
 		return response
@@ -156,6 +164,7 @@ type workbenchISCPWriter struct {
 	status    int
 	body      bytes.Buffer
 	oversized bool
+	limit     int
 }
 
 func (w *workbenchISCPWriter) Header() http.Header { return w.header }
@@ -168,7 +177,11 @@ func (w *workbenchISCPWriter) Write(raw []byte) (int, error) {
 	if w.status == 0 {
 		w.status = http.StatusOK
 	}
-	if w.oversized || w.body.Len()+len(raw) > iscpworkbench.MaxMessageBytes {
+	limit := w.limit
+	if limit <= 0 {
+		limit = iscpworkbench.MaxMessageBytes
+	}
+	if w.oversized || w.body.Len()+len(raw) > limit {
 		w.oversized = true
 		w.body.Reset()
 		return 0, errors.New("ISCP response exceeds the text profile limit")

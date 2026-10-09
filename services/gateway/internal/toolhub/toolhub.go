@@ -477,6 +477,14 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 	if !ok {
 		return Result{}, fmt.Errorf("tool %q has no executor in MVP", name)
 	}
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
+	if h.resources != nil && h.resources.AuthorizeTool != nil {
+		if err := h.resources.AuthorizeTool(ctx, name); err != nil {
+			return Result{}, &app.CodedToolError{Code: app.ToolErrorResourceUnavailable, Err: err}
+		}
+	}
 	result, err := executor(h, ctx, name, args, sessionID, runID)
 	if err != nil {
 		if cause := integrationCredentialChangeCause(ctx); cause != nil {

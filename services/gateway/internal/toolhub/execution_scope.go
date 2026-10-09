@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,6 +29,12 @@ type ExecutionResources struct {
 	// TextOnly is a trusted admission restriction. It removes every tool from
 	// exposure and rejects invocation, including dynamic/provider tools.
 	TextOnly bool
+	// AllowedTools is an exact trusted admission allowlist. Nil preserves the
+	// existing non-ISCP scope; a non-nil empty list permits no tools.
+	AllowedTools []string
+	// AuthorizeTool rechecks current authority immediately before dispatch,
+	// including calls resumed after an approval. It must not come from the model.
+	AuthorizeTool func(context.Context, string) error
 }
 
 type executionResource string
@@ -39,6 +46,7 @@ const (
 	resourceAcquisitionBrowser executionResource = "authorized acquisition browser"
 	resourceExternalLedger     executionResource = "external connector retention ledger"
 	resourceToolExecution      executionResource = "tool execution unavailable in the text-only profile"
+	resourceToolPermission     executionResource = "tool permission unavailable in this execution"
 )
 
 // WithExecutionScope derives a content-isolated hub from the active services.
@@ -49,6 +57,7 @@ func (h *ToolHub) WithExecutionScope(st Repository, resources ExecutionResources
 		return nil, errors.New("execution scope requires owner, repository, artifacts and an absolute workspace")
 	}
 	resources.WorkspaceRoot = filepath.Clean(resources.WorkspaceRoot)
+	resources.AllowedTools = slices.Clone(resources.AllowedTools)
 	scoped := *h
 	scoped.store = st
 	scoped.resources = &resources
@@ -85,6 +94,9 @@ func (h *ToolHub) unavailableResource(name string) executionResource {
 	}
 	if h.resources.TextOnly {
 		return resourceToolExecution
+	}
+	if h.resources.AllowedTools != nil && !slices.Contains(h.resources.AllowedTools, name) {
+		return resourceToolPermission
 	}
 	if _, dynamic := h.registry.origins[name]; dynamic {
 		return resourceExternalLedger

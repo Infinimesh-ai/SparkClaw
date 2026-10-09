@@ -152,6 +152,9 @@ func (s *Server) submitExecution(w http.ResponseWriter, r *http.Request) {
 	if textOnly, _ := r.Context().Value(textOnlyExecutionContextKey{}).(bool); textOnly {
 		executionCtx = context.WithValue(executionCtx, textOnlyExecutionContextKey{}, true)
 	}
+	if authorization, ok := r.Context().Value(executionAuthorizationKey{}).(executionAuthorization); ok {
+		executionCtx = withExecutionAuthorization(executionCtx, authorization)
+	}
 	status, err := s.executions.Submit(executionCtx, e, r.Header.Get("X-SparkClaw-Digest"))
 	if err != nil {
 		writeExecutionError(w, err)

@@ -78,10 +78,10 @@ func (s *Server) executeWorkbenchWorkflow(ctx context.Context, e execution.Envel
 		browser = broker.ForScope(browserhost.Scope{Identity: browserhost.Identity{OwnerID: e.OwnerID, ClientID: e.ClientID, InstallationID: e.InstallationID}, ConversationID: e.ConversationID, TaskID: e.TaskID})
 	}
 	artifacts := execution.TemporaryArtifacts{Store: artifact.NewStore(storage), Budget: budget}
-	runtime, releaseRuntime, err := s.runtime.WithExecutionScope(local, toolhub.ExecutionResources{
+	runtime, releaseRuntime, err := s.runtime.WithExecutionScope(local, executionResourcesForContext(ctx, toolhub.ExecutionResources{
 		OwnerID: e.OwnerID, WorkspaceRoot: workspace, Artifacts: artifacts, Browser: browser,
 		MaxDuration: execution.ExecutionBudget, MaxObservationBytes: 1 << 20, TextOnly: textOnly,
-	})
+	}))
 	if err != nil {
 		return execution.Output{}, err
 	}

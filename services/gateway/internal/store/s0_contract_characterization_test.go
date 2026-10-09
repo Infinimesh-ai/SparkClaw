@@ -26,7 +26,7 @@ var s0RepositoryMethods = map[string][]string{
 		"FindArtifactObjectByURI", "ListArtifactObjects", "SaveArtifactObject",
 	},
 	"AuditRepository": {
-		"AddAudit", "EventsAfter", "ListAudit",
+		"AddAudit", "EventsAfter", "ListAudit", "ReadEventWindow",
 	},
 	"BrowserStateRepository": {
 		"FindActiveBrowserLoginBlock", "FindBrowserAuthRecord", "GetBrowserAuthRecord", "GetBrowserLoginBlock", "ListBrowserAuthRecords",
@@ -95,8 +95,8 @@ var s0RepositoryMethods = map[string][]string{
 
 func TestS0RepositoryMethodCatalogCharacterization(t *testing.T) {
 	typeOfBackend := reflect.TypeOf((*testBackend)(nil)).Elem()
-	if typeOfBackend.NumMethod() != 158 {
-		t.Fatalf("repository method count = %d, want migrated baseline 158", typeOfBackend.NumMethod())
+	if typeOfBackend.NumMethod() != 159 {
+		t.Fatalf("repository method count = %d, want migrated baseline 159", typeOfBackend.NumMethod())
 	}
 
 	owners := make(map[string]string, typeOfBackend.NumMethod())

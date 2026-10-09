@@ -23,9 +23,9 @@ type EventWindowReader interface {
 const EventWindowLimit = 512
 
 func (s *MemoryStore) ReadEventWindow(ctx context.Context, after string, limit int, tail bool) (EventWindow, error) {
-	ctx, cancel := operationContext(ctx, OperationAuditEventsAfter, s.operationTimeouts)
+	ctx, cancel := operationContext(ctx, OperationAuditEventWindow, s.operationTimeouts)
 	defer cancel()
-	if err := operationContextError(OperationAuditEventsAfter, ctx); err != nil {
+	if err := operationContextError(OperationAuditEventWindow, ctx); err != nil {
 		return EventWindow{}, err
 	}
 	if limit < 1 || limit > EventWindowLimit {
@@ -55,10 +55,10 @@ func (s *MemoryStore) ReadEventWindow(ctx context.Context, after string, limit i
 		out.Events = append(out.Events, cloneClientLifecycleEvent(event))
 		out.Cursor = event.ID
 	}
-	return out, operationContextError(OperationAuditEventsAfter, ctx)
+	return out, operationContextError(OperationAuditEventWindow, ctx)
 }
 func (s *FileStore) ReadEventWindow(ctx context.Context, after string, limit int, tail bool) (EventWindow, error) {
-	ctx, release, err := s.admitMigrated(ctx, OperationAuditEventsAfter, 1)
+	ctx, release, err := s.admitMigrated(ctx, OperationAuditEventWindow, 1)
 	if err != nil {
 		return EventWindow{}, err
 	}
@@ -66,9 +66,9 @@ func (s *FileStore) ReadEventWindow(ctx context.Context, after string, limit int
 	return s.inner.ReadEventWindow(ctx, after, limit, tail)
 }
 func (s *PostgresStore) ReadEventWindow(ctx context.Context, after string, limit int, tail bool) (EventWindow, error) {
-	ctx, cancel := operationContext(ctx, OperationAuditEventsAfter, s.operationTimeouts)
+	ctx, cancel := operationContext(ctx, OperationAuditEventWindow, s.operationTimeouts)
 	defer cancel()
-	if err := operationContextError(OperationAuditEventsAfter, ctx); err != nil {
+	if err := operationContextError(OperationAuditEventWindow, ctx); err != nil {
 		return EventWindow{}, err
 	}
 	if limit < 1 || limit > EventWindowLimit {
@@ -82,7 +82,7 @@ func (s *PostgresStore) ReadEventWindow(ctx context.Context, after string, limit
 			return out, nil
 		}
 		if err != nil {
-			return out, classifyAuditPostgresError(OperationAuditEventsAfter, ctx, err)
+			return out, classifyAuditPostgresError(OperationAuditEventWindow, ctx, err)
 		}
 		out.CursorFound = true
 		out.Cursor = event.ID
@@ -95,13 +95,13 @@ func (s *PostgresStore) ReadEventWindow(ctx context.Context, after string, limit
 			return out, nil
 		}
 		if err != nil {
-			return out, classifyAuditPostgresError(OperationAuditEventsAfter, ctx, err)
+			return out, classifyAuditPostgresError(OperationAuditEventWindow, ctx, err)
 		}
 		out.CursorFound = true
 	}
 	rows, err := s.auditPostgres.Query(ctx, `SELECT id,happened_at,type,coalesce(session_id,''),coalesce(run_id,''),payload FROM events WHERE seq>$1 ORDER BY seq ASC LIMIT $2`, seq, limit+1)
 	if err != nil {
-		return out, classifyAuditPostgresError(OperationAuditEventsAfter, ctx, err)
+		return out, classifyAuditPostgresError(OperationAuditEventWindow, ctx, err)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -111,13 +111,13 @@ func (s *PostgresStore) ReadEventWindow(ctx context.Context, after string, limit
 		}
 		event, err := scanEvent(rows)
 		if err != nil {
-			return out, classifyAuditPostgresError(OperationAuditEventsAfter, ctx, err)
+			return out, classifyAuditPostgresError(OperationAuditEventWindow, ctx, err)
 		}
 		out.Events = append(out.Events, event)
 		out.Cursor = event.ID
 	}
 	if err := rows.Err(); err != nil {
-		return out, classifyAuditPostgresError(OperationAuditEventsAfter, ctx, err)
+		return out, classifyAuditPostgresError(OperationAuditEventWindow, ctx, err)
 	}
 	return out, nil
 }

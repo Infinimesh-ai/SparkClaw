@@ -133,6 +133,7 @@ const (
 	OperationAuditAdd                    StoreOperation = "audit.add"
 	OperationAuditList                   StoreOperation = "audit.list"
 	OperationAuditEventsAfter            StoreOperation = "audit.events_after"
+	OperationAuditEventWindow            StoreOperation = "audit.event_window"
 	OperationEvaluationSave              StoreOperation = "evaluation.save"
 	OperationEvaluationGet               StoreOperation = "evaluation.get"
 	OperationEvaluationList              StoreOperation = "evaluation.list"
@@ -558,6 +559,7 @@ var operationSpecs = map[StoreOperation]operationSpec{
 		ID: OperationAuditList, Repository: "AuditRepository",
 		Method: "ListAudit", Mode: operationRead, Timeout: timeoutRead,
 	},
+	OperationAuditEventWindow: {ID: OperationAuditEventWindow, Repository: "AuditRepository", Method: "ReadEventWindow", Mode: operationRead, Timeout: timeoutRead},
 	OperationAuditEventsAfter: {
 		ID: OperationAuditEventsAfter, Repository: "AuditRepository",
 		Method: "EventsAfter", Mode: operationRead, Timeout: timeoutRead,

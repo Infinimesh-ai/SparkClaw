@@ -166,6 +166,7 @@ type AuditRepository interface {
 	AddAudit(context.Context, app.AuditEvent) error
 	ListAudit(context.Context, string) ([]app.AuditEvent, error)
 	EventsAfter(context.Context, string, string) ([]app.Event, error)
+	ReadEventWindow(context.Context, string, int, bool) (EventWindow, error)
 }
 
 type EvaluationRepository interface {

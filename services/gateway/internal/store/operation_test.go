@@ -257,6 +257,7 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationAuditList, Repository: "AuditRepository",
 			Method: "ListAudit", Mode: operationRead, Timeout: timeoutRead,
 		},
+		OperationAuditEventWindow: {ID: OperationAuditEventWindow, Repository: "AuditRepository", Method: "ReadEventWindow", Mode: operationRead, Timeout: timeoutRead},
 		OperationAuditEventsAfter: {
 			ID: OperationAuditEventsAfter, Repository: "AuditRepository",
 			Method: "EventsAfter", Mode: operationRead, Timeout: timeoutRead,

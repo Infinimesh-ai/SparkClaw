@@ -197,6 +197,7 @@ export class ExecutionClient {
     this.#sameIdentity(scope);
     if (!event || event.schema_version !== 1 || event.request_id !== task.request_id ||
         event.input_digest !== task.input_digest || !SERVER_STATES.has(event.state)) throw new Error("Execution identity or digest mismatch");
+    if (!this.store.acceptExecutionProjection(scope, event)) return;
     const pending = event.pending_approvals ?? [];
     this.store.syncApprovals(scope, task.request_id, pending, event.state, event.execution_expires_at);
     if (pending.length) {

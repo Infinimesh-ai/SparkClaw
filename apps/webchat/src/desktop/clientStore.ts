@@ -3,7 +3,7 @@ export type LocalMessage = { id: string; role: "user" | "assistant"; content: st
 export type LocalApproval = { approval_id: string; digest: string; tool: string; summary: string; arguments: Record<string, unknown>;
   state: "pending" | "decision_pending" | "approved" | "rejected" | "resolved" | "expired" | "decision_unknown";
   decision?: "approve" | "reject" | null; expires_at: string; actionable?: boolean };
-export type LocalTask = { id: string; request_id: string; status: string; explicitly_submitted?: number; created_at: string; approvals?: LocalApproval[] };
+export type LocalTask = { id: string; request_id: string; status: string; explicitly_submitted?: number; created_at: string; approvals?: LocalApproval[]; revision?: number; termination_reason?: string; approval_receipts?: Array<{ approval_id: string; digest: string; decision: string }> };
 export type LocalDraft = { scope_key: string; content: string; local_file_ids: string[]; revision: number };
 export type LocalFile = { id: string; name: string; size: number; sha256: string; created_at: string };
 export type LocalSchedule = { request_id: string; schedule_id: string; due_at: string; state: string;

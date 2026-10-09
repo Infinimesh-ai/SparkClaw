@@ -4,7 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { WORKBENCH_LIMITS } from "../shared/workbench-limits.mjs";
 
-export const CLIENT_SCHEMA_VERSION = 6;
+export const CLIENT_SCHEMA_VERSION = 7;
 export const CLIENT_LIMITS = WORKBENCH_LIMITS;
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
@@ -25,8 +25,13 @@ export class ClientStore {
     try {
       this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
       const version = this.db.prepare("PRAGMA user_version").get().user_version;
-      if (version !== 0 && version !== CLIENT_SCHEMA_VERSION) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
+      if (version !== 0 && version !== 6 && version !== CLIENT_SCHEMA_VERSION) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
       if (version === 0) this.#initialize();
+      if (version === 6) this.#transaction(() => {
+        this.db.exec(`CREATE TABLE execution_projection(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id),revision INTEGER NOT NULL,termination_reason TEXT NOT NULL,approval_receipts TEXT NOT NULL,event_state TEXT NOT NULL);
+          CREATE TABLE event_projection(scope TEXT PRIMARY KEY,cursor TEXT NOT NULL,revision INTEGER NOT NULL,snapshot TEXT NOT NULL);
+          PRAGMA user_version=${CLIENT_SCHEMA_VERSION};`);
+      });
       this.installationID = this.db.prepare("SELECT value FROM metadata WHERE key='installation_id'").get().value;
       // Incomplete atomic file writes are never treated as delivered files.
       const committedFiles = new Set(this.db.prepare("SELECT id FROM files").all().map((file) => file.id));
@@ -75,6 +80,8 @@ export class ClientStore {
           approval_id TEXT NOT NULL,digest TEXT NOT NULL,tool TEXT NOT NULL,summary TEXT NOT NULL,
           arguments_json TEXT NOT NULL,state TEXT NOT NULL,decision TEXT,expires_at TEXT NOT NULL,
           PRIMARY KEY(request_id,approval_id));
+        CREATE TABLE execution_projection(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id),revision INTEGER NOT NULL,termination_reason TEXT NOT NULL,approval_receipts TEXT NOT NULL,event_state TEXT NOT NULL);
+        CREATE TABLE event_projection(scope TEXT PRIMARY KEY,cursor TEXT NOT NULL,revision INTEGER NOT NULL,snapshot TEXT NOT NULL);
         CREATE INDEX conversations_by_scope ON conversations(scope, updated_at);
         PRAGMA user_version=${CLIENT_SCHEMA_VERSION};
       `);
@@ -101,7 +108,7 @@ export class ClientStore {
     return {
       messages: this.db.prepare("SELECT id,role,content,created_at FROM messages WHERE conversation_id=? ORDER BY rowid").all(conversationID),
       tasks: this.db.prepare("SELECT id,request_id,status,explicitly_submitted,created_at FROM tasks WHERE conversation_id=? ORDER BY rowid").all(conversationID)
-        .map((task) => ({ ...task, approvals: this.approvals(scope, task.request_id) })),
+        .map((task) => ({ ...task, ...this.executionProjection(scope, task.request_id), approvals: this.approvals(scope, task.request_id) })),
       files: this.db.prepare("SELECT id,name,sha256,size,created_at FROM files WHERE conversation_id=? ORDER BY rowid").all(conversationID),
       schedules: this.db.prepare(`SELECT s.*,d.interval_ms,d.state AS definition_state FROM schedules s
         JOIN schedule_definitions d ON d.id=s.schedule_id JOIN tasks t ON t.request_id=s.request_id
@@ -313,6 +320,56 @@ export class ClientStore {
     if (!task) throw new Error("Local request not found");
     if (hash(task.context_json) !== task.input_digest) throw new Error("Local immutable context verification failed");
     return task;
+  }
+
+  executionProjection(scope, requestID) {
+    this.request(scope, requestID);
+    const row = this.db.prepare("SELECT revision,termination_reason,approval_receipts,event_state FROM execution_projection WHERE request_id=?").get(requestID);
+    return row ? { ...row, approval_receipts: JSON.parse(row.approval_receipts) } : { revision: 0, termination_reason: "", approval_receipts: [], event_state: "" };
+  }
+
+  acceptExecutionProjection(scope, event) {
+    this.request(scope, event.request_id);
+    if (event.revision === undefined) return true; // Existing HTTP/v1 servers.
+    if (!Number.isSafeInteger(event.revision) || event.revision < 1 ||
+        (event.termination_reason !== undefined && !["gateway_restarted_awaiting_approval", "gateway_restarted_after_approval"].includes(event.termination_reason)) ||
+        !Array.isArray(event.approval_receipts ?? []) || (event.approval_receipts ?? []).length > 32) throw new Error("Invalid execution revision");
+    const receipts = event.approval_receipts ?? [];
+    for (const receipt of receipts) if (!receipt || !ID.test(receipt.approval_id) || !/^[a-f0-9]{64}$/u.test(receipt.digest) ||
+      !["approve", "reject"].includes(receipt.decision) || !["decided", "decision_unknown"].includes(receipt.state) || !Number.isSafeInteger(receipt.revision) || receipt.revision < 1) throw new Error("Invalid approval receipt");
+    return this.#transaction(() => {
+      const previous = this.executionProjection(scope, event.request_id);
+      if (event.revision < previous.revision) return false;
+      if (event.revision === previous.revision && (previous.event_state !== event.state || previous.termination_reason !== (event.termination_reason ?? "") || JSON.stringify(previous.approval_receipts) !== JSON.stringify(receipts))) throw new Error("Execution revision conflict");
+      if (["failed", "canceled", "unknown", "delivery_expired", "delivered"].includes(previous.event_state) && ["accepted", "running"].includes(event.state)) throw new Error("Terminal execution cannot return to running");
+      this.db.prepare(`INSERT INTO execution_projection VALUES(?,?,?,?,?) ON CONFLICT(request_id) DO UPDATE SET
+        revision=excluded.revision,termination_reason=excluded.termination_reason,approval_receipts=excluded.approval_receipts,event_state=excluded.event_state`)
+        .run(event.request_id, event.revision, event.termination_reason ?? "", JSON.stringify(receipts), event.state);
+      for (const receipt of receipts) {
+        const cached = this.db.prepare("SELECT digest,decision FROM execution_approvals WHERE request_id=? AND approval_id=?").get(event.request_id, receipt.approval_id);
+        if (cached && (cached.digest !== receipt.digest || cached.decision && cached.decision !== receipt.decision)) throw new Error("Approval receipt conflicts with local decision");
+        this.db.prepare("UPDATE execution_approvals SET state=?,decision=? WHERE request_id=? AND approval_id=?")
+          .run(receipt.state === "decision_unknown" ? "decision_unknown" : receipt.decision === "approve" ? "approved" : "rejected", receipt.decision, event.request_id, receipt.approval_id);
+      }
+      return true;
+    });
+  }
+
+  eventProjection(scope) {
+    const row = this.db.prepare("SELECT cursor,revision,snapshot FROM event_projection WHERE scope=?").get(scopeKey(scope));
+    return row ? { ...row, snapshot: JSON.parse(row.snapshot) } : { cursor: "", revision: 0, snapshot: {} };
+  }
+
+  commitEventProjection(scope, { previous_cursor, cursor, revision, snapshot }) {
+    if (typeof cursor !== "string" || cursor.length > 4096 || !Number.isSafeInteger(revision) || revision < 1 ||
+        !snapshot || typeof snapshot !== "object" || Array.isArray(snapshot) || Buffer.byteLength(JSON.stringify(snapshot)) > CLIENT_LIMITS.resultBytes) throw new Error("Invalid event projection");
+    return this.#transaction(() => {
+      const previous = this.eventProjection(scope);
+      if (previous.cursor !== previous_cursor || revision < previous.revision) throw new Error("Event cursor conflict; obtain an authoritative snapshot");
+      this.db.prepare(`INSERT INTO event_projection VALUES(?,?,?,?) ON CONFLICT(scope) DO UPDATE SET
+        cursor=excluded.cursor,revision=excluded.revision,snapshot=excluded.snapshot`).run(scopeKey(scope), cursor, revision, JSON.stringify(snapshot));
+      return this.eventProjection(scope);
+    });
   }
 
   approvals(scope, requestID) {

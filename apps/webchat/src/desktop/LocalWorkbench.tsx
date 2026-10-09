@@ -380,6 +380,9 @@ export function LocalWorkbench() {
           {content.tasks.filter((task) => task.status === "delivery_too_large").map((task) => <section className="localFeedback" role="alert" key={task.id}>
             <p>{zh ? "此任务的结果超过当前连接的传输上限，无法取回。已停止重试，任务不会自动重新执行。" : "This task's result exceeds the connection's transfer limit and cannot be retrieved. Retries have stopped; the task will not run again automatically."}</p>
           </section>)}
+          {content.tasks.filter((task) => task.termination_reason).map((task) => <section className="localFeedback" role="status" key={`termination:${task.id}`}>
+            <p>{zh ? "服务重启已终结此任务。已记录的审批决定仍保留，任务不会自动重发。" : "The gateway restart ended this task. Recorded approval decisions are retained; the task will not be resubmitted."}</p>
+          </section>)}
           {content.tasks.flatMap((task) => (task.approvals ?? [])
             .filter((approval) => ["pending", "decision_pending", "decision_unknown"].includes(approval.state))
             .map((approval) => ({ task, approval }))).map(({ task, approval }) => {

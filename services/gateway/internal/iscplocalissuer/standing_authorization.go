@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
@@ -16,6 +17,17 @@ import (
 // AuthorizePermanentRenewal is an explicit setup/migration action, never a
 // startup or device request. Revoked records cannot be resurrected by migration.
 func (i *Issuer) AuthorizePermanentRenewal(grantFile string) error {
+	return i.AuthorizePermanentScopes(grantFile, nil)
+}
+
+// AuthorizePermanentScopes is an explicit operator action; renewals cannot add
+// scopes. Existing authorizations need a new revision/regrant to change scope.
+func (i *Issuer) AuthorizePermanentScopes(grantFile string, scopes []string) error {
+	if err := iscpauth.ValidateScopes(scopes); err != nil {
+		return err
+	}
+	scopes = slices.Clone(scopes)
+	slices.Sort(scopes)
 	raw, err := readPrivateBounded(grantFile, 65536)
 	if err != nil {
 		return errors.New("authorization grant file unavailable")
@@ -36,6 +48,9 @@ func (i *Issuer) AuthorizePermanentRenewal(grantFile string) error {
 			return false, errors.New("authorization grant is not the current grant")
 		}
 		if state.SchemaVersion == 2 {
+			if scopes != nil && !slices.Equal(scopes, state.Authorization.Scopes) {
+				return false, errors.New("changing scopes requires explicit reauthorization")
+			}
 			return false, nil
 		}
 		// Preserve the TTL visible in the current signed Grant. A bounded
@@ -57,14 +72,14 @@ func (i *Issuer) AuthorizePermanentRenewal(grantFile string) error {
 			}
 		}
 		state.SchemaVersion, state.CurrentGrant, state.TTLSeconds = 2, &grant, ttl
-		state.Authorization = &renewalAuthorization{AuthorizedAt: i.Now().UTC(), Lifetime: iscpauth.UntilRevoked, Revision: grant.RevocationEpoch}
+		state.Authorization = &renewalAuthorization{AuthorizedAt: i.Now().UTC(), Lifetime: iscpauth.UntilRevoked, Revision: grant.RevocationEpoch, Scopes: scopes}
 		return true, nil
 	})
 }
 
 func (state *renewalState) policy(now time.Time) iscpauth.Policy {
 	a := state.Authorization
-	p := iscpauth.Policy{Version: state.SchemaVersion, Lifetime: iscpauth.Bounded, State: iscpauth.Active, ExpiresAt: a.ExpiresAt, Revision: a.Revision}
+	p := iscpauth.Policy{Version: state.SchemaVersion, Lifetime: iscpauth.Bounded, State: iscpauth.Active, ExpiresAt: a.ExpiresAt, Revision: a.Revision, Scopes: slices.Clone(a.Scopes)}
 	if state.SchemaVersion == 2 {
 		p.Lifetime = a.Lifetime
 	}

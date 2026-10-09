@@ -41,3 +41,24 @@ func TestPolicyRejectsAmbiguousPermanentAndLegacyMetadata(t *testing.T) {
 		t.Fatal(p, err)
 	}
 }
+
+func TestScopesAreExplicitAndNeverWildcardOrMalformed(t *testing.T) {
+	p := Policy{Version: 2, Lifetime: UntilRevoked, State: Active, Revision: 1, Scopes: []string{"settings.read", "tool.files.search"}}
+	metadata := map[string]string{}
+	p.AddTo(metadata)
+	parsed, err := Parse(metadata)
+	if err != nil || !parsed.Allows("settings.read") || parsed.Allows("settings.write") {
+		t.Fatal(parsed, err)
+	}
+	for _, raw := range []string{`null`, `["*"]`, `["settings.read","settings.read"]`, `["Admin"]`, `[1]`} {
+		metadata["authorization_scopes"] = raw
+		if _, err := Parse(metadata); err == nil {
+			t.Fatalf("invalid scopes accepted: %s", raw)
+		}
+	}
+	delete(metadata, "authorization_scopes")
+	old, err := Parse(metadata)
+	if err != nil || old.Allows("settings.read") {
+		t.Fatal("legacy authorization gained new scopes")
+	}
+}

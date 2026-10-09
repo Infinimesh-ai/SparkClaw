@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -32,6 +33,7 @@ func run() error {
 	authorize := flag.Bool("authorize-renewal", false, "authorize fixed-scope short grant renewal")
 	revoke := flag.Bool("revoke-renewal", false, "revoke the existing renewal authorization")
 	grantFile := flag.String("grant-file", "", "private current grant file for explicit renewal authorization")
+	authorizationScopes := flag.String("authorization-scopes", "", "explicit comma-separated permanent authorization scopes; renewal never widens them")
 	authorizationHours := flag.Int("authorization-hours", 0, "0 authorizes until manual deletion; 24 to 8760 retains the legacy bounded policy")
 	listen := flag.String("listen", "127.0.0.1:0", "local issuer listen address")
 	containerListen := flag.Bool("allow-container-listen", false, "allow local-test container address 0.0.0.0:8080")
@@ -49,7 +51,14 @@ func run() error {
 	}
 	if *authorize {
 		if *authorizationHours == 0 {
-			return issuer.AuthorizePermanentRenewal(*grantFile)
+			var scopes []string
+			if *authorizationScopes != "" {
+				scopes = strings.Split(*authorizationScopes, ",")
+			}
+			return issuer.AuthorizePermanentScopes(*grantFile, scopes)
+		}
+		if *authorizationScopes != "" {
+			return errors.New("scopes require permanent authorization")
 		}
 		return issuer.AuthorizeRenewal(*grantFile, *authorizationHours)
 	}

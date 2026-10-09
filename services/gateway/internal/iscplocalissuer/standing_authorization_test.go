@@ -204,3 +204,41 @@ func TestPermanentMigrationPreservesShortenedGrantTTL(t *testing.T) {
 		t.Fatal("migration expanded the signed TTL continuity bound")
 	}
 }
+
+func TestExplicitScopesPersistAndRenewalCannotWiden(t *testing.T) {
+	f := newRenewalFixture(t, 30*time.Minute, false)
+	path := filepath.Join(f.dir, "scoped-grant.json")
+	raw, _ := json.Marshal(f.grant)
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.i.AuthorizePermanentScopes(path, []string{"settings.read", "notifications.read"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.i.AuthorizePermanentScopes(path, []string{"settings.admin"}); err == nil {
+		t.Fatal("in-place scope widening accepted")
+	}
+	i := f.load(t)
+	server := httptest.NewServer(i.Handler())
+	defer server.Close()
+	client, err := iscpbridge.NewGrantLifecycleClient(server.URL, filepath.Join(f.dir, "scoped-pending.json"), f.subject, i.device.Identity, "local-relay", f.grant, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.RequireStandingAuthorization()
+	policy, err := client.AuthorizationPolicy(context.Background())
+	if err != nil || !policy.Allows("settings.read") || policy.Allows("settings.admin") {
+		t.Fatal(policy, err)
+	}
+	policy.Scopes[0] = "settings.admin"
+	again, err := client.AuthorizationPolicy(context.Background())
+	if err != nil || again.Allows("settings.admin") {
+		t.Fatal("caller mutated signed scopes")
+	}
+	f.clock.Add(int64(25 * time.Minute))
+	responseGrant(t, grantRequest(i, AutoRenewPath, "scoped-renew", f.body(t, f.subject, "scoped-renew", "scoped-nonce")), 201)
+	state, err := f.load(t).readRenewalState()
+	if err != nil || !state.policy(f.now()).Allows("notifications.read") || state.policy(f.now()).Allows("settings.admin") {
+		t.Fatal(state, err)
+	}
+}

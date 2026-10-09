@@ -32,6 +32,18 @@ func (c *GrantLifecycleClient) UsesStandingAuthorization() bool {
 // statement bound to a fresh possession proof. HTTP errors cannot set it.
 var ErrAuthorizationRevoked = errors.New("standing authorization was revoked")
 
+// AuthorizationPolicy authenticates a fresh issuer statement and returns a
+// detached permission projection. Callers must never accept scopes from peers.
+func (c *GrantLifecycleClient) AuthorizationPolicy(ctx context.Context) (iscpauth.Policy, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cap, err := c.capability(ctx, c.previous)
+	if err != nil {
+		return iscpauth.Policy{}, err
+	}
+	return iscpauth.Parse(cap.Metadata)
+}
+
 func (c *GrantLifecycleClient) CheckAuthorization(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

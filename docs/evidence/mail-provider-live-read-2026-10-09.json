@@ -4,7 +4,7 @@
   "target": "work2",
   "gateway_source": "0d1ab651",
   "controller_fix_source": "bdb4b63e",
-  "deployed_controller_source": "3deaaad9",
+  "deployed_controller_source": "dfa7f0fd62c6ae69b32b1f35d51e479bee5fac96",
   "no_email_sent": true,
   "asr_tts_deferred": true,
   "outlook": {
@@ -314,7 +314,7 @@
     "Outlook and QQ .15 each passed one bounded historical original download; both selected messages contained zero attachments.",
     "QQ .15 passed after one explicitly recorded transient context-destroyed failure and one same-scope, same-window retry.",
     "Actual received attachment transfer remains separately unqualified.",
-    "The old Controller shutdown timeout is separately tracked and still requires its independently reviewed cleanup fix.",
+    "Controller now exits promptly and cleans resources while preserving a nonzero cancellation error; it does not report that cancellation as success.",
     "No send, reply or mark-read was attempted."
   ],
   "installed_follow_up": {
@@ -422,7 +422,8 @@
       "systemd_result": "timeout",
       "systemd_final_signal": "SIGKILL",
       "resource_cleanup_proven_after_exit": true,
-      "separate_shutdown_fix_pending": true
+      "separate_shutdown_fix_pending": false,
+      "resolved_by_controller_source": "dfa7f0fd62c6ae69b32b1f35d51e479bee5fac96"
     },
     "post_original_health": {
       "gateway_healthy": true,
@@ -435,5 +436,85 @@
       "paired_install_check": true,
       "actual_managed_components_check": true
     }
-  }
+  },
+  "controller_shutdown_fix_installed": {
+    "source": "dfa7f0fd62c6ae69b32b1f35d51e479bee5fac96",
+    "runtime_release": "0.3.0-sparkclaw.15",
+    "runtime_digest_unchanged": true,
+    "reader_policy_generation_unchanged": true,
+    "browser_components_staged": false,
+    "gateway_image_unchanged": true,
+    "checkpoint": {
+      "name": "mail-controller-shutdown-20261009T092610Z",
+      "postgres_sha256": "e0a8f7bdfafd4d26c7bfcfb995192d35bcd21d146ac7d9022affbc0d39133d64",
+      "postgres_restore_list_valid": true,
+      "paired_state_sha256": "25f8c9815eface5db39092fb928262a0201d503b379def4d0d189861b8946394",
+      "paired_state_bytes": 140722951,
+      "includes_memory_runtime_workspaces_app_cli_profile_units_env_and_components": true
+    },
+    "restored_health": {
+      "gateway_healthy": true,
+      "all_three_services_active": true,
+      "paired_release_check_passed": true,
+      "actual_managed_components_check_passed": true,
+      "executor_epoch": 12,
+      "both_resident_watchers_running": true,
+      "cleanup_fence_present": false,
+      "providers_with_watch_ready": [
+        "mail-outlook",
+        "mail-qq-mail"
+      ],
+      "account_identity_validated_by_watch_ready": true,
+      "all_three_services_restarts": 0
+    },
+    "initializing_watch_regression": {
+      "current_epoch_resident_providers_before_stop": 2,
+      "stop_order": [
+        "gateway",
+        "executor",
+        "controller",
+        "browser"
+      ],
+      "executor_stop_seconds": 14.422,
+      "controller_stop_seconds": 2.472,
+      "browser_stop_seconds": 0.069,
+      "controller_result": "exit-code",
+      "controller_exec_main_code": 1,
+      "controller_exec_main_status": 1,
+      "cancellation_error_not_suppressed": true,
+      "systemd_sigkill": false,
+      "systemd_timeout": false,
+      "all_owned_processes_absent": true,
+      "all_service_cgroups_empty": true,
+      "cleanup_fence_present": false,
+      "watch_ready_not_yet_emitted": true
+    },
+    "live_regression": {
+      "current_epoch_before_stop": 11,
+      "providers_with_watch_ready": [
+        "mail-outlook",
+        "mail-qq-mail"
+      ],
+      "stop_order": [
+        "gateway",
+        "executor",
+        "controller",
+        "browser"
+      ],
+      "executor_stop_seconds": 0.023,
+      "controller_stop_seconds": 2.606,
+      "browser_stop_seconds": 0.091,
+      "controller_result": "exit-code",
+      "controller_exec_main_code": 1,
+      "controller_exec_main_status": 1,
+      "cancellation_error_not_suppressed": true,
+      "systemd_sigkill": false,
+      "systemd_timeout": false,
+      "all_owned_processes_absent": true,
+      "all_service_cgroups_empty": true,
+      "cleanup_fence_present": false
+    }
+  },
+  "current_backend_source": "dfa7f0fd62c6ae69b32b1f35d51e479bee5fac96",
+  "current_app_cli_release": "0.3.0-sparkclaw.15"
 }

@@ -1,0 +1,309 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "status": "local_non_audio_qualified_real_mail_account_pending",
+  "review_source_commit": "d8857e6887a9f6572e0c43c705327de8cec10ccc",
+  "scope": "Source and isolated candidates; no installed or remote deployment upgraded",
+  "deferred_by_user": [
+    "ASR",
+    "TTS"
+  ],
+  "accepted_user_decisions": [
+    "Permanent authorization until explicit deletion",
+    "Local Relay changes retain online protocol compatibility",
+    "Gateway restart terminates approval-waiting tasks",
+    "Only Owner Gateway workspace files may be sent as attachments"
+  ],
+  "validation": {
+    "linux_go_tested_packages": 65,
+    "linux_go_packages_without_tests": 6,
+    "go_build": true,
+    "go_vet": true,
+    "focused_race": true,
+    "real_postgresql_attachment_snapshots_and_unknown_send_fence": true,
+    "desktop_tests": 193,
+    "webchat_tests": 237,
+    "webchat_build": true,
+    "controller_tests_passed": 125,
+    "controller_tests_skipped": 25,
+    "controller_skip_scope": "12 Linux-only batch-helper tests plus 5 Linux-only process-cleanup tests, 7 separately-run real-browser attachment tests, 1 existing opt-in download fixture",
+    "workspace_attachment_focused_tests": 23,
+    "workspace_attachment_real_chromium_tests": 7,
+    "paired_release_install_mixed_version_rejection_tamper_and_rollback": true,
+    "reproducible_paired_release": true,
+    "bilingual_mirrors": 110,
+    "controller_linux_tests_passed": 142,
+    "controller_linux_tests_skipped": 1,
+    "controller_linux_skip_scope": "Existing opt-in Chromium download fixture, not part of changed mail upload channel"
+  },
+  "attachment_contract": {
+    "workspace": "Authenticated Owner Gateway workspace, not arbitrary desktop files",
+    "max_files": 5,
+    "max_total_bytes": 10485760,
+    "extra_iscp_scope": "files.read",
+    "digest": "sha256:hex",
+    "rejects": [
+      "absolute paths",
+      "URLs",
+      "traversal",
+      "hidden/private directories",
+      "symlinks",
+      "multiple hard links",
+      "nonregular files",
+      "stale draft version",
+      "changed or deleted reviewed files",
+      "forged client metadata"
+    ],
+    "upload": "Verified immutable bytes, bounded redacted chunks, no browser pathname reopen",
+    "unknown_send": "Original invocation, receipt-only reconciliation, no reupload or resend"
+  },
+  "native_browser": {
+    "production_entry": true,
+    "extra_compositor_flags": [],
+    "capture_modes": [
+      {
+        "mode": "initial_unselected_conversation",
+        "passed": true,
+        "window_visible": true,
+        "window_focused": true,
+        "view_visible": false,
+        "bytes": 19959,
+        "sha256": "ea12da95d74928d08213fe1b3194fceabfbf854aed0d8a77ecc750cdc39703b8",
+        "filename": "native-iscp-host-initial_unselected_conversation.png"
+      },
+      {
+        "mode": "foreground",
+        "passed": true,
+        "window_visible": true,
+        "window_focused": true,
+        "view_visible": true,
+        "bytes": 18959,
+        "sha256": "559ac359cfeb024bf7e85632e5f81e128c72d2b403a97cc56f618a23f45b60e5",
+        "filename": "native-iscp-host-foreground.png"
+      },
+      {
+        "mode": "occluded_background",
+        "passed": true,
+        "window_visible": true,
+        "window_focused": false,
+        "view_visible": true,
+        "bytes": 19810,
+        "sha256": "1f78b1f486b33040b9c9cd95931a5c6284f0ccdfd1be95a3d6ced912f8338ff4",
+        "filename": "native-iscp-host-occluded_background.png"
+      },
+      {
+        "mode": "hidden_window",
+        "passed": true,
+        "window_visible": false,
+        "window_focused": false,
+        "view_visible": true,
+        "bytes": 18970,
+        "sha256": "a264c4f165b89f39d90d757af460aefa1cc3d88a8ead467d33a91d35eeadb9ea",
+        "filename": "native-iscp-host-hidden_window.png"
+      },
+      {
+        "mode": "restored_window",
+        "passed": true,
+        "window_visible": true,
+        "window_focused": true,
+        "view_visible": true,
+        "bytes": 19252,
+        "sha256": "e2341aae1ed511a6b866b770890ae63a3113008926587f82676a1b0bf3e1a957",
+        "filename": "native-iscp-host-restored_window.png"
+      },
+      {
+        "mode": "unselected_conversation",
+        "passed": true,
+        "window_visible": true,
+        "window_focused": true,
+        "view_visible": false,
+        "bytes": 19806,
+        "sha256": "248078cdc11fd62a8827e55fec1fce1bdc23bf4af111afee8018ca566793a64d",
+        "filename": "native-iscp-host-unselected_conversation.png"
+      },
+      {
+        "mode": "restored_conversation",
+        "passed": true,
+        "window_visible": true,
+        "window_focused": true,
+        "view_visible": true,
+        "bytes": 19652,
+        "sha256": "dbae8564aa5e7581e8f41823eb02a2fa5436feba9664304258cbee891a116287",
+        "filename": "native-iscp-host-restored_conversation.png"
+      }
+    ],
+    "direct_business_http_ws_attempts": 0,
+    "native_clicks": 1,
+    "unknown_write_not_repeated": true,
+    "source_files": {
+      "apps/desktop/src/main/main.mjs": "a2963d1c889803f334c32a445a97f95a1d7267adbba21654269197768a400b19",
+      "apps/desktop/src/main/presentation.mjs": "5b59775dd13314dc80c5e1732b18500ecbb87aa0d68fe44499248b29087d6b99",
+      "apps/desktop/src/browser/page-registry.mjs": "54ee08f28dbf62ea59c7730a2a99e201f89d16497c7869e04deea7135e6f1b14",
+      "apps/desktop/src/browser/host-agent.mjs": "8ec06d7fbf7a3844aac8a75d736e2742041a90b1a7f26dfaccaec076a846b017",
+      "apps/desktop/src/browser/native-page-commands.mjs": "089da994aaa22a2f89f6e7c66f512c36a76642f96ea7a79ceb691be6d66ca977"
+    }
+  },
+  "native_mail": {
+    "qualification_scope": "controlled loopback only; no third-party account and no external email",
+    "checks": [
+      "fresh_qualified_mail_attachment_capability_in_native_renderer",
+      "workspace_file_change_invalidates_old_confirmation_before_any_provider_effect",
+      "renderer_saved_and_confirmed_manifest_delivers_identical_bytes_to_loopback_sink",
+      "lost_provider_receipt_remains_unknown_until_reconciliation_and_never_resends"
+    ],
+    "direct_business_http_ws_attempts": 0,
+    "chromium_business_url_events": 0,
+    "effects": 2,
+    "reconciles": 1,
+    "source_binary_sha256": "7823adfe759ec514183fdfb3c2c99eec6565018b5417bcc4498798b3e4ecc49b",
+    "rerun_on_integrated_source": "d8857e6887a9f6572e0c43c705327de8cec10ccc",
+    "source_tree": "0d983f2e0541772033cb3da2d2f88e2eff7ab4d3",
+    "test_fixture_commit": "62234a7f",
+    "attachments": [
+      {
+        "path": "reports/native-attachment.txt",
+        "name": "native-attachment.txt",
+        "size_bytes": 61,
+        "sha256": "sha256:d74c6b52adbb0814f62aa6a1b8d64c24e8e655188e167ed11c85466c79a38f2d"
+      }
+    ],
+    "evidence_file_sha256": "c6f8d53367f879da835a4f1f337f984e4795964a26b20f6a8ebe096369346253"
+  },
+  "native_authorization": {
+    "settings_confirmation": true,
+    "initial_revision": 1,
+    "deleted_revision": 2,
+    "same_operation_and_receipt_after_desktop_and_issuer_restart": true,
+    "Relay_stopped_during_recovery": true,
+    "business_rejected_after_deletion": true,
+    "direct_business_http_ws_attempts": 0,
+    "private_fixture_restart_note": [
+      "issuer_identity_and_durable_state_retained_while_private_ephemeral_Docker_endpoint_is_refreshed"
+    ]
+  },
+  "app_cli_release": {
+    "schema_version": 1,
+    "id": "0.3.0-sparkclaw.12",
+    "runtime_digest": "0fa21372bf0933c400de45ae8d0b47283f13dea75f4e42ba753c578e9b31af0e",
+    "source_repository": "https://github.com/ZZZZJJJ0928/App-CLI",
+    "source_commit": "9da7cfde4c2f24904f87e2992e9dcf69e20f89d7",
+    "python_source_digest": "77f71342fb82d2c71bc5bd76aff362ac27a36d7cda939ca3b54674fd54fa46af",
+    "runtime_protocol": "2.0",
+    "host_protocol": "1.0",
+    "ledger_version": 1,
+    "artifacts": {
+      "python_dependencies": {
+        "file": "python-requirements.txt",
+        "sha256": "e99394c278eed0e2ee36f7a1289c0327af0a355b1726472a8296563d5fb0fde6"
+      },
+      "runtime": {
+        "file": "infinimesh-app-cli-runtime-0.3.0-sparkclaw.12.tgz",
+        "sha256": "c3934187c2ce7f797e81d31fc25901588cd40d7d92edc6cad3ea6dc694f85e9c"
+      },
+      "wheel": {
+        "file": "infinimesh_app_cli-0.3.0+sparkclaw.12-py3-none-any.whl",
+        "sha256": "e1011a6818c513af2ea2a59fbf3646b61bf9ac96a35782ca12f5e7bdc49a63db"
+      }
+    },
+    "local_patch": {
+      "base_id": "0.3.0-sparkclaw.11",
+      "base_runtime_digest": "748eb24a2a9646e274d777680f9ff54ac0b77bf6b58a8e191fddd2efd0996000",
+      "patch_file": "workspace-mail-attachments.patch",
+      "patch_sha256": "e19350376c10761774e6d1a31d5b43ea32bcbab14df2147738c5cbb21803b8e1"
+    }
+  },
+  "capacity": {
+    "schema_version": 1,
+    "passed": true,
+    "started_at": "2026-10-09T05:46:27.541Z",
+    "runtime_source_sha256": "e9ae5de42dfe34f160707681defdaec6a0617b5685c1edd799484e3acb903c7f",
+    "actual_controller": true,
+    "actual_cli": true,
+    "direct_browser_evaluation": false,
+    "provider_qualified": false,
+    "production_iscp_qualified": false,
+    "limit_bytes": 10485760,
+    "budget_ms": 180000,
+    "commands": {
+      "attach": 1,
+      "tab-list": 503,
+      "run-code": 263,
+      "goto": 1,
+      "eval": 236,
+      "tab-close": 1,
+      "close": 1
+    },
+    "uploaded": [
+      {
+        "size_bytes": 10485760,
+        "sha256": "885bec5f2e2b7481a36c3922a49cba7768e94de5c1f952f4d75538f346f5a5cc"
+      }
+    ],
+    "effects": 1,
+    "browser": {
+      "event": "capacity_browser_ready",
+      "electron": "44.4.3",
+      "chromium": "152.0.7977.130"
+    },
+    "heartbeats": 12,
+    "elapsed_ms": 123240,
+    "chunks": 228,
+    "input_sha256": "885bec5f2e2b7481a36c3922a49cba7768e94de5c1f952f4d75538f346f5a5cc",
+    "no_email_sent": true,
+    "chunks_redacted": true,
+    "buffers_cleared": true,
+    "base_secret_preserved": true,
+    "capacity_passed": true,
+    "remaining_ms": 56760,
+    "cleanup": false,
+    "cleanup_error": "browser extension is unavailable",
+    "production_cleanup_qualified": false,
+    "cleanup_platform_fence": "linux_proc_required",
+    "fixture_cleanup": true,
+    "evidence_file_sha256": "a8f48b078373ec6b6a0d867a2c148520d86f1639ad0cb4405f524a255e1cea3c"
+  },
+  "source_file_sha256": {
+    "apps/desktop/src/browser/native-page-commands.mjs": "089da994aaa22a2f89f6e7c66f512c36a76642f96ea7a79ceb691be6d66ca977",
+    "apps/desktop/src/main/iscp-capabilities.mjs": "3de968a801020cebb3a7208400b66cea909090f618dcf1693dab10aa69e3200a",
+    "apps/webchat/src/desktop/ISCPMailDraftPanel.tsx": "53b57ce895aadf0e57e58468dfbd750e7c7b2621ae4d4e311ecb16193bb74a23",
+    "apps/webchat/src/desktop/MailDraftAttachments.tsx": "855611e355f7aa590ec55b19de184da43c096a8562fce306294b2f901b88cab9",
+    "services/gateway/internal/emailmanagement/compose.go": "b7c3d62becbd112659544de9bc70bafdab55d99e4fe15f8f46a3e222a98f649f",
+    "services/gateway/internal/emailmanagement/compose_attachments.go": "af6744de630b17d7b4031b85299ba3720c414413ecea19088323b429a1472a8f",
+    "services/gateway/internal/workspacefiles/read_unix.go": "7571e0454b425974012285fbea20850d1f693d90ad1ccda993a3c36f1829ddc7",
+    "services/gateway/internal/gateway/workbench_iscp_mail.go": "f40c68e1750969b3f0e9b5e76b0dc1abf256c77cff858c067e0c082e37afd467"
+  },
+  "candidate_artifacts": [
+    {
+      "path": "apps/desktop/dist/SparkX-0.1.0-mac-arm64.zip",
+      "bytes": 135859613,
+      "sha256": "2d353ec6ad4703decd60711783334ee0c77daa8c416c35f86c814f2feb3521eb",
+      "signed": false,
+      "packaged_source_and_helper_match": true,
+      "installed": false
+    },
+    {
+      "path": "apps/desktop/dist/SparkX-0.1.0-mac-arm64.dmg",
+      "bytes": 136028473,
+      "sha256": "6471cbc88dc83a5fc0414c9925922f250b972fdfe331061254e4b5edbbc9905c",
+      "signed": false,
+      "packaged_source_and_helper_match": true,
+      "installed": false
+    }
+  ],
+  "remaining_external_acceptance": {
+    "real_mail_provider_delivery": {
+      "status": "needs_logged_in_test_account_recipient_and_explicit_send_approval",
+      "draft_subject": "SparkX ISCP 附件验收 2026-10-09",
+      "draft_body": "这是一封功能验收测试邮件，附件仅包含固定测试文本。",
+      "workspace_attachment": "iscp-acceptance-20261009/attachment.txt",
+      "attachment_bytes": 45,
+      "attachment_sha256": "ac17ffca3acfaad8f3a0dab062ca03587e26b46fd74ec749f96609e70d12ddb5"
+    }
+  },
+  "release_boundaries": [
+    "Provider-shaped DOM fixtures and loopback sinks are not third-party mailbox qualification",
+    "Provider-dependent capabilities remain individually closed until positive deployment evidence",
+    "Existing installed SparkX, online Relay and remote services unchanged",
+    "InfiniCenter unavailable at configured ancestor anchors; no cross-project acceptance claimed"
+  ]
+}

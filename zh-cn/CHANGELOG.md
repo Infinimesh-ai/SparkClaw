@@ -10,6 +10,12 @@
 
 ### Added
 
+- ISCP 邮件草稿支持审阅并发送 Owner 的 Gateway workspace 内普通文件附件，
+  文件名／大小／哈希绑定草稿版本，上传使用冻结字节，另需 `files.read` 权限，
+  结果未知时持久防重发。配套本地 App-CLI `.12` 可从已记录补丁重复构建。
+  补齐生产默认配置下的原生后台截图及永久授权删除／重启验收；真实邮件
+  provider 开放仍需对应账号与投递证据。ASR／TTS 验收暂缓。
+
 - 新增普通 Web 与 Electron 工作台完整认证的本机共享后端链路：部署预置桌面
   Client、Owner 签发一次性 Web Client 凭据，共用一套 Gateway／PostgreSQL／
   workspace，使用认证失效通知 SSE 与有界轮询恢复，严格按 Owner 隔离，并移除

@@ -10,6 +10,14 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Added
 
+- ISCP mail drafts can review and send only regular files from the Owner's
+  Gateway workspace, with version-bound names/sizes/hashes, immutable upload
+  bytes, a separate `files.read` permission and durable unknown-send fencing.
+  The paired local App-CLI `.12` release is reproducible from its recorded patch.
+  Production-default native background capture and permanent authorization
+  deletion/restart qualification are recorded; actual mail-provider enablement
+  still requires its own account/delivery evidence. ASR/TTS acceptance is deferred.
+
 - A fully authenticated shared-local-backend path for ordinary Web and Electron
   workbenches: installation-provisioned desktop Clients, Owner-issued one-time
   Web Client credentials, one Gateway/PostgreSQL/workspace, authenticated

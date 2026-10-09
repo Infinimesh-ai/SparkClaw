@@ -300,6 +300,9 @@ This was the initial checkpoint; section 9.2 supersedes its pending implementati
 
 ## 9.2 Full implementation and qualification, 2026-10-09
 
+This is the initial full implementation checkpoint. Section 9.3 supersedes its
+pending browser, authorization-deletion and attachment-send qualifications.
+
 P1–P5 use the same existing domain services; there is no second execution engine or arbitrary HTTP tunnel. The canonical inventory is `services/gateway/internal/iscpworkbench/operations.json`; `node scripts/sync-iscp-operations.mjs --check` verifies the desktop projection. Both private helper profiles must explicitly select `["sparkclaw.workbench.transport.v2", "sparkclaw.workbench.transport.v1"]`. `qualified_capabilities` contains individual operation names and defaults to empty. Signed authorization scopes are independent of that deployment qualification. v1 remains exactly nine operations, including when an old configuration and original Grant connect to a new responder.
 
 | Phase | Implemented | Evidence and remaining qualification |
@@ -344,6 +347,89 @@ node apps/desktop/test/run-host-iscp-native-qualification.mjs /private/tmp/brows
 Prepare a separate unmodified `prepare-expansion` lab for compatibility, and a fresh capacity lab for native UI. The Browser Host runner requires its own prepared capacity lab with the lab Gateway stopped; it starts a real Gateway test process, while its pinned HTTPS listener serves only the controlled page and test-driver routes. One Client is bound to one persisted installation; do not reuse one lab concurrently across unrelated desktop stores. The native workbench fixture imports the real application entry point, operates the settings UI and sandboxed IPC, saves a screenshot/Chromium NetLog and checks execution delivery with Gateway business ports unpublished. It also blocks native direct HTTP/WS, interrupts Relay and verifies reconnect without resubmission. Its model is explicitly mocked; it does not qualify semantic model output, mail-provider behavior or microphone recognition. Candidate lab flags are not production release flags.
 
 Release state: implementation is available for final review in source and isolated candidates. Provider-dependent mail/ASR, the deployment's actual browser presentation configuration and each individually governed tool require their recorded positive business evidence before production enablement. Unsupported mail attachment sending and TTS/duplex stay closed; audio is not silently replaced by ASR or HTTP. Existing installations, remote deployments and online Relay remain untouched. InfiniCenter is still absent at the configured anchors; no central acceptance or shared upstream protocol change is claimed.
+
+## 9.3 Non-audio follow-up and workspace-only attachments, 2026-10-09
+
+The user deferred ASR and TTS acceptance. Their existing provider gates remain
+closed; passing general regression tests does not qualify microphone recognition,
+playback or duplex behavior. The remaining non-audio implementation and local
+acceptance follow-up is recorded in
+[the qualification evidence](evidence/iscp-workspace-mail-2026-10-09.json).
+
+Mail drafts accept only relative references to regular files in the authenticated
+Owner's Gateway workspace. Absolute paths, URLs, traversal, hidden/private paths,
+symbolic links and multiply linked files are rejected. This is not an arbitrary
+file upload from the desktop computer. At most five files, totaling 10 MiB, may be
+attached. Saved drafts return the authoritative path, name, size and SHA-256;
+confirmation is bound to that draft version and manifest. File modification or
+deletion requires saving and reviewing a new version. ISCP attachment operations
+additionally require the explicitly granted `files.read` scope, checked against
+the exact draft loaded for sending before its version CAS.
+
+The Gateway opens path components with no-follow descriptors, bounds the read,
+and freezes the approved bytes in a private per-send directory. The application
+runtime validates that snapshot and uploads its in-memory contents through
+bounded, redacted chunks and the browser File/DataTransfer input path. It never
+hands the browser a pathname to reopen. Ownership and hashes are checked before
+dispatch and the attachment inventory is checked again before sending. Missing,
+additional, pending or failed attachment rows prevent sending. Temporary files
+are bounded and cleaned after completion or restart. Unknown effects retain their
+original invocation and durable fence; reconciliation does not upload or resend.
+The receipt identity excludes the disposable staging path while retaining names,
+sizes and hashes. Legacy drafts without attachments remain compatible.
+
+This application change is an explicit local App-CLI `.12` delta from the pinned
+`.11` bundle. `vendor/app-cli/workspace-mail-attachments.patch` is reviewable;
+`python3 scripts/build-workspace-mail-release.py --check` reproduces the runtime,
+Python wheel and paired release metadata. The metadata records the original
+upstream commit and a separate local patch digest. Runtime protocol 2.0 and Host
+protocol 1.0 are unchanged. The installer continues to reject mixed versions and
+tampered files and to preserve the durable ledger through whole-set rollback.
+This is not an upstream App-CLI release or a cross-project contract change.
+
+The final 10 MiB upload used the installed binding, actual Controller/CLI and an
+isolated Electron adapter: 228 chunks in 123.24 seconds against the unchanged
+180-second limit, with matching sink SHA-256 and 12 normal lease renewals. Each
+code envelope remains below 64 KiB; the 45 KiB data chunks are registered for
+diagnostic redaction. This capacity fixture exercises the existing application
+upload channel, not production ISCP routing. macOS's legacy process reaper remains
+Linux-only; the fixture separately proves CLI exit and cleans its own processes.
+Linux Controller tests cover that platform's ownership and process-cleanup path.
+
+The real SparkX renderer/main/preload → encrypted ISCP → Linux Gateway → controlled
+mail sink path passed changed-file rejection, saved-manifest review, exact bytes,
+lost-response reconciliation and one effect per invocation. Native direct business
+HTTP/WS attempts and Chromium business URL events were zero. Real PostgreSQL
+passed snapshot persistence, version conflicts and unknown-send fencing. Separate
+real Chromium tests exercise the provider-shaped upload controls, path replacement,
+input movement during hashing, and final attachment verification. These controlled
+pages and sinks do **not** establish Gmail, Outlook or QQ Mail production DOM or
+delivery qualification; that last check needs a logged-in test account, a recipient
+and explicit approval to send the reviewable test message. Provider-dependent
+surfaces remain independently closed until that check succeeds.
+
+The production Browser Host entry point now passes seven capture states without
+extra compositor flags: never-selected page, foreground, occluded window, hidden
+window, restored window, another selected conversation and restored conversation.
+A fixed, bounded Chromium capture handles a never-presented view without changing
+focus or selection; revocation/deadline checks and debugger cleanup remain active.
+Native read/fill/click and lost-click-reply fencing passed with one actual click.
+
+Permanent authorization deletion was also exercised through the real Settings UI.
+After Relay shutdown and both issuer and desktop restart, the same signed deletion
+receipt was recovered and business calls remained blocked. Approval-wait restart
+termination retains the earlier real-process SIGKILL and durable-reopen evidence.
+Installed applications, remote services and online Relay have not been upgraded.
+InfiniCenter remains unavailable at the configured anchors; no central acceptance
+is claimed. Candidate packages and the exact validation counts/hashes are recorded
+in the evidence file above for the user's final acceptance.
+
+Final checks: 65 Go test packages, build/vet and focused race; 193 Desktop tests;
+237 WebChat tests and production build; 142 Linux Controller tests (one unrelated
+opt-in download fixture skipped); 23 focused attachment checks, including seven
+real Chromium cases; paired-release install/reproduction/rollback and 110 bilingual
+documentation mirrors. Use the standalone capacity fixture with
+`SPARKCLAW_MAIL_CAPACITY_TEST=1 node tools/browser-controller/test/qualify-workspace-mail-capacity.mjs`.
 
 ## 10. Related designs
 

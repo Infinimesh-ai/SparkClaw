@@ -300,6 +300,8 @@ Execution 控制存储从 v2 迁移到 v3。**旧二进制不能读取 v3。** �
 
 ## 9.2 全阶段实现与验收，2026-10-09
 
+本节为首个全阶段实现检查点。浏览器、授权删除与附件发送的后续验收状态以 9.3 节为准。
+
 P1–P5 复用既有领域服务，没有另造执行器，也没有任意 HTTP 隧道。唯一操作清单为 `services/gateway/internal/iscpworkbench/operations.json`，用 `node scripts/sync-iscp-operations.mjs --check` 检查桌面投影。两端私有 helper 配置必须明确选择 `["sparkclaw.workbench.transport.v2", "sparkclaw.workbench.transport.v1"]`。`qualified_capabilities` 填逐个操作名，默认空；签名授权 scopes 与部署验收资格相互独立。旧配置、原 Grant 接入新 responder 时仍严格保留 v1 九操作。
 
 | 阶段 | 已实现 | 证据及仍需区分的验收 |
@@ -344,6 +346,26 @@ node apps/desktop/test/run-host-iscp-native-qualification.mjs /private/tmp/brows
 兼容测试单独准备不带优化的 `prepare-expansion` lab；原生界面另用全新 capacity lab。Browser Host runner 需要自己的已准备 capacity lab，且 lab Gateway 处于停止状态；它自行启动真实 Gateway 测试进程，固定证书的 HTTPS 监听只提供受控页面与测试驱动路由。一个 Client 绑定一个持久 installation，不得让互不相关的桌面 Store 并发共用 lab。原生工作台 fixture 导入真实应用入口，操作设置界面和沙盒 IPC，保存截图与 Chromium NetLog，在 Gateway 业务端口不发布的条件下检查执行交付；还会阻断原生直连 HTTP／WS，暂停 Relay 后验证重连不会重新提交。该 fixture 明确使用 mock 模型，不代表真实模型语义、邮件 provider 或麦克风识别验收。测试候选开关不是生产发布开关。
 
 发布状态：实现代码与隔离候选可用于最后验收。真实邮件／ASR provider、部署实际使用的浏览器展示配置及逐个受控工具必须有各自正向业务证据才能在生产开放。不支持的邮件附件发送及 TTS／双向语音保持关闭，音频不会冒充 ASR 或回退 HTTP。现有安装、远端部署与在线 Relay 保持原状。配置锚点仍无 InfiniCenter，因此不声称中枢批准，也未改动共用上游协议。
+
+## 9.3 非语音补充验收与仅限 workspace 的附件，2026-10-09
+
+用户明确暂缓 ASR 与 TTS 验收，其既有 provider 开放条件保持不变；普通回归测试通过不代表麦克风识别、播放或双向语音验收。其余非语音实现与本地验收补充结果见[机器可读证据](../../docs/evidence/iscp-workspace-mail-2026-10-09.json)。
+
+邮件草稿只接受当前已认证 Owner 在 Gateway workspace 内的普通文件相对路径，拒绝绝对路径、URL、路径逃逸、隐藏／私有目录、符号链接和多硬链接文件，不接受从桌面电脑任意选择文件上传。最多五个文件、合计 10 MiB。保存草稿后返回权威路径、文件名、大小与 SHA-256；确认绑定该草稿版本及附件清单。文件修改或删除后必须重新保存并审阅。ISCP 附件操作另需明确授予 `files.read`，权限检查针对本次实际读取的发送草稿，并与随后版本 CAS 绑定。
+
+Gateway 用不跟随链接的目录描述符逐层打开路径，限制读取大小，将确认的字节冻结到私有发送目录。应用运行时校验冻结副本，使用内存字节、有界且脱敏的分块和浏览器 File／DataTransfer 文件输入路径上传，不把路径交给浏览器重新读取。派发前复核控件归属与哈希，点击发送前再次核对附件清单；缺失、额外、上传中或失败的附件均阻止发送。临时副本有数量限制，完成或重启后清理。结果未知时保留原 invocation 与持久防重发记录，核对不会再次上传或发送。回执身份排除一次性的暂存路径，但保留文件名、大小和哈希。旧的无附件草稿继续兼容。
+
+应用运行时使用基于固定 `.11` bundle 的显式本地 App-CLI `.12` 增量。`vendor/app-cli/workspace-mail-attachments.patch` 可直接评审；`python3 scripts/build-workspace-mail-release.py --check` 可重复构建 runtime、Python wheel 和配套 release 元数据。元数据分别记录上游原始 commit 与本地补丁摘要。Runtime protocol 2.0、Host protocol 1.0 不变；安装器继续拒绝混用版本及文件篡改，整套回滚保留持久账本。这不是上游 App-CLI 发布，也未变更跨项目契约。
+
+最终 10 MiB 上传使用已安装 binding、真实 Controller／CLI 和独立 Electron adapter：228 块、123.24 秒，低于未放宽的 180 秒门槛；接收端 SHA-256 一致，期间完成 12 次正常 lease 续期。每条代码封装小于 64 KiB，45 KiB 数据块执行前登记为需脱敏的内容。此容量 fixture 验证既有应用上传通道，不代表生产 ISCP 路由。macOS 的 legacy 进程回收器仍只支持 Linux；fixture 单独核实 CLI 已退出并清理自己创建的进程。Linux Controller 测试覆盖该平台的归属与进程清理路径。
+
+真实 SparkX renderer／main／preload → 加密 ISCP → Linux Gateway → 受控邮件接收端已通过文件变化拒绝、保存后附件审阅、精确字节接收、丢回执核对和单 invocation 只生效一次。原生直连业务 HTTP／WS 尝试与 Chromium 业务 URL 事件均为零。真实 PostgreSQL 已通过快照持久化、版本冲突和未知发送防重放。独立真实 Chromium 测试覆盖 provider 形态控件、路径替换、哈希期间移动输入控件及发送前附件复核。这些受控页面与接收端**不代表 Gmail、Outlook 或 QQ 邮箱真实页面及投递验收**；最后一项需要已登录的测试账号、收件地址，以及对具体测试邮件的明确发送授权。依赖 provider 的功能在该项通过前仍各自关闭。
+
+生产 Browser Host 入口已在不增加 compositor flags 的条件下通过七种截图状态：从未选中的页面、前台、窗口被遮挡、窗口隐藏、窗口恢复、切换其他会话及恢复原会话。从未呈现的视图使用固定视口、有界 Chromium capture，不改变焦点或会话选择，并保留撤销／期限检查和 debugger 清理。原生读取、填写、点击及点击回执丢失后的防重放通过，实际点击次数为一。
+
+永久授权删除也已走真实设置界面：停止 Relay 并重启 issuer 与桌面应用后，仍恢复同一份签名删除回执，业务请求继续被拒绝。等待审批时重启终结沿用此前真实进程 SIGKILL 与持久账本重开的验收证据。本次未升级现有安装、远端服务或在线 Relay。配置锚点仍无 InfiniCenter，不声称中枢批准。供用户最后验收的候选包、准确检查数量与哈希记录于上述证据文件。
+
+最终检查：Go 65 个测试包、build／vet 和定向 race；Desktop 193 项；WebChat 237 项与生产构建；Linux Controller 142 项（一个无关的下载 opt-in fixture 跳过）；附件专项 23 项，其中七项使用真实 Chromium；配套 release 的安装／重复构建／回滚；110 份双语文档镜像。独立容量重现命令为 `SPARKCLAW_MAIL_CAPACITY_TEST=1 node tools/browser-controller/test/qualify-workspace-mail-capacity.mjs`。
 
 ## 10. 关联设计
 

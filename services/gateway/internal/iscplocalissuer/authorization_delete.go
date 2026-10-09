@@ -43,7 +43,11 @@ func (i *Issuer) authorizationDelete(w http.ResponseWriter, r *http.Request) {
 			return false, failure(404, "standing_authorization_not_found")
 		}
 		dirty := false
-		if a.Deletion == nil {
+		receipt := a.Deletion
+		if old, found := state.DeletionHistory[input.OperationID]; found {
+			receipt = &old
+		}
+		if receipt == nil {
 			if r.URL.Path == iscpauth.DeleteReceiptPath {
 				return false, failure(404, "deletion_receipt_not_found")
 			}
@@ -53,17 +57,21 @@ func (i *Issuer) authorizationDelete(w http.ResponseWriter, r *http.Request) {
 			a.Revoked = true
 			a.Revision++
 			a.Deletion = &iscpauth.DeletionReceipt{OperationID: input.OperationID, ExpectedRevision: input.ExpectedRevision, AuthorizationRevision: a.Revision, State: iscpauth.Revoked, DeletedAt: now}
+			receipt = a.Deletion
 			dirty = true
 		}
-		if a.Deletion.OperationID != input.OperationID || a.Deletion.ExpectedRevision != input.ExpectedRevision {
+		if receipt.OperationID != input.OperationID || receipt.ExpectedRevision != input.ExpectedRevision {
 			return false, failure(409, "authorization_operation_conflict")
 		}
 		cap := i.capabilityBody(state, now)
+		// A historical receipt describes only its original consent generation.
+		// It cannot grant access or revoke a subsequently authorized generation.
+		iscpauth.Policy{Version: 2, Lifetime: iscpauth.UntilRevoked, Revision: receipt.AuthorizationRevision, State: iscpauth.Revoked}.AddTo(cap.Metadata)
 		cap.ExpiresAt = now.Add(time.Minute)
 		cap.Metadata["request_id"], cap.Metadata["request_digest"], cap.Metadata["request_device_id"] = key, hashBytes(raw), input.Identity.DeviceID
 		cap.Metadata["control_action"] = r.URL.Path
-		receipt, _ := json.Marshal(a.Deletion)
-		cap.Metadata["deletion_receipt"] = string(receipt)
+		receiptJSON, _ := json.Marshal(receipt)
+		cap.Metadata["deletion_receipt"] = string(receiptJSON)
 		var signErr error
 		signed, signErr = descriptor.Sign(iscpcrypto.NewProvider(), i.device, trustRootDescriptorType, cap, now)
 		return dirty, signErr

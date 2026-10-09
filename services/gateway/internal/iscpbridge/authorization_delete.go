@@ -27,7 +27,7 @@ func (c *GrantLifecycleClient) authorizationDeletion(ctx context.Context, path, 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var receipt iscpauth.DeletionReceipt
-	if !deletionOperationPattern.MatchString(operationID) || expectedRevision == 0 || expectedRevision == ^uint64(0) || c.device.Identity.DeviceID != c.previous.SubjectDeviceID {
+	if !deletionOperationPattern.MatchString(operationID) || expectedRevision == 0 || expectedRevision == ^uint64(0) || expectedRevision != c.previous.RevocationEpoch || c.device.Identity.DeviceID != c.previous.SubjectDeviceID {
 		return receipt, errors.New("invalid self-authorization deletion request")
 	}
 	key := newWireID("auth")

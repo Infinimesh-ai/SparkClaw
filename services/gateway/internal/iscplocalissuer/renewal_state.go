@@ -57,13 +57,15 @@ type idempotencyRecord struct {
 }
 
 type renewalState struct {
-	SchemaVersion int                          `json:"schema_version"`
-	Scope         renewalScope                 `json:"scope"`
-	CurrentGrant  *trust.Grant                 `json:"current_grant,omitempty"`
-	TTLSeconds    int                          `json:"ttl_seconds"`
-	Authorization *renewalAuthorization        `json:"authorization,omitempty"`
-	Idempotency   map[string]idempotencyRecord `json:"idempotency"`
-	Nonces        map[string]time.Time         `json:"nonces"`
+	SchemaVersion   int                                 `json:"schema_version"`
+	Scope           renewalScope                        `json:"scope"`
+	CurrentGrant    *trust.Grant                        `json:"current_grant,omitempty"`
+	TTLSeconds      int                                 `json:"ttl_seconds"`
+	Authorization   *renewalAuthorization               `json:"authorization,omitempty"`
+	Idempotency     map[string]idempotencyRecord        `json:"idempotency"`
+	Nonces          map[string]time.Time                `json:"nonces"`
+	DeletionHistory map[string]iscpauth.DeletionReceipt `json:"deletion_history,omitempty"`
+	Reauthorization *reauthorizationReceipt             `json:"reauthorization,omitempty"`
 }
 
 func (i *Issuer) scope() renewalScope {
@@ -113,6 +115,22 @@ func (i *Issuer) readRenewalState() (*renewalState, error) {
 	for key, expires := range state.Nonces {
 		if len(key) != 64 || expires.IsZero() {
 			return nil, errors.New("invalid nonce record")
+		}
+	}
+	if len(state.DeletionHistory) > 4096 {
+		return nil, errors.New("authorization history exceeds limit")
+	}
+	for key, receipt := range state.DeletionHistory {
+		if key != receipt.OperationID || !validIdempotencyKey(key) || receipt.ExpectedRevision == 0 || receipt.ExpectedRevision == ^uint64(0) || receipt.AuthorizationRevision != receipt.ExpectedRevision+1 || receipt.State != iscpauth.Revoked || receipt.DeletedAt.IsZero() {
+			return nil, errors.New("invalid authorization history")
+		}
+	}
+	if receipt := state.Reauthorization; receipt != nil {
+		if state.SchemaVersion != 2 || !validIdempotencyKey(receipt.OperationID) || receipt.ExpectedRevision == 0 || receipt.ExpectedRevision == ^uint64(0) || receipt.Grant.RevocationEpoch != receipt.ExpectedRevision+1 || receipt.Grant.RevocationEpoch > state.Authorization.Revision || len(receipt.ScopesDigest) != 64 {
+			return nil, errors.New("invalid reauthorization receipt")
+		}
+		if _, err := i.validateGrant(receipt.Grant); err != nil {
+			return nil, err
 		}
 	}
 	if state.Idempotency == nil {

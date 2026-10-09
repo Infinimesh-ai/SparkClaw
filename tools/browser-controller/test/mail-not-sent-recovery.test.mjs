@@ -226,3 +226,15 @@ test('negative and dispatch claims are mutually exclusive across concurrent jour
   const state=(await f.journal()).saved.stage;
   assert.equal((await f.reconcile()).task.status,state==='not_sent'?'completed':'uncertain');
 });
+
+for (const reason of ['EMAIL_ATTACHMENT_CONTROL_UNAVAILABLE','EMAIL_DRAFT_FIELDS_UNVERIFIED']) {
+  test(`new typed preparation reason requires durable proof, never a legacy terminal error: ${reason}`,async t=>{
+    const f=await fixture(t,{binding:outlook16Binding,reason});
+    const evidence={task_id:f.taskID,intent_digest:intentDigest(f.request),resource_digest:digest(f.resource),binding_digest:f.resource.binding_digest,ledger_epoch:1};
+    assert.equal(createNotSentReceipt(validateManagedSend(f.request.arguments,'outlook'),{executionEvidence:evidence},reason,'legacy_15_pre_dispatch_failure'),null);
+    assert.equal((await f.journal()).saved,null);
+    await f.restart();assert.equal((await f.reconcile()).task.status,'uncertain');
+    assert.equal((await f.journal()).saved,null);assert.equal(f.ledger.get(f.taskID).effect,1);
+    assert.deepEqual(f.effects(),{sendEffects:1,hostAcquires:0});
+  });
+}

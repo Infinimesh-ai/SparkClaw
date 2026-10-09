@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "0.3.0-sparkclaw.17",
-  "runtime_digest": "8b070a693d197b5bd94af7631737b94a5ed8172dee0b6b484418f7f4645c657a",
+  "runtime_digest": "12e9b6501c6f5b48e03ad3759397f3e9270d301fa714ada3ca489ea800469ab3",
   "source_repository": "https://github.com/ZZZZJJJ0928/App-CLI",
   "source_commit": "9da7cfde4c2f24904f87e2992e9dcf69e20f89d7",
   "python_source_digest": "77f71342fb82d2c71bc5bd76aff362ac27a36d7cda939ca3b54674fd54fa46af",
@@ -15,17 +15,17 @@
     },
     "runtime": {
       "file": "infinimesh-app-cli-runtime-0.3.0-sparkclaw.17.tgz",
-      "sha256": "6bfd7bfac884530fdaa2274ab1d0703b80731f9a3fd07541aceb800bf30374e9"
+      "sha256": "98f6dc38a053e3a85730b34aef4cae9cce1b11b858cdd2deb675921668448aea"
     },
     "wheel": {
       "file": "infinimesh_app_cli-0.3.0+sparkclaw.17-py3-none-any.whl",
-      "sha256": "846684533fadea97e5236c7d0182a810a44d8d2609ef3be2b7d86048dc6e04b8"
+      "sha256": "35e5a1ad3e75b3a31bc6493985f51845b43fb869b7d160e7b61770f5d066515f"
     }
   },
   "local_patch": {
     "base_id": "0.3.0-sparkclaw.16",
     "base_runtime_digest": "203b86cadf22414dd331a24042110e00f19976204180b79fae56311674ae794e",
     "patch_file": "native-mail-cards.patch",
-    "patch_sha256": "0e3cd5ba0d5f6b9f94431377ad59fc1724da93ba3cebfde05a74cfd8a5eb2748"
+    "patch_sha256": "5d0ec9875ee5622db5343a4180999749f33cb72e0e04aa54cfbe2cbd9ca0b701"
   }
 }

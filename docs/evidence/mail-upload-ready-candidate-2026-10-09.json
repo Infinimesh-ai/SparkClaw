@@ -2,7 +2,7 @@
   "date": "2026-10-09",
   "status": "candidate_only_live_provider_send_delivery_pending",
   "runtime_release": "0.3.0-sparkclaw.17",
-  "runtime_digest": "8b070a693d197b5bd94af7631737b94a5ed8172dee0b6b484418f7f4645c657a",
+  "runtime_digest": "12e9b6501c6f5b48e03ad3759397f3e9270d301fa714ada3ca489ea800469ab3",
   "artifacts": {
     "python_dependencies": {
       "file": "python-requirements.txt",
@@ -10,18 +10,18 @@
     },
     "runtime": {
       "file": "infinimesh-app-cli-runtime-0.3.0-sparkclaw.17.tgz",
-      "sha256": "6bfd7bfac884530fdaa2274ab1d0703b80731f9a3fd07541aceb800bf30374e9"
+      "sha256": "98f6dc38a053e3a85730b34aef4cae9cce1b11b858cdd2deb675921668448aea"
     },
     "wheel": {
       "file": "infinimesh_app_cli-0.3.0+sparkclaw.17-py3-none-any.whl",
-      "sha256": "846684533fadea97e5236c7d0182a810a44d8d2609ef3be2b7d86048dc6e04b8"
+      "sha256": "35e5a1ad3e75b3a31bc6493985f51845b43fb869b7d160e7b61770f5d066515f"
     }
   },
   "local_patch": {
     "base_id": "0.3.0-sparkclaw.16",
     "base_runtime_digest": "203b86cadf22414dd331a24042110e00f19976204180b79fae56311674ae794e",
     "patch_file": "native-mail-cards.patch",
-    "patch_sha256": "0e3cd5ba0d5f6b9f94431377ad59fc1724da93ba3cebfde05a74cfd8a5eb2748"
+    "patch_sha256": "5d0ec9875ee5622db5343a4180999749f33cb72e0e04aa54cfbe2cbd9ca0b701"
   },
   "live_input_evidence": {
     "redacted_structural_evidence_sha256": {
@@ -54,19 +54,19 @@
     "outlook_menu": "Bounded five-second menu rendering wait, preserving uniqueness and native event binding. Delayed rendering is covered by fixtures, not established as the old live timeout root cause.",
     "wrapper": "Real pinned MCP Tab retains native chooser modal after application byte upload. Matching Controller hook clears only one same-call native chooser object and its exact input after production ACK; no prior or other modal allowed.",
     "ack": "Production upload writes Node page acknowledgement only after exact returned manifest match and repeated root/body/send/input identity validation.",
-    "future_recovery": "BROWSER_EXTENSION_UNAVAILABLE is accepted only in a durable bound live pre-dispatch negative proof; no legacy16 terminal-error unlock.",
+    "future_recovery": "BROWSER_EXTENSION_UNAVAILABLE, EMAIL_ATTACHMENT_CONTROL_UNAVAILABLE and EMAIL_DRAFT_FIELDS_UNVERIFIED are accepted only in a durable bound live pre-dispatch negative proof; legacy15 stays pinned to the exact QQ15 binding and EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED, with no legacy16 terminal-error unlock.",
     "diagnostic": "Existing APP_CLI_MAIL_SEND_EVIDENCE adds only bounded fixed stage/action booleans; no body/account/full HTML/attachment filename."
   },
   "validation": {
     "final_installed_artifact_focused_tests": {
-      "passed": 80,
+      "passed": 84,
       "failed": 0,
       "skipped": 0
     },
     "linux_controller_full": {
-      "passed": 208,
+      "passed": 210,
       "failed": 0,
-      "browser_gated_skipped": 46
+      "browser_gated_skipped": 48
     },
     "real_wrapper_production_upload": {
       "headless_local_synthetic_page": true,
@@ -90,6 +90,26 @@
       "whole_set_rollback": true,
       "durable_state_preserved": true,
       "epoch_monotonic": true
+    },
+    "production_menu_failure_recovery": {
+      "codes": [
+        "EMAIL_ATTACHMENT_CONTROL_UNAVAILABLE",
+        "EMAIL_DRAFT_FIELDS_UNVERIFIED"
+      ],
+      "actual_chromium_attachment_dom_and_upload": true,
+      "controlled_compose_field_adapter": true,
+      "production_managed_send_catch": true,
+      "signed_admission_executor_ledger_journal": true,
+      "effect_preserved": 1,
+      "upload_count": 0,
+      "send_clicks": 0,
+      "explicit_reconcile_completed": true,
+      "reconcile_browser_acquires": 0,
+      "legacy_error_without_proof_remains_unknown": true
+    },
+    "go_typed_proof_increment": {
+      "commit": "35f156a8",
+      "emailautomation_emailmanagement_focused_race_passed_by_domain_agent": true
     }
   },
   "compatibility": {

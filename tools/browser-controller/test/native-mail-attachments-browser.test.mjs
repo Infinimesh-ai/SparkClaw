@@ -30,6 +30,7 @@ async function fixture(t,mode='normal') {
     window.__sparkclawManagedMail={provider:'outlook',ownershipChecked:true,root,body,send:document.getElementById('send')};
     window.uploads=[];window.sendClicks=0;window.__sparkclawManagedMail.send.onclick=()=>window.sendClicks++;
     button.onclick=()=>{
+      if(mode==='lost-ownership-menu')window.__sparkclawManagedMail.ownershipChecked=false;
       const mount=()=>{
       button.setAttribute('aria-expanded','true');
       const menu=document.createElement('div');menu.setAttribute('role','menu');
@@ -116,3 +117,13 @@ test('pre-dispatch diagnostic contains bounded structural facts, no subject/body
   await f.page.evaluate(()=>{window.__sparkclawManagedMail.sendAttempted=true;});
   assert.deepEqual(await f.page.evaluate('('+attachmentDOM.toString()+')("outlook","diagnostic",[])'),{error:'email_draft_fields_unverified'});
 });
+
+
+for(const [mode,reason] of [['ambiguous-menu','EMAIL_ATTACHMENT_CONTROL_UNAVAILABLE'],['lost-ownership-menu','EMAIL_DRAFT_FIELDS_UNVERIFIED']]) {
+  test(`production menu rejection persists a bound receipt and explicitly reconciles: ${reason}`,{skip:!enabled},async t=>{
+    const f=await fixture(t,mode);
+    const {assertTypedMenuRecovery}=await import('./fixtures/mail-typed-menu-recovery.mjs');
+    await assertTypedMenuRecovery(t,{runtime,tab:f.tab,root:f.root,manifest:f.manifest,reason});
+    assert.deepEqual(await f.page.evaluate(()=>uploads),[]);assert.equal(await f.page.evaluate(()=>sendClicks),0);
+  });
+}

@@ -27,7 +27,7 @@ func (s *Server) workbenchExecutionAuthorization(session iscpworkbench.SessionIn
 		if !slices.Contains(session.Scopes, "tool."+definition.Name) {
 			continue
 		}
-		if definition.RequiresApproval && !slices.Contains(session.QualifiedOperations, iscpworkbench.OperationApprovalsDecide) {
+		if definition.RequiresApproval && (!slices.Contains(session.Scopes, "approvals.decide") || !slices.Contains(session.QualifiedOperations, iscpworkbench.OperationApprovalsDecide)) {
 			continue
 		}
 		a.AllowedTools = append(a.AllowedTools, definition.Name)

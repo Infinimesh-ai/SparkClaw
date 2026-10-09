@@ -62,7 +62,8 @@
 | [JingSi Runtime v1 提供方](jingsi-runtime-v1.md) | 专用认证 submit/lookup/status/cancel/events 接口、持久化 request-key 对账、scope 投影、恢复和运维配置 |
 | [JingSi 局域网 Web 客户端互联](jingsi-lan-connection-design.md) | SparkClaw 侧已实现：专用 allowlisted LAN port 上一个服务端绑定 WebChat session、文本发送和过滤后的实时/补拉消息投影；JingSi client 改造与实体验证仍待完成 |
 | [ISCP Bridge](iscp-bridge.md) | 当前共享 Bridge；LocalMind 使用属于旧链路，JingSi 使用保留到 direct-LAN client 与实体验证完成 |
-| [SparkX 与 SparkClaw 本地 ISCP 联调](desktop-iscp-connection-design.md) | 已实现纯文本 transport、本地签发器、隔离 runner 与恢复；隔离验证通过，真实托管 Relay 验收待设备凭据 |
+| [SparkX 与 SparkClaw 本地 ISCP 联调](desktop-iscp-connection-design.md) | 已实现纯文本 transport 和自动续签；本地 Docker Relay、已安装 SparkX 与真实后端验收，以及明确范围的恢复证据 |
+| [ISCP 能力扩展设计](desktop-iscp-capability-expansion-design.md) | 待实施：基础接口、文件／产物分块、审批／事件、邮件／浏览器／工具、语音；各项经权限、实际结果、恢复和零 HTTP 回退验收后开放界面 |
 | [统一第三方 ISCP MCP 接入](unified-third-party-access-design.md) | 已实现本地 Route MCP runtime 与分离的 ISCP pairing、SparkClaw MCP access ticket；生产 provisioning、外部 gateway 验证和 LocalMind 旧链路删除仍待完成；不含 JingSi |
 | [通用外部 MCP 安全防护](generic-mcp-safeguards-design.md) | 通用 catalog 过滤/分类，以及与固定 LocalMind task adapter 共享的有界脱敏结果和 approval 持久化防护 |
 | [按 Owner 的 Connector 启用](connector-owner-runtime-design.md) | Issue #13 已接受设计：owner 隔离 setting、共享 channel worker、缓存一致性、排空语义与重启协调 |

@@ -5,6 +5,12 @@
 > Date: 2026-10-08. Status: baseline implementation pushed, local Docker reference Relay and installed real-backend text acceptance passed. Automatic grant renewal is implemented; isolated tests, live recovery after the seed Grant expired, installed native-window delivery/reopen and headless original-request reconnect have passed.
 > Scope: implement local SparkX/Gateway integration, without InfiniCenter.
 
+The next dependency-ordered expansion is specified in the [ISCP capability expansion design](desktop-iscp-capability-expansion-design.md): basic APIs → chunked files/artifacts → approvals/events → mail/browser/tools → voice. Those capabilities remain planned and require permission, real-business, recovery and no-HTTP-fallback acceptance before UI enablement.
+
+The 2026-10-09 expansion review sets standing authorization to permanent until manual deletion, permits local Relay changes preserving online Relay compatibility, and terminates approval-waiting tasks on Gateway restart. The twenty-four-hour authorization and unchanged upstream Relay documented below remain historical/implemented baseline facts; these new decisions have not been deployed by the documentation update.
+
+The [expansion implementation record](desktop-iscp-capability-expansion-design.md#91-initial-implementation-record-2026-10-09) covers the first permanent-authorization/revocation foundation, text recovery fixes and approval restart termination. The twenty-four-hour records below still describe the prior deployment; this implementation did not upgrade running services.
+
 ## 1. Current objective
 
 Connect real SparkX to a real SparkClaw Gateway through an independent local Docker instance of the upstream ISCP reference Relay: verify identity, register the installation, submit one text execution, persist its result in SparkX SQLite, acknowledge it, and verify recovery. The user changed the integration target to this local Relay. Hosted Relay endpoints, accounts, enrollment, and credentials are outside this lab.

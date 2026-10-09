@@ -5,7 +5,13 @@
 > 日期：2026-10-08。状态：基线实现已推送，本地 Docker reference Relay 与已安装 SparkX 的真实后端文本验收通过。自动 Grant 续签已实现；隔离验证、seed Grant 到期后的真实自动恢复、已安装原生窗口交付／重开及 headless 原 request 重连均通过。
 > 范围：实现 SparkX／Gateway 本地联调，不使用 InfiniCenter。
 
+后续按依赖顺序推进的方案见 [ISCP 能力扩展设计](desktop-iscp-capability-expansion-design.md)：基础接口 → 文件／产物分块 → 审批／事件 → 邮件／浏览器／工具 → 语音。新增能力均待实施，权限、真实业务、断线恢复和无 HTTP 回退验收通过后才开放对应界面。
+
+2026-10-09 扩展评审确定：后续长期授权永久有效直至手动删除，允许保持在线 Relay 兼容的本地 Relay 调整，Gateway 重启后终结等待审批的任务。下文的二十四小时授权与未经修改的上游 Relay 仍是历史／已实现基线事实；本次文档更新不代表这些新决定已部署。
+
 初始隔离实验使用独立 Gateway 与 mock 模型；第 10 节将同一本地 Relay 接入用户既有远端 Gateway、真实模型和已安装 SparkX，保留该部署的公网 TLS ingress。
+
+首批代码实现和验证范围见[扩展设计 9.1 节](desktop-iscp-capability-expansion-design.md#91-首批实施记录2026-10-09)：新增永久授权及撤销底座、文本恢复修复、审批重启终结。以下二十四小时授权记录仍描述原部署；本次未升级运行服务。
 
 ## 1. 当前目标
 

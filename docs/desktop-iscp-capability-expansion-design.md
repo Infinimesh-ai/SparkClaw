@@ -1,0 +1,307 @@
+# SparkX–SparkClaw ISCP capability expansion design
+
+> Language: English | [简体中文](../zh-cn/docs/desktop-iscp-capability-expansion-design.md)
+>
+> Date: 2026-10-09. Status: initial implementation slice verified in isolation; P1–P5 are not released. See section 9.1 for the implemented subset.
+> Scope: SparkX connects to SparkClaw through the local Docker ISCP Relay. Local Relay changes are permitted but must preserve protocol compatibility with the online Relay; this work does not switch the deployment online.
+
+## 1. Objective, baseline and implementation order
+
+The existing text transport and renewal evidence are in the [local ISCP integration design](desktop-iscp-connection-design.md). The current application profile, `sparkclaw.workbench.transport.v1`, contains nine operations: identity, installation bind, three presentation reads, and execution submit/lookup/cancel/ack. Files, settings, notifications, approvals, mail, browser and voice do not become available merely because ISCP is connected. The previously audited text concurrency, authorization-expiry recovery and oversized-result issues are addressed by the first implementation slice recorded in section 9.1.
+
+Keep the same Gateway domain services, execution service, ToolHub and Policy. ISCP adds transport and explicit business adapters. Desktop non-mail history, drafts, files and schedules remain desktop-local; mail remains backend-authoritative. Do not replicate WebChat history into the desktop or create another runtime.
+
+Review decisions, 2026-10-09: standing connection/device authorization is permanent until the user manually deletes it; local Relay changes must not create a protocol fork incompatible with the online Relay; Gateway restart terminates tasks awaiting approval, without restoring their wait or automatically continuing execution. These guide the implementation. Existing evidence for twenty-four-hour authorization and the original reference Relay describes the implemented baseline, not a rollout of these decisions.
+
+| Order | Deliverable | Prerequisites | UI eligible for release |
+|---|---|---|---|
+| P1 | Capability negotiation, standing authorization/deletion, configuration, settings and basic notifications | Existing identity, binding, renewal and text transport | Qualified authorization management, settings, notification list and read actions |
+| P2 | Files, images, attachments, generated artifacts and large-message chunking; Relay capacity/compatibility qualification | P1 capability, permission and request recovery contracts | Separately qualified uploads, attachments, previews and downloads |
+| P3 | Approvals, execution progress and reliable event synchronization | P1 resource revisions; P2 large snapshots/artifacts | Approval cards, progress and live state |
+| P4 | Mail, browser and other tools | P1–P3 and each tool's declared dependencies | Per-provider, per-browser-host and per-tool surfaces |
+| P5 | Recorded transcription, realtime ASR and separately qualified realtime audio | P1–P4 plus measured ISCP streaming support | Recorded transcription, then live transcription, then playback/duplex audio |
+
+Implement and release in order: `P1 → P2 → P3 → P4 → P5`. A predecessor's common foundation must pass before enabling its dependent phase; subcapabilities also qualify independently. An unavailable provider, mocks alone, unit tests alone or only rejection evidence cannot qualify a UI capability.
+
+## 2. Shared contracts for all five phases
+
+### 2.1 Application profile, operation registry and capability gates
+
+Operation names here are a **draft SparkClaw application protocol**, not upstream ISCP standards. P1 freezes the message schemas, error codes and negotiation test vectors for `sparkclaw.workbench.transport.v2`. Current v1 validates an exact operation list; do not insert new fields or operations into its manifest. Old versions retain text mode; new versions explicitly negotiate a mutually supported profile and report incompatible versions.
+
+Use one typed v2 operation registry for direction, version, permissions, input/output schemas, limits, idempotency, recovery, dependencies and event categories. Derive Gateway dispatch, helper validation, client mappings and contract tests from it. Do not offer an arbitrary `method + URL + headers` tunnel or trust a caller's claimed Owner/admin identity.
+
+Obtain the capability manifest within the authenticated session. It includes profile/schema versions, deployment identity, capability revision, supported operations, authorization projection, effective limits, dependency readiness and expiry, bound to the current session and principal. Only Electron main/helper hold credentials; the renderer receives a redacted capability projection.
+
+```text
+UI enabled = client implementation ∩ server implementation ∩ current permission
+             ∩ all dependencies ready ∩ qualified release ∩ rollout enabled
+```
+
+Qualification is controlled release configuration; server-advertised `supported=true` cannot substitute for it. Missing/expired manifests, changed scopes or failed dependencies disable affected actions with an explanation. Gate settings, uploads, downloads, mail reads, mail sends, browser reads, browser writes and realtime voice separately. Never remove every `iscp` guard or disable `TextOnly` wholesale.
+
+### 2.2 Permissions and authorization renewal
+
+For every request, the server checks Grant/peer, deployment, Owner, Client, installation, operation and target resource. Execution, mailbox and browser-host operations also verify ownership and the current authorization revision. The existing `sparkclaw.workbench.v1` permission is transport admission, not authority over settings, all files or all tools. New permissions require explicit authorization; auto-renew preserves the granted scope without expanding it.
+
+Standing connection/device authorization has no absolute deadline and remains durable until the user manually deletes it. Short-lived Grants, Relay access/refresh credentials and capability manifests retain protocol-required finite validity and automatic renewal; credential expiry does not expire user consent or require daily approval. Task deadlines, individual approval expiry and browser task leases remain resource/action boundaries. Use explicitly versioned authorization records and renewal capability descriptions, not a distant date pretending to mean permanent or removal of upstream Grant expiry fields. Specify migration of existing authorization and revocation records; permanent authorization is effective only after both peers and the issuer pass migration acceptance.
+
+Manual deletion takes effect when the authoritative server authorization record commits revocation, advancing its revision and retaining minimal deduplication/revocation records. Gateway blocks new requests, subsequent tool effects, approval execution, subscriptions and object delivery, and cancels cancellable work; the issuer also stops renewing the old authorization. Merely stopping renewal while existing Grants remain usable for their remaining TTL is insufficient. Reconcile a lost deletion response by the original operation; offline deletion remains pending until the server confirms it. Old Grants, cached manifests, delayed renewal responses and restarts cannot restore deleted authority. Reauthorization requires an explicit user action and a new authorization revision. Retain evidence to reconcile existing external effects rather than claiming they were rolled back.
+
+Receipt reconciliation after deleting one's own authorization cannot require that authorization to remain valid. P1 defines a restricted control-plane entry that verifies the original device identity, deletion operation ID and digest and returns only that operation's revocation status. It cannot return business data, issue Grants or restore authority.
+
+Subscriptions, chunks, resume and downloads remain permissioned: check on creation, recovery and before delivery/mutation; long sessions use revocation fences to block subsequent messages. Changing Owner, Client or deployment invalidates old cached actions, cursors, approvals and transfers. Separate Owner settings from deployment administration; keep administrative operations closed when the principal model does not provide that authority.
+
+Transient authorization-control failures enter bounded backoff; valid Grants remain usable within unrevoked authority. If a Grant expires before a valid replacement is available, pause access/new effects governed by it and report temporary renewal unavailability without deleting standing authorization. After service recovery, renew automatically, revalidate and reconcile the original task without replaying unknown effects. Manual deletion closes affected capabilities without automatic restoration. Track renewal, Relay access/refresh and business retries independently rather than treating one as proof of another.
+
+P1 freezes the authoritative authorization records, per-operation permissions and revision ownership. Gateway derives an execution allowlist from current authorization and qualified capabilities and passes it into shared runtime/Policy. Tool discovery, invocation, scheduled execution and approval continuation use the same restrictions and recheck revocation before effects. Client-declared capabilities or hidden buttons cannot replace this check; do not simply remove the `TextOnly` gate.
+
+### 2.3 Idempotency, durability and recovery
+
+Generate a stable `operation_id` before every mutation, with resource revision and original-input digest. The same ID/input returns the same durable result; the same ID with different input conflicts. Retain receipts for at least the advertised retry/recovery window; expiry returns an explicit terminal outcome, never a fresh replay. Transport message IDs are distinct from business operation IDs; reconnect preserves the latter.
+
+| Confirmation layer | Meaning | What it does not prove |
+|---|---|---|
+| ISCP receive acknowledgment | An encrypted message was received | The business transaction committed |
+| Chunk durable receipt | A verified chunk was persisted | The whole object is ready or the task completed |
+| Event applied cursor | The event and its local projection committed | The user read it or decided an approval |
+| Execution delivery ACK | The final result and required files are durable on the desktop | An external mail/browser write succeeded; that requires its own business receipt |
+
+Commit business state and idempotency receipts atomically. File operations spanning storage systems use staging, a journal and recovery reconciliation. P3 adds a durable outbox. Commit desktop SQLite projections and cursors together; verify and atomically move files before acknowledging delivery. Extend memory, file and PostgreSQL implementations for every new repository contract; memory provides process-local semantics only, so restart acceptance requires a persistent backend.
+
+Typed errors distinguish permission denial/deleted authorization, Grant expiry/temporary renewal unavailability, revision conflict, unavailable capabilities, throttling, resource limits, expired objects, cursor gaps and unknown business outcomes. Only explicitly retryable failures enter bounded backoff; unknown external writes require reconciliation. Reserve capacity for cancellation, renewal and control. Files, polling and recovery share bounded scheduling rather than each independently consuming the current four RPC slots.
+
+### 2.4 Definition and proof of no hidden HTTP fallback
+
+The prohibited path is **SparkX bypassing ISCP for Gateway business traffic**. In ISCP mode, configuration, execution, files, mail, browser control, events and voice cannot connect directly to Gateway HTTP/HTTPS/WS/SSE or use presigned/object-storage URLs to bypass chunking. Include main, renderer, helper, previews, downloaders and child windows; unknown operations fail closed.
+
+Relay HTTP/WebSocket carriage, restricted enrollment/issuer renewal control calls, and authorized backend model/mail/ASR requests or browser visits to user-selected sites are separate legitimate network purposes. Classify tests by process, destination, route and purpose. Do not classify all TCP/HTTP as fallback, or let a broad domain allowlist hide business traffic. Same-origin control-plane exceptions must identify exact routes.
+
+Run two topologies in every phase: normal ISCP, and desktop-side blocking of all Gateway business/download addresses while preserving Relay, necessary control traffic and controlled tool access. Both must produce the same business result. Then interrupt Relay and verify no HTTP rescue attempts. Collect outbound attempts across processes plus ingress observations: `direct_gateway_business_attempts=0`, including blocked attempts. An injected HTTP-adapter counter is useful evidence but does not replace native-app network-boundary observations.
+
+Manually selecting HTTPS is a separate visible connection mode with renewed identity/data-ownership checks; failure does not automatically switch modes. Every new operation uses the ISCP transport. Reusing a Gateway handler/domain service in process does not mean issuing a hidden HTTP request.
+
+### 2.5 Local Relay changes and online compatibility
+
+Local Docker Relay changes may cover polling/continuous delivery, throttling, queues, backpressure, fair scheduling and persistence. Preserve the online Relay's ISCP enrollment, PoP, encrypted envelopes, routing and credential semantics. The online Relay must not need to interpret SparkClaw business operations, and clients must not require private local routes or fields. Enable optimizations only through compatible capability negotiation; otherwise retain standard ISCP carriage and its effective limits. Keep any capability that cannot meet acceptance disabled, without falling back to Gateway HTTP.
+
+Before P2, record client/helper/SDK/local Relay versions, modifications and a verifiable online Relay version/protocol contract. Use the same client and application profile against the modified local Relay and an online-compatible baseline in phase order: P1 covers enrollment, handshake, renewal-related access, reconnect and error semantics; P2 adds chunks, P3 events and P5 audio. Earlier phases must not depend on unimplemented later operations. A matching implementation and contract vectors may provide isolated online-compatibility evidence; only actual online tests qualify an online deployment. Do not claim compatibility without verifiable evidence. Keep the local integration deployment; implementation changes affecting other projects or shared upstream contracts still follow repository coordination rules.
+
+## 3. P1: Configuration, settings and basic notifications
+
+### 3.1 Scope and operations
+
+Inventory every actual settings component's reads, mutations and status dependencies. Record UI item → operation → permission → evidence of effective behavior; keep unmapped items individually disabled.
+
+| Draft operation family | Business behavior | Permission/result contract |
+|---|---|---|
+| `capabilities.get`, existing `presentation.*` | Configuration, Owner, service readiness and capabilities | Current-principal projection without secret values |
+| `settings.get/update`, `owner.update` | Language, Owner preferences, supported runtime parameters and connector settings | Resource-specific authority; `expected_revision` writes return stored/effective revisions |
+| `credentials.status/set/delete` | Credential status, replacement and removal | Secrets are write-only; deployment credentials require explicit administrative permission |
+| `authorizations.list/delete` | Inspect standing authorizations and manually delete them | Within the current principal's authority; deletion carries authorization revision/idempotency ID and returns authoritative revocation, not merely local credential removal |
+| `notifications.list/read/read_all` | Paged notifications, read markers and unread count | Owner isolation; `read_all` uses the submission watermark and cannot consume later notifications |
+
+Local themes, drafts and desktop settings still use local storage. Connection-affecting settings first persist recoverable state and then rebuild the connection without losing original execution tracking.
+
+P1 notifications use bounded pagination and low-frequency polling, with explicit resource revisions/snapshot tokens. They do not depend on event streaming. P3 later wakes the same reader through events. Receiving a notification, obtaining OS permission to display it and marking it read are separate states. Approval-notification actions stay disabled until P3.
+
+After a settings mutation, verify the actual runtime uses the new value. If restart is necessary, return `restart_required` and the pending effective revision rather than claiming immediate application. Verify credential usability with a controlled real-service request; log only credential identifiers and outcomes. Updating tool policy does not enable an unqualified tool.
+
+### 3.2 Acceptance before enabling UI
+
+- **Permissions:** cover Owner/admin separation, cross-Owner reads, forged Clients, secret readback and post-revocation writes. Legitimate principals must successfully perform the corresponding settings operation.
+- **Standing authorization:** retain consent across the previous twenty-four-hour boundary, multiple Grant cycles and peer/issuer restarts; label shortened-cycle and controlled-clock evidence separately. Old Grants, delayed renewal responses, caches and restarts cannot restore deleted access. Reconcile concurrent/lost deletion responses, offline pending deletion and explicit reauthorization; migration cannot resurrect revoked records.
+- **Business:** saved settings, post-restart reads and runtime behavior agree. Display at least one notification generated by real business activity; mark it read and reconcile the backend unread count. An old `read_all` must not consume newer notifications.
+- **Recovery:** lose responses before/after commit, repeat operations, conflict revisions and restart client/Gateway. There is one final mutation; interrupted notification pagination neither loses entries nor duplicates read effects.
+- **Transport:** settings and notifications still work with direct Gateway access blocked. Relay loss reports unavailability. Enable individual settings/notification UI only after zero bypass attempts.
+
+## 4. P2: Files, images, attachments, artifacts and chunking
+
+### 4.1 Shared object and chunk protocol
+
+Add `transfer.open/status/chunk/commit/abort` and `object.describe/read/release`. Large contexts, final execution JSON, ordinary files, images, mail attachments and later event snapshots share a bounded object transport. Small control messages remain RPC; large bodies reference committed objects. Declare object purpose explicitly; never expose arbitrary server paths.
+
+| Record | Minimum fields and invariants |
+|---|---|
+| Object manifest | `object_id`, resource ownership, purpose, name, media type, total bytes, full SHA-256, version and retention deadline |
+| Transfer | Stable `transfer_id`, direction, object version, authorization binding, chunk size, credit window and expiry; independent of session ID |
+| Chunk | `transfer_id`, index, offset, length, SHA-256 and bytes; no overlapping/out-of-range regions or conflicting bytes at one position |
+| Checkpoint | Durably acknowledged ranges/chunks, acknowledged bytes and state; bounded pagination, never an unlimited bitmap |
+| Commit receipt | Full-object hash, size, version and persistence result; repeated commits return the same result |
+
+Receiver-issued credit bounds in-flight data; senders cannot exceed it. Replenish credit only after verification and persistence. Bound object size, per-Owner/global disk usage, concurrent transfers and idle lifetime. After reconnect, reauthorize and query the checkpoint, sending only missing chunks. Repair failed chunks; a mismatched whole-object hash cannot commit. Cancellation/expiry cleans temporary files, quotas and references; recovery journals reclaim crash orphans.
+
+Candidate defaults are 8 KiB raw chunks and two in-flight chunks per transfer. These are proposed transport defaults, not business limits. Before release, calculate the fully encoded size through SDK encryption, JSON/base64, helper IPC and actual Relay envelopes, test the boundary and reduce chunks if necessary. The existing 64 KiB plaintext cap is not a Relay net-payload guarantee. Never put a whole base64 file into one RPC.
+
+Qualify Relay capacity in P2. The current reference's shared 120 requests/IP/minute allowance and roughly one-second polling consume both file and control budgets; small-file success cannot freeze chunk parameters. On target networks, measure throughput and completion time for each purpose's maximum permitted file, plus concurrent chat, cancellation, renewal and notification latency. Freeze pass thresholds beforehand and record throttling/retry overhead. Adjust the local Relay under section 2.5 or negotiate lower effective limits; do not defer carriage improvements until P5.
+
+Preserve [workbench-limits.json](../configs/workbench-limits.json) and domain-service budgets: generic `fileBytes` is currently 64 MiB, but each execution input file and the total execution result are bounded by the 8 MiB `ResultBytes` contract, with at most 32 result files. The generic file cap is not the execution attachment cap. Context is currently bounded at 1 MiB. Advertise the effective minimum per purpose; chunking does not increase these budgets. Oversize results must produce a visible terminal outcome rather than endless lookup.
+
+### 4.2 Business and UI integration
+
+Finish verifying/committing uploads before submitting an execution that references their versions and digests. Preserve the original request ID. Transfer original serialized large inputs and validate their byte digest; re-encoding JSON must not change request identity. In v2, execution lookup returns state plus a result manifest. Download large results/files in chunks and send the original execution ACK only after every required result is durable in SQLite/files.
+
+Persist distinct desktop states for uploading, objects committed/execution not submitted, unknown submission outcome and accepted execution. Upload recovery is not execution retry; do not consume the execution submission marker before upload. Perform permission/capacity admission before persisting the boundary at which sending becomes possible. When the journal proves no execution submission was attempted, resume uploads and continue the original user intent/request ID; scheduled tasks still obey the rule against catching up offline occurrences. After the possible-send boundary, only reconcile the original request: lookup 404 cannot prove no execution or authorize automatic resubmission. Inject crashes after object commit/before submit and around the sending boundary.
+
+Use staged files, full hashes, atomic rename and a local commit journal to handle cross-storage transactions. A crash after rename but before ACK reconciles the files and resends ACK, never reruns generation. Pin objects while execution delivery is outstanding; after the recovery window, apply an explicit result-expiry policy rather than silently deleting data still promised to be recoverable.
+
+Preview through a controlled local scheme/cache. Validate media type, image dimensions and decoder budgets; reject traversal, arbitrary HTML scripts and remote resource loads. A local download destination does not change remote-object permissions. File delivery, image preview, model image understanding and generation tools are separate capabilities; successful image transfer does not prove model image support.
+
+P2 qualifies actual execution artifact commit, persistence, download and ACK paths using reproducible generated examples through the same artifact-commit entry. It does not enable all generation tools. Approval-requiring file actions wait for P3; general document/image-generation tools and their real invocation surfaces wait for P4. Delivery of existing artifacts can qualify independently, avoiding a reverse dependency from the transfer foundation onto every tool.
+
+### 4.3 Acceptance before enabling UI
+
+- **Permissions:** reject cross-Owner/installation/execution references, unauthorized downloads, forged paths, expired transfers and post-revocation resume/commit. Legitimate uploads/downloads must succeed.
+- **Business:** byte/hash equality for empty and multichunk files, images, multiple attachments and persisted artifacts. Cover exact limits, oversize objects, corrupt chunks, forged media types and full disks. Compare execution manifests to actual local files, not filenames alone.
+- **Recovery:** missing, reordered and repeated chunks; lost commit responses; peer restarts; Grant renewal and replacement sessions transfer only missing data. Commit/generation/delivery occur once. Cancellation releases space/quota; result expiry is visible.
+- **Transport:** block Gateway file/artifact routes and remote-image URLs while uploading, rendering and downloading successfully. Enable file selection, image previews, attachments and artifact downloads independently after zero bypass evidence.
+- **Capacity and compatibility:** each purpose's maximum file meets the frozen completion-time and control-response thresholds; the same client passes the online-compatible baseline in section 2.5. Success only on the modified local Relay cannot enable a capability.
+
+## 5. P3: Approvals, execution progress and event synchronization
+
+### 5.1 Unified event model
+
+Add `events.subscribe/resume/ack/unsubscribe`, `state.snapshot` and `approvals.list/get/decide`. Preserve execution lookup/cancel/ack semantics. Events include `event_id`, authorization scope, stream generation, per-stream increasing sequence, resource ID/revision, type and bounded content/object references. Promise ordering within a scope, not an invented global order across Owners.
+
+Persist business state and outbox records atomically; deliver events at least once. Deduplicate on event ID/resource revision. Commit projections and applied cursors together before acknowledging. Slow consumers use credit, pagination and limits without blocking execution. Publish log retention and maximum supported offline duration as configuration; expired cursors return `cursor_gap`.
+
+Subscriptions must not permanently occupy ordinary RPC slots; use bounded logical event channels and a separate control budget. The reference Relay may continue carrying these reliable events through queue polling. Record actual notification latency rather than claiming audio-level responsiveness. Business state must still commit without a subscriber and remain recoverable through lookup/snapshots.
+
+Recovery reauthorizes and resumes from the last durable cursor. A gap obtains a snapshot with a consistent watermark, atomically replaces the corresponding remote projection, and consumes subsequent events. Avoid a read-then-subscribe race. Large snapshots use P2. Reset only relevant remote state, preserving local drafts/history. Replace P1 notification polling with event wakeups plus periodic reconciliation in the same state machine, not a second independent synchronizer.
+
+### 5.2 Approval and execution semantics
+
+Bind approval decisions to original execution, approval ID, action/argument digest, revision, expiry and actor. A visible button is not authorization: the server rechecks pending state, unchanged content and current permission, then atomically commits one decision. The same decision replays its existing result; conflicting decisions or stale revisions conflict. Expiry, revocation and execution cancellation cannot permit execution.
+
+Gateway restart terminates tasks awaiting approval, without restoring their wait/continuation or automatically resubmitting them. Persist a minimal waiting phase/approval identity/digest before displaying approval. Before accepting new decisions after restart, durably terminate leftover waiting tasks with a queryable restart reason and invalidate their old approvals. Desktop lookup/events update the card to explain termination by Gateway restart. Desktop-only disconnect/restart while Gateway remains running may revalidate and display the original valid wait.
+
+Resolve approval-decision versus restart/termination races by durable revision, rejecting stale buttons and delayed decisions. If a decision committed but its execution outcome is unknown, preserve the decision receipt and external-effect reconciliation records. Termination does not mean no earlier effects occurred and never authorizes rerunning from the beginning. Restart continuation is no longer a deliverable; do not persist full execution context to restore approval waits. A separately initiated user task needs a new request ID and approval; changed arguments still need a new digest. Effects continue through shared Policy/execution services.
+
+Progress may include stages, tool state, partial text and file preparation, but the last progress event is not completion. Durable execution results define terminal state; P2 persistence precedes delivery ACK. Cancellation/completion races converge by server revision; old events cannot revert a terminal state to running. Lookup must recover authoritative state when progress is lost.
+
+### 5.3 Acceptance before enabling UI
+
+- **Permissions:** reject cross-Owner subscriptions/decisions, cursors from previous principals, expired or modified approvals and continued subscriptions after revocation.
+- **Business:** a controlled real approval-requiring operation executes once after approval; rejection/expiry has no effect. Progress/final results agree with backend state; cancellation actually stops cancellable work.
+- **Recovery:** reconcile lost decision responses, Gateway restart while awaiting approval and races with decision commit. Restart termination remains queryable; old approvals cannot execute, and no continuation or replacement task starts automatically. Desktop-only restart does not terminate a valid wait. Reordered/duplicated/missing events, crashes around ACK, cursor gaps and new events during snapshots cannot repeat decisions or execution.
+- **Transport:** approvals, progress and replay work with Gateway SSE/WebSocket blocked. Enable approval actions and live-state UI only after zero bypass evidence.
+
+## 6. P4: Mail, browser and other tools
+
+### 6.1 Mail
+
+Use `mail.mailboxes/sync/message/attachment` and separately controlled `mail.send`. Reuse mail sync projections, cursors and binding generations. The backend remains authoritative; desktop caches belong to the current principal. Page lists, fetch bodies on demand, transfer originals/attachments through P2, and synchronize changes/deletions/binding revocation through P3. A synchronization gap cannot appear as an empty inbox.
+
+Preserve provider evidence, retries and deduplication from the [incremental mail design](email-timeline-incremental-sync-design.md) and [original-storage design](email-local-download-storage-design.md); changing transport does not rewrite collection. Rich previews still suppress remote images, trackers and scripts.
+
+Inventory network entry points in mail collectors, browser-extension background processes, host brokers and download callbacks, not just workbench fetch. Desktop-side collection results, attachments and receipts also reach Gateway through the same ISCP adapter. Register provider access and controlled local IPC separately by purpose.
+
+Authorize reading mail, writing local drafts and sending separately. Bind recipients, body and attachment manifests to send approval; any later change invalidates it. Persist provider-verifiable receipt identifiers. After losing a response to a submitted send, reconcile first. If non-delivery cannot be established, show an unknown outcome and never automatically resend. Qualify each provider's reads, attachments and sending independently rather than using one mail-support flag.
+
+### 6.2 Browser
+
+Use `browser.host.grant/revoke`, `browser.command/receipt/reconcile` and browser-state events. Gateway sends restricted reverse commands to the desktop host through the same authenticated ISCP session. This direction has its own schema and permission allowlist; the responder does not gain arbitrary computer control.
+
+Reuse the browser-host broker, Owner Controller, task-tab ownership and write fences. Bind grants to host, installation, conversation/task, permitted actions, tabs and expiry. Screenshots/downloads/exports use P2; progress, authorization and command state use P3. Gate browser reads, login authorization and external writes separately; revocation stops subsequent commands. Existing desktop URLs, cookies and sessions are not default authority for arbitrary tasks.
+
+Reconcile lost command results using the original command ID/fence, never replaying unknown sends/orders. Reloading a page alone is not write reconciliation. Disconnect releases control leases; reconnection cannot automatically control tabs without confirming ownership again. Authorized page traffic is tool activity, while desktop–Gateway control and screenshot uploads remain ISCP-only.
+
+### 6.3 Other tools
+
+Derive tool capability declarations from the existing typed ToolHub registry, including settings/credentials, objects, approvals, events and host dependencies. Adapters call the shared runtime/Policy; do not create another executor or expose arbitrary shell/URL/filesystem RPC. Text results, large artifacts and external effects retain their respective recovery rules.
+
+Qualify at least read-only, file/document, external-write and host-tool categories. Passing one tool never enables its entire category: a query tool does not qualify mail sending or document generation. Unconfigured providers and tools without verifiable business output remain disabled.
+
+### 6.4 Acceptance before enabling UI
+
+- **Permissions:** reject cross-mailbox access, stale bindings, unauthorized browser hosts/tabs, denied tools and approvals reused after content changes. Read-only principals cannot acquire writes through tool invocation.
+- **Business:** each advertised provider synchronizes a real mail and attachment; send to a controlled test mailbox and verify actual receipt. On the actual browser host, read a page, capture a screenshot and perform one approved reversible write with verified page state. Verify each tool's real files/data/provider receipts; blocked/mock outcomes do not count as positive evidence.
+- **Recovery:** reconcile interrupted mail pagination, attachment downloads, browser-command receipts and external-write responses across peer restarts/revocation using original business IDs. Surface unknown external results without repeating sends/actions.
+- **Transport:** preserve provider/controlled-site access while blocking Gateway business ingress. Mail, browser-host connections, screenshots and tool results have no direct HTTP/WS path. Enable per provider/host/tool.
+
+## 7. P5: Voice and realtime audio
+
+### 7.1 Recorded transcription before realtime streaming
+
+P5a adds `speech.status/transcribe/cancel`. User-started recording uploads through P2 into an authorized transcription task, follows P3 state and receives actual ASR text. Microphone authorization requires OS consent, the trusted workbench window and the current connection capability; background pages/ordinary browser tabs do not inherit it. Transcripts enter the draft without sending chat. Configure recording duration, format, size and deletion explicitly.
+
+P5b adds `audio.session.open/control/close`, sequenced/timestamped audio frames and `speech.partial/final` events. Negotiate codec, sample rate, channels, frame duration, window, buffer limits, idle timeout and deadline. Give control, audio and bulk files separate capacity budgets. Partial revisions replace earlier snapshots; final is authoritative for the same ASR session, not appended duplicate text.
+
+The pinned reference Relay currently drains its queue, closes, and is polled again roughly one second later. Neither P2 capacity improvements nor existing text acceptance automatically establishes continuous low latency, duplex streaming or fair scheduling. Before P5b, verify or implement continuous send/receive, backpressure and priorities in local Docker under section 2.5's online-compatibility rules, recording SDK/Relay versions and changes. If qualification fails, realtime UI stays disabled; no private Gateway WebSocket bypass. P5a can qualify independently of streaming.
+
+### 7.2 Audio interruption and recovery
+
+Files require reliable completion; realtime playback frames expire, so discard late frames. If an ASR input gap cannot be repaired, explicitly stop/degrade that recording rather than treating missing audio as a complete utterance. Disconnect immediately stops capture and releases the device. Do not automatically reopen the microphone; reconcile only the ended session's final. New recording requires a fresh user action; old session IDs/frames cannot enter a new session.
+
+Do not reuse the existing WebChat voice HTTP batch fallback in ISCP mode. Only when P5a is qualified, a complete recording is saved and the user understands the recovery behavior may the same recording receive one file transcription over ISCP. Label it recorded transcription, not realtime recovery. Incomplete recordings require a clear explanation, not a purported complete final. Transcription operations and draft insertion are idempotent; recovery never submits chat again.
+
+P5c gates TTS playback/duplex audio separately. Establish actual provider support, then verify first audio, playback, interruption and stale-frame cleanup. ASR acceptance does not establish voice conversation support. Business permission, OS audio permission and visible capture/playback state must agree. Audio content stays out of Relay logs; temporary recordings expire under the disclosed retention policy.
+
+### 7.3 Acceptance before enabling UI
+
+- **Permissions:** reject OS denial, untrusted windows, absent speech scope, capture during revocation and cross-session frame injection. The physical microphone indicator turns off after stop/disconnect.
+- **Business:** real microphone and real ASR emit partial text before stop and a same-session final afterward. Record accuracy, long-form, noise and language coverage against fixed corpora. Qualify complete-file transcription separately for P5a, and actual speaker playback/interruption for P5c; received packets do not prove audible output.
+- **Recovery:** cover loss around recording/finish/final, Grant renewal, jitter, slow consumers, network outages and system sleep. Never restart recording automatically, play stale frames, insert duplicate finals or send chat twice.
+- **Transport:** disable Gateway speech HTTP/WS and remote-audio URLs, verify the entire path and account for audio bytes in both directions. Gate recording, realtime ASR and playback/duplex independently after zero bypass evidence.
+
+Initial realtime targets, to freeze against target hardware before implementation: p95 first partial during recording ≤ 2 seconds; p95 finish-to-final ≤ 3 seconds; unacknowledged audio target ≤ 2 seconds with a hard 5-second cap; local capture/playback stops within 300 milliseconds of stop/cancel. Record corpus, devices, model, network and at least 30 normal samples. A breach fails or explicitly degrades; never grow buffers without bounds. Report recovery timing separately from normal latency. TTS/duplex additionally requires frozen end-to-end playback/interruption metrics.
+
+## 8. Code ownership and deliverables
+
+| Location | Planned work |
+|---|---|
+| `services/gateway/internal/iscpworkbench` | v2 operation registry, negotiation, typed errors, chunks/windows, stream multiplexing and session recovery, separated from business logic |
+| `services/gateway/internal/iscpbridge`, `internal/iscplocalissuer`, `cmd/iscp-workbench` | Reuse SDK identity; implement standing authorization, short-lived Grant renewal and revocation consistency after deletion; extend bounded helper IPC and redacted diagnostics |
+| `services/gateway/internal/gateway/workbench_iscp.go` | Explicit operation-to-domain adapters and per-request authorization; never a generic HTTP proxy |
+| `services/gateway/internal/execution` and domain repositories | Object references, business idempotency, minimal approval-wait records/restart termination, outbox/snapshots and external reconciliation; all three stores |
+| `docker/images/iscp-relay-local.Dockerfile`, `scripts/lib/iscp-docker-lab.mjs` and compatibility fixtures | Pin local Relay changes/versions, qualify throughput and online protocol compatibility, and distinguish isolated compatibility evidence from online deployment acceptance |
+| `apps/desktop/src/main/iscp-transport.mjs`, `desktop-auth.mjs` | Capability projections, scheduling, recovery state and strict transport selection |
+| `apps/desktop/src/main/client-store.mjs`, `execution-client.mjs` | Transfer checkpoints, file commit journals, event projections/cursors and original-request recovery |
+| `apps/desktop/src/main/mail-sync-*.mjs`, browser-host/permission modules | Reuse mail caches and host authorization; replace Gateway network paths and add audio permission checks |
+| `apps/webchat/src/desktop/LocalWorkbench.tsx` and shared components | Enable individual surfaces from one capability projection; show failure/recovery/unknown outcomes and remove superseded hardcoded guards |
+
+Each phase delivers operation/scope/error inventories, version/storage migration plans, both peer implementations, normal/fault replay cases and native UI acceptance. Migrations preserve local history and original-request tracking. Rollback first disables new capabilities; old code must not read incompatible state, and rollback must never switch the connection to HTTP.
+
+## 9. Shared acceptance record and release rules
+
+For each capability record client source/package hashes; helper/SDK/Relay/Gateway versions; profile; redacted principal/permissions; business operation/request IDs; expected/actual results; durable state/file hashes/provider receipts; injected fault point; recovered state; business execution counts; per-process bypass attempts; and UI gate outcome. Public evidence must exclude credentials and content bodies.
+
+| Gate | Required evidence | If missing or failed |
+|---|---|---|
+| G1 Permissions | Real successful authorized requests; standing consent does not expire automatically; reject absent valid Grants, deleted authorization and unauthorized recovery | Capability remains closed |
+| G2 Actual business | Native SparkX through local Docker Relay to real Gateway with verifiable durable/external results | Mocks/isolation remain prerequisite evidence only |
+| G3 Disconnect recovery | Convergence across commit/persistence boundaries, restarts, renewal and revocation, without duplicate effects | UI stays closed with diagnostic state |
+| G4 No HTTP fallback | Positive results with business addresses blocked; no bypass on Relay failure; zero attempts across processes | Entire capability fails qualification |
+
+Run contracts/fault injection, then isolated Docker Relay integration, then positive business acceptance in installed native SparkX. Always test the default file backend; cover every backend for new store contracts. Controlled test configuration may expose candidate capabilities, but user-facing release flags require all four gates and must not ship enabled merely because a test flag existed.
+
+All P1–P5 additions begin as `planned`. Record progression per capability: `implemented → isolated_verified → native_verified → enabled`; regressions immediately disable affected capabilities while preserving data. Reconcile suspended/revoked tasks through existing business state, never hidden retries or transport switching. If the deferred text defects recur in a release gate, they still fail that gate; this roadmap does not waive them.
+
+## 9.1 Initial implementation record, 2026-10-09
+
+This slice implements prerequisites and part of P1; it does not complete P1 or qualify new UI capabilities.
+
+| Area | Implemented and isolated evidence | Remaining release work |
+|---|---|---|
+| Standing authorization | Issuer state v2, explicit permanent policy, pinned helper profiles, signed proof-bound status, bounded Grants and revocation fence; controlled clock crosses two years, restarts and shortened-Grant migration tested | Product authorization management, deletion operation receipts/offline reconciliation, explicit reauthorization and installed peer migration |
+| Text recovery | Provably unsent admission retains the original draft; upload staging precedes submission; short Grant expiry retries; lookup 413 becomes durable `delivery_too_large` with a visible explanation | Native regression acceptance; no chunking or new file operation is enabled |
+| Approval shutdown | Minimal durable approval records, persist-before-continuation decisions, terminal `gateway_restarted_awaiting_approval`; previous approved effects stay `unknown` with receipts | P3 transport operations, events and approval UI remain closed |
+| Revocation | Fresh issuer status at dispatch/delivery, in-flight cancellation and same-lock Client admission fence, persisted original-request terminal state | General per-tool side-effect fencing, subscriptions and object delivery qualify with their later phases |
+
+Fresh labs use `-authorize-renewal -authorization-hours 0` and both helper profiles pin `authorization_lifetime: until_revoked`. Existing v1 bounded authorization remains readable and is never silently migrated on service startup. Explicit migration preserves the current signed Grant TTL, including a shortened final Grant, and refuses revoked records. Renewal receipts remain recoverable until seven days after their Grant expires; stale proofs cannot issue a second Grant after receipt cleanup. The issuer CLI `-revoke-renewal` keeps a durable tombstone and advances its revision once.
+
+The private issuer route `/v1/authorization-status` is bound to a fresh device proof, request digest and pinned issuer signature. It returns authorization state only, including after revocation; it is not the planned deletion-operation receipt API. Unsigned errors cannot permanently revoke consent. Renewal and status pacing are separate. New business dispatch/delivery pauses if a current status check fails; background standing-authorization checks run at most ten seconds apart, apart from request duration or status-endpoint backoff. This is a conservative local text implementation, not a claim of atomic revocation across all future tools.
+
+Execution control storage migrates v2 to v3. **Old binaries cannot read v3.** Do not roll back by discarding the ledger or restoring older request fences; use a compatible reader/migration. Issuer state v2 likewise requires the updated issuer. Neither storage change modifies the upstream Grant, Relay envelopes or exact v1 operation manifest. No local Relay source or SDK dependency changed in this slice.
+
+Validation: focused authorization/execution/Gateway race tests; 158 desktop tests; 220 WebChat tests and production build; six local-lab cases including real pinned Docker Relay, actual Gateway execution, helper reconnect and zero direct Gateway HTTP calls. The Docker model is explicitly mocked. Controlled-clock permanence and injected-network revocation tests are not a real two-year soak, native-app acceptance or online Relay acceptance. Isolated Linux full Go tests and Go build/vet passed; Linux validation covers the macOS baseline failures caused by missing `/dev/shm` and symbolic-link paths.
+
+P1 capability negotiation/registry, operation-specific permissions, settings and notifications are still pending. P2–P5 business adapters and native release gates remain pending. Existing installed SparkX and running deployments were not upgraded. InfiniCenter was unavailable at the configured ancestor anchors, so no cross-project contract or central status was modified.
+
+## 10. Related designs
+
+- [Local ISCP integration and renewal acceptance](desktop-iscp-connection-design.md): implemented baseline and actual evidence scope.
+- [Architecture](architecture.md), [workbench release](workbench-release.md): data ownership and durable delivery.
+- [Browser runtime](browser-runtime.md): Controller, host, tab and external-write constraints.
+- [Incremental mail synchronization](email-timeline-incremental-sync-design.md), [original storage](email-local-download-storage-design.md): reused mail semantics.
+- [WebChat voice Phase 2](webchat-voice-phase2-design.md): current ASR partial/final semantics; its HTTP fallback does not apply to ISCP mode.

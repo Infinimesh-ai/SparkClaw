@@ -705,13 +705,16 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 		defer func() { <-e.slots }()
 		callCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 		defer cancel()
-		if e.checkAuthorization(callCtx) != nil || verifyGrant(e.config, e.grantMaterial(), time.Now().UTC()) != nil {
+		policy, policyErr := e.AuthorizationPolicy(callCtx)
+		if policyErr != nil {
 			return
 		}
 		if negotiationRequest(request) && e.config.Role == RoleResponder {
 			_ = e.answerNegotiation(callCtx, id, request)
 			return
 		}
+		info.Scopes = slices.Clone(policy.Scopes)
+		info.CheckAuthorization = e.AuthorizationPolicy
 		callCtx = context.WithValue(callCtx, sessionInfoKey{}, info)
 		response := Response{Status: 501, Code: ErrorCapabilityUnavailable, Error: "operation handler unavailable"}
 		if e.handler != nil {

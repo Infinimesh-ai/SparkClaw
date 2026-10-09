@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
 	"slices"
 	"time"
 )
@@ -33,14 +34,35 @@ type SessionInfo struct {
 	GrantRevision               uint64
 	Binding                     *Binding
 	Scopes, QualifiedOperations []string
+	CheckAuthorization          func(context.Context) (iscpauth.Policy, error)
 }
 type sessionInfoKey struct{}
 
 func SessionFromContext(ctx context.Context) (SessionInfo, bool) {
 	s, ok := ctx.Value(sessionInfoKey{}).(SessionInfo)
+	s.Scopes = slices.Clone(s.Scopes)
+	s.QualifiedOperations = slices.Clone(s.QualifiedOperations)
+	if s.Binding != nil {
+		b := *s.Binding
+		s.Binding = &b
+	}
 	return s, ok
 }
-func (e *Endpoint) CheckAuthorization(ctx context.Context) error { return e.checkAuthorization(ctx) }
+func (e *Endpoint) CheckAuthorization(ctx context.Context) error {
+	_, err := e.AuthorizationPolicy(ctx)
+	return err
+}
+func (e *Endpoint) AuthorizationPolicy(ctx context.Context) (iscpauth.Policy, error) {
+	if err := verifyGrant(e.config, e.grantMaterial(), time.Now().UTC()); err != nil {
+		return iscpauth.Policy{}, err
+	}
+	if e.lifecycle == nil {
+		return iscpauth.Policy{Version: 1, Lifetime: iscpauth.Bounded, Revision: e.grantMaterial().grant.RevocationEpoch, State: iscpauth.Active}, nil
+	}
+	p, err := e.lifecycle.AuthorizationPolicy(ctx)
+	e.observeAuthorizationError(err)
+	return p, err
+}
 func (e *Endpoint) Negotiated() (TransportCapabilities, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -148,7 +170,7 @@ func (e *Endpoint) negotiate(ctx context.Context, id string) {
 		return
 	}
 	c := *reply.Negotiation
-	if err := validateNegotiation(c, id); err != nil {
+	if err := validateNegotiation(c, id); err != nil || c.AuthorizationRevision != e.grantMaterial().grant.RevocationEpoch || (e.config.Binding != nil && (c.Binding == nil || *c.Binding != *e.config.Binding)) {
 		e.setState("capability_negotiation_failed")
 		return
 	}

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 )
 
@@ -60,4 +61,11 @@ func TestEOFAndShutdownCloseHelper(t *testing.T) {
 			t.Fatal("helper did not close endpoint")
 		}
 	}
+}
+
+func (c *pipeCaller) DeleteAuthorization(context.Context, string, uint64) (iscpauth.DeletionReceipt, error) {
+	return iscpauth.DeletionReceipt{}, nil
+}
+func (c *pipeCaller) AuthorizationDeletionReceipt(context.Context, string, uint64) (iscpauth.DeletionReceipt, error) {
+	return iscpauth.DeletionReceipt{}, nil
 }

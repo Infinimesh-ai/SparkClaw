@@ -17,18 +17,21 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 )
 
 const ipcVersion = 1
 
 type callFrame struct {
-	IPCVersion int                    `json:"ipc_version"`
-	Type       string                 `json:"type"`
-	ID         string                 `json:"id,omitempty"`
-	Request    iscpworkbench.Request  `json:"request,omitempty"`
-	Response   iscpworkbench.Response `json:"response,omitempty"`
-	BodyBase64 string                 `json:"body_base64,omitempty"`
+	OperationID      string                 `json:"operation_id,omitempty"`
+	ExpectedRevision uint64                 `json:"expected_revision,omitempty"`
+	IPCVersion       int                    `json:"ipc_version"`
+	Type             string                 `json:"type"`
+	ID               string                 `json:"id,omitempty"`
+	Request          iscpworkbench.Request  `json:"request,omitempty"`
+	Response         iscpworkbench.Response `json:"response,omitempty"`
+	BodyBase64       string                 `json:"body_base64,omitempty"`
 }
 
 type ipcWriter struct {
@@ -95,6 +98,8 @@ func main() {
 }
 
 type caller interface {
+	DeleteAuthorization(context.Context, string, uint64) (iscpauth.DeletionReceipt, error)
+	AuthorizationDeletionReceipt(context.Context, string, uint64) (iscpauth.DeletionReceipt, error)
 	Run(context.Context) error
 	Call(context.Context, iscpworkbench.Request) (iscpworkbench.Response, error)
 	Close() error
@@ -128,6 +133,7 @@ func serveWithReverse(ctx context.Context, input io.Reader, writer *ipcWriter, e
 	var calls sync.WaitGroup
 	defer func() { cancel(); calls.Wait() }()
 	slots := make(chan struct{}, iscpworkbench.MaxConcurrent)
+	controls := make(chan struct{}, 1)
 	for {
 		select {
 		case <-ctx.Done():
@@ -140,6 +146,34 @@ func serveWithReverse(ctx context.Context, input io.Reader, writer *ipcWriter, e
 			frame, err := decodeCall(line)
 			if err != nil {
 				return err
+			}
+			if frame.Type == "authorization_delete" || frame.Type == "authorization_delete_receipt" {
+				select {
+				case controls <- struct{}{}:
+				default:
+					_ = writer.send(map[string]any{"ipc_version": ipcVersion, "type": "authorization_receipt", "id": frame.ID, "error": "authorization control busy", "retryable": true})
+					continue
+				}
+				calls.Add(1)
+				go func(frame callFrame) {
+					defer calls.Done()
+					defer func() { <-controls }()
+					var r iscpauth.DeletionReceipt
+					var err error
+					if frame.Type == "authorization_delete" {
+						r, err = endpoint.DeleteAuthorization(ctx, frame.OperationID, frame.ExpectedRevision)
+					} else {
+						r, err = endpoint.AuthorizationDeletionReceipt(ctx, frame.OperationID, frame.ExpectedRevision)
+					}
+					out := map[string]any{"ipc_version": ipcVersion, "type": "authorization_receipt", "id": frame.ID}
+					if err != nil {
+						out["error"] = "authorization control unavailable"
+					} else {
+						out["receipt"] = r
+					}
+					_ = writer.send(out)
+				}(frame)
+				continue
 			}
 			if frame.Type == "reverse_response" {
 				if bridge == nil {
@@ -187,6 +221,12 @@ func decodeCall(line []byte) (callFrame, error) {
 		return frame, errors.New("unsupported private IPC version or trailing data")
 	}
 	if frame.Type == "shutdown" {
+		return frame, nil
+	}
+	if frame.Type == "authorization_delete" || frame.Type == "authorization_delete_receipt" {
+		if frame.ID == "" || len(frame.ID) > 200 || frame.OperationID == "" || len(frame.OperationID) > 128 || frame.ExpectedRevision == 0 {
+			return frame, errors.New("invalid authorization control frame")
+		}
 		return frame, nil
 	}
 	if frame.Type == "reverse_response" {

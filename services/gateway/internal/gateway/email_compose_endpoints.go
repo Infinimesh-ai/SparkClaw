@@ -107,7 +107,8 @@ func (s *Server) saveEmailDraft(w http.ResponseWriter, r *http.Request) {
 		ID              string `json:"id"`
 		ExpectedVersion int64  `json:"expected_version"`
 		Attachments     []struct {
-			Path string `json:"path"`
+			LocalFileID string                    `json:"local_file_id"`
+			Object      app.EmailAttachmentObject `json:"object"`
 		} `json:"attachments"`
 		MailboxID   string   `json:"mailbox_id"`
 		Mode        string   `json:"mode"`
@@ -130,7 +131,7 @@ func (s *Server) saveEmailDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	attachments := make([]app.EmailSendAttachment, len(input.Attachments))
 	for i, attachment := range input.Attachments {
-		attachments[i].Path = attachment.Path
+		attachments[i] = app.EmailSendAttachment{LocalFileID: attachment.LocalFileID, Object: attachment.Object}
 	}
 	draft, err := s.emailManagement.SaveDraft(r.Context(), principalForRequest(r).OwnerID, store.EmailDraft{Attachments: attachments, ID: input.ID, MailboxID: input.MailboxID, Mode: input.Mode, ReplyMailID: input.ReplyMailID, To: input.To, CC: input.CC, Subject: input.Subject, Body: input.Body}, input.ExpectedVersion)
 	if err != nil {
@@ -160,7 +161,7 @@ func (s *Server) sendEmailDraft(w http.ResponseWriter, r *http.Request) {
 }
 func writeEmailComposeError(w http.ResponseWriter, err error) {
 	if errors.Is(err, emailmanagement.ErrAttachmentPermission) {
-		writeJSON(w, http.StatusForbidden, map[string]any{"code": "permission_denied", "error": "Workspace file read permission is required for attachments.", "retryable": false})
+		writeJSON(w, http.StatusForbidden, map[string]any{"code": "permission_denied", "error": "SparkX local file read permission is required for attachments.", "retryable": false})
 		return
 	}
 
@@ -169,7 +170,7 @@ func writeEmailComposeError(w http.ResponseWriter, err error) {
 		if errors.Is(err, emailmanagement.ErrAttachmentChanged) {
 			status, code = http.StatusConflict, emailmanagement.ErrAttachmentChanged.Error()
 		}
-		writeJSON(w, status, map[string]any{"code": code, "error": "Workspace attachments must be saved and reviewed again before sending.", "retryable": false})
+		writeJSON(w, status, map[string]any{"code": code, "error": "SparkX local attachments must be selected, saved and reviewed again before sending.", "retryable": false})
 		return
 	}
 

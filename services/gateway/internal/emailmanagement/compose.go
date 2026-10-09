@@ -216,6 +216,10 @@ func (s *Service) SendDraft(ctx context.Context, owner, id string, expected int6
 	if !exists || !mailbox.Active || mailbox.BindingGeneration != d.MailboxGeneration {
 		return d, ErrConflict
 	}
+	attachments, contents, err := s.readDraftAttachments(ctx, owner, d.Attachments, true)
+	if err != nil {
+		return d, err
+	}
 	binding, err := browser.Admit(ctx, owner, mailbox.Provider)
 	if err != nil {
 		return d, err
@@ -223,10 +227,6 @@ func (s *Service) SendDraft(ctx context.Context, owner, id string, expected int6
 	// Probe hints are masked; the send script proves this exact account address before effects.
 	if binding.Provider != mailbox.Provider {
 		return d, ErrConflict
-	}
-	attachments, contents, err := s.readDraftAttachments(ctx, owner, d.Attachments, true)
-	if err != nil {
-		return d, err
 	}
 	attachments, cleanup, err := s.stageAttachments(attachments, contents)
 	if err != nil {

@@ -14,7 +14,7 @@ func v2Endpoints(t *testing.T, responderV2 bool) (*Endpoint, *Endpoint, *testRel
 	t.Helper()
 	return profileEndpoints(t, true, responderV2)
 }
-func profileEndpoints(t *testing.T, initiatorV2, responderV2 bool) (*Endpoint, *Endpoint, *testRelayBus) {
+func profileEndpoints(t *testing.T, initiatorV2, responderV2 bool, handlers ...Handler) (*Endpoint, *Endpoint, *testRelayBus) {
 	t.Helper()
 	dmat, bmat := testMaterials(t)
 	bus := &testRelayBus{peers: map[string]*testRelay{}}
@@ -42,6 +42,9 @@ func profileEndpoints(t *testing.T, initiatorV2, responderV2 bool) (*Endpoint, *
 		info, ok := SessionFromContext(ctx)
 		if !ok || info.Binding.OwnerID != "owner" {
 			t.Error("handler context missing principal")
+		}
+		if len(handlers) > 0 {
+			return handlers[0](ctx, r)
 		}
 		return Response{Status: 200, Body: r.Body}
 	}, nil)

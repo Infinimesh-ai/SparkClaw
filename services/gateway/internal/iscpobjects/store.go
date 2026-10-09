@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	wb "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 )
 
@@ -217,6 +218,8 @@ func purposeLimit(p string) int64 {
 		return 8 << 20
 	case "speech_recording", "speech_audio":
 		return 25 << 20
+	case app.EmailSendAttachmentPurpose:
+		return app.EmailSendMaxAttachmentBytes
 	case "file", "mail_attachment":
 		return 64 << 20
 	}
@@ -365,4 +368,13 @@ func (s *Store) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// Mail uploads are temporary transfer copies, never permanent workspace storage.
+// Reading, reopening, replaying commit, or saving a draft cannot extend this TTL.
+func (s *Store) retention(purpose string) time.Duration {
+	if purpose == app.EmailSendAttachmentPurpose {
+		return min(s.limits.Retention, 24*time.Hour)
+	}
+	return s.limits.Retention
 }

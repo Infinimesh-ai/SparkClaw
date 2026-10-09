@@ -69,7 +69,7 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 	go func() {
 		defer e.workers.Done()
 		defer func() { <-slots }()
-		callCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+		callCtx, cancel := context.WithTimeout(ctx, operationTimeout(request.Operation))
 		defer cancel()
 		policy, policyErr := e.AuthorizationPolicy(callCtx)
 		if policyErr != nil {
@@ -145,7 +145,7 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (Response, error) 
 	if err != nil || len(raw) > MaxRequestBytes {
 		return Response{}, errors.New("workbench request exceeds transport limit")
 	}
-	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout(request.Operation))
 	defer cancel()
 	if request.Profile == ProfileV2 {
 		ctx = context.WithValue(ctx, capacityContextKey{}, spec.CapacityClass)
@@ -208,4 +208,16 @@ func (e *Endpoint) operationSlots(r Request) chan struct{} {
 		}
 	}
 	return e.slots
+}
+
+// Mail sends can upload the bounded 10 MiB attachment manifest through the
+// browser runtime. Keep transport and business budgets aligned while preserving
+// the ordinary 30-second deadline and earlier caller/session cancellation.
+func operationTimeout(operation string) time.Duration {
+	switch operation {
+	case OperationMailDraftsSave, OperationMailDraftsSend, OperationMailSend:
+		return 180 * time.Second
+	default:
+		return requestTimeout
+	}
 }

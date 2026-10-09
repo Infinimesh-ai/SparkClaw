@@ -90,10 +90,10 @@ func (a *iscpDomainAdapter) mailWithSession(ctx context.Context, request iscpwor
 		}
 		return domainJSON(200, page)
 	case iscpworkbench.OperationMailDraftsSave:
-		ctx = emailmanagement.WithAttachmentReadPermission(ctx, slices.Contains(session.Scopes, "files.read"))
+		ctx = emailmanagement.WithAttachmentObjects(ctx, slices.Contains(session.Scopes, "files.read"), mailAttachmentObjects{})
 		return domainHTTP(ctx, request, http.MethodPost, a.server.saveEmailDraft, map[string]string{"draft": request.Params["draft"]})
 	case iscpworkbench.OperationMailSend, iscpworkbench.OperationMailDraftsSend:
-		ctx = emailmanagement.WithAttachmentReadPermission(ctx, slices.Contains(session.Scopes, "files.read"))
+		ctx = emailmanagement.WithAttachmentObjects(ctx, slices.Contains(session.Scopes, "files.read"), mailAttachmentObjects{})
 		return domainHTTP(ctx, request, http.MethodPost, a.server.sendEmailDraft, map[string]string{"draft": request.Params["draft"]})
 	case iscpworkbench.OperationMailDraftsReconcile:
 		return domainHTTP(ctx, request, http.MethodPost, a.server.reconcileEmailDraft, map[string]string{"draft": request.Params["draft"]})

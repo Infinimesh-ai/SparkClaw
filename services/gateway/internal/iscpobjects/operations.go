@@ -97,7 +97,7 @@ func (s *Store) Open(ctx context.Context, b Binding, q OpenRequest) (Checkpoint,
 		return Checkpoint{}, err
 	}
 	now := s.now()
-	ref.ExpiresAt = now.Add(s.limits.Retention).Format(time.RFC3339Nano)
+	ref.ExpiresAt = now.Add(s.retention(q.Purpose)).Format(time.RFC3339Nano)
 	r := record{SchemaVersion: 1, TransferID: q.TransferID, Binding: b, State: "uploading", Object: ref, Received: map[int]string{}, ExpiresAt: now.Add(s.limits.UploadTTL)}
 	if err := s.save(r); err != nil {
 		return Checkpoint{}, err
@@ -225,7 +225,7 @@ func (s *Store) Commit(ctx context.Context, b Binding, id string) (Checkpoint, e
 		return Checkpoint{}, err
 	}
 	r.State = "committed"
-	r.ExpiresAt = s.now().Add(s.limits.Retention)
+	r.ExpiresAt = s.now().Add(s.retention(r.Object.Purpose))
 	r.Object.ExpiresAt = r.ExpiresAt.Format(time.RFC3339Nano)
 	if err = s.save(r); err != nil {
 		return Checkpoint{}, err

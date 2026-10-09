@@ -99,15 +99,33 @@ type EmailReplyTarget struct {
 	Subject string `json:"subject"`
 }
 
-// EmailSendAttachment is the Gateway-authoritative workspace manifest. StagedPath
-// is a short-lived private copy supplied only to the trusted browser runtime.
-type EmailSendAttachment struct {
-	Path       string `json:"path"`
-	Name       string `json:"name"`
-	SizeBytes  int64  `json:"size_bytes"`
-	SHA256     string `json:"sha256"`
-	StagedPath string `json:"-"`
+// EmailAttachmentObject identifies a bounded upload from SparkX's owned local
+// files. It deliberately contains no desktop or Gateway filesystem path.
+type EmailAttachmentObject struct {
+	ObjectID  string `json:"object_id"`
+	Version   uint64 `json:"version"`
+	Size      int64  `json:"size"`
+	SHA256    string `json:"sha256"`
+	Purpose   string `json:"purpose"`
+	Name      string `json:"name,omitempty"`
+	MediaType string `json:"media_type,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
 }
+
+// EmailSendAttachment binds the reviewed local file to a principal-bound object.
+// Path only decodes legacy drafts so they can be rejected; it is never read.
+// StagedPath is a temporary verified copy for the trusted browser runtime.
+type EmailSendAttachment struct {
+	LocalFileID string                `json:"local_file_id"`
+	Object      EmailAttachmentObject `json:"object"`
+	Path        string                `json:"path,omitempty"`
+	Name        string                `json:"name"`
+	SizeBytes   int64                 `json:"size_bytes"`
+	SHA256      string                `json:"sha256"`
+	StagedPath  string                `json:"-"`
+}
+
+const EmailSendAttachmentPurpose = "mail_send_attachment"
 
 const EmailSendMaxAttachments = 5
 const EmailSendMaxAttachmentBytes int64 = 10 << 20

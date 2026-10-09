@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	wb "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 )
 
@@ -213,5 +214,52 @@ func TestReleaseReplaysAfterPayloadRemoval(t *testing.T) {
 	}
 	if _, err = s.Release(context.Background(), b, ref.ObjectID, ref.Version+1); err == nil {
 		t.Fatal("release accepted wrong version")
+	}
+}
+
+func TestMailSendAttachmentPurposeHasAbsoluteDayRetentionAndBoundedSize(t *testing.T) {
+	ctx := t.Context()
+	limits := DefaultLimits()
+	limits.Retention = 7 * 24 * time.Hour
+	s, err := NewStore(filepath.Join(t.TempDir(), "objects"), limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now().UTC()
+	s.now = func() time.Time { return start }
+	b := binding()
+	ref, err := s.Put(ctx, b, app.EmailSendAttachmentPurpose, "reviewed.txt", "text/plain", []byte("desktop bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expires, err := time.Parse(time.RFC3339Nano, ref.ExpiresAt)
+	if err != nil || !expires.Equal(start.Add(24*time.Hour)) {
+		t.Fatalf("mail object retention %+v %v", ref, err)
+	}
+	s.now = func() time.Time { return start.Add(23 * time.Hour) }
+	replay, err := s.Put(ctx, b, app.EmailSendAttachmentPurpose, "reviewed.txt", "text/plain", []byte("desktop bytes"))
+	if err != nil || replay != ref {
+		t.Fatal("repeated upload extended existing retention", err)
+	}
+	if _, err = s.ReadAll(ctx, b, ref, app.EmailSendMaxAttachmentBytes); err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.Commit(ctx, b, ref.ObjectID)
+	if err != nil || again.Object != ref {
+		t.Fatal("commit replay extended retention", err)
+	}
+	s.now = func() time.Time { return expires }
+	if _, err = s.ReadAll(ctx, b, ref, app.EmailSendMaxAttachmentBytes); err == nil {
+		t.Fatal("attachment readable at expiry")
+	}
+	if err = s.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(filepath.Join(s.dir(ref.ObjectID), "object.bin")); !os.IsNotExist(err) {
+		t.Fatal("expired mail payload not removed", err)
+	}
+	id, _ := newID()
+	if _, err = s.Open(ctx, b, OpenRequest{id, app.EmailSendAttachmentPurpose, "too-big.bin", "application/octet-stream", app.EmailSendMaxAttachmentBytes + 1, digest(nil)}); err == nil {
+		t.Fatal("mail purpose admitted more than 10 MiB")
 	}
 }

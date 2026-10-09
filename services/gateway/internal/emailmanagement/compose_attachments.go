@@ -10,9 +10,9 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/workspacefiles"
 	"golang.org/x/sys/unix"
 )
 
@@ -20,33 +20,44 @@ var ErrAttachmentInvalid = errors.New("email_attachment_invalid")
 var ErrAttachmentChanged = errors.New("email_attachment_changed")
 var ErrAttachmentPermission = errors.New("email_attachment_permission_denied")
 
-type attachmentReadPermissionKey struct{}
+// AttachmentObjectReader is supplied by an authenticated transport. The domain
+// never chooses a filesystem root or treats possession of an object ID as access.
+type AttachmentObjectReader interface {
+	ReadAttachmentObject(context.Context, string, app.EmailAttachmentObject, int64) (app.EmailAttachmentObject, []byte, error)
+}
 
-// WithAttachmentReadPermission carries the caller's workspace permission into
-// the single authoritative draft read. Trusted owner HTTP calls retain their
-// existing workspace access; restricted transports must always supply a value.
-func WithAttachmentReadPermission(ctx context.Context, permitted bool) context.Context {
-	return context.WithValue(ctx, attachmentReadPermissionKey{}, permitted)
+type attachmentAccessKey struct{}
+type attachmentAccess struct {
+	permitted bool
+	reader    AttachmentObjectReader
+}
+
+// WithAttachmentObjects carries the already verified caller's object resolver
+// and files.read scope into the single authoritative draft read. No resolver
+// means no attachment access, including legacy host HTTP calls.
+func WithAttachmentObjects(ctx context.Context, permitted bool, reader AttachmentObjectReader) context.Context {
+	return context.WithValue(ctx, attachmentAccessKey{}, attachmentAccess{permitted, reader})
 }
 func checkAttachmentPermission(ctx context.Context, attachments []app.EmailSendAttachment) error {
-	if permitted, restricted := ctx.Value(attachmentReadPermissionKey{}).(bool); len(attachments) > 0 && restricted && !permitted {
+	access, ok := ctx.Value(attachmentAccessKey{}).(attachmentAccess)
+	if len(attachments) > 0 && (!ok || !access.permitted || access.reader == nil) {
 		return ErrAttachmentPermission
 	}
 	return nil
 }
 
-func (s *Service) attachmentWorkspace(ctx context.Context, owner string) (string, error) {
-	profile, found, err := s.repository.GetOwnerProfileByID(ctx, owner)
-	if err != nil {
-		return "", err
+var attachmentLocalID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+func validAttachmentName(name string) bool {
+	if name == "" || len(name) > 255 || !utf8.ValidString(name) || strings.HasPrefix(name, ".") || path.Base(name) != name || strings.ContainsAny(name, "\\:") {
+		return false
 	}
-	if found && strings.TrimSpace(profile.WorkspaceRoot) != "" {
-		return profile.WorkspaceRoot, nil
+	for _, r := range name {
+		if r < 32 || r == 127 {
+			return false
+		}
 	}
-	if owner != app.DefaultOwnerID || s.opts.WorkspaceRoot == "" {
-		return "", ErrAttachmentInvalid
-	}
-	return s.opts.WorkspaceRoot, nil
+	return true
 }
 
 func (s *Service) readDraftAttachments(ctx context.Context, owner string, attachments []app.EmailSendAttachment, verify bool) ([]app.EmailSendAttachment, [][]byte, error) {
@@ -63,26 +74,26 @@ func (s *Service) readDraftAttachments(ctx context.Context, owner string, attach
 	if len(attachments) > app.EmailSendMaxAttachments {
 		return nil, nil, invalid
 	}
-	root, err := s.attachmentWorkspace(ctx, owner)
-	if err != nil {
-		return nil, nil, err
-	}
+	access := ctx.Value(attachmentAccessKey{}).(attachmentAccess)
 	manifest := make([]app.EmailSendAttachment, 0, len(attachments))
 	contents := make([][]byte, 0, len(attachments))
-	seen := map[string]bool{}
+	seenFiles := map[string]bool{}
 	var total int64
 	for _, attachment := range attachments {
-		if seen[attachment.Path] {
+		if attachment.Path != "" || !attachmentLocalID.MatchString(attachment.LocalFileID) || seenFiles[attachment.LocalFileID] || attachment.Object.Purpose != app.EmailSendAttachmentPurpose {
 			return nil, nil, invalid
 		}
-		seen[attachment.Path] = true
-		data, err := workspacefiles.ReadRegular(ctx, root, attachment.Path, app.EmailSendMaxAttachmentBytes-total)
-		if err != nil {
+		seenFiles[attachment.LocalFileID] = true
+		object, data, err := access.reader.ReadAttachmentObject(ctx, owner, attachment.Object, app.EmailSendMaxAttachmentBytes-total)
+		if err != nil || !validAttachmentName(object.Name) || object.Purpose != app.EmailSendAttachmentPurpose || int64(len(data)) > app.EmailSendMaxAttachmentBytes-total {
 			return nil, nil, invalid
 		}
 		sum := sha256.Sum256(data)
-		item := app.EmailSendAttachment{Path: attachment.Path, Name: path.Base(attachment.Path), SizeBytes: int64(len(data)), SHA256: "sha256:" + hex.EncodeToString(sum[:])}
-		if verify && (item.Name != attachment.Name || item.SizeBytes != attachment.SizeBytes || item.SHA256 != attachment.SHA256) {
+		if object.Size != int64(len(data)) || object.SHA256 != hex.EncodeToString(sum[:]) {
+			return nil, nil, invalid
+		}
+		item := app.EmailSendAttachment{LocalFileID: attachment.LocalFileID, Object: object, Name: object.Name, SizeBytes: int64(len(data)), SHA256: "sha256:" + object.SHA256}
+		if verify && item != attachment {
 			return nil, nil, invalid
 		}
 		total += item.SizeBytes
@@ -94,7 +105,7 @@ func (s *Service) readDraftAttachments(ctx context.Context, owner string, attach
 
 // stageAttachments pins exactly the reviewed bytes in an isolated private
 // directory shared with the browser runtime. Neither the provider nor replay
-// reads the user's mutable source path after admission.
+// reads a host workspace source path.
 func (s *Service) stageAttachments(attachments []app.EmailSendAttachment, contents [][]byte) ([]app.EmailSendAttachment, func(), error) {
 	cleanup := func() {}
 	if len(attachments) == 0 {
@@ -147,7 +158,7 @@ func (s *Service) stageAttachments(attachments []app.EmailSendAttachment, conten
 	defer unix.Close(dirfd)
 	out := append([]app.EmailSendAttachment(nil), attachments...)
 	for i, item := range out {
-		// Different workspace paths may have the same basename; numbered storage
+		// Different desktop files may have the same basename; numbered storage
 		// names prevent overwrite while provider upload still uses the original name.
 		index := hex.EncodeToString([]byte{byte(i)})
 		if err := unix.Mkdirat(dirfd, index, 0700); err != nil {

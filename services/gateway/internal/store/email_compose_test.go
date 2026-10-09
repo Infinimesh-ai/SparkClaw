@@ -30,7 +30,7 @@ func TestEmailDraftSendFenceSurvivesRestartAndConcurrentClicks(t *testing.T) {
 				t.Cleanup(st.Close)
 				repo = st
 			}
-			saved, err := repo.ChangeEmailDraft(t.Context(), EmailDraftCommand{OwnerID: "owner", Action: "save", Draft: EmailDraft{ID: "d", Mode: "compose", To: []string{"recipient@example.test"}, Body: "frozen", Attachments: []app.EmailSendAttachment{{Path: "report.txt", Name: "report.txt", SizeBytes: 8, SHA256: "sha256:" + strings.Repeat("a", 64)}}}})
+			saved, err := repo.ChangeEmailDraft(t.Context(), EmailDraftCommand{OwnerID: "owner", Action: "save", Draft: EmailDraft{ID: "d", Mode: "compose", To: []string{"recipient@example.test"}, Body: "frozen", Attachments: []app.EmailSendAttachment{{LocalFileID: "11111111-1111-4111-8111-111111111111", Object: app.EmailAttachmentObject{ObjectID: "22222222-2222-4222-8222-222222222222", Version: 1, Size: 8, SHA256: strings.Repeat("a", 64), Purpose: app.EmailSendAttachmentPurpose, Name: "report.txt", ExpiresAt: "2026-10-10T00:00:00Z"}, Name: "report.txt", SizeBytes: 8, SHA256: "sha256:" + strings.Repeat("a", 64)}}}})
 			if err != nil {
 				t.Fatal(err)
 			}

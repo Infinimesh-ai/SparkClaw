@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpobjects"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -15,14 +17,26 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
-func TestISCPDomainMailAttachmentsRequireWorkspaceReadScope(t *testing.T) {
+func mailAttachmentObjectContext(t *testing.T) (context.Context, *iscpobjects.Store, iscpobjects.Binding, app.EmailSendAttachment) {
+	t.Helper()
+	objects, err := iscpobjects.NewStore(filepath.Join(t.TempDir(), "objects"), iscpobjects.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := iscpobjects.Binding{DeploymentID: "iscp-test-deployment", OwnerID: "iscp-owner", ClientID: "iscp-desktop-client", InstallationID: iscpTestInstallation, AuthorizationRevision: 1}
+	ref, err := objects.Put(t.Context(), binding, app.EmailSendAttachmentPurpose, "report.txt", "text/plain", []byte("desktop reviewed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.WithValue(domainTestContext(t), iscpObjectContextKey{}, iscpObjectAccess{objects, binding})
+	return ctx, objects, binding, app.EmailSendAttachment{LocalFileID: "88888888-8888-4888-8888-888888888888", Object: app.EmailAttachmentObject(ref)}
+}
+
+func TestISCPDomainMailAttachmentsRequireLocalObjectAndReadScope(t *testing.T) {
 	server, repo, cfg, textHandler := workbenchISCPFixture(t, nil)
 	bindWorkbenchISCP(t, textHandler)
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "report.txt"), []byte("reviewed"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := repo.SaveOwnerProfile(t.Context(), app.OwnerProfile{ID: "iscp-owner", WorkspaceRoot: root}); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "report.txt"), []byte("Gateway decoy must not be sent"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	browser := &noEmailBrowser{}
@@ -36,26 +50,95 @@ func TestISCPDomainMailAttachmentsRequireWorkspaceReadScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	adapter := &iscpDomainAdapter{server: server, config: cfg}
-	raw, _ := json.Marshal(map[string]any{"id": "reviewed-file", "mailbox_id": box.ID, "to": []string{"recipient@example.test"}, "subject": "s", "body": "b", "attachments": []any{map[string]any{"path": "report.txt"}}})
+	ctx, objects, binding, attachment := mailAttachmentObjectContext(t)
+	raw, _ := json.Marshal(map[string]any{"id": "reviewed-file", "mailbox_id": box.ID, "to": []string{"recipient@example.test"}, "subject": "s", "body": "b", "attachments": []any{map[string]any{"local_file_id": attachment.LocalFileID, "object": attachment.Object}}})
 	request := domainTestRequest(iscpworkbench.OperationMailDraftsSave, raw)
 	mailOnly := iscpworkbench.SessionInfo{Scopes: []string{"mail.drafts.write", "mail.send", "mail.read"}}
-	if result := adapter.mailWithSession(domainTestContext(t), request, mailOnly); result.status != 403 {
+	if result := adapter.mailWithSession(ctx, request, mailOnly); result.status != 403 {
 		t.Fatalf("mail-only saved %d %s", result.status, result.body)
 	}
 	withFiles := mailOnly
 	withFiles.Scopes = append(append([]string{}, mailOnly.Scopes...), "files.read")
-	saved := adapter.mailWithSession(domainTestContext(t), request, withFiles)
+	if result := adapter.mailWithSession(domainTestContext(t), request, withFiles); result.status != 400 {
+		t.Fatalf("missing bound object service=%d %s", result.status, result.body)
+	}
+	for _, source := range []string{"report.txt", filepath.Join(root, "report.txt"), "../report.txt", "https://example.test/file"} {
+		pathInput, _ := json.Marshal(map[string]any{"mailbox_id": box.ID, "attachments": []any{map[string]string{"path": source}}})
+		if result := adapter.mailWithSession(ctx, domainTestRequest(iscpworkbench.OperationMailDraftsSave, pathInput), withFiles); result.status != 400 {
+			t.Fatalf("path source accepted: %d %s", result.status, result.body)
+		}
+	}
+	saved := adapter.mailWithSession(ctx, request, withFiles)
 	var draft store.EmailDraft
-	if saved.status != 200 || json.Unmarshal(saved.body, &draft) != nil || len(draft.Attachments) != 1 || draft.Attachments[0].SHA256 == "" {
+	if saved.status != 200 || json.Unmarshal(saved.body, &draft) != nil || len(draft.Attachments) != 1 || draft.Attachments[0].SHA256 != "sha256:"+attachment.Object.SHA256 || draft.Attachments[0].Object != attachment.Object || draft.Attachments[0].Path != "" {
 		t.Fatalf("save=%d %s", saved.status, saved.body)
 	}
 	send := domainTestRequest(iscpworkbench.OperationMailDraftsSend, []byte(`{"expected_version":1,"idempotency_key":"reviewed-click"}`))
 	send.Params = map[string]string{"draft": draft.ID}
-	if result := adapter.mailWithSession(domainTestContext(t), send, mailOnly); result.status != 403 || browser.calls != 0 {
+	if result := adapter.mailWithSession(ctx, send, mailOnly); result.status != 403 || browser.calls != 0 {
 		t.Fatalf("mail-only send %d effects=%d", result.status, browser.calls)
 	}
-	if result := adapter.mailWithSession(domainTestContext(t), send, withFiles); result.status != 200 || browser.calls != 2 {
+	for _, alter := range []func(*iscpobjects.Binding){
+		func(b *iscpobjects.Binding) { b.OwnerID = "other" }, func(b *iscpobjects.Binding) { b.ClientID = "other" }, func(b *iscpobjects.Binding) { b.InstallationID = "other" }, func(b *iscpobjects.Binding) { b.AuthorizationRevision++ },
+	} {
+		changed := binding
+		alter(&changed)
+		other := context.WithValue(ctx, iscpObjectContextKey{}, iscpObjectAccess{objects, changed})
+		if result := adapter.mailWithSession(other, send, withFiles); result.status != 409 || browser.calls != 0 {
+			t.Fatalf("send crossed binding %+v: %d %s", changed, result.status, result.body)
+		}
+		if result := adapter.mailWithSession(other, request, withFiles); result.status != 400 {
+			t.Fatalf("save crossed binding %+v: %d %s", changed, result.status, result.body)
+		}
+	}
+	if result := adapter.mailWithSession(ctx, send, withFiles); result.status != 200 || browser.calls != 2 {
 		t.Fatalf("authorized send %d %s effects=%d", result.status, result.body, browser.calls)
+	}
+}
+
+func TestISCPMailAttachmentObjectsRejectOtherBindingsAndForgedMetadata(t *testing.T) {
+	ctx, objects, binding, attachment := mailAttachmentObjectContext(t)
+	reader := mailAttachmentObjects{}
+	for _, alter := range []func(*iscpobjects.Binding){
+		func(b *iscpobjects.Binding) { b.DeploymentID = "other" }, func(b *iscpobjects.Binding) { b.OwnerID = "other" }, func(b *iscpobjects.Binding) { b.ClientID = "other" }, func(b *iscpobjects.Binding) { b.InstallationID = "other" }, func(b *iscpobjects.Binding) { b.AuthorizationRevision++ },
+	} {
+		changed := binding
+		alter(&changed)
+		other := context.WithValue(ctx, iscpObjectContextKey{}, iscpObjectAccess{objects, changed})
+		if _, _, err := reader.ReadAttachmentObject(other, "iscp-owner", attachment.Object, app.EmailSendMaxAttachmentBytes); err == nil {
+			t.Fatalf("cross-bound read %+v", changed)
+		}
+	}
+	for _, alter := range []func(*app.EmailAttachmentObject){
+		func(o *app.EmailAttachmentObject) { o.Name = "benign.txt" }, func(o *app.EmailAttachmentObject) { o.MediaType = "image/png" }, func(o *app.EmailAttachmentObject) { o.Purpose = "file" }, func(o *app.EmailAttachmentObject) { o.Size++ }, func(o *app.EmailAttachmentObject) { o.Version++ }, func(o *app.EmailAttachmentObject) { o.SHA256 = strings.Repeat("a", 64) }, func(o *app.EmailAttachmentObject) { o.ExpiresAt = "2099-01-01T00:00:00Z" },
+	} {
+		forged := attachment.Object
+		alter(&forged)
+		if _, _, err := reader.ReadAttachmentObject(ctx, "iscp-owner", forged, app.EmailSendMaxAttachmentBytes); err == nil {
+			t.Fatalf("forged metadata accepted %+v", forged)
+		}
+	}
+	wrongPurpose, err := objects.Put(ctx, binding, "file", "report.txt", "text/plain", []byte("desktop reviewed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := reader.ReadAttachmentObject(ctx, "iscp-owner", app.EmailAttachmentObject(wrongPurpose), app.EmailSendMaxAttachmentBytes); err == nil {
+		t.Fatal("general file reused as mail attachment")
+	}
+	// Optional display metadata can be absent; the authority always supplies it.
+	minimal := attachment.Object
+	minimal.Name, minimal.MediaType, minimal.ExpiresAt = "", "", ""
+	actual, raw, err := reader.ReadAttachmentObject(ctx, "iscp-owner", minimal, app.EmailSendMaxAttachmentBytes)
+	if err != nil || actual != attachment.Object || string(raw) != "desktop reviewed" {
+		t.Fatalf("authoritative metadata missing %+v %v", actual, err)
+	}
+	releaseBody, _ := json.Marshal(map[string]any{"object_id": actual.ObjectID, "version": actual.Version})
+	response, handled := objects.Handle(ctx, binding, domainTestRequest(iscpworkbench.OperationObjectRelease, releaseBody))
+	if !handled || response.Status != 200 {
+		t.Fatalf("release %+v", response)
+	}
+	if _, _, err = reader.ReadAttachmentObject(ctx, "iscp-owner", actual, app.EmailSendMaxAttachmentBytes); err == nil {
+		t.Fatal("released attachment survived")
 	}
 }
 
@@ -89,13 +172,15 @@ func TestISCPDomainAttachmentScopeUsesOnlyAuthoritativeDraftRead(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// A caller can predict the next version, but that must never make an earlier
-			// unprivileged preflight authorize a subsequently attached workspace file.
+			// A caller can predict a version, but an earlier preflight cannot
+			// authorize a newly attached desktop object.
+			objectCtx, _, _, local := mailAttachmentObjectContext(t)
+			saveCtx := emailmanagement.WithAttachmentObjects(objectCtx, true, mailAttachmentObjects{})
 			input := store.EmailDraft{ID: "racing-draft", MailboxID: box.ID, To: []string{"recipient@example.test"}, Subject: "s", Body: "b"}
 			if scenario == "read_error" {
-				input.Attachments = []app.EmailSendAttachment{{Path: "report.txt"}}
+				input.Attachments = []app.EmailSendAttachment{local}
 			}
-			draft, err := service.SaveDraft(t.Context(), "iscp-owner", input, 0)
+			draft, err := service.SaveDraft(saveCtx, "iscp-owner", input, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -115,8 +200,8 @@ func TestISCPDomainAttachmentScopeUsesOnlyAuthoritativeDraftRead(t *testing.T) {
 						return nil, nil
 					case "concurrent_addition":
 						newer := draft
-						newer.Attachments = []app.EmailSendAttachment{{Path: "report.txt"}}
-						if _, err := service.SaveDraft(t.Context(), owner, newer, draft.Version); err != nil {
+						newer.Attachments = []app.EmailSendAttachment{local}
+						if _, err := service.SaveDraft(saveCtx, owner, newer, draft.Version); err != nil {
 							t.Fatal(err)
 						}
 					}

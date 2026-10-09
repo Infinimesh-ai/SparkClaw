@@ -1,0 +1,329 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-09",
+  "target": "installed SparkX on macOS arm64 and work2",
+  "scope": {
+    "asr_tts": "deferred by user",
+    "direct_transport": "existing pinned HTTPS entry; private same-subnet LAN unreachable from this Mac",
+    "iscp": "local test Relay plus SSH reverse bridge to work2; online Relay unchanged"
+  },
+  "identity_preserved": {
+    "deployment_id": "431c00ce-b780-42e3-9d25-c25c87c8c011",
+    "owner_id": "owner",
+    "client_id": "sparkx-iscp-remote-8143225e",
+    "installation_id": "f0671ef3-354b-4ec4-b5a4-f581c7604359",
+    "conversation_count": 6,
+    "delivered_task_count": 9
+  },
+  "authorization": {
+    "lifetime": "until_revoked",
+    "revision": 2,
+    "qualified_non_audio_operations": 71,
+    "short_grants_renew_automatically": true,
+    "audio_scopes_enabled": false,
+    "observed_renewal": {
+      "lifetime": "until_revoked",
+      "revision": 2,
+      "revoked": false,
+      "authorization_expires_at": "0001-01-01T00:00:00Z",
+      "grant_not_before": "2026-10-09T08:30:58.926523961Z",
+      "grant_expires_at": "2026-10-09T09:00:58.926523961Z",
+      "grant_revocation_epoch": 2
+    }
+  },
+  "validation": {
+    "linux_go_tested_packages": 65,
+    "go_build_and_vet": true,
+    "desktop_tests": 236,
+    "webchat_tests": 251,
+    "production_ui_build": true,
+    "browser_layout_fixture_cases": 24,
+    "browser_layout_fixture_uses_real_component_css_preload_ipc": true,
+    "outlook_identity_tests": 5,
+    "app_cli_13_reproducible": true,
+    "documentation_mirrors": 110,
+    "linux_controller_passed": 169,
+    "linux_controller_skipped_real_chromium": 8,
+    "shared_lease_retirement_regressions": 8,
+    "app_cli_14_reproducible": true,
+    "app_cli_14_paired_install_tamper_mixed_release_rollback": true,
+    "desktop_projection_matches_14": true,
+    "capability_refresh_regressions": 12,
+    "qq_receipt_regressions": 6,
+    "app_cli_15_reproducible": true,
+    "app_cli_15_paired_install_tamper_mixed_release_rollback": true,
+    "desktop_projection_matches_15": true,
+    "controller_shutdown_regressions": 6
+  },
+  "native": {
+    "arithmetic_over_iscp": 703,
+    "arithmetic_over_direct_https": 943,
+    "desktop_local_file_marker_read_over_both_transports": true,
+    "request_input_result_digest_and_durable_ack_parity": 3,
+    "browser_default_widened_close_reopen": true,
+    "outlook_and_qq_login_probe_ready_before_13": true,
+    "no_real_email_sent": true,
+    "capability_refresh_after_fix": {
+      "installed_source": "faefa43506246d27fb5552c9032a563732b3f701",
+      "validation": "native observations across multiple 30-second refresh periods with resident event polling; mailbox list, draft retrieval and fingerprint available",
+      "continuous_instrumented_ui_monitor": false,
+      "observed_capability_loss": false,
+      "race_deterministically_reproduced_and_fixed": true,
+      "checked_at": "2026-10-09T09:14:15.184016+00:00"
+    },
+    "outlook_lan_draft_reopened_over_iscp": true,
+    "automatic_reconnect_after_work2_runtime15_upgrade": {
+      "passed": true,
+      "same_saved_draft_retained": true,
+      "business_actions_disabled_during_stop_and_restored_after": true,
+      "auto_save_or_send": false
+    }
+  },
+  "attachment_boundary": {
+    "source": "SparkX host ClientStore workbench/files",
+    "local_file_id": "526a9ba7-3f6b-4ab6-9965-01ca6eb535f8",
+    "size": 158,
+    "sha256": "39803ed9f9698d9676bf92ca10819e4f242248ca35dbe9c885cf6b09ffc070b2",
+    "gateway_mount_of_source": false,
+    "server_drafts_remain_backend_authoritative": true
+  },
+  "provider_live_read_evidence": "mail-provider-live-read-2026-10-09.json",
+  "real_send_status": "not attempted; reviewable self-addressed test drafts prepared, explicit send approval still required",
+  "runtime_dependency": "local Docker Relay/Issuer and SSH bridge must remain running; SSH control connection is test infrastructure, not authorization lifetime",
+  "infini_center": "not found at configured local/remote ancestor anchors; no central write or acceptance claimed",
+  "desktop_candidate": {
+    "source_commit": "faefa43506246d27fb5552c9032a563732b3f701",
+    "zip_sha256": "c75f864e0cc62d1419909dad753c3676291799b3986a8b13a1692a6af30a5726",
+    "asar_sha256": "db845e12e12f0e915b77f7d5e9a4e05e55f1cc55c5428db64d0044e1433e5c53",
+    "helper_sha256": "16f08d5e15325760f3c18237a0e2e4434f4116ef0d8665e246bc864ade89f371",
+    "backup": "/Users/dev/.cache/sparkclaw-upgrades/20261009-151709-local-v2/SparkX-before-capacity-faefa435.app",
+    "user_data_preserved": true,
+    "managed_reader_source_release": "0.3.0-sparkclaw.13",
+    "installed_at": "2026-10-09T09:10:38.380414+00:00"
+  },
+  "relay_interruption": {
+    "scope": "local_test_relay",
+    "paused_seconds": 50.18,
+    "recovered": true,
+    "installed_source": "d76f847c7098b149381d199835674274ab49f3d5",
+    "native_unsaved_subject_preserved": true,
+    "native_body_and_local_file_selection_preserved": true,
+    "business_actions_disabled_while_capabilities_unavailable": true,
+    "business_actions_recovered": true,
+    "draft_state": "draft",
+    "automatic_send_performed": false
+  },
+  "browser_layout_native": {
+    "installed_source": "d76f847c7098b149381d199835674274ab49f3d5",
+    "default_width": true,
+    "widened": true,
+    "close_reopen": true,
+    "bounds_error_observed": false,
+    "fixture_layout_cases": 24,
+    "fixture_renderer_reload": true,
+    "fixture_one_pixel_overflow_rejected": true
+  },
+  "chromium_iscp_network": {
+    "scope": "Electron Chromium network events, excluding Go helper sockets",
+    "http_ws_url_events": 0,
+    "gateway_business_url_events": 0,
+    "events": 26,
+    "native_interaction": "mail draft save/review, browser layout, 50s Relay interruption"
+  },
+  "lan_attachment_review": {
+    "source_commit": "0d1ab651697a7d8cdbf7bc514b30376f0f791530",
+    "native_installed_app": true,
+    "transport": "direct_https",
+    "provider": "qq_mail",
+    "mailbox_id": "a44504561fa8699b52a8c0a7c815cad8eb29f84a95c46cc7fc9badd30d15b046",
+    "subject": "SparkX work2 acceptance - QQ - LAN - 20261009",
+    "reviewed_version": 2,
+    "attachment": {
+      "local_file_id": "526a9ba7-3f6b-4ab6-9965-01ca6eb535f8",
+      "name": "SparkX-work2-acceptance.txt",
+      "size": 158,
+      "sha256": "39803ed9f9698d9676bf92ca10819e4f242248ca35dbe9c885cf6b09ffc070b2"
+    },
+    "sent": false,
+    "checked_at": "2026-10-09T08:04:11.840456+00:00",
+    "draft_id": "356d6c3e-67de-499b-a698-59a7216d4663",
+    "object_id": "f1efd060-fdd2-4e3e-aff1-d5ab4d363821",
+    "reviewed_native_version": 2,
+    "installed_source": "d76f847c7098b149381d199835674274ab49f3d5",
+    "native_fingerprint_match": true,
+    "state": "draft",
+    "mail_sync_snapshot_completed": true
+  },
+  "iscp_attachment_review": {
+    "source_commit": "0d1ab651697a7d8cdbf7bc514b30376f0f791530",
+    "native_installed_app": true,
+    "transport": "iscp",
+    "provider": "qq_mail",
+    "mailbox_id": "a44504561fa8699b52a8c0a7c815cad8eb29f84a95c46cc7fc9badd30d15b046",
+    "subject": "SparkX work2 acceptance - QQ - ISCP - 20261009",
+    "attachment": {
+      "local_file_id": "526a9ba7-3f6b-4ab6-9965-01ca6eb535f8",
+      "name": "SparkX-work2-acceptance.txt",
+      "size": 158,
+      "sha256": "39803ed9f9698d9676bf92ca10819e4f242248ca35dbe9c885cf6b09ffc070b2"
+    },
+    "sent": false,
+    "checked_at": "2026-10-09T08:04:11.840456+00:00",
+    "draft_id": "e9e7e6ae-28e3-4cb2-abb8-1a3640216741",
+    "object_id": "49859dd4-ba4d-4fac-8ec6-533b244f2b53",
+    "persisted_version": 3,
+    "reviewed_native_version": 3,
+    "native_review_pending_after_editor_fix": false,
+    "native_fingerprint_match": true,
+    "state": "draft"
+  },
+  "updated_at": "2026-10-09T09:33:14.449356+00:00",
+  "browser_release_candidate": {
+    "id": "0.3.0-sparkclaw.15",
+    "runtime_digest": "edec9341d86fb838072f84502a4277196dd42b8398a66b855838a9875cc03191",
+    "tampermonkey_product_version": "5.5.0.10",
+    "actual_reader_import_verification": "passed on work2: four enabled system scripts, exact source/dependency hashes; r10 current generation consumed at 08:42:39.973Z, before .14 restart; consumption delay cause not established"
+  },
+  "browser_release_deployed": {
+    "id": "0.3.0-sparkclaw.15",
+    "source_commit": "dfa7f0fd62c6ae69b32b1f35d51e479bee5fac96",
+    "cleanup_fence_present": false,
+    "services_active": true,
+    "tampermonkey_product_version": "5.5.0.10",
+    "temporary_policy_logging": "removed; formal service parameters restored; Controller and all four current Reader checks passed",
+    "runtime_digest": "edec9341d86fb838072f84502a4277196dd42b8398a66b855838a9875cc03191",
+    "gateway_image": "sparkclaw-gateway:work2-v2-0d1ab651",
+    "webchat_image": "sparkclaw-webchat:work2-ui-d76f847c",
+    "reader_policy_restaged": false,
+    "reader_policy_unchanged": true,
+    "gateway_healthy": true
+  },
+  "outlook_attachment_reviews": [
+    {
+      "transport": "direct_https",
+      "draft_id": "34b28df2-f9c4-405c-8822-744229cb26f8",
+      "object_id": "dc548b25-b1d5-44b6-a2dd-55fcaf06b524",
+      "reviewed_version": 1,
+      "native_fingerprint_match": true,
+      "state": "draft",
+      "sent": false
+    },
+    {
+      "transport": "iscp",
+      "draft_id": "05e7cca5-b390-4762-ac1a-5a0430b715b5",
+      "object_id": "49859dd4-ba4d-4fac-8ec6-533b244f2b53",
+      "reviewed_version": 1,
+      "native_fingerprint_match": true,
+      "state": "draft",
+      "sent": false
+    }
+  ],
+  "work2_pre15_checkpoint": {
+    "directory": "/home/ubuntu/.local/share/sparkclaw/backups/mail-runtime15-20261009T091420Z",
+    "postgres_sha256": "ad2eaf2264aeb83d807dfc4861933c37bb13201afe69b3688eeaaecc6ab3ad28",
+    "postgres_restore_list_valid": true,
+    "state_bytes": 135607188,
+    "state_sha256": "f248ed6c7584ae4393c862d8d648c3bf42d83a23302265b16c706ceae65d8055",
+    "gateway_stopped_before_browser_services": true,
+    "includes_postgres_memory_runtime_profile_app_cli_state_current_configuration": true,
+    "controller_stop_timeout_observed": true,
+    "process_cgroup_cleanup_verified": true
+  },
+  "mail15_first_live_attempt": {
+    "provider": "qq_mail",
+    "phase": "discover",
+    "status": "failed",
+    "public_error": "email_provider_unavailable",
+    "controller_error": "BROWSER_EXTENSION_UNAVAILABLE",
+    "detail": "process_exit_context_destroyed during runReadCode",
+    "effect_count": 0,
+    "elapsed_seconds": 94.44,
+    "cleanup_fence_present": false,
+    "subsequent_resident_collect_page_both_providers": "completed",
+    "same_scope_single_read_only_retry": "passed"
+  },
+  "mail15_qq_live_read": {
+    "receipt_interval_start": "2026-09-24T00:00:00Z",
+    "receipt_interval_end": "2026-09-25T00:00:00Z",
+    "candidate_count": 11,
+    "scanned_rows": 11,
+    "complete": true,
+    "qualified": true,
+    "limited": false,
+    "originals_collected": 1,
+    "original_files": 1,
+    "verified_bytes": 6374,
+    "all_file_sha256_verified": true,
+    "attachments": 0,
+    "existing_read_state": "read",
+    "mark_read_called": false,
+    "elapsed_seconds": 73.31,
+    "passed_after_single_transient_recovery_retry": true
+  },
+  "mail15_outlook_live_read": {
+    "receipt_interval_start": "2026-09-24T00:00:00Z",
+    "receipt_interval_end": "2026-09-25T00:00:00Z",
+    "candidate_count": 7,
+    "scanned_rows": 7,
+    "complete": true,
+    "qualified": true,
+    "limited": false,
+    "originals_collected": 1,
+    "original_files": 1,
+    "verified_bytes": 10423,
+    "all_file_sha256_verified": true,
+    "attachments": 0,
+    "existing_read_state": "unread",
+    "mark_read_called": false,
+    "elapsed_seconds": 111.55
+  },
+  "controller_shutdown_live": {
+    "source_commit": "dfa7f0fd62c6ae69b32b1f35d51e479bee5fac96",
+    "active_provider_watchers": 2,
+    "stop_order": [
+      "gateway",
+      "executor",
+      "controller",
+      "browser"
+    ],
+    "executor_stop_seconds": 0.023,
+    "controller_stop_seconds": 2.606,
+    "browser_stop_seconds": 0.091,
+    "controller_result": "exit-code",
+    "controller_exec_main_code": 1,
+    "controller_exec_main_status": 1,
+    "original_cancellation_failure_preserved": true,
+    "systemd_timeout": false,
+    "sigkill": false,
+    "owned_processes_and_cgroups_empty": true,
+    "cleanup_fence_present": false,
+    "initial_running_but_not_ready_stop": {
+      "executor_stop_seconds": 14.422,
+      "controller_stop_seconds": 2.472,
+      "browser_stop_seconds": 0.069,
+      "controller_exec_main_status": 1,
+      "systemd_timeout": false,
+      "sigkill": false
+    },
+    "executor_epoch": 11,
+    "both_providers_watch_ready_verified": true
+  },
+  "work2_pre_shutdown_fix_checkpoint": {
+    "directory": "/home/ubuntu/.local/share/sparkclaw/backups/mail-controller-shutdown-20261009T092610Z",
+    "postgres_sha256": "e0a8f7bdfafd4d26c7bfcfb995192d35bcd21d146ac7d9022affbc0d39133d64",
+    "postgres_restore_list_valid": true,
+    "state_bytes": 140722951,
+    "state_sha256": "25f8c9815eface5db39092fb928262a0201d503b379def4d0d189861b8946394"
+  },
+  "final_health": {
+    "gateway_healthy": true,
+    "browser_controller_executor_active": true,
+    "service_restart_count": 0,
+    "cleanup_fence_present": false,
+    "executor_epoch": 12,
+    "both_providers_watch_ready": true,
+    "paired_release_check": true,
+    "all_four_managed_reader_checks": true,
+    "four_reviewed_drafts_unsent_and_versions_unchanged": true
+  }
+}

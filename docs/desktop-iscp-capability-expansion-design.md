@@ -501,6 +501,73 @@ Encrypted issuer/transport, permission, receipt/restart and UI checks are isolat
 implementation evidence. They do not establish a deployed version, actual provider
 login, mail delivery or ASR/TTS acceptance.
 
+## 9.6 Installed desktop and work2 integration, 2026-10-09
+
+The candidate is installed on the Mac and the existing work2 Gateway, WebChat
+and mailbox console are upgraded with recoverable backups. Database, models,
+TLS, deployment, Owner, Client and desktop installation identities are preserved.
+See the [installed evidence](evidence/iscp-work2-native-2026-10-09.json) and
+[provider read evidence](evidence/mail-provider-live-read-2026-10-09.json).
+Earlier deployment statements are historical checkpoints.
+
+The actual SparkX UI completed model tasks and read the same imported desktop
+file through ISCP and direct HTTPS. Three requests have matching input/result
+digests and durable delivery ACKs on desktop and work2. Switching transport
+preserves six conversations, nine delivered tasks and the local file. Direct
+HTTPS uses work2's existing ingress; this Mac cannot reach its private address,
+so physical same-subnet LAN connectivity remains unverified.
+
+Both transports save and display reviewed QQ and Outlook drafts with a ClientStore-selected
+158-byte attachment and the matching fingerprint. Gateway has no mount of the
+desktop source. Mail drafts and receipts remain backend-authoritative. No real
+email has been sent; delivery awaits approval of prepared recipients/messages.
+
+Native checks found and fixed one-pixel browser-panel rounding overflow, loss of
+unsaved editors on capability refresh failure, and navigation context destruction
+misclassified as a revoked browser lease. The installed browser passes default,
+wide and reopened panels. A 50-second local Relay interruption preserves unsaved
+mail and attachments, disables business actions, then recovers without automatic
+save/send. Revocation, lock and identity changes still clear the editor. The
+browser fixture covers 24 layouts, renderer reload and actual overflow rejection.
+The capability refresh fix handles only typed local unsent-capacity failures with
+four bounded retries while the same-session report remains valid; report expiry
+has an independent timer. Twelve new regressions and all 236 desktop tests pass.
+Native observations across refresh periods retained mailbox/draft access.
+ISCP Chromium NetLog contains no business HTTP/WS URL events; it does not inspect
+the separate Go helper's sockets.
+
+The mailbox runtime is upgraded as a matched App-CLI `.15` set after a stopped-
+Gateway checkpoint covering PostgreSQL, durable mail/execution state, profile,
+release pointer and service configuration. QQ historical capture preserves the
+verified receipt time and rechecks exact message/account identity in a two-second
+window. Six new regressions and Linux Controller 163 tests pass (eight real-
+Chromium opt-in tests skipped). Runtime reproduction and paired install,
+tamper/mixed-release rejection, rollback and state/epoch checks pass. Reader and
+Go projections are byte-identical, so the Gateway image and r10 Reader generation
+are retained. The desktop reconnects automatically after the backend restart.
+
+On the installed `.15` set, bounded historical discovery found 11 QQ and seven
+Outlook candidates. One original from each provider was collected and hash-
+verified (6,374 and 10,423 bytes respectively), preserving existing read states.
+QQ first encountered a navigation context failure with zero effects; one same-
+scope retry passed after resident collection recovered. Both originals contain
+no attachments, so incoming attachment handling is still a separate acceptance.
+
+The final Controller cleanup fix is also deployed. With both provider watchers
+confirmed ready, controlled shutdown released all owned processes/cgroups and exited in
+2.606 seconds, without timeout or SIGKILL. It preserved the cancellation failure
+as exit status 1; this proves bounded cleanup, not a successful zero exit. Six
+real-listener regressions and Linux Controller 169 tests pass. The pre-change
+60-second timeout and the limitation of its phase-less logs remain recorded in
+[shutdown evidence](evidence/browser-controller-shutdown-2026-10-09.json).
+
+Standing authorization is revision 2, permanent until manual deletion, with 71
+qualified non-audio operations and renewing short Grants. Docker Relay/Issuer and
+the SSH reverse bridge to work2 must remain running for this test setup. Pinning
+the Issuer's published port corrected restart-induced routing loss without
+replacing authorization. Online Relay is unchanged; ASR/TTS remain deferred.
+InfiniCenter is absent at the configured anchors; no central acceptance is claimed.
+
 ## 10. Related designs
 
 - [Local ISCP integration and renewal acceptance](desktop-iscp-connection-design.md): implemented baseline and actual evidence scope.

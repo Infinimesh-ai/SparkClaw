@@ -13,6 +13,7 @@
     "predev": "node ../../scripts/build-iscp-helper.mjs",
     "dev": "electron src/main/main.mjs",
     "test": "node --test test/*.test.mjs",
+    "test:browser-layout": "node test/run-browser-panel-layout.mjs",
     "qualify": "node test/run-isolated-qualification.mjs",
     "qualify:host": "node test/run-host-native-qualification.mjs",
     "qualify:mac-client": "node test/run-mac-client-native-qualification.mjs",

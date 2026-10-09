@@ -43,6 +43,7 @@ export type DesktopState = {
     unknown_writes?: Array<{ command_id: string; digest: string; local_conversation_id: string; local_task_id: string }>;
   };
   presentation: {
+    layout_revision?: number;
     panel_bounds: { x: number; y: number; width: number; height: number };
     insufficient_space: boolean;
     presented_page_ref: string;

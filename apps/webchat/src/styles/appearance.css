@@ -8,7 +8,7 @@
 .settingsSegmented button.selected { color: #202226; background: #fff; box-shadow: 0 1px 4px #20222617; }
 .settingsSurfaceHint { display: block; margin-top: 8px; color: #666b74; font-size: 11px; }
 
-html[data-text-size="large"] .workbench { zoom: 1.1; height: calc(100dvh / 1.1); }
+html[data-text-size="large"] .workbench { --workbench-zoom: 1.1; zoom: var(--workbench-zoom); height: calc(100dvh / var(--workbench-zoom)); }
 html[data-text-size="large"] .settingsPageSidebar,
 html[data-text-size="large"] .settingsPageMain { height: calc(100dvh / 1.1); }
 

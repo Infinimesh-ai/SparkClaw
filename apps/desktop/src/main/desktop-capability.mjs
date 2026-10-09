@@ -54,7 +54,7 @@ export class DesktopCapability {
       pages: this.registry.desktopSnapshot(),
       browser_host: this.browserHost?.snapshot() || { state: "unavailable" },
       ...this.browserServices.snapshot(),
-      presentation: this.presentation.status(),
+      presentation: { ...this.presentation.status(), layout_revision: this.layoutRevision },
     });
   }
 

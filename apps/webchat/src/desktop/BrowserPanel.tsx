@@ -44,6 +44,7 @@ export function BrowserPanel({ language, localConversationID, toolbar }: { langu
   const hostRef = useRef<HTMLDivElement | null>(null);
   const boundsRevision = useRef(0);
   const [state, setState] = useState<DesktopState | null>(null);
+  const layoutReady = state !== null;
   const [surface, setSurface] = useState<"launcher" | "browser">(localConversationID === undefined ? "launcher" : "browser");
   const [selectedPageRef, setSelectedPageRef] = useState("");
   const [address, setAddress] = useState("");
@@ -55,8 +56,13 @@ export function BrowserPanel({ language, localConversationID, toolbar }: { langu
   useEffect(() => {
     if (!desktop) return;
     let active = true;
-    void desktop.state().then((next) => { if (active) setState(next); }).catch((reason) => setError(message(reason)));
-    const remove = desktop.onState((next) => { if (active) setState(next); });
+    const acceptState = (next: DesktopState) => {
+      if (!active) return;
+      boundsRevision.current = Math.max(boundsRevision.current, next.presentation.layout_revision ?? 0);
+      setState(next);
+    };
+    void desktop.state().then(acceptState).catch((reason) => setError(message(reason)));
+    const remove = desktop.onState(acceptState);
     return () => {
       active = false;
       remove();
@@ -65,16 +71,19 @@ export function BrowserPanel({ language, localConversationID, toolbar }: { langu
   }, [desktop]);
 
   useEffect(() => {
-    if (!desktop || surface !== "browser" || !hostRef.current) return;
+    if (!desktop || !layoutReady || surface !== "browser" || !hostRef.current) return;
     const host = hostRef.current;
     const update = () => {
       const bounds = host.getBoundingClientRect();
-      if (bounds.width <= 0 || bounds.height <= 0) return;
+      // Native bounds must stay inside the DOM host. Rounding position and size
+      // separately can add a pixel when both have fractional halves.
+      const x = Math.ceil(bounds.x), y = Math.ceil(bounds.y);
+      const width = Math.floor(bounds.x + bounds.width) - x;
+      const height = Math.floor(bounds.y + bounds.height) - y;
+      if (width <= 0 || height <= 0) return;
       boundsRevision.current += 1;
-      void desktop.setBounds({
-        x: Math.round(bounds.x), y: Math.round(bounds.y),
-        width: Math.round(bounds.width), height: Math.round(bounds.height),
-      }, boundsRevision.current).catch((reason) => setError(message(reason)));
+      void desktop.setBounds({ x, y, width, height }, boundsRevision.current)
+        .catch((reason) => setError(message(reason)));
     };
     const observer = new ResizeObserver(update);
     observer.observe(host);
@@ -87,7 +96,7 @@ export function BrowserPanel({ language, localConversationID, toolbar }: { langu
       observer.disconnect();
       window.removeEventListener("resize", update);
     };
-  }, [desktop, surface, wide]);
+  }, [desktop, layoutReady, surface, wide]);
 
   const pages = useMemo(() => (state?.pages ?? []).filter((page) => localConversationID === undefined || page.role === "personal" || (page as DesktopPage & { local_conversation_id?: string }).local_conversation_id === localConversationID), [state, localConversationID]);
   useEffect(() => {

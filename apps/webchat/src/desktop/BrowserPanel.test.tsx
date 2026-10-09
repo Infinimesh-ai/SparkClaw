@@ -119,6 +119,14 @@ describe("BrowserPanel launcher", () => {
       await act(async () => resizeCallback([], {} as ResizeObserver));
       expect(desktop.setBounds).toHaveBeenLastCalledWith({ x: 1120, y: 118, width: 320, height: 180 }, 3);
 
+      // The authorization toolbar leaves half-pixel coordinates. Independent
+      // rounding would extend this native view to y=837 outside an 836px window.
+      vi.spyOn(browserHost, "getBoundingClientRect").mockImplementation(() => ({
+        x: 800.5, y: 224.5, width: 639.5, height: 611.5,
+      }) as DOMRect);
+      await act(async () => resizeCallback([], {} as ResizeObserver));
+      expect(desktop.setBounds).toHaveBeenLastCalledWith({ x: 801, y: 225, width: 639, height: 611 }, 4);
+
       const input = host.querySelector(".desktopAddressBar input") as HTMLInputElement;
       await act(async () => {
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
@@ -139,7 +147,7 @@ describe("BrowserPanel launcher", () => {
       vi.mocked(desktop.state).mockResolvedValue({
         ...EMPTY_STATE,
         pages: [{ page_ref: pageRef, role: "personal", task_id: "", title: "Old personal page", url: "https://example.com/private", presented: true, loading: false, crashed: false, can_go_back: false, can_go_forward: false }],
-        presentation: { ...EMPTY_STATE.presentation, presented_page_ref: pageRef },
+        presentation: { ...EMPTY_STATE.presentation, layout_revision: 40, presented_page_ref: pageRef },
       });
       vi.mocked(desktop.presentPersonal).mockClear();
       const localRoot = createRoot(host);
@@ -147,6 +155,10 @@ describe("BrowserPanel launcher", () => {
         await act(async () => localRoot.render(<BrowserPanel language="en" localConversationID="new-conversation" />));
         expect(host.textContent).toContain("Start browsing");
         expect(desktop.presentPersonal).not.toHaveBeenCalled();
+        const remountedHost = host.querySelector(".desktopBrowserHost")!;
+        vi.spyOn(remountedHost, "getBoundingClientRect").mockReturnValue({ x: 801, y: 225, width: 639, height: 611 } as DOMRect);
+        await act(async () => resizeCallback([], {} as ResizeObserver));
+        expect(desktop.setBounds).toHaveBeenLastCalledWith({ x: 801, y: 225, width: 639, height: 611 }, 41);
       } finally {
         await act(async () => localRoot.unmount());
       }

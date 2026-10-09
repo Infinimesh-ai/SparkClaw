@@ -65,6 +65,12 @@ test("desktop capability admits only the trusted workbench main frame and opaque
     revision: 3,
     bounds: { x: 0, y: 0, width: 1440, height: 900 },
   }), /outside the workbench/);
+  const afterLayout = await handler(event, { schema_version: 1, operation: "state" });
+  assert.equal(afterLayout.presentation.layout_revision, 2, "a remounted renderer resumes the accepted layout revision");
+  await assert.rejects(handler(event, {
+    schema_version: 1, operation: "setBounds", revision: 3,
+    bounds: { x: 801, y: 225, width: 639, height: 676 },
+  }), /outside the workbench/, "even a one-pixel bottom overflow stays forbidden");
   assert.deepEqual(calls, [
     ["create", "https://example.test/path"],
     ["show", "page_0123456789abcdef0123456789abcdef", "task"],

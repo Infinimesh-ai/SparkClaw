@@ -4,16 +4,18 @@ package workspacefiles
 
 import (
 	"context"
-	"golang.org/x/sys/unix"
 	"io"
 	"os"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 // ReadRegular opens each component relative to an already opened directory,
 // without following symlinks. It never blocks opening a FIFO/device, and holds
 // the descriptor throughout the bounded read so path substitution cannot change
-// which bytes will be sent.
+// which bytes will be sent. Multiply linked files cannot establish workspace
+// confinement, since another link may expose an inode from outside the workspace.
 func ReadRegular(ctx context.Context, root, relative string, maximum int64) ([]byte, error) {
 	if err := ValidateSharePath(relative); err != nil {
 		return nil, err
@@ -41,11 +43,11 @@ func ReadRegular(ctx context.Context, root, relative string, maximum int64) ([]b
 	}
 	file := os.NewFile(uintptr(fd), relative)
 	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
+	var info unix.Stat_t
+	if err := unix.Fstat(fd, &info); err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > maximum {
+	if info.Mode&unix.S_IFMT != unix.S_IFREG || info.Nlink != 1 || info.Size < 0 || info.Size > maximum {
 		return nil, ErrUnsafePath
 	}
 	if err := ctx.Err(); err != nil {

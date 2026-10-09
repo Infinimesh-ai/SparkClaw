@@ -3,12 +3,47 @@
 package workspacefiles
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"golang.org/x/sys/unix"
 )
+
+func TestReadRegularRejectsHardLinksAcrossWorkspaceBoundary(t *testing.T) {
+	for _, sourceInside := range []bool{false, true} {
+		name := "outside source linked into workspace"
+		if sourceInside {
+			name = "workspace source linked outside"
+		}
+		t.Run(name, func(t *testing.T) {
+			root, outside := t.TempDir(), t.TempDir()
+			insidePath, outsidePath := filepath.Join(root, "file.txt"), filepath.Join(outside, "private.txt")
+			source, link := outsidePath, insidePath
+			if sourceInside {
+				source, link = insidePath, outsidePath
+			}
+			if err := os.WriteFile(source, []byte("linked bytes"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Link(source, link); err != nil {
+				t.Fatal(err)
+			}
+			data, err := ReadRegular(t.Context(), root, "file.txt", 100)
+			if !errors.Is(err, ErrUnsafePath) || len(data) != 0 {
+				t.Fatalf("hard link exposed bytes %q: %v", data, err)
+			}
+			if err := os.Remove(outsidePath); err != nil {
+				t.Fatal(err)
+			}
+			data, err = ReadRegular(t.Context(), root, "file.txt", 100)
+			if err != nil || string(data) != "linked bytes" {
+				t.Fatalf("single workspace link %q: %v", data, err)
+			}
+		})
+	}
+}
 
 func TestReadRegularRejectsPathsSymlinksAndSpecialFiles(t *testing.T) {
 	root, outside := t.TempDir(), t.TempDir()

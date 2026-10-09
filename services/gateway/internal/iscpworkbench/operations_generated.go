@@ -80,4 +80,5 @@ const (
 	OperationExecutionApproval = "execution.approval"
 	OperationExecutionInputPut = "execution.input.put"
 	OperationExecutionFileGet = "execution.file.get"
+	OperationSpeechSessionEvents = "speech.session.events"
 )

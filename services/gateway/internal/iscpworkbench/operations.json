@@ -714,9 +714,11 @@
     "limit_bytes": 63488,
     "dependencies": [],
     "params": [
-      "draft",
+      "cursor",
+      "mailbox_id",
+      "q",
       "limit",
-      "offset"
+      "draft"
     ],
     "http": {
       "method": "GET",
@@ -891,8 +893,8 @@
     "version": 2,
     "direction": "forward",
     "scope": "browser.control",
-    "mutation": true,
-    "recovery": "operation_receipt",
+    "mutation": false,
+    "recovery": "read",
     "limit_bytes": 63488,
     "dependencies": [],
     "params": [],
@@ -904,8 +906,8 @@
     "version": 2,
     "direction": "forward",
     "scope": "browser.read",
-    "mutation": false,
-    "recovery": "read",
+    "mutation": true,
+    "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
     "params": [],
@@ -981,7 +983,7 @@
     "constant": "OperationSpeechSessionOpen",
     "version": 2,
     "direction": "forward",
-    "scope": "speech.transcribe",
+    "scope": "speech.realtime",
     "mutation": true,
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
@@ -994,7 +996,7 @@
     "constant": "OperationSpeechSessionFrame",
     "version": 2,
     "direction": "forward",
-    "scope": "speech.transcribe",
+    "scope": "speech.realtime",
     "mutation": true,
     "recovery": "stream_sequence",
     "limit_bytes": 63488,
@@ -1007,7 +1009,7 @@
     "constant": "OperationSpeechSessionFinish",
     "version": 2,
     "direction": "forward",
-    "scope": "speech.transcribe",
+    "scope": "speech.realtime",
     "mutation": true,
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
@@ -1020,7 +1022,7 @@
     "constant": "OperationSpeechSessionCancel",
     "version": 2,
     "direction": "forward",
-    "scope": "speech.transcribe",
+    "scope": "speech.realtime",
     "mutation": true,
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
@@ -1102,7 +1104,7 @@
     "direction": "forward",
     "scope": "approvals.decide",
     "mutation": true,
-    "recovery": "original_request",
+    "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
     "params": [
@@ -1154,5 +1156,18 @@
       "path": "/api/v1/executions/{request_id}/files/{file_id}"
     },
     "capacity_class": "bulk"
+  },
+  {
+    "name": "speech.session.events",
+    "constant": "OperationSpeechSessionEvents",
+    "version": 2,
+    "direction": "forward",
+    "scope": "speech.realtime",
+    "mutation": false,
+    "recovery": "cursor",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "capacity_class": "events"
   }
 ]

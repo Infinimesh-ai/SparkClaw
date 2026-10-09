@@ -519,8 +519,10 @@ so physical same-subnet LAN connectivity remains unverified.
 
 Both transports save and display reviewed QQ and Outlook drafts with a ClientStore-selected
 158-byte attachment and the matching fingerprint. Gateway has no mount of the
-desktop source. Mail drafts and receipts remain backend-authoritative. No real
-email has been sent; delivery awaits approval of prepared recipients/messages.
+desktop source. Mail drafts and receipts remain backend-authoritative. The user
+has approved all four prepared synthetic self-test messages. Live attachment
+contract repairs and original-task receipt recovery are in progress; no real
+send, delivery or incoming attachment is yet qualified.
 
 Native checks found and fixed one-pixel browser-panel rounding overflow, loss of
 unsaved editors on capability refresh failure, and navigation context destruction

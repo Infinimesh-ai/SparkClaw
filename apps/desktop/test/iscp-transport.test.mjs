@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
-import { ISCPTransport, ISCP_OPERATIONS, ISCP_PROFILE, mapISCPRequest, iscpHelperExecutable } from "../src/main/iscp-transport.mjs";
+import { ISCPTransport, ISCP_OPERATIONS, ISCP_PROFILE, ISCPRequestNotSentError, mapISCPRequest, iscpHelperExecutable } from "../src/main/iscp-transport.mjs";
 
 const origin = "https://iscp.invalid";
 const requestID = "12345678-1234-4123-8123-123456789abc";
@@ -75,6 +75,24 @@ test("four outstanding calls are bounded; abort, deadline and exit reject while 
   await f.transport.start();
   f.children[0].send({ ipc_version: 1, type: "state", state: "authorization_expired" });
   assert.equal(f.transport.state, "transport_ready");
+});
+
+test("only rejection before a pipe write proves an ISCP request was not sent", async (t) => {
+  const f = fixture(t, () => {}, { timeoutMS: 30 });
+  await assert.rejects(f.transport.fetch(`${origin}/api/config`), ISCPRequestNotSentError);
+  await f.transport.start();
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(f.transport.fetch(`${origin}/api/config`, { signal: controller.signal }), ISCPRequestNotSentError);
+  await assert.rejects(f.transport.fetch(`${origin}/api/email`), ISCPRequestNotSentError);
+  assert.equal(f.calls.length, 0);
+  const sent = f.transport.fetch(`${origin}/api/config`);
+  await assert.rejects(sent, (error) => !(error instanceof ISCPRequestNotSentError) && /deadline/u.test(error.message));
+  assert.equal(f.calls.length, 1);
+  const abort = new AbortController();
+  const pending = f.transport.fetch(`${origin}/api/config`, { signal: abort.signal });
+  abort.abort();
+  await assert.rejects(pending, (error) => !(error instanceof ISCPRequestNotSentError) && /canceled/u.test(error.message));
+  assert.equal(f.calls.length, 2);
 });
 
 test("response correlation and profile are validated, including body and status bounds", async (t) => {

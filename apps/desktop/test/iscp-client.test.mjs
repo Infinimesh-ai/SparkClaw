@@ -243,6 +243,27 @@ test("ISCP recovery leaves the four-call budget available for required startup p
   for (const task of tasks) assert.equal(f.store.request(scope, task.request_id).status, "delivered");
 });
 
+test("local ISCP capacity rejection preserves unsent input across restart and an explicit retry submits once", async (t) => {
+  const f = await fixture(t); await f.start();
+  const conversation = f.store.create(scope, "capacity"), task = f.store.enqueue(scope, conversation.id, "still unsent");
+  f.handler = () => undefined;
+  const busy = Array.from({ length: 4 }, () => f.auth.authorizedFetch(`${descriptor.origin}/api/config`));
+  await assert.rejects(f.execution.submit(scope, task.request_id), /concurrency/u);
+  assert.equal(f.auth.status.state, "connected");
+  assert.equal(f.store.request(scope, task.request_id).explicitly_submitted, 0);
+  assert.equal(f.store.request(scope, task.request_id).status, "awaiting_runtime");
+  assert.equal(f.calls.filter((call) => call.operation.startsWith("execution.")).length, 0);
+  for (const request of f.calls.slice(-4)) f.children.at(-1).send({ ipc_version: 1, type: "response", id: request.id,
+    response: { type: "task.result", profile: ISCP_PROFILE, id: request.id, status: 200, body: {} } });
+  for (const response of await Promise.all(busy)) await response.json();
+  await f.restart(); await f.execution.reconcilePending();
+  assert.equal(f.calls.filter((call) => call.operation.startsWith("execution.")).length, 0);
+  f.handler = (request) => ({ status: 200, body: request.operation === "execution.submit" ? completed(f.store.request(scope, task.request_id)) : {} });
+  assert.equal((await f.execution.submit(scope, task.request_id)).status, "delivered");
+  assert.equal(f.calls.filter((call) => call.operation === "execution.submit").length, 1);
+  assert.equal(f.directHTTP, 0);
+});
+
 
 test("binding rejection fences other responses and preserves reauthorization config without reconnecting automatically", async (t) => {
   const f = await fixture(t); await f.start(); const generation = f.auth.generation;

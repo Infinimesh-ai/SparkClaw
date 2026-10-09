@@ -6,6 +6,7 @@ import test from "node:test";
 import { ClientStore } from "../src/main/client-store.mjs";
 import { ExecutionClient } from "../src/main/execution-client.mjs";
 import { ScheduleClient } from "../src/main/schedule-client.mjs";
+import { ISCPRequestNotSentError } from "../src/main/iscp-transport.mjs";
 
 const scope = { deployment_id: "deployment", owner_id: "owner", client_id: "client" };
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -266,5 +267,20 @@ test("a generation change between claim and dispatch permanently misses the unse
   f.store.claimSchedule = (...args) => { const token = claim(...args); f.auth.generation++; return token; };
   f.advance(60000);
   await assert.rejects(f.client.reconcile(scope, row.request_id), /authentication changed/);
+  assert.equal(f.rows()[0].state, "missed"); assert.equal(f.posts().length, 0);
+});
+
+test("a proven local capacity rejection permanently misses the occurrence without replaying it", async (t) => {
+  const f = fixture(t);
+  const row = await f.client.create(scope, f.conversation.id, "busy transport", f.due());
+  const fetcher = f.auth.authorizedExecutionFetch;
+  f.auth.authorizedExecutionFetch = async () => { throw new ISCPRequestNotSentError("ISCP request concurrency limit reached", "capacity"); };
+  f.advance(60000);
+  await assert.rejects(f.client.reconcile(scope, row.request_id), /concurrency/u);
+  assert.equal(f.rows()[0].state, "missed");
+  assert.equal(f.store.request(scope, row.request_id).explicitly_submitted, 0);
+  assert.equal(f.store.request(scope, row.request_id).submission_claim, null);
+  f.auth.authorizedExecutionFetch = fetcher;
+  f.restart(); await settle(); await f.client.reconcilePending();
   assert.equal(f.rows()[0].state, "missed"); assert.equal(f.posts().length, 0);
 });

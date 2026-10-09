@@ -383,6 +383,23 @@ export class ClientStore {
       ('submission_pending','accepted','running','cancel_pending','saved') ORDER BY t.rowid`).all(scopeKey(scope));
   }
 
+  restoreUnsentSubmission(scope, requestID, scheduleClaim) {
+    return this.#transaction(() => {
+      const task = this.request(scope, requestID);
+      if (!task.explicitly_submitted || task.status !== "submission_pending" || task.submission_claim) throw new Error("Submission is no longer unsent");
+      if (scheduleClaim) {
+        // Let the owning scheduler permanently miss this unsent occurrence;
+        // restoring its claim must not make a schedule eligible for catch-up.
+        const schedule = this.scheduledRequest(scope, requestID);
+        if (schedule.state !== "claimed") throw new Error("Schedule is no longer claimed");
+        this.db.prepare("UPDATE tasks SET submission_claim=? WHERE request_id=?").run(scheduleClaim, requestID);
+      } else {
+        this.db.prepare("UPDATE tasks SET explicitly_submitted=0,status='awaiting_runtime',updated_at=? WHERE request_id=?")
+          .run(new Date().toISOString(), requestID);
+      }
+    });
+  }
+
   setExecutionState(scope, requestID, state) {
     const task = this.request(scope, requestID);
     if (!task.explicitly_submitted) throw new Error("Task has not been explicitly submitted");

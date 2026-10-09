@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { CLIENT_LIMITS, parseResultPayload } from "./client-store.mjs";
+import { ISCPRequestNotSentError } from "./iscp-transport.mjs";
 
 const SERVER_STATES = new Set(["accepted", "running", "completed", "failed", "canceled", "unknown", "delivery_expired", "delivered"]);
 const AUTH_GENERATION = Symbol("execution_auth_generation");
@@ -34,18 +35,25 @@ export class ExecutionClient {
     return this.#serialized(scope, requestID, async () => {
       if (!canSubmit()) throw new Error("Execution submission availability changed");
       const original = this.store.request(scope, requestID);
-      if (!original.explicitly_submitted) this.auth.validateExecutionRequest?.(original.context_json);
-      const { first, task } = this.store.markSubmitted(scope, requestID, scheduleClaim);
-      if (!first) {
+      const claimed = scheduleClaim && original.submission_claim === scheduleClaim && original.status === "submission_pending";
+      if (original.explicitly_submitted && !claimed) {
         // Even a 404 cannot prove that a lost admission had no external effect.
         // Explicit buttons and background recovery both reconcile the original
         // request; another execution always requires a new user request ID.
-        await this.#lookup(scope, task);
+        await this.#lookup(scope, original);
         return this.#view(scope, requestID);
       }
+      this.auth.validateExecutionRequest?.(original.context_json);
+      // Uploading immutable, digest-bound inputs cannot execute this task. Keep
+      // its submission fence untouched until staging completes, so an explicit
+      // retry after interruption or restart can safely upload the same files.
+      if (JSON.parse(original.context_json).input_files?.length) await this.#uploadInputs(scope, original);
+      if (!canSubmit()) throw new Error("Execution submission availability changed");
+      this.#sameIdentity(scope);
+      if (this.auth.status.state !== "connected") throw new Error("Execution backend is unavailable; your input is preserved");
+      const { first, task } = this.store.markSubmitted(scope, requestID, scheduleClaim);
+      if (!first) { await this.#lookup(scope, task); return this.#view(scope, requestID); }
       try {
-        if (JSON.parse(task.context_json).input_files?.length) await this.#uploadInputs(scope, task);
-        if (!canSubmit()) throw new Error("Execution submission availability changed");
         const response = await this.#fetch(scope, "/api/v1/executions", {
           method: "POST", headers: { "Content-Type": "application/json", "X-SparkClaw-Digest": task.input_digest }, body: task.context_json,
         });
@@ -56,8 +64,10 @@ export class ExecutionClient {
         }
         await this.#accept(scope, task, await json(response));
       } catch (error) {
-        // A lost admission response is reconciled, never blindly replayed.
-        await this.#lookup(scope, this.store.request(scope, requestID)).catch(() => {});
+        if (error instanceof ISCPRequestNotSentError) this.store.restoreUnsentSubmission(scope, requestID, scheduleClaim);
+        // Only the transport's local pre-write proof releases the intent. Once
+        // sent, even a lookup 404 cannot authorize replay of this execution.
+        else await this.#lookup(scope, this.store.request(scope, requestID)).catch(() => {});
         throw error;
       } finally { this.onChange(); }
       return this.#view(scope, requestID);

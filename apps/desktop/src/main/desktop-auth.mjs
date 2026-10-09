@@ -5,7 +5,7 @@ import { parseBackendDescriptor, loadLocalBackendDescriptor, loadLocalBackendCon
 import { isTLSIdentityError, pinnedHTTPSFetch } from "./pinned-https.mjs";
 import { createConnectionCredential, parseConnectionCredential } from "./connection-credential.mjs";
 import { loadISCPProfile } from "./iscp-profile.mjs";
-import { ISCPTransport, ISCP_OPERATIONS, ISCP_BODY_BYTES, mapISCPRequest } from "./iscp-transport.mjs";
+import { ISCPTransport, ISCP_OPERATIONS, ISCP_BODY_BYTES, ISCPRequestNotSentError, mapISCPRequest } from "./iscp-transport.mjs";
 
 export class DesktopAuth {
   constructor({ vault, descriptorPath, qualificationPaths, installationID, qualification = false, requireLAN = false, fetcher, iscpProfilePath, allowLocalISCPTest = false, packaged = false, resourcesPath, transportFactory = (options) => new ISCPTransport(options), onChange = () => {}, onLock = () => {} }) {
@@ -222,10 +222,14 @@ export class DesktopAuth {
       return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
     } catch (error) {
       this.requests.delete(controller);
+      // Capacity and local validation do not invalidate a healthy session. Keep
+      // the pre-write proof so the execution client can retain unsent intent.
+      if (error instanceof ISCPRequestNotSentError && error.reason !== "unavailable") throw error;
       if (generation === this.generation) {
         if (isTLSIdentityError(error)) await this.logout("identity_conflict");
         else { this.#set("service_unavailable"); this.#scheduleReconnect(); }
       }
+      if (error instanceof ISCPRequestNotSentError) throw error;
       throw new Error("Backend request is unavailable");
     }
   }

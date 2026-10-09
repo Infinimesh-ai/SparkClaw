@@ -240,6 +240,44 @@ test("explicit selected files are frozen locally, uploaded before POST and canno
   assert.equal(f.store.request(scope, f.task.request_id).status, "awaiting_runtime", "other saved input is not replayed");
 });
 
+test("an interrupted upload remains unsent and an explicit restart retry stages the same files before one submission", async (t) => {
+  const calls = []; let target, interrupt = true;
+  const f = fixture(t, async (url, init) => {
+    calls.push({ url, method: init.method, body: init.body });
+    if (init.method === "PUT") {
+      assert.equal(f.store.request(scope, target.request_id).explicitly_submitted, 0);
+      if (interrupt && calls.length === 2) throw new Error("upload response lost");
+      return new Response("{}");
+    }
+    assert.equal(init.method, "POST");
+    return new Response(JSON.stringify({ schema_version: 1, request_id: target.request_id,
+      input_digest: f.store.request(scope, target.request_id).input_digest, state: "accepted" }));
+  });
+  const files = ["first", "second"].map((name) => f.store.saveFile(scope, f.conversation.id, `${name}.txt`, Buffer.from(name)));
+  target = f.store.enqueue(scope, f.conversation.id, "read both files", files.map((file) => file.id));
+  const original = f.store.request(scope, target.request_id);
+  await assert.rejects(f.client.submit(scope, target.request_id), /upload response lost/u);
+  assert.equal(f.store.request(scope, target.request_id).explicitly_submitted, 0);
+  assert.equal(f.store.request(scope, target.request_id).status, "awaiting_runtime");
+  f.restart(); interrupt = false;
+  await f.client.reconcilePending(); assert.equal(calls.length, 2, "staging must not trigger background execution");
+  assert.equal((await f.client.submit(scope, target.request_id)).status, "accepted");
+  assert.deepEqual(calls.map((call) => call.method), ["PUT", "PUT", "PUT", "PUT", "POST"]);
+  assert.equal(calls[0].url, calls[2].url); assert.equal(calls[1].url, calls[3].url);
+  assert.deepEqual(calls[0].body, calls[2].body); assert.deepEqual(calls[1].body, calls[3].body);
+  assert.equal(calls[4].body, original.context_json);
+});
+
+test("availability loss after staging preserves the unsent execution fence", async (t) => {
+  let available = true;
+  const f = fixture(t, async (_url, init) => { assert.equal(init.method, "PUT"); available = false; return new Response("{}"); });
+  const file = f.store.saveFile(scope, f.conversation.id, "input.txt", Buffer.from("immutable"));
+  const task = f.store.enqueue(scope, f.conversation.id, "file task", [file.id]);
+  await assert.rejects(f.client.submit(scope, task.request_id, { canSubmit: () => available }), /availability changed/u);
+  assert.equal(f.store.request(scope, task.request_id).explicitly_submitted, 0);
+  assert.equal(f.store.request(scope, task.request_id).status, "awaiting_runtime");
+});
+
 test("corrupted durable files block ACK retry after restart and preserve receipt for recovery", async (t) => {
   const output = Buffer.from("durable file"); let acks = 0;
   const f = fixture(t, async (url) => {

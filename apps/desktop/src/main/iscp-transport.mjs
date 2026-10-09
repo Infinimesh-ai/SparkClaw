@@ -11,6 +11,16 @@ export const ISCP_BODY_BYTES = MAX_BYTES - 2048;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 
+// Only local validation before a pipe write may prove that a request was not
+// sent. Timeouts, helper exits and aborts after write retain an unknown outcome.
+export class ISCPRequestNotSentError extends Error {
+  constructor(message, reason = "validation") {
+    super(message);
+    this.name = "ISCPRequestNotSentError";
+    this.reason = reason;
+  }
+}
+
 export function iscpHelperExecutable({ packaged = false, resourcesPath } = {}) {
   return packaged ? path.join(resourcesPath, "iscp-workbench") : path.resolve(MODULE_DIR, "../../bin/iscp-workbench");
 }
@@ -62,12 +72,14 @@ export class ISCPTransport {
   }
 
   async fetch(raw, init = {}) {
-    if (this.state !== "transport_ready") throw new Error("ISCP transport is unavailable");
-    const request = mapISCPRequest(raw, init, this.origin);
-    if (this.pending.size >= 4) throw new Error("ISCP request concurrency limit reached");
-    if (init.signal?.aborted) throw new Error("ISCP request was canceled");
+    if (this.state !== "transport_ready") throw new ISCPRequestNotSentError("ISCP transport is unavailable", "unavailable");
+    let request;
+    try { request = mapISCPRequest(raw, init, this.origin); }
+    catch (error) { throw new ISCPRequestNotSentError(error.message); }
+    if (this.pending.size >= 4) throw new ISCPRequestNotSentError("ISCP request concurrency limit reached", "capacity");
+    if (init.signal?.aborted) throw new ISCPRequestNotSentError("ISCP request was canceled", "canceled");
     const id = crypto.randomUUID(); request.id = id;
-    if (Buffer.byteLength(JSON.stringify(request)) > MAX_BYTES) throw new Error("ISCP request exceeds the test profile limit");
+    if (Buffer.byteLength(JSON.stringify(request)) > MAX_BYTES) throw new ISCPRequestNotSentError("ISCP request exceeds the test profile limit");
     return new Promise((resolve, reject) => {
       const signal = init.signal;
       const finish = (handler, value) => {

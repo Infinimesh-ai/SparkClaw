@@ -23,6 +23,22 @@ func (s *Server) NewWorkbenchISCPHandler(cfg iscpworkbench.Config) (iscpworkbenc
 	if err != nil {
 		return nil, err
 	}
+	objects, err := s.NewWorkbenchISCPObjectHandler(cfg, func(ctx context.Context, request iscpworkbench.Request) iscpworkbench.Response {
+		spec, _ := iscpworkbench.LookupOperation(request.Operation)
+		if spec.Version != 1 {
+			return domain(ctx, request)
+		}
+		session, _ := iscpworkbench.SessionFromContext(ctx)
+		ctx = withExecutionAuthorization(ctx, s.workbenchExecutionAuthorization(session))
+		legacy := request
+		legacy.Profile = iscpworkbench.Profile
+		result := textHandler(ctx, legacy)
+		result.Profile = iscpworkbench.ProfileV2
+		return result
+	})
+	if err != nil {
+		return nil, err
+	}
 	return func(ctx context.Context, request iscpworkbench.Request) iscpworkbench.Response {
 		if request.Profile == iscpworkbench.Profile {
 			return textHandler(ctx, request)
@@ -61,21 +77,7 @@ func (s *Server) NewWorkbenchISCPHandler(cfg iscpworkbench.Config) (iscpworkbenc
 				return workbenchV2Error(request, 403, "installation_binding_unavailable")
 			}
 		}
-		if request.Object != nil {
-			return workbenchV2Error(request, 501, "object_transport_unavailable")
-		}
-		if spec.Version == 1 {
-			// Only this trusted adapter can replace the v1 all-tool restriction.
-			// Start with no tools; individually qualified runtime scopes are added
-			// by the signed authorization projection.
-			connected = withExecutionAuthorization(connected, s.workbenchExecutionAuthorization(session))
-			legacy := request
-			legacy.Profile = iscpworkbench.Profile
-			result := textHandler(connected, legacy)
-			result.Profile = iscpworkbench.ProfileV2
-			return workbenchV2Result(result)
-		}
-		return workbenchV2Result(domain(connected, request))
+		return workbenchV2Result(objects(connected, request))
 	}, nil
 }
 

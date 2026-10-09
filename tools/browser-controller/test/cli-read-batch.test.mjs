@@ -13,6 +13,9 @@ import {HostPage} from '../src/host-page.mjs';
 const helper=fileURLToPath(new URL('../src/cli-read-batch.mjs',import.meta.url));
 const fixture=fileURLToPath(new URL('./fixtures/fake-cli-session.mjs',import.meta.url));
 const token='private-fixture-extension-token';
+// The optimized helper verifies daemon ownership through /proc; production
+// HostPage deliberately retains the original guarded path on other platforms.
+const linuxBatchOnly={skip:process.platform!=='linux'};
 async function harness(t,mode='normal'){
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'batch-session-'));
  const output=path.join(root,'output'),cache=path.join(root,'cache');await fs.mkdir(output);await fs.mkdir(cache);
@@ -38,14 +41,14 @@ async function harness(t,mode='normal'){
  },spawns:()=>spawns,calls:async()=>{try{return(await fs.readFile(log,'utf8')).trim().split('\n').map(line=>JSON.parse(line).command);}catch{return[];}}};
 }
 
-test('pinned Session protocol executes pre/read/post in one helper process',async t=>{
+test('pinned Session protocol executes pre/read/post in one helper process',linuxBatchOnly,async t=>{
  const h=await harness(t),result=await h.run();assert.equal(JSON.parse(result.output).result.ok,true);
  assert.deepEqual(await h.calls(),['tab-list','run-code','tab-list']);assert.equal(h.spawns(),1);
 });
 test('production task transport A/B keeps three backend checks while reducing process launches',async t=>{
  for(const enabled of [true,false]){
   const h=await harness(t);const result=await h.task(enabled).runReadCode('async page=>({ok:true})');
-  assert.equal(result.ok,true);assert.deepEqual(await h.calls(),['tab-list','run-code','tab-list']);assert.equal(h.spawns(),enabled?1:3);
+  assert.equal(result.ok,true);assert.deepEqual(await h.calls(),['tab-list','run-code','tab-list']);assert.equal(h.spawns(),enabled&&process.platform==='linux'?1:3);
   assert.equal((await fs.readdir(h.root)).filter(name=>name.startsWith('read-batch-')).length,1,'only fixture request remains; production request removed');
  }
 });
@@ -66,13 +69,13 @@ for(const [mode,commands,reason]of [
  ['context-destroyed',['tab-list','run-code'],'process_exit_context_destroyed'],
  ['hang',['tab-list','run-code'],'timeout'],
  ['overflow',['tab-list','run-code'],'output_overflow'],
-])test(`batch fails closed: ${mode}`,async t=>{
+])test(`batch fails closed: ${mode}`,linuxBatchOnly,async t=>{
  const h=await harness(t,mode),result=await h.run();assert.equal(result.output,undefined);assert.equal(result.error.reason,reason);assert.deepEqual(await h.calls(),commands);
 });
-test('selection changes require a fresh topology observation before reading',async t=>{
+test('selection changes require a fresh topology observation before reading',linuxBatchOnly,async t=>{
  const h=await harness(t,'select'),result=await h.run();assert.ok(result.output);assert.deepEqual(await h.calls(),['tab-list','tab-select','tab-list','run-code','tab-list']);
 });
-test('outer abort/deadline kill the helper rather than leaving pending commands',async t=>{
+test('outer abort/deadline kill the helper rather than leaving pending commands',linuxBatchOnly,async t=>{
  for(const abort of [false,true]){
   const h=await harness(t,'hang-long'),controller=new AbortController();
   const pending=h.run(controller.signal,abort?5000:250);

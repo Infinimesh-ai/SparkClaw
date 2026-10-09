@@ -215,7 +215,7 @@ func (e *Endpoint) operationSlots(r Request) chan struct{} {
 // the ordinary 30-second deadline and earlier caller/session cancellation.
 func operationTimeout(operation string) time.Duration {
 	switch operation {
-	case OperationMailDraftsSave, OperationMailDraftsSend, OperationMailSend:
+	case OperationMailDraftsSave, OperationMailDraftsSend, OperationMailSend, OperationMailProvidersCheck, OperationMailProvidersLogin:
 		return 180 * time.Second
 	default:
 		return requestTimeout

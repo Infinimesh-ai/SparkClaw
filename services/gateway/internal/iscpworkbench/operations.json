@@ -621,6 +621,80 @@
     "capacity_class": "events"
   },
   {
+    "name": "mail.providers.list",
+    "constant": "OperationMailProvidersList",
+    "version": 2,
+    "direction": "forward",
+    "scope": "mail.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "GET",
+      "path": "/api/email/providers"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "mail.providers.update",
+    "constant": "OperationMailProvidersUpdate",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "provider"
+    ],
+    "http": {
+      "method": "PATCH",
+      "path": "/api/email/providers/{provider}"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "mail.providers.check",
+    "constant": "OperationMailProvidersCheck",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "provider"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/email/providers/{provider}/check"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "mail.providers.login",
+    "constant": "OperationMailProvidersLogin",
+    "version": 2,
+    "direction": "forward",
+    "scope": "browser.login",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "provider"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/email/providers/{provider}/login-browser"
+    },
+    "capacity_class": "business"
+  },
+  {
     "name": "mail.mailboxes",
     "constant": "OperationMailMailboxes",
     "version": 2,

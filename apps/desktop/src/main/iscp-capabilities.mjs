@@ -6,6 +6,7 @@ const SURFACES = Object.freeze({
   files: ['transfer.open', 'transfer.status', 'transfer.chunk', 'transfer.commit', 'transfer.abort', 'object.describe', 'object.read', 'object.release', 'execution.input.put', 'execution.file.get'],
   approvals: ['approvals.list', 'approvals.get', 'approvals.decide'],
   events: ['events.pull', 'events.ack', 'events.snapshot'],
+  mail_settings: ['mail.providers.list', 'mail.providers.update', 'mail.providers.check', 'mail.providers.login'],
   mail_read: ['mail.mailboxes', 'mail.sync', 'mail.message'],
   mail_attachments: ['mail.attachment'],
   mail_send: ['mail.drafts.list', 'mail.drafts.save', 'mail.drafts.send', 'mail.drafts.reconcile'],
@@ -32,7 +33,7 @@ export function projectISCPCapabilities(manifest, report, now = Date.now()) {
   const enabled = (surface) => surfaces[surface].enabled;
   return Object.freeze({ operations: Object.freeze([...operations]), surfaces: Object.freeze(surfaces),
     files: enabled('files'), mail: enabled('mail_read'), browser: enabled('browser'), speech: enabled('speech_recording'),
-    approvals: enabled('approvals'), settings: enabled('settings_owner') || enabled('settings_connectors') || enabled('settings_credentials'),
+    approvals: enabled('approvals'), settings: enabled('settings_owner') || enabled('settings_connectors') || enabled('settings_credentials') || enabled('mail_settings'),
     notifications: enabled('notifications'), events: enabled('events'),
   });
 }

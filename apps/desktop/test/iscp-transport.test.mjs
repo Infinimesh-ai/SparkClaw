@@ -225,21 +225,46 @@ test('lost attachment save reconciles original receipt before consulting changed
   assert.deepEqual(f.calls.map(call => call.request.operation), ['mail.drafts.save', 'operations.receipt']);
 });
 
-test('mail save can complete beyond the ordinary 30-second call deadline without relaxing other operations', async t => {
+test('mail save and provider probes can complete beyond 30 seconds without relaxing reads', async t => {
   const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'iscp-mail-budget-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const f = fixture(t, (call, child) => {
     setTimeout(() => child.send({ ipc_version: 1, type: 'response', id: call.id, response: { type: 'task.result', profile: 'sparkclaw.workbench.transport.v2', id: call.id, status: 200, body: { id: 'draft', version: 1 } } }), 45000);
   }, { journalRoot: root, timeoutMS: 30000 });
   await f.transport.start();
-  f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities: { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session', authorization_revision: 1, expires_at: new Date(Date.now() + 300000).toISOString(), operations: ['mail.drafts.save', 'mail.drafts.list'], binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' } } });
+  f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities: { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session', authorization_revision: 1, expires_at: new Date(Date.now() + 300000).toISOString(), operations: ['mail.drafts.save', 'mail.drafts.list', 'mail.providers.check', 'mail.providers.login'], binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' } } });
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const saving = f.transport.fetch(`${origin}/api/email/drafts`, { method: 'POST', body: JSON.stringify({ id: 'draft', attachments: [] }) });
   for (let i = 0; i < 5; i++) await Promise.resolve();
   assert.equal(f.calls.length, 1);
   t.mock.timers.tick(45000);
   assert.equal((await (await saving).json()).version, 1);
+  for (const action of ['check', 'login-browser']) {
+    const pending = f.transport.fetch(`${origin}/api/email/providers/qq_mail/${action}`, {method:'POST',body:'{}'});
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    t.mock.timers.tick(45000);
+    assert.equal((await (await pending).json()).version, 1);
+  }
   const reading = f.transport.fetch(`${origin}/api/email/drafts`);
   const rejected = assert.rejects(reading, /deadline/);
   t.mock.timers.tick(30000); await rejected;
+});
+
+test('mail provider login uses a durable receipt after an explicit unknown response and never reopens', async t => {
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'iscp-provider-login-'));
+  t.after(() => fs.rmSync(root, {recursive:true, force:true}));
+  const f = fixture(t, (call, child) => {
+    const operation = call.request.operation;
+    const body = operation === 'operations.receipt' ? {state:'unknown'} : operation === 'mail.providers.login' ? {code:'operation_outcome_unknown', error:'Login outcome is unknown'} : {provider:'outlook', state:'ready'};
+    child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:operation === 'mail.providers.login' ? 409 : 200,body}});
+  }, {journalRoot:root});
+  await f.transport.start();
+  f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:['mail.providers.login','mail.providers.check','operations.receipt'],binding:{deployment_id:'d',owner_id:'o',client_id:'c'}}});
+  const request = {method:'POST',body:'{}'};
+  assert.equal((await f.transport.fetch(`${origin}/api/email/providers/outlook/login-browser`,request)).status,409);
+  assert.ok(f.transport.mutations.read('mail-provider:outlook:login'));
+  await assert.rejects(f.transport.fetch(`${origin}/api/email/providers/outlook/login-browser`,request), /unknown/);
+  assert.equal((await f.transport.fetch(`${origin}/api/email/providers/outlook/check`,request)).status,200);
+  assert.deepEqual(f.calls.map(call => call.request.operation), ['mail.providers.login','operations.receipt','mail.providers.check']);
 });

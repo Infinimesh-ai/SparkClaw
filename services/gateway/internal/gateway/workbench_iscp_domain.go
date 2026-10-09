@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -119,7 +118,9 @@ func (a *iscpDomainAdapter) handle(ctx context.Context, request iscpworkbench.Re
 	a.receipts.reserved -= domainReceiptMaxBytes
 	// Never erase an intent on cancellation or uncertain persistence. The client
 	// reconciles business state and cannot turn a lost response into a second write.
-	if ctx.Err() != nil {
+	// Login may have opened the browser before a provider/storage failure. Keep
+	// that intent fenced as well; the independent check action remains available.
+	if ctx.Err() != nil || request.Operation == iscpworkbench.OperationMailProvidersLogin && result.status > http.StatusBadRequest {
 		return respond(domainError(409, "operation_outcome_unknown"))
 	}
 	receipt.Complete, receipt.Status, receipt.Body = true, result.status, result.body
@@ -158,7 +159,7 @@ func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.
 		}
 		spec, known := iscpworkbench.LookupOperation(receipt.Operation)
 		session, authenticated := iscpworkbench.SessionFromContext(ctx)
-		if !known || !authenticated || !slices.Contains(session.Scopes, spec.Scope) {
+		if !known || !authenticated || !workbenchOperationPermitted(spec, session.Scopes) {
 			return domainError(403, "permission_denied")
 		}
 		if !receipt.Complete {
@@ -175,6 +176,8 @@ func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.
 		return a.speech(ctx, request)
 	case iscpworkbench.OperationEventsSnapshot, iscpworkbench.OperationStateSnapshot, iscpworkbench.OperationEventsPull, iscpworkbench.OperationEventsAck, iscpworkbench.OperationEventsSubscribe, iscpworkbench.OperationEventsResume, iscpworkbench.OperationEventsUnsubscribe:
 		return a.events(ctx, request)
+	case iscpworkbench.OperationMailProvidersList, iscpworkbench.OperationMailProvidersUpdate, iscpworkbench.OperationMailProvidersCheck, iscpworkbench.OperationMailProvidersLogin:
+		return a.mailProviders(ctx, request)
 	case iscpworkbench.OperationMailMailboxes, iscpworkbench.OperationMailSync, iscpworkbench.OperationMailMessage, iscpworkbench.OperationMailAttachment, iscpworkbench.OperationMailDraftsList, iscpworkbench.OperationMailDraftsSave, iscpworkbench.OperationMailSend, iscpworkbench.OperationMailDraftsSend, iscpworkbench.OperationMailDraftsReconcile:
 		return a.mail(ctx, request)
 	case iscpworkbench.OperationBrowserHostGrant, iscpworkbench.OperationBrowserHostRegister, iscpworkbench.OperationBrowserHostPoll, iscpworkbench.OperationBrowserHostReply, iscpworkbench.OperationBrowserHostHeartbeat, iscpworkbench.OperationBrowserHostClose, iscpworkbench.OperationBrowserHostRevoke, iscpworkbench.OperationBrowserReceipt, iscpworkbench.OperationBrowserReconcile:

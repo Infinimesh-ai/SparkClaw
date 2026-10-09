@@ -54,7 +54,7 @@ func (s *Server) NewWorkbenchISCPHandler(cfg iscpworkbench.Config) (iscpworkbenc
 		if !known || spec.Direction != "forward" {
 			return workbenchV2Error(request, 400, "invalid_operation_direction")
 		}
-		if !slices.Contains(session.Scopes, spec.Scope) {
+		if !workbenchOperationPermitted(spec, session.Scopes) {
 			return workbenchV2Error(request, 403, "permission_denied")
 		}
 		if spec.Version == 2 && request.Operation != iscpworkbench.OperationCapabilitiesGet && !slices.Contains(cfg.QualifiedCapabilities, request.Operation) {

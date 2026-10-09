@@ -10,7 +10,7 @@ type Feedback = {
   message: string;
 };
 
-export function BrowserEmailSettings({ text }: { text: Copy }) {
+export function BrowserEmailSettings({ text, backendLoginNotice }: { text: Copy; backendLoginNotice?: string }) {
   const [providers, setProviders] = useState<EmailProviderStatus[] | null>(null);
   const [busy, setBusy] = useState("");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
@@ -115,6 +115,7 @@ export function BrowserEmailSettings({ text }: { text: Copy }) {
         </button>
       </div>
 
+      {backendLoginNotice && <p className="settingsSurfaceHint">{backendLoginNotice}</p>}
       <div className="emailProviderList">
         {visibleProviders.map((provider) => {
           const known = Boolean(providers?.some((item) => item.provider === provider.provider));
@@ -146,7 +147,7 @@ export function BrowserEmailSettings({ text }: { text: Copy }) {
                     `login:${provider.provider}`,
                     () => api.openEmailLoginBrowser(provider.provider),
                     text.settings.browserEmailLoginOpened,
-                    text.settings.browserEmailLoginOpenedDetail
+                    backendLoginNotice || text.settings.browserEmailLoginOpenedDetail
                   )}
                   disabled={Boolean(busy) || !known || !provider.enabled}
                   title={text.settings.browserEmailOpenLogin}

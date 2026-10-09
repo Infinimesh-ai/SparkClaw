@@ -478,6 +478,29 @@ Gateway had no mount of the desktop data, and native direct business HTTP/WS
 attempts and Chromium business URL events were zero. The first native run exposed
 a local error-code mapping defect; its correction passed the complete rerun.
 
+## 9.5 Provider configuration over ISCP, 2026-10-09
+
+The fixed v2 registry now includes `mail.providers.list`, `update`, `check` and
+`login`, mapped to the existing backend provider service. Listing requires
+`mail.read`; updates and login checks require `mail.read` plus `settings.write`;
+opening a login browser additionally requires `browser.login`. The same checks
+apply to admission, capability reports and durable receipt access. Update accepts
+only enable/default and expected version; intake changes are a separate domain.
+
+The independent `mail_settings` surface mounts provider controls in Connections
+only while its current capability report is qualified and permitted. It can be
+used before a mailbox is bound and does not enable mail sending. Login explicitly
+opens the backend's dedicated browser; opening a page is not a successful probe.
+Mutations use durable receipts. Lost or uncertain login results cannot open a
+second page, including after restart; checking the provider remains a separate
+operation. An explicit unknown response also retains the desktop mutation fence.
+
+This additive registry requires matching desktop/helper/backend versions and
+explicit qualification of the four operations; Relay framing and v1 are unchanged.
+Encrypted issuer/transport, permission, receipt/restart and UI checks are isolated
+implementation evidence. They do not establish a deployed version, actual provider
+login, mail delivery or ASR/TTS acceptance.
+
 ## 10. Related designs
 
 - [Local ISCP integration and renewal acceptance](desktop-iscp-connection-design.md): implemented baseline and actual evidence scope.

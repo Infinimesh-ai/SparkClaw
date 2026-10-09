@@ -71,7 +71,7 @@ export function LocalWorkbench() {
     approvals: surfaceEnabled(connection, "approvals"), notifications: surfaceEnabled(connection, "notifications"),
     settingsOwner: surfaceEnabled(connection, "settings_owner"), settingsConnectors: surfaceEnabled(connection, "settings_connectors"), settingsCredentials: surfaceEnabled(connection, "settings_credentials"),
   };
-  const settingsTabs: PanelTab[] | undefined = iscp ? ["appearance", "devices", ...(capabilities.settingsOwner ? ["settings" as const] : []), ...(capabilities.settingsConnectors ? ["connections" as const] : []), ...(capabilities.settingsCredentials ? ["models-tools" as const] : [])] : undefined;
+  const settingsTabs: PanelTab[] | undefined = iscp ? ["appearance", "devices", ...(capabilities.settingsOwner ? ["settings" as const] : []), ...(capabilities.settingsConnectors || surfaceEnabled(connection, "mail_settings") ? ["connections" as const] : []), ...(capabilities.settingsCredentials ? ["models-tools" as const] : [])] : undefined;
   const [browserState, setBrowserState] = useState<DesktopState>();
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [ready, setReady] = useState<ReadyStatus | null>(null);

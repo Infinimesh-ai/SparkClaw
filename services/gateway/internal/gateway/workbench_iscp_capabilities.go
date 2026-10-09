@@ -53,6 +53,7 @@ func (a *iscpDomainAdapter) capabilitiesWithSession(ctx context.Context, request
 		{"tools", []string{iscpworkbench.OperationToolsList, iscpworkbench.OperationToolsInvoke}, toolsReady},
 		{"files", []string{iscpworkbench.OperationTransferOpen, iscpworkbench.OperationTransferChunk, iscpworkbench.OperationTransferCommit, iscpworkbench.OperationTransferStatus, iscpworkbench.OperationTransferAbort, iscpworkbench.OperationObjectDescribe, iscpworkbench.OperationObjectRelease, iscpworkbench.OperationObjectRead, iscpworkbench.OperationExecutionInputPut, iscpworkbench.OperationExecutionFileGet}, true},
 		{"events", []string{iscpworkbench.OperationEventsSnapshot, iscpworkbench.OperationEventsPull, iscpworkbench.OperationEventsAck}, true},
+		{"mail_settings", []string{iscpworkbench.OperationMailProvidersList, iscpworkbench.OperationMailProvidersUpdate, iscpworkbench.OperationMailProvidersCheck, iscpworkbench.OperationMailProvidersLogin}, a.server.email != nil},
 		{"mail_read", []string{iscpworkbench.OperationMailMailboxes, iscpworkbench.OperationMailSync, iscpworkbench.OperationMailMessage}, a.server.mailSync != nil && a.server.emailManagement != nil},
 		{"mail_attachments", []string{iscpworkbench.OperationMailAttachment, iscpworkbench.OperationObjectRead}, a.server.emailManagement != nil},
 		{"mail_send", []string{iscpworkbench.OperationMailDraftsList, iscpworkbench.OperationMailDraftsSave, iscpworkbench.OperationMailDraftsSend, iscpworkbench.OperationMailDraftsReconcile}, mailSend},
@@ -76,7 +77,7 @@ func (a *iscpDomainAdapter) capabilitiesWithSession(ctx context.Context, request
 				capability.Supported = false
 				continue
 			}
-			if !slices.Contains(session.Scopes, spec.Scope) {
+			if !workbenchOperationPermitted(spec, session.Scopes) {
 				capability.Permitted = false
 			}
 			if !slices.Contains(a.config.QualifiedCapabilities, name) {

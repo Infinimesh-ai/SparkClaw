@@ -143,14 +143,14 @@ export class ISCPTransport {
       ...(headers.get("x-sparkclaw-digest")?{input_digest:headers.get("x-sparkclaw-digest")}:{}),
       ...(init.operationID?{operation_id:init.operationID}:{}),...(init.expectedRevision?{expected_revision:init.expectedRevision}:{})};
     const rawBody=init.body === undefined ? undefined : typeof init.body === "string" ? init.body : new TextDecoder("utf-8",{fatal:true}).decode(init.body);
-    if(request.operation.startsWith("settings.") || request.operation.startsWith("notifications.") || request.operation.startsWith("mail.drafts.") || request.operation === "execution.approval") return this.#presentation(request,init,rawBody);
+    if(request.operation.startsWith("settings.") || request.operation.startsWith("notifications.") || request.operation.startsWith("mail.drafts.") || request.operation.startsWith("mail.providers.") || request.operation === "execution.approval") return this.#presentation(request,init,rawBody);
     return this.#request(request,init,rawBody);
   }
 
   async #presentation(request,init,rawBody) {
     const spec=requireOperation(request.operation);
     const family=request.operation.split(".")[1];
-    const resource=request.operation.startsWith("mail.drafts.") ? `mail-draft:${request.params?.draft || request.body?.id || "list"}${request.operation === "mail.drafts.reconcile" ? ":reconcile" : ""}` : request.operation === "execution.approval" ? `approval:${request.params?.request_id}:${request.params?.approval_id}` : request.operation.startsWith("notifications.") ? "notifications" : family==='owner' ? 'owner' : family==='connectors' ? 'connectors' : `integration:${request.params?.integration_id || ''}`;
+    const resource=request.operation.startsWith("mail.providers.") ? `mail-provider:${request.params?.provider || "list"}:${request.operation.split(".").at(-1)}` : request.operation.startsWith("mail.drafts.") ? `mail-draft:${request.params?.draft || request.body?.id || "list"}${request.operation === "mail.drafts.reconcile" ? ":reconcile" : ""}` : request.operation === "execution.approval" ? `approval:${request.params?.request_id}:${request.params?.approval_id}` : request.operation.startsWith("notifications.") ? "notifications" : family==='owner' ? 'owner' : family==='connectors' ? 'connectors' : `integration:${request.params?.integration_id || ''}`;
     if (this.presentationPending.has(resource)) throw new ISCPRequestNotSentError("A change to this resource is already in progress", "capacity");
     this.presentationPending.add(resource);
     try { return await this.#applyPresentation(resource, spec, request, init, rawBody); }
@@ -182,7 +182,14 @@ export class ISCPTransport {
     let response;
     try {response=await this.#request(request,init,rawBody);}
     catch(error){if(record && error instanceof ISCPRequestNotSentError)this.mutations.complete(resource,record.operation_id);throw error;}
-    if(record)this.mutations.complete(resource,record.operation_id);
+    // An explicit unknown response is still an outstanding durable intent.
+    // It must not disappear merely because the transport delivered the error.
+    let unknown = false;
+    if (record && !response.ok) {
+      const result = await response.clone().json().catch(() => ({}));
+      unknown = [result.code, result.error_code, response.headers.get("x-sparkclaw-error-code")].includes("operation_outcome_unknown");
+    }
+    if(record && !unknown)this.mutations.complete(resource,record.operation_id);
     return this.#presentationResponse(resource,response);
   }
 
@@ -238,7 +245,7 @@ export class ISCPTransport {
       const signal=init.signal;
       const finish=(handler,value)=>{clearTimeout(timer);signal?.removeEventListener("abort",cancel);this.pending.delete(id);handler(value);};
       const cancel=()=>finish(reject,new Error("ISCP request was canceled"));
-      const timeoutMS = ["mail.drafts.save", "mail.drafts.send"].includes(request.operation) && this.timeoutMS === 30000 ? 180000 : this.timeoutMS;
+      const timeoutMS = ["mail.drafts.save", "mail.drafts.send", "mail.providers.check", "mail.providers.login"].includes(request.operation) && this.timeoutMS === 30000 ? 180000 : this.timeoutMS;
       const timer=setTimeout(()=>finish(reject,new Error("ISCP request deadline exceeded")),timeoutMS);
       this.pending.set(id,{request,capacityClass,resolve:(value)=>finish(resolve,value),reject:(error)=>finish(reject,error)});
       signal?.addEventListener("abort",cancel,{once:true});

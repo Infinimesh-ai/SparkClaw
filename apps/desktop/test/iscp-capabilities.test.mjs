@@ -34,3 +34,15 @@ test('workspace attachment sending requires its own qualification and the qualif
  }
  assert.equal(projectISCPCapabilities(full,{...full,capabilities:capabilities.filter(value=>value.id!=='mail_send_attachments')}).surfaces.mail_send_attachments.enabled,false);
 });
+
+test('mail settings qualify independently before any mailbox exists and expire with the report', () => {
+  const operations = ['mail.providers.list','mail.providers.update','mail.providers.check','mail.providers.login'];
+  const full = {...manifest,operations};
+  const capabilities = [{...row,id:'mail_settings'}];
+  const projection = projectISCPCapabilities(full,{...full,capabilities});
+  assert.equal(projection.surfaces.mail_settings.enabled,true);
+  assert.equal(projection.settings,true);
+  assert.equal(projection.mail,false);
+  assert.equal(projectISCPCapabilities(full,{...full,capabilities},Date.now()+120000).surfaces.mail_settings.enabled,false);
+  for(const name of operations)assert.equal(projectISCPCapabilities({...full,operations:operations.filter(value=>value!==name)},{...full,capabilities}).surfaces.mail_settings.enabled,false);
+});

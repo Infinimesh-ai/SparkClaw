@@ -114,6 +114,10 @@ func (s *PostgresStore) saveOwnerProfile(ctx context.Context, operation StoreOpe
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return app.OwnerProfile{}, finishPostgresOwnerPreCandidate(ctx, operation, session, transaction, &release, err)
 	}
+	if err := checkOwnerProfilePrecondition(ctx, current, exists); err != nil {
+		rollbackErr := transaction.Rollback(ctx)
+		return app.OwnerProfile{}, errors.Join(err, rollbackErr)
+	}
 	candidate := prepareOwnerProfile(profile, current, exists, s.ownerNow(), s.ownerWriteHighWater[profile.ID])
 	s.ownerWriteHighWater[candidate.ID] = candidate.UpdatedAt
 	if _, err := transaction.Exec(ctx, `

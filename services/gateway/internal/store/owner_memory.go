@@ -70,6 +70,9 @@ func (s *MemoryStore) saveOwnerProfile(ctx context.Context, operation StoreOpera
 		return app.OwnerProfile{}, err
 	}
 	current, exists := s.ownerProfiles[profile.ID]
+	if err := checkOwnerProfilePrecondition(ctx, current, exists); err != nil {
+		return app.OwnerProfile{}, err
+	}
 	candidate := prepareOwnerProfile(profile, current, exists, s.ownerNow(), s.ownerWriteHighWater[profile.ID])
 	s.ownerWriteHighWater[candidate.ID] = candidate.UpdatedAt
 	s.ownerProfiles[candidate.ID] = cloneOwnerProfile(candidate)

@@ -666,7 +666,9 @@
     "recovery": "read",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": [],
+    "params": [
+      "mail"
+    ],
     "capacity_class": "business"
   },
   {
@@ -700,7 +702,9 @@
     "recovery": "operation_receipt",
     "limit_bytes": 63488,
     "dependencies": [],
-    "params": [],
+    "params": [
+      "draft"
+    ],
     "capacity_class": "business"
   },
   {

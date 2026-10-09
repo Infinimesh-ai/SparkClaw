@@ -254,8 +254,9 @@ export class DesktopAuth {
     if (this.descriptor.transport === "iscp" && !this.transport?.capabilities) mapISCPRequest(raw, init, this.descriptor.origin);
     const generation = this.generation;
     const mailMutation = ["POST", "PUT"].includes((init.method || "GET").toUpperCase()) && /^\/api\/email\/drafts(?:\/[^/]+(?:\/send)?)?$/u.test(url.pathname) && !url.search;
+    const mailReconcile = (init.method || "GET").toUpperCase() === "POST" && /^\/api\/email\/drafts\/[^/]+\/reconcile$/u.test(url.pathname) && !url.search;
     const mailLogin = (init.method || "GET").toUpperCase() === "POST" && /^\/api\/email\/providers\/(outlook|qq_mail|gmail)\/(check|login-browser)$/u.test(url.pathname) && !url.search;
-    const requestTimeout = mailMutation || mailLogin ? 180000 : 30000;
+    const requestTimeout = mailMutation || mailReconcile || mailLogin ? 180000 : 30000;
     const controller = new AbortController();
     this.requests.add(controller);
     const headers = new Headers(init.headers);

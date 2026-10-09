@@ -268,18 +268,20 @@ test("logout during slow encrypted save fences stale login without deleting a ne
   assert.equal((await vault.load()).authorization, `Bearer ${token}-replacement`);
 });
 
-test("only bounded mail mutations and supported login operations receive longer deadlines; caller cancellation applies", async t => {
+test("only bounded mail workflows and supported login operations receive longer deadlines; caller cancellation applies", async t => {
   const budgets = [];
   t.mock.method(AbortSignal, "timeout", milliseconds => { budgets.push(milliseconds); return new AbortController().signal; });
   const auth = new DesktopAuth({});
   auth.status = { state: "connected" }; auth.connection = {};
   auth.descriptor = { transport: "iscp", origin: "https://iscp.invalid" };
   auth.transport = { capabilities: {}, async fetch(_url, init) { assert.equal(init.signal.aborted, false); return new Response(null, { status: 204 }); } };
-  for (const [route, method] of [["/api/email/drafts", "POST"], ["/api/email/drafts/draft/send", "POST"], ["/api/email/drafts", "GET"], ["/api/email/drafts/draft/reconcile", "POST"], ["/api/owner", "POST"], ["/api/email/providers/qq_mail/check", "POST"], ["/api/email/providers/outlook/login-browser", "POST"], ["/api/email/providers/other/check", "POST"]]) {
+  for (const [route, method] of [["/api/email/drafts", "POST"], ["/api/email/drafts/draft/send", "POST"], ["/api/email/drafts", "GET"], ["/api/email/drafts/draft/reconcile", "POST"], ["/api/owner", "POST"], ["/api/email/providers/qq_mail/check", "POST"], ["/api/email/providers/outlook/login-browser", "POST"], ["/api/email/providers/other/check", "POST"], ["/api/email/drafts/draft/reconcile", "GET"], ["/api/email/drafts/draft/reconcile", "PUT"], ["/api/email/drafts/draft/reconcile/extra", "POST"], ["/api/email/drafts/draft/reconcile?extra=1", "POST"]]) {
     assert.equal((await auth.authorizedFetch(`https://iscp.invalid${route}`, { method })).status, 204);
   }
-  assert.deepEqual(budgets, [180000, 180000, 30000, 30000, 30000, 180000, 180000, 30000]);
+  assert.deepEqual(budgets, [180000, 180000, 30000, 180000, 30000, 180000, 180000, 30000, 30000, 30000, 30000, 30000]);
   const canceled = new AbortController(); canceled.abort();
   auth.transport.fetch = async (_url, init) => { assert.equal(init.signal.aborted, true); return new Response(null, { status: 204 }); };
-  await auth.authorizedFetch("https://iscp.invalid/api/email/drafts", { method: "POST", signal: canceled.signal });
+  for (const route of ["/api/email/drafts", "/api/email/drafts/draft/reconcile"]) {
+    await auth.authorizedFetch(`https://iscp.invalid${route}`, { method: "POST", signal: canceled.signal });
+  }
 });

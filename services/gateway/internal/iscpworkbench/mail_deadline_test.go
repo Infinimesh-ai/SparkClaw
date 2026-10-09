@@ -15,7 +15,7 @@ func TestMailRPCBudgetsAllowBoundedUploadsAndPreserveCancellation(t *testing.T) 
 		}
 		remaining := time.Until(deadline)
 		want := 30 * time.Second
-		if request.Operation == OperationMailDraftsSave || request.Operation == OperationMailDraftsSend || request.Operation == OperationMailSend || request.Operation == OperationMailProvidersCheck || request.Operation == OperationMailProvidersLogin {
+		if request.Operation == OperationMailDraftsSave || request.Operation == OperationMailDraftsSend || request.Operation == OperationMailDraftsReconcile || request.Operation == OperationMailSend || request.Operation == OperationMailProvidersCheck || request.Operation == OperationMailProvidersLogin {
 			want = 180 * time.Second
 		}
 		if remaining > want || remaining < want-time.Second {
@@ -26,18 +26,20 @@ func TestMailRPCBudgetsAllowBoundedUploadsAndPreserveCancellation(t *testing.T) 
 		}
 		return Response{Status: 200, Body: json.RawMessage(`{}`)}
 	})
-	for _, op := range []string{OperationMailDraftsSave, OperationMailDraftsSend, OperationMailSend, OperationMailProvidersCheck, OperationMailProvidersLogin, OperationMailDraftsList, OperationTransferChunk, OperationSettingsOwnerGet} {
+	for _, op := range []string{OperationMailDraftsSave, OperationMailDraftsSend, OperationMailDraftsReconcile, OperationMailSend, OperationMailProvidersCheck, OperationMailProvidersLogin, OperationMailDraftsList, OperationTransferChunk, OperationSettingsOwnerGet} {
 		r := Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: op, OperationID: newUUID(), Body: json.RawMessage(`{}`)}
 		response, err := initiator.Call(t.Context(), r)
 		if err != nil || response.Status != 200 {
 			t.Fatalf("%s call %+v %v", op, response, err)
 		}
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
-	defer cancel()
-	start := time.Now()
-	_, err := initiator.Call(ctx, Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: OperationMailDraftsSend, OperationID: newUUID(), Body: json.RawMessage(`{"wait_for_cancel":true}`)})
-	if err == nil || time.Since(start) > time.Second {
-		t.Fatal("mail budget ignored earlier caller cancellation", err)
+	for _, op := range []string{OperationMailDraftsSend, OperationMailDraftsReconcile} {
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		start := time.Now()
+		_, err := initiator.Call(ctx, Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: op, OperationID: newUUID(), Body: json.RawMessage(`{"wait_for_cancel":true}`)})
+		cancel()
+		if err == nil || time.Since(start) > time.Second {
+			t.Fatal("mail budget ignored earlier caller cancellation", op, err)
+		}
 	}
 }

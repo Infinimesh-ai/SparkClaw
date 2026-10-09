@@ -245,7 +245,7 @@ export class ISCPTransport {
       const signal=init.signal;
       const finish=(handler,value)=>{clearTimeout(timer);signal?.removeEventListener("abort",cancel);this.pending.delete(id);handler(value);};
       const cancel=()=>finish(reject,new Error("ISCP request was canceled"));
-      const timeoutMS = ["mail.drafts.save", "mail.drafts.send", "mail.providers.check", "mail.providers.login"].includes(request.operation) && this.timeoutMS === 30000 ? 180000 : this.timeoutMS;
+      const timeoutMS = ["mail.drafts.save", "mail.drafts.send", "mail.drafts.reconcile", "mail.providers.check", "mail.providers.login"].includes(request.operation) && this.timeoutMS === 30000 ? 180000 : this.timeoutMS;
       const timer=setTimeout(()=>finish(reject,new Error("ISCP request deadline exceeded")),timeoutMS);
       this.pending.set(id,{request,capacityClass,resolve:(value)=>finish(resolve,value),reject:(error)=>finish(reject,error)});
       signal?.addEventListener("abort",cancel,{once:true});

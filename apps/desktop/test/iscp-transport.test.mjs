@@ -225,14 +225,14 @@ test('lost attachment save reconciles original receipt before consulting changed
   assert.deepEqual(f.calls.map(call => call.request.operation), ['mail.drafts.save', 'operations.receipt']);
 });
 
-test('mail save and provider probes can complete beyond 30 seconds without relaxing reads', async t => {
+test('mail save, receipt reconciliation and provider probes can complete beyond 30 seconds without relaxing reads', async t => {
   const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'iscp-mail-budget-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const f = fixture(t, (call, child) => {
     setTimeout(() => child.send({ ipc_version: 1, type: 'response', id: call.id, response: { type: 'task.result', profile: 'sparkclaw.workbench.transport.v2', id: call.id, status: 200, body: { id: 'draft', version: 1 } } }), 45000);
   }, { journalRoot: root, timeoutMS: 30000 });
   await f.transport.start();
-  f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities: { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session', authorization_revision: 1, expires_at: new Date(Date.now() + 300000).toISOString(), operations: ['mail.drafts.save', 'mail.drafts.list', 'mail.providers.check', 'mail.providers.login'], binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' } } });
+  f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities: { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session', authorization_revision: 1, expires_at: new Date(Date.now() + 300000).toISOString(), operations: ['mail.drafts.save', 'mail.drafts.list', 'mail.drafts.reconcile', 'mail.providers.check', 'mail.providers.login'], binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' } } });
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const saving = f.transport.fetch(`${origin}/api/email/drafts`, { method: 'POST', body: JSON.stringify({ id: 'draft', attachments: [] }) });
   for (let i = 0; i < 5; i++) await Promise.resolve();
@@ -245,6 +245,11 @@ test('mail save and provider probes can complete beyond 30 seconds without relax
     t.mock.timers.tick(45000);
     assert.equal((await (await pending).json()).version, 1);
   }
+  const reconciling = f.transport.fetch(`${origin}/api/email/drafts/draft/reconcile`, { method: 'POST', body: '{}' });
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+  t.mock.timers.tick(45000);
+  assert.equal((await (await reconciling).json()).version, 1);
+  assert.equal(f.calls.at(-1).request.operation, 'mail.drafts.reconcile');
   const reading = f.transport.fetch(`${origin}/api/email/drafts`);
   const rejected = assert.rejects(reading, /deadline/);
   t.mock.timers.tick(30000); await rejected;

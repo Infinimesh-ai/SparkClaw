@@ -211,11 +211,12 @@ func (e *Endpoint) operationSlots(r Request) chan struct{} {
 }
 
 // Mail sends can upload the bounded 10 MiB attachment manifest through the
-// browser runtime. Keep transport and business budgets aligned while preserving
+// browser runtime. Receipt reconciliation first probes the account and then
+// inspects the original task. Keep those bounded workflows aligned while preserving
 // the ordinary 30-second deadline and earlier caller/session cancellation.
 func operationTimeout(operation string) time.Duration {
 	switch operation {
-	case OperationMailDraftsSave, OperationMailDraftsSend, OperationMailSend, OperationMailProvidersCheck, OperationMailProvidersLogin:
+	case OperationMailDraftsSave, OperationMailDraftsSend, OperationMailDraftsReconcile, OperationMailSend, OperationMailProvidersCheck, OperationMailProvidersLogin:
 		return 180 * time.Second
 	default:
 		return requestTimeout

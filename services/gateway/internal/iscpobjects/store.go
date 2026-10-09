@@ -213,9 +213,9 @@ func purposeLimit(p string) int64 {
 		return 2 << 20
 	case "context":
 		return 1 << 20
-	case "execution_input", "execution_result", "event_snapshot", "browser_capture":
+	case "execution_input", "execution_result", "event_snapshot", "browser_capture", "request_body":
 		return 8 << 20
-	case "speech_recording":
+	case "speech_recording", "speech_audio":
 		return 25 << 20
 	case "file", "mail_attachment":
 		return 64 << 20

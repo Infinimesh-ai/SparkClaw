@@ -3,8 +3,10 @@ package iscpobjects
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -164,5 +166,32 @@ func TestHandlerStrictSchemaAndNoPathEscape(t *testing.T) {
 		if !ok || r.Status < 400 {
 			t.Fatalf("unsafe operation succeeded %+v", r)
 		}
+	}
+}
+
+func newID() (string, error) {
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	raw[6] = (raw[6] & 15) | 64
+	raw[8] = (raw[8] & 63) | 128
+	return fmt.Sprintf("%x-%x-%x-%x-%x", raw[:4], raw[4:6], raw[6:8], raw[8:10], raw[10:]), nil
+}
+func TestRepeatedPublicationKeepsOriginalReceiptAndReservation(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	b := binding()
+	first, err := s.Put(ctx, b, "execution_result", "result.json", "application/json", []byte(`{"ok":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.Put(ctx, b, "execution_result", "result.json", "application/json", []byte(`{"ok":true}`))
+	if err != nil || first != second {
+		t.Fatalf("publication duplicated receipt: %+v %+v %v", first, second, err)
+	}
+	entries, _ := os.ReadDir(s.directory)
+	if len(entries) != 1 {
+		t.Fatal("repeated lookup reserved objects repeatedly")
 	}
 }

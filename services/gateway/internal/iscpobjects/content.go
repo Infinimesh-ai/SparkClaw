@@ -2,8 +2,9 @@ package iscpobjects
 
 import (
 	"context"
-	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 
 	wb "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
@@ -12,13 +13,23 @@ import (
 // Put is the same verified commit entry used by incoming chunks. Domain code
 // cannot publish a manifest before the object and journal are durable.
 func (s *Store) Put(ctx context.Context, b Binding, purpose, name, mediaType string, raw []byte) (wb.ObjectReference, error) {
-	id, err := newID()
-	if err != nil {
-		return wb.ObjectReference{}, err
-	}
+	// A repeated lookup after a lost response or restart resolves the same
+	// committed object, without reserving disk again or extending retention.
+	manifest, _ := json.Marshal(struct {
+		Binding                          Binding
+		Purpose, Name, MediaType, Digest string
+	}{b, purpose, name, mediaType, digest(raw)})
+	sum := sha256.Sum256(manifest)
+	idBytes := sum[:16]
+	idBytes[6] = (idBytes[6] & 15) | 80
+	idBytes[8] = (idBytes[8] & 63) | 128
+	id := fmt.Sprintf("%x-%x-%x-%x-%x", idBytes[:4], idBytes[4:6], idBytes[6:8], idBytes[8:10], idBytes[10:])
 	c, err := s.Open(ctx, b, OpenRequest{id, purpose, name, mediaType, int64(len(raw)), digest(raw)})
 	if err != nil {
 		return wb.ObjectReference{}, err
+	}
+	if c.State == "committed" {
+		return c.Object, nil
 	}
 	for offset := 0; offset < len(raw); offset += ChunkBytes {
 		chunk := raw[offset:min(offset+ChunkBytes, len(raw))]
@@ -62,13 +73,4 @@ func (s *Store) ReadAll(ctx context.Context, b Binding, ref wb.ObjectReference, 
 		return nil, failure(wb.ErrorRevisionConflict, 409, "object digest verification failed")
 	}
 	return raw, nil
-}
-func newID() (string, error) {
-	raw := make([]byte, 16)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
-	}
-	raw[6] = (raw[6] & 15) | 64
-	raw[8] = (raw[8] & 63) | 128
-	return fmt.Sprintf("%x-%x-%x-%x-%x", raw[:4], raw[4:6], raw[6:8], raw[8:10], raw[10:]), nil
 }

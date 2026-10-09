@@ -310,7 +310,7 @@ export function LocalWorkbench() {
     setLanguage(next);
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, next);
     document.documentElement.lang = next === "zh" ? "zh-CN" : "en";
-    void api.updateLanguage(next).then(setOwnerProfile).catch(() => undefined);
+    if (!iscp || capabilities.settingsOwner) void api.updateLanguage(next).then(setOwnerProfile).catch(() => undefined);
   }
   async function openTrace(runID: string) {
     setTraceLoading(true);

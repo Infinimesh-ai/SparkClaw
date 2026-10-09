@@ -95,6 +95,7 @@ export type SparkClawDesktop = {
   deleteAuthorization?(): Promise<DesktopConnectionStatus>;
   logout?(): Promise<DesktopConnectionStatus>;
   speechStream?(request: Record<string, unknown>): Promise<unknown>;
+  cancelRecording?(request: { session_id: string; request_id: string }): Promise<unknown>;
   transcribeRecording?(request: { session_id: string; request_id: string; language: string; bytes: Uint8Array }): Promise<import("../api/types").SpeechTranscriptionResult>;
   loginStartup(enabled?: boolean): Promise<{ supported: boolean; enabled: boolean }>;
   onBackendEvents?(listener: (event: { categories: string[] }) => void): () => void;

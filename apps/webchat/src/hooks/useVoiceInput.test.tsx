@@ -29,6 +29,7 @@ vi.mock("../audio/realtimeSpeech", () => ({
 
 import { useVoiceInput } from "./useVoiceInput";
 import type { VoiceDraftAnchor } from "./useVoiceInput";
+import type { SparkClawDesktop } from "../desktop/types";
 
 const batchSpeech: SpeechStatus = {
   enabled: true,
@@ -107,6 +108,7 @@ describe("useVoiceInput", () => {
 
   afterEach(() => {
     for (const root of roots.splice(0)) act(() => root.unmount());
+    delete window.sparkclawDesktop;
   });
 
   function capture() {
@@ -138,14 +140,15 @@ describe("useVoiceInput", () => {
 
   function renderHook(
     speech: SpeechStatus = batchSpeech,
-    onTranscript = vi.fn(() => true)
+    onTranscript = vi.fn(() => true),
+    iscp = false
   ) {
     const container = document.createElement("div");
     const root = createRoot(container);
     roots.push(root);
     let value: HookValue | undefined;
     function Harness() {
-      value = useVoiceInput({ speech, sessionId: "session-a", language: "auto", externallyDisabled: false, onTranscript });
+      value = useVoiceInput({ speech, iscp, iscpRealtime: false, sessionId: "session-a", language: "auto", externallyDisabled: false, onTranscript });
       return null;
     }
     act(() => root.render(<StrictMode><Harness /></StrictMode>));
@@ -180,6 +183,27 @@ describe("useVoiceInput", () => {
     expect(transcribe).toHaveBeenCalledTimes(2);
     expect(transcribe.mock.calls[1][1]).toBe(transcribe.mock.calls[0][1]);
     expect(transcribe.mock.calls[1][3]).toBe(transcribe.mock.calls[0][3]);
+  });
+
+  it("cancels ISCP recorded transcription using its original identity without HTTP fallback", async () => {
+    const currentCapture = capture(); pcmMocks.prepare.mockResolvedValue(currentCapture);
+    const old = Object.getOwnPropertyDescriptor(Blob.prototype, "arrayBuffer");
+    Object.defineProperty(Blob.prototype, "arrayBuffer", { configurable: true, value: async () => new ArrayBuffer(44) });
+    let finish!: (result: SpeechTranscriptionResult) => void;
+    const transcribeRecording = vi.fn(() => new Promise<SpeechTranscriptionResult>(resolve => { finish = resolve; }));
+    const cancelRecording = vi.fn(async () => ({ cancelled: true }));
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, transcribeRecording, cancelRecording } as unknown as SparkClawDesktop;
+    const http = vi.spyOn(api, "transcribeSpeech");
+    try {
+      const hook = renderHook(batchSpeech, vi.fn(() => true), true);
+      act(() => hook.value().toggle(anchor)); await settle();
+      act(() => hook.value().toggle(anchor)); await settle();
+      expect(transcribeRecording).toHaveBeenCalledOnce();
+      await act(async () => hook.value().cancel());
+      expect(cancelRecording).toHaveBeenCalledWith({ session_id: "session-a", request_id: expect.stringMatching(/^voice-/) });
+      await act(async () => finish(result));
+      expect(hook.onTranscript).not.toHaveBeenCalled(); expect(http).not.toHaveBeenCalled();
+    } finally { if (old) Object.defineProperty(Blob.prototype,"arrayBuffer",old); else Reflect.deleteProperty(Blob.prototype,"arrayBuffer"); }
   });
 
   it("uses realtime final without making a batch request", async () => {

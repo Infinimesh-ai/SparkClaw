@@ -23,3 +23,11 @@ test('download disk quotas preserve the last checkpoint and expiry removes only 
  for(const name of fs.readdirSync(root).filter(name=>name.endsWith('.json'))){const filename=path.join(root,name),row=JSON.parse(fs.readFileSync(filename));row.expires_at=new Date(0).toISOString();fs.writeFileSync(filename,JSON.stringify(row));}
  new ISCPObjectClient(options);assert.deepEqual(fs.readdirSync(root),[]);
 });
+
+test('a released immutable object starts a fresh transfer for a later explicit upload',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'iscp-released-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const bytes=Buffer.alloc(44),ids=[];let version=0;
+ const client=new ISCPObjectClient({root,scope:{owner:'owner'},call:async(op,body)=>{if(op==='transfer.open'){ids.push(body.transfer_id);return{};}if(op==='object.describe'){assert.deepEqual(Object.keys(body).sort(),['object_id','version']);throw Object.assign(new Error('released'),{status:404});}if(op==='transfer.commit')return{object:{object_id:'audio',version:++version,size:bytes.length,sha256:hash(bytes)}};return{};}});
+ await client.upload(bytes,{purpose:'speech_recording'});await client.upload(bytes,{purpose:'speech_recording'});
+ assert.equal(ids.length,2);assert.notEqual(ids[0],ids[1]);
+});

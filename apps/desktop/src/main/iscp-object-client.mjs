@@ -28,7 +28,10 @@ export class ISCPObjectClient {
     let journal=this.#load(key);
     if(!journal){journal={schema_version:1,scope:this.scopeHash,direction:'upload',manifest,transfer_id:crypto.randomUUID(),next:0,expires_at:new Date(Date.now()+24*3600000).toISOString()};this.#save(key,journal);}
     if(journal.direction!=='upload'||JSON.stringify(journal.manifest)!==JSON.stringify(manifest))throw new Error('Object upload journal conflict');
-    if(journal.object){await this.#call('object.describe',{object_id:journal.object.object_id,version:journal.object.version},signal);return journal.object;}
+    if(journal.object){
+      try{await this.#call('object.describe',{object_id:journal.object.object_id,version:journal.object.version},signal);return journal.object;}
+      catch(error){if(![404,410].includes(error.status))throw error;journal={schema_version:1,scope:this.scopeHash,direction:'upload',manifest,transfer_id:crypto.randomUUID(),next:0,expires_at:new Date(Date.now()+24*3600000).toISOString()};this.#save(key,journal);}
+    }
     const opened=await this.#call('transfer.open',{transfer_id:journal.transfer_id,...manifest},signal);
     if(opened.expires_at)journal.expires_at=opened.expires_at;
     // Re-send only the last unconfirmed chunk. Receivers reject conflicting bytes

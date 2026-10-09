@@ -186,7 +186,13 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
       const result = iscp ? await (async () => {
         const desktop = desktopCapability();
         if (!desktop?.transcribeRecording) throw new Error("Recorded transcription is unavailable");
-        return desktop.transcribeRecording({ session_id: current.anchor.sessionId, request_id: current.requestId, language: language || "auto", bytes: new Uint8Array(await current.wav!.arrayBuffer()) });
+        const bytes = new Uint8Array(await current.wav!.arrayBuffer());
+        controller.signal.throwIfAborted();
+        const recording = { session_id: current.anchor.sessionId, request_id: current.requestId };
+        const cancel = () => { void desktop.cancelRecording?.(recording).catch(() => undefined); };
+        controller.signal.addEventListener("abort", cancel, { once: true });
+        try { return await desktop.transcribeRecording({ ...recording, language: language || "auto", bytes }); }
+        finally { controller.signal.removeEventListener("abort", cancel); }
       })() : await api.transcribeSpeech(
         current.anchor.sessionId,
         current.requestId,

@@ -41,6 +41,7 @@ import { ClientStoreCapability } from "./client-store-capability.mjs";
 import { exportLocalFile } from "./export-local-file.mjs";
 import { ISCPEventClient } from "./iscp-event-client.mjs";
 import { ISCPSpeechClient } from "./iscp-audio-client.mjs";
+import { ISCPRecordingClient } from "./iscp-recording-client.mjs";
 import { configureWorkbenchPermissions } from "./workbench-permissions.mjs";
 import { proxyAPIAllowed } from "./workbench-proxy-policy.mjs";
 import { bindWorkbenchActivation } from "./workbench-activation.mjs";
@@ -94,6 +95,7 @@ void app.whenReady().then(start).catch((error) => {
 
 let iscpEvents;
 let iscpSpeech;
+let iscpRecording;
 
 async function start() {
   const internalProtocolHandler = (request) => {
@@ -144,6 +146,7 @@ async function start() {
         executionClient?.close();
         iscpEvents?.close();
         iscpSpeech?.close();
+        iscpRecording?.close();
         scheduleClient?.close();
         mailClient?.close();
         void browserHost?.suspend();
@@ -154,6 +157,7 @@ async function start() {
       executionClient?.close();
       iscpEvents?.close();
       iscpSpeech?.close();
+      iscpRecording?.close();
       scheduleClient?.close();
       mailClient?.close();
       await browserHost?.stop();
@@ -178,16 +182,9 @@ async function start() {
   trustedHandler("sparkclaw-local-backend:logout", () => desktopAuth.logout());
   iscpSpeech = new ISCPSpeechClient(desktopAuth);
   trustedHandler("sparkclaw-speech:stream", (request) => iscpSpeech.dispatch(request));
-  trustedHandler("sparkclaw-speech:transcribe", async (request) => {
-    if(desktopAuth.descriptor?.transport !== "iscp" || desktopAuth.status.capabilities?.speech !== true || desktopAuth.status.state !== "connected") throw new Error("Recorded transcription is unavailable");
-    if(!request || Object.keys(request).sort().join() !== "bytes,language,request_id,session_id" || !(request.bytes instanceof Uint8Array) || request.bytes.length > 3*1024*1024 || request.bytes.length < 44 || !/^voice-[a-f0-9-]{36}$/u.test(request.request_id) || !/^[a-f0-9-]{36}$/u.test(request.session_id) || typeof request.language !== "string" || request.language.length > 32) throw new Error("Recording is invalid");
-    const generation=desktopAuth.generation;
-    const object=await desktopAuth.transport.objects.upload(request.bytes,{purpose:"speech_recording",name:"recording.wav",media_type:"audio/wav"});
-    if(generation!==desktopAuth.generation)throw new Error("Recording authorization changed");
-    const result=await desktopAuth.invokeISCP("speech.transcribe", {session_id:request.session_id,request_id:request.request_id,language:request.language,audio_object:object});
-    try{await desktopAuth.invokeISCP("object.release",{object_id:object.object_id,version:object.version});return {...result,audio_retained:false};}
-    catch{return {...result,audio_retained:true,audio_expires_at:object.expires_at};}
-  });
+  iscpRecording = new ISCPRecordingClient(desktopAuth);
+  trustedHandler("sparkclaw-speech:transcribe", (request) => iscpRecording.transcribe(request));
+  trustedHandler("sparkclaw-speech:cancel-recording", (request) => iscpRecording.cancel(request));
   trustedHandler("sparkclaw-desktop:login-startup", async (enabled) => {
     if (!app.isPackaged) return { supported: false, enabled: false };
     if (typeof enabled !== "undefined" && typeof enabled !== "boolean") throw new TypeError("Invalid login startup value");

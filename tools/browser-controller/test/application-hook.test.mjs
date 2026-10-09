@@ -81,3 +81,34 @@ test('only the explicitly enabled, marked in-memory application read skips ambie
     assert.equal(ambient, enabled === '1' && marked && !filename ? 0 : 1);
   }
 });
+
+const chooserMarker = '/* app-cli:awaited-code:v1 */\n/* app-cli:owned-file-chooser:v1 */\nasync page => true';
+const chooserACK = Symbol.for('sparkclaw.app-cli.owned-file-chooser.v1');
+for (const scenario of ['owned', 'preexisting', 'foreign', 'multiple', 'wrong-input', 'failed', 'unmarked', 'typed-rejection']) {
+  test(`owned chooser cleanup is exact and closed: ${scenario}`, async t => {
+    const f = await fixture(t, [{id: 'send', kind: 'exclusive', expires_ms: 5000}]);
+    const input = {}, chooser = {element: () => input};
+    const modal = {type: 'fileChooser', fileChooser: chooser};
+    const states = scenario === 'preexisting' ? [modal] : [];
+    let cleared = 0, calls = 0;
+    const tab = {page: f.page, modalStates: () => [...states], clearModalState: value => {
+      assert.equal(value, modal); states.splice(states.indexOf(value), 1); cleared++;
+    }};
+    const callback = async () => {
+      calls++;
+      if (scenario === 'typed-rejection') return {error: 'email_attachment_control_unavailable'};
+      states.push(modal); f.page.emit('filechooser', chooser);
+      if (scenario === 'multiple') {const other = {element: () => ({})};states.push({type: 'fileChooser', fileChooser: other});f.page.emit('filechooser', other);}
+      if (scenario !== 'foreign') f.page[chooserACK] = {chooser, input: scenario === 'wrong-input' ? {} : input};
+      if (scenario === 'failed') throw new Error('transfer_failed');
+      return 42;
+    };
+    const code = scenario === 'unmarked' ? '/* app-cli:awaited-code:v1 */ async page => true' : chooserMarker;
+    if (['owned', 'unmarked', 'typed-rejection'].includes(scenario)) await f.hook.waitForCompletion(tab, {code}, callback);
+    else await assert.rejects(f.hook.waitForCompletion(tab, {code}, callback), /host_owned_chooser_unverified|transfer_failed/);
+    assert.equal(cleared, scenario === 'owned' ? 1 : 0);
+    assert.equal(calls, scenario === 'preexisting' ? 0 : 1);
+    if (scenario !== 'unmarked') assert.equal(f.page[chooserACK], undefined);
+    assert.equal(f.page.listenerCount('filechooser'), 0);
+  });
+}

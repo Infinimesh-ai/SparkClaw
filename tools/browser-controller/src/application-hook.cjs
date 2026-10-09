@@ -4,6 +4,8 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const watched = new WeakMap();
 const AWAITED_MARKER = '/* app-cli:awaited-code:v1 */';
+const OWNED_CHOOSER_MARKER = AWAITED_MARKER + '\n/* app-cli:owned-file-chooser:v1 */\n';
+const OWNED_CHOOSER_ACK = Symbol.for('sparkclaw.app-cli.owned-file-chooser.v1');
 
 async function readStamp() {
   const file = process.env.APP_CLI_LEASE_FILE;
@@ -64,6 +66,28 @@ async function guard(page) {
   page.once('close', () => {closed = true; clearInterval(timer);});
   watched.set(page, {inspect});
 }
+// The fixed application upload consumes bytes itself, so the MCP wrapper's
+// generic path-upload modal must be retired only for that exact completed event.
+async function completeOwnedChooser(tab, callback) {
+  const page = tab.page, observed = [];
+  if (tab.modalStates().length || page[OWNED_CHOOSER_ACK] !== undefined) throw new Error('host_owned_chooser_unverified');
+  const remember = chooser => observed.push(chooser);
+  page.on('filechooser', remember);
+  try {
+    const result = await callback();
+    const states = tab.modalStates(), ack = page[OWNED_CHOOSER_ACK];
+    // A typed prepare rejection can return before opening any chooser.
+    if (!states.length && !observed.length && ack === undefined) return result;
+    if (states.length !== 1 || observed.length !== 1 || states[0].type !== 'fileChooser' ||
+        states[0].fileChooser !== observed[0] || ack?.chooser !== observed[0] ||
+        ack.input !== observed[0].element()) throw new Error('host_owned_chooser_unverified');
+    tab.clearModalState(states[0]);
+    return result;
+  } finally {
+    page.off('filechooser', remember);
+    delete page[OWNED_CHOOSER_ACK];
+  }
+}
 async function waitForCompletion(tab, params, callback) {
   if (!process.env.APP_CLI_LEASE_FILE) return tab.waitForCompletion(callback);
   await guard(tab.page);
@@ -83,7 +107,10 @@ async function waitForCompletion(tab, params, callback) {
   }
   if (params.code === '/* app-cli:hook:install:v1 */ async page => true') await (await applicationHook())?.install?.(tab.page);
   if (params.code === '/* app-cli:hook:activate:v1 */ async page => true') await (await applicationHook())?.activate?.(tab.page);
-  if (process.env.APP_CLI_AWAITED_CODE === '1' && typeof params.code === 'string' && params.code.startsWith(AWAITED_MARKER) && !params.filename) return callback();
+  if (process.env.APP_CLI_AWAITED_CODE === '1' && typeof params.code === 'string' && params.code.startsWith(AWAITED_MARKER) && !params.filename) {
+    if (params.code.startsWith(OWNED_CHOOSER_MARKER)) return completeOwnedChooser(tab, callback);
+    return callback();
+  }
   return tab.waitForCompletion(callback);
 }
 module.exports = {waitForCompletion, guard};

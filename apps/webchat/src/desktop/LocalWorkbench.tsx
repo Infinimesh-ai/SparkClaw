@@ -377,6 +377,9 @@ export function LocalWorkbench() {
           {content.messages.map((message) => <MessageBubble key={message.id}
             message={{ ...message, session_id: selected }} streamStatuses={[]} text={text} language={language}
             onFeedback={async () => {}} />)}
+          {content.tasks.filter((task) => task.status === "delivery_too_large").map((task) => <section className="localFeedback" role="alert" key={task.id}>
+            <p>{zh ? "此任务的结果超过当前连接的传输上限，无法取回。已停止重试，任务不会自动重新执行。" : "This task's result exceeds the connection's transfer limit and cannot be retrieved. Retries have stopped; the task will not run again automatically."}</p>
+          </section>)}
           {content.tasks.flatMap((task) => (task.approvals ?? [])
             .filter((approval) => ["pending", "decision_pending", "decision_unknown"].includes(approval.state))
             .map((approval) => ({ task, approval }))).map(({ task, approval }) => {
@@ -459,7 +462,7 @@ function scheduleLabel(state: string, zh: boolean) {
     submission_pending: ["提交待核对", "Submission awaiting reconciliation"], cancel_pending: ["取消待确认", "Cancellation awaiting confirmation"],
     accepted: ["执行服务已接收", "Execution accepted"], running: ["执行中", "Running"], completed: ["结果已保存，确认待送达", "Result saved; acknowledgement pending"],
     delivered: ["结果已保存并确认", "Result saved and acknowledged"], failed: ["执行失败", "Execution failed"], unknown: ["执行结果不确定，仅核对原请求", "Outcome uncertain; reconcile original request only"],
-    delivery_expired: ["交付已过期", "Delivery expired"], missed: ["已错过，永久跳过", "Missed; permanently skipped"],
+    delivery_expired: ["交付已过期", "Delivery expired"], delivery_too_large: ["结果超过传输上限", "Result exceeds transfer limit"], missed: ["已错过，永久跳过", "Missed; permanently skipped"],
     run_now: ["已作为新请求执行", "Started as a new request"], canceled: ["已取消", "Canceled"],
   };
   return labels[state]?.[zh ? 0 : 1] ?? (zh ? "状态待确认" : "Status awaiting confirmation");

@@ -66,6 +66,10 @@ npm run open:browser
 因此手动新建的窗口也归属 SparkClaw Browser。系统桌面入口及其“新建窗口”
 操作会在同一 Profile 中创建 Owner 窗口；`npm run open:browser` 仍聚焦已有窗口。
 
+专用浏览器的桌面入口和 Dock 图标使用 `apps/desktop/src/assets/browser-icon.png`。
+安装器将该独立资源复制到当前用户的 `hicolor/512x512/apps/sparkclaw-browser.png`
+图标主题条目。
+
 在 GNOME 中，点击 Dock 上运行中的应用图标会切换到已有窗口。要新建窗口，
 可按住 Ctrl 或 Shift 点击、单击鼠标中键，或从 Dock 右键菜单选择“新建窗口”。
 桌面入口关闭启动通知，因为 Chromium 会在已有进程中处理新窗口请求；否则窗口

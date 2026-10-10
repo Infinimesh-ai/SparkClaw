@@ -76,6 +76,10 @@ manually created windows keep the SparkClaw Browser app identity. The system
 launcher and its New Window action create an owner window in this same profile.
 `npm run open:browser` still focuses an existing window.
 
+The standalone browser uses `apps/desktop/src/assets/browser-icon.png` for its
+desktop launcher and Dock icon. The installer copies this dedicated asset into
+the owner's `hicolor/512x512/apps/sparkclaw-browser.png` icon-theme entry.
+
 On GNOME, clicking a running application's Dock icon activates an existing
 window. Use Ctrl-click, Shift-click, middle-click, or **New Window** from the
 Dock menu to create another window. The desktop entry disables startup

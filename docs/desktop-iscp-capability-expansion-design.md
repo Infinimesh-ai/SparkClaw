@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-iscp-capability-expansion-design.md)
 >
-> Updated: 2026-10-10. Status: P1–P5 adapters and gated desktop surfaces implemented; installed desktop/work2 qualification is recorded in sections 9.6–9.7. ASR/TTS remains deferred.
+> Updated: 2026-10-10. Status: P1–P5 adapters and gated desktop surfaces implemented; current installation and four real-mail scenarios are recorded in section 9.10, with outstanding work in section 9.11. ASR/TTS remains deferred.
 > Scope: SparkX connects to SparkClaw through the local Docker ISCP Relay. Local Relay changes are permitted but must preserve protocol compatibility with the online Relay; this work does not switch the deployment online.
 
 ## 1. Objective, baseline and implementation order
@@ -766,6 +766,68 @@ unproved size displays still fail closed, so arbitrary-size real Outlook support
 is not claimed. ASR/TTS remain deferred. The local ISCP test still depends on its
 existing local Relay and SSH forwarding. InfiniCenter remains unavailable at the
 configured ancestor anchors; no central acceptance or status update is claimed.
+
+## 9.11. Outstanding work and continuation handoff (2026-10-10)
+
+This section records the user's requested handoff for later work. This change
+updates documentation only; implementation and additional acceptance belong to a
+subsequent task. Sections 9.1–9.9 are historical checkpoints: items closed by later
+evidence are not current backlog. Section 9.10 and its linked evidence define the
+current technical qualification. The items below distinguish functional gaps,
+environment qualification, user deferral and follow-up work; neither unfinished
+items nor the four successful mail scenarios should be misclassified.
+
+### 9.11.1 Baseline for continuation
+
+- Installed SparkX and work2 both use source `8045c110`, paired App-CLI `.20`,
+  including the Host admission fix. Acceptance-record commit `df105cab` has been
+  pushed to `infinimesh/main`. This additional documentation commit requires no
+  runtime reinstall.
+- The four approved QQ/Outlook direct HTTPS and ISCP scenarios passed sending,
+  distinct inbound originals and native desktop attachment copies. Outlook ISCP
+  uses the separately approved replacement; all four use the same 158-byte synthetic source.
+- Workspace means the originating SparkX host's `<userData>/workbench/files` and
+  ClientStore records. SparkClaw handles business logic; Gateway staging is not
+  attachment source authority. Mail-service data remains backend-owned.
+- Standing authorization remains valid until manual deletion, with automatic
+  short Grant renewal. Gateway restart terminates approval-waiting tasks. These
+  decisions, file boundaries, recovery and browser fixes already have evidence
+  and are not pending redesign.
+- Before resuming, verify actual installed hashes, backend versions, original
+  task states and backups. Do not depend on historical PIDs or temporary SSH sessions.
+
+### 9.11.2 Functional gaps, additional qualification and deferral
+
+| ID | Status and unfinished scope | Next action | Completion criteria |
+| --- | --- | --- | --- |
+| F01 | **Functional gap / qualification: Outlook cards without integer-byte sizes.** Only the newer card with an exact integer-byte display is qualified; KB/MB and unproved formats fail closed. General 10 MiB transfer evidence does not qualify arbitrary-size real Outlook attachments. | Define verifiable units, precision and rounding in the backend mail adapter while retaining owned native input, manifest, name, size and hash binding. Add unit/boundary/multiple-file/pending/error/extra-card regressions, then qualify synthetic files from the desktop workspace natively. | Supported formats pass upload, send receipt, distinct inbound MIME and local byte verification over direct mode and ISCP. Unproved cards remain rejected. Preserve the five-file/10 MiB total limit and desktop boundary. New real messages require approval for their recipients, body and attachments. |
+| F02 | **Environment qualification: physical same-subnet LAN.** This Mac cannot route work2's private address; completed direct tests used the existing public pinned HTTPS entry. | When desktop and backend have an actual reachable LAN, record addresses, routing, TLS and authentication, then qualify model/file work, execution receipts/ACK, mail drafts/attachments and reconnect through that LAN entry. | Actual LAN path and positive business evidence, preserved identity/local data and no repeated submission or send after disconnect. SSH bridges, ISCP and public HTTPS do not substitute. New real sends still require explicit authorization. |
+| F03 | **User-deferred: ASR/TTS/duplex voice.** Protocol and controlled-provider checks do not qualify microphones, recognition, playback or interruption; unsupported playback/duplex providers remain disabled. | When the user resumes voice work, identify devices, real providers and corpus, implement missing playback/duplex support, freeze section 7 latency/buffer targets and test cancellation, renewal, revocation, disconnection and permissions. | Each supported capability independently passes G1–G4, native audio results and latency measurements from at least 30 normal samples. Ordinary regressions or successful audio upload do not substitute. |
+
+### 9.11.3 Retained records, diagnostics and release follow-up
+
+| ID | Current state | Next action and closure criteria |
+| --- | --- | --- |
+| F04 | **Retain / reconcile if evidence becomes available: old Outlook `.16` ISCP unknown.** Draft `05e7cca5-b390-4762-ac1a-5a0430b715b5` remains unknown/version 7; original task `c654aa0e-e7de-49f7-9114-a702d320874a` lacks sufficient durable not-sent proof. | Preserve the draft, ledger and receipts. Update only through formal reconciliation with trustworthy sent/not-sent evidence bound to the original request; absence of an inbound message is not not-sent proof. Without new evidence, retain unknown without retrying or clearing state. The replacement already passed and needs no resend. |
+| F05 | **Diagnostic follow-up: the exact `.19` Outlook timeout step remains unproved.** The concurrent QQ pending-admission race is reproduced and fixed in `.20`; timing alone does not prove it caused the Outlook failure. Controller preserves exit 1 despite complete resource cleanup; historical logs lack the exact shutdown exception. | If investigation continues or the issue recurs, add bounded, redacted task/lease/stage and shutdown-error correlation, distinguishing admission, upload, readiness, final pre-send inspection and cleanup. Close with a reproducible path, targeted regression and actual cleanup proof. Do not substitute broadly longer timeouts, suppressed errors or weaker fences. This does not invalidate `.20` positive qualification. |
+| F06 | **Target deployment planning / qualification: local Relay/Issuer plus SSH bridge.** The verified integration topology depends on local Docker and temporary SSH forwarding. Unmodified reference Relay compatibility is tested; the online deployment is not. | Once the target deployment is selected, define persistent operation/connectivity and qualify host/process/network recovery, Grant renewal with unchanged standing consent, sustained transfer and actual business. Online Relay or cross-project protocol changes require the decision/contract process first. Close only with native evidence for that target topology; connection lifetime is not authorization lifetime. |
+| F07 | **Coordination environment: InfiniCenter unavailable.** No authoritative center exists at the configured ancestor anchors, so central acceptance/status reconciliation has not happened. | Once a valid center path is available, read `clusters.yaml` and the cluster configuration, handle inbox and applicable proposed decisions, then reconcile project status and cross-project agreements. Use the actual authoritative center, never a temporary clone or local note as a substitute. |
+| F08 | **User final acceptance not yet recorded.** Technical evidence is complete for the stated scenarios; the user's final disposition of this candidate and its boundaries is not recorded. | The user reviews the installed candidate later; record and repair feedback by original request/scenario, and explicitly record accepted scope versus retained backlog. Automated technical checks or approval of a single send do not constitute overall user acceptance. |
+
+### 9.11.4 Suggested order and evidence updates
+
+Start with F01; qualify F02 when LAN access is available. Address F05 alongside
+reproduction or observability work, and F04 only when new evidence permits.
+Continue F06/F07 when the target deployment/center is available; F03 waits for the
+user to resume voice scope. F08 records final user acceptance. This is a suggested
+work order, not an automatic run or schedule.
+
+When closing an item, update its status and record implementation commits, actual
+installed/deployed versions, environment, result files/receipts and remaining
+limits. Give new findings separate IDs and preserve historical negative evidence
+and unknown records. The four original send approvals and one replacement are
+not an unlimited sending allowance: prepare reviewable drafts and obtain matching
+authorization for new real-mail tests.
 
 ## 10. Related designs
 

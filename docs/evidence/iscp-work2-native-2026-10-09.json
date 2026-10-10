@@ -53,7 +53,14 @@
     "app_cli_15_reproducible": true,
     "app_cli_15_paired_install_tamper_mixed_release_rollback": true,
     "desktop_projection_matches_15": true,
-    "controller_shutdown_regressions": 6
+    "controller_shutdown_regressions": 6,
+    "app_cli_18_reproducible": true,
+    "app_cli_18_paired_install_tamper_mixed_release_rollback": true,
+    "app_cli_18_linux_controller_passed": 210,
+    "app_cli_18_linux_controller_skipped_opt_in": 75,
+    "app_cli_18_related_real_browser_cases_passed": 46,
+    "app_cli_18_fixture_rpc_timeout_adjusted_without_product_change": true,
+    "app_cli_18_projection_matches": true
   },
   "native": {
     "arithmetic_over_iscp": 703,
@@ -88,15 +95,15 @@
     "server_drafts_remain_backend_authoritative": true
   },
   "provider_live_read_evidence": "mail-provider-live-read-2026-10-09.json",
-  "real_send_status": "four messages approved; QQ direct HTTPS and ISCP send/receive/attachment copy qualified; Outlook attachment native menu repair pending",
+  "real_send_status": "QQ direct HTTPS and ISCP qualified; Outlook .18 direct failed attachment upload verification and was formally reconciled to not_sent; old .16 ISCP unknown preserved",
   "runtime_dependency": "local Docker Relay/Issuer and SSH bridge must remain running; SSH control connection is test infrastructure, not authorization lifetime",
   "infini_center": "not found at configured local/remote ancestor anchors; no central write or acceptance claimed",
   "desktop_candidate": {
-    "source_commit": "1b22eddcf8894bf87337bbb7fcd9f87e54f05b5c",
-    "runtime_release": "0.3.0-sparkclaw.17",
-    "zip_sha256": "866d8b69f2fb507fc0ffadb41726943a31018026ae5a55a0bcc6685bd742e911",
+    "source_commit": "b14531f7c56e1b8c2fb8035e53538fc7f23e6609",
+    "runtime_release": "0.3.0-sparkclaw.18",
+    "zip_sha256": "627ee189c0bc1c5b771f55806cb60f23b1d03a292e040e05013177aefb87846e",
     "asar_sha256": "d75e365c9ddb255fafbb6682ec7b7c0537e9f27519d366de9e71caf62403a824",
-    "helper_sha256": "1207598e44c18a5a81f8ba81940f627f0bbb5619b4c6cc889c355a6878495b25",
+    "helper_sha256": "114d24e20953517d3a4f6633ba494a65517b3233e666dfd90487082a03dcd843",
     "webchat_files": {
       "assets/icon-CItU3tnb.png": "acfd3a6e0cad248aa55c9c6d4a5486008c449bf3b05f4f9c39e40b2144a27365",
       "assets/index-DWuji_HN.css": "75d312593540dd86724dd95c1a8de9e8c54a9c585b6c44b8433fc8799c2a4498",
@@ -105,9 +112,9 @@
       "pcm-worklet.js": "fe1633661ea7121b88c4faa2814807da01028f1c495db095f0f0fa88db454aa1"
     },
     "webchat_manifest_sha256": "d48f7bfaefec99399cf545c6bc07fa14aa8656592d88d91f337c554aa03e288f",
-    "backup": "/Users/dev/.cache/sparkclaw-upgrades/20261009-151709-local-v2/SparkX-before-mail17-1b22eddc.app",
+    "backup": "/Users/dev/.cache/sparkclaw-upgrades/20261009-151709-local-v2/SparkX-before-mail18-b14531f7.app",
     "user_data_preserved": true,
-    "installed_at": "2026-10-10T04:43:59.231777+00:00"
+    "installed_at": "2026-10-10T05:46:01.324393+00:00"
   },
   "relay_interruption": {
     "scope": "local_test_relay",
@@ -185,7 +192,7 @@
     "native_fingerprint_match": true,
     "state": "draft"
   },
-  "updated_at": "2026-10-10T04:51:35.257288+00:00",
+  "updated_at": "2026-10-10T05:53:11.642832+00:00",
   "browser_release_candidate": {
     "id": "0.3.0-sparkclaw.15",
     "runtime_digest": "edec9341d86fb838072f84502a4277196dd42b8398a66b855838a9875cc03191",
@@ -193,19 +200,20 @@
     "actual_reader_import_verification": "passed on work2: four enabled system scripts, exact source/dependency hashes; r10 current generation consumed at 08:42:39.973Z, before .14 restart; consumption delay cause not established"
   },
   "browser_release_deployed": {
-    "id": "0.3.0-sparkclaw.17",
-    "source_commit": "75418c75ae8cb0eafb590ccb30360ab277169455",
+    "id": "0.3.0-sparkclaw.18",
+    "source_commit": "b14531f7c56e1b8c2fb8035e53538fc7f23e6609",
     "cleanup_fence_present": false,
     "services_active": true,
     "tampermonkey_product_version": "5.5.0.10",
     "temporary_policy_logging": "removed; formal service parameters restored; Controller and all four current Reader checks passed",
-    "runtime_digest": "12e9b6501c6f5b48e03ad3759397f3e9270d301fa714ada3ca489ea800469ab3",
-    "gateway_image": "sparkclaw-gateway:work2-mail-75418c75",
+    "runtime_digest": "7140a8bcc7d7d1d3bf52aa12971d8c4ae0f7db94b0eb07d5e422f8a826d89040",
+    "gateway_image": "sparkclaw-gateway:work2-mail-b14531f7",
     "webchat_image": "sparkclaw-webchat:work2-ui-9e35cdda",
     "reader_policy_restaged": false,
     "reader_policy_unchanged": true,
     "gateway_healthy": true,
-    "temporary_mail_send_evidence_logging": true
+    "temporary_mail_send_evidence_logging": true,
+    "gateway_image_sha256": "4a578ac3fd28a763e8a7f1caaa956985d40d3c64a8e53377a598e7311b6b0964"
   },
   "outlook_attachment_reviews": [
     {
@@ -336,5 +344,51 @@
     "checkpoint_at": "2026-10-10T04:33:46Z",
     "original_unknown_records_preserved": true
   },
-  "latest_mail_checkpoint": "mail-provider-send-2026-10-10.json"
+  "latest_mail_checkpoint": "mail-provider-send-2026-10-10.json",
+  "work2_pre18_checkpoint": {
+    "source_before": "75418c75ae8cb0eafb590ccb30360ab277169455",
+    "source_after": "b14531f7c56e1b8c2fb8035e53538fc7f23e6609",
+    "old_release": "0.3.0-sparkclaw.17",
+    "gateway_image_before": "sha256:fe01f5dd848ed7dd899d4f4f109c1ba3895501bb82b99955c4a1b841878f4e6f",
+    "postgres_sha256": "7ea9bede96f8acc226ae86e424d8f84cecac813fa0b38b96273da8a6452760cb",
+    "postgres_restore_list_valid": true,
+    "paired_state_sha256": "a730823cb922e198c98d9a2268b948debbd5b6b14b1b306709c4c1ee409e763b",
+    "paired_state_bytes": 176230209,
+    "all_owned_processes_absent": true,
+    "all_service_cgroups_empty": true,
+    "gateway_stopped_before_browser_services": true,
+    "stop_order": [
+      "sparkclaw-app-cli-executor.service",
+      "sparkclaw-browser-controller.service",
+      "sparkclaw-browser.service"
+    ],
+    "cleanup_fence_before": false,
+    "policy_sha256": "3c5bebac2d73671c7dcb3892db3058100de318d29bff33c0e620b506dd2eaa91"
+  },
+  "mail18_host_cleanup_recovery": {
+    "at": "2026-10-10T05:49:34.854222+00:00",
+    "procedure": "docs/app-cli-implementation-validation.md Host cleanup fence recovery",
+    "browser_bridge": {
+      "schema_version": 1,
+      "state": "ready",
+      "windows": [
+        {
+          "window_id": 1820450596,
+          "focused": false,
+          "task_tabs": 0,
+          "stale_task_tabs": 0,
+          "other_tabs": 17
+        }
+      ]
+    },
+    "confirmed_dead_pid": 2695072,
+    "confirmed_dead_session": "sc-cli-c7ffdb768c56bb581e2b",
+    "fence_sha256": "f1854fba8a52eb6ccb4f5871f276a93e3062579a1274fb6b3d3ab8a102cd9acb",
+    "archived_entries": [
+      "session-c7ffdb768c56bb581e2bff47",
+      "cleanup-fence.json"
+    ],
+    "archive_hashes_verified": true,
+    "durable_execution_state_untouched": true
+  }
 }

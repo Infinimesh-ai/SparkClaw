@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-10T05:24:09.934028+00:00",
+  "updated_at": "2026-10-10T05:57:28.705689+00:00",
   "scope": "User-approved synthetic self-test messages; real installed SparkX and work2",
   "status": "qq_both_transports_qualified_outlook_pending",
-  "runtime_release": "0.3.0-sparkclaw.17",
-  "runtime_digest": "12e9b6501c6f5b48e03ad3759397f3e9270d301fa714ada3ca489ea800469ab3",
-  "desktop_source_commit": "1b22eddcf8894bf87337bbb7fcd9f87e54f05b5c",
-  "backend_source_commit": "75418c75ae8cb0eafb590ccb30360ab277169455",
+  "runtime_release": "0.3.0-sparkclaw.18",
+  "runtime_digest": "7140a8bcc7d7d1d3bf52aa12971d8c4ae0f7db94b0eb07d5e422f8a826d89040",
+  "desktop_source_commit": "b14531f7c56e1b8c2fb8035e53538fc7f23e6609",
+  "backend_source_commit": "b14531f7c56e1b8c2fb8035e53538fc7f23e6609",
   "asr_tts": "deferred",
   "physical_same_subnet_lan": "unverified; direct HTTPS used existing public work2 ingress",
   "online_relay_changed": false,
@@ -215,39 +215,130 @@
   "outlook": {
     "direct_https": {
       "draft_id": "34b28df2-f9c4-405c-8822-744229cb26f8",
-      "invocation_id": "email_send_2b5ccfb6377ba476",
-      "executor_task_id": "8ee6bcb1-2637-4efe-aea2-d4ba61499a8a",
+      "invocation_id": "email_send_26867bd45d5b837c",
+      "executor_task_id": "97a4a8ac-f0bc-4a9a-a10c-03273b1d25f6",
       "state": "failed",
-      "effect": 1,
-      "reason": "BROWSER_EXTENSION_UNAVAILABLE",
-      "fixed_diagnostic_stage": "native_action_click",
-      "native_action_seen": false,
-      "durable_not_sent_proof_available": true,
-      "native_reconciliation_pending": false,
       "qualified": false,
-      "version": 5,
-      "native_reconcile_click_count": 2,
-      "same_original_task_replayed": true,
-      "reconciliation_completed_at": "2026-10-10T05:11:10.501218Z",
+      "version": 9,
       "receipt": {
         "status": "not_sent",
         "not_sent": {
           "kind": "pre_dispatch_failure",
-          "reason": "BROWSER_EXTENSION_UNAVAILABLE",
-          "task_id": "8ee6bcb1-2637-4efe-aea2-d4ba61499a8a",
-          "ledger_epoch": 16,
-          "intent_digest": "e911f693e83bee06a4820bb5fa237f39479fd5285f9618cc0b2ac0b94537a149",
-          "invocation_id": "email_send_2b5ccfb6377ba476",
-          "binding_digest": "64f155f1727b235277cedf4d2856b2fbd6a8d238d1ec03339839ff050070c70d",
+          "reason": "EMAIL_ATTACHMENT_UPLOAD_FAILED",
+          "task_id": "97a4a8ac-f0bc-4a9a-a10c-03273b1d25f6",
+          "ledger_epoch": 17,
+          "intent_digest": "cf3715a40f0e3f20be8bf89abb13d7e62bee127adff6506dd91cbf4e28583625",
+          "invocation_id": "email_send_26867bd45d5b837c",
+          "binding_digest": "ad2e8713f50539aff7f92f18ace94d9e92689fea698beff80bbd525366551228",
           "schema_version": 1,
-          "resource_digest": "48c6a5b58d00fd60fb36306780bbd496182537c1fa62b5f48b93f9654cff8eb5"
+          "resource_digest": "cb1deb78ce2d13ab5e679876f7894f52ae9957242ce8d5fc8ac5e8297bbf25b8"
         },
         "provider": "outlook",
         "script_revision": 2,
         "recipient_digest": "sha256:2bf58f91280858fe3064316632defab33312259edcdff2cc1b9de56fb2e584aa",
         "browser_credential_generation": 2941799844120501
       },
-      "first_reconcile_failure_cause": "Controller call or return unavailable; precise cause not established"
+      "runtime17_reconciled_attempt": {
+        "draft_id": "34b28df2-f9c4-405c-8822-744229cb26f8",
+        "invocation_id": "email_send_2b5ccfb6377ba476",
+        "executor_task_id": "8ee6bcb1-2637-4efe-aea2-d4ba61499a8a",
+        "state": "failed",
+        "effect": 1,
+        "reason": "BROWSER_EXTENSION_UNAVAILABLE",
+        "fixed_diagnostic_stage": "native_action_click",
+        "native_action_seen": false,
+        "durable_not_sent_proof_available": true,
+        "native_reconciliation_pending": false,
+        "qualified": false,
+        "version": 5,
+        "native_reconcile_click_count": 2,
+        "same_original_task_replayed": true,
+        "reconciliation_completed_at": "2026-10-10T05:11:10.501218Z",
+        "receipt": {
+          "status": "not_sent",
+          "not_sent": {
+            "kind": "pre_dispatch_failure",
+            "reason": "BROWSER_EXTENSION_UNAVAILABLE",
+            "task_id": "8ee6bcb1-2637-4efe-aea2-d4ba61499a8a",
+            "ledger_epoch": 16,
+            "intent_digest": "e911f693e83bee06a4820bb5fa237f39479fd5285f9618cc0b2ac0b94537a149",
+            "invocation_id": "email_send_2b5ccfb6377ba476",
+            "binding_digest": "64f155f1727b235277cedf4d2856b2fbd6a8d238d1ec03339839ff050070c70d",
+            "schema_version": 1,
+            "resource_digest": "48c6a5b58d00fd60fb36306780bbd496182537c1fa62b5f48b93f9654cff8eb5"
+          },
+          "provider": "outlook",
+          "script_revision": 2,
+          "recipient_digest": "sha256:2bf58f91280858fe3064316632defab33312259edcdff2cc1b9de56fb2e584aa",
+          "browser_credential_generation": 2941799844120501
+        },
+        "first_reconcile_failure_cause": "Controller call or return unavailable; precise cause not established"
+      },
+      "reviewed_version": 6,
+      "native_confirm_click_count": 1,
+      "release": "0.3.0-sparkclaw.18",
+      "attempt_receipt": {
+        "id": "34b28df2-f9c4-405c-8822-744229cb26f8",
+        "state": "failed",
+        "version": 9,
+        "error_code": "email_send_not_dispatched",
+        "receipt": {
+          "status": "not_sent",
+          "not_sent": {
+            "kind": "pre_dispatch_failure",
+            "reason": "EMAIL_ATTACHMENT_UPLOAD_FAILED",
+            "task_id": "97a4a8ac-f0bc-4a9a-a10c-03273b1d25f6",
+            "ledger_epoch": 17,
+            "intent_digest": "cf3715a40f0e3f20be8bf89abb13d7e62bee127adff6506dd91cbf4e28583625",
+            "invocation_id": "email_send_26867bd45d5b837c",
+            "binding_digest": "ad2e8713f50539aff7f92f18ace94d9e92689fea698beff80bbd525366551228",
+            "schema_version": 1,
+            "resource_digest": "cb1deb78ce2d13ab5e679876f7894f52ae9957242ce8d5fc8ac5e8297bbf25b8"
+          },
+          "provider": "outlook",
+          "script_revision": 2,
+          "recipient_digest": "sha256:2bf58f91280858fe3064316632defab33312259edcdff2cc1b9de56fb2e584aa",
+          "browser_credential_generation": 2941799844120501
+        },
+        "updated_at": "2026-10-10T05:56:29.813258Z",
+        "snapshot": {
+          "state": "failed",
+          "error_code": "email_send_not_dispatched",
+          "invocation_id": "email_send_26867bd45d5b837c",
+          "confirmation_source": null,
+          "started_at": null,
+          "finished_at": null,
+          "version": 6
+        },
+        "execution": {
+          "id": "97a4a8ac-f0bc-4a9a-a10c-03273b1d25f6",
+          "status": "completed",
+          "reason": null,
+          "effect": 1,
+          "epoch": 17,
+          "sequence": 7,
+          "data": {
+            "schema_version": 1,
+            "provider": "outlook",
+            "status": "not_sent",
+            "recipient_digest": "sha256:2bf58f91280858fe3064316632defab33312259edcdff2cc1b9de56fb2e584aa",
+            "not_sent": {
+              "schema_version": 1,
+              "kind": "pre_dispatch_failure",
+              "invocation_id": "email_send_26867bd45d5b837c",
+              "task_id": "97a4a8ac-f0bc-4a9a-a10c-03273b1d25f6",
+              "intent_digest": "cf3715a40f0e3f20be8bf89abb13d7e62bee127adff6506dd91cbf4e28583625",
+              "resource_digest": "cb1deb78ce2d13ab5e679876f7894f52ae9957242ce8d5fc8ac5e8297bbf25b8",
+              "binding_digest": "ad2e8713f50539aff7f92f18ace94d9e92689fea698beff80bbd525366551228",
+              "ledger_epoch": 17,
+              "reason": "EMAIL_ATTACHMENT_UPLOAD_FAILED"
+            }
+          }
+        }
+      },
+      "native_reconciliation_pending": false,
+      "native_reconcile_effective_calls": 2,
+      "formal_not_sent_proof_available": true
     },
     "iscp": {
       "draft_id": "05e7cca5-b390-4762-ac1a-5a0430b715b5",

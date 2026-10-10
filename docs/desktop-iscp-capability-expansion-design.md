@@ -599,14 +599,54 @@ the marked action detached. No trusted native click or file-chooser event
 occurred. The menu initially exists inside a transparent, non-interactive
 Callout; a bounded observation later saw it become interactive at approximately
 the existing five-second menu deadline. The candidate must wait for a uniquely
-owned, truly interactive and stable action before binding it. Actual native
-chooser/input qualification is still pending. See the
+owned, truly interactive and stable action before binding it. The subsequent native
+chooser/input qualification is recorded in section 9.8. See the
 [diagnostic evidence](evidence/outlook-native-menu-diagnostic-2026-10-10.json).
 
 The older `.16` ISCP attempt has no sufficient durable negative proof and remains
 unknown. Its record is preserved and it is not automatically retried. A separate
 replacement draft is saved but not approved or sent. ASR/TTS and physical
 same-subnet LAN qualification remain outside these results.
+
+## 9.8. Deployed Outlook menu repair (2026-10-10)
+
+SparkX and work2 now use source `b14531f7` and App-CLI `.18` (runtime digest
+`7140a8bcc7d7d1d3bf52aa12971d8c4ae0f7db94b0eb07d5e422f8a826d89040`).
+The shared Outlook attachment menu alone receives a fifteen-second readiness
+budget. It must have one owned, interactive action stable for 150 ms before
+binding. Hidden ancestors, ambiguous actions, replacements after binding and
+foreign input activation are rejected. No forced click or global browser flag
+was introduced; Reader, Bridge, policy and UI bytes are unchanged.
+
+The final empty-composer check on work2 used the candidate DOM and actual local
+budget with the installed Host/CLI, without diagnostic pre-wait or hover. One
+trusted click opened one chooser bound to the exact original input and parent;
+cleanup and reservation release passed. It uploaded and sent nothing. The
+expected post-action Host check rejected the deliberately unacknowledged empty
+chooser; this is preserved separately from the successful chooser observation.
+The paired build/install/rollback checks, 210 Linux Controller cases and 46
+related real-browser cases passed. A diagnostic RPC timeout was corrected and
+that negative case rerun; product bytes did not change.
+
+The initial upgrade stop retained a Host cleanup fence after an already-closed
+production QQ page made `tab-list` fail. All original processes had exited.
+Following the documented operator procedure, the dedicated browser was restarted
+and its native Bridge reported zero active or stale task tabs before only the
+Host fence and dead session evidence were archived. Durable authority, executor
+ledger and send journals were untouched. A fresh paired database/profile backup
+then preceded deployment; Gateway and all three services are healthy, with no
+cleanup fence. This records recovery, not a fix for that shutdown cause.
+
+The approved direct Outlook draft was reviewed again as version 6 and submitted
+once on this release. The menu succeeded, but the attempt failed attachment
+upload verification before any successful send receipt. Its exact original task was
+formally reconciled to `not_sent` and the draft restored to failed/version 9.
+As on `.17`, the first result return failed and the second same-task read
+recovered it; that repeated return path and upload validation are being fixed.
+Send and inbound-byte qualification remain pending.
+The old `.16` ISCP unknown record remains preserved; its separate replacement
+has not been approved or sent. Detailed current results are in the
+[mail evidence](evidence/mail-provider-send-2026-10-10.json).
 
 ## 10. Related designs
 

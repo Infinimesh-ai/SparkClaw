@@ -1,9 +1,11 @@
 import crypto from 'node:crypto';
 
 const scope = (connection) => ({deployment_id:connection.deploymentID,owner_id:connection.ownerID,client_id:connection.clientID});
+const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u;
+const validPart = part => part?.available === true && /^sha256:[a-f0-9]{64}$/u.test(part.sha256) && Number.isSafeInteger(part.size) && part.size >= 0 && part.size <= 64*1024*1024;
 export class MailSyncClient {
-  constructor({store,localStore,getConnection,getFetch,getFileFetch,installationID,ensureInstallation=async()=>{}}) {
-    Object.assign(this,{store,localStore,getConnection,getFetch,getFileFetch,installationID,ensureInstallation});
+  constructor({store,localStore,getConnection,getFetch,getFileFetch,preferCurrentFiles=()=>false,installationID,ensureInstallation=async()=>{}}) {
+    Object.assign(this,{store,localStore,getConnection,getFetch,getFileFetch,preferCurrentFiles,installationID,ensureInstallation});
     this.inflight=new Map();this.controllers=new Set();this.generation=0;this.active=true;
   }
   start(){this.active=true;return this;}
@@ -14,21 +16,41 @@ export class MailSyncClient {
   catalog(){return this.store.catalog(scope(this.#connection()));}
   async saveAttachment(mailbox,mailID,partID,conversationID){
     const generation=this.generation;this.#assertActive(generation);
+    if (typeof mailbox !== 'string' || !ID.test(mailbox) || typeof mailID !== 'string' || !ID.test(mailID) || typeof partID !== 'string' || partID && !ID.test(partID)) throw new Error('Mail attachment identity is invalid');
     const connection=this.#connection(); const identity=scope(connection);
     if(!this.localStore||!this.getFileFetch)throw new Error('Attachment saving is unavailable');
     this.localStore.read(identity,conversationID);
     const mail=this.store.read(identity,mailbox).messages.find((value)=>value.id===mailID);
-    const part=mail?.attachments.find((value)=>value.id===partID);
-    if(!part?.available||!/^sha256:[a-f0-9]{64}$/u.test(part.sha256)||!Number.isSafeInteger(part.size)||part.size<0||part.size>64*1024*1024)throw new Error('Synchronize an available attachment within 64 MiB before saving it');
+    let part=mail?.attachments.find((value)=>value.id===partID);
+    const cached = !this.preferCurrentFiles() && !!mail && partID !== '';
+    let route = `/api/v1/mail/${encodeURIComponent(mailbox)}/messages/${encodeURIComponent(mailID)}/attachments/${encodeURIComponent(partID)}`;
+    if (cached && !validPart(part)) throw new Error('Synchronize an available attachment within 64 MiB before saving it');
     await this.ensureInstallation();
+    this.#assertActive(generation);
+    if(this.getConnection()!==connection)throw new Error('Mail login changed');
+    if (!cached) {
+      // The full popup reads current service projections directly and must not
+      // require a separate cache synchronization before downloading a file.
+      const message = await this.#request(`/api/email/messages/${encodeURIComponent(mailID)}`, {}, generation);
+      if (message.id !== mailID || message.mailbox_id !== mailbox) throw new Error('Mail attachment ownership differs');
+      part = partID ? message.attachments?.find(value => value.id === partID) : { name: 'original.eml', available: message.original_available };
+      if (!part?.available || typeof part.name !== 'string' || !part.name || part.name.length > 1024) throw new Error('The mail attachment is unavailable');
+      route = `/api/email/messages/${encodeURIComponent(mailID)}/file${partID ? `?part_id=${encodeURIComponent(partID)}` : ''}`;
+    }
     this.#assertActive(generation);
     if(this.getConnection()!==connection)throw new Error('Mail login changed');
     const controller=new AbortController();this.controllers.add(controller);
     const signal=AbortSignal.any([controller.signal,AbortSignal.timeout(30000)]);
     try {
-      const response=await this.getFileFetch()(`${connection.origin}/api/v1/mail/${encodeURIComponent(mailbox)}/messages/${encodeURIComponent(mailID)}/attachments/${encodeURIComponent(partID)}`,{method:'GET',headers:{Authorization:connection.authorization,'X-SparkClaw-Installation':this.installationID},redirect:'manual',signal});
+      const response=await this.getFileFetch()(`${connection.origin}${route}`,{method:'GET',headers:{Authorization:connection.authorization,'X-SparkClaw-Installation':this.installationID},redirect:'manual',signal});
       this.#assertActive(generation,signal);
       if(!response.ok)throw new Error('The mail attachment is unavailable; synchronize and retry');
+      if (!cached) {
+        const length = response.headers.get('content-length'), digest = response.headers.get('x-sparkclaw-digest');
+        if (!/^(0|[1-9][0-9]{0,8})$/u.test(length || '') || !/^[a-f0-9]{64}$/u.test(digest || '')) throw new Error('Mail attachment manifest is unavailable');
+        part = { ...part, size: Number(length), sha256: `sha256:${digest}` };
+        if (!validPart(part)) throw new Error('Mail attachment exceeds the 64 MiB limit');
+      }
       const reader=response.body?.getReader();if(!reader)throw new Error('Attachment response is empty');
       const chunks=[];const hash=crypto.createHash('sha256');let size=0;
       try{for(;;){const {done,value}=await reader.read();this.#assertActive(generation,signal);if(done)break;size+=value.byteLength;if(size>part.size||size>64*1024*1024)throw new Error('Mail attachment size differs from its manifest');hash.update(value);chunks.push(value);}}

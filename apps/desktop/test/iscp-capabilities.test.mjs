@@ -46,3 +46,14 @@ test('mail settings qualify independently before any mailbox exists and expire w
   assert.equal(projectISCPCapabilities(full,{...full,capabilities},Date.now()+120000).surfaces.mail_settings.enabled,false);
   for(const name of operations)assert.equal(projectISCPCapabilities({...full,operations:operations.filter(value=>value!==name)},{...full,capabilities}).surfaces.mail_settings.enabled,false);
 });
+
+test('original mail popup has its complete qualification gate independent of provider send readiness', () => {
+ const definitions=JSON.parse(readFileSync(new URL('../src/shared/iscp-operations.json',import.meta.url),'utf8'));
+ const full={...manifest,operations:definitions.map(operation=>operation.name)};
+ const capabilities=ISCP_SURFACES.map(id=>({...row,id}));
+ assert.equal(projectISCPCapabilities(full,{...full,capabilities}).mail,true);
+ for (const id of ['mail_popup']) assert.equal(projectISCPCapabilities(full,{...full,capabilities:capabilities.map(value=>value.id===id?{...value,qualified:false}:value)}).mail,false);
+ for (const operation of ['mail.conversations.list','mail.classification','mail.file','mail.replies.polish','mail.intake.update','object.read']) assert.equal(projectISCPCapabilities({...full,operations:full.operations.filter(value=>value!==operation)},{...full,capabilities}).mail,false);
+ assert.equal(projectISCPCapabilities(full,{...full,capabilities:capabilities.filter(value=>value.id!=='mail_popup')}).mail,false,'old cache qualification cannot enable the original popup');
+ assert.equal(projectISCPCapabilities(full,{...full,capabilities:capabilities.map(value=>['mail_send','mail_send_attachments','mail_settings'].includes(value.id)?{...value,dependencies_ready:false}:value)}).mail,true,'login and browsing stay available when sending is unavailable');
+});

@@ -227,8 +227,11 @@ export class DesktopAuth {
   async authorizedFetch(raw, init = {}) {
     // The mail domain permits a 200 KiB body whose JSON escaping may expand
     // sixfold. Keep this narrow exception aligned with its encoded limit.
-    const mailDraft = /^\/api\/email\/drafts(?:\/|$)/u.test(new URL(raw).pathname);
-    return this.#authorizedFetch(raw, init, mailDraft ? 2 << 20 : 1 << 20);
+    const pathname = new URL(raw).pathname;
+    const mailDraft = /^\/api\/email\/drafts(?:\/|$)/u.test(pathname) || pathname === '/api/email/replies/polish';
+    // Render artifacts have their own 2 MiB bound plus a small response envelope.
+    const mailPreview = /^\/api\/email\/messages\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}\/render-preview$/u.test(pathname);
+    return this.#authorizedFetch(raw, init, mailPreview ? (2 << 20) + (64 << 10) : mailDraft ? 2 << 20 : 1 << 20);
   }
 
   // Only trusted main-process workbench clients call this; the renderer proxy keeps
@@ -243,7 +246,9 @@ export class DesktopAuth {
 
   async authorizedMailFileFetch(raw, init = {}) {
     const url = new URL(raw);
-    if (!/^\/api\/v1\/mail\/[^/]+\/messages\/[^/]+\/attachments\/[^/]+$/u.test(url.pathname) || url.search || url.hash || url.username || url.password || (init.method && init.method !== "GET")) throw new Error("Mail attachment path is invalid");
+    const cached = /^\/api\/v1\/mail\/[A-Za-z0-9_.:-]+\/messages\/[A-Za-z0-9_.:-]+\/attachments\/[A-Za-z0-9_.:-]+$/u.test(url.pathname) && !url.search;
+    const original = /^\/api\/email\/messages\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}\/file$/u.test(url.pathname) && [...url.searchParams].every(([key, value]) => key === 'part_id' && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u.test(value)) && [...url.searchParams].length <= 1;
+    if (!(cached || original) || url.hash || url.username || url.password || (init.method && init.method !== "GET")) throw new Error("Mail attachment path is invalid");
     return this.#authorizedFetch(raw, init, 64 * 1024 * 1024);
   }
 
@@ -256,7 +261,9 @@ export class DesktopAuth {
     const mailMutation = ["POST", "PUT"].includes((init.method || "GET").toUpperCase()) && /^\/api\/email\/drafts(?:\/[^/]+(?:\/send)?)?$/u.test(url.pathname) && !url.search;
     const mailReconcile = (init.method || "GET").toUpperCase() === "POST" && /^\/api\/email\/drafts\/[^/]+\/reconcile$/u.test(url.pathname) && !url.search;
     const mailLogin = (init.method || "GET").toUpperCase() === "POST" && /^\/api\/email\/providers\/(outlook|qq_mail|gmail)\/(check|login-browser)$/u.test(url.pathname) && !url.search;
-    const requestTimeout = mailMutation || mailReconcile || mailLogin ? 180000 : 30000;
+    const method = (init.method || 'GET').toUpperCase();
+    const mailPopup = !url.search && (method === 'POST' && ['/api/email/replies/polish','/api/email/source/cleanup'].includes(url.pathname) || method === 'DELETE' && /^\/api\/email\/conversations\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u.test(url.pathname) || method === 'PATCH' && /^\/api\/email\/providers\/(outlook|qq_mail|gmail)$/u.test(url.pathname));
+    const requestTimeout = mailMutation || mailReconcile || mailLogin || mailPopup ? 180000 : 30000;
     const controller = new AbortController();
     this.requests.add(controller);
     const headers = new Headers(init.headers);

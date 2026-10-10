@@ -250,6 +250,13 @@ test('mail save, receipt reconciliation and provider probes can complete beyond 
   t.mock.timers.tick(45000);
   assert.equal((await (await reconciling).json()).version, 1);
   assert.equal(f.calls.at(-1).request.operation, 'mail.drafts.reconcile');
+  f.transport.capabilities = {...f.transport.capabilities,operations:[...f.transport.capabilities.operations,'mail.intake.update','mail.replies.polish','mail.source.cleanup','mail.conversations.delete']};
+  for (const [route,method,body] of [['/api/email/providers/outlook','PATCH',{intake_enabled:false,expected_mailbox_version:1}],['/api/email/replies/polish','POST',{}],['/api/email/source/cleanup','POST',{}],['/api/email/conversations/conversation','DELETE',{}]]) {
+    const pending = f.transport.fetch(`${origin}${route}`,{method,body:JSON.stringify(body)});
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    t.mock.timers.tick(45000);
+    assert.equal((await (await pending).json()).version,1);
+  }
   const reading = f.transport.fetch(`${origin}/api/email/drafts`);
   const rejected = assert.rejects(reading, /deadline/);
   t.mock.timers.tick(30000); await rejected;
@@ -272,4 +279,63 @@ test('mail provider login uses a durable receipt after an explicit unknown respo
   await assert.rejects(f.transport.fetch(`${origin}/api/email/providers/outlook/login-browser`,request), /unknown/);
   assert.equal((await f.transport.fetch(`${origin}/api/email/providers/outlook/check`,request)).status,200);
   assert.deepEqual(f.calls.map(call => call.request.operation), ['mail.providers.login','operations.receipt','mail.providers.check']);
+});
+
+test('original popup mutations retain their original receipt across helper restart without HTTP or repeated effects', async t => {
+ const fs=await import('node:fs'), os=await import('node:os'), path=await import('node:path');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'iscp-popup-mutations-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ t.mock.method(globalThis,'fetch',()=>assert.fail('popup bypassed encrypted ISCP'));
+ const mutations = new Map(), receipts = new Map();
+ let reply = false;
+ const f=fixture(t,(call,child)=>{
+   const {operation,operation_id}=call.request;
+   if(operation === 'operations.receipt') {
+     const result=receipts.get(call.request.params.operation_id);
+     child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:reply?{state:'completed',response:result}:{state:'unknown'}}});
+     return;
+   }
+   assert.ok(operation_id);
+   mutations.set(operation,(mutations.get(operation)||0)+1);
+   receipts.set(operation_id,{status:200,body:{operation,version:3}});
+ },{journalRoot:root,timeoutMS:15});
+ const cases = [
+   ['POST','/api/email/messages/mail/classification',{expected_version:2,command_key:'classification'},'mail.classification'],
+   ['POST','/api/email/conversations/conversation/rename',{title:'Edited',expected_version:2,command_key:'rename'},'mail.conversations.rename'],
+   ['POST','/api/email/presentations/ensure',{target_kind:'mail',target_ids:['mail'],language:'zh'},'mail.presentations.ensure'],
+   ['PATCH','/api/email/providers/outlook',{intake_enabled:false,expected_mailbox_version:2},'mail.intake.update'],
+   ['PUT','/api/email/drafts/draft',{expected_version:0,attachments:[],subject:'Popup draft'},'mail.drafts.save'],
+ ];
+ const capabilities={schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:[...cases.map(value=>value[3]),'mail.assignment','operations.receipt'],binding:{deployment_id:'d',owner_id:'o',client_id:'c'}};
+ const start = async () => { await f.transport.start(); f.children.at(-1).send({ipc_version:1,type:'capabilities',capabilities}); };
+ await start();
+ for (const [method,route,body] of cases) await assert.rejects(f.transport.fetch(`${origin}${route}`,{method,body:JSON.stringify(body)}),/deadline/);
+ const savedCall=f.calls.find(call=>call.request.operation==='mail.drafts.save');
+ assert.equal(JSON.parse(Buffer.from(savedCall.body_base64,'base64')).id,'draft','PUT identity must survive serialized IPC');
+ f.transport.close(); await start();
+ await assert.rejects(f.transport.fetch(`${origin}/api/email/messages/mail/assignment`,{method:'POST',body:JSON.stringify({conversation_id:'other',expected_version:2})}),/unknown/);
+ assert.equal(mutations.has('mail.assignment'),false,'unknown classification fences another mutation of that message');
+ reply = true;
+ for (const [method,route,body,operation] of cases) {
+   const value=await(await f.transport.fetch(`${origin}${route}`,{method,body:JSON.stringify(body)})).json();
+   assert.equal(value.operation,operation);
+   assert.equal(mutations.get(operation),1);
+ }
+ assert.ok(fs.readdirSync(path.join(root,'mutations')).every(name=>!name.endsWith('.json')));
+});
+
+test('original popup files use object verification and main-owned digest headers', async t => {
+ const fs=await import('node:fs'), os=await import('node:os'), path=await import('node:path'), crypto=await import('node:crypto');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'iscp-popup-file-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const bytes=Buffer.from('approved synthetic source');
+ const object={object_id:'mail-object',version:1,size:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex'),name:'original.eml',purpose:'mail_attachment',media_type:'application/octet-stream'};
+ const f=fixture(t,(call,child)=>{
+   assert.equal(call.request.operation,'mail.file');assert.deepEqual(call.request.params,{mail:'mail'});
+   child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body_object:object}});
+ },{journalRoot:root});
+ await f.transport.start(); f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:['mail.file','object.read'],binding:{deployment_id:'d',owner_id:'o',client_id:'c'}}});
+ f.transport.objects.download=async reference=>{assert.deepEqual(reference,object);return bytes;};
+ const response=await f.transport.fetch(`${origin}/api/email/messages/mail/file`);
+ assert.equal(response.headers.get('x-sparkclaw-digest'),object.sha256);
+ assert.equal(response.headers.get('content-length'),String(bytes.length));
+ assert.deepEqual(Buffer.from(await response.arrayBuffer()),bytes);
 });

@@ -240,6 +240,7 @@ async function start() {
       store: mailStore, localStore, getConnection: () => desktopAuth.connection,
       getFetch: () => desktopAuth.authorizedFetch.bind(desktopAuth),
       getFileFetch: () => desktopAuth.authorizedMailFileFetch.bind(desktopAuth),
+      preferCurrentFiles: () => desktopAuth.descriptor?.transport !== 'iscp' || desktopAuth.status.capabilities?.surfaces?.mail_popup?.enabled === true,
       installationID: localStore.installationID,
     });
     if (desktopAuth.status.state === "connected" && (desktopAuth.descriptor?.transport !== "iscp" || desktopAuth.status.capabilities?.mail === true)) mailClient.start();

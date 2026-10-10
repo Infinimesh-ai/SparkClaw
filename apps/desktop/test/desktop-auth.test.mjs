@@ -29,6 +29,20 @@ const secureStorage = {
   },
 };
 
+test('main-owned original mail file fetch accepts only bounded fixed file routes', async t => {
+  const {auth} = await fixture(t);
+  await auth.initialize(); await auth.login(token);
+  const calls = [];
+  auth.fetcher = async url => { calls.push(url); return new Response('fixture'); };
+  for (const route of ['/api/email/messages/mail/file','/api/email/messages/mail/file?part_id=part','/api/v1/mail/box/messages/mail/attachments/part']) {
+    const response = await auth.authorizedMailFileFetch(`${descriptor.origin}${route}`);
+    assert.equal(await response.text(),'fixture');
+  }
+  for (const route of ['/api/email/messages/mail/file?part_id=part&part_id=other','/api/email/messages/mail/file?path=/etc/passwd','/api/email/messages/mail/file?part_id=../secret','/api/email/messages/mail/file?part_id=','/api/email/messages/mail%2ffile/file','/api/email/messages/mail/file#fragment']) await assert.rejects(auth.authorizedMailFileFetch(`${descriptor.origin}${route}`), /invalid/);
+  await assert.rejects(auth.authorizedMailFileFetch(`${descriptor.origin}/api/email/messages/mail/file`,{method:'POST'}), /invalid/);
+  assert.equal(calls.length,3);
+});
+
 async function fixture(t, storage = secureStorage) {
   const directory = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), "sparkclaw-auth-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
@@ -235,6 +249,11 @@ test("workbench response expansion remains bounded and inaccessible to ordinary 
   await assert.rejects(normal.arrayBuffer(), /allowed size/);
   const execution = await auth.authorizedExecutionFetch(`${descriptor.origin}/api/v1/executions/test`);
   assert.equal((await execution.arrayBuffer()).byteLength, 2 * 1024 * 1024);
+  for (const route of ['/api/email/messages/mail/render-preview','/api/email/replies/polish']) assert.equal((await (await auth.authorizedFetch(`${descriptor.origin}${route}`)).arrayBuffer()).byteLength,2*1024*1024);
+  const unrelatedMail = await auth.authorizedFetch(`${descriptor.origin}/api/email/providers`);
+  await assert.rejects(unrelatedMail.arrayBuffer(), /allowed size/);
+  auth.fetcher = async () => new Response('x'.repeat((2 << 20) + (64 << 10) + 1));
+  await assert.rejects((await auth.authorizedFetch(`${descriptor.origin}/api/email/messages/mail/render-preview`)).arrayBuffer(), /allowed size/);
   await assert.rejects(auth.authorizedExecutionFetch(`${descriptor.origin}/api/sessions`), /path/);
   await assert.rejects(auth.authorizedExecutionFetch(`${descriptor.origin}/api/v1/executions/test?token=x`), /path/);
   auth.fetcher = async () => new Response("x".repeat(8 * 1024 * 1024 + 1));

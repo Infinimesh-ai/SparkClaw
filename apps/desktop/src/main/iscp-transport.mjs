@@ -16,6 +16,19 @@ export const ISCP_BODY_BYTES = MAX_BYTES - 2048;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 
+function mailMutationResource(request) {
+  const { operation, params = {}, body = {} } = request;
+  if (operation.startsWith('mail.drafts.')) return `mail-draft:${params.draft || body.id || 'list'}${operation === 'mail.drafts.reconcile' ? ':reconcile' : ''}`;
+  if (operation.startsWith('mail.providers.') || operation === 'mail.intake.update') return `mail-provider:${params.provider || 'list'}:${operation.split('.').at(-1)}`;
+  if (params.mail) return `mail-message:${params.mail}`;
+  if (params.conversation) return `mail-conversation:${params.conversation}`;
+  if (params.rule) return `mail-rule:${params.rule}`;
+  if (params.warning) return `mail-warning:${params.warning}`;
+  // These operations schedule bounded service work or update a batch. Their
+  // original opaque receipt must resolve before another request of that kind.
+  return operation;
+}
+
 // Only local validation before a pipe write may prove that a request was not
 // sent. Timeouts, helper exits and aborts after write retain an unknown outcome.
 export class ISCPRequestNotSentError extends Error {
@@ -142,15 +155,15 @@ export class ISCPTransport {
       ...(headers.get("x-sparkclaw-installation")?{installation_id:headers.get("x-sparkclaw-installation")}:{}),
       ...(headers.get("x-sparkclaw-digest")?{input_digest:headers.get("x-sparkclaw-digest")}:{}),
       ...(init.operationID?{operation_id:init.operationID}:{}),...(init.expectedRevision?{expected_revision:init.expectedRevision}:{})};
-    const rawBody=init.body === undefined ? undefined : typeof init.body === "string" ? init.body : new TextDecoder("utf-8",{fatal:true}).decode(init.body);
-    if(request.operation.startsWith("settings.") || request.operation.startsWith("notifications.") || request.operation.startsWith("mail.drafts.") || request.operation.startsWith("mail.providers.") || request.operation === "execution.approval") return this.#presentation(request,init,rawBody);
+    const rawBody=mapped.body !== body && mapped.operation === 'mail.drafts.save' ? JSON.stringify(mapped.body) : init.body === undefined ? undefined : typeof init.body === "string" ? init.body : new TextDecoder("utf-8",{fatal:true}).decode(init.body);
+    if(request.operation.startsWith("settings.") || request.operation.startsWith("notifications.") || request.operation.startsWith("mail.") && requireOperation(request.operation).mutation || request.operation.startsWith("mail.drafts.") || request.operation.startsWith("mail.providers.") || request.operation === "execution.approval") return this.#presentation(request,init,rawBody);
     return this.#request(request,init,rawBody);
   }
 
   async #presentation(request,init,rawBody) {
     const spec=requireOperation(request.operation);
     const family=request.operation.split(".")[1];
-    const resource=request.operation.startsWith("mail.providers.") ? `mail-provider:${request.params?.provider || "list"}:${request.operation.split(".").at(-1)}` : request.operation.startsWith("mail.drafts.") ? `mail-draft:${request.params?.draft || request.body?.id || "list"}${request.operation === "mail.drafts.reconcile" ? ":reconcile" : ""}` : request.operation === "execution.approval" ? `approval:${request.params?.request_id}:${request.params?.approval_id}` : request.operation.startsWith("notifications.") ? "notifications" : family==='owner' ? 'owner' : family==='connectors' ? 'connectors' : `integration:${request.params?.integration_id || ''}`;
+    const resource=request.operation.startsWith("mail.") ? mailMutationResource(request) : request.operation === "execution.approval" ? `approval:${request.params?.request_id}:${request.params?.approval_id}` : request.operation.startsWith("notifications.") ? "notifications" : family==='owner' ? 'owner' : family==='connectors' ? 'connectors' : `integration:${request.params?.integration_id || ''}`;
     if (this.presentationPending.has(resource)) throw new ISCPRequestNotSentError("A change to this resource is already in progress", "capacity");
     this.presentationPending.add(resource);
     try { return await this.#applyPresentation(resource, spec, request, init, rawBody); }
@@ -245,7 +258,7 @@ export class ISCPTransport {
       const signal=init.signal;
       const finish=(handler,value)=>{clearTimeout(timer);signal?.removeEventListener("abort",cancel);this.pending.delete(id);handler(value);};
       const cancel=()=>finish(reject,new Error("ISCP request was canceled"));
-      const timeoutMS = ["mail.drafts.save", "mail.drafts.send", "mail.drafts.reconcile", "mail.providers.check", "mail.providers.login"].includes(request.operation) && this.timeoutMS === 30000 ? 180000 : this.timeoutMS;
+      const timeoutMS = ["mail.drafts.save", "mail.drafts.send", "mail.drafts.reconcile", "mail.providers.check", "mail.providers.login", "mail.intake.update", "mail.replies.polish", "mail.source.cleanup", "mail.conversations.delete"].includes(request.operation) && this.timeoutMS === 30000 ? 180000 : this.timeoutMS;
       const timer=setTimeout(()=>finish(reject,new Error("ISCP request deadline exceeded")),timeoutMS);
       this.pending.set(id,{request,capacityClass,resolve:(value)=>finish(resolve,value),reject:(error)=>finish(reject,error)});
       signal?.addEventListener("abort",cancel,{once:true});
@@ -256,7 +269,7 @@ export class ISCPTransport {
     if(response.body_object) {
       if(!this.objects)throw new Error("Object transfer is unavailable");
       const bytes=await this.objects.download(response.body_object,init.signal);
-      return new Response(bytes,{status:response.status,headers:{"content-type":response.body_object.media_type||"application/json"}});
+      return new Response(bytes,{status:response.status,headers:{"content-type":response.body_object.media_type||"application/json", "content-length": String(response.body_object.size), "x-sparkclaw-digest": response.body_object.sha256, ...(response.body_object.name ? { "x-sparkclaw-file-name": encodeURIComponent(response.body_object.name) } : {})}});
     }
     const payload=response.status>=400 && response.body===undefined ? {error:response.error||"ISCP operation failed",error_code:response.error_code||"operation_failed",retryable:response.retryable===true,...(response.retry_after_ms?{retry_after_ms:response.retry_after_ms}:{})} : response.body;
     const body=payload===undefined?null:JSON.stringify(payload);

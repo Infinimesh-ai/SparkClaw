@@ -124,3 +124,34 @@ test('suspended attachment response cannot save a late copy after restart',async
  const pending=client.saveAttachment('box','a','part-1',conversation.id);const rejected=assert.rejects(pending,/paused/);await entered.promise;client.close();assert.equal(signal.aborted,true);assert.equal(local.read(scope,conversation.id).files.length,0);
  client.start();await client.saveAttachment('box','a','part-1',conversation.id);late.resolve(new Response(bytes));await rejected;assert.equal(local.read(scope,conversation.id).files.length,1);assert.equal(store.cursor(scope,'box'),'first');client.close();local.close();store.close();
 });
+
+test('original popup downloads uncached attachments and original MIME into desktop-owned files', async t => {
+ const store = new MailSyncStore(fixture(t)), local = new ClientStore(fixture(t));
+ t.after(() => { store.close(); local.close(); });
+ const conversation = local.create(scope, 'Original popup downloads');
+ const connection = {origin:'https://backend.invalid',authorization:'Bearer synthetic',deploymentID:'deployment',ownerID:'owner',clientID:'client'};
+ const bytes = Buffer.from('verified original popup bytes'), digest = crypto.createHash('sha256').update(bytes).digest('hex');
+ const message = {...mail('uncached'), original_available:true, attachments:[{id:'part',name:'owned.txt',available:true}]};
+ const paths = [];
+ let download = new Response(bytes, {headers:{'content-length':String(bytes.length),'x-sparkclaw-digest':digest}});
+ const client = new MailSyncClient({store,localStore:local,getConnection:()=>connection,
+   getFetch:()=>async url=>{assert.equal(new URL(url).pathname,'/api/email/messages/uncached');return Response.json(message);},
+   getFileFetch:()=>async url=>{paths.push(new URL(url).pathname + new URL(url).search);return download.clone();},installationID:'installation'});
+ for (const part of ['part','']) {
+   const saved = await client.saveAttachment('box','uncached',part,conversation.id);
+   assert.equal(saved.name, part ? 'owned.txt' : 'original.eml');
+   assert.deepEqual(local.file(scope,saved.id).content,bytes);
+ }
+ assert.deepEqual(paths,['/api/email/messages/uncached/file?part_id=part','/api/email/messages/uncached/file']);
+ assert.equal(store.read(scope,'box').messages.length,0,'popup download must not fabricate a cache snapshot');
+ const files = local.read(scope,conversation.id).files.length;
+ download = new Response(Buffer.alloc(bytes.length, 65), {headers:{'content-length':String(bytes.length),'x-sparkclaw-digest':digest}});
+ await assert.rejects(client.saveAttachment('box','uncached','part',conversation.id),/integrity/);
+ download = new Response(bytes);
+ await assert.rejects(client.saveAttachment('box','uncached','part',conversation.id),/manifest/);
+ download = new Response(bytes,{headers:{'content-length':String(65*1024*1024),'x-sparkclaw-digest':digest}});
+ await assert.rejects(client.saveAttachment('box','uncached','part',conversation.id),/64 MiB/);
+ await assert.rejects(client.saveAttachment('other-box','uncached','part',conversation.id),/ownership/);
+ await assert.rejects(client.saveAttachment('box','uncached','../secret',conversation.id),/identity/);
+ assert.equal(local.read(scope,conversation.id).files.length,files);
+});

@@ -1,0 +1,4 @@
+SparkX work2 integration acceptance
+Marker: SPARKX-LOCAL-WORKSPACE-1009
+Transport checks: direct HTTPS and ISCP.
+This file contains synthetic test data only.

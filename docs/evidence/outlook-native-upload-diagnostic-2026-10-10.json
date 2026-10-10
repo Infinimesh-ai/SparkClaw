@@ -1,0 +1,280 @@
+{
+  "schema_version": 1,
+  "qualification_date": "2026-10-10",
+  "scope": "fixed approved desktop-source attachment upload and final verification; no provider Send",
+  "production_commit": "037cdbe6",
+  "candidate_release": "0.3.0-sparkclaw.19",
+  "runtime_digest": "4731f4c4b164501590b68ca0e6a0a213b36968bc98c6da72749c7c6095ea5e1e",
+  "artifacts": {
+    "python_dependencies": {
+      "file": "python-requirements.txt",
+      "sha256": "e99394c278eed0e2ee36f7a1289c0327af0a355b1726472a8296563d5fb0fde6"
+    },
+    "runtime": {
+      "file": "infinimesh-app-cli-runtime-0.3.0-sparkclaw.19.tgz",
+      "sha256": "1d3e021dfe34004b0033569ac16f6308b0c01e514e4a0253cc210bb5269bcd84"
+    },
+    "wheel": {
+      "file": "infinimesh_app_cli-0.3.0+sparkclaw.19-py3-none-any.whl",
+      "sha256": "0444e4913779378ba0a7f6fef8bf4360ec3d64d2ea6b77c2113a713f9b87d0f2"
+    }
+  },
+  "source": {
+    "desktop_local_file_id": "526a9ba7-3f6b-4ab6-9965-01ca6eb535f8",
+    "size_bytes": 158,
+    "sha256": "39803ed9f9698d9676bf92ca10819e4f242248ca35dbe9c885cf6b09ffc070b2",
+    "gateway_copy_only": true
+  },
+  "original_failure": {
+    "draft_id": "34b28df2-f9c4-405c-8822-744229cb26f8",
+    "invocation_id": "email_send_26867bd45d5b837c",
+    "task_id": "97a4a8ac-f0bc-4a9a-a10c-03273b1d25f6",
+    "ledger_epoch": 17,
+    "effect": 1,
+    "reason": "EMAIL_ATTACHMENT_UPLOAD_FAILED",
+    "durable_journal_stage": "not_sent",
+    "proof_kind": "pre_dispatch_failure",
+    "subagent_did_not_reconcile": true
+  },
+  "root_cause": {
+    "empty_screen_reader_alert_rejected": true,
+    "native_byte_proof_matches": true,
+    "legacy_data_attachment_id_missing": true,
+    "observed_container": ".av-container",
+    "complete_name_title_and_text": true,
+    "observed_size": "158 字节",
+    "accessible_summary": "[approved-file] 打开 158 字节",
+    "only_card_control": "更多操作",
+    "pending": 0
+  },
+  "changed_runtime_files": [
+    "applications/mail/lib/workspace-attachments.mjs",
+    "bindings/mail-gmail.json",
+    "bindings/mail-outlook.json",
+    "bindings/mail-qq-mail.json",
+    "npm-shrinkwrap.json",
+    "package.json",
+    "release.json",
+    "src/executor.mjs"
+  ],
+  "reader_assets_and_projection_unchanged": true,
+  "browser_components_not_staged": true,
+  "checks": {
+    "deterministic_reproduction": true,
+    "projection_check": true,
+    "paired_install_rollback": {
+      "fresh_install": true,
+      "configuration_drift_rejected": true,
+      "native_cli_runtime": true,
+      "installed_file_tamper_rejected": true,
+      "mixed_python_runtime_rejected": true,
+      "mixed_consumer_rejected": true,
+      "live_host_activation_rejected": true,
+      "live_executor_activation_rejected": true,
+      "whole_set_rollback": true,
+      "durable_state_preserved": true,
+      "epoch_monotonic": true
+    },
+    "linux_controller": {
+      "passed": 210,
+      "skipped": 107,
+      "failed": 0,
+      "skips": "explicit real-browser and Python-environment gates"
+    },
+    "real_chromium_cli_attachments": {
+      "passed": 70,
+      "skipped": 0,
+      "failed": 0
+    },
+    "paired_python_socket_ledger_recovery": {
+      "passed": 38,
+      "skipped": 0,
+      "failed": 0
+    },
+    "final_inspection_utf8_bytes": 21261,
+    "host_inspect_limit_bytes": 32768
+  },
+  "coverage": [
+    "legacy native row compatibility",
+    "distinct multi-card names/sizes",
+    "duplicate/missing/hidden/pending/failed cards reject",
+    "exact name and integer byte size plus complete Open summary",
+    "owned native input and verified byte manifest remain pinned",
+    "empty accessibility alert only; text/child/title/label/error class/referenced label or description reject",
+    "native chooser ACK and subsequent production final inspection",
+    "queued reconciliation acknowledges durable pending; cancellation and restart retain uncertain effect; duplicate/lost ACK never resends"
+  ],
+  "runs": [
+    {
+      "private_evidence": "mail19-outlook-owned-upload-20261010.json",
+      "private_sha256": "d80d72bf8432bb71988465b81ff6bcf00824f494d1fe682d07d05de2f15401db",
+      "started_at": "2026-10-10T06:04:30.326Z",
+      "finished_at": "2026-10-10T06:05:38.243Z",
+      "release_digest": "7140a8bcc7d7d1d3bf52aa12971d8c4ae0f7db94b0eb07d5e422f8a826d89040",
+      "candidate_release_digest": null,
+      "candidate_scope": null,
+      "final_inspection_utf8_bytes": null,
+      "owned_cleanup": true,
+      "reservation_released": true,
+      "diagnostic_directory": "/tmp/sc-outlook-upload-P8wdqJ",
+      "no_send": true,
+      "upload_returned": false,
+      "final_verified": false,
+      "error": "email_attachment_upload_failed",
+      "effects": 1,
+      "discard_own_diagnostic_composer": true,
+      "immediate": {
+        "owned": true,
+        "send_attempted": false,
+        "body_empty": true,
+        "context_valid": true,
+        "input_valid": true,
+        "byte_proof_matches": true,
+        "input_file_count": 0,
+        "known_rows": 0,
+        "pending": 0,
+        "alerts": [
+          {
+            "tag": "div",
+            "classes": [
+              "screenReaderOnly"
+            ],
+            "role": "alert",
+            "visible": true,
+            "disabled": false,
+            "busy": false,
+            "title": "",
+            "label": "",
+            "attachment_id": false,
+            "expected_name": false,
+            "text": "",
+            "children": []
+          }
+        ]
+      },
+      "settled": {
+        "context_valid": true,
+        "input_valid": true,
+        "byte_proof_matches": true,
+        "pending": 0
+      }
+    },
+    {
+      "private_evidence": "mail19-outlook-ready-prefinal-20261010.json",
+      "private_sha256": "47bd0b1066bd1bd5d640bff968809e0a412f83e8ee1fd22a93fdd3a6f8d42080",
+      "started_at": "2026-10-10T06:13:54.788Z",
+      "finished_at": "2026-10-10T06:14:56.766Z",
+      "release_digest": "7140a8bcc7d7d1d3bf52aa12971d8c4ae0f7db94b0eb07d5e422f8a826d89040",
+      "candidate_release_digest": "6ad3a1d035c669bda5a13d5272db618cec865bda38ed99eb5e3a2ef255bba881",
+      "candidate_scope": "attachment_adapter_with_installed_Host_CLI",
+      "final_inspection_utf8_bytes": 21182,
+      "owned_cleanup": true,
+      "reservation_released": true,
+      "diagnostic_directory": "/tmp/sc-outlook-upload-aDinwg",
+      "no_send": true,
+      "upload_returned": true,
+      "final_verified": true,
+      "error": null,
+      "effects": 1,
+      "discard_own_diagnostic_composer": true,
+      "immediate": {
+        "owned": true,
+        "send_attempted": false,
+        "body_empty": true,
+        "context_valid": true,
+        "input_valid": true,
+        "byte_proof_matches": true,
+        "input_file_count": 0,
+        "known_rows": 0,
+        "pending": 0,
+        "alerts": [
+          {
+            "tag": "div",
+            "classes": [
+              "screenReaderOnly"
+            ],
+            "role": "alert",
+            "visible": true,
+            "disabled": false,
+            "busy": false,
+            "title": "",
+            "label": "",
+            "attachment_id": false,
+            "expected_name": false,
+            "text": "",
+            "children": []
+          }
+        ]
+      },
+      "settled": {
+        "context_valid": true,
+        "input_valid": true,
+        "byte_proof_matches": true,
+        "pending": 0
+      }
+    },
+    {
+      "private_evidence": "mail19-outlook-ready-final-20261010.json",
+      "private_sha256": "9bde63d0e70083d344c33f3ff87cdee21aea26550b57aa40f85b54cc086c7073",
+      "started_at": "2026-10-10T06:16:58.473Z",
+      "finished_at": "2026-10-10T06:18:04.999Z",
+      "release_digest": "7140a8bcc7d7d1d3bf52aa12971d8c4ae0f7db94b0eb07d5e422f8a826d89040",
+      "candidate_release_digest": "4731f4c4b164501590b68ca0e6a0a213b36968bc98c6da72749c7c6095ea5e1e",
+      "candidate_scope": "attachment_adapter_with_installed_Host_CLI",
+      "final_inspection_utf8_bytes": 21261,
+      "owned_cleanup": true,
+      "reservation_released": true,
+      "diagnostic_directory": "/tmp/sc-outlook-upload-qA36Qx",
+      "no_send": true,
+      "upload_returned": true,
+      "final_verified": true,
+      "error": null,
+      "effects": 1,
+      "discard_own_diagnostic_composer": true,
+      "immediate": {
+        "owned": true,
+        "send_attempted": false,
+        "body_empty": true,
+        "context_valid": true,
+        "input_valid": true,
+        "byte_proof_matches": true,
+        "input_file_count": 0,
+        "known_rows": 0,
+        "pending": 0,
+        "alerts": [
+          {
+            "tag": "div",
+            "classes": [
+              "screenReaderOnly"
+            ],
+            "role": "alert",
+            "visible": true,
+            "disabled": false,
+            "busy": false,
+            "title": "",
+            "label": "",
+            "attachment_id": false,
+            "aria_labelledby": false,
+            "aria_describedby": false,
+            "expected_name": false,
+            "text": "",
+            "children": []
+          }
+        ]
+      },
+      "settled": {
+        "context_valid": true,
+        "input_valid": true,
+        "byte_proof_matches": true,
+        "pending": 0
+      }
+    }
+  ],
+  "limitations": [
+    "The real page used installed .18 Host/CLI with the verified .19 attachment adapter; this is not a deployment or provider Send acceptance.",
+    "The observed new Outlook card contract supports exact integer byte display; KB/MB or other unproved size representations fail closed.",
+    "No receipt, dispatch journal, authority, mailbox DB or unrelated draft was edited.",
+    "All live diagnostic composers were new and proven empty, then discarded and normally cleaned; no provider Send occurred."
+  ],
+  "bootstrap_note": "The first helper bootstrap preceded completion of its binary copy, failed with production_reservation=false and created no browser page; exact source/binary hashes were checked before the actual diagnostic."
+}

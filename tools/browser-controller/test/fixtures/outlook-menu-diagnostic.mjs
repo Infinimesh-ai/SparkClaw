@@ -73,7 +73,7 @@ export function actionErrorCategory(error) {
   if(/Timeout|timed out/u.test(m))return 'timeout_other';
   return 'other';
 }
-export async function diagnoseEmptyOutlookMenu(tab,{managedSendDOM,attachmentDOM,verifySendAccount,ATTACHMENT_MENU_WAIT_MS=5000},account,{hoverMenu=false,waitVisible=false}={}) {
+export async function prepareEmptyOutlookComposer(tab,{managedSendDOM,verifySendAccount},account) {
   tab.checkpoint?.('verify_account');
   await verifySendAccount(tab,'outlook',account);
   tab.checkpoint?.('preexisting_composer_guard');
@@ -104,6 +104,9 @@ export async function diagnoseEmptyOutlookMenu(tab,{managedSendDOM,attachmentDOM
   const editor=(await tab.inspect(`async()=>{const dom=${managedSendDOM.toString()};let phase='editor';try{const end=Date.now()+3500;do{const r=dom('outlook','editor',{mode:'compose'});if(r.ready){phase='readback';const rb=dom('outlook','readback',{});phase='empty_guard';const empty=!rb.error&&rb.to.length===0&&rb.cc.length===0&&!rb.subject&&!rb.body.trim()&&(${menuFacts.toString()})().empty;return {ready:true,empty}}if(r.error&&!['email_reply_editor_unverified','email_recipient_editor_unverified'].includes(r.error))return {error:r.error};await new Promise(r=>setTimeout(r,100))}while(Date.now()<end);return {ready:false,state_present:!!globalThis.__sparkclawManagedMail,body_count:document.querySelectorAll('[contenteditable="true"][aria-label="Message body"],[contenteditable="true"][aria-label="邮件正文"]').length}}catch(error){return {ready:false,failed_phase:phase,exception_type:['TypeError','ReferenceError','SyntaxError'].includes(error.name)?error.name:'other',error_category:/Cannot read properties/u.test(error.message)?'null_property':/is not a function/u.test(error.message)?'not_function':/is not defined/u.test(error.message)?'undefined_identifier':'other'}}}`))?.result;
   tab.record?.('editor',editor);
   if(!editor?.ready||!editor.empty)throw new Error('new_composer_not_proven_empty');
+}
+export async function diagnoseEmptyOutlookMenu(tab,{managedSendDOM,attachmentDOM,verifySendAccount,ATTACHMENT_MENU_WAIT_MS=5000},account,{hoverMenu=false,waitVisible=false}={}) {
+  await prepareEmptyOutlookComposer(tab,{managedSendDOM,verifySendAccount},account);
   tab.checkpoint?.('attachment_prepare');
   tab.record?.('ribbon',(await tab.inspect(`()=>(${outlookRibbonFacts.toString()})()`))?.result);
   const prepared=(await tab.inspect(`()=>(${attachmentDOM.toString()})('outlook','prepare',[])`))?.result;

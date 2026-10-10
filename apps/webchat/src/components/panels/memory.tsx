@@ -6,6 +6,7 @@ import { formatState } from "../../lib/format";
 import { SectionHeader } from "./primitives";
 
 export function MemoryPanel({
+  readOnly = false,
   candidates,
   memories,
   text,
@@ -14,6 +15,7 @@ export function MemoryPanel({
   onDelete,
   onExport
 }: {
+  readOnly?: boolean;
   candidates: MemoryCandidate[];
   memories: Memory[];
   text: CopyText;
@@ -41,7 +43,7 @@ export function MemoryPanel({
   }
 
   async function saveEdit(memory: Memory) {
-    if (!editKind.trim() || !editContent.trim() || savingId) return;
+    if (readOnly || !editKind.trim() || !editContent.trim() || savingId) return;
     setSavingId(memory.id);
     try {
       await onUpdate(memory.id, editKind.trim(), editContent.trim());
@@ -54,7 +56,7 @@ export function MemoryPanel({
   }
 
   async function removeMemory(memory: Memory) {
-    if (savingId) return;
+    if (readOnly || savingId) return;
     setSavingId(memory.id);
     try {
       await onDelete(memory.id);
@@ -67,7 +69,7 @@ export function MemoryPanel({
   }
 
   async function archiveExport() {
-    if (exporting) return;
+    if (readOnly || exporting) return;
     setExporting(true);
     try {
       await onExport();
@@ -93,10 +95,10 @@ export function MemoryPanel({
             <p>{candidate.content}</p>
             {candidate.status === "pending" ? (
               <div className="buttonRow">
-                <button className="approve" onClick={() => onResolve(candidate.id, true)} title={text.memory.acceptMemory}>
+                <button className="approve" disabled={readOnly} onClick={() => onResolve(candidate.id, true)} title={text.memory.acceptMemory}>
                   <Check size={16} />
                 </button>
-                <button className="reject" onClick={() => onResolve(candidate.id, false)} title={text.memory.rejectMemory}>
+                <button className="reject" disabled={readOnly} onClick={() => onResolve(candidate.id, false)} title={text.memory.rejectMemory}>
                   <X size={16} />
                 </button>
               </div>
@@ -109,7 +111,7 @@ export function MemoryPanel({
       <div className="sectionHeader smallHeader">
         <Database size={15} />
         <h2>{text.memory.accepted}</h2>
-        <button className="miniIconButton headerAction" onClick={() => void archiveExport()} disabled={exporting} title={text.memory.archiveExport}>
+        <button className="miniIconButton headerAction" onClick={() => void archiveExport()} disabled={readOnly || exporting} title={text.memory.archiveExport}>
           <Download size={14} />
         </button>
       </div>
@@ -127,19 +129,19 @@ export function MemoryPanel({
                 aria-label={text.memory.kind}
                 value={editKind}
                 onChange={(event) => setEditKind(event.target.value)}
-                disabled={savingId === memory.id}
+                disabled={readOnly || savingId === memory.id}
               />
               <textarea
                 aria-label={text.memory.content}
                 value={editContent}
                 onChange={(event) => setEditContent(event.target.value)}
-                disabled={savingId === memory.id}
+                disabled={readOnly || savingId === memory.id}
               />
               <div className="buttonRow">
                 <button
                   className="approve"
                   onClick={() => void saveEdit(memory)}
-                  disabled={!editKind.trim() || !editContent.trim() || savingId === memory.id}
+                  disabled={readOnly || !editKind.trim() || !editContent.trim() || savingId === memory.id}
                   title={text.memory.saveMemory}
                 >
                   <Check size={16} />
@@ -154,10 +156,10 @@ export function MemoryPanel({
               <div className="approvalTop">
                 <strong>{memory.kind}</strong>
                 <div className="buttonRow compactButtons">
-                  <button className="edit" onClick={() => startEdit(memory)} disabled={savingId === memory.id} title={text.memory.editMemory}>
+                  <button className="edit" onClick={() => startEdit(memory)} disabled={readOnly || savingId === memory.id} title={text.memory.editMemory}>
                     <Pencil size={15} />
                   </button>
-                  <button className="reject" onClick={() => void removeMemory(memory)} disabled={savingId === memory.id} title={text.memory.deleteMemory}>
+                  <button className="reject" onClick={() => void removeMemory(memory)} disabled={readOnly || savingId === memory.id} title={text.memory.deleteMemory}>
                     <Trash2 size={15} />
                   </button>
                 </div>

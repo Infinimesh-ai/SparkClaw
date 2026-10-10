@@ -19,7 +19,7 @@ import {
   ToolTimelinePanel,
   TracePanel
 } from "./panels";
-import type { WorkspaceSettingsSection } from "./panels/settings";
+import type { SettingsAccess, WorkspaceSettingsSection } from "./panels/settings";
 import type { ClientSettingsActions } from "./panels/settingsClients";
 import type {
   Approval,
@@ -47,6 +47,8 @@ type InspectorColumnProps = ClientSettingsActions & {
   connectionsOnly?: boolean;
   showTabs?: boolean;
   settingsPage?: boolean;
+  settingsAccess?: SettingsAccess;
+  activityUnavailable?: string;
   tab: PanelTab;
   onTabChange: (tab: PanelTab) => void;
   text: Copy;
@@ -89,6 +91,8 @@ export function InspectorColumn({
   connectionsOnly = false,
   showTabs = true,
   settingsPage = false,
+  settingsAccess,
+  activityUnavailable,
   tab,
   onTabChange,
   text,
@@ -154,12 +158,12 @@ export function InspectorColumn({
   async function checkSettingsStatus(section: WorkspaceSettingsSection) {
     if (section === "connections") {
       const [configResult, connectorResult, bindingResult] = await Promise.allSettled([
-        api.config(), api.connectors(), api.notificationBindings()
+        api.config(), settingsAccess?.connectorsAvailable === false ? Promise.resolve(null) : api.connectors(), settingsAccess?.bindingsUnavailable ? Promise.resolve(null) : api.notificationBindings()
       ]);
       if (configResult.status === "fulfilled") setRuntimeConfig(configResult.value);
-      if (bindingResult.status === "fulfilled") setNotificationBindings(bindingResult.value.bindings);
+      if (bindingResult.status === "fulfilled" && bindingResult.value) setNotificationBindings(bindingResult.value.bindings);
       if (connectorResult.status === "rejected") throw connectorResult.reason;
-      setConnectors(connectorResult.value.connectors);
+      if (connectorResult.value) setConnectors(connectorResult.value.connectors);
       return;
     }
     setRuntimeConfig(await api.config());
@@ -377,6 +381,7 @@ export function InspectorColumn({
         </button>
       </div>}
 
+      {activityUnavailable && ["timeline", "approvals", "memory"].includes(tab) && <p className="settingsSurfaceHint" role="status">{activityUnavailable}</p>}
       {tab === "timeline" && <ToolTimelinePanel calls={toolCalls} text={text} onTrace={onOpenTrace} />}
       {tab === "approvals" && (
         <ApprovalPanel
@@ -390,6 +395,7 @@ export function InspectorColumn({
       )}
       {tab === "memory" && (
         <MemoryPanel
+          readOnly={Boolean(activityUnavailable)}
           candidates={candidates}
           memories={memories}
           text={text}
@@ -429,6 +435,7 @@ export function InspectorColumn({
       {(tab === "settings" || tab === "appearance" || tab === "devices" || tab === "models-tools" || tab === "permissions" || tab === "connections") && (
         <SettingsPanel
           key={tab}
+          access={settingsAccess}
           connectionsOnly={connectionsOnly}
           section={tab === "settings" ? "general" : tab}
           runtimeConfig={runtimeConfig}

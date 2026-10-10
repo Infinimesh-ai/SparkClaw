@@ -891,6 +891,36 @@ this restoration does not authorize additional real emails. Section 9.11 remains
 the backlog, including physical same-subnet LAN and deferred ASR/TTS. Actual
 direct verification still uses the existing pinned work2 HTTPS ingress.
 
+## 9.13. Restore the original settings presentation (2026-10-10)
+
+User feedback rejected the simplified settings UI introduced during ISCP
+integration. Both transports now use the original settings sidebar and shared
+panels: General, Appearance, Devices & credentials, Models & tools, Permissions,
+Connections, Memory, Approvals and Timeline. The original connection directory,
+detail navigation, theme segments, text size, language and login-startup controls
+are preserved. Credentials remain in their original connection details rather
+than replacing Models & tools. No stylesheet changes are included.
+
+Capability restrictions apply to individual operations. Qualified mailbox and
+credential controls use the existing typed ISCP routes; integration refresh uses
+the supported collection operation. Qualified connector toggles stay available
+inside their original details. Unsupported binding, device issuance, policy
+changes and other operations remain disabled with an explanation. Read-only
+policy values retain the real configuration. Local preferences do not trigger
+remote credential reads. Current authorization review/deletion remains available
+within Devices & credentials and retains its explicit confirmation.
+
+Validation: 261 WebChat tests, 250 desktop tests, strict frontend build, Mac
+packaging/source/UI/helper audit and native Mac prepare/restore/revoke passed.
+Go build and vet passed. Unchanged Go suites requiring canonical temporary
+paths or Linux `/dev/shm` were verified in an isolated Linux container; the
+production assembly fixture uses the native Mac Keychain. The installed native
+menu, appearance and connection-directory/email navigation were checked, with
+paired application/profile backups and unchanged conversation/draft/file hashes.
+This restores presentation and does not qualify missing transport operations or
+constitute final user acceptance. InfiniCenter remains unavailable at its
+configured ancestor anchors.
+
 ## 10. Related designs
 
 - [Local ISCP integration and renewal acceptance](desktop-iscp-connection-design.md): implemented baseline and actual evidence scope.

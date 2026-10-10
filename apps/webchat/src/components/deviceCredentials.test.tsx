@@ -257,12 +257,12 @@ describe("device credentials through the production settings route", () => {
     expect(api.revokeClient).not.toHaveBeenCalled();
   });
 
-  it("filters unavailable desktop tabs while preserving direct device navigation", async () => {
+  it("preserves the complete settings menu and direct device navigation", async () => {
     const change = vi.fn();
     const { host } = await render(<WorkspaceSettingsSidebar text={dictionaries.en} language="en" tab="devices"
-      availableTabs={["devices", "appearance"]} pendingApprovalCount={0} pendingCandidateCount={0} onTabChange={change} onBack={() => {}} />);
-    expect(host.querySelectorAll(".settingsPageNavigation button")).toHaveLength(2);
-    expect(host.textContent).not.toContain("General");
+      pendingApprovalCount={0} pendingCandidateCount={0} onTabChange={change} onBack={() => {}} />);
+    expect(host.querySelectorAll(".settingsPageNavigation button")).toHaveLength(9);
+    expect(host.textContent).toContain("General");
     await act(async () => button(host, "Devices & credentials").click());
     expect(change).toHaveBeenCalledWith("devices");
   });

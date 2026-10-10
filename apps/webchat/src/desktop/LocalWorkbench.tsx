@@ -4,7 +4,7 @@ import { SessionSidebar } from "../components/sidebar";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy } from "../components/workbench";
 import { MailWorkspaceContext } from "./MailWorkspaceContext";
 import type {} from "./mailCapability";
-import { ISCPSettingsPanel } from "./ISCPSettingsPanel";
+import { ISCPDeviceAuthorization, iscpSettingsAccess, iscpSettingsUnavailable } from "./iscpSettings";
 import { surfaceEnabled } from "./capability";
 import { api } from "../api/client";
 import { InspectorColumn, type PanelTab } from "../components/inspector";
@@ -73,9 +73,8 @@ export function LocalWorkbench() {
     files: surfaceEnabled(connection, "files"), mail: surfaceEnabled(connection, "mail_popup"),
     browser: surfaceEnabled(connection, "browser"), speech: surfaceEnabled(connection, "speech_recording"),
     approvals: surfaceEnabled(connection, "approvals"), notifications: surfaceEnabled(connection, "notifications"),
-    settingsOwner: surfaceEnabled(connection, "settings_owner"), settingsConnectors: surfaceEnabled(connection, "settings_connectors"), settingsCredentials: surfaceEnabled(connection, "settings_credentials"),
+    settingsOwner: surfaceEnabled(connection, "settings_owner"), settingsConnectors: surfaceEnabled(connection, "settings_connectors"),
   };
-  const settingsTabs: PanelTab[] | undefined = iscp ? ["appearance", "devices", ...(capabilities.settingsOwner ? ["settings" as const] : []), ...(capabilities.settingsConnectors || surfaceEnabled(connection, "mail_settings") ? ["connections" as const] : []), ...(capabilities.settingsCredentials ? ["models-tools" as const] : [])] : undefined;
   const [browserState, setBrowserState] = useState<DesktopState>();
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [ready, setReady] = useState<ReadyStatus | null>(null);
@@ -96,10 +95,23 @@ export function LocalWorkbench() {
   const [modelCalls] = useState<ModelCall[]>([]);
   const [auditEvents] = useState<AuditEvent[]>([]);
   const [episodes] = useState<EpisodeSummary[]>([]);
+  const settingsScope = connection && JSON.stringify([connection.backend?.deployment_id, connection.owner_id, connection.client_id, connection.authorization_revision]);
+  const settingsAccess = iscp && connection ? {
+    ...iscpSettingsAccess(connection, language),
+    deviceAuthorization: <ISCPDeviceAuthorization key={settingsScope} connection={connection} language={language} />,
+  } : undefined;
 
   const surfaceError = useCallback((err: unknown, fallback = zh ? "操作失败，请重试。" : "Something went wrong. Try again.") => {
     setError(err instanceof Error ? err.message : fallback);
   }, [zh]);
+  useEffect(() => {
+    if (!iscp) return;
+    setConnectors([]);
+    if (!settings || tab !== "connections" || !capabilities.settingsConnectors) return;
+    let active = true;
+    void api.connectors().then(value => { if (active) setConnectors(value.connectors); }).catch(surfaceError);
+    return () => { active = false; };
+  }, [iscp, settings, tab, capabilities.settingsConnectors, settingsScope, surfaceError]);
   const scopeError = useRef(surfaceError); scopeError.current = surfaceError;
   const localScopeKey = JSON.stringify([
     Boolean(connection && ["connected", "reconnecting", "service_unavailable"].includes(connection.state)),
@@ -379,12 +391,12 @@ export function LocalWorkbench() {
   const home = page === "chat" && !content.messages.length && !content.tasks.length && !content.files.length;
   return <div className={`shell workbench localWorkbench ${settings ? "settingsPageMode" : sidebarCollapsed ? "sidebarCollapsed" : ""}`}>
     {settings ? <WorkspaceSettingsSidebar text={text} language={language} tab={tab}
-      pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length} availableTabs={settingsTabs} onTabChange={setTab} onBack={() => setSettings(false)} /> : <SessionSidebar
+      pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length} onTabChange={setTab} onBack={() => setSettings(false)} /> : <SessionSidebar
       text={text} language={language} page={page} ownerProfile={ownerProfile}
       sessions={conversations} activeSession={selected} busy={busy}
       onCreateSession={() => void create()} onSelectSession={(conversation) => void select(conversation.id).catch(surfaceError)}
       onDeleteSession={(id) => void deleteConversation(id)}
-      onNavigate={(next) => { if (next === "settings") { if (iscp) setTab(capabilities.settingsOwner ? "settings" : "appearance"); setSettings(true); } else if (next === "schedules") setPage("schedules"); else void create(); }}
+      onNavigate={(next) => { if (next === "settings") { setTab("settings"); setSettings(true); } else if (next === "schedules") setPage("schedules"); else void create(); }}
       onSearch={() => setSearchOpen(true)} onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
       onLogout={() => void logout().catch(surfaceError)}
       listNotice={loading ? <p className="localListNotice" role="status">{zh ? "正在读取对话…" : "Loading conversations…"}</p> : !conversations.length ? <p className="localListNotice">{copy.empty}</p> : undefined}
@@ -404,7 +416,8 @@ export function LocalWorkbench() {
       {error && <div className="localFeedback" role="alert"><p>{error}</p><button type="button" onClick={() => void reload().then(async () => { if (iscp && connection?.state === "connected") await refreshGlobal(); setError(""); }).catch(surfaceError)}>{zh ? "重试读取" : "Retry loading"}</button></div>}
       {notice && <p className="localFeedback" role="status">{notice}</p>}
       {connection?.state === "service_unavailable" && <div className="localFeedback" role="status"><p>{zh ? "连接暂时不可用，请重新连接后继续。" : "Connection unavailable. Reconnect to continue."}</p><button type="button" disabled={busy} onClick={() => void action(async () => { setConnection(await desktop.retryLocalConnection()); })}>{zh ? "重新连接" : "Reconnect"}</button></div>}
-      {settings ? <div className="settingsPageContent"><header className="settingsPageHeader"><h1>{copy.settingsTitles[tab]}</h1>{tab !== "memory" && tab !== "approvals" && <p>{copy.settingsDescriptions[tab]}</p>}</header>{iscp && connection ? <ISCPSettingsPanel connection={connection} tab={tab} text={text} language={language}/> : <InspectorColumn settingsPage showTabs={false} tab={tab} onTabChange={setTab}
+      {settings ? <div className="settingsPageContent"><header className="settingsPageHeader"><h1>{copy.settingsTitles[tab]}</h1>{tab !== "memory" && tab !== "approvals" && <p>{copy.settingsDescriptions[tab]}</p>}</header><InspectorColumn key={settingsScope} settingsPage showTabs={false} tab={tab} onTabChange={setTab}
+        settingsAccess={settingsAccess} activityUnavailable={iscp ? iscpSettingsUnavailable(language) : undefined}
         text={text} language={language} pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length}
         toolCalls={toolCalls} approvals={approvals} candidates={candidates} memories={memories} traceRun={traceRun} traceList={traceList} traceLoading={traceLoading}
         ready={ready} modelCalls={modelCalls} auditEvents={auditEvents} artifacts={artifacts} episodes={episodes} evalRuns={evalRuns} runtimeConfig={runtimeConfig}
@@ -413,7 +426,7 @@ export function LocalWorkbench() {
         refreshActiveSession={async () => {}} setEvalRuns={setEvalRuns} setNotificationBindings={setNotificationBindings}
         setConnectors={setConnectors} setRuntimeConfig={setRuntimeConfig} setOwnerProfile={setOwnerProfile}
         onLanguageChange={changeLanguage} onOpenSchedules={() => {}} currentClientID={currentClientID}
-        onCurrentClientRevoked={logout} onLogout={logout} />}</div> : <>
+        onCurrentClientRevoked={logout} onLogout={logout} /></div> : <>
         <section className={`chatColumn localChat ${home ? "homeChat" : ""}`} hidden={page !== "chat"}>
         <div className="messageList localHistory">
           {home && <WorkbenchWelcome language={language} />}

@@ -195,7 +195,22 @@ describe("workbench local workbench", () => {
       const settings = [...host.querySelectorAll<HTMLButtonElement>(".sidebarAccountMenuItem")].find((button) => button.textContent === "Workspace settings")!;
       await act(async () => settings.click());
       expect(host.querySelector(".settingsPageContent")).not.toBeNull();
-      expect([...host.querySelectorAll(".settingsPageNavigation button")].map(button => button.textContent?.trim())).toEqual(["Appearance", "Devices & credentials"]);
+      expect([...host.querySelectorAll(".settingsPageNavigation button")].map(button => button.textContent?.trim())).toEqual([
+        "General", "Appearance", "Devices & credentials", "Models & tools", "Permissions", "Connections", "Memory", "Approvals", "Timeline"
+      ]);
+      const settingsTab = (name: string) => [...host.querySelectorAll<HTMLButtonElement>(".settingsPageNavigation button")].find(button => button.textContent?.trim() === name)!;
+      expect(host.querySelector(".settingsSurface")?.textContent).toContain("Language");
+      await act(async () => settingsTab("Appearance").click());
+      expect(host.querySelector(".settingsSegmented")).not.toBeNull();
+      expect(host.querySelectorAll(".settingsSegmented button")).toHaveLength(3);
+      await act(async () => settingsTab("Connections").click());
+      expect(host.querySelectorAll(".settingsConnectionRow")).toHaveLength(8);
+      for (const name of ["Devices & credentials", "Models & tools", "Permissions", "Memory", "Approvals", "Timeline"]) {
+        await act(async () => settingsTab(name).click());
+        expect(host.querySelector('[aria-current="page"]')?.textContent).toBe(name);
+        expect(host.textContent).toContain("This action is unavailable through the current connection.");
+      }
+      expect(fetch).not.toHaveBeenCalled();
       for (const spy of unsupported) expect(spy).not.toHaveBeenCalled();
       await act(async () => host.querySelector<HTMLButtonElement>(".settingsPageBack")!.click());
       input = host.querySelector<HTMLTextAreaElement>("form.composer textarea")!;

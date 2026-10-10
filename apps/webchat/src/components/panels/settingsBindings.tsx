@@ -29,6 +29,7 @@ import {
 } from "../../lib/format";
 
 export function ConnectorBindingSettings({
+  bindingsUnavailable,
   connectors,
   notificationBindings,
   text,
@@ -39,6 +40,7 @@ export function ConnectorBindingSettings({
   onRevokeNotificationBinding,
   onUpdateConnector
 }: {
+  bindingsUnavailable?: string;
   connectors: ConnectorStatus[];
   notificationBindings: NotificationBinding[];
   text: CopyText;
@@ -51,7 +53,7 @@ export function ConnectorBindingSettings({
 }) {
   const [bindingError, setBindingError] = useState("");
   const [telegramToken, setTelegramToken] = useState("");
-  const pendingBindingKey = pendingBindingPollKey(notificationBindings);
+  const pendingBindingKey = pendingBindingPollKey(bindingsUnavailable ? [] : notificationBindings);
   const bindingAction = useAsyncAction({
     clearError: () => setBindingError(""),
     onError: (error) => setBindingError(error instanceof Error ? error.message : text.errors.binding)
@@ -71,6 +73,7 @@ export function ConnectorBindingSettings({
   });
 
   async function startBinding(channel: string) {
+    if (bindingsUnavailable) return;
     const connector = connectors.find((item) => item.channel === channel);
     const needsSecret = connector?.setup_kind === "secret";
     const botToken = needsSecret ? telegramToken.trim() : "";
@@ -122,8 +125,8 @@ export function ConnectorBindingSettings({
     const missing = isTelegram ? text.settings.telegramBindingMissing : text.settings.bindingMissing;
     const waitingInstruction = text.settings.scanWeixin;
     const scannedInstruction = text.settings.scannedWeixin;
-    const tokenEditable = isSecret && connector.enabled && connector.binding_startable;
-    const startDisabled = connectorBindingStartDisabled(connector, bindingBusy || connectorBusy !== "", Boolean(telegramToken.trim()));
+    const tokenEditable = !bindingsUnavailable && isSecret && connector.enabled && connector.binding_startable;
+    const startDisabled = Boolean(bindingsUnavailable) || connectorBindingStartDisabled(connector, bindingBusy || connectorBusy !== "", Boolean(telegramToken.trim()));
     const capabilityNote = connector.state === "status_pending"
       ? language === "zh" ? "状态待检查" : "Status pending"
       : connectorStatusLabel(connector, text);
@@ -176,10 +179,10 @@ export function ConnectorBindingSettings({
                     <span className="muted">{bindingStatusLabel(binding.status, text)}{binding.default_for_channel ? ` · ${text.settings.defaultBinding}` : ""}</span>
                   </div>
                   <div className="buttonRow compactButtons">
-                    <button className="edit" onClick={() => void refreshBinding(binding.id)} disabled={bindingBusy || !isBindingSetupPending(binding)} title={text.common.refresh}>
+                    <button className="edit" onClick={() => void refreshBinding(binding.id)} disabled={Boolean(bindingsUnavailable) || bindingBusy || !isBindingSetupPending(binding)} title={text.common.refresh}>
                       <RefreshCw size={15} />
                     </button>
-                    <button className="reject" onClick={() => void revokeBinding(binding.id)} disabled={bindingBusy || binding.status === "revoked"} title={text.settings.revokeBinding}>
+                    <button className="reject" onClick={() => void revokeBinding(binding.id)} disabled={Boolean(bindingsUnavailable) || bindingBusy || binding.status === "revoked"} title={text.settings.revokeBinding}>
                       <Trash2 size={15} />
                     </button>
                   </div>
@@ -201,7 +204,7 @@ export function ConnectorBindingSettings({
                     {binding.qr_code_image || isImageLikeQR(binding.qr_code_url) ? (
                       <img src={qrImageSource(binding.qr_code_image || binding.qr_code_url)} alt={waitingInstruction} />
                     ) : binding.qr_code_url ? (
-                      <button className="secondaryButton" onClick={() => void openBindingBrowser(binding.id)} disabled={bindingBusy}>
+                      <button className="secondaryButton" onClick={() => void openBindingBrowser(binding.id)} disabled={Boolean(bindingsUnavailable) || bindingBusy}>
                         <MonitorUp size={15} />
                         <span>{text.settings.openWeixinLogin}</span>
                       </button>
@@ -229,7 +232,7 @@ export function ConnectorBindingSettings({
           </div>
         ) : (
           <div className="bindingEmpty">
-            <span className="muted">{missing}</span>
+            <span className="muted">{bindingsUnavailable ?? missing}</span>
             <button className="secondaryButton" onClick={() => void startBinding(channel)} disabled={startDisabled}>
               <Icon size={15} />
               <span>{bindLabel}</span>

@@ -27,6 +27,7 @@ import type {
   Client,
   ConnectorStatus,
   IntegrationStatus,
+  IntegrationID,
   NotificationBinding,
   OwnerProfile,
   PublicConfig
@@ -63,9 +64,19 @@ type SettingsDetail =
   | "models"
   | "runtime";
 
+export type SettingsAccess = {
+  unavailable: Partial<Record<SettingsDetail, string>>;
+  connectorsAvailable: boolean;
+  bindingsUnavailable?: string;
+  loadIntegrationStatus?: (id: IntegrationID) => Promise<IntegrationStatus>;
+  emailLoginNotice?: string;
+  deviceAuthorization?: ReactNode;
+};
+
 export function SettingsPanel({
   connectionsOnly = false,
   section,
+  access,
   runtimeConfig,
   ownerProfile,
   clients,
@@ -94,6 +105,7 @@ export function SettingsPanel({
 }: ClientSettingsActions & {
   connectionsOnly?: boolean;
   section?: WorkspaceSettingsSection;
+  access?: SettingsAccess;
   runtimeConfig: PublicConfig | null;
   ownerProfile: OwnerProfile | null;
   clients: Client[];
@@ -131,16 +143,20 @@ export function SettingsPanel({
   const [loginBusy, setLoginBusy] = useState(false);
   const policyAction = useAsyncAction({ clearError: () => setPolicyError(""), onError: (error) => setPolicyError(error instanceof Error ? error.message : String(error)) });
   const savingPolicy = Boolean(policyAction.busy);
+  const credentialsAvailable = !access?.unavailable.info && !access?.unavailable.localmind;
 
   useEffect(() => {
     if (section !== "general") return;
     let active = true;
-    window.sparkclawDesktop?.loginStartup().then((result) => { if (active) setLoginStartup(result); })
+    window.sparkclawDesktop?.loginStartup?.().then((result) => { if (active) setLoginStartup(result); })
       .catch(() => { if (active) setLoginStartup({ supported: false, enabled: false }); });
     return () => { active = false; };
   }, [section]);
 
   useEffect(() => {
+    // Local preferences and unrelated sections must not load remote credentials.
+    if ((section && section !== "connections") || !credentialsAvailable) return;
+    setIntegrations([]);
     let active = true;
     api.integrations()
       .then((response) => {
@@ -151,7 +167,7 @@ export function SettingsPanel({
       })
       .catch(() => { if (active) setIntegrationLoadFailed(true); });
     return () => { active = false; };
-  }, []);
+  }, [section, credentialsAvailable]);
 
   useEffect(() => {
     setDetail(null);
@@ -179,9 +195,11 @@ export function SettingsPanel({
 
   if (section === "devices") {
     return <div className="panelStack settingsPanel settingsSurface">
+      {access?.unavailable.clients && <p className="settingsSurfaceHint" role="status">{access.unavailable.clients}</p>}
       <PairedClientsSettings clients={clients} text={text} language={language} currentClientID={currentClientID}
-        clientsLoading={clientsLoading} clientsError={clientsError} onReloadClients={onReloadClients}
-        onIssueClient={onIssueClient} onRevokeClient={onRevokeClient} onCurrentClientRevoked={onCurrentClientRevoked} onLogout={onLogout} />
+        clientsLoading={clientsLoading} clientsError={access?.unavailable.clients ?? clientsError} onReloadClients={access?.unavailable.clients ? undefined : onReloadClients}
+        onIssueClient={access?.unavailable.clients ? undefined : onIssueClient} onRevokeClient={onRevokeClient} onCurrentClientRevoked={onCurrentClientRevoked} onLogout={onLogout} />
+      {access?.deviceAuthorization}
     </div>;
   }
 
@@ -225,12 +243,13 @@ export function SettingsPanel({
 
   const policy = runtimeConfig?.tool_policy;
   const controls = policy?.operator_controls;
+  const policyEditable = !access?.unavailable["tool-policy"];
   const riskCounts = policy ? Object.entries(policy.risk_counts).sort(([left], [right]) => left.localeCompare(right)) : [];
   const infoStatus = integrations.find((item) => item.id === "infinimesh-info") ?? null;
   const localMindStatus = integrations.find((item) => item.id === "localmind") ?? null;
 
   function startPolicyEdit() {
-    if (!policy) return;
+    if (!policy || access?.unavailable["tool-policy"]) return;
     setDenyText(policy.denied_tools.join("\n"));
     setApprovalText(policy.configured_approval_required_tools.join("\n"));
     setEditingPolicy(true);
@@ -243,6 +262,7 @@ export function SettingsPanel({
   }
 
   async function savePolicyEdit() {
+    if (access?.unavailable["tool-policy"]) return;
     await policyAction.run("policy", async () => {
       await onUpdatePolicy(parseToolList(denyText), parseToolList(approvalText));
       cancelPolicyEdit();
@@ -250,7 +270,7 @@ export function SettingsPanel({
   }
 
   async function saveControls(next: Partial<PublicConfig["tool_policy"]["operator_controls"]>) {
-    if (!runtimeConfig || !controls) return;
+    if (!policyEditable || !runtimeConfig || !controls) return;
     const policy = runtimeConfig.tool_policy;
     await policyAction.run("controls", () => onUpdatePolicy(policy.denied_tools, policy.configured_approval_required_tools, { ...policy.operator_controls, ...next }));
   }
@@ -283,13 +303,14 @@ export function SettingsPanel({
       return (
         <div className="panelStack settingsPanel settingsSurface">
           <SettingsStatus available={Boolean(controls)} busy={checkingStatus} error={statusError} surface={surface} onCheck={() => void checkStatus(section)} />
+          {access?.unavailable["tool-policy"] && <p className="settingsSurfaceHint" role="status">{access.unavailable["tool-policy"]}</p>}
           <section className="settingsSurfaceSection">
             <h2>{surface.tools}</h2>
             {(["web_access", "workspace_files", "shell_commands"] as const).map((control) => {
               const group = control === "web_access" ? "web" : control === "workspace_files" ? "files" : "shell";
               return <div className="settingsSurfaceRow" key={group}>
                 <span className="settingsSurfaceCopy"><strong>{surface.toolLabels[group]}</strong><small>{surface.toolDescriptions[group]}</small></span>
-                <button type="button" className="settingsSwitch" role="switch" aria-label={surface.toolLabels[group]} aria-checked={controls?.[control] ?? false} disabled={!controls || savingPolicy} onClick={() => void saveControls({ [control]: !controls?.[control] })}><span /></button>
+                <button type="button" className="settingsSwitch" role="switch" aria-label={surface.toolLabels[group]} aria-checked={controls?.[control] ?? false} disabled={!policyEditable || !controls || savingPolicy} onClick={() => void saveControls({ [control]: !controls?.[control] })}><span /></button>
               </div>;
             })}
           </section>
@@ -302,19 +323,20 @@ export function SettingsPanel({
       return (
         <div className="panelStack settingsPanel settingsSurface">
           <SettingsStatus available={Boolean(controls)} busy={checkingStatus} error={statusError} surface={surface} onCheck={() => void checkStatus(section)} />
+          {access?.unavailable["tool-policy"] && <p className="settingsSurfaceHint" role="status">{access.unavailable["tool-policy"]}</p>}
           <section className="settingsSurfaceSection">
             <div className="settingsSurfaceSectionHeading">
               <h2>{surface.approvalPolicy}</h2>
               {policy && <span>{policy.definition_count} {text.trace.tools}</span>}
             </div>
             <label className="settingsSurfaceRow"><span className="settingsSurfaceCopy"><strong>{surface.fileChanges}</strong><small>{surface.fileChangesDescription}</small></span>
-              <select aria-label={surface.fileChanges} disabled={!controls || savingPolicy} value={controls?.file_changes ?? ""} onChange={(event) => void saveControls({ file_changes: event.target.value as "ask" | "default" })}>
+              <select aria-label={surface.fileChanges} disabled={!policyEditable || !controls || savingPolicy} value={controls?.file_changes ?? ""} onChange={(event) => void saveControls({ file_changes: event.target.value as "ask" | "default" })}>
                 {!controls && <option value="">{surface.statusPending}</option>}
                 <option value="ask">{surface.askEveryTime}</option><option value="default">{surface.askDestructive}</option>
               </select>
             </label>
             <label className="settingsSurfaceRow"><span className="settingsSurfaceCopy"><strong>{surface.externalActions}</strong><small>{surface.externalActionsDescription}</small></span>
-              <select aria-label={surface.externalActions} disabled={!controls || savingPolicy} value={controls?.external_actions ?? ""} onChange={(event) => void saveControls({ external_actions: event.target.value as "ask" | "block" })}>
+              <select aria-label={surface.externalActions} disabled={!policyEditable || !controls || savingPolicy} value={controls?.external_actions ?? ""} onChange={(event) => void saveControls({ external_actions: event.target.value as "ask" | "block" })}>
                 {!controls && <option value="">{surface.statusPending}</option>}
                 <option value="current" disabled>{surface.currentRules}</option><option value="ask">{surface.askEveryTime}</option><option value="block">{surface.block}</option>
               </select>
@@ -334,10 +356,10 @@ export function SettingsPanel({
               <div className="buttonRow compactButtons">
                 {editingPolicy ? (
                   <>
-                    <button className="approve" onClick={() => void savePolicyEdit()} disabled={savingPolicy} title={text.settings.saveToolPolicy}><Check size={15} /></button>
+                    <button className="approve" onClick={() => void savePolicyEdit()} disabled={savingPolicy || Boolean(access?.unavailable["tool-policy"])} title={text.settings.saveToolPolicy}><Check size={15} /></button>
                     <button className="edit" onClick={cancelPolicyEdit} disabled={savingPolicy} title={text.settings.cancelPolicy}><X size={15} /></button>
                   </>
-                ) : <button className="edit" onClick={startPolicyEdit} title={text.settings.editPolicy}><Pencil size={15} /></button>}
+                ) : <button className="edit" disabled={Boolean(access?.unavailable["tool-policy"])} onClick={startPolicyEdit} title={text.settings.editPolicy}><Pencil size={15} /></button>}
               </div>
             </div>
             <div className="settingsPolicySummary">
@@ -375,7 +397,9 @@ export function SettingsPanel({
             <ArrowLeft size={16} />
             <span>{connectionDetailTitle}</span>
           </button>
+          {access?.unavailable[detail] ? <p className="settingsSurfaceHint" role="status">{access.unavailable[detail]}</p> : <>
           {detail === "messaging" && selectedConnector && <ConnectorBindingSettings
+            bindingsUnavailable={access?.bindingsUnavailable}
             connectors={[selectedConnector]}
             notificationBindings={notificationBindings}
             text={text}
@@ -388,10 +412,11 @@ export function SettingsPanel({
           />}
           {detail === "browser-control" && <BrowserControlSettings text={text} language={language} />}
           {detail === "ai-platform-login" && <AIPlatformLoginSettings text={text} language={language} />}
-          {detail === "browser-email" && <BrowserEmailSettings text={text} />}
-          {detail === "info" && <IntegrationCredentialSettings id="infinimesh-info" status={infoStatus} text={text} language={language} onStatus={updateIntegration} />}
-          {detail === "localmind" && <IntegrationCredentialSettings id="localmind" status={localMindStatus} text={text} language={language} onStatus={updateIntegration} />}
+          {detail === "browser-email" && <BrowserEmailSettings text={text} backendLoginNotice={access?.emailLoginNotice} />}
+          {detail === "info" && <IntegrationCredentialSettings id="infinimesh-info" status={infoStatus} text={text} language={language} onStatus={updateIntegration} loadStatus={access?.loadIntegrationStatus} />}
+          {detail === "localmind" && <IntegrationCredentialSettings id="localmind" status={localMindStatus} text={text} language={language} onStatus={updateIntegration} loadStatus={access?.loadIntegrationStatus} />}
           {detail === "external-mcp" && <ExternalMCPSettings connector={connectors.find((item) => item.channel === "mcp")} text={text} language={language} onUpdateConnector={onUpdateConnector} />}
+          </>}
         </div>
       );
     }

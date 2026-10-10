@@ -10,7 +10,6 @@ type WorkspaceSettingsSidebarProps = {
   tab: PanelTab;
   pendingApprovalCount: number;
   pendingCandidateCount: number;
-  availableTabs?: PanelTab[];
   onTabChange: (tab: PanelTab) => void;
   onBack: () => void;
 };
@@ -21,7 +20,6 @@ export function WorkspaceSettingsSidebar({
   tab,
   pendingApprovalCount,
   pendingCandidateCount,
-  availableTabs,
   onTabChange,
   onBack
 }: WorkspaceSettingsSidebarProps) {
@@ -40,7 +38,6 @@ export function WorkspaceSettingsSidebar({
   ], [copy.appearance, copy.connections, copy.devices, copy.general, copy.modelsTools, copy.permissions, pendingApprovalCount, pendingCandidateCount, text.tabs]);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleItems = items.filter((item) =>
-    (!availableTabs || availableTabs.includes(item.id)) &&
     (!normalizedQuery || item.label.toLocaleLowerCase().includes(normalizedQuery))
   );
 

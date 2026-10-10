@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-10-10T05:08:37.365Z",
+  "release_digest": "12e9b6501c6f5b48e03ad3759397f3e9270d301fa714ada3ca489ea800469ab3",
+  "production_reservation": true,
+  "no_send": true,
+  "no_upload": true,
+  "production_background_prepared": true,
+  "sent_baseline": {
+    "ready": true,
+    "count": 5
+  },
+  "phase": "native_menu_action",
+  "reads": {
+    "editor": {
+      "ready": true,
+      "empty": true
+    },
+    "ribbon": {
+      "document_focused": true,
+      "visibility": "visible",
+      "body_focused": false,
+      "ribbon_total": 6,
+      "exact_attach_total": 1,
+      "exact_attach_visible": 1,
+      "exact_attach_enabled": 1,
+      "exact_attach_parent": 1
+    },
+    "prepare": {
+      "error": null,
+      "chooser": true,
+      "shared": true,
+      "target": "chooser"
+    }
+  },
+  "native_observation": {
+    "phase": "native_action",
+    "before": {
+      "empty": true,
+      "context": true,
+      "action_connected": true,
+      "menu_connected": true,
+      "exact_marker": true,
+      "in_menu": true,
+      "positive_rect": true,
+      "in_viewport": true,
+      "hit_target_owned": false,
+      "pointer_events": false,
+      "visible": true,
+      "disabled": false,
+      "native_action_seen": false,
+      "native_action_trusted": false,
+      "input_activated": false,
+      "activation_ambiguous": false,
+      "marker_count": 1
+    },
+    "after": {
+      "empty": true,
+      "context": true,
+      "action_connected": false,
+      "menu_connected": true,
+      "exact_marker": true,
+      "in_menu": false,
+      "positive_rect": false,
+      "in_viewport": true,
+      "hit_target_owned": false,
+      "pointer_events": true,
+      "visible": false,
+      "disabled": false,
+      "native_action_seen": false,
+      "native_action_trusted": false,
+      "input_activated": false,
+      "activation_ambiguous": false,
+      "marker_count": 0
+    },
+    "changes": {
+      "marker_removed": false,
+      "action_detached": true,
+      "action_replaced": true
+    },
+    "action_error": "unstable",
+    "chooser_events": 0,
+    "no_upload": true,
+    "no_send": true
+  },
+  "owned_cleanup": true,
+  "reservation_released": true,
+  "finished_at": "2026-10-10T05:09:11.346Z",
+  "qualification_only": true,
+  "provider_send_verified": false,
+  "conclusion": "Native action bound before pointer/actionability settled; the menu persisted while its action node was replaced. No native action or chooser event occurred.",
+  "tests": {
+    "real_pinned_wrapper": 8,
+    "passed": 8,
+    "cases": [
+      "normal",
+      "fixed_deeplink",
+      "old_composer",
+      "hidden_old_composer",
+      "nonempty_composer",
+      "duplicate_composer",
+      "overlay",
+      "hover_replacement"
+    ]
+  },
+  "harness_files": {
+    "tools/browser-controller/test/fixtures/outlook-menu-diagnostic.mjs": "f06f806578ad06aa44e01291d9245c63bc93c193555ee74edd14e54a7c251db0",
+    "tools/browser-controller/test/qualify-outlook-menu.mjs": "49d350b07490abd588d82bc2de93ba40af92cb72aadb83c78eea08bd177ed6df"
+  }
+}

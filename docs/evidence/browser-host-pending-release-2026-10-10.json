@@ -1,0 +1,120 @@
+{
+  "date": "2026-10-10",
+  "status": "candidate_only_not_deployed",
+  "source_base": "f701716fcc0c5d74f0b4e2d64ea33dde43484f55",
+  "source_fix": "0eca814f",
+  "runtime_release": "0.3.0-sparkclaw.20",
+  "runtime_digest": "5c9876fcfec1b6e6602d01ffaab2ac7780ad7aa644c51ebf5f92e4e733a2a6fd",
+  "artifacts": {
+    "python_dependencies": {
+      "file": "python-requirements.txt",
+      "sha256": "e99394c278eed0e2ee36f7a1289c0327af0a355b1726472a8296563d5fb0fde6"
+    },
+    "runtime": {
+      "file": "infinimesh-app-cli-runtime-0.3.0-sparkclaw.20.tgz",
+      "sha256": "9c277967819d10a81aa5f7606da308cbf8dc2205797fd94429732c88984ea343"
+    },
+    "wheel": {
+      "file": "infinimesh_app_cli-0.3.0+sparkclaw.20-py3-none-any.whl",
+      "sha256": "591d757722c572ea72fcc291fb15c8922f1218441619926c299daea26603fdfa"
+    }
+  },
+  "local_patch": {
+    "base_id": "0.3.0-sparkclaw.19",
+    "base_runtime_digest": "4731f4c4b164501590b68ca0e6a0a213b36968bc98c6da72749c7c6095ea5e1e",
+    "patch_file": "host-pending-admission.patch",
+    "patch_sha256": "e98ba14fe0ba2d2ad30c2ae6b92908352804f35fe7ad6c169f5b2cc3c5edbe5a"
+  },
+  "runtime_difference": {
+    "changed_runtime_files": [
+      "npm-shrinkwrap.json",
+      "package.json",
+      "release.json",
+      "src/host-port.mjs"
+    ],
+    "mail_application_files_unchanged": 49,
+    "bindings_unchanged": 4,
+    "assets_unchanged": 5,
+    "host_port_sha256": "a053bb9cdcce6878776f1bb9d2b62c249ed5aad8c4eb8cb9c4a12054a203ca36"
+  },
+  "python_source_files_unchanged": 24,
+  "scope": {
+    "fix": "Pending Host admission is not active page authority. It preserves existing active/idle authority and cannot revive a retired, expired or invalidated resource.",
+    "evidence": "browser-host-pending-admission-2026-10-10.json",
+    "live_event_causality": "The archived QQ watch lease expired before a page_closed cleanup failure and global fence. Exact task-to-lease linkage was not retained; the pending-admission risk is independently reproduced.",
+    "outlook_failure": "The separate .19 ISCP attempt has a bound durable not_sent proof and was formally reconciled by the operator. Its precise pre-dispatch upload/ready/final-verification substep is not uniquely known from the retained logs.",
+    "provider_deadlines_changed": false,
+    "provider_success_criteria_changed": false,
+    "old_attempts_mutated": false,
+    "browser_components_stage_required": false,
+    "gateway_provider_projection_changed": false,
+    "desktop_managed_preload_changed": false,
+    "remote_browser_calls": false,
+    "send_or_retry": false,
+    "service_restart_or_deploy": false
+  },
+  "validation": {
+    "host_admission_retirement_shutdown": {
+      "pass": 25,
+      "fail": 0,
+      "skip": 0,
+      "command": "node --test tools/browser-controller/test/application-pending-admission.test.mjs tools/browser-controller/test/application-lease-retirement.test.mjs tools/browser-controller/test/application-shutdown.test.mjs"
+    },
+    "linux_controller_full": {
+      "pass": 221,
+      "fail": 0,
+      "skip": 107,
+      "node": "26.8.1",
+      "environment": "Existing local linux/arm64 sparkclaw-gateway:latest container, network none, read-only source mount",
+      "command": "node --test tools/browser-controller/test/*.test.mjs",
+      "skip_note": "Environment-gated opt-in browser and paired-Python cases; the selected real-browser and recovery matrices below were run separately with gates enabled."
+    },
+    "real_chromium_and_cli_mail_attachments": {
+      "pass": 70,
+      "fail": 0,
+      "skip": 0,
+      "environment": "macOS local synthetic pages and pinned CLI wrapper; no real provider navigation",
+      "command": "SPARKCLAW_MAIL_BROWSER_TEST=1 node --test tools/browser-controller/test/native-mail-attachments-browser.test.mjs tools/browser-controller/test/qq-native-attachments-browser.test.mjs tools/browser-controller/test/mail-chooser-wrapper-browser.test.mjs tools/browser-controller/test/outlook-upload-diagnostic-browser.test.mjs"
+    },
+    "paired_python_mail_recovery": {
+      "pass": 38,
+      "fail": 0,
+      "skip": 0,
+      "python": "3.11.15, isolated venv with final .20 wheel and pinned requirements",
+      "command": "APP_CLI_RECOVERY_PYTHON=<isolated-paired-python> node --test tools/browser-controller/test/mail-attachment-reconcile.test.mjs tools/browser-controller/test/mail-not-sent-recovery.test.mjs tools/browser-controller/test/mail-reconcile-admission.test.mjs"
+    },
+    "mac_node": "26.2.0",
+    "tmpdir": "/private/tmp",
+    "paired_install_and_rollback": {
+      "fresh_install": true,
+      "configuration_drift_rejected": true,
+      "native_cli_runtime": true,
+      "installed_file_tamper_rejected": true,
+      "mixed_python_runtime_rejected": true,
+      "mixed_consumer_rejected": true,
+      "live_host_activation_rejected": true,
+      "live_executor_activation_rejected": true,
+      "whole_set_rollback": true,
+      "durable_state_preserved": true,
+      "epoch_monotonic": true
+    },
+    "reproduction_command": "python3 scripts/build-host-pending-admission-release.py --check",
+    "reproducible_pair": true,
+    "provider_projection_command": "node tools/browser-controller/src/provider-script-contract.mjs --check",
+    "provider_projection_passed": true,
+    "desktop_projection_command": "node scripts/build-desktop-managed-preload.mjs --check",
+    "desktop_projection_passed": true,
+    "diff_check_passed": true
+  },
+  "local_logs": {
+    "directory": ".cache/mail20-qualification",
+    "sha256": {
+      "host-focused.log": "4e3552f85fd17d10327415ab413983a87d26ae1a686d47b433fac413b74b2014",
+      "linux-full.log": "7b14a76a3609feffffadd44c3108bb9d0eb37038481ff0d789e8a8ba85dadebf",
+      "browser-70.log": "b91d7525bd5f20d4083a3ff29868177d7f751ef4ff414a3b64d5d24f328d5122",
+      "recovery-38.log": "90cb3405f8b520298ec5992fdae36078574e8cd4a9c97c679bcbb0351d34345b",
+      "paired.log": "e14b5de403f3d532a526eea303fb520a0581466bdc1e29f1457b3013ec1d1843",
+      "reproduce.log": "10ea1ce155f0d08a53f51d7bf33d5dfb8bbc8588b969b179dcc5ecd8195426cd"
+    }
+  }
+}

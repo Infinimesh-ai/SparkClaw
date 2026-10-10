@@ -1,3 +1,5 @@
+import { createPortal } from "react-dom";
+import { useMailWorkspace } from "../desktop/MailWorkspaceContext";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Archive, ArrowLeft, AtSign, CircleAlert, Filter, Inbox, Info, Mail, PenLine, Search, ShieldCheck, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
@@ -34,19 +36,28 @@ function emailInitials(value: string) {
   return name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toLocaleUpperCase()).join("") || "?";
 }
 export function EmailPopupEntry({ text, language }: { text: Copy; language: Language }) {
-  const loginRequired = useEmailLoginAlert();
+  const workspace = useMailWorkspace();
+  return <EmailPopupEntryContent key={workspace?.identity ?? "host"} text={text} language={language} />;
+}
+
+function EmailPopupEntryContent({ text, language }: { text: Copy; language: Language }) {
+  const workspace = useMailWorkspace();
+  const enabled = workspace?.enabled ?? true;
+  const loginRequired = useEmailLoginAlert(enabled);
   const [open, setOpen] = useState(false);
   const [selection, setSelection] = useState("");
   return <>
-    <button className="iconButton emailEntryButton" title={loginRequired ? text.email.loginExpired : text.email.title} aria-label={text.email.title} aria-describedby={loginRequired ? "email-login-alert" : undefined} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><Mail size={18} />{loginRequired && <span className="emailLoginDot" aria-hidden="true" />}</button>
+    <button type="button" disabled={!enabled} className="iconButton emailEntryButton" title={loginRequired ? text.email.loginExpired : text.email.title} aria-label={text.email.title} aria-describedby={loginRequired ? "email-login-alert" : undefined} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><Mail size={18} />{loginRequired && <span className="emailLoginDot" aria-hidden="true" />}</button>
     {loginRequired && <span id="email-login-alert" className="emailAlertAccessible" role="status">{text.email.loginExpired}</span>}
-    {open && <EmailPopup text={text} language={language} selection={selection} onSelect={setSelection} onClose={() => setOpen(false)} />}
+    {open && createPortal(<EmailPopup text={text} language={language} selection={selection} onSelect={setSelection} onClose={() => setOpen(false)} />, document.body)}
   </>;
 }
 
 export function EmailPopup({ text, language, selection, onSelect, onClose }: {
   text: Copy; language: Language; selection: string; onSelect: (id: string) => void; onClose: () => void;
 }) {
+  const workspace = useMailWorkspace();
+  const enabled = workspace?.enabled ?? true;
   const dialog = useRef<HTMLDialogElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const [mailboxId, setMailboxId] = useState("");
@@ -81,13 +92,13 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
     const result = await api.emailConversations({ mailbox_id: mailboxId, q: query, entry: pending ? undefined : entry, cursor, limit: 30 }, signal);
     return { ...result, items: result.conversations ?? [] };
   }, [mailboxId, query, entry, pending]);
-  const conversations = useEmailPages(filters, loadConversations, !pending);
+  const conversations = useEmailPages(filters, loadConversations, enabled && !pending);
   const loadLoose = useCallback(async (cursor: string, signal: AbortSignal) => {
     const fn = entry === "notification" ? api.emailNotifications : api.emailInteractionMails;
     const result = await fn({ mailbox_id: mailboxId, q: query, cursor, limit: 30, ...(entry === "notification" ? { unassigned_only: true } : {}) }, signal);
     return { ...result, items: result.messages ?? [] };
   }, [mailboxId, query, entry]);
-  const loose = useEmailPages(filters, loadLoose, !pending);
+  const loose = useEmailPages(filters, loadLoose, enabled && !pending);
   const loadMessages = useCallback(async (cursor: string, signal: AbortSignal) => {
     if (singleId) {
       const mail = await api.emailMessage(singleId, signal);
@@ -98,10 +109,10 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
       : await api.emailMessages(conversationId, { cursor, limit: 30 }, signal);
     return { ...result, items: result.messages ?? [] };
   }, [mailboxId, query, pending, singleId, conversationId]);
-  const mails = useEmailPages<EmailMessage>(mailViewKey, loadMessages, pending || Boolean(selection));
-  const overview = useEmailStatus(conversationId);
+  const mails = useEmailPages<EmailMessage>(mailViewKey, loadMessages, enabled && (pending || Boolean(selection)));
+  const overview = useEmailStatus(conversationId, enabled);
   const refresh = useCallback(async () => { await Promise.all([conversations.refresh(), loose.refresh(), mails.refresh(), overview.refresh()]); }, [conversations.refresh, loose.refresh, mails.refresh, overview.refresh]);
-  const viewed = useEmailViewing(viewport, mails.items.map((mail) => mail.id).join("\n"), () => { void refresh(); }, setActionError);
+  const viewed = useEmailViewing(enabled ? viewport : null, mails.items.map((mail) => mail.id).join("\n"), () => { void refresh(); }, setActionError);
   const error = actionError || conversations.error || loose.error || mails.error || overview.error;
   const selected = overview.detail;
   const title = emailEventTitle(selected, text);
@@ -112,7 +123,7 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
   const receivingAddresses = conversationMode ? uniqueAddresses(displayMails.map((mail) => mail.receiving_address)) : [];
   const senderAddresses = conversationMode ? uniqueAddresses(displayMails.map((mail) => mail.from)) : [];
   const addressFallback = mails.loading ? text.email.loading : text.common.notSet;
-  const presentations = useEmailPresentations("mail", conversationMode ? displayMails.map((mail) => mail.id) : [], language);
+  const presentations = useEmailPresentations("mail", conversationMode ? displayMails.map((mail) => mail.id) : [], language, enabled);
   const replyTarget = conversationMode
     ? [...mails.items].filter((mail) => ["inbound", "received"].includes(mail.direction)).sort((left, right) => Date.parse(right.sent_at || right.arrived_at) - Date.parse(left.sent_at || left.arrived_at))[0]
     : undefined;
@@ -180,11 +191,12 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
   const entryCounts = !pending ? conversations.counts : undefined;
   const sectionLabel = entry === "notification" ? text.email.information : pending ? text.email.pending : text.email.interactions;
   return (
-    <dialog ref={dialog} className={`emailPopup ${detailVisible ? "detailVisible" : ""}`} aria-labelledby="email-popup-title" onCancel={(event) => { event.preventDefault(); void closePopup(); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); void closePopup(); } }}>
+    <dialog ref={dialog} className={`emailPopup ${detailVisible ? "detailVisible" : ""}`} aria-labelledby="email-popup-title" onSubmit={event => event.stopPropagation()} onCancel={(event) => { event.preventDefault(); void closePopup(); }} onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Escape") { event.preventDefault(); void closePopup(); } }}>
       <header className="emailPopupHeader">
         <div className="emailPopupTitle"><span className="emailPopupTitleIcon"><Mail size={19} /></span><span><h2 id="email-popup-title">{text.email.title}</h2><p>{text.email.windowDescription}</p></span></div>
         <button className="iconButton emailPopupClose" onClick={() => void closePopup()} aria-label={text.common.close} title={text.common.close}><X size={19} /></button>
       </header>
+      <fieldset disabled={!enabled} style={{ display: "contents", border: 0, padding: 0, margin: 0 }}>
       <form className="emailFilters" onSubmit={(event) => { event.preventDefault(); setQuery(searchDraft.trim()); }}>
         <label className="emailAddressFilter"><AtSign size={16} /><select aria-label={text.email.receivingAddress} value={mailboxId} onChange={(event) => setMailboxId(event.target.value)}>
           <option value="">{text.email.allAddresses}</option>
@@ -266,6 +278,7 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
           {replyTarget && !composeTarget && <EmailCompose key={`${selection}:${replyTarget.id}`} target={{ mode: "reply", mailId: replyTarget.id, mailboxId: replyTarget.mailbox_id }} variant="conversation" language={language} mailboxes={overview.status?.mailboxes ?? []} text={text} onClose={() => {}} onBeforeClose={registerBeforeClose} onSent={() => { void refresh(); }} />}
         </section>
       </div>
+      </fieldset>
     </dialog>
   );
 }

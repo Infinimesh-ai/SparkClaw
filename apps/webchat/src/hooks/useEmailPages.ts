@@ -35,7 +35,7 @@ export function useEmailPages<T extends Row>(
     let active = true;
     let rotation = 0;
     let timer: ReturnType<typeof setTimeout>;
-    setState({ key, pages: new Map() });
+    setState(previous => previous.key === key ? previous : { key, pages: new Map() });
     setError(null);
     setLoading(false);
     if (!enabled) return;

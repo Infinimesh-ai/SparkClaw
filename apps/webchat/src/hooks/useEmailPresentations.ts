@@ -4,7 +4,7 @@ import type { EmailPresentation } from "../api/email";
 import type { Language } from "../i18n";
 
 // Language is part of the request identity: late results never leak across settings.
-export function useEmailPresentations(kind: "mail" | "conversation", ids: string[], language: Language) {
+export function useEmailPresentations(kind: "mail" | "conversation", ids: string[], language: Language, enabled = true) {
   const idsKey = [...new Set(ids)].sort().join("\n");
   const key = `${kind}:${language}:${idsKey}`;
   const [state, setState] = useState<{ key: string; items: Record<string, EmailPresentation> }>({ key, items: {} });
@@ -16,8 +16,9 @@ export function useEmailPresentations(kind: "mail" | "conversation", ids: string
     let busy = false;
     let timer: ReturnType<typeof setTimeout>;
     const targets = idsKey.split("\n").filter(Boolean);
-    setState({ key, items: {} });
+    setState(previous => previous.key === key ? previous : { key, items: {} });
     setError(null);
+    if (!enabled) return;
     function publish(items: EmailPresentation[]) {
       if (!active) return;
       setState((old) => {
@@ -53,7 +54,7 @@ export function useEmailPresentations(kind: "mail" | "conversation", ids: string
     }
     void poll();
     return () => { active = false; clearTimeout(timer); controller.abort(); refreshRef.current = async () => {}; };
-  }, [key, idsKey, kind, language]);
+  }, [key, idsKey, kind, language, enabled]);
   const retry = useCallback(() => refreshRef.current(true), []);
   return { items: state.key === key ? state.items : {}, error, retry };
 }

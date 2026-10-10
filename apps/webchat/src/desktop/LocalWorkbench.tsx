@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { FileDown, PanelLeft, PanelRight } from "lucide-react";
 import { SessionSidebar } from "../components/sidebar";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy } from "../components/workbench";
-import { MailCachePanel } from "./MailCachePanel";
+import { MailWorkspaceContext } from "./MailWorkspaceContext";
+import type {} from "./mailCapability";
 import { ISCPSettingsPanel } from "./ISCPSettingsPanel";
 import { surfaceEnabled } from "./capability";
 import { api } from "../api/client";
@@ -58,8 +59,8 @@ export function LocalWorkbench() {
   const [page, setPage] = useState<"chat" | "schedules">("chat");
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [mailOpen, setMailOpen] = useState(false);
-  const [lanMail, setLANMail] = useState({ compose: false, workspace_attachments: false });
+  const [mailIdentity, setMailIdentity] = useState(0);
+  const [mailAvailable, setMailAvailable] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [documentPickerOpen, setDocumentPickerOpen] = useState(false);
   const [tab, setTab] = useState<PanelTab>("timeline");
@@ -69,19 +70,11 @@ export function LocalWorkbench() {
   const lastMailScope = useRef("");
   const iscp = connection?.backend?.transport === "iscp";
   const capabilities = {
-    files: surfaceEnabled(connection, "files"), mail: surfaceEnabled(connection, "mail_read"),
+    files: surfaceEnabled(connection, "files"), mail: surfaceEnabled(connection, "mail_popup"),
     browser: surfaceEnabled(connection, "browser"), speech: surfaceEnabled(connection, "speech_recording"),
     approvals: surfaceEnabled(connection, "approvals"), notifications: surfaceEnabled(connection, "notifications"),
     settingsOwner: surfaceEnabled(connection, "settings_owner"), settingsConnectors: surfaceEnabled(connection, "settings_connectors"), settingsCredentials: surfaceEnabled(connection, "settings_credentials"),
   };
-  useEffect(() => {
-    let active = true;
-    setLANMail({ compose: false, workspace_attachments: false });
-    if (!iscp && connection?.state === "connected" && mailOpen) {
-      void api.emailComposeCapabilities().then(value => { if (active) setLANMail({ compose: value.compose === true, workspace_attachments: value.workspace_attachments === true }); }).catch(() => {});
-    }
-    return () => { active = false; };
-  }, [iscp, mailOpen, connection?.state, connection?.backend?.deployment_id, connection?.owner_id, connection?.client_id]);
   const settingsTabs: PanelTab[] | undefined = iscp ? ["appearance", "devices", ...(capabilities.settingsOwner ? ["settings" as const] : []), ...(capabilities.settingsConnectors || surfaceEnabled(connection, "mail_settings") ? ["connections" as const] : []), ...(capabilities.settingsCredentials ? ["models-tools" as const] : [])] : undefined;
   const [browserState, setBrowserState] = useState<DesktopState>();
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -177,7 +170,10 @@ export function LocalWorkbench() {
         const scope = mailEditorScope(status);
         // Clear even when a lock/revocation and a new connection are delivered
         // in one React batch. Temporary capability loss is not an identity change.
-        if (!scope || scope !== lastMailScope.current) setMailOpen(false);
+        if (!scope || scope !== lastMailScope.current) {
+          setMailIdentity(value => value + 1);
+          setMailAvailable(surfaceEnabled(status, "mail_popup") && Boolean(scope));
+        } else if (surfaceEnabled(status, "mail_popup")) setMailAvailable(true);
         lastMailScope.current = scope;
         setCurrentClientID(status.client_id ?? ""); setConnection(status);
       }
@@ -371,7 +367,6 @@ export function LocalWorkbench() {
         <button className="iconButton sidebarToggle" type="button" aria-label={copy.toggleNav} onClick={() => setSidebarCollapsed((current) => !current)}><PanelLeft size={18} /></button>
         <span className="workspaceLabel">{copy.local}</span>
         <div className="topbarActions">
-          {(capabilities.mail || mailOpen && mailScope) && <button type="button" onClick={() => setMailOpen(value => !value)}>{zh ? "邮箱" : "Mail"}</button>}
           <NotificationCenter notifications={passiveNotifications.notifications} unreadCount={passiveNotifications.unreadCount}
             open={passiveNotifications.open} toast={passiveNotifications.toast} error={passiveNotifications.error}
             language={language} text={text} onToggle={() => passiveNotifications.setOpen((current) => !current)}
@@ -395,12 +390,6 @@ export function LocalWorkbench() {
         onCurrentClientRevoked={logout} onLogout={logout} />}</div> : <>
         <section className={`chatColumn localChat ${home ? "homeChat" : ""}`} hidden={page !== "chat"}>
         <div className="messageList localHistory">
-          {mailScope && mailOpen && <MailCachePanel key={mailScope} language={language} conversationID={selected}
-            enabled={connection?.state === "connected" && capabilities.mail}
-            attachmentsEnabled={connection?.state === "connected" && surfaceEnabled(connection, "mail_attachments")}
-            sendEnabled={connection?.state === "connected" && capabilities.mail && (iscp ? surfaceEnabled(connection,"mail_send") : lanMail.compose)}
-            sendAttachmentsEnabled={connection?.state === "connected" && (iscp ? surfaceEnabled(connection,"mail_send_attachments") : lanMail.workspace_attachments)}
-            onFileSaved={async () => { if(selected) setContent(await store.read(selected)); }}/>}
           {home && <WorkbenchWelcome language={language} />}
           {capabilities.browser && browserState?.browser_host?.unknown_writes?.filter((command) => command.local_conversation_id === selected).map((command) => <section className="localUnknownWrite" role="alert" key={command.command_id}>
             <h2>{zh ? "浏览器操作结果不确定" : "Browser action outcome uncertain"}</h2>
@@ -443,9 +432,27 @@ export function LocalWorkbench() {
               })}><FileDown size={16} />{zh ? "另存" : "Export"}</button></div>)}</section>}
 
         </div>
+        <MailWorkspaceContext.Provider value={{
+          identity: mailIdentity,
+          enabled: connection?.state === "connected" && capabilities.mail && Boolean(mailScope),
+          sendEnabled: connection?.state === "connected" && surfaceEnabled(connection, "mail_send"),
+          attachmentsEnabled: connection?.state === "connected" && surfaceEnabled(connection, "mail_send_attachments"),
+          listFiles: store.listFiles, conversationID: selected,
+          onFileSaved: async () => { if (selectedRef.current) setContent(await store.read(selectedRef.current)); },
+          download: async (mailboxID, mailID, partID) => {
+            if (connection?.state !== "connected" || !surfaceEnabled(connection, "mail_attachments") || !window.sparkclawMailSync?.saveAttachment) throw new Error(zh ? "邮件附件暂时不可用。" : "Mail attachments are unavailable.");
+            const scope = lastMailScope.current;
+            const id = await ensureConversation();
+            if (!scope || scope !== lastMailScope.current) throw new Error("Mail authentication changed");
+            const file = await window.sparkclawMailSync.saveAttachment(mailboxID, mailID, partID, id);
+            if (scope !== lastMailScope.current) throw new Error("Mail authentication changed");
+            if (selectedRef.current === id) setContent(await store.read(id));
+            await store.exportFile(file.id);
+          },
+        }}>
         <ComposerSurface text={text} language={language} activeSession={selected} activeInput={draft}
           activeAttachments={activeAttachments} busy={busy} voice={voice} composerInputRef={composerInputRef}
-          filesEnabled={capabilities.files} mailEnabled={!iscp && capabilities.mail}
+          filesEnabled={capabilities.files} mailEnabled={mailAvailable || !iscp && capabilities.mail}
           canCompose={drafts.ready} canSend={connection?.state === "connected" && drafts.ready && (!iscp || Boolean(runtimeConfig && ready && ownerProfile))}
           onInputChange={(value) => { draftRef.current = value; setDraft(value); }}
           onUploadDocument={saveFile}
@@ -456,6 +463,7 @@ export function LocalWorkbench() {
           }}
           onRemoveAttachment={(attachment) => setInputFiles((current) => current.filter((id) => id !== attachment.artifact_id))}
           onSend={() => void save(true)} />
+        </MailWorkspaceContext.Provider>
         <small className="localDraftStatus" role="status">{drafts.status === "saved" ? (zh ? "草稿已保存到本机" : "Draft saved on this device") : drafts.status === "error" ? (zh ? "草稿尚未保存，请保留此窗口并重试" : "Draft not saved. Keep this window open and retry") : drafts.status === "loading" ? (zh ? "读取草稿中" : "Loading draft") : (zh ? "正在保存草稿" : "Saving draft")}</small>{drafts.status === "error" && <div className="localDraftRecovery">
           <button type="button" onClick={() => void drafts.flush().catch(surfaceError)}>{zh ? "重试保存草稿" : "Retry saving draft"}</button>
           <button type="button" onClick={() => void drafts.saveCurrentOverLatest().catch(surfaceError)}>{zh ? "用我的输入替换已保存草稿" : "Replace saved draft with my text"}</button>

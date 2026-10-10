@@ -38,7 +38,7 @@ describe("email popup owner flow", () => {
   });
   afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.useRealTimers(); });
   function button(label: string) {
-    const match = [...container.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.getAttribute("aria-label") === label || element.textContent?.trim() === label);
+    const match = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.getAttribute("aria-label") === label || element.textContent?.trim() === label);
     if (!match) throw new Error(`Missing button ${label}`);
     return match;
   }
@@ -49,51 +49,66 @@ describe("email popup owner flow", () => {
     return trigger;
   }
 
+  it("keeps popup search and keyboard events outside the chat composer form", async () => {
+    const submit = vi.fn((event: React.FormEvent) => event.preventDefault());
+    const keyDown = vi.fn();
+    await act(async () => root.render(<form onSubmit={submit} onKeyDown={keyDown}><EmailPopupEntry text={text} language="en" /></form>));
+    await act(async () => button(text.email.title).click());
+    const popup = document.body.querySelector("dialog")!;
+    expect(popup.closest("form")).toBeNull();
+    await act(async () => {
+      popup.querySelector(".emailFilters")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      popup.querySelector("input")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(submit).not.toHaveBeenCalled();
+    expect(keyDown).not.toHaveBeenCalled();
+  });
+
   it("shows localized message summaries without a conversation overview and keeps source details safe", async () => {
     const trigger = await open();
-    expect(container.querySelector("dialog[open]")).not.toBeNull();
-    expect(container.querySelectorAll(".emailConversationRow")).toHaveLength(2);
-    await act(async () => (container.querySelector(".emailConversationRow") as HTMLElement).click());
-    expect(container.textContent).toContain(text.email.suspectedDuplicate);
-    expect(container.textContent).not.toContain("AI OVERVIEW");
-    expect(container.textContent).not.toContain("A procurement topic");
+    expect(document.body.querySelector("dialog[open]")).not.toBeNull();
+    expect(document.body.querySelectorAll(".emailConversationRow")).toHaveLength(2);
+    await act(async () => (document.body.querySelector(".emailConversationRow") as HTMLElement).click());
+    expect(document.body.textContent).toContain(text.email.suspectedDuplicate);
+    expect(document.body.textContent).not.toContain("AI OVERVIEW");
+    expect(document.body.textContent).not.toContain("A procurement topic");
     expect(api.ensureEmailPresentations).not.toHaveBeenCalled();
     expect(api.emailPresentations).toHaveBeenCalledWith("mail", ["102"], "en", expect.any(AbortSignal));
-    expect(container.querySelector(".emailRenderPreview")).not.toBeNull();
-    expect(container.querySelector(".emailRenderPreview iframe")).toBeNull();
-    const addressRows = container.querySelectorAll(".emailConversationAddresses > div");
+    expect(document.body.querySelector(".emailRenderPreview")).not.toBeNull();
+    expect(document.body.querySelector(".emailRenderPreview iframe")).toBeNull();
+    const addressRows = document.body.querySelectorAll(".emailConversationAddresses > div");
     expect(addressRows).toHaveLength(2);
     expect(addressRows[0]?.querySelector("dt")?.textContent).toBe(text.email.conversationReceivingEmail);
     expect(addressRows[0]?.querySelector("dd")?.textContent).toBe("owner@example.com");
     expect(addressRows[1]?.querySelector("dt")?.textContent).toBe(text.email.conversationSenderEmail);
     expect(addressRows[1]?.querySelector("dd")?.textContent).toBe("vendor@example.com");
-    expect(container.querySelector(".emailConversationSummary")?.textContent).toBe("Localized summary");
-    expect(container.textContent).not.toContain("Individual summary");
-    expect(container.textContent).not.toContain("<script>alert('untrusted')</script>");
-    expect(container.querySelector("script")).toBeNull();
+    expect(document.body.querySelector(".emailConversationSummary")?.textContent).toBe("Localized summary");
+    expect(document.body.textContent).not.toContain("Individual summary");
+    expect(document.body.textContent).not.toContain("<script>alert('untrusted')</script>");
+    expect(document.body.querySelector("script")).toBeNull();
     expect(api.markEmailViewed).not.toHaveBeenCalled();
     await act(async () => button(`${text.email.relatedConversation} 1`).click());
-    expect(container.querySelector(".emailDetailHeader h2")?.textContent).toBe("Payment");
+    expect(document.body.querySelector(".emailDetailHeader h2")?.textContent).toBe("Payment");
     await act(async () => button(text.email.reanalyze).click());
     expect(api.reanalyzeEmail).toHaveBeenCalledWith("201");
-    expect(container.querySelectorAll(".emailConversationRow")).toHaveLength(2);
-    expect(container.querySelector("[data-email-mail-id='201']")).not.toBeNull();
-    await act(async () => container.querySelector("dialog")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    expect(container.querySelector("dialog")).toBeNull();
+    expect(document.body.querySelectorAll(".emailConversationRow")).toHaveLength(2);
+    expect(document.body.querySelector("[data-email-mail-id='201']")).not.toBeNull();
+    await act(async () => document.body.querySelector("dialog")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(document.body.querySelector("dialog")).toBeNull();
     expect(document.activeElement).toBe(trigger);
     await act(async () => trigger.click());
-    expect(container.querySelector(".emailDetailHeader h2")?.textContent).toBe("Payment");
+    expect(document.body.querySelector(".emailDetailHeader h2")?.textContent).toBe("Payment");
   });
 
   it("loads pending sources independently and sends versioned intake toggles without replacing send settings", async () => {
     await open();
-    const pending = [...container.querySelectorAll<HTMLButtonElement>(".emailCategoryTabs button")][2];
+    const pending = [...document.body.querySelectorAll<HTMLButtonElement>(".emailCategoryTabs button")][2];
     await act(async () => pending.click());
-    expect(container.querySelector("[data-email-mail-id='pending-1']")).not.toBeNull();
-    expect(container.textContent).toContain(text.email.pendingHelp);
+    expect(document.body.querySelector("[data-email-mail-id='pending-1']")).not.toBeNull();
+    expect(document.body.textContent).toContain(text.email.pendingHelp);
     expect(api.markEmailViewed).not.toHaveBeenCalled();
     await act(async () => button(text.email.receivingSettings).click());
-    const toggle = container.querySelector<HTMLInputElement>("input[type=checkbox]")!;
+    const toggle = document.body.querySelector<HTMLInputElement>("input[type=checkbox]")!;
     expect(toggle.checked).toBe(true);
     await act(async () => toggle.click());
     expect(api.updateEmailIntake).toHaveBeenCalledWith("gmail", false, 3);
@@ -101,7 +116,7 @@ describe("email popup owner flow", () => {
 
   it("supports arrow-key list navigation without acknowledging a conversation preview", async () => {
     await open();
-    const rows = container.querySelectorAll<HTMLButtonElement>(".emailConversationRow");
+    const rows = document.body.querySelectorAll<HTMLButtonElement>(".emailConversationRow");
     rows[0].focus();
     act(() => rows[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
     expect(document.activeElement).toBe(rows[1]);
@@ -116,7 +131,7 @@ describe("email popup owner flow", () => {
     ] });
     await open();
     await act(async () => button(text.email.receivingSettings).click());
-    const toggle = container.querySelector<HTMLInputElement>("input[type=checkbox]")!;
+    const toggle = document.body.querySelector<HTMLInputElement>("input[type=checkbox]")!;
     expect(toggle.checked).toBe(false);
     await act(async () => toggle.click());
     expect(api.updateEmailIntake).toHaveBeenCalledWith("gmail", true, 7);
@@ -130,72 +145,72 @@ describe("email popup owner flow", () => {
     vi.spyOn(api, "emailSenderRules").mockResolvedValue({ rules: [{ id: "rule", address: "service@example.com", entry: "interaction", revision: 4, enabled: true }] });
     vi.spyOn(api, "classifyEmail").mockResolvedValue({ classification: { ...uncertain.classification, effective_entry: "notification", source: "manual", revision: 3 } });
     await open();
-    await act(async () => (Array.from(container.querySelectorAll<HTMLButtonElement>(".emailConversationRow")).find((row) => row.textContent?.includes("Subject uncertain"))!).click());
-    expect(container.textContent).toContain(text.email.classificationFailed);
-    expect(container.textContent).not.toContain(text.email.classificationUncertain);
+    await act(async () => (Array.from(document.body.querySelectorAll<HTMLButtonElement>(".emailConversationRow")).find((row) => row.textContent?.includes("Subject uncertain"))!).click());
+    expect(document.body.textContent).toContain(text.email.classificationFailed);
+    expect(document.body.textContent).not.toContain(text.email.classificationUncertain);
     await act(async () => button(text.email.moveToInformation).click());
-    expect(container.textContent).toContain(text.email.rememberSender);
+    expect(document.body.textContent).toContain(text.email.rememberSender);
     await act(async () => button(text.email.saveClassification).click());
     expect(api.classifyEmail).toHaveBeenCalledWith("uncertain", expect.objectContaining({ entry: "notification", expected_version: 2, expected_rule_version: 4, remember_sender: true }));
     await act(async () => button(text.email.information).click());
     expect(api.emailNotifications).toHaveBeenCalledWith(expect.objectContaining({ unassigned_only: true }), expect.any(AbortSignal));
     expect(api.emailConversations).toHaveBeenCalledWith(expect.objectContaining({ entry: "notification" }), expect.any(AbortSignal));
-    expect(container.querySelectorAll(".emailConversationRow")).toHaveLength(3);
-    expect(container.textContent).toContain("Subject notice");
+    expect(document.body.querySelectorAll(".emailConversationRow")).toHaveLength(3);
+    expect(document.body.textContent).toContain("Subject notice");
     expect(api.markEmailViewed).not.toHaveBeenCalled();
   });
 
   it("keeps event names independent while switching historical mail summaries with the display language", async () => {
     vi.mocked(api.emailPresentations).mockImplementation(async (kind, ids, language) => ({ items: ids.map((id) => ({ target_kind: kind, target_id: id, presentation_language: language, state: "ready" as const, revision: 1, analysis_revision: "1", title: language === "zh" ? "采购事项" : "Procurement", summary: language === "zh" ? "采购摘要" : "Summary" })) }));
     await open();
-    await act(async () => (container.querySelector(".emailConversationRow") as HTMLElement).click());
+    await act(async () => (document.body.querySelector(".emailConversationRow") as HTMLElement).click());
     await act(async () => root.render(<EmailPopupEntry text={dictionaries.zh} language="zh" />));
-    expect(container.querySelector(".emailDetailHeader h2")?.textContent).toBe("Procurement");
-    expect(container.querySelector(".emailConversationSummary")?.textContent).toBe("采购摘要");
+    expect(document.body.querySelector(".emailDetailHeader h2")?.textContent).toBe("Procurement");
+    expect(document.body.querySelector(".emailConversationSummary")?.textContent).toBe("采购摘要");
     expect(api.emailPresentations).toHaveBeenCalledWith("mail", ["102"], "zh", expect.any(AbortSignal));
     vi.mocked(api.reanalyzeEmail).mockRejectedValue(new Error("Internal English error /private/path"));
     await act(async () => button(dictionaries.zh.email.reanalyze).click());
-    expect(container.textContent).toContain(dictionaries.zh.email.actionFailed);
-    expect(container.textContent).not.toContain("Internal English error");
+    expect(document.body.textContent).toContain(dictionaries.zh.email.actionFailed);
+    expect(document.body.textContent).not.toContain("Internal English error");
   });
 
   it("shows an incomplete history without blocking source reading or reply", async () => {
     vi.mocked(api.emailMessages).mockResolvedValue({ version: 1, messages: [{ ...mail("102"), history_state: "partial", history_reason: "/private/diagnostic" }, { ...mail("103"), history_state: "partial" }] });
     await open();
-    await act(async () => (container.querySelector(".emailConversationRow") as HTMLElement).click());
-    expect(container.textContent).toContain(text.email.historyMissing);
-    expect(container.textContent).not.toContain("/private/diagnostic");
-    expect(container.querySelectorAll(".emailDetailHeader .emailWarning")).toHaveLength(1);
-    expect(container.querySelectorAll(".emailMessage > .emailWarning")).toHaveLength(0);
-    expect(container.querySelector(".emailRenderPreview")).not.toBeNull();
-    expect(container.querySelector(".emailRenderPreview iframe")).toBeNull();
-    expect(container.querySelector(`textarea[aria-label="${text.email.replyIntent}"]`)).not.toBeNull();
+    await act(async () => (document.body.querySelector(".emailConversationRow") as HTMLElement).click());
+    expect(document.body.textContent).toContain(text.email.historyMissing);
+    expect(document.body.textContent).not.toContain("/private/diagnostic");
+    expect(document.body.querySelectorAll(".emailDetailHeader .emailWarning")).toHaveLength(1);
+    expect(document.body.querySelectorAll(".emailMessage > .emailWarning")).toHaveLength(0);
+    expect(document.body.querySelector(".emailRenderPreview")).not.toBeNull();
+    expect(document.body.querySelector(".emailRenderPreview iframe")).toBeNull();
+    expect(document.body.querySelector(`textarea[aria-label="${text.email.replyIntent}"]`)).not.toBeNull();
     expect(button(text.email.polishReply).disabled).toBe(true);
     expect(api.ensureEmailPresentations).not.toHaveBeenCalled();
   });
 
   it("deletes the selected conversation rather than an individual mail", async () => {
     await open();
-    await act(async () => (container.querySelector(".emailConversationRow") as HTMLElement).click());
-    expect(container.querySelector("[data-email-mail-id='102']")).not.toBeNull();
-    expect(container.textContent).not.toContain("Clean up original");
+    await act(async () => (document.body.querySelector(".emailConversationRow") as HTMLElement).click());
+    expect(document.body.querySelector("[data-email-mail-id='102']")).not.toBeNull();
+    expect(document.body.textContent).not.toContain("Clean up original");
     await act(async () => button(text.email.deleteConversation).click());
-    expect(container.textContent).toContain(text.email.deleteConversationConfirm);
+    expect(document.body.textContent).toContain(text.email.deleteConversationConfirm);
     await act(async () => button(text.email.deleteConversation).click());
     expect(api.deleteEmailConversation).toHaveBeenCalledWith("purchase", expect.objectContaining({ expected_version: 1, command_key: expect.any(String) }));
-    expect(container.querySelector(".emailDetailHeader h2")).toBeNull();
+    expect(document.body.querySelector(".emailDetailHeader h2")).toBeNull();
   });
 
   it("shows failed history separately from active backfill", async () => {
     vi.mocked(api.emailMessages).mockResolvedValue({ version: 1, messages: [{ ...mail("102"), history_state: "failed", history_reason: "capture_failed" }] });
     await open();
-    await act(async () => (container.querySelector(".emailConversationRow") as HTMLElement).click());
-    expect(container.textContent).toContain(text.email.historyFailed);
-    expect(container.textContent).not.toContain(text.email.historyPending);
-    expect(container.textContent).not.toContain("capture_failed");
-    expect(container.querySelector(".emailRenderPreview")).not.toBeNull();
-    expect(container.querySelector(".emailRenderPreview iframe")).toBeNull();
-    expect(container.querySelector(`textarea[aria-label="${text.email.replyIntent}"]`)).not.toBeNull();
+    await act(async () => (document.body.querySelector(".emailConversationRow") as HTMLElement).click());
+    expect(document.body.textContent).toContain(text.email.historyFailed);
+    expect(document.body.textContent).not.toContain(text.email.historyPending);
+    expect(document.body.textContent).not.toContain("capture_failed");
+    expect(document.body.querySelector(".emailRenderPreview")).not.toBeNull();
+    expect(document.body.querySelector(".emailRenderPreview iframe")).toBeNull();
+    expect(document.body.querySelector(`textarea[aria-label="${text.email.replyIntent}"]`)).not.toBeNull();
     expect(button(text.email.polishReply).disabled).toBe(true);
   });
 
@@ -205,12 +220,12 @@ describe("email popup owner flow", () => {
     vi.mocked(api.emailConversation).mockResolvedValue({ version: 1, conversation: fallback });
     vi.mocked(api.emailMessages).mockResolvedValue({ version: 1, messages: [{ ...mail("102"), classification: { category: "interaction", effective_entry: "interaction", source: "model", state: "ready", revision: 1, reason_code: "body_evidence", evidence: [{ ref: "representation:102:body", text: "Please confirm the delivery date." }] } }] });
     await open();
-    expect(container.textContent).toContain(text.email.eventAwaitingName);
-    await act(async () => (container.querySelector(".emailConversationRow") as HTMLElement).click());
-    expect(container.querySelector(".emailDetailHeader h2")?.textContent).toBe(`${text.email.originalSubject}: Delivery update`);
-    expect(container.textContent).toContain(text.email.classifiedByBody);
-    expect(container.textContent).toContain(text.email.sourceEvidence);
-    expect(container.querySelector(".emailClassification blockquote")?.textContent).toBe("Please confirm the delivery date.");
+    expect(document.body.textContent).toContain(text.email.eventAwaitingName);
+    await act(async () => (document.body.querySelector(".emailConversationRow") as HTMLElement).click());
+    expect(document.body.querySelector(".emailDetailHeader h2")?.textContent).toBe(`${text.email.originalSubject}: Delivery update`);
+    expect(document.body.textContent).toContain(text.email.classifiedByBody);
+    expect(document.body.textContent).toContain(text.email.sourceEvidence);
+    expect(document.body.querySelector(".emailClassification blockquote")?.textContent).toBe("Please confirm the delivery date.");
     expect(api.emailPresentations).toHaveBeenCalledWith("mail", ["102"], "en", expect.any(AbortSignal));
     expect(api.ensureEmailPresentations).not.toHaveBeenCalled();
   });
@@ -220,24 +235,24 @@ describe("email popup owner flow", () => {
     vi.mocked(api.ensureEmailPresentations).mockImplementation(async (kind, ids, language) => ({ items: ids.map((id) => ({ target_kind: kind, target_id: id, presentation_language: language, state: "ready" as const, revision: 1, analysis_revision: "historical-source", summary: language === "zh" ? "历史邮件摘要" : "Historical mail summary" })) }));
     await act(async () => root.render(<EmailPopupEntry text={dictionaries.zh} language="zh" />));
     await act(async () => button(dictionaries.zh.email.title).click());
-    await act(async () => (container.querySelector(".emailConversationRow") as HTMLElement).click());
+    await act(async () => (document.body.querySelector(".emailConversationRow") as HTMLElement).click());
     expect(api.ensureEmailPresentations).toHaveBeenCalledWith("mail", ["102"], "zh", false, expect.any(AbortSignal));
-    expect(container.querySelector(".emailConversationSummary")?.textContent).toBe("历史邮件摘要");
+    expect(document.body.querySelector(".emailConversationSummary")?.textContent).toBe("历史邮件摘要");
   });
 
   it("distinguishes a failed classification job from a semantic uncertainty", async () => {
     vi.mocked(api.emailMessages).mockResolvedValue({ version: 1, messages: [{ ...mail("102"), classification_state: "failed", classification: { category: "unknown", effective_entry: "interaction", source: "fallback", state: "ready", revision: 1, reason_code: "classification_uncertain" } }] });
     await open();
-    await act(async () => (container.querySelector(".emailConversationRow") as HTMLElement).click());
-    expect(container.textContent).toContain(text.email.classificationFailed);
-    expect(container.textContent).not.toContain(text.email.classificationUncertain);
+    await act(async () => (document.body.querySelector(".emailConversationRow") as HTMLElement).click());
+    expect(document.body.textContent).toContain(text.email.classificationFailed);
+    expect(document.body.textContent).not.toContain(text.email.classificationUncertain);
   });
 
   it("shows event-scope counts for notifications", async () => {
     vi.mocked(api.emailConversations).mockResolvedValue({ version: 1, conversations: [], counts: { total: 205, unseen: 104 } });
     await open();
     await act(async () => button(text.email.information).click());
-    expect(container.textContent).toContain(`${text.email.matchingMessages}: 205`);
+    expect(document.body.textContent).toContain(`${text.email.matchingMessages}: 205`);
     expect(api.emailConversations).toHaveBeenLastCalledWith(expect.objectContaining({ entry: "notification", cursor: "" }), expect.any(AbortSignal));
   });
 

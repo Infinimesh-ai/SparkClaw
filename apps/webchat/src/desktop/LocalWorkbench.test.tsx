@@ -49,7 +49,7 @@ afterEach(() => {
 });
 
 describe("workbench local workbench", () => {
-  it("LAN mail opens the shared draft panel only after fresh capabilities allow local attachments", async () => {
+  it("LAN mail opens the original popup and enables local attachments after fresh compose capabilities", async () => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}")));
     vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
@@ -60,17 +60,24 @@ describe("workbench local workbench", () => {
     window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => []), create: vi.fn(),
       read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(),
       submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
-    window.sparkclawMailSync = { catalog: vi.fn(async () => [{ id: "box", address: "owner@example.test", provider: "outlook" }]), refreshCatalog: vi.fn(), read: vi.fn(async () => ({ mailbox_id: "box", sequence: 0, synced_at: "", messages: [] })), sync: vi.fn() };
+    vi.spyOn(api, "emailSyncStatus").mockResolvedValue({ version: 1, backlog: 0, pending_count: 0, mailboxes: [{ id: "box", version: 1, provider: "outlook", address: "owner@example.test", active_binding: true, intake_enabled: true, state: "active" }] });
+    vi.spyOn(api, "emailProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(api, "emailConversations").mockResolvedValue({ version: 1, conversations: [] });
+    vi.spyOn(api, "emailInteractionMails").mockResolvedValue({ version: 1, messages: [] });
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner", backend: { schema_version: 2, origin: "https://backend.test", deployment_id: "deployment" } })) } as unknown as SparkClawDesktop;
     const host = document.createElement("div"), root = createRoot(host);
     try {
       await act(async () => root.render(<LocalWorkbench />));
       expect(capability).not.toHaveBeenCalled();
-      await act(async () => [...host.querySelectorAll<HTMLButtonElement>(".topbarActions button")].find(button => button.textContent === "Mail")!.click());
+      await act(async () => host.querySelector<HTMLButtonElement>(".composer .emailEntryButton")!.click());
+      expect(document.body.querySelector("dialog.emailPopup[open]")).not.toBeNull();
+      expect(host.querySelector(".mailCachePanel")).toBeNull();
+      expect([...host.querySelectorAll(".topbarActions button")].some(button => button.textContent === "Mail")).toBe(false);
+      await act(async () => [...document.body.querySelectorAll<HTMLButtonElement>(".emailToolbarActions button")].find(button => button.textContent === dictionaries.en.email.compose)!.click());
       expect(capability).toHaveBeenCalledTimes(1);
-      expect(host.querySelector('[aria-label="Local workspace file"]')).toBeNull();
+      expect(document.body.querySelector('[aria-label="Local workspace file"]')).toBeNull();
       await act(async () => resolveCapabilities({ compose: true, reply: true, reply_all: true, cc: true, max_to: 100, workspace_attachments: true }));
-      expect(host.querySelector('[aria-label="Local workspace file"]')).not.toBeNull();
+      expect(document.body.querySelector('[aria-label="Local workspace file"]')).not.toBeNull();
       expect(host.textContent).not.toContain("ISCP connection");
     } finally { await act(async () => root.unmount()); }
   });

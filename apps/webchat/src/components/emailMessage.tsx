@@ -1,3 +1,4 @@
+import { useMailWorkspace } from "../desktop/MailWorkspaceContext";
 import { EmailRenderPreview } from "./emailRenderPreview";
 import { FileDown, Paperclip, RefreshCw } from "lucide-react";
 import type { EmailEntry, EmailMessage, EmailPresentation } from "../api/email";
@@ -19,6 +20,8 @@ export function EmailMessageCard({ mail, viewed, text, language, busy, onReanaly
   onOpenMail?: (id: string) => void;
   conversationMode?: boolean;
 }) {
+  const workspace = useMailWorkspace();
+  const download = (part = "", name = "original.eml") => workspace ? workspace.download(mail.mailbox_id, mail.id, part) : openEmailFile(mail.id, part, name);
   const time = mail.sent_at || mail.arrived_at;
   const outgoing = ["sent", "outbound"].includes(mail.direction);
   const direction = outgoing ? text.email.outgoing : ["received", "inbound"].includes(mail.direction) ? text.email.incoming : text.email.title;
@@ -64,8 +67,8 @@ export function EmailMessageCard({ mail, viewed, text, language, busy, onReanaly
         {!conversationMode && onReply && <><button className="emailTextButton" onClick={() => onReply(mail, false)}>{text.email.reply}</button><button className="emailTextButton" onClick={() => onReply(mail, true)}>{text.email.replyAll}</button></>}
         {!conversationMode && <EmailProgress state={mail.processing_state} text={text} />}
         {mail.original_purged && <span className="emailNotice">{text.email.originalPurged}</span>}
-        {mail.original_available && <button className="emailTextButton" onClick={() => void openEmailFile(mail.id).catch(onError)}><FileDown size={14} />{text.email.originalDownload}</button>}
-        {(mail.attachments ?? []).map((attachment) => <button className="emailTextButton" key={attachment.id} disabled={!attachment.available} onClick={() => void openEmailFile(mail.id, attachment.id, attachment.name).catch(onError)} title={attachment.available ? attachment.name : text.email.sourceUnavailable}>
+        {mail.original_available && <button className="emailTextButton" onClick={() => void download().catch(onError)}><FileDown size={14} />{text.email.originalDownload}</button>}
+        {(mail.attachments ?? []).map((attachment) => <button className="emailTextButton" key={attachment.id} disabled={!attachment.available} onClick={() => void download(attachment.id, attachment.name).catch(onError)} title={attachment.available ? attachment.name : text.email.sourceUnavailable}>
           <Paperclip size={14} /><span>{attachment.name}</span>{attachment.size !== undefined && <small>{Math.ceil(attachment.size / 1024)} KB</small>}
         </button>)}
         {!conversationMode && <button className="emailTextButton" disabled={busy} onClick={() => onReanalyze(mail.id)}><RefreshCw size={14} className={busy ? "spin" : ""} />{text.email.reanalyze}</button>}

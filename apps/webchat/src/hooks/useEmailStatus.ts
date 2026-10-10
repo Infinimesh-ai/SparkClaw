@@ -3,7 +3,7 @@ import { api } from "../api/client";
 import type { EmailConversation, EmailSyncStatus } from "../api/email";
 import type { EmailProviderStatus } from "../api/types";
 
-export function useEmailStatus(selectedId: string) {
+export function useEmailStatus(selectedId: string, enabled = true) {
   const [status, setStatus] = useState<EmailSyncStatus | null>(null);
   const [providers, setProviders] = useState<EmailProviderStatus[]>([]);
   const [detail, setDetail] = useState<{ version: number; conversation: EmailConversation } | null>(null);
@@ -15,8 +15,9 @@ export function useEmailStatus(selectedId: string) {
     let active = true;
     let busy = false;
     let timer: ReturnType<typeof setTimeout>;
-    setDetail(null);
+    setDetail(previous => previous?.conversation.id === selectedId ? previous : null);
     setError(null);
+    if (!enabled) return;
     void api.emailProviders().then((result) => { if (active) setProviders(result.providers ?? []); }).catch((reason) => { if (active) setError(reason); });
     async function refresh() {
       if (busy || !active) return;
@@ -42,7 +43,7 @@ export function useEmailStatus(selectedId: string) {
     }
     void poll();
     return () => { active = false; clearTimeout(timer); controller.abort(); refreshRef.current = async () => {}; };
-  }, [selectedId]);
+  }, [selectedId, enabled]);
 
   const refresh = useCallback(() => refreshRef.current(), []);
   return { status, providers, detail: detail?.conversation.id === selectedId ? detail.conversation : null, error, refresh };

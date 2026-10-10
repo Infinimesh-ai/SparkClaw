@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 
 // This hook lives on the entry button, not inside the conditionally mounted dialog.
-export function useEmailLoginAlert() {
+export function useEmailLoginAlert(enabled = true) {
   const [required, setRequired] = useState(false);
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     let active = true;
     let busy = false;
@@ -27,6 +28,6 @@ export function useEmailLoginAlert() {
     document.addEventListener("visibilitychange", onVisible);
     void poll();
     return () => { active = false; clearTimeout(timer); controller.abort(); document.removeEventListener("visibilitychange", onVisible); };
-  }, []);
+  }, [enabled]);
   return required;
 }

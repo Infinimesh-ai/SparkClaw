@@ -12,7 +12,7 @@ const draft: EmailDraft = { id: "d", version: 1, mailbox_id: "box", mode: "compo
 const mailboxes = [{ id: "box", version: 1, provider: "gmail" as const, address: "owner@example.com", intake_enabled: false, active_binding: true, state: "ready" }];
 afterEach(() => vi.restoreAllMocks());
 describe("email compose safety", () => {
-  it("shows workspace attachment manifests and prevents the legacy editor from silently dropping or sending them", async () => {
+  it("shows obsolete attachment manifests and requires explicit removal before saving or sending", async () => {
     vi.spyOn(api, "emailComposeCapabilities").mockResolvedValue({ compose: true, reply: true, reply_all: true, cc: true, max_to: 100 });
     vi.spyOn(api, "emailDraft").mockResolvedValue({ ...draft, attachments: [{ path: "reports/a.pdf", name: "a.pdf", size_bytes: 123, sha256: "a".repeat(64) }] });
     const save = vi.spyOn(api, "saveEmailDraft"); const send = vi.spyOn(api, "sendEmailDraft");
@@ -20,7 +20,7 @@ describe("email compose safety", () => {
     try {
       await act(async () => root.render(<EmailCompose target={{ mode: "compose", draftId: "d" }} mailboxes={mailboxes} text={text} language="zh" onClose={() => {}} onBeforeClose={() => {}}/>));
       expect(host.textContent).toContain("a.pdf"); expect(host.textContent).toContain("旧附件来源已失效"); expect(host.textContent).toContain("a".repeat(64));
-      expect(host.querySelector("fieldset")!.disabled).toBe(true);
+      expect(host.querySelector("fieldset")!.disabled).toBe(false);
       for (const label of [text.email.saveDraft, text.email.send]) {
         const button = [...host.querySelectorAll("button")].find(value => value.textContent === label)!;
         expect(button.disabled).toBe(true); await act(async () => button.click());

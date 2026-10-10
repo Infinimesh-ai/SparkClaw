@@ -326,7 +326,9 @@ ExecStart=$(systemd_quote "$node_path") $(systemd_quote "$entry_path")
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=60
-KillMode=control-group
+# Let Controller close its owned CLI daemons before the final cgroup kill.
+KillMode=mixed
+SendSIGKILL=yes
 UMask=0077
 Environment=$(systemd_quote "SPARKCLAW_BROWSER_CONTROLLER_SOCKET=$socket_path")
 Environment=$(systemd_quote "SPARKCLAW_BROWSER_PROFILE_ID=default")

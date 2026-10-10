@@ -321,6 +321,37 @@ actual-Chromium skips. No running service was changed during this check; a new
 target-host graceful stop still needs coordinated validation. See the
 [sanitized evidence and inference limits](evidence/browser-controller-shutdown-2026-10-09.json).
 
+## Controller systemd stop ordering: 2026-10-10
+
+The generated Controller unit now uses `KillMode=mixed` with explicit
+`SendSIGKILL=yes`, retaining `TimeoutStopSec=60`. Initial SIGTERM reaches the
+Controller, allowing it to close its owned CLI daemons. If the Controller exits
+while children remain, or exceeds the stop deadline, systemd still kills the
+remaining cgroup. Executor and Browser unit policies are unchanged. This prevents
+`control-group` from independently terminating a daemon while its Controller is
+still draining work and about to use that daemon for explicit page cleanup.
+
+[The executable qualifier](../scripts/qualify-controller-stop-order.py) runs
+four disposable `systemd --user` transient units with a pure Python parent,
+detached child and private Unix socket. It never connects to a Browser or reads
+application data. An explicit drain barrier makes signal delivery observable:
+`control-group` terminates the child and cleanup fails (exit 1); `mixed` lets the
+parent close its owned resource and both processes exit normally. With `mixed`,
+parent failure (exit 7) and a three-second fixture timeout both trigger final
+SIGKILL of remaining processes. All four cases pass on systemd 259, with empty
+cgroups, no remaining fixture PIDs/units, and no existing service changes.
+Production keeps its 60-second deadline. Run
+`python3 scripts/qualify-controller-stop-order.py` on Linux with a user manager;
+the matching setup script must be beside it. Setup tests **13**, Python compile
+and shell syntax checks also pass.
+
+The archived QQ `tab-list / process_exit_page_closed` event lacks an old-PID
+signal trace and original CLI error; this is a demonstrated configuration hazard,
+not proof of its unique historical cause. The error still cannot prove that an
+owned browser page is absent; cleanup fences and their operator recovery rules
+are unchanged. Real deployed graceful shutdown remains a separate acceptance
+gate. See [sanitized systemd evidence](evidence/browser-controller-stop-order-2026-10-10.json).
+
 ## Rebuild and consume a release
 
 In the App-CLI fork, commit the reviewed implementation and run:

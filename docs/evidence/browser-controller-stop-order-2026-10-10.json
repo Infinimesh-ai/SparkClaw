@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "source_baseline": "5658f8a6",
+  "scope": "Controller unit termination ordering, using disposable user transient units without Browser or user data",
+  "qualification": {
+    "schema_version": 1,
+    "systemd": "systemd 259 (259.5-0ubuntu3.4)",
+    "production": {
+      "KillMode": "mixed",
+      "TimeoutStopSec": "60",
+      "SendSIGKILL": "yes"
+    },
+    "fixture_timeout_seconds": 3,
+    "browser_access": false,
+    "existing_units_modified": false,
+    "cases": [
+      {
+        "mode": "control-group",
+        "behavior": "normal",
+        "events": [
+          "allow-cleanup",
+          "child-ready",
+          "child-sigterm",
+          "cleanup-failed",
+          "main-ready",
+          "main-sigterm"
+        ],
+        "runner_exit": 1,
+        "result": {
+          "Result": "exit-code",
+          "ExecMainCode": "1",
+          "ExecMainStatus": "1"
+        },
+        "final_sigkill_observed": false,
+        "owned_pids_gone": true,
+        "cgroup_empty": true
+      },
+      {
+        "mode": "mixed",
+        "behavior": "normal",
+        "events": [
+          "allow-cleanup",
+          "child-ready",
+          "cleanup-completed",
+          "main-ready",
+          "main-sigterm",
+          "owned-resource-closed"
+        ],
+        "runner_exit": 0,
+        "result": {
+          "Result": "success",
+          "ExecMainCode": "0",
+          "ExecMainStatus": "0"
+        },
+        "final_sigkill_observed": false,
+        "owned_pids_gone": true,
+        "cgroup_empty": true
+      },
+      {
+        "mode": "mixed",
+        "behavior": "fail",
+        "events": [
+          "child-ready",
+          "main-failed",
+          "main-ready",
+          "main-sigterm"
+        ],
+        "runner_exit": 7,
+        "result": {
+          "Result": "exit-code",
+          "ExecMainCode": "1",
+          "ExecMainStatus": "7"
+        },
+        "final_sigkill_observed": true,
+        "owned_pids_gone": true,
+        "cgroup_empty": true
+      },
+      {
+        "mode": "mixed",
+        "behavior": "timeout",
+        "events": [
+          "child-ready",
+          "main-ready",
+          "main-sigterm"
+        ],
+        "runner_exit": 1,
+        "result": {
+          "Result": "timeout",
+          "ExecMainCode": "2",
+          "ExecMainStatus": "9"
+        },
+        "final_sigkill_observed": true,
+        "owned_pids_gone": true,
+        "cgroup_empty": true
+      }
+    ]
+  },
+  "source_sha256": {
+    "scripts/setup-browser-controller.sh": "50ebeff4e15f70d34c7c1870915a7021bddc957efc4e9be236f471fb0346973a",
+    "scripts/qualify-controller-stop-order.py": "30dfd383dc9a7ce436d09dac5f74abf4d1e2c0cf8aa56a0c5deee5bd1e6137c6"
+  },
+  "additional_checks": {
+    "browser_setup_tests_passed": 13,
+    "python_compile": true,
+    "bash_syntax": true,
+    "fixture_units_remaining": 0
+  },
+  "production_observation_after_fixture": {
+    "controller_active": true,
+    "kill_mode": "control-group",
+    "timeout_stop_seconds": 60,
+    "send_sigkill": true,
+    "configuration_changed": false
+  },
+  "inference_limits": [
+    "The actual systemd signal and process cleanup ordering was exercised with a pure Python parent, detached child and private Unix socket; this is not a real Browser/provider shutdown acceptance.",
+    "The parent drain barrier makes first-signal delivery and subsequent explicit cleanup observable without relying on a chosen scheduling delay.",
+    "The 3-second fixture timeout accelerates failure qualification; the generated production Controller unit remains at 60 seconds.",
+    "The historical QQ tab-list process_exit_page_closed event has no old-PID signal trace or original CLI error. This test establishes a matching configuration hazard, not its unique historical cause.",
+    "No page_closed error is reclassified as proven cleanup. Existing cleanup fences, authority, task completion and App-CLI artifacts are unchanged."
+  ]
+}

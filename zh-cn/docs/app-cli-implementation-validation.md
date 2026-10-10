@@ -132,6 +132,14 @@ work2 停止日志显示 Executor 于 UTC 09:14:26 退出，Controller 随后达
 
 新增 **6** 项真实类组合回归包含两个 Unix 监听器、未完成请求体的真实 HTTP 请求、普通 MCP reservation、Executor 停止后的取消失败、正常关闭、页面/进程回收失败及多 handle 清理。macOS **152** 项通过、**25** 项平台/浏览器跳过；隔离 Linux **169** 项通过、**8** 项真实 Chromium 跳过。本次检查未修改运行服务，新代码在目标主机的优雅停止仍需协调验证。详见[脱敏证据与推断边界](../../docs/evidence/browser-controller-shutdown-2026-10-09.json)。
 
+## Controller 的 systemd 停止顺序：2026-10-10
+
+生成的 Controller unit 改为 `KillMode=mixed`，显式保留 `SendSIGKILL=yes`，`TimeoutStopSec=60` 不变。首次 SIGTERM 只交给 Controller，由其关闭拥有的 CLI daemon；主进程退出后仍有子进程、或超过停止期限时，systemd 仍收割剩余 cgroup。Executor 与 Browser unit 策略不变。这样可避免 `control-group` 在 Controller 尚在排空、准备通过 daemon 显式清理页面时，提前独立终止该 daemon。
+
+[可执行验证脚本](../../scripts/qualify-controller-stop-order.py) 使用纯 Python 父进程、detached 子进程和私有 Unix socket，运行四个隔离的 `systemd --user` transient unit，不连接 Browser、不读取应用数据。显式排空屏障让信号投递顺序可观察：`control-group` 先终止子进程，随后清理失败（exit 1）；`mixed` 允许父进程先关闭拥有的资源，父子正常退出。`mixed` 下主进程失败（exit 7）和夹具三秒停止超时，均会触发最终 SIGKILL 收割余留进程。四项在 systemd 259 上全部通过，cgroup 为空，夹具 PID/unit 无残留，现有服务未改变。生产停止期限仍为 60 秒。在具备用户管理器的 Linux 上运行 `python3 scripts/qualify-controller-stop-order.py`，匹配的 setup 脚本须位于同目录。安装脚本 **13** 项测试、Python 编译及 shell 语法检查也通过。
+
+归档 QQ 的 `tab-list / process_exit_page_closed` 事件缺少旧 PID 信号轨迹和原始 CLI 错误；这里证明了配置风险，未证明该历史事件的唯一原因。此错误仍不能证明浏览器任务页已经不存在，清理围栏及操作员恢复规则不变。真实部署的优雅停止仍须独立验收。详见[脱敏 systemd 证据](../../docs/evidence/browser-controller-stop-order-2026-10-10.json)。
+
 ## 构建与消费发行
 
 先在 App-CLI fork 提交审核后的源码，然后构建：

@@ -1,0 +1,31 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+)
+
+func TestReservationCleanupReporting(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		calls := 0
+		if err := finishReservation(time.Now().Add(time.Second), true, func(context.Context) error { calls++; return nil }); err != nil || calls != 1 {
+			t.Fatalf("release success not reported")
+		}
+	})
+	t.Run("release_failure", func(t *testing.T) {
+		calls := 0
+		if err := finishReservation(time.Now().Add(time.Second), true, func(context.Context) error { calls++; return errors.New("fixture") }); err == nil || calls != 1 {
+			t.Fatalf("release failure lost")
+		}
+	})
+	t.Run("parent_eof_keeps_slot_until_original_ttl", func(t *testing.T) {
+		expires := time.Now().Add(20 * time.Millisecond)
+		calls := 0
+		err := finishReservation(expires, false, func(context.Context) error { calls++; return nil })
+		if err == nil || calls != 0 || time.Now().Before(expires) {
+			t.Fatalf("unproven private cleanup released slot")
+		}
+	})
+}

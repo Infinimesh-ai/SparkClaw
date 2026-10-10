@@ -22,7 +22,7 @@ func main() {
 		os.Exit(1)
 	}
 }
-func run() error {
+func run() (result error) {
 	if len(os.Args) != 1 || os.Getenv("SPARKCLAW_FIXED_OUTLOOK_DIAGNOSTIC") != "1" {
 		return fmt.Errorf("opt-in required")
 	}
@@ -46,16 +46,14 @@ func run() error {
 	defer client.Close()
 	control := browsercontrol.New(vault, client, ec.ProfileID)
 	control.Initialize(ctx)
-	defer control.Close()
 	session, err := control.AcquireSession(ctx, "fixed-empty-outlook-menu-diagnostic", 30*time.Second, 7*time.Minute)
 	if err != nil {
 		return err
 	}
+	cleanupProven := true // No private Driver exists until the parent receives the bootstrap.
 	defer func() {
-		cleanup, c := context.WithTimeout(context.Background(), 20*time.Second)
-		defer c()
-		if session.Release(cleanup) != nil {
-			fmt.Fprintln(os.Stderr, "reservation_release_failed")
+		if err := finishReservation(session.Lease().ExpiresAt, cleanupProven, session.Release); err != nil {
+			result = err
 		}
 	}()
 	token, _, found, err := vault.OpenBindingVersion(ctx, "browser-control:playwright-extension:default", "playwright-extension-token-v1")
@@ -77,6 +75,7 @@ func run() error {
 	if err = json.NewEncoder(os.Stdout).Encode(map[string]any{"token": string(token), "account": account, "reservation": true}); err != nil {
 		return err
 	}
+	cleanupProven = false
 	done := make(chan string, 1)
 	go func() {
 		scan := bufio.NewScanner(os.Stdin)
@@ -91,8 +90,31 @@ func run() error {
 		if value != "release" {
 			return fmt.Errorf("parent lost")
 		}
+		cleanupProven = true
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+	return nil
+}
+
+// A private cleanup failure or parent EOF never proves that releasing the
+// production slot is safe. Retain it until its original bounded expiration,
+// report the unresolved cleanup, and never claim successful release.
+func finishReservation(expires time.Time, cleanupProven bool, release func(context.Context) error) error {
+	if !cleanupProven {
+		fmt.Fprintln(os.Stderr, "reservation_cleanup_required")
+		if remaining := time.Until(expires); remaining > 0 {
+			timer := time.NewTimer(remaining)
+			defer timer.Stop()
+			<-timer.C
+		}
+		return fmt.Errorf("reservation_cleanup_unproven")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if release(ctx) != nil {
+		fmt.Fprintln(os.Stderr, "reservation_release_failed")
+		return fmt.Errorf("reservation_release_failed")
 	}
 	return nil
 }

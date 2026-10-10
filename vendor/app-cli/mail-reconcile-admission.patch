@@ -1,0 +1,13 @@
+--- a/src/executor.mjs
++++ b/src/executor.mjs
+@@ -82 +82 @@
+-              if (row.status === 'pending') this.transition(row.id, 'cancelled', 'CANCEL_REQUESTED');
++              if (row.status === 'pending') this.transition(row.id, row.effect ? 'uncertain' : 'cancelled', 'CANCEL_REQUESTED');
+@@ -99 +99,6 @@
+-          this.start(this.ledger.get(row.id), spec, resource, true);
++          // A queued recovery must acknowledge its new admission, not the
++          // original uncertain outcome that clients treat as terminal. Keep
++          // the original row for the handler's trusted reconciliation facts.
++          row = this.ledger.get(row.id);
++          this.transition(row.id, 'pending');
++          this.start(row, spec, resource, true);

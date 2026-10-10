@@ -589,9 +589,11 @@ snapshot alone was not counted as delivery evidence.
 Outlook is not yet qualified. The `.17` direct attempt stopped at the native
 attachment-menu click. Explicit reconciliation retained the same invocation and
 task, saved its bound `not_sent` receipt and restored the draft to failed/version
-5. The first reconciliation completed in the Executor but failed to return
-through the Controller call; replaying the same task recovered it. Available
-logs do not establish the precise first-call failure cause. No new send occurred.
+5. The first reconciliation completed in the Executor but returned an unknown
+outcome to the desktop; replaying the same task recovered it. That UI message
+alone does not establish a Controller transport failure. The matching `.18`
+sequence was later reproduced as a stale admission response (section 9.8).
+No new send occurred during either reconciliation.
 
 A fixed empty-composer diagnostic reproduced the native menu problem: a
 pointer-disabled action was replaced during the native click attempt, leaving
@@ -641,8 +643,12 @@ The approved direct Outlook draft was reviewed again as version 6 and submitted
 once on this release. The menu succeeded, but the attempt failed attachment
 upload verification before any successful send receipt. Its exact original task was
 formally reconciled to `not_sent` and the draft restored to failed/version 9.
-As on `.17`, the first result return failed and the second same-task read
-recovered it; that repeated return path and upload validation are being fixed.
+As on `.17`, the first result returned unknown and the second same-task read
+recovered it. An independent real CLI/socket test reproduced the cause: queued
+reconciliation initially returned the old terminal uncertain state, so the
+caller stopped waiting before the new result. The candidate publishes pending
+at admission while preserving the original attempt and restart/cancellation
+fences; its remaining regressions and upload validation are being completed.
 Send and inbound-byte qualification remain pending.
 The old `.16` ISCP unknown record remains preserved; its separate replacement
 has not been approved or sent. Detailed current results are in the

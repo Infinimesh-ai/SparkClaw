@@ -272,7 +272,7 @@
           "recipient_digest": "sha256:2bf58f91280858fe3064316632defab33312259edcdff2cc1b9de56fb2e584aa",
           "browser_credential_generation": 2941799844120501
         },
-        "first_reconcile_failure_cause": "Controller call or return unavailable; precise cause not established"
+        "first_reconcile_failure_cause": "UI outcome unknown alone does not establish transport failure; matching .18 stale admission response reproduced independently"
       },
       "reviewed_version": 6,
       "native_confirm_click_count": 1,
@@ -338,7 +338,8 @@
       },
       "native_reconciliation_pending": false,
       "native_reconcile_effective_calls": 2,
-      "formal_not_sent_proof_available": true
+      "formal_not_sent_proof_available": true,
+      "repeated_reconciliation_cause": "Executor enqueued reconciliation before publishing a nonterminal state; initial ACK could expose the original uncertain status and terminate caller waiting"
     },
     "iscp": {
       "draft_id": "05e7cca5-b390-4762-ac1a-5a0430b715b5",

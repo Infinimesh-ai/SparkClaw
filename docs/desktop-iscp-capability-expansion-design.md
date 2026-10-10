@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-iscp-capability-expansion-design.md)
 >
-> Date: 2026-10-09. Status: P1–P5 adapters and gated desktop surfaces implemented; qualification is recorded in section 9.2. Installed deployments are unchanged.
+> Updated: 2026-10-10. Status: P1–P5 adapters and gated desktop surfaces implemented; installed desktop/work2 qualification is recorded in sections 9.6–9.7. ASR/TTS remains deferred.
 > Scope: SparkX connects to SparkClaw through the local Docker ISCP Relay. Local Relay changes are permitted but must preserve protocol compatibility with the online Relay; this work does not switch the deployment online.
 
 ## 1. Objective, baseline and implementation order
@@ -521,8 +521,8 @@ Both transports save and display reviewed QQ and Outlook drafts with a ClientSto
 158-byte attachment and the matching fingerprint. Gateway has no mount of the
 desktop source. Mail drafts and receipts remain backend-authoritative. The user
 has approved all four prepared synthetic self-test messages. Live attachment
-contract repairs and original-task receipt recovery are in progress; no real
-send, delivery or incoming attachment is yet qualified.
+contract repairs and original-task receipt recovery were still in progress at this
+checkpoint. The subsequent actual-send results are recorded in section 9.7.
 
 Native checks found and fixed one-pixel browser-panel rounding overflow, loss of
 unsaved editors on capability refresh failure, and navigation context destruction
@@ -569,6 +569,30 @@ the SSH reverse bridge to work2 must remain running for this test setup. Pinning
 the Issuer's published port corrected restart-induced routing loss without
 replacing authorization. Online Relay is unchanged; ASR/TTS remain deferred.
 InfiniCenter is absent at the configured anchors; no central acceptance is claimed.
+
+## 9.7 Real mail acceptance, 2026-10-10
+
+The installed work2 Gateway and matched App-CLI `.17` are at `75418c75`;
+SparkX is at `1b22eddc`, which also includes the direct HTTPS reconciliation
+deadline fix. Only an exact POST draft/reconcile request receives the 180-second
+budget; ordinary reads retain 30 seconds and earlier caller cancellation remains
+effective. The actual TLS regression passed. Browser Reader assets and policy
+are unchanged. See the [real-send evidence](evidence/mail-provider-send-2026-10-10.json).
+
+QQ passes both direct HTTPS and ISCP: one native confirmation per successful
+attempt, a provider send receipt, a separate captured inbound original, and an
+attachment copied through SparkX into the selected local conversation. Both
+received attachments are 158 bytes and match the approved ClientStore source
+hash, the decoded MIME part and the actual local copy. A local sent-message
+snapshot alone was not counted as delivery evidence.
+
+Outlook is not yet qualified. The `.17` direct attempt stopped at the native
+attachment-menu click and has a durable negative receipt bound to its exact
+task, intent and resource; explicit reconciliation is pending. The older `.16`
+ISCP attempt has no sufficient durable negative proof and remains unknown. Its
+record is preserved and it is not automatically retried. A fixed empty-composer
+diagnostic is investigating the native menu without sending another message.
+ASR/TTS and physical same-subnet LAN qualification remain outside these results.
 
 ## 10. Related designs
 

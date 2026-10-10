@@ -1,0 +1,242 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-10-10T04:51:35.257288+00:00",
+  "scope": "User-approved synthetic self-test messages; real installed SparkX and work2",
+  "status": "qq_both_transports_qualified_outlook_pending",
+  "runtime_release": "0.3.0-sparkclaw.17",
+  "runtime_digest": "12e9b6501c6f5b48e03ad3759397f3e9270d301fa714ada3ca489ea800469ab3",
+  "desktop_source_commit": "1b22eddcf8894bf87337bbb7fcd9f87e54f05b5c",
+  "backend_source_commit": "75418c75ae8cb0eafb590ccb30360ab277169455",
+  "asr_tts": "deferred",
+  "physical_same_subnet_lan": "unverified; direct HTTPS used existing public work2 ingress",
+  "online_relay_changed": false,
+  "confirmed_actual_sends": 2,
+  "qualified_incoming_originals": 2,
+  "qualified_received_attachment_copies": 2,
+  "attachment_source": "originating desktop ClientStore local_file_id; Gateway transient staging is not source authority",
+  "approved_attachment_size": 158,
+  "approved_attachment_sha256": "39803ed9f9698d9676bf92ca10819e4f242248ca35dbe9c885cf6b09ffc070b2",
+  "qq_mail": [
+    {
+      "transport": "iscp",
+      "send_source_commit": "75418c75ae8cb0eafb590ccb30360ab277169455",
+      "incoming_copy_source_commit": "1b22eddcf8894bf87337bbb7fcd9f87e54f05b5c",
+      "draft_id": "e9e7e6ae-28e3-4cb2-abb8-1a3640216741",
+      "reviewed_version": 12,
+      "native_confirm_click_count": 1,
+      "receipt": {
+        "id": "e9e7e6ae-28e3-4cb2-abb8-1a3640216741",
+        "state": "sent",
+        "version": 14,
+        "error_code": null,
+        "receipt": {
+          "status": "sent",
+          "provider": "qq_mail",
+          "script_revision": 2,
+          "recipient_digest": "sha256:7e5cea65f35b78ff16b7b829b6fa85d849f9e4c1e5a1694a9ddf938ff32a56e6",
+          "browser_credential_generation": 2941799844120501
+        },
+        "updated_at": "2026-10-10T04:36:39.486708Z",
+        "snapshot": {
+          "state": "sent",
+          "error_code": null,
+          "invocation_id": "email_send_34998c092874c02f",
+          "confirmation_source": null,
+          "started_at": null,
+          "finished_at": null,
+          "version": 12
+        },
+        "execution": {
+          "id": "ed35368a-8530-401a-8f1d-482c0ed60619",
+          "status": "completed",
+          "reason": null,
+          "effect": 1,
+          "epoch": 16,
+          "sequence": 5,
+          "data": {
+            "schema_version": 1,
+            "status": "sent",
+            "provider": "qq_mail",
+            "recipient_digest": "sha256:7e5cea65f35b78ff16b7b829b6fa85d849f9e4c1e5a1694a9ddf938ff32a56e6"
+          }
+        }
+      },
+      "incoming_original": {
+        "observed_at": "2026-10-10T04:40:46.307741+00:00",
+        "read_only": true,
+        "mail_id": "9732907c0f9fa5cf76c547bb89d198ec410e4ef97e743208c43d97186075f059",
+        "capture_id": "cap_11a5cc1864705e18f668cb65c9c830f3",
+        "representation_id": "repr_1976ffc24bd5e6e9",
+        "direction": "inbound",
+        "capture_state": "complete",
+        "parse_state": "ready",
+        "sync_state": "complete",
+        "coverage": "complete_for_inputs",
+        "parser_version": "captured-mime-v5-safe-render",
+        "owner_scope_hash": "4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581",
+        "owner_mailbox_consistent": true,
+        "source_account_provider_matches": true,
+        "source_provider_message_matches": true,
+        "owner_scoped_manifest_path": true,
+        "manifest_sha_matches": true,
+        "source_original_bytes": 3452,
+        "source_original_sha256": "072c7f8fcb6c55dc4c207dbdcc53df4fa4324c00c39c6ea65225b3729cfd6dbf",
+        "source_original_sha_matches": true,
+        "manifest_identity_matches": true,
+        "mime_parses": true,
+        "mime_attachment_count": 1,
+        "approved_body_present_in_original": true,
+        "attachment_parts": [
+          {
+            "id": "part_0",
+            "actual_bytes": 158,
+            "sha256": "39803ed9f9698d9676bf92ca10819e4f242248ca35dbe9c885cf6b09ffc070b2",
+            "size_matches": true,
+            "representation_hash_matches": true,
+            "expected_fixture_hash_matches": true,
+            "raw_mime_contains_identical_bytes": true
+          }
+        ]
+      },
+      "native_clientstore_copy": {
+        "id": "3c31ce35-cdef-4b22-8585-294cc437b74b",
+        "conversation_id": "a7467cf8-2956-44f9-80a9-13d1c787a908",
+        "name": "SparkX-work2-acceptance.txt",
+        "sha256": "39803ed9f9698d9676bf92ca10819e4f242248ca35dbe9c885cf6b09ffc070b2",
+        "size": 158,
+        "created_at": "2026-10-10T04:47:05.414Z",
+        "transport": "iscp",
+        "mail_id": "9732907c0f9fa5cf76c547bb89d198ec410e4ef97e743208c43d97186075f059",
+        "part_id": "part_0",
+        "native_copy_confirmation": true,
+        "actual_bytes_verified": true,
+        "observed_at": "2026-10-10T04:51:05.159286+00:00"
+      },
+      "qualified": true
+    },
+    {
+      "transport": "direct_https",
+      "send_source_commit": "75418c75ae8cb0eafb590ccb30360ab277169455",
+      "incoming_copy_source_commit": "1b22eddcf8894bf87337bbb7fcd9f87e54f05b5c",
+      "draft_id": "356d6c3e-67de-499b-a698-59a7216d4663",
+      "reviewed_version": 3,
+      "native_confirm_click_count": 1,
+      "receipt": {
+        "id": "356d6c3e-67de-499b-a698-59a7216d4663",
+        "state": "sent",
+        "version": 5,
+        "error_code": null,
+        "receipt": {
+          "status": "sent",
+          "provider": "qq_mail",
+          "script_revision": 2,
+          "recipient_digest": "sha256:7e5cea65f35b78ff16b7b829b6fa85d849f9e4c1e5a1694a9ddf938ff32a56e6",
+          "browser_credential_generation": 2941799844120501
+        },
+        "updated_at": "2026-10-10T04:42:59.531252Z",
+        "snapshot": {
+          "state": "sent",
+          "error_code": null,
+          "invocation_id": "email_send_632a5222aa483c5e",
+          "confirmation_source": null,
+          "started_at": null,
+          "finished_at": null,
+          "version": 3
+        },
+        "execution": {
+          "id": "e6954a21-0feb-40d4-bef3-cced6472c879",
+          "status": "completed",
+          "reason": null,
+          "effect": 1,
+          "epoch": 16,
+          "sequence": 5,
+          "data": {
+            "schema_version": 1,
+            "status": "sent",
+            "provider": "qq_mail",
+            "recipient_digest": "sha256:7e5cea65f35b78ff16b7b829b6fa85d849f9e4c1e5a1694a9ddf938ff32a56e6"
+          }
+        }
+      },
+      "incoming_original": {
+        "observed_at": "2026-10-10T04:45:47.973951+00:00",
+        "read_only": true,
+        "mail_id": "cbc94be309ead3a960c21e7e3f04fe67534ffc14e78472651ab600eee7e52d3e",
+        "capture_id": "cap_2c7b0667d1513b5ee829583b576be151",
+        "representation_id": "repr_b7eb4217079ff7ca",
+        "direction": "inbound",
+        "capture_state": "complete",
+        "parse_state": "ready",
+        "sync_state": "complete",
+        "coverage": "complete_for_inputs",
+        "parser_version": "captured-mime-v5-safe-render",
+        "owner_scope_hash": "4c1029697ee358715d3a14a2add817c4b01651440de808371f78165ac90dc581",
+        "owner_mailbox_consistent": true,
+        "source_account_provider_matches": true,
+        "source_provider_message_matches": true,
+        "owner_scoped_manifest_path": true,
+        "manifest_sha_matches": true,
+        "source_original_bytes": 3515,
+        "source_original_sha256": "01fabd8e30991bf62ca04338ff070394a3d8e593c81b8f3db7d81bade52611e1",
+        "source_original_sha_matches": true,
+        "manifest_identity_matches": true,
+        "mime_parses": true,
+        "mime_attachment_count": 1,
+        "approved_body_present_in_original": true,
+        "attachment_parts": [
+          {
+            "id": "part_0",
+            "actual_bytes": 158,
+            "sha256": "39803ed9f9698d9676bf92ca10819e4f242248ca35dbe9c885cf6b09ffc070b2",
+            "size_matches": true,
+            "representation_hash_matches": true,
+            "expected_fixture_hash_matches": true,
+            "raw_mime_contains_identical_bytes": true
+          }
+        ]
+      },
+      "native_clientstore_copy": {
+        "id": "2c0af56e-14ec-4597-b626-c66359f623f0",
+        "conversation_id": "a7467cf8-2956-44f9-80a9-13d1c787a908",
+        "name": "SparkX-work2-acceptance.txt",
+        "sha256": "39803ed9f9698d9676bf92ca10819e4f242248ca35dbe9c885cf6b09ffc070b2",
+        "size": 158,
+        "created_at": "2026-10-10T04:45:39.620Z",
+        "transport": "direct_https",
+        "mail_id": "cbc94be309ead3a960c21e7e3f04fe67534ffc14e78472651ab600eee7e52d3e",
+        "part_id": "part_0",
+        "native_copy_confirmation": true,
+        "actual_bytes_verified": true,
+        "observed_at": "2026-10-10T04:46:07.120301+00:00"
+      },
+      "qualified": true
+    }
+  ],
+  "outlook": {
+    "direct_https": {
+      "draft_id": "34b28df2-f9c4-405c-8822-744229cb26f8",
+      "invocation_id": "email_send_2b5ccfb6377ba476",
+      "executor_task_id": "8ee6bcb1-2637-4efe-aea2-d4ba61499a8a",
+      "state": "unknown",
+      "effect": 1,
+      "reason": "BROWSER_EXTENSION_UNAVAILABLE",
+      "fixed_diagnostic_stage": "native_action_click",
+      "native_action_seen": false,
+      "durable_not_sent_proof_available": true,
+      "native_reconciliation_pending": true,
+      "qualified": false
+    },
+    "iscp": {
+      "draft_id": "05e7cca5-b390-4762-ac1a-5a0430b715b5",
+      "invocation_id": "email_send_0434355074de988f",
+      "executor_task_id": "c654aa0e-e7de-49f7-9114-a702d320874a",
+      "release": "0.3.0-sparkclaw.16",
+      "state": "unknown",
+      "formal_not_sent_proof_available": false,
+      "original_record_preserved": true,
+      "automatic_retry_permitted": false,
+      "qualified": false
+    }
+  },
+  "validation_note": "Sent timeline snapshots without provider capture do not establish delivery; QQ qualification uses separate inbound originals and matching on-disk MIME parts."
+}

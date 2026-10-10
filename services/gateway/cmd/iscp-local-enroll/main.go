@@ -22,6 +22,7 @@ func main() {
 	flag.StringVar(&opts.EnrollmentFile, "enrollment-file", "", "private enrollment output file")
 	flag.StringVar(&opts.RuntimeRelayURL, "runtime-relay-url", "", "optional host/container local Relay alias")
 	flag.StringVar(&opts.RuntimeWebSocketURL, "runtime-websocket-url", "", "optional host/container WebSocket alias")
+	refresh := flag.Bool("refresh-existing", false, "refresh the existing pinned local Relay enrollment without enrollment or identity creation")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "unexpected enrollment arguments")
@@ -29,7 +30,13 @@ func main() {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	summary, err := iscplocalenroll.Enroll(ctx, opts)
+	var summary iscplocalenroll.Summary
+	var err error
+	if *refresh {
+		summary, err = iscplocalenroll.Refresh(ctx, opts)
+	} else {
+		summary, err = iscplocalenroll.Enroll(ctx, opts)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "local ISCP enrollment failed:", err)
 		os.Exit(1)

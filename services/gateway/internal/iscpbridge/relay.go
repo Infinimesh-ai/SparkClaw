@@ -293,7 +293,7 @@ func (c *RelayClient) runSocketOnce(ctx context.Context, handle func(context.Con
 
 func (c *RelayClient) ensureAccess(ctx context.Context) error {
 	bundle := c.Enrollment()
-	if time.Until(bundle.Access.ExpiresAt) > time.Minute {
+	if time.Until(bundle.Access.ExpiresAt) > time.Minute && !c.localEnrollmentRefreshDue(bundle) {
 		return nil
 	}
 	return c.refresh(ctx)
@@ -302,8 +302,23 @@ func (c *RelayClient) ensureAccess(ctx context.Context) error {
 func (c *RelayClient) refresh(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if time.Until(c.enrollment.Access.ExpiresAt) > time.Minute {
+	if time.Until(c.enrollment.Access.ExpiresAt) > time.Minute && !c.localEnrollmentRefreshDue(c.enrollment) {
 		return nil
+	}
+	// Local enrollment validity comes from signed discovery and rotating Relay
+	// credentials, independently of permanent workbench consent. Refresh both
+	// together; otherwise a healthy daily credential rotation leaves yesterday's
+	// outer bundle expiry behind and prevents the next connection/restart.
+	var localExpiry time.Time
+	if c.credentialOnly && c.profile == ProfileLocalLab {
+		if !time.Now().Before(c.enrollment.Refresh.ExpiresAt) {
+			return errors.New("local Relay refresh credential expired")
+		}
+		discovery, _, err := DiscoverLocalRelay(ctx, c.enrollment.RelayBaseURL, c.enrollment.RelayID, c.enrollment.DomainID, c.enrollment.RelaySignerIdentity)
+		if err != nil {
+			return err
+		}
+		localExpiry = discovery.ExpiresAt
 	}
 	body, _ := json.Marshal(map[string]string{"refresh": c.enrollment.Refresh.Token})
 	endpoint := strings.TrimRight(c.enrollment.RelayBaseURL, "/") + relayRefreshPath
@@ -340,6 +355,12 @@ func (c *RelayClient) refresh(ctx context.Context) error {
 	updated := c.enrollment
 	updated.Access = credentials.Access
 	updated.Refresh = credentials.Refresh
+	if !localExpiry.IsZero() {
+		updated.ExpiresAt = localExpiry
+		if credentials.Refresh.ExpiresAt.Before(updated.ExpiresAt) {
+			updated.ExpiresAt = credentials.Refresh.ExpiresAt
+		}
+	}
 	if err := c.validateEnrollment(updated, now); err != nil {
 		return fmt.Errorf("validate refreshed Relay credentials: %w", err)
 	}

@@ -58,8 +58,10 @@ func main() {
 	var err error
 	if *controlOnly {
 		cfg, err = iscpworkbench.LoadControlConfig(*configPath)
-	} else {
+	} else if *check {
 		cfg, err = iscpworkbench.LoadConfig(*configPath)
+	} else {
+		cfg, err = iscpworkbench.LoadRuntimeConfig(context.Background(), *configPath)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ISCP workbench profile validation failed:", err)

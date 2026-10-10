@@ -17,7 +17,7 @@ func startWorkbenchISCP(ctx context.Context, cfg config.Config, server *gateway.
 	if !cfg.Gateway.WorkbenchISCPLocalTest {
 		return nil, errors.New("ISCP workbench local test issuer is not enabled")
 	}
-	transport, err := iscpworkbench.LoadConfig(cfg.Gateway.WorkbenchISCPConfig)
+	transport, err := iscpworkbench.LoadRuntimeConfig(ctx, cfg.Gateway.WorkbenchISCPConfig)
 	if err != nil {
 		return nil, errors.New("ISCP workbench responder configuration is invalid or unavailable")
 	}

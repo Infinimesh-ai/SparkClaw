@@ -27,6 +27,7 @@ func TestLocalEnrollmentSignedDiscoveryAndProofWithDockerAliases(t *testing.T) {
 	var signerValue atomic.Value
 	signerValue.Store(signer)
 	var binds atomic.Int32
+	var refreshes atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		signer := signerValue.Load().(identity.Device)
 		switch r.URL.Path {
@@ -39,6 +40,17 @@ func TestLocalEnrollmentSignedDiscoveryAndProofWithDockerAliases(t *testing.T) {
 				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"descriptor": signed})
+		case "/v2/relay/devices/refresh-access":
+			var request map[string]string
+			if json.NewDecoder(r.Body).Decode(&request) != nil || request["refresh"] != "real-fixture-issued-refresh" {
+				w.WriteHeader(403)
+				return
+			}
+			refreshes.Add(1)
+			credential := func(token string) map[string]any {
+				return map[string]any{"domain_id": "local-domain", "device_id": "desktop-device", "token": token, "expires_at": now.Add(2 * time.Hour)}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"access": credential("refreshed-access"), "refresh": credential("refreshed-refresh")})
 		case "/v2/relay/devices/bind-self":
 			var request struct {
 				Identity identity.DeviceIdentity `json:"identity"`
@@ -86,6 +98,22 @@ func TestLocalEnrollmentSignedDiscoveryAndProofWithDockerAliases(t *testing.T) {
 		if err != nil || info.Mode().Perm() != 0600 {
 			t.Fatal("private material permissions are not0600")
 		}
+	}
+	// Exercise the operator CLI path after old discovery expires. It must use
+	// the existing credential, never bind-self or generate another private key.
+	identityBefore, _ := os.ReadFile(filepath.Join(opts.IdentityDirectory, iscpbridge.IdentityKeyFileName))
+	bundle.IssuedAt = now.Add(-2 * time.Hour)
+	bundle.ExpiresAt = now.Add(-time.Hour)
+	if err := iscpbridge.SaveEnrollment(opts.EnrollmentFile, bundle); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := Refresh(t.Context(), Options{IdentityDirectory: opts.IdentityDirectory, EnrollmentFile: opts.EnrollmentFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identityAfter, _ := os.ReadFile(filepath.Join(opts.IdentityDirectory, iscpbridge.IdentityKeyFileName))
+	if string(identityBefore) != string(identityAfter) || restored.DeviceThumbprint != summary.DeviceThumbprint || binds.Load() != 1 || refreshes.Load() != 1 {
+		t.Fatal("refresh changed identity or re-enrolled")
 	}
 	firstKey := summary.DeviceThumbprint
 	opts.RuntimeRelayURL = "http://iscp-relay:8080"

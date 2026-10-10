@@ -211,6 +211,28 @@ enrollment bundle。因此 Trust Grant/bundle 到期仍需从 Cloud 获取新 bu
 Domain 轮换使用相同的重新注册流程。撤销设备时，先在 Cloud 撤销再停止服务；Relay 将拒绝
 后续连接。仅在永久下线 GB10 时删除操作系统 keyring 中的设备私钥。
 
+### 本地 workbench enrollment 续期
+
+显式 `workbench-local-lab` enrollment 使用独立的生命周期。workbench 先验证已固定 Relay
+返回的新签名 discovery，再调用正常的 Relay credential refresh endpoint。持久化 envelope
+的到期时间取已验证 discovery 与新 refresh credential 的到期时间中较早者。此过程不修改
+设备私钥、signer pin、永久用户授权、scopes 或 session Grant，在线/Cloud bundle 行为保持不变。
+
+桌面 helper 或 Gateway 正常启动时，如果配置了 Grant 续期且 refresh credential 仍有效，
+可以通过同一验证协议恢复已过期的本地 envelope；保存后必须重新通过严格加载，才能建立业务
+连接。`-check` 仍保持只读并拒绝过期资料。操作员显式恢复时，应先停止使用该资料的进程并
+保留私有备份，然后在 `services/gateway` 中运行：
+
+```bash
+go run ./cmd/iscp-local-enroll -refresh-existing \
+  -identity-dir /private/existing-device \
+  -enrollment-file /private/existing-enrollment.json
+```
+
+refresh credential 已过期、被拒绝或先前已被消耗时，启动会拒绝连接，不会自动重新注册。
+操作员核对已有身份和 Relay pin 后，可用既有本地 enrollment 命令的持钥证明流程恢复同一
+设备。不得通过手改到期时间或 issuer 授权状态来恢复连接。
+
 ## 模拟 Bridge
 
 App CI 可在没有 ISCP 或 Cloud 凭据时运行显式 `local-lab` mock。它通过带认证的 loopback

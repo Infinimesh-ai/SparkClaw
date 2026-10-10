@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -62,7 +63,7 @@ func TestCredentialOnlyRelayRefreshPreservesCloudTrust(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if json.Unmarshal(raw, &saved) != nil || saved.Access.Token != "rotated-access" {
+	if json.Unmarshal(raw, &saved) != nil || saved.Access.Token != "rotated-access" || !saved.ExpiresAt.Equal(bundle.ExpiresAt) || !reflect.DeepEqual(saved.TrustRootIdentity, bundle.TrustRootIdentity) {
 		t.Fatal("credential rotation was not persisted")
 	}
 }

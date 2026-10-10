@@ -275,6 +275,34 @@ in Cloud first and stop the service; Relay will reject subsequent connections.
 Delete the operating-system keyring entry only when permanently decommissioning
 the GB10.
 
+### Local workbench enrollment renewal
+
+The explicit `workbench-local-lab` enrollment has a separate lifecycle. The
+workbench refreshes it against fresh signed discovery from its pinned Relay and
+the normal Relay credential refresh endpoint. The persisted envelope expires at
+the earlier of the verified discovery deadline and the new refresh credential
+deadline. This does not modify the device key, signer pin, permanent user
+authorization, scopes, or session Grant. Online/Cloud bundle behavior is unchanged.
+
+On normal desktop helper or Gateway startup, a configured Grant renewal profile
+can recover an expired local envelope while its refresh credential is still
+valid. Startup performs the same verified protocol and strictly reloads the
+saved enrollment before business connections are permitted. `-check` remains
+read-only and rejects expired material. For an explicit operator recovery, stop
+the consumer, preserve a private backup, and run from `services/gateway`:
+
+```bash
+go run ./cmd/iscp-local-enroll -refresh-existing \
+  -identity-dir /private/existing-device \
+  -enrollment-file /private/existing-enrollment.json
+```
+
+An expired, rejected, or previously consumed refresh credential fails closed;
+startup does not re-enroll automatically. After verifying the existing identity
+and Relay pin, an operator can use the existing local enrollment command's
+possession-proof flow for that same device. Never edit expiry timestamps or the
+issuer authorization state to recover a connection.
+
 ## Simulated Bridge
 
 App CI can run the explicit local-lab mock without ISCP or Cloud credentials. It

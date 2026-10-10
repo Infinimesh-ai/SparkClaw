@@ -22,11 +22,17 @@ await fs.access(globalFence).then(()=>{throw new Error('production cleanup fence
 const root=config.runtime_directory,runtime=pathToFileURL(root+path.sep);
 const {verifyRelease}=await import(new URL('src/release.mjs',runtime));
 verifyRelease(config);
+const candidate=process.env.SPARKCLAW_FIXED_OUTLOOK_MENU_CANDIDATE==='1';
+const candidateDigest='7140a8bcc7d7d1d3bf52aa12971d8c4ae0f7db94b0eb07d5e422f8a826d89040';
+let attachmentRuntime=runtime;
+if(candidate){const candidateRoot=fileURLToPath(new URL(`./candidate-${candidateDigest.slice(0,12)}/package/`,import.meta.url));verifyRelease({...config,runtime_directory:candidateRoot,release_id:'0.3.0-sparkclaw.18',release_digest:candidateDigest,bindings:[]});attachmentRuntime=pathToFileURL(candidateRoot+path.sep);}
 const binding=JSON.parse(await fs.readFile(new URL('bindings/mail-outlook.json',runtime),'utf8'));
 const {OUTLOOK_SENT_BASELINE_EXPRESSION}=await import(new URL('applications/mail/lib/outlook-send-proof.mjs',runtime));
-const [managed,attachments,send]=await Promise.all([import(new URL('applications/mail/lib/managed-send-dom.mjs',runtime)),import(new URL('applications/mail/lib/workspace-attachments.mjs',runtime)),import(new URL('applications/mail/lib/managed-send.mjs',runtime))]);
+// Candidate qualification substitutes only this fixed DOM adapter and its local menu budget.
+// Account/editor code, binding, assets and actual Host/CLI remain installed .17.
+const [managed,attachments,send]=await Promise.all([import(new URL('applications/mail/lib/managed-send-dom.mjs',runtime)),import(new URL('applications/mail/lib/workspace-attachments.mjs',attachmentRuntime)),import(new URL('applications/mail/lib/managed-send.mjs',runtime))]);
 const directory=await fs.mkdtemp('/tmp/sc-outlook-menu-');await fs.chmod(directory,0o700);
-const evidence={schema_version:1,started_at:new Date().toISOString(),release_digest:config.release_digest,production_reservation:false,diagnostic_directory:directory,no_send:true,no_upload:true};
+const evidence={schema_version:1,started_at:new Date().toISOString(),release_digest:config.release_digest,candidate_release_digest:candidate?candidateDigest:null,candidate_scope:candidate?'attachmentDOM_and_menu_budget_with_installed_Host_CLI':null,candidate_menu_wait_ms:candidate?attachments.ATTACHMENT_MENU_WAIT_MS:null,menu_hover:process.env.SPARKCLAW_FIXED_OUTLOOK_MENU_HOVER==='1',visibility_wait:process.env.SPARKCLAW_FIXED_OUTLOOK_MENU_VISIBILITY_WAIT==='1',production_reservation:false,diagnostic_directory:directory,no_send:true,no_upload:true};
 let hold,driver,controller,handle,heartbeat,pending=Promise.resolve(),released=false;
 const signal=new AbortController();
 try {
@@ -58,7 +64,7 @@ try {
   const tab=Object.fromEntries(['inspect','click','press','runReadCode'].map(method=>[method,(...args)=>call(method,...args)]));
   tab.checkpoint=phase=>{evidence.phase=phase;};
   tab.record=(phase,value)=>{(evidence.reads??={})[phase]=value;};
-  evidence.result=await diagnoseEmptyOutlookMenu(tab,{...managed,...attachments,...send},input.account);
+  evidence.result=await diagnoseEmptyOutlookMenu(tab,{...managed,...attachments,...send},input.account,{hoverMenu:process.env.SPARKCLAW_FIXED_OUTLOOK_MENU_HOVER==='1',waitVisible:process.env.SPARKCLAW_FIXED_OUTLOOK_MENU_VISIBILITY_WAIT==='1'});
   input.token='';input.account='';
 } catch(error) {
   evidence.error={code:error.code??null,reason:error.diagnosticReason??null,message:/^[a-z_]+$/u.test(error.message)?error.message:'fixed_diagnostic_failed'};process.exitCode=1;

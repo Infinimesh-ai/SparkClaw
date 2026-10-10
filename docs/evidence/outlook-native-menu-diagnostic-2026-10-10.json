@@ -88,7 +88,7 @@
   "finished_at": "2026-10-10T05:09:11.346Z",
   "qualification_only": true,
   "provider_send_verified": false,
-  "conclusion": "Native action bound before pointer/actionability settled; the menu persisted while its action node was replaced. No native action or chooser event occurred.",
+  "conclusion": "The initial native click bound an initially non-interactive Callout action; that node detached/replaced before the click. Later bounded observations establish transparent Callout preparation and eventual actionability. No specific animation or hover mechanism is claimed.",
   "tests": {
     "real_pinned_wrapper": 8,
     "passed": 8,
@@ -106,5 +106,202 @@
   "harness_files": {
     "tools/browser-controller/test/fixtures/outlook-menu-diagnostic.mjs": "f06f806578ad06aa44e01291d9245c63bc93c193555ee74edd14e54a7c251db0",
     "tools/browser-controller/test/qualify-outlook-menu.mjs": "49d350b07490abd588d82bc2de93ba40af92cb72aadb83c78eea08bd177ed6df"
+  },
+  "follow_up_rounds": [
+    {
+      "started_at": "2026-10-10T05:26:44.607Z",
+      "finished_at": "2026-10-10T05:27:16.738Z",
+      "candidate_release_digest": "14182fa3114bcbf325d4b6857f18f0a2b5504e9e3398407811becadf5cba3cbd",
+      "owned_cleanup": true,
+      "reservation_released": true,
+      "no_upload": true,
+      "no_send": true,
+      "description": "Five-second candidate wait: 61 samples remained pointer-disabled; no action was bound or clicked.",
+      "private_evidence_sha256": "de460d3dd508bd37b53187a18e9f8cbf13bdf78ce69bfd430cd42ec36abdfd12",
+      "settle": {
+        "context": true,
+        "expanded": true,
+        "menu_count": 1,
+        "action_count": 1,
+        "pointer_events": false,
+        "hit_target_owned": false,
+        "condition": "pointer_disabled",
+        "stability": "none"
+      },
+      "samples": 61
+    },
+    {
+      "started_at": "2026-10-10T05:30:28.115Z",
+      "finished_at": "2026-10-10T05:31:00.434Z",
+      "candidate_release_digest": "14182fa3114bcbf325d4b6857f18f0a2b5504e9e3398407811becadf5cba3cbd",
+      "owned_cleanup": true,
+      "reservation_released": true,
+      "no_upload": true,
+      "no_send": true,
+      "description": "Callout ancestor opacity was zero. Diagnostic refused hover; no hover occurred.",
+      "private_evidence_sha256": "b9d3af495e70d51ef37d702d89dd14b628ea6dc1ca74c6005482cd9a668b375d",
+      "hover_enabled": true
+    },
+    {
+      "started_at": "2026-10-10T05:35:25.107Z",
+      "finished_at": "2026-10-10T05:36:14.850Z",
+      "candidate_release_digest": "14182fa3114bcbf325d4b6857f18f0a2b5504e9e3398407811becadf5cba3cbd",
+      "owned_cleanup": true,
+      "reservation_released": true,
+      "no_upload": true,
+      "no_send": true,
+      "description": "Callout became opaque and interactive about five seconds after Ribbon click. The diagnostic still refused because it incorrectly treated ancestor visibility:hidden as unconditionally hiding explicitly visible descendants.",
+      "private_evidence_sha256": "447417a17a999377343016887882adeadbc3a22f434574cd33aa8a3f78b33f75",
+      "hover_enabled": true,
+      "extra_visibility_wait": true,
+      "visibility_trace": [
+        {
+          "elapsed_ms": 3,
+          "frames": 0,
+          "ready": false,
+          "menu_visible": false,
+          "action_visible": false,
+          "menu_opacity": 1,
+          "menu_pointer": "none"
+        },
+        {
+          "elapsed_ms": 4030,
+          "frames": 4,
+          "ready": false,
+          "menu_visible": false,
+          "action_visible": false,
+          "menu_opacity": 1,
+          "menu_pointer": "enabled"
+        }
+      ],
+      "frames": 15
+    },
+    {
+      "started_at": "2026-10-10T05:37:42.894Z",
+      "finished_at": "2026-10-10T05:38:23.979Z",
+      "candidate_release_digest": "14182fa3114bcbf325d4b6857f18f0a2b5504e9e3398407811becadf5cba3cbd",
+      "owned_cleanup": true,
+      "reservation_released": true,
+      "no_upload": true,
+      "no_send": true,
+      "description": "After a separate diagnostic visibility wait, one trusted native chooser matched the original input. This did not yet qualify the production wait.",
+      "private_evidence_sha256": "73bf6309296bb4d9bc5feb577276f3cf40847916d7679c455ca07fccfdf32092",
+      "hover_enabled": false,
+      "extra_visibility_wait": true,
+      "visibility_trace": [
+        {
+          "elapsed_ms": 2,
+          "frames": 0,
+          "ready": false,
+          "menu_visible": false,
+          "action_visible": false,
+          "menu_opacity": 1,
+          "menu_pointer": "none"
+        },
+        {
+          "elapsed_ms": 3977,
+          "frames": 4,
+          "ready": true,
+          "menu_visible": true,
+          "action_visible": true,
+          "menu_opacity": 1,
+          "menu_pointer": "enabled"
+        }
+      ],
+      "frames": 4,
+      "native_chooser": {
+        "trusted_click": true,
+        "events": 1,
+        "original_input_binding_valid": true,
+        "activation_ambiguous": false,
+        "action_error": null,
+        "action_detached": false,
+        "action_replaced": false
+      },
+      "host_error": {
+        "code": "browser_extension_unavailable",
+        "reason": "process_exit",
+        "message": "fixed_diagnostic_failed"
+      },
+      "host_error_note": "The empty chooser deliberately receives no upload/ACK. The mandatory post-call eval rejects its modal; the original Host failure is preserved. Owned task cleanup closes it normally."
+    },
+    {
+      "started_at": "2026-10-10T05:42:09.537Z",
+      "finished_at": "2026-10-10T05:42:45.677Z",
+      "candidate_release_digest": "7140a8bcc7d7d1d3bf52aa12971d8c4ae0f7db94b0eb07d5e422f8a826d89040",
+      "owned_cleanup": true,
+      "reservation_released": true,
+      "no_upload": true,
+      "no_send": true,
+      "description": "Final candidate DOM and its production 15-second menu budget, with installed .17 Host/CLI: no diagnostic prewait or hover; one trusted chooser and strict original-input binding verified.",
+      "private_evidence_sha256": "15ca1d6394e4e6aa3c67715a51aa2154019421b766060cd69165877f0caf82dc",
+      "hover_enabled": false,
+      "extra_visibility_wait": false,
+      "native_chooser": {
+        "trusted_click": true,
+        "events": 1,
+        "original_input_binding_valid": true,
+        "activation_ambiguous": false,
+        "action_error": null,
+        "action_detached": false,
+        "action_replaced": false
+      },
+      "host_error": {
+        "code": "browser_extension_unavailable",
+        "reason": "process_exit",
+        "message": "fixed_diagnostic_failed"
+      },
+      "host_error_note": "The empty chooser deliberately receives no upload/ACK. The mandatory post-call eval rejects its modal; the original Host failure is preserved. Owned task cleanup closes it normally."
+    }
+  ],
+  "final_candidate": {
+    "release_id": "0.3.0-sparkclaw.18",
+    "runtime_digest": "7140a8bcc7d7d1d3bf52aa12971d8c4ae0f7db94b0eb07d5e422f8a826d89040",
+    "runtime_sha256": "cde23b77c589272153ae2b6012e67976bc1cdb43942ff71a60f35b35068bc4d3",
+    "wheel_sha256": "96a4a2d18e7721be4fd832d5049a1c8e6319c858feed2d556e8f2b65b9373226",
+    "production_commit": "c1731f45",
+    "scope": "candidate attachmentDOM and local menu budget with installed .17 Host/CLI; no active installation changed",
+    "menu_wait_ms": 15000,
+    "stable_ms": 150,
+    "rebind_after_native_click": false,
+    "reader_assets_changed": false,
+    "provider_projection_changed": false,
+    "send_or_upload_qualified": false
+  },
+  "candidate_harness_files": {
+    "tools/browser-controller/test/fixtures/outlook-menu-diagnostic.mjs": "bd73f40f241de5e5ea4e827ca1c2d11ad3cb8fb9f411e234bd882d62685d5492",
+    "tools/browser-controller/test/qualify-outlook-menu.mjs": "97b6f49882d5d93a13510729f4cfc4d97b6badd619824c63d75c7f66ab538a15"
+  },
+  "final_checks": {
+    "reproduction": true,
+    "generated_projections": true,
+    "paired_installation_rollback": true,
+    "linux_controller": {
+      "passed": 210,
+      "skipped": 75,
+      "failed": 0
+    },
+    "runtime_changed_files": [
+      "package/applications/mail/lib/workspace-attachments.mjs",
+      "package/bindings/mail-gmail.json",
+      "package/bindings/mail-outlook.json",
+      "package/bindings/mail-qq-mail.json",
+      "package/npm-shrinkwrap.json",
+      "package/package.json",
+      "package/release.json"
+    ],
+    "real_browser_matrix": {
+      "qualified_cases": 46,
+      "initial_passed": 45,
+      "initial_failed": 1,
+      "initial_failure": "Diagnostic RPC total timeout was 15 seconds, equal to the new production menu wait; overlay case timed out before returning its closed result.",
+      "correction": "Only fixture RPC timeout increased to 25 seconds; production artifacts unchanged.",
+      "targeted_rerun": {
+        "case": "fixed diagnostic real wrapper: overlay",
+        "passed": 1,
+        "failed": 0
+      }
+    },
+    "production_artifacts_unchanged_after_final_live": true
   }
 }

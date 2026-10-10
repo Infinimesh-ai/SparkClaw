@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-iscp-capability-expansion-design.md)
 >
-> Updated: 2026-10-10. Status: P1–P5 adapters and gated desktop surfaces implemented; current installation and four real-mail scenarios are recorded in section 9.10, with outstanding work in section 9.11. ASR/TTS remains deferred.
+> Updated: 2026-10-10. Status: P1–P5 adapters and gated desktop surfaces implemented; four real-mail scenarios are recorded in section 9.10, outstanding work in section 9.11, and the restored original mailbox plus current installation in section 9.12. ASR/TTS remains deferred.
 > Scope: SparkX connects to SparkClaw through the local Docker ISCP Relay. Local Relay changes are permitted but must preserve protocol compatibility with the online Relay; this work does not switch the deployment online.
 
 ## 1. Objective, baseline and implementation order
@@ -828,6 +828,68 @@ limits. Give new findings separate IDs and preserve historical negative evidence
 and unknown records. The four original send approvals and one replacement are
 not an unlimited sending allowance: prepare reviewable drafts and obtain matching
 authorization for new real-mail tests.
+
+## 9.12. Restore the original mailbox popup (2026-10-10)
+
+The four real-mail scenarios in section 9.10 verified delivery and file ownership;
+they did not establish preservation of the original mailbox UI. The earlier
+transport work incorrectly replaced that UI with separate cache/draft panels.
+This restoration removes both replacement panels and uses the original
+`EmailPopup` and `EmailCompose` for direct transport and ISCP. No stylesheet or
+visual redesign is included. Transport extensions must preserve existing UI and
+interaction behavior unless the user explicitly requests a change.
+
+The original mailbox entry, dialog, categories, account filter, search,
+pagination, conversations, sender rules, assignment, renaming/deletion, sync
+controls, source downloads, drafts, reply/reply-all, polish and send reconciliation
+share backend-owned handlers. Twenty-eight fixed ISCP operations complete the
+original API surface; this does not introduce a generic HTTP tunnel. The popup
+requires its complete capability set, with separate login and send gates. Read
+bursts use a bounded queue reserving capacity for actions; writes keep their
+original ownership and unknown-outcome fences.
+
+Desktop attachments are integrated into the original composer and download
+controls. Outgoing selection is restricted to registered ClientStore files on
+the originating desktop. The main process verifies actual bytes and the saved
+manifest; attachment sends confirm the reviewed saved version without saving it
+again. Incoming files and originals enter that same ClientStore after integrity
+verification and may then be exported with the native save dialog. Temporary
+connection loss retains edits while disabling mutations; identity changes clear
+the editor. Backend mail authority, `.20` Host fixes, restart termination of
+approval-waiting tasks and the old unknown send are preserved.
+
+Actual integration exposed a separate local Relay enrollment-expiry defect:
+rotating credentials could outlive the stale outer discovery envelope. Renewal
+now validates fresh discovery against the existing signer pin and persists the
+bounded updated envelope with the rotated credentials. This does not extend
+standing consent, alter device identity, broaden scopes or modify the online
+Relay protocol. The already broken local test credentials are recovered only
+through the existing formal protocol with identity and authorization invariants.
+
+Installed SparkX and work2 now both use source `eac29b37`, with the existing
+App-CLI `.20` unchanged. A paired database/profile/runtime checkpoint and the old
+Mac app are retained. Final Linux Go tests pass across 65 packages, Desktop passes
+245 tests, WebChat passes 249 tests, and affected build/vet/race plus 110 bilingual
+mirror checks pass. Native verification covers both transports' original dialog,
+mailbox views and downloads, a shared attachment draft across transport switches,
+ISCP reply polishing, and normal ISCP restart. The 158-byte attachment and
+19,317-byte original MIME match on disk over both paths. Destructive management
+operations use isolated parity/CAS/ownership fixtures, not deletion of real mail.
+
+Two unsent synthetic verification drafts remain: attachment draft `39c43997`
+at version 3, and polished reply `d423e2db` at version 1. Nine prior delivered
+chat tasks and all five prior local files remain unchanged; four verified downloads
+were added. The three new local conversations comprise one empty pre-upgrade
+fail-closed download check and the two successful download conversations. No
+new real mail was sent. The final app is normally launched in ISCP mode with the
+original mailbox popup open.
+
+Deployment, installed artifact hashes, test results and native observations are
+recorded in [restoration evidence](evidence/mail-popup-restoration-2026-10-10.json).
+The original four send records and old Outlook unknown/version 7 remain intact;
+this restoration does not authorize additional real emails. Section 9.11 remains
+the backlog, including physical same-subnet LAN and deferred ASR/TTS. Actual
+direct verification still uses the existing pinned work2 HTTPS ingress.
 
 ## 10. Related designs
 

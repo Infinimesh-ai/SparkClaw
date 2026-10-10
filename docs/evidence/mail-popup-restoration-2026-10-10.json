@@ -1,0 +1,291 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-10T08:39:45.854014+00:00",
+  "scope": "Restore original mailbox UI on installed SparkX through direct HTTPS and ISCP; no new real send",
+  "source_commit": "eac29b37821171b15950aacee1e37eb204986e57",
+  "prior_source_commit": "8045c110107d1529ccabd364a146475d4a32373e",
+  "ui": {
+    "components": [
+      "EmailPopup",
+      "EmailCompose"
+    ],
+    "replacement_panels_removed": [
+      "MailCachePanel",
+      "ISCPMailDraftPanel"
+    ],
+    "stylesheet_files_changed": 0,
+    "original_entry_dialog_layout_and_interactions_preserved": true
+  },
+  "installed": {
+    "source_commit": "eac29b37821171b15950aacee1e37eb204986e57",
+    "runtime_release": "0.3.0-sparkclaw.20",
+    "zip_sha256": "8ad8bfed1f00f02d7a2d155d73a98f877fa5e01427dced9a378e2bdbefea2fc6",
+    "asar_sha256": "19dbdd7b65a58d73918121728c2406a293f5ace04cd72bd2dfb604de77b8862f",
+    "helper_sha256": "175300fc31574fc3cf8b44800a7248d832b245dc651b2c2399b0bd9fc3730439",
+    "webchat_manifest_sha256": "c9ac60165f898c2940211c44994cf2895d5f5feb4e497394cb6ae583934a7b53",
+    "backup": "/Users/dev/.cache/sparkclaw-upgrades/20261009-151709-local-v2/SparkX-before-popup-eac29b37.app",
+    "user_data_preserved": true,
+    "installed_at": "2026-10-10T08:23:52.641364+00:00"
+  },
+  "deployment": {
+    "event": "mail_popup_restore_upgrade_complete",
+    "backup": "/home/ubuntu/.local/share/sparkclaw/backups/mail-popup-restore-20261010T082908Z",
+    "source": "eac29b37821171b15950aacee1e37eb204986e57",
+    "release": "0.3.0-sparkclaw.20",
+    "previous_gateway_preserved": "sparkclaw-gateway-before-mail-20261010T082936Z",
+    "gateway_image": "sha256:53b0dbf7528077986e28c40fa2b33b7185a12ea6d2da3bc05d2bcdec610a169d",
+    "reader_policy_unchanged": true,
+    "components_check_passed": true,
+    "gateway_image_updated": true,
+    "mail_evidence_diagnostic_enabled": false,
+    "app_cli_runtime_unchanged": true,
+    "added_qualified_mail_operations": [
+      "mail.conversations.list",
+      "mail.pending",
+      "mail.interaction",
+      "mail.sent_sources",
+      "mail.notifications",
+      "mail.conversations.get",
+      "mail.conversations.messages",
+      "mail.verification",
+      "mail.render_preview",
+      "mail.file",
+      "mail.sender_rules.list",
+      "mail.presentations.get",
+      "mail.compose.capabilities",
+      "mail.sync.status",
+      "mail.sync.warnings",
+      "mail.conversations.rename",
+      "mail.conversations.delete",
+      "mail.source.cleanup",
+      "mail.classification",
+      "mail.assignment",
+      "mail.sender_rules.update",
+      "mail.presentations.ensure",
+      "mail.replies.polish",
+      "mail.sync.acknowledge",
+      "mail.sync.request",
+      "mail.viewed",
+      "mail.reanalyze",
+      "mail.intake.update"
+    ],
+    "controller_unit": {
+      "ActiveState": "active",
+      "TimeoutStopUSec": "1min",
+      "MainPID": "3726645",
+      "Result": "success",
+      "NRestarts": "0",
+      "ExecMainStatus": "0",
+      "ControlGroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/sparkclaw-browser-controller.service",
+      "KillMode": "mixed",
+      "SendSIGKILL": "yes"
+    },
+    "gateway_healthy": true,
+    "services": {
+      "sparkclaw-app-cli-executor.service": "active",
+      "sparkclaw-browser-controller.service": "active",
+      "sparkclaw-browser.service": "active"
+    },
+    "cleanup_fence_present": false
+  },
+  "verification": {
+    "linux_full_go_tested_packages": 65,
+    "linux_full_go_passed": true,
+    "desktop_tests_passed": 245,
+    "webchat_tests_passed": 249,
+    "webchat_test_files": 56,
+    "affected_go_build_vet_and_focused_race_passed": true,
+    "fixed_mail_operations_added": 28,
+    "mail_popup_required_operations": 31,
+    "automated_cases": [
+      "original HTTP/ISCP read parity on memory and file backends",
+      "owner and scope isolation, command CAS and replay",
+      "all original mutation handlers using isolated fixtures",
+      "fixed route/query bounds and encrypted original file metadata",
+      "bounded read burst queue with write capacity reservation",
+      "original search and keyboard isolation from chat form",
+      "local source ownership, verified bytes, saved-version attachment review",
+      "unknown send fencing and explicit reconciliation",
+      "temporary disconnection preserves edits; identity changes clear them",
+      "local Relay valid renewal and restart recovery; bad pin, expired refresh and 401 rejected"
+    ],
+    "native_cases": [
+      "original composer mail icon and original three-pane modal on both transports",
+      "account filter and all three categories",
+      "ISCP search submits only the mail query",
+      "sender rules and intake status panels",
+      "existing Outlook conversation details and localized summaries",
+      "native original attachment and .eml buttons on both transports",
+      "direct saved local-attachment draft reopened/reviewed via ISCP then saved via direct again",
+      "native ISCP reply-intent polish returns editable backend draft",
+      "Escape closes dialog and returns focus to original mail icon",
+      "ordinary restart restores configured ISCP and original popup"
+    ],
+    "destructive_mail_operations_native_tested": false,
+    "destructive_mail_operations_fixture_tested": true,
+    "new_real_email_sends": 0,
+    "download_exports": [
+      {
+        "transport": "iscp",
+        "file_kind": "attachment.txt",
+        "bytes": 158,
+        "sha256": "39803ed9f9698d9676bf92ca10819e4f242248ca35dbe9c885cf6b09ffc070b2",
+        "native_original_button": true,
+        "clientstore_before_native_export": true,
+        "bytes_verified": true
+      },
+      {
+        "transport": "iscp",
+        "file_kind": "original.eml",
+        "bytes": 19317,
+        "sha256": "9f90b1f6e871e8afa8ac25cf2f913691a214dd4f4370601930462cd0c41ab272",
+        "native_original_button": true,
+        "clientstore_before_native_export": true,
+        "bytes_verified": true
+      },
+      {
+        "transport": "direct",
+        "file_kind": "attachment.txt",
+        "bytes": 158,
+        "sha256": "39803ed9f9698d9676bf92ca10819e4f242248ca35dbe9c885cf6b09ffc070b2",
+        "native_original_button": true,
+        "clientstore_before_native_export": true,
+        "bytes_verified": true
+      },
+      {
+        "transport": "direct",
+        "file_kind": "original.eml",
+        "bytes": 19317,
+        "sha256": "9f90b1f6e871e8afa8ac25cf2f913691a214dd4f4370601930462cd0c41ab272",
+        "native_original_button": true,
+        "clientstore_before_native_export": true,
+        "bytes_verified": true
+      }
+    ],
+    "new_unsent_drafts": [
+      {
+        "id": "39c43997-74ff-4255-a678-8235fb92ef6c",
+        "state": "draft",
+        "version": 3
+      },
+      {
+        "id": "d423e2db-9620-4c92-88c3-a76d1db9cd9b",
+        "state": "draft",
+        "version": 1
+      }
+    ],
+    "final_transport": "iscp",
+    "final_popup_open": true
+  },
+  "data_preservation": {
+    "installation_id": "f0671ef3-354b-4ec4-b5a4-f581c7604359",
+    "client_schema": 8,
+    "delivered_tasks_unchanged": [
+      {
+        "status": "delivered",
+        "count": 9
+      }
+    ],
+    "conversations_before": 8,
+    "conversations_after": 11,
+    "conversation_delta_reason": "one empty download test before matching backend upgrade, and two native download conversations",
+    "files_before": {
+      "count": 5,
+      "bytes": 790
+    },
+    "files_after": {
+      "count": 9,
+      "bytes": 39740
+    },
+    "all_nine_local_disk_files_verified": true,
+    "new_clientstore_files": [
+      {
+        "id": "e4f6dba7-d350-406f-bf15-3446b0c45ac7",
+        "conversation_id": "f80f93dc-b2a0-4fb4-9f98-5e40227f13f7",
+        "name": "SparkX-work2-acceptance.txt",
+        "sha256": "39803ed9f9698d9676bf92ca10819e4f242248ca35dbe9c885cf6b09ffc070b2",
+        "size": 158,
+        "created_at": "2026-10-10T08:31:03.773Z",
+        "disk_bytes_verified": true
+      },
+      {
+        "id": "38abf23e-3fc2-46cf-92e8-5d692e8ea634",
+        "conversation_id": "f80f93dc-b2a0-4fb4-9f98-5e40227f13f7",
+        "name": "original.eml",
+        "sha256": "9f90b1f6e871e8afa8ac25cf2f913691a214dd4f4370601930462cd0c41ab272",
+        "size": 19317,
+        "created_at": "2026-10-10T08:31:29.381Z",
+        "disk_bytes_verified": true
+      },
+      {
+        "id": "779ebbdf-9aa7-441d-b74f-5b9e4b1881f2",
+        "conversation_id": "2bd90e25-7245-448a-94d6-4370846e5326",
+        "name": "SparkX-work2-acceptance.txt",
+        "sha256": "39803ed9f9698d9676bf92ca10819e4f242248ca35dbe9c885cf6b09ffc070b2",
+        "size": 158,
+        "created_at": "2026-10-10T08:35:38.444Z",
+        "disk_bytes_verified": true
+      },
+      {
+        "id": "f4568fec-5722-47cf-85fa-dbf25d5ba458",
+        "conversation_id": "2bd90e25-7245-448a-94d6-4370846e5326",
+        "name": "original.eml",
+        "sha256": "9f90b1f6e871e8afa8ac25cf2f913691a214dd4f4370601930462cd0c41ab272",
+        "size": 19317,
+        "created_at": "2026-10-10T08:36:07.722Z",
+        "disk_bytes_verified": true
+      }
+    ],
+    "original_send_records_unchanged": [
+      {
+        "id": "b57ff408-279f-406b-ade2-653227e89c53",
+        "state": "sent",
+        "version": 8
+      },
+      {
+        "id": "34b28df2-f9c4-405c-8822-744229cb26f8",
+        "state": "sent",
+        "version": 12
+      },
+      {
+        "id": "356d6c3e-67de-499b-a698-59a7216d4663",
+        "state": "sent",
+        "version": 5
+      },
+      {
+        "id": "e9e7e6ae-28e3-4cb2-abb8-1a3640216741",
+        "state": "sent",
+        "version": 14
+      },
+      {
+        "id": "05e7cca5-b390-4762-ac1a-5a0430b715b5",
+        "state": "unknown",
+        "version": 7
+      }
+    ]
+  },
+  "authorization": {
+    "lifetime": "until_revoked",
+    "revision": 2,
+    "revoked": false,
+    "standing_authorization_and_scope_unchanged": true,
+    "device_keys_relay_pins_and_grants_preserved_during_recovery": true,
+    "both_expired_local_enrollments_recovered_by": "formal refresh returned 401; existing-device possession-proof bind against same signer pin",
+    "automatic_running_and_restart_renewal_fixed": true,
+    "production_online_relay_protocol_changed": false
+  },
+  "observed_negative_cases": [
+    "Pre-upgrade direct original download against old backend lacked digest header and was rejected without admitting file; matching backend upgrade then passed.",
+    "Old macOS Python recovery report rejected nanosecond timestamp after successful recovery; side effect was not repeated, and result/invariants were independently verified with Python 3.12."
+  ],
+  "remaining_limits": [
+    "Direct transport used pinned public work2 HTTPS; physical same-subnet LAN remains unqualified.",
+    "ASR/TTS remain deferred.",
+    "General Outlook KB/MB provider attachment cards remain fail-closed.",
+    "Old Outlook unknown/version 7 remains retained without resend.",
+    "Local Relay/issuer and SSH forwarding remain test topology dependencies.",
+    "Expired or consumed Relay refresh credentials require controlled same-identity recovery; permanent consent is not changed.",
+    "InfiniCenter unavailable at configured ancestor anchors; no central acceptance claimed.",
+    "User final acceptance remains pending."
+  ]
+}

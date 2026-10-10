@@ -1,0 +1,56 @@
+--- a/applications/mail/lib/workspace-attachments.mjs
++++ b/applications/mail/lib/workspace-attachments.mjs
+@@ -6,0 +7 @@
++export const ATTACHMENT_MENU_WAIT_MS = 15000;
+@@ -88,0 +90,11 @@
++  const menuVisible = node => {
++    if(!visible(node)||getComputedStyle(node).visibility!=='visible')return false;
++    let depth=0;
++    for(let parent=node;parent;parent=parent.parentElement){
++      const style=getComputedStyle(parent);
++      if(++depth>32||parent.hidden||parent.inert||parent.getAttribute('aria-hidden')==='true'||style.display==='none'||Number(style.opacity)<=0)return false;
++    }
++    // Unlike opacity/display, visibility and pointer-events may be overridden
++    // by descendants. Use the target's computed values and actual hit target.
++    return true;
++  };
+@@ -140,3 +152,3 @@
+-    if(state.attachmentButton.getAttribute('aria-expanded') !== 'true')return {pending:true};
+-    const menus = [...document.querySelectorAll('[role="menu"]')].filter(n=>visible(n)&&!state.attachmentPriorMenus.has(n));
+-    if (menus.length === 0) return {pending:true};
++    if(state.attachmentButton.getAttribute('aria-expanded') !== 'true'){state.attachmentMenuCandidate=null;return {pending:true};}
++    const menus = [...document.querySelectorAll('[role="menu"]')].filter(n=>menuVisible(n)&&!state.attachmentPriorMenus.has(n));
++    if (menus.length === 0) {state.attachmentMenuCandidate=null;return {pending:true};}
+@@ -144,2 +156,2 @@
+-    const actions = [...menus[0].querySelectorAll('[role="menuitem"],button')].filter(n=>enabled(n)&&/^(Browse this computer|Browse computer|浏览此计算机|浏览这台计算机|Upload from this device|从此设备上传)$/u.test(label(n)));
+-    if (actions.length === 0) return {pending:true};
++    const actions = [...menus[0].querySelectorAll('[role="menuitem"],button')].filter(n=>menuVisible(n)&&/^(Browse this computer|Browse computer|浏览此计算机|浏览这台计算机|Upload from this device|从此设备上传)$/u.test(label(n)));
++    if (actions.length === 0) {state.attachmentMenuCandidate=null;return {pending:true};}
+@@ -147 +159,15 @@
+-    state.attachmentMenu = menus[0]; state.attachmentMenuAction = actions[0];
++    // Outlook pre-renders a Callout that is initially non-interactive. Never
++    // mark/listen until its unique owned menu and action are observable and stable.
++    // Each poll re-proves the unique owned context, menu, action and hit target.
++    const action=actions[0],menu=menus[0],rect=action.getBoundingClientRect();
++    const hit=document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2);
++    if(!enabled(action)||getComputedStyle(action).pointerEvents==='none'||rect.x<0||rect.y<0||rect.right>innerWidth||rect.bottom>innerHeight||
++       !hit||hit!==action&&!action.contains(hit)) {state.attachmentMenuCandidate=null;return {pending:true};}
++    const box=[rect.x,rect.y,rect.width,rect.height],candidate=state.attachmentMenuCandidate;
++    if(!candidate||candidate.menu!==menu||candidate.action!==action||box.some((v,i)=>Math.abs(v-candidate.box[i])>0.5)){
++      state.attachmentMenuCandidate={menu,action,box,since:Date.now()};return {pending:true};
++    }
++    if(Date.now()-candidate.since<150)return {pending:true};
++    // No click has occurred yet. A later replacement is intentionally not
++    // rebound/retried: the original marked node and listener remain pinned.
++    state.attachmentMenu = menu; state.attachmentMenuAction = action;
+@@ -154 +180,3 @@
+-        if (!state.attachmentContextValid() || !event.isTrusted) return;
++        const activeMenus=[...document.querySelectorAll('[role="menu"]')].filter(n=>menuVisible(n)&&!state.attachmentPriorMenus.has(n));
++        if (!state.attachmentContextValid() || !event.isTrusted || !menuVisible(menu) || !menuVisible(action) || !menu.contains(action) ||
++            state.attachmentMenu!==menu || state.attachmentMenuAction!==action || activeMenus.length!==1 || activeMenus[0]!==menu) return;
+@@ -191 +219 @@
+-        state.attachmentPriorMenus=new Set([...document.querySelectorAll('[role="menu"]')].filter(visible));
++        state.attachmentPriorMenus=new Set([...document.querySelectorAll('[role="menu"]')].filter(menuVisible));
+@@ -346 +374 @@
+-            const deadline=Date.now()+5000;
++            const deadline=Date.now()+${ATTACHMENT_MENU_WAIT_MS};

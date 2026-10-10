@@ -36,11 +36,13 @@ async function fixture(t,mode='normal') {
       const menu=document.createElement('div');menu.setAttribute('role','menu');
       const action=document.createElement('button');action.setAttribute('role','menuitem');action.textContent='浏览此计算机';menu.append(action);
       if(mode==='ambiguous-menu')menu.append(action.cloneNode(true));
+      if(mode==='replacement-menu-on-hover')action.onpointerover=()=>{action.onpointerover=null;menu.style.opacity='0';const other=menu.cloneNode(true);other.style.opacity='1';other.style.position='fixed';other.style.top='500px';other.style.left='500px';other.querySelector('button').removeAttribute('data-sc-mail-local-file-action');document.body.append(other);};
       action.onclick=()=>{
         const input=document.getElementById(mode==='image'?'image':'actual');
         if(mode==='unrelated-chooser')setTimeout(()=>input.click(),30);else input.click();
       };
       document.body.append(menu);
+      if(mode==='delayed-callout'){const wrapper=document.createElement('div');wrapper.style.visibility='hidden';menu.replaceWith(wrapper);wrapper.append(menu);menu.style.visibility='visible';menu.style.opacity='0';menu.style.pointerEvents='none';setTimeout(()=>{menu.style.opacity='1';menu.style.pointerEvents='auto'},5400);}
       };if(mode==='delayed-menu')setTimeout(mount,250);else mount();
     };
     for(const input of document.querySelectorAll('input[type="file"]'))input.addEventListener('change',async()=>{
@@ -77,6 +79,15 @@ test('shared Ribbon waits for its bounded asynchronously rendered local-file men
   const f=await fixture(t,'delayed-menu');await uploadManagedAttachments(f.tab,'outlook',f.root,f.manifest,f.before);await verifyManagedAttachments(f.tab,'outlook',f.manifest);
   assert.deepEqual(await f.page.evaluate(()=>uploads),[{id:'actual',name:'native.txt',bytes:[...f.bytes]}]);assert.equal(await f.page.evaluate(()=>sendClicks),0);
 });
+test('production shared menu waits beyond five seconds for a transparent Callout, allowing descendant visibility override',{skip:!enabled,timeout:25000},async t=>{
+  const f=await fixture(t,'delayed-callout');const started=Date.now();await uploadManagedAttachments(f.tab,'outlook',f.root,f.manifest,f.before);await verifyManagedAttachments(f.tab,'outlook',f.manifest);
+  assert.ok(Date.now()-started>=5400);assert.deepEqual(await f.page.evaluate(()=>uploads),[{id:'actual',name:'native.txt',bytes:[...f.bytes]}]);assert.equal(f.effects(),1);assert.equal(await f.page.evaluate(()=>sendClicks),0);
+});
+for(const mode of ['opacity','display','inert','aria-hidden'])test(`shared menu excludes a hidden ancestor: ${mode}`,{skip:!enabled},async t=>{
+  const f=await fixture(t);await f.page.evaluate('('+attachmentDOM.toString()+')("outlook","prepare",[])');await f.page.locator('[data-sc-mail-attachment-chooser="true"]').click();
+  await f.page.evaluate(mode=>{const menu=document.querySelector('[role="menu"]'),parent=document.createElement('div');menu.replaceWith(parent);parent.append(menu);if(mode==='opacity')parent.style.opacity='0';if(mode==='display')parent.style.display='none';if(mode==='inert')parent.inert=true;if(mode==='aria-hidden')parent.setAttribute('aria-hidden','true');},mode);
+  const value=await f.page.evaluate('('+attachmentDOM.toString()+')("outlook","chooser_menu",[])');assert.deepEqual(value,{pending:true});assert.equal(await f.page.locator('[data-sc-mail-local-file-action]').count(),0);assert.deepEqual(await f.page.evaluate(()=>uploads),[]);
+});
 test('owned native chooser is checked in the main document, not its isolated utility world',{skip:!enabled},async t=>{
   const f=await fixture(t,'owned-chooser');await uploadManagedAttachments(f.tab,'outlook',f.root,f.manifest,f.before);await verifyManagedAttachments(f.tab,'outlook',f.manifest);
   assert.deepEqual(await f.page.evaluate(()=>uploads),[{id:'actual',name:'native.txt',bytes:[...f.bytes]}]);assert.equal(await f.page.evaluate(()=>sendClicks),0);
@@ -86,7 +97,7 @@ test('shared input relocation after ready is rejected by the final verification'
   await f.page.evaluate(()=>document.getElementById('other').append(document.getElementById('actual')));
   await assert.rejects(verifyManagedAttachments(f.tab,'outlook',f.manifest),/email_attachment_control_unavailable/);assert.equal(await f.page.evaluate(()=>sendClicks),0);
 });
-for(const mode of ['ambiguous-composer','ambiguous-ribbon','ambiguous-menu','image','unrelated-chooser'])test(`shared chooser fails closed: ${mode}`,{skip:!enabled},async t=>{
+for(const mode of ['ambiguous-composer','ambiguous-ribbon','ambiguous-menu','image','unrelated-chooser','replacement-menu-on-hover'])test(`shared chooser fails closed: ${mode}`,{skip:!enabled},async t=>{
   const f=await fixture(t,mode);await assert.rejects(uploadManagedAttachments(f.tab,'outlook',f.root,f.manifest,f.before),/email_(attachment_control_unavailable|draft_fields_unverified)/);
   assert.deepEqual(await f.page.evaluate(()=>uploads),[]);assert.equal(await f.page.evaluate(()=>sendClicks),0);
   if(mode==='ambiguous-composer'||mode==='ambiguous-ribbon')assert.equal(f.effects(),0);

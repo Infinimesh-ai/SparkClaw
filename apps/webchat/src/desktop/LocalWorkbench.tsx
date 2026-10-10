@@ -435,12 +435,13 @@ export function LocalWorkbench() {
         <MailWorkspaceContext.Provider value={{
           identity: mailIdentity,
           enabled: connection?.state === "connected" && capabilities.mail && Boolean(mailScope),
+          loginEnabled: connection?.state === "connected" && surfaceEnabled(connection, "mail_settings"),
           sendEnabled: connection?.state === "connected" && surfaceEnabled(connection, "mail_send"),
           attachmentsEnabled: connection?.state === "connected" && surfaceEnabled(connection, "mail_send_attachments"),
           listFiles: store.listFiles, conversationID: selected,
           onFileSaved: async () => { if (selectedRef.current) setContent(await store.read(selectedRef.current)); },
           download: async (mailboxID, mailID, partID) => {
-            if (connection?.state !== "connected" || !surfaceEnabled(connection, "mail_attachments") || !window.sparkclawMailSync?.saveAttachment) throw new Error(zh ? "邮件附件暂时不可用。" : "Mail attachments are unavailable.");
+            if (connection?.state !== "connected" || !capabilities.mail || !window.sparkclawMailSync?.saveAttachment) throw new Error(zh ? "邮件附件暂时不可用。" : "Mail attachments are unavailable.");
             const scope = lastMailScope.current;
             const id = await ensureConversation();
             if (!scope || scope !== lastMailScope.current) throw new Error("Mail authentication changed");

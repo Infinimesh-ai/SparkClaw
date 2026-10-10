@@ -7,6 +7,7 @@ export type MailWorkspace = {
   identity: number;
   enabled: boolean;
   sendEnabled: boolean;
+  loginEnabled?: boolean;
   attachmentsEnabled: boolean;
   listFiles: () => Promise<LocalFile[]>;
   conversationID: string;

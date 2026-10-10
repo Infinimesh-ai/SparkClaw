@@ -12,14 +12,14 @@ const initial: DesktopConnectionStatus = {
   schema_version: 1, state: "connected", owner_id: "owner", client_id: "client", authorization_revision: 2,
   backend: { schema_version: 3, transport: "iscp", origin: "https://iscp.invalid", deployment_id: "deployment" },
   capabilities: { operations: [], files: true, mail: true, browser: false, speech: false, approvals: true, settings: false,
-    surfaces: Object.fromEntries(["files", "mail_popup", "mail_read", "mail_send", "mail_send_attachments", "mail_attachments"].map(name => [name, { enabled: true, reason: "" }])) },
+    surfaces: Object.fromEntries(["files", "mail_popup", "mail_read", "mail_send", "mail_send_attachments"].map(name => [name, { enabled: true, reason: "" }])) },
 };
 afterEach(() => {
   delete window.sparkclawClientStore; delete window.sparkclawDesktop; delete window.sparkclawMailSync;
   vi.restoreAllMocks(); vi.unstubAllGlobals();
 });
 
-async function fixture() {
+async function fixture(withMessage = false) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   Object.defineProperty(window, "localStorage", { configurable: true, value: { getItem: (key: string) => key === LANGUAGE_STORAGE_KEY ? "en" : null, setItem: vi.fn() } });
   vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
@@ -34,14 +34,15 @@ async function fixture() {
   vi.spyOn(api, "emailSyncStatus").mockResolvedValue({ version: 1, backlog: 0, pending_count: 0, mailboxes: [{ id: "box", version: 1, provider: "qq_mail", address: "owner@qq.test", active_binding: true, intake_enabled: true, state: "active" }] });
   vi.spyOn(api, "emailProviders").mockResolvedValue({ providers: [] });
   vi.spyOn(api, "emailConversations").mockResolvedValue({ version: 1, conversations: [] });
-  vi.spyOn(api, "emailInteractionMails").mockResolvedValue({ version: 1, messages: [] });
+  vi.spyOn(api, "emailInteractionMails").mockResolvedValue({ version: 1, messages: withMessage ? [{ id: "fixture-mail", mailbox_id: "box", version: 1, receiving_address: "owner@qq.test", direction: "inbound", from: "owner@qq.test", to: [], cc: [], subject: "Fixture download", arrived_at: "2026-10-10T00:00:00Z", viewed: true, original_available: true, attachments: [{ id: "part", name: file.name, size: file.size, available: true }] }] : [] });
+  vi.spyOn(api, "emailMessage").mockImplementation(async () => (await api.emailInteractionMails({})).messages![0]!);
   vi.spyOn(api, "emailComposeCapabilities").mockResolvedValue({ compose: true, reply: true, reply_all: true, cc: true, max_to: 100, workspace_attachments: true });
-  window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => []), create: vi.fn(),
+  window.sparkclawClientStore = { schemaVersion: 1, list: vi.fn(async () => withMessage ? [{ id: "local", title: "Local fixture", created_at: "", updated_at: "" }] : []), create: vi.fn(),
     draft: vi.fn(async () => ({ scope_key: "scope", content: "", local_file_ids: [], revision: 0 })), saveDraft: vi.fn(), moveWelcomeDraft: vi.fn(), enqueueDraft: vi.fn(),
-    listFiles: vi.fn(async () => [file]), read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(),
+    listFiles: vi.fn(async () => [file]), read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(async () => ({ saved: true })),
     submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
   window.sparkclawMailSync = { catalog: vi.fn(async () => [{ id: "box", address: "owner@qq.test", provider: "qq_mail" }]),
-    refreshCatalog: vi.fn(), sync: vi.fn(), read: vi.fn(async () => ({ mailbox_id: "box", sequence: 1, synced_at: "", messages: [] })) };
+    refreshCatalog: vi.fn(), sync: vi.fn(), saveAttachment: vi.fn(async () => file), read: vi.fn(async () => ({ mailbox_id: "box", sequence: 1, synced_at: "", messages: [] })) };
   let current = initial;
   let changed = (_status: DesktopConnectionStatus) => {};
   window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, localConnection: vi.fn(async () => current),
@@ -59,6 +60,7 @@ async function fixture() {
     });
   };
   await act(async () => root.render(<LocalWorkbench />));
+  if (withMessage) await act(async () => host.querySelector<HTMLButtonElement>(".sessionSelect")!.click());
   await click(dictionaries.en.email.title);
   await click(dictionaries.en.email.compose);
   await input("To", "recipient@example.test"); await input("CC", "copy@example.test");
@@ -115,5 +117,20 @@ it.each(["revoked", "batched revoke", "locked", "owner", "client", "deployment"]
     expect(f.field("Subject").value).toBe(""); expect(f.field(dictionaries.en.email.body).value).toBe(""); expect(f.field("To").value).toBe("");
     expect(f.host.querySelector(`[aria-label="Remove attachment ${file.id}"]`)).toBeNull();
     expect(f.save).not.toHaveBeenCalled(); expect(f.send).not.toHaveBeenCalled();
+  } finally { await act(async () => f.root.unmount()); f.mount.remove(); }
+});
+
+
+it("downloads through the current popup capability without requiring the retired cache operation", async () => {
+  const f = await fixture(true);
+  try {
+    await act(async () => f.host.querySelector<HTMLButtonElement>(".emailComposer header button")!.click());
+    await act(async () => f.host.querySelector<HTMLButtonElement>(".emailConversationRow")!.click());
+    await f.click(dictionaries.en.email.originalDownload);
+    await act(async () => [...f.host.querySelectorAll<HTMLButtonElement>(".emailMessageActions button")].find(button => button.textContent?.includes(file.name))!.click());
+    expect(window.sparkclawMailSync!.saveAttachment).toHaveBeenNthCalledWith(1, "box", "fixture-mail", "", "local");
+    expect(window.sparkclawMailSync!.saveAttachment).toHaveBeenNthCalledWith(2, "box", "fixture-mail", "part", "local");
+    expect(window.sparkclawClientStore!.exportFile).toHaveBeenCalledWith(file.id);
+    expect(f.send).not.toHaveBeenCalled();
   } finally { await act(async () => f.root.unmount()); f.mount.remove(); }
 });

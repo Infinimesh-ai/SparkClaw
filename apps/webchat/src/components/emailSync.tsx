@@ -1,3 +1,4 @@
+import { useMailWorkspace } from "../desktop/MailWorkspaceContext";
 import { useState } from "react";
 import { ChevronDown, RefreshCw } from "lucide-react";
 import { api } from "../api/client";
@@ -19,6 +20,8 @@ export function EmailSync({ status, providers, mailboxId, text, language, onRefr
   status: EmailSyncStatus | null; providers: EmailProviderStatus[]; mailboxId: string;
   text: Copy; language: Language; onRefresh: () => Promise<void>; onError: (reason: unknown) => void;
 }) {
+  const workspace = useMailWorkspace();
+  const loginEnabled = !workspace || workspace.enabled && workspace.loginEnabled === true;
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState("");
   const [scheduled, setScheduled] = useState(false);
@@ -33,6 +36,7 @@ export function EmailSync({ status, providers, mailboxId, text, language, onRefr
     catch (reason) { onError(reason); }
   }
   async function recover(provider: EmailProviderStatus["provider"], verify: boolean) {
+    if (!loginEnabled) return;
     const mailbox = providerMailbox(status, provider);
     setBusy(provider);
     try {
@@ -105,8 +109,8 @@ export function EmailSync({ status, providers, mailboxId, text, language, onRefr
       </div>}
       {(status?.mailboxes ?? []).filter((mailbox) => mailbox.intake_enabled && mailbox.state === "login_required").map((mailbox) => <div className="emailLoginRecovery" role="status" key={mailbox.id}>
         <strong>{mailbox.address}</strong><span>{text.email.loginExpired}</span>
-        <button className="emailTextButton" disabled={Boolean(busy)} onClick={() => void recover(mailbox.provider, false)}>{text.email.signInAgain}</button>
-        <button className="emailTextButton" disabled={Boolean(busy)} onClick={() => void recover(mailbox.provider, true)}>{text.email.resumeAfterLogin}</button>
+        <button className="emailTextButton" disabled={Boolean(busy) || !loginEnabled} onClick={() => void recover(mailbox.provider, false)}>{text.email.signInAgain}</button>
+        <button className="emailTextButton" disabled={Boolean(busy) || !loginEnabled} onClick={() => void recover(mailbox.provider, true)}>{text.email.resumeAfterLogin}</button>
         <small>{text.email.loginRecoveryHelp}</small>
       </div>)}
       {open && <div className="emailSyncDetails">

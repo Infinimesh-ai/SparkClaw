@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "source_baseline": "f701716f",
+  "scope": "Isolated Host admission fix; no production services, browser instances, mail data, ledgers or send journals changed.",
+  "runtime_base": {
+    "package": "0.3.0-sparkclaw.19",
+    "archive_sha256": "1d3e021dfe34004b0033569ac16f6308b0c01e514e4a0253cc210bb5269bcd84",
+    "host_port_before_sha256": "34a5d18442e242b9487e136a32376e247f409102453e9810da5e85d86955234c",
+    "host_port_after_sha256": "a053bb9cdcce6878776f1bb9d2b62c249ed5aad8c4eb8cb9c4a12054a203ca36",
+    "patch": "vendor/app-cli/host-pending-admission.patch",
+    "clean_application": "patch --batch --fuzz=0 -p1 against a freshly extracted .19 archive; resulting host-port bytes equal the tested file",
+    "paired_release": "The unified .20 builder and artifact qualification are handled separately. No old artifact or consumer pin is changed by this patch commit."
+  },
+  "confirmed_source_defect": [
+    "acquire registered a watch in the shared slot before beginActivity finished waiting for the Controller reservation.",
+    "Another admitted Reader heartbeat or release published this pending watch as page authority.",
+    "Reader completion with park=true treated the pending watch as active, suppressing the bounded idle lease.",
+    "Client heartbeat only begins after acquire returns; a pending watch can expire without ever being admitted."
+  ],
+  "change": [
+    "Pending admission is excluded from lease stamps, heartbeat/call authority and active-page counts.",
+    "Waiting admission does not clear the existing Reader or idle authority. Admission commits only after the driver returns and original lease, grant, epoch and resource checks succeed.",
+    "Pending cancellation or failure releases only its own reservation without publishing, extending or invalidating another activity's stamp.",
+    "Disposal aborts pending admission and waits for its driver completion before closing; foreground idle draining does not treat a pending admission as an active watch.",
+    "Existing authorization deadlines, watchdog expiration, explicit cleanup and failure fences remain enforced."
+  ],
+  "validation": {
+    "baseline_reproduction": "The three heartbeat/Reader-park regressions fail against the unmodified .19 host-port: pending watch is incorrectly present in the published activities.",
+    "new_regressions": 11,
+    "fixture": "Real BrowserController scheduler, BrowserHostPort, ApplicationHostDriver atomic lease publication and application-hook daemon guard; synthetic owned page/process effects only. Controlled clock/timer advancement tests deadlines without sleeps.",
+    "boundaries": [
+      "Reader heartbeat and pending cancellation preserve the admitted Reader and deny pending heartbeat/call.",
+      "Reader park plus an exclusive Outlook reservation preserves the bounded idle stamp through pending watch timeout, with watchdog inspected before and after Host expiration.",
+      "Foreground drain aborts pending watch and closes the parked resource explicitly once.",
+      "Successful admission remains capped by the original grant; actual expiration still closes and unproven cleanup retains its fence.",
+      "Pending grant expiration preserves the Reader; epoch revocation closes owned resources.",
+      "Late driver admission completion after revoke, close and expiry releases its reservation without publishing or double-closing.",
+      "Cleanup failure retains its original error and Host fence."
+    ],
+    "macos": {"node": "26.2.0", "controller_passed": 204, "controller_skipped": 124, "failed": 0},
+    "linux": {"node": "26.8.1", "architecture": "arm64", "isolated_host_tests_passed": 25, "failed": 0, "network": "none", "repository_mount": "read-only"},
+    "test_files": [
+      "tools/browser-controller/test/application-pending-admission.test.mjs",
+      "tools/browser-controller/test/application-lease-retirement.test.mjs",
+      "tools/browser-controller/test/application-shutdown.test.mjs"
+    ]
+  },
+  "production_evidence_limits": [
+    "The archived epoch19 QQ resource had only a watch lease expiring at 06:36:50.279 UTC; its last file modification was 06:36:21.364 UTC, followed by a close_page failure at 06:36:50.693 UTC.",
+    "The same epoch contains a completed QQ collect and watches without watch_ready. Their grants outlived this lease, excluding grant expiry as its 30-second bound.",
+    "Existing logs do not map the persisted lease UUID to an exact Executor task or identify every stamp publisher. The source race is reproduced independently, but is not claimed as the uniquely proven cause of this incident.",
+    "process_exit_page_closed does not prove an owned page was successfully closed. That failure is not relaxed.",
+    "The global cleanup fence blocks later creation; it does not directly interrupt an existing Outlook call. The later Outlook runReadCode timeout remains separately unexplained by this evidence."
+  ]
+}

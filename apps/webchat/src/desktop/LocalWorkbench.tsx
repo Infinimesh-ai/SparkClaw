@@ -374,7 +374,6 @@ export function LocalWorkbench() {
           {capabilities.browser && typeof desktop.state === "function" && <button className={`iconButton rightSidebarToggle ${browserOpen ? "active" : ""}`} type="button" aria-label={copy.toggleInspector} title={zh ? "浏览器" : "Browser"} aria-expanded={browserOpen} onClick={() => setBrowserOpen((open) => !open)}><PanelRight size={18} /></button>}
         </div>
       </header>}
-      {iscp && <p className="localFeedback" role="status">{zh ? "ISCP 连接：每项功能按授权、依赖和验收状态启用。未开放功能保持关闭。" : "ISCP connection: features require authorization, dependencies and qualification. Unavailable features remain disabled."}</p>}
       {error && <div className="localFeedback" role="alert"><p>{error}</p><button type="button" onClick={() => void reload().then(async () => { if (iscp && connection?.state === "connected") await refreshGlobal(); setError(""); }).catch(surfaceError)}>{zh ? "重试读取" : "Retry loading"}</button></div>}
       {notice && <p className="localFeedback" role="status">{notice}</p>}
       {connection?.state === "service_unavailable" && <div className="localFeedback" role="status"><p>{zh ? "连接暂时不可用，请重新连接后继续。" : "Connection unavailable. Reconnect to continue."}</p><button type="button" disabled={busy} onClick={() => void action(async () => { setConnection(await desktop.retryLocalConnection()); })}>{zh ? "重新连接" : "Reconnect"}</button></div>}

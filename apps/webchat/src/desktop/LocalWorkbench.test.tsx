@@ -113,7 +113,7 @@ describe("workbench local workbench", () => {
       expect(config).toHaveBeenCalledTimes(1);
       for (const spy of unsupported) expect(spy).not.toHaveBeenCalled();
       expect(fetch).not.toHaveBeenCalled(); expect(state).not.toHaveBeenCalled();
-      expect(host.textContent).toContain("ISCP connection");
+      expect(host.textContent).not.toContain("ISCP connection");
       expect(host.querySelectorAll<HTMLButtonElement>(".composer .uploadButton")).toHaveLength(2);
       for (const button of host.querySelectorAll<HTMLButtonElement>(".composer .uploadButton")) expect(button.disabled).toBe(true);
       expect(host.querySelector(".emailEntryButton")).toBeNull(); expect(host.querySelector(".rightSidebarToggle")).toBeNull();

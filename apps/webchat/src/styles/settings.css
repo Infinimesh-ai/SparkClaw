@@ -918,6 +918,15 @@
   background: var(--surface-deep);
 }
 
+.clientSettings .credentialValidationFeedback {
+  grid-template-columns: minmax(0, 1fr);
+  overflow-wrap: anywhere;
+}
+
+.clientSettings .credentialValidationFeedback button {
+  justify-self: start;
+}
+
 .clientIssuance label,
 .issuedClientCredential {
   display: grid;

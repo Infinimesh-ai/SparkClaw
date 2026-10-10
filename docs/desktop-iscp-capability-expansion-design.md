@@ -712,6 +712,61 @@ does not establish arbitrary-size real Outlook support. Direct mode uses work2's
 existing public pinned HTTPS ingress, so physical same-subnet LAN remains
 unverified. ASR/TTS remain deferred.
 
+## 9.10. Four real-mail scenarios qualified (2026-10-10)
+
+Installed SparkX and work2 now use source `8045c110` and paired App-CLI `.20`
+(`5c9876fcfec1b6e6602d01ffaab2ac7780ad7aa644c51ebf5f92e4e733a2a6fd`).
+A verified PostgreSQL/profile/runtime checkpoint and the previous desktop package
+are retained. Desktop UI bytes, mail adapters, Reader assets, bindings and Python
+business source are unchanged from the prior qualified versions.
+
+The Host fix separates pending admission from admitted page authority. A waiting
+watch cannot enter another Reader's lease stamp, suppress its parked idle lease,
+or invalidate its authority when admission fails. Late admission after cancellation,
+expiry or epoch change is drained before owned cleanup. Original grant limits and
+cleanup fences remain enforced. The source race fails three baseline regressions;
+the final package passes 25 Host cases, Linux Controller 221 cases (107 explicit
+environment gates), 70 actual Chromium/CLI attachment cases and 38 paired recovery
+cases. Reproduction, projections, install and whole-set rollback also pass. See
+[Host evidence](evidence/browser-host-pending-admission-2026-10-10.json) and
+[paired release qualification](evidence/browser-host-pending-release-2026-10-10.json).
+This fixes a demonstrated race; it does not retrospectively prove the precise
+cause of the separate `.19` Outlook timeout.
+
+| Mailbox and transport | Real send | Separate inbound original | Native desktop attachment copy |
+| --- | --- | --- | --- |
+| QQ direct HTTPS | Passed on `.17` | Passed | Passed |
+| QQ ISCP | Passed on `.17` | Passed | Passed |
+| Outlook direct HTTPS | Passed on `.19` | Passed | Passed |
+| Outlook ISCP approved replacement | Passed on `.20` | Passed | Passed |
+
+The replacement reused the explicitly approved recipient, body and original
+desktop file after its prior attempt was formally proved `not_sent`. Native
+review version 6 was confirmed once, yielding sent version 8 on the original
+replacement draft. Its distinct 19,317-byte inbound MIME matches the approved
+recipient/body and contains exactly one attachment. The received file was copied
+through native ISCP into this Mac's ClientStore; actual disk bytes match the
+approved 158-byte SHA-256. The old `.16` unknown draft remains version 7 and was
+never resent or cleared. Exact receipts and historical attempts remain in the
+[mail evidence](evidence/mail-provider-send-2026-10-10.json).
+
+Temporary mail diagnostic logging is removed. Shutdown released every owned
+process and cgroup in 3.342 seconds, without timeout, SIGKILL or cleanup fence;
+Controller's exit status 1 was preserved rather than hidden. All services then
+restarted with zero automatic restarts, Gateway is healthy, both mailboxes report
+ready, and native ISCP synchronization succeeds after restart. The desktop keeps
+its original installation/scope, six conversations, nine delivered tasks and five
+verified files totaling 790 bytes. Paired runtime and all four managed Reader
+checks pass; no Reader policy restaging or online Relay change occurred.
+
+These results qualify the approved 158-byte mail scenarios. Physical same-subnet
+LAN remains untested because this Mac cannot route work2's private address; direct
+mode used the existing pinned HTTPS ingress. New Outlook cards with KB/MB or other
+unproved size displays still fail closed, so arbitrary-size real Outlook support
+is not claimed. ASR/TTS remain deferred. The local ISCP test still depends on its
+existing local Relay and SSH forwarding. InfiniCenter remains unavailable at the
+configured ancestor anchors; no central acceptance or status update is claimed.
+
 ## 10. Related designs
 
 - [Local ISCP integration and renewal acceptance](desktop-iscp-connection-design.md): implemented baseline and actual evidence scope.

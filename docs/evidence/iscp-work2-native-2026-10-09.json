@@ -95,15 +95,15 @@
     "server_drafts_remain_backend_authoritative": true
   },
   "provider_live_read_evidence": "mail-provider-live-read-2026-10-09.json",
-  "real_send_status": "QQ direct HTTPS and ISCP qualified; Outlook .18 direct failed attachment upload verification and was formally reconciled to not_sent; old .16 ISCP unknown preserved",
+  "real_send_status": "QQ and Outlook both pass approved direct HTTPS and ISCP sends, distinct inbound originals and native local attachment copies; Outlook ISCP uses the separately approved replacement. Original .16 unknown remains preserved.",
   "runtime_dependency": "local Docker Relay/Issuer and SSH bridge must remain running; SSH control connection is test infrastructure, not authorization lifetime",
   "infini_center": "not found at configured local/remote ancestor anchors; no central write or acceptance claimed",
   "desktop_candidate": {
-    "source_commit": "b14531f7c56e1b8c2fb8035e53538fc7f23e6609",
-    "runtime_release": "0.3.0-sparkclaw.18",
-    "zip_sha256": "627ee189c0bc1c5b771f55806cb60f23b1d03a292e040e05013177aefb87846e",
+    "source_commit": "8045c110107d1529ccabd364a146475d4a32373e",
+    "runtime_release": "0.3.0-sparkclaw.20",
+    "zip_sha256": "0870741509c12696178985dbf52c55abf6a99867793cd0c368f35f8e845b22e5",
     "asar_sha256": "d75e365c9ddb255fafbb6682ec7b7c0537e9f27519d366de9e71caf62403a824",
-    "helper_sha256": "114d24e20953517d3a4f6633ba494a65517b3233e666dfd90487082a03dcd843",
+    "helper_sha256": "760d169bf3f6c7647442b638365964c18680d89d1ce55b8b9831271d0cd6e340",
     "webchat_files": {
       "assets/icon-CItU3tnb.png": "acfd3a6e0cad248aa55c9c6d4a5486008c449bf3b05f4f9c39e40b2144a27365",
       "assets/index-DWuji_HN.css": "75d312593540dd86724dd95c1a8de9e8c54a9c585b6c44b8433fc8799c2a4498",
@@ -112,9 +112,9 @@
       "pcm-worklet.js": "fe1633661ea7121b88c4faa2814807da01028f1c495db095f0f0fa88db454aa1"
     },
     "webchat_manifest_sha256": "d48f7bfaefec99399cf545c6bc07fa14aa8656592d88d91f337c554aa03e288f",
-    "backup": "/Users/dev/.cache/sparkclaw-upgrades/20261009-151709-local-v2/SparkX-before-mail18-b14531f7.app",
+    "backup": "/Users/dev/.cache/sparkclaw-upgrades/20261009-151709-local-v2/SparkX-before-mail20-8045c110.app",
     "user_data_preserved": true,
-    "installed_at": "2026-10-10T05:46:01.324393+00:00"
+    "installed_at": "2026-10-10T06:59:44.923252+00:00"
   },
   "relay_interruption": {
     "scope": "local_test_relay",
@@ -192,7 +192,7 @@
     "native_fingerprint_match": true,
     "state": "draft"
   },
-  "updated_at": "2026-10-10T06:36:09.859123+00:00",
+  "updated_at": "2026-10-10T07:12:01.375373+00:00",
   "browser_release_candidate": {
     "id": "0.3.0-sparkclaw.15",
     "runtime_digest": "edec9341d86fb838072f84502a4277196dd42b8398a66b855838a9875cc03191",
@@ -200,20 +200,20 @@
     "actual_reader_import_verification": "passed on work2: four enabled system scripts, exact source/dependency hashes; r10 current generation consumed at 08:42:39.973Z, before .14 restart; consumption delay cause not established"
   },
   "browser_release_deployed": {
-    "id": "0.3.0-sparkclaw.18",
-    "source_commit": "b14531f7c56e1b8c2fb8035e53538fc7f23e6609",
+    "id": "0.3.0-sparkclaw.20",
+    "source_commit": "8045c110107d1529ccabd364a146475d4a32373e",
     "cleanup_fence_present": false,
     "services_active": true,
     "tampermonkey_product_version": "5.5.0.10",
-    "temporary_policy_logging": "removed; formal service parameters restored; Controller and all four current Reader checks passed",
-    "runtime_digest": "7140a8bcc7d7d1d3bf52aa12971d8c4ae0f7db94b0eb07d5e422f8a826d89040",
-    "gateway_image": "sparkclaw-gateway:work2-mail-b14531f7",
+    "temporary_policy_logging": "removed; current paired runtime and four managed Reader checks pass",
+    "runtime_digest": "5c9876fcfec1b6e6602d01ffaab2ac7780ad7aa644c51ebf5f92e4e733a2a6fd",
+    "gateway_image": "sparkclaw-gateway:work2-mail-8045c110",
     "webchat_image": "sparkclaw-webchat:work2-ui-9e35cdda",
     "reader_policy_restaged": false,
     "reader_policy_unchanged": true,
     "gateway_healthy": true,
-    "temporary_mail_send_evidence_logging": true,
-    "gateway_image_sha256": "4a578ac3fd28a763e8a7f1caaa956985d40d3c64a8e53377a598e7311b6b0964"
+    "temporary_mail_send_evidence_logging": false,
+    "gateway_image_sha256": "sha256:a0752874ddccfcd76d7eaf3d7550bb81dabe0e6e76d739ac5b90244b109a2a93"
   },
   "outlook_attachment_reviews": [
     {
@@ -333,18 +333,354 @@
     "state_sha256": "25f8c9815eface5db39092fb928262a0201d503b379def4d0d189861b8946394"
   },
   "final_health": {
+    "at": "2026-10-10T07:10:58.592220+00:00",
+    "source": "8045c110107d1529ccabd364a146475d4a32373e",
+    "release": "0.3.0-sparkclaw.20",
+    "gateway_image": "sha256:a0752874ddccfcd76d7eaf3d7550bb81dabe0e6e76d739ac5b90244b109a2a93",
     "gateway_healthy": true,
-    "browser_controller_executor_active": true,
-    "service_restart_count": 0,
+    "services": {
+      "sparkclaw-app-cli-executor.service": {
+        "ActiveState": "active",
+        "MainPID": "3239475",
+        "NRestarts": "0"
+      },
+      "sparkclaw-browser-controller.service": {
+        "ActiveState": "active",
+        "MainPID": "3239472",
+        "NRestarts": "0"
+      },
+      "sparkclaw-browser.service": {
+        "ActiveState": "active",
+        "MainPID": "3239470",
+        "NRestarts": "0"
+      }
+    },
+    "executor_epoch": 22,
     "cleanup_fence_present": false,
-    "executor_epoch": 16,
-    "both_providers_watch_ready": true,
+    "temporary_mail_diagnostic_removed": true,
+    "reader_policy_sha256": "3c5bebac2d73671c7dcb3892db3058100de318d29bff33c0e620b506dd2eaa91",
+    "source_clean": true,
     "paired_release_check": true,
     "all_four_managed_reader_checks": true,
-    "checkpoint_at": "2026-10-10T04:33:46Z",
-    "original_unknown_records_preserved": true
+    "native_iscp_sync_after_restart": "2026-10-10T07:10:20Z",
+    "desktop_data": {
+      "readonly": true,
+      "user_data": "/Users/dev/.cache/sparkclaw-iscp/remote-switch-20261008-8143225e/userdata",
+      "client_schema": 8,
+      "installation_id": "f0671ef3-354b-4ec4-b5a4-f581c7604359",
+      "conversation_scopes": [
+        {
+          "scope": "[\"431c00ce-b780-42e3-9d25-c25c87c8c011\",\"owner\",\"sparkx-iscp-remote-8143225e\"]",
+          "conversations": 6
+        }
+      ],
+      "task_states": [
+        {
+          "status": "delivered",
+          "count": 9
+        }
+      ],
+      "files": {
+        "count": 5,
+        "bytes": 790
+      },
+      "mail_cache": {
+        "schema": 1,
+        "mailboxes": 2,
+        "messages": 8,
+        "pending_snapshot_pages": 0
+      }
+    },
+    "four_confirmed_sent_records_preserved": true,
+    "original_unknown_v7_preserved": true,
+    "providers_ready": {
+      "qq_mail": true,
+      "outlook": true
+    }
   },
   "latest_mail_checkpoint": {
+    "release": "0.3.0-sparkclaw.20",
+    "source": "8045c110107d1529ccabd364a146475d4a32373e",
+    "runtime_digest": "5c9876fcfec1b6e6602d01ffaab2ac7780ad7aa644c51ebf5f92e4e733a2a6fd",
+    "desktop_installation": {
+      "source_commit": "8045c110107d1529ccabd364a146475d4a32373e",
+      "runtime_release": "0.3.0-sparkclaw.20",
+      "zip_sha256": "0870741509c12696178985dbf52c55abf6a99867793cd0c368f35f8e845b22e5",
+      "asar_sha256": "d75e365c9ddb255fafbb6682ec7b7c0537e9f27519d366de9e71caf62403a824",
+      "helper_sha256": "760d169bf3f6c7647442b638365964c18680d89d1ce55b8b9831271d0cd6e340",
+      "webchat_files": {
+        "assets/icon-CItU3tnb.png": "acfd3a6e0cad248aa55c9c6d4a5486008c449bf3b05f4f9c39e40b2144a27365",
+        "assets/index-DWuji_HN.css": "75d312593540dd86724dd95c1a8de9e8c54a9c585b6c44b8433fc8799c2a4498",
+        "assets/index-_FLQJVcH.js": "8f963fc1e8ea6c5d77be419373d14ac05196d50f528280d75bdb8271b076faf1",
+        "index.html": "65aad6e88d9c69b6da703f849529273e8253f1122838f857b5c7527090e15429",
+        "pcm-worklet.js": "fe1633661ea7121b88c4faa2814807da01028f1c495db095f0f0fa88db454aa1"
+      },
+      "webchat_manifest_sha256": "d48f7bfaefec99399cf545c6bc07fa14aa8656592d88d91f337c554aa03e288f",
+      "backup": "/Users/dev/.cache/sparkclaw-upgrades/20261009-151709-local-v2/SparkX-before-mail20-8045c110.app",
+      "user_data_preserved": true,
+      "installed_at": "2026-10-10T06:59:44.923252+00:00"
+    },
+    "work2_upgrade": {
+      "event": "mail_native_attachments_upgrade_complete",
+      "backup": "/home/ubuntu/.local/share/sparkclaw/backups/mail-native-attachments-20261010T070315Z",
+      "source": "8045c110107d1529ccabd364a146475d4a32373e",
+      "release": "0.3.0-sparkclaw.20",
+      "previous_gateway_preserved": "sparkclaw-gateway-before-mail-20261010T070352Z",
+      "gateway_image": "sha256:a0752874ddccfcd76d7eaf3d7550bb81dabe0e6e76d739ac5b90244b109a2a93",
+      "reader_policy_unchanged": true,
+      "components_check_passed": true,
+      "gateway_image_updated": true,
+      "mail_evidence_diagnostic_enabled": true,
+      "controller_unit": {
+        "ActiveState": "active",
+        "TimeoutStopUSec": "1min",
+        "MainPID": "3198881",
+        "Result": "success",
+        "NRestarts": "0",
+        "ExecMainStatus": "0",
+        "ControlGroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/sparkclaw-browser-controller.service",
+        "KillMode": "mixed",
+        "SendSIGKILL": "yes"
+      },
+      "gateway_healthy": true,
+      "services": {
+        "sparkclaw-app-cli-executor.service": "active",
+        "sparkclaw-browser-controller.service": "active",
+        "sparkclaw-browser.service": "active"
+      },
+      "cleanup_fence_present": false
+    },
+    "diagnostic_removal": {
+      "at": "2026-10-10T07:09:34.402458+00:00",
+      "diagnostic_dropin_removed": true,
+      "all_owned_processes_exited_before_restart": true,
+      "all_service_cgroups_empty_before_restart": true,
+      "stop_elapsed_seconds": 3.341914267744869,
+      "stopped_services": {
+        "sparkclaw-app-cli-executor.service": {
+          "ActiveState": "inactive",
+          "TimeoutStopUSec": "45s",
+          "MainPID": "0",
+          "Result": "success",
+          "NRestarts": "0",
+          "ExecMainCode": "1",
+          "ExecMainStatus": "0",
+          "ControlGroup": "",
+          "KillMode": "control-group",
+          "SendSIGKILL": "yes"
+        },
+        "sparkclaw-browser-controller.service": {
+          "ActiveState": "failed",
+          "TimeoutStopUSec": "1min",
+          "MainPID": "0",
+          "Result": "exit-code",
+          "NRestarts": "0",
+          "ExecMainCode": "1",
+          "ExecMainStatus": "1",
+          "ControlGroup": "",
+          "KillMode": "mixed",
+          "SendSIGKILL": "yes"
+        },
+        "sparkclaw-browser.service": {
+          "ActiveState": "inactive",
+          "TimeoutStopUSec": "15s",
+          "MainPID": "0",
+          "Result": "success",
+          "NRestarts": "0",
+          "ExecMainCode": "1",
+          "ExecMainStatus": "0",
+          "ControlGroup": "",
+          "KillMode": "control-group",
+          "SendSIGKILL": "yes"
+        }
+      },
+      "controller_sigkill_observed": false,
+      "controller_exit_preserved": "1",
+      "reader_policy_unchanged": true,
+      "cleanup_fence_present": false,
+      "gateway_healthy": true,
+      "services": {
+        "sparkclaw-app-cli-executor.service": {
+          "ActiveState": "active",
+          "TimeoutStopUSec": "45s",
+          "MainPID": "3239475",
+          "Result": "success",
+          "NRestarts": "0",
+          "ExecMainCode": "0",
+          "ExecMainStatus": "0",
+          "ControlGroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/sparkclaw-app-cli-executor.service",
+          "KillMode": "control-group",
+          "SendSIGKILL": "yes"
+        },
+        "sparkclaw-browser-controller.service": {
+          "ActiveState": "active",
+          "TimeoutStopUSec": "1min",
+          "MainPID": "3239472",
+          "Result": "success",
+          "NRestarts": "0",
+          "ExecMainCode": "0",
+          "ExecMainStatus": "0",
+          "ControlGroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/sparkclaw-browser-controller.service",
+          "KillMode": "mixed",
+          "SendSIGKILL": "yes"
+        },
+        "sparkclaw-browser.service": {
+          "ActiveState": "active",
+          "TimeoutStopUSec": "15s",
+          "MainPID": "3239470",
+          "Result": "success",
+          "NRestarts": "0",
+          "ExecMainCode": "0",
+          "ExecMainStatus": "0",
+          "ControlGroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/sparkclaw-browser.service",
+          "KillMode": "control-group",
+          "SendSIGKILL": "yes"
+        }
+      }
+    },
+    "real_mail_evidence": "mail-provider-send-2026-10-10.json",
+    "host_fix_evidence": "browser-host-pending-admission-2026-10-10.json",
+    "release_qualification_evidence": "browser-host-pending-release-2026-10-10.json",
+    "confirmed_real_sends": 4,
+    "qualified_incoming_originals": 4,
+    "qualified_native_copies": 4,
+    "asr_tts": "deferred",
+    "iscp_replacement_status": "sent/version8; distinct inbound MIME and native ISCP copy match the approved 158-byte source",
+    "original_unknown_record_preserved": true,
+    "final_health": {
+      "at": "2026-10-10T07:10:58.592220+00:00",
+      "source": "8045c110107d1529ccabd364a146475d4a32373e",
+      "release": "0.3.0-sparkclaw.20",
+      "gateway_image": "sha256:a0752874ddccfcd76d7eaf3d7550bb81dabe0e6e76d739ac5b90244b109a2a93",
+      "gateway_healthy": true,
+      "services": {
+        "sparkclaw-app-cli-executor.service": {
+          "ActiveState": "active",
+          "MainPID": "3239475",
+          "NRestarts": "0"
+        },
+        "sparkclaw-browser-controller.service": {
+          "ActiveState": "active",
+          "MainPID": "3239472",
+          "NRestarts": "0"
+        },
+        "sparkclaw-browser.service": {
+          "ActiveState": "active",
+          "MainPID": "3239470",
+          "NRestarts": "0"
+        }
+      },
+      "executor_epoch": 22,
+      "cleanup_fence_present": false,
+      "temporary_mail_diagnostic_removed": true,
+      "reader_policy_sha256": "3c5bebac2d73671c7dcb3892db3058100de318d29bff33c0e620b506dd2eaa91",
+      "source_clean": true,
+      "paired_release_check": true,
+      "all_four_managed_reader_checks": true,
+      "native_iscp_sync_after_restart": "2026-10-10T07:10:20Z",
+      "desktop_data": {
+        "readonly": true,
+        "user_data": "/Users/dev/.cache/sparkclaw-iscp/remote-switch-20261008-8143225e/userdata",
+        "client_schema": 8,
+        "installation_id": "f0671ef3-354b-4ec4-b5a4-f581c7604359",
+        "conversation_scopes": [
+          {
+            "scope": "[\"431c00ce-b780-42e3-9d25-c25c87c8c011\",\"owner\",\"sparkx-iscp-remote-8143225e\"]",
+            "conversations": 6
+          }
+        ],
+        "task_states": [
+          {
+            "status": "delivered",
+            "count": 9
+          }
+        ],
+        "files": {
+          "count": 5,
+          "bytes": 790
+        },
+        "mail_cache": {
+          "schema": 1,
+          "mailboxes": 2,
+          "messages": 8,
+          "pending_snapshot_pages": 0
+        }
+      },
+      "four_confirmed_sent_records_preserved": true,
+      "original_unknown_v7_preserved": true,
+      "providers_ready": {
+        "qq_mail": true,
+        "outlook": true
+      }
+    }
+  },
+  "work2_pre18_checkpoint": {
+    "source_before": "75418c75ae8cb0eafb590ccb30360ab277169455",
+    "source_after": "b14531f7c56e1b8c2fb8035e53538fc7f23e6609",
+    "old_release": "0.3.0-sparkclaw.17",
+    "gateway_image_before": "sha256:fe01f5dd848ed7dd899d4f4f109c1ba3895501bb82b99955c4a1b841878f4e6f",
+    "postgres_sha256": "7ea9bede96f8acc226ae86e424d8f84cecac813fa0b38b96273da8a6452760cb",
+    "postgres_restore_list_valid": true,
+    "paired_state_sha256": "a730823cb922e198c98d9a2268b948debbd5b6b14b1b306709c4c1ee409e763b",
+    "paired_state_bytes": 176230209,
+    "all_owned_processes_absent": true,
+    "all_service_cgroups_empty": true,
+    "gateway_stopped_before_browser_services": true,
+    "stop_order": [
+      "sparkclaw-app-cli-executor.service",
+      "sparkclaw-browser-controller.service",
+      "sparkclaw-browser.service"
+    ],
+    "cleanup_fence_before": false,
+    "policy_sha256": "3c5bebac2d73671c7dcb3892db3058100de318d29bff33c0e620b506dd2eaa91"
+  },
+  "mail18_host_cleanup_recovery": {
+    "at": "2026-10-10T05:49:34.854222+00:00",
+    "procedure": "docs/app-cli-implementation-validation.md Host cleanup fence recovery",
+    "browser_bridge": {
+      "schema_version": 1,
+      "state": "ready",
+      "windows": [
+        {
+          "window_id": 1820450596,
+          "focused": false,
+          "task_tabs": 0,
+          "stale_task_tabs": 0,
+          "other_tabs": 17
+        }
+      ]
+    },
+    "confirmed_dead_pid": 2695072,
+    "confirmed_dead_session": "sc-cli-c7ffdb768c56bb581e2b",
+    "fence_sha256": "f1854fba8a52eb6ccb4f5871f276a93e3062579a1274fb6b3d3ab8a102cd9acb",
+    "archived_entries": [
+      "session-c7ffdb768c56bb581e2bff47",
+      "cleanup-fence.json"
+    ],
+    "archive_hashes_verified": true,
+    "durable_execution_state_untouched": true
+  },
+  "work2_pre19_checkpoint": {
+    "source_before": "b14531f7c56e1b8c2fb8035e53538fc7f23e6609",
+    "source_after": "6fd124dc90f6b9abe2b2ac914ffa457241991282",
+    "old_release": "0.3.0-sparkclaw.18",
+    "gateway_image_before": "sha256:4a578ac3fd28a763e8a7f1caaa956985d40d3c64a8e53377a598e7311b6b0964",
+    "postgres_sha256": "ec240bc39bd76fff53caf389f10cb532d4b6b830335d0b6f49b965af5f91181c",
+    "postgres_restore_list_valid": true,
+    "paired_state_sha256": "4cd04abf2a030105007617991a1feb12d010d650536bed5449ba6838fbfc76be",
+    "paired_state_bytes": 181597209,
+    "all_owned_processes_absent": true,
+    "all_service_cgroups_empty": true,
+    "gateway_stopped_before_browser_services": true,
+    "stop_order": [
+      "sparkclaw-app-cli-executor.service",
+      "sparkclaw-browser-controller.service",
+      "sparkclaw-browser.service"
+    ],
+    "cleanup_fence_before": false,
+    "policy_sha256": "3c5bebac2d73671c7dcb3892db3058100de318d29bff33c0e620b506dd2eaa91"
+  },
+  "historical_mail19_checkpoint": {
     "release": "0.3.0-sparkclaw.19",
     "source": "6fd124dc90f6b9abe2b2ac914ffa457241991282",
     "desktop_installation": {
@@ -457,61 +793,61 @@
     },
     "iscp_replacement_status": "failed/version5; original task formally proved not_sent; watcher cleanup investigation pending"
   },
-  "work2_pre18_checkpoint": {
-    "source_before": "75418c75ae8cb0eafb590ccb30360ab277169455",
-    "source_after": "b14531f7c56e1b8c2fb8035e53538fc7f23e6609",
-    "old_release": "0.3.0-sparkclaw.17",
-    "gateway_image_before": "sha256:fe01f5dd848ed7dd899d4f4f109c1ba3895501bb82b99955c4a1b841878f4e6f",
-    "postgres_sha256": "7ea9bede96f8acc226ae86e424d8f84cecac813fa0b38b96273da8a6452760cb",
-    "postgres_restore_list_valid": true,
-    "paired_state_sha256": "a730823cb922e198c98d9a2268b948debbd5b6b14b1b306709c4c1ee409e763b",
-    "paired_state_bytes": 176230209,
-    "all_owned_processes_absent": true,
-    "all_service_cgroups_empty": true,
-    "gateway_stopped_before_browser_services": true,
-    "stop_order": [
-      "sparkclaw-app-cli-executor.service",
-      "sparkclaw-browser-controller.service",
-      "sparkclaw-browser.service"
-    ],
-    "cleanup_fence_before": false,
-    "policy_sha256": "3c5bebac2d73671c7dcb3892db3058100de318d29bff33c0e620b506dd2eaa91"
-  },
-  "mail18_host_cleanup_recovery": {
-    "at": "2026-10-10T05:49:34.854222+00:00",
-    "procedure": "docs/app-cli-implementation-validation.md Host cleanup fence recovery",
-    "browser_bridge": {
-      "schema_version": 1,
-      "state": "ready",
-      "windows": [
-        {
-          "window_id": 1820450596,
-          "focused": false,
-          "task_tabs": 0,
-          "stale_task_tabs": 0,
-          "other_tabs": 17
-        }
-      ]
+  "historical_mail18_desktop_candidate": {
+    "source_commit": "b14531f7c56e1b8c2fb8035e53538fc7f23e6609",
+    "runtime_release": "0.3.0-sparkclaw.18",
+    "zip_sha256": "627ee189c0bc1c5b771f55806cb60f23b1d03a292e040e05013177aefb87846e",
+    "asar_sha256": "d75e365c9ddb255fafbb6682ec7b7c0537e9f27519d366de9e71caf62403a824",
+    "helper_sha256": "114d24e20953517d3a4f6633ba494a65517b3233e666dfd90487082a03dcd843",
+    "webchat_files": {
+      "assets/icon-CItU3tnb.png": "acfd3a6e0cad248aa55c9c6d4a5486008c449bf3b05f4f9c39e40b2144a27365",
+      "assets/index-DWuji_HN.css": "75d312593540dd86724dd95c1a8de9e8c54a9c585b6c44b8433fc8799c2a4498",
+      "assets/index-_FLQJVcH.js": "8f963fc1e8ea6c5d77be419373d14ac05196d50f528280d75bdb8271b076faf1",
+      "index.html": "65aad6e88d9c69b6da703f849529273e8253f1122838f857b5c7527090e15429",
+      "pcm-worklet.js": "fe1633661ea7121b88c4faa2814807da01028f1c495db095f0f0fa88db454aa1"
     },
-    "confirmed_dead_pid": 2695072,
-    "confirmed_dead_session": "sc-cli-c7ffdb768c56bb581e2b",
-    "fence_sha256": "f1854fba8a52eb6ccb4f5871f276a93e3062579a1274fb6b3d3ab8a102cd9acb",
-    "archived_entries": [
-      "session-c7ffdb768c56bb581e2bff47",
-      "cleanup-fence.json"
-    ],
-    "archive_hashes_verified": true,
-    "durable_execution_state_untouched": true
+    "webchat_manifest_sha256": "d48f7bfaefec99399cf545c6bc07fa14aa8656592d88d91f337c554aa03e288f",
+    "backup": "/Users/dev/.cache/sparkclaw-upgrades/20261009-151709-local-v2/SparkX-before-mail18-b14531f7.app",
+    "user_data_preserved": true,
+    "installed_at": "2026-10-10T05:46:01.324393+00:00"
   },
-  "work2_pre19_checkpoint": {
-    "source_before": "b14531f7c56e1b8c2fb8035e53538fc7f23e6609",
-    "source_after": "6fd124dc90f6b9abe2b2ac914ffa457241991282",
-    "old_release": "0.3.0-sparkclaw.18",
-    "gateway_image_before": "sha256:4a578ac3fd28a763e8a7f1caaa956985d40d3c64a8e53377a598e7311b6b0964",
-    "postgres_sha256": "ec240bc39bd76fff53caf389f10cb532d4b6b830335d0b6f49b965af5f91181c",
+  "historical_mail18_browser_release_deployed": {
+    "id": "0.3.0-sparkclaw.18",
+    "source_commit": "b14531f7c56e1b8c2fb8035e53538fc7f23e6609",
+    "cleanup_fence_present": false,
+    "services_active": true,
+    "tampermonkey_product_version": "5.5.0.10",
+    "temporary_policy_logging": "removed; formal service parameters restored; Controller and all four current Reader checks passed",
+    "runtime_digest": "7140a8bcc7d7d1d3bf52aa12971d8c4ae0f7db94b0eb07d5e422f8a826d89040",
+    "gateway_image": "sparkclaw-gateway:work2-mail-b14531f7",
+    "webchat_image": "sparkclaw-webchat:work2-ui-9e35cdda",
+    "reader_policy_restaged": false,
+    "reader_policy_unchanged": true,
+    "gateway_healthy": true,
+    "temporary_mail_send_evidence_logging": true,
+    "gateway_image_sha256": "4a578ac3fd28a763e8a7f1caaa956985d40d3c64a8e53377a598e7311b6b0964"
+  },
+  "historical_mail17_final_health": {
+    "gateway_healthy": true,
+    "browser_controller_executor_active": true,
+    "service_restart_count": 0,
+    "cleanup_fence_present": false,
+    "executor_epoch": 16,
+    "both_providers_watch_ready": true,
+    "paired_release_check": true,
+    "all_four_managed_reader_checks": true,
+    "checkpoint_at": "2026-10-10T04:33:46Z",
+    "original_unknown_records_preserved": true
+  },
+  "work2_pre20_checkpoint": {
+    "source_before": "6fd124dc90f6b9abe2b2ac914ffa457241991282",
+    "source_after": "8045c110107d1529ccabd364a146475d4a32373e",
+    "old_release": "0.3.0-sparkclaw.19",
+    "gateway_image_before": "sha256:470d9a55101142bc6554edda42c89f539cb7ee4aa80715867c8c5eb4cc19a877",
+    "postgres_sha256": "33d4e863caa71dacceda4c040a36362b5e4d5e9dd91732fd5b1fa46a37ae84c8",
     "postgres_restore_list_valid": true,
-    "paired_state_sha256": "4cd04abf2a030105007617991a1feb12d010d650536bed5449ba6838fbfc76be",
-    "paired_state_bytes": 181597209,
+    "paired_state_sha256": "66bb964a48a8d207d7be782bd33e79389e828c093385df0544fd8e34955644b9",
+    "paired_state_bytes": 194137405,
     "all_owned_processes_absent": true,
     "all_service_cgroups_empty": true,
     "gateway_stopped_before_browser_services": true,

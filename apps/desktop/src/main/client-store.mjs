@@ -4,12 +4,18 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { captureFileBoundary, readOwnedFile } from "./local-file-boundary.mjs";
 import { WORKBENCH_LIMITS } from "../shared/workbench-limits.mjs";
+import { calendarMissed, nextCalendarTime, parseScheduleRequest, recurrenceSpec, zonedTime } from "./local-schedule-time.mjs";
 
-export const CLIENT_SCHEMA_VERSION = 8;
+export const CLIENT_SCHEMA_VERSION = 9;
 export const CLIENT_LIMITS = WORKBENCH_LIMITS;
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u;
+
+export function localContentType(name) {
+  return ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+    pdf: 'application/pdf', txt: 'text/plain', md: 'text/plain', csv: 'text/csv' })[name.split('.').at(-1)?.toLowerCase()] ?? 'application/octet-stream';
+}
 
 // This database contains only this installation's data. No server Store is
 // opened, imported or used as a fallback, including on a local disk failure.
@@ -27,14 +33,36 @@ export class ClientStore {
     try {
       this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
       const version = this.db.prepare("PRAGMA user_version").get().user_version;
-      if (version !== 0 && version !== 6 && version !== 7 && version !== CLIENT_SCHEMA_VERSION) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
+      if (![0, 6, 7, 8, CLIENT_SCHEMA_VERSION].includes(version)) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
       if (version === 0) this.#initialize();
       if (version === 6) this.#transaction(() => {
         this.db.exec(`CREATE TABLE execution_projection(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id),revision INTEGER NOT NULL,termination_reason TEXT NOT NULL,approval_receipts TEXT NOT NULL,event_state TEXT NOT NULL);
           CREATE TABLE event_projection(scope TEXT PRIMARY KEY,cursor TEXT NOT NULL,revision INTEGER NOT NULL,snapshot TEXT NOT NULL,epoch TEXT NOT NULL DEFAULT '');
-          PRAGMA user_version=${CLIENT_SCHEMA_VERSION};`);
+          PRAGMA user_version=8;`);
       });
-      if (version === 7) this.#transaction(() => { this.db.exec(`ALTER TABLE event_projection ADD COLUMN epoch TEXT NOT NULL DEFAULT ''; PRAGMA user_version=${CLIENT_SCHEMA_VERSION};`); });
+      if (version === 7) this.#transaction(() => { this.db.exec(`ALTER TABLE event_projection ADD COLUMN epoch TEXT NOT NULL DEFAULT ''; PRAGMA user_version=8;`); });
+      if (version !== 0 && version < CLIENT_SCHEMA_VERSION) this.#transaction(() => {
+        this.db.exec(`CREATE TABLE message_files(message_id TEXT NOT NULL REFERENCES messages(id),file_id TEXT NOT NULL REFERENCES files(id),PRIMARY KEY(message_id,file_id));
+          ALTER TABLE conversations ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;
+          ALTER TABLE schedule_definitions ADD COLUMN calendar TEXT NOT NULL DEFAULT '{}';
+          PRAGMA user_version=${CLIENT_SCHEMA_VERSION};`);
+        // Older assistant messages and deliveries are committed together, in
+        // identical insertion order. Backfill only when the counts agree.
+        for (const conversation of this.db.prepare("SELECT id FROM conversations").all()) {
+          const messages = this.db.prepare("SELECT id FROM messages WHERE conversation_id=? AND role='assistant' ORDER BY rowid").all(conversation.id);
+          const deliveries = this.db.prepare("SELECT d.request_id,d.sequence FROM deliveries d JOIN tasks t ON t.request_id=d.request_id WHERE t.conversation_id=? ORDER BY d.rowid").all(conversation.id);
+          if (messages.length === deliveries.length) deliveries.forEach((delivery, index) => {
+            for (const file of this.db.prepare("SELECT file_id FROM delivery_files WHERE request_id=? AND sequence=?").all(delivery.request_id, delivery.sequence)) {
+              this.db.prepare("INSERT OR IGNORE INTO message_files VALUES(?,?)").run(messages[index].id, file.file_id);
+            }
+          });
+          for (const task of this.db.prepare("SELECT context_json,created_at FROM tasks WHERE conversation_id=?").all(conversation.id)) {
+            const context = JSON.parse(task.context_json);
+            const matching = this.db.prepare("SELECT id FROM messages WHERE conversation_id=? AND role='user' AND content=? AND created_at=?").all(conversation.id, context.messages.at(-1)?.content ?? '', task.created_at);
+            if (matching.length === 1) for (const file of context.input_files ?? []) this.db.prepare("INSERT OR IGNORE INTO message_files SELECT ?,id FROM files WHERE id=? AND conversation_id=?").run(matching[0].id, file.id, conversation.id);
+          }
+        }
+      });
       this.installationID = this.db.prepare("SELECT value FROM metadata WHERE key='installation_id'").get().value;
       // Incomplete atomic file writes are never treated as delivered files.
       const committedFiles = new Set(this.db.prepare("SELECT id FROM files").all().map((file) => file.id));
@@ -54,7 +82,7 @@ export class ClientStore {
       this.db.exec(`
         CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE conversations(id TEXT PRIMARY KEY, scope TEXT NOT NULL, title TEXT NOT NULL,
-          created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL, hidden INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE messages(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id),
           role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE drafts(scope TEXT NOT NULL, conversation_id TEXT NOT NULL, content TEXT NOT NULL,
@@ -65,13 +93,14 @@ export class ClientStore {
           updated_at TEXT, submission_claim TEXT);
         CREATE TABLE files(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id),
           name TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL, created_at TEXT NOT NULL);
+        CREATE TABLE message_files(message_id TEXT NOT NULL REFERENCES messages(id),file_id TEXT NOT NULL REFERENCES files(id),PRIMARY KEY(message_id,file_id));
         CREATE TABLE deliveries(request_id TEXT NOT NULL REFERENCES tasks(request_id), sequence INTEGER NOT NULL,
           digest TEXT NOT NULL, acknowledged INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(request_id, sequence));
         CREATE TABLE delivery_files(request_id TEXT NOT NULL, sequence INTEGER NOT NULL,
           file_id TEXT NOT NULL REFERENCES files(id), remote_id TEXT NOT NULL,
           PRIMARY KEY(request_id, sequence, remote_id),
           FOREIGN KEY(request_id, sequence) REFERENCES deliveries(request_id, sequence));
-        CREATE TABLE schedule_definitions(id TEXT PRIMARY KEY, interval_ms INTEGER NOT NULL,
+        CREATE TABLE schedule_definitions(id TEXT PRIMARY KEY, interval_ms INTEGER NOT NULL, calendar TEXT NOT NULL DEFAULT '{}',
           state TEXT NOT NULL CHECK(state IN ('active','completed','canceled')));
         CREATE TABLE schedules(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id),
           schedule_id TEXT NOT NULL REFERENCES schedule_definitions(id), due_at TEXT NOT NULL,
@@ -93,17 +122,25 @@ export class ClientStore {
   }
 
   list(scope) {
-    return this.db.prepare("SELECT id,title,created_at,updated_at FROM conversations WHERE scope=? ORDER BY updated_at DESC,id")
+    return this.db.prepare("SELECT id,title,created_at,updated_at FROM conversations WHERE scope=? AND hidden=0 ORDER BY updated_at DESC,id")
       .all(scopeKey(scope));
   }
 
-  create(scope, title) {
+  create(scope, title, hidden = false) {
     title = boundedText(title, 320, "Conversation title").trim() || "New conversation";
     const now = new Date().toISOString();
     const conversation = { id: crypto.randomUUID(), title, created_at: now, updated_at: now };
-    this.db.prepare("INSERT INTO conversations VALUES(?,?,?,?,?)")
-      .run(conversation.id, scopeKey(scope), title, now, now);
+    this.db.prepare("INSERT INTO conversations VALUES(?,?,?,?,?,?)")
+      .run(conversation.id, scopeKey(scope), title, now, now, hidden ? 1 : 0);
     return conversation;
+  }
+
+  rename(scope, conversationID, title) {
+    this.#conversation(scope, conversationID);
+    title = boundedText(title, 320, "Conversation title").trim();
+    if (!title) throw new Error("Conversation title is empty");
+    this.db.prepare("UPDATE conversations SET title=?,updated_at=? WHERE id=?").run(title, new Date().toISOString(), conversationID);
+    return this.list(scope).find(conversation => conversation.id === conversationID);
   }
 
   remove(scope, conversationID) {
@@ -129,6 +166,7 @@ export class ClientStore {
         this.db.prepare("DELETE FROM schedule_definitions WHERE id=? AND NOT EXISTS (SELECT 1 FROM schedules WHERE schedule_id=?)")
           .run(definition.schedule_id, definition.schedule_id);
       }
+      this.db.prepare("DELETE FROM message_files WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=?)").run(conversationID);
       for (const table of ["tasks", "messages", "files"]) {
         this.db.prepare(`DELETE FROM ${table} WHERE conversation_id=?`).run(conversationID);
       }
@@ -151,10 +189,12 @@ export class ClientStore {
   read(scope, conversationID) {
     this.#conversation(scope, conversationID);
     return {
-      messages: this.db.prepare("SELECT id,role,content,created_at FROM messages WHERE conversation_id=? ORDER BY rowid").all(conversationID),
+      messages: this.db.prepare("SELECT id,role,content,created_at FROM messages WHERE conversation_id=? ORDER BY rowid").all(conversationID).map(message => ({ ...message,
+        attachments: this.db.prepare("SELECT f.id AS artifact_id,f.name,f.size AS bytes FROM message_files m JOIN files f ON f.id=m.file_id WHERE m.message_id=? ORDER BY m.rowid").all(message.id)
+          .map(file => ({ ...file, rel_path: `local:${file.artifact_id}/${file.name}`, content_type: localContentType(file.name) })) })),
       tasks: this.db.prepare("SELECT id,request_id,status,explicitly_submitted,created_at FROM tasks WHERE conversation_id=? ORDER BY rowid").all(conversationID)
         .map((task) => ({ ...task, ...this.executionProjection(scope, task.request_id), approvals: this.approvals(scope, task.request_id) })),
-      files: this.db.prepare("SELECT id,name,sha256,size,created_at FROM files WHERE conversation_id=? ORDER BY rowid").all(conversationID),
+      files: this.db.prepare("SELECT id,name,sha256,size,created_at FROM files WHERE conversation_id=? ORDER BY rowid").all(conversationID).map(file => ({ ...file, content_type: localContentType(file.name) })),
       schedules: this.db.prepare(`SELECT s.*,d.interval_ms,d.state AS definition_state FROM schedules s
         JOIN schedule_definitions d ON d.id=s.schedule_id JOIN tasks t ON t.request_id=s.request_id
         WHERE t.conversation_id=? ORDER BY s.rowid`).all(conversationID),
@@ -235,12 +275,14 @@ export class ClientStore {
       const snapshot = JSON.stringify({ ...envelope, messages: context });
       if (inputFiles.reduce((sum, file) => sum + file.size, Buffer.byteLength(snapshot)) > 32 * 1024 * 1024) throw new Error("Input exceeds 32 MiB task budget");
       const digest = hash(snapshot);
+      const messageID = crypto.randomUUID();
       this.db.prepare("INSERT INTO messages VALUES(?,?,?,?,?)")
-        .run(crypto.randomUUID(), conversationID, "user", content, now);
+        .run(messageID, conversationID, "user", content, now);
+      for (const file of inputFiles) this.db.prepare("INSERT INTO message_files VALUES(?,?)").run(messageID, file.id);
       this.db.prepare("INSERT INTO tasks(id,conversation_id,request_id,input_digest,context_json,status,created_at) VALUES(?,?,?,?,?,?,?)")
         .run(taskID, conversationID, requestID, digest, snapshot, scheduleSpec ? "scheduled_local" : "awaiting_runtime", now);
       if (scheduleSpec) {
-        this.db.prepare("INSERT INTO schedule_definitions VALUES(?,?,'active')").run(requestID, scheduleSpec.intervalMS);
+        this.db.prepare("INSERT INTO schedule_definitions(id,interval_ms,state,calendar) VALUES(?,?,'active',?)").run(requestID, scheduleSpec.intervalMS, JSON.stringify(scheduleSpec.calendar ?? {}));
         this.db.prepare("INSERT INTO schedules(request_id,schedule_id,due_at,state,created_at) VALUES(?,?,?,'saved',?)")
           .run(requestID, requestID, scheduleSpec.dueAt, now);
       }
@@ -254,22 +296,73 @@ export class ClientStore {
     return { id: taskID, request_id: requestID, status: scheduleSpec ? "scheduled_local" : "awaiting_runtime", created_at: now };
   }
 
-  schedule(scope, conversationID, content, dueAt, now = Date.now(), intervalMS = 0) {
+  schedule(scope, conversationID, content, dueAt, now = Date.now(), intervalMS = 0, calendar = {}) {
     const maxDelay = 366 * 24 * 60 * 60 * 1000;
     if (typeof dueAt !== "string" || !Number.isFinite(Date.parse(dueAt)) ||
         Date.parse(dueAt) <= now || Date.parse(dueAt) > now + maxDelay) throw new Error("Schedule must be within the next 366 days");
     if (!Number.isSafeInteger(intervalMS) || intervalMS < 0 ||
         (intervalMS !== 0 && (intervalMS < 60000 || intervalMS > maxDelay))) throw new Error("Schedule interval must be 0 or between one minute and 366 days");
-    const task = this.enqueue(scope, conversationID, content, [], { dueAt: new Date(dueAt).toISOString(), intervalMS });
+    if (Object.keys(calendar).length && (!['daily', 'weekly', 'monthly', 'weekdays'].includes(calendar.kind) || !calendar.timezone)) throw new Error('Schedule recurrence is invalid');
+    const task = this.enqueue(scope, conversationID, content, [], { dueAt: new Date(dueAt).toISOString(), intervalMS, calendar });
     return this.scheduledRequest(scope, task.request_id);
   }
 
   scheduledRequest(scope, requestID) {
     const task = this.request(scope, requestID);
-    const schedule = this.db.prepare(`SELECT s.*,d.interval_ms,d.state AS definition_state FROM schedules s
+    const schedule = this.db.prepare(`SELECT s.*,d.interval_ms,d.calendar,d.state AS definition_state FROM schedules s
       JOIN schedule_definitions d ON d.id=s.schedule_id WHERE s.request_id=?`).get(requestID);
     if (!schedule) throw new Error("Local schedule not found");
     return { ...task, ...schedule };
+  }
+
+  createScheduleRequest(scope, request, timezone, now = Date.now()) {
+    const plan = parseScheduleRequest(request, timezone, now);
+    return this.#transaction(() => {
+      const conversation = this.create(scope, 'Scheduled tasks', true);
+      return this.schedule(scope, conversation.id, plan.content, plan.dueAt, now, plan.intervalMS, plan.calendar);
+    });
+  }
+
+  listSchedules(scope) {
+    const rows = this.db.prepare(`SELECT s.request_id FROM schedules s JOIN tasks t ON t.request_id=s.request_id
+      JOIN conversations c ON c.id=t.conversation_id WHERE c.scope=? ORDER BY s.due_at DESC,s.rowid DESC`).all(scopeKey(scope));
+    const seen = new Set();
+    return rows.map(row => this.scheduledRequest(scope, row.request_id)).filter(row => {
+      if (['canceled', 'run_now', 'delivered'].includes(row.state)) return false;
+      if (row.definition_state !== 'active' && row.state !== 'missed' && !['claimed', 'submission_pending', 'accepted', 'running', 'cancel_pending', 'unknown'].includes(row.state)) return false;
+      const key = `${row.schedule_id}:${row.state === 'missed' ? 'missed' : row.state === 'saved' ? 'waiting' : row.request_id}`;
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    }).map(row => {
+      const calendar = JSON.parse(row.calendar);
+      const content = JSON.parse(row.context_json).messages.at(-1).content;
+      const conversation = this.db.prepare('SELECT title FROM conversations WHERE id=?').get(row.conversation_id);
+      return { id: row.request_id, session_id: row.conversation_id, title: content.slice(0, 120), text: content, due_time: row.due_at,
+        timezone: calendar.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+        recurrence: calendar.kind || (row.interval_ms ? `every ${row.interval_ms / 60000} minutes` : ''),
+        status: row.state === 'saved' ? 'pending' : row.state === 'missed' ? 'missed' : ['accepted', 'running'].includes(row.state) ? 'sending' : 'submitted',
+        updated_at: this.scheduleVersion(row), editable: row.state === 'saved' && row.definition_state === 'active' && !row.explicitly_submitted,
+        cancelable: row.definition_state === 'active' || ['claimed', 'submission_pending', 'accepted', 'running', 'cancel_pending', 'unknown'].includes(row.state),
+        endpoint: { channel: 'desktop', software_display_name: 'SparkX', conversation_label: conversation.title, status: 'active' },
+        local_state: row.state, missed_count: row.missed_count };
+    }).sort((a, b) => a.due_time.localeCompare(b.due_time));
+  }
+
+  scheduleVersion(row) {
+    return hash(JSON.stringify([row.context_json, row.due_at, row.interval_ms, row.calendar, row.state, row.definition_state, row.status]));
+  }
+
+  editSchedule(scope, requestID, expectedVersion, { text, dueTime, timezone, recurrence }, now = Date.now()) {
+    const dueAt = zonedTime(dueTime, timezone);
+    const spec = recurrenceSpec(recurrence, timezone, dueAt);
+    return this.#transaction(() => {
+      const row = this.scheduledRequest(scope, requestID);
+      if (this.scheduleVersion(row) !== expectedVersion || row.state !== 'saved' || row.definition_state !== 'active' || row.explicitly_submitted) throw new Error('Schedule changed or is already executing; refresh before editing.');
+      // Keep submitted snapshots immutable. Replacement is atomic and retires
+      // only an unclaimed local definition; prior occurrences remain auditable.
+      this.cancelSchedule(scope, requestID);
+      return this.schedule(scope, row.conversation_id, text, dueAt, now, spec.intervalMS, spec.calendar);
+    });
   }
 
   runScheduledNow(scope, requestID) {
@@ -294,7 +387,8 @@ export class ClientStore {
       this.db.prepare("UPDATE tasks SET explicitly_submitted=1,status='submission_pending',submission_claim=?,updated_at=? WHERE request_id=?")
         .run(claim, new Date(now).toISOString(), requestID);
       this.db.prepare("UPDATE schedules SET state='claimed',claimed_at=? WHERE request_id=?").run(new Date(now).toISOString(), requestID);
-      this.#advanceSchedule(schedule, Date.parse(schedule.due_at) + schedule.interval_ms, now);
+      const calendar = JSON.parse(schedule.calendar);
+      this.#advanceSchedule(schedule, calendar.kind ? Date.parse(nextCalendarTime(schedule.due_at, calendar)) : Date.parse(schedule.due_at) + schedule.interval_ms, now);
       return claim;
     });
   }
@@ -313,14 +407,16 @@ export class ClientStore {
       const schedule = this.scheduledRequest(scope, requestID);
       if (schedule.state !== "saved" || Date.parse(schedule.due_at) > now) return false;
       const due = Date.parse(schedule.due_at);
-      const count = schedule.interval_ms ? Math.floor((now - due) / schedule.interval_ms) + 1 : 1;
-      const lastDue = due + (count - 1) * schedule.interval_ms;
+      const calendar = JSON.parse(schedule.calendar);
+      const skipped = calendar.kind ? calendarMissed(schedule.due_at, calendar, now) : undefined;
+      const count = skipped?.count ?? (schedule.interval_ms ? Math.floor((now - due) / schedule.interval_ms) + 1 : 1);
+      const lastDue = skipped ? Date.parse(skipped.lastDue) : due + (count - 1) * schedule.interval_ms;
       // A closed-form missed range bounds a years-long offline scan. Every
       // skipped due time remains derivable from due_at/interval/count; none is queued.
       this.db.prepare("UPDATE schedules SET state='missed',missed_count=?,missed_until=? WHERE request_id=?")
         .run(count, new Date(lastDue).toISOString(), requestID);
       this.db.prepare("UPDATE tasks SET status='schedule_missed',updated_at=? WHERE request_id=?").run(new Date(now).toISOString(), requestID);
-      this.#advanceSchedule(schedule, lastDue + schedule.interval_ms, now);
+      this.#advanceSchedule(schedule, skipped ? Date.parse(skipped.nextDue) : lastDue + schedule.interval_ms, now);
       return true;
     });
   }
@@ -338,7 +434,7 @@ export class ClientStore {
   }
 
   #advanceSchedule(schedule, nextDue, now) {
-    if (!schedule.interval_ms) {
+    if (!schedule.interval_ms && !JSON.parse(schedule.calendar).kind) {
       this.db.prepare("UPDATE schedule_definitions SET state='completed' WHERE id=?").run(schedule.schedule_id);
       return;
     }
@@ -570,11 +666,13 @@ export class ClientStore {
       }
       this.#transaction(() => {
         const now = new Date().toISOString();
+        const messageID = crypto.randomUUID();
         this.db.prepare("INSERT INTO messages VALUES(?,?,?,?,?)")
-          .run(crypto.randomUUID(), task.conversation_id, "assistant", result.content, now);
+          .run(messageID, task.conversation_id, "assistant", result.content, now);
         this.db.prepare("INSERT INTO deliveries(request_id,sequence,digest) VALUES(?,?,?)").run(request_id, sequence, digest);
         for (const record of staged) {
           this.#fileManifest(task.conversation_id, record);
+          this.db.prepare("INSERT INTO message_files VALUES(?,?)").run(messageID, record.id);
           this.db.prepare("INSERT INTO delivery_files VALUES(?,?,?,?)").run(request_id, sequence, record.id, record.remote_id);
         }
         this.db.prepare("UPDATE tasks SET status='saved',updated_at=? WHERE request_id=?").run(now, request_id);
@@ -607,7 +705,7 @@ export class ClientStore {
     const id = crypto.randomUUID();
     const pending = path.join(this.filesRoot, `.pending-${id}`);
     const destination = path.join(this.filesRoot, id);
-    const record = { id, name, sha256: hash(value), size: value.byteLength, created_at: new Date().toISOString() };
+    const record = { id, name, sha256: hash(value), size: value.byteLength, content_type: localContentType(name), created_at: new Date().toISOString() };
     let fd;
     try {
       fd = fs.openSync(pending, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
@@ -652,15 +750,17 @@ export class ClientStore {
   }
 
   #transaction(operation) {
-    this.db.exec("BEGIN IMMEDIATE");
+    const depth = this.transactionDepth ?? 0, savepoint = `client_store_${depth}`;
+    this.db.exec(depth ? `SAVEPOINT ${savepoint}` : "BEGIN IMMEDIATE");
+    this.transactionDepth = depth + 1;
     try {
       const result = operation();
-      this.db.exec("COMMIT");
+      this.db.exec(depth ? `RELEASE ${savepoint}` : "COMMIT");
       return result;
     } catch (error) {
-      this.db.exec("ROLLBACK");
+      this.db.exec(depth ? `ROLLBACK TO ${savepoint}; RELEASE ${savepoint};` : "ROLLBACK");
       throw error;
-    }
+    } finally { this.transactionDepth = depth; }
   }
 }
 

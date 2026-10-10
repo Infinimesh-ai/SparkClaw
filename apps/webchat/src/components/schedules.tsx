@@ -116,9 +116,10 @@ type ScheduleBarProps = {
   onRefresh: () => void;
   onEdit: (schedule: Schedule, draft: ScheduleEditDraft) => Promise<void>;
   onDelete: (schedule: Schedule) => Promise<void>;
+  onRunNow?: (schedule: Schedule) => Promise<void>;
 };
 
-export function ScheduleBar({ schedules, open, loading, busyId, language, text, onToggle, onRefresh, onEdit, onDelete }: ScheduleBarProps) {
+export function ScheduleBar({ schedules, open, loading, busyId, language, text, onToggle, onRefresh, onEdit, onDelete, onRunNow }: ScheduleBarProps) {
   const [editing, setEditing] = useState<Schedule | null>(null);
   const [deleting, setDeleting] = useState<Schedule | null>(null);
   const [draft, setDraft] = useState<ScheduleEditDraft>({ text: "", dueTime: "", timezone: "", recurrence: "" });
@@ -197,7 +198,7 @@ export function ScheduleBar({ schedules, open, loading, busyId, language, text, 
                   <span className="scheduleEndpoint" title={endpoint}>{endpoint}</span>
                   <span className="schedulePattern" title={schedule.recurrence}>{schedulePattern(schedule, patternLabels)}</span>
                   <time dateTime={schedule.due_time}>{formatScheduleTime(schedule, language)}</time>
-                  <span className={`scheduleState ${schedule.status}`}>{schedule.status === "sending" ? text.schedules.statusSending : schedule.status === "missed" ? text.schedules.statusMissed : schedule.status === "submitted" ? text.schedules.statusSubmitted : text.schedules.statusPending}</span>
+                  <span className={`scheduleState ${schedule.status}`}>{schedule.local_state && localScheduleLabels[schedule.local_state] ? localScheduleLabels[schedule.local_state][language === 'zh' ? 0 : 1] : schedule.status === "sending" ? text.schedules.statusSending : schedule.status === "missed" ? text.schedules.statusMissed : schedule.status === "submitted" ? text.schedules.statusSubmitted : text.schedules.statusPending}{(schedule.missed_count ?? 0) > 1 ? ` · ${schedule.missed_count}` : ''}</span>
                   <div className="scheduleRowActions">
                     <button className="miniIconButton" type="button" onClick={() => beginEdit(schedule)} disabled={!schedule.editable || busy} title={schedule.editable ? text.schedules.edit : text.schedules.editUnavailable}>
                       <Pencil size={13} />
@@ -205,6 +206,7 @@ export function ScheduleBar({ schedules, open, loading, busyId, language, text, 
                     <button className="miniIconButton dangerIconButton" type="button" onClick={() => setDeleting(schedule)} disabled={!schedule.cancelable || busy} title={text.schedules.delete}>
                       <Trash2 size={13} />
                     </button>
+                    {schedule.status === 'missed' && onRunNow && <button className="miniIconButton" type="button" disabled={busy} title={language === 'zh' ? '立即执行新请求' : 'Run now as a new request'} onClick={() => void onRunNow(schedule).catch(() => {})}><ArrowUp size={13} /></button>}
                   </div>
                 </div>
               );
@@ -281,6 +283,14 @@ export function ScheduleBar({ schedules, open, loading, busyId, language, text, 
     </>
   );
 }
+
+const localScheduleLabels: Record<string, [string, string]> = {
+  claimed: ['正在提交', 'Submitting'], submission_pending: ['提交待核对', 'Submission awaiting reconciliation'],
+  cancel_pending: ['取消待确认', 'Cancellation awaiting confirmation'], accepted: ['已接收', 'Accepted'], running: ['执行中', 'Running'],
+  completed: ['结果已保存，确认待送达', 'Result saved; acknowledgement pending'], delivered: ['已完成', 'Completed'],
+  failed: ['执行失败', 'Execution failed'], unknown: ['执行结果待核实', 'Outcome awaiting verification'],
+  delivery_expired: ['交付已过期', 'Delivery expired'], delivery_too_large: ['结果超过传输上限', 'Result exceeds transfer limit'],
+};
 
 function scheduleEndpointLabel(schedule: Schedule, text: Copy) {
   const endpoint = schedule.endpoint;

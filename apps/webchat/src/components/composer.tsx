@@ -126,7 +126,7 @@ export function ComposerSurface({
         title={uploadingDocument ? text.chat.uploading : text.chat.upload} onClick={() => uploadInputRef.current?.click()}><Upload size={18} /></button>
       <button className="uploadButton" type="button" disabled={busy || choosingDocument || !canCompose || !filesEnabled}
         title={choosingDocument ? text.chat.choosingFile : text.chat.chooseFile} onClick={() => void onChooseDocument()}><FileSearch size={18} /></button>
-      {mailEnabled && <EmailPopupEntry text={text} language={language} />}
+      <EmailPopupEntry text={text} language={language} enabled={mailEnabled} />
       <VoiceInputControl voice={voice} text={text} onToggle={() => voice.toggle(currentVoiceAnchor())} />
       <textarea ref={composerInputRef} value={activeInput} onChange={(event) => onInputChange(event.target.value)} onKeyDown={keyDown}
         onCompositionStart={() => setIsComposingInput(true)} onCompositionEnd={() => { setIsComposingInput(false); setCompositionEndedAt(Date.now()); }}

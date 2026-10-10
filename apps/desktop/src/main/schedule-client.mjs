@@ -32,6 +32,25 @@ export class ScheduleClient {
     return this.#view(scope, schedule.request_id);
   }
 
+  list(scope) {
+    scope = this.#boundScope(scope); this.#sameIdentity(scope);
+    return this.store.listSchedules(scope);
+  }
+
+  createRequest(scope, request, timezone) {
+    scope = this.#boundScope(scope); this.#sameIdentity(scope);
+    const schedule = this.store.createScheduleRequest(scope, request, timezone, this.now());
+    this.onChange(); return this.#view(scope, schedule.request_id);
+  }
+
+  edit(scope, requestID, expectedVersion, draft) {
+    scope = this.#boundScope(scope);
+    return this.#serialized(scope, requestID, async () => {
+      const schedule = this.store.editSchedule(scope, requestID, expectedVersion, draft, this.now());
+      this.onChange(); return this.#view(scope, schedule.request_id);
+    });
+  }
+
   // Explicit status checks obey the same availability horizon as timer ticks.
   // No future registration or renewal API exists.
   async reconcile(scope, requestID) {

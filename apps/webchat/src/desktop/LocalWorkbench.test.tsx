@@ -13,6 +13,7 @@ function draftAPI() {
   const read = (id: string) => rows.get(id) ?? { scope_key: "test-scope", content: "", local_file_ids: [], revision: 0 };
   return {
     remove: vi.fn(async () => ({ deleted: true as const })),
+    rename: vi.fn(), listSchedules: vi.fn(async () => []), createScheduleRequest: vi.fn(), editSchedule: vi.fn(), readFile: vi.fn(),
     listFiles: vi.fn(async () => []),
     draft: vi.fn(async (id: string) => read(id)),
     saveDraft: vi.fn(async (id: string, content: string, local_file_ids: string[], revision: number) => {
@@ -50,6 +51,74 @@ afterEach(() => {
 });
 
 describe("workbench local workbench", () => {
+  it.each(['en', 'zh'] as const)('restores original rename, message attachments and stable unavailable entries in %s', async language => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+    const copy = dictionaries[language], row = { id: 'conversation', title: 'Original title', created_at: '', updated_at: '' };
+    const picture = { artifact_id: '11111111-1111-4111-8111-111111111111', name: 'photo.png', rel_path: 'local:11111111-1111-4111-8111-111111111111/photo.png', content_type: 'image/png' };
+    const output = { artifact_id: '22222222-2222-4222-8222-222222222222', name: 'output.html', rel_path: 'local:22222222-2222-4222-8222-222222222222/output.html', content_type: 'application/octet-stream' };
+    const rename = vi.fn(async (_id: string, title: string) => { row.title = title; return row; });
+    const exportFile = vi.fn(async () => ({ saved: true }));
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), rename, list: vi.fn(async () => [row]), create: vi.fn(),
+      read: vi.fn(async () => ({ messages: [{ id: 'input', role: 'user' as const, content: 'Input', created_at: '2026-10-10T00:00:00Z', attachments: [picture] }, { id: 'output', role: 'assistant' as const, content: 'Output', created_at: '2026-10-10T00:01:00Z', attachments: [picture, output] }], tasks: [], files: [] })),
+      enqueue: vi.fn(), saveFile: vi.fn(), exportFile, readFile: vi.fn(async () => ({ name: 'photo.png', content_type: 'image/png', bytes: new Uint8Array([137, 80, 78, 71]) })),
+      submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    const state = vi.fn();
+    window.sparkclawDesktop = { runtimeKind: 'electron', capabilityVersion: 1, state,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: 'service_unavailable', client_id: 'client', backend: { schema_version: 3, transport: 'iscp', deployment_id: 'deployment' }, capabilities: { surfaces: { files: { enabled: true } } } })) } as unknown as SparkClawDesktop;
+    const fetch = vi.fn(() => { throw new Error('Unexpected Gateway access'); }); vi.stubGlobal('fetch', fetch);
+    const OriginalURL = URL;
+    vi.stubGlobal('URL', class extends OriginalURL { static createObjectURL() { return 'blob:local-image'; } static revokeObjectURL() {} });
+    const open = vi.spyOn(window, 'open');
+    const host = document.createElement('div'), root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      expect(host.querySelector<HTMLButtonElement>('.emailEntryButton')?.disabled).toBe(true);
+      expect(host.querySelector<HTMLButtonElement>('.rightSidebarToggle')?.disabled).toBe(true);
+      expect(host.querySelector('.localDraftStatus')).toBeNull();
+      await act(async () => host.querySelector<HTMLButtonElement>('.sessionSelect')!.click());
+      expect(host.querySelectorAll('.messageAttachments img')).toHaveLength(1);
+      expect(host.querySelectorAll('.messageMediaImage')).toHaveLength(1);
+      expect(host.querySelector('.localFileRow')).toBeNull();
+      await act(async () => host.querySelector<HTMLButtonElement>('.messageDocumentResult')!.click());
+      expect(exportFile).toHaveBeenCalledWith(output.artifact_id); expect(open).not.toHaveBeenCalled();
+      await act(async () => host.querySelector<HTMLButtonElement>(`[title="${copy.nav.renameSession}"]`)!.click());
+      const input = host.querySelector<HTMLInputElement>('.sessionRenameForm input')!;
+      await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Updated title'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+      await act(async () => host.querySelector<HTMLFormElement>('.sessionRenameForm')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+      expect(rename).toHaveBeenCalledWith(row.id, 'Updated title');
+      expect(host.querySelector('.sessionSelect')?.textContent).toContain('Updated title');
+      expect(window.sparkclawClientStore!.enqueue).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled(); expect(state).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it('keeps the original schedule edit and delete dialogs across conversations with versioned local mutations', async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, 'en');
+    let rows: import('../api/types').Schedule[] = [{ id: 'other-request', session_id: 'other-conversation', title: 'Other schedule', text: 'Original content', due_time: '2026-10-12T09:00:00Z', timezone: 'UTC', recurrence: 'daily', status: 'pending', updated_at: 'exact-version', editable: true, cancelable: true, endpoint: { status: 'active', software_display_name: 'SparkX', conversation_label: 'Other conversation' } }];
+    const editSchedule = vi.fn(async (_id: string, _version: string, draft: import('../components/schedules').ScheduleEditDraft) => { rows = [{ ...rows[0], text: draft.text, title: draft.text }]; return {} as import('./clientStore').LocalSchedule; });
+    const scheduleCancel = vi.fn(async () => { rows = []; return {} as import('./clientStore').LocalSchedule; });
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => []), create: vi.fn(), read: vi.fn(), enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleRunNow: vi.fn(), scheduleCancel, editSchedule, listSchedules: vi.fn(async () => rows) };
+    window.sparkclawDesktop = { runtimeKind: 'electron', capabilityVersion: 1, localConnection: vi.fn(async () => ({ schema_version: 1, state: 'service_unavailable', client_id: 'client' })) } as unknown as SparkClawDesktop;
+    const host = document.createElement('div'), root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      await act(async () => host.querySelector<HTMLButtonElement>('.sidebarScheduleLink')!.click());
+      expect(host.querySelector('.scheduleEndpoint')?.textContent).toContain('Other conversation');
+      await act(async () => host.querySelector<HTMLButtonElement>(`[title="${dictionaries.en.schedules.edit}"]`)!.click());
+      const input = host.querySelector<HTMLTextAreaElement>('.scheduleDialog textarea')!;
+      await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Edited content'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+      await act(async () => host.querySelector<HTMLFormElement>('form.scheduleDialog')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+      expect(editSchedule).toHaveBeenCalledWith('other-request', 'exact-version', expect.objectContaining({ text: 'Edited content', recurrence: 'daily' }));
+      await act(async () => host.querySelector<HTMLButtonElement>(`[title="${dictionaries.en.schedules.delete}"]`)!.click());
+      await act(async () => host.querySelector<HTMLButtonElement>('.scheduleDeleteDialog .secondaryButton')!.click());
+      expect(scheduleCancel).not.toHaveBeenCalled();
+      await act(async () => host.querySelector<HTMLButtonElement>(`[title="${dictionaries.en.schedules.delete}"]`)!.click());
+      await act(async () => host.querySelector<HTMLButtonElement>('.scheduleDeleteDialog .dangerButton')!.click());
+      expect(scheduleCancel).toHaveBeenCalledWith('other-request');
+      expect(host.querySelector('.scheduleRow')).toBeNull();
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it.each(["en", "zh"] as const)("deletes local conversations with confirmation and updates selection in %s", async (language) => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
     const first = { id: "first", title: "First conversation", created_at: "", updated_at: "" };
@@ -189,7 +258,7 @@ describe("workbench local workbench", () => {
       expect(host.textContent).not.toContain("ISCP connection");
       expect(host.querySelectorAll<HTMLButtonElement>(".composer .uploadButton")).toHaveLength(2);
       for (const button of host.querySelectorAll<HTMLButtonElement>(".composer .uploadButton")) expect(button.disabled).toBe(true);
-      expect(host.querySelector(".emailEntryButton")).toBeNull(); expect(host.querySelector(".rightSidebarToggle")).toBeNull();
+      expect(host.querySelector<HTMLButtonElement>(".emailEntryButton")?.disabled).toBe(true); expect(host.querySelector<HTMLButtonElement>(".rightSidebarToggle")?.disabled).toBe(true);
       let input = host.querySelector<HTMLTextAreaElement>("form.composer textarea")!; expect(input.disabled).toBe(false);
       await act(async () => host.querySelector<HTMLButtonElement>(".sidebarAccountTrigger")!.click());
       const settings = [...host.querySelectorAll<HTMLButtonElement>(".sidebarAccountMenuItem")].find((button) => button.textContent === "Workspace settings")!;
@@ -361,7 +430,7 @@ describe("workbench local workbench", () => {
       await act(async () => root.unmount()); root = createRoot(host);
       await act(async () => root.render(<LocalWorkbench />)); await choose("First");
       expect(input().value).toBe("edited draft");
-      expect(host.textContent).toContain("Draft saved on this device");
+      expect(host.textContent).not.toContain("Draft saved on this device");
       expect(enqueue).not.toHaveBeenCalled(); expect(submit).not.toHaveBeenCalled();
     } finally { await act(async () => root.unmount()); }
   });
@@ -455,45 +524,39 @@ describe("workbench local workbench", () => {
     } finally { await act(async () => root.unmount()); }
   });
 
-  it.each([0, 3600000])("persists the explicit schedule interval %i and offers new-request recovery only when missed", async (intervalMS) => {
-    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+  it.each(["en", "zh"] as const)("uses original global schedule dialogs and retains missed recovery in %s", async (language) => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
     const row = { id: "conversation", title: "Scheduled conversation", created_at: "", updated_at: "" };
-    let schedules: import("./clientStore").LocalSchedule[] = [];
-    const scheduleCreate = vi.fn(async (_id: string, _content: string, dueAt: string) => {
-      const schedule = { request_id: "schedule-request", schedule_id: "schedule-request", interval_ms: intervalMS, definition_state: "completed" as const, missed_count: 1, due_at: dueAt, state: "missed" };
-      schedules = [schedule]; return schedule;
+    let schedules: import("../api/types").Schedule[] = [];
+    const createScheduleRequest = vi.fn(async () => {
+      schedules = [{ id: "schedule-request", title: "Run this once", text: "Run this once", due_time: "2026-10-11T12:00:00Z", timezone: "UTC", status: "missed", updated_at: "version", editable: false, cancelable: false, endpoint: { status: "active", software_display_name: "SparkX" } }];
+      return {} as import("./clientStore").LocalSchedule;
     });
-    const scheduleRunNow = vi.fn(async () => { schedules = [{ ...schedules[0], state: "run_now" }]; return schedules[0]; });
-    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => [row]), create: vi.fn(async () => row),
-      read: vi.fn(async () => ({ messages: [], tasks: [], files: [], schedules })), enqueue: vi.fn(),
+    const scheduleRunNow = vi.fn(async () => { schedules = []; return {} as import("./clientStore").LocalSchedule; });
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => [row]), create: vi.fn(),
+      read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue: vi.fn(),
       saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
-      scheduleCreate, scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow };
+      scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow,
+      listSchedules: vi.fn(async () => schedules), createScheduleRequest };
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
-      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client" })) } as unknown as SparkClawDesktop;
-    const host = document.createElement("div"); const root = createRoot(host);
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "service_unavailable", client_id: "client" })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"), root = createRoot(host);
     try {
       await act(async () => root.render(<LocalWorkbench />));
-      await act(async () => host.querySelector<HTMLButtonElement>("nav button")!.click());
       await act(async () => host.querySelector<HTMLButtonElement>(".sidebarScheduleLink")!.click());
-      expect(scheduleCreate).not.toHaveBeenCalled();
-      await act(async () => {
-        const draft = host.querySelector<HTMLTextAreaElement>("#scheduleDraft")!;
-        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(draft, "Run this once");
-        draft.dispatchEvent(new Event("input", { bubbles: true }));
-        const date = host.querySelector<HTMLInputElement>("#scheduleDate")!;
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(date, "2026-10-03T20:00");
-        date.dispatchEvent(new Event("input", { bubbles: true }));
-        const interval = host.querySelector<HTMLSelectElement>("#scheduleInterval")!;
-        interval.value = String(intervalMS);
-        interval.dispatchEvent(new Event("change", { bubbles: true }));
-      });
-      await act(async () => host.querySelector<HTMLFormElement>(".localSchedules form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-      expect(scheduleCreate).toHaveBeenCalledWith("conversation", "Run this once", new Date("2026-10-03T20:00").toISOString(), intervalMS);
-      const recover = [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Run now as a new request")!;
-      await act(async () => recover.click());
+      expect(window.sparkclawClientStore!.create).not.toHaveBeenCalled();
+      expect(host.querySelector('.localSchedules')).toBeNull();
+      await act(async () => host.querySelector<HTMLButtonElement>(".workbenchPageHeader .primaryButton")!.click());
+      const input = host.querySelector<HTMLTextAreaElement>(".scheduleCreateDialog textarea")!;
+      await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Tomorrow at 9 AM, run this once"); input.dispatchEvent(new Event("input", { bubbles: true })); });
+      await act(async () => host.querySelector<HTMLFormElement>(".scheduleCreateDialog")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      expect(createScheduleRequest).toHaveBeenCalledWith("Tomorrow at 9 AM, run this once", Intl.DateTimeFormat().resolvedOptions().timeZone);
+      expect(host.querySelector('.scheduleCreateDialog')).toBeNull();
+      expect(host.querySelectorAll('.scheduleRow')).toHaveLength(1);
+      const label = language === 'zh' ? '立即执行新请求' : 'Run now as a new request';
+      await act(async () => host.querySelector<HTMLButtonElement>(`[title="${label}"]`)!.click());
       expect(scheduleRunNow).toHaveBeenCalledWith("schedule-request");
-      expect(host.textContent).toContain("Started as a new request");
-      expect([...host.querySelectorAll<HTMLButtonElement>("button")].some((button) => button.textContent === "Run now as a new request")).toBe(false);
+      expect(host.querySelectorAll('.scheduleRow')).toHaveLength(0);
     } finally { await act(async () => root.unmount()); }
   });
 
@@ -532,6 +595,7 @@ describe("workbench local workbench", () => {
       expect(window.sparkclawClientStore!.submit).not.toHaveBeenCalled();
     } finally { release(); await act(async () => root.unmount()); }
   });
+
 
   it("keeps cached, expired and uncertain approvals read-only, with only the original saved choice available for retry", async () => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");

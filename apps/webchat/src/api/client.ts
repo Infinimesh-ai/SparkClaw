@@ -340,11 +340,30 @@ export async function fetchAuthedBlob(url: string, signal?: AbortSignal) {
   return response.blob();
 }
 
-export function fetchDocumentFile(path: string, sessionId = "", signal?: AbortSignal) {
+export async function fetchDocumentFile(path: string, sessionId = "", signal?: AbortSignal) {
+  if (path.startsWith('local:')) {
+    const id = localDocumentID(path);
+    if (!window.sparkclawClientStore) throw new Error('Local files are unavailable');
+    signal?.throwIfAborted();
+    const file = await window.sparkclawClientStore.readFile(id);
+    signal?.throwIfAborted();
+    return new Blob([new Uint8Array(file.bytes)], { type: file.content_type });
+  }
   return fetchAuthedBlob(documentFileURL(path, sessionId), signal);
 }
 
+function localDocumentID(path: string) {
+  const match = /^local:([a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})(?:\/[^/\\]+)?$/u.exec(path);
+  if (!match) throw new Error('Local file reference is invalid');
+  return match[1];
+}
+
 export async function openDocumentFile(path: string, sessionId = "") {
+  if (path.startsWith('local:')) {
+    if (!window.sparkclawClientStore) throw new Error('Local files are unavailable');
+    await window.sparkclawClientStore.exportFile(localDocumentID(path));
+    return;
+  }
   const target = window.open("", "_blank");
   try {
     const blob = await fetchDocumentFile(path, sessionId);

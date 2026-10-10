@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { localContentType } from "./client-store.mjs";
 const CHANNEL = "sparkclaw-client-store:invoke";
 
 export class ClientStoreCapability {
@@ -25,7 +26,7 @@ export class ClientStoreCapability {
       throw new Error("Invalid ClientStore request");
     }
     const capabilities = this.getCapabilities();
-    if (capabilities?.files === false && ["saveFile", "exportFile", "listFiles"].includes(request.operation)) throw new Error("Files are unavailable through this transport");
+    if (capabilities?.files === false && ["saveFile", "exportFile", "listFiles", "readFile"].includes(request.operation)) throw new Error("Files are unavailable through this transport");
     if (capabilities?.approvals === false && request.operation === "decideApproval") throw new Error("Approvals are unavailable through this transport");
     const scope = { deployment_id: identity.deployment_id, owner_id: identity.owner_id, client_id: identity.client_id };
     const draftScope = crypto.createHash("sha256").update(JSON.stringify(scope)).digest("hex");
@@ -44,6 +45,9 @@ export class ClientStoreCapability {
       case "remove":
         keys(request, ["conversation_id"]);
         return this.store.remove(scope, request.conversation_id);
+      case "rename":
+        keys(request, ["conversation_id", "title"]);
+        return this.store.rename(scope, request.conversation_id, request.title);
       case "read":
         keys(request, ["conversation_id"]);
         {
@@ -89,6 +93,19 @@ export class ClientStoreCapability {
         keys(request, ["conversation_id", "content", "due_at", "interval_ms"]);
         if (!this.schedules) throw new Error("Schedule client is unavailable");
         return this.schedules.create(scope, request.conversation_id, request.content, request.due_at, request.interval_ms);
+      case "listSchedules":
+        keys(request, []);
+        if (!this.schedules) throw new Error("Schedule client is unavailable");
+        return this.schedules.list(scope);
+      case "createScheduleRequest":
+        keys(request, ["content", "timezone"]);
+        if (!this.schedules) throw new Error("Schedule client is unavailable");
+        return this.schedules.createRequest(scope, request.content, request.timezone);
+      case "editSchedule":
+        keys(request, ["request_id", "expected_version", "draft"]);
+        if (!request.draft || typeof request.draft !== 'object' || Object.keys(request.draft).sort().join(',') !== 'dueTime,recurrence,text,timezone') throw new Error('Invalid schedule edit fields');
+        if (!this.schedules) throw new Error("Schedule client is unavailable");
+        return this.schedules.edit(scope, request.request_id, request.expected_version, request.draft);
       case "scheduleCheck":
       case "scheduleCancel":
       case "scheduleRunNow":
@@ -101,6 +118,12 @@ export class ClientStoreCapability {
       case "exportFile":
         keys(request, ["file_id"]);
         return this.exportFile(this.store.file(scope, request.file_id));
+      case "readFile":
+        keys(request, ["file_id"]);
+        {
+          const file = this.store.file(scope, request.file_id);
+          return { name: file.name, content_type: localContentType(file.name), bytes: new Uint8Array(file.content) };
+        }
       default:
         throw new Error("ClientStore operation is unavailable");
     }

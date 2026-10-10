@@ -269,14 +269,16 @@ test("duplicate displayed input filenames cannot create an ambiguous request or 
 });
 
 test('ISCP schema upgrades preserve existing installations, history, drafts and file bytes',t=>{
- for(const version of [6,7]){
+ for(const version of [6,7,8]){
   const root=fixture(t);let store=new ClientStore(root);
   const installation=store.installationID,conversation=store.create(scope,'existing history');
   const bytes=Buffer.from('existing attachment'),file=store.saveFile(scope,conversation.id,'existing.txt',bytes);
   const task=store.enqueue(scope,conversation.id,'existing user message',[file.id]);
   store.saveDraft(scope,conversation.id,'unsent draft',[file.id],0);const before=store.read(scope,conversation.id),inputDigest=store.request(scope,task.request_id).input_digest;
+  store.db.exec('DROP TABLE message_files; ALTER TABLE conversations DROP COLUMN hidden; ALTER TABLE schedule_definitions DROP COLUMN calendar;');
   if(version===6)store.db.exec('DROP TABLE execution_projection; DROP TABLE event_projection; PRAGMA user_version=6;');
-  else store.db.exec('ALTER TABLE event_projection DROP COLUMN epoch; PRAGMA user_version=7;');
+  else if(version===7)store.db.exec('ALTER TABLE event_projection DROP COLUMN epoch; PRAGMA user_version=7;');
+  else store.db.exec('PRAGMA user_version=8;');
   store.close();store=new ClientStore(root);
   try{
    assert.equal(store.installationID,installation);assert.equal(store.db.prepare('PRAGMA user_version').get().user_version,CLIENT_SCHEMA_VERSION);

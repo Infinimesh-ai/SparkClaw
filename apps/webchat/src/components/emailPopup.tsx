@@ -35,14 +35,14 @@ function emailInitials(value: string) {
   const name = value.split("@")[0]?.trim() || "?";
   return name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toLocaleUpperCase()).join("") || "?";
 }
-export function EmailPopupEntry({ text, language }: { text: Copy; language: Language }) {
+export function EmailPopupEntry({ text, language, enabled = true }: { text: Copy; language: Language; enabled?: boolean }) {
   const workspace = useMailWorkspace();
-  return <EmailPopupEntryContent key={workspace?.identity ?? "host"} text={text} language={language} />;
+  return <EmailPopupEntryContent key={workspace?.identity ?? "host"} text={text} language={language} entryEnabled={enabled} />;
 }
 
-function EmailPopupEntryContent({ text, language }: { text: Copy; language: Language }) {
+function EmailPopupEntryContent({ text, language, entryEnabled }: { text: Copy; language: Language; entryEnabled: boolean }) {
   const workspace = useMailWorkspace();
-  const enabled = workspace?.enabled ?? true;
+  const enabled = entryEnabled && (workspace?.enabled ?? true);
   const loginRequired = useEmailLoginAlert(enabled);
   const [open, setOpen] = useState(false);
   const [selection, setSelection] = useState("");

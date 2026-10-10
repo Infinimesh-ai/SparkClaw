@@ -921,6 +921,55 @@ This restores presentation and does not qualify missing transport operations or
 constitute final user acceptance. InfiniCenter remains unavailable at its
 configured ancestor anchors.
 
+## 9.14. Restore remaining workbench presentation (2026-10-10)
+
+The user requested all audited presentation regressions be repaired except message
+feedback. LocalWorkbench now shares the original ScheduleBar, natural-language
+create dialog, edit/delete dialogs and global schedule collection; it no longer
+renders the replacement conversation-specific form. Sidebar rename uses the
+original inline editor. Attachments return to their own messages, including the
+original image preview and document cards; the extra permanent Files area is
+removed. Mail and browser entries retain their positions and disable unavailable
+operations. Normal draft persistence is silent; failed saves still expose recovery.
+Stylesheets are unchanged. AGENTS.md now explicitly requires original components,
+menus, layouts and interactions to be preserved when adding functionality.
+
+Native adapters retain local ownership, draft durability, ordinary execution
+reconciliation and capability checks. Natural-language scheduling recognizes
+explicit local clock instructions in English/Chinese, including weekdays,
+calendar recurrence and fixed intervals; ambiguous input remains in the original
+dialog with an actionable error. Task content remains opaque. Future definitions
+are never registered with Gateway. Calendar recurrence preserves timezone, month
+anchors and wall time across daylight saving; offline occurrences remain missed
+and never auto-execute. The existing explicit run-now action creates a new request
+from a missed occurrence. Editing uses an exact version, atomically cancels an
+unclaimed definition and saves a replacement immutable request. Schedule rows span
+owned conversations; standalone definitions use hidden local contexts. Changing
+identity clears open schedule editors.
+
+ClientStore schema 9 upgrades versions 6/7/8 in place, backfills message attachment
+associations only from unambiguous existing records, and preserves all original
+history, file bytes, drafts and installation identity. Local attachment reads use
+owned UUIDs and verified bytes through trusted IPC; image previews never fetch
+Gateway files, and downloads use the native save dialog. Active HTML/SVG files
+remain downloads rather than renderer navigation. Rollback requires restoring the
+paired old application and its schema-8 profile, not launching an old binary
+against a migrated database.
+
+Validation passed: WebChat 264, Desktop 257, strict frontend build, contract and
+managed-preload checks, Mac native prepare/restore/revoke, and package parity for
+54 source files plus UI/helper and unchanged CSS. Go build/vet passed; the existing
+Mac temporary-path and Linux-memory-workspace fixture limitations were resolved
+by running the three affected suites in an isolated Linux container and production
+assembly on Mac. The installed /Applications/SparkX.app was checked for original
+schedule layout, create/cancel, rename/cancel and silent normal drafts. Paired
+application/profile/credential/config backups and the unchanged one-conversation,
+one-draft migration/restart receipt are under the private
+sparkclaw-upgrades/20261010-ui-restoration directory. Attachment display and
+schedule mutations use controlled regression fixtures, not new production data.
+Message feedback remains unchanged as requested. No backend rollout or final user
+acceptance is claimed. InfiniCenter is still unavailable at the ancestor anchors.
+
 ## 10. Related designs
 
 - [Local ISCP integration and renewal acceptance](desktop-iscp-connection-design.md): implemented baseline and actual evidence scope.

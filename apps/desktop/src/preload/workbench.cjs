@@ -18,6 +18,7 @@ if (process.argv.includes("--sparkclaw-client-store=1")) {
     listFiles: () => storeInvoke("listFiles"),
     create: (title) => storeInvoke("create", { title }),
     remove: (conversation_id) => storeInvoke("remove", { conversation_id }),
+    rename: (conversation_id, title) => storeInvoke("rename", { conversation_id, title }),
     read: (conversation_id) => storeInvoke("read", { conversation_id }),
     draft: (conversation_id) => storeInvoke("draft", { conversation_id }),
     saveDraft: (conversation_id, content, local_file_ids, revision, expected_scope) => storeInvoke("saveDraft", { conversation_id, content, local_file_ids, revision, expected_scope }),
@@ -31,11 +32,15 @@ if (process.argv.includes("--sparkclaw-client-store=1")) {
     cancel: (request_id) => storeInvoke("cancel", { request_id }),
     decideApproval: (request_id, approval_id, digest, decision) => storeInvoke("decideApproval", { request_id, approval_id, digest, decision }),
     scheduleCreate: (conversation_id, content, due_at, interval_ms = 0) => storeInvoke("scheduleCreate", { conversation_id, content, due_at, interval_ms }),
+    listSchedules: () => storeInvoke("listSchedules"),
+    createScheduleRequest: (content, timezone) => storeInvoke("createScheduleRequest", { content, timezone }),
+    editSchedule: (request_id, expected_version, draft) => storeInvoke("editSchedule", { request_id, expected_version, draft }),
     scheduleCheck: (request_id) => storeInvoke("scheduleCheck", { request_id }),
     scheduleCancel: (request_id) => storeInvoke("scheduleCancel", { request_id }),
     scheduleRunNow: (request_id) => storeInvoke("scheduleRunNow", { request_id }),
     saveFile: (conversation_id, name, bytes) => storeInvoke("saveFile", { conversation_id, name, bytes }),
     exportFile: (file_id) => storeInvoke("exportFile", { file_id }),
+    readFile: (file_id) => storeInvoke("readFile", { file_id }),
     onChange: (listener) => {
       if (typeof listener !== "function") throw new TypeError("ClientStore listener is invalid");
       const wrapped = () => listener();

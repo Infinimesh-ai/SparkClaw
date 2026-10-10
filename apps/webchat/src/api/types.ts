@@ -21,6 +21,8 @@ export type Schedule = {
   updated_at: string;
   editable: boolean;
   cancelable: boolean;
+  local_state?: string;
+  missed_count?: number;
   endpoint: {
     kind?: "web" | "third_party_device";
     channel?: string;

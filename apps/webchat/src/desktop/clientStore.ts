@@ -1,11 +1,11 @@
 export type LocalConversation = { id: string; title: string; created_at: string; updated_at: string };
-export type LocalMessage = { id: string; role: "user" | "assistant"; content: string; created_at: string };
+export type LocalMessage = { id: string; role: "user" | "assistant"; content: string; created_at: string; attachments?: import('../api/types').MessageAttachment[] };
 export type LocalApproval = { approval_id: string; digest: string; tool: string; summary: string; arguments: Record<string, unknown>;
   state: "pending" | "decision_pending" | "approved" | "rejected" | "resolved" | "expired" | "decision_unknown";
   decision?: "approve" | "reject" | null; expires_at: string; actionable?: boolean };
 export type LocalTask = { id: string; request_id: string; status: string; explicitly_submitted?: number; created_at: string; approvals?: LocalApproval[]; revision?: number; termination_reason?: string; approval_receipts?: Array<{ approval_id: string; digest: string; decision: string }> };
 export type LocalDraft = { scope_key: string; content: string; local_file_ids: string[]; revision: number };
-export type LocalFile = { id: string; name: string; size: number; sha256: string; created_at: string };
+export type LocalFile = { id: string; name: string; size: number; sha256: string; created_at: string; content_type?: string };
 export type LocalSchedule = { request_id: string; schedule_id: string; due_at: string; state: string;
   interval_ms: number; definition_state: "active" | "completed" | "canceled"; missed_count: number;
   missed_until?: string | null; claimed_at?: string | null; recovery_request_id?: string | null };
@@ -16,6 +16,7 @@ export type ClientStoreAPI = {
   listFiles: () => Promise<LocalFile[]>;
   create: (title: string) => Promise<LocalConversation>;
   remove: (id: string) => Promise<{ deleted: true; cleanup_pending?: boolean } | { deleted: false; reason: "pending_execution" }>;
+  rename: (id: string, title: string) => Promise<LocalConversation>;
   read: (id: string) => Promise<LocalConversationContent>;
   draft: (id: string) => Promise<LocalDraft>;
   saveDraft: (id: string, content: string, localFileIDs: string[], revision: number, expectedScope: string) => Promise<LocalDraft>;
@@ -27,11 +28,15 @@ export type ClientStoreAPI = {
   cancel: (requestID: string) => Promise<LocalTask>;
   decideApproval: (requestID: string, approvalID: string, digest: string, decision: "approve" | "reject") => Promise<{ resolved: true }>;
   scheduleCreate: (id: string, content: string, dueAt: string, intervalMS?: number) => Promise<LocalSchedule>;
+  listSchedules: () => Promise<import('../api/types').Schedule[]>;
+  createScheduleRequest: (content: string, timezone: string) => Promise<LocalSchedule>;
+  editSchedule: (requestID: string, expectedVersion: string, draft: import('../components/schedules').ScheduleEditDraft) => Promise<LocalSchedule>;
   scheduleCheck: (requestID: string) => Promise<LocalSchedule>;
   scheduleCancel: (requestID: string) => Promise<LocalSchedule>;
   scheduleRunNow: (requestID: string) => Promise<LocalSchedule>;
   saveFile: (id: string, name: string, bytes: Uint8Array) => Promise<LocalFile>;
   exportFile: (id: string) => Promise<{ saved: boolean }>;
+  readFile: (id: string) => Promise<{ name: string; content_type: string; bytes: Uint8Array }>;
   onChange?: (listener: () => void) => () => void;
 };
 

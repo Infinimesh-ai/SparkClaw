@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { FileDown, PanelLeft, PanelRight } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PanelLeft, PanelRight, Plus } from "lucide-react";
+import { ScheduleBar, ScheduleCreateDialog } from "../components/schedules";
+import { useLocalSchedules } from "./useLocalSchedules";
 import { SessionSidebar } from "../components/sidebar";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy } from "../components/workbench";
 import { MailWorkspaceContext } from "./MailWorkspaceContext";
@@ -47,9 +49,11 @@ export function LocalWorkbench() {
   const [content, setContent] = useState(emptyContent);
   const draftRef = useRef("");
   const inputFilesRef = useRef<string[]>([]);
-  const [scheduleDraft, setScheduleDraft] = useState("");
-  const [scheduleDate, setScheduleDate] = useState("");
-  const [scheduleInterval, setScheduleInterval] = useState(0);
+  const [scheduleCreateOpen, setScheduleCreateOpen] = useState(false);
+  const [scheduleBarOpen, setScheduleBarOpen] = useState(true);
+  const [editingSession, setEditingSession] = useState("");
+  const [sessionTitleDraft, setSessionTitleDraft] = useState("");
+  const [sessionActionID, setSessionActionID] = useState("");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [loading, setLoading] = useState(true);
@@ -60,7 +64,6 @@ export function LocalWorkbench() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mailIdentity, setMailIdentity] = useState(0);
-  const [mailAvailable, setMailAvailable] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [documentPickerOpen, setDocumentPickerOpen] = useState(false);
   const [tab, setTab] = useState<PanelTab>("timeline");
@@ -169,7 +172,7 @@ export function LocalWorkbench() {
     const generation = ++readGeneration.current;
     await selectDraft(id);
     if (generation !== readGeneration.current) return;
-    selectedRef.current = id; setSelected(id); setContent(emptyContent); setScheduleDraft(""); setScheduleDate("");
+    selectedRef.current = id; setSelected(id); setContent(emptyContent);
     if (capabilities.browser) await desktop.selectConversation?.(id);
     const next = await store.read(id);
     if (selectedRef.current === id && readGeneration.current === generation) setContent(next);
@@ -184,8 +187,7 @@ export function LocalWorkbench() {
         // in one React batch. Temporary capability loss is not an identity change.
         if (!scope || scope !== lastMailScope.current) {
           setMailIdentity(value => value + 1);
-          setMailAvailable(surfaceEnabled(status, "mail_popup") && Boolean(scope));
-        } else if (surfaceEnabled(status, "mail_popup")) setMailAvailable(true);
+        }
         lastMailScope.current = scope;
         setCurrentClientID(status.client_id ?? ""); setConnection(status);
       }
@@ -276,7 +278,7 @@ export function LocalWorkbench() {
       if (wasSelected) {
         drafts.accept(id, { content: "", attachment_ids: [], revision: 0 });
         selectedRef.current = ""; setSelected(""); setContent(emptyContent);
-        setScheduleDraft(""); setScheduleDate(""); setScheduleInterval(0);
+        setScheduleCreateOpen(false);
         setDocumentPickerOpen(false); setBrowserOpen(false); setPage("chat");
         await selectDraft("");
       }
@@ -328,21 +330,14 @@ export function LocalWorkbench() {
       setNotice(decision === "approve" ? (zh ? "批准决定已接收，任务将继续执行。" : "Approval accepted. The task can continue.") : (zh ? "拒绝决定已接收。" : "Rejection accepted."));
     } finally { if (selectedRef.current === id) setContent(await store.read(id)); await reload(); }
   }
-  async function schedule(event: FormEvent) {
-    event.preventDefault();
-    const id = selected;
-    if (!id || !scheduleDraft.trim() || !scheduleDate) return;
-    await action(async () => {
-      await store.scheduleCreate(id, scheduleDraft.trim(), new Date(scheduleDate).toISOString(), scheduleInterval);
-      if (selectedRef.current === id) { setScheduleDraft(""); setScheduleDate(""); setContent(await store.read(id)); }
-      await reload();
-      setNotice(zh ? "定时任务已保存。到期时工作台须在线；离线轮次永久跳过。" : "Schedule saved. Keep the workbench online when due; offline occurrences are permanently skipped.");
-    });
-  }
-  async function scheduleAction(requestID: string, operation: "scheduleCheck" | "scheduleCancel" | "scheduleRunNow") {
-    const id = selected;
-    try { await store[operation](requestID); }
-    finally { if (selectedRef.current === id) setContent(await store.read(id)); await reload(); }
+  async function renameConversation(id: string) {
+    if (busyRef.current || sessionActionID || !sessionTitleDraft.trim()) return;
+    setSessionActionID(id);
+    try {
+      await store.rename(id, sessionTitleDraft.trim());
+      await reload(); setEditingSession(""); setSessionTitleDraft("");
+    } catch (err) { surfaceError(err); }
+    finally { setSessionActionID(""); }
   }
   async function saveFile(file?: File) {
     if (!file) return undefined;
@@ -371,12 +366,16 @@ export function LocalWorkbench() {
     finally { setTraceLoading(false); }
   }
 
+  const localSchedules = useLocalSchedules(store, localScopeKey, page === "schedules" && !settings, surfaceError);
+  useEffect(() => { setEditingSession(""); setSessionTitleDraft(""); setScheduleCreateOpen(false); }, [localScopeKey]);
+  useEffect(() => { if (page !== "schedules" || settings) setScheduleCreateOpen(false); }, [page, settings]);
+  useEffect(() => { if (!capabilities.browser) setBrowserOpen(false); }, [capabilities.browser]);
   const text = dictionaries[language];
   const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
   const pendingCandidates = candidates.filter((candidate) => candidate.status === "pending");
   const activeAttachments = useMemo<MessageAttachment[]>(() => inputFiles.map((id) => {
     const file = content.files.find((item) => item.id === id);
-    return { artifact_id: id, rel_path: `local:${id}`, name: file?.name ?? id, bytes: file?.size };
+    return { artifact_id: id, rel_path: `local:${id}/${file?.name ?? id}`, name: file?.name ?? id, bytes: file?.size, content_type: file?.content_type };
   }), [content.files, inputFiles]);
   const localDocuments = useMemo<ArtifactObject[]>(() => content.files.map((file) => ({
     id: file.id,
@@ -384,7 +383,7 @@ export function LocalWorkbench() {
     backend: "client_store",
     key: file.name,
     uri: `local:${file.id}`,
-    content_type: "",
+    content_type: file.content_type ?? "",
     bytes: file.size,
     created_at: file.created_at
   })), [content.files]);
@@ -395,6 +394,10 @@ export function LocalWorkbench() {
       text={text} language={language} page={page} ownerProfile={ownerProfile}
       sessions={conversations} activeSession={selected} busy={busy}
       onCreateSession={() => void create()} onSelectSession={(conversation) => void select(conversation.id).catch(surfaceError)}
+      editingSession={editingSession} sessionTitleDraft={sessionTitleDraft} sessionActionId={sessionActionID}
+      onStartRename={(conversation) => { setEditingSession(conversation.id); setSessionTitleDraft(conversation.title); }}
+      onCancelRename={() => { setEditingSession(""); setSessionTitleDraft(""); }}
+      onTitleDraftChange={setSessionTitleDraft} onRenameSubmit={(id) => void renameConversation(id)}
       onDeleteSession={(id) => void deleteConversation(id)}
       onNavigate={(next) => { if (next === "settings") { setTab("settings"); setSettings(true); } else if (next === "schedules") setPage("schedules"); else void create(); }}
       onSearch={() => setSearchOpen(true)} onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
@@ -410,7 +413,7 @@ export function LocalWorkbench() {
             open={passiveNotifications.open} toast={passiveNotifications.toast} error={passiveNotifications.error}
             language={language} text={text} onToggle={() => passiveNotifications.setOpen((current) => !current)}
             onDismissToast={passiveNotifications.dismissToast} onRead={passiveNotifications.markRead} onReadAll={passiveNotifications.markAllRead} />
-          {capabilities.browser && typeof desktop.state === "function" && <button className={`iconButton rightSidebarToggle ${browserOpen ? "active" : ""}`} type="button" aria-label={copy.toggleInspector} title={zh ? "浏览器" : "Browser"} aria-expanded={browserOpen} onClick={() => setBrowserOpen((open) => !open)}><PanelRight size={18} /></button>}
+          {typeof desktop.state === "function" && <button disabled={!capabilities.browser || connection?.state !== "connected"} className={`iconButton rightSidebarToggle ${browserOpen ? "active" : ""}`} type="button" aria-label={copy.toggleInspector} title={zh ? "浏览器" : "Browser"} aria-expanded={browserOpen} onClick={() => setBrowserOpen((open) => !open)}><PanelRight size={18} /></button>}
         </div>
       </header>}
       {error && <div className="localFeedback" role="alert"><p>{error}</p><button type="button" onClick={() => void reload().then(async () => { if (iscp && connection?.state === "connected") await refreshGlobal(); setError(""); }).catch(surfaceError)}>{zh ? "重试读取" : "Retry loading"}</button></div>}
@@ -463,12 +466,7 @@ export function LocalWorkbench() {
                   </button>)}</div>}
                 </section>;
           })}
-          {!!content.files.length && <section aria-label={zh ? "文件" : "Files"}><h2>{zh ? "文件" : "Files"}</h2>
-            {content.files.map((file) => <div className="localFileRow" key={file.id}><label><input type="checkbox" disabled={busy || !capabilities.files || file.size > 8 * 1024 * 1024} checked={inputFiles.includes(file.id)} onChange={(event) => setInputFiles((current) => event.target.checked ? [...current, file.id] : current.filter((id) => id !== file.id))} />{file.name}<small>{file.size > 8 * 1024 * 1024 ? (zh ? "超过执行附件 8 MiB 限制" : "Exceeds the 8 MiB execution attachment limit") : (zh ? "加入下一条输入" : "Attach to next input")}</small></label><small>{new Intl.NumberFormat().format(file.size)} B</small>
-              <button type="button" disabled={busy} onClick={() => void action(async () => {
-                const result = await store.exportFile(file.id);
-                if (result.saved) setNotice(zh ? "已另存文件。" : "File exported.");
-              })}><FileDown size={16} />{zh ? "另存" : "Export"}</button></div>)}</section>}
+
 
         </div>
         <MailWorkspaceContext.Provider value={{
@@ -492,7 +490,7 @@ export function LocalWorkbench() {
         }}>
         <ComposerSurface text={text} language={language} activeSession={selected} activeInput={draft}
           activeAttachments={activeAttachments} busy={busy} voice={voice} composerInputRef={composerInputRef}
-          filesEnabled={capabilities.files} mailEnabled={mailAvailable || !iscp && capabilities.mail}
+          filesEnabled={capabilities.files} mailEnabled={capabilities.mail && connection?.state === "connected"}
           canCompose={drafts.ready} canSend={connection?.state === "connected" && drafts.ready && (!iscp || Boolean(runtimeConfig && ready && ownerProfile))}
           onInputChange={(value) => { draftRef.current = value; setDraft(value); }}
           onUploadDocument={saveFile}
@@ -504,35 +502,24 @@ export function LocalWorkbench() {
           onRemoveAttachment={(attachment) => setInputFiles((current) => current.filter((id) => id !== attachment.artifact_id))}
           onSend={() => void save(true)} />
         </MailWorkspaceContext.Provider>
-        <small className="localDraftStatus" role="status">{drafts.status === "saved" ? (zh ? "草稿已保存到本机" : "Draft saved on this device") : drafts.status === "error" ? (zh ? "草稿尚未保存，请保留此窗口并重试" : "Draft not saved. Keep this window open and retry") : drafts.status === "loading" ? (zh ? "读取草稿中" : "Loading draft") : (zh ? "正在保存草稿" : "Saving draft")}</small>{drafts.status === "error" && <div className="localDraftRecovery">
+        {drafts.status === "error" && <div className="localDraftRecovery" role="alert">
+          <p>{zh ? "草稿尚未保存，请保留此窗口并重试" : "Draft not saved. Keep this window open and retry"}</p>
           <button type="button" onClick={() => void drafts.flush().catch(surfaceError)}>{zh ? "重试保存草稿" : "Retry saving draft"}</button>
           <button type="button" onClick={() => void drafts.saveCurrentOverLatest().catch(surfaceError)}>{zh ? "用我的输入替换已保存草稿" : "Replace saved draft with my text"}</button>
         </div>}
         {documentPickerOpen && <ComposerDocumentPicker documents={localDocuments} text={text} language={language}
           onChoose={(document) => {
+            if (document.bytes > 8 * 1024 * 1024) { surfaceError(new Error(zh ? '文件超过执行附件 8 MiB 限制。' : 'File exceeds the 8 MiB execution attachment limit.')); return; }
             setInputFiles((current) => current.includes(document.id) ? current : [...current, document.id]);
             setDocumentPickerOpen(false);
           }} onClose={() => setDocumentPickerOpen(false)} />}
         </section>
         {page === "schedules" && <div className="workbenchPage schedulePage">
-          <header className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div></header>
-          {!selected && <div className="localScheduleEmpty"><p>{zh ? "先选择或新建一个任务，再安排执行时间。" : "Choose or create a task to schedule it."}</p><button className="primaryButton" type="button" onClick={() => void create()}>{copy.newTask}</button></div>}
-          {selected && <section className="localSchedules">
-            <p>{zh ? "首次执行可安排在未来 366 天内，并可按固定时长重复。工作台须保持在线；离线、休眠或重启期间错过的轮次不会补跑。循环任务的未来轮次仍可执行。" : "Schedule a first execution within 366 days, optionally repeating at a fixed interval. Keep the workbench online. Occurrences missed during offline time, sleep or restart stay skipped; future repetitions can still run."}</p>
-            {(content.schedules ?? []).map((item) => <div className="localTaskRow" key={item.request_id}><p><span>{new Date(item.due_at).toLocaleString(zh ? "zh-CN" : "en-US")}</span><span>{scheduleLabel(item.state, zh)}</span>{item.missed_count > 1 && <span>{zh ? `已跳过 ${item.missed_count} 个轮次` : `${item.missed_count} occurrences skipped`}</span>}</p>
-              <div className="localTaskActions">
-                {["saved", "claimed", "submission_pending", "accepted", "running", "cancel_pending", "unknown"].includes(item.state) && <button type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleCheck"))}>{zh ? "刷新状态" : "Refresh status"}</button>}
-                {(item.definition_state === "active" || ["claimed", "submission_pending", "accepted", "running", "cancel_pending"].includes(item.state)) && <button type="button" disabled={busy} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleCancel"))}>{zh ? "取消定时任务" : "Cancel schedule"}</button>}
-                {item.state === "missed" && <button type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(() => scheduleAction(item.request_id, "scheduleRunNow"))}>{zh ? "立即执行新请求" : "Run now as a new request"}</button>}
-              </div>
-            </div>)}
-            <form onSubmit={(event) => void schedule(event)}><label htmlFor="scheduleDraft">{zh ? "定时任务输入" : "Scheduled task input"}</label><textarea id="scheduleDraft" rows={2} value={scheduleDraft} disabled={busy} onChange={(event) => setScheduleDraft(event.target.value)} />
-              <label htmlFor="scheduleDate">{zh ? "本地到期时间" : "Due time in your local timezone"}</label><input id="scheduleDate" type="datetime-local" value={scheduleDate} disabled={busy} onChange={(event) => setScheduleDate(event.target.value)} />
-              <label htmlFor="scheduleInterval">{zh ? "重复间隔" : "Repeat interval"}</label><select id="scheduleInterval" value={scheduleInterval} disabled={busy} onChange={(event) => setScheduleInterval(Number(event.target.value))}>
-                <option value={0}>{zh ? "仅一次" : "Once"}</option><option value={3600000}>{zh ? "每 1 小时" : "Every 1 hour"}</option><option value={86400000}>{zh ? "每 24 小时" : "Every 24 hours"}</option><option value={604800000}>{zh ? "每 7 天" : "Every 7 days"}</option>
-              </select><button type="submit" disabled={busy || !scheduleDraft.trim() || !scheduleDate}>{zh ? "保存定时任务" : "Save schedule"}</button>
-            </form>
-          </section>}
+          <div className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div><button className="primaryButton" onClick={() => setScheduleCreateOpen(true)} disabled={busy || Boolean(localSchedules.busyID) || voice.active}><Plus size={15} />{copy.newSchedule}</button></div>
+          <ScheduleBar key={localScopeKey} schedules={localSchedules.schedules} open={scheduleBarOpen} loading={localSchedules.loading} busyId={localSchedules.busyID}
+            language={language} text={text} onToggle={() => setScheduleBarOpen(value => !value)}
+            onRefresh={() => void localSchedules.check().catch(() => {})} onEdit={localSchedules.edit} onDelete={localSchedules.cancel} onRunNow={localSchedules.runNow} />
+          {scheduleCreateOpen && <ScheduleCreateDialog busy={busy || Boolean(localSchedules.busyID)} text={text} onClose={() => setScheduleCreateOpen(false)} onCreate={localSchedules.create} />}
         </div>}
         {capabilities.browser && browserOpen && typeof desktop.state === "function" && <BrowserPanel language={language} localConversationID={selected} toolbar={<div className="localBrowserAuthorization">{selected && desktop.grantBrowserHost && <button className="localBrowserGrant" type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(async () => {
             await desktop.grantBrowserHost!();
@@ -542,18 +529,6 @@ export function LocalWorkbench() {
     </main>
     {searchOpen && <TaskSearch language={language} sessions={conversations} onSelect={(conversation) => { setSearchOpen(false); void select(conversation.id).catch(surfaceError); }} onClose={() => setSearchOpen(false)} />}
   </div>;
-}
-
-function scheduleLabel(state: string, zh: boolean) {
-  const labels: Record<string, [string, string]> = {
-    saved: ["已保存，等待本机到期调度", "Saved; waiting for local due time"], claimed: ["已领取轮次，提交待核对", "Occurrence claimed; submission awaiting reconciliation"],
-    submission_pending: ["提交待核对", "Submission awaiting reconciliation"], cancel_pending: ["取消待确认", "Cancellation awaiting confirmation"],
-    accepted: ["执行服务已接收", "Execution accepted"], running: ["执行中", "Running"], completed: ["结果已保存，确认待送达", "Result saved; acknowledgement pending"],
-    delivered: ["结果已保存并确认", "Result saved and acknowledged"], failed: ["执行失败", "Execution failed"], unknown: ["执行结果不确定，仅核对原请求", "Outcome uncertain; reconcile original request only"],
-    delivery_expired: ["交付已过期", "Delivery expired"], delivery_too_large: ["结果超过传输上限", "Result exceeds transfer limit"], missed: ["已错过，永久跳过", "Missed; permanently skipped"],
-    run_now: ["已作为新请求执行", "Started as a new request"], canceled: ["已取消", "Canceled"],
-  };
-  return labels[state]?.[zh ? 0 : 1] ?? (zh ? "状态待确认" : "Status awaiting confirmation");
 }
 
 function approvalLabel(state: LocalApproval["state"], zh: boolean) {

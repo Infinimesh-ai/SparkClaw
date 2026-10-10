@@ -593,11 +593,15 @@ task, saved its bound `not_sent` receipt and restored the draft to failed/versio
 through the Controller call; replaying the same task recovered it. Available
 logs do not establish the precise first-call failure cause. No new send occurred.
 
-A fixed empty-composer diagnostic reproduced the native menu problem: Outlook
-replaced a pointer-disabled action during its opening animation, leaving the
-marked action detached. No trusted native click or file-chooser event occurred.
-The candidate waits for a stable, uniquely owned action before binding it; real
-provider qualification remains pending. See the [diagnostic evidence](evidence/outlook-native-menu-diagnostic-2026-10-10.json).
+A fixed empty-composer diagnostic reproduced the native menu problem: a
+pointer-disabled action was replaced during the native click attempt, leaving
+the marked action detached. No trusted native click or file-chooser event
+occurred. The menu initially exists inside a transparent, non-interactive
+Callout; a bounded observation later saw it become interactive at approximately
+the existing five-second menu deadline. The candidate must wait for a uniquely
+owned, truly interactive and stable action before binding it. Actual native
+chooser/input qualification is still pending. See the
+[diagnostic evidence](evidence/outlook-native-menu-diagnostic-2026-10-10.json).
 
 The older `.16` ISCP attempt has no sufficient durable negative proof and remains
 unknown. Its record is preserved and it is not automatically retried. A separate

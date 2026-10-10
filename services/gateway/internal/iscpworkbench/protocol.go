@@ -82,7 +82,13 @@ func (r Request) Validate() error {
 				allowed = true
 			}
 		}
-		if !allowed || len(value) > 1024 {
+		limit := 1024
+		// The original mail popup batches up to 100 presentation identities.
+		// Only this typed JSON-array parameter needs more than a scalar bound.
+		if r.Operation == OperationMailPresentationsGet && key == "target_ids" {
+			limit = 32 << 10
+		}
+		if !allowed || len(value) > limit {
 			return errors.New("unsupported request parameter")
 		}
 	}

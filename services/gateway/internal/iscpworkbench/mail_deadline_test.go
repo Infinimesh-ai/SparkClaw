@@ -15,7 +15,7 @@ func TestMailRPCBudgetsAllowBoundedUploadsAndPreserveCancellation(t *testing.T) 
 		}
 		remaining := time.Until(deadline)
 		want := 30 * time.Second
-		if request.Operation == OperationMailDraftsSave || request.Operation == OperationMailDraftsSend || request.Operation == OperationMailDraftsReconcile || request.Operation == OperationMailSend || request.Operation == OperationMailProvidersCheck || request.Operation == OperationMailProvidersLogin {
+		if request.Operation == OperationMailDraftsSave || request.Operation == OperationMailDraftsSend || request.Operation == OperationMailDraftsReconcile || request.Operation == OperationMailSend || request.Operation == OperationMailProvidersCheck || request.Operation == OperationMailProvidersLogin || request.Operation == OperationMailIntakeUpdate || request.Operation == OperationMailRepliesPolish || request.Operation == OperationMailSourceCleanup || request.Operation == OperationMailConversationsDelete {
 			want = 180 * time.Second
 		}
 		if remaining > want || remaining < want-time.Second {
@@ -26,7 +26,7 @@ func TestMailRPCBudgetsAllowBoundedUploadsAndPreserveCancellation(t *testing.T) 
 		}
 		return Response{Status: 200, Body: json.RawMessage(`{}`)}
 	})
-	for _, op := range []string{OperationMailDraftsSave, OperationMailDraftsSend, OperationMailDraftsReconcile, OperationMailSend, OperationMailProvidersCheck, OperationMailProvidersLogin, OperationMailDraftsList, OperationTransferChunk, OperationSettingsOwnerGet} {
+	for _, op := range []string{OperationMailDraftsSave, OperationMailDraftsSend, OperationMailDraftsReconcile, OperationMailSend, OperationMailProvidersCheck, OperationMailProvidersLogin, OperationMailIntakeUpdate, OperationMailRepliesPolish, OperationMailSourceCleanup, OperationMailConversationsDelete, OperationMailDraftsList, OperationTransferChunk, OperationSettingsOwnerGet} {
 		r := Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: op, OperationID: newUUID(), Body: json.RawMessage(`{}`)}
 		response, err := initiator.Call(t.Context(), r)
 		if err != nil || response.Status != 200 {

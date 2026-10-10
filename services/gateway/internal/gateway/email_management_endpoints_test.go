@@ -49,9 +49,16 @@ func (b *noEmailBrowser) MarkReadForOwner(context.Context, string, app.EmailMark
 	return app.EmailMarkReadResult{}, fmt.Errorf("browser must not run inline")
 }
 
+type emailHTTPRepository interface {
+	emailmanagement.Repository
+	toolhub.Repository
+	agent.Repository
+	Repository
+}
+
 type emailHTTPFixture struct {
 	t       *testing.T
-	repo    *store.MemoryStore
+	repo    emailHTTPRepository
 	owner   string
 	root    string
 	box     app.EmailMailbox
@@ -64,16 +71,17 @@ func newEmailHTTPFixture(t *testing.T) *emailHTTPFixture {
 }
 
 func newEmailHTTPFixtureWithAnalyzer(t *testing.T, analyzer emailmanagement.Analyzer) *emailHTTPFixture {
-	f := &emailHTTPFixture{t: t, repo: store.NewMemoryStore(), owner: app.DefaultOwnerID, root: t.TempDir(), browser: &noEmailBrowser{}}
+	repo := store.NewMemoryStore()
+	f := &emailHTTPFixture{t: t, repo: repo, owner: app.DefaultOwnerID, root: t.TempDir(), browser: &noEmailBrowser{}}
 	cfg := testConfig(f.root)
 	cfg.Gateway.APIToken = "email-owner-token"
 	cfg.Gateway.RateLimit.Enabled = false
-	tools := toolhub.New(cfg, f.repo)
+	tools := toolhub.New(cfg, repo)
 	t.Cleanup(func() { _ = tools.Close() })
-	runtime := agent.NewRuntime(f.repo, tools, policy.New(cfg), modelrouter.New(cfg), nil)
+	runtime := agent.NewRuntime(repo, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 	service, err := emailmanagement.New(f.repo, f.browser, emailautomation.DefaultRegistry(), analyzer, nil, emailmanagement.Options{WorkspaceRoot: f.root, QualifiedProviderModes: map[string]string{app.EmailProviderGmail: app.EmailProviderModeTimeRange}})
 	f.must(err)
-	f.handler = New(cfg, f.repo, tools, runtime, WithEmailManagement(service)).Handler()
+	f.handler = New(cfg, repo, tools, runtime, WithEmailManagement(service)).Handler()
 	f.box, err = f.repo.BindEmailMailbox(t.Context(), store.EmailBindCommand{EmailCommand: f.command(), Provider: app.EmailProviderGmail, Address: "owner@example.com", Enabled: true})
 	f.must(err)
 	return f

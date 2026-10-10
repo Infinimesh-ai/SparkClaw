@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -187,6 +188,9 @@ func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.
 	case iscpworkbench.OperationNotificationsList, iscpworkbench.OperationNotificationsRead, iscpworkbench.OperationNotificationsReadAll:
 		return a.notifications(ctx, request)
 	default:
+		if slices.Contains(mailPopupOperations(), request.Operation) {
+			return a.mailPopup(ctx, request)
+		}
 		return domainError(501, "capability_unavailable")
 	}
 }

@@ -16,7 +16,10 @@ func workbenchOperationPermitted(spec iscpworkbench.OperationSpec, scopes []stri
 		return false
 	}
 	switch spec.Name {
-	case iscpworkbench.OperationMailProvidersUpdate, iscpworkbench.OperationMailProvidersCheck:
+	case iscpworkbench.OperationMailProvidersUpdate, iscpworkbench.OperationMailProvidersCheck,
+		iscpworkbench.OperationMailConversationsRename, iscpworkbench.OperationMailConversationsDelete,
+		iscpworkbench.OperationMailSourceCleanup, iscpworkbench.OperationMailClassification, iscpworkbench.OperationMailAssignment,
+		iscpworkbench.OperationMailSenderRulesUpdate, iscpworkbench.OperationMailIntakeUpdate, iscpworkbench.OperationMailRepliesPolish:
 		return slices.Contains(scopes, "mail.read")
 	case iscpworkbench.OperationMailProvidersLogin:
 		return slices.Contains(scopes, "mail.read") && slices.Contains(scopes, "settings.write")

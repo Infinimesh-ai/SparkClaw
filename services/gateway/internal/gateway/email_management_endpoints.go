@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -265,6 +267,19 @@ func (s *Server) getEmailMessageFile(w http.ResponseWriter, r *http.Request) {
 		writeEmailManagementError(w, err)
 		return
 	}
+	// Publish integrity metadata for the desktop-owned download path. OpenFile
+	// already validates the committed owner-scoped manifest; the client verifies
+	// these exact bytes before admitting them into its local ClientStore.
+	digest := sha256.New()
+	if _, err = io.Copy(digest, file); err != nil {
+		writeEmailManagementError(w, err)
+		return
+	}
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		writeEmailManagementError(w, err)
+		return
+	}
+	w.Header().Set("X-SparkClaw-Digest", hex.EncodeToString(digest.Sum(nil)))
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(name)}))
 	w.Header().Set("X-Content-Type-Options", "nosniff")

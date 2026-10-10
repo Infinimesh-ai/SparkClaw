@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-10-10T04:51:35.257288+00:00",
+  "updated_at": "2026-10-10T05:24:09.934028+00:00",
   "scope": "User-approved synthetic self-test messages; real installed SparkX and work2",
   "status": "qq_both_transports_qualified_outlook_pending",
   "runtime_release": "0.3.0-sparkclaw.17",
@@ -217,14 +217,37 @@
       "draft_id": "34b28df2-f9c4-405c-8822-744229cb26f8",
       "invocation_id": "email_send_2b5ccfb6377ba476",
       "executor_task_id": "8ee6bcb1-2637-4efe-aea2-d4ba61499a8a",
-      "state": "unknown",
+      "state": "failed",
       "effect": 1,
       "reason": "BROWSER_EXTENSION_UNAVAILABLE",
       "fixed_diagnostic_stage": "native_action_click",
       "native_action_seen": false,
       "durable_not_sent_proof_available": true,
-      "native_reconciliation_pending": true,
-      "qualified": false
+      "native_reconciliation_pending": false,
+      "qualified": false,
+      "version": 5,
+      "native_reconcile_click_count": 2,
+      "same_original_task_replayed": true,
+      "reconciliation_completed_at": "2026-10-10T05:11:10.501218Z",
+      "receipt": {
+        "status": "not_sent",
+        "not_sent": {
+          "kind": "pre_dispatch_failure",
+          "reason": "BROWSER_EXTENSION_UNAVAILABLE",
+          "task_id": "8ee6bcb1-2637-4efe-aea2-d4ba61499a8a",
+          "ledger_epoch": 16,
+          "intent_digest": "e911f693e83bee06a4820bb5fa237f39479fd5285f9618cc0b2ac0b94537a149",
+          "invocation_id": "email_send_2b5ccfb6377ba476",
+          "binding_digest": "64f155f1727b235277cedf4d2856b2fbd6a8d238d1ec03339839ff050070c70d",
+          "schema_version": 1,
+          "resource_digest": "48c6a5b58d00fd60fb36306780bbd496182537c1fa62b5f48b93f9654cff8eb5"
+        },
+        "provider": "outlook",
+        "script_revision": 2,
+        "recipient_digest": "sha256:2bf58f91280858fe3064316632defab33312259edcdff2cc1b9de56fb2e584aa",
+        "browser_credential_generation": 2941799844120501
+      },
+      "first_reconcile_failure_cause": "Controller call or return unavailable; precise cause not established"
     },
     "iscp": {
       "draft_id": "05e7cca5-b390-4762-ac1a-5a0430b715b5",
@@ -235,8 +258,16 @@
       "formal_not_sent_proof_available": false,
       "original_record_preserved": true,
       "automatic_retry_permitted": false,
-      "qualified": false
-    }
+      "qualified": false,
+      "replacement_draft": {
+        "id": "b57ff408-279f-406b-ade2-653227e89c53",
+        "version": 1,
+        "state": "draft",
+        "approved": false,
+        "sent": false
+      }
+    },
+    "diagnostic_evidence": "outlook-native-menu-diagnostic-2026-10-10.json"
   },
   "validation_note": "Sent timeline snapshots without provider capture do not establish delivery; QQ qualification uses separate inbound originals and matching on-disk MIME parts."
 }

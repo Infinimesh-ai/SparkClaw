@@ -587,12 +587,22 @@ hash, the decoded MIME part and the actual local copy. A local sent-message
 snapshot alone was not counted as delivery evidence.
 
 Outlook is not yet qualified. The `.17` direct attempt stopped at the native
-attachment-menu click and has a durable negative receipt bound to its exact
-task, intent and resource; explicit reconciliation is pending. The older `.16`
-ISCP attempt has no sufficient durable negative proof and remains unknown. Its
-record is preserved and it is not automatically retried. A fixed empty-composer
-diagnostic is investigating the native menu without sending another message.
-ASR/TTS and physical same-subnet LAN qualification remain outside these results.
+attachment-menu click. Explicit reconciliation retained the same invocation and
+task, saved its bound `not_sent` receipt and restored the draft to failed/version
+5. The first reconciliation completed in the Executor but failed to return
+through the Controller call; replaying the same task recovered it. Available
+logs do not establish the precise first-call failure cause. No new send occurred.
+
+A fixed empty-composer diagnostic reproduced the native menu problem: Outlook
+replaced a pointer-disabled action during its opening animation, leaving the
+marked action detached. No trusted native click or file-chooser event occurred.
+The candidate waits for a stable, uniquely owned action before binding it; real
+provider qualification remains pending. See the [diagnostic evidence](evidence/outlook-native-menu-diagnostic-2026-10-10.json).
+
+The older `.16` ISCP attempt has no sufficient durable negative proof and remains
+unknown. Its record is preserved and it is not automatically retried. A separate
+replacement draft is saved but not approved or sent. ASR/TTS and physical
+same-subnet LAN qualification remain outside these results.
 
 ## 10. Related designs
 

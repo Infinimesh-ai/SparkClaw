@@ -654,6 +654,64 @@ The old `.16` ISCP unknown record remains preserved; its separate replacement
 has not been approved or sent. Detailed current results are in the
 [mail evidence](evidence/mail-provider-send-2026-10-10.json).
 
+## 9.9. Outlook upload and real-send qualification (2026-10-10)
+
+Installed SparkX and work2 use `6fd124dc` with matched App-CLI `.19`
+(`4731f4c4b164501590b68ca0e6a0a213b36968bc98c6da72749c7c6095ea5e1e`).
+A fresh paired PostgreSQL/profile/runtime backup preceded the switch. Reader,
+Bridge, managed policy and desktop UI bytes are unchanged; all services are healthy.
+
+The actual Outlook failure was an empty screen-reader alert plus a newer
+attachment card without the legacy attachment identifier. Only the observed,
+truly empty alert is exempted; text, child nodes, error classes and accessible
+label/description references still reject. The newer card must match the exact
+name, integer byte size, complete Open summary, owned native input and verified
+byte manifest, with no pending state or extra card. Final verification evaluates
+the same DOM function twice while embedding it once, remaining below the existing
+32 KiB Host inspection limit. The exact final adapter passed a fixed 158-byte
+upload and final inspection on work2, with no Send and normal owned cleanup.
+[Upload qualification](evidence/outlook-native-upload-diagnostic-2026-10-10.json)
+also records the earlier failure and the intermediate candidate separately.
+
+The release also acknowledges accepted reconciliation as pending before returning
+to the caller, retaining the original invocation, effect and restart/cancellation
+fences. Reproducibility, paired install/rollback and projections pass. Linux
+Controller checks passed 210 cases with 107 explicit environment gates; 70
+related actual Chromium/CLI cases and 38 Python/socket/ledger recovery cases
+passed without skips.
+
+Outlook direct HTTPS now passes the approved real send, separate inbound original
+and native ClientStore attachment copy. The 19,138-byte original MIME contains
+the approved recipient/body and one attachment; its decoded bytes and the actual
+local copy both match the original 158-byte desktop hash. QQ retains its earlier
+complete qualification on both transports. The separately approved Outlook ISCP
+replacement failed before dispatch and was formally reconciled to failed/version
+5 using the same task and durable `not_sent` proof. Its first reconciliation was
+blocked by a Host cleanup fence from an expired concurrent QQ watcher. After
+proving all old processes gone and zero active/stale browser task tabs, only the
+Host fence and dead session were archived. The first reconciliation after that
+recovery succeeded. The QQ cleanup failure and Outlook action timeout are being
+investigated; temporal proximity does not establish a unique causal chain. The
+old `.16` unknown record remains preserved.
+Current receipts and exact versions are in the
+[mail evidence](evidence/mail-provider-send-2026-10-10.json).
+
+Controller now uses `KillMode=mixed`, retaining its 60-second deadline and final
+cgroup SIGKILL fallback. Four isolated real-systemd cases pass. The subsequent
+production stop released all owned processes and cgroups without timeout,
+SIGKILL or cleanup fence. Its exit status 1 was preserved, consistent with the
+previously qualified stopped-Executor cancellation path; the exact exception is
+not logged. The cleanup harness initially required zero incorrectly and was
+corrected after independently proving resource cleanup. The temporary mail
+diagnostic environment was removed, all services recovered with zero restarts,
+and native ISCP reconnected with the reviewed draft intact.
+
+The new Outlook card is qualified for exact integer-byte display. KB/MB or other
+unproved size representations fail closed; the general 10 MiB transfer boundary
+does not establish arbitrary-size real Outlook support. Direct mode uses work2's
+existing public pinned HTTPS ingress, so physical same-subnet LAN remains
+unverified. ASR/TTS remain deferred.
+
 ## 10. Related designs
 
 - [Local ISCP integration and renewal acceptance](desktop-iscp-connection-design.md): implemented baseline and actual evidence scope.

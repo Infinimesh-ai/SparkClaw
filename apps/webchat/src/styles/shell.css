@@ -312,8 +312,7 @@
 }
 
 .sessionItem:hover .sessionActions,
-.sessionItem:focus-within .sessionActions,
-.sessionItem.active .sessionActions {
+.sessionItem:has(:focus-visible) .sessionActions {
   opacity: 1;
 }
 

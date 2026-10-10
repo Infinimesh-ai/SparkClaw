@@ -29,6 +29,7 @@ export const en = {
       saveSessionName: "Save session name",
       deleteSession: "Delete session",
       confirmDeleteSession: "Delete this session?",
+      confirmDeleteLocalSession: "Delete this conversation and its local messages, drafts, files and schedules? This cannot be undone.",
       language: "Language",
       sessions: "Sessions"
     },

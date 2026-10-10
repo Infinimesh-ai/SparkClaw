@@ -17,6 +17,7 @@ if (process.argv.includes("--sparkclaw-client-store=1")) {
     list: () => storeInvoke("list"),
     listFiles: () => storeInvoke("listFiles"),
     create: (title) => storeInvoke("create", { title }),
+    remove: (conversation_id) => storeInvoke("remove", { conversation_id }),
     read: (conversation_id) => storeInvoke("read", { conversation_id }),
     draft: (conversation_id) => storeInvoke("draft", { conversation_id }),
     saveDraft: (conversation_id, content, local_file_ids, revision, expected_scope) => storeInvoke("saveDraft", { conversation_id, content, local_file_ids, revision, expected_scope }),

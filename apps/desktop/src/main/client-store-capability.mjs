@@ -41,6 +41,9 @@ export class ClientStoreCapability {
       case "create":
         keys(request, ["title"]);
         return this.store.create(scope, request.title);
+      case "remove":
+        keys(request, ["conversation_id"]);
+        return this.store.remove(scope, request.conversation_id);
       case "read":
         keys(request, ["conversation_id"]);
         {

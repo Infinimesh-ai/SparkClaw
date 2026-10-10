@@ -247,6 +247,32 @@ export function LocalWorkbench() {
       await reload(); await select(conversation.id);
     });
   }
+  async function deleteConversation(id: string) {
+    if (busyRef.current || !window.confirm(dictionaries[language].nav.confirmDeleteLocalSession)) return;
+    await action(async () => {
+      await drafts.flush();
+      ++readGeneration.current;
+      const result = await store.remove(id);
+      if (!result.deleted) {
+        setError(zh ? "此会话还有执行中或待核实的任务，请完成或取消并核实后再删除。" : "This conversation has an active or unresolved task. Finish or cancel it and verify its outcome before deleting.");
+        return;
+      }
+      draftScopes.delete(id);
+      setConversations((current) => current.filter((conversation) => conversation.id !== id));
+      if (result.cleanup_pending) setNotice(zh ? "会话已删除，但本地文件清理未完成。请重启应用重试清理。" : "Conversation deleted. Local file cleanup is pending; restart the app to retry cleanup.");
+      const wasSelected = selectedRef.current === id;
+      if (wasSelected) {
+        drafts.accept(id, { content: "", attachment_ids: [], revision: 0 });
+        selectedRef.current = ""; setSelected(""); setContent(emptyContent);
+        setScheduleDraft(""); setScheduleDate(""); setScheduleInterval(0);
+        setDocumentPickerOpen(false); setBrowserOpen(false); setPage("chat");
+        await selectDraft("");
+      }
+      const remaining = await store.list();
+      setConversations(remaining);
+      if (wasSelected && remaining[0]) await select(remaining[0].id);
+    });
+  }
   async function ensureConversation() {
     if (!selectedRef.current) {
       const conversation = await store.create(zh ? "新对话" : "New conversation");
@@ -357,6 +383,7 @@ export function LocalWorkbench() {
       text={text} language={language} page={page} ownerProfile={ownerProfile}
       sessions={conversations} activeSession={selected} busy={busy}
       onCreateSession={() => void create()} onSelectSession={(conversation) => void select(conversation.id).catch(surfaceError)}
+      onDeleteSession={(id) => void deleteConversation(id)}
       onNavigate={(next) => { if (next === "settings") { if (iscp) setTab(capabilities.settingsOwner ? "settings" : "appearance"); setSettings(true); } else if (next === "schedules") setPage("schedules"); else void create(); }}
       onSearch={() => setSearchOpen(true)} onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
       onLogout={() => void logout().catch(surfaceError)}

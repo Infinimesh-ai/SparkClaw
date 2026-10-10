@@ -8,6 +8,25 @@ import { dictionaries } from "../i18n";
 import { SessionSidebar } from "./sidebar";
 
 describe("SessionSidebar navigation and conversations", () => {
+  it("deletes the requested conversation without selecting it and disables deletion during actions", async () => {
+    const onDelete = vi.fn(), onSelect = vi.fn();
+    const host = document.createElement("div"), root = createRoot(host);
+    const render = (busy = false, sessionActionId = "") => root.render(<SessionSidebar
+      text={dictionaries.en} language="en" page="chat" ownerProfile={null}
+      sessions={[{ id: "one", title: "First" }, { id: "two", title: "Second" }]} activeSession="one"
+      onCreateSession={() => {}} onSearch={() => {}} onSelectSession={onSelect} onDeleteSession={onDelete}
+      busy={busy} sessionActionId={sessionActionId} />);
+    try {
+      await act(async () => render());
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Delete session: Second"]')!.click());
+      expect(onDelete).toHaveBeenCalledExactlyOnceWith("two"); expect(onSelect).not.toHaveBeenCalled();
+      for (const [busy, actionID] of [[true, ""], [false, "one"]] as const) {
+        await act(async () => render(busy, actionID));
+        for (const button of host.querySelectorAll<HTMLButtonElement>(".dangerIcon")) expect(button.disabled).toBe(true);
+      }
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it("omits managed MCP conversations from recent sessions", () => {
     const markup = renderToStaticMarkup(
       <SessionSidebar

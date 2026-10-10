@@ -2,6 +2,26 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ClientStoreCapability } from "../src/main/client-store-capability.mjs";
 
+test("conversation deletion IPC uses the authenticated local scope and rejects injected fields", async () => {
+  const frame = { url: "sparkclaw-app://workbench/index.html" }, webContents = { mainFrame: frame };
+  const identity = { deployment_id: "deployment", owner_id: "owner", client_id: "client" };
+  let current = identity;
+  const calls = [];
+  const capability = new ClientStoreCapability({ window: { webContents }, getIdentity: () => current,
+    store: { remove(scope, id) { calls.push([scope, id]); return { deleted: true }; } } });
+  const event = { sender: webContents, senderFrame: frame };
+  const request = { schema_version: 1, operation: "remove", conversation_id: "conversation" };
+  assert.deepEqual(await capability.dispatch(event, request), { deleted: true });
+  assert.deepEqual(calls, [[identity, "conversation"]]);
+  for (const injection of [{ owner_id: "another" }, { path: "/tmp" }, { force: true }]) {
+    await assert.rejects(capability.dispatch(event, { ...request, ...injection }), /fields/);
+  }
+  await assert.rejects(capability.dispatch({ ...event, senderFrame: { ...frame } }, request), /trusted/);
+  current = null;
+  await assert.rejects(capability.dispatch(event, request), /locked/);
+  assert.equal(calls.length, 1);
+});
+
 test("ClientStore IPC rejects web/subframe/scope injection and locks on signout", async () => {
   const frame = { url: "sparkclaw-app://workbench/index.html" };
   const webContents = { mainFrame: frame };

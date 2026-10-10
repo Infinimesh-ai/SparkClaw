@@ -157,7 +157,7 @@ export function SessionSidebar<T extends SidebarConversation>({
                   {onStartRename && <button className="miniIconButton" onClick={() => onStartRename?.(session)} disabled={sessionActionId === session.id} title={text.nav.renameSession}>
                     <Pencil size={13} />
                   </button>}
-                  {onDeleteSession && <button className="miniIconButton dangerIcon" onClick={() => onDeleteSession?.(session.id)} disabled={sessionActionId === session.id} title={text.nav.deleteSession}>
+                  {onDeleteSession && <button className="miniIconButton dangerIcon" type="button" onClick={() => onDeleteSession(session.id)} disabled={busy || Boolean(sessionActionId)} title={text.nav.deleteSession} aria-label={`${text.nav.deleteSession}: ${session.title}`}>
                     <Trash2 size={13} />
                   </button>}
                 </div>}

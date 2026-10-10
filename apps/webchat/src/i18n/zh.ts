@@ -31,6 +31,7 @@ export const zh = {
       saveSessionName: "保存会话名称",
       deleteSession: "删除会话",
       confirmDeleteSession: "确定删除这个会话吗？",
+      confirmDeleteLocalSession: "确定删除此会话及其本地消息、草稿、文件和定时任务吗？此操作无法撤销。",
       language: "语言",
       sessions: "会话"
     },

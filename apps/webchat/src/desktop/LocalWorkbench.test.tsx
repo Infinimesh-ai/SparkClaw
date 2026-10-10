@@ -12,6 +12,7 @@ function draftAPI() {
   const rows = new Map<string, LocalDraft>();
   const read = (id: string) => rows.get(id) ?? { scope_key: "test-scope", content: "", local_file_ids: [], revision: 0 };
   return {
+    remove: vi.fn(async () => ({ deleted: true as const })),
     listFiles: vi.fn(async () => []),
     draft: vi.fn(async (id: string) => read(id)),
     saveDraft: vi.fn(async (id: string, content: string, local_file_ids: string[], revision: number) => {
@@ -49,6 +50,78 @@ afterEach(() => {
 });
 
 describe("workbench local workbench", () => {
+  it.each(["en", "zh"] as const)("deletes local conversations with confirmation and updates selection in %s", async (language) => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+    const first = { id: "first", title: "First conversation", created_at: "", updated_at: "" };
+    const second = { ...first, id: "second", title: "Second conversation" };
+    const third = { ...first, id: "third", title: "Third conversation" };
+    let rows = [first, second, third];
+    const drafts = draftAPI();
+    await drafts.saveDraft(first.id, "First draft", [], 0);
+    await drafts.saveDraft(second.id, "Second draft", [], 0);
+    const remove = vi.fn(async (id: string) => { rows = rows.filter(row => row.id !== id); return { deleted: true as const }; });
+    window.sparkclawClientStore = { schemaVersion: 1, ...drafts, remove, list: vi.fn(async () => rows), create: vi.fn(),
+      read: vi.fn(async (id: string) => ({ messages: [{ id, role: "assistant" as const, content: `${id} history`, created_at: "2026-10-10T00:00:00Z" }], tasks: [], files: [] })),
+      enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
+      scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "service_unavailable", client_id: "client",
+        backend: { schema_version: 2, transport: "iscp", deployment_id: "deployment" } })) } as unknown as SparkClawDesktop;
+    const fetch = vi.fn(() => { throw new Error("unexpected network request"); }); vi.stubGlobal("fetch", fetch);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const host = document.createElement("div"), root = createRoot(host);
+    const deleteButton = (title: string) => host.querySelector<HTMLButtonElement>(`[aria-label="${dictionaries[language].nav.deleteSession}: ${title}"]`)!;
+    const input = () => host.querySelector<HTMLTextAreaElement>(".composer textarea")!;
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      await act(async () => host.querySelector<HTMLButtonElement>(".sessionSelect")!.click());
+      expect(input().value).toBe("First draft");
+      await act(async () => deleteButton(third.title).click());
+      expect(confirm).toHaveBeenCalledWith(dictionaries[language].nav.confirmDeleteLocalSession);
+      expect(remove).not.toHaveBeenCalled();
+      confirm.mockReturnValue(true);
+      await act(async () => deleteButton(third.title).click());
+      expect(input().value).toBe("First draft"); expect(host.textContent).toContain("first history");
+      expect(host.textContent).not.toContain(third.title);
+      await act(async () => deleteButton(first.title).click());
+      expect(host.querySelector(".sessionItem.active")?.textContent).toContain(second.title);
+      expect(input().value).toBe("Second draft"); expect(host.textContent).toContain("second history");
+      expect(host.textContent).not.toContain("first history");
+      await act(async () => deleteButton(second.title).click());
+      expect(host.querySelectorAll(".sessionItem")).toHaveLength(0);
+      expect(input().value).toBe(""); expect(host.querySelector(".homeChat")).not.toBeNull();
+      expect(remove.mock.calls).toEqual([[third.id], [first.id], [second.id]]);
+      expect(window.sparkclawClientStore.create).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it.each(["blocked", "failed"])("preserves conversation and draft when deletion is %s", async (outcome) => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    const row = { id: "conversation", title: "Keep conversation", created_at: "", updated_at: "" };
+    const drafts = draftAPI(); await drafts.saveDraft(row.id, "Keep draft", [], 0);
+    const remove = vi.fn(async () => {
+      if (outcome === "failed") throw new Error("Disk unavailable");
+      return { deleted: false as const, reason: "pending_execution" as const };
+    });
+    window.sparkclawClientStore = { schemaVersion: 1, ...drafts, remove, list: vi.fn(async () => [row]), create: vi.fn(),
+      read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(),
+      submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "service_unavailable", client_id: "client" })) } as unknown as SparkClawDesktop;
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const host = document.createElement("div"), root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      await act(async () => host.querySelector<HTMLButtonElement>(".sessionSelect")!.click());
+      await act(async () => host.querySelector<HTMLButtonElement>(".dangerIcon")!.click());
+      expect(remove).toHaveBeenCalledWith(row.id);
+      expect(host.querySelector(".sessionItem.active")?.textContent).toContain(row.title);
+      expect(host.querySelector<HTMLTextAreaElement>(".composer textarea")?.value).toBe("Keep draft");
+      expect(host.querySelector('[role="alert"]')?.textContent).toContain(outcome === "failed" ? "Disk unavailable" : "active or unresolved task");
+      expect(host.querySelector<HTMLButtonElement>(".dangerIcon")?.disabled).toBe(false);
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it("LAN mail opens the original popup and enables local attachments after fresh compose capabilities", async () => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}")));

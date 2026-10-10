@@ -15,6 +15,7 @@ export type ClientStoreAPI = {
   list: () => Promise<LocalConversation[]>;
   listFiles: () => Promise<LocalFile[]>;
   create: (title: string) => Promise<LocalConversation>;
+  remove: (id: string) => Promise<{ deleted: true; cleanup_pending?: boolean } | { deleted: false; reason: "pending_execution" }>;
   read: (id: string) => Promise<LocalConversationContent>;
   draft: (id: string) => Promise<LocalDraft>;
   saveDraft: (id: string, content: string, localFileIDs: string[], revision: number, expectedScope: string) => Promise<LocalDraft>;

@@ -15,6 +15,104 @@ function fixture(t) {
 }
 const digest = (text) => crypto.createHash("sha256").update(text).digest("hex");
 
+test("conversation deletion removes its owned records and bytes durably while preserving other scopes", (t) => {
+  const root = fixture(t);
+  let store = new ClientStore(root);
+  const target = store.create(scope, "delete");
+  const other = store.create(scope, "keep");
+  const otherScope = { ...scope, owner_id: "another-owner" };
+  const privateConversation = store.create(otherScope, "private");
+  const file = store.saveFile(scope, target.id, "input.txt", Buffer.from("delete bytes"));
+  const keptFile = store.saveFile(scope, other.id, "keep.txt", Buffer.from("keep bytes"));
+  store.saveDraft(scope, target.id, "delete draft", [file.id], 0);
+  store.saveDraft(scope, "", "welcome draft", [], 0);
+  const task = store.enqueue(scope, target.id, "delete history", [file.id]);
+  store.markSubmitted(scope, task.request_id);
+  const output = Buffer.from("output bytes");
+  const remoteFile = { id: "output", name: "output.txt", sha256: digest(output), size: output.length };
+  const payload = JSON.stringify({ content: "delete response", files: [remoteFile] });
+  store.commitDelivery(scope, { request_id: task.request_id, sequence: 1, digest: digest(payload), payload }, new Map([[remoteFile.id, output]]));
+  store.acknowledge(scope, task.request_id, 1, digest(payload));
+  store.db.prepare("INSERT INTO execution_projection VALUES(?,1,'','[]','completed')").run(task.request_id);
+  store.schedule(scope, target.id, "delete recurrence", new Date(Date.now() + 60000).toISOString(), Date.now(), 3600000);
+  store.schedule(scope, other.id, "keep recurrence", new Date(Date.now() + 60000).toISOString(), Date.now(), 3600000);
+  const kept = store.read(scope, other.id);
+  assert.throws(() => store.remove(otherScope, target.id), /not found/);
+  assert.deepEqual(store.remove(scope, target.id), { deleted: true });
+  assert.throws(() => store.read(scope, target.id), /not found/);
+  assert.throws(() => store.file(scope, file.id), /not found/);
+  assert.throws(() => store.saveDraft(scope, target.id, "late autosave", [], 1), /not found/);
+  for (const table of ["deliveries", "delivery_files", "execution_approvals", "execution_projection"]) {
+    assert.equal(store.db.prepare(`SELECT count(*) AS n FROM ${table}`).get().n, 0, table);
+  }
+  assert.equal(store.db.prepare("SELECT count(*) AS n FROM schedule_definitions").get().n, 1);
+  assert.deepEqual(fs.readdirSync(store.filesRoot), [keptFile.id]);
+  assert.equal(store.draft(scope, "").content, "welcome draft");
+  assert.deepEqual(store.read(scope, other.id), kept);
+  assert.equal(store.list(otherScope)[0].id, privateConversation.id);
+  store.close(); store = new ClientStore(root);
+  assert.equal(store.list(scope).length, 1);
+  assert.deepEqual(store.read(scope, other.id), kept);
+  assert.equal(store.file(scope, keptFile.id).content.toString(), "keep bytes");
+  assert.equal(store.draft(scope, "").content, "welcome draft");
+  store.close();
+});
+
+test("conversation deletion rejects active, uncertain and unacknowledged requests without losing records", (t) => {
+  const store = new ClientStore(fixture(t));
+  for (const status of ["submission_pending", "accepted", "running", "cancel_pending", "unknown", "saved"]) {
+    const conversation = store.create(scope, status);
+    const task = store.enqueue(scope, conversation.id, "preserve original request");
+    store.markSubmitted(scope, task.request_id);
+    if (status === "saved") {
+      const payload = JSON.stringify({ content: "pending ACK", files: [] });
+      store.commitDelivery(scope, { request_id: task.request_id, sequence: 1, digest: digest(payload), payload }, new Map());
+    } else store.setExecutionState(scope, task.request_id, status);
+    const before = store.read(scope, conversation.id);
+    assert.deepEqual(store.remove(scope, conversation.id), { deleted: false, reason: "pending_execution" });
+    assert.deepEqual(store.read(scope, conversation.id), before);
+  }
+  const scheduled = store.create(scope, "claimed schedule");
+  const task = store.schedule(scope, scheduled.id, "claimed", new Date(Date.now() + 60000).toISOString());
+  store.db.prepare("UPDATE tasks SET submission_claim='lease' WHERE request_id=?").run(task.request_id);
+  assert.deepEqual(store.remove(scope, scheduled.id), { deleted: false, reason: "pending_execution" });
+  store.close();
+});
+
+test("interrupted file cleanup reports successful record deletion and reclaims orphaned bytes on restart", (t) => {
+  const root = fixture(t);
+  let store = new ClientStore(root);
+  const conversation = store.create(scope, "delete");
+  const file = store.saveFile(scope, conversation.id, "orphan.txt", Buffer.from("orphan bytes"));
+  const originalRemove = fs.rmSync;
+  const removal = t.mock.method(fs, "rmSync", (filename, options) => {
+    if (filename === path.join(store.filesRoot, file.id)) throw new Error("file cleanup interrupted");
+    return originalRemove(filename, options);
+  });
+  assert.deepEqual(store.remove(scope, conversation.id), { deleted: true, cleanup_pending: true });
+  assert.deepEqual(store.list(scope), []);
+  assert.equal(fs.existsSync(path.join(store.filesRoot, file.id)), true);
+  removal.mock.restore(); store.close(); store = new ClientStore(root);
+  assert.deepEqual(store.list(scope), []);
+  assert.deepEqual(fs.readdirSync(store.filesRoot), []);
+  store.close();
+});
+
+test("failed conversation deletion rolls back records before unlinking any files", (t) => {
+  const store = new ClientStore(fixture(t));
+  const conversation = store.create(scope, "preserve");
+  const file = store.saveFile(scope, conversation.id, "keep.txt", Buffer.from("preserved bytes"));
+  store.enqueue(scope, conversation.id, "preserved message");
+  store.saveDraft(scope, conversation.id, "preserved draft", [file.id], 0);
+  const before = store.read(scope, conversation.id);
+  store.db.exec("CREATE TRIGGER fail_delete BEFORE DELETE ON conversations BEGIN SELECT RAISE(ABORT,'disk unavailable'); END;");
+  assert.throws(() => store.remove(scope, conversation.id), /disk unavailable/);
+  assert.deepEqual(store.read(scope, conversation.id), before);
+  assert.equal(store.draft(scope, conversation.id).content, "preserved draft");
+  assert.equal(store.file(scope, file.id).content.toString(), "preserved bytes");
+  store.close();
+});
+
 test("fresh local stores and authenticated scopes remain independent across restart", (t) => {
   const root = fixture(t);
   let store = new ClientStore(root);

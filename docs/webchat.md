@@ -12,6 +12,14 @@ and an authenticated connection. Both use the same business model; see the
 Mail is backend-authoritative; non-mail history is not automatically copied between
 workbenches.
 
+The recent conversation list exposes a delete button on hover, keyboard focus or
+the active row. Deletion requires confirmation. Desktop deletion removes that
+installation's conversation messages, draft, files and schedules within its
+authenticated scope; active or unresolved executions and pending delivery
+acknowledgements must finish or be reconciled first. Deleting the selected
+conversation opens the next remaining conversation, or the welcome page when
+none remain. WebChat continues to use its existing Gateway session deletion.
+
 WebChat is the owner-facing control surface for SparkClaw. This guide replaces
 the original frontend handoff requirements with the current implemented
 responsibilities and extension rules.

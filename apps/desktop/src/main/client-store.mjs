@@ -106,6 +106,48 @@ export class ClientStore {
     return conversation;
   }
 
+  remove(scope, conversationID) {
+    const files = this.#transaction(() => {
+      this.#conversation(scope, conversationID);
+      const pending = this.db.prepare(`SELECT 1 FROM tasks WHERE conversation_id=? AND
+        (submission_claim IS NOT NULL OR
+          (explicitly_submitted=1 AND status NOT IN ('delivered','failed','canceled','delivery_expired','delivery_too_large')) OR
+          (explicitly_submitted=0 AND status NOT IN ('awaiting_runtime','scheduled_local','schedule_missed','schedule_canceled')))
+        LIMIT 1`).get(conversationID);
+      if (pending) return null;
+      const records = this.db.prepare("SELECT id FROM files WHERE conversation_id=?").all(conversationID);
+      for (const file of records) uuid(file.id);
+      const root = fs.lstatSync(this.filesRoot);
+      if (!root.isDirectory() || root.dev !== this.fileBoundary.stat.dev || root.ino !== this.fileBoundary.stat.ino) throw new Error("Local file directory changed");
+      const requests = "SELECT request_id FROM tasks WHERE conversation_id=?";
+      const definitions = this.db.prepare(`SELECT DISTINCT s.schedule_id FROM schedules s JOIN tasks t
+        ON t.request_id=s.request_id WHERE t.conversation_id=?`).all(conversationID);
+      for (const table of ["delivery_files", "deliveries", "execution_approvals", "execution_projection", "schedules"]) {
+        this.db.prepare(`DELETE FROM ${table} WHERE request_id IN (${requests})`).run(conversationID);
+      }
+      for (const definition of definitions) {
+        this.db.prepare("DELETE FROM schedule_definitions WHERE id=? AND NOT EXISTS (SELECT 1 FROM schedules WHERE schedule_id=?)")
+          .run(definition.schedule_id, definition.schedule_id);
+      }
+      for (const table of ["tasks", "messages", "files"]) {
+        this.db.prepare(`DELETE FROM ${table} WHERE conversation_id=?`).run(conversationID);
+      }
+      this.db.prepare("DELETE FROM drafts WHERE scope=? AND conversation_id=?").run(scopeKey(scope), conversationID);
+      this.db.prepare("DELETE FROM conversations WHERE id=?").run(conversationID);
+      return records;
+    });
+    if (!files) return { deleted: false, reason: "pending_execution" };
+    // Commit manifests first. A crash before unlink leaves only orphaned UUID
+    // files, which the existing startup cleanup reclaims without restoring data.
+    try {
+      for (const file of files) fs.rmSync(path.join(this.filesRoot, file.id), { force: true });
+      if (files.length) syncDirectory(this.filesRoot);
+    } catch {
+      return { deleted: true, cleanup_pending: true };
+    }
+    return { deleted: true };
+  }
+
   read(scope, conversationID) {
     this.#conversation(scope, conversationID);
     return {

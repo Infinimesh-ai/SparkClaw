@@ -15,6 +15,9 @@ const FRAME_BYTES = MAX_BYTES + 8192;
 export const ISCP_BODY_BYTES = MAX_BYTES - 2048;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const CAPACITIES = Object.freeze({v1:4,business:4,control:1,bulk:2,events:1,audio:2});
+const MAIL_READ_LIMIT = 3; // Reserve the fourth business slot for explicit actions.
+const MAIL_READ_QUEUE_LIMIT = 24;
 
 function mailMutationResource(request) {
   const { operation, params = {}, body = {} } = request;
@@ -50,6 +53,7 @@ export class ISCPTransport {
     Object.assign(this, { readLocalFile, canSendMailAttachments, configPath, origin, expectedIdentity, expectedBinding, installationID, packaged, resourcesPath, spawnProcess, timeoutMS, onState, onCapabilities, journalRoot });
     this.resourceRevisions = new Map();
     this.presentationPending = new Set();
+    this.mailReadQueue = new Set();
     this.pending = new Map(); this.generation = 0; this.state = "closed";
   }
 
@@ -109,6 +113,7 @@ export class ISCPTransport {
     clearTimeout(this.readyTimer);
     this.readyReject?.(new Error("ISCP transport is unavailable"));
     this.readyResolve = this.readyReject = this.readyPromise = undefined;
+    for (const read of this.mailReadQueue) read.fail(new ISCPRequestNotSentError("ISCP transport is unavailable", "unavailable"));
     for (const call of this.pending.values()) call.reject(new Error("ISCP transport is unavailable"));
     this.pending.clear();
     this.capabilities = undefined; this.onCapabilities(undefined);
@@ -164,6 +169,8 @@ export class ISCPTransport {
     const spec=requireOperation(request.operation);
     const family=request.operation.split(".")[1];
     const resource=request.operation.startsWith("mail.") ? mailMutationResource(request) : request.operation === "execution.approval" ? `approval:${request.params?.request_id}:${request.params?.approval_id}` : request.operation.startsWith("notifications.") ? "notifications" : family==='owner' ? 'owner' : family==='connectors' ? 'connectors' : `integration:${request.params?.integration_id || ''}`;
+    // Concurrent popup snapshots are reads, not competing mutation intents.
+    if (request.operation.startsWith('mail.') && !spec.mutation) return this.#applyPresentation(resource, spec, request, init, rawBody);
     if (this.presentationPending.has(resource)) throw new ISCPRequestNotSentError("A change to this resource is already in progress", "capacity");
     this.presentationPending.add(resource);
     try { return await this.#applyPresentation(resource, spec, request, init, rawBody); }
@@ -243,24 +250,57 @@ export class ISCPTransport {
     return response;
   }
 
-  async #dispatch(request,init,rawBody) {
+  #queueMailRead(request, init, rawBody, deadline) {
+    if (this.mailReadQueue.size >= MAIL_READ_QUEUE_LIMIT) throw new ISCPRequestNotSentError('ISCP mail read queue limit reached', 'capacity');
+    const generation = this.generation;
+    return new Promise((resolve, reject) => {
+      const release = () => { clearTimeout(timer); init.signal?.removeEventListener('abort', canceled); this.mailReadQueue.delete(read); };
+      const canceled = () => read.fail(new ISCPRequestNotSentError('ISCP request was canceled', 'canceled'));
+      const read = { request, init, rawBody, deadline, generation, resolve, reject, release, fail: error => { release(); reject(error); } };
+      const timer = setTimeout(() => read.fail(new ISCPRequestNotSentError('ISCP read admission deadline exceeded', 'capacity')), Math.max(0, deadline - Date.now()));
+      this.mailReadQueue.add(read);
+      init.signal?.addEventListener('abort', canceled, {once:true});
+      if (init.signal?.aborted) canceled();
+      else queueMicrotask(() => this.#drainMailReads());
+    });
+  }
+
+  #drainMailReads() {
+    // Only admission waits. A read already written to the helper is never
+    // replayed, and writes do not join this queue or occupy its FIFO head.
+    while (this.mailReadQueue.size && [...this.pending.values()].filter(call => call.capacityClass === 'business').length < CAPACITIES.business && [...this.pending.values()].filter(call => call.mailRead).length < MAIL_READ_LIMIT) {
+      const read = this.mailReadQueue.values().next().value;
+      read.release();
+      if (read.generation !== this.generation || this.state !== 'transport_ready') read.reject(new ISCPRequestNotSentError('ISCP transport is unavailable', 'unavailable'));
+      else this.#dispatch(read.request, read.init, read.rawBody, read.deadline).then(read.resolve, read.reject);
+    }
+  }
+
+  async #dispatch(request,init,rawBody,readDeadline) {
     if(this.state!=="transport_ready")throw new ISCPRequestNotSentError("ISCP transport is unavailable","unavailable");
-    const capacityClass=request.profile===ISCP_V2_PROFILE?requireOperation(request.operation).capacity_class:'v1';
-    const capacities={v1:4,business:4,control:1,bulk:2,events:1,audio:2};
-    if(!Object.hasOwn(capacities,capacityClass))throw new ISCPRequestNotSentError("ISCP capacity class is unavailable");
-    const occupied=[...this.pending.values()].filter(call=>call.capacityClass===capacityClass).length;
-    if(occupied>=capacities[capacityClass])throw new ISCPRequestNotSentError("ISCP request concurrency limit reached","capacity");
+    const spec=request.profile===ISCP_V2_PROFILE?requireOperation(request.operation):undefined;
+    const capacityClass=spec?.capacity_class || 'v1';
+    if(!Object.hasOwn(CAPACITIES,capacityClass))throw new ISCPRequestNotSentError("ISCP capacity class is unavailable");
+    const mailRead = capacityClass === 'business' && request.operation.startsWith('mail.') && !spec.mutation;
+    if (mailRead) {
+      readDeadline ??= Date.now() + this.timeoutMS;
+      if (readDeadline <= Date.now()) throw new ISCPRequestNotSentError('ISCP read admission deadline exceeded', 'capacity');
+      if (!this.capabilities || Date.parse(this.capabilities.expires_at) <= Date.now() || !this.capabilities.operations.includes(request.operation)) throw new ISCPRequestNotSentError('This capability is unavailable through ISCP');
+    }
     if (init.signal?.aborted) throw new ISCPRequestNotSentError("ISCP request was canceled", "canceled");
+    const occupied=[...this.pending.values()].filter(call=>call.capacityClass===capacityClass).length;
+    if (mailRead && (occupied >= CAPACITIES[capacityClass] || [...this.pending.values()].filter(call => call.mailRead).length >= MAIL_READ_LIMIT)) return this.#queueMailRead(request, init, rawBody, readDeadline);
+    if(occupied>=CAPACITIES[capacityClass])throw new ISCPRequestNotSentError("ISCP request concurrency limit reached","capacity");
     const id=crypto.randomUUID();request={...request,id};
     if (Buffer.byteLength(JSON.stringify(request)) > MAX_BYTES) throw new ISCPRequestNotSentError("ISCP request exceeds the test profile limit");
     const generation=this.generation;
     const response=await new Promise((resolve,reject)=>{
       const signal=init.signal;
-      const finish=(handler,value)=>{clearTimeout(timer);signal?.removeEventListener("abort",cancel);this.pending.delete(id);handler(value);};
+      const finish=(handler,value)=>{clearTimeout(timer);signal?.removeEventListener("abort",cancel);this.pending.delete(id);handler(value);queueMicrotask(() => this.#drainMailReads());};
       const cancel=()=>finish(reject,new Error("ISCP request was canceled"));
       const timeoutMS = ["mail.drafts.save", "mail.drafts.send", "mail.drafts.reconcile", "mail.providers.check", "mail.providers.login", "mail.intake.update", "mail.replies.polish", "mail.source.cleanup", "mail.conversations.delete"].includes(request.operation) && this.timeoutMS === 30000 ? 180000 : this.timeoutMS;
-      const timer=setTimeout(()=>finish(reject,new Error("ISCP request deadline exceeded")),timeoutMS);
-      this.pending.set(id,{request,capacityClass,resolve:(value)=>finish(resolve,value),reject:(error)=>finish(reject,error)});
+      const timer=setTimeout(()=>finish(reject,new Error("ISCP request deadline exceeded")),mailRead ? Math.max(1, readDeadline - Date.now()) : timeoutMS);
+      this.pending.set(id,{request,capacityClass,mailRead,resolve:(value)=>finish(resolve,value),reject:(error)=>finish(reject,error)});
       signal?.addEventListener("abort",cancel,{once:true});
       try {const {body,...wireRequest}=request;this.child.stdin.write(`${JSON.stringify({ipc_version:1,type:"call",id,request:wireRequest,...(rawBody!==undefined?{body_base64:Buffer.from(rawBody,"utf8").toString("base64")}: {})})}\n`);}
       catch {this.#fail("disconnected");}

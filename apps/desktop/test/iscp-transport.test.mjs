@@ -339,3 +339,65 @@ test('original popup files use object verification and main-owned digest headers
  assert.equal(response.headers.get('content-length'),String(bytes.length));
  assert.deepEqual(Buffer.from(await response.arrayBuffer()),bytes);
 });
+
+test('popup read bursts queue before dispatch while preserving write and control admission', async t => {
+ const fs=await import('node:fs'), os=await import('node:os'), path=await import('node:path');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'iscp-popup-burst-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const active=[];
+ const reply=(call,child)=>child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:{operation:call.request.operation}}});
+ const f=fixture(t,(call,child)=>{if(call.request.operation==='execution.cancel')reply(call,child);else active.push([call,child]);},{journalRoot:root,timeoutMS:1000});
+ t.mock.method(globalThis,'fetch',()=>assert.fail('read queue bypassed encrypted ISCP'));
+ await f.transport.start();
+ const operations=['mail.sync.status','mail.providers.list','mail.conversations.list','mail.interaction','mail.conversations.get','mail.conversations.messages','mail.presentations.get','mail.drafts.list','mail.classification','execution.cancel'];
+ f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations,binding:{deployment_id:'d',owner_id:'o',client_id:'c'}}});
+ const routes=['/api/email/sync-status','/api/email/providers','/api/email/conversations','/api/email/interaction-mails','/api/email/conversations/conversation','/api/email/conversations/conversation/messages','/api/email/presentations?target_kind=mail&language=en&target_id=mail','/api/email/providers','/api/email/drafts/draft','/api/email/drafts/draft'];
+ const prior=f.transport.mutations.begin('mail-draft:draft',{operation:'mail.drafts.send',body:{expected_version:4}});
+ const reads=routes.map(route=>f.transport.fetch(`${origin}${route}`).then(response=>response.json()));
+ for(let i=0;i<5;i++)await Promise.resolve();
+ assert.equal(active.length,3);assert.equal(f.transport.mailReadQueue.size,7);
+ const writing=f.transport.fetch(`${origin}/api/email/messages/mail/classification`,{method:'POST',body:JSON.stringify({expected_version:1,entry:'interaction',command_key:requestID})});
+ for(let i=0;i<5;i++)await Promise.resolve();
+ assert.equal(active.length,4,'one business slot remains available to an explicit mutation');
+ assert.equal(active[3][0].request.operation,'mail.classification');
+ assert.equal((await(await f.transport.fetch(`${origin}/api/v1/executions/${requestID}/cancel`,{method:'POST',body:'{}'})).json()).operation,'execution.cancel');
+ reply(...active.splice(3,1)[0]);await writing;
+ while(active.length){reply(...active.shift());for(let i=0;i<12;i++)await Promise.resolve();assert.ok(active.length<=3);}
+ const results=await Promise.all(reads);
+ assert.equal(results.length,routes.length);assert.equal(f.transport.mailReadQueue.size,0);
+ assert.equal(f.calls.length,routes.length+2,'every original read is dispatched only once');
+ assert.equal(f.transport.mutations.read('mail-draft:draft').operation_id,prior.operation_id,'snapshot reads cannot clear an unknown send');
+});
+
+test('queued popup reads are bounded, abort before send, and drain on disconnect without crossing generations', async t => {
+ const f=fixture(t,()=>{}, {timeoutMS:1000});await f.transport.start();
+ const capabilities={schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:['mail.sync.status'],binding:{deployment_id:'d',owner_id:'o',client_id:'c'}};
+ f.children[0].send({ipc_version:1,type:'capabilities',capabilities});
+ const abort=new AbortController();
+ const pending=Array.from({length:27},(_,index)=>f.transport.fetch(`${origin}/api/email/sync-status`,{...(index===3?{signal:abort.signal}:{})}).catch(error=>error));
+ assert.equal(f.calls.length,3);assert.equal(f.transport.mailReadQueue.size,24);
+ await assert.rejects(f.transport.fetch(`${origin}/api/email/sync-status`),error=>error instanceof ISCPRequestNotSentError&&error.reason==='capacity');
+ abort.abort();assert.equal(f.transport.mailReadQueue.size,23);
+ assert.ok(await pending[3] instanceof ISCPRequestNotSentError);
+ f.transport.close();const results=await Promise.all(pending);
+ assert.ok(results.slice(3).every(error=>error instanceof ISCPRequestNotSentError));assert.equal(f.transport.mailReadQueue.size,0);assert.equal(f.calls.length,3);
+ await f.transport.start();f.children.at(-1).send({ipc_version:1,type:'capabilities',capabilities:{...capabilities,session_id:'new-session'}});
+ for(let i=0;i<5;i++)await Promise.resolve();assert.equal(f.calls.length,3,'old queued reads cannot use a new authenticated helper');
+});
+
+test('queued read admission retains its deadline and rechecks permission before writing', async t => {
+ const f=fixture(t,()=>{}, {timeoutMS:30});await f.transport.start();
+ t.mock.timers.enable({apis:['Date','setTimeout'],now:Date.now()});
+ const capabilities={schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:['mail.sync.status','mail.conversations.list'],binding:{deployment_id:'d',owner_id:'o',client_id:'c'}};
+ f.children[0].send({ipc_version:1,type:'capabilities',capabilities});
+ const pending=Array.from({length:3},()=>f.transport.fetch(`${origin}/api/email/sync-status`).catch(error=>error));
+ const queued=f.transport.fetch(`${origin}/api/email/conversations`).catch(error=>error);
+ f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{...capabilities,operations:['mail.sync.status']}});
+ const call=f.calls[0];f.children[0].send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:{}}});
+ assert.ok(await queued instanceof ISCPRequestNotSentError);assert.equal(f.calls.length,3);
+ const more=Array.from({length:3},()=>f.transport.fetch(`${origin}/api/email/sync-status`).catch(error=>error));
+ t.mock.timers.tick(30);
+ const results=await Promise.all([...pending,...more]);
+ assert.ok(results.at(-1) instanceof ISCPRequestNotSentError,'an expired queued request retains unsent proof');
+ assert.equal(f.calls.length,4,'a queued deadline must not restart a fresh RPC timeout');
+ assert.equal(f.transport.mailReadQueue.size,0);
+});

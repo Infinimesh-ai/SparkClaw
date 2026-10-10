@@ -46,9 +46,18 @@ async function fixture(t,mode='normal') {
       };if(mode==='delayed-menu')setTimeout(mount,250);else mount();
     };
     for(const input of document.querySelectorAll('input[type="file"]'))input.addEventListener('change',async()=>{
-      for(const file of input.files){
+      for(const file of [...input.files]){
         uploads.push({id:input.id,name:file.name,bytes:Array.from(new Uint8Array(await file.arrayBuffer()))});
         const row=document.createElement('div');row.setAttribute('data-attachment-id','synthetic-native-row');
+        if(mode==='outlook-card'){
+          const container=document.createElement('div');container.className='av-container';
+          const card=document.createElement('div');card.setAttribute('aria-label',file.name+' 打开 '+file.size+' 字节 ');
+          const description=document.createElement('div'),name=document.createElement('div'),size=document.createElement('div');
+          name.title=name.textContent=file.name;size.title=size.textContent=file.size+' 字节';description.append(name,size);
+          const more=document.createElement('button');more.title='更多操作';more.setAttribute('aria-label','更多操作');more.textContent='…';card.append(description,more);container.append(card);document.getElementById('rows').append(container);
+          const alert=document.createElement('div');alert.className='screenReaderOnly';alert.setAttribute('role','alert');alert.style='width:1px;height:1px';document.getElementById('composer').append(alert);
+          input.value='';continue;
+        }
         const name=document.createElement('span');name.setAttribute('title',file.name);name.textContent=file.name;
         const remove=document.createElement('button');remove.setAttribute('aria-label','Remove attachment');remove.textContent='Remove';row.append(name,remove);document.getElementById('rows').append(row);
       }
@@ -138,3 +147,39 @@ for(const [mode,reason] of [['ambiguous-menu','EMAIL_ATTACHMENT_CONTROL_UNAVAILA
     assert.deepEqual(await f.page.evaluate(()=>uploads),[]);assert.equal(await f.page.evaluate(()=>sendClicks),0);
   });
 }
+
+
+test('observed Outlook native card plus exact byte proof accepts only the empty accessibility alert',{skip:!enabled},async t=>{
+  const f=await fixture(t,'outlook-card');await uploadManagedAttachments(f.tab,'outlook',f.root,f.manifest,f.before);await verifyManagedAttachments(f.tab,'outlook',f.manifest);
+  assert.deepEqual(await f.page.evaluate(()=>uploads),[{id:'actual',name:'native.txt',bytes:[...f.bytes]}]);assert.equal(await f.page.evaluate(()=>sendClicks),0);assert.equal(f.effects(),1);
+});
+for(const mode of ['extra-card','hidden-extra-card','duplicate-name','name-substring','size-mismatch','summary-mismatch','disabled-menu','missing-menu','uploading','failure-alert','nonempty-accessibility-alert','blank-error','alert-child','alert-label','alert-title','alert-labelledby','alert-describedby','alert-empty-labelledby','alert-empty-describedby','missing-proof','relocated-input'])test(`observed Outlook card fails closed: ${mode}`,{skip:!enabled},async t=>{
+  const f=await fixture(t,'outlook-card');await uploadManagedAttachments(f.tab,'outlook',f.root,f.manifest,f.before);
+  await f.page.evaluate(mode=>{const s=window.__sparkclawManagedMail,container=s.root.querySelector('.av-container'),card=container.children[0],name=card.querySelector('[title="native.txt"]');
+    if(mode==='extra-card'||mode==='hidden-extra-card'){const extra=document.createElement('div');extra.className='av-container';if(mode==='hidden-extra-card')extra.hidden=true;s.root.append(extra)}
+    if(mode==='duplicate-name')s.root.append(container.cloneNode(true));
+    if(mode==='name-substring')name.title=name.textContent='decoy-native.txt';
+    if(mode==='size-mismatch')name.nextElementSibling.title=name.nextElementSibling.textContent='999 字节';
+    if(mode==='summary-mismatch')card.setAttribute('aria-label','native.txt 上传中');
+    if(mode==='disabled-menu')card.querySelector('button').disabled=true;
+    if(mode==='missing-menu')card.querySelector('button').remove();
+    if(mode==='uploading')card.setAttribute('aria-busy','true');
+    if(mode==='failure-alert'){const alert=document.createElement('div');alert.setAttribute('role','alert');alert.textContent='Upload failed';card.append(alert)}
+    if(mode==='nonempty-accessibility-alert')s.root.querySelector('.screenReaderOnly').textContent='Upload failed';
+    if(mode==='blank-error')s.root.querySelector('.screenReaderOnly').classList.add('attachment-error');
+    if(mode==='alert-child')s.root.querySelector('.screenReaderOnly').append(document.createElement('span'));
+    if(mode==='alert-label')s.root.querySelector('.screenReaderOnly').setAttribute('aria-label','Upload failure');
+    if(mode==='alert-title')s.root.querySelector('.screenReaderOnly').title='Upload failure';
+    if(mode.includes('labelledby')||mode.includes('describedby'))s.root.querySelector('.screenReaderOnly').setAttribute(mode.includes('labelledby')?'aria-labelledby':'aria-describedby',mode.includes('empty')?'':'failure-text');
+    if(mode==='missing-proof')s.attachmentVerifiedManifest=null;
+    if(mode==='relocated-input')document.getElementById('other').append(s.attachmentInput);
+  },mode);
+  await assert.rejects(verifyManagedAttachments(f.tab,'outlook',f.manifest),/email_attachment_(upload_unverified|control_unavailable|upload_failed)/);assert.equal(await f.page.evaluate(()=>sendClicks),0);
+});
+
+
+test('multiple Outlook cards each match a distinct complete name and size',{skip:!enabled},async t=>{
+ const f=await fixture(t,'outlook-card');const relative='.sparkclaw-mail-send-'+'b'.repeat(32)+'/01/second.txt';await fs.mkdir(path.dirname(path.join(f.root,relative)),{recursive:true,mode:0o700});await fs.writeFile(path.join(f.root,relative),f.bytes,{mode:0o600});f.manifest.push({...f.manifest[0],path:relative,name:'second.txt'});
+ await uploadManagedAttachments(f.tab,'outlook',f.root,f.manifest,f.before);await verifyManagedAttachments(f.tab,'outlook',f.manifest);assert.equal((await f.page.evaluate(()=>uploads)).length,2);
+ await f.page.evaluate(()=>{const cards=document.querySelectorAll('.av-container');cards[1].replaceWith(cards[0].cloneNode(true))});await assert.rejects(verifyManagedAttachments(f.tab,'outlook',f.manifest),/email_attachment_upload_unverified/);assert.equal(await f.page.evaluate(()=>sendClicks),0);
+});

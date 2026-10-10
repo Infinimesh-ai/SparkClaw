@@ -111,8 +111,34 @@ test("HTTPS validates CA, hostname and leaf pin before transmitting any credenti
   const budgets = [];
   const timeout = AbortSignal.timeout.bind(AbortSignal);
   t.mock.method(AbortSignal, "timeout", milliseconds => { budgets.push(milliseconds); return timeout(milliseconds); });
-  for (const [route, method] of [["/api/email/providers/qq_mail/check", "POST"], ["/api/email/providers/outlook/login-browser", "POST"], ["/api/v1/mail/attachments", "POST"], ["/api/owner", "POST"], ["/api/email/providers/other/check", "POST"]]) {
+  for (const [route, method] of [
+    ["/api/email/providers/qq_mail/check", "POST"], ["/api/email/providers/outlook/login-browser", "POST"],
+    ["/api/v1/mail/attachments", "POST"], ["/api/owner", "POST"], ["/api/email/providers/other/check", "POST"],
+    ["/api/email/drafts/tls-draft/reconcile", "POST"], ["/api/email/drafts/tls-draft/reconcile", "GET"],
+    ["/api/email/drafts/tls-draft/reconcile", "PUT"], ["/api/email/drafts/tls-draft/reconcile?unexpected=true", "POST"],
+    ["/api/email/drafts/tls-draft/reconcile/extra", "POST"], ["/api/email/drafts/tls-draft", "GET"],
+  ]) {
     await (await pinnedHTTPSFetch(base)(origin + route, { ...init, headers: { authorization }, method })).arrayBuffer();
   }
-  assert.deepEqual(budgets, [180000, 180000, 180000, 30000, 30000]);
+  assert.deepEqual(budgets, [180000, 180000, 180000, 30000, 30000, 180000, 30000, 30000, 30000, 30000, 30000]);
+
+  // The longer reconciliation allowance must not mask an earlier caller abort.
+  // Wait for real TLS admission so this covers an in-flight request, not just a
+  // signal rejected before the pinned connection opens.
+  let observedReconcile;
+  const observed = new Promise(resolve => { observedReconcile = resolve; });
+  mailHandler = (request) => {
+    assert.equal(request.url, "/api/email/drafts/tls-draft/reconcile");
+    request.resume();
+    observedReconcile();
+  };
+  const cancellation = new AbortController();
+  const reason = new Error("caller cancelled receipt lookup");
+  const reconcile = pinnedHTTPSFetch(base)(`${origin}/api/email/drafts/tls-draft/reconcile`, {
+    method: "POST", headers: { authorization }, signal: cancellation.signal,
+  });
+  await observed;
+  cancellation.abort(reason);
+  await assert.rejects(reconcile, error => error.code === "ABORT_ERR" && error.cause === reason);
+  assert.equal(budgets.at(-1), 180000);
 });

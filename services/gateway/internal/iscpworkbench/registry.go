@@ -84,6 +84,18 @@ func OperationsV2() []string {
 	return out
 }
 
+// Local-test preserves the operation table understood by existing installed
+// helpers. Node-managed clients negotiate the explicitly extended app table.
+func OperationsV2ForMode(mode string) []string {
+	ops := OperationsV2()
+	if mode == "local-test" {
+		ops = slices.DeleteFunc(ops, func(name string) bool {
+			return name == OperationClientsList || name == OperationClientsIssue || name == OperationClientsRevoke
+		})
+	}
+	return ops
+}
+
 // CapacityLimit reserves cancellation/control and event/audio capacity even while
 // bulk transfer workers are occupied. Every class remains independently bounded.
 func CapacityLimit(class string) int {

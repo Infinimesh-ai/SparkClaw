@@ -24,6 +24,21 @@ const props = {
 };
 const button = (host: HTMLElement, label: string) => [...host.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent?.includes(label))!;
 
+it("enables the original device panel only after qualified node-managed capability and keeps its exact markup", async () => {
+  const qualified = connection(true);
+  qualified.capabilities!.surfaces!.settings_devices = { enabled: true, reason: "" };
+  expect(iscpSettingsAccess(connection(false), "en").unavailable.clients).toBeDefined();
+  expect(iscpSettingsAccess(qualified, "en").unavailable.clients).toBeUndefined();
+  const host = document.createElement("div"), root = createRoot(host);
+  try {
+    await act(async () => root.render(<SettingsPanel {...props} section="devices" text={dictionaries.en} language="en" onLanguageChange={vi.fn()} />));
+    const original = host.innerHTML;
+    await act(async () => root.render(<SettingsPanel {...props} section="devices" access={iscpSettingsAccess(qualified,"en")} text={dictionaries.en} language="en" onLanguageChange={vi.fn()} />));
+    expect(host.innerHTML).toBe(original);
+    expect(host.textContent).not.toContain("ISCP:");
+  } finally { await act(async () => root.unmount()); }
+});
+
 it.each(["en", "zh"] as const)("uses the same original general and appearance markup for both transports in %s", async language => {
   const integrations = vi.spyOn(api, "integrations");
   const host = document.createElement("div"), root = createRoot(host);

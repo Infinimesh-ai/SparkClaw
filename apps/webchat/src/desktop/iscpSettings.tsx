@@ -17,7 +17,7 @@ export function iscpSettingsAccess(connection: DesktopConnectionStatus, language
     connectorsAvailable: surfaceEnabled(connection, "settings_connectors"),
     bindingsUnavailable: unavailable,
     unavailable: {
-      clients: unavailable, "tool-policy": unavailable,
+      ...(!surfaceEnabled(connection, "settings_devices") ? { clients: unavailable } : {}), "tool-policy": unavailable,
       ...(!surfaceEnabled(connection, "settings_connectors") ? { messaging: unavailable } : {}),
       "browser-control": unavailable, "ai-platform-login": unavailable, "external-mcp": unavailable,
       ...(!surfaceEnabled(connection, "mail_settings") ? { "browser-email": unavailable } : {}),

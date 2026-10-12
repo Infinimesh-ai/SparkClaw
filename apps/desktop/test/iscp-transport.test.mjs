@@ -3,6 +3,8 @@ import test from "node:test";
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { ISCPTransport, ISCP_OPERATIONS, ISCP_PROFILE, ISCPRequestNotSentError, mapISCPRequest, iscpHelperExecutable } from "../src/main/iscp-transport.mjs";
+import crypto from 'node:crypto';
+import { SecureCredentialStore } from '../src/main/secure-credential-store.mjs';
 
 const origin = "https://iscp.invalid";
 const requestID = "12345678-1234-4123-8123-123456789abc";
@@ -23,6 +25,39 @@ function fixture(t, handler = (call, child) => child.send({ ipc_version: 1, type
   t.after(() => transport.close());
   return { transport, children, spawns, calls };
 }
+
+test('node-managed device operations replay original encrypted intents and preserve raw original UI responses', async t => {
+ const fs=await import('node:fs/promises'),os=await import('node:os'),path=await import('node:path');
+ const root=await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()),'iscp-devices-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+ const key=crypto.randomBytes(32),safeStorage={isEncryptionAvailable:()=>true,getSelectedStorageBackend:()=> 'gnome_libsecret',
+  encryptString(value){const iv=crypto.randomBytes(12),cipher=crypto.createCipheriv('aes-256-gcm',key,iv);const bytes=Buffer.concat([cipher.update(value),cipher.final()]);return Buffer.concat([iv,cipher.getAuthTag(),bytes]);},
+  decryptString(value){const cipher=crypto.createDecipheriv('aes-256-gcm',key,value.subarray(0,12));cipher.setAuthTag(value.subarray(12,28));return Buffer.concat([cipher.update(value.subarray(28)),cipher.final()]).toString('utf8');}};
+ const vault=new SecureCredentialStore({directory:path.join(root,'secure'),safeStorage,platform:'linux'}).forISCPProfile('a'.repeat(64));
+ const capabilities={schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),binding:{deployment_id:'d',owner_id:'o',client_id:'c'},operations:['clients.list','clients.issue','clients.revoke','operations.receipt']};
+ const credential='sparkclaw-iscp-connect-v1.synthetic-one-use-secret',original={client:{id:'new-client',owner_id:'o',name:'second'},token:credential};
+ let drop=true,revoking=true;
+ const f=fixture(t,(call,child)=>{
+  if(drop){drop=false;return;}
+  const status=call.request.operation==='clients.revoke'&&revoking?503:200;
+  const body=call.request.operation==='clients.list'?{clients:[]}:call.request.operation==='clients.issue'?original:status===503?{code:'client_revocation_requires_reconciliation'}:{id:'new-client',owner_id:'o',revoked_at:new Date().toISOString()};
+  child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:capabilities.profile,id:call.id,status,body}});
+ },{clientOperationVault:vault,journalRoot:path.join(root,'journal')});
+ await f.transport.start();f.children[0].send({ipc_version:1,type:'capabilities',capabilities});
+ const input={method:'POST',headers:{'Idempotency-Key':requestID},body:JSON.stringify({client_name:'second'})};
+ await assert.rejects(f.transport.fetch(`${origin}/api/clients`,input),/unavailable|timed|deadline/);
+ const files=await fs.readdir(vault.directory);assert.equal(files.length,1);
+ const cipher=await fs.readFile(path.join(vault.directory,files[0]));assert.ok(!cipher.includes(Buffer.from(requestID)));assert.ok(!cipher.includes(Buffer.from(credential)));
+ await assert.rejects(f.transport.fetch(`${origin}/api/clients`,{...input,body:JSON.stringify({client_name:'changed'})}),/reconciled/);
+ assert.deepEqual(await (await f.transport.fetch(`${origin}/api/clients`,input)).json(),original);
+ assert.equal(f.calls[0].request.operation_id,requestID);assert.equal(f.calls[1].request.operation_id,requestID);
+ assert.deepEqual(await fs.readdir(vault.directory),[]);
+ const revoke={method:'POST',body:'{}'};
+ assert.equal((await f.transport.fetch(`${origin}/api/clients/new-client/revoke`,revoke)).status,503);
+ const originalRevoke=f.calls.at(-1).request.operation_id;revoking=false;
+ assert.equal((await f.transport.fetch(`${origin}/api/clients/new-client/revoke`,revoke)).status,200);assert.equal(f.calls.at(-1).request.operation_id,originalRevoke);
+ assert.ok(!f.calls.some(call=>call.request.operation==='operations.receipt'));
+ await assert.rejects(f.transport.fetch(`${origin}/api/clients`,{...input,headers:{}}),/original operation identity/);
+});
 
 test("fixed helper process, compatible hello and manifest precede JSON RPC; exact original JSON survives IPC", async (t) => {
   const f = fixture(t);

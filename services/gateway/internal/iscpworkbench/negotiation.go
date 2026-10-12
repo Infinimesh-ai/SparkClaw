@@ -111,7 +111,7 @@ func (e *Endpoint) capabilitiesFor(id string, profile string) TransportCapabilit
 	ops := Operations()
 	version := 1
 	if profile == ProfileV2 {
-		ops = OperationsV2()
+		ops = OperationsV2ForMode(e.config.Mode)
 		version = 2
 	}
 	return TransportCapabilities{SchemaVersion: version, Profile: profile, SessionID: id, Revision: "2", AuthorizationRevision: e.grantMaterial().grant.RevocationEpoch, ExpiresAt: time.Now().UTC().Add(5 * time.Minute), Operations: ops, QualifiedOperations: slices.Clone(e.config.QualifiedCapabilities), Binding: e.config.Binding, Limits: TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, MaxConcurrent, 8192, 2}}
@@ -176,13 +176,13 @@ func (e *Endpoint) negotiate(ctx context.Context, id string) {
 		return
 	}
 	c := *reply.Negotiation
-	if err := validateNegotiation(c, id); err != nil || c.AuthorizationRevision != e.grantMaterial().grant.RevocationEpoch || (e.config.Binding != nil && (c.Binding == nil || *c.Binding != *e.config.Binding)) {
+	if err := validateNegotiation(c, id, e.config.Mode); err != nil || c.AuthorizationRevision != e.grantMaterial().grant.RevocationEpoch || (e.config.Binding != nil && (c.Binding == nil || *c.Binding != *e.config.Binding)) {
 		e.negotiationFailed(id)
 		return
 	}
 	e.installCapabilities(c)
 }
-func validateNegotiation(c TransportCapabilities, id string) error {
+func validateNegotiation(c TransportCapabilities, id string, mode ...string) error {
 	version := 1
 	ops := Operations()
 	if c.Profile == ProfileV2 {
@@ -192,7 +192,11 @@ func validateNegotiation(c TransportCapabilities, id string) error {
 		return errors.New("incompatible selected profile")
 	}
 	now := time.Now()
-	if c.SessionID != id || c.SchemaVersion != version || c.Revision != "2" || c.AuthorizationRevision == 0 || !c.ExpiresAt.After(now) || c.ExpiresAt.After(now.Add(6*time.Minute)) || !slices.Equal(c.Operations, ops) || c.Limits != (TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, MaxConcurrent, 8192, 2}) {
+	compatible := slices.Equal(c.Operations, ops)
+	if c.Profile == ProfileV2 && (len(mode) == 0 || mode[0] != "node-managed") {
+		compatible = compatible || slices.Equal(c.Operations, OperationsV2ForMode("local-test"))
+	}
+	if c.SessionID != id || c.SchemaVersion != version || c.Revision != "2" || c.AuthorizationRevision == 0 || !c.ExpiresAt.After(now) || c.ExpiresAt.After(now.Add(6*time.Minute)) || !compatible || c.Limits != (TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, MaxConcurrent, 8192, 2}) {
 		return errors.New("invalid negotiated capability binding")
 	}
 	for _, name := range c.QualifiedOperations {

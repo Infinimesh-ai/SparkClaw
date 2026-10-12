@@ -37,6 +37,7 @@ type Config struct {
 	IssuerIdentityFile     string              `json:"issuer_identity_file"`
 	InvitationIdentityFile string              `json:"invitation_identity_file,omitempty"`
 	NodeIssuerSocket       string              `json:"node_issuer_socket,omitempty"`
+	NodeIssuerTokenFile    string              `json:"node_issuer_token_file,omitempty"`
 	PeerRegistryFile       string              `json:"peer_registry_file,omitempty"`
 	IssuerControlFile      string              `json:"issuer_control_file,omitempty"`
 	GrantFile              string              `json:"grant_file"`
@@ -99,7 +100,7 @@ func loadConfig(path string, controlOnly bool) (Config, error) {
 	if err != nil {
 		return cfg, errors.New("resolve workbench configuration directory")
 	}
-	paths := []*string{&cfg.IdentityDirectory, &cfg.EnrollmentFile, &cfg.PeerIdentityFile, &cfg.IssuerIdentityFile, &cfg.GrantFile, &cfg.InvitationIdentityFile, &cfg.PeerRegistryFile, &cfg.IssuerControlFile, &cfg.NodeIssuerSocket}
+	paths := []*string{&cfg.IdentityDirectory, &cfg.EnrollmentFile, &cfg.PeerIdentityFile, &cfg.IssuerIdentityFile, &cfg.GrantFile, &cfg.InvitationIdentityFile, &cfg.PeerRegistryFile, &cfg.IssuerControlFile, &cfg.NodeIssuerSocket, &cfg.NodeIssuerTokenFile}
 	for _, field := range paths {
 		if *field != "" && !filepath.IsAbs(*field) {
 			*field = filepath.Join(base, *field)
@@ -175,6 +176,9 @@ func (c Config) Validate() error {
 	}
 	if c.NodeIssuerSocket != "" && (!nodeManaged || c.Role != RoleResponder || !filepath.IsAbs(c.NodeIssuerSocket)) {
 		return errors.New("node issuer socket requires node-managed responder and an absolute Unix path")
+	}
+	if c.NodeIssuerTokenFile != "" && (c.NodeIssuerSocket == "" || !nodeManaged || c.Role != RoleResponder || !filepath.IsAbs(c.NodeIssuerTokenFile)) {
+		return errors.New("node issuer management token requires a node-managed responder and absolute private paths")
 	}
 	if c.Permission != "" && c.Permission != Permission {
 		return errors.New("unsupported workbench permission")

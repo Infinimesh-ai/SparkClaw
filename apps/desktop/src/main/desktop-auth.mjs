@@ -487,6 +487,7 @@ export class DesktopAuth {
   #transportFor(profile) {
     const descriptor = profile.descriptor;
     const transport = this.transportFactory({ configPath: profile.helperConfigPath, origin: descriptor.origin,
+        clientOperationVault: descriptor.mode === "node-managed" ? this.defaultVault.forISCPProfile?.(descriptorBinding(descriptor)) : undefined,
         expectedBinding: { deployment_id: descriptor.deploymentID, owner_id: descriptor.ownerID, client_id: descriptor.clientID },
         expectedIdentity: { domain_id: descriptor.domainID, initiator_device_id: descriptor.initiatorDeviceID,
           responder_device_id: descriptor.responderDeviceID, responder_key_thumbprint: descriptor.responderKeyThumbprint, relay_url: descriptor.relayURL, relay_profile: descriptor.relayProfile },

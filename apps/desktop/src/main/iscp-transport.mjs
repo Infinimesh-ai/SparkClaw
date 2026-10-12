@@ -49,8 +49,8 @@ export function iscpHelperExecutable({ packaged = false, resourcesPath } = {}) {
 // Private pipes are the only Desktop ↔ helper boundary. The helper owns SDK
 // credentials and encrypted Relay traffic; this adapter accepts fixed RPC only.
 export class ISCPTransport {
-  constructor({ readLocalFile, canSendMailAttachments = () => false, configPath, origin, expectedIdentity, expectedBinding, installationID, packaged = false, resourcesPath, spawnProcess = spawn, timeoutMS = 30000, onState = () => {}, onCapabilities = () => {}, journalRoot }) {
-    Object.assign(this, { readLocalFile, canSendMailAttachments, configPath, origin, expectedIdentity, expectedBinding, installationID, packaged, resourcesPath, spawnProcess, timeoutMS, onState, onCapabilities, journalRoot });
+  constructor({ clientOperationVault, readLocalFile, canSendMailAttachments = () => false, configPath, origin, expectedIdentity, expectedBinding, installationID, packaged = false, resourcesPath, spawnProcess = spawn, timeoutMS = 30000, onState = () => {}, onCapabilities = () => {}, journalRoot }) {
+    Object.assign(this, { clientOperationVault, readLocalFile, canSendMailAttachments, configPath, origin, expectedIdentity, expectedBinding, installationID, packaged, resourcesPath, spawnProcess, timeoutMS, onState, onCapabilities, journalRoot });
     this.resourceRevisions = new Map();
     this.presentationPending = new Set();
     this.mailReadQueue = new Set();
@@ -161,8 +161,33 @@ export class ISCPTransport {
       ...(headers.get("x-sparkclaw-digest")?{input_digest:headers.get("x-sparkclaw-digest")}:{}),
       ...(init.operationID?{operation_id:init.operationID}:{}),...(init.expectedRevision?{expected_revision:init.expectedRevision}:{})};
     const rawBody=mapped.body !== body && mapped.operation === 'mail.drafts.save' ? JSON.stringify(mapped.body) : init.body === undefined ? undefined : typeof init.body === "string" ? init.body : new TextDecoder("utf-8",{fatal:true}).decode(init.body);
+    if (request.operation.startsWith('clients.')) return this.#clients(request, init, rawBody, headers);
     if(request.operation.startsWith("settings.") || request.operation.startsWith("notifications.") || request.operation.startsWith("mail.") && requireOperation(request.operation).mutation || request.operation.startsWith("mail.drafts.") || request.operation.startsWith("mail.providers.") || request.operation === "execution.approval") return this.#presentation(request,init,rawBody);
     return this.#request(request,init,rawBody);
+  }
+
+  async #clients(request, init, rawBody, headers) {
+    if (request.operation === 'clients.list') return this.#request(request, init, rawBody);
+    if (!this.clientOperationVault) throw new ISCPRequestNotSentError('Native secure operation storage is unavailable');
+    const requested = request.operation === 'clients.issue' ? headers.get('idempotency-key') : undefined;
+    if (request.operation === 'clients.issue' && !UUID.test(requested || '')) throw new ISCPRequestNotSentError('Device issuance requires its original operation identity');
+    const resource = request.operation === 'clients.issue' ? `clients.issue:${requested}` : `clients.revoke:${request.params.id}`;
+    if (this.presentationPending.has(resource)) throw new ISCPRequestNotSentError('A device operation is already in progress', 'capacity');
+    this.presentationPending.add(resource);
+    try {
+      const fingerprint = crypto.createHash('sha256').update(JSON.stringify(request)).digest('hex');
+      let row = await this.clientOperationVault.loadClientOperation(resource);
+      if (row && row.fingerprint !== fingerprint) throw new ISCPRequestNotSentError('The original device operation must be reconciled');
+      if (!row) {
+        row = { schema_version: 1, operation: request.operation, operation_id: requested || crypto.randomUUID(), fingerprint };
+        await this.clientOperationVault.saveClientOperation(resource, row);
+      }
+      // A lost issuer response replays the original mutation itself. Its sealed
+      // receipt stays with the issuer; no credential enters a plaintext journal.
+      const response = await this.#request({ ...request, operation_id: row.operation_id }, init, rawBody);
+      if (response.ok || response.status < 500 && response.status !== 429) await this.clientOperationVault.clearClientOperation(resource);
+      return response;
+    } finally { this.presentationPending.delete(resource); }
   }
 
   async #presentation(request,init,rawBody) {

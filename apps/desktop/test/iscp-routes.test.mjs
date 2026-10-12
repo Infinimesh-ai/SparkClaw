@@ -2,6 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mapV2Route, requireOperation } from '../src/main/iscp-routes.mjs';
 
+test('original device-management routes accept only fixed operations and closed inputs', () => {
+ assert.equal(mapV2Route(new URL('/api/clients','https://iscp.invalid'),'GET').operation,'clients.list');
+ assert.equal(mapV2Route(new URL('/api/clients','https://iscp.invalid'),'POST',{client_name:'second desktop'}).operation,'clients.issue');
+ assert.deepEqual(mapV2Route(new URL('/api/clients/client/revoke','https://iscp.invalid'),'POST',{}).params,{id:'client'});
+ for(const [path,method,body] of [['/api/clients?owner_id=other','GET'],['/api/clients','GET',{}],['/api/clients','POST',{client_name:'name',scopes:['admin']}],['/api/clients','POST',{client_name:'name',url:'https://other'}],['/api/clients','POST',{}],['/api/clients/client/revoke?url=https://other','POST',{}],['/api/clients/client/revoke','POST',{revision:2}],['/api/clients/client%2frevoke/revoke','POST',{}]])assert.throws(()=>mapV2Route(new URL(path,'https://iscp.invalid'),method,body),/invalid|unavailable/);
+});
+
 // These are the actual requests reachable from the qualified desktop surfaces.
 // Keep them separate from the generated registry so a UI/registry mismatch fails.
 const routes = [

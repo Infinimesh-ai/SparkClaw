@@ -1808,5 +1808,58 @@
       "provider"
     ],
     "capacity_class": "business"
+  },
+  {
+    "name": "clients.list",
+    "constant": "OperationClientsList",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "GET",
+      "path": "/api/clients"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "clients.issue",
+    "constant": "OperationClientsIssue",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "issuer_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "POST",
+      "path": "/api/clients"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "clients.revoke",
+    "constant": "OperationClientsRevoke",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "issuer_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "id"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/clients/{id}/revoke"
+    },
+    "capacity_class": "business"
   }
 ]

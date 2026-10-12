@@ -18,6 +18,32 @@ export class SecureCredentialStore {
     return new SecureCredentialStore({ directory: this.directory, safeStorage: this.safeStorage, platform: this.platform, uid: this.uid, profileBinding });
   }
 
+  async loadClientOperation(resource) {
+    if (!this.available()) throw new Error("Secure operation storage is unavailable");
+    try {
+      await this.#directory();
+      const filename = this.#clientOperationPath(resource), info = await fs.lstat(filename);
+      if (!info.isFile() || info.isSymbolicLink() || info.mode & 0o077 || info.size > 8192 || this.uid !== undefined && info.uid !== this.uid) throw new Error();
+      const row = JSON.parse(this.safeStorage.decryptString(await fs.readFile(filename)));
+      if (row.schema_version !== 1 || !["clients.issue", "clients.revoke"].includes(row.operation) || !/^[a-f0-9-]{36}$/u.test(row.operation_id) || !/^[a-f0-9]{64}$/u.test(row.fingerprint)) throw new Error();
+      return row;
+    } catch (error) { if (error.code === "ENOENT") return undefined; throw new Error("Secure device operation could not be unlocked"); }
+  }
+
+  async saveClientOperation(resource, row) {
+    if (!this.available()) throw new Error("Secure operation storage is unavailable");
+    await this.#directory();
+    await this.#writeEncrypted(this.#clientOperationPath(resource), row);
+  }
+
+  async clearClientOperation(resource) { await fs.rm(this.#clientOperationPath(resource), { force: true }); }
+
+  #clientOperationPath(resource) {
+    if (typeof resource !== "string" || resource.length > 512 || !resource.startsWith("clients.")) throw new Error("Device operation resource is invalid");
+    const digest = crypto.createHash("sha256").update(this.filename).update("\0").update(resource).digest("hex");
+    return path.join(this.directory, `client-operation-${digest}.bin`);
+  }
+
   available() {
     return this.safeStorage.isEncryptionAvailable() && (this.platform !== "linux" ||
       !["basic_text", "unknown"].includes(this.safeStorage.getSelectedStorageBackend()));
@@ -49,12 +75,16 @@ export class SecureCredentialStore {
   async save(record) {
     if (!this.available()) throw new Error("Secure credential storage is unavailable");
     await this.#directory();
-    const encrypted = this.safeStorage.encryptString(JSON.stringify({ ...record, schema_version: record.transport === "iscp" ? 2 : 1 }));
+    await this.#writeEncrypted(this.filename, { ...record, schema_version: record.transport === "iscp" ? 2 : 1 });
+  }
+
+  async #writeEncrypted(filename, record) {
+    const encrypted = this.safeStorage.encryptString(JSON.stringify(record));
     const temporary = path.join(this.directory, `credential-${crypto.randomUUID()}.tmp`);
     try {
       const file = await fs.open(temporary, "wx", 0o600);
       try { await file.writeFile(encrypted); await file.sync(); } finally { await file.close(); }
-      await fs.rename(temporary, this.filename);
+      await fs.rename(temporary, filename);
     } finally { await fs.rm(temporary, { force: true }); }
   }
 

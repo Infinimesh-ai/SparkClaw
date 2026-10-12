@@ -113,4 +113,7 @@ const (
 	OperationMailViewed = "mail.viewed"
 	OperationMailReanalyze = "mail.reanalyze"
 	OperationMailIntakeUpdate = "mail.intake.update"
+	OperationClientsList = "clients.list"
+	OperationClientsIssue = "clients.issue"
+	OperationClientsRevoke = "clients.revoke"
 )

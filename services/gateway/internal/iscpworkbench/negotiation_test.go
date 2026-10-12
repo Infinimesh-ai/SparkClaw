@@ -92,6 +92,25 @@ func TestV2NegotiationKeepsExactV1ManifestAndDirections(t *testing.T) {
 		}
 	}
 }
+
+func TestDeviceManagementNegotiatesOnlyExactLegacyOrNodeApplicationTables(t *testing.T) {
+	// Build the remaining canonical fields independently of live authorization.
+	c := TransportCapabilities{SchemaVersion: 2, Profile: ProfileV2, SessionID: "session", Revision: "2", AuthorizationRevision: 1, ExpiresAt: time.Now().Add(time.Minute), Operations: OperationsV2ForMode("local-test"), Limits: TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, MaxConcurrent, 8192, 2}}
+	if slices.Contains(c.Operations, OperationClientsIssue) || validateNegotiation(c, "session", "local-test") != nil {
+		t.Fatal("legacy application table changed")
+	}
+	if validateNegotiation(c, "session", "node-managed") == nil {
+		t.Fatal("node issuer accepted stripped application table")
+	}
+	c.Operations = OperationsV2()
+	if validateNegotiation(c, "session", "node-managed") != nil {
+		t.Fatal("new application table rejected")
+	}
+	c.Operations = append(c.Operations, "caller.selected")
+	if validateNegotiation(c, "session", "node-managed") == nil || validateNegotiation(c, "session", "local-test") == nil {
+		t.Fatal("arbitrary operation advertised")
+	}
+}
 func TestV2FallsBackToExplicitV1Peer(t *testing.T) {
 	i, _, _ := v2Endpoints(t, false)
 	c, ok := i.Negotiated()

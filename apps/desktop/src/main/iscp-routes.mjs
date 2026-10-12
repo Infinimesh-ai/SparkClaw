@@ -24,6 +24,12 @@ export function mapV2Route(url,method,body) {
       }else if(template[i]!==segments[i]){matched=false;break;}
     }
     if(matched){
+      if (operation.name.startsWith('clients.')) {
+        const object = body && typeof body === 'object' && !Array.isArray(body);
+        if (url.search || operation.name === 'clients.list' && body !== undefined ||
+            operation.name === 'clients.issue' && (!object || Object.keys(body).join(',') !== 'client_name' || typeof body.client_name !== 'string' || [...body.client_name.trim()].length > 80 || /[\x00\r\n]/u.test(body.client_name)) ||
+            operation.name === 'clients.revoke' && body !== undefined && (!object || Object.keys(body).length)) throw new Error('ISCP device request is invalid');
+      }
       const targetIDs=[];
       for(const [key,value] of url.searchParams){
         if (operation.name === 'mail.presentations.get' && key === 'target_id') {

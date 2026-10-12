@@ -22,17 +22,26 @@ export function resolveISCPLaunchProfile({ defaultUserData, env = process.env, q
       validateSelection(iscpProfilePath, configuredUserData, defaultUserData, uid);
       return Object.freeze({ configuredUserData, iscpProfilePath, allowLocalISCPTest: true, source: "environment" });
     }
+    if (configuredUserData && !qualification) {
+      const selected = readPersistedSelection(configuredUserData, uid, true);
+      if (selected) return Object.freeze({ ...selected, source: "environment" });
+    }
     return Object.freeze({ configuredUserData, allowLocalISCPTest: false, source: "environment" });
   }
+  return readPersistedSelection(defaultUserData, uid) || Object.freeze({ allowLocalISCPTest: false, source: "default" });
+}
+
+function readPersistedSelection(defaultUserData, uid, nodeOnly = false) {
   const filename = path.join(defaultUserData, ISCP_LAUNCH_PROFILE_NAME);
   let selection;
   try { selection = readPrivateJSON(filename, uid); }
-  catch (error) { if (error.code === "ENOENT") return Object.freeze({ allowLocalISCPTest: false, source: "default" }); throw error; }
+  catch (error) { if (error.code === "ENOENT") return undefined; throw error; }
   const nodeManaged = selection?.schema_version === 2 && selection.mode === "node-managed";
   const valid = nodeManaged
     ? Object.keys(selection).sort().join(",") === "mode,profile_path,schema_version,user_data_directory"
     : selection && Object.keys(selection).sort().join(",") === "profile_path,schema_version,test_mode,user_data_directory" && selection.schema_version === 1 && selection.test_mode === true;
   if (!valid) throw new Error("ISCP launch selection is invalid; remove iscp-launch-profile.json to restore the default connection");
+  if (nodeOnly && !nodeManaged) throw new Error("Environment-selected local ISCP still requires an explicit test profile");
   validateSelection(selection.profile_path, selection.user_data_directory, defaultUserData, uid, nodeManaged);
   return Object.freeze({ configuredUserData: selection.user_data_directory, iscpProfilePath: selection.profile_path,
     allowLocalISCPTest: !nodeManaged, ...(nodeManaged ? { allowNodeManagedISCP: true } : {}), source: "persisted" });

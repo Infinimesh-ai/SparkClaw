@@ -260,3 +260,14 @@ test("expired invitations reject fresh enrollment and permit only the original p
   await fs.chmod(identityFile, 0o644); await assert.rejects(f.auth.enroll(expired), /expired/); await fs.chmod(identityFile, 0o600);
   assert.equal((await f.auth.enroll(expired)).state, "connected"); assert.equal(f.calls.length, 1); assert.equal(f.calls[0].credential, expired);
 });
+
+test("an explicitly isolated native userData resolves only its own production selection and keeps the default launch choice untouched", async t => {
+  const f = await fixture(t); await f.auth.enroll(f.credential);
+  const defaultData = path.join(f.directory, "unrelated-default"); await fs.mkdir(defaultData, { mode: 0o700 });
+  const unrelatedSelection = path.join(defaultData, "iscp-launch-profile.json");
+  await fs.writeFile(unrelatedSelection, "unrelated selection must not be read", { mode: 0o600 });
+  const result = resolveISCPLaunchProfile({ defaultUserData: defaultData, env: { SPARKCLAW_DESKTOP_USER_DATA_DIR: f.directory } });
+  assert.equal(result.source, "environment"); assert.equal(result.configuredUserData, f.directory); assert.equal(result.iscpProfilePath, f.auth.iscpProfilePath); assert.equal(result.allowNodeManagedISCP, true); assert.equal(result.allowLocalISCPTest, false);
+  assert.equal(await fs.readFile(unrelatedSelection, "utf8"), "unrelated selection must not be read");
+  assert.equal(resolveISCPLaunchProfile({ defaultUserData: defaultData, env: { SPARKCLAW_DESKTOP_USER_DATA_DIR: f.directory }, qualification: true }).iscpProfilePath, undefined);
+});

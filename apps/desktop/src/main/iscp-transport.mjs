@@ -14,6 +14,7 @@ const MAX_BYTES = 65536;
 const FRAME_BYTES = MAX_BYTES + 8192;
 export const ISCP_BODY_BYTES = MAX_BYTES - 2048;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
+const CLIENT_UI_KEY = /^client-[a-f0-9]{48}$/u;
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const CAPACITIES = Object.freeze({v1:4,business:4,control:1,bulk:2,events:1,audio:2});
 const MAIL_READ_LIMIT = 3; // Reserve the fourth business slot for explicit actions.
@@ -170,7 +171,8 @@ export class ISCPTransport {
     if (request.operation === 'clients.list') return this.#request(request, init, rawBody);
     if (!this.clientOperationVault) throw new ISCPRequestNotSentError('Native secure operation storage is unavailable');
     const requested = request.operation === 'clients.issue' ? headers.get('idempotency-key') : undefined;
-    if (request.operation === 'clients.issue' && !UUID.test(requested || '')) throw new ISCPRequestNotSentError('Device issuance requires its original operation identity');
+    const legacyIssue = request.operation === 'clients.issue' && CLIENT_UI_KEY.test(requested || '');
+    if (request.operation === 'clients.issue' && !UUID.test(requested || '') && !legacyIssue) throw new ISCPRequestNotSentError('Device issuance requires its original operation identity');
     const resource = request.operation === 'clients.issue' ? `clients.issue:${requested}` : `clients.revoke:${request.params.id}`;
     if (this.presentationPending.has(resource)) throw new ISCPRequestNotSentError('A device operation is already in progress', 'capacity');
     this.presentationPending.add(resource);
@@ -179,13 +181,16 @@ export class ISCPTransport {
       let row = await this.clientOperationVault.loadClientOperation(resource);
       if (row && row.fingerprint !== fingerprint) throw new ISCPRequestNotSentError('The original device operation must be reconciled');
       if (!row) {
-        row = { schema_version: 1, operation: request.operation, operation_id: requested || crypto.randomUUID(), fingerprint };
+        row = { schema_version: 1, operation: request.operation, operation_id: UUID.test(requested || '') ? requested : crypto.randomUUID(), fingerprint };
         await this.clientOperationVault.saveClientOperation(resource, row);
       }
       // A lost issuer response replays the original mutation itself. Its sealed
       // receipt stays with the issuer; no credential enters a plaintext journal.
       const response = await this.#request({ ...request, operation_id: row.operation_id }, init, rawBody);
-      if (response.ok || response.status < 500 && response.status !== 429) await this.clientOperationVault.clearClientOperation(resource);
+      // The original UI keeps its opaque key until it has received the native
+      // credential. Retain only its encrypted UUID/fingerprint mapping so a
+      // lost IPC result, including after restart, replays the issuer receipt.
+      if (!legacyIssue && (response.ok || response.status < 500 && response.status !== 429)) await this.clientOperationVault.clearClientOperation(resource);
       return response;
     } finally { this.presentationPending.delete(resource); }
   }

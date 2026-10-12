@@ -59,6 +59,63 @@ test('node-managed device operations replay original encrypted intents and prese
  await assert.rejects(f.transport.fetch(`${origin}/api/clients`,{...input,headers:{}}),/original operation identity/);
 });
 
+test('original device UI keys persist one private wire UUID across concurrency, lost response and restart', async t => {
+  const fs = await import('node:fs/promises'), os = await import('node:os'), path = await import('node:path');
+  const root = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'iscp-original-device-key-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const key = crypto.randomBytes(32), safeStorage = { isEncryptionAvailable: () => true, getSelectedStorageBackend: () => 'gnome_libsecret',
+    encryptString(value) { const iv = crypto.randomBytes(12), cipher = crypto.createCipheriv('aes-256-gcm', key, iv); const bytes = Buffer.concat([cipher.update(value), cipher.final()]); return Buffer.concat([iv, cipher.getAuthTag(), bytes]); },
+    decryptString(value) { const cipher = crypto.createDecipheriv('aes-256-gcm', key, value.subarray(0, 12)); cipher.setAuthTag(value.subarray(12, 28)); return Buffer.concat([cipher.update(value.subarray(28)), cipher.final()]).toString('utf8'); } };
+  const makeVault = () => new SecureCredentialStore({ directory: path.join(root, 'secure'), safeStorage, platform: 'linux' }).forISCPProfile('a'.repeat(64));
+  const capabilities = { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session', authorization_revision: 1,
+    expires_at: new Date(Date.now() + 60000).toISOString(), binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' }, operations: ['clients.issue'] };
+  // Identical to PairedClientsSettings: 24 random bytes become client-<48hex>.
+  const uiKey = () => `client-${Array.from(crypto.randomBytes(24), byte => byte.toString(16).padStart(2, '0')).join('')}`;
+  const firstKey = uiKey(), secondKey = uiKey();
+  const input = (name, idempotencyKey) => ({ method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ client_name: name }) });
+  const firstInput = input('second desktop', firstKey), secondInput = input('third desktop', secondKey);
+  const original = { client: { id: 'new-client', owner_id: 'o', name: 'second desktop' }, token: 'sparkclaw-iscp-connect-v1.synthetic-secret' };
+  let resolveWritten; const written = new Promise(resolve => { resolveWritten = resolve; });
+  const respond = (call, child) => child.send({ ipc_version: 1, type: 'response', id: call.id,
+    response: { type: 'task.result', profile: capabilities.profile, id: call.id, status: 200, body: original } });
+  const f = fixture(t, (call, child) => {
+    const body = JSON.parse(Buffer.from(call.body_base64, 'base64').toString('utf8'));
+    if (body.client_name === 'second desktop') resolveWritten(); else respond(call, child);
+  }, { clientOperationVault: makeVault(), journalRoot: path.join(root, 'journal') });
+  await f.transport.start(); f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities });
+  const lost = assert.rejects(f.transport.fetch(`${origin}/api/clients`, firstInput), /unavailable|timed|deadline/);
+  await written;
+  const firstWire = f.calls[0].request.operation_id;
+  assert.match(firstWire, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u);
+  assert.notEqual(firstWire, firstKey);
+  await assert.rejects(f.transport.fetch(`${origin}/api/clients`, firstInput), error => error instanceof ISCPRequestNotSentError && error.reason === 'capacity');
+  assert.deepEqual(await (await f.transport.fetch(`${origin}/api/clients`, secondInput)).json(), original);
+  const secondWire = f.calls[1].request.operation_id;
+  assert.notEqual(firstWire, secondWire, 'different original UI keys retain independent identities');
+  await lost; f.transport.close();
+
+  const vault = makeVault();
+  const g = fixture(t, respond, { clientOperationVault: vault, journalRoot: path.join(root, 'journal') });
+  await g.transport.start(); g.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities });
+  await assert.rejects(g.transport.fetch(`${origin}/api/clients`, input('changed name', firstKey)), /reconciled/);
+  assert.equal(g.calls.length, 0, 'a changed input with the same key cannot reach the helper');
+  assert.deepEqual(await (await g.transport.fetch(`${origin}/api/clients`, firstInput)).json(), original);
+  assert.deepEqual(await (await g.transport.fetch(`${origin}/api/clients`, firstInput)).json(), original);
+  assert.deepEqual(await (await g.transport.fetch(`${origin}/api/clients`, secondInput)).json(), original);
+  assert.deepEqual(g.calls.map(call => call.request.operation_id), [firstWire, firstWire, secondWire], 'successful native response replay also retains the wire identity');
+  for (const invalid of ['', 'client-short', `client-${'A'.repeat(48)}`, `client-${'a'.repeat(49)}`, `client-${'a'.repeat(4096)}`]) {
+    await assert.rejects(g.transport.fetch(`${origin}/api/clients`, input('second desktop', invalid)), /original operation identity/);
+  }
+  assert.equal(g.calls.length, 3);
+  const files = await fs.readdir(vault.directory); assert.equal(files.length, 2);
+  for (const filename of files) {
+    const encrypted = await fs.readFile(path.join(vault.directory, filename));
+    for (const value of [firstKey, secondKey, firstWire, secondWire, original.token]) assert.ok(!encrypted.includes(Buffer.from(value)));
+    const row = JSON.parse(safeStorage.decryptString(encrypted));
+    assert.deepEqual(Object.keys(row).sort(), ['fingerprint', 'operation', 'operation_id', 'schema_version']);
+  }
+});
+
 test("fixed helper process, compatible hello and manifest precede JSON RPC; exact original JSON survives IPC", async (t) => {
   const f = fixture(t);
   await f.transport.start();

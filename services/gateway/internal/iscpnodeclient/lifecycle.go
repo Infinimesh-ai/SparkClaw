@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeissuer"
 	c "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/trust"
@@ -64,9 +65,7 @@ func (cl *Client) lifecycle(ctx context.Context, kind, operation string, revisio
 			step = "recover"
 		}
 		if e = cl.exchange(ctx, p.Request.OperationID, step, p.Request, &wire); e != nil {
-			if errors.Is(e, iscpnodeissuer.ErrDenied) {
-				cl.revoked = true
-			}
+
 			return zero, e
 		}
 		out, e := iscpnodeissuer.OpenLifecycle(p.Request, wire, p.Private)
@@ -98,6 +97,9 @@ func (cl *Client) lifecycle(ctx context.Context, kind, operation string, revisio
 	}
 	if p.Result.State == "revoked" {
 		cl.revoked = true
+		if kind != "delete" && kind != "delete-receipt" {
+			return zero, iscpbridge.ErrAuthorizationRevoked
+		}
 	}
 	if persist && name == "lifecycle.pending" {
 		cl.pending = &p
@@ -178,14 +180,14 @@ func (cl *Client) AuthorizationPolicy(ctx context.Context) (iscpauth.Policy, err
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	if cl.revoked {
-		return iscpauth.Policy{}, iscpnodeissuer.ErrDenied
+		return iscpauth.Policy{}, iscpbridge.ErrAuthorizationRevoked
 	}
 	out, e := cl.lifecycle(ctx, "check", "check-"+c.Base64URL(c.RandomBytes(24)), cl.cfg.Revision, false)
 	if e != nil {
 		return iscpauth.Policy{}, e
 	}
 	if out.State != "active" {
-		return iscpauth.Policy{}, iscpnodeissuer.ErrDenied
+		return iscpauth.Policy{}, iscpbridge.ErrAuthorizationRevoked
 	}
 	return iscpauth.Policy{Version: 2, Lifetime: iscpauth.UntilRevoked, Revision: out.Revision, State: iscpauth.Active, Scopes: out.Scopes}, nil
 }

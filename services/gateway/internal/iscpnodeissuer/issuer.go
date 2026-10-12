@@ -21,6 +21,7 @@ type Config struct {
 	Issuer           identity.Device
 	InvitationSigner identity.Device
 	GrantTTL         time.Duration
+	ApprovedScopes   []string
 	RegistryPath     string
 }
 type Issuer struct {
@@ -46,6 +47,9 @@ func New(cfg Config, store Store, m Management, r RelayRegistration) (*Issuer, e
 // Gateway to create a Client. A Gateway lost-response is reconciled by stable ID;
 // the discarded HTTP Client token is never given to the desktop or Relay.
 func (i *Issuer) CreateInvitation(ctx context.Context, name string, ttl time.Duration, scopes []string, key string) (string, error) {
+	if len(i.cfg.ApprovedScopes) > 0 && Digest(scopes) != Digest(i.cfg.ApprovedScopes) {
+		return "", ErrDenied
+	}
 	if !identifier.MatchString(key) || len(key) < 8 || ttl < time.Second || ttl > 30*time.Minute || name == "" || len([]rune(name)) > 80 {
 		return "", ErrInvalid
 	}
@@ -335,7 +339,7 @@ func (i *Issuer) redeem(ctx context.Context, x Exchange) (ExchangeResponse, erro
 		}
 		result := EnrollmentResult{Version: 1, OperationID: x.OperationID, InvitationID: x.InvitationID, Identity: *st.Device, Binding: op.Preparation.Binding, AuthorizationRevision: st.Revision, InstallationID: op.InstallationID, Scopes: st.Credential.Scopes, Grant: op.Preparation.Grant, IssuerIdentity: i.cfg.Issuer.Identity, InvitationSignerIdentity: i.cfg.InvitationSigner.Identity, ResponderIdentity: st.Credential.ResponderIdentity}
 		signer := st.Credential.RelaySignerIdentity
-		result.Enrollment = iscpbridge.EnrollmentBundle{Type: iscpbridge.EnrollmentBundleType, Mode: NodeBundleMode, DomainID: st.Credential.DomainID, DeviceID: st.Device.DeviceID, RelayID: st.Credential.RelayID, RelayBaseURL: st.Credential.Origin, RelayWebSocketURL: "wss" + st.Credential.Origin[5:] + "/v2/relay/connect", TrustRootIdentity: i.cfg.InvitationSigner.Identity, RelaySignerIdentity: &signer, Access: tokens.Access, Refresh: tokens.Refresh, IssuedAt: i.Now().UTC(), ExpiresAt: tokens.Refresh.ExpiresAt}
+		result.Enrollment = iscpbridge.EnrollmentBundle{Type: iscpbridge.EnrollmentBundleType, Mode: NodeBundleMode, DomainID: st.Credential.DomainID, DeviceID: st.Device.DeviceID, RelayID: st.Credential.RelayID, RelayBaseURL: st.Credential.Origin, RelayWebSocketURL: "wss" + st.Credential.Origin[5:] + "/v2/relay/connect", TrustRootIdentity: i.cfg.InvitationSigner.Identity, TLSCertificatePEM: st.Credential.TLSCertificatePEM, InvitationSignerIdentity: &st.Credential.InvitationSignerIdentity, RelaySignerIdentity: &signer, Access: tokens.Access, Refresh: tokens.Refresh, IssuedAt: i.Now().UTC(), ExpiresAt: tokens.Refresh.ExpiresAt}
 		result.Signature, e = SignObject("sparkclaw.iscp.enrollment-result.v1", result, i.cfg.Issuer)
 		if e != nil {
 			return ExchangeResponse{}, e
@@ -439,6 +443,7 @@ type RegistryPeer struct {
 	Identity              identity.DeviceIdentity `json:"identity"`
 	Grant                 trust.Grant             `json:"grant"`
 	Binding               Binding                 `json:"binding"`
+	Scopes                []string                `json:"scopes"`
 	InstallationID        string                  `json:"installation_id"`
 	AuthorizationRevision uint64                  `json:"authorization_revision"`
 	Revoked               bool                    `json:"revoked"`
@@ -470,7 +475,7 @@ func (i *Issuer) Registry(ctx context.Context) (PeerRegistry, error) {
 				grant = *o.Grant
 			}
 		}
-		out.Peers = append(out.Peers, RegistryPeer{*s.Device, grant, result.Binding, result.InstallationID, s.Revision, s.State == "revoked"})
+		out.Peers = append(out.Peers, RegistryPeer{*s.Device, grant, result.Binding, result.Scopes, result.InstallationID, s.Revision, s.State == "revoked"})
 	}
 	sort.Slice(out.Peers, func(a, b int) bool { return out.Peers[a].Identity.DeviceID < out.Peers[b].Identity.DeviceID })
 	return out, nil

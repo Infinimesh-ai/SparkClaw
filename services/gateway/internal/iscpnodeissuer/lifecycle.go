@@ -157,6 +157,18 @@ func (i *Issuer) lifecycle(ctx context.Context, x Exchange) (ExchangeResponse, e
 		}
 		return response(x, wrapped)
 	}
+	if s.State == "revoked" {
+		res := LifecycleResult{Version: 1, OperationID: x.OperationID, InvitationID: x.InvitationID, Identity: *s.Device, Revision: s.Revision, State: "revoked", Scopes: s.Credential.Scopes}
+		res.Signature, e = SignObject("sparkclaw.iscp.lifecycle-result.v1", res, i.cfg.Issuer)
+		if e != nil {
+			return ExchangeResponse{}, e
+		}
+		wrapped, e := SealLifecycle(req, res)
+		if e != nil {
+			return ExchangeResponse{}, e
+		}
+		return response(x, wrapped)
+	}
 	if e = i.authorized(ctx, s); e != nil {
 		return ExchangeResponse{}, e
 	}

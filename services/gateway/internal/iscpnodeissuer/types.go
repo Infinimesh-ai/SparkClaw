@@ -130,27 +130,8 @@ func SignCredential(v Credential, signer identity.Device) (Credential, error) {
 	return v, nil
 }
 func (v Credential) Validate(now time.Time, allowExpired bool) error {
-	u, e := url.Parse(v.Origin)
-	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || len(v.Origin) > 512 || strings.ContainsAny(v.Origin, "\r\n") || len(v.TLSCertificatePEM) > 16<<10 || v.TLSCertificatePEM == "" {
-		return ErrInvalid
-	}
-	ip := net.ParseIP(u.Hostname())
-	if ip == nil || u.Hostname() != ip.String() || u.RawPath != "" || u.ForceQuery || u.String() != v.Origin {
-		return ErrInvalid
-	}
-	if u.Port() != "" {
-		p, e := strconv.Atoi(u.Port())
-		if e != nil || p < 1 || p > 65535 || strconv.Itoa(p) != u.Port() {
-			return ErrInvalid
-		}
-	}
-	block, rest := pem.Decode([]byte(v.TLSCertificatePEM))
-	if block == nil || block.Type != "CERTIFICATE" || len(bytes.TrimSpace(rest)) != 0 {
-		return ErrInvalid
-	}
-	cert, e := x509.ParseCertificate(block.Bytes)
-	if e != nil || cert.VerifyHostname(ip.String()) != nil || (!allowExpired && now.After(cert.NotAfter)) || now.Before(cert.NotBefore) {
-		return ErrInvalid
+	if e := ValidateOrigin(v.Origin, v.TLSCertificatePEM, now, allowExpired); e != nil {
+		return e
 	}
 	if v.Type != CredentialType || v.SchemaVersion != 1 || !v.ExpiresAt.After(v.IssuedAt) || v.ExpiresAt.Sub(v.IssuedAt) > 30*time.Minute || v.IssuedAt.After(now.Add(time.Minute)) {
 		return ErrInvalid
@@ -346,4 +327,31 @@ type RegistrationRecovery struct {
 	Proof                identity.DeviceProof    `json:"proof"`
 	ReceiptWrapPublicKey string                  `json:"receipt_wrap_public_key"`
 	Revision             uint64                  `json:"revision"`
+}
+
+func ValidateOrigin(origin, certPEM string, now time.Time, allowExpired bool) error {
+	u, e := url.Parse(origin)
+	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || len(origin) > 512 || strings.ContainsAny(origin, "\r\n") || len(certPEM) > 16<<10 || certPEM == "" {
+		return ErrInvalid
+	}
+	ip := net.ParseIP(u.Hostname())
+	if ip == nil || u.Hostname() != ip.String() || u.RawPath != "" || u.ForceQuery || u.String() != origin {
+		return ErrInvalid
+	}
+	if u.Port() != "" {
+		p, e := strconv.Atoi(u.Port())
+		if e != nil || p < 1 || p > 65535 || strconv.Itoa(p) != u.Port() {
+			return ErrInvalid
+		}
+	}
+	block, rest := pem.Decode([]byte(certPEM))
+	if block == nil || block.Type != "CERTIFICATE" || len(bytes.TrimSpace(rest)) != 0 {
+		return ErrInvalid
+	}
+	cert, e := x509.ParseCertificate(block.Bytes)
+	if e != nil || cert.VerifyHostname(ip.String()) != nil || (!allowExpired && now.After(cert.NotAfter)) || now.Before(cert.NotBefore) {
+		return ErrInvalid
+	}
+
+	return nil
 }

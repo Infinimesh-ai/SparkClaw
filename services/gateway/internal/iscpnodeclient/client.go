@@ -76,6 +76,9 @@ func NewStored(cfg StoredConfig, device identity.Device, directory string, previ
 	return newClient(cfg, device, directory, previous)
 }
 func newClient(cfg StoredConfig, device identity.Device, directory string, previous trust.Grant) (*Client, error) {
+	if iscpnodeissuer.ValidateOrigin(cfg.Origin, cfg.TLSCertificatePEM, time.Now().UTC(), true) != nil {
+		return nil, iscpnodeissuer.ErrInvalid
+	}
 	if iscpnodeissuer.ValidateIdentity(device.Identity) != nil || iscpnodeissuer.ValidateIdentity(cfg.IssuerIdentity) != nil || device.Identity.DomainID != cfg.IssuerIdentity.DomainID || len(device.Private.BytesForDevStore()) != 64 || !filepath.IsAbs(directory) || cfg.Revision == 0 {
 		return nil, iscpnodeissuer.ErrInvalid
 	}

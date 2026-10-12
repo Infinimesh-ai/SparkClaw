@@ -1,0 +1,28 @@
+[Unit]
+Description=SparkClaw private node credential issuer
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=exec
+User=ubuntu
+Group=ubuntu
+ExecStart=/opt/sparkclaw-iscp/bin/iscp-node-issuer -config /home/ubuntu/.local/share/sparkclaw/public-iscp-node/authority/issuer.json
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/ubuntu/.local/share/sparkclaw/public-iscp-node/state /home/ubuntu/.local/share/sparkclaw/public-iscp-node/control-credentials /home/ubuntu/.local/share/sparkclaw/public-iscp-node/control-grants /home/ubuntu/.local/share/sparkclaw/public-iscp-node/registry
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LimitNOFILE=4096
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

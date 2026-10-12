@@ -1,0 +1,29 @@
+[Unit]
+Description=SparkClaw pinned ISCP control forwarder
+After=network-online.target iscp-relay.service
+Requires=iscp-relay.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=iscprelay
+Group=iscprelay
+ExecStart=/opt/iscp-relay/bin/iscp-control-forwarder -config /var/lib/iscp-relay/node/authority/forwarder.json
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/iscp-relay/node/credentials /var/lib/iscp-relay/node/grants
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LimitNOFILE=4096
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

@@ -162,7 +162,7 @@ func run() error {
 			return node.ErrDenied
 		}
 		now := time.Now().UTC()
-		g, e := trust.SignGrant(c.NewProvider(), d, trust.Grant{GrantID: "control-" + c.Base64URL(c.RandomBytes(18)), SubjectDeviceID: subject.DeviceID, Audience: *audience, ConfirmationThumbprint: subject.PublicKey.KID, Permissions: []string{ctl.ControlPermission}, RelayConstraints: []string{*relay}, NotBefore: now.Add(-time.Second), ExpiresAt: now.Add(7 * 24 * time.Hour), RevocationEpoch: 1})
+		g, e := trust.SignGrant(c.NewProvider(), d, trust.Grant{GrantID: "control-" + c.Base64URL(c.RandomBytes(18)), SubjectDeviceID: subject.DeviceID, Audience: *audience, ConfirmationThumbprint: subject.PublicKey.KID, Permissions: []string{ctl.ControlPermission}, RelayConstraints: []string{*relay}, NotBefore: now, ExpiresAt: now.Add(7 * 24 * time.Hour), RevocationEpoch: 1})
 		if e != nil {
 			return e
 		}

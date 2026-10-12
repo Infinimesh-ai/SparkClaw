@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeclient"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/trust"
 )
 
@@ -29,6 +30,20 @@ func (e *Endpoint) refreshAuthorization(ctx context.Context) (resultErr error) {
 	e.renewalMu.Lock()
 	defer e.renewalMu.Unlock()
 	m := e.grantMaterial()
+	if client, ok := e.lifecycle.(*iscpnodeclient.Client); ok {
+		if kind, err := client.PendingLifecycleKind(); err != nil {
+			return err
+		} else if kind != "" {
+			relay, _ := e.relay.(*iscpbridge.RelayClient)
+			updated, err := reconcileNodePending(ctx, e.config, m, client, relay)
+			if err == nil || updated.grant.Signature.Value != m.grant.Signature.Value {
+				e.grantMu.Lock()
+				e.material.grant = updated.grant
+				e.grantMu.Unlock()
+			}
+			return err
+		}
+	}
 	due := e.config.Role == RoleInitiator && (e.lifecycle.HasPendingRenewal() || time.Until(m.grant.ExpiresAt) <= iscpbridge.GrantRenewalWindow(m.grant))
 	var grant trust.Grant
 	var err error

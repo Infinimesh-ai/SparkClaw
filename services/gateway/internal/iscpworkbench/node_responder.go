@@ -158,7 +158,7 @@ func (n *NodeResponder) policy(ctx context.Context, id string, e *Endpoint) (isc
 		return iscpauth.Policy{}, err
 	}
 	m := e.grantMaterial()
-	if p.Identity.PublicKey.Public != m.peer.PublicKey.Public || p.Binding != *e.config.Binding || p.AuthorizationRevision < m.grant.RevocationEpoch {
+	if p.Identity.PublicKey.Public != m.peer.PublicKey.Public || p.Binding != *e.config.Binding || p.InstallationID != e.config.ExpectedInstallationID || p.AuthorizationRevision < m.grant.RevocationEpoch {
 		return iscpauth.Policy{}, errors.New("node peer identity or authorization regressed")
 	}
 	m.grant = p.Grant
@@ -188,7 +188,7 @@ func (n *NodeResponder) syncPeers(ctx context.Context) error {
 		old := n.peers[p.Identity.DeviceID]
 		n.mu.Unlock()
 		if old != nil {
-			if old.peer.Identity.PublicKey.Public != p.Identity.PublicKey.Public || old.peer.Binding != p.Binding {
+			if old.peer.Identity.PublicKey.Public != p.Identity.PublicKey.Public || old.peer.Binding != p.Binding || old.peer.InstallationID != p.InstallationID {
 				n.remove(p.Identity.DeviceID)
 				return errors.New("node peer identity cannot be replaced")
 			}

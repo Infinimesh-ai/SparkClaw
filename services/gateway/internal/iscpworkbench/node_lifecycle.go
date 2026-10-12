@@ -9,6 +9,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeclient"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeissuer"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/trust"
 )
 
@@ -60,41 +61,21 @@ func recoverNodeRuntime(ctx context.Context, path string, cfg Config, m material
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	m, err = reconcileNodePending(ctx, cfg, m, client, nil)
+	if err != nil && !errors.Is(err, iscpbridge.ErrGrantRenewalResultExpired) {
+		return Config{}, err
+	}
+	if time.Now().Before(m.enrollment.Access.ExpiresAt) && time.Now().Before(m.enrollment.Refresh.ExpiresAt) && time.Now().Before(m.enrollment.ExpiresAt) && time.Now().Before(m.grant.ExpiresAt) {
+		return LoadConfig(path)
+	}
 	result, err := client.RecoverTransport(ctx)
 	if err != nil {
 		return Config{}, err
 	}
-	if result.Grant == nil || result.RelayCredentials == nil {
-		return Config{}, errors.New("node recovery did not return bound Grant and transport credentials")
+	if result.RelayCredentials == nil {
+		return Config{}, errors.New("node recovery lacks sealed transport credentials")
 	}
-	m.grant = *result.Grant
-	if err = verifyGrant(cfg, m, time.Now().UTC()); err != nil {
-		return Config{}, err
-	}
-	// Authenticate a fresh descriptor independently of the issuer result; the
-	// Relay signer remains pinned and supplies the current validity window.
-	discovery, err := iscpbridge.DiscoverNodeRelay(ctx, m.enrollment)
-	if err != nil {
-		return Config{}, err
-	}
-	updated := m.enrollment
-	updated.Access = result.RelayCredentials.Access
-	updated.Refresh = result.RelayCredentials.Refresh
-	updated.IssuedAt = time.Now().UTC()
-	updated.ExpiresAt = minTime(discovery.ExpiresAt, updated.Refresh.ExpiresAt)
-	if err = updated.ValidateCredentials(time.Now().UTC()); err != nil {
-		return Config{}, err
-	}
-	if err = saveCurrentGrant(cfg.GrantFile, m.grant); err != nil {
-		return Config{}, err
-	}
-	if err = iscpbridge.SaveEnrollment(cfg.EnrollmentFile, updated); err != nil {
-		return Config{}, err
-	}
-	if err = client.AcceptGrant(m.grant); err != nil {
-		return Config{}, err
-	}
-	if err = client.CommitRenewal(); err != nil {
+	if _, err = applyNodeLifecycle(ctx, cfg, m, client, result, nil); err != nil {
 		return Config{}, err
 	}
 	return LoadConfig(path)
@@ -104,4 +85,125 @@ func minTime(a, b time.Time) time.Time {
 		return b
 	}
 	return a
+}
+
+// applyNodeLifecycle commits the original signed result before acknowledging its
+// durable operation. A lost ACK retains the pending response; replay cannot issue
+// another Grant or overwrite a newer revocation.
+func applyNodeLifecycle(ctx context.Context, cfg Config, m material, client *iscpnodeclient.Client, result iscpnodeissuer.LifecycleResult, relay *iscpbridge.RelayClient) (material, error) {
+	if result.Grant == nil {
+		return m, errors.New("node lifecycle result lacks business Grant")
+	}
+	next := m
+	next.grant = *result.Grant
+	if err := verifyGrant(cfg, next, time.Now().UTC()); err != nil {
+		return m, err
+	}
+	if err := saveCurrentGrant(cfg.GrantFile, next.grant); err != nil {
+		return m, err
+	}
+	m = next
+	if result.RelayCredentials != nil {
+		bundle := m.enrollment
+		if relay != nil {
+			bundle = relay.Enrollment()
+		}
+		discovery, err := iscpbridge.DiscoverNodeRelay(ctx, bundle)
+		if err != nil {
+			return m, err
+		}
+		updated := bundle
+		updated.Access = result.RelayCredentials.Access
+		updated.Refresh = result.RelayCredentials.Refresh
+		updated.IssuedAt = time.Now().UTC()
+		updated.ExpiresAt = minTime(discovery.ExpiresAt, updated.Refresh.ExpiresAt)
+		if err = updated.ValidateCredentials(time.Now().UTC()); err != nil {
+			return m, err
+		}
+		if relay != nil {
+			err = relay.UpdateEnrollment(func(b *iscpbridge.EnrollmentBundle) { *b = updated })
+		} else {
+			err = iscpbridge.SaveEnrollment(cfg.EnrollmentFile, updated)
+		}
+		if err != nil {
+			return m, err
+		}
+		m.enrollment = updated
+	}
+	if err := client.AcceptGrant(m.grant); err != nil {
+		return m, err
+	}
+	return m, client.CommitRenewal()
+}
+func reconcileNodePending(ctx context.Context, cfg Config, m material, client *iscpnodeclient.Client, relay *iscpbridge.RelayClient) (material, error) {
+	kind, err := client.PendingLifecycleKind()
+	if err != nil {
+		return m, err
+	}
+	if kind == "" {
+		return m, nil
+	}
+	if kind != "renew" && kind != "recover" {
+		return m, errors.New("unknown pending node lifecycle kind")
+	}
+	result, err := client.ResolvePendingLifecycle(ctx)
+	if err != nil {
+		return m, err
+	}
+	return applyNodeLifecycle(ctx, cfg, m, client, result, relay)
+}
+
+// recoverLiveNodeTransport is serialized with Grant renewal. Transport expiry
+// during a long outage reuses the original device/standing authorization and
+// TEST1 control path, without consuming an invitation or retrying business work.
+func (e *Endpoint) recoverLiveNodeTransport(ctx context.Context) error {
+	client, ok := e.lifecycle.(*iscpnodeclient.Client)
+	if !ok {
+		return nil
+	}
+	relay, ok := e.relay.(*iscpbridge.RelayClient)
+	if !ok {
+		return nil
+	}
+	bundle := relay.Enrollment()
+	if time.Now().Before(bundle.Refresh.ExpiresAt) && time.Now().Before(bundle.ExpiresAt) {
+		return nil
+	}
+	e.renewalMu.Lock()
+	defer e.renewalMu.Unlock()
+	m, err := reconcileNodePending(ctx, e.config, e.grantMaterial(), client, relay)
+	if err != nil && !errors.Is(err, iscpbridge.ErrGrantRenewalResultExpired) {
+		return err
+	}
+	bundle = relay.Enrollment()
+	if !time.Now().Before(bundle.Refresh.ExpiresAt) || !time.Now().Before(bundle.ExpiresAt) {
+		result, recoveryErr := client.RecoverTransport(ctx)
+		if recoveryErr != nil {
+			return recoveryErr
+		}
+		m, err = applyNodeLifecycle(ctx, e.config, m, client, result, relay)
+	}
+	e.grantMu.Lock()
+	e.material.grant = m.grant
+	e.grantMu.Unlock()
+	e.observeAuthorizationError(err)
+	return err
+}
+
+// RecoverNodeEnrollment completes a previously signed historical enrollment
+// before activation. It uses the same durable lifecycle coordinator as runtime
+// recovery; the original signed EnrollmentResult is never rewritten or relabeled.
+func RecoverNodeEnrollment(ctx context.Context, path string) (Config, error) {
+	cfg, err := LoadControlConfig(path)
+	if err != nil {
+		return Config{}, err
+	}
+	if cfg.Mode != "node-managed" || cfg.Role != RoleInitiator {
+		return Config{}, errors.New("node enrollment recovery requires its original initiator")
+	}
+	m, err := loadMaterialMode(cfg, true)
+	if err != nil {
+		return Config{}, err
+	}
+	return recoverNodeRuntime(ctx, path, cfg, m)
 }

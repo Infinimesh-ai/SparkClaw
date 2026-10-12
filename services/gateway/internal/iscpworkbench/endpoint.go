@@ -230,6 +230,9 @@ func (e *Endpoint) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		if recoveryErr := e.recoverLiveNodeTransport(ctx); recoveryErr != nil {
+			e.observeAuthorizationError(recoveryErr)
+		}
 		e.setState("disconnected")
 		if err == nil {
 			backoff = time.Second

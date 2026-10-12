@@ -130,6 +130,11 @@ func enrollNode(ctx context.Context, input io.Reader, output io.Writer, director
 	if err = iscpnodeissuer.WritePrivateAtomic(helperPath, raw); err != nil {
 		return err
 	}
+	if !time.Now().Before(result.Grant.ExpiresAt) || !time.Now().Before(result.Enrollment.Access.ExpiresAt) || !time.Now().Before(result.Enrollment.Refresh.ExpiresAt) || !time.Now().Before(result.Enrollment.ExpiresAt) {
+		if _, err = iscpworkbench.RecoverNodeEnrollment(ctx, helperPath); err != nil {
+			return err
+		}
+	}
 	if _, err = iscpworkbench.LoadConfig(helperPath); err != nil {
 		return errors.New("node-managed enrollment result failed private runtime validation")
 	}

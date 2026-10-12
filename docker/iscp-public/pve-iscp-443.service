@@ -1,0 +1,14 @@
+[Unit]
+Description=SparkClaw TEST1 IP HTTPS and WSS ingress on public TCP 443
+Wants=network-online.target
+After=network-online.target pve-firewall.service proxmox-firewall.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/pve-iscp-443 start
+ExecReload=/usr/local/sbin/pve-iscp-443 start
+ExecStop=/usr/local/sbin/pve-iscp-443 stop
+
+[Install]
+WantedBy=multi-user.target

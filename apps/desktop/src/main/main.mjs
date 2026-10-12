@@ -52,7 +52,7 @@ const DESKTOP_ICON_PATH = path.join(MODULE_DIR, "..", "assets", "icon.png");
 const workbenchQualification = process.argv.includes("--qualification-workbench");
 const qualification = process.argv.includes("--qualification") || workbenchQualification;
 const defaultUserData = app.getPath("userData");
-const { configuredUserData, iscpProfilePath, allowLocalISCPTest } = resolveISCPLaunchProfile({ defaultUserData, qualification });
+const { configuredUserData, iscpProfilePath, allowLocalISCPTest, allowNodeManagedISCP } = resolveISCPLaunchProfile({ defaultUserData, qualification });
 if (configuredUserData) {
   if (!path.isAbsolute(configuredUserData)) throw new Error("Desktop user-data path must be absolute");
   app.setPath("userData", configuredUserData);
@@ -132,7 +132,9 @@ async function start() {
     qualification,
     requireLAN: process.platform === "darwin" && !qualification,
     fetcher: electronNet.fetch,
-    iscpProfilePath, allowLocalISCPTest, packaged: app.isPackaged, resourcesPath: process.resourcesPath,
+    iscpProfilePath, allowLocalISCPTest, allowNodeManagedISCP,
+    launchSelectionPath: path.join(defaultUserData, "iscp-launch-profile.json"), userDataDirectory: app.getPath("userData"),
+    packaged: app.isPackaged, resourcesPath: process.resourcesPath,
     onChange: (status) => {
       if (quitting) return;
       if (status.state === "connected" && !suspended) {

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ipHTTPSOrigin } from "./iscp-connection-credential.mjs";
 
 const DESCRIPTOR_KEYS = new Set(["schema_version", "origin", "deployment_id"]);
 const LAN_DESCRIPTOR_KEYS = new Set(["schema_version", "origin", "deployment_id", "owner_id", "tls_certificate_sha256", "tls_ca_pem"]);
@@ -48,6 +49,24 @@ export async function loadLocalBackendDescriptor({ descriptorPath, uid = process
 }
 
 export function parseBackendDescriptor(descriptor) {
+  if (descriptor?.schema_version === 4) {
+    const fields = ["schema_version", "transport", "mode", "test_mode", "origin", "deployment_id", "owner_id", "client_id", "domain_id", "initiator_device_id", "responder_device_id", "responder_key_thumbprint", "relay_url", "relay_profile"];
+    assertExactKeys(descriptor, new Set(fields), "ISCP node workbench description");
+    if (descriptor.transport !== "iscp" || descriptor.mode !== "node-managed" || descriptor.test_mode !== false ||
+        descriptor.origin !== "https://iscp.invalid" || descriptor.relay_profile !== "production" ||
+        typeof descriptor.responder_key_thumbprint !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(descriptor.responder_key_thumbprint)) throw new Error("ISCP node workbench description is invalid");
+    const relayURL = ipHTTPSOrigin(descriptor.relay_url);
+    for (const field of ["deployment_id", "owner_id", "client_id", "domain_id", "initiator_device_id", "responder_device_id"]) {
+      if (typeof descriptor[field] !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$/u.test(descriptor[field])) throw new Error("ISCP node identity is invalid");
+    }
+    return Object.freeze({ schemaVersion: 4, transport: "iscp", mode: "node-managed", testMode: false, origin: descriptor.origin,
+      deploymentID: requiredString(descriptor.deployment_id, "deployment identity", 160),
+      ownerID: requiredString(descriptor.owner_id, "Owner identity", 160), clientID: requiredString(descriptor.client_id, "Client identity", 160),
+      domainID: requiredString(descriptor.domain_id, "ISCP domain identity", 200),
+      initiatorDeviceID: requiredString(descriptor.initiator_device_id, "ISCP initiator identity", 200),
+      responderDeviceID: requiredString(descriptor.responder_device_id, "ISCP responder identity", 200),
+      responderKeyThumbprint: descriptor.responder_key_thumbprint, relayURL, relayProfile: "production" });
+  }
   if (descriptor?.schema_version === 3) {
     const keys = ["schema_version", "transport", "origin", "deployment_id", "owner_id", "client_id", "domain_id", "initiator_device_id", "responder_device_id", "responder_key_thumbprint", "relay_url", "relay_profile", "test_mode"];
     assertExactKeys(descriptor, new Set(keys), "ISCP workbench description", ["relay_profile"]);

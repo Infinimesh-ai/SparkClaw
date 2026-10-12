@@ -27,7 +27,7 @@ export class SecureCredentialStore {
           (this.uid !== undefined && info.uid !== this.uid) || info.size > 65536) throw new Error("Credential vault is invalid");
       const record = JSON.parse(this.safeStorage.decryptString(await fs.readFile(this.filename)));
       const validCredential = record?.transport === "iscp" ? record.schema_version === 2 && record.authorization === undefined &&
-        path.isAbsolute(record.configPath || "") && record.testMode === true : record?.schema_version === 1 &&
+        path.isAbsolute(record.configPath || "") && (record.testMode === true || record.testMode === false && record.mode === "node-managed") : record?.schema_version === 1 &&
         typeof record.authorization === "string" && record.authorization.startsWith("Bearer ");
       if (!validCredential || typeof record.binding !== "string" ||
           ![record.clientID, record.ownerID, record.deploymentID].every((value) => typeof value === "string" && value.length > 0 && value.length <= 160)) {

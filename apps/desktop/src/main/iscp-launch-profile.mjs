@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parseBackendDescriptor } from "./local-backend.mjs";
+import crypto from "node:crypto";
+import { parseStrictJSON } from "./strict-json.mjs";
 
 export const ISCP_LAUNCH_PROFILE_NAME = "iscp-launch-profile.json";
 
@@ -26,21 +28,38 @@ export function resolveISCPLaunchProfile({ defaultUserData, env = process.env, q
   let selection;
   try { selection = readPrivateJSON(filename, uid); }
   catch (error) { if (error.code === "ENOENT") return Object.freeze({ allowLocalISCPTest: false, source: "default" }); throw error; }
-  if (!selection || Object.keys(selection).sort().join(",") !== "profile_path,schema_version,test_mode,user_data_directory" ||
-      selection.schema_version !== 1 || selection.test_mode !== true) throw new Error("ISCP launch selection is invalid; remove iscp-launch-profile.json to restore the default connection");
-  validateSelection(selection.profile_path, selection.user_data_directory, defaultUserData, uid);
+  const nodeManaged = selection?.schema_version === 2 && selection.mode === "node-managed";
+  const valid = nodeManaged
+    ? Object.keys(selection).sort().join(",") === "mode,profile_path,schema_version,user_data_directory"
+    : selection && Object.keys(selection).sort().join(",") === "profile_path,schema_version,test_mode,user_data_directory" && selection.schema_version === 1 && selection.test_mode === true;
+  if (!valid) throw new Error("ISCP launch selection is invalid; remove iscp-launch-profile.json to restore the default connection");
+  validateSelection(selection.profile_path, selection.user_data_directory, defaultUserData, uid, nodeManaged);
   return Object.freeze({ configuredUserData: selection.user_data_directory, iscpProfilePath: selection.profile_path,
-    allowLocalISCPTest: true, source: "persisted" });
+    allowLocalISCPTest: !nodeManaged, ...(nodeManaged ? { allowNodeManagedISCP: true } : {}), source: "persisted" });
 }
 
-function validateSelection(profilePath, userData, defaultUserData, uid) {
+// Commit only a helper-verified node profile. Atomic rename keeps the old choice
+// usable if persistence fails; the selection carries no credentials or keys.
+export function persistNodeISCPLaunchProfile({ filename, profilePath, userDataDirectory, uid = process.getuid?.() }) {
+  absolutePath(filename); privateDirectory(path.dirname(filename), uid);
+  validateSelection(profilePath, userDataDirectory, userDataDirectory, uid, true);
+  const selection = { schema_version: 2, mode: "node-managed", profile_path: profilePath, user_data_directory: userDataDirectory };
+  const temporary = `${filename}.${crypto.randomUUID()}.tmp`;
+  const file = fs.openSync(temporary, "wx", 0o600);
+  try { fs.writeFileSync(file, JSON.stringify(selection)); fs.fsyncSync(file); } finally { fs.closeSync(file); }
+  try { fs.renameSync(temporary, filename); }
+  finally { fs.rmSync(temporary, { force: true }); }
+}
+
+function validateSelection(profilePath, userData, defaultUserData, uid, nodeManaged = false) {
   absolutePath(profilePath); absolutePath(userData);
-  if (path.resolve(userData) === path.resolve(defaultUserData)) throw new Error("ISCP launch requires a dedicated user-data directory");
+  if (!nodeManaged && path.resolve(userData) === path.resolve(defaultUserData)) throw new Error("ISCP launch requires a dedicated user-data directory");
   privateDirectory(userData, uid);
   const profile = readPrivateJSON(profilePath, uid);
-  if (!profile || Object.keys(profile).sort().join(",") !== "backend,helper_config,schema_version,test_mode,transport" ||
-      profile.schema_version !== 1 || profile.transport !== "iscp" || profile.test_mode !== true ||
-      parseBackendDescriptor(profile.backend).transport !== "iscp") throw new Error("ISCP selected profile is invalid");
+  const valid = nodeManaged
+    ? profile?.schema_version === 2 && profile.mode === "node-managed" && profile.transport === "iscp" && Object.keys(profile).sort().join(",") === "backend,helper_config,mode,schema_version,transport" && parseBackendDescriptor(profile.backend).mode === "node-managed"
+    : profile && Object.keys(profile).sort().join(",") === "backend,helper_config,schema_version,test_mode,transport" && profile.schema_version === 1 && profile.transport === "iscp" && profile.test_mode === true && parseBackendDescriptor(profile.backend).schemaVersion === 3;
+  if (!valid) throw new Error("ISCP selected profile is invalid");
   absolutePath(profile.helper_config);
   // The ordinary DesktopAuth validates the helper's identity/binding before it
   // publishes connected. Validate its private storage boundary at startup too.
@@ -65,27 +84,8 @@ function readPrivateJSON(filename, uid) {
         (uid !== undefined && info.uid !== uid) || info.size > 65536) throw new Error("ISCP launch file must be owner-only with mode 0600 and no symbolic links");
     privateDirectory(path.dirname(filename), uid);
     try {
-      const raw = fs.readFileSync(file, "utf8"), value = JSON.parse(raw);
-      rejectDuplicateKeys(raw);
-      return value;
+      return parseStrictJSON(fs.readFileSync(file, "utf8"));
     }
     catch { throw new Error("ISCP launch file contains invalid JSON"); }
   } finally { fs.closeSync(file); }
-}
-
-function rejectDuplicateKeys(raw) {
-  // JSON.parse first establishes valid syntax. Lex strings as whole tokens so
-  // escaped path text cannot be mistaken for an object key.
-  const tokens = raw.match(/"(?:\\.|[^"\\])*"|[{}\[\]:]/gu) ?? [], objects = [];
-  for (let index = 0; index < tokens.length; index++) {
-    const token = tokens[index];
-    if (token === "{") objects.push(new Set());
-    else if (token === "[") objects.push(null);
-    else if (token === "}" || token === "]") objects.pop();
-    else if (token.startsWith('"') && tokens[index + 1] === ":") {
-      const key = JSON.parse(token), object = objects.at(-1);
-      if (object.has(key)) throw new Error("Duplicate JSON key");
-      object.add(key);
-    }
-  }
 }

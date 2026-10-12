@@ -7,12 +7,15 @@ import { isTLSIdentityError, pinnedHTTPSFetch } from "./pinned-https.mjs";
 import { createConnectionCredential, parseConnectionCredential } from "./connection-credential.mjs";
 import { isISCPCapabilityReportCurrent, projectISCPCapabilities } from "./iscp-capabilities.mjs";
 import { loadISCPProfile } from "./iscp-profile.mjs";
+import { ISCP_CONNECTION_PREFIX, parseISCPConnectionCredential } from "./iscp-connection-credential.mjs";
+import { enrollNodeISCP } from "./iscp-node-enrollment.mjs";
+import { ISCP_LAUNCH_PROFILE_NAME, persistNodeISCPLaunchProfile } from "./iscp-launch-profile.mjs";
 import { LANMailClient } from "./lan-mail-client.mjs";
 import { ISCPTransport, ISCP_OPERATIONS, ISCP_BODY_BYTES, ISCPRequestNotSentError, mapISCPRequest } from "./iscp-transport.mjs";
 
 export class DesktopAuth {
-  constructor({ readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification = false, requireLAN = false, fetcher, iscpProfilePath, allowLocalISCPTest = false, packaged = false, resourcesPath, transportFactory = (options) => new ISCPTransport(options), onChange = () => {}, onLock = () => {} }) {
-    Object.assign(this, { readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification, requireLAN, fetcher, iscpProfilePath, allowLocalISCPTest, packaged, resourcesPath, transportFactory, onChange, onLock });
+  constructor({ readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification = false, requireLAN = false, fetcher, iscpProfilePath, allowLocalISCPTest = false, allowNodeManagedISCP = false, nodeEnroller = enrollNodeISCP, launchSelectionPath, userDataDirectory, selectionWriter = persistNodeISCPLaunchProfile, packaged = false, resourcesPath, transportFactory = (options) => new ISCPTransport(options), onChange = () => {}, onLock = () => {} }) {
+    Object.assign(this, { readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification, requireLAN, fetcher, iscpProfilePath, allowLocalISCPTest, allowNodeManagedISCP, nodeEnroller, launchSelectionPath, userDataDirectory, selectionWriter, packaged, resourcesPath, transportFactory, onChange, onLock });
     this.requests = new Set();
     this.generation = 0;
     this.vaultOperations = Promise.resolve();
@@ -52,6 +55,7 @@ export class DesktopAuth {
     if (this.requireLAN && descriptor.schemaVersion !== 2) {
       throw new Error("This desktop requires a version 2 HTTPS LAN backend description");
     }
+    const nodeSelected = this.descriptor?.mode === "node-managed";
     const generation = this.generation + 1;
     await this.logout();
     if (generation !== this.generation) return this.status;
@@ -62,9 +66,11 @@ export class DesktopAuth {
       try {
         await fs.writeFile(temporary, JSON.stringify(value), { mode: 0o600, flag: "wx" });
         await fs.rename(temporary, this.descriptorPath);
+        if (nodeSelected) await fs.rm(this.launchSelectionPath || path.join(path.dirname(this.descriptorPath), ISCP_LAUNCH_PROFILE_NAME), { force: true });
       } finally { await fs.rm(temporary, { force: true }); }
     });
     if (generation !== this.generation) return this.status;
+    if (nodeSelected) { this.iscpProfilePath = undefined; this.allowNodeManagedISCP = false; }
     this.descriptor = descriptor;
     return this.#set(this.vault.available() ? "locked" : "secure_storage_unavailable");
   }
@@ -97,9 +103,78 @@ export class DesktopAuth {
   }
 
   async enroll(value) {
+    if (typeof value === "string" && value.startsWith(ISCP_CONNECTION_PREFIX)) {
+      const parsed = parseISCPConnectionCredential(value);
+      if (this.qualification || this.enrollmentPending) throw new Error("ISCP enrollment is unavailable or already in progress");
+      if (this.deletionIntent?.state === "pending") throw new Error("Reconcile the pending authorization deletion before enrolling another connection");
+      const pending = this.#enrollNode(value, parsed.payload);
+      this.enrollmentPending = pending;
+      try { return await pending; } finally { if (this.enrollmentPending === pending) this.enrollmentPending = undefined; }
+    }
     const parsed = parseConnectionCredential(value);
     await this.configure(parsed.descriptor);
     return this.login(parsed.token);
+  }
+
+  async #enrollNode(value, invitation) {
+    if (!this.vault.available()) throw new Error("Secure credential storage is unavailable; the existing connection is retained");
+    const generation = this.generation, controller = new AbortController();
+    const directory = path.join(path.dirname(this.descriptorPath), "iscp-enrollment", crypto.createHash("sha256").update(value).digest("hex"));
+    this.requests.add(controller);
+    let candidateTransport, committed = false, activatedGeneration;
+    try {
+      const result = await this.nodeEnroller({ credential: value, directory, installationID: this.installationID, signal: controller.signal,
+        packaged: this.packaged, resourcesPath: this.resourcesPath });
+      if (generation !== this.generation || controller.signal.aborted) throw new Error("Canceled enrollment");
+      const profile = await loadISCPProfile(result.profile_path), descriptor = profile.descriptor;
+      if (descriptor.mode !== "node-managed" || JSON.stringify(descriptor) !== JSON.stringify(parseBackendDescriptor(result.descriptor)) || path.dirname(profile.helperConfigPath) !== directory ||
+          descriptor.deploymentID !== invitation.deployment_id || descriptor.ownerID !== invitation.owner_id || descriptor.clientID !== invitation.client_id ||
+          descriptor.domainID !== invitation.domain_id || descriptor.relayURL !== invitation.origin || descriptor.responderDeviceID !== invitation.responder_identity.device_id ||
+          descriptor.responderKeyThumbprint !== invitation.responder_identity.public_key.kid) throw new Error("Enrollment identity differs");
+      candidateTransport = this.#transportFor(profile);
+      const cancel = () => candidateTransport.close();
+      controller.signal.addEventListener("abort", cancel, { once: true });
+      const record = { schema_version: 2, transport: "iscp", mode: "node-managed", testMode: false, configPath: profile.configPath,
+        origin: descriptor.origin, deploymentID: descriptor.deploymentID, ownerID: descriptor.ownerID, clientID: descriptor.clientID,
+        binding: descriptorBinding(descriptor), identityVerified: true };
+      const identity = await this.#identity(record, descriptor, candidateTransport);
+      if (identity.state !== "connected" || !candidateTransport.capabilities) throw new Error("Enrollment identity unavailable");
+      const report = await candidateTransport.invoke("capabilities.get");
+      if (!isISCPCapabilityReportCurrent(candidateTransport.capabilities, report)) throw new Error("Enrollment capabilities invalid");
+      if (generation !== this.generation || controller.signal.aborted) throw new Error("Canceled enrollment");
+      await this.#vault(async () => {
+        if (generation !== this.generation || controller.signal.aborted) throw new Error("Canceled enrollment");
+        const previous = await this.vault.load();
+        try {
+          await this.vault.save(record);
+          if (generation !== this.generation || controller.signal.aborted) throw new Error("Canceled enrollment");
+          this.selectionWriter({ filename: this.launchSelectionPath || path.join(path.dirname(this.descriptorPath), ISCP_LAUNCH_PROFILE_NAME),
+            profilePath: profile.configPath, userDataDirectory: this.userDataDirectory || path.dirname(this.descriptorPath) });
+        } catch (error) {
+          if (previous) await this.vault.save(previous); else await this.vault.clear();
+          throw error;
+        }
+        clearTimeout(this.capabilityTimer); clearTimeout(this.capabilityExpiryTimer); clearTimeout(this.reconnectTimer);
+        this.requests.delete(controller);
+        activatedGeneration = ++this.generation;
+        for (const request of this.requests) request.abort(); this.requests.clear();
+        this.transport?.close();
+        this.descriptor = descriptor; this.connection = Object.freeze(record); this.transport = candidateTransport;
+        this.iscpProfilePath = profile.configPath; this.allowNodeManagedISCP = true; this.allowLocalISCPTest = false;
+        this.deletionIntent = undefined; this.authorizationRevoked = false; this.suspended = false;
+        this.capabilityReport = report; this.transportStage = "transport_ready"; this.reconnectAttempt = 0;
+        committed = true;
+      });
+      await Promise.resolve(this.onLock()).catch(() => {});
+      if (activatedGeneration !== this.generation || this.transport !== candidateTransport) return this.status;
+      this.#scheduleCapabilityRefresh();
+      return this.#set("connected");
+    } catch {
+      throw new Error("ISCP enrollment could not be completed; the existing connection is retained. Retry the same credential to reconcile.");
+    } finally {
+      this.requests.delete(controller);
+      if (!committed) candidateTransport?.close();
+    }
   }
 
   connectionCredential(token) {
@@ -176,7 +251,7 @@ export class DesktopAuth {
     if(result.state!=="connected"||!Number.isSafeInteger(this.transport.capabilities?.authorization_revision)||this.transport.capabilities.authorization_revision<=intent.receipt.authorization_revision) {this.transport.close();throw new Error("No newer verified authorization is installed");}
     const report=await this.transport.invoke("capabilities.get");
     if(report.authorization_revision!==this.transport.capabilities.authorization_revision){this.transport.close();throw new Error("New authorization revision differs");}
-    const filename=path.join(path.dirname(this.descriptorPath),"authorization-deletion.json");
+    const filename=this.#deletionFilename();
     await fs.rename(filename,path.join(path.dirname(filename),`authorization-deletion.${intent.operation_id}.revoked.json`));
     const directory=syncFS.openSync(path.dirname(filename),'r');try{syncFS.fsyncSync(directory);}finally{syncFS.closeSync(directory);}
     this.deletionIntent=undefined;this.authorizationRevoked=false;this.suspended=false;this.capabilityReport=report;
@@ -184,11 +259,16 @@ export class DesktopAuth {
   }
 
   #saveDeletionIntent(intent) {
-    const filename=path.join(path.dirname(this.descriptorPath),"authorization-deletion.json"), temporary=filename+"."+crypto.randomUUID()+".tmp";
+    const filename=this.#deletionFilename(), temporary=filename+"."+crypto.randomUUID()+".tmp";
     syncFS.mkdirSync(path.dirname(filename),{recursive:true,mode:0o700});const fd=syncFS.openSync(temporary,"wx",0o600);
     try{syncFS.writeFileSync(fd,JSON.stringify(intent));syncFS.fsyncSync(fd);}finally{syncFS.closeSync(fd);}
     syncFS.renameSync(temporary,filename);const directory=syncFS.openSync(path.dirname(filename),'r');try{syncFS.fsyncSync(directory);}finally{syncFS.closeSync(directory);}
     this.deletionIntent=intent;
+  }
+
+  #deletionFilename() {
+    const name = this.descriptor?.mode === "node-managed" ? `authorization-deletion.${descriptorBinding(this.descriptor)}.json` : "authorization-deletion.json";
+    return path.join(path.dirname(this.descriptorPath), name);
   }
 
   async logout(state = "locked") {
@@ -333,9 +413,9 @@ export class DesktopAuth {
     }
   }
 
-  #fetch() {
-    if (this.descriptor.transport === "iscp") return this.transport.fetch.bind(this.transport);
-    return this.descriptor.schemaVersion === 2 ? pinnedHTTPSFetch(this.descriptor) : this.fetcher;
+  #fetch(descriptor = this.descriptor, transport = this.transport) {
+    if (descriptor.transport === "iscp") return transport.fetch.bind(transport);
+    return descriptor.schemaVersion === 2 ? pinnedHTTPSFetch(descriptor) : this.fetcher;
   }
 
   suspend() {
@@ -348,12 +428,13 @@ export class DesktopAuth {
   close() { this.suspend(); this.transport = undefined; }
 
   async #initializeISCP() {
-    if (!this.allowLocalISCPTest || this.qualification) return this.#set("incomplete_setup");
+    if (this.qualification) return this.#set("incomplete_setup");
     let profile;
     try { profile = await loadISCPProfile(this.iscpProfilePath); } catch { return this.#set("incomplete_setup"); }
+    if (profile.descriptor.mode === "node-managed" ? !this.allowNodeManagedISCP : !this.allowLocalISCPTest) return this.#set("incomplete_setup");
     this.descriptor = profile.descriptor;
     try {
-      const filename=path.join(path.dirname(this.descriptorPath),"authorization-deletion.json");
+      const filename=this.#deletionFilename();
       const info=await fs.lstat(filename);if(!info.isFile()||info.isSymbolicLink()||(info.mode&0o077)||info.size>8192)throw new Error("Authorization deletion record is unsafe");
       const intent=JSON.parse(await fs.readFile(filename,"utf8"));
       if(intent.schema_version!==1||intent.profile!==this.iscpProfilePath||intent.binding!==descriptorBinding(this.descriptor))throw new Error("Authorization deletion binding differs");
@@ -363,23 +444,36 @@ export class DesktopAuth {
     try {
       const binding = descriptorBinding(this.descriptor);
       const saved = await this.vault.load();
-      const record = { schema_version: 2, transport: "iscp", testMode: true, configPath: profile.configPath,
+      if (this.descriptor.mode === "node-managed" && (!saved || saved.binding !== binding || saved.configPath !== profile.configPath || saved.transport !== "iscp" || saved.mode !== "node-managed" || saved.testMode !== false)) return this.#set("locked");
+      const record = { schema_version: 2, transport: "iscp", testMode: this.descriptor.testMode, ...(this.descriptor.mode ? { mode: this.descriptor.mode } : {}), configPath: profile.configPath,
         origin: this.descriptor.origin, deploymentID: this.descriptor.deploymentID, ownerID: this.descriptor.ownerID,
         clientID: this.descriptor.clientID, binding,
         identityVerified: saved?.transport === "iscp" && saved.binding === binding && saved.configPath === profile.configPath && saved.identityVerified === true };
       if (saved && (saved.binding !== binding || saved.transport !== "iscp" || saved.configPath !== profile.configPath)) await this.vault.clear();
       if (!saved || saved.binding !== binding || saved.configPath !== profile.configPath || saved.transport !== "iscp") await this.vault.save(record);
       this.connection = Object.freeze(record);
-      this.transport = this.transportFactory({ configPath: profile.helperConfigPath, origin: this.descriptor.origin,
-        expectedBinding: { deployment_id: this.descriptor.deploymentID, owner_id: this.descriptor.ownerID, client_id: this.descriptor.clientID },
-        expectedIdentity: { domain_id: this.descriptor.domainID, initiator_device_id: this.descriptor.initiatorDeviceID,
-          responder_device_id: this.descriptor.responderDeviceID, responder_key_thumbprint: this.descriptor.responderKeyThumbprint, relay_url: this.descriptor.relayURL, relay_profile: this.descriptor.relayProfile },
+      this.transport = this.#transportFor(profile);
+    } catch { return this.#set("locked"); }
+    if(this.deletionIntent) {
+      if(this.deletionIntent.state==='pending')try{await this.deleteAuthorization();}catch{/* Keep the durable pending intent visible. */}
+      return this.#set("invalid_authentication");
+    }
+    return this.retry();
+  }
+
+  #transportFor(profile) {
+    const descriptor = profile.descriptor;
+    const transport = this.transportFactory({ configPath: profile.helperConfigPath, origin: descriptor.origin,
+        expectedBinding: { deployment_id: descriptor.deploymentID, owner_id: descriptor.ownerID, client_id: descriptor.clientID },
+        expectedIdentity: { domain_id: descriptor.domainID, initiator_device_id: descriptor.initiatorDeviceID,
+          responder_device_id: descriptor.responderDeviceID, responder_key_thumbprint: descriptor.responderKeyThumbprint, relay_url: descriptor.relayURL, relay_profile: descriptor.relayProfile },
         packaged: this.packaged, resourcesPath: this.resourcesPath,
         installationID: this.installationID, readLocalFile: this.readLocalFile,
         canSendMailAttachments: () => projectISCPCapabilities(this.transport?.capabilities, this.capabilityReport).surfaces.mail_send_attachments.enabled,
         journalRoot: path.join(path.dirname(this.descriptorPath), "iscp-objects"),
-        onCapabilities: () => { if(this.status.state === "connected") this.#set("connected"); },
+        onCapabilities: () => { if (this.transport !== transport) return; if(this.status.state === "connected") this.#set("connected"); },
         onState: (state) => {
+          if (this.transport !== transport) return;
           this.transportStage = state;
           if (["verifying_relay", "connecting", "relay_ready", "handshaking", "negotiating", "capability_negotiation_failed"].includes(state) && this.connection && !this.suspended && !this.authorizationRevoked) {
             if (this.status.state === "connected") {
@@ -403,12 +497,7 @@ export class DesktopAuth {
             if (["disconnected", "authorization_expired"].includes(state)) this.#scheduleReconnect();
           }
         } });
-    } catch { return this.#set("locked"); }
-    if(this.deletionIntent) {
-      if(this.deletionIntent.state==='pending')try{await this.deleteAuthorization();}catch{/* Keep the durable pending intent visible. */}
-      return this.#set("invalid_authentication");
-    }
-    return this.retry();
+    return transport;
   }
 
   async #readCapabilityReport(generation) {
@@ -478,10 +567,10 @@ export class DesktopAuth {
     return pending;
   }
 
-  async #identity(candidate) {
+  async #identity(candidate, descriptor = this.descriptor, transport = this.transport) {
     try {
-      if (this.descriptor.transport === "iscp") await this.transport.start();
-      const response = await this.#fetch()(`${candidate.origin}/api/workbench/identity`, {
+      if (descriptor.transport === "iscp") await transport.start();
+      const response = await this.#fetch(descriptor, transport)(`${candidate.origin}/api/workbench/identity`, {
         headers: { ...(candidate.authorization ? { Authorization: candidate.authorization } : {}), Accept: "application/json" },
         redirect: "manual", signal: AbortSignal.timeout(5000),
       });
@@ -508,7 +597,7 @@ export class DesktopAuth {
       }
       if (this.installationID) {
         if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(this.installationID)) return { state: "identity_conflict" };
-        const binding = await this.#fetch()(`${candidate.origin}/api/v1/installations`, {
+        const binding = await this.#fetch(descriptor, transport)(`${candidate.origin}/api/v1/installations`, {
           method: "POST", headers: { ...(candidate.authorization ? { Authorization: candidate.authorization } : {}), "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify({ schema_version: 1, installation_id: this.installationID }),
           redirect: "manual", signal: AbortSignal.timeout(5000),
@@ -531,9 +620,9 @@ export class DesktopAuth {
       ...(this.descriptor.ownerID ? { owner_id: this.descriptor.ownerID } : {}),
       ...(this.descriptor.transport === "iscp" ? { transport: "iscp", client_id: this.descriptor.clientID, domain_id: this.descriptor.domainID,
         initiator_device_id: this.descriptor.initiatorDeviceID, responder_device_id: this.descriptor.responderDeviceID,
-        responder_key_thumbprint: this.descriptor.responderKeyThumbprint, relay_url: this.descriptor.relayURL, relay_profile: this.descriptor.relayProfile, test_mode: true } : {}),
+        responder_key_thumbprint: this.descriptor.responderKeyThumbprint, relay_url: this.descriptor.relayURL, relay_profile: this.descriptor.relayProfile, test_mode: this.descriptor.testMode, ...(this.descriptor.mode ? { mode: this.descriptor.mode } : {}) } : {}),
       ...(this.descriptor.certificateSHA256 ? { tls_certificate_sha256: this.descriptor.certificateSHA256 } : {}),
-    } } : {}), ...(this.descriptor?.transport === "iscp" ? { transport_stage: this.transportStage, test_mode: true,
+    } } : {}), ...(this.descriptor?.transport === "iscp" ? { transport_stage: this.transportStage, test_mode: this.descriptor.testMode, ...(this.descriptor.mode ? { mode: this.descriptor.mode } : {}),
       capabilities: projectISCPCapabilities(this.transport?.capabilities, this.capabilityReport) } : {}), ...(this.connection && (this.connection.transport !== "iscp" || this.connection.identityVerified) ? { client_id: this.connection.clientID, owner_id: this.connection.ownerID } : {}) });
     this.#scheduleCapabilityExpiry();
     this.onChange(this.status);

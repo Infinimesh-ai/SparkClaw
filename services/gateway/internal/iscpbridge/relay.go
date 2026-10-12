@@ -90,6 +90,13 @@ func NewRelayCredentialClient(profile, enrollmentPath string, enrollment Enrollm
 	client.credentialOnly = true
 	if profile == ProfileLocalLab {
 		client.client.Transport = &http.Transport{Proxy: nil}
+	} else if enrollment.Mode == BundleModeWorkbenchNodeManaged {
+		tlsConfig, err := VerifiedTLSConfig(enrollment.TLSCertificatePEM)
+		if err != nil {
+			return nil, err
+		}
+		client.client.Transport = &http.Transport{Proxy: nil, TLSClientConfig: tlsConfig}
+		client.client.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("Relay redirects are prohibited") }
 	}
 	return client, nil
 }
@@ -163,7 +170,7 @@ func (c *RelayClient) RunOnce(ctx context.Context, handle func(context.Context, 
 // RunOnceReady reports the authenticated receive connection before reading
 // messages. Session initiators must wait for this point before sending Hello.
 func (c *RelayClient) RunOnceReady(ctx context.Context, handle func(context.Context, json.RawMessage) error, onReady func()) error {
-	if c.credentialOnly && c.profile == ProfileLocalLab {
+	if c.credentialOnly {
 		return c.runLocalDrainPolling(ctx, handle, onReady)
 	}
 	return c.runSocketOnce(ctx, handle, onReady)
@@ -202,10 +209,19 @@ func (c *RelayClient) runLocalDrainPolling(ctx context.Context, handle func(cont
 }
 
 func (c *RelayClient) runSocketOnce(ctx context.Context, handle func(context.Context, json.RawMessage) error, onReady func()) error {
+	if err := c.ensureAccess(ctx); err != nil {
+		return err
+	}
 	bundle := c.Enrollment()
 	dialer := websocket.Dialer{HandshakeTimeout: c.timeout, Proxy: http.ProxyFromEnvironment}
 	if c.credentialOnly && c.profile == ProfileLocalLab {
 		dialer.Proxy = nil
+	} else if bundle.Mode == BundleModeWorkbenchNodeManaged {
+		tlsConfig, err := VerifiedTLSConfig(bundle.TLSCertificatePEM)
+		if err != nil {
+			return err
+		}
+		dialer.TLSClientConfig, dialer.Proxy = tlsConfig, nil
 	}
 	connection, response, err := dialer.DialContext(ctx, bundle.RelayWebSocketURL, nil)
 	if err != nil {
@@ -310,7 +326,13 @@ func (c *RelayClient) refresh(ctx context.Context) error {
 	// together; otherwise a healthy daily credential rotation leaves yesterday's
 	// outer bundle expiry behind and prevents the next connection/restart.
 	var localExpiry time.Time
-	if c.credentialOnly && c.profile == ProfileLocalLab {
+	if c.credentialOnly && c.enrollment.Mode == BundleModeWorkbenchNodeManaged {
+		discovery, err := DiscoverNodeRelay(ctx, c.enrollment)
+		if err != nil {
+			return err
+		}
+		localExpiry = discovery.ExpiresAt
+	} else if c.credentialOnly && c.profile == ProfileLocalLab {
 		if !time.Now().Before(c.enrollment.Refresh.ExpiresAt) {
 			return errors.New("local Relay refresh credential expired")
 		}

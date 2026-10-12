@@ -73,21 +73,27 @@ const BundleModeManaged = "managed"
 // isolated reference Relay. Its public signer is separate from session grants.
 const BundleModeWorkbenchLocalLab = "workbench-local-lab"
 
+// BundleModeWorkbenchNodeManaged uses explicitly pinned self-hosted authorities.
+// It does not reuse Cloud enrollment or local-test trust semantics.
+const BundleModeWorkbenchNodeManaged = "workbench-node-managed"
+
 type EnrollmentBundle struct {
-	Type                string                   `json:"type"`
-	Mode                string                   `json:"mode,omitempty"`
-	DomainID            string                   `json:"domain_id"`
-	DeviceID            string                   `json:"device_id"`
-	RelayID             string                   `json:"relay_id"`
-	RelayBaseURL        string                   `json:"relay_base_url"`
-	RelayWebSocketURL   string                   `json:"relay_websocket_url"`
-	TrustRootIdentity   identity.DeviceIdentity  `json:"trust_root_identity"`
-	RelaySignerIdentity *identity.DeviceIdentity `json:"relay_signer_identity,omitempty"`
-	Access              RelayCredential          `json:"access"`
-	Refresh             RelayCredential          `json:"refresh"`
-	Peers               []PeerAuthorization      `json:"peers"`
-	IssuedAt            time.Time                `json:"issued_at"`
-	ExpiresAt           time.Time                `json:"expires_at"`
+	TLSCertificatePEM        string                   `json:"tls_certificate_pem,omitempty"`
+	InvitationSignerIdentity *identity.DeviceIdentity `json:"invitation_signer_identity,omitempty"`
+	Type                     string                   `json:"type"`
+	Mode                     string                   `json:"mode,omitempty"`
+	DomainID                 string                   `json:"domain_id"`
+	DeviceID                 string                   `json:"device_id"`
+	RelayID                  string                   `json:"relay_id"`
+	RelayBaseURL             string                   `json:"relay_base_url"`
+	RelayWebSocketURL        string                   `json:"relay_websocket_url"`
+	TrustRootIdentity        identity.DeviceIdentity  `json:"trust_root_identity"`
+	RelaySignerIdentity      *identity.DeviceIdentity `json:"relay_signer_identity,omitempty"`
+	Access                   RelayCredential          `json:"access"`
+	Refresh                  RelayCredential          `json:"refresh"`
+	Peers                    []PeerAuthorization      `json:"peers"`
+	IssuedAt                 time.Time                `json:"issued_at"`
+	ExpiresAt                time.Time                `json:"expires_at"`
 }
 
 type DeviceFiles struct {
@@ -377,7 +383,14 @@ func (b EnrollmentBundle) ValidateCredentials(now time.Time) error {
 	if !now.Before(b.Refresh.ExpiresAt) {
 		return errors.New("enrollment Relay refresh credential expired")
 	}
-	if b.Mode == BundleModeWorkbenchLocalLab {
+	if b.Mode == BundleModeWorkbenchNodeManaged {
+		if b.InvitationSignerIdentity == nil || b.RelaySignerIdentity == nil || b.InvitationSignerIdentity.DomainID != b.DomainID || b.RelaySignerIdentity.DomainID != b.DomainID || b.TLSCertificatePEM == "" {
+			return errors.New("node-managed enrollment requires independent invitation/Relay pins and TLS trust")
+		}
+		if ValidateLocalRelaySigner(*b.InvitationSignerIdentity) != nil || ValidateLocalRelaySigner(*b.RelaySignerIdentity) != nil || b.InvitationSignerIdentity.PublicKey.Public == b.RelaySignerIdentity.PublicKey.Public {
+			return errors.New("node-managed enrollment authority pins are invalid")
+		}
+	} else if b.Mode == BundleModeWorkbenchLocalLab {
 		if b.RelaySignerIdentity == nil || b.RelaySignerIdentity.DomainID != b.DomainID || b.RelaySignerIdentity.DeviceID == "" {
 			return errors.New("local Relay signer pin is required")
 		}

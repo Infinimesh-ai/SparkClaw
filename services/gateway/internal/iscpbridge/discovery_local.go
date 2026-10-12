@@ -14,6 +14,10 @@ import (
 )
 
 func VerifyWorkbenchRelayDiscovery(ctx context.Context, profile string, bundle EnrollmentBundle) error {
+	if (profile == "" || profile == ProfileProduction) && bundle.Mode == BundleModeWorkbenchNodeManaged {
+		_, err := DiscoverNodeRelay(ctx, bundle)
+		return err
+	}
 	if profile == "" || profile == ProfileProduction {
 		return VerifyRelayDiscovery(ctx, bundle)
 	}

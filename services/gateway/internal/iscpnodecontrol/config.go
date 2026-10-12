@@ -113,6 +113,11 @@ func LoadPeer(path string, h Handler) (*Peer, error) {
 	if e != nil {
 		return nil, e
 	}
-	return newPeer(PeerConfig{cfg.Initiator, dev, peer, issuer, grant, bundle.RelayID}, relay, h, cfg.ControlAuthorization == "until_revoked", cfg.Active, cfg.GrantFile)
+	p, e := newPeer(PeerConfig{cfg.Initiator, dev, peer, issuer, grant, bundle.RelayID}, relay, h, cfg.ControlAuthorization == "until_revoked", cfg.Active, cfg.GrantFile)
+	if e != nil {
+		return nil, e
+	}
+	p.enrollmentFile = cfg.EnrollmentFile
+	return p, nil
 }
 func (p *Peer) SetHandler(h Handler) { p.mu.Lock(); defer p.mu.Unlock(); p.handler = h }

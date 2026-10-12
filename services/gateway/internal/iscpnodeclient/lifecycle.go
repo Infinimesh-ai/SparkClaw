@@ -143,6 +143,13 @@ func (cl *Client) Renew(ctx context.Context, previous trust.Grant) (trust.Grant,
 		return trust.Grant{}, iscpnodeissuer.ErrDenied
 	}
 	if !time.Now().Before(out.Grant.ExpiresAt) {
+		var pending pendingLifecycle
+		if e := cl.read("lifecycle.pending", &pending); e != nil {
+			return trust.Grant{}, e
+		}
+		if e := cl.ackApplied(pending); e != nil {
+			return trust.Grant{}, e
+		}
 		if e := os.Remove(filepath.Join(cl.directory, "lifecycle.pending")); e != nil {
 			return trust.Grant{}, e
 		}
@@ -179,20 +186,8 @@ func (cl *Client) CommitRenewal() error {
 	if p.Result == nil || p.Result.Grant == nil || cl.previous.GrantID != p.Result.Grant.GrantID {
 		return iscpnodeissuer.ErrConflict
 	}
-	req := iscpnodeissuer.AppliedRequest{Version: 1, OperationID: p.Request.OperationID, GrantID: p.Result.Grant.GrantID, Identity: cl.device.Identity}
-	proof, e := cl.device.CreateProof(c.NewProvider(), cl.cfg.IssuerIdentity.DeviceID, iscpnodeissuer.AppliedChallenge(req), c.Base64URL(c.RandomBytes(24)), time.Now().UTC())
-	if e != nil {
+	if e := cl.ackApplied(p); e != nil {
 		return e
-	}
-	req.Proof = proof
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	var ack iscpnodeissuer.AppliedReceipt
-	if e = cl.exchange(ctx, p.Request.OperationID, "applied", req, &ack); e != nil {
-		return e
-	}
-	if ack.Version != 1 || ack.OperationID != p.Request.OperationID || ack.GrantID != p.Result.Grant.GrantID || ack.State != "applied" || iscpnodeissuer.Digest(ack.Identity) != iscpnodeissuer.Digest(cl.device.Identity) || iscpnodeissuer.VerifyObject("sparkclaw.iscp.applied-receipt.v1", ack, cl.cfg.IssuerIdentity, ack.Signature) != nil {
-		return iscpnodeissuer.ErrDenied
 	}
 	if e := os.Remove(filepath.Join(cl.directory, "lifecycle.pending")); e != nil {
 		return e
@@ -269,6 +264,9 @@ func (cl *Client) ResolvePendingLifecycle(ctx context.Context) (iscpnodeissuer.L
 		return out, e
 	}
 	if out.Grant != nil && !time.Now().Before(out.Grant.ExpiresAt) {
+		if e = cl.ackApplied(p); e != nil {
+			return iscpnodeissuer.LifecycleResult{}, e
+		}
 		if e = os.Remove(filepath.Join(cl.directory, "lifecycle.pending")); e != nil {
 			return iscpnodeissuer.LifecycleResult{}, e
 		}
@@ -276,4 +274,24 @@ func (cl *Client) ResolvePendingLifecycle(ctx context.Context) (iscpnodeissuer.L
 		return iscpnodeissuer.LifecycleResult{}, iscpbridge.ErrGrantRenewalResultExpired
 	}
 	return out, nil
+}
+
+func (cl *Client) ackApplied(p pendingLifecycle) error {
+	req := iscpnodeissuer.AppliedRequest{Version: 1, OperationID: p.Request.OperationID, GrantID: p.Result.Grant.GrantID, Identity: cl.device.Identity}
+	proof, e := cl.device.CreateProof(c.NewProvider(), cl.cfg.IssuerIdentity.DeviceID, iscpnodeissuer.AppliedChallenge(req), c.Base64URL(c.RandomBytes(24)), time.Now().UTC())
+	if e != nil {
+		return e
+	}
+	req.Proof = proof
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	var ack iscpnodeissuer.AppliedReceipt
+	if e = cl.exchange(ctx, p.Request.OperationID, "applied", req, &ack); e != nil {
+		return e
+	}
+	if ack.Version != 1 || ack.OperationID != p.Request.OperationID || ack.GrantID != p.Result.Grant.GrantID || ack.State != "applied" || iscpnodeissuer.Digest(ack.Identity) != iscpnodeissuer.Digest(cl.device.Identity) || iscpnodeissuer.VerifyObject("sparkclaw.iscp.applied-receipt.v1", ack, cl.cfg.IssuerIdentity, ack.Signature) != nil {
+		return iscpnodeissuer.ErrDenied
+	}
+
+	return nil
 }

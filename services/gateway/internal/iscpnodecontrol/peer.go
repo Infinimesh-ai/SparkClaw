@@ -53,6 +53,7 @@ type Peer struct {
 	standing        bool
 	active          bool
 	grantFile       string
+	enrollmentFile  string
 	minimumRevision uint64
 	running         bool
 }
@@ -330,6 +331,16 @@ func (p *Peer) Run(ctx context.Context) error {
 	p.mu.Unlock()
 	defer func() { p.mu.Lock(); p.running = false; p.mu.Unlock() }()
 	for ctx.Err() == nil {
+		if e := p.maintainServiceCredentials(ctx); e != nil {
+			timer := time.NewTimer(2 * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+			continue
+		}
 		_ = p.begin(ctx)
 		_ = p.relay.RunOnceReady(ctx, p.receive, func() {})
 		timer := time.NewTimer(2 * time.Second)

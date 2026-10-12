@@ -96,7 +96,7 @@ func Digest(v any) string {
 }
 func ValidateIdentity(id identity.DeviceIdentity) error {
 	b, e := base64.RawURLEncoding.Strict().DecodeString(id.PublicKey.Public)
-	if e != nil || len(b) != 32 || id.Type != identity.TypeDeviceIdentity || !identifier.MatchString(id.DomainID) || !identifier.MatchString(id.DeviceID) || id.PublicKey.KTY != "Ed25519" || id.PublicKey.Use != "identity-signature" || id.PublicKey.KID != c.Thumbprint("Ed25519", b) {
+	if e != nil || len(b) != 32 || c.Base64URL(b) != id.PublicKey.Public || id.Type != identity.TypeDeviceIdentity || !identifier.MatchString(id.DomainID) || !identifier.MatchString(id.DeviceID) || id.PublicKey.KTY != "Ed25519" || id.PublicKey.Use != "identity-signature" || id.PublicKey.KID != c.Thumbprint("Ed25519", b) {
 		return ErrInvalid
 	}
 	return nil
@@ -106,7 +106,7 @@ func (v Credential) signingInput() ([]byte, error) {
 	obj, _ := canonical.ParseStrict(raw)
 	m := obj.(map[string]any)
 	secret, e := base64.RawURLEncoding.Strict().DecodeString(v.BootstrapSecret)
-	if e != nil || len(secret) != 32 {
+	if e != nil || len(secret) != 32 || c.Base64URL(secret) != v.BootstrapSecret {
 		return nil, ErrInvalid
 	}
 	delete(m, "bootstrap_secret")
@@ -184,7 +184,7 @@ func ParseCredential(s string, now time.Time, allowExpired bool) (Credential, er
 		return v, ErrInvalid
 	}
 	raw, e := base64.RawURLEncoding.Strict().DecodeString(strings.TrimPrefix(s, CredentialPrefix))
-	if e != nil || len(raw) > MaxCredentialBytes || StrictDecode(raw, &v) != nil {
+	if e != nil || base64.RawURLEncoding.EncodeToString(raw) != strings.TrimPrefix(s, CredentialPrefix) || len(raw) > MaxCredentialBytes || StrictDecode(raw, &v) != nil {
 		return v, ErrInvalid
 	}
 	return v, v.Validate(now, allowExpired)

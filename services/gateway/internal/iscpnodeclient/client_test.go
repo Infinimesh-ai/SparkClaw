@@ -93,6 +93,9 @@ func testDevice(t *testing.T, id string) identity.Device {
 	return d
 }
 func setupClient(t *testing.T) (*Client, *n.Issuer, *registration, string, *bool) {
+	return setupClientTTL(t, time.Minute)
+}
+func setupClientTTL(t *testing.T, ttl time.Duration) (*Client, *n.Issuer, *registration, string, *bool) {
 	t.Helper()
 	var issuer *n.Issuer
 	drop := false
@@ -125,7 +128,7 @@ func setupClient(t *testing.T) (*Client, *n.Issuer, *registration, string, *bool
 	m := &management{active: map[string]bool{}}
 	reg := &registration{preps: map[string]n.RegistrationPreparation{}, receipts: map[string]n.RegistrationReceipt{}}
 	var e error
-	issuer, e = n.New(n.Config{Template: template, Issuer: signer, InvitationSigner: inviter, GrantTTL: time.Minute}, n.NewMemoryStore(), m, reg)
+	issuer, e = n.New(n.Config{Template: template, Issuer: signer, InvitationSigner: inviter, GrantTTL: ttl}, n.NewMemoryStore(), m, reg)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -251,4 +254,40 @@ func privateTestDir(t *testing.T) string {
 		t.Fatal(e)
 	}
 	return p
+}
+
+func TestExpiredKnownRenewalRetiresWithAppliedReceiptAndPendingKindIsolation(t *testing.T) {
+	cl, _, _, _, _ := setupClientTTL(t, time.Second)
+	result, e := cl.Enroll(context.Background())
+	if e != nil {
+		t.Fatal(e)
+	}
+	grant, e := cl.Renew(context.Background(), result.Grant)
+	if e != nil {
+		t.Fatal(e)
+	}
+	kind, e := cl.PendingLifecycleKind()
+	if e != nil || kind != "renew" {
+		t.Fatal(kind, e)
+	}
+	if _, e = cl.RecoverTransport(context.Background()); e != n.ErrConflict {
+		t.Fatal("pending renewal was mistaken for transport recovery", e)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	if _, e = cl.ResolvePendingLifecycle(context.Background()); !errors.Is(e, iscpbridge.ErrGrantRenewalResultExpired) {
+		t.Fatal("expired authenticated response not retired", e)
+	}
+	if cl.HasPendingRenewal() {
+		t.Fatal("known retired operation remained pending")
+	}
+	fresh, e := cl.Renew(context.Background(), grant)
+	if e != nil || fresh.GrantID == grant.GrantID {
+		t.Fatal("fresh renewal did not resume", e)
+	}
+	if e = cl.AcceptGrant(fresh); e != nil {
+		t.Fatal(e)
+	}
+	if e = cl.CommitRenewal(); e != nil {
+		t.Fatal(e)
+	}
 }

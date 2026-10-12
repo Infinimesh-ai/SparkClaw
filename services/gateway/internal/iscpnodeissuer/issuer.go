@@ -450,7 +450,7 @@ func (i *Issuer) reconcileRevocation(ctx context.Context, id string) error {
 	if s.State != "revoked" || s.RelayRevoked {
 		return nil
 	}
-	if e = i.management.RevokeClient(ctx, s.Credential.ClientID); e != nil {
+	if e = i.management.RevokeManagedClient(ctx, s.Credential.ClientID); e != nil {
 		return ErrUnavailable
 	}
 	if s.Device != nil {

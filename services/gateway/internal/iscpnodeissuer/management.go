@@ -141,7 +141,7 @@ func (m *GatewayManagement) CreateClient(ctx context.Context, name, key string) 
 	}
 	return id, nil
 }
-func (m *GatewayManagement) RevokeClient(ctx context.Context, id string) error {
+func (m *GatewayManagement) RevokeManagedClient(ctx context.Context, id string) error {
 	ok, e := m.Client(ctx, id)
 	if e != nil {
 		return e

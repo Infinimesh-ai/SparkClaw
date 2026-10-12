@@ -65,7 +65,7 @@ func (m *fakeManagement) CreateClient(_ context.Context, name, key string) (stri
 	}
 	return id, nil
 }
-func (m *fakeManagement) RevokeClient(_ context.Context, id string) error {
+func (m *fakeManagement) RevokeManagedClient(_ context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.active[id] = false

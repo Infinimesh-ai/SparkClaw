@@ -40,7 +40,7 @@ func (m *management) CreateClient(_ context.Context, _, key string) (string, err
 	m.mu.Unlock()
 	return id, nil
 }
-func (m *management) RevokeClient(_ context.Context, id string) error {
+func (m *management) RevokeManagedClient(_ context.Context, id string) error {
 	m.mu.Lock()
 	m.active[id] = false
 	m.mu.Unlock()

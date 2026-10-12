@@ -271,7 +271,7 @@ type Management interface {
 	Identity(context.Context) (Binding, error)
 	Client(context.Context, string) (bool, error)
 	CreateClient(context.Context, string, string) (string, error)
-	RevokeClient(context.Context, string) error
+	RevokeManagedClient(context.Context, string) error
 }
 type EnrollmentResult struct {
 	Version                  int                         `json:"version"`

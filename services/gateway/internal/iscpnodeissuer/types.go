@@ -5,11 +5,15 @@ package iscpnodeissuer
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
+	"net"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -128,6 +132,24 @@ func SignCredential(v Credential, signer identity.Device) (Credential, error) {
 func (v Credential) Validate(now time.Time, allowExpired bool) error {
 	u, e := url.Parse(v.Origin)
 	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || len(v.Origin) > 512 || strings.ContainsAny(v.Origin, "\r\n") || len(v.TLSCertificatePEM) > 16<<10 || v.TLSCertificatePEM == "" {
+		return ErrInvalid
+	}
+	ip := net.ParseIP(u.Hostname())
+	if ip == nil || u.Hostname() != ip.String() || u.RawPath != "" || u.ForceQuery || u.String() != v.Origin {
+		return ErrInvalid
+	}
+	if u.Port() != "" {
+		p, e := strconv.Atoi(u.Port())
+		if e != nil || p < 1 || p > 65535 || strconv.Itoa(p) != u.Port() {
+			return ErrInvalid
+		}
+	}
+	block, rest := pem.Decode([]byte(v.TLSCertificatePEM))
+	if block == nil || block.Type != "CERTIFICATE" || len(bytes.TrimSpace(rest)) != 0 {
+		return ErrInvalid
+	}
+	cert, e := x509.ParseCertificate(block.Bytes)
+	if e != nil || cert.VerifyHostname(ip.String()) != nil || (!allowExpired && now.After(cert.NotAfter)) || now.Before(cert.NotBefore) {
 		return ErrInvalid
 	}
 	if v.Type != CredentialType || v.SchemaVersion != 1 || !v.ExpiresAt.After(v.IssuedAt) || v.ExpiresAt.Sub(v.IssuedAt) > 30*time.Minute || v.IssuedAt.After(now.Add(time.Minute)) {
@@ -255,6 +277,7 @@ type RelayRegistration interface {
 	Commit(context.Context, RegistrationCommit) (RegistrationReceipt, error)
 	Status(context.Context, string, string) (RegistrationReceipt, error)
 	Revoke(context.Context, string, string, uint64) error
+	Recover(context.Context, RegistrationRecovery) (RegistrationReceipt, error)
 }
 type RelayCredentials struct {
 	Access  iscpbridge.RelayCredential `json:"access"`
@@ -313,4 +336,14 @@ func VerifyObject(kind string, v any, signer identity.DeviceIdentity, sig identi
 		return ErrDenied
 	}
 	return nil
+}
+
+type RegistrationRecovery struct {
+	OperationID          string                  `json:"operation_id"`
+	BindingDigest        string                  `json:"binding_digest"`
+	Identity             identity.DeviceIdentity `json:"identity"`
+	Grant                trust.Grant             `json:"grant"`
+	Proof                identity.DeviceProof    `json:"proof"`
+	ReceiptWrapPublicKey string                  `json:"receipt_wrap_public_key"`
+	Revision             uint64                  `json:"revision"`
 }

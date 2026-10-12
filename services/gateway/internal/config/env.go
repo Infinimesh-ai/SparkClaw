@@ -160,6 +160,13 @@ var envBindings = []envBinding{
 		c.Gateway.WorkbenchISCPLocalTest = value == "1"
 		return nil
 	}},
+	{name: "SPARKCLAW_WORKBENCH_ISCP_NODE_MANAGED", doc: "Explicit self-hosted node issuer and multi-device responder opt-in; only 0 and 1 are accepted.", apply: func(c *Config, value string) error {
+		if value != "0" && value != "1" {
+			return fmt.Errorf("SPARKCLAW_WORKBENCH_ISCP_NODE_MANAGED must be 0 or 1")
+		}
+		c.Gateway.WorkbenchISCPNodeManaged = value == "1"
+		return nil
+	}},
 	{name: "SPARKCLAW_WEBCHAT_PROXY_TOKEN", doc: "Private token that authenticates the WebChat reverse proxy for pairing bootstrap.", apply: envString(func(c *Config) *string { return &c.Gateway.WebChatProxyToken })},
 	{name: "SPARKCLAW_BRIDGE_TOKEN", doc: "Dedicated bearer for the loopback ISCP bridge dispatch routes.", apply: envString(func(c *Config) *string { return &c.Gateway.BridgeToken })},
 	{name: "SPARKCLAW_JINGSI_LAN_ENABLED", doc: "Enable the JingSi LAN listener.", apply: envBool(func(c *Config) *bool { return &c.JingSiLAN.Enabled })},

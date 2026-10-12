@@ -38,6 +38,20 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 	if err := request.Validate(); err != nil {
 		return err
 	}
+	if e.config.Mode == "node-managed" && e.config.ExpectedInstallationID != "" {
+		if request.InstallationID != "" && request.InstallationID != e.config.ExpectedInstallationID {
+			return errors.New("request installation differs from enrolled device")
+		}
+		if request.Operation == OperationBind {
+			var b struct {
+				SchemaVersion  int    `json:"schema_version"`
+				InstallationID string `json:"installation_id"`
+			}
+			if strictDecode(request.Body, &b) != nil || b.InstallationID != e.config.ExpectedInstallationID {
+				return errors.New("installation bind differs from enrolled device")
+			}
+		}
+	}
 	e.mu.Lock()
 	if e.session == nil || e.session.id != id {
 		e.mu.Unlock()
@@ -65,10 +79,23 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 	default:
 		return e.sendResponse(ctx, id, Response{Profile: request.Profile, ID: request.ID, Status: 429, Code: ErrorThrottled, Retryable: true, RetryAfterMS: 250, Error: "workbench concurrency limit exceeded"})
 	}
+	if e.aggregateSlots != nil {
+		select {
+		case e.aggregateSlots <- struct{}{}:
+		default:
+			<-slots
+			return e.sendResponse(ctx, id, Response{Profile: request.Profile, ID: request.ID, Status: 429, Code: ErrorThrottled, Retryable: true, RetryAfterMS: 250, Error: "node aggregate concurrency limit exceeded"})
+		}
+	}
 	e.workers.Add(1)
 	go func() {
 		defer e.workers.Done()
-		defer func() { <-slots }()
+		defer func() {
+			<-slots
+			if e.aggregateSlots != nil {
+				<-e.aggregateSlots
+			}
+		}()
 		callCtx, cancel := context.WithTimeout(ctx, operationTimeout(request.Operation))
 		defer cancel()
 		policy, policyErr := e.AuthorizationPolicy(callCtx)

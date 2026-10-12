@@ -19,6 +19,13 @@ func LoadRuntimeConfig(ctx context.Context, path string) (Config, error) {
 	// The control loader retains every private-key, peer, issuer and historical
 	// Grant check while allowing expired Relay data for recovery inspection.
 	cfg, err := LoadControlConfig(path)
+	if err == nil && cfg.Mode == "node-managed" {
+		m, err := loadMaterialMode(cfg, true)
+		if err != nil {
+			return Config{}, originalErr
+		}
+		return recoverNodeRuntime(ctx, path, cfg, m)
+	}
 	if err != nil || cfg.EffectiveRelayProfile() != iscpbridge.ProfileLocalLab {
 		return Config{}, originalErr
 	}

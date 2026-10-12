@@ -22,6 +22,7 @@ type Binding struct {
 }
 
 type Config struct {
+	ExpectedInstallationID string              `json:"expected_installation_id,omitempty"`
 	ApplicationProfiles    []string            `json:"application_profiles,omitempty"`
 	QualifiedCapabilities  []string            `json:"qualified_capabilities,omitempty"`
 	SchemaVersion          int                 `json:"schema_version"`
@@ -34,6 +35,10 @@ type Config struct {
 	EnrollmentFile         string              `json:"enrollment_file"`
 	PeerIdentityFile       string              `json:"peer_identity_file"`
 	IssuerIdentityFile     string              `json:"issuer_identity_file"`
+	InvitationIdentityFile string              `json:"invitation_identity_file,omitempty"`
+	NodeIssuerSocket       string              `json:"node_issuer_socket,omitempty"`
+	PeerRegistryFile       string              `json:"peer_registry_file,omitempty"`
+	IssuerControlFile      string              `json:"issuer_control_file,omitempty"`
 	GrantFile              string              `json:"grant_file"`
 	Permission             string              `json:"permission,omitempty"`
 	Binding                *Binding            `json:"binding,omitempty"`
@@ -94,7 +99,7 @@ func loadConfig(path string, controlOnly bool) (Config, error) {
 	if err != nil {
 		return cfg, errors.New("resolve workbench configuration directory")
 	}
-	paths := []*string{&cfg.IdentityDirectory, &cfg.EnrollmentFile, &cfg.PeerIdentityFile, &cfg.IssuerIdentityFile, &cfg.GrantFile}
+	paths := []*string{&cfg.IdentityDirectory, &cfg.EnrollmentFile, &cfg.PeerIdentityFile, &cfg.IssuerIdentityFile, &cfg.GrantFile, &cfg.InvitationIdentityFile, &cfg.PeerRegistryFile, &cfg.IssuerControlFile, &cfg.NodeIssuerSocket}
 	for _, field := range paths {
 		if *field != "" && !filepath.IsAbs(*field) {
 			*field = filepath.Join(base, *field)
@@ -132,7 +137,8 @@ func (c Config) Validate() error {
 		}
 	}
 
-	if c.SchemaVersion != 1 || c.Mode != "local-test" {
+	nodeManaged := c.SchemaVersion == 2 && c.Mode == "node-managed"
+	if !nodeManaged && (c.SchemaVersion != 1 || c.Mode != "local-test") {
 		return errors.New("workbench requires explicit schema 1 local-test configuration")
 	}
 	if c.Role != RoleInitiator && c.Role != RoleResponder {
@@ -144,10 +150,31 @@ func (c Config) Validate() error {
 	if c.IdentityKeyBackend != iscpbridge.IdentityKeyBackendFile && c.IdentityKeyBackend != iscpbridge.IdentityKeyBackendKeyring {
 		return errors.New("workbench identity key backend must be file or keyring")
 	}
-	for _, path := range []string{c.IdentityDirectory, c.EnrollmentFile, c.PeerIdentityFile, c.IssuerIdentityFile, c.GrantFile} {
+	paths := []string{c.IdentityDirectory, c.EnrollmentFile, c.IssuerIdentityFile}
+	if nodeManaged && c.Role == RoleResponder {
+		paths = append(paths, c.InvitationIdentityFile, c.PeerRegistryFile)
+	} else {
+		paths = append(paths, c.PeerIdentityFile, c.GrantFile)
+	}
+	if nodeManaged {
+		if c.EffectiveRelayProfile() != iscpbridge.ProfileProduction || c.Binding == nil && c.Role == RoleInitiator || c.GrantRenewal != nil {
+			return errors.New("node-managed runtime requires production trust and node lifecycle")
+		}
+		paths = append(paths, c.InvitationIdentityFile)
+		if c.Role == RoleInitiator {
+			paths = append(paths, c.IssuerControlFile)
+			if !uuidPattern.MatchString(c.ExpectedInstallationID) {
+				return errors.New("node-managed initiator requires its original installation UUID")
+			}
+		}
+	}
+	for _, path := range paths {
 		if strings.TrimSpace(path) == "" || !filepath.IsAbs(path) {
 			return errors.New("workbench identity and authorization paths must be absolute")
 		}
+	}
+	if c.NodeIssuerSocket != "" && (!nodeManaged || c.Role != RoleResponder || !filepath.IsAbs(c.NodeIssuerSocket)) {
+		return errors.New("node issuer socket requires node-managed responder and an absolute Unix path")
 	}
 	if c.Permission != "" && c.Permission != Permission {
 		return errors.New("unsupported workbench permission")
@@ -211,6 +238,9 @@ func loadMaterialMode(cfg Config, controlOnly bool) (material, error) {
 	if err := readJSONFile(cfg.EnrollmentFile, &m.enrollment, true); err != nil {
 		return m, errors.New("load workbench Relay enrollment")
 	}
+	if cfg.SchemaVersion == 2 && cfg.Role == RoleResponder && cfg.PeerIdentityFile == "" {
+		return loadResponderMaterial(cfg, m, controlOnly)
+	}
 	if err := readJSONFile(cfg.PeerIdentityFile, &m.peer, false); err != nil {
 		return m, errors.New("load pinned workbench peer")
 	}
@@ -224,7 +254,7 @@ func loadMaterialMode(cfg Config, controlOnly bool) (material, error) {
 		if err := validateEnrollment(m.enrollment, m.device.Identity, cfg.EffectiveRelayProfile(), time.Now().UTC()); err != nil {
 			return m, err
 		}
-	} else if cfg.GrantRenewal == nil || m.enrollment.Type != iscpbridge.EnrollmentBundleType || m.enrollment.DomainID != m.device.Identity.DomainID || m.enrollment.DeviceID != m.device.Identity.DeviceID || m.enrollment.RelayID == "" {
+	} else if (cfg.GrantRenewal == nil && cfg.Mode != "node-managed") || m.enrollment.Type != iscpbridge.EnrollmentBundleType || m.enrollment.DomainID != m.device.Identity.DomainID || m.enrollment.DeviceID != m.device.Identity.DeviceID || m.enrollment.RelayID == "" {
 		return m, errors.New("invalid authorization control enrollment binding")
 	}
 	if m.peer.DomainID != m.device.Identity.DomainID || m.peer.DeviceID == m.device.Identity.DeviceID || m.peer.DeviceID == "" {
@@ -242,7 +272,11 @@ func loadMaterialMode(cfg Config, controlOnly bool) (material, error) {
 	// Cloud root key IDs are operator names (for example cloud-trust-prod-1),
 	// unlike enrolled device IDs. Pin their exact KID and public bytes without
 	// substituting a device thumbprint convention for the cloud key namespace.
-	if cfg.EffectiveRelayProfile() == iscpbridge.ProfileLocalLab {
+	if cfg.Mode == "node-managed" {
+		if err := validateNodeAuthorities(cfg, m); err != nil {
+			return m, err
+		}
+	} else if cfg.EffectiveRelayProfile() == iscpbridge.ProfileLocalLab {
 		if m.enrollment.RelaySignerIdentity == nil {
 			return m, errors.New("missing pinned local Relay signer")
 		}
@@ -263,7 +297,7 @@ func loadMaterialMode(cfg Config, controlOnly bool) (material, error) {
 		}
 	}
 	verificationTime := time.Now().UTC()
-	if cfg.GrantRenewal != nil && !verificationTime.Before(m.grant.ExpiresAt) {
+	if (cfg.GrantRenewal != nil || cfg.Mode == "node-managed") && !verificationTime.Before(m.grant.ExpiresAt) {
 		// A signed expired seed can recover through the explicitly configured
 		// lifecycle. Runtime admission still verifies against the actual time.
 		verificationTime = m.grant.ExpiresAt.Add(-time.Nanosecond)
@@ -287,6 +321,9 @@ func validateEnrollment(b iscpbridge.EnrollmentBundle, local identity.DeviceIden
 		}
 	} else if b.Mode == iscpbridge.BundleModeWorkbenchLocalLab {
 		return errors.New("production workbench rejects local reference enrollment")
+	}
+	if b.Mode == iscpbridge.BundleModeWorkbenchNodeManaged && profile != iscpbridge.ProfileProduction {
+		return errors.New("node-managed enrollment requires production Relay")
 	}
 	if b.IssuedAt.IsZero() || !b.IssuedAt.Before(b.ExpiresAt) || !now.Before(b.ExpiresAt) {
 		return errors.New("workbench enrollment is incomplete or expired")

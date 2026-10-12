@@ -53,6 +53,11 @@ func (e *Endpoint) CheckAuthorization(ctx context.Context) error {
 	return err
 }
 func (e *Endpoint) AuthorizationPolicy(ctx context.Context) (iscpauth.Policy, error) {
+	if e.authorityPolicy != nil {
+		p, err := e.authorityPolicy(ctx)
+		e.observeAuthorizationError(err)
+		return p, err
+	}
 	if err := verifyGrant(e.config, e.grantMaterial(), time.Now().UTC()); err != nil {
 		return iscpauth.Policy{}, err
 	}

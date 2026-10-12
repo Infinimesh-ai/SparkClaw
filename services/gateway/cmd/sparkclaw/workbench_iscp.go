@@ -14,12 +14,15 @@ func startWorkbenchISCP(ctx context.Context, cfg config.Config, server *gateway.
 	if cfg.Gateway.WorkbenchISCPConfig == "" {
 		return nil, nil
 	}
-	if !cfg.Gateway.WorkbenchISCPLocalTest {
+	if !cfg.Gateway.WorkbenchISCPLocalTest && !cfg.Gateway.WorkbenchISCPNodeManaged {
 		return nil, errors.New("ISCP workbench local test issuer is not enabled")
 	}
 	transport, err := iscpworkbench.LoadRuntimeConfig(ctx, cfg.Gateway.WorkbenchISCPConfig)
 	if err != nil {
 		return nil, errors.New("ISCP workbench responder configuration is invalid or unavailable")
+	}
+	if cfg.Gateway.WorkbenchISCPNodeManaged && transport.Mode != "node-managed" || cfg.Gateway.WorkbenchISCPLocalTest && transport.Mode != "local-test" {
+		return nil, errors.New("ISCP workbench mode differs from explicit Gateway opt-in")
 	}
 	return server.StartWorkbenchISCP(ctx, transport, func(state string) {
 		slog.Info("ISCP workbench responder state", "state", state)

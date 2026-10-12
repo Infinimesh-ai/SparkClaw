@@ -53,13 +53,19 @@ func (e *Endpoint) refreshAuthorization(ctx context.Context) (resultErr error) {
 	e.material.grant = grant
 	e.grantMu.Unlock()
 	if due {
+		if err := e.lifecycle.AcceptGrant(grant); err != nil {
+			return err
+		}
 		return e.lifecycle.CommitRenewal()
 	}
 	return e.lifecycle.AcceptGrant(grant)
 }
 
 func (e *Endpoint) runGrantLifecycle(ctx context.Context) {
-	interval := time.Duration(e.config.GrantRenewal.PollIntervalSeconds) * time.Second
+	interval := 10 * time.Second
+	if e.config.GrantRenewal != nil {
+		interval = time.Duration(e.config.GrantRenewal.PollIntervalSeconds) * time.Second
+	}
 	if interval == 0 {
 		interval = 10 * time.Second
 	}
@@ -148,6 +154,11 @@ func saveCurrentGrant(path string, grant trust.Grant) error {
 // A failed check blocks that operation; only signed revocation tears down the
 // authorization and cancels detached Gateway work through onState.
 func (e *Endpoint) checkAuthorization(ctx context.Context) error {
+	if e.authorityPolicy != nil {
+		_, err := e.authorityPolicy(ctx)
+		e.observeAuthorizationError(err)
+		return err
+	}
 	if e.lifecycle == nil {
 		return nil
 	}

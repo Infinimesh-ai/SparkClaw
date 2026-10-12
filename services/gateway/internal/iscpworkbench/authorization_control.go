@@ -39,7 +39,7 @@ func (e *Endpoint) AuthorizationDeletionReceipt(ctx context.Context, operationID
 // AuthorizationControl never constructs a Relay client. Its pipe remains usable
 // when business credentials or a revoked session can no longer reconnect.
 type AuthorizationControl struct {
-	lifecycle *iscpbridge.GrantLifecycleClient
+	lifecycle grantLifecycle
 	identity  PublicIdentity
 }
 
@@ -51,7 +51,12 @@ func NewAuthorizationControl(cfg Config) (*AuthorizationControl, error) {
 	if cfg.Role != RoleInitiator {
 		return nil, errors.New("authorization control requires initiator identity")
 	}
-	client, err := iscpbridge.NewGrantLifecycleClient(cfg.GrantRenewal.URL, cfg.GrantRenewal.PendingFile, m.device, m.issuer, m.enrollment.RelayID, m.grant, 5*time.Second)
+	var client grantLifecycle
+	if cfg.Mode == "node-managed" {
+		client, err = newNodeLifecycle(cfg, m)
+	} else {
+		client, err = iscpbridge.NewGrantLifecycleClient(cfg.GrantRenewal.URL, cfg.GrantRenewal.PendingFile, m.device, m.issuer, m.enrollment.RelayID, m.grant, 5*time.Second)
+	}
 	if err != nil {
 		return nil, err
 	}

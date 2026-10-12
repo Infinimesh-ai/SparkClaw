@@ -14,7 +14,10 @@ func normalizeWorkbenchISCPConfig(cfg *GatewayConfig) error {
 	if !filepath.IsAbs(cfg.WorkbenchISCPConfig) {
 		return errors.New("SPARKCLAW_WORKBENCH_ISCP_CONFIG must be an absolute path")
 	}
-	if !cfg.WorkbenchISCPLocalTest {
+	if cfg.WorkbenchISCPLocalTest && cfg.WorkbenchISCPNodeManaged {
+		return errors.New("ISCP node-managed and local-test modes are mutually exclusive")
+	}
+	if !cfg.WorkbenchISCPLocalTest && !cfg.WorkbenchISCPNodeManaged {
 		return errors.New("ISCP local test issuer requires SPARKCLAW_WORKBENCH_ISCP_LOCAL_TEST=1")
 	}
 	if cfg.DeploymentID == "" {

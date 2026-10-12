@@ -71,13 +71,15 @@ type Endpoint struct {
 	material             material
 	provider             iscpcrypto.Provider
 	relay                RelayTransport
+	authorityPolicy      func(context.Context) (iscpauth.Policy, error)
+	aggregateSlots       chan struct{}
 	handler              Handler
 	onState              func(string)
 	onCapabilities       func(TransportCapabilities)
 	mu                   sync.Mutex
 	grantMu              sync.RWMutex
 	renewalMu            sync.Mutex
-	lifecycle            *iscpbridge.GrantLifecycleClient
+	lifecycle            grantLifecycle
 	lifecycleWorkers     sync.WaitGroup
 	session              *activeSession
 	stale                []string
@@ -127,6 +129,13 @@ func newEndpoint(cfg Config, m material, relay RelayTransport, handler Handler, 
 		return nil, errors.New("workbench responder requires a handler")
 	}
 	e := &Endpoint{config: cfg, material: m, provider: iscpcrypto.NewProvider(), relay: relay, handler: handler, onState: onState, pending: map[string]chan callResult{}, slots: make(chan struct{}, MaxConcurrent), classSlots: map[string]chan struct{}{"control": make(chan struct{}, CapacityLimit("control")), "bulk": make(chan struct{}, CapacityLimit("bulk")), "events": make(chan struct{}, CapacityLimit("events")), "audio": make(chan struct{}, CapacityLimit("audio"))}}
+	if cfg.Mode == "node-managed" && cfg.Role == RoleInitiator {
+		client, err := newNodeLifecycle(cfg, m)
+		if err != nil {
+			return nil, err
+		}
+		e.lifecycle = client
+	}
 	if cfg.GrantRenewal != nil {
 		client, err := iscpbridge.NewGrantLifecycleClient(cfg.GrantRenewal.URL, cfg.GrantRenewal.PendingFile, m.device, m.issuer, m.enrollment.RelayID, m.grant, 5*time.Second)
 		if err != nil {

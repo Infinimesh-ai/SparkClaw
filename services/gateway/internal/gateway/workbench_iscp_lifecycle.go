@@ -12,13 +12,19 @@ import (
 // WorkbenchISCP owns the responder receive connection and its Client revocation
 // registration. It is closed before Gateway storage on process shutdown.
 type WorkbenchISCP struct {
-	endpoint *iscpworkbench.Endpoint
-	cancel   context.CancelFunc
-	done     chan struct{}
-	once     sync.Once
+	endpoint interface {
+		Run(context.Context) error
+		Close() error
+	}
+	cancel context.CancelFunc
+	done   chan struct{}
+	once   sync.Once
 }
 
 func (s *Server) StartWorkbenchISCP(ctx context.Context, cfg iscpworkbench.Config, onState func(string)) (*WorkbenchISCP, error) {
+	if cfg.Mode == "node-managed" {
+		return s.startNodeWorkbenchISCP(ctx, cfg, onState)
+	}
 	if !s.cfg.Gateway.WorkbenchISCPLocalTest {
 		return nil, errors.New("ISCP local test transport requires explicit Gateway opt-in")
 	}
@@ -66,4 +72,33 @@ func (s *WorkbenchISCP) Close() error {
 		<-s.done
 	})
 	return err
+}
+
+// startNodeWorkbenchISCP retains the Gateway Client authority and every existing
+// business handler. A shared responder transport routes to isolated peer adapters.
+func (s *Server) startNodeWorkbenchISCP(ctx context.Context, cfg iscpworkbench.Config, onState func(string)) (*WorkbenchISCP, error) {
+	if !s.cfg.Gateway.WorkbenchISCPNodeManaged || s.cfg.Gateway.WorkbenchISCPLocalTest || cfg.Mode != "node-managed" || cfg.SchemaVersion != 2 {
+		return nil, errors.New("node-managed responder requires explicit Gateway opt-in")
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	endpoint, err := iscpworkbench.NewNodeResponder(cfg, s.NewWorkbenchISCPHandler, func(callCtx context.Context, p iscpworkbench.ManagedPeer) error {
+		if p.Binding.DeploymentID != s.cfg.Gateway.DeploymentID {
+			return errors.New("node peer deployment binding differs from Gateway")
+		}
+		_, err := s.workbenchISCPPrincipal(callCtx, p.Binding)
+		return err
+	}, onState)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	service := &WorkbenchISCP{endpoint: endpoint, cancel: cancel, done: make(chan struct{})}
+	go func() {
+		defer close(service.done)
+		defer endpoint.Close()
+		if err := endpoint.Run(ctx); err != nil && ctx.Err() == nil {
+			slog.Warn("ISCP node workbench responder stopped")
+		}
+	}()
+	return service, nil
 }

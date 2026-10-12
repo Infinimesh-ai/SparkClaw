@@ -31,7 +31,7 @@ type workbenchISCPOperation struct {
 // binding. Only Endpoint may expose it to a peer, after its grant, Hello, Ready,
 // manifest and encrypted message checks. No bearer or HTTP URL is tunneled.
 func (s *Server) newWorkbenchISCPTextHandler(cfg iscpworkbench.Config) (iscpworkbench.Handler, error) {
-	if cfg.SchemaVersion != 1 || cfg.Role != iscpworkbench.RoleResponder || cfg.Mode != "local-test" || cfg.Binding == nil || cfg.Binding.DeploymentID == "" || cfg.Binding.OwnerID == "" || cfg.Binding.ClientID == "" {
+	if ((cfg.SchemaVersion != 1 || cfg.Mode != "local-test") && (cfg.SchemaVersion != 2 || cfg.Mode != "node-managed")) || cfg.Role != iscpworkbench.RoleResponder || cfg.Binding == nil || cfg.Binding.DeploymentID == "" || cfg.Binding.OwnerID == "" || cfg.Binding.ClientID == "" {
 		return nil, errors.New("ISCP workbench requires a fixed responder and complete local Client binding")
 	}
 	binding := *cfg.Binding

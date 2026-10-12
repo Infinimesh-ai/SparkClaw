@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
@@ -46,10 +47,28 @@ func (w *ipcWriter) send(value any) error {
 }
 
 func main() {
+	enroll := flag.Bool("enroll-node", false, "enroll a node-managed device using one private stdin credential")
+	directory := flag.String("directory", "", "private pending enrollment directory")
+	keyBackend := flag.String("key-backend", "keyring", "native device key backend")
+	keyringService := flag.String("keyring-service", "", "native keyring service")
+	installationID := flag.String("installation-id", "", "existing ClientStore installation UUID")
 	configPath := flag.String("config", "", "private workbench configuration")
 	controlOnly := flag.Bool("control-only", false, "serve proof-bound authorization deletion and receipt control without Relay")
 	check := flag.Bool("check", false, "validate private profile without contacting Relay")
 	flag.Parse()
+	if *enroll {
+		if *configPath != "" || *controlOnly || *check || flag.NArg() != 0 {
+			fmt.Fprintln(os.Stderr, "enrollment flags conflict")
+			os.Exit(2)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		if err := enrollNode(ctx, os.Stdin, os.Stdout, *directory, *keyBackend, *keyringService, *installationID); err != nil {
+			fmt.Fprintln(os.Stderr, "node enrollment failed:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *configPath == "" || flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "usage: iscp-workbench -config <path> [-check]")
 		os.Exit(2)
@@ -94,7 +113,7 @@ func main() {
 		os.Exit(1)
 	}
 	if *check {
-		_ = writer.send(map[string]any{"valid": true, "schema_version": 1, "mode": cfg.Mode, "role": cfg.Role, "profile": iscpworkbench.Profile, "identity": publicIdentity, "operations": iscpworkbench.Operations(), "max_request_bytes": iscpworkbench.MaxRequestBytes, "max_response_bytes": iscpworkbench.MaxResponseBytes})
+		_ = writer.send(map[string]any{"valid": true, "schema_version": cfg.SchemaVersion, "mode": cfg.Mode, "role": cfg.Role, "profile": iscpworkbench.Profile, "identity": publicIdentity, "operations": iscpworkbench.Operations(), "max_request_bytes": iscpworkbench.MaxRequestBytes, "max_response_bytes": iscpworkbench.MaxResponseBytes})
 		return
 	}
 	if cfg.Role != iscpworkbench.RoleInitiator {

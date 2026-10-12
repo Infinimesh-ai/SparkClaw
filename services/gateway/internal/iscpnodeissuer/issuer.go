@@ -23,6 +23,9 @@ type Config struct {
 	GrantTTL         time.Duration
 	ApprovedScopes   []string
 	RegistryPath     string
+	// A root-configured existing Client may migrate through exactly one
+	// operator-selected operation. Ordinary invitations always create a Client.
+	MigrationClients map[string]string
 }
 type Issuer struct {
 	cfg          Config
@@ -47,6 +50,13 @@ func New(cfg Config, store Store, m Management, r RelayRegistration) (*Issuer, e
 	if cfg.RegistryPath != "" && !filepath.IsAbs(cfg.RegistryPath) {
 		return nil, ErrInvalid
 	}
+	seenMigration := map[string]bool{}
+	for client, op := range cfg.MigrationClients {
+		if !identifier.MatchString(client) || !identifier.MatchString(op) || len(op) < 8 || seenMigration[op] {
+			return nil, ErrInvalid
+		}
+		seenMigration[op] = true
+	}
 	return &Issuer{cfg: cfg, store: store, management: m, relay: r, Now: time.Now}, nil
 }
 
@@ -54,6 +64,17 @@ func New(cfg Config, store Store, m Management, r RelayRegistration) (*Issuer, e
 // Gateway to create a Client. A Gateway lost-response is reconciled by stable ID;
 // the discarded HTTP Client token is never given to the desktop or Relay.
 func (i *Issuer) CreateInvitation(ctx context.Context, name string, ttl time.Duration, scopes []string, key string) (string, error) {
+	return i.createInvitation(ctx, name, ttl, scopes, key, "")
+}
+
+func (i *Issuer) CreateMigrationInvitation(ctx context.Context, name string, ttl time.Duration, scopes []string, key, clientID string) (string, error) {
+	if clientID == "" || i.cfg.MigrationClients[clientID] != key {
+		return "", ErrDenied
+	}
+	return i.createInvitation(ctx, name, ttl, scopes, key, clientID)
+}
+
+func (i *Issuer) createInvitation(ctx context.Context, name string, ttl time.Duration, scopes []string, key, existingClientID string) (string, error) {
 	if len(i.cfg.ApprovedScopes) > 0 && Digest(scopes) != Digest(i.cfg.ApprovedScopes) {
 		return "", ErrDenied
 	}
@@ -71,6 +92,9 @@ func (i *Issuer) CreateInvitation(ctx context.Context, name string, ttl time.Dur
 	v := i.cfg.Template
 	v.InvitationID = id
 	v.ClientID = StableClientID(actual.OwnerID, key)
+	if existingClientID != "" {
+		v.ClientID = existingClientID
+	}
 	v.IssuedAt = i.Now().UTC()
 	v.ExpiresAt = v.IssuedAt.Add(ttl)
 	v.Scopes = append([]string{}, scopes...)
@@ -86,7 +110,7 @@ func (i *Issuer) CreateInvitation(ctx context.Context, name string, ttl time.Dur
 		if e != nil {
 			return "", e
 		}
-		if st.ClientName != name || Digest(st.Credential.Scopes) != Digest(scopes) || st.Credential.ExpiresAt.Sub(st.Credential.IssuedAt) != ttl {
+		if st.ClientName != name || st.Credential.ClientID != v.ClientID || Digest(st.Credential.Scopes) != Digest(scopes) || st.Credential.ExpiresAt.Sub(st.Credential.IssuedAt) != ttl {
 			return "", ErrConflict
 		}
 		v = st.Credential
@@ -101,6 +125,9 @@ func (i *Issuer) CreateInvitation(ctx context.Context, name string, ttl time.Dur
 		return "", e
 	}
 	if !active {
+		if existingClientID != "" {
+			return "", ErrDenied
+		}
 		client, e := i.management.CreateClient(ctx, name, key)
 		if e != nil {
 			return "", e

@@ -18,22 +18,23 @@ import (
 )
 
 type config struct {
-	ApprovedScopes         []string `json:"approved_scopes"`
-	SchemaVersion          int      `json:"schema_version"`
-	Directory              string   `json:"directory"`
-	DatabaseURLFile        string   `json:"database_url_file"`
-	StorageKeyFile         string   `json:"storage_key_file"`
-	IssuerIdentityFile     string   `json:"issuer_identity_file"`
-	IssuerKeyFile          string   `json:"issuer_key_file"`
-	InvitationIdentityFile string   `json:"invitation_identity_file"`
-	InvitationKeyFile      string   `json:"invitation_key_file"`
-	TemplateFile           string   `json:"template_file"`
-	ManagementSocket       string   `json:"management_socket"`
-	ManagementTokenFile    string   `json:"management_token_file"`
-	AdminTokenFile         string   `json:"admin_token_file"`
-	RegistryPath           string   `json:"registry_path"`
-	ControlConfigFile      string   `json:"control_config_file"`
-	GrantTTLSeconds        int      `json:"grant_ttl_seconds"`
+	ApprovedScopes         []string          `json:"approved_scopes"`
+	SchemaVersion          int               `json:"schema_version"`
+	Directory              string            `json:"directory"`
+	DatabaseURLFile        string            `json:"database_url_file"`
+	StorageKeyFile         string            `json:"storage_key_file"`
+	IssuerIdentityFile     string            `json:"issuer_identity_file"`
+	IssuerKeyFile          string            `json:"issuer_key_file"`
+	InvitationIdentityFile string            `json:"invitation_identity_file"`
+	InvitationKeyFile      string            `json:"invitation_key_file"`
+	TemplateFile           string            `json:"template_file"`
+	ManagementSocket       string            `json:"management_socket"`
+	ManagementTokenFile    string            `json:"management_token_file"`
+	AdminTokenFile         string            `json:"admin_token_file"`
+	RegistryPath           string            `json:"registry_path"`
+	ControlConfigFile      string            `json:"control_config_file"`
+	GrantTTLSeconds        int               `json:"grant_ttl_seconds"`
+	MigrationClients       map[string]string `json:"migration_clients,omitempty"`
 }
 
 func main() {
@@ -104,7 +105,7 @@ func run() error {
 	if e != nil {
 		return e
 	}
-	issuer, e := n.New(n.Config{Template: template, Issuer: signer, InvitationSigner: inviter, GrantTTL: time.Duration(cfg.GrantTTLSeconds) * time.Second, RegistryPath: cfg.RegistryPath, ApprovedScopes: cfg.ApprovedScopes}, store, management, ctl.RemoteRelay{Peer: peer})
+	issuer, e := n.New(n.Config{Template: template, Issuer: signer, InvitationSigner: inviter, GrantTTL: time.Duration(cfg.GrantTTLSeconds) * time.Second, RegistryPath: cfg.RegistryPath, ApprovedScopes: cfg.ApprovedScopes, MigrationClients: cfg.MigrationClients}, store, management, ctl.RemoteRelay{Peer: peer})
 	if e != nil {
 		return e
 	}

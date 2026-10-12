@@ -62,13 +62,14 @@ func (i *Issuer) ManagementHandler(token string) http.Handler {
 		}
 		if r.Method == "POST" && r.URL.Path == "/v1/invitations" {
 			var req struct {
-				ClientName     string   `json:"client_name"`
-				OperationID    string   `json:"operation_id"`
-				IdempotencyKey string   `json:"idempotency_key,omitempty"`
-				TTLSeconds     int      `json:"ttl_seconds,omitempty"`
-				Scopes         []string `json:"scopes,omitempty"`
-				OwnerID        string   `json:"owner_id"`
-				DeploymentID   string   `json:"deployment_id"`
+				ClientName       string   `json:"client_name"`
+				OperationID      string   `json:"operation_id"`
+				IdempotencyKey   string   `json:"idempotency_key,omitempty"`
+				TTLSeconds       int      `json:"ttl_seconds,omitempty"`
+				Scopes           []string `json:"scopes,omitempty"`
+				OwnerID          string   `json:"owner_id"`
+				DeploymentID     string   `json:"deployment_id"`
+				ExistingClientID string   `json:"existing_client_id,omitempty"`
 			}
 			if StrictDecode(raw, &req) != nil {
 				w.WriteHeader(400)
@@ -89,7 +90,13 @@ func (i *Issuer) ManagementHandler(token string) http.Handler {
 			if req.TTLSeconds == 0 {
 				req.TTLSeconds = 900
 			}
-			encoded, e := i.CreateInvitation(r.Context(), req.ClientName, time.Duration(req.TTLSeconds)*time.Second, i.cfg.ApprovedScopes, key)
+			var encoded string
+			var e error
+			if req.ExistingClientID != "" {
+				encoded, e = i.CreateMigrationInvitation(r.Context(), req.ClientName, time.Duration(req.TTLSeconds)*time.Second, i.cfg.ApprovedScopes, key, req.ExistingClientID)
+			} else {
+				encoded, e = i.CreateInvitation(r.Context(), req.ClientName, time.Duration(req.TTLSeconds)*time.Second, i.cfg.ApprovedScopes, key)
+			}
 			if e != nil {
 				writeManagementError(w, e)
 				return

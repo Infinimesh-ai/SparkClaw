@@ -13,7 +13,7 @@ import { ISCP_LAUNCH_PROFILE_NAME, persistNodeISCPLaunchProfile } from "./iscp-l
 import { LANMailClient } from "./lan-mail-client.mjs";
 import { ISCPTransport, ISCP_OPERATIONS, ISCP_BODY_BYTES, ISCPRequestNotSentError, mapISCPRequest } from "./iscp-transport.mjs";
 
-const ISCP_STARTUP_READS = new Set(["/api/config", "/readyz", "/api/owner", "/api/notifications", "/api/clients"]);
+const ISCP_STARTUP_READS = new Set(["/api/config", "/readyz", "/api/owner", "/api/notifications", "/api/clients", "/api/workbench/identity", "/api/email/sync-status"]);
 
 export class DesktopAuth {
   constructor({ readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification = false, requireLAN = false, fetcher, iscpProfilePath, allowLocalISCPTest = false, allowNodeManagedISCP = false, nodeEnroller = enrollNodeISCP, launchSelectionPath, userDataDirectory, selectionWriter = persistNodeISCPLaunchProfile, packaged = false, resourcesPath, transportFactory = (options) => new ISCPTransport(options), onChange = () => {}, onLock = () => {} }) {
@@ -444,6 +444,10 @@ export class DesktopAuth {
       return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
     } catch (error) {
       this.requests.delete(controller);
+      // Leaving a view cancels its safe read, including an already-dispatched
+      // mail-status poll. That is not a transport failure or NotSent proof.
+      // A real helper reset remains authoritative through its state callback.
+      if (startupRead && init.signal?.aborted && !controller.signal.aborted && generation === this.generation && transport === this.transport && transport.state === "transport_ready" && this.status.state === "connected") throw error;
       // Capacity and local validation do not invalidate a healthy session. Keep
       // the pre-write proof so the execution client can retain unsent intent.
       if (error instanceof ISCPRequestNotSentError && error.reason !== "unavailable") throw error;
@@ -457,11 +461,20 @@ export class DesktopAuth {
   }
 
   async #startupRead(fetcher, raw, init, generation, transport) {
-    let delay = 25;
+    let delay = 25, throttled = 0;
     while (true) {
       if (generation !== this.generation || transport !== this.transport || this.status.state !== "connected" || !this.connection) throw new ISCPRequestNotSentError("ISCP authentication changed", "canceled");
       if (init.signal.aborted) throw new ISCPRequestNotSentError("ISCP startup read was canceled", "canceled");
-      try { return await fetcher(raw, init); }
+      try {
+        const response = await fetcher(raw, init);
+        if (response.status !== 429 || throttled >= 3 || response.headers.get("x-sparkclaw-error-code") !== "throttled" || response.headers.get("x-sparkclaw-retryable") !== "true") return response;
+        let details;
+        // This JSON already passed the helper's bounded response frame check.
+        try { details = await response.clone().json(); } catch { return response; }
+        if (!details || typeof details !== "object" || Array.isArray(details) || details.error_code !== "throttled" || details.retryable !== true || details.retry_after_ms !== undefined && (!Number.isSafeInteger(details.retry_after_ms) || details.retry_after_ms < 0 || details.retry_after_ms > 5000)) return response;
+        await response.body?.cancel();
+        await waitForStartupAdmission(init.signal, Math.max(details.retry_after_ms ?? 250, Math.min(1000, 250 * 2 ** throttled++)));
+      }
       catch (error) {
         // Only local pre-write admission proves the request did not reach the
         // helper. Sent failures, remote errors and all mutations keep their

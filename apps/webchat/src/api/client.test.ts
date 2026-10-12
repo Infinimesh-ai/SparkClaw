@@ -53,6 +53,41 @@ describe("documentFileURL", () => {
   });
 });
 
+describe("identity read deadline by native transport", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: vi.fn(), removeItem: vi.fn() });
+    delete window.sparkclawDesktop;
+  });
+  afterEach(() => { delete window.sparkclawDesktop; vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+  it("accepts a public ISCP identity roundtrip beyond five seconds using the native thirty-second budget", async () => {
+    vi.useFakeTimers();
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation(milliseconds => {
+      const controller = new AbortController(); setTimeout(() => controller.abort(), milliseconds); return controller.signal;
+    });
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", backend: { transport: "iscp" } })) } as unknown as NonNullable<typeof window.sparkclawDesktop>;
+    const identity = { deployment_id: "deployment", owner_id: "owner", client_id: "client" };
+    const fetch = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((resolve, reject) => {
+      const timer = setTimeout(() => resolve(new Response(JSON.stringify(identity))), 6000);
+      init.signal?.addEventListener("abort", () => { clearTimeout(timer); reject(new Error("identity deadline")); }, { once: true });
+    }));
+    vi.stubGlobal("fetch", fetch);
+    const pending = api.workbenchIdentity();
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(await pending).toEqual(identity); expect(timeout).toHaveBeenCalledExactlyOnceWith(30000); expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it.each(["LAN", "browser", "unavailable native status"])("preserves the five-second %s identity deadline", async kind => {
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(new AbortController().signal);
+    if (kind !== "browser") window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: kind === "LAN" ? vi.fn(async () => ({ schema_version: 1, state: "connected", backend: { transport: "lan" } })) : vi.fn(async () => { throw new Error("native status unavailable"); }) } as unknown as NonNullable<typeof window.sparkclawDesktop>;
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ deployment_id: "deployment", owner_id: "owner", client_id: "client" })));
+    vi.stubGlobal("fetch", fetch);
+    await api.workbenchIdentity(); expect(timeout).toHaveBeenCalledExactlyOnceWith(5000); expect(fetch).toHaveBeenCalledOnce();
+  });
+});
+
 describe("messageStreamRequestBody", () => {
   it("reads completed requests for conversation activity through the existing read-only list", async () => {
     vi.stubGlobal("localStorage", { getItem: () => null });

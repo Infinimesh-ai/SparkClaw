@@ -411,7 +411,10 @@ export async function openEmailFile(mailId: string, partId = "", name = "origina
 export const api = {
   ready: () => request<ReadyStatus>("/readyz"),
   workbenchIdentity: async () => {
-    const identity = await request<{ deployment_id: string; owner_id: string; client_id: string }>("/api/workbench/identity", { signal: AbortSignal.timeout(5000) });
+    const desktop = desktopCapability();
+    const connection = desktop?.localConnection ? await desktop.localConnection().catch(() => undefined) : undefined;
+    const timeout = connection?.backend?.transport === "iscp" ? 30000 : 5000;
+    const identity = await request<{ deployment_id: string; owner_id: string; client_id: string }>("/api/workbench/identity", { signal: AbortSignal.timeout(timeout) });
     bindAPITokenToDeployment(identity.deployment_id);
     return identity;
   },

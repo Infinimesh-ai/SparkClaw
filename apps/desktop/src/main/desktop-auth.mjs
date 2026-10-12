@@ -13,6 +13,8 @@ import { ISCP_LAUNCH_PROFILE_NAME, persistNodeISCPLaunchProfile } from "./iscp-l
 import { LANMailClient } from "./lan-mail-client.mjs";
 import { ISCPTransport, ISCP_OPERATIONS, ISCP_BODY_BYTES, ISCPRequestNotSentError, mapISCPRequest } from "./iscp-transport.mjs";
 
+const ISCP_STARTUP_READS = new Set(["/api/config", "/readyz", "/api/owner", "/api/notifications", "/api/clients"]);
+
 export class DesktopAuth {
   constructor({ readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification = false, requireLAN = false, fetcher, iscpProfilePath, allowLocalISCPTest = false, allowNodeManagedISCP = false, nodeEnroller = enrollNodeISCP, launchSelectionPath, userDataDirectory, selectionWriter = persistNodeISCPLaunchProfile, packaged = false, resourcesPath, transportFactory = (options) => new ISCPTransport(options), onChange = () => {}, onLock = () => {} }) {
     Object.assign(this, { readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification, requireLAN, fetcher, iscpProfilePath, allowLocalISCPTest, allowNodeManagedISCP, nodeEnroller, launchSelectionPath, userDataDirectory, selectionWriter, packaged, resourcesPath, transportFactory, onChange, onLock });
@@ -380,6 +382,8 @@ export class DesktopAuth {
     const mailReconcile = (init.method || "GET").toUpperCase() === "POST" && /^\/api\/email\/drafts\/[^/]+\/reconcile$/u.test(url.pathname) && !url.search;
     const mailLogin = (init.method || "GET").toUpperCase() === "POST" && /^\/api\/email\/providers\/(outlook|qq_mail|gmail)\/(check|login-browser)$/u.test(url.pathname) && !url.search;
     const method = (init.method || 'GET').toUpperCase();
+    const startupRead = this.descriptor.transport === "iscp" && method === "GET" && ISCP_STARTUP_READS.has(url.pathname) && !url.search && !url.hash && init.body == null;
+    const transport = this.transport;
     const mailPopup = !url.search && (method === 'POST' && ['/api/email/replies/polish','/api/email/source/cleanup'].includes(url.pathname) || method === 'DELETE' && /^\/api\/email\/conversations\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u.test(url.pathname) || method === 'PATCH' && /^\/api\/email\/providers\/(outlook|qq_mail|gmail)$/u.test(url.pathname));
     const requestTimeout = mailMutation || mailReconcile || mailLogin || mailPopup ? 180000 : 30000;
     const controller = new AbortController();
@@ -406,7 +410,8 @@ export class DesktopAuth {
           return pinned(nextTarget, { ...nextOptions, headers: trusted, redirect: "manual", signal });
         });
       }
-      const response = await fetcher(raw, { ...init, headers, redirect: "manual", signal });
+      const fetchOptions = { ...init, headers, redirect: "manual", signal };
+      const response = startupRead ? await this.#startupRead(fetcher, raw, fetchOptions, generation, transport) : await fetcher(raw, fetchOptions);
       if (generation !== this.generation) { controller.abort(); return new Response(null, { status: 401 }); }
       if (response.status === 401 || (this.descriptor.transport === "iscp" && !this.transport?.capabilities && response.status === 403)) {
         if (this.descriptor.transport === "iscp") {
@@ -448,6 +453,23 @@ export class DesktopAuth {
       }
       if (error instanceof ISCPRequestNotSentError) throw error;
       throw new Error("Backend request is unavailable");
+    }
+  }
+
+  async #startupRead(fetcher, raw, init, generation, transport) {
+    let delay = 25;
+    while (true) {
+      if (generation !== this.generation || transport !== this.transport || this.status.state !== "connected" || !this.connection) throw new ISCPRequestNotSentError("ISCP authentication changed", "canceled");
+      if (init.signal.aborted) throw new ISCPRequestNotSentError("ISCP startup read was canceled", "canceled");
+      try { return await fetcher(raw, init); }
+      catch (error) {
+        // Only local pre-write admission proves the request did not reach the
+        // helper. Sent failures, remote errors and all mutations keep their
+        // original behavior; every wait shares the caller's total deadline.
+        if (!(error instanceof ISCPRequestNotSentError) || error.reason !== "capacity") throw error;
+        await waitForStartupAdmission(init.signal, delay);
+        delay = Math.min(250, delay * 2);
+      }
     }
   }
 
@@ -670,6 +692,15 @@ export class DesktopAuth {
     this.onChange(this.status);
     return this.status;
   }
+}
+
+function waitForStartupAdmission(signal, delay) {
+  return new Promise((resolve, reject) => {
+    const cancel = () => { clearTimeout(timer); signal.removeEventListener("abort", cancel); reject(new ISCPRequestNotSentError("ISCP startup read was canceled", "canceled")); };
+    const timer = setTimeout(() => { signal.removeEventListener("abort", cancel); resolve(); }, delay);
+    signal.addEventListener("abort", cancel, { once: true });
+    if (signal.aborted) cancel();
+  });
 }
 
 async function boundedJSON(response, limit) {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -309,7 +310,7 @@ func (c *RelayClient) runSocketOnce(ctx context.Context, handle func(context.Con
 
 func (c *RelayClient) ensureAccess(ctx context.Context) error {
 	bundle := c.Enrollment()
-	if time.Until(bundle.Access.ExpiresAt) > time.Minute && !c.localEnrollmentRefreshDue(bundle) {
+	if time.Until(bundle.Access.ExpiresAt) > time.Minute && !c.localEnrollmentRefreshDue(bundle) && !c.hasNodeRefreshPending() {
 		return nil
 	}
 	return c.refresh(ctx)
@@ -318,7 +319,7 @@ func (c *RelayClient) ensureAccess(ctx context.Context) error {
 func (c *RelayClient) refresh(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if time.Until(c.enrollment.Access.ExpiresAt) > time.Minute && !c.localEnrollmentRefreshDue(c.enrollment) {
+	if time.Until(c.enrollment.Access.ExpiresAt) > time.Minute && !c.localEnrollmentRefreshDue(c.enrollment) && !c.hasNodeRefreshPending() {
 		return nil
 	}
 	// Local enrollment validity comes from signed discovery and rotating Relay
@@ -331,6 +332,9 @@ func (c *RelayClient) refresh(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if discovery.Metadata["sparkclaw_refresh_receipts"] != "v1" {
+			return errors.New("Relay has not declared transactional node refresh receipts")
+		}
 		localExpiry = discovery.ExpiresAt
 	} else if c.credentialOnly && c.profile == ProfileLocalLab {
 		if !time.Now().Before(c.enrollment.Refresh.ExpiresAt) {
@@ -342,29 +346,34 @@ func (c *RelayClient) refresh(ctx context.Context) error {
 		}
 		localExpiry = discovery.ExpiresAt
 	}
-	body, _ := json.Marshal(map[string]string{"refresh": c.enrollment.Refresh.Token})
-	endpoint := strings.TrimRight(c.enrollment.RelayBaseURL, "/") + relayRefreshPath
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return errors.New("create Relay credential refresh request")
-	}
-	request.Header.Set("Content-Type", "application/json")
-	response, err := c.client.Do(request)
-	if err != nil {
-		return fmt.Errorf("refresh Relay credential: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, relayMaxBody))
-		return &relayHTTPError{status: response.StatusCode}
-	}
-	var credentials struct {
-		Access  RelayCredential `json:"access"`
-		Refresh RelayCredential `json:"refresh"`
-	}
-	decoder := json.NewDecoder(io.LimitReader(response.Body, relayMaxBody))
-	if err := decoder.Decode(&credentials); err != nil {
-		return errors.New("decode Relay credential refresh response")
+	var credentials rotatedRelayCredentials
+	if c.enrollment.Mode == BundleModeWorkbenchNodeManaged {
+		var err error
+		credentials, err = c.refreshNodeCredentials(ctx)
+		if err != nil {
+			return err
+		}
+	} else {
+		body, _ := json.Marshal(map[string]string{"refresh": c.enrollment.Refresh.Token})
+		endpoint := strings.TrimRight(c.enrollment.RelayBaseURL, "/") + relayRefreshPath
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+		if err != nil {
+			return errors.New("create Relay credential refresh request")
+		}
+		request.Header.Set("Content-Type", "application/json")
+		response, err := c.client.Do(request)
+		if err != nil {
+			return fmt.Errorf("refresh Relay credential: %w", err)
+		}
+		defer response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, relayMaxBody))
+			return &relayHTTPError{status: response.StatusCode}
+		}
+		decoder := json.NewDecoder(io.LimitReader(response.Body, relayMaxBody))
+		if err := decoder.Decode(&credentials); err != nil {
+			return errors.New("decode Relay credential refresh response")
+		}
 	}
 	if credentials.Access.DomainID != c.enrollment.DomainID || credentials.Access.DeviceID != c.enrollment.DeviceID ||
 		credentials.Refresh.DomainID != c.enrollment.DomainID || credentials.Refresh.DeviceID != c.enrollment.DeviceID {
@@ -390,6 +399,11 @@ func (c *RelayClient) refresh(ctx context.Context) error {
 		return fmt.Errorf("persist rotated Relay credentials: %w", err)
 	}
 	c.enrollment = updated
+	if updated.Mode == BundleModeWorkbenchNodeManaged {
+		if err := os.Remove(c.nodeRefreshPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return errors.New("cleanup retained Relay refresh")
+		}
+	}
 	return nil
 }
 

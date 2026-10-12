@@ -146,7 +146,7 @@ func newEndpoint(cfg Config, m material, relay RelayTransport, handler Handler, 
 			client.RequireStandingAuthorization()
 		}
 	}
-	if cfg.Role == RoleResponder && cfg.EffectiveRelayProfile() == iscpbridge.ProfileLocalLab {
+	if cfg.Role == RoleResponder && (cfg.EffectiveRelayProfile() == iscpbridge.ProfileLocalLab || cfg.Mode == "node-managed") {
 		// The isolated reference queue outlives a Gateway process. A Hello
 		// predating this responder cannot recover keys from its old process;
 		// let the desktop's bounded retry initiate a fresh session instead.

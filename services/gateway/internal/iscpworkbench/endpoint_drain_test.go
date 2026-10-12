@@ -3,6 +3,7 @@ package iscpworkbench
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -26,6 +27,11 @@ import (
 // the next authenticated poll. This fixture models that exact lifecycle while
 // verifying SDK connection and access PoP, without claiming to be the service.
 func TestReferenceDrainPollingRetainsEncryptedSession(t *testing.T) {
+	for _, profile := range []string{iscpbridge.ProfileLocalLab, iscpbridge.ProfileProduction} {
+		t.Run(profile, func(t *testing.T) { testReferenceDrainPolling(t, profile) })
+	}
+}
+func testReferenceDrainPolling(t *testing.T, profile string) {
 	desktop, backend := testMaterials(t)
 	provider := iscpcrypto.NewProvider()
 	signer, err := identity.NewDevice(provider, desktop.enrollment.DomainID, "relay-test-signer", time.Now().UTC())
@@ -36,7 +42,11 @@ func TestReferenceDrainPollingRetainsEncryptedSession(t *testing.T) {
 	var queueMu sync.Mutex
 	queues := map[string][]json.RawMessage{}
 	var polls, proofs, posts atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	newServer := httptest.NewServer
+	if profile == iscpbridge.ProfileProduction {
+		newServer = httptest.NewTLSServer
+	}
+	server := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v2/relay/connect":
 			connection, err := new(websocket.Upgrader).Upgrade(w, r, nil)
@@ -105,8 +115,17 @@ func TestReferenceDrainPollingRetainsEncryptedSession(t *testing.T) {
 		}
 	}))
 	defer server.Close()
+	invitation, err := identity.NewDevice(provider, desktop.enrollment.DomainID, "node-invitation", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
 	prepare := func(m material) material {
 		m.enrollment.Mode = iscpbridge.BundleModeWorkbenchLocalLab
+		if profile == iscpbridge.ProfileProduction {
+			m.enrollment.Mode = iscpbridge.BundleModeWorkbenchNodeManaged
+			m.enrollment.InvitationSignerIdentity = &invitation.Identity
+			m.enrollment.TLSCertificatePEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}))
+		}
 		m.enrollment.TrustRootIdentity = identity.DeviceIdentity{}
 		m.enrollment.RelaySignerIdentity = &signer.Identity
 		m.enrollment.RelayBaseURL = server.URL
@@ -174,11 +193,11 @@ func TestReferenceDrainPollingRetainsEncryptedSession(t *testing.T) {
 	appendOldEncrypted(oldDesktopState, RequestType, Request{Type: RequestType, Profile: Profile, ID: newUUID(), Operation: OperationIdentity})
 	appendOldEncrypted(oldBackendState, pingType, map[string]string{"nonce": newUUID()})
 	appendOldEncrypted(oldBackendState, ResponseType, Response{Type: ResponseType, Profile: Profile, ID: newUUID(), Status: 200})
-	clientRelay, err := iscpbridge.NewRelayCredentialClient(iscpbridge.ProfileLocalLab, filepath.Join(t.TempDir(), "desktop-enrollment.json"), desktop.enrollment, desktop.device, time.Second)
+	clientRelay, err := iscpbridge.NewRelayCredentialClient(profile, filepath.Join(t.TempDir(), "desktop-enrollment.json"), desktop.enrollment, desktop.device, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	serverRelay, err := iscpbridge.NewRelayCredentialClient(iscpbridge.ProfileLocalLab, filepath.Join(t.TempDir(), "backend-enrollment.json"), backend.enrollment, backend.device, time.Second)
+	serverRelay, err := iscpbridge.NewRelayCredentialClient(profile, filepath.Join(t.TempDir(), "backend-enrollment.json"), backend.enrollment, backend.device, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,12 +211,12 @@ func TestReferenceDrainPollingRetainsEncryptedSession(t *testing.T) {
 			disconnected.Add(1)
 		}
 	}
-	client, err := newEndpoint(Config{Role: RoleInitiator, RelayProfile: iscpbridge.ProfileLocalLab}, desktop, clientRelay, nil, state)
+	client, err := newEndpoint(Config{Role: RoleInitiator, RelayProfile: profile}, desktop, clientRelay, nil, state)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var handlerCalls atomic.Int32
-	responder, err := newEndpoint(Config{Role: RoleResponder, RelayProfile: iscpbridge.ProfileLocalLab}, backend, serverRelay, func(context.Context, Request) Response {
+	responder, err := newEndpoint(Config{Role: RoleResponder, RelayProfile: profile, Mode: "node-managed"}, backend, serverRelay, func(context.Context, Request) Response {
 		handlerCalls.Add(1)
 		return Response{Status: 200, Body: json.RawMessage(`{"retained":true}`)}
 	}, state)

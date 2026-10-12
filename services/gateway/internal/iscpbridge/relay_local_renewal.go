@@ -10,7 +10,7 @@ import (
 )
 
 func (c *RelayClient) localEnrollmentRefreshDue(bundle EnrollmentBundle) bool {
-	return c.credentialOnly && c.profile == ProfileLocalLab && time.Until(bundle.ExpiresAt) <= time.Minute
+	return c.credentialOnly && (c.profile == ProfileLocalLab || bundle.Mode == BundleModeWorkbenchNodeManaged) && time.Until(bundle.ExpiresAt) <= time.Minute
 }
 
 // RefreshLocalRelayEnrollment repairs an expired local discovery envelope only

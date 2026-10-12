@@ -44,17 +44,19 @@ type nodePeer struct {
 	done     chan struct{}
 }
 type NodeResponder struct {
-	config   Config
-	material material
-	relay    RelayTransport
-	factory  NodeHandlerFactory
-	validate NodePeerValidator
-	onState  func(string)
-	mu       sync.Mutex
-	peers    map[string]*nodePeer
-	slots    chan struct{}
-	closed   bool
-	cancel   context.CancelFunc
+	syncMu          sync.Mutex
+	config          Config
+	material        material
+	relay           RelayTransport
+	factory         NodeHandlerFactory
+	validate        NodePeerValidator
+	onState         func(string)
+	verifyDiscovery func(context.Context) error
+	mu              sync.Mutex
+	peers           map[string]*nodePeer
+	slots           chan struct{}
+	closed          bool
+	cancel          context.CancelFunc
 }
 
 // submitOnlyTransport starts an Endpoint's session monitor but cannot drain
@@ -93,6 +95,9 @@ func newNodeResponder(cfg Config, m material, relay RelayTransport, factory Node
 		return nil, errors.New("node responder requires explicit authority, registry and live Client validation")
 	}
 	n := &NodeResponder{config: cfg, material: m, relay: relay, factory: factory, validate: validate, onState: onState, peers: map[string]*nodePeer{}, slots: make(chan struct{}, 64)}
+	n.verifyDiscovery = func(ctx context.Context) error {
+		return iscpbridge.VerifyWorkbenchRelayDiscovery(ctx, cfg.EffectiveRelayProfile(), m.enrollment)
+	}
 	if _, err := n.registry(); err != nil {
 		return nil, err
 	}
@@ -166,6 +171,8 @@ func (n *NodeResponder) policy(ctx context.Context, id string, e *Endpoint) (isc
 	return iscpauth.Policy{Version: 2, Lifetime: iscpauth.UntilRevoked, Revision: p.AuthorizationRevision, State: iscpauth.Active, Scopes: slices.Clone(p.Scopes)}, nil
 }
 func (n *NodeResponder) syncPeers(ctx context.Context) error {
+	n.syncMu.Lock()
+	defer n.syncMu.Unlock()
 	r, err := n.registry()
 	if err != nil {
 		n.resetAll()
@@ -279,13 +286,9 @@ func (n *NodeResponder) receive(ctx context.Context, raw json.RawMessage) error 
 		}
 		return nil
 	}
-	if err := p.endpoint.receive(ctx, raw); err != nil {
-		p.endpoint.mu.Lock()
-		p.endpoint.resetLocked()
-		p.endpoint.mu.Unlock()
-	}
-	// A malformed peer envelope cannot close the shared queue or another
-	// device's encrypted session. The offending session is discarded.
+	_ = p.endpoint.receive(ctx, raw)
+	// An unauthenticated header may name another peer. Rejected signatures,
+	// routes or ciphertext cannot cancel that peer's valid encrypted session.
 	return nil
 }
 func (n *NodeResponder) Run(ctx context.Context) error {
@@ -320,7 +323,11 @@ func (n *NodeResponder) Run(ctx context.Context) error {
 	defer func() { cancel(); <-done }()
 	backoff := time.Second
 	for ctx.Err() == nil {
-		if err := iscpbridge.VerifyWorkbenchRelayDiscovery(ctx, n.config.EffectiveRelayProfile(), n.material.enrollment); err == nil {
+		var err error
+		if n.verifyDiscovery != nil {
+			err = n.verifyDiscovery(ctx)
+		}
+		if err == nil {
 			if n.onState != nil {
 				n.onState("connecting")
 			}

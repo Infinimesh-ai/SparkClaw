@@ -38,7 +38,7 @@ func (i *Issuer) ManagementHandler(token string) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
 		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if len(token) < 32 || len(got) != len(token) || subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") || len(token) < 32 || len(got) != len(token) || subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
 			w.WriteHeader(401)
 			return
 		}

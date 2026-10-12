@@ -78,6 +78,12 @@ func (cl *Client) lifecycle(ctx context.Context, kind, operation string, revisio
 		if out.Version != 1 || out.OperationID != p.Request.OperationID || out.InvitationID != cl.cfg.InvitationID || iscpnodeissuer.Digest(out.Identity) != iscpnodeissuer.Digest(cl.device.Identity) || iscpnodeissuer.Digest(out.Scopes) != iscpnodeissuer.Digest(cl.cfg.Scopes) || iscpnodeissuer.VerifyObject("sparkclaw.iscp.lifecycle-result.v1", out, cl.cfg.IssuerIdentity, out.Signature) != nil {
 			return zero, iscpnodeissuer.ErrDenied
 		}
+		if out.State != "active" && out.State != "revoked" {
+			return zero, iscpnodeissuer.ErrDenied
+		}
+		if out.State == "revoked" && out.Revision <= cl.cfg.Revision {
+			return zero, iscpnodeissuer.ErrDenied
+		}
 		if out.State == "active" && out.Revision != cl.cfg.Revision {
 			return zero, iscpnodeissuer.ErrDenied
 		}

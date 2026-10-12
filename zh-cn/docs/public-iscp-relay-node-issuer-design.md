@@ -287,7 +287,7 @@ work2 签发操作/回执使用 PostgreSQL 持久存储，数据库账号/schema
 清除。
 
 使用独立稳定的邀请和 Grant/bundle 签名密钥，明确公有用途与验证配置；两者
-均不是 Relay descriptor signer 或客户端密钥。私有应用运行时建议采用
+均不是 Relay descriptor signer 或客户端密钥。已实现的私有应用运行时采用
 schema 2、`mode=node-managed`、显式 issuer/控制路由、TLS 信任及多 peer
 注册表引用。旧 local-test schema 继续沿原校验路径读取；这是应用配置版本，
 不重新命名 ISCP wire 对象或自动迁移信任。
@@ -324,7 +324,7 @@ work2 基于该回执幂等提交 Client/授权状态，全部必要记录一致
 
 ### 6.5 多 SparkX peer 与 Relay 接收行为
 
-当前 Endpoint 固定一个 peer 和会话。work2 增加 responder 注册表与分流器，
+节点管理的 responder 在原单 peer Endpoint 外增加注册表与分流器，
 保持稳定 responder 身份，以及统一协调的 Relay 凭据/接收所有者。按设备、
 密钥指纹、授权修订和 session ID，将已验证信封分流至隔离 peer/session
 状态。从服务端注册表解析 Owner/Client，不采信消息正文的归属声明。Grant、
@@ -338,8 +338,8 @@ session 数、队列与设备任务；一台设备过期/撤销不重置其他�
 issuer 和 cloud root 的规则不能照搬，也不能简单删掉。
 
 固定参考 Relay 在 `ready` 后 drain 当前队列、发送 `drained` 并关闭 WSS；
-现有重复 drain 适配只用于 local-lab。须在公网模式验证正常 drained 完成，
-不在每次轮询后丢弃仍健康的上层加密会话。异常丢失、身份变化与握手失败继续
+节点管理的 production 适配器已接受正常 drained 完成，不在每次轮询后
+丢弃仍健康的上层加密会话；它与保持原状的 local-lab 路径分别验证。异常丢失、身份变化与握手失败继续
 遵循协议恢复要求。保留标准 WSS 帧和 production PoP。盘点共享 IP 限额，
 计入 responder/控制/客户端流量，以两台活跃客户端验证有界轮询、退避与部署
 容量，不切换 local-lab 或用不同源 IP 掩盖限流故障。

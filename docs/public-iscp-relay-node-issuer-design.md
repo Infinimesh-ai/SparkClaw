@@ -347,7 +347,7 @@ unresolved operations and revocation tombstones cannot be purged by TTL alone.
 
 Use separate stable invitation and Grant/bundle signing keys, with explicit
 public purpose and verifier configuration; neither is a Relay descriptor signer
-or a client key. Propose private application runtime schema 2 with
+or a client key. The implemented private application runtime uses schema 2 with
 `mode=node-managed`, an explicit issuer/control route, TLS trust and multi-peer
 registry reference. Keep legacy local-test schemas readable through their existing
 validation path. This is an application configuration version, not a renamed ISCP
@@ -396,8 +396,8 @@ commit is reconciled before revocation or retry, preserving previous valid peers
 
 ### 6.5 Multiple SparkX peers and Relay receive behavior
 
-The current Endpoint stores one pinned peer and one session. Add a responder
-registry and dispatcher on work2, with one stable responder identity and one
+The node-managed responder surrounds the existing one-peer Endpoint with a
+registry and dispatcher on work2. It uses one stable responder identity and one
 coordinated Relay credential/receive owner. Route verified envelopes to isolated
 peer/session state keyed by device, key thumbprint, authorization revision and
 session ID. Resolve Owner/Client from the server registry, never message body
@@ -414,9 +414,9 @@ authority and workbench Grant signer by purpose; the old rule separating the
 test issuer from a cloud root must not be blindly copied or simply removed.
 
 The pinned reference Relay sends `ready`, drains the current queue, sends
-`drained`, then closes WSS. The current repeated-drain adapter is limited to the
-local-lab profile. Qualify normal drained completion in public mode without
-discarding a healthy higher-level encrypted session on every poll. Unexpected
+`drained`, then closes WSS. The node-managed production adapter also accepts normal drained completion
+without discarding a healthy higher-level encrypted session on every poll.
+This is qualified separately from the unchanged local-lab profile. Unexpected
 loss, identity change and failed handshake retain their protocol recovery rules.
 Preserve standard WSS frames and production PoP. Inventory shared IP limits,
 account for responder/control/client traffic and qualify bounded polling/backoff

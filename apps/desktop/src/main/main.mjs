@@ -27,6 +27,7 @@ import { adapterSecretPath, adapterSocketPath } from "../browser/protocol.mjs";
 import { BrowserPresentation } from "./presentation.mjs";
 import { DesktopCapability, isDesktopSessionAuthorized } from "./desktop-capability.mjs";
 import { DesktopAuth, authorizeWorkbenchSender } from "./desktop-auth.mjs";
+import { traceISCPRead } from "./iscp-read-diagnostics.mjs";
 import { SecureCredentialStore } from "./secure-credential-store.mjs";
 import { OwnerBrowserServices } from "./owner-browser-services.mjs";
 import { linuxLoginStartup } from "./login-startup.mjs";
@@ -601,11 +602,11 @@ function workbenchProtocolHandler(root, auth) {
         const state = auth.status.state;
         if (state === "identity_conflict") return new Response("Backend identity conflict", { status: 409 });
         if (["invalid_authentication", "locked", "secure_storage_unavailable"].includes(state)) return new Response("Desktop authentication is locked", { status: 401 });
-        if (state !== "connected") return new Response("Backend is unavailable", { status: 503 });
+        if (state !== "connected") { traceISCPRead({ phase: "proxy-gate", path: new URL(proxy).pathname, auth, callerSignal: request.signal, responseStatus: 503 }); return new Response("Backend is unavailable", { status: 503 }); }
         // Desktop conversations stay in the local Store; proxy only supported services.
         if (!qualification && !proxyAPIAllowed(new URL(proxy).pathname)) return new Response("Service is unavailable in this workbench", { status: 501 });
         try { return await proxyWorkbenchRequest(auth, request, proxy); }
-        catch { return new Response("Backend is unavailable", { status: 503 }); }
+        catch (error) { traceISCPRead({ phase: "proxy-error", path: new URL(proxy).pathname, auth, error, callerSignal: request.signal, responseStatus: 503 }); return new Response("Backend is unavailable", { status: 503 }); }
       }
       const pathname = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
       const filename = path.resolve(root, `.${pathname}`);

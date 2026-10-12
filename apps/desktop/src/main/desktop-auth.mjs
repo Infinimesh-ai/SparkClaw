@@ -12,6 +12,7 @@ import { enrollNodeISCP, hasPendingNodeEnrollment } from "./iscp-node-enrollment
 import { ISCP_LAUNCH_PROFILE_NAME, persistNodeISCPLaunchProfile } from "./iscp-launch-profile.mjs";
 import { LANMailClient } from "./lan-mail-client.mjs";
 import { ISCPTransport, ISCP_OPERATIONS, ISCP_BODY_BYTES, ISCPRequestNotSentError, mapISCPRequest } from "./iscp-transport.mjs";
+import { traceISCPRead } from "./iscp-read-diagnostics.mjs";
 
 const ISCP_STARTUP_READS = new Set(["/api/config", "/readyz", "/api/owner", "/api/notifications", "/api/clients", "/api/workbench/identity", "/api/email/sync-status"]);
 
@@ -390,8 +391,13 @@ export class DesktopAuth {
     this.requests.add(controller);
     const headers = new Headers(init.headers);
     if (this.descriptor.transport !== "iscp") headers.set("authorization", this.connection.authorization);
+    let signal, deadlineSignal;
+    const startedMS = process.env.SPARKCLAW_PRIVATE_ISCP_READ_DIAGNOSTICS === "1" ? Date.now() : undefined;
+    const diagnostic = (phase, error, responseStatus) => { if (startupRead) traceISCPRead({ phase, path: url.pathname, auth: this, error, generation, transport, signal, callerSignal: init.signal, deadlineSignal, controllerSignal: controller.signal, responseStatus, startedMS }); };
     try {
-      const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(requestTimeout), ...(init.signal ? [init.signal] : [])]);
+      deadlineSignal = AbortSignal.timeout(requestTimeout);
+      signal = AbortSignal.any([controller.signal, deadlineSignal, ...(init.signal ? [init.signal] : [])]);
+      diagnostic("request");
       let fetcher = this.#fetch();
       if (this.descriptor.schemaVersion === 2 && this.installationID && url.pathname.startsWith("/api/email/")) {
         const scope = { deployment_id: this.connection.deploymentID, owner_id: this.connection.ownerID, client_id: this.connection.clientID, installation_id: this.installationID };
@@ -412,6 +418,7 @@ export class DesktopAuth {
       }
       const fetchOptions = { ...init, headers, redirect: "manual", signal };
       const response = startupRead ? await this.#startupRead(fetcher, raw, fetchOptions, generation, transport) : await fetcher(raw, fetchOptions);
+      diagnostic("response", undefined, response.status);
       if (generation !== this.generation) { controller.abort(); return new Response(null, { status: 401 }); }
       if (response.status === 401 || (this.descriptor.transport === "iscp" && !this.transport?.capabilities && response.status === 403)) {
         if (this.descriptor.transport === "iscp") {
@@ -443,6 +450,7 @@ export class DesktopAuth {
       });
       return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
     } catch (error) {
+      diagnostic("failure", error);
       this.requests.delete(controller);
       // Leaving a view cancels its safe read, including an already-dispatched
       // mail-status poll. That is not a transport failure or NotSent proof.

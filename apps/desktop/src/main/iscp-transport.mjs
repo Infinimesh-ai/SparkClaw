@@ -330,7 +330,7 @@ export class ISCPTransport {
       const cancel=()=>finish(reject,new Error("ISCP request was canceled"));
       const timeoutMS = ["mail.drafts.save", "mail.drafts.send", "mail.drafts.reconcile", "mail.providers.check", "mail.providers.login", "mail.intake.update", "mail.replies.polish", "mail.source.cleanup", "mail.conversations.delete"].includes(request.operation) && this.timeoutMS === 30000 ? 180000 : this.timeoutMS;
       const timer=setTimeout(()=>finish(reject,new Error("ISCP request deadline exceeded")),mailRead ? Math.max(1, readDeadline - Date.now()) : timeoutMS);
-      this.pending.set(id,{request,capacityClass,mailRead,resolve:(value)=>finish(resolve,value),reject:(error)=>finish(reject,error)});
+      this.pending.set(id,{request,capacityClass,mailRead,...(process.env.SPARKCLAW_PRIVATE_ISCP_READ_DIAGNOSTICS === '1' ? { diagnosticStartedMS: Date.now() } : {}),resolve:(value)=>finish(resolve,value),reject:(error)=>finish(reject,error)});
       signal?.addEventListener("abort",cancel,{once:true});
       try {const {body,...wireRequest}=request;this.child.stdin.write(`${JSON.stringify({ipc_version:1,type:"call",id,request:wireRequest,...(rawBody!==undefined?{body_base64:Buffer.from(rawBody,"utf8").toString("base64")}: {})})}\n`);}
       catch {this.#fail("disconnected");}

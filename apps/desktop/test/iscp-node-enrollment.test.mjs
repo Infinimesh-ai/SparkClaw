@@ -14,6 +14,7 @@ import { ISCP_CONNECTION_PREFIX, parseISCPConnectionCredential } from "../src/ma
 import { enrollNodeISCP } from "../src/main/iscp-node-enrollment.mjs";
 import { loadISCPProfile } from "../src/main/iscp-profile.mjs";
 import { resolveISCPLaunchProfile } from "../src/main/iscp-launch-profile.mjs";
+import { SecureCredentialStore } from "../src/main/secure-credential-store.mjs";
 
 const installationID = "12345678-1234-4123-8123-123456789abc";
 let certificate;
@@ -181,4 +182,81 @@ test("original device-copy adapter preserves the issuer credential and rejects f
   await assert.rejects(f.auth.connectionCredential("ordinary-bearer-" + "x".repeat(32)), /invalid/);
   assert.equal(f.auth.status.state, "connected");
   await f.auth.logout(); await assert.rejects(f.auth.connectionCredential(f.encode(next)), /Reconnect/);
+});
+
+function nativeVault(directory) {
+  const key = crypto.randomBytes(32);
+  const safeStorage = { isEncryptionAvailable: () => true, getSelectedStorageBackend: () => "gnome_libsecret",
+    encryptString(value) { const iv = crypto.randomBytes(12), cipher = crypto.createCipheriv("aes-256-gcm", key, iv); const bytes = Buffer.concat([cipher.update(value), cipher.final()]); return Buffer.concat([iv, cipher.getAuthTag(), bytes]); },
+    decryptString(value) { const cipher = crypto.createDecipheriv("aes-256-gcm", key, value.subarray(0, 12)); cipher.setAuthTag(value.subarray(12, 28)); return Buffer.concat([cipher.update(value.subarray(28)), cipher.final()]).toString("utf8"); } };
+  return new SecureCredentialStore({ directory, safeStorage, platform: "linux" });
+}
+
+test("encrypted per-profile staging leaves the previous vault intact across failed selection, restart and node signout", async t => {
+  const f = await fixture(t), vault = nativeVault(path.join(f.directory, "authentication"));
+  await fs.rm(f.filename);
+  await vault.save(f.oldRecord);
+  const previousBytes = await fs.readFile(vault.filename);
+  f.auth.vault = vault; f.auth.defaultVault = vault;
+  const writer = f.auth.selectionWriter;
+  f.auth.selectionWriter = () => { throw new Error("crash between staged vault and selection"); };
+  await assert.rejects(f.auth.enroll(f.credential), /retained/);
+  assert.deepEqual(await fs.readFile(vault.filename), previousBytes); assert.deepEqual(await vault.load(), f.oldRecord);
+  assert.equal(resolveISCPLaunchProfile({ defaultUserData: f.directory, env: {} }).source, "default");
+  f.auth.selectionWriter = writer;
+  assert.equal((await f.auth.enroll(f.credential)).state, "connected");
+  const selectedVault = f.auth.vault;
+  assert.notEqual(selectedVault.filename, vault.filename);
+  assert.deepEqual(await fs.readFile(vault.filename), previousBytes);
+  assert.ok(!(await fs.readFile(selectedVault.filename)).includes(Buffer.from("node-managed")));
+  const selected = resolveISCPLaunchProfile({ defaultUserData: f.directory, env: {} });
+  const restarted = new DesktopAuth({ ...f.options, vault, iscpProfilePath: selected.iscpProfilePath, allowNodeManagedISCP: true });
+  t.after(() => restarted.close());
+  assert.equal((await restarted.initialize()).state, "connected"); assert.equal(restarted.vault.filename, selectedVault.filename);
+  await restarted.logout();
+  assert.equal(await selectedVault.load(), undefined); assert.deepEqual(await fs.readFile(vault.filename), previousBytes);
+  assert.deepEqual(await vault.load(), f.oldRecord);
+});
+
+test("node profiles require explicit production selection and keep legacy revocation tombstones separate", async t => {
+  const f = await fixture(t); await f.auth.enroll(f.credential);
+  const profile = f.auth.iscpProfilePath;
+  assert.equal((await new DesktopAuth({ ...f.options, iscpProfilePath: profile, allowLocalISCPTest: true }).initialize()).state, "incomplete_setup");
+  await fs.writeFile(path.join(f.directory, "authorization-deletion.json"), JSON.stringify({ schema_version: 1, profile: "/old/local-test.json", state: "revoked", binding: "old" }), { mode: 0o600 });
+  const restarted = new DesktopAuth({ ...f.options, iscpProfilePath: profile, allowNodeManagedISCP: true }); t.after(() => restarted.close());
+  assert.equal((await restarted.initialize()).state, "connected");
+  restarted.transport.control = async (_type, operation, expected) => ({ operation_id: operation, expected_revision: expected, authorization_revision: expected + 1, state: "revoked", deleted_at: new Date().toISOString() });
+  assert.equal((await restarted.deleteAuthorization()).state, "invalid_authentication");
+  assert.equal(JSON.parse(await fs.readFile(path.join(f.directory, "authorization-deletion.json"), "utf8")).profile, "/old/local-test.json");
+  const files = (await fs.readdir(f.directory)).filter(name => /^authorization-deletion\.[a-f0-9]{64}\.json$/u.test(name));
+  assert.equal(files.length, 1); assert.equal(JSON.parse(await fs.readFile(path.join(f.directory, files[0]), "utf8")).state, "revoked");
+  const revoked = new DesktopAuth({ ...f.options, iscpProfilePath: profile, allowNodeManagedISCP: true }); t.after(() => revoked.close());
+  assert.equal((await revoked.initialize()).state, "invalid_authentication");
+});
+
+test("native helper deadlines and caller cancellation terminate pending enrollment with bounded secret-free errors", async t => {
+  const f = await fixture(t);
+  for (const action of ["timeout", "abort"]) {
+    const controller = new AbortController(); let killed = false;
+    const spawnProcess = () => {
+      const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.stdin = new PassThrough(); child.exitCode = null;
+      child.kill = () => { killed = true; child.exitCode = 1; child.emit("close", 1); };
+      if (action === "abort") queueMicrotask(() => controller.abort());
+      return child;
+    };
+    await assert.rejects(enrollNodeISCP({ credential: f.credential, directory: path.join(f.directory, "pending-" + action), installationID, signal: controller.signal, spawnProcess, timeoutMS: 10 }), /reconciliation|canceled/);
+    assert.equal(killed, true);
+  }
+});
+
+test("expired invitations reject fresh enrollment and permit only the original private pending device operation to reach the helper", async t => {
+  const f = await fixture(t), expired = f.encode({ ...f.payload, issued_at: new Date(Date.now() - 60000).toISOString(), expires_at: new Date(Date.now() - 1000).toISOString() });
+  await assert.rejects(f.auth.enroll(expired), /expired/); assert.equal(f.calls.length, 0);
+  const directory = path.join(f.directory, "iscp-enrollment", crypto.createHash("sha256").update(expired).digest("hex")), identityDirectory = path.join(directory, "identity");
+  await fs.mkdir(identityDirectory, { recursive: true, mode: 0o700 });
+  const bindingFile = path.join(directory, "enrollment.binding.json"), identityFile = path.join(identityDirectory, "device.identity.json");
+  await fs.writeFile(bindingFile, JSON.stringify({ credential_digest: crypto.randomBytes(32).toString("base64url"), installation_id: installationID, key_backend: "keyring", keyring_service: `ai.infinimesh.sparkx.iscp.${installationID}` }), { mode: 0o600 });
+  await fs.writeFile(identityFile, JSON.stringify(identity("desktop")), { mode: 0o600 });
+  await fs.chmod(identityFile, 0o644); await assert.rejects(f.auth.enroll(expired), /expired/); await fs.chmod(identityFile, 0o600);
+  assert.equal((await f.auth.enroll(expired)).state, "connected"); assert.equal(f.calls.length, 1); assert.equal(f.calls[0].credential, expired);
 });

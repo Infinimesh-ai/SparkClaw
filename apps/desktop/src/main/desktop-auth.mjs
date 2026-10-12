@@ -8,7 +8,7 @@ import { createConnectionCredential, parseConnectionCredential } from "./connect
 import { isISCPCapabilityReportCurrent, projectISCPCapabilities } from "./iscp-capabilities.mjs";
 import { loadISCPProfile } from "./iscp-profile.mjs";
 import { ISCP_CONNECTION_PREFIX, parseISCPConnectionCredential } from "./iscp-connection-credential.mjs";
-import { enrollNodeISCP } from "./iscp-node-enrollment.mjs";
+import { enrollNodeISCP, hasPendingNodeEnrollment } from "./iscp-node-enrollment.mjs";
 import { ISCP_LAUNCH_PROFILE_NAME, persistNodeISCPLaunchProfile } from "./iscp-launch-profile.mjs";
 import { LANMailClient } from "./lan-mail-client.mjs";
 import { ISCPTransport, ISCP_OPERATIONS, ISCP_BODY_BYTES, ISCPRequestNotSentError, mapISCPRequest } from "./iscp-transport.mjs";
@@ -17,6 +17,7 @@ export class DesktopAuth {
   constructor({ readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification = false, requireLAN = false, fetcher, iscpProfilePath, allowLocalISCPTest = false, allowNodeManagedISCP = false, nodeEnroller = enrollNodeISCP, launchSelectionPath, userDataDirectory, selectionWriter = persistNodeISCPLaunchProfile, packaged = false, resourcesPath, transportFactory = (options) => new ISCPTransport(options), onChange = () => {}, onLock = () => {} }) {
     Object.assign(this, { readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification, requireLAN, fetcher, iscpProfilePath, allowLocalISCPTest, allowNodeManagedISCP, nodeEnroller, launchSelectionPath, userDataDirectory, selectionWriter, packaged, resourcesPath, transportFactory, onChange, onLock });
     this.requests = new Set();
+    this.defaultVault = vault;
     this.generation = 0;
     this.vaultOperations = Promise.resolve();
     this.status = Object.freeze({ schema_version: 1, state: "incomplete_setup" });
@@ -70,7 +71,7 @@ export class DesktopAuth {
       } finally { await fs.rm(temporary, { force: true }); }
     });
     if (generation !== this.generation) return this.status;
-    if (nodeSelected) { this.iscpProfilePath = undefined; this.allowNodeManagedISCP = false; }
+    if (nodeSelected) { this.iscpProfilePath = undefined; this.allowNodeManagedISCP = false; this.vault = this.defaultVault; }
     this.descriptor = descriptor;
     return this.#set(this.vault.available() ? "locked" : "secure_storage_unavailable");
   }
@@ -104,7 +105,7 @@ export class DesktopAuth {
 
   async enroll(value) {
     if (typeof value === "string" && value.startsWith(ISCP_CONNECTION_PREFIX)) {
-      const parsed = parseISCPConnectionCredential(value);
+      const parsed = parseISCPConnectionCredential(value, { allowExpired: true });
       if (this.qualification || this.enrollmentPending) throw new Error("ISCP enrollment is unavailable or already in progress");
       if (this.deletionIntent?.state === "pending") throw new Error("Reconcile the pending authorization deletion before enrolling another connection");
       const pending = this.#enrollNode(value, parsed.payload);
@@ -120,6 +121,8 @@ export class DesktopAuth {
     if (!this.vault.available()) throw new Error("Secure credential storage is unavailable; the existing connection is retained");
     const generation = this.generation, controller = new AbortController();
     const directory = path.join(path.dirname(this.descriptorPath), "iscp-enrollment", crypto.createHash("sha256").update(value).digest("hex"));
+    if (Date.parse(invitation.expires_at) <= Date.now() && !await hasPendingNodeEnrollment(directory, this.installationID, invitation.domain_id)) throw new Error("ISCP connection credential is expired");
+    if (generation !== this.generation) throw new Error("ISCP enrollment was canceled");
     this.requests.add(controller);
     let candidateTransport, committed = false, activatedGeneration;
     try {
@@ -137,6 +140,7 @@ export class DesktopAuth {
       const record = { schema_version: 2, transport: "iscp", mode: "node-managed", testMode: false, configPath: profile.configPath,
         origin: descriptor.origin, deploymentID: descriptor.deploymentID, ownerID: descriptor.ownerID, clientID: descriptor.clientID,
         binding: descriptorBinding(descriptor), identityVerified: true };
+      const candidateVault = this.defaultVault.forISCPProfile?.(record.binding) || this.vault;
       const identity = await this.#identity(record, descriptor, candidateTransport);
       if (identity.state !== "connected" || !candidateTransport.capabilities) throw new Error("Enrollment identity unavailable");
       const report = await candidateTransport.invoke("capabilities.get");
@@ -144,14 +148,16 @@ export class DesktopAuth {
       if (generation !== this.generation || controller.signal.aborted) throw new Error("Canceled enrollment");
       await this.#vault(async () => {
         if (generation !== this.generation || controller.signal.aborted) throw new Error("Canceled enrollment");
-        const previous = await this.vault.load();
+        const previous = await candidateVault.load();
         try {
-          await this.vault.save(record);
+          await candidateVault.save(record);
           if (generation !== this.generation || controller.signal.aborted) throw new Error("Canceled enrollment");
           this.selectionWriter({ filename: this.launchSelectionPath || path.join(path.dirname(this.descriptorPath), ISCP_LAUNCH_PROFILE_NAME),
             profilePath: profile.configPath, userDataDirectory: this.userDataDirectory || path.dirname(this.descriptorPath) });
         } catch (error) {
-          if (previous) await this.vault.save(previous); else await this.vault.clear();
+          if (candidateVault === this.vault) {
+            if (previous) await candidateVault.save(previous); else await candidateVault.clear();
+          }
           throw error;
         }
         clearTimeout(this.capabilityTimer); clearTimeout(this.capabilityExpiryTimer); clearTimeout(this.reconnectTimer);
@@ -159,7 +165,7 @@ export class DesktopAuth {
         activatedGeneration = ++this.generation;
         for (const request of this.requests) request.abort(); this.requests.clear();
         this.transport?.close();
-        this.descriptor = descriptor; this.connection = Object.freeze(record); this.transport = candidateTransport;
+        this.descriptor = descriptor; this.connection = Object.freeze(record); this.transport = candidateTransport; this.vault = candidateVault;
         this.iscpProfilePath = profile.configPath; this.allowNodeManagedISCP = true; this.allowLocalISCPTest = false;
         this.deletionIntent = undefined; this.authorizationRevoked = false; this.suspended = false;
         this.capabilityReport = report; this.transportStage = "transport_ready"; this.reconnectAttempt = 0;
@@ -449,6 +455,7 @@ export class DesktopAuth {
     try { profile = await loadISCPProfile(this.iscpProfilePath); } catch { return this.#set("incomplete_setup"); }
     if (profile.descriptor.mode === "node-managed" ? !this.allowNodeManagedISCP : !this.allowLocalISCPTest) return this.#set("incomplete_setup");
     this.descriptor = profile.descriptor;
+    if (this.descriptor.mode === "node-managed") this.vault = this.defaultVault.forISCPProfile?.(descriptorBinding(this.descriptor)) || this.vault;
     try {
       const filename=this.#deletionFilename();
       const info=await fs.lstat(filename);if(!info.isFile()||info.isSymbolicLink()||(info.mode&0o077)||info.size>8192)throw new Error("Authorization deletion record is unsafe");

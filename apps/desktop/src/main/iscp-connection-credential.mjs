@@ -8,7 +8,7 @@ const FIELDS = ["schema_version", "type", "origin", "tls_certificate_pem", "doma
 
 // This preflight protects main's storage/pipe boundary. The helper independently
 // verifies the signed credential, role/scope policy and the sealed enrollment.
-export function parseISCPConnectionCredential(value, { now = Date.now() } = {}) {
+export function parseISCPConnectionCredential(value, { now = Date.now(), allowExpired = false } = {}) {
   try {
     if (typeof value !== "string" || value !== value.trim() || !value.startsWith(ISCP_CONNECTION_PREFIX) ||
         Buffer.byteLength(value) > Math.ceil(ISCP_CONNECTION_BYTES * 4 / 3) + ISCP_CONNECTION_PREFIX.length) throw new Error();
@@ -27,7 +27,7 @@ export function parseISCPConnectionCredential(value, { now = Date.now() } = {}) 
     exactKeys(payload.signature, ["alg", "kid", "value"]); base64url(payload.signature.value, 64);
     base64url(payload.bootstrap_secret, 32);
     const issued = timestamp(payload.issued_at), expires = timestamp(payload.expires_at);
-    if (issued > now + 60000 || expires <= now || expires <= issued || expires - issued > 30 * 60000) throw new Error();
+    if (issued > now + 60000 || !allowExpired && expires <= now || expires <= issued || expires - issued > 30 * 60000) throw new Error();
     if (!Array.isArray(payload.scopes) || !payload.scopes.length || payload.scopes.length > 32 || new Set(payload.scopes).size !== payload.scopes.length) throw new Error();
     for (const scope of payload.scopes) if (typeof scope !== "string" || !/^[a-z][a-z0-9_.:-]{0,127}$/u.test(scope)) throw new Error();
     if (typeof payload.tls_certificate_pem !== "string" || Buffer.byteLength(payload.tls_certificate_pem) > 16384 ||

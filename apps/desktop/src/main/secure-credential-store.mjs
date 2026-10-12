@@ -5,12 +5,17 @@ import crypto from "node:crypto";
 // Electron safeStorage delegates encryption to Keychain on macOS. Linux's
 // basic_text backend is deliberately unavailable for this credential vault.
 export class SecureCredentialStore {
-  constructor({ directory, safeStorage, platform = process.platform, uid = process.getuid?.() }) {
+  constructor({ directory, safeStorage, platform = process.platform, uid = process.getuid?.(), profileBinding }) {
     this.directory = directory;
-    this.filename = path.join(directory, "credential.bin");
+    if (profileBinding !== undefined && !/^[a-f0-9]{64}$/u.test(profileBinding)) throw new Error("Credential profile binding is invalid");
+    this.filename = path.join(directory, profileBinding ? `iscp-${profileBinding}.bin` : "credential.bin");
     this.safeStorage = safeStorage;
     this.platform = platform;
     this.uid = uid;
+  }
+
+  forISCPProfile(profileBinding) {
+    return new SecureCredentialStore({ directory: this.directory, safeStorage: this.safeStorage, platform: this.platform, uid: this.uid, profileBinding });
   }
 
   available() {

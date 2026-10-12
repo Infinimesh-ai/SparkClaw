@@ -7,8 +7,9 @@ import { parseISCPConnectionCredential } from "./iscp-connection-credential.mjs"
 import { parseStrictJSON } from "./strict-json.mjs";
 
 export async function enrollNodeISCP({ credential, directory, installationID, signal, packaged, resourcesPath, spawnProcess = spawn, timeoutMS = 120000 }) {
-  parseISCPConnectionCredential(credential);
+  const { payload } = parseISCPConnectionCredential(credential, { allowExpired: true });
   if (!path.isAbsolute(directory || "") || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(installationID || "")) throw new Error("ISCP enrollment storage identity is invalid");
+  if (Date.parse(payload.expires_at) <= Date.now() && !await hasPendingNodeEnrollment(directory, installationID, payload.domain_id)) throw new Error("ISCP connection credential is expired");
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
   const info = await fs.lstat(directory);
   if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o777) !== 0o700 || await fs.realpath(directory) !== directory ||
@@ -55,4 +56,26 @@ export async function enrollNodeISCP({ credential, directory, installationID, si
       child.stdin.end(`${credential}\n`);
     } catch { finish(new Error("ISCP enrollment helper is unavailable")); }
   });
+}
+
+// Expired authority can reconcile a previously device-bound local operation.
+// This is a storage admission check; the helper still verifies the signed input,
+// exact pending binding and possession of the same native key with the issuer.
+export async function hasPendingNodeEnrollment(directory, installationID, domainID) {
+  try {
+    const identityDirectory = path.join(directory, "identity");
+    for (const parent of [directory, identityDirectory]) {
+      const info = await fs.lstat(parent);
+      if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o777) !== 0o700 || await fs.realpath(parent) !== parent || process.getuid && info.uid !== process.getuid()) return false;
+    }
+    const values = [];
+    for (const filename of [path.join(directory, "enrollment.binding.json"), path.join(identityDirectory, "device.identity.json")]) {
+      const info = await fs.lstat(filename);
+      if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o777) !== 0o600 || info.size > 8192 || process.getuid && info.uid !== process.getuid()) return false;
+      values.push(parseStrictJSON(await fs.readFile(filename, "utf8")));
+    }
+    const [binding, identity] = values;
+    return binding.installation_id === installationID && binding.key_backend === "keyring" && binding.keyring_service === `ai.infinimesh.sparkx.iscp.${installationID}` &&
+      typeof binding.credential_digest === "string" && /^[A-Za-z0-9_-]{43}$/u.test(binding.credential_digest) && identity.type === "iscp.device.identity.v2" && identity.domain_id === domainID;
+  } catch { return false; }
 }

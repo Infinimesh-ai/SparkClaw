@@ -212,29 +212,45 @@ export class DesktopAuth {
     return value;
   }
 
-  async retry() {
-    if (this.descriptor?.transport === "iscp" && this.authorizationRevoked) return this.#set("invalid_authentication");
-    if (!this.connection) return this.#set(this.descriptor ? "locked" : "incomplete_setup");
+  retry() {
+    if (this.descriptor?.transport === "iscp" && this.authorizationRevoked) return Promise.resolve(this.#set("invalid_authentication"));
+    if (!this.connection) return Promise.resolve(this.#set(this.descriptor ? "locked" : "incomplete_setup"));
+    const generation = this.generation, transport = this.transport;
+    if (this.retryFlight?.generation === generation && this.retryFlight.transport === transport) return this.retryFlight.promise;
+    const flight = { generation, transport };
+    this.retryFlight = flight;
+    this.needsIdentity = false;
+    // Publish the flight before any synchronous transport/status callback can
+    // request verification again. Ready, timers and explicit retry share it.
+    flight.promise = Promise.resolve().then(() => this.#retry(generation, transport)).finally(() => {
+      if (this.retryFlight === flight) this.retryFlight = undefined;
+    });
+    return flight.promise;
+  }
+
+  async #retry(generation, transport) {
+    const descriptor = this.descriptor;
+    const current = () => generation === this.generation && transport === this.transport && descriptor === this.descriptor && this.connection;
+    if (!current()) return this.status;
     this.suspended = false;
     clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined;
-    const generation = this.generation;
     this.#set("reconnecting");
-    const result = await this.#identity(this.connection);
-    if (generation !== this.generation) return this.status;
-    if (this.descriptor.transport === "iscp") {
+    const result = await this.#identity(this.connection, descriptor, transport);
+    if (!current()) return this.status;
+    if (descriptor.transport === "iscp") {
       if (result.state === "connected") {
         if (this.transport.capabilities) {
           const refreshed = await this.#readCapabilityReport(generation);
-          if (!refreshed.current) return this.status;
+          if (!refreshed.current || !current()) return this.status;
           if (refreshed.error) this.capabilityReport = undefined;
           this.#scheduleCapabilityRefresh();
         }
         this.reconnectAttempt = 0;
         if (!this.connection.identityVerified) {
           const verified = Object.freeze({ ...this.connection, identityVerified: true });
-          try { await this.#vault(() => generation === this.generation ? this.vault.save(verified) : undefined); }
-          catch { return generation === this.generation ? this.#set("secure_storage_unavailable") : this.status; }
-          if (generation !== this.generation) return this.status;
+          try { await this.#vault(() => current() ? this.vault.save(verified) : undefined); }
+          catch { return current() ? this.#set("secure_storage_unavailable") : this.status; }
+          if (!current()) return this.status;
           this.connection = verified;
         }
       }
@@ -508,7 +524,8 @@ export class DesktopAuth {
           }
           if (state === "transport_ready" && this.needsIdentity && this.connection && !this.suspended && !this.authorizationRevoked) {
             this.needsIdentity = false;
-            queueMicrotask(() => { if (this.connection && !this.suspended) void this.retry(); });
+            const generation = this.generation;
+            queueMicrotask(() => { if (generation === this.generation && this.transport === transport && this.connection && !this.suspended && !this.authorizationRevoked) void this.retry(); });
           }
           if (["disconnected", "authorization_expired", "authorization_revoked", "identity_conflict"].includes(state) && this.connection && !this.suspended) {
             ++this.generation;
@@ -593,10 +610,11 @@ export class DesktopAuth {
 
   async #identity(candidate, descriptor = this.descriptor, transport = this.transport) {
     try {
+      const timeoutMS = descriptor.transport === "iscp" ? (transport.timeoutMS || 30000) : 5000;
       if (descriptor.transport === "iscp") await transport.start();
       const response = await this.#fetch(descriptor, transport)(`${candidate.origin}/api/workbench/identity`, {
         headers: { ...(candidate.authorization ? { Authorization: candidate.authorization } : {}), Accept: "application/json" },
-        redirect: "manual", signal: AbortSignal.timeout(5000),
+        redirect: "manual", signal: AbortSignal.timeout(timeoutMS),
       });
       if (response.status === 401 || response.status === 403) return { state: "invalid_authentication" };
       if (response.status >= 300 && response.status < 400) return { state: "identity_conflict" };
@@ -624,7 +642,7 @@ export class DesktopAuth {
         const binding = await this.#fetch(descriptor, transport)(`${candidate.origin}/api/v1/installations`, {
           method: "POST", headers: { ...(candidate.authorization ? { Authorization: candidate.authorization } : {}), "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify({ schema_version: 1, installation_id: this.installationID }),
-          redirect: "manual", signal: AbortSignal.timeout(5000),
+          redirect: "manual", signal: AbortSignal.timeout(timeoutMS),
         });
         if (binding.status === 401 || binding.status === 403) return { state: "invalid_authentication" };
         if (binding.status === 409 || (binding.status >= 300 && binding.status < 400)) return { state: "identity_conflict" };

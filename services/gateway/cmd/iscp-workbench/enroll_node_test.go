@@ -44,7 +44,7 @@ func (m *helperManagement) CreateClient(_ context.Context, _ string, key string)
 	m.mu.Unlock()
 	return id, nil
 }
-func (m *helperManagement) RevokeClient(_ context.Context, id string) error {
+func (m *helperManagement) RevokeManagedClient(_ context.Context, id string) error {
 	m.mu.Lock()
 	m.active[id] = false
 	m.mu.Unlock()

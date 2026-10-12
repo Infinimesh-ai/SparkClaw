@@ -2,12 +2,13 @@
 
 > 语言：简体中文 | [English](../../docs/public-iscp-relay-node-issuer-design.md)
 >
-> 日期：2026-10-12。状态：待实施设计；主机分工与用户连接流程已由用户确认。
-> TEST1 Relay 部署已有记录；PVE 公网转发、work2 签发服务与 SparkX 凭据接入尚待实施。
-> 已确认修订：只使用公网 IP，以 TEST1 HTTPS/WSS 作为唯一新增公网应用入口；
-> 不使用域名，不新增 work2 端口开放。
-> 执行负责人：本会话 Codex。当前阶段完善方案；代码实现、服务器部署和
-> 原生 SparkX 切换在后续实施阶段完成。
+> 日期：2026-10-12。状态：正在实施和发布。TEST1 公网 IP HTTPS/WSS、work2
+> 私有签发服务及实际 responder/控制 peer 已部署；公网注册、刷新、恢复、撤销
+> 已有证据；修复后的隔离原生重启也通过，既有安装迁移与剩余双设备业务/UI
+> 门禁继续验证。
+> TEST1 是唯一新增公网应用入口；不使用域名，不新增 work2 开放端口。
+> 执行负责人：本会话 Codex。当前服务端源码为 `3a9c2535`；后续桌面重试修复
+> 单独记录于[执行记录](public-iscp-node-deployment.md)。
 
 ## 1. 目标与范围
 
@@ -17,7 +18,7 @@
 专用测试协议。
 
 SparkX 负责呈现与桌面本地数据；work2 负责业务执行、Owner/Client 授权与签发；
-TEST1 保存自身 Relay 权限并转发加密信封。拟增的独立 TEST1 控制转发组件将
+TEST1 保存自身 Relay 权限并转发加密信封。独立 TEST1 控制转发组件
 加密接入及生命周期交换路由至 work2，不持有 work2 Grant 签名私钥或
 SparkX 到 SparkClaw 的业务会话密钥。PVE 负责入口路由和虚拟机隔离。
 [架构](architecture.md)、[现有 ISCP 联调](desktop-iscp-connection-design.md)与
@@ -49,9 +50,9 @@ work2 的第三个守护进程。
 
 注册 SparkClaw 不会同时注册 SparkX，也不把 SparkClaw 的 token 交给它。
 两端分别完成接入、密钥持有证明和 Relay 凭据获取；SparkX 还需访问选定
-SparkClaw responder 的业务 Grant。目前没有实际 work2 responder 在 TEST1
-注册完成的合格记录；已部署 Relay 的验证设备是后续已撤销的合成设备。发布
-证据持续区分这些状态。
+SparkClaw responder 的业务 Grant。实际 work2 responder 与两端控制 peer 现已
+登记，分别持有自己的凭据；独立验证设备 A、B 已经由公网入口访问真实 work2
+后端，A 随后主动撤销，B 继续可用。原生重启和既有安装迁移仍需单独验收。
 
 ## 2. 主机与管理边界
 
@@ -62,7 +63,7 @@ Git、脚本、命令参数或验收材料。
 | 主机 | 身份 | 地址与访问方式 | 职责 |
 |---|---|---|---|
 | PVE | 管理员 `root@pam`；realm 为 `pam` / Linux PAM standard authentication | [管理入口](https://210.16.177.239:8006) | VM 管理、实际公网边缘转发及相关防火墙规则 |
-| TEST1 | VMID `100`；虚拟机账号 `ubuntu` | `10.20.0.20`；`ssh -p 22020 ubuntu@210.16.177.239` | 公共 Relay、TLS 入口、Relay PostgreSQL 与 signer，以及拟增的独立控制转发组件 |
+| TEST1 | VMID `100`；虚拟机账号 `ubuntu` | `10.20.0.20`；`ssh -p 22020 ubuntu@210.16.177.239` | 公共 Relay、TLS 入口、Relay PostgreSQL 与 signer，以及独立控制转发组件 |
 | work2 | VMID `104`；虚拟机账号 `ubuntu` | `10.20.0.23`；`ssh -p 22023 ubuntu@210.16.177.239` | 现有 SparkClaw 后端及其签发、接入授权服务 |
 | SparkX | 独立桌面设备与安装身份 | TEST1 的 IP HTTPS/WSS 入口，以及连接凭据携带的签发身份 | 本机生成私钥、接入、传输、本地持久化与原工作台界面 |
 
@@ -77,7 +78,7 @@ flowchart LR
     X["SparkX"] -->|"仅 IP HTTPS / WSS"| P["PVE / 实际公网边缘<br/>210.16.177.239"]
     P -->|"TCP 443 -> 10.20.0.20:443"| E["TEST1 TLS 入口"]
     E --> R["标准 ISCP Relay"]
-    E --> C["拟增接入 / 控制转发组件"]
+    E --> C["接入 / 控制转发组件"]
     C <-->|"经授权 ISCP 会话<br/>传输不透明控制交换"| R
     W["work2 出站签发代理"] -->|"主动连接 TEST1 HTTPS / WSS"| R
     W --> I["work2 私有签发服务"]
@@ -88,7 +89,7 @@ flowchart LR
 唯一新增公网应用映射指向 TEST1。work2 的两个代理主动连接同一公网入口；
 签发服务通过加密控制转发抵达，不向客户端提供 work2 监听入口。
 
-| 公网或虚拟机端口 | 建议目标 | 开放范围与用途 |
+| 公网或虚拟机端口 | 已部署目标 | 开放范围与用途 |
 |---|---|---|
 | 公网 TCP `443` | TEST1 `10.20.0.20:443` | Relay HTTPS/WSS；先检查是否已有映射或监听占用 |
 | 公网 TCP `8006` | 原 PVE 管理服务 | 保留管理访问，不承载应用业务 |
@@ -153,7 +154,7 @@ Owner 凭据分发替换信任材料，并明确身份连续性。不得关闭 T
 | TEST1 传输 | 标准信封提交、WSS、访问凭据刷新和撤销，保留各自认证要求 |
 | TEST1 注册 | 标准 actor 授权 bootstrap，或正确配置的签名票据接入；不增加测试绕过 |
 | TEST1 管理 | `/v2/relay/admin/*` 与 metrics 保持私有 |
-| TEST1 接入/控制入口 | 拟增版本化 SparkClaw 应用转发接口，将已证明、有界的操作路由至选定 work2 签发服务，不提供签发服务直连 URL |
+| TEST1 接入/控制入口 | 版本化 SparkClaw 应用转发接口，将已证明、有界的操作路由至选定 work2 签发服务，不提供签发服务直连 URL |
 | work2 Grant 生命周期 | 通过已认证出站代理到达私有签发/授权逻辑；结果保留固定 work2 签发身份的签名 |
 | work2 管理 | 既有 Owner/admin 接口或本机管理；不新增凭据创建、权限、密钥及审计公网入口 |
 
@@ -193,11 +194,11 @@ work2 签发代理以操作员批准的身份登记，经既有 Relay HTTPS 提�
 授权，再允许桌面兑换。此过程不能依赖尚未兑换的 SparkX 凭据或 SparkX
 直连 work2。
 
-转发组件只在 TEST1 HTTPS 接受版本化、白名单应用控制请求。建议路径为
+转发组件只在 TEST1 HTTPS 接受版本化、白名单应用控制请求。已实现的应用路径为
 `POST /api/sparkclaw/iscp-control/v1/exchange`；版本化封装携带 issuer/deployment
 路由、稳定 operation ID、步骤、设备公有身份/证明及不透明配发/生命周期帧。
-实施前在应用契约中冻结字段类型、错误码、重放规则及密码 transcript 绑定。
-这是 SparkClaw 接口草案，不是 ISCP 标准路径。不将 `/v2/relay/connect` 改为任意
+修改前以已实现的应用契约/测试固定字段类型、错误码、重放规则及密码 transcript
+绑定。这是版本化 SparkClaw 接口，不是 ISCP 标准路径。不将 `/v2/relay/connect` 改为任意
 WebSocket RPC，也不修改标准信封/证明流程。选定签发身份只能解析为操作员
 批准的节点路由。每次操作绑定 issuer、deployment、输入摘要、设备及期限，
 限制未完成请求数并执行限流；不接受调用方指定上游 URL，也不提供通用 TCP/
@@ -214,8 +215,8 @@ HTTP 隧道。
 语义通过一致性验证后才可开放；不支持的能力保持缺省。应用控制转发不声明
 为新增 Relay wire 能力。
 
-这条桥接是待实现内容，参考 Relay 与当前 TEST1 二进制尚不具备。它是标准
-Relay 旁的应用/平台适配器，普通 ISCP 客户端仍使用原有标准接口。
+已部署桥接是 Relay 旁的独立应用/平台适配器。上游参考 Relay 本身不提供
+远端签发转发；普通 ISCP 客户端保留原标准 wire 入口及认证。
 
 ### 6.2 签发与 actor 授权
 
@@ -266,11 +267,11 @@ token。常规客户端接入使用配置的邀请 signer 及签名票据路径�
 仓库；TEST1 控制/注册持久化适配器及必要参考服务 patch 版本化、另行打包，
 记录固定上游修订、patch 摘要和可复现构建清单。上游 ISCP wire schema 固定。
 
-建议 work2 unit 为 `sparkclaw-iscp-issuer.service`，使用非特权账号；私有状态
-放在 `/var/lib/sparkclaw-iscp-issuer`，root 管理配置放在
-`/etc/sparkclaw-iscp-issuer`。经 Unix socket 调用既有 Gateway 的受限管理
-适配器，签发进程不监听虚拟机网络。分配账号/路径前盘点真实运行环境，保留
-已有部署。
+work2 实际 unit 为 `iscp-node-issuer.service`，二进制位于
+`/opt/sparkclaw-iscp/bin/iscp-node-issuer`，私有状态根目录为
+`/home/ubuntu/.local/share/sparkclaw/public-iscp-node`。它调用原 Gateway 的
+受限 Unix 管理适配器，自有管理 socket 为 `issuer-socket/issuer.sock`，不监听
+虚拟机网络。精确配置、注册表和配对回滚路径见执行记录。
 
 work2 签发操作/回执使用 PostgreSQL 持久存储，数据库账号/schema 仅拥有必要
 权限。业务 Client 与授权记录通过既有 Gateway store 接口访问；扩展接口时
@@ -309,14 +310,16 @@ Access/Refresh 哈希、预备签名 Grant 引用和密封签发回执，不沿�
 修改权限。
 
 work2 基于该回执幂等提交 Client/授权状态，全部必要记录一致后，才发布一份
-签名加密 bundle。Client 尚处于预备状态时，Gateway 拒绝业务访问。Relay
+签名加密 bundle。新 ISCP peer 在核验后的持久注册表/Grant 激活前没有业务
+准入。既有 Client/LAN 授权仍由原 Gateway 管理；私有数据保留迁移仅为获准
+操作复用该精确 Client。Relay
 提交后 work2 崩溃，恢复原操作，不重复消费邀请。精确认证的私有状态/回执
 操作只返回绑定 work2 wrap 公钥的原密封回执；标准未授权请求或重放注册证明
 仍被拒绝，不将重放证明变成未保护的明文 token 查询。
 
-这需要实现协作式 prepare/commit 适配器，不表示当前参考 Relay 已具备托管
-配发原子性。须按 provisioning 规范验证完整事务与客户端原子完成语义，才
-能将接入模式称为生产可用。失败清理只影响该操作预备分配；未知提交先对账，
+已部署协作 prepare/commit 适配器实现此事务，不表示未修改的上游参考 Relay
+具有相同原子性。隔离并发/重启/负例及实际公网接入证据与剩余原生客户端
+完成门禁分别记录。失败清理只影响该操作预备分配；未知提交先对账，
 再决定撤销或重试，保留已有有效 peer。
 
 ### 6.5 多 SparkX peer 与 Relay 接收行为
@@ -417,9 +420,9 @@ operation ID、分阶段记录与对账，向客户端提供原子完成语义�
 保留已有页面、菜单及组件；不可用操作保留入口并逐项禁用，不增加常驻技术
 状态面板。正常续签和恢复保持安静，仅在需要用户处理时反馈。
 
-### 7.1 待实现的凭据与控制契约
+### 7.1 已实现的凭据与控制契约
 
-使用独立应用前缀，建议为 `sparkclaw-iscp-connect-v1.`，采用规范 base64url
+已实现的独立应用前缀为 `sparkclaw-iscp-connect-v1.`，采用规范 base64url
 编码、严格版本 schema 及 48 KiB 解码上限。字段包括：schema 版本、TEST1
 HTTPS 入口、公有 TLS 信任、domain/Relay ID 及 signer pin、issuer 身份、
 逻辑签发路由、responder 公有身份、deployment/Owner/Client 或预留绑定、
@@ -444,8 +447,10 @@ deployment 与期限；双向验证区分角色的 finished 证明后才 ready�
 
 ### 7.2 操作状态与本机存储激活
 
-建议协调状态为 `issued -> channel_ready -> device_bound -> grant_prepared ->
-relay_committed -> client_committed -> bundle_ready -> applied`。过期/撤销/失败
+协调器持久记录邀请、设备、通道绑定、预备 Grant/回执及 bundle 就绪。续签和
+恢复结果只有在客户端先完成本机持久保存，再收到签名确认后才进入 `applied`。
+这些是语义阶段，具体可执行状态名和字段由 `internal/iscpnodeissuer` 定义，
+本文不另设一份 schema。过期/撤销/失败
 状态阻止新副作用；未知提交进入对账状态。发布下一状态前，持久化每个转换、
 原始输入与回执。以 compare-and-swap 将一份邀请预留给一个设备密钥，其他
 设备并发兑换冲突。
@@ -480,8 +485,8 @@ relay_committed -> client_committed -> bundle_ready -> applied`。过期/撤销/
 
 ### 8.1 过期政策与冷启动恢复
 
-首轮建议默认值：邀请有效 15 分钟、单次使用；工作台 Grant 有效 30 分钟，
-最后 5 分钟内续签；长期授权为 `until_revoked`。已观察 Relay 的 Access 为
+当前发布默认值：邀请有效 15 分钟、单次使用；工作台 Grant 有效 900 秒，
+在签发方已验证的续签窗口内刷新；长期授权为 `until_revoked`。已观察 Relay 的 Access 为
 15 分钟、Refresh 为 24 小时。传输期限独立管理并读取实际签发元数据，不将
 长期授权转为永久 token。
 
@@ -506,36 +511,34 @@ relay_committed -> client_committed -> bundle_ready -> applied`。过期/撤销/
 接受预登记服务 peer，不新增接入；此平台恢复链路与标准设备生命周期端点
 分别验收。设备密钥丢失或授权撤销必须重新明确授权。
 
-常规 refresh 按设备串行轮换，持久保存后使用。当前 Relay 先撤销 Refresh，
-再独立写入后继凭据；事务轮换和丢响应恢复是待实施工作，原重启检查不能
-保证它们。验收并发刷新、提交前后崩溃、旧 token 拒绝及同一轮换链的安全
-恢复，不在未知操作 ID 下修改证明或 wrap 密钥。
+常规 refresh 按设备串行轮换，在同一 Relay 事务提交后继凭据和密封回执，
+持久保存后使用；已实现适配器补齐原参考服务顺序写入的缺口。公网设备 A
+已实际轮换两类凭据，旧 Refresh 返回 401；隔离测试覆盖并发、丢响应和重启。
+未知操作保持原证明、wrap 密钥及输入。原生重启和配对服务重启的验收单独记录，
+不能由这些测试推定完成。
 
-## 9. 当前实现缺口
+## 9. 已部署状态与剩余验收
 
-| 部分 | 已记录或当前源码状态 | 待实施与门禁 |
+| 部分 | 已实现或部署的证据 | 剩余门禁或边界 |
 |---|---|---|
-| TEST1 Relay | 2026-10-12 回执：production、TLS 代理、PostgreSQL 18、持久 signer、加密 WSS 与重启检查通过；两个合成设备已撤销 | PVE 公网转发及真实外部客户端验收 |
-| TEST1 TLS | IP 自签证书，目前使用操作员显式信任的测试路径 | 经验证的客户端信任接入与 IP 证书续期 |
-| 实际 SparkClaw 注册 | TEST1 没有实际 work2 接入的合格记录；临时验证设备已撤销 | bootstrap/固定稳定 responder 与控制 peer，保留各自凭据回执 |
-| 票据接入 | 部署入口未配置 `TicketIssuer`，参考使用次数在内存 | 验签与持久消费完成前保持拒绝；操作员 bootstrap 是独立模式 |
-| work2 签发 | 原测试签发服务是固定设备对的 local-test 实现；TEST1 未部署签发服务 | work2 节点管理的多设备签发协调器与受控生命周期部署 |
-| 单入口转发 | 参考及当前部署 Relay 没有远端 work2 签发桥接 | 独立 TEST1 控制组件与已认证 work2 出站代理，不增加 work2 入站映射 |
-| Provisioning 通道 | 固定 SDK 示例在本机构造两端临时密钥 | 真正分布式握手、transcript 确认，经 TEST1 返回加密且设备绑定的配发结果 |
-| Relay 原子性/恢复 | 参考票据消费在内存；注册/refresh 顺序写入；可选恢复尚无 | 协作 prepare/commit 记录、事务消费/凭据轮换，以及密封认证回执恢复 |
-| 多设备 responder | 当前 Endpoint 固定一个 peer、Grant 与 session | 持久设备注册表、隔离 peer/session 分流，统一 responder 传输所有权 |
-| 公网 WSS 轮询 | 参考 WSS drain 后关闭；重复 drain 适配目前仅用于 local-lab | production 接收生命周期及汇总容量验收 |
-| SparkX 凭据输入 | [当前解析器](../../apps/desktop/src/main/connection-credential.mjs)仅处理 HTTPS 后端凭据，ISCP 依赖私有 launch profile | 版本化 ISCP 凭据和原连接组件的 main/helper 适配 |
-| Helper 身份材料 | [当前配置](../../services/gateway/internal/iscpworkbench/config.go)要求 `local-test`，并区分生产接入授权方和独立测试 Grant issuer | 明确公网接入及信任用途支持，保留校验与安全密钥存储，不重新贴标签使用旧 lab JSON |
-| 接入恢复 | 原 Client 签发回执只在进程内保留；启动 enrollment 恢复专用于 local-lab | 持久化跨重启兑换/结果恢复及经验证的公网凭据刷新/恢复 |
-| LAN | 现有适配器与菜单可用 | 本项目不增加 work2 LAN 连接或物理 LAN 验收 |
+| 公网入口 | PVE `pve-iscp-443.service` 仅新增 TCP 443 至 TEST1；PVE 外部 TLS、health、discovery 通过；公网 admin/metrics 返回 403 | 保留管理、SSH 和 work2 原端口；不增加域名或 work2 入站 |
+| Relay/设备注册 | 持久 signer、PostgreSQL 票据消费、受信邀请验签；实际 work2 responder 与控制 peer 已登记 | 保留标准 ISCP 认证、actor 角色和重放拒绝；实际 Relay/签发/控制组件配对重启通过，signer/TLS 稳定 |
+| 节点权威 | work2 独立签发进程、原 Gateway Unix 管理、加密 PostgreSQL 状态、固定 Owner/Client scope、设备自有密钥 | 不复制账号权威，不将 Relay admin token 交给 work2/SparkX |
+| 单入口控制 | TEST1 组件与 work2 出站代理通过普通认证 ISCP session 传送白名单 RPC | 转发方不能签发 Grant、解密 provisioning 结果或成为业务 HTTP 代理 |
+| Provisioning | 两端各自 X25519、带外 secret/transcript 绑定、双向 finished MAC、签名密封结果及跨重启操作回放 | 未知结果对账原操作；不新建设备密钥、不二次消费邀请 |
+| 注册/刷新/恢复 | 事务票据/设备/凭据回执、持久 refresh 轮换链及密钥绑定恢复；真实 A 刷新和双过期恢复通过 | 应用服务 peer 恢复与标准可选生命周期能力明确区分 |
+| 多 peer 工作台 | responder 单接收者、私有 peer 注册表、隔离 scope/session、实时 Gateway Client 校验 | 撤销 A 不影响 B；业务 result/ACK 和剩余原生生命周期门禁分别验收 |
+| SparkX 接入 | 独立 ISCP 前缀、原连接/main/helper 适配、schema 2 `node-managed`、原生设备密钥存储；helper A/B 和隔离原生 B 初连/自动续签有证据 | 隔离原生重启在 30 秒/single-flight 重试修复后通过；当前 Mac 安装/迁移和 B/C 业务/UI 门禁未验收 |
+| 既有数据绑定 | 私有、操作员批准、一次固定操作的迁移复用精确 deployment/Owner/Client 与 installation | 不能改写数据归属或另建 Client 让原数据可见；最终原生数据/选择状态一致性待验收 |
+| 验证 | Linux 支持平台 Gateway 全套 70 包通过、10 包无测试；官方 SDK/conformance 包通过；官方本机 P0 报告 31 pass/0 fail/6 skip | 六项 service/CLI 无 endpoint 证据；不能声称已完成托管服务互通或原生验收 |
+| LAN | 原适配器、listener 与 UI 入口保留 | 不增加 work2 LAN 发布或物理 LAN 验收 |
 
-TEST1 服务源码与回执位于 `/opt/iscp-relay`，初始私有检查点位于
-`/var/backups/iscp-relay/checkpoint-zmIZ9Lf4`，本地脱敏部署回执在 Git 之外。
-SDK 基线为 ISCP `v0.2.0-rc.1`，附部署专用 signer 持久化改动；参考协议检查
-使用上游提交 `47f1f6c231c56c92eff6b6c5d398e037ebcf9602`。用户指定项目的一致性
-向量仍需执行；独立托管服务对比可在有获准入口时补充。production 配置或
-健康响应不能单独证明协议互操作。
+[执行记录](public-iscp-node-deployment.md)负责当前路径、配对备份、发布 manifest
+和证据边界。服务端源码为 SparkClaw `3a9c2535`，基于固定 ISCP `v0.2.0-rc.1`；
+规范检查使用上游 `47f1f6c231c56c92eff6b6c5d398e037ebcf9602`。内部持久化与
+应用适配器不改变固定 ISCP wire 对象。官方本机 runner 不连接远端 endpoint，
+因此实际公网 SDK 注册、加密连接、刷新、恢复和撤销证据分列。健康检查或这些
+测试不能代替既有安装迁移及未执行的业务验收。
 
 ## 10. 实施阶段与验收
 
@@ -581,14 +584,14 @@ PVE 保存原规则/配置，回滚时仅移除此发布拥有的映射/过滤�
 SQLite/文件，不为切换传输删除工作台。原 Mac Relay/issuer 保留到新链路验收，
 再按获准发布范围退役旧依赖。
 
-各级约定锚点均无 InfiniCenter，本文是仓库内方案，不是中枢已接受契约。计划
+各级约定锚点均无 InfiniCenter，本文记录仓库内实施，不是中枢已接受契约。变更
 限于 SparkClaw 拥有的适配器、已部署参考服务配置及内部持久化修复，复用
 冻结 ISCP 对象。如果实现确需改变外部契约或跨项目修改，先恢复规定的簇
 decision/contract 流程；不另造中枢验收。当前不计划修改上游 ISCP wire 契约。
 
 本会话 Codex 负责 P0–P6 的代码、主机部署、验收与文档。用户已选择直接执行，
-不再交接给其他 AI。当前轮完成方案，后续按依赖实施，每个里程碑保留可恢复
-证据。使用已有服务器授权完成盘点与范围内部署，通过检查确定网络所属层及
+不再交接给其他 AI。正在按依赖实施和发布，每个里程碑保留可恢复证据。服务端部署已记录；
+既有安装迁移及最终原生业务/UI 门禁继续验证。使用已有服务器授权完成盘点与范围内部署，通过检查确定网络所属层及
 信任事实；不重复询问域名、work2 公网签发 URL 或已提供的主机凭据。出现
 实际新阻塞时携带证据报告。
 

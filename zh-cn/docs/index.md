@@ -65,6 +65,7 @@
 | [SparkX 与 SparkClaw 本地 ISCP 联调](desktop-iscp-connection-design.md) | 已实现纯文本 transport 和自动续签；本地 Docker Relay、已安装 SparkX 与真实后端验收，以及明确范围的恢复证据 |
 | [ISCP 能力扩展设计](desktop-iscp-capability-expansion-design.md) | 待实施：基础接口、文件／产物分块、审批／事件、邮件／浏览器／工具、语音；各项经权限、实际结果、恢复和零 HTTP 回退验收后开放界面 |
 | [公共 Relay 与服务端签发设计](public-iscp-relay-node-issuer-design.md) | TEST1 IP HTTPS/WSS 为唯一新增公网应用入口；经出站控制转发到达 work2 私有签发服务；保留 SparkX 凭据入口与既有 LAN |
+| [公共 ISCP 执行记录](public-iscp-node-deployment.md) | IP 443 发布、独立节点权威、持久生命周期、配对回滚及剩余原生验收门禁 |
 | [统一第三方 ISCP MCP 接入](unified-third-party-access-design.md) | 已实现本地 Route MCP runtime 与分离的 ISCP pairing、SparkClaw MCP access ticket；生产 provisioning、外部 gateway 验证和 LocalMind 旧链路删除仍待完成；不含 JingSi |
 | [通用外部 MCP 安全防护](generic-mcp-safeguards-design.md) | 通用 catalog 过滤/分类，以及与固定 LocalMind task adapter 共享的有界脱敏结果和 approval 持久化防护 |
 | [按 Owner 的 Connector 启用](connector-owner-runtime-design.md) | Issue #13 已接受设计：owner 隔离 setting、共享 channel worker、缓存一致性、排空语义与重启协调 |

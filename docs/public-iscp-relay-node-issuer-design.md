@@ -2,14 +2,15 @@
 
 > Language: English | [简体中文](../zh-cn/docs/public-iscp-relay-node-issuer-design.md)
 >
-> Date: 2026-10-12. Status: proposed implementation design; host placement and
-> user-facing connection flow are user-confirmed. TEST1 Relay deployment is
-> recorded; PVE public forwarding, work2 issuer deployment and SparkX credential
-> enrollment remain pending.
-> Confirmed revision: use the public IP only, with TEST1 HTTPS/WSS as the sole
-> new public application ingress. No domain and no new work2 port exposure.
-> Execution owner: Codex in this chat. The current step completes the design;
-> implementation, server rollout and native SparkX migration follow separately.
+> Date: 2026-10-12. Status: implementation and rollout in progress. TEST1
+> public IP HTTPS/WSS, the work2 private issuer and registered responder/control
+> peers are deployed. Real external registration, refresh, recovery and revocation
+> have evidence; the repaired isolated native relaunch also passes. Current-installation
+> migration and remaining two-device business/UI gates are still in progress.
+> TEST1 is the sole new public application ingress. No domain and no new work2
+> port exposure. Execution owner: Codex in this chat.
+> Current server source: `3a9c2535`; subsequent desktop retry fixes are recorded
+> separately in the [execution record](public-iscp-node-deployment.md).
 
 ## 1. Objective and scope
 
@@ -22,7 +23,7 @@ protocol.
 
 SparkX owns presentation and desktop-local data; work2 owns business execution,
 Owner/Client authorization and its issuer. TEST1 routes encrypted envelopes and
-holds its own Relay authority. A separate proposed TEST1 control-forwarding
+holds its own Relay authority. A separate TEST1 control-forwarding
 component routes sealed enrollment/lifecycle exchanges to work2; it holds no
 work2 Grant signing key or SparkX-to-SparkClaw business-session key. PVE handles
 ingress routing and VM isolation.
@@ -60,9 +61,11 @@ service; it need not be a third work2 daemon.
 Registering SparkClaw does not register SparkX or give it SparkClaw's tokens.
 Both devices need their own enrollment, key possession and Relay credentials;
 SparkX additionally needs a Grant authorizing the selected SparkClaw responder.
-There is no qualified record yet of the actual work2 responder registered on
-TEST1. The deployed Relay has been verified with synthetic devices that were
-subsequently revoked. This distinction remains visible in rollout evidence.
+The actual work2 responder and both service control peers are now enrolled on
+TEST1 with separate credentials. Independent qualification devices A and B reached
+the real work2 backend over the public origin. A was deliberately revoked; B
+remained available. This does not by itself complete native relaunch or migration
+acceptance; see the execution record.
 
 ## 2. Hosts and management boundary
 
@@ -74,7 +77,7 @@ channel, never this document, Git, scripts, command arguments or evidence.
 | Host | Identity | Address/access | Responsibility |
 |---|---|---|---|
 | PVE | Administrator `root@pam`; realm `pam` / Linux PAM standard authentication | [Management console](https://210.16.177.239:8006) | VM management, actual edge forwarding and applicable firewall rules |
-| TEST1 | VMID `100`; guest account `ubuntu` | `10.20.0.20`; `ssh -p 22020 ubuntu@210.16.177.239` | Public Relay/TLS, Relay PostgreSQL/signer and proposed control-forwarding sidecar |
+| TEST1 | VMID `100`; guest account `ubuntu` | `10.20.0.20`; `ssh -p 22020 ubuntu@210.16.177.239` | Public Relay/TLS, Relay PostgreSQL/signer and independent control-forwarding sidecar |
 | work2 | VMID `104`; guest account `ubuntu` | `10.20.0.23`; `ssh -p 22023 ubuntu@210.16.177.239` | Existing SparkClaw backend plus its issuer and enrollment authority |
 | SparkX | Independent desktop device and installation | TEST1 IP HTTPS/WSS origin plus the issuer identity carried by its credential | Device-generated private key, enrollment, transport, local persistence and original workbench UI |
 
@@ -90,7 +93,7 @@ flowchart LR
     X["SparkX"] -->|"IP HTTPS / WSS only"| P["PVE / actual public edge<br/>210.16.177.239"]
     P -->|"TCP 443 -> 10.20.0.20:443"| E["TEST1 TLS ingress"]
     E --> R["Standard ISCP Relay"]
-    E --> C["Proposed enrollment/control forwarder"]
+    E --> C["Enrollment/control forwarder"]
     C <-->|"Opaque control exchanges<br/>over authorized ISCP sessions"| R
     W["work2 outbound issuer agent"] -->|"Initiates HTTPS / WSS to TEST1"| R
     W --> I["work2 private issuer"]
@@ -102,7 +105,7 @@ The only new public application mapping targets TEST1. Both work2 agents initiat
 outbound connections to that same public origin. The issuer is reachable through
 sealed control forwarding, not a client-facing work2 listener.
 
-| Public/VM port | Proposed destination | Exposure and purpose |
+| Public/VM port | Deployed destination | Exposure and purpose |
 |---|---|---|
 | Public TCP `443` | TEST1 `10.20.0.20:443` | Relay HTTPS/WSS; first check for an existing mapping or listener |
 | Public TCP `8006` | Existing PVE management service | Preserve existing management access; not an application route |
@@ -180,7 +183,7 @@ See [Nginx WebSocket proxying](https://nginx.org/en/docs/http/websocket.html).
 | TEST1 transport | Standard envelope submission, WSS connect, credential refresh and revocation with their required authentication |
 | TEST1 registration | Standard actor-authorized bootstrap or correctly configured signed-ticket enrollment; no test bypass |
 | TEST1 administration | `/v2/relay/admin/*` and metrics remain private |
-| TEST1 enrollment/control ingress | Proposed versioned SparkClaw application-side forwarding interface; routes a proven, bounded operation to the selected work2 issuer, not a direct issuer URL |
+| TEST1 enrollment/control ingress | Versioned SparkClaw application-side forwarding interface; routes a proven, bounded operation to the selected work2 issuer, not a direct issuer URL |
 | work2 Grant lifecycle | Private signing/authorization logic reached through its authenticated outbound agent; results retain the pinned work2 issuer signature |
 | work2 administration | Existing Owner/admin interface or local management; no new public entry for credential creation, scopes, signing keys or audit |
 
@@ -228,12 +231,12 @@ before accepting desktop redemption. Their setup cannot depend on the unredeemed
 SparkX credential or on direct access from SparkX to work2.
 
 The sidecar accepts only versioned, allowlisted application-control requests on
-TEST1 HTTPS. The proposed path is `POST /api/sparkclaw/iscp-control/v1/exchange`;
+TEST1 HTTPS. The implemented application path is `POST /api/sparkclaw/iscp-control/v1/exchange`;
 its versioned envelope carries the issuer/deployment route, stable operation ID,
 step, device public identity/proof and opaque provisioning/lifecycle frame. Freeze
 the field types, error codes, replay rules and cryptographic transcript binding
-in the application contract before implementation. This is a draft SparkClaw
-interface, not an ISCP-standard path. Do not overload `/v2/relay/connect` with arbitrary WebSocket
+in the implemented application contract/tests before changing them. This is a
+versioned SparkClaw interface, not an ISCP-standard path. Do not overload `/v2/relay/connect` with arbitrary WebSocket
 RPC or change the standard envelope/proof flow. The selected issuer identity must
 resolve to an operator-approved node route. Bind each operation to issuer,
 deployment, input digest, device and expiry; bound outstanding requests and enforce
@@ -254,9 +257,9 @@ their documented request/error/metadata semantics pass conformance; absent suppo
 must stay absent. Application-control forwarding is not advertised as a new Relay
 wire capability.
 
-This bridge is required implementation, not a feature already present in the
-reference Relay or the deployed TEST1 binary. It is an application/platform adapter
-beside the unchanged Relay, so ordinary ISCP clients remain interoperable.
+The deployed bridge is a separate application/platform adapter beside the Relay.
+The upstream reference Relay alone does not supply remote issuer forwarding.
+Ordinary ISCP clients retain their standard wire surfaces and authentication.
 
 ### 6.2 Issuance and actor authorization
 
@@ -317,11 +320,12 @@ patches are versioned and separately packaged from it; record the pinned upstrea
 revision, patch hashes and reproducible build manifest. Upstream ISCP wire schemas
 remain pinned.
 
-Proposed work2 unit: `sparkclaw-iscp-issuer.service`, unprivileged, with private
-state under `/var/lib/sparkclaw-iscp-issuer` and root-owned configuration under
-`/etc/sparkclaw-iscp-issuer`. Use a Unix socket to the existing Gateway's restricted
-management adapter. The issuer has no guest-network listener. Inspect the actual
-runtime before assigning users/paths and preserve existing deployments.
+The deployed work2 unit is `iscp-node-issuer.service`, with binary
+`/opt/sparkclaw-iscp/bin/iscp-node-issuer` and private state rooted at
+`/home/ubuntu/.local/share/sparkclaw/public-iscp-node`. It uses the existing
+Gateway's restricted Unix management adapter and exposes its own private
+`issuer-socket/issuer.sock`; it has no guest-network listener. Exact configuration,
+registry and matched rollback paths are in the execution record.
 
 Use PostgreSQL-backed issuer operation/receipt storage on work2 with a narrowly
 owned role/schema. Store business Client and authorization records through the
@@ -373,17 +377,20 @@ key or permission to alter it.
 
 Work2 finalizes its Client/authorization state idempotently against that receipt
 and publishes one signed, encrypted bundle only after all required records agree.
-The Gateway denies business access while the Client is staged. If work2 crashes
+A newly staged ISCP peer has no business admission until its verified durable
+registry/Grant is activated. Existing Client and LAN authorization remain under
+the original Gateway authority; the private data-preserving migration reuses
+that exact Client only for its approved operation. If work2 crashes
 after Relay commits, resume the same operation instead of consuming the invitation
 again. A narrowly authenticated private status/receipt operation returns only the
 original sealed receipt to its bound work2 wrap key. Standard unauthenticated or
 replayed registration proofs remain rejected; do not make proof replay an
 unprotected plaintext-token lookup.
 
-This design requires implementation of the cooperating preparation/commit adapter;
-it is not a claim that the current reference Relay already has managed-provisioning
-atomicity. Qualify the complete transaction and client-visible completion against
-the provisioning specification before calling the enrollment mode production-ready.
+The deployed cooperating preparation/commit adapter implements this transaction;
+it does not imply that an unmodified upstream reference Relay has the same
+atomicity. Isolated concurrency/restart/negative tests and actual public enrollment
+are recorded separately from the remaining native client-visible completion gates.
 Failure cleanup touches only this operation's staged allocations. An unknown
 commit is reconciled before revocation or retry, preserving previous valid peers.
 
@@ -511,9 +518,9 @@ entry and are gated individually; do not add persistent technical status panels.
 Normal credential renewal/recovery is silent, with feedback when user action is
 needed.
 
-### 7.1 Credential and control contract to implement
+### 7.1 Implemented credential and control contract
 
-Use a separate application prefix, proposed as `sparkclaw-iscp-connect-v1.`,
+The implemented separate application prefix is `sparkclaw-iscp-connect-v1.`,
 with canonical base64url encoding, a strict versioned schema and a 48 KiB decoded
 limit. Its fields are: schema version, TEST1 HTTPS origin, public TLS trust,
 domain/Relay IDs and signer pin, issuer identity, logical issuer route, responder
@@ -545,8 +552,11 @@ operations are re-authenticated and use their durable bound device/input.
 
 ### 7.2 Operation states and storage activation
 
-The proposed coordinator states are `issued -> channel_ready -> device_bound ->
-grant_prepared -> relay_committed -> client_committed -> bundle_ready -> applied`.
+The coordinator durably records invitation/device/channel binding, prepared
+Grant and receipt, then bundle readiness. Renewal/recovery results reach `applied`
+only after a signed acknowledgement following the client's durable local save.
+These are semantic stages; executable state names and fields are defined in
+`internal/iscpnodeissuer`, not a second schema in this document.
 Expired/revoked/failed states are terminal for new side effects; an unknown commit
 is a reconciliation state. Persist each transition, its exact input and receipt
 before publishing the next state. Reserve one invitation against one device key
@@ -592,9 +602,9 @@ See the [session specification](https://github.com/Infinimesh-ai/ISCP/blob/47f1f
 
 ### 8.1 Expiry policy and cold-start recovery
 
-Proposed first-rollout defaults: invitation TTL 15 minutes and one use; workbench
-Grant TTL 30 minutes, renewed within the last 5 minutes; standing authorization
-`until_revoked`. The observed Relay issues Access for 15 minutes and Refresh for
+Deployed first-rollout defaults: invitation TTL 15 minutes and one use; workbench
+Grant TTL 900 seconds, renewed within the issuer-qualified renewal window;
+standing authorization `until_revoked`. The observed Relay issues Access for 15 minutes and Refresh for
 24 hours. Keep those as independent transport expiries and read actual issued
 metadata; do not turn standing authorization into a permanent token.
 
@@ -628,40 +638,39 @@ service peers and performs no new enrollment. This platform recovery path is
 qualified separately from standard device lifecycle endpoints. Losing a device
 key or revoking its authorization always requires explicit re-authorization.
 
-Routine refresh rotation is serialized per device and persisted before use.
-The current Relay revokes Refresh before independently storing its successor;
-transactional rotation and lost-response recovery are required rollout work,
-not guaranteed by the prior restart smoke test. Qualify concurrent refresh,
-crash before/after commit, old-token rejection and safe recovery of the same
-lineage. Do not mutate an unknown operation's proof or wrap key under its ID.
+Routine refresh rotation is serialized per device and persists its successor and
+sealed receipt in one Relay transaction. The implemented adapter closes the old
+reference service's sequential-write gap. Real external A refresh rotated both
+credentials and rejected its old Refresh with 401; isolated tests cover concurrent
+rotation, lost response and restart. Unknown operations keep their original proof,
+wrap key and input. Native relaunch and paired service-restart acceptance are tracked
+separately from those tests.
 
-## 9. Current implementation gaps
+## 9. Deployed state and remaining acceptance
 
-| Area | Recorded/current source state | Required implementation or gate |
+| Area | Implemented/deployed evidence | Remaining gate or boundary |
 |---|---|---|
-| TEST1 Relay | 2026-10-12 receipt: production profile, TLS proxy, PostgreSQL 18, persistent signer, encrypted WSS/restart checks pass; two synthetic devices revoked | Public PVE forwarding and real external-client acceptance |
-| TEST1 TLS | IP self-signed certificate; current operator-trusted test path | Verified client trust integration and IP certificate renewal |
-| Actual SparkClaw registration | No qualified actual-work2 enrollment record on TEST1; temporary qualification devices were revoked | Bootstrap/pin the stable responder and control peers; retain their distinct credential receipts |
-| Ticket enrollment | Deployment startup does not configure `TicketIssuer`; reference use-count state is in memory | Keep closed until verifier and durable consumption are qualified; operator-authorized bootstrap remains a separate mode |
-| work2 issuer | Existing test issuer is a fixed-pair local-test implementation; TEST1 has no issuer | A node-owned, multi-device issuance coordinator and controlled lifecycle deployment on work2 |
-| Single-origin forwarding | Reference/deployed Relay has no remote work2 issuer bridge | Separate TEST1 control sidecar plus authenticated work2 outbound agent; no work2 inbound mapping |
-| Provisioning channel | Pinned SDK demo creates both ephemeral sides locally | Real distributed handshake, transcript confirmation and sealed device-bound delivery through TEST1 |
-| Relay atomicity/recovery | Reference ticket use is in memory; registration/refresh use sequential writes; optional recovery absent | Cooperating prepare/commit records, transactional consumption/credential lineage and sealed authenticated receipt recovery |
-| Multi-device responder | Current Endpoint pins one peer, Grant and session | Durable device registry and isolated peer/session dispatch with one coordinated responder transport owner |
-| Public WSS polling | Reference WSS drains/closes; repeated-drain adapter currently local-lab-only | Production-compatible receive lifecycle and aggregate-capacity qualification |
-| SparkX credential input | [Current parser](../apps/desktop/src/main/connection-credential.mjs) handles HTTPS backend credentials; ISCP uses private launch profiles | Versioned ISCP enrollment credential and original-screen main/helper adapter |
-| Helper material | [Current config](../services/gateway/internal/iscpworkbench/config.go) requires `local-test` material and distinguishes production enrollment authority from the separate test Grant issuer | Explicit public enrollment/trust-role support, preserving verification and secure key storage; no relabeling old lab JSON |
-| Enrollment recovery | Existing Client issuance has process-local response retention; automatic startup envelope recovery is local-lab-specific | Durable cross-restart redemption/result replay and qualified public enrollment refresh/recovery |
-| LAN | Existing adapter and menus remain available | No new work2 LAN connection or physical LAN acceptance in this project |
+| Public ingress | PVE `pve-iscp-443.service` forwards only new application TCP 443 to TEST1; outside-PVE TLS/health/discovery pass; public admin and metrics return 403 | Keep existing management/SSH and work2 ports; no domain or new work2 ingress |
+| Relay/device enrollment | Persistent signer, PostgreSQL ticket consumption, approved invitation verifier and registered work2 responder/control peers | Preserve standard ISCP authentication, actor roles and replay rejection; paired real Relay/issuer/forwarder restart passes with stable signer/TLS |
+| Node authority | Independent work2 issuer, existing Gateway Unix management, encrypted PostgreSQL state, fixed Owner/Client scope and actual device-held keys | No duplicate account authority or Relay admin token on work2/SparkX |
+| Single-origin control | TEST1 sidecar and work2 outbound agent carry allowlisted RPC over ordinary authenticated ISCP sessions | Forwarder cannot issue Grants, decrypt provisioning results or become a business HTTP proxy |
+| Provisioning | Independent X25519 keys, OOB-secret/transcript binding, two finished MACs, signed sealed result and restart-safe operation replay | Unknown outcomes reconcile the same operation; no new device key or second invitation consumption |
+| Registration/refresh/recovery | Atomic ticket/device/credential receipt, durable refresh lineage and key-bound recovery adapters; real A refresh and both-expired recovery pass | Application service-peer recovery is distinct from standard optional lifecycle capabilities |
+| Multi-peer workbench | One responder receive owner, private peer registry, scoped isolated sessions and live Gateway Client validation | Device A revocation must keep B usable; business result/ACK and all remaining native lifecycle gates stay explicit |
+| SparkX integration | Separate ISCP credential parser, original connection/main/helper adapter, schema 2 `node-managed`, native device key storage; helper A/B and an isolated native B initial connection/automatic renewal have evidence | Isolated native relaunch passes after the 30-second/single-flight retry fix; current Mac installation/migration and B/C business/UI gates are not yet accepted |
+| Existing data binding | Private operator-approved one-operation migration reuses the exact existing deployment/Owner/Client and installation identity | Never retag rows or create another Client merely to make existing UI data visible; final native data/selection parity is pending |
+| Validation | Linux supported-platform Gateway suite: 70 packages pass, 10 have no tests; official SDK/conformance packages pass; official local P0 report has 31 pass/0 fail/6 skip | The six service/CLI cases have no endpoint evidence; do not claim hosted-service interoperability or native acceptance from local conformance |
+| LAN | Original adapter, listeners and UI entry points are retained | No additional work2 LAN rollout or physical LAN acceptance in scope |
 
-TEST1 service source and receipts are under `/opt/iscp-relay`; its first private
-checkpoint is `/var/backups/iscp-relay/checkpoint-zmIZ9Lf4`. The local redacted
-deployment receipt is outside Git. The observed SDK base is ISCP `v0.2.0-rc.1`
-with a deployment-only signer persistence change. Reference protocol inspection
-used upstream commit `47f1f6c231c56c92eff6b6c5d398e037ebcf9602`. The user-designated
-project's conformance vectors still need execution; comparison with a separate
-hosted service can be added when an authorized endpoint is available. A production
-flag or healthy endpoint alone cannot prove protocol interoperability.
+The [execution record](public-iscp-node-deployment.md) owns current host paths,
+matched backups, rollout manifests and evidence distinctions. Server source is
+SparkClaw `3a9c2535`, based on pinned ISCP `v0.2.0-rc.1`; reference inspection uses
+upstream `47f1f6c231c56c92eff6b6c5d398e037ebcf9602`. Internal persistence and
+application adapters do not change the frozen ISCP wire objects. The official
+local conformance runner does not target a remote endpoint. Actual public SDK
+registration, encrypted connection, refresh, recovery and revoke evidence is
+therefore reported independently. Current-installation migration and any unexecuted
+business acceptance cannot be inferred from a healthy endpoint or those tests.
 
 ## 10. Implementation phases and acceptance
 
@@ -717,7 +726,7 @@ change its transport. Keep the original Mac Relay/issuer until the new path is
 accepted, then retire dependencies only under the approved rollout.
 
 InfiniCenter is absent at the prescribed ancestor anchors. This is a repository
-proposal, not a centrally accepted contract. Plan changes within SparkClaw-owned
+implementation record, not a centrally accepted contract. Changes remain within SparkClaw-owned
 adapters and deployed reference-service configuration/internal persistence fixes,
 reusing frozen ISCP wire objects. If implementation requires a changed external
 contract or changes across projects, restore the required cluster decision/contract
@@ -726,8 +735,9 @@ wire-contract change is planned.
 
 Codex in this chat owns P0–P6 implementation, host deployment, validation and
 documentation. The user has selected direct execution; no other AI handoff is
-required. The current turn completes the design, with later implementation
-following these dependencies and preserving resumable evidence at each milestone.
+required. Implementation and rollout are underway, following these dependencies and
+preserving resumable evidence at each milestone. Server deployment is recorded;
+current-installation migration and final native business/UI gates are still under validation.
 Use the existing server authorization for inspection and scoped deployment;
 resolve network-owner/trust facts by inspection. Do not ask again for a domain,
 work2 public issuer URL or an already supplied host credential. Report an actual

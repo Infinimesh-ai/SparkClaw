@@ -219,7 +219,7 @@ func (x Exchange) Validate() error {
 		return ErrInvalid
 	}
 	switch x.Step {
-	case "hello", "finish", "redeem", "renew", "recover", "status":
+	case "hello", "finish", "redeem", "renew", "recover", "status", "applied":
 		return nil
 	}
 	return ErrInvalid

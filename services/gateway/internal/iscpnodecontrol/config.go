@@ -1,6 +1,7 @@
 package iscpnodecontrol
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	n "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeissuer"
@@ -13,16 +14,18 @@ import (
 )
 
 type FileConfig struct {
-	SchemaVersion      int    `json:"schema_version"`
-	Initiator          bool   `json:"initiator"`
-	IdentityFile       string `json:"identity_file"`
-	KeyFile            string `json:"key_file"`
-	KeyBackend         string `json:"key_backend"`
-	KeyringService     string `json:"keyring_service,omitempty"`
-	PeerIdentityFile   string `json:"peer_identity_file"`
-	IssuerIdentityFile string `json:"issuer_identity_file"`
-	GrantFile          string `json:"grant_file"`
-	EnrollmentFile     string `json:"enrollment_file"`
+	ControlAuthorization string `json:"control_authorization,omitempty"`
+	Active               bool   `json:"active"`
+	SchemaVersion        int    `json:"schema_version"`
+	Initiator            bool   `json:"initiator"`
+	IdentityFile         string `json:"identity_file"`
+	KeyFile              string `json:"key_file"`
+	KeyBackend           string `json:"key_backend"`
+	KeyringService       string `json:"keyring_service,omitempty"`
+	PeerIdentityFile     string `json:"peer_identity_file"`
+	IssuerIdentityFile   string `json:"issuer_identity_file"`
+	GrantFile            string `json:"grant_file"`
+	EnrollmentFile       string `json:"enrollment_file"`
 }
 
 func ReadPrivate(path string, out any) error {
@@ -40,7 +43,10 @@ func ReadPrivateBytes(path string) ([]byte, error) {
 		return nil, n.ErrInvalid
 	}
 	st, e := os.Lstat(path)
-	if e != nil || !st.Mode().IsRegular() || st.Mode().Perm()&0077 != 0 || st.Size() > 4<<20 {
+	if e != nil {
+		return nil, e
+	}
+	if !st.Mode().IsRegular() || st.Mode().Perm()&0077 != 0 || st.Size() > 4<<20 {
 		return nil, n.ErrInvalid
 	}
 	return os.ReadFile(path)
@@ -87,10 +93,26 @@ func LoadPeer(path string, h Handler) (*Peer, error) {
 			return nil, e
 		}
 	}
+	if !time.Now().Before(bundle.Refresh.ExpiresAt) || !time.Now().Before(bundle.ExpiresAt) {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		pending := cfg.EnrollmentFile + ".service-recovery"
+		updated, e := iscpbridge.RecoverNodeServiceCredentials(ctx, bundle, dev, pending)
+		if e != nil {
+			return nil, e
+		}
+		if e = iscpbridge.SaveEnrollment(cfg.EnrollmentFile, updated); e != nil {
+			return nil, e
+		}
+		if e = iscpbridge.CommitNodeServiceRecovery(pending); e != nil {
+			return nil, e
+		}
+		bundle = updated
+	}
 	relay, e := iscpbridge.NewRelayCredentialClient(iscpbridge.ProfileProduction, cfg.EnrollmentFile, bundle, dev, 15*time.Second)
 	if e != nil {
 		return nil, e
 	}
-	return NewPeer(PeerConfig{cfg.Initiator, dev, peer, issuer, grant, bundle.RelayID}, relay, h)
+	return newPeer(PeerConfig{cfg.Initiator, dev, peer, issuer, grant, bundle.RelayID}, relay, h, cfg.ControlAuthorization == "until_revoked", cfg.Active, cfg.GrantFile)
 }
 func (p *Peer) SetHandler(h Handler) { p.mu.Lock(); defer p.mu.Unlock(); p.handler = h }

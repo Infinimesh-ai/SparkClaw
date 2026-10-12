@@ -203,10 +203,15 @@ func (i *Issuer) lifecycle(ctx context.Context, x Exchange) (ExchangeResponse, e
 			}
 			return nil
 		}
+		for id, o := range st.Operations {
+			if id != st.BoundOperation && o.State == "applied" && o.LifecycleResponse != nil && !o.AppliedAt.IsZero() && i.Now().Sub(o.AppliedAt) > 48*time.Hour {
+				delete(st.Operations, id)
+			}
+		}
 		if len(st.Operations) >= 512 {
 			return ErrUnavailable
 		}
-		op = &Operation{ID: x.OperationID, State: "lifecycle_pending", InputDigest: Digest(req), Renew: &req}
+		op = &Operation{CreatedAt: i.Now().UTC(), ID: x.OperationID, State: "lifecycle_pending", InputDigest: Digest(req), Renew: &req}
 		if req.Kind == "renew" || req.Kind == "recover" {
 			g, e := i.signGrant(st, *st.Device, i.Now().UTC())
 			if e != nil {
@@ -270,5 +275,9 @@ func (i *Issuer) lifecycle(ctx context.Context, x Exchange) (ExchangeResponse, e
 	if e = i.publishRegistry(ctx); e != nil {
 		return ExchangeResponse{}, e
 	}
-	return response(x, result)
+	stored, e := i.store.Read(ctx, x.InvitationID)
+	if e != nil {
+		return ExchangeResponse{}, e
+	}
+	return response(x, *stored.Operations[x.OperationID].LifecycleResponse)
 }

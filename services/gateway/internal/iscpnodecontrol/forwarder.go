@@ -15,13 +15,14 @@ type Caller interface {
 	Call(context.Context, string, any, any) error
 }
 type Forwarder struct {
-	Route    string
-	Peer     Caller
-	Adapter  n.RelayRegistration
-	slots    chan struct{}
-	mu       sync.Mutex
-	requests int
-	window   time.Time
+	Route     string
+	Peer      Caller
+	Adapter   n.RelayRegistration
+	slots     chan struct{}
+	controlMu sync.Mutex
+	mu        sync.Mutex
+	requests  int
+	window    time.Time
 }
 
 func NewForwarder(route string, peer Caller, adapter n.RelayRegistration) (*Forwarder, error) {
@@ -34,7 +35,7 @@ func (f *Forwarder) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
-		if r.Method != "POST" || r.URL.Path != n.ExchangePath || r.URL.RawQuery != "" {
+		if r.Method != "POST" || (r.URL.Path != n.ExchangePath && r.URL.Path != ControlGrantPath) || r.URL.RawQuery != "" {
 			http.NotFound(w, r)
 			return
 		}
@@ -56,6 +57,9 @@ func (f *Forwarder) Handler() http.Handler {
 			defer func() { <-f.slots }()
 		default:
 			writeError(w, 503, "unavailable")
+			return
+		}
+		if f.handleControlGrant(w, r) {
 			return
 		}
 		b, e := io.ReadAll(http.MaxBytesReader(w, r.Body, n.MaxFrameBytes))

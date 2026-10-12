@@ -52,6 +52,9 @@ func (cl *Client) lifecycle(ctx context.Context, kind, operation string, revisio
 	} else if e != nil {
 		return zero, e
 	}
+	if p.Request.Kind != kind && !(kind == "delete-receipt" && p.Request.Kind == "delete") {
+		return zero, iscpnodeissuer.ErrConflict
+	}
 	if p.Request.OperationID != operation && kind != "renew" && kind != "recover" {
 		return zero, iscpnodeissuer.ErrConflict
 	}
@@ -78,7 +81,7 @@ func (cl *Client) lifecycle(ctx context.Context, kind, operation string, revisio
 		if out.State == "active" && out.Revision != cl.cfg.Revision {
 			return zero, iscpnodeissuer.ErrDenied
 		}
-		if out.Grant != nil && cl.verifyGrant(*out.Grant) != nil {
+		if out.Grant != nil && cl.verifyGrantAt(*out.Grant, out.Grant.NotBefore) != nil {
 			return zero, iscpnodeissuer.ErrDenied
 		}
 		if out.RelayReceipt != nil {
@@ -126,7 +129,7 @@ func (cl *Client) Renew(ctx context.Context, previous trust.Grant) (trust.Grant,
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	if cl.revoked {
-		return trust.Grant{}, iscpnodeissuer.ErrDenied
+		return trust.Grant{}, iscpbridge.ErrAuthorizationRevoked
 	}
 	if previous.SubjectDeviceID != cl.device.Identity.DeviceID || previous.Audience != cl.cfg.ResponderIdentity.DeviceID || previous.ConfirmationThumbprint != cl.device.Identity.PublicKey.KID {
 		return trust.Grant{}, iscpnodeissuer.ErrDenied
@@ -139,6 +142,13 @@ func (cl *Client) Renew(ctx context.Context, previous trust.Grant) (trust.Grant,
 	if out.Grant == nil {
 		return trust.Grant{}, iscpnodeissuer.ErrDenied
 	}
+	if !time.Now().Before(out.Grant.ExpiresAt) {
+		if e := os.Remove(filepath.Join(cl.directory, "lifecycle.pending")); e != nil {
+			return trust.Grant{}, e
+		}
+		cl.pending = nil
+		return trust.Grant{}, iscpbridge.ErrGrantRenewalResultExpired
+	}
 	if e = cl.verifyGrant(*out.Grant); e != nil {
 		return trust.Grant{}, e
 	}
@@ -149,7 +159,7 @@ func (cl *Client) AcceptGrant(g trust.Grant) error {
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	if cl.revoked {
-		return iscpnodeissuer.ErrDenied
+		return iscpbridge.ErrAuthorizationRevoked
 	}
 	if e := cl.verifyGrant(g); e != nil {
 		return e
@@ -168,6 +178,21 @@ func (cl *Client) CommitRenewal() error {
 	}
 	if p.Result == nil || p.Result.Grant == nil || cl.previous.GrantID != p.Result.Grant.GrantID {
 		return iscpnodeissuer.ErrConflict
+	}
+	req := iscpnodeissuer.AppliedRequest{Version: 1, OperationID: p.Request.OperationID, GrantID: p.Result.Grant.GrantID, Identity: cl.device.Identity}
+	proof, e := cl.device.CreateProof(c.NewProvider(), cl.cfg.IssuerIdentity.DeviceID, iscpnodeissuer.AppliedChallenge(req), c.Base64URL(c.RandomBytes(24)), time.Now().UTC())
+	if e != nil {
+		return e
+	}
+	req.Proof = proof
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	var ack iscpnodeissuer.AppliedReceipt
+	if e = cl.exchange(ctx, p.Request.OperationID, "applied", req, &ack); e != nil {
+		return e
+	}
+	if ack.Version != 1 || ack.OperationID != p.Request.OperationID || ack.GrantID != p.Result.Grant.GrantID || ack.State != "applied" || iscpnodeissuer.Digest(ack.Identity) != iscpnodeissuer.Digest(cl.device.Identity) || iscpnodeissuer.VerifyObject("sparkclaw.iscp.applied-receipt.v1", ack, cl.cfg.IssuerIdentity, ack.Signature) != nil {
+		return iscpnodeissuer.ErrDenied
 	}
 	if e := os.Remove(filepath.Join(cl.directory, "lifecycle.pending")); e != nil {
 		return e
@@ -217,4 +242,38 @@ func (cl *Client) RecoverTransport(ctx context.Context) (iscpnodeissuer.Lifecycl
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	return cl.lifecycle(ctx, "recover", "recover-"+c.Base64URL(c.RandomBytes(24)), cl.cfg.Revision, true)
+}
+
+func (cl *Client) PendingLifecycleKind() (string, error) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	var p pendingLifecycle
+	e := cl.read("lifecycle.pending", &p)
+	if errors.Is(e, os.ErrNotExist) {
+		return "", nil
+	}
+	if e != nil {
+		return "", e
+	}
+	return p.Request.Kind, nil
+}
+func (cl *Client) ResolvePendingLifecycle(ctx context.Context) (iscpnodeissuer.LifecycleResult, error) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	var p pendingLifecycle
+	if e := cl.read("lifecycle.pending", &p); e != nil {
+		return iscpnodeissuer.LifecycleResult{}, e
+	}
+	out, e := cl.lifecycle(ctx, p.Request.Kind, p.Request.OperationID, p.Request.Revision, true)
+	if e != nil {
+		return out, e
+	}
+	if out.Grant != nil && !time.Now().Before(out.Grant.ExpiresAt) {
+		if e = os.Remove(filepath.Join(cl.directory, "lifecycle.pending")); e != nil {
+			return iscpnodeissuer.LifecycleResult{}, e
+		}
+		cl.pending = nil
+		return iscpnodeissuer.LifecycleResult{}, iscpbridge.ErrGrantRenewalResultExpired
+	}
+	return out, nil
 }

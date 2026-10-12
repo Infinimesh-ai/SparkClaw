@@ -41,38 +41,44 @@ type rpc struct {
 	Error   string          `json:"error,omitempty"`
 }
 type Peer struct {
-	mu        sync.Mutex
-	cfg       PeerConfig
-	relay     Relay
-	handler   Handler
-	local     session.LocalHello
-	state     *session.State
-	lastHello time.Time
-	pending   map[string]chan rpc
-	workers   chan struct{}
-	running   bool
+	mu              sync.Mutex
+	cfg             PeerConfig
+	relay           Relay
+	handler         Handler
+	local           session.LocalHello
+	state           *session.State
+	lastHello       time.Time
+	pending         map[string]chan rpc
+	workers         chan struct{}
+	standing        bool
+	active          bool
+	grantFile       string
+	minimumRevision uint64
+	running         bool
 }
 
 func NewPeer(cfg PeerConfig, relay Relay, h Handler) (*Peer, error) {
+	return newPeer(cfg, relay, h, false, true, "")
+}
+func newPeer(cfg PeerConfig, relay Relay, h Handler, standing, active bool, grantFile string) (*Peer, error) {
 	if relay == nil || iscpnodeissuer.ValidateIdentity(cfg.Device.Identity) != nil || iscpnodeissuer.ValidateIdentity(cfg.Peer) != nil || cfg.Device.Identity.DomainID != cfg.Peer.DomainID || cfg.Device.Identity.DeviceID == cfg.Peer.DeviceID || cfg.RelayID == "" {
 		return nil, iscpnodeissuer.ErrInvalid
 	}
-	p := &Peer{cfg: cfg, relay: relay, handler: h, pending: map[string]chan rpc{}, workers: make(chan struct{}, 16)}
-	if e := p.verifyGrant(); e != nil {
-		return nil, e
+	p := &Peer{cfg: cfg, relay: relay, handler: h, pending: map[string]chan rpc{}, workers: make(chan struct{}, 16), standing: standing, active: active, grantFile: grantFile, minimumRevision: cfg.Grant.RevocationEpoch}
+	at := time.Now().UTC()
+	if standing {
+		at = cfg.Grant.NotBefore
+	}
+	if !active || p.minimumRevision == 0 || p.validateGrant(cfg.Grant, at) != nil {
+		return nil, iscpnodeissuer.ErrDenied
 	}
 	return p, nil
 }
 func (p *Peer) verifyGrant() error {
-	subject, audience := p.cfg.Device.Identity, p.cfg.Peer
-	if !p.cfg.Initiator {
-		subject, audience = audience, subject
-	}
-	g := p.cfg.Grant
-	if len(g.Permissions) != 1 || g.Permissions[0] != ControlPermission || len(g.RelayConstraints) != 1 || g.RelayConstraints[0] != p.cfg.RelayID {
+	if !p.active {
 		return iscpnodeissuer.ErrDenied
 	}
-	return trust.VerifyGrant(c.NewProvider(), g, p.cfg.Issuer, trust.VerifyOptions{SubjectDeviceID: subject.DeviceID, Audience: audience.DeviceID, ConfirmationThumbprint: subject.PublicKey.KID, Permission: ControlPermission, RelayID: p.cfg.RelayID, Now: time.Now().UTC()})
+	return p.validateGrant(p.cfg.Grant, time.Now().UTC())
 }
 func (p *Peer) Ready() bool {
 	p.mu.Lock()

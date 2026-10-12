@@ -37,6 +37,13 @@ func New(cfg Config, store Store, m Management, r RelayRegistration) (*Issuer, e
 	if store == nil || m == nil || r == nil || cfg.GrantTTL < time.Second || cfg.GrantTTL > 30*time.Minute || cfg.GrantTTL%time.Second != 0 || ValidateIdentity(cfg.Issuer.Identity) != nil || ValidateIdentity(cfg.InvitationSigner.Identity) != nil || cfg.Issuer.Identity.PublicKey.KID == cfg.InvitationSigner.Identity.PublicKey.KID || cfg.Template.IssuerIdentity.PublicKey.KID != cfg.Issuer.Identity.PublicKey.KID || cfg.Template.InvitationSignerIdentity.PublicKey.KID != cfg.InvitationSigner.Identity.PublicKey.KID {
 		return nil, ErrInvalid
 	}
+	pins := map[string]bool{}
+	for _, id := range []identity.DeviceIdentity{cfg.Issuer.Identity, cfg.InvitationSigner.Identity, cfg.Template.RelaySignerIdentity, cfg.Template.ResponderIdentity} {
+		if ValidateIdentity(id) != nil || pins[id.PublicKey.KID] {
+			return nil, ErrInvalid
+		}
+		pins[id.PublicKey.KID] = true
+	}
 	if cfg.RegistryPath != "" && !filepath.IsAbs(cfg.RegistryPath) {
 		return nil, ErrInvalid
 	}
@@ -147,6 +154,8 @@ func (i *Issuer) Exchange(ctx context.Context, x Exchange) (ExchangeResponse, er
 		return i.finish(ctx, x)
 	case "redeem", "status":
 		return i.redeem(ctx, x)
+	case "applied":
+		return i.applied(ctx, x)
 	case "renew", "recover":
 		return i.lifecycle(ctx, x)
 	}

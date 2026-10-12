@@ -29,6 +29,8 @@ type State struct {
 	RelayRevoked        bool                     `json:"relay_revoked"`
 }
 type Operation struct {
+	AppliedAt         time.Time                `json:"applied_at,omitempty"`
+	CreatedAt         time.Time                `json:"created_at"`
 	InstallationID    string                   `json:"installation_id,omitempty"`
 	ID                string                   `json:"id"`
 	State             string                   `json:"state"`

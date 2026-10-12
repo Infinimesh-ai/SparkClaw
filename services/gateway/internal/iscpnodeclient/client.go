@@ -36,6 +36,7 @@ type StoredConfig struct {
 	RelayID             string                  `json:"relay_id"`
 }
 type PendingEnrollment struct {
+	InstallationID   string                           `json:"installation_id"`
 	Version          int                              `json:"version"`
 	CredentialDigest string                           `json:"credential_digest"`
 	OperationID      string                           `json:"operation_id"`
@@ -65,7 +66,7 @@ func New(encoded string, device identity.Device, directory string) (*Client, err
 	if e != nil {
 		return nil, e
 	}
-	client, e := newClient(StoredConfig{v.Origin, v.TLSCertificatePEM, v.IssuerRoute, v.InvitationID, v.IssuerIdentity, v.RelaySignerIdentity, v.ResponderIdentity, iscpnodeissuer.Binding{v.DeploymentID, v.OwnerID, v.ClientID}, 1, v.Scopes, v.RelayID}, device, directory, trust.Grant{})
+	client, e := newClient(StoredConfig{v.Origin, v.TLSCertificatePEM, v.IssuerRoute, v.InvitationID, v.IssuerIdentity, v.RelaySignerIdentity, v.ResponderIdentity, iscpnodeissuer.Binding{DeploymentID: v.DeploymentID, OwnerID: v.OwnerID, ClientID: v.ClientID}, 1, v.Scopes, v.RelayID}, device, directory, trust.Grant{})
 	if e != nil {
 		return nil, e
 	}
@@ -197,13 +198,21 @@ func (cl *Client) Enroll(ctx context.Context) (iscpnodeissuer.EnrollmentResult, 
 		if e != nil {
 			return zero, e
 		}
-		p = PendingEnrollment{Version: 1, CredentialDigest: iscpnodeissuer.Digest(v), OperationID: op, Hello: hello, Private: priv}
+		installation := cl.installationID
+		if installation == "" {
+			installation = op
+		}
+		p = PendingEnrollment{InstallationID: installation, Version: 1, CredentialDigest: iscpnodeissuer.Digest(v), OperationID: op, Hello: hello, Private: priv}
 		if e = cl.write("enrollment.pending", p); e != nil {
 			return zero, e
 		}
 	} else if e != nil {
 		return zero, e
 	}
+	if cl.installationID != "" && cl.installationID != p.InstallationID {
+		return zero, iscpnodeissuer.ErrConflict
+	}
+	cl.installationID = p.InstallationID
 	if p.Version != 1 || p.CredentialDigest != iscpnodeissuer.Digest(v) || p.Hello.Identity.PublicKey.KID != cl.device.Identity.PublicKey.KID {
 		return zero, iscpnodeissuer.ErrConflict
 	}
@@ -280,13 +289,14 @@ func (cl *Client) verifyResult(r iscpnodeissuer.EnrollmentResult) error {
 	if e := iscpnodeissuer.VerifyObject("sparkclaw.iscp.enrollment-result.v1", r, cl.cfg.IssuerIdentity, r.Signature); e != nil {
 		return e
 	}
-	return cl.verifyGrant(r.Grant)
+	return cl.verifyGrantAt(r.Grant, r.Grant.NotBefore)
 }
-func (cl *Client) verifyGrant(g trust.Grant) error {
+func (cl *Client) verifyGrant(g trust.Grant) error { return cl.verifyGrantAt(g, time.Now().UTC()) }
+func (cl *Client) verifyGrantAt(g trust.Grant, at time.Time) error {
 	if g.RevocationEpoch != cl.cfg.Revision || len(g.Permissions) != 1 || g.Permissions[0] != iscpnodeissuer.Permission || len(g.RelayConstraints) != 1 || g.RelayConstraints[0] != cl.cfg.RelayID {
 		return iscpnodeissuer.ErrDenied
 	}
-	return trust.VerifyGrant(c.NewProvider(), g, cl.cfg.IssuerIdentity, trust.VerifyOptions{Audience: cl.cfg.ResponderIdentity.DeviceID, SubjectDeviceID: cl.device.Identity.DeviceID, ConfirmationThumbprint: cl.device.Identity.PublicKey.KID, Permission: iscpnodeissuer.Permission, RelayID: cl.cfg.RelayID, Now: time.Now().UTC()})
+	return trust.VerifyGrant(c.NewProvider(), g, cl.cfg.IssuerIdentity, trust.VerifyOptions{Audience: cl.cfg.ResponderIdentity.DeviceID, SubjectDeviceID: cl.device.Identity.DeviceID, ConfirmationThumbprint: cl.device.Identity.PublicKey.KID, Permission: iscpnodeissuer.Permission, RelayID: cl.cfg.RelayID, Now: at})
 }
 
 // SetInstallationID binds enrollment to the existing desktop installation.

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	ctl "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodecontrol"
 	n "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeissuer"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -131,6 +130,7 @@ func run() error {
 		}
 		return json.Marshal(out)
 	})
+	go peer.RunControlRotation(ctx, signer, template.IssuerRoute)
 	go peer.Run(ctx)
 	go func() {
 		timer := time.NewTicker(10 * time.Second)
@@ -149,20 +149,11 @@ func run() error {
 		return e
 	}
 	socket := filepath.Join(cfg.Directory, "issuer.sock")
-	if info, e := os.Lstat(socket); e == nil {
-		if info.Mode()&os.ModeSocket == 0 {
-			return n.ErrInvalid
-		}
-		return n.ErrConflict
-	}
-	listener, e := net.Listen("unix", socket)
+	listener, e := ctl.ListenPrivateUnix(socket)
 	if e != nil {
 		return e
 	}
 	defer os.Remove(socket)
-	if e = os.Chmod(socket, 0600); e != nil {
-		return e
-	}
 	server := &http.Server{Handler: issuer.ManagementHandler(strings.TrimSpace(string(admin))), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second}
 	go func() {
 		<-ctx.Done()

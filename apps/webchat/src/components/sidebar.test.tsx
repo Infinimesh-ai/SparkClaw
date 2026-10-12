@@ -8,6 +8,26 @@ import { dictionaries } from "../i18n";
 import { SessionSidebar } from "./sidebar";
 
 describe("SessionSidebar navigation and conversations", () => {
+  it("shows each conversation's activity on the right while preserving selection and rename actions", async () => {
+    const select = vi.fn(), rename = vi.fn();
+    const host = document.createElement("div"), root = createRoot(host);
+    const render = (running: "running" | "completed") => root.render(<SessionSidebar text={dictionaries.zh} language="zh"
+      page="chat" ownerProfile={null} sessions={[{ id: "one", title: "正在处理的长标题" }, { id: "two", title: "空对话" }]} activeSession="two"
+      activityBySession={{ one: running }} onCreateSession={() => {}} onSearch={() => {}} onSelectSession={select} onStartRename={rename} />);
+    try {
+      await act(async () => render("running"));
+      const button = host.querySelector<HTMLButtonElement>(".sessionSelect")!;
+      expect(button.lastElementChild?.className).toBe("sessionActivity running");
+      expect(button.querySelector('[aria-label="任务正在进行中…"] svg')).not.toBeNull();
+      expect(host.querySelectorAll(".sessionActivity")).toHaveLength(1);
+      await act(async () => button.click()); expect(select).toHaveBeenCalledWith(expect.objectContaining({ id: "one" }));
+      await act(async () => host.querySelector<HTMLButtonElement>(`[title="${dictionaries.zh.nav.renameSession}"]`)!.click());
+      expect(rename).toHaveBeenCalledWith(expect.objectContaining({ id: "one" }));
+      await act(async () => render("completed"));
+      expect(button.querySelector(".sessionActivity svg")).toBeNull();
+      expect(button.querySelector('[aria-label="任务已完成"] i')).not.toBeNull();
+    } finally { await act(async () => root.unmount()); }
+  });
   it("deletes the requested conversation without selecting it and disables deletion during actions", async () => {
     const onDelete = vi.fn(), onSelect = vi.fn();
     const host = document.createElement("div"), root = createRoot(host);

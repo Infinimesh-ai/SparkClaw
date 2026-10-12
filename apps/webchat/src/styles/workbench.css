@@ -51,6 +51,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .workbench .sessionSelect:before { content: ""; width: 5px; height: 5px; flex-shrink: 0; border-radius: 50%; background: #747c88; }
 .workbench .sessionSelect span { font-size: 12px; font-weight: 400; line-height: 1.4; }
 .workbench .sessionSelect small { display: none; }
+.workbench .sessionSelect .sessionTitle { flex: 1; }
+.workbench .sessionSelect .sessionActivity { display: flex; flex: 0 0 14px; align-items: center; justify-content: center; margin-left: auto; color: var(--cyber-blue); overflow: visible; }
+.sessionActivity.completed i { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--cyber-blue); }
+.sessionActivity.running svg, .taskProgress svg { flex-shrink: 0; animation: task-progress-spin 900ms linear infinite; }
+@keyframes task-progress-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .sessionActivity.running svg, .taskProgress svg { animation: none; }
+}
 .workbench .miniIconButton { border: 0; background: transparent; }
 .workbench .statusDot { width: 6px; height: 6px; box-shadow: none; animation: none; }
 .workbench .statusDot.ready { background: #2b7d56; }

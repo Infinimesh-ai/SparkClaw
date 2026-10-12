@@ -681,12 +681,12 @@ export const api = {
   messages: (sessionId: string) => request<{ messages: Message[] }>(`/api/sessions/${sessionId}/messages`),
   workbenchDraft: (sessionId: string) => request<WorkbenchDraft>(sessionId ? `/api/sessions/${encodeURIComponent(sessionId)}/draft` : "/api/workbench/draft"),
   saveWorkbenchDraft: (sessionId: string, draft: WorkbenchDraft) => request<WorkbenchDraft>(sessionId ? `/api/sessions/${encodeURIComponent(sessionId)}/draft` : "/api/workbench/draft", { method: "PUT", body: JSON.stringify(draft) }),
-  workbenchRequests: async (sessionId: string) => {
+  workbenchRequests: async (sessionId: string, attentionOnly = true) => {
     const rows: WorkbenchRequestStatus[] = [];
     const cursors = new Set<string>();
     let cursor = "";
     do {
-      const query = new URLSearchParams({ attention: "1", ...(cursor ? { cursor } : {}) });
+      const query = new URLSearchParams({ ...(attentionOnly ? { attention: "1" } : {}), ...(cursor ? { cursor } : {}) });
       const page = await request<{ requests: WorkbenchRequestStatus[]; next_cursor?: string }>(`/api/sessions/${encodeURIComponent(sessionId)}/requests?${query}`);
       rows.push(...(page.requests ?? []).map((status) => validateWorkbenchRequestStatus(status, status.request_id)));
       cursor = page.next_cursor ?? "";

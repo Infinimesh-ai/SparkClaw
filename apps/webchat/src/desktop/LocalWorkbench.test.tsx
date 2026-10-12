@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocalWorkbench } from "./LocalWorkbench";
 import { api } from "../api/client";
 import type { SparkClawDesktop, DesktopState } from "./types";
-import type { LocalApproval, LocalDraft } from "./clientStore";
+import type { LocalApproval, LocalConversationContent, LocalDraft, LocalTask } from "./clientStore";
 import { dictionaries, LANGUAGE_STORAGE_KEY } from "../i18n";
 
 function draftAPI() {
@@ -51,6 +51,60 @@ afterEach(() => {
 });
 
 describe("workbench local workbench", () => {
+  it.each(["en", "zh"] as const)("shows immediate task progress, background completion and the original controls in %s", async language => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+    vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
+    vi.spyOn(api, "ready").mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof api.ready>>);
+    vi.spyOn(api, "owner").mockResolvedValue({ id: "owner", display_name: "Test", created_at: "", updated_at: "" });
+    const rows = ["one", "two"].map(id => ({ id, title: `Conversation ${id}`, created_at: "", updated_at: "" }));
+    const histories: Record<string, LocalConversationContent> = { one: { messages: [], tasks: [], files: [] }, two: { messages: [], tasks: [], files: [] } };
+    const task: LocalTask = { id: "task", request_id: "original", status: "awaiting_runtime", created_at: "2026-10-12T00:00:00Z" };
+    const enqueue = vi.fn(async () => {
+      histories.one = { ...histories.one, messages: [{ id: "input", role: "user", content: "Review the plan", created_at: task.created_at }], tasks: [task] };
+      return task;
+    });
+    let accept: () => void = () => {};
+    const submit = vi.fn(() => new Promise<LocalTask>(resolve => { accept = () => { task.status = "running"; resolve(task); }; }));
+    const listeners = new Set<() => void>();
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => rows), create: vi.fn(), read: vi.fn(async id => structuredClone(histories[id])), enqueue,
+      submit, reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn(),
+      saveFile: vi.fn(), exportFile: vi.fn(), onChange: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; } };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
+      backend: { schema_version: 3, transport: "iscp", deployment_id: "test" } })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"), root = createRoot(host);
+    const select = (index: number) => host.querySelectorAll<HTMLButtonElement>(".sessionSelect")[index].click();
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      await act(async () => select(0));
+      const input = host.querySelector<HTMLTextAreaElement>(".composer textarea")!;
+      await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Review the plan"); input.dispatchEvent(new Event("input", { bubbles: true })); });
+      await act(async () => host.querySelector("form.composer")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      expect(host.querySelector(".taskProgress")?.textContent).toBe(dictionaries[language].chat.waiting);
+      expect(host.querySelector(".sessionItem .sessionActivity.running")).not.toBeNull();
+      expect(submit).toHaveBeenCalledExactlyOnceWith(task.request_id);
+      await act(async () => accept());
+      expect(host.querySelector(".taskProgress")).not.toBeNull();
+      await act(async () => select(1));
+      expect(host.querySelector(".taskProgress")).toBeNull();
+      task.status = "delivered";
+      histories.one.messages.push({ id: "answer", role: "assistant", content: "Plan reviewed", created_at: task.created_at });
+      await act(async () => { listeners.forEach(listener => listener()); await new Promise(resolve => setTimeout(resolve, 100)); });
+      expect(host.querySelector(".sessionItem .sessionActivity.completed")).not.toBeNull();
+      expect(host.querySelector(".sessionActivity.running")).toBeNull();
+      await act(async () => select(0));
+      expect(host.textContent).toContain("Plan reviewed"); expect(host.querySelector(".taskProgress")).toBeNull();
+      for (const state of ["failed", "canceled", "unknown"]) {
+        task.status = state;
+        await act(async () => { listeners.forEach(listener => listener()); await new Promise(resolve => setTimeout(resolve, 100)); });
+        expect(host.querySelector(".sessionItem.active .sessionActivity")).toBeNull();
+        expect(host.querySelector(".taskProgress")).toBeNull();
+      }
+      expect(host.querySelector("form.composer")).not.toBeNull();
+      expect(host.querySelector(`[title="${dictionaries[language].nav.renameSession}"]`)).not.toBeNull();
+      expect(host.querySelector(".sidebarScheduleLink")).not.toBeNull();
+      expect(submit).toHaveBeenCalledTimes(1); expect(enqueue).toHaveBeenCalledTimes(1);
+    } finally { await act(async () => root.unmount()); }
+  });
   it.each(['en', 'zh'] as const)('restores original rename, message attachments and stable unavailable entries in %s', async language => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
     const copy = dictionaries[language], row = { id: 'conversation', title: 'Original title', created_at: '', updated_at: '' };

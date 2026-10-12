@@ -9,6 +9,7 @@ import { BrowserPanel } from "./desktop/BrowserPanel";
 import { desktopCapability } from "./desktop/capability";
 import {
   MessageBubble,
+  TaskProgressMessage,
   streamStatusFromEvent,
   upsertStreamStatus
 } from "./components/messages";
@@ -25,6 +26,8 @@ import { usePassiveNotifications } from "./hooks/usePassiveNotifications";
 import { useSchedules } from "./hooks/useSchedules";
 import { useSessionCrud } from "./hooks/useSessionCrud";
 import { useHostWorkbenchDrafts } from "./hooks/useHostWorkbenchDrafts";
+import { useConversationActivity } from "./hooks/useConversationActivity";
+import { conversationActivity, isTaskInProgress } from "./lib/conversationActivity";
 import { useVoiceInput } from "./hooks/useVoiceInput";
 import type { VoiceDraftAnchor } from "./hooks/useVoiceInput";
 import { hasPersistedResultMessage, MESSAGE_STREAM_STARTED_EVENT, messageStreamFailureDisposition } from "./lib/messageStream";
@@ -68,6 +71,7 @@ export function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [streamingMessageID, setStreamingMessageID] = useState("");
   const [requestsBySession, setRequestsBySession] = useState<Record<string, WorkbenchRequestStatus[]>>({});
   const unconfirmedRequests = useRef<Record<string, Record<string, WorkbenchRequestStatus>>>({});
   const [streamStatusesByMessage, setStreamStatusesByMessage] = useState<Record<string, StreamStatus[]>>({});
@@ -98,6 +102,8 @@ export function App() {
   const [authRecovery, setAuthRecovery] = useState(false);
   const [pairRuntimeOpen, setPairRuntimeOpen] = useState(false);
   const [authEpoch, setAuthEpoch] = useState(0);
+  const readActivityStates = useCallback(async (id: string) => (await api.workbenchRequests(id, false)).map(request => request.state), []);
+  const activityBySession = useConversationActivity(sessions.filter(session => session.source !== "mcp").map(session => session.id), readActivityStates, String(authEpoch));
   const [notice, setNotice] = useState("");
   const [desktopConnectionState, setDesktopConnectionState] = useState("checking");
   const passiveNotifications = usePassiveNotifications();
@@ -160,7 +166,7 @@ export function App() {
       api.modelCalls(sessionId),
       api.audit(sessionId),
       api.episodes(sessionId),
-      api.workbenchRequests(sessionId)
+      api.workbenchRequests(sessionId, false)
     ]);
     const unresolved = Object.keys(unconfirmedRequests.current[sessionId] ?? {});
     const reconciled = await Promise.allSettled(unresolved.map((requestID) => api.workbenchRequest(sessionId, requestID)));
@@ -459,6 +465,7 @@ export function App() {
       }
       const submittedDraft = await drafts.repository.flush(sessionId);
       activeMessageStreamRef.current = sessionId;
+      setStreamingMessageID(assistantMessageId);
       const now = new Date().toISOString();
       setMessages((current) => [
         ...current,
@@ -584,6 +591,7 @@ export function App() {
         activeMessageStreamRef.current = "";
       }
       setBusy(false);
+      setStreamingMessageID("");
     }
   }
 
@@ -810,6 +818,8 @@ export function App() {
         onToggleSidebar={() => setSidebarCollapsed(current => !current)}
         sessions={sessions}
         activeSession={activeSession}
+        activityBySession={{ ...activityBySession, ...(activeSession && Object.hasOwn(requestsBySession, activeSession)
+          ? { [activeSession]: conversationActivity((requestsBySession[activeSession] ?? []).map(request => request.state)) } : {}) }}
         editingSession={editingSession}
         sessionTitleDraft={sessionTitleDraft}
         sessionActionId={sessionActionId}
@@ -920,6 +930,7 @@ export function App() {
                   key={message.id}
                   message={message}
                   streamStatuses={streamStatusesByMessage[message.id] ?? []}
+                  inProgress={message.id === streamingMessageID}
                   text={text}
                   language={language}
                   sessionSource={active?.source}
@@ -927,6 +938,9 @@ export function App() {
                 />
               ))
             )}
+            {!streamingMessageID && (requestsBySession[activeSession] ?? []).filter(request => isTaskInProgress(request.state)).map(request =>
+              <TaskProgressMessage key={`progress:${request.request_id}`} id={request.request_id} sessionId={activeSession}
+                createdAt={active?.updated_at ?? ""} text={text} language={language} />)}
           </div>
           {active?.source !== "mcp" && <div className="draftStatus" role="status">
             {draftAlreadySubmitted && <span>{language === "zh" ? "此版本草稿已提交，请先检查原请求状态。" : "This draft revision was submitted. Check the original request status."} </span>}

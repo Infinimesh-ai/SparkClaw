@@ -17,7 +17,9 @@ import { clientStore, type LocalConversation, type LocalConversationContent, typ
 import { desktopCapability } from "./capability";
 import type { DesktopConnectionStatus, DesktopState } from "./types";
 import { BrowserPanel } from "./BrowserPanel";
-import { MessageBubble } from "../components/messages";
+import { MessageBubble, TaskProgressMessage } from "../components/messages";
+import { useConversationActivity } from "../hooks/useConversationActivity";
+import { conversationActivity, isTaskInProgress, localExecutionStates } from "../lib/conversationActivity";
 import { ComposerDocumentPicker, ComposerSurface } from "../components/composer";
 import { useWorkbenchDraft } from "../hooks/useWorkbenchDraft";
 import { useVoiceInput } from "../hooks/useVoiceInput";
@@ -56,6 +58,8 @@ export function LocalWorkbench() {
   const [sessionActionID, setSessionActionID] = useState("");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const [submittingConversation, setSubmittingConversation] = useState("");
+  const [submittingTaskID, setSubmittingTaskID] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -120,6 +124,8 @@ export function LocalWorkbench() {
     Boolean(connection && ["connected", "reconnecting", "service_unavailable"].includes(connection.state)),
     connection?.backend?.deployment_id, connection?.owner_id, currentClientID,
   ]);
+  const readActivityStates = useCallback(async (id: string) => localExecutionStates((await store.read(id)).tasks), [store]);
+  const activityByConversation = useConversationActivity(conversations.map(row => row.id), readActivityStates, localScopeKey, store.onChange);
   const draftScopes = useMemo(() => new Map<string, string>(), [store, localScopeKey]);
   const draftAdapter = useMemo(() => ({
     load: async (id: string) => {
@@ -215,7 +221,7 @@ export function LocalWorkbench() {
     if (!selected) return;
     let active = true;
     const refresh = () => {
-      if (busyRef.current || !active) return;
+      if (!active) return;
       const generation = readGeneration.current;
       void store.read(selected).then((next) => {
         if (active && selectedRef.current === selected && generation === readGeneration.current) setContent(next);
@@ -306,14 +312,19 @@ export function LocalWorkbench() {
   async function save(submit = true) {
     if (!draft.trim() && !inputFiles.length) return;
     await action(async () => {
-      const id = await ensureConversation();
-      const saved = await drafts.flush();
-      const sourceID = drafts.id();
-      const queued = await store.enqueueDraft(id, sourceID, saved.revision, draftScopes.get(sourceID) ?? "");
-      drafts.accept(sourceID, workbenchDraft(queued.draft));
-      if (selectedRef.current === id) setContent(await store.read(id));
-      await reload();
-      if (submit) await submitTask(queued.task, id);
+      if (submit) setSubmittingConversation(selectedRef.current);
+      try {
+        const id = await ensureConversation();
+        if (submit) setSubmittingConversation(id);
+        const saved = await drafts.flush();
+        const sourceID = drafts.id();
+        const queued = await store.enqueueDraft(id, sourceID, saved.revision, draftScopes.get(sourceID) ?? "");
+        if (submit) setSubmittingTaskID(queued.task.id);
+        drafts.accept(sourceID, workbenchDraft(queued.draft));
+        if (selectedRef.current === id) setContent(await store.read(id));
+        await reload();
+        if (submit) await submitTask(queued.task, id);
+      } finally { setSubmittingConversation(""); setSubmittingTaskID(""); }
     });
   }
   async function submitTask(task: LocalTask, id: string) {
@@ -387,12 +398,18 @@ export function LocalWorkbench() {
     bytes: file.size,
     created_at: file.created_at
   })), [content.files]);
-  const home = page === "chat" && !content.messages.length && !content.tasks.length && !content.files.length;
+  const submittingTask = content.tasks.find(task => task.id === submittingTaskID);
+  const submitting = Boolean(selected && submittingConversation === selected &&
+    (!submittingTask || submittingTask.status === "awaiting_runtime" || isTaskInProgress(submittingTask.status)));
+  const home = page === "chat" && !submitting && !content.messages.length && !content.tasks.length && !content.files.length;
+  const pendingTasks = content.tasks.filter(task => isTaskInProgress(task.status) || (submitting && task.id === submittingTaskID));
+  const selectedActivity = submitting ? "running" : content.tasks.length ? conversationActivity(localExecutionStates(content.tasks)) : activityByConversation[selected];
   return <div className={`shell workbench localWorkbench ${settings ? "settingsPageMode" : sidebarCollapsed ? "sidebarCollapsed" : ""}`}>
     {settings ? <WorkspaceSettingsSidebar text={text} language={language} tab={tab}
       pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length} onTabChange={setTab} onBack={() => setSettings(false)} /> : <SessionSidebar
       text={text} language={language} page={page} ownerProfile={ownerProfile}
       sessions={conversations} activeSession={selected} busy={busy}
+      activityBySession={{ ...activityByConversation, ...(selected ? { [selected]: selectedActivity } : {}) }}
       onCreateSession={() => void create()} onSelectSession={(conversation) => void select(conversation.id).catch(surfaceError)}
       editingSession={editingSession} sessionTitleDraft={sessionTitleDraft} sessionActionId={sessionActionID}
       onStartRename={(conversation) => { setEditingSession(conversation.id); setSessionTitleDraft(conversation.title); }}
@@ -445,6 +462,10 @@ export function LocalWorkbench() {
           {content.messages.map((message) => <MessageBubble key={message.id}
             message={{ ...message, session_id: selected }} streamStatuses={[]} text={text} language={language}
             onFeedback={async () => {}} />)}
+          {pendingTasks.map(task => <TaskProgressMessage key={`progress:${task.id}`} id={task.id} sessionId={selected}
+            createdAt={task.created_at} text={text} language={language} />)}
+          {submitting && !pendingTasks.length && <TaskProgressMessage id="submitting" sessionId={selected}
+            createdAt={new Date().toISOString()} text={text} language={language} />}
           {content.tasks.filter((task) => task.status === "delivery_too_large").map((task) => <section className="localFeedback" role="alert" key={task.id}>
             <p>{zh ? "此任务的结果超过当前连接的传输上限，无法取回。已停止重试，任务不会自动重新执行。" : "This task's result exceeds the connection's transfer limit and cannot be retrieved. Retries have stopped; the task will not run again automatically."}</p>
           </section>)}

@@ -1,11 +1,12 @@
 // Session sidebar: the schedule entry, task conversation list, and direct actions.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CalendarDays, LogOut, MoreHorizontal, PanelLeft, Pencil, Save, Search, Settings, SquarePen, Trash2, X } from "lucide-react";
+import { CalendarDays, LoaderCircle, LogOut, MoreHorizontal, PanelLeft, Pencil, Save, Search, Settings, SquarePen, Trash2, X } from "lucide-react";
 import { workbenchCopy, type WorkspacePage } from "./workbench";
 import workbenchMark from "../../../desktop/src/assets/icon.png";
 import type { Copy, Language } from "../i18n";
 import type { OwnerProfile, Session } from "../api/types";
 import { shortId } from "../lib/format";
+import type { ConversationActivity } from "../lib/conversationActivity";
 
 type SidebarConversation = Pick<Session, "id" | "title"> & { source?: string };
 
@@ -16,6 +17,7 @@ type SessionSidebarProps<T extends SidebarConversation> = {
   ownerProfile: OwnerProfile | null;
   sessions: T[];
   activeSession: string;
+  activityBySession?: Record<string, ConversationActivity | undefined>;
   editingSession?: string;
   sessionTitleDraft?: string;
   sessionActionId?: string;
@@ -41,6 +43,7 @@ export function SessionSidebar<T extends SidebarConversation>({
   ownerProfile,
   sessions,
   activeSession,
+  activityBySession = {},
   editingSession = "",
   sessionTitleDraft = "",
   sessionActionId = "",
@@ -150,8 +153,13 @@ export function SessionSidebar<T extends SidebarConversation>({
             ) : (
               <>
                 <button className="sessionSelect" disabled={busy} aria-current={page === "chat" && session.id === activeSession ? "page" : undefined} onClick={() => onSelectSession(session)}>
-                  <span>{session.title}</span>
+                  <span className="sessionTitle">{session.title}</span>
                   <small>{shortId(session.id)}</small>
+                  {activityBySession[session.id] && <span className={`sessionActivity ${activityBySession[session.id]}`}
+                    role="img" aria-label={activityBySession[session.id] === "running" ? text.chat.waiting : text.chat.taskCompleted}
+                    title={activityBySession[session.id] === "running" ? text.chat.waiting : text.chat.taskCompleted}>
+                    {activityBySession[session.id] === "running" ? <LoaderCircle size={13} aria-hidden="true" /> : <i aria-hidden="true" />}
+                  </span>}
                 </button>
                 {(onStartRename || onDeleteSession) && <div className="sessionActions">
                   {onStartRename && <button className="miniIconButton" onClick={() => onStartRename?.(session)} disabled={sessionActionId === session.id} title={text.nav.renameSession}>

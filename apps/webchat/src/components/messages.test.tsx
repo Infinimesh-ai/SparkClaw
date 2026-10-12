@@ -1,7 +1,30 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { dictionaries } from "../i18n";
-import { MessageAttachments, MessageBubble } from "./messages";
+import { MessageAttachments, MessageBubble, TaskProgressMessage } from "./messages";
+
+describe("task progress in the answer", () => {
+  it.each(["en", "zh"] as const)("shows an accessible immediate answer placeholder in %s", language => {
+    const markup = renderToStaticMarkup(<TaskProgressMessage id="request" sessionId="session" createdAt="" text={dictionaries[language]} language={language} />);
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain(dictionaries[language].chat.waiting);
+    expect(markup).toContain("lucide-loader-circle");
+    expect(markup).toContain('class="message assistant"');
+    expect(markup).not.toContain("feedbackBar");
+  });
+  it("replaces the placeholder with streaming content and retains tool activity", () => {
+    const render = (content: string) => renderToStaticMarkup(<MessageBubble
+      message={{ id: "answer", session_id: "session", role: "assistant", content, created_at: "" }} inProgress
+      streamStatuses={[{ id: "waiting", type: "waiting", text: dictionaries.en.chat.waiting }, { id: "tool", type: "tool_started", text: "Reading file" }]}
+      text={dictionaries.en} language="en" onFeedback={async () => {}} />);
+    expect(render("").split(dictionaries.en.chat.waiting)).toHaveLength(2);
+    const markup = render("First answer text");
+    expect(markup).not.toContain("taskProgress");
+    expect(markup).not.toContain(dictionaries.en.chat.waiting);
+    expect(markup).toContain("First answer text");
+    expect(markup).toContain("Reading file");
+  });
+});
 
 describe("MessageAttachments", () => {
   it("renders an assistant weather card as inline media", () => {

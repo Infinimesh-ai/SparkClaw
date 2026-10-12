@@ -54,6 +54,17 @@ describe("documentFileURL", () => {
 });
 
 describe("messageStreamRequestBody", () => {
+  it("reads completed requests for conversation activity through the existing read-only list", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => null });
+    const status = { schema_version: 1, request_id: "finished", input_digest: "a".repeat(64), state: "completed" };
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => ({ ok: true, json: async () => ({ requests: [status] }) }));
+    vi.stubGlobal("fetch", fetch);
+    try {
+      expect(await api.workbenchRequests("session", false)).toEqual([status]);
+      expect(fetch.mock.calls[0][0]).not.toContain("attention=1");
+      expect(fetch.mock.calls[0][1]).not.toHaveProperty("method", "POST");
+    } finally { vi.unstubAllGlobals(); }
+  });
   it("loads every page of unresolved request identities", async () => {
     vi.stubGlobal("localStorage", { getItem: () => null });
     const base = { schema_version: 1, input_digest: "a".repeat(64), state: "unknown" };

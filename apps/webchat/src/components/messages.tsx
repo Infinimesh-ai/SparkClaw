@@ -2,7 +2,7 @@
 // workspace images/screenshots, and stream status lines.
 import { Fragment, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Check, Download, FileQuestion, FileSearch, ThumbsDown, ThumbsUp } from "lucide-react";
+import { Check, Download, FileQuestion, FileSearch, LoaderCircle, ThumbsDown, ThumbsUp } from "lucide-react";
 import { fetchAuthedBlob, fetchDocumentFile, openDocumentFile, workspaceScreenshotURL } from "../api/client";
 import { cssToken, formatTime } from "../lib/format";
 import { MESSAGE_STREAM_STARTED_EVENT } from "../lib/messageStream";
@@ -20,6 +20,7 @@ export function MessageBubble({
   streamStatuses,
   text,
   language,
+  inProgress = false,
   sessionSource,
   onFeedback
 }: {
@@ -27,6 +28,7 @@ export function MessageBubble({
   streamStatuses: StreamStatus[];
   text: Copy;
   language: Language;
+  inProgress?: boolean;
   sessionSource?: string;
   onFeedback: (rating: "up" | "down" | "corrected", correction?: string) => Promise<void>;
 }) {
@@ -50,12 +52,13 @@ export function MessageBubble({
     <article className={`message ${message.role}`}>
       <div className="messageMeta">
         <span>{message.role === "user" ? (sessionSource === "mcp" ? text.chat.requirement : text.chat.you) : text.chat.assistant}</span>
-        <time>{formatTime(message.created_at, language)}</time>
+        {message.created_at && <time>{formatTime(message.created_at, language)}</time>}
       </div>
       {message.attachments && message.attachments.length > 0 && (
         <MessageAttachments attachments={message.attachments} sessionId={message.session_id} text={text} inlineOutputs={message.role === "assistant"} />
       )}
-      {streamStatuses.length > 0 && <StreamStatusList statuses={streamStatuses} />}
+      {inProgress && !message.content.trim() && <div className="taskProgress" role="status"><LoaderCircle size={15} aria-hidden="true" /><span>{text.chat.waiting}</span></div>}
+      {streamStatuses.length > 0 && <StreamStatusList statuses={inProgress ? streamStatuses.filter(status => status.id !== "waiting") : streamStatuses} />}
       {message.content.trim() && <MessageContent content={message.content} sessionId={message.session_id} text={text} />}
       {message.requested_media && message.requested_media.length > 0 && (
         <RequestedMedia locators={message.requested_media} text={text} />
@@ -82,6 +85,13 @@ export function MessageBubble({
       )}
     </article>
   );
+}
+
+export function TaskProgressMessage({ id, sessionId, createdAt, text, language }: {
+  id: string; sessionId: string; createdAt: string; text: Copy; language: Language;
+}) {
+  return <MessageBubble message={{ id: `progress:${id}`, session_id: sessionId, role: "assistant", content: "", created_at: createdAt }}
+    inProgress streamStatuses={[]} text={text} language={language} onFeedback={async () => {}} />;
 }
 
 export function RequestedMedia({ locators, text }: { locators: MessageMediaLocator[]; text: Copy }) {

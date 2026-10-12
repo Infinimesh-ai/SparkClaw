@@ -289,6 +289,16 @@
   margin-top: 10px;
 }
 
+.taskProgress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .streamStatus {
   max-width: 100%;
   padding: 4px 8px;

@@ -40,8 +40,19 @@ func newNodeLifecycle(cfg Config, m material) (*iscpnodeclient.Client, error) {
 }
 
 func recoverNodeRuntime(ctx context.Context, path string, cfg Config, m material) (Config, error) {
-	if cfg.Role != RoleInitiator {
-		return Config{}, errors.New("node service-peer recovery requires its operator adapter")
+	if cfg.Role == RoleResponder {
+		pending := cfg.EnrollmentFile + ".service-recovery.pending"
+		updated, err := iscpbridge.RecoverNodeServiceCredentials(ctx, m.enrollment, m.device, pending)
+		if err != nil {
+			return Config{}, err
+		}
+		if err = iscpbridge.SaveEnrollment(cfg.EnrollmentFile, updated); err != nil {
+			return Config{}, err
+		}
+		if err = iscpbridge.CommitNodeServiceRecovery(pending); err != nil {
+			return Config{}, err
+		}
+		return LoadConfig(path)
 	}
 	client, err := newNodeLifecycle(cfg, m)
 	if err != nil {

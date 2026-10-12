@@ -343,6 +343,17 @@ func (n *NodeResponder) Run(ctx context.Context) error {
 				backoff = time.Second
 			}
 		}
+		if relay, ok := n.relay.(*iscpbridge.RelayClient); ok {
+			bundle := relay.Enrollment()
+			if !time.Now().Before(bundle.Refresh.ExpiresAt) || !time.Now().Before(bundle.ExpiresAt) {
+				pending := n.config.EnrollmentFile + ".service-recovery.pending"
+				if updated, recoveryErr := iscpbridge.RecoverNodeServiceCredentials(ctx, bundle, n.material.device, pending); recoveryErr == nil {
+					if err := relay.UpdateEnrollment(func(b *iscpbridge.EnrollmentBundle) { *b = updated }); err == nil {
+						_ = iscpbridge.CommitNodeServiceRecovery(pending)
+					}
+				}
+			}
+		}
 		n.resetAll()
 		if n.onState != nil {
 			n.onState("disconnected")

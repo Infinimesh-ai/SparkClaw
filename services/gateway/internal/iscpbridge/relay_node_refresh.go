@@ -167,10 +167,15 @@ func (client *RelayClient) refreshNodeCredentials(ctx context.Context) (rotatedR
 		return result, err
 	}
 	digest := c.Base64URL(c.SHA256(canonicalRaw))
-	if receipt.SchemaVersion != 1 || receipt.State != "committed" || receipt.OperationID != p.OperationID || receipt.BindingDigest != digest || receipt.DomainID != client.enrollment.DomainID || receipt.DeviceID != client.enrollment.DeviceID {
+	return openNodeRelayReceipt(receipt, p.OperationID, digest, p.WrapPrivate, client.device.Identity)
+}
+
+func openNodeRelayReceipt(receipt nodeRelayReceipt, operation, digest, private string, id identity.DeviceIdentity) (rotatedRelayCredentials, error) {
+	var result rotatedRelayCredentials
+	if receipt.SchemaVersion != 1 || receipt.State != "committed" || receipt.OperationID != operation || receipt.BindingDigest != digest || receipt.DomainID != id.DomainID || receipt.DeviceID != id.DeviceID {
 		return result, errors.New("Relay refresh receipt binding mismatch")
 	}
-	privRaw, err := c.DecodeBase64URL(p.WrapPrivate)
+	privRaw, err := c.DecodeBase64URL(private)
 	if err != nil {
 		return result, err
 	}
@@ -190,9 +195,9 @@ func (client *RelayClient) refreshNodeCredentials(ctx context.Context) (rotatedR
 	if err != nil {
 		return result, err
 	}
-	transcript := []byte(strings.Join([]string{"sparkclaw/iscp-node/relay-receipt/v1", p.OperationID, digest, receipt.DomainID, receipt.DeviceID, client.device.Identity.PublicKey.KID}, "\x00"))
+	transcript := []byte(strings.Join([]string{"sparkclaw/iscp-node/relay-receipt/v1", operation, digest, receipt.DomainID, receipt.DeviceID, id.PublicKey.KID}, "\x00"))
 	info := append(append(append([]byte(nil), transcript...), priv.PublicKey().Bytes()...), serverRaw...)
-	key, err := client.provider.HKDF(shared, nil, info, 32)
+	key, err := c.NewProvider().HKDF(shared, nil, info, 32)
 	if err != nil {
 		return result, err
 	}
@@ -204,7 +209,7 @@ func (client *RelayClient) refreshNodeCredentials(ctx context.Context) (rotatedR
 	if err != nil {
 		return result, err
 	}
-	plain, err := client.provider.Open(key, nonce, cipher, transcript)
+	plain, err := c.NewProvider().Open(key, nonce, cipher, transcript)
 	if err != nil {
 		return result, errors.New("Relay refresh receipt authentication failed")
 	}

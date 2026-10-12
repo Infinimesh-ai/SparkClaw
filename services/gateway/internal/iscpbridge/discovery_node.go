@@ -20,7 +20,7 @@ func DiscoverNodeRelay(ctx context.Context, bundle EnrollmentBundle) (descriptor
 	if bundle.Mode != BundleModeWorkbenchNodeManaged || bundle.RelaySignerIdentity == nil || ValidateLocalRelaySigner(*bundle.RelaySignerIdentity) != nil {
 		return relay, errors.New("node-managed discovery requires a valid Relay signer pin")
 	}
-	if err := ValidateWorkbenchRelayURLs(ProfileProduction, bundle.RelayBaseURL, bundle.RelayWebSocketURL); err != nil {
+	if err := ValidateNodeRelayURLs(bundle.RelayBaseURL, bundle.RelayWebSocketURL); err != nil {
 		return relay, err
 	}
 	tlsConfig, err := VerifiedTLSConfig(bundle.TLSCertificatePEM)

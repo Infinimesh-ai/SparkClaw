@@ -384,6 +384,9 @@ func (b EnrollmentBundle) ValidateCredentials(now time.Time) error {
 		return errors.New("enrollment Relay refresh credential expired")
 	}
 	if b.Mode == BundleModeWorkbenchNodeManaged {
+		if err := ValidateNodeRelayURLs(b.RelayBaseURL, b.RelayWebSocketURL); err != nil {
+			return err
+		}
 		if b.InvitationSignerIdentity == nil || b.RelaySignerIdentity == nil || b.InvitationSignerIdentity.DomainID != b.DomainID || b.RelaySignerIdentity.DomainID != b.DomainID || b.TLSCertificatePEM == "" {
 			return errors.New("node-managed enrollment requires independent invitation/Relay pins and TLS trust")
 		}

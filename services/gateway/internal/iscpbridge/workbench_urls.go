@@ -48,3 +48,21 @@ func ValidateWorkbenchRelayURLs(profile, baseURL, websocketURL string) error {
 	}
 	return nil
 }
+
+// ValidateNodeRelayURLs freezes the single IP origin selected for this
+// deployment. A signed bundle still cannot redirect WSS or control traffic to
+// another host/port, accept URL credentials, or introduce a second ingress.
+func ValidateNodeRelayURLs(baseURL, websocketURL string) error {
+	base, err := url.Parse(baseURL)
+	if err != nil {
+		return errors.New("invalid node Relay origin")
+	}
+	ws, err := url.Parse(websocketURL)
+	if err != nil {
+		return errors.New("invalid node Relay WSS endpoint")
+	}
+	if base.Scheme != "https" || ws.Scheme != "wss" || net.ParseIP(base.Hostname()) == nil || base.Host != ws.Host || base.User != nil || ws.User != nil || base.Path != "" || ws.Path != "/v2/relay/connect" || base.RawQuery != "" || ws.RawQuery != "" || base.Fragment != "" || ws.Fragment != "" || base.Opaque != "" || ws.Opaque != "" || baseURL != base.String() || websocketURL != ws.String() {
+		return errors.New("node-managed Relay requires one canonical IP HTTPS/WSS origin")
+	}
+	return nil
+}

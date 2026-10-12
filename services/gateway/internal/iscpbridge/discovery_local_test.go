@@ -27,6 +27,17 @@ func TestLocalRelayURLsExplicitAndConfined(t *testing.T) {
 	}
 }
 
+func TestNodeManagedRelayUsesOneIPOrigin(t *testing.T) {
+	if err := ValidateNodeRelayURLs("https://210.16.177.239", "wss://210.16.177.239/v2/relay/connect"); err != nil {
+		t.Fatal(err)
+	}
+	for _, pair := range [][2]string{{"https://210.16.177.239", "wss://210.16.177.239:24443/v2/relay/connect"}, {"https://210.16.177.239", "wss://10.20.0.23/v2/relay/connect"}, {"https://relay.example.com", "wss://relay.example.com/v2/relay/connect"}, {"https://210.16.177.239/path", "wss://210.16.177.239/v2/relay/connect"}, {"https://210.16.177.239", "wss://210.16.177.239/other"}, {"https://210.16.177.239", "wss://210.16.177.239/v2/relay/connect?token=secret"}} {
+		if ValidateNodeRelayURLs(pair[0], pair[1]) == nil {
+			t.Fatal("node credential introduced another origin/path", pair)
+		}
+	}
+}
+
 func TestLocalRelaySignatureDomainAndSignerPin(t *testing.T) {
 	provider := iscpcrypto.NewProvider()
 	now := time.Now().UTC()

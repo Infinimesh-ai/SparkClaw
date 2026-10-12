@@ -2,11 +2,13 @@
 
 > Language: English | [简体中文](../zh-cn/docs/public-iscp-relay-node-issuer-design.md)
 >
-> Date: 2026-10-12. Status: implementation and rollout in progress. TEST1
-> public IP HTTPS/WSS, the work2 private issuer and registered responder/control
-> peers are deployed. Real external registration, refresh, recovery and revocation
-> have evidence; the repaired isolated native relaunch also passes. Current-installation
-> migration and remaining two-device business/UI gates are still in progress.
+> Date: 2026-10-12. Status: requested rollout and acceptance completed. TEST1 public
+> IP HTTPS/WSS, work2 private issuer and responder/control peers are deployed.
+> Native `16b00f17` passes exact-Client migration/default Main cold start, original
+> UI/data, fresh-authority/same-Grant polling repairs, E model/local ACK and original
+> UI revocation/cold denial. Linux/real PostgreSQL and desktop suites pass. D's
+> unconfirmed original submission is retained without replay. Final E server/local
+> ACK parity and the six-revocation paired checkpoint pass.
 > TEST1 is the sole new public application ingress. No domain and no new work2
 > port exposure. Execution owner: Codex in this chat.
 > Current server source: `3a9c2535`; subsequent desktop retry fixes are recorded
@@ -390,7 +392,7 @@ unprotected plaintext-token lookup.
 The deployed cooperating preparation/commit adapter implements this transaction;
 it does not imply that an unmodified upstream reference Relay has the same
 atomicity. Isolated concurrency/restart/negative tests and actual public enrollment
-are recorded separately from the remaining native client-visible completion gates.
+are recorded separately from native installation, UI/data and business acceptance.
 Failure cleanup touches only this operation's staged allocations. An unknown
 commit is reconciled before revocation or retry, preserving previous valid peers.
 
@@ -646,9 +648,9 @@ rotation, lost response and restart. Unknown operations keep their original proo
 wrap key and input. Native relaunch and paired service-restart acceptance are tracked
 separately from those tests.
 
-## 9. Deployed state and remaining acceptance
+## 9. Deployed state and acceptance boundaries
 
-| Area | Implemented/deployed evidence | Remaining gate or boundary |
+| Area | Implemented/deployed evidence | Boundary |
 |---|---|---|
 | Public ingress | PVE `pve-iscp-443.service` forwards only new application TCP 443 to TEST1; outside-PVE TLS/health/discovery pass; public admin and metrics return 403 | Keep existing management/SSH and work2 ports; no domain or new work2 ingress |
 | Relay/device enrollment | Persistent signer, PostgreSQL ticket consumption, approved invitation verifier and registered work2 responder/control peers | Preserve standard ISCP authentication, actor roles and replay rejection; paired real Relay/issuer/forwarder restart passes with stable signer/TLS |
@@ -656,10 +658,10 @@ separately from those tests.
 | Single-origin control | TEST1 sidecar and work2 outbound agent carry allowlisted RPC over ordinary authenticated ISCP sessions | Forwarder cannot issue Grants, decrypt provisioning results or become a business HTTP proxy |
 | Provisioning | Independent X25519 keys, OOB-secret/transcript binding, two finished MACs, signed sealed result and restart-safe operation replay | Unknown outcomes reconcile the same operation; no new device key or second invitation consumption |
 | Registration/refresh/recovery | Atomic ticket/device/credential receipt, durable refresh lineage and key-bound recovery adapters; real A refresh and both-expired recovery pass | Application service-peer recovery is distinct from standard optional lifecycle capabilities |
-| Multi-peer workbench | One responder receive owner, private peer registry, scoped isolated sessions and live Gateway Client validation | Device A revocation must keep B usable; business result/ACK and all remaining native lifecycle gates stay explicit |
-| SparkX integration | Separate ISCP credential parser, original connection/main/helper adapter, schema 2 `node-managed`, native device key storage; helper A/B and an isolated native B initial connection/automatic renewal have evidence | Isolated native relaunch passes after the 30-second/single-flight retry fix; current Mac installation/migration and B/C business/UI gates are not yet accepted |
-| Existing data binding | Private operator-approved one-operation migration reuses the exact existing deployment/Owner/Client and installation identity | Never retag rows or create another Client merely to make existing UI data visible; final native data/selection parity is pending |
-| Validation | Linux supported-platform Gateway suite: 70 packages pass, 10 have no tests; official SDK/conformance packages pass; official local P0 report has 31 pass/0 fail/6 skip | The six service/CLI cases have no endpoint evidence; do not claim hosted-service interoperability or native acceptance from local conformance |
+| Multi-peer workbench | One responder receive owner, private peer registry, scoped isolated sessions and live Client validation; A revoke keeps B usable; B/C identities, real result/digests/ACK, original GUI revoke/self-delete and both cold denials pass | Revoked ClientStore IPC locks while offline persisted result/ACK remains; separately delivered QA was policy-blocked, not every model request succeeds |
+| SparkX integration | Original adapters/UI/native keys; `16b00f17` default Main launch, original create/copy/device list, Main/E registration and identity, real E model/local ACK, original UI revoke/cold denial pass; package parity passes | Final server/local E input/result/durable ACK sequence 1 and qualified checkpoint match; no TTL cache, shared peers or changed quotas/budgets; known revoke/true changes fence old active results, identical verified polls do not cancel checks |
+| Existing data binding | Current Mac retains exact deployment/Owner/Client/installation; two conversations/nine settings remain; all 14 tables and owned files retain hashes; migration exception removed and final server backups complete | No retagging or extra migration Client; this node has Main active and six complete qualification revocation tombstones, with unrelated Gateway Clients preserved; no whole-host reboot claim |
+| Validation | Desktop/WebChat 289/299 pass; file/real PG race and package/helper parity pass; `16b00f17` full Linux 70 pass/10 no tests with real PG opt-in; SDK/conformance pass; local P0 31 pass/0 fail/6 skip | Six service/CLI cases have no endpoint evidence; no hosted-service/native acceptance claim from local conformance |
 | LAN | Original adapter, listeners and UI entry points are retained | No additional work2 LAN rollout or physical LAN acceptance in scope |
 
 The [execution record](public-iscp-node-deployment.md) owns current host paths,
@@ -669,8 +671,8 @@ upstream `47f1f6c231c56c92eff6b6c5d398e037ebcf9602`. Internal persistence and
 application adapters do not change the frozen ISCP wire objects. The official
 local conformance runner does not target a remote endpoint. Actual public SDK
 registration, encrypted connection, refresh, recovery and revoke evidence is
-therefore reported independently. Current-installation migration and any unexecuted
-business acceptance cannot be inferred from a healthy endpoint or those tests.
+therefore reported independently. Actual installation, data and business acceptance
+have separate receipts and cannot be inferred from a healthy endpoint or those tests.
 
 ## 10. Implementation phases and acceptance
 
@@ -735,19 +737,22 @@ wire-contract change is planned.
 
 Codex in this chat owns P0–P6 implementation, host deployment, validation and
 documentation. The user has selected direct execution; no other AI handoff is
-required. Implementation and rollout are underway, following these dependencies and
-preserving resumable evidence at each milestone. Server deployment is recorded;
-current-installation migration and final native business/UI gates are still under validation.
-Use the existing server authorization for inspection and scoped deployment;
-resolve network-owner/trust facts by inspection. Do not ask again for a domain,
-work2 public issuer URL or an already supplied host credential. Report an actual
-new blocker with its evidence if one appears.
+required. The requested rollout and acceptance are complete, with resumable
+evidence at each milestone. Server deployment, exact-Client migration, original
+native business/UI lifecycle and final paired backups are recorded. Installed
+`16b00f17` passes default Main cold launch and independent E qualification; final
+server/local E input/result/durable ACK sequence 1 matches across the qualified
+checkpoint. The node issuer retains Main active and six completed qualification
+revocations; unrelated Gateway Clients remain preserved. D's unknown submission
+remains fenced without replay. InfiniCenter acceptance, the six skipped official
+service/CLI vectors, physical LAN and whole-host reboot are not claimed.
 
-Deliver the sole TEST1 IP origin, public trust material, actual device-registration
-receipts, issuer creation/renewal/revocation instructions, source/binary manifests,
-native acceptance records and exact rollback steps. Preserve original UI/LAN,
-existing business state and unrelated pending/unknown operations. Keep current
-local services and profiles until the new path passes acceptance. Closing the
-work requires an independently enrolled SparkX to use the real work2 backend via
-TEST1, recover after expiry/restart and lose access after deliberate test revocation;
-document completion cannot substitute for that running result.
+The delivered record includes the sole TEST1 IP origin, public trust roles, actual
+device-registration receipts, issuer creation/renewal/revocation behavior,
+source/binary manifests, native acceptance and exact rollback steps. Original
+UI/LAN, business state and unrelated pending/unknown operations remain preserved.
+Retain paired rollback artifacts and existing local services/profiles until their
+retirement is separately authorized. Independent SparkX devices have used the
+real work2 backend via TEST1, recovered after expiry/restart and lost access after
+deliberate test revocation. These running results, rather than document completion
+alone, close the requested scope; uncertain D submission remains preserved.

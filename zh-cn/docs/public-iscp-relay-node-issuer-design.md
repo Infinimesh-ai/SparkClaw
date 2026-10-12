@@ -2,10 +2,12 @@
 
 > 语言：简体中文 | [English](../../docs/public-iscp-relay-node-issuer-design.md)
 >
-> 日期：2026-10-12。状态：正在实施和发布。TEST1 公网 IP HTTPS/WSS、work2
-> 私有签发服务及实际 responder/控制 peer 已部署；公网注册、刷新、恢复、撤销
-> 已有证据；修复后的隔离原生重启也通过，既有安装迁移与剩余双设备业务/UI
-> 门禁继续验证。
+> 日期：2026-10-12。状态：本次部署及要求的验收已完成。TEST1 公网 IP HTTPS/WSS、work2
+> 私有签发服务及 responder/控制 peer 已部署。原生 `16b00f17` 通过精确 Client
+> 迁移/默认 Main 冷启动、原 UI/数据、新鲜授权/同 Grant 轮询修复、E 模型/
+> 本机 ACK 与原界面撤销/冷启动拒绝；Linux/真实 PostgreSQL 及桌面测试通过。
+> D 未确认原提交保持、不回放；最终 E 服务端/本机 ACK 一致性与六条撤销
+> 配对检查点均通过。
 > TEST1 是唯一新增公网应用入口；不使用域名，不新增 work2 开放端口。
 > 执行负责人：本会话 Codex。当前服务端源码为 `3a9c2535`；后续桌面重试修复
 > 单独记录于[执行记录](public-iscp-node-deployment.md)。
@@ -318,8 +320,8 @@ work2 基于该回执幂等提交 Client/授权状态，全部必要记录一致
 仍被拒绝，不将重放证明变成未保护的明文 token 查询。
 
 已部署协作 prepare/commit 适配器实现此事务，不表示未修改的上游参考 Relay
-具有相同原子性。隔离并发/重启/负例及实际公网接入证据与剩余原生客户端
-完成门禁分别记录。失败清理只影响该操作预备分配；未知提交先对账，
+具有相同原子性。隔离并发/重启/负例及实际公网接入证据，与原生安装、
+UI/数据和业务验收分别记录。失败清理只影响该操作预备分配；未知提交先对账，
 再决定撤销或重试，保留已有有效 peer。
 
 ### 6.5 多 SparkX peer 与 Relay 接收行为
@@ -517,9 +519,9 @@ deployment 与期限；双向验证区分角色的 finished 证明后才 ready�
 未知操作保持原证明、wrap 密钥及输入。原生重启和配对服务重启的验收单独记录，
 不能由这些测试推定完成。
 
-## 9. 已部署状态与剩余验收
+## 9. 已部署状态与验收边界
 
-| 部分 | 已实现或部署的证据 | 剩余门禁或边界 |
+| 部分 | 已实现或部署的证据 | 边界 |
 |---|---|---|
 | 公网入口 | PVE `pve-iscp-443.service` 仅新增 TCP 443 至 TEST1；PVE 外部 TLS、health、discovery 通过；公网 admin/metrics 返回 403 | 保留管理、SSH 和 work2 原端口；不增加域名或 work2 入站 |
 | Relay/设备注册 | 持久 signer、PostgreSQL 票据消费、受信邀请验签；实际 work2 responder 与控制 peer 已登记 | 保留标准 ISCP 认证、actor 角色和重放拒绝；实际 Relay/签发/控制组件配对重启通过，signer/TLS 稳定 |
@@ -527,10 +529,10 @@ deployment 与期限；双向验证区分角色的 finished 证明后才 ready�
 | 单入口控制 | TEST1 组件与 work2 出站代理通过普通认证 ISCP session 传送白名单 RPC | 转发方不能签发 Grant、解密 provisioning 结果或成为业务 HTTP 代理 |
 | Provisioning | 两端各自 X25519、带外 secret/transcript 绑定、双向 finished MAC、签名密封结果及跨重启操作回放 | 未知结果对账原操作；不新建设备密钥、不二次消费邀请 |
 | 注册/刷新/恢复 | 事务票据/设备/凭据回执、持久 refresh 轮换链及密钥绑定恢复；真实 A 刷新和双过期恢复通过 | 应用服务 peer 恢复与标准可选生命周期能力明确区分 |
-| 多 peer 工作台 | responder 单接收者、私有 peer 注册表、隔离 scope/session、实时 Gateway Client 校验 | 撤销 A 不影响 B；业务 result/ACK 和剩余原生生命周期门禁分别验收 |
-| SparkX 接入 | 独立 ISCP 前缀、原连接/main/helper 适配、schema 2 `node-managed`、原生设备密钥存储；helper A/B 和隔离原生 B 初连/自动续签有证据 | 隔离原生重启在 30 秒/single-flight 重试修复后通过；当前 Mac 安装/迁移和 B/C 业务/UI 门禁未验收 |
-| 既有数据绑定 | 私有、操作员批准、一次固定操作的迁移复用精确 deployment/Owner/Client 与 installation | 不能改写数据归属或另建 Client 让原数据可见；最终原生数据/选择状态一致性待验收 |
-| 验证 | Linux 支持平台 Gateway 全套 70 包通过、10 包无测试；官方 SDK/conformance 包通过；官方本机 P0 报告 31 pass/0 fail/6 skip | 六项 service/CLI 无 endpoint 证据；不能声称已完成托管服务互通或原生验收 |
+| 多 peer 工作台 | responder 单接收者、私有 peer 注册表、隔离 scope/session、实时 Client 校验；撤销 A 不影响 B；B/C 身份、真实结果/摘要/ACK、原界面撤销/自身删除及两者冷启动拒绝通过 | 撤销后 ClientStore IPC 锁定，离线结果/ACK 保留；另一已投递 QA 被政策阻断，不表示全部模型请求成功 |
+| SparkX 接入 | 原适配器/UI/原生密钥；`16b00f17` 默认 Main 启动、原创建/复制/设备列表、Main/E 注册/身份、真实 E 模型/本机 ACK、原 UI 撤销/冷启动拒绝与包一致性通过 | 最终 E 服务端/本机输入、结果、持久 ACK sequence 1 与 qualified 检查点匹配；无 TTL 缓存、不共享 peer、不改配额/预算；已知撤销/真实变化隔离旧活跃结果，已验证同值轮询不取消检查 |
+| 既有数据绑定 | 当前 Mac 保留精确 deployment/Owner/Client/installation；两条会话/九个设置及全部 14 表/owned files 摘要保留；迁移例外已移除，最终服务端备份完成 | 无归属重写或新增迁移 Client；本节点保留 Main 活跃、六条完整验证撤销 tombstone，其他既有 Gateway Clients 保留，不声称整机已重启 |
+| 验证 | Desktop/WebChat 289/299 通过；文件/真实 PG race 和包/helper 一致性通过；`16b00f17` Linux 全套 70 pass/10 包无测试，真实 PG opt-in 通过；SDK/conformance 通过；本机 P0 为 31 pass/0 fail/6 skip | 六项 service/CLI 无 endpoint 证据，本机 conformance 不证明托管服务/原生验收 |
 | LAN | 原适配器、listener 与 UI 入口保留 | 不增加 work2 LAN 发布或物理 LAN 验收 |
 
 [执行记录](public-iscp-node-deployment.md)负责当前路径、配对备份、发布 manifest
@@ -538,7 +540,7 @@ deployment 与期限；双向验证区分角色的 finished 证明后才 ready�
 规范检查使用上游 `47f1f6c231c56c92eff6b6c5d398e037ebcf9602`。内部持久化与
 应用适配器不改变固定 ISCP wire 对象。官方本机 runner 不连接远端 endpoint，
 因此实际公网 SDK 注册、加密连接、刷新、恢复和撤销证据分列。健康检查或这些
-测试不能代替既有安装迁移及未执行的业务验收。
+测试不能代替实际安装、数据及业务验收；这些验收独立记录。
 
 ## 10. 实施阶段与验收
 
@@ -590,13 +592,17 @@ SQLite/文件，不为切换传输删除工作台。原 Mac Relay/issuer 保留�
 decision/contract 流程；不另造中枢验收。当前不计划修改上游 ISCP wire 契约。
 
 本会话 Codex 负责 P0–P6 的代码、主机部署、验收与文档。用户已选择直接执行，
-不再交接给其他 AI。正在按依赖实施和发布，每个里程碑保留可恢复证据。服务端部署已记录；
-既有安装迁移及最终原生业务/UI 门禁继续验证。使用已有服务器授权完成盘点与范围内部署，通过检查确定网络所属层及
-信任事实；不重复询问域名、work2 公网签发 URL 或已提供的主机凭据。出现
-实际新阻塞时携带证据报告。
+不再交接给其他 AI。本次部署及要求的验收已完成，每个里程碑保留可恢复
+证据。服务端部署、精确 Client 迁移、原生业务/UI 生命周期及最终配对备份
+已记录。已安装的 `16b00f17` 通过默认 Main 冷启动和独立 E 验收；最终
+qualified 检查点前后，E 服务端/本机输入、结果及持久 ACK sequence 1 一致。
+节点签发记录保留 Main 活跃、六条验证撤销完成，其他既有 Gateway Clients
+保留。D 未知提交保持屏障、不回放。不声称 InfiniCenter 接受、六项跳过的
+官方 service/CLI 验收、物理 LAN 或整机重启。
 
-交付唯一 TEST1 IP 入口、公有信任、真实设备注册回执、签发创建/续签/撤销
-说明、源码/二进制清单、原生验收记录和确切回滚。保留原 UI/LAN、既有业务
-状态及无关待完成/未知操作。新链路验收前保留现有本机服务和 profile。完成
-条件是独立接入 SparkX 经 TEST1 使用真实 work2 后端、过期/重启后恢复，且
-在明确的测试撤销后失去访问；文档完成不代替实际运行结果。
+交付记录包含唯一 TEST1 IP 入口、公有信任用途、真实设备注册回执、签发
+创建/续签/撤销行为、源码/二进制清单、原生验收和确切回滚。原 UI/LAN、
+既有业务状态及无关待完成/未知操作保持。配对回滚文件及现有本机服务/
+profile 保留，退役需另有授权。独立 SparkX 已经 TEST1 使用真实 work2 后端，
+过期/重启后恢复，并在明确测试撤销后失去访问。这些实际运行结果使要求的
+范围闭环，文档完成不能代替运行证据；不确定的 D 提交保持原样。

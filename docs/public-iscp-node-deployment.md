@@ -2,9 +2,12 @@
 
 > Language: English | [简体中文](../zh-cn/docs/public-iscp-node-deployment.md)
 >
-> Date: 2026-10-12. Status: server rollout recorded; desktop qualification is
-> in progress. The repaired isolated native relaunch passes; the current Mac
-> installation/migration and B/C business/UI acceptance are not complete. This record must not be read as installation success.
+> Date: 2026-10-12. Status: requested rollout and acceptance completed. Services
+> and native `16b00f17` are deployed. Exact-Client migration, original data/UI,
+> default Main cold launch, E registration/model/server-local ACK/revocation/cold
+> denial and test suites pass. The migration exception is removed; final paired
+> checkpoints retain Main active and six completed revocations. D's unconfirmed
+> qualification request remains preserved without replay.
 
 This is the execution record for the [public Relay/node issuer design](public-iscp-relay-node-issuer-design.md).
 The [deployment guide](deployment.md) remains the general environment reference.
@@ -54,15 +57,81 @@ The recorded server source is `3a9c2535`. Both source archives are named
 `source-3a9c2535.tar.gz` under `/opt/iscp-relay/source` and
 `/opt/sparkclaw-iscp/source`, with SHA-256
 `01ae02012c1cd0c7d74675c79974401752a1edbdc63354a9cd3cb44d985fa212`.
-The isolated desktop retry candidate is `946c2345`: it reuses the existing
-30-second ISCP protocol budget and allows one in-flight retry. The LAN budget
-remains five seconds and the repair changes no UI. Its recorded package audit
-matches 57 source files and five UI assets; ASAR SHA-256 is
-`cdddbc116adcb0e8285d455109b261322d29d7c419e1d34a43dd3580b05fca73`,
-helper SHA-256 is
-`b87cd59bc6578ce9b1a7828e08a2cb4a46c1e4c9d54584034d93dc16a8ba6264`.
-Desktop tests report 275 pass. These candidate checks do not attest to a final
-current-Mac installation or migrated business-data acceptance.
+The current native installation `/Applications/SparkX.app` at `16b00f17` includes
+fresh-authority coalescing and the same-Grant no-op repair. Package parity covers 58 source files and
+five unchanged UI assets; ASAR SHA-256 is
+`66336000981bc7fb7e8ea3cc26925224f001d8a22de085a8f86eb91d58e7e3ba`
+and helper SHA-256 is
+`3348c007fd8c49edbe04e2a47beb7ff158d0717324f1244324328ec4c9fb27ce`.
+Desktop/WebChat suites report 289/299 pass, and affected nodeclient/issuer/workbench/
+helper race tests pass with isolated PostgreSQL. The supported-platform full suite
+for `16b00f17` has 70 passing packages and 10 without tests; real PostgreSQL opt-in
+checks pass separately.
+Server binaries remain `3a9c2535`: this node client is constructed only for the
+initiator/helper, while work2's responder uses live local Gateway authorization.
+Main's normal default cold launch, the E native business lifecycle, server/local
+ACK parity and the final six-revocation checkpoint pass.
+
+Earlier fixes retain the existing 30-second ISCP protocol budget with one in-flight
+identity retry, retain LAN's five-second budget, and reuse the original device UI.
+
+Cold startup retains the four business-request slots. Seven fixed safe GETs
+wait on local pre-write capacity rejection, with 25–250 ms backoff inside the
+caller's original 30-second deadline. Authenticated `throttled` responses for those
+reads can retry at most three times within that same deadline; malformed/unqualified
+429s, 503s, mutations and LAN do not receive this retry. Canceling a view's read
+does not invalidate an otherwise healthy authenticated transport; real helper
+failure/revocation stays authoritative. Authentication/profile changes cancel the
+wait. ISCP identity reads use 30 seconds and LAN retains five seconds.
+The original device UI's `client-<48hex>` issuance key maps durably in
+native encrypted storage to one wire UUID and input fingerprint, so restart or a
+lost result replays the same issuer receipt. No credential enters that mapping.
+The device component reuses the desktop's already verified current Client ID;
+callers without that ID still verify identity before listing devices. This avoids
+redundant startup identity requests while preserving the original component/UI.
+
+Private native diagnostics isolated repeated issuer status roundtrips under the
+client mutex: concurrent business reads and incoming messages each queued another
+fresh check, exhausting the unchanged 30-second read budget. The node client repair
+in `8a48daac` (component `65ee9fb0`) coalesces only overlapping checks for one Client into one fresh signed
+roundtrip. It has no positive-result cache or time TTL; a later nonoverlapping
+caller uses a new operation/proof. Each waiter retains its own deadline, cancels
+independently and receives a private scope slice. Grant/recovery/deletion/enrollment
+mutations and newly observed signed revocation advance a generation fence, so
+late active results cannot cross them. Unknown durable lifecycle requests retain
+their exact proof/receipt and pending kind. Default encrypted-file and isolated
+PostgreSQL race tests cover concurrency, two distinct peers, restart, cancellation,
+denial classification, scope mismatch and delayed active results; workbench/helper
+race tests and vet pass. Repaired Main cold start and Main/D identity isolation
+pass. A later runtime interaction required one further repair: the ten-second
+poll re-accepts the same Grant even when no authority changed. `16b00f17` (component
+`ded02fdf`) recognizes only a cloned, fully verified, byte-identical current Grant
+as a no-op and revalidates it under the client lock. Actual changes retain the
+mutation fence. A private digest only identifies this candidate; it never replaces
+a fresh authorization check. A real TLS check held beyond ten seconds completes
+inside the original 30-second budget despite same-Grant polls; altered
+binding/signature/expiry, aliases and known revocation remain rejected.
+
+D was revoked through Main's original UI and closes live/denies cold start while
+Main remains usable. D request `8c735df2-2ca3-4ce7-97df-941e992a4006` remains
+`submission_pending` with its explicit submission fence and original input digest.
+Eight read-only server observations found no accepted execution fence; absence
+alone does not clear the client's fence. Its private qualification profile is
+retained and the request is not replayed. No D model result/ACK is claimed.
+Independent E subsequently completes actual request
+`8962d263-8e43-44a5-b54d-f4acd50e345e`: model marker present, delivered result
+sequence 1, input digest `885f0499f2f90682319c2c23b7b43ba57ede03930588931cf29782dfdabcf885`,
+result digest `f1f8dce4e1726214d2ec839acdb9d718dc0a849b22174ae131dffa38e34daa3c`
+and local ACK true. Main/E identities remain distinct. Main's original UI then
+revokes E; live access closes and cold start denies, while Main identity returns
+200. The latest correctly awaited default Main launch again passes all four
+startup reads, nine settings, its original Client and two conversations. All Main
+table/file hashes remain unchanged after E closes. The final server checkpoint
+matches both E digests and durable ACK sequence 1 to the local record, before and
+after service restart. Main remains the sole active Client in this node's
+issuer/qualification registrations; unrelated Gateway Clients remain preserved.
+Six qualification revocation tombstones have completed Relay stages. D has no accepted server fence
+and its local unknown submission remains preserved without replay.
 
 ## 3. Trust roles and expiry
 
@@ -125,17 +194,46 @@ Revocation commits the business revision first, denies new business and renewal,
 invalidates only that peer's session, and durably retries Relay revocation until
 its receipt is known. A local row deletion or cached Grant does not imply completed
 transport revocation, and a delayed result cannot restore revoked authority.
+The original UI revoked C with issuer revision 2 and completed its Relay stage;
+B stayed active until its separate original UI self-authorization deletion.
+Both native cold starts then deny authorization. Revoked ClientStore IPC remains
+locked. Offline SQLite inspection after shutdown confirms the delivered
+`ceba5796-dafe-4b10-b0fa-f74acdee9199` record and exactly one acknowledged delivery
+remain; this is data retention evidence, not an unlocked revoked workbench.
 
-The current Mac's existing workbench must remain visible under its **exact original
+The current Mac's existing workbench remains visible under its **exact original
 deployment/Owner/Client and installation binding**. The private migration adapter
 allows `existing_client_id` only for an explicitly configured, fixed one-operation
 migration and verifies the existing Gateway Client's active state and Owner.
 It reuses that Client; it does not retag SQLite rows, clone conversations, create
 another Owner or broaden scopes. This exception is not exposed to arbitrary public
 credential callers. New installations use separately authorized Clients/devices.
-Final native migration, selection, secure-storage and data parity remain pending.
 
-## 5. Evidence and remaining gates
+The recorded Main migration retains deployment
+`431c00ce-b780-42e3-9d25-c25c87c8c011`, Owner `owner`, Client
+`sparkx-iscp-remote-8143225e` and installation
+`f0671ef3-354b-4ec4-b5a4-f581c7604359`, with new device
+`sparkx-5f2a903f-060e-483e-bc0f-54f770dfde2b`. A normal default launch without
+qualification environment overrides exposes the two original conversations and
+nine original settings sections. All 14 SQLite tables and all owned files match
+their pre-install hashes; the receipt separately identifies 13 protected tables.
+Counts remain two conversations, two messages, one task, two drafts and no files.
+`config`, readiness, Owner and Clients reads return 200.
+
+The first migration invitation expired unused. With the issuer stopped, the
+operator verified `issued`, revision 1, no device, no operations and no bound
+operation, backed up its encrypted row as
+`/work2state/expired-unused-migration-row.encrypted.json`, and removed only that
+unused issuer row. The Gateway Client and user database were unchanged. Migration
+then completed through the newly approved fixed operation
+`6ffddd0f-58ba-47b7-8e5d-d47ffe332fb3`. This recorded reconciliation is not a general
+expired-row cleanup policy. The recorded server checkpoint confirms the temporary
+`MigrationClients` map was removed, with every other configuration field unchanged;
+ordinary new-device issuance remains enabled. The final qualified checkpoint has
+Main active and six durable qualification revocation tombstones with all Relay
+stages complete.
+
+## 5. Evidence and acceptance boundaries
 
 Operator-private evidence root:
 `/Users/dev/.cache/sparkclaw-public-iscp-8kr3dw8g/evidence`.
@@ -148,26 +246,34 @@ Only redacted receipts and hashes belong in public documentation.
 | `real-peer-A-refresh.json` | Both tokens rotate; device unchanged; old Refresh returns 401; observed lineage has three rotated records and one active record | Original-operation replay and negative vectors have separate isolated tests |
 | `real-peer-A-recovery.json` | Original device recovers with Grant and Refresh both expired | Does not reauthorize a revoked device or change its scope |
 | `real-peer-A-revocation.json` | A closes after revoke and cold start is denied; B remains usable | Deliberate qualification device only; no real email was sent |
-| `native-B.json`, `native-B-fixed-trace.json` and screenshots | Isolated native initial connection, original UI, automatic renewal and repaired cold start pass; 40-second stable connection/readiness/config/Owner/email-sync/notifications/identity checks | Current Mac installation/migration and B/C model/Owner-create-copy/revoke gates are still in progress |
+| `native-B.json`, `native-B-fixed-trace.json` and screenshots | Isolated native initial connection, original UI, automatic renewal and repaired cold start pass; 40-second stable connection/readiness/config/Owner/email-sync/notifications/identity checks | Renewal/cold-start evidence precedes deliberate qualification-peer revocation |
+| `native-main-migration.json`, `native-main-cold.json`, `original-data-preserved.json` | Exact-Client migration and `16b00f17` correctly awaited normal default cold start pass; nine settings, two conversations, device list, four startup reads at 200; table/file hashes remain unchanged after E closes | Actual current installation/data acceptance; no full-host reboot or physical LAN claim |
+| `final-normal-running.json` | Installed App/helper opened normally without test flags or environment; public `210.16.177.239:443` socket established and App left running | Mac then locked; no new GUI screenshot is claimed. The same `16b00f17` default cold-start/UI and four API reads have separate passing evidence |
+| `real-execution-ack.json` | Real model request `ceba5796-dafe-4b10-b0fa-f74acdee9199` delivers `PUBLIC-ISCP-OK`; server/local input and result digests match and local ACK is recorded | A separate QA request was delivered but blocked by existing `semantic_coverage_low` policy; this is not a claim that every model request succeeds |
+| `native-public-lifecycle.json` and original settings screenshots | Pass: distinct B/C identities, original invitation creation/copy, rename/schedule cancellation, GUI C revoke, B self-deletion and both native cold denials; offline data/one delivered ACK retained | Revoked ClientStore IPC correctly locks; the initial harness expectation to read it while revoked was corrected to offline retention inspection |
 | `server-restart-checkpoint.json` | New paired backups; Relay → issuer → forwarder resume in six seconds, stable signer/TLS, Gateway same container/image and uninterrupted | Covers these new services, not a full host/PVE reboot or native current-profile migration |
-| `linux-final-receipt.json` | Supported-platform full Gateway suite: 70 packages pass, 10 have no tests | External opt-in/central-fixture gates remain separately declared |
+| `server-final-activation-checkpoint.json` | Historical first final activation checkpoint: paired backup and migration-map removal, original Main active/four qualification revocations complete; Relay/issuer/control resume with stable signer/TLS and unchanged healthy Gateway; PVE read-only rules/persistence audit passes | Only new services are stopped/resumed; no claim of a full host/PVE reboot |
+| `server-final-qualified-checkpoint.json`, `server-final-qualified-integrity.json` | Final 13:37:52.760–13:38:07.225 UTC paired checkpoint: Main active/six revocations complete; E input/result/durable ACK match local; stable authority/execution ledger/Gateway/TLS/signer/Nginx; services active/enabled and public control restored; archives/dump catalogs, SHA/size and 0700/0600 modes verified | New services only; D's unconfirmed submission remains fenced, with no accepted server execution |
+| `linux-final-receipt.json` | `16b00f17` supported-platform full Gateway suite: 70 packages pass, 10 have no tests; real PostgreSQL opt-in checks pass | External opt-in/central-fixture gates remain separately declared |
+| `node-authority-coalescing.json` and Go test receipts | Client/issuer/workbench/helper real PG race, waiter/mutation/revocation/peer/scopes and same-Grant >10-second no-op tests and vet pass | Native acceptance has its own E/Main receipts |
+| `native-final-peer-revocation.json`, `disposable-D-preserved-pending.json` | Main original UI issue/copy, D registration, distinct identities, live revoke/cold denial pass; Main remains active; D's unconfirmed task/input digest/submission fence retained without replay | D has no model result/ACK claim; B and E have separate proven deliveries |
+| `native-final-E.json`, `final-E-local-result-ack.json` | Latest helper: original Main UI issue/copy, E registration, distinct Main/E identities, actual model marker/result/server-local ACK parity, original UI E revoke/live close/cold denial; Main stays usable | No claim of every model request succeeding; B's earlier proof and D's unknown submission remain separate |
 | `iscp-official-conformance.json` | Official local P0: 37 cases, 31 pass, 0 fail, 6 skip; SDK/conformance package tests pass | Runner uses local crypto, not a remote endpoint; six service/CLI cases are unqualified here |
 
-Before completion, qualify B/C model request/result/ACK, native Owner invitation
-creation/copy, one-device revoke and current-installation migration with original
-UI/data/LAN preserved. Keep the recorded source/package/helper hashes matched to
-any subsequent candidate. Unexecuted crash windows and official service vectors
-stay explicit. No hosted-service comparison or central accepted contract is
-inferred from local protocol tests.
+The requested flow is qualified with the installed package, matched server/local
+E input/result/ACK and final paired backups. Original UI/data/LAN remain preserved;
+the temporary migration exception is removed. Unexecuted crash windows and official
+service vectors remain explicit. No physical LAN, whole-host reboot, hosted-service
+comparison or central accepted contract is inferred from these tests.
 
 ## 6. Matched backups and rollback
 
 | Layer | Private checkpoint |
 |---|---|
 | PVE | `/root/sparkclaw-public-iscp-pre-20261012-0822`; VM100 and VM104 snapshot `iscp_pre_20261012_0822` |
-| TEST1 | Post-rollout paired checkpoint `/var/backups/iscp-relay/public-node-post-20261012`; `/var/backups/iscp-relay/checkpoint-zzq2wlFM`; activation backup `/root/sparkclaw-public-iscp-activate-20261012`; older signer/database checkpoint `/var/backups/iscp-relay/checkpoint-zmIZ9Lf4` retained |
-| work2 | Post-rollout paired checkpoint `/var/backups/sparkclaw-public-node-post-20261012`; `/var/backups/sparkclaw-iscp-pre-20261012-0822`; stopped rollback container `sparkclaw-gateway-pre-node-20261012` |
-| Mac | `/Users/dev/.cache/sparkclaw-public-iscp-8kr3dw8g/backups/mac`; an additional current pre-install application/profile/data checkpoint is required before installation |
+| TEST1 | Qualified paired checkpoint `/var/backups/iscp-relay/public-node-final-qualified-20261012`; earlier final `/var/backups/iscp-relay/public-node-final-20261012`; post-rollout `/var/backups/iscp-relay/public-node-post-20261012`; `/var/backups/iscp-relay/checkpoint-zzq2wlFM`; activation `/root/sparkclaw-public-iscp-activate-20261012`; older signer/database `/var/backups/iscp-relay/checkpoint-zmIZ9Lf4` retained |
+| work2 | Qualified paired checkpoint `/var/backups/sparkclaw-public-node-final-qualified-20261012`; earlier final `/var/backups/sparkclaw-public-node-final-20261012`; post-rollout `/var/backups/sparkclaw-public-node-post-20261012`; `/var/backups/sparkclaw-iscp-pre-20261012-0822`; stopped rollback container `sparkclaw-gateway-pre-node-20261012` |
+| Mac | Qualified application/userdata/eight default-config checkpoint `/Users/dev/.cache/sparkclaw-public-iscp-8kr3dw8g/backups/final-qualified-current`; prior `/Users/dev/.cache/sparkclaw-public-iscp-8kr3dw8g/backups/pre-install-current`; original `/Users/dev/.cache/sparkclaw-public-iscp-8kr3dw8g/backups/mac`; retained prior app `/Applications/.SparkX-pre-public-iscp-20261012.app` |
 
 The rollback container has `restart=no` to prevent two Gateways starting after a
 host reboot. The active replacement uses `unless-stopped`. Keep their execution/
@@ -175,6 +281,10 @@ Client data and runtime configuration paired; do not start both against the same
 mutable state. Backups can contain authority, tokens and personal data and require
 operator-only access and paired storage/signing keys. Do not copy their contents
 into Git or the desktop credential.
+The final checkpoint verifies backup directories at `0700` and archives/dumps at
+`0600`; signing/storage material and database snapshots remain paired.
+Mac native private keys were not exported. Restoring its matched files requires
+the original Keychain; a filesystem backup is not a replacement device key.
 
 Rollback is ordered and limited to this rollout:
 
@@ -196,7 +306,7 @@ Rollback is ordered and limited to this rollout:
    backend revocation/unknown outcomes before reconnecting; a file restore does
    not revive revoked authority or authorize re-sending an uncertain task/email.
 
-Current server deployment and qualification do not close these desktop gates.
-The paired post-rollout service checkpoint is recorded. Final current-installation
-migration and native business/UI evidence must be added before this record can
-state that the whole rollout is accepted.
+Requested deployment and acceptance are complete with matched server/native
+manifests, current-installation data/UI proof and final qualified backups. D's
+disposable unconfirmed submission stays preserved; completion does not authorize
+its replay or an old-ledger restore over newer effects/revocations.

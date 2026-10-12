@@ -2,9 +2,10 @@
 
 > 语言：简体中文 | [English](../../docs/public-iscp-node-deployment.md)
 >
-> 日期：2026-10-12。状态：服务端发布已有记录，桌面继续验证。当前
-> Mac 安装/迁移及 B/C 业务/UI 尚未完成验收；修复后的隔离原生重启通过，
-> 不能将本文理解为当前安装成功。
+> 日期：2026-10-12。状态：本次部署及要求的验收已完成。服务端与原生
+> `16b00f17` 已部署，精确 Client 迁移、原数据/UI、默认 Main 冷启动、E 注册/
+> 模型/服务端本机 ACK/撤销/冷启动拒绝及测试通过。迁移例外已移除，最终
+> 配对检查点保留 Main 活跃、六条撤销完成；D 未确认验证请求保持、不回放。
 
 本文记录[公共 Relay/节点签发设计](public-iscp-relay-node-issuer-design.md)的执行。
 [部署指南](deployment.md)继续负责通用环境说明。用户已授权本会话 Codex 盘点、
@@ -49,13 +50,66 @@ domain 为 `infinimesh-public`，Relay ID 为 `relay-210-16-177-239`，已配置
 已记录服务端源码为 `3a9c2535`。两端归档分别位于 `/opt/iscp-relay/source` 与
 `/opt/sparkclaw-iscp/source`，文件名 `source-3a9c2535.tar.gz`，SHA-256 为
 `01ae02012c1cd0c7d74675c79974401752a1edbdc63354a9cd3cb44d985fa212`。
-隔离桌面重试候选为 `946c2345`：复用原 30 秒 ISCP 协议预算，限制为一个
-进行中的重试；LAN 仍为五秒，修复不改变 UI。包审计与 57 份源码、五份 UI
-资源一致，ASAR SHA-256 为
-`cdddbc116adcb0e8285d455109b261322d29d7c419e1d34a43dd3580b05fca73`，
+当前原生安装 `/Applications/SparkX.app` 在 `16b00f17` 包含新鲜授权检查合并
+及同 Grant no-op 修复。包审计覆盖 58 份源码和五份未改变的 UI 资源，ASAR SHA-256 为
+`66336000981bc7fb7e8ea3cc26925224f001d8a22de085a8f86eb91d58e7e3ba`，
 helper SHA-256 为
-`b87cd59bc6578ce9b1a7828e08a2cb4a46c1e4c9d54584034d93dc16a8ba6264`。
-桌面测试 275 通过。这些候选检查不能证明当前 Mac 安装或原业务数据迁移已验收。
+`3348c007fd8c49edbe04e2a47beb7ff158d0717324f1244324328ec4c9fb27ce`。
+Desktop/WebChat 分别为 289/299 项通过，nodeclient/issuer/workbench/helper
+race 已用隔离 PostgreSQL 验证通过。`16b00f17` 支持平台全套为 70 包通过、
+10 包无测试，真实 PostgreSQL opt-in 检查另行通过。服务端二进制保留
+`3a9c2535`：此客户端只为 initiator/
+helper 构造，work2 responder 使用本机实时 Gateway 授权。Main 正常默认
+冷启动、E 原生业务生命周期、服务端/本机 ACK 一致性及最终六条撤销检查点
+均通过。
+
+此前修复沿用 30 秒 ISCP 协议预算、一个在途身份重试，保留 LAN 五秒预算，
+复用原设备 UI。
+
+冷启动仍保留四个业务请求 slot。七项固定安全 GET 在本机写入前因容量拒绝
+时等待，以 25–250 毫秒退避共享调用方原有 30 秒期限；这些读取收到已认证
+`throttled` 时也仅在同一期限内最多重试三次。格式错误/不合条件的 429、503、
+mutation 及 LAN 不使用此重试。视图取消读取不会使其余健康已认证传输失效；
+真实 helper 故障/撤销仍为权威，身份/profile 变化取消等待。ISCP 身份读取为
+30 秒，LAN 保留五秒。原设备 UI 的
+`client-<48hex>` 签发 key 在原生加密存储中持久映射为一个 wire UUID 和输入
+指纹，重启或结果丢失时回放同一签发回执，映射不含凭据。设备组件复用桌面
+已经验证的当前 Client ID；没有该 ID 的调用方仍先验证身份再列设备，从而
+避免冗余启动身份请求，保留原组件/UI。
+
+私有原生诊断定位到客户端 mutex 下重复串行的签发状态往返：并发业务读取
+及入站消息分别再排一次新鲜检查，耗尽保持原值的 30 秒读取预算。节点客户端
+`8a48daac` 中的修复（组件 `65ee9fb0`）仅合并同一 Client 的重叠检查，共享
+一次新鲜签名往返；不设置
+活跃结果缓存或时间 TTL，后续不重叠调用使用新 operation/proof。各等待者
+保留自己的期限、独立取消，并收到独立 scope 切片。Grant/恢复/删除/接入
+修改及新观察到的签名撤销推进 generation 屏障，旧活跃结果不能越过；未知
+持久生命周期请求继续保留精确 proof/receipt 和 pending kind。默认加密文件
+与隔离 PostgreSQL race 测试覆盖并发、两个独立 peer、重启、取消、失败分类、
+scope 不符及延迟活跃结果，workbench/helper race 和 vet 通过。修复后的 Main
+冷启动和 Main/D 身份隔离通过。后续运行时交互还需一次修复：十秒轮询即使
+授权没有变化也再次接受同一 Grant。`16b00f17`（组件 `ded02fdf`）只对克隆后
+完整验证、与当前值字节完全相同的 Grant 识别 no-op，在客户端锁下再次验证；
+真实变化仍保留 mutation 屏障。私有摘要只用于识别候选，不能代替新鲜授权
+检查。真实 TLS 检查保持在途超过十秒，同 Grant 轮询不阻断原 30 秒预算，
+绑定/签名/期限变化、调用方别名及已知撤销仍被拒绝。
+
+D 经 Main 原界面撤销，运行中关闭、冷启动拒绝，Main 继续可用。D 请求
+`8c735df2-2ca3-4ce7-97df-941e992a4006` 保持 `submission_pending`、原输入
+摘要及显式提交屏障。八次只读服务端观察未发现已接受执行屏障，但仅凭缺少
+记录不能清除客户端屏障；私有验证 profile 保留，不回放此请求，不声称 D
+模型结果/ACK 成功。独立 E 随后完成真实请求
+`8962d263-8e43-44a5-b54d-f4acd50e345e`：模型标记存在，result sequence 1
+已投递，输入摘要 `885f0499f2f90682319c2c23b7b43ba57ede03930588931cf29782dfdabcf885`、
+结果摘要 `f1f8dce4e1726214d2ec839acdb9d718dc0a849b22174ae131dffa38e34daa3c`，
+本机 ACK 为 true。Main/E 身份保持独立，Main 原 UI 随后撤销 E，运行中关闭、
+冷启动拒绝，Main 身份仍为 200。最终 Main 默认启动以正确等待方式再次通过
+四项启动读取、九个设置、原 Client 和两条会话；E 关闭后 Main 所有表/文件
+摘要仍未改变。最终服务端检查点在服务重启前后，确认 E 的两项摘要及持久
+ACK sequence 1 与本机记录一致。Main 是本节点签发/验证登记中的唯一活跃
+Client，其他既有 Gateway Clients 保留；六条验证撤销 tombstone 的 Relay
+阶段均完成；D 无已接受服务端执行屏障，其本机未知
+提交保持原样，不回放。
 
 ## 3. 信任用途与期限
 
@@ -105,15 +159,37 @@ Refresh 事务提交后继凭据及密封回执，先持久保存再使用。Gra
 撤销先提交业务修订，拒绝新业务和续签，仅使该 peer session 失效，并持久
 重试 Relay 撤销直至取得回执。本机删行或缓存 Grant 不等于传输撤销完成，
 延迟结果不能恢复已撤销授权。
+原界面撤销 C 后，签发修订为 2，Relay 阶段已完成；B 继续活跃，直至在原
+界面另行删除自身授权。两者原生冷启动均拒绝授权，撤销后的 ClientStore IPC
+保持锁定。停机后离线检查 SQLite，确认已投递请求
+`ceba5796-dafe-4b10-b0fa-f74acdee9199` 及恰好一次投递 ACK 仍保留；这是数据
+保留证据，不表示已撤销工作台可解锁访问。
 
-当前 Mac 的原工作台必须在**精确原 deployment/Owner/Client 与 installation
+当前 Mac 的原工作台已在**精确原 deployment/Owner/Client 与 installation
 绑定**下继续可见。私有迁移适配器仅为显式配置、固定一次操作接受
 `existing_client_id`，并验证既有 Gateway Client 活跃且属于原 Owner。它复用
 该 Client，不重新标记 SQLite 行、不复制会话、不另建 Owner、不扩张 scope；
 此例外不向任意公网凭据调用方开放。全新安装使用分别批准的 Client/设备。
-最终原生迁移、选择状态、安全存储和数据一致性仍待验收。
 
-## 5. 证据与剩余门禁
+Main 迁移保留 deployment `431c00ce-b780-42e3-9d25-c25c87c8c011`、Owner
+`owner`、Client `sparkx-iscp-remote-8143225e` 和 installation
+`f0671ef3-354b-4ec4-b5a4-f581c7604359`，新设备为
+`sparkx-5f2a903f-060e-483e-bc0f-54f770dfde2b`。正常默认启动无需资格验证
+环境覆盖，仍能看见原两条会话和九个设置分区。全部 14 个 SQLite 表及所有
+owned files 与安装前摘要一致；回执另行区分 13 个 protected tables。
+数量仍为两条会话、两条消息、一个任务、两份草稿、零文件；config、readiness、
+Owner 和 Clients 读取均为 200。
+
+第一份迁移邀请未使用即过期。停签发服务后，操作员确认其为 `issued`、revision
+1、无设备、无操作及绑定操作，把加密行备份为
+`/work2state/expired-unused-migration-row.encrypted.json`，仅移除此无用签发
+行，既有 Gateway Client 和用户数据库均未改动。随后通过新批准的固定操作
+`6ffddd0f-58ba-47b7-8e5d-d47ffe332fb3` 完成迁移。这是有记录的单次对账，
+不是通用过期行清理政策。已记录的服务端检查点确认临时 `MigrationClients` map 已移除，
+其余配置字段均未改变，普通新设备签发继续可用。最终 qualified 检查点记录
+Main 活跃和六条验证撤销 tombstone 持久保留，Relay 阶段全部完成。
+
+## 5. 证据与验收边界
 
 操作员私有证据根目录：
 `/Users/dev/.cache/sparkclaw-public-iscp-8kr3dw8g/evidence`。
@@ -126,29 +202,42 @@ Refresh 事务提交后继凭据及密封回执，先持久保存再使用。Gra
 | `real-peer-A-refresh.json` | 两类 token 轮换、设备不变、旧 Refresh 401；观察到三个 rotated 和一个 active 轮换记录 | 原操作回放与负例另外使用隔离测试 |
 | `real-peer-A-recovery.json` | Grant、Refresh 同时过期后恢复原设备 | 不重新授权已撤销设备，不改变 scope |
 | `real-peer-A-revocation.json` | A 撤销后关闭，冷启动被拒；B 仍可用 | 仅主动撤销验证设备，没有发送真实邮件 |
-| `native-B.json`、`native-B-fixed-trace.json` 与截图 | 隔离原生初连、原 UI、自动续签、修复后冷启动通过；40 秒连接/readiness/config/Owner/email-sync/notifications/identity 稳定检查 | 当前 Mac 安装/迁移及 B/C 模型、Owner 创建/复制、撤销门禁仍在进行 |
+| `native-B.json`、`native-B-fixed-trace.json` 与截图 | 隔离原生初连、原 UI、自动续签、修复后冷启动通过；40 秒连接/readiness/config/Owner/email-sync/notifications/identity 稳定检查 | 续签/冷启动证据发生于主动撤销验证设备之前 |
+| `native-main-migration.json`、`native-main-cold.json`、`original-data-preserved.json` | 精确 Client 迁移及 `16b00f17` 正确等待的正常默认冷启动通过；九个设置、两条会话、设备列表、四项启动读取 200；E 关闭后表/文件摘要仍不变 | 实际既有安装/数据验收，不声称整机重启或物理 LAN 测试 |
+| `final-normal-running.json` | 已安装 App/helper 无测试 flags/env 正常打开，实际连接公网 `210.16.177.239:443`，应用保持运行 | Mac 随后锁定，不声称新增 GUI 截图；相同 `16b00f17` 默认冷启动/UI 和四项 API 读取另有通过证据 |
+| `real-execution-ack.json` | 真实模型请求 `ceba5796-dafe-4b10-b0fa-f74acdee9199` 投递 `PUBLIC-ISCP-OK`；服务端/本机输入与结果摘要匹配，本机 ACK 已记录 | 另一 QA 请求已投递但被既有 `semantic_coverage_low` 政策阻断，不表示每个模型请求都成功 |
+| `native-public-lifecycle.json` 与原设置截图 | 通过：B/C 独立身份、原邀请创建/复制、重命名/计划取消、界面撤销 C、B 删除自身授权及两者原生冷启动拒绝；离线数据/一次已投递 ACK 保留 | 撤销后 ClientStore IPC 正确锁定；夹具起初期望撤销后读取，已改为停机离线保留检查 |
 | `server-restart-checkpoint.json` | 新配对备份；Relay → 签发 → 控制组件六秒恢复，signer/TLS 稳定，Gateway 容器/镜像未变且未中断 | 仅覆盖这些新服务，不代替整机/PVE 重启或原生原 profile 迁移 |
-| `linux-final-receipt.json` | 支持平台 Gateway 全套 70 包通过、10 包无测试 | 外部显式启用和中枢 fixture 门禁单独声明 |
+| `server-final-activation-checkpoint.json` | 历史首次 final 激活检查点：配对备份、迁移 map 移除完成，原 Main 活跃/四条验证撤销完成；Relay/签发/控制恢复，signer/TLS 稳定，原 Gateway 继续健康；PVE 只读规则/持久化检查通过 | 仅停止/恢复新服务，不声称整机/PVE 已重启 |
+| `server-final-qualified-checkpoint.json`、`server-final-qualified-integrity.json` | 最终 13:37:52.760–13:38:07.225 UTC 配对检查点：Main 活跃/六条撤销完成；E 输入/结果/持久 ACK 与本机一致；权威/执行 ledger/Gateway/TLS/signer/Nginx 不变，服务 active/enabled、公网控制恢复；归档/dump 目录、SHA/size、0700/0600 权限验证 | 仅新服务；D 未确认提交保持屏障，无已接受服务端执行 |
+| `linux-final-receipt.json` | `16b00f17` 支持平台 Gateway 全套 70 包通过、10 包无测试，真实 PostgreSQL opt-in 检查通过 | 外部显式启用和中枢 fixture 门禁单独声明 |
+| `node-authority-coalescing.json` 及 Go 测试回执 | 客户端/签发/workbench/helper 真实 PG race、等待/修改/撤销/peer/scope、同 Grant 超十秒 no-op 测试及 vet 通过 | 原生验收另有 E/Main 回执 |
+| `native-final-peer-revocation.json`、`disposable-D-preserved-pending.json` | Main 原 UI 签发/复制、D 注册、独立身份、运行中撤销/冷启动拒绝通过；Main 活跃；D 未确认任务/输入摘要/提交屏障保持，不回放 | 不声称 D 模型结果/ACK；B 与 E 的真实投递分别有证据 |
+| `native-final-E.json`、`final-E-local-result-ack.json` | 最新 helper：Main 原 UI 签发/复制、E 注册、Main/E 独立身份、真实模型标记/结果/服务端本机 ACK 一致性、原 UI 撤销 E/运行中关闭/冷启动拒绝通过；Main 可用 | 不表示每个模型请求都成功；B 较早证据与 D 未知提交仍分别记录 |
 | `iscp-official-conformance.json` | 官方本机 P0 共 37 case、31 pass、0 fail、6 skip；SDK/conformance 包测试通过 | Runner 使用本机密码向量，不连接远端 endpoint；六项 service/CLI 此处未验收 |
 
-完成前须验收 B/C 模型 request/result/ACK、原生 Owner 邀请创建/复制、单设备
-撤销和既有安装迁移，保留原 UI/数据/LAN。后续候选保持源码/包/helper 摘要
-配对。尚未执行的崩溃窗口或官方 service 向量继续明确列出；本机协议测试
-不能证明托管服务对比或中枢 accepted。
+要求的链路已用实际安装包、服务端/本机 E 输入/结果/ACK 与最终配对备份
+验收。保留原 UI/数据/LAN，临时迁移例外已移除。尚未执行的崩溃窗口及官方
+service 向量仍明确列出；不由这些测试推断物理 LAN、整机重启、托管服务
+对比或中枢 accepted。
 
 ## 6. 配对备份与回滚
 
 | 层 | 私有检查点 |
 |---|---|
 | PVE | `/root/sparkclaw-public-iscp-pre-20261012-0822`；VM100/VM104 snapshot `iscp_pre_20261012_0822` |
-| TEST1 | `/var/backups/iscp-relay/checkpoint-zzq2wlFM`；激活备份 `/root/sparkclaw-public-iscp-activate-20261012`；保留原 signer/数据库检查点 `/var/backups/iscp-relay/checkpoint-zmIZ9Lf4` |
-| work2 | `/var/backups/sparkclaw-iscp-pre-20261012-0822`；已停止回滚容器 `sparkclaw-gateway-pre-node-20261012` |
-| Mac | `/Users/dev/.cache/sparkclaw-public-iscp-8kr3dw8g/backups/mac`；安装前仍须另外建立当前应用/profile/数据的配对检查点 |
+| TEST1 | Qualified 配对检查点 `/var/backups/iscp-relay/public-node-final-qualified-20261012`；此前 final `/var/backups/iscp-relay/public-node-final-20261012`；发布后 `/var/backups/iscp-relay/public-node-post-20261012`；`/var/backups/iscp-relay/checkpoint-zzq2wlFM`；激活 `/root/sparkclaw-public-iscp-activate-20261012`；保留原 signer/数据库 `/var/backups/iscp-relay/checkpoint-zmIZ9Lf4` |
+| work2 | Qualified 配对检查点 `/var/backups/sparkclaw-public-node-final-qualified-20261012`；此前 final `/var/backups/sparkclaw-public-node-final-20261012`；发布后 `/var/backups/sparkclaw-public-node-post-20261012`；`/var/backups/sparkclaw-iscp-pre-20261012-0822`；已停止回滚容器 `sparkclaw-gateway-pre-node-20261012` |
+| Mac | Qualified 应用/userdata/八份默认配置检查点 `/Users/dev/.cache/sparkclaw-public-iscp-8kr3dw8g/backups/final-qualified-current`；此前 `/Users/dev/.cache/sparkclaw-public-iscp-8kr3dw8g/backups/pre-install-current`；原 `/Users/dev/.cache/sparkclaw-public-iscp-8kr3dw8g/backups/mac`；保留旧应用 `/Applications/.SparkX-pre-public-iscp-20261012.app` |
 
 回滚容器设为 `restart=no`，避免主机重启后两个 Gateway 同时启动；活跃替换
 容器为 `unless-stopped`。执行/Client 数据和配置必须配对，不能让两个实例
 同时使用同一可写状态。备份可能含授权、token 和个人数据，仅操作员可访问，
 配对保存存储/签名密钥，不将内容复制到 Git 或桌面凭据中。
+最终检查点确认备份目录权限为 `0700`、归档/dump 为 `0600`，签名/存储材料
+与数据库快照配对保留。
+Mac 原生私钥未导出，恢复配对文件需要原 Keychain；文件系统备份不能代替
+设备私钥。
 
 回滚按顺序进行，范围仅限本次发布：
 
@@ -166,5 +255,6 @@ Refresh 事务提交后继凭据及密封回执，先持久保存再使用。Gra
    文件。新链路原生验收前保留原本机 Relay/issuer/profile。重连前检查既有
    后端撤销和未知结果；恢复文件不能复活撤销授权，不能授权重发不确定任务/邮件。
 
-当前服务端部署和验证不代表桌面门禁完成。发布后配对服务检查点已有记录；最终当前安装迁移及原生业务/UI 证据落盘
-后，本文才能记录整轮发布已验收。
+本次部署及要求的验收已完成，服务端/原生 manifest、既有安装数据/UI 证据和
+qualified 最终备份均配对。D 未确认验证提交保持原样；完成不等于授权回放，
+也不允许用旧 ledger 覆盖更新的副作用/撤销。

@@ -141,10 +141,12 @@ export function InspectorColumn({
   const [authenticatedClientID, setAuthenticatedClientID] = useState("");
   const reloadClients = useCallback(async () => {
     if (onReloadClients) return onReloadClients();
-    const identity = await api.workbenchIdentity();
-    setAuthenticatedClientID(identity.client_id);
+    if (!currentClientID) {
+      const identity = await api.workbenchIdentity();
+      setAuthenticatedClientID(identity.client_id);
+    }
     return (await api.clients()).clients;
-  }, [onReloadClients]);
+  }, [onReloadClients, currentClientID]);
 
   async function endClientLogin() {
     if (onCurrentClientRevoked) { await onCurrentClientRevoked(); return; }

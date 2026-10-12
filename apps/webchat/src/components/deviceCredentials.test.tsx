@@ -16,7 +16,7 @@ const issued: IssuedClientCredential = { client: issuedClient, token: "synthetic
 const refreshGlobal = vi.fn(async () => { throw new Error("global refresh must not delay credential delivery"); });
 const endLogin = vi.fn(async () => {});
 
-function SettingsRoute({ language = "en" }: { language?: Language }) {
+function SettingsRoute({ language = "en", currentClientID, clientsError }: { language?: Language; currentClientID?: string; clientsError?: string }) {
   const [tab, setTab] = useState<PanelTab>("settings");
   const text = dictionaries[language];
   return <>
@@ -28,7 +28,7 @@ function SettingsRoute({ language = "en" }: { language?: Language }) {
       onOpenTrace={() => {}} setError={() => {}} surfaceError={() => {}} refreshGlobal={refreshGlobal}
       refreshActiveSession={async () => {}} setEvalRuns={() => {}} setNotificationBindings={() => {}} setConnectors={() => {}}
       setRuntimeConfig={() => {}} setOwnerProfile={() => {}} onLanguageChange={() => {}} onOpenSchedules={() => {}}
-      onCurrentClientRevoked={endLogin} onLogout={endLogin} />
+      currentClientID={currentClientID} clientsError={clientsError} onCurrentClientRevoked={endLogin} onLogout={endLogin} />
   </>;
 }
 
@@ -94,6 +94,46 @@ afterEach(async () => {
 });
 
 describe("device credentials through the production settings route", () => {
+  it("loads devices using the native verified client ID without repeating whoami", async () => {
+    vi.mocked(api.workbenchIdentity).mockRejectedValue(new Error("the redundant public identity call would time out"));
+    const { host } = await render(<SettingsRoute currentClientID={current.id} />);
+    await visitDevices(host);
+    expect(api.workbenchIdentity).not.toHaveBeenCalled();
+    expect(api.clients).toHaveBeenCalledOnce();
+    expect(host.textContent).toContain(current.id);
+    expect(host.textContent).toContain(dictionaries.en.settings.currentClient);
+    expect(host.textContent).not.toContain(dictionaries.en.settings.clientsLoadFailed);
+  });
+
+  it("still verifies an unprovided identity before loading the client list", async () => {
+    const identity = deferred<Awaited<ReturnType<typeof api.workbenchIdentity>>>();
+    vi.mocked(api.workbenchIdentity).mockReturnValueOnce(identity.promise);
+    const { host } = await render(<SettingsRoute />);
+    await visitDevices(host);
+    expect(api.workbenchIdentity).toHaveBeenCalledOnce(); expect(api.clients).not.toHaveBeenCalled();
+    await act(async () => identity.resolve({ deployment_id: "deployment", owner_id: "owner", client_id: current.id }));
+    expect(api.clients).toHaveBeenCalledOnce();
+    expect(host.textContent).toContain(dictionaries.en.settings.currentClient);
+  });
+
+  it("uses each updated native ID and returns to identity verification when the supplied ID is removed", async () => {
+    const { host, root } = await render(<SettingsRoute currentClientID={current.id} clientsError="pending refresh" />);
+    await visitDevices(host);
+    const next = { ...issuedClient, id: "next-native-device" };
+    vi.mocked(api.clients).mockResolvedValue({ clients: [current, next] });
+    await act(async () => root.render(<SettingsRoute currentClientID={next.id} clientsError="pending refresh" />));
+    await act(async () => button(host, dictionaries.en.settings.retryClients).click());
+    const rows = [...host.querySelectorAll<HTMLElement>(".clientItem")];
+    expect(rows.find(row => row.textContent?.includes(current.id))?.textContent).not.toContain(dictionaries.en.settings.currentClient);
+    expect(rows.find(row => row.textContent?.includes(next.id))?.textContent).toContain(dictionaries.en.settings.currentClient);
+    expect(api.workbenchIdentity).not.toHaveBeenCalled();
+    await act(async () => root.render(<SettingsRoute clientsError="pending refresh" />));
+    await act(async () => button(host, dictionaries.en.settings.retryClients).click());
+    expect(api.workbenchIdentity).toHaveBeenCalledOnce();
+    expect([...host.querySelectorAll<HTMLElement>(".clientItem")].find(row => row.textContent?.includes(current.id))?.textContent).toContain(dictionaries.en.settings.currentClient);
+    expect([...host.querySelectorAll<HTMLElement>(".clientItem")].find(row => row.textContent?.includes(next.id))?.textContent).not.toContain(dictionaries.en.settings.currentClient);
+  });
+
   it.each(["en", "zh"] as const)("finds the section by search and loads confirmed device metadata in %s", async (language) => {
     const { host } = await render(<SettingsRoute language={language} />);
     await visitDevices(host, language);

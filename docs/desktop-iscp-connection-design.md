@@ -5,6 +5,8 @@
 > Date: 2026-10-08. Status: baseline implementation pushed, local Docker reference Relay and installed real-backend text acceptance passed. Automatic grant renewal is implemented; isolated tests, live recovery after the seed Grant expired, installed native-window delivery/reopen and headless original-request reconnect have passed.
 > Scope: implement local SparkX/Gateway integration, without InfiniCenter.
 
+The next public deployment is proposed in the [public Relay and node issuer design](public-iscp-relay-node-issuer-design.md): the sole new public application ingress is TEST1 IP HTTPS/WSS; work2's private issuer is reached through an outbound control agent, while SparkX enrolls through its original credential input. That target preserves ISCP Relay protocol behavior and existing LAN functionality; it does not qualify a new LAN connection or replace the historical local-lab receipts below.
+
 The next dependency-ordered expansion is specified in the [ISCP capability expansion design](desktop-iscp-capability-expansion-design.md): basic APIs → chunked files/artifacts → approvals/events → mail/browser/tools → voice. Those capabilities remain planned and require permission, real-business, recovery and no-HTTP-fallback acceptance before UI enablement.
 
 The 2026-10-09 expansion review sets standing authorization to permanent until manual deletion, permits local Relay changes preserving online Relay compatibility, and terminates approval-waiting tasks on Gateway restart. The twenty-four-hour authorization and unchanged upstream Relay documented below remain historical/implemented baseline facts; these new decisions have not been deployed by the documentation update.

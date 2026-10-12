@@ -163,12 +163,23 @@ func (cl *Client) observeSignedRevocationLocked() {
 	}
 	cl.revoked = true
 	cl.authorityMu.Lock()
+	cl.authorityRevoked = true
 	cl.authorityGeneration++
 	if cl.authorityFlight != nil {
 		cl.authorityFlight.cancel()
 		cl.authorityFlight = nil
 	}
 	cl.signalAuthorityChangeLocked()
+	cl.authorityMu.Unlock()
+}
+
+// Caller holds cl.mu. The digest is a read-only mirror used solely to identify
+// a possible byte-identical AcceptGrant no-op without waiting to cancel a read.
+// It is never evidence of current authorization; every Policy still checks fresh.
+func (cl *Client) rememberPreviousGrantLocked(g trust.Grant) {
+	cl.previous = cloneGrant(g)
+	cl.authorityMu.Lock()
+	cl.authorityGrantDigest = iscpnodeissuer.Digest(cl.previous)
 	cl.authorityMu.Unlock()
 }
 

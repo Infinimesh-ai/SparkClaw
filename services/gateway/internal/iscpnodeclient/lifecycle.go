@@ -142,7 +142,7 @@ func (cl *Client) Renew(ctx context.Context, previous trust.Grant) (trust.Grant,
 	if previous.SubjectDeviceID != cl.device.Identity.DeviceID || previous.Audience != cl.cfg.ResponderIdentity.DeviceID || previous.ConfirmationThumbprint != cl.device.Identity.PublicKey.KID {
 		return trust.Grant{}, iscpnodeissuer.ErrDenied
 	}
-	cl.previous = cloneGrant(previous)
+	cl.rememberPreviousGrantLocked(previous)
 	out, e := cl.lifecycle(ctx, "renew", "renew-"+c.Base64URL(c.RandomBytes(24)), cl.cfg.Revision, true)
 	if e != nil {
 		return trust.Grant{}, e
@@ -171,6 +171,34 @@ func (cl *Client) Renew(ctx context.Context, previous trust.Grant) (trust.Grant,
 	return *out.Grant, nil
 }
 func (cl *Client) AcceptGrant(g trust.Grant) error {
+	g = cloneGrant(g)
+	digest := iscpnodeissuer.Digest(g)
+	cl.authorityMu.Lock()
+	revoked := cl.authorityRevoked
+	unchanged := cl.authorityGrantDigest == digest
+	cl.authorityMu.Unlock()
+	if revoked {
+		return iscpbridge.ErrAuthorizationRevoked
+	}
+	if e := cl.verifyGrant(g); e != nil {
+		return e
+	}
+	if unchanged {
+		// Current's ordinary poll supplies the identical accepted Grant.
+		// Wait for any serialized check/mutation, then revalidate both the
+		// exact current Grant and its expiry without canceling a pure check.
+		cl.mu.Lock()
+		revoked = cl.revoked
+		if !revoked && iscpnodeissuer.Digest(cl.previous) == digest {
+			e := cl.verifyGrant(g)
+			cl.mu.Unlock()
+			return e
+		}
+		cl.mu.Unlock()
+		if revoked {
+			return iscpbridge.ErrAuthorizationRevoked
+		}
+	}
 	end := cl.beginAuthorityMutation()
 	defer end()
 	cl.mu.Lock()
@@ -181,7 +209,7 @@ func (cl *Client) AcceptGrant(g trust.Grant) error {
 	if e := cl.verifyGrant(g); e != nil {
 		return e
 	}
-	cl.previous = cloneGrant(g)
+	cl.rememberPreviousGrantLocked(g)
 	return nil
 }
 func (cl *Client) CommitRenewal() error {

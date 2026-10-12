@@ -48,23 +48,25 @@ type PendingEnrollment struct {
 	Result           *iscpnodeissuer.EnrollmentResult `json:"result,omitempty"`
 }
 type Client struct {
-	mu                  sync.Mutex
-	authorityMu         sync.Mutex
-	authorityFlight     *authorizationFlight
-	authorityChanged    chan struct{}
-	authorityGeneration uint64
-	authorityMutations  uint64
-	credential          *iscpnodeissuer.Credential
-	cfg                 StoredConfig
-	device              identity.Device
-	directory           string
-	http                *http.Client
-	storageKey          []byte
-	pending             *pendingLifecycle
-	previous            trust.Grant
-	completed           *trust.Grant
-	revoked             bool
-	installationID      string
+	mu                   sync.Mutex
+	authorityMu          sync.Mutex
+	authorityFlight      *authorizationFlight
+	authorityChanged     chan struct{}
+	authorityGeneration  uint64
+	authorityMutations   uint64
+	authorityGrantDigest string
+	authorityRevoked     bool
+	credential           *iscpnodeissuer.Credential
+	cfg                  StoredConfig
+	device               identity.Device
+	directory            string
+	http                 *http.Client
+	storageKey           []byte
+	pending              *pendingLifecycle
+	previous             trust.Grant
+	completed            *trust.Grant
+	revoked              bool
+	installationID       string
 }
 
 func New(encoded string, device identity.Device, directory string) (*Client, error) {
@@ -107,7 +109,8 @@ func newClient(cfg StoredConfig, device identity.Device, directory string, previ
 		return nil, e
 	}
 	cfg.Scopes = append([]string(nil), cfg.Scopes...)
-	return &Client{cfg: cfg, device: device, directory: directory, http: h, storageKey: key, previous: cloneGrant(previous)}, nil
+	previous = cloneGrant(previous)
+	return &Client{cfg: cfg, device: device, directory: directory, http: h, storageKey: key, previous: previous, authorityGrantDigest: iscpnodeissuer.Digest(previous)}, nil
 }
 func (cl *Client) StoredConfig() StoredConfig {
 	cfg := cl.cfg
@@ -292,7 +295,7 @@ func (cl *Client) Enroll(ctx context.Context) (iscpnodeissuer.EnrollmentResult, 
 	if e = cl.write("enrollment.pending", p); e != nil {
 		return zero, e
 	}
-	cl.previous = cloneGrant(result.Grant)
+	cl.rememberPreviousGrantLocked(result.Grant)
 	return result, nil
 }
 func (cl *Client) verifyResult(r iscpnodeissuer.EnrollmentResult) error {

@@ -443,6 +443,90 @@ func TestFreshSignedRevocationFencesAlreadyPublishedActiveWaiter(t *testing.T) {
 	}
 }
 
+func TestIdenticalValidatedGrantPollDoesNotStarveFreshCheckPastTenSeconds(t *testing.T) {
+	cl, _, grant := authorityFixture(t, "file")
+	g := gateAuthority(t, cl)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	checking := checkAsync(cl, ctx)
+	g.wait(t)
+	cl.authorityMu.Lock()
+	before := cl.authorityGeneration
+	cl.authorityMu.Unlock()
+	// Simulate the runtime's ten-second Current/AcceptGrant poll while an
+	// already authenticated fresh status response is still in flight.
+	time.Sleep(10 * time.Second)
+	polls := make(chan error, 2)
+	go func() { polls <- cl.AcceptGrant(grant) }()
+	go func() { polls <- cl.AcceptGrant(cloneGrant(grant)) }()
+	time.Sleep(100 * time.Millisecond)
+	cl.authorityMu.Lock()
+	unchanged := cl.authorityGeneration == before && cl.authorityMutations == 0 && cl.authorityFlight != nil
+	cl.authorityMu.Unlock()
+	if !unchanged {
+		t.Fatal("identical validated Grant began an authority mutation")
+	}
+	select {
+	case <-g.canceled:
+		t.Fatal("ordinary Grant poll canceled the fresh check")
+	default:
+	}
+	g.unblock()
+	if p := receivePolicy(t, checking); p.err != nil || !p.policy.Allows("settings.read") {
+		t.Fatal("fresh check lost its original 30-second budget", p)
+	}
+	for range 2 {
+		if err := <-polls; err != nil {
+			t.Fatal("identical Grant poll", err)
+		}
+	}
+	cl.authorityMu.Lock()
+	unchanged = cl.authorityGeneration == before && cl.authorityMutations == 0
+	cl.authorityMu.Unlock()
+	if !unchanged || len(g.checks()) != 1 {
+		t.Fatal("no-op poll restarted the status cohort")
+	}
+	if _, err := cl.AuthorizationPolicy(context.Background()); err != nil || len(g.checks()) != 2 {
+		t.Fatal("same Grant was used as an authority cache", err)
+	}
+}
+
+func TestIdenticalGrantNoopStillVerifiesBindingExpirySignatureAndOwnsSlices(t *testing.T) {
+	cl, issuer, grant := authorityFixture(t, "file")
+	if err := cl.AcceptGrant(grant); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []func(*trust.Grant){
+		func(g *trust.Grant) { g.Audience = "another-responder" },
+		func(g *trust.Grant) { g.SubjectDeviceID = "another-device" },
+		func(g *trust.Grant) { g.RevocationEpoch++ },
+		func(g *trust.Grant) { g.ExpiresAt = time.Now().Add(-time.Second) },
+		func(g *trust.Grant) { g.Signature.Value = "invalid-signature" },
+		func(g *trust.Grant) { g.Permissions[0] = "expanded-permission" },
+	} {
+		bad := cloneGrant(grant)
+		change(&bad)
+		if err := cl.AcceptGrant(bad); err == nil {
+			t.Fatal("altered Grant accepted by no-op path")
+		}
+	}
+	grant.Permissions[0] = "caller-mutated-permission"
+	grant.RelayConstraints[0] = "caller-mutated-relay"
+	current, err := cl.Current(context.Background())
+	if err != nil || cl.verifyGrant(current) != nil {
+		t.Fatal("caller slice mutation changed the accepted Grant", err)
+	}
+	if err = issuer.Revoke(context.Background(), cl.cfg.InvitationID, "revoke-noop-poll", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = cl.AuthorizationPolicy(context.Background()); !errors.Is(err, iscpbridge.ErrAuthorizationRevoked) {
+		t.Fatal(err)
+	}
+	if err = cl.AcceptGrant(current); !errors.Is(err, iscpbridge.ErrAuthorizationRevoked) {
+		t.Fatal("identical Grant revived known signed revocation", err)
+	}
+}
+
 func TestAuthorityWaiterDeadlineAndQueuedMutationCancellation(t *testing.T) {
 	cl, _, _ := authorityFixture(t, "file")
 	g := gateAuthority(t, cl)

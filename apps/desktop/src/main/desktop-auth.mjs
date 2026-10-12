@@ -179,6 +179,7 @@ export class DesktopAuth {
 
   connectionCredential(token) {
     if (!this.descriptor) throw new Error("Backend identity is unavailable");
+    if (this.descriptor.mode === "node-managed") return this.#nodeConnectionCredential(token);
     if (this.descriptor.transport === "iscp") throw new Error("ISCP uses a private helper profile");
     return createConnectionCredential({
       schema_version: this.descriptor.schemaVersion,
@@ -188,6 +189,21 @@ export class DesktopAuth {
       ...(this.descriptor.certificateSHA256 ? { tls_certificate_sha256: this.descriptor.certificateSHA256 } : {}),
       ...(this.descriptor.ca ? { tls_ca_pem: this.descriptor.ca } : {}),
     }, token);
+  }
+
+  async #nodeConnectionCredential(value) {
+    const generation = this.generation, descriptor = this.descriptor;
+    if (this.status.state !== "connected" || !this.connection?.identityVerified) throw new Error("Reconnect to verify the issuer before creating a connection credential");
+    const { payload } = parseISCPConnectionCredential(value);
+    const profile = await loadISCPProfile(this.iscpProfilePath), issuer = profile.nodeIssuer;
+    const sameKey = (left, right) => left?.device_id === right?.device_id && left?.domain_id === right?.domain_id && left?.public_key?.kid === right?.public_key?.kid && left?.public_key?.public === right?.public_key?.public;
+    if (generation !== this.generation || descriptor !== this.descriptor || !issuer || payload.deployment_id !== descriptor.deploymentID || payload.owner_id !== descriptor.ownerID ||
+        payload.domain_id !== descriptor.domainID || payload.origin !== descriptor.relayURL || payload.issuer_route !== issuer.issuerRoute || payload.tls_certificate_pem !== issuer.tlsCertificatePEM ||
+        payload.responder_identity.device_id !== descriptor.responderDeviceID || payload.responder_identity.public_key.kid !== descriptor.responderKeyThumbprint ||
+        !sameKey(payload.issuer_identity, issuer.issuerIdentity) || !sameKey(payload.relay_signer_identity, issuer.relaySignerIdentity) || !sameKey(payload.invitation_signer_identity, issuer.invitationSignerIdentity)) throw new Error("Issued connection credential differs from the verified backend issuer");
+    // clients.issue returns this issuer-signed one-use credential in its existing
+    // token field. Preserve that exact value for the original copy interaction.
+    return value;
   }
 
   async retry() {

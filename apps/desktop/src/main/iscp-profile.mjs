@@ -23,7 +23,16 @@ export async function loadISCPProfile(filename) {
       helper.binding?.deployment_id !== descriptor.deploymentID || helper.binding?.owner_id !== descriptor.ownerID || helper.binding?.client_id !== descriptor.clientID) {
     throw new Error("ISCP helper configuration does not bind this workbench identity");
   }
-  return Object.freeze({ descriptor, publicDescriptor: Object.freeze(profile.backend), configPath: filename, helperConfigPath: profile.helper_config });
+  let nodeIssuer;
+  if (nodeManaged && helper.issuer_control_file !== undefined) {
+    const control = await privateJSON(helper.issuer_control_file), inviter = await privateJSON(helper.invitation_identity_file);
+    if (control.origin !== descriptor.relayURL || control.binding?.deployment_id !== descriptor.deploymentID ||
+        control.binding?.owner_id !== descriptor.ownerID || control.binding?.client_id !== descriptor.clientID ||
+        typeof control.issuer_route !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$/u.test(control.issuer_route)) throw new Error("ISCP issuer control binding differs");
+    nodeIssuer = Object.freeze({ origin: control.origin, issuerRoute: control.issuer_route, tlsCertificatePEM: control.tls_certificate_pem,
+      issuerIdentity: control.issuer_identity, relaySignerIdentity: control.relay_signer_identity, invitationSignerIdentity: inviter });
+  }
+  return Object.freeze({ descriptor, publicDescriptor: Object.freeze(profile.backend), configPath: filename, helperConfigPath: profile.helper_config, ...(nodeIssuer ? { nodeIssuer } : {}) });
 }
 
 async function privateJSON(filename) {

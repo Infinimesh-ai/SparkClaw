@@ -58,7 +58,11 @@ async function fixture(t) {
     assert.equal(auth.status.state, "connected", "previous connection stays active during enrollment");
     await fs.mkdir(privateDir, { recursive: true, mode: 0o700 });
     const helper = path.join(privateDir, "workbench.json"), profile = path.join(privateDir, "connection.profile.json");
-    await fs.writeFile(helper, JSON.stringify({ schema_version: 2, mode: "node-managed", role: "initiator", binding: scope, relay_profile: "production" }), { mode: 0o600 });
+    const control = path.join(privateDir, "issuer.control.json"), inviter = path.join(privateDir, "invitation.identity.json");
+    await fs.writeFile(control, JSON.stringify({ origin: c.payload.origin, tls_certificate_pem: c.payload.tls_certificate_pem, issuer_route: c.payload.issuer_route,
+      binding: scope, issuer_identity: c.payload.issuer_identity, relay_signer_identity: c.payload.relay_signer_identity }), { mode: 0o600 });
+    await fs.writeFile(inviter, JSON.stringify(c.payload.invitation_signer_identity), { mode: 0o600 });
+    await fs.writeFile(helper, JSON.stringify({ schema_version: 2, mode: "node-managed", role: "initiator", binding: scope, relay_profile: "production", issuer_control_file: control, invitation_identity_file: inviter }), { mode: 0o600 });
     await fs.writeFile(profile, JSON.stringify({ schema_version: 2, transport: "iscp", mode: "node-managed", helper_config: helper, backend: descriptor }), { mode: 0o600 });
     return { ipc_version: 1, type: "enrollment", profile_path: profile, descriptor };
   };
@@ -164,4 +168,17 @@ test("native enrollment sends secret only on stdin and rejects nonzero, multiple
     if (failure) await assert.rejects(promise, error => !error.message.includes(f.payload.bootstrap_secret)); else assert.deepEqual(await promise, result);
     assert.equal(received, f.credential + "\n"); assert.ok(!argv.join(" ").includes(f.credential)); assert.ok(!argv.join(" ").includes(f.payload.bootstrap_secret)); assert.ok(argv.includes("keyring")); assert.ok(argv.includes(installationID));
   }
+});
+
+test("original device-copy adapter preserves the issuer credential and rejects foreign Owner, route and signing pins", async t => {
+  const f = await fixture(t); await f.auth.enroll(f.credential);
+  const next = { ...f.payload, invitation_id: crypto.randomUUID(), client_id: "second-client", bootstrap_secret: crypto.randomBytes(32).toString("base64url") };
+  assert.equal(await f.auth.connectionCredential(f.encode(next)), f.encode(next));
+  for (const patch of [{ deployment_id: "other" }, { owner_id: "other" }, { issuer_route: "other-issuer" }, { issuer_identity: identity("other-issuer") },
+    { relay_signer_identity: identity("other-relay-signer") }, { responder_identity: identity("other-responder") }, { invitation_signer_identity: identity("other-inviter"), signature: { alg: "Ed25519", kid: "a".repeat(43), value: "b".repeat(86) } }]) {
+    await assert.rejects(f.auth.connectionCredential(f.encode({ ...next, ...patch })), /differs|invalid/);
+  }
+  await assert.rejects(f.auth.connectionCredential("ordinary-bearer-" + "x".repeat(32)), /invalid/);
+  assert.equal(f.auth.status.state, "connected");
+  await f.auth.logout(); await assert.rejects(f.auth.connectionCredential(f.encode(next)), /Reconnect/);
 });

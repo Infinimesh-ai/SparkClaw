@@ -48,18 +48,23 @@ type PendingEnrollment struct {
 	Result           *iscpnodeissuer.EnrollmentResult `json:"result,omitempty"`
 }
 type Client struct {
-	mu             sync.Mutex
-	credential     *iscpnodeissuer.Credential
-	cfg            StoredConfig
-	device         identity.Device
-	directory      string
-	http           *http.Client
-	storageKey     []byte
-	pending        *pendingLifecycle
-	previous       trust.Grant
-	completed      *trust.Grant
-	revoked        bool
-	installationID string
+	mu                  sync.Mutex
+	authorityMu         sync.Mutex
+	authorityFlight     *authorizationFlight
+	authorityChanged    chan struct{}
+	authorityGeneration uint64
+	authorityMutations  uint64
+	credential          *iscpnodeissuer.Credential
+	cfg                 StoredConfig
+	device              identity.Device
+	directory           string
+	http                *http.Client
+	storageKey          []byte
+	pending             *pendingLifecycle
+	previous            trust.Grant
+	completed           *trust.Grant
+	revoked             bool
+	installationID      string
 }
 
 func New(encoded string, device identity.Device, directory string) (*Client, error) {
@@ -101,9 +106,14 @@ func newClient(cfg StoredConfig, device identity.Device, directory string, previ
 	if e != nil {
 		return nil, e
 	}
-	return &Client{cfg: cfg, device: device, directory: directory, http: h, storageKey: key, previous: previous}, nil
+	cfg.Scopes = append([]string(nil), cfg.Scopes...)
+	return &Client{cfg: cfg, device: device, directory: directory, http: h, storageKey: key, previous: cloneGrant(previous)}, nil
 }
-func (cl *Client) StoredConfig() StoredConfig { return cl.cfg }
+func (cl *Client) StoredConfig() StoredConfig {
+	cfg := cl.cfg
+	cfg.Scopes = append([]string(nil), cfg.Scopes...)
+	return cfg
+}
 func (cl *Client) read(name string, out any) error {
 	path := filepath.Join(cl.directory, name)
 	info, e := os.Lstat(path)
@@ -181,6 +191,8 @@ func (cl *Client) exchange(ctx context.Context, operation, step string, frame an
 	return iscpnodeissuer.StrictDecode(xr.Frame, out)
 }
 func (cl *Client) Enroll(ctx context.Context) (iscpnodeissuer.EnrollmentResult, error) {
+	end := cl.beginAuthorityMutation()
+	defer end()
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	var zero iscpnodeissuer.EnrollmentResult
@@ -280,7 +292,7 @@ func (cl *Client) Enroll(ctx context.Context) (iscpnodeissuer.EnrollmentResult, 
 	if e = cl.write("enrollment.pending", p); e != nil {
 		return zero, e
 	}
-	cl.previous = result.Grant
+	cl.previous = cloneGrant(result.Grant)
 	return result, nil
 }
 func (cl *Client) verifyResult(r iscpnodeissuer.EnrollmentResult) error {
@@ -313,6 +325,8 @@ func (cl *Client) verifyGrantAt(g trust.Grant, at time.Time) error {
 
 // SetInstallationID binds enrollment to the existing desktop installation.
 func (cl *Client) SetInstallationID(id string) error {
+	end := cl.beginAuthorityMutation()
+	defer end()
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	if len(id) < 8 || len(id) > 200 {

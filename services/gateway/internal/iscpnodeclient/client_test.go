@@ -96,6 +96,9 @@ func setupClient(t *testing.T) (*Client, *n.Issuer, *registration, string, *bool
 	return setupClientTTL(t, time.Minute)
 }
 func setupClientTTL(t *testing.T, ttl time.Duration) (*Client, *n.Issuer, *registration, string, *bool) {
+	return setupClientStore(t, ttl, n.NewMemoryStore(), "create-invite-operation")
+}
+func setupClientStore(t *testing.T, ttl time.Duration, store n.Store, operation string) (*Client, *n.Issuer, *registration, string, *bool) {
 	t.Helper()
 	var issuer *n.Issuer
 	drop := false
@@ -128,11 +131,11 @@ func setupClientTTL(t *testing.T, ttl time.Duration) (*Client, *n.Issuer, *regis
 	m := &management{active: map[string]bool{}}
 	reg := &registration{preps: map[string]n.RegistrationPreparation{}, receipts: map[string]n.RegistrationReceipt{}}
 	var e error
-	issuer, e = n.New(n.Config{Template: template, Issuer: signer, InvitationSigner: inviter, GrantTTL: ttl}, n.NewMemoryStore(), m, reg)
+	issuer, e = n.New(n.Config{Template: template, Issuer: signer, InvitationSigner: inviter, GrantTTL: ttl}, store, m, reg)
 	if e != nil {
 		t.Fatal(e)
 	}
-	encoded, e := issuer.CreateInvitation(context.Background(), "SparkX", 10*time.Minute, []string{"settings.read"}, "create-invite-operation")
+	encoded, e := issuer.CreateInvitation(context.Background(), "SparkX", 10*time.Minute, []string{"settings.read"}, operation)
 	if e != nil {
 		t.Fatal("invitation", e)
 	}

@@ -105,7 +105,7 @@ func (cl *Client) lifecycle(ctx context.Context, kind, operation string, revisio
 		}
 	}
 	if p.Result.State == "revoked" {
-		cl.revoked = true
+		cl.observeSignedRevocationLocked()
 		if kind != "delete" && kind != "delete-receipt" {
 			return zero, iscpbridge.ErrAuthorizationRevoked
 		}
@@ -124,7 +124,7 @@ func (cl *Client) HasPendingRenewal() bool {
 }
 func (cl *Client) Current(ctx context.Context) (trust.Grant, error) {
 	cl.mu.Lock()
-	previous := cl.previous
+	previous := cloneGrant(cl.previous)
 	cl.mu.Unlock()
 	if !time.Now().Before(previous.ExpiresAt) {
 		return cl.Renew(ctx, previous)
@@ -132,6 +132,8 @@ func (cl *Client) Current(ctx context.Context) (trust.Grant, error) {
 	return previous, nil
 }
 func (cl *Client) Renew(ctx context.Context, previous trust.Grant) (trust.Grant, error) {
+	end := cl.beginAuthorityMutation()
+	defer end()
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	if cl.revoked {
@@ -140,7 +142,7 @@ func (cl *Client) Renew(ctx context.Context, previous trust.Grant) (trust.Grant,
 	if previous.SubjectDeviceID != cl.device.Identity.DeviceID || previous.Audience != cl.cfg.ResponderIdentity.DeviceID || previous.ConfirmationThumbprint != cl.device.Identity.PublicKey.KID {
 		return trust.Grant{}, iscpnodeissuer.ErrDenied
 	}
-	cl.previous = previous
+	cl.previous = cloneGrant(previous)
 	out, e := cl.lifecycle(ctx, "renew", "renew-"+c.Base64URL(c.RandomBytes(24)), cl.cfg.Revision, true)
 	if e != nil {
 		return trust.Grant{}, e
@@ -169,6 +171,8 @@ func (cl *Client) Renew(ctx context.Context, previous trust.Grant) (trust.Grant,
 	return *out.Grant, nil
 }
 func (cl *Client) AcceptGrant(g trust.Grant) error {
+	end := cl.beginAuthorityMutation()
+	defer end()
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	if cl.revoked {
@@ -177,10 +181,12 @@ func (cl *Client) AcceptGrant(g trust.Grant) error {
 	if e := cl.verifyGrant(g); e != nil {
 		return e
 	}
-	cl.previous = g
+	cl.previous = cloneGrant(g)
 	return nil
 }
 func (cl *Client) CommitRenewal() error {
+	end := cl.beginAuthorityMutation()
+	defer end()
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	var p pendingLifecycle
@@ -202,9 +208,10 @@ func (cl *Client) CommitRenewal() error {
 	cl.completed = nil
 	return nil
 }
-func (cl *Client) AuthorizationPolicy(ctx context.Context) (iscpauth.Policy, error) {
-	cl.mu.Lock()
-	defer cl.mu.Unlock()
+
+// authorizationPolicyLocked performs one fresh, signed check. Its caller holds
+// cl.mu; overlapping readers are coordinated separately by AuthorizationPolicy.
+func (cl *Client) authorizationPolicyLocked(ctx context.Context) (iscpauth.Policy, error) {
 	if cl.revoked {
 		return iscpauth.Policy{}, iscpbridge.ErrAuthorizationRevoked
 	}
@@ -222,6 +229,8 @@ func (cl *Client) CheckAuthorization(ctx context.Context) error {
 	return e
 }
 func (cl *Client) DeleteAuthorization(ctx context.Context, operation string, revision uint64) (iscpauth.DeletionReceipt, error) {
+	end := cl.beginAuthorityMutation()
+	defer end()
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	out, e := cl.lifecycle(ctx, "delete", operation, revision, true)
@@ -240,6 +249,8 @@ func (cl *Client) AuthorizationDeletionReceipt(ctx context.Context, operation st
 // RecoverTransport returns credentials only after a fresh device proof and an
 // atomic Relay recovery receipt. Caller saves credentials/Grant before committing.
 func (cl *Client) RecoverTransport(ctx context.Context) (iscpnodeissuer.LifecycleResult, error) {
+	end := cl.beginAuthorityMutation()
+	defer end()
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	return cl.lifecycle(ctx, "recover", "recover-"+c.Base64URL(c.RandomBytes(24)), cl.cfg.Revision, true)
@@ -259,6 +270,8 @@ func (cl *Client) PendingLifecycleKind() (string, error) {
 	return p.Request.Kind, nil
 }
 func (cl *Client) ResolvePendingLifecycle(ctx context.Context) (iscpnodeissuer.LifecycleResult, error) {
+	end := cl.beginAuthorityMutation()
+	defer end()
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
 	var p pendingLifecycle

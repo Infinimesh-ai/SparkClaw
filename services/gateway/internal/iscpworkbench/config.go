@@ -305,6 +305,11 @@ func loadMaterialMode(cfg Config, controlOnly bool) (material, error) {
 	if err := verifyGrant(cfg, m, verificationTime); err != nil {
 		return m, err
 	}
+	if cfg.Mode == "node-managed" && cfg.Role == RoleInitiator {
+		if _, err := newNodeLifecycle(cfg, m); err != nil {
+			return m, err
+		}
+	}
 	return m, nil
 }
 

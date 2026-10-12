@@ -160,6 +160,7 @@ var envBindings = []envBinding{
 		c.Gateway.WorkbenchISCPLocalTest = value == "1"
 		return nil
 	}},
+	{name: "SPARKCLAW_WORKBENCH_ISCP_NODE_CONFIG", doc: "Separate private node-managed responder configuration; permits retaining the existing local-test responder during verified migration.", apply: envString(func(c *Config) *string { return &c.Gateway.WorkbenchISCPNodeConfig })},
 	{name: "SPARKCLAW_WORKBENCH_ISCP_NODE_MANAGED", doc: "Explicit self-hosted node issuer and multi-device responder opt-in; only 0 and 1 are accepted.", apply: func(c *Config, value string) error {
 		if value != "0" && value != "1" {
 			return fmt.Errorf("SPARKCLAW_WORKBENCH_ISCP_NODE_MANAGED must be 0 or 1")

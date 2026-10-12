@@ -95,6 +95,7 @@ type GatewayConfig struct {
 	WorkbenchISCPConfig      string `json:"-"`
 	WorkbenchISCPLocalTest   bool   `json:"-"`
 	WorkbenchISCPNodeManaged bool   `json:"-"`
+	WorkbenchISCPNodeConfig  string `json:"-"`
 	// WebChatProxyToken authenticates the private WebChat reverse proxy only
 	// for the local pairing bootstrap. It is never a client or owner token.
 	WebChatProxyToken string `json:"-"`

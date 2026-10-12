@@ -7,6 +7,21 @@ import (
 	"testing"
 )
 
+func TestWorkbenchISCPMigrationUsesIndependentExplicitProfiles(t *testing.T) {
+	dir := t.TempDir()
+	cfg := GatewayConfig{DeploymentID: "deployment", WorkbenchISCPConfig: filepath.Join(dir, "old.json"), WorkbenchISCPLocalTest: true, WorkbenchISCPNodeConfig: filepath.Join(dir, "node.json"), WorkbenchISCPNodeManaged: true}
+	if err := normalizeWorkbenchISCPConfig(&cfg); err != nil {
+		t.Fatal("independent migration profiles rejected", err)
+	}
+	for _, change := range []func(*GatewayConfig){func(c *GatewayConfig) { c.WorkbenchISCPNodeConfig = c.WorkbenchISCPConfig }, func(c *GatewayConfig) { c.WorkbenchISCPNodeConfig = "" }, func(c *GatewayConfig) { c.WorkbenchISCPNodeManaged = false }, func(c *GatewayConfig) { c.WorkbenchISCPNodeConfig = "relative.json" }} {
+		bad := cfg
+		change(&bad)
+		if err := normalizeWorkbenchISCPConfig(&bad); err == nil {
+			t.Fatal("overlapping/implicit migration profile accepted")
+		}
+	}
+}
+
 func TestWorkbenchISCPConfigurationRequiresExplicitIsolatedOptIn(t *testing.T) {
 	private := filepath.Join(t.TempDir(), "responder.json")
 	for _, test := range []struct{ name, path, deployment, optIn, wantError string }{

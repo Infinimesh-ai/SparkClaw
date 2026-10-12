@@ -11,20 +11,48 @@ import (
 )
 
 func startWorkbenchISCP(ctx context.Context, cfg config.Config, server *gateway.Server) (*gateway.WorkbenchISCP, error) {
-	if cfg.Gateway.WorkbenchISCPConfig == "" {
-		return nil, nil
+
+	var started []*gateway.WorkbenchISCP
+	type selected struct{ path, mode string }
+	var profiles []selected
+	if cfg.Gateway.WorkbenchISCPConfig != "" {
+		mode := "local-test"
+		if cfg.Gateway.WorkbenchISCPNodeConfig == "" && cfg.Gateway.WorkbenchISCPNodeManaged {
+			mode = "node-managed"
+		}
+		profiles = append(profiles, selected{cfg.Gateway.WorkbenchISCPConfig, mode})
 	}
-	if !cfg.Gateway.WorkbenchISCPLocalTest && !cfg.Gateway.WorkbenchISCPNodeManaged {
-		return nil, errors.New("ISCP workbench local test issuer is not enabled")
+	if cfg.Gateway.WorkbenchISCPNodeConfig != "" {
+		profiles = append(profiles, selected{cfg.Gateway.WorkbenchISCPNodeConfig, "node-managed"})
 	}
-	transport, err := iscpworkbench.LoadRuntimeConfig(ctx, cfg.Gateway.WorkbenchISCPConfig)
-	if err != nil {
-		return nil, errors.New("ISCP workbench responder configuration is invalid or unavailable")
+	for _, profile := range profiles {
+		if profile.mode == "local-test" && !cfg.Gateway.WorkbenchISCPLocalTest || profile.mode == "node-managed" && !cfg.Gateway.WorkbenchISCPNodeManaged {
+			for _, service := range started {
+				_ = service.Close()
+			}
+			return nil, errors.New("ISCP workbench selected issuer is not enabled")
+		}
+		transport, err := iscpworkbench.LoadRuntimeConfig(ctx, profile.path)
+		if err != nil {
+			for _, service := range started {
+				_ = service.Close()
+			}
+			return nil, errors.New("ISCP workbench responder configuration is invalid or unavailable")
+		}
+		if transport.Mode != profile.mode || profile.mode == "local-test" && !cfg.Gateway.WorkbenchISCPLocalTest || profile.mode == "node-managed" && !cfg.Gateway.WorkbenchISCPNodeManaged {
+			for _, service := range started {
+				_ = service.Close()
+			}
+			return nil, errors.New("ISCP workbench mode differs from its explicit Gateway opt-in")
+		}
+		service, err := server.StartWorkbenchISCP(ctx, transport, func(state string) { slog.Info("ISCP workbench responder state", "mode", profile.mode, "state", state) })
+		if err != nil {
+			for _, old := range started {
+				_ = old.Close()
+			}
+			return nil, err
+		}
+		started = append(started, service)
 	}
-	if cfg.Gateway.WorkbenchISCPNodeManaged && transport.Mode != "node-managed" || cfg.Gateway.WorkbenchISCPLocalTest && transport.Mode != "local-test" {
-		return nil, errors.New("ISCP workbench mode differs from explicit Gateway opt-in")
-	}
-	return server.StartWorkbenchISCP(ctx, transport, func(state string) {
-		slog.Info("ISCP workbench responder state", "state", state)
-	})
+	return gateway.JoinWorkbenchISCP(started...), nil
 }

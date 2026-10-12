@@ -12,6 +12,7 @@ import (
 // WorkbenchISCP owns the responder receive connection and its Client revocation
 // registration. It is closed before Gateway storage on process shutdown.
 type WorkbenchISCP struct {
+	children []*WorkbenchISCP
 	endpoint interface {
 		Run(context.Context) error
 		Close() error
@@ -67,6 +68,14 @@ func (s *Server) StartWorkbenchISCP(ctx context.Context, cfg iscpworkbench.Confi
 func (s *WorkbenchISCP) Close() error {
 	var err error
 	s.once.Do(func() {
+		if len(s.children) != 0 {
+			for _, child := range s.children {
+				if childErr := child.Close(); err == nil {
+					err = childErr
+				}
+			}
+			return
+		}
 		s.cancel()
 		err = s.endpoint.Close()
 		<-s.done
@@ -77,7 +86,7 @@ func (s *WorkbenchISCP) Close() error {
 // startNodeWorkbenchISCP retains the Gateway Client authority and every existing
 // business handler. A shared responder transport routes to isolated peer adapters.
 func (s *Server) startNodeWorkbenchISCP(ctx context.Context, cfg iscpworkbench.Config, onState func(string)) (*WorkbenchISCP, error) {
-	if !s.cfg.Gateway.WorkbenchISCPNodeManaged || s.cfg.Gateway.WorkbenchISCPLocalTest || cfg.Mode != "node-managed" || cfg.SchemaVersion != 2 {
+	if !s.cfg.Gateway.WorkbenchISCPNodeManaged || cfg.Mode != "node-managed" || cfg.SchemaVersion != 2 {
 		return nil, errors.New("node-managed responder requires explicit Gateway opt-in")
 	}
 	ctx, cancel := context.WithCancel(ctx)
@@ -101,4 +110,22 @@ func (s *Server) startNodeWorkbenchISCP(ctx context.Context, cfg iscpworkbench.C
 		}
 	}()
 	return service, nil
+}
+
+// JoinWorkbenchISCP keeps independently keyed old/new responder transports alive
+// during an audited migration and closes both before Gateway storage shutdown.
+func JoinWorkbenchISCP(services ...*WorkbenchISCP) *WorkbenchISCP {
+	children := make([]*WorkbenchISCP, 0, len(services))
+	for _, service := range services {
+		if service != nil {
+			children = append(children, service)
+		}
+	}
+	if len(children) == 0 {
+		return nil
+	}
+	if len(children) == 1 {
+		return children[0]
+	}
+	return &WorkbenchISCP{children: children}
 }

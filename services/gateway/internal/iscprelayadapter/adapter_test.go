@@ -276,6 +276,12 @@ func TestDurableTransactionsReplayRefreshRecoveryAndRevocation(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	defer tx.Rollback(ctx)
+	// This fixture is the operator-approved bootstrap; ordinary preparations
+	// may not adopt an unrelated existing transport identity.
+	if e = a.claim(ctx, tx, service.Identity, false); e != nil {
+		t.Fatal(e)
+	}
 	if e = a.createDevice(ctx, tx, service.Identity); e != nil {
 		t.Fatal(e)
 	}

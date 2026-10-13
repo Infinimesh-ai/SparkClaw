@@ -32,8 +32,10 @@ func (p *Peer) maintainServiceCredentials(ctx context.Context) error {
 		return e
 	}
 	p.mu.Lock()
+	p.failPendingLocked()
 	p.state = nil
 	p.local = session.LocalHello{}
+	p.lastHelloSent = time.Time{}
 	p.mu.Unlock()
 	return nil
 }

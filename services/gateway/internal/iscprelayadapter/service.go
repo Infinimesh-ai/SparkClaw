@@ -43,12 +43,15 @@ func (a *Adapter) VerifyServicePeer(ctx context.Context, p ServiceVerification) 
 	if lock(ctx, tx, "service-proof:"+p.Identity.DeviceID+":"+p.Proof.Nonce) != nil || lock(ctx, tx, "device:"+a.cfg.DomainID+":"+p.Identity.DeviceID) != nil {
 		return unavailable()
 	}
+	if e = a.claimService(ctx, tx, p.Identity); e != nil {
+		return e
+	}
 	if e = a.checkStoredIdentity(ctx, tx, p.Identity); e != nil {
 		return e
 	}
 	digest := node.Digest(p)
 	var old string
-	e = tx.QueryRow(ctx, "SELECT binding_digest FROM iscp_relay.node_service_proofs WHERE domain_id=$1 AND device_id=$2 AND nonce=$3", a.cfg.DomainID, p.Identity.DeviceID, p.Proof.Nonce).Scan(&old)
+	e = tx.QueryRow(ctx, "SELECT binding_digest FROM iscp_relay.node_service_proofs WHERE domain_id=$1 AND device_id=$2 AND nonce=$3 AND authority_id=$4", a.cfg.DomainID, p.Identity.DeviceID, p.Proof.Nonce, a.authority).Scan(&old)
 	if e == nil {
 		if old != digest {
 			return conflict("service_proof_binding_conflict")
@@ -61,7 +64,7 @@ func (a *Adapter) VerifyServicePeer(ctx context.Context, p ServiceVerification) 
 	if p.Proof.DomainID != p.Identity.DomainID || p.Proof.DeviceID != p.Identity.DeviceID || p.Proof.Nonce == "" || identity.VerifyProof(c.NewProvider(), p.Identity, p.Proof, p.Proof.Audience, p.Challenge, a.now(), time.Minute) != nil {
 		return Error{"device_proof_invalid", 401}
 	}
-	_, e = tx.Exec(ctx, "INSERT INTO iscp_relay.node_service_proofs(domain_id,device_id,nonce,binding_digest,created_at) VALUES($1,$2,$3,$4,$5)", a.cfg.DomainID, p.Identity.DeviceID, p.Proof.Nonce, digest, a.now())
+	_, e = tx.Exec(ctx, "INSERT INTO iscp_relay.node_service_proofs(domain_id,device_id,nonce,binding_digest,created_at,authority_id) VALUES($1,$2,$3,$4,$5,$6)", a.cfg.DomainID, p.Identity.DeviceID, p.Proof.Nonce, digest, a.now(), a.authority)
 	if e != nil || tx.Commit(ctx) != nil {
 		return unavailable()
 	}
@@ -96,8 +99,11 @@ func (a *Adapter) ServiceRecover(r *http.Request) (json.RawMessage, error) {
 		return nil, unavailable()
 	}
 	defer tx.Rollback(ctx)
-	if lock(ctx, tx, "operation:"+p.OperationID) != nil || lock(ctx, tx, "device:"+a.cfg.DomainID+":"+p.Identity.DeviceID) != nil {
+	if lock(ctx, tx, "operation:"+a.authority+":"+p.OperationID) != nil || lock(ctx, tx, "device:"+a.cfg.DomainID+":"+p.Identity.DeviceID) != nil {
 		return nil, unavailable()
+	}
+	if e = a.claimService(ctx, tx, p.Identity); e != nil {
+		return nil, e
 	}
 	if e = a.checkStoredIdentity(ctx, tx, p.Identity); e != nil {
 		return nil, e

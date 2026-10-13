@@ -60,8 +60,10 @@ func (p *Peer) UpdateGrant(g trust.Grant) error {
 		}
 	}
 	p.cfg.Grant = g
+	p.failPendingLocked()
 	p.state = nil
 	p.local = session.LocalHello{}
+	p.lastHelloSent = time.Time{}
 	return nil
 }
 func (f *Forwarder) handleControlGrant(w http.ResponseWriter, r *http.Request) bool {

@@ -26,7 +26,7 @@ type Forwarder struct {
 }
 
 func NewForwarder(route string, peer Caller, adapter n.RelayRegistration) (*Forwarder, error) {
-	if route == "" || peer == nil || adapter == nil {
+	if !issuerRoutePattern.MatchString(route) || peer == nil || adapter == nil {
 		return nil, n.ErrInvalid
 	}
 	return &Forwarder{Route: route, Peer: peer, Adapter: adapter, slots: make(chan struct{}, 32)}, nil

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeissuer"
@@ -20,12 +21,14 @@ import (
 )
 
 type Config struct {
+	SchemaVersion    int                       `json:"schema_version,omitempty"`
 	DomainID         string                    `json:"domain_id"`
 	RelayID          string                    `json:"relay_id"`
 	InvitationSigner identity.DeviceIdentity   `json:"invitation_signer"`
 	GrantSigner      identity.DeviceIdentity   `json:"grant_signer"`
 	Responder        identity.DeviceIdentity   `json:"responder"`
 	ServicePeers     []identity.DeviceIdentity `json:"service_peers,omitempty"`
+	issuerRoute      string
 }
 
 type Adapter struct {
@@ -34,6 +37,11 @@ type Adapter struct {
 	Invalidate  func(string)
 	MarkRevoked func(string)
 	Now         func() time.Time
+	authority   string
+	gateMu      sync.Mutex
+	gateWindow  time.Time
+	gateCount   int
+	slots       chan struct{}
 }
 
 type Error struct {
@@ -51,26 +59,66 @@ func unavailable() error           { return Error{"temporarily_unavailable", htt
 var operationPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$`)
 
 func New(ctx context.Context, pool *pgxpool.Pool, cfg Config) (*Adapter, error) {
-	if pool == nil || cfg.DomainID == "" || cfg.RelayID == "" {
-		return nil, invalid("database_and_identity_required")
+	return newAdapter(ctx, pool, cfg, true)
+}
+func validateConfig(cfg Config) error {
+	if cfg.SchemaVersion < 0 || cfg.SchemaVersion > 1 {
+		return invalid("invalid_authority_version")
+	}
+	if cfg.DomainID == "" || cfg.RelayID == "" {
+		return invalid("database_and_identity_required")
 	}
 	for _, id := range []identity.DeviceIdentity{cfg.InvitationSigner, cfg.GrantSigner, cfg.Responder} {
 		if iscpnodeissuer.ValidateIdentity(id) != nil || id.DomainID != cfg.DomainID {
-			return nil, invalid("invalid_authority")
+			return invalid("invalid_authority")
 		}
 	}
 	if cfg.InvitationSigner.PublicKey.Public == cfg.GrantSigner.PublicKey.Public {
-		return nil, invalid("signing_purposes_must_be_separate")
+		return invalid("signing_purposes_must_be_separate")
+	}
+	roles := []identity.DeviceIdentity{cfg.InvitationSigner, cfg.GrantSigner, cfg.Responder}
+	for i, id := range roles {
+		for j := 0; j < i; j++ {
+			if roles[j].DeviceID == id.DeviceID || roles[j].PublicKey.Public == id.PublicKey.Public {
+				return invalid("authority_roles_must_be_separate")
+			}
+		}
 	}
 	seen := map[string]bool{}
+	keyOwners := map[string]string{}
+	identityOwners := map[string]string{}
+	for _, id := range roles {
+		keyOwners[id.PublicKey.Public] = id.DeviceID
+		identityOwners[id.DeviceID] = iscpnodeissuer.Digest(id)
+	}
 	for _, id := range cfg.ServicePeers {
-		if nodeErr := iscpnodeissuer.ValidateIdentity(id); nodeErr != nil || id.DomainID != cfg.DomainID || seen[id.DeviceID] {
-			return nil, invalid("invalid_service_peer")
+		if iscpnodeissuer.ValidateIdentity(id) != nil || id.DomainID != cfg.DomainID || seen[id.DeviceID] {
+			return invalid("invalid_service_peer")
 		}
+		if owner, ok := keyOwners[id.PublicKey.Public]; ok && owner != id.DeviceID {
+			return invalid("duplicate_service_key")
+		}
+		if digest, ok := identityOwners[id.DeviceID]; ok && digest != iscpnodeissuer.Digest(id) {
+			return invalid("duplicate_service_identity")
+		}
+		if id.DeviceID == cfg.InvitationSigner.DeviceID || id.DeviceID == cfg.GrantSigner.DeviceID {
+			return invalid("signer_cannot_be_service_peer")
+		}
+		keyOwners[id.PublicKey.Public] = id.DeviceID
+		identityOwners[id.DeviceID] = iscpnodeissuer.Digest(id)
 		seen[id.DeviceID] = true
 	}
-	a := &Adapter{cfg: cfg, db: pool, Now: time.Now}
-	if _, err := pool.Exec(ctx, schema); err != nil {
+	return nil
+}
+func newAdapter(ctx context.Context, pool *pgxpool.Pool, cfg Config, allowLegacy bool) (*Adapter, error) {
+	if pool == nil || cfg.DomainID == "" || cfg.RelayID == "" {
+		return nil, invalid("database_and_identity_required")
+	}
+	if err := validateConfig(cfg); err != nil {
+		return nil, err
+	}
+	a := &Adapter{cfg: cfg, db: pool, Now: time.Now, authority: authorityID(cfg), slots: make(chan struct{}, 32)}
+	if err := a.initialize(ctx, allowLegacy); err != nil {
 		return nil, err
 	}
 	return a, nil
@@ -151,7 +199,7 @@ func (a *Adapter) Handler() http.Handler {
 		e := a.VerifyServicePeer(r.Context(), p)
 		write(w, map[string]string{"state": "active", "device_id": p.Identity.DeviceID}, e)
 	})
-	return mux
+	return a.bounded(mux)
 }
 func read(r *http.Request, out any) error {
 	raw, e := io.ReadAll(io.LimitReader(r.Body, (128<<10)+1))
@@ -184,7 +232,7 @@ func canonical(v any) []byte { b, _ := iscpnodeissuer.Canonical(v); return b }
 func (a *Adapter) receipt(ctx context.Context, tx pgx.Tx, op, digest, kind string) (iscpnodeissuer.RegistrationReceipt, bool, error) {
 	var raw []byte
 	var stored, storedKind string
-	e := tx.QueryRow(ctx, "SELECT binding_digest,kind,response FROM iscp_relay.node_receipts WHERE operation_id=$1", op).Scan(&stored, &storedKind, &raw)
+	e := tx.QueryRow(ctx, "SELECT binding_digest,kind,response FROM iscp_relay.node_receipts WHERE operation_id=$1 AND authority_id=$2", op, a.authority).Scan(&stored, &storedKind, &raw)
 	if e == pgx.ErrNoRows {
 		return iscpnodeissuer.RegistrationReceipt{}, false, nil
 	}
@@ -198,17 +246,26 @@ func (a *Adapter) receipt(ctx context.Context, tx pgx.Tx, op, digest, kind strin
 	if json.Unmarshal(raw, &out) != nil {
 		return out, false, unavailable()
 	}
+	if out.OperationID != op || out.BindingDigest != digest || out.DomainID != a.cfg.DomainID {
+		return out, false, unavailable()
+	}
+	if e = a.owned(ctx, tx, out.DeviceID); e != nil {
+		return out, false, e
+	}
 	return out, true, nil
 }
 func (a *Adapter) saveReceipt(ctx context.Context, tx pgx.Tx, kind string, r iscpnodeissuer.RegistrationReceipt) error {
+	if err := a.owned(ctx, tx, r.DeviceID); err != nil {
+		return err
+	}
 	raw, _ := json.Marshal(r)
-	_, e := tx.Exec(ctx, "INSERT INTO iscp_relay.node_receipts(operation_id,binding_digest,kind,domain_id,device_id,response,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)", r.OperationID, r.BindingDigest, kind, r.DomainID, r.DeviceID, raw, a.now())
+	_, e := tx.Exec(ctx, "INSERT INTO iscp_relay.node_receipts(operation_id,binding_digest,kind,domain_id,device_id,response,created_at,authority_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", r.OperationID, r.BindingDigest, kind, r.DomainID, r.DeviceID, raw, a.now(), a.authority)
 	return e
 }
 
 func (a *Adapter) Register(ctx context.Context, id identity.DeviceIdentity, proof identity.DeviceProof, ticket provisioning.PairingTicketV3) (json.RawMessage, error) {
 	var raw []byte
-	e := a.db.QueryRow(ctx, "SELECT preparation FROM iscp_relay.node_preparations WHERE ticket_id=$1", ticket.TicketID).Scan(&raw)
+	e := a.db.QueryRow(ctx, "SELECT preparation FROM iscp_relay.node_preparations WHERE ticket_id=$1 AND authority_id=$2", ticket.TicketID, a.authority).Scan(&raw)
 	if e == pgx.ErrNoRows {
 		return nil, denied("prepared_grant_required")
 	}

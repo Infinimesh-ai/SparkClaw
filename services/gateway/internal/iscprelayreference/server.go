@@ -257,6 +257,14 @@ func (s *Server) bindSelf(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, err)
 		return
 	}
+	if binder, ok := s.cfg.Managed.(interface {
+		OperatorBind(context.Context, identity.DeviceIdentity) error
+	}); ok {
+		if err := binder.OperatorBind(r.Context(), req.Identity); err != nil {
+			httpx.WriteError(w, managedStatus(err), err)
+			return
+		}
+	}
 	s.bindIdentity(w, r, req.Identity)
 }
 

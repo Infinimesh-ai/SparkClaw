@@ -42,7 +42,7 @@ func (a *Adapter) Recover(ctx context.Context, r node.RegistrationRecovery) (nod
 		return z, unavailable()
 	}
 	defer tx.Rollback(ctx)
-	if lock(ctx, tx, "operation:"+r.OperationID) != nil || lock(ctx, tx, "device:"+a.cfg.DomainID+":"+r.Identity.DeviceID) != nil {
+	if lock(ctx, tx, "operation:"+a.authority+":"+r.OperationID) != nil || lock(ctx, tx, "device:"+a.cfg.DomainID+":"+r.Identity.DeviceID) != nil {
 		return z, unavailable()
 	}
 	if e = a.checkStoredIdentity(ctx, tx, r.Identity); e != nil {
@@ -114,11 +114,14 @@ func (a *Adapter) Revoke(ctx context.Context, op, dev string, revision uint64) e
 		return unavailable()
 	}
 	defer tx.Rollback(ctx)
-	if lock(ctx, tx, "operation:"+op) != nil || lock(ctx, tx, "device:"+a.cfg.DomainID+":"+dev) != nil {
+	if lock(ctx, tx, "operation:"+a.authority+":"+op) != nil || lock(ctx, tx, "device:"+a.cfg.DomainID+":"+dev) != nil {
 		return unavailable()
 	}
+	if e = a.owned(ctx, tx, dev); e != nil {
+		return e
+	}
 	var otherDevice string
-	e = tx.QueryRow(ctx, "SELECT device_id FROM iscp_relay.node_revocations WHERE operation_id=$1", op).Scan(&otherDevice)
+	e = tx.QueryRow(ctx, "SELECT device_id FROM iscp_relay.node_revocations WHERE operation_id=$1 AND authority_id=$2", op, a.authority).Scan(&otherDevice)
 	if e == nil && otherDevice != dev {
 		return conflict("revocation_operation_conflict")
 	}
@@ -127,7 +130,7 @@ func (a *Adapter) Revoke(ctx context.Context, op, dev string, revision uint64) e
 	}
 	var knownOp string
 	var knownRevision uint64
-	e = tx.QueryRow(ctx, "SELECT operation_id,revision FROM iscp_relay.node_revocations WHERE domain_id=$1 AND device_id=$2 FOR UPDATE", a.cfg.DomainID, dev).Scan(&knownOp, &knownRevision)
+	e = tx.QueryRow(ctx, "SELECT operation_id,revision FROM iscp_relay.node_revocations WHERE domain_id=$1 AND device_id=$2 AND authority_id=$3 FOR UPDATE", a.cfg.DomainID, dev, a.authority).Scan(&knownOp, &knownRevision)
 	if e == nil {
 		if knownOp != op || knownRevision != revision {
 			return conflict("revocation_operation_conflict")
@@ -138,14 +141,14 @@ func (a *Adapter) Revoke(ctx context.Context, op, dev string, revision uint64) e
 		return unavailable()
 	}
 	var prior uint64
-	e = tx.QueryRow(ctx, "SELECT revision FROM iscp_relay.node_grants WHERE domain_id=$1 AND device_id=$2", a.cfg.DomainID, dev).Scan(&prior)
+	e = tx.QueryRow(ctx, "SELECT revision FROM iscp_relay.node_grants WHERE domain_id=$1 AND device_id=$2 AND authority_id=$3", a.cfg.DomainID, dev, a.authority).Scan(&prior)
 	if e != nil && e != pgx.ErrNoRows {
 		return unavailable()
 	}
 	if e == nil && revision <= prior {
 		return conflict("revocation_revision_conflict")
 	}
-	_, e = tx.Exec(ctx, "INSERT INTO iscp_relay.node_revocations(domain_id,device_id,revision,operation_id,revoked_at) VALUES($1,$2,$3,$4,$5)", a.cfg.DomainID, dev, revision, op, a.now())
+	_, e = tx.Exec(ctx, "INSERT INTO iscp_relay.node_revocations(domain_id,device_id,revision,operation_id,revoked_at,authority_id) VALUES($1,$2,$3,$4,$5,$6)", a.cfg.DomainID, dev, revision, op, a.now(), a.authority)
 	if e != nil {
 		return unavailable()
 	}
@@ -204,7 +207,7 @@ func (a *Adapter) Refresh(r *http.Request) (json.RawMessage, error) {
 		return nil, unavailable()
 	}
 	defer tx.Rollback(ctx)
-	if lock(ctx, tx, "operation:"+op) != nil {
+	if lock(ctx, tx, "operation:"+a.authority+":"+op) != nil {
 		return nil, unavailable()
 	}
 	if managed {

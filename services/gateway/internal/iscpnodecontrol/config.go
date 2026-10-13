@@ -2,7 +2,6 @@ package iscpnodecontrol
 
 import (
 	"context"
-	"encoding/json"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	n "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeissuer"
 	c "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
@@ -33,7 +32,7 @@ func ReadPrivate(path string, out any) error {
 	if e != nil {
 		return e
 	}
-	if json.Unmarshal(raw, out) != nil {
+	if n.StrictDecode(raw, out) != nil {
 		return n.ErrInvalid
 	}
 	return nil

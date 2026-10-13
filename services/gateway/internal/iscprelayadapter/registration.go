@@ -80,8 +80,11 @@ func (a *Adapter) Prepare(ctx context.Context, p node.RegistrationPreparation) e
 		return unavailable()
 	}
 	defer tx.Rollback(ctx)
-	if lock(ctx, tx, "operation:"+p.OperationID) != nil {
+	if lock(ctx, tx, "operation:"+a.authority+":"+p.OperationID) != nil {
 		return unavailable()
+	}
+	if e = a.claim(ctx, tx, p.Identity, false); e != nil {
+		return e
 	}
 	var revoked bool
 	if tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM iscp_relay.node_revocations WHERE domain_id=$1 AND device_id=$2)", a.cfg.DomainID, p.Identity.DeviceID).Scan(&revoked) != nil {
@@ -91,7 +94,7 @@ func (a *Adapter) Prepare(ctx context.Context, p node.RegistrationPreparation) e
 		return denied("device_revoked")
 	}
 	var digest string
-	e = tx.QueryRow(ctx, "SELECT binding_digest FROM iscp_relay.node_preparations WHERE operation_id=$1", p.OperationID).Scan(&digest)
+	e = tx.QueryRow(ctx, "SELECT binding_digest FROM iscp_relay.node_preparations WHERE operation_id=$1 AND authority_id=$2", p.OperationID, a.authority).Scan(&digest)
 	if e == nil {
 		if digest != p.BindingDigest {
 			return conflict("operation_binding_conflict")
@@ -102,7 +105,7 @@ func (a *Adapter) Prepare(ctx context.Context, p node.RegistrationPreparation) e
 		return unavailable()
 	}
 	raw, _ := json.Marshal(p)
-	_, e = tx.Exec(ctx, "INSERT INTO iscp_relay.node_preparations(operation_id,binding_digest,ticket_id,domain_id,device_id,preparation,expires_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", p.OperationID, p.BindingDigest, p.TicketV3.TicketID, a.cfg.DomainID, p.Identity.DeviceID, raw, p.TicketV3.ExpiresAt, a.now())
+	_, e = tx.Exec(ctx, "INSERT INTO iscp_relay.node_preparations(operation_id,binding_digest,ticket_id,domain_id,device_id,preparation,expires_at,created_at,authority_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)", p.OperationID, p.BindingDigest, p.TicketV3.TicketID, a.cfg.DomainID, p.Identity.DeviceID, raw, p.TicketV3.ExpiresAt, a.now(), a.authority)
 	if e != nil {
 		return conflict("ticket_preparation_conflict")
 	}
@@ -127,7 +130,7 @@ func (a *Adapter) commit(ctx context.Context, r node.RegistrationCommit) (node.R
 		return zero, empty, false, unavailable()
 	}
 	defer tx.Rollback(ctx)
-	if lock(ctx, tx, "operation:"+r.OperationID) != nil {
+	if lock(ctx, tx, "operation:"+a.authority+":"+r.OperationID) != nil {
 		return zero, empty, false, unavailable()
 	}
 	prior, found, e := a.receipt(ctx, tx, r.OperationID, r.BindingDigest, "registration")
@@ -141,7 +144,7 @@ func (a *Adapter) commit(ctx context.Context, r node.RegistrationCommit) (node.R
 		return prior, empty, false, nil
 	}
 	var raw []byte
-	e = tx.QueryRow(ctx, "SELECT preparation FROM iscp_relay.node_preparations WHERE operation_id=$1 FOR UPDATE", r.OperationID).Scan(&raw)
+	e = tx.QueryRow(ctx, "SELECT preparation FROM iscp_relay.node_preparations WHERE operation_id=$1 AND authority_id=$2 FOR UPDATE", r.OperationID, a.authority).Scan(&raw)
 	if e == pgx.ErrNoRows {
 		return zero, empty, false, denied("preparation_required")
 	}
@@ -170,7 +173,7 @@ func (a *Adapter) commit(ctx context.Context, r node.RegistrationCommit) (node.R
 	if e = a.storeGrant(ctx, tx, p.Identity, p.Grant); e != nil {
 		return zero, empty, false, e
 	}
-	cmd, e := tx.Exec(ctx, "INSERT INTO iscp_relay.node_ticket_uses(ticket_id,operation_id,domain_id,device_id,used_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT(ticket_id) DO NOTHING", p.TicketV3.TicketID, r.OperationID, a.cfg.DomainID, p.Identity.DeviceID, a.now())
+	cmd, e := tx.Exec(ctx, "INSERT INTO iscp_relay.node_ticket_uses(ticket_id,operation_id,domain_id,device_id,used_at,authority_id) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(authority_id,ticket_id) DO NOTHING", p.TicketV3.TicketID, r.OperationID, a.cfg.DomainID, p.Identity.DeviceID, a.now(), a.authority)
 	if e != nil {
 		return zero, empty, false, unavailable()
 	}
@@ -215,6 +218,9 @@ func (a *Adapter) Status(ctx context.Context, op, digest string) (node.Registrat
 }
 
 func (a *Adapter) createDevice(ctx context.Context, tx pgx.Tx, id identity.DeviceIdentity) error {
+	if e := a.owned(ctx, tx, id.DeviceID); e != nil {
+		return e
+	}
 	var thumb, status string
 	e := tx.QueryRow(ctx, "SELECT public_key_thumbprint,status FROM iscp_relay.devices WHERE domain_id=$1 AND device_id=$2 FOR UPDATE", a.cfg.DomainID, id.DeviceID).Scan(&thumb, &status)
 	tp, e2 := identity.Thumbprint(id)
@@ -243,6 +249,9 @@ func (a *Adapter) createDevice(ctx context.Context, tx pgx.Tx, id identity.Devic
 	return nil
 }
 func (a *Adapter) active(ctx context.Context, tx pgx.Tx, dev string) error {
+	if e := a.owned(ctx, tx, dev); e != nil {
+		return e
+	}
 	var status string
 	var revoked bool
 	e := tx.QueryRow(ctx, "SELECT status,EXISTS(SELECT 1 FROM iscp_relay.node_revocations v WHERE v.domain_id=d.domain_id AND v.device_id=d.device_id) FROM iscp_relay.devices d WHERE domain_id=$1 AND device_id=$2", a.cfg.DomainID, dev).Scan(&status, &revoked)
@@ -271,8 +280,11 @@ func (a *Adapter) useProof(ctx context.Context, tx pgx.Tx, id identity.DeviceIde
 	return nil
 }
 func (a *Adapter) storeGrant(ctx context.Context, tx pgx.Tx, id identity.DeviceIdentity, g trust.Grant) error {
+	if e := a.owned(ctx, tx, id.DeviceID); e != nil {
+		return e
+	}
 	var old uint64
-	e := tx.QueryRow(ctx, "SELECT revision FROM iscp_relay.node_grants WHERE domain_id=$1 AND device_id=$2 FOR UPDATE", a.cfg.DomainID, id.DeviceID).Scan(&old)
+	e := tx.QueryRow(ctx, "SELECT revision FROM iscp_relay.node_grants WHERE domain_id=$1 AND device_id=$2 AND authority_id=$3 FOR UPDATE", a.cfg.DomainID, id.DeviceID, a.authority).Scan(&old)
 	if e != nil && e != pgx.ErrNoRows {
 		return unavailable()
 	}
@@ -280,13 +292,16 @@ func (a *Adapter) storeGrant(ctx context.Context, tx pgx.Tx, id identity.DeviceI
 		return denied("stale_authorization_revision")
 	}
 	raw, _ := json.Marshal(g)
-	_, e = tx.Exec(ctx, "INSERT INTO iscp_relay.node_grants(domain_id,device_id,revision,grant_raw,updated_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT(domain_id,device_id) DO UPDATE SET revision=EXCLUDED.revision,grant_raw=EXCLUDED.grant_raw,updated_at=EXCLUDED.updated_at WHERE iscp_relay.node_grants.revision<=EXCLUDED.revision", a.cfg.DomainID, id.DeviceID, g.RevocationEpoch, raw, a.now())
+	_, e = tx.Exec(ctx, "INSERT INTO iscp_relay.node_grants(domain_id,device_id,revision,grant_raw,updated_at,authority_id) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(domain_id,device_id) DO UPDATE SET revision=EXCLUDED.revision,grant_raw=EXCLUDED.grant_raw,updated_at=EXCLUDED.updated_at WHERE iscp_relay.node_grants.revision<=EXCLUDED.revision AND iscp_relay.node_grants.authority_id=EXCLUDED.authority_id", a.cfg.DomainID, id.DeviceID, g.RevocationEpoch, raw, a.now(), a.authority)
 	if e != nil {
 		return unavailable()
 	}
 	return nil
 }
 func (a *Adapter) issue(ctx context.Context, tx pgx.Tx, dev string) (node.RelayCredentials, error) {
+	if e := a.owned(ctx, tx, dev); e != nil {
+		return node.RelayCredentials{}, e
+	}
 	now := a.now()
 	access := iscpbridge.RelayCredential{DomainID: a.cfg.DomainID, DeviceID: dev, Token: c.Base64URL(c.RandomBytes(32)), ExpiresAt: now.Add(15 * time.Minute)}
 	refresh := iscpbridge.RelayCredential{DomainID: a.cfg.DomainID, DeviceID: dev, Token: c.Base64URL(c.RandomBytes(32)), ExpiresAt: now.Add(24 * time.Hour)}

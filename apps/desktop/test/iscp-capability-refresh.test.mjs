@@ -89,15 +89,15 @@ test('an occupied event ACK delays an unsent refresh briefly without closing cur
   for (const capability of ['files', 'mail', 'browser']) assert.equal(f.auth.status.capabilities[capability], true);
   assert.equal(f.calls.filter(op => op === 'capabilities.get').length, 1, 'blocked refresh never reached helper');
   f.releaseACK(); await ack;
-  await advance(t, 249);
-  assert.equal(f.calls.filter(op => op === 'capabilities.get').length, 1);
-  await advance(t, 1);
+  await settle();
   assert.equal(f.calls.filter(op => op === 'capabilities.get').length, 2);
+  assert.equal(f.reportAttempts, 2, 'admission dispatches once without a retry burst');
   assert.ok(f.states.slice(statesBeforeRefresh).every(state => state.capabilities.files && state.capabilities.mail && state.capabilities.browser));
 });
 
-test('persistent control congestion has a bounded retry burst, fails closed, and eventually recovers', async t => {
+test('persistent admission queue exhaustion has a bounded retry burst, fails closed, and eventually recovers', async t => {
   const f = await fixture(t);
+  f.localReportError = new ISCPRequestNotSentError('ISCP request queue limit reached', 'capacity');
   await advance(t, 29999);
   const ack = f.auth.invokeISCP('events.ack', { cursor: 'opaque-test-cursor' });
   for (const delay of [1, 250, 500, 1000]) {
@@ -107,6 +107,7 @@ test('persistent control congestion has a bounded retry burst, fails closed, and
   await advance(t, 2000);
   assert.equal(f.auth.status.capabilities.files, false);
   assert.equal(f.reportAttempts, 6, 'initial read plus five bounded refresh attempts');
+  f.localReportError = undefined;
   f.releaseACK(); await ack;
   await advance(t, 29999);
   assert.equal(f.reportAttempts, 6);
@@ -116,7 +117,7 @@ test('persistent control congestion has a bounded retry burst, fails closed, and
   assert.equal(f.reportAttempts, 7);
 });
 
-for (const expires of ['report', 'manifest']) test(`${expires} expiry disables cached capabilities during a capacity retry`, async t => {
+for (const expires of ['report', 'manifest']) test(`${expires} expiry disables cached capabilities while refresh waits for admission`, async t => {
   const f = await fixture(t);
   if (expires === 'report') f.auth.capabilityReport.expires_at = new Date(Date.now() + 30100).toISOString();
   else f.auth.transport.capabilities = { ...f.auth.transport.capabilities, expires_at: new Date(Date.now() + 30100).toISOString() };
@@ -127,12 +128,12 @@ for (const expires of ['report', 'manifest']) test(`${expires} expiry disables c
   await advance(t, 1);
   assert.equal(f.auth.status.capabilities.files, true);
   await advance(t, 100);
-  assert.equal(f.auth.status.capabilities.files, false, 'TTL is enforced before the scheduled 250ms retry');
-  f.releaseACK(); await ack;
+  assert.equal(f.auth.status.capabilities.files, false, 'queued refresh cannot extend the prior TTL');
   if (expires === 'manifest') {
     f.child.send({ type: 'capabilities', capabilities: f.manifest() });
   }
-  await advance(t, 150);
+  f.releaseACK(); await ack;
+  await settle();
   assert.equal(f.auth.status.capabilities.files, true);
 });
 

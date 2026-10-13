@@ -5,6 +5,9 @@ import { PassThrough, Writable } from "node:stream";
 import { ISCPTransport, ISCP_OPERATIONS, ISCP_PROFILE, ISCPRequestNotSentError, mapISCPRequest, iscpHelperExecutable } from "../src/main/iscp-transport.mjs";
 import crypto from 'node:crypto';
 import { SecureCredentialStore } from '../src/main/secure-credential-store.mjs';
+import { readFileSync } from 'node:fs';
+
+const operations = JSON.parse(readFileSync(new URL('../src/shared/iscp-operations.json', import.meta.url), 'utf8'));
 
 const origin = "https://iscp.invalid";
 const requestID = "12345678-1234-4123-8123-123456789abc";
@@ -167,7 +170,11 @@ test("four outstanding calls are bounded; abort, deadline and exit reject while 
   const controller = new AbortController();
   const pending = [f.transport.fetch(`${origin}/api/config`, { signal: controller.signal }), ...Array.from({ length: 3 }, () => f.transport.fetch(`${origin}/api/config`))];
   const observed = pending.map((promise) => promise.catch((error) => error.message));
-  await assert.rejects(f.transport.fetch(`${origin}/api/config`), /concurrency/u);
+  const admissionAbort = new AbortController();
+  const queued = f.transport.fetch(`${origin}/api/config`, {signal:admissionAbort.signal});
+  const notSent = assert.rejects(queued, error => error instanceof ISCPRequestNotSentError && error.reason === 'canceled');
+  assert.equal(f.transport.admissionQueue.size, 1);assert.equal(f.calls.length, 4);
+  admissionAbort.abort();await notSent;
   controller.abort();
   assert.match(await observed[0], /canceled/u);
   const timed = await Promise.all(observed.slice(1)); assert.ok(timed.every((error) => /deadline/u.test(error)));
@@ -548,4 +555,61 @@ test('execution admission and sent response share one deadline and retain distin
  f.transport.close();
  await Promise.all(busy);
  assert.equal(f.calls.length,5,'an expired sent request must never be replayed');
+});
+
+test('all registered forward operations wait for admission in each negotiated capacity class', async t => {
+ const limits={business:4,control:1,bulk:2,events:1,audio:2};
+ for(const [capacityClass,limit] of Object.entries(limits)) {
+  await t.test(capacityClass,async t=>{
+   const rows=operations.filter(row=>row.direction==='forward'&&row.capacity_class===capacityClass);
+   assert.ok(rows.length>0);
+   const held=[];
+   const f=fixture(t,(call,child)=>held.push([call,child]),{timeoutMS:1000});await f.transport.start();
+   const profile='sparkclaw.workbench.transport.v2';
+   f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{schema_version:2,profile,session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:operations.map(row=>row.name),binding:{deployment_id:'d',owner_id:'o',client_id:'c'}}});
+   const active=[];
+   const respond=([call,child])=>child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile,id:call.id,status:200,body:{}}});
+   const fill=()=>active.push(f.transport.invoke(rows[0].name,{}).catch(error=>error));
+   for(let i=0;i<limit;i++)fill();
+   for(const row of rows) {
+    const count=f.calls.length;
+    const waiting=f.transport.invoke(row.name,{});
+    const observed=assert.doesNotReject(waiting);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(f.calls.length,count,`${row.name} must wait before writing`);
+    assert.equal(f.transport.admissionQueue.size,1);
+    respond(held.shift());
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(f.calls.length,count+1);assert.equal(held.at(-1)[0].request.operation,row.name);
+    assert.equal(f.transport.pending.size,limit);
+    respond(held.pop());await observed;
+    fill();
+   }
+   for(const item of held.splice(0))respond(item);
+   await Promise.all(active);assert.equal(f.transport.admissionQueue.size,0);
+  });
+ }
+});
+
+test('a full popup queue leaves room for explicit execution and independent control admission', async t => {
+ const held=[];
+ const f=fixture(t,(call,child)=>held.push([call,child]),{timeoutMS:1000});await f.transport.start();
+ const profile='sparkclaw.workbench.transport.v2';
+ f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{schema_version:2,profile,session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:['mail.sync.status','presentation.config','execution.submit','events.ack','capabilities.get'],binding:{deployment_id:'d',owner_id:'o',client_id:'c'}}});
+ const all=[];
+ const invoke=name=>{const p=f.transport.invoke(name,{});all.push(p.catch(error=>error));return p;};
+ for(let i=0;i<27;i++)invoke('mail.sync.status');
+ invoke('presentation.config');invoke('events.ack');
+ const count=f.calls.length;
+ const sending=invoke('execution.submit'),control=invoke('capabilities.get');
+ assert.equal(f.calls.length,count);assert.equal(f.transport.admissionQueue.size,26);
+ const respond=operation=>{const index=held.findIndex(([call])=>call.request.operation===operation);assert.ok(index>=0);const [call,child]=held.splice(index,1)[0];child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile,id:call.id,status:200,body:{}}});};
+ respond('events.ack');await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.calls.at(-1).request.operation,'capabilities.get','business congestion cannot block the control class');
+ respond('capabilities.get');await control;
+ respond('presentation.config');await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.calls.at(-1).request.operation,'execution.submit','explicit execution precedes waiting mailbox snapshots');
+ respond('execution.submit');await sending;
+ f.transport.close();await Promise.all(all);
+ assert.equal(f.transport.admissionQueue.size,0);
 });

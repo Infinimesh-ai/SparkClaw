@@ -980,7 +980,7 @@ occupy the business slots, and delivery ACK rejection while a capability refresh
 occupies the control slot. This establishes the failure mechanism; the other
 device's exact overlapping requests have not been captured.
 
-Execution submission, lookup, cancellation, approvals and ACK now wait for local
+The initial repair makes execution submission, lookup, cancellation, approvals and ACK wait for local
 admission, sharing the existing mailbox queue. Execution takes precedence over
 mail snapshots, and each capacity class drains independently. Waiting and response
 use one deadline. Cancellation, disconnect, changed session/authorization and lost
@@ -996,6 +996,37 @@ The rebuilt package connects to work1 and retains the original nine settings,
 device controls, schedule create/cancel, 14 local table hashes and owned files.
 The build targets Apple silicon Macs; the reported device still needs installation and retesting.
 No installed application, Gateway or Relay deployment is updated by this change.
+InfiniCenter remains unavailable at the configured ancestor anchors.
+
+## 9.16. Shared-platform admission audit (2026-10-13)
+
+The concurrency rejection has no operating-system, CPU or work1-specific branch.
+Every desktop running the affected ISCP adapter can encounter it against any node
+when requests overlap. It is conditional on contention, rather than the third
+message itself. Direct LAN/HTTPS uses a separate authenticated fetch adapter and
+does not encounter this local ISCP limit. This is a shared-code conclusion; it
+does not claim a reproduced failure on every user's device.
+
+The initial execution-only repair left immediate rejection in settings,
+capability refresh, object transfer, event and audio operations. A registry-driven
+regression reproduced rejection across all five classes on macOS/arm64 and
+Linux/arm64. Admission now covers all 114 registered forward operations, plus
+legacy v1 reads, through the common transport owner. Queue budgets are separated
+by class and between mailbox snapshots and explicit operations, so a full popup
+queue cannot reject an execution or block an independent control class. Identity,
+permission, expiry, cancellation and unknown-outcome fences are retained; queued
+capability refresh cannot extend an expired report or replay a written request.
+Existing helper/Gateway protocol capacities and Relay settings are unchanged.
+
+macOS/arm64 passes the complete 304-test desktop suite; Linux/arm64 passes 146
+affected transport, ClientStore, execution, schedule, object, event and audio
+tests. All 114 operation admissions, delivery/control contention, full-popup
+isolation and original deadlines pass. Other CPU/OS variants share the source
+repair but lack new native qualification. Linux/x64 is excluded from the final
+verification matrix at the user's request. The Apple silicon installer is one
+platform build of the shared fix, rather than a CPU-specific code change. Each
+older installed client needs an updated build to obtain this behavior; this
+session does not update installed clients, backend nodes or Relay deployment.
 InfiniCenter remains unavailable at the configured ancestor anchors.
 
 ## 10. Related designs

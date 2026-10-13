@@ -47,8 +47,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .workbench .sessionList { gap: 0; padding: 0; }
 .workbench .sessionItem { min-height: 38px; padding: 10px 12px; border: 0; border-radius: 7px; gap: 4px; }
 .workbench .sessionItem.active { background: #e9ebef; color: #202226; }
-.workbench .sessionSelect { display: flex; gap: 9px; align-items: center; }
-.workbench .sessionSelect:before { content: ""; width: 5px; height: 5px; flex-shrink: 0; border-radius: 50%; background: #747c88; }
+.workbench .sessionSelect { grid-column: 1 / -1; grid-row: 1; display: flex; gap: 9px; align-items: center; }
+.workbench .sessionActions { grid-column: 2; grid-row: 1; visibility: hidden; pointer-events: none; }
+.workbench .sessionItem:hover .sessionActions { visibility: visible; pointer-events: auto; }
+.workbench .sessionItem:has(.sessionActions):hover .sessionSelect { grid-column: 1; }
+.workbench .sessionItem:has(.sessionActions):hover .sessionActivity { display: none; }
 .workbench .sessionSelect span { font-size: 12px; font-weight: 400; line-height: 1.4; }
 .workbench .sessionSelect small { display: none; }
 .workbench .sessionSelect .sessionTitle { flex: 1; }

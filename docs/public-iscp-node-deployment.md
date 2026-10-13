@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/public-iscp-node-deployment.md)
 >
-> Date: 2026-10-12. Status: requested rollout and acceptance completed. Services
+> Original rollout: 2026-10-12. Its requested acceptance completed. Services
 > and native `16b00f17` are deployed. Exact-Client migration, original data/UI,
 > default Main cold launch, E registration/model/server-local ACK/revocation/cold
 > denial and test suites pass. The migration exception is removed; final paired
@@ -14,6 +14,10 @@ The [deployment guide](deployment.md) remains the general environment reference.
 The user authorized Codex to inventory, back up, deploy and qualify the complete
 connection flow while preserving UI, data and LAN. InfiniCenter is absent at the
 prescribed anchors; no central `accepted` decision is claimed.
+
+The 2026-10-13 four-node expansion is tracked separately in section 7. Its native
+acceptance is independently recorded there; the original rollout's results do not certify
+these additional nodes.
 
 ## 1. Recorded topology
 
@@ -310,3 +314,144 @@ Requested deployment and acceptance are complete with matched server/native
 manifests, current-installation data/UI proof and final qualified backups. D's
 disposable unconfirmed submission stays preserved; completion does not authorize
 its replay or an old-ledger restore over newer effects/revocations.
+
+## 7. Four additional independent nodes, 2026-10-13
+
+The user selected TEST1's public Relay with an independent issuer on each node.
+Source was committed and pushed before rollout. TEST1 Relay, its five control peers
+and all five issuers now use `ae56b642`; the existing work2 Gateway image and Mac
+`16b00f17` package remain unchanged. The four new Gateways use clean
+`git archive 7d5838c2` release images. Host browser checks, four
+independent native registrations, real model deliveries and natural Grant renewals
+pass. All four final native UI reviews and paired-checkpoint checks pass; the
+offline-revoked status-label limitation below remains recorded.
+
+| VM / name | Private address | Existing SSH port | Authority route suffix / deployment |
+|---|---|---|---|
+| 103 / work1 | `10.20.0.22` | `22022` | `aee06778-2010-470c-83e9-f83572831c1a` |
+| 105 / work3 | `10.20.0.24` | `22024` | `219ec0dc-4add-41b0-ab1e-7dd02997de59` |
+| 106 / work4 | `10.20.0.25` | `22025` | `6c3485b3-81ed-4414-a3c2-b6ce879e9561` |
+| 107 / work5 | `10.20.0.26` | `22026` | `c840a3e8-86d2-4fc4-8cb2-75341cd1e333` |
+
+Routes are `sparkclaw-vm<VM>-<deployment>`. Each VM generated its own invitation,
+Grant, responder and outbound control private keys locally. Only public pins and
+its own Relay credentials are distributed. TEST1 retains the operator token and
+four independent broker keys under `/var/lib/iscp-relay/nodes/vm<VM>`; no issuer
+private key is sent there. The existing work2 route and keys remain registered.
+Each new issuer uses `/home/ubuntu/.local/share/sparkclaw/public-iscp-node`,
+`iscp-node-issuer.service`, its own PostgreSQL database/role and private Unix IPC.
+
+Schema-2 Relay configuration isolates authority by the full domain/Relay/signer/
+responder binding, namespaced receipts, operations and device ownership. Routing
+accepts only the five approved routes, rejects duplicate JSON keys and does not
+accept caller-selected URLs. A route's 32 request slots and 600/minute budget are
+independent. Five-node native testing exposed HTTP 429 from the shared-source
+Relay budget; the deployment raises its per-IP limit from 1,200 to 3,600 requests
+per minute within the existing bounded configuration range. The per-route budget
+and authentication requirements remain unchanged. The optional
+`SPARKCLAW_WORKBENCH_ISCP_NODE_ROOT` setting retains the six confined Gateway
+mounts on ordinary remote restarts. Gateway receives its responder key, public
+pins, registry, private issuer socket and its issuer-management token; invitation/
+Grant signing keys, issuer storage/database secrets and the Relay operator token
+stay outside Gateway.
+
+The legacy migration was rehearsed against an isolated restoration of the actual
+TEST1 database. Nine original tables retained their counts and content hashes;
+a second startup was idempotent. Original Access/Refresh values were preserved.
+Unknown historical operator devices remain unowned rather than being assigned
+to a new tenant. The live migration and twelve service-peer registrations passed.
+Original Main recovered with its two conversations and existing interface.
+
+Control peers now recover from independent issuer or broker restarts using fresh,
+verified, bilaterally exchanged ISCP Hello messages. A private durable watermark
+rejects stale session replacement; pending operations retain their original IDs
+and uncertain mutations are never replayed as new requests. Public requests with
+an invalid inner frame reached each of the five issuers before and after a broker
+restart; each new issuer also recovered independently within three seconds.
+Those rejection probes establish control reachability, not client enrollment.
+Real PostgreSQL race tests cover authority isolation, migration, refresh, replay,
+revocation and control-session replacement. Public health/discovery return 200;
+unknown issuer routes, public admin and metrics remain denied with 403.
+
+No public port or PVE rule was added in this expansion. Existing outbound NAT and
+443 reflection already reach TEST1 from all four VMs. Their previous online model
+URLs, model names and credentials are retained as private remote overrides. The
+ASR root on 103/105/107 is corrected to avoid the existing duplicated
+`/v1/v1/audio/transcriptions` path; original environment files remain backed up.
+Existing LAN settings and unrelated services/port mappings are retained.
+
+The four release images are built for Linux/AMD64 from tracked committed source;
+the Gateway content ID is `sha256:4350dd1c408e27253aef42091889ef0be37db7c9b4d999971c31d1d3548f006b`.
+The standard `start:remote -- --no-build` path still validates the private model
+profile, credentials, node mounts, host browser readiness and the in-container
+Controller smoke. The old Gateway images retain rollback tags. Three older
+service images had missing parent content despite running containers; their
+merged filesystems and complete inspect records were privately exported and
+rollback images imported before replacement. Original PVE/database checkpoints
+remain the primary complete rollback source.
+
+Pinned Chrome for Testing uses its actual managed-policy directory and an exact
+root-owned AppArmor executable exception. Global unprivileged-userns restrictions
+stay enabled; observed renderers retain seccomp, NoNewPrivs and separate user
+namespaces. All four managed userscripts and the native provisioning hash were
+verified. Repeated setup on VM106 reuses byte-verified components and preserves
+worker URL/policy hashes. VM103/105 browser migration used cold backups and an
+isolated candidate; original history/cookie rows and old profiles are retained.
+
+On 103/105, all 664/525 original rows across 37 tables retain their original IDs
+and applicable column hashes. The existing migration retires `model_calls.fallback`;
+its 41/31 historical values were all false and remain in private backup evidence.
+This is not a claim that the old column still exists. On 106/107, original owners
+and empty message/run history are retained; new smoke and test records are counted
+separately. Original environment and credential-key hashes are unchanged.
+
+Each primary native profile received its own deployment/Owner/Client identity,
+completed an actual model-marker request with durable delivery and naturally
+renewed a 900-second Grant without changing clock or signed Grant files. Some
+initial synthetic prompts received a delivered semantic-routing rejection; those
+results remain preserved, and a separate completed test proves model delivery.
+Unknown submissions were reconciled by original request ID, never blindly replayed.
+Disposable QA profiles registered and refreshed through the actual installed
+helper. Only their local Access expiry metadata was made due; both real tokens
+rotated and the previous Refresh was rejected with 401. All four QA devices then
+reached issuer revision 2/revocation-complete, and their latest Refresh also returns
+401; the primary devices remain active. A revoked offline profile currently shows
+“Connection unavailable” on cold start rather than an explicit revoked-credential
+message until it obtains authoritative revocation state. Cold-denial acceptance
+records that UI limitation separately from server revocation and denied business
+access; it does not claim an immediate terminal UI lock.
+
+Independent launchers are in `/Users/dev/Applications/SparkX Remote`, named
+`SparkX-work1-VM103.command`, `SparkX-work3-VM105.command`,
+`SparkX-work4-VM106.command` and `SparkX-work5-VM107.command`. Their dedicated data
+is under `/Users/dev/Library/Application Support/SparkX Remote Profiles/VM<VM>/userdata`.
+Actual launcher-by-launcher UI checks retain the original sidebar, composer,
+file/email/browser entries and all nine settings. Each live device list shows its
+primary identity active and disposable QA identity revoked; each completed model
+marker is visible in its original conversation. The original default Main selection
+remains unchanged. Its two original conversations and nine Chinese settings were
+reopened, its live device list still marks the original identity active, and all
+14 original business tables and owned-file hashes remain unchanged. Main is left
+open on its original workbench. Private profile backups still require the original
+macOS keychain to restore device private keys. Physical LAN, host reboot, actual
+ASR transcription and real email are not newly qualified by this rollout.
+
+Private evidence root:
+`/Users/dev/.cache/sparkclaw-four-remote-20261013-z7mvhnm8`.
+PVE snapshots: `sparkclaw_remote_pre_20261013` on 103/105/106/107 and
+`sparkclaw_multi_node_pre_20261013` on TEST1. Each new VM's file, database and cold
+browser checkpoint is `/var/backups/sparkclaw-remote-pre-20261013`. TEST1's paired
+activation checkpoint is `/var/backups/iscp-relay/multi-node-activation-pre-20261013`;
+work2 issuer checkpoint is `/var/backups/sparkclaw-iscp/multi-node-pre-20261013`.
+Mac's original/default profile checkpoint is `backups/mac-before-four-node`
+under the evidence root. Final checkpoints after registration/renewal/revocation are
+`/var/backups/sparkclaw-iscp/four-node-final-20261013` on each new VM and
+`/var/backups/iscp-relay/four-node-final-20261013` on TEST1. All six/three archive
+and dump artifacts respectively have hashes and successful resume receipts;
+TEST1 includes all five broker roles and the systemd write-path drop-in. Cold
+primary Mac profiles are backed up at `backups/mac-four-node-final`; device keys
+still require the original keychain. Artifacts are private and are not committed
+to Git.
+Rollback must pair the Relay database with its authority/configuration/binaries;
+a binary-only downgrade cannot undo ownership migration. Preserve newer client
+revocations and unknown business outcomes before considering any restoration.

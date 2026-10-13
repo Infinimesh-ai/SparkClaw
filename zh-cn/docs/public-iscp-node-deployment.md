@@ -2,7 +2,7 @@
 
 > 语言：简体中文 | [English](../../docs/public-iscp-node-deployment.md)
 >
-> 日期：2026-10-12。状态：本次部署及要求的验收已完成。服务端与原生
+> 初次发布：2026-10-12。该次部署及要求的验收已完成。服务端与原生
 > `16b00f17` 已部署，精确 Client 迁移、原数据/UI、默认 Main 冷启动、E 注册/
 > 模型/服务端本机 ACK/撤销/冷启动拒绝及测试通过。迁移例外已移除，最终
 > 配对检查点保留 Main 活跃、六条撤销完成；D 未确认验证请求保持、不回放。
@@ -11,6 +11,9 @@
 [部署指南](deployment.md)继续负责通用环境说明。用户已授权本会话 Codex 盘点、
 备份、部署和验证完整连接流程，保留 UI、数据及 LAN。规定锚点缺少
 InfiniCenter，不声称有中枢 `accepted` 决策。
+
+2026-10-13 的四节点扩展及独立原生验收记录在第 7 节，不能用初次
+发布结果代替新增节点的验收。
 
 ## 1. 已记录拓扑
 
@@ -258,3 +261,110 @@ Mac 原生私钥未导出，恢复配对文件需要原 Keychain；文件系统�
 本次部署及要求的验收已完成，服务端/原生 manifest、既有安装数据/UI 证据和
 qualified 最终备份均配对。D 未确认验证提交保持原样；完成不等于授权回放，
 也不允许用旧 ledger 覆盖更新的副作用/撤销。
+
+## 7. 新增四个独立节点，2026-10-13
+
+用户选择 TEST1 公共 Relay、每个节点独立签发。发布前已提交并推送代码。
+TEST1 Relay、五条控制链及五个签发服务现使用 `ae56b642`，原 work2 Gateway
+镜像与 Mac `16b00f17` 安装包保持不变。四台新 Gateway 使用干净的
+`git archive 7d5838c2` 发布镜像。宿主浏览器、四个独立原生注册、真实模型投递及
+自然 Grant 续签均通过；四台最终原生界面与配对检查点验证通过。离线撤销后的
+状态提示限制单独记录于下文。
+
+| VM / 名称 | 内网地址 | 原 SSH 端口 | 权威路由后缀 / deployment |
+|---|---|---|---|
+| 103 / work1 | `10.20.0.22` | `22022` | `aee06778-2010-470c-83e9-f83572831c1a` |
+| 105 / work3 | `10.20.0.24` | `22024` | `219ec0dc-4add-41b0-ab1e-7dd02997de59` |
+| 106 / work4 | `10.20.0.25` | `22025` | `6c3485b3-81ed-4414-a3c2-b6ce879e9561` |
+| 107 / work5 | `10.20.0.26` | `22026` | `c840a3e8-86d2-4fc4-8cb2-75341cd1e333` |
+
+路由为 `sparkclaw-vm<VM>-<deployment>`。各 VM 本机生成独立的邀请、Grant、
+responder、出站控制私钥，只分发公钥 pin 及该节点自己的 Relay 凭据。
+TEST1 保留 operator token 和 `/var/lib/iscp-relay/nodes/vm<VM>` 下四份独立
+broker 私钥，不接收签发私钥。原 work2 路由和密钥继续注册。新节点分别使用
+`/home/ubuntu/.local/share/sparkclaw/public-iscp-node`、
+`iscp-node-issuer.service`、独立 PostgreSQL 库/角色及私有 Unix IPC。
+
+Relay schema-2 配置按完整 domain/Relay/signer/responder 绑定、带命名空间
+的回执/操作及设备归属隔离权威。只接受五条批准路由，拒绝重复 JSON 字段及
+调用者选择的上游 URL。每条路由独享 32 个请求槽和每分钟 600 次预算。五节点
+原生测试发现共享来源的 Relay 请求预算返回 HTTP 429，故在原有有界配置范围内
+将部署的每 IP 上限从每分钟 1200 提升到 3600；每路由预算和认证要求保持不变。
+可选 `SPARKCLAW_WORKBENCH_ISCP_NODE_ROOT` 设置让普通 remote
+重启保留六个受限 Gateway 挂载。Gateway 获得 responder 密钥、公钥 pin、registry、
+私有 issuer socket 及其签发管理 token；邀请/Grant 签名私钥、issuer 存储/数据库
+秘密及 Relay operator token 保留在 Gateway 外。
+
+旧数据迁移已用 TEST1 实际数据库的隔离恢复副本演练。原九张表行数与内容
+校验值保持一致，再次启动幂等，原 Access/Refresh 值保留。历史未知 operator
+设备保持未归属，不分配给新租户。正式迁移及十二个服务身份注册通过；原 Main
+恢复连接，两条对话和原界面保留。
+
+控制端通过新鲜、验证签名的双向 ISCP Hello 恢复签发方或 broker 单独重启。
+私有持久水位拒绝旧会话替换；待定操作保留原 ID，不把未知修改作为新请求
+重放。带无效内层 frame 的公网请求在 broker 重启前后均到达五个签发方；
+四个新 issuer 逐个重启均在三秒内恢复。这些拒绝探针只证明控制通道可达，
+不代替客户端注册验收。真实 PostgreSQL race 测试覆盖权威隔离、迁移、续签、
+重放、撤销及会话替换。公网 health/discovery 为 200，未知路由及公网 admin、
+metrics 仍以 403 拒绝。
+
+本次扩展不新增公网端口或 PVE 规则，原出站 NAT 和 443 reflection 已支持四台
+访问 TEST1。原在线模型 URL、模型名称和凭据保存为私有 remote 覆盖项。
+103/105/107 的 ASR 根地址修正了已有的 `/v1/v1/audio/transcriptions` 重复路径，
+原环境文件保留备份。保留 LAN 配置及无关服务/端口映射。
+
+四种发布镜像由已提交的跟踪源码构建为 Linux/AMD64，Gateway 内容 ID 为
+`sha256:4350dd1c408e27253aef42091889ef0be37db7c9b4d999971c31d1d3548f006b`。
+标准 `start:remote -- --no-build` 仍校验私有模型 profile、凭据、节点挂载、宿主
+浏览器就绪及容器内 Controller smoke。旧 Gateway 镜像保留回退标签。其他三种
+旧服务镜像虽有运行容器，父层内容已缺失；替换前已私有导出合并文件系统和完整
+inspect，并导入回退镜像。原 PVE/数据库检查点仍是完整回滚的主要来源。
+
+固定版本 Chrome for Testing 使用其真实 managed-policy 目录及精确、root 所有的
+AppArmor 可执行路径例外。全局非特权 userns 限制保持开启，实际 renderer 保留
+seccomp、NoNewPrivs 与独立 user namespace。四个 managed userscript 和 native
+provisioning hash 均验证通过。VM106 重复 setup 复用逐字节校验的组件，worker URL/
+policy hash 不变。VM103/105 浏览器迁移先冷备份、再隔离候选验证，原 history/cookie
+行及旧 profile 均保留。
+
+103/105 的 37 张原表共 664/525 条旧记录，其原 ID 和仍适用列的校验值全部保持。
+既有迁移退役 `model_calls.fallback`，41/31 条旧值均为 false，保存在私有备份证据中；
+不声称现库仍保留该列。106/107 保留原 Owner 及原本为空的消息/运行历史；新增
+smoke 与测试记录单独计数。原环境文件及凭据加密 key 的校验值保持不变。
+
+四个正式原生 profile 分别取得独立 deployment/Owner/Client 身份，完成真实模型
+标记请求的持久投递，并在不改时钟或已签名 Grant 的情况下自然续签 900 秒 Grant。
+最初部分合成提示被语义路由拒绝并已投递，该结果保留；另一个已完成测试证明真实
+模型回复。未知提交只按原 request ID 查询，不盲目重发。一次性 QA profile 均通过
+已安装 helper 注册及续签；仅将其本地 Access 到期元数据提前，两种真实 token 均轮换，
+旧 Refresh 返回 401。四个 QA 随后达到 issuer revision 2、revocation-complete，最新
+Refresh 也返回 401，正式身份保持 active。已离线撤销的 profile 冷启动暂显示“连接
+不可用”，需获取权威撤销状态后才显示明确撤销提示。冷启动拒绝验收单独记录此 UI
+限制、服务端撤销及业务访问拒绝，不声称立即进入明确的终态锁定提示。
+
+独立启动器位于 `/Users/dev/Applications/SparkX Remote`：
+`SparkX-work1-VM103.command`、`SparkX-work3-VM105.command`、
+`SparkX-work4-VM106.command`、`SparkX-work5-VM107.command`。专用数据位于
+`/Users/dev/Library/Application Support/SparkX Remote Profiles/VM<VM>/userdata`。
+逐个实际启动器检查后，原侧栏、输入框、文件/邮件/浏览器入口及九项设置均保留。
+各在线设备列表显示正式身份 active、一次性 QA 身份 revoked，原测试会话中均可见
+已完成的模型标记回复。原 Main 默认选择不变，两条原对话、九项中文设置重新打开，
+在线设备列表仍显示原身份有效；14 张业务表和已有文件的校验值不变，并留在原
+工作台供继续使用。恢复私有 profile 的设备私钥仍依赖原 macOS Keychain。本次未
+新增验证实际 LAN、整机重启、真实 ASR 转写及邮件发送。
+
+私有证据根目录：
+`/Users/dev/.cache/sparkclaw-four-remote-20261013-z7mvhnm8`。
+PVE 快照：103/105/106/107 的 `sparkclaw_remote_pre_20261013`，TEST1 的
+`sparkclaw_multi_node_pre_20261013`。四台文件、数据库及冷浏览器检查点位于
+`/var/backups/sparkclaw-remote-pre-20261013`。TEST1 配对激活检查点为
+`/var/backups/iscp-relay/multi-node-activation-pre-20261013`，work2 issuer
+检查点为 `/var/backups/sparkclaw-iscp/multi-node-pre-20261013`。Mac 原 profile/
+默认选择检查点为证据根下的 `backups/mac-before-four-node`。注册/续签/撤销后的最终
+检查点位于各新 VM 的 `/var/backups/sparkclaw-iscp/four-node-final-20261013` 及 TEST1
+的 `/var/backups/iscp-relay/four-node-final-20261013`。每节点六件、TEST1 三件归档/
+dump 均有 hash 与成功恢复运行回执；TEST1 包含五个 broker 角色及 systemd 写路径
+配置。Mac 正式 profile 冷备份为 `backups/mac-four-node-final`，设备密钥仍依赖原
+Keychain。秘密归档不提交到 Git。
+回滚 Relay 必须配对数据库、权威配置和二进制，不能仅降级二进制来撤销归属迁移。
+考虑恢复前须保留更新的撤销记录及未知业务结果。

@@ -1,4 +1,4 @@
-# Optional independent issuer. Only responder credentials and public pins enter Gateway.
+# Optional issuer: responder, public pins and private management IPC; signing keys stay on the host.
 services:
   gateway:
     environment:

@@ -455,3 +455,50 @@ to Git.
 Rollback must pair the Relay database with its authority/configuration/binaries;
 a binary-only downgrade cannot undo ownership migration. Preserve newer client
 revocations and unknown business outcomes before considering any restoration.
+
+
+## 8. Revoked credential deletion installed (2026-10-13)
+
+The user authorized updating installed SparkX and its running backends while
+preserving data and configuration. `/Applications/SparkX.app` now uses Client
+source `3de41ee4`; work2 and VM103/105/106/107 use Gateway Go source `43b5e35e`.
+The Gateway binary was built from a clean archive for Linux/AMD64 and layered onto
+each node's existing image. Runtime dependencies, environment, mounts, ports,
+model settings, TLS and issuer/signing identities are retained. Each responder
+adds only `clients.delete` to its prior qualified operation list. The selected
+`latest` image also retains this update on the normal no-build restart path.
+Relay, control forwarders, issuer binaries and unrelated local labs were not
+replaced during this update.
+
+Native verification uncovered the Electron proxy's conversion of a bodyless
+DELETE to an empty ArrayBuffer. The Client now sends the closed JSON body `{}`;
+wire regression checks cover that exact conversion. WebChat 304, Desktop 289,
+strict packaging and 58 source/five UI/helper parity checks pass. The Gateway's
+supported Linux suite has 70 passing packages and ten without tests. The real
+installed Main and all four independent profiles each pass the original nine
+settings, original identity/conversation checks, deletion confirmation/cancel,
+actual deletion of an already-revoked disposable record and refresh. Cold helper
+restart and repeated deletion remain denied/removed for that record. Original
+user device records were not deleted or revoked during verification.
+
+Each of the five Mac workbenches retains every original row hash across its 14
+business tables and all owned-file hashes; the default launch selection is
+unchanged. Conversation counts at this update are Main 1, VM103 2, VM105 2,
+VM106 1 and VM107 2. All 41 pre-update Gateway tables retain their original
+business rows. work2's mailbox watcher, sync job/failure timestamps and internal
+policy activation metadata advance normally on startup; a separate restoration
+of its retained dump verifies unchanged original email content, drafts and send
+records. The audit database was removed after verification, without restoring or
+resetting the live database. This record does not qualify new real email or model
+submissions.
+
+Private local evidence and paired application/five-profile backups are at
+`/Users/dev/.cache/sparkclaw-upgrades/20261013-credential-delete-29a75jj4`.
+Each node's database/issuer dump, paired state archive, original Docker inspect,
+configuration hashes and upgrade receipt are under
+`/var/backups/sparkclaw-credential-delete-20261013-43b5e35e`.
+Its stopped original container is
+`sparkclaw-gateway-before-credential-delete-20261013` with restart disabled;
+rollback must use its paired database and configuration checkpoint, not just the
+old binary. These artifacts contain private authority and are not committed.
+InfiniCenter remains absent; no central accepted decision is claimed.

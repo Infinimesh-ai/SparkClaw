@@ -287,6 +287,15 @@ empty value when these endpoints do not require bearer authentication. The ASR
 value is the service root because Gateway appends
 `/v1/audio/transcriptions`; OCR is an OpenAI-compatible `/v1` base URL.
 
+After provisioning an independent node issuer, set
+`SPARKCLAW_WORKBENCH_ISCP_NODE_ROOT` to its absolute private directory in the
+selected environment file. Both standard product startup paths reapply
+`compose.node-issuer.yaml`, so reconciliation retains the node transport. Startup
+rejects incomplete, symlinked or nonprivate node paths. Gateway receives only the
+responder identity, public pins, private issuer socket/token, peer registry and
+writable responder enrollment; issuer signing keys and database credentials stay
+on the host. This option does not publish another port or change the LAN setting.
+
 Before changing containers, remote startup validates every model URL. It rejects
 Compose service names such as `sparkclaw-*`, `localhost`, `*.localhost`,
 `127.0.0.1`, `::1`, Docker host/gateway aliases, common local-domain suffixes,

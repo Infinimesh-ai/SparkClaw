@@ -1,0 +1,13 @@
+# Optional independent issuer. Only responder credentials and public pins enter Gateway.
+services:
+  gateway:
+    environment:
+      SPARKCLAW_WORKBENCH_ISCP_NODE_CONFIG: /run/sparkclaw/public-node/public-pins/responder.json
+      SPARKCLAW_WORKBENCH_ISCP_NODE_MANAGED: "1"
+    volumes:
+      - ${SPARKCLAW_WORKBENCH_ISCP_NODE_ROOT:?set the private node root}/authority/responder:/run/sparkclaw/public-node/responder-identity:ro
+      - ${SPARKCLAW_WORKBENCH_ISCP_NODE_ROOT:?set the private node root}/public-pins:/run/sparkclaw/public-node/public-pins:ro
+      - ${SPARKCLAW_WORKBENCH_ISCP_NODE_ROOT:?set the private node root}/authority/issuer-admin.token:/run/sparkclaw/public-node/issuer-admin.token:ro
+      - ${SPARKCLAW_WORKBENCH_ISCP_NODE_ROOT:?set the private node root}/issuer-socket:/run/sparkclaw/public-node/issuer-socket:ro
+      - ${SPARKCLAW_WORKBENCH_ISCP_NODE_ROOT:?set the private node root}/registry:/run/sparkclaw/public-node/registry:ro
+      - ${SPARKCLAW_WORKBENCH_ISCP_NODE_ROOT:?set the private node root}/responder-credentials:/run/sparkclaw/public-node/responder-credentials:rw

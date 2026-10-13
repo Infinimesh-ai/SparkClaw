@@ -227,6 +227,13 @@ bootstrap 会在需要时安装 Git，安全 clone 或 fast-forward 仓库，将
 `OPENAI_API_KEY`；endpoint 不需要 Bearer 认证时直接留空。ASR 必须填写 service root，
 因为 Gateway 会追加 `/v1/audio/transcriptions`；OCR 使用 OpenAI-compatible `/v1` base URL。
 
+独立节点签发服务完成配置后，在所选环境文件中将
+`SPARKCLAW_WORKBENCH_ISCP_NODE_ROOT` 设为其私有目录的绝对路径。两个标准产品启动入口
+都会重新应用 `compose.node-issuer.yaml`，保证再次启动时保留节点传输配置；不完整、
+含符号链接或权限不私有的节点路径会被拒绝。Gateway 只挂载 responder 身份、公有信任信息、
+私有签发 socket/token、peer 注册表和可写的 responder enrollment；签发私钥和数据库凭据
+保留在宿主机。该选项不新增监听端口，也不改变 LAN 设置。
+
 修改容器前，remote 启动会校验每个模型 URL，拒绝 `sparkclaw-*` Compose service name、
 `localhost`、`*.localhost`、`127.0.0.1`、`::1`、Docker host/gateway alias、常见本地域名
 后缀、单标签本地主机名，以及所有非公网 IP literal，包括 RFC1918、unique-local、loopback、

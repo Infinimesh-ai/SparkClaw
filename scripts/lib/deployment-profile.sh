@@ -1,5 +1,35 @@
 #!/usr/bin/env bash
 
+sparkclaw_configure_node_issuer() {
+  local root="$1"
+  [[ -n "${SPARKCLAW_WORKBENCH_ISCP_NODE_ROOT:-}" ]] || return 0
+  python3 - "$SPARKCLAW_WORKBENCH_ISCP_NODE_ROOT" <<'PY' || return 1
+import os
+from pathlib import Path
+import stat
+import sys
+
+root = Path(sys.argv[1])
+if not root.is_absolute() or root.resolve() != root:
+    raise SystemExit("node issuer root must be absolute and contain no symlinks")
+directories = ["", "authority", "authority/responder", "public-pins", "issuer-socket", "registry", "responder-credentials"]
+files = ["authority/responder/device.identity.json", "authority/responder/device.identity.key",
+         "authority/issuer-admin.token", "public-pins/responder.json",
+         "public-pins/grant-signer.json", "public-pins/invitation-signer.json", "registry/peers.json",
+         "responder-credentials/enrollment.json"]
+for relative, directory in [(p, True) for p in directories] + [(p, False) for p in files]:
+    path = root / relative
+    try:
+        info = path.lstat()
+    except OSError:
+        raise SystemExit("node issuer provisioning is incomplete") from None
+    valid_type = stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)
+    if not valid_type or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise SystemExit("node issuer paths must be private and owned by the deployment user")
+PY
+  compose_args+=(-f "$root/docker/compose.node-issuer.yaml")
+}
+
 # Configure the caller's Compose and readiness arguments together so restart
 # and boot reconciliation cannot silently return an installed TLS entry to HTTP.
 sparkclaw_configure_desktop_tls() {
@@ -167,6 +197,7 @@ sparkclaw_private_override_allowed() {
     SPARKCLAW_FAST_MODEL|SPARKCLAW_DEEP_MODEL|SPARKCLAW_EMBEDDING_MODEL|SPARKCLAW_GUARD_MODEL|SPARKCLAW_SPEECH_MODEL|SPARKCLAW_OCR_MODEL) return 0 ;;
     SPARKCLAW_CONTAINER_UID|SPARKCLAW_CONTAINER_GID) return 0 ;;
     SPARKCLAW_DESKTOP_TLS_DIR|SPARKCLAW_DESKTOP_PUBLIC_ORIGIN) return 0 ;;
+    SPARKCLAW_WORKBENCH_ISCP_NODE_ROOT) return 0 ;;
     SPARKCLAW_WEBCHAT_BIND|SPARKCLAW_WEBCHAT_PORT|SPARKCLAW_WEBCHAT_PROXY_TOKEN|SPARKCLAW_DEPLOYMENT_ID|SPARKCLAW_DESKTOP_CLIENT_FILE|SPARKCLAW_LOCAL_MANAGEMENT_FILE|SPARKCLAW_LOCAL_WORKBENCH_RUNTIME_DIR|SPARKCLAW_DESKTOP_EXECUTABLE) return 0 ;;
     SPARKCLAW_SANDBOX_HOST_WORKSPACE_ROOT) return 0 ;;
     SPARKCLAW_BROWSER_EXTENSION_RUNTIME_DIR_HOST|SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET|SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET_HOST|SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID|SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS) return 0 ;;

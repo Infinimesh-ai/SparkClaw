@@ -2,6 +2,7 @@
 import base64
 import copy
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -22,6 +23,37 @@ class BrowserComponentsTest(unittest.TestCase):
         self.default.mkdir(parents=True)
         self.identity = components.extension_id('/opt/sparkclaw/tampermonkey')
         self.prefs = self.default / 'Preferences'
+
+    def test_public_install_directories_are_readable_with_private_umask(self):
+        system = self.root / 'opt/sparkclaw/browser-components'
+        policy = self.root / 'etc/chromium/policies/managed/product.json'
+        self.profile.chmod(0o700)
+        secret = self.profile / 'private.key'
+        secret.write_bytes(b'private fixture')
+        secret.chmod(0o600)
+        previous = os.umask(0o077)
+        try:
+            with patch.object(components, 'SYSTEM', system), patch.object(components, 'POLICY', policy):
+                components.install_public_directories()
+                # Repair directories left by an earlier restricted installation.
+                system.chmod(0o700)
+                policy.parent.chmod(0o700)
+                components.install_public_directories()
+        finally:
+            os.umask(previous)
+        for directory in (system.parent, system, *list(policy.parents)[:3]):
+            self.assertEqual(directory.stat().st_mode & 0o777, 0o755)
+        self.assertEqual(self.profile.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(secret.stat().st_mode & 0o777, 0o600)
+
+    def test_public_install_rejects_symlink_before_changing_target_permissions(self):
+        system = self.root / 'public/browser-components'
+        system.parent.mkdir()
+        system.symlink_to(self.profile, target_is_directory=True)
+        self.profile.chmod(0o700)
+        with patch.object(components, 'SYSTEM', system), self.assertRaisesRegex(ValueError, 'symlink'):
+            components.install_public_directories()
+        self.assertEqual(self.profile.stat().st_mode & 0o777, 0o700)
 
     def test_prepare_preserves_unrelated_preferences_and_original_database(self):
         old = self.root / 'old-tampermonkey'

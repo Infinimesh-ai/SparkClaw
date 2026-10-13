@@ -196,6 +196,16 @@ def stage(target):
     print('Staged pinned Tampermonkey and', len(provisioning['scripts']), 'managed scripts')
 
 
+def install_public_directories():
+    # The owner browser must read these root-installed, non-secret assets even
+    # when deployment runs with a private umask. Never chmod profile/key trees.
+    for directory in (SYSTEM.parent, SYSTEM, *reversed(list(POLICY.parents)[:3])):
+        if directory.is_symlink():
+            raise ValueError('public browser component directory is a symlink')
+        directory.mkdir(parents=True, exist_ok=True)
+        directory.chmod(0o755)
+
+
 def install_system(target):
     if os.getuid() != 0:
         raise ValueError('system component installation requires root')
@@ -203,6 +213,7 @@ def install_system(target):
     extension = Path(receipt['manifest']['tampermonkey']['path'])
     if str(extension) != '/opt/sparkclaw/tampermonkey':
         raise ValueError('unexpected product extension path')
+    install_public_directories()
     pending = extension.with_name('tampermonkey.pending')
     if pending.exists():
         shutil.rmtree(pending)
@@ -216,8 +227,6 @@ def install_system(target):
             shutil.rmtree(previous)
         extension.rename(previous)
     pending.rename(extension)
-    SYSTEM.mkdir(parents=True, exist_ok=True)
-    POLICY.parent.mkdir(parents=True, exist_ok=True)
     for source, dest in [(target / 'receipt.json', SYSTEM / 'receipt.json'), (target / 'policy.json', POLICY)]:
         temp = dest.with_suffix('.tmp')
         shutil.copyfile(source, temp)

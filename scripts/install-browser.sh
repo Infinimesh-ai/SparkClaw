@@ -221,6 +221,7 @@ PY
 
 if [[ "$MODE" == "check" ]]; then
   verify_browser
+  sudo -n python3 "$ROOT/scripts/browser_sandbox.py" --check
   verify_runtime
   log "SparkClaw Browser is current ($PINNED_VERSION, Bridge $BRIDGE_VERSION)"
   exit 0
@@ -261,6 +262,7 @@ PY
   sudo chmod 0644 "$INSTALL_ROOT/sparkclaw-manifest.json"
 fi
 verify_browser
+sudo -n python3 "$ROOT/scripts/browser_sandbox.py"
 bash "$ROOT/scripts/install-browser-bridge.sh"
 bash "$ROOT/scripts/install-browser-components.sh"
 bash "$ROOT/scripts/resolve-browser-display.sh" >/dev/null || fail "an active owner X11/XWayland session is required"

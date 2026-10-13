@@ -52,7 +52,7 @@ async function fixture(t) {
       let result;
       if (request.operation === "workbench.identity") result = { status: 200, body: { schema_version: 1, ...f.identity } };
       else if (request.operation === "installation.bind") result = { status: 200, body: { schema_version: 1, installation_id: request.body.installation_id, ...f.identity } };
-      else if(request.operation === "capabilities.get")result={status:200,body:{schema_version:2,profile:"sparkclaw.workbench.transport.v2",session_id:"session",authorization_revision:f.revision||1,expires_at:new Date(Date.now()+60000).toISOString(),capabilities:[]}};
+      else if(request.operation === "capabilities.get" && !f.holdCapabilities)result={status:200,body:{schema_version:2,profile:"sparkclaw.workbench.transport.v2",session_id:"session",authorization_revision:f.revision||1,expires_at:new Date(Date.now()+60000).toISOString(),capabilities:[]}};
       else result = f.handler(request, child);
       if (result) child.send({ ipc_version: 1, type: "response", id: frame.id, response: { type: "task.result", profile: request.profile, id: request.id, ...result } });
       done();
@@ -68,7 +68,7 @@ async function fixture(t) {
   };
   f.newAuth = (overrides = {}) => new DesktopAuth({ vault, descriptorPath: path.join(directory, "backend.json"), installationID: store.installationID, requireLAN: true,
     iscpProfilePath: profilePath, allowLocalISCPTest: true, fetcher: () => { directHTTP++; throw new Error("Direct HTTP is inaccessible"); },
-    transportFactory: (options) => new ISCPTransport({ ...options, spawnProcess, timeoutMS: 100 }), ...overrides });
+    transportFactory: (options) => new ISCPTransport({ ...options, spawnProcess, timeoutMS: f.timeoutMS ?? 100 }), ...overrides });
   f.start = async () => { auth = f.newAuth(); await auth.initialize(); execution = new ExecutionClient({ auth, store, getIdentity: () => scope }); };
   f.restart = async () => { execution.close(); auth.close(); store.close(); store = new ClientStore(path.join(directory, "workbench")); await f.start(); };
   t.after(async () => { execution?.close(); auth?.close(); store.close(); await fs.rm(directory, { recursive: true, force: true }); });
@@ -279,12 +279,55 @@ test("ISCP recovery leaves the four-call budget available for required startup p
   for (const task of tasks) assert.equal(f.store.request(scope, task.request_id).status, "delivered");
 });
 
-test("local ISCP capacity rejection preserves unsent input across restart and an explicit retry submits once", async (t) => {
+test("three sequential replies wait for busy business and control slots without duplicate submissions or ACK errors", async (t) => {
+  const f = await fixture(t); f.v2 = true; f.timeoutMS = 1000; await f.start();
+  f.holdCapabilities = true;
+  const conversation = f.store.create(scope, "sequential greetings");
+  const held = [];
+  const reply = (request, child, body = {}) => child.send({ ipc_version: 1, type: "response", id: request.id,
+    response: { type: "task.result", profile: request.profile, id: request.id, status: 200, body } });
+  f.handler = (request, child) => {
+    if (request.operation === "execution.submit") return { status: 200, body: completed(f.store.request(scope, request.request_id)) };
+    if (request.operation === "execution.ack") return { status: 200, body: {} };
+    held.push([request, child]);
+    return undefined;
+  };
+  const settle = () => new Promise(resolve => setImmediate(resolve));
+  for (let i = 0; i < 3; i++) {
+    const reads = Array.from({ length: 4 }, () => f.auth.authorizedFetch(`${descriptor.origin}/api/config`));
+    // Capability refresh shares the single control slot with delivery ACK.
+    const control = f.auth.transport.invoke("capabilities.get");
+    await settle();
+    const task = f.store.enqueue(scope, conversation.id, "你好");
+    const sending = f.execution.submit(scope, task.request_id);
+    const observed = assert.doesNotReject(sending);
+    await settle();
+    assert.equal(f.calls.filter(call => call.operation === "execution.submit").length, i);
+    for (const [request, child] of held.splice(0, 4)) reply(request, child);
+    for (const response of await Promise.all(reads)) await response.json();
+    await settle();
+    assert.equal(f.store.receipt(scope, task.request_id).acknowledged, 0);
+    assert.equal(f.calls.filter(call => call.operation === "execution.ack").length, i);
+    reply(...held.shift()); await control;
+    await observed;
+    assert.equal((await sending).status, "delivered");
+    assert.equal(f.store.receipt(scope, task.request_id).acknowledged, 1);
+    assert.equal(f.auth.status.state, "connected");
+  }
+  assert.equal(f.calls.filter(call => call.operation === "execution.submit").length, 3);
+  assert.equal(f.calls.filter(call => call.operation === "execution.ack").length, 3);
+  assert.equal(f.directHTTP, 0);
+});
+
+test("local ISCP admission cancellation preserves unsent input across restart and an explicit retry submits once", async (t) => {
   const f = await fixture(t); await f.start();
   const conversation = f.store.create(scope, "capacity"), task = f.store.enqueue(scope, conversation.id, "still unsent");
   f.handler = () => undefined;
   const busy = Array.from({ length: 4 }, () => f.auth.authorizedFetch(`${descriptor.origin}/api/config`));
-  await assert.rejects(f.execution.submit(scope, task.request_id), /concurrency/u);
+  const sending = assert.rejects(f.execution.submit(scope, task.request_id), error => error instanceof ISCPRequestNotSentError);
+  await new Promise(resolve => setImmediate(resolve));
+  f.execution.close();
+  await sending;
   assert.equal(f.auth.status.state, "connected");
   assert.equal(f.store.request(scope, task.request_id).explicitly_submitted, 0);
   assert.equal(f.store.request(scope, task.request_id).status, "awaiting_runtime");

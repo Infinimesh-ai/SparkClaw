@@ -970,6 +970,34 @@ schedule mutations use controlled regression fixtures, not new production data.
 Message feedback remains unchanged as requested. No backend rollout or final user
 acceptance is claimed. InfiniCenter is still unavailable at the ancestor anchors.
 
+## 9.15. Queue local execution admission (2026-10-13)
+
+A user reported `ISCP request concurrency limit reached` after three greetings,
+each sent after the preceding reply, on another M1 Pro Mac connected to work1.
+The message originates in the desktop adapter before a helper pipe write. An
+isolated regression reproduces submission rejection when presentation reads
+occupy the business slots, and delivery ACK rejection while a capability refresh
+occupies the control slot. This establishes the failure mechanism; the other
+device's exact overlapping requests have not been captured.
+
+Execution submission, lookup, cancellation, approvals and ACK now wait for local
+admission, sharing the existing mailbox queue. Execution takes precedence over
+mail snapshots, and each capacity class drains independently. Waiting and response
+use one deadline. Cancellation, disconnect, changed session/authorization and lost
+permission prevent queued work from being sent. A written request is never retried
+by this queue; an unsent submission retains its local input and original identity.
+Existing negotiated workbench capacities and Relay configuration are unchanged.
+
+Three sequential replies under simultaneous business/control congestion each
+submit and ACK once. Desktop 297, WebChat 304, Go ISCP workbench tests, strict
+macOS arm64 packaging and native prepare/restore/revoke pass. Package parity
+covers 58 source files, five byte-identical original UI assets and the helper.
+The rebuilt package connects to work1 and retains the original nine settings,
+device controls, schedule create/cancel, 14 local table hashes and owned files.
+The build targets Apple silicon Macs; the reported device still needs installation and retesting.
+No installed application, Gateway or Relay deployment is updated by this change.
+InfiniCenter remains unavailable at the configured ancestor anchors.
+
 ## 10. Related designs
 
 - [Local ISCP integration and renewal acceptance](desktop-iscp-connection-design.md): implemented baseline and actual evidence scope.

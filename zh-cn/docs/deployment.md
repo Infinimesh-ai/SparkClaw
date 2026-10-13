@@ -256,6 +256,11 @@ bash scripts/deploy_remote.sh --check
 bash scripts/setup-browser.sh --check
 ```
 
+使用另一台机器构建的发布镜像时，先核对 Linux 架构、源码版本和镜像摘要，按 Compose
+服务镜像名称加载，再执行 `npm run start:remote -- --no-build`。此选项仅跳过编译；私有
+配置、浏览器、凭据密钥、节点挂载、服务健康和容器侧 Controller Smoke 检查均保留。
+普通启动默认仍重建镜像。
+
 两种部署模式使用相同的生产 Browser Setup。它创建 Owner-only Controller、MCP Output、CLI
 Runtime、Profile 和 Native Messaging Host Directory，只把固定 Controller Path 写入所选
 mode-`0600` 环境文件。这些目录不持久化 Extension Token，也不形成 Email Message Archive。

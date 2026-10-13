@@ -321,6 +321,13 @@ bash scripts/deploy_remote.sh --check
 bash scripts/setup-browser.sh --check
 ```
 
+For a release built on another machine, first verify its Linux architecture,
+source revision and image digests, load the images under the Compose service
+image names, then use `npm run start:remote -- --no-build`. This skips compilation
+only; private configuration, browser, credential-key, node mounts, service health
+and container-side Controller smoke checks remain active. Ordinary startup still
+rebuilds images by default.
+
 Both deployment modes use this same production browser setup. It creates
 owner-only Controller, MCP-output, CLI-runtime, profile, and Native Messaging
 Host directories, then records only the fixed Controller paths in the selected

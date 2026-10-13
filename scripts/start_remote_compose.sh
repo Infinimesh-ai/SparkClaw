@@ -17,6 +17,7 @@ COMPOSE_FILE="$ROOT/docker/compose.yaml"
 LOCAL_MODELS_COMPOSE_FILE="$ROOT/docker/compose.models.local.yaml"
 JINGSI_COMPOSE_FILE="$ROOT/docker/compose.jingsi-lan.yaml"
 MODE="start"
+BUILD_OPTION="--build"
 JINGSI_LAN=false
 EFFECTIVE_ENV_FILE=""
 LOCAL_EFFECTIVE_ENV_FILE=""
@@ -29,7 +30,7 @@ trap cleanup EXIT
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/start_remote_compose.sh [--check] [--env-file PATH] [--jingsi-lan]
+Usage: bash scripts/start_remote_compose.sh [--check] [--no-build] [--env-file PATH] [--jingsi-lan]
 
 Start or reconcile the full-remote SparkClaw product. All model adapters use
 remote HTTP(S) endpoints. Before application startup, any local GPU model
@@ -37,6 +38,7 @@ containers in the shared SparkClaw Compose project are explicitly stopped.
 
 Options:
   --check          Validate the remote profile, Browser Bridge, and expanded Compose only
+  --no-build       Use already loaded, verified release images; keep all runtime checks
   --env-file PATH  Use a private override file instead of .env.remote
   --jingsi-lan     Apply the fixed JingSi LAN presentation overlay
   -h, --help       Show this help
@@ -46,6 +48,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --check) MODE="check" ;;
+    --no-build) BUILD_OPTION="--no-build" ;;
     --jingsi-lan) JINGSI_LAN=true ;;
     --env-file)
       shift
@@ -139,7 +142,7 @@ echo "Stopping local SparkClaw model containers before remote startup"
 
 sparkclaw_export_profile_env "$EFFECTIVE_ENV_FILE"
 browser_pid="$(sparkclaw_browser_main_pid "$EFFECTIVE_ENV_FILE")"
-"${docker_cmd[@]}" "${compose_args[@]}" up -d --build --wait --wait-timeout 600 "${services[@]}"
+"${docker_cmd[@]}" "${compose_args[@]}" up -d "$BUILD_OPTION" --wait --wait-timeout 600 "${services[@]}"
 
 gateway_ready=false
 for _ in $(seq 1 30); do

@@ -218,11 +218,25 @@ class RemoteComposeTest(unittest.TestCase):
         self.assertNotIn("compose.remote.yaml", " ".join(up_call))
         self.assertIn("--profile", up_call)
         self.assertIn("product", up_call)
+        self.assertIn("--build", up_call)
         self.assertIn(str(MODELS_COMPOSE), stop_call)
         self.assertNotIn(str(COMPOSE), stop_call)
         self.assertNotIn("compose.dual-light.yaml", " ".join(stop_call))
         self.assertEqual(len(curl_calls), 1)
         self.assertIn("http://127.0.0.1:19876/readyz", curl_calls[0])
+
+    def test_prebuilt_release_keeps_service_order_readiness_and_browser_smoke(self) -> None:
+        result, docker_calls, curl_calls = self.run_script("", "--no-build")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        up_index, up_call = next((i, call) for i, call in enumerate(docker_calls) if "up" in call)
+        self.assertIn("--no-build", up_call)
+        self.assertNotIn("--build", up_call)
+        self.assertIn("--wait", up_call)
+        self.assertTrue(any("stop" in call for call in docker_calls[:up_index]))
+        self.assertEqual(up_call[-5:], ["postgres", "sandbox-runner", "gotenberg", "gateway", "webchat"])
+        self.assertEqual(len(curl_calls), 1)
+        self.assertTrue(any("exec" in call and "/app/scripts/browser_controller_smoke.mjs" in call
+                            for call in docker_calls[up_index + 1:]))
 
     def test_check_never_stops_or_starts_containers(self) -> None:
         result, docker_calls, curl_calls = self.run_script("", "--check")

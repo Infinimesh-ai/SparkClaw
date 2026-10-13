@@ -10,6 +10,7 @@ import math
 import os
 from pathlib import Path
 import shutil
+import stat
 import struct
 import tempfile
 import time
@@ -284,14 +285,25 @@ def prepare_profile(profile):
     print('Prepared product extension identity:', identity)
 
 
+def verify_public_permissions(extension):
+    paths = [SYSTEM.parent, SYSTEM, *list(POLICY.parents)[:POLICY_DIRECTORY_DEPTH],
+             SYSTEM / 'receipt.json', POLICY, extension, *extension.rglob('*')]
+    for path in paths:
+        info = path.lstat()
+        directory = stat.S_ISDIR(info.st_mode)
+        if (info.st_uid != 0 or stat.S_ISLNK(info.st_mode)
+                or not (directory or stat.S_ISREG(info.st_mode))
+                or stat.S_IMODE(info.st_mode) != (0o755 if directory else 0o644)):
+            raise ValueError('public browser component ownership or permissions are unsafe')
+
+
 def verify_system():
     m = manifest()
+    extension = Path(m['tampermonkey']['path'])
+    verify_public_permissions(extension)
     receipt = json.loads((SYSTEM / 'receipt.json').read_text())
     if receipt['manifest'] != m or digest(POLICY.read_bytes()) != receipt['policySHA256']:
         raise ValueError('browser component deployment is stale')
-    extension = Path(m['tampermonkey']['path'])
-    if extension.is_symlink() or extension.stat().st_uid != 0:
-        raise ValueError('product Tampermonkey must be root-owned')
     files = {str(p.relative_to(extension)): digest(p.read_bytes()) for p in extension.rglob('*') if p.is_file()}
     if files != receipt['files']:
         raise ValueError('installed Tampermonkey checksum mismatch')

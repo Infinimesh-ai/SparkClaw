@@ -4,6 +4,9 @@ import copy
 import json
 import os
 from pathlib import Path
+import shutil
+import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -86,6 +89,84 @@ class BrowserComponentsTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'symlink'):
                 components.install_public_directories()
         self.assertEqual(self.profile.stat().st_mode & 0o777, 0o700)
+
+    def test_redeploy_reuses_verified_worker_but_still_prepares_profile(self):
+        fixture = self.root / 'installer'
+        scripts = fixture / 'scripts'
+        scripts.mkdir(parents=True)
+        shutil.copyfile(Path(__file__).with_name('install-browser-components.sh'), scripts / 'install-browser-components.sh')
+        commands = fixture / 'bin'
+        commands.mkdir()
+        state = fixture / 'state.json'
+        state.write_text(json.dumps({'verified': False, 'generation': 0, 'actions': []}))
+        fake_python = commands / 'python3'
+        fake_python.write_text('#!' + sys.executable + '\n' + '''import json,os,pathlib,sys
+p=pathlib.Path(os.environ['COMPONENT_INSTALL_TEST_STATE'])
+s=json.loads(p.read_text());action=sys.argv[2];s['actions'].append(action)
+status=0
+if action=='check':status=0 if s['verified'] else 1
+elif action=='stage':s['generation']+=1
+elif action=='install-system':s['verified']=True;s['worker']='worker-'+str(s['generation'])
+p.write_text(json.dumps(s));sys.exit(status)
+''')
+        fake_python.chmod(0o755)
+        sudo = commands / 'sudo'
+        sudo.write_text('#!/bin/sh\n[ "$1" = -n ] && shift\nexec "$@"\n')
+        sudo.chmod(0o755)
+        systemctl = commands / 'systemctl'
+        systemctl.write_text('#!/bin/sh\nexit 0\n')
+        systemctl.chmod(0o755)
+        env = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ['PATH'],
+                   COMPONENT_INSTALL_TEST_STATE=str(state), HOME=str(fixture))
+        invoke = lambda: subprocess.run(['bash', str(scripts / 'install-browser-components.sh')], env=env, check=True, capture_output=True)
+        invoke()
+        first = json.loads(state.read_text())
+        invoke()
+        repeated = json.loads(state.read_text())
+        self.assertEqual(repeated['worker'], first['worker'])
+        self.assertEqual(repeated['actions'].count('stage'), 1)
+        self.assertEqual(repeated['actions'].count('install-system'), 1)
+        self.assertEqual(repeated['actions'].count('prepare-profile'), 2)
+        # A failed full verification still requires a fresh real deployment.
+        repeated['verified'] = False
+        state.write_text(json.dumps(repeated))
+        invoke()
+        changed = json.loads(state.read_text())
+        self.assertNotEqual(changed['worker'], repeated['worker'])
+        self.assertEqual(changed['actions'].count('stage'), 2)
+        self.assertEqual(changed['actions'].count('install-system'), 2)
+        self.assertEqual(changed['actions'].count('prepare-profile'), 3)
+
+    def test_reuse_requires_safe_public_ownership_permissions_and_no_symlinks(self):
+        system = self.root / 'opt/sparkclaw/browser-components'
+        policy = self.root / 'etc/opt/chrome_for_testing/policies/managed/product.json'
+        extension = system.parent / 'tampermonkey'
+        with patch.object(components, 'SYSTEM', system), patch.object(components, 'POLICY', policy), patch.object(components, 'POLICY_DIRECTORY_DEPTH', 4):
+            components.install_public_directories()
+            extension.mkdir(mode=0o755)
+            files = [extension / 'worker.js', system / 'receipt.json', policy]
+            for path in files:
+                path.write_text('public fixture')
+                path.chmod(0o644)
+            original = Path.lstat
+            def root_stat(path):
+                values = list(original(path))
+                values[4] = 0
+                return os.stat_result(values)
+            with patch.object(Path, 'lstat', autospec=True, side_effect=root_stat):
+                components.verify_public_permissions(extension)
+                files[0].chmod(0o666)
+                with self.assertRaisesRegex(ValueError, 'permissions'):
+                    components.verify_public_permissions(extension)
+                files[0].chmod(0o644)
+                (extension / 'linked-worker.js').symlink_to(files[0])
+                with self.assertRaisesRegex(ValueError, 'permissions'):
+                    components.verify_public_permissions(extension)
+                (extension / 'linked-worker.js').unlink()
+            # A non-root test owner cannot impersonate a reusable installation.
+            if os.getuid() != 0:
+                with self.assertRaisesRegex(ValueError, 'ownership'):
+                    components.verify_public_permissions(extension)
 
     def test_public_install_rejects_symlink_before_changing_target_permissions(self):
         system = self.root / 'public/browser-components'

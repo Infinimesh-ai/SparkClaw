@@ -21,11 +21,23 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-python3 "$ROOT/scripts/browser_components.py" stage "$stage"
+current=false
+if python3 "$ROOT/scripts/browser_components.py" check >/dev/null 2>&1; then
+  # Reuse only a completely verified deployment. Creating a new deployment
+  # hash/worker URL on every setup leaves an unchanged-version unpacked
+  # extension's persisted service-worker registration pointing at a removed
+  # file. Real manifest/source/policy changes still fail check and are staged.
+  current=true
+  printf 'Reusing verified pinned browser components and managed policy\n'
+else
+  python3 "$ROOT/scripts/browser_components.py" stage "$stage"
+fi
 if systemctl --user is-active --quiet sparkclaw-browser.service; then
   restore_browser=true
   systemctl --user stop sparkclaw-browser.service
 fi
-sudo -n python3 "$ROOT/scripts/browser_components.py" install-system "$stage"
+if [[ "$current" == false ]]; then
+  sudo -n python3 "$ROOT/scripts/browser_components.py" install-system "$stage"
+fi
 python3 "$ROOT/scripts/browser_components.py" prepare-profile "$profile_dir"
 # setup-browser-controller.sh restarts the dedicated profile after launcher setup.

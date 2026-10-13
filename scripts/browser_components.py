@@ -19,7 +19,20 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SYSTEM = Path('/opt/sparkclaw/browser-components')
-POLICY = Path('/etc/chromium/policies/managed/sparkclaw-userscripts.json')
+
+
+def policy_location(machine):
+    # The pinned x64 artifact is Chrome for Testing, whose compiled policy root
+    # differs from both ordinary Google Chrome and the pinned arm64 Chromium.
+    # https://chromium.googlesource.com/chromium/src/+/HEAD/docs/enterprise/policies.md
+    if machine in ('x86_64', 'amd64'):
+        return Path('/etc/opt/chrome_for_testing/policies/managed/sparkclaw-userscripts.json'), 4
+    if machine in ('aarch64', 'arm64'):
+        return Path('/etc/chromium/policies/managed/sparkclaw-userscripts.json'), 3
+    raise ValueError('unsupported pinned browser policy architecture')
+
+
+POLICY, POLICY_DIRECTORY_DEPTH = policy_location(os.uname().machine)
 RETIRED_MANAGED_UUIDS = ('c6378bd8-6136-4f1b-81be-2c0fed94baf3',)
 
 
@@ -199,7 +212,9 @@ def stage(target):
 def install_public_directories():
     # The owner browser must read these root-installed, non-secret assets even
     # when deployment runs with a private umask. Never chmod profile/key trees.
-    for directory in (SYSTEM.parent, SYSTEM, *reversed(list(POLICY.parents)[:3])):
+    # A finite chain belonging to the selected artifact, including /etc/opt on
+    # a fresh CfT host. Do not traverse or chmod private browser/profile paths.
+    for directory in (SYSTEM.parent, SYSTEM, *reversed(list(POLICY.parents)[:POLICY_DIRECTORY_DEPTH])):
         if directory.is_symlink():
             raise ValueError('public browser component directory is a symlink')
         directory.mkdir(parents=True, exist_ok=True)

@@ -277,8 +277,12 @@ app_cli_meta="$(python3 "$ROOT/scripts/install-app-cli.py" --root "$app_cli_root
 app_cli_config="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["config"])' "$app_cli_meta")"
 app_cli_python="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["python"])' "$app_cli_meta")"
 # Stop admission and await owned-resource cleanup before swapping any component.
-systemctl --user stop sparkclaw-app-cli-executor.service 2>/dev/null || true
-systemctl --user stop sparkclaw-browser-controller.service
+if systemctl --user cat sparkclaw-app-cli-executor.service >/dev/null 2>&1; then
+  systemctl --user stop sparkclaw-app-cli-executor.service
+fi
+if systemctl --user cat sparkclaw-browser-controller.service >/dev/null 2>&1; then
+  systemctl --user stop sparkclaw-browser-controller.service
+fi
 python3 "$ROOT/scripts/install-app-cli.py" --root "$app_cli_root" --host-socket "$socket_path" \
   --host-runtime-root "$cli_runtime_dir" --workspace-root "$email_workspace_root" --check --activate >/dev/null
 log "installing pinned Playwright controller dependencies without browser downloads"

@@ -170,6 +170,58 @@ class BrowserBridgeArtifactTest(unittest.TestCase):
         self.assertIn("sparkclaw-app-cli-executor.service", drain_block)
         self.assertIn("sparkclaw-browser-controller.service", drain_block)
 
+    def test_controller_first_install_and_existing_service_cleanup(self) -> None:
+        script = CONTROLLER_SETUP.read_text(encoding="utf-8")
+        drain = script.split("# Stop admission and await owned-resource cleanup before swapping any component.\n", 1)[1]
+        drain = drain.split('python3 "$ROOT/scripts/install-app-cli.py"', 1)[0]
+        executor = "sparkclaw-app-cli-executor.service"
+        controller = "sparkclaw-browser-controller.service"
+        for installed in ((), (executor,), (controller,), (executor, controller)):
+            with self.subTest(installed=installed):
+                result = self.run_controller_drain(drain, installed)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                expected = [f"stop {unit}" for unit in (executor, controller) if unit in installed]
+                self.assertEqual(result.stdout.splitlines(), [*expected, "activate"])
+
+    def test_controller_activation_stops_on_any_existing_service_cleanup_failure(self) -> None:
+        script = CONTROLLER_SETUP.read_text(encoding="utf-8")
+        drain = script.split("# Stop admission and await owned-resource cleanup before swapping any component.\n", 1)[1]
+        drain = drain.split('python3 "$ROOT/scripts/install-app-cli.py"', 1)[0]
+        executor = "sparkclaw-app-cli-executor.service"
+        controller = "sparkclaw-browser-controller.service"
+        for failing in (executor, controller):
+            with self.subTest(failing=failing):
+                result = self.run_controller_drain(drain, (executor, controller), failing)
+                self.assertEqual(result.returncode, 19)
+                self.assertNotIn("activate", result.stdout.splitlines())
+                expected = [f"stop {executor}"]
+                if failing == controller:
+                    expected.append(f"stop {controller}")
+                self.assertEqual(result.stdout.splitlines(), expected)
+
+    @staticmethod
+    def run_controller_drain(drain: str, installed: tuple[str, ...], failing: str = "") -> subprocess.CompletedProcess:
+        # Execute the real shell boundary: missing units are normal on a new
+        # host, but a failed owned-resource drain must never activate a release.
+        stub = """systemctl() {
+  [[ "$1" == --user ]] || return 90
+  if [[ "$2" == cat ]]; then
+    [[ " $installed " == *" $3 "* ]]
+  elif [[ "$2" == stop ]]; then
+    printf 'stop %s\\n' "$3"
+    [[ "$3" != "$failing" ]] || return 19
+  else
+    return 91
+  fi
+}
+"""
+        return subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", 'installed="$1"; failing="$2"\n' + stub + drain + "printf 'activate\\n'\n", "drain-test", " ".join(installed), failing],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
     def test_gateway_image_contains_only_the_controller_smoke_client(self) -> None:
         dockerfile = GATEWAY_DOCKERFILE.read_text(encoding="utf-8")
         self.assertIn("browser_controller_smoke.mjs", dockerfile)

@@ -55,8 +55,10 @@ test('node-managed device operations replay original encrypted intents and prese
  assert.equal((await f.transport.fetch(`${origin}/api/clients/new-client/revoke`,revoke)).status,503);
  const originalRevoke=f.calls.at(-1).request.operation_id;revoking=false;
  assert.equal((await f.transport.fetch(`${origin}/api/clients/new-client/revoke`,revoke)).status,200);assert.equal(f.calls.at(-1).request.operation_id,originalRevoke);
- const remove={method:'DELETE'};
+ const nativeDelete=new Request(`${origin}/api/clients/new-client`,{method:'DELETE',body:'{}'});
+ const remove={method:nativeDelete.method,body:await nativeDelete.arrayBuffer()};
  assert.equal((await f.transport.fetch(`${origin}/api/clients/new-client`,remove)).status,503);
+ assert.equal(Buffer.from(f.calls.at(-1).body_base64,'base64').toString('utf8'),'{}');
  const originalDelete=f.calls.at(-1).request.operation_id;
  assert.notEqual(originalDelete,originalRevoke);
  deleting=false;

@@ -261,3 +261,23 @@ describe("workbench invalidation stream", () => {
     }));
   });
 });
+
+describe("revoked credential deletion through the desktop request boundary", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  it("sends an empty JSON object that survives Electron's non-GET arrayBuffer conversion", async () => {
+    const requests: Request[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      const request = new Request(new URL(url, "https://iscp.invalid"), init);
+      requests.push(request);
+      expect(new TextDecoder().decode(await request.arrayBuffer())).toBe("{}");
+      return new Response(JSON.stringify({ deleted: true }));
+    }));
+    expect(await api.deleteClient("revoked-device")).toEqual({ deleted: true });
+    expect(requests).toHaveLength(1);
+    expect(requests[0].method).toBe("DELETE");
+    expect(new URL(requests[0].url).pathname).toBe("/api/clients/revoked-device");
+  });
+});

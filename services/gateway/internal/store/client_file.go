@@ -46,6 +46,17 @@ func (s *FileStore) RevokeClient(ctx context.Context, id string) (app.Client, er
 	})
 }
 
+func (s *FileStore) DeleteClient(ctx context.Context, id string) (app.Client, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationClientDelete, fileAdmissionCapacity)
+	if err != nil {
+		return app.Client{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationClientDelete, func(ctx context.Context) (app.Client, error) {
+		return s.inner.DeleteClient(ctx, id)
+	})
+}
+
 func (s *FileStore) FindClientByTokenHash(ctx context.Context, tokenHash string) (app.Client, bool, error) {
 	ctx, release, err := s.admitMigrated(ctx, OperationClientFindTokenHash, 1)
 	if err != nil {

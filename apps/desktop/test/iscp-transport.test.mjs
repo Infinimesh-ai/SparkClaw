@@ -33,12 +33,12 @@ test('node-managed device operations replay original encrypted intents and prese
   encryptString(value){const iv=crypto.randomBytes(12),cipher=crypto.createCipheriv('aes-256-gcm',key,iv);const bytes=Buffer.concat([cipher.update(value),cipher.final()]);return Buffer.concat([iv,cipher.getAuthTag(),bytes]);},
   decryptString(value){const cipher=crypto.createDecipheriv('aes-256-gcm',key,value.subarray(0,12));cipher.setAuthTag(value.subarray(12,28));return Buffer.concat([cipher.update(value.subarray(28)),cipher.final()]).toString('utf8');}};
  const vault=new SecureCredentialStore({directory:path.join(root,'secure'),safeStorage,platform:'linux'}).forISCPProfile('a'.repeat(64));
- const capabilities={schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),binding:{deployment_id:'d',owner_id:'o',client_id:'c'},operations:['clients.list','clients.issue','clients.revoke','operations.receipt']};
+ const capabilities={schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),binding:{deployment_id:'d',owner_id:'o',client_id:'c'},operations:['clients.list','clients.issue','clients.revoke','clients.delete','operations.receipt']};
  const credential='sparkclaw-iscp-connect-v1.synthetic-one-use-secret',original={client:{id:'new-client',owner_id:'o',name:'second'},token:credential};
- let drop=true,revoking=true;
+ let drop=true,revoking=true,deleting=true;
  const f=fixture(t,(call,child)=>{
   if(drop){drop=false;return;}
-  const status=call.request.operation==='clients.revoke'&&revoking?503:200;
+  const status=call.request.operation==='clients.revoke'&&revoking||call.request.operation==='clients.delete'&&deleting?503:200;
   const body=call.request.operation==='clients.list'?{clients:[]}:call.request.operation==='clients.issue'?original:status===503?{code:'client_revocation_requires_reconciliation'}:{id:'new-client',owner_id:'o',revoked_at:new Date().toISOString()};
   child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:capabilities.profile,id:call.id,status,body}});
  },{clientOperationVault:vault,journalRoot:path.join(root,'journal')});
@@ -55,6 +55,14 @@ test('node-managed device operations replay original encrypted intents and prese
  assert.equal((await f.transport.fetch(`${origin}/api/clients/new-client/revoke`,revoke)).status,503);
  const originalRevoke=f.calls.at(-1).request.operation_id;revoking=false;
  assert.equal((await f.transport.fetch(`${origin}/api/clients/new-client/revoke`,revoke)).status,200);assert.equal(f.calls.at(-1).request.operation_id,originalRevoke);
+ const remove={method:'DELETE'};
+ assert.equal((await f.transport.fetch(`${origin}/api/clients/new-client`,remove)).status,503);
+ const originalDelete=f.calls.at(-1).request.operation_id;
+ assert.notEqual(originalDelete,originalRevoke);
+ deleting=false;
+ assert.equal((await f.transport.fetch(`${origin}/api/clients/new-client`,remove)).status,200);
+ assert.equal(f.calls.at(-1).request.operation_id,originalDelete);
+ assert.deepEqual(await fs.readdir(vault.directory),[]);
  assert.ok(!f.calls.some(call=>call.request.operation==='operations.receipt'));
  await assert.rejects(f.transport.fetch(`${origin}/api/clients`,{...input,headers:{}}),/original operation identity/);
 });

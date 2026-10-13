@@ -90,6 +90,7 @@ type snapshotClient struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
 	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+	DeletedAt  *time.Time `json:"deleted_at,omitempty"`
 }
 
 type snapshotPairingCode struct {
@@ -118,7 +119,7 @@ func (snapshot Snapshot) MarshalJSON() ([]byte, error) {
 		clients[id] = snapshotClient{
 			ID: client.ID, OwnerID: client.OwnerID, ActorID: client.ActorID, Name: client.Name,
 			TokenHash: client.TokenHash, CreatedAt: client.CreatedAt,
-			LastSeenAt: cloneTimePointer(client.LastSeenAt), RevokedAt: cloneTimePointer(client.RevokedAt),
+			LastSeenAt: cloneTimePointer(client.LastSeenAt), RevokedAt: cloneTimePointer(client.RevokedAt), DeletedAt: cloneTimePointer(client.DeletedAt),
 		}
 	}
 	pairings := make(map[string]snapshotPairingCode, len(snapshot.PairingCodes))
@@ -160,7 +161,7 @@ func (snapshot *Snapshot) UnmarshalJSON(raw []byte) error {
 		snapshot.Clients[id] = app.Client{
 			ID: client.ID, OwnerID: client.OwnerID, ActorID: client.ActorID, Name: client.Name,
 			TokenHash: client.TokenHash, CreatedAt: client.CreatedAt,
-			LastSeenAt: cloneTimePointer(client.LastSeenAt), RevokedAt: cloneTimePointer(client.RevokedAt),
+			LastSeenAt: cloneTimePointer(client.LastSeenAt), RevokedAt: cloneTimePointer(client.RevokedAt), DeletedAt: cloneTimePointer(client.DeletedAt),
 		}
 	}
 	snapshot.PairingCodes = make(map[string]app.PairingCode, len(decoded.PairingCodes))

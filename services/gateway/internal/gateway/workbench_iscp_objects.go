@@ -69,7 +69,7 @@ func (s *Server) NewWorkbenchISCPObjectHandler(cfg iscpworkbench.Config, next is
 			return failed(403, "installation_required")
 		}
 		ctx = context.WithValue(ctx, iscpObjectContextKey{}, iscpObjectAccess{objects, binding})
-		if request.Operation == iscpworkbench.OperationClientsList || request.Operation == iscpworkbench.OperationClientsIssue || request.Operation == iscpworkbench.OperationClientsRevoke {
+		if request.Operation == iscpworkbench.OperationClientsList || request.Operation == iscpworkbench.OperationClientsIssue || request.Operation == iscpworkbench.OperationClientsRevoke || request.Operation == iscpworkbench.OperationClientsDelete {
 			if request.Object != nil {
 				return failed(400, "body_object_unsupported")
 			}

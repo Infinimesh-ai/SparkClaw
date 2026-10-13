@@ -1,6 +1,7 @@
 const SURFACES = Object.freeze({
   settings_owner: ['settings.owner.get', 'settings.owner.patch'],
   settings_devices: ['clients.list', 'clients.issue', 'clients.revoke'],
+  settings_devices_delete: ['clients.delete'],
   settings_connectors: ['settings.connectors.list', 'settings.connectors.patch'],
   settings_credentials: ['settings.integrations.list', 'settings.credentials.add', 'settings.credentials.activate', 'settings.credentials.check', 'settings.credentials.delete'],
   notifications: ['notifications.list', 'notifications.read', 'notifications.read_all'],

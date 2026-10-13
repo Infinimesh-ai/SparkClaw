@@ -603,6 +603,7 @@ type Client struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
 	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+	DeletedAt  *time.Time `json:"deleted_at,omitempty"`
 }
 
 type PairingCode struct {

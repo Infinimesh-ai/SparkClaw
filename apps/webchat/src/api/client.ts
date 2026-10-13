@@ -461,6 +461,7 @@ export const api = {
     body: JSON.stringify({ client_name: clientName })
   }),
   revokeClient: (id: string) => request<Client>(`/api/clients/${id}/revoke`, { method: "POST", body: "{}", signal: AbortSignal.timeout(30000) }),
+  deleteClient: (id: string) => request<{ deleted: boolean }>(`/api/clients/${id}`, { method: "DELETE", signal: AbortSignal.timeout(30000) }),
   notificationBindings: (channel = "", status = "") => {
     const params = new URLSearchParams();
     if (channel) params.set("channel", channel);

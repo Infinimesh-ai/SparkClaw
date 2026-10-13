@@ -143,7 +143,7 @@ func (r fakeClientPostgresRow) Scan(destinations ...any) error {
 	if r.err != nil {
 		return r.err
 	}
-	if r.client != nil && len(destinations) == 8 {
+	if r.client != nil && len(destinations) == 9 {
 		client := cloneClient(*r.client)
 		*(destinations[0].(*string)) = client.ID
 		*(destinations[1].(*string)) = client.OwnerID
@@ -153,6 +153,7 @@ func (r fakeClientPostgresRow) Scan(destinations ...any) error {
 		*(destinations[5].(*time.Time)) = client.CreatedAt
 		*(destinations[6].(**time.Time)) = cloneTimePointer(client.LastSeenAt)
 		*(destinations[7].(**time.Time)) = cloneTimePointer(client.RevokedAt)
+		*(destinations[8].(**time.Time)) = cloneTimePointer(client.DeletedAt)
 		return nil
 	}
 	if r.pairing != nil && len(destinations) == 7 {
@@ -686,5 +687,26 @@ func TestPostgresClientRealDatabaseContract(t *testing.T) {
 	}
 	if _, found, err := store.FindClientByTokenHash(t.Context(), client.TokenHash); err != nil || found {
 		t.Fatalf("revoked token found=%v err=%v", found, err)
+	}
+	deleted, err := store.DeleteClient(t.Context(), client.ID)
+	if err != nil || deleted.DeletedAt == nil || deleted.Name != "" || deleted.LastSeenAt != nil {
+		t.Fatalf("delete=%#v err=%v", deleted, err)
+	}
+	if clients, err := store.ListClients(t.Context()); err != nil || len(clients) != 0 {
+		t.Fatalf("deleted list=%#v err=%v", clients, err)
+	}
+	if again, err := store.DeleteClient(t.Context(), client.ID); err != nil || !ClientsEqual(again, deleted) {
+		t.Fatalf("delete replay=%#v err=%v", again, err)
+	}
+	if _, err := store.RegisterClient(t.Context(), app.Client{ID: client.ID, Name: "Replayed", TokenHash: client.TokenHash}); StoreErrorCodeOf(err) != StoreErrorConflict {
+		t.Fatalf("deleted identity revived: %v", err)
+	}
+	reopened, err := NewPostgresStore(t.Context(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if clients, err := reopened.ListClients(t.Context()); err != nil || len(clients) != 0 {
+		t.Fatalf("deleted client resurrected after restart: %#v err=%v", clients, err)
 	}
 }

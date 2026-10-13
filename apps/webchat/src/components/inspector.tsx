@@ -458,6 +458,7 @@ export function InspectorColumn({
           onUpdateOwner={(displayName, email, preferences) => updateOwner(displayName, email, preferences)}
           onIssueClient={(name, idempotencyKey) => issueClient(name, idempotencyKey)}
           onRevokeClient={(id) => revokeClient(id)}
+          onDeleteClient={async (id) => { await api.deleteClient(id); }}
           onStartNotificationBinding={(channel, botToken) => startNotificationBinding(channel, botToken)}
           onRefreshNotificationBinding={(id, signal) => refreshNotificationBinding(id, signal)}
           onOpenNotificationBindingBrowser={(id) => openNotificationBindingBrowser(id)}

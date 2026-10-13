@@ -366,6 +366,10 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationClientRevoke, Repository: "ClientRepository",
 			Method: "RevokeClient", Mode: operationWrite, Timeout: timeoutTransaction,
 		},
+		OperationClientDelete: {
+			ID: OperationClientDelete, Repository: "ClientRepository",
+			Method: "DeleteClient", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
 		OperationClientFindTokenHash: {
 			ID: OperationClientFindTokenHash, Repository: "ClientRepository",
 			Method: "FindClientByTokenHash", Mode: operationRead, Timeout: timeoutRead,

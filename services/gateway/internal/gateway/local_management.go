@@ -16,6 +16,7 @@ func (s *Server) LocalManagementHandler(ownerID, actorID, clientID, tokenHash st
 	mux.HandleFunc("GET /api/clients", s.listClients)
 	mux.HandleFunc("POST /api/clients", s.issueClient)
 	mux.HandleFunc("POST /api/clients/{id}/revoke", s.revokeClient)
+	mux.HandleFunc("DELETE /api/clients/{id}", s.deleteClient)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got := bearerCredential(r.Header.Get("Authorization"))
 		if got == "" || tokenHash == "" || subtle.ConstantTimeCompare([]byte(hashSecret(got)), []byte(tokenHash)) != 1 {

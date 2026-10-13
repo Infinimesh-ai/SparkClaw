@@ -173,7 +173,7 @@ export class ISCPTransport {
     const requested = request.operation === 'clients.issue' ? headers.get('idempotency-key') : undefined;
     const legacyIssue = request.operation === 'clients.issue' && CLIENT_UI_KEY.test(requested || '');
     if (request.operation === 'clients.issue' && !UUID.test(requested || '') && !legacyIssue) throw new ISCPRequestNotSentError('Device issuance requires its original operation identity');
-    const resource = request.operation === 'clients.issue' ? `clients.issue:${requested}` : `clients.revoke:${request.params.id}`;
+    const resource = request.operation === 'clients.issue' ? `clients.issue:${requested}` : `${request.operation}:${request.params.id}`;
     if (this.presentationPending.has(resource)) throw new ISCPRequestNotSentError('A device operation is already in progress', 'capacity');
     this.presentationPending.add(resource);
     try {

@@ -20,6 +20,7 @@ func cloneTimePointer(value *time.Time) *time.Time {
 func cloneClient(client app.Client) app.Client {
 	client.LastSeenAt = cloneTimePointer(client.LastSeenAt)
 	client.RevokedAt = cloneTimePointer(client.RevokedAt)
+	client.DeletedAt = cloneTimePointer(client.DeletedAt)
 	return client
 }
 
@@ -75,7 +76,7 @@ func normalizeClaimClient(client app.Client) (app.Client, error) {
 	if client.ActorID == "" {
 		client.ActorID = client.OwnerID
 	}
-	if client.Name == "" || client.TokenHash == "" || client.LastSeenAt != nil || client.RevokedAt != nil {
+	if client.Name == "" || client.TokenHash == "" || client.LastSeenAt != nil || client.RevokedAt != nil || client.DeletedAt != nil {
 		return app.Client{}, errors.New("active client name and token hash are required and lifecycle fields must be empty")
 	}
 	client.CreatedAt = time.Time{}
@@ -128,6 +129,9 @@ func validatePersistedClient(client app.Client) error {
 	}
 	if client.RevokedAt != nil && client.RevokedAt.IsZero() {
 		return errors.New("client revoke time is zero")
+	}
+	if client.DeletedAt != nil && (client.DeletedAt.IsZero() || client.RevokedAt == nil || client.DeletedAt.Before(*client.RevokedAt) || client.Name != "" || client.LastSeenAt != nil) {
+		return errors.New("deleted client must be a redacted revocation tombstone")
 	}
 	return nil
 }
@@ -201,7 +205,7 @@ func normalizeAndValidatePersistedClientsAndPairings(clients map[string]app.Clie
 func ClientsEqual(left, right app.Client) bool {
 	return left.ID == right.ID && left.OwnerID == right.OwnerID && left.ActorID == right.ActorID &&
 		left.Name == right.Name && left.TokenHash == right.TokenHash && left.CreatedAt.Equal(right.CreatedAt) &&
-		timePointersEqual(left.LastSeenAt, right.LastSeenAt) && timePointersEqual(left.RevokedAt, right.RevokedAt)
+		timePointersEqual(left.LastSeenAt, right.LastSeenAt) && timePointersEqual(left.RevokedAt, right.RevokedAt) && timePointersEqual(left.DeletedAt, right.DeletedAt)
 }
 
 func PairingCodesEqual(left, right app.PairingCode) bool {

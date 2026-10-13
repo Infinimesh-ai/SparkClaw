@@ -119,6 +119,12 @@ func (a *iscpDomainAdapter) clients(ctx context.Context, request iscpworkbench.R
 	if !execution.UUID(request.OperationID) {
 		return domainError(400, "operation_id_required")
 	}
+	if request.Operation == iscpworkbench.OperationClientsDelete {
+		if len(request.Params) != 1 || !nodeClientID.MatchString(request.Params["id"]) || !domainEmpty(request.Body) {
+			return domainError(400, "invalid_input")
+		}
+		return domainHTTP(ctx, request, "DELETE", a.server.deleteClient, map[string]string{"id": request.Params["id"]})
+	}
 	if request.Operation == iscpworkbench.OperationClientsIssue {
 		var input struct {
 			ClientName string `json:"client_name"`

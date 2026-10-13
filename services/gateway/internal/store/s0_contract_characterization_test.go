@@ -33,7 +33,7 @@ var s0RepositoryMethods = map[string][]string{
 		"ListBrowserLoginBlocks", "RevokeBrowserAuthRecord", "SaveBrowserAuthRecord", "SaveBrowserLoginBlock", "UpdateBrowserLoginBlock",
 	},
 	"ClientRepository": {
-		"ClaimPairingCode", "FindClientByTokenHash", "GetClient", "GetPairingCode", "ListClients", "RevokeClient",
+		"ClaimPairingCode", "DeleteClient", "FindClientByTokenHash", "GetClient", "GetPairingCode", "ListClients", "RevokeClient",
 		"RegisterClient", "SavePairingCode", "TouchClient",
 	},
 	"ConnectorRepository": {
@@ -95,8 +95,8 @@ var s0RepositoryMethods = map[string][]string{
 
 func TestS0RepositoryMethodCatalogCharacterization(t *testing.T) {
 	typeOfBackend := reflect.TypeOf((*testBackend)(nil)).Elem()
-	if typeOfBackend.NumMethod() != 159 {
-		t.Fatalf("repository method count = %d, want migrated baseline 159", typeOfBackend.NumMethod())
+	if typeOfBackend.NumMethod() != 160 {
+		t.Fatalf("repository method count = %d, want migrated baseline 160", typeOfBackend.NumMethod())
 	}
 
 	owners := make(map[string]string, typeOfBackend.NumMethod())

@@ -469,6 +469,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/clients", s.listClients)
 	s.mux.HandleFunc("POST /api/clients", s.issueClient)
 	s.mux.HandleFunc("POST /api/clients/{id}/revoke", s.revokeClient)
+	s.mux.HandleFunc("DELETE /api/clients/{id}", s.deleteClient)
 	s.mux.HandleFunc("GET /api/workbench/events/stream", s.streamWorkbenchEvents)
 	s.mux.HandleFunc("POST /api/tool-policy", s.updateToolPolicy)
 	s.mux.HandleFunc("POST /api/pairing/start", s.startPairing)

@@ -1861,5 +1861,24 @@
       "path": "/api/clients/{id}/revoke"
     },
     "capacity_class": "business"
+  },
+  {
+    "name": "clients.delete",
+    "constant": "OperationClientsDelete",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "idempotent",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "id"
+    ],
+    "http": {
+      "method": "DELETE",
+      "path": "/api/clients/{id}"
+    },
+    "capacity_class": "business"
   }
 ]

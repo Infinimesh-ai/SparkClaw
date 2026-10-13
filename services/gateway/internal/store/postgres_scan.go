@@ -27,7 +27,7 @@ func scanSession(row scanner) (app.Session, error) {
 
 func scanClient(row scanner) (app.Client, error) {
 	var client app.Client
-	err := row.Scan(&client.ID, &client.OwnerID, &client.ActorID, &client.Name, &client.TokenHash, &client.CreatedAt, &client.LastSeenAt, &client.RevokedAt)
+	err := row.Scan(&client.ID, &client.OwnerID, &client.ActorID, &client.Name, &client.TokenHash, &client.CreatedAt, &client.LastSeenAt, &client.RevokedAt, &client.DeletedAt)
 	return client, err
 }
 

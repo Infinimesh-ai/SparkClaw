@@ -68,6 +68,7 @@ export type SettingsAccess = {
   unavailable: Partial<Record<SettingsDetail, string>>;
   connectorsAvailable: boolean;
   bindingsUnavailable?: string;
+  clientDeletionAvailable?: boolean;
   loadIntegrationStatus?: (id: IntegrationID) => Promise<IntegrationStatus>;
   emailLoginNotice?: string;
   deviceAuthorization?: ReactNode;
@@ -95,6 +96,7 @@ export function SettingsPanel({
   onUpdateOwner,
   onIssueClient,
   onRevokeClient,
+  onDeleteClient,
   onStartNotificationBinding,
   onRefreshNotificationBinding,
   onOpenNotificationBindingBrowser,
@@ -198,7 +200,8 @@ export function SettingsPanel({
       {access?.unavailable.clients && <p className="settingsSurfaceHint" role="status">{access.unavailable.clients}</p>}
       <PairedClientsSettings clients={clients} text={text} language={language} currentClientID={currentClientID}
         clientsLoading={clientsLoading} clientsError={access?.unavailable.clients ?? clientsError} onReloadClients={access?.unavailable.clients ? undefined : onReloadClients}
-        onIssueClient={access?.unavailable.clients ? undefined : onIssueClient} onRevokeClient={onRevokeClient} onCurrentClientRevoked={onCurrentClientRevoked} onLogout={onLogout} />
+        onIssueClient={access?.unavailable.clients ? undefined : onIssueClient} onRevokeClient={onRevokeClient}
+        onDeleteClient={access?.unavailable.clients || access?.clientDeletionAvailable === false ? undefined : onDeleteClient} onCurrentClientRevoked={onCurrentClientRevoked} onLogout={onLogout} />
       {access?.deviceAuthorization}
     </div>;
   }
@@ -479,7 +482,8 @@ export function SettingsPanel({
           {detail === "owner" && <OwnerProfileSettings ownerProfile={ownerProfile} text={text} onUpdateOwner={onUpdateOwner} />}
           {detail === "clients" && <PairedClientsSettings clients={clients} text={text} language={language} currentClientID={currentClientID}
             clientsLoading={clientsLoading} clientsError={clientsError} onReloadClients={onReloadClients}
-            onIssueClient={onIssueClient} onRevokeClient={onRevokeClient} onCurrentClientRevoked={onCurrentClientRevoked} onLogout={onLogout} />}
+            onIssueClient={onIssueClient} onRevokeClient={onRevokeClient}
+            onDeleteClient={access?.unavailable.clients || access?.clientDeletionAvailable === false ? undefined : onDeleteClient} onCurrentClientRevoked={onCurrentClientRevoked} onLogout={onLogout} />}
           {detail === "language" && (
             <article className="settingsBlock">
               <strong>{text.nav.language}</strong>

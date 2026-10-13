@@ -69,6 +69,7 @@ type ClientRepository interface {
 	ListClients(context.Context) ([]app.Client, error)
 	RegisterClient(context.Context, app.Client) (app.Client, error)
 	RevokeClient(context.Context, string) (app.Client, error)
+	DeleteClient(context.Context, string) (app.Client, error)
 	FindClientByTokenHash(context.Context, string) (app.Client, bool, error)
 	TouchClient(context.Context, string) (app.Client, bool, error)
 	SavePairingCode(context.Context, app.PairingCode) (app.PairingCode, error)

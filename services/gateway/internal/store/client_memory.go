@@ -50,7 +50,9 @@ func (s *MemoryStore) ListClients(ctx context.Context) ([]app.Client, error) {
 		if err := validatePersistedClient(client); err != nil {
 			return nil, storeError(ctx, OperationClientList, StoreErrorCorrupt, err)
 		}
-		out = append(out, cloneClient(client))
+		if client.DeletedAt == nil {
+			out = append(out, cloneClient(client))
+		}
 	}
 	slices.SortFunc(out, compareClients)
 	return out, nil
@@ -120,12 +122,52 @@ func (s *MemoryStore) RevokeClient(ctx context.Context, id string) (app.Client, 
 	if err := validatePersistedClient(client); err != nil {
 		return app.Client{}, storeError(ctx, OperationClientRevoke, StoreErrorCorrupt, err)
 	}
+	if client.DeletedAt != nil {
+		return cloneClient(client), nil
+	}
 	now := nextRepositoryTime(s.clientNow(), s.clientWriteHighWater[id], client.CreatedAt, timePointerValue(client.LastSeenAt), timePointerValue(client.RevokedAt))
 	client.RevokedAt = &now
 	s.clientWriteHighWater[id] = now
 	s.clients[id] = cloneClient(client)
 	s.appendAuditLockedAt(now, "client.revoked", "", "", "owner", client.Name, map[string]any{"client_id": client.ID})
 	s.appendEventLockedAt(now, "client.revoked", "", "", cloneClient(client))
+	return cloneClient(client), nil
+}
+
+// DeleteClient removes revoked device metadata from management. Retaining only
+// its identity/token fence also prevents delayed registration or issuance replay
+// from resurrecting access, and preserves claimed pairing references.
+func (s *MemoryStore) DeleteClient(ctx context.Context, id string) (app.Client, error) {
+	ctx, cancel := operationContext(ctx, OperationClientDelete, s.operationTimeouts)
+	defer cancel()
+	if err := operationContextError(OperationClientDelete, ctx); err != nil {
+		return app.Client{}, err
+	}
+	id = strings.TrimSpace(id)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := operationContextError(OperationClientDelete, ctx); err != nil {
+		return app.Client{}, err
+	}
+	client, ok := s.clients[id]
+	if !ok {
+		return app.Client{}, storeError(ctx, OperationClientDelete, StoreErrorNotFound, errors.New("client not found"))
+	}
+	if err := validatePersistedClient(client); err != nil {
+		return app.Client{}, storeError(ctx, OperationClientDelete, StoreErrorCorrupt, err)
+	}
+	if client.RevokedAt == nil {
+		return app.Client{}, storeError(ctx, OperationClientDelete, StoreErrorConflict, errors.New("only revoked clients can be deleted"))
+	}
+	if client.DeletedAt != nil {
+		return cloneClient(client), nil
+	}
+	now := nextRepositoryTime(s.clientNow(), s.clientWriteHighWater[id], latestClientTime(client))
+	client.Name, client.LastSeenAt, client.DeletedAt = "", nil, &now
+	s.clientWriteHighWater[id] = now
+	s.clients[id] = cloneClient(client)
+	s.appendAuditLockedAt(now, "client.deleted", "", "", "owner", "Revoked client deleted", map[string]any{"client_id": id})
+	s.appendEventLockedAt(now, "client.deleted", "", "", cloneClient(client))
 	return cloneClient(client), nil
 }
 

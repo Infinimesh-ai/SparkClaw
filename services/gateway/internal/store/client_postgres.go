@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-const clientSelectSQL = `SELECT id, owner_id, actor_id, name, token_hash, created_at, last_seen_at, revoked_at FROM clients`
+const clientSelectSQL = `SELECT id, owner_id, actor_id, name, token_hash, created_at, last_seen_at, revoked_at, deleted_at FROM clients`
 const pairingCodeSelectSQL = `SELECT id, code_hash, status, expires_at, created_at, claimed_at, coalesce(client_id, '') FROM pairing_codes`
 
 func (s *PostgresStore) validateClientState(ctx context.Context) error {
@@ -75,6 +75,9 @@ func latestClientTime(client app.Client) time.Time {
 	}
 	if client.RevokedAt != nil && client.RevokedAt.After(latest) {
 		latest = *client.RevokedAt
+	}
+	if client.DeletedAt != nil && client.DeletedAt.After(latest) {
+		latest = *client.DeletedAt
 	}
 	return latest
 }
@@ -151,7 +154,7 @@ func (s *PostgresStore) ListClients(ctx context.Context) ([]app.Client, error) {
 	if err := operationContextError(OperationClientList, ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.clientPostgres.Query(ctx, clientSelectSQL+` ORDER BY created_at DESC, id ASC`)
+	rows, err := s.clientPostgres.Query(ctx, clientSelectSQL+` WHERE deleted_at IS NULL ORDER BY created_at DESC, id ASC`)
 	if err != nil {
 		return nil, classifyPostgresReadError(OperationClientList, ctx, err)
 	}
@@ -303,6 +306,12 @@ func (s *PostgresStore) RevokeClient(ctx context.Context, id string) (app.Client
 	client, err = normalizePostgresClient(client)
 	if err != nil {
 		return app.Client{}, clientBusinessError(ctx, OperationClientRevoke, StoreErrorCorrupt, session, transaction, release, err)
+	}
+	if client.DeletedAt != nil {
+		if err := commitClientRead(ctx, OperationClientRevoke, session, transaction, release); err != nil {
+			return app.Client{}, err
+		}
+		return cloneClient(client), nil
 	}
 	commandAt := nextRepositoryTime(s.clientNow(), s.clientWriteHighWater[id], latestClientTime(client))
 	client.RevokedAt = cloneTimePointer(&commandAt)

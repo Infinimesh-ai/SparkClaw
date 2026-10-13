@@ -224,6 +224,7 @@ const (
 	OperationClientList                  StoreOperation = "client.list"
 	OperationClientRegister              StoreOperation = "client.register"
 	OperationClientRevoke                StoreOperation = "client.revoke"
+	OperationClientDelete                StoreOperation = "client.delete"
 	OperationClientFindTokenHash         StoreOperation = "client.find_token_hash"
 	OperationClientTouch                 StoreOperation = "client.touch"
 	OperationPairingCodeSave             StoreOperation = "pairing_code.save"
@@ -807,6 +808,10 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationClientRevoke: {
 		ID: OperationClientRevoke, Repository: "ClientRepository",
 		Method: "RevokeClient", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationClientDelete: {
+		ID: OperationClientDelete, Repository: "ClientRepository",
+		Method: "DeleteClient", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
 	OperationClientFindTokenHash: {
 		ID: OperationClientFindTokenHash, Repository: "ClientRepository",

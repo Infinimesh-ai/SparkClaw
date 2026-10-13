@@ -90,7 +90,7 @@ func OperationsV2ForMode(mode string) []string {
 	ops := OperationsV2()
 	if mode == "local-test" {
 		ops = slices.DeleteFunc(ops, func(name string) bool {
-			return name == OperationClientsList || name == OperationClientsIssue || name == OperationClientsRevoke
+			return name == OperationClientsList || name == OperationClientsIssue || name == OperationClientsRevoke || name == OperationClientsDelete
 		})
 	}
 	return ops

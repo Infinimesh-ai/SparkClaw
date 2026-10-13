@@ -84,6 +84,7 @@ beforeEach(() => {
   vi.spyOn(api, "clients").mockResolvedValue({ clients: [current] });
   vi.spyOn(api, "issueClient").mockResolvedValue(issued);
   vi.spyOn(api, "revokeClient").mockResolvedValue({ ...current, revoked_at: "2026-09-30T05:00:00Z" });
+  vi.spyOn(api, "deleteClient").mockResolvedValue({ deleted: true });
 });
 
 afterEach(async () => {
@@ -94,6 +95,58 @@ afterEach(async () => {
 });
 
 describe("device credentials through the production settings route", () => {
+  it.each(["en", "zh"] as const)("confirms deletion of revoked records and keeps active-device actions in %s", async (language) => {
+    const revoked = { ...issuedClient, revoked_at: "2026-09-30T05:00:00Z" };
+    vi.mocked(api.clients).mockResolvedValueOnce({ clients: [current, revoked] }).mockResolvedValue({ clients: [current] });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValue(true);
+    const pending = deferred<{ deleted: boolean }>();
+    vi.mocked(api.deleteClient).mockReturnValueOnce(pending.promise);
+    const { host } = await render(<SettingsRoute language={language} />);
+    await visitDevices(host, language);
+    const text = dictionaries[language];
+    const remove = host.querySelector<HTMLButtonElement>(`[aria-label="${text.settings.deleteRevokedClient}: ${revoked.name}"]`)!;
+    expect(remove.disabled).toBe(false);
+    expect(host.querySelector(`[aria-label="${text.settings.revokeClient}: ${current.name}"]`)).not.toBeNull();
+    await act(async () => remove.click());
+    expect(confirm).toHaveBeenCalledWith(text.settings.deleteRevokedClientConfirm.replace("{name}", revoked.name));
+    expect(api.deleteClient).not.toHaveBeenCalled();
+    expect(host.textContent).toContain(revoked.id);
+    await act(async () => { remove.click(); remove.click(); });
+    expect(api.deleteClient).toHaveBeenCalledExactlyOnceWith(revoked.id);
+    expect(remove.disabled).toBe(true);
+    await act(async () => pending.resolve({ deleted: true }));
+    expect(host.textContent).not.toContain(revoked.id);
+    expect(host.textContent).toContain(current.id);
+    expect(api.revokeClient).not.toHaveBeenCalled();
+    expect(endLogin).not.toHaveBeenCalled();
+  });
+
+  it("keeps failed deletion visible and preserves confirmed deletion when refresh fails", async () => {
+    const revoked = { ...issuedClient, revoked_at: "2026-09-30T05:00:00Z" };
+    vi.mocked(api.clients).mockResolvedValueOnce({ clients: [current, revoked] }).mockRejectedValue(new Error("refresh offline"));
+    vi.mocked(api.deleteClient).mockRejectedValueOnce(new Error("private deletion diagnostic"));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { host } = await render(<SettingsRoute />);
+    await visitDevices(host);
+    const remove = host.querySelector<HTMLButtonElement>(`[aria-label="${dictionaries.en.settings.deleteRevokedClient}: ${revoked.name}"]`)!;
+    await act(async () => remove.click());
+    expect(host.textContent).toContain(revoked.id);
+    expect(host.textContent).toContain(dictionaries.en.settings.clientDeleteFailed);
+    expect(host.textContent).not.toContain("private deletion diagnostic");
+    await act(async () => remove.click());
+    expect(host.textContent).not.toContain(revoked.id);
+    expect(host.textContent).toContain(dictionaries.en.settings.clientsLoadFailed);
+  });
+
+  it("retains a disabled delete entry when this connection lacks deletion support", async () => {
+    const revoked = { ...issuedClient, revoked_at: "2026-09-30T05:00:00Z" };
+    const { host } = await render(<PairedClientsSettings clients={[revoked]} currentClientID={current.id}
+      text={dictionaries.en} language="en" onRevokeClient={async () => {}} />);
+    const remove = host.querySelector<HTMLButtonElement>(".clientItem button")!;
+    expect(remove.title).toBe(dictionaries.en.settings.deleteRevokedClient);
+    expect(remove.disabled).toBe(true);
+  });
+
   it("loads devices using the native verified client ID without repeating whoami", async () => {
     vi.mocked(api.workbenchIdentity).mockRejectedValue(new Error("the redundant public identity call would time out"));
     const { host } = await render(<SettingsRoute currentClientID={current.id} />);

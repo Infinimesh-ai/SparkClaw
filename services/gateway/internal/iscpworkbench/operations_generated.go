@@ -116,4 +116,5 @@ const (
 	OperationClientsList = "clients.list"
 	OperationClientsIssue = "clients.issue"
 	OperationClientsRevoke = "clients.revoke"
+	OperationClientsDelete = "clients.delete"
 )

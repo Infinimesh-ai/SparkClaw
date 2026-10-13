@@ -316,6 +316,7 @@ func clientRepositoryErrorCalls(repository ClientRepository) []func(context.Cont
 		func(ctx context.Context) error { _, err := repository.RegisterClient(ctx, app.Client{}); return err },
 		func(ctx context.Context) error { _, err := repository.ListClients(ctx); return err },
 		func(ctx context.Context) error { _, err := repository.RevokeClient(ctx, ""); return err },
+		func(ctx context.Context) error { _, err := repository.DeleteClient(ctx, ""); return err },
 		func(ctx context.Context) error { _, _, err := repository.FindClientByTokenHash(ctx, ""); return err },
 		func(ctx context.Context) error { _, _, err := repository.TouchClient(ctx, ""); return err },
 		func(ctx context.Context) error {

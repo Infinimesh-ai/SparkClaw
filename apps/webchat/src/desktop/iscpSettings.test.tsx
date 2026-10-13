@@ -29,6 +29,9 @@ it("enables the original device panel only after qualified node-managed capabili
   qualified.capabilities!.surfaces!.settings_devices = { enabled: true, reason: "" };
   expect(iscpSettingsAccess(connection(false), "en").unavailable.clients).toBeDefined();
   expect(iscpSettingsAccess(qualified, "en").unavailable.clients).toBeUndefined();
+  expect(iscpSettingsAccess(qualified, "en").clientDeletionAvailable).toBe(false);
+  qualified.capabilities!.surfaces!.settings_devices_delete = { enabled: true, reason: "" };
+  expect(iscpSettingsAccess(qualified, "en").clientDeletionAvailable).toBe(true);
   const host = document.createElement("div"), root = createRoot(host);
   try {
     await act(async () => root.render(<SettingsPanel {...props} section="devices" text={dictionaries.en} language="en" onLanguageChange={vi.fn()} />));

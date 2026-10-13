@@ -16,6 +16,7 @@ export function iscpSettingsAccess(connection: DesktopConnectionStatus, language
   return {
     connectorsAvailable: surfaceEnabled(connection, "settings_connectors"),
     bindingsUnavailable: unavailable,
+    clientDeletionAvailable: surfaceEnabled(connection, "settings_devices_delete"),
     unavailable: {
       ...(!surfaceEnabled(connection, "settings_devices") ? { clients: unavailable } : {}), "tool-policy": unavailable,
       ...(!surfaceEnabled(connection, "settings_connectors") ? { messaging: unavailable } : {}),

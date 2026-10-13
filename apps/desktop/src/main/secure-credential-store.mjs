@@ -25,7 +25,7 @@ export class SecureCredentialStore {
       const filename = this.#clientOperationPath(resource), info = await fs.lstat(filename);
       if (!info.isFile() || info.isSymbolicLink() || info.mode & 0o077 || info.size > 8192 || this.uid !== undefined && info.uid !== this.uid) throw new Error();
       const row = JSON.parse(this.safeStorage.decryptString(await fs.readFile(filename)));
-      if (row.schema_version !== 1 || !["clients.issue", "clients.revoke"].includes(row.operation) || !/^[a-f0-9-]{36}$/u.test(row.operation_id) || !/^[a-f0-9]{64}$/u.test(row.fingerprint)) throw new Error();
+      if (row.schema_version !== 1 || !["clients.issue", "clients.revoke", "clients.delete"].includes(row.operation) || !/^[a-f0-9-]{36}$/u.test(row.operation_id) || !/^[a-f0-9]{64}$/u.test(row.fingerprint)) throw new Error();
       return row;
     } catch (error) { if (error.code === "ENOENT") return undefined; throw new Error("Secure device operation could not be unlocked"); }
   }

@@ -12,13 +12,14 @@ export type ClientSettingsActions = {
   onReloadClients?: () => Promise<Client[]>;
   onCurrentClientRevoked?: () => Promise<void>;
   onLogout?: () => Promise<void>;
+  onDeleteClient?: (id: string) => Promise<void>;
 };
 
 type IssuanceRequest = { name: string; key: string };
 
 export function PairedClientsSettings({
   clients, text, language, currentClientID, clientsLoading = false, clientsError = "",
-  onIssueClient, onRevokeClient, onReloadClients, onCurrentClientRevoked, onLogout
+  onIssueClient, onRevokeClient, onDeleteClient, onReloadClients, onCurrentClientRevoked, onLogout
 }: ClientSettingsActions & {
   clients: Client[];
   text: CopyText;
@@ -183,6 +184,26 @@ export function PairedClientsSettings({
     finally { action.current = ""; if (mounted.current) setBusy(""); }
   }
 
+  async function deleteClient(client: Client) {
+    if (action.current || !client.revoked_at || !currentClientID || !onDeleteClient) return;
+    if (!window.confirm(text.settings.deleteRevokedClientConfirm.replace("{name}", client.name))) return;
+    action.current = client.id;
+    setBusy(client.id);
+    setActionError("");
+    try {
+      await onDeleteClient(client.id);
+      if (!mounted.current) return;
+      setLoadedClients(visibleClients.filter((item) => item.id !== client.id));
+      if (issued?.client.id === client.id) { setIssued(null); setCopyFeedback(""); }
+      void loadClients();
+    } catch {
+      if (mounted.current) setActionError(text.settings.clientDeleteFailed);
+    } finally {
+      action.current = "";
+      if (mounted.current) setBusy("");
+    }
+  }
+
   return <article className="settingsBlock clientSettings">
     <div className="approvalTop">
       <strong>{text.settings.clients}</strong>
@@ -226,6 +247,7 @@ export function PairedClientsSettings({
           <small>{client.revoked_at ? <>{text.common.revoked}: <time dateTime={client.revoked_at} title={client.revoked_at}>{formatDateTime(client.revoked_at, language)}</time></> : text.settings.active}</small>
         </div>
         {!client.revoked_at && <button type="button" className="reject" onClick={() => void revokeClient(client)} disabled={Boolean(busy) || !currentClientID} aria-label={`${text.settings.revokeClient}: ${client.name}`} title={text.settings.revokeClient}><Trash2 size={14} /></button>}
+        {client.revoked_at && <button type="button" className="reject" onClick={() => void deleteClient(client)} disabled={Boolean(busy) || !currentClientID || !onDeleteClient} aria-label={`${text.settings.deleteRevokedClient}: ${client.name}`} title={text.settings.deleteRevokedClient}><Trash2 size={14} /></button>}
       </div>)}
     </div>}
     {actionError && <p className="credentialValidationFeedback error" role="alert">{actionError}</p>}

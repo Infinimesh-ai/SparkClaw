@@ -278,7 +278,10 @@ these five public model services:
 | ASR | `https://sparkclaw.infinimesh.cloud/asr` |
 | OCR | `https://sparkclaw.infinimesh.cloud/ocr/v1` |
 
-Only credentials and machine-specific overrides belong in `.env.remote`. The
+Credentials, machine-specific overrides, and existing model endpoint/model ID
+overrides belong in `.env.remote`. The six `SPARKCLAW_*_BASE_URL` and matching
+`SPARKCLAW_*_MODEL` keys override the versioned defaults and pass the same URL
+and model validation. Fast and logical Deep must still share a base URL. The
 optional shared `OPENAI_API_KEY` can be entered with `--configure`; submit an
 empty value when these endpoints do not require bearer authentication. The ASR
 value is the service root because Gateway appends

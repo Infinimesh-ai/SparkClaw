@@ -221,7 +221,9 @@ bootstrap 会在需要时安装 Git，安全 clone 或 fast-forward 仓库，将
 | ASR | `https://sparkclaw.infinimesh.cloud/asr` |
 | OCR | `https://sparkclaw.infinimesh.cloud/ocr/v1` |
 
-`.env.remote` 只保存凭据和机器专属覆盖项。可用 `--configure` 输入可选共享
+`.env.remote` 保存凭据、机器专属覆盖项，以及已有模型服务的地址和模型 ID。
+六个 `SPARKCLAW_*_BASE_URL` 及对应 `SPARKCLAW_*_MODEL` 键可覆盖版本化默认值，
+仍须通过相同的 URL 和模型校验；Fast 与逻辑 Deep 必须共用同一 base URL。可用 `--configure` 输入可选共享
 `OPENAI_API_KEY`；endpoint 不需要 Bearer 认证时直接留空。ASR 必须填写 service root，
 因为 Gateway 会追加 `/v1/audio/transcriptions`；OCR 使用 OpenAI-compatible `/v1` base URL。
 

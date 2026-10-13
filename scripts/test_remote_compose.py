@@ -258,14 +258,54 @@ class RemoteComposeTest(unittest.TestCase):
         ):
             self.assertNotIn(shared_key, remote_values)
 
-    def test_private_file_cannot_override_remote_model_addresses(self) -> None:
+    def test_private_file_cannot_use_local_model_addresses(self) -> None:
         result, docker_calls, _ = self.run_script(
             "SPARKCLAW_FAST_BASE_URL=http://localhost:8001/v1\n"
+            "SPARKCLAW_DEEP_BASE_URL=http://localhost:8001/v1\n"
         )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("not a supported credential or machine override", result.stderr)
+        self.assertIn("must not use a local model address", result.stderr)
         self.assertEqual(docker_calls, [])
+
+    def test_private_model_settings_survive_validation_and_merge(self) -> None:
+        overrides = {}
+        for name in ("FAST", "DEEP", "EMBEDDING", "GUARD", "SPEECH", "OCR"):
+            service = "fast" if name == "DEEP" else name.lower()
+            suffix = "" if name == "SPEECH" else "/v1"
+            overrides[f"SPARKCLAW_{name}_BASE_URL"] = f"https://models.example.com/{service}{suffix}"
+            overrides[f"SPARKCLAW_{name}_MODEL"] = f"custom/{service}-model"
+        with tempfile.TemporaryDirectory() as directory:
+            private = Path(directory) / "private.env"
+            merged = Path(directory) / "merged.env"
+            private.write_text("".join(f"{key}={value}\n" for key, value in overrides.items()))
+            result = subprocess.run(
+                ["bash", "-c", "source scripts/lib/dotenv.sh; source scripts/lib/deployment-profile.sh; "
+                 'sparkclaw_validate_product_profile remote "$1" "$2" "$3" && '
+                 'sparkclaw_merge_profile_env "$1" "$2" "$3" "$4"',
+                 "_", str(PRODUCT_PROFILE), str(REMOTE_PROFILE), str(private), str(merged)],
+                cwd=ROOT, capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            effective = profile_values(merged)
+            for key, value in overrides.items():
+                self.assertEqual(effective[key], value)
+            self.assertEqual(effective["SPARKCLAW_MODEL_CAPACITY_PROFILE"], "sparkclaw-product-v1")
+            self.assertEqual(effective["SPARKCLAW_PAIRING_REQUIRED"], "true")
+
+    def test_private_model_overrides_still_enforce_url_and_model_validation(self) -> None:
+        cases = (
+            ("SPARKCLAW_EMBEDDING_BASE_URL=https://user:password@models.example.com/v1\n", "without credentials"),
+            ("SPARKCLAW_EMBEDDING_BASE_URL=https://models.example.com/v1?token=test\n", "without credentials"),
+            ("SPARKCLAW_SPEECH_BASE_URL=https://models.example.com/asr/v1\n", "must be the service root"),
+            ("SPARKCLAW_OCR_MODEL=invalid model\n", "missing or invalid"),
+        )
+        for private, error in cases:
+            with self.subTest(private=private):
+                result, calls, _ = self.run_script(private)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(error, result.stderr)
+                self.assertEqual(calls, [])
 
     def test_remote_profile_validator_rejects_local_model_addresses(self) -> None:
         blocked = (

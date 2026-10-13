@@ -60,6 +60,7 @@ class DeployRemoteTest(unittest.TestCase):
             repository = temp_path / "repository"
             for part in ("scripts", "docker", "configs"):
                 shutil.copytree(ROOT / part, repository / part, ignore=shutil.ignore_patterns("__pycache__"))
+            shutil.copytree(ROOT / "apps/desktop/src", repository / "apps/desktop/src")
             for part in ("workspaces", "memory", "traces", "artifacts", "logs", "eval"):
                 folder = repository / "data" / part
                 folder.mkdir(parents=True)
@@ -207,13 +208,25 @@ class DeployRemoteTest(unittest.TestCase):
 
     def test_local_endpoint_override_is_rejected_before_docker(self) -> None:
         result, calls, _, _ = self.run_script(
-            "SPARKCLAW_FAST_BASE_URL=http://sparkclaw-fast:8001/v1\n",
+            "SPARKCLAW_FAST_BASE_URL=http://sparkclaw-fast:8001/v1\n"
+            "SPARKCLAW_DEEP_BASE_URL=http://sparkclaw-fast:8001/v1\n",
             "--check",
         )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("not a supported credential or machine override", result.stderr)
+        self.assertIn("must not use a local model address", result.stderr)
         self.assertEqual(calls, [])
+
+    def test_existing_public_endpoint_override_is_preserved(self) -> None:
+        original = (
+            "SPARKCLAW_WEBCHAT_PROXY_TOKEN=remote_check_webchat_proxy_token_0123456789abcd\n"
+            "SPARKCLAW_OCR_BASE_URL=https://models.example.com/ocr/v1\n"
+            "SPARKCLAW_OCR_MODEL=custom/ocr\n"
+        )
+        result, calls, final_env, _ = self.run_script(original, "--check")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(final_env.endswith(original))
+        self.assertTrue(any("config" in call for call in calls))
 
 
 if __name__ == "__main__":

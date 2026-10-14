@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { traceLatency, latencyNow } from "./latency-trace.mjs";
 import { CLIENT_LIMITS, parseResultPayload } from "./client-store.mjs";
 import { ISCPRequestNotSentError } from "./iscp-transport.mjs";
 
@@ -52,6 +53,7 @@ export class ExecutionClient {
       this.#sameIdentity(scope);
       if (this.auth.status.state !== "connected") throw new Error("Execution backend is unavailable; your input is preserved");
       const { first, task } = this.store.markSubmitted(scope, requestID, scheduleClaim);
+      traceLatency("execution.submit", { request_id: requestID });
       if (!first) { await this.#lookup(scope, task); return this.#view(scope, requestID); }
       let admissionResponseReceived = false;
       try {
@@ -59,6 +61,7 @@ export class ExecutionClient {
           method: "POST", headers: { "Content-Type": "application/json", "X-SparkClaw-Digest": task.input_digest }, body: task.context_json,
         });
         admissionResponseReceived = true;
+        traceLatency("execution.admission", { request_id: requestID, status: response.status });
         if (!response.ok) {
           await response.body?.cancel();
           if ([400, 413, 422].includes(response.status)) this.store.setExecutionState(scope, requestID, "failed");
@@ -172,7 +175,10 @@ export class ExecutionClient {
   async #lookup(scope, task) {
     const receipt = this.store.receipt(scope, task.request_id);
     if (receipt && !receipt.acknowledged) { await this.#ack(scope, receipt); return true; }
+    const lookupStarted = latencyNow();
+    traceLatency("execution.lookup.start", { request_id: task.request_id });
     const response = await this.#fetch(scope, `/api/v1/executions/${task.request_id}`);
+    traceLatency("execution.lookup.end", { request_id: task.request_id, status: response.status, duration_ms: latencyNow() - lookupStarted });
     if (response.status === 404) { this.verifiedApprovals.delete(task.request_id); await response.body?.cancel(); return false; }
     // A bodyless v1 lookup cannot exceed an input budget. Its authenticated 413
     // denotes a result that this transport cannot deliver, not absent execution.
@@ -195,6 +201,7 @@ export class ExecutionClient {
     if (!event || event.schema_version !== 1 || event.request_id !== task.request_id ||
         event.input_digest !== task.input_digest || !SERVER_STATES.has(event.state)) throw new Error("Execution identity or digest mismatch");
     if (!this.store.acceptExecutionProjection(scope, event)) return;
+    traceLatency("execution.projection", { request_id: task.request_id, state: event.state });
     const pending = event.pending_approvals ?? [];
     this.store.syncApprovals(scope, task.request_id, pending, event.state, event.execution_expires_at);
     if (pending.length) {
@@ -223,7 +230,9 @@ export class ExecutionClient {
       files.set(manifest.id, content);
     }
     this.#sameIdentity(scope);
+    const commitStarted = latencyNow();
     const receipt = this.store.commitDelivery(scope, { request_id: task.request_id, ...result }, files);
+    traceLatency("delivery.committed", { request_id: task.request_id, duration_ms: latencyNow() - commitStarted });
     await this.#ack(scope, receipt);
   }
 
@@ -245,6 +254,8 @@ export class ExecutionClient {
     this.#sameIdentity(scope);
     // Reverify disk contents immediately before exposing a durable ACK.
     this.store.receipt(scope, receipt.request_id);
+    const ackStarted = latencyNow();
+    traceLatency("delivery.ack.start", { request_id: receipt.request_id });
     const response = await this.#fetch(scope, `/api/v1/executions/${receipt.request_id}/ack`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sequence: receipt.sequence, digest: receipt.digest, durable: true }),
@@ -253,6 +264,7 @@ export class ExecutionClient {
     await response.body?.cancel();
     this.#sameIdentity(scope);
     this.store.acknowledge(scope, receipt.request_id, receipt.sequence, receipt.digest);
+    traceLatency("delivery.ack.end", { request_id: receipt.request_id, duration_ms: latencyNow() - ackStarted });
   }
 
   #fetch(scope, route, init) {

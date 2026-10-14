@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { traceLatency, latencyNow } from "./latency-trace.mjs";
 import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -293,6 +294,7 @@ export class ISCPTransport {
       const canceled = () => call.fail(new ISCPRequestNotSentError('ISCP request was canceled', 'canceled'));
       const call = { request, init, rawBody, deadline, capacityClass, mailRead, generation, session, revision, resolve, reject, release, fail: error => { release(); reject(error); } };
       const timer = setTimeout(() => call.fail(new ISCPRequestNotSentError('ISCP request admission deadline exceeded', 'capacity')), Math.max(0, deadline - Date.now()));
+      traceLatency("rpc.queued", { operation: request.operation, request_id: request.request_id, count: this.admissionQueue.size });
       this.admissionQueue.add(call);
       init.signal?.addEventListener('abort', canceled, {once:true});
       if (init.signal?.aborted) canceled();
@@ -336,9 +338,12 @@ export class ISCPTransport {
     const id=crypto.randomUUID();request={...request,id};
     if (Buffer.byteLength(JSON.stringify(request)) > MAX_BYTES) throw new ISCPRequestNotSentError("ISCP request exceeds the test profile limit");
     const generation=this.generation;
+    const traceStarted=latencyNow();
+    const traceFields={rpc_id:id,request_id:request.request_id,operation:request.operation};
+    traceLatency("rpc.dispatch",traceFields);
     const response=await new Promise((resolve,reject)=>{
       const signal=init.signal;
-      const finish=(handler,value)=>{clearTimeout(timer);signal?.removeEventListener("abort",cancel);this.pending.delete(id);handler(value);queueMicrotask(() => this.#drainAdmissions());};
+      const finish=(handler,value)=>{clearTimeout(timer);signal?.removeEventListener("abort",cancel);this.pending.delete(id);traceLatency("rpc.response",{...traceFields,duration_ms:latencyNow()-traceStarted,ok:handler===resolve,status:value?.status});handler(value);queueMicrotask(() => this.#drainAdmissions());};
       const cancel=()=>finish(reject,new Error("ISCP request was canceled"));
       const timer=setTimeout(()=>finish(reject,new Error("ISCP request deadline exceeded")),Math.max(1, admissionDeadline - Date.now()));
       this.pending.set(id,{request,capacityClass,mailRead,...(process.env.SPARKCLAW_PRIVATE_ISCP_READ_DIAGNOSTICS === '1' ? { diagnosticStartedMS: Date.now() } : {}),resolve:(value)=>finish(resolve,value),reject:(error)=>finish(reject,error)});

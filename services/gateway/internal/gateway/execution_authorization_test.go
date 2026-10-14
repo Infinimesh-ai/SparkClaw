@@ -10,7 +10,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 )
 
-func TestWorkbenchV2ToolsRequireExactSignedScopeAndFreshDispatchPolicy(t *testing.T) {
+func TestWorkbenchV2ToolsAdmitRegisteredToolsUnderFreshDispatchPolicy(t *testing.T) {
 	server, _, cfg, _ := workbenchISCPFixture(t, nil)
 	cfg.ApplicationProfiles = []string{iscpworkbench.ProfileV2, iscpworkbench.Profile}
 	handler, err := server.NewWorkbenchISCPHandler(cfg)
@@ -21,20 +21,26 @@ func TestWorkbenchV2ToolsRequireExactSignedScopeAndFreshDispatchPolicy(t *testin
 	if result := handler(domainTestContext(t), request); result.Status != 403 {
 		t.Fatal("principal alone bypassed authenticated v2 session", result)
 	}
-	policy := iscpauth.Policy{Version: 2, State: iscpauth.Active, Revision: 1, Scopes: []string{"tools.invoke", "tool.files.read"}}
+	policy := iscpauth.Policy{Version: 2, State: iscpauth.Active, Revision: 1, Scopes: []string{"tools.invoke"}}
 	session := iscpworkbench.SessionInfo{Profile: iscpworkbench.ProfileV2, GrantRevision: 1, Scopes: slices.Clone(policy.Scopes), QualifiedOperations: []string{iscpworkbench.OperationToolsInvoke}, CheckAuthorization: func(context.Context) (iscpauth.Policy, error) { return policy, nil }}
 	a := server.workbenchExecutionAuthorization(session)
-	if !slices.Equal(a.AllowedTools, []string{"files.read"}) || a.AllowFiles || a.AuthorizeTool == nil {
-		t.Fatal(a)
+	expected := []string{}
+	for _, definition := range server.tools.Definitions() {
+		if !definition.RequiresApproval {
+			expected = append(expected, definition.Name)
+		}
+	}
+	if len(expected) == 0 || !slices.Contains(expected, "files.read") || !slices.Equal(a.AllowedTools, expected) || a.AllowFiles || a.AuthorizeTool == nil {
+		t.Fatal("trusted ISCP session must admit every registered tool without per-tool scopes", a.AllowedTools)
 	}
 	if err := a.AuthorizeTool(t.Context(), "files.read"); err != nil {
 		t.Fatal(err)
 	}
-	policy.Scopes = []string{"tools.invoke"}
+	policy.Scopes = []string{"settings.read"}
 	if err := a.AuthorizeTool(t.Context(), "files.read"); err == nil {
-		t.Fatal("tool scope removal was ignored")
+		t.Fatal("tools.invoke removal was ignored")
 	}
-	policy.Scopes = []string{"tools.invoke", "tool.files.read"}
+	policy.Scopes = []string{"tools.invoke"}
 	policy.Revision++
 	if err := a.AuthorizeTool(t.Context(), "files.read"); err == nil {
 		t.Fatal("task crossed authorization generation")
@@ -49,6 +55,11 @@ func TestWorkbenchV2ToolsRequireExactSignedScopeAndFreshDispatchPolicy(t *testin
 	session.QualifiedOperations = nil
 	if a := server.workbenchExecutionAuthorization(session); len(a.AllowedTools) != 0 || a.AllowedTools == nil {
 		t.Fatal("missing qualification became unrestricted")
+	}
+	session.QualifiedOperations = []string{iscpworkbench.OperationToolsInvoke}
+	session.Scopes = []string{"settings.read"}
+	if a := server.workbenchExecutionAuthorization(session); len(a.AllowedTools) != 0 || a.AllowedTools == nil {
+		t.Fatal("missing tools.invoke admitted tools")
 	}
 }
 
@@ -65,7 +76,7 @@ func TestISCPToolDiscoveryRequiresUsableApprovalAuthority(t *testing.T) {
 		t.Fatal("fixture has no approval-governed tool")
 	}
 	session := iscpworkbench.SessionInfo{
-		Scopes:              []string{"tools.invoke", "tool." + name},
+		Scopes:              []string{"tools.invoke"},
 		QualifiedOperations: []string{iscpworkbench.OperationToolsInvoke, iscpworkbench.OperationApprovalsDecide},
 		CheckAuthorization:  func(context.Context) (iscpauth.Policy, error) { return iscpauth.Policy{}, nil },
 	}

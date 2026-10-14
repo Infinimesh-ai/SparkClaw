@@ -107,7 +107,7 @@ func TestISCPDomainToolsUseExistingExecutionLedgerAndFilteredDefinitions(t *test
 	var calls atomic.Int32
 	server, _, cfg, textHandler := workbenchISCPFixture(t, func(ctx context.Context, e execution.Envelope, _ map[string][]byte) (execution.Output, error) {
 		authorization, ok := ctx.Value(executionAuthorizationKey{}).(executionAuthorization)
-		if !ok || !slices.Equal(authorization.AllowedTools, []string{"files.read"}) {
+		if !ok || len(authorization.AllowedTools) == 0 || !slices.Contains(authorization.AllowedTools, "files.read") {
 			t.Error("execution lost trusted allowlist")
 		}
 		calls.Add(1)
@@ -115,13 +115,23 @@ func TestISCPDomainToolsUseExistingExecutionLedgerAndFilteredDefinitions(t *test
 	})
 	bindWorkbenchISCP(t, textHandler)
 	adapter := &iscpDomainAdapter{server: server, config: cfg}
-	policy := iscpauth.Policy{Version: 2, Revision: 1, State: iscpauth.Active, Scopes: []string{"tools.invoke", "tool.files.read"}}
+	policy := iscpauth.Policy{Version: 2, Revision: 1, State: iscpauth.Active, Scopes: []string{"tools.invoke"}}
 	session := iscpworkbench.SessionInfo{GrantRevision: 1, Scopes: policy.Scopes, QualifiedOperations: []string{iscpworkbench.OperationToolsInvoke}, CheckAuthorization: func(context.Context) (iscpauth.Policy, error) { return policy, nil }}
 	ctx := domainTestContext(t)
 	list := adapter.toolsWithSession(ctx, domainTestRequest(iscpworkbench.OperationToolsList, nil), session)
 	var tools struct{ Tools []app.ToolDefinition }
-	if list.status != 200 || json.Unmarshal(list.body, &tools) != nil || len(tools.Tools) != 1 || tools.Tools[0].Name != "files.read" {
+	if list.status != 200 || json.Unmarshal(list.body, &tools) != nil || len(tools.Tools) == 0 {
 		t.Fatalf("unfiltered tools %s", list.body)
+	}
+	listed := false
+	for _, tool := range tools.Tools {
+		if tool.RequiresApproval {
+			t.Fatalf("approval tool %s listed without approval authority", tool.Name)
+		}
+		listed = listed || tool.Name == "files.read"
+	}
+	if !listed {
+		t.Fatalf("trusted session did not list registered tools %s", list.body)
 	}
 	body, _ := json.Marshal(workbenchISCPEnvelope())
 	request := domainTestRequest(iscpworkbench.OperationToolsInvoke, body)
@@ -145,9 +155,9 @@ func TestISCPDomainToolsUseExistingExecutionLedgerAndFilteredDefinitions(t *test
 	if result := adapter.toolsWithSession(ctx, request, session); result.status != 409 {
 		t.Fatal("unbound envelope accepted")
 	}
-	session.Scopes = []string{"tools.invoke"}
+	session.Scopes = []string{"settings.read"}
 	if result := adapter.toolsWithSession(ctx, request, session); result.status != 403 {
-		t.Fatal("generic tool scope granted wildcard")
+		t.Fatal("session without tools.invoke was admitted")
 	}
 }
 

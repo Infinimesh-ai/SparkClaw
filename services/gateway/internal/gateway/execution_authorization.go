@@ -23,10 +23,9 @@ func (s *Server) workbenchExecutionAuthorization(session iscpworkbench.SessionIn
 	if session.CheckAuthorization == nil || !slices.Contains(session.Scopes, "tools.invoke") || !slices.Contains(session.QualifiedOperations, iscpworkbench.OperationToolsInvoke) {
 		return a
 	}
+	// An authenticated ISCP session is a trusted connection like LAN: tools.invoke
+	// admits every registered tool, without per-tool "tool.<name>" scopes.
 	for _, definition := range s.tools.Definitions() {
-		if !slices.Contains(session.Scopes, "tool."+definition.Name) {
-			continue
-		}
 		if definition.RequiresApproval && (!slices.Contains(session.Scopes, "approvals.decide") || !slices.Contains(session.QualifiedOperations, iscpworkbench.OperationApprovalsDecide)) {
 			continue
 		}
@@ -37,7 +36,7 @@ func (s *Server) workbenchExecutionAuthorization(session iscpworkbench.SessionIn
 		if err != nil {
 			return err
 		}
-		if policy.Revision != session.GrantRevision || !policy.Allows("tools.invoke") || !policy.Allows("tool."+name) {
+		if policy.Revision != session.GrantRevision || !policy.Allows("tools.invoke") {
 			return errors.New("current ISCP authorization does not permit this tool")
 		}
 		return nil

@@ -402,3 +402,36 @@ Gateway 的受支持 Linux 全套有 70 个测试包通过、十个无测试包�
 原容器以 `sparkclaw-gateway-before-credential-delete-20261013` 停止保留，
 已禁用自动重启；回滚必须使用配套数据库和配置备份，不能只切换旧二进制。
 这些包含私有权限材料的文件不提交 Git。InfiniCenter 仍缺失，不声称已获得中枢 accepted 决策。
+
+## 9. 无人为 RPC 配额版本已安装（2026-10-14）
+
+用户授权升级本机 Mac 和全部五台 Gateway。已安装 `/Applications/SparkX.app`
+与 work1–work5 二进制均为干净源码 `9fc956e2`。各 Gateway 保留原依赖、完整
+Docker HostConfig、环境变量、挂载、端口、网络地址及启动命令；常规不构建重启
+的 `latest` 镜像也选择新版。Relay 和签发器二进制未更换。
+
+五个已安装配置均协商 `limits.concurrent=0`，八个并行控制读取全部完成且
+不进入本地队列，冷重连后策略保持。原生 Main/四个独立配置的身份、会话、原九个
+菜单、设备控制及日程创建取消通过。已安装 58 个源码、五个 UI/helper 一致性通过，
+原界面字节完全一致。验收未提交业务操作。另一台 M1 Pro Mac 交付同版 arm64
+安装包；用户将直接客户端安装范围限定为本机。
+
+五份资料的全部 14 张本地业务表及自有文件哈希均保持。当前会话数量为 Main 3、
+work1 2、work3 2、work4 1、work5 2；使用本次升级前实时快照，不能沿用昨天的数量。
+默认选择、配置、身份、权限及信任锚点不变。正常 Grant/Relay 凭据续签会更新
+签名凭据 ID、有效期、签名和 token，原绑定不变。每个 Gateway 原 41 张业务表的
+原记录保留；启动 watcher 等内部时间字段可正常推进。
+
+另一次 work1 的 48 请求突发测试在本地全部获准发送，但存在端到端响应超时，
+根因未证明。这是记录的可靠性/性能限制，不能宣称 48 并发生产验收成功。
+不能重放结果未知的变更或放宽授权/截止时间来隐藏失败。此前 Mac 308、Linux
+arm64 194 及相关 Go race 结果仍适用；未新增 Linux/x64 测试套件资格结论。
+
+本机备份/验收目录为
+`/Users/dev/.cache/sparkclaw-upgrades/20261014-unbounded-rpc-9fc956e2`。
+原应用保留为 `/Applications/.SparkX-before-unbounded-rpc-20261014.app`。
+每个节点的 Gateway/签发器数据库备份、角色、配对授权/配置/状态归档及原 Docker
+inspect 位于 `/var/backups/sparkclaw-unbounded-rpc-20261014-9fc956e2`，权限为
+0700/0600。回滚容器 `sparkclaw-gateway-before-unbounded-rpc-20261014` 停止保留，
+禁用自动重启。恢复配对快照前应检查后续效果和撤销状态，不能只为回滚程序覆盖
+在线账本。按用户要求，SSH 凭据仅保存在 Git 外操作员私有文件。InfiniCenter 仍缺失。

@@ -1083,6 +1083,16 @@ nodes. No fixed runtime quotas are claimed removed on an old installation; rollo
 must upgrade each node and each client while preserving its data and authority.
 InfiniCenter remains absent, and no accepted cross-project decision is claimed.
 
+## 9.18. Authorized installed rollout (2026-10-14)
+
+The user subsequently authorized installing `9fc956e2` on this Mac and all five
+Gateways. Original UI, business data and configuration are retained with paired
+backups. All five profiles negotiate unbounded RPC after cold reconnect and pass
+eight parallel control reads. The separate 48-call live burst still has timeouts;
+see section 9 of [the deployment record](public-iscp-node-deployment.md) for evidence
+and rollback boundaries. The other M1 Pro Mac receives the same arm64 installer;
+direct installation is limited to this Mac. Relay/issuer binaries are unchanged.
+
 ## 10. Related designs
 
 - [Local ISCP integration and renewal acceptance](desktop-iscp-connection-design.md): implemented baseline and actual evidence scope.

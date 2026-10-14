@@ -502,3 +502,46 @@ Its stopped original container is
 rollback must use its paired database and configuration checkpoint, not just the
 old binary. These artifacts contain private authority and are not committed.
 InfiniCenter remains absent; no central accepted decision is claimed.
+
+## 9. Unbounded RPC installed (2026-10-14)
+
+The user authorized upgrading the local Mac and all five Gateways. Installed
+`/Applications/SparkX.app` and work1–work5 binaries now use clean `9fc956e2`.
+Each Gateway retains its exact base dependencies, Docker HostConfig, environment,
+mounts, ports, network address and command. The normal no-build `latest` image
+selects the new release; Relay and issuer binaries are unchanged.
+
+All five installed profiles negotiate `limits.concurrent=0`, complete eight
+parallel control reads without a local queue and retain the policy after cold
+reconnect. Native Main/four-profile identity, conversations, original nine menus,
+device controls and schedule create/cancel pass. Installed 58-source/five-UI/helper
+parity passes, with byte-identical original UI. No business operation is submitted
+in qualification. The other M1 Pro Mac receives the same arm64 installer; the user
+limited direct client installation to this Mac.
+
+All 14 local business tables and owned files retain hashes in each of the five
+profiles. Current conversation counts are Main 3, work1 2, work3 2, work4 1 and
+work5 2. Use the current pre-upgrade snapshot, not yesterday's count. Default
+selection, configuration, identity, permissions and trust pins are unchanged.
+Normal Grant/Relay credential renewals update signed IDs, expiry, signatures and
+tokens with unchanged bindings. Each Gateway retains the original records from
+all 41 business tables; internal startup watcher timestamps may advance.
+
+A separate work1 48-request burst admitted all calls locally but had end-to-end
+response timeouts; its root cause is unproven. This remains a reliability/performance
+limitation, not a successful 48-call production qualification. Do not replay
+uncertain mutations or weaken authorization/deadlines to conceal the result.
+Mac 308/Linux arm64 194 and affected Go race gates remain applicable; no new
+Linux/x64 test-suite qualification is claimed.
+
+Private Mac backup/acceptance root:
+`/Users/dev/.cache/sparkclaw-upgrades/20261014-unbounded-rpc-9fc956e2`.
+The prior application is `/Applications/.SparkX-before-unbounded-rpc-20261014.app`.
+Each node retains Gateway/issuer dumps, roles, paired authority/configuration/state
+archive and original Docker inspect at
+`/var/backups/sparkclaw-unbounded-rpc-20261014-9fc956e2` (0700/0600).
+Rollback container `sparkclaw-gateway-before-unbounded-rpc-20261014` stays stopped
+with restart disabled. Review subsequent effects and revocations before restoring
+a paired checkpoint; do not overwrite a live ledger merely to roll back a program.
+SSH credentials are retained only in an operator-private file outside Git at the
+user's request. InfiniCenter remains unavailable.

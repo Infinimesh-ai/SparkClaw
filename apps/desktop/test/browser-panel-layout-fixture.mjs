@@ -76,6 +76,23 @@ app.whenReady().then(async () => {
         }
       }
     }
+    // Drag the real divider with native input events, as a user would.
+    window.setContentSize(1440, 836);
+    await evaluate(`document.documentElement.dataset.textSize = "default"; document.querySelector('.workbench').classList.remove('sidebarCollapsed'); document.querySelector('[aria-label="Restore browser width"]')?.click()`);
+    await new Promise(resolve => setTimeout(resolve, 220));
+    const handle = await evaluate(`(() => { const r = document.querySelector('.inspectorResizeHandle').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+    const panelWidth = () => evaluate("document.querySelector('.desktopBrowserPanel').getBoundingClientRect().width");
+    const before = await panelWidth();
+    window.webContents.sendInputEvent({ type: "mouseDown", x: handle.x, y: handle.y, button: "left", clickCount: 1 });
+    for (let step = 1; step <= 6; step++) {
+      window.webContents.sendInputEvent({ type: "mouseMove", x: handle.x - step * 10, y: handle.y, button: "left", modifiers: ["leftButtonDown"] });
+      await new Promise(resolve => setTimeout(resolve, 16));
+    }
+    window.webContents.sendInputEvent({ type: "mouseUp", x: handle.x - 60, y: handle.y, button: "left", clickCount: 1 });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const after = await panelWidth();
+    assert.ok(Math.abs(after - before - 60) <= 2, `divider drag widens the panel: ${before} -> ${after}`);
+    await check("after divider drag");
     await evaluate("document.querySelector('#toggle-panel').click()");
     await new Promise(resolve => setTimeout(resolve, 50));
     assert.equal(await evaluate("document.querySelector('.desktopBrowserHost') === null"), true);
@@ -91,7 +108,7 @@ app.whenReady().then(async () => {
     const rejection = await evaluate(`window.sparkclawDesktop.setBounds({x:0,y:1,width:640,height:${content.height}},${revision}).then(()=>null,error=>error.message)`);
     assert.match(rejection, /outside the workbench/, "main process must still reject a one-pixel overflow");
     console.log(JSON.stringify({ event: "browser_panel_layout", passed: true, cases: cases.length, accepted_bounds: accepted,
-      real_component_css_preload_ipc: true, panel_reopened: true, renderer_reload: true, overflow_rejected: true, network: false, production_data: false }));
+      real_component_css_preload_ipc: true, panel_reopened: true, divider_drag: true, renderer_reload: true, overflow_rejected: true, network: false, production_data: false }));
   } finally {
     capability?.close();
     window?.destroy();

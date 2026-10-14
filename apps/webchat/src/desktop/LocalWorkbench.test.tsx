@@ -51,6 +51,34 @@ afterEach(() => {
 });
 
 describe("workbench local workbench", () => {
+  it("opens the browser panel with a draggable divider in the desktop workbench", async () => {
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
+    vi.spyOn(api, "ready").mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof api.ready>>);
+    vi.spyOn(api, "owner").mockResolvedValue({ id: "owner", display_name: "Test", created_at: "", updated_at: "" });
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => []), create: vi.fn(), enqueue: vi.fn(),
+      read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), submit: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(), reconcile: vi.fn(),
+      cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    const desktopState = { pages: [], downloads: [], permissions: [], presentation: { panel_bounds: { x: 0, y: 0, width: 1, height: 1 }, insufficient_space: false, presented_page_ref: "", layout_revision: 0 } };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      state: vi.fn(async () => desktopState), onState: vi.fn(() => () => {}), hideBrowser: vi.fn(async () => ({})),
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
+        backend: { schema_version: 3, transport: "iscp", deployment_id: "test" }, capabilities: { surfaces: { browser: { enabled: true } } } })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"), root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      expect(host.querySelector(".inspectorResizeHandle")).toBeNull();
+      await act(async () => host.querySelector<HTMLButtonElement>(".rightSidebarToggle")!.click());
+      expect(host.querySelector(".desktopBrowserPanel")).not.toBeNull();
+      const handle = host.querySelector<HTMLElement>('.inspectorResizeHandle[role="separator"]')!;
+      expect(handle).not.toBeNull();
+      expect(handle.parentElement).toBe(host.querySelector(".desktopBrowserPanel")!.parentElement);
+      await act(async () => handle.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
+      expect(host.querySelector<HTMLElement>("main.workspace")!.style.getPropertyValue("--inspector-width")).toBe("760px");
+      expect(window.localStorage.getItem("sparkx.inspector-width")).toBe("760");
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it.each(["en", "zh"] as const)("refreshes question titles from both conversation entry points before a failed network submission in %s", async language => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
     vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);

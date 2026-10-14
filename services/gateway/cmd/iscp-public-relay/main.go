@@ -56,7 +56,12 @@ func run() error {
 	if e != nil || limit < 120 || limit > 6000 {
 		return errors.New("invalid capacity")
 	}
+	window, e := time.ParseDuration(env("ISCP_RECEIVE_WINDOW", "0s"))
+	if e != nil || window < 0 || window > ref.MaxReceiveWindow {
+		return errors.New("invalid receive window")
+	}
 	cfg := ref.Config{SignerFile: os.Getenv("ISCP_SIGNER_FILE"), DomainID: env("ISCP_DOMAIN_ID", "infinimesh-public"), RelayID: env("ISCP_RELAY_ID", "relay-210-16-177-239"), BaseURL: env("ISCP_RELAY_BASE_URL", "https://210.16.177.239"), WebSocketURL: env("ISCP_RELAY_WS_URL", "wss://210.16.177.239/v2/relay/connect"), ProfileGate: config.DefaultGate(config.ProfileProduction), DB: pool, AdminToken: os.Getenv("ISCP_ADMIN_TOKEN"), AllowedOrigins: strings.Split(os.Getenv("ISCP_ALLOWED_ORIGINS"), ","), RequestsPerMinute: limit}
+	cfg.ReceiveWindow = window
 	var managed ref.ManagedAdapter
 	var nodes []iscprelayadapter.ScopedNode
 	var manager *iscprelayadapter.Manager
@@ -100,6 +105,7 @@ func run() error {
 	if e != nil {
 		return e
 	}
+	defer relay.Close()
 	for _, node := range nodes {
 		node.Adapter.Invalidate = relay.InvalidateDevice
 		node.Adapter.MarkRevoked = relay.MarkRevoked
@@ -135,6 +141,7 @@ func run() error {
 	}
 	shutdown, done := context.WithTimeout(context.Background(), 10*time.Second)
 	defer done()
+	relay.Close()
 	_ = public.Shutdown(shutdown)
 	for _, p := range private {
 		_ = p.Shutdown(shutdown)

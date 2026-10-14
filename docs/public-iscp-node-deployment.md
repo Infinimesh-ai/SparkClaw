@@ -545,3 +545,39 @@ with restart disabled. Review subsequent effects and revocations before restorin
 a paired checkpoint; do not overwrite a live ledger merely to roll back a program.
 SSH credentials are retained only in an operator-private file outside Git at the
 user's request. InfiniCenter remains unavailable.
+
+## 10. Bounded continuous receive (source qualification, not deployment)
+
+The public Relay accepts `ISCP_RECEIVE_WINDOW`, default `0s` (the original
+reference drain). An explicit positive duration up to `55s` keeps an authenticated
+receive socket available for later messages, then sends the existing `drained`
+frame. Invalid or larger values fail startup. This setting changes server
+scheduling only: no descriptor, JSON frame, envelope, Access-PoP, authorization,
+administration or rate-limit contract changes. The original client remains
+compatible; its two-minute receive deadline is longer than the configured window.
+
+Each recipient has one active receive owner. Replacement closes/cancels the old
+socket and waits for its delivery critical section before advertising `ready`.
+Standard WebSocket Ping/Pong confirms liveness before claiming one message;
+authentication, ping and writes have five-second bounds. Enqueue wakes the
+recipient immediately, with a one-second fallback for persisted messages. Live
+revocation and service shutdown close receivers and release their work.
+
+In PostgreSQL continuous mode, one message claim, socket write and delivery mark
+share a short transaction. A failed write, cancellation or lost database
+connection rolls the claim back, without waiting for a one-minute delivery lease.
+The memory queue reserves claimed bytes until completion so a failed write can
+restore its original message under the existing capacity limit. Single-message
+claims preserve priority/queue selection order without relying on multi-row
+`UPDATE RETURNING` order. Default drain behavior is unchanged.
+
+Successful writes retain the reference `delivered_to_connection` meaning. They
+do not replace the business result's durable ACK or guarantee that a recipient
+has committed the result. A lost transaction commit response remains an unknown
+outcome handled by the existing original-request recovery mechanisms.
+
+Qualification uses isolated PostgreSQL 18 and the default memory queue: later
+messages on one connection, original-client compatibility, default drain,
+replacement, revocation, failed writes, process/DB disconnect rollback, claim
+ordering, reserved capacity and shutdown. No TEST1 deployment or production
+performance improvement is claimed by this source-only record.

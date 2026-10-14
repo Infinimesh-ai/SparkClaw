@@ -45,7 +45,10 @@ type Config struct {
 	AdminToken        string
 	AllowedOrigins    []string
 	RequestsPerMinute int
-	Managed           ManagedAdapter
+	// ReceiveWindow enables bounded continuous delivery without changing frames.
+	// Zero retains the reference drain. Production accepts at most 55 seconds.
+	ReceiveWindow time.Duration
+	Managed       ManagedAdapter
 	// TicketIssuer is the Trust Root signer identity used to verify
 	// iscp.pairing_ticket.v3 signatures on register-with-ticket. Production
 	// profile refuses ticketed registration without it.
@@ -65,23 +68,28 @@ type ManagedAdapter interface {
 }
 
 type Server struct {
-	cfg         Config
-	provider    crypto.Provider
-	signer      identity.Device
-	mux         *http.ServeMux
-	limiter     *ratelimit.Limiter
-	replay      *replay.Cache
-	queue       *queue.Queue
-	repo        *repository.RelayRepository
-	upgrader    websocket.Upgrader
-	mu          sync.RWMutex
-	devices     map[string]identity.DeviceIdentity
-	access      map[string]credential
-	refresh     map[string]credential
-	revoked     map[string]struct{}
-	tickets     map[string]ticketState
-	connections map[string]connectionState
-	startedAt   time.Time
+	cfg           Config
+	provider      crypto.Provider
+	signer        identity.Device
+	mux           *http.ServeMux
+	limiter       *ratelimit.Limiter
+	replay        *replay.Cache
+	queue         *queue.Queue
+	repo          *repository.RelayRepository
+	upgrader      websocket.Upgrader
+	mu            sync.RWMutex
+	devices       map[string]identity.DeviceIdentity
+	access        map[string]credential
+	refresh       map[string]credential
+	revoked       map[string]struct{}
+	tickets       map[string]ticketState
+	connections   map[string]connectionState
+	startedAt     time.Time
+	receiveMu     sync.Mutex
+	receivers     map[string]*receiveSlot
+	receiveClosed bool
+	queueMu       sync.Mutex
+	reservedBytes int
 }
 
 type credential struct {
@@ -109,6 +117,9 @@ type connectionState struct {
 }
 
 func New(cfg Config) (*Server, error) {
+	if cfg.ReceiveWindow < 0 || cfg.ReceiveWindow > MaxReceiveWindow {
+		return nil, iscperrors.New(iscperrors.CodeConfigInvalid, "receive window must be between zero and 55 seconds")
+	}
 	provider := crypto.NewProvider()
 	now := time.Now().UTC()
 	signer, err := persistentSigner(provider, cfg, now)
@@ -156,6 +167,7 @@ func New(cfg Config) (*Server, error) {
 		tickets:     map[string]ticketState{},
 		connections: map[string]connectionState{},
 		startedAt:   now,
+		receivers:   map[string]*receiveSlot{},
 	}
 	s.routes()
 	return s, nil
@@ -463,6 +475,7 @@ func (s *Server) revokeAccess(w http.ResponseWriter, r *http.Request) {
 			s.refresh[k] = cred
 		}
 	}
+	s.stopReceiver(s.cfg.DomainID, req.DeviceID)
 	if s.repo != nil {
 		now := time.Now().UTC()
 		if err := s.repo.RevokeDevice(r.Context(), repository.DomainID(s.cfg.DomainID), req.DeviceID, now); err != nil {
@@ -585,7 +598,7 @@ func (s *Server) envelopes(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusInternalServerError, err)
 			return
 		}
-	} else if !s.queue.Enqueue(queue.Message{
+	} else if !s.enqueueMemory(queue.Message{
 		DomainID:          meta.DomainID,
 		MessageID:         meta.MessageID,
 		SenderDeviceID:    meta.SenderDeviceID,
@@ -597,6 +610,7 @@ func (s *Server) envelopes(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusRequestEntityTooLarge, iscperrors.New(iscperrors.CodeEnvelopeInvalid, "message too large"))
 		return
 	}
+	s.wakeReceiver(meta.DomainID, meta.RecipientDeviceID)
 	httpx.WriteJSON(w, http.StatusAccepted, receipt)
 }
 
@@ -610,6 +624,11 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.Close()
+	if s.cfg.ReceiveWindow > 0 {
+		c.SetReadLimit(64 << 10)
+		_ = c.SetReadDeadline(time.Now().Add(receiveIOTimeout))
+		_ = c.SetWriteDeadline(time.Now().Add(receiveIOTimeout))
+	}
 	challenge := randomToken()
 	if err := c.WriteJSON(map[string]string{"state": "challenge", "challenge": challenge}); err != nil {
 		return
@@ -653,6 +672,10 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 		LastSeenAt:   now,
 	})
 	defer s.closeConnection(connectionID)
+	if s.cfg.ReceiveWindow > 0 {
+		s.receiveStream(r.Context(), c, id)
+		return
+	}
 	_ = c.WriteJSON(map[string]string{"state": "ready"})
 	delivered := 0
 	peerClosed := make(chan struct{})

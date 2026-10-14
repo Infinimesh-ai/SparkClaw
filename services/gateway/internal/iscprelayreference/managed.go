@@ -26,6 +26,7 @@ func (s *Server) MarkRevoked(deviceID string) {
 	s.mu.Lock()
 	s.revoked[deviceID] = struct{}{}
 	s.mu.Unlock()
+	s.stopReceiver(s.cfg.DomainID, deviceID)
 }
 
 func managedStatus(err error) int {

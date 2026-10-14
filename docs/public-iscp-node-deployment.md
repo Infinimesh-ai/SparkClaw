@@ -546,7 +546,7 @@ a paired checkpoint; do not overwrite a live ledger merely to roll back a progra
 SSH credentials are retained only in an operator-private file outside Git at the
 user's request. InfiniCenter remains unavailable.
 
-## 10. Bounded continuous receive (source qualification, not deployment)
+## 10. Bounded continuous receive
 
 The public Relay accepts `ISCP_RECEIVE_WINDOW`, default `0s` (the original
 reference drain). An explicit positive duration up to `55s` keeps an authenticated
@@ -579,5 +579,11 @@ outcome handled by the existing original-request recovery mechanisms.
 Qualification uses isolated PostgreSQL 18 and the default memory queue: later
 messages on one connection, original-client compatibility, default drain,
 replacement, revocation, failed writes, process/DB disconnect rollback, claim
-ordering, reserved capacity and shutdown. No TEST1 deployment or production
-performance improvement is claimed by this source-only record.
+ordering, reserved capacity and shutdown.
+
+On 2026-10-14 TEST1 deployed `f19847c3` with `ISCP_RECEIVE_WINDOW=55s`, retaining
+its authority, identity, rate limits and paired PostgreSQL/state checkpoint.
+Mac and work2 deployed `3ddde02b`, including private timings, wait decoupling,
+optional execution progress and cursor recovery. Other Gateways retain their
+existing versions. See the [native before/after measurements and acceptance](iscp-latency-optimization.md)
+for deployment scope, preserved state, precise timings and sample limitations.

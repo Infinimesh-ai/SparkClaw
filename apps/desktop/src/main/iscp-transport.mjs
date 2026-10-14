@@ -265,7 +265,15 @@ export class ISCPTransport {
     if(spec.mutation&&!request.operation_id)request.operation_id=crypto.randomUUID();
     const response=await this.#request(request,options,body===undefined?undefined:JSON.stringify(body));
     const result=await response.json();
-    if(!response.ok){const error=new Error(result.error||"ISCP operation failed");error.code=result.error_code||response.headers.get("x-sparkclaw-error-code");error.status=response.status;error.retryable=result.retryable===true||response.headers.get("x-sparkclaw-retryable")==="true";throw error;}
+    if(!response.ok){
+      const error=new Error(result.error||"ISCP operation failed");
+      // Domain adapters return their typed code in the authenticated JSON body.
+      // Preserve envelope/header precedence and never derive a code from status
+      // or prose: callers decide which exact codes permit recovery.
+      const bodyCode=typeof result.code==='string'&&/^[a-z][a-z0-9_]{0,79}$/u.test(result.code)?result.code:undefined;
+      error.code=result.error_code||response.headers.get("x-sparkclaw-error-code")||bodyCode;
+      error.status=response.status;error.retryable=result.retryable===true||response.headers.get("x-sparkclaw-retryable")==="true";throw error;
+    }
     return result;
   }
 

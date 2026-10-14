@@ -11,6 +11,7 @@ import { ISCPTransport, ISCP_OPERATIONS, ISCP_PROFILE, ISCPRequestNotSentError }
 import { SecureCredentialStore } from "../src/main/secure-credential-store.mjs";
 import { ClientStore } from "../src/main/client-store.mjs";
 import { ExecutionClient } from "../src/main/execution-client.mjs";
+import { ISCPEventClient } from "../src/main/iscp-event-client.mjs";
 import { loadISCPProfile } from "../src/main/iscp-profile.mjs";
 import { parseBackendDescriptor } from "../src/main/local-backend.mjs";
 async function waitFor(check) {
@@ -69,7 +70,7 @@ async function fixture(t) {
       control_only:controlOnly,identity: { domain_id: descriptor.domain_id, initiator_device_id: descriptor.initiator_device_id, responder_device_id: descriptor.responder_device_id, responder_key_thumbprint: descriptor.responder_key_thumbprint, relay_url: descriptor.relay_url, relay_profile: descriptor.relay_profile ?? "production" } });
       if(controlOnly)return;
       if(f.revoked){child.send({ipc_version:1,type:"state",state:"authorization_revoked"});return;}
-      if(f.v2)child.send({ipc_version:1,type:"capabilities",capabilities:{schema_version:2,profile:"sparkclaw.workbench.transport.v2",session_id:"session",authorization_revision:f.revision||1,expires_at:new Date(Date.now()+60000).toISOString(),binding:scope,operations:[...ISCP_OPERATIONS,"capabilities.get",...(f.progressSupported?["execution.progress"]:[])]}});
+      if(f.v2)child.send({ipc_version:1,type:"capabilities",capabilities:{schema_version:2,profile:"sparkclaw.workbench.transport.v2",session_id:"session",authorization_revision:f.revision||1,expires_at:new Date(Date.now()+60000).toISOString(),binding:scope,operations:[...ISCP_OPERATIONS,"capabilities.get",...(f.progressSupported?["execution.progress"]:[]),...(f.eventRecovery?["events.pull","events.snapshot","events.ack"]:[])]}});
       if (f.ready) child.send({ ipc_version: 1, type: "state", state: "transport_ready" }); });
     return child;
   };
@@ -431,6 +432,51 @@ test("negotiated v2 progress uses the authenticated helper and canceling its lon
   assert.equal(f.auth.transport.pending.size, 0); assert.equal(f.directHTTP, 0);
   assert.equal(f.store.receipt(scope, task.request_id), null);
 });
+
+test("authenticated domain cursor_gap crosses transport.invoke and recovers a stale Gateway epoch before ACK", async t => {
+  const f = await fixture(t); f.v2 = true; f.eventRecovery = true; await f.start();
+  f.store.commitEventProjection(scope, { previous_cursor: "", cursor: "old-cursor", revision: 9, epoch: "old-gateway", reset: true, snapshot: {} });
+  let reconciles = 0;
+  f.handler = request => {
+    if (request.operation === "events.pull") {
+      assert.equal(request.body.cursor, "old-cursor");
+      return { status: 409, body: { code: "cursor_gap", retryable: false } };
+    }
+    if (request.operation === "events.snapshot") return { status: 200, body: {
+      cursor: "new-cursor", revision: 1, epoch: "new-gateway", reset: true, events: [], snapshot: { executions: [] } } };
+    if (request.operation === "events.ack") {
+      assert.equal(f.store.eventProjection(scope).cursor, request.body.cursor);
+      return { status: 200, body: { acknowledged: true, revision: 1 } };
+    }
+  };
+  const eventAuth = { get generation() { return f.auth.generation; }, get status() { return { ...f.auth.status, capabilities: { events: true } }; },
+    invokeISCP: (...args) => f.auth.invokeISCP(...args) };
+  const client = new ISCPEventClient({ auth: eventAuth, store: f.store, execution: { reconcilePending: async () => { reconciles++; } }, getIdentity: () => scope });
+  t.after(() => client.close()); await client.poll();
+  assert.deepEqual(f.calls.filter(call => call.operation.startsWith("events.")).map(call => call.operation), ["events.pull", "events.snapshot", "events.ack"]);
+  assert.equal(f.store.eventProjection(scope).epoch, "new-gateway"); assert.equal(f.store.eventProjection(scope).revision, 1);
+  assert.equal(reconciles, 1); assert.equal(f.directHTTP, 0);
+});
+
+for (const [body, envelopeCode, expectedCode] of [
+  [{ code: "revision_conflict", retryable: false }, undefined, "revision_conflict"],
+  [{ code: "cursor_gap\n", retryable: false }, undefined, undefined],
+  [{ code: { value: "cursor_gap" }, retryable: false }, undefined, undefined],
+  [{ code: "cursor_gap", retryable: false }, "revision_conflict", "revision_conflict"],
+]) {
+  test("unrecognized or conflicting 409 codes never authorize an event snapshot reset", async t => {
+    const f = await fixture(t); f.v2 = true; f.eventRecovery = true; await f.start();
+    f.store.commitEventProjection(scope, { previous_cursor: "", cursor: "original", revision: 7, epoch: "epoch", reset: true, snapshot: {} });
+    f.handler = () => ({ status: 409, body, ...(envelopeCode ? { error_code: envelopeCode } : {}) });
+    const eventAuth = { get generation() { return f.auth.generation; }, get status() { return { ...f.auth.status, capabilities: { events: true } }; },
+      invokeISCP: (...args) => f.auth.invokeISCP(...args) };
+    const client = new ISCPEventClient({ auth: eventAuth, store: f.store, execution: { reconcilePending: async () => assert.fail("must not reconcile") }, getIdentity: () => scope });
+    t.after(() => client.close());
+    await assert.rejects(client.poll(), error => error.status === 409 && error.code === expectedCode);
+    assert.deepEqual(f.calls.filter(call => call.operation.startsWith("events.")).map(call => call.operation), ["events.pull"]);
+    assert.equal(f.store.eventProjection(scope).cursor, "original"); assert.equal(f.store.eventProjection(scope).revision, 7);
+  });
+}
 
 
 test("binding rejection fences other responses and preserves reauthorization config without reconnecting automatically", async (t) => {

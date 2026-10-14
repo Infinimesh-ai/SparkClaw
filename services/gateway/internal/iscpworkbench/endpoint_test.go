@@ -147,7 +147,7 @@ func waitReady(t *testing.T, e *Endpoint) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		e.mu.Lock()
-		ready := e.session != nil && e.session.manifest
+		ready := e.session != nil && e.session.manifest && !e.session.negotiating
 		e.mu.Unlock()
 		if ready {
 			return
@@ -199,7 +199,8 @@ func TestEncryptedDesktopFirstHandshakeAndExactBody(t *testing.T) {
 			t.Fatal("plaintext request reached Relay")
 		}
 	}
-	if manifestCount != 2 || businessCount != 2 {
+	// One safe RPC-policy negotiation precedes the original business request.
+	if manifestCount != 2 || businessCount != 4 {
 		t.Fatalf("manifests=%d business=%d", manifestCount, businessCount)
 	}
 }
@@ -340,7 +341,7 @@ func TestRequestAndResponseCaps(t *testing.T) {
 	}
 }
 
-func TestConcurrentCallsBoundedAndCloseCancelsHandlers(t *testing.T) {
+func TestLegacyConcurrentCallsBoundedAndCloseCancelsHandlers(t *testing.T) {
 	entered := make(chan struct{}, MaxConcurrent)
 	stopped := make(chan struct{}, MaxConcurrent)
 	initiator, responder, _, _ := testEndpoints(t, func(ctx context.Context, request Request) Response {
@@ -349,6 +350,11 @@ func TestConcurrentCallsBoundedAndCloseCancelsHandlers(t *testing.T) {
 		stopped <- struct{}{}
 		return Response{Status: 500}
 	})
+	for _, e := range []*Endpoint{initiator, responder} {
+		e.mu.Lock()
+		e.session.capabilities.Limits.Concurrent = MaxConcurrent
+		e.mu.Unlock()
+	}
 	results := make(chan error, MaxConcurrent)
 	for range MaxConcurrent {
 		go func() {

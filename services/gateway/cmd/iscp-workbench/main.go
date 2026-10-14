@@ -129,6 +129,7 @@ func main() {
 		os.Exit(1)
 	}
 	endpoint.SetCapabilitiesHandler(func(c iscpworkbench.TransportCapabilities) {
+		_ = writer.send(map[string]any{"ipc_version": ipcVersion, "type": "admission", "profile": c.Profile, "session_id": c.SessionID, "authorization_revision": c.AuthorizationRevision, "expires_at": c.ExpiresAt, "concurrent": c.Limits.Concurrent})
 		if c.Profile == iscpworkbench.ProfileV2 {
 			_ = writer.send(map[string]any{"ipc_version": ipcVersion, "type": "capabilities", "capabilities": c})
 		}
@@ -183,11 +184,6 @@ func serveFrames(ctx context.Context, input io.Reader, writer *ipcWriter, endpoi
 	}()
 	var calls sync.WaitGroup
 	defer func() { cancel(); calls.Wait() }()
-	slots := make(chan struct{}, iscpworkbench.MaxConcurrent)
-	classSlots := map[string]chan struct{}{}
-	for _, class := range []string{"control", "bulk", "events", "audio"} {
-		classSlots[class] = make(chan struct{}, iscpworkbench.CapacityLimit(class))
-	}
 	controls := make(chan struct{}, 1)
 	for {
 		select {
@@ -244,23 +240,9 @@ func serveFrames(ctx context.Context, input io.Reader, writer *ipcWriter, endpoi
 				cancel()
 				return nil
 			}
-			callSlots := slots
-			if frame.Request.Profile == iscpworkbench.ProfileV2 {
-				class, _ := iscpworkbench.OperationCapacity(frame.Request.Operation)
-				if c := classSlots[class]; c != nil {
-					callSlots = c
-				}
-			}
-			select {
-			case callSlots <- struct{}{}:
-			default:
-				_ = writeResponse(writer, frame.ID, iscpworkbench.Response{Type: iscpworkbench.ResponseType, Profile: iscpworkbench.Profile, ID: frame.Request.ID, Status: 429, Error: "workbench concurrency limit exceeded"})
-				continue
-			}
 			calls.Add(1)
-			go func(frame callFrame, callSlots chan struct{}) {
+			go func(frame callFrame) {
 				defer calls.Done()
-				defer func() { <-callSlots }()
 				response, err := endpoint.Call(ctx, frame.Request)
 				if err != nil {
 					response = iscpworkbench.Response{Type: iscpworkbench.ResponseType, Profile: frame.Request.Profile, ID: frame.Request.ID, Status: 503, Error: "ISCP workbench call failed"}
@@ -272,7 +254,7 @@ func serveFrames(ctx context.Context, input io.Reader, writer *ipcWriter, endpoi
 					}
 				}
 				_ = writeResponse(writer, frame.ID, response)
-			}(frame, callSlots)
+			}(frame)
 		}
 	}
 }

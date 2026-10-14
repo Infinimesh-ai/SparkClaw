@@ -54,7 +54,6 @@ type NodeResponder struct {
 	verifyDiscovery func(context.Context) error
 	mu              sync.Mutex
 	peers           map[string]*nodePeer
-	slots           chan struct{}
 	closed          bool
 	cancel          context.CancelFunc
 }
@@ -94,7 +93,7 @@ func newNodeResponder(cfg Config, m material, relay RelayTransport, factory Node
 	if cfg.Mode != "node-managed" || cfg.SchemaVersion != 2 || cfg.Role != RoleResponder || cfg.PeerRegistryFile == "" || relay == nil || factory == nil || validate == nil {
 		return nil, errors.New("node responder requires explicit authority, registry and live Client validation")
 	}
-	n := &NodeResponder{config: cfg, material: m, relay: relay, factory: factory, validate: validate, onState: onState, peers: map[string]*nodePeer{}, slots: make(chan struct{}, 64)}
+	n := &NodeResponder{config: cfg, material: m, relay: relay, factory: factory, validate: validate, onState: onState, peers: map[string]*nodePeer{}}
 	n.verifyDiscovery = func(ctx context.Context) error {
 		return iscpbridge.VerifyWorkbenchRelayDiscovery(ctx, cfg.EffectiveRelayProfile(), m.enrollment)
 	}
@@ -216,7 +215,6 @@ func (n *NodeResponder) syncPeers(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		e.aggregateSlots = n.slots
 		e.authorityPolicy = func(callCtx context.Context) (iscpauth.Policy, error) {
 			return n.policy(callCtx, p.Identity.DeviceID, e)
 		}

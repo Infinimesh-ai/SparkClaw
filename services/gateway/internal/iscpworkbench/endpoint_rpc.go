@@ -74,26 +74,19 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 	e.session.seenRequests[request.ID] = struct{}{}
 	e.mu.Unlock()
 	slots := e.operationSlots(request)
-	select {
-	case slots <- struct{}{}:
-	default:
-		return e.sendResponse(ctx, id, Response{Profile: request.Profile, ID: request.ID, Status: 429, Code: ErrorThrottled, Retryable: true, RetryAfterMS: 250, Error: "workbench concurrency limit exceeded"})
-	}
-	if e.aggregateSlots != nil {
+	if slots != nil {
 		select {
-		case e.aggregateSlots <- struct{}{}:
+		case slots <- struct{}{}:
 		default:
-			<-slots
-			return e.sendResponse(ctx, id, Response{Profile: request.Profile, ID: request.ID, Status: 429, Code: ErrorThrottled, Retryable: true, RetryAfterMS: 250, Error: "node aggregate concurrency limit exceeded"})
+			return e.sendResponse(ctx, id, Response{Profile: request.Profile, ID: request.ID, Status: 429, Code: ErrorThrottled, Retryable: true, RetryAfterMS: 250, Error: "workbench concurrency limit exceeded"})
 		}
 	}
 	e.workers.Add(1)
 	go func() {
 		defer e.workers.Done()
 		defer func() {
-			<-slots
-			if e.aggregateSlots != nil {
-				<-e.aggregateSlots
+			if slots != nil {
+				<-slots
 			}
 		}()
 		callCtx, cancel := context.WithTimeout(ctx, operationTimeout(request.Operation))
@@ -178,12 +171,14 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (Response, error) 
 		ctx = context.WithValue(ctx, capacityContextKey{}, spec.CapacityClass)
 	}
 	slots := e.operationSlots(request)
-	select {
-	case slots <- struct{}{}:
-	default:
-		return Response{}, &TransportError{Code: ErrorThrottled, Status: 429, Retryable: true, NotSent: true, Message: "workbench concurrency limit exceeded"}
+	if slots != nil {
+		select {
+		case slots <- struct{}{}:
+		default:
+			return Response{}, &TransportError{Code: ErrorThrottled, Status: 429, Retryable: true, NotSent: true, Message: "workbench concurrency limit exceeded"}
+		}
+		defer func() { <-slots }()
 	}
-	defer func() { <-slots }()
 	e.mu.Lock()
 	if e.closed || e.session == nil || !e.session.manifest {
 		e.mu.Unlock()
@@ -228,6 +223,12 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (Response, error) 
 }
 
 func (e *Endpoint) operationSlots(r Request) chan struct{} {
+	e.mu.Lock()
+	unbounded := e.session != nil && e.session.capabilities != nil && e.session.capabilities.Profile == r.Profile && e.session.capabilities.Limits.Concurrent == 0 && time.Now().Before(e.session.capabilities.ExpiresAt)
+	e.mu.Unlock()
+	if unbounded {
+		return nil
+	}
 	if r.Profile == ProfileV2 {
 		class, _ := OperationCapacity(r.Operation)
 		if slots := e.classSlots[class]; slots != nil {

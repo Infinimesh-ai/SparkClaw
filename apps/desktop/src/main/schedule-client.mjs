@@ -120,13 +120,10 @@ export class ScheduleClient {
     if (!scope) return;
     this.polling = true;
     try {
-      // Limit network concurrency; future rows are advanced atomically with each
-      // claim. A continuously-online delayed tick can admit the due occurrences
-      // in later ticks; a recovery scan instead compresses all missed due times.
+      // Independent definitions reconcile concurrently; each occurrence still
+      // requires its own atomic claim and original online dispatch window.
       const rows = this.store.schedulePending(scope);
-      for (let i = 0; i < rows.length && !this.closed; i += 4) {
-        await Promise.allSettled(rows.slice(i, i + 4).map((row) => this.reconcile(scope, row.request_id)));
-      }
+      await Promise.allSettled(rows.map(row => this.closed ? undefined : this.reconcile(scope, row.request_id)));
     } finally { this.polling = false; }
   }
 

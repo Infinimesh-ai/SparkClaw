@@ -16,7 +16,7 @@ export const ISCP_BODY_BYTES = MAX_BYTES - 2048;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
 const CLIENT_UI_KEY = /^client-[a-f0-9]{48}$/u;
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
-const CAPACITIES = Object.freeze({v1:4,business:4,control:1,bulk:2,events:1,audio:2});
+const CAPACITIES = Object.freeze({v1:4,business:4,control:1,bulk:2,events:1,audio:2}); // Legacy peer compatibility only.
 const MAIL_READ_LIMIT = 3; // Reserve the fourth business slot for explicit actions.
 const ADMISSION_QUEUE_LIMIT = 24;
 
@@ -117,6 +117,7 @@ export class ISCPTransport {
     for (const call of this.admissionQueue) call.fail(new ISCPRequestNotSentError("ISCP transport is unavailable", "unavailable"));
     for (const call of this.pending.values()) call.reject(new Error("ISCP transport is unavailable"));
     this.pending.clear();
+    this.admission = undefined;
     this.capabilities = undefined; this.onCapabilities(undefined);
     const child = this.child; this.child = undefined;
     child?.stdin.destroy(); child?.kill();
@@ -308,10 +309,15 @@ export class ISCPTransport {
       if (call.generation !== this.generation || this.state !== 'transport_ready') { call.fail(new ISCPRequestNotSentError('ISCP transport is unavailable', 'unavailable')); continue; }
       if (call.session !== this.capabilities?.session_id || call.revision !== this.capabilities?.authorization_revision) { call.fail(new ISCPRequestNotSentError('ISCP authentication changed', 'canceled')); continue; }
       const pending = [...this.pending.values()];
-      if (pending.filter(row => row.capacityClass === call.capacityClass).length >= CAPACITIES[call.capacityClass] || call.mailRead && pending.filter(row => row.mailRead).length >= MAIL_READ_LIMIT) continue;
+      if (!this.#unboundedRPC(call.request) && (pending.filter(row => row.capacityClass === call.capacityClass).length >= CAPACITIES[call.capacityClass] || call.mailRead && pending.filter(row => row.mailRead).length >= MAIL_READ_LIMIT)) continue;
       call.release();
       this.#dispatch(call.request, call.init, call.rawBody, call.deadline).then(call.resolve, call.reject);
     }
+  }
+
+  #unboundedRPC(request) {
+    if (request.profile === ISCP_V2_PROFILE) return this.capabilities?.limits?.concurrent === 0 && Date.parse(this.capabilities.expires_at) > Date.now();
+    return this.admission?.profile === request.profile && this.admission.concurrent === 0 && Date.parse(this.admission.expires_at) > Date.now();
   }
 
   async #dispatch(request,init,rawBody,admissionDeadline) {
@@ -326,7 +332,7 @@ export class ISCPTransport {
     if (spec && (!this.capabilities || Date.parse(this.capabilities.expires_at) <= Date.now() || !this.capabilities.operations.includes(request.operation))) throw new ISCPRequestNotSentError('This capability is unavailable through ISCP');
     if (init.signal?.aborted) throw new ISCPRequestNotSentError("ISCP request was canceled", "canceled");
     const occupied=[...this.pending.values()].filter(call=>call.capacityClass===capacityClass).length;
-    if (occupied >= CAPACITIES[capacityClass] || mailRead && [...this.pending.values()].filter(call => call.mailRead).length >= MAIL_READ_LIMIT) return this.#queueAdmission(request, init, rawBody, admissionDeadline, capacityClass, mailRead);
+    if (!this.#unboundedRPC(request) && (occupied >= CAPACITIES[capacityClass] || mailRead && [...this.pending.values()].filter(call => call.mailRead).length >= MAIL_READ_LIMIT)) return this.#queueAdmission(request, init, rawBody, admissionDeadline, capacityClass, mailRead);
     const id=crypto.randomUUID();request={...request,id};
     if (Buffer.byteLength(JSON.stringify(request)) > MAX_BYTES) throw new ISCPRequestNotSentError("ISCP request exceeds the test profile limit");
     const generation=this.generation;
@@ -372,7 +378,12 @@ export class ISCPTransport {
         }
         this.hello = true; continue;
       }
-      if (frame.type === "capabilities") {
+      if (frame.type === 'admission') {
+        if (![ISCP_PROFILE, ISCP_V2_PROFILE].includes(frame.profile) || ![0,4].includes(frame.concurrent) || typeof frame.session_id !== 'string' || !frame.session_id || frame.session_id.length > 160 || !Number.isSafeInteger(frame.authorization_revision) || frame.authorization_revision < (frame.profile === ISCP_PROFILE ? 0 : 1) || !Number.isFinite(Date.parse(frame.expires_at)) || Date.parse(frame.expires_at) <= Date.now()) { this.#fail('disconnected'); return; }
+        this.admission = Object.freeze(frame);
+        if (frame.profile === ISCP_PROFILE) { this.capabilities = undefined; this.onCapabilities(undefined); }
+        queueMicrotask(() => this.#drainAdmissions());
+      } else if (frame.type === "capabilities") {
         const value=frame.capabilities;
         if(value?.schema_version!==2||value.profile!==ISCP_V2_PROFILE||typeof value.session_id!=='string'||!value.session_id||value.session_id.length>160||!Array.isArray(value.operations)||value.operations.length>256||!value.operations.every((op)=>typeof op==='string')||!Number.isSafeInteger(value.authorization_revision)||value.authorization_revision<1||!Number.isFinite(Date.parse(value.expires_at))||Date.parse(value.expires_at)<=Date.now()||!value.binding) {this.#fail("disconnected");return;}
         if(this.expectedBinding && Object.keys(this.expectedBinding).some((key)=>value.binding[key]!==this.expectedBinding[key])){this.#fail("identity_conflict");return;}

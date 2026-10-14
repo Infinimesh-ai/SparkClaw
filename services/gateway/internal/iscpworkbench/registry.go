@@ -96,8 +96,8 @@ func OperationsV2ForMode(mode string) []string {
 	return ops
 }
 
-// CapacityLimit reserves cancellation/control and event/audio capacity even while
-// bulk transfer workers are occupied. Every class remains independently bounded.
+// CapacityLimit describes old peers' fixed per-class limits. Newly negotiated
+// unbounded RPC does not acquire these slots; priority and byte limits remain.
 func CapacityLimit(class string) int {
 	switch class {
 	case "control", "events":

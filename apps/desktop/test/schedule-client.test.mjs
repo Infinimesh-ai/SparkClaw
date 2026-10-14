@@ -71,6 +71,31 @@ test("a continuously online delayed timer claims once and uses the ordinary exec
   assert.equal(f.store.request(scope, schedule.request_id).explicitly_submitted, 1);
 });
 
+test("independent due schedules dispatch together while retaining one durable claim each", async t => {
+  const f = fixture(t);
+  const schedules = [];
+  for (let i=0;i<12;i++) schedules.push(await f.client.create(scope,f.conversation.id,'due independently',f.due()));
+  let release;
+  const blocked = new Promise(resolve => { release = resolve; });
+  const fetcher = f.auth.authorizedExecutionFetch;
+  const sent = [];
+  f.auth.authorizedExecutionFetch = async (url, init) => {
+    sent.push(JSON.parse(init.body).request_id);
+    await blocked;
+    return fetcher(url,init);
+  };
+  f.advance(60000);
+  const scan = f.client.reconcilePending();
+  try {
+    await settle();
+    assert.equal(sent.length,schedules.length,'four slow calls must not hold later due definitions');
+    assert.equal(new Set(sent).size,schedules.length);
+  } finally { release(); await scan; }
+  await f.client.reconcilePending();
+  assert.equal(f.posts().length,schedules.length);
+  assert.ok(f.rows().every(row => row.state === 'accepted'));
+});
+
 test("offline-at-due stays permanently missed after reconnect; offline creation remains available", async (t) => {
   const f = fixture(t);
   f.auth.status.state = "service_unavailable"; f.client.close();

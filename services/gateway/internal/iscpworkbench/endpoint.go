@@ -72,7 +72,6 @@ type Endpoint struct {
 	provider             iscpcrypto.Provider
 	relay                RelayTransport
 	authorityPolicy      func(context.Context) (iscpauth.Policy, error)
-	aggregateSlots       chan struct{}
 	handler              Handler
 	onState              func(string)
 	onCapabilities       func(TransportCapabilities)
@@ -276,7 +275,7 @@ func (e *Endpoint) sessionLoop(ctx context.Context, stopConnection context.Cance
 				s = nil
 				missing = true
 			}
-			refresh := s != nil && s.manifest && !s.negotiating && e.config.supportsV2() && !now.Before(s.nextNegotiationAt) && (s.capabilities == nil || s.capabilities.Profile == ProfileV2 && time.Until(s.capabilities.ExpiresAt) < 3*time.Minute) && e.config.Role == RoleInitiator
+			refresh := s != nil && s.manifest && !s.negotiating && !now.Before(s.nextNegotiationAt) && (s.capabilities == nil || (s.capabilities.Profile == ProfileV2 || s.capabilities.Limits.Concurrent == 0) && time.Until(s.capabilities.ExpiresAt) < 3*time.Minute) && e.config.Role == RoleInitiator
 			if refresh {
 				s.negotiating = true
 			}
@@ -659,7 +658,7 @@ func (e *Endpoint) acceptManifest(raw []byte, id string) error {
 		return errors.New("unexpected or replayed workbench manifest")
 	}
 	e.session.manifest = true
-	negotiate := e.config.Role == RoleInitiator && e.config.supportsV2()
+	negotiate := e.config.Role == RoleInitiator
 	e.session.negotiating = negotiate
 	ctx := e.session.ctx
 	e.mu.Unlock()

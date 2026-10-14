@@ -252,12 +252,16 @@ test('bodyless typed errors retain their code and trusted installation across in
  await assert.rejects(f.transport.invoke('operations.receipt',undefined,{params:{operation_id:requestID}}),error=>error.status===409&&error.code==='operation_outcome_unknown'&&error.retryable===false);
 });
 
-test('v2 bulk and audio windows leave a reserved control slot while excess bulk fails before send',async t=>{
+test('legacy v2 bulk and audio windows leave control admission while queued bulk can cancel before send',async t=>{
  const operations=['object.read','speech.session.frame','execution.cancel'];
- const f=fixture(t,(call,child)=>{if(call.request.operation==='execution.cancel')child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:{state:'canceled'}}});});
+ const f=fixture(t,(call,child)=>{if(call.request.operation==='execution.cancel')child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:{state:'canceled'}}});},{timeoutMS:1000});
  await f.transport.start();f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations,binding:{deployment_id:'d',owner_id:'o',client_id:'c'}}});
  const pending=[...Array.from({length:2},()=>f.transport.invoke('object.read',{}).catch(()=>{})),...Array.from({length:2},()=>f.transport.invoke('speech.session.frame',{}).catch(()=>{}))];
- await assert.rejects(f.transport.invoke('object.read',{}),ISCPRequestNotSentError);
+ const abort=new AbortController();
+ const queued=f.transport.invoke('object.read',{}, {signal:abort.signal});
+ const rejected=assert.rejects(queued,error=>error instanceof ISCPRequestNotSentError&&error.reason==='canceled');
+ assert.equal(f.calls.length,4);assert.equal(f.transport.admissionQueue.size,1);
+ abort.abort();await rejected;
  assert.equal((await(await f.transport.fetch(`${origin}/api/v1/executions/${requestID}/cancel`,{method:'POST',body:'{}'})).json()).state,'canceled');
  f.transport.close();await Promise.all(pending);
 });
@@ -612,4 +616,29 @@ test('a full popup queue leaves room for explicit execution and independent cont
  respond('execution.submit');await sending;
  f.transport.close();await Promise.all(all);
  assert.equal(f.transport.admissionQueue.size,0);
+});
+
+test('negotiated unbounded RPC removes every per-class, popup and admission-queue quota', async t => {
+ const held=[];
+ const f=fixture(t,(call,child)=>held.push([call,child]),{timeoutMS:5000});await f.transport.start();
+ const profile='sparkclaw.workbench.transport.v2';
+ const capabilities={schema_version:2,profile,session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:operations.map(row=>row.name),binding:{deployment_id:'d',owner_id:'o',client_id:'c'},limits:{concurrent:0}};
+ f.children[0].send({ipc_version:1,type:'capabilities',capabilities});
+ const active=[];
+ for(const name of ['presentation.config','capabilities.get','object.read','events.pull','speech.session.frame','mail.sync.status']) {
+  // Select the canonical audio operation from the registry, not a fixture alias.
+  const operation=name==='speech.session.frame'?operations.find(row=>row.capacity_class==='audio'&&row.direction==='forward').name:name;
+  for(let i=0;i<48;i++)active.push(f.transport.invoke(operation,{}));
+ }
+ assert.equal(f.calls.length,288);assert.equal(f.transport.admissionQueue.size,0);assert.equal(f.transport.pending.size,288);
+ for(const [call,child] of held)child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile,id:call.id,status:200,body:{}}});
+ await Promise.all(active);assert.equal(f.transport.pending.size,0);
+});
+
+test('verified helper admission also removes zero-epoch legacy-v1 quotas and clears on disconnect', async t => {
+ const f=fixture(t,()=>{}, {timeoutMS:1000});await f.transport.start();
+ f.children[0].send({ipc_version:1,type:'admission',profile:ISCP_PROFILE,session_id:'session',authorization_revision:0,expires_at:new Date(Date.now()+60000).toISOString(),concurrent:0});
+ const active=Array.from({length:40},()=>f.transport.fetch(`${origin}/api/config`).catch(error=>error));
+ assert.equal(f.calls.length,40);assert.equal(f.transport.admissionQueue.size,0);
+ f.transport.close();await Promise.all(active);assert.equal(f.transport.admission,undefined);
 });

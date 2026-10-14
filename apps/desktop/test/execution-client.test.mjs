@@ -34,6 +34,29 @@ function result(content = "answer", files = []) {
   return { sequence: 1, digest: hash(payload), payload };
 }
 
+test("independent pending executions reconcile together without replaying submissions", async t => {
+  let release;
+  const blocked = new Promise(resolve => { release = resolve; });
+  const seen = [];
+  const f = fixture(t, async (url, init = {}) => {
+    assert.equal(init.method || 'GET', 'GET');
+    const id = url.split('/executions/')[1];
+    seen.push(id);
+    await blocked;
+    return new Response(JSON.stringify({schema_version:1, request_id:id, input_digest:f.store.request(scope,id).input_digest, state:'accepted'}));
+  });
+  f.auth.descriptor.transport = 'iscp';
+  const tasks = [f.task, ...Array.from({length:11}, () => f.store.enqueue(scope,f.conversation.id,'pending input'))];
+  for (const task of tasks) f.store.markSubmitted(scope,task.request_id);
+  const scan = f.client.reconcilePending();
+  try {
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(seen.length,tasks.length,'one pending lookup must not hold up other requests');
+    assert.equal(new Set(seen).size,tasks.length);
+  } finally { release(); await scan; }
+  assert.ok(tasks.every(task => f.store.request(scope,task.request_id).status === 'accepted'));
+});
+
 test("real HTTP chain preserves explicit immutable submission, verified files and atomic durable ACK", async (t) => {
   const calls = [];
   const output = Buffer.from("verified generated file");

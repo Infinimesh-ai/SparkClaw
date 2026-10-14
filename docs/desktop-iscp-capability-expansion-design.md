@@ -1029,6 +1029,60 @@ older installed client needs an updated build to obtain this behavior; this
 session does not update installed clients, backend nodes or Relay deployment.
 InfiniCenter remains unavailable at the configured ancestor anchors.
 
+## 9.17. Remove artificial RPC quotas (2026-10-14)
+
+The user requested removing usage restrictions during personal testing. The
+business/control/bulk/events/audio values 4/1/2/1/2 were SparkClaw application
+resource guards, rather than an ISCP cryptographic or Relay transport requirement.
+They were not a per-minute user rate limit. Removing only Desktop and pipe checks
+would leave the Endpoint guards and fixed negotiation checks rejecting requests.
+
+New helpers offer `transport_negotiation.unbounded_rpc=true`. A new Gateway
+answers with the existing capability structure and `limits.concurrent=0`, meaning
+no artificial RPC-count ceiling. The common Desktop adapter then bypasses both
+per-class slots and admission queue quotas. The helper pipe no longer has a second
+4/1/2/1/2 gate; both Endpoint directions bypass old slots for the negotiated
+policy, and the NodeResponder's unadvertised aggregate ceiling of 64 is removed.
+The reverse helper bridge also drops its two-command window. Execution recovery
+and schedule scans dispatch independent IDs together instead of fixed one/four
+call batches; each ID retains its serialized state and atomic schedule claim.
+This applies to v1 and v2 sessions and all client platforms using the shared code.
+Byte/frame sizes, request deadlines, cryptographic replay checks, identity,
+permissions, revocation, original-operation recovery, transfer sequencing and
+mutation consistency fences remain. Relay configuration and upstream ISCP code
+are unchanged; an unbounded RPC policy is not an unlimited model-execution budget.
+
+Compatibility is explicit: the original bootstrap manifest remains unchanged.
+An old initiator's original negotiation offer receives `concurrent=4`. A new
+helper encountering an old peer's 400/404/501 rejection retries only the safe
+negotiation read with the exact original offer, preserving v2 functionality.
+401/403/429/503 and ambiguous sent failures are not replayed. Legacy peer limits
+remain only while talking to old software; both client/helper and Gateway must
+be upgraded for the no-quota policy to take effect. The helper reports its
+authenticated admission policy over private IPC, including for text-only v1.
+Original v1 Grants with authorization epoch zero remain accepted and bound to
+their verified Grant; v2 still requires a nonzero authorization revision.
+
+Mac Desktop 308 and Linux/arm64 affected Desktop 194 pass. Encrypted Endpoint
+tests admit 80 concurrent business/control requests and cancel them on close;
+40 original results arrive once with exact bodies. Pipe tests admit 80 concurrent
+requests, and Desktop admits 288 simultaneous business/control/bulk/event/audio/
+mail calls with no admission queue. Reverse pipe tests admit 80 commands, retain
+exact response binding and cancel unresolved commands with unknown outcomes;
+12 independent recovery IDs and 12 due schedules dispatch concurrently without
+resubmission. Old offers and safe fallback remain verified. Real Gateway encrypted
+ISCP/workbench integration, lost-submit recovery and scoped race checks pass.
+Affected Go build/vet and race checks pass on Mac and Linux/arm64. Strict arm64
+packaging, 58 source/five unchanged UI/helper parity and native original nine
+settings/device/schedule create-cancel checks pass against the retained work1
+deployment. That native check exercises old-node compatibility, not no-quota
+production acceptance. Linux/x64 remains outside the verification matrix.
+
+This source/package change does not update installed clients or running Gateway
+nodes. No fixed runtime quotas are claimed removed on an old installation; rollout
+must upgrade each node and each client while preserving its data and authority.
+InfiniCenter remains absent, and no accepted cross-project decision is claimed.
+
 ## 10. Related designs
 
 - [Local ISCP integration and renewal acceptance](desktop-iscp-connection-design.md): implemented baseline and actual evidence scope.

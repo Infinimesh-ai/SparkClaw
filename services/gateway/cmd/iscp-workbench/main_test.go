@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +15,119 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 )
+
+type concurrentPipeCaller struct {
+	pipeCaller
+	entered chan struct{}
+}
+
+func (c *concurrentPipeCaller) Call(ctx context.Context, r iscpworkbench.Request) (iscpworkbench.Response, error) {
+	c.entered <- struct{}{}
+	<-ctx.Done()
+	return iscpworkbench.Response{Type: iscpworkbench.ResponseType, Profile: r.Profile, ID: r.ID, Status: 503}, nil
+}
+
+func TestHelperPipeDoesNotImposeBusinessOrControlQuotas(t *testing.T) {
+	const count = 80
+	input, feed := io.Pipe()
+	defer input.Close()
+	defer feed.Close()
+	caller := &concurrentPipeCaller{entered: make(chan struct{}, count)}
+	var output bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { err := serve(ctx, input, &ipcWriter{writer: &output}, caller); _ = input.Close(); done <- err }()
+	for j := 0; j < count; j++ {
+		operation := iscpworkbench.OperationIdentity
+		if j >= 40 {
+			operation = iscpworkbench.OperationAck
+		}
+		requestID := fmt.Sprintf("00000000-0000-4000-8000-%012x", j+1)
+		raw, _ := json.Marshal(map[string]any{"ipc_version": 1, "type": "call", "id": fmt.Sprintf("pipe-%d", j), "request": iscpworkbench.Request{Type: iscpworkbench.RequestType, Profile: iscpworkbench.Profile, ID: requestID, RequestID: requestID, Operation: operation}})
+		if _, err := feed.Write(append(raw, '\n')); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for j := 0; j < count; j++ {
+		select {
+		case <-caller.entered:
+		case <-time.After(time.Second):
+			t.Fatal("helper rejected or blocked a parallel request")
+		}
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("helper leaked in-flight calls on shutdown")
+	}
+}
+
+type reverseRecordWriter struct{ requests chan iscpworkbench.Request }
+
+func (w *reverseRecordWriter) Write(raw []byte) (int, error) {
+	var frame struct {
+		Request iscpworkbench.Request `json:"request"`
+	}
+	if err := json.Unmarshal(raw, &frame); err != nil {
+		return 0, err
+	}
+	w.requests <- frame.Request
+	return len(raw), nil
+}
+
+func TestReversePipeRemovesWindowQuotaAndKeepsResponseAndCancellationBinding(t *testing.T) {
+	const count = 80
+	recorded := &reverseRecordWriter{requests: make(chan iscpworkbench.Request, count)}
+	bridge := newReverseBridge(&ipcWriter{writer: recorded})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	results := make(chan iscpworkbench.Response, count)
+	for j := 0; j < count; j++ {
+		request := iscpworkbench.Request{ID: fmt.Sprintf("reverse-%d", j), Operation: iscpworkbench.OperationBrowserCommand}
+		go func() { results <- bridge.handle(ctx, request) }()
+	}
+	requests := make([]iscpworkbench.Request, 0, count)
+	for j := 0; j < count; j++ {
+		select {
+		case request := <-recorded.requests:
+			requests = append(requests, request)
+		case response := <-results:
+			t.Fatalf("reverse request rejected before pipe dispatch: %+v", response)
+		case <-ctx.Done():
+			t.Fatal("reverse pipe still has an artificial window quota")
+		}
+	}
+	bridge.accept(requests[0].ID, iscpworkbench.Response{ID: "wrong-id", Status: 200})
+	for _, request := range requests[:count/2] {
+		bridge.accept(request.ID, iscpworkbench.Response{ID: request.ID, Status: 200})
+	}
+	for j := 0; j < count/2; j++ {
+		select {
+		case response := <-results:
+			if response.Status != 200 || response.ID == "wrong-id" {
+				t.Fatalf("response binding lost: %+v", response)
+			}
+		case <-ctx.Done():
+			t.Fatal("original reverse response did not arrive")
+		}
+	}
+	cancel()
+	for j := 0; j < count/2; j++ {
+		if response := <-results; response.Status != 504 || response.Code != iscpworkbench.ErrorOutcomeUnknown {
+			t.Fatalf("canceled reverse request lost unknown-outcome fence: %+v", response)
+		}
+	}
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	if len(bridge.pending) != 0 {
+		t.Fatal("reverse request leaked after cancellation")
+	}
+}
 
 func TestPrivateIPCOriginalBodyAndSchema(t *testing.T) {
 	body := []byte("{\n \"text\": \"original\"\n}")

@@ -92,7 +92,8 @@ func (c Config) supportsV2() bool { return slices.Contains(c.ApplicationProfiles
 
 type negotiationOffer struct {
 	Negotiation struct {
-		Profiles []string `json:"profiles"`
+		Profiles     []string `json:"profiles"`
+		UnboundedRPC bool     `json:"unbounded_rpc,omitempty"`
 	} `json:"transport_negotiation"`
 }
 type negotiationReply struct {
@@ -131,6 +132,9 @@ func (e *Endpoint) answerNegotiation(ctx context.Context, id string, r Request) 
 		profile = ProfileV2
 	}
 	caps := e.capabilitiesFor(id, profile)
+	if offer.Negotiation.UnboundedRPC {
+		caps.Limits.Concurrent = 0
+	}
 	body, _ := json.Marshal(negotiationReply{&caps})
 	e.installCapabilities(caps)
 	if err := e.sendResponse(ctx, id, Response{Profile: Profile, ID: r.ID, Status: 200, Body: body}); err != nil {
@@ -156,8 +160,11 @@ func (e *Endpoint) installCapabilities(c TransportCapabilities) {
 }
 func (e *Endpoint) negotiate(ctx context.Context, id string) {
 	defer e.workers.Done()
-	body := json.RawMessage(`{"transport_negotiation":{"profiles":["sparkclaw.workbench.transport.v2","sparkclaw.workbench.transport.v1"]}}`)
-	r, err := e.Call(ctx, Request{Type: RequestType, Profile: Profile, ID: newUUID(), Operation: OperationIdentity, Body: body})
+	profiles := []string{Profile}
+	if e.config.supportsV2() {
+		profiles = []string{ProfileV2, Profile}
+	}
+	r, err := requestRPCNegotiation(ctx, e.Call, profiles)
 	if err != nil {
 		e.negotiationFailed(id)
 		return
@@ -182,6 +189,24 @@ func (e *Endpoint) negotiate(ctx context.Context, id string) {
 	}
 	e.installCapabilities(c)
 }
+
+func requestRPCNegotiation(ctx context.Context, caller func(context.Context, Request) (Response, error), profiles []string) (Response, error) {
+	var offer negotiationOffer
+	offer.Negotiation.Profiles = profiles
+	offer.Negotiation.UnboundedRPC = true
+	call := func() (Response, error) {
+		body, _ := json.Marshal(offer)
+		return caller(ctx, Request{Type: RequestType, Profile: Profile, ID: newUUID(), Operation: OperationIdentity, Body: body})
+	}
+	r, err := call()
+	// Old peers strictly decode the original offer. Retry only this safe
+	// negotiation read with its original shape, keeping all v2 operations.
+	if err == nil && (r.Status == 400 || r.Status == 404 || r.Status == 501) {
+		offer.Negotiation.UnboundedRPC = false
+		r, err = call()
+	}
+	return r, err
+}
 func validateNegotiation(c TransportCapabilities, id string, mode ...string) error {
 	version := 1
 	ops := Operations()
@@ -196,7 +221,10 @@ func validateNegotiation(c TransportCapabilities, id string, mode ...string) err
 	if c.Profile == ProfileV2 && (len(mode) == 0 || mode[0] != "node-managed") {
 		compatible = compatible || slices.Equal(c.Operations, OperationsV2ForMode("local-test"))
 	}
-	if c.SessionID != id || c.SchemaVersion != version || c.Revision != "2" || c.AuthorizationRevision == 0 || !c.ExpiresAt.After(now) || c.ExpiresAt.After(now.Add(6*time.Minute)) || !compatible || c.Limits != (TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, MaxConcurrent, 8192, 2}) {
+	expectedLimits := TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, c.Limits.Concurrent, 8192, 2}
+	// Original v1 Grants predate revocation epochs. negotiate still binds this
+	// value to the verified Grant; v2 requires a nonzero authorization revision.
+	if c.SessionID != id || c.SchemaVersion != version || c.Revision != "2" || (c.Profile == ProfileV2 && c.AuthorizationRevision == 0) || !c.ExpiresAt.After(now) || c.ExpiresAt.After(now.Add(6*time.Minute)) || !compatible || (c.Limits.Concurrent != 0 && c.Limits.Concurrent != MaxConcurrent) || c.Limits != expectedLimits {
 		return errors.New("invalid negotiated capability binding")
 	}
 	for _, name := range c.QualifiedOperations {

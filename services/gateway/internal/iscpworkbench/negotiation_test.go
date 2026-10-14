@@ -122,6 +122,17 @@ func TestV2FallsBackToExplicitV1Peer(t *testing.T) {
 		t.Fatal("v2 request escaped negotiation")
 	}
 }
+
+func TestZeroEpochLegacyGrantNegotiatesWithoutWeakeningV2Authorization(t *testing.T) {
+	c := TransportCapabilities{SchemaVersion: 1, Profile: Profile, SessionID: "session", Revision: "2", ExpiresAt: time.Now().Add(time.Minute), Operations: Operations(), Limits: TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, 0, 8192, 2}}
+	if err := validateNegotiation(c, "session"); err != nil {
+		t.Fatalf("original v1 Grant cannot negotiate: %v", err)
+	}
+	c.SchemaVersion, c.Profile, c.Operations = 2, ProfileV2, OperationsV2()
+	if validateNegotiation(c, "session") == nil {
+		t.Fatal("v2 accepted missing authorization revision")
+	}
+}
 func TestV1RejectsV2FieldsAndV2RejectsUnregisteredParams(t *testing.T) {
 	r := Request{Type: RequestType, Profile: Profile, ID: newUUID(), Operation: OperationIdentity, OperationID: newUUID()}
 	if r.Validate() == nil {
@@ -139,8 +150,13 @@ func TestV1RejectsV2FieldsAndV2RejectsUnregisteredParams(t *testing.T) {
 	}
 }
 
-func TestV2ControlRemainsAvailableWithBulkCreditsExhausted(t *testing.T) {
-	i, _, _ := v2Endpoints(t, true)
+func TestLegacyV2ControlRemainsAvailableWithBulkCreditsExhausted(t *testing.T) {
+	i, r, _ := v2Endpoints(t, true)
+	for _, e := range []*Endpoint{i, r} {
+		e.mu.Lock()
+		e.session.capabilities.Limits.Concurrent = MaxConcurrent
+		e.mu.Unlock()
+	}
 	bulk := i.classSlots["bulk"]
 	for j := 0; j < cap(bulk); j++ {
 		bulk <- struct{}{}

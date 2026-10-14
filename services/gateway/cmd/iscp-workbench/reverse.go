@@ -8,7 +8,8 @@ import (
 )
 
 // reverseBridge carries only the registry's reverse operations through the same
-// bounded private pipe. It never listens on a socket or invokes a local tool.
+// private pipe. Frame sizes and per-request deadlines remain bounded. It never
+// listens on a socket or invokes a local tool.
 type reverseBridge struct {
 	mu      sync.Mutex
 	writer  *ipcWriter
@@ -24,10 +25,6 @@ func (b *reverseBridge) handle(ctx context.Context, r iscpworkbench.Request) isc
 		return iscpworkbench.Response{Status: 403, Code: iscpworkbench.ErrorPermissionDenied, Error: "reverse operation denied"}
 	}
 	b.mu.Lock()
-	if len(b.pending) >= 2 {
-		b.mu.Unlock()
-		return iscpworkbench.Response{Status: 429, Code: iscpworkbench.ErrorThrottled, Retryable: true, Error: "host command window full"}
-	}
 	ch := make(chan iscpworkbench.Response, 1)
 	b.pending[r.ID] = ch
 	b.mu.Unlock()

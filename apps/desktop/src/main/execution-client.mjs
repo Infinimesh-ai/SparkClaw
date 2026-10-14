@@ -163,13 +163,9 @@ export class ExecutionClient {
     this.polling = true;
     try {
       const requests = this.store.pending(scope);
-      // Keep network concurrency and shutdown work bounded.
-      // The four-call ISCP budget also serves startup presentation and local
-      // schedule dispatch. Recovery leaves room for those ordinary clients.
-      const width = this.auth.descriptor?.transport === "iscp" ? 1 : 4;
-      for (let i = 0; i < requests.length && !this.closed; i += width) {
-        await Promise.allSettled(requests.slice(i, i + width).map((task) => this.reconcile(scope, task.request_id)));
-      }
+      // Independent requests reconcile concurrently. Each original request
+      // retains its identity, cancellation and no-replay fences.
+      await Promise.allSettled(requests.map(task => this.closed ? undefined : this.reconcile(scope, task.request_id)));
     } finally { this.polling = false; }
   }
 

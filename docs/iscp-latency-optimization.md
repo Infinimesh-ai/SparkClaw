@@ -5,8 +5,9 @@
 Measured on 2026-10-14 using the original installed Mac SparkX interface,
 the existing Main identity, TEST1 public Relay and work2 Gateway. The final
 Mac/work2 runtime is `3ddde02b`; TEST1 Relay is `f19847c3` with a 55-second
-receive window. The other four Gateways retain their existing binaries and
-pass original-interface compatibility checks with the new Mac client.
+receive window. At that initial rollout, the other four Gateways retained their
+existing binaries and passed original-interface compatibility checks with the
+new Mac client. The subsequent work1 deployment is recorded below.
 
 ## Results
 
@@ -170,3 +171,28 @@ InfiniCenter is absent at the prescribed ancestor locations. No central
 decision/contract update or cross-project consensus is claimed. All changes
 remain within SparkClaw's implementation and optional application operation;
 upstream ISCP wire frames are unchanged.
+
+## Subsequent work1 deployment
+
+On 2026-10-14 main was published through `e8d6dbaa`, then work1 was upgraded
+from `9fc956e2` to that source. Its rebuilt Linux/amd64 Gateway SHA-256 is
+`492f256ba341963e17c00297c6155fc733ee1a0f8327dadce68735a638c5c22c`, exactly
+matching the already qualified work2 binary; the intervening source changes
+are documentation only. Existing functional validation therefore applies.
+
+work1 retains its environment, complete Docker HostConfig, command, network
+addresses, model configuration and original records in 41 business tables.
+Responder qualification adds only `execution.progress`. Gateway and issuer are
+healthy, the latest image tag is updated, and the stopped old container plus
+paired database/config/authority checkpoint remain available at
+`/var/backups/sparkclaw-work1-latency-20261014`.
+
+The existing VM103 client identity, original interface and two delivered smoke
+requests passed. The temporary conversations were backed up and removed through
+the original guarded API; its original two conversations, four messages and
+files remain. These requests are deployment smoke evidence, not another
+before/after performance comparison. Private evidence archive:
+`sparkclaw-work1-latency-20261014`. Further rollouts of this identical binary
+reuse the existing acceptance results and need only deployment health,
+state/config preservation and one connectivity check unless a failure or
+environment difference calls for more.

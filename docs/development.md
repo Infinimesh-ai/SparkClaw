@@ -4,6 +4,17 @@
 
 Workbench entry points: `internal/workbench` selects bounded context; `internal/execution` controls admitted requests; `internal/browserhost` owns browser grants/transport; `internal/mailsync` projects authoritative mail. `agent.WithExecutionScope` reuses active providers, registry and policy. Host Store and desktop SQLite/files adapt persistence. Run `npm run check:workbench-contract`, `npm run test:desktop`, `npm run test:webchat` and the applicable Go checks; native coverage is `qualify:desktop-host`, `qualify:desktop-mac-client` on Mac and the separate `qualify:desktop` Linux fixture. See the [implementation ledger](workbench-convergence-implementation.md).
 
+Desktop conversations created by the original workbench use the first saved
+question as their title, with whitespace collapsed and a 42-code-point limit.
+ClientStore commits the title with the local message/task and draft consumption,
+before network submission; explicit titles and manual renames clear the pending
+automatic-title flag. Schema 10 migrates supported versions 6–9 and backfills
+visible default labels from their first user message without changing history,
+drafts, files or timestamps. Old releases did not record title origin, so a
+legacy title manually set to the exact default label cannot be distinguished
+during that one-time backfill. Keep paired database backups for rollback to
+schema-9 releases. No Gateway or transport protocol update is required.
+
 This guide is the contributor entry point. Read [Architecture](architecture.md)
 for system ownership, [Workflow capabilities](workflow-capabilities.md) for the
 shipped user surface, and the relevant component guide from the

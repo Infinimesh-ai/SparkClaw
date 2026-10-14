@@ -5,8 +5,9 @@ import { DatabaseSync } from "node:sqlite";
 import { captureFileBoundary, readOwnedFile } from "./local-file-boundary.mjs";
 import { WORKBENCH_LIMITS } from "../shared/workbench-limits.mjs";
 import { calendarMissed, nextCalendarTime, parseScheduleRequest, recurrenceSpec, zonedTime } from "./local-schedule-time.mjs";
+import { initialQuestionTitle, migrateConversationTitles } from "./client-conversation-titles.mjs";
 
-export const CLIENT_SCHEMA_VERSION = 9;
+export const CLIENT_SCHEMA_VERSION = 10;
 export const CLIENT_LIMITS = WORKBENCH_LIMITS;
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
@@ -33,7 +34,7 @@ export class ClientStore {
     try {
       this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
       const version = this.db.prepare("PRAGMA user_version").get().user_version;
-      if (![0, 6, 7, 8, CLIENT_SCHEMA_VERSION].includes(version)) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
+      if (![0, 6, 7, 8, 9, CLIENT_SCHEMA_VERSION].includes(version)) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
       if (version === 0) this.#initialize();
       if (version === 6) this.#transaction(() => {
         this.db.exec(`CREATE TABLE execution_projection(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id),revision INTEGER NOT NULL,termination_reason TEXT NOT NULL,approval_receipts TEXT NOT NULL,event_state TEXT NOT NULL);
@@ -41,11 +42,11 @@ export class ClientStore {
           PRAGMA user_version=8;`);
       });
       if (version === 7) this.#transaction(() => { this.db.exec(`ALTER TABLE event_projection ADD COLUMN epoch TEXT NOT NULL DEFAULT ''; PRAGMA user_version=8;`); });
-      if (version !== 0 && version < CLIENT_SCHEMA_VERSION) this.#transaction(() => {
+      if (version !== 0 && version < 9) this.#transaction(() => {
         this.db.exec(`CREATE TABLE message_files(message_id TEXT NOT NULL REFERENCES messages(id),file_id TEXT NOT NULL REFERENCES files(id),PRIMARY KEY(message_id,file_id));
           ALTER TABLE conversations ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;
           ALTER TABLE schedule_definitions ADD COLUMN calendar TEXT NOT NULL DEFAULT '{}';
-          PRAGMA user_version=${CLIENT_SCHEMA_VERSION};`);
+          PRAGMA user_version=9;`);
         // Older assistant messages and deliveries are committed together, in
         // identical insertion order. Backfill only when the counts agree.
         for (const conversation of this.db.prepare("SELECT id FROM conversations").all()) {
@@ -62,6 +63,10 @@ export class ClientStore {
             if (matching.length === 1) for (const file of context.input_files ?? []) this.db.prepare("INSERT OR IGNORE INTO message_files SELECT ?,id FROM files WHERE id=? AND conversation_id=?").run(matching[0].id, file.id, conversation.id);
           }
         }
+      });
+      if (version !== 0 && version < 10) this.#transaction(() => {
+        migrateConversationTitles(this.db);
+        this.db.exec(`PRAGMA user_version=${CLIENT_SCHEMA_VERSION};`);
       });
       this.installationID = this.db.prepare("SELECT value FROM metadata WHERE key='installation_id'").get().value;
       // Incomplete atomic file writes are never treated as delivered files.
@@ -82,7 +87,8 @@ export class ClientStore {
       this.db.exec(`
         CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE conversations(id TEXT PRIMARY KEY, scope TEXT NOT NULL, title TEXT NOT NULL,
-          created_at TEXT NOT NULL, updated_at TEXT NOT NULL, hidden INTEGER NOT NULL DEFAULT 0);
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL, hidden INTEGER NOT NULL DEFAULT 0,
+          title_pending INTEGER NOT NULL DEFAULT 0 CHECK(title_pending IN (0,1)));
         CREATE TABLE messages(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id),
           role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE drafts(scope TEXT NOT NULL, conversation_id TEXT NOT NULL, content TEXT NOT NULL,
@@ -126,12 +132,13 @@ export class ClientStore {
       .all(scopeKey(scope));
   }
 
-  create(scope, title, hidden = false) {
+  create(scope, title, hidden = false, autoTitle = false) {
+    if (typeof autoTitle !== "boolean") throw new Error("Automatic conversation title flag is invalid");
     title = boundedText(title, 320, "Conversation title").trim() || "New conversation";
     const now = new Date().toISOString();
     const conversation = { id: crypto.randomUUID(), title, created_at: now, updated_at: now };
-    this.db.prepare("INSERT INTO conversations VALUES(?,?,?,?,?,?)")
-      .run(conversation.id, scopeKey(scope), title, now, now, hidden ? 1 : 0);
+    this.db.prepare("INSERT INTO conversations(id,scope,title,created_at,updated_at,hidden,title_pending) VALUES(?,?,?,?,?,?,?)")
+      .run(conversation.id, scopeKey(scope), title, now, now, hidden ? 1 : 0, autoTitle && !hidden ? 1 : 0);
     return conversation;
   }
 
@@ -139,7 +146,7 @@ export class ClientStore {
     this.#conversation(scope, conversationID);
     title = boundedText(title, 320, "Conversation title").trim();
     if (!title) throw new Error("Conversation title is empty");
-    this.db.prepare("UPDATE conversations SET title=?,updated_at=? WHERE id=?").run(title, new Date().toISOString(), conversationID);
+    this.db.prepare("UPDATE conversations SET title=?,title_pending=0,updated_at=? WHERE id=?").run(title, new Date().toISOString(), conversationID);
     return this.list(scope).find(conversation => conversation.id === conversationID);
   }
 
@@ -287,7 +294,8 @@ export class ClientStore {
           .run(requestID, requestID, scheduleSpec.dueAt, now);
       }
       if (recoveringScheduleID) this.db.prepare("UPDATE schedules SET state='run_now',recovery_request_id=? WHERE request_id=?").run(requestID, recoveringScheduleID);
-      this.db.prepare("UPDATE conversations SET updated_at=? WHERE id=?").run(now, conversationID);
+      this.db.prepare(`UPDATE conversations SET title=CASE WHEN title_pending=1 AND hidden=0 THEN ? ELSE title END,
+        title_pending=0,updated_at=? WHERE id=?`).run(initialQuestionTitle(content), now, conversationID);
       if (consumedDraft) this.db.prepare("UPDATE drafts SET content='',local_file_ids='[]',revision=revision+1 WHERE scope=? AND conversation_id=?")
         .run(scopeKey(scope), consumedDraft.conversationID);
     });

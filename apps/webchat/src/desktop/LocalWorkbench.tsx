@@ -263,7 +263,7 @@ export function LocalWorkbench() {
   }
   async function create() {
     await action(async () => {
-      const conversation = await store.create(zh ? "新对话" : "New conversation");
+      const conversation = await store.create(zh ? "新对话" : "New conversation", true);
       await reload(); await select(conversation.id);
     });
   }
@@ -295,7 +295,7 @@ export function LocalWorkbench() {
   }
   async function ensureConversation() {
     if (!selectedRef.current) {
-      const conversation = await store.create(zh ? "新对话" : "New conversation");
+      const conversation = await store.create(zh ? "新对话" : "New conversation", true);
       selectedRef.current = conversation.id; setSelected(conversation.id); setContent(emptyContent);
       await desktop.selectConversation?.(conversation.id);
       await reload();

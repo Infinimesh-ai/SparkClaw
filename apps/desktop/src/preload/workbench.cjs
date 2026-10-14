@@ -16,7 +16,7 @@ if (process.argv.includes("--sparkclaw-client-store=1")) {
     schemaVersion: 1,
     list: () => storeInvoke("list"),
     listFiles: () => storeInvoke("listFiles"),
-    create: (title) => storeInvoke("create", { title }),
+    create: (title, auto_title) => storeInvoke("create", { title, ...(auto_title === undefined ? {} : { auto_title }) }),
     remove: (conversation_id) => storeInvoke("remove", { conversation_id }),
     rename: (conversation_id, title) => storeInvoke("rename", { conversation_id, title }),
     read: (conversation_id) => storeInvoke("read", { conversation_id }),

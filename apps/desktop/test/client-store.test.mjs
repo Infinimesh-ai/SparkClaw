@@ -275,7 +275,7 @@ test('ISCP schema upgrades preserve existing installations, history, drafts and 
   const bytes=Buffer.from('existing attachment'),file=store.saveFile(scope,conversation.id,'existing.txt',bytes);
   const task=store.enqueue(scope,conversation.id,'existing user message',[file.id]);
   store.saveDraft(scope,conversation.id,'unsent draft',[file.id],0);const before=store.read(scope,conversation.id),inputDigest=store.request(scope,task.request_id).input_digest;
-  store.db.exec('DROP TABLE message_files; ALTER TABLE conversations DROP COLUMN hidden; ALTER TABLE schedule_definitions DROP COLUMN calendar;');
+  store.db.exec('DROP TABLE message_files; ALTER TABLE conversations DROP COLUMN hidden; ALTER TABLE conversations DROP COLUMN title_pending; ALTER TABLE schedule_definitions DROP COLUMN calendar;');
   if(version===6)store.db.exec('DROP TABLE execution_projection; DROP TABLE event_projection; PRAGMA user_version=6;');
   else if(version===7)store.db.exec('ALTER TABLE event_projection DROP COLUMN epoch; PRAGMA user_version=7;');
   else store.db.exec('PRAGMA user_version=8;');

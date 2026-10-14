@@ -40,8 +40,9 @@ export class ClientStoreCapability {
         keys(request, []);
         return this.store.listFiles(scope);
       case "create":
-        keys(request, ["title"]);
-        return this.store.create(scope, request.title);
+        keys(request, ["title", ...(Object.hasOwn(request, "auto_title") ? ["auto_title"] : [])]);
+        if (Object.hasOwn(request, "auto_title") && typeof request.auto_title !== "boolean") throw new Error("Automatic conversation title flag is invalid");
+        return this.store.create(scope, request.title, false, request.auto_title ?? false);
       case "remove":
         keys(request, ["conversation_id"]);
         return this.store.remove(scope, request.conversation_id);

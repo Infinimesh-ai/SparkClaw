@@ -2,6 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ClientStoreCapability } from "../src/main/client-store-capability.mjs";
 
+test("conversation creation carries an explicit automatic-title flag while preserving older custom-title callers", async () => {
+  const frame = { url: "sparkclaw-app://workbench/index.html" }, webContents = { mainFrame: frame };
+  const identity = { deployment_id: "deployment", owner_id: "owner", client_id: "client" };
+  const calls = [];
+  const capability = new ClientStoreCapability({ window: { webContents }, getIdentity: () => identity,
+    store: { create: (...args) => { calls.push(args); return { title: args[1] }; } } });
+  const event = { sender: webContents, senderFrame: frame };
+  const request = { schema_version: 1, operation: "create", title: "新对话" };
+  await capability.dispatch(event, request);
+  await capability.dispatch(event, { ...request, auto_title: true });
+  assert.deepEqual(calls, [[identity, "新对话", false, false], [identity, "新对话", false, true]]);
+  for (const value of ["true", 1, null]) await assert.rejects(capability.dispatch(event, { ...request, auto_title: value }), /flag/);
+  await assert.rejects(capability.dispatch(event, { ...request, auto_title: true, owner_id: "other" }), /fields/);
+  assert.equal(calls.length, 2);
+});
+
 test("conversation deletion IPC uses the authenticated local scope and rejects injected fields", async () => {
   const frame = { url: "sparkclaw-app://workbench/index.html" }, webContents = { mainFrame: frame };
   const identity = { deployment_id: "deployment", owner_id: "owner", client_id: "client" };

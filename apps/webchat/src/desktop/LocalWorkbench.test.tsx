@@ -51,6 +51,53 @@ afterEach(() => {
 });
 
 describe("workbench local workbench", () => {
+  it.each(["en", "zh"] as const)("refreshes question titles from both conversation entry points before a failed network submission in %s", async language => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+    vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
+    vi.spyOn(api, "ready").mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof api.ready>>);
+    vi.spyOn(api, "owner").mockResolvedValue({ id: "owner", display_name: "Test", created_at: "", updated_at: "" });
+    const placeholder = language === "zh" ? "新对话" : "New conversation";
+    const question = language === "zh" ? "如何修复对话标题？" : "How do I fix conversation titles?";
+    const rows: Array<{ id: string; title: string; created_at: string; updated_at: string }> = [];
+    const create = vi.fn(async (title: string) => {
+      const row = { id: `conversation-${rows.length}`, title, created_at: "", updated_at: "" }; rows.push(row); return row;
+    });
+    const enqueue = vi.fn(async (id: string) => {
+      rows.find(row => row.id === id)!.title = question;
+      return { id: "task", request_id: "request", status: "awaiting_runtime", created_at: "" };
+    });
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => [...rows]), create, enqueue,
+      read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), submit: vi.fn(async () => { throw new Error("Backend unavailable"); }),
+      saveFile: vi.fn(), exportFile: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
+      scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
+        backend: { schema_version: 3, transport: "iscp", deployment_id: "test" } })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"), root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      for (const entry of ["welcome", "new-button"]) {
+        if (entry === "new-button") {
+          await act(async () => host.querySelector<HTMLButtonElement>(".newConversationButton")!.click());
+          expect(host.querySelector(".sessionItem.active .sessionSelect")?.textContent).toContain(placeholder);
+        }
+        const input = host.querySelector<HTMLTextAreaElement>("form.composer textarea")!;
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, question);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        await act(async () => host.querySelector("form.composer")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+        expect(create).toHaveBeenLastCalledWith(placeholder, true);
+        expect(host.querySelector(".sessionItem.active .sessionSelect")?.textContent).toContain(question);
+        expect(host.textContent).toContain("Backend unavailable");
+        expect(host.querySelector(".sessionRenameForm")).toBeNull();
+        expect(host.querySelector(`[title="${dictionaries[language].nav.renameSession}"]`)).not.toBeNull();
+        expect(host.querySelector(".sidebarScheduleLink")).not.toBeNull();
+      }
+      expect(create).toHaveBeenCalledTimes(2);
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it.each(["en", "zh"] as const)("shows immediate task progress, background completion and the original controls in %s", async language => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
     vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);

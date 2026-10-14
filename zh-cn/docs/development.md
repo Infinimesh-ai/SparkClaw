@@ -4,6 +4,14 @@
 
 工作台入口：`internal/workbench` 选择有界上下文，`internal/execution` 控制已接收请求，`internal/browserhost` 负责浏览器授权与传输，`internal/mailsync` 投影权威邮箱。`agent.WithExecutionScope` 复用活动提供方、注册表和策略；主机 Store 与桌面 SQLite／文件适配持久化。运行 `npm run check:workbench-contract`、`npm run test:desktop`、`npm run test:webchat` 及相关 Go 检查；原生覆盖为 `qualify:desktop-host`、Mac 的 `qualify:desktop-mac-client` 与独立 Linux `qualify:desktop` fixture，详见[实施记录](workbench-convergence-implementation.md)。
 
+原工作台创建的桌面对话使用首条已保存问题作为标题，合并空白并限制为 42 个
+Unicode 码点。ClientStore 将标题与本地消息、任务、草稿消费一同提交，早于
+网络发送；显式标题及手动重命名会清除待自动命名标记。Schema 10 支持从
+6–9 版升级，并根据首条用户消息补全可见会话的默认标题，不改变历史、草稿、
+文件或时间戳。旧版本未记录标题来源，因此一次性补全过程无法区分曾被手动
+改成完全相同默认名称的旧标题。回退到 schema 9 版本时须恢复配套的数据库
+备份。此修复无需更新 Gateway 或传输协议。
+
 本文档是贡献者入口。修改行为前先阅读系统职责[架构](architecture.md)、已发布用户表面
 [Workflow 能力矩阵](workflow-capabilities.md)，以及[文档索引](index.md)中的相关专项手册。
 

@@ -227,7 +227,7 @@ export function LocalWorkbench() {
       const generation = readGeneration.current;
       void store.read(selected).then((next) => {
         if (active && selectedRef.current === selected && generation === readGeneration.current) setContent(next);
-      }).catch(surfaceError);
+      }).catch((error) => { if (active && selectedRef.current === selected) surfaceError(error); });
     };
     const timer = window.setInterval(refresh, 3000);
     const unsubscribe = store.onChange?.(refresh);
@@ -263,10 +263,17 @@ export function LocalWorkbench() {
     setBusy(true); setError(""); setNotice("");
     try { await operation(); } catch (err) { surfaceError(err); } finally { busyRef.current = false; setBusy(false); }
   }
-  async function create() {
+  // A new conversation starts from the welcome input; its row is created by
+  // the first send, so the list never shows an empty placeholder.
+  async function startConversation() {
     await action(async () => {
-      const conversation = await store.create(zh ? "新对话" : "New conversation", true);
-      await reload(); await select(conversation.id);
+      setPage("chat");
+      if (!selectedRef.current && drafts.id() === "") return;
+      ++readGeneration.current;
+      selectedRef.current = ""; setSelected(""); setContent(emptyContent);
+      setScheduleCreateOpen(false); setDocumentPickerOpen(false);
+      await selectDraft("");
+      if (capabilities.browser) await desktop.selectConversation?.("");
     });
   }
   async function deleteConversation(id: string) {
@@ -284,8 +291,9 @@ export function LocalWorkbench() {
       if (result.cleanup_pending) setNotice(zh ? "会话已删除，但本地文件清理未完成。请重启应用重试清理。" : "Conversation deleted. Local file cleanup is pending; restart the app to retry cleanup.");
       const wasSelected = selectedRef.current === id;
       if (wasSelected) {
-        drafts.accept(id, { content: "", attachment_ids: [], revision: 0 });
         selectedRef.current = ""; setSelected(""); setContent(emptyContent);
+        // A selection whose draft never loaded has no draft entry to discard.
+        if (drafts.id() === id) drafts.accept(id, { content: "", attachment_ids: [], revision: 0 });
         setScheduleCreateOpen(false);
         setDocumentPickerOpen(false); setBrowserOpen(false); setPage("chat");
         await selectDraft("");
@@ -296,20 +304,24 @@ export function LocalWorkbench() {
     });
   }
   async function ensureConversation() {
-    if (!selectedRef.current) {
-      const conversation = await store.create(zh ? "新对话" : "New conversation", true);
-      selectedRef.current = conversation.id; setSelected(conversation.id); setContent(emptyContent);
-      await desktop.selectConversation?.(conversation.id);
-      await reload();
-    }
-    const id = selectedRef.current;
-    if (drafts.id() === "") {
-      const source = await drafts.flush();
-      const moved = await store.moveWelcomeDraft(id, source.revision, draftScopes.get("") ?? "");
+    if (selectedRef.current) return selectedRef.current;
+    if (drafts.id() !== "") await selectDraft("");
+    const source = await drafts.flush();
+    const conversation = await store.create(zh ? "新对话" : "New conversation", true);
+    try {
+      const moved = await store.moveWelcomeDraft(conversation.id, source.revision, draftScopes.get("") ?? "");
       drafts.accept("", workbenchDraft(moved.source));
-      await selectDraft(id);
+    } catch (error) {
+      // Keep the welcome input in place and leave no empty conversation row.
+      await store.remove(conversation.id).catch(() => undefined);
+      throw error;
     }
-    return id;
+    ++readGeneration.current;
+    selectedRef.current = conversation.id; setSelected(conversation.id); setContent(emptyContent);
+    await selectDraft(conversation.id);
+    await desktop.selectConversation?.(conversation.id);
+    await reload();
+    return conversation.id;
   }
   async function save(submit = true) {
     if (!draft.trim() && !inputFiles.length) return;
@@ -412,13 +424,13 @@ export function LocalWorkbench() {
       text={text} language={language} page={page} ownerProfile={ownerProfile}
       sessions={conversations} activeSession={selected} busy={busy}
       activityBySession={{ ...activityByConversation, ...(selected ? { [selected]: selectedActivity } : {}) }}
-      onCreateSession={() => void create()} onSelectSession={(conversation) => void select(conversation.id).catch(surfaceError)}
+      onCreateSession={() => void startConversation()} onSelectSession={(conversation) => void select(conversation.id).catch(surfaceError)}
       editingSession={editingSession} sessionTitleDraft={sessionTitleDraft} sessionActionId={sessionActionID}
       onStartRename={(conversation) => { setEditingSession(conversation.id); setSessionTitleDraft(conversation.title); }}
       onCancelRename={() => { setEditingSession(""); setSessionTitleDraft(""); }}
       onTitleDraftChange={setSessionTitleDraft} onRenameSubmit={(id) => void renameConversation(id)}
       onDeleteSession={(id) => void deleteConversation(id)}
-      onNavigate={(next) => { if (next === "settings") { setTab("settings"); setSettings(true); } else if (next === "schedules") setPage("schedules"); else void create(); }}
+      onNavigate={(next) => { if (next === "settings") { setTab("settings"); setSettings(true); } else if (next === "schedules") setPage("schedules"); else void startConversation(); }}
       onSearch={() => setSearchOpen(true)} onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
       onLogout={() => void logout().catch(surfaceError)}
       listNotice={loading ? <p className="localListNotice" role="status">{zh ? "正在读取对话…" : "Loading conversations…"}</p> : !conversations.length ? <p className="localListNotice">{copy.empty}</p> : undefined}

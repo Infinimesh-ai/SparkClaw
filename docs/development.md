@@ -15,6 +15,12 @@ legacy title manually set to the exact default label cannot be distinguished
 during that one-time backfill. Keep paired database backups for rollback to
 schema-9 releases. No Gateway or transport protocol update is required.
 
+The workbench's New conversation entry returns to the welcome input without
+creating a ClientStore row; the row is created when the first question is sent
+(or when a file must be stored in a conversation). If moving the welcome input
+into that new row fails, the row is removed and the input stays on the welcome
+page, so a later send never targets a missing conversation.
+
 This guide is the contributor entry point. Read [Architecture](architecture.md)
 for system ownership, [Workflow capabilities](workflow-capabilities.md) for the
 shipped user surface, and the relevant component guide from the

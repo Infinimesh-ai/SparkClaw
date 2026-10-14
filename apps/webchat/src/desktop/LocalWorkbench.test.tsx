@@ -107,7 +107,9 @@ describe("workbench local workbench", () => {
       for (const entry of ["welcome", "new-button"]) {
         if (entry === "new-button") {
           await act(async () => host.querySelector<HTMLButtonElement>(".newConversationButton")!.click());
-          expect(host.querySelector(".sessionItem.active .sessionSelect")?.textContent).toContain(placeholder);
+          expect(host.querySelector(".sessionItem.active")).toBeNull();
+          expect(host.textContent).not.toContain(placeholder);
+          expect(create).toHaveBeenCalledTimes(1);
         }
         const input = host.querySelector<HTMLTextAreaElement>("form.composer textarea")!;
         await act(async () => {
@@ -537,6 +539,74 @@ describe("workbench local workbench", () => {
       expect(enqueue).toHaveBeenLastCalledWith(row.id, "Keep my first draft");
       expect(submit).toHaveBeenCalledWith("request");
       expect((fetch.mock.calls as unknown[][]).some((call) => String(call[0]).includes("/api/sessions"))).toBe(false);
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it("starts a new conversation from the welcome input and lists it only after the first question is sent", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    const rows = [{ id: "existing", title: "Existing", created_at: "", updated_at: "" }];
+    const create = vi.fn(async () => { const row = { id: "created", title: "New conversation", created_at: "", updated_at: "" }; rows.unshift(row); return row; });
+    const enqueue = vi.fn(async () => ({ id: "task", request_id: "request", status: "awaiting_runtime", created_at: "" }));
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => [...rows]), create,
+      read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue, submit: vi.fn(),
+      saveFile: vi.fn(), exportFile: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
+      scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client" })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"); const root = createRoot(host);
+    const titles = () => [...host.querySelectorAll(".sessionSelect")].map((row) => row.textContent);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      await act(async () => host.querySelector<HTMLButtonElement>(".sessionSelect")!.click());
+      await act(async () => host.querySelector<HTMLButtonElement>(".newConversationButton")!.click());
+      expect(create).not.toHaveBeenCalled();
+      expect(host.querySelector(".workbenchWelcome")).not.toBeNull();
+      expect(titles()).toHaveLength(1);
+      const input = host.querySelector<HTMLTextAreaElement>("form.composer textarea")!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Second question");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => host.querySelector("form.composer")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(enqueue).toHaveBeenCalledWith("created", "Second question");
+      expect(titles()).toHaveLength(2);
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it("removes the new conversation when the first send cannot move the welcome input, so the next send still works", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    const rows: { id: string; title: string; created_at: string; updated_at: string }[] = [];
+    let created = 0;
+    const create = vi.fn(async () => { const row = { id: `created-${++created}`, title: "New conversation", created_at: "", updated_at: "" }; rows.unshift(row); return row; });
+    const remove = vi.fn(async (id: string) => { rows.splice(rows.findIndex((row) => row.id === id), 1); return { deleted: true as const }; });
+    const enqueue = vi.fn(async () => ({ id: "task", request_id: "request", status: "awaiting_runtime", created_at: "" }));
+    const drafts = draftAPI();
+    const moveWelcomeDraft = vi.fn().mockRejectedValueOnce(new Error("Draft changed before moving to the conversation")).mockImplementation(drafts.moveWelcomeDraft);
+    window.sparkclawClientStore = { schemaVersion: 1, ...drafts, moveWelcomeDraft, remove, list: vi.fn(async () => [...rows]), create,
+      read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue, submit: vi.fn(),
+      saveFile: vi.fn(), exportFile: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
+      scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client" })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"); const root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      const input = host.querySelector<HTMLTextAreaElement>("form.composer textarea")!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "First question");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      const send = () => host.querySelector("form.composer")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await act(async () => { send(); });
+      expect(host.textContent).toContain("Draft changed before moving to the conversation");
+      expect(remove).toHaveBeenCalledWith("created-1");
+      expect(host.querySelectorAll(".sessionSelect")).toHaveLength(0);
+      expect(input.value).toBe("First question");
+      await act(async () => { send(); });
+      expect(enqueue).toHaveBeenCalledWith("created-2", "First question");
+      expect(host.textContent).not.toContain("Local conversation not found");
+      expect(host.querySelectorAll(".sessionSelect")).toHaveLength(1);
     } finally { await act(async () => root.unmount()); }
   });
 

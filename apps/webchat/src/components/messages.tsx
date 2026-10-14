@@ -6,6 +6,7 @@ import { Check, Download, FileQuestion, FileSearch, LoaderCircle, ThumbsDown, Th
 import { fetchAuthedBlob, fetchDocumentFile, openDocumentFile, workspaceScreenshotURL } from "../api/client";
 import { cssToken, formatTime } from "../lib/format";
 import { MESSAGE_STREAM_STARTED_EVENT } from "../lib/messageStream";
+import { useSmoothReveal } from "../lib/smoothReveal";
 import type { Message, MessageAttachment, MessageMediaLocator } from "../api/types";
 import type { Copy, Language } from "../i18n";
 
@@ -90,7 +91,8 @@ export function MessageBubble({
 export function TaskProgressMessage({ id, sessionId, createdAt, text, language, content = "" }: {
   id: string; sessionId: string; createdAt: string; text: Copy; language: Language; content?: string;
 }) {
-  return <MessageBubble message={{ id: `progress:${id}`, session_id: sessionId, role: "assistant", content, created_at: createdAt }}
+  const shown = useSmoothReveal(content);
+  return <MessageBubble message={{ id: `progress:${id}`, session_id: sessionId, role: "assistant", content: shown, created_at: createdAt }}
     inProgress streamStatuses={[]} text={text} language={language} onFeedback={async () => {}} />;
 }
 

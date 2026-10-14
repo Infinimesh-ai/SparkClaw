@@ -161,11 +161,11 @@ describe("workbench local workbench", () => {
       expect(host.querySelector(".taskProgress")).not.toBeNull();
       task.progress_content = "Preview one";
       await act(async () => { listeners.forEach(listener => listener()); });
-      expect(host.textContent).toContain("Preview one");
+      await vi.waitFor(() => expect(host.textContent).toContain("Preview one"));
       expect(host.querySelector(".taskProgress")).toBeNull();
       task.progress_content = "Preview one and two";
       await act(async () => { listeners.forEach(listener => listener()); });
-      expect(host.textContent).toContain("Preview one and two");
+      await vi.waitFor(() => expect(host.textContent).toContain("Preview one and two"));
       expect(host.querySelectorAll(".message.assistant")).toHaveLength(1);
       await act(async () => select(1));
       expect(host.querySelector(".taskProgress")).toBeNull();

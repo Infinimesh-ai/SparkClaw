@@ -63,7 +63,7 @@ test("desktop capability admits only the trusted workbench main frame and opaque
     schema_version: 1,
     operation: "setBounds",
     revision: 3,
-    bounds: { x: 0, y: 0, width: 1440, height: 900 },
+    bounds: { x: 0, y: 0, width: 1441, height: 900 },
   }), /outside the workbench/);
   const afterLayout = await handler(event, { schema_version: 1, operation: "state" });
   assert.equal(afterLayout.presentation.layout_revision, 2, "a remounted renderer resumes the accepted layout revision");

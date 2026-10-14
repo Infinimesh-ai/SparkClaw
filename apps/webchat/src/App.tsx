@@ -15,6 +15,7 @@ import {
 } from "./components/messages";
 import type { StreamStatus } from "./components/messages";
 import { InspectorColumn } from "./components/inspector";
+import { InspectorResizeHandle, useInspectorWidth } from "./components/inspectorResize";
 import type { PanelTab } from "./components/inspector";
 import { ComposerDock } from "./components/composer";
 import { NotificationCenter } from "./components/notificationCenter";
@@ -65,6 +66,7 @@ export function App() {
   const copy = workbenchCopy[language];
   const [page, setPage] = useState<WorkspacePage>("chat");
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const inspectorResize = useInspectorWidth(desktop !== null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [scheduleCreateOpen, setScheduleCreateOpen] = useState(false);
@@ -832,7 +834,7 @@ export function App() {
         onDeleteSession={(id) => void deleteSession(id)}
       />}
 
-      {page !== "settings" && <section className={`workspace ${error ? "hasError" : ""} ${showHome ? "homeWorkspace" : ""} ${fullPanel ? "panelWorkspace" : ""} ${inspectorOpen && page === "chat" ? "withInspector" : ""} ${desktopCapability() ? "desktopWorkbench" : ""}`}>
+      {page !== "settings" && <section className={`workspace ${error ? "hasError" : ""} ${showHome ? "homeWorkspace" : ""} ${fullPanel ? "panelWorkspace" : ""} ${inspectorOpen && page === "chat" ? "withInspector" : ""} ${inspectorResize.resizing ? "resizingInspector" : ""} ${desktopCapability() ? "desktopWorkbench" : ""}`} style={inspectorResize.style}>
         <header className="topbar">
           <button className="iconButton sidebarToggle" onClick={() => setSidebarCollapsed(current => !current)} aria-label={copy.toggleNav}><PanelLeft size={18} /></button>
           <span className="workspaceLabel">{copy.local}</span>
@@ -972,6 +974,7 @@ export function App() {
             />
           )}
         </section>}
+      {page === "chat" && inspectorOpen && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} />}
       {page === "chat" && inspectorOpen && (desktopCapability()
         ? <BrowserPanel language={language} />
         : <aside className="taskInspector emptyTaskInspector" aria-label={copy.inspector} />)}

@@ -32,7 +32,7 @@ app.whenReady().then(async () => {
     window.setContentSize(1440, 836);
     await window.loadURL("sparkclaw-app://workbench/index.html");
     const evaluate = expression => window.webContents.executeJavaScript(expression);
-    async function check(label) {
+    async function check(label, wide = false) {
       const deadline = Date.now() + 5000;
       while (Date.now() < deadline) {
         const measured = await evaluate(`(() => {
@@ -46,7 +46,8 @@ app.whenReady().then(async () => {
             width: Math.floor(rect.right) - Math.ceil(rect.x), height: Math.floor(rect.bottom) - Math.ceil(rect.y) };
           if (JSON.stringify(panelBounds) === JSON.stringify(expected)) {
             const content = window.getContentBounds();
-            assert.ok(panelBounds.width > 0 && panelBounds.width <= 760, label);
+            // Split mode stays within 760 DIPs; expanded focus mode may use the whole workspace.
+            assert.ok(panelBounds.width > 0 && (wide || panelBounds.width <= 760), label);
             assert.ok(panelBounds.x + panelBounds.width <= content.width, label);
             assert.ok(panelBounds.y + panelBounds.height <= content.height, label);
             return;
@@ -69,7 +70,7 @@ app.whenReady().then(async () => {
             // Width transition produces intermediate bounds; inspect the settled layout.
             await new Promise(resolve => setTimeout(resolve, 220));
             const label = `${width}x${height}, ${textSize}, collapsed=${collapsed}, wide=${wide}`;
-            await check(label);
+            await check(label, wide);
             cases.push(label);
           }
         }

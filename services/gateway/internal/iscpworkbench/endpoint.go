@@ -67,6 +67,13 @@ type callResult struct {
 	err      error
 }
 
+type pendingCall struct {
+	result          chan callResult
+	ctx             context.Context
+	responseStarted bool
+	trace           latencytrace.Fields
+}
+
 type Endpoint struct {
 	config               Config
 	material             material
@@ -83,8 +90,7 @@ type Endpoint struct {
 	lifecycleWorkers     sync.WaitGroup
 	session              *activeSession
 	stale                []string
-	pending              map[string]chan callResult
-	pendingTrace         map[string]latencytrace.Fields
+	pending              map[string]*pendingCall
 	stateName            string
 	lastHelloAt          time.Time
 	cancel               context.CancelFunc
@@ -129,10 +135,7 @@ func newEndpoint(cfg Config, m material, relay RelayTransport, handler Handler, 
 	if cfg.Role == RoleResponder && handler == nil {
 		return nil, errors.New("workbench responder requires a handler")
 	}
-	e := &Endpoint{config: cfg, material: m, provider: iscpcrypto.NewProvider(), relay: relay, handler: handler, onState: onState, pending: map[string]chan callResult{}, slots: make(chan struct{}, MaxConcurrent), classSlots: map[string]chan struct{}{"control": make(chan struct{}, CapacityLimit("control")), "bulk": make(chan struct{}, CapacityLimit("bulk")), "events": make(chan struct{}, CapacityLimit("events")), "audio": make(chan struct{}, CapacityLimit("audio"))}}
-	if latencytrace.Enabled() {
-		e.pendingTrace = make(map[string]latencytrace.Fields)
-	}
+	e := &Endpoint{config: cfg, material: m, provider: iscpcrypto.NewProvider(), relay: relay, handler: handler, onState: onState, pending: map[string]*pendingCall{}, slots: make(chan struct{}, MaxConcurrent), classSlots: map[string]chan struct{}{"control": make(chan struct{}, CapacityLimit("control")), "bulk": make(chan struct{}, CapacityLimit("bulk")), "events": make(chan struct{}, CapacityLimit("events")), "audio": make(chan struct{}, CapacityLimit("audio"))}}
 	if cfg.Mode == "node-managed" && cfg.Role == RoleInitiator {
 		client, err := newNodeLifecycle(cfg, m)
 		if err != nil {
@@ -160,8 +163,12 @@ func newEndpoint(cfg Config, m material, relay RelayTransport, handler Handler, 
 }
 
 func (e *Endpoint) setState(state string) {
+	e.setStateForSession(state, nil, false)
+}
+
+func (e *Endpoint) setStateForSession(state string, expected *activeSession, checkSession bool) {
 	e.mu.Lock()
-	if (e.closed && state != "closed") || (e.authorizationRevoked && state != "authorization_revoked" && state != "closed") {
+	if (checkSession && e.session != expected) || (e.closed && state != "closed") || (e.authorizationRevoked && state != "authorization_revoked" && state != "closed") {
 		e.mu.Unlock()
 		return
 	}
@@ -351,10 +358,9 @@ func (e *Endpoint) resetLocked() {
 		}
 		e.session = nil
 	}
-	for id, ch := range e.pending {
-		ch <- callResult{err: errors.New("workbench session disconnected")}
+	for id, call := range e.pending {
+		call.result <- callResult{err: errors.New("workbench session disconnected")}
 		delete(e.pending, id)
-		delete(e.pendingTrace, id)
 	}
 }
 
@@ -641,15 +647,7 @@ func (e *Endpoint) acceptEncrypted(ctx context.Context, env envelope.SecureEnvel
 		}
 		return nil
 	case ResponseType:
-		ctx = e.responseTraceContext(ctx, raw)
-		latencytrace.At(ctx, "rpc.encrypted_received", arrived)
-		started := latencytrace.Clock()
-		err := e.checkAuthorization(ctx)
-		latencytrace.Record(ctx, "rpc.response_authorization", started, err, 0)
-		if err != nil {
-			return err
-		}
-		return e.acceptResponse(ctx, raw)
+		return e.acceptResponse(sessionCtx, raw, env.SessionID, arrived)
 	case RequestType:
 		return e.acceptRequest(sessionCtx, raw, env.SessionID)
 	}

@@ -11,8 +11,10 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/latencytrace"
 )
 
-func (e *Endpoint) acceptResponse(ctx context.Context, raw []byte) error {
-
+func (e *Endpoint) acceptResponse(ctx context.Context, raw []byte, id string, arrived time.Time) error {
+	// Decryption, sequence advancement and structural validation remain on the
+	// receive owner. Only a verified response for an original pending call may
+	// start a fresh authorization worker; duplicates cannot create more work.
 	var response Response
 	if err := strictDecode(raw, &response); err != nil {
 		return errors.New("invalid workbench response")
@@ -21,15 +23,51 @@ func (e *Endpoint) acceptResponse(ctx context.Context, raw []byte) error {
 		return err
 	}
 	e.mu.Lock()
-	ch := e.pending[response.ID]
-	if ch != nil {
-		delete(e.pending, response.ID)
-		ch <- callResult{response: response}
-		latencytrace.Record(ctx, "rpc.delivered", time.Time{}, nil, 0)
+	s, call := e.session, e.pending[response.ID]
+	if e.closed || e.authorizationRevoked || s == nil || s.id != id || ctx.Err() != nil || call == nil || call.ctx.Err() != nil || call.responseStarted {
+		e.mu.Unlock()
+		return nil
 	}
+	call.responseStarted = true
+	ctx = latencytrace.WithFields(ctx, call.trace)
+	latencytrace.At(ctx, "rpc.encrypted_received", arrived)
+	e.workers.Add(1)
 	e.mu.Unlock()
-	// A deadline may expire while a valid response is already in flight.
+	go e.authorizeResponse(ctx, s, call, response)
 	return nil
+}
+
+func (e *Endpoint) authorizeResponse(ctx context.Context, s *activeSession, call *pendingCall, response Response) {
+	defer e.workers.Done()
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(call.ctx, cancel)
+	defer func() { stop(); cancel() }()
+	started := latencytrace.Clock()
+	err := e.checkAuthorization(ctx)
+	latencytrace.Record(ctx, "rpc.response_authorization", started, err, 0)
+	e.mu.Lock()
+	// The pending object owns its original channel and deadline. Both it and
+	// the original session must still match: a stale worker cannot complete a
+	// reused RPC ID or disconnect a freshly authenticated replacement session.
+	if e.closed || e.authorizationRevoked || ctx.Err() != nil || call.ctx.Err() != nil || e.session != s || e.pending[response.ID] != call {
+		e.mu.Unlock()
+		return
+	}
+	if err == nil {
+		err = verifyGrant(e.config, e.grantMaterial(), time.Now().UTC())
+	}
+	if err != nil {
+		// Keep transient authorization failures fail-closed without turning them
+		// into revocation. The existing receive owner establishes fresh keys.
+		e.resetLocked()
+		e.mu.Unlock()
+		e.setStateForSession("disconnected", nil, true)
+		return
+	}
+	delete(e.pending, response.ID)
+	call.result <- callResult{response: response}
+	latencytrace.Record(ctx, "rpc.delivered", time.Time{}, nil, 0)
+	e.mu.Unlock()
 }
 
 func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) error {
@@ -207,12 +245,19 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (result Response, 
 	}
 	id := e.session.id
 	ch := make(chan callResult, 1)
-	e.pending[request.ID] = ch
-	if e.pendingTrace != nil {
-		e.pendingTrace[request.ID] = requestTraceFields(e.config.Role, request)
+	call := &pendingCall{result: ch, ctx: ctx}
+	if latencytrace.Enabled() {
+		call.trace = requestTraceFields(e.config.Role, request)
 	}
+	e.pending[request.ID] = call
 	e.mu.Unlock()
-	defer func() { e.mu.Lock(); delete(e.pending, request.ID); delete(e.pendingTrace, request.ID); e.mu.Unlock() }()
+	defer func() {
+		e.mu.Lock()
+		if e.pending[request.ID] == call {
+			delete(e.pending, request.ID)
+		}
+		e.mu.Unlock()
+	}()
 	if err := e.sendPayload(ctx, RequestType, raw, id); err != nil {
 		e.mu.Lock()
 		if e.session != nil && e.session.id == id {
@@ -244,24 +289,6 @@ func requestTraceFields(role string, request Request) latencytrace.Fields {
 		id = request.Params["request_id"]
 	}
 	return latencytrace.Fields{Role: role, RPCID: request.ID, RequestID: id, Operation: request.Operation}
-}
-
-// This diagnostic-only decode neither admits nor changes a response. The
-// existing strict validation still runs after its fresh authorization check.
-func (e *Endpoint) responseTraceContext(ctx context.Context, raw []byte) context.Context {
-	if !latencytrace.Enabled() {
-		return ctx
-	}
-	var header struct {
-		ID string `json:"id"`
-	}
-	if json.Unmarshal(raw, &header) != nil {
-		return ctx
-	}
-	e.mu.Lock()
-	fields := e.pendingTrace[header.ID]
-	e.mu.Unlock()
-	return latencytrace.WithFields(ctx, fields)
 }
 
 func (e *Endpoint) operationSlots(r Request) chan struct{} {

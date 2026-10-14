@@ -205,7 +205,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .settingsConnectionDetail > .settingsBlock { padding-top: 18px; }
 /* --inspector-width is the user's dragged width; --inspector-span is what the panel actually occupies. */
 .workbench .workspace { --inspector-width: 360px; --inspector-span: min(var(--inspector-width), 100%); }
-.workbench .workspace.desktopWorkbench { --inspector-width: 640px; --inspector-span: min(var(--inspector-width), 100%, calc(760px / var(--workbench-zoom))); }
+.workbench .workspace.desktopWorkbench { --inspector-width: 640px; }
 .workbench .taskInspector { position: absolute; top: 0; right: 0; bottom: 0; width: var(--inspector-span); display: flex; flex-direction: column; border-left: 1px solid #e3e5e8; background: white; z-index: 25; }
 .workbench .emptyTaskInspector { padding: 0; }
 .taskInspectorHeader { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; font-size: 13px; font-weight: 550; }
@@ -217,15 +217,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 /* The topbar actions, including the inspector toggle, slide left with the open panel's edge. */
 .workbench .topbar { --inspector-offset: 0px; padding-right: calc(30px + min(var(--inspector-offset), 100% - 160px)); transition: padding-right 180ms cubic-bezier(.16, 1, .3, 1); }
 .workbench .withInspector .topbar { --inspector-offset: var(--inspector-span); }
-/* The full-height panel can cover narrow topbars; keep the actions reachable above it. */
-.workbench .withInspector .topbarActions { position: relative; z-index: 26; }
-/* Native browser bounds remain at most 760 DIPs when typography is zoomed. */
-.desktopBrowserPanel { max-width: calc(760px / var(--workbench-zoom)); color: #30343a; overflow: hidden; transition: width 180ms cubic-bezier(.16, 1, .3, 1); }
+.desktopBrowserPanel { color: #30343a; overflow: hidden; transition: width 180ms cubic-bezier(.16, 1, .3, 1); }
 /* Expanded focus mode covers the whole workspace, including the topbar actions. */
 .workbench .desktopWorkbench .desktopBrowserPanel.wide { width: 100%; max-width: none; z-index: 30; box-shadow: -12px 0 34px #20222612; }
-.inspectorResizeHandle { position: absolute; top: 0; bottom: 0; right: var(--inspector-span); z-index: 27; width: 8px; cursor: col-resize; touch-action: none; }
-.inspectorResizeHandle::after { content: ""; position: absolute; top: 0; bottom: 0; right: -1px; width: 2px; background: transparent; transition: background 120ms ease; }
-.inspectorResizeHandle:hover::after, .inspectorResizeHandle:focus-visible::after, .resizingInspector .inspectorResizeHandle::after { background: #1f5fbf; }
+/* An invisible strip straddling the panel edge; only the cursor signals it can be dragged. */
+.inspectorResizeHandle { position: absolute; top: 0; bottom: 0; right: calc(var(--inspector-span) - 4px); z-index: 27; width: 8px; cursor: col-resize; touch-action: none; }
 .inspectorResizeHandle:focus-visible { outline: none; }
 .workbench .withInspector:has(.desktopBrowserPanel.wide) .inspectorResizeHandle { display: none; }
 .resizingInspector, .resizingInspector * { cursor: col-resize !important; user-select: none; }
@@ -353,6 +349,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .workbench .taskInspector { top: 0; width: min(360px, 100%); }
   /* The panel spans almost the whole width, so the toggle stays in the corner above it. */
   .workbench .withInspector .topbar { --inspector-offset: 0px; }
+  /* The near full-width panel covers the topbar; keep the toggle reachable above it. */
+  .workbench .withInspector .topbarActions { position: relative; z-index: 26; }
   .workbench .inspectorResizeHandle { display: none; }
   .workbench .authActions { flex-basis: auto; }
 }

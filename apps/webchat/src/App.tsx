@@ -66,7 +66,7 @@ export function App() {
   const copy = workbenchCopy[language];
   const [page, setPage] = useState<WorkspacePage>("chat");
   const [inspectorOpen, setInspectorOpen] = useState(false);
-  const inspectorResize = useInspectorWidth(desktop !== null);
+  const inspectorResize = useInspectorWidth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [scheduleCreateOpen, setScheduleCreateOpen] = useState(false);
@@ -974,7 +974,7 @@ export function App() {
             />
           )}
         </section>}
-      {page === "chat" && inspectorOpen && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} />}
+      {page === "chat" && inspectorOpen && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} onHide={() => setInspectorOpen(false)} />}
       {page === "chat" && inspectorOpen && (desktopCapability()
         ? <BrowserPanel language={language} />
         : <aside className="taskInspector emptyTaskInspector" aria-label={copy.inspector} />)}

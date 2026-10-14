@@ -73,9 +73,9 @@ describe("workbench local workbench", () => {
       const handle = host.querySelector<HTMLElement>('.inspectorResizeHandle[role="separator"]')!;
       expect(handle).not.toBeNull();
       expect(handle.parentElement).toBe(host.querySelector(".desktopBrowserPanel")!.parentElement);
-      await act(async () => handle.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
-      expect(host.querySelector<HTMLElement>("main.workspace")!.style.getPropertyValue("--inspector-width")).toBe("760px");
-      expect(window.localStorage.getItem("sparkx.inspector-width")).toBe("760");
+      await act(async () => handle.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
+      expect(host.querySelector<HTMLElement>("main.workspace")!.style.getPropertyValue("--inspector-width")).toBe("240px");
+      expect(window.localStorage.getItem("sparkx.inspector-width")).toBe("240");
     } finally { await act(async () => root.unmount()); }
   });
 

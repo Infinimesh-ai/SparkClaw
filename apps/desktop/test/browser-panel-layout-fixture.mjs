@@ -32,7 +32,7 @@ app.whenReady().then(async () => {
     window.setContentSize(1440, 836);
     await window.loadURL("sparkclaw-app://workbench/index.html");
     const evaluate = expression => window.webContents.executeJavaScript(expression);
-    async function check(label, wide = false) {
+    async function check(label) {
       const deadline = Date.now() + 5000;
       while (Date.now() < deadline) {
         const measured = await evaluate(`(() => {
@@ -46,8 +46,8 @@ app.whenReady().then(async () => {
             width: Math.floor(rect.right) - Math.ceil(rect.x), height: Math.floor(rect.bottom) - Math.ceil(rect.y) };
           if (JSON.stringify(panelBounds) === JSON.stringify(expected)) {
             const content = window.getContentBounds();
-            // Split mode stays within 760 DIPs; expanded focus mode may use the whole workspace.
-            assert.ok(panelBounds.width > 0 && (wide || panelBounds.width <= 760), label);
+            // The divider and expand button may widen the panel up to the whole workspace.
+            assert.ok(panelBounds.width > 0, label);
             assert.ok(panelBounds.x + panelBounds.width <= content.width, label);
             assert.ok(panelBounds.y + panelBounds.height <= content.height, label);
             return;
@@ -70,7 +70,7 @@ app.whenReady().then(async () => {
             // Width transition produces intermediate bounds; inspect the settled layout.
             await new Promise(resolve => setTimeout(resolve, 220));
             const label = `${width}x${height}, ${textSize}, collapsed=${collapsed}, wide=${wide}`;
-            await check(label, wide);
+            await check(label);
             cases.push(label);
           }
         }
@@ -89,10 +89,30 @@ app.whenReady().then(async () => {
       await new Promise(resolve => setTimeout(resolve, 16));
     }
     window.webContents.sendInputEvent({ type: "mouseUp", x: handle.x - 60, y: handle.y, button: "left", clickCount: 1 });
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise(resolve => setTimeout(resolve, 250));
     const after = await panelWidth();
     assert.ok(Math.abs(after - before - 60) <= 2, `divider drag widens the panel: ${before} -> ${after}`);
     await check("after divider drag");
+    // Dragging across the whole conversation covers it completely.
+    const drag = async (fromX, toX) => {
+      window.webContents.sendInputEvent({ type: "mouseDown", x: fromX, y: handle.y, button: "left", clickCount: 1 });
+      for (let step = 1; step <= 8; step++) {
+        window.webContents.sendInputEvent({ type: "mouseMove", x: Math.round(fromX + (toX - fromX) * step / 8), y: handle.y, button: "left", modifiers: ["leftButtonDown"] });
+        await new Promise(resolve => setTimeout(resolve, 16));
+      }
+      window.webContents.sendInputEvent({ type: "mouseUp", x: toX, y: handle.y, button: "left", clickCount: 1 });
+      await new Promise(resolve => setTimeout(resolve, 250));
+    };
+    const edge = async () => evaluate(`(() => { const r = document.querySelector('.inspectorResizeHandle').getBoundingClientRect(); return Math.round(r.left + r.width / 2); })()`);
+    await drag(await edge(), 0);
+    const covered = await evaluate(`(() => { const p = document.querySelector('.desktopBrowserPanel').getBoundingClientRect(); const w = document.querySelector('.workspace').getBoundingClientRect(); return { panel: p.width, left: p.left, workspace: w.width, workspaceLeft: w.left }; })()`);
+    assert.ok(Math.abs(covered.panel - covered.workspace) <= 1 && Math.abs(covered.left - covered.workspaceLeft) <= 1, `divider drag covers the conversation: ${JSON.stringify(covered)}`);
+    await check("divider covers conversation");
+    // Releasing near the right edge hides the panel.
+    await drag(await edge(), 1435);
+    assert.equal(await evaluate("document.querySelector('.desktopBrowserPanel') === null"), true, "divider drag to the edge hides the panel");
+    await evaluate("document.querySelector('#toggle-panel').click()");
+    await check("reopen after divider hide");
     await evaluate("document.querySelector('#toggle-panel').click()");
     await new Promise(resolve => setTimeout(resolve, 50));
     assert.equal(await evaluate("document.querySelector('.desktopBrowserHost') === null"), true);
@@ -108,7 +128,7 @@ app.whenReady().then(async () => {
     const rejection = await evaluate(`window.sparkclawDesktop.setBounds({x:0,y:1,width:640,height:${content.height}},${revision}).then(()=>null,error=>error.message)`);
     assert.match(rejection, /outside the workbench/, "main process must still reject a one-pixel overflow");
     console.log(JSON.stringify({ event: "browser_panel_layout", passed: true, cases: cases.length, accepted_bounds: accepted,
-      real_component_css_preload_ipc: true, panel_reopened: true, divider_drag: true, renderer_reload: true, overflow_rejected: true, network: false, production_data: false }));
+      real_component_css_preload_ipc: true, panel_reopened: true, divider_drag: true, divider_cover: true, divider_hide: true, renderer_reload: true, overflow_rejected: true, network: false, production_data: false }));
   } finally {
     capability?.close();
     window?.destroy();

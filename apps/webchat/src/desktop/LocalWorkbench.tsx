@@ -45,7 +45,7 @@ export function LocalWorkbench() {
   const [language, setLanguage] = useState<Language>(initialLanguage);
   const zh = language === "zh";
   const copy = workbenchCopy[language];
-  const inspectorResize = useInspectorWidth(true);
+  const inspectorResize = useInspectorWidth();
   const [conversations, setConversations] = useState<LocalConversation[]>([]);
   const [selected, setSelected] = useState("");
   const selectedRef = useRef(selected); selectedRef.current = selected;
@@ -544,7 +544,7 @@ export function LocalWorkbench() {
             onRefresh={() => void localSchedules.check().catch(() => {})} onEdit={localSchedules.edit} onDelete={localSchedules.cancel} onRunNow={localSchedules.runNow} />
           {scheduleCreateOpen && <ScheduleCreateDialog busy={busy || Boolean(localSchedules.busyID)} text={text} onClose={() => setScheduleCreateOpen(false)} onCreate={localSchedules.create} />}
         </div>}
-        {capabilities.browser && browserOpen && typeof desktop.state === "function" && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} />}
+        {capabilities.browser && browserOpen && typeof desktop.state === "function" && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} onHide={() => setBrowserOpen(false)} />}
         {capabilities.browser && browserOpen && typeof desktop.state === "function" && <BrowserPanel language={language} localConversationID={selected} toolbar={<div className="localBrowserAuthorization">{selected && desktop.grantBrowserHost && <button className="localBrowserGrant" type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(async () => {
             await desktop.grantBrowserHost!();
             setNotice(zh ? "已授权本机浏览器执行当前设备的任务。" : "This device's browser is authorized for its tasks.");

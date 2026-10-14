@@ -1,8 +1,9 @@
 import { useCallback, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 
 const STORAGE_KEY = "sparkx.inspector-width";
-// Desktop split mode follows the embedded browser design: 480-760 px.
-const LIMITS = { desktop: { min: 480, max: 760 }, web: { min: 280, max: 760 } };
+// Narrowest width kept after a drag or key press; releasing below HIDE_BELOW hides the panel.
+const MIN_WIDTH = 240;
+const HIDE_BELOW = 120;
 
 function storedWidth(): number | null {
   try {
@@ -13,35 +14,34 @@ function storedWidth(): number | null {
   }
 }
 
-export function useInspectorWidth(desktop: boolean) {
-  const limits = desktop ? LIMITS.desktop : LIMITS.web;
+export function useInspectorWidth() {
   const [width, setWidth] = useState<number | null>(storedWidth);
   const [resizing, setResizing] = useState(false);
-  const clamp = useCallback((value: number) => Math.round(Math.min(limits.max, Math.max(limits.min, value))), [limits]);
   const commit = useCallback((value: number) => {
-    const next = clamp(value);
+    const next = Math.round(Math.max(MIN_WIDTH, value));
     setWidth(next);
     try { window.localStorage.setItem(STORAGE_KEY, String(next)); } catch { /* Width is a per-viewer convenience. */ }
-  }, [clamp]);
-  const effective = width === null ? null : clamp(width);
-  const style = effective === null ? undefined : { "--inspector-width": `${effective}px` } as CSSProperties;
-  return { width: effective, limits, style, resizing, setResizing, commit };
+  }, []);
+  // A live drag may shrink the panel toward zero before it is hidden or committed.
+  const preview = useCallback((value: number) => setWidth(Math.max(0, Math.round(value))), []);
+  const style = width === null ? undefined : { "--inspector-width": `${width}px` } as CSSProperties;
+  return { width, style, resizing, setResizing, commit, preview, restore: setWidth };
 }
 
 type ResizeState = ReturnType<typeof useInspectorWidth>;
 
-export function InspectorResizeHandle({ resize, label }: { resize: ResizeState; label: string }) {
+export function InspectorResizeHandle({ resize, label, onHide }: { resize: ResizeState; label: string; onHide: () => void }) {
   const handleRef = useRef<HTMLDivElement | null>(null);
-  const panel = () => handleRef.current?.parentElement?.querySelector<HTMLElement>(".taskInspector") ?? null;
+  const workspace = () => handleRef.current?.parentElement ?? null;
+  const panel = () => workspace()?.querySelector<HTMLElement>(".taskInspector") ?? null;
   // The workbench may apply CSS zoom; pointer and layout rectangles are in zoomed pixels.
   const zoom = () => {
     const workbench = handleRef.current?.closest<HTMLElement>(".workbench");
     return workbench ? parseFloat(getComputedStyle(workbench).getPropertyValue("--workbench-zoom")) || 1 : 1;
   };
-  const currentWidth = () => {
-    const element = panel();
-    return element ? element.getBoundingClientRect().width / zoom() : resize.width ?? resize.limits.min;
-  };
+  // The panel may grow until it covers the whole conversation area.
+  const maxWidth = () => (workspace()?.getBoundingClientRect().width ?? 0) / zoom();
+  const currentWidth = () => (panel()?.getBoundingClientRect().width ?? 0) / zoom();
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     const element = panel();
@@ -49,27 +49,47 @@ export function InspectorResizeHandle({ resize, label }: { resize: ResizeState; 
     event.preventDefault();
     const right = element.getBoundingClientRect().right;
     const scale = zoom();
+    const limit = maxWidth();
+    const before = resize.width;
     const target = event.currentTarget;
     target.setPointerCapture(event.pointerId);
     resize.setResizing(true);
-    const move = (moveEvent: globalThis.PointerEvent) => resize.commit((right - moveEvent.clientX) / scale);
+    let latest = currentWidth();
     const stop = () => {
-      resize.setResizing(false);
       target.removeEventListener("pointermove", move);
       target.removeEventListener("pointerup", stop);
       target.removeEventListener("pointercancel", stop);
+      target.removeEventListener("lostpointercapture", stop);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("blur", stop);
+      resize.setResizing(false);
+      if (latest < HIDE_BELOW) {
+        resize.restore(before);
+        onHide();
+      } else {
+        resize.commit(latest);
+      }
+    };
+    const move = (moveEvent: globalThis.PointerEvent) => {
+      // A release outside the renderer (for example over a native view) still ends the drag.
+      if (moveEvent.buttons === 0) return stop();
+      latest = Math.min(limit, (right - moveEvent.clientX) / scale);
+      resize.preview(latest);
     };
     target.addEventListener("pointermove", move);
     target.addEventListener("pointerup", stop);
     target.addEventListener("pointercancel", stop);
+    target.addEventListener("lostpointercapture", stop);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("blur", stop);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const step = event.shiftKey ? 64 : 16;
-    if (event.key === "ArrowLeft") resize.commit(currentWidth() + step);
+    if (event.key === "ArrowLeft") resize.commit(Math.min(maxWidth(), currentWidth() + step));
     else if (event.key === "ArrowRight") resize.commit(currentWidth() - step);
-    else if (event.key === "Home") resize.commit(resize.limits.min);
-    else if (event.key === "End") resize.commit(resize.limits.max);
+    else if (event.key === "Home") resize.commit(MIN_WIDTH);
+    else if (event.key === "End") resize.commit(maxWidth());
     else return;
     event.preventDefault();
   };
@@ -81,8 +101,7 @@ export function InspectorResizeHandle({ resize, label }: { resize: ResizeState; 
     aria-orientation="vertical"
     aria-label={label}
     title={label}
-    aria-valuemin={resize.limits.min}
-    aria-valuemax={resize.limits.max}
+    aria-valuemin={MIN_WIDTH}
     aria-valuenow={resize.width ?? undefined}
     tabIndex={0}
     onPointerDown={onPointerDown}

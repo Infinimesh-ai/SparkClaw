@@ -1,0 +1,5 @@
+{
+  "status": 409,
+  "error_code": "cursor_gap",
+  "body": { "code": "cursor_gap", "retryable": false }
+}

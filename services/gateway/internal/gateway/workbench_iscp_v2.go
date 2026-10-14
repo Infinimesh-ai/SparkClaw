@@ -97,11 +97,16 @@ func workbenchV2Result(response iscpworkbench.Response) iscpworkbench.Response {
 	if response.Status >= 400 && response.Code == "" {
 		response.Code = iscpworkbench.CodeForStatus(response.Status)
 		var body struct {
-			Code string `json:"code"`
+			Code      string `json:"code"`
+			Retryable *bool  `json:"retryable"`
 		}
 		_ = json.Unmarshal(response.Body, &body)
 		if body.Code == "operation_outcome_unknown" {
 			response.Code = iscpworkbench.ErrorOutcomeUnknown
+		} else if response.Status == http.StatusConflict && domainDecode(response.Body, &body) == nil && body.Code == string(iscpworkbench.ErrorCursorGap) && body.Retryable != nil && !*body.Retryable {
+			// Preserve the typed event recovery signal before Endpoint supplies a
+			// generic status code. Only this closed domain error permits a reset.
+			response.Code = iscpworkbench.ErrorCursorGap
 		}
 		response.Retryable = response.Status == 429 || response.Status == 503
 	}

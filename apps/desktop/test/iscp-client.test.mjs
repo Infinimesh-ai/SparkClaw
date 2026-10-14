@@ -433,48 +433,69 @@ test("negotiated v2 progress uses the authenticated helper and canceling its lon
   assert.equal(f.store.receipt(scope, task.request_id), null);
 });
 
-test("authenticated domain cursor_gap crosses transport.invoke and recovers a stale Gateway epoch before ACK", async t => {
-  const f = await fixture(t); f.v2 = true; f.eventRecovery = true; await f.start();
-  f.store.commitEventProjection(scope, { previous_cursor: "", cursor: "old-cursor", revision: 9, epoch: "old-gateway", reset: true, snapshot: {} });
-  let reconciles = 0;
-  f.handler = request => {
-    if (request.operation === "events.pull") {
-      assert.equal(request.body.cursor, "old-cursor");
-      return { status: 409, body: { code: "cursor_gap", retryable: false } };
-    }
-    if (request.operation === "events.snapshot") return { status: 200, body: {
-      cursor: "new-cursor", revision: 1, epoch: "new-gateway", reset: true, events: [], snapshot: { executions: [] } } };
-    if (request.operation === "events.ack") {
-      assert.equal(f.store.eventProjection(scope).cursor, request.body.cursor);
-      return { status: 200, body: { acknowledged: true, revision: 1 } };
-    }
-  };
-  const eventAuth = { get generation() { return f.auth.generation; }, get status() { return { ...f.auth.status, capabilities: { events: true } }; },
-    invokeISCP: (...args) => f.auth.invokeISCP(...args) };
-  const client = new ISCPEventClient({ auth: eventAuth, store: f.store, execution: { reconcilePending: async () => { reconciles++; } }, getIdentity: () => scope });
-  t.after(() => client.close()); await client.poll();
-  assert.deepEqual(f.calls.filter(call => call.operation.startsWith("events.")).map(call => call.operation), ["events.pull", "events.snapshot", "events.ack"]);
-  assert.equal(f.store.eventProjection(scope).epoch, "new-gateway"); assert.equal(f.store.eventProjection(scope).revision, 1);
-  assert.equal(reconciles, 1); assert.equal(f.directHTTP, 0);
-});
+for (const wireShape of ["gateway-envelope", "legacy-revision-envelope", "body-only"]) {
+  test(`authenticated ${wireShape} cursor_gap recovers a stale Gateway epoch before ACK`, async t => {
+    const f = await fixture(t); f.v2 = true; f.eventRecovery = true; await f.start();
+    f.store.commitEventProjection(scope, { previous_cursor: "", cursor: "old-cursor", revision: 9, epoch: "old-gateway", reset: true, snapshot: {} });
+    const gatewayCursorGap = JSON.parse(await fs.readFile(new URL("../../../services/gateway/internal/gateway/testdata/iscp-cursor-gap-response.json", import.meta.url), "utf8"));
+    let reconciles = 0;
+    f.handler = request => {
+      if (request.operation === "events.pull") {
+        assert.equal(request.body.cursor, "old-cursor");
+        const response = structuredClone(gatewayCursorGap);
+        if (wireShape === "legacy-revision-envelope") response.error_code = "revision_conflict";
+        if (wireShape === "body-only") delete response.error_code;
+        return response;
+      }
+      if (request.operation === "events.snapshot") return { status: 200, body: {
+        cursor: "new-cursor", revision: 1, epoch: "new-gateway", reset: true, events: [], snapshot: { executions: [] } } };
+      if (request.operation === "events.ack") {
+        assert.equal(f.store.eventProjection(scope).cursor, request.body.cursor);
+        return { status: 200, body: { acknowledged: true, revision: 1 } };
+      }
+    };
+    const eventAuth = { get generation() { return f.auth.generation; }, get status() { return { ...f.auth.status, capabilities: { events: true } }; },
+      invokeISCP: (...args) => f.auth.invokeISCP(...args) };
+    const client = new ISCPEventClient({ auth: eventAuth, store: f.store, execution: { reconcilePending: async () => { reconciles++; } }, getIdentity: () => scope });
+    t.after(() => client.close()); await client.poll();
+    assert.deepEqual(f.calls.filter(call => call.operation.startsWith("events.")).map(call => call.operation), ["events.pull", "events.snapshot", "events.ack"]);
+    assert.equal(f.store.eventProjection(scope).epoch, "new-gateway"); assert.equal(f.store.eventProjection(scope).revision, 1);
+    assert.equal(reconciles, 1); assert.equal(f.directHTTP, 0);
+  });
+}
 
-for (const [body, envelopeCode, expectedCode] of [
+for (const [body, envelopeCode, expectedCode, status = 409, retryable] of [
   [{ code: "revision_conflict", retryable: false }, undefined, "revision_conflict"],
   [{ code: "cursor_gap\n", retryable: false }, undefined, undefined],
   [{ code: { value: "cursor_gap" }, retryable: false }, undefined, undefined],
-  [{ code: "cursor_gap", retryable: false }, "revision_conflict", "revision_conflict"],
+  [{ code: "cursor_gap", retryable: true }, "revision_conflict", "revision_conflict"],
+  [{ code: "cursor_gap" }, "revision_conflict", "revision_conflict"],
+  [{ code: "cursor_gap", retryable: null }, "revision_conflict", "revision_conflict"],
+  [{ code: "cursor_gap", retryable: false, other: true }, "revision_conflict", "revision_conflict"],
+  [{ code: "cursor_gap", retryable: false }, "revision_conflict", "revision_conflict", 503],
+  [{ code: "cursor_gap", retryable: false }, "revision_conflict", "revision_conflict", 409, true],
+  [{ code: "cursor_gap", retryable: false }, "internal_error", "internal_error"],
 ]) {
-  test("unrecognized or conflicting 409 codes never authorize an event snapshot reset", async t => {
+  test("unrecognized or conflicting error codes never authorize an event snapshot reset", async t => {
     const f = await fixture(t); f.v2 = true; f.eventRecovery = true; await f.start();
     f.store.commitEventProjection(scope, { previous_cursor: "", cursor: "original", revision: 7, epoch: "epoch", reset: true, snapshot: {} });
-    f.handler = () => ({ status: 409, body, ...(envelopeCode ? { error_code: envelopeCode } : {}) });
+    f.handler = () => ({ status, body, ...(envelopeCode ? { error_code: envelopeCode } : {}), ...(retryable === undefined ? {} : { retryable }) });
     const eventAuth = { get generation() { return f.auth.generation; }, get status() { return { ...f.auth.status, capabilities: { events: true } }; },
       invokeISCP: (...args) => f.auth.invokeISCP(...args) };
     const client = new ISCPEventClient({ auth: eventAuth, store: f.store, execution: { reconcilePending: async () => assert.fail("must not reconcile") }, getIdentity: () => scope });
     t.after(() => client.close());
-    await assert.rejects(client.poll(), error => error.status === 409 && error.code === expectedCode);
+    await assert.rejects(client.poll(), error => error.status === status && error.code === expectedCode);
     assert.deepEqual(f.calls.filter(call => call.operation.startsWith("events.")).map(call => call.operation), ["events.pull"]);
     assert.equal(f.store.eventProjection(scope).cursor, "original"); assert.equal(f.store.eventProjection(scope).revision, 7);
+  });
+}
+
+for (const operation of ["execution.lookup", "events.snapshot", "events.ack"]) {
+  test(`legacy cursor-gap override is unavailable to ${operation}`, async t => {
+    const f = await fixture(t); f.v2 = true; f.eventRecovery = true; await f.start();
+    f.handler = () => ({ status: 409, error_code: "revision_conflict", body: { code: "cursor_gap", retryable: false } });
+    await assert.rejects(f.auth.invokeISCP(operation, {}, { requestID: crypto.randomUUID() }), error => error.status === 409 && error.code === "revision_conflict");
+    assert.equal(f.auth.status.state, "connected"); assert.equal(f.directHTTP, 0);
   });
 }
 

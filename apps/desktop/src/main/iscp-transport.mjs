@@ -268,10 +268,12 @@ export class ISCPTransport {
     if(!response.ok){
       const error=new Error(result.error||"ISCP operation failed");
       // Domain adapters return their typed code in the authenticated JSON body.
-      // Preserve envelope/header precedence and never derive a code from status
-      // or prose: callers decide which exact codes permit recovery.
+      // Preserve envelope/header precedence except the closed legacy event
+      // error: older Gateways wrapped cursor_gap with generic revision_conflict.
       const bodyCode=typeof result.code==='string'&&/^[a-z][a-z0-9_]{0,79}$/u.test(result.code)?result.code:undefined;
       error.code=result.error_code||response.headers.get("x-sparkclaw-error-code")||bodyCode;
+      if(operation==='events.pull'&&response.status===409&&response.headers.get("x-sparkclaw-error-code")==='revision_conflict'&&
+        response.headers.get("x-sparkclaw-retryable")!=='true'&&Object.keys(result).length===2&&result.code==='cursor_gap'&&result.retryable===false)error.code='cursor_gap';
       error.status=response.status;error.retryable=result.retryable===true||response.headers.get("x-sparkclaw-retryable")==="true";throw error;
     }
     return result;

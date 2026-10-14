@@ -11,6 +11,13 @@ import { DesktopAuth } from "../src/main/desktop-auth.mjs";
 
 const scope = { deployment_id: "deployment", owner_id: "owner", client_id: "client" };
 const hash = (value) => crypto.createHash("sha256").update(value).digest("hex");
+async function waitFor(check) {
+  const deadline = performance.now() + 3000;
+  while (!check()) {
+    assert.ok(performance.now() < deadline, "background delivery did not finish");
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+}
 function fixture(t, fetcher) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sparkclaw-execution-client-"));
   let store = new ClientStore(directory);
@@ -95,7 +102,8 @@ test("real HTTP chain preserves explicit immutable submission, verified files an
   await f.client.reconcilePending();
   assert.deepEqual(calls, [], "saved input never replays automatically");
   const completed = await f.client.submit(scope, f.task.request_id);
-  assert.equal(completed.status, "delivered");
+  assert.ok(["saved", "delivered"].includes(completed.status));
+  await waitFor(() => f.store.receipt(scope, f.task.request_id)?.acknowledged === 1);
   assert.equal(calls.filter((call) => call.method === "POST" && call.path === "/api/v1/executions").length, 1);
   f.restart();
   await f.client.reconcilePending();
@@ -145,11 +153,13 @@ test("lost ACK survives client restart, deduplicates output and does not resubmi
     if (init.method === "POST") posts++;
     return new Response(JSON.stringify(event(f, "completed", result())));
   });
-  await assert.rejects(f.client.submit(scope, f.task.request_id), /ACK lost/);
+  assert.equal((await f.client.submit(scope, f.task.request_id)).status, "saved");
+  assert.ok(acks >= 1);
   assert.equal(f.store.request(scope, f.task.request_id).status, "saved");
   assert.equal(f.store.read(scope, f.conversation.id).messages.length, 2);
   f.restart(); loseACK = false;
   await f.client.reconcilePending();
+  await waitFor(() => f.store.receipt(scope, f.task.request_id)?.acknowledged === 1);
   assert.equal(f.store.request(scope, f.task.request_id).status, "delivered");
   assert.equal(f.store.read(scope, f.conversation.id).messages.length, 2);
   assert.equal(posts, 1); assert.ok(acks >= 2);
@@ -317,7 +327,8 @@ test("corrupted durable files block ACK retry after restart and preserve receipt
     if (url.endsWith("/files/output")) return new Response(output);
     return new Response(JSON.stringify(event(f, "completed", result("answer", [{ id: "output", name: "out.txt", size: output.length, sha256: hash(output) }]))));
   });
-  await assert.rejects(f.client.submit(scope, f.task.request_id), /ACK response lost/);
+  assert.equal((await f.client.submit(scope, f.task.request_id)).status, "saved");
+  assert.ok(acks >= 1);
   const file = f.store.read(scope, f.conversation.id).files[0];
   fs.writeFileSync(path.join(f.directory, "files", file.id), "corruption");
   f.restart();
@@ -344,4 +355,121 @@ test("close/start fences an in-flight response even when authentication generati
   f.client.start(); release();
   await assert.rejects(submission, /authentication changed/);
   assert.equal(f.store.receipt(scope, f.task.request_id), null);
+});
+
+test("durable replies notify and return before a slow ACK without blocking other pending requests", async t => {
+  let release; let acks = 0; let posts = 0; const changes = [];
+  const held = new Promise(resolve => { release = resolve; });
+  const f = fixture(t, async (url, init = {}) => {
+    if (url.endsWith("/ack")) { acks++; await held; return new Response("{}"); }
+    if (init.method === "POST") { posts++; return new Response(JSON.stringify(event(f, "completed", result()))); }
+    const requestID = url.split("/executions/")[1];
+    return new Response(JSON.stringify({ schema_version: 1, request_id: requestID,
+      input_digest: f.store.request(scope, requestID).input_digest, state: "running" }));
+  });
+  f.client.onChange = () => changes.push(f.store.request(scope, f.task.request_id).status);
+  assert.equal((await f.client.submit(scope, f.task.request_id)).status, "saved");
+  assert.equal(f.store.read(scope, f.conversation.id).messages.at(-1).content, "answer");
+  assert.ok(changes.includes("saved"));
+  assert.equal(f.store.receipt(scope, f.task.request_id).acknowledged, 0);
+  assert.equal(f.store.remove(scope, f.conversation.id).deleted, false, "pending receipt remains protected");
+  const other = f.store.enqueue(scope, f.conversation.id, "next request");
+  f.store.markSubmitted(scope, other.request_id);
+  await f.client.reconcilePending();
+  await f.client.reconcilePending();
+  assert.equal(f.store.request(scope, other.request_id).status, "running");
+  assert.equal(acks, 1, "every scan shares the original pending ACK");
+  assert.equal(posts, 1);
+  release();
+  await waitFor(() => changes.includes("delivered"));
+  assert.equal(f.store.receipt(scope, f.task.request_id).acknowledged, 1);
+  assert.equal(f.store.read(scope, f.conversation.id).messages.length, 3);
+});
+
+for (const boundary of ["generation", "lifetime", "restart"]) {
+  test(`background ACK completion is fenced across ${boundary} and recovery retries the same durable receipt`, async t => {
+    const releases = []; let posts = 0; const changes = [];
+    const f = fixture(t, async (url, init = {}) => {
+      if (url.endsWith("/ack")) { await new Promise(resolve => releases.push(resolve)); return new Response("{}"); }
+      if (init.method === "POST") posts++;
+      return new Response(JSON.stringify(event(f, "completed", result())));
+    });
+    f.auth.generation = 1;
+    f.client.onChange = () => changes.push(f.store.request(scope, f.task.request_id).status);
+    assert.equal((await f.client.submit(scope, f.task.request_id)).status, "saved");
+    assert.equal(releases.length, 1);
+    if (boundary === "generation") f.auth.generation++;
+    else if (boundary === "restart") f.restart();
+    else { f.client.close(); f.client.start(); }
+    await f.client.reconcilePending();
+    assert.equal(releases.length, 2, "a stale ACK must not absorb the new lifetime's recovery");
+    const count = changes.length;
+    releases[0](); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.store.receipt(scope, f.task.request_id).acknowledged, 0);
+    assert.equal(changes.length, count, "stale completion must not notify a new authentication lifetime");
+    releases[1](); await waitFor(() => f.store.receipt(scope, f.task.request_id).acknowledged === 1);
+    assert.equal(posts, 1); assert.equal(f.store.read(scope, f.conversation.id).messages.length, 2);
+  });
+}
+
+test("a changed identity fences background ACK and preserves its original scope receipt", async t => {
+  let release;
+  const f = fixture(t, async url => {
+    if (url.endsWith("/ack")) { await new Promise(resolve => { release = resolve; }); return new Response("{}"); }
+    return new Response(JSON.stringify(event(f, "completed", result())));
+  });
+  await f.client.submit(scope, f.task.request_id);
+  f.setIdentity({ ...scope, client_id: "other-client" });
+  release(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.store.receipt(scope, f.task.request_id).acknowledged, 0);
+  assert.equal(f.store.request(scope, f.task.request_id).status, "saved");
+});
+
+test("durable event wakeups coalesce into another scan while timer ticks do not prolong a scan", async t => {
+  let release; const reads = [];
+  const held = new Promise(resolve => { release = resolve; });
+  const f = fixture(t, async url => {
+    const requestID = url.split("/executions/")[1]; reads.push(requestID);
+    if (reads.length === 1) await held;
+    return new Response(JSON.stringify({ schema_version: 1, request_id: requestID,
+      input_digest: f.store.request(scope, requestID).input_digest, state: "running" }));
+  });
+  f.store.markSubmitted(scope, f.task.request_id);
+  const first = f.client.reconcilePending();
+  await new Promise(resolve => setImmediate(resolve));
+  const timer = f.client.reconcilePending();
+  const other = f.store.enqueue(scope, f.conversation.id, "new pending request");
+  f.store.markSubmitted(scope, other.request_id);
+  const wakes = [f.client.reconcilePending({ wake: true }), f.client.reconcilePending({ wake: true })];
+  release(); await Promise.all([first, timer, ...wakes]);
+  assert.deepEqual(reads, [f.task.request_id, f.task.request_id, other.request_id]);
+  assert.equal(f.store.request(scope, other.request_id).status, "running");
+});
+
+test("ordinary timer ticks share a slow lookup without starting an immediate polling loop", async t => {
+  let release; let reads = 0;
+  const held = new Promise(resolve => { release = resolve; });
+  const f = fixture(t, async () => {
+    reads++; await held; return new Response(JSON.stringify(event(f, "running")));
+  });
+  f.store.markSubmitted(scope, f.task.request_id);
+  const first = f.client.reconcilePending();
+  await new Promise(resolve => setImmediate(resolve));
+  const ticks = [f.client.reconcilePending(), f.client.reconcilePending()];
+  release(); await Promise.all([first, ...ticks]); assert.equal(reads, 1);
+});
+
+test("a queued event wake from an old authentication generation cannot launch another lookup", async t => {
+  let release; let reads = 0;
+  const held = new Promise(resolve => { release = resolve; });
+  const f = fixture(t, async () => {
+    reads++; await held; return new Response(JSON.stringify(event(f, "running")));
+  });
+  f.auth.generation = 1; f.store.markSubmitted(scope, f.task.request_id);
+  const first = f.client.reconcilePending();
+  await new Promise(resolve => setImmediate(resolve));
+  const wake = f.client.reconcilePending({ wake: true });
+  const rejected = [assert.rejects(first, /authentication changed/), assert.rejects(wake, /authentication changed/)];
+  f.auth.generation++; release(); await Promise.all(rejected);
+  assert.equal(reads, 1); assert.equal(f.store.request(scope, f.task.request_id).status, "submission_pending");
 });

@@ -98,7 +98,7 @@ describe("workbench local workbench", () => {
     } finally { await act(async () => root.unmount()); }
   });
 
-  it.each(["en", "zh"] as const)("shows immediate task progress, background completion and the original controls in %s", async language => {
+  it.each([["en", "delivered"], ["zh", "delivered"], ["en", "saved"], ["zh", "saved"]] as const)("shows immediate task progress, background completion and the original controls in %s with %s delivery", async (language, deliveryState) => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
     vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
     vi.spyOn(api, "ready").mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof api.ready>>);
@@ -133,13 +133,14 @@ describe("workbench local workbench", () => {
       expect(host.querySelector(".taskProgress")).not.toBeNull();
       await act(async () => select(1));
       expect(host.querySelector(".taskProgress")).toBeNull();
-      task.status = "delivered";
+      task.status = deliveryState;
       histories.one.messages.push({ id: "answer", role: "assistant", content: "Plan reviewed", created_at: task.created_at });
       await act(async () => { listeners.forEach(listener => listener()); await new Promise(resolve => setTimeout(resolve, 100)); });
       expect(host.querySelector(".sessionItem .sessionActivity.completed")).not.toBeNull();
       expect(host.querySelector(".sessionActivity.running")).toBeNull();
       await act(async () => select(0));
       expect(host.textContent).toContain("Plan reviewed"); expect(host.querySelector(".taskProgress")).toBeNull();
+      expect(host.querySelector<HTMLTextAreaElement>(".composer textarea")!.disabled).toBe(false);
       for (const state of ["failed", "canceled", "unknown"]) {
         task.status = state;
         await act(async () => { listeners.forEach(listener => listener()); await new Promise(resolve => setTimeout(resolve, 100)); });

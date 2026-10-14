@@ -13,7 +13,7 @@ test('lost ACK replays the persisted packet and state invalidations wake every p
  const store={eventProjection:()=>stored,pending:()=>[],commitEventProjection:(_scope,value)=>{commits++;stored=value;}};
  const auth={generation:1,status:{state:'connected',capabilities:{events:true}},invokeISCP:async(op)=>{if(op==='events.pull')return packet;if(op==='events.ack'){acks++;if(acks===1)throw new Error('ACK lost');return{};}throw new Error('Unexpected operation');}};
  const client=new ISCPEventClient({auth,store,execution:{reconcilePending:async()=>{}},getIdentity:()=>({owner_id:'owner'}),onEvents:value=>wakes.push(value)});
- await assert.rejects(client.poll(),/ACK lost/);await client.poll();assert.equal(commits,1);assert.equal(acks,2);assert.deepEqual(wakes,[{categories:['tasks','approvals','notifications','settings','email']}]);
+ await assert.rejects(client.poll(),/ACK lost/);assert.deepEqual(wakes,[{categories:['tasks','approvals','notifications','settings','email']}]);await client.poll();assert.equal(commits,1);assert.equal(acks,2);assert.deepEqual(wakes,[{categories:['tasks','approvals','notifications','settings','email']},{categories:['tasks','approvals','notifications','settings','email']}]);
  packet.snapshot={executions:['conflicting']};await assert.rejects(client.poll(),/replay differs/);assert.equal(acks,2);
 });
 
@@ -22,4 +22,46 @@ test('cursor gaps request a bounded new snapshot and explicitly reset within the
  const store={eventProjection:()=>stored,pending:()=>Array.from({length:60},(_,i)=>({request_id:String(i)})),commitEventProjection:(_scope,value)=>{committed=value;stored=value;}};
  const auth={generation:1,status:{state:'connected',capabilities:{events:true}},invokeISCP:async(op,body)=>{if(op==='events.pull')throw Object.assign(new Error('gap'),{code:'cursor_gap'});if(op==='events.snapshot'){assert.equal(body.request_ids.length,32);return{cursor:'fresh',revision:1,epoch:'epoch',reset:true,events:[],snapshot:{executions:[]}};}return{};}};
  const client=new ISCPEventClient({auth,store,execution:{reconcilePending:async()=>{}},getIdentity:()=>({owner_id:'owner'})});await client.poll();assert.equal(committed.reset,true);assert.equal(committed.revision,1);
+});
+
+test('a slow event ACK never delays lookup or notification and still serializes the next poll',async()=>{
+ let stored={cursor:'',revision:0,epoch:'',snapshot:{}},release,pulls=0,acks=0,reconciles=0,wakes=0;
+ const held=new Promise(resolve=>{release=resolve;});
+ const store={eventProjection:()=>stored,pending:()=>[],commitEventProjection:(_scope,value)=>{stored=value;}};
+ const auth={generation:1,status:{state:'connected',capabilities:{events:true}},invokeISCP:async op=>{
+  if(op==='events.snapshot'){pulls++;return{cursor:'first',revision:1,epoch:'epoch',reset:true,snapshot:{executions:[]}};}
+  if(op==='events.ack'){acks++;assert.equal(stored.cursor,'first');await held;return{};}throw new Error('Unexpected operation');
+ }};
+ const client=new ISCPEventClient({auth,store,execution:{reconcilePending:async options=>{assert.equal(options.wake,true);reconciles++;}},getIdentity:()=>({owner_id:'owner'}),onEvents:()=>wakes++});
+ const polling=client.poll();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(reconciles,1);assert.equal(wakes,1);assert.equal(acks,1);
+ await client.poll();assert.equal(pulls,1);release();await polling;
+});
+
+for(const boundary of ['generation','lifetime','identity']){
+ test(`an event response after ${boundary} change cannot persist, notify or ACK`,async()=>{
+  let release,commits=0,acks=0,wakes=0,reconciles=0,identity={owner_id:'owner'};
+  const held=new Promise(resolve=>{release=resolve;});
+  const store={eventProjection:()=>({cursor:'',revision:0,epoch:'',snapshot:{}}),pending:()=>[],commitEventProjection:()=>commits++};
+  const auth={generation:1,status:{state:'connected',capabilities:{events:true}},invokeISCP:async op=>{
+   if(op==='events.snapshot'){await held;return{cursor:'first',revision:1,epoch:'epoch',reset:true,snapshot:{executions:[]}};}acks++;return{};
+  }};
+  const client=new ISCPEventClient({auth,store,execution:{reconcilePending:async()=>reconciles++},getIdentity:()=>identity,onEvents:()=>wakes++});
+  const polling=client.poll();const rejected=assert.rejects(polling,/authentication changed/);
+  if(boundary==='generation')auth.generation++;else if(boundary==='lifetime')client.close();else identity={owner_id:'other'};
+  release();await rejected;assert.equal(commits,0);assert.equal(acks,0);assert.equal(wakes,0);assert.equal(reconciles,0);
+ });
+}
+
+test('restarting after event persistence and a lost ACK replays and reconciles the same durable packet',async()=>{
+ let stored={cursor:'prior',revision:1,epoch:'epoch',snapshot:{}},commits=0,acks=0,reconciles=0;
+ const packet={cursor:'next',revision:2,epoch:'epoch',events:[{sequence:2,category:'tasks'}],snapshot:{executions:[]}};
+ const store={eventProjection:()=>stored,pending:()=>[],commitEventProjection:(_scope,value)=>{stored=value;commits++;}};
+ const auth={generation:1,status:{state:'connected',capabilities:{events:true}},invokeISCP:async(op,body)=>{
+  if(op==='events.pull'){assert.ok(['prior','next'].includes(body.cursor));return packet;}
+  if(op==='events.ack'){acks++;if(acks===1)throw new Error('ACK lost');return{};}throw new Error('Unexpected operation');
+ }};
+ const options={auth,store,execution:{reconcilePending:async()=>reconciles++},getIdentity:()=>({owner_id:'owner'})};
+ const original=new ISCPEventClient(options);await assert.rejects(original.poll(),/ACK lost/);original.close();
+ await new ISCPEventClient(options).poll();assert.equal(commits,1);assert.equal(acks,2);assert.equal(reconciles,2);
 });

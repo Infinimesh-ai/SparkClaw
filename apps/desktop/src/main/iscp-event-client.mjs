@@ -8,7 +8,8 @@ export class ISCPEventClient {
  async poll(){
   if(this.closed||this.polling||this.auth.status.state!=='connected'||this.auth.status.capabilities?.events!==true)return;
   const scope=this.getIdentity();if(!scope)return;this.polling=true;const generation=this.generation,authGeneration=this.auth.generation;const controller=new AbortController();this.controller=controller;
-  const same=()=>{if(this.closed||generation!==this.generation||authGeneration!==this.auth.generation)throw new Error('Event authentication changed');};
+  const scopeKey=value=>JSON.stringify([value?.deployment_id,value?.owner_id,value?.client_id]);
+  const same=()=>{if(this.closed||generation!==this.generation||authGeneration!==this.auth.generation||scopeKey(scope)!==scopeKey(this.getIdentity()))throw new Error('Event authentication changed');};
   const pollStarted=latencyNow();traceLatency("events.poll.start");
   try {
    let previous=this.store.eventProjection(scope),reply,resetRequested=false;
@@ -28,11 +29,24 @@ export class ISCPEventClient {
    if(events.length&&!reply.snapshot)throw new Error('Event changed without an authoritative snapshot');
    if(!repeated)this.store.commitEventProjection(scope,{previous_cursor:previous.cursor,cursor:reply.cursor,revision:reply.revision,snapshot:reply.snapshot??previous.snapshot,epoch:reply.epoch,reset:resetRequested&&reply.reset===true});
    same();
-   traceLatency('events.ack.start');
-   await this.auth.invokeISCP('events.ack',{cursor:reply.cursor},{signal:controller.signal});
-   same();
-   traceLatency('events.ack.end');
-   if(reply.snapshot){traceLatency('events.reconcile.start');await this.execution.reconcilePending();same();this.onEvents({categories:[...new Set(events.length&&!events.some(event=>event.category==='state')?events.map(event=>event.category):['tasks','approvals','notifications','settings','email'])]});}
+   // Persistence permits both branches to proceed. The Gateway replays this
+   // same packet until ACK, so keep the next poll serialized behind both while
+   // allowing original-ID lookup and UI invalidation to start immediately.
+   const reconcile=async()=>{
+    if(!reply.snapshot)return;
+    same();traceLatency('events.reconcile.start');
+    const pending=this.execution.reconcilePending({wake:true});
+    try{same();this.onEvents({categories:[...new Set(events.length&&!events.some(event=>event.category==='state')?events.map(event=>event.category):['tasks','approvals','notifications','settings','email'])]});}
+    finally{await pending;}
+    same();traceLatency('events.reconcile.end');
+   };
+   const acknowledge=async()=>{
+    same();traceLatency('events.ack.start');
+    try{await this.auth.invokeISCP('events.ack',{cursor:reply.cursor},{signal:controller.signal});same();traceLatency('events.ack.end');}
+    catch(error){traceLatency('events.ack.failed');throw error;}
+   };
+   const settled=await Promise.allSettled([reconcile(),acknowledge()]);
+   const failed=settled.find(result=>result.status==='rejected');if(failed)throw failed.reason;
   }finally{traceLatency("events.poll.end",{duration_ms:latencyNow()-pollStarted});this.polling=false;if(this.controller===controller)this.controller=undefined;}
  }
 }

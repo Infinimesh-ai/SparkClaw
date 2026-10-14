@@ -14,6 +14,7 @@ export class ExecutionClient {
   constructor({ auth, store, getIdentity, intervalMS = 5000, onChange = () => {} }) {
     Object.assign(this, { auth, store, getIdentity, intervalMS, onChange });
     this.operations = new Map();
+    this.acknowledgements = new Map();
     this.verifiedApprovals = new Map();
     this.controller = new AbortController();
     this.closed = false;
@@ -159,22 +160,39 @@ export class ExecutionClient {
     });
   }
 
-  async reconcilePending() {
-    if (this.closed || this.polling || this.auth.status.state !== "connected") return;
-    const scope = this.getIdentity();
-    if (!scope) return;
-    this.polling = true;
-    try {
-      const requests = this.store.pending(scope);
-      // Independent requests reconcile concurrently. Each original request
-      // retains its identity, cancellation and no-replay fences.
-      await Promise.allSettled(requests.map(task => this.closed ? undefined : this.reconcile(scope, task.request_id)));
-    } finally { this.polling = false; }
+  async reconcilePending({ wake = false } = {}) {
+    if (this.closed || this.auth.status.state !== "connected") return;
+    const identity = this.getIdentity();
+    if (!identity) return;
+    if (this.polling) {
+      let current = true;
+      try { this.#sameIdentity(this.polling.scope); } catch { current = false; }
+      if (current) {
+        // Only a durable event requests another scan. Ordinary timer ticks must
+        // not turn one slow network read into a continuous polling loop.
+        if (wake) this.polling.wake = true;
+        return this.polling.promise;
+      }
+    }
+    const scope = this.#boundScope(identity);
+    const scan = { scope, wake: false };
+    this.polling = scan;
+    scan.promise = (async () => {
+      do {
+        scan.wake = false;
+        this.#sameIdentity(scope);
+        const requests = this.store.pending(scope);
+        // Independent requests reconcile concurrently. Each original request
+        // retains its identity, cancellation and no-replay fences.
+        await Promise.allSettled(requests.map(task => this.closed ? undefined : this.reconcile(scope, task.request_id)));
+      } while (scan.wake);
+    })().finally(() => { if (this.polling === scan) this.polling = undefined; });
+    return scan.promise;
   }
 
   async #lookup(scope, task) {
     const receipt = this.store.receipt(scope, task.request_id);
-    if (receipt && !receipt.acknowledged) { await this.#ack(scope, receipt); return true; }
+    if (receipt && !receipt.acknowledged) { this.#queueAck(scope, receipt); return true; }
     const lookupStarted = latencyNow();
     traceLatency("execution.lookup.start", { request_id: task.request_id });
     const response = await this.#fetch(scope, `/api/v1/executions/${task.request_id}`);
@@ -233,7 +251,9 @@ export class ExecutionClient {
     const commitStarted = latencyNow();
     const receipt = this.store.commitDelivery(scope, { request_id: task.request_id, ...result }, files);
     traceLatency("delivery.committed", { request_id: task.request_id, duration_ms: latencyNow() - commitStarted });
-    await this.#ack(scope, receipt);
+    this.onChange();
+    traceLatency("delivery.notified", { request_id: task.request_id });
+    this.#queueAck(scope, receipt);
   }
 
   async #uploadInputs(scope, task) {
@@ -248,6 +268,28 @@ export class ExecutionClient {
       if (!response.ok) { await response.body?.cancel(); throw new Error("Input file upload was not accepted"); }
       await response.body?.cancel();
     }
+  }
+
+  #queueAck(scope, receipt) {
+    this.#sameIdentity(scope);
+    const key = JSON.stringify([scope.deployment_id, scope.owner_id, scope.client_id, receipt.request_id,
+      scope[AUTH_GENERATION], scope[CLIENT_LIFETIME]]);
+    if (this.acknowledgements.has(key)) return;
+    // The durable receipt is the retry queue. The in-memory promise only avoids
+    // overlapping ACKs; restart and reconnect recover from ClientStore.pending.
+    const started = latencyNow();
+    let ok = false;
+    const pending = this.#ack(scope, receipt).then(() => {
+      this.#sameIdentity(scope);
+      ok = true;
+      this.onChange();
+    }).catch(() => {
+      traceLatency("delivery.ack.failed", { request_id: receipt.request_id, duration_ms: latencyNow() - started });
+    }).finally(() => {
+      traceLatency("delivery.ack.background.end", { request_id: receipt.request_id, ok, duration_ms: latencyNow() - started });
+      if (this.acknowledgements.get(key) === pending) this.acknowledgements.delete(key);
+    });
+    this.acknowledgements.set(key, pending);
   }
 
   async #ack(scope, receipt) {

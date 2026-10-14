@@ -13,6 +13,13 @@ import { ClientStore } from "../src/main/client-store.mjs";
 import { ExecutionClient } from "../src/main/execution-client.mjs";
 import { loadISCPProfile } from "../src/main/iscp-profile.mjs";
 import { parseBackendDescriptor } from "../src/main/local-backend.mjs";
+async function waitFor(check) {
+  const deadline = performance.now() + 3000;
+  while (!check()) {
+    assert.ok(performance.now() < deadline, "background delivery did not finish");
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+}
 import { DesktopCapability, isDesktopSessionAuthorized } from "../src/main/desktop-capability.mjs";
 import { ClientStoreCapability } from "../src/main/client-store-capability.mjs";
 
@@ -136,6 +143,7 @@ test("authenticated ISCP admits normal workbench IPC without Bearer and still fe
   f.handler = (request) => request.operation === "execution.submit" ? { status: 200, body: completed(f.store.request(scope, request.request_id)) } : { status: 200, body: {} };
   const task = await storeCapability.dispatch(event, { schema_version: 1, operation: "enqueue", conversation_id: conversation.id, content: "IPC submission" });
   await storeCapability.dispatch(event, { schema_version: 1, operation: "submit", request_id: task.request_id });
+  await waitFor(() => f.store.receipt(scope, task.request_id)?.acknowledged === 1);
   assert.equal(f.store.request(scope, task.request_id).status, "delivered");
   assert.equal(f.store.read(scope, conversation.id).messages.at(-1).content, "Persisted through ISCP");
   assert.equal(f.calls.filter((request) => request.operation === "execution.submit").length, 1);
@@ -279,7 +287,7 @@ test("ISCP recovery leaves the four-call budget available for required startup p
   for (const task of tasks) assert.equal(f.store.request(scope, task.request_id).status, "delivered");
 });
 
-test("three sequential replies wait for busy business and control slots without duplicate submissions or ACK errors", async (t) => {
+test("three sequential replies return saved while ACK waits for its control slot without duplicate submissions", async (t) => {
   const f = await fixture(t); f.v2 = true; f.timeoutMS = 1000; await f.start();
   f.holdCapabilities = true;
   const conversation = f.store.create(scope, "sequential greetings");
@@ -308,9 +316,10 @@ test("three sequential replies wait for busy business and control slots without 
     await settle();
     assert.equal(f.store.receipt(scope, task.request_id).acknowledged, 0);
     assert.equal(f.calls.filter(call => call.operation === "execution.ack").length, i);
-    reply(...held.shift()); await control;
     await observed;
-    assert.equal((await sending).status, "delivered");
+    assert.equal((await sending).status, "saved", "the composer can release before the ACK control slot is available");
+    reply(...held.shift()); await control;
+    await waitFor(() => f.store.receipt(scope, task.request_id)?.acknowledged === 1);
     assert.equal(f.store.receipt(scope, task.request_id).acknowledged, 1);
     assert.equal(f.auth.status.state, "connected");
   }
@@ -338,7 +347,8 @@ test("local ISCP admission cancellation preserves unsent input across restart an
   await f.restart(); await f.execution.reconcilePending();
   assert.equal(f.calls.filter((call) => call.operation.startsWith("execution.")).length, 0);
   f.handler = (request) => ({ status: 200, body: request.operation === "execution.submit" ? completed(f.store.request(scope, task.request_id)) : {} });
-  assert.equal((await f.execution.submit(scope, task.request_id)).status, "delivered");
+  assert.ok(["saved", "delivered"].includes((await f.execution.submit(scope, task.request_id)).status));
+  await waitFor(() => f.store.receipt(scope, task.request_id)?.acknowledged === 1);
   assert.equal(f.calls.filter((call) => call.operation === "execution.submit").length, 1);
   assert.equal(f.directHTTP, 0);
 });
@@ -386,11 +396,12 @@ test("local ACK rejection cannot restore an already submitted execution's unsent
     return fetcher(url, init);
   };
   f.handler = (request) => ({ status: 200, body: request.operation === "execution.submit" ? completed(f.store.request(scope, task.request_id)) : {} });
-  await assert.rejects(f.execution.submit(scope, task.request_id), /concurrency/u);
+  assert.equal((await f.execution.submit(scope, task.request_id)).status, "saved");
   assert.equal(f.store.request(scope, task.request_id).status, "saved");
   assert.equal(f.store.request(scope, task.request_id).explicitly_submitted, 1);
   assert.equal(f.store.receipt(scope, task.request_id).acknowledged, 0);
   rejectACK = false; await f.execution.reconcilePending();
+  await waitFor(() => f.store.receipt(scope, task.request_id)?.acknowledged === 1);
   assert.equal(f.store.request(scope, task.request_id).status, "delivered");
   assert.equal(f.calls.filter((call) => call.operation === "execution.submit").length, 1);
   assert.equal(f.store.read(scope, conversation.id).messages.length, 2);

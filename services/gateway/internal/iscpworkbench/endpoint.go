@@ -13,6 +13,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/latencytrace"
 	iscpcrypto "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/envelope"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/session"
@@ -83,6 +84,7 @@ type Endpoint struct {
 	session              *activeSession
 	stale                []string
 	pending              map[string]chan callResult
+	pendingTrace         map[string]latencytrace.Fields
 	stateName            string
 	lastHelloAt          time.Time
 	cancel               context.CancelFunc
@@ -128,6 +130,9 @@ func newEndpoint(cfg Config, m material, relay RelayTransport, handler Handler, 
 		return nil, errors.New("workbench responder requires a handler")
 	}
 	e := &Endpoint{config: cfg, material: m, provider: iscpcrypto.NewProvider(), relay: relay, handler: handler, onState: onState, pending: map[string]chan callResult{}, slots: make(chan struct{}, MaxConcurrent), classSlots: map[string]chan struct{}{"control": make(chan struct{}, CapacityLimit("control")), "bulk": make(chan struct{}, CapacityLimit("bulk")), "events": make(chan struct{}, CapacityLimit("events")), "audio": make(chan struct{}, CapacityLimit("audio"))}}
+	if latencytrace.Enabled() {
+		e.pendingTrace = make(map[string]latencytrace.Fields)
+	}
 	if cfg.Mode == "node-managed" && cfg.Role == RoleInitiator {
 		client, err := newNodeLifecycle(cfg, m)
 		if err != nil {
@@ -171,6 +176,7 @@ func (e *Endpoint) setState(state string) {
 // Run owns the authenticated receive connection and retries with bounded
 // backoff. Every reconnect discards old keys and causes a fresh desktop Hello.
 func (e *Endpoint) Run(ctx context.Context) error {
+	ctx = latencytrace.WithFields(ctx, latencytrace.Fields{Role: e.config.Role})
 	e.mu.Lock()
 	if e.running || e.closed {
 		e.mu.Unlock()
@@ -348,6 +354,7 @@ func (e *Endpoint) resetLocked() {
 	for id, ch := range e.pending {
 		ch <- callResult{err: errors.New("workbench session disconnected")}
 		delete(e.pending, id)
+		delete(e.pendingTrace, id)
 	}
 }
 
@@ -543,7 +550,10 @@ func (e *Endpoint) acceptReady(ctx context.Context, env envelope.SecureEnvelope)
 
 func (e *Endpoint) sendPayload(ctx context.Context, payloadType string, raw []byte, id string) error {
 	if payloadType == RequestType || payloadType == ResponseType {
-		if err := e.checkAuthorization(ctx); err != nil {
+		started := latencytrace.Clock()
+		err := e.checkAuthorization(ctx)
+		latencytrace.Record(ctx, "rpc.send_authorization", started, err, 0)
+		if err != nil {
 			return err
 		}
 	}
@@ -580,6 +590,7 @@ func (e *Endpoint) sendPayload(ctx context.Context, payloadType string, raw []by
 }
 
 func (e *Endpoint) acceptEncrypted(ctx context.Context, env envelope.SecureEnvelope) error {
+	arrived := latencytrace.Clock()
 	e.mu.Lock()
 	s := e.session
 	if s == nil || s.id != env.SessionID {
@@ -630,10 +641,15 @@ func (e *Endpoint) acceptEncrypted(ctx context.Context, env envelope.SecureEnvel
 		}
 		return nil
 	case ResponseType:
-		if err := e.checkAuthorization(ctx); err != nil {
+		ctx = e.responseTraceContext(ctx, raw)
+		latencytrace.At(ctx, "rpc.encrypted_received", arrived)
+		started := latencytrace.Clock()
+		err := e.checkAuthorization(ctx)
+		latencytrace.Record(ctx, "rpc.response_authorization", started, err, 0)
+		if err != nil {
 			return err
 		}
-		return e.acceptResponse(raw)
+		return e.acceptResponse(ctx, raw)
 	case RequestType:
 		return e.acceptRequest(sessionCtx, raw, env.SessionID)
 	}

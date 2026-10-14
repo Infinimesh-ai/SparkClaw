@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/latencytrace"
 )
 
 type Executor func(context.Context, Envelope, map[string][]byte) (Output, error)
@@ -290,6 +292,7 @@ func (s *Service) Submit(ctx context.Context, e Envelope, digest string) (Status
 }
 func (s *Service) run(ctx context.Context, key string, e Envelope, files map[string][]byte) {
 	defer s.wg.Done()
+	ctx = latencytrace.WithFields(ctx, latencytrace.Fields{Role: "gateway", RequestID: e.RequestID, Operation: "execution.submit"})
 	s.mu.Lock()
 	f := s.control.Fences[key]
 	if f.State != "accepted" {
@@ -311,6 +314,8 @@ func (s *Service) run(ctx context.Context, key string, e Envelope, files map[str
 	s.mu.Unlock()
 	var out Output
 	var err error
+	started := latencytrace.Clock()
+	latencytrace.At(ctx, "execution.start", started)
 	func() {
 		defer func() {
 			if recover() != nil {
@@ -322,7 +327,12 @@ func (s *Service) run(ctx context.Context, key string, e Envelope, files map[str
 	if ctx.Err() != nil {
 		err = ctx.Err()
 	}
+	latencytrace.Record(ctx, "execution.run", started, err, 0)
+	committed := latencytrace.Clock()
 	s.finish(key, out, err)
+	// finish retains its existing durable outcome handling. This span measures
+	// finalization cost, not a claim that a result was successfully committed.
+	latencytrace.Record(ctx, "execution.finalize", committed, err, 0)
 }
 func (s *Service) finish(key string, out Output, executionErr error) {
 	s.mu.Lock()

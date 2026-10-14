@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/latencytrace"
 	iscpcrypto "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/identity"
 	"github.com/gorilla/websocket"
@@ -115,7 +116,9 @@ func (c *RelayClient) Enrollment() EnrollmentBundle {
 	return c.enrollment
 }
 
-func (c *RelayClient) Submit(ctx context.Context, value any) error {
+func (c *RelayClient) Submit(ctx context.Context, value any) (resultErr error) {
+	started := latencytrace.Clock()
+	defer func() { latencytrace.Record(ctx, "relay.submit", started, resultErr, 0) }()
 	if err := c.ensureAccess(ctx); err != nil {
 		return err
 	}
@@ -131,7 +134,7 @@ func (c *RelayClient) Submit(ctx context.Context, value any) error {
 	return nil
 }
 
-func (c *RelayClient) submit(ctx context.Context, value any) error {
+func (c *RelayClient) submit(ctx context.Context, value any) (resultErr error) {
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("encode Relay envelope: %w", err)
@@ -152,6 +155,8 @@ func (c *RelayClient) submit(ctx context.Context, value any) error {
 		return err
 	}
 	request.Header.Set(accessProofHeader, proof)
+	started := latencytrace.Clock()
+	defer func() { latencytrace.Record(ctx, "relay.post", started, resultErr, 0) }()
 	response, err := c.client.Do(request)
 	if err != nil {
 		return fmt.Errorf("submit Relay envelope: %w", err)
@@ -200,16 +205,22 @@ func (c *RelayClient) runLocalDrainPolling(ctx context.Context, handle func(cont
 		// 1s plus processing leaves room below reference's shared 120/IP/min
 		// allowance for access-PoP POSTs, initial discovery and enrollment.
 		timer := time.NewTimer(time.Second)
+		started := latencytrace.Clock()
 		select {
 		case <-ctx.Done():
 			timer.Stop()
+			latencytrace.Record(ctx, "relay.poll_wait", started, ctx.Err(), 0)
 			return ctx.Err()
 		case <-timer.C:
+			latencytrace.Record(ctx, "relay.poll_wait", started, nil, 0)
 		}
 	}
 }
 
-func (c *RelayClient) runSocketOnce(ctx context.Context, handle func(context.Context, json.RawMessage) error, onReady func()) error {
+func (c *RelayClient) runSocketOnce(ctx context.Context, handle func(context.Context, json.RawMessage) error, onReady func()) (resultErr error) {
+	started := latencytrace.Clock()
+	var received uint64
+	defer func() { latencytrace.Record(ctx, "relay.socket", started, resultErr, received) }()
 	if err := c.ensureAccess(ctx); err != nil {
 		return err
 	}
@@ -269,6 +280,7 @@ func (c *RelayClient) runSocketOnce(ctx context.Context, handle func(context.Con
 	if ready.State != "ready" {
 		return errors.New("Relay did not enter ready state")
 	}
+	latencytrace.Record(ctx, "relay.authentication", started, nil, 0)
 	if err := connection.SetReadDeadline(time.Time{}); err != nil {
 		return errors.New("clear Relay authentication read deadline")
 	}
@@ -292,6 +304,7 @@ func (c *RelayClient) runSocketOnce(ctx context.Context, handle func(context.Con
 		}
 		switch message.State {
 		case "message":
+			received++
 			if len(message.Envelope) == 0 {
 				return errors.New("Relay delivered an empty envelope")
 			}
@@ -299,6 +312,7 @@ func (c *RelayClient) runSocketOnce(ctx context.Context, handle func(context.Con
 				return err
 			}
 		case "drained":
+			latencytrace.Record(ctx, "relay.drained", started, nil, received)
 			return nil
 		case "closed":
 			return errors.New("Relay closed the connection")

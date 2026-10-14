@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/latencytrace"
 )
 
-func (e *Endpoint) acceptResponse(raw []byte) error {
+func (e *Endpoint) acceptResponse(ctx context.Context, raw []byte) error {
 
 	var response Response
 	if err := strictDecode(raw, &response); err != nil {
@@ -23,6 +25,7 @@ func (e *Endpoint) acceptResponse(raw []byte) error {
 	if ch != nil {
 		delete(e.pending, response.ID)
 		ch <- callResult{response: response}
+		latencytrace.Record(ctx, "rpc.delivered", time.Time{}, nil, 0)
 	}
 	e.mu.Unlock()
 	// A deadline may expire while a valid response is already in flight.
@@ -38,6 +41,8 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 	if err := request.Validate(); err != nil {
 		return err
 	}
+	ctx = latencytrace.WithFields(ctx, requestTraceFields(e.config.Role, request))
+	latencytrace.Record(ctx, "rpc.request_received", time.Time{}, nil, 0)
 	if e.config.Mode == "node-managed" && e.config.ExpectedInstallationID != "" {
 		if request.InstallationID != "" && request.InstallationID != e.config.ExpectedInstallationID {
 			return errors.New("request installation differs from enrolled device")
@@ -91,7 +96,9 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 		}()
 		callCtx, cancel := context.WithTimeout(ctx, operationTimeout(request.Operation))
 		defer cancel()
+		started := latencytrace.Clock()
 		policy, policyErr := e.AuthorizationPolicy(callCtx)
+		latencytrace.Record(callCtx, "rpc.request_authorization", started, policyErr, 0)
 		if policyErr != nil {
 			return
 		}
@@ -107,7 +114,9 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 		}
 		response := Response{Status: 501, Code: ErrorCapabilityUnavailable, Error: "operation handler unavailable"}
 		if e.handler != nil {
+			started := latencytrace.Clock()
 			response = e.handler(callCtx, request)
+			latencytrace.Record(callCtx, "rpc.handler", started, callCtx.Err(), 0)
 		}
 		response.Profile = request.Profile
 		response.ID = request.ID
@@ -153,7 +162,7 @@ func (e *Endpoint) sendResponse(ctx context.Context, id string, response Respons
 	return e.sendPayload(ctx, ResponseType, raw, id)
 }
 
-func (e *Endpoint) Call(ctx context.Context, request Request) (Response, error) {
+func (e *Endpoint) Call(ctx context.Context, request Request) (result Response, resultErr error) {
 	spec, ok := LookupOperation(request.Operation)
 	if !ok || (e.config.Role == RoleResponder && spec.Direction != "reverse") || (e.config.Role == RoleInitiator && spec.Direction != "forward") {
 		return Response{}, errors.New("operation direction denied")
@@ -161,6 +170,10 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (Response, error) 
 	if err := request.Validate(); err != nil {
 		return Response{}, err
 	}
+	ctx = latencytrace.WithFields(ctx, requestTraceFields(e.config.Role, request))
+	started := latencytrace.Clock()
+	latencytrace.At(ctx, "rpc.call.start", started)
+	defer func() { latencytrace.Record(ctx, "rpc.call", started, resultErr, 0) }()
 	raw, err := encodeRequest(request)
 	if err != nil || len(raw) > MaxRequestBytes {
 		return Response{}, errors.New("workbench request exceeds transport limit")
@@ -195,8 +208,11 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (Response, error) 
 	id := e.session.id
 	ch := make(chan callResult, 1)
 	e.pending[request.ID] = ch
+	if e.pendingTrace != nil {
+		e.pendingTrace[request.ID] = requestTraceFields(e.config.Role, request)
+	}
 	e.mu.Unlock()
-	defer func() { e.mu.Lock(); delete(e.pending, request.ID); e.mu.Unlock() }()
+	defer func() { e.mu.Lock(); delete(e.pending, request.ID); delete(e.pendingTrace, request.ID); e.mu.Unlock() }()
 	if err := e.sendPayload(ctx, RequestType, raw, id); err != nil {
 		e.mu.Lock()
 		if e.session != nil && e.session.id == id {
@@ -220,6 +236,32 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (Response, error) 
 		e.setState("disconnected")
 		return Response{}, fmt.Errorf("workbench call deadline or cancellation: %w", ctx.Err())
 	}
+}
+
+func requestTraceFields(role string, request Request) latencytrace.Fields {
+	id := request.RequestID
+	if id == "" {
+		id = request.Params["request_id"]
+	}
+	return latencytrace.Fields{Role: role, RPCID: request.ID, RequestID: id, Operation: request.Operation}
+}
+
+// This diagnostic-only decode neither admits nor changes a response. The
+// existing strict validation still runs after its fresh authorization check.
+func (e *Endpoint) responseTraceContext(ctx context.Context, raw []byte) context.Context {
+	if !latencytrace.Enabled() {
+		return ctx
+	}
+	var header struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(raw, &header) != nil {
+		return ctx
+	}
+	e.mu.Lock()
+	fields := e.pendingTrace[header.ID]
+	e.mu.Unlock()
+	return latencytrace.WithFields(ctx, fields)
 }
 
 func (e *Endpoint) operationSlots(r Request) chan struct{} {

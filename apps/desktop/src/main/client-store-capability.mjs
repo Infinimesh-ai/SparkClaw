@@ -53,7 +53,10 @@ export class ClientStoreCapability {
         keys(request, ["conversation_id"]);
         {
           const content = this.store.read(scope, request.conversation_id);
-          if (this.execution) content.tasks = content.tasks.map((task) => ({ ...task, approvals: this.execution.approvals(scope, task.request_id) }));
+          if (this.execution) content.tasks = content.tasks.map((task) => {
+            const progress = this.execution.progressContent?.(scope, task.request_id);
+            return { ...task, approvals: this.execution.approvals(scope, task.request_id), ...(progress ? { progress_content: progress } : {}) };
+          });
           return content;
         }
       case "draft":

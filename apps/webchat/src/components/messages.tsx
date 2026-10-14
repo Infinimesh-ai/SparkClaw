@@ -87,10 +87,10 @@ export function MessageBubble({
   );
 }
 
-export function TaskProgressMessage({ id, sessionId, createdAt, text, language }: {
-  id: string; sessionId: string; createdAt: string; text: Copy; language: Language;
+export function TaskProgressMessage({ id, sessionId, createdAt, text, language, content = "" }: {
+  id: string; sessionId: string; createdAt: string; text: Copy; language: Language; content?: string;
 }) {
-  return <MessageBubble message={{ id: `progress:${id}`, session_id: sessionId, role: "assistant", content: "", created_at: createdAt }}
+  return <MessageBubble message={{ id: `progress:${id}`, session_id: sessionId, role: "assistant", content, created_at: createdAt }}
     inProgress streamStatuses={[]} text={text} language={language} onFeedback={async () => {}} />;
 }
 

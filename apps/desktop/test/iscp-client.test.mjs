@@ -69,7 +69,7 @@ async function fixture(t) {
       control_only:controlOnly,identity: { domain_id: descriptor.domain_id, initiator_device_id: descriptor.initiator_device_id, responder_device_id: descriptor.responder_device_id, responder_key_thumbprint: descriptor.responder_key_thumbprint, relay_url: descriptor.relay_url, relay_profile: descriptor.relay_profile ?? "production" } });
       if(controlOnly)return;
       if(f.revoked){child.send({ipc_version:1,type:"state",state:"authorization_revoked"});return;}
-      if(f.v2)child.send({ipc_version:1,type:"capabilities",capabilities:{schema_version:2,profile:"sparkclaw.workbench.transport.v2",session_id:"session",authorization_revision:f.revision||1,expires_at:new Date(Date.now()+60000).toISOString(),binding:scope,operations:[...ISCP_OPERATIONS,"capabilities.get"]}});
+      if(f.v2)child.send({ipc_version:1,type:"capabilities",capabilities:{schema_version:2,profile:"sparkclaw.workbench.transport.v2",session_id:"session",authorization_revision:f.revision||1,expires_at:new Date(Date.now()+60000).toISOString(),binding:scope,operations:[...ISCP_OPERATIONS,"capabilities.get",...(f.progressSupported?["execution.progress"]:[])]}});
       if (f.ready) child.send({ ipc_version: 1, type: "state", state: "transport_ready" }); });
     return child;
   };
@@ -405,6 +405,31 @@ test("local ACK rejection cannot restore an already submitted execution's unsent
   assert.equal(f.store.request(scope, task.request_id).status, "delivered");
   assert.equal(f.calls.filter((call) => call.operation === "execution.submit").length, 1);
   assert.equal(f.store.read(scope, conversation.id).messages.length, 2);
+});
+
+test("negotiated v2 progress uses the authenticated helper and canceling its long poll keeps the connection healthy", async t => {
+  const f = await fixture(t); f.v2 = true; f.progressSupported = true; f.timeoutMS = 1000; await f.start();
+  const conversation = f.store.create(scope, "progress"), task = f.store.enqueue(scope, conversation.id, "one execution");
+  let progress = 0;
+  f.handler = request => {
+    const original = f.store.request(scope, task.request_id);
+    if (request.operation === "execution.submit" || request.operation === "execution.lookup") return { status: 200,
+      body: { schema_version: 1, request_id: task.request_id, input_digest: original.input_digest, state: "running" } };
+    if (request.operation === "execution.progress") {
+      progress++; assert.equal(request.request_id, task.request_id); assert.equal(request.installation_id, f.store.installationID);
+      assert.deepEqual(request.params, { request_id: task.request_id }); assert.equal(request.body.input_digest, original.input_digest);
+      if (progress === 1) return { status: 200, body: { schema_version: 1, request_id: task.request_id, input_digest: original.input_digest,
+        epoch: "11111111-1111-4111-8111-111111111111", revision: 1, content: "Visible preview", digest: hash("Visible preview"), state: "running", truncated: false } };
+    }
+  };
+  await f.execution.submit(scope, task.request_id);
+  await waitFor(() => f.execution.progressContent(scope, task.request_id) === "Visible preview");
+  await waitFor(() => progress === 2);
+  f.execution.close(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.execution.progressContent(scope, task.request_id), undefined);
+  assert.equal(f.auth.status.state, "connected"); assert.equal(f.auth.transport.state, "transport_ready");
+  assert.equal(f.auth.transport.pending.size, 0); assert.equal(f.directHTTP, 0);
+  assert.equal(f.store.receipt(scope, task.request_id), null);
 });
 
 

@@ -2,6 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mapV2Route, requireOperation } from '../src/main/iscp-routes.mjs';
 
+test('progress uses only its negotiated v2 route with bounded closed read inputs', () => {
+ const id='11111111-1111-4111-8111-111111111111', body={input_digest:'a'.repeat(64),after_revision:0,wait_ms:10000};
+ const map=(suffix='',value=body)=>mapV2Route(new URL(`/api/v1/executions/${id}/progress${suffix}`,'https://iscp.invalid'),'POST',value);
+ assert.deepEqual(map(),{operation:'execution.progress',params:{request_id:id},body});
+ for(const value of [{...body,after_revision:-1},{...body,after_revision:Number.MAX_SAFE_INTEGER+1},{...body,wait_ms:10001},{...body,wait_ms:-1},{...body,input_digest:'invalid'},{...body,owner_id:'another'}])assert.throws(()=>map('',value),/invalid/);
+ assert.throws(()=>map('?owner_id=another'),/invalid/);
+});
+
 test('original device-management routes accept only fixed operations and closed inputs', () => {
  assert.equal(mapV2Route(new URL('/api/clients','https://iscp.invalid'),'GET').operation,'clients.list');
  assert.deepEqual(mapV2Route(new URL('/api/clients/client','https://iscp.invalid'),'DELETE'),{operation:'clients.delete',params:{id:'client'}});

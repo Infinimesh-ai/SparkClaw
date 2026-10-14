@@ -131,8 +131,17 @@ describe("workbench local workbench", () => {
       expect(submit).toHaveBeenCalledExactlyOnceWith(task.request_id);
       await act(async () => accept());
       expect(host.querySelector(".taskProgress")).not.toBeNull();
+      task.progress_content = "Preview one";
+      await act(async () => { listeners.forEach(listener => listener()); });
+      expect(host.textContent).toContain("Preview one");
+      expect(host.querySelector(".taskProgress")).toBeNull();
+      task.progress_content = "Preview one and two";
+      await act(async () => { listeners.forEach(listener => listener()); });
+      expect(host.textContent).toContain("Preview one and two");
+      expect(host.querySelectorAll(".message.assistant")).toHaveLength(1);
       await act(async () => select(1));
       expect(host.querySelector(".taskProgress")).toBeNull();
+      expect(host.textContent).not.toContain("Preview one");
       task.status = deliveryState;
       histories.one.messages.push({ id: "answer", role: "assistant", content: "Plan reviewed", created_at: task.created_at });
       await act(async () => { listeners.forEach(listener => listener()); await new Promise(resolve => setTimeout(resolve, 100)); });
@@ -140,6 +149,8 @@ describe("workbench local workbench", () => {
       expect(host.querySelector(".sessionActivity.running")).toBeNull();
       await act(async () => select(0));
       expect(host.textContent).toContain("Plan reviewed"); expect(host.querySelector(".taskProgress")).toBeNull();
+      expect(host.textContent).not.toContain("Preview one");
+      expect(host.querySelectorAll(".message.assistant")).toHaveLength(1);
       expect(host.querySelector<HTMLTextAreaElement>(".composer textarea")!.disabled).toBe(false);
       for (const state of ["failed", "canceled", "unknown"]) {
         task.status = state;

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { traceLatency, latencyNow } from "./latency-trace.mjs";
 import { CLIENT_LIMITS, parseResultPayload } from "./client-store.mjs";
 import { ISCPRequestNotSentError } from "./iscp-transport.mjs";
+import { ExecutionProgressClient } from "./execution-progress.mjs";
 
 const SERVER_STATES = new Set(["accepted", "running", "completed", "failed", "canceled", "unknown", "delivery_expired", "delivered"]);
 const AUTH_GENERATION = Symbol("execution_auth_generation");
@@ -19,10 +20,13 @@ export class ExecutionClient {
     this.controller = new AbortController();
     this.closed = false;
     this.lifetime = 0;
+    this.progressClient = new ExecutionProgressClient({ auth, store, getIdentity,
+      onChange: () => this.onChange(), onTerminal: (scope, requestID) => this.reconcile(scope, requestID) });
   }
 
   start() {
     this.closed = false;
+    this.progressClient.resume();
     if (this.controller.signal.aborted) this.controller = new AbortController();
     if (!this.timer) this.timer = setInterval(() => void this.reconcilePending().catch(() => {}), this.intervalMS);
     this.timer.unref?.();
@@ -30,7 +34,9 @@ export class ExecutionClient {
     return this;
   }
 
-  close() { this.lifetime++; this.closed = true; this.verifiedApprovals.clear(); this.controller.abort(); clearInterval(this.timer); this.timer = undefined; }
+  close() { this.lifetime++; this.closed = true; this.verifiedApprovals.clear(); this.controller.abort(); this.progressClient.close(); clearInterval(this.timer); this.timer = undefined; }
+
+  progressContent(scope, requestID) { return this.progressClient.read(scope, requestID); }
 
   async submit(scope, requestID, { canSubmit = () => true, scheduleClaim } = {}) {
     scope = this.#boundScope(scope);
@@ -193,6 +199,7 @@ export class ExecutionClient {
   async #lookup(scope, task) {
     const receipt = this.store.receipt(scope, task.request_id);
     if (receipt && !receipt.acknowledged) { this.#queueAck(scope, receipt); return true; }
+    this.progressClient.ensure(scope, task);
     const lookupStarted = latencyNow();
     traceLatency("execution.lookup.start", { request_id: task.request_id });
     const response = await this.#fetch(scope, `/api/v1/executions/${task.request_id}`);
@@ -207,6 +214,7 @@ export class ExecutionClient {
       this.verifiedApprovals.delete(task.request_id);
       this.store.syncApprovals(scope, task.request_id, [], "delivery_too_large");
       this.store.setExecutionState(scope, task.request_id, "delivery_too_large");
+      this.progressClient.forget(scope, task.request_id, false);
       return true;
     }
     if (!response.ok) { await response.body?.cancel(); throw new Error("Execution status is unavailable"); }
@@ -229,6 +237,7 @@ export class ExecutionClient {
     if (event.state !== "completed") {
       if (event.result) throw new Error("Unexpected execution result");
       this.store.setExecutionState(scope, task.request_id, event.state);
+      this.progressClient.ensure(scope, this.store.request(scope, task.request_id));
       return;
     }
     const result = event.result;
@@ -251,6 +260,7 @@ export class ExecutionClient {
     const commitStarted = latencyNow();
     const receipt = this.store.commitDelivery(scope, { request_id: task.request_id, ...result }, files);
     traceLatency("delivery.committed", { request_id: task.request_id, duration_ms: latencyNow() - commitStarted });
+    this.progressClient.forget(scope, task.request_id, false);
     this.onChange();
     traceLatency("delivery.notified", { request_id: task.request_id });
     this.#queueAck(scope, receipt);

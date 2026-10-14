@@ -463,7 +463,7 @@ export function LocalWorkbench() {
             message={{ ...message, session_id: selected }} streamStatuses={[]} text={text} language={language}
             onFeedback={async () => {}} />)}
           {pendingTasks.map(task => <TaskProgressMessage key={`progress:${task.id}`} id={task.id} sessionId={selected}
-            createdAt={task.created_at} text={text} language={language} />)}
+            createdAt={task.created_at} content={task.progress_content} text={text} language={language} />)}
           {submitting && !pendingTasks.length && <TaskProgressMessage id="submitting" sessionId={selected}
             createdAt={new Date().toISOString()} text={text} language={language} />}
           {content.tasks.filter((task) => task.status === "delivery_too_large").map((task) => <section className="localFeedback" role="alert" key={task.id}>

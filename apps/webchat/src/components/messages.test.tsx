@@ -24,6 +24,14 @@ describe("task progress in the answer", () => {
     expect(markup).toContain("First answer text");
     expect(markup).toContain("Reading file");
   });
+  it.each(["en", "zh"] as const)("renders temporary progress in the original assistant bubble in %s", language => {
+    const markup = renderToStaticMarkup(<TaskProgressMessage id="request" sessionId="session" createdAt="" content="First answer fragment"
+      text={dictionaries[language]} language={language} />);
+    expect(markup).toContain('class="message assistant"');
+    expect(markup).toContain("First answer fragment");
+    expect(markup).not.toContain("taskProgress");
+    expect(markup).not.toContain("feedbackBar");
+  });
 });
 
 describe("MessageAttachments", () => {

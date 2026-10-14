@@ -24,6 +24,12 @@ export function mapV2Route(url,method,body) {
       }else if(template[i]!==segments[i]){matched=false;break;}
     }
     if(matched){
+      if (operation.name === 'execution.progress') {
+        if (url.search || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(params.request_id) ||
+            !body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).sort().join(',') !== 'after_revision,input_digest,wait_ms' ||
+            !/^[a-f0-9]{64}$/u.test(body.input_digest) || !Number.isSafeInteger(body.after_revision) || body.after_revision < 0 ||
+            !Number.isSafeInteger(body.wait_ms) || body.wait_ms < 0 || body.wait_ms > 10000) throw new Error('ISCP progress request is invalid');
+      }
       if (operation.name.startsWith('clients.')) {
         const object = body && typeof body === 'object' && !Array.isArray(body);
         if (url.search || operation.name === 'clients.list' && body !== undefined ||

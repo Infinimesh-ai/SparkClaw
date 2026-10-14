@@ -41,6 +41,9 @@ type Service struct {
 	// the Gateway boundary after a restart. Existing execution fences remain.
 	revokedClients  map[string]bool
 	revocationDirty bool
+	progressEpoch   string
+	progress        map[string]*progressEntry
+	progressBytes   int
 }
 
 func keyFor(owner, client, request string) string { return owner + "\x00" + client + "\x00" + request }
@@ -85,6 +88,8 @@ func New(root string, execute Executor) (*Service, error) {
 		return nil, errors.New("workbench spool key unavailable")
 	}
 	s.key = key
+	s.progressEpoch = newUUID()
+	s.progress = map[string]*progressEntry{}
 	raw, err := readPrivate(filepath.Join(root, "control.json"), 64<<20)
 	if err == nil {
 		decoder := json.NewDecoder(strings.NewReader(string(raw)))
@@ -322,7 +327,8 @@ func (s *Service) run(ctx context.Context, key string, e Envelope, files map[str
 				err = ErrUnavailable
 			}
 		}()
-		out, err = s.execute(ctx, e, files)
+		runCtx := context.WithValue(ctx, progressContextKey{}, progressPublisher(func(text string) { s.publishProgress(ctx, key, text) }))
+		out, err = s.execute(runCtx, e, files)
 	}()
 	if ctx.Err() != nil {
 		err = ctx.Err()
@@ -337,6 +343,7 @@ func (s *Service) run(ctx context.Context, key string, e Envelope, files map[str
 func (s *Service) finish(key string, out Output, executionErr error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer s.pruneProgressLocked()
 	delete(s.approvals, key)
 	if cancel := s.active[key]; cancel != nil {
 		cancel()
@@ -491,6 +498,7 @@ func (s *Service) File(owner, client, request, file string) ([]byte, error) {
 func (s *Service) Ack(owner, client, request string, sequence int, digest string, durable bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer s.pruneProgressLocked()
 	key := keyFor(owner, client, request)
 	f, ok := s.control.Fences[key]
 	if !ok {
@@ -518,6 +526,7 @@ func (s *Service) Ack(owner, client, request string, sequence int, digest string
 func (s *Service) Cancel(owner, client, request string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer s.pruneProgressLocked()
 	key := keyFor(owner, client, request)
 	f, ok := s.control.Fences[key]
 	if !ok {
@@ -539,6 +548,7 @@ func (s *Service) Cancel(owner, client, request string) error {
 func (s *Service) Sweep() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer s.pruneProgressLocked()
 	now := s.now()
 	keep := map[string]bool{}
 	for key, f := range s.control.Fences {
@@ -601,6 +611,11 @@ func (s *Service) Close() {
 	s.closeOnce.Do(func() {
 		s.mu.Lock()
 		s.closed = true
+		s.syncProgressLocked()
+		for _, p := range s.progress {
+			p.notify()
+		}
+		s.progress = nil
 		// Persist interruption before canceling waiters. A decision serialized
 		// before this lock keeps its receipt; one arriving later is rejected.
 		changed := false

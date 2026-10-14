@@ -1880,5 +1880,24 @@
       "path": "/api/clients/{id}"
     },
     "capacity_class": "business"
+  },
+  {
+    "name": "execution.progress",
+    "constant": "OperationExecutionProgress",
+    "version": 2,
+    "direction": "forward",
+    "scope": "workbench.text",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "request_id"
+    ],
+    "capacity_class": "business",
+    "http": {
+      "method": "POST",
+      "path": "/api/v1/executions/{request_id}/progress"
+    }
   }
 ]

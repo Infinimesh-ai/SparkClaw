@@ -37,6 +37,7 @@ func profileEndpoints(t *testing.T, initiatorV2, responderV2 bool, handlers ...H
 	cfg.ApplicationProfiles = nil
 	if responderV2 {
 		cfg.ApplicationProfiles = []string{ProfileV2, Profile}
+		cfg.QualifiedCapabilities = []string{OperationExecutionProgress}
 	}
 	responder, err := newEndpoint(cfg, bmat, b, func(ctx context.Context, r Request) Response {
 		info, ok := SessionFromContext(ctx)

@@ -14,7 +14,7 @@ func TestNewNegotiationFallsBackToExactOldOfferWithoutReplayingFailures(t *testi
 	var ids []string
 	response, err := requestRPCNegotiation(context.Background(), func(ctx context.Context, r Request) (Response, error) {
 		ids = append(ids, r.ID)
-		if len(ids) == 1 {
+		if len(ids) <= 2 {
 			if !bytes.Contains(r.Body, []byte(`"unbounded_rpc":true`)) {
 				t.Fatal("new RPC policy was not offered")
 			}
@@ -26,7 +26,7 @@ func TestNewNegotiationFallsBackToExactOldOfferWithoutReplayingFailures(t *testi
 		}
 		return Response{Status: 200, Body: json.RawMessage(`{"legacy":true}`)}, nil
 	}, []string{ProfileV2, Profile})
-	if err != nil || response.Status != 200 || len(ids) != 2 || ids[0] == ids[1] {
+	if err != nil || response.Status != 200 || len(ids) != 3 || ids[0] == ids[1] || ids[1] == ids[2] {
 		t.Fatalf("compatibility read failed: %+v %v", response, err)
 	}
 	for _, status := range []int{401, 403, 429, 503} {

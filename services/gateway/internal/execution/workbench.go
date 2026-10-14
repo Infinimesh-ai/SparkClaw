@@ -377,6 +377,7 @@ func (s *Service) ContinueWorkbench(ctx context.Context, binding WorkbenchBindin
 func (s *Service) RevokeWorkbenchClient(clientID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer s.pruneProgressLocked()
 	if s.revokedClients == nil {
 		s.revokedClients = map[string]bool{}
 	}

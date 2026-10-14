@@ -149,6 +149,8 @@ func domainMutation(operation string) bool {
 
 func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.Request) iscpDomainResult {
 	switch request.Operation {
+	case iscpworkbench.OperationExecutionProgress:
+		return a.executionProgress(ctx, request)
 	case iscpworkbench.OperationToolsList, iscpworkbench.OperationToolsInvoke:
 		return a.tools(ctx, request)
 	case iscpworkbench.OperationCapabilitiesGet:

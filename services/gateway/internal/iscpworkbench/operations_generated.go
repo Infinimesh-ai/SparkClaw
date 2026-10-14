@@ -117,4 +117,5 @@ const (
 	OperationClientsIssue = "clients.issue"
 	OperationClientsRevoke = "clients.revoke"
 	OperationClientsDelete = "clients.delete"
+	OperationExecutionProgress = "execution.progress"
 )

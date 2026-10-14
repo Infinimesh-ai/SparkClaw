@@ -92,8 +92,9 @@ func (c Config) supportsV2() bool { return slices.Contains(c.ApplicationProfiles
 
 type negotiationOffer struct {
 	Negotiation struct {
-		Profiles     []string `json:"profiles"`
-		UnboundedRPC bool     `json:"unbounded_rpc,omitempty"`
+		Profiles          []string `json:"profiles"`
+		UnboundedRPC      bool     `json:"unbounded_rpc,omitempty"`
+		ExecutionProgress bool     `json:"execution_progress,omitempty"`
 	} `json:"transport_negotiation"`
 }
 type negotiationReply struct {
@@ -113,6 +114,9 @@ func (e *Endpoint) capabilitiesFor(id string, profile string) TransportCapabilit
 	version := 1
 	if profile == ProfileV2 {
 		ops = OperationsV2ForMode(e.config.Mode)
+		if !slices.Contains(e.config.QualifiedCapabilities, OperationExecutionProgress) {
+			ops = withoutProgress(ops)
+		}
 		version = 2
 	}
 	return TransportCapabilities{SchemaVersion: version, Profile: profile, SessionID: id, Revision: "2", AuthorizationRevision: e.grantMaterial().grant.RevocationEpoch, ExpiresAt: time.Now().UTC().Add(5 * time.Minute), Operations: ops, QualifiedOperations: slices.Clone(e.config.QualifiedCapabilities), Binding: e.config.Binding, Limits: TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, MaxConcurrent, 8192, 2}}
@@ -132,6 +136,10 @@ func (e *Endpoint) answerNegotiation(ctx context.Context, id string, r Request) 
 		profile = ProfileV2
 	}
 	caps := e.capabilitiesFor(id, profile)
+	if !offer.Negotiation.ExecutionProgress {
+		caps.Operations = withoutProgress(caps.Operations)
+		caps.QualifiedOperations = withoutProgress(caps.QualifiedOperations)
+	}
 	if offer.Negotiation.UnboundedRPC {
 		caps.Limits.Concurrent = 0
 	}
@@ -194,13 +202,19 @@ func requestRPCNegotiation(ctx context.Context, caller func(context.Context, Req
 	var offer negotiationOffer
 	offer.Negotiation.Profiles = profiles
 	offer.Negotiation.UnboundedRPC = true
+	offer.Negotiation.ExecutionProgress = slices.Contains(profiles, ProfileV2)
 	call := func() (Response, error) {
 		body, _ := json.Marshal(offer)
 		return caller(ctx, Request{Type: RequestType, Profile: Profile, ID: newUUID(), Operation: OperationIdentity, Body: body})
 	}
 	r, err := call()
-	// Old peers strictly decode the original offer. Retry only this safe
-	// negotiation read with its original shape, keeping all v2 operations.
+	// Each retry is only the read-only negotiation, never a user operation.
+	// First keep unbounded RPC support when a peer predates progress.
+	if err == nil && offer.Negotiation.ExecutionProgress && (r.Status == 400 || r.Status == 404 || r.Status == 501) {
+		offer.Negotiation.ExecutionProgress = false
+		r, err = call()
+	}
+	// Older bounded peers require the original offer shape.
 	if err == nil && (r.Status == 400 || r.Status == 404 || r.Status == 501) {
 		offer.Negotiation.UnboundedRPC = false
 		r, err = call()
@@ -218,8 +232,12 @@ func validateNegotiation(c TransportCapabilities, id string, mode ...string) err
 	}
 	now := time.Now()
 	compatible := slices.Equal(c.Operations, ops)
+	if c.Profile == ProfileV2 {
+		compatible = compatible || slices.Equal(c.Operations, withoutProgress(ops))
+	}
 	if c.Profile == ProfileV2 && (len(mode) == 0 || mode[0] != "node-managed") {
-		compatible = compatible || slices.Equal(c.Operations, OperationsV2ForMode("local-test"))
+		localOps := OperationsV2ForMode("local-test")
+		compatible = compatible || slices.Equal(c.Operations, localOps) || slices.Equal(c.Operations, withoutProgress(localOps))
 	}
 	expectedLimits := TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, c.Limits.Concurrent, 8192, 2}
 	// Original v1 Grants predate revocation epochs. negotiate still binds this
@@ -228,7 +246,7 @@ func validateNegotiation(c TransportCapabilities, id string, mode ...string) err
 		return errors.New("invalid negotiated capability binding")
 	}
 	for _, name := range c.QualifiedOperations {
-		if !slices.Contains(ops, name) {
+		if !slices.Contains(ops, name) || (name == OperationExecutionProgress && !slices.Contains(c.Operations, name)) {
 			return errors.New("unregistered qualified operation")
 		}
 	}
@@ -246,4 +264,9 @@ func (e *Endpoint) negotiationFailed(id string) {
 	if current {
 		e.setState("capability_negotiation_failed")
 	}
+}
+
+// Progress is an optional extension of the original exact v2 registry.
+func withoutProgress(ops []string) []string {
+	return slices.DeleteFunc(slices.Clone(ops), func(op string) bool { return op == OperationExecutionProgress })
 }

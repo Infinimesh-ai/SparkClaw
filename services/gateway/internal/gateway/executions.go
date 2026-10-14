@@ -68,6 +68,7 @@ func (s *Server) registerExecutionRoutes() {
 	s.mux.HandleFunc("POST /api/v1/installations", s.installExecutionClient)
 	s.mux.HandleFunc("PUT /api/v1/inputs/{request}/files/{file}", s.uploadExecutionInput)
 	s.mux.HandleFunc("POST /api/v1/executions", s.submitExecution)
+	s.mux.HandleFunc("POST /api/v1/executions/{request}/progress", s.executionProgress)
 	s.mux.HandleFunc("GET /api/v1/executions/{request}", s.lookupExecution)
 	s.mux.HandleFunc("POST /api/v1/executions/{request}/ack", s.ackExecution)
 	s.mux.HandleFunc("POST /api/v1/executions/{request}/approvals/{approval}", s.resolveExecutionApproval)

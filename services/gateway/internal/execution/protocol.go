@@ -123,6 +123,10 @@ type Status struct {
 // Fence is the complete durable control field allowlist. No maps, arbitrary
 // diagnostic strings, context, titles, prompts or tool outputs may be added.
 type Fence struct {
+	// Process-only progress cursor survives preview eviction, never JSON or restart.
+	progressRevision  uint64
+	progressState     string
+	progressTruncated bool
 	Revision          uint64            `json:"revision,omitempty"`
 	TerminationReason TerminationReason `json:"termination_reason,omitempty"`
 	Approvals         []ApprovalRecord  `json:"approvals,omitempty"`

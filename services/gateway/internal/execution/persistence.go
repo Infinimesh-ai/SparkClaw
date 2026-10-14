@@ -96,6 +96,7 @@ func atomicFile(path string, raw []byte) error {
 	return dir.Sync()
 }
 func (s *Service) saveLocked() error {
+	defer s.syncProgressLocked()
 	raw, err := json.Marshal(s.control)
 	if err != nil {
 		return err

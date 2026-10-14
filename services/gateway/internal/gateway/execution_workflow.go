@@ -117,7 +117,12 @@ func (s *Server) executeWorkbenchWorkflow(ctx context.Context, e execution.Envel
 	}
 	// A client-provided assistant message is ordinary conversation input. No
 	// previous run, approval, tool receipt or trusted ingress is imported.
-	result, err := runtime.HandleMessageWithAttachments(ctx, session.ID, e.Messages[len(e.Messages)-1].Content, attachments)
+	result, err := runtime.HandleMessageStreamWithAttachments(ctx, session.ID, e.Messages[len(e.Messages)-1].Content, attachments, func(event agent.StreamEvent) error {
+		if event.Type == "text_delta" {
+			execution.PublishProgress(ctx, event.Text)
+		}
+		return nil
+	})
 	if err != nil {
 		return execution.Output{}, err
 	}

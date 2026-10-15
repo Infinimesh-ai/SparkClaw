@@ -3,30 +3,10 @@ package gateway
 import (
 	"context"
 	"net/http"
-	"slices"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 )
-
-// Provider login opens an owner-visible backend browser. Reading mailbox data
-// or changing settings alone never authorizes that browser side effect.
-func workbenchOperationPermitted(spec iscpworkbench.OperationSpec, scopes []string) bool {
-	if !slices.Contains(scopes, spec.Scope) {
-		return false
-	}
-	switch spec.Name {
-	case iscpworkbench.OperationMailProvidersUpdate, iscpworkbench.OperationMailProvidersCheck,
-		iscpworkbench.OperationMailConversationsRename, iscpworkbench.OperationMailConversationsDelete,
-		iscpworkbench.OperationMailSourceCleanup, iscpworkbench.OperationMailClassification, iscpworkbench.OperationMailAssignment,
-		iscpworkbench.OperationMailSenderRulesUpdate, iscpworkbench.OperationMailIntakeUpdate, iscpworkbench.OperationMailRepliesPolish:
-		return slices.Contains(scopes, "mail.read")
-	case iscpworkbench.OperationMailProvidersLogin:
-		return slices.Contains(scopes, "mail.read") && slices.Contains(scopes, "settings.write")
-	default:
-		return true
-	}
-}
 
 func (a *iscpDomainAdapter) mailProviders(ctx context.Context, request iscpworkbench.Request) iscpDomainResult {
 	if a.server.email == nil {

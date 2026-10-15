@@ -218,8 +218,8 @@ func TestWorkbenchISCPV2SignedPermissionsCASAndDurableReceipt(t *testing.T) {
 	badInstall := v2Request(wb.OperationSettingsOwnerGet, nil)
 	badInstall.InstallationID = "ffffffff-ffff-4fff-8fff-ffffffffffff"
 	requireV2Status(t, f.call(t, badInstall), 403)
-	requireV2Status(t, f.call(t, v2Request(wb.OperationNotificationsList, nil)), 501)
-	requireV2Status(t, f.call(t, v2Request(wb.OperationToolsList, nil)), 403)
+	requireV2Status(t, f.call(t, v2Request(wb.OperationNotificationsList, nil)), 200)
+	requireV2Status(t, f.call(t, v2Request(wb.OperationToolsList, nil)), 200)
 	credentials := v2Request(wb.OperationSettingsCredentialsAdd, []byte(`{}`))
 	credentials.Params = map[string]string{"integration_id": "test"}
 	requireV2Status(t, f.call(t, credentials), 503)

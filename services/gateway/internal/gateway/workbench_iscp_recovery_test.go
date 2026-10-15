@@ -78,9 +78,9 @@ func TestISCPDomainEventOutboxReplaysUntilACKAndFencesScopeEpoch(t *testing.T) {
 	if r := call(iscpworkbench.OperationEventsAck, map[string]any{"cursor": next.Cursor}); r.status != 200 {
 		t.Fatal(r)
 	}
-	session.Scopes = []string{"notifications.read"}
-	if r := call(iscpworkbench.OperationEventsPull, map[string]any{"cursor": next.Cursor}); r.status != 403 {
-		t.Fatalf("scope revoked %+v", r)
+	session.Scopes = []string{}
+	if r := call(iscpworkbench.OperationEventsPull, map[string]any{"cursor": next.Cursor}); r.status != 200 {
+		t.Fatalf("trusted session lost events without grant scopes %+v", r)
 	}
 	session.Scopes = []string{"notifications.read", "settings.read"}
 	entries, _ := os.ReadDir(journal.root)
@@ -155,9 +155,9 @@ func TestISCPDomainToolsUseExistingExecutionLedgerAndFilteredDefinitions(t *test
 	if result := adapter.toolsWithSession(ctx, request, session); result.status != 409 {
 		t.Fatal("unbound envelope accepted")
 	}
-	session.Scopes = []string{"settings.read"}
+	session.QualifiedOperations = nil
 	if result := adapter.toolsWithSession(ctx, request, session); result.status != 403 {
-		t.Fatal("session without tools.invoke was admitted")
+		t.Fatal("transport without tool operations was admitted")
 	}
 }
 

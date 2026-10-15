@@ -172,9 +172,9 @@ func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.
 		if !found {
 			return domainError(404, "operation_not_found")
 		}
-		spec, known := iscpworkbench.LookupOperation(receipt.Operation)
+		_, known := iscpworkbench.LookupOperation(receipt.Operation)
 		session, authenticated := iscpworkbench.SessionFromContext(ctx)
-		if !known || !authenticated || !workbenchOperationPermitted(spec, session.Scopes) {
+		if !known || !authenticated || session.GrantRevision == 0 {
 			return domainError(403, "permission_denied")
 		}
 		if !receipt.Complete {

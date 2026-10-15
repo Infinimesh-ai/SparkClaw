@@ -15,7 +15,7 @@ func workbenchV2Authorization(ctx context.Context, request iscpworkbench.Request
 		return workbenchV2Error(request, 400, "authorization_status_unavailable")
 	}
 	policy, err := session.CheckAuthorization(ctx)
-	if err != nil || policy.State != iscpauth.Active || policy.Revision != session.GrantRevision || !policy.Allows("authorization.manage") {
+	if err != nil || policy.State != iscpauth.Active || policy.Revision != session.GrantRevision {
 		return workbenchV2Error(request, 403, "authorization_closed")
 	}
 	value := map[string]any{

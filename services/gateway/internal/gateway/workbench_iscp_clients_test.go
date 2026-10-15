@@ -280,15 +280,6 @@ func TestNodeManagedClientsClosedInputsTokenPermissionsAndScopes(t *testing.T) {
 	if f.handler(f.ctx, q).Status != 400 {
 		t.Fatal("path escape admitted")
 	}
-	for _, name := range []string{iscpworkbench.OperationClientsList, iscpworkbench.OperationClientsIssue, iscpworkbench.OperationClientsRevoke} {
-		spec, _ := iscpworkbench.LookupOperation(name)
-		if workbenchOperationPermitted(spec, []string{"workbench.text"}) {
-			t.Fatal("old text permission bypass", name)
-		}
-		if !workbenchOperationPermitted(spec, []string{spec.Scope}) {
-			t.Fatal("existing settings permission rejected", name)
-		}
-	}
 	if err := os.Chmod(f.tokenFile, 0644); err != nil {
 		t.Fatal(err)
 	}

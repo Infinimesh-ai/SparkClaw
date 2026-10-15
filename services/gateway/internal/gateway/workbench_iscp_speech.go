@@ -358,7 +358,7 @@ func watchISCPSpeechAuthorization(session *iscpSpeechSession, authorization iscp
 			checked, cancel := context.WithTimeout(session.ctx, 3*time.Second)
 			policy, err := authorization.CheckAuthorization(checked)
 			cancel()
-			if err == nil && policy.Revision == authorization.GrantRevision && policy.Allows("speech.realtime") {
+			if err == nil && policy.Revision == authorization.GrantRevision && policy.Usable() {
 				continue
 			}
 			session.mu.Lock()
@@ -386,7 +386,7 @@ func watchISCPRecordingAuthorization(ctx context.Context, cancel context.CancelF
 			checked, stop := context.WithTimeout(ctx, 3*time.Second)
 			policy, err := authorization.CheckAuthorization(checked)
 			stop()
-			if err != nil || policy.Revision != authorization.GrantRevision || !policy.Allows("speech.transcribe") {
+			if err != nil || policy.Revision != authorization.GrantRevision || !policy.Usable() {
 				cancel()
 				return
 			}

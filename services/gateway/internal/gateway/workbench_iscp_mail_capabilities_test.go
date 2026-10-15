@@ -60,18 +60,9 @@ func TestISCPMailAttachmentCapabilityRequiresCompleteObjectTransport(t *testing.
 	if got := inspect(session); !got.Enabled {
 		t.Fatalf("complete dependency set disabled %+v", got)
 	}
-	for _, operation := range operations {
-		adapter.config.QualifiedCapabilities = slices.DeleteFunc(slices.Clone(operations), func(v string) bool { return v == operation })
-		if got := inspect(session); got.Enabled || got.Qualified {
-			t.Fatalf("missing qualification %s enabled %+v", operation, got)
-		}
-	}
-	adapter.config.QualifiedCapabilities = slices.Clone(operations)
-	for _, scope := range session.Scopes {
-		limited := session
-		limited.Scopes = slices.DeleteFunc(slices.Clone(session.Scopes), func(v string) bool { return v == scope })
-		if got := inspect(limited); got.Enabled || got.Permitted {
-			t.Fatalf("missing scope %s enabled %+v", scope, got)
-		}
+	// Neither grant scopes nor responder qualification narrow a trusted session.
+	adapter.config.QualifiedCapabilities = nil
+	if got := inspect(iscpworkbench.SessionInfo{Profile: iscpworkbench.ProfileV2}); !got.Enabled || !got.Permitted || !got.Qualified {
+		t.Fatalf("scope-free session lost attachments %+v", got)
 	}
 }

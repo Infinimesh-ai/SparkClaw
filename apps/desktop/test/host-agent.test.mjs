@@ -86,3 +86,30 @@ test("lost reply after durable local completion merges backend unknown by exact 
  auth.authorizedFetch = async () => Response.json({ fences: [{ ...fence, digest: "0".repeat(64) }] });
  await assert.rejects(agent.refreshFences(), /digest conflicts/);assert.equal(agent.state, "reconciliation_conflict");assert.equal(pages.size, 0);
 });
+
+test("ISCP connection grants the device browser automatically and retries after failure, LAN does not", async (t) => {
+ const root = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-host-auto-"));t.after(() => fs.rm(root, { recursive: true, force: true }));
+ const registry = { runtimeGeneration: "runtime_test", closeHostPages() {} };
+ const auth = { status: { state: "connected", capabilities: { browser: true } }, connection: { ownerID: "owner", clientID: "client" }, descriptor: { transport: "iscp" } };
+ const agent = new BrowserHostAgent({ auth, registry, userDataDir: root });
+ t.after(() => agent.stop());
+ await agent.start({ installation_id: "installation" });
+ let grants = 0; let fail = true;
+ agent.grant = async () => { grants++; if (fail) { fail = false; throw new Error("unavailable"); } agent.state = "connected"; };
+ agent.autoGrantISCP();
+ await until(() => grants === 1 && !agent.autoGranting);
+ assert.ok(agent.autoGrantTimer, "a failed automatic grant schedules a retry");
+ agent.autoGrantDelay = 0; agent.autoGrantISCP();
+ await until(() => agent.state === "connected");
+ assert.equal(grants, 2);
+ agent.autoGrantISCP(); await new Promise((resolve) => setTimeout(resolve, 10));
+ assert.equal(grants, 2, "an already connected host is not granted again");
+
+ agent.state = "fenced"; agent.autoGrantISCP(); await new Promise((resolve) => setTimeout(resolve, 10));
+ assert.equal(grants, 2, "a fenced host waits for the user");
+ agent.state = "ungranted"; auth.status.capabilities.browser = false; agent.autoGrantISCP(); await new Promise((resolve) => setTimeout(resolve, 10));
+ assert.equal(grants, 2, "no grant without the backend browser capability");
+ auth.status.capabilities.browser = true; auth.descriptor = { schemaVersion: 2, origin: "https://example.test" };
+ agent.autoGrantISCP(); await new Promise((resolve) => setTimeout(resolve, 10));
+ assert.equal(grants, 2, "LAN keeps the explicit user grant");
+});

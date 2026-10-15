@@ -40,7 +40,7 @@ ClientStore 位于 `userData/client-r3`，由 main 管理 SQLite WAL／FULL，sc
 | 结果 | payload／文件合计 8 MiB；生成后绝对 24 小时过期；ACK 提前清理 |
 | 本地选择／附件副本 | 每文件 64 MiB；执行上传仍受任务限制，生成文件受结果限制 |
 | 持久执行防重 | 每部署生命周期 100,000 条；满容量拒绝准入，不删除防重记录 |
-| 浏览器授权／租约 | 明确 Host grant 15 分钟；租约 30 秒、心跳 10 秒；精确身份／runtime／epoch／page／generation |
+| 浏览器授权／租约 | Host grant 15 分钟（LAN 须用户明确授权；已认证 ISCP 连接报告浏览器能力后自动申请并退避重试；被 fence 或核对冲突的宿主仍等待用户处理）；租约 30 秒、心跳 10 秒；精确身份／runtime／epoch／page／generation |
 | 邮箱同步 | 完整编码页最多 1 MiB；有界分页、revision、epoch／cursor 恢复和墓碑 |
 | 单次定时任务 | 未来 24 小时内，无重复／文件；在线租约 30 秒、每 10 秒续租；每 Owner 8、全局 32 个注册 |
 

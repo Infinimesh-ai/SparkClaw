@@ -11,6 +11,10 @@ const HASH = /^[a-f0-9]{64}$/u;
 const BINDING_KEYS = ["owner_id", "client_id", "installation_id", "local_conversation_id", "local_task_id", "host_id", "runtime_generation", "connection_epoch", "lease_id", "page_id", "page_generation", "authorization_digest", "lease_expires_at"];
 const OPS = { acquire: [], release: [], navigate: ["url"], read: ["max_chars"], snapshot: [], click: ["ref", "snapshot_id"], fill: ["ref", "snapshot_id", "value"], select: ["ref", "snapshot_id", "value"], screenshot: [], wait: ["milliseconds"] };
 const WRITE = new Set(["click", "fill", "select"]);
+// ISCP is an authenticated trusted connection, so its device browser is granted
+// without a click. Fences and reconciliation conflicts still wait for the user.
+const AUTO_GRANT_STATES = new Set(["ungranted", "suspended", "reconnecting", "disconnected", "lease_expired", "grant_expired", "unavailable"]);
+const AUTO_GRANT_MAX_DELAY_MS = 60000;
 
 export class BrowserHostAgent {
   constructor({ auth, registry, userDataDir, onChange = () => {}, connect = connectPinnedHostSocket, execute = nativePageCommand }) {
@@ -89,8 +93,24 @@ export class BrowserHostAgent {
       throw new Error("Browser host channel is unavailable");
     }
   }
-  async stop() { this.generation++; this.#disconnect("ungranted"); this.scope = undefined; this.remoteFences.clear(); }
-  async suspend() { this.generation++; this.#disconnect("suspended"); }
+  autoGrantISCP() {
+    clearTimeout(this.autoGrantTimer); this.autoGrantTimer = undefined;
+    if (this.autoGranting || !this.#iscpBrowserReady() || !AUTO_GRANT_STATES.has(this.state)) return;
+    this.autoGranting = true;
+    this.grant().then(() => { this.autoGrantDelay = 0; }, () => {
+      this.autoGrantDelay = Math.min(AUTO_GRANT_MAX_DELAY_MS, (this.autoGrantDelay || 1000) * 2);
+      this.#scheduleAutoGrant(this.autoGrantDelay);
+    }).finally(() => { this.autoGranting = false; });
+  }
+  #iscpBrowserReady() {
+    return Boolean(this.scope) && this.auth.status.state === "connected" && this.auth.descriptor?.transport === "iscp" && this.auth.status.capabilities?.browser === true;
+  }
+  #scheduleAutoGrant(delay) {
+    clearTimeout(this.autoGrantTimer);
+    this.autoGrantTimer = setTimeout(() => this.autoGrantISCP(), delay); this.autoGrantTimer.unref?.();
+  }
+  async stop() { this.generation++; clearTimeout(this.autoGrantTimer); this.#disconnect("ungranted"); this.scope = undefined; this.remoteFences.clear(); }
+  async suspend() { this.generation++; clearTimeout(this.autoGrantTimer); this.#disconnect("suspended"); }
   async refreshFences() {
     if (!this.scope || this.auth.status.state !== "connected") throw new Error("Browser reconciliation identity is unavailable");
     const generation = this.generation; const scope = this.scope;
@@ -219,6 +239,7 @@ export class BrowserHostAgent {
     for (const lease of this.leases.values()) clearTimeout(lease.timer);
     this.leases.clear(); this.queues.clear(); this.registry.closeHostPages("host_disconnected"); this.epoch = undefined; this.grantRecord = undefined;
     this.#state(state);
+    if (["disconnected", "lease_expired", "grant_expired"].includes(state) && !this.autoGranting && this.#iscpBrowserReady()) this.#scheduleAutoGrant(this.autoGrantDelay || 1000);
   }
   #state(value) { this.state = value; this.onChange(); }
 }

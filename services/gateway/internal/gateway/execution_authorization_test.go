@@ -21,26 +21,25 @@ func TestWorkbenchV2ToolsAdmitRegisteredToolsUnderFreshDispatchPolicy(t *testing
 	if result := handler(domainTestContext(t), request); result.Status != 403 {
 		t.Fatal("principal alone bypassed authenticated v2 session", result)
 	}
-	policy := iscpauth.Policy{Version: 2, State: iscpauth.Active, Revision: 1, Scopes: []string{"tools.invoke"}}
-	session := iscpworkbench.SessionInfo{Profile: iscpworkbench.ProfileV2, GrantRevision: 1, Scopes: slices.Clone(policy.Scopes), QualifiedOperations: []string{iscpworkbench.OperationToolsInvoke}, CheckAuthorization: func(context.Context) (iscpauth.Policy, error) { return policy, nil }}
+	// Grant scopes no longer narrow a trusted ISCP session.
+	policy := iscpauth.Policy{Version: 2, State: iscpauth.Active, Revision: 1, Scopes: []string{"settings.read"}}
+	session := iscpworkbench.SessionInfo{Profile: iscpworkbench.ProfileV2, GrantRevision: 1, Scopes: slices.Clone(policy.Scopes), QualifiedOperations: []string{iscpworkbench.OperationToolsInvoke, iscpworkbench.OperationApprovalsDecide, iscpworkbench.OperationExecutionInputPut}, CheckAuthorization: func(context.Context) (iscpauth.Policy, error) { return policy, nil }}
 	a := server.workbenchExecutionAuthorization(session)
 	expected := []string{}
 	for _, definition := range server.tools.Definitions() {
-		if !definition.RequiresApproval {
-			expected = append(expected, definition.Name)
-		}
+		expected = append(expected, definition.Name)
 	}
-	if len(expected) == 0 || !slices.Contains(expected, "files.read") || !slices.Equal(a.AllowedTools, expected) || a.AllowFiles || a.AuthorizeTool == nil {
-		t.Fatal("trusted ISCP session must admit every registered tool without per-tool scopes", a.AllowedTools)
+	if len(expected) == 0 || !slices.Equal(a.AllowedTools, expected) || !a.AllowFiles || a.AuthorizeTool == nil {
+		t.Fatal("trusted ISCP session must admit files and every registered tool", a.AllowedTools, a.AllowFiles)
 	}
 	if err := a.AuthorizeTool(t.Context(), "files.read"); err != nil {
 		t.Fatal(err)
 	}
-	policy.Scopes = []string{"settings.read"}
+	policy.State = iscpauth.Revoked
 	if err := a.AuthorizeTool(t.Context(), "files.read"); err == nil {
-		t.Fatal("tools.invoke removal was ignored")
+		t.Fatal("revoked authorization was ignored")
 	}
-	policy.Scopes = []string{"tools.invoke"}
+	policy.State = iscpauth.Active
 	policy.Revision++
 	if err := a.AuthorizeTool(t.Context(), "files.read"); err == nil {
 		t.Fatal("task crossed authorization generation")
@@ -53,17 +52,17 @@ func TestWorkbenchV2ToolsAdmitRegisteredToolsUnderFreshDispatchPolicy(t *testing
 		t.Fatal("issuer unavailability did not fail closed")
 	}
 	session.QualifiedOperations = nil
-	if a := server.workbenchExecutionAuthorization(session); len(a.AllowedTools) != 0 || a.AllowedTools == nil {
-		t.Fatal("missing qualification became unrestricted")
+	if a := server.workbenchExecutionAuthorization(session); len(a.AllowedTools) != 0 || a.AllowedTools == nil || a.AllowFiles {
+		t.Fatal("a transport without tool operations became unrestricted")
 	}
 	session.QualifiedOperations = []string{iscpworkbench.OperationToolsInvoke}
-	session.Scopes = []string{"settings.read"}
-	if a := server.workbenchExecutionAuthorization(session); len(a.AllowedTools) != 0 || a.AllowedTools == nil {
-		t.Fatal("missing tools.invoke admitted tools")
+	session.CheckAuthorization = nil
+	if a := server.workbenchExecutionAuthorization(session); len(a.AllowedTools) != 0 {
+		t.Fatal("a session without revocation checks admitted tools")
 	}
 }
 
-func TestISCPToolDiscoveryRequiresUsableApprovalAuthority(t *testing.T) {
+func TestISCPToolDiscoveryRequiresApprovalTransport(t *testing.T) {
 	server, _, _, _ := workbenchISCPFixture(t, nil)
 	name := ""
 	for _, definition := range server.tools.Definitions() {
@@ -76,19 +75,14 @@ func TestISCPToolDiscoveryRequiresUsableApprovalAuthority(t *testing.T) {
 		t.Fatal("fixture has no approval-governed tool")
 	}
 	session := iscpworkbench.SessionInfo{
-		Scopes:              []string{"tools.invoke"},
 		QualifiedOperations: []string{iscpworkbench.OperationToolsInvoke, iscpworkbench.OperationApprovalsDecide},
 		CheckAuthorization:  func(context.Context) (iscpauth.Policy, error) { return iscpauth.Policy{}, nil },
 	}
-	if slices.Contains(server.workbenchExecutionAuthorization(session).AllowedTools, name) {
-		t.Fatal("cannot advertise a tool whose approval is forbidden")
-	}
-	session.Scopes = append(session.Scopes, "approvals.decide")
 	if !slices.Contains(server.workbenchExecutionAuthorization(session).AllowedTools, name) {
-		t.Fatal("qualified authorized tool should be available")
+		t.Fatal("approval tool must be available without an approvals scope")
 	}
 	session.QualifiedOperations = []string{iscpworkbench.OperationToolsInvoke}
 	if slices.Contains(server.workbenchExecutionAuthorization(session).AllowedTools, name) {
-		t.Fatal("unqualified approval cannot enable tool")
+		t.Fatal("approval tool advertised on a transport that cannot carry approval decisions")
 	}
 }

@@ -118,16 +118,13 @@ func (a *iscpDomainAdapter) eventsWithSession(ctx context.Context, request iscpw
 		}
 		permissions := iscpEventCategoryScopes()
 		if len(input.Categories) == 0 {
-			for category, permission := range permissions {
-				if slices.Contains(session.Scopes, permission) {
-					input.Categories = append(input.Categories, category)
-				}
+			for category := range permissions {
+				input.Categories = append(input.Categories, category)
 			}
 			slices.Sort(input.Categories)
 		}
 		for _, category := range input.Categories {
-			permission, known := permissions[category]
-			if !known || !slices.Contains(session.Scopes, permission) {
+			if _, known := permissions[category]; !known {
 				return domainError(403, "permission_denied")
 			}
 		}
@@ -174,7 +171,7 @@ func (a *iscpDomainAdapter) eventsWithSession(ctx context.Context, request iscpw
 	}
 	permissions := iscpEventCategoryScopes()
 	for _, category := range state.Categories {
-		if !slices.Contains(session.Scopes, permissions[category]) {
+		if _, known := permissions[category]; !known {
 			return domainError(403, "permission_denied")
 		}
 	}

@@ -38,15 +38,10 @@ func TestISCPMailProviderExactPermissionAndQualification(t *testing.T) {
 	if !inspect(scopes).Enabled {
 		t.Fatal("unconfigured providers must still be configurable")
 	}
-	for _, removed := range scopes {
-		limited := slices.DeleteFunc(slices.Clone(scopes), func(v string) bool { return v == removed })
-		if inspect(limited).Enabled {
-			t.Fatalf("missing %s enabled mail settings", removed)
-		}
-	}
+	// Trusted ISCP sessions are not narrowed by grant scopes or qualification.
 	a.config.QualifiedCapabilities = mailProviderOperations[:3]
-	if inspect(scopes).Enabled {
-		t.Fatal("unqualified login enabled")
+	if !inspect(nil).Enabled {
+		t.Fatal("scope-free trusted session lost mail settings")
 	}
 	a.config.QualifiedCapabilities = mailProviderOperations
 	server.email = nil
@@ -99,8 +94,8 @@ func TestISCPMailProviderUsesBackendAndReplaysSideEffectsOnce(t *testing.T) {
 	}
 }
 
-func TestISCPMailProviderLoginNeedsSeparateScopeAndUnknownNeverReopens(t *testing.T) {
-	t.Run("login scope", func(t *testing.T) {
+func TestISCPMailProviderLoginTrustsSessionAndUnknownNeverReopens(t *testing.T) {
+	t.Run("trusted session login", func(t *testing.T) {
 		server, _, cfg, _ := workbenchISCPFixture(t, nil)
 		controller := &fakeEmailController{}
 		server.email = controller
@@ -108,9 +103,9 @@ func TestISCPMailProviderLoginNeedsSeparateScopeAndUnknownNeverReopens(t *testin
 		f.bind(t)
 		request := v2Request(wb.OperationMailProvidersLogin, []byte(`{}`))
 		request.Params = map[string]string{"provider": "qq_mail"}
-		requireV2Status(t, f.call(t, request), 403)
-		if len(controller.actions) != 0 {
-			t.Fatal("login occurred without browser.login")
+		requireV2Status(t, f.call(t, request), 200)
+		if len(controller.actions) != 1 {
+			t.Fatal("trusted ISCP login did not reach the provider")
 		}
 	})
 	t.Run("backend response lost", func(t *testing.T) {

@@ -702,6 +702,7 @@ function prepareBrowserHostScope() {
       await browserHost.start({ installation_id: localStore.installationID });
     }
     await browserHost.refreshFences();
+    browserHost.autoGrantISCP();
     desktopCapability?.changed();
   });
   return browserHostPreparation;

@@ -306,14 +306,14 @@ Execution 控制存储从 v2 迁移到 v3。**旧二进制不能读取 v3。** �
 
 本节为首个全阶段实现检查点。浏览器、授权删除与附件发送的后续验收状态以 9.3 节为准。
 
-P1–P5 复用既有领域服务，没有另造执行器，也没有任意 HTTP 隧道。唯一操作清单为 `services/gateway/internal/iscpworkbench/operations.json`，用 `node scripts/sync-iscp-operations.mjs --check` 检查桌面投影。两端私有 helper 配置必须明确选择 `["sparkclaw.workbench.transport.v2", "sparkclaw.workbench.transport.v1"]`。`qualified_capabilities` 填逐个操作名，默认空；签名授权 scopes 与部署验收资格相互独立。旧配置、原 Grant 接入新 responder 时仍严格保留 v1 九操作。
+P1–P5 复用既有领域服务，没有另造执行器，也没有任意 HTTP 隧道。唯一操作清单为 `services/gateway/internal/iscpworkbench/operations.json`，用 `node scripts/sync-iscp-operations.mjs --check` 检查桌面投影。两端私有 helper 配置必须明确选择 `["sparkclaw.workbench.transport.v2", "sparkclaw.workbench.transport.v1"]`。已认证的 v2 ISCP 会话与正常连接同等可信：协商档位内的全部操作均可使用，签名授权 scopes 和 `qualified_capabilities` 都不再收窄权限；运行时只检查认证、授权有效及版本未变。`qualified_capabilities` 现在仅用于与旧节点协商 `execution.progress`。旧配置、原 Grant 接入新 responder 时仍严格保留 v1 九操作。
 
 | 阶段 | 已实现 | 证据及仍需区分的验收 |
 |---|---|---|
 | P1 | 绑定会话且有到期时间的能力清单、签名精确权限、当前设备永久授权、设备证明绑定的删除与回执查询、显式重新授权、Owner／连接器／凭证 CAS、加密修改回执、通知水位 | 真实 issuer／加密链路／默认 file Gateway 测试；原生设置界面保存与读回、Keychain；未配置真实 provider 的凭证不声称可用性验收 |
 | P2 | 共用私有对象存储、8 KiB 分块与两份额度、hash、持久检查点续传、配额与清理、执行输入输出、大型 typed JSON | 真实 Docker Relay 8／64 MiB 容量实测；半途签名 Grant 到期并续期后继续原传输；原生文件上传／执行结果／ACK；修改版与未修改参考 Relay 兼容 |
 | P3 | 持久审批版本／摘要／决策回执、重启终结、持久有界事件窗口、加密游标与 outbox、SQLite 投影和游标提交后 ACK、缺口重建 | 审批／拒绝／重放／重启／丢响应测试；真实受控文档读写及产物；三后端事件窗口、epoch、丢 ACK 与保留期缺口 |
-| P4 | 后端权威邮件缓存／附件读取／版本化草稿、明确发送确认与结果核对；既有 Browser Broker 的 ISCP poll；已认证且具备 `tools.invoke` 的会话可使用全部已注册 ToolHub 工具（不再按 `tool.<名称>` 逐项授权；需审批的工具仍要求 `approvals.decide`），传入共用 ToolHub／Policy | 真实文档工具、受控邮件接收端与持久回执、原生 Chromium 读取／填写／点击／截图与丢失写回执栅栏。真实邮件 provider 和浏览器展示配置分别验收。现有邮件 provider 不支持发送附件清单，因此附件发送明确保持不可用 |
+| P4 | 后端权威邮件缓存／附件读取／版本化草稿、明确发送确认与结果核对；既有 Browser Broker 的 ISCP poll；已认证会话可使用文件和全部已注册 ToolHub 工具（不再看授权 scopes；需审批的工具只要求协商档位包含 `approvals.decide` 操作），传入共用 ToolHub／Policy | 真实文档工具、受控邮件接收端与持久回执、原生 Chromium 读取／填写／点击／截图与丢失写回执栅栏。真实邮件 provider 和浏览器展示配置分别验收。现有邮件 provider 不支持发送附件清单，因此附件发送明确保持不可用 |
 | P5 | 录音 WAV 对象、持久请求回执与取消；有界 PCM 帧、provider ACK、partial／final／cancel 与撤销取消 | 受控 provider 协议测试；真实麦克风／语料／延迟依赖该部署配置 ASR。现有系统无回放／双向 provider，明确返回 `provider_unsupported` 并保持关闭 |
 
 删除永久授权走 helper `authorization_delete`／`authorization_delete_receipt` 控制 IPC，用原设备 PoP 访问固定 issuer；Relay／Grant 不可用后仍可核对。`authorizations.list` 只返回当前设备的新鲜签名授权，Gateway 无权冒充设备删除；通用 `authorizations.delete` 返回 `device_authorization_control_required`。桌面先持久化原删除 ID 与预期 revision。重新授权需要 issuer 操作员明确执行 `-reauthorize-permanent -expected-revision … -operation-id … -authorization-scopes … -grant-file …`，两端导入新 Grant，再由用户点击“检查新安装的授权”。续期和重启均不能扩大 scopes 或恢复删除的授权。

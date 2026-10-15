@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
-	"slices"
 	"strconv"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailmanagement"
@@ -90,10 +89,10 @@ func (a *iscpDomainAdapter) mailWithSession(ctx context.Context, request iscpwor
 		}
 		return domainJSON(200, page)
 	case iscpworkbench.OperationMailDraftsSave:
-		ctx = emailmanagement.WithAttachmentObjects(ctx, slices.Contains(session.Scopes, "files.read"), mailAttachmentObjects{})
+		ctx = emailmanagement.WithAttachmentObjects(ctx, true, mailAttachmentObjects{})
 		return domainHTTP(ctx, request, http.MethodPost, a.server.saveEmailDraft, map[string]string{"draft": request.Params["draft"]})
 	case iscpworkbench.OperationMailSend, iscpworkbench.OperationMailDraftsSend:
-		ctx = emailmanagement.WithAttachmentObjects(ctx, slices.Contains(session.Scopes, "files.read"), mailAttachmentObjects{})
+		ctx = emailmanagement.WithAttachmentObjects(ctx, true, mailAttachmentObjects{})
 		return domainHTTP(ctx, request, http.MethodPost, a.server.sendEmailDraft, map[string]string{"draft": request.Params["draft"]})
 	case iscpworkbench.OperationMailDraftsReconcile:
 		return domainHTTP(ctx, request, http.MethodPost, a.server.reconcileEmailDraft, map[string]string{"draft": request.Params["draft"]})

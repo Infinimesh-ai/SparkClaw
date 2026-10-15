@@ -18,15 +18,20 @@ type executionAuthorization struct {
 }
 
 func (s *Server) workbenchExecutionAuthorization(session iscpworkbench.SessionInfo) executionAuthorization {
+	// An authenticated ISCP session is trusted like a normal connection: it gets
+	// files and every registered tool, including approval-governed ones, with no
+	// grant scopes. Only operations the negotiated transport carries are usable,
+	// and each dispatch still rechecks that the grant is active and current.
 	a := executionAuthorization{AllowedTools: []string{}}
-	a.AllowFiles = slices.Contains(session.Scopes, "objects.write") && slices.Contains(session.QualifiedOperations, iscpworkbench.OperationExecutionInputPut)
-	if session.CheckAuthorization == nil || !slices.Contains(session.Scopes, "tools.invoke") || !slices.Contains(session.QualifiedOperations, iscpworkbench.OperationToolsInvoke) {
+	if session.CheckAuthorization == nil {
 		return a
 	}
-	// An authenticated ISCP session is a trusted connection like LAN: tools.invoke
-	// admits every registered tool, without per-tool "tool.<name>" scopes.
+	a.AllowFiles = slices.Contains(session.QualifiedOperations, iscpworkbench.OperationExecutionInputPut)
+	if !slices.Contains(session.QualifiedOperations, iscpworkbench.OperationToolsInvoke) {
+		return a
+	}
 	for _, definition := range s.tools.Definitions() {
-		if definition.RequiresApproval && (!slices.Contains(session.Scopes, "approvals.decide") || !slices.Contains(session.QualifiedOperations, iscpworkbench.OperationApprovalsDecide)) {
+		if definition.RequiresApproval && !slices.Contains(session.QualifiedOperations, iscpworkbench.OperationApprovalsDecide) {
 			continue
 		}
 		a.AllowedTools = append(a.AllowedTools, definition.Name)
@@ -36,7 +41,7 @@ func (s *Server) workbenchExecutionAuthorization(session iscpworkbench.SessionIn
 		if err != nil {
 			return err
 		}
-		if policy.Revision != session.GrantRevision || !policy.Allows("tools.invoke") {
+		if policy.Revision != session.GrantRevision || !policy.Usable() {
 			return errors.New("current ISCP authorization does not permit this tool")
 		}
 		return nil

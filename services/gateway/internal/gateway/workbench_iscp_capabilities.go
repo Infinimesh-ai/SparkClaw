@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"slices"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -75,32 +74,18 @@ func (a *iscpDomainAdapter) capabilitiesWithSession(ctx context.Context, request
 	for _, family := range families {
 		capability := iscpDomainCapability{ID: family.id, Operations: family.operations, Supported: true, Permitted: true, Qualified: true, DependenciesReady: family.ready}
 		for _, name := range family.operations {
-			spec, found := iscpworkbench.LookupOperation(name)
-			if !found {
+			if _, found := iscpworkbench.LookupOperation(name); !found {
 				capability.Supported = false
 				continue
 			}
-			if !workbenchOperationPermitted(spec, session.Scopes) {
-				capability.Permitted = false
-			}
-			if !slices.Contains(a.config.QualifiedCapabilities, name) {
-				capability.Qualified = false
-			}
 			operations = append(operations, name)
-		}
-		if family.id == "mail_send_attachments" && !slices.Contains(session.Scopes, "files.read") {
-			capability.Permitted = false
 		}
 		capability.Enabled = capability.Supported && capability.Permitted && capability.Qualified && capability.DependenciesReady
 		switch {
 		case !capability.Supported:
 			capability.Reason = "capability_unavailable"
-		case !capability.Permitted:
-			capability.Reason = "permission_denied"
 		case !capability.DependenciesReady:
 			capability.Reason = "dependency_unavailable"
-		case !capability.Qualified:
-			capability.Reason = "qualification_required"
 		}
 		capabilities = append(capabilities, capability)
 	}

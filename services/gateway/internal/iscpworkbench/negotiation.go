@@ -119,7 +119,7 @@ func (e *Endpoint) capabilitiesFor(id string, profile string) TransportCapabilit
 		}
 		version = 2
 	}
-	return TransportCapabilities{SchemaVersion: version, Profile: profile, SessionID: id, Revision: "2", AuthorizationRevision: e.grantMaterial().grant.RevocationEpoch, ExpiresAt: time.Now().UTC().Add(5 * time.Minute), Operations: ops, QualifiedOperations: slices.Clone(e.config.QualifiedCapabilities), Binding: e.config.Binding, Limits: TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, MaxConcurrent, 8192, 2}}
+	return TransportCapabilities{SchemaVersion: version, Profile: profile, SessionID: id, Revision: "2", AuthorizationRevision: e.grantMaterial().grant.RevocationEpoch, ExpiresAt: time.Now().UTC().Add(5 * time.Minute), Operations: ops, QualifiedOperations: slices.Clone(ops), Binding: e.config.Binding, Limits: TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, MaxConcurrent, 8192, 2}}
 }
 func (e *Endpoint) answerNegotiation(ctx context.Context, id string, r Request) error {
 	var offer negotiationOffer

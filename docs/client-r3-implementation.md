@@ -40,7 +40,7 @@ ClientStore is main-owned SQLite WAL/FULL at `userData/client-r3`, schema 4, wit
 | Result | 8 MiB total payload/files; absolute generation + 24-hour expiry; ACK deletes earlier |
 | Local selected/saved attachment | 64 MiB/file; execution uploads stay within task limits; generated files stay within result limits |
 | Durable execution fences | 100,000 deployment-lifetime records; capacity rejects admission instead of deleting fences |
-| Browser grant/lease | 15-minute explicit host grant; 30-second lease and 10-second heartbeat; exact identity/runtime/epoch/page/generation binding |
+| Browser grant/lease | 15-minute host grant (explicit on LAN; requested automatically after an authenticated ISCP connection reports the browser capability, with backoff retry; fenced or conflicting hosts still wait for the user); 30-second lease and 10-second heartbeat; exact identity/runtime/epoch/page/generation binding |
 | Mail sync | Entire encoded page at most 1 MiB; bounded pagination, revisions, epoch/cursor recovery and tombstones |
 | Single-run schedule | Due within 24 hours, no recurrence/files; 30-second online lease renewed every 10 seconds; 8 registrations/Owner, 32 globally |
 

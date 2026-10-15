@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"slices"
 	"testing"
 	"time"
 
@@ -211,9 +210,9 @@ func TestISCPMailPopupMutationsPreserveCASReplayAndOwnership(t *testing.T) {
 	}
 }
 
-func TestISCPMailPopupQualificationAndManagementScopes(t *testing.T) {
+func TestISCPMailPopupCapabilityTrustsAuthenticatedSession(t *testing.T) {
 	server, f, cfg := newMailPopupFixture(t, "file")
-	cfg.QualifiedCapabilities = mailPopupOperations()
+	cfg.QualifiedCapabilities = mailPopupOperations()[:len(mailPopupOperations())-1]
 	adapter := &iscpDomainAdapter{server: server, config: cfg}
 	inspect := func(scopes []string) iscpDomainCapability {
 		result := adapter.capabilitiesWithSession(domainTestContext(t), domainTestRequest(wb.OperationCapabilitiesGet, nil), wb.SessionInfo{Profile: wb.ProfileV2, Scopes: scopes})
@@ -229,23 +228,11 @@ func TestISCPMailPopupQualificationAndManagementScopes(t *testing.T) {
 		t.Fatal("popup capability missing")
 		return iscpDomainCapability{}
 	}
-	scopes := []string{"mail.read", "mail.drafts.write", "settings.write", "objects.read"}
-	if !inspect(scopes).Enabled {
-		t.Fatal("logged-out popup is unavailable")
-	}
-	for _, scope := range scopes {
-		if inspect(slices.DeleteFunc(slices.Clone(scopes), func(s string) bool { return s == scope })).Enabled {
-			t.Fatalf("missing scope %s enabled popup", scope)
-		}
-	}
-	adapter.config.QualifiedCapabilities = mailPopupOperations()[:len(mailPopupOperations())-1]
-	if inspect(scopes).Enabled {
-		t.Fatal("unqualified original interaction advertised")
-	}
-	for _, op := range []string{wb.OperationMailSourceCleanup, wb.OperationMailConversationsDelete, wb.OperationMailIntakeUpdate, wb.OperationMailClassification, wb.OperationMailRepliesPolish} {
-		spec, _ := wb.LookupOperation(op)
-		if workbenchOperationPermitted(spec, []string{spec.Scope}) {
-			t.Fatalf("%s missing mail.read accepted", op)
+	// ISCP keeps normal-connection permissions: neither grant scopes nor the
+	// responder qualification list can hide the popup.
+	for _, scopes := range [][]string{nil, {"mail.read"}, {"mail.read", "mail.drafts.write", "settings.write", "objects.read"}} {
+		if capability := inspect(scopes); !capability.Enabled || !capability.Permitted || !capability.Qualified {
+			t.Fatalf("scopes %v hid the popup: %+v", scopes, capability)
 		}
 	}
 }
@@ -300,13 +287,6 @@ func TestISCPMailPopupEncryptedSourceAndClosedInputs(t *testing.T) {
 		request.Params = map[string]string{"path": "/etc/passwd"}
 		if _, err := network.client.Call(network.ctx, request); err == nil {
 			t.Fatalf("%s accepted arbitrary path parameter", operation)
-		}
-	}
-	// A full popup's ordinary read scope does not grant destructive management.
-	for _, op := range []string{wb.OperationMailSourceCleanup, wb.OperationMailConversationsDelete, wb.OperationMailClassification} {
-		spec, _ := wb.LookupOperation(op)
-		if workbenchOperationPermitted(spec, []string{"mail.read"}) {
-			t.Fatalf("read-only scope admits %s", op)
 		}
 	}
 }

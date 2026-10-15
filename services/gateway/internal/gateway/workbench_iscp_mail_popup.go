@@ -80,7 +80,7 @@ func (a *iscpDomainAdapter) mailPopup(ctx context.Context, request iscpworkbench
 	case iscpworkbench.OperationMailComposeCapabilities:
 		capabilities := a.server.emailManagement.ComposeCapabilities()
 		session, ok := iscpworkbench.SessionFromContext(ctx)
-		capabilities.WorkspaceAttachments = capabilities.WorkspaceAttachments && ok && slices.Contains(session.Scopes, "files.read")
+		capabilities.WorkspaceAttachments = capabilities.WorkspaceAttachments && ok && session.GrantRevision != 0
 		return domainJSON(http.StatusOK, capabilities)
 	case iscpworkbench.OperationMailFile:
 		return a.mailPopupFile(ctx, request)

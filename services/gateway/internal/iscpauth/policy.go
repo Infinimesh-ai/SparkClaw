@@ -108,6 +108,12 @@ func ValidateScopes(scopes []string) error {
 	return nil
 }
 
+// Usable reports an active v2 authorization. A trusted ISCP session keeps the
+// same permissions as a normal connection, so this is its only runtime gate.
+func (p Policy) Usable() bool {
+	return p.State == Active && p.Version == 2
+}
+
 func (p Policy) Allows(scope string) bool {
 	return p.State == Active && p.Version == 2 && slices.Contains(p.Scopes, scope)
 }

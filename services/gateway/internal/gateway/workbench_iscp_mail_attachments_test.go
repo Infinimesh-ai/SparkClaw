@@ -32,7 +32,7 @@ func mailAttachmentObjectContext(t *testing.T) (context.Context, *iscpobjects.St
 	return ctx, objects, binding, app.EmailSendAttachment{LocalFileID: "88888888-8888-4888-8888-888888888888", Object: app.EmailAttachmentObject(ref)}
 }
 
-func TestISCPDomainMailAttachmentsRequireLocalObjectAndReadScope(t *testing.T) {
+func TestISCPDomainMailAttachmentsRequireLocalObject(t *testing.T) {
 	server, repo, cfg, textHandler := workbenchISCPFixture(t, nil)
 	bindWorkbenchISCP(t, textHandler)
 	root := t.TempDir()
@@ -53,12 +53,8 @@ func TestISCPDomainMailAttachmentsRequireLocalObjectAndReadScope(t *testing.T) {
 	ctx, objects, binding, attachment := mailAttachmentObjectContext(t)
 	raw, _ := json.Marshal(map[string]any{"id": "reviewed-file", "mailbox_id": box.ID, "to": []string{"recipient@example.test"}, "subject": "s", "body": "b", "attachments": []any{map[string]any{"local_file_id": attachment.LocalFileID, "object": attachment.Object}}})
 	request := domainTestRequest(iscpworkbench.OperationMailDraftsSave, raw)
-	mailOnly := iscpworkbench.SessionInfo{Scopes: []string{"mail.drafts.write", "mail.send", "mail.read"}}
-	if result := adapter.mailWithSession(ctx, request, mailOnly); result.status != 403 {
-		t.Fatalf("mail-only saved %d %s", result.status, result.body)
-	}
-	withFiles := mailOnly
-	withFiles.Scopes = append(append([]string{}, mailOnly.Scopes...), "files.read")
+	// Trusted ISCP sessions attach local objects without a separate files scope.
+	withFiles := iscpworkbench.SessionInfo{Scopes: []string{"mail.drafts.write"}}
 	if result := adapter.mailWithSession(domainTestContext(t), request, withFiles); result.status != 400 {
 		t.Fatalf("missing bound object service=%d %s", result.status, result.body)
 	}
@@ -75,9 +71,6 @@ func TestISCPDomainMailAttachmentsRequireLocalObjectAndReadScope(t *testing.T) {
 	}
 	send := domainTestRequest(iscpworkbench.OperationMailDraftsSend, []byte(`{"expected_version":1,"idempotency_key":"reviewed-click"}`))
 	send.Params = map[string]string{"draft": draft.ID}
-	if result := adapter.mailWithSession(ctx, send, mailOnly); result.status != 403 || browser.calls != 0 {
-		t.Fatalf("mail-only send %d effects=%d", result.status, browser.calls)
-	}
 	for _, alter := range []func(*iscpobjects.Binding){
 		func(b *iscpobjects.Binding) { b.OwnerID = "other" }, func(b *iscpobjects.Binding) { b.ClientID = "other" }, func(b *iscpobjects.Binding) { b.InstallationID = "other" }, func(b *iscpobjects.Binding) { b.AuthorizationRevision++ },
 	} {

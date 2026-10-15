@@ -554,3 +554,122 @@ The cold rollback checkpoint is `/var/backups/sparkclaw-app-cli-watch-20261015`;
 never restore old databases or authority. The other four servers and installed
 Mac client are unchanged. SparkClaw `faacf177`, maintenance fork `d56dc9a`; no
 upstream push was performed.
+
+
+## Real incoming mail and Outlook original authorization (2026-10-15)
+
+User-authorized real QQ/Outlook cross-mail exposed an additional `.22` failure.
+QQ delivered its incoming notification to the Gateway in 2.86 seconds and the
+message was discovered in 8.54 seconds, with complete capture and ready parsing
+observed by 11.41 seconds. Outlook emitted an incoming notification in about one
+second and listed the exact received item, but original download returned HTTP
+400 and `email_network_original_unqualified`; this was not a successful sync.
+The initial QQ send used an internal Outlook account identifier and bounced. A
+distinct corrected send used the externally deliverable address proven by the
+other test message's From header. No unknown-outcome send was retried.
+
+The live consumer mailbox uses Outlook's native Entra header authorization. Its
+old query download token is expired, and the native legacy refresh function does
+nothing in this mode. Both the site's native downloader and its native header
+authorizer followed by the existing bounded fetch returned HTTP 200 and the
+exact test original. Paired `.23` therefore resolves the native Authorization or
+X-Token header inside the mailbox page. The returned URL must equal the verified
+DownloadMessage target with only the token parameter removed. Account, original
+message ID, origin/path, header bounds, cancellation, redirect rejection and
+original-byte validation remain enforced. Credentials never enter results or
+diagnostics. Legacy tokens still use the native expiry/refresh policy.
+
+A separate consumer mapping preserves `browser_busy` for explicit blocked
+read/capture/collect_page results, so the existing Gateway short yield retains
+the original invocation instead of classifying contention as a provider outage.
+Uncertain results and sends keep their original behavior. This addresses the
+contention observed while the test sender held the shared browser.
+
+Reproduce with `python3 scripts/build-outlook-authorization-release.py --check`.
+The delta applies to the exact `.22` archive, preserving its deployed account
+identity behavior; the maintenance fork also receives that existing identity
+fix before regenerating Readers. Source: SparkClaw `cd3de78a`, fork `3376fdf`.
+Validation: runtime 321 pass / 2 opt-in skips; Controller 258 pass / 126 platform
+or opt-in skips; work2 staged tests 78 pass, including installed Python recovery;
+Gateway busy-yield regression passes. Deterministic paired build, independent
+installation, mixed/tampered release rejection and state-preserving whole-set
+rollback pass. Public Lifecycle 2.0, Host 1.0, ledger 1 and UI are unchanged.
+
+Three activation attempts rejected a nonzero Controller shutdown and restored
+`.22` without replacing code or rolling back data. The Executor has systemd
+PartOf/ordering ties to the Controller; changing stop order alone cannot drain
+in-flight watch registration. The successful retry reconciled the observer set
+to empty, waited for all active application tasks to retire, then required clean
+service exits, no owned processes, no cleanup fence and a free Executor lock.
+The earlier Outlook test original was recovered after a `.22` page restart at
+17:48:09 China time, before `.23` activation; that recovery alone does not prove
+the new authorization path or its long-lived-page behavior.
+
+Runtime activation alone initially left the browser-managed Readers unchanged.
+The acceptance gate detected stale imported source hashes. Chromium retained an
+older worker registration, so the managed extension was advanced to product r11
+and the desktop source projections were regenerated (`c9de358b`). Three component
+attempts still failed the imported-policy gate and restored public components,
+without rolling back data. The native Chrome extension UI then exposed the cause:
+the unpacked CRX contained `_metadata/verified_contents.json`, which Chromium
+rejects as a reserved name. Source `5eed92a5` excludes only this signed-package
+metadata after archive path validation, retains the verified CRX digest and all
+extension code, and rejects reuse of an installation containing that directory.
+All 20 deployment regressions pass locally and on work2, including metadata
+exclusion, traversal rejection and rejecting an otherwise current bad install.
+Native policy inspection confirmed the correct CfT policy location and no policy
+error; replacing profiles, deleting extension databases or changing mailbox
+authorization scopes was unnecessary.
+
+The corrected package then encountered Chrome's persisted disabled state from
+that failed native load. With Gateway admission paused, observer tasks drained,
+Controller/Executor stopped, no live CLI processes and no cleanup fence, the
+operator restored Chrome's native developer mode for this trusted unpacked
+product extension, enabled it and reloaded it through the native extension UI.
+The exact four managed UUID/source/dependency checks finally passed. A nonzero
+Controller exit during the preceding broken-extension shutdown was retained as
+evidence; no fence or process was bypassed. Runtime history, authority and mail
+storage were not reset. This is specific to the dedicated product Profile.
+
+At 18:36 China time, the services resumed on `.23` with browser product r11 and
+SparkClaw source `5eed92a5`. Epoch 36→37; all 10,233 paused task rows matched
+before Gateway restart. The original 10,000 and pre-watch 10,040 rows still match
+exactly. All 10,141 pre-authorization task identities and immutable intent fields
+remain; one existing uncertain QQ collection legitimately reconciled to complete.
+The Gateway container/image/configuration remain unchanged. Cold checkpoint:
+`/var/backups/sparkclaw-app-cli-managed-readers-20261015-r11-clean`; the final
+native reload receipt and ledger checks are under the corresponding
+`-native-reload` checkpoint. Other servers and the installed Mac are unchanged.
+
+Final real-mail acceptance used unique test marker
+`SC-W2-LIVE-20261015T103657Z-18b319`, with one native browser send in each
+direction and a durable `sent` receipt for each. Timing starts at the provider's
+received timestamp, not the sender's MIME Date. The complete column is the first
+bounded-monitor observation of complete capture and ready parsing:
+
+| Receiving mailbox | Native notification observed | Gateway notified | Message discovered | Complete sync observed |
+| --- | --- | --- | --- | --- |
+| QQ | 2.27 s | 2.87 s | 9.34 s | 11.43 s |
+| Outlook | 0.53 s | 3.25 s | 23.88 s | 31.51 s |
+
+Both subjects matched exactly once; original/manifest SHA256, MIME From/To,
+subject, parsed body and inbound identity all passed. Outlook's unchanged page
+started at 10:36:34.790 UTC. Its obsolete query token expired at 10:40:54, before
+the incoming message at 10:42:31.253 and successful capture at 10:43:02.262.
+The loaded Reader reports native authorization stage `authorized`; the final
+page age was 455 seconds. This verifies the actual managed fix after expiry.
+
+At 18:44 China time both mailboxes are `watching`, sync is idle and last sync
+errors are absent. Both retain their original epoch-37 watch IDs and have renewed
+revision 1→2→3. Gateway is healthy; Browser, Controller and Executor are active
+with zero restarts, and no cleanup fence exists. All fixed configuration and
+authority hashes match. The temporary test monitor was stopped; diagnostic tabs
+were closed and test emails/history retained. A separate QQ `mark_read` task
+returned `INVALID_REQUEST` and remains fenced; it was not retried or included in
+this incoming-sync acceptance. No claim is made about repairing mark-read.
+
+Private receipts, monitor samples and redacted timing acceptance are retained in
+`/Users/dev/.cache/app-cli-live-inbound-20261015/managed/`; no mailbox addresses,
+tokens or original email content are committed. Final documentation mirror/link
+checks cover 113 files; generated desktop Reader checks pass. No GitHub push or
+other-node/installed-desktop deployment was performed.

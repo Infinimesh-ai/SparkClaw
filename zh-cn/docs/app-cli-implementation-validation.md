@@ -268,3 +268,96 @@ watch_ready 与关联原未决请求的 gap，Gateway 状态恢复 watching，�
 冷态回退点为 `/var/backups/sparkclaw-app-cli-watch-20261015`；不恢复旧数据库
 或 authority。其他四台服务器和 Mac 安装客户端未改动。SparkClaw `faacf177`、
 维护 fork `d56dc9a`；本轮未推送上游。
+
+
+## 真实来信与 Outlook 原文下载授权（2026-10-15）
+
+用户授权的 QQ/Outlook 真实互发揭示了 `.22` 的另一处故障。QQ 来信在 2.86 秒
+内将通知交给 Gateway，8.54 秒发现邮件，11.41 秒内观察到原文采集完整、解析
+就绪。Outlook 约一秒发出入站通知并列出准确的来信，但原文下载返回 HTTP 400
+与 `email_network_original_unqualified`，不能算同步成功。首次 QQ 发信使用
+Outlook 内部账号标识而退信；随后根据另一封测试来信的 From 头确认实际投递
+地址，创建独立的更正发送。未重试任何结果未知的发送。
+
+当前 Outlook 消费者邮箱采用原生 Entra 请求头授权。旧 query 下载 token 已
+过期，原生旧刷新函数在此模式下不执行操作。实测站点原生下载器，以及原生
+请求头授权加现有有界 fetch，均返回 HTTP 200 和准确测试原文。成套 `.23`
+因此在邮箱页面内取得原生 Authorization 或 X-Token 请求头。授权后的 URL
+必须与核验过的 DownloadMessage 目标完全一致，只允许移除 token 参数。保留
+账号、原消息 ID、域名/路径、请求头边界、取消、禁止重定向与原文完整性校验；
+凭据不进入结果或诊断。旧式 token 继续使用站点原生的过期/刷新策略。
+
+消费端另修正明确 blocked 的 read/capture/collect_page busy 结果分类，保留
+`browser_busy`，让 Gateway 按既有短暂让步机制复用原 invocation，不再将争用
+误判为邮箱服务不可用。uncertain 与发送结果语义保持。此问题在测试发信独占
+共享浏览器时得到实测。
+
+使用 `python3 scripts/build-outlook-authorization-release.py --check` 重现。
+补丁应用到准确 `.22` 归档，保留已部署的账号识别行为；维护 fork 在重新生成
+Reader 前也补齐该既有账号修复。源码：SparkClaw `cd3de78a`、fork `3376fdf`。
+验证：Runtime 321 通过 / 2 按需跳过，Controller 258 通过 / 126 平台或按需
+跳过，work2 暂存 78 通过（含已安装 Python 恢复测试）；Gateway busy 让步回归
+通过。确定性成套构建、独立安装、混用/篡改拒绝与保留状态的整组回退通过。
+公共 Lifecycle 2.0、Host 1.0、ledger 1 与 UI 不变。
+
+前三次激活因 Controller 非零退出而中止并自动恢复 `.22`，没有替换代码或
+回滚数据。Executor 与 Controller 存在 systemd PartOf/顺序关联，仅调整停机
+顺序不足以结束在途监听注册。成功重试先将正式监听集合协调为空，等待全部
+活跃应用任务结束，再要求服务正常退出、无所属进程、无清理围栏且 Executor
+锁可取得。旧 Outlook 测试来信于北京时间 17:48:09 在 `.22` 页面重启后补采，
+早于 `.23` 激活；此补采本身不能证明新授权路径或常驻页面行为。
+
+运行时激活后，浏览器托管 Reader 起初仍是旧源码，验收检查发现实际导入摘要
+不符。考虑到 Chromium 保留旧后台注册，将扩展提升到 product r11，并同步生成
+桌面源码投影（`c9de358b`）。随后三次组件部署仍未通过实际导入检查，已恢复
+公共组件，未回退数据。Chrome 原生扩展界面最终揭示原因：解包 CRX 含
+`_metadata/verified_contents.json`，Chromium 将其视为保留名称而拒绝加载。
+提交 `5eed92a5` 在归档路径安全检查后仅排除这份签名包元数据，仍核对原始
+CRX 摘要并保留全部扩展代码，同时拒绝复用包含该目录的安装。20 项部署回归
+在本机和 work2 均通过，覆盖元数据排除、路径穿越拒绝及拒绝复用异常安装。
+原生策略页确认 CfT 策略路径正确且无策略错误，无需替换 Profile、删除扩展
+数据库或修改邮箱授权范围。
+
+修正后的包随后遇到 Chrome 因先前加载失败而保留的关闭状态。暂停 Gateway
+准入、排空监听任务、停止 Controller／Executor，并证明无存活 CLI 和 cleanup
+fence 后，操作者在原生扩展界面为这个可信的产品解包扩展开启开发者模式，恢复
+启用并重新加载。四个托管 UUID、源码及依赖摘要终于全部通过。此前异常扩展
+导致 Controller 停止时非零退出，该证据已保留，未绕过进程或 fence 检查；未
+重置历史、authority 或邮件存储。该操作仅作用于产品专用 Profile。
+
+北京时间 18:36 恢复服务，运行 `.23`、浏览器 product r11 及 SparkClaw 源码
+`5eed92a5`。epoch 36→37；Gateway 重启前，暂停时的 10,233 条任务逐条摘要
+保持。最初 10,000 条与监听升级前 10,040 条仍完全一致；授权修复前 10,141 条
+任务身份和不可变意图字段全部保留，其中一条原 uncertain 的 QQ 采集合法对账
+为 complete。Gateway 容器、镜像和配置保持。冷态检查点为
+`/var/backups/sparkclaw-app-cli-managed-readers-20261015-r11-clean`，最终原生
+重载回执与账本核对位于对应的 `-native-reload` 检查点。其他服务器和已安装
+Mac 客户端未改动。
+
+最终真实来信验收使用唯一标记 `SC-W2-LIVE-20261015T103657Z-18b319`，两方向
+各完成一次原生浏览器发送，均有持久化 `sent` 回执。以下从提供方收件时间计算，
+不使用发件方 MIME Date；完成列为有界监测首次看到原文采集 complete、解析
+ready 的时间：
+
+| 收件邮箱 | 观测到原生通知 | Gateway 收到通知 | 发现邮件 | 观测到完整同步 |
+| --- | --- | --- | --- | --- |
+| QQ | 2.27 秒 | 2.87 秒 | 9.34 秒 | 11.43 秒 |
+| Outlook | 0.53 秒 | 3.25 秒 | 23.88 秒 | 31.51 秒 |
+
+两封主题均唯一命中，原文／manifest SHA256、MIME 发件人／收件人、主题、解析
+正文与入站身份全部匹配。Outlook 页面自 UTC 10:36:34.790 起保持未刷新；旧
+query token 于 10:40:54 过期，早于 10:42:31.253 收件与 10:43:02.262 成功
+采集。实际加载的 Reader 显示原生授权阶段 `authorized`，最后页面年龄为
+455 秒，证明生效的是过期场景下的新授权路径。
+
+北京时间 18:44，两邮箱均为 `watching`，同步 idle 且最后同步错误为空。
+两者保持 epoch 37 的原监听 ID，授权 revision 已 1→2→3 续期。Gateway
+healthy；Browser、Controller、Executor 均 active、零重启且无 cleanup fence；
+固定配置与 authority 摘要一致。临时监测已停止，诊断标签已关闭，测试邮件及
+历史保留。另有一条 QQ `mark_read` 返回 `INVALID_REQUEST` 并保留防重状态，
+未重试，也未计入本轮入站同步验收；不声称已修复标记已读功能。
+
+私有回执、监测样本与脱敏时序验收保存在
+`/Users/dev/.cache/app-cli-live-inbound-20261015/managed/`，未将邮箱地址、令牌
+或邮件原文提交入库。最终 113 份文档镜像／链接检查及桌面 Reader 生成检查
+通过。未推送 GitHub，未部署其他节点或已安装桌面端。

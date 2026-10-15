@@ -28,7 +28,7 @@ import { useSchedules } from "./hooks/useSchedules";
 import { useSessionCrud } from "./hooks/useSessionCrud";
 import { useHostWorkbenchDrafts } from "./hooks/useHostWorkbenchDrafts";
 import { useConversationActivity } from "./hooks/useConversationActivity";
-import { conversationActivity, isTaskInProgress } from "./lib/conversationActivity";
+import { conversationActivity, isTaskInProgress, unseenActivity } from "./lib/conversationActivity";
 import { useVoiceInput } from "./hooks/useVoiceInput";
 import type { VoiceDraftAnchor } from "./hooks/useVoiceInput";
 import { hasPersistedResultMessage, MESSAGE_STREAM_STARTED_EVENT, messageStreamFailureDisposition } from "./lib/messageStream";
@@ -105,7 +105,7 @@ export function App() {
   const [pairRuntimeOpen, setPairRuntimeOpen] = useState(false);
   const [authEpoch, setAuthEpoch] = useState(0);
   const readActivityStates = useCallback(async (id: string) => (await api.workbenchRequests(id, false)).map(request => request.state), []);
-  const activityBySession = useConversationActivity(sessions.filter(session => session.source !== "mcp").map(session => session.id), readActivityStates, String(authEpoch));
+  const activityBySession = useConversationActivity(sessions.filter(session => session.source !== "mcp").map(session => session.id), readActivityStates, String(authEpoch), undefined, page === "chat" ? activeSession : "");
   const [notice, setNotice] = useState("");
   const [desktopConnectionState, setDesktopConnectionState] = useState("checking");
   const passiveNotifications = usePassiveNotifications();
@@ -821,7 +821,7 @@ export function App() {
         sessions={sessions}
         activeSession={activeSession}
         activityBySession={{ ...activityBySession, ...(activeSession && Object.hasOwn(requestsBySession, activeSession)
-          ? { [activeSession]: conversationActivity((requestsBySession[activeSession] ?? []).map(request => request.state)) } : {}) }}
+          ? { [activeSession]: unseenActivity(conversationActivity((requestsBySession[activeSession] ?? []).map(request => request.state)), page === "chat") } : {}) }}
         editingSession={editingSession}
         sessionTitleDraft={sessionTitleDraft}
         sessionActionId={sessionActionId}

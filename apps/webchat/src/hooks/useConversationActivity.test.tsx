@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useConversationActivity } from "./useConversationActivity";
 
-beforeEach(() => { vi.useFakeTimers(); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); });
+beforeEach(() => { vi.useFakeTimers(); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); window.localStorage.clear(); });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("background conversation activity", () => {
@@ -47,5 +47,29 @@ describe("background conversation activity", () => {
       await act(async () => finishes.forEach(finish => finish(["delivered"])));
       expect(host.textContent).toBe("idle"); expect(oldRead).toHaveBeenCalledTimes(4);
     } finally { await act(async () => root.unmount()); }
+  });
+
+  it("clears a completion once its conversation is viewed until a newer execution completes", async () => {
+    let states = ["delivered"];
+    const read = vi.fn(async () => states);
+    function Harness({ viewing }: { viewing: string }) {
+      const activity = useConversationActivity(["a"], read, "owner", undefined, viewing);
+      return <span>{activity.a ?? "idle"}</span>;
+    }
+    const host = document.createElement("div"), root = createRoot(host);
+    try {
+      await act(async () => root.render(<Harness viewing="" />)); expect(host.textContent).toBe("completed");
+      await act(async () => root.render(<Harness viewing="a" />)); expect(host.textContent).toBe("idle");
+      await act(async () => root.render(<Harness viewing="" />)); expect(host.textContent).toBe("idle");
+      states = ["running", "delivered"];
+      await act(async () => vi.advanceTimersByTimeAsync(3100)); expect(host.textContent).toBe("running");
+      states = ["delivered", "delivered"];
+      await act(async () => vi.advanceTimersByTimeAsync(3100)); expect(host.textContent).toBe("completed");
+    } finally { await act(async () => root.unmount()); }
+    const remounted = createRoot(host);
+    states = ["delivered"];
+    try {
+      await act(async () => remounted.render(<Harness viewing="" />)); expect(host.textContent).toBe("idle");
+    } finally { await act(async () => remounted.unmount()); }
   });
 });

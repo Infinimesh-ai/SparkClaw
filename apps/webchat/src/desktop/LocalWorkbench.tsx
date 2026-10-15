@@ -20,7 +20,7 @@ import type { DesktopConnectionStatus, DesktopState } from "./types";
 import { BrowserPanel } from "./BrowserPanel";
 import { MessageBubble, TaskProgressMessage } from "../components/messages";
 import { useConversationActivity } from "../hooks/useConversationActivity";
-import { conversationActivity, isTaskInProgress, localExecutionStates } from "../lib/conversationActivity";
+import { conversationActivity, isTaskInProgress, localExecutionStates, unseenActivity } from "../lib/conversationActivity";
 import { ComposerDocumentPicker, ComposerSurface } from "../components/composer";
 import { useWorkbenchDraft } from "../hooks/useWorkbenchDraft";
 import { useVoiceInput } from "../hooks/useVoiceInput";
@@ -127,7 +127,7 @@ export function LocalWorkbench() {
     connection?.backend?.deployment_id, connection?.owner_id, currentClientID,
   ]);
   const readActivityStates = useCallback(async (id: string) => localExecutionStates((await store.read(id)).tasks), [store]);
-  const activityByConversation = useConversationActivity(conversations.map(row => row.id), readActivityStates, localScopeKey, store.onChange);
+  const activityByConversation = useConversationActivity(conversations.map(row => row.id), readActivityStates, localScopeKey, store.onChange, page === "chat" ? selected : "");
   const draftScopes = useMemo(() => new Map<string, string>(), [store, localScopeKey]);
   const draftAdapter = useMemo(() => ({
     load: async (id: string) => {
@@ -423,7 +423,7 @@ export function LocalWorkbench() {
       pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length} onTabChange={setTab} onBack={() => setSettings(false)} /> : <SessionSidebar
       text={text} language={language} page={page} ownerProfile={ownerProfile}
       sessions={conversations} activeSession={selected} busy={busy}
-      activityBySession={{ ...activityByConversation, ...(selected ? { [selected]: selectedActivity } : {}) }}
+      activityBySession={{ ...activityByConversation, ...(selected ? { [selected]: unseenActivity(selectedActivity, page === "chat") } : {}) }}
       onCreateSession={() => void startConversation()} onSelectSession={(conversation) => void select(conversation.id).catch(surfaceError)}
       editingSession={editingSession} sessionTitleDraft={sessionTitleDraft} sessionActionId={sessionActionID}
       onStartRename={(conversation) => { setEditingSession(conversation.id); setSessionTitleDraft(conversation.title); }}

@@ -8,6 +8,11 @@ export function conversationActivity(states: readonly string[]): ConversationAct
   return undefined;
 }
 
+// The completed indicator marks an unviewed result, so the open conversation never shows it.
+export function unseenActivity(activity: ConversationActivity | undefined, viewing: boolean) {
+  return viewing && activity === "completed" ? undefined : activity;
+}
+
 export function isTaskInProgress(state: string) {
   return ["submission_pending", "accepted", "running", "approval_pending", "browser_login_blocked", "cancel_pending"].includes(state);
 }

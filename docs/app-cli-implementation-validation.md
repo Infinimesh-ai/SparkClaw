@@ -471,3 +471,29 @@ attempts remain fenced and are never resent automatically.
 records 59 combination tests, 12 real Chromium fixtures, paired artifact
 reproduction and install/rollback checks. These checks do not establish actual
 provider dispatch, delivery or incoming attachment acceptance.
+
+
+## Unlimited cumulative task history (2026-10-15)
+
+Release `0.3.0-sparkclaw.21` removes the default 10,000-task admission cap.
+`maxTasks=0` skips history counting; a positive integer retains an optional cap.
+The independent 512 MiB allocated-data watermark, event retention, OS lock,
+execution epoch, request-key records, authorization index and send journals remain.
+Existing ledger v1 databases need no migration or deletion. Capacity rejection
+and the Host cleanup fence are distinct: removing a cleanup fence cannot repair
+a full ledger, and changing capacity does not prove old pages were cleaned up.
+
+The paired release applies `ledger-unbounded-history.patch` to the exact `.20`
+archive, preserving all earlier mail and Host fixes. Reproduce it with
+`python3 scripts/build-ledger-unbounded-release.py --check` under Node 26.
+The upstream fork receives the same Ledger change and standalone regression tests.
+
+Validation: Node 26.2.0 runtime 301/301, Python 86/86, installed Controller
+206 passed with 124 platform/opt-in skips; separate installed-Python reconciliation
+and task-history checks exercise the real public client. The new regression
+fails on the old release, retains 10,000 synthetic completed tasks across restart,
+admits task 10,001 and preserves replay, conflicts and original events. Explicit
+task caps and byte admission remain covered. Disposable paired installation,
+tamper/mixed-release rejection and state-preserving rollback pass. No real mail
+is sent by these tests. macOS suites use canonical `/private/tmp`; the default
+temporary-directory alias otherwise triggers existing path-privacy guards.

@@ -80,9 +80,9 @@
     "setup:document-tools": "bash scripts/setup-document-tools.sh",
     "eval": "bash scripts/run-eval.sh",
     "build": "npm run build:webchat && npm run test:gateway",
-    "build:mail-bindings": "node tools/browser-controller/mail-runtime/applications/mail/build-bindings.mjs",
-    "sync:mail-projections": "node scripts/sync-mail-projections.mjs",
-    "check:mail-projections": "node scripts/sync-mail-projections.mjs --check",
+    "qualify:app-cli-release": "python3 scripts/qualify-app-cli-release.py",
+    "sync:app-cli-projections": "node scripts/sync-app-cli-projections.mjs",
+    "check:app-cli-projections": "node scripts/sync-app-cli-projections.mjs --check",
     "credentials:initial": "node scripts/credentials.mjs initial",
     "credentials:recover": "node scripts/credentials.mjs recover",
     "test:credentials": "node --test scripts/test/credentials.test.mjs"

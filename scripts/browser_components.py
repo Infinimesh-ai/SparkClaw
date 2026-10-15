@@ -78,17 +78,18 @@ def manifest():
 
 
 def pinned_file(entry):
-    filename = entry['file']
-    if not isinstance(filename, str) or Path(filename).name != filename or filename in {'.', '..'}:
-        raise ValueError('invalid userscript artifact filename')
-    source = entry.get('source')
-    if source == 'local-mail':
-        directory = ROOT / 'tools/browser-controller/mail-runtime/assets/mail'
-    elif source is None:
-        directory = ROOT / 'tools/browser-userscripts'
+    path = ROOT / 'tools/browser-userscripts' / entry['file']
+    if entry.get('source') == 'app-cli':
+        import tarfile
+        release = json.loads((ROOT / 'configs/app-cli-release.json').read_text())
+        artifact = release['artifacts']['runtime']
+        archive = ROOT / 'vendor/app-cli' / artifact['file']
+        if digest(archive.read_bytes()) != artifact['sha256']:
+            raise ValueError('App-CLI artifact digest mismatch')
+        with tarfile.open(archive) as package:
+            data = package.extractfile('package/assets/mail/' + entry['file']).read()
     else:
-        raise ValueError('unsupported userscript artifact source')
-    data = (directory / filename).read_bytes()
+        data = path.read_bytes()
     if digest(data) != entry['sha256']:
         raise ValueError('userscript artifact checksum mismatch: ' + entry['file'])
     return data

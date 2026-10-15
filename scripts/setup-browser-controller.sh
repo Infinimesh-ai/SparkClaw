@@ -81,7 +81,9 @@ native_manifest="$native_manifest_dir/com.sparkclaw.browser_bridge.json"
 browser_config="${XDG_CONFIG_HOME:-$HOME/.config}/sparkclaw/browser.json"
 systemd_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 unit_path="$systemd_dir/sparkclaw-browser-controller.service"
-mail_state_dir="$controller_data_dir/mail-runtime"
+executor_unit="$systemd_dir/sparkclaw-app-cli-executor.service"
+app_cli_root="${XDG_DATA_HOME:-$HOME/.local/share}/sparkclaw/app-cli"
+app_cli_pointer="$app_cli_root/current.json"
 node_path="$(command -v node)"
 entry_path="$PACKAGE_DIR/src/main.mjs"
 bridge_launcher_source="$PACKAGE_DIR/src/browser-bridge-launcher.mjs"
@@ -175,15 +177,19 @@ PY
 }
 
 verify_installation() {
-  local health
-  node "$ROOT/scripts/sync-mail-projections.mjs" --check
-  if systemctl --user is-active --quiet sparkclaw-app-cli-executor.service ||
-      systemctl --user is-enabled --quiet sparkclaw-app-cli-executor.service; then
-    fail "legacy App-CLI executor is active or enabled; rerun setup:browser-controller"
-  fi
-  [[ -d "$mail_state_dir" && ! -L "$mail_state_dir" ]] || fail "mail runtime state directory is missing or unsafe"
-  [[ "$(stat -c '%u:%a' "$mail_state_dir")" == "$(id -u):700" ]] ||
-    fail "mail runtime state directory must be owner-only"
+  local health app_cli_meta app_cli_config app_cli_python
+  [[ -r "$app_cli_pointer" && -r "$executor_unit" ]] || fail "App-CLI paired installation is missing"
+  app_cli_meta="$(python3 "$ROOT/scripts/install-app-cli.py" --root "$app_cli_root" --host-socket "$socket_path" \
+    --host-runtime-root "$cli_runtime_dir" --workspace-root "$email_workspace_root" --check)"
+  app_cli_config="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["config"])' "$app_cli_meta")"
+  app_cli_python="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["python"])' "$app_cli_meta")"
+  python3 - "$app_cli_pointer" "$app_cli_config" "$app_cli_python" <<'PYVERIFY'
+import json, sys
+from pathlib import Path
+value = json.loads(Path(sys.argv[1]).read_text())
+assert value["config"] == sys.argv[2] and value["python"] == sys.argv[3], "Active application release mismatch"
+PYVERIFY
+  systemctl --user is-active --quiet sparkclaw-app-cli-executor.service || fail "App-CLI executor is not active"
 
   npm --prefix "$PACKAGE_DIR" ls --depth=0 --omit=dev >/dev/null
   node "$PACKAGE_DIR/src/install-playwright-downloads.mjs" --check
@@ -216,11 +222,12 @@ verify_installation() {
     fail "browser controller user unit has a stale CLI runtime directory"
   grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_BROWSER_EMAIL_WORKSPACE_ROOT=$email_workspace_root")" "$unit_path" ||
     fail "browser controller user unit has a stale email workspace root"
-  grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_MAIL_RUNTIME_STATE_DIR=$mail_state_dir")" "$unit_path" ||
-    fail "browser controller user unit has a stale mail runtime state directory"
-  if grep -Eq 'SPARKCLAW_APP_CLI_|sparkclaw-app-cli-executor' "$unit_path"; then
-    fail "browser controller user unit still depends on the legacy executor"
-  fi
+  grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_APP_CLI_CONFIG=$app_cli_config")" "$unit_path" ||
+    fail "browser controller user unit has a stale application config"
+  grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_APP_CLI_PYTHON=$app_cli_python")" "$unit_path" ||
+    fail "browser controller user unit has a stale application Python"
+  grep -Fqx "ExecStart=$(systemd_quote "$app_cli_python") -m app_cli.executor_service $(systemd_quote "$app_cli_config")" "$executor_unit" ||
+    fail "application executor unit has a stale release"
   grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_BROWSER_CHANNEL=chromium")" "$unit_path" ||
     fail "browser controller user unit has a stale browser channel"
   grep -Fqx "Environment=$(systemd_quote "SPARKCLAW_BROWSER_EXECUTABLE=$bridge_launcher")" "$unit_path" ||
@@ -245,8 +252,6 @@ if value.get("schema_version") != 1 or value.get("profile_id") != "default":
     raise SystemExit("browser controller health response is invalid")
 if value.get("state") not in {"ready", "busy"}:
     raise SystemExit("browser controller is not ready")
-if value.get("versions", {}).get("app_cli") != "local-mail-runtime":
-    raise SystemExit("browser controller local mail runtime is not ready")
 PY
   grep -Fxq "SPARKCLAW_BROWSER_EXTENSION_RUNTIME_DIR_HOST=$runtime_dir" "$ENV_FILE" ||
     fail "controller host runtime path is missing or stale in $ENV_FILE"
@@ -266,28 +271,30 @@ if [[ "$MODE" == "check" ]]; then
   exit 0
 fi
 
+log "staging and verifying the paired application release"
+app_cli_meta="$(python3 "$ROOT/scripts/install-app-cli.py" --root "$app_cli_root" --host-socket "$socket_path" \
+  --host-runtime-root "$cli_runtime_dir" --workspace-root "$email_workspace_root")"
+app_cli_config="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["config"])' "$app_cli_meta")"
+app_cli_python="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["python"])' "$app_cli_meta")"
 # Stop admission and await owned-resource cleanup before swapping any component.
 if systemctl --user cat sparkclaw-app-cli-executor.service >/dev/null 2>&1; then
   systemctl --user stop sparkclaw-app-cli-executor.service
-  # Keep its unit, installation and ledger for rollback, but retire autostart.
-  systemctl --user disable sparkclaw-app-cli-executor.service
 fi
 if systemctl --user cat sparkclaw-browser-controller.service >/dev/null 2>&1; then
   systemctl --user stop sparkclaw-browser-controller.service
 fi
+python3 "$ROOT/scripts/install-app-cli.py" --root "$app_cli_root" --host-socket "$socket_path" \
+  --host-runtime-root "$cli_runtime_dir" --workspace-root "$email_workspace_root" --check --activate >/dev/null
 log "installing pinned Playwright controller dependencies without browser downloads"
 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm_config_ignore_scripts=true npm_config_audit=false \
   npm ci --prefix "$PACKAGE_DIR" --omit=dev --ignore-scripts
 node "$PACKAGE_DIR/src/install-playwright-downloads.mjs"
-log "verifying repository-owned mail bindings and userscripts"
-node "$ROOT/scripts/sync-mail-projections.mjs" --check
 
 mkdir -p "$runtime_dir" "$output_dir" "$cli_runtime_dir" "$profile_dir" "$systemd_dir"
-[[ ! -L "$mail_state_dir" ]] || fail "mail runtime state directory must not be a symlink"
-mkdir -p "$controller_bin_dir" "$native_manifest_dir" "$mail_state_dir"
+mkdir -p "$controller_bin_dir" "$native_manifest_dir"
 mkdir -p "$email_workspace_root"
 chmod 700 "$runtime_dir" "$output_dir" "$cli_runtime_dir" "$profile_dir" "$systemd_dir" \
-  "$controller_data_dir" "$controller_bin_dir" "$native_manifest_dir" "$mail_state_dir"
+  "$controller_data_dir" "$controller_bin_dir" "$native_manifest_dir"
 
 printf '#!/bin/sh\nexec %s %s "$@"\n' \
   "$(systemd_quote "$node_path")" "$(systemd_quote "$bridge_launcher_source")" >"$bridge_launcher"
@@ -336,12 +343,34 @@ Environment=$(systemd_quote "SPARKCLAW_BROWSER_USER_DATA_DIR=$profile_dir")
 Environment=$(systemd_quote "SPARKCLAW_BROWSER_OUTPUT_DIR=$output_dir")
 Environment=$(systemd_quote "SPARKCLAW_BROWSER_CLI_RUNTIME_DIR=$cli_runtime_dir")
 Environment=$(systemd_quote "SPARKCLAW_BROWSER_EMAIL_WORKSPACE_ROOT=$email_workspace_root")
-Environment=$(systemd_quote "SPARKCLAW_MAIL_RUNTIME_STATE_DIR=$mail_state_dir")
+Environment=$(systemd_quote "SPARKCLAW_APP_CLI_CONFIG=$app_cli_config")
+Environment=$(systemd_quote "SPARKCLAW_APP_CLI_PYTHON=$app_cli_python")
 
 [Install]
 WantedBy=default.target
 EOF
 chmod 600 "$unit_path"
+
+cat >"$executor_unit" <<EOF
+[Unit]
+Description=App-CLI owner-local application executor
+Requires=sparkclaw-browser-controller.service
+After=sparkclaw-browser-controller.service
+PartOf=sparkclaw-browser-controller.service
+
+[Service]
+Type=simple
+ExecStart=$(systemd_quote "$app_cli_python") -m app_cli.executor_service $(systemd_quote "$app_cli_config")
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=45
+KillMode=control-group
+UMask=0077
+
+[Install]
+WantedBy=default.target
+EOF
+chmod 600 "$executor_unit"
 
 set_env_value SPARKCLAW_BROWSER_EXTENSION_RUNTIME_DIR_HOST "$runtime_dir"
 set_env_value SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET "$container_socket"
@@ -350,9 +379,10 @@ set_env_value SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID default
 set_env_value SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS 20000
 
 systemctl --user daemon-reload
-systemctl --user enable sparkclaw-browser-controller.service
+systemctl --user enable sparkclaw-browser-controller.service sparkclaw-app-cli-executor.service
 systemctl --user restart sparkclaw-browser-controller.service
 systemctl --user restart sparkclaw-browser.service
+systemctl --user restart sparkclaw-app-cli-executor.service
 for _ in $(seq 1 50); do
   [[ -S "$socket_path" ]] && break
   sleep 0.2

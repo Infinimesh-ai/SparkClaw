@@ -4,6 +4,8 @@
 
 本文档是当前实现的事实来源。专项契约及明确标注的目标设计从[文档索引](index.md)进入。
 
+邮件实现自 2026-10-15 起直接维护于本仓库的 [local mail runtime](local-mail-runtime.md)，由原 Controller/Browser Host 调用。独立 App-CLI Executor 与发行依赖已移除；原邮件界面、业务 API、审批和发送回执保持兼容。
+
 ## 工作台部署与收敛
 
 用户于 2026-10-09 再次确认：SparkX 是桌面客户端，SparkClaw 是其业务后端。

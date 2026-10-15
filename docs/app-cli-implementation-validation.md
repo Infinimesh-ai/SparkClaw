@@ -1,12 +1,14 @@
 # App-CLI extraction: implementation and acceptance
 
+> Historical record: mail implementation and builds returned to SparkClaw on 2026-10-15. See the [repository mail runtime](local-mail-runtime.md) for current operation; App-CLI installation/release commands below describe historical revisions only.
+
 [简体中文](../zh-cn/docs/app-cli-implementation-validation.md) · [Design](app-cli-email-extraction-design.md)
 
 Implementation date: 2026-09-29. SparkClaw branch:
 `codex/extract-email-app-cli`; maintenance fork branch:
 [`codex/sparkclaw-email`](https://github.com/ZZZZJJJ0928/App-CLI/tree/codex/sparkclaw-email).
 The pinned source commit and artifact digests are in
-[configs/app-cli-release.json](../configs/app-cli-release.json).
+`configs/app-cli-release.json` (Git: `1a4dfb0a`).
 
 ## Delivered behavior
 

@@ -5,6 +5,8 @@
 This document is the current implementation source of truth. Component contracts
 and explicitly marked target designs are linked from the [documentation index](index.md).
 
+Mail implementation is maintained in the [repository mail runtime](local-mail-runtime.md) as of 2026-10-15 and called through the existing Controller/Browser Host. The separate App-CLI Executor and release dependency are removed; the original mail UI, business APIs, approvals and send receipts remain compatible.
+
 ## Workbench deployments and convergence
 
 Relationship reconfirmed by the user on 2026-10-09: SparkX is the desktop client

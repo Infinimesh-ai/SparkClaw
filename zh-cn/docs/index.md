@@ -1,5 +1,7 @@
 # SparkClaw 文档索引
 
+[当前邮件实现与构建](local-mail-runtime.md)已迁回本仓库，App-CLI 抽离文档为历史记录。
+
 > 语言： [English](../../docs/index.md) | 简体中文
 
 - [工作台实施记录](workbench-convergence-implementation.md) — 源码变更、验证及保留历史引用。

@@ -1,8 +1,10 @@
 # App-CLI 抽离：实现与验收
 
+> 历史记录：2026-10-15 起，邮件实现与构建已迁回 SparkClaw。当前流程见[仓库内邮件运行时](local-mail-runtime.md)；下文的 App-CLI 安装/发行命令仅用于理解历史版本。
+
 [English](../../docs/app-cli-implementation-validation.md) · [设计](app-cli-email-extraction-design.md)
 
-实现日期：2026-09-29。SparkClaw 分支为 `codex/extract-email-app-cli`，维护 fork 分支为 [`codex/sparkclaw-email`](https://github.com/ZZZZJJJ0928/App-CLI/tree/codex/sparkclaw-email)。源 commit 与完整产物摘要记录在 [configs/app-cli-release.json](../../configs/app-cli-release.json)。
+实现日期：2026-09-29。SparkClaw 分支为 `codex/extract-email-app-cli`，维护 fork 分支为 [`codex/sparkclaw-email`](https://github.com/ZZZZJJJ0928/App-CLI/tree/codex/sparkclaw-email)。源 commit 与完整产物摘要记录在 `configs/app-cli-release.json` (Git: `1a4dfb0a`)。
 
 ## 已交付行为
 

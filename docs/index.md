@@ -1,5 +1,7 @@
 # SparkClaw Documentation
 
+Mail implementation and builds now use the [repository runtime](local-mail-runtime.md); App-CLI extraction documents are historical records.
+
 > Language: English | [简体中文](../zh-cn/docs/index.md)
 
 - [Workbench implementation](workbench-convergence-implementation.md) — source changes, validation and reviewed historical references.

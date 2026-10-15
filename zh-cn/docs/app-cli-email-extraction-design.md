@@ -1,5 +1,7 @@
 # 复用 App-CLI 架构的应用控制扩展设计
 
+> 历史记录：2026-10-15 起，邮件实现与构建已迁回 SparkClaw。当前流程见[仓库内邮件运行时](local-mail-runtime.md)；下文的 App-CLI 安装/发行命令仅用于理解历史版本。
+
 > 语言：简体中文 | [English](../../docs/app-cli-email-extraction-design.md)
 
 - 状态：**R3 抽离与六向累计送达验证已完成；生产收尾延后至合并主分支后执行**

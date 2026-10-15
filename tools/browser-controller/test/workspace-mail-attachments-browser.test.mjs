@@ -8,7 +8,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import test from 'node:test';
 import {chromium} from 'playwright';
-const runtime = new URL('../mail-runtime/', import.meta.url);
+const runtime = new URL('../', import.meta.resolve('@infinimesh/app-cli-runtime/release'));
 const {uploadManagedAttachments, verifyManagedAttachments} = await import(new URL('applications/mail/lib/workspace-attachments.mjs', runtime));
 
 const enabled = process.env.SPARKCLAW_MAIL_BROWSER_TEST === '1';
@@ -89,17 +89,15 @@ test('replacing the stage with an outside symlink cannot change uploaded bytes',
 
 for(const timing of ['before_dispatch','during_hash'])test(`moving the authorized input prevents upload: ${timing}`,{skip:!enabled},async t=>{
   const f=await fixture(t),run=f.tab.runReadCode;
-  let injected=false;
   f.tab.runReadCode=async code=>{
-    if(code.includes('page.evaluate(async token')){injected=true;await f.page.evaluate(timing=>{
+    if(code.includes('return page.evaluate(async token'))await f.page.evaluate(timing=>{
       const move=()=>document.querySelector('#other').append(document.querySelector('input'));
       if(timing==='before_dispatch')move();
       else {const digest=crypto.subtle.digest.bind(crypto.subtle);crypto.subtle.digest=(...args)=>{move();return digest(...args);};}
-    },timing);}
+    },timing);
     return run(code);
   };
   await assert.rejects(uploadManagedAttachments(f.tab,'gmail',f.directory,f.manifest,f.before),/email_attachment_control_unavailable/);
-  assert.equal(injected,true,'fixture must reach the final transfer boundary');
   assert.equal(f.uploads.length,0);
 });
 

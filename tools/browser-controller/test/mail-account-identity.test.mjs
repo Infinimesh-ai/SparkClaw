@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-const runtime = new URL('../mail-runtime/', import.meta.url);
+const runtime = new URL('../', import.meta.resolve('@infinimesh/app-cli-runtime/release'));
 const {installReader} = await import(new URL('applications/mail/userscripts/lib/reader-core.mjs', runtime));
 const {parseOutlookFolders} = await import(new URL('applications/mail/userscripts/lib/outlook-folders.mjs', runtime));
 const interval = {interval_start:'2026-10-09T00:00:00Z', interval_end:'2026-10-09T01:00:00Z'};

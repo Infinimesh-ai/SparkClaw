@@ -9,7 +9,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { PlaywrightMCPClientFactory } from "../../../tools/browser-controller/src/mcp-client.mjs";
-import {qualifyLocalMail} from '../../../tools/browser-controller/test/qualify-local-mail.mjs';
+import {qualifyAppCLI} from '../../../tools/browser-controller/test/qualify-app-cli.mjs';
 import {
   electronConnectionEnvironment,
   registerElectronConnection,
@@ -148,9 +148,11 @@ try {
     navigationTimeoutMS: 20_000,
   });
   await factory.prepare();
-  progress('qualifying_local_mail_browser_host');
-  evidence.local_mail = await qualifyLocalMail({directory: temporary,
-    adapter, launcher: LAUNCHER, userDataDir, token: TOKEN, origin: fixture.origin, clientFactory: factory});
+  if (process.env.SPARKCLAW_TEST_APP_CLI_PYTHON) {
+    progress('qualifying_app_cli_browser_host');
+    evidence.app_cli = await qualifyAppCLI({directory: temporary, python: process.env.SPARKCLAW_TEST_APP_CLI_PYTHON,
+      adapter, launcher: LAUNCHER, userDataDir, token: TOKEN, origin: fixture.origin, clientFactory: factory});
+  }
   mcp = await factory.open({
     token: TOKEN,
     sessionID: sessionID(1),

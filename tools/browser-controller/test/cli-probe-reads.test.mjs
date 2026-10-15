@@ -3,7 +3,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 import { HostPage } from "../src/host-page.mjs";
-import { probeQQMailLogin, QQMAIL_LOGIN_PROBE_SELECTORS as selectors } from "../mail-runtime/applications/mail/qqmail-login-probe.mjs";
+import { probeQQMailLogin, QQMAIL_LOGIN_PROBE_SELECTORS as selectors } from "../node_modules/@infinimesh/app-cli-runtime/applications/mail/qqmail-login-probe.mjs";
 
 function harness({
   accountPresent = true, accountVisible = true, loginVisible = false,

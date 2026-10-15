@@ -7,7 +7,7 @@ import { BrowserController } from "./fixtures/application-controller.mjs";
 const token = "qualification-token-value";
 
 for (const provider of ['gmail', 'outlook', 'qq_mail']) test(`${provider} watch initialization excludes a shared Reader until hook activation`, async () => {
-  const binding = JSON.parse(fs.readFileSync(new URL(`../mail-runtime/bindings/mail-${provider.replace('_', '-')}.json`, import.meta.url)));
+  const binding = JSON.parse(fs.readFileSync(new URL(`../node_modules/@infinimesh/app-cli-runtime/bindings/mail-${provider.replace('_', '-')}.json`, import.meta.url)));
   const controller = new BrowserController({clientFactory: new FakeFactory()});
   assert.notEqual(binding.commands.watch.resource, binding.commands.collect_page.resource, 'persistent watch must not hold the Reader execution lane');
   const watch = await controller.reserveApplication({taskID: 'initial-watch', resource: binding.commands.watch.host.family, exclusive: false});

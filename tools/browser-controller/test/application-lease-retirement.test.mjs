@@ -6,7 +6,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import {EventEmitter} from 'node:events';
 import {createRequire} from 'node:module';
-import {BrowserHostPort} from '../mail-runtime/src/host-port.mjs';
+import {BrowserHostPort} from '@infinimesh/app-cli-runtime/host-port';
 import {ApplicationHostDriver} from '../src/host-driver.mjs';
 
 // The real Host port, atomic lease publisher and daemon watchdog share one

@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {BrowserHostClient} from '../mail-runtime/src/host-port.mjs';
+import {BrowserHostClient} from '@infinimesh/app-cli-runtime/host-port';
 import {ApplicationHostDriver} from '../src/host-driver.mjs';
 
 test('large host results use verified owner-private references and cannot read a symlink or altered file', async t => {
-  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'application-artifacts-')));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'application-artifacts-'));
   await fs.chmod(root, 0o700); t.after(() => fs.rm(root, {recursive: true, force: true}));
   const driver = new ApplicationHostDriver({});
   const handle = {state: {outputDir: root}};
@@ -29,18 +29,18 @@ test('large host results use verified owner-private references and cannot read a
   await assert.rejects(session.call('read'), {code: 'HOST_ARTIFACT_INVALID'});
 });
 
-test('controller adapters use only the repository mail runtime', async () => {
+test('production consumers have no imports of application handlers or old private registries', async () => {
   const directory = new URL('../src/', import.meta.url);
   for (const name of await fs.readdir(directory)) {
     if (!/\.(mjs|cjs)$/u.test(name)) continue;
     const source = await fs.readFile(new URL(name, directory), 'utf8');
-    assert.doesNotMatch(source, /(?:from|import\()\s*['"][^'"]*(?:scripts\/email|@infinimesh\/app-cli-runtime|app-cli-client|mail-observers)/u, name);
+    assert.doesNotMatch(source, /(?:from|import\()\s*['"][^'"]*(?:scripts\/email|applications\/mail|provider-scripts|mail-observers)/u, name);
   }
 });
 
 test('an invalid application release disables only application admission, leaving generic Host startup available', async () => {
-  const {LocalMailRuntimeFactory} = await import('../src/local-mail-runtime.mjs');
-  const factory = new LocalMailRuntimeFactory({runtimeRoot: '/dev/null/runtime', stateDirectory: '/dev/null/state'});
+  const {AppCLIClientFactory} = await import('../src/app-cli-client.mjs');
+  const factory = new AppCLIClientFactory({configFile: '/nonexistent/application-config.json', python: '/usr/bin/python3'});
   await factory.prepare();
   assert.equal(factory.info().app_cli, 'application_release_unavailable');
   await factory.drainIdleMailReads();

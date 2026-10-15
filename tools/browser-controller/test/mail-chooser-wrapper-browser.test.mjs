@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import {pathToFileURL} from 'node:url';
 import {spawn} from 'node:child_process';
 import fs from 'node:fs/promises';
 import http from 'node:http';
@@ -59,7 +60,7 @@ test('real pinned wrapper refuses multiple same-call chooser events',{skip:!enab
 // This exercises the installed wrapper with the actual application upload code,
 // not a lookalike setInputFiles/path upload or an unwrapped Chromium page.
 test('actual shared-Ribbon byte upload survives the pinned MCP wrapper and final inspection',{skip:!enabled,timeout:30000},async t=>{
- const runtime = new URL('../mail-runtime/', import.meta.url);
+ const runtime=process.env.APP_CLI_RECOVERY_RUNTIME_ROOT?pathToFileURL(path.resolve(process.env.APP_CLI_RECOVERY_RUNTIME_ROOT)+path.sep):new URL('../',import.meta.resolve('@infinimesh/app-cli-runtime/release'));
  const {uploadManagedAttachments,verifyManagedAttachments}=await import(new URL('applications/mail/lib/workspace-attachments.mjs',runtime));
  const f=await fixture(t);
  const request=async(name,args)=>{

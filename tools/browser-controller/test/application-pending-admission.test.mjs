@@ -6,8 +6,8 @@ import path from 'node:path';
 import vm from 'node:vm';
 import {EventEmitter} from 'node:events';
 import {createRequire} from 'node:module';
-import {BrowserHostPort} from '../mail-runtime/src/host-port.mjs';
-import {digest} from '../mail-runtime/src/protocol.mjs';
+import {BrowserHostPort} from '@infinimesh/app-cli-runtime/host-port';
+import {digest} from '@infinimesh/app-cli-runtime/protocol';
 import {BrowserController} from '../src/controller.mjs';
 import {ApplicationHostDriver} from '../src/host-driver.mjs';
 

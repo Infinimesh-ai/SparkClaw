@@ -8,7 +8,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
 
 const here = fileURLToPath(import.meta.url);
@@ -52,7 +52,9 @@ async function browserHost() {
 async function qualify() {
   const {ApplicationHostDriver} = await import('../src/host-driver.mjs');
   const {BrowserController} = await import('../src/controller.mjs');
-  const runtime = new URL('../mail-runtime/', import.meta.url);
+  const runtime = process.env.SPARKCLAW_MAIL_CAPACITY_RUNTIME
+    ? pathToFileURL(path.resolve(process.env.SPARKCLAW_MAIL_CAPACITY_RUNTIME) + '/')
+    : new URL('../', import.meta.resolve('@infinimesh/app-cli-runtime/release'));
   const source = new URL('applications/mail/lib/workspace-attachments.mjs', runtime);
   const {uploadManagedAttachments, verifyManagedAttachments} = await import(source);
   const binding = JSON.parse(await fs.readFile(new URL('bindings/mail-gmail.json', runtime), 'utf8'));

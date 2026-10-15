@@ -5,11 +5,12 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import {spawn} from 'node:child_process';
+import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright';
 import {PlaywrightMCPClientFactory} from '../src/mcp-client.mjs';
 import {diagnoseEmptyOutlookMenu,sanitizeMenuObservation} from './fixtures/outlook-menu-diagnostic.mjs';
 const enabled=process.env.SPARKCLAW_MAIL_BROWSER_TEST==='1';
-const runtime = new URL('../mail-runtime/', import.meta.url);
+const runtime=process.env.APP_CLI_RECOVERY_RUNTIME_ROOT?pathToFileURL(path.resolve(process.env.APP_CLI_RECOVERY_RUNTIME_ROOT)+path.sep):new URL('../',import.meta.resolve('@infinimesh/app-cli-runtime/release'));
 const modules={...await import(new URL('applications/mail/lib/managed-send-dom.mjs',runtime)),...await import(new URL('applications/mail/lib/workspace-attachments.mjs',runtime)),verifySendAccount:async()=>{}};
 for(const mode of ['normal','deeplink','old','hidden_old','nonempty','duplicate','overlay','hover_replacement','pointer_disabled','animation_replace','dual_menu','wrong_composer','interrupted_expanded','interrupted_hidden','input_replaced','hover_triggered','hover_overlay','hover_hidden','hover_raf_paused','hover_delayed_visibility','visibility_override'])test(`fixed diagnostic real wrapper: ${mode}`,{skip:!enabled,timeout:30000},async t=>{
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'menu-diagnostic-'));

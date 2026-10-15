@@ -17,19 +17,28 @@ const {BrowserController}=await import(pathToFileURL(path.join(repo,'tools/brows
 const pid=Number(execFileSync('systemctl',['--user','show','-p','MainPID','--value','sparkclaw-browser-controller.service'],{encoding:'utf8'}));
 if(!Number.isSafeInteger(pid)||pid<=1)throw new Error('controller inactive');
 const environment=Object.fromEntries((await fs.readFile(`/proc/${pid}/environ`)).toString().split('\0').filter(v=>v.includes('=')).map(v=>{const i=v.indexOf('=');return [v.slice(0,i),v.slice(i+1)];}));
+const config=JSON.parse(await fs.readFile(environment.SPARKCLAW_APP_CLI_CONFIG,'utf8'));
 const globalFence=path.join(environment.SPARKCLAW_BROWSER_CLI_RUNTIME_DIR,'cleanup-fence.json');
 await fs.access(globalFence).then(()=>{throw new Error('production cleanup fenced');},e=>{if(e.code!=='ENOENT')throw e;});
-const root=path.join(repo,'tools/browser-controller/mail-runtime'),runtime=pathToFileURL(root+path.sep);
+const root=config.runtime_directory,runtime=pathToFileURL(root+path.sep);
+const {verifyRelease}=await import(new URL('src/release.mjs',runtime));
+verifyRelease(config);
+const candidate=process.env.SPARKCLAW_FIXED_OUTLOOK_UPLOAD_CANDIDATE==='1';
+const candidateDigest='4731f4c4b164501590b68ca0e6a0a213b36968bc98c6da72749c7c6095ea5e1e';
+let attachmentRuntime=runtime;
+if(candidate){const candidateRoot=fileURLToPath(new URL('./candidate-'+candidateDigest.slice(0,12)+'/package/',import.meta.url));verifyRelease({...config,runtime_directory:candidateRoot,release_id:'0.3.0-sparkclaw.19',release_digest:candidateDigest,bindings:[]});attachmentRuntime=pathToFileURL(candidateRoot+path.sep);}
 const binding=JSON.parse(await fs.readFile(new URL('bindings/mail-outlook.json',runtime),'utf8'));
 const {OUTLOOK_SENT_BASELINE_EXPRESSION}=await import(new URL('applications/mail/lib/outlook-send-proof.mjs',runtime));
-const [managed,attachments,send]=await Promise.all([import(new URL('applications/mail/lib/managed-send-dom.mjs',runtime)),import(new URL('applications/mail/lib/workspace-attachments.mjs',runtime)),import(new URL('applications/mail/lib/managed-send.mjs',runtime))]);
+// Candidate mode substitutes only the fixed verified attachment adapter.
+// Account/editor/Host/CLI and provider profile remain installed .18.
+const [managed,attachments,send]=await Promise.all([import(new URL('applications/mail/lib/managed-send-dom.mjs',runtime)),import(new URL('applications/mail/lib/workspace-attachments.mjs',attachmentRuntime)),import(new URL('applications/mail/lib/managed-send.mjs',runtime))]);
 const fixedFile=fileURLToPath(new URL('./approved-desktop-526a9ba7',import.meta.url));
 const bytes=await fs.readFile(fixedFile);
 if(bytes.length!==OUTLOOK_UPLOAD_MANIFEST.size_bytes||'sha256:'+crypto.createHash('sha256').update(bytes).digest('hex')!==OUTLOOK_UPLOAD_MANIFEST.sha256)throw new Error('approved source mismatch');
 const directory=await fs.mkdtemp('/tmp/sc-outlook-upload-');await fs.chmod(directory,0o700);
 const relative='.sparkclaw-mail-send-'+crypto.randomBytes(16).toString('hex')+'/00/'+OUTLOOK_UPLOAD_MANIFEST.name;
 await fs.mkdir(path.dirname(path.join(directory,relative)),{recursive:true,mode:0o700});await fs.writeFile(path.join(directory,relative),bytes,{mode:0o600});bytes.fill(0);
-const evidence={schema_version:1,started_at:new Date().toISOString(),runtime:'repository-local',production_reservation:false,diagnostic_directory:directory,no_send:true,fixed_approved_upload:true};
+const evidence={schema_version:1,started_at:new Date().toISOString(),release_digest:config.release_digest,candidate_release_digest:candidate?candidateDigest:null,candidate_scope:candidate?'attachment_adapter_with_installed_Host_CLI':null,production_reservation:false,diagnostic_directory:directory,no_send:true,fixed_approved_upload:true};
 let hold,driver,controller,handle,heartbeat,pending=Promise.resolve(),released=false;
 const signal=new AbortController();
 try {

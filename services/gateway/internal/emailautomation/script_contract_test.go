@@ -1,6 +1,13 @@
 package emailautomation
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -222,33 +229,58 @@ func isIdentifierByte(value byte) bool {
 	return value == '_' || value == '.' || value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
 }
 
-// Validate against the repository source without npm installation or archives.
+// The consumer validates error projections against the actual pinned package,
+// so plain Go tests do not depend on an npm install or a sibling checkout.
 func releaseSources(t *testing.T, root string) map[string]string {
 	t.Helper()
-	directory := filepath.Join(root, "tools", "browser-controller", "mail-runtime", "applications", "mail")
-	sources := map[string]string{}
-	err := filepath.WalkDir(directory, func(file string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !entry.IsDir() && strings.HasSuffix(file, ".mjs") {
-			content, err := os.ReadFile(file)
-			if err != nil {
-				return err
-			}
-			relative, err := filepath.Rel(directory, file)
-			if err != nil {
-				return err
-			}
-			sources[filepath.ToSlash(relative)] = string(content)
-		}
-		return nil
-	})
+	raw, err := os.ReadFile(filepath.Join(root, "vendor", "app-cli", "release.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	var release struct {
+		Artifacts map[string]struct {
+			File   string `json:"file"`
+			SHA256 string `json:"sha256"`
+		} `json:"artifacts"`
+	}
+	if err := json.Unmarshal(raw, &release); err != nil {
+		t.Fatal(err)
+	}
+	artifact := release.Artifacts["runtime"]
+	raw, err = os.ReadFile(filepath.Join(root, "vendor", "app-cli", artifact.File))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(raw)
+	if hex.EncodeToString(sum[:]) != artifact.SHA256 {
+		t.Fatal("App-CLI release digest mismatch")
+	}
+	zip, err := gzip.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zip.Close()
+	archive := tar.NewReader(zip)
+	sources := map[string]string{}
+	for {
+		header, err := archive.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		const prefix = "package/applications/mail/"
+		if strings.HasPrefix(header.Name, prefix) && strings.HasSuffix(header.Name, ".mjs") {
+			content, err := io.ReadAll(archive)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sources[strings.TrimPrefix(header.Name, prefix)] = string(content)
+		}
+	}
 	if len(sources) < 20 {
-		t.Fatal("repository mail application sources missing")
+		t.Fatal("App-CLI application sources missing")
 	}
 	return sources
 }
@@ -259,8 +291,8 @@ func repositoryRoot(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "tools", "browser-controller", "mail-runtime", "bindings", "provider-scripts.json")); err != nil {
-		t.Fatalf("repository root %s has no local mail runtime: %v", root, err)
+	if _, err := os.Stat(filepath.Join(root, "vendor", "app-cli", "release.json")); err != nil {
+		t.Fatalf("repository root %s has no paired App-CLI release: %v", root, err)
 	}
 	return root
 }

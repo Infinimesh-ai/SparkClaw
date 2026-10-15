@@ -25,9 +25,9 @@ Also set SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_TIME_RANGE=1 to exercise a one-hour
 timeline query. A passing smoke is not full incremental coverage qualification.
 Set SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_READ=1 and SPARKCLAW_TEST_EMAIL_OWNER_ID
 to also capture one unread inbox message per provider and verify its local files.
-Set SPARKCLAW_TEST_MAIL_SHARED_ORDERS=1, with production intake paused, for
+Set SPARKCLAW_TEST_APP_CLI_SHARED_ORDERS=1, with production intake paused, for
 read-only read-first/watch-first cold/warm rounds and explicit watcher cancellation
-on all three existing accounts through the repository mail runtime.
+on all three existing accounts through the installed App-CLI release.
 Set SPARKCLAW_TEST_NOTIFICATION_OBSERVE=1 only for an authorized real-mail
 qualification, with SPARKCLAW_TEST_NOTIFICATION_OBSERVER_SOCKET and
 SPARKCLAW_NOTIFICATION_OBSERVER_READY_DIR set to an isolated observer runtime.
@@ -265,7 +265,7 @@ fi
 if [[ "${SPARKCLAW_TEST_SHARED_PAGE_SENDER_PROOF:-}" == 1 ]]; then
   live_test='^TestMailSharedPageHistoricalSenderProof$'
 fi
-if [[ "${SPARKCLAW_TEST_MAIL_SHARED_ORDERS:-}" == 1 ]]; then
-  live_test='^TestMailSharedPageOrdersLive$'
+if [[ "${SPARKCLAW_TEST_APP_CLI_SHARED_ORDERS:-}" == 1 ]]; then
+  live_test='^TestAppCLISharedPageOrdersLive$'
 fi
 go test -timeout=30m -count=1 -run "$live_test" -v ./internal/emailautomation

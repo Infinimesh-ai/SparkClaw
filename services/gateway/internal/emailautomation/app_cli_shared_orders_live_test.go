@@ -17,9 +17,9 @@ import (
 
 // Run with production intake paused: this owns temporary watchers in the same
 // dedicated profile and never sends or modifies account/login settings.
-func TestMailSharedPageOrdersLive(t *testing.T) {
-	if os.Getenv("SPARKCLAW_TEST_MAIL_SHARED_ORDERS") != "1" {
-		t.Skip("explicit read-only local mail startup-order qualification required")
+func TestAppCLISharedPageOrdersLive(t *testing.T) {
+	if os.Getenv("SPARKCLAW_TEST_APP_CLI_SHARED_ORDERS") != "1" {
+		t.Skip("explicit read-only App-CLI startup-order qualification required")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 	defer cancel()

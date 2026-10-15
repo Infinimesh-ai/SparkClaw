@@ -1,0 +1,90 @@
+--- a/applications/mail/lib/workspace-attachments.mjs
++++ b/applications/mail/lib/workspace-attachments.mjs
+@@ -117,7 +117,10 @@
+   // Count every card before asserting its canonical location and success.
+   // Only the known mirror with a proved hidden ancestor is excluded.
+   const qqCards = provider === 'qq_mail' ? [...state.root.querySelectorAll('.mail-compose-attach-card')].filter(node=>!qqHiddenMirror(node)) : [];
+-  const rows = [...state.root.querySelectorAll(rowSelector)].filter(node=>visible(node)&&!(provider==='qq_mail'&&qqHiddenMirror(node))).concat(qqCards);
++  // Current Outlook cards have no data-attachment-id. Count every canonical
++  // attachment container before proving its visible completed representation.
++  const outlookCards = provider === 'outlook' ? [...state.root.querySelectorAll('.av-container')] : [];
++  const rows = [...state.root.querySelectorAll(rowSelector)].filter(node=>visible(node)&&!(provider==='qq_mail'&&qqHiddenMirror(node))).concat(qqCards,outlookCards);
+   const label = node => node.getAttribute('aria-label') || node.getAttribute('data-tooltip') || node.textContent.trim();
+   const enabled = node => visible(node) && !node.disabled && node.getAttribute('aria-disabled') !== 'true';
+   const sameOutlookComposer = () => {
+@@ -251,10 +254,30 @@
+     if (!state.send?.isConnected || !visible(state.send) || state.send.disabled || state.send.getAttribute('aria-disabled') === 'true') return {ready:false};
+     const pending = [...root.querySelectorAll('[role="progressbar"],[aria-busy="true"],.attachment-uploading,.uploading,input[type="file"][aria-invalid="true"]')].some(visible);
+     if (pending) return {ready:false};
+-    if ([...root.querySelectorAll('[role="alert"],.attachment-error,.upload-error')].some(visible)) return {error:'email_attachment_upload_failed'};
++    const emptyOutlookAnnouncement = node => provider==='outlook'&&node.matches('div.screenReaderOnly[role="alert"]')&&
++      !node.matches('.attachment-error,.upload-error')&&!node.hasAttribute('aria-labelledby')&&!node.hasAttribute('aria-describedby')&&node.childNodes.length===0&&!node.getAttribute('aria-label')&&!node.getAttribute('title');
++    if ([...root.querySelectorAll('[role="alert"],.attachment-error,.upload-error')].some(node=>visible(node)&&!emptyOutlookAnnouncement(node))) return {error:'email_attachment_upload_failed'};
+     if (rows.length !== expected.length) return {ready:false};
+     const remaining = [...expected];
+     for (const row of rows) {
++      if(provider==='outlook'&&outlookCards.includes(row)){
++        if(!visibleWithinComposer(row)||row.children.length!==1||!state.attachmentInputValid?.()||!state.root.contains(state.send)||
++          JSON.stringify(state.attachmentVerifiedManifest)!==JSON.stringify(expected.map(({name,size_bytes,sha256})=>({name,size_bytes,sha256}))))return {ready:false};
++        const card=row.children[0];
++        if(!card.matches('div[aria-label]')||!visibleWithinComposer(card)||card.getAttribute('aria-disabled')==='true')return {ready:false};
++        const titles=[...card.querySelectorAll('[title]')].filter(visibleWithinComposer);
++        const names=titles.filter(node=>remaining.some(item=>node.getAttribute('title')===item.name&&node.textContent.trim()===item.name));
++        if(names.length!==1)return {ready:false};
++        const index=remaining.findIndex(item=>item.name===names[0].getAttribute('title')),item=remaining[index];
++        const sizes=titles.filter(node=>node!==names[0]&&new RegExp('^'+item.size_bytes+' (?:字节|bytes?)$','u').test(node.getAttribute('title'))&&node.textContent.trim()===node.getAttribute('title'));
++        if(sizes.length!==1||sizes[0].parentElement!==names[0].parentElement)return {ready:false};
++        const size=sizes[0].getAttribute('title'),summary=card.getAttribute('aria-label').trim();
++        if(summary!==item.name+' 打开 '+size&&summary!==item.name+' Open '+size)return {ready:false};
++        const controls=[...card.querySelectorAll('button,[role="button"]')];
++        const more=controls.filter(node=>enabled(node)&&visibleWithinComposer(node)&&/^(More actions|更多操作)$/u.test(label(node)));
++        if(controls.length!==1||more.length!==1)return {ready:false};
++        remaining.splice(index,1);continue;
++      }
+       if(provider==='qq_mail'&&qqCards.includes(row)){
+         const wrap=row.closest('.mail-compose-attaches-wrap');
+         if(!visibleWithinComposer(row)||!row.matches('.mail-compose-attaches-wrap .mail-compose-attaches .attach-cards > .mail-compose-attach-card')||!row.classList.contains('attach-card-success')||
+@@ -290,7 +313,8 @@
+   if (!attachments?.length) return;
+   const result=(await tab.inspect(`async()=>{
+     const expected=${JSON.stringify(attachments)};
+-    const result=(${attachmentDOM.toString()})(${JSON.stringify(provider)},'ready',expected);
++    const dom=${attachmentDOM.toString()};
++    const result=dom(${JSON.stringify(provider)},'ready',expected);
+     if(!result.ready)return result;
+     const state=globalThis.__sparkclawManagedMail,input=state.attachmentInput;
+     if(input?.isConnected){
+@@ -305,7 +329,7 @@
+         if(JSON.stringify(actual)!==JSON.stringify(manifest))return {error:'email_attachment_changed'};
+       }
+     }
+-    return (${attachmentDOM.toString()})(${JSON.stringify(provider)},'ready',expected);
++    return dom(${JSON.stringify(provider)},'ready',expected);
+   }`))?.result;
+   if(result?.ready!==true||result.count!==attachments.length)throw fail(result?.error||'email_attachment_upload_unverified');
+ }
+--- a/src/executor.mjs
++++ b/src/executor.mjs
+@@ -79,7 +79,7 @@
+             this.ledger.event(row.id, 'cancel_requested', {});
+             if (active) {
+               active.stopReason = 'CANCEL_REQUESTED'; active.abort.abort();
+-              if (row.status === 'pending') this.transition(row.id, 'cancelled', 'CANCEL_REQUESTED');
++              if (row.status === 'pending') this.transition(row.id, row.effect ? 'uncertain' : 'cancelled', 'CANCEL_REQUESTED');
+             }
+             else this.transition(row.id, row.effect ? 'uncertain' : 'cancelled', 'CANCEL_REQUESTED');
+           }
+@@ -96,7 +96,12 @@
+         case 'reconcile':
+           requireCondition(!this.closing && !active && row.status === 'uncertain' && typeof spec.handler.reconcile === 'function', 'INVALID_TASK_STATE');
+           this.refresh(row, request, grant);
+-          this.start(this.ledger.get(row.id), spec, resource, true);
++          // A queued recovery must acknowledge its new admission, not the
++          // original uncertain outcome that clients treat as terminal. Keep
++          // the original row for the handler's trusted reconciliation facts.
++          row = this.ledger.get(row.id);
++          this.transition(row.id, 'pending');
++          this.start(row, spec, resource, true);
+           break;
+         case 'events': return envelope(request, {kind: 'events', task: {id: row.id, status: row.status}, ...this.ledger.events(row, request.cursor, request.limit)});
+       }

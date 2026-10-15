@@ -1,0 +1,119 @@
+--- a/src/executor.mjs
++++ b/src/executor.mjs
+@@ -141,0 +142 @@
++      requireCondition(intentDigest(original) === row.intent && digest(resource) === row.resource_digest, 'TASK_ACCESS_DENIED');
+@@ -152,0 +154,5 @@
++        executionEvidence: Object.freeze({task_id: row.id, intent_digest: row.intent,
++          resource_digest: row.resource_digest, binding_digest: resource.binding_digest, ledger_epoch: this.ledger.epoch}),
++        // Captured before the running transition, after authenticated lookup and
++        // the !active admission check. Applications cannot supply these facts.
++        reconciliation: reconcile ? Object.freeze({status: row.status, reason: row.reason, effect: row.effect}) : null,
+--- a/applications/mail/handlers.mjs
++++ b/applications/mail/handlers.mjs
+@@ -4,0 +5 @@
++import {createNotSentReceipt, legacyNotSentReceipt, validateNotSentBinding} from './lib/send-recovery.mjs';
+@@ -46 +47,3 @@
+-    const result = await entry.handler(input, {emailWorkspaceRoot: context.resource.workspace_root});
++    const result = await entry.handler(input, {emailWorkspaceRoot: context.resource.workspace_root, originalMode: original.mode,
++      reconcileNotSentReceipt: request => legacyNotSentReceipt(request, context)});
++    validateNotSentBinding(result, input, context);
+@@ -57 +60,3 @@
+-    const result = await entry.handler(input, createProviderRuntime(page, entry));
++    const runtime = createProviderRuntime(page, entry);
++    if (entry.operation === 'send') runtime.notSentReceipt = (request, reason) => createNotSentReceipt(request, context, reason, 'pre_dispatch_failure');
++    const result = await entry.handler(input, runtime);
+--- a/applications/mail/output-schema.mjs
++++ b/applications/mail/output-schema.mjs
+@@ -0,0 +1 @@
++import {QQ15} from './lib/send-recovery.mjs';
+@@ -13,2 +14,9 @@
+-    Object.assign(properties, {status: {const: 'sent'}, recipient_digest: {type: 'string', pattern: '^sha256:[a-f0-9]{64}$'},
+-      provider_message_id: text, provider_thread_id: text}); required.push('status', 'recipient_digest');
++    const hash = {type:'string',pattern:'^[a-f0-9]{64}$'}, id = {type:'string',pattern:'^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'};
++    Object.assign(properties, {status: {enum: ['sent','not_sent']}, recipient_digest: {type: 'string', pattern: '^sha256:[a-f0-9]{64}$'},
++      provider_message_id: text, provider_thread_id: text, not_sent:{type:'object',additionalProperties:false,
++        properties:{schema_version:{const:1},kind:{enum:provider==='qq_mail'?['pre_dispatch_failure','legacy_15_pre_dispatch_failure']:['pre_dispatch_failure']},
++          invocation_id:id,task_id:id,intent_digest:hash,resource_digest:hash,binding_digest:hash,
++          ledger_epoch:{type:'integer',minimum:1},reason:{enum:['EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED','EMAIL_ATTACHMENT_UPLOAD_FAILED','EMAIL_ATTACHMENT_UNVERIFIED']}},
++        required:['schema_version','kind','invocation_id','task_id','intent_digest','resource_digest','binding_digest','ledger_epoch','reason'],
++        allOf:[{if:{properties:{kind:{const:'legacy_15_pre_dispatch_failure'}}},then:{properties:{binding_digest:{const:QQ15},reason:{const:'EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED'}}}}]}});
++    required.push('status', 'recipient_digest');
+@@ -35 +43,5 @@
+-  return {type: 'object', properties, required, additionalProperties: false};
++  const schema = {type: 'object', properties, required, additionalProperties: false};
++  if (command === 'send') schema.allOf = [{if:{properties:{status:{const:'not_sent'}}},
++    then:{required:['not_sent'],not:{anyOf:[{required:['provider_message_id']},{required:['provider_thread_id']}]}},
++    else:{not:{required:['not_sent']}}}];
++  return schema;
+--- a/applications/mail/lib/managed-send.mjs
++++ b/applications/mail/lib/managed-send.mjs
+@@ -146 +146 @@
+- const journal=await openSendJournal(runtime.emailWorkspaceRoot,request);
++ const journal=await openSendJournal(runtime.emailWorkspaceRoot,request,runtime.originalMode);
+@@ -149 +149,6 @@
+- if(request.mode==='reconcile'||journal.saved?.stage==='dispatching')return unknown;
++ if(request.mode==='reconcile'&&journal.saved?.stage==='not_sent')return journal.saved.receipt;
++ if(request.mode==='reconcile'&&!journal.saved&&runtime.reconcileNotSentReceipt){
++  const receipt=runtime.reconcileNotSentReceipt(request);
++  if(receipt&&await journal.write('not_sent',receipt))return receipt;
++ }
++ if(request.mode==='reconcile'||journal.saved)return unknown;
+@@ -191,3 +196,10 @@
+-  if(attempted)throw fail('send_outcome_unknown');throw error
+- }
+-}
++  if(attempted)throw fail('send_outcome_unknown');
++  // A positive, create-only failure receipt races the same dispatch claim.
++  // Retain the original failure/effect; recovery remains an explicit lookup.
++  if(!journal.saved&&runtime.notSentReceipt){
++   const receipt=runtime.notSentReceipt(request,error.code);
++   if(receipt)try{await journal.write('not_sent',receipt)}catch{}
++  }
++  throw error
++ }
++}
+--- a/applications/mail/lib/send-journal.mjs
++++ b/applications/mail/lib/send-journal.mjs
+@@ -8 +8 @@
+-export async function openSendJournal(workspace,request){
++export async function openSendJournal(workspace,request,originalMode){
+@@ -18 +18 @@
+- return {saved,async write(stage,receipt){const next={schema_version:1,fingerprint,mode:request.mode==='reconcile'?saved?.mode:request.mode,stage,receipt:receipt??null,updated_at:new Date().toISOString()};const temp=file+'.'+crypto.randomUUID()+'.tmp';const f=await fs.open(temp,'wx',0o600);try{await f.writeFile(JSON.stringify(next));await f.sync();}finally{await f.close()}if(stage==='dispatching'){try{await fs.link(temp,file)}catch(e){if(e.code!=='EEXIST')throw e;return false}finally{await fs.unlink(temp)}}else{await fs.rename(temp,file)}const d=await fs.open(directory,'r');try{await d.sync()}finally{await d.close()}saved=next;this.saved=next;return true;}};
++ return {saved,async write(stage,receipt){if(stage==='sent'&&saved?.stage!=='dispatching')return false;const next={schema_version:1,fingerprint,mode:request.mode==='reconcile'?(saved?.mode??originalMode):request.mode,stage,receipt:receipt??null,updated_at:new Date().toISOString()};const temp=file+'.'+crypto.randomUUID()+'.tmp';const f=await fs.open(temp,'wx',0o600);try{await f.writeFile(JSON.stringify(next));await f.sync();}finally{await f.close()}if(stage==='dispatching'||stage==='not_sent'){try{await fs.link(temp,file)}catch(e){if(e.code!=='EEXIST')throw e;return false}finally{await fs.unlink(temp)}}else{await fs.rename(temp,file)}const d=await fs.open(directory,'r');try{await d.sync()}finally{await d.close()}saved=next;this.saved=next;return true;}};
+--- /dev/null
++++ b/applications/mail/lib/send-recovery.mjs
+@@ -0,0 +1,34 @@
++import {requireCondition} from '../../../src/protocol.mjs';
++
++// Release .15 QQ binding: this exact script wraps every error after dispatch as
++// SEND_OUTCOME_UNKNOWN. This compatibility rule is not a generic error mapping.
++export const QQ15 = 'e4375abe5b06a033a818ed6a3659d88067c26c7727bbf45848f231274ab5ae97';
++const digest = /^[a-f0-9]{64}$/u;
++const id = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
++const failures = new Set(['EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED','EMAIL_ATTACHMENT_UPLOAD_FAILED','EMAIL_ATTACHMENT_UNVERIFIED']);
++
++export function createNotSentReceipt(request, context, error, kind) {
++  const reason = typeof error === 'string' ? error.toUpperCase() : '';
++  const evidence = context.executionEvidence;
++  if (!failures.has(reason) || !evidence || !id.test(evidence.task_id) ||
++      !['intent_digest','resource_digest','binding_digest'].every(key => digest.test(evidence[key])) ||
++      !Number.isSafeInteger(evidence.ledger_epoch) || evidence.ledger_epoch < 1) return null;
++  return {schema_version:1,provider:request.provider,status:'not_sent',recipient_digest:request.recipientDigest,
++    not_sent:{schema_version:1,kind,invocation_id:request.invocation_id,...evidence,reason}};
++}
++
++export function legacyNotSentReceipt(request, context) {
++  const previous = context.reconciliation;
++  if (request.provider !== 'qq_mail' || context.executionEvidence?.binding_digest !== QQ15 ||
++      previous?.status !== 'uncertain' || previous.effect !== 1 || previous.reason !== 'EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED') return null;
++  return createNotSentReceipt(request,context,previous.reason,'legacy_15_pre_dispatch_failure');
++}
++
++export function validateNotSentBinding(result, input, context) {
++  if (result?.status !== 'not_sent') return;
++  const proof = result.not_sent, expected = context.executionEvidence;
++  requireCondition(proof && expected && proof.invocation_id === input.invocation_id &&
++    ['task_id','intent_digest','resource_digest','binding_digest'].every(key => proof[key] === expected[key]) &&
++    Number.isSafeInteger(proof.ledger_epoch) && proof.ledger_epoch > 0 && proof.ledger_epoch <= expected.ledger_epoch,
++    'SEND_OUTCOME_UNKNOWN');
++}

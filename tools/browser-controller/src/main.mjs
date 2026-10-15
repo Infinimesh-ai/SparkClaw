@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 
 import path from "node:path";
-import os from "node:os";
 
-import { LocalMailRuntimeFactory } from "./local-mail-runtime.mjs";
+import { AppCLIClientFactory } from "./app-cli-client.mjs";
 import { BrowserController } from "./controller.mjs";
 import { electronAdapterConfig } from "./electron-adapter-client.mjs";
 import { startUnixServer } from "./http-server.mjs";
@@ -24,9 +23,7 @@ const clientFactory = new PlaywrightMCPClientFactory({
   actionTimeoutMS: boundedEnv("SPARKCLAW_BROWSER_ACTION_TIMEOUT_MS", 10_000, 500, 120_000),
   navigationTimeoutMS: boundedEnv("SPARKCLAW_BROWSER_NAVIGATION_TIMEOUT_MS", 30_000, 1_000, 120_000),
 });
-const scriptFactory = new LocalMailRuntimeFactory({
-  profileID,
-  stateDirectory: process.env.SPARKCLAW_MAIL_RUNTIME_STATE_DIR?.trim() || path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"), "sparkclaw", "browser-controller", "mail-runtime", profileID),
+const scriptFactory = new AppCLIClientFactory({
   browserChannel: process.env.SPARKCLAW_BROWSER_CHANNEL?.trim() || "chromium",
   executablePath: process.env.SPARKCLAW_BROWSER_EXECUTABLE?.trim() || "",
   userDataDir: process.env.SPARKCLAW_BROWSER_USER_DATA_DIR?.trim() || "",

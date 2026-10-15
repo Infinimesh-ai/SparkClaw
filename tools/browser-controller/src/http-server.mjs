@@ -1,4 +1,4 @@
-import {decode} from '../mail-runtime/src/protocol.mjs';
+import {decode} from '@infinimesh/app-cli-runtime/protocol';
 import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";

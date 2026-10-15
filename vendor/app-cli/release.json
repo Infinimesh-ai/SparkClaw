@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "0.3.0-sparkclaw.20",
+  "runtime_digest": "5c9876fcfec1b6e6602d01ffaab2ac7780ad7aa644c51ebf5f92e4e733a2a6fd",
+  "source_repository": "https://github.com/ZZZZJJJ0928/App-CLI",
+  "source_commit": "9da7cfde4c2f24904f87e2992e9dcf69e20f89d7",
+  "python_source_digest": "77f71342fb82d2c71bc5bd76aff362ac27a36d7cda939ca3b54674fd54fa46af",
+  "runtime_protocol": "2.0",
+  "host_protocol": "1.0",
+  "ledger_version": 1,
+  "artifacts": {
+    "python_dependencies": {
+      "file": "python-requirements.txt",
+      "sha256": "e99394c278eed0e2ee36f7a1289c0327af0a355b1726472a8296563d5fb0fde6"
+    },
+    "runtime": {
+      "file": "infinimesh-app-cli-runtime-0.3.0-sparkclaw.20.tgz",
+      "sha256": "9c277967819d10a81aa5f7606da308cbf8dc2205797fd94429732c88984ea343"
+    },
+    "wheel": {
+      "file": "infinimesh_app_cli-0.3.0+sparkclaw.20-py3-none-any.whl",
+      "sha256": "591d757722c572ea72fcc291fb15c8922f1218441619926c299daea26603fdfa"
+    }
+  },
+  "local_patch": {
+    "base_id": "0.3.0-sparkclaw.19",
+    "base_runtime_digest": "4731f4c4b164501590b68ca0e6a0a213b36968bc98c6da72749c7c6095ea5e1e",
+    "patch_file": "host-pending-admission.patch",
+    "patch_sha256": "e98ba14fe0ba2d2ad30c2ae6b92908352804f35fe7ad6c169f5b2cc3c5edbe5a"
+  }
+}

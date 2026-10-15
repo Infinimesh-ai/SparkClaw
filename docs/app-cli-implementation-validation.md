@@ -537,3 +537,20 @@ cases fail closed. Controller: 213 pass, 126 platform/opt-in skips; the two inst
 Python watch scenarios additionally pass when explicitly enabled. Paired install,
 tamper/mismatch rejection and state-preserving rollback pass. These tests use
 synthetic messages and never send mail. Production results are recorded separately.
+
+
+Work2 production acceptance on 2026-10-15: `.22` activated at 17:11 China time,
+advancing epoch 27→28. All 10,040 pre-upgrade task rows remain hash-identical;
+business database and workspace matched before Gateway resumed. The Gateway
+container/image and configuration are retained. QQ and Outlook both emitted
+`watch_ready` and a gap linked to the original unresolved request; Gateway state
+is `watching`, catch-up completed and sync errors are absent. Both retain their
+original new task IDs, renew authorization revision 1→2 and remain running beyond
+the original five-minute authorization expiry, without degradation or a cleanup
+fence. Heartbeats keep the real watches alive. No test email was sent to validate
+a fresh real inbound notification; isolated regression covers synthetic delivery.
+
+The cold rollback checkpoint is `/var/backups/sparkclaw-app-cli-watch-20261015`;
+never restore old databases or authority. The other four servers and installed
+Mac client are unchanged. SparkClaw `faacf177`, maintenance fork `d56dc9a`; no
+upstream push was performed.

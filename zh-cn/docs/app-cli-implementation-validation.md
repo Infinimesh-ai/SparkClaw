@@ -255,3 +255,16 @@ watch，邮件客户端才创建新会话，并在签名资源中携带 `previou
 授权拒绝测试。Controller 213 通过、126 个平台/按需用例跳过；显式启用的两个
 已安装 Python 监听场景另外通过。成套安装、篡改/混用拒绝及保留状态回退通过。
 全部为合成事件，无测试发信；生产结果另行记录。
+
+
+2026-10-15 work2 生产验收：17:11（北京时间）激活 .22，epoch 27→28。冷态
+备份保留升级前全部 10,040 条任务，后续逐条哈希仍一致；业务数据库和 workspace
+在 Gateway 恢复前一致，Gateway 容器/镜像及配置保持。QQ 和 Outlook 均产生
+watch_ready 与关联原未决请求的 gap，Gateway 状态恢复 watching，补查成功且
+无同步错误。两者保持同一 task，授权 revision 1→2，并跨过原五分钟授权到期
+时间仍运行，没有再降级或出现 cleanup fence。只读监听收到心跳并持续运行；
+未通过测试发信验证新的真实入站通知，合成通知传递由隔离回归覆盖。
+
+冷态回退点为 `/var/backups/sparkclaw-app-cli-watch-20261015`；不恢复旧数据库
+或 authority。其他四台服务器和 Mac 安装客户端未改动。SparkClaw `faacf177`、
+维护 fork `d56dc9a`；本轮未推送上游。

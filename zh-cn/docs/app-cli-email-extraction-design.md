@@ -8,6 +8,9 @@
 - SparkClaw 调查基线：`6f4c97e4d0d7e03fab2de48661ddd6aed3034cd9`
 - App-CLI 调查基线：`c9e49acd486fcbbbed0c0c3f398d6c7041a5a66f`
 
+[长期存储生命周期提案](app-cli-storage-lifecycle-design.md) 定义请求历史、授权续期、
+安全清理与未完成任务恢复，对应 proposed 决策 0035；尚未改变当前发行或留存契约。
+
 本文取代此前“通过 npm 包直接抽离邮件实现”的提案。目标是基于 App-CLI 已有架构建设可持续扩展的应用控制能力，邮件用于验证第一条完整链路。实现范围由目标架构决定，不能以少改文件为理由保留两套注册核心或绕开 App-CLI 的执行入口。
 
 本 fork 已实现公共生命周期核心、Runtime v2、常驻执行服务、BrowserHostPort 及邮件适配，具体范围见第 14 节；这不代表上游已合并或生产验收通过。2026-09-29 已完成六向累计送达验证，QQ 原生发送确认仍未通过；用户要求剩余收尾在 SparkClaw 合并主分支后进行，执行清单见[实现与验收记录](app-cli-implementation-validation.md)。

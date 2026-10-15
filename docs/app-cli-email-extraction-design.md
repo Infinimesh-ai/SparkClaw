@@ -8,6 +8,11 @@
 - SparkClaw inspection baseline: `6f4c97e4d0d7e03fab2de48661ddd6aed3034cd9`
 - App-CLI inspection baseline: `c9e49acd486fcbbbed0c0c3f398d6c7041a5a66f`
 
+The [long-term storage lifecycle proposal](app-cli-storage-lifecycle-design.md)
+defines bounded request history, authorization renewal, safe collection and
+unfinished-task recovery. It is proposed decision 0035, not an implemented change
+to this release or its retention contract.
+
 This replaces the earlier proposal to extract mail implementations through direct npm imports. The objective is a sustainable application control system built on App-CLI's existing architecture. Mail validates the first complete integration. The target architecture determines implementation scope; reducing changed files does not justify two public registries or bypassing App-CLI's execution entry point.
 
 This fork implements the public lifecycle core, Runtime v2, resident service, BrowserHostPort and mail adapters, with scope recorded in section 14; this does not mean upstream has merged the changes or production acceptance has passed. Cumulative six-route delivery was verified on 2026-09-29, while QQ native send acknowledgment remains unqualified. The user deferred remaining work until the SparkClaw main-branch merge; see the checklist in the [implementation and acceptance record](app-cli-implementation-validation.md).

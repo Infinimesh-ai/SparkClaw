@@ -47,7 +47,7 @@
 
 ## 4. 登录态复用与浏览器边界
 
-现有 [Browser Runtime](browser-runtime.md) 使用 owner 的持久 SparkClaw Chromium Profile，Gateway 通过私有 Controller socket 调用 Playwright CLI／Bridge，只控制自有任务页。邮件应用准入现在由 [local-mail-runtime.mjs](../../tools/browser-controller/src/local-mail-runtime.mjs) 承接，[host-driver.mjs](../../tools/browser-controller/src/host-driver.mjs) 保留通用任务页控制；邮件脚本和 Reader 来自[仓库内邮件运行时](local-mail-runtime.md)。金融注册、Reader、Schema 与解析器仍需要新增，不能将通用浏览器存在等同于金融采集已实现。
+现有 [Browser Runtime](browser-runtime.md) 使用 owner 的持久 SparkClaw Chromium Profile，Gateway 通过私有 Controller socket 调用 Playwright CLI／Bridge，只控制自有任务页。App-CLI 抽离后，应用准入由 [app-cli-client.mjs](../../tools/browser-controller/src/app-cli-client.mjs) 承接，[host-driver.mjs](../../tools/browser-controller/src/host-driver.mjs) 保留通用任务页控制；邮件脚本和 Reader 来自[成套 App-CLI 发行](../../configs/app-cli-release.json)。金融注册、Reader、Schema 与解析器仍需要新增，不能将通用浏览器存在等同于金融采集已实现。
 
 拟议流程：在 SparkClaw Browser 正常登录 → 同 Profile 创建金融任务页 → 验证站点、登录／权益状态 → 固定脚本读取 → 输出脱敏业务数据 → 释放页面。普通 Chrome、Codex 内置浏览器与 SparkClaw Profile 互不等价；用户若只在其他浏览器登录，需要先在 SparkClaw Browser 登录。Electron 是现有已接受的宿主目标，金融适配器依赖宿主接口，不另建常驻浏览器或恢复已退役的全局 CDP 路线。
 

@@ -1,7 +1,5 @@
 # Application Control Extensions Built on App-CLI
 
-> Historical record: mail implementation and builds returned to SparkClaw on 2026-10-15. See the [repository mail runtime](local-mail-runtime.md) for current operation; App-CLI installation/release commands below describe historical revisions only.
-
 > Language: English | [简体中文](../zh-cn/docs/app-cli-email-extraction-design.md)
 
 - Status: **R3 extraction and cumulative six-route delivery verified; production follow-up deferred until the main-branch merge**

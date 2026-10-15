@@ -8,10 +8,6 @@
 
 ## [Unreleased]
 
-### 邮件运行时
-
-- 邮件处理、Reader、绑定、安装和测试迁回 SparkClaw，移除 App-CLI 包与 Executor 安装链路；保留原界面和发送日志，新增持久发送去重及原回执恢复。详见[运行时说明](docs/local-mail-runtime.md)。
-
 ### Added
 
 - ISCP 邮件草稿支持审阅并发送 SparkX 桌面工作台数据中已归属的本机文件，

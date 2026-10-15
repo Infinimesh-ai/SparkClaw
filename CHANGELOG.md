@@ -8,10 +8,6 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ## [Unreleased]
 
-### Mail runtime
-
-- Moved mail handlers, Readers, bindings, installation and tests into SparkClaw, removing the App-CLI package/Executor installation path. Original UI and send journals are preserved, with durable send deduplication and original-receipt recovery. See the [runtime guide](docs/local-mail-runtime.md).
-
 ### Added
 
 - ISCP mail drafts can review and send only owned local files from SparkX's

@@ -237,3 +237,21 @@ Executor 切回 `.21`；Gateway 源码差异为注释与测试，无需替换二
 没有重现。原有 observer 状态仍为 `degraded`，本次证明分页同步恢复，
 不将其声称为推送监听恢复；未发送测试邮件。源码为 SparkClaw `13a2a4fe`、
 维护 fork `c4ea157`，本次未发布这些提交到 GitHub。
+
+
+## 过期监听准入恢复（2026-10-15）
+
+成套 `.22` 修复账本容量恢复后监听仍为 `degraded` 的问题。被拒请求此前已经
+持久化签名授权索引，后续重试一直复用未决原请求。必须先通过公共 lookup 确认
+结果仍 unresolved，且原签名授权属于本应用已过期、尚未绑定 task 的可续期只读
+watch，邮件客户端才创建新会话，并在签名资源中携带 `previous_request_key`。
+原索引和全部历史保留，新监听明确产生 gap 并触发补查。未到期授权与已知任务
+继续原恢复路径；通用 ProductClient 未决准入规则和发送防重规则不变。
+
+`watch-admission-recovery.patch` 基于精确 `.21` 包；Node 26 下执行
+`python3 scripts/build-watch-recovery-release.py --check` 可重现制品。
+真实 Python/Unix socket/SQLite 测试覆盖容量拒绝、原凭据及轮换凭据冷启动、
+授权到期、原任务/索引保留、关联 gap、通知传递、续期与已知任务复用，另有七类
+授权拒绝测试。Controller 213 通过、126 个平台/按需用例跳过；显式启用的两个
+已安装 Python 监听场景另外通过。成套安装、篡改/混用拒绝及保留状态回退通过。
+全部为合成事件，无测试发信；生产结果另行记录。

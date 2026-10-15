@@ -514,3 +514,26 @@ matched and the cleanup fence remained absent. Existing observer status remained
 `degraded`; this verifies page synchronization, not a recovered push notification
 watch. No test send was performed. Source: SparkClaw `13a2a4fe`, maintenance fork
 `c4ea157`; these commits have not been published to GitHub by this operation.
+
+
+## Expired watch admission recovery (2026-10-15)
+
+Paired `.22` fixes a watch that remained `degraded` after ledger capacity was
+restored. The signed authorization index was durable before the refused admission,
+so every retry found the same unresolved request. A successful public lookup must
+confirm an unresolved outcome, and the original signed grant must be an expired,
+unbound, renewable, read-only watch for this application. Only then may the mail
+client create another watch with `previous_request_key` in its signed resource.
+It preserves the original index and all history, emits an explicit gap and requests
+resynchronization. Live grants and known tasks retain their existing recovery
+rules. Generic ProductClient unresolved admission and send retry rules are unchanged.
+
+`watch-admission-recovery.patch` applies to the exact `.21` archive; reproduce with
+`python3 scripts/build-watch-recovery-release.py --check` under Node 26. Real
+Python/Unix-socket/SQLite tests cover capacity rejection, cold restart with unchanged
+or rotated credentials, expiry, prior-row/index preservation, linked gap,
+notification delivery, renewal and known-task reuse. Seven authority rejection
+cases fail closed. Controller: 213 pass, 126 platform/opt-in skips; the two installed
+Python watch scenarios additionally pass when explicitly enabled. Paired install,
+tamper/mismatch rejection and state-preserving rollback pass. These tests use
+synthetic messages and never send mail. Production results are recorded separately.

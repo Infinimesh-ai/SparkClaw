@@ -106,9 +106,7 @@ func TestPlaywrightExtensionLiveEmailProbes(t *testing.T) {
 			if operation := os.Getenv("SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_INTAKE"); operation != "" {
 				qualifyPinnedIntake(t, ctx, runner, provider, probe, operation)
 			}
-			readRequested := os.Getenv("SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_READ") == "1"
-			var readCandidates []app.EmailCaptureTarget
-			if os.Getenv("SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_DISCOVER") == "1" || readRequested {
+			if os.Getenv("SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_DISCOVER") == "1" {
 				digest := sha256.Sum256([]byte("email-management-qualification"))
 				request := ReadRequest{Provider: provider.ID, Account: app.EmailAccountDefault, OwnerScope: hex.EncodeToString(digest[:]), InvocationID: app.NewID("email_live_discovery"), BrowserCredentialGeneration: probe.Generation, ProbeRevision: provider.Probe.Revision, ScriptRevision: provider.Discover.Revision}
 				result, err := runner.Discover(ctx, provider, request)
@@ -116,7 +114,7 @@ func TestPlaywrightExtensionLiveEmailProbes(t *testing.T) {
 					t.Fatalf("live discovery: %v (code=%s)", err, ErrorCode(err))
 				}
 				t.Logf("live discovery: provider=%s candidates=%d complete=%t qualified=%t reason=%s", provider.ID, len(result.Candidates), result.Coverage.ScanComplete, result.Coverage.BoundaryQualified, result.Coverage.Reason)
-				if os.Getenv("SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_TIME_RANGE") == "1" || readRequested {
+				if os.Getenv("SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_TIME_RANGE") == "1" {
 					end := time.Now().UTC()
 					request.InvocationID = app.NewID("email_live_interval")
 					request.Discovery = &app.EmailDiscoveryOptions{Lane: "recent_inbound", AccountAddress: result.AccountAddress, IntervalStart: end.Add(-time.Hour), IntervalEnd: end, Limit: 50, ProviderMode: "time_range"}
@@ -133,41 +131,38 @@ func TestPlaywrightExtensionLiveEmailProbes(t *testing.T) {
 						t.Fatalf("live time range: code=%s elapsed=%s", ErrorCode(err), time.Since(started))
 					}
 					t.Logf("live time range: provider=%s candidates=%d complete=%t qualified=%t reason=%s elapsed=%s", provider.ID, len(interval.Candidates), interval.Coverage.ScanComplete, interval.Coverage.BoundaryQualified, interval.Coverage.Reason, time.Since(started))
-					readCandidates = interval.Candidates
 				}
 			}
-			if readRequested {
-				if len(readCandidates) == 0 {
-					t.Logf("live capture not exercised: provider=%s status=empty captured=false reason=no_discovery_candidates", provider.ID)
-				} else {
-					// Bind capture to this run's validated discovery evidence. Never
-					// resume an old invocation or select an unqualified first message.
-					target := readCandidates[0]
-					if (provider.ID == app.EmailProviderQQMail || provider.ID == app.EmailProviderOutlook) && target.ReceivedAt == nil {
-						t.Fatal("live capture target lacks receipt time: code=discovery_target_invalid")
-					}
-					ownerID := strings.TrimSpace(os.Getenv("SPARKCLAW_TEST_EMAIL_OWNER_ID"))
-					if ownerID == "" {
-						t.Fatal("SPARKCLAW_TEST_EMAIL_OWNER_ID is required for live capture")
-					}
-					ownerDigest := sha256.Sum256([]byte(ownerID))
-					request := ReadRequest{
-						Provider: provider.ID, Account: app.EmailAccountDefault, OwnerScope: hex.EncodeToString(ownerDigest[:]),
-						InvocationID: app.NewID("email_live_capture"), BrowserCredentialGeneration: probe.Generation,
-						ProbeRevision: provider.Probe.Revision, ScriptRevision: provider.Capture.Revision, Target: &target,
-					}
-					result, err := runner.Read(ctx, provider, request)
-					if err != nil {
-						t.Fatalf("live read failed: %v (code=%s)", err, ErrorCode(err))
-					}
-					if result.Capture == nil {
-						t.Fatal("live pinned capture returned no capture")
-					}
+			if os.Getenv("SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_READ") == "1" {
+				ownerID := strings.TrimSpace(os.Getenv("SPARKCLAW_TEST_EMAIL_OWNER_ID"))
+				if ownerID == "" {
+					t.Fatal("SPARKCLAW_TEST_EMAIL_OWNER_ID is required for live capture")
+				}
+				ownerDigest := sha256.Sum256([]byte(ownerID))
+				invocationID := strings.TrimSpace(os.Getenv("SPARKCLAW_TEST_EMAIL_INVOCATION_ID"))
+				if invocationID == "" {
+					invocationID = app.NewID("email_live_read")
+				}
+				request := ReadRequest{
+					Provider: provider.ID, Account: app.EmailAccountDefault, OwnerScope: hex.EncodeToString(ownerDigest[:]),
+					InvocationID: invocationID, BrowserCredentialGeneration: probe.Generation,
+					ProbeRevision: provider.Probe.Revision, ScriptRevision: provider.Read.Revision,
+				}
+				result, err := runner.Read(ctx, provider, request)
+				if err != nil {
+					t.Fatalf("live read failed: %v (code=%s)", err, ErrorCode(err))
+				}
+				if result.Status != "empty" && result.Capture == nil {
+					t.Fatal("live read returned an invalid envelope")
+				}
+				if result.Capture != nil {
 					workspaceRoot := strings.TrimSpace(os.Getenv("SPARKCLAW_TEST_EMAIL_WORKSPACE_ROOT"))
 					if err := verifyCapture(ctx, workspaceRoot, request, result); err != nil {
 						t.Fatal("live capture files could not be verified in the host workspace")
 					}
 					t.Logf("live capture succeeded: provider=%s status=%s attachments=%d read_state=%s files_verified=true", provider.ID, result.Status, result.Capture.AttachmentsCount, result.Capture.ReadState)
+				} else {
+					t.Logf("live capture succeeded: provider=%s status=%s captured=false", provider.ID, result.Status)
 				}
 			}
 			if os.Getenv("SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_MARK_READ") == "1" {

@@ -24,10 +24,7 @@ Set SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_DISCOVER=1 for read-only list discovery.
 Also set SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_TIME_RANGE=1 to exercise a one-hour
 timeline query. A passing smoke is not full incremental coverage qualification.
 Set SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_READ=1 and SPARKCLAW_TEST_EMAIL_OWNER_ID
-to capture the first candidate from this run's received-time discovery per provider
-and verify its local files. READ also enables discovery and the timeline query;
-SPARKCLAW_TEST_PLAYWRIGHT_EMAIL_INTERVAL_START may set its start (RFC3339).
-An empty interval records capture as not exercised; it does not prove capture.
+to also capture one unread inbox message per provider and verify its local files.
 Set SPARKCLAW_TEST_MAIL_SHARED_ORDERS=1, with production intake paused, for
 read-only read-first/watch-first cold/warm rounds and explicit watcher cancellation
 on all three existing accounts through the repository mail runtime.

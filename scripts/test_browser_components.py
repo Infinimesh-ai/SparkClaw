@@ -2,6 +2,7 @@
 import base64
 import copy
 import json
+import io
 import os
 from pathlib import Path
 import shutil
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -26,6 +28,36 @@ class BrowserComponentsTest(unittest.TestCase):
         self.default.mkdir(parents=True)
         self.identity = components.extension_id('/opt/sparkclaw/tampermonkey')
         self.prefs = self.default / 'Preferences'
+
+    def test_unpacked_extension_omits_signed_metadata_but_retains_code(self):
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, 'w') as archive:
+            archive.writestr('_metadata/verified_contents.json', '{"signed":true}')
+            archive.writestr('manifest.json', '{"manifest_version":3}')
+            archive.writestr('worker.js', 'self.loaded = true;')
+        extension = self.root / 'extension'
+        with zipfile.ZipFile(data) as archive:
+            components.extract_unpacked_extension(archive, extension)
+        self.assertFalse((extension / '_metadata').exists())
+        self.assertEqual((extension / 'worker.js').read_text(), 'self.loaded = true;')
+        self.assertEqual(json.loads((extension / 'manifest.json').read_text()), {'manifest_version': 3})
+
+    def test_reserved_metadata_does_not_bypass_archive_safety(self):
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, 'w') as archive:
+            archive.writestr('_metadata/../../escape', 'unsafe')
+        with zipfile.ZipFile(data) as archive:
+            with self.assertRaisesRegex(ValueError, 'unsafe CRX entry'):
+                components.extract_unpacked_extension(archive, self.root / 'extension')
+        self.assertFalse((self.root / 'escape').exists())
+
+    def test_system_check_rejects_reserved_metadata_even_if_receipt_is_current(self):
+        extension = self.root / 'extension'
+        (extension / '_metadata').mkdir(parents=True)
+        m = {'tampermonkey': {'path': str(extension)}}
+        with patch.object(components, 'manifest', return_value=m):
+            with self.assertRaisesRegex(ValueError, 'prevents unpacked extension loading'):
+                components.verify_system()
 
     def test_public_install_directories_are_readable_with_private_umask(self):
         system = self.root / 'opt/sparkclaw/browser-components'

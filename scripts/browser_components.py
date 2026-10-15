@@ -109,6 +109,19 @@ def make_provisioning(m):
     return {'version': '1', 'scripts': scripts}
 
 
+def extract_unpacked_extension(archive, extension):
+    for item in archive.infolist():
+        relative = Path(item.filename)
+        if relative.is_absolute() or '..' in relative.parts or (item.external_attr >> 16) & 0o170000 == 0o120000:
+            raise ValueError('unsafe CRX entry')
+        # Signed CRX verification metadata is reserved by Chromium and prevents
+        # loading this reviewed package as an unpacked extension. The original
+        # CRX digest is verified before extraction; never copy its signature cache.
+        if relative.parts and relative.parts[0] == '_metadata':
+            continue
+        archive.extract(item, extension)
+
+
 def stage(target):
     m = manifest()
     target.mkdir(parents=True, exist_ok=True)
@@ -128,11 +141,7 @@ def stage(target):
     extension = target / 'tampermonkey'
     extension.mkdir()
     with zipfile.ZipFile(io.BytesIO(data[offset:])) as archive:
-        for item in archive.infolist():
-            relative = Path(item.filename)
-            if relative.is_absolute() or '..' in relative.parts or (item.external_attr >> 16) & 0o170000 == 0o120000:
-                raise ValueError('unsafe CRX entry')
-            archive.extract(item, extension)
+        extract_unpacked_extension(archive, extension)
     if json.loads((extension / 'manifest.json').read_text())['version'] != m['tampermonkey']['version']:
         raise ValueError('Tampermonkey version mismatch')
     provisioning = make_provisioning(m)
@@ -300,6 +309,8 @@ def verify_public_permissions(extension):
 def verify_system():
     m = manifest()
     extension = Path(m['tampermonkey']['path'])
+    if (extension / '_metadata').exists():
+        raise ValueError('signed CRX metadata prevents unpacked extension loading')
     verify_public_permissions(extension)
     receipt = json.loads((SYSTEM / 'receipt.json').read_text())
     if receipt['manifest'] != m or digest(POLICY.read_bytes()) != receipt['policySHA256']:

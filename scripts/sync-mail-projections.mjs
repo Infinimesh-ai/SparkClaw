@@ -10,7 +10,7 @@ const check = process.argv.includes('--check');
 // Bindings include source checksums and authorization schemas. Check their
 // generator before publishing either consumer projection.
 execFileSync(process.execPath, [fileURLToPath(new URL(
-  'tools/browser-controller/mail-runtime/applications/mail/build-bindings.mjs', root)), '--check'], {stdio: 'inherit'});
+  'tools/browser-controller/mail-runtime/applications/mail/build-bindings.mjs', root)), '--check'], {stdio: 'inherit', timeout: 30000});
 const assets = JSON.parse(mailAsset('assets/mail/manifest.json'));
 if (assets.schema_version !== 1 || !Array.isArray(assets.scripts) || !assets.scripts.length) {
   throw new Error('Invalid local mail asset manifest');
@@ -30,6 +30,8 @@ for (const entry of assets.scripts) {
     throw new Error(`Local mail asset version mismatch: ${entry.file}`);
   }
 }
+execFileSync(process.execPath, [fileURLToPath(new URL(
+  'tools/browser-controller/mail-runtime/applications/mail/userscripts/build.mjs', root)), '--check'], {stdio: 'inherit', timeout: 30000});
 const component = new URL('configs/browser-components.json', root);
 const current = JSON.parse(await fs.readFile(component, 'utf8'));
 current.scripts = current.scripts.filter(entry => !['app-cli', 'local-mail'].includes(entry.source) && !entry.file.endsWith('-mail-reader.user.js'));

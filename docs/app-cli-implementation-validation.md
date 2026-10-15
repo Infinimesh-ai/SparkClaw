@@ -497,3 +497,20 @@ task caps and byte admission remain covered. Disposable paired installation,
 tamper/mixed-release rejection and state-preserving rollback pass. No real mail
 is sent by these tests. macOS suites use canonical `/private/tmp`; the default
 temporary-directory alias otherwise triggers existing path-privacy guards.
+
+
+Work2 activation completed on 2026-10-15 at 16:50 China time after a cold paired
+backup. All 10,000 original task rows were unchanged; the execution epoch advanced
+from 26 to 27. The business database and workspace matched before Gateway restart,
+and existing configuration, the Gateway container and its image were retained.
+Only the Controller/Executor integration switched to `.21`; the Gateway source
+difference involved comments and tests, so no binary replacement was needed.
+The other four servers and the installed desktop application were unchanged.
+
+Live verification subsequently observed 10,008 tasks, including three completed
+QQ page collections and two completed Outlook page collections, with both sync
+watermarks advancing and no last-sync error. The original 10,000 row hashes still
+matched and the cleanup fence remained absent. Existing observer status remained
+`degraded`; this verifies page synchronization, not a recovered push notification
+watch. No test send was performed. Source: SparkClaw `13a2a4fe`, maintenance fork
+`c4ea157`; these commits have not been published to GitHub by this operation.

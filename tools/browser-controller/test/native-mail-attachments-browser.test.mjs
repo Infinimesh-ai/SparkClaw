@@ -4,13 +4,10 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import {pathToFileURL} from 'node:url';
 import vm from 'node:vm';
 import test from 'node:test';
 import {chromium} from 'playwright';
-const runtime = process.env.APP_CLI_RECOVERY_RUNTIME_ROOT
-  ? pathToFileURL(path.resolve(process.env.APP_CLI_RECOVERY_RUNTIME_ROOT) + path.sep)
-  : new URL('../',import.meta.resolve('@infinimesh/app-cli-runtime/release'));
+const runtime = new URL('../mail-runtime/', import.meta.url);
 const {uploadManagedAttachments,verifyManagedAttachments,attachmentDOM}=await import(new URL('applications/mail/lib/workspace-attachments.mjs',runtime));
 const enabled=process.env.SPARKCLAW_MAIL_BROWSER_TEST==='1';
 const sha=bytes=>'sha256:'+crypto.createHash('sha256').update(bytes).digest('hex');
@@ -143,7 +140,7 @@ for(const [mode,reason] of [['ambiguous-menu','EMAIL_ATTACHMENT_CONTROL_UNAVAILA
   test(`production menu rejection persists a bound receipt and explicitly reconciles: ${reason}`,{skip:!enabled},async t=>{
     const f=await fixture(t,mode);
     const {assertTypedMenuRecovery}=await import('./fixtures/mail-typed-menu-recovery.mjs');
-    await assertTypedMenuRecovery(t,{runtime,tab:f.tab,root:f.root,manifest:f.manifest,reason});
+    await assertTypedMenuRecovery(t,{tab:f.tab,root:f.root,manifest:f.manifest,reason});
     assert.deepEqual(await f.page.evaluate(()=>uploads),[]);assert.equal(await f.page.evaluate(()=>sendClicks),0);
   });
 }

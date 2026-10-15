@@ -16,23 +16,14 @@ const {BrowserController}=await import(pathToFileURL(path.join(repo,'tools/brows
 const pid=Number(execFileSync('systemctl',['--user','show','-p','MainPID','--value','sparkclaw-browser-controller.service'],{encoding:'utf8'}));
 if(!Number.isSafeInteger(pid)||pid<=1)throw new Error('controller inactive');
 const environment=Object.fromEntries((await fs.readFile(`/proc/${pid}/environ`)).toString().split('\0').filter(v=>v.includes('=')).map(v=>{const i=v.indexOf('=');return [v.slice(0,i),v.slice(i+1)];}));
-const config=JSON.parse(await fs.readFile(environment.SPARKCLAW_APP_CLI_CONFIG,'utf8'));
 const globalFence=path.join(environment.SPARKCLAW_BROWSER_CLI_RUNTIME_DIR,'cleanup-fence.json');
 await fs.access(globalFence).then(()=>{throw new Error('production cleanup fenced');},e=>{if(e.code!=='ENOENT')throw e;});
-const root=config.runtime_directory,runtime=pathToFileURL(root+path.sep);
-const {verifyRelease}=await import(new URL('src/release.mjs',runtime));
-verifyRelease(config);
-const candidate=process.env.SPARKCLAW_FIXED_OUTLOOK_MENU_CANDIDATE==='1';
-const candidateDigest='7140a8bcc7d7d1d3bf52aa12971d8c4ae0f7db94b0eb07d5e422f8a826d89040';
-let attachmentRuntime=runtime;
-if(candidate){const candidateRoot=fileURLToPath(new URL(`./candidate-${candidateDigest.slice(0,12)}/package/`,import.meta.url));verifyRelease({...config,runtime_directory:candidateRoot,release_id:'0.3.0-sparkclaw.18',release_digest:candidateDigest,bindings:[]});attachmentRuntime=pathToFileURL(candidateRoot+path.sep);}
+const root=path.join(repo,'tools/browser-controller/mail-runtime'),runtime=pathToFileURL(root+path.sep);
 const binding=JSON.parse(await fs.readFile(new URL('bindings/mail-outlook.json',runtime),'utf8'));
 const {OUTLOOK_SENT_BASELINE_EXPRESSION}=await import(new URL('applications/mail/lib/outlook-send-proof.mjs',runtime));
-// Candidate qualification substitutes only this fixed DOM adapter and its local menu budget.
-// Account/editor code, binding, assets and actual Host/CLI remain installed .17.
-const [managed,attachments,send]=await Promise.all([import(new URL('applications/mail/lib/managed-send-dom.mjs',runtime)),import(new URL('applications/mail/lib/workspace-attachments.mjs',attachmentRuntime)),import(new URL('applications/mail/lib/managed-send.mjs',runtime))]);
+const [managed,attachments,send]=await Promise.all([import(new URL('applications/mail/lib/managed-send-dom.mjs',runtime)),import(new URL('applications/mail/lib/workspace-attachments.mjs',runtime)),import(new URL('applications/mail/lib/managed-send.mjs',runtime))]);
 const directory=await fs.mkdtemp('/tmp/sc-outlook-menu-');await fs.chmod(directory,0o700);
-const evidence={schema_version:1,started_at:new Date().toISOString(),release_digest:config.release_digest,candidate_release_digest:candidate?candidateDigest:null,candidate_scope:candidate?'attachmentDOM_and_menu_budget_with_installed_Host_CLI':null,candidate_menu_wait_ms:candidate?attachments.ATTACHMENT_MENU_WAIT_MS:null,menu_hover:process.env.SPARKCLAW_FIXED_OUTLOOK_MENU_HOVER==='1',visibility_wait:process.env.SPARKCLAW_FIXED_OUTLOOK_MENU_VISIBILITY_WAIT==='1',production_reservation:false,diagnostic_directory:directory,no_send:true,no_upload:true};
+const evidence={schema_version:1,started_at:new Date().toISOString(),runtime:'repository-local',menu_hover:process.env.SPARKCLAW_FIXED_OUTLOOK_MENU_HOVER==='1',visibility_wait:process.env.SPARKCLAW_FIXED_OUTLOOK_MENU_VISIBILITY_WAIT==='1',production_reservation:false,diagnostic_directory:directory,no_send:true,no_upload:true};
 let hold,driver,controller,handle,heartbeat,pending=Promise.resolve(),released=false;
 const signal=new AbortController();
 try {

@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import vm from "node:vm";
 
-import { inspectGmailLogin } from "../node_modules/@infinimesh/app-cli-runtime/applications/mail/gmail-browser.mjs";
-import { probeOutlookLogin } from "../node_modules/@infinimesh/app-cli-runtime/applications/mail/outlook-login-probe.mjs";
+import { inspectGmailLogin } from "../mail-runtime/applications/mail/gmail-browser.mjs";
+import { probeOutlookLogin } from "../mail-runtime/applications/mail/outlook-login-probe.mjs";
 import { HostPage } from "../src/host-page.mjs";
 
 const providers = [

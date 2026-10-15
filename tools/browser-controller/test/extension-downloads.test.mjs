@@ -10,7 +10,7 @@ const { ExtensionDownloads } = createRequire(import.meta.url)('../src/extension-
 const guid = '12345678-1234-4123-8123-123456789abc';
 
 async function fixture(t) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sparkclaw-download-test-'));
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sparkclaw-download-test-')));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const artifacts = path.join(root, 'artifacts');
   await fs.mkdir(artifacts, { mode: 0o700 });

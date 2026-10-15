@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-const root = new URL('../', import.meta.resolve('@infinimesh/app-cli-runtime/release'));
+const root = new URL('../mail-runtime/', import.meta.url);
 const {collectUnread} = await import(new URL('applications/mail/read.mjs', root));
 const {networkListPage} = await import(new URL('applications/mail/lib/network-reader.mjs', root));
 const address='mailbox@example.test', at='2026-09-24T11:11:22Z';

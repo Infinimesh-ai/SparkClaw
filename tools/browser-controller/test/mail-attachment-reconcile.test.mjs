@@ -1,77 +1,74 @@
 import assert from 'node:assert/strict';
-import path from 'node:path';
-import {pathToFileURL} from 'node:url';
 import test from 'node:test';
+import {localMailFixture} from './fixtures/local-mail-runtime.mjs';
+import {validateManagedSend} from '../mail-runtime/applications/mail/lib/managed-send.mjs';
+import {openSendJournal} from '../mail-runtime/applications/mail/lib/send-journal.mjs';
+import {createNotSentReceipt} from '../mail-runtime/applications/mail/lib/send-recovery.mjs';
 
-const runtime = process.env.APP_CLI_RECOVERY_RUNTIME_ROOT
-  ? pathToFileURL(path.resolve(process.env.APP_CLI_RECOVERY_RUNTIME_ROOT) + path.sep)
-  : new URL('../', import.meta.resolve('@infinimesh/app-cli-runtime/release'));
-const {MailboxClient} = await import(new URL('applications/mail/client.mjs', runtime));
-const {digest} = await import(new URL('src/protocol.mjs', runtime));
-const file = (index, sha) => ({name:'same.txt',size_bytes:8,sha256:'sha256:'+sha.repeat(64),
-  path:`.sparkclaw-mail-send-${'a'.repeat(32)}/0${index}/same.txt`});
-const original = () => ({schema_version:1,operation:'send',provider:'qq_mail',account:'default',
-  account_address:'owner@example.test',invocation_id:'reviewed-invocation',mode:'compose',
-  message:{to:['sink@example.test'],cc:[],subject:'Reviewed',body:{format:'text',content:'Body'},
-    attachments:[file(0,'a'),file(1,'b')]}});
-function harness(args = original(), status = 'uncertain') {
-  const calls = [], admission = {request:{arguments:args},existing:true};
-  const completed = {kind:'task',task:{id:'original-task',status:'completed'},data:{status:'sent'}};
-  const mailbox = Object.create(MailboxClient.prototype);
-  mailbox.config = {owner_id:'owner'};
-  mailbox.describe = () => ({binding:{manifest:{id:'mail.qq_mail'}},command:'send',
-    spec:{script_id:'qq-send',revision:1,source_checksum:'fixture'}});
-  mailbox.client = {
-    restore(identity) {calls.push(['restore',identity]);return admission;},
-    async control(value, op) {assert.equal(value,admission);calls.push([op]);return {kind:'task',task:{id:'original-task',status}};},
-    refresh(value, id, op) {assert.equal(value,admission);assert.equal(id,'original-task');calls.push([op]);return {admission:value,acknowledged:Promise.resolve(completed)};},
-    async wait(value, response) {assert.equal(value,admission);return response;},
-    authorize() {assert.fail('reconcile must not admit a new send');},
-    invoke() {assert.fail('reconcile must not invoke or reupload');},
-  };
-  const request = {operation:'send',provider:'qq_mail',taskID:args.invocation_id,scriptID:'qq-send',revision:1,
-    input:{...structuredClone(args),mode:'reconcile'}};
-  for(const item of request.input.message.attachments ?? []) item.path='';
-  return {mailbox,request,calls,args};
+const file = (index, sha) => ({name: 'same.txt', size_bytes: 8, sha256: 'sha256:' + sha.repeat(64),
+  path: `.sparkclaw-mail-send-${'a'.repeat(32)}/0${index}/same.txt`});
+const original = () => ({schema_version: 1, operation: 'send', provider: 'qq_mail', account: 'default',
+  account_address: 'owner@example.test', invocation_id: 'reviewed-invocation', mode: 'compose',
+  message: {to: ['sink@example.test'], cc: [], subject: 'Reviewed', body: {format: 'text', content: 'Body'},
+    attachments: [file(0, 'a'), file(1, 'b')]}});
+
+async function harness(t, args = original()) {
+  const f = await localMailFixture(t);
+  const key = 'mail-qq-mail\0send', entry = f.factory.commands.get(key);
+  let effects = 0, receipt;
+  f.factory.commands.set(key, {...entry, handler: {...entry.handler, async run(input, context) {
+    context.beforeEffect(); effects++;
+    const request = validateManagedSend(input, 'qq_mail');
+    receipt = createNotSentReceipt(request, context, 'EMAIL_ATTACHMENT_UPLOAD_FAILED', 'pre_dispatch_failure');
+    const journal = await openSendJournal(f.factory.emailWorkspaceRoot, request);
+    assert.equal(await journal.write('not_sent', receipt), true);
+    throw Object.assign(new Error('synthetic upload failure'), {code: 'EMAIL_ATTACHMENT_UPLOAD_FAILED'});
+  }}});
+  const request = f.request('qq_mail', 'send', args);
+  assert.equal((await f.factory.runScript(request)).result.code, 'send_outcome_unknown');
+  f.factory.commands.set(key, entry);
+  const recovery = {...request, input: {...structuredClone(args), mode: 'reconcile'}};
+  for (const attachment of recovery.input.message.attachments ?? []) attachment.path = '';
+  return {...f, recovery, receipt, effects: () => effects};
 }
 
-test('receipt-only reconciliation restores the original task after attachment staging expires', async () => {
-  const {mailbox,request,calls,args} = harness(), before = structuredClone(args);
-  const result = await mailbox.execute(request);
-  assert.equal(result.state,'completed');
-  assert.deepEqual(calls.map(value=>value[0]),['restore','lookup','reconcile']);
-  assert.equal(calls[0][1].request_key,digest({taskID:args.invocation_id,app:'mail.qq_mail',command:'send'}));
-  assert.deepEqual(args,before,'the original signed intent must remain unchanged');
-  assert.equal(request.input.message.attachments[0].path,'');
+test('receipt-only local reconciliation retains original proof after attachment staging expires', async t => {
+  const args = original(), before = structuredClone(args), f = await harness(t, args);
+  const beforeHosts = f.counts.created;
+  const result = await f.factory.runScript(f.recovery);
+  assert.equal(result.state, 'completed'); assert.deepEqual(result.result, f.receipt);
+  assert.deepEqual(args, before, 'approved input must remain unchanged');
+  assert.equal(f.recovery.input.message.attachments[0].path, '');
+  assert.equal(f.counts.created, beforeHosts); assert.equal(f.effects(), 1);
 });
 
-test('receipt lookup rejects changed approved content, identities, attachment order and hidden fields', async t => {
+test('local receipt lookup rejects altered content, identities, attachment order and hidden fields', async t => {
   const changes = {
-    hash:r=>{r.message.attachments[0].sha256='sha256:'+'c'.repeat(64);},
-    name:r=>{r.message.attachments[0].name='changed.txt';},
-    size:r=>{r.message.attachments[0].size_bytes++;},
-    order:r=>{r.message.attachments.reverse();},
-    added:r=>{r.message.attachments.push({...file(2,'c'),path:''});},
-    removed:r=>{r.message.attachments.pop();},
-    body:r=>{r.message.body.content='changed';},
-    subject:r=>{r.message.subject='changed';},
-    recipient:r=>{r.message.to=['other@example.test'];},
-    cc:r=>{r.message.cc=['other@example.test'];},
-    account:r=>{r.account_address='other@example.test';},
-    invocation:r=>{r.invocation_id='other-invocation';},
-    reply:r=>{r.reply_target={provider_message_id:'other'};},
-    extra:r=>{r.message.attachments[0].content_base64='Zm9yZ2Vk';},
+    hash: r => {r.message.attachments[0].sha256 = 'sha256:' + 'c'.repeat(64);},
+    name: r => {r.message.attachments[0].name = 'changed.txt';},
+    size: r => {r.message.attachments[0].size_bytes++;},
+    order: r => {r.message.attachments.reverse();},
+    added: r => {r.message.attachments.push({...file(2, 'c'), path: ''});},
+    removed: r => {r.message.attachments.pop();},
+    body: r => {r.message.body.content = 'changed';},
+    subject: r => {r.message.subject = 'changed';},
+    recipient: r => {r.message.to = ['other@example.test'];},
+    cc: r => {r.message.cc = ['other@example.test'];},
+    account: r => {r.account_address = 'other@example.test';},
+    invocation: r => {r.invocation_id = 'other-invocation';},
+    reply: r => {r.reply_target = {provider_message_id: 'other'};},
+    extra: r => {r.message.attachments[0].content_base64 = 'Zm9yZ2Vk';},
   };
-  for (const [name,change] of Object.entries(changes)) await t.test(name,async()=>{
-    const {mailbox,request,calls} = harness();change(request.input);
-    await assert.rejects(mailbox.execute(request));
-    assert.deepEqual(calls.map(value=>value[0]),['restore']);
+  for (const [name, change] of Object.entries(changes)) await t.test(name, async t => {
+    const f = await harness(t), beforeHosts = f.counts.created; change(f.recovery.input);
+    await assert.rejects(f.factory.runScript(f.recovery));
+    assert.equal(f.counts.created, beforeHosts); assert.equal(f.effects(), 1);
   });
 });
 
-test('legacy sends without attachments still use their original admission',async()=>{
-  const args=original();delete args.message.attachments;
-  const {mailbox,request,calls}=harness(args);
-  assert.equal((await mailbox.execute(request)).state,'completed');
-  assert.deepEqual(calls.map(value=>value[0]),['restore','lookup','reconcile']);
+test('managed sends without attachments retain their original proof', async t => {
+  const args = original(); delete args.message.attachments;
+  const f = await harness(t, args);
+  assert.deepEqual((await f.factory.runScript(f.recovery)).result, f.receipt);
+  assert.equal(f.effects(), 1);
 });

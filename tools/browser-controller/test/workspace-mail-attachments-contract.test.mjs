@@ -7,7 +7,7 @@ import {spawnSync} from 'node:child_process';
 import test from 'node:test';
 import Ajv2020 from 'ajv/dist/2020.js';
 
-const runtime = new URL('../', import.meta.resolve('@infinimesh/app-cli-runtime/release'));
+const runtime = new URL('../mail-runtime/', import.meta.url);
 const {validateManagedSend, isManagedSend} = await import(new URL('applications/mail/lib/managed-send.mjs', runtime));
 const {inputSchema} = await import(new URL('applications/mail/input-schema.mjs', runtime));
 const {verifyWorkspaceAttachments} = await import(new URL('applications/mail/lib/workspace-attachments.mjs', runtime));

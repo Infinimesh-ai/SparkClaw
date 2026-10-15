@@ -5,15 +5,14 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import {spawn} from 'node:child_process';
-import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright';
 import {PlaywrightMCPClientFactory} from '../src/mcp-client.mjs';
 import {diagnoseFixedOutlookUpload} from './fixtures/outlook-upload-diagnostic.mjs';
 const enabled=process.env.SPARKCLAW_MAIL_BROWSER_TEST==='1';
-const runtime=process.env.APP_CLI_RECOVERY_RUNTIME_ROOT?pathToFileURL(path.resolve(process.env.APP_CLI_RECOVERY_RUNTIME_ROOT)+path.sep):new URL('../',import.meta.resolve('@infinimesh/app-cli-runtime/release'));
+const runtime = new URL('../mail-runtime/', import.meta.url);
 const modules={...await import(new URL('applications/mail/lib/managed-send-dom.mjs',runtime)),...await import(new URL('applications/mail/lib/workspace-attachments.mjs',runtime)),...await import(new URL('applications/mail/lib/managed-send.mjs',runtime)),verifySendAccount:async()=>{}};
 for(const mode of ['approved','nonempty','badbytes','native-card'])test(`fixed no-send upload through real CLI wrapper: ${mode}`,{skip:!enabled,timeout:30000},async t=>{
- const root=await fs.mkdtemp(path.join(os.tmpdir(),'upl-diag-'));await fs.chmod(root,0o700);
+ const root=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'upl-diag-')));await fs.chmod(root,0o700);
  const lease=path.join(root,'lease.json');await fs.writeFile(lease,JSON.stringify({epoch:1,generation:1,activities:[{id:'fixture',kind:'read',expires_ms:Date.now()+120000}]}),{mode:0o600});
  const html=`<!doctype html><style>button{min-width:80px;min-height:30px}[contenteditable]{min-width:100px;min-height:30px}</style><button id=new>New mail</button><div data-automation-type=RibbonBottomBarContainer><button id=ribbon data-automation-type=RibbonFlyoutAnchor aria-haspopup=true aria-expanded=false aria-label="Attach files">Attach</button></div><input id=file type=file data-testid=local-computer-filein multiple hidden><script>
  window.sendClicks=0;window.uploads=0;document.getElementById('new').onclick=()=>{const root=document.createElement('div');root.innerHTML='<input aria-label="To"><input aria-label="Subject"><div contenteditable="true" aria-label="Message body">${mode==='nonempty'?'old draft':''}</div><button id=send>Send</button><button id=discard>Discard</button>';root.id='compose';root.querySelector('#send').onclick=()=>sendClicks++;root.querySelector('#discard').onclick=()=>root.remove();document.body.append(root)};

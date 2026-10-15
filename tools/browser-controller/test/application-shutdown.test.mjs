@@ -6,16 +6,14 @@ import path from 'node:path';
 import net from 'node:net';
 import http from 'node:http';
 import {once} from 'node:events';
-import {MailboxClient} from '@infinimesh/app-cli-runtime/mail-client';
-import {ProductClient} from '@infinimesh/app-cli-runtime/product-client';
-import {BrowserHostPort} from '@infinimesh/app-cli-runtime/host-port';
-import {AppCLIClientFactory} from '../src/app-cli-client.mjs';
+import {BrowserHostPort} from '../mail-runtime/src/host-port.mjs';
+import {LocalMailRuntimeFactory} from '../src/local-mail-runtime.mjs';
 import {ApplicationHostDriver} from '../src/host-driver.mjs';
 import {BrowserController} from '../src/controller.mjs';
 import {startUnixServer} from '../src/http-server.mjs';
 
 // Real lifecycle classes and both Unix listeners, with only the external
-// Executor/browser actions replaced. Never connect to a running deployment.
+// provider/browser actions replaced. Never connect to a running deployment.
 async function fixture(t, {cancelFailure, pageFailure, reapFailure} = {}) {
   // Darwin's per-user temporary prefix leaves little Unix-socket path space.
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sd-')));
@@ -24,14 +22,12 @@ async function fixture(t, {cancelFailure, pageFailure, reapFailure} = {}) {
   const peer = net.createConnection(driver.eventSocket); await once(peer, 'connect');
   if (!driver.connections.size) await once(driver.events, 'connection');
   const peerClosed = once(peer, 'close');
-  const mail = Object.create(MailboxClient.prototype);
-  mail.watches = new Map([['outlook', {admission: {}, task: {id: 'fixture-watch'}}]]);
-  mail.describe = () => ({spec: {source_checksum: 'fixture'}});
-  mail.client = {wait: ProductClient.prototype.wait, async control() {
-    if (cancelFailure) throw cancelFailure;
-    return {kind: 'task', task: {id: 'fixture-watch', status: 'cancelled'}};
-  }};
-  const factory = new AppCLIClientFactory(); factory.client = mail; factory.driver = driver;
+  const factory = new LocalMailRuntimeFactory(); factory.driver = driver;
+  const binding = JSON.parse(await fs.readFile(new URL('../mail-runtime/bindings/mail-outlook.json', import.meta.url)));
+  factory.bindings = new Map([['outlook', binding]]);
+  factory.commands = new Map([[`${binding.manifest.id}\0watch`, {spec: binding.commands.watch}]]);
+  // Model a provider cleanup error after the watch cancellation boundary.
+  if (cancelFailure) factory.stopWatch = async () => {throw cancelFailure;};
   factory.host = new BrowserHostPort({authorization: {}, bindings: [], driver, stateDirectory: root});
   const controller = new BrowserController({clientFactory: {async open() {throw new Error('unused');}}, scriptFactory: factory});
   factory.bindController(controller); controller.mailObserverFeed.owned.add('outlook');
@@ -78,8 +74,8 @@ async function assertClosed(f) {
   await assert.rejects(fs.stat(f.driver.eventSocket), {code: 'ENOENT'});
 }
 
-test('stopped Executor cancellation failure still closes Host and both listeners, preserving the failure', async t => {
-  const failure = Object.assign(new Error('stopped Executor'), {code: 'BACKEND_EXECUTION_FAILED'});
+test('watch cancellation failure still closes Host and both listeners, preserving the failure', async t => {
+  const failure = Object.assign(new Error('watch cleanup failed'), {code: 'HOST_CLEANUP_FAILED'});
   const f = await fixture(t, {cancelFailure: failure});
   await assert.rejects(f.runtime.close(), error => error === failure);
   await assertClosed(f);
@@ -95,7 +91,7 @@ test('normal shutdown waits for owned cleanup and closes the public and private 
 });
 
 test('feed cancellation failure still drains a separate ordinary MCP reservation', async t => {
-  const failure = Object.assign(new Error('stopped Executor'), {code: 'BACKEND_EXECUTION_FAILED'});
+  const failure = Object.assign(new Error('watch cleanup failed'), {code: 'HOST_CLEANUP_FAILED'});
   const f = await fixture(t, {cancelFailure: failure});
   // An initialized watch can retain its page without holding a scheduler lane.
   f.controller.finishApplication(f.handle.activities.get('read').reservation);
@@ -125,7 +121,7 @@ test('failed owned-process reaping remains fenced without an unresolved reservat
 });
 
 test('feed failure remains observable when later page cleanup also fails and retains its fence', async t => {
-  const first = Object.assign(new Error('stopped Executor'), {code: 'BACKEND_EXECUTION_FAILED'});
+  const first = Object.assign(new Error('watch cleanup failed'), {code: 'HOST_CLEANUP_FAILED'});
   const cleanup = Object.assign(new Error('unknown page cleanup'), {code: 'browser_page_stale'});
   const f = await fixture(t, {cancelFailure: first, pageFailure: cleanup});
   await assert.rejects(f.runtime.close(), error => error === first);

@@ -4,7 +4,16 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useConversationActivity } from "./useConversationActivity";
 
-beforeEach(() => { vi.useFakeTimers(); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); window.localStorage.clear(); });
+beforeEach(() => {
+  vi.useFakeTimers(); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  // Node 26 exposes its own file-less localStorage, so keep viewer state in memory.
+  const stored = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", { configurable: true, value: {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => stored.set(key, value),
+    clear: () => stored.clear(),
+  } });
+});
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("background conversation activity", () => {

@@ -150,9 +150,8 @@ class BrowserBridgeArtifactTest(unittest.TestCase):
         self.assertIn("systemctl --user restart sparkclaw-browser.service", script)
         self.assertIn("TimeoutStopSec=60", script)
         controller_unit = script.split('cat >"$unit_path" <<EOF', 1)[1].split("\nEOF", 1)[0]
-        executor_unit = script.split('cat >"$executor_unit" <<EOF', 1)[1].split("\nEOF", 1)[0]
         self.assertIn("KillMode=mixed\nSendSIGKILL=yes", controller_unit)
-        self.assertIn("KillMode=control-group", executor_unit)
+        self.assertNotIn('cat >"$executor_unit"', script)
         self.assertIn("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1", script)
         self.assertIn('npm --prefix "$PACKAGE_DIR" ls --depth=0 --omit=dev', script)
 
@@ -173,20 +172,24 @@ class BrowserBridgeArtifactTest(unittest.TestCase):
     def test_controller_first_install_and_existing_service_cleanup(self) -> None:
         script = CONTROLLER_SETUP.read_text(encoding="utf-8")
         drain = script.split("# Stop admission and await owned-resource cleanup before swapping any component.\n", 1)[1]
-        drain = drain.split('python3 "$ROOT/scripts/install-app-cli.py"', 1)[0]
+        drain = drain.split('log "installing pinned', 1)[0]
         executor = "sparkclaw-app-cli-executor.service"
         controller = "sparkclaw-browser-controller.service"
         for installed in ((), (executor,), (controller,), (executor, controller)):
             with self.subTest(installed=installed):
                 result = self.run_controller_drain(drain, installed)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                expected = [f"stop {unit}" for unit in (executor, controller) if unit in installed]
+                expected = []
+                if executor in installed:
+                    expected += [f"stop {executor}", f"disable {executor}"]
+                if controller in installed:
+                    expected += [f"stop {controller}"]
                 self.assertEqual(result.stdout.splitlines(), [*expected, "activate"])
 
     def test_controller_activation_stops_on_any_existing_service_cleanup_failure(self) -> None:
         script = CONTROLLER_SETUP.read_text(encoding="utf-8")
         drain = script.split("# Stop admission and await owned-resource cleanup before swapping any component.\n", 1)[1]
-        drain = drain.split('python3 "$ROOT/scripts/install-app-cli.py"', 1)[0]
+        drain = drain.split('log "installing pinned', 1)[0]
         executor = "sparkclaw-app-cli-executor.service"
         controller = "sparkclaw-browser-controller.service"
         for failing in (executor, controller):
@@ -196,7 +199,7 @@ class BrowserBridgeArtifactTest(unittest.TestCase):
                 self.assertNotIn("activate", result.stdout.splitlines())
                 expected = [f"stop {executor}"]
                 if failing == controller:
-                    expected.append(f"stop {controller}")
+                    expected += [f"disable {executor}", f"stop {controller}"]
                 self.assertEqual(result.stdout.splitlines(), expected)
 
     @staticmethod
@@ -207,8 +210,8 @@ class BrowserBridgeArtifactTest(unittest.TestCase):
   [[ "$1" == --user ]] || return 90
   if [[ "$2" == cat ]]; then
     [[ " $installed " == *" $3 "* ]]
-  elif [[ "$2" == stop ]]; then
-    printf 'stop %s\\n' "$3"
+  elif [[ "$2" == stop || "$2" == disable ]]; then
+    printf '%s %s\\n' "$2" "$3"
     [[ "$3" != "$failing" ]] || return 19
   else
     return 91

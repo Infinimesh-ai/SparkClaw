@@ -353,6 +353,19 @@ p.write_text(json.dumps(s));sys.exit(status)
                 self.assertEqual(components.digest(cached['content'].encode()), expected_dep['sha256'])
                 self.assertIn('ts', cached)
 
+    def test_repository_mail_assets_require_known_source_and_pinned_content(self):
+        entries = [entry for entry in components.manifest()['scripts'] if entry.get('source') == 'local-mail']
+        self.assertEqual(len(entries), 3)
+        for entry in entries:
+            source = components.pinned_file(entry)
+            self.assertEqual(components.digest(source), entry['sha256'])
+            with self.assertRaisesRegex(ValueError, 'checksum'):
+                components.pinned_file(dict(entry, sha256='0' * 64))
+            with self.assertRaisesRegex(ValueError, 'unsupported'):
+                components.pinned_file(dict(entry, source='app-cli'))
+            with self.assertRaisesRegex(ValueError, 'filename'):
+                components.pinned_file(dict(entry, file='../outside.user.js'))
+
     def test_source_and_dependency_checksum_changes_are_rejected(self):
         manifest = components.manifest()
         for kind in ('script', 'dependency'):

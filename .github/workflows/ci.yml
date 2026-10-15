@@ -134,17 +134,13 @@ jobs:
         run: npm run check:desktop-managed-scripts
       - name: Qualify workbench outbound host on actual embedded pages
         run: npm run qualify:desktop-host
-      - name: Install and qualify the paired application release
+      - name: Verify repository-owned mail bindings and runtime
         run: |
-          npm ci --prefix tools/browser-controller
-          node scripts/sync-app-cli-projections.mjs --check
-          python3 scripts/qualify-app-cli-release.py
-          python3 scripts/install-app-cli.py --root /tmp/app-cli-ci --host-socket /tmp/app-cli-ci/host.sock --host-runtime-root /tmp/app-cli-ci/cli-runtime --workspace-root /tmp/app-cli-ci/workspace > /tmp/app-cli-ci.json
-          node tools/browser-controller/test/qualify-app-cli-deployment.mjs /tmp/app-cli-ci.json
-      - name: Qualify public App-CLI, pinned MCP and CLI on disposable Electron
-        run: |
-          export SPARKCLAW_TEST_APP_CLI_PYTHON="$(python3 -c 'import json; print(json.load(open("/tmp/app-cli-ci.json"))["python"])')"
-          npm run qualify:desktop
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --prefix tools/browser-controller --ignore-scripts
+          npm run check:mail-projections
+          node tools/browser-controller/test/qualify-local-mail-deployment.mjs
+      - name: Qualify local mail, pinned MCP and CLI on disposable Electron
+        run: npm run qualify:desktop
 
   webchat:
     name: WebChat
@@ -280,7 +276,8 @@ jobs:
       - run: python3 -m unittest scripts/test_deploy_remote.py
       - run: python3 -m unittest scripts/test_install_remote.py
       - run: python3 -m unittest scripts/test_autostart_compose.py
-      - run: python3 -m unittest scripts/test_browser_bridge.py
+      - run: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --prefix tools/browser-controller --ignore-scripts
+      - run: python3 -m unittest scripts/test_browser_bridge.py scripts/test_local_mail_installation.py
       - run: python3 -m unittest scripts/test_browser_extensions.py scripts/test_browser_components.py scripts/test_browser_components_hash.py scripts/test_browser_sandbox.py
       - run: python3 -m unittest scripts/test_playwright_email_qualification.py
       - run: python3 -m unittest scripts/test_jingsi_lan.py

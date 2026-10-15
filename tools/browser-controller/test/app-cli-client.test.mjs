@@ -3,6 +3,20 @@ import test from 'node:test';
 import {AppCLIClientFactory} from '../src/app-cli-client.mjs';
 import {MailObserverFeed} from '../src/mail-observer-feed.mjs';
 
+test('App-CLI blocked read contention keeps the typed short-yield error without replaying writes', async () => {
+  const factory = new AppCLIClientFactory();
+  let response, calls = 0;
+  factory.client = {execute: async () => {calls++; return response;}};
+  for (const code of ['browser_busy', 'host_resource_busy']) {
+    response = {state: 'failed', result: {code}, task: {status: 'blocked', id: 'original-task'}};
+    await assert.rejects(factory.runScript({operation: 'collect_page'}), {code: 'browser_busy', status: 409, retryable: true});
+    assert.equal(await factory.runScript({operation: 'send'}), response);
+    response = {...response, task: {...response.task, status: 'uncertain'}};
+    assert.equal(await factory.runScript({operation: 'collect_page'}), response);
+  }
+  assert.equal(calls, 6);
+});
+
 test('App-CLI private cache identity does not suppress product events or authorize retired credentials', async () => {
   const factory = new AppCLIClientFactory();
   const callbacks = [];

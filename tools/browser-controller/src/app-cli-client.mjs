@@ -68,8 +68,15 @@ export class AppCLIClientFactory {
       const identity = request.operation === 'observe' ? crypto.createHash('sha256').update(JSON.stringify([
         request.token, request.credentialGeneration, request.provider, request.input.account_address?.toLowerCase(), request.input.owner_scope,
       ])).digest('hex') : null;
-      return await client.execute({...request, onEvent: (slot, kind, reason) => this.mailObserverSink?.(
+      const response = await client.execute({...request, onEvent: (slot, kind, reason) => this.mailObserverSink?.(
         request.provider, {...slot, identity}, kind, reason)});
+      // Executor admission contention is a returned task, not necessarily a
+      // thrown error. Preserve the Gateway's short yield for the same read.
+      if (['read', 'capture', 'collect_page'].includes(request.operation) && response.state === 'failed' &&
+          response.task?.status === 'blocked' && ['browser_busy', 'host_resource_busy'].includes(response.result?.code)) {
+        throw Object.assign(new Error('Browser is busy'), {code: 'BROWSER_BUSY'});
+      }
+      return response;
     } catch (error) {
       if (error.code === 'HOST_RESOURCE_BUSY' || error.code === 'BROWSER_BUSY') throw new ControllerError('browser_busy', 'Browser is busy', {status: 409, retryable: true});
       if (['RELEASE_MISMATCH', 'COMMAND_NOT_FOUND', 'DEPLOYMENT_INVALID'].includes(error.code)) throw new ControllerError('browser_script_unavailable', 'Application release is unavailable', {status: 503});

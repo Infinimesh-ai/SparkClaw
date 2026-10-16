@@ -27,6 +27,9 @@ func profileEndpoints(t *testing.T, initiatorV2, responderV2 bool, handlers ...H
 		cfg.ApplicationProfiles = []string{ProfileV2, Profile}
 	}
 	initiator, err := newEndpoint(cfg, dmat, d, func(ctx context.Context, r Request) Response {
+		if len(handlers) > 1 {
+			return handlers[1](ctx, r)
+		}
 		return Response{Status: 200, Body: json.RawMessage(`{"host":true}`)}
 	}, nil)
 	if err != nil {

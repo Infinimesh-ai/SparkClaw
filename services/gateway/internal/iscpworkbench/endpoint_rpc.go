@@ -57,6 +57,15 @@ func (e *Endpoint) authorizeResponse(ctx context.Context, s *activeSession, call
 		err = verifyGrant(e.config, e.grantMaterial(), time.Now().UTC())
 	}
 	if err != nil {
+		if cause := callContextError(err); cause != nil {
+			// A fresh authorization check that times out still denies this
+			// result. Other calls must perform their own checks; signed
+			// revocation remains terminal in observeAuthorizationError.
+			delete(e.pending, response.ID)
+			call.result <- callResult{err: fmt.Errorf("workbench response authorization: %w", cause)}
+			e.mu.Unlock()
+			return
+		}
 		// Keep transient authorization failures fail-closed without turning them
 		// into revocation. The existing receive owner establishes fresh keys.
 		e.resetLocked()
@@ -218,6 +227,9 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (result Response, 
 	}
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout(request.Operation))
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return Response{}, err
+	}
 	if request.Profile == ProfileV2 {
 		ctx = context.WithValue(ctx, capacityContextKey{}, spec.CapacityClass)
 	}
@@ -239,10 +251,14 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (result Response, 
 		e.mu.Unlock()
 		return Response{}, errors.New("v2 profile is not negotiated")
 	}
-	if _, exists := e.pending[request.ID]; exists {
+	if _, exists := e.session.sentRequests[request.ID]; exists {
 		e.mu.Unlock()
-		return Response{}, errors.New("duplicate pending workbench call ID")
+		return Response{}, errors.New("reused workbench call ID in session")
 	}
+	// Retain the correlation ID until the session ends, including after a
+	// timeout. A late response must never complete a different call with the
+	// same ID. Durable operation/request IDs are separate and unchanged.
+	e.session.sentRequests[request.ID] = struct{}{}
 	id := e.session.id
 	ch := make(chan callResult, 1)
 	call := &pendingCall{result: ch, ctx: ctx}
@@ -259,28 +275,43 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (result Response, 
 		e.mu.Unlock()
 	}()
 	if err := e.sendPayload(ctx, RequestType, raw, id); err != nil {
+		if cause := ctx.Err(); cause != nil {
+			return Response{}, fmt.Errorf("workbench call deadline or cancellation: %w", cause)
+		}
+		if callContextError(err) != nil {
+			return Response{}, err
+		}
 		e.mu.Lock()
+		reset := false
 		if e.session != nil && e.session.id == id {
 			e.resetLocked()
+			reset = true
 		}
 		e.mu.Unlock()
-		e.setState("disconnected")
+		if reset {
+			e.setStateForSession("disconnected", nil, true)
+		}
 		return Response{}, err
 	}
 	select {
 	case result := <-ch:
 		return result.response, result.err
 	case <-ctx.Done():
-		// A live Relay cannot establish peer liveness. A lost response requires
-		// fresh keys and identity/installation verification before more calls.
-		e.mu.Lock()
-		if e.session != nil && e.session.id == id {
-			e.resetLocked()
-		}
-		e.mu.Unlock()
-		e.setState("disconnected")
+		// End only this call. The authenticated receive owner and heartbeat
+		// detect connection loss independently. Do not replay a request whose
+		// result is unknown, or cancel unrelated calls sharing its session.
 		return Response{}, fmt.Errorf("workbench call deadline or cancellation: %w", ctx.Err())
 	}
+}
+
+func callContextError(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	if errors.Is(err, context.Canceled) {
+		return context.Canceled
+	}
+	return nil
 }
 
 func requestTraceFields(role string, request Request) latencytrace.Fields {

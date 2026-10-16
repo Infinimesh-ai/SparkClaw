@@ -22,9 +22,10 @@ import (
 )
 
 type testRelayBus struct {
-	mu        sync.Mutex
-	peers     map[string]*testRelay
-	envelopes []envelope.SecureEnvelope
+	mu           sync.Mutex
+	peers        map[string]*testRelay
+	envelopes    []envelope.SecureEnvelope
+	beforeSubmit func(context.Context, envelope.SecureEnvelope) error
 }
 
 type testRelay struct {
@@ -37,6 +38,14 @@ func (r *testRelay) Submit(ctx context.Context, value any) error {
 	env, ok := value.(envelope.SecureEnvelope)
 	if !ok {
 		return errors.New("expected SDK envelope")
+	}
+	r.bus.mu.Lock()
+	hook := r.bus.beforeSubmit
+	r.bus.mu.Unlock()
+	if hook != nil {
+		if err := hook(ctx, env); err != nil {
+			return err
+		}
 	}
 	raw, err := json.Marshal(env)
 	if err != nil {

@@ -140,7 +140,7 @@ func workbenchEncryptedConfigurations(t *testing.T, binding *iscpworkbench.Bindi
 	return clientConfig, serverConfig
 }
 
-func TestWorkbenchISCPEncryptedEndpointUsesRealGatewayAndRecoversLostSubmit(t *testing.T) {
+func TestWorkbenchISCPEncryptedEndpointRecoversLostResponseOnSameSession(t *testing.T) {
 	server, repository, localConfig, handler := workbenchISCPFixture(t, nil)
 	clientConfig, serverConfig := workbenchEncryptedConfigurations(t, localConfig.Binding)
 	network := &workbenchEncryptedRelayNetwork{inbox: map[string]chan json.RawMessage{"iscp-desktop-device": make(chan json.RawMessage, 32), "iscp-backend-device": make(chan json.RawMessage, 32)}}
@@ -203,8 +203,8 @@ func TestWorkbenchISCPEncryptedEndpointUsesRealGatewayAndRecoversLostSubmit(t *t
 	server.executions.Wait()
 	select {
 	case <-ready:
-	case <-ctx.Done():
-		t.Fatal("fresh desktop handshake did not recover the lost response")
+		t.Fatal("one lost response replaced the healthy encrypted session")
+	default:
 	}
 	if response := call(iscpworkbench.OperationIdentity, nil); response.Status != http.StatusOK {
 		t.Fatalf("recovered identity: %+v", response)
@@ -236,7 +236,17 @@ func TestWorkbenchISCPEncryptedEndpointUsesRealGatewayAndRecoversLostSubmit(t *t
 		t.Fatalf("lost-response recovery created duplicate admissions: %v", err)
 	}
 	network.mu.Lock()
+	var sessionID string
 	for _, raw := range network.envelopes {
+		var frame envelope.SecureEnvelope
+		if err := json.Unmarshal(raw, &frame); err != nil {
+			t.Error(err)
+		}
+		if sessionID == "" {
+			sessionID = frame.SessionID
+		} else if frame.SessionID != sessionID {
+			t.Error("lost response recovery changed session keys")
+		}
 		if bytes.Contains(raw, []byte("synthetic desktop original")) || bytes.Contains(raw, []byte("iscp-owner")) || bytes.Contains(raw, []byte("iscp-desktop-client")) {
 			t.Error("isolated Relay observed plaintext business scope or content")
 		}

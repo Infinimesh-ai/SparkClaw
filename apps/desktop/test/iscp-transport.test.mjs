@@ -204,6 +204,36 @@ test("only rejection before a pipe write proves an ISCP request was not sent", a
   assert.equal(f.calls.length, 2);
 });
 
+test("one deadline and a late helper reply preserve the process and concurrent requests", async t => {
+  const f = fixture(t, () => {}, { timeoutMS: 40 });
+  await f.transport.start();
+  const lost = assert.rejects(f.transport.fetch(`${origin}/api/config`), error =>
+    !(error instanceof ISCPRequestNotSentError) && /deadline/u.test(error.message));
+  // Model a longer-lived concurrent operation on the same helper.
+  f.transport.timeoutMS = 1000;
+  const concurrent = f.transport.fetch(`${origin}/api/owner`);
+  await lost;
+  const child = f.children[0];
+  const answer = (call, body, status = 200) => child.send({ ipc_version: 1, type: 'response', id: call.id,
+    response: { type: 'task.result', profile: ISCP_PROFILE, id: call.request.id, status, body } });
+  answer(f.calls[0], { late: true });
+  assert.equal(f.transport.pending.size, 1);
+  assert.equal(f.transport.state, 'transport_ready');
+  assert.equal(child.exitCode, null);
+  answer(f.calls[1], { concurrent: true });
+  assert.deepEqual(await (await concurrent).json(), { concurrent: true });
+  const failed = f.transport.fetch(`${origin}/api/config`);
+  answer(f.calls[2], { error: 'ISCP workbench call failed' }, 503);
+  assert.equal((await failed).status, 503);
+  const next = f.transport.fetch(`${origin}/api/config`);
+  answer(f.calls[3], { next: true });
+  assert.deepEqual(await (await next).json(), { next: true });
+  assert.equal(f.transport.state, 'transport_ready');
+  assert.equal(f.children.length, 1);
+  assert.equal(f.calls.length, 4, 'no timed-out call was replayed');
+  assert.equal(f.transport.pending.size, 0);
+});
+
 test("response correlation and profile are validated, including body and status bounds", async (t) => {
   for (const patch of [{ id: "different" }, { profile: "other" }, { status: 700 }, { body: { content: "x".repeat(65536) } }]) {
     const f = fixture(t, (call, child) => child.send({ ipc_version: 1, type: "response", id: call.id, response: { type: "task.result", profile: ISCP_PROFILE, id: call.request.id, status: 200, ...patch } }));

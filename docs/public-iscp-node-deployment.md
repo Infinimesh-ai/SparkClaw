@@ -627,3 +627,29 @@ The PostgreSQL 18 regression seeds 20,000 historical receipts and reproduces
 the old sequential scan, verifies index selection and idempotent preservation,
 and checks domain/status isolation of the original delivery update. Existing
 receive rollback, revocation and connection-replacement tests remain applicable.
+
+## 12. Isolate individual RPC deadlines (2026-10-16)
+
+The Workbench endpoint now ends only the affected call when its caller cancels,
+its response deadline expires, or its Relay POST times out. A timed-out fresh
+response-authorization check still denies that result, without invalidating
+other calls. Each subsequent response requires its own fresh authorization.
+The authenticated receive owner and peer heartbeat continue to detect actual
+connection loss. Signed revocation, expired grants and invalid encrypted frames
+retain their existing terminal behavior.
+
+RPC correlation IDs cannot be reused within the same encrypted session, even
+after a timeout. Late responses are discarded, and an old submit failure cannot
+disconnect a replacement session. Durable operation/request identities remain
+unchanged: a timeout proves neither non-delivery nor non-execution and never
+automatically replays a mutation. Existing receipt reconciliation is retained.
+Ordinary/mail deadlines, wire frames, capability limits, credentials, stored data
+and the original desktop UI are unchanged.
+
+Regression coverage uses real encrypted v1/v2 forward and v2 reverse calls,
+concurrent deadlines/cancellation, late replies, POST deadlines and sequence gaps,
+fresh authority failure, replaced sessions and heartbeat loss. The desktop IPC
+test verifies that a timeout or a single 503 leaves the same helper usable for
+other requests. Upstream receipt-index work is separately submitted in
+[ISCP PR #15](https://github.com/Infinimesh-ai/ISCP/pull/15); an open PR is not an
+upstream release or a new Relay deployment.

@@ -60,6 +60,7 @@ type activeSession struct {
 	cancel                          context.CancelFunc
 	ctx                             context.Context
 	seenRequests                    map[string]struct{}
+	sentRequests                    map[string]struct{}
 }
 
 type callResult struct {
@@ -344,7 +345,7 @@ func (e *Endpoint) initiate(ctx context.Context) error {
 func newSession(ctx context.Context, id string, local session.LocalHello) *activeSession {
 	ctx, cancel := context.WithCancel(ctx)
 	now := time.Now().UTC()
-	return &activeSession{id: id, local: local, ctx: ctx, cancel: cancel, started: now, timeReceived: now, timePing: now, seenRequests: map[string]struct{}{}}
+	return &activeSession{id: id, local: local, ctx: ctx, cancel: cancel, started: now, timeReceived: now, timePing: now, seenRequests: map[string]struct{}{}, sentRequests: map[string]struct{}{}}
 }
 
 // resetLocked must hold mu; pending calls fail immediately instead of waiting
@@ -555,6 +556,9 @@ func (e *Endpoint) acceptReady(ctx context.Context, env envelope.SecureEnvelope)
 }
 
 func (e *Endpoint) sendPayload(ctx context.Context, payloadType string, raw []byte, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if payloadType == RequestType || payloadType == ResponseType {
 		started := latencytrace.Clock()
 		err := e.checkAuthorization(ctx)
@@ -590,6 +594,16 @@ func (e *Endpoint) sendPayload(ctx context.Context, payloadType string, raw []by
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 	if err := e.relay.Submit(ctx, env); err != nil {
+		// Preserve only the context classification, not private Relay error
+		// details. A single POST deadline is not evidence of a dead receive
+		// connection, and delivery may already have happened.
+		cause := ctx.Err()
+		if cause == nil {
+			cause = callContextError(err)
+		}
+		if cause != nil {
+			return fmt.Errorf("submit encrypted workbench payload: %w", cause)
+		}
 		return errors.New("submit encrypted workbench payload")
 	}
 	return nil

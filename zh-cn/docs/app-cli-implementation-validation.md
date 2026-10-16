@@ -381,3 +381,14 @@ work2 于 07:14 UTC 从 `.24` 升级，无需迁移：12,433 个任务全部保�
 ### Release 27：mark_read 放行位置（2026-10-16）
 
 成套发行 `0.3.0-sparkclaw.27`（App-CLI `24c71cb`）与 SparkClaw `5e96498a` 把 `mark_read` 的发送放行从处理器开始处移到原生已读请求之前：此时已重新选中确切目标，且待执行的已读意图已持久化。账户身份不可用等准备阶段失败现在可证明未派发，不再留下结果未知的远程写入；放行失败不会到达服务商，也不会记为未知已读状态。work2 于 07:29 UTC 升级，Gateway 容器不变：12,458 个任务全部保留且零行变化，执行代次 40 → 41，两个监听正常运行，所有服务无重启。由于 `mark_read` 会标记真实邮件，验证期间未执行，仍属于用户验收内容。随后，先前结果未知的 `mark_read`（任务 `c490b6ce`）通过生命周期 `resolve` 操作结案为 `confirmed_not_sent`：其 `read-state.json` 从未写入，而 27 之前的流程会在发出任何原生已读请求之前先把它写为 pending。结案记录了证据摘要，没有派发任何请求，work2 上已无结果未知的 Lifecycle 3.0 任务。
+
+
+### Release 27 推广到 work1、work3、work4、work5（2026-10-16）
+
+按用户要求，其余四台现已运行源码 `2e7814db` 与成套发行 `0.3.0-sparkclaw.27`。Gateway 二进制与 work2 已部署的 `49875de6` 构建逐字节一致（SHA256 `0bd9ed2874875e1079a97f4e513e7ef183ac0a58adc13cc6abf2bd32f20ebf2e`）。work2 保留原运行容器、启动时间和源码 `5e96498a`，只核验状态，未升级或重启。
+
+四台均没有已绑定邮箱、草稿或发送快照，停用的旧 App-CLI 账本均为零任务。先在副本上验证迁移，再将实际账本从 schema 1 升到 2 并保留 authority：execution epoch 分别为 work1 1 → 2、work3 1 → 2、work4 9 → 10、work5 6 → 7。旧 local-mail runtime 状态原样保留；Controller、Executor、Browser 和同主机进度锚均已启用并运行。
+
+四台 Gateway 均 healthy、零重启。全部 41 张业务表的原有记录、工作区文件、模型/配置及授权身份保持；Docker 环境、HostConfig、命令和网络地址与升级前一致。各节点均使用现有固定证书通过 Relay HTTPS 健康请求。相同制品复用已有功能和 UI 验收，本次未另跑模型基准、浏览器 UI 全套或真实邮件操作。
+
+各升级节点保留 `/var/backups/sparkclaw-r27-20261016`，含已验证的 PostgreSQL dump、成套状态归档、配置/逐行指纹及回执，并保留停机的旧容器。禁止用旧 `.20` Executor 启动 ledger 2；软件回退须保留新执行证据，不得把恢复旧 authority 或旧数据库快照当作常规降级。同主机进度锚沿用 work2 的保证范围，不能检测连同锚状态一起恢复的整机回滚。InfiniCenter status 已记录本次明确授权的部署，0031/0035 提案与公共契约未因部署而改为 accepted。

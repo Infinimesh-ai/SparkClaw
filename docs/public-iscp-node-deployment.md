@@ -587,3 +587,43 @@ Mac and work2 deployed `3ddde02b`, including private timings, wait decoupling,
 optional execution progress and cursor recovery. Other Gateways retain their
 existing versions. See the [native before/after measurements and acceptance](iscp-latency-optimization.md)
 for deployment scope, preserved state, precise timings and sample limitations.
+
+## 11. Receipt lookup index and HTTP 503 recovery (2026-10-16)
+
+The work3 desktop's 30-second RPC failures were traced to the shared TEST1
+Relay database. Work1 and work3 use identical Gateway binaries; the work3
+handlers complete in milliseconds. The Relay had approximately 1.27 million
+retained delivery receipts but no index matching `MarkMessageDelivered`'s
+`domain_id`, `message_id`, `status='queued'` predicate. Each delivery scanned the
+receipt history before its receive loop could advance. Queue delay accumulated
+in both directions until the desktop RPC deadline reset the encrypted session.
+
+The local Relay now prepares a partial index on `(domain_id, message_id)` for
+queued receipts after the pinned upstream migrations. Preparation is idempotent
+and verifies that the index is valid. This is a SparkClaw deployment index;
+upstream ISCP migrations, receipt contents, retention, authorization, wire frames,
+transaction boundaries and RPC deadlines are unchanged.
+
+For a large running database, apply the statement from
+[`schema.sql`](../services/gateway/internal/iscprelayreference/schema.sql) with
+`CREATE INDEX CONCURRENTLY IF NOT EXISTS` before starting the new binary. Execute
+it outside a transaction, using the established operator database connection.
+Verify `pg_index.indisvalid` and `indisready`, then use `EXPLAIN` on the delivery
+UPDATE to confirm the partial index is selected. If a concurrent build is
+interrupted and leaves an invalid index, remove only that invalid index with
+`DROP INDEX CONCURRENTLY` and retry; do not clear receipts or business state.
+Fresh databases use the ordinary startup index creation. An index-only live
+repair persists across restarts and does not require replacing client credentials.
+
+On TEST1 the index was built online in 4.54 seconds without restarting Relay.
+An equivalent read-only lookup changed from a history scan touching 132,172
+blocks in 557 ms to an index lookup touching two blocks in 0.07 ms. All authority
+fingerprints remained identical; receipt counts increased only with live traffic.
+The affected desktop reconnected automatically. Forty consecutive settings,
+mail-status and notification reads returned HTTP 200 in 219–537 ms. These are
+measured reads, not a new model or email-send benchmark.
+
+The PostgreSQL 18 regression seeds 20,000 historical receipts and reproduces
+the old sequential scan, verifies index selection and idempotent preservation,
+and checks domain/status isolation of the original delivery update. Existing
+receive rollback, revocation and connection-replacement tests remain applicable.

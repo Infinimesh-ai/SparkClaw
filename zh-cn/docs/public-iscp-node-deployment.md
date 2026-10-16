@@ -468,3 +468,33 @@ ACK，也不能据此认定接收方已提交结果。事务提交响应丢失�
 `3ddde02b`，包含私有分段计时、等待解耦、可选执行增量和游标恢复；其他 Gateway
 保持原版本。部署范围、数据保留、精确实测和样本限制见
 [原生优化前后实测与验收](iscp-latency-optimization.md)。
+
+## 11. 回执查询索引与 HTTP 503 恢复（2026-10-16）
+
+work3 桌面端的 30 秒 RPC 失败已定位到共用 TEST1 Relay 数据库。work1 与
+work3 的 Gateway 二进制相同，work3 业务处理只需几毫秒。Relay 已积累约
+127 万条交付回执，却没有匹配 `MarkMessageDelivered` 的 `domain_id`、
+`message_id`、`status='queued'` 条件的索引。每交付一条消息都扫描回执历史，
+接收循环等待完成后才能继续；双向队列延迟累积，最终触发桌面 RPC 超时并重置会话。
+
+本地 Relay 现在在固定上游迁移之后，为 queued 回执建立 `(domain_id, message_id)`
+部分索引。准备操作幂等，并验证索引有效。这是 SparkClaw 部署索引；上游 ISCP
+迁移、回执内容、留存、授权、传输帧、事务边界及 RPC 截止时间均保持原样。
+
+大型在线数据库应在启动新二进制前，使用既有运维数据库连接，将
+[`schema.sql`](../../services/gateway/internal/iscprelayreference/schema.sql)
+中的建索引语句改为 `CREATE INDEX CONCURRENTLY IF NOT EXISTS` 执行。
+该操作必须在事务外运行。检查 `pg_index.indisvalid`、`indisready`，再通过
+交付 UPDATE 的 `EXPLAIN` 确认使用部分索引。若并发构建中断留下无效索引，
+仅用 `DROP INDEX CONCURRENTLY` 删除该无效索引后重试，不能清理回执或业务数据。
+新数据库由启动流程普通建索引。在线仅加索引的修复会跨重启保留，无需更换客户端凭据。
+
+TEST1 在线建索引耗时 4.54 秒，没有重启 Relay。等价只读查找从扫描 132,172 个
+数据块、耗时 557 毫秒，降到索引查找两个数据块、耗时 0.07 毫秒。全部授权指纹
+保持一致，回执数量仅随在线流量增加。受影响桌面自动重连；连续 40 次设置、邮件
+状态和通知读取全部返回 HTTP 200，耗时 219–537 毫秒。这是读取实测，不是新增
+模型或发信性能测试。
+
+PostgreSQL 18 回归测试构造 20,000 条历史回执，复现原顺序扫描，验证索引选择、
+幂等执行和数据保留，并检查原交付更新的域及状态隔离。既有接收回滚、撤销与连接
+替换测试继续适用。

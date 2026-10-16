@@ -52,6 +52,9 @@ func run() error {
 	if e = postgres.ApplyMigrations(startup, pool, migrations); e != nil {
 		return e
 	}
+	if e = ref.PrepareDatabase(startup, pool); e != nil {
+		return e
+	}
 	limit, e := strconv.Atoi(env("ISCP_REQUESTS_PER_MINUTE", "1200"))
 	if e != nil || limit < 120 || limit > 6000 {
 		return errors.New("invalid capacity")

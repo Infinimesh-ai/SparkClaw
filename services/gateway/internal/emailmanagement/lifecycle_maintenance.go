@@ -42,24 +42,30 @@ type lifecycleDraft struct {
 	draft    store.EmailDraft
 }
 
-func (s *Service) lifecycleDrafts(ctx context.Context) ([]lifecycleDraft, error) {
+func (s *Service) lifecycleDrafts(ctx context.Context) ([]lifecycleDraft, string, error) {
 	owners, err := s.repository.ListOwnerProfiles(ctx)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	var drafts []lifecycleDraft
+	// Epoch control is owner-level in the runtime; any bound provider reaches
+	// it, so a deployment without drafts still confirms its drained epochs.
+	var control string
 	for _, owner := range owners {
 		boxes, err := s.repository.ListEmailMailboxes(ctx, owner.ID)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		providers := map[string]string{}
 		for _, box := range boxes {
 			providers[box.ID] = box.Provider
+			if control == "" && box.Active && box.Provider != "" {
+				control = box.Provider
+			}
 		}
 		rows, err := s.repository.ListEmailDrafts(ctx, owner.ID, "")
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		for _, d := range rows {
 			if provider := providers[d.MailboxID]; provider != "" {
@@ -67,18 +73,16 @@ func (s *Service) lifecycleDrafts(ctx context.Context) ([]lifecycleDraft, error)
 			}
 		}
 	}
-	return drafts, nil
+	return drafts, control, nil
 }
 
 func (s *Service) lifecycleRound(ctx context.Context) error {
 	browser := s.browser.(LifecycleBrowser)
-	drafts, err := s.lifecycleDrafts(ctx)
+	drafts, provider, err := s.lifecycleDrafts(ctx)
 	if err != nil {
 		return err
 	}
-	var provider string
 	for _, item := range drafts {
-		provider = item.provider
 		if item.draft.State == "sent" && item.draft.Receipt != nil && item.draft.Receipt.Lifecycle != nil && !item.draft.Receipt.Lifecycle.Acknowledged {
 			if _, err := s.acknowledgeDraft(ctx, item.owner, item.draft, item.provider); err != nil && ctx.Err() != nil {
 				return err

@@ -144,6 +144,7 @@ export const zh = {
       sendUserConfirmed: "由你确认已发送",
       sendUserNotSent: "由你确认未发送；可重新审阅后发送。",
       sendUnknownAccepted: "已按结果未知结案。原邮件可能已经送达，重新发送前请先核对。",
+      sendNotDispatched: "邮件未发出，可修改后重新发送。",
       codeSourceTime: "验证码来源时间",
       codeTimingEvidence: "有效期原文依据",
       codeTimeRemaining: "按邮件说明剩余",

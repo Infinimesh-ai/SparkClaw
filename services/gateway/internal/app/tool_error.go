@@ -79,9 +79,12 @@ const (
 	ToolErrorEmailDraftVerificationFailed    ToolErrorCode = "email_draft_verification_failed"
 	ToolErrorEmailSendControlUnverified      ToolErrorCode = "email_send_control_unverified"
 	ToolErrorEmailSendOutcomeUnknown         ToolErrorCode = "email_send_outcome_unknown"
-	ToolErrorEmailScriptTimeout              ToolErrorCode = "email_script_timeout"
-	ToolErrorEmailScriptInvalidOutput        ToolErrorCode = "email_script_invalid_output"
-	ToolErrorEmailAdmissionStale             ToolErrorCode = "email_admission_stale"
+	// ToolErrorEmailSendNotDispatched: the runtime proved the send never
+	// released its dispatch; the reviewed draft may be sent again.
+	ToolErrorEmailSendNotDispatched   ToolErrorCode = "email_send_not_dispatched"
+	ToolErrorEmailScriptTimeout       ToolErrorCode = "email_script_timeout"
+	ToolErrorEmailScriptInvalidOutput ToolErrorCode = "email_script_invalid_output"
+	ToolErrorEmailAdmissionStale      ToolErrorCode = "email_admission_stale"
 	// ToolErrorObservationBinaryContent: an observation.read window contains
 	// bytes that are not valid UTF-8. The error message carries the offset to
 	// retry with so the caller can skip past the binary region.

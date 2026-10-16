@@ -269,7 +269,7 @@ func (s *Service) SendDraft(ctx context.Context, owner, id string, expected int6
 		state = "unknown"
 		code = "email_send_outcome_unknown"
 		switch emailautomation.ErrorCode(sendErr) {
-		case app.ToolErrorEmailPageContractChanged, app.ToolErrorEmailAdmissionStale, app.ToolErrorEmailNotConfigured, app.ToolErrorEmailInvalidInput, app.ToolErrorEmailDraftConflict, app.ToolErrorEmailDraftVerificationFailed, app.ToolErrorEmailSendControlUnverified:
+		case app.ToolErrorEmailPageContractChanged, app.ToolErrorEmailAdmissionStale, app.ToolErrorEmailNotConfigured, app.ToolErrorEmailInvalidInput, app.ToolErrorEmailDraftConflict, app.ToolErrorEmailDraftVerificationFailed, app.ToolErrorEmailSendControlUnverified, app.ToolErrorEmailSendNotDispatched:
 			state = "failed"
 			code = string(emailautomation.ErrorCode(sendErr))
 		}
@@ -376,6 +376,15 @@ func (s *Service) ReconcileDraft(ctx context.Context, owner, id string) (store.E
 		}
 		snap := d.Snapshot
 		receipt, err := browser.ReconcileSendForOwner(ctx, owner, app.EmailSendRequest{Attachments: snap.Attachments, Provider: binding.Provider, Account: binding.Account, Mode: "reconcile", AccountAddress: box.Address, To: snap.To, CC: snap.CC, Subject: snap.Subject, Body: snap.Body, ReplyTarget: snap.ReplyTarget, InvocationID: snap.InvocationID, BrowserCredentialGeneration: binding.BrowserCredentialGeneration, ProbeRevision: binding.ProbeRevision, ScriptRevision: binding.SendScriptRevision, SettingVersion: binding.SettingVersion})
+		if emailautomation.ErrorCode(err) == app.ToolErrorEmailSendNotDispatched {
+			// The runtime closed an original send that never released its
+			// dispatch: it is definitively not sent and may be reviewed again.
+			result, changeErr := s.repository.ChangeEmailDraft(ctx, store.EmailDraftCommand{OwnerID: owner, Action: "resolve_not_dispatched", Draft: store.EmailDraft{ID: id}, ExpectedVersion: d.Version, SendKey: d.SendKey})
+			if changeErr != nil {
+				return d, changeErr
+			}
+			return result.Draft, nil
+		}
 		if err != nil {
 			return d, err
 		}

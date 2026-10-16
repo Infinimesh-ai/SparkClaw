@@ -9,6 +9,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browsercontrol"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -22,6 +23,7 @@ type lifecycleComposeBrowser struct {
 	resolved   []string
 	lookups    map[string]string
 	sealed     []int64
+	reconcile  error
 }
 
 func (b *lifecycleComposeBrowser) SendForOwner(ctx context.Context, owner string, request app.EmailSendRequest) (app.EmailSendResult, error) {
@@ -33,6 +35,9 @@ func (b *lifecycleComposeBrowser) SendForOwner(ctx context.Context, owner string
 	return result, err
 }
 func (b *lifecycleComposeBrowser) ReconcileSendForOwner(context.Context, string, app.EmailSendRequest) (app.EmailSendResult, error) {
+	if b.reconcile != nil {
+		return app.EmailSendResult{}, b.reconcile
+	}
 	return app.EmailSendResult{}, errors.New("not used")
 }
 func (b *lifecycleComposeBrowser) OperationEpoch(context.Context, string) (browsercontrol.EpochState, error) {
@@ -169,5 +174,53 @@ func TestComposeUserResolutionClosesUnknownSendWithoutResending(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestComposeNeverDispatchedSendIsDefinitelyFailedAndReviewable(t *testing.T) {
+	_, service, browser, box := lifecycleFixture(t)
+	draft, err := service.SaveDraft(t.Context(), "owner", store.EmailDraft{ID: "draft", MailboxID: box.ID, To: []string{"sink@example.test"}, Subject: "s", Body: "b"}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	browser.resultError = &emailautomation.Error{Code: app.ToolErrorEmailSendNotDispatched, Message: "not dispatched"}
+	failed, err := service.SendDraft(t.Context(), "owner", draft.ID, draft.Version, "review")
+	if err != nil || failed.State != "failed" || failed.ErrorCode != string(app.ToolErrorEmailSendNotDispatched) {
+		t.Fatalf("%+v %v", failed, err)
+	}
+	browser.resultError = nil
+	again, err := service.SendDraft(t.Context(), "owner", draft.ID, failed.Version, "second-review")
+	if err != nil || again.State != "sent" || again.Snapshot.InvocationID == failed.Snapshot.InvocationID {
+		t.Fatalf("%+v %v", again, err)
+	}
+}
+
+func TestComposeReconcileClosesAnUnknownSendThatWasNeverDispatched(t *testing.T) {
+	_, service, browser, box := lifecycleFixture(t)
+	draft, err := service.SaveDraft(t.Context(), "owner", store.EmailDraft{ID: "draft", MailboxID: box.ID, To: []string{"sink@example.test"}, Subject: "s", Body: "b"}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	browser.resultError = errors.New("transport lost")
+	unknown, err := service.SendDraft(t.Context(), "owner", draft.ID, draft.Version, "review")
+	if err != nil || unknown.State != "unknown" {
+		t.Fatalf("%+v %v", unknown, err)
+	}
+	browser.reconcile = &emailautomation.Error{Code: app.ToolErrorEmailSendNotDispatched, Message: "not dispatched"}
+	closed, err := service.ReconcileDraft(t.Context(), "owner", draft.ID)
+	if err != nil || closed.State != "failed" || closed.ErrorCode != string(app.ToolErrorEmailSendNotDispatched) || closed.ConfirmationSource != "runtime_not_dispatched" {
+		t.Fatalf("%+v %v", closed, err)
+	}
+	if browser.sends != 1 {
+		t.Fatalf("reconciliation resent: %d", browser.sends)
+	}
+}
+
+func TestComposeSealsADrainedEpochWithoutAnyDraft(t *testing.T) {
+	_, service, browser, _ := lifecycleFixture(t)
+	draining := browser.state.OpenEpoch
+	browser.state.DrainingEpoch, browser.state.OpenEpoch = &draining, draining+1
+	if err := service.lifecycleRound(t.Context()); err != nil || len(browser.sealed) != 1 || browser.sealed[0] != draining {
+		t.Fatalf("sealed=%v err=%v", browser.sealed, err)
 	}
 }

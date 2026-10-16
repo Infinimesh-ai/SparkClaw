@@ -184,6 +184,20 @@ func changeEmailDraft(e *emailEngine, c EmailDraftCommand) (EmailDraftResult, er
 		emailPut(e, "send_snapshot", emailID(d.ID, c.SendKey), d.ID, "", attempt.State, "", emailOrder(attempt.UpdatedAt, d.ID), attempt)
 		d.Snapshot = &attempt
 		d.Version++
+	case "resolve_not_dispatched":
+		// The runtime proved the original send never released its dispatch.
+		if !ok || d.Version != c.ExpectedVersion || (d.State != "unknown" && d.State != "sending") || d.Snapshot == nil || d.SendKey != c.SendKey || d.SentMailID != "" {
+			return EmailDraftResult{}, errEmailConflict
+		}
+		d.State, d.ErrorCode, d.ConfirmationSource = "failed", string(app.ToolErrorEmailSendNotDispatched), "runtime_not_dispatched"
+		attempt, found := emailGet[EmailDraftSnapshot](e, "send_snapshot", emailID(d.ID, c.SendKey))
+		if !found {
+			return EmailDraftResult{}, errEmailCorrupt
+		}
+		attempt.State, attempt.ErrorCode, attempt.UpdatedAt = d.State, d.ErrorCode, e.now
+		emailPut(e, "send_snapshot", emailID(d.ID, c.SendKey), d.ID, "", attempt.State, "", emailOrder(e.now, d.ID), attempt)
+		d.Snapshot = &attempt
+		d.Version++
 	case "resolve_user":
 		// An explicit user conclusion for an unknown send. It never resends; a
 		// later send is a new operation with a new key and identity.

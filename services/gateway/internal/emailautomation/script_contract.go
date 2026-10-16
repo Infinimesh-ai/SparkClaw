@@ -178,6 +178,10 @@ var scriptErrorCodes = map[string]app.ToolErrorCode{
 	"send_unavailable":       app.ToolErrorEmailSendControlUnverified,
 
 	"send_outcome_unknown": app.ToolErrorEmailSendOutcomeUnknown,
+	"send_not_dispatched":  app.ToolErrorEmailSendNotDispatched,
+	// A retired remote write may follow rollback recovery: never treat it
+	// as proof that nothing was sent.
+	"operation_retired": app.ToolErrorEmailSendOutcomeUnknown,
 	// An incomplete upload or missing proof may have changed the provider draft.
 	// Keep its durable receipt unknown until reconciliation; never retry it.
 	"email_attachment_unverified":        app.ToolErrorEmailSendOutcomeUnknown,
@@ -231,6 +235,8 @@ func publicScriptErrorMessage(code app.ToolErrorCode) string {
 		return "Email Send control could not be verified; Send was not clicked"
 	case app.ToolErrorEmailSendOutcomeUnknown:
 		return "Email send outcome is unknown and must not be retried"
+	case app.ToolErrorEmailSendNotDispatched:
+		return "Email was not sent; the reviewed draft can be sent again"
 	case app.ToolErrorEmailScriptTimeout:
 		return "Email provider script timed out"
 	case app.ToolErrorEmailScriptInvalidOutput:

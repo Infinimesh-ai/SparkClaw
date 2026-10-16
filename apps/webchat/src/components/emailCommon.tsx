@@ -34,6 +34,7 @@ export function emailErrorLabel(reason: unknown, text: Copy): string {
 export function emailSendFailureLabel(code: string | undefined, text: Copy): string {
   if (code === "email_draft_conflict") return text.email.browserDraftConflict;
   if (code === "email_send_user_confirmed_not_sent") return text.email.sendUserNotSent;
+  if (code === "email_send_not_dispatched") return text.email.sendNotDispatched;
   if (code === "email_send_outcome_unknown_accepted") return text.email.sendUnknownAccepted;
   if (code === "email_draft_verification_failed" || code === "email_send_control_unverified") return text.email.draftVerificationFailed;
   return text.email.sendFailed;

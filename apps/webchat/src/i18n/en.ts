@@ -142,6 +142,7 @@ export const en = {
       sendUserConfirmed: "Sent, confirmed by you",
       sendUserNotSent: "Confirmed by you as not sent; review again to send.",
       sendUnknownAccepted: "Closed as unknown. The original may have been delivered; check before sending again.",
+      sendNotDispatched: "The email was not sent; you can review it and send again.",
       codeSourceTime: "Code source time",
       codeTimingEvidence: "Original expiry evidence",
       codeTimeRemaining: "Time remaining per email",

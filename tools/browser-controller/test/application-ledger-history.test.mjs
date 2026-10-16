@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 const runtime = new URL('../', import.meta.resolve('@infinimesh/app-cli-runtime/release'));
 const {Ledger} = await import(new URL('src/ledger.mjs', runtime));
@@ -13,10 +14,12 @@ function fixture(t, options) {
   t.after(() => {state.ledger.close(); fs.rmSync(root, {recursive: true, force: true});});
   return state;
 }
-function admit(ledger, key = 'original', intent = 'intent') {
-  return ledger.admit({app: 'fixture', command: 'read', authorization_ref: 'fixture-grant'},
-    {principal: 'fixture', owner: 'fixture', request_key: key, revision: 1,
-      execution_expires_ms: Date.now() + 60000, side_effect: 'read_only'}, intent, 'resource');
+// Lifecycle 3.0 identities in the first generation and request epoch.
+const key = name => `op3.1.1.${crypto.createHash('sha256').update(name).digest('hex').slice(0, 32)}`;
+function admit(ledger, name = 'original', intent = 'intent') {
+  return ledger.prepare({app: 'fixture', command: 'read', authorization_ref: 'fixture-grant'},
+    {principal: 'fixture', owner: 'fixture', request_key: key(name), revision: 1,
+      execution_expires_ms: Date.now() + 60000, side_effect: 'read_only'}, intent, 'resource', 'pure_read');
 }
 
 test('installed release accepts task 10001 after restart and preserves original history', t => {
@@ -24,7 +27,8 @@ test('installed release accepts task 10001 after restart and preserves original 
   state.ledger.transaction(() => {
     state.ledger.update(first.row.id, {status: 'completed', data: '{"value":42}'});
     state.ledger.db.prepare(`WITH RECURSIVE history(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM history WHERE n<9999)
-      INSERT INTO tasks SELECT 'history-'||n,principal,owner,'history-'||n,intent,app,command,request,grant_ref,
+      INSERT INTO tasks(id,principal,owner,request_key,intent,app,command,request,grant_ref,resource_digest,grant_revision,
+        expires,side_effect,status,reason,data,effect,sequence,epoch) SELECT 'history-'||n,principal,owner,'history-'||n,intent,app,command,request,grant_ref,
         resource_digest,grant_revision,expires,side_effect,status,reason,data,effect,sequence,epoch
       FROM tasks,history WHERE id=?`).run(first.row.id);
   });

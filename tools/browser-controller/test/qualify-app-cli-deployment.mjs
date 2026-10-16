@@ -10,7 +10,7 @@ const meta = JSON.parse(await fs.readFile(process.argv[2], 'utf8'));
 const config = JSON.parse(await fs.readFile(meta.config, 'utf8'));
 const factory = new AppCLIClientFactory({configFile: meta.config, python: meta.python, runtimeRoot: config.host_runtime_root});
 await factory.prepare();
-assert.equal(factory.info().app_cli, 'lifecycle-2.0');
+assert.equal(factory.info().app_cli, 'lifecycle-3.0');
 const server = await startUnixServer({socketPath: config.browser_host_socket,
   controller: {scriptFactory: factory, shutdown: () => factory.close()}});
 const service = spawn(meta.python, ['-m', 'app_cli.executor_service', meta.config], {stdio: ['ignore', 'ignore', 'pipe']});
@@ -29,11 +29,12 @@ try {
   for (const app of apps) assert.equal(app.commands.length, 9);
   for (const provider of ['gmail', 'outlook', 'qq_mail']) {
     const {spec} = factory.client.describe(provider, 'probe');
-    const admission = factory.client.admission({provider, operation: 'probe', taskID: 'deployment-qualification',
+    const admission = await factory.client.admission({provider, operation: 'probe', taskID: 'deployment-qualification',
       input: {schema_version: 1, operation: 'probe', invocation_id: 'deployment-qualification', provider, account: 'default'},
       credentialGeneration: 1, token: 'fixture-not-a-live-token', scriptID: spec.script_id, revision: spec.revision});
     const result = await factory.client.client.control(admission, 'lookup');
-    assert.equal(result.outcome, 'unresolved');
+    // Lifecycle 3.0: a healthy executor answers definitively for its open epoch.
+    assert.equal(result.outcome, 'not_admitted');
   }
   assert.equal(factory.driver.handles.size, 0);
   console.log(JSON.stringify({production_assembly: true, paired_python_and_consumer: true,

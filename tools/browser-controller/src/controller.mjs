@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { MailObserverFeed } from './mail-observer-feed.mjs';
 
-import { ControllerError } from "./errors.mjs";
+import { ControllerError, invalidRequest } from "./errors.mjs";
 import {
   MAX_SESSION_TTL_MS,
   MAX_WAIT_MS,
@@ -317,7 +317,9 @@ export class BrowserController {
         return {schema_version: 1, state: result.state, profile_id: this.profileID, lane: 'cli',
           provider, operation, script_id: scriptID, revision, source_checksum: result.sourceChecksum,
           credential_generation: credentialGeneration, controller_generation: this.controllerGeneration,
-          session_generation: ++this.sessionGeneration, result: result.result};
+          session_generation: ++this.sessionGeneration, result: result.result,
+          // Runtime identity and terminal revision the Gateway echoes in ACK.
+          ...(result.lifecycle ? {lifecycle: result.lifecycle} : {})};
       } catch (error) {throw normalizeClientError(error);}
 
     } finally {
@@ -326,6 +328,36 @@ export class BrowserController {
         clearScriptInput(input.input);
       }
     }
+  }
+
+  // Lifecycle 3.0 product control: epoch state and drained seal, original
+  // operation lookup, durable result ACK and explicit user resolution.
+  // Owner-only socket access is the trust boundary, as for application-host.
+  async applicationLifecycle(input) {
+    requireExactObject(input, ['profile_id', 'action', 'provider'],
+      ['operation', 'task_id', 'terminal_revision', 'result_digest', 'receipt_id', 'resolution', 'epoch', 'drained_digest']);
+    parseProfileID(input.profile_id, this.profileID);
+    const action = parseID(input.action, 'action'), provider = parseID(input.provider, 'provider');
+    if (!['epoch', 'seal', 'lookup', 'ack', 'resolve'].includes(action)) throw invalidRequest('action is invalid');
+    if (['lookup', 'ack', 'resolve'].includes(action)) parseID(input.task_id, 'task_id');
+    if (action === 'seal') {
+      parseGeneration(input.epoch, 'epoch');
+      if (!/^[0-9a-f]{64}$/u.test(input.drained_digest ?? '')) throw invalidRequest('drained_digest is invalid');
+    }
+    if (action === 'ack' && (!Number.isSafeInteger(input.terminal_revision) || input.terminal_revision < 1 ||
+        !/^[0-9a-f]{64}$/u.test(input.result_digest ?? '') || typeof input.receipt_id !== 'string')) throw invalidRequest('ack is invalid');
+    if (action === 'ack') parseID(input.receipt_id, 'receipt_id');
+    if (action === 'resolve' && !['confirmed_sent', 'confirmed_not_sent', 'accept_unknown'].includes(input.resolution)) {
+      throw invalidRequest('resolution is invalid');
+    }
+    this.#requireScriptFactory();
+    if (typeof this.scriptFactory.lifecycle !== 'function') throw invalidRequest('application lifecycle is unavailable');
+    try {
+      const result = await this.scriptFactory.lifecycle({action, provider, operation: input.operation ?? 'send',
+        taskID: input.task_id, terminal_revision: input.terminal_revision, result_digest: input.result_digest,
+        receipt_id: input.receipt_id, resolution: input.resolution, epoch: input.epoch, drained_digest: input.drained_digest});
+      return {schema_version: 1, profile_id: this.profileID, action, provider, ...result};
+    } catch (error) {throw normalizeClientError(error);}
   }
 
   // ApplicationHostPort uses the same scheduler as ordinary browser tasks.

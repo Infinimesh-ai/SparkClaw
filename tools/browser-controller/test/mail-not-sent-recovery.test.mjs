@@ -43,18 +43,18 @@ async function fixture(t,{reason='EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED',binding=ol
   t.after(async()=>{await executor?.close();ledger.close();});
   const resource={binding_digest:digest(binding),workspace_root:root};
   const provider=binding.application.provider;
-  const request={protocol_version:'2.0',operation:'invoke',app:binding.manifest.id,command:'send',request_key:'original-key',
+  const request={protocol_version:'3.0',operation:'prepare',app:binding.manifest.id,command:'send',request_key:'op3.1.1.'+'0'.repeat(32),
     arguments:args(provider),deadline_ms:Date.now()+60000};
   const grant={principal:'product-owner',owner:'owner',app:request.app,command:'send',request_key:request.request_key,
     side_effect:binding.manifest.commands.find(v=>v.name==='send').side_effect,intent_digest:intentDigest(request),
-    operations:['invoke','lookup','status','reconcile','resume'],access_expires_ms:Date.now()+120000,
+    operations:['prepare','invoke','lookup','status','reconcile','resume'],access_expires_ms:Date.now()+120000,
     execution_expires_ms:request.deadline_ms,max_deadline_ms:request.deadline_ms,task_id:null,revision:1};
   request.authorization_ref=authorization.issue(grant,resource);
   let sendEffects=0,hostAcquires=0,releaseCalls=0,prepareCalls=0;
   const handlers=await mailHandlers();
   const handlerName=binding.commands.send.handler;
   const originals={...handlers,[handlerName]:{async run(input,context){
-    context.beforeEffect();sendEffects++;
+    await context.beforeEffect();sendEffects++;
     if(releaseFailure){
       // Controlled provider outcome: persist a dispatch and a sent receipt
       // before the Executor's separate host-release boundary fails.
@@ -81,8 +81,11 @@ async function fixture(t,{reason='EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED',binding=ol
     host:{async acquire(){return {async release(){
       if(++releaseCalls===1&&releaseFailure)throw Object.assign(new Error(reason),{code:reason});
     }};}}});
-  const started=await executor.control(request);
-  await assert.rejects(executor.control({protocol_version:'2.0',operation:'reconcile',app:request.app,command:'send',
+  await executor.start();
+  const prepared=await executor.control(request);
+  const started=await executor.control({protocol_version:'3.0',operation:'invoke',app:request.app,command:'send',
+    authorization_ref:request.authorization_ref,task_id:prepared.task.id});
+  await assert.rejects(executor.control({protocol_version:'3.0',operation:'reconcile',app:request.app,command:'send',
     authorization_ref:request.authorization_ref,task_id:started.task.id}),{code:'INVALID_TASK_STATE'});
   await executor.active.get(started.task.id)?.promise;
   assert.equal(ledger.get(started.task.id).status,'uncertain');
@@ -93,8 +96,8 @@ async function fixture(t,{reason='EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED',binding=ol
   current.manifest_digest=digest(current.manifest);
   const recoveryOptions={authorization,bindings:[current],handlers,
     host:{async acquire(){hostAcquires++;assert.fail('receipt reconciliation acquired a browser');}}};
-  executor=new Executor({...recoveryOptions,ledger});
-  const control=operation=>({protocol_version:'2.0',operation,app:request.app,command:'send',
+  executor=new Executor({...recoveryOptions,ledger});await executor.start();
+  const control=operation=>({protocol_version:'3.0',operation,app:request.app,command:'send',
     authorization_ref:request.authorization_ref,task_id:started.task.id});
   const reconcile=async()=>{
     await executor.control(control('reconcile'));
@@ -102,7 +105,7 @@ async function fixture(t,{reason='EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED',binding=ol
     return executor.control(control('status'));
   };
   return {root,get ledger(){return ledger;},request,resource,reconcile,control,get executor(){return executor;},taskID:started.task.id,
-    async restart(){await executor.close();ledger.close();ledger=new Ledger(path.join(root,'ledger'));executor=new Executor({...recoveryOptions,ledger});},
+    async restart(){await executor.close();ledger.close();ledger=new Ledger(path.join(root,'ledger'));executor=new Executor({...recoveryOptions,ledger});await executor.start();},
     journal:()=>openSendJournal(root,validateManagedSend(request.arguments,provider)),
     boundaryCalls:()=>({prepareCalls,releaseCalls}),
     effects:()=>({sendEffects,hostAcquires})};

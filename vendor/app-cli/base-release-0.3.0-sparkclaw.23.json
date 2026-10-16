@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "0.3.0-sparkclaw.23",
+  "runtime_digest": "734f49377026d9a6977e505147cd16693d0abf68c7236aa042e7266c17457eb0",
+  "source_repository": "https://github.com/ZZZZJJJ0928/App-CLI",
+  "source_commit": "9da7cfde4c2f24904f87e2992e9dcf69e20f89d7",
+  "python_source_digest": "77f71342fb82d2c71bc5bd76aff362ac27a36d7cda939ca3b54674fd54fa46af",
+  "runtime_protocol": "2.0",
+  "host_protocol": "1.0",
+  "ledger_version": 1,
+  "artifacts": {
+    "python_dependencies": {
+      "file": "python-requirements.txt",
+      "sha256": "e99394c278eed0e2ee36f7a1289c0327af0a355b1726472a8296563d5fb0fde6"
+    },
+    "runtime": {
+      "file": "infinimesh-app-cli-runtime-0.3.0-sparkclaw.23.tgz",
+      "sha256": "ddb2e452946c81fe272805528fbffc6f9c66ef67b6231a103c4193f582d80f86"
+    },
+    "wheel": {
+      "file": "infinimesh_app_cli-0.3.0+sparkclaw.23-py3-none-any.whl",
+      "sha256": "cd2344ab12aa8560c601476f76f9049818398174005b7327155a7b0d87790bee"
+    }
+  },
+  "local_patch": {
+    "base_id": "0.3.0-sparkclaw.22",
+    "base_runtime_digest": "0800159786b44a7786e10a67b802afa5343561662225d3e67379b9bd8eaefd32",
+    "patch_file": "outlook-original-authorization.patch",
+    "patch_sha256": "8a7f832ffd961dd66de9c99d7764da332e4ed5adce75cabb104f2b5b05945242"
+  }
+}

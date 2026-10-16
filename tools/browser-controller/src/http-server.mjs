@@ -58,6 +58,10 @@ export function createRequestHandler(controller) {
           response.removeListener("close", disconnected);
         }
       }
+      if (request.method === "POST" && url.pathname === "/v1/application-lifecycle") {
+        rejectQuery(url);
+        return writeJSON(response, 200, await controller.applicationLifecycle(await readJSON(request)));
+      }
       if (request.method === "POST" && url.pathname === "/v1/open-provider-login") {
         rejectQuery(url);
         return writeJSON(response, 200, await controller.openProviderLogin(await readJSON(request)));

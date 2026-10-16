@@ -52,9 +52,23 @@ export class AppCLIClientFactory {
     const bindings = await Promise.all(this.client.config.bindings.map(async installed => JSON.parse(await fs.readFile(installed.path, 'utf8'))));
     this.host = new BrowserHostPort({authorization: this.client.client.authorization,
       bindings, driver: this.driver, releaseDigest: this.client.config.release_digest, stateDirectory: this.client.config.host_state_directory});
+    // Drop authorization heads of reclaimed requests; failures retry later.
+    this.maintenance = setInterval(() => {void this.client?.maintain?.().catch(() => {});}, this.maintenanceIntervalMS ?? 10 * 60_000);
+    this.maintenance.unref();
+  }
+  // Lifecycle 3.0 product control for the Gateway outbox (see controller).
+  async lifecycle({action, provider, operation, taskID, terminal_revision, result_digest, receipt_id, resolution, epoch, drained_digest}) {
+    const client = this.requireClient();
+    if (action === 'epoch') return {epoch_state: await client.epochState(provider)};
+    if (action === 'seal') return {epoch_state: await client.epochState(provider, 'seal', {epoch, drained_digest})};
+    if (action === 'lookup') return client.lookupTask(provider, operation, taskID);
+    if (action === 'ack') return client.acknowledge({provider, operation, taskID, terminal_revision, result_digest, receipt_id});
+    const resolved = await client.resolve({provider, operation, taskID, resolution});
+    return {task: resolved.task ?? (resolved.lifecycle && {id: resolved.lifecycle.task_id, status: resolved.lifecycle.status}),
+      ...(resolved.lifecycle ? {lifecycle: resolved.lifecycle} : {})};
   }
   bindController(controller) {if (this.driver) {this.driver.controller = controller; this.driver.drainIdle = () => this.host.drainIdle();}}
-  info() {return {app_cli: this.client ? 'lifecycle-2.0' : this.initializationError ?? 'unconfigured', browser_host: '1.0'};}
+  info() {return {app_cli: this.client ? 'lifecycle-3.0' : this.initializationError ?? 'unconfigured', browser_host: '1.0'};}
   requireClient() {
     if (!this.client) throw new ControllerError('browser_script_unavailable', 'Application release is not configured', {status: 503});
     return this.client;
@@ -101,6 +115,7 @@ export class AppCLIClientFactory {
     child.unref(); return {provider};
   }
   async close() {
+    clearInterval(this.maintenance);
     let failure;
     try {await this.client?.close();} catch (error) {failure = error;}
     try {await this.host?.close();} catch (error) {failure ??= error;}

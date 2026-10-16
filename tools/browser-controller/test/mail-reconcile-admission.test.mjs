@@ -42,7 +42,7 @@ async function fixture(t) {
   const originalContexts = [];
   handlers[name] = {
     async run(input, context) {
-      context.beforeEffect(); effects++;
+      await context.beforeEffect(); effects++;
       const request = validateManagedSend(input, 'outlook');
       const receipt = createNotSentReceipt(request, context, 'EMAIL_ATTACHMENT_UPLOAD_FAILED', 'pre_dispatch_failure');
       const journal = await openSendJournal(root, request);
@@ -56,7 +56,7 @@ async function fixture(t) {
   };
   const options = {authorization: mailbox.client.authorization, bindings: [binding], handlers,
     host: {async acquire() {return {async release() {}};}}};
-  executor = new Executor({...options, ledger});
+  executor = new Executor({...options, ledger}); await executor.start();
   const acknowledgements = [];
   let loseReconcileReply = false;
   server = await serve(config.socket, async request => {
@@ -77,7 +77,7 @@ async function fixture(t) {
   const original = await mailbox.execute(request);
   assert.equal(original.state, 'failed'); assert.equal(original.result.code, 'send_outcome_unknown');
   const admission = mailbox.client.restore({principal: 'product-owner', owner: config.owner_id,
-    request_key: digest({taskID: request.taskID, app: binding.manifest.id, command: 'send'})});
+    request_key: await mailbox.requestKey(binding.manifest.id, 'send', request.taskID, {allocate: false})});
   const lookup = await mailbox.client.control(admission, 'lookup'), taskID = lookup.task.id;
   assert.equal(lookup.task.status, 'uncertain');
   return {mailbox, get ledger() {return ledger;}, get executor() {return executor;}, admission, taskID, acknowledgements, originalContexts,
@@ -92,7 +92,7 @@ async function fixture(t) {
       // Ledger startup recovery and a fresh Executor against the same files.
       assert.equal(ledger.get(taskID).status, 'pending');
       unblockers.clear(); ledger.close(); ledger = new Ledger(state);
-      executor = new Executor({...options, ledger});
+      executor = new Executor({...options, ledger}); void executor.start();
     },
     blockLane() {
       let release; const pending = new Promise(resolve => {release = resolve;});
@@ -113,7 +113,7 @@ test('first reconciliation observes admission and returns the original proof ove
   assert.equal(result.result.not_sent.intent_digest, before.intent);
   assert.equal(result.result.not_sent.resource_digest, before.resource_digest);
   assert.equal(result.result.not_sent.ledger_epoch, before.epoch);
-  assert.deepEqual(f.originalContexts, [{status: 'uncertain', reason: 'EMAIL_ATTACHMENT_UPLOAD_FAILED', effect: 1}]);
+  assert.deepEqual(f.originalContexts, [{status: 'uncertain', reason: 'EMAIL_ATTACHMENT_UPLOAD_FAILED', effect: 1, dispatch: 'released', attempt: 1}]);
   assert.equal(f.ledger.get(f.taskID).effect, 1);
   assert.deepEqual(await f.mailbox.execute(f.request), result, 'repeated lookup must reuse the completed original receipt');
   assert.deepEqual(f.counts(), {effects: 1, reads: 1});

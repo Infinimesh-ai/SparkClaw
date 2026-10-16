@@ -49,14 +49,22 @@ def main():
     parser.add_argument("--workspace-root", type=Path, required=True)
     parser.add_argument("--node", default=shutil.which("node"))
     parser.add_argument("--profile", default="default")
+    parser.add_argument("--anchor-socket", type=Path, help="independent progress anchor Unix socket (lifecycle 3.0)")
+    parser.add_argument("--anchor-url", help="independent progress anchor URL on another host (lifecycle 3.0)")
+    parser.add_argument("--anchor-token-file", type=Path, help="owner-private bearer token for the progress anchor")
+    parser.add_argument("--storage-budget-bytes", type=int, help="runtime storage budget; defaults to the release placeholder")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--activate", action="store_true")
     args = parser.parse_args()
     os.umask(0o077)
     root, bundle = args.root.resolve(), args.bundle.resolve()
     release = json.loads((bundle / "release.json").read_bytes())
-    if release["schema_version"] != 1 or release["ledger_version"] != 1:
+    # Ledger 2 migrates a ledger 1 state directory in place on first start;
+    # ledger 1 releases then refuse that directory, so rollback stays safe.
+    if release["schema_version"] != 1 or release["ledger_version"] not in (1, 2):
         raise ValueError("Unsupported release/state version")
+    if (args.anchor_socket or args.anchor_url) and not args.anchor_token_file or bool(args.anchor_socket) and bool(args.anchor_url):
+        raise ValueError("Select one anchor endpoint together with its token file")
     for artifact in release["artifacts"].values():
         file = bundle / artifact["file"]
         if file.parent != bundle or hashlib.sha256(file.read_bytes()).hexdigest() != artifact["sha256"]:
@@ -107,7 +115,10 @@ def main():
                 "state_directory": str(state / "executor"), "socket": str(state / "executor/executor.sock"),
                 "host_state_directory": str(state / "host"), "issuer_key_file": str(key),
                 "grants_directory": str(state / "authorization"), "browser_host_socket": str(args.host_socket.absolute()),
-                "host_runtime_root": str(args.host_runtime_root.absolute()), "workspace_root": str(args.workspace_root.resolve())})
+                "host_runtime_root": str(args.host_runtime_root.absolute()), "workspace_root": str(args.workspace_root.resolve()),
+                **({"anchor": {"kind": "http", **({"socket": str(args.anchor_socket.absolute())} if args.anchor_socket else {"url": args.anchor_url}),
+                               "token_file": str(args.anchor_token_file.absolute())}} if args.anchor_socket or args.anchor_url else {}),
+                **({"storage": {"budget_bytes": args.storage_budget_bytes}} if args.storage_budget_bytes else {})})
         except BaseException:
             shutil.rmtree(destination)  # Unactivated staged files only; never state.
             raise

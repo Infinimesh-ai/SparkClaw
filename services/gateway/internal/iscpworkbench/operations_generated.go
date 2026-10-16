@@ -57,6 +57,7 @@ const (
 	OperationMailDraftsSave = "mail.drafts.save"
 	OperationMailDraftsSend = "mail.drafts.send"
 	OperationMailDraftsReconcile = "mail.drafts.reconcile"
+	OperationMailDraftsResolve = "mail.drafts.resolve"
 	OperationBrowserHostRegister = "browser.host.register"
 	OperationBrowserHostPoll = "browser.host.poll"
 	OperationBrowserHostReply = "browser.host.reply"

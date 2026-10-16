@@ -866,6 +866,25 @@
     "capacity_class": "business"
   },
   {
+    "name": "mail.drafts.resolve",
+    "constant": "OperationMailDraftsResolve",
+    "version": 2,
+    "direction": "forward",
+    "scope": "mail.send",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "draft"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/email/drafts/{draft}/resolve"
+    },
+    "capacity_class": "business"
+  },
+  {
     "name": "browser.host.register",
     "constant": "OperationBrowserHostRegister",
     "version": 2,

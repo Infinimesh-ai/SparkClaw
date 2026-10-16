@@ -125,6 +125,8 @@ func (s *Service) Start(parent context.Context) {
 			workers.Add(1)
 			go func() { defer workers.Done(); s.observeMail(ctx) }()
 		}
+		workers.Add(1)
+		go func() { defer workers.Done(); s.maintainLifecycle(ctx) }()
 		// Verify committed originals once per service start, outside the polling
 		// ticker. Power-loss recovery must not add file hashing to every poll.
 		workers.Add(1)

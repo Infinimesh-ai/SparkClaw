@@ -234,12 +234,19 @@ func (r *PlaywrightRunner) Send(
 	if output.Status == "unknown" && request.Mode != "reconcile" {
 		return SendResult{}, codedError(app.ToolErrorEmailSendOutcomeUnknown, "Email send outcome is pending confirmation")
 	}
-	return SendResult{
+	sent := SendResult{
 		Provider: provider.ID, Status: output.Status, RecipientDigest: output.RecipientDigest,
 		ProviderMessageID: output.ProviderMessageID, ProviderThreadID: output.ProviderThreadID,
 		NotSent:                     output.NotSent,
 		BrowserCredentialGeneration: uint64(result.CredentialGeneration), ScriptRevision: provider.Send.Revision,
-	}, nil
+	}
+	// A terminal lifecycle 3.0 result is acknowledged after durable receipt.
+	if lifecycle := result.Lifecycle; lifecycle != nil && output.Status == "sent" && lifecycle.Status == "completed" &&
+		lifecycle.OperationID == request.InvocationID && lifecycle.TaskID != "" && lifecycle.TerminalRevision > 0 && len(lifecycle.ResultDigest) == 64 {
+		sent.Lifecycle = &app.EmailRuntimeLifecycle{OperationID: lifecycle.OperationID, TaskID: lifecycle.TaskID,
+			TerminalRevision: lifecycle.TerminalRevision, ResultDigest: lifecycle.ResultDigest}
+	}
+	return sent, nil
 }
 
 func (r *PlaywrightRunner) credentialGeneration(ctx context.Context, expected uint64) (int64, error) {

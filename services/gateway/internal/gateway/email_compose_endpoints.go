@@ -24,6 +24,7 @@ func (s *Server) registerEmailComposeRoutes() {
 	s.mux.HandleFunc("PUT /api/email/drafts/{draft}", s.saveEmailDraft)
 	s.mux.HandleFunc("POST /api/email/drafts/{draft}/send", s.sendEmailDraft)
 	s.mux.HandleFunc("POST /api/email/drafts/{draft}/reconcile", s.reconcileEmailDraft)
+	s.mux.HandleFunc("POST /api/email/drafts/{draft}/resolve", s.resolveEmailDraft)
 }
 
 func (s *Server) polishEmailReply(w http.ResponseWriter, r *http.Request) {
@@ -218,6 +219,27 @@ func (s *Server) reconcileEmailDraft(w http.ResponseWriter, r *http.Request) {
 	} else {
 		out, err = s.emailManagement.ReconcileDraft(r.Context(), principalForRequest(r).OwnerID, r.PathValue("draft"))
 	}
+	if err != nil {
+		writeEmailComposeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// resolveEmailDraft records the user's conclusion for an unknown send.
+func (s *Server) resolveEmailDraft(w http.ResponseWriter, r *http.Request) {
+	if !s.emailManagementReady(w) {
+		return
+	}
+	var input struct {
+		ExpectedVersion int64  `json:"expected_version"`
+		Resolution      string `json:"resolution"`
+	}
+	if decodeEmailCompose(r, &input) != nil {
+		writeEmailManagementError(w, emailmanagement.ErrInvalidInput)
+		return
+	}
+	out, err := s.emailManagement.ResolveDraft(r.Context(), principalForRequest(r).OwnerID, r.PathValue("draft"), input.ExpectedVersion, input.Resolution)
 	if err != nil {
 		writeEmailComposeError(w, err)
 		return

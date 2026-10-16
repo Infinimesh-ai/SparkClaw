@@ -526,6 +526,8 @@ export const api = {
   polishEmailReply: (body: EmailReplyPolishInput) => request<EmailDraft>("/api/email/replies/polish", { method: "POST", body: JSON.stringify(body) }),
   emailSentSources: (filters: EmailFilters, signal?: AbortSignal) => request<EmailMessagePage>(`/api/email/sent-sources${emailQuery(filters)}`, { signal }),
   reconcileEmailDraft: (id: string, sentMailId?: string) => request<EmailDraft>(`/api/email/drafts/${encodeURIComponent(id)}/reconcile`, { method: "POST", body: JSON.stringify(sentMailId ? { sent_mail_id: sentMailId } : {}) }),
+  // Explicit user conclusion for an unknown send; the server never resends.
+  resolveEmailDraft: (id: string, expectedVersion: number, resolution: "confirmed_sent" | "confirmed_not_sent" | "accept_unknown") => request<EmailDraft>(`/api/email/drafts/${encodeURIComponent(id)}/resolve`, { method: "POST", body: JSON.stringify({ expected_version: expectedVersion, resolution }) }),
   sendEmailDraft: (id: string, expectedVersion: number, idempotencyKey: string) => request<EmailDraft>(`/api/email/drafts/${encodeURIComponent(id)}/send`, { method: "POST", body: JSON.stringify({ expected_version: expectedVersion, idempotency_key: idempotencyKey }) }),
   emailSyncStatus: (signal?: AbortSignal) => request<EmailSyncStatus>("/api/email/sync-status", { signal }),
   emailSyncWarnings: (mailboxId: string, cursor = "") => request<EmailSyncWarningPage>(`/api/email/sync-warnings?mailbox_id=${encodeURIComponent(mailboxId)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`),

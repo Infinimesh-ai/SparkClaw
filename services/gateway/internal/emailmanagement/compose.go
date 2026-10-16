@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browsercontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"net/mail"
@@ -21,6 +22,17 @@ type ComposeBrowser interface {
 	SendForOwner(context.Context, string, app.EmailSendRequest) (app.EmailSendResult, error)
 	ReconcileSendForOwner(context.Context, string, app.EmailSendRequest) (app.EmailSendResult, error)
 }
+
+// LifecycleBrowser is the optional App-CLI lifecycle 3.0 product control.
+// Without it, sends keep their legacy identifiers and no ACK is recorded.
+type LifecycleBrowser interface {
+	OperationEpoch(context.Context, string) (browsercontrol.EpochState, error)
+	SealOperationEpoch(context.Context, string, int64, string) (browsercontrol.EpochState, error)
+	LookupSend(context.Context, string, string) (string, string, error)
+	AcknowledgeSend(context.Context, string, app.EmailRuntimeLifecycle, string) error
+	ResolveSend(context.Context, string, string, string) (string, error)
+}
+
 type ComposeCapabilities struct {
 	Compose              bool   `json:"compose"`
 	Reply                bool   `json:"reply"`
@@ -233,7 +245,17 @@ func (s *Service) SendDraft(ctx context.Context, owner, id string, expected int6
 		return d, ErrAttachmentChanged
 	}
 	defer cleanup()
-	claimed, err := r.ChangeEmailDraft(ctx, store.EmailDraftCommand{OwnerID: owner, Action: "begin", Draft: store.EmailDraft{ID: id}, ExpectedVersion: expected, SendKey: key})
+	// Issue the operation identity in the runtime's open epoch before the
+	// durable begin, so a replayed product database can never reissue it.
+	invocation := ""
+	if lifecycle, ok := s.browser.(LifecycleBrowser); ok {
+		if state, err := lifecycle.OperationEpoch(ctx, binding.Provider); err == nil {
+			if invocation, err = app.NewOperationID(state.Generation, state.OpenEpoch); err != nil {
+				return d, err
+			}
+		}
+	}
+	claimed, err := r.ChangeEmailDraft(ctx, store.EmailDraftCommand{OwnerID: owner, Action: "begin", Draft: store.EmailDraft{ID: id}, ExpectedVersion: expected, SendKey: key, InvocationID: invocation})
 	if err != nil {
 		return d, err
 	}
@@ -260,6 +282,71 @@ func (s *Service) SendDraft(ctx context.Context, owner, id string, expected int6
 	out, err := r.ChangeEmailDraft(finishCtx, store.EmailDraftCommand{OwnerID: owner, Action: "finish", Draft: store.EmailDraft{ID: id, State: state}, SendKey: key, ErrorCode: code, Receipt: proof})
 	if err != nil {
 		return claimed.Draft, err
+	}
+	// The result is durable; acknowledge it now. A failure is retried by the
+	// lifecycle maintenance loop and never affects the send outcome.
+	if acked, ackErr := s.acknowledgeDraft(finishCtx, owner, out.Draft, mailbox.Provider); ackErr == nil {
+		out.Draft = acked
+	}
+	return out.Draft, nil
+}
+
+func (s *Service) acknowledgeDraft(ctx context.Context, owner string, d store.EmailDraft, provider string) (store.EmailDraft, error) {
+	lifecycle, ok := s.browser.(LifecycleBrowser)
+	if !ok || d.Receipt == nil || d.Receipt.Lifecycle == nil || d.Receipt.Lifecycle.Acknowledged {
+		return d, nil
+	}
+	if err := lifecycle.AcknowledgeSend(ctx, provider, *d.Receipt.Lifecycle, "draft."+d.ID+"."+d.SendKey); err != nil {
+		return d, err
+	}
+	out, err := s.repository.ChangeEmailDraft(ctx, store.EmailDraftCommand{OwnerID: owner, Action: "ack", Draft: store.EmailDraft{ID: d.ID}, SendKey: d.SendKey})
+	if err != nil {
+		return d, err
+	}
+	return out.Draft, nil
+}
+
+// ResolveDraft records the user's conclusion for a send whose outcome stays
+// unknown after reconciliation. The runtime closes the original task without
+// dispatching; sending again is a separate review with a new identity.
+func (s *Service) ResolveDraft(ctx context.Context, owner, id string, expected int64, resolution string) (store.EmailDraft, error) {
+	switch resolution {
+	case "confirmed_sent", "confirmed_not_sent", "accept_unknown":
+	default:
+		return store.EmailDraft{}, ErrInvalidInput
+	}
+	rows, err := s.repository.ListEmailDrafts(ctx, owner, id)
+	if err != nil {
+		return store.EmailDraft{}, err
+	}
+	if len(rows) != 1 {
+		return store.EmailDraft{}, ErrNotFound
+	}
+	d := rows[0]
+	if d.State != "unknown" || d.Version != expected || d.Snapshot == nil {
+		return d, ErrConflict
+	}
+	box, exists, err := s.repository.GetEmailMailbox(ctx, owner, d.MailboxID)
+	if err != nil {
+		return d, err
+	}
+	if !exists {
+		return d, ErrConflict
+	}
+	// Legacy identities resolve through their original lifecycle 2.0 key.
+	if browser, ok := s.browser.(LifecycleBrowser); ok {
+		status, err := browser.ResolveSend(ctx, box.Provider, d.Snapshot.InvocationID, resolution)
+		if err != nil {
+			return d, err
+		}
+		if status != "resolved" {
+			return d, ErrConflict
+		}
+	}
+	out, err := s.repository.ChangeEmailDraft(ctx, store.EmailDraftCommand{OwnerID: owner, Action: "resolve_user", Draft: store.EmailDraft{ID: id},
+		ExpectedVersion: expected, SendKey: d.SendKey, Resolution: resolution})
+	if err != nil {
+		return d, err
 	}
 	return out.Draft, nil
 }

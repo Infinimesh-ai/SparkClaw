@@ -96,6 +96,8 @@ func (a *iscpDomainAdapter) mailWithSession(ctx context.Context, request iscpwor
 		return domainHTTP(ctx, request, http.MethodPost, a.server.sendEmailDraft, map[string]string{"draft": request.Params["draft"]})
 	case iscpworkbench.OperationMailDraftsReconcile:
 		return domainHTTP(ctx, request, http.MethodPost, a.server.reconcileEmailDraft, map[string]string{"draft": request.Params["draft"]})
+	case iscpworkbench.OperationMailDraftsResolve:
+		return domainHTTP(ctx, request, http.MethodPost, a.server.resolveEmailDraft, map[string]string{"draft": request.Params["draft"]})
 	}
 	return domainError(501, "capability_unavailable")
 }

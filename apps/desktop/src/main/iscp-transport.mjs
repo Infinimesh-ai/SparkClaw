@@ -23,7 +23,7 @@ const ADMISSION_QUEUE_LIMIT = 24;
 
 function mailMutationResource(request) {
   const { operation, params = {}, body = {} } = request;
-  if (operation.startsWith('mail.drafts.')) return `mail-draft:${params.draft || body.id || 'list'}${operation === 'mail.drafts.reconcile' ? ':reconcile' : ''}`;
+  if (operation.startsWith('mail.drafts.')) return `mail-draft:${params.draft || body.id || 'list'}${operation === 'mail.drafts.reconcile' ? ':reconcile' : operation === 'mail.drafts.resolve' ? ':resolve' : ''}`;
   if (operation.startsWith('mail.providers.') || operation === 'mail.intake.update') return `mail-provider:${params.provider || 'list'}:${operation.split('.').at(-1)}`;
   if (params.mail) return `mail-message:${params.mail}`;
   if (params.conversation) return `mail-conversation:${params.conversation}`;
@@ -338,7 +338,7 @@ export class ISCPTransport {
     const capacityClass=spec?.capacity_class || 'v1';
     if(!Object.hasOwn(CAPACITIES,capacityClass))throw new ISCPRequestNotSentError("ISCP capacity class is unavailable");
     const mailRead = capacityClass === 'business' && request.operation.startsWith('mail.') && !spec.mutation;
-    const timeoutMS = ["mail.drafts.save", "mail.drafts.send", "mail.drafts.reconcile", "mail.providers.check", "mail.providers.login", "mail.intake.update", "mail.replies.polish", "mail.source.cleanup", "mail.conversations.delete"].includes(request.operation) && this.timeoutMS === 30000 ? 180000 : this.timeoutMS;
+    const timeoutMS = ["mail.drafts.save", "mail.drafts.send", "mail.drafts.reconcile", "mail.drafts.resolve", "mail.providers.check", "mail.providers.login", "mail.intake.update", "mail.replies.polish", "mail.source.cleanup", "mail.conversations.delete"].includes(request.operation) && this.timeoutMS === 30000 ? 180000 : this.timeoutMS;
     admissionDeadline ??= Date.now() + timeoutMS;
     if (admissionDeadline <= Date.now()) throw new ISCPRequestNotSentError('ISCP request admission deadline exceeded', 'capacity');
     if (spec && (!this.capabilities || Date.parse(this.capabilities.expires_at) <= Date.now() || !this.capabilities.operations.includes(request.operation))) throw new ISCPRequestNotSentError('This capability is unavailable through ISCP');

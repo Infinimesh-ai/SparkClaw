@@ -134,6 +134,21 @@ describe("email compose safety", () => {
     } finally { act(() => root.unmount()); }
   });
 
+  it("lets the user close an unknown send without executing Send again", async () => {
+    vi.spyOn(api, "emailComposeCapabilities").mockResolvedValue({ compose: true, reply: true, reply_all: true, cc: true, max_to: 100 });
+    vi.spyOn(api, "emailDraft").mockResolvedValue({ ...draft, version: 4, state: "unknown" });
+    const resolve = vi.spyOn(api, "resolveEmailDraft").mockResolvedValue({ ...draft, version: 5, state: "failed", error_code: "email_send_outcome_unknown_accepted", confirmation_source: "user_confirmed" });
+    const send = vi.spyOn(api, "sendEmailDraft");
+    const host = document.createElement("div"); const root = createRoot(host);
+    try {
+      await act(async () => root.render(<EmailCompose target={{ mode: "compose", draftId: "d" }} mailboxes={mailboxes} text={text} language="zh" onClose={() => {}} onBeforeClose={() => {}} />));
+      expect(host.textContent).toContain(text.email.resolveSendPrompt);
+      await act(async () => [...host.querySelectorAll("button")].find((b) => b.textContent === text.email.resolveAcceptUnknown)!.click());
+      expect(resolve).toHaveBeenCalledWith("d", 4, "accept_unknown"); expect(send).not.toHaveBeenCalled();
+      expect(host.textContent).toContain(text.email.sendUnknownAccepted);
+      expect(host.textContent).not.toContain(text.email.resolveSendPrompt);
+    } finally { act(() => root.unmount()); }
+  });
   it("requires explicit original selection and confirmation to reconcile an uncertain send", async () => {
     vi.spyOn(api, "emailComposeCapabilities").mockResolvedValue({ compose: true, reply: true, reply_all: true, cc: true, max_to: 100 });
     vi.spyOn(api, "emailDraft").mockResolvedValue({ ...draft, state: "unknown" });

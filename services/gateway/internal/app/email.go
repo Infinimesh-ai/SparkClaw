@@ -149,15 +149,26 @@ type EmailSendRequest struct {
 	SettingVersion              int64
 }
 
+// EmailRuntimeLifecycle binds a send result to its App-CLI task so the
+// Gateway can acknowledge durable receipt of that exact terminal revision.
+type EmailRuntimeLifecycle struct {
+	OperationID      string `json:"operation_id"`
+	TaskID           string `json:"task_id"`
+	TerminalRevision int64  `json:"terminal_revision"`
+	ResultDigest     string `json:"result_digest"`
+	Acknowledged     bool   `json:"acknowledged,omitempty"`
+}
+
 type EmailSendResult struct {
-	NotSent                     *EmailNotSentProof `json:"not_sent,omitempty"`
-	ProviderThreadID            string             `json:"provider_thread_id,omitempty"`
-	Provider                    string             `json:"provider"`
-	Status                      string             `json:"status"`
-	RecipientDigest             string             `json:"recipient_digest"`
-	ProviderMessageID           string             `json:"provider_message_id,omitempty"`
-	BrowserCredentialGeneration uint64             `json:"browser_credential_generation"`
-	ScriptRevision              int                `json:"script_revision"`
+	Lifecycle                   *EmailRuntimeLifecycle `json:"lifecycle,omitempty"`
+	NotSent                     *EmailNotSentProof     `json:"not_sent,omitempty"`
+	ProviderThreadID            string                 `json:"provider_thread_id,omitempty"`
+	Provider                    string                 `json:"provider"`
+	Status                      string                 `json:"status"`
+	RecipientDigest             string                 `json:"recipient_digest"`
+	ProviderMessageID           string                 `json:"provider_message_id,omitempty"`
+	BrowserCredentialGeneration uint64                 `json:"browser_credential_generation"`
+	ScriptRevision              int                    `json:"script_revision"`
 }
 
 // EmailReadRequest binds discovery or capture to Runtime-owned admission.

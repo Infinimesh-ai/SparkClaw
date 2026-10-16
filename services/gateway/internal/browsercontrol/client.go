@@ -119,19 +119,20 @@ type RunScriptRequest struct {
 }
 
 type ScriptExecutionResult struct {
-	SchemaVersion        int             `json:"schema_version"`
-	State                string          `json:"state"`
-	ProfileID            string          `json:"profile_id"`
-	Lane                 string          `json:"lane"`
-	Provider             string          `json:"provider"`
-	Operation            string          `json:"operation"`
-	ScriptID             string          `json:"script_id"`
-	Revision             int             `json:"revision"`
-	SourceChecksum       string          `json:"source_checksum"`
-	CredentialGeneration int64           `json:"credential_generation"`
-	ControllerGeneration int64           `json:"controller_generation"`
-	SessionGeneration    int64           `json:"session_generation"`
-	Result               json.RawMessage `json:"result"`
+	SchemaVersion        int              `json:"schema_version"`
+	State                string           `json:"state"`
+	ProfileID            string           `json:"profile_id"`
+	Lane                 string           `json:"lane"`
+	Provider             string           `json:"provider"`
+	Operation            string           `json:"operation"`
+	ScriptID             string           `json:"script_id"`
+	Revision             int              `json:"revision"`
+	SourceChecksum       string           `json:"source_checksum"`
+	CredentialGeneration int64            `json:"credential_generation"`
+	ControllerGeneration int64            `json:"controller_generation"`
+	SessionGeneration    int64            `json:"session_generation"`
+	Result               json.RawMessage  `json:"result"`
+	Lifecycle            *ScriptLifecycle `json:"lifecycle,omitempty"`
 }
 
 type OpenProviderLoginRequest struct {

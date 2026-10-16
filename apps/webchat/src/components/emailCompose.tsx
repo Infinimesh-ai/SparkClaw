@@ -184,6 +184,17 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
     } catch (reason) { if (active.current) setError(reason); }
     finally { executing.current = false; if (active.current) setBusy(false); }
   }
+  async function resolve(resolution: "confirmed_sent" | "confirmed_not_sent" | "accept_unknown") {
+    if (!actionsAllowed.current || !draft || executing.current) return;
+    executing.current = true; setBusy(true); setError(null);
+    try {
+      const result = await api.resolveEmailDraft(draft.id, draft.version, resolution);
+      if (active.current) populate(result);
+    } catch (reason) { if (active.current) setError(reason); }
+    finally { executing.current = false; if (active.current) setBusy(false); }
+  }
+  const sentLabel = (value: EmailDraft) => value.confirmation_source === "owner_confirmed_capture" ? text.email.sendOwnerConfirmed :
+    value.confirmation_source === "user_confirmed" ? text.email.sendUserConfirmed : text.email.sendSucceeded;
   const closeHandler = useRef<() => Promise<boolean>>(async () => true);
   closeHandler.current = async () => {
     if (locked) return true;
@@ -234,13 +245,17 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
     {reloadRequired && <p role="status">{language === "zh" ? "草稿或附件已变化，此次未发送。请重新读取草稿，再保存并确认当前文件。重新读取会替换未保存的编辑。" : "The draft or its attachments changed; this attempt was not sent. Reload the draft, then save and review the current files. Reloading replaces unsaved edits."} <button className="emailTextButton" type="button" disabled={busy || !actionsEnabled} onClick={() => void reload()}>{language === "zh" ? "重新读取草稿" : "Reload draft"}</button></p>}
     {error ? <p role="alert">{emailErrorLabel(error, text)}</p> : null}
     {unsupported && !busy && <p className="emailWarning">{tooManyRecipients ? text.email.recipientLimit : text.email.sendUnsupported}</p>}
-    {draft?.state === "sent" && <div role="status"><p>{draft.confirmation_source === "owner_confirmed_capture" ? text.email.sendOwnerConfirmed : text.email.sendSucceeded}</p><p>{draft.sent_mail_id ? text.email.sendEvidenceLinked : text.email.sendEvidencePending}</p>
+    {draft?.state === "sent" && <div role="status"><p>{sentLabel(draft)}</p><p>{draft.sent_mail_id ? text.email.sendEvidenceLinked : text.email.sendEvidencePending}</p>
       {draft.conversation_id && onSent && <button className="emailTextButton" onClick={() => onSent(draft)}>{text.email.openSentConversation}</button>}
     </div>}
     {draft && ["sent", "sending", "unknown"].includes(draft.state) && !draft.sent_mail_id && <button className="emailTextButton" disabled={busy || !actionsEnabled} onClick={() => void reconcile()}>{text.email.reconcileSend}</button>}
     {draft && ["sent", "sending", "unknown"].includes(draft.state) && !draft.sent_mail_id && <button className="emailTextButton" disabled={busy || !actionsEnabled} onClick={() => setSelectingSource(!selectingSource)}>{text.email.selectSentSource}</button>}
     {selectingSource && draft && <EmailSentSources mailboxId={draft.mailbox_id} text={text} language={language} disabled={busy || !actionsEnabled} onConfirm={(id) => void reconcile(id)} />}
     {draft && ["sending", "unknown"].includes(draft.state) && <p role="status">{busy ? text.email.sending : text.email.sendUnknown}</p>}
+    {draft?.state === "unknown" && !busy && <p>{text.email.resolveSendPrompt}{" "}
+      <button className="emailTextButton" type="button" disabled={!actionsEnabled} onClick={() => void resolve("confirmed_sent")}>{text.email.resolveConfirmedSent}</button>
+      <button className="emailTextButton" type="button" disabled={!actionsEnabled} onClick={() => void resolve("confirmed_not_sent")}>{text.email.resolveConfirmedNotSent}</button>
+      <button className="emailTextButton" type="button" disabled={!actionsEnabled} onClick={() => void resolve("accept_unknown")}>{text.email.resolveAcceptUnknown}</button></p>}
     {draft?.state === "failed" && <p role="alert">{emailSendFailureLabel(draft.error_code, text)}</p>}
     {saved && draft?.state === "draft" && <p role="status">{text.email.draftSaved}</p>}
     {!review && <footer><button className="emailTextButton" disabled={!canSave || !mailbox} onClick={() => void save(false)}>{text.email.saveDraft}</button>{compact ? <button className="emailReplyPrimary" disabled={!canSend} onClick={() => void save(true)}><Send size={15} />{text.email.sendReply}</button> : <button className="emailTextButton" disabled={!canSend} onClick={() => void save(true)}>{text.email.send}</button>}</footer>}
@@ -265,7 +280,7 @@ export function EmailDraftList({ text, onSelect }: { text: Copy; onSelect: (targ
   }
   return <section className="emailRules"><h3>{text.email.drafts}</h3>{error ? <p role="alert">{emailErrorLabel(error, text)}</p> : null}
     {!busy && !items.length && <p>{text.email.emptyDrafts}</p>}
-    {items.map((item) => <button className="emailTextButton" key={item.id} onClick={() => onSelect({ mode: item.mode, draftId: item.id })}>{item.subject || text.email.untitled}<small aria-label={text.email.draftState}>{item.state === "sent" ? item.confirmation_source === "owner_confirmed_capture" ? text.email.sendOwnerConfirmed : text.email.sendSucceeded : item.state === "unknown" || item.state === "sending" ? text.email.sendUnknown : item.state === "failed" ? text.email.sendFailed : text.email.draftSaved}</small></button>)}
+    {items.map((item) => <button className="emailTextButton" key={item.id} onClick={() => onSelect({ mode: item.mode, draftId: item.id })}>{item.subject || text.email.untitled}<small aria-label={text.email.draftState}>{item.state === "sent" ? item.confirmation_source === "owner_confirmed_capture" ? text.email.sendOwnerConfirmed : item.confirmation_source === "user_confirmed" ? text.email.sendUserConfirmed : text.email.sendSucceeded : item.state === "unknown" || item.state === "sending" ? text.email.sendUnknown : item.state === "failed" ? text.email.sendFailed : text.email.draftSaved}</small></button>)}
     {cursor && <button className="emailTextButton" disabled={busy} onClick={() => void more()}>{text.email.moreDrafts}</button>}
   </section>;
 }

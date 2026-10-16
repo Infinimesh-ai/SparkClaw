@@ -36,23 +36,28 @@ type EmailDraft struct {
 	UpdatedAt          time.Time                 `json:"updated_at"`
 }
 type EmailDraftSnapshot struct {
-	Attachments  []app.EmailSendAttachment `json:"attachments,omitempty"`
-	ReplyTarget  *app.EmailReplyTarget     `json:"reply_target,omitempty"`
-	State        string                    `json:"state"`
-	ErrorCode    string                    `json:"error_code,omitempty"`
-	Receipt      *app.EmailSendResult      `json:"receipt,omitempty"`
-	UpdatedAt    time.Time                 `json:"updated_at"`
-	InvocationID string                    `json:"invocation_id"`
-	Version      int64                     `json:"version"`
-	MailboxID    string                    `json:"mailbox_id"`
-	To           []string                  `json:"to"`
-	CC           []string                  `json:"cc"`
-	Subject      string                    `json:"subject"`
-	Body         string                    `json:"body"`
-	Mode         string                    `json:"mode"`
-	ReplyMailID  string                    `json:"reply_mail_id,omitempty"`
+	UserResolution string                    `json:"user_resolution,omitempty"`
+	Attachments    []app.EmailSendAttachment `json:"attachments,omitempty"`
+	ReplyTarget    *app.EmailReplyTarget     `json:"reply_target,omitempty"`
+	State          string                    `json:"state"`
+	ErrorCode      string                    `json:"error_code,omitempty"`
+	Receipt        *app.EmailSendResult      `json:"receipt,omitempty"`
+	UpdatedAt      time.Time                 `json:"updated_at"`
+	InvocationID   string                    `json:"invocation_id"`
+	Version        int64                     `json:"version"`
+	MailboxID      string                    `json:"mailbox_id"`
+	To             []string                  `json:"to"`
+	CC             []string                  `json:"cc"`
+	Subject        string                    `json:"subject"`
+	Body           string                    `json:"body"`
+	Mode           string                    `json:"mode"`
+	ReplyMailID    string                    `json:"reply_mail_id,omitempty"`
 }
 type EmailDraftCommand struct {
+	// InvocationID is the lifecycle 3.0 operation identity the Gateway issued
+	// in the runtime's open epoch; empty keeps the legacy identifier.
+	InvocationID    string
+	Resolution      string
 	OwnerID         string
 	Action          string
 	Draft           EmailDraft
@@ -108,7 +113,14 @@ func changeEmailDraft(e *emailEngine, c EmailDraftCommand) (EmailDraftResult, er
 		if d.Version != c.ExpectedVersion || (d.State != "draft" && d.State != "failed") {
 			return EmailDraftResult{}, errEmailConflict
 		}
-		snapshot := EmailDraftSnapshot{Attachments: d.Attachments, State: "sending", UpdatedAt: e.now, InvocationID: app.NewID("email_send"), Version: d.Version, MailboxID: d.MailboxID, To: d.To, CC: d.CC, Subject: d.Subject, Body: d.Body, Mode: d.Mode, ReplyMailID: d.ReplyMailID, ReplyTarget: d.ReplyTarget}
+		invocation := app.NewID("email_send")
+		if c.InvocationID != "" {
+			if _, _, valid := app.OperationEpoch(c.InvocationID); !valid {
+				return EmailDraftResult{}, errEmailInvalid
+			}
+			invocation = c.InvocationID
+		}
+		snapshot := EmailDraftSnapshot{Attachments: d.Attachments, State: "sending", UpdatedAt: e.now, InvocationID: invocation, Version: d.Version, MailboxID: d.MailboxID, To: d.To, CC: d.CC, Subject: d.Subject, Body: d.Body, Mode: d.Mode, ReplyMailID: d.ReplyMailID, ReplyTarget: d.ReplyTarget}
 		emailPut(e, "send_snapshot", emailID(d.ID, c.SendKey), d.ID, "", "", "", e.now.String(), snapshot)
 		d.Snapshot = &snapshot
 		d.SendKey = c.SendKey
@@ -150,6 +162,52 @@ func changeEmailDraft(e *emailEngine, c EmailDraftCommand) (EmailDraftResult, er
 		d.ReconciledAt = &at
 		d.Version++
 
+	case "ack":
+		// Durable receipt of the exact terminal revision was confirmed by the
+		// runtime; only the acknowledgement flag changes.
+		if !ok || d.SendKey != c.SendKey || d.Receipt == nil || d.Receipt.Lifecycle == nil {
+			return EmailDraftResult{}, errEmailConflict
+		}
+		if d.Receipt.Lifecycle.Acknowledged {
+			return EmailDraftResult{Draft: d}, nil
+		}
+		receipt := *d.Receipt
+		lifecycle := *receipt.Lifecycle
+		lifecycle.Acknowledged = true
+		receipt.Lifecycle = &lifecycle
+		d.Receipt = &receipt
+		attempt, found := emailGet[EmailDraftSnapshot](e, "send_snapshot", emailID(d.ID, c.SendKey))
+		if !found {
+			return EmailDraftResult{}, errEmailCorrupt
+		}
+		attempt.Receipt = d.Receipt
+		emailPut(e, "send_snapshot", emailID(d.ID, c.SendKey), d.ID, "", attempt.State, "", emailOrder(attempt.UpdatedAt, d.ID), attempt)
+		d.Snapshot = &attempt
+		d.Version++
+	case "resolve_user":
+		// An explicit user conclusion for an unknown send. It never resends; a
+		// later send is a new operation with a new key and identity.
+		if !ok || d.Version != c.ExpectedVersion || d.State != "unknown" || d.Snapshot == nil || d.SendKey != c.SendKey {
+			return EmailDraftResult{}, errEmailConflict
+		}
+		switch c.Resolution {
+		case "confirmed_sent":
+			d.State, d.ErrorCode, d.ConfirmationSource = "sent", "", "user_confirmed"
+		case "confirmed_not_sent":
+			d.State, d.ErrorCode, d.ConfirmationSource = "failed", "email_send_user_confirmed_not_sent", "user_confirmed"
+		case "accept_unknown":
+			d.State, d.ErrorCode, d.ConfirmationSource = "failed", "email_send_outcome_unknown_accepted", "user_confirmed"
+		default:
+			return EmailDraftResult{}, errEmailInvalid
+		}
+		attempt, found := emailGet[EmailDraftSnapshot](e, "send_snapshot", emailID(d.ID, c.SendKey))
+		if !found {
+			return EmailDraftResult{}, errEmailCorrupt
+		}
+		attempt.State, attempt.ErrorCode, attempt.UserResolution, attempt.UpdatedAt = d.State, d.ErrorCode, c.Resolution, e.now
+		emailPut(e, "send_snapshot", emailID(d.ID, c.SendKey), d.ID, "", attempt.State, "", emailOrder(e.now, d.ID), attempt)
+		d.Snapshot = &attempt
+		d.Version++
 	case "finish", "resolve", "resolve_not_sent":
 		if c.Action == "resolve_not_sent" {
 			if !ok || d.Version != c.ExpectedVersion || (d.State != "unknown" && d.State != "sending") || d.Snapshot == nil || d.SentMailID != "" || d.TimelineMailID != "" || c.Draft.State != "failed" || c.Receipt == nil || c.Receipt.Status != "not_sent" || !c.Receipt.NotSent.ValidFor(d.Snapshot.InvocationID, c.Receipt.Provider) || c.Receipt.ProviderMessageID != "" || c.Receipt.ProviderThreadID != "" {

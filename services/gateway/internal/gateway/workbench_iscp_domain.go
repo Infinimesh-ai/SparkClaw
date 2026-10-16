@@ -193,7 +193,7 @@ func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.
 		return a.events(ctx, request)
 	case iscpworkbench.OperationMailProvidersList, iscpworkbench.OperationMailProvidersUpdate, iscpworkbench.OperationMailProvidersCheck, iscpworkbench.OperationMailProvidersLogin:
 		return a.mailProviders(ctx, request)
-	case iscpworkbench.OperationMailMailboxes, iscpworkbench.OperationMailSync, iscpworkbench.OperationMailMessage, iscpworkbench.OperationMailAttachment, iscpworkbench.OperationMailDraftsList, iscpworkbench.OperationMailDraftsSave, iscpworkbench.OperationMailSend, iscpworkbench.OperationMailDraftsSend, iscpworkbench.OperationMailDraftsReconcile:
+	case iscpworkbench.OperationMailMailboxes, iscpworkbench.OperationMailSync, iscpworkbench.OperationMailMessage, iscpworkbench.OperationMailAttachment, iscpworkbench.OperationMailDraftsList, iscpworkbench.OperationMailDraftsSave, iscpworkbench.OperationMailSend, iscpworkbench.OperationMailDraftsSend, iscpworkbench.OperationMailDraftsReconcile, iscpworkbench.OperationMailDraftsResolve:
 		return a.mail(ctx, request)
 	case iscpworkbench.OperationBrowserHostGrant, iscpworkbench.OperationBrowserHostRegister, iscpworkbench.OperationBrowserHostPoll, iscpworkbench.OperationBrowserHostReply, iscpworkbench.OperationBrowserHostHeartbeat, iscpworkbench.OperationBrowserHostClose, iscpworkbench.OperationBrowserHostRevoke, iscpworkbench.OperationBrowserReceipt, iscpworkbench.OperationBrowserReconcile:
 		return a.browser(ctx, request)

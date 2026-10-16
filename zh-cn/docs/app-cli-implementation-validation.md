@@ -361,3 +361,13 @@ healthy；Browser、Controller、Executor 均 active、零重启且无 cleanup f
 `/Users/dev/.cache/app-cli-live-inbound-20261015/managed/`，未将邮箱地址、令牌
 或邮件原文提交入库。最终 113 份文档镜像／链接检查及桌面 Reader 生成检查
 通过。未推送 GitHub，未部署其他节点或已安装桌面端。
+
+## Lifecycle 3.0 与 ledger 2（2026-10-16）
+
+成套发行 `0.3.0-sparkclaw.24`（runtime digest `bc177aa3…`，App-CLI 分支 `codex/lifecycle-v3` 的 `fc18087`）实现了修订后的[请求授权与存储生命周期设计](app-cli-storage-lifecycle-design.md)：请求代次中的 op3 操作身份及产品确认排空后的关闭、prepare/invoke 受理、经独立进度锚确认的 reserved → consume_pending → released 发送放行、自动回滚向前封闭、持久 ACK、未知发送的用户结案、三个固定授权槽位、关闭代次后的回收及按存储占用的准入。SparkClaw `78035c55` 增加 Gateway 发件箱身份、ACK 重试、排空关闭循环、`POST /api/email/drafts/{draft}/resolve` 与 ISCP `mail.drafts.resolve`、原有未知发送状态区内的结案选项，以及独立 `progress-anchor` 服务。
+
+本地结果：App-CLI Node 348/348（含需 Python 的恢复测试）与 Python 86；Controller 265 通过、119 个平台或可选跳过；Desktop 373；WebChat 319；Go 包除 13 个在未改动基线上同样失败的 macOS TLS/`/dev/shm` 测试外均通过。发行验收、分阶段安装与部署验收通过；JavaScript 锚客户端已与 Go 锚服务互通验证。
+
+work2 影子迁移复制了在线账本（12,352 个任务）并以 ledger 2 打开：除唯一一个 running 行像任何重启一样变为 `blocked/EXECUTOR_RESTARTED` 外，所有行一致。迁移耗时 58 ms，legacy 键仍可解析，不存在的 legacy 键返回 `retired(legacy)`，没有 legacy 行可被回收。
+
+第一次激活在迁移检查已通过之后，因验证脚本的路径错误失败；自动回退无错误地恢复了排空后的状态、源码 `5eed92a5`、`.23` 发行与原 Gateway。第二次激活于 06:38 UTC 完成：12,368 个任务全部保留且零行变化，schema 2，执行代次 38 → 39，业务数据库与邮件工作区不变，锚以 generation 1 初始化。三分钟后新 Gateway 健康、无重启和错误，两个监听均以 `watch_ready` 运行，采集与探测以 op3 身份正常完成，Controller 报告 `lifecycle-3.0`，代次控制可用。未发送任何邮件；真实发送、其 ACK 及用户结案留待用户验收。容量与留存数值在影子测量前仍为设计占位值。锚与 runtime 同宿主，只能检测不包含其自身状态目录的回滚（设计中的 B 档需要另一台主机）。

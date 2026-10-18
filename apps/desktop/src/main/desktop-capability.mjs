@@ -64,7 +64,7 @@ export class DesktopCapability {
     if (!plainObject(request) || request.schema_version !== 1 || typeof request.operation !== "string") {
       throw new Error("Desktop capability request is invalid");
     }
-    if (this.getCapabilities()?.browser === false && !["state", "selectConversation"].includes(request.operation)) {
+    if (this.getCapabilities()?.browser === false && !["state", "selectConversation", "hideBrowser"].includes(request.operation)) {
       throw new Error("Browser operations are unavailable through this transport");
     }
     switch (request.operation) {
@@ -111,6 +111,7 @@ export class DesktopCapability {
         return { completed: true };
       case "hideBrowser":
         exactKeys(request, ["operation", "schema_version"]);
+        this.presentation.setPanelVisible?.(false);
         this.registry.hidePresented();
         return { completed: true };
       case "setBounds":
@@ -147,13 +148,19 @@ export class DesktopCapability {
         ![value.x, value.y, value.width, value.height].every(Number.isSafeInteger)) {
       throw new Error("Desktop browser bounds are invalid");
     }
+    // Renderer geometry is in CSS pixels. WebContentsView uses window DIPs;
+    // OS device scale is handled by Electron and must not be multiplied again.
+    const zoom = this.window.webContents.getZoomFactor?.() ?? 1;
+    const bounds = { x: Math.ceil(value.x * zoom), y: Math.ceil(value.y * zoom),
+      width: Math.floor((value.x + value.width) * zoom) - Math.ceil(value.x * zoom),
+      height: Math.floor((value.y + value.height) * zoom) - Math.ceil(value.y * zoom) };
     const content = this.window.getContentBounds();
-    if (value.x < 0 || value.y < 0 || value.width < 1 || value.height < 1 ||
-        value.x + value.width > content.width || value.y + value.height > content.height) {
+    if (value.x < 0 || value.y < 0 || value.width < 1 || value.height < 1 || bounds.width < 1 || bounds.height < 1 ||
+        bounds.x + bounds.width > content.width || bounds.y + bounds.height > content.height) {
       throw new Error("Desktop browser bounds are outside the workbench");
     }
     this.layoutRevision = revision;
-    this.presentation.setPanelBounds(value);
+    this.presentation.setPanelBounds(bounds);
     this.changed();
   }
 }

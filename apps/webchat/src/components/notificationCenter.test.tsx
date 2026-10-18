@@ -1,5 +1,9 @@
+// @vitest-environment jsdom
+
+import { act, useState } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PassiveNotification } from "../api/types";
 import { dictionaries } from "../i18n";
 import { NotificationCenter } from "./notificationCenter";
@@ -16,6 +20,28 @@ const notification: PassiveNotification = {
 };
 
 describe("NotificationCenter", () => {
+  it("dismisses the inbox with Escape, restores the bell, and leaves unread state alone", async () => {
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host), read = vi.fn(async () => {}), readAll = vi.fn(async () => {});
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return <NotificationCenter notifications={[notification]} unreadCount={1} open={open} toast={null} language="en" text={dictionaries.en}
+        onToggle={() => setOpen(value => !value)} onDismissToast={() => {}} onRead={read} onReadAll={readAll} />;
+    }
+    try {
+      await act(async () => root.render(<Harness />));
+      const bell = host.querySelector<HTMLButtonElement>(".notificationBell")!; bell.focus();
+      await act(async () => bell.click());
+      const link = host.querySelector<HTMLAnchorElement>(".notificationOpen")!; link.focus();
+      const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+      await act(async () => link.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
+      expect(host.querySelector(".notificationInbox")).toBeNull();
+      expect(document.activeElement).toBe(bell);
+      expect(read).not.toHaveBeenCalled(); expect(readAll).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
   it("renders an unread badge and an explicit safe LocalMind link without session UI", () => {
     const markup = renderToStaticMarkup(
       <NotificationCenter

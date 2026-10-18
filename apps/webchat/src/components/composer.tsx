@@ -3,7 +3,7 @@
 // component stays below the size baseline; document-picker and IME
 // composition state is local because nothing outside the dock reads it.
 // Message sending and the voice hook stay in the parent.
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, FormEvent, KeyboardEvent, MutableRefObject, SetStateAction } from "react";
 import { ArrowUp, FileSearch, Upload, X } from "lucide-react";
 import { api, openDocumentFile } from "../api/client";
@@ -23,6 +23,7 @@ import {
 } from "../lib/format";
 import type { DocumentUsage } from "../lib/format";
 import type { ArtifactObject, MessageAttachment } from "../api/types";
+import { useDismissibleLayer } from "../hooks/useDismissibleLayer";
 import { EmailPopupEntry } from "./emailPopup";
 import type { VoiceInputModel } from "../hooks/useVoiceInput";
 
@@ -77,6 +78,45 @@ export function ComposerSurface({
 }: ComposerSurfaceProps) {
   const [isComposingInput, setIsComposingInput] = useState(false);
   const [compositionEndedAt, setCompositionEndedAt] = useState(0);
+  const [failedUploads, setFailedUploads] = useState<Record<string, { file: File; error: string }>>({});
+  const failedUpload = failedUploads[activeSession];
+  const clearUploadFailure = () => setFailedUploads(current => { const next = { ...current }; delete next[activeSession]; return next; });
+  const [uploading, setUploading] = useState(false);
+  const uploadDisabled = busy || uploading || uploadingDocument || !canCompose || !filesEnabled;
+  const pendingFocus = useRef(false);
+  useLayoutEffect(() => {
+    const input = composerInputRef.current;
+    if (!input) return;
+    const grow = () => {
+      const style = getComputedStyle(input);
+      const line = parseFloat(style.lineHeight) || 28;
+      const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+      input.style.height = "auto";
+      input.style.height = `${Math.min(input.scrollHeight, line * 6 + padding)}px`;
+      input.style.overflowY = input.scrollHeight > line * 6 + padding ? "auto" : "hidden";
+    };
+    grow();
+    let width = input.clientWidth;
+    const resize = new ResizeObserver(() => { if (width !== input.clientWidth) { width = input.clientWidth; grow(); } });
+    resize.observe(input);
+    const appearance = new MutationObserver(grow);
+    appearance.observe(document.documentElement, { attributes: true, attributeFilter: ["data-text-size"] });
+    return () => { resize.disconnect(); appearance.disconnect(); };
+  }, [activeInput, composerInputRef]);
+  useEffect(() => {
+    if (busy || !pendingFocus.current) return;
+    pendingFocus.current = false;
+    const focus = document.activeElement;
+    if (focus === document.body || focus === composerInputRef.current || (focus instanceof Element && focus.closest(".sendButton"))) composerInputRef.current?.focus();
+  }, [busy, activeInput, composerInputRef]);
+  const send = () => { pendingFocus.current = true; onSend(); composerInputRef.current?.focus(); };
+  async function upload(file: File) {
+    if (uploadDisabled) return;
+    setUploading(true); clearUploadFailure();
+    try { await onUploadDocument(file); }
+    catch (reason) { setFailedUploads(current => ({ ...current, [activeSession]: { file, error: reason instanceof Error ? reason.message : text.errors.upload } })); }
+    finally { setUploading(false); if (uploadInputRef.current) uploadInputRef.current.value = ""; }
+  }
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const voiceLabel = voiceInputLabel(voice.state, voice.errorCode, voice.errorDetail, voice.deviceFallback, text);
 
@@ -92,15 +132,15 @@ export function ComposerSurface({
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (!canSend || isComposingInput || Date.now() - compositionEndedAt < 80) return;
-    onSend();
+    if (busy || voice.active || uploading || uploadingDocument || (!activeInput.trim() && !activeAttachments.length) || !canSend || isComposingInput || Date.now() - compositionEndedAt < 80) return;
+    send();
   }
 
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== "Enter" || event.shiftKey) return;
-    if (!canSend || isComposingInput || event.nativeEvent.isComposing || Date.now() - compositionEndedAt < 80) return;
+    if (busy || voice.active || uploading || uploadingDocument || (!activeInput.trim() && !activeAttachments.length) || !canSend || isComposingInput || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || Date.now() - compositionEndedAt < 80) return;
     event.preventDefault();
-    onSend();
+    send();
   }
 
   return <div className="composerDock">
@@ -115,23 +155,27 @@ export function ComposerSurface({
         <button type="button" className="attachmentRemove" title={text.chat.removeAttachment} disabled={busy} onClick={() => onRemoveAttachment(attachment)}><X size={14} /></button>
       </div>)}
     </div>}
+    {failedUpload && <div className="composerUploadFailure" role="alert"><span>{failedUpload.file.name}: {failedUpload.error}</span>
+      <button type="button" disabled={uploadDisabled} onClick={() => void upload(failedUpload.file)}>{language === "zh" ? "重试上传" : "Retry upload"}</button>
+      <button type="button" aria-label={text.common.cancel} onClick={clearUploadFailure}><X size={14} /></button>
+    </div>}
     <form className="composer" onSubmit={submit}>
       <input ref={uploadInputRef} className="documentUploadInput" type="file"
         accept=".txt,.md,.csv,.pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp"
         onChange={(event) => {
           const file = event.target.files?.[0];
-          if (file) void Promise.resolve(onUploadDocument(file)).finally(() => { if (uploadInputRef.current) uploadInputRef.current.value = ""; });
+          if (file) void upload(file);
         }} />
-      <button className="uploadButton" type="button" disabled={busy || uploadingDocument || !canCompose || !filesEnabled}
-        title={uploadingDocument ? text.chat.uploading : text.chat.upload} onClick={() => uploadInputRef.current?.click()}><Upload size={18} /></button>
+      <button className="uploadButton" type="button" disabled={uploadDisabled}
+        title={uploading || uploadingDocument ? text.chat.uploading : text.chat.upload} onClick={() => uploadInputRef.current?.click()}><Upload size={18} /></button>
       <button className="uploadButton" type="button" disabled={busy || choosingDocument || !canCompose || !filesEnabled}
         title={choosingDocument ? text.chat.choosingFile : text.chat.chooseFile} onClick={() => void onChooseDocument()}><FileSearch size={18} /></button>
       <EmailPopupEntry text={text} language={language} enabled={mailEnabled} />
       <VoiceInputControl voice={voice} text={text} onToggle={() => voice.toggle(currentVoiceAnchor())} />
-      <textarea ref={composerInputRef} value={activeInput} onChange={(event) => onInputChange(event.target.value)} onKeyDown={keyDown}
+      <textarea rows={1} ref={composerInputRef} value={activeInput} onChange={(event) => onInputChange(event.target.value)} onKeyDown={keyDown}
         onCompositionStart={() => setIsComposingInput(true)} onCompositionEnd={() => { setIsComposingInput(false); setCompositionEndedAt(Date.now()); }}
         placeholder={text.chat.placeholder} aria-label={text.chat.placeholder} disabled={busy || !canCompose} />
-      <button className="sendButton" disabled={busy || !canSend || voice.active || (!activeInput.trim() && activeAttachments.length === 0)} title={text.chat.send}><ArrowUp size={18} /></button>
+      <button className="sendButton" disabled={busy || uploading || uploadingDocument || !canSend || voice.active || (!activeInput.trim() && activeAttachments.length === 0)} title={text.chat.send}><ArrowUp size={18} /></button>
       <VoiceInputStatus state={voice.state} level={voice.level} elapsedMs={voice.elapsedMs} partialText={voice.partialText}
         partialFrozen={voice.partialFrozen} label={voiceLabel} retryable={voice.retryable} pendingInsert={voice.hasPendingTranscript}
         text={text} onRetry={voice.retry} onInsertPending={() => voice.insertPending(currentVoiceAnchor())} onDismiss={() => void voice.cancel()} />
@@ -152,6 +196,7 @@ export function ComposerDocumentPicker({
   onChoose: (document: ArtifactObject) => void;
   onClose: () => void;
 }) {
+  const pickerRef = useDismissibleLayer<HTMLDivElement>({ open: true, onDismiss: onClose, modal: true });
   const [documentUsage, setDocumentUsage] = useState<Record<string, DocumentUsage>>(() => loadDocumentUsage());
   const sortedDocuments = useMemo(() => sortDocumentsByUsage(documents, documentUsage), [documents, documentUsage]);
 
@@ -165,7 +210,7 @@ export function ComposerDocumentPicker({
     onChoose(document);
   }
 
-  return <div className="documentPickerOverlay" role="dialog" aria-modal="true" aria-label={text.chat.chooseFile}>
+  return <div ref={pickerRef} className="documentPickerOverlay" role="dialog" aria-modal="true" aria-label={text.chat.chooseFile}>
     <div className="documentPicker">
       <div className="documentPickerHeader">
         <strong>{text.chat.chooseFile}</strong>
@@ -260,9 +305,10 @@ export function ComposerDock({
         source: isImageContentType(result.artifact?.content_type || file.type) ? "web_upload" : undefined
       };
       stageAttachment(attachment);
-      await refreshGlobal();
+      await refreshGlobal().catch((err) => setError(err instanceof Error ? err.message : text.errors.upload));
     } catch (err) {
       setError(err instanceof Error ? err.message : text.errors.upload);
+      throw err;
     } finally {
       setUploadingDocument(false);
     }

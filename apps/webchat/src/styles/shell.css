@@ -93,20 +93,21 @@
 
 .brand strong {
   color: var(--text-primary);
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1.08;
-  letter-spacing: 0;
+  font-size: var(--font-section);
+  font-weight: 600;
+  line-height: var(--line-section);
+  letter-spacing: normal;
 }
 
 .brand span {
   margin-top: 2px;
   color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  line-height: var(--line-meta);
 }
 
 .iconButton,
@@ -143,9 +144,10 @@
   width: auto;
   min-width: 58px;
   padding: 0 9px;
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  font-weight: 600;
+  line-height: var(--line-meta);
 }
 
 .primaryButton,
@@ -159,13 +161,13 @@
   min-width: 0;
   min-height: 38px;
   border-radius: 4px;
-  font-weight: 700;
+  font-weight: 600;
   transition: filter 160ms ease, transform 120ms ease, background 160ms ease, border-color 160ms ease;
 }
 
 .primaryButton,
 .sendButton {
-  color: #0c1409;
+  color: var(--accent-text);
   background: var(--cyber-blue);
   box-shadow: 0 0 12px rgba(66, 133, 244, 0.2);
 }
@@ -195,7 +197,7 @@
 
 .dangerButton {
   padding: 0 12px;
-  color: #ffffff;
+  color: var(--status-button-text);
   background: var(--crimson-danger);
 }
 
@@ -284,9 +286,9 @@
   display: block;
   min-width: 0;
   overflow: hidden;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.18;
+  font-size: var(--font-ui);
+  font-weight: 600;
+  line-height: var(--line-ui);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -296,9 +298,9 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 10px;
-  line-height: 1.2;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -317,7 +319,7 @@
 }
 
 .dangerIcon {
-  color: #b42335;
+  color: var(--crimson-danger);
   border-color: rgba(239, 68, 68, 0.28);
 }
 
@@ -338,7 +340,8 @@
   outline: none;
   color: var(--text-primary);
   background: var(--surface-deep);
-  font-size: 12px;
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
 }
 
 .sessionRenameForm input:focus {
@@ -372,10 +375,10 @@
   overflow: hidden;
   margin: 0;
   color: var(--text-primary);
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0;
-  line-height: 1.2;
+  font-size: var(--font-section);
+  font-weight: 600;
+  letter-spacing: normal;
+  line-height: var(--line-section);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -384,9 +387,10 @@
   min-width: 0;
   margin: 4px 0 0;
   color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--font-sans);
+  font-size: var(--font-label);
   overflow-wrap: anywhere;
+  line-height: var(--line-label);
 }
 
 .topbarActions {

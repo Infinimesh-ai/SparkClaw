@@ -1,5 +1,7 @@
+import { useBrowserLayout } from "./hooks/useBrowserLayout";
+import { useMessageScroll } from "./hooks/useMessageScroll";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { KeyRound, PanelLeft, PanelRight, PlugZap, Plus, X } from "lucide-react";
+import { KeyRound, Globe2, PanelLeft, PanelRight, PlugZap, Plus, X } from "lucide-react";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy, type WorkspacePage } from "./components/workbench";
 import { WorkbenchRequests } from "./components/workbenchRequests";
 import { api, APIError, apiToken, clearAPIToken, saveAPIToken, streamWorkbenchInvalidations } from "./api/client";
@@ -73,6 +75,13 @@ export function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
+  const browserLayout = useBrowserLayout(inspectorOpen, inspectorResize.width, Boolean(desktop) && page === "chat");
+  const messageScroll = useMessageScroll(activeSession, page === "chat");
+  const closeBrowser = () => { setInspectorOpen(false); browserLayout.restoreTrigger(); };
+  const toggleBrowser = () => {
+    if (inspectorOpen && (!desktop || browserLayout.visible)) closeBrowser();
+    else { browserLayout.reveal(); setInspectorOpen(true); }
+  };
   const [streamingMessageID, setStreamingMessageID] = useState("");
   const [requestsBySession, setRequestsBySession] = useState<Record<string, WorkbenchRequestStatus[]>>({});
   const unconfirmedRequests = useRef<Record<string, Record<string, WorkbenchRequestStatus>>>({});
@@ -714,15 +723,18 @@ export function App() {
 
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
-      if (event.isComposing) return;
-      if (event.key === "Escape") { setSearchOpen(false); setInspectorOpen(false); }
-      if (!(event.metaKey || event.ctrlKey)) return;
+      if (event.defaultPrevented || event.isComposing) return;
+      if (document.querySelector('dialog[open], [role="dialog"], [role="menu"], .notificationInbox')) return;
+      if (event.key === "Escape") { if (inspectorOpen) { event.preventDefault(); closeBrowser(); } return; }
+      if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
       if (event.key.toLowerCase() === "k") { event.preventDefault(); setSearchOpen(true); }
+      if (event.key === ",") { event.preventDefault(); navigate("settings"); }
+      if (event.key.toLowerCase() === "b" && !(event.target instanceof Element && event.target.closest('input, textarea, [contenteditable="true"]'))) { event.preventDefault(); setSidebarCollapsed(value => !value); }
       if (event.key.toLowerCase() === "n") { event.preventDefault(); void newTask(); }
     }
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
-  }, [busy, voice.active, createSession]);
+  });
 
   useEffect(() => {
     if (page !== "schedules") setScheduleCreateOpen(false);
@@ -834,7 +846,7 @@ export function App() {
         onDeleteSession={(id) => void deleteSession(id)}
       />}
 
-      {page !== "settings" && <section className={`workspace ${error ? "hasError" : ""} ${showHome ? "homeWorkspace" : ""} ${fullPanel ? "panelWorkspace" : ""} ${inspectorOpen && page === "chat" ? "withInspector" : ""} ${inspectorResize.resizing ? "resizingInspector" : ""} ${desktopCapability() ? "desktopWorkbench" : ""}`} style={inspectorResize.style}>
+      <section ref={browserLayout.workspaceRef} hidden={page === "settings"} className={`workspace ${error ? "hasError" : ""} ${showHome ? "homeWorkspace" : ""} ${fullPanel ? "panelWorkspace" : ""} ${inspectorOpen && page === "chat" ? "withInspector" : ""} ${inspectorResize.resizing ? "resizingInspector" : ""} ${desktopCapability() ? "desktopWorkbench" : ""} ${browserLayout.className}`} style={inspectorResize.style}>
         <header className="topbar">
           <button className="iconButton sidebarToggle" onClick={() => setSidebarCollapsed(current => !current)} aria-label={copy.toggleNav}><PanelLeft size={18} /></button>
           <span className="workspaceLabel">{copy.local}</span>
@@ -852,7 +864,7 @@ export function App() {
               onRead={passiveNotifications.markRead}
               onReadAll={passiveNotifications.markAllRead}
             />
-            {page === "chat" && <button className={`iconButton rightSidebarToggle ${inspectorOpen ? "active" : ""}`} onClick={() => setInspectorOpen(current => !current)} aria-label={copy.toggleInspector} aria-expanded={inspectorOpen}><PanelRight size={18} /></button>}
+            {page === "chat" && <button className={`iconButton rightSidebarToggle ${inspectorOpen ? "active" : ""}`} ref={browserLayout.triggerRef} onClick={toggleBrowser} aria-label={desktop ? browserLayout.visible ? (language === "zh" ? "收起浏览器" : "Collapse browser") : (language === "zh" ? "打开浏览器" : "Open browser") : copy.toggleInspector} aria-expanded={desktop ? browserLayout.visible : inspectorOpen}>{desktop ? <Globe2 size={18} /> : <PanelRight size={18} />}</button>}
           </div>
         </header>
 
@@ -915,7 +927,7 @@ export function App() {
           onCreate={createSchedule}
         /> : null}</div>}
 
-        {page === "chat" && <section className={`chatColumn ${showHome ? "homeChat" : ""}`}>
+        {page === "chat" && <section inert={browserLayout.className === "browserFocus"} className={`chatColumn ${showHome ? "homeChat" : ""}`}>
           <WorkbenchRequests requests={requestsBySession[activeSession] ?? []} language={language}
             onRefresh={(requestID) => { const sessionId = activeSession; void api.workbenchRequest(sessionId, requestID).then((status) => {
               if (unconfirmedRequests.current[sessionId]?.[requestID]) unconfirmedRequests.current[sessionId][requestID] = status;
@@ -923,7 +935,7 @@ export function App() {
               return refreshSession(sessionId);
             }).catch((err) => surfaceError(err, text.errors.message)); }}
             onCancel={(requestID) => { void api.cancelWorkbenchRequest(activeSession, requestID).then(() => refreshSession(activeSession)).catch((err) => surfaceError(err, text.errors.message)); }} />
-          <div className="messageList" aria-label={showHome ? text.chat.emptyTitle : undefined}>
+          <div ref={messageScroll.listRef} className="messageList" aria-label={showHome ? text.chat.emptyTitle : undefined}>
             {messages.length === 0 ? (
               <WorkbenchWelcome language={language} />
             ) : (
@@ -944,6 +956,7 @@ export function App() {
               <TaskProgressMessage key={`progress:${request.request_id}`} id={request.request_id} sessionId={activeSession}
                 createdAt={active?.updated_at ?? ""} text={text} language={language} />)}
           </div>
+          {messageScroll.away && <div className="messageScrollAction"><button type="button" className="messageLatest" onClick={messageScroll.resume}>{language === "zh" ? "回到最新" : "Return to latest"}</button></div>}
           {active?.source !== "mcp" && <div className="draftStatus" role="status">
             {draftAlreadySubmitted && <span>{language === "zh" ? "此版本草稿已提交，请先检查原请求状态。" : "This draft revision was submitted. Check the original request status."} </span>}
             {language === "zh"
@@ -974,14 +987,13 @@ export function App() {
             />
           )}
         </section>}
-      {page === "chat" && inspectorOpen && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} onHide={() => setInspectorOpen(false)} />}
-      {page === "chat" && inspectorOpen && (desktopCapability()
-        ? <BrowserPanel language={language} />
-        : <aside className="taskInspector emptyTaskInspector" aria-label={copy.inspector} />)}
+      {page === "chat" && inspectorOpen && (!desktop || browserLayout.visible) && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} onHide={closeBrowser} />}
+      {desktop ? browserLayout.mounted && <BrowserPanel language={language} open={inspectorOpen} visible={browserLayout.visible} onCollapse={closeBrowser} wide={browserLayout.wide} onWideChange={browserLayout.setWide} />
+        : page === "chat" && inspectorOpen && <aside className="taskInspector emptyTaskInspector" aria-label={copy.inspector} />}
       {fullPanel && <div className="workbenchPage">
       <div className="workbenchPageHeader"><div><h1>{copy.pageTitles[page as Exclude<WorkspacePage, "chat" | "schedules">]}</h1><p>{copy.pageDescriptions[page as Exclude<WorkspacePage, "chat" | "schedules">]}</p></div>{page === "memory" && <button className="primaryButton" onClick={() => void newTask(copy.memoryPrompt)}><Plus size={15} />{copy.addMemory}</button>}</div>
       {renderInspectorColumn(page === "channels")}</div>}
-      </section>}
+      </section>
       {page === "settings" && <>
         <WorkspaceSettingsSidebar
           text={text}

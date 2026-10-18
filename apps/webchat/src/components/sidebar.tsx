@@ -5,6 +5,7 @@ import { workbenchCopy, type WorkspacePage } from "./workbench";
 import workbenchMark from "../../../desktop/src/assets/icon.png";
 import type { Copy, Language } from "../i18n";
 import type { OwnerProfile, Session } from "../api/types";
+import { useDismissibleLayer } from "../hooks/useDismissibleLayer";
 import { shortId } from "../lib/format";
 import type { ConversationActivity } from "../lib/conversationActivity";
 
@@ -65,6 +66,8 @@ export function SessionSidebar<T extends SidebarConversation>({
   const visibleSessions = sessions.filter((session) => session.source !== "mcp");
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  const accountTriggerRef = useRef<HTMLButtonElement>(null);
+  const accountLayerRef = useDismissibleLayer<HTMLDivElement>({ open: accountMenuOpen, onDismiss: () => setAccountMenuOpen(false), initialFocus: '[role="menuitem"]', restoreFocusRef: accountTriggerRef });
   const accountName = ownerProfile?.display_name.trim() || text.app.name;
   const accountEmail = ownerProfile?.email?.trim();
   const accountInitial = (accountName.match(/[A-Z\p{L}]/gu) ?? Array.from(accountName))
@@ -80,15 +83,9 @@ export function SessionSidebar<T extends SidebarConversation>({
       if (!accountMenuRef.current?.contains(event.target as Node)) setAccountMenuOpen(false);
     }
 
-    function dismissAccountMenuOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setAccountMenuOpen(false);
-    }
-
     document.addEventListener("pointerdown", dismissAccountMenu);
-    document.addEventListener("keydown", dismissAccountMenuOnEscape);
     return () => {
       document.removeEventListener("pointerdown", dismissAccountMenu);
-      document.removeEventListener("keydown", dismissAccountMenuOnEscape);
     };
   }, [accountMenuOpen]);
 
@@ -99,7 +96,7 @@ export function SessionSidebar<T extends SidebarConversation>({
           <img className="workbenchBrandMark" src={workbenchMark} alt="" aria-hidden="true" />
           <span className="workbenchBrandName">Spark<span>X</span></span>
         </button>
-        <button className="iconButton subtle" onClick={onToggleSidebar} title={copy.toggleNav} aria-label={copy.toggleNav}>
+        <button className="iconButton subtle" onClick={onToggleSidebar} title={`${copy.toggleNav} (⌘/Ctrl+B)`} aria-keyshortcuts="Meta+B Control+B" aria-label={copy.toggleNav}>
           <PanelLeft size={17} />
         </button>
       </div>
@@ -117,10 +114,10 @@ export function SessionSidebar<T extends SidebarConversation>({
       <div className="conversationListHeader">
         <span>{copy.recent}</span>
         <div className="conversationListActions">
-          <button className="conversationHeaderButton" onClick={onSearch} title={copy.search} aria-label={copy.search}>
+          <button className="conversationHeaderButton" onClick={onSearch} title={`${copy.search} (⌘/Ctrl+K)`} aria-keyshortcuts="Meta+K Control+K" aria-label={copy.search}>
             <Search size={15.5} strokeWidth={1.7} />
           </button>
-          <button className="conversationHeaderButton newConversationButton" disabled={busy} onClick={onCreateSession} title={text.nav.newSession} aria-label={text.nav.newSession}>
+          <button className="conversationHeaderButton newConversationButton" disabled={busy} onClick={onCreateSession} title={`${text.nav.newSession} (⌘/Ctrl+N)`} aria-keyshortcuts="Meta+N Control+N" aria-label={text.nav.newSession}>
             <SquarePen size={16} strokeWidth={1.6} />
           </button>
         </div>
@@ -152,7 +149,7 @@ export function SessionSidebar<T extends SidebarConversation>({
               </form>
             ) : (
               <>
-                <button className="sessionSelect" disabled={busy} aria-current={page === "chat" && session.id === activeSession ? "page" : undefined} onClick={() => onSelectSession(session)}>
+                <button className="sessionSelect" title={session.title} disabled={busy} aria-current={page === "chat" && session.id === activeSession ? "page" : undefined} onClick={() => onSelectSession(session)}>
                   <span className="sessionTitle">{session.title}</span>
                   <small>{shortId(session.id)}</small>
                   {activityBySession[session.id] && <span className={`sessionActivity ${activityBySession[session.id]}`}
@@ -176,7 +173,15 @@ export function SessionSidebar<T extends SidebarConversation>({
       </nav>
       <div className="sidebarFooter">
         <div className="sidebarAccount" ref={accountMenuRef}>
-          {accountMenuOpen && <div className="sidebarAccountMenu" role="menu">
+          {accountMenuOpen && <div ref={accountLayerRef} className="sidebarAccountMenu" role="menu" aria-label={accountName} onKeyDown={event => {
+            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+            const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)'));
+            if (!items.length) return;
+            event.preventDefault();
+            const current = items.indexOf(document.activeElement as HTMLButtonElement);
+            const index = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+            items[index].focus();
+          }}>
             <div className="sidebarAccountSummary">
               <span className="workspaceAvatar" aria-hidden="true">{accountInitial}</span>
               <span className="sidebarAccountIdentity">
@@ -194,11 +199,12 @@ export function SessionSidebar<T extends SidebarConversation>({
               }}
             >
               <Settings size={16} />
-              <span>{copy.settings}</span>
+              <span title={`${copy.settings} (⌘/Ctrl+,)`}>{copy.settings}</span>
             </button>
             {onLogout && <button className="sidebarAccountMenuItem" type="button" role="menuitem" onClick={() => { setAccountMenuOpen(false); onLogout(); }}><LogOut size={16} /><span>{language === "zh" ? "退出登录" : "Sign out"}</span></button>}
           </div>}
           <button
+            ref={accountTriggerRef}
             className="sidebarAccountTrigger"
             type="button"
             aria-haspopup="menu"

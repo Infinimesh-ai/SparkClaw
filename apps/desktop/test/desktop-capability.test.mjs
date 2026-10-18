@@ -82,3 +82,25 @@ test("desktop capability admits only the trusted workbench main frame and opaque
   assert.equal(sent.at(-1)[0], "sparkclaw-desktop:state");
   capability.close();
 });
+
+test("native bounds convert page zoom once and hidden views stay dismissible after capability loss", async () => {
+  let invoke, browser = true, bounds, hidden = false;
+  const ipcMain = { handle(_channel, fn) { invoke = fn; }, removeHandler() {} };
+  const mainFrame = { url: "sparkclaw-app://workbench/index.html" };
+  const webContents = { mainFrame, getZoomFactor: () => 1.5, isDestroyed: () => false, send() {} };
+  const capability = new DesktopCapability({ ipcMain, window: { webContents, getContentBounds: () => ({ width:1440,height:900 }) },
+    runtimeGeneration: "a".repeat(32), getCapabilities: () => ({ browser }),
+    registry: { setChangeListener() {}, desktopSnapshot: () => [], hidePresented() { hidden = true; } },
+    browserServices: { snapshot: () => ({ downloads:[],permissions:[] }) },
+    presentation: { status: () => ({}), setPanelBounds(value) { bounds = value; }, setPanelVisible(value) { assert.equal(value,false); } },
+  }).start();
+  const event = { sender:webContents,senderFrame:mainFrame };
+  try {
+    await invoke(event,{schema_version:1,operation:"setBounds",revision:1,bounds:{x:501,y:101,width:459,height:499}});
+    assert.deepEqual(bounds,{x:752,y:152,width:688,height:748});
+    await assert.rejects(invoke(event,{schema_version:1,operation:"setBounds",revision:2,bounds:{x:501,y:101,width:460,height:499}}),/outside the workbench/);
+    browser = false;
+    await invoke(event,{schema_version:1,operation:"hideBrowser"}); assert.equal(hidden,true);
+    await assert.rejects(invoke(event,{schema_version:1,operation:"createPersonal"}),/unavailable/);
+  } finally { capability.close(); }
+});

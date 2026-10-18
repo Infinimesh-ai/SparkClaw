@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocalWorkbench } from "./LocalWorkbench";
 import { api } from "../api/client";
-import type { SparkClawDesktop, DesktopState } from "./types";
+import type { SparkClawDesktop, DesktopState, DesktopConnectionStatus } from "./types";
 import type { LocalApproval, LocalConversationContent, LocalDraft, LocalTask } from "./clientStore";
 import { dictionaries, LANGUAGE_STORAGE_KEY } from "../i18n";
 
@@ -50,6 +50,10 @@ afterEach(() => {
   vi.unstubAllGlobals(); vi.restoreAllMocks(); window.localStorage.clear();
 });
 
+beforeEach(() => {
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+});
+
 describe("workbench local workbench", () => {
   it("opens the browser panel with a draggable divider in the desktop workbench", async () => {
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
@@ -59,11 +63,17 @@ describe("workbench local workbench", () => {
     window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => []), create: vi.fn(), enqueue: vi.fn(),
       read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), submit: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(), reconcile: vi.fn(),
       cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    let changed = (_status: DesktopConnectionStatus) => {};
+    let browserEnabled = true;
+    const connectionStatus = (enabled: boolean): DesktopConnectionStatus => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
+      backend: { schema_version: 3, transport: "iscp", deployment_id: "test", origin: "https://fixture.invalid" },
+      capabilities: { operations: [], files: false, mail: false, browser: enabled, speech: false, approvals: false, settings: false,
+        surfaces: { browser: { enabled, reason: "" } } } });
     const desktopState = { pages: [], downloads: [], permissions: [], presentation: { panel_bounds: { x: 0, y: 0, width: 1, height: 1 }, insufficient_space: false, presented_page_ref: "", layout_revision: 0 } };
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
-      state: vi.fn(async () => desktopState), onState: vi.fn(() => () => {}), hideBrowser: vi.fn(async () => ({})),
-      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
-        backend: { schema_version: 3, transport: "iscp", deployment_id: "test" }, capabilities: { surfaces: { browser: { enabled: true } } } })) } as unknown as SparkClawDesktop;
+      state: vi.fn(async () => desktopState), createPersonal: vi.fn(async () => ({ page_ref: "page_" + "1".repeat(32) })), onState: vi.fn(() => () => {}), hideBrowser: vi.fn(async () => ({})),
+      onLocalConnection: (listener: typeof changed) => { changed = listener; return () => {}; },
+      localConnection: vi.fn(async () => connectionStatus(browserEnabled)) } as unknown as SparkClawDesktop;
     const host = document.createElement("div"), root = createRoot(host);
     try {
       await act(async () => root.render(<LocalWorkbench />));
@@ -76,6 +86,13 @@ describe("workbench local workbench", () => {
       await act(async () => handle.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
       expect(host.querySelector<HTMLElement>("main.workspace")!.style.getPropertyValue("--inspector-width")).toBe("240px");
       expect(window.localStorage.getItem("sparkx.inspector-width")).toBe("240");
+      await act(async () => host.querySelector<HTMLButtonElement>(".desktopBrowserWindowActions button")!.click());
+      expect(host.querySelector("main.browserFocus")).not.toBeNull();
+      await act(async () => { browserEnabled = false; changed(connectionStatus(false)); });
+      expect(host.querySelector("main.browserFocus, main.withInspector")).toBeNull();
+      expect(host.querySelector<HTMLElement>(".desktopBrowserPanel")?.hidden).toBe(true);
+      expect(host.querySelector(".chatColumn")?.hasAttribute("inert")).toBe(false);
+      expect(host.querySelector<HTMLButtonElement>(".rightSidebarToggle")?.disabled).toBe(true);
     } finally { await act(async () => root.unmount()); }
   });
 

@@ -1,0 +1,20 @@
+/* Desktop browser focus mode keeps the conversation mounted and reachable. */
+.workbench .desktopBrowserPanel[hidden] { display: none; }
+.workbench .desktopWorkbench.browserFocus { --panel-layout-width: 100%; }
+.workbench .desktopWorkbench.browserFocus > .chatColumn,
+.workbench .desktopWorkbench.browserFocus > .workbenchPage { visibility: hidden; pointer-events: none; }
+.workbench .desktopWorkbench.browserFocus > .taskInspector { width: 100%; max-width: 100%; }
+.workbench .desktopWorkbench.conversationFocus > .inspectorResizeHandle { display: none; }
+.workbench .desktopWorkbench.conversationFocus { --chat-right-inset: 0px; }
+.workbench .desktopWorkbench.conversationFocus > .chatColumn { margin-right: 0; }
+.workbench .workspace[hidden] { display: none; }
+.messageLatest { position: absolute; bottom: 100%; left: 50%; transform: translate(-50%, -8px); z-index: 2; min-height: 32px; padding: 6px 12px; border: 1px solid var(--border-strong); border-radius: 16px; background: var(--surface-solid); color: var(--text-primary); font-size: var(--font-ui); box-shadow: 0 2px 8px #0002; white-space: nowrap; }
+.messageScrollAction { position: relative; min-height: 0; height: 0; }
+.composerUploadFailure { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--crimson-danger); font-size: var(--font-label); padding: 8px 16px; overflow-wrap: anywhere; }
+.composerUploadFailure button { min-height: 32px; padding: 4px 8px; color: var(--text-primary); background: var(--surface-muted); border-radius: 8px; }
+.workbench .desktopWorkbench.withInspector:not(.browserFocus):not(.conversationFocus) > .chatColumn { margin-right: calc(var(--inspector-span) + 6px); }
+.workbench .desktopWorkbench.browserFocus { --inspector-span: 100%; }
+.workbench .desktopWorkbench.browserFocus > .topbar { visibility: hidden; }
+.workbench .desktopWorkbench.conversationFocus > .topbar { --inspector-offset: 0px; }
+.workbench .inspectorResizeHandle:focus-visible { outline: 2px solid var(--cyber-blue); outline-offset: -2px; background: var(--surface-hover); }
+@media (prefers-reduced-motion: reduce) { .desktopBrowserPanel { transition: none; } }

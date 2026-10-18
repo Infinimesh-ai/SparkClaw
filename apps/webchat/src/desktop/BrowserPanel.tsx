@@ -20,17 +20,18 @@ import {
 import type { Language } from "../i18n";
 import { desktopCapability } from "./capability";
 import type { DesktopPage, DesktopState } from "./types";
+import { useDismissibleLayer } from "../hooks/useDismissibleLayer";
 
 const copy = {
   en: {
-    tools: "Panel tools", browser: "Browser", backToTools: "Back to tools", newTab: "New tab",
+    browser: "Browser", collapse: "Collapse browser", newTab: "New tab",
     address: "Search or enter an address", go: "Open", start: "Start browsing", startHint: "Enter a URL to open a page",
     taskPage: "Task page", readOnly: "Read-only task page", small: "The panel is too small for the fixed 640 × 720 task viewport.",
     close: "Close tab", back: "Back", forward: "Forward", reload: "Reload", expand: "Widen browser", restore: "Restore browser width", more: "More browser actions",
     transfers: "Downloads & permissions", allow: "Allow", deny: "Deny", cancel: "Cancel", show: "Show in folder",
   },
   zh: {
-    tools: "侧栏工具", browser: "浏览器", backToTools: "返回工具列表", newTab: "新标签页",
+    browser: "浏览器", collapse: "收起浏览器", newTab: "新标签页",
     address: "搜索或输入网址", go: "打开", start: "开始浏览", startHint: "输入 URL 以打开页面",
     taskPage: "任务页面", readOnly: "任务页面 · 只读", small: "面板空间不足，任务视口固定为 640 × 720。",
     close: "关闭标签页", back: "后退", forward: "前进", reload: "刷新", expand: "加宽浏览器", restore: "恢复浏览器宽度", more: "更多浏览器操作",
@@ -38,20 +39,50 @@ const copy = {
   },
 } as const;
 
-export function BrowserPanel({ language, localConversationID, toolbar }: { language: Language; localConversationID?: string; toolbar?: ReactNode }) {
+export type BrowserPanelProps = {
+  language: Language;
+  localConversationID?: string;
+  toolbar?: ReactNode;
+  open?: boolean;
+  visible?: boolean;
+  onCollapse?: () => void;
+  wide?: boolean;
+  onWideChange?: (wide: boolean) => void;
+};
+
+// Keep this component mounted when collapsed: address drafts belong to tabs,
+// and native views must be hidden without destroying their browsing state.
+export function BrowserPanel({ language, localConversationID, toolbar, open = true,
+  visible = open, onCollapse, wide: controlledWide, onWideChange }: BrowserPanelProps) {
   const desktop = desktopCapability();
   const text = copy[language];
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const addressRef = useRef<HTMLInputElement | null>(null);
   const boundsRevision = useRef(0);
+  const nativePresented = useRef("");
   const [state, setState] = useState<DesktopState | null>(null);
-  const layoutReady = state !== null;
-  const [surface, setSurface] = useState<"launcher" | "browser">(localConversationID === undefined ? "launcher" : "browser");
   const [selectedPageRef, setSelectedPageRef] = useState("");
   const [address, setAddress] = useState("");
+  const drafts = useRef(new Map<string, string>());
   const [error, setError] = useState("");
   const [showTransfers, setShowTransfers] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [wide, setWide] = useState(false);
+  const menuRef = useDismissibleLayer<HTMLDivElement>({ open: menuOpen, onDismiss: () => setMenuOpen(false) });
+  const [localWide, setLocalWide] = useState(false);
+  const wide = controlledWide ?? localWide;
+  const setWide = (next: boolean) => { setLocalWide(next); onWideChange?.(next); };
+  const [collapsed, setCollapsed] = useState(false);
+  const shown = visible && open && !collapsed;
+  const shownRef = useRef(shown); shownRef.current = shown;
+  const creating = useRef<Promise<string> | null>(null);
+  const [focusRequest, setFocusRequest] = useState(0);
+  const focusedRequest = useRef(0);
+  const opened = useRef(false);
+  const [occluded, setOccluded] = useState(false);
+
+  const run = useCallback((action: Promise<unknown>) => {
+    void action.then(() => setError("")).catch((reason) => setError(message(reason)));
+  }, []);
 
   useEffect(() => {
     if (!desktop) return;
@@ -59,155 +90,174 @@ export function BrowserPanel({ language, localConversationID, toolbar }: { langu
     const acceptState = (next: DesktopState) => {
       if (!active) return;
       boundsRevision.current = Math.max(boundsRevision.current, next.presentation.layout_revision ?? 0);
+      nativePresented.current = next.presentation.presented_page_ref;
       setState(next);
     };
-    void desktop.state().then(acceptState).catch((reason) => setError(message(reason)));
+    void desktop.state().then(acceptState).catch((reason) => { if (active) setError(message(reason)); });
     const remove = desktop.onState(acceptState);
-    return () => {
-      active = false;
-      remove();
-      void desktop.hideBrowser().catch(() => undefined);
-    };
+    return () => { active = false; remove(); void desktop.hideBrowser().catch(() => undefined); };
+  }, [desktop]);
+
+  const pages = useMemo(() => (state?.pages ?? []).filter((page) => localConversationID === undefined || page.role === "personal" ||
+    (page as DesktopPage & { local_conversation_id?: string }).local_conversation_id === localConversationID), [state, localConversationID]);
+  const activePage = pages.find((page) => page.page_ref === selectedPageRef);
+  const blankPage = !activePage || activePage.url === "about:blank";
+  useEffect(() => {
+    if (selectedPageRef && !activePage && !creating.current) setSelectedPageRef("");
+  }, [selectedPageRef, activePage, pages]);
+
+  const create = useCallback((url?: string): Promise<string> => {
+    if (!desktop) return Promise.resolve("");
+    if (creating.current) return creating.current;
+    const operation = desktop.hideBrowser().then(() => desktop.createPersonal(url)).then(async ({ page_ref }) => {
+      setSelectedPageRef(page_ref);
+      setAddress(url ?? "");
+      if (!url) { await desktop.hideBrowser(); setFocusRequest(value => value + 1); }
+      setError("");
+      return page_ref;
+    }).catch(reason => { setError(message(reason)); return ""; }).finally(() => { creating.current = null; });
+    creating.current = operation;
+    return operation;
   }, [desktop]);
 
   useEffect(() => {
-    if (!desktop || !layoutReady || surface !== "browser" || !hostRef.current) return;
+    if (!open) { opened.current = false; setCollapsed(false); return; }
+    if (!state || opened.current || !desktop) return;
+    opened.current = true;
+    setCollapsed(false);
+    setMenuOpen(false);
+    const blank = pages.find(page => page.role === "personal" && page.url === "about:blank" && !drafts.current.get(page.page_ref));
+    run(desktop.hideBrowser());
+    if (blank) { setSelectedPageRef(blank.page_ref); setAddress(""); setFocusRequest(value => value + 1); }
+    else void create();
+  }, [open, state, pages, desktop, create, run]);
+
+  // Only an explicit open/new-tab action requests focus. State pushes and
+  // unrelated task updates never overwrite a partially typed address.
+  useEffect(() => {
+    if (!focusRequest || focusedRequest.current === focusRequest || !shown) return;
+    const frame = requestAnimationFrame(() => {
+      if (shownRef.current) { addressRef.current?.focus(); focusedRequest.current = focusRequest; }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusRequest, shown]);
+  useEffect(() => {
+    setAddress(drafts.current.get(selectedPageRef) ?? (activePage?.url.startsWith("https://") ? activePage.url : ""));
+  }, [selectedPageRef, activePage?.url]);
+
+  // A native WebContentsView paints above DOM overlays. Suspend presentation
+  // while an app dialog/menu is visible, then restore the same page.
+  useEffect(() => {
+    const update = () => setOccluded(Boolean(document.querySelector('dialog[open], [aria-modal="true"], [role="menu"], .notificationInbox')));
+    const observer = new MutationObserver(update);
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["open", "aria-modal"] });
+    update();
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!desktop || !state) return;
+    if (!shown || occluded || blankPage) { nativePresented.current = ""; run(desktop.hideBrowser()); return; }
     const host = hostRef.current;
-    const update = () => {
+    if (!host || !activePage) return;
+    let cancelled = false;
+    const update = async () => {
       const bounds = host.getBoundingClientRect();
-      // Native bounds must stay inside the DOM host. Rounding position and size
-      // separately can add a pixel when both have fractional halves.
       const x = Math.ceil(bounds.x), y = Math.ceil(bounds.y);
-      const width = Math.floor(bounds.x + bounds.width) - x;
-      const height = Math.floor(bounds.y + bounds.height) - y;
+      const width = Math.floor(bounds.x + bounds.width) - x, height = Math.floor(bounds.y + bounds.height) - y;
       if (width <= 0 || height <= 0) return;
-      boundsRevision.current += 1;
-      void desktop.setBounds({ x, y, width, height }, boundsRevision.current)
-        .catch((reason) => setError(message(reason)));
+      try {
+        await desktop.setBounds({ x, y, width, height }, ++boundsRevision.current);
+        if (cancelled || !shownRef.current) return;
+        if (nativePresented.current !== activePage.page_ref) {
+          if (activePage.role === "personal") await desktop.presentPersonal(activePage.page_ref);
+          else await desktop.observeTask(activePage.page_ref);
+          nativePresented.current = activePage.page_ref;
+        }
+      } catch (reason) { if (!cancelled) setError(message(reason)); }
     };
-    const observer = new ResizeObserver(update);
+    const observer = new ResizeObserver(() => { void update(); });
     observer.observe(host);
-    // The host can move without resizing when the navigation sidebar collapses.
     const workspace = host.closest(".workspace");
     if (workspace) observer.observe(workspace);
     window.addEventListener("resize", update);
-    update();
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", update);
+    void update();
+    return () => { cancelled = true; observer.disconnect(); window.removeEventListener("resize", update); };
+  }, [desktop, Boolean(state), shown, occluded, blankPage, activePage?.page_ref, wide, run]);
+
+  // Bounds also stay current on the new-tab surface, before the first navigation.
+  useEffect(() => {
+    if (!desktop || !state || !shown || !blankPage || !hostRef.current) return;
+    const host = hostRef.current;
+    const update = () => {
+      const bounds = host.getBoundingClientRect();
+      const x = Math.ceil(bounds.x), y = Math.ceil(bounds.y);
+      const width = Math.floor(bounds.x + bounds.width) - x, height = Math.floor(bounds.y + bounds.height) - y;
+      if (width > 0 && height > 0) run(desktop.setBounds({ x, y, width, height }, ++boundsRevision.current));
     };
-  }, [desktop, layoutReady, surface, wide]);
-
-  const pages = useMemo(() => (state?.pages ?? []).filter((page) => localConversationID === undefined || page.role === "personal" || (page as DesktopPage & { local_conversation_id?: string }).local_conversation_id === localConversationID), [state, localConversationID]);
-  useEffect(() => {
-    if (localConversationID === undefined) return;
-    setSelectedPageRef("");
-    setSurface("browser");
-    setError("");
-  }, [localConversationID]);
-  const presented = pages.find((page) => page.page_ref === state?.presentation.presented_page_ref && (localConversationID === undefined || page.role === "task" || page.page_ref === selectedPageRef));
-  const activePage = presented ?? pages.find((page) => page.page_ref === selectedPageRef) ?? (localConversationID === undefined ? pages[0] : pages.find((page) => page.role === "task"));
-  const blankPage = activePage?.role === "personal" && activePage.url === "about:blank";
+    const observer = new ResizeObserver(update); observer.observe(host);
+    const workspace = host.closest(".workspace"); if (workspace) observer.observe(workspace);
+    window.addEventListener("resize", update); update();
+    return () => { observer.disconnect(); window.removeEventListener("resize", update); };
+  }, [desktop, Boolean(state), shown, blankPage, wide, run]);
 
   useEffect(() => {
-    if (!desktop || surface !== "browser" || !activePage) return;
-    if (blankPage) {
-      if (activePage.presented) void desktop.hideBrowser().catch((reason) => setError(message(reason)));
-      return;
-    }
-    if (activePage.presented) return;
-    const action = activePage.role === "personal"
-      ? desktop.presentPersonal(activePage.page_ref)
-      : desktop.observeTask(activePage.page_ref);
-    void action.catch((reason) => setError(message(reason)));
-  }, [activePage?.page_ref, activePage?.presented, activePage?.url, blankPage, desktop, surface]);
-
-  useEffect(() => {
-    if (!activePage || blankPage) {
-      setAddress("");
-      return;
-    }
-    if (activePage.url.startsWith("https://")) setAddress(activePage.url);
-  }, [activePage?.page_ref, activePage?.url, blankPage]);
-
-  const run = useCallback((action: Promise<unknown>) => {
-    void action.then(() => setError("")).catch((reason) => setError(message(reason)));
-  }, []);
-
-  const create = useCallback((url?: string) => {
-    if (!desktop) return;
-    run(desktop.createPersonal(url).then(({ page_ref }) => {
-      setSelectedPageRef(page_ref);
-      return url ? desktop.presentPersonal(page_ref) : desktop.hideBrowser();
-    }));
-  }, [desktop, run]);
-
-  useEffect(() => {
-    if (!desktop) return;
+    if (!desktop || !shown) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== "t") return;
-      event.preventDefault();
-      if (surface === "launcher") setSurface("browser");
-      else create();
+      if (event.defaultPrevented || event.isComposing || !(event.ctrlKey || event.metaKey) || event.altKey ||
+        event.key.toLowerCase() !== "t" || document.querySelector('dialog[open], [aria-modal="true"]')) return;
+      event.preventDefault(); void create();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [create, desktop, surface]);
+  }, [create, desktop, shown]);
 
-  if (!desktop) return <aside className="taskInspector emptyTaskInspector" />;
-
+  if (!desktop) return <aside className="taskInspector emptyTaskInspector" hidden={!shown} />;
   const navigate = (event: FormEvent) => {
     event.preventDefault();
+    if (!address.trim()) return;
     const target = resolveBrowserInput(address);
+    drafts.current.delete(selectedPageRef);
     if (activePage?.role === "personal") run(desktop.navigatePersonal(activePage.page_ref, target));
-    else create(target);
+    else void create(target);
   };
-  const choose = (page: DesktopPage) => {
-    setSelectedPageRef(page.page_ref);
-    if (page.role === "personal" && page.url === "about:blank") run(desktop.hideBrowser());
-    else run(page.role === "personal" ? desktop.presentPersonal(page.page_ref) : desktop.observeTask(page.page_ref));
-  };
+  const choose = (page: DesktopPage) => { setSelectedPageRef(page.page_ref); setMenuOpen(false); };
+  const close = (page: DesktopPage) => run(desktop.closePersonal(page.page_ref).then(() => {
+    drafts.current.delete(page.page_ref);
+    if (page.page_ref === selectedPageRef) {
+      const remaining = pages.filter(candidate => candidate.page_ref !== page.page_ref);
+      const neighbor = remaining[Math.min(pages.indexOf(page), remaining.length - 1)];
+      setSelectedPageRef(neighbor?.page_ref ?? ""); setAddress(""); setFocusRequest(value => value + 1);
+    }
+  }));
   const leaveBrowser = () => {
-    setSurface("launcher");
-    setShowTransfers(false);
-    setMenuOpen(false);
-    setWide(false);
+    setShowTransfers(false); setMenuOpen(false); setWide(false);
     run(desktop.hideBrowser());
+    if (onCollapse) onCollapse(); else setCollapsed(true);
   };
-  const toggleTransfers = () => {
-    setShowTransfers((current) => !current);
-    setMenuOpen(false);
-  };
+  const toggleTransfers = () => { setShowTransfers(current => !current); setMenuOpen(false); };
 
-  return <aside className={`taskInspector desktopBrowserPanel ${wide ? "wide" : ""}`} aria-label={language === "zh" ? "桌面侧栏工具" : "Desktop panel tools"}>
+  return <aside className={`taskInspector desktopBrowserPanel ${wide ? "wide" : ""}`} hidden={!shown} aria-label={text.browser}>
     {toolbar}
-    {surface === "launcher" ? <nav className="desktopToolLauncher" aria-label={text.tools}>
-      <button type="button" onClick={() => setSurface("browser")}>
-        <Globe2 size={17} />
-        <span>{text.browser}</span>
-        <kbd>Ctrl+T</kbd>
-      </button>
-    </nav> : <>
       <div className="desktopBrowserTabBar">
         <div className="desktopTabStrip" role="tablist" aria-label={text.browser}>
-          {!pages.length && <div className="desktopTab desktopTabPlaceholder selected" role="tab" aria-selected="true">
+          {!activePage && <div className="desktopTab desktopTabPlaceholder selected" role="tab" aria-selected="true">
             <span className="desktopTabPlaceholderLabel"><Globe2 size={12} /><span>{text.newTab}</span></span>
-            <button type="button" className="desktopTabClose" onClick={leaveBrowser} title={text.close} aria-label={text.close}><X size={12} /></button>
           </div>}
           {pages.map((page) => <div key={page.page_ref} className={`desktopTab ${page.page_ref === activePage?.page_ref ? "selected" : ""}`}>
             <button type="button" className="desktopTabSelect" onClick={() => choose(page)} title={page.title || page.url} role="tab" aria-selected={page.page_ref === activePage?.page_ref}>
               {page.role === "task" ? <Eye size={12} aria-hidden="true" /> : <Globe2 size={12} aria-hidden="true" />}
-              <span>{page.title || (blankPage && page.page_ref === activePage?.page_ref ? text.newTab : page.url) || (page.role === "task" ? text.taskPage : text.newTab)}</span>
+              <span>{page.url === "about:blank" ? text.newTab : page.title || page.url || (page.role === "task" ? text.taskPage : text.newTab)}</span>
             </button>
-            {page.role === "personal" && <button type="button" className="desktopTabClose" onClick={() => run(desktop.closePersonal(page.page_ref))} title={text.close} aria-label={text.close}><X size={12} /></button>}
+            {page.role === "personal" && <button type="button" className="desktopTabClose" onClick={() => close(page)} title={text.close} aria-label={text.close}><X size={12} /></button>}
           </div>)}
         </div>
-        <button type="button" className="desktopNewTab" onClick={() => create()} title={text.newTab} aria-label={text.newTab}><Plus size={15} /></button>
+        <button type="button" className="desktopNewTab" onClick={() => void create()} title={text.newTab} aria-label={text.newTab}><Plus size={15} /></button>
         <div className="desktopBrowserWindowActions">
-          <button type="button" onClick={() => setWide((current) => !current)} title={wide ? text.restore : text.expand} aria-label={wide ? text.restore : text.expand}>
+          <button type="button" onClick={() => setWide(!wide)} title={wide ? text.restore : text.expand} aria-label={wide ? text.restore : text.expand}>
             {wide ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </button>
-          <button type="button" onClick={leaveBrowser} title={text.backToTools} aria-label={text.backToTools}><PanelRightClose size={15} /></button>
+          <button type="button" onClick={leaveBrowser} title={text.collapse} aria-label={text.collapse}><PanelRightClose size={15} /></button>
         </div>
       </div>
       <form className="desktopAddressBar" onSubmit={navigate}>
@@ -215,7 +265,7 @@ export function BrowserPanel({ language, localConversationID, toolbar }: { langu
         <button type="button" disabled={activePage?.role !== "personal" || !activePage.can_go_forward} onClick={() => activePage?.role === "personal" && run(desktop.personalNavigation(activePage.page_ref, "forward"))} title={text.forward}><ArrowRight size={15} /></button>
         <button type="button" disabled={activePage?.role !== "personal"} onClick={() => activePage?.role === "personal" && run(desktop.personalNavigation(activePage.page_ref, "reload"))} title={text.reload}><RefreshCw size={14} /></button>
         <div className="desktopOmnibox">
-          <input aria-label={text.address} placeholder={text.address} value={address} onChange={(event) => setAddress(event.target.value)} autoComplete="off" spellCheck={false} />
+          <input ref={addressRef} aria-label={text.address} placeholder={text.address} value={address} onChange={(event) => { setAddress(event.target.value); drafts.current.set(selectedPageRef, event.target.value); }} autoComplete="off" spellCheck={false} />
           <button type="submit" disabled={!address.trim()} title={text.go} aria-label={text.go}><ArrowUpRight size={14} /></button>
         </div>
         <button type="button" className={`desktopTransfersButton ${showTransfers ? "selected" : ""}`} onClick={toggleTransfers} title={text.transfers} aria-label={text.transfers}>
@@ -223,10 +273,10 @@ export function BrowserPanel({ language, localConversationID, toolbar }: { langu
         </button>
         <div className="desktopBrowserOverflow">
           <button type="button" onClick={() => setMenuOpen((current) => !current)} title={text.more} aria-label={text.more} aria-expanded={menuOpen}><EllipsisVertical size={15} /></button>
-          {menuOpen && <div className="desktopBrowserMenu" role="menu">
-            <button type="button" role="menuitem" onClick={() => { create(); setMenuOpen(false); }}><Plus size={14} /><span>{text.newTab}</span></button>
+          {menuOpen && <div ref={menuRef} className="desktopBrowserMenu" role="menu">
+            <button type="button" role="menuitem" onClick={() => { void create(); setMenuOpen(false); }}><Plus size={14} /><span>{text.newTab}</span></button>
             <button type="button" role="menuitem" onClick={toggleTransfers}><Download size={14} /><span>{text.transfers}</span></button>
-            <button type="button" role="menuitem" onClick={leaveBrowser}><PanelRightClose size={14} /><span>{text.backToTools}</span></button>
+            <button type="button" role="menuitem" onClick={leaveBrowser}><PanelRightClose size={14} /><span>{text.collapse}</span></button>
           </div>}
         </div>
       </form>
@@ -250,7 +300,6 @@ export function BrowserPanel({ language, localConversationID, toolbar }: { langu
         {(!activePage || blankPage) && <div className="desktopBrowserEmptyState"><Globe2 size={30} /><h2>{text.start}</h2><p>{text.startHint}</p></div>}
         {activePage?.role === "task" && state?.presentation.insufficient_space && <p>{text.small}</p>}
       </div>
-    </>}
   </aside>;
 }
 

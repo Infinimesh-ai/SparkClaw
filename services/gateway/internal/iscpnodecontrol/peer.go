@@ -55,7 +55,6 @@ type Peer struct {
 	lastHelloDigest string
 	lastHelloSent   time.Time
 	pending         map[string]pendingRPC
-	workers         chan struct{}
 	standing        bool
 	active          bool
 	grantFile       string
@@ -71,7 +70,7 @@ func newPeer(cfg PeerConfig, relay Relay, h Handler, standing, active bool, gran
 	if relay == nil || iscpnodeissuer.ValidateIdentity(cfg.Device.Identity) != nil || iscpnodeissuer.ValidateIdentity(cfg.Peer) != nil || cfg.Device.Identity.DomainID != cfg.Peer.DomainID || cfg.Device.Identity.DeviceID == cfg.Peer.DeviceID || cfg.RelayID == "" {
 		return nil, iscpnodeissuer.ErrInvalid
 	}
-	p := &Peer{cfg: cfg, relay: relay, handler: h, pending: map[string]pendingRPC{}, workers: make(chan struct{}, 16), standing: standing, active: active, grantFile: grantFile, minimumRevision: cfg.Grant.RevocationEpoch}
+	p := &Peer{cfg: cfg, relay: relay, handler: h, pending: map[string]pendingRPC{}, standing: standing, active: active, grantFile: grantFile, minimumRevision: cfg.Grant.RevocationEpoch}
 	at := time.Now().UTC()
 	if standing {
 		at = cfg.Grant.NotBefore
@@ -191,13 +190,7 @@ func (p *Peer) receive(ctx context.Context, raw json.RawMessage) error {
 	if msg.Kind != "request" || handler == nil {
 		return nil
 	}
-	select {
-	case p.workers <- struct{}{}:
-	default:
-		return p.sendForSession(ctx, rpc{Version: 1, ID: msg.ID, Kind: "response", Error: "unavailable"}, env.SessionID)
-	}
 	go func() {
-		defer func() { <-p.workers }()
 		callCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 		defer cancel()
 		result, e := handler(callCtx, msg.Method, msg.Payload)
@@ -269,7 +262,7 @@ func (p *Peer) Call(ctx context.Context, method string, input, out any) error {
 	id := "rpc-" + c.Base64URL(c.RandomBytes(18))
 	ch := make(chan rpc, 1)
 	p.mu.Lock()
-	if len(p.pending) >= 64 || p.state == nil || !p.state.Ready() || p.verifyGrant() != nil {
+	if p.state == nil || !p.state.Ready() || p.verifyGrant() != nil {
 		p.mu.Unlock()
 		return iscpnodeissuer.ErrUnavailable
 	}
@@ -294,8 +287,8 @@ func (p *Peer) Call(ctx context.Context, method string, input, out any) error {
 	}
 }
 
-// Run preserves the encrypted session after standard ready/drained completion;
-// fresh process/session handshakes remain explicit and independently proven.
+// Run owns the continuous Relay receive connection; fresh process/session
+// handshakes remain explicit and independently proven.
 func (p *Peer) Run(ctx context.Context) error {
 	p.mu.Lock()
 	if p.running {
@@ -317,7 +310,7 @@ func (p *Peer) Run(ctx context.Context) error {
 			continue
 		}
 		_ = p.begin(ctx)
-		_ = p.relay.RunOnceReady(ctx, p.receive, func() {})
+		_ = p.receiveContinuous(ctx)
 		timer := time.NewTimer(2 * time.Second)
 		select {
 		case <-ctx.Done():
@@ -327,4 +320,39 @@ func (p *Peer) Run(ctx context.Context) error {
 		}
 	}
 	return ctx.Err()
+}
+
+// Session maintenance must not depend on a healthy receive connection ending.
+// Grant rotation and service credential recovery may reset the encrypted session
+// while leaving the authenticated Relay socket alive.
+func (p *Peer) receiveContinuous(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			timer := time.NewTimer(2 * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+			maintenance, stop := context.WithTimeout(ctx, 25*time.Second)
+			err := p.maintainServiceCredentials(maintenance)
+			if err == nil {
+				err = p.begin(maintenance)
+			}
+			stop()
+			if err != nil {
+				cancel()
+				return
+			}
+		}
+	}()
+	err := p.relay.RunOnceReady(ctx, p.receive, func() {})
+	cancel()
+	<-done
+	return err
 }

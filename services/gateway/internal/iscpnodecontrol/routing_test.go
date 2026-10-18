@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	n "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeissuer"
 )
@@ -62,24 +61,14 @@ func TestRouterExactRouteBoundedRequestsAndFailureIsolation(t *testing.T) {
 	if post(request("node-a")+strings.Repeat(" ", n.MaxFrameBytes), n.ExchangePath) != 400 {
 		t.Fatal("oversized body accepted")
 	}
-	for i := 0; i < 32; i++ {
-		a.slots <- struct{}{}
-	}
-	if post(request("node-a"), n.ExchangePath) != 503 {
-		t.Fatal("saturated node admitted work")
+	// More than the former per-minute allowance still uses exact routing.
+	for i := 0; i < 650; i++ {
+		if post(request("node-a"), n.ExchangePath) != 200 {
+			t.Fatalf("artificial forwarding quota at request %d", i)
+		}
 	}
 	if post(request("node-b"), n.ExchangePath) != 200 {
-		t.Fatal("saturated node blocked another authority")
-	}
-	for i := 0; i < 32; i++ {
-		<-a.slots
-	}
-	a.mu.Lock()
-	a.requests = 600
-	a.window = time.Now()
-	a.mu.Unlock()
-	if post(request("node-a"), n.ExchangePath) != 429 || post(request("node-b"), n.ExchangePath) != 200 {
-		t.Fatal("node rate budget was shared")
+		t.Fatal("one authority's traffic blocked another authority")
 	}
 	if _, e = NewForwarderRouter([]*Forwarder{a, a}); e == nil {
 		t.Fatal("duplicate route configuration accepted")

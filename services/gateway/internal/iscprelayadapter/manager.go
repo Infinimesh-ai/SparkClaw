@@ -115,7 +115,7 @@ func NewManager(ctx context.Context, pool *pgxpool.Pool, cfg MultiConfig) (*Mana
 	}
 	for _, n := range nodes {
 		c := Config{DomainID: cfg.DomainID, RelayID: cfg.RelayID, InvitationSigner: n.InvitationSigner, GrantSigner: n.GrantSigner, Responder: n.Responder, ServicePeers: n.ServicePeers, issuerRoute: n.IssuerRoute}
-		a := &Adapter{cfg: c, db: pool, Now: time.Now, authority: authorityID(c), slots: make(chan struct{}, 32)}
+		a := &Adapter{cfg: c, db: pool, Now: time.Now, authority: authorityID(c)}
 		if e = a.initializeTx(ctx, tx, n.IssuerRoute == cfg.LegacyIssuerRoute); e != nil {
 			return nil, e
 		}
@@ -161,11 +161,6 @@ func (m *Manager) Register(ctx context.Context, id identity.DeviceIdentity, proo
 	if a == nil {
 		return nil, denied("ticket_authority_unknown")
 	}
-	release, e := a.enter()
-	if e != nil {
-		return nil, e
-	}
-	defer release()
 	return a.Register(ctx, id, proof, ticket)
 }
 func (m *Manager) Refresh(r *http.Request) (json.RawMessage, error) {
@@ -193,11 +188,6 @@ func (m *Manager) Refresh(r *http.Request) (json.RawMessage, error) {
 	if a == nil {
 		return nil, denied("device_authority_unknown")
 	}
-	release, e := a.enter()
-	if e != nil {
-		return nil, e
-	}
-	defer release()
 	r = r.Clone(r.Context())
 	r.Body = io.NopCloser(bytes.NewReader(raw))
 	return a.Refresh(r)
@@ -215,11 +205,6 @@ func (m *Manager) ServiceRecover(r *http.Request) (json.RawMessage, error) {
 	if a == nil || !a.servicePeer(p.Identity) {
 		return nil, denied("service_peer_not_approved")
 	}
-	release, e := a.enter()
-	if e != nil {
-		return nil, e
-	}
-	defer release()
 	r = r.Clone(r.Context())
 	r.Body = io.NopCloser(bytes.NewReader(raw))
 	return a.ServiceRecover(r)

@@ -81,22 +81,12 @@ func NewForwarderRouter(forwarders []*Forwarder) (http.Handler, error) {
 		}
 		routes[f.Route] = f.Handler()
 	}
-	// Only body parsing occupies this shared admission pool. A stalled node then
-	// occupies its own original slots without holding another node's parser slot.
-	parseSlots := make(chan struct{}, 64)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" || r.URL.RawQuery != "" || r.URL.Path != n.ExchangePath && r.URL.Path != ControlGrantPath {
 			http.NotFound(w, r)
 			return
 		}
-		select {
-		case parseSlots <- struct{}{}:
-		default:
-			writeError(w, 503, "unavailable")
-			return
-		}
 		raw, e := io.ReadAll(http.MaxBytesReader(w, r.Body, n.MaxFrameBytes))
-		<-parseSlots
 		if e != nil {
 			writeError(w, 400, "invalid")
 			return

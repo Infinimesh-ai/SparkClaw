@@ -176,45 +176,7 @@ func (c *RelayClient) RunOnce(ctx context.Context, handle func(context.Context, 
 // RunOnceReady reports the authenticated receive connection before reading
 // messages. Session initiators must wait for this point before sending Hello.
 func (c *RelayClient) RunOnceReady(ctx context.Context, handle func(context.Context, json.RawMessage) error, onReady func()) error {
-	if c.credentialOnly {
-		return c.runLocalDrainPolling(ctx, handle, onReady)
-	}
 	return c.runSocketOnce(ctx, handle, onReady)
-}
-
-// The locked reference Relay intentionally authenticates, drains its current
-// queue and closes each WebSocket. A normal drained frame completes one poll,
-// not the peer's encrypted session. Expose one logical receive lifetime and
-// one readiness callback while repeating authenticated bounded drain polls.
-func (c *RelayClient) runLocalDrainPolling(ctx context.Context, handle func(context.Context, json.RawMessage) error, onReady func()) error {
-	ready := false
-	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if err := c.runSocketOnce(ctx, handle, func() {
-			if !ready {
-				ready = true
-				if onReady != nil {
-					onReady()
-				}
-			}
-		}); err != nil {
-			return err
-		}
-		// 1s plus processing leaves room below reference's shared 120/IP/min
-		// allowance for access-PoP POSTs, initial discovery and enrollment.
-		timer := time.NewTimer(time.Second)
-		started := latencytrace.Clock()
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			latencytrace.Record(ctx, "relay.poll_wait", started, ctx.Err(), 0)
-			return ctx.Err()
-		case <-timer.C:
-			latencytrace.Record(ctx, "relay.poll_wait", started, nil, 0)
-		}
-	}
 }
 
 func (c *RelayClient) runSocketOnce(ctx context.Context, handle func(context.Context, json.RawMessage) error, onReady func()) (resultErr error) {
@@ -281,19 +243,15 @@ func (c *RelayClient) runSocketOnce(ctx context.Context, handle func(context.Con
 		return errors.New("Relay did not enter ready state")
 	}
 	latencytrace.Record(ctx, "relay.authentication", started, nil, 0)
-	if err := connection.SetReadDeadline(time.Time{}); err != nil {
-		return errors.New("clear Relay authentication read deadline")
+	if err := installRelayReceiveLiveness(connection, 2*time.Minute); err != nil {
+		return err
 	}
 	if onReady != nil {
 		onReady()
 	}
 	for {
-		if c.credentialOnly {
-			// A responder can wait without an active session. Bound this idle
-			// read too so a silently broken receive socket eventually reconnects.
-			if err := connection.SetReadDeadline(time.Now().Add(2 * time.Minute)); err != nil {
-				return errors.New("set Relay receive liveness deadline")
-			}
+		if err := connection.SetReadDeadline(time.Now().Add(2 * time.Minute)); err != nil {
+			return errors.New("set Relay receive liveness deadline")
 		}
 		var message relayMessage
 		if err := connection.ReadJSON(&message); err != nil {
@@ -312,14 +270,27 @@ func (c *RelayClient) runSocketOnce(ctx context.Context, handle func(context.Con
 				return err
 			}
 		case "drained":
-			latencytrace.Record(ctx, "relay.drained", started, nil, received)
-			return nil
+			return errors.New("Relay drained a continuous receive connection; matched Relay update required")
 		case "closed":
 			return errors.New("Relay closed the connection")
 		default:
 			return errors.New("Relay returned an unknown connection state")
 		}
 	}
+}
+
+// Ping traffic extends the receive deadline even when no application messages
+// arrive. Gorilla invokes the handler on the reader goroutine; it may send a
+// control Pong concurrently with the ordinary writer.
+func installRelayReceiveLiveness(connection *websocket.Conn, timeout time.Duration) error {
+	pong := connection.PingHandler()
+	connection.SetPingHandler(func(value string) error {
+		if err := connection.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+			return err
+		}
+		return pong(value)
+	})
+	return connection.SetReadDeadline(time.Now().Add(timeout))
 }
 
 func (c *RelayClient) ensureAccess(ctx context.Context) error {

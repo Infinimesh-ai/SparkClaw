@@ -7,10 +7,8 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/json"
-	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -29,26 +27,21 @@ import (
 	"github.com/Infinimesh-ai/ISCP/pkg/server/httpx"
 	"github.com/Infinimesh-ai/ISCP/pkg/server/postgres"
 	"github.com/Infinimesh-ai/ISCP/pkg/server/queue"
-	"github.com/Infinimesh-ai/ISCP/pkg/server/ratelimit"
 	"github.com/Infinimesh-ai/ISCP/pkg/server/replay"
 	"github.com/Infinimesh-ai/ISCP/pkg/server/repository"
 )
 
 type Config struct {
-	SignerFile        string
-	DomainID          string
-	RelayID           string
-	BaseURL           string
-	WebSocketURL      string
-	ProfileGate       config.Gate
-	DB                *pgxpool.Pool
-	AdminToken        string
-	AllowedOrigins    []string
-	RequestsPerMinute int
-	// ReceiveWindow enables bounded continuous delivery without changing frames.
-	// Zero retains the reference drain. Production accepts at most 55 seconds.
-	ReceiveWindow time.Duration
-	Managed       ManagedAdapter
+	SignerFile     string
+	DomainID       string
+	RelayID        string
+	BaseURL        string
+	WebSocketURL   string
+	ProfileGate    config.Gate
+	DB             *pgxpool.Pool
+	AdminToken     string
+	AllowedOrigins []string
+	Managed        ManagedAdapter
 	// TicketIssuer is the Trust Root signer identity used to verify
 	// iscp.pairing_ticket.v3 signatures on register-with-ticket. Production
 	// profile refuses ticketed registration without it.
@@ -72,7 +65,6 @@ type Server struct {
 	provider      crypto.Provider
 	signer        identity.Device
 	mux           *http.ServeMux
-	limiter       *ratelimit.Limiter
 	replay        *replay.Cache
 	queue         *queue.Queue
 	repo          *repository.RelayRepository
@@ -117,9 +109,6 @@ type connectionState struct {
 }
 
 func New(cfg Config) (*Server, error) {
-	if cfg.ReceiveWindow < 0 || cfg.ReceiveWindow > MaxReceiveWindow {
-		return nil, iscperrors.New(iscperrors.CodeConfigInvalid, "receive window must be between zero and 55 seconds")
-	}
 	provider := crypto.NewProvider()
 	now := time.Now().UTC()
 	signer, err := persistentSigner(provider, cfg, now)
@@ -143,19 +132,11 @@ func New(cfg Config) (*Server, error) {
 		r := repository.NewRelayRepository(cfg.DB)
 		repo = &r
 	}
-	requestLimit := 120
-	if cfg.RequestsPerMinute >= 120 && cfg.RequestsPerMinute <= 6000 {
-		requestLimit = cfg.RequestsPerMinute
-	}
-	if cfg.ProfileGate.Profile == config.ProfileLocalLab && os.Getenv("SPARKCLAW_ISCP_CAPACITY") == "1" {
-		requestLimit = 12000
-	}
 	s := &Server{
 		cfg:         cfg,
 		provider:    provider,
 		signer:      signer,
 		mux:         http.NewServeMux(),
-		limiter:     ratelimit.New(requestLimit, time.Minute),
 		replay:      replay.NewCache(),
 		queue:       queue.New(relayMaxQueuedBytes),
 		repo:        repo,
@@ -174,13 +155,7 @@ func New(cfg Config) (*Server, error) {
 }
 
 func (s *Server) Handler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.limiter.Allow(clientKey(r), time.Now().UTC()) {
-			httpx.WriteError(w, http.StatusTooManyRequests, iscperrors.Retryable(iscperrors.CodeAccessInvalid, "rate limit exceeded"))
-			return
-		}
-		s.mux.ServeHTTP(w, r)
-	})
+	return s.mux
 }
 
 func (s *Server) routes() {
@@ -624,11 +599,9 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.Close()
-	if s.cfg.ReceiveWindow > 0 {
-		c.SetReadLimit(64 << 10)
-		_ = c.SetReadDeadline(time.Now().Add(receiveIOTimeout))
-		_ = c.SetWriteDeadline(time.Now().Add(receiveIOTimeout))
-	}
+	c.SetReadLimit(64 << 10)
+	_ = c.SetReadDeadline(time.Now().Add(receiveIOTimeout))
+	_ = c.SetWriteDeadline(time.Now().Add(receiveIOTimeout))
 	challenge := randomToken()
 	if err := c.WriteJSON(map[string]string{"state": "challenge", "challenge": challenge}); err != nil {
 		return
@@ -672,70 +645,7 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 		LastSeenAt:   now,
 	})
 	defer s.closeConnection(connectionID)
-	if s.cfg.ReceiveWindow > 0 {
-		s.receiveStream(r.Context(), c, id)
-		return
-	}
-	_ = c.WriteJSON(map[string]string{"state": "ready"})
-	delivered := 0
-	peerClosed := make(chan struct{})
-	go func() {
-		defer close(peerClosed)
-		for {
-			if _, _, err := c.ReadMessage(); err != nil {
-				return
-			}
-		}
-	}()
-	duration := time.Duration(0)
-	if s.cfg.ProfileGate.Profile == config.ProfileLocalLab && os.Getenv("SPARKCLAW_ISCP_CAPACITY") == "1" {
-		duration = 10 * time.Minute
-	}
-	deadline := time.Now().Add(duration)
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-peerClosed:
-			return
-		default:
-		}
-		s.mu.RLock()
-		_, revokedNow := s.revoked[id.DeviceID]
-		s.mu.RUnlock()
-		if revokedNow {
-			return
-		}
-		if err := c.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
-			return
-		}
-		messages, err := s.dequeueMessages(r.Context(), id.DomainID, id.DeviceID, time.Now().UTC(), 100)
-		if err != nil {
-			_ = c.WriteJSON(map[string]string{"state": "closed", "error": "message dequeue failed"})
-			return
-		}
-		for _, msg := range messages {
-			if err := c.WriteJSON(map[string]any{"state": "message", "message_id": msg.MessageID, "envelope": json.RawMessage(msg.Envelope)}); err != nil {
-				return
-			}
-			delivered++
-			if s.repo != nil {
-				_ = s.repo.MarkMessageDelivered(r.Context(), repository.DomainID(msg.DomainID), msg.MessageID, time.Now().UTC())
-			}
-		}
-
-		if duration == 0 || time.Now().After(deadline) {
-			break
-		}
-		select {
-		case <-peerClosed:
-			return
-		case <-r.Context().Done():
-			return
-		case <-ticker.C:
-		}
-	}
-	_ = c.WriteJSON(map[string]any{"state": "drained", "delivered": delivered})
+	s.receiveStream(r.Context(), c, id)
 }
 
 func (s *Server) adminDevices(w http.ResponseWriter, r *http.Request) {
@@ -783,30 +693,6 @@ func (s *Server) adminMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, s.queue.SnapshotMetadata(now))
-}
-
-func (s *Server) dequeueMessages(ctx context.Context, domainID, recipientDeviceID string, now time.Time, limit int) ([]queue.Message, error) {
-	if s.repo == nil {
-		return s.queue.DequeueFor(domainID, recipientDeviceID, now, limit), nil
-	}
-	claimed, err := s.repo.ClaimPendingMessagesFor(ctx, repository.DomainID(domainID), recipientDeviceID, now, time.Minute, limit)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]queue.Message, 0, len(claimed))
-	for _, msg := range claimed {
-		out = append(out, queue.Message{
-			DomainID:          string(msg.DomainID),
-			MessageID:         msg.MessageID,
-			SenderDeviceID:    msg.SenderDeviceID,
-			RecipientDeviceID: msg.RecipientDeviceID,
-			Envelope:          msg.EnvelopeRaw,
-			Priority:          msg.Priority,
-			QueuedAt:          msg.QueuedAt,
-			ExpiresAt:         msg.ExpiresAt,
-		})
-	}
-	return out, nil
 }
 
 func relayMessageMetadata(messages []repository.RelayMessage) []queue.MessageMetadata {
@@ -1076,23 +962,6 @@ func bearerToken(r *http.Request) string {
 		return ""
 	}
 	return strings.TrimSpace(value[len(prefix):])
-}
-
-func clientKey(r *http.Request) string {
-	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
-		if idx := strings.IndexByte(forwarded, ','); idx >= 0 {
-			return strings.TrimSpace(forwarded[:idx])
-		}
-		return forwarded
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil && host != "" {
-		return host
-	}
-	if r.RemoteAddr != "" {
-		return r.RemoteAddr
-	}
-	return "unknown"
 }
 
 func originAllowed(r *http.Request, allowed []string, fallbackURLs ...string) bool {

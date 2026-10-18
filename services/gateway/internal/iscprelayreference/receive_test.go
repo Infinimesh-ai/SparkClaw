@@ -3,6 +3,7 @@ package iscprelayreference
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -28,13 +29,13 @@ type receiveFixture struct {
 	access            credential
 }
 
-func newReceiveFixture(t *testing.T, window time.Duration, persistent bool) *receiveFixture {
+func newReceiveFixture(t *testing.T, persistent bool) *receiveFixture {
 	t.Helper()
 	var pool *pgxpool.Pool
 	if persistent {
 		pool = receiveDatabase(t)
 	}
-	s, err := New(Config{DomainID: "domain-a", RelayID: "relay-a", BaseURL: "http://relay.test", WebSocketURL: "ws://relay.test/v2/relay/connect", AdminToken: "admin-test-token", ProfileGate: config.DefaultGate(config.ProfileProduction), AllowedOrigins: []string{"http://relay.test"}, ReceiveWindow: window, DB: pool})
+	s, err := New(Config{DomainID: "domain-a", RelayID: "relay-a", BaseURL: "http://relay.test", WebSocketURL: "ws://relay.test/v2/relay/connect", AdminToken: "admin-test-token", ProfileGate: config.DefaultGate(config.ProfileProduction), AllowedOrigins: []string{"http://relay.test"}, DB: pool})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,10 +123,10 @@ func nextFrame(t *testing.T, out <-chan receiveFrame) receiveFrame {
 	return receiveFrame{}
 }
 
-func TestReceiveStreamContinuousAndDefaultDrain(t *testing.T) {
+func TestReceiveStreamContinuous(t *testing.T) {
 	for _, persistent := range []bool{false, true} {
 		t.Run(fmt.Sprint("postgres=", persistent), func(t *testing.T) {
-			f := newReceiveFixture(t, 2*time.Second, persistent)
+			f := newReceiveFixture(t, persistent)
 			out := frames(f.connect(t))
 			for _, id := range []string{"first", "later"} {
 				start := time.Now()
@@ -138,19 +139,46 @@ func TestReceiveStreamContinuousAndDefaultDrain(t *testing.T) {
 					t.Fatal("enqueue wake waited for fallback polling")
 				}
 			}
-			if value := nextFrame(t, out); value.State != "drained" {
-				t.Fatalf("end %+v", value)
+			select {
+			case value := <-out:
+				t.Fatalf("idle connection produced frame or closed: %+v", value)
+			case <-time.After(100 * time.Millisecond):
+			}
+			f.send(t, "after-idle", 1)
+			if value := nextFrame(t, out); value.MessageID != "after-idle" {
+				t.Fatalf("after idle %+v", value)
 			}
 		})
 	}
-	f := newReceiveFixture(t, 0, false)
-	if value := nextFrame(t, frames(f.connect(t))); value.State != "drained" {
-		t.Fatalf("default %+v", value)
+}
+
+// This opt-in check uses wall-clock time to cover the retired 55-second window.
+// It is a local transport check, not real-model or UI latency acceptance.
+func TestReceiveStreamPastFormerWindow(t *testing.T) {
+	if os.Getenv("SC_RELAY_LONG_TEST") != "1" {
+		t.Skip("set SC_RELAY_LONG_TEST=1 for the 56-second continuous receive check")
+	}
+	f := newReceiveFixture(t, false)
+	c := f.connect(t)
+	_ = c.SetReadDeadline(time.Now().Add(65 * time.Second))
+	out := frames(c)
+	f.send(t, "before-window", 1)
+	if nextFrame(t, out).MessageID != "before-window" {
+		t.Fatal("missing initial message")
+	}
+	select {
+	case value := <-out:
+		t.Fatalf("healthy connection rotated: %+v", value)
+	case <-time.After(56 * time.Second):
+	}
+	f.send(t, "after-window", 1)
+	if nextFrame(t, out).MessageID != "after-window" {
+		t.Fatal("missing message past former window")
 	}
 }
 
 func TestReceiveStreamReplacesOldSocketAndRevokes(t *testing.T) {
-	f := newReceiveFixture(t, 10*time.Second, true)
+	f := newReceiveFixture(t, true)
 	old := frames(f.connect(t))
 	current := frames(f.connect(t))
 	select {
@@ -178,16 +206,18 @@ func TestReceiveStreamReplacesOldSocketAndRevokes(t *testing.T) {
 }
 
 func TestReceiveStreamClosedPeerCannotClaim(t *testing.T) {
-	f := newReceiveFixture(t, 10*time.Second, true)
+	f := newReceiveFixture(t, false)
 	c := f.connect(t)
-	// A receiver that never reads control frames cannot answer the liveness
-	// ping. Replacing it must deliver the still-pending original message.
-	f.send(t, "unread", 1)
-	var attempts int
-	if err := f.s.cfg.DB.QueryRow(t.Context(), `SELECT delivery_attempts FROM iscp_relay.messages WHERE message_id='unread'`).Scan(&attempts); err != nil || attempts != 0 {
-		t.Fatalf("dead receiver claim: %d %v", attempts, err)
-	}
+	f.s.receiveMu.Lock()
+	slot := f.s.receivers[receiveKey("domain-a", f.recipient.Identity.DeviceID)]
+	f.s.receiveMu.Unlock()
 	_ = c.Close()
+	select {
+	case <-slot.closed:
+	case <-time.After(time.Second):
+		t.Fatal("closed peer did not leave its receive slot")
+	}
+	f.send(t, "unread", 1)
 	if got := nextFrame(t, frames(f.connect(t))); got.MessageID != "unread" {
 		t.Fatalf("recovery %+v", got)
 	}
@@ -196,7 +226,7 @@ func TestReceiveStreamClosedPeerCannotClaim(t *testing.T) {
 func TestReceiveClaimReleaseOrderingAndLeaseFence(t *testing.T) {
 	for _, persistent := range []bool{false, true} {
 		t.Run(fmt.Sprint("postgres=", persistent), func(t *testing.T) {
-			f := newReceiveFixture(t, time.Second, persistent)
+			f := newReceiveFixture(t, persistent)
 			f.send(t, "low", 0)
 			f.send(t, "high", 9)
 			now := time.Now().UTC().Truncate(time.Microsecond)
@@ -236,7 +266,7 @@ func TestReceiveClaimReleaseOrderingAndLeaseFence(t *testing.T) {
 }
 
 func TestMemoryReceiveReservationPreservesFailedMessage(t *testing.T) {
-	f := newReceiveFixture(t, time.Second, false)
+	f := newReceiveFixture(t, false)
 	now := time.Now().UTC()
 	msg := queue.Message{DomainID: "domain-a", RecipientDeviceID: f.recipient.Identity.DeviceID, MessageID: "large", Envelope: make([]byte, relayMaxQueuedBytes), ExpiresAt: now.Add(time.Minute)}
 	if !f.s.enqueueMemory(msg, now) {
@@ -257,8 +287,8 @@ func TestMemoryReceiveReservationPreservesFailedMessage(t *testing.T) {
 	}
 }
 
-func TestReceiveStreamReferenceClientCompatibility(t *testing.T) {
-	f := newReceiveFixture(t, time.Second, false)
+func TestReceiveStreamClientContinuousUntilCanceled(t *testing.T) {
+	f := newReceiveFixture(t, false)
 	bundle := iscpbridge.EnrollmentBundle{DomainID: "domain-a", DeviceID: f.recipient.Identity.DeviceID, RelayID: "relay-a", RelayBaseURL: f.h.URL, RelayWebSocketURL: "ws" + strings.TrimPrefix(f.h.URL, "http") + "/v2/relay/connect", Access: iscpbridge.RelayCredential{DomainID: "domain-a", DeviceID: f.recipient.Identity.DeviceID, Token: "unused-receive-access", ExpiresAt: time.Now().Add(time.Hour)}}
 	c, err := iscpbridge.NewRelayClient(iscpbridge.ProfileLocalLab, "", bundle, f.recipient, time.Second)
 	if err != nil {
@@ -295,17 +325,19 @@ func TestReceiveStreamReferenceClientCompatibility(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	if err := <-finished; err != nil {
-		t.Fatal(err)
+	cancel()
+	if err := <-finished; !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled continuous receive: %v", err)
 	}
 }
 
 func TestReceiveWriteFailureReturnsOriginalMessage(t *testing.T) {
 	for _, persistent := range []bool{false, true} {
 		t.Run(fmt.Sprint("postgres=", persistent), func(t *testing.T) {
-			f := newReceiveFixture(t, 0, persistent)
+			f := newReceiveFixture(t, persistent)
 			conn := f.connect(t)
 			_ = conn.Close()
+			f.s.Close()
 			f.send(t, "failed-write", 1)
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -331,7 +363,7 @@ func TestReceiveWriteFailureReturnsOriginalMessage(t *testing.T) {
 }
 
 func TestReceiveDatabaseDisconnectRollsBackClaim(t *testing.T) {
-	f := newReceiveFixture(t, time.Second, true)
+	f := newReceiveFixture(t, true)
 	f.send(t, "process-disconnect", 1)
 	claim, err := f.s.claimOne(t.Context(), f.recipient.Identity, time.Now().UTC())
 	if err != nil || claim == nil {
@@ -355,7 +387,7 @@ func TestReceiveDatabaseDisconnectRollsBackClaim(t *testing.T) {
 }
 
 func TestReceiveCanceledContextCanRollbackClaim(t *testing.T) {
-	f := newReceiveFixture(t, time.Second, true)
+	f := newReceiveFixture(t, true)
 	f.send(t, "canceled", 1)
 	ctx, cancel := context.WithCancel(t.Context())
 	claim, err := f.s.claimOne(ctx, f.recipient.Identity, time.Now().UTC())
@@ -378,28 +410,35 @@ func TestReceiveCanceledContextCanRollbackClaim(t *testing.T) {
 	}
 }
 
-func TestReceiveMissingPongClosesWithoutClaim(t *testing.T) {
-	f := newReceiveFixture(t, 10*time.Second, true)
+func TestReceivePendingPongDoesNotDelayMessagesAndMissingPongCloses(t *testing.T) {
+	f := newReceiveFixture(t, false)
 	c := f.connect(t)
 	c.SetPingHandler(func(string) error { return nil })
 	out := frames(c)
-	f.send(t, "no-pong", 1)
+	// A pending independent liveness probe must not hold up a healthy write.
+	for i := 0; i < 8; i++ {
+		id := fmt.Sprintf("pending-pong-%d", i)
+		f.send(t, id, 1)
+		if got := nextFrame(t, out); got.MessageID != id {
+			t.Fatalf("delivery waited for Pong: %+v", got)
+		}
+	}
 	select {
-	case _, ok := <-out:
+	case value, ok := <-out:
 		if ok {
-			t.Fatal("non-live receiver got a message")
+			t.Fatalf("unexpected frame: %+v", value)
 		}
 	case <-time.After(receiveIOTimeout + time.Second):
-		t.Fatal("missing pong did not close socket")
+		t.Fatal("missing Pong did not close socket")
 	}
-	var attempts int
-	if err := f.s.cfg.DB.QueryRow(t.Context(), `SELECT delivery_attempts FROM iscp_relay.messages WHERE message_id='no-pong'`).Scan(&attempts); err != nil || attempts != 0 {
-		t.Fatalf("non-live claim: %d %v", attempts, err)
+	f.send(t, "after-liveness-loss", 1)
+	if got := nextFrame(t, frames(f.connect(t))); got.MessageID != "after-liveness-loss" {
+		t.Fatalf("new receiver missed pending message: %+v", got)
 	}
 }
 
 func TestReceiveCloseWaitsForAllReceivers(t *testing.T) {
-	f := newReceiveFixture(t, 10*time.Second, false)
+	f := newReceiveFixture(t, false)
 	out := frames(f.connect(t))
 	f.s.Close()
 	select {
@@ -417,14 +456,6 @@ func TestReceiveCloseWaitsForAllReceivers(t *testing.T) {
 		t.Fatalf("shutdown left %d receive slots", remaining)
 	}
 	f.s.Close()
-}
-
-func TestReceiveWindowValidation(t *testing.T) {
-	for _, window := range []time.Duration{-time.Nanosecond, 55*time.Second + time.Nanosecond} {
-		if _, err := New(Config{ReceiveWindow: window}); err == nil {
-			t.Fatalf("accepted %v", window)
-		}
-	}
 }
 
 func receiveDatabase(t *testing.T) *pgxpool.Pool {
@@ -464,4 +495,16 @@ func receiveDatabase(t *testing.T) *pgxpool.Pool {
 		t.Fatal(err)
 	}
 	return pool
+}
+
+func TestReceiveDoesNotImposeRequestRateQuota(t *testing.T) {
+	f := newReceiveFixture(t, false)
+	out := frames(f.connect(t))
+	for i := 0; i < 150; i++ {
+		id := fmt.Sprintf("burst-%d", i)
+		f.send(t, id, 1)
+		if got := nextFrame(t, out); got.MessageID != id {
+			t.Fatalf("burst order changed: %+v", got)
+		}
+	}
 }

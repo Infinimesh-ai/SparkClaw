@@ -3,6 +3,7 @@ package iscpbridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -109,7 +110,8 @@ func TestRelayReceiveProofAndReadinessDeadline(t *testing.T) {
 				}
 				proofVerified.Store(true)
 				_ = connection.WriteJSON(relayMessage{State: "ready"})
-				_ = connection.WriteJSON(relayMessage{State: "drained"})
+				_ = connection.WriteJSON(relayMessage{State: "message", Envelope: json.RawMessage(`{"test":true}`)})
+				_, _, _ = connection.ReadMessage()
 			}))
 			defer server.Close()
 			localSigner := cloud.Identity
@@ -122,11 +124,11 @@ func TestRelayReceiveProofAndReadinessDeadline(t *testing.T) {
 			var ready atomic.Bool
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
-			err = client.runSocketOnce(ctx, func(context.Context, json.RawMessage) error { return nil }, func() { ready.Store(true) })
+			err = client.runSocketOnce(ctx, func(context.Context, json.RawMessage) error { cancel(); return ctx.Err() }, func() { ready.Store(true) })
 			if stall && (err == nil || ready.Load()) {
 				t.Fatal("stalled authentication became ready")
 			}
-			if !stall && (err != nil || !ready.Load() || !proofVerified.Load()) {
+			if !stall && (!errors.Is(err, context.Canceled) || !ready.Load() || !proofVerified.Load()) {
 				t.Fatalf("proof/ready failed: %v", err)
 			}
 		})

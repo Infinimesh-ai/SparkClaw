@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeissuer"
@@ -38,10 +37,6 @@ type Adapter struct {
 	MarkRevoked func(string)
 	Now         func() time.Time
 	authority   string
-	gateMu      sync.Mutex
-	gateWindow  time.Time
-	gateCount   int
-	slots       chan struct{}
 }
 
 type Error struct {
@@ -117,7 +112,7 @@ func newAdapter(ctx context.Context, pool *pgxpool.Pool, cfg Config, allowLegacy
 	if err := validateConfig(cfg); err != nil {
 		return nil, err
 	}
-	a := &Adapter{cfg: cfg, db: pool, Now: time.Now, authority: authorityID(cfg), slots: make(chan struct{}, 32)}
+	a := &Adapter{cfg: cfg, db: pool, Now: time.Now, authority: authorityID(cfg)}
 	if err := a.initialize(ctx, allowLegacy); err != nil {
 		return nil, err
 	}

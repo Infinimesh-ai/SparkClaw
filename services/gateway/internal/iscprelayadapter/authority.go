@@ -421,33 +421,8 @@ func (a *Adapter) backfillLegacy(ctx context.Context, tx pgx.Tx) error {
 	return nil
 }
 
-func (a *Adapter) enter() (func(), error) {
-	a.gateMu.Lock()
-	if time.Since(a.gateWindow) > time.Minute {
-		a.gateWindow = time.Now()
-		a.gateCount = 0
-	}
-	a.gateCount++
-	limited := a.gateCount > 600
-	a.gateMu.Unlock()
-	if limited {
-		return nil, Error{"rate_limited", 429}
-	}
-	select {
-	case a.slots <- struct{}{}:
-		return func() { <-a.slots }, nil
-	default:
-		return nil, unavailable()
-	}
-}
 func (a *Adapter) bounded(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		release, e := a.enter()
-		if e != nil {
-			write(w, nil, e)
-			return
-		}
-		defer release()
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
 		next.ServeHTTP(w, r.WithContext(ctx))

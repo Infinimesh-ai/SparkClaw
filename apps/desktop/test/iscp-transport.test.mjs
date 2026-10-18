@@ -680,7 +680,7 @@ function streamManifest() {
 }
 function streamResponse(call, body) { return { ipc_version: 1, type: "response", id: call.id,
   response: { type: "task.result", profile: call.request.profile, id: call.id, status: 200, body } }; }
-function streamEvent(call) { return { ipc_version: 1, type: "stream_event", id: call.id,
+function streamEvent(call) { return { ipc_version: 1, type: "stream_event", id: call.id, authority_valid_for_ms: 300000,
   event: { type: "iscp.application.stream.v1", schema_version: 1, subscription_id: call.id, stream_seq: 1, body: { kind: "state" } } }; }
 
 test("stream IPC requires matched helper/remote versions and does not use ordinary RPC deadlines or quotas", async t => {
@@ -739,4 +739,38 @@ test("unmatched stream schema rejects before write, and authority changes fence 
   f.children[0].send({ ipc_version: 1, type: "capabilities", capabilities: { ...streamManifest(), authorization_revision: 2 } });
   f.children[0].send(streamEvent(f.calls[0])); await rejected;
   assert.equal(published, 0); assert.equal(f.transport.state, "transport_ready");
+});
+
+test("helper authority deadline is mandatory and delivered before the corresponding stream event", async t => {
+  const f = fixture(t, () => {}, { hello: { ...hello, stream_schema_version: 1 } }); await f.transport.start();
+  f.children[0].send({ ipc_version: 1, type: "capabilities", capabilities: streamManifest() });
+  const order = [], abort = new AbortController();
+  const pending = f.transport.streamCall("execution.progress.stream", {}, { requestID, signal: abort.signal,
+    onAuthority: ms => order.push(["authority", ms]), onEvent: () => order.push(["event"]) });
+  const rejected = assert.rejects(pending);
+  f.children[0].send({ ...streamEvent(f.calls[0]), authority_valid_for_ms: 10 });
+  assert.deepEqual(order, [["authority", 10], ["event"]]); abort.abort(); await rejected;
+});
+
+for (const authority of [undefined, null, 0, -1, 300001, 1.5, "10", Number.MAX_SAFE_INTEGER + 1]) {
+  test(`invalid helper authority ${String(authority)} closes only its observation before any callback`, async t => {
+    const f = fixture(t, () => {}, { hello: { ...hello, stream_schema_version: 1 } }); await f.transport.start();
+    f.children[0].send({ ipc_version: 1, type: "capabilities", capabilities: streamManifest() });
+    let callbacks = 0;
+    const pending = f.transport.streamCall("execution.progress.stream", {}, { requestID,
+      onAuthority: () => callbacks++, onEvent: () => callbacks++ });
+    const rejected = assert.rejects(pending, error => error.code === "stream_authority_invalid");
+    f.children[0].send({ ...streamEvent(f.calls[0]), authority_valid_for_ms: authority }); await rejected;
+    assert.equal(callbacks, 0); assert.equal(f.transport.state, "transport_ready");
+    assert.equal(f.calls.filter(call => call.type === "stream_cancel").length, 1);
+  });
+}
+
+test("helper grant-expired error retains authenticated code and status for immediate preview invalidation", async t => {
+  const f = fixture(t, () => {}, { hello: { ...hello, stream_schema_version: 1 } }); await f.transport.start();
+  f.children[0].send({ ipc_version: 1, type: "capabilities", capabilities: streamManifest() });
+  const pending = f.transport.streamCall("execution.progress.stream", {}, { requestID, onEvent() {} });
+  const rejected = assert.rejects(pending, error => error.status === 403 && error.code === "grant_expired");
+  const response = streamResponse(f.calls[0]); response.response.status = 403; response.response.error_code = "grant_expired";
+  f.children[0].send(response); await rejected; assert.equal(f.transport.state, "transport_ready");
 });

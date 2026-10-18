@@ -302,27 +302,32 @@ export class ISCPTransport {
         this.capabilities?.session_id === manifest.session_id && this.capabilities?.authorization_revision === manifest.authorization_revision &&
         Date.parse(this.capabilities?.expires_at) > Date.now() && performance.now() < this.capabilityValidUntil;
       const release = () => { released = true; clearTimeout(cleanupTimer); options.signal?.removeEventListener("abort", cancel); this.pending.delete(id); };
-      const cancel = () => {
+      const cancel = (error = new Error("Execution stream observation canceled")) => {
         if (released) return;
         // Cancel this observation only; the original execution and other calls
         // are neither canceled nor replayed, even after a terminal response.
         if (generation === this.generation && this.child) {
           try { this.child.stdin.write(`${JSON.stringify({ ipc_version: 1, type: "stream_cancel", id })}\n`); } catch { /* Local cleanup is sufficient. */ }
         }
-        release(); if (!completed) reject(new Error("Execution stream observation canceled"));
+        release(); if (!completed) reject(error instanceof Error ? error : new Error("Execution stream observation canceled"));
       };
       const fail = error => { release(); if (!completed) reject(error); };
       const call = { request, stream: true, capacityClass: "stream", reject: fail,
-        event: event => {
+        event: (event, authorityValidForMS) => {
           if (released || generation !== this.generation) return;
           if (!current()) { cancel(); return; }
-          if (event?.subscription_id !== id) { fail(new Error("Execution stream subscription differs")); return; }
-          try { options.onEvent(event); } catch (error) { cancel(); if (!completed) reject(error); }
+          if (event?.subscription_id !== id) { cancel(new Error("Execution stream subscription differs")); return; }
+          if (!Number.isSafeInteger(authorityValidForMS) || authorityValidForMS <= 0 || authorityValidForMS > 300000) {
+            cancel(Object.assign(new Error("Execution stream authority deadline is invalid"), { code: "stream_authority_invalid" })); return;
+          }
+          try { options.onAuthority?.(authorityValidForMS); if (!released) options.onEvent(event); } catch (error) { cancel(error); }
         },
         resolve: response => {
           if (completed || released) return;
           if (!current()) { cancel(); return; }
-          if (response.status !== 200 || response.body_object) { fail(new Error(response.error || "Execution stream failed")); return; }
+          if (response.status !== 200 || response.body_object) {
+            fail(Object.assign(new Error(response.error || "Execution stream failed"), { status: response.status, code: response.error_code })); return;
+          }
           completed = true; resolve(response.body);
           // A terminal response can overtake its final text frames. Keep only
           // this subscription routable through the specified two-second gap.
@@ -478,7 +483,7 @@ export class ISCPTransport {
         const call = this.pending.get(frame.id);
         if (!call) continue;
         if (!call.stream) { this.#fail("disconnected"); return; }
-        call.event(frame.event);
+        call.event(frame.event, frame.authority_valid_for_ms);
       } else if (frame.type === "response") {
         const call = this.pending.get(frame.id);
         if (!call) continue; // Late canceled calls cannot cross the request fence.

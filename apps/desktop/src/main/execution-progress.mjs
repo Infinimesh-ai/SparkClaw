@@ -18,7 +18,7 @@ export class ExecutionProgressClient {
   close() {
     this.closed = true; this.lifetime++;
     const visible = [...this.entries.values()].some(entry => entry.projection.read());
-    for (const entry of this.entries.values()) { entry.controller.abort(); entry.attempt?.abort(); entry.projection.close(); }
+    for (const entry of this.entries.values()) { clearTimeout(entry.authorityTimer); entry.controller.abort(); entry.attempt?.abort(); entry.projection.close(); }
     this.entries.clear();
     if (visible) this.onChange();
   }
@@ -28,7 +28,7 @@ export class ExecutionProgressClient {
   pause({ authorityExpired = false } = {}) {
     for (const entry of this.entries.values()) {
       this.#incident(entry); entry.attempt?.abort(); entry.projection.disconnect();
-      if (authorityExpired) { entry.authorityDeadline = 0; this.#discard(entry); }
+      if (authorityExpired) this.#expireAuthority(entry);
     }
   }
 
@@ -58,7 +58,7 @@ export class ExecutionProgressClient {
     const key = this.#key(scope, requestID), entry = this.entries.get(key);
     if (!entry) return;
     const visible = Boolean(entry.projection.read());
-    this.entries.delete(key); entry.controller.abort(); entry.attempt?.abort(); entry.projection.close(); entry.state = "closed";
+    this.entries.delete(key); clearTimeout(entry.authorityTimer); entry.controller.abort(); entry.attempt?.abort(); entry.projection.close(); entry.state = "closed";
     if (notify && visible) this.onChange();
   }
 
@@ -92,6 +92,28 @@ export class ExecutionProgressClient {
   #incident(entry) { entry.incidentAt ??= this.now(); }
   #expired(entry) { return entry.incidentAt !== undefined && this.now() - entry.incidentAt >= 30000; }
   #discard(entry) { const visible = Boolean(entry.projection.read()); entry.projection.discard(); if (visible) this.onChange(); }
+  #expireAuthority(entry) {
+    clearTimeout(entry.authorityTimer); entry.authorityDeadline = 0;
+    this.#incident(entry); entry.state = "auth_paused"; entry.attempt?.abort();
+    this.#discard(entry); this.#recoverOriginal(entry);
+  }
+  #authorize(entry, validForMS, capabilityDeadline) {
+    const now = performance.now();
+    if (entry.authorityDeadline && now >= entry.authorityDeadline) { this.#expireAuthority(entry); return; }
+    if (!Number.isSafeInteger(validForMS) || validForMS <= 0 || validForMS > 300000) throw new Error("Execution stream authority deadline is invalid");
+    // This duration is the helper's actual remaining snapshot/grant/capability
+    // authority, never a fresh five-minute lease inferred from an open or text.
+    entry.authorityDeadline = Math.min(now + validForMS, capabilityDeadline);
+    clearTimeout(entry.authorityTimer);
+    const deadline = entry.authorityDeadline;
+    const expire = () => {
+      if (!this.#identity(entry) || entry.authorityDeadline !== deadline) return;
+      const remaining = deadline - performance.now();
+      if (remaining > 0) { entry.authorityTimer = setTimeout(expire, remaining); entry.authorityTimer.unref?.(); }
+      else this.#expireAuthority(entry);
+    };
+    entry.authorityTimer = setTimeout(expire, Math.max(0, deadline - now)); entry.authorityTimer.unref?.();
+  }
   #recoverOriginal(entry) {
     // Do not await the ordinary authoritative lookup here: it has its own
     // deadline and must never prevent stream cancellation or gap processing.
@@ -117,7 +139,7 @@ export class ExecutionProgressClient {
           this.#incident(entry); this.#discard(entry);
         }
         entry.generation = this.auth.generation; entry.session = manifest.session_id; entry.authorizationRevision = manifest.authorization_revision;
-        entry.authorityDeadline = Math.min(this.auth.transport.capabilityValidUntil ?? performance.now() + Math.max(0, Date.parse(manifest.expires_at) - Date.now()), performance.now() + 300000);
+        const capabilityDeadline = this.auth.transport.capabilityValidUntil ?? performance.now() + Math.max(0, Date.parse(manifest.expires_at) - Date.now());
         entry.attempt = new AbortController();
         const attempt = entry.attempt, generation = entry.generation;
         const current = () => this.#identity(entry) && this.#authority(entry) && entry.attempt === attempt && !attempt.signal.aborted && generation === this.auth.generation;
@@ -127,10 +149,14 @@ export class ExecutionProgressClient {
         const promise = this.auth.transport.streamCall("execution.progress.stream", {
           schema_version: 1, input_digest: entry.inputDigest, latest_open_at: new Date(Date.now() + 10000).toISOString(), ...(cursor ? { cursor } : {}),
         }, { requestID: entry.requestID, installationID: entry.installationID, params: { request_id: entry.requestID }, signal: attempt.signal,
-          onOpen: id => entry.projection.open(id), onEvent: event => {
+          onOpen: id => entry.projection.open(id),
+          onAuthority: validForMS => { if (current()) this.#authorize(entry, validForMS, this.auth.transport.capabilityValidUntil ?? capabilityDeadline); },
+          onEvent: event => {
             if (!current() || !this.#active(this.store.request(entry.scope, entry.requestID))) return;
+            if (!(performance.now() < entry.authorityDeadline)) { failure = new Error("Execution stream has no current authority"); this.#expireAuthority(entry); return; }
             try {
               const changed = entry.projection.event(event); observed = true; entry.state = "receiving";
+              if (!(performance.now() < entry.authorityDeadline)) { this.#expireAuthority(entry); return; }
               if (entry.projection.gapAt !== undefined) this.#incident(entry);
               if (!entry.projection.candidate && entry.projection.cursor() && entry.projection.gapAt === undefined) { entry.incidentAt = undefined; entry.retry = 0; }
               if (changed) { if (!current()) return; this.onChange(); }
@@ -142,7 +168,11 @@ export class ExecutionProgressClient {
             const before = entry.projection.read(); entry.projection.complete(value); finished = true;
             if (before && !entry.projection.read()) this.onChange();
           } catch (error) { failure = error; }
-        }, error => { failure = error; });
+        }, error => {
+          failure = error;
+          if (this.#identity(entry) && entry.attempt === attempt && generation === this.auth.generation &&
+              (error?.status === 403 && error.code === "grant_expired" || error?.code === "stream_authority_invalid")) this.#expireAuthority(entry);
+        });
         while (current() && !failure) {
           if (entry.projection.settled) { finished = true; break; }
           if (entry.projection.gapExpired || !observed && this.now() - openedAt >= 10000 || this.#expired(entry)) {

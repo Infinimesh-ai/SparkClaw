@@ -46,7 +46,7 @@ function fixture(t, { supported = true } = {}) {
   const capability = new ClientStoreCapability({ window: { webContents }, store, execution: client, getIdentity: () => identity });
   t.after(() => { client.close(); store.close(); fs.rmSync(directory, { recursive: true, force: true }); });
   const body = extra => ({ request_id: task.request_id, input_digest: store.request(scope, task.request_id).input_digest, epoch, generation, revision: 1, ...extra });
-  const send = (request, extra, stream_seq = 1) => request.options.onEvent({ type: "iscp.application.stream.v1", schema_version: 1, subscription_id: request.id, stream_seq, body: body(extra) });
+  const send = (request, extra, stream_seq = 1, authorityMS = 300000) => { request.options.onAuthority(authorityMS); request.options.onEvent({ type: "iscp.application.stream.v1", schema_version: 1, subscription_id: request.id, stream_seq, body: body(extra) }); };
   return { auth, store, task, conversation, requests, changes, fetches, client, directory, send, body,
     advance: ms => { clock += ms; }, setIdentity: value => { identity = value; }, setState: value => { state = value; },
     delta: (text, revision = 1, prefix = "") => ({ kind: "delta", revision, text, from_offset: Buffer.byteLength(prefix), to_offset: Buffer.byteLength(prefix + text), content_digest: hash(prefix + text) }),
@@ -185,4 +185,56 @@ test("real-stream projection grows beyond the former 8 KiB preview limit with mu
   f.send(f.requests[0], f.delta(text)); f.send(f.requests[0], f.delta("尾部", 2, text), 2);
   assert.equal(f.client.progressContent(scope, f.task.request_id), text + "尾部");
   assert.ok(f.client.progressProjection(scope, f.task.request_id).offset > 8192);
+});
+
+test("a reused helper snapshot with ten milliseconds left cannot inherit long capability expiry", async t => {
+  const f = fixture(t); await f.client.submit(scope, f.task.request_id); const request = f.requests[0];
+  f.send(request, f.delta("briefly authorized"), 1, 10);
+  assert.equal(f.client.progressContent(scope, f.task.request_id), "briefly authorized");
+  // Reads enforce the monotonic bound even before a delayed timer can notify.
+  const elapsed = performance.now() + 12; while (performance.now() < elapsed) { /* Emulate a busy main event loop. */ }
+  assert.equal(f.client.progressContent(scope, f.task.request_id), undefined);
+  await waitFor(() => request.options.signal.aborted && f.changes.at(-1)?.progress === undefined);
+  await waitFor(() => f.fetches.some(call => call.method === "GET"));
+  assert.equal(f.store.receipt(scope, f.task.request_id), null);
+  assert.equal(f.store.read(scope, f.conversation.id).messages.length, 1);
+  assert.ok(Date.parse(f.auth.transport.capabilities.expires_at) > Date.now() + 30000);
+  await waitFor(() => f.requests.length === 2); assert.equal(f.requests[1].body.cursor, undefined);
+});
+
+test("fresh same-version authority metadata extends its candidate deadline without reopening", async t => {
+  const f = fixture(t); await f.client.submit(scope, f.task.request_id); const request = f.requests[0], snapshot_id = crypto.randomUUID();
+  const base = { snapshot_id, total_bytes: 6, content_digest: hash("中文") };
+  f.send(request, { kind: "snapshot_begin", ...base }, 1, 150);
+  f.send(request, { kind: "snapshot_chunk", snapshot_id, offset: 0, text: "中" }, 2, 150);
+  f.send(request, { kind: "snapshot_chunk", snapshot_id, offset: 3, text: "文" }, 3, 1000);
+  f.send(request, { kind: "snapshot_end", ...base }, 4, 1000);
+  await new Promise(resolve => setTimeout(resolve, 170));
+  assert.equal(f.client.progressContent(scope, f.task.request_id), "中文"); assert.equal(f.requests.length, 1);
+});
+
+test("explicit helper grant expiry immediately invalidates text despite long caps and starts original lookup", async t => {
+  const f = fixture(t); await f.client.submit(scope, f.task.request_id); const request = f.requests[0];
+  f.send(request, f.delta("prior authority"));
+  request.reject(Object.assign(new Error("expired snapshot"), { status: 403, code: "grant_expired" }));
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(f.client.progressContent(scope, f.task.request_id), undefined);
+  assert.equal(request.options.signal.aborted, true);
+  await waitFor(() => f.fetches.some(call => call.method === "GET"));
+  assert.equal(f.fetches.filter(call => call.method === "POST").length, 1);
+});
+
+test("a frame without helper authority cannot establish a display lease or publish text", async t => {
+  const f = fixture(t); await f.client.submit(scope, f.task.request_id); const request = f.requests[0];
+  request.options.onEvent({ type: "iscp.application.stream.v1", schema_version: 1, subscription_id: request.id, stream_seq: 1,
+    body: f.body(f.delta("unqualified")) });
+  assert.equal(f.client.progressContent(scope, f.task.request_id), undefined); assert.equal(request.options.signal.aborted, true);
+});
+
+test("a late authority refresh from an obsolete attempt cannot revive an expired projection", async t => {
+  const f = fixture(t); await f.client.submit(scope, f.task.request_id); const first = f.requests[0];
+  f.send(first, f.delta("old"), 1, 10); await waitFor(() => first.options.signal.aborted);
+  first.options.onAuthority(300000); f.send(first, f.delta("late", 2, "old"));
+  assert.equal(f.client.progressContent(scope, f.task.request_id), undefined);
+  await waitFor(() => f.requests.length === 2); assert.equal(f.requests[1].body.cursor, undefined);
 });

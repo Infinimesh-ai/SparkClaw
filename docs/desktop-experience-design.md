@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-experience-design.md)
 >
-> Status: design draft for product review; 2026-10-18. This delivery contains documentation only, with no implementation, packaging, or deployment.
+> Status: original design dated 2026-10-18; local P0–P2 implementation is now recorded in [implementation and validation](desktop-experience-validation.md). No packaging or deployment has been performed.
 
 Retain the existing SparkX workbench and all feature entry points, improving readability, layout stability, and predictable operation. Phase one unifies typography, spacing, colors, and content alignment. Phase two improves input, keyboard navigation, scrolling, and panels. Phase three brings mail, files, schedules, and settings into the same visual system.
 

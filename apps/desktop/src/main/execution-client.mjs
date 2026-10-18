@@ -7,6 +7,7 @@ import { ExecutionProgressClient } from "./execution-progress.mjs";
 const SERVER_STATES = new Set(["accepted", "running", "completed", "failed", "canceled", "unknown", "delivery_expired", "delivered"]);
 const AUTH_GENERATION = Symbol("execution_auth_generation");
 const CLIENT_LIFETIME = Symbol("execution_client_lifetime");
+const STREAM_AUTHORITY = Symbol("execution_authority");
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
 
 // The main process owns credentials and immutable requests. Timers can only
@@ -37,6 +38,8 @@ export class ExecutionClient {
   close() { this.lifetime++; this.closed = true; this.verifiedApprovals.clear(); this.controller.abort(); this.progressClient.close(); clearInterval(this.timer); this.timer = undefined; }
 
   progressContent(scope, requestID) { return this.progressClient.read(scope, requestID); }
+  progressProjection(scope, requestID) { return this.progressClient.readProjection(scope, requestID); }
+  pauseProgress(options) { this.progressClient.pause(options); }
 
   async submit(scope, requestID, { canSubmit = () => true, scheduleClaim } = {}) {
     scope = this.#boundScope(scope);
@@ -224,6 +227,7 @@ export class ExecutionClient {
 
   async #accept(scope, task, event) {
     this.#sameIdentity(scope);
+    this.#sameAuthority(scope);
     if (!event || event.schema_version !== 1 || event.request_id !== task.request_id ||
         event.input_digest !== task.input_digest || !SERVER_STATES.has(event.state)) throw new Error("Execution identity or digest mismatch");
     if (!this.store.acceptExecutionProjection(scope, event)) return;
@@ -257,6 +261,7 @@ export class ExecutionClient {
       files.set(manifest.id, content);
     }
     this.#sameIdentity(scope);
+    this.#sameAuthority(scope);
     const commitStarted = latencyNow();
     const receipt = this.store.commitDelivery(scope, { request_id: task.request_id, ...result }, files);
     traceLatency("delivery.committed", { request_id: task.request_id, duration_ms: latencyNow() - commitStarted });
@@ -333,7 +338,20 @@ export class ExecutionClient {
         (Object.hasOwn(scope, AUTH_GENERATION) && scope[AUTH_GENERATION] !== this.auth.generation) ||
         (Object.hasOwn(scope, CLIENT_LIFETIME) && scope[CLIENT_LIFETIME] !== this.lifetime)) throw new Error("Execution authentication changed");
   }
-  #boundScope(scope) { return { ...scope, [AUTH_GENERATION]: this.auth.generation, [CLIENT_LIFETIME]: this.lifetime }; }
+  #sameAuthority(scope) {
+    if (this.auth.status.state !== "connected" || this.auth.authorizationRevoked) throw new Error("Execution authority is unavailable");
+    const bound = scope[STREAM_AUTHORITY];
+    if (!bound) return;
+    const manifest = this.auth.transport?.capabilities;
+    if (!manifest || Date.parse(manifest.expires_at) <= Date.now() || manifest.session_id !== bound.session ||
+        Number.isFinite(this.auth.transport.capabilityValidUntil) && performance.now() >= this.auth.transport.capabilityValidUntil ||
+        manifest.authorization_revision !== bound.revision || this.store.installationID !== bound.installation) throw new Error("Execution authority changed");
+  }
+  #boundScope(scope) {
+    const manifest = this.auth.descriptor?.transport === "iscp" ? this.auth.transport?.capabilities : undefined;
+    return { ...scope, [AUTH_GENERATION]: this.auth.generation, [CLIENT_LIFETIME]: this.lifetime,
+      ...(manifest ? { [STREAM_AUTHORITY]: { session: manifest.session_id, revision: manifest.authorization_revision, installation: this.store.installationID } } : {}) };
+  }
   #view(scope, requestID) {
     const task = this.store.request(scope, requestID);
     return { id: task.id, request_id: task.request_id, status: task.status,

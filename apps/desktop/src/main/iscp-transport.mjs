@@ -120,6 +120,8 @@ export class ISCPTransport {
     this.pending.clear();
     this.admission = undefined;
     this.capabilities = undefined; this.onCapabilities(undefined);
+    this.capabilityValidUntil = undefined;
+    this.streamSchemaVersion = undefined;
     const child = this.child; this.child = undefined;
     child?.stdin.destroy(); child?.kill();
     if (child) { const timer = setTimeout(() => { if (child.exitCode === null) child.kill("SIGKILL"); }, 1000); timer.unref?.(); }
@@ -279,6 +281,60 @@ export class ISCPTransport {
     return result;
   }
 
+  // Streams have no ordinary RPC timeout or concurrency allowance. The owner
+  // bounds opening/recovery and releases observation with its AbortSignal.
+  async streamCall(operation, body, options = {}) {
+    const manifest = this.capabilities;
+    if (this.state !== "transport_ready" || this.streamSchemaVersion !== 1 || manifest?.stream_schema_version !== 1 ||
+        Date.parse(manifest.expires_at) <= Date.now() || !manifest.operations?.includes(operation) || operation !== "execution.progress.stream") {
+      throw new ISCPRequestNotSentError("Matched execution stream schema is unavailable", "unavailable");
+    }
+    if (!UUID.test(options.requestID || "") || typeof options.onEvent !== "function" || options.signal?.aborted) {
+      throw new ISCPRequestNotSentError("Execution stream identity or observer is invalid");
+    }
+    const id = crypto.randomUUID(), generation = this.generation;
+    const request = { type: "task.invoke", profile: ISCP_V2_PROFILE, id, operation, body, request_id: options.requestID,
+      installation_id: options.installationID || this.installationID, ...(options.params ? { params: options.params } : {}) };
+    if (Buffer.byteLength(JSON.stringify(request)) > MAX_BYTES) throw new ISCPRequestNotSentError("Execution stream request exceeds bounds");
+    return new Promise((resolve, reject) => {
+      let completed = false, released = false, cleanupTimer;
+      const current = () => generation === this.generation && this.state === "transport_ready" &&
+        this.capabilities?.session_id === manifest.session_id && this.capabilities?.authorization_revision === manifest.authorization_revision &&
+        Date.parse(this.capabilities?.expires_at) > Date.now() && performance.now() < this.capabilityValidUntil;
+      const release = () => { released = true; clearTimeout(cleanupTimer); options.signal?.removeEventListener("abort", cancel); this.pending.delete(id); };
+      const cancel = () => {
+        if (released) return;
+        // Cancel this observation only; the original execution and other calls
+        // are neither canceled nor replayed, even after a terminal response.
+        if (generation === this.generation && this.child) {
+          try { this.child.stdin.write(`${JSON.stringify({ ipc_version: 1, type: "stream_cancel", id })}\n`); } catch { /* Local cleanup is sufficient. */ }
+        }
+        release(); if (!completed) reject(new Error("Execution stream observation canceled"));
+      };
+      const fail = error => { release(); if (!completed) reject(error); };
+      const call = { request, stream: true, capacityClass: "stream", reject: fail,
+        event: event => {
+          if (released || generation !== this.generation) return;
+          if (!current()) { cancel(); return; }
+          if (event?.subscription_id !== id) { fail(new Error("Execution stream subscription differs")); return; }
+          try { options.onEvent(event); } catch (error) { cancel(); if (!completed) reject(error); }
+        },
+        resolve: response => {
+          if (completed || released) return;
+          if (!current()) { cancel(); return; }
+          if (response.status !== 200 || response.body_object) { fail(new Error(response.error || "Execution stream failed")); return; }
+          completed = true; resolve(response.body);
+          // A terminal response can overtake its final text frames. Keep only
+          // this subscription routable through the specified two-second gap.
+          cleanupTimer = setTimeout(release, 2000); cleanupTimer.unref?.();
+        } };
+      this.pending.set(id, call);
+      options.signal?.addEventListener("abort", cancel, { once: true });
+      try { options.onOpen?.(id); this.child.stdin.write(`${JSON.stringify({ ipc_version: 1, type: "stream_call", id, request })}\n`); }
+      catch { fail(new Error("Execution stream transport is unavailable")); }
+    });
+  }
+
   async #request(request,init,rawBody) {
     if(!this.capabilities || Date.parse(this.capabilities.expires_at)<=Date.now() || !this.capabilities.operations.includes(request.operation)) throw new ISCPRequestNotSentError("This capability is unavailable through ISCP");
     if(rawBody!==undefined && Buffer.byteLength(rawBody)>ISCP_BODY_BYTES) {
@@ -391,6 +447,7 @@ export class ISCPTransport {
         if (this.expectedIdentity && (!frame.identity || Object.keys(this.expectedIdentity).some((key) => frame.identity[key] !== this.expectedIdentity[key]))) {
           this.#fail("identity_conflict"); return;
         }
+        this.streamSchemaVersion = frame.stream_schema_version;
         this.hello = true; continue;
       }
       if (frame.type === 'admission') {
@@ -405,6 +462,10 @@ export class ISCPTransport {
         try {
         if(this.journalRoot){const scope={...value.binding,installation_id:this.installationID,authorization_revision:value.authorization_revision};const key=JSON.stringify(scope);if(this.objectScopeKey!==key){this.objects=new ISCPObjectClient({root:path.join(this.journalRoot,'objects'),scope,call:this.invoke.bind(this)});this.mutations=new ISCPMutationJournal(path.join(this.journalRoot,'mutations'),scope);this.objectScopeKey=key;}}
         } catch {this.#fail('disconnected');return;}
+        const prior = this.capabilities;
+        this.capabilityValidUntil = prior?.session_id === value.session_id && prior.authorization_revision === value.authorization_revision && Number.isFinite(this.capabilityValidUntil)
+          ? this.capabilityValidUntil + Date.parse(value.expires_at) - Date.parse(prior.expires_at)
+          : performance.now() + Math.max(0, Date.parse(value.expires_at) - Date.now());
         this.capabilities=Object.freeze(value);
         this.onCapabilities(value);
       } else if (frame.type === "state") {
@@ -413,6 +474,11 @@ export class ISCPTransport {
         if (["disconnected", "authorization_expired", "authorization_revoked", "closed"].includes(frame.state)) { this.#fail(frame.state); return; }
         this.#state(frame.state);
         if (frame.state === "transport_ready") { clearTimeout(this.readyTimer); this.readyResolve?.(); this.readyResolve = this.readyReject = this.readyPromise = undefined; }
+      } else if (frame.type === "stream_event") {
+        const call = this.pending.get(frame.id);
+        if (!call) continue;
+        if (!call.stream) { this.#fail("disconnected"); return; }
+        call.event(frame.event);
       } else if (frame.type === "response") {
         const call = this.pending.get(frame.id);
         if (!call) continue; // Late canceled calls cannot cross the request fence.

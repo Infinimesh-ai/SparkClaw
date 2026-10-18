@@ -672,3 +672,71 @@ test('verified helper admission also removes zero-epoch legacy-v1 quotas and cle
  assert.equal(f.calls.length,40);assert.equal(f.transport.admissionQueue.size,0);
  f.transport.close();await Promise.all(active);assert.equal(f.transport.admission,undefined);
 });
+
+function streamManifest() {
+  return { schema_version: 2, stream_schema_version: 1, profile: "sparkclaw.workbench.transport.v2", session_id: "session", authorization_revision: 1,
+    expires_at: new Date(Date.now() + 60000).toISOString(), binding: { deployment_id: "d", owner_id: "o", client_id: "c" },
+    operations: ["execution.progress.stream", "presentation.config"], limits: { concurrent: 0 } };
+}
+function streamResponse(call, body) { return { ipc_version: 1, type: "response", id: call.id,
+  response: { type: "task.result", profile: call.request.profile, id: call.id, status: 200, body } }; }
+function streamEvent(call) { return { ipc_version: 1, type: "stream_event", id: call.id,
+  event: { type: "iscp.application.stream.v1", schema_version: 1, subscription_id: call.id, stream_seq: 1, body: { kind: "state" } } }; }
+
+test("stream IPC requires matched helper/remote versions and does not use ordinary RPC deadlines or quotas", async t => {
+  const f = fixture(t, () => {}, { hello: { ...hello, stream_schema_version: 1 }, timeoutMS: 10 }); await f.transport.start();
+  f.children[0].send({ ipc_version: 1, type: "capabilities", capabilities: streamManifest() });
+  const abort = new AbortController(), events = [], opened = [];
+  const pending = Array.from({ length: 12 }, () => f.transport.streamCall("execution.progress.stream", { schema_version: 1 },
+    { requestID, signal: abort.signal, onOpen: id => opened.push(id), onEvent: event => events.push(event) }));
+  const observed = pending.map(promise => promise.catch(error => error));
+  assert.equal(f.calls.length, 12); assert.equal(new Set(opened).size, 12);
+  assert.ok(f.calls.every(call => call.type === "stream_call" && call.id === call.request.id && call.id !== requestID && call.request.body.schema_version === 1));
+  await new Promise(resolve => setTimeout(resolve, 25)); assert.equal(f.transport.pending.size, 12);
+  f.children[0].send(streamEvent(f.calls[0])); assert.equal(events.length, 1);
+  abort.abort(); await Promise.all(observed);
+  assert.equal(f.transport.pending.size, 0); assert.equal(f.transport.state, "transport_ready");
+  assert.equal(f.calls.filter(call => call.type === "stream_cancel").length, 12);
+  assert.equal(f.calls.filter(call => call.request?.operation === "execution.cancel").length, 0);
+});
+
+test("a stream terminal response can precede its tail without canceling other requests", async t => {
+  const f = fixture(t, (call, child) => {
+    if (call.type === "call") child.send(streamResponse(call, { ordinary: true }));
+  }, { hello: { ...hello, stream_schema_version: 1 } }); await f.transport.start();
+  f.children[0].send({ ipc_version: 1, type: "capabilities", capabilities: streamManifest() });
+  const abort = new AbortController(), events = [];
+  const pending = f.transport.streamCall("execution.progress.stream", {}, { requestID, signal: abort.signal, onEvent: event => events.push(event) });
+  const call = f.calls[0]; f.children[0].send(streamResponse(call, { schema_version: 1, last_stream_seq: 1, reason: "terminal" }));
+  assert.equal((await pending).last_stream_seq, 1);
+  f.children[0].send(streamEvent(call)); assert.equal(events.length, 1);
+  assert.deepEqual(await (await f.transport.fetch(`${origin}/api/config`)).json(), { ordinary: true });
+  abort.abort(); f.children[0].send(streamEvent(call)); assert.equal(events.length, 1);
+  assert.equal(f.transport.state, "transport_ready");
+});
+
+test("observer exceptions and stream-only cancellation cannot poison the shared helper or ordinary calls", async t => {
+  const f = fixture(t, (call, child) => { if (call.type === "call") child.send(streamResponse(call, { ok: true })); },
+    { hello: { ...hello, stream_schema_version: 1 } }); await f.transport.start();
+  f.children[0].send({ ipc_version: 1, type: "capabilities", capabilities: streamManifest() });
+  const failed = f.transport.streamCall("execution.progress.stream", {}, { requestID, onEvent: () => { throw new Error("invalid stream"); } });
+  const rejected = assert.rejects(failed); f.children[0].send(streamEvent(f.calls[0])); await rejected;
+  assert.equal(f.transport.state, "transport_ready");
+  assert.deepEqual(await (await f.transport.fetch(`${origin}/api/config`)).json(), { ok: true });
+});
+
+test("unmatched stream schema rejects before write, and authority changes fence in-flight stream events", async t => {
+  for (const field of ["helper", "remote"]) {
+    const f = fixture(t, () => {}, { hello: { ...hello, stream_schema_version: field === "helper" ? 2 : 1 } }); await f.transport.start();
+    f.children[0].send({ ipc_version: 1, type: "capabilities", capabilities: { ...streamManifest(), stream_schema_version: field === "remote" ? 2 : 1 } });
+    await assert.rejects(f.transport.streamCall("execution.progress.stream", {}, { requestID, onEvent() {} }), /schema/); assert.equal(f.calls.length, 0);
+  }
+  const f = fixture(t, () => {}, { hello: { ...hello, stream_schema_version: 1 } }); await f.transport.start();
+  f.children[0].send({ ipc_version: 1, type: "capabilities", capabilities: streamManifest() });
+  let published = 0;
+  const pending = f.transport.streamCall("execution.progress.stream", {}, { requestID, onEvent() { published++; } });
+  const rejected = assert.rejects(pending);
+  f.children[0].send({ ipc_version: 1, type: "capabilities", capabilities: { ...streamManifest(), authorization_revision: 2 } });
+  f.children[0].send(streamEvent(f.calls[0])); await rejected;
+  assert.equal(published, 0); assert.equal(f.transport.state, "transport_ready");
+});

@@ -473,3 +473,27 @@ test("a queued event wake from an old authentication generation cannot launch an
   f.auth.generation++; release(); await Promise.all(rejected);
   assert.equal(reads, 1); assert.equal(f.store.request(scope, f.task.request_id).status, "submission_pending");
 });
+
+for (const boundary of ["expiry", "revision", "session", "revocation", "disconnect"]) {
+  test(`final file download cannot cross ${boundary} before the ClientStore transaction`, async t => {
+    let release, fetching = false, acks = 0;
+    const blocked = new Promise(resolve => { release = resolve; }), bytes = Buffer.from("verified");
+    const f = fixture(t, async url => {
+      if (url.endsWith("/ack")) { acks++; return new Response("{}"); }
+      if (url.endsWith("/files/output")) { fetching = true; await blocked; return new Response(bytes); }
+      return new Response(JSON.stringify(event(f, "completed", result("final", [{ id: "output", name: "output.txt", size: bytes.length, sha256: hash(bytes) }]))));
+    });
+    f.auth.descriptor.transport = "iscp"; f.auth.generation = 1;
+    f.auth.transport = { capabilities: { session_id: "session", authorization_revision: 1, expires_at: new Date(Date.now() + 60000).toISOString() } };
+    f.store.markSubmitted(scope, f.task.request_id); f.store.setExecutionState(scope, f.task.request_id, "running");
+    const pending = f.client.reconcile(scope, f.task.request_id); const rejected = assert.rejects(pending, /authority/);
+    await waitFor(() => fetching);
+    if (boundary === "expiry") f.auth.transport.capabilities.expires_at = new Date(0).toISOString();
+    if (boundary === "revision") f.auth.transport.capabilities.authorization_revision++;
+    if (boundary === "session") f.auth.transport.capabilities.session_id = "replaced";
+    if (boundary === "revocation") f.auth.authorizationRevoked = true;
+    if (boundary === "disconnect") f.auth.status.state = "service_unavailable";
+    release(); await rejected;
+    assert.equal(f.store.receipt(scope, f.task.request_id), null); assert.equal(f.store.read(scope, f.conversation.id).messages.length, 1); assert.equal(acks, 0);
+  });
+}

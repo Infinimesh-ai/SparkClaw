@@ -10,26 +10,27 @@ import { ClientStoreCapability } from "../src/main/client-store-capability.mjs";
 
 const scope = { deployment_id: "deployment", owner_id: "owner", client_id: "client" };
 const hash = value => crypto.createHash("sha256").update(value).digest("hex");
-const epoch = "11111111-1111-4111-8111-111111111111";
+const epoch = crypto.randomUUID(), generation = crypto.randomUUID();
 async function waitFor(check) {
   const deadline = Date.now() + 3000;
   while (!check()) { assert.ok(Date.now() < deadline, "progress did not arrive"); await new Promise(resolve => setTimeout(resolve, 5)); }
 }
-function fixture(t, { supported = true, ignoreAbort = false } = {}) {
+function fixture(t, { supported = true } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sparkclaw-progress-"));
   const store = new ClientStore(directory), conversation = store.create(scope, "original conversation");
   const task = store.enqueue(scope, conversation.id, "original explicit input");
   const requests = [], changes = [], fetches = [];
-  let identity = scope, state = "running", client;
+  let identity = scope, state = "running", client, clock = 0;
   const auth = { generation: 1, status: { state: "connected" }, descriptor: { transport: "iscp", origin: "https://iscp.invalid" },
-    transport: { capabilities: { schema_version: 2, profile: "sparkclaw.workbench.transport.v2", session_id: "session",
-      authorization_revision: 1, expires_at: new Date(Date.now() + 60000).toISOString(), operations: supported ? ["execution.progress"] : [] } },
-    invokeISCP: (operation, body, options) => new Promise((resolve, reject) => {
-      assert.equal(operation, "execution.progress");
-      const request = { body, options, settled: false, resolve: value => { request.settled = true; resolve(value); }, reject: error => { request.settled = true; reject(error); } };
-      requests.push(request);
-      if (!ignoreAbort) options.signal.addEventListener("abort", () => request.reject(new Error("closed")), { once: true });
-    }),
+    transport: { streamSchemaVersion: 1, capabilities: { schema_version: 2, stream_schema_version: 1, profile: "sparkclaw.workbench.transport.v2", session_id: "session",
+      authorization_revision: 1, expires_at: new Date(Date.now() + 60000).toISOString(), operations: supported ? ["execution.progress.stream"] : [] },
+      streamCall: (operation, body, options) => new Promise((resolve, reject) => {
+        assert.equal(operation, "execution.progress.stream");
+        const request = { id: crypto.randomUUID(), body, options, settled: false,
+          resolve: value => { request.settled = true; resolve(value); }, reject: error => { request.settled = true; reject(error); } };
+        requests.push(request); options.onOpen(request.id);
+        options.signal.addEventListener("abort", () => request.reject(new Error("closed")), { once: true });
+      }) },
     authorizedExecutionFetch: async (url, init = {}) => {
       fetches.push({ url, method: init.method || "GET" });
       if (url.endsWith("/ack")) return new Response("{}");
@@ -40,159 +41,148 @@ function fixture(t, { supported = true, ignoreAbort = false } = {}) {
     } };
   client = new ExecutionClient({ auth, store, getIdentity: () => identity,
     onChange: () => changes.push({ progress: client.progressContent(scope, task.request_id), messages: store.read(scope, conversation.id).messages.length }) });
+  client.progressClient.now = () => clock;
   const frame = { url: "sparkclaw-app://workbench/index.html" }, webContents = { mainFrame: frame };
   const capability = new ClientStoreCapability({ window: { webContents }, store, execution: client, getIdentity: () => identity });
   t.after(() => { client.close(); store.close(); fs.rmSync(directory, { recursive: true, force: true }); });
-  return { auth, store, task, conversation, requests, changes, fetches, client, directory,
-    setIdentity: value => { identity = value; }, setState: value => { state = value; },
-    packet: (content, revision = 1, extra = {}) => ({ schema_version: 1, request_id: task.request_id,
-      input_digest: store.request(scope, task.request_id).input_digest, epoch, revision, content, digest: hash(content), state: "running", truncated: false, ...extra }),
-    pending: () => requests.filter(request => !request.settled),
+  const body = extra => ({ request_id: task.request_id, input_digest: store.request(scope, task.request_id).input_digest, epoch, generation, revision: 1, ...extra });
+  const send = (request, extra, stream_seq = 1) => request.options.onEvent({ type: "iscp.application.stream.v1", schema_version: 1, subscription_id: request.id, stream_seq, body: body(extra) });
+  return { auth, store, task, conversation, requests, changes, fetches, client, directory, send, body,
+    advance: ms => { clock += ms; }, setIdentity: value => { identity = value; }, setState: value => { state = value; },
+    delta: (text, revision = 1, prefix = "") => ({ kind: "delta", revision, text, from_offset: Buffer.byteLength(prefix), to_offset: Buffer.byteLength(prefix + text), content_digest: hash(prefix + text) }),
     read: () => capability.dispatch({ sender: webContents, senderFrame: frame }, { schema_version: 1, operation: "read", conversation_id: conversation.id }),
   };
 }
 
-test("multiple authenticated previews use the original task IPC without persisting or acknowledging partial answers", async t => {
+test("multiple verified deltas use original task IPC without persisting or acknowledging partial answers; final commit replaces in one notification", async t => {
   const f = fixture(t); await f.client.submit(scope, f.task.request_id);
-  assert.equal(f.requests.length, 1);
-  assert.deepEqual(f.requests[0].body, { input_digest: f.store.request(scope, f.task.request_id).input_digest, after_revision: 0, wait_ms: 10000 });
-  assert.equal(f.requests[0].options.requestID, f.task.request_id);
-  f.requests[0].resolve(f.packet("First part"));
-  await waitFor(() => f.client.progressContent(scope, f.task.request_id) === "First part");
+  assert.equal(f.requests.length, 1); const first = f.requests[0];
+  assert.equal(first.body.schema_version, 1); assert.equal(first.body.cursor, undefined); assert.equal(first.options.requestID, f.task.request_id);
+  f.send(first, f.delta("First part")); assert.equal(f.client.progressContent(scope, f.task.request_id), "First part");
   assert.equal((await f.read()).tasks[0].progress_content, "First part");
+  f.send(first, f.delta(" and 中文🙂", 2, "First part"), 2);
+  assert.equal(f.client.progressContent(scope, f.task.request_id), "First part and 中文🙂");
+  assert.equal(f.store.receipt(scope, f.task.request_id), null); assert.equal(f.store.read(scope, f.conversation.id).messages.length, 1);
   assert.equal(f.store.read(scope, f.conversation.id).tasks[0].progress_content, undefined);
-  await waitFor(() => f.requests.length === 2);
-  assert.equal(f.requests[1].body.after_revision, 1);
-  f.requests[1].resolve(f.packet("First part and second part", 2));
-  await waitFor(() => f.client.progressContent(scope, f.task.request_id) === "First part and second part");
-  assert.equal(f.store.receipt(scope, f.task.request_id), null);
-  assert.equal(f.store.read(scope, f.conversation.id).messages.length, 1);
-  assert.equal(f.fetches.filter(call => call.url.endsWith("/ack")).length, 0);
-  const reopened = new ClientStore(f.directory);
-  try { assert.equal(reopened.read(scope, f.conversation.id).messages.length, 1); } finally { reopened.close(); }
-  await f.client.reconcilePending(); await f.client.reconcilePending();
-  assert.ok(f.pending().length <= 1, "only one long poll exists for the original task");
-  await waitFor(() => f.requests.length === 3);
-  f.setState("completed"); f.requests[2].resolve(f.packet("First part and second part", 3, { state: "completed" }));
+  const reopened = new ClientStore(f.directory); try { assert.equal(reopened.read(scope, f.conversation.id).messages.length, 1); } finally { reopened.close(); }
+  await f.client.reconcilePending(); await f.client.reconcilePending(); assert.equal(f.requests.length, 1);
+  f.setState("completed"); f.send(first, { kind: "state", state: "completed", revision: 2 }, 3);
   await waitFor(() => f.store.receipt(scope, f.task.request_id)?.acknowledged === 1);
   assert.equal(f.client.progressContent(scope, f.task.request_id), undefined);
-  assert.equal((await f.read()).tasks[0].progress_content, undefined);
-  assert.deepEqual(f.store.read(scope, f.conversation.id).messages.map(message => message.content), ["original explicit input", "Complete verified answer"]);
+  assert.deepEqual(f.store.read(scope, f.conversation.id).messages.map(m => m.content), ["original explicit input", "Complete verified answer"]);
+  const finalIndex = f.changes.findIndex(change => change.messages === 2);
+  assert.ok(finalIndex >= 0); assert.equal(f.changes[finalIndex].progress, undefined);
+  assert.equal(f.changes.slice(1, finalIndex).some(change => change.progress === undefined), false, "no clear-before-commit notification");
+  f.send(first, f.delta("late", 3, "First part and 中文🙂"), 4);
+  assert.equal(f.store.read(scope, f.conversation.id).messages.length, 2);
   assert.equal(f.fetches.filter(call => call.method === "POST" && !call.url.endsWith("/ack")).length, 1);
-  assert.equal(f.fetches.filter(call => call.url.endsWith("/ack")).length, 1);
 });
-
-test("unnegotiated peers and locally saved unsent tasks never request progress", async t => {
-  const old = fixture(t, { supported: false }); await old.client.submit(scope, old.task.request_id); await old.client.reconcilePending();
-  assert.equal(old.requests.length, 0);
-  const fresh = fixture(t); await fresh.client.reconcilePending(); assert.equal(fresh.requests.length, 0);
+test("unmatched helper/remote versions, old progress-only peers, and unaccepted tasks never open or fall back", async t => {
+  for (const variant of ["operation", "helper", "remote"]) {
+    const f = fixture(t, { supported: variant !== "operation" });
+    if (variant === "helper") f.auth.transport.streamSchemaVersion = 2;
+    if (variant === "remote") f.auth.transport.capabilities.stream_schema_version = 2;
+    await f.client.submit(scope, f.task.request_id); await f.client.reconcilePending(); assert.equal(f.requests.length, 0);
+  }
+  const f = fixture(t); f.store.markSubmitted(scope, f.task.request_id); f.client.progressClient.ensure(scope, f.store.request(scope, f.task.request_id)); assert.equal(f.requests.length, 0);
 });
-
-for (const [label, change] of [
-  ["request identity", { request_id: "other" }], ["input digest", { input_digest: "0".repeat(64) }],
-  ["epoch", { epoch: "not-an-epoch" }], ["revision", { revision: 0 }], ["digest", { digest: "0".repeat(64) }],
-  ["state", { state: "arbitrary" }], ["truncated flag", { truncated: "true" }], ["extra field", { secret: "unexpected" }],
-]) {
-  test(`malformed progress ${label} is never exposed and failures do not spin or replay work`, async t => {
-    const f = fixture(t); await f.client.submit(scope, f.task.request_id);
-    f.requests[0].resolve(f.packet("untrusted text", 1, change));
-    await new Promise(resolve => setTimeout(resolve, 10));
-    assert.equal(f.client.progressContent(scope, f.task.request_id), undefined);
-    await f.client.reconcilePending(); assert.equal(f.requests.length, 1);
+for (const [label, change] of [["identity", { request_id: crypto.randomUUID() }], ["digest", { content_digest: "0".repeat(64) }], ["field", { secret: true }], ["offset", { from_offset: 1 }], ["UTF-8", { text: "\ud800" }]]) {
+  test(`malformed stream ${label} never reaches IPC or creates a receipt`, async t => {
+    const f = fixture(t); await f.client.submit(scope, f.task.request_id); f.send(f.requests[0], { ...f.delta("untrusted"), ...change });
+    assert.equal(f.client.progressContent(scope, f.task.request_id), undefined); assert.equal((await f.read()).tasks[0].progress_content, undefined);
     assert.equal(f.store.receipt(scope, f.task.request_id), null);
-    assert.equal(f.fetches.filter(call => call.url.endsWith("/ack")).length, 0);
   });
 }
-
-for (const content of ["x".repeat(8193), "\ud800", "hidden\0text"]) {
-  test("oversized or invalid UTF-8 preview is rejected before IPC display", async t => {
-    const f = fixture(t); await f.client.submit(scope, f.task.request_id);
-    f.requests[0].resolve(f.packet(content)); await new Promise(resolve => setTimeout(resolve, 10));
-    assert.equal((await f.read()).tasks[0].progress_content, undefined); assert.equal(f.store.receipt(scope, f.task.request_id), null);
-  });
-}
-
-for (const variant of ["rollback", "same revision drift", "noncumulative"]) {
-  test(`a ${variant} in the same progress epoch clears preview without committing partial data`, async t => {
-    const f = fixture(t); await f.client.submit(scope, f.task.request_id); f.requests[0].resolve(f.packet("First", 3));
-    await waitFor(() => f.requests.length === 2);
-    const packet = variant === "rollback" ? f.packet("First", 2) : variant === "same revision drift" ? f.packet("First changed", 3) : f.packet("Different", 4);
-    f.requests[1].resolve(packet); await waitFor(() => f.client.progressContent(scope, f.task.request_id) === undefined);
-    assert.equal(f.store.read(scope, f.conversation.id).messages.length, 1); assert.equal(f.store.receipt(scope, f.task.request_id), null);
-  });
-}
-
-test("a new Gateway epoch replaces temporary preview and truncated UTF-8 stays a preview until terminal lookup", async t => {
-  const f = fixture(t); await f.client.submit(scope, f.task.request_id); f.requests[0].resolve(f.packet("Prior gateway", 8));
-  await waitFor(() => f.requests.length === 2);
-  const nextEpoch = "22222222-2222-4222-8222-222222222222", content = "你".repeat(2730);
-  f.requests[1].resolve(f.packet(content, 1, { epoch: nextEpoch, truncated: true }));
-  await waitFor(() => f.client.progressContent(scope, f.task.request_id) === content);
-  await waitFor(() => f.requests.length === 3);
-  assert.equal(f.requests[2].body.after_revision, 1);
-  f.setState("completed"); f.requests[2].resolve(f.packet(content, 2, { epoch: nextEpoch, truncated: true, state: "completed" }));
-  await waitFor(() => f.store.receipt(scope, f.task.request_id)?.acknowledged === 1);
-  assert.equal(f.store.read(scope, f.conversation.id).messages.at(-1).content, "Complete verified answer");
-});
-
-for (const boundary of ["identity", "generation", "session", "authorization revision", "lifetime"]) {
-  test(`late progress is fenced by ${boundary} and cannot leak into another conversation scope`, async t => {
-    const f = fixture(t, { ignoreAbort: true }); await f.client.submit(scope, f.task.request_id);
-    const prior = f.requests[0];
+for (const boundary of ["identity", "generation", "session", "revision", "expiry", "revocation", "lifetime"]) {
+  test(`late frames are fenced by ${boundary} before publication`, async t => {
+    const f = fixture(t); await f.client.submit(scope, f.task.request_id); const prior = f.requests[0];
     if (boundary === "identity") f.setIdentity({ ...scope, owner_id: "other" });
-    else if (boundary === "generation") f.auth.generation++;
-    else if (boundary === "session") f.auth.transport.capabilities.session_id = "new-session";
-    else if (boundary === "authorization revision") f.auth.transport.capabilities.authorization_revision++;
-    else f.client.close();
-    prior.resolve(f.packet("Stale text")); await new Promise(resolve => setTimeout(resolve, 10));
-    assert.equal(f.client.progressContent(scope, f.task.request_id), undefined);
+    if (boundary === "generation") f.auth.generation++;
+    if (boundary === "session") f.auth.transport.capabilities.session_id = "new-session";
+    if (boundary === "revision") f.auth.transport.capabilities.authorization_revision++;
+    if (boundary === "expiry") f.auth.transport.capabilities.expires_at = new Date(0).toISOString();
+    if (boundary === "revocation") f.auth.authorizationRevoked = true;
+    if (boundary === "lifetime") f.client.close();
+    f.send(prior, f.delta("Stale")); assert.equal(f.client.progressContent(scope, f.task.request_id), undefined);
     assert.equal(f.store.read(scope, f.conversation.id).messages.length, 1);
   });
 }
-
-test("disconnect clears previews and reconnect starts at revision zero without resubmitting the task", async t => {
-  const f = fixture(t); await f.client.submit(scope, f.task.request_id); f.requests[0].resolve(f.packet("Temporary", 5));
-  await waitFor(() => f.client.progressContent(scope, f.task.request_id) === "Temporary");
-  f.client.close(); assert.equal(f.client.progressContent(scope, f.task.request_id), undefined);
-  f.auth.generation++; f.client.start();
-  await waitFor(() => f.requests.length === 2);
-  assert.equal(f.requests[1].body.after_revision, 0);
-  f.requests[1].resolve(f.packet("Restored snapshot", 6));
-  await waitFor(() => f.client.progressContent(scope, f.task.request_id) === "Restored snapshot");
+test("warm recovery retains verified text/cursor, discards candidate, resets stream sequence and never resubmits", async t => {
+  const f = fixture(t); await f.client.submit(scope, f.task.request_id); const first = f.requests[0];
+  f.send(first, f.delta("保留"));
+  const snapshot_id = crypto.randomUUID(); f.send(first, { kind: "snapshot_begin", snapshot_id, revision: 2, total_bytes: 3, content_digest: hash("new") }, 2);
+  first.reject(new Error("network lost")); await waitFor(() => f.requests.length === 2);
+  assert.equal(f.client.progressContent(scope, f.task.request_id), "保留");
+  assert.deepEqual(f.requests[1].body.cursor, { epoch, generation, revision: 1, offset: 6, content_digest: hash("保留") });
+  f.send(f.requests[1], f.delta("完成", 2, "保留")); assert.equal(f.client.progressContent(scope, f.task.request_id), "保留完成");
   assert.equal(f.fetches.filter(call => call.method === "POST").length, 1);
 });
-
-test("a failed long poll clears preview and retries from zero only after a later ordinary reconciliation", async t => {
-  const f = fixture(t); await f.client.submit(scope, f.task.request_id); f.requests[0].resolve(f.packet("Temporary", 3));
-  await waitFor(() => f.requests.length === 2);
-  f.requests[1].reject(new Error("network lost"));
-  await waitFor(() => f.client.progressContent(scope, f.task.request_id) === undefined);
-  await f.client.reconcilePending(); assert.equal(f.requests.length, 2);
-  await new Promise(resolve => setTimeout(resolve, 2050)); assert.equal(f.requests.length, 2, "no independent retry timer dispatches work");
-  await f.client.reconcilePending(); assert.equal(f.requests.length, 3); assert.equal(f.requests[2].body.after_revision, 0);
-  assert.equal(f.fetches.filter(call => call.method === "POST").length, 1); assert.equal(f.store.receipt(scope, f.task.request_id), null);
+test("cold client restart uses durable original task with no isolated cursor or resubmission", async t => {
+  const f = fixture(t); await f.client.submit(scope, f.task.request_id); f.send(f.requests[0], f.delta("temporary"));
+  f.client.close(); f.auth.generation++; f.client.start(); await waitFor(() => f.requests.length === 2);
+  assert.equal(f.requests[1].body.cursor, undefined); assert.equal(f.requests[1].options.requestID, f.task.request_id);
+  assert.equal(f.fetches.filter(call => call.method === "POST").length, 1);
 });
-
-test("terminal expiry may release preview text while original lookup remains authoritative", async t => {
-  const f = fixture(t); await f.client.submit(scope, f.task.request_id); f.requests[0].resolve(f.packet("Temporary", 1));
-  await waitFor(() => f.requests.length === 2);
-  f.setState("delivery_expired"); f.requests[1].resolve(f.packet("", 2, { state: "delivery_expired" }));
-  await waitFor(() => f.store.request(scope, f.task.request_id).status === "delivery_expired");
-  assert.equal(f.client.progressContent(scope, f.task.request_id), undefined);
-  assert.equal(f.store.read(scope, f.conversation.id).messages.length, 1); assert.equal(f.store.receipt(scope, f.task.request_id), null);
+test("early terminal completion waits for its tail while verified final result can overtake all stream gaps", async t => {
+  const f = fixture(t); await f.client.submit(scope, f.task.request_id); const first = f.requests[0];
+  first.resolve({ schema_version: 1, last_stream_seq: 2, reason: "terminal" });
+  await new Promise(resolve => setTimeout(resolve, 5)); f.send(first, f.delta("a"));
+  f.setState("completed"); await f.client.reconcile(scope, f.task.request_id);
+  assert.equal(f.store.read(scope, f.conversation.id).messages.at(-1).content, "Complete verified answer");
+  assert.equal(first.options.signal.aborted, true);
+  f.send(first, f.delta("b", 2, "a"), 2); assert.equal(f.client.progressContent(scope, f.task.request_id), undefined);
 });
-
-test("a valid terminal preview cannot replace a final result whose durable digest fails verification", async t => {
-  const f = fixture(t); await f.client.submit(scope, f.task.request_id);
-  const originalFetch = f.auth.authorizedExecutionFetch;
-  f.auth.authorizedExecutionFetch = async (...args) => {
-    const response = await originalFetch(...args), value = await response.json();
-    if (value.result) value.result.digest = "0".repeat(64);
-    return new Response(JSON.stringify(value));
+test("same authority renewal preserves a partial candidate and does not reopen", async t => {
+  const f = fixture(t); await f.client.submit(scope, f.task.request_id); const first = f.requests[0], snapshot_id = crypto.randomUUID();
+  const base = { snapshot_id, total_bytes: 6, content_digest: hash("中文") };
+  f.send(first, { kind: "snapshot_begin", ...base }); f.send(first, { kind: "snapshot_chunk", snapshot_id, offset: 0, text: "中" }, 2);
+  f.auth.transport.capabilities.expires_at = new Date(Date.now() + 120000).toISOString();
+  f.send(first, { kind: "snapshot_chunk", snapshot_id, offset: 3, text: "文" }, 3); f.send(first, { kind: "snapshot_end", ...base }, 4);
+  assert.equal(f.client.progressContent(scope, f.task.request_id), "中文"); assert.equal(f.requests.length, 1);
+});
+test("one 30-second incident spans failed opens and partial snapshots; exhausted recovery keeps original lookup alive", async t => {
+  const f = fixture(t); await f.client.submit(scope, f.task.request_id); f.advance(9000);
+  f.requests[0].reject(new Error("lost opening")); await waitFor(() => f.requests.length === 2);
+  f.advance(20000); const second = f.requests[1];
+  f.send(second, { kind: "snapshot_begin", snapshot_id: crypto.randomUUID(), total_bytes: 6, content_digest: hash("中文") });
+  f.advance(1001); await waitFor(() => second.options.signal.aborted);
+  await f.client.reconcilePending(); await new Promise(resolve => setTimeout(resolve, 300)); assert.equal(f.requests.length, 2);
+  f.setState("completed"); await f.client.reconcilePending(); assert.equal(f.store.read(scope, f.conversation.id).messages.length, 2);
+  assert.equal(f.fetches.filter(call => call.method === "POST" && !call.url.endsWith("/ack")).length, 1);
+});
+test("corrupt authoritative result never commits preview or ACKs", async t => {
+  const f = fixture(t); await f.client.submit(scope, f.task.request_id); f.send(f.requests[0], f.delta("valid preview"));
+  const fetch = f.auth.authorizedExecutionFetch; f.auth.authorizedExecutionFetch = async (...args) => {
+    const value = await (await fetch(...args)).json(); if (value.result) value.result.digest = "0".repeat(64); return new Response(JSON.stringify(value));
   };
-  f.setState("completed"); f.requests[0].resolve(f.packet("Never commit this preview", 1, { state: "completed" }));
-  await waitFor(() => f.fetches.some(call => call.method === "GET"));
-  await waitFor(() => f.client.progressContent(scope, f.task.request_id) === undefined);
-  assert.equal(f.store.read(scope, f.conversation.id).messages.length, 1); assert.equal(f.store.receipt(scope, f.task.request_id), null);
+  f.setState("completed"); await assert.rejects(f.client.reconcile(scope, f.task.request_id), /digest/);
+  assert.equal(f.store.receipt(scope, f.task.request_id), null); assert.equal(f.store.read(scope, f.conversation.id).messages.length, 1);
   assert.equal(f.fetches.filter(call => call.url.endsWith("/ack")).length, 0);
+});
+
+test("valid-snapshot transient outage retains preview and cursor across a replacement transport session", async t => {
+  const f = fixture(t); await f.client.submit(scope, f.task.request_id); f.send(f.requests[0], f.delta("verified 中文"));
+  const manifest = f.auth.transport.capabilities;
+  f.auth.status.state = "service_unavailable"; f.auth.generation++; f.auth.transport.capabilities = undefined;
+  f.client.pauseProgress(); assert.equal(f.client.progressContent(scope, f.task.request_id), "verified 中文");
+  await new Promise(resolve => setTimeout(resolve, 50));
+  f.auth.transport.capabilities = { ...manifest, session_id: "replacement" }; f.auth.status.state = "connected";
+  await waitFor(() => f.requests.length === 2);
+  assert.equal(f.requests[1].body.cursor.content_digest, hash("verified 中文"));
+  f.send(f.requests[1], f.delta("!", 2, "verified 中文")); assert.equal(f.client.progressContent(scope, f.task.request_id), "verified 中文!");
+});
+
+test("known authority expiry clears valid text immediately while reconnect retains the original task", async t => {
+  const f = fixture(t); await f.client.submit(scope, f.task.request_id); f.send(f.requests[0], f.delta("valid before expiry"));
+  f.auth.status.state = "service_unavailable"; f.client.pauseProgress({ authorityExpired: true });
+  assert.equal(f.client.progressContent(scope, f.task.request_id), undefined);
+  f.auth.generation++; f.auth.status.state = "connected"; await waitFor(() => f.requests.length === 2);
+  assert.equal(f.requests[1].body.cursor, undefined); assert.equal(f.requests[1].options.requestID, f.task.request_id);
+});
+
+test("real-stream projection grows beyond the former 8 KiB preview limit with multibyte text", async t => {
+  const f = fixture(t); await f.client.submit(scope, f.task.request_id); const text = "中文🙂".repeat(1500);
+  f.send(f.requests[0], f.delta(text)); f.send(f.requests[0], f.delta("尾部", 2, text), 2);
+  assert.equal(f.client.progressContent(scope, f.task.request_id), text + "尾部");
+  assert.ok(f.client.progressProjection(scope, f.task.request_id).offset > 8192);
 });

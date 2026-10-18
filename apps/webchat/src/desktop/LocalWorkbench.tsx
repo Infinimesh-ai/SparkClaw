@@ -23,7 +23,7 @@ import { BrowserPanel } from "./BrowserPanel";
 import { MessageBubble, TaskProgressMessage } from "../components/messages";
 import { useConversationActivity } from "../hooks/useConversationActivity";
 import { conversationActivity, isTaskInProgress, localExecutionStates, unseenActivity } from "../lib/conversationActivity";
-import { ComposerDocumentPicker, ComposerSurface } from "../components/composer";
+import { ComposerDocumentPicker, ComposerSurface, ComposerUploadError } from "../components/composer";
 import { useWorkbenchDraft } from "../hooks/useWorkbenchDraft";
 import { useVoiceInput } from "../hooks/useVoiceInput";
 import type { VoiceDraftAnchor } from "../hooks/useVoiceInput";
@@ -312,8 +312,8 @@ export function LocalWorkbench() {
       if (wasSelected && remaining[0]) await select(remaining[0].id);
     });
   }
-  async function ensureConversation() {
-    if (selectedRef.current) return selectedRef.current;
+  async function ensureConversation(onTargetResolved?: (id: string) => void) {
+    if (selectedRef.current) { onTargetResolved?.(selectedRef.current); return selectedRef.current; }
     if (drafts.id() !== "") await selectDraft("");
     const source = await drafts.flush();
     const conversation = await store.create(zh ? "新对话" : "New conversation", true);
@@ -327,6 +327,7 @@ export function LocalWorkbench() {
     }
     ++readGeneration.current;
     selectedRef.current = conversation.id; setSelected(conversation.id); setContent(emptyContent);
+    onTargetResolved?.(conversation.id);
     await selectDraft(conversation.id);
     await desktop.selectConversation?.(conversation.id);
     await reload();
@@ -375,15 +376,27 @@ export function LocalWorkbench() {
   }
   async function saveFile(file?: File) {
     if (!file) return undefined;
+    let uploadSession = selectedRef.current;
     let saved: Awaited<ReturnType<typeof store.saveFile>> | undefined;
-    await action(async () => {
-      if (file.size > 64 * 1024 * 1024) throw new Error(zh ? "文件超过 64 MiB。请选择较小的文件。" : "File exceeds 64 MiB. Choose a smaller file.");
-      const id = await ensureConversation();
-      saved = await store.saveFile(id, file.name, new Uint8Array(await file.arrayBuffer()));
-      setInputFiles((current) => saved && !current.includes(saved.id) ? [...current, saved.id] : current);
-      if (selectedRef.current === id) setContent(await store.read(id));
-      setNotice(zh ? "文件已添加。" : "File added.");
-    }, true);
+    try {
+      await action(async () => {
+        if (file.size > 64 * 1024 * 1024) throw new Error(zh ? "文件超过 64 MiB。请选择较小的文件。" : "File exceeds 64 MiB. Choose a smaller file.");
+        const id = await ensureConversation(target => { uploadSession = target; });
+        saved = await store.saveFile(id, file.name, new Uint8Array(await file.arrayBuffer()));
+        setInputFiles((current) => saved && !current.includes(saved.id) ? [...current, saved.id] : current);
+        // The file is already durable. A refresh failure must not offer to save
+        // it again under a new file ID; retain the attachment and report the read.
+        if (selectedRef.current === id) {
+          const generation = readGeneration.current;
+          await store.read(id).then(next => {
+            if (selectedRef.current === id && readGeneration.current === generation) setContent(next);
+          }).catch(surfaceError);
+        }
+        setNotice(zh ? "文件已添加。" : "File added.");
+      }, true);
+    } catch (reason) {
+      throw new ComposerUploadError(uploadSession, reason, text.errors.upload);
+    }
     return saved;
   }
   async function logout() { await desktop.logout!(); }

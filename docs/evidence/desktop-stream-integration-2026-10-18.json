@@ -1,0 +1,685 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-18",
+  "production_revision": "6608a8fee032c77ba2416df248ef3cc5b60d879a",
+  "baseline": "cd7d5ccca5e522b7b140cc2ac14b1c592e591be9",
+  "production_data": false,
+  "installed": false,
+  "deployed": false,
+  "pushed": false,
+  "unit_checks": {
+    "webchat": 351,
+    "desktop": 427,
+    "linux_test_packages": 73,
+    "linux_packages_without_tests": 11,
+    "go_build": true,
+    "go_vet": true,
+    "strict_frontend_build": true
+  },
+  "native_ui": {
+    "browser_layout_cases": 48,
+    "visual_cases": 432,
+    "retained_screenshots": 88,
+    "async_conversation_restore": true,
+    "textarea_lines": 31,
+    "textarea_height_px": 168,
+    "input_to_two_frames_ms": 12
+  },
+  "runs": [
+    {
+      "label": "controlled-final",
+      "mode": "controlled",
+      "source_revision": "6608a8fee032c77ba2416df248ef3cc5b60d879a",
+      "receipt_sha256": "3d61b2b4ed1f4cfac5cf4bc562c9ee78bd2b324b0597ead783ca153c1e393cdf",
+      "native_evidence_sha256": "06348e2ea8bee791e7af5b6c197bf3c44372b57c91961daa9c42078e04306d17",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "build_fingerprints": [
+        {
+          "path": "isolated/gateway-fixture",
+          "sha256": "5f001ebdd85da3238160ff31d1f9ed6aee99a394920a468cf45185eab8514900"
+        },
+        {
+          "path": "apps/desktop/bin/iscp-workbench",
+          "sha256": "ee35024e8e2a9ddb280e9b5905fba67dc3f51379fe90dd51103f85768a69dbab"
+        },
+        {
+          "path": "apps/desktop/src/main/main.mjs",
+          "sha256": "90f554c7a9d84ed7ddb21cc03c2bfa99a0c547394cdcdcaa0a79dc242a307a81"
+        },
+        {
+          "path": "apps/desktop/src/main/execution-client.mjs",
+          "sha256": "9390b6ebd018efc4dceffecc50b23f46b24b87bbbf2170ccbae0995bf857b628"
+        },
+        {
+          "path": "apps/desktop/src/main/execution-progress.mjs",
+          "sha256": "bde6599834c4ca4d56791f7ca9b0bad1b3567a08235235b9e0eb6f21b9307209"
+        },
+        {
+          "path": "apps/desktop/src/main/execution-stream-projection.mjs",
+          "sha256": "703a89b758e54a0c8ee3688bb9355ebd5ba07f8abcc4d61b7154af831718d5e4"
+        },
+        {
+          "path": "apps/desktop/src/main/client-store.mjs",
+          "sha256": "3d5455f8cffa8648a55063e3996b9bc9ecfe37a9bb2e84cfe0a887be4f0c70bb"
+        },
+        {
+          "path": "apps/desktop/src/main/client-store-capability.mjs",
+          "sha256": "f0bbf39a55e03d2afe62573b0efd0a4530b856a2e6b067354bb9147a34088cc2"
+        },
+        {
+          "path": "apps/desktop/src/main/desktop-auth.mjs",
+          "sha256": "de74db884fea6190240bb55dc00c46b7277cda9d5a22ffa4eabd0da511ac99f8"
+        },
+        {
+          "path": "apps/desktop/src/main/iscp-transport.mjs",
+          "sha256": "6c934d3b5e0602a67734e531890835ab4d3e899f0ac4686f616191a3a3054086"
+        },
+        {
+          "path": "apps/desktop/test/stream-native-fixture.mjs",
+          "sha256": "12c3f16da3136b797016b02f86474f46e2ba217805802aa41dd886cd9266f2cf"
+        },
+        {
+          "path": "apps/desktop/test/run-stream-native-qualification.mjs",
+          "sha256": "c16976c1f797cf1d8ab371dc2bd0f7e952970cf05115ea9a51749e38d30b1a41"
+        },
+        {
+          "path": "apps/webchat/dist/assets/index-1wedRqxx.js",
+          "sha256": "b83ac0e36b35b64d55438b46fc094a0d5d6872006255c2b4527ef914a664d134"
+        },
+        {
+          "path": "apps/webchat/dist/assets/index-DAe4ierJ.css",
+          "sha256": "916dcf9a917f12fbe20177a13d6ae0a340c833f791bdb5aaab123aea52f30b23"
+        }
+      ],
+      "summary": {
+        "samples": 20,
+        "chars_per_sample": 600,
+        "batches": 2000,
+        "observation": "visible original DOM followed by next animation frame; compositor paint proxy",
+        "clock_error_bound_ms": 2.556640625,
+        "main_clock_error_bound_ms": 0.059326171875,
+        "first_upper_ms": 58.963623046875,
+        "p95_upper_ms": 109.182861328125,
+        "p99_upper_ms": 116.388916015625,
+        "max_growth_gap_ms": 166,
+        "max_commit_to_handoff_upper_ms": 50.6435546875,
+        "min_visible_before_done": 0.98,
+        "remounts": 0,
+        "blanks": 0,
+        "missing_frames": 0,
+        "duplicates": 0,
+        "stream_subscriptions": 20
+      },
+      "viewport": {
+        "separate_conversations": true,
+        "harness_scrolls": 0,
+        "user_scrolls": 0,
+        "method": "production useMessageScroll only; joint-ui explicitly scrolls up and selects text, then clicks original return-to-latest button"
+      },
+      "durable_acknowledged_deliveries": 20,
+      "direct_business_http_attempts": 0,
+      "iscp_operations": {
+        "browser.host.grant": 1,
+        "browser.host.heartbeat": 20,
+        "browser.host.poll": 201,
+        "browser.host.register": 1,
+        "browser.receipt": 9,
+        "capabilities.get": 7,
+        "events.ack": 102,
+        "events.pull": 101,
+        "events.snapshot": 1,
+        "execution.ack": 20,
+        "execution.lookup": 65,
+        "execution.progress.stream": 20,
+        "execution.submit": 20,
+        "installation.bind": 1,
+        "notifications.list": 7,
+        "presentation.config": 1,
+        "presentation.ready": 1,
+        "settings.owner.get": 1,
+        "workbench.identity": 1
+      },
+      "execution_start_counts": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "label": "recovery-final",
+      "mode": "recovery",
+      "source_revision": "6608a8fee032c77ba2416df248ef3cc5b60d879a",
+      "receipt_sha256": "5a24641ca48e1d30248433924486127d7e1b3b5e6a1642f9f240db8050c0bf1c",
+      "native_evidence_sha256": "650e9896e7ffc0a5652c0005b95b34807c1239e847bfd536d1141dc70a26104a",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "build_fingerprints": [
+        {
+          "path": "isolated/gateway-fixture",
+          "sha256": "5f001ebdd85da3238160ff31d1f9ed6aee99a394920a468cf45185eab8514900"
+        },
+        {
+          "path": "apps/desktop/bin/iscp-workbench",
+          "sha256": "ee35024e8e2a9ddb280e9b5905fba67dc3f51379fe90dd51103f85768a69dbab"
+        },
+        {
+          "path": "apps/desktop/src/main/main.mjs",
+          "sha256": "90f554c7a9d84ed7ddb21cc03c2bfa99a0c547394cdcdcaa0a79dc242a307a81"
+        },
+        {
+          "path": "apps/desktop/src/main/execution-client.mjs",
+          "sha256": "9390b6ebd018efc4dceffecc50b23f46b24b87bbbf2170ccbae0995bf857b628"
+        },
+        {
+          "path": "apps/desktop/src/main/execution-progress.mjs",
+          "sha256": "bde6599834c4ca4d56791f7ca9b0bad1b3567a08235235b9e0eb6f21b9307209"
+        },
+        {
+          "path": "apps/desktop/src/main/execution-stream-projection.mjs",
+          "sha256": "703a89b758e54a0c8ee3688bb9355ebd5ba07f8abcc4d61b7154af831718d5e4"
+        },
+        {
+          "path": "apps/desktop/src/main/client-store.mjs",
+          "sha256": "3d5455f8cffa8648a55063e3996b9bc9ecfe37a9bb2e84cfe0a887be4f0c70bb"
+        },
+        {
+          "path": "apps/desktop/src/main/client-store-capability.mjs",
+          "sha256": "f0bbf39a55e03d2afe62573b0efd0a4530b856a2e6b067354bb9147a34088cc2"
+        },
+        {
+          "path": "apps/desktop/src/main/desktop-auth.mjs",
+          "sha256": "de74db884fea6190240bb55dc00c46b7277cda9d5a22ffa4eabd0da511ac99f8"
+        },
+        {
+          "path": "apps/desktop/src/main/iscp-transport.mjs",
+          "sha256": "6c934d3b5e0602a67734e531890835ab4d3e899f0ac4686f616191a3a3054086"
+        },
+        {
+          "path": "apps/desktop/test/stream-native-fixture.mjs",
+          "sha256": "12c3f16da3136b797016b02f86474f46e2ba217805802aa41dd886cd9266f2cf"
+        },
+        {
+          "path": "apps/desktop/test/run-stream-native-qualification.mjs",
+          "sha256": "c16976c1f797cf1d8ab371dc2bd0f7e952970cf05115ea9a51749e38d30b1a41"
+        },
+        {
+          "path": "apps/webchat/dist/assets/index-1wedRqxx.js",
+          "sha256": "b83ac0e36b35b64d55438b46fc094a0d5d6872006255c2b4527ef914a664d134"
+        },
+        {
+          "path": "apps/webchat/dist/assets/index-DAe4ierJ.css",
+          "sha256": "916dcf9a917f12fbe20177a13d6ae0a340c833f791bdb5aaab123aea52f30b23"
+        }
+      ],
+      "summary": {
+        "samples": 1,
+        "chars_per_sample": 600,
+        "batches": 100,
+        "observation": "visible original DOM followed by next animation frame; compositor paint proxy",
+        "clock_error_bound_ms": 0.468017578125,
+        "main_clock_error_bound_ms": 0.1357421875,
+        "first_upper_ms": 40.498046875,
+        "p95_upper_ms": 855.97998046875,
+        "p99_upper_ms": 1255.908935546875,
+        "max_growth_gap_ms": 1349.7998046875,
+        "max_commit_to_handoff_upper_ms": 34.478271484375,
+        "min_visible_before_done": 0.98,
+        "remounts": 0,
+        "blanks": 1,
+        "missing_frames": 0,
+        "duplicates": 0,
+        "stream_subscriptions": 2,
+        "recovery_ms": 1326.89990234375
+      },
+      "viewport": {
+        "separate_conversations": true,
+        "harness_scrolls": 0,
+        "user_scrolls": 0,
+        "method": "production useMessageScroll only; joint-ui explicitly scrolls up and selects text, then clicks original return-to-latest button"
+      },
+      "durable_acknowledged_deliveries": 1,
+      "direct_business_http_attempts": 0,
+      "iscp_operations": {
+        "browser.host.grant": 2,
+        "browser.host.poll": 10,
+        "browser.host.register": 2,
+        "browser.receipt": 4,
+        "capabilities.get": 2,
+        "events.ack": 6,
+        "events.pull": 5,
+        "events.snapshot": 1,
+        "execution.ack": 1,
+        "execution.lookup": 3,
+        "execution.progress.stream": 2,
+        "execution.submit": 1,
+        "installation.bind": 2,
+        "notifications.list": 2,
+        "presentation.config": 2,
+        "presentation.ready": 2,
+        "settings.owner.get": 2,
+        "workbench.identity": 2
+      },
+      "execution_start_counts": [
+        1
+      ],
+      "recovery": {
+        "helper_process_terminated": true,
+        "visible_recovery_ms": 1326.89990234375,
+        "authority_replacement_blank_events": 1
+      }
+    },
+    {
+      "label": "joint-exact",
+      "mode": "joint-ui",
+      "source_revision": "6608a8fee032c77ba2416df248ef3cc5b60d879a",
+      "receipt_sha256": "1be8755a7622de8bb745f2396515ff42286fe59d1cbc69c5a0d2f9fd33d2e0c3",
+      "native_evidence_sha256": "ea2de629b584595ca3f323196706c08f072d37e38e9bde7d8daa31e47aa7a42d",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "build_fingerprints": [
+        {
+          "path": "isolated/gateway-fixture",
+          "sha256": "5f001ebdd85da3238160ff31d1f9ed6aee99a394920a468cf45185eab8514900"
+        },
+        {
+          "path": "apps/desktop/bin/iscp-workbench",
+          "sha256": "ee35024e8e2a9ddb280e9b5905fba67dc3f51379fe90dd51103f85768a69dbab"
+        },
+        {
+          "path": "apps/desktop/src/main/main.mjs",
+          "sha256": "90f554c7a9d84ed7ddb21cc03c2bfa99a0c547394cdcdcaa0a79dc242a307a81"
+        },
+        {
+          "path": "apps/desktop/src/main/execution-client.mjs",
+          "sha256": "9390b6ebd018efc4dceffecc50b23f46b24b87bbbf2170ccbae0995bf857b628"
+        },
+        {
+          "path": "apps/desktop/src/main/execution-progress.mjs",
+          "sha256": "bde6599834c4ca4d56791f7ca9b0bad1b3567a08235235b9e0eb6f21b9307209"
+        },
+        {
+          "path": "apps/desktop/src/main/execution-stream-projection.mjs",
+          "sha256": "703a89b758e54a0c8ee3688bb9355ebd5ba07f8abcc4d61b7154af831718d5e4"
+        },
+        {
+          "path": "apps/desktop/src/main/client-store.mjs",
+          "sha256": "3d5455f8cffa8648a55063e3996b9bc9ecfe37a9bb2e84cfe0a887be4f0c70bb"
+        },
+        {
+          "path": "apps/desktop/src/main/client-store-capability.mjs",
+          "sha256": "f0bbf39a55e03d2afe62573b0efd0a4530b856a2e6b067354bb9147a34088cc2"
+        },
+        {
+          "path": "apps/desktop/src/main/desktop-auth.mjs",
+          "sha256": "de74db884fea6190240bb55dc00c46b7277cda9d5a22ffa4eabd0da511ac99f8"
+        },
+        {
+          "path": "apps/desktop/src/main/iscp-transport.mjs",
+          "sha256": "6c934d3b5e0602a67734e531890835ab4d3e899f0ac4686f616191a3a3054086"
+        },
+        {
+          "path": "apps/desktop/test/stream-native-fixture.mjs",
+          "sha256": "12c3f16da3136b797016b02f86474f46e2ba217805802aa41dd886cd9266f2cf"
+        },
+        {
+          "path": "apps/desktop/test/run-stream-native-qualification.mjs",
+          "sha256": "c16976c1f797cf1d8ab371dc2bd0f7e952970cf05115ea9a51749e38d30b1a41"
+        },
+        {
+          "path": "apps/webchat/dist/assets/index-1wedRqxx.js",
+          "sha256": "b83ac0e36b35b64d55438b46fc094a0d5d6872006255c2b4527ef914a664d134"
+        },
+        {
+          "path": "apps/webchat/dist/assets/index-DAe4ierJ.css",
+          "sha256": "916dcf9a917f12fbe20177a13d6ae0a340c833f791bdb5aaab123aea52f30b23"
+        }
+      ],
+      "summary": {
+        "samples": 2,
+        "chars_per_sample": 6000,
+        "batches": 200,
+        "observation": "original DOM followed by next animation frame; deliberately offscreen while reading; timings qualify rendering, not visible latency",
+        "clock_error_bound_ms": 0.5029296875,
+        "main_clock_error_bound_ms": 0.099853515625,
+        "first_upper_ms": 64.206787109375,
+        "p95_upper_ms": 109.447998046875,
+        "p99_upper_ms": 110.3828125,
+        "max_growth_gap_ms": 133.800048828125,
+        "max_commit_to_handoff_upper_ms": 50.221435546875,
+        "remounts": 0,
+        "blanks": 0,
+        "missing_frames": 0,
+        "duplicates": 0,
+        "stream_subscriptions": 2,
+        "min_rendered_before_done": 0.99
+      },
+      "viewport": {
+        "separate_conversations": true,
+        "harness_scrolls": 0,
+        "user_scrolls": 2,
+        "method": "production useMessageScroll only; joint-ui explicitly scrolls up and selects text, then clicks original return-to-latest button"
+      },
+      "durable_acknowledged_deliveries": 2,
+      "direct_business_http_attempts": 0,
+      "iscp_operations": {
+        "browser.host.grant": 1,
+        "browser.host.heartbeat": 2,
+        "browser.host.poll": 21,
+        "browser.host.register": 1,
+        "browser.receipt": 2,
+        "capabilities.get": 1,
+        "events.ack": 11,
+        "events.pull": 10,
+        "events.snapshot": 1,
+        "execution.ack": 2,
+        "execution.lookup": 6,
+        "execution.progress.stream": 2,
+        "execution.submit": 2,
+        "installation.bind": 1,
+        "notifications.list": 1,
+        "presentation.config": 1,
+        "presentation.ready": 1,
+        "settings.owner.get": 1,
+        "workbench.identity": 1
+      },
+      "execution_start_counts": [
+        1,
+        1
+      ],
+      "reading": [
+        {
+          "sample": 1,
+          "includes_final_handoff": false,
+          "scroll_before": 324,
+          "scroll_after": 324,
+          "selected_text_preserved": true,
+          "selected_utf8_sha256": "f2487b0d258bed89dba368b41de85b7563fa0d7e8f17b8d9aaf5cf1922d0e836",
+          "return_to_latest_present": true
+        },
+        {
+          "sample": 2,
+          "includes_final_handoff": true,
+          "scroll_before": 324,
+          "scroll_after": 324,
+          "selected_text_preserved": true,
+          "selected_utf8_sha256": "f2487b0d258bed89dba368b41de85b7563fa0d7e8f17b8d9aaf5cf1922d0e836",
+          "return_to_latest_present": true
+        }
+      ]
+    },
+    {
+      "label": "auto-follow-exact",
+      "mode": "auto-follow",
+      "source_revision": "6608a8fee032c77ba2416df248ef3cc5b60d879a",
+      "receipt_sha256": "043125099d18fb644019b562bce2bad08c38a1143e109357b06da04c0affa18a",
+      "native_evidence_sha256": "4219848d6a0f3e2533b0fdf9bac5ba045e7a3c62d31d28b239141af1b326a913",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "build_fingerprints": [
+        {
+          "path": "isolated/gateway-fixture",
+          "sha256": "5f001ebdd85da3238160ff31d1f9ed6aee99a394920a468cf45185eab8514900"
+        },
+        {
+          "path": "apps/desktop/bin/iscp-workbench",
+          "sha256": "ee35024e8e2a9ddb280e9b5905fba67dc3f51379fe90dd51103f85768a69dbab"
+        },
+        {
+          "path": "apps/desktop/src/main/main.mjs",
+          "sha256": "90f554c7a9d84ed7ddb21cc03c2bfa99a0c547394cdcdcaa0a79dc242a307a81"
+        },
+        {
+          "path": "apps/desktop/src/main/execution-client.mjs",
+          "sha256": "9390b6ebd018efc4dceffecc50b23f46b24b87bbbf2170ccbae0995bf857b628"
+        },
+        {
+          "path": "apps/desktop/src/main/execution-progress.mjs",
+          "sha256": "bde6599834c4ca4d56791f7ca9b0bad1b3567a08235235b9e0eb6f21b9307209"
+        },
+        {
+          "path": "apps/desktop/src/main/execution-stream-projection.mjs",
+          "sha256": "703a89b758e54a0c8ee3688bb9355ebd5ba07f8abcc4d61b7154af831718d5e4"
+        },
+        {
+          "path": "apps/desktop/src/main/client-store.mjs",
+          "sha256": "3d5455f8cffa8648a55063e3996b9bc9ecfe37a9bb2e84cfe0a887be4f0c70bb"
+        },
+        {
+          "path": "apps/desktop/src/main/client-store-capability.mjs",
+          "sha256": "f0bbf39a55e03d2afe62573b0efd0a4530b856a2e6b067354bb9147a34088cc2"
+        },
+        {
+          "path": "apps/desktop/src/main/desktop-auth.mjs",
+          "sha256": "de74db884fea6190240bb55dc00c46b7277cda9d5a22ffa4eabd0da511ac99f8"
+        },
+        {
+          "path": "apps/desktop/src/main/iscp-transport.mjs",
+          "sha256": "6c934d3b5e0602a67734e531890835ab4d3e899f0ac4686f616191a3a3054086"
+        },
+        {
+          "path": "apps/desktop/test/stream-native-fixture.mjs",
+          "sha256": "12c3f16da3136b797016b02f86474f46e2ba217805802aa41dd886cd9266f2cf"
+        },
+        {
+          "path": "apps/desktop/test/run-stream-native-qualification.mjs",
+          "sha256": "c16976c1f797cf1d8ab371dc2bd0f7e952970cf05115ea9a51749e38d30b1a41"
+        },
+        {
+          "path": "apps/webchat/dist/assets/index-1wedRqxx.js",
+          "sha256": "b83ac0e36b35b64d55438b46fc094a0d5d6872006255c2b4527ef914a664d134"
+        },
+        {
+          "path": "apps/webchat/dist/assets/index-DAe4ierJ.css",
+          "sha256": "916dcf9a917f12fbe20177a13d6ae0a340c833f791bdb5aaab123aea52f30b23"
+        }
+      ],
+      "summary": {
+        "samples": 1,
+        "chars_per_sample": 6000,
+        "batches": 100,
+        "observation": "visible original DOM followed by next animation frame; compositor paint proxy",
+        "clock_error_bound_ms": 0.332275390625,
+        "main_clock_error_bound_ms": 0.0078125,
+        "first_upper_ms": 55.005126953125,
+        "p95_upper_ms": 105.4580078125,
+        "p99_upper_ms": 105.816162109375,
+        "max_growth_gap_ms": 149.2998046875,
+        "max_commit_to_handoff_upper_ms": 49.82958984375,
+        "min_visible_before_done": 0.98,
+        "remounts": 0,
+        "blanks": 0,
+        "missing_frames": 0,
+        "duplicates": 0,
+        "stream_subscriptions": 1
+      },
+      "viewport": {
+        "separate_conversations": true,
+        "harness_scrolls": 0,
+        "user_scrolls": 0,
+        "method": "production useMessageScroll only; joint-ui explicitly scrolls up and selects text, then clicks original return-to-latest button"
+      },
+      "durable_acknowledged_deliveries": 1,
+      "direct_business_http_attempts": 0,
+      "iscp_operations": {
+        "browser.host.grant": 1,
+        "browser.host.heartbeat": 1,
+        "browser.host.poll": 11,
+        "browser.host.register": 1,
+        "browser.receipt": 2,
+        "capabilities.get": 1,
+        "events.ack": 6,
+        "events.pull": 5,
+        "events.snapshot": 1,
+        "execution.ack": 1,
+        "execution.lookup": 3,
+        "execution.progress.stream": 1,
+        "execution.submit": 1,
+        "installation.bind": 1,
+        "notifications.list": 1,
+        "presentation.config": 1,
+        "presentation.ready": 1,
+        "settings.owner.get": 1,
+        "workbench.identity": 1
+      },
+      "execution_start_counts": [
+        1
+      ]
+    }
+  ],
+  "log_fingerprints": [
+    {
+      "name": "browser-layout.log",
+      "sha256": "1a4cac9a63725c7de88227c5259454249c24fd62cbb7ffaa8aa0cc782fdb9222",
+      "bytes": 280
+    },
+    {
+      "name": "desktop-merge-desktop.log",
+      "sha256": "791a2fa57747df80f2ecffeedd97b83f77adb9fb8b04ca214b97364c9b263939",
+      "bytes": 39389
+    },
+    {
+      "name": "desktop-merge-webchat.log",
+      "sha256": "784b7bc9447415716107131e3e816ab248ab11635dfdae82f88f26e3ad337249",
+      "bytes": 2038
+    },
+    {
+      "name": "final-desktop.log",
+      "sha256": "70f533298b765d462e3e3028e66a35d26dd052557dabc5e6f8c29df1992fa302",
+      "bytes": 44094
+    },
+    {
+      "name": "final-webchat.log",
+      "sha256": "0637e1ca5c42b40cef8e9d3f04327144b6f252ae91b7eebda975bca430d71926",
+      "bytes": 2219
+    },
+    {
+      "name": "gateway-build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "name": "gateway-linux-all.log",
+      "sha256": "4479ea15f8ef2d3a06f0b23af331144d538e2d65c03f1ffe4cb386c392d94980",
+      "bytes": 7326
+    },
+    {
+      "name": "gateway-vet.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "name": "linux-document-dependencies.log",
+      "sha256": "8e0e5f4eec05206a67d6f401232914d6b2060095ba9d5f442de34774d852dbe6",
+      "bytes": 57
+    },
+    {
+      "name": "linux-document-setup.log",
+      "sha256": "48b07b7c5408f2071e3b305c7ed326f78c44442f787a12c3baac160bdd02d51e",
+      "bytes": 337
+    },
+    {
+      "name": "merged-build.log",
+      "sha256": "dee1bd72a0cfcfdc752edc3bc2350e9424dd38ff9a471fb94102eeeb123b2c9c",
+      "bytes": 971
+    },
+    {
+      "name": "merged-desktop.log",
+      "sha256": "35eae867b0c3a4abf9341296b81824be28c3630dc0f2971d97d368c608c95130",
+      "bytes": 44135
+    },
+    {
+      "name": "merged-webchat.log",
+      "sha256": "fc44f466bd5d6a5564644bbd4ecc8e38a5018a13b5e5f5a62918ad9e1be5b393",
+      "bytes": 2039
+    },
+    {
+      "name": "native-auto-follow-exact.log",
+      "sha256": "142c89952a32eedcf6888ad1f9a6e4e11c479cb624a745dbedd667b648d37506",
+      "bytes": 1238
+    },
+    {
+      "name": "native-auto-follow.log",
+      "sha256": "ddae843038cc5fe6e55be47fd73f3d9736c6f2d24b80b391498fc563ac46f71c",
+      "bytes": 1275
+    },
+    {
+      "name": "native-controlled-final.log",
+      "sha256": "1b29fff67520f3c4583161796e1d974b0a225579869e55b4affcd3ee1a6b957b",
+      "bytes": 3429
+    },
+    {
+      "name": "native-interaction.log",
+      "sha256": "974d101682f3d66967ff210a359e9efaa96ffef9d62e591b7af8ce4da0f18747",
+      "bytes": 255
+    },
+    {
+      "name": "native-joint-after.log",
+      "sha256": "af34f83482bebc6b365ce57c924f86c508c7f32913ce550c4f21aab6986fe779",
+      "bytes": 2901
+    },
+    {
+      "name": "native-joint-before.log",
+      "sha256": "93c2a0116498cd9150b3d83ca12caa975759baff04efafaf5f59635058774fde",
+      "bytes": 3030
+    },
+    {
+      "name": "native-joint-exact.log",
+      "sha256": "7d000fda11fa6878dc9e7b3d50b25d1e0b2958d58451f790eb0a074aca64331e",
+      "bytes": 1411
+    },
+    {
+      "name": "native-joint-final.log",
+      "sha256": "48c5bcb30532ba223f2fe9311e963691baaebf9f77e93dcfe3a772c7678e8f2d",
+      "bytes": 1415
+    },
+    {
+      "name": "native-recovery-final.log",
+      "sha256": "58ecaf0a2bc18573a99560a409e04bad53ede509e29f49574471b70cfdee17ab",
+      "bytes": 1271
+    },
+    {
+      "name": "native-visual.log",
+      "sha256": "55e08843206fbe904706ef311064a73820b1c31776a7bced124b09604403acd7",
+      "bytes": 150
+    },
+    {
+      "name": "selection-regression.log",
+      "sha256": "ee28777e3f170105ce08371f346d1ed96509177ab78045aff562039a59968d51",
+      "bytes": 536
+    }
+  ],
+  "development_failures": [
+    {
+      "log": "native-joint-before.log",
+      "reason": "Selected text collapsed during live growth; product fix 8bdd0411 and boundary refinement 6608a8fe."
+    },
+    {
+      "log": "native-joint-after.log",
+      "reason": "One queued following-frame observation ran after intentional user scroll; phase is now read at measurement time. Selection and position held."
+    },
+    {
+      "log": "linux-document-setup.log",
+      "reason": "Setup script --user rejected the prepared Python virtualenv. All required Node/Python modules verified in that same image before successful full suite."
+    }
+  ],
+  "limits": [
+    "macOS Apple Silicon native UI only; no new system IME, screen-reader, Windows/Linux font or x64 qualification",
+    "Controlled producer timing uses next-animation-frame compositor proxy; joint reading measurements are DOM rendering, not visibility latency",
+    "Real-model evidence is retained from the stream branch; no new live model/environment run was performed during integration",
+    "ISCP upstream extension acceptance remains proposed; no existing public contract or SDK pin changed"
+  ]
+}

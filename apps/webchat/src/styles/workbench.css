@@ -97,7 +97,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .workbench .composer textarea { grid-column: 1 / -1; grid-row: 1; width: 100%; min-height: var(--line-body); height: var(--line-body); max-height: calc(var(--line-body) * 6); padding: 0; background: transparent; border: 0; border-radius: 0; outline: none; font-size: var(--font-body); line-height: var(--line-body); color: var(--text-primary); }
 .workbench .composer textarea::placeholder { color: var(--text-secondary); }
 .workbench .composer .uploadButton { grid-row: 2; width: 32px; height: 32px; border: 0; border-radius: 6px; }
-.workbench .composer > .emailEntryButton { grid-row: 2; width: 32px; height: 32px; border-radius: 6px; }
+.workbench .composer > .emailEntryButton { grid-row: 2; align-self: end; width: 32px; height: 32px; border-radius: 6px; }
 .workbench .voiceControl { grid-row: 2; width: 56px; height: 32px; grid-template-columns: 32px 24px; }
 .workbench .voiceButton, .workbench .voiceDeviceButton { height: 32px; border: 0; background: transparent; }
 .workbench .voiceButton { width: 32px; }

@@ -22,16 +22,14 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// The reference service's WebSocket is an authenticated queue drain. It sends
-// ready, the current queue snapshot, drained and closes; new messages wait for
-// the next authenticated poll. This fixture models that exact lifecycle while
-// verifying SDK connection and access PoP, without claiming to be the service.
-func TestReferenceDrainPollingRetainsEncryptedSession(t *testing.T) {
+// This authenticated continuous-socket fixture verifies actual PoP and encrypted
+// Endpoint delivery, including stale frames from a retired process.
+func TestContinuousRelayRetainsEncryptedSession(t *testing.T) {
 	for _, profile := range []string{iscpbridge.ProfileLocalLab, iscpbridge.ProfileProduction} {
-		t.Run(profile, func(t *testing.T) { testReferenceDrainPolling(t, profile) })
+		t.Run(profile, func(t *testing.T) { testContinuousRelay(t, profile) })
 	}
 }
-func testReferenceDrainPolling(t *testing.T, profile string) {
+func testContinuousRelay(t *testing.T, profile string) {
 	desktop, backend := testMaterials(t)
 	provider := iscpcrypto.NewProvider()
 	signer, err := identity.NewDevice(provider, desktop.enrollment.DomainID, "relay-test-signer", time.Now().UTC())
@@ -72,17 +70,34 @@ func testReferenceDrainPolling(t *testing.T, profile string) {
 			if connection.WriteJSON(map[string]string{"state": "ready"}) != nil {
 				return
 			}
-			queueMu.Lock()
-			snapshot := queues[id.DeviceID]
-			delete(queues, id.DeviceID)
-			queueMu.Unlock()
-			for _, raw := range snapshot {
-				if connection.WriteJSON(map[string]any{"state": "message", "message_id": newUUID(), "envelope": raw}) != nil {
+			polls.Add(1)
+			closed := make(chan struct{})
+			go func() {
+				defer close(closed)
+				for {
+					if _, _, err := connection.ReadMessage(); err != nil {
+						return
+					}
+				}
+			}()
+			ticker := time.NewTicker(2 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				queueMu.Lock()
+				snapshot := queues[id.DeviceID]
+				delete(queues, id.DeviceID)
+				queueMu.Unlock()
+				for _, raw := range snapshot {
+					if connection.WriteJSON(map[string]any{"state": "message", "message_id": newUUID(), "envelope": raw}) != nil {
+						return
+					}
+				}
+				select {
+				case <-closed:
 					return
+				case <-ticker.C:
 				}
 			}
-			_ = connection.WriteJSON(map[string]any{"state": "drained", "delivered": len(snapshot)})
-			polls.Add(1)
 		case "/v2/relay/envelopes":
 			raw, err := io.ReadAll(io.LimitReader(r.Body, 100<<10))
 			if err != nil {
@@ -235,7 +250,7 @@ func testReferenceDrainPolling(t *testing.T, profile string) {
 			select {
 			case <-done:
 			case <-time.After(3 * time.Second):
-				t.Error("drain polling endpoint leaked")
+				t.Error("continuous receive endpoint leaked")
 			}
 		}
 	}()
@@ -243,7 +258,7 @@ func testReferenceDrainPolling(t *testing.T, profile string) {
 		select {
 		case <-ready:
 		case <-ctx.Done():
-			t.Fatal("reference drain handshake never completed")
+			t.Fatal("continuous handshake never completed")
 		}
 	}
 	if handlerCalls.Load() != 0 {
@@ -254,12 +269,12 @@ func testReferenceDrainPolling(t *testing.T, profile string) {
 	client.mu.Unlock()
 	response, err := client.Call(ctx, Request{Type: RequestType, Profile: Profile, ID: newUUID(), Operation: OperationIdentity})
 	if err != nil || response.Status != 200 || string(response.Body) != `{"retained":true}` {
-		t.Fatalf("encrypted drain RPC: %+v %v", response, err)
+		t.Fatalf("encrypted continuous RPC: %+v %v", response, err)
 	}
 	client.mu.Lock()
 	retained := client.session != nil && client.session.id == sessionID && client.session.manifest
 	client.mu.Unlock()
-	if !retained || disconnected.Load() != 0 || polls.Load() < 4 || proofs.Load() < polls.Load() || posts.Load() < 8 || handlerCalls.Load() != 1 {
-		t.Fatalf("session lost across normal drain: retained=%v disconnected=%d polls=%d proofs=%d posts=%d", retained, disconnected.Load(), polls.Load(), proofs.Load(), posts.Load())
+	if !retained || disconnected.Load() != 0 || polls.Load() != 2 || proofs.Load() != 2 || posts.Load() < 8 || handlerCalls.Load() != 1 {
+		t.Fatalf("session lost across continuous receive: retained=%v disconnected=%d polls=%d proofs=%d posts=%d", retained, disconnected.Load(), polls.Load(), proofs.Load(), posts.Load())
 	}
 }

@@ -99,7 +99,7 @@ func TestV2NegotiationKeepsExactV1ManifestAndDirections(t *testing.T) {
 
 func TestDeviceManagementNegotiatesOnlyExactLegacyOrNodeApplicationTables(t *testing.T) {
 	// Build the remaining canonical fields independently of live authorization.
-	c := TransportCapabilities{SchemaVersion: 2, Profile: ProfileV2, SessionID: "session", Revision: "2", AuthorizationRevision: 1, ExpiresAt: time.Now().Add(time.Minute), Operations: OperationsV2ForMode("local-test"), Limits: TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, MaxConcurrent, 8192, 2}}
+	c := TransportCapabilities{StreamSchemaVersion: 1, SchemaVersion: 2, Profile: ProfileV2, SessionID: "session", Revision: "2", AuthorizationRevision: 1, ExpiresAt: time.Now().Add(time.Minute), Operations: OperationsV2ForMode("local-test"), Limits: TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, MaxConcurrent, 8192, 2}}
 	if slices.Contains(c.Operations, OperationClientsIssue) || validateNegotiation(c, "session", "local-test") != nil {
 		t.Fatal("legacy application table changed")
 	}

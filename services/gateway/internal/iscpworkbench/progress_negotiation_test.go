@@ -11,7 +11,7 @@ import (
 func TestProgressNegotiationExactNewAndLegacyMatrices(t *testing.T) {
 	for _, mode := range []string{"local-test", "node-managed"} {
 		for _, progress := range []bool{false, true} {
-			ops := OperationsV2ForMode(mode)
+			ops := withoutStream(OperationsV2ForMode(mode))
 			if !progress {
 				ops = withoutProgress(ops)
 			}
@@ -98,7 +98,7 @@ func TestProgressNegotiationOnlyAdvertisesRequestedExtension(t *testing.T) {
 			if offer.unbounded != (caps.Limits.Concurrent == 0) {
 				t.Fatal("changed independent concurrency contract")
 			}
-			if !offer.progress && !slices.Equal(caps.Operations, withoutProgress(OperationsV2())) {
+			if !offer.progress && !slices.Equal(caps.Operations, withoutStream(withoutProgress(OperationsV2()))) {
 				t.Fatal("original exact list changed")
 			}
 		})

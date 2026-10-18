@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/appstream"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/envelope"
@@ -267,6 +268,17 @@ func (n *NodeResponder) resetAll() {
 func (n *NodeResponder) receive(ctx context.Context, raw json.RawMessage) error {
 	var env envelope.SecureEnvelope
 	if len(raw) > 100<<10 || strictDecode(raw, &env) != nil {
+		return nil
+	}
+	// Stream data/control authenticate inside the Endpoint and use its local
+	// snapshot. Registry/Client refresh is independent; it cannot stall batches.
+	if env.PayloadType == appstream.Type || env.PayloadType == appstream.ControlType {
+		n.mu.Lock()
+		peer := n.peers[env.SenderDeviceID]
+		n.mu.Unlock()
+		if peer != nil {
+			_ = peer.endpoint.receive(ctx, raw)
+		}
 		return nil
 	}
 	if err := n.syncPeers(ctx); err != nil {

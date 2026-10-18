@@ -15,6 +15,9 @@ func (e *Endpoint) acceptResponse(ctx context.Context, raw []byte, id string, ar
 	// Decryption, sequence advancement and structural validation remain on the
 	// receive owner. Only a verified response for an original pending call may
 	// start a fresh authorization worker; duplicates cannot create more work.
+	if handled, err := e.acceptStreamCompletion(raw, id); handled {
+		return err
+	}
 	var response Response
 	if err := strictDecode(raw, &response); err != nil {
 		return errors.New("invalid workbench response")
@@ -87,6 +90,9 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 	}
 	if err := request.Validate(); err != nil {
 		return err
+	}
+	if request.Operation == OperationExecutionProgressStream {
+		return e.acceptStreamRequest(ctx, request, id)
 	}
 	ctx = latencytrace.WithFields(ctx, requestTraceFields(e.config.Role, request))
 	latencytrace.Record(ctx, "rpc.request_received", time.Time{}, nil, 0)
@@ -210,6 +216,9 @@ func (e *Endpoint) sendResponse(ctx context.Context, id string, response Respons
 }
 
 func (e *Endpoint) Call(ctx context.Context, request Request) (result Response, resultErr error) {
+	if request.Operation == OperationExecutionProgressStream {
+		return Response{}, errors.New("stream operation requires StreamCall")
+	}
 	spec, ok := LookupOperation(request.Operation)
 	if !ok || (e.config.Role == RoleResponder && spec.Direction != "reverse") || (e.config.Role == RoleInitiator && spec.Direction != "forward") {
 		return Response{}, errors.New("operation direction denied")

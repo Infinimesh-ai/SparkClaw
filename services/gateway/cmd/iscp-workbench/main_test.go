@@ -202,3 +202,9 @@ func TestDeletionControlSchema(t *testing.T) {
 		t.Fatal("zero deletion revision accepted")
 	}
 }
+
+func (c *pipeCaller) StreamCall(ctx context.Context, r iscpworkbench.Request, onEvent func(json.RawMessage) error) (iscpworkbench.Response, error) {
+	return c.Call(ctx, r)
+}
+
+func (c *pipeCaller) StreamAuthorityRemaining(string) (time.Duration, error) { return time.Minute, nil }

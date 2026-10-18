@@ -1918,5 +1918,20 @@
       "method": "POST",
       "path": "/api/v1/executions/{request_id}/progress"
     }
+  },
+  {
+    "name": "execution.progress.stream",
+    "constant": "OperationExecutionProgressStream",
+    "version": 2,
+    "direction": "forward",
+    "scope": "workbench.text",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "request_id"
+    ],
+    "capacity_class": "business"
   }
 ]

@@ -119,4 +119,5 @@ const (
 	OperationClientsRevoke = "clients.revoke"
 	OperationClientsDelete = "clients.delete"
 	OperationExecutionProgress = "execution.progress"
+	OperationExecutionProgressStream = "execution.progress.stream"
 )

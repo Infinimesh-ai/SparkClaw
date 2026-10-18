@@ -135,7 +135,7 @@ func main() {
 		}
 	})
 	defer endpoint.Close()
-	if err := writer.send(map[string]any{"ipc_version": ipcVersion, "type": "hello", "identity": publicIdentity, "operations": iscpworkbench.Operations(), "max_request_bytes": iscpworkbench.MaxRequestBytes, "max_response_bytes": iscpworkbench.MaxResponseBytes}); err != nil {
+	if err := writer.send(map[string]any{"ipc_version": ipcVersion, "type": "hello", "stream_schema_version": 1, "identity": publicIdentity, "operations": iscpworkbench.Operations(), "max_request_bytes": iscpworkbench.MaxRequestBytes, "max_response_bytes": iscpworkbench.MaxResponseBytes}); err != nil {
 		os.Exit(1)
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -151,6 +151,8 @@ type caller interface {
 	AuthorizationDeletionReceipt(context.Context, string, uint64) (iscpauth.DeletionReceipt, error)
 	Run(context.Context) error
 	Call(context.Context, iscpworkbench.Request) (iscpworkbench.Response, error)
+	StreamCall(context.Context, iscpworkbench.Request, func(json.RawMessage) error) (iscpworkbench.Response, error)
+	StreamAuthorityRemaining(string) (time.Duration, error)
 	Close() error
 }
 
@@ -185,6 +187,8 @@ func serveFrames(ctx context.Context, input io.Reader, writer *ipcWriter, endpoi
 	var calls sync.WaitGroup
 	defer func() { cancel(); calls.Wait() }()
 	controls := make(chan struct{}, 1)
+	streams := newPipeStreams()
+	defer streams.close()
 	for {
 		select {
 		case <-ctx.Done():
@@ -226,6 +230,41 @@ func serveFrames(ctx context.Context, input io.Reader, writer *ipcWriter, endpoi
 						out["receipt"] = r
 					}
 					_ = writer.send(out)
+				}(frame)
+				continue
+			}
+			if frame.Type == "stream_cancel" {
+				streams.cancel(frame.ID)
+				continue
+			}
+			if frame.Type == "stream_call" {
+				streamStarted := time.Now()
+				streamCtx, done, err := streams.open(ctx, frame.ID)
+				if err != nil {
+					return err
+				}
+				calls.Add(1)
+				go func(frame callFrame) {
+					defer calls.Done()
+					defer done()
+					response, err := endpoint.StreamCall(streamCtx, frame.Request, func(event json.RawMessage) error {
+						sampledElapsed := time.Since(streamStarted)
+						remaining, err := endpoint.StreamAuthorityRemaining(frame.Request.ID)
+						if err != nil {
+							return err
+						}
+						// Electron anchors this relative monotonic deadline before it
+						// sends the call. Pipe queuing cannot renew old event authority.
+						return writer.send(map[string]any{"ipc_version": ipcVersion, "type": "stream_event", "id": frame.ID, "event": event, "authority_valid_for_ms": remaining.Milliseconds(), "authority_deadline_ms": (sampledElapsed + remaining).Milliseconds()})
+					})
+					if err != nil {
+						response = iscpworkbench.Response{Type: iscpworkbench.ResponseType, Profile: frame.Request.Profile, ID: frame.Request.ID, Status: 503, Error: "ISCP stream unavailable", Code: iscpworkbench.ErrorCapabilityUnavailable, Retryable: true}
+						if errors.Is(err, iscpworkbench.ErrStreamAuthorityExpired) {
+							response.Status = 403
+							response.Code = iscpworkbench.ErrorGrantExpired
+						}
+					}
+					_ = writeResponse(writer, frame.ID, response)
 				}(frame)
 				continue
 			}
@@ -288,7 +327,10 @@ func decodeCall(line []byte) (callFrame, error) {
 		}
 		return frame, nil
 	}
-	if frame.Type != "call" || frame.ID == "" || len(frame.ID) > 200 {
+	if frame.Type == "stream_cancel" && frame.ID != "" && len(frame.ID) <= 200 {
+		return frame, nil
+	}
+	if (frame.Type != "call" && frame.Type != "stream_call") || frame.ID == "" || len(frame.ID) > 200 {
 		return frame, errors.New("invalid private IPC call")
 	}
 	if frame.BodyBase64 != "" {
@@ -300,6 +342,12 @@ func decodeCall(line []byte) (callFrame, error) {
 			return frame, errors.New("invalid private IPC encoded body")
 		}
 		frame.Request.Body = json.RawMessage(raw)
+	}
+	if frame.Type == "stream_call" && (frame.Request.Operation != iscpworkbench.OperationExecutionProgressStream || frame.ID != frame.Request.ID) {
+		return frame, errors.New("invalid IPC stream call")
+	}
+	if frame.Type == "call" && frame.Request.Operation == iscpworkbench.OperationExecutionProgressStream {
+		return frame, errors.New("stream operation requires stream_call")
 	}
 	if err := frame.Request.Validate(); err != nil {
 		return frame, errors.New("invalid private IPC workbench request")

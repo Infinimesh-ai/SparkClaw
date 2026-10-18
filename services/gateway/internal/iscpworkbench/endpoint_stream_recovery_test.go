@@ -95,6 +95,34 @@ func TestStreamEarlyCompletionWaitsForContiguousOutOfOrderTail(t *testing.T) {
 	}
 }
 
+func TestStreamConflictingSecondCompletionCannotShortenPendingTail(t *testing.T) {
+	e, s := streamAuthorityUnitEndpoint(t, nil)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	id, p := newUUID(), recoveryPending(ctx)
+	p.completion <- recoveryCompletion(t, id, 2)
+	finished := make(chan callResult, 1)
+	go func() {
+		r, err := e.consumeStream(s, p, id, func(json.RawMessage) error {
+			t.Error("no tail frame was supplied")
+			return nil
+		})
+		finished <- callResult{response: r, err: err}
+	}()
+	// The first completion must leave the channel before the second arrives;
+	// otherwise only the channel-overflow duplicate check would be exercised.
+	for len(p.completion) > 0 && ctx.Err() == nil {
+		time.Sleep(time.Millisecond)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("first completion was not consumed")
+	}
+	p.completion <- recoveryCompletion(t, id, 0)
+	if r := awaitRecoveryResult(t, finished); !errors.Is(r.err, appstream.ErrInvalid) {
+		t.Fatalf("second terminal changed the first missing-tail watermark: response=%+v err=%v", r.response, r.err)
+	}
+}
+
 func TestStreamDuplicateFramesAreIdempotentOrRejectedOnConflict(t *testing.T) {
 	for _, kind := range []string{"identical-delivered", "conflicting-delivered", "conflicting-queued"} {
 		t.Run(kind, func(t *testing.T) {

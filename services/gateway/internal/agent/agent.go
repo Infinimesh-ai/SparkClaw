@@ -531,7 +531,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	}
 	if emit != nil && run.State == "completed" && !execution.FinalAnswerStreamed && len(approvals) == 0 &&
 		execution.BrowserLoginBlock == nil && !isEndpointMediaPublication(run) {
-		if err := emitCompletedFinalAnswer(run, "workflow_grounded_answer", run.Summary, emit); err != nil {
+		if err := emitCompletedFinalAnswer(ctx, run, "workflow_grounded_answer", run.Summary, emit); err != nil {
 			r.addAudit(ctx, app.AuditEvent{
 				SessionID: sessionID,
 				RunID:     run.ID,
@@ -930,10 +930,15 @@ func (r Runtime) completeRunAfterTerminalApprovedAction(ctx context.Context, ses
 }
 
 func (r Runtime) chatWorkflowFinalAnswer(ctx context.Context, run app.AgentRun, modelOperation modelcapacity.Operation, spanID, lane, system, user string, emit StreamHandler) (modelrouter.ChatResult, error) {
+	startFinalAnswer(ctx)
+	format := finalAnswerFormatFromContext(ctx)
+	if format == FinalAnswerStructured {
+		system += "\nOutput format override: return exactly one JSON object with only type (the literal final) and answer (the complete user-visible answer string)."
+	}
 	if emit == nil {
 		return r.models.ChatWithProfile(ctx, modelOperation, lane, system, user)
 	}
-	stream := workflowFinalAnswerStream{forward: workflowStreamHandler(run, spanID, emit)}
+	stream := workflowFinalAnswerStream{forward: workflowStreamHandler(run, spanID, emit), format: format}
 	return r.models.ChatStreamWithProfile(ctx, modelOperation, lane, system, user, stream.emit)
 }
 
@@ -949,56 +954,12 @@ func workflowStreamHandler(run app.AgentRun, spanID string, emit StreamHandler) 
 	}
 }
 
-type workflowFinalAnswerStream struct {
-	forward   modelrouter.StreamHandler
-	pending   strings.Builder
-	streaming bool
-	buffering bool
-}
-
-func (s *workflowFinalAnswerStream) emit(event modelrouter.ModelStreamEvent) error {
-	switch event.Type {
-	case "text_delta":
-		if s.streaming {
-			return s.forward(event)
-		}
-		s.pending.WriteString(event.Text)
-		if s.buffering {
-			return nil
-		}
-		trimmed := strings.TrimLeft(s.pending.String(), " \t\r\n")
-		if trimmed == "" {
-			return nil
-		}
-		if trimmed[0] == '{' || trimmed[0] == '`' {
-			s.buffering = true
-			return nil
-		}
-		s.streaming = true
-		event.Text = s.pending.String()
-		s.pending.Reset()
-		return s.forward(event)
-	case "done":
-		if !s.streaming {
-			answer, err := workflowFinalAnswerContent(s.pending.String())
-			if err == nil && answer != "" {
-				if err := s.forward(modelrouter.ModelStreamEvent{Type: "text_delta", Text: answer}); err != nil {
-					return err
-				}
-			}
-			s.pending.Reset()
-		}
-		return s.forward(event)
-	default:
-		return s.forward(event)
-	}
-}
-
-func emitCompletedFinalAnswer(run app.AgentRun, spanID, answer string, emit StreamHandler) error {
+func emitCompletedFinalAnswer(ctx context.Context, run app.AgentRun, spanID, answer string, emit StreamHandler) error {
 	answer = strings.TrimSpace(answer)
 	if emit == nil || answer == "" {
 		return nil
 	}
+	startFinalAnswer(ctx)
 	handler := workflowStreamHandler(run, spanID, emit)
 	if err := handler(modelrouter.ModelStreamEvent{Type: "text_delta", Text: answer}); err != nil {
 		return err

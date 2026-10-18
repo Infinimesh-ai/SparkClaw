@@ -44,6 +44,7 @@ type Service struct {
 	progressEpoch   string
 	progress        map[string]*progressEntry
 	progressBytes   int
+	answers         map[string]*answerEntry
 }
 
 func keyFor(owner, client, request string) string { return owner + "\x00" + client + "\x00" + request }
@@ -90,6 +91,7 @@ func New(root string, execute Executor) (*Service, error) {
 	s.key = key
 	s.progressEpoch = newUUID()
 	s.progress = map[string]*progressEntry{}
+	s.answers = map[string]*answerEntry{}
 	raw, err := readPrivate(filepath.Join(root, "control.json"), 64<<20)
 	if err == nil {
 		decoder := json.NewDecoder(strings.NewReader(string(raw)))
@@ -288,6 +290,7 @@ func (s *Service) Submit(ctx context.Context, e Envelope, digest string) (Status
 		return Status{}, ErrUnavailable
 	}
 	delete(s.inputs, key)
+	s.newAnswerLocked(key, f)
 	run, cancel := context.WithDeadline(ctx, f.Deadline)
 	s.active[key] = cancel
 	s.wg.Add(1)
@@ -328,6 +331,7 @@ func (s *Service) run(ctx context.Context, key string, e Envelope, files map[str
 			}
 		}()
 		runCtx := context.WithValue(ctx, progressContextKey{}, progressPublisher(func(text string) { s.publishProgress(ctx, key, text) }))
+		runCtx = context.WithValue(runCtx, answerContextKey{}, answerPublisher{append: func(text string) { s.publishAnswer(key, text) }, reset: func() { s.resetAnswer(key) }})
 		out, err = s.execute(runCtx, e, files)
 	}()
 	if ctx.Err() != nil {

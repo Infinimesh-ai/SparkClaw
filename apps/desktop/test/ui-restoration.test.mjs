@@ -47,7 +47,10 @@ test('input and output attachments retain their exact message association throug
   assert.equal(original.messages[1].attachments.length, 0);
   assert.equal(original.messages[2].attachments[0].name, 'output.png');
   const installation = f.store.installationID;
-  f.store.db.exec('DROP TABLE message_files; ALTER TABLE conversations DROP COLUMN hidden; ALTER TABLE conversations DROP COLUMN title_pending; ALTER TABLE schedule_definitions DROP COLUMN calendar; PRAGMA user_version=8;');
+  f.store.db.exec('DROP TABLE message_deliveries; DROP TABLE message_files; ALTER TABLE conversations DROP COLUMN hidden; ALTER TABLE conversations DROP COLUMN title_pending; ALTER TABLE schedule_definitions DROP COLUMN calendar; PRAGMA user_version=8;');
+  // A real v8 store never had reliable delivery-to-message request linkage.
+  // Its historical messages retain their IDs and attachments without guessing.
+  for (const message of original.messages) delete message.request_id;
   f.restart();
   assert.equal(f.store.db.prepare('PRAGMA user_version').get().user_version, CLIENT_SCHEMA_VERSION);
   assert.equal(f.store.installationID, installation);

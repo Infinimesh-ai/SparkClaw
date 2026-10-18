@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/appstream"
 	"slices"
 	"sync"
 	"time"
@@ -48,6 +49,10 @@ type capabilityManifest struct {
 }
 
 type activeSession struct {
+	streamAuthority                 *streamAuthority
+	streams                         map[string]*pendingStream
+	streamSenders                   map[string]*streamSender
+	streamCancels                   map[string]time.Time
 	id                              string
 	local                           session.LocalHello
 	state                           *session.State
@@ -345,13 +350,14 @@ func (e *Endpoint) initiate(ctx context.Context) error {
 func newSession(ctx context.Context, id string, local session.LocalHello) *activeSession {
 	ctx, cancel := context.WithCancel(ctx)
 	now := time.Now().UTC()
-	return &activeSession{id: id, local: local, ctx: ctx, cancel: cancel, started: now, timeReceived: now, timePing: now, seenRequests: map[string]struct{}{}, sentRequests: map[string]struct{}{}}
+	return &activeSession{streams: map[string]*pendingStream{}, streamSenders: map[string]*streamSender{}, streamCancels: map[string]time.Time{}, id: id, local: local, ctx: ctx, cancel: cancel, started: now, timeReceived: now, timePing: now, seenRequests: map[string]struct{}{}, sentRequests: map[string]struct{}{}}
 }
 
 // resetLocked must hold mu; pending calls fail immediately instead of waiting
 // for a response that belongs to discarded session keys.
 func (e *Endpoint) resetLocked() {
 	if e.session != nil {
+		e.stopStreamsLocked(e.session, errors.New("workbench session disconnected"))
 		e.session.cancel()
 		e.stale = append(e.stale, e.session.id)
 		if len(e.stale) > 64 {
@@ -406,7 +412,7 @@ func (e *Endpoint) receive(ctx context.Context, raw json.RawMessage) error {
 			return nil
 		}
 		return e.acceptReady(ctx, env)
-	case manifestType, RequestType, ResponseType, pingType, pongType:
+	case manifestType, RequestType, ResponseType, pingType, pongType, appstream.Type, appstream.ControlType:
 		if !e.matchesSession(env.SessionID) {
 			return nil
 		}
@@ -559,7 +565,7 @@ func (e *Endpoint) sendPayload(ctx context.Context, payloadType string, raw []by
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if payloadType == RequestType || payloadType == ResponseType {
+	if (payloadType == RequestType || payloadType == ResponseType) && ctx.Value(streamSendContextKey{}) == nil {
 		started := latencytrace.Clock()
 		err := e.checkAuthorization(ctx)
 		latencytrace.Record(ctx, "rpc.send_authorization", started, err, 0)
@@ -578,6 +584,10 @@ func (e *Endpoint) sendPayload(ctx context.Context, payloadType string, raw []by
 	if e.closed || s == nil || s.id != id || s.state == nil || !s.state.Ready() || (payloadType != manifestType && !s.manifest) {
 		e.mu.Unlock()
 		return errors.New("workbench encrypted session is not ready")
+	}
+	if auth, ok := ctx.Value(streamSendContextKey{}).(streamSendAuthorization); ok && (!e.streamAuthorityValidLocked(auth.session, auth.generation) || auth.session != s) {
+		e.mu.Unlock()
+		return errStreamAuthority
 	}
 	priority := 5
 	if class, ok := ctx.Value(capacityContextKey{}).(string); ok {
@@ -625,14 +635,9 @@ func (e *Endpoint) acceptEncrypted(ctx context.Context, env envelope.SecureEnvel
 		}
 		return errors.New("workbench business payload received before verified manifest")
 	}
-	s.messageCount++
-	limit := maxSessionMessages
-	if s.capabilities != nil && s.capabilities.Profile == ProfileV2 {
-		limit = 65536
-	}
-	if s.messageCount > limit {
+	if err := authenticateEnvelope(e.provider, s.state, env); err != nil {
 		e.mu.Unlock()
-		return errors.New("workbench session message limit exceeded")
+		return errors.New("workbench payload authentication failed")
 	}
 	raw, err := envelope.Decrypt(e.provider, s.state, env)
 	if err != nil {
@@ -660,6 +665,10 @@ func (e *Endpoint) acceptEncrypted(ctx context.Context, env envelope.SecureEnvel
 			return e.sendPayload(ctx, pongType, raw, env.SessionID)
 		}
 		return nil
+	case appstream.Type:
+		return e.acceptStreamFrame(raw, env.SessionID)
+	case appstream.ControlType:
+		return e.acceptStreamControl(raw, env.SessionID)
 	case ResponseType:
 		return e.acceptResponse(sessionCtx, raw, env.SessionID, arrived)
 	case RequestType:

@@ -117,8 +117,17 @@ func (s *Server) executeWorkbenchWorkflow(ctx context.Context, e execution.Envel
 	}
 	// A client-provided assistant message is ordinary conversation input. No
 	// previous run, approval, tool receipt or trusted ingress is imported.
+	ctx = agent.WithFinalAnswerFormat(ctx, agent.FinalAnswerMarkdown)
+	answerStarted := false
+	ctx = agent.WithFinalAnswerStart(ctx, func() {
+		if answerStarted {
+			execution.ResetAnswer(ctx)
+		}
+		answerStarted = true
+	})
 	result, err := runtime.HandleMessageStreamWithAttachments(ctx, session.ID, e.Messages[len(e.Messages)-1].Content, attachments, func(event agent.StreamEvent) error {
 		if event.Type == "text_delta" {
+			execution.PublishAnswer(ctx, event.Text)
 			execution.PublishProgress(ctx, event.Text)
 		}
 		return nil

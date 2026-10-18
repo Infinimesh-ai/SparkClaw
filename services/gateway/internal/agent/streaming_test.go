@@ -45,7 +45,7 @@ func TestDocumentAnswerStreamsWorkflowFinalizerWithoutRenderer(t *testing.T) {
 
 	events := []StreamEvent{}
 	result, err := runtime.HandleMessageStream(
-		context.Background(),
+		WithFinalAnswerFormat(context.Background(), FinalAnswerStructured),
 		session.ID,
 		`Summarize stream-note.txt
 MOCK_WORKFLOW_FINAL_RESPONSE:{"type":"final","answer":"The workflow answer was streamed once."}`,

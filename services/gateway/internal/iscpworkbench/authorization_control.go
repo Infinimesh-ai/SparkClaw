@@ -2,6 +2,7 @@ package iscpworkbench
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -77,4 +78,12 @@ func (c *AuthorizationControl) AuthorizationDeletionReceipt(ctx context.Context,
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 	return c.lifecycle.AuthorizationDeletionReceipt(ctx, id, revision)
+}
+
+func (c *AuthorizationControl) StreamCall(context.Context, Request, func(json.RawMessage) error) (Response, error) {
+	return Response{}, errors.New("stream unavailable in authorization control mode")
+}
+
+func (c *AuthorizationControl) StreamAuthorityRemaining(string) (time.Duration, error) {
+	return 0, errors.New("stream unavailable in authorization control mode")
 }

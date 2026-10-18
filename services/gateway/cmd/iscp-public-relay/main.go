@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -55,16 +54,7 @@ func run() error {
 	if e = ref.PrepareDatabase(startup, pool); e != nil {
 		return e
 	}
-	limit, e := strconv.Atoi(env("ISCP_REQUESTS_PER_MINUTE", "1200"))
-	if e != nil || limit < 120 || limit > 6000 {
-		return errors.New("invalid capacity")
-	}
-	window, e := time.ParseDuration(env("ISCP_RECEIVE_WINDOW", "0s"))
-	if e != nil || window < 0 || window > ref.MaxReceiveWindow {
-		return errors.New("invalid receive window")
-	}
-	cfg := ref.Config{SignerFile: os.Getenv("ISCP_SIGNER_FILE"), DomainID: env("ISCP_DOMAIN_ID", "infinimesh-public"), RelayID: env("ISCP_RELAY_ID", "relay-210-16-177-239"), BaseURL: env("ISCP_RELAY_BASE_URL", "https://210.16.177.239"), WebSocketURL: env("ISCP_RELAY_WS_URL", "wss://210.16.177.239/v2/relay/connect"), ProfileGate: config.DefaultGate(config.ProfileProduction), DB: pool, AdminToken: os.Getenv("ISCP_ADMIN_TOKEN"), AllowedOrigins: strings.Split(os.Getenv("ISCP_ALLOWED_ORIGINS"), ","), RequestsPerMinute: limit}
-	cfg.ReceiveWindow = window
+	cfg := ref.Config{SignerFile: os.Getenv("ISCP_SIGNER_FILE"), DomainID: env("ISCP_DOMAIN_ID", "infinimesh-public"), RelayID: env("ISCP_RELAY_ID", "relay-210-16-177-239"), BaseURL: env("ISCP_RELAY_BASE_URL", "https://210.16.177.239"), WebSocketURL: env("ISCP_RELAY_WS_URL", "wss://210.16.177.239/v2/relay/connect"), ProfileGate: config.DefaultGate(config.ProfileProduction), DB: pool, AdminToken: os.Getenv("ISCP_ADMIN_TOKEN"), AllowedOrigins: strings.Split(os.Getenv("ISCP_ALLOWED_ORIGINS"), ",")}
 	var managed ref.ManagedAdapter
 	var nodes []iscprelayadapter.ScopedNode
 	var manager *iscprelayadapter.Manager

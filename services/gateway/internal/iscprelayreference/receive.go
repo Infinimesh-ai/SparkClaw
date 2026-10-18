@@ -17,8 +17,8 @@ import (
 
 const receiveIOTimeout = 5 * time.Second
 
-// MaxReceiveWindow stays below existing clients' two-minute read deadline.
-const MaxReceiveWindow = 55 * time.Second
+// Ping/Pong bounds silent connection loss independently of message delivery.
+const receivePingInterval = 20 * time.Second
 
 // The slot survives replacement until every attached receive loop has left.
 // delivery serializes claim/write/commit/release. Swapping owner first fences
@@ -160,41 +160,46 @@ func (s *Server) receiveStream(ctx context.Context, ws *websocket.Conn, id ident
 		_, _, _ = ws.ReadMessage()
 	}()
 	defer func() { c.stop(); <-c.done }()
-	window := time.NewTimer(s.cfg.ReceiveWindow)
-	defer window.Stop()
+	livenessDone := make(chan struct{})
+	go func() {
+		defer close(livenessDone)
+		c.watchLiveness()
+	}()
+	defer func() { c.stop(); <-livenessDone }()
 	fallback := time.NewTicker(time.Second)
 	defer fallback.Stop()
-	delivered := 0
 	for {
-		// Standard Ping/Pong confirms the old reader is still alive before it
-		// may claim durable work. No additional JSON protocol state is added.
-		if !s.receiveAllowed(slot, c, id.DeviceID) || c.ping() != nil {
+		if !s.receiveAllowed(slot, c, id.DeviceID) {
 			return
 		}
 		count, err := s.deliverNext(slot, c, id)
 		if err != nil {
 			return
 		}
-		delivered += count
 		if count == 0 {
 			select {
 			case <-ctx.Done():
 				return
-			case <-window.C:
-				_ = ws.SetWriteDeadline(time.Now().Add(receiveIOTimeout))
-				_ = ws.WriteJSON(map[string]any{"state": "drained", "delivered": delivered})
-				return
 			case <-c.wake:
 			case <-fallback.C:
 			}
-		} else {
-			select {
-			case <-window.C:
-				_ = ws.SetWriteDeadline(time.Now().Add(receiveIOTimeout))
-				_ = ws.WriteJSON(map[string]any{"state": "drained", "delivered": delivered})
-				return
-			default:
-			}
+		}
+	}
+}
+
+func (c *receiveConnection) watchLiveness() {
+	defer c.stop()
+	ticker := time.NewTicker(receivePingInterval)
+	defer ticker.Stop()
+	for {
+		// The first probe starts immediately, but delivery never waits on Pong.
+		if c.ping() != nil {
+			return
+		}
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-ticker.C:
 		}
 	}
 }

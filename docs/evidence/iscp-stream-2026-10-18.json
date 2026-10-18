@@ -1,0 +1,811 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-18",
+  "branch": "codex/iscp-application-stream-v3",
+  "baseline_revision": "cd7d5ccca5e522b7b140cc2ac14b1c592e591be9",
+  "production_implementation_revision": "a43100bd5d3fea07199025b14e28ca2ae60b4d37",
+  "additional_helper_regression_revision": "c3a524d215be968fbbcd392ad66dc5ef9e38ccb9",
+  "qualification_fixture_commit": "6962371b868f33935cb0fa8c6e96543a6cc26082",
+  "scope": {
+    "local_implementation": true,
+    "installed_or_deployed": false,
+    "upstream_standard_accepted": false,
+    "private_profiles_or_answer_text_included": false,
+    "work2_use": "Read existing model configuration and invoke its configured model service from an isolated production Agent workflow. No work2 Gateway deployment or database writes were performed."
+  },
+  "verification_logs": [
+    {
+      "log_name": "desktop-final2.log",
+      "sha256": "850e678d2219b1d41377d52cea65c057ba205fae91bf8692239c60cb7ad566f2",
+      "result": "424 tests passed; zero skipped"
+    },
+    {
+      "log_name": "webchat-final.log",
+      "sha256": "8cf57287e7eb1c9762ed8c1a01a7dd528b12b2cb2e8dd2ace7ad2cebc31d30a8",
+      "result": "326 tests in 60 files passed"
+    },
+    {
+      "log_name": "webchat-build-final.log",
+      "sha256": "32379fc2a3f0f661a8b7bf38658eb0519f15cf5a7a4b8af31d386b338e57cf10",
+      "result": "production bundle built; existing chunk-size warning"
+    },
+    {
+      "log_name": "gateway-linux-all.log",
+      "sha256": "233082f13b514ae6a7922dea29800eb4e10e83f130bc2fbdb1e1241e349b01db",
+      "result": "73 Gateway test packages passed; 11 command/support packages without tests; snapshot before final helper deadline sampling-order adjustment"
+    },
+    {
+      "log_name": "baseline-platform-failures.log",
+      "sha256": "84ec9dc69c3d96e274f53e99139efc30a42d5c81b6f1c1f67ec3a4c83adcbc15",
+      "result": "four macOS top-level failures reproduced on clean baseline"
+    },
+    {
+      "log_name": "answer-source-race.log",
+      "sha256": "46397c7b0c804a2cd20dd8fbd9fd771f61e92264039788f4a646ac816753b379",
+      "result": "execution and Agent race tests passed"
+    },
+    {
+      "log_name": "answer-integration-final-race.log",
+      "sha256": "73d6f789d37c3bfbb4e2c8456f13ab3b65a359a5198193c40d266e18d7e35ebe",
+      "result": "encrypted Gateway stream integration race test passed"
+    },
+    {
+      "log_name": "endpoint-helper-final2-race.log",
+      "sha256": "73fec60ab38777df29124a7f430a53091d2490903f49c38bd6b43326be36a0a5",
+      "result": "Endpoint, generic codec and helper race suites passed"
+    },
+    {
+      "log_name": "helper-final-race.log",
+      "sha256": "3dbd4850061d27297bfa7e591dd337872e905e91be65a2bf06fb3899952085fe",
+      "result": "final helper deadline sampling order race tests passed"
+    },
+    {
+      "log_name": "helper-blocked-writer-race.log",
+      "sha256": "1203bc729c24318455bf6a8834f3cd6ba3fdd364f54b09258c66fdab1a88195e",
+      "result": "blocked private pipe deadline regression passed with race detector"
+    },
+    {
+      "log_name": "relay-pg-race-long.log",
+      "sha256": "308b621834f6977c7d75b134b5635203a026539641bb5993efdb4d4de883045d",
+      "result": "PostgreSQL continuous Relay and adapter race tests passed; bridge test had stale fixture credentials, rerun separately"
+    },
+    {
+      "log_name": "relay-control-bridge-race.log",
+      "sha256": "821bb0d79d8276f3033bac5639c55a995de12d5fcb0285d30d050148a9bd32dc",
+      "result": "node control and bridge race suites passed after credential fixture correction"
+    },
+    {
+      "log_name": "gateway-vet.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result": "Gateway vet passed before final helper adjustment"
+    },
+    {
+      "log_name": "helper-endpoint-final-vet.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result": "helper and Endpoint vet passed after final helper adjustment"
+    }
+  ],
+  "schema_validation": {
+    "draft": "2020-12",
+    "generic_positive": 4,
+    "generic_negative": 17,
+    "execution_positive": 6,
+    "execution_negative": 9,
+    "format_validation_enabled": true,
+    "byte_offset_case": "Structurally valid by JSON Schema; rejected by stateful production validators."
+  },
+  "work2_before_after": {
+    "gateway_container_unchanged": true,
+    "gateway_started_at_unchanged": true,
+    "gateway_running": true,
+    "gateway_config_digest_unchanged": true,
+    "gateway_mounts_unchanged": true,
+    "before_started_at": "2026-10-16T07:29:04.78761219Z",
+    "after_started_at": "2026-10-16T07:29:04.78761219Z",
+    "gateway_mounts_compared_as_unordered_set": true,
+    "gateway_config_file_unchanged": true,
+    "model_catalog_file_unchanged": true
+  },
+  "native_runs": [
+    {
+      "id": "controlled_viewport_20",
+      "passed": true,
+      "original_receipt_sha256": "35b86231462fcff79cf9968390cc071ec3fde2e85869f74d9b774250284b7aee",
+      "original_native_evidence_sha256": "3accbb45a947e377580847a5032d9867c11a1647675a967dfe3dfa56136f8835",
+      "screenshot_sha256": "17840460e33e79b5fe86c27132d053ca4dae6ea0a71262f1e6679a6b709bfc6b",
+      "production_source_revision": "a43100bd5d3fea07199025b14e28ca2ae60b4d37",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_binding_note": "Tracked production tree was clean at a43100bd; this older receipt hashes only main, execution-client and transport individually. Later runs also hash progress, projection, store, capability and auth modules. Fixture scripts were untracked during measurement; their recorded hashes and compiled fixture hash identify the executed fixture. The committed runner also requires an explicit Linux image; execution-start counting was added before the final long-text run.",
+      "desktop": {
+        "platform": "darwin",
+        "architecture": "arm64",
+        "electron": "44.4.3",
+        "production_entry": true,
+        "production_agent": false
+      },
+      "gateway_runtime": {
+        "platform": "darwin",
+        "architecture": "arm64"
+      },
+      "model": {
+        "batch_interval_ms": 100,
+        "chars_per_batch": 6,
+        "kind": "controlled"
+      },
+      "summary": {
+        "samples": 20,
+        "chars_per_sample": 600,
+        "batches": 2000,
+        "observation": "visible original DOM followed by next animation frame; compositor paint proxy",
+        "clock_error_bound_ms": 6.81689453125,
+        "main_clock_error_bound_ms": 0.027099609375,
+        "first_upper_ms": 59.2568359375,
+        "p95_upper_ms": 113.075927734375,
+        "p99_upper_ms": 119.717041015625,
+        "max_growth_gap_ms": 166.39990234375,
+        "max_commit_to_handoff_upper_ms": 49.3720703125,
+        "min_visible_before_done": 0.98,
+        "remounts": 0,
+        "blanks": 0,
+        "missing_frames": 0,
+        "duplicates": 0,
+        "stream_subscriptions": 20
+      },
+      "viewport": {
+        "separate_conversations": true,
+        "harness_scrolls": 0,
+        "method": "original UI new conversation per sample; normal scrollIntoView follows answer tail when needed; does not qualify automatic scrolling"
+      },
+      "invariants": {
+        "direct_business_http_attempts": 0,
+        "execution_submits": 20,
+        "distinct_source_request_ids": 20,
+        "stream_subscriptions": 20,
+        "legacy_progress_calls": 0,
+        "final_ack_calls": 20,
+        "relay_connect_requests": 2,
+        "all_recorded_nonempty_observations_tail_in_view": true,
+        "recorded_production_desktop_hashes_match_final_tree": true
+      },
+      "final_deliveries": [
+        {
+          "request_id": "24ecff82-58a0-4229-88f2-ed5e895cf009",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "ff16f526-1103-4149-9f28-24a66d11c93c",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "b39c6748-5f61-4712-a4b7-fdf2251b2062",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "574c48f1-2799-4ac1-8543-ad3a2127a9ad",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "760b4d94-c75b-4316-90fb-46882502f54a",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "a01078e4-38cc-430b-8147-b4e1762ce1c8",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "5a4237ca-4922-488e-9372-36923e3cdbdc",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "4d44d510-1dcd-49ed-ade7-ebe2153ffcd3",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "9df7ddb4-2a68-4137-8c1f-7a5afa1bf822",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "35e8b151-1741-4ca7-9025-47a722a31825",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "2368e163-a5c8-4604-982f-ff565e7a3062",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "34efad4a-76a0-4f7a-b8d0-1083338dcf30",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "377914f5-2770-4989-bcf9-8c1f3b0aa45e",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "fee0911d-78a4-4a89-9fcb-4ef0dfa5a86e",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "800eb823-f202-4906-aab8-7640989c84d3",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "99bf78d9-f569-4ecc-8e9f-00b3d7bb5997",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "09c8669f-15ab-447c-aad9-325e67b4ad9b",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "dca354a9-d5e3-4559-9628-d0b0a0b67cb8",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "908cacb4-14c4-46fd-834c-818f5c41d2d4",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        },
+        {
+          "request_id": "1774d484-15b1-495c-801d-4c1ceeadf076",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        }
+      ],
+      "build_fingerprints": [
+        {
+          "artifact": "qualification/gateway-fixture",
+          "sha256": "c11a29e0a0e125dd994397bb9c431e1fce519fb17cf28a919151424297d67e9f"
+        },
+        {
+          "artifact": "apps/desktop/bin/iscp-workbench",
+          "sha256": "02adc75617d96e6c052105eb017ae62e29c99db96406599a6938402859a7f799"
+        },
+        {
+          "artifact": "apps/desktop/src/main/main.mjs",
+          "sha256": "25d55ecd79fdd025a96956f5dfab4ee09b12b8422bbc8976d8fd77865abe17b3"
+        },
+        {
+          "artifact": "apps/desktop/src/main/execution-client.mjs",
+          "sha256": "9390b6ebd018efc4dceffecc50b23f46b24b87bbbf2170ccbae0995bf857b628"
+        },
+        {
+          "artifact": "apps/desktop/src/main/iscp-transport.mjs",
+          "sha256": "6c934d3b5e0602a67734e531890835ab4d3e899f0ac4686f616191a3a3054086"
+        },
+        {
+          "artifact": "apps/desktop/test/stream-native-fixture.mjs",
+          "sha256": "0510f25673cf87c9d1e587db1cbac2fb79f7680fb18e210c65aa5f4a48336ca0"
+        },
+        {
+          "artifact": "apps/desktop/test/run-stream-native-qualification.mjs",
+          "sha256": "e38c35b0ca40dee1ef6481280c2dc0eb78137df6cacf8062eeef5a43f65e2b46"
+        },
+        {
+          "artifact": "apps/webchat/dist/assets/index-C4gQLLx8.js",
+          "sha256": "02b9e4645ba96a3b8baf7e860cfbf36e2b853049baa8f571f673a45f951f0120"
+        },
+        {
+          "artifact": "apps/webchat/dist/assets/index-Cn8JZkBP.css",
+          "sha256": "f7e497abd816eaaca483951b100ca13ad4787d4d2568d521a131f43dc733f02e"
+        }
+      ]
+    },
+    {
+      "id": "work2_real_model",
+      "passed": true,
+      "original_receipt_sha256": "4d83929e6cca73e2806e1ec04e8b0d9ebe559c57d0f8c23f59bd3b621ee9b83a",
+      "original_native_evidence_sha256": "f0e610862f055a00fbc665d9a20c1304249fb357b87ef7782925d27638b372b2",
+      "screenshot_sha256": "395cf26b78b6f423e83bc240af5bffefacb9dfe1dbd4e10ab476ed316658449b",
+      "production_source_revision": "c3a524d215be968fbbcd392ad66dc5ef9e38ccb9",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_binding_note": "Tracked production tree was clean at c3a524d2. Key production desktop module hashes match the committed files. Fixture scripts were untracked during measurement; their recorded hashes and compiled fixture hash identify the executed fixture. The committed runner also requires an explicit Linux image; execution-start counting was added before the final long-text run.",
+      "desktop": {
+        "platform": "darwin",
+        "architecture": "arm64",
+        "electron": "44.4.3",
+        "production_entry": true,
+        "production_agent": true
+      },
+      "gateway_runtime": {
+        "platform": "linux",
+        "image_id": "sha256:865ab6631f4b8994769d43966141a539b9d1ca1a77bf60b9a639b4324bc946e0",
+        "architecture": "arm64"
+      },
+      "model": {
+        "deep_model": "sparkclaw-fast",
+        "fast_model": "sparkclaw-fast",
+        "kind": "production_agent",
+        "mock": false
+      },
+      "summary": {
+        "samples": 1,
+        "production_agent": true,
+        "mock": false,
+        "observation": "visible original DOM followed by next animation frame; compositor paint proxy",
+        "clock_error_bound_ms": 11.930908203125,
+        "main_clock_error_bound_ms": 0.0107421875,
+        "submit_to_first_visible_ms": 6980,
+        "live_text_observations": 63,
+        "final_visible_chars": 730,
+        "max_commit_to_handoff_upper_ms": 48.59716796875,
+        "remounts": 0,
+        "blanks": 0,
+        "missing_frames": 0,
+        "duplicates": 0,
+        "stream_subscriptions": 1
+      },
+      "viewport": {
+        "separate_conversations": true,
+        "harness_scrolls": 0,
+        "method": "original UI new conversation per sample; normal scrollIntoView follows answer tail when needed; does not qualify automatic scrolling"
+      },
+      "invariants": {
+        "direct_business_http_attempts": 0,
+        "execution_submits": 1,
+        "distinct_source_request_ids": 1,
+        "stream_subscriptions": 1,
+        "legacy_progress_calls": 0,
+        "final_ack_calls": 1,
+        "relay_connect_requests": 2,
+        "all_recorded_nonempty_observations_tail_in_view": true,
+        "recorded_production_desktop_hashes_match_final_tree": true
+      },
+      "final_deliveries": [
+        {
+          "request_id": "b72303eb-e989-44ec-9419-c266ccf5c91c",
+          "source_utf8_bytes": 2198,
+          "visible_characters": 730,
+          "source_and_committed_sha256": "f59241e1cb1f39dac1e40ec0a0856534e027b40208969d405218658cf41b6442",
+          "renderer_normalized_sha256": "18b022f17d98b3adbf3fb8d8913e6ac809351eb34019d4b76e3d2a27e5e21767",
+          "durable": true,
+          "acknowledged": true
+        }
+      ],
+      "build_fingerprints": [
+        {
+          "artifact": "qualification/gateway-fixture",
+          "sha256": "472de378d8b51d4e7bca3368a3eb3abb3f2a79c0c63c1f025ded7bd9fb29090d"
+        },
+        {
+          "artifact": "apps/desktop/bin/iscp-workbench",
+          "sha256": "02adc75617d96e6c052105eb017ae62e29c99db96406599a6938402859a7f799"
+        },
+        {
+          "artifact": "apps/desktop/src/main/main.mjs",
+          "sha256": "25d55ecd79fdd025a96956f5dfab4ee09b12b8422bbc8976d8fd77865abe17b3"
+        },
+        {
+          "artifact": "apps/desktop/src/main/execution-client.mjs",
+          "sha256": "9390b6ebd018efc4dceffecc50b23f46b24b87bbbf2170ccbae0995bf857b628"
+        },
+        {
+          "artifact": "apps/desktop/src/main/execution-progress.mjs",
+          "sha256": "bde6599834c4ca4d56791f7ca9b0bad1b3567a08235235b9e0eb6f21b9307209"
+        },
+        {
+          "artifact": "apps/desktop/src/main/execution-stream-projection.mjs",
+          "sha256": "703a89b758e54a0c8ee3688bb9355ebd5ba07f8abcc4d61b7154af831718d5e4"
+        },
+        {
+          "artifact": "apps/desktop/src/main/client-store.mjs",
+          "sha256": "3d5455f8cffa8648a55063e3996b9bc9ecfe37a9bb2e84cfe0a887be4f0c70bb"
+        },
+        {
+          "artifact": "apps/desktop/src/main/client-store-capability.mjs",
+          "sha256": "f0bbf39a55e03d2afe62573b0efd0a4530b856a2e6b067354bb9147a34088cc2"
+        },
+        {
+          "artifact": "apps/desktop/src/main/desktop-auth.mjs",
+          "sha256": "de74db884fea6190240bb55dc00c46b7277cda9d5a22ffa4eabd0da511ac99f8"
+        },
+        {
+          "artifact": "apps/desktop/src/main/iscp-transport.mjs",
+          "sha256": "6c934d3b5e0602a67734e531890835ab4d3e899f0ac4686f616191a3a3054086"
+        },
+        {
+          "artifact": "apps/desktop/test/stream-native-fixture.mjs",
+          "sha256": "e4c58449f83d50db5e936287046cf4e1c95264b6789d9e25bf88fc68a4642fe1"
+        },
+        {
+          "artifact": "apps/desktop/test/run-stream-native-qualification.mjs",
+          "sha256": "aacfabfc31a2c40072268580b8986550e006c6106c3cb0bc36f1a909b49c64ef"
+        },
+        {
+          "artifact": "apps/webchat/dist/assets/index-C4gQLLx8.js",
+          "sha256": "02b9e4645ba96a3b8baf7e860cfbf36e2b853049baa8f571f673a45f951f0120"
+        },
+        {
+          "artifact": "apps/webchat/dist/assets/index-Cn8JZkBP.css",
+          "sha256": "f7e497abd816eaaca483951b100ca13ad4787d4d2568d521a131f43dc733f02e"
+        }
+      ]
+    },
+    {
+      "id": "helper_recovery",
+      "passed": true,
+      "original_receipt_sha256": "faa8ab412986d1752c38132c8eb527bc0560b9c5bcda7911102cc1b4dbe22ffe",
+      "original_native_evidence_sha256": "03ac4a0b9918f967c83cb8d57ed60d5226c6cdff7daa3674342d4d171ecf2bbf",
+      "screenshot_sha256": "2661fe13be367a89ce03cb99020208db3faa93c61b3c97e40ddf7decb353b438",
+      "production_source_revision": "c3a524d215be968fbbcd392ad66dc5ef9e38ccb9",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_binding_note": "Tracked production tree was clean at c3a524d2. Key production desktop module hashes match the committed files. Fixture scripts were untracked during measurement; their recorded hashes and compiled fixture hash identify the executed fixture. The committed runner also requires an explicit Linux image; execution-start counting was added before the final long-text run.",
+      "desktop": {
+        "platform": "darwin",
+        "architecture": "arm64",
+        "electron": "44.4.3",
+        "production_entry": true,
+        "production_agent": false
+      },
+      "gateway_runtime": {
+        "platform": "darwin",
+        "architecture": "arm64"
+      },
+      "model": {
+        "batch_interval_ms": 100,
+        "chars_per_batch": 6,
+        "kind": "controlled"
+      },
+      "summary": {
+        "samples": 1,
+        "chars_per_sample": 600,
+        "batches": 100,
+        "observation": "visible original DOM followed by next animation frame; compositor paint proxy",
+        "clock_error_bound_ms": 0.407958984375,
+        "main_clock_error_bound_ms": 0.013916015625,
+        "first_upper_ms": 50.343017578125,
+        "p95_upper_ms": 833.682861328125,
+        "p99_upper_ms": 1234.02001953125,
+        "max_growth_gap_ms": 1333.300048828125,
+        "max_commit_to_handoff_upper_ms": 40.65234375,
+        "min_visible_before_done": 0.98,
+        "remounts": 0,
+        "blanks": 1,
+        "missing_frames": 0,
+        "duplicates": 0,
+        "stream_subscriptions": 2,
+        "recovery_ms": 1328.199951171875
+      },
+      "viewport": {
+        "separate_conversations": true,
+        "harness_scrolls": 0,
+        "method": "original UI new conversation per sample; normal scrollIntoView follows answer tail when needed; does not qualify automatic scrolling"
+      },
+      "invariants": {
+        "direct_business_http_attempts": 0,
+        "execution_submits": 1,
+        "distinct_source_request_ids": 1,
+        "stream_subscriptions": 2,
+        "legacy_progress_calls": 0,
+        "final_ack_calls": 1,
+        "relay_connect_requests": 3,
+        "all_recorded_nonempty_observations_tail_in_view": true,
+        "recorded_production_desktop_hashes_match_final_tree": true
+      },
+      "final_deliveries": [
+        {
+          "request_id": "236853f0-3783-49d0-b0f7-802bf94595d3",
+          "source_utf8_bytes": 1800,
+          "visible_characters": 600,
+          "source_and_committed_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "renderer_normalized_sha256": "4bff2bd308a0104e003294b6b12aa07ea9f1ba84265598ed86641825ac60b263",
+          "durable": true,
+          "acknowledged": true
+        }
+      ],
+      "build_fingerprints": [
+        {
+          "artifact": "qualification/gateway-fixture",
+          "sha256": "7875887c04da87a9e7e8da7c2d351dd58e61578f5b5faaccfa86b1b401afdfe0"
+        },
+        {
+          "artifact": "apps/desktop/bin/iscp-workbench",
+          "sha256": "02adc75617d96e6c052105eb017ae62e29c99db96406599a6938402859a7f799"
+        },
+        {
+          "artifact": "apps/desktop/src/main/main.mjs",
+          "sha256": "25d55ecd79fdd025a96956f5dfab4ee09b12b8422bbc8976d8fd77865abe17b3"
+        },
+        {
+          "artifact": "apps/desktop/src/main/execution-client.mjs",
+          "sha256": "9390b6ebd018efc4dceffecc50b23f46b24b87bbbf2170ccbae0995bf857b628"
+        },
+        {
+          "artifact": "apps/desktop/src/main/execution-progress.mjs",
+          "sha256": "bde6599834c4ca4d56791f7ca9b0bad1b3567a08235235b9e0eb6f21b9307209"
+        },
+        {
+          "artifact": "apps/desktop/src/main/execution-stream-projection.mjs",
+          "sha256": "703a89b758e54a0c8ee3688bb9355ebd5ba07f8abcc4d61b7154af831718d5e4"
+        },
+        {
+          "artifact": "apps/desktop/src/main/client-store.mjs",
+          "sha256": "3d5455f8cffa8648a55063e3996b9bc9ecfe37a9bb2e84cfe0a887be4f0c70bb"
+        },
+        {
+          "artifact": "apps/desktop/src/main/client-store-capability.mjs",
+          "sha256": "f0bbf39a55e03d2afe62573b0efd0a4530b856a2e6b067354bb9147a34088cc2"
+        },
+        {
+          "artifact": "apps/desktop/src/main/desktop-auth.mjs",
+          "sha256": "de74db884fea6190240bb55dc00c46b7277cda9d5a22ffa4eabd0da511ac99f8"
+        },
+        {
+          "artifact": "apps/desktop/src/main/iscp-transport.mjs",
+          "sha256": "6c934d3b5e0602a67734e531890835ab4d3e899f0ac4686f616191a3a3054086"
+        },
+        {
+          "artifact": "apps/desktop/test/stream-native-fixture.mjs",
+          "sha256": "e4c58449f83d50db5e936287046cf4e1c95264b6789d9e25bf88fc68a4642fe1"
+        },
+        {
+          "artifact": "apps/desktop/test/run-stream-native-qualification.mjs",
+          "sha256": "aacfabfc31a2c40072268580b8986550e006c6106c3cb0bc36f1a909b49c64ef"
+        },
+        {
+          "artifact": "apps/webchat/dist/assets/index-C4gQLLx8.js",
+          "sha256": "02b9e4645ba96a3b8baf7e860cfbf36e2b853049baa8f571f673a45f951f0120"
+        },
+        {
+          "artifact": "apps/webchat/dist/assets/index-Cn8JZkBP.css",
+          "sha256": "f7e497abd816eaaca483951b100ca13ad4787d4d2568d521a131f43dc733f02e"
+        }
+      ]
+    },
+    {
+      "id": "long_text_18000_bytes",
+      "passed": true,
+      "original_receipt_sha256": "01932c2be822140b1e5ca857bdb644f67ba6a8faab40caa22d7114edf6bbb28f",
+      "original_native_evidence_sha256": "a4e28143fa8fc93b07e5e5a647bcb2411b0d30138333733428c29950cafc6f99",
+      "screenshot_sha256": "1e1b0a866b0bc28d57c13a6e8cbb705a51fafef614bc126c91dbf484eb39f3df",
+      "production_source_revision": "c3a524d215be968fbbcd392ad66dc5ef9e38ccb9",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_binding_note": "Tracked production tree was clean at c3a524d2. Key production desktop module hashes match the committed files. Fixture scripts were untracked during measurement; their recorded hashes and compiled fixture hash identify the executed fixture. The committed runner also requires an explicit Linux image; execution-start counting was added before the final long-text run.",
+      "desktop": {
+        "platform": "darwin",
+        "architecture": "arm64",
+        "electron": "44.4.3",
+        "production_entry": true,
+        "production_agent": false
+      },
+      "gateway_runtime": {
+        "platform": "darwin",
+        "architecture": "arm64"
+      },
+      "model": {
+        "batch_interval_ms": 100,
+        "chars_per_batch": 60,
+        "kind": "controlled"
+      },
+      "summary": {
+        "samples": 1,
+        "chars_per_sample": 6000,
+        "batches": 100,
+        "observation": "visible original DOM followed by next animation frame; compositor paint proxy",
+        "clock_error_bound_ms": 0.37890625,
+        "main_clock_error_bound_ms": 0.12646484375,
+        "first_upper_ms": 47.323974609375,
+        "p95_upper_ms": 98.51904296875,
+        "p99_upper_ms": 98.66015625,
+        "max_growth_gap_ms": 150.10009765625,
+        "max_commit_to_handoff_upper_ms": 45.7529296875,
+        "min_visible_before_done": 0.99,
+        "remounts": 0,
+        "blanks": 0,
+        "missing_frames": 0,
+        "duplicates": 0,
+        "stream_subscriptions": 1
+      },
+      "viewport": {
+        "separate_conversations": true,
+        "harness_scrolls": 85,
+        "method": "original UI new conversation per sample; normal scrollIntoView follows answer tail when needed; does not qualify automatic scrolling"
+      },
+      "invariants": {
+        "direct_business_http_attempts": 0,
+        "execution_submits": 1,
+        "distinct_source_request_ids": 1,
+        "stream_subscriptions": 1,
+        "legacy_progress_calls": 0,
+        "final_ack_calls": 1,
+        "relay_connect_requests": 2,
+        "all_recorded_nonempty_observations_tail_in_view": true,
+        "recorded_production_desktop_hashes_match_final_tree": true,
+        "max_observed_execution_starts_per_request": 1
+      },
+      "final_deliveries": [
+        {
+          "request_id": "468214fd-201d-4b14-bade-7adfd477e0b1",
+          "source_utf8_bytes": 18000,
+          "visible_characters": 6000,
+          "source_and_committed_sha256": "d091ab09ea07c12bf2bc59c539bc3ceddde5de72071f7330c53fe0dfdd8db42c",
+          "renderer_normalized_sha256": "d091ab09ea07c12bf2bc59c539bc3ceddde5de72071f7330c53fe0dfdd8db42c",
+          "durable": true,
+          "acknowledged": true
+        }
+      ],
+      "build_fingerprints": [
+        {
+          "artifact": "qualification/gateway-fixture",
+          "sha256": "c49b3aea4ff6fd00ea86530d953cede30fe1eeea10d2f2a2a94c41331827a830"
+        },
+        {
+          "artifact": "apps/desktop/bin/iscp-workbench",
+          "sha256": "02adc75617d96e6c052105eb017ae62e29c99db96406599a6938402859a7f799"
+        },
+        {
+          "artifact": "apps/desktop/src/main/main.mjs",
+          "sha256": "25d55ecd79fdd025a96956f5dfab4ee09b12b8422bbc8976d8fd77865abe17b3"
+        },
+        {
+          "artifact": "apps/desktop/src/main/execution-client.mjs",
+          "sha256": "9390b6ebd018efc4dceffecc50b23f46b24b87bbbf2170ccbae0995bf857b628"
+        },
+        {
+          "artifact": "apps/desktop/src/main/execution-progress.mjs",
+          "sha256": "bde6599834c4ca4d56791f7ca9b0bad1b3567a08235235b9e0eb6f21b9307209"
+        },
+        {
+          "artifact": "apps/desktop/src/main/execution-stream-projection.mjs",
+          "sha256": "703a89b758e54a0c8ee3688bb9355ebd5ba07f8abcc4d61b7154af831718d5e4"
+        },
+        {
+          "artifact": "apps/desktop/src/main/client-store.mjs",
+          "sha256": "3d5455f8cffa8648a55063e3996b9bc9ecfe37a9bb2e84cfe0a887be4f0c70bb"
+        },
+        {
+          "artifact": "apps/desktop/src/main/client-store-capability.mjs",
+          "sha256": "f0bbf39a55e03d2afe62573b0efd0a4530b856a2e6b067354bb9147a34088cc2"
+        },
+        {
+          "artifact": "apps/desktop/src/main/desktop-auth.mjs",
+          "sha256": "de74db884fea6190240bb55dc00c46b7277cda9d5a22ffa4eabd0da511ac99f8"
+        },
+        {
+          "artifact": "apps/desktop/src/main/iscp-transport.mjs",
+          "sha256": "6c934d3b5e0602a67734e531890835ab4d3e899f0ac4686f616191a3a3054086"
+        },
+        {
+          "artifact": "apps/desktop/test/stream-native-fixture.mjs",
+          "sha256": "411c544299cc29d0ccf76ae85ee9c0ae84f5bd5fa9198c001e36c49411679588"
+        },
+        {
+          "artifact": "apps/desktop/test/run-stream-native-qualification.mjs",
+          "sha256": "aacfabfc31a2c40072268580b8986550e006c6106c3cb0bc36f1a909b49c64ef"
+        },
+        {
+          "artifact": "apps/webchat/dist/assets/index-C4gQLLx8.js",
+          "sha256": "02b9e4645ba96a3b8baf7e860cfbf36e2b853049baa8f571f673a45f951f0120"
+        },
+        {
+          "artifact": "apps/webchat/dist/assets/index-Cn8JZkBP.css",
+          "sha256": "f7e497abd816eaaca483951b100ca13ad4787d4d2568d521a131f43dc733f02e"
+        }
+      ]
+    }
+  ],
+  "retained_development_failures": [
+    {
+      "reason": "Ninth sample remounted once during preview-to-durable handoff; retained failure, exact cause was not proven. Later original-row/read sequencing changes and 20 fresh-conversation viewport samples passed.",
+      "retained_receipt_sha256": "7386b62c81d03a4fbff75200e75aba97d1567f78f8a8b0f73416dadb7d91d99d",
+      "retained_native_evidence_sha256": "4ca47116d875dfb1e181e4aa532e39159f1d49a50a8e3c78a3eededd82d047fd"
+    },
+    {
+      "reason": "Initial recovery fixture required zero blank events. Session replacement must hide stale authority; final recovery separately records this required hide and passes after explicit reauthorization.",
+      "retained_receipt_sha256": "a41bcc2313254f1ba66d66eac7301a87b4ee97a0735acc513d68e981ab6d9064",
+      "retained_native_evidence_sha256": "272b0ea2ee56aed3ab30c39f24ed93f378c1ea0f53a4b886f2f63227dca39f07"
+    },
+    {
+      "reason": "macOS real workflow failed before Agent execution because the existing production memory workspace requires /dev/shm. Final real workflow ran in isolated Linux without a production bypass.",
+      "retained_receipt_sha256": "17d7ba8a22d7a57b897e22a690b4d6ed66af6fdf07dffc1d7975f6d6729e1cff",
+      "retained_native_evidence_sha256": null
+    }
+  ],
+  "qualification_limits": [
+    "Timings observe the original viewport text followed by the next animation frame; they are a compositor proxy, not hardware display measurements. Clock uncertainty is included in conservative latency bounds.",
+    "Healthy transport claims use one active answer and a controlled 100 ms producer on the local encrypted chain, 20 separate 600-character conversations. They are not WAN capacity or model inference benchmarks.",
+    "The real work2-model run uses an isolated Linux Gateway to retain the production /dev/shm requirement, with the real macOS helper and original Electron renderer. Submit-to-first-visible includes model/workflow time.",
+    "Long-text qualification uses 85 explicit harness scrolls to keep the answer tail visible. Automatic following, selection pause and focus require the desktop-experience branch and merged native validation.",
+    "Recovery has one intentional hide during session replacement; the old preview is not displayed under a new session until its authority is verified. Healthy zero-blank requirements remain unchanged.",
+    "Earlier same-conversation DOM-only samples do not establish viewport visibility and are superseded by the 20-sample viewport receipt.",
+    "No independent send/receive/verification/paint per-layer timing breakdown was instrumented.",
+    "Full Linux package testing preceded the last helper deadline sampling-order correction; focused helper race and vet checks cover that correction. Native fixtures were explicitly opted in and then committed separately."
+  ]
+}

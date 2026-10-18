@@ -1,9 +1,9 @@
 export type LocalConversation = { id: string; title: string; created_at: string; updated_at: string };
-export type LocalMessage = { id: string; role: "user" | "assistant"; content: string; created_at: string; attachments?: import('../api/types').MessageAttachment[] };
+export type LocalMessage = { id: string; request_id?: string; role: "user" | "assistant"; content: string; created_at: string; attachments?: import('../api/types').MessageAttachment[] };
 export type LocalApproval = { approval_id: string; digest: string; tool: string; summary: string; arguments: Record<string, unknown>;
   state: "pending" | "decision_pending" | "approved" | "rejected" | "resolved" | "expired" | "decision_unknown";
   decision?: "approve" | "reject" | null; expires_at: string; actionable?: boolean };
-export type LocalTask = { id: string; request_id: string; status: string; explicitly_submitted?: number; created_at: string; approvals?: LocalApproval[]; revision?: number; termination_reason?: string; approval_receipts?: Array<{ approval_id: string; digest: string; decision: string }>; progress_content?: string };
+export type LocalTask = { id: string; request_id: string; status: string; explicitly_submitted?: number; created_at: string; approvals?: LocalApproval[]; revision?: number; termination_reason?: string; approval_receipts?: Array<{ approval_id: string; digest: string; decision: string }>; progress_content?: string; progress_projection?: { request_id: string; input_digest: string; epoch: string; generation: string; revision: number; offset: number; content_digest: string; content: string; state: string } };
 export type LocalDraft = { scope_key: string; content: string; local_file_ids: string[]; revision: number };
 export type LocalFile = { id: string; name: string; size: number; sha256: string; created_at: string; content_type?: string };
 export type LocalSchedule = { request_id: string; schedule_id: string; due_at: string; state: string;

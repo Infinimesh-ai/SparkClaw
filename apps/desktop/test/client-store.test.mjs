@@ -42,7 +42,7 @@ test("conversation deletion removes its owned records and bytes durably while pr
   assert.throws(() => store.read(scope, target.id), /not found/);
   assert.throws(() => store.file(scope, file.id), /not found/);
   assert.throws(() => store.saveDraft(scope, target.id, "late autosave", [], 1), /not found/);
-  for (const table of ["deliveries", "delivery_files", "execution_approvals", "execution_projection"]) {
+  for (const table of ["message_deliveries", "deliveries", "delivery_files", "execution_approvals", "execution_projection"]) {
     assert.equal(store.db.prepare(`SELECT count(*) AS n FROM ${table}`).get().n, 0, table);
   }
   assert.equal(store.db.prepare("SELECT count(*) AS n FROM schedule_definitions").get().n, 1);
@@ -275,7 +275,7 @@ test('ISCP schema upgrades preserve existing installations, history, drafts and 
   const bytes=Buffer.from('existing attachment'),file=store.saveFile(scope,conversation.id,'existing.txt',bytes);
   const task=store.enqueue(scope,conversation.id,'existing user message',[file.id]);
   store.saveDraft(scope,conversation.id,'unsent draft',[file.id],0);const before=store.read(scope,conversation.id),inputDigest=store.request(scope,task.request_id).input_digest;
-  store.db.exec('DROP TABLE message_files; ALTER TABLE conversations DROP COLUMN hidden; ALTER TABLE conversations DROP COLUMN title_pending; ALTER TABLE schedule_definitions DROP COLUMN calendar;');
+  store.db.exec('DROP TABLE message_deliveries; DROP TABLE message_files; ALTER TABLE conversations DROP COLUMN hidden; ALTER TABLE conversations DROP COLUMN title_pending; ALTER TABLE schedule_definitions DROP COLUMN calendar;');
   if(version===6)store.db.exec('DROP TABLE execution_projection; DROP TABLE event_projection; PRAGMA user_version=6;');
   else if(version===7)store.db.exec('ALTER TABLE event_projection DROP COLUMN epoch; PRAGMA user_version=7;');
   else store.db.exec('PRAGMA user_version=8;');
@@ -286,4 +286,63 @@ test('ISCP schema upgrades preserve existing installations, history, drafts and 
    assert.equal(store.draft(scope,conversation.id).content,'unsent draft');assert.deepEqual(store.file(scope,file.id).content,bytes);
   }finally{store.close();}
  }
+});
+
+test("v10 migration adds only reliable future message links and preserves every historical row and identity", t => {
+  const root = fixture(t); let store = new ClientStore(root);
+  const conversation = store.create(scope, "old history"), task = store.enqueue(scope, conversation.id, "original input");
+  const file = store.saveFile(scope, conversation.id, "old.txt", Buffer.from("private old file"));
+  store.saveDraft(scope, conversation.id, "private draft", [file.id], 0); store.markSubmitted(scope, task.request_id);
+  const payload = JSON.stringify({ content: "historical answer", files: [] });
+  store.commitDelivery(scope, { request_id: task.request_id, sequence: 1, digest: digest(payload), payload }, new Map());
+  store.acknowledge(scope, task.request_id, 1, digest(payload));
+  store.db.exec("DROP TABLE message_deliveries; PRAGMA user_version=10;");
+  const tables = store.db.prepare("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name").all().map(row => row.name);
+  const original = Object.fromEntries(tables.map(table => [table, store.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
+  const installation = store.installationID; store.close(); store = new ClientStore(root);
+  assert.equal(store.installationID, installation); assert.equal(store.db.prepare("PRAGMA user_version").get().user_version, 11);
+  for (const table of tables) assert.deepEqual(store.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(), original[table], table);
+  assert.equal(store.db.prepare("SELECT count(*) AS n FROM message_deliveries").get().n, 0);
+  assert.ok(store.read(scope, conversation.id).messages.every(message => !Object.hasOwn(message, "request_id")));
+  assert.equal(store.file(scope, file.id).content.toString(), "private old file");
+  const next = store.enqueue(scope, conversation.id, "new input"); store.markSubmitted(scope, next.request_id);
+  const delivery = { request_id: next.request_id, sequence: 1, digest: digest(payload), payload };
+  store.commitDelivery(scope, delivery, new Map());
+  const final = store.read(scope, conversation.id).messages.at(-1); assert.equal(final.request_id, next.request_id);
+  store.commitDelivery(scope, delivery, new Map()); assert.equal(store.read(scope, conversation.id).messages.at(-1).id, final.id);
+  store.close(); store = new ClientStore(root); assert.deepEqual(store.read(scope, conversation.id).messages.at(-1), final); store.close();
+});
+
+test("message linkage failure rolls back text, receipt and output files together; retry preserves one final identity", t => {
+  const store = new ClientStore(fixture(t)); t.after(() => store.close());
+  const conversation = store.create(scope, "atomic link"), task = store.enqueue(scope, conversation.id, "input"); store.markSubmitted(scope, task.request_id);
+  const content = Buffer.from("generated"), remote = { id: "remote", name: "generated.txt", size: content.length, sha256: digest(content) };
+  const payload = JSON.stringify({ content: "final answer", files: [remote] });
+  const delivery = { request_id: task.request_id, sequence: 1, digest: digest(payload), payload };
+  store.db.exec("CREATE TRIGGER fail_message_link BEFORE INSERT ON message_deliveries BEGIN SELECT RAISE(ABORT,'link storage failed'); END;");
+  assert.throws(() => store.commitDelivery(scope, delivery, new Map([[remote.id, content]])), /link storage failed/);
+  assert.equal(store.receipt(scope, task.request_id), null); assert.equal(store.read(scope, conversation.id).messages.length, 1);
+  assert.deepEqual(fs.readdirSync(store.filesRoot), []);
+  assert.equal(store.db.prepare("SELECT count(*) AS n FROM message_deliveries").get().n, 0);
+  store.db.exec("DROP TRIGGER fail_message_link;");
+  store.commitDelivery(scope, delivery, new Map([[remote.id, content]]));
+  const final = store.read(scope, conversation.id).messages.at(-1);
+  assert.equal(final.request_id, task.request_id); assert.ok(final.id); assert.notEqual(final.id, task.request_id);
+  store.commitDelivery(scope, delivery, new Map([[remote.id, content]])); assert.deepEqual(store.read(scope, conversation.id).messages.at(-1), final);
+  assert.equal(store.db.prepare("SELECT count(*) AS n FROM message_deliveries").get().n, 1);
+  assert.throws(() => store.db.prepare("INSERT INTO message_deliveries VALUES(?,?,?)").run(crypto.randomUUID(), task.request_id, 1), /UNIQUE|FOREIGN KEY/);
+  assert.deepEqual(store.db.prepare("PRAGMA foreign_key_check").all(), []);
+});
+
+test("failed v11 schema migration leaves v10 rows and version intact", t => {
+  const root = fixture(t); const store = new ClientStore(root), conversation = store.create(scope, "preserved");
+  store.enqueue(scope, conversation.id, "preserved input");
+  store.db.exec("DROP TABLE message_deliveries; CREATE TABLE message_deliveries(unrelated TEXT); INSERT INTO message_deliveries VALUES('preserved conflicting data'); PRAGMA user_version=10;");
+  const original = store.db.prepare("SELECT * FROM messages").all(); store.close();
+  assert.throws(() => new ClientStore(root), /already exists/);
+  const db = new DatabaseSync(path.join(root, "client.sqlite"));
+  try {
+    assert.equal(db.prepare("PRAGMA user_version").get().user_version, 10); assert.deepEqual(db.prepare("SELECT * FROM messages").all(), original);
+    assert.equal(db.prepare("SELECT unrelated FROM message_deliveries").get().unrelated, "preserved conflicting data");
+  } finally { db.close(); }
 });

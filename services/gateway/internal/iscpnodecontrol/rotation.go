@@ -214,9 +214,6 @@ func (p *Peer) recordGrantProof(req ControlGrantUpdate) error {
 			active = append(active, v)
 		}
 	}
-	if len(active) >= 128 {
-		return n.ErrUnavailable
-	}
 	active = append(active, grantProofReceipt{req.Proof.Nonce, digest, req.Proof.IssuedAt.Add(5 * time.Minute)})
 	raw, _ := json.Marshal(active)
 	return n.WritePrivateAtomic(path, raw)

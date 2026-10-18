@@ -7,8 +7,11 @@ import { WORKBENCH_LIMITS } from "../shared/workbench-limits.mjs";
 import { calendarMissed, nextCalendarTime, parseScheduleRequest, recurrenceSpec, zonedTime } from "./local-schedule-time.mjs";
 import { initialQuestionTitle, migrateConversationTitles } from "./client-conversation-titles.mjs";
 
-export const CLIENT_SCHEMA_VERSION = 10;
+export const CLIENT_SCHEMA_VERSION = 11;
 export const CLIENT_LIMITS = WORKBENCH_LIMITS;
+const MESSAGE_DELIVERIES_SCHEMA = `CREATE TABLE message_deliveries(message_id TEXT PRIMARY KEY REFERENCES messages(id),
+  request_id TEXT NOT NULL,sequence INTEGER NOT NULL,UNIQUE(request_id,sequence),
+  FOREIGN KEY(request_id,sequence) REFERENCES deliveries(request_id,sequence));`;
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u;
@@ -34,7 +37,7 @@ export class ClientStore {
     try {
       this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
       const version = this.db.prepare("PRAGMA user_version").get().user_version;
-      if (![0, 6, 7, 8, 9, CLIENT_SCHEMA_VERSION].includes(version)) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
+      if (![0, 6, 7, 8, 9, 10, CLIENT_SCHEMA_VERSION].includes(version)) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
       if (version === 0) this.#initialize();
       if (version === 6) this.#transaction(() => {
         this.db.exec(`CREATE TABLE execution_projection(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id),revision INTEGER NOT NULL,termination_reason TEXT NOT NULL,approval_receipts TEXT NOT NULL,event_state TEXT NOT NULL);
@@ -66,7 +69,12 @@ export class ClientStore {
       });
       if (version !== 0 && version < 10) this.#transaction(() => {
         migrateConversationTitles(this.db);
-        this.db.exec(`PRAGMA user_version=${CLIENT_SCHEMA_VERSION};`);
+        this.db.exec("PRAGMA user_version=10;");
+      });
+      // Historical rows have no reliable original-task linkage. Keep every ID
+      // and byte intact; only newly committed deliveries acquire this mapping.
+      if (version !== 0 && version < 11) this.#transaction(() => {
+        this.db.exec(`${MESSAGE_DELIVERIES_SCHEMA} PRAGMA user_version=11;`);
       });
       this.installationID = this.db.prepare("SELECT value FROM metadata WHERE key='installation_id'").get().value;
       // Incomplete atomic file writes are never treated as delivered files.
@@ -102,6 +110,7 @@ export class ClientStore {
         CREATE TABLE message_files(message_id TEXT NOT NULL REFERENCES messages(id),file_id TEXT NOT NULL REFERENCES files(id),PRIMARY KEY(message_id,file_id));
         CREATE TABLE deliveries(request_id TEXT NOT NULL REFERENCES tasks(request_id), sequence INTEGER NOT NULL,
           digest TEXT NOT NULL, acknowledged INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(request_id, sequence));
+        ${MESSAGE_DELIVERIES_SCHEMA}
         CREATE TABLE delivery_files(request_id TEXT NOT NULL, sequence INTEGER NOT NULL,
           file_id TEXT NOT NULL REFERENCES files(id), remote_id TEXT NOT NULL,
           PRIMARY KEY(request_id, sequence, remote_id),
@@ -166,7 +175,7 @@ export class ClientStore {
       const requests = "SELECT request_id FROM tasks WHERE conversation_id=?";
       const definitions = this.db.prepare(`SELECT DISTINCT s.schedule_id FROM schedules s JOIN tasks t
         ON t.request_id=s.request_id WHERE t.conversation_id=?`).all(conversationID);
-      for (const table of ["delivery_files", "deliveries", "execution_approvals", "execution_projection", "schedules"]) {
+      for (const table of ["message_deliveries", "delivery_files", "deliveries", "execution_approvals", "execution_projection", "schedules"]) {
         this.db.prepare(`DELETE FROM ${table} WHERE request_id IN (${requests})`).run(conversationID);
       }
       for (const definition of definitions) {
@@ -196,7 +205,9 @@ export class ClientStore {
   read(scope, conversationID) {
     this.#conversation(scope, conversationID);
     return {
-      messages: this.db.prepare("SELECT id,role,content,created_at FROM messages WHERE conversation_id=? ORDER BY rowid").all(conversationID).map(message => ({ ...message,
+      messages: this.db.prepare(`SELECT m.id,m.role,m.content,m.created_at,d.request_id FROM messages m
+        LEFT JOIN message_deliveries d ON d.message_id=m.id WHERE m.conversation_id=? ORDER BY m.rowid`).all(conversationID).map(({ request_id, ...message }) => ({ ...message,
+        ...(request_id ? { request_id } : {}),
         attachments: this.db.prepare("SELECT f.id AS artifact_id,f.name,f.size AS bytes FROM message_files m JOIN files f ON f.id=m.file_id WHERE m.message_id=? ORDER BY m.rowid").all(message.id)
           .map(file => ({ ...file, rel_path: `local:${file.artifact_id}/${file.name}`, content_type: localContentType(file.name) })) })),
       tasks: this.db.prepare("SELECT id,request_id,status,explicitly_submitted,created_at FROM tasks WHERE conversation_id=? ORDER BY rowid").all(conversationID)
@@ -678,6 +689,7 @@ export class ClientStore {
         this.db.prepare("INSERT INTO messages VALUES(?,?,?,?,?)")
           .run(messageID, task.conversation_id, "assistant", result.content, now);
         this.db.prepare("INSERT INTO deliveries(request_id,sequence,digest) VALUES(?,?,?)").run(request_id, sequence, digest);
+        this.db.prepare("INSERT INTO message_deliveries(message_id,request_id,sequence) VALUES(?,?,?)").run(messageID, request_id, sequence);
         for (const record of staged) {
           this.#fileManifest(task.conversation_id, record);
           this.db.prepare("INSERT INTO message_files VALUES(?,?)").run(messageID, record.id);

@@ -18,6 +18,7 @@ type TransportLimits struct {
 	TransferWindow int `json:"transfer_window"`
 }
 type TransportCapabilities struct {
+	StreamSchemaVersion   int             `json:"stream_schema_version,omitempty"`
 	SchemaVersion         int             `json:"schema_version"`
 	Profile               string          `json:"profile"`
 	SessionID             string          `json:"session_id"`
@@ -92,9 +93,10 @@ func (c Config) supportsV2() bool { return slices.Contains(c.ApplicationProfiles
 
 type negotiationOffer struct {
 	Negotiation struct {
-		Profiles          []string `json:"profiles"`
-		UnboundedRPC      bool     `json:"unbounded_rpc,omitempty"`
-		ExecutionProgress bool     `json:"execution_progress,omitempty"`
+		Profiles            []string `json:"profiles"`
+		UnboundedRPC        bool     `json:"unbounded_rpc,omitempty"`
+		ExecutionProgress   bool     `json:"execution_progress,omitempty"`
+		StreamSchemaVersion int      `json:"stream_schema_version,omitempty"`
 	} `json:"transport_negotiation"`
 }
 type negotiationReply struct {
@@ -119,7 +121,11 @@ func (e *Endpoint) capabilitiesFor(id string, profile string) TransportCapabilit
 		}
 		version = 2
 	}
-	return TransportCapabilities{SchemaVersion: version, Profile: profile, SessionID: id, Revision: "2", AuthorizationRevision: e.grantMaterial().grant.RevocationEpoch, ExpiresAt: time.Now().UTC().Add(5 * time.Minute), Operations: ops, QualifiedOperations: slices.Clone(ops), Binding: e.config.Binding, Limits: TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, MaxConcurrent, 8192, 2}}
+	streamVersion := 0
+	if profile == ProfileV2 {
+		streamVersion = 1
+	}
+	return TransportCapabilities{StreamSchemaVersion: streamVersion, SchemaVersion: version, Profile: profile, SessionID: id, Revision: "2", AuthorizationRevision: e.grantMaterial().grant.RevocationEpoch, ExpiresAt: time.Now().UTC().Add(5 * time.Minute), Operations: ops, QualifiedOperations: slices.Clone(ops), Binding: e.config.Binding, Limits: TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, MaxConcurrent, 8192, 2}}
 }
 func (e *Endpoint) answerNegotiation(ctx context.Context, id string, r Request) error {
 	var offer negotiationOffer
@@ -139,6 +145,11 @@ func (e *Endpoint) answerNegotiation(ctx context.Context, id string, r Request) 
 	if !offer.Negotiation.ExecutionProgress {
 		caps.Operations = withoutProgress(caps.Operations)
 		caps.QualifiedOperations = withoutProgress(caps.QualifiedOperations)
+	}
+	if offer.Negotiation.StreamSchemaVersion != 1 {
+		caps.StreamSchemaVersion = 0
+		caps.Operations = withoutStream(caps.Operations)
+		caps.QualifiedOperations = withoutStream(caps.QualifiedOperations)
 	}
 	if offer.Negotiation.UnboundedRPC {
 		caps.Limits.Concurrent = 0
@@ -203,6 +214,9 @@ func requestRPCNegotiation(ctx context.Context, caller func(context.Context, Req
 	offer.Negotiation.Profiles = profiles
 	offer.Negotiation.UnboundedRPC = true
 	offer.Negotiation.ExecutionProgress = slices.Contains(profiles, ProfileV2)
+	if offer.Negotiation.ExecutionProgress {
+		offer.Negotiation.StreamSchemaVersion = 1
+	}
 	call := func() (Response, error) {
 		body, _ := json.Marshal(offer)
 		return caller(ctx, Request{Type: RequestType, Profile: Profile, ID: newUUID(), Operation: OperationIdentity, Body: body})
@@ -212,6 +226,7 @@ func requestRPCNegotiation(ctx context.Context, caller func(context.Context, Req
 	// First keep unbounded RPC support when a peer predates progress.
 	if err == nil && offer.Negotiation.ExecutionProgress && (r.Status == 400 || r.Status == 404 || r.Status == 501) {
 		offer.Negotiation.ExecutionProgress = false
+		offer.Negotiation.StreamSchemaVersion = 0
 		r, err = call()
 	}
 	// Older bounded peers require the original offer shape.
@@ -233,17 +248,20 @@ func validateNegotiation(c TransportCapabilities, id string, mode ...string) err
 	now := time.Now()
 	compatible := slices.Equal(c.Operations, ops)
 	if c.Profile == ProfileV2 {
-		compatible = compatible || slices.Equal(c.Operations, withoutProgress(ops))
+		compatible = compatible || slices.Equal(c.Operations, withoutProgress(ops)) || slices.Equal(c.Operations, withoutStream(ops)) || slices.Equal(c.Operations, withoutStream(withoutProgress(ops)))
 	}
 	if c.Profile == ProfileV2 && (len(mode) == 0 || mode[0] != "node-managed") {
 		localOps := OperationsV2ForMode("local-test")
-		compatible = compatible || slices.Equal(c.Operations, localOps) || slices.Equal(c.Operations, withoutProgress(localOps))
+		compatible = compatible || slices.Equal(c.Operations, localOps) || slices.Equal(c.Operations, withoutProgress(localOps)) || slices.Equal(c.Operations, withoutStream(localOps)) || slices.Equal(c.Operations, withoutStream(withoutProgress(localOps)))
 	}
 	expectedLimits := TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, c.Limits.Concurrent, 8192, 2}
 	// Original v1 Grants predate revocation epochs. negotiate still binds this
 	// value to the verified Grant; v2 requires a nonzero authorization revision.
 	if c.SessionID != id || c.SchemaVersion != version || c.Revision != "2" || (c.Profile == ProfileV2 && c.AuthorizationRevision == 0) || !c.ExpiresAt.After(now) || c.ExpiresAt.After(now.Add(6*time.Minute)) || !compatible || (c.Limits.Concurrent != 0 && c.Limits.Concurrent != MaxConcurrent) || c.Limits != expectedLimits {
 		return errors.New("invalid negotiated capability binding")
+	}
+	if (slices.Contains(c.Operations, OperationExecutionProgressStream) && c.StreamSchemaVersion != 1) || (!slices.Contains(c.Operations, OperationExecutionProgressStream) && c.StreamSchemaVersion != 0) {
+		return errors.New("incompatible stream schema")
 	}
 	for _, name := range c.QualifiedOperations {
 		if !slices.Contains(ops, name) || (name == OperationExecutionProgress && !slices.Contains(c.Operations, name)) {
@@ -269,4 +287,8 @@ func (e *Endpoint) negotiationFailed(id string) {
 // Progress is an optional extension of the original exact v2 registry.
 func withoutProgress(ops []string) []string {
 	return slices.DeleteFunc(slices.Clone(ops), func(op string) bool { return op == OperationExecutionProgress })
+}
+
+func withoutStream(ops []string) []string {
+	return slices.DeleteFunc(slices.Clone(ops), func(op string) bool { return op == OperationExecutionProgressStream })
 }

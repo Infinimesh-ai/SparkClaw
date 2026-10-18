@@ -23,6 +23,7 @@ export function MessageBubble({
   language,
   inProgress = false,
   sessionSource,
+  scrollAnchorId,
   onFeedback
 }: {
   message: Message;
@@ -31,6 +32,7 @@ export function MessageBubble({
   language: Language;
   inProgress?: boolean;
   sessionSource?: string;
+  scrollAnchorId?: string;
   onFeedback: (rating: "up" | "down" | "corrected", correction?: string) => Promise<void>;
 }) {
   const [correction, setCorrection] = useState("");
@@ -50,7 +52,7 @@ export function MessageBubble({
   }
 
   return (
-    <article className={`message ${message.role}`} data-message-id={message.id}>
+    <article className={`message ${message.role}`} data-message-id={message.id} data-scroll-anchor={scrollAnchorId ?? message.id}>
       <div className="messageMeta">
         <span>{message.role === "user" ? (sessionSource === "mcp" ? text.chat.requirement : text.chat.you) : text.chat.assistant}</span>
         {message.created_at && <time>{formatTime(message.created_at, language)}</time>}
@@ -88,12 +90,12 @@ export function MessageBubble({
   );
 }
 
-export function TaskProgressMessage({ id, sessionId, createdAt, text, language, content = "" }: {
-  id: string; sessionId: string; createdAt: string; text: Copy; language: Language; content?: string;
+export function TaskProgressMessage({ id, sessionId, createdAt, text, language, content = "", scrollAnchorId, direct = false }: {
+  id: string; sessionId: string; createdAt: string; text: Copy; language: Language; content?: string; scrollAnchorId?: string; direct?: boolean;
 }) {
-  const shown = useSmoothReveal(content);
-  return <MessageBubble message={{ id: `progress:${id}`, session_id: sessionId, role: "assistant", content: shown, created_at: createdAt }}
-    inProgress streamStatuses={[]} text={text} language={language} onFeedback={async () => {}} />;
+  const shown = useSmoothReveal(direct ? "" : content);
+  return <MessageBubble message={{ id: `progress:${id}`, session_id: sessionId, role: "assistant", content: direct ? content : shown, created_at: createdAt }}
+    scrollAnchorId={scrollAnchorId} inProgress streamStatuses={[]} text={text} language={language} onFeedback={async () => {}} />;
 }
 
 export function RequestedMedia({ locators, text }: { locators: MessageMediaLocator[]; text: Copy }) {

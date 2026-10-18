@@ -293,7 +293,7 @@ func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID strin
 		r.auditWorkflowExecutionFailure(ctx, sessionID, run.ID, "workflow.model_answer_failed", result.FailureCode, result.FailureDiagnostic, nil)
 		return result
 	}
-	answer, answerErr := workflowFinalAnswerContent(chat.Content)
+	answer, answerErr := finalAnswerContent(chat.Content, finalAnswerFormatFromContext(ctx))
 	if answerErr != nil {
 		result := workflowExecutionResult{Chat: chat, Halted: true}
 		result.fail(workflowFailureConversationOutputInvalid, answerErr)

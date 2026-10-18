@@ -244,24 +244,6 @@ func TestMultiAuthorityLifecycleIsolationAndRestart(t *testing.T) {
 	if _, e = node.OpenRegistrationReceipt(sr, skb, fb.service.Identity); e != nil {
 		t.Fatal(e)
 	}
-	// Saturating one node's public admission does not occupy another node's slots.
-	releases := []func(){}
-	for i := 0; i < 32; i++ {
-		release, e := a.enter()
-		if e != nil {
-			t.Fatal(e)
-		}
-		releases = append(releases, release)
-	}
-	if _, e = serviceCall(restarted, sa); e == nil {
-		t.Fatal("saturated node accepted more work")
-	}
-	if _, e = serviceCall(restarted, sb); e != nil {
-		t.Fatal("healthy node blocked by unrelated node", e)
-	}
-	for _, release := range releases {
-		release()
-	}
 	a.Now = time.Now
 	b = adapterFor(t, restarted, fb.cfg.IssuerRoute)
 	var wg sync.WaitGroup

@@ -18,18 +18,14 @@ type Forwarder struct {
 	Route     string
 	Peer      Caller
 	Adapter   n.RelayRegistration
-	slots     chan struct{}
 	controlMu sync.Mutex
-	mu        sync.Mutex
-	requests  int
-	window    time.Time
 }
 
 func NewForwarder(route string, peer Caller, adapter n.RelayRegistration) (*Forwarder, error) {
 	if !issuerRoutePattern.MatchString(route) || peer == nil || adapter == nil {
 		return nil, n.ErrInvalid
 	}
-	return &Forwarder{Route: route, Peer: peer, Adapter: adapter, slots: make(chan struct{}, 32)}, nil
+	return &Forwarder{Route: route, Peer: peer, Adapter: adapter}, nil
 }
 func (f *Forwarder) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -37,26 +33,6 @@ func (f *Forwarder) Handler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method != "POST" || (r.URL.Path != n.ExchangePath && r.URL.Path != ControlGrantPath) || r.URL.RawQuery != "" {
 			http.NotFound(w, r)
-			return
-		}
-		f.mu.Lock()
-		if time.Since(f.window) > time.Minute {
-			f.window = time.Now()
-			f.requests = 0
-		}
-		f.requests++
-		limited := f.requests > 600
-		f.mu.Unlock()
-		if limited {
-			w.Header().Set("Retry-After", "10")
-			writeError(w, 429, "rate_limited")
-			return
-		}
-		select {
-		case f.slots <- struct{}{}:
-			defer func() { <-f.slots }()
-		default:
-			writeError(w, 503, "unavailable")
 			return
 		}
 		if f.handleControlGrant(w, r) {

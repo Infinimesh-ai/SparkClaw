@@ -110,6 +110,7 @@ func (s *Service) pruneProgressLocked() {
 	}
 }
 func (s *Service) syncProgressLocked() {
+	s.syncAnswersLocked()
 	for key, p := range s.progress {
 		s.refreshProgressLocked(key, p)
 	}

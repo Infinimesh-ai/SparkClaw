@@ -54,8 +54,9 @@ export class ClientStoreCapability {
         {
           const content = this.store.read(scope, request.conversation_id);
           if (this.execution) content.tasks = content.tasks.map((task) => {
-            const progress = this.execution.progressContent?.(scope, task.request_id);
-            return { ...task, approvals: this.execution.approvals(scope, task.request_id), ...(progress ? { progress_content: progress } : {}) };
+            const projection = this.execution.progressProjection?.(scope, task.request_id);
+            const progress = typeof this.execution.progressProjection === "function" ? projection?.content : this.execution.progressContent?.(scope, task.request_id);
+            return { ...task, approvals: this.execution.approvals(scope, task.request_id), ...(progress ? { progress_content: progress } : {}), ...(projection ? { progress_projection: projection } : {}) };
           });
           return content;
         }

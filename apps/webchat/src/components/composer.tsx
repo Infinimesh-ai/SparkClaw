@@ -27,6 +27,15 @@ import { useDismissibleLayer } from "../hooks/useDismissibleLayer";
 import { EmailPopupEntry } from "./emailPopup";
 import type { VoiceInputModel } from "../hooks/useVoiceInput";
 
+// Creating a conversation can move a welcome upload before its promise settles.
+// Keep failure ownership tied to that operation, not the currently visible chat.
+export class ComposerUploadError extends Error {
+  constructor(readonly sessionId: string, cause: unknown, fallback: string) {
+    super(cause instanceof Error ? cause.message : fallback, { cause });
+    this.name = "ComposerUploadError";
+  }
+}
+
 export type ComposerSurfaceProps = {
   text: CopyText;
   language: Language;
@@ -114,7 +123,10 @@ export function ComposerSurface({
     if (uploadDisabled) return;
     setUploading(true); clearUploadFailure();
     try { await onUploadDocument(file); }
-    catch (reason) { setFailedUploads(current => ({ ...current, [activeSession]: { file, error: reason instanceof Error ? reason.message : text.errors.upload } })); }
+    catch (reason) {
+      const sessionId = reason instanceof ComposerUploadError ? reason.sessionId : activeSession;
+      setFailedUploads(current => ({ ...current, [sessionId]: { file, error: reason instanceof Error ? reason.message : text.errors.upload } }));
+    }
     finally { setUploading(false); if (uploadInputRef.current) uploadInputRef.current.value = ""; }
   }
   const uploadInputRef = useRef<HTMLInputElement | null>(null);

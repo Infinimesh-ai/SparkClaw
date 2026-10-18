@@ -28,6 +28,7 @@ export class ExecutionProgressClient {
   pause({ authorityExpired = false } = {}) {
     for (const entry of this.entries.values()) {
       this.#incident(entry); entry.attempt?.abort(); entry.projection.disconnect();
+      this.#retireReplacedAuthority(entry);
       if (authorityExpired) this.#expireAuthority(entry);
     }
   }
@@ -83,11 +84,21 @@ export class ExecutionProgressClient {
       entry.authorizationRevision === manifest.authorization_revision;
   }
   #displayAuthority(entry) {
-    if (!(performance.now() < entry.authorityDeadline)) return false;
+    if (entry.generation !== this.auth.generation || !(performance.now() < entry.authorityDeadline)) return false;
     const manifest = this.auth.transport?.capabilities;
-    if (manifest && entry.authorizationRevision !== manifest.authorization_revision) return false;
+    if (manifest && (entry.session !== manifest.session_id || entry.authorizationRevision !== manifest.authorization_revision)) return false;
     if (["reconnecting", "service_unavailable"].includes(this.auth.status.state)) return true;
     return this.#authority(entry);
+  }
+  #retireReplacedAuthority(entry) {
+    const manifest = this.auth.transport?.capabilities;
+    if (entry.generation === undefined || entry.generation === this.auth.generation && (!manifest || entry.session === manifest.session_id)) return;
+    const visible = entry.authorityDeadline > 0 && Boolean(entry.projection.read());
+    clearTimeout(entry.authorityTimer); entry.authorityDeadline = 0;
+    // A replacement session may resume verified bytes, but must authorize them
+    // itself. Its opening handshake cannot inherit the prior helper's lease.
+    entry.projection.disconnect(); this.#incident(entry);
+    if (visible) this.onChange();
   }
   #incident(entry) { entry.incidentAt ??= this.now(); }
   #expired(entry) { return entry.incidentAt !== undefined && this.now() - entry.incidentAt >= 30000; }
@@ -101,18 +112,22 @@ export class ExecutionProgressClient {
     const now = performance.now();
     if (entry.authorityDeadline && now >= entry.authorityDeadline) { this.#expireAuthority(entry); return; }
     if (!Number.isSafeInteger(validForMS) || validForMS <= 0 || validForMS > 300000) throw new Error("Execution stream authority deadline is invalid");
+    const visible = this.#displayAuthority(entry) && Boolean(entry.projection.read());
     // This duration is the helper's actual remaining snapshot/grant/capability
     // authority, never a fresh five-minute lease inferred from an open or text.
     entry.authorityDeadline = Math.min(now + validForMS, capabilityDeadline);
     clearTimeout(entry.authorityTimer);
     const deadline = entry.authorityDeadline;
     const expire = () => {
-      if (!this.#identity(entry) || entry.authorityDeadline !== deadline) return;
+      if (!this.#identity(entry)) return;
+      this.#retireReplacedAuthority(entry);
+      if (entry.authorityDeadline !== deadline) return;
       const remaining = deadline - performance.now();
       if (remaining > 0) { entry.authorityTimer = setTimeout(expire, remaining); entry.authorityTimer.unref?.(); }
       else this.#expireAuthority(entry);
     };
     entry.authorityTimer = setTimeout(expire, Math.max(0, deadline - now)); entry.authorityTimer.unref?.();
+    if (!visible && this.#displayAuthority(entry) && entry.projection.read()) this.onChange();
   }
   #recoverOriginal(entry) {
     // Do not await the ordinary authoritative lookup here: it has its own
@@ -125,13 +140,14 @@ export class ExecutionProgressClient {
   async #run(entry) {
     try {
       while (this.#identity(entry)) {
+        this.#retireReplacedAuthority(entry);
         if (!this.#active(this.store.request(entry.scope, entry.requestID))) return;
         if (this.#expired(entry)) { entry.state = "awaiting_result"; this.#recoverOriginal(entry); return; }
         if (!this.#supported()) {
           this.#incident(entry); entry.state = "auth_paused";
           // Retain private verified text during a short connection outage;
           // actual authority expiry invalidates it even without a network call.
-          if (!(performance.now() < entry.authorityDeadline)) this.#discard(entry);
+          if (entry.authorityDeadline > 0 && !(performance.now() < entry.authorityDeadline)) this.#discard(entry);
           await pause(250, entry.controller.signal); continue;
         }
         const manifest = this.auth.transport.capabilities;
@@ -149,7 +165,7 @@ export class ExecutionProgressClient {
         const promise = this.auth.transport.streamCall("execution.progress.stream", {
           schema_version: 1, input_digest: entry.inputDigest, latest_open_at: new Date(Date.now() + 10000).toISOString(), ...(cursor ? { cursor } : {}),
         }, { requestID: entry.requestID, installationID: entry.installationID, params: { request_id: entry.requestID }, signal: attempt.signal,
-          onOpen: id => entry.projection.open(id),
+          onOpen: id => { if (current()) entry.projection.open(id); },
           onAuthority: validForMS => { if (current()) this.#authorize(entry, validForMS, this.auth.transport.capabilityValidUntil ?? capabilityDeadline); },
           onEvent: event => {
             if (!current() || !this.#active(this.store.request(entry.scope, entry.requestID))) return;
@@ -182,6 +198,7 @@ export class ExecutionProgressClient {
         }
         attempt.abort(); await promise; entry.projection.disconnect();
         if (!this.#identity(entry)) return;
+        this.#retireReplacedAuthority(entry);
         const reason = finished ? entry.projection.completion?.reason : undefined;
         if (reason === "terminal" || reason === "preview_unavailable" || reason === "canceled" || this.#expired(entry)) {
           entry.state = "awaiting_result"; this.#recoverOriginal(entry); return;

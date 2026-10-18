@@ -160,17 +160,53 @@ test("corrupt authoritative result never commits preview or ACKs", async t => {
   assert.equal(f.fetches.filter(call => call.url.endsWith("/ack")).length, 0);
 });
 
-test("valid-snapshot transient outage retains preview and cursor across a replacement transport session", async t => {
+test("same-generation transient outage retains preview until a replacement session requires new authority", async t => {
   const f = fixture(t); await f.client.submit(scope, f.task.request_id); f.send(f.requests[0], f.delta("verified 中文"));
   const manifest = f.auth.transport.capabilities;
-  f.auth.status.state = "service_unavailable"; f.auth.generation++; f.auth.transport.capabilities = undefined;
+  f.auth.status.state = "service_unavailable"; f.auth.transport.capabilities = undefined;
   f.client.pauseProgress(); assert.equal(f.client.progressContent(scope, f.task.request_id), "verified 中文");
   await new Promise(resolve => setTimeout(resolve, 50));
-  f.auth.transport.capabilities = { ...manifest, session_id: "replacement" }; f.auth.status.state = "connected";
+  f.auth.generation++; f.auth.transport.capabilities = { ...manifest, session_id: "replacement" }; f.auth.status.state = "connected";
+  assert.equal(f.client.progressContent(scope, f.task.request_id), undefined);
   await waitFor(() => f.requests.length === 2);
   assert.equal(f.requests[1].body.cursor.content_digest, hash("verified 中文"));
+  assert.equal(f.client.progressContent(scope, f.task.request_id), undefined);
   f.send(f.requests[1], f.delta("!", 2, "verified 中文")); assert.equal(f.client.progressContent(scope, f.task.request_id), "verified 中文!");
 });
+
+for (const boundary of ["session", "generation"]) {
+  test(`replacement ${boundary} keeps verified bytes private until its own authority arrives`, async t => {
+    const f = fixture(t); await f.client.submit(scope, f.task.request_id); const first = f.requests[0];
+    f.send(first, f.delta("verified 中文"), 1, 20);
+    f.send(first, { kind: "snapshot_begin", snapshot_id: crypto.randomUUID(), revision: 2, total_bytes: 3, content_digest: hash("new") }, 2, 20);
+    if (boundary === "session") f.auth.transport.capabilities.session_id = "replacement";
+    else f.auth.generation++;
+    assert.equal(f.client.progressContent(scope, f.task.request_id), undefined, "reads fence replacement before lifecycle processing");
+    if (boundary === "session") f.client.pauseProgress();
+    else {
+      const manifest = f.auth.transport.capabilities;
+      f.auth.status.state = "service_unavailable"; f.auth.transport.capabilities = undefined;
+      await new Promise(resolve => setTimeout(resolve, 300));
+      assert.equal(f.client.progressContent(scope, f.task.request_id), undefined);
+      f.auth.transport.capabilities = manifest; f.auth.status.state = "connected";
+    }
+    await waitFor(() => f.requests.length === 2); const second = f.requests[1];
+    assert.equal(first.options.signal.aborted, true);
+    assert.deepEqual(second.body.cursor, { epoch, generation, revision: 1, offset: Buffer.byteLength("verified 中文"), content_digest: hash("verified 中文") });
+    assert.equal(f.client.progressContent(scope, f.task.request_id), undefined, "opening cannot reuse the old deadline");
+    first.options.onOpen(crypto.randomUUID()); first.options.onAuthority(300000); f.send(first, f.delta("stale", 2, "verified 中文"), 3);
+    assert.equal(f.client.progressContent(scope, f.task.request_id), undefined, "obsolete callbacks cannot authorize cached text");
+    const changes = f.changes.length;
+    second.options.onAuthority(300000);
+    assert.equal(f.client.progressContent(scope, f.task.request_id), "verified 中文");
+    assert.equal(f.changes.length, changes + 1, "reauthorization publishes the retained projection once");
+    second.options.onAuthority(300000);
+    assert.equal(f.changes.length, changes + 1, "ordinary authority refreshes do not republish unchanged text");
+    f.send(second, f.delta("!", 2, "verified 中文"));
+    assert.equal(f.client.progressContent(scope, f.task.request_id), "verified 中文!", "the partial snapshot cannot cross sessions");
+    assert.equal(f.fetches.filter(call => call.method === "POST").length, 1);
+  });
+}
 
 test("known authority expiry clears valid text immediately while reconnect retains the original task", async t => {
   const f = fixture(t); await f.client.submit(scope, f.task.request_id); f.send(f.requests[0], f.delta("valid before expiry"));

@@ -695,3 +695,55 @@ All 103 sampled HTTPS health reads after readiness returned 200; two sampled
 requests during the planned cutover returned non-200. Both services remain active,
 with zero Relay automatic restarts and no post-readiness error-priority or panic
 records in the inspected journals.
+
+## 14. Matched live streaming rollout (2026-10-18)
+
+The user subsequently authorized upgrading the server chain used by the default
+desktop connection. Work2 Gateway and node issuer, and TEST1 Relay and control
+forwarder, now run `bef007e8627daa484a143d3bdf9e0dcce8595824`. Running process and
+container binary hashes match the Linux/amd64 build receipt. Other Gateway nodes
+retain their existing versions. The browser Controller and App-CLI processes were
+not restarted; their source and release remain unchanged.
+
+The user explicitly waived new database backups during this rollout. The partial
+online transfer was stopped and removed. Only old programs, Docker configuration
+and private configuration/identity files were retained for rollback; no database
+was restored or cleared. TEST1 retains all 5,708,614 original message IDs,
+5,708,722 receipt IDs, keys in 23 other durable tables, and row hashes in 11
+identity/authority tables. Its schema and 44 protected files are unchanged.
+Large-history ID checks do not assert equality of every payload byte.
+
+Work2 retains the original rows in 41 business tables, eight issuer record keys,
+44 protected configuration files and 883 workspace files. Existing mailbox
+runtime cursors and renewal fields are normalized by the documented preservation
+policy; business content, mailbox identity/configuration and draft/send records
+remain protected. Docker environment, HostConfig and network addresses match.
+Gateway health, issuer status and pinned-TLS Relay connectivity pass. The new
+Relay also passed fresh and repeated startup against a disposable PostgreSQL 18
+database on the actual Linux/amd64 host.
+
+The freshly packaged ARM64 SparkX application used the original connection and
+installation identity with a separate, empty local ClientStore. No original
+client database was copied or migrated. A real-model request produced 1,123
+final characters through 109 authenticated delta frames and 96 renderer preview
+updates. The first renderer text update appeared after 7,138 ms; this is one live observation,
+not a percentile benchmark. Exactly one subscription and one durable commit
+completed, the normalized visible/final digests match, and both the local receipt
+and server fence record delivery. There were no blank, missing, duplicate or
+remounted message rows, and no script-assisted scrolling. The original nine
+settings entries and schedule-create/cancel interaction also pass.
+
+The first isolated-profile attempt generated a new installation ID and was
+correctly rejected by the enrolled connection binding. Preserving the original
+installation identity in the empty test store fixed that harness error. Two
+inspection-import errors were corrected before any model task was submitted;
+failure evidence is retained. All 19 tables across the original client's two
+business databases, its authentication and launch selection match their cold
+fingerprints. The installed application was not replaced and its normal launch
+was restored after testing. This verifies the latest package, not an installation
+of it over the user's existing app.
+
+The [sanitized deployment receipt](evidence/live-stream-rollout-2026-10-18.json)
+records hashes, counts and scope. Full private evidence and old programs are
+retained by the operator. Existing public contracts are unchanged; InfiniCenter
+0036 upstream standardization remains proposed.

@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-18",
+  "source": "bef007e8627daa484a143d3bdf9e0dcce8595824",
+  "targets": [
+    "work2 Gateway",
+    "work2 node issuer",
+    "TEST1 Relay",
+    "TEST1 control forwarder"
+  ],
+  "binaries": {
+    "sparkclaw": "78c05557c6773d7334736d2cb5d668f4d91200c14bae4c66473652296c73c26b",
+    "iscp-public-relay": "84460c359fd1b37d21e2b1cfa613ae7bed3e6341eb0099fd409c075849a61b66",
+    "iscp-control-forwarder": "7ed5c2156390c0c8ef345671d29bc68b78a628bbd8ce6b8b9f503d2dfc180423",
+    "iscp-node-issuer": "3b624acfa6d850111d3007ab88e56ecdc42ee94899c6bab36f0462f4b954122e"
+  },
+  "database_backup_waived_by_user": true,
+  "database_restored": false,
+  "relay": {
+    "protected_files": 44,
+    "schema_unchanged": true,
+    "durable_other_tables": 23,
+    "identity_authority_tables": 11,
+    "history": {
+      "iscp_relay.messages": {
+        "before_count": 5708614,
+        "after_count": 5709021,
+        "missing_original_ids": 0
+      },
+      "iscp_relay.delivery_receipts": {
+        "before_count": 5708722,
+        "after_count": 5709090,
+        "missing_original_ids": 0
+      }
+    },
+    "health": 200,
+    "ready": 200,
+    "live": 200
+  },
+  "work2": {
+    "original_business_tables": 41,
+    "issuer_record_keys_preserved": 8,
+    "configuration_files_preserved": 44,
+    "workspace_files_preserved": 883,
+    "environment_and_host_config_preserved": true,
+    "browser_and_app_cli_processes_unchanged": true
+  },
+  "native_client": {
+    "platform": "macOS arm64",
+    "latest_packaged_application": true,
+    "installed_application_replaced": false,
+    "same_enrolled_connection_and_installation_identity": true,
+    "separate_empty_local_store": true,
+    "original_preservation": {
+      "original_databases_exact": {
+        "workbench/client.sqlite": true,
+        "workbench/mail/mail-cache.sqlite": true
+      },
+      "original_tables_preserved": 19,
+      "fixed_identity_authentication_and_launch_selection_preserved": true,
+      "database_copied_or_restored": false
+    },
+    "live_model_samples": 1,
+    "summary": {
+      "delta_frames": 109,
+      "final_chars": 1123,
+      "first_preview_chars": 11,
+      "stream_subscriptions": 1,
+      "final_commits": 1,
+      "remounts": 0,
+      "blanks": 0,
+      "duplicates": 0,
+      "missing_frames": 0,
+      "final_digest_matches": true,
+      "acknowledged": true,
+      "harness_scrolls": 0,
+      "renderer_preview_updates": 96,
+      "first_renderer_text_ms": 7138
+    },
+    "checks": {
+      "original_client_identity": true,
+      "original_nine_settings": true,
+      "schedule_create_cancel": true
+    },
+    "server_fence_state": "delivered",
+    "timing_limit": "One live observation of original DOM text followed by an animation frame, without per-frame viewport measurements; no percentile claim."
+  },
+  "retained_failures": [
+    "Initial isolated ClientStore installation ID differed from the enrolled connection; fixed only in the empty validation store.",
+    "Two observational instrumentation import failures were corrected before any model task was submitted."
+  ],
+  "existing_contracts_changed": false,
+  "upstream_standardization_accepted": false,
+  "private_evidence_sha256": {
+    "relay-receipt.json": "af98d9827370e53142036fef4e00c48d73eab5f9850e68f12e4a8c8685d5890b",
+    "work-receipt.json": "3fe522e47f18acc836f6021244e583d1066eb471cf429923da598635e8b78b35",
+    "native-live.json": "958c1ff7fbb2550be6d0e2173eb48a187bf4fcb6dcf3acf4bfd64fefd220db32",
+    "client-preservation.json": "5691522a342f75f93fc843a9b708a8926d78e3b00383b8c923992a70197a243b",
+    "work-final.json": "92c186fc1ffea8ab75224c2ecdf33894ff9832699e84424f8e31a17e4610b2fc"
+  }
+}

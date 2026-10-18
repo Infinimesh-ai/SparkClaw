@@ -148,7 +148,10 @@ async function start() {
         if (status.backend?.transport !== "iscp" || status.capabilities?.browser === true) void prepareBrowserHostScope().catch(() => {});
         else void browserHost?.suspend();
       } else {
-        executionClient?.close();
+        const temporaryStreamLoss = status.backend?.transport === "iscp" && !desktopAuth.authorizationRevoked &&
+          ["reconnecting", "service_unavailable"].includes(status.state);
+        if (temporaryStreamLoss) executionClient?.pauseProgress({ authorityExpired: desktopAuth.transportStage === "authorization_expired" });
+        else executionClient?.close();
         iscpEvents?.close();
         iscpSpeech?.close();
         iscpRecording?.close();

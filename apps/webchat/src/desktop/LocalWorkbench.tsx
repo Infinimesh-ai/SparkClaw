@@ -18,6 +18,8 @@ import { clientStore, type LocalConversation, type LocalConversationContent, typ
 import { desktopCapability } from "./capability";
 import type { DesktopConnectionStatus, DesktopState } from "./types";
 import { BrowserPanel } from "./BrowserPanel";
+import { localMessageRows } from "./localMessageRows";
+import { ConversationReadVersion } from "./conversationReadVersion";
 import { MessageBubble, TaskProgressMessage } from "../components/messages";
 import { useConversationActivity } from "../hooks/useConversationActivity";
 import { conversationActivity, isTaskInProgress, localExecutionStates, unseenActivity } from "../lib/conversationActivity";
@@ -51,6 +53,11 @@ export function LocalWorkbench() {
   const selectedRef = useRef(selected); selectedRef.current = selected;
   const readGeneration = useRef(0);
   const [content, setContent] = useState(emptyContent);
+  const contentReads = useRef(new ConversationReadVersion());
+  const readContent = useCallback((id: string) => {
+    const generation = readGeneration.current;
+    return contentReads.current.read(() => store.read(id), () => selectedRef.current === id && readGeneration.current === generation, setContent);
+  }, [store]);
   const draftRef = useRef("");
   const inputFilesRef = useRef<string[]>([]);
   const [scheduleCreateOpen, setScheduleCreateOpen] = useState(false);
@@ -182,9 +189,8 @@ export function LocalWorkbench() {
     if (generation !== readGeneration.current) return;
     selectedRef.current = id; setSelected(id); setContent(emptyContent);
     if (capabilities.browser) await desktop.selectConversation?.(id);
-    const next = await store.read(id);
-    if (selectedRef.current === id && readGeneration.current === generation) setContent(next);
-  }, [desktop, store, selectDraft, capabilities.browser]);
+    await readContent(id);
+  }, [desktop, store, selectDraft, capabilities.browser, readContent]);
   useEffect(() => {
     applyAppearance();
     let active = true;
@@ -222,17 +228,27 @@ export function LocalWorkbench() {
   useEffect(() => {
     if (!selected) return;
     let active = true;
+    let paint: number | undefined;
+    let reading = false;
+    let dirty = false;
     const refresh = () => {
       if (!active) return;
-      const generation = readGeneration.current;
-      void store.read(selected).then((next) => {
-        if (active && selectedRef.current === selected && generation === readGeneration.current) setContent(next);
-      }).catch((error) => { if (active && selectedRef.current === selected) surfaceError(error); });
+      dirty = true;
+      if (paint !== undefined || reading) return;
+      paint = window.requestAnimationFrame(() => {
+        paint = undefined;
+        if (!active) return;
+        reading = true; dirty = false;
+        void readContent(selected).catch((error) => { if (active && selectedRef.current === selected) surfaceError(error); }).finally(() => {
+          reading = false;
+          if (active && dirty) refresh();
+        });
+      });
     };
     const timer = window.setInterval(refresh, 3000);
     const unsubscribe = store.onChange?.(refresh);
-    return () => { active = false; unsubscribe?.(); window.clearInterval(timer); };
-  }, [selected, store, surfaceError]);
+    return () => { active = false; unsubscribe?.(); window.clearInterval(timer); if (paint !== undefined) window.cancelAnimationFrame(paint); };
+  }, [selected, store, surfaceError, readContent]);
 
   const applyVoiceTranscript = useCallback((result: { text: string }, anchor: VoiceDraftAnchor) => {
     if (anchor.sessionId !== selectedRef.current || draftRef.current !== anchor.draft) return false;
@@ -335,7 +351,7 @@ export function LocalWorkbench() {
         const queued = await store.enqueueDraft(id, sourceID, saved.revision, draftScopes.get(sourceID) ?? "");
         if (submit) setSubmittingTaskID(queued.task.id);
         drafts.accept(sourceID, workbenchDraft(queued.draft));
-        if (selectedRef.current === id) setContent(await store.read(id));
+        if (selectedRef.current === id) await readContent(id);
         await reload();
         if (submit) await submitTask(queued.task, id);
       } finally { setSubmittingConversation(""); setSubmittingTaskID(""); }
@@ -344,7 +360,7 @@ export function LocalWorkbench() {
   async function submitTask(task: LocalTask, id: string) {
     try { await store.submit(task.request_id); }
     finally {
-      if (selectedRef.current === id) setContent(await store.read(id));
+      if (selectedRef.current === id) await readContent(id);
       await reload();
     }
   }
@@ -353,7 +369,7 @@ export function LocalWorkbench() {
     try {
       await store.decideApproval(task.request_id, approval.approval_id, approval.digest, decision);
       setNotice(decision === "approve" ? (zh ? "批准决定已接收，任务将继续执行。" : "Approval accepted. The task can continue.") : (zh ? "拒绝决定已接收。" : "Rejection accepted."));
-    } finally { if (selectedRef.current === id) setContent(await store.read(id)); await reload(); }
+    } finally { if (selectedRef.current === id) await readContent(id); await reload(); }
   }
   async function renameConversation(id: string) {
     if (busyRef.current || sessionActionID || !sessionTitleDraft.trim()) return;
@@ -372,7 +388,7 @@ export function LocalWorkbench() {
       const id = await ensureConversation();
       saved = await store.saveFile(id, file.name, new Uint8Array(await file.arrayBuffer()));
       setInputFiles((current) => saved && !current.includes(saved.id) ? [...current, saved.id] : current);
-      if (selectedRef.current === id) setContent(await store.read(id));
+      if (selectedRef.current === id) await readContent(id);
       setNotice(zh ? "文件已添加。" : "File added.");
     });
     return saved;
@@ -473,11 +489,9 @@ export function LocalWorkbench() {
               setNotice(zh ? "已记录核实结果，没有重发浏览器操作。" : "Verified outcome recorded. The browser action was not resent.");
             })}>{outcome === "observed_completed" ? (zh ? "我已核实操作完成" : "I verified the action completed") : (zh ? "我已核实操作未生效" : "I verified no change occurred")}</button>)}</div>}
           </section>)}
-          {content.messages.map((message) => <MessageBubble key={message.id}
-            message={{ ...message, session_id: selected }} streamStatuses={[]} text={text} language={language}
-            onFeedback={async () => {}} />)}
-          {pendingTasks.map(task => <TaskProgressMessage key={`progress:${task.id}`} id={task.id} sessionId={selected}
-            createdAt={task.created_at} content={task.progress_content} text={text} language={language} />)}
+          {localMessageRows(content, selected, pendingTasks).map(row => <MessageBubble key={row.key}
+            message={row.message} scrollAnchorId={row.scrollAnchorId} inProgress={row.inProgress}
+            streamStatuses={[]} text={text} language={language} onFeedback={async () => {}} />)}
           {submitting && !pendingTasks.length && <TaskProgressMessage id="submitting" sessionId={selected}
             createdAt={new Date().toISOString()} text={text} language={language} />}
           {content.tasks.filter((task) => task.status === "delivery_too_large").map((task) => <section className="localFeedback" role="alert" key={task.id}>
@@ -511,7 +525,7 @@ export function LocalWorkbench() {
           sendEnabled: connection?.state === "connected" && surfaceEnabled(connection, "mail_send"),
           attachmentsEnabled: connection?.state === "connected" && surfaceEnabled(connection, "mail_send_attachments"),
           listFiles: store.listFiles, conversationID: selected,
-          onFileSaved: async () => { if (selectedRef.current) setContent(await store.read(selectedRef.current)); },
+          onFileSaved: async () => { if (selectedRef.current) await readContent(selectedRef.current); },
           download: async (mailboxID, mailID, partID) => {
             if (connection?.state !== "connected" || !capabilities.mail || !window.sparkclawMailSync?.saveAttachment) throw new Error(zh ? "邮件附件暂时不可用。" : "Mail attachments are unavailable.");
             const scope = lastMailScope.current;
@@ -519,7 +533,7 @@ export function LocalWorkbench() {
             if (!scope || scope !== lastMailScope.current) throw new Error("Mail authentication changed");
             const file = await window.sparkclawMailSync.saveAttachment(mailboxID, mailID, partID, id);
             if (scope !== lastMailScope.current) throw new Error("Mail authentication changed");
-            if (selectedRef.current === id) setContent(await store.read(id));
+            if (selectedRef.current === id) await readContent(id);
             await store.exportFile(file.id);
           },
         }}>

@@ -420,7 +420,7 @@ test("negotiated v3 execution stream uses authenticated helper IPC and observati
     if (request.operation === "execution.progress.stream") {
       progress++; assert.equal(request.request_id, task.request_id); assert.equal(request.installation_id, f.store.installationID);
       assert.deepEqual(request.params, { request_id: task.request_id }); assert.equal(request.body.input_digest, original.input_digest);
-      child.send({ ipc_version: 1, type: "stream_event", id: request.id, authority_valid_for_ms: 300000, event: {
+      child.send({ ipc_version: 1, type: "stream_event", id: request.id, authority_valid_for_ms: 300000, authority_deadline_ms: 300000, event: {
         type: "iscp.application.stream.v1", schema_version: 1, subscription_id: request.id, stream_seq: 1,
         body: { kind: "delta", request_id: task.request_id, input_digest: original.input_digest,
           epoch: "11111111-1111-4111-8111-111111111111", generation: "22222222-2222-4222-8222-222222222222",

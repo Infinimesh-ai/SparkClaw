@@ -297,7 +297,7 @@ export class ISCPTransport {
       installation_id: options.installationID || this.installationID, ...(options.params ? { params: options.params } : {}) };
     if (Buffer.byteLength(JSON.stringify(request)) > MAX_BYTES) throw new ISCPRequestNotSentError("Execution stream request exceeds bounds");
     return new Promise((resolve, reject) => {
-      let completed = false, released = false, cleanupTimer;
+      let completed = false, released = false, cleanupTimer, started;
       const current = () => generation === this.generation && this.state === "transport_ready" &&
         this.capabilities?.session_id === manifest.session_id && this.capabilities?.authorization_revision === manifest.authorization_revision &&
         Date.parse(this.capabilities?.expires_at) > Date.now() && performance.now() < this.capabilityValidUntil;
@@ -313,14 +313,24 @@ export class ISCPTransport {
       };
       const fail = error => { release(); if (!completed) reject(error); };
       const call = { request, stream: true, capacityClass: "stream", reject: fail,
-        event: (event, authorityValidForMS) => {
+        event: (event, authorityValidForMS, authorityDeadlineMS) => {
           if (released || generation !== this.generation) return;
           if (!current()) { cancel(); return; }
           if (event?.subscription_id !== id) { cancel(new Error("Execution stream subscription differs")); return; }
-          if (!Number.isSafeInteger(authorityValidForMS) || authorityValidForMS <= 0 || authorityValidForMS > 300000) {
+          if (!Number.isSafeInteger(authorityValidForMS) || authorityValidForMS <= 0 || authorityValidForMS > 300000 ||
+              !Number.isSafeInteger(authorityDeadlineMS) || authorityDeadlineMS < 0) {
             cancel(Object.assign(new Error("Execution stream authority deadline is invalid"), { code: "stream_authority_invalid" })); return;
           }
-          try { options.onAuthority?.(authorityValidForMS); if (!released) options.onEvent(event); } catch (error) { cancel(error); }
+          // The main-process origin precedes the helper's stream_call receipt.
+          // Subtracting its longer elapsed time is conservative and prevents
+          // queued old events from turning their former remaining TTL into a
+          // new lease. A refresh may move the helper-relative deadline beyond
+          // five minutes; the remaining duration still cannot exceed five.
+          const remaining = Math.floor(Math.min(authorityValidForMS, authorityDeadlineMS - (performance.now() - started)));
+          if (remaining <= 0) {
+            cancel(Object.assign(new Error("Execution stream authority expired in transit"), { status: 403, code: "grant_expired" })); return;
+          }
+          try { options.onAuthority?.(remaining); if (!released) options.onEvent(event); } catch (error) { cancel(error); }
         },
         resolve: response => {
           if (completed || released) return;
@@ -335,7 +345,7 @@ export class ISCPTransport {
         } };
       this.pending.set(id, call);
       options.signal?.addEventListener("abort", cancel, { once: true });
-      try { options.onOpen?.(id); this.child.stdin.write(`${JSON.stringify({ ipc_version: 1, type: "stream_call", id, request })}\n`); }
+      try { started = performance.now(); options.onOpen?.(id); this.child.stdin.write(`${JSON.stringify({ ipc_version: 1, type: "stream_call", id, request })}\n`); }
       catch { fail(new Error("Execution stream transport is unavailable")); }
     });
   }
@@ -483,7 +493,7 @@ export class ISCPTransport {
         const call = this.pending.get(frame.id);
         if (!call) continue;
         if (!call.stream) { this.#fail("disconnected"); return; }
-        call.event(frame.event, frame.authority_valid_for_ms);
+        call.event(frame.event, frame.authority_valid_for_ms, frame.authority_deadline_ms);
       } else if (frame.type === "response") {
         const call = this.pending.get(frame.id);
         if (!call) continue; // Late canceled calls cannot cross the request fence.

@@ -680,7 +680,7 @@ function streamManifest() {
 }
 function streamResponse(call, body) { return { ipc_version: 1, type: "response", id: call.id,
   response: { type: "task.result", profile: call.request.profile, id: call.id, status: 200, body } }; }
-function streamEvent(call) { return { ipc_version: 1, type: "stream_event", id: call.id, authority_valid_for_ms: 300000,
+function streamEvent(call) { return { ipc_version: 1, type: "stream_event", id: call.id, authority_valid_for_ms: 300000, authority_deadline_ms: 300000,
   event: { type: "iscp.application.stream.v1", schema_version: 1, subscription_id: call.id, stream_seq: 1, body: { kind: "state" } } }; }
 
 test("stream IPC requires matched helper/remote versions and does not use ordinary RPC deadlines or quotas", async t => {
@@ -774,3 +774,45 @@ test("helper grant-expired error retains authenticated code and status for immed
   const response = streamResponse(f.calls[0]); response.response.status = 403; response.response.error_code = "grant_expired";
   f.children[0].send(response); await rejected; assert.equal(f.transport.state, "transport_ready");
 });
+
+test("old IPC events cannot restart an elapsed helper authority deadline on arrival", async t => {
+  let monotonic = 1000; t.mock.method(performance, "now", () => monotonic);
+  const f = fixture(t, () => {}, { hello: { ...hello, stream_schema_version: 1 } }); await f.transport.start();
+  f.children[0].send({ ipc_version: 1, type: "capabilities", capabilities: streamManifest() });
+  let published = 0;
+  const pending = f.transport.streamCall("execution.progress.stream", {}, { requestID,
+    onAuthority() { published++; }, onEvent() { published++; } });
+  const rejected = assert.rejects(pending, error => error.status === 403 && error.code === "grant_expired");
+  monotonic += 20; // A ten-millisecond cached event waited in the helper pipe.
+  f.children[0].send({ ...streamEvent(f.calls[0]), authority_valid_for_ms: 10, authority_deadline_ms: 10 });
+  await rejected; assert.equal(published, 0); assert.equal(f.transport.state, "transport_ready");
+});
+
+test("helper-relative deadlines permit normal refresh beyond five minutes while deducting pipe delay", async t => {
+  let monotonic = 1000; t.mock.method(performance, "now", () => monotonic);
+  const f = fixture(t, () => {}, { hello: { ...hello, stream_schema_version: 1 } }); await f.transport.start();
+  f.children[0].send({ ipc_version: 1, type: "capabilities", capabilities: { ...streamManifest(), expires_at: new Date(Date.now() + 600000).toISOString() } });
+  const bounds = [], abort = new AbortController(); let events = 0;
+  const pending = f.transport.streamCall("execution.progress.stream", {}, { requestID, signal: abort.signal,
+    onAuthority: ms => bounds.push(ms), onEvent() { events++; } });
+  const rejected = assert.rejects(pending);
+  monotonic += 50;
+  f.children[0].send({ ...streamEvent(f.calls[0]), authority_valid_for_ms: 100, authority_deadline_ms: 100 });
+  assert.deepEqual(bounds, [50]);
+  monotonic += 60000;
+  f.children[0].send({ ...streamEvent(f.calls[0]), authority_valid_for_ms: 300000, authority_deadline_ms: 360000 });
+  assert.deepEqual(bounds, [50, 299950]); assert.equal(events, 2);
+  abort.abort(); await rejected;
+});
+
+for (const deadline of [undefined, null, -1, 1.5, "100", Number.MAX_SAFE_INTEGER + 1]) {
+  test(`invalid helper-relative deadline ${String(deadline)} cannot authorize a frame`, async t => {
+    const f = fixture(t, () => {}, { hello: { ...hello, stream_schema_version: 1 } }); await f.transport.start();
+    f.children[0].send({ ipc_version: 1, type: "capabilities", capabilities: streamManifest() });
+    let published = 0;
+    const pending = f.transport.streamCall("execution.progress.stream", {}, { requestID, onEvent() { published++; } });
+    const rejected = assert.rejects(pending, error => error.code === "stream_authority_invalid");
+    f.children[0].send({ ...streamEvent(f.calls[0]), authority_deadline_ms: deadline }); await rejected;
+    assert.equal(published, 0); assert.equal(f.transport.state, "transport_ready");
+  });
+}

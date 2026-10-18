@@ -14,7 +14,9 @@ const repetitions = Number(process.env.SPARKCLAW_STREAM_FIXTURE_REPETITIONS || "
 const mode = process.env.SPARKCLAW_STREAM_FIXTURE_MODE || "controlled";
 const realModel = mode === "real-model";
 const jointUI = mode === "joint-ui";
-const productionScrolling = ["auto-follow", "joint-ui"].includes(mode);
+// Retain the historical assisted long-text mode for comparison only. All
+// integration qualification modes exercise the production scrolling policy.
+const productionScrolling = mode !== "long-text";
 if (!root?.startsWith("/private/tmp/") || !Number.isSafeInteger(samples) || ![1, 10].includes(repetitions)) throw new Error("Private stream fixture environment required");
 const expectedChars = 600 * repetitions;
 process.env.SPARKCLAW_DESKTOP_ISCP_LOCAL_TEST = "1";

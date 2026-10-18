@@ -653,3 +653,45 @@ test verifies that a timeout or a single 503 leaves the same helper usable for
 other requests. Upstream receipt-index work is separately submitted in
 [ISCP PR #15](https://github.com/Infinimesh-ai/ISCP/pull/15); an open PR is not an
 upstream release or a new Relay deployment.
+
+## 13. TEST1 Relay upgrade (2026-10-18)
+
+At the user's request, TEST1 now runs source
+`19408777070067a3641acc873f234936633d59b7`, the verified upstream `main` at
+deployment time. The Go 1.25.12 Linux/amd64 artifact and running process both have
+SHA-256 `0b4e3a8bcb2279bbae76593fa9388c16b3c6ff987fadf6be5a1a21bc7620a052`.
+The previous `f19847c3` binary is retained. Existing 55-second reception, rate
+settings, TLS, signer, authorities and forwarder binary are unchanged; the
+already-valid receipt index is now also checked by startup.
+
+The full PostgreSQL 18 online backup is 12,291,967,601 compressed bytes and
+passed complete decoding, with SHA-256
+`504fe976236c50a37864aa990171871e5b11e4f8ae9e7b26313b612ddaf8dc9d`.
+The private TEST1 checkpoint is
+`/var/backups/iscp-relay/upgrade-20261018-19408777`; it contains the database/roles
+backup, cutover configuration/state archive, previous binary and deployment
+receipt. The online database and later cutover archive have separate timestamps.
+No database restore or cleanup occurred.
+
+All 45 protected file contents, permissions and owners match. Original keys in
+25 durable tables remain, including 5,567,588 messages and 5,567,732 receipts;
+11 identity/authority/migration tables also retain every original row hash.
+The two expiring replay caches are excluded from permanent-key preservation.
+Large-history verification compares IDs, not every payload byte. Database column
+and index definitions are unchanged, allowing rollback to the retained compatible
+program without restoring an older database over newly accepted work.
+
+Relevant PostgreSQL 18 race tests, vet and actual Linux/amd64 fresh/repeated
+startup passed. Verified-TLS health/readiness/liveness/discovery return 200,
+unauthenticated administration remains denied, the forwarder is active and all
+18 previously live devices reconnect with live message delivery. Private build,
+preservation and monitoring evidence is under
+`/Users/dev/.cache/sparkclaw-relay-upgrade-20261018-19408777`.
+No Gateway, installed desktop, UI, external contract or application-stream
+proposal changed in this rollout.
+
+The final two-minute observation recorded 1,980 messages received and delivered.
+All 103 sampled HTTPS health reads after readiness returned 200; two sampled
+requests during the planned cutover returned non-200. Both services remain active,
+with zero Relay automatic restarts and no post-readiness error-priority or panic
+records in the inspected journals.

@@ -39,8 +39,8 @@
 .settingsCategoryTabs button span {
   width: 100%;
   overflow-wrap: anywhere;
-  font-size: 10px;
-  line-height: 1.15;
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
   text-align: center;
 }
 
@@ -122,8 +122,9 @@
 .credentialIdentity strong {
   min-width: 0;
   overflow-wrap: anywhere;
-  font-size: 12px;
-  letter-spacing: 0;
+  font-size: var(--font-ui);
+  letter-spacing: normal;
+  line-height: var(--line-ui);
 }
 
 .settingsDirectoryIdentity small,
@@ -131,8 +132,8 @@
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--text-secondary);
-  font-size: 10px;
-  line-height: 1.35;
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
 }
 
 .settingsBack {
@@ -152,8 +153,9 @@
 .settingsBack span {
   min-width: 0;
   overflow-wrap: anywhere;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--font-ui);
+  font-weight: 600;
+  line-height: var(--line-ui);
 }
 
 .settingsLanguageChoices {
@@ -205,8 +207,8 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-small);
   color: var(--text-secondary);
-  font-size: 9px;
-  line-height: 1.25;
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
   text-align: center;
 }
 
@@ -406,18 +408,18 @@
 .credentialValidationCopy small {
   min-width: 0;
   overflow-wrap: anywhere;
-  letter-spacing: 0;
+  letter-spacing: normal;
 }
 
 .credentialValidationCopy strong {
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: var(--font-label);
+  line-height: var(--line-label);
 }
 
 .credentialValidationCopy small {
   color: var(--text-secondary);
-  font-size: 10px;
-  line-height: 1.4;
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
 }
 
 @keyframes integration-spin {
@@ -521,9 +523,10 @@
   gap: 5px;
   min-width: 0;
   color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 700;
+  font-family: var(--font-sans);
+  font-size: var(--font-label);
+  font-weight: 600;
+  line-height: var(--line-label);
 }
 
 .inputGroup.compact input {
@@ -570,7 +573,7 @@
   max-height: 220px;
   object-fit: contain;
   border-radius: 4px;
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .bindingQr a,
@@ -580,15 +583,17 @@
 
 .bindingQr a {
   color: var(--cyber-blue);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--font-sans);
+  font-size: var(--font-label);
   overflow-wrap: anywhere;
+  line-height: var(--line-label);
 }
 
 .bindingQr small {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-label);
   text-align: center;
+  line-height: var(--line-label);
 }
 
 .bindingScanned {
@@ -600,11 +605,12 @@
   padding: 12px;
   border: 1px solid rgba(66, 133, 244, 0.32);
   border-radius: var(--radius-small);
-  color: #1f5fbf;
+  color: var(--cyber-blue);
   background: rgba(66, 133, 244, 0.08);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--font-ui);
+  font-weight: 600;
   text-align: center;
+  line-height: var(--line-ui);
 }
 
 .bindingList {
@@ -630,8 +636,9 @@
   min-width: 0;
   flex: 1 1 auto;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-label);
   overflow-wrap: anywhere;
+  line-height: var(--line-label);
 }
 
 .externalMCPSection {
@@ -698,7 +705,8 @@
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: var(--font-code);
+  line-height: var(--line-code);
 }
 
 .externalMCPAction,
@@ -711,9 +719,10 @@
   padding: 0 12px;
   border: 0;
   border-radius: var(--radius-small);
-  font-size: 11px;
-  font-weight: 800;
+  font-size: var(--font-label);
+  font-weight: 600;
   white-space: nowrap;
+  line-height: var(--line-label);
 }
 
 .externalMCPPrimary {
@@ -754,8 +763,8 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text-secondary);
-  font-size: 10px;
-  line-height: 1.4;
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -779,8 +788,9 @@
 
 .copyOnceCredential small {
   color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 10px;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
 }
 
 .copyOnceCredential code {
@@ -791,8 +801,8 @@
   color: var(--text-primary);
   background: var(--surface-deep);
   font-family: var(--mono);
-  font-size: 10px;
-  line-height: 1.45;
+  font-size: var(--font-code);
+  line-height: var(--line-code);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -827,8 +837,9 @@
 .externalMCPRecord small,
 .externalMCPRecord > span {
   color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 9px;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
 }
 
 .externalMCPRecordActions {
@@ -896,9 +907,10 @@
 
 .clientItem small {
   color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  font-weight: 600;
+  line-height: var(--line-meta);
 }
 
 .clientItem button {
@@ -960,8 +972,8 @@
 .workbench .settingsPageMain .clientSettings p,
 .workbench .settingsPageMain .clientSettings .muted {
   margin-block: 0 12px;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
 }
 
 .clientCredentialActions {
@@ -981,7 +993,8 @@
   border-radius: var(--radius-small);
   color: var(--text-primary);
   background: var(--surface);
-  font-size: 14px;
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
 }
 
 .clientSettings button:hover:not(:disabled) {
@@ -994,13 +1007,13 @@
 }
 
 .clientSettings .clientIssuance .approve {
-  color: #fff;
-  background: #2563eb;
-  border-color: #2563eb;
+  color: var(--accent-text);
+  background: var(--cyber-blue);
+  border-color: var(--cyber-blue);
 }
 
 .clientSettings .clientIssuance .approve:hover:not(:disabled) {
-  background: #1d4ed8;
+  background: var(--cyber-blue);
 }
 
 .clientSettings .issuedClientCredential {
@@ -1008,8 +1021,8 @@
 }
 
 .clientSettings .issuedClientCredential small {
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
 }
 
 .clientSettings .clientItem {
@@ -1025,8 +1038,9 @@
 
 .clientSettings .clientItem small {
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--font-ui);
   font-weight: 400;
+  line-height: var(--line-ui);
 }
 
 .clientSettings .clientItem button {
@@ -1040,7 +1054,8 @@
 }
 
 .clientSettings .clientIssuance input {
-  font-size: 16px;
+  font-size: var(--font-section);
+  line-height: var(--line-section);
 }
 
 .clientLogout {
@@ -1072,11 +1087,12 @@
   border-radius: var(--radius-small);
   color: var(--text-secondary);
   background: var(--surface-deep);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: var(--line-meta);
 }
 
 .evalCases span.passed {
@@ -1098,11 +1114,12 @@
   border-radius: var(--radius-small);
   color: var(--amber-warning);
   background: rgba(245, 158, 11, 0.08);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: var(--line-meta);
 }
 
 .evalHistory button strong.passed {

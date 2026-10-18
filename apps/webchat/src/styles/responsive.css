@@ -151,16 +151,19 @@
   }
 
 	.scheduleRow {
-		grid-template-columns: 8px minmax(90px, 1fr) minmax(90px, 0.8fr) minmax(90px, auto) minmax(54px, auto) 58px;
-	}
+		grid-template-columns: 8px minmax(0, 1fr) minmax(90px, auto) 68px;
+  }
 
-	.schedulePattern {
-		display: none;
-	}
+	.schedulePattern, .scheduleEndpoint, .scheduleRow time {
+    grid-column: 2;
+  }
+  .scheduleRow > strong { grid-column: 2; }
+  .scheduleState { grid-column: 3; grid-row: 1; }
+  .scheduleRowActions { grid-column: 4; grid-row: 1; }
 
 	.scheduleDialogGrid {
 		grid-template-columns: minmax(0, 1fr);
-	}
+  }
 
   .authActions {
     width: 100%;
@@ -172,7 +175,7 @@
     flex: 1 1 auto;
   }
 
-  .messageList {
+  div.messageList {
     max-height: 58vh;
     padding: 16px;
   }
@@ -191,9 +194,9 @@
   .composer textarea {
     grid-column: 1 / -1;
     grid-row: 1;
-    height: 88px;
-    min-height: 88px;
-    max-height: 88px;
+    height: var(--line-body);
+    min-height: var(--line-body);
+    max-height: calc(var(--line-body) * 6);
   }
 
   .composer .sendButton {
@@ -230,13 +233,11 @@
   }
 
 	.scheduleRow {
-		grid-template-columns: 8px minmax(0, 1fr) minmax(58px, auto) 58px;
-	}
+		grid-template-columns: 8px minmax(0, 1fr) 68px;
+  }
 
-	.scheduleRow time,
-	.scheduleEndpoint {
-		display: none;
-	}
+	.scheduleState { grid-column: 2; grid-row: auto; justify-self: start; }
+  .scheduleRowActions { grid-column: 3; }
   .bindingItemTop {
     grid-template-columns: minmax(0, 1fr);
   }

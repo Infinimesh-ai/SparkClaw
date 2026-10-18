@@ -1,88 +1,63 @@
-.settingsSwitch { position: relative; flex: none; width: 36px; height: 21px; padding: 0; border: 0; border-radius: 999px; background: #c8ccd2; transition: background .18s ease; }
-.settingsSwitch span { position: absolute; top: 3px; left: 3px; width: 15px; height: 15px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px #0003; transition: transform .18s ease; }
-.settingsSwitch[aria-checked="true"] { background: #3b82f6; }
+.settingsSwitch { position: relative; flex: none; width: 36px; height: 21px; padding: 0; border: 0; border-radius: 999px; background: var(--control-border); transition: background .15s ease; }
+.settingsSwitch span { position: absolute; top: 3px; left: 3px; width: 15px; height: 15px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 3px #0003; transition: transform .15s ease; }
+.settingsSwitch[aria-checked="true"] { background: var(--cyber-blue); }
 .settingsSwitch[aria-checked="true"] span { transform: translateX(15px); }
 .settingsSwitch:disabled { opacity: .5; }
-.settingsSegmented { display: inline-flex; flex-wrap: nowrap; gap: 2px; padding: 2px; border-radius: 8px; background: #eff0f2; }
-.settingsSegmented button { min-width: 54px; min-height: 28px; padding: 5px 8px; border-radius: 6px; color: #666b74; background: transparent; font-size: 11px; white-space: nowrap; }
-.settingsSegmented button.selected { color: #202226; background: #fff; box-shadow: 0 1px 4px #20222617; }
-.settingsSurfaceHint { display: block; margin-top: 8px; color: #666b74; font-size: 11px; }
+.settingsSegmented { display: inline-flex; flex-wrap: nowrap; gap: 2px; padding: 2px; border-radius: 8px; background: var(--surface-hover); }
+.settingsSegmented button { min-width: 54px; min-height: 32px; padding: 5px 8px; border-radius: 6px; color: var(--text-secondary); background: transparent; font-size: var(--font-label); white-space: nowrap; line-height: var(--line-label); }
+.settingsSegmented button.selected { color: var(--text-primary); background: var(--surface); box-shadow: 0 1px 4px #20222617; }
+.settingsSurfaceHint { display: block; margin-top: 8px; color: var(--text-secondary); font-size: var(--font-label); line-height: var(--line-label); }
 
-html[data-text-size="large"] .workbench { --workbench-zoom: 1.1; zoom: var(--workbench-zoom); height: calc(100dvh / var(--workbench-zoom)); }
-html[data-text-size="large"] .settingsPageSidebar,
-html[data-text-size="large"] .settingsPageMain { height: calc(100dvh / 1.1); }
+/* Text preferences change type metrics, leaving native-panel CSS geometry intact. */
+html[data-text-size="large"] {
+  --font-body: 18px;
+  --line-body: 32px;
+  --font-ui: 16px;
+  --line-ui: 24px;
+  --font-label: 15px;
+  --line-label: 22px;
+  --font-meta: 14px;
+  --line-meta: 20px;
+  --font-title: 24px;
+  --line-title: 34px;
+  --font-section: 18px;
+  --line-section: 28px;
+  --font-code: 15px;
+  --line-code: 24px;
+}
 
 html[data-resolved-theme="dark"] {
   color-scheme: dark;
   --background: #171a1f;
   --surface-deep: #1f242b;
-  --panel-surface: #1f242b;
+  --panel-surface: #20252c;
   --surface: #242a32;
+  --surface-raised: #242a32;
   --surface-hover: #303741;
   --surface-muted: #272d35;
   --surface-solid: #242a32;
+  --cyber-blue: #93b8ff;
+  --accent-text: #171a1f;
+  --status-button-text: #171a1f;
+  --accent-soft: #263d5c;
+  --accent-border: #6f94d2;
+  --warning-surface: #382d20;
+  --danger-surface: #3b242b;
+  --selection: #355782;
+  --emerald-success: #81c8a2;
+  --amber-warning: #edbd7c;
+  --crimson-danger: #ff9aa7;
   --text-primary: #edf0f4;
   --text-secondary: #b9c1cb;
-  --text-muted: #aab3bf;
-  --text-tertiary: #aab3bf;
+  --text-muted: #b9c1cb;
+  --text-tertiary: #b9c1cb;
   --border-subtle: #414954;
   --border-strong: #535d69;
+  --control-border: #929dad;
+  --scrollbar-thumb: #687483;
+  --scrollbar-hover: #8b98a9;
   color: var(--text-primary);
   background: var(--background);
 }
-html[data-resolved-theme="dark"] body,
-html[data-resolved-theme="dark"] .workbench,
-html[data-resolved-theme="dark"] .settingsPageMain,
-html[data-resolved-theme="dark"] .workbench.settingsPageMode,
-html[data-resolved-theme="dark"] .workbench .workbenchPage .inspectorColumn,
-html[data-resolved-theme="dark"] .workbench .taskInspector,
-html[data-resolved-theme="dark"] .workbench .taskInspector .inspectorColumn { background: #171a1f; color: #edf0f4; }
-html[data-resolved-theme="dark"] .settingsPageSidebar,
-html[data-resolved-theme="dark"] .workbench .sidebar { background: #20252c; border-color: #3a424c; }
-html[data-resolved-theme="dark"] .settingsPageSearch,
-html[data-resolved-theme="dark"] .settingsPageNavigation button.selected,
-html[data-resolved-theme="dark"] .settingsSegmented { background: #303741; }
-html[data-resolved-theme="dark"] .settingsPageNavigation button:hover,
-html[data-resolved-theme="dark"] .settingsConnectionRow:hover,
-html[data-resolved-theme="dark"] .settingsPageMain .settingsDirectoryRow:hover { background: #272d35; }
-html[data-resolved-theme="dark"] .settingsPageHeader h1,
-html[data-resolved-theme="dark"] .settingsSurfaceCopy strong,
-html[data-resolved-theme="dark"] .settingsPageBack,
-html[data-resolved-theme="dark"] .settingsPageNavigation button,
-html[data-resolved-theme="dark"] .settingsConnectionRow,
-html[data-resolved-theme="dark"] .settingsPageMain .settingsBlock strong,
-html[data-resolved-theme="dark"] .settingsPolicySummary > strong,
-html[data-resolved-theme="dark"] .settingsPolicyColumns strong,
-html[data-resolved-theme="dark"] .settingsSegmented button.selected,
-html[data-resolved-theme="dark"] .workbenchWelcome,
-html[data-resolved-theme="dark"] .workbenchPageHeader h1 { color: #edf0f4; }
-html[data-resolved-theme="dark"] .settingsPageHeader p,
-html[data-resolved-theme="dark"] .settingsSurfaceCopy small,
-html[data-resolved-theme="dark"] .settingsSurfaceSection > h2,
-html[data-resolved-theme="dark"] .settingsSurfaceSectionHeading h2,
-html[data-resolved-theme="dark"] .settingsPageGroupLabel,
-html[data-resolved-theme="dark"] .settingsSurfaceRow output,
-html[data-resolved-theme="dark"] .settingsSurfaceHint,
-html[data-resolved-theme="dark"] .workbenchPageHeader p { color: #b9c1cb; }
-html[data-resolved-theme="dark"] .settingsSurfaceRow,
-html[data-resolved-theme="dark"] .settingsStatusBar,
-html[data-resolved-theme="dark"] .settingsConnectionRow,
-html[data-resolved-theme="dark"] .settingsPolicySummary,
-html[data-resolved-theme="dark"] .settingsPolicyColumns,
-html[data-resolved-theme="dark"] .settingsPageMain .settingsBlock { border-color: #3a424c; }
-html[data-resolved-theme="dark"] .settingsSurfaceRow select,
-html[data-resolved-theme="dark"] .settingsConnectionAction,
-html[data-resolved-theme="dark"] .settingsSegmented button.selected,
-html[data-resolved-theme="dark"] .settingsConnectionIcon,
-html[data-resolved-theme="dark"] .settingsPageMain input,
-html[data-resolved-theme="dark"] .settingsPageMain textarea,
-html[data-resolved-theme="dark"] .settingsPageMain select,
-html[data-resolved-theme="dark"] .workbench .composer { border-color: #414954; background: #242a32; color: #edf0f4; }
-html[data-resolved-theme="dark"] .settingsPageSearch input,
-html[data-resolved-theme="dark"] .workbench .composer textarea { color: #edf0f4; background: transparent; }
-html[data-resolved-theme="dark"] .settingsSegmented button:not(.selected),
-html[data-resolved-theme="dark"] .settingsPageSearch input::placeholder { color: #b9c1cb; }
-html[data-resolved-theme="dark"] .workbench .message.user { background: #303741; }
 html[data-resolved-theme="dark"] .welcomeBrandMark { filter: invert(1) hue-rotate(180deg); mix-blend-mode: screen; }
-html[data-resolved-theme="dark"] .workbench :is(.message, .taskSearchDialog, .notificationCenter) { color: #edf0f4; }
 @media (max-width: 600px) { .settingsSegmented button { min-width: 0; padding-inline: 6px; } }

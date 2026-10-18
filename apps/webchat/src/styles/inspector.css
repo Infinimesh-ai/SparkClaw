@@ -8,11 +8,12 @@
 .inspectorTitle {
   margin: 0 0 16px;
   color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  line-height: var(--line-meta);
 }
 
 .tabs {
@@ -35,10 +36,11 @@
   border-bottom: 2px solid transparent;
   color: var(--text-secondary);
   background: transparent;
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  font-weight: 600;
   transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+  line-height: var(--line-meta);
 }
 
 .tabs button:hover {
@@ -67,11 +69,12 @@
 .sectionHeader h2 {
   margin: 0;
   color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  line-height: var(--line-meta);
 }
 
 .headerAction {
@@ -198,24 +201,27 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font-family: var(--mono);
-  font-size: 13px;
+  font-family: var(--font-sans);
+  font-size: var(--font-ui);
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: var(--line-ui);
 }
 
 .statusLine,
 .muted,
 .resolved {
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
 }
 
 .statusLine {
   display: inline-block;
   margin-top: 4px;
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--font-sans);
+  font-size: var(--font-label);
+  line-height: var(--line-label);
 }
 
 .toolCall small,
@@ -227,8 +233,9 @@
 .compactError {
   margin: 6px 0 0;
   color: var(--crimson-danger);
-  font-size: 12px;
+  font-size: var(--font-ui);
   overflow-wrap: anywhere;
+  line-height: var(--line-ui);
 }
 
 .approvalItem,
@@ -288,9 +295,10 @@
   color: var(--text-secondary);
   background: var(--surface-deep);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--font-code);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  line-height: var(--line-code);
 }
 
 .happyPlanDetails {
@@ -308,10 +316,11 @@
 .happyPlanDetails small,
 .approvalSource {
   color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  font-weight: 600;
+  text-transform: none;
+  line-height: var(--line-meta);
 }
 
 .happyPlanDetails pre {
@@ -322,8 +331,8 @@
   color: var(--text-primary);
   background: var(--surface-deep);
   font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--font-code);
+  line-height: var(--line-code);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -337,9 +346,10 @@
 .workspaceApprovalDetails small,
 .workspaceApprovalDetails dt {
   color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-size: var(--font-meta);
+  font-weight: 600;
+  text-transform: none;
+  line-height: var(--line-meta);
 }
 
 .workspaceApprovalIdentity {
@@ -385,8 +395,9 @@
   grid-row: 1 / span 2;
   align-self: start;
   color: var(--amber-warning);
-  font-size: 10px;
+  font-size: var(--font-meta);
   font-style: normal;
+  line-height: var(--line-meta);
 }
 
 .workspaceApprovalDetails dl {
@@ -405,7 +416,8 @@
 .workspaceApprovalDetails details summary {
   cursor: pointer;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
 }
 
 .workspaceApprovalDetails details .jsonBlock {
@@ -434,8 +446,8 @@
   margin: 0;
   color: var(--emerald-success);
   font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: var(--font-code);
+  line-height: var(--line-code);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -481,8 +493,9 @@
 .approvalEdit textarea,
 .ownerEditor textarea,
 .policyEditor textarea {
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--font-sans);
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
 }
 
 .memoryEdit,
@@ -506,9 +519,10 @@
   display: grid;
   gap: 5px;
   color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 700;
+  font-family: var(--font-sans);
+  font-size: var(--font-label);
+  font-weight: 600;
+  line-height: var(--line-label);
 }
 
 .ownerEditor input,
@@ -544,24 +558,24 @@
 }
 
 .compactButtons button {
-  width: 30px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
 }
 
 .approve {
-  color: #0c1409;
+  color: var(--accent-text);
   background: var(--cyber-blue);
 }
 
 .approvalItem.dangerous .approve {
-  color: #ffffff;
+  color: var(--status-button-text);
   background: var(--crimson-danger);
 }
 
 .reject {
-  color: #ffffff;
+  color: var(--crimson-danger);
   background: transparent;
-  border: 1px solid rgba(239, 68, 68, 0.42);
+  border: 1px solid var(--crimson-danger);
 }
 
 .edit {
@@ -580,13 +594,14 @@
   border-radius: var(--radius-small);
   color: var(--text-secondary);
   background: var(--surface-deep);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  font-weight: 600;
+  letter-spacing: normal;
   text-overflow: ellipsis;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
+  line-height: var(--line-meta);
 }
 
 .riskPill.draft {
@@ -602,7 +617,7 @@
 }
 
 .riskPill.dangerous {
-  color: #ffffff;
+  color: var(--status-button-text);
   border-color: var(--crimson-danger);
   background: var(--crimson-danger);
 }
@@ -620,13 +635,14 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  font-weight: 600;
+  letter-spacing: normal;
   text-overflow: ellipsis;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
+  line-height: var(--line-meta);
 }
 
 .statusGrid dd {
@@ -634,9 +650,9 @@
   margin: 0;
   color: var(--text-primary);
   overflow-wrap: anywhere;
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.45;
+  font-family: var(--font-sans);
+  font-size: var(--font-label);
+  line-height: var(--line-label);
 }
 
 .statusGrid.compact {
@@ -671,11 +687,12 @@
 .artifactItem small {
   overflow: hidden;
   color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: var(--line-meta);
 }
 
 .traceHistory button,
@@ -713,8 +730,9 @@
 
 .traceHistory button span,
 .evalHistory button span {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--font-ui);
+  font-weight: 600;
+  line-height: var(--line-ui);
 }
 
 .traceHistory button strong,
@@ -722,8 +740,9 @@
 .evalHistory button strong,
 .evalHistory button small {
   color: var(--text-secondary);
-  font-family: var(--mono);
-  font-size: 10px;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
 }
 
 .traceRow {
@@ -733,15 +752,16 @@
 .traceRow span {
   min-width: 0;
   color: var(--text-primary);
-  font-weight: 700;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
 .diagnosticList > strong,
 .settingsBlock strong {
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-ui);
   overflow-wrap: anywhere;
+  line-height: var(--line-ui);
 }
 
 .diagnosticRow {
@@ -768,11 +788,13 @@
 
 .diagnosticRow span {
   color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--font-ui);
+  font-weight: 600;
+  line-height: var(--line-ui);
 }
 
 .diagnosticRow small {
-  font-family: var(--mono);
-  font-size: 10px;
+  font-family: var(--font-sans);
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
 }

@@ -747,3 +747,44 @@ The [sanitized deployment receipt](evidence/live-stream-rollout-2026-10-18.json)
 records hashes, counts and scope. Full private evidence and old programs are
 retained by the operator. Existing public contracts are unchanged; InfiniCenter
 0036 upstream standardization remains proposed.
+
+## 15. Local client installation and live acceptance (2026-10-18)
+
+The user then authorized upgrading the local client while preserving configuration
+and chat history. `/Applications/SparkX.app` now runs the packaged macOS ARM64
+product revision `bef007e8`. All 277 application files/symlinks and executable
+bits match the previously qualified package. The old application and private
+configuration are retained; no database was backed up, copied, restored or reset.
+
+Cold read-only checks cover five history profiles, the default selection and
+profile launchers: all 20 original messages, original records across 95 tables,
+and all 72 configuration/authentication files remain. Only an empty welcome
+draft's revision advances during the verification request; original draft content
+is unchanged. All ten databases pass integrity checks. The daily ClientStore
+migrates from schema 10 to 11 by adding `message_deliveries`, preserving old message
+IDs and content. The four unopened profiles remain unchanged at schema 10 and
+will migrate when opened. An older schema-10 application must not be substituted
+after migration without checking schema compatibility.
+
+The installed application used its original daily identity and existing work2 /
+TEST1 connection. Both old conversations and all six daily-profile messages opened
+in the original UI. One new verification conversation received 112 delta frames
+and 104 renderer preview updates, with the text tail visible in all 104 recorded
+animation-frame observations. The 1,126-character result committed once, retained
+the same message node, and matched the final stored digest. There were no blank,
+missing or duplicate rows, no remounts and no script-assisted scrolling. First
+renderer text appeared after 7,095 ms in this single sample; this is not a latency
+percentile or continuous video measurement.
+
+The private trace directory initially had mode 0755, so the secure logger correctly
+disabled itself and the script's log-based ACK wait timed out. This harness failure
+is retained. Independent cold SQLite inspection confirms one acknowledged delivery,
+and the server's original request fence is `delivered`. No model request was repeated.
+A subsequent restart preserved the final message/digest; the original nine settings
+entries and schedule-create/cancel interaction pass. Normal launch is restored,
+with diagnostic environment overrides and inspector arguments removed.
+
+The [sanitized installation receipt](evidence/local-client-upgrade-2026-10-18.json)
+records these checks. Private evidence and the previous app are under
+`/Users/dev/.cache/sparkclaw-upgrades/20261018-bef007e8`. Existing public contracts
+and upstream standardization status are unchanged.

@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-18",
+  "source": "bef007e8627daa484a143d3bdf9e0dcce8595824",
+  "platform": "macOS arm64",
+  "installation": {
+    "installed": true,
+    "source": "bef007e8627daa484a143d3bdf9e0dcce8595824",
+    "app_files_and_symlinks": 277,
+    "app_asar_sha256": "806b2e6dc308057936c45a1458c02ee36de77b738616ed58ad1446a60a1c39c8",
+    "helper_sha256": "f9c55060bf6b33dba70e7e0bce5e208153332a1fab63d9642f3e7c42df9b8f44",
+    "database_copies": 0,
+    "database_backups": 0,
+    "old_app_retained": true,
+    "configuration_copies_only": true
+  },
+  "preservation": {
+    "profiles_with_history": 5,
+    "default_selection_preserved": true,
+    "original_tables": 95,
+    "original_messages": 20,
+    "configuration_files": 72,
+    "configuration_bytes_and_modes_equal": true,
+    "original_history_rows_preserved": true,
+    "draft_content_preserved": true,
+    "only_original_row_change": "empty welcome-draft revision",
+    "launchers_preserved": true,
+    "all_database_integrity_checks": "ok",
+    "daily_client_schema": [
+      10,
+      11
+    ],
+    "migration_adds": "message_deliveries",
+    "other_four_profiles_unopened_unchanged": true,
+    "database_backups": 0
+  },
+  "live_stream": {
+    "samples": 1,
+    "daily_profile": true,
+    "original_identity": true,
+    "delta_frames": 112,
+    "renderer_preview_updates": 104,
+    "viewport_tail_visible_observations": 104,
+    "final_characters": 1126,
+    "first_renderer_text_ms": 7095,
+    "subscriptions": 1,
+    "durable_commits": 1,
+    "local_delivery_acknowledged": true,
+    "server_state": "delivered",
+    "remounts": 0,
+    "blank_rows": 0,
+    "duplicate_rows": 0,
+    "missing_frames": 0,
+    "final_digest_matches": true,
+    "harness_scrolls": 0
+  },
+  "post_restart": {
+    "checks": {
+      "original_identity": true,
+      "final_after_restart": true,
+      "original_nine_settings": true,
+      "schedule_create_cancel": true
+    },
+    "diagnostics_env_removed": true,
+    "passed": true
+  },
+  "retained_harness_failure": "Private trace directory initially had mode 0755, so secure timing logging correctly disabled itself; the log-based ACK wait timed out. Cold read-only SQLite receipt and server delivered fence independently pass, and restart UI checks pass. No model task was repeated.",
+  "passed": true,
+  "normal_launch_restored": true,
+  "normal_launch": {
+    "installed_app": true,
+    "one_daily_helper": true,
+    "original_profile": true,
+    "diagnostics_removed": true,
+    "debug_listener_flags_absent": true
+  },
+  "private_evidence_sha256": {
+    "installation.json": "51f3c40e185912f37346a46af892e0a0786cbd7d323884f89b3f7252dddf4b93",
+    "native-live.json": "a47dd3a7d3a8f96cfc39d09910d08468444e039b84ee9df2369adc4c42da99a6",
+    "post-start.json": "aa058183bc1ab9b5ef6e9281d5436197cd39582e7c2b2494745bac8b1d8fdb3c",
+    "preservation.json": "8c372f9c1eef48d9cf8f61e6bdc30f5f550456532385120efa3ec6c683d8ea1c",
+    "server-delivery.json": "15bf786030e951764f75784bdaff50e748f4a33942f8550f37d24786edefe36f",
+    "normal-launch.json": "11a874382ae7ac6c4d870432068a90dc0b757d1cce7a2880d641231ea3e9c1ab"
+  }
+}

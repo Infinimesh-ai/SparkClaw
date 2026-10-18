@@ -788,3 +788,21 @@ The [sanitized installation receipt](evidence/local-client-upgrade-2026-10-18.js
 records these checks. Private evidence and the previous app are under
 `/Users/dev/.cache/sparkclaw-upgrades/20261018-bef007e8`. Existing public contracts
 and upstream standardization status are unchanged.
+
+### Mail action alignment follow-up
+
+The installed client's mail icon was 5.5 CSS pixels above its neighboring composer
+icons. Revision `07002f06` adds the missing `align-self: end` to the existing mail
+button. Native checks across 96 combinations of window width, zoom, theme, text
+size, welcome/conversation view and one/six-line input report zero icon-center
+offset. Mail open/close and focus restoration pass. The installed Mac app also
+measures zero offset and retains the original UI and all eight daily messages.
+
+Fresh ARM64 DMG/ZIP packages are in Downloads with `20261018-07002f06` filenames;
+source/UI/helper and all 277 application file/symlink comparisons pass. Cold checks
+retain all rows in 96 tables and all 22 messages across five profiles, with no
+schema change or database copies/backups. Of 72 protected configuration files,
+71 are byte-identical; one grant renewed only its ID, validity times and signature,
+preserving connection identity and permissions. Normal launch is restored. This
+CSS-only source change does not alter the streaming implementation or servers.
+See the [sanitized receipt](evidence/composer-mail-alignment-2026-10-18.json).

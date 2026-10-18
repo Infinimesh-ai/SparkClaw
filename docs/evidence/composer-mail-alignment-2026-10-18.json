@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-18",
+  "source": "07002f060eef1c814d2577a8ad6e29197d477bbe",
+  "change": "Existing composer mail button gains align-self: end",
+  "native_baseline_offset_css_px": 5.5,
+  "native_cases": 96,
+  "native_final_max_offset_css_px": 0,
+  "mail_open_close_and_focus": true,
+  "installed": {
+    "checks": {
+      "original_identity": true,
+      "original_eight_daily_messages": true,
+      "mail_open_close": true,
+      "mail_focus_restored": true
+    },
+    "geometry": [
+      {
+        "className": "uploadButton",
+        "y": 739,
+        "height": 32,
+        "icon_center": 755
+      },
+      {
+        "className": "uploadButton",
+        "y": 739,
+        "height": 32,
+        "icon_center": 755
+      },
+      {
+        "className": "iconButton emailEntryButton",
+        "y": 739,
+        "height": 32,
+        "icon_center": 755
+      },
+      {
+        "className": "voiceButton disabled",
+        "y": 739,
+        "height": 32,
+        "icon_center": 755
+      }
+    ],
+    "max_icon_center_delta": 0,
+    "passed": true
+  },
+  "preservation": {
+    "all_original_database_rows_exact": true,
+    "tables": 96,
+    "messages": 22,
+    "identity_configuration_files_preserved": 72,
+    "byte_identical_config_files": 71,
+    "routine_grant_renewal": [
+      {
+        "profile": "Main",
+        "fields": [
+          "not_before",
+          "signature",
+          "grant_id",
+          "expires_at"
+        ]
+      }
+    ],
+    "schema_unchanged": true,
+    "no_database_copies_or_backups": true,
+    "launchers_preserved": true
+  },
+  "normal_launch_restored": true,
+  "package_allowlist": true,
+  "source_ui_helper_parity": true,
+  "app_files_and_symlinks": 277,
+  "dmg_payload_parity": true,
+  "zip_payload_parity": true,
+  "artifacts": [
+    {
+      "name": "SparkX-0.1.0-20261018-07002f06-mac-arm64.dmg",
+      "bytes": 136712869,
+      "sha256": "3b1fb1b2d7866d4d3ce1d49a44e5f1e74c277553904095614469b75c701cf82e"
+    },
+    {
+      "name": "SparkX-0.1.0-20261018-07002f06-mac-arm64.zip",
+      "bytes": 136571101,
+      "sha256": "3d13fa55332705759c0d06de5d000cda4568e46531de59fc3af31732711220a8"
+    }
+  ],
+  "server_changes": false,
+  "new_model_requests": 0,
+  "retained_failures": [
+    "Premature pre-install verification observed old 5.5px geometry; running-process guard prevented replacement.",
+    "Old process displayed Object has been destroyed during shutdown; dismissed and fully exited before successful cold snapshot and replacement."
+  ],
+  "private_evidence_sha256": {
+    "installation.json": "ef1e946853da3f27ba74ac24dc56a499f8c898d1ab10e66e98b62666b9facf55",
+    "native-alignment.json": "a3fd137384cc07b571f54872591ea56a51141efd9b6de8d388549413e503d1cf",
+    "native-before-install.json": "c212fcf03909a67d8441d54c212ac8c7300f9479fabe2e731a2d8eecf030976c",
+    "preservation.json": "ff7033846aa07f67618a6710d2bad128dcfaa19eed2fb2b1cf4cb41d48bb377a"
+  }
+}

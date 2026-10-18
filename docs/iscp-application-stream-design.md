@@ -3,13 +3,14 @@
 > Language: English | [简体中文](../zh-cn/docs/iscp-application-stream-design.md)
 
 - Status: design proposal for discussion, associated with InfiniCenter ProjectGroup-2 decision **0036 proposed**. This change produces documentation only; no implementation, release or deployment.
-- Date: 2026-10-16.
-- User-selected capacity policy: remove artificial request-rate, concurrency and cumulative quotas from the self-managed ISCP transport deployment. Backpressure and overload follow actual server resources. This supersedes earlier advice to tune around upstream quotas; implementation remains pending and this turn changes neither code nor live configuration.
-- Inspected baseline: SparkClaw `b8952d8cf6ec2395d55b1b4ad049090932f82690`; local ISCP fork `47f1f6c231c56c92eff6b6c5d398e037ebcf9602`. SparkClaw pins `v0.2.0-rc.1`, resolving to `2707cce6922768882f77c5bdaddaef74db759a73`. These ISCP revisions differ only in `AGENTS.md`; their protocol and implementation are identical.
+- Initial draft: 2026-10-16; revised: 2026-10-18 (internal-use proposal v3).
+- Current scope: reuse valid authorization locally with background refresh, without per-batch remote waits; remove artificial quotas on the self-managed transport. Resource scheduling and backward compatibility are deferred. This supersedes the corresponding earlier requirements; documentation only, with no code, configuration or deployment changes.
+- Parameter status: authorization cache, recovery deadlines and latency numbers below are design defaults, not implemented or measured guarantees.
+- Historical source baseline from the initial draft (not a new qualification): SparkClaw `b8952d8cf6ec2395d55b1b4ad049090932f82690`; local ISCP fork `47f1f6c231c56c92eff6b6c5d398e037ebcf9602`. SparkClaw pins `v0.2.0-rc.1`, resolving to `2707cce6922768882f77c5bdaddaef74db759a73`. These ISCP revisions differ only in `AGENTS.md`; their protocol and implementation are identical.
 
 ## 1 Conclusion and Goals
 
-**ISCP can carry real incremental push without a new encryption protocol. SparkClaw needs persistent subscriptions, incremental events, recovery and continuous rendering. Deployments using the original upstream reference Relay also need continuous receive and adequate capacity. Switching to the latest ISCP fork alone adds no streaming capability.**
+**ISCP can carry real incremental push without a new encryption protocol. SparkClaw needs persistent subscriptions, incremental events, recovery and continuous rendering. The self-managed Relay uses continuous receive without artificial quotas; resource scheduling is deferred. Switching to the latest ISCP fork alone adds no streaming capability.**
 
 SSE specifically means HTTP `text/event-stream`. This design retains model-side SSE, converts permitted answer deltas into encrypted ISCP events, and delivers them continuously to SparkX. It provides equivalent server-push behavior without tunneling a complete HTTP response or bypassing ISCP with direct desktop-to-Gateway business HTTP. Existing browser HTTP SSE remains another transport binding.
 
@@ -27,7 +28,7 @@ The reported first-character-then-full-answer behavior has several plausible pat
 | ISCP application adapter | One Response completes and deletes a pending call | One subscription receives events until a terminal response |
 | Desktop helper and IPC | One `call`, one response | Explicit stream open, events, completion and cancellation |
 | UI | Polls snapshots, animates previews, renders final messages separately | Update original components with received content and preserve final handoff |
-| Upstream reference Relay | Drains at most 100 existing messages, sends `drained`, closes | Wait for new messages within a bounded connection window, with replacement and revocation |
+| Upstream reference Relay | Drains at most 100 existing messages, sends `drained`, closes | Receive continuously while healthy and authorized; close for faults, rekeying or revocation |
 
 ```mermaid
 sequenceDiagram
@@ -58,10 +59,10 @@ Submission, subscription, lookup and ACK all use the original ISCP channel. Mode
 | --- | --- | --- |
 | ISCP Core | Streaming does not require changing SecureEnvelope, session handshake or cryptography | Existing identity, Trust Grant, PoP, opaque routing and replay protection |
 | Optional ISCP application extension | Propose generic frames/schema, codec, sequence validation and conformance fixtures in the local fork; candidate package `pkg/iscp/appstream` | No execution tasks, LLM semantics, SparkClaw operations or UI; not yet an upstream standard |
-| ISCP reference Relay | Consolidate continuous receive, remove artificial quotas and forced healthy-connection rotation, handle resource overload, and retain takeover/revocation/recovery | Relay handles opaque envelopes, not tokens, plaintext, task IDs or application stream state |
-| SparkClaw ISCP Endpoint | Stream call lifecycle, event dispatch, subscription cancellation, ordering recovery and explicit negotiation | Ordinary RPC remains one response; events are not repeated ordinary Responses |
+| ISCP reference Relay | Consolidate continuous receive, remove artificial quotas and forced healthy-connection rotation, retain takeover/revocation/recovery; resource scheduling is deferred | Relay handles opaque envelopes, not tokens, plaintext, task IDs or application stream state |
+| SparkClaw ISCP Endpoint | Stream call lifecycle, event dispatch, subscription cancellation, ordering recovery and matched-release confirmation | Ordinary RPC remains one response; events are not repeated ordinary Responses |
 | SparkClaw Gateway | `execution.progress.stream` connects permitted answer production to subscriptions | Subscriptions never create or rerun tasks; existing JingSi Runtime, App-CLI and IMMS contracts remain unchanged |
-| SparkClaw Agent | Explicit plain-text versus structured final-wrapper modes and incremental final-answer extraction | No planning, reasoning, tool arguments or unapproved intermediate data |
+| SparkClaw Agent | Initially stream only explicitly selected plain-text and Markdown final answers | No planning, reasoning, tool arguments or unapproved intermediate data |
 | SparkClaw desktop | Helper, transport/auth and ExecutionProgressClient consume and recover streams | Account, device, installation, session and authorization generation remain bound |
 | SparkClaw UI | Adapt original components, coalesce paint notifications and hand off to final messages | Preserve pages, menus, layout, style, attachments, approvals, cancellation and conversation navigation |
 
@@ -73,188 +74,227 @@ Upstream `47f1f6c` drains once and shares a default 120 requests/minute clientKe
 
 SparkClaw already has continuous receive in `internal/iscprelayreference/receive.go`: one receive owner, replacement, notifications with a one-second fallback, Ping/Pong, a maximum 55-second window, shutdown and revocation handling. Existing deployment records describe TEST1 using this patch. The design relies on inspected source and those records, not on an assertion that upstream has the feature or that production was requalified in this turn.
 
-Reuse and review the patch while allowing authorized, healthy connections to remain open. Remove forced 55-second rotation and the fixed one-second wait after a normal reconnect. Run liveness checks independently rather than requiring a Pong before every delivered message; preserve receive-owner fences, live revocation, failure detection and transaction rollback. Continue supporting old Relay `drained` behavior without replacing the logical receive process. Actual disconnection, authority failure or session replacement enters application recovery. Preserve existing ready/envelope/drained wire compatibility.
+Reuse and review this patch: keep healthy authorized connections open, remove forced 55-second rotation and fixed one-second reconnect waits. Run liveness checks independently rather than waiting for a Pong per message. Preserve receive-owner fences, known revocation, failure detection and transaction rollback. Core envelopes and existing Relay frame definitions remain unchanged; old Relay adaptation and mixed-version qualification are outside this phase.
 
-Also verify per-device and global queued bytes, database backlog, claim/release on failed writes and expired ciphertext cleanup. Memory and PostgreSQL branches currently differ in capacity and delivery behavior. A successful socket write is neither SparkX display nor durable storage acknowledgment.
+The target deployment uses PostgreSQL, including delivery and failed-write rollback validation. A successful Relay socket write does not establish desktop display or durable storage. Multi-tenant fairness, dynamic worker pools, resource reservations and large-scale load scheduling are deferred.
 
-## 4 Application Stream Contract
-
-The following interfaces are proposed, not implemented or frozen.
+## 4 Application Contract and State Machine
 
 ### 4.1 Opening and Identity
 
-Add explicit `execution_stream` negotiation and `execution.progress.stream`. Subscribe only after the original execution is accepted; if its result is already complete, use authoritative lookup. Every subscription has a new random `subscription_id`, which may equal its streaming RPC ID but must differ from the execution's `request_id`.
+The matched internal release declares execution_stream and execution.progress.stream, enabled after explicit matching-version capability confirmation. Subscribe only after acceptance of the original execution; an authoritative result goes directly through final delivery. Each subscription uses a new random subscription_id equal to its stream RPC ID and different from the business request_id.
 
-Opening supplies the original `request_id`, `input_digest` and an optional recovery cursor. The server derives owner/client/installation from authenticated context rather than trusting self-declared identity. Bind deployment, owner, client, installation, execution, input digest, ISCP session, authorization revision and local auth generation. Late events cannot enter a replacement context after any binding becomes invalid.
+Opening contains the original request_id, input_digest, latest-open time and optional cursor. The server derives deployment, owner, client and installation from authenticated context; the subscription also binds execution, ISCP session, authorization revision and local auth generation. Self-declared identity never overrides that context. Opening reuses a valid authorization snapshot; without one it waits for one authority check, as defined in section 6. The 10-second opening window starts only when authority is ready and the open is actually sent.
 
-### 4.2 Generic Frames and Business Events
+### 4.2 Data, Control and Completion
 
-| Layer | Fields or behavior | Meaning |
+| Layer | Fields or behavior | Rule |
 | --- | --- | --- |
-| ISCP envelope | `message_id`, `session_id`, `sequence` | Encrypted message and session security, not contiguous answer order |
-| Generic data frame | `schema_version`, `subscription_id`, `stream_seq`, `body` | Candidate payload type `iscp.application.stream.v1`; body remains opaque to the generic SDK |
-| SparkClaw event | `kind`, `request_id`, `input_digest`, `epoch`, `generation`, `revision` | Execution and answer version; source revision differs from subscription sequence |
-| Content range | `from_offset`, `to_offset`, `text`, `content_digest` | UTF-8 byte offsets, append-only delta, digest of the full current answer projection |
-| Subscription completion | Single terminal RPC response with `last_stream_seq`, `reason` | Distinguishes terminal, renew, canceled, gap, resource_limit and other outcomes; authoritative results determine business success |
-| Cancellation and invalidation | Explicit control bound to the original subscription; invalidation also binds snapshot ID and source version | Idempotently detach observation or invalidate an old candidate, not `execution.cancel` or permission to display new content |
+| ISCP envelope | message_id, session_id, sequence | Session and replay protection, not answer ordering |
+| Generic frame | schema_version, subscription_id, stream_seq, body | Payload type is iscp.application.stream.v1; body is opaque to the SDK |
+| Business binding | kind, request_id, input_digest, epoch, generation, revision | Fixed epoch/generation per subscription; revision is the source version |
+| delta | from_offset, to_offset, text, content_digest | UTF-8 byte offsets, append only; SHA-256 of the complete resulting text |
+| snapshot_begin | snapshot_id, baseline revision, total bytes, full digest | Create a candidate without replacing the visible preview |
+| snapshot_chunk | snapshot_id, offset, text | Write only to the candidate; never split a UTF-8 character |
+| snapshot_end | snapshot_id, total bytes, full digest | Publish the candidate atomically after full validation |
+| state | Binding and existing business state | Neither text nor delivery evidence |
+| Separate control | cancel, invalidate, original subscription, source version, reason | Outside text sequencing; can end observation or invalidate an old projection, never publish text |
+| Sole terminal response | Original RPC ID, last_stream_seq, reason | terminal, renew, canceled, reset, auth_expired, gap, preview_unavailable; not proof of business success |
 
-Generic data frames are separate from ordinary Responses. A subscription receives zero or more data frames; the server sends at most one normal terminal response, and the local state machine settles once. Disconnect, revocation and timeout may end locally without a delivered remote response. Only normal terminal/renew completion waits through `last_stream_seq`; an early response waits for missing data and then recovers on a bounded gap timeout. User cancellation releases local preview resources immediately without waiting for tail frames. A durably stored authoritative result also allows immediate preview closure.
+Digests use lowercase hexadecimal SHA-256 over raw UTF-8, without Unicode normalization. Offsets start at 0, stream_seq at 1; integers fit JavaScript's safe integer range. One strict schema and positive/negative fixtures freeze mandatory fields before implementation. Unauthenticated input, unknown versions, invalid UTF-8/integers, binding drift and digest errors cannot advance application receive state.
 
-Business events are `snapshot_begin`, `snapshot_chunk`, `snapshot_end`, `delta`, `state` and `reset`. Snapshots establish baselines, deltas append, state reports existing execution states, and reset explicitly replaces or clears a projection. completed only triggers final lookup. Clearing on failure, cancellation, delivery expiry or authorization failure is not an empty delta.
+Opening may yield zero or more frames and at most one normal terminal RPC response; disconnection does not guarantee completion delivery. If terminal/renew arrives early, wait at most 2 seconds to reach last_stream_seq before settling; otherwise recover. cancel, invalidate, known revocation and a stored authoritative result do not wait for text gaps. Controls still validate identity, direction, subscription and source version, using valid local authority. Local expiry/revocation cleanup needs no remote query.
 
-Before implementation, freeze terminal error codes, cancellation/invalidation wire shapes, required event fields and numeric bounds in strict schemas and fixtures. Controls also require envelope, direction, original subscription, fresh authority and source-version validation. A peer cannot cancel unrelated subscriptions or use old controls to clear a new snapshot. Count text and nested metadata toward size budgets. Unknown fields, invalid UTF-8 or integers, identity drift and mismatched digests must not advance receiver state.
+### 4.3 Ordering and Cancellation
 
-### 4.3 Ordering and Concurrency
+Each subscription has one sending owner and contiguous frame numbers; subscriptions may interleave. After envelope authentication and local authorization, apply text only in contiguous order. Application retransmission uses fresh encryption and outer message_id/sequence, preserving stream_seq and content. Ignore proven-equivalent duplicates, reject conflicts and never apply old frames whose equivalence cannot be established. Wait at most 2 seconds for a gap, then recover the original task without skipping text.
 
-One sender owns each subscription, assigning contiguous `stream_seq` values from 1. Different subscriptions may interleave. Envelope sequence cannot substitute for this: the SDK primarily detects duplicates, and Relay priority and database claiming do not establish universal application delivery order.
+Within an epoch/generation, revision identifies a fixed text offset and digest; state events need not change text. A snapshot fixes a baseline followed only by later deltas. Process restart changes epoch; answer replacement/retry changes generation. Either change sends invalidate and closes the old subscription with reset, then subscribes to a new baseline. Do not splice generations inside one subscription. Business failure/cancellation may invalidate temporary text, while the original result path delivers the failed/canceled result; normal completed keeps its preview until final handoff.
 
-After envelope authentication, business binding and authorization, a receiver holds events in a byte- and time-bounded reorder buffer and applies only the next sequence. Application retransmissions use newly encrypted envelopes with new outer message_id and sequence, retaining original stream_seq and content. Duplicate ciphertext remains subject to existing replay protection; never bypass decryption checks for deduplication. Compare already-applied events using a bounded digest window: ignore equivalent retransmissions and reject conflicts. Explicitly reject or recover on older frames outside that window rather than claiming their contents were compared. Missing frames, budget exhaustion or timeout recover the preview without skipping bytes. Verify cumulative digests continuously.
+The receive loop does not wait for remote authorization, UI callbacks or a whole snapshot; each subscription advances state and sending serially. Canceling observation releases only that subscription, never resets the shared session or invokes execution.cancel. One desktop process shares one subscription per original execution and cancels when its last observer leaves; independent subscriptions do not cancel one another.
 
-The encrypted receive owner performs necessary decryption and short dispatch only, without waiting for network authorization or UI callbacks. Sending, authorization batches and notifications have bounded work state; do not create a goroutine for every token. Subscription cancellation releases only that subscription and must not reuse ordinary Call's session-reset-on-cancel behavior.
+The latest-open time defaults to 10 seconds after sending and uses existing clock-tolerance rules on the server. A cancel carries the original latest-open time and, if it arrives first, fences the same identity/session/subscription through that time plus existing clock tolerance. The server rejects claimed times beyond the allowed opening window; repeated controls cannot extend it. Expired opens are rejected. Late frames cannot reopen a closed subscription.
 
-Cancellation can arrive before opening. Bind opening to a bounded latest-valid time and retain a cancellation fence for the same identity, session and subscription ID through that time. Reject late opening. Charge fence bytes and never evict them early in a way that reopens an old subscription; reject new openings under pressure. Old-session cancellation cannot affect a new subscription. One state machine arbitrates cancellation and normal completion.
+### 4.4 Unified Transitions
 
-## 5 Gateway Answer Production and Recovery
+These are observation states, distinct from business task states. One state owner arbitrates identity, authorization and durable-storage events.
 
-### 5.1 Actual Answer Source
+| Current state | Event | Next state and action |
+| --- | --- | --- |
+| opening | Confirmation or first valid event | receiving; establish a baseline or consume deltas |
+| opening | Opening deadline exceeded | recovering; look up the original task, never resubmit |
+| receiving | delta/state | receiving; validate/apply, then notify original components |
+| receiving | Complete valid snapshot | receiving; atomically replace, then apply later deltas |
+| receiving | Disconnect, gap or source-version change | recovering; discard old candidate and follow section 5 |
+| receiving/recovering | Refresh fails but authority snapshot is valid | No transition; continue streaming and retry in background |
+| Any nonclosed state | Authority expires without renewal | auth_paused; close old subscription, hide preview, retain task identity |
+| auth_paused | Authority restored within recovery deadline | recovering; new subscription and complete snapshot |
+| receiving | Normal completion with all tail frames | awaiting_result; retain valid preview and look up final result |
+| recovering/auth_paused | Recovery deadline exhausted | awaiting_result; stop automatic preview recovery, retain result recovery |
+| Any nonclosed state | Verified final result committed locally | closed; show final result in place, ACK independently |
+| Any nonclosed state | Cancel observation or last observer leaves | closed; release observation, not the business task |
+| Any nonclosed state | Known revocation or account/installation switch | closed; clear temporary identity data and reject old frames |
+| closed | Old frame, completion or refresh result | closed; ignore, never revive |
 
-Reuse the `text_delta` entry in `execution_workflow.go`, adding an answer projection and subscription source while preserving the legacy 8 KiB `ReadProgress` contract. Looping over the old snapshot still stops at 8 KiB and cannot represent missed events precisely.
+Recheck identity, authorization expiry and generation before every text publication and final transaction. Known revocation/identity change fences uncommitted text or storage actions; it does not retroactively delete previously legitimate history. Once the authoritative result is committed, reset, tail frames, animation and candidates cannot overwrite it. Canceling observation does not stop existing durable task recovery. Source invalidation discards the candidate before establishing a baseline; normal completion settles after gaps are filled or the final result is stored.
 
-The Agent must choose an output format explicitly. Plain final answers emit received text directly. Structured final wrappers incrementally expose only the permitted answer field, handling JSON escapes, fragments and Unicode boundaries. A backtick alone must not buffer an entire Markdown code block. Formats requiring complete validation may temporarily remain nonstreaming, with explicit capability/test scope; wrapper planning or tool fields must never leak, and splitting a completed result does not qualify as streaming.
+## 5 Answer Formats and Recovery
 
-Answer replacement or retry increments `generation` and emits reset; process restart changes `epoch`. Deltas append within one generation. A verified authoritative final answer may differ due to normalization.
+### 5.1 Initial Formats
 
-### 5.2 Projection and Replay
+Initially guarantee real streaming for plain text and Markdown, including code fences, Chinese and other multibyte text. A trusted workflow selects the output mode before calling the model; do not infer it from the first character. Plain text beginning with a brace or backtick still streams. Forward only public final-answer text_delta, never planning, reasoning, tool arguments or unapproved intermediate content.
 
-Keep a current answer projection and a short event replay ring as temporary display data, not a second permanent conversation history. Projection cannot exceed the existing result budget, currently 8 MiB for the combined result including other content. Bound replay by bytes; do not carry over the old 8 KiB preview cap. Retain the active projection within reserved resources. After completion, retain it only for the shorter of a bounded recovery window and existing delivery retention. Preview subscriptions cannot delay ACK cleanup, revocation or deletion.
+Structured final wrappers initially use complete parsing/validation followed by direct final display, without incremental extraction or character playback. They are excluded from successful real-streaming samples. Allowed fields, duplicate keys, escapes, fragmentation and final validation failure are a later separate design; that parser is not a prerequisite for this phase.
 
-A recovery cursor contains `epoch`, `generation`, `revision`, offset and digest. It claims what the client received; the server checks it against its own data and never treats it as delivery ACK.
+### 5.2 Projection, Cursor and Warm Reconnect
 
-1. Cursor retained: validate the cursor, fix the replay upper bound and register the live observer in one short critical section. Send replay through that bound, followed by queued subsequent events, with no handoff gap.
-2. Cursor too old but full projection available: explicitly start a snapshot. Capture its baseline and register subsequent events in one short critical section, avoiding a snapshot-to-subscribe gap.
-3. Snapshot larger than one frame: send chunks with a fixed baseline revision, total bytes and digest. The client verifies a candidate buffer before atomically replacing the current projection, then applies post-baseline deltas.
-4. Generation continues during snapshot transfer: queue subsequent events within a byte budget. Overflow produces an explicit gap/resource_limit and closes preview instead of unbounded catch-up or blocking the model.
-5. Projection lost or unavailable after restart: return reset/preview_unavailable and continue original-task status and final-result recovery. Never rerun work to reconstruct token history.
+Maintain a temporary projection and short replay history, not permanent token history. Text and candidates respect the existing business result format: the current total result limit is 8 MiB including other result content. New streams do not inherit the old progress 8 KiB limit. Retain the most recent 30 seconds of replay within existing text-size bounds; subscriptions do not delay ACK, revocation or result cleanup.
 
-A brief network interruption may retain verified text only under the same identity and valid authority, until the candidate snapshot is complete. Do not shrink a long preview to its first recovery chunk. Identity changes, revocation or unverifiable authority stop delivery and hide temporary content. A replacement subscription gets a fresh ID and starts its frame sequence at 1; execution identity remains unchanged.
+A cursor contains epoch, generation, revision, offset and full-text digest. Submit it only while the corresponding verified text also exists in client memory; it is not a delivery ACK. Recovery uses a new subscription and stream_seq starting at 1, preserving business request_id/input_digest.
 
-Each snapshot has an independent ID bound to its baseline epoch/generation. Terminal clearing or a generation/epoch change immediately invalidates the sender's old candidate. On receiving the corresponding reset/lifecycle notification or storing an authoritative result, the client immediately invalidates its candidate; late chunk/snapshot_end cannot republish old content. Invalidation controls cannot queue behind a large snapshot: use an authenticated priority control path bound to the original subscription to invalidate candidates early, never to skip sequence and apply text. If control cannot be delivered, detach and recover instead of continuing the old snapshot. Client guarantees start when invalidation is known; it cannot anticipate an undelivered remote state change.
+1. Cursor remains in replay: validate it, capture the replay upper bound and register the live observer in one short critical section; replay precedes subsequent events.
+2. Cursor is too old but projection is complete: atomically capture a snapshot baseline and register subsequent deltas; replace only after complete candidate validation.
+3. Same identity, valid authority snapshot and unchanged source version: retain verified text across a short outage; never continue a partial candidate across connections.
+4. Epoch/generation change, expired authority or identity change: discard candidate and invalid preview. If the server has no current projection, return preview_unavailable and recover only the final result.
+5. Once the authoritative result is stored: stop preview recovery; candidates and late frames cannot overwrite it.
 
-Schedule recovery by reason: normal renew may reconnect directly; transient disconnect/gap uses bounded backoff with jitter; persistent resource_limit waits for budget changes or subsequent ordinary reconciliation rather than immediately reopening; unrecoverable preview_unavailable stops preview retries and retains authoritative-result recovery only. Servers may supply retryable/retry_after, but clients must still prevent retry loops and respect original execution and authorization deadlines.
+### 5.3 Cold Start and Large Snapshots
 
-## 6 Authorization and Resource Control
+Initially do not persist preview text, cursors or partial snapshots. After desktop/helper restart, recover the original request_id/input_digest from durable task records and look it up: store a completed result; fetch a full snapshot for a running, previewable task; otherwise await the final result. Never restore an isolated cursor without text, resubmit or rerun the task.
 
-### 6.1 Preserve Authorization Freshness
+A snapshot binds its own snapshot_id, fixed baseline and full digest. Pack chunks within the encoded 64 KiB message budget rather than the live delta 4 KiB trigger. Include JSON escaping and metadata, and split only at UTF-8 character boundaries. Deltas generated meanwhile follow the baseline and are applied after full validation.
 
-The current send path performs fresh authority checks only for Request/Response. New stream payloads must explicitly enter that boundary; merely adding a dispatch case would bypass it.
+Renewal with the same identity, scope, revision and session updates deadlines without discarding the candidate, reopening or restarting transmission. Permission reduction/version change closes the old subscription and obtains a new baseline under new authority; real session replacement also creates a new subscription. After transport loss, fetch the candidate from scratch; partial-snapshot resumption is not promised.
 
-Phase one retains fresh authorization at opening and for each delivered batch. Freeze outbound batch contents and deadline before checking. Authenticate and bind inbound ciphertext, then check fresh authority before releasing its batch to the application. Content arriving during a check belongs to the next batch, not an indefinitely growing approved batch. Use only existing permitted coordination of overlapping checks, with no unapproved successful cross-batch cache. Recheck session, Grant expiry, revision, cancellation and revocation before release.
+Each incident shares a 30-second recovery deadline starting at the first disconnect/gap or authority expiry. A cold-start snapshot starts timing when observation begins. Failed opens, replaced connections, candidate restarts and waiting for authority do not reset it. If a complete baseline cannot catch up within 30 seconds, return preview_unavailable, stop automatic preview recovery and retain original-task result lookup; that lookup still obeys its own authority rules. Reopening the conversation may start one new observation.
 
-Authority round trips remain a real latency floor: removing Relay and issuer request quotas does not remove desktop-to-issuer network time. Before implementation, establish whether authorization scheduling meets the display target. If a stream lease or Gateway delegation is needed, first review expiry, revocation latency and outage behavior as a trust-contract change. Removing quotas does not authorize skipped checks or implicit multi-second caching.
+Retry transient failures after 250 ms, 500 ms, 1 second, 2 seconds, then at most 5 seconds, always within the total deadline; never retry known revocation. This is an incident recovery deadline, not a cumulative request quota. cancel, invalidate, known revocation or final-result commit immediately discards a candidate without waiting for snapshot_end.
 
-Revocation or identity replacement stops sends and clears queued events and temporary display. Unverifiable authority stops release and enters authentication recovery without falsely declaring permanent revocation. Relay Access/PoP, ISCP Trust Grant and execution visibility are different boundaries; a connected socket does not replace business authority.
+## 6 Authorization and Internal-Use Scope
 
-### 6.2 Remove Artificial Quotas
+### 6.1 Local Authority Snapshot and Background Refresh
 
-The user explicitly directs the self-managed Relay not to inherit upstream rate and quota policies. Actual hardware and runtime resources determine throughput. Do not replace an old small limit with another larger arbitrary allowance.
+Reuse a valid authority snapshot at opening, validate locally per batch and refresh periodically in the background. Do not add an issuer-signed lease wire format or cross-subject Gateway delegation. Reuse existing verifiable authority-query results within a bounded lifetime in trusted Endpoint memory.
 
-| Existing artificial gate | Target rule |
+| Item | Design default or rule |
 | --- | --- |
-| Relay per-IP/clientKey requests per minute and configuration ceiling | Remove fixed-rate and cumulative-count rejection; continue accepting while healthy resources are available |
-| Issuer forwarding 600/min, 32 concurrent calls and fixed routing slots | Remove these as product quotas too, preventing the bottleneck from moving to authorization; size work scheduling from actual capacity |
-| Endpoint/helper/subscription counts such as four or sixteen | Preserve negotiated concurrent=0; no renamed fixed task or subscription quota |
-| Transport rejection after cumulative requests, tasks, bytes or messages | No usage-history allowance; handle cryptographic counter boundaries through safe rekey/recovery, not task limits |
-| Forced 55-second healthy-connection rotation and one-second cooldown | Keep connections open; reconnect only for real failure, revocation, credential/session renewal or equivalent lifecycle needs |
+| Binding | deployment, owner, client, installation, peer identity, Grant, session, scope, authorization revision, local auth generation |
+| Establishment | Query once when no valid snapshot exists; only active results with verified provenance and signatures/trust establish a snapshot |
+| Lifetime | At most 5 minutes and no later than Grant/capability expiry; measured from check initiation, not delayed response arrival |
+| Refresh | Every 60 seconds in the background, earlier for nearer known expiry; share refresh work within the same binding |
+| Query and retry | Each query lasts at most 10 seconds; retry failures every 5 seconds in background; stream while the snapshot remains valid |
+| Per-batch validation | Local identity, session, scope, expiry, revision, cancellation/revocation and integrity checks, without remote waiting |
+| Expiry or known revocation | Stop sending/displaying text, hide temporary preview and close the old subscription; expired authority may be rechecked, known revocation cannot revive |
+| Restart or session/identity replacement | Do not reuse the old memory snapshot; bind and verify again |
 
-Scope covers this ISCP transport and authorization-forwarding path. Frame encoding, protocol value ranges, integrity checks and authority expiry retain explicit semantics. Chunk large content rather than interpreting chunk size as a total request or stream allowance. Existing business-result formats and other projects' durable-delivery contracts are reviewed separately; removing Relay quotas does not delete those contracts.
+This is explicit bounded caching, not per-batch fresh authority. Normally remote revocation is discovered at the next successful refresh or verified notification; query latency contributes to discovery delay. With no connectivity or notification, reuse may last at most 5 minutes from that check's initiation, or an earlier Grant/capability expiry. Once revocation is known locally, clear immediately without waiting for cache expiry.
 
-### 6.3 Small Batches and Resource Backpressure
+Use a process-monotonic TTL. Convert absolute Grant/capability deadlines with existing clock-error rules; clock rollback cannot extend authority. A response arriving after its deadline cannot establish a snapshot. Before publishing a refresh, recheck its original identity, session and auth generation; an old success cannot overwrite later revocation or identity change. Same-version renewal extends validity without reopening or discarding a candidate; changed revision or scope closes the old subscription and recovers under new authority.
 
-Do not send one network request per token. Candidate policy: send the first nonempty increment promptly, then batch for 50–100 ms or 4 KiB of raw text, whichever comes first. These are unmeasured parameters. The text budget counts UTF-8 bytes; the complete encoded frame, including JSON escaping and metadata, must also fit the existing 64 KiB message budget.
+Authority queries do not themselves renew Grants or capabilities. Existing renewal flows refresh those independently in background; unchanged rights continue after verified renewal, otherwise their original deadlines still apply.
 
-| Resource | Control | On exhaustion |
-| --- | --- | --- |
-| Events and outbound backlog | Frame, stream, device and global byte budgets | Coalesce consecutive deltas before assigning sequence; otherwise close preview with a recovery reason |
-| Recovery data | Projection budget plus bounded replay ring | Evicted history triggers explicit snapshot, never a silent continuity claim |
-| Reordering and IPC | Byte budgets, gap deadline and write backpressure | Release/recover subscription without blocking encrypted reception |
-| Actual Relay and issuer capacity | CPU, available memory, bandwidth, connections/file descriptors, database pool, IO and queue delay | No count-based rejection with headroom; use fair backpressure and explicit recoverable resource reasons under real overload |
-| Renderer | One notification per paint and ordered same-conversation reads | Apply the newest valid projection; reject stale read results |
+Both sender and receiver enforce these rules. The policy covers only this proposal's stream opening, events and subscription controls. Business submit, approvals, tool execution, execution.cancel and authoritative lookup/ACK retain their existing authorization contracts. PoP, Trust Grant, ciphertext validation, business visibility and revocation fences remain effective. Pure local cleanup needs neither valid authority nor a network call.
 
-Preserve negotiated `concurrent=0`. Account for actual state, timers, waiters, authority work, reorder/deduplication digests, cancellation fences and content even for empty subscriptions. Size shared work queues and memory reservations from measured server capacity, not upstream counts imposed as user quotas; additional server resources should increase capacity. Apply backpressure or explicitly close preview on exhaustion instead of waiting until OOM. Trusted scheduling protects control, final results, ACK, cancellation and handshake; streams share receive connections. Preserve typed overload, retry_after where available and resource-domain backoff instead of repeatedly resetting all sessions.
+### 6.2 Remove Artificial Quotas; Defer Resource Scheduling
 
-Measure actual requests/second, encrypted bytes/second, per-request CPU/database cost, active-connection memory and queue delay to identify server bottlenecks. Do not derive permitted stream frequency from old 120/600/1200/3600 allowances. Memory/connection-pool budgets must correspond to real instance, container or OS capacity and necessary reserves, not hidden user quotas. Phase one retains envelope POSTs; review batching if HTTP/database cost becomes limiting. Removing counters alone does not establish latency performance.
+Plan for internal low-concurrency use. Remove fixed request-rate, concurrency-count and cumulative-use quotas from the self-managed Relay, issuer forwarding and stream-call path. Increasing old numbers is not the objective; healthy connections are not forcibly rotated.
+
+Multi-tenant fairness, priority reservations, dynamic worker pools, capacity modeling, slow-consumer scheduling and large-scale stress qualification are all out of scope. Use ordinary send queues, cancellable operations and explicit errors, without a separate resource scheduler. Message sizes, authority expiry, integrity, existing result-format sizes and recovery deadlines retain their meanings, not cumulative request/task allowances.
+
+### 6.3 Live Sending Cadence
+
+Send the first nonempty answer increment immediately. Thereafter flush at 50 ms or 4 KiB of raw UTF-8, whichever comes first; flush the remainder immediately on completion. The 50 ms window is batching delay, not typing speed. Each encoded frame must fit 64 KiB including JSON escaping and metadata; split an oversized model delta into valid frames.
+
+Sending waits for neither the next authorization refresh nor the complete answer. Relay does not wait for a Pong per message. Desktop coalesces received content only by paint frame, without artificial typing delay. These remove avoidable pauses under low concurrency; they are not a resource scheduling design.
 
 ## 7 Desktop Integration and Final Handoff
 
-Extend the helper's existing JSON-line protocol with negotiated `stream_call`, `stream_event` and `stream_cancel`; preserve ordinary call/response. Electron owns a separate stream API, cancellation, session bindings and terminal response. ExecutionProgressClient consumes subscriptions rather than repeated queries. Detect old-helper/new-Electron incompatibility during local IPC capability exchange.
+Ship helper and Electron together with stream_call, stream_event and stream_cancel; ordinary call/response keeps its meaning. Subscriptions inherit neither ordinary RPC total timeouts nor the 55-second receive window. Same-permission authority/capability renewal maintains the subscription; actual expiry or session replacement triggers state transitions. Closing the page cancels observation; only the existing stop-task action invokes execution.cancel.
 
-Subscriptions have deadlines and renewal semantics bounded by business, Grant and capability expiry. Do not inherit ordinary RPC timeouts or equate subscription lifetime with the Relay's 55-second window. Renewal replaces the subscription only. Closing a page may detach observation; only the existing stop-task action invokes `execution.cancel`.
+Preserve TaskProgressMessage, MessageBubble and every existing page, menu, layout, style, attachment, approval, setting and conversation interaction. Received text enters original components by the next paint frame. Coalesce notifications and fence old asynchronous reads using conversation read versions. Add no permanent transport-status UI.
 
-Keep `TaskProgressMessage`, `MessageBubble` and their existing containers. Show received text directly, coalescing at most by paint frame; remove arrival-interval character playback for the new stream. LocalWorkbench must coalesce refresh notifications and discard stale same-conversation read results instead of issuing unordered full-conversation reads per chunk.
+Final delivery remains: look up the original task, verify the complete payload digest, recheck identity/authority/generation, commit message and receipt in ClientStore, replace the preview in place, then ACK in background. Storage and ACK do not wait for animation, tail frames or a complete preview; failures use existing durable delivery recovery.
 
-Final delivery retains the original sequence: lookup → verify full payload digest → commit local message and receipt transaction → switch display and discard preview → background ACK. Neither storage nor ACK waits for animation or a complete preview.
+Identical text changes only durability status; a prefix extension displays its remainder immediately; normalization or correction atomically adopts the authoritative result. Replacement and preview removal share one view update, with no blank interval or duplicate bubble. History does not replay. A short outage with valid authority retains verified text; expiry, revocation or identity change hides temporary previews according to the state machine, using existing error UI only when user action is needed.
 
-Associate both views with the original request ID and the same answer position. Identical content changes persistence state only. A prefix extension immediately displays already-received final suffix. Normalization or correction atomically adopts the authoritative result without invented appends or duplicate bubbles. One view transition must cover preview removal and final-message visibility. Historical messages display immediately.
+## 8 Matched Internal Releases and Publication Boundary
 
-## 8 Compatibility and Dependency Releases
+The user confirms there is no public deployment. Backward compatibility, automatic fallback, mixed-version matrices and old Relay adaptation are outside this phase and are not implementation or acceptance prerequisites.
 
-| Combination | Behavior |
-| --- | --- |
-| New desktop and Gateway with qualified stream capability | One subscription and pushed events |
-| New desktop and old Gateway | Legacy long-poll progress only when execution_stream is explicitly unnegotiated |
-| Old desktop and new Gateway | Exact old-compatible operations and response shapes |
-| Electron/helper mismatch | Select a declared supported local path or fail explicitly; do not guess remote support |
-| Negotiated stream encounters authority, digest, ordering or network error | Recover the stream or original execution; no downgrade that bypasses the error |
-| Original draining Relay | Compatibility may remain, but it does not establish continuous-push latency qualification |
+Gateway, helper, Electron, ISCP extension and Relay share an internal release manifest recording each revision and stream schema version. Before opening, confirm local IPC and remote schema match. Otherwise explicitly reject the new stream operation and require a matched update; do not guess fields or silently fall back to progress. This is version correctness, not backward compatibility design.
 
-Require explicit opt-in. Negotiation currently validates exact operation lists, so even one extra advertised operation can break old peers. Remove execution_stream first when falling back, then retain existing progress/unbounded compatibility steps. Retry only read-only negotiation on explicit unsupported responses; never replay business submission or discard supported unbounded semantics merely because streaming is absent.
+Temporary Go workspaces may support local integration; delivered builds pin obtainable commits/versions without machine-specific absolute replace paths. Design compatibility separately if public or mixed deployments become necessary. Rollback uses a qualified complete release combination, preserving business databases, identities and original task records without resubmission; independent component downgrade interoperability is not promised.
 
-A temporary Go workspace may reference the local fork during development. Reproducible delivery must pin an obtainable fork commit/version and record provenance and licensing, without a developer-specific absolute replace path. Track SDK, Relay binary, Gateway/helper and Electron revisions separately. Rollback stops new subscriptions and uses negotiated legacy paths without database resets or task resubmission.
+This turn changes documentation only: no build, installation, push, deployment or existing public contract change. The generic extension remains proposed; internal-use decisions do not imply ISCP upstream acceptance.
 
-## 9 Implementation Stages and Acceptance
+## 9 Stages and Acceptance Criteria
 
 ### 9.1 Stages
 
-1. **Freeze the application contract and capability matrix.** Review generic frames, SparkClaw events, completion/cancellation, authority, recovery and resource boundaries under 0036. Implement cross-project interfaces only after acceptance; preserve other contracts.
-2. **Qualify transport and SDK.** Pin Relay provenance, test absence of artificial quotas, continuous reception, actual server-resource boundaries, ordering and disconnects, and establish frame/receiver fixtures.
-3. **Connect server to desktop.** First drive a controlled incremental source through encrypted Endpoint, helper, IPC and original UI; then integrate actual model SSE, structured-answer extraction and reliable final delivery.
-4. **Qualify compatibility and faults.** Cover old peers, long streams spanning receive windows, pressure, authority changes and recovery before discussing packaging, single-node qualification or deployment.
+1. Freeze stream schema, authority snapshots, state transitions and recovery rules with positive/negative fixtures; resource scheduling and backward compatibility are not prerequisites.
+2. Connect a controlled incremental producer through encrypted Endpoint, continuous Relay, helper, IPC and original UI; prove batches never wait for remote authority.
+3. Integrate real-model plain text/Markdown, warm reconnect, cold start, final handoff and original UI regression.
+4. Qualify the matched internal release against the latency targets below, then discuss packaging, single-node verification and deployment.
 
-### 9.2 Required Evidence
+### 9.2 Functional and Failure Acceptance
 
 | Scenario | Passing behavior |
 | --- | --- |
-| Controlled 600-character production | Explicitly produced in batches; at least three real UI content increases before completion; one subscription and no per-chunk progress RPC |
-| Actual model long reply | Correlate model delta, Gateway emission, desktop validation and paint; multiple batches arrive before model done, without completed-output mock splitting |
-| More than 8 KiB, code fences and multibyte text | No legacy truncation, broken UTF-8, duplication or omission; final validation succeeds |
-| Running past the old 55-second window, old-window compatibility and actual disconnection | New deployments retain healthy connections; old-peer reconnect and new-session recovery do not repeat submit/tools |
-| Duplicates, reordering, loss, cancel-before-open, early completion and bad digest | No corrupt append; bounded recovery; terminal response does not swallow tail frames; cancellation fence rejects late opening |
-| Snapshot or valid-cursor replay overlaps live production | Both recovery paths capture baselines without gaps or shrinking to partial snapshots |
-| Cancellation, ACK or reset during chunked snapshot, followed by a late old end frame | Invalidated chunk/snapshot_end cannot republish content or replace stored final results |
-| Failure, cancellation, ACK, expiry and restart | Explicit reset/completion; no improperly retained temporary text or execution-based reconstruction |
-| Revocation, renewal and identity/node switches | Old queued events cannot cross boundaries; authorization failure cannot be bypassed by downgrade |
-| Exceeding old frequency/concurrency gates and long cumulative use | No old counter-based rejection with available resources; Relay, issuer, Endpoint and helper retain no equivalent hidden gate |
-| Slow consumers, empty subscriptions, server saturation and concurrent streams | Resource-sized memory/queues, no control/result/ACK starvation, backoff under real pressure and recovery afterward, without reopen loops |
-| Final result precedes stream completion | One stored result and one logical delivery with existing idempotent ACK recovery; no animation/tail wait |
-| Original UI | Preserve menus, conversations, attachments, approvals, cancellation and settings; functional streaming tests do not replace UI regression |
+| Controlled 600 characters | Produce 6 Chinese characters every 100 ms for 100 batches; at least 90% visible before done; one subscription, no per-chunk progress RPC or later typing playback |
+| Real-model plain text/Markdown | Grow during generation; only samples producing multiple visible deltas qualify as real streaming |
+| Code fences, leading brace, over 8 KiB, multibyte text | No first-character buffering or old-preview truncation; no loss/duplication/corruption; final result verifies |
+| Structured final wrapper | Display after full validation without leaking internal fields or claiming real streaming |
+| Slow/failed background authority | Valid snapshots keep sending/displaying; no per-batch remote-query dependency |
+| Expiry, known revocation, identity switch, late refresh | No text publication after invalidation; old success cannot revive authority; cleanup does not wait for network |
+| Same-version renewal and permission changes | Renewal keeps candidate/subscription; changes close old streams and recover with new authority |
+| Duplicates, reordering, early completion, bad digest | Contiguous verified text, 2-second gap rule, no swallowed tail frames |
+| Cancel before open, late old invalidate/completion | Cancellation fence works; mismatched controls have no effect; closure cannot revive |
+| Warm reconnect and cold start | Warm text matches cursor; cold start looks up the task and requests a full snapshot, without isolated cursors or resubmission |
+| Renewal, disconnect, source change or final commit during snapshot | Renewal continues; invalidation discards candidate; restarting does not reset 30 seconds; final result wins |
+| Exhausted recovery deadline | Stop automatic preview recovery, keep the original task, no reopening spin |
+| More than 55 seconds | No old-window forced disconnect or fixed one-second cooldown |
+| Final result concurrent with preview | One logical delivery in place; transaction and idempotent ACK do not wait for animation/tail frames |
+| Current release and original UI | Matched release opens correctly; mismatch explicitly rejects; menus, conversations, attachments, approvals, cancellation and settings remain |
 
-Measure within each process using monotonic clocks and correlate request/subscription/sequence across hosts. Do not subtract host wall clocks without a clock-error bound. Record first visible model delta, first send/receive/paint, batch gaps, fresh authorization, Relay POST, queue delay, local commit and ACK. Log IDs, sizes, digests and durations rather than plaintext or credentials.
+### 9.3 Smoothness Targets
 
-The 50–100 ms window, 4 KiB text batch, replay bytes, aggregate memory and subscription lease are candidate settings. First prove arrival during generation and bounded recovery, then set latency targets from actual issuer/network/Relay capacity. No unmeasured P95 guarantee is asserted.
+These are design acceptance targets, not measurements. The baseline is one active plain-text/Markdown answer stream, transport-path RTT at most 150 ms, no injected packet loss, and endpoints/Relay without known faults. Record machines, network, model and release; large-scale stress tests are not required. Record user submission to first model delta separately as inference/tool latency.
 
-## 10 Decisions for Discussion
+| Metric | Target |
+| --- | --- |
+| First visible delta to original UI paint after opening | At most 500 ms |
+| Per-batch production-to-paint delay during generation | P95 at most 300 ms; P99 at most 500 ms |
+| Extra stalls while visible deltas keep arriving | No stall over 1 second unrelated to the model or real disconnection |
+| Healthy-path send batching | At most 50 ms; first/last batches flush immediately |
+| Recovery of a projection up to 64 KiB after network/authentication restoration | P95 at most 3 seconds to current valid text |
+| Total incident recovery deadline | 30 seconds, never extended by reopening; explicitly stop automatic preview recovery on expiry |
+| ClientStore commit to final handoff | Within normal paint scheduling, without additional animation wait |
 
-1. **Ownership:** recommend generic frame/validator support in an optional ISCP extension, business streaming and IPC in SparkClaw, and consolidation of the existing Relay patch.
-2. **Authority:** removing request quotas does not change permission. Establish per-batch fresh-check latency before implementation; freeze revocation and outage semantics before introducing leases or delegation.
-3. **Answer format:** qualify plain text and Markdown first; expose structured final wrappers only when incremental extraction is verified. Other formats wait for complete validation.
-4. **Recovery:** use temporary projections and short replay, not permanent token history. Recover current text and authoritative results without promising historical animation timing.
-5. **Capacity and release:** the user has selected no artificial quotas. Measure server resources and workloads, select corresponding budgets and verify overload recovery. Implement after interface acceptance; the local decision does not imply upstream or other hosted-platform acceptance.
+Use a shared monotonic observation clock for the controlled producer and UI, or quantify cross-host timing error. Without an error bound, report process-local stages only; do not subtract absolute clocks to claim end-to-end P95. Run at least 20 controlled 600-character samples for percentiles, plus long-text and real-model cases; retain batch correlation IDs and sample counts.
 
-An independent SDK review item also exists: `envelope.Decrypt` calls `MarkReceived` before AEAD validation, so failed input can consume sequence state. Future work needs a negative fixture proving failed authentication does not advance state and ISCP maintainer review. This is not repaired by this document or proven to cause the reported display behavior; it does not require a new encryption wire format.
+Record request/subscription/seq, bytes, digests, production, send, receive, verification, paint, background refresh and final-commit timing, never text or credentials. On failure, locate the stage and review design changes; do not slow the producer afterward or silently relax thresholds. Report other network conditions separately rather than borrowing this baseline's conclusion.
+
+## 10 Decisions and Deferred Work
+
+| Topic | Decision |
+| --- | --- |
+| Authorization | Local valid snapshot, at most 5 minutes, refresh every 60 seconds, no per-batch remote waiting |
+| Artificial quotas | Remove fixed rate, concurrency-count and cumulative quotas from self-managed transport and authority forwarding |
+| Resource scheduling | Internal low concurrency; no design or acceptance prerequisite in this phase |
+| Compatibility | Matched internal release only; no backward compatibility or automatic fallback |
+| Formats | Real plain-text/Markdown streaming; structured wrappers display after full validation |
+| Recovery | Verify warm text/cursor, full cold-start snapshot, 30-second deadline, no task rerun |
+| Lifecycle | Fixed epoch/generation per subscription; unified state machine; no revival by old frames; authoritative result wins |
+| Ownership | Optional ISCP extension owns generic frames/validation; SparkClaw owns business streams, authority snapshots and IPC/UI |
+| Current authorization | Update bilingual design and InfiniCenter records only; no product code or live changes |
+
+The 5-minute cache, 60-second refresh, 10-second query, 50 ms batching, 2-second gap wait and 30-second recovery are explicit design defaults. Future changes must update both languages, state transitions and acceptance fixtures. No further resource-scheduling or backward-compatibility design is required this turn.
+
+SDK receive-authentication order still needs review: the original inspection found envelope.Decrypt calls MarkReceived before AEAD verification. Implementation must prevent failed input from advancing security receive state and add negative fixtures. Authorization caching does not remove this requirement, nor establish it as the cause of the historical first-character-then-full-answer incident. No encryption wire change is required.
 
 ## 11 Source and Existing Evidence
 
-Line numbers refer to the inspected baselines. Repository links point to source files; ISCP links pin the exact revision.
+Line numbers refer to the historical initial-draft baselines. Repository links point to source files; ISCP links pin the exact revision.
 
 | Fact | Evidence |
 | --- | --- |

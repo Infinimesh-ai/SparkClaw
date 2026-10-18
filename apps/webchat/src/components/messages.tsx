@@ -1,6 +1,6 @@
 // Chat message rendering: bubbles, attachments, inline markdown-ish text,
 // workspace images/screenshots, and stream status lines.
-import { Fragment, useEffect, useState } from "react";
+import { Component, createRef, Fragment, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Check, Download, FileQuestion, FileSearch, LoaderCircle, ThumbsDown, ThumbsUp } from "lucide-react";
 import { fetchAuthedBlob, fetchDocumentFile, openDocumentFile, workspaceScreenshotURL } from "../api/client";
@@ -373,10 +373,48 @@ export function normalizeWorkspaceDocumentPath(path: string) {
   return clean;
 }
 
-export function RenderedMessageText({ content }: { content: string }) {
-  const blocks = parseMessageBlocks(content);
-  return (
-    <div className="messageContent">
+type TextSelectionSnapshot = { anchor: number; focus: number; prefix: string };
+
+export class RenderedMessageText extends Component<{ content: string }, Record<string, never>, TextSelectionSnapshot | null> {
+  private contentRef = createRef<HTMLDivElement>();
+
+  getSnapshotBeforeUpdate(previous: Readonly<{ content: string }>): TextSelectionSnapshot | null {
+    const root = this.contentRef.current;
+    const selection = root?.ownerDocument.getSelection();
+    if (previous.content === this.props.content || !root || !selection || selection.isCollapsed ||
+      !selection.anchorNode || !selection.focusNode || !root.contains(selection.anchorNode) || !root.contains(selection.focusNode)) return null;
+    // React's text-node update collapses a native Range even when it only
+    // appends text. Snapshot before DOM mutation, then restore the same offsets
+    // only if the rendered prefix containing the selection remains unchanged.
+    const offset = (node: Node, at: number) => {
+      const range = root.ownerDocument.createRange(); range.selectNodeContents(root); range.setEnd(node, at);
+      return range.toString().length;
+    };
+    const anchor = offset(selection.anchorNode, selection.anchorOffset);
+    const focus = offset(selection.focusNode, selection.focusOffset);
+    return { anchor, focus, prefix: (root.textContent ?? "").slice(0, Math.max(anchor, focus)) };
+  }
+
+  componentDidUpdate(_previous: Readonly<{ content: string }>, _state: Readonly<Record<string, never>>, snapshot: TextSelectionSnapshot | null) {
+    const root = this.contentRef.current;
+    if (!root || !snapshot || !(root.textContent ?? "").startsWith(snapshot.prefix)) return;
+    const point = (offset: number): [Node, number] | undefined => {
+      const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        const length = node.textContent?.length ?? 0;
+        if (offset <= length) return [node, offset];
+        offset -= length;
+      }
+    };
+    const anchor = point(snapshot.anchor), focus = point(snapshot.focus);
+    if (anchor && focus) root.ownerDocument.getSelection()?.setBaseAndExtent(...anchor, ...focus);
+  }
+
+  render() {
+    const blocks = parseMessageBlocks(this.props.content);
+    return (
+    <div className="messageContent" ref={this.contentRef}>
       {blocks.map((block, index) => {
         if (block.type === "heading") {
           return (
@@ -397,7 +435,8 @@ export function RenderedMessageText({ content }: { content: string }) {
         return <p key={index}>{renderInlineMessageText(block.text, index)}</p>;
       })}
     </div>
-  );
+    );
+  }
 }
 
 export function WorkspaceScreenshot({ path }: { path: string }) {

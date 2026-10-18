@@ -13,6 +13,8 @@ const samples = Number(process.env.SPARKCLAW_STREAM_FIXTURE_SAMPLES);
 const repetitions = Number(process.env.SPARKCLAW_STREAM_FIXTURE_REPETITIONS || "1");
 const mode = process.env.SPARKCLAW_STREAM_FIXTURE_MODE || "controlled";
 const realModel = mode === "real-model";
+const jointUI = mode === "joint-ui";
+const productionScrolling = ["auto-follow", "joint-ui"].includes(mode);
 if (!root?.startsWith("/private/tmp/") || !Number.isSafeInteger(samples) || ![1, 10].includes(repetitions)) throw new Error("Private stream fixture environment required");
 const expectedChars = 600 * repetitions;
 process.env.SPARKCLAW_DESKTOP_ISCP_LOCAL_TEST = "1";
@@ -93,7 +95,7 @@ void app.whenReady().then(async () => {
     evidence.clock_before = await clock();
     evidence.main_clock_before = await mainClock();
     await evaluate(`(() => {
-      window.__streamFixture = {rows: {}, stop: false, active_id: undefined, harness_scrolls: 0};
+      window.__streamFixture = {rows: {}, stop: false, active_id: undefined, harness_scrolls: 0, phase: 'following', user_scrolls: 0};
       const tailInView = element => {
         const content = element.querySelector('.messageContent');
         if (!content?.textContent) return false;
@@ -118,13 +120,13 @@ void app.whenReady().then(async () => {
           if (elements.length !== 1) row.duplicates++;
           const chars = [...(element.querySelector('.messageContent')?.textContent || '')].length;
           const durable = !element.dataset.messageId.startsWith('progress:');
-          if (id === window.__streamFixture.active_id && chars > 0 && !tailInView(element)) {
+          if (${!productionScrolling} && id === window.__streamFixture.active_id && chars > 0 && !tailInView(element)) {
             element.scrollIntoView({block:'end', behavior:'instant'}); window.__streamFixture.harness_scrolls++;
           }
           if (chars === 0 && row.last > 0) row.blanks++;
           if (chars !== row.last || durable !== row.durable) {
             row.last = chars; row.durable = durable;
-            requestAnimationFrame(() => row.observations.push({chars, durable, tail_in_view: chars > 0 && tailInView(element), renderer_unix_ms: performance.timeOrigin + performance.now()}));
+            requestAnimationFrame(() => row.observations.push({chars, durable, phase: window.__streamFixture.phase, tail_in_view: chars > 0 && tailInView(element), renderer_unix_ms: performance.timeOrigin + performance.now()}));
           }
         }
         for (const [id, row] of Object.entries(window.__streamFixture.rows)) {
@@ -150,6 +152,34 @@ void app.whenReady().then(async () => {
         requestID = ids.find(id => !evidence.samples.some(sample => sample.request_id === id)); return requestID;
       }, "original task row");
       await evaluate(`window.__streamFixture.active_id = ${JSON.stringify(requestID)}`);
+      if (jointUI) {
+        await until(() => evaluate(`window.__streamFixture.rows[${JSON.stringify(requestID)}]?.last >= 1800 && document.querySelector('.localHistory').scrollTop > 300`), "production auto-follow before reading pause");
+        await evaluate(`(() => {
+          const state = window.__streamFixture; const list = document.querySelector('.localHistory');
+          state.phase = 'reading'; list.scrollTop -= 400; state.user_scrolls++;
+        })()`);
+        await delay(100);
+        const reading = await evaluate(`(() => {
+          const element = window.__streamFixture.rows[${JSON.stringify(requestID)}].element;
+          const node = document.createTreeWalker(element.querySelector('.messageContent'), NodeFilter.SHOW_TEXT).nextNode();
+          const range = document.createRange(); range.setStart(node, 12); range.setEnd(node, 24);
+          const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+          return {top: document.querySelector('.localHistory').scrollTop, selected: selection.toString(), chars: window.__streamFixture.rows[${JSON.stringify(requestID)}].last};
+        })()`);
+        assert.ok(reading.selected.length > 0);
+        await until(() => evaluate(`window.__streamFixture.rows[${JSON.stringify(requestID)}]?.last >= ${reading.chars + 900}`), "stream growth while reading selected text");
+        if (index % 2 === 1) await until(() => evaluate(`window.__streamFixture.rows[${JSON.stringify(requestID)}]?.durable`), "final delivery while reading selected text");
+        const held = await evaluate("({top: document.querySelector('.localHistory').scrollTop, selected: getSelection().toString(), latest: Boolean(document.querySelector('.messageLatest'))})");
+        evidence.reading ||= []; evidence.reading.push({sample: index + 1, includes_final_handoff: index % 2 === 1, before: reading, after: held});
+        assert.ok(Math.abs(reading.top - held.top) <= 2, "User reading position must survive live growth");
+        assert.equal(held.selected, reading.selected, "Selected text must survive live growth");
+        assert.ok(held.latest, "Original return-to-latest button remains available");
+        await evaluate("document.querySelector('.messageLatest').click()");
+        await delay(100);
+        const resumed = await evaluate("({distance: (() => {const list=document.querySelector('.localHistory'); return list.scrollHeight-list.clientHeight-list.scrollTop})(), selection: getSelection().toString()})");
+        assert.ok(resumed.distance <= 2); assert.equal(resumed.selection, "");
+        await evaluate("window.__streamFixture.phase = 'following'");
+      }
       if (mode === "recovery") {
         await until(() => evaluate(`window.__streamFixture.rows[${JSON.stringify(requestID)}]?.last >= 240`), "240 visible characters before helper interruption");
         const injectedMS = await evaluate("performance.timeOrigin + performance.now()");
@@ -166,14 +196,15 @@ void app.whenReady().then(async () => {
       const sample = await evaluate(`(async () => { const {element, ...row} = window.__streamFixture.rows[${JSON.stringify(requestID)}]; const content = element.querySelector('.messageContent')?.textContent || ''; const digest = async text => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(byte => byte.toString(16).padStart(2, '0')).join(''); row.content_digest = await digest(content); row.normalized_content_digest = await digest(content.replace(/\\s+/gu, '')); return row; })()`);
       evidence.samples.push({ request_id: requestID, submitted_renderer_unix_ms: submittedMS, ...sample });
       assert.equal(sample.remounts, 0); if (mode !== "recovery") assert.equal(sample.blanks, 0); assert.equal(sample.duplicates, 0); assert.equal(sample.missing_frames, 0);
-      assert.ok(sample.observations.filter(row => row.chars > 0).every(row => row.tail_in_view), "Growing answer tail must be in the original viewport");
+      assert.ok(sample.observations.filter(row => row.chars > 0 && row.phase !== 'reading').every(row => row.tail_in_view), "Growing answer tail must be in the original viewport while following");
       console.log(JSON.stringify({ event: "stream_native_sample", sample: index + 1, request_id: requestID, observations: sample.observations.length }));
     }
     await delay(100);
     evidence.clock_after = await clock();
     evidence.main_clock_after = await mainClock();
     evidence.final_rows = await captureRows();
-    evidence.viewport = { separate_conversations: true, harness_scrolls: await evaluate("window.__streamFixture.harness_scrolls"), method: "original UI new conversation per sample; normal scrollIntoView follows answer tail when needed; does not qualify automatic scrolling" };
+    evidence.viewport = { separate_conversations: true, harness_scrolls: await evaluate("window.__streamFixture.harness_scrolls"), user_scrolls: await evaluate("window.__streamFixture.user_scrolls"), method: productionScrolling ? "production useMessageScroll only; joint-ui explicitly scrolls up and selects text, then clicks original return-to-latest button" : "original UI new conversation per sample; normal scrollIntoView follows answer tail when needed; does not qualify automatic scrolling" };
+    if (productionScrolling) assert.equal(evidence.viewport.harness_scrolls, 0);
     for (const row of Object.values(evidence.final_rows)) {
       assert.equal(row.remounts, 0); if (mode !== "recovery") assert.equal(row.blanks, 0); assert.equal(row.duplicates, 0); assert.equal(row.missing_frames, 0);
     }
@@ -242,6 +273,11 @@ void app.whenReady().then(async () => {
       assert.ok(evidence.summary.first_upper_ms <= 500);
       assert.ok(evidence.summary.p95_upper_ms <= 300);
       assert.ok(evidence.summary.p99_upper_ms <= 500);
+    }
+    if (jointUI) {
+      evidence.summary.observation = "original DOM followed by next animation frame; deliberately offscreen while reading; timings qualify rendering, not visible latency";
+      evidence.summary.min_rendered_before_done = evidence.summary.min_visible_before_done;
+      delete evidence.summary.min_visible_before_done;
     }
     await until(() => { const last = evidence.commits.at(-1); return last && execution.store.receipt(execution.getIdentity(), last.request_id)?.acknowledged === 1; }, "durable delivery ACK");
     evidence.receipts = evidence.samples.map(sample => execution.store.receipt(execution.getIdentity(), sample.request_id));

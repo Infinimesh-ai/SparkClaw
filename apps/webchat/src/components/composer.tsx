@@ -82,6 +82,7 @@ export function ComposerSurface({
   const failedUpload = failedUploads[activeSession];
   const clearUploadFailure = () => setFailedUploads(current => { const next = { ...current }; delete next[activeSession]; return next; });
   const [uploading, setUploading] = useState(false);
+  const uploadDisabled = busy || uploading || uploadingDocument || !canCompose || !filesEnabled;
   const pendingFocus = useRef(false);
   useLayoutEffect(() => {
     const input = composerInputRef.current;
@@ -110,7 +111,7 @@ export function ComposerSurface({
   }, [busy, activeInput, composerInputRef]);
   const send = () => { pendingFocus.current = true; onSend(); composerInputRef.current?.focus(); };
   async function upload(file: File) {
-    if (uploading || uploadingDocument) return;
+    if (uploadDisabled) return;
     setUploading(true); clearUploadFailure();
     try { await onUploadDocument(file); }
     catch (reason) { setFailedUploads(current => ({ ...current, [activeSession]: { file, error: reason instanceof Error ? reason.message : text.errors.upload } })); }
@@ -155,7 +156,7 @@ export function ComposerSurface({
       </div>)}
     </div>}
     {failedUpload && <div className="composerUploadFailure" role="alert"><span>{failedUpload.file.name}: {failedUpload.error}</span>
-      <button type="button" disabled={busy || uploading} onClick={() => void upload(failedUpload.file)}>{language === "zh" ? "重试上传" : "Retry upload"}</button>
+      <button type="button" disabled={uploadDisabled} onClick={() => void upload(failedUpload.file)}>{language === "zh" ? "重试上传" : "Retry upload"}</button>
       <button type="button" aria-label={text.common.cancel} onClick={clearUploadFailure}><X size={14} /></button>
     </div>}
     <form className="composer" onSubmit={submit}>
@@ -165,7 +166,7 @@ export function ComposerSurface({
           const file = event.target.files?.[0];
           if (file) void upload(file);
         }} />
-      <button className="uploadButton" type="button" disabled={busy || uploading || uploadingDocument || !canCompose || !filesEnabled}
+      <button className="uploadButton" type="button" disabled={uploadDisabled}
         title={uploading || uploadingDocument ? text.chat.uploading : text.chat.upload} onClick={() => uploadInputRef.current?.click()}><Upload size={18} /></button>
       <button className="uploadButton" type="button" disabled={busy || choosingDocument || !canCompose || !filesEnabled}
         title={choosingDocument ? text.chat.choosingFile : text.chat.chooseFile} onClick={() => void onChooseDocument()}><FileSearch size={18} /></button>

@@ -2,8 +2,13 @@ const TASK_BOUNDS = Object.freeze({ x: 780, y: 80, width: 640, height: 720 });
 const TASK_VIEWPORT = Object.freeze({ width: 640, height: 720 });
 
 export class BrowserPresentation {
-  constructor({ window, shieldView }) {
+  constructor({ window, shieldView, explicitSelection = false }) {
     this.window = window;
+    // The workbench owns opening/selecting tabs. Background host activity may
+    // update a retained view, but cannot reveal it over a collapsed panel/modal.
+    // Task-only qualification windows retain their existing automatic mode.
+    this.panelVisible = !explicitSelection;
+    this.explicitSelection = explicitSelection;
     this.shieldView = shieldView;
     this.records = new Map();
     this.presented = null;
@@ -36,7 +41,14 @@ export class BrowserPresentation {
     }
   }
 
-  showTask(record) {
+  setPanelVisible(visible) {
+    this.panelVisible = visible;
+    if (!visible) this.#hidePresented();
+  }
+
+  showTask(record, explicit = false) {
+    if (explicit) this.panelVisible = true;
+    if (!this.panelVisible || (this.explicitSelection && !explicit && this.presented?.tabID !== record.tabID)) return;
     this.#hidePresented();
     this.presented = record;
     const bounds = this.#taskBounds();
@@ -47,17 +59,21 @@ export class BrowserPresentation {
     this.shieldView.setBounds(bounds);
     this.window.contentView.addChildView(this.shieldView);
     this.shieldView.setVisible(true);
-    this.shieldView.webContents.focus();
+    if (!this.explicitSelection) this.shieldView.webContents.focus();
   }
 
-  showPersonal(record) {
+  showPersonal(record, explicit = false) {
+    if (explicit) this.panelVisible = true;
+    if (!this.panelVisible || (this.explicitSelection && !explicit && this.presented?.tabID !== record.tabID)) return;
     this.#hidePresented();
     this.presented = record;
     this.insufficientSpace = false;
     this.shieldView.setVisible(false);
     record.view.setBounds(this.panelBounds);
     record.view.setVisible(true);
-    record.webContents.focus();
+    // Workbench DOM focus (for example a dialog trigger or omnibox) survives
+    // presentation recovery. Native content acquires focus when the user clicks it.
+    if (!this.explicitSelection) record.webContents.focus();
   }
 
   hideTask() {

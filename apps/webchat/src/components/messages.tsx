@@ -50,7 +50,7 @@ export function MessageBubble({
   }
 
   return (
-    <article className={`message ${message.role}`}>
+    <article className={`message ${message.role}`} data-message-id={message.id}>
       <div className="messageMeta">
         <span>{message.role === "user" ? (sessionSource === "mcp" ? text.chat.requirement : text.chat.you) : text.chat.assistant}</span>
         {message.created_at && <time>{formatTime(message.created_at, language)}</time>}

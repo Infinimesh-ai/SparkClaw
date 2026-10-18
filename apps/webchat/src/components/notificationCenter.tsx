@@ -1,3 +1,5 @@
+import { useRef } from "react";
+import { useDismissibleLayer } from "../hooks/useDismissibleLayer";
 import { Bell, CheckCheck, ExternalLink, X } from "lucide-react";
 import type { PassiveNotification } from "../api/types";
 import type { Copy, Language } from "../i18n";
@@ -51,10 +53,13 @@ export function NotificationCenter({
   onRead,
   onReadAll
 }: NotificationCenterProps) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const inboxRef = useDismissibleLayer<HTMLElement>({ open, onDismiss: onToggle, restoreFocusRef: triggerRef });
   return (
     <>
       <div className="notificationCenter">
         <button
+          ref={triggerRef}
           className="iconButton notificationBell"
           onClick={onToggle}
           title={text.notifications.title}
@@ -65,7 +70,7 @@ export function NotificationCenter({
           {unreadCount > 0 ? <span className="notificationBadge">{unreadCount > 99 ? "99+" : unreadCount}</span> : null}
         </button>
         {open ? (
-          <section className="notificationInbox" aria-label={text.notifications.title}>
+          <section ref={inboxRef} className="notificationInbox" aria-label={text.notifications.title}>
             <header>
               <div>
                 <strong>{text.notifications.title}</strong>

@@ -21,6 +21,7 @@ afterEach(() => {
 
 async function fixture(withMessage = false) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   Object.defineProperty(window, "localStorage", { configurable: true, value: { getItem: (key: string) => key === LANGUAGE_STORAGE_KEY ? "en" : null, setItem: vi.fn() } });
   vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
   vi.spyOn(api, "ready").mockResolvedValue({} as Awaited<ReturnType<typeof api.ready>>);

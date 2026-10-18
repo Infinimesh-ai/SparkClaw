@@ -1,5 +1,7 @@
+import { useBrowserLayout } from "../hooks/useBrowserLayout";
+import { useMessageScroll } from "../hooks/useMessageScroll";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PanelLeft, PanelRight, Plus } from "lucide-react";
+import { Globe2, PanelLeft, Plus } from "lucide-react";
 import { ScheduleBar, ScheduleCreateDialog } from "../components/schedules";
 import { useLocalSchedules } from "./useLocalSchedules";
 import { SessionSidebar } from "../components/sidebar";
@@ -83,6 +85,13 @@ export function LocalWorkbench() {
     browser: surfaceEnabled(connection, "browser"), speech: surfaceEnabled(connection, "speech_recording"),
     approvals: surfaceEnabled(connection, "approvals"), notifications: surfaceEnabled(connection, "notifications"),
     settingsOwner: surfaceEnabled(connection, "settings_owner"), settingsConnectors: surfaceEnabled(connection, "settings_connectors"),
+  };
+  const browserLayout = useBrowserLayout(browserOpen, inspectorResize.width, capabilities.browser && !settings && page === "chat");
+  const messageScroll = useMessageScroll(selected, !settings && page === "chat");
+  const closeBrowser = () => { setBrowserOpen(false); browserLayout.restoreTrigger(); };
+  const toggleBrowser = () => {
+    if (browserOpen && browserLayout.visible) closeBrowser();
+    else { browserLayout.reveal(); setBrowserOpen(true); }
   };
   const [browserState, setBrowserState] = useState<DesktopState>();
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -257,11 +266,11 @@ export function LocalWorkbench() {
   });
   const passiveNotifications = usePassiveNotifications(connection?.state === "connected" && capabilities.notifications, iscp ? "poll" : "stream");
 
-  async function action(operation: () => Promise<void>) {
+  async function action(operation: () => Promise<void>, rethrow = false) {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true); setError(""); setNotice("");
-    try { await operation(); } catch (err) { surfaceError(err); } finally { busyRef.current = false; setBusy(false); }
+    try { await operation(); } catch (err) { surfaceError(err); if (rethrow) throw err; } finally { busyRef.current = false; setBusy(false); }
   }
   // A new conversation starts from the welcome input; its row is created by
   // the first send, so the list never shows an empty placeholder.
@@ -374,7 +383,7 @@ export function LocalWorkbench() {
       setInputFiles((current) => saved && !current.includes(saved.id) ? [...current, saved.id] : current);
       if (selectedRef.current === id) setContent(await store.read(id));
       setNotice(zh ? "文件已添加。" : "File added.");
-    });
+    }, true);
     return saved;
   }
   async function logout() { await desktop.logout!(); }
@@ -418,6 +427,27 @@ export function LocalWorkbench() {
   const home = page === "chat" && !submitting && !content.messages.length && !content.tasks.length && !content.files.length;
   const pendingTasks = content.tasks.filter(task => isTaskInProgress(task.status) || (submitting && task.id === submittingTaskID));
   const selectedActivity = submitting ? "running" : content.tasks.length ? conversationActivity(localExecutionStates(content.tasks)) : activityByConversation[selected];
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      const layered = document.querySelector('dialog[open], [role="dialog"], [role="menu"], .notificationInbox');
+      if (event.key === "Escape") {
+        if (!layered && browserLayout.visible) { event.preventDefault(); closeBrowser(); }
+        return;
+      }
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || layered) return;
+      const key = event.key.toLowerCase();
+      if (key === "k") { event.preventDefault(); setSearchOpen(true); }
+      if (key === "n" && !busy && !voice.active) { event.preventDefault(); setSettings(false); void startConversation(); }
+      if (key === ",") { event.preventDefault(); setTab("settings"); setSettings(true); }
+      if (key === "b" && !(event.target instanceof Element && event.target.closest('input, textarea, [contenteditable="true"]'))) {
+        event.preventDefault(); setSidebarCollapsed(value => !value);
+      }
+    };
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  });
+
   return <div className={`shell workbench localWorkbench ${settings ? "settingsPageMode" : sidebarCollapsed ? "sidebarCollapsed" : ""}`}>
     {settings ? <WorkspaceSettingsSidebar text={text} language={language} tab={tab}
       pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length} onTabChange={setTab} onBack={() => setSettings(false)} /> : <SessionSidebar
@@ -435,7 +465,7 @@ export function LocalWorkbench() {
       onLogout={() => void logout().catch(surfaceError)}
       listNotice={loading ? <p className="localListNotice" role="status">{zh ? "正在读取对话…" : "Loading conversations…"}</p> : !conversations.length ? <p className="localListNotice">{copy.empty}</p> : undefined}
     />}
-    <main className={`${settings ? "settingsPageMain" : "workspace desktopWorkbench"} ${browserOpen && !settings ? "withInspector" : ""} ${inspectorResize.resizing ? "resizingInspector" : ""}`} style={settings ? undefined : inspectorResize.style} aria-busy={busy}>
+    <main ref={browserLayout.workspaceRef} className={`${settings ? "settingsPageMain" : "workspace desktopWorkbench"} ${capabilities.browser && browserOpen && !settings && page === "chat" ? "withInspector" : ""} ${inspectorResize.resizing ? "resizingInspector" : ""} ${browserLayout.className}`} style={settings ? undefined : inspectorResize.style} aria-busy={busy}>
       {!settings && <header className="topbar">
         <button className="iconButton sidebarToggle" type="button" aria-label={copy.toggleNav} onClick={() => setSidebarCollapsed((current) => !current)}><PanelLeft size={18} /></button>
         <span className="workspaceLabel">{copy.local}</span>
@@ -444,7 +474,7 @@ export function LocalWorkbench() {
             open={passiveNotifications.open} toast={passiveNotifications.toast} error={passiveNotifications.error}
             language={language} text={text} onToggle={() => passiveNotifications.setOpen((current) => !current)}
             onDismissToast={passiveNotifications.dismissToast} onRead={passiveNotifications.markRead} onReadAll={passiveNotifications.markAllRead} />
-          {typeof desktop.state === "function" && <button disabled={!capabilities.browser || connection?.state !== "connected"} className={`iconButton rightSidebarToggle ${browserOpen ? "active" : ""}`} type="button" aria-label={copy.toggleInspector} title={zh ? "浏览器" : "Browser"} aria-expanded={browserOpen} onClick={() => setBrowserOpen((open) => !open)}><PanelRight size={18} /></button>}
+          {typeof desktop.state === "function" && <button disabled={!capabilities.browser || connection?.state !== "connected"} className={`iconButton rightSidebarToggle ${browserOpen ? "active" : ""}`} type="button" ref={browserLayout.triggerRef} aria-label={browserLayout.visible ? (zh ? "收起浏览器" : "Collapse browser") : (zh ? "打开浏览器" : "Open browser")} title={!capabilities.browser || connection?.state !== "connected" ? (zh ? "浏览器暂时不可用" : "Browser unavailable") : browserLayout.visible ? (zh ? "收起浏览器" : "Collapse browser") : (zh ? "打开浏览器" : "Open browser")} aria-expanded={browserLayout.visible} onClick={toggleBrowser}><Globe2 size={18} /></button>}
         </div>
       </header>}
       {error && <div className="localFeedback" role="alert"><p>{error}</p><button type="button" onClick={() => void reload().then(async () => { if (iscp && connection?.state === "connected") await refreshGlobal(); setError(""); }).catch(surfaceError)}>{zh ? "重试读取" : "Retry loading"}</button></div>}
@@ -461,8 +491,8 @@ export function LocalWorkbench() {
         setConnectors={setConnectors} setRuntimeConfig={setRuntimeConfig} setOwnerProfile={setOwnerProfile}
         onLanguageChange={changeLanguage} onOpenSchedules={() => {}} currentClientID={currentClientID}
         onCurrentClientRevoked={logout} onLogout={logout} /></div> : <>
-        <section className={`chatColumn localChat ${home ? "homeChat" : ""}`} hidden={page !== "chat"}>
-        <div className="messageList localHistory">
+        <section inert={browserLayout.className === "browserFocus"} className={`chatColumn localChat ${home ? "homeChat" : ""}`} hidden={page !== "chat"}>
+        <div ref={messageScroll.listRef} className="messageList localHistory">
           {home && <WorkbenchWelcome language={language} />}
           {capabilities.browser && browserState?.browser_host?.unknown_writes?.filter((command) => command.local_conversation_id === selected).map((command) => <section className="localUnknownWrite" role="alert" key={command.command_id}>
             <h2>{zh ? "浏览器操作结果不确定" : "Browser action outcome uncertain"}</h2>
@@ -504,6 +534,7 @@ export function LocalWorkbench() {
 
 
         </div>
+        {messageScroll.away && <div className="messageScrollAction"><button type="button" className="messageLatest" onClick={messageScroll.resume}>{zh ? "回到最新" : "Return to latest"}</button></div>}
         <MailWorkspaceContext.Provider value={{
           identity: mailIdentity,
           enabled: connection?.state === "connected" && capabilities.mail && Boolean(mailScope),
@@ -556,12 +587,13 @@ export function LocalWorkbench() {
             onRefresh={() => void localSchedules.check().catch(() => {})} onEdit={localSchedules.edit} onDelete={localSchedules.cancel} onRunNow={localSchedules.runNow} />
           {scheduleCreateOpen && <ScheduleCreateDialog busy={busy || Boolean(localSchedules.busyID)} text={text} onClose={() => setScheduleCreateOpen(false)} onCreate={localSchedules.create} />}
         </div>}
-        {capabilities.browser && browserOpen && typeof desktop.state === "function" && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} onHide={() => setBrowserOpen(false)} />}
-        {capabilities.browser && browserOpen && typeof desktop.state === "function" && <BrowserPanel language={language} localConversationID={selected} toolbar={<div className="localBrowserAuthorization">{selected && desktop.grantBrowserHost && <button className="localBrowserGrant" type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(async () => {
+        {capabilities.browser && browserLayout.visible && typeof desktop.state === "function" && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} onHide={closeBrowser} />}
+
+      </>}
+        {browserLayout.mounted && typeof desktop.state === "function" && <BrowserPanel open={browserOpen} visible={capabilities.browser && browserLayout.visible} onCollapse={closeBrowser} wide={browserLayout.wide} onWideChange={browserLayout.setWide} language={language} localConversationID={selected} toolbar={<div className="localBrowserAuthorization">{selected && desktop.grantBrowserHost && <button className="localBrowserGrant" type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(async () => {
             await desktop.grantBrowserHost!();
             setNotice(zh ? "已授权本机浏览器执行当前设备的任务。" : "This device's browser is authorized for its tasks.");
           })}>{zh ? "授权本机浏览器" : "Authorize this browser"}</button>}</div>} />}
-      </>}
     </main>
     {searchOpen && <TaskSearch language={language} sessions={conversations} onSelect={(conversation) => { setSearchOpen(false); void select(conversation.id).catch(surfaceError); }} onClose={() => setSearchOpen(false)} />}
   </div>;

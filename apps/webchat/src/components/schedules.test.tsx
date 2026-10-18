@@ -8,13 +8,17 @@ import { ScheduleCreateDialog } from "./schedules";
 
 describe("ScheduleCreateDialog", () => {
   const roots: ReturnType<typeof createRoot>[] = [];
+  const hosts: HTMLElement[] = [];
 
   afterEach(() => {
     for (const root of roots.splice(0)) act(() => root.unmount());
+    for (const host of hosts.splice(0)) host.remove();
   });
 
   function render(onCreate: (request: string) => Promise<{ message: string; success: boolean } | null>) {
     const host = document.createElement("div");
+    document.body.append(host);
+    hosts.push(host);
     const root = createRoot(host);
     const onClose = vi.fn();
     roots.push(root);

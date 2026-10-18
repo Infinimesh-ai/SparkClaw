@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowUp, ChevronDown, Clock3, Pencil, RefreshCw, Trash2,
 import type { Schedule } from "../api/types";
 import type { Copy, Language } from "../i18n";
 import { formatScheduleTime, schedulePattern } from "../lib/schedules";
+import { useDismissibleLayer } from "../hooks/useDismissibleLayer";
 import { clientTimezone } from "../lib/timezone";
 
 export type ScheduleEditDraft = {
@@ -28,6 +29,7 @@ export function ScheduleCreateDialog({ busy, text, onClose, onCreate }: Schedule
   const [request, setRequest] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState("");
+  const dialogRef = useDismissibleLayer<HTMLDivElement>({ open: true, onDismiss: onClose, modal: true, dismissible: !busy && !submitting, initialFocus: "textarea" });
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -52,18 +54,14 @@ export function ScheduleCreateDialog({ busy, text, onClose, onCreate }: Schedule
 
   return (
     <div
+      ref={dialogRef}
+      tabIndex={-1}
       className="documentPickerOverlay"
       role="dialog"
       aria-modal="true"
       aria-labelledby="schedule-create-title"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy && !submitting) onClose();
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && !busy && !submitting) {
-          event.preventDefault();
-          onClose();
-        }
       }}
     >
       <form className="scheduleDialog scheduleCreateDialog" onSubmit={(event) => void submit(event)}>
@@ -80,7 +78,6 @@ export function ScheduleCreateDialog({ busy, text, onClose, onCreate }: Schedule
           </button>
         </div>
         <textarea
-          autoFocus
           value={request}
           onChange={(event) => setRequest(event.target.value)}
           placeholder={text.schedules.createPlaceholder}
@@ -123,6 +120,8 @@ export function ScheduleBar({ schedules, open, loading, busyId, language, text, 
   const [editing, setEditing] = useState<Schedule | null>(null);
   const [deleting, setDeleting] = useState<Schedule | null>(null);
   const [draft, setDraft] = useState<ScheduleEditDraft>({ text: "", dueTime: "", timezone: "", recurrence: "" });
+  const editDialogRef = useDismissibleLayer<HTMLDivElement>({ open: Boolean(editing), onDismiss: () => setEditing(null), modal: true, dismissible: busyId !== editing?.id, initialFocus: "textarea" });
+  const deleteDialogRef = useDismissibleLayer<HTMLDivElement>({ open: Boolean(deleting), onDismiss: () => setDeleting(null), modal: true, dismissible: busyId !== deleting?.id });
   const next = schedules.find((schedule) => schedule.status === "pending");
   const patternLabels = {
     oneTime: text.schedules.oneTime,
@@ -216,7 +215,7 @@ export function ScheduleBar({ schedules, open, loading, busyId, language, text, 
       </section>
 
       {editing ? (
-        <div className="documentPickerOverlay" role="dialog" aria-modal="true" aria-label={text.schedules.editTitle}>
+        <div ref={editDialogRef} tabIndex={-1} className="documentPickerOverlay" role="dialog" aria-modal="true" aria-label={text.schedules.editTitle}>
           <form className="scheduleDialog" onSubmit={(event) => void submitEdit(event)}>
             <div className="documentPickerHeader">
               <strong>{text.schedules.editTitle}</strong>
@@ -264,7 +263,7 @@ export function ScheduleBar({ schedules, open, loading, busyId, language, text, 
       ) : null}
 
       {deleting ? (
-        <div className="documentPickerOverlay" role="dialog" aria-modal="true" aria-label={text.schedules.deleteTitle}>
+        <div ref={deleteDialogRef} tabIndex={-1} className="documentPickerOverlay" role="dialog" aria-modal="true" aria-label={text.schedules.deleteTitle}>
           <div className="scheduleDialog scheduleDeleteDialog">
             <AlertTriangle size={22} />
             <strong>{text.schedules.deleteTitle}</strong>

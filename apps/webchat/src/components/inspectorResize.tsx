@@ -34,21 +34,14 @@ export function InspectorResizeHandle({ resize, label, onHide }: { resize: Resiz
   const handleRef = useRef<HTMLDivElement | null>(null);
   const workspace = () => handleRef.current?.parentElement ?? null;
   const panel = () => workspace()?.querySelector<HTMLElement>(".taskInspector") ?? null;
-  // The workbench may apply CSS zoom; pointer and layout rectangles are in zoomed pixels.
-  const zoom = () => {
-    const workbench = handleRef.current?.closest<HTMLElement>(".workbench");
-    return workbench ? parseFloat(getComputedStyle(workbench).getPropertyValue("--workbench-zoom")) || 1 : 1;
-  };
-  // The panel may grow until it covers the whole conversation area.
-  const maxWidth = () => (workspace()?.getBoundingClientRect().width ?? 0) / zoom();
-  const currentWidth = () => (panel()?.getBoundingClientRect().width ?? 0) / zoom();
+  const maxWidth = () => workspace()?.getBoundingClientRect().width ?? 0;
+  const currentWidth = () => panel()?.getBoundingClientRect().width ?? 0;
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     const element = panel();
     if (!element || event.button !== 0) return;
     event.preventDefault();
     const right = element.getBoundingClientRect().right;
-    const scale = zoom();
     const limit = maxWidth();
     const before = resize.width;
     const target = event.currentTarget;
@@ -73,7 +66,7 @@ export function InspectorResizeHandle({ resize, label, onHide }: { resize: Resiz
     const move = (moveEvent: globalThis.PointerEvent) => {
       // A release outside the renderer (for example over a native view) still ends the drag.
       if (moveEvent.buttons === 0) return stop();
-      latest = Math.min(limit, (right - moveEvent.clientX) / scale);
+      latest = Math.min(limit, right - moveEvent.clientX);
       resize.preview(latest);
     };
     target.addEventListener("pointermove", move);
@@ -102,7 +95,8 @@ export function InspectorResizeHandle({ resize, label, onHide }: { resize: Resiz
     aria-label={label}
     title={label}
     aria-valuemin={MIN_WIDTH}
-    aria-valuenow={resize.width ?? undefined}
+    aria-valuenow={resize.width ?? (typeof window !== "undefined" && window.sparkclawDesktop ? 640 : 360)}
+    aria-valuetext={`${Math.round(resize.width ?? (typeof window !== "undefined" && window.sparkclawDesktop ? 640 : 360))} px`}
     tabIndex={0}
     onPointerDown={onPointerDown}
     onKeyDown={onKeyDown}

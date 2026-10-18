@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { ArrowRight, X } from "lucide-react";
 import type { Language } from "../i18n";
 import type { Session } from "../api/types";
+import { useDismissibleLayer } from "../hooks/useDismissibleLayer";
 import workbenchMark from "../../../desktop/src/assets/icon.png";
 
 export type WorkspacePage = "chat" | "schedules" | "channels" | "memory" | "approvals" | "settings";
@@ -76,8 +77,10 @@ export function TaskSearch<T extends Pick<Session, "id" | "title"> & { source?: 
   language: Language; sessions: T[]; onSelect: (session: T) => void; onClose: () => void;
 }) {
   const copy = workbenchCopy[language];
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const dialogRef = useDismissibleLayer<HTMLDialogElement>({ open: true, onDismiss: onClose });
+  const resultsId = useId();
   const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
   useEffect(() => {
     const dialog = dialogRef.current;
     dialog?.showModal();
@@ -85,9 +88,25 @@ export function TaskSearch<T extends Pick<Session, "id" | "title"> & { source?: 
     return () => dialog?.close();
   }, []);
   const matches = sessions.filter(session => session.source !== "mcp" && session.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  const selectedIndex = Math.min(activeIndex, Math.max(0, matches.length - 1));
+  useEffect(() => {
+    dialogRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedIndex, query, dialogRef]);
   return <dialog ref={dialogRef} className="taskSearchDialog" aria-label={copy.search} onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) { const box = event.currentTarget.getBoundingClientRect(); if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) onClose(); } }}>
     <div className="taskInspectorHeader">{copy.search}<button className="iconButton" onClick={onClose} aria-label={language === "zh" ? "关闭" : "Close"}><X size={18} /></button></div>
-    <input autoFocus type="search" aria-label={copy.search} placeholder={copy.search} value={query} onChange={event => setQuery(event.target.value)} />
-    <div className="taskSearchResults">{matches.map(session => <button key={session.id} onClick={() => onSelect(session)}>{session.title}<ArrowRight size={16} /></button>)}{matches.length === 0 && <p>{copy.noMatches}</p>}</div>
+    <input type="search" role="combobox" aria-label={copy.search} aria-autocomplete="list" aria-expanded="true" aria-controls={resultsId}
+      aria-activedescendant={matches.length ? `${resultsId}-${matches[selectedIndex].id}` : undefined}
+      placeholder={copy.search} value={query} onChange={event => { setQuery(event.target.value); setActiveIndex(0); }}
+      onKeyDown={event => {
+        if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || !matches.length) return;
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          setActiveIndex((selectedIndex + (event.key === "ArrowDown" ? 1 : -1) + matches.length) % matches.length);
+        } else if (event.key === "Enter") {
+          event.preventDefault();
+          onSelect(matches[selectedIndex]);
+        }
+      }} />
+    <div className="taskSearchResults" id={resultsId} role="listbox" aria-label={copy.search}>{matches.map((session, index) => <button role="option" aria-selected={index === selectedIndex} id={`${resultsId}-${session.id}`} key={session.id} title={session.title} onFocus={() => setActiveIndex(index)} onClick={() => onSelect(session)}>{session.title}<ArrowRight size={16} /></button>)}{matches.length === 0 && <p>{copy.noMatches}</p>}</div>
   </dialog>;
 }

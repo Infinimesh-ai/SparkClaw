@@ -202,8 +202,8 @@ export class PageRegistry {
     const record = this.getByRef(pageRef);
     if (record.role !== role) throw new Error("Page role is invalid");
     if (record.hostConversationID && record.hostConversationID !== this.selectedConversationID) throw new Error("Page belongs to another conversation");
-    if (role === "personal") this.presentation.showPersonal(record);
-    else this.presentation.showTask(record);
+    if (role === "personal") this.presentation.showPersonal(record, true);
+    else this.presentation.showTask(record, true);
     this.#changed();
     return record;
   }

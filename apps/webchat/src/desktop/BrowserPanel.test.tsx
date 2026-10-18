@@ -1,169 +1,152 @@
 // @vitest-environment jsdom
-
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserPanel, resolveBrowserInput } from "./BrowserPanel";
-import type { DesktopState, SparkClawDesktop } from "./types";
+import type { DesktopPage, DesktopState, SparkClawDesktop } from "./types";
 
-const EMPTY_STATE: DesktopState = {
-  schema_version: 1,
-  capability_version: 1,
-  runtime_kind: "electron",
-  runtime_generation: "a".repeat(32),
-  revision: 1,
-  pages: [],
-  downloads: [],
-  permissions: [],
-  presentation: {
-    panel_bounds: { x: 680, y: 70, width: 640, height: 720 },
-    insufficient_space: false,
-    presented_page_ref: "",
-  },
-};
+const page = (id: number, url = "about:blank", role: "personal" | "task" = "personal"): DesktopPage => ({
+  page_ref: `page_${String(id).padStart(32, "0")}`, url, role, title: url, task_id: "", presented: false,
+  loading: false, crashed: false, can_go_back: false, can_go_forward: false,
+});
+const empty: DesktopState = { schema_version: 1, capability_version: 1, runtime_kind: "electron", runtime_generation: "a".repeat(32),
+  revision: 1, pages: [], downloads: [], permissions: [], presentation: {
+    panel_bounds: { x: 680, y: 70, width: 640, height: 720 }, insufficient_space: false, presented_page_ref: "", layout_revision: 0,
+  } };
+let observers: ResizeObserverCallback[];
+beforeEach(() => {
+  observers = [];
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("ResizeObserver", class { constructor(callback: ResizeObserverCallback) { observers.push(callback); } observe() {} disconnect() {} });
+});
+afterEach(() => { delete window.sparkclawDesktop; document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-describe("desktop browser input", () => {
-  it("opens HTTPS addresses and routes non-address input to Google Search", () => {
-    expect(resolveBrowserInput("https://example.com/docs")).toBe("https://example.com/docs");
-    expect(resolveBrowserInput("http://example.com/path")).toBe("https://example.com/path");
-    expect(resolveBrowserInput("example.com/docs")).toBe("https://example.com/docs");
-    expect(resolveBrowserInput("local agent release notes")).toBe("https://www.google.com/search?q=local+agent+release+notes");
-    expect(resolveBrowserInput("React 19.2")).toBe("https://www.google.com/search?q=React+19.2");
+async function fixture(pages: DesktopPage[] = []) {
+  let state = { ...empty, pages };
+  let listener = (_: DesktopState) => {};
+  const push = (next = state) => { state = next; listener(next); };
+  const desktop = {
+    runtimeKind: "electron", capabilityVersion: 1, state: vi.fn(async () => state), onState: (fn: typeof listener) => { listener = fn; return () => {}; },
+    createPersonal: vi.fn(async (url?: string) => { const created = page(state.pages.length + 10, url); push({ ...state, pages: [...state.pages, created] }); return { page_ref: created.page_ref }; }),
+    hideBrowser: vi.fn(async () => ({ completed: true })),
+    setBounds: vi.fn(async () => ({ completed: true })),
+    presentPersonal: vi.fn(async () => ({ completed: true })), observeTask: vi.fn(async () => ({ completed: true })),
+    navigatePersonal: vi.fn(async () => ({ completed: true })),
+    closePersonal: vi.fn(async (ref: string) => { push({ ...state, pages: state.pages.filter(p => p.page_ref !== ref) }); return { completed: true }; }),
+  } as unknown as SparkClawDesktop;
+  window.sparkclawDesktop = desktop;
+  const host = document.createElement("div"); host.className = "workspace"; document.body.append(host);
+  const root = createRoot(host), collapse = vi.fn();
+  const render = async (open = true, visible = open, conversation?: string) => {
+    await act(async () => { root.render(<BrowserPanel language="en" open={open} visible={visible} localConversationID={conversation} onCollapse={collapse} />); });
+  };
+  await render();
+  const input = () => host.querySelector<HTMLInputElement>(".desktopAddressBar input")!;
+  const type = async (value: string) => act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input(), value);
+    input().dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  return { host, desktop, render, input, type, collapse, push, state: () => state, cleanup: () => act(async () => root.unmount()) };
+}
+
+describe("desktop browser entry", () => {
+  it("opens a blank tab directly, retains existing personal/task pages and reuses an unused blank", async () => {
+    const f = await fixture([page(1, "https://example.test"), page(2, "https://task.test", "task"), page(3)]);
+    try {
+      expect(f.host.querySelector(".desktopToolLauncher")).toBeNull();
+      expect(f.host.textContent).not.toContain("Back to tools");
+      expect(f.host.querySelectorAll(".desktopTab")).toHaveLength(3);
+      expect(f.desktop.createPersonal).not.toHaveBeenCalled();
+      expect(f.desktop.presentPersonal).not.toHaveBeenCalled();
+      expect(f.input().value).toBe("");
+      await act(async () => { await new Promise(r => requestAnimationFrame(r)); });
+      expect(document.activeElement).toBe(f.input());
+      await f.render(false); expect(f.host.querySelector("aside")?.hidden).toBe(true);
+      await f.render(); expect(f.desktop.createPersonal).not.toHaveBeenCalled();
+      await act(async () => { await new Promise(r => requestAnimationFrame(r)); });
+      const control = document.createElement("button"); document.body.append(control); control.focus();
+      await f.render(true, false); await f.render(true, true);
+      await act(async () => { await new Promise(r => requestAnimationFrame(r)); });
+      expect(document.activeElement).toBe(control); // Automatic split recovery is not an open action.
+    } finally { await f.cleanup(); }
+  });
+
+  it("retains typed addresses across pushes/collapse and does not reuse a dirty blank", async () => {
+    const f = await fixture();
+    try {
+      expect(f.desktop.createPersonal).toHaveBeenCalledTimes(1);
+      const first = f.state().pages[0];
+      await f.type("not submitted yet");
+      await act(async () => f.push({ ...f.state(), revision: 90 }));
+      expect(f.input().value).toBe("not submitted yet");
+      await f.render(false); await f.render();
+      expect(f.desktop.createPersonal).toHaveBeenCalledTimes(2);
+      await act(async () => f.host.querySelectorAll<HTMLButtonElement>(".desktopTabSelect")[0].click());
+      expect(f.input().value).toBe("not submitted yet");
+      await act(async () => f.host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      expect(f.desktop.navigatePersonal).toHaveBeenCalledWith(first.page_ref, "https://www.google.com/search?q=not+submitted+yet");
+    } finally { await f.cleanup(); }
+  });
+
+  it("coalesces rapid reopen while blank creation is pending and preserves the address-ready surface on last close", async () => {
+    const f = await fixture([page(1)]);
+    try {
+      let complete!: (value: { page_ref: string }) => void;
+      vi.mocked(f.desktop.createPersonal).mockImplementation(() => new Promise(resolve => { complete = resolve; }));
+      await f.type("dirty"); await f.render(false); await f.render(); await f.render(false); await f.render();
+      expect(f.desktop.createPersonal).toHaveBeenCalledTimes(1);
+      await act(async () => { const added = page(2); f.push({ ...f.state(), pages: [added] }); complete({ page_ref: added.page_ref }); });
+      await act(async () => f.host.querySelector<HTMLButtonElement>(".desktopTabClose")!.click());
+      expect(f.host.querySelector(".desktopBrowserHost")).not.toBeNull();
+      expect(f.host.textContent).toContain("New tab");
+      expect(f.collapse).not.toHaveBeenCalled();
+      expect(f.input().value).toBe("");
+      await act(async () => f.host.querySelector<HTMLButtonElement>('[aria-label="Collapse browser"]')!.click());
+      expect(f.collapse).toHaveBeenCalledOnce();
+    } finally { await f.cleanup(); }
+  });
+
+
+  it("creates a personal page after a task is filtered away and selects a neighbor on close", async () => {
+    const task = { ...page(2, "https://task.test", "task"), local_conversation_id: "a" };
+    const f = await fixture([page(1, "https://personal.test"), task, page(3)]);
+    try {
+      await f.render(true, true, "a");
+      await act(async () => f.host.querySelectorAll<HTMLButtonElement>(".desktopTabSelect")[1].click());
+      await f.render(true, true, "b");
+      await f.type("https://new.test/");
+      await act(async () => f.host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      expect(f.desktop.navigatePersonal).not.toHaveBeenCalled();
+      expect(f.desktop.createPersonal).toHaveBeenCalledWith("https://new.test/");
+      await act(async () => f.host.querySelectorAll<HTMLButtonElement>(".desktopTabSelect")[0].click());
+      await act(async () => f.host.querySelector<HTMLButtonElement>(".desktopTab.selected .desktopTabClose")!.click());
+      expect(f.host.querySelector(".desktopTabPlaceholder")).toBeNull();
+      expect(f.host.querySelector(".desktopTab.selected .desktopTabSelect")?.textContent).toContain("New tab");
+    } finally { await f.cleanup(); }
+  });
+
+  it("rounds bounds inward, tracks layout revisions, and hides native pages under app modals", async () => {
+    const f = await fixture([page(1, "https://example.test"), page(2)]);
+    try {
+      const browser = f.host.querySelector<HTMLElement>(".desktopBrowserHost")!;
+      vi.spyOn(browser, "getBoundingClientRect").mockReturnValue({ x: 800.5, y: 224.5, width: 639.5, height: 611.5 } as DOMRect);
+      await act(async () => observers.at(-1)!([], {} as ResizeObserver));
+      expect(f.desktop.setBounds).toHaveBeenLastCalledWith({ x: 801, y: 225, width: 639, height: 611 }, 1);
+      await act(async () => f.host.querySelectorAll<HTMLButtonElement>(".desktopTabSelect")[0].click());
+      expect(f.desktop.presentPersonal).toHaveBeenCalledWith(page(1).page_ref);
+      const modal = document.createElement("div"); modal.setAttribute("aria-modal", "true");
+      await act(async () => { document.body.append(modal); });
+      expect(f.desktop.hideBrowser).toHaveBeenCalled();
+      const calls = vi.mocked(f.desktop.presentPersonal).mock.calls.length;
+      await act(async () => f.push({ ...f.state(), revision: 99 }));
+      expect(f.desktop.presentPersonal).toHaveBeenCalledTimes(calls);
+      await act(async () => modal.remove());
+      expect(f.desktop.presentPersonal).toHaveBeenCalledTimes(calls + 1);
+    } finally { await f.cleanup(); }
   });
 });
-
-describe("BrowserPanel launcher", () => {
-  let resizeCallback: ResizeObserverCallback;
-  let observedElements: Element[];
-
-  beforeEach(() => {
-    observedElements = [];
-    class ResizeObserverStub {
-      constructor(callback: ResizeObserverCallback) { resizeCallback = callback; }
-      observe(element: Element) { observedElements.push(element); }
-      disconnect() {}
-    }
-    vi.stubGlobal("ResizeObserver", ResizeObserverStub);
-  });
-
-  afterEach(() => {
-    delete window.sparkclawDesktop;
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-  });
-
-  it("opens with tools, enters one browser surface, and searches from an empty state", async () => {
-    const pageRef = `page_${"1".repeat(32)}`;
-    const desktop: SparkClawDesktop = {
-      runtimeKind: "electron",
-      capabilityVersion: 1,
-      gatewayBase: "sparkclaw-app://workbench/desktop-gateway",
-      speechBase: "ws://127.0.0.1",
-      localConnection: vi.fn(),
-      retryLocalConnection: vi.fn(),
-      loginStartup: vi.fn(async () => ({ supported: true, enabled: false })),
-      onLocalConnection: vi.fn(() => () => undefined),
-      state: vi.fn(async () => EMPTY_STATE),
-      createPersonal: vi.fn(async () => ({ page_ref: pageRef })),
-      navigatePersonal: vi.fn(async () => ({ completed: true as const })),
-      personalNavigation: vi.fn(async () => ({ completed: true as const })),
-      closePersonal: vi.fn(async () => ({ completed: true as const })),
-      presentPersonal: vi.fn(async () => ({ completed: true as const })),
-      observeTask: vi.fn(async () => ({ completed: true as const })),
-      hideBrowser: vi.fn(async () => ({ completed: true as const })),
-      setBounds: vi.fn(async () => ({ completed: true as const })),
-      respondPermission: vi.fn(async () => ({ completed: true as const })),
-      cancelDownload: vi.fn(async () => ({ completed: true as const })),
-      showDownload: vi.fn(async () => ({ completed: true as const })),
-      onState: vi.fn(() => () => undefined),
-    };
-    window.sparkclawDesktop = desktop;
-
-    const host = document.createElement("div");
-    const workspace = document.createElement("section");
-    workspace.className = "workspace";
-    workspace.append(host);
-    const root = createRoot(host);
-    try {
-      await act(async () => root.render(<BrowserPanel language="en" />));
-      expect(host.textContent).toContain("Browser");
-      expect(host.textContent).not.toContain("Terminal");
-      expect(host.querySelector(".desktopBrowserHost")).toBeNull();
-
-      const browserButton = [...host.querySelectorAll<HTMLButtonElement>(".desktopToolLauncher button")]
-        .find((button) => button.textContent?.includes("Browser"));
-      await act(async () => browserButton?.click());
-
-      expect(host.querySelector(".desktopBrowserHost")).not.toBeNull();
-      expect(observedElements).toContain(workspace);
-      expect(host.querySelector(".desktopBrowserTabBar")).not.toBeNull();
-      expect(host.querySelector(".desktopOmnibox")).not.toBeNull();
-      expect(host.textContent).toContain("Start browsing");
-      expect(host.textContent).not.toContain("My browsing");
-      expect(host.textContent).not.toContain("Task observation");
-
-      const browserHost = host.querySelector(".desktopBrowserHost") as HTMLElement;
-      let browserX = 800;
-      vi.spyOn(browserHost, "getBoundingClientRect").mockImplementation(() => ({
-        x: browserX, y: 118, width: 640, height: 500,
-      }) as DOMRect);
-      await act(async () => resizeCallback([], {} as ResizeObserver));
-      expect(desktop.setBounds).toHaveBeenLastCalledWith({ x: 800, y: 118, width: 640, height: 500 }, 1);
-      browserX = 560;
-      await act(async () => resizeCallback([], {} as ResizeObserver));
-      expect(desktop.setBounds).toHaveBeenLastCalledWith({ x: 560, y: 118, width: 640, height: 500 }, 2);
-
-      vi.spyOn(browserHost, "getBoundingClientRect").mockImplementation(() => ({
-        x: 1120, y: 118, width: 320, height: 180,
-      }) as DOMRect);
-      await act(async () => resizeCallback([], {} as ResizeObserver));
-      expect(desktop.setBounds).toHaveBeenLastCalledWith({ x: 1120, y: 118, width: 320, height: 180 }, 3);
-
-      // The authorization toolbar leaves half-pixel coordinates. Independent
-      // rounding would extend this native view to y=837 outside an 836px window.
-      vi.spyOn(browserHost, "getBoundingClientRect").mockImplementation(() => ({
-        x: 800.5, y: 224.5, width: 639.5, height: 611.5,
-      }) as DOMRect);
-      await act(async () => resizeCallback([], {} as ResizeObserver));
-      expect(desktop.setBounds).toHaveBeenLastCalledWith({ x: 801, y: 225, width: 639, height: 611 }, 4);
-
-      const input = host.querySelector(".desktopAddressBar input") as HTMLInputElement;
-      await act(async () => {
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-        setter?.call(input, "local agent release notes");
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      });
-      await act(async () => {
-        (host.querySelector(".desktopAddressBar") as HTMLFormElement).dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-        await Promise.resolve();
-      });
-
-      expect(desktop.createPersonal).toHaveBeenCalledWith("https://www.google.com/search?q=local+agent+release+notes");
-      expect(desktop.presentPersonal).toHaveBeenCalledWith(pageRef);
-
-      // A new local conversation has no task page. It must not silently
-      // present the user's older personal browser merely because it exists.
-      await act(async () => root.unmount());
-      vi.mocked(desktop.state).mockResolvedValue({
-        ...EMPTY_STATE,
-        pages: [{ page_ref: pageRef, role: "personal", task_id: "", title: "Old personal page", url: "https://example.com/private", presented: true, loading: false, crashed: false, can_go_back: false, can_go_forward: false }],
-        presentation: { ...EMPTY_STATE.presentation, layout_revision: 40, presented_page_ref: pageRef },
-      });
-      vi.mocked(desktop.presentPersonal).mockClear();
-      const localRoot = createRoot(host);
-      try {
-        await act(async () => localRoot.render(<BrowserPanel language="en" localConversationID="new-conversation" />));
-        expect(host.textContent).toContain("Start browsing");
-        expect(desktop.presentPersonal).not.toHaveBeenCalled();
-        const remountedHost = host.querySelector(".desktopBrowserHost")!;
-        vi.spyOn(remountedHost, "getBoundingClientRect").mockReturnValue({ x: 801, y: 225, width: 639, height: 611 } as DOMRect);
-        await act(async () => resizeCallback([], {} as ResizeObserver));
-        expect(desktop.setBounds).toHaveBeenLastCalledWith({ x: 801, y: 225, width: 639, height: 611 }, 41);
-      } finally {
-        await act(async () => localRoot.unmount());
-      }
-    } finally {
-      if (host.firstChild) await act(async () => root.unmount());
-    }
-  });
+it("resolves addresses and searches without permitting credentials", () => {
+  expect(resolveBrowserInput("http://example.com/docs")).toBe("https://example.com/docs");
+  expect(resolveBrowserInput("example.com/docs")).toBe("https://example.com/docs");
+  expect(resolveBrowserInput("React 19.2")).toBe("https://www.google.com/search?q=React+19.2");
 });

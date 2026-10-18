@@ -301,7 +301,7 @@ async function start() {
 
   const shieldView = createShieldView(workbenchSession);
   await shieldView.webContents.loadURL(shieldDocument());
-  const presentation = new BrowserPresentation({ window, shieldView });
+  const presentation = new BrowserPresentation({ window, shieldView, explicitSelection: true });
   const runtimeGeneration = crypto.randomBytes(16).toString("hex");
   registry = new PageRegistry({
     runtimeGeneration,

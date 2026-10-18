@@ -8,6 +8,28 @@ import { dictionaries } from "../i18n";
 import { SessionSidebar } from "./sidebar";
 
 describe("SessionSidebar navigation and conversations", () => {
+  it("moves through the account menu with arrows and restores its trigger after Escape", async () => {
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host), navigate = vi.fn(), logout = vi.fn();
+    try {
+      await act(async () => root.render(<SessionSidebar text={dictionaries.en} language="en" page="chat" ownerProfile={null}
+        sessions={[]} activeSession="" onCreateSession={() => {}} onSearch={() => {}} onSelectSession={() => {}}
+        onNavigate={navigate} onLogout={logout} />));
+      const trigger = host.querySelector<HTMLButtonElement>(".sidebarAccountTrigger")!; trigger.focus();
+      await act(async () => trigger.click());
+      const items = host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
+      expect(document.activeElement).toBe(items[0]);
+      await act(async () => items[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
+      expect(document.activeElement).toBe(items[1]);
+      const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+      await act(async () => items[1].dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(true);
+      expect(host.querySelector('[role="menu"]')).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+      expect(navigate).not.toHaveBeenCalled(); expect(logout).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
   it("shows each conversation's activity on the right while preserving selection and rename actions", async () => {
     const select = vi.fn(), rename = vi.fn();
     const host = document.createElement("div"), root = createRoot(host);

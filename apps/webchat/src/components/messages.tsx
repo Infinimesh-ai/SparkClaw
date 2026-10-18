@@ -373,7 +373,10 @@ export function normalizeWorkspaceDocumentPath(path: string) {
   return clean;
 }
 
-type TextSelectionSnapshot = { anchor: number; focus: number; prefix: string };
+type TextSelectionSnapshot = {
+  anchor: number; focus: number; prefix: string;
+  anchorNode: Node; anchorOffset: number; focusNode: Node; focusOffset: number;
+};
 
 export class RenderedMessageText extends Component<{ content: string }, Record<string, never>, TextSelectionSnapshot | null> {
   private contentRef = createRef<HTMLDivElement>();
@@ -392,22 +395,31 @@ export class RenderedMessageText extends Component<{ content: string }, Record<s
     };
     const anchor = offset(selection.anchorNode, selection.anchorOffset);
     const focus = offset(selection.focusNode, selection.focusOffset);
-    return { anchor, focus, prefix: (root.textContent ?? "").slice(0, Math.max(anchor, focus)) };
+    return { anchor, focus, prefix: (root.textContent ?? "").slice(0, Math.max(anchor, focus)),
+      anchorNode: selection.anchorNode, anchorOffset: selection.anchorOffset, focusNode: selection.focusNode, focusOffset: selection.focusOffset };
   }
 
   componentDidUpdate(_previous: Readonly<{ content: string }>, _state: Readonly<Record<string, never>>, snapshot: TextSelectionSnapshot | null) {
     const root = this.contentRef.current;
     if (!root || !snapshot || !(root.textContent ?? "").startsWith(snapshot.prefix)) return;
-    const point = (offset: number): [Node, number] | undefined => {
+    const point = (offset: number, original: Node, at: number): [Node, number] | undefined => {
+      // Prefer the original boundary when it still identifies the same text.
+      // A line's start and the previous line's end have the same text offset,
+      // but selecting between them would include a BR/paragraph boundary.
+      if (root.contains(original) && at <= (original.nodeType === Node.TEXT_NODE ? original.textContent?.length ?? 0 : original.childNodes.length)) {
+        const range = root.ownerDocument.createRange(); range.selectNodeContents(root); range.setEnd(original, at);
+        if (range.toString().length === offset) return [original, at];
+      }
       const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       let node;
       while ((node = walker.nextNode())) {
         const length = node.textContent?.length ?? 0;
-        if (offset <= length) return [node, offset];
+        if (offset < length || (offset === length && at !== 0)) return [node, offset];
         offset -= length;
       }
     };
-    const anchor = point(snapshot.anchor), focus = point(snapshot.focus);
+    const anchor = point(snapshot.anchor, snapshot.anchorNode, snapshot.anchorOffset);
+    const focus = point(snapshot.focus, snapshot.focusNode, snapshot.focusOffset);
     if (anchor && focus) root.ownerDocument.getSelection()?.setBaseAndExtent(...anchor, ...focus);
   }
 

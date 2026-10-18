@@ -6,6 +6,25 @@ import { RenderedMessageText } from "./messages";
 
 afterEach(() => { document.getSelection()?.removeAllRanges(); document.body.replaceChildren(); vi.unstubAllGlobals(); });
 
+it.each(["\n", "\n\n"])("retains exact line/paragraph start boundaries with separator %j", async separator => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const mount = document.createElement("div"); document.body.append(mount);
+  const root = createRoot(mount);
+  const render = async (content: string) => act(async () => root.render(<RenderedMessageText content={content} />));
+  try {
+    await render(`First${separator}Second line`);
+    const paragraphs = mount.querySelectorAll("p");
+    const node = paragraphs[paragraphs.length - 1].lastChild!;
+    const selection = document.getSelection()!;
+    selection.setBaseAndExtent(node, 0, node, 6);
+    await render(`First${separator}Second line grows`);
+    expect(selection.toString()).toBe("Second");
+    expect(selection.anchorNode).toBe(node); expect(selection.anchorOffset).toBe(0);
+    const fragment = selection.getRangeAt(0).cloneContents();
+    expect(fragment.querySelector("br, p")).toBeNull();
+  } finally { await act(async () => root.unmount()); }
+});
+
 it.each([false, true])("keeps the native selection in growing text, backwards=%s", async backwards => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const mount = document.createElement("div"); document.body.append(mount);

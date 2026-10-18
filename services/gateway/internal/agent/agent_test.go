@@ -306,16 +306,17 @@ func TestWorkflowFinalAnswerContentAcceptsOnlyUsableFinals(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		content string
+		format  FinalAnswerFormat
 		want    string
 		wantErr bool
 	}{
-		{name: "plain", content: "这份文档主要讨论儿童人工智能教育。", want: "这份文档主要讨论儿童人工智能教育。"},
-		{name: "final envelope", content: `{"type":"final","answer":"文档摘要。"}`, want: "文档摘要。"},
-		{name: "action envelope", content: `{"type":"action","tool":"files.read","arguments":{"path":"other.docx"}}`, wantErr: true},
-		{name: "missing answer", content: "", wantErr: true},
+		{name: "plain", format: FinalAnswerMarkdown, content: "这份文档主要讨论儿童人工智能教育。", want: "这份文档主要讨论儿童人工智能教育。"},
+		{name: "final envelope", format: FinalAnswerStructured, content: `{"type":"final","answer":"文档摘要。"}`, want: "文档摘要。"},
+		{name: "action envelope", format: FinalAnswerStructured, content: `{"type":"action","tool":"files.read","arguments":{"path":"other.docx"}}`, wantErr: true},
+		{name: "missing answer", format: FinalAnswerMarkdown, content: "", wantErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := workflowFinalAnswerContent(test.content)
+			got, err := finalAnswerContent(test.content, test.format)
 			if test.wantErr {
 				if err == nil {
 					t.Fatalf("workflow finalizer accepted unusable content: %q", got)

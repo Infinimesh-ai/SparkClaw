@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -975,7 +974,7 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 	if err != nil {
 		return chat, "", err
 	}
-	answer, err := workflowFinalAnswerContent(chat.Content)
+	answer, err := finalAnswerContent(chat.Content, finalAnswerFormatFromContext(ctx))
 	if err != nil {
 		return chat, "", err
 	}
@@ -1015,28 +1014,6 @@ func (r Runtime) workflowFinalEvidence(ctx context.Context, run app.AgentRun, ca
 
 func workflowFinalEvidence(calls []app.ToolCall, observations []string) []string {
 	return buildWorkflowFinalEvidenceProjection(app.AgentRun{}, calls, observations, nil).Evidence
-}
-
-func workflowFinalAnswerContent(content string) (string, error) {
-	answer := strings.TrimSpace(content)
-	if raw := extractJSONObject(answer); raw != "" {
-		var envelope struct {
-			Type   string `json:"type"`
-			Answer string `json:"answer"`
-		}
-		if err := json.Unmarshal([]byte(raw), &envelope); err == nil && strings.TrimSpace(envelope.Type) != "" {
-			if strings.EqualFold(strings.TrimSpace(envelope.Type), "final") {
-				answer = strings.TrimSpace(envelope.Answer)
-			} else {
-				return "", errors.New("workflow finalizer returned a non-final envelope")
-			}
-		}
-	}
-	answer = cleanUserFinalAnswer(answer)
-	if answer == "" || isBlockedFinalAnswer(answer) {
-		return "", errors.New("workflow finalizer returned no usable answer")
-	}
-	return answer, nil
 }
 
 func workflowBlockedMessage(state *app.WorkflowState) string {

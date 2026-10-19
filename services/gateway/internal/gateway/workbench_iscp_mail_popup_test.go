@@ -49,6 +49,18 @@ func popupJSON(t *testing.T, body []byte) any {
 		t.Fatal(string(body))
 	}
 	if object, ok := v.(map[string]any); ok {
+		if capacity, ok := object["capacity"].(map[string]any); ok {
+			// The two transport reads sample live filesystem capacity separately.
+			// Concurrent test writes may change it without changing mail state.
+			total, totalOK := capacity["total_bytes"].(float64)
+			free, freeOK := capacity["free_bytes"].(float64)
+			used, usedOK := capacity["used_percent"].(float64)
+			state, stateOK := capacity["state"].(string)
+			if len(capacity) != 4 || !totalOK || !freeOK || !usedOK || !stateOK || total <= 0 || free < 0 || free > total || used < 0 || used > 100 || (state != "ok" && state != "warning" && state != "critical") {
+				t.Fatal("invalid live capacity projection", capacity)
+			}
+			object["capacity"] = "validated live filesystem probe"
+		}
 		if stamp, ok := object["server_now"].(string); ok {
 			if _, err := time.Parse(time.RFC3339Nano, stamp); err != nil {
 				t.Fatal(err)

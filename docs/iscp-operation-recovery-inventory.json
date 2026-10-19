@@ -1,0 +1,1219 @@
+{
+  "status": "0041 freeze candidate; inventory and implementation gates, not a runtime guarantee",
+  "source_registry": "services/gateway/internal/iscpworkbench/operations.json",
+  "source_sha256": "f63cf6e2a6b71db6bf95af660cbe914b80742da138d5a58a2bd631941dfe3854",
+  "operation_count": 118,
+  "families": {
+    "execution": {
+      "strategy": "Original request ID/input digest; durable never-attempted intent may submit under original deadline/authority. Attempted uncertain submit performs lookup; accepted/running attaches; terminal result saves locally before ACK; cancellation reconciles original desired state. No generic replay after a missing lookup.",
+      "server": [
+        "services/gateway/internal/execution/service.go",
+        "services/gateway/internal/execution/workbench.go",
+        "services/gateway/internal/gateway/workbench_iscp.go"
+      ],
+      "client": [
+        "apps/desktop/src/main/execution-client.mjs",
+        "apps/desktop/src/main/execution-progress.mjs",
+        "apps/desktop/src/main/client-store.mjs"
+      ],
+      "planned_gaps": [
+        "Wake reconciliation only after verified business READY; retain original request deadline/authority through reconnect. Qualify negative/missing admission and process-crash behavior; do not claim restored history from empty storage."
+      ]
+    },
+    "domain_mutation": {
+      "strategy": "Immutable operation ID + operation/params/expected revision/request ID/input digest/body; authenticated receipt lookup first after uncertainty. Completed receipt returns original result. Incomplete intent remains outcome_unknown; no repeat of external effect. Never-attempted new journal entries may submit original intent only under valid original deadline/authority.",
+      "server": [
+        "services/gateway/internal/gateway/workbench_iscp_domain.go",
+        "services/gateway/internal/gateway/workbench_iscp_receipts.go"
+      ],
+      "client": [
+        "apps/desktop/src/main/iscp-mutation-journal.mjs",
+        "apps/desktop/src/main/iscp-transport.mjs"
+      ],
+      "planned_gaps": [
+        "New encrypted immutable-intent journal with prepared/attempted/terminal/applied phases and enumeration. Current fingerprint-only resource journal cannot restore a never-sent intent or reconcile automatically at READY. Persist terminal response before local application acknowledgement; retain tombstones/history-coverage evidence; never silently delete unknown."
+      ]
+    },
+    "mail": {
+      "strategy": "Read current state independently. Mutations use durable original operation receipt and expected resource version. mail.send/mail.drafts.send retain provider reconciliation identity; accepted-but-unconfirmed delivery stays effect_unknown until mail.drafts.reconcile/resolve proves disposition. Login/browser/provider effects are not automatically restarted. Attachment transfers may restage immutable bytes without executing the mail action.",
+      "server": [
+        "services/gateway/internal/gateway/workbench_iscp_mail.go",
+        "services/gateway/internal/gateway/workbench_iscp_mail_popup.go",
+        "services/gateway/internal/gateway/workbench_iscp_mail_providers.go"
+      ],
+      "client": [
+        "apps/desktop/src/main/iscp-transport.mjs",
+        "apps/desktop/src/main/iscp-mail-attachments.mjs"
+      ],
+      "planned_gaps": [
+        "Use protected intent/result journal and READY enumeration for all admitted mail mutations; do not store mail bodies or credentials in plaintext. Preserve user draft on unknown or expired authority."
+      ]
+    },
+    "objects": {
+      "strategy": "Resume same transfer/object identity and immutable byte digest with transfer.status/open/chunk/commit idempotency and durable checkpoints. Object reads verify version/digest. Expired object may restage source bytes as a new transfer, but cannot change or repeat its parent business operation.",
+      "server": [
+        "services/gateway/internal/iscpobjects/store.go",
+        "services/gateway/internal/gateway/workbench_iscp_objects.go"
+      ],
+      "client": [
+        "apps/desktop/src/main/iscp-object-client.mjs"
+      ],
+      "planned_gaps": [
+        "Qualify expired-transfer metadata retention separately from business deduplication; reconnect never resets parent execution deadline."
+      ]
+    },
+    "events": {
+      "strategy": "Persist cursor/snapshot before ACK. Same epoch resumes; gap/expired cursor fetches authoritative snapshot. Event invalidations wake original-ID execution lookup; they never admit execution. Replacement session uses fresh subscription IDs and envelopes.",
+      "server": [
+        "services/gateway/internal/gateway/workbench_iscp_events.go"
+      ],
+      "client": [
+        "apps/desktop/src/main/iscp-event-client.mjs"
+      ],
+      "planned_gaps": [
+        "READY wake and stale-generation tests must cover snapshot commit/ACK races without wiping prior projection."
+      ]
+    },
+    "browser": {
+      "strategy": "Original command ID and receipt/reconcile govern uncertain host commands. Host grant/register/close/revoke require their original operation receipt and current permission. Heartbeats are session sequence state and are not replayed into a new host generation.",
+      "server": [
+        "services/gateway/internal/gateway/workbench_iscp_browser.go",
+        "services/gateway/internal/browsercontrol/lifecycle.go"
+      ],
+      "client": [
+        "apps/desktop/src/browser/iscp-host-channel.mjs"
+      ],
+      "planned_gaps": [
+        "Cross-check host process loss and already-dispatched effects; no automatic second browser action after an unknown receipt."
+      ]
+    },
+    "realtime_media": {
+      "strategy": "Fresh authorization/session generation plus original session/frame sequence bounds; do not replay audio frames into a replaced stream. Durable transcribe/finish/cancel receipts reconcile existing operations. Preview lifetime cannot extend parent execution.",
+      "server": [
+        "services/gateway/internal/gateway/workbench_iscp_speech.go",
+        "services/gateway/internal/iscpworkbench/endpoint_stream.go"
+      ],
+      "client": [
+        "apps/desktop/src/main/iscp-audio-client.mjs",
+        "apps/desktop/src/main/iscp-recording-client.mjs"
+      ],
+      "planned_gaps": [
+        "Qualify same-session refresh versus actual session loss, uncertain terminal receipt and original recording retention."
+      ]
+    },
+    "client_management": {
+      "strategy": "Issuer-owned sealed issue/revoke receipts under original opaque operation ID; protected client operation vault. Delete remains idempotent with owner checks. Reconnect cannot mint another invitation or client.",
+      "server": [
+        "services/gateway/internal/gateway/workbench_iscp_clients.go"
+      ],
+      "client": [
+        "apps/desktop/src/main/iscp-transport.mjs",
+        "apps/desktop/src/main/secure-credential-store.mjs"
+      ],
+      "planned_gaps": [
+        "Audit disposition before vault clearing and recover pending operations at business READY. Never move credential results into plaintext domain journals."
+      ]
+    },
+    "authorization_management": {
+      "strategy": "Signed authority state and durable deletion/revocation receipt; automatic recovery stops only on verified current terminal authority. Deletion keeps original operation ID and effect fence.",
+      "server": [
+        "services/gateway/internal/gateway/workbench_iscp_authorizations.go",
+        "services/gateway/internal/iscpworkbench/authorization_control.go"
+      ],
+      "client": [
+        "apps/desktop/src/main/iscp-transport.mjs"
+      ],
+      "planned_gaps": [
+        "Qualify deletion versus renewal and delayed READY/generation events; preserve original identity material when ordinary authentication is unresolved."
+      ]
+    },
+    "read_and_binding": {
+      "strategy": "Recompute current authorized reads; this is not reconstruction of an old snapshot. installation.bind remains original binding with durable idempotency and cannot replace device/client. Original schema and required scope remain enforced.",
+      "server": [
+        "services/gateway/internal/gateway/workbench_iscp.go",
+        "services/gateway/internal/gateway/workbench_iscp_domain.go"
+      ],
+      "client": [
+        "apps/desktop/src/main/iscp-transport.mjs"
+      ],
+      "planned_gaps": [
+        "Keep unrelated reads enabled when one mutation outcome is unknown; capabilities need verified business READY."
+      ]
+    }
+  },
+  "operations": [
+    {
+      "operation": "workbench.identity",
+      "family": "read_and_binding",
+      "scope": "workbench.text",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "original_request",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "installation.bind",
+      "family": "read_and_binding",
+      "scope": "workbench.text",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "original_request",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "presentation.config",
+      "family": "read_and_binding",
+      "scope": "workbench.text",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "original_request",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "presentation.owner",
+      "family": "read_and_binding",
+      "scope": "workbench.text",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "original_request",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "presentation.ready",
+      "family": "read_and_binding",
+      "scope": "workbench.text",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "original_request",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "execution.submit",
+      "family": "execution",
+      "scope": "workbench.text",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "original_request",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "execution.lookup",
+      "family": "execution",
+      "scope": "workbench.text",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "original_request",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "execution.cancel",
+      "family": "execution",
+      "scope": "workbench.text",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "original_request",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "execution.ack",
+      "family": "execution",
+      "scope": "workbench.text",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "original_request",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "capabilities.get",
+      "family": "read_and_binding",
+      "scope": "workbench.text",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "settings.owner.get",
+      "family": "read_and_binding",
+      "scope": "settings.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "settings.owner.patch",
+      "family": "domain_mutation",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "settings.connectors.list",
+      "family": "read_and_binding",
+      "scope": "settings.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "settings.connectors.patch",
+      "family": "domain_mutation",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "settings.integrations.list",
+      "family": "read_and_binding",
+      "scope": "settings.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "settings.credentials.add",
+      "family": "domain_mutation",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "settings.credentials.activate",
+      "family": "domain_mutation",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "settings.credentials.check",
+      "family": "domain_mutation",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "settings.credentials.delete",
+      "family": "domain_mutation",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "authorizations.list",
+      "family": "authorization_management",
+      "scope": "authorization.manage",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "authorizations.delete",
+      "family": "authorization_management",
+      "scope": "authorization.manage",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "notifications.list",
+      "family": "read_and_binding",
+      "scope": "notifications.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "notifications.read",
+      "family": "domain_mutation",
+      "scope": "notifications.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "notifications.read_all",
+      "family": "domain_mutation",
+      "scope": "notifications.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "transfer.open",
+      "family": "objects",
+      "scope": "objects.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "transfer.status",
+      "family": "objects",
+      "scope": "objects.write",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "transfer.chunk",
+      "family": "objects",
+      "scope": "objects.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "transfer.commit",
+      "family": "objects",
+      "scope": "objects.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "transfer.abort",
+      "family": "objects",
+      "scope": "objects.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "object.describe",
+      "family": "objects",
+      "scope": "objects.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "object.read",
+      "family": "objects",
+      "scope": "objects.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "object.release",
+      "family": "objects",
+      "scope": "objects.read",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "approvals.list",
+      "family": "read_and_binding",
+      "scope": "approvals.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "approvals.get",
+      "family": "read_and_binding",
+      "scope": "approvals.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "approvals.decide",
+      "family": "domain_mutation",
+      "scope": "approvals.decide",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "events.snapshot",
+      "family": "events",
+      "scope": "events.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "events.pull",
+      "family": "events",
+      "scope": "events.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "events.ack",
+      "family": "events",
+      "scope": "events.read",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "events.subscribe",
+      "family": "events",
+      "scope": "events.read",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "events.resume",
+      "family": "events",
+      "scope": "events.read",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "events.unsubscribe",
+      "family": "events",
+      "scope": "events.read",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "state.snapshot",
+      "family": "events",
+      "scope": "events.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.providers.list",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.providers.update",
+      "family": "mail",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.providers.check",
+      "family": "mail",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.providers.login",
+      "family": "mail",
+      "scope": "browser.login",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.mailboxes",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.sync",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.message",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.attachment",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.send",
+      "family": "mail",
+      "scope": "mail.send",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.drafts.list",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.drafts.save",
+      "family": "mail",
+      "scope": "mail.drafts.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.drafts.send",
+      "family": "mail",
+      "scope": "mail.send",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.drafts.reconcile",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.drafts.resolve",
+      "family": "mail",
+      "scope": "mail.send",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "browser.host.register",
+      "family": "browser",
+      "scope": "browser.control",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "browser.host.poll",
+      "family": "browser",
+      "scope": "browser.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "browser.host.reply",
+      "family": "browser",
+      "scope": "browser.control",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "command_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "browser.host.heartbeat",
+      "family": "browser",
+      "scope": "browser.control",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "stream_sequence",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "browser.host.close",
+      "family": "browser",
+      "scope": "browser.control",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "browser.host.grant",
+      "family": "browser",
+      "scope": "browser.control",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "browser.host.revoke",
+      "family": "browser",
+      "scope": "browser.control",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "browser.command",
+      "family": "browser",
+      "scope": "browser.control",
+      "direction": "reverse",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "browser.receipt",
+      "family": "browser",
+      "scope": "browser.control",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "browser.reconcile",
+      "family": "browser",
+      "scope": "browser.read",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "tools.list",
+      "family": "read_and_binding",
+      "scope": "tools.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "tools.invoke",
+      "family": "domain_mutation",
+      "scope": "tools.invoke",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "speech.status",
+      "family": "realtime_media",
+      "scope": "speech.transcribe",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "speech.transcribe",
+      "family": "realtime_media",
+      "scope": "speech.transcribe",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "speech.cancel",
+      "family": "realtime_media",
+      "scope": "speech.transcribe",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "speech.session.open",
+      "family": "realtime_media",
+      "scope": "speech.realtime",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "speech.session.frame",
+      "family": "realtime_media",
+      "scope": "speech.realtime",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "stream_sequence",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "speech.session.finish",
+      "family": "realtime_media",
+      "scope": "speech.realtime",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "speech.session.cancel",
+      "family": "realtime_media",
+      "scope": "speech.realtime",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "audio.session.open",
+      "family": "realtime_media",
+      "scope": "speech.realtime",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "audio.session.control",
+      "family": "realtime_media",
+      "scope": "speech.realtime",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "audio.session.close",
+      "family": "realtime_media",
+      "scope": "speech.realtime",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "audio.frame",
+      "family": "realtime_media",
+      "scope": "speech.realtime",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "stream_sequence",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "operations.receipt",
+      "family": "read_and_binding",
+      "scope": "workbench.control",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "execution.approval",
+      "family": "execution",
+      "scope": "approvals.decide",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "execution.input.put",
+      "family": "execution",
+      "scope": "objects.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "original_request",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "execution.file.get",
+      "family": "execution",
+      "scope": "objects.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "original_request",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "speech.session.events",
+      "family": "realtime_media",
+      "scope": "speech.realtime",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "cursor",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.conversations.list",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.pending",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.interaction",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.sent_sources",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.notifications",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.conversations.get",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.conversations.messages",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.verification",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.render_preview",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.file",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.sender_rules.list",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.presentations.get",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.compose.capabilities",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.sync.status",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.sync.warnings",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.conversations.rename",
+      "family": "mail",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.conversations.delete",
+      "family": "mail",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.source.cleanup",
+      "family": "mail",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.classification",
+      "family": "mail",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.assignment",
+      "family": "mail",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.sender_rules.update",
+      "family": "mail",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.presentations.ensure",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.replies.polish",
+      "family": "mail",
+      "scope": "mail.drafts.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.sync.acknowledge",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.sync.request",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.viewed",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.reanalyze",
+      "family": "mail",
+      "scope": "mail.read",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "mail.intake.update",
+      "family": "mail",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "operation_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "clients.list",
+      "family": "client_management",
+      "scope": "settings.read",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "clients.issue",
+      "family": "client_management",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "issuer_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "clients.revoke",
+      "family": "client_management",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "issuer_receipt",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "clients.delete",
+      "family": "client_management",
+      "scope": "settings.write",
+      "direction": "forward",
+      "mutation": true,
+      "existing_recovery": "idempotent",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "execution.progress",
+      "family": "execution",
+      "scope": "workbench.text",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    },
+    {
+      "operation": "execution.progress.stream",
+      "family": "execution",
+      "scope": "workbench.text",
+      "direction": "forward",
+      "mutation": false,
+      "existing_recovery": "read",
+      "new_find_or_admit": false
+    }
+  ],
+  "external_contracts": {
+    "JingSi Runtime v1": "Original caller/key/full task authorization digest. Lookup after uncertain submit; not_started permanently forbids admission under that key. No generic find-or-admit upgrade.",
+    "IMMS": "Existing accepted binding/task/effect scope contract unchanged; original request and permission boundaries remain authoritative."
+  },
+  "common_gates": [
+    "Current actor/resource binding and operation scope checked on admission and result disclosure; unchanged connection credentials are excluded from business digest.",
+    "Task grant/approval/deadline/input/preconditions remain immutable business intent; reconnect grants no new authority.",
+    "Persist attempt before writing; only local durable proof of never-attempted permits original-intent submission.",
+    "Unknown side effects and incomplete history remain unknown with actionable existing UI; no new operation ID, blind resend or silent data loss.",
+    "An inventory entry labelled existing_recovery is evidence of a declared strategy, not proof it is implemented correctly; planned_gaps and actual fault-injection acceptance must close before release."
+  ]
+}

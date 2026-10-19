@@ -1,0 +1,785 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-19",
+  "status": "local_implementation_qualified",
+  "production_data": false,
+  "deployment_performed": false,
+  "interface_freeze": "2026-10-19.2",
+  "sparkclaw_base": "cf9b81dec39b8872efc43650080bb8facaa58511",
+  "iscp_base": "10fe37b3bd02a56b4f9d6cb8dc0333d7eec5356a",
+  "go_validation": [
+    {
+      "repository": "SparkClaw",
+      "source": "0369df10",
+      "platform": "Linux arm64 Go 1.25.5",
+      "commands": [
+        "go test ./...",
+        "go build ./...",
+        "go vet ./..."
+      ],
+      "passed": true,
+      "log_sha256": "64f01fe1e4f0f1a89076aaec3508749bb5dded6a8d7370bedc5102d603b1e07c"
+    },
+    {
+      "repository": "ISCP",
+      "source": "b6588e0",
+      "platform": "macOS arm64 Go 1.25.12",
+      "commands": [
+        "go test ./...",
+        "go build ./...",
+        "go vet ./..."
+      ],
+      "passed": true,
+      "log_sha256": "224a90a466431dc4806595cac86eaafd234eda0d71448fb08530ff255fcea12a"
+    },
+    {
+      "repository": "ISCP",
+      "source": "30707ae",
+      "platform": "macOS arm64 Go1.25.12",
+      "commands": [
+        "go test ./...",
+        "go build ./...",
+        "go vet ./..."
+      ],
+      "passed": true,
+      "log_sha256": "5d94a580fca9834a1ed7255a9fdfc46e5abaffa4fdf4165c10571ea742b743b3"
+    },
+    {
+      "repository": "ISCP",
+      "source": "22da89f329a88bde8e12219c359e82063064798b",
+      "platform": "macOS arm64 Go1.25.12",
+      "commands": [
+        {
+          "command": "go test -exec isolated-node-test-exec.py -count=1 ./...",
+          "exit_code": 0,
+          "elapsed_seconds": 45.698,
+          "log_sha256": "a258f22512dabcd0093a683c75a2a5b1b6fc5e3516b4dd77c6f7233802b9b5c9"
+        },
+        {
+          "command": "go build ./...",
+          "exit_code": 0,
+          "elapsed_seconds": 0.971,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "command": "go vet ./...",
+          "exit_code": 0,
+          "elapsed_seconds": 0.412,
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "postgres": "per-test Relay databases; per-process nodeclient/nodeissuer databases via cache-only go test exec wrapper",
+      "passed": true,
+      "earlier_shared_database_fixture_failure_retained": true
+    },
+    {
+      "repository": "SparkClaw",
+      "source": "41b24a383296ed9ae5730a73994e87fc1df4c484",
+      "platform": "Linux arm64 Go1.25.5",
+      "commands": [
+        "go test ./...",
+        "go build ./...",
+        "go vet ./...",
+        "git diff --exit-code",
+        "git diff --cached --exit-code"
+      ],
+      "passed": true,
+      "tested_packages": 75,
+      "packages_without_tests": 11,
+      "image_id": "sha256:865ab6631f4b8994769d43966141a539b9d1ca1a77bf60b9a639b4324bc946e0",
+      "postgres_enabled": false,
+      "database_integration_evidence": "Independent final ISCP real PostgreSQL suite and focused mirrored client race checks",
+      "log_sha256": "e99eaeed8543db9625cc893d012c6bda0bc5cd262924236c4a984d8ca67e3626"
+    }
+  ],
+  "native_stream": [
+    {
+      "case": "controlled_20",
+      "source_revision": "3b4a0be1037e299ac1ede3c166105ff5ac29d300",
+      "passed": true,
+      "evidence_name": "sparkclaw-stream-v3-SvpSpG/receipt.json",
+      "evidence_sha256": "8853afdb39ba4137e28e4a4b8cd1860e41dadce0957f1b2b98c58eefb46a5e01",
+      "summary": {
+        "samples": 20,
+        "chars_per_sample": 600,
+        "batches": 2000,
+        "observation": "visible original DOM followed by next animation frame; compositor paint proxy",
+        "clock_error_bound_ms": 0.80517578125,
+        "main_clock_error_bound_ms": 0.0224609375,
+        "first_upper_ms": 241.9443359375,
+        "p95_upper_ms": 151.093994140625,
+        "p99_upper_ms": 168.158935546875,
+        "max_growth_gap_ms": 151.7001953125,
+        "max_commit_to_handoff_upper_ms": 47.67822265625,
+        "min_visible_before_done": 0.98,
+        "remounts": 0,
+        "blanks": 0,
+        "missing_frames": 0,
+        "duplicates": 0,
+        "stream_subscriptions": 20
+      },
+      "independent_relay_sha256": "a28a887589017c2920066023fcf68f6449b4201f5bead2024fd9185a04699bbe"
+    },
+    {
+      "case": "joint_scroll_selection_6000",
+      "source_revision": "3b4a0be1037e299ac1ede3c166105ff5ac29d300",
+      "passed": true,
+      "evidence_name": "sparkclaw-stream-v3-AhHBze/receipt.json",
+      "evidence_sha256": "cabdd12cb394388d43f315b9714aa5b6eab0709f6c6c82c8e336cf455812866c",
+      "summary": {
+        "samples": 1,
+        "chars_per_sample": 6000,
+        "batches": 100,
+        "observation": "original DOM followed by next animation frame; deliberately offscreen while reading; timings qualify rendering, not visible latency",
+        "clock_error_bound_ms": 0.199951171875,
+        "main_clock_error_bound_ms": 0.019287109375,
+        "first_upper_ms": 102.89990234375,
+        "p95_upper_ms": 150.436767578125,
+        "p99_upper_ms": 232.998046875,
+        "max_growth_gap_ms": 267.89990234375,
+        "max_commit_to_handoff_upper_ms": 46.1796875,
+        "remounts": 0,
+        "blanks": 0,
+        "missing_frames": 0,
+        "duplicates": 0,
+        "stream_subscriptions": 1,
+        "min_rendered_before_done": 0.98
+      },
+      "independent_relay_sha256": "a28a887589017c2920066023fcf68f6449b4201f5bead2024fd9185a04699bbe"
+    },
+    {
+      "case": "disconnect_recovery",
+      "source_revision": "3b4a0be1037e299ac1ede3c166105ff5ac29d300",
+      "passed": true,
+      "evidence_name": "sparkclaw-stream-v3-2cdS7r/receipt.json",
+      "evidence_sha256": "d394bd325136cb797fae2546302058b0babc0b75c0c61db9529b6f05ce7edd39",
+      "summary": {
+        "samples": 1,
+        "chars_per_sample": 600,
+        "batches": 100,
+        "observation": "visible original DOM followed by next animation frame; compositor paint proxy",
+        "clock_error_bound_ms": 0.242919921875,
+        "main_clock_error_bound_ms": 0.02978515625,
+        "first_upper_ms": 105.376953125,
+        "p95_upper_ms": 1773.461669921875,
+        "p99_upper_ms": 2173.44677734375,
+        "max_growth_gap_ms": 2250.099853515625,
+        "max_commit_to_handoff_upper_ms": 43.946044921875,
+        "min_visible_before_done": 0.98,
+        "remounts": 0,
+        "blanks": 1,
+        "missing_frames": 0,
+        "duplicates": 0,
+        "stream_subscriptions": 2,
+        "recovery_ms": 2233.800048828125
+      },
+      "independent_relay_sha256": "a28a887589017c2920066023fcf68f6449b4201f5bead2024fd9185a04699bbe"
+    },
+    {
+      "case": "visible_auto_follow_6000",
+      "source_revision": "3b4a0be1037e299ac1ede3c166105ff5ac29d300",
+      "passed": true,
+      "evidence_name": "sparkclaw-stream-v3-xvrMYR/receipt.json",
+      "evidence_sha256": "bc309ec374582e4a6cf090db9e2ed7df0946f9fb595d97309eb5a4d3ca4d4164",
+      "summary": {
+        "samples": 1,
+        "chars_per_sample": 6000,
+        "batches": 100,
+        "observation": "visible original DOM followed by next animation frame; compositor paint proxy",
+        "clock_error_bound_ms": 0.221923828125,
+        "main_clock_error_bound_ms": 0.010009765625,
+        "first_upper_ms": 115.859375,
+        "p95_upper_ms": 146.8701171875,
+        "p99_upper_ms": 147.5009765625,
+        "max_growth_gap_ms": 133.699951171875,
+        "max_commit_to_handoff_upper_ms": 40.419677734375,
+        "min_visible_before_done": 0.98,
+        "remounts": 0,
+        "blanks": 0,
+        "missing_frames": 0,
+        "duplicates": 0,
+        "stream_subscriptions": 1
+      },
+      "independent_relay_sha256": "a28a887589017c2920066023fcf68f6449b4201f5bead2024fd9185a04699bbe"
+    }
+  ],
+  "native_authorization": {
+    "source": "77fbfb21",
+    "passed": true,
+    "evidence_sha256": "8b2c7a2a1df72ffc5388ad5c694ce573193dc522e190cd6aa1bc6e176aba35bf",
+    "phases": [
+      {
+        "phase": "delete",
+        "passed": true,
+        "checks": [
+          "real_settings_confirmation_deletes_permanent_authorization_and_retains_its_signed_receipt",
+          "revoked_native_UI_and_business_calls_remain_fenced_without_HTTP_fallback"
+        ],
+        "direct_business_http_ws_attempts": 0
+      },
+      {
+        "phase": "restart",
+        "passed": true,
+        "checks": [
+          "native_and_issuer_restart_retain_deletion_and_recover_original_signed_receipt_without_Relay",
+          "revoked_native_UI_and_business_calls_remain_fenced_without_HTTP_fallback"
+        ],
+        "direct_business_http_ws_attempts": 0
+      }
+    ]
+  },
+  "native_mail_initial": {
+    "source": "3b4a0be1",
+    "ui_passed": true,
+    "runner_passed": false,
+    "runner_failure": "obsolete postcheck expected mail.mailboxes instead of original EmailPopup operations; corrected in 77fbfb21",
+    "checks": [
+      "fresh_qualified_mail_attachment_capability_in_native_renderer",
+      "desktop_file_change_invalidates_old_confirmation_before_any_provider_effect",
+      "desktop_owned_file_transferred_without_gateway_source_access_or_decoy_read",
+      "renderer_saved_and_confirmed_manifest_delivers_identical_bytes_to_loopback_sink",
+      "lost_provider_receipt_remains_unknown_until_reconciliation_and_never_resends",
+      "10MiB_desktop_source_encrypted_transfer_and_exact_sink_bytes"
+    ],
+    "evidence_sha256": "c35ba54fe065ea49b8f8243f4e3f7c40c883badedf9045f98cc784ddb34e144a",
+    "desktop_object_capacity": {
+      "bytes": 10485760,
+      "sha256": "sha256:b5eec3f68ef64d15e82dad91ff908582c5f081e61a62e22427af9bec2cd35f8d",
+      "transfer_review_ms": 100165,
+      "no_external_email": true
+    }
+  },
+  "transport_latency": {
+    "admission_transaction_including_authority_and_signing_ms": {
+      "max": 14.426542,
+      "mean": 4.783114,
+      "p50": 4.252333,
+      "p95": 8.207083,
+      "p99": 14.334
+    },
+    "ciphertext_bytes": 3000,
+    "db_commit_ms": {
+      "max": 1.391125,
+      "mean": 0.32021,
+      "p50": 0.232875,
+      "p95": 0.714667,
+      "p99": 1.361083
+    },
+    "environment": "macOS local Go process + loopback WebSocket + Docker PostgreSQL 18; independent raw client; not native UI; no race instrumentation",
+    "samples": 100,
+    "send_to_receipt_ms": {
+      "max": 17.8575,
+      "mean": 9.149591,
+      "p50": 8.722583,
+      "p95": 14.204459,
+      "p99": 17.3195
+    }
+  },
+  "limitations": [
+    "Synthetic isolated identities, loopback mail sink, controlled model stream and Docker PostgreSQL; no third-party message or production model call.",
+    "Rendering timestamps are original DOM plus next animation frame, a compositor paint proxy; joint scroll/selection can intentionally be offscreen.",
+    "No production cutover, live fleet reconciliation or compatible baseline rollback package is claimed.",
+    "Old candidate produced NULL-generation refresh/access; original failed lab is retained, missing generation remains fail-closed."
+  ],
+  "desktop_tests": {
+    "source": "62358707d7f11202df4df44ab9420a77f305ee15",
+    "tests": 465,
+    "passed": 465,
+    "failed": 0,
+    "log_sha256": "8deb64473a79a177950901deb6672cd3a662bea87c7541d74aa78b018c81da5e"
+  },
+  "webchat_tests": {
+    "source": "3b4a0be1",
+    "tests": 360,
+    "files": 70,
+    "passed": true
+  },
+  "native_visual": {
+    "source": "91748603",
+    "cases": 432,
+    "screenshots": 88,
+    "layout_errors": 0,
+    "scope": "Original native interactions and visual matrix; does not replace live business qualification"
+  },
+  "authentication_fault_injection": {
+    "production_source": "ISCP b6588e0 / SparkClaw 0369df10",
+    "additional_tests": "ISCP 4e3848f / SparkClaw db71a2dc",
+    "environment": "Real PostgreSQL and pinned HTTPS with synthetic original identities; race instrumentation",
+    "cases": [
+      "lost parent result reopens the original operation",
+      "child COMMIT followed by lost reply reconciles the same child key",
+      "actual five-second parent Grant expiry closes as expired before linked successor",
+      "expired ACK COMMIT followed by lost reply reopens the original ACK",
+      "issuer authorization revision 1->2 and Relay 7->8 remain separate",
+      "revoked provider state persists across restart",
+      "public Register actual Write/Flush and revoke share database authority fence",
+      "cached and recovered credential installation callbacks recheck durable lease state",
+      "independent process ownership lock rejects stale credential installation"
+    ],
+    "default_relay_token_ttl_waited": false,
+    "passed": true
+  },
+  "authentication_design_mapping": [
+    {
+      "scenario": 1,
+      "boundary": "Expired proof, Access and Refresh",
+      "evidence": "Real PG/HTTPS service recovery and live helper NewEndpoint use original identity; synthetic expired stored values, no new invitation"
+    },
+    {
+      "scenario": 2,
+      "boundary": "Original request never arrived",
+      "evidence": "Fresh HTTPS attempt retains the original durable key and admits once"
+    },
+    {
+      "scenario": 3,
+      "boundary": "Committed request, lost response",
+      "evidence": "Real parent HTTP/PG result loss and client restart recover original result"
+    },
+    {
+      "scenario": 4,
+      "boundary": "Parent/child partial completion",
+      "evidence": "Real child COMMIT reply loss reconciles stable child key and unique parent result"
+    },
+    {
+      "scenario": 5,
+      "boundary": "Credential rotation response or ACK lost",
+      "evidence": "Durable lease/Grant installation precedes original ACK retry"
+    },
+    {
+      "scenario": 6,
+      "boundary": "Issued result expires before installation",
+      "evidence": "Real five-second parent Grant expiry, lost expired ACK commit and linked successor; no claim of waiting default Relay token TTL"
+    },
+    {
+      "scenario": 7,
+      "boundary": "Automatic/manual overlap",
+      "evidence": "Credential flight, cached ACK-window generation check, process lock and browser host grant coalescing"
+    },
+    {
+      "scenario": 8,
+      "boundary": "Revocation versus admission/disclosure",
+      "evidence": "Real database fence covers revoke, actual public Register Write/Flush and separate issuer/Relay revisions"
+    },
+    {
+      "scenario": 9,
+      "boundary": "Task authority/deadline ended",
+      "evidence": "Mutation READY retains original deadline and authority; stream/response expiry and old-generation tests"
+    },
+    {
+      "scenario": 10,
+      "boundary": "Same ID changed input or principal",
+      "evidence": "Frozen authority/intent validation, durable mutation identity and transport tuple conflicts reject changes"
+    },
+    {
+      "scenario": 11,
+      "boundary": "Crashes at persistence, dispatch, commit, result and ACK",
+      "evidence": "Encrypted journals, original-tuple unknown fence, real parent/child lost COMMIT, durable terminal, atomic SQLite recording application"
+    },
+    {
+      "scenario": 12,
+      "boundary": "Receipt cleanup or incomplete restored history",
+      "evidence": "Eight-day retained tombstones, closed/missing-history rejection, explicit writer epoch and audited cutover evidence"
+    },
+    {
+      "scenario": 13,
+      "boundary": "Unconfirmed external effect",
+      "evidence": "Native lost mail receipt reconciles without resend; original recording lookup never invokes provider twice"
+    },
+    {
+      "scenario": 14,
+      "boundary": "New session, stale event, cancel/complete race",
+      "evidence": "Retire replaced E2E sessions, stale projection/lease checks, original terminal retention and recording cancel tests"
+    },
+    {
+      "scenario": 15,
+      "boundary": "Version/key/audience/nonce/time invalid",
+      "evidence": "Strict frozen codec, endpoint/audience/nonce/clock negatives; real private-key file removal fails five consumer loading/activation entry points without changing original identity, enrollment, pins or pending, and restoring the original key restores the same identity (6952480/9140de12)"
+    },
+    {
+      "scenario": 16,
+      "boundary": "Original UI, conversations, drafts and recovery",
+      "evidence": "Native interaction plus visual matrix; encrypted mutation results and atomic recording draft marker; live original mail/settings/browser tests recorded separately"
+    }
+  ],
+  "transport_design_mapping": [
+    {
+      "scenario": 1,
+      "boundary": "Duplex",
+      "evidence": "Single authenticated socket simultaneous send/receive, callback sends, cancellation and stream tests"
+    },
+    {
+      "scenario": 2,
+      "boundary": "No envelope HTTP",
+      "evidence": "Retired routes reject; native fixtures block direct business HTTP and use independent duplex Relay"
+    },
+    {
+      "scenario": 3,
+      "boundary": "Independent repositories",
+      "evidence": "Standalone immutable clones build each repository without sibling module import"
+    },
+    {
+      "scenario": 4,
+      "boundary": "Codec/auth vectors",
+      "evidence": "Frozen schema/signature/PoP, repeated challenge and cross-connection negatives"
+    },
+    {
+      "scenario": 5,
+      "boundary": "Size/deadline",
+      "evidence": "Exact 1MiB envelope and1088KiB raw frame +/-1; original expiry remains immutable"
+    },
+    {
+      "scenario": 6,
+      "boundary": "Query/commit races",
+      "evidence": "Same-owner ordering, held prior-owner COMMIT, lock timeout and lost COMMIT answer"
+    },
+    {
+      "scenario": 7,
+      "boundary": "History continuity",
+      "evidence": "Eight-day tombstones; missing/old history denies new acceptance; explicit legacy key manifest"
+    },
+    {
+      "scenario": 8,
+      "boundary": "Fleet cutover",
+      "evidence": "Implementation rejects retired routes; recorded five-node/component inventory requires live reconciliation before deployment"
+    },
+    {
+      "scenario": 9,
+      "boundary": "Rollback writer fence",
+      "evidence": "Actual old executable positive control succeeds before activation then fails; no qualified old rollback package"
+    },
+    {
+      "scenario": 10,
+      "boundary": "Delivery scope",
+      "evidence": "No receiver per-envelope ACK/inbox guarantee; business recovery remains separate"
+    },
+    {
+      "scenario": 11,
+      "boundary": "Reader/writer",
+      "evidence": "Reader, writer and callback workers separated; future-based sends and encrypted ordered journal"
+    },
+    {
+      "scenario": 12,
+      "boundary": "Write fault boundaries",
+      "evidence": "Atomic skip before first write; journal precedes uncertainty; persistent original tuple after failure"
+    },
+    {
+      "scenario": 13,
+      "boundary": "Persistent idempotency",
+      "evidence": "Same receipt bytes across actual dedicated PostgreSQL instance restart and Relay restart"
+    },
+    {
+      "scenario": 14,
+      "boundary": "Authority",
+      "evidence": "Device/sender/proof/expiry/revoke/owner guards, real delayed initial auth rejection and source-domain revisions"
+    },
+    {
+      "scenario": 15,
+      "boundary": "Backpressure",
+      "evidence": "Owner replacement, blocked writer claim rollback, byte budgets and receipt-handler progress"
+    },
+    {
+      "scenario": 16,
+      "boundary": "Long connection",
+      "evidence": "57-second idle, actual token generation rotation and network replacement; bounded consumed journal"
+    },
+    {
+      "scenario": 17,
+      "boundary": "Original experience",
+      "evidence": "Native UI, scroll/selection, mail/attachments, approvals/cancel and result-before-ACK coverage"
+    },
+    {
+      "scenario": 18,
+      "boundary": "Performance",
+      "evidence": "20x600 and6000 native controlled source/paint proxy; separate100-sample send/receipt andDB timings"
+    }
+  ],
+  "native_mail_final": {
+    "sparkclaw_source": "00b48196",
+    "iscp_source": "30707ae",
+    "passed": true,
+    "runner_exit_code": 0,
+    "checks": [
+      "fresh_qualified_mail_attachment_capability_in_native_renderer",
+      "desktop_file_change_invalidates_old_confirmation_before_any_provider_effect",
+      "desktop_owned_file_transferred_without_gateway_source_access_or_decoy_read",
+      "renderer_saved_and_confirmed_manifest_delivers_identical_bytes_to_loopback_sink",
+      "lost_provider_receipt_remains_unknown_until_reconciliation_and_never_resends",
+      "10MiB_desktop_source_encrypted_transfer_and_exact_sink_bytes"
+    ],
+    "desktop_object_capacity": {
+      "bytes": 10485760,
+      "sha256": "sha256:b5eec3f68ef64d15e82dad91ff908582c5f081e61a62e22427af9bec2cd35f8d",
+      "transfer_review_ms": 103655,
+      "no_external_email": true
+    },
+    "direct_business_http_ws_attempts": 0,
+    "evidence_sha256": "b870b203b240cae028643843bdec2ed629a27c0982a4d97f7064ce57e98986d1",
+    "credential_rotation": {
+      "automatic_refresh_verified": true,
+      "original_identity_files_unchanged": true,
+      "device_count": 2,
+      "credential_generation_before": "1",
+      "credential_generation_after": "2",
+      "authorization_revision": "1",
+      "fault": "Revoke only the two valid initial Access tokens in this labelled private database; original Refresh, identity and authority remain valid",
+      "evidence_sha256": "4d2b1d72af3eb3d7b3fcc3ecef545ad1114a1a761d1074a7ac0dde2b1e1ba43c"
+    }
+  },
+  "final_implementation": {
+    "sparkclaw": "62358707d7f11202df4df44ab9420a77f305ee15",
+    "iscp": "22da89f329a88bde8e12219c359e82063064798b",
+    "integration_branch": "codex/iscp-auth-operation-recovery",
+    "duplex_branch": "codex/iscp-duplex-websocket",
+    "independent_review": "no_remaining_P1_P2"
+  },
+  "local_refresh_regression": {
+    "passed": true,
+    "source": "22da89f",
+    "real_postgresql_http_client_race_seconds": 3.118,
+    "delayed_hint_negative_race_seconds": 1.888,
+    "cases": [
+      "initial authenticated rejection refreshes original valid token",
+      "live socket refresh preserves connection ID and owner generation",
+      "concurrent refresh has one winner",
+      "NULL generation and missing activated authority rejected",
+      "HTTP write and flush serialized against revocation",
+      "late queued hint cannot invalidate later lease",
+      "late wire reply retains credentials of original first wire write"
+    ]
+  },
+  "markdown_validation": {
+    "documents": 122,
+    "passed": true,
+    "method": "exact CI Python Markdown links and language mirror check"
+  },
+  "failed_native_capture_candidates": [
+    {
+      "source": "00b48196",
+      "reason": "First cold native surface rejects; fallback times out, subsequent six captures pass"
+    },
+    {
+      "source": "d10c3770",
+      "reason": "Direct CDP-only does not capture the actual production task view"
+    },
+    {
+      "source": "3a563b34",
+      "reason": "Five-second CDP-only still fails the production view"
+    },
+    {
+      "source": "0815b370",
+      "reason": "Discarding the native result loses valid native captures"
+    },
+    {
+      "source": "8b81462d",
+      "reason": "First native capture reports UnknownVizError at3.88ms, CDP stalls; subsequent native captures complete in8-13ms"
+    }
+  ],
+  "native_browser_host": {
+    "sparkclaw_source": "62358707d7f11202df4df44ab9420a77f305ee15",
+    "iscp_source": "30707ae",
+    "passed": true,
+    "runner_exit_code": 0,
+    "evidence_sha256": "55cbbad3f7ca5e6b7db78b2815591093a1d5272feea6e3474b3c861173fb6f40",
+    "capture_modes": [
+      {
+        "mode": "initial_unselected_conversation",
+        "passed": true,
+        "window_visible": true,
+        "window_focused": true,
+        "view_visible": false,
+        "bytes": 19959,
+        "sha256": "f13a55a4fd46b18b09b38d1f66ad57c43d15853675c4a107122fbe12c712fabc",
+        "filename": "native-iscp-host-initial_unselected_conversation.png"
+      },
+      {
+        "mode": "foreground",
+        "passed": true,
+        "window_visible": true,
+        "window_focused": true,
+        "view_visible": false,
+        "bytes": 26110,
+        "sha256": "e2429e3e893a20b971c5fd70a9febadcabb60b1ddf3711bbf46f0bcea7b918ea",
+        "filename": "native-iscp-host-foreground.png"
+      },
+      {
+        "mode": "occluded_background",
+        "passed": true,
+        "window_visible": true,
+        "window_focused": false,
+        "view_visible": false,
+        "bytes": 27343,
+        "sha256": "46afcf328c184da2df95922ac6558577595eaebed2de49dd49f12854baf4d68e",
+        "filename": "native-iscp-host-occluded_background.png"
+      },
+      {
+        "mode": "hidden_window",
+        "passed": true,
+        "window_visible": false,
+        "window_focused": false,
+        "view_visible": false,
+        "bytes": 25932,
+        "sha256": "86df33a8ee1fc830e2dcbba7ee6dfe3587abba573bace72a97eb5e5a4e05034b",
+        "filename": "native-iscp-host-hidden_window.png"
+      },
+      {
+        "mode": "restored_window",
+        "passed": true,
+        "window_visible": true,
+        "window_focused": true,
+        "view_visible": false,
+        "bytes": 26357,
+        "sha256": "e7c8fb7c970d5788477129b193c1fefce7f2f5434574a68b94213aaf6cf2f78c",
+        "filename": "native-iscp-host-restored_window.png"
+      },
+      {
+        "mode": "unselected_conversation",
+        "passed": true,
+        "window_visible": true,
+        "window_focused": true,
+        "view_visible": false,
+        "bytes": 27311,
+        "sha256": "51a815a948e9ce16f2d2e05f41e3de4c6212f313bced05f3ad4b04f3781adb5c",
+        "filename": "native-iscp-host-unselected_conversation.png"
+      },
+      {
+        "mode": "restored_conversation",
+        "passed": true,
+        "window_visible": true,
+        "window_focused": true,
+        "view_visible": false,
+        "bytes": 27028,
+        "sha256": "e82156c38dbb92f351d89a1e54f656acc36fad0721d8fa7a881b1058e37c7f07",
+        "filename": "native-iscp-host-restored_conversation.png"
+      }
+    ],
+    "capture_timings": [
+      {
+        "method": "native",
+        "elapsed_ms": 3.74633299999914,
+        "error": "UnknownVizError"
+      },
+      {
+        "method": "native",
+        "elapsed_ms": 350.344041999997,
+        "empty": false,
+        "size": {
+          "width": 960,
+          "height": 1080
+        }
+      },
+      {
+        "method": "cdp",
+        "elapsed_ms": 411.27120899999863,
+        "error": "target closed while handling command"
+      },
+      {
+        "method": "native",
+        "elapsed_ms": 13.58954200000153,
+        "empty": false,
+        "size": {
+          "width": 960,
+          "height": 1080
+        }
+      },
+      {
+        "method": "cdp",
+        "elapsed_ms": 22.94274999999834,
+        "error": "target closed while handling command"
+      },
+      {
+        "method": "native",
+        "elapsed_ms": 9.89941700000054,
+        "empty": false,
+        "size": {
+          "width": 960,
+          "height": 1080
+        }
+      },
+      {
+        "method": "cdp",
+        "elapsed_ms": 15.207833000000392,
+        "error": "target closed while handling command"
+      },
+      {
+        "method": "native",
+        "elapsed_ms": 9.749083000002429,
+        "empty": false,
+        "size": {
+          "width": 960,
+          "height": 1080
+        }
+      },
+      {
+        "method": "cdp",
+        "elapsed_ms": 17.19929200000115,
+        "error": "target closed while handling command"
+      },
+      {
+        "method": "native",
+        "elapsed_ms": 19.870875000000524,
+        "empty": false,
+        "size": {
+          "width": 960,
+          "height": 1080
+        }
+      },
+      {
+        "method": "cdp",
+        "elapsed_ms": 28.29200000000128,
+        "error": "target closed while handling command"
+      },
+      {
+        "method": "native",
+        "elapsed_ms": 21.506999999997788,
+        "empty": false,
+        "size": {
+          "width": 960,
+          "height": 1080
+        }
+      },
+      {
+        "method": "cdp",
+        "elapsed_ms": 31.11500000000524,
+        "error": "target closed while handling command"
+      },
+      {
+        "method": "native",
+        "elapsed_ms": 8.026333000001614,
+        "empty": false,
+        "size": {
+          "width": 960,
+          "height": 1080
+        }
+      },
+      {
+        "method": "cdp",
+        "elapsed_ms": 12.694250000000466,
+        "error": "target closed while handling command"
+      }
+    ],
+    "direct_business_attempts": 0,
+    "host_websocket_attempts": 0,
+    "native_clicks": 1,
+    "unknown_write_not_repeated": true,
+    "local_unknown_receipts": 1,
+    "backend_unknown_receipts": 1,
+    "production_entry": true,
+    "presentation_and_focus_preserved": true,
+    "debugger_released": true,
+    "credential_rotation": {
+      "original_identities_unchanged": true,
+      "device_count": 2,
+      "generation_before": 1,
+      "generation_after": 2,
+      "authorization_revision": 1,
+      "evidence_sha256": "c6d2901d1b8f9ca4fe00763d7c169de5064109680b5c5630928892bb810c3102"
+    }
+  },
+  "failed_candidate_preservation": {
+    "file": "failed-null-generation-postgres.dump",
+    "bytes": 38506780,
+    "sha256": "1ea469195b4d3184a10bb6ceb44933f24a4cb8fe92c98985a2645cd9d7651c3c",
+    "reason": "Preserve failed missing-generation synthetic candidate before removing owned temporary services",
+    "production_data": false
+  }
+}

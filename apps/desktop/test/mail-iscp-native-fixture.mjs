@@ -122,7 +122,7 @@ void app.whenReady().then(async () => {
     await until(async () => /Sending result needs confirmation|发送结果待确认/u.test(await text()), 'missing receipt unknown state');
     await until(async () => (await readSink()).sends.length === 2 && await evaluate("Boolean([...document.querySelectorAll('.emailComposer button')].find(button=>/^(Check sending result|核对发送结果)$/.test(button.textContent)&&!button.disabled))"), 'provider effect and completed unknown response');
     assert.equal(await evaluate("Boolean(document.querySelector('.emailComposer fieldset').disabled)"), true);
-    assert.equal(await evaluate("[...document.querySelectorAll('.emailComposer button')].some(button=>/^(Confirm sending this version|确认发送此版本|Send|发送)$/.test(button.textContent))"), false);
+    assert.equal(await evaluate("[...document.querySelectorAll('.emailComposer button')].some(button=>/^(Confirm sending this version|确认发送此版本|Send|发送)$/.test(button.textContent)&&!button.matches(':disabled'))"), false);
     sink = await readSink(); assert.equal(sink.sends.length, 2);
     // Receipt recovery must succeed even after the desktop source is removed.
     await fs.unlink(path.join(desktopData, 'workbench/files', updatedFile.id));

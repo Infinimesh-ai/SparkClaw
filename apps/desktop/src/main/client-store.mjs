@@ -7,7 +7,7 @@ import { WORKBENCH_LIMITS } from "../shared/workbench-limits.mjs";
 import { calendarMissed, nextCalendarTime, parseScheduleRequest, recurrenceSpec, zonedTime } from "./local-schedule-time.mjs";
 import { initialQuestionTitle, migrateConversationTitles } from "./client-conversation-titles.mjs";
 
-export const CLIENT_SCHEMA_VERSION = 11;
+export const CLIENT_SCHEMA_VERSION = 12;
 export const CLIENT_LIMITS = WORKBENCH_LIMITS;
 const MESSAGE_DELIVERIES_SCHEMA = `CREATE TABLE message_deliveries(message_id TEXT PRIMARY KEY REFERENCES messages(id),
   request_id TEXT NOT NULL,sequence INTEGER NOT NULL,UNIQUE(request_id,sequence),
@@ -15,6 +15,8 @@ const MESSAGE_DELIVERIES_SCHEMA = `CREATE TABLE message_deliveries(message_id TE
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u;
+const RECORDING_APPLICATIONS_SCHEMA = `CREATE TABLE recording_applications(scope TEXT NOT NULL, request_id TEXT NOT NULL,
+  conversation_id TEXT NOT NULL, draft_revision INTEGER NOT NULL, PRIMARY KEY(scope,request_id));`;
 
 export function localContentType(name) {
   return ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
@@ -37,7 +39,7 @@ export class ClientStore {
     try {
       this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
       const version = this.db.prepare("PRAGMA user_version").get().user_version;
-      if (![0, 6, 7, 8, 9, 10, CLIENT_SCHEMA_VERSION].includes(version)) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
+      if (![0, 6, 7, 8, 9, 10, 11, CLIENT_SCHEMA_VERSION].includes(version)) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
       if (version === 0) this.#initialize();
       if (version === 6) this.#transaction(() => {
         this.db.exec(`CREATE TABLE execution_projection(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id),revision INTEGER NOT NULL,termination_reason TEXT NOT NULL,approval_receipts TEXT NOT NULL,event_state TEXT NOT NULL);
@@ -76,6 +78,9 @@ export class ClientStore {
       if (version !== 0 && version < 11) this.#transaction(() => {
         this.db.exec(`${MESSAGE_DELIVERIES_SCHEMA} PRAGMA user_version=11;`);
       });
+      if (version !== 0 && version < 12) this.#transaction(() => {
+        this.db.exec(`${RECORDING_APPLICATIONS_SCHEMA} PRAGMA user_version=12;`);
+      });
       this.installationID = this.db.prepare("SELECT value FROM metadata WHERE key='installation_id'").get().value;
       // Incomplete atomic file writes are never treated as delivered files.
       const committedFiles = new Set(this.db.prepare("SELECT id FROM files").all().map((file) => file.id));
@@ -101,6 +106,7 @@ export class ClientStore {
           role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE drafts(scope TEXT NOT NULL, conversation_id TEXT NOT NULL, content TEXT NOT NULL,
           local_file_ids TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(scope,conversation_id));
+        ${RECORDING_APPLICATIONS_SCHEMA}
         CREATE TABLE tasks(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id),
           request_id TEXT UNIQUE NOT NULL, input_digest TEXT NOT NULL, context_json TEXT NOT NULL,
           status TEXT NOT NULL, created_at TEXT NOT NULL, explicitly_submitted INTEGER NOT NULL DEFAULT 0,
@@ -225,7 +231,16 @@ export class ClientStore {
     return row ? { ...row, local_file_ids: JSON.parse(row.local_file_ids) } : { content: "", local_file_ids: [], revision: 0 };
   }
 
-  saveDraft(scope, conversationID, content, localFileIDs, revision) {
+  recordingApplied(scope, conversationID, requestID) {
+    uuid(requestID);
+    if (conversationID !== "") this.#conversation(scope, conversationID);
+    const row = this.db.prepare("SELECT conversation_id FROM recording_applications WHERE scope=? AND request_id=?").get(scopeKey(scope), requestID);
+    if (row && row.conversation_id !== conversationID) throw new Error("Recording belongs to another conversation");
+    return Boolean(row);
+  }
+
+  saveDraft(scope, conversationID, content, localFileIDs, revision, recordingRequestID) {
+    if (recordingRequestID !== undefined) uuid(recordingRequestID);
     boundedText(content, CLIENT_LIMITS.inputBytes, "Draft");
     if (!Number.isSafeInteger(revision) || revision < 0 || !Array.isArray(localFileIDs) || localFileIDs.length > CLIENT_LIMITS.resultFiles ||
         new Set(localFileIDs).size !== localFileIDs.length) throw new Error("Invalid draft revision or attachments");
@@ -237,9 +252,14 @@ export class ClientStore {
     return this.#transaction(() => {
       const prior = this.draft(scope, conversationID);
       if (prior.revision !== revision) throw new Error("Draft changed in another editor; reload before saving");
+      if (recordingRequestID !== undefined) this.recordingApplied(scope, conversationID, recordingRequestID);
       this.db.prepare(`INSERT INTO drafts VALUES(?,?,?,?,?) ON CONFLICT(scope,conversation_id) DO UPDATE SET
         content=excluded.content,local_file_ids=excluded.local_file_ids,revision=excluded.revision`)
         .run(scopeKey(scope), conversationID, content, JSON.stringify(localFileIDs), revision + 1);
+      // The transcript and its consumption evidence commit together. Clearing
+      // the draft or losing the later recording ACK cannot make it insertable.
+      if (recordingRequestID !== undefined) this.db.prepare("INSERT INTO recording_applications VALUES(?,?,?,?) ON CONFLICT(scope,request_id) DO NOTHING")
+        .run(scopeKey(scope), recordingRequestID, conversationID, revision + 1);
       return this.draft(scope, conversationID);
     });
   }

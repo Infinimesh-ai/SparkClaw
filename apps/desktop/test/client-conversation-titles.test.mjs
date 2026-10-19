@@ -90,7 +90,7 @@ test("schema 9 default titles are backfilled once without changing existing hist
   const content = f.store.read(scope, old[0].id), draft = f.store.draft(scope, old[0].id);
   const timestamps = f.store.db.prepare("SELECT id,created_at,updated_at FROM conversations ORDER BY id").all();
   const contexts = f.store.db.prepare("SELECT request_id,input_digest,context_json FROM tasks ORDER BY rowid").all();
-  f.store.db.exec("DROP TABLE message_deliveries; ALTER TABLE conversations DROP COLUMN title_pending; PRAGMA user_version=9;");
+  f.store.db.exec("DROP TABLE recording_applications; DROP TABLE message_deliveries; ALTER TABLE conversations DROP COLUMN title_pending; PRAGMA user_version=9;");
   f.restart();
   assert.equal(f.store.db.prepare("PRAGMA user_version").get().user_version, CLIENT_SCHEMA_VERSION);
   assert.equal(f.store.installationID, installation);
@@ -114,7 +114,7 @@ test("schema 9 default titles are backfilled once without changing existing hist
 test("failed title migration preserves schema 9 and permits a clean retry", t => {
   const f = fixture(t), old = f.store.create(scope, "新对话");
   f.store.enqueue(scope, old.id, "Preserved first question");
-  f.store.db.exec("DROP TABLE message_deliveries; ALTER TABLE conversations DROP COLUMN title_pending; PRAGMA user_version=9;");
+  f.store.db.exec("DROP TABLE recording_applications; DROP TABLE message_deliveries; ALTER TABLE conversations DROP COLUMN title_pending; PRAGMA user_version=9;");
   f.store.db.exec("CREATE TRIGGER fail_title BEFORE UPDATE ON conversations BEGIN SELECT RAISE(ABORT,'disk full'); END;");
   assert.throws(() => new ClientStore(f.root), /disk full/);
   const db = new DatabaseSync(path.join(f.root, "client.sqlite"));

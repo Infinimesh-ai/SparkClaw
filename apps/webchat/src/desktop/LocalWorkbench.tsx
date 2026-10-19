@@ -154,7 +154,7 @@ export function LocalWorkbench() {
       draftScopes.set(id, value.scope_key); return workbenchDraft(value);
     },
     save: async (id: string, value: import("../lib/workbenchDraft").WorkbenchDraft) =>
-      workbenchDraft(await store.saveDraft(id, value.content, value.attachment_ids, value.revision, draftScopes.get(id) ?? "")),
+      workbenchDraft(await store.saveDraft(id, value.content, value.attachment_ids, value.revision, draftScopes.get(id) ?? "", value.recording_request_id)),
   }), [store, draftScopes]);
   const drafts = useWorkbenchDraft(draftAdapter, surfaceError);
   const draft = drafts.draft.content; draftRef.current = draft;
@@ -260,7 +260,7 @@ export function LocalWorkbench() {
     return () => { active = false; unsubscribe?.(); window.clearInterval(timer); if (paint !== undefined) window.cancelAnimationFrame(paint); };
   }, [selected, store, surfaceError, readContent]);
 
-  const voiceDraftPersistence = useMemo(() => new VoiceDraftPersistence(), [store]);
+  const voiceDraftPersistence = useMemo(() => new VoiceDraftPersistence(), [store, localScopeKey]);
   const applyVoiceTranscript = useCallback(async (result: { text: string; request_id: string }, anchor: VoiceDraftAnchor) => {
     return voiceDraftPersistence.apply(JSON.stringify([anchor.sessionId, result.request_id]), () => {
       if (anchor.sessionId !== selectedRef.current || draftRef.current !== anchor.draft) return false;
@@ -269,13 +269,17 @@ export function LocalWorkbench() {
       const inserted = insertVoiceTranscript(draftRef.current, result.text, start, end);
       draftRef.current = inserted.value;
       setDraft(inserted.value);
+      if (iscp) drafts.markRecording(anchor.sessionId, result.request_id);
       window.requestAnimationFrame(() => {
         composerInputRef.current?.focus();
         composerInputRef.current?.setSelectionRange(inserted.caret, inserted.caret);
       });
       return true;
-    }, () => drafts.flush(anchor.sessionId));
-  }, [drafts, setDraft, voiceDraftPersistence]);
+    }, () => drafts.flush(anchor.sessionId), iscp ? async () => {
+      if (!store.recordingApplied) throw new Error("Recording draft persistence is unavailable");
+      return store.recordingApplied(anchor.sessionId, result.request_id, draftScopes.get(anchor.sessionId) ?? "");
+    } : undefined);
+  }, [drafts, setDraft, voiceDraftPersistence, iscp, store, draftScopes]);
   const voice = useVoiceInput({
     speech: ready?.speech ?? null,
     sessionId: selected,

@@ -89,6 +89,27 @@ test("draft IPC fences delayed welcome autosave after identity changes", async (
   assert.equal(writes, 1);
 });
 
+test("recording draft evidence uses the current scope and admits only the opaque request identity", async () => {
+  const frame = { url: "sparkclaw-app://workbench/index.html" }, webContents = { mainFrame: frame };
+  let identity = { deployment_id: "deployment", owner_id: "owner", client_id: "client" };
+  const calls = [];
+  const capability = new ClientStoreCapability({ window: { webContents }, getIdentity: () => identity,
+    store: { draft: () => ({ content: "", local_file_ids: [], revision: 0 }),
+      recordingApplied: (...args) => { calls.push(args); return true; },
+      saveDraft: (...args) => { calls.push(args); return { content: "text", local_file_ids: [], revision: 1 }; } } });
+  const event = { sender: webContents, senderFrame: frame };
+  const { scope_key } = await capability.dispatch(event, { schema_version: 1, operation: "draft", conversation_id: "" });
+  const requestID = "00000000-0000-4000-8000-000000000001";
+  const query = { schema_version: 1, operation: "recordingApplied", conversation_id: "", request_id: requestID, expected_scope: scope_key };
+  assert.equal(await capability.dispatch(event, query), true);
+  await capability.dispatch(event, { schema_version: 1, operation: "saveDraft", conversation_id: "", content: "text", local_file_ids: [], revision: 0, expected_scope: scope_key, recording_request_id: requestID });
+  assert.deepEqual(calls[0], [identity, "", requestID]); assert.equal(calls[1].at(-1), requestID);
+  await assert.rejects(capability.dispatch(event, { ...query, owner_id: "foreign" }), /fields/);
+  identity = { ...identity, client_id: "other" };
+  await assert.rejects(capability.dispatch(event, query), /authentication changed/);
+  assert.equal(calls.length, 2);
+});
+
 test("local file inventory accepts no renderer path or scope and requires the qualified files surface", async () => {
   const frame = { url: "sparkclaw-app://workbench/index.html" }, webContents = { mainFrame: null }; webContents.mainFrame = frame;
   const identity = { deployment_id: "d", owner_id: "o", client_id: "c" };

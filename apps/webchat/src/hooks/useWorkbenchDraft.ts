@@ -53,6 +53,7 @@ export function useWorkbenchDraft(adapter: WorkbenchDraftAdapter, onError: (erro
     id: () => current.current,
     content, attachments,
     flush: (id = current.current) => drafts.flush(id),
+    markRecording: (id: string, requestID: string) => drafts.markRecording(id, requestID),
     saveCurrentOverLatest: () => drafts.saveCurrentOverLatest(current.current),
     accept: (id: string, value: WorkbenchDraft) => drafts.accept(id, value),
   };

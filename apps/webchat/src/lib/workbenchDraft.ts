@@ -1,4 +1,4 @@
-export type WorkbenchDraft = { content: string; attachment_ids: string[]; revision: number };
+export type WorkbenchDraft = { content: string; attachment_ids: string[]; revision: number; recording_request_id?: string };
 export type DraftStatus = "loading" | "saved" | "saving" | "unsaved" | "error";
 export type WorkbenchDraftAdapter = {
   load: (id: string) => Promise<WorkbenchDraft>;
@@ -36,11 +36,17 @@ export class WorkbenchDrafts {
 
   edit(id: string, value: Pick<WorkbenchDraft, "content" | "attachment_ids">) {
     const entry = this.entry(id);
-    entry.value = { ...copy({ ...value, revision: entry.value.revision }) };
+    entry.value = { ...copy({ ...entry.value, ...value, revision: entry.value.revision }) };
     entry.dirty = true; entry.sequence++;
     clearTimeout(entry.timer);
     entry.timer = setTimeout(() => void this.flush(id).catch((error) => this.options.onError?.(error)), this.options.debounceMS ?? 250);
     this.options.onChange?.(id, copy(entry.value), "unsaved");
+  }
+
+  markRecording(id: string, requestID: string) {
+    const entry = this.entry(id);
+    entry.value = { ...entry.value, recording_request_id: requestID };
+    entry.dirty = true; entry.sequence++;
   }
 
   async flush(id: string): Promise<WorkbenchDraft> {

@@ -64,9 +64,13 @@ export class ClientStoreCapability {
         keys(request, ["conversation_id"]);
         return draftResult(this.store.draft(scope, request.conversation_id));
       case "saveDraft":
-        keys(request, ["conversation_id", "content", "local_file_ids", "revision", "expected_scope"]);
+        keys(request, ["conversation_id", "content", "local_file_ids", "revision", "expected_scope", ...(Object.hasOwn(request, "recording_request_id") ? ["recording_request_id"] : [])]);
         verifyDraftScope();
-        return draftResult(this.store.saveDraft(scope, request.conversation_id, request.content, request.local_file_ids, request.revision));
+        return draftResult(this.store.saveDraft(scope, request.conversation_id, request.content, request.local_file_ids, request.revision, request.recording_request_id));
+      case "recordingApplied":
+        keys(request, ["conversation_id", "request_id", "expected_scope"]);
+        verifyDraftScope();
+        return this.store.recordingApplied(scope, request.conversation_id, request.request_id);
       case "moveWelcomeDraft":
         keys(request, ["conversation_id", "revision", "expected_scope"]);
         verifyDraftScope();

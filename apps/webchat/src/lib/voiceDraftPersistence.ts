@@ -3,7 +3,8 @@
 export class VoiceDraftPersistence {
   private applied?: { key: string; flush: () => Promise<unknown> };
 
-  async apply(key: string, insert: () => boolean, flush: () => Promise<unknown>): Promise<boolean> {
+  async apply(key: string, insert: () => boolean, flush: () => Promise<unknown>, wasApplied?: () => Promise<boolean>): Promise<boolean> {
+    if (wasApplied && await wasApplied()) return true;
     if (this.applied?.key !== key) {
       if (!insert()) return false;
       this.applied = { key, flush };

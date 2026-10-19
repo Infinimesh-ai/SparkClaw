@@ -103,24 +103,25 @@ async function captureHiddenViewport(record, fence) {
   const { width, height } = record.view.getBounds();
   debuggerSession.attach("1.3");
   try {
-    const result = await captureDeadline(Promise.any([
+    const image = await captureDeadline(Promise.any([
       record.webContents.capturePage().then(image => {
         if (image.isEmpty()) throw new Error("Browser display surface is unavailable");
-        return { image };
+        return image;
       }),
       debuggerSession.sendCommand("Page.captureScreenshot", {
         format: "png", fromSurface: true, captureBeyondViewport: true,
         clip: { x: 0, y: 0, width, height, scale: CAPTURE_WIDTH / width },
-      }).then(result => ({ data: result.data })),
+      }).then(async result => {
+        if (typeof result.data !== "string" || !result.data) throw new Error("Browser screenshot is empty");
+        fence();
+        const { nativeImage } = await import("electron");
+        fence();
+        const image = nativeImage.createFromBuffer(Buffer.from(result.data, "base64"));
+        if (image.isEmpty()) throw new Error("Browser screenshot is empty");
+        return image;
+      }),
     ]), 5000);
     fence();
-    let image = result.image;
-    if (!image) {
-      const { nativeImage } = await import("electron");
-      fence();
-      image = nativeImage.createFromBuffer(Buffer.from(result.data, "base64"));
-      if (image.isEmpty()) throw new Error("Browser screenshot is empty");
-    }
     return image.resize({ width: CAPTURE_WIDTH }).toPNG();
   } finally {
     // A later native/CDP result cannot escape after the winner or timeout.

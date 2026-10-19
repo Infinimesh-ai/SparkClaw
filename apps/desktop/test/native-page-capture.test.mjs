@@ -103,3 +103,14 @@ test("a revoked lease cannot disclose the native winner of a hidden capture", as
   await assert.rejects(capture(record, () => { if (revoked) throw new Error("lease fenced"); }), /lease fenced/);
   assert.deepEqual(record.calls.at(-1), ["detach"]);
 });
+
+
+test("an empty CDP result cannot beat a later valid native image", async () => {
+  const bytes = Buffer.from("later native PNG");
+  const record = fixture({ visible: false, native: async () => {
+    for (let index = 0; index < 10; index++) await Promise.resolve();
+    return { isEmpty: () => false, resize: () => ({ toPNG: () => bytes }) };
+  }, cdp: async () => ({ data: "" }) });
+  assert.equal((await capture(record)).data, bytes.toString("base64"));
+  assert.deepEqual(record.calls.at(-1), ["detach"]);
+});

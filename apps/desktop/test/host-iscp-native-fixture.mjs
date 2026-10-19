@@ -100,6 +100,29 @@ void app.whenReady().then(async () => {
     evidence.screenshot_window_visible = window.isVisible();
     evidence.screenshot_window_focused = window.isFocused();
     const record = registry.conversationPages.get("native");
+    evidence.capture_timings = [];
+    const capturePage = record.webContents.capturePage.bind(record.webContents);
+    record.webContents.capturePage = (...args) => {
+      const start = performance.now();
+      return capturePage(...args).then(image => {
+        evidence.capture_timings.push({ method: "native", elapsed_ms: performance.now()-start, empty: image.isEmpty(), size: image.getSize() });
+        return image;
+      }, error => {
+        evidence.capture_timings.push({ method: "native", elapsed_ms: performance.now()-start, error: error.message });
+        throw error;
+      });
+    };
+    const sendCommand = record.webContents.debugger.sendCommand.bind(record.webContents.debugger);
+    record.webContents.debugger.sendCommand = (method, ...args) => {
+      const start = performance.now();
+      return sendCommand(method, ...args).then(result => {
+        if (method === "Page.captureScreenshot") evidence.capture_timings.push({ method: "cdp", elapsed_ms: performance.now()-start, bytes: Buffer.from(result.data || "", "base64").length });
+        return result;
+      }, error => {
+        if (method === "Page.captureScreenshot") evidence.capture_timings.push({ method: "cdp", elapsed_ms: performance.now()-start, error: error.message });
+        throw error;
+      });
+    };
     evidence.selected_conversation = registry.selectedConversationID;
     evidence.presented_host_page = registry.presentation.presented === record;
     evidence.child_views = window.contentView.children.map(view => ({id:view.webContents?.id, visible:view.getVisible()}));

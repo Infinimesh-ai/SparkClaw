@@ -82,11 +82,15 @@ function lookup(args) {
 }
 
 async function captureScreenshot(record, fence) {
-  // A cold hidden view needs Chromium to create its first rendered surface.
-  // Native qualification observes about four seconds for that first frame.
-  // Give this single path five seconds within the existing command deadline,
-  // without presenting the view or first spending time on native capture.
-  if (record.view.getVisible?.() === false) return captureTaskViewport(record, fence, undefined, 5000);
+  // Electron's native capturer requests rendering for a hidden task view.
+  // Keep that request active while Chromium captures the fixed viewport;
+  // waiting for native capture first can exhaust the command's budget before
+  // the never-presented surface exists. The discarded image never escapes.
+  if (record.view.getVisible?.() === false) {
+    void record.webContents.capturePage().catch(() => {});
+    return captureTaskViewport(record, fence, undefined, 5000);
+  }
+
   try {
     const image = await captureDeadline(record.webContents.capturePage(), 5000);
     fence();

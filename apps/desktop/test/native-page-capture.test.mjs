@@ -64,12 +64,12 @@ test("capture output still obeys the host reply budget", async () => {
 });
 
 
-test("a never-presented view skips a stalled native surface and captures its fixed viewport immediately", async () => {
+test("a never-presented view requests native rendering without waiting on its stalled image", async () => {
   let nativeCalls = 0;
   const record = fixture({ visible: false, native: () => { nativeCalls++; return new Promise(() => {}); },
     cdp: async () => { throw new Error("viewport reached"); } });
   await assert.rejects(capture(record), /viewport reached/);
-  assert.equal(nativeCalls, 0);
+  assert.equal(nativeCalls, 1);
   assert.equal(record.calls[1][0], "Page.captureScreenshot");
   assert.deepEqual(record.calls.at(-1), ["detach"]);
 });

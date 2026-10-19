@@ -57,7 +57,7 @@ try {
   const evidence = await readPrivateJSON(path.join(fixture, 'evidence.json'));
   assert.equal(evidence.passed, true, evidence.error);
   const operations = await readPrivateJSON(path.join(fixture, 'operations.json'));
-  for (const name of ['transfer.open', 'transfer.chunk', 'transfer.commit', 'mail.mailboxes', 'mail.drafts.list', 'mail.drafts.save', 'mail.drafts.send', 'mail.drafts.reconcile']) assert.ok(operations[name] > 0, `Actual ISCP operation ${name}`);
+  for (const name of ['transfer.open', 'transfer.chunk', 'transfer.commit', 'mail.sync.status', 'mail.providers.list', 'mail.conversations.list', 'mail.drafts.list', 'mail.drafts.save', 'mail.drafts.send', 'mail.drafts.reconcile']) assert.ok(operations[name] > 0, `Actual ISCP operation ${name}`);
   const network = JSON.parse(await fs.readFile(path.join(fixture, 'native-network.json'), 'utf8'));
   const direct = (network.events || []).filter(event => /^https?:|^wss?:/u.test(event.params?.url || ''));
   assert.equal(direct.length, 0, 'Native Chromium HTTP/WS URL events');

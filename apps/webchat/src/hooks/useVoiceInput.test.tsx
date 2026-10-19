@@ -140,7 +140,7 @@ describe("useVoiceInput", () => {
 
   function renderHook(
     speech: SpeechStatus = batchSpeech,
-    onTranscript = vi.fn(() => true),
+    onTranscript: (result: SpeechTranscriptionResult, anchor: VoiceDraftAnchor) => boolean | Promise<boolean> = vi.fn(() => true),
     iscp = false
   ) {
     const container = document.createElement("div");
@@ -400,6 +400,26 @@ describe("useVoiceInput", () => {
     expect(hook.value().state).toBe("recording_batch_only");
     await act(async () => { release([{ session_id: "session-a", request_id: result.request_id, operation_id: "old-op", anchor, result }]); await Promise.resolve(); });
     expect(hook.value().state).toBe("recording_batch_only"); expect(hook.value().hasPendingTranscript).toBe(false);
+  });
+
+
+  it("does not ACK or repeat insertion until the original draft persistence succeeds", async () => {
+    let complete!: (saved: boolean) => void, reject!: (error: Error) => void;
+    const acknowledgeRecording = vi.fn(async () => ({}));
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      pendingRecordings: async () => [{ session_id: "session-a", request_id: result.request_id, operation_id: "original-op", anchor, result }], acknowledgeRecording } as unknown as SparkClawDesktop;
+    const onTranscript = vi.fn(() => new Promise<boolean>((resolve, fail) => { complete = resolve; reject = fail; }));
+    const hook = renderHook(batchSpeech, onTranscript, true); await settle();
+    act(() => hook.value().insertPending(anchor));
+    act(() => hook.value().insertPending(anchor));
+    expect(onTranscript).toHaveBeenCalledOnce(); expect(acknowledgeRecording).not.toHaveBeenCalled();
+    await act(async () => { reject(new Error("draft disk unavailable")); await Promise.resolve(); });
+    expect(acknowledgeRecording).not.toHaveBeenCalled(); expect(hook.value().state).toBe("pending_insert");
+    act(() => hook.value().insertPending(anchor));
+    expect(acknowledgeRecording).not.toHaveBeenCalled();
+    await act(async () => { complete(true); await Promise.resolve(); });
+    expect(acknowledgeRecording).toHaveBeenCalledExactlyOnceWith({ session_id: "session-a", request_id: result.request_id, operation_id: "original-op" });
+    expect(hook.value().state).toBe("idle");
   });
 
 });

@@ -259,7 +259,7 @@ export function LocalWorkbench() {
     return () => { active = false; unsubscribe?.(); window.clearInterval(timer); if (paint !== undefined) window.cancelAnimationFrame(paint); };
   }, [selected, store, surfaceError, readContent]);
 
-  const applyVoiceTranscript = useCallback((result: { text: string }, anchor: VoiceDraftAnchor) => {
+  const applyVoiceTranscript = useCallback(async (result: { text: string }, anchor: VoiceDraftAnchor) => {
     if (anchor.sessionId !== selectedRef.current || draftRef.current !== anchor.draft) return false;
     const start = Math.min(anchor.selectionStart, draftRef.current.length);
     const end = Math.min(Math.max(anchor.selectionEnd, start), draftRef.current.length);
@@ -270,8 +270,9 @@ export function LocalWorkbench() {
       composerInputRef.current?.focus();
       composerInputRef.current?.setSelectionRange(inserted.caret, inserted.caret);
     });
+    await drafts.flush();
     return true;
-  }, [setDraft]);
+  }, [drafts, setDraft]);
   const voice = useVoiceInput({
     speech: ready?.speech ?? null,
     sessionId: selected,

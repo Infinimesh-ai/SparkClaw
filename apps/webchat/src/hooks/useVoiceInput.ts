@@ -45,6 +45,7 @@ type VoiceOperation = {
   anchor: VoiceDraftAnchor;
   requestId: string;
   recordingOperationID?: string;
+  applyingTranscript?: boolean;
   capture?: PCMInputCapture;
   realtime?: SpeechRealtimeClient | ISCPSpeechRealtimeClient;
   realtimeCaptureStarted: boolean;
@@ -70,7 +71,7 @@ type Options = {
   sessionId: string;
   language: string;
   externallyDisabled: boolean;
-  onTranscript: (result: SpeechTranscriptionResult, anchor: VoiceDraftAnchor) => boolean;
+  onTranscript: (result: SpeechTranscriptionResult, anchor: VoiceDraftAnchor) => boolean | Promise<boolean>;
 };
 
 const RETRY_AUDIO_TTL_MS = 5 * 60 * 1000;
@@ -165,25 +166,37 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     dispatch({ type: "failure", code: failure.code, detail: failure.detail });
   }, [clearTimers]);
 
-  const applyResult = useCallback((current: VoiceOperation, result: SpeechTranscriptionResult) => {
-    if (operation.current !== current) return;
+  const applyResult = useCallback((current: VoiceOperation, result: SpeechTranscriptionResult, anchor = current.anchor) => {
+    if (operation.current !== current || current.applyingTranscript) return;
     setPartial(null);
     if (!result.text.trim()) {
       failOperation(current, { code: "speech_no_speech" });
       return;
     }
-    if (!onTranscript(result, current.anchor)) {
-      current.pending = result;
-      current.wav = undefined;
-      dispatch({ type: "pending_insert" });
-      return;
-    }
-    acknowledgeRecording(current);
-    operation.current = null;
-    clearTimers(current);
-    setLevel(0);
-    setElapsedMs(0);
-    dispatch({ type: "reset" });
+    const finish = (applied: boolean) => {
+      current.applyingTranscript = false;
+      if (operation.current !== current) return;
+      if (!applied) {
+        current.pending = result;
+        current.wav = undefined;
+        dispatch({ type: "pending_insert" });
+        return;
+      }
+      // The caller's async completion includes durable draft persistence.
+      // Rendering the inserted text alone never acknowledges the native result.
+      acknowledgeRecording(current);
+      operation.current = null;
+      clearTimers(current);
+      setLevel(0);
+      setElapsedMs(0);
+      dispatch({ type: "reset" });
+    };
+    try {
+      current.applyingTranscript = true;
+      const applied = onTranscript(result, anchor);
+      if (typeof applied === "boolean") finish(applied);
+      else void applied.then(finish, () => finish(false));
+    } catch { finish(false); }
   }, [acknowledgeRecording, clearTimers, failOperation, onTranscript]);
 
   const transcribe = useCallback(async (current: VoiceOperation) => {
@@ -509,13 +522,9 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
 
   const insertPending = useCallback((anchor: VoiceDraftAnchor) => {
     const current = operation.current;
-    if (!current?.pending || machine.phase !== "pending_insert") return;
-    if (anchor.sessionId !== current.anchor.sessionId || !onTranscript(current.pending, anchor)) return;
-    acknowledgeRecording(current);
-    operation.current = null;
-    clearTimers(current);
-    dispatch({ type: "reset" });
-  }, [acknowledgeRecording, clearTimers, machine.phase, onTranscript]);
+    if (!current?.pending || machine.phase !== "pending_insert" || anchor.sessionId !== current.anchor.sessionId) return;
+    applyResult(current, current.pending, anchor);
+  }, [applyResult, machine.phase]);
 
   const toggle = useCallback((anchor: VoiceDraftAnchor) => {
     if (voicePhaseIsRecording(machine.phase)) {

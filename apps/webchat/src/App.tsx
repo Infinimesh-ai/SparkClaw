@@ -422,7 +422,7 @@ export function App() {
   const pendingApprovals = useMemo(() => approvals.filter((approval) => approval.status === "pending"), [approvals]);
   const pendingCandidates = useMemo(() => candidates.filter((candidate) => candidate.status === "pending"), [candidates]);
   const active = sessions.find((session) => session.id === activeSession);
-  const applyVoiceTranscript = useCallback((result: { text: string }, anchor: VoiceDraftAnchor) => {
+  const applyVoiceTranscript = useCallback(async (result: { text: string }, anchor: VoiceDraftAnchor) => {
     const currentDraft = draftsBySessionRef.current[anchor.sessionId] ?? "";
     if (currentDraft !== anchor.draft) return false;
     const start = Math.min(anchor.selectionStart, currentDraft.length);
@@ -437,8 +437,9 @@ export function App() {
         composerInputRef.current?.setSelectionRange(inserted.caret, inserted.caret);
       });
     }
+    await drafts.repository.flush(anchor.sessionId);
     return true;
-  }, [activeSession]);
+  }, [activeSession, drafts.repository, setDraftsBySession]);
 
   const voice = useVoiceInput({
     speech: ready?.speech ?? null,

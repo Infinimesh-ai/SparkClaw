@@ -3,7 +3,7 @@ const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}
 const identity=request=>request&&UUID.test(request.session_id)&&request.request_id?.startsWith('voice-')&&UUID.test(request.request_id.slice(6));
 
 // A recording retains one operation identity across explicit retries and process
-// restarts. Only a missing receipt may start transcription; unknown never does.
+// restarts. Missing history cannot authorize repeating an attempted provider call.
 export class ISCPRecordingClient {
  constructor(auth){this.auth=auth;this.active=new Map();}
  close(){for(const value of this.active.values())value.abort.abort();this.active.clear();}
@@ -29,9 +29,10 @@ export class ISCPRecordingClient {
    catch(error){if(error.status!==404)throw error;}
    abort.signal.throwIfAborted();
    if(receipt){if(receipt.operation_id!==operationID||receipt.state!=='completed'||!receipt.response)throw new Error('Recording outcome is unknown; transcription will not be repeated');if(receipt.response.status>=400)throw new Error(receipt.response.body?.error||'The original transcription failed');return {...validateResult(receipt.response.body,request),...(record.audio_released?{audio_retained:false}:{})};}
+   if (record.phase !== 'prepared') throw new Error('Recording outcome is unknown; transcription will not be repeated');
    const object=await auth.transport.objects.upload(request.bytes,{purpose:'speech_recording',name:'recording.wav',media_type:'audio/wav'},abort.signal);state.object=object;
    abort.signal.throwIfAborted();if(generation!==auth.generation)throw new Error('Recording authorization changed');
-   state.provider=true;
+   journal.markAttempted(resource,operationID);state.provider=true;
    const result=await auth.invokeISCP('speech.transcribe',{session_id:request.session_id,request_id:request.request_id,language:request.language,audio_object:object},{operationID,signal:abort.signal});
    abort.signal.throwIfAborted();validateResult(result,request);
    try{await auth.invokeISCP('object.release',{object_id:object.object_id,version:object.version});journal.markReleased(resource,operationID);return {...result,audio_retained:false};}

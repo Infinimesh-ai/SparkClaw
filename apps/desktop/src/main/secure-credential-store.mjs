@@ -18,6 +18,22 @@ export class SecureCredentialStore {
     return new SecureCredentialStore({ directory: this.directory, safeStorage: this.safeStorage, platform: this.platform, uid: this.uid, profileBinding });
   }
 
+  // The journal's durable attempt fence immediately precedes its pipe write.
+  // Native protection is synchronous; no plaintext fallback or local key file.
+  sealMutationRecord(record) {
+    if (!this.available()) throw new Error("Secure mutation storage is unavailable");
+    return this.safeStorage.encryptString(JSON.stringify({ type: "iscp-mutation.v2", record }));
+  }
+
+  openMutationRecord(bytes) {
+    if (!this.available()) throw new Error("Secure mutation storage is unavailable");
+    try {
+      const envelope = JSON.parse(this.safeStorage.decryptString(bytes));
+      if (envelope.type !== "iscp-mutation.v2" || envelope.record?.schema_version !== 2) throw new Error();
+      return envelope.record;
+    } catch { throw new Error("Saved mutation could not be unlocked"); }
+  }
+
   async loadClientOperation(resource) {
     if (!this.available()) throw new Error("Secure operation storage is unavailable");
     try {

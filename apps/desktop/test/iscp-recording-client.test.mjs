@@ -39,3 +39,11 @@ test('cancel aborts the original provider call and uses only its scoped recordin
  assert.deepEqual(f.calls.find(call=>call.op==='speech.cancel').body,{session_id:session,request_id:requestID});
  assert.equal(client.active.size,0);
 });
+
+test('missing receipt after attempted transcription never uploads or starts a second provider call', async t => {
+ const f=fixture(t);await new ISCPRecordingClient(f.auth).transcribe(request);
+ f.receipts.clear();
+ f.auth.transport.mutations=new ISCPMutationJournal(f.root,{owner:'owner'});
+ await assert.rejects(new ISCPRecordingClient(f.auth).transcribe(request),/unknown/);
+ assert.equal(f.uploads,1);assert.equal(f.calls.filter(call=>call.op==='speech.transcribe').length,1);
+});

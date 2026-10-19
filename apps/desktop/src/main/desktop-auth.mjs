@@ -554,6 +554,7 @@ export class DesktopAuth {
         installationID: this.installationID, readLocalFile: this.readLocalFile,
         canSendMailAttachments: () => projectISCPCapabilities(this.transport?.capabilities, this.capabilityReport).surfaces.mail_send_attachments.enabled,
         journalRoot: path.join(path.dirname(this.descriptorPath), "iscp-objects"),
+        mutationProtector: this.defaultVault,
         onCapabilities: () => { if (this.transport !== transport) return; if(this.status.state === "connected") this.#set("connected"); },
         onState: (state) => {
           if (this.transport !== transport) return;

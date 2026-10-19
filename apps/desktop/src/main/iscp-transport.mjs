@@ -20,6 +20,14 @@ const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const CAPACITIES = Object.freeze({v1:4,business:4,control:1,bulk:2,events:1,audio:2}); // Legacy peer compatibility only.
 const MAIL_READ_LIMIT = 3; // Reserve the fourth business slot for explicit actions.
 const ADMISSION_QUEUE_LIMIT = 24;
+const BEFORE_SEND = Symbol('durable mutation attempt');
+const ORIGINAL_DEADLINE = Symbol('original mutation deadline');
+function requestTimeout(operation, timeoutMS) {
+  return ["mail.drafts.save", "mail.drafts.send", "mail.drafts.reconcile", "mail.drafts.resolve", "mail.providers.check", "mail.providers.login", "mail.intake.update", "mail.replies.polish", "mail.source.cleanup", "mail.conversations.delete"].includes(operation) && timeoutMS === 30000 ? 180000 : timeoutMS;
+}
+function mutationResponse(value) {
+  return new Response([204, 205, 304].includes(value.status) ? null : JSON.stringify(value.body), { status: value.status, headers: { 'content-type': 'application/json' } });
+}
 
 function mailMutationResource(request) {
   const { operation, params = {}, body = {} } = request;
@@ -51,10 +59,11 @@ export function iscpHelperExecutable({ packaged = false, resourcesPath } = {}) {
 // Private pipes are the only Desktop ↔ helper boundary. The helper owns SDK
 // credentials and encrypted Relay traffic; this adapter accepts fixed RPC only.
 export class ISCPTransport {
-  constructor({ clientOperationVault, readLocalFile, canSendMailAttachments = () => false, configPath, origin, expectedIdentity, expectedBinding, installationID, packaged = false, resourcesPath, spawnProcess = spawn, timeoutMS = 30000, onState = () => {}, onCapabilities = () => {}, journalRoot }) {
-    Object.assign(this, { clientOperationVault, readLocalFile, canSendMailAttachments, configPath, origin, expectedIdentity, expectedBinding, installationID, packaged, resourcesPath, spawnProcess, timeoutMS, onState, onCapabilities, journalRoot });
+  constructor({ clientOperationVault, readLocalFile, canSendMailAttachments = () => false, configPath, origin, expectedIdentity, expectedBinding, installationID, packaged = false, resourcesPath, spawnProcess = spawn, timeoutMS = 30000, onState = () => {}, onCapabilities = () => {}, journalRoot, mutationProtector }) {
+    Object.assign(this, { clientOperationVault, readLocalFile, canSendMailAttachments, configPath, origin, expectedIdentity, expectedBinding, installationID, packaged, resourcesPath, spawnProcess, timeoutMS, onState, onCapabilities, journalRoot, mutationProtector });
     this.resourceRevisions = new Map();
     this.presentationPending = new Set();
+    this.mutationFlights = new Map();
     this.admissionQueue = new Set();
     this.pending = new Map(); this.generation = 0; this.state = "closed";
   }
@@ -113,6 +122,7 @@ export class ISCPTransport {
   close() {
     ++this.generation;
     clearTimeout(this.readyTimer);
+    clearInterval(this.recoveryTimer); this.recoveryTimer = undefined;
     this.readyReject?.(new Error("ISCP transport is unavailable"));
     this.readyResolve = this.readyReject = this.readyPromise = undefined;
     for (const call of this.admissionQueue) call.fail(new ISCPRequestNotSentError("ISCP transport is unavailable", "unavailable"));
@@ -211,40 +221,96 @@ export class ISCPTransport {
     finally { this.presentationPending.delete(resource); }
   }
 
-  async #applyPresentation(resource,spec,request,init,rawBody) {
-    let record;
-    if(spec.mutation) {
-      if(!this.mutations)throw new ISCPRequestNotSentError("Durable settings recovery is unavailable");
-      const prior=this.mutations.read(resource);
-      if(prior) {
-        const receipt=await this.invoke('operations.receipt',undefined,{params:{operation_id:prior.operation_id},signal:init.signal});
-        if(receipt.state!=='completed'||!receipt.response)throw new Error("The previous change has an unknown outcome; it will not be repeated");
-        this.mutations.complete(resource,prior.operation_id);
-        if(!this.mutations.matches(prior,request))throw new Error("The previous change was reconciled. Review the current value before making another change");
-        return this.#presentationResponse(resource,new Response(JSON.stringify(receipt.response.body),{status:receipt.response.status}));
+  async #applyPresentation(resource, spec, request, init, rawBody) {
+    if (!spec.mutation) return this.#presentationResponse(resource, await this.#request(request, init, rawBody));
+    const journal = this.mutations;
+    if (!journal) throw new ISCPRequestNotSentError("Durable settings recovery is unavailable");
+    let record = journal.read(resource);
+    if (record && !(record.phase === 'applied' && !journal.matches(record, request))) {
+      const response = await this.#reconcileMutation(journal, resource, record, init);
+      if (!journal.matches(record, request)) {
+        if (journal.read(resource)?.response) journal.complete(resource, record.operation_id);
+        throw new Error("The previous change was reconciled. Review the current value before making another change");
       }
-      const original = request, generation = this.generation, scopeKey = this.objectScopeKey;
-      try { request = await prepareMailAttachments(this, request, init.signal); }
-      catch (error) { if (error instanceof LocalMailAttachmentError) return localAttachmentErrorResponse(error); throw error; }
-      if (generation !== this.generation || scopeKey !== this.objectScopeKey) throw new ISCPRequestNotSentError("ISCP authentication changed", "unavailable");
-      if (request !== original) rawBody = JSON.stringify(request.body);
-      // Fingerprint the renderer's immutable local IDs, not disposable transfer
-      // references. Receipt replay must work after source deletion/object expiry.
-      record=this.mutations.begin(resource,original,this.resourceRevisions.get(resource));
-      request={...request,operation_id:record.operation_id,...(record.expected_revision?{expected_revision:record.expected_revision}:{})};
+      if (journal.read(resource)?.response) journal.complete(resource, record.operation_id);
+      else if (record.schema_version === 1) journal.complete(resource, record.operation_id);
+      return this.#presentationResponse(resource, response);
     }
-    let response;
-    try {response=await this.#request(request,init,rawBody);}
-    catch(error){if(record && error instanceof ISCPRequestNotSentError)this.mutations.complete(resource,record.operation_id);throw error;}
-    // An explicit unknown response is still an outstanding durable intent.
-    // It must not disappear merely because the transport delivered the error.
-    let unknown = false;
-    if (record && !response.ok) {
-      const result = await response.clone().json().catch(() => ({}));
-      unknown = [result.code, result.error_code, response.headers.get("x-sparkclaw-error-code")].includes("operation_outcome_unknown");
-    }
-    if(record && !unknown)this.mutations.complete(resource,record.operation_id);
-    return this.#presentationResponse(resource,response);
+    record = journal.prepare(resource, request, { rawBody, revision: this.resourceRevisions.get(resource),
+      deadline: Date.now() + requestTimeout(request.operation, this.timeoutMS), authorizationRevision: this.capabilities.authorization_revision });
+    const response = await this.#reconcileMutation(journal, resource, record, init);
+    if (journal.read(resource)?.response) journal.complete(resource, record.operation_id);
+    return this.#presentationResponse(resource, response);
+  }
+
+  async #reconcileMutation(journal, resource, record, init = {}) {
+    const key = `${journal.scope}:${record.operation_id}`;
+    if (this.mutationFlights.has(key)) return (await this.mutationFlights.get(key)).clone();
+    const generation = this.generation, scopeKey = this.objectScopeKey;
+    const current = () => {
+      if (generation !== this.generation || scopeKey !== this.objectScopeKey || journal !== this.mutations || this.state !== 'transport_ready') throw new ISCPRequestNotSentError('ISCP authentication changed', 'unavailable');
+    };
+    const run = async () => {
+      current();
+      if (record.response) return mutationResponse(record.response);
+      if (record.schema_version !== 2 || record.phase !== 'prepared') {
+        const receipt = await this.invoke('operations.receipt', undefined, { params: { operation_id: record.operation_id }, signal: init.signal });
+        current();
+        if (receipt.operation_id !== record.operation_id || receipt.state !== 'completed' || !receipt.response || !Number.isInteger(receipt.response.status)) throw new Error('The previous change has an unknown outcome; it will not be repeated');
+        if (record.schema_version === 2) journal.saveResult(resource, record.operation_id, receipt.response);
+        return mutationResponse(receipt.response);
+      }
+      if (record.authorization_revision !== this.capabilities.authorization_revision) {
+        journal.cancelPrepared(resource, record.operation_id, 'Original change authority changed before it was sent');
+        return mutationResponse(journal.read(resource).response);
+      }
+      if (record.not_after <= Date.now()) {
+        journal.cancelPrepared(resource, record.operation_id, 'Original change expired before it was sent');
+        return mutationResponse(journal.read(resource).response);
+      }
+      let request = record.request, rawBody = record.raw_body;
+      try {
+        request = await prepareMailAttachments(this, request, init.signal);
+        current();
+        if (request !== record.request) rawBody = JSON.stringify(request.body);
+        request = { ...request, operation_id: record.operation_id, ...(record.expected_revision ? { expected_revision: record.expected_revision } : {}) };
+        const response = await this.#request(request, { ...init, [ORIGINAL_DEADLINE]: record.not_after,
+          [BEFORE_SEND]: () => { current(); journal.markAttempted(resource, record.operation_id); } }, rawBody);
+        current();
+        const body = await response.clone().json().catch(() => undefined);
+        const unresolved = [body?.code, body?.error_code, response.headers.get('x-sparkclaw-error-code')].some(code =>
+          ['operation_outcome_unknown', 'operation_receipt_unavailable', 'operation_receipt_capacity'].includes(code));
+        // Unclassified server failures cannot prove whether an effect committed.
+        if (!unresolved && response.status < 500) journal.saveResult(resource, record.operation_id, { status: response.status, ...(body !== undefined ? { body } : {}) });
+        return response;
+      } catch (error) {
+        if (error instanceof LocalMailAttachmentError) {
+          current(); journal.cancelPrepared(resource, record.operation_id, error.message);
+          return localAttachmentErrorResponse(error);
+        }
+        if (error instanceof ISCPRequestNotSentError && ['canceled', 'validation'].includes(error.reason)) journal.cancelPrepared(resource, record.operation_id);
+        throw error;
+      }
+    };
+    const flight = run(); this.mutationFlights.set(key, flight);
+    try { return (await flight).clone(); }
+    finally { if (this.mutationFlights.get(key) === flight) this.mutationFlights.delete(key); }
+  }
+
+  #wakeMutationRecovery() {
+    if (this.state !== 'transport_ready' || !this.capabilities?.operations.includes('operations.receipt') || !this.mutations) return;
+    const generation = this.generation, journal = this.mutations;
+    if (this.recoveryScan?.generation === generation && this.recoveryScan.journal === journal) return;
+    const scan = { generation, journal }; this.recoveryScan = scan;
+    void (async () => {
+      for (const record of journal.pending()) {
+        if (generation !== this.generation || journal !== this.mutations || this.state !== 'transport_ready') break;
+        if (this.presentationPending.has(record.resource_key)) continue;
+        // Recovery never widens current capabilities or the original deadline.
+        if (!this.capabilities.operations.includes(record.operation)) continue;
+        await this.#reconcileMutation(journal, record.resource_key, record).catch(() => {});
+      }
+    })().catch(() => {}).finally(() => { if (this.recoveryScan === scan) this.recoveryScan = undefined; });
   }
 
   async #presentationResponse(resource,response) {
@@ -409,8 +475,8 @@ export class ISCPTransport {
     const capacityClass=spec?.capacity_class || 'v1';
     if(!Object.hasOwn(CAPACITIES,capacityClass))throw new ISCPRequestNotSentError("ISCP capacity class is unavailable");
     const mailRead = capacityClass === 'business' && request.operation.startsWith('mail.') && !spec.mutation;
-    const timeoutMS = ["mail.drafts.save", "mail.drafts.send", "mail.drafts.reconcile", "mail.drafts.resolve", "mail.providers.check", "mail.providers.login", "mail.intake.update", "mail.replies.polish", "mail.source.cleanup", "mail.conversations.delete"].includes(request.operation) && this.timeoutMS === 30000 ? 180000 : this.timeoutMS;
-    admissionDeadline ??= Date.now() + timeoutMS;
+    const timeoutMS = requestTimeout(request.operation, this.timeoutMS);
+    admissionDeadline ??= init[ORIGINAL_DEADLINE] ?? Date.now() + timeoutMS;
     if (admissionDeadline <= Date.now()) throw new ISCPRequestNotSentError('ISCP request admission deadline exceeded', 'capacity');
     if (spec && (!this.capabilities || Date.parse(this.capabilities.expires_at) <= Date.now() || !this.capabilities.operations.includes(request.operation))) throw new ISCPRequestNotSentError('This capability is unavailable through ISCP');
     if (init.signal?.aborted) throw new ISCPRequestNotSentError("ISCP request was canceled", "canceled");
@@ -429,6 +495,9 @@ export class ISCPTransport {
       const timer=setTimeout(()=>finish(reject,new Error("ISCP request deadline exceeded")),Math.max(1, admissionDeadline - Date.now()));
       this.pending.set(id,{request,capacityClass,mailRead,...(process.env.SPARKCLAW_PRIVATE_ISCP_READ_DIAGNOSTICS === '1' ? { diagnosticStartedMS: Date.now() } : {}),resolve:(value)=>finish(resolve,value),reject:(error)=>finish(reject,error)});
       signal?.addEventListener("abort",cancel,{once:true});
+      // A failed durable fence is local to this call and must not kill the
+      // shared helper. After the fence, any pipe failure remains unknown.
+      try { init[BEFORE_SEND]?.(); } catch (error) { finish(reject, error); return; }
       try {const {body,...wireRequest}=request;this.child.stdin.write(`${JSON.stringify({ipc_version:1,type:"call",id,request:wireRequest,...(rawBody!==undefined?{body_base64:Buffer.from(rawBody,"utf8").toString("base64")}: {})})}\n`);}
       catch {this.#fail("disconnected");}
     });
@@ -475,7 +544,7 @@ export class ISCPTransport {
         if(value?.schema_version!==2||value.profile!==ISCP_V2_PROFILE||typeof value.session_id!=='string'||!value.session_id||value.session_id.length>160||!Array.isArray(value.operations)||value.operations.length>256||!value.operations.every((op)=>typeof op==='string')||!Number.isSafeInteger(value.authorization_revision)||value.authorization_revision<1||!Number.isFinite(Date.parse(value.expires_at))||Date.parse(value.expires_at)<=Date.now()||!value.binding) {this.#fail("disconnected");return;}
         if(this.expectedBinding && Object.keys(this.expectedBinding).some((key)=>value.binding[key]!==this.expectedBinding[key])){this.#fail("identity_conflict");return;}
         try {
-        if(this.journalRoot){const scope={...value.binding,installation_id:this.installationID,authorization_revision:value.authorization_revision};const key=JSON.stringify(scope);if(this.objectScopeKey!==key){this.objects=new ISCPObjectClient({root:path.join(this.journalRoot,'objects'),scope,call:this.invoke.bind(this)});this.mutations=new ISCPMutationJournal(path.join(this.journalRoot,'mutations'),scope);this.objectScopeKey=key;}}
+        if(this.journalRoot){const scope={...value.binding,installation_id:this.installationID,authorization_revision:value.authorization_revision};const key=JSON.stringify(scope);if(this.objectScopeKey!==key){this.objects=new ISCPObjectClient({root:path.join(this.journalRoot,'objects'),scope,call:this.invoke.bind(this)});this.mutations=new ISCPMutationJournal(path.join(this.journalRoot,'mutations'),{...value.binding,installation_id:this.installationID},this.mutationProtector);this.objectScopeKey=key;}}
         } catch {this.#fail('disconnected');return;}
         const prior = this.capabilities;
         this.capabilityValidUntil = prior?.session_id === value.session_id && prior.authorization_revision === value.authorization_revision && Number.isFinite(this.capabilityValidUntil)
@@ -483,12 +552,17 @@ export class ISCPTransport {
           : performance.now() + Math.max(0, Date.parse(value.expires_at) - Date.now());
         this.capabilities=Object.freeze(value);
         this.onCapabilities(value);
+        queueMicrotask(() => this.#wakeMutationRecovery());
       } else if (frame.type === "state") {
         if (!["verifying_relay", "discovery_failed", "connecting", "relay_ready", "handshaking", "negotiating", "capability_negotiation_failed", "transport_ready", "disconnected", "authorization_expired", "authorization_revoked", "closed"].includes(frame.state)) { this.#fail("disconnected"); return; }
         if (frame.state === "discovery_failed") { this.#fail("disconnected"); return; }
         if (["disconnected", "authorization_expired", "authorization_revoked", "closed"].includes(frame.state)) { this.#fail(frame.state); return; }
         this.#state(frame.state);
-        if (frame.state === "transport_ready") { clearTimeout(this.readyTimer); this.readyResolve?.(); this.readyResolve = this.readyReject = this.readyPromise = undefined; }
+        if (frame.state === "transport_ready") {
+          clearTimeout(this.readyTimer); this.readyResolve?.(); this.readyResolve = this.readyReject = this.readyPromise = undefined;
+          if (!this.recoveryTimer) { this.recoveryTimer = setInterval(() => this.#wakeMutationRecovery(), 5000); this.recoveryTimer.unref?.(); }
+          queueMicrotask(() => this.#wakeMutationRecovery());
+        }
       } else if (frame.type === "stream_event") {
         const call = this.pending.get(frame.id);
         if (!call) continue;

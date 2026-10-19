@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mutationProtector } from "./fixtures/mutation-protector.mjs";
 import test from "node:test";
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
@@ -24,7 +25,7 @@ function fixture(t, handler = (call, child) => child.send({ ipc_version: 1, type
     queueMicrotask(() => { child.send(options.hello || hello); child.send({ ipc_version: 1, type: "state", state: "transport_ready" }); });
     return child;
   };
-  const transport = new ISCPTransport({ configPath: "/private/test/config.json", origin, spawnProcess, timeoutMS: 100, ...options });
+  const transport = new ISCPTransport({ configPath: "/private/test/config.json", origin, spawnProcess, timeoutMS: 100, mutationProtector, ...options });
   t.after(() => transport.close());
   return { transport, children, spawns, calls };
 }
@@ -353,7 +354,7 @@ test('lost attachment save reconciles original receipt before consulting changed
   const f = fixture(t, (call, child) => {
     if (call.request.operation === 'mail.drafts.save') return;
     assert.equal(call.request.operation, 'operations.receipt');
-    child.send({ ipc_version: 1, type: 'response', id: call.id, response: { type: 'task.result', profile: 'sparkclaw.workbench.transport.v2', id: call.id, status: 200, body: { state: 'completed', response: { status: 200, body: { id: 'draft', version: 1 } } } } });
+    child.send({ ipc_version: 1, type: 'response', id: call.id, response: { type: 'task.result', profile: 'sparkclaw.workbench.transport.v2', id: call.id, status: 200, body: { state: 'completed', operation_id: call.request.params.operation_id, response: { status: 200, body: { id: 'draft', version: 1 } } } } });
   }, { journalRoot: root, timeoutMS: 20, canSendMailAttachments: () => true, readLocalFile: () => ({ name: 'local.txt', size: bytes.length, sha256: hash, content: Buffer.from(bytes) }) });
   await f.transport.start();
   f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities: { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session', authorization_revision: 1, expires_at: new Date(Date.now() + 60000).toISOString(), operations: ['mail.drafts.save', 'operations.receipt'], binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' } } });
@@ -434,7 +435,7 @@ test('original popup mutations retain their original receipt across helper resta
    const {operation,operation_id}=call.request;
    if(operation === 'operations.receipt') {
      const result=receipts.get(call.request.params.operation_id);
-     child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:reply?{state:'completed',response:result}:{state:'unknown'}}});
+     child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:reply?{state:'completed',operation_id:call.request.params.operation_id,response:result}:{state:'unknown'}}});
      return;
    }
    assert.ok(operation_id);

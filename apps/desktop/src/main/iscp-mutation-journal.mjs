@@ -87,6 +87,12 @@ export class ISCPMutationJournal {
       this.#write(resource, { ...row, phase: 'applied' });
     } else { fs.unlinkSync(this.#path(resource)); this.#sync(); }
   }
+  retire(resource, id, disposition) {
+    const row = this.#record(resource, id);
+    if (row.schema_version !== 2 || !row.response || !['terminal', 'applied'].includes(row.phase)) throw new Error('Mutation outcome is unresolved');
+    this.#atomicWrite(this.#historyPath(row), this.#seal({ ...row, disposition }));
+    fs.unlinkSync(this.#path(resource, true)); this.#sync();
+  }
   matches(row, request) { return row.fingerprint === hash(JSON.stringify(request)); }
   #record(resource, id) { const row = this.read(resource); if (row?.operation_id !== id) throw new Error('Mutation receipt mismatch'); return row; }
   #validate(row, resource) {

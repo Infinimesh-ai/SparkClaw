@@ -97,3 +97,13 @@ test('failure to persist the attempt writes no call and leaves the shared helper
   assert.equal(f.effects,0); assert.equal(f.transport.state,'transport_ready');
   assert.equal((await(await f.transport.fetch(`${origin}/api/owner`)).json()).display_name,'current');
 });
+
+test('READY does not renew an expired intent; a later explicit action can succeed its proved non-submission', async t => {
+  const f = fixture(t); await f.start(); f.transport.timeoutMS = 0;
+  assert.equal((await f.transport.fetch(route, input)).status, 409);
+  const previous = f.transport.mutations.read('mail-draft:draft');
+  assert.equal(previous.response.body.code, 'operation_not_sent'); assert.equal(f.effects, 0);
+  f.transport.timeoutMS = 50; await f.restart(); await tick(); assert.equal(f.effects, 0);
+  f.lost = false; assert.equal((await f.transport.fetch(route, input)).status, 200);
+  assert.notEqual(f.operationID, previous.operation_id); assert.equal(f.effects, 1);
+});

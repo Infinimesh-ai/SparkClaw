@@ -7,6 +7,7 @@ import { mapV2Route, requireOperation } from "./iscp-routes.mjs";
 import { ISCPMutationJournal } from "./iscp-mutation-journal.mjs";
 import { LocalMailAttachmentError, localAttachmentErrorResponse, prepareMailAttachments } from "./iscp-mail-attachments.mjs";
 import { ISCPObjectClient } from "./iscp-object-client.mjs";
+import { browserMutationResource, expireBrowserGrant, settleBrowserLifecycle } from "./iscp-browser-recovery.mjs";
 export const ISCP_V2_PROFILE = "sparkclaw.workbench.transport.v2";
 
 export const ISCP_PROFILE = "sparkclaw.workbench.transport.v1";
@@ -128,6 +129,7 @@ export class ISCPTransport {
     for (const call of this.admissionQueue) call.fail(new ISCPRequestNotSentError("ISCP transport is unavailable", "unavailable"));
     for (const call of this.pending.values()) call.reject(new Error("ISCP transport is unavailable"));
     this.pending.clear();
+    this.mutationFlights.clear();
     this.admission = undefined;
     this.capabilities = undefined; this.onCapabilities(undefined);
     this.capabilityValidUntil = undefined;
@@ -226,6 +228,12 @@ export class ISCPTransport {
     const journal = this.mutations;
     if (!journal) throw new ISCPRequestNotSentError("Durable settings recovery is unavailable");
     let record = journal.read(resource);
+    if (record?.phase === 'applied' && record.response?.body?.code === 'operation_not_sent') {
+      // Only a new foreground action can succeed a locally closed never-sent
+      // intent. READY recovery never renews its deadline or creates a new ID.
+      journal.retire(resource, record.operation_id, { reason: 'explicit_retry_after_non_submission' });
+      record = undefined;
+    }
     if (record && !(record.phase === 'applied' && !journal.matches(record, request))) {
       const response = await this.#reconcileMutation(journal, resource, record, init);
       if (!journal.matches(record, request)) {
@@ -330,8 +338,19 @@ export class ISCPTransport {
       ...(options.params?{params:options.params}:{}),...(options.operationID?{operation_id:options.operationID}:{}),
       ...(options.expectedRevision?{expected_revision:options.expectedRevision}:{}),
       ...((options.installationID||this.installationID)?{installation_id:options.installationID||this.installationID}:{}),...(options.requestID?{request_id:options.requestID}:{})};
-    if(spec.mutation&&!request.operation_id)request.operation_id=crypto.randomUUID();
-    const response=await this.#request(request,options,body===undefined?undefined:JSON.stringify(body));
+    const browserResource = browserMutationResource(request);
+    let response;
+    if (browserResource) {
+      if (this.presentationPending.has(browserResource)) throw new ISCPRequestNotSentError('A browser lifecycle operation is already in progress', 'capacity');
+      this.presentationPending.add(browserResource);
+      try {
+        expireBrowserGrant(this.mutations, request);
+        response = await this.#applyPresentation(browserResource, spec, request, options, body === undefined ? undefined : JSON.stringify(body));
+      } finally { this.presentationPending.delete(browserResource); }
+    } else {
+      if(spec.mutation&&!request.operation_id)request.operation_id=crypto.randomUUID();
+      response=await this.#request(request,options,body===undefined?undefined:JSON.stringify(body));
+    }
     const result=await response.json();
     if(!response.ok){
       const error=new Error(result.error||"ISCP operation failed");
@@ -340,10 +359,12 @@ export class ISCPTransport {
       // error: older Gateways wrapped cursor_gap with generic revision_conflict.
       const bodyCode=typeof result.code==='string'&&/^[a-z][a-z0-9_]{0,79}$/u.test(result.code)?result.code:undefined;
       error.code=result.error_code||response.headers.get("x-sparkclaw-error-code")||bodyCode;
+      settleBrowserLifecycle(this.mutations, request, undefined, error.code);
       if(operation==='events.pull'&&response.status===409&&response.headers.get("x-sparkclaw-error-code")==='revision_conflict'&&
         response.headers.get("x-sparkclaw-retryable")!=='true'&&Object.keys(result).length===2&&result.code==='cursor_gap'&&result.retryable===false)error.code='cursor_gap';
       error.status=response.status;error.retryable=result.retryable===true||response.headers.get("x-sparkclaw-retryable")==="true";throw error;
     }
+    settleBrowserLifecycle(this.mutations, request, result);
     return result;
   }
 

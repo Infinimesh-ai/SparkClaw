@@ -6,7 +6,9 @@ import { PassThrough, Writable } from "node:stream";
 import { ISCPTransport, ISCP_OPERATIONS, ISCP_PROFILE, ISCPRequestNotSentError, mapISCPRequest, iscpHelperExecutable } from "../src/main/iscp-transport.mjs";
 import crypto from 'node:crypto';
 import { SecureCredentialStore } from '../src/main/secure-credential-store.mjs';
-import { readFileSync } from 'node:fs';
+import fs, { readFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const operations = JSON.parse(readFileSync(new URL('../src/shared/iscp-operations.json', import.meta.url), 'utf8'));
 
@@ -15,6 +17,8 @@ const requestID = "12345678-1234-4123-8123-123456789abc";
 const hello = { ipc_version: 1, type: "hello", operations: ISCP_OPERATIONS, max_request_bytes: 65536, max_response_bytes: 65536 };
 function fixture(t, handler = (call, child) => child.send({ ipc_version: 1, type: "response", id: call.id, response: { type: "task.result", profile: ISCP_PROFILE, id: call.request.id, status: 200, body: { ok: true } } }), options = {}) {
   const children = []; const spawns = []; const calls = [];
+  const journalRoot = options.journalRoot || fs.mkdtempSync(path.join(os.tmpdir(), 'iscp-transport-journal-'));
+  if (!options.journalRoot) t.after(() => fs.rmSync(journalRoot, { recursive: true, force: true }));
   const spawnProcess = (executable, args, spawnOptions) => {
     spawns.push({ executable, args, spawnOptions });
     const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.exitCode = null;
@@ -25,7 +29,7 @@ function fixture(t, handler = (call, child) => child.send({ ipc_version: 1, type
     queueMicrotask(() => { child.send(options.hello || hello); child.send({ ipc_version: 1, type: "state", state: "transport_ready" }); });
     return child;
   };
-  const transport = new ISCPTransport({ configPath: "/private/test/config.json", origin, spawnProcess, timeoutMS: 100, mutationProtector, ...options });
+  const transport = new ISCPTransport({ configPath: "/private/test/config.json", origin, spawnProcess, timeoutMS: 100, mutationProtector, journalRoot, ...options });
   t.after(() => transport.close());
   return { transport, children, spawns, calls };
 }

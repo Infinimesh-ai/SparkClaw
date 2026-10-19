@@ -82,10 +82,11 @@ function lookup(args) {
 }
 
 async function captureScreenshot(record, fence) {
-  // Hidden task views have no presented native surface. Starting capturePage
-  // there can consume the command deadline before Chromium gets a chance to
-  // render its fixed viewport. Capture them directly without presenting them.
-  if (record.view.getVisible?.() === false) return captureTaskViewport(record, fence);
+  // A cold hidden view needs Chromium to create its first rendered surface.
+  // Native qualification observes about four seconds for that first frame.
+  // Give this single path five seconds within the existing command deadline,
+  // without presenting the view or first spending time on native capture.
+  if (record.view.getVisible?.() === false) return captureTaskViewport(record, fence, undefined, 5000);
   try {
     const image = await captureDeadline(record.webContents.capturePage(), 5000);
     fence();
@@ -97,7 +98,7 @@ async function captureScreenshot(record, fence) {
   }
 }
 
-async function captureTaskViewport(record, fence, surfaceError = new Error("Browser display surface is unavailable")) {
+async function captureTaskViewport(record, fence, surfaceError = new Error("Browser display surface is unavailable"), timeout = 3000) {
   // Ask Chromium to render only our fixed task viewport, leaving the selected
   // conversation, window visibility and owner focus unchanged. No debugger
   // method or parameters are accepted from the wire, and an existing
@@ -110,7 +111,7 @@ async function captureTaskViewport(record, fence, surfaceError = new Error("Brow
     const result = await captureDeadline(debuggerSession.sendCommand("Page.captureScreenshot", {
       format: "png", fromSurface: true, captureBeyondViewport: true,
       clip: { x: 0, y: 0, width, height, scale: CAPTURE_WIDTH / width },
-    }), 3000);
+    }), timeout);
     fence();
     // Electron display scale differs between Retina and ordinary displays.
     // Normalize both native and Chromium captures to the same output width.

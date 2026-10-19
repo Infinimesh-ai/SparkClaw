@@ -80,3 +80,17 @@ test("a hidden view cannot replace another debugger session", async () => {
   assert.deepEqual(record.calls, []);
   assert.equal(record.webContents.debugger.isAttached(), true);
 });
+
+
+test("cold hidden rendering uses one bounded five-second budget and detaches on timeout", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const record = fixture({ visible: false, cdp: () => new Promise(() => {}) });
+  const result = capture(record);
+  const rejected = assert.rejects(result, /screenshot timed out/);
+  for (let index = 0; index < 10; index++) await Promise.resolve();
+  t.mock.timers.tick(3000);
+  assert.equal(record.webContents.debugger.isAttached(), true);
+  t.mock.timers.tick(2000);
+  await rejected;
+  assert.deepEqual(record.calls.at(-1), ["detach"]);
+});

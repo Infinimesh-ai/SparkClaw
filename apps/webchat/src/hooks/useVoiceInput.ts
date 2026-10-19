@@ -44,6 +44,7 @@ type VoiceOperation = {
   id: number;
   anchor: VoiceDraftAnchor;
   requestId: string;
+  recordingOperationID?: string;
   capture?: PCMInputCapture;
   realtime?: SpeechRealtimeClient | ISCPSpeechRealtimeClient;
   realtimeCaptureStarted: boolean;
@@ -127,9 +128,16 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     await api.cancelSpeechRealtimeSession(ticketId).catch(() => undefined);
   }, []);
 
-  const cancel = useCallback(async () => {
+  const acknowledgeRecording = useCallback((current: VoiceOperation) => {
+    if (current.recordingOperationID) void desktopCapability()?.acknowledgeRecording?.({
+      session_id: current.anchor.sessionId, request_id: current.requestId, operation_id: current.recordingOperationID
+    }).catch(() => undefined);
+  }, []);
+
+  const cancel = useCallback(async (discardPending = false) => {
     generation.current += 1;
     const current = operation.current;
+    if (discardPending && current?.pending) acknowledgeRecording(current);
     operation.current = null;
     clearTimers(current);
     current?.setupController?.abort();
@@ -144,7 +152,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     setPartial(null);
     clearDeviceFallback();
     dispatch({ type: "reset" });
-  }, [clearDeviceFallback, clearTimers, releaseUnusedTicket]);
+  }, [acknowledgeRecording, clearDeviceFallback, clearTimers, releaseUnusedTicket]);
 
   const failOperation = useCallback((current: VoiceOperation, error: unknown) => {
     if (operation.current !== current) return;
@@ -170,12 +178,13 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
       dispatch({ type: "pending_insert" });
       return;
     }
+    acknowledgeRecording(current);
     operation.current = null;
     clearTimers(current);
     setLevel(0);
     setElapsedMs(0);
     dispatch({ type: "reset" });
-  }, [clearTimers, failOperation, onTranscript]);
+  }, [acknowledgeRecording, clearTimers, failOperation, onTranscript]);
 
   const transcribe = useCallback(async (current: VoiceOperation) => {
     if (!current.wav) return;
@@ -191,7 +200,11 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
         const recording = { session_id: current.anchor.sessionId, request_id: current.requestId };
         const cancel = () => { void desktop.cancelRecording?.(recording).catch(() => undefined); };
         controller.signal.addEventListener("abort", cancel, { once: true });
-        try { return await desktop.transcribeRecording({ ...recording, language: language || "auto", bytes }); }
+        try {
+          const reply = await desktop.transcribeRecording({ ...recording, language: language || "auto", bytes, anchor: current.anchor });
+          current.recordingOperationID = reply.operation_id;
+          return reply;
+        }
         finally { controller.signal.removeEventListener("abort", cancel); }
       })() : await api.transcribeSpeech(
         current.anchor.sessionId,
@@ -497,11 +510,12 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
   const insertPending = useCallback((anchor: VoiceDraftAnchor) => {
     const current = operation.current;
     if (!current?.pending || machine.phase !== "pending_insert") return;
-    if (!onTranscript(current.pending, anchor)) return;
+    if (anchor.sessionId !== current.anchor.sessionId || !onTranscript(current.pending, anchor)) return;
+    acknowledgeRecording(current);
     operation.current = null;
     clearTimers(current);
     dispatch({ type: "reset" });
-  }, [clearTimers, machine.phase, onTranscript]);
+  }, [acknowledgeRecording, clearTimers, machine.phase, onTranscript]);
 
   const toggle = useCallback((anchor: VoiceDraftAnchor) => {
     if (voicePhaseIsRecording(machine.phase)) {
@@ -517,6 +531,35 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
   }, [cancel, machine.phase, start, stop]);
 
   useEffect(() => {
+    if (!iscp || !capabilityReady || externallyDisabled) return;
+    const desktop = desktopCapability();
+    if (!desktop?.pendingRecordings) return;
+    let disposed = false, loading = false;
+    const recover = async () => {
+      if (disposed || loading || operation.current) return;
+      loading = true;
+      const epoch = generation.current;
+      try {
+        const rows = await desktop.pendingRecordings!({ session_id: sessionId });
+        if (disposed || operation.current || epoch !== generation.current) return;
+        const row = rows.find(value => value.session_id === sessionId && value.anchor.sessionId === sessionId && value.result.session_id === sessionId && value.result.request_id === value.request_id && value.result.text.trim());
+        if (!row) return;
+        operation.current = { id: ++generation.current, anchor: row.anchor, requestId: row.request_id,
+          recordingOperationID: row.operation_id, pending: row.result, realtimeCaptureStarted: false,
+          silence: new SilenceDetector(silenceMode), startedAt: Date.now() };
+        // A restored result always uses the existing explicit pending-insert
+        // action. The old cursor is retained as evidence, never guessed anew.
+        dispatch({ type: "pending_insert" });
+      } catch { /* Original unknown results remain pending in native storage. */ }
+      finally { loading = false; }
+    };
+    void recover();
+    const timer = window.setInterval(() => { void recover(); }, 2000);
+    const unsubscribe = desktop.onLocalConnection?.(status => { if (status.state === "connected") void recover(); });
+    return () => { disposed = true; window.clearInterval(timer); unsubscribe?.(); };
+  }, [capabilityReady, externallyDisabled, iscp, sessionId, silenceMode]);
+
+  useEffect(() => {
     if (operation.current && operation.current.anchor.sessionId !== sessionId) void cancel();
     void stopPreview();
   }, [cancel, sessionId, stopPreview]);
@@ -528,7 +571,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape" && operation.current) void cancel();
+      if (event.key === "Escape" && operation.current) void cancel(true);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -575,7 +618,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     toggle,
     retry,
     insertPending,
-    cancel
+    cancel: () => cancel(true)
   };
 }
 

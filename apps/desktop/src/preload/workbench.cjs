@@ -77,6 +77,8 @@ contextBridge.exposeInMainWorld("sparkclawDesktop", Object.freeze({
   speechStream: (request) => ipcRenderer.invoke("sparkclaw-speech:stream", request),
   cancelRecording: (request) => ipcRenderer.invoke("sparkclaw-speech:cancel-recording", request),
   transcribeRecording: (request) => ipcRenderer.invoke("sparkclaw-speech:transcribe", request),
+  pendingRecordings: (request) => ipcRenderer.invoke("sparkclaw-speech:pending-recordings", request),
+  acknowledgeRecording: (request) => ipcRenderer.invoke("sparkclaw-speech:ack-recording", request),
   loginStartup: (enabled) => ipcRenderer.invoke("sparkclaw-desktop:login-startup", enabled),
   onBackendEvents: (listener) => {
     if(typeof listener !== 'function')throw new TypeError('Event listener is invalid');

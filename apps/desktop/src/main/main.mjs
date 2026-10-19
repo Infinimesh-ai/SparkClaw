@@ -141,6 +141,7 @@ async function start() {
       if (quitting) return;
       if (status.state === "connected" && !suspended) {
         executionClient?.start();
+        void iscpRecording?.start().catch(() => {});
         if(status.capabilities?.events)iscpEvents?.start();else iscpEvents?.close();
         scheduleClient?.start();
         if (status.backend?.transport !== "iscp" || status.capabilities?.mail === true) mailClient?.start();
@@ -193,6 +194,9 @@ async function start() {
   iscpRecording = new ISCPRecordingClient(desktopAuth);
   trustedHandler("sparkclaw-speech:transcribe", (request) => iscpRecording.transcribe(request));
   trustedHandler("sparkclaw-speech:cancel-recording", (request) => iscpRecording.cancel(request));
+  trustedHandler("sparkclaw-speech:pending-recordings", (request) => iscpRecording.pending(request));
+  trustedHandler("sparkclaw-speech:ack-recording", (request) => iscpRecording.acknowledge(request));
+  void iscpRecording.start().catch(() => {});
   trustedHandler("sparkclaw-desktop:login-startup", async (enabled) => {
     if (!app.isPackaged) return { supported: false, enabled: false };
     if (typeof enabled !== "undefined" && typeof enabled !== "boolean") throw new TypeError("Invalid login startup value");

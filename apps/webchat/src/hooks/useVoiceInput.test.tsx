@@ -356,4 +356,50 @@ describe("useVoiceInput", () => {
     expect(hook.value().state).toBe("idle");
     expect(hook.onTranscript).not.toHaveBeenCalled();
   });
+
+  it("restores an ISCP recording only into existing pending insert and ACKs only after explicit insertion succeeds", async () => {
+    const pendingRecordings = vi.fn(async () => [{ session_id: "session-a", request_id: result.request_id, operation_id: "original-op", anchor, result }]);
+    const acknowledgeRecording = vi.fn(async () => ({ acknowledged: true }));
+    const transcribeRecording = vi.fn();
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, pendingRecordings, acknowledgeRecording, transcribeRecording } as unknown as SparkClawDesktop;
+    const onTranscript = vi.fn(() => false), hook = renderHook(batchSpeech, onTranscript, true);
+    await settle();
+    expect(hook.value().state).toBe("pending_insert");
+    expect(hook.value().hasPendingTranscript).toBe(true);
+    expect(onTranscript).not.toHaveBeenCalled(); expect(pcmMocks.prepare).not.toHaveBeenCalled(); expect(transcribeRecording).not.toHaveBeenCalled();
+    act(() => hook.value().insertPending({ ...anchor, sessionId: "another-session" }));
+    expect(onTranscript).not.toHaveBeenCalled();
+    act(() => hook.value().insertPending(anchor)); expect(acknowledgeRecording).not.toHaveBeenCalled();
+    onTranscript.mockReturnValue(true);
+    const explicitAnchor = { ...anchor, draft: "edited draft", selectionStart: 1, selectionEnd: 1 };
+    act(() => hook.value().insertPending(explicitAnchor));
+    expect(onTranscript).toHaveBeenLastCalledWith(result, explicitAnchor);
+    expect(acknowledgeRecording).toHaveBeenCalledExactlyOnceWith({ session_id: "session-a", request_id: result.request_id, operation_id: "original-op" });
+    expect(hook.value().state).toBe("idle");
+  });
+
+  it("does not ACK restored text on unmount, but explicit discard uses its original recording ID", async () => {
+    const acknowledgeRecording = vi.fn(async () => ({}));
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      pendingRecordings: async () => [{ session_id: "session-a", request_id: result.request_id, operation_id: "original-op", anchor, result }], acknowledgeRecording } as unknown as SparkClawDesktop;
+    renderHook(batchSpeech, vi.fn(), true); await settle();
+    act(() => { for (const root of roots.splice(0)) root.unmount(); });
+    expect(acknowledgeRecording).not.toHaveBeenCalled();
+    const restored = renderHook(batchSpeech, vi.fn(), true); await settle();
+    await act(async () => { await restored.value().cancel(); });
+    expect(acknowledgeRecording).toHaveBeenCalledExactlyOnceWith({ session_id: "session-a", request_id: result.request_id, operation_id: "original-op" });
+  });
+
+  it("ignores a delayed restored recording after a newer capture has started", async () => {
+    let release!: (rows: unknown[]) => void;
+    const pendingRecordings = vi.fn(() => new Promise(resolve => { release = resolve; }));
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, pendingRecordings } as unknown as SparkClawDesktop;
+    pcmMocks.prepare.mockResolvedValue(capture());
+    const hook = renderHook(batchSpeech, vi.fn(), true);
+    act(() => hook.value().toggle(anchor)); await settle();
+    expect(hook.value().state).toBe("recording_batch_only");
+    await act(async () => { release([{ session_id: "session-a", request_id: result.request_id, operation_id: "old-op", anchor, result }]); await Promise.resolve(); });
+    expect(hook.value().state).toBe("recording_batch_only"); expect(hook.value().hasPendingTranscript).toBe(false);
+  });
+
 });

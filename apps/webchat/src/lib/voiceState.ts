@@ -46,7 +46,7 @@ export const initialVoiceOperationState: VoiceOperationState = {
 };
 
 const transitions: Record<VoicePhase, Partial<Record<VoiceStateEvent["type"], VoicePhase>>> = {
-  idle: { start: "acquiring_microphone", reset: "idle" },
+  idle: { start: "acquiring_microphone", pending_insert: "pending_insert", reset: "idle" },
   acquiring_microphone: {
     microphone_ready_realtime: "connecting_realtime",
     microphone_ready_batch: "starting_batch_capture",
@@ -89,7 +89,7 @@ const transitions: Record<VoicePhase, Partial<Record<VoiceStateEvent["type"], Vo
   },
   retryable_error: { retry: "transcribing", start: "acquiring_microphone", failure: "error", reset: "idle" },
   pending_insert: { start: "acquiring_microphone", failure: "error", reset: "idle" },
-  error: { start: "acquiring_microphone", reset: "idle" }
+  error: { start: "acquiring_microphone", pending_insert: "pending_insert", reset: "idle" }
 };
 
 export function reduceVoiceOperation(state: VoiceOperationState, event: VoiceStateEvent): VoiceOperationState {

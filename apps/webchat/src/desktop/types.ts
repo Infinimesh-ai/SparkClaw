@@ -97,7 +97,9 @@ export type SparkClawDesktop = {
   logout?(): Promise<DesktopConnectionStatus>;
   speechStream?(request: Record<string, unknown>): Promise<unknown>;
   cancelRecording?(request: { session_id: string; request_id: string }): Promise<unknown>;
-  transcribeRecording?(request: { session_id: string; request_id: string; language: string; bytes: Uint8Array }): Promise<import("../api/types").SpeechTranscriptionResult>;
+  transcribeRecording?(request: { session_id: string; request_id: string; language: string; bytes: Uint8Array; anchor?: import("../hooks/useVoiceInput").VoiceDraftAnchor }): Promise<import("../api/types").SpeechTranscriptionResult & { operation_id?: string }>;
+  pendingRecordings?(request: { session_id: string }): Promise<Array<{ session_id: string; request_id: string; operation_id: string; anchor: import("../hooks/useVoiceInput").VoiceDraftAnchor; result: import("../api/types").SpeechTranscriptionResult }>>;
+  acknowledgeRecording?(request: { session_id: string; request_id: string; operation_id: string }): Promise<unknown>;
   loginStartup(enabled?: boolean): Promise<{ supported: boolean; enabled: boolean }>;
   onBackendEvents?(listener: (event: { categories: string[] }) => void): () => void;
   onLocalConnection(listener: (status: DesktopConnectionStatus) => void): () => void;

@@ -128,7 +128,7 @@
       ]
     },
     "read_and_binding": {
-      "strategy": "Recompute current authorized reads; this is not reconstruction of an old snapshot. installation.bind remains original binding with durable idempotency and cannot replace device/client. Original schema and required scope remain enforced.",
+      "strategy": "Recompute current authorized reads; this is not reconstruction of an old snapshot. installation.bind remains original binding with durable idempotency and cannot replace device/client. Original schemas and trusted-session authorization policy remain enforced.",
       "server": [
         "services/gateway/internal/gateway/workbench_iscp.go",
         "services/gateway/internal/gateway/workbench_iscp_domain.go"
@@ -1210,10 +1210,11 @@
     "IMMS": "Existing accepted binding/task/effect scope contract unchanged; original request and permission boundaries remain authoritative."
   },
   "common_gates": [
-    "Current actor/resource binding and operation scope checked on admission and result disclosure; unchanged connection credentials are excluded from business digest.",
+    "Current actor/resource binding, active trusted-session policy and original task-specific authorization remain enforced on admission and result disclosure; registry scope labels do not add a new business permission gate. Unchanged connection credentials are excluded from business digest.",
     "Task grant/approval/deadline/input/preconditions remain immutable business intent; reconnect grants no new authority.",
     "Persist attempt before writing; only local durable proof of never-attempted permits original-intent submission.",
     "Unknown side effects and incomplete history remain unknown with actionable existing UI; no new operation ID, blind resend or silent data loss.",
     "An inventory entry labelled existing_recovery is evidence of a declared strategy, not proof it is implemented correctly; planned_gaps and actual fault-injection acceptance must close before release."
-  ]
+  ],
+  "authorization_policy": "The scope values below reproduce registry metadata; they do not introduce per-operation scope or qualification enforcement. Existing trusted ISCP business sessions retain their current unified connection policy (iscpauth.Policy.Usable / workbench_iscp_v2.go). Recovery rechecks the original binding, active connection policy and any original task-specific grant/approval/resource rules. The new control lifecycle separately enforces current standing scopes and authority revision."
 }

@@ -113,3 +113,37 @@ test("ISCP connection grants the device browser automatically and retries after 
  agent.autoGrantISCP(); await new Promise((resolve) => setTimeout(resolve, 10));
  assert.equal(grants, 2, "LAN keeps the explicit user grant");
 });
+
+async function grantConcurrencyFixture(t) {
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'sparkclaw-host-flight-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+ const grants=[],registers=[],closes=[];let polls=0;
+ const auth={generation:1,status:{state:'connected',capabilities:{browser:true}},connection:{ownerID:'owner',clientID:'client'},descriptor:{transport:'iscp'},async invokeISCP(operation,body){
+  if(operation==='browser.host.grant')return new Promise(resolve=>grants.push(resolve));
+  if(operation==='browser.host.register'){registers.push(body);return {connection_epoch:`epoch_${registers.length}`};}
+  if(operation==='browser.host.close'){closes.push(body);return {closed:true};}
+  if(operation==='browser.host.poll'){polls++;return {messages:[{sequence:1,body:{schema_version:1,type:'welcome',host_id:body.host_id,runtime_generation:'runtime_test',connection_epoch:body.connection_epoch,authorization_digest:'a'.repeat(64),lease_seconds:30,heartbeat_seconds:10}}]};}
+  if(operation==='browser.receipt')return {fences:[]};
+  throw new Error(`unexpected ${operation}`);
+ }};
+ const registry={runtimeGeneration:'runtime_test',closeHostPages(){}};
+ const agent=new BrowserHostAgent({auth,registry,userDataDir:root});t.after(()=>agent.stop());await agent.start({installation_id:'installation'});
+ const finish=(index)=>grants[index]({host_id:`host_${index}`,grant_token:'private-test-grant',grant_digest:'a'.repeat(64),expires_at:new Date(Date.now()+60000).toISOString()});
+ return {agent,auth,grants,registers,closes,finish,polls:()=>polls};
+}
+
+test('automatic and manual browser grants share one live owner; connected activation is idempotent',async t=>{
+ const f=await grantConcurrencyFixture(t);f.agent.autoGrantISCP();await until(()=>f.grants.length===1);
+ const manual=f.agent.grant();const another=f.agent.grant();f.finish(0);await Promise.all([manual,another]);await until(()=>!f.agent.autoGranting);
+ assert.equal(f.agent.state,'connected');assert.equal(f.grants.length,1);assert.equal(f.registers.length,1);assert.equal(f.closes.length,0);
+ const epoch=f.agent.epoch,socket=f.agent.socket,generation=f.agent.generation;
+ await f.agent.grant();assert.equal(f.grants.length,1);assert.equal(f.registers.length,1);assert.equal(f.closes.length,0);assert.equal(f.agent.epoch,epoch);assert.equal(f.agent.socket,socket);assert.equal(f.agent.generation,generation);
+});
+
+test('stopped or replaced scope cannot be revived by a late grant result',async t=>{
+ const f=await grantConcurrencyFixture(t);const stopped=f.agent.grant();const rejected=assert.rejects(stopped,/fenced|invalid/);await until(()=>f.grants.length===1);await f.agent.stop();f.finish(0);await rejected;
+ assert.equal(f.agent.state,'ungranted');assert.equal(f.agent.scope,undefined);assert.equal(f.registers.length,0);
+ await f.agent.start({installation_id:'installation'});const old=f.agent.grant();const oldRejected=assert.rejects(old,/fenced|invalid/);await until(()=>f.grants.length===2);
+ f.auth.generation++;f.auth.connection={ownerID:'next-owner',clientID:'next-client'};await f.agent.start({installation_id:'next-installation'});
+ const fresh=f.agent.grant();await until(()=>f.grants.length===3);f.finish(2);await fresh;const socket=f.agent.socket,epoch=f.agent.epoch;
+ f.finish(1);await oldRejected;assert.equal(f.agent.state,'connected');assert.equal(f.agent.scope.owner_id,'next-owner');assert.equal(f.agent.socket,socket);assert.equal(f.agent.epoch,epoch);assert.equal(f.registers.length,1);assert.equal(f.closes.length,0);
+});

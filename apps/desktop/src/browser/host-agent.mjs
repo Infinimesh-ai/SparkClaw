@@ -43,14 +43,30 @@ export class BrowserHostAgent {
   // and host grant never cross IPC or become local renderer configuration.
   async grant() {
     if (!this.scope || this.auth.status.state !== "connected" || (this.auth.descriptor?.transport === "iscp" ? this.auth.status.capabilities?.browser !== true : this.auth.descriptor?.schemaVersion !== 2)) throw new Error("Browser host requires connected pinned HTTPS LAN identity");
+    const authority = { scope: this.scope, authGeneration: this.auth.generation, connection: this.auth.connection, runtime: this.runtime };
+    if (this.grantFlight && this.#sameGrantAuthority(this.grantFlight.authority)) return this.grantFlight.promise;
+    if (this.state === "connected" && this.socket && !this.abort?.signal.aborted && Date.parse(this.grantRecord?.expires_at) > Date.now() && this.connectedAuthority && this.#sameGrantAuthority(this.connectedAuthority)) return this.snapshot();
+    const flight = { authority };
+    this.grantFlight = flight;
+    // Publish the flight before any onChange callback can reenter grant().
+    flight.promise = Promise.resolve().then(() => this.#grant(authority));
+    try { return await flight.promise; }
+    finally { if (this.grantFlight === flight) this.grantFlight = undefined; }
+  }
+  #sameGrantAuthority(authority) {
+    return authority.scope === this.scope && authority.authGeneration === this.auth.generation && authority.connection === this.auth.connection && authority.runtime === this.runtime;
+  }
+  async #grant(authority) {
+    if (!this.#sameGrantAuthority(authority)) throw new Error("Browser host was fenced");
     const generation = ++this.generation;
+    const current = () => generation === this.generation && this.#sameGrantAuthority(authority);
     this.#disconnect("reconnecting");
     const response = await this.#fetch("browser.host.grant", "/api/v1/browser/hosts/grants", {
       method: "POST", headers: { "content-type": "application/json", "X-SparkClaw-Installation": this.scope.installation_id }, body: "{}",
     });
     if (!response.ok) throw new Error("Browser host permission was rejected");
     const grant = await response.json();
-    if (generation !== this.generation || !ID.test(grant.host_id) || typeof grant.grant_token !== "string" || !HASH.test(grant.grant_digest) || !Number.isFinite(Date.parse(grant.expires_at))) throw new Error("Browser host grant is invalid");
+    if (!current() || !ID.test(grant.host_id) || typeof grant.grant_token !== "string" || !HASH.test(grant.grant_digest) || !Number.isFinite(Date.parse(grant.expires_at))) throw new Error("Browser host grant is invalid");
     this.grantRecord = grant;
     const abort = new AbortController(); this.abort = abort;
     try {
@@ -62,14 +78,14 @@ export class BrowserHostAgent {
         "X-SparkClaw-Host-Grant": grant.grant_token,
         "X-SparkClaw-Runtime": this.runtime,
       }, { signal: abort.signal });
-      if (generation !== this.generation) { socket.close(); throw new Error("Browser host was fenced"); }
+      if (!current()) { socket.close(); throw new Error("Browser host was fenced"); }
       this.socket = socket;
       await new Promise((resolve, reject) => {
         let welcomed = false;
         const timeout = setTimeout(() => { socket.close(); reject(new Error("Browser host handshake timed out")); }, 10000);
         socket.on("close", () => { clearTimeout(timeout); if (!welcomed) reject(new Error("Browser host handshake failed")); if (generation === this.generation) this.#disconnect("disconnected"); });
         socket.on("message", (message) => {
-          if (generation !== this.generation) return;
+          if (!current()) return;
           if (!welcomed) {
             if (message?.schema_version !== 1 || message.type !== "welcome" || message.host_id !== grant.host_id || message.runtime_generation !== this.runtime || message.authorization_digest !== grant.grant_digest || !ID.test(message.connection_epoch) || message.lease_seconds !== 30 || message.heartbeat_seconds !== 10) { socket.close(); reject(new Error("Browser host welcome is invalid")); return; }
             welcomed = true; clearTimeout(timeout); this.epoch = message.connection_epoch;
@@ -77,7 +93,7 @@ export class BrowserHostAgent {
             this.heartbeat.unref?.();
             this.liveness = setTimeout(() => this.#disconnect("lease_expired"), 30000); this.liveness.unref?.();
             this.grantTimer = setTimeout(() => this.#disconnect("grant_expired"), Math.max(1, Math.min(900000, Date.parse(grant.expires_at) - Date.now()))); this.grantTimer.unref?.();
-            this.#state("connected"); resolve(); return;
+            this.connectedAuthority = authority; this.#state("connected"); resolve(); return;
           }
           if (message?.schema_version !== 1) { this.#disconnect("fenced"); return; }
           if (message.type === "renew") this.#renew(message);
@@ -86,6 +102,7 @@ export class BrowserHostAgent {
         });
       });
       await this.refreshFences();
+      if (!current()) throw new Error("Browser host was fenced");
       return this.snapshot();
     } catch (error) {
       if (generation === this.generation && (isTLSIdentityError(error) || error?.status === 401)) await this.auth.logout?.(isTLSIdentityError(error) ? "identity_conflict" : "invalid_authentication");
@@ -233,6 +250,7 @@ export class BrowserHostAgent {
     this.registry.closeConnection(id, "lease_expired"); this.onChange();
   }
   #disconnect(state) {
+    this.connectedAuthority = undefined;
     clearInterval(this.heartbeat); clearTimeout(this.liveness); clearTimeout(this.grantTimer);
     this.abort?.abort(); this.abort = undefined;
     const socket = this.socket; this.socket = undefined; socket?.close();

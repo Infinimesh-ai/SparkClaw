@@ -82,14 +82,9 @@ function lookup(args) {
 }
 
 async function captureScreenshot(record, fence) {
-  // Electron's native capturer requests rendering for a hidden task view.
-  // Keep that request active while Chromium captures the fixed viewport;
-  // waiting for native capture first can exhaust the command's budget before
-  // the never-presented surface exists. The discarded image never escapes.
-  if (record.view.getVisible?.() === false) {
-    void record.webContents.capturePage().catch(() => {});
-    return captureTaskViewport(record, fence, undefined, 5000);
-  }
+  // Hidden task views may have a native surface, or need Chromium to render
+  // one. Both requests share one deadline; retain the first valid image.
+  if (record.view.getVisible?.() === false) return captureHiddenViewport(record, fence);
 
   try {
     const image = await captureDeadline(record.webContents.capturePage(), 5000);
@@ -99,6 +94,37 @@ async function captureScreenshot(record, fence) {
   } catch (error) {
     fence();
     return captureTaskViewport(record, fence, error);
+  }
+}
+
+async function captureHiddenViewport(record, fence) {
+  const debuggerSession = record.webContents.debugger;
+  if (record.webContents.isDestroyed() || debuggerSession.isAttached()) throw new Error("Browser display surface is unavailable");
+  const { width, height } = record.view.getBounds();
+  debuggerSession.attach("1.3");
+  try {
+    const result = await captureDeadline(Promise.any([
+      record.webContents.capturePage().then(image => {
+        if (image.isEmpty()) throw new Error("Browser display surface is unavailable");
+        return { image };
+      }),
+      debuggerSession.sendCommand("Page.captureScreenshot", {
+        format: "png", fromSurface: true, captureBeyondViewport: true,
+        clip: { x: 0, y: 0, width, height, scale: CAPTURE_WIDTH / width },
+      }).then(result => ({ data: result.data })),
+    ]), 5000);
+    fence();
+    let image = result.image;
+    if (!image) {
+      const { nativeImage } = await import("electron");
+      fence();
+      image = nativeImage.createFromBuffer(Buffer.from(result.data, "base64"));
+      if (image.isEmpty()) throw new Error("Browser screenshot is empty");
+    }
+    return image.resize({ width: CAPTURE_WIDTH }).toPNG();
+  } finally {
+    // A later native/CDP result cannot escape after the winner or timeout.
+    if (!record.webContents.isDestroyed() && debuggerSession.isAttached()) debuggerSession.detach();
   }
 }
 

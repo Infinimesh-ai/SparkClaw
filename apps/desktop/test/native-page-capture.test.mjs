@@ -64,12 +64,11 @@ test("capture output still obeys the host reply budget", async () => {
 });
 
 
-test("a never-presented view requests native rendering without waiting on its stalled image", async () => {
-  let nativeCalls = 0;
-  const record = fixture({ visible: false, native: () => { nativeCalls++; return new Promise(() => {}); },
-    cdp: async () => { throw new Error("viewport reached"); } });
-  await assert.rejects(capture(record), /viewport reached/);
-  assert.equal(nativeCalls, 1);
+test("a hidden view retains a valid native image while CDP is stalled and releases the debugger", async () => {
+  const bytes = Buffer.from("native PNG");
+  const record = fixture({ visible: false, native: async () => ({ isEmpty: () => false,
+    resize: () => ({ toPNG: () => bytes }) }), cdp: () => new Promise(() => {}) });
+  assert.equal((await capture(record)).data, bytes.toString("base64"));
   assert.equal(record.calls[1][0], "Page.captureScreenshot");
   assert.deepEqual(record.calls.at(-1), ["detach"]);
 });
@@ -92,5 +91,15 @@ test("cold hidden rendering uses one bounded five-second budget and detaches on 
   assert.equal(record.webContents.debugger.isAttached(), true);
   t.mock.timers.tick(2000);
   await rejected;
+  assert.deepEqual(record.calls.at(-1), ["detach"]);
+});
+
+
+test("a revoked lease cannot disclose the native winner of a hidden capture", async () => {
+  let revoked = false;
+  const record = fixture({ visible: false, native: async () => { revoked = true;
+    return { isEmpty: () => false, resize: () => { throw new Error("Must not disclose"); } }; },
+    cdp: () => new Promise(() => {}) });
+  await assert.rejects(capture(record, () => { if (revoked) throw new Error("lease fenced"); }), /lease fenced/);
   assert.deepEqual(record.calls.at(-1), ["detach"]);
 });

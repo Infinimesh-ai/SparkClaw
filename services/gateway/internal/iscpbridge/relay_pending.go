@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpduplex"
 	crypto "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpduplex"
 )
 
 // RelaySubmissionStatus is safe for helper IPC: ciphertext and tokens stay in
@@ -27,12 +27,14 @@ type RelaySubmissionStatus struct {
 	Receipt        *AcceptanceReceipt `json:"receipt,omitempty"`
 }
 type relayPendingRecord struct {
+	Order      uint64
 	Submission RelaySubmission
 	State      string
 	Receipt    *AcceptanceReceipt
 	Uncertain  bool
 }
 type relayPendingState struct {
+	NextOrder                   uint64
 	DomainID, DeviceID, RelayID string
 	Records                     map[string]relayPendingRecord
 }
@@ -191,7 +193,15 @@ func (c *RelayClient) journalBeforeWrite(sub RelaySubmission, uncertain bool) er
 		}
 		delete(j.state.Records, oldest)
 	}
-	r := relayPendingRecord{Submission: sub, State: "pending", Uncertain: old.Uncertain || uncertain}
+	order := old.Order
+	if !exists {
+		if j.state.NextOrder == ^uint64(0) {
+			return errors.New("Relay journal order exhausted")
+		}
+		j.state.NextOrder++
+		order = j.state.NextOrder
+	}
+	r := relayPendingRecord{Order: order, Submission: sub, State: "pending", Uncertain: old.Uncertain || uncertain}
 	r.Submission.Envelope = append(json.RawMessage(nil), sub.Envelope...)
 	j.state.Records[sub.MessageID] = r
 	if err := j.persist(); err != nil {
@@ -321,17 +331,18 @@ func (s *relaySocket) recoverPendingOnce() {
 		j.mu.Unlock()
 		return
 	}
-	var pending []RelaySubmission
+	var pending []relayPendingRecord
 	for _, r := range j.state.Records {
 		if r.State == "unknown" && r.Submission.HistoryID == s.ready.HistoryID && time.Now().Before(duplex.Time(r.Submission.NotAfter).Add(duplex.QueryRecoverySeconds*time.Second)) {
-			pending = append(pending, r.Submission)
+			pending = append(pending, r)
 		}
 	}
 	check := j.sessionUsable
 	unlock()
 	j.mu.Unlock()
-	sort.Slice(pending, func(i, k int) bool { return pending[i].MessageID < pending[k].MessageID })
-	for _, sub := range pending {
+	sort.Slice(pending, func(i, k int) bool { return pending[i].Order < pending[k].Order })
+	for _, record := range pending {
+		sub := record.Submission
 		if s.ctx.Err() != nil {
 			return
 		}
@@ -343,7 +354,7 @@ func (s *relaySocket) recoverPendingOnce() {
 		_, err = future.Wait(ctx)
 		cancel()
 		var absent *AbsentSubmission
-		if !errors.As(err, &absent) || check == nil || !time.Now().Before(duplex.Time(sub.NotAfter)) || !check(sub.SessionID) {
+		if !errors.As(err, &absent) || record.Order == 0 || check == nil || !time.Now().Before(duplex.Time(sub.NotAfter)) || !check(sub.SessionID) {
 			continue
 		}
 		// Resubmission is the same immutable tuple. The writer rechecks the session

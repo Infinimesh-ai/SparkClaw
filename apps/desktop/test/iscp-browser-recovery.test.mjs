@@ -33,7 +33,7 @@ test('browser successor requires original terminal grant expiry or the exact con
 test('lost automatic grant/register results reconcile original IDs instead of revoking another grant or changing epoch', async t=>{
  const root=directory(t),receipts=new Map(),effects=new Map(),calls=[];let child,lose=true;
  const capabilities={schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),binding:{deployment_id:'d',owner_id:'o',client_id:'c'},operations:['browser.host.grant','browser.host.register','browser.host.close','operations.receipt']};
- const transport=new ISCPTransport({origin:'https://iscp.invalid',configPath:'/private/test.json',journalRoot:root,mutationProtector,installationID:'installation',timeoutMS:25,spawnProcess:()=>{
+ const transport=new ISCPTransport({origin:'https://iscp.invalid',configPath:'/private/test.json',journalRoot:root,mutationProtector,installationID:'installation',timeoutMS:300,spawnProcess:()=>{
   child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>{};
   child.send=frame=>child.stdout.write(JSON.stringify({ipc_version:1,...frame})+'\n');
   child.stdin=new Writable({write(chunk,_,done){

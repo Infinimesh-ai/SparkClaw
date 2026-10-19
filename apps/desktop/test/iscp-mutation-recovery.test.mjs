@@ -16,7 +16,7 @@ function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mutation-ready-'));
   const f = { root, calls: [], effects: 0, lost: true, missing: false, children: [] };
   const capabilities = { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session', authorization_revision: 1,
-    expires_at: new Date(Date.now()+60000).toISOString(), operations: ['mail.drafts.save','operations.receipt','settings.owner.get'],
+    expires_at: new Date(Date.now()+60000).toISOString(), operations: ['mail.drafts.save','operations.receipt','settings.owner.get','settings.owner.patch'],
     binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' } };
   const spawnProcess = () => {
     const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.exitCode = null;
@@ -34,7 +34,11 @@ function fixture(t) {
         assert.equal(call.request.params.operation_id, f.operationID);
         status = f.missing ? 404 : 200;
         body = f.missing ? { code: 'operation_not_found' } : { state: 'completed', operation_id: f.operationID, response: { status: 200, body: { id: 'draft', version: 3 } } };
-      } else body = { display_name: 'current' };
+      } else if (call.request.operation === 'settings.owner.patch') {
+        f.effects++; f.operationID = call.request.operation_id;
+        f.owner = JSON.parse(Buffer.from(call.body_base64, 'base64')); f.revision = `revision-${f.effects}`;
+        body = { value: f.owner, revision: f.revision };
+      } else body = f.owner ? { value: f.owner, revision: f.revision } : { display_name: 'current' };
       const frame = { type: 'response', id: call.id, response: { type: 'task.result', profile: capabilities.profile, id: call.id, status, body } };
       if (f.holdReceipt && call.request.operation === 'operations.receipt') f.held = () => child.send(frame); else child.send(frame);
       done();
@@ -46,6 +50,7 @@ function fixture(t) {
   };
   f.transport = new ISCPTransport({ origin, configPath: '/private/test.json', spawnProcess, timeoutMS: 50, journalRoot: root, mutationProtector });
   f.start = () => f.transport.start();
+  f.authority = revision => { capabilities.authorization_revision = revision; f.children.at(-1).send({ type: 'capabilities', capabilities }); };
   f.restart = async revision => { f.transport.close(); capabilities.authorization_revision = revision ?? capabilities.authorization_revision; await f.start(); };
   t.after(() => { f.transport.close(); fs.rmSync(root, { recursive: true, force: true }); });
   return f;
@@ -106,4 +111,42 @@ test('READY does not renew an expired intent; a later explicit action can succee
   f.transport.timeoutMS = 50; await f.restart(); await tick(); assert.equal(f.effects, 0);
   f.lost = false; assert.equal((await f.transport.fetch(route, input)).status, 200);
   assert.notEqual(f.operationID, previous.operation_id); assert.equal(f.effects, 1);
+});
+
+test('an independently read newer revision permits the same owner input as a new action', async t => {
+  const f = fixture(t); await f.start();
+  const options = { method: 'POST', body: JSON.stringify({ display_name: 'X' }) };
+  await f.transport.fetch(`${origin}/api/owner`, options);
+  const first = f.operationID;
+  f.owner = { display_name: 'Y' }; f.revision = 'other-client-revision';
+  await f.transport.fetch(`${origin}/api/owner`);
+  await f.transport.fetch(`${origin}/api/owner`, options);
+  assert.equal(f.owner.display_name, 'X'); assert.equal(f.effects, 2); assert.notEqual(first, f.operationID);
+});
+
+test('explicit action IDs distinguish identical completed inputs and preserve uncertain originals', async t => {
+  const f = fixture(t); await f.start(); f.lost = false;
+  const first = { ...input, headers: { 'x-sparkclaw-action-id': '00000000-0000-4000-8000-000000000001' } };
+  const next = { ...input, headers: { 'x-sparkclaw-action-id': '00000000-0000-4000-8000-000000000002' } };
+  await f.transport.fetch(route, first); const original = f.operationID;
+  await f.transport.fetch(route, first); assert.equal(f.effects, 1);
+  await f.transport.fetch(route, next); assert.equal(f.effects, 2); assert.notEqual(f.operationID, original);
+  f.lost = true;
+  const unknown = { ...input, headers: { 'x-sparkclaw-action-id': '00000000-0000-4000-8000-000000000003' } };
+  await assert.rejects(f.transport.fetch(route, unknown), /deadline/); const unresolved = f.operationID;
+  f.missing = true;
+  await assert.rejects(f.transport.fetch(route, first));
+  assert.equal(f.effects, 3); assert.equal(f.transport.mutations.read('mail-draft:draft').operation_id, unresolved);
+});
+
+test('authority changing during an awaited body upload prevents the original mutation write', async t => {
+  const f = fixture(t); await f.start();
+  f.transport.objects.upload = async () => {
+    f.authority(2);
+    return { object_id: 'synthetic', version: 1 };
+  };
+  const large = { method: 'PUT', body: JSON.stringify({ expected_version: 2, subject: 'X'.repeat(70000), attachments: [] }) };
+  await assert.rejects(f.transport.fetch(route, large), /authentication changed/);
+  assert.equal(f.effects, 0);
+  assert.notEqual(f.transport.mutations.read('mail-draft:draft').phase, 'attempted');
 });

@@ -55,6 +55,7 @@ import { newWorkbenchRequestID, validateWorkbenchRequestStatus, type WorkbenchRe
 import type { WorkbenchDraft } from "../lib/workbenchDraft";
 import { clientTimezone } from "../lib/timezone";
 import { emailQuery } from "./email";
+import { retainedAction } from "./actionIdentity";
 import { desktopCapability, desktopGatewayBase } from "../desktop/capability";
 import type { EmailVerification, EmailDraft, EmailDraftInput, EmailReplyPolishInput, EmailComposeCapabilities, EmailMessage, EmailEntry, EmailClassification, EmailSenderRule, EmailPresentation, EmailConversation, EmailConversationPage, EmailConversationDeleteResult, EmailFilters, EmailMailbox, EmailMessagePage, EmailSyncStatus, EmailSyncWarning, EmailSyncWarningPage, EmailRenderPreview, EmailCleanupScope, EmailCleanupResult } from "./email";
 
@@ -141,9 +142,13 @@ function clearEmailRefreshGuard() {
 }
 
 async function request<T>(path: string, init?: RequestInit, base = API_BASE): Promise<T> {
+  const method = (init?.method ?? 'GET').toUpperCase();
+  const action = desktopCapability() && !['GET', 'HEAD'].includes(method) && (init?.body === undefined || typeof init.body === 'string')
+    ? await retainedAction(`${base}${path}`, method, (init?.body as string | undefined) ?? '') : undefined;
   const headers: Record<string, string> = {
     ...(apiToken() ? { Authorization: `Bearer ${apiToken()}` } : {}),
-    ...((init?.headers as Record<string, string> | undefined) ?? {})
+    ...((init?.headers as Record<string, string> | undefined) ?? {}),
+    ...(action ? { 'x-sparkclaw-action-id': action.id } : {})
   };
   if (!(init?.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
@@ -153,7 +158,8 @@ async function request<T>(path: string, init?: RequestInit, base = API_BASE): Pr
     headers
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => ({})) as { error?: unknown; code?: unknown; retryable?: unknown };
+    let body: { error?: unknown; code?: unknown; retryable?: unknown } = {};
+    try { body = await response.json(); action?.delivered(response.status, body); } catch { /* An unreadable reply leaves its action unresolved. */ }
     throw new APIError(
       response.status,
       typeof body.error === "string" ? body.error : `HTTP ${response.status}`,
@@ -162,7 +168,9 @@ async function request<T>(path: string, init?: RequestInit, base = API_BASE): Pr
       body
     );
   }
-  return response.json() as Promise<T>;
+  const result = await response.json() as T;
+  action?.delivered(response.status, result);
+  return result;
 }
 
 function streamErrorMessage(data: unknown, fallback: string) {

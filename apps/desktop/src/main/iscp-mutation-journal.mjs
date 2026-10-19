@@ -36,7 +36,7 @@ export class ISCPMutationJournal {
       operation_id: crypto.randomUUID(), fingerprint, expected_revision: revision || '', phase: 'prepared' };
     this.#write(resource, row); return row;
   }
-  prepare(resource, request, { revision = '', rawBody, deadline, authorizationRevision } = {}) {
+  prepare(resource, request, { revision = '', rawBody, deadline, authorizationRevision, actionID } = {}) {
     if (!Number.isFinite(deadline)) throw new Error('Mutation requires its original deadline');
     const previous = this.read(resource);
     if (previous) {
@@ -48,7 +48,7 @@ export class ISCPMutationJournal {
     }
     const row = { schema_version: 2, scope: this.scope, resource: hash(resource), resource_key: resource,
       operation: request.operation, operation_id: crypto.randomUUID(), fingerprint: hash(JSON.stringify(request)),
-      expected_revision: revision, authorization_revision: authorizationRevision, phase: 'prepared', created_at: Date.now(), not_after: deadline,
+      expected_revision: revision, authorization_revision: authorizationRevision, ...(actionID ? { action_id: actionID } : {}), phase: 'prepared', created_at: Date.now(), not_after: deadline,
       request: structuredClone(request), ...(rawBody !== undefined ? { raw_body: rawBody } : {}) };
     this.#write(resource, row); return row;
   }

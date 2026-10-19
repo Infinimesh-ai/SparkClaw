@@ -173,6 +173,9 @@ export class ISCPTransport {
       catch {throw new ISCPRequestNotSentError(error.message);}
     }
     const headers=new Headers(init.headers);
+    const actionID = headers.get('x-sparkclaw-action-id');
+    if (actionID && !UUID.test(actionID)) throw new ISCPRequestNotSentError('Action identity is invalid');
+    if (actionID) init = { ...init, actionID };
     const request={...mapped,...(this.installationID?{installation_id:this.installationID}:{}),type:"task.invoke",profile:ISCP_V2_PROFILE,...(mapped.params?.request_id?{request_id:mapped.params.request_id}:{}),
       ...(headers.get("x-sparkclaw-installation")?{installation_id:headers.get("x-sparkclaw-installation")}:{}),
       ...(headers.get("x-sparkclaw-digest")?{input_digest:headers.get("x-sparkclaw-digest")}:{}),
@@ -228,6 +231,14 @@ export class ISCPTransport {
     const journal = this.mutations;
     if (!journal) throw new ISCPRequestNotSentError("Durable settings recovery is unavailable");
     let record = journal.read(resource);
+    const revision = this.resourceRevisions.get(resource);
+    const confirmedSuccessor = record?.phase === 'applied' && !browserMutationResource(request) && (
+      init.actionID && record.action_id && init.actionID !== record.action_id ||
+      revision && record.response?.body?.revision && revision !== record.response.body.revision);
+    if (confirmedSuccessor) {
+      journal.retire(resource, record.operation_id, { reason: 'new_foreground_action', ...(init.actionID ? { action_id: init.actionID } : {}), ...(revision ? { revision } : {}) });
+      record = undefined;
+    }
     if (record?.phase === 'applied' && record.response?.body?.code === 'operation_not_sent') {
       // Only a new foreground action can succeed a locally closed never-sent
       // intent. READY recovery never renews its deadline or creates a new ID.
@@ -244,7 +255,7 @@ export class ISCPTransport {
       else if (record.schema_version === 1) journal.complete(resource, record.operation_id);
       return this.#presentationResponse(resource, response);
     }
-    record = journal.prepare(resource, request, { rawBody, revision: this.resourceRevisions.get(resource),
+    record = journal.prepare(resource, request, { rawBody, revision, actionID: init.actionID,
       deadline: Date.now() + requestTimeout(request.operation, this.timeoutMS), authorizationRevision: this.capabilities.authorization_revision });
     const response = await this.#reconcileMutation(journal, resource, record, init);
     if (journal.read(resource)?.response) journal.complete(resource, record.operation_id);
@@ -283,7 +294,13 @@ export class ISCPTransport {
         if (request !== record.request) rawBody = JSON.stringify(request.body);
         request = { ...request, operation_id: record.operation_id, ...(record.expected_revision ? { expected_revision: record.expected_revision } : {}) };
         const response = await this.#request(request, { ...init, [ORIGINAL_DEADLINE]: record.not_after,
-          [BEFORE_SEND]: () => { current(); journal.markAttempted(resource, record.operation_id); } }, rawBody);
+          [BEFORE_SEND]: () => {
+            if (record.authorization_revision !== this.capabilities?.authorization_revision) {
+              journal.cancelPrepared(resource, record.operation_id, 'Original change authority changed before it was sent');
+              throw new ISCPRequestNotSentError('ISCP authentication changed', 'canceled');
+            }
+            current(); journal.markAttempted(resource, record.operation_id);
+          } }, rawBody);
         current();
         const body = await response.clone().json().catch(() => undefined);
         const unresolved = [body?.code, body?.error_code, response.headers.get('x-sparkclaw-error-code')].some(code =>

@@ -2,11 +2,10 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { prepareCapacityRelay } from "./iscp-relay-capacity.mjs";
 
 export const labLabel = "io.sparkclaw.iscp.lab";
 export const relayContainerURL = "http://iscp-relay:8080";
-export const relayContainerWS = "ws://iscp-relay:8080/v2/relay/connect";
+export const relayContainerWS = "ws://iscp-relay:8080/v2/relay/duplex";
 export const issuerContainerURL = "http://iscp-local-issuer:8080";
 
 export function command(executable, args, options = {}) {
@@ -27,23 +26,37 @@ export function dockerArch() {
   return result;
 }
 
-export async function buildRelay(root, directory, arch, { capacity = false } = {}) {
-  const module = JSON.parse(command("go", ["list", "-m", "-json", "github.com/Infinimesh-ai/ISCP"], { cwd: root }));
-  if (!module.Dir || !module.Version || !module.Sum || module.Replace) throw new Error("The local Relay requires the checksum-locked, unreplaced ISCP Go module");
-  command("go", ["mod", "verify"], { cwd: path.join(root, "services/gateway"), env: { ...process.env, GOWORK: "off" } });
+export async function validateRelayBinary(filename, arch) {
+  if (!path.isAbsolute(filename || "")) throw new Error("Set explicit absolute SPARKCLAW_ISCP_RELAY_BINARY and SPARKCLAW_ISCP_MAINTENANCE_BINARY paths to the built ISCP fork Linux binaries");
+  const stat = await fs.lstat(filename);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 64 || stat.size > (128 << 20)) throw new Error("Relay binary must be a bounded regular Linux executable");
+  const bytes = await fs.readFile(filename);
+  if (!bytes.subarray(0, 4).equals(Buffer.from([127, 69, 76, 70])) || bytes[4] !== 2 || bytes[5] !== 1 || bytes.readUInt16LE(18) !== ({ arm64: 183, amd64: 62 }[arch])) throw new Error("Relay binary architecture must match the Docker Linux host");
+  return { bytes, sha256: crypto.createHash("sha256").update(bytes).digest("hex") };
+}
+
+export async function buildRelay(root, directory, arch) {
+  const relay = await validateRelayBinary(process.env.SPARKCLAW_ISCP_RELAY_BINARY, arch);
+  const maintenance = await validateRelayBinary(process.env.SPARKCLAW_ISCP_MAINTENANCE_BINARY, arch);
   const context = path.join(directory, "relay-build");
   await fs.mkdir(context, { mode: 0o700 });
-  const binary = path.join(context, "relayd");
-  const sourceDirectory = capacity ? path.join(directory, "relay-source") : module.Dir;
-  const capacityPatch = capacity ? await prepareCapacityRelay(module.Dir, sourceDirectory) : undefined;
-  command("go", ["build", "-trimpath", "-ldflags=-s -w", "-o", binary, "./services/relay-reference/cmd/relayd"], {
-    cwd: sourceDirectory, env: { ...process.env, GOWORK: "off", CGO_ENABLED: "0", GOOS: "linux", GOARCH: arch },
-  });
-  const hash = crypto.createHash("sha256").update(await fs.readFile(binary)).digest("hex");
-  const image = `sparkclaw-iscp-relay:${module.Version.replace(/^v/u, "")}-${hash.slice(0, 12)}`;
+  await fs.writeFile(path.join(context, "relayd"), relay.bytes, { mode: 0o500 });
+  await fs.writeFile(path.join(context, "maintenance"), maintenance.bytes, { mode: 0o500 });
+  const image = `sparkclaw-iscp-relay:duplex-${relay.sha256.slice(0, 12)}-${maintenance.sha256.slice(0, 12)}`;
   command("docker", ["build", "--network=none", "--pull=false", "--file", path.join(root, "docker/images/iscp-relay-local.Dockerfile"), "--tag", image, context]);
   const imageID = command("docker", ["image", "inspect", image, "--format", "{{.Id}}"]);
-  return { module: module.Path, version: module.Version, module_sum: module.Sum, ...(capacityPatch ? { capacity_patch: capacityPatch } : {}), relay_binary_sha256: hash, image, image_id: imageID, goarch: arch };
+  const databaseImageID = command("docker", ["image", "inspect", process.env.SPARKCLAW_ISCP_POSTGRES_IMAGE || "postgres:18", "--format", "{{.Id}}"]);
+  return { kind: "independent-iscp-fork-binaries", protocol: "iscp.relay.duplex.v1", relay_binary_sha256: relay.sha256, maintenance_binary_sha256: maintenance.sha256, image, image_id: imageID, database_image_id: databaseImageID, goarch: arch };
+}
+
+// Called only by prepareLab after this run created its unique domain and
+// registered its initial devices. It never infers legacy history from emptiness.
+export function bootstrapRelay(metadata) {
+  const history = crypto.randomBytes(32).toString("base64url");
+  const genesis = { lab_id: metadata.lab_id, domain_id: metadata.domain_id, relay_id: metadata.relay_id, created_at: metadata.created_at, database_container: metadata.database_container, relay_binary_sha256: metadata.source.relay_binary_sha256 };
+  const evidence = crypto.createHash("sha256").update(JSON.stringify(genesis)).digest("base64url");
+  command("docker", ["exec", metadata.relay_container, "/maintenance", "bootstrap-empty", "--relay-id", metadata.relay_id, "--domain-id", metadata.domain_id, "--history-id", history, "--evidence-sha256", evidence, "--confirm-never-served"]);
+  metadata.duplex_genesis = { ...genesis, history_id: history, evidence_sha256: evidence };
 }
 
 export function containerState(name, labID) {
@@ -71,12 +84,23 @@ export async function startRelay(metadata) {
   // Docker 29 does not publish ports for an internal-only network. Relay also
   // joins a dedicated ingress bridge; Gateway joins only the internal network.
   command("docker", ["network", "create", "--label", `${labLabel}=${metadata.lab_id}`, metadata.ingress_network]);
+  metadata.database_container = `sparkclaw-iscp-db-${metadata.lab_id}`;
+  const password = crypto.randomBytes(32).toString("hex");
+  command("docker", ["run", "--detach", "--name", metadata.database_container, "--label", `${labLabel}=${metadata.lab_id}`, "--network", metadata.network, "--network-alias", "iscp-db", "--tmpfs", "/var/lib/postgresql", "--env", `POSTGRES_PASSWORD=${password}`, "--env", "POSTGRES_DB=iscp", metadata.source.database_image_id]);
+  let databaseReady = false;
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const result = spawnSync("docker", ["exec", metadata.database_container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "iscp"], { stdio: "pipe", timeout: 1000 });
+    if (result.status === 0) { databaseReady = true; break; }
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  if (!databaseReady) throw new Error("Private lab PostgreSQL startup timed out");
   command("docker", ["create", "--name", metadata.relay_container, "--label", `${labLabel}=${metadata.lab_id}`,
     "--network", metadata.ingress_network, "--publish", "127.0.0.1::8080",
     "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--log-opt", "max-size=10m", "--log-opt", "max-file=2",
     "--env", "ISCP_PROFILE=local-lab", "--env", `ISCP_DOMAIN_ID=${metadata.domain_id}`, "--env", `ISCP_RELAY_ID=${metadata.relay_id}`,
+    "--env", `ISCP_DATABASE_URL=postgres://postgres:${password}@iscp-db:5432/iscp?sslmode=disable`,
     "--env", `ISCP_RELAY_BASE_URL=${relayContainerURL}`, "--env", `ISCP_RELAY_WS_URL=${relayContainerWS}`,
-    ...(metadata.source.capacity_patch ? ["--env", "SPARKCLAW_ISCP_CAPACITY=1"] : []), metadata.source.image]);
+    metadata.source.image_id]);
   command("docker", ["network", "connect", "--alias", "iscp-relay", metadata.network, metadata.relay_container]);
   command("docker", ["start", metadata.relay_container]);
   const container = containerState(metadata.relay_container, metadata.lab_id);
@@ -110,12 +134,12 @@ export async function startIssuer(metadata, directory) {
 
 export async function stopLab(metadata, directory) {
   // Names alone never authorize deletion: check this lab's ownership label.
-  for (const name of [metadata.gateway_container, metadata.issuer_container, metadata.relay_container]) {
+  for (const name of [metadata.gateway_container, metadata.issuer_container, metadata.relay_container, metadata.database_container]) {
     if (!name) continue;
     const container = containerState(name, metadata.lab_id);
     if (!container) continue;
     const result = spawnSync("docker", ["logs", name], { timeout: 15000, stdio: "pipe", maxBuffer: 16 << 20 });
-    const log = name === metadata.relay_container ? "relay.log" : name === metadata.issuer_container ? "issuer.log" : "gateway.log";
+    const log = name === metadata.relay_container ? "relay.log" : name === metadata.issuer_container ? "issuer.log" : name === metadata.database_container ? "postgres.log" : "gateway.log";
     if (directory) await fs.writeFile(path.join(directory, "evidence", log), Buffer.concat([result.stdout || Buffer.alloc(0), result.stderr || Buffer.alloc(0)]), { mode: 0o600 });
     command("docker", ["rm", "--force", name]);
   }

@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { assertNoSymlinkPath, assertPrivateDirectory, readPrivateJSON, writePrivateJSON } from "./lib/private-workbench.mjs";
-import { buildRelay, command, containerState, dockerArch, issuerContainerURL, labLabel, relayContainerURL, relayContainerWS, startIssuer, startRelay, stopLab, waitRelay } from "./lib/iscp-docker-lab.mjs";
+import { bootstrapRelay, buildRelay, command, containerState, dockerArch, issuerContainerURL, labLabel, relayContainerURL, relayContainerWS, startIssuer, startRelay, stopLab, waitRelay } from "./lib/iscp-docker-lab.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const gatewayRoot = path.join(root, "services/gateway");
@@ -24,7 +24,7 @@ function localRelayURL(value, websocket = false) {
   try {
     const url = new URL(value);
     return url.protocol === (websocket ? "ws:" : "http:") && ["127.0.0.1", "[::1]", "localhost", "iscp-relay"].includes(url.hostname) &&
-      !url.username && !url.password && !url.search && !url.hash && url.pathname === (websocket ? "/v2/relay/connect" : "/");
+      !url.username && !url.password && !url.search && !url.hash && url.pathname === (websocket ? "/v2/relay/duplex" : "/");
   } catch { return false; }
 }
 
@@ -77,7 +77,7 @@ export async function prepareLab(inputFile, directory, { expansion = false, capa
     network: `sparkclaw-iscp-${labID}`, ingress_network: `sparkclaw-iscp-ingress-${labID}`,
     relay_container: `sparkclaw-iscp-relay-${labID}`, gateway_container: `sparkclaw-iscp-gateway-${labID}`, issuer_container: `sparkclaw-iscp-issuer-${labID}`, created_at: new Date().toISOString() };
   try {
-    process.stdout.write(capacityRelay ? "Building the locked ISCP reference Relay with compatible local capacity scheduling...\n" : "Building the locked upstream ISCP reference Relay source for Docker...\n");
+    process.stdout.write("Building the explicitly supplied ISCP duplex Relay and maintenance binaries for Docker...\n");
     metadata.source = await buildRelay(root, directory, dockerArch(), { capacity: capacityRelay });
     await startRelay(metadata);
     const enrollBinary = path.join(directory, "bin/iscp-local-enroll");
@@ -91,6 +91,7 @@ export async function prepareLab(inputFile, directory, { expansion = false, capa
     const desktop = await enrolledPeer("desktop", directory);
     const gateway = await enrolledPeer("gateway", directory);
     verifyEnrolledPair(desktop, gateway);
+    bootstrapRelay(metadata);
     const issuerBinary = path.join(directory, "bin/iscp-local-issuer");
     command("go", ["build", "-trimpath", "-o", issuerBinary, "./cmd/iscp-local-issuer"], { cwd: gatewayRoot });
     command(issuerBinary, ["-init", "-directory", path.join(directory, "issuer"), "-subject-identity", path.join(directory, "desktop/device.identity.json"), "-audience-identity", path.join(directory, "gateway/device.identity.json"), "-relay-id", metadata.relay_id]);

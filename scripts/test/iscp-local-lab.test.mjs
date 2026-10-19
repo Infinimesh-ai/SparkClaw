@@ -4,14 +4,14 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { validateLabInput, verifyEnrolledPair, prepareLab, verifyLab, upLab, smokeLab, issuerContainerConfig, helperRenewalConfig, validateIssuerRenewalCapability } from "../iscp-local-lab.mjs";
-import { command, containerState, issuerContainerArguments, labLabel, stopLab, waitRelay } from "../lib/iscp-docker-lab.mjs";
+import { command, containerState, issuerContainerArguments, validateRelayBinary, labLabel, stopLab, waitRelay } from "../lib/iscp-docker-lab.mjs";
 
 const input = () => ({ schema_version: 1, relay_profile: "local-lab", deployment_id: "lab", owner_id: "owner", client_id: "desktop-client" });
 const pair = (id) => ({
   identity: { type: "iscp.device.identity.v2", domain_id: "local", device_id: id, public_key: { kty: "Ed25519" } },
   enrollment: { type: "sparkclaw.bridge.enrollment.v1", mode: "workbench-local-lab", domain_id: "local", device_id: id, relay_id: "relay",
     relay_base_url: id === "desktop" ? "http://127.0.0.1:18080" : "http://iscp-relay:8080",
-    relay_websocket_url: id === "desktop" ? "ws://127.0.0.1:18080/v2/relay/connect" : "ws://iscp-relay:8080/v2/relay/connect",
+    relay_websocket_url: id === "desktop" ? "ws://127.0.0.1:18080/v2/relay/duplex" : "ws://iscp-relay:8080/v2/relay/duplex",
     expires_at: "2030-01-01T00:00:00Z", relay_signer_identity: { domain_id: "local", device_id: "relay-signer", public_key: { kid: "pinned-key" } },
     access: { domain_id: "local", device_id: id, token: "test-access", expires_at: "2030-01-01T00:00:00Z" },
     refresh: { domain_id: "local", device_id: id, token: "test-refresh", expires_at: "2030-01-01T00:00:00Z" } },
@@ -31,7 +31,7 @@ test("local enrollment pair accepts host/container aliases and refreshable acces
   for (const change of [value => value.enrollment.access.token = "", value => value.enrollment.mode = "managed",
     value => value.enrollment.access.expires_at = "invalid", value => value.enrollment.refresh.expires_at = "2020-01-01T00:00:00Z",
     value => value.enrollment.relay_base_url = "http://iscp.infinimesh.cloud", value => value.enrollment.relay_base_url = "https://iscp.infinimesh.cloud",
-    value => value.enrollment.relay_websocket_url = "wss://iscp.infinimesh.cloud/v2/relay/connect", value => value.enrollment.refresh.device_id = "wrong",
+    value => value.enrollment.relay_websocket_url = "wss://iscp.infinimesh.cloud/v2/relay/duplex", value => value.enrollment.refresh.device_id = "wrong",
     value => value.identity.domain_id = "wrong", value => value.identity.device_id = "desktop", value => value.enrollment.relay_signer_identity.public_key.kid = "changed"] ) {
     const backend = pair("backend"); change(backend);
     assert.throws(() => verifyEnrolledPair(pair("desktop"), backend, Date.UTC(2026, 9, 8)));
@@ -88,7 +88,7 @@ test("up refuses an old lab without managed renewal instead of silently reauthor
   await assert.rejects(fs.stat(path.join(directory, "issuer")), { code: "ENOENT" });
 });
 
-test("real upstream Docker Relay supports PoP enrollment and normal Desktop durable execution/reconnect", { skip: process.env.SPARKCLAW_TEST_DOCKER_RELAY !== "1", timeout: 300000 }, async (t) => {
+test("independent duplex Docker Relay supports PoP enrollment and normal Desktop durable execution/reconnect", { skip: process.env.SPARKCLAW_TEST_DOCKER_RELAY !== "1", timeout: 300000 }, async (t) => {
   const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "iscp-docker-acceptance-")));
   await fs.chmod(directory, 0o700);
   const inputFile = path.join(directory, "input.json");
@@ -155,4 +155,13 @@ test("real upstream Docker Relay supports PoP enrollment and normal Desktop dura
   error => error.stderr.includes("local Relay signer changed"));
   assert.deepEqual(await fs.readFile(path.join(lab, "desktop/enrollment.json")), originalEnrollment);
   completed = true;
+});
+
+test("duplex lab requires explicit matching Linux binaries", async t => {
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),"iscp-binary-check-"));t.after(()=>fs.rm(dir,{recursive:true,force:true}));
+ await assert.rejects(validateRelayBinary(undefined,"arm64"),/explicit absolute/u);
+ const file=path.join(dir,"relayd");const bytes=Buffer.alloc(128);bytes.set([127,69,76,70,2,1]);bytes.writeUInt16LE(183,18);await fs.writeFile(file,bytes,{mode:0o500});
+ assert.equal((await validateRelayBinary(file,"arm64")).sha256.length,64);
+ await assert.rejects(validateRelayBinary(file,"amd64"),/architecture/u);
+ const link=path.join(dir,"alias");await fs.symlink(file,link);await assert.rejects(validateRelayBinary(link,"arm64"),/regular/u);
 });

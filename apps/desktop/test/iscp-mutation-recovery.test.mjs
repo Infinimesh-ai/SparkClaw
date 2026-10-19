@@ -24,12 +24,17 @@ function fixture(t) {
     child.kill = () => { child.exitCode = 0; };
     child.stdin = new Writable({ write(chunk, _, done) {
       const call = JSON.parse(chunk); f.calls.push(call);
+      if (call.type === 'relay_submission_status') {
+        child.send({ type: call.type, id: call.id, message_id: call.message_id, found: true, submission: { ...f.unknownTransport, state: 'absent' } });
+        done(); return;
+      }
       let body, status = 200;
       if (call.request.operation === 'mail.drafts.save') {
         assert.equal(f.transport.mutations.read('mail-draft:draft').phase, 'attempted', 'attempt must survive process loss before pipe write');
         f.effects++; f.operationID = call.request.operation_id;
         if (f.lost) { done(); return; }
-        body = { id: 'draft', version: 3 };
+        body = f.unknownTransport ? { error: 'Transport admission unknown', code: 'transport_outcome_unknown', relay_submission: f.unknownTransport } : { id: 'draft', version: 3 };
+        if (f.unknownTransport) status = 503;
       } else if (call.request.operation === 'operations.receipt') {
         assert.equal(call.request.params.operation_id, f.operationID);
         status = f.missing ? 404 : 200;
@@ -159,4 +164,16 @@ test('authority changing during an awaited body upload prevents the original mut
   await assert.rejects(f.transport.fetch(route, large), /authentication changed/);
   assert.equal(f.effects, 0);
   assert.notEqual(f.transport.mutations.read('mail-draft:draft').phase, 'attempted');
+});
+
+test('typed transport uncertainty preserves original metadata without turning absence into business completion', async t => {
+  const f = fixture(t); await f.start(); f.lost = false;
+  f.unknownTransport = { message_id: 'original-message', session_id: 'original-session', history_id: 'h'.repeat(43), envelope_digest: 'd'.repeat(43), not_after: '2026-10-19T13:00:00Z' };
+  assert.equal((await f.transport.fetch(route, input)).status, 503);
+  const row = f.transport.mutations.read('mail-draft:draft');
+  assert.equal(row.phase, 'attempted'); assert.equal(row.response, undefined);
+  assert.deepEqual(row.relay_submission, f.unknownTransport);
+  f.missing = true; await assert.rejects(f.transport.fetch(route, input));
+  assert.equal(f.transport.mutations.read('mail-draft:draft').relay_submission_state, 'absent');
+  assert.equal(f.effects, 1); assert.equal(f.transport.mutations.read('mail-draft:draft').operation_id, row.operation_id);
 });

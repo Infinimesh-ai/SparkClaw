@@ -73,6 +73,11 @@ export class ISCPMutationJournal {
     if (row.response && JSON.stringify(row.response) !== JSON.stringify(response)) throw new Error('Mutation receipt changed');
     this.#write(resource, { ...row, phase: row.phase === 'applied' ? 'applied' : 'terminal', response });
   }
+  saveTransport(resource, id, submission, state = 'unknown') {
+    const row = this.#record(resource, id);
+    if (row.schema_version !== 2 || row.phase !== 'attempted') throw new Error('Mutation transport outcome differs');
+    this.#write(resource, { ...row, relay_submission: submission, relay_submission_state: state });
+  }
   cancelPrepared(resource, id, reason = 'Original change was not sent') {
     const row = this.#record(resource, id);
     if (row.schema_version === 2 && row.phase === 'prepared') this.saveResult(resource, id, { status: 409, body: { error: reason, code: 'operation_not_sent' } });

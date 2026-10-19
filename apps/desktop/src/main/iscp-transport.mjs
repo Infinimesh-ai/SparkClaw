@@ -120,6 +120,19 @@ export class ISCPTransport {
     return ready;
   }
 
+  async relaySubmissionStatus(original) {
+    if (this.state !== 'transport_ready') throw new Error('ISCP transport is unavailable');
+    const id = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      const finish = (handler, value) => { clearTimeout(timer); this.pending.delete(id); handler(value); };
+      const timer = setTimeout(() => finish(reject, new Error('Relay submission status is unavailable')), Math.min(this.timeoutMS, 5000));
+      this.pending.set(id, { request: { operation: 'relay_submission_status' }, originalSubmission: original,
+        resolve: value => finish(resolve, value), reject: error => finish(reject, error) });
+      try { this.child.stdin.write(`${JSON.stringify({ ipc_version: 1, type: 'relay_submission_status', id, message_id: original.message_id })}\n`); }
+      catch { this.#fail('disconnected'); }
+    });
+  }
+
   close() {
     ++this.generation;
     clearTimeout(this.readyTimer);
@@ -273,6 +286,13 @@ export class ISCPTransport {
       current();
       if (record.response) return mutationResponse(record.response);
       if (record.schema_version !== 2 || record.phase !== 'prepared') {
+        // Transport evidence may explain an uncertain send, but never proves
+        // that a business operation did not start. Always query its receipt.
+        if (record.relay_submission) {
+          const status = await this.relaySubmissionStatus(record.relay_submission).catch(() => undefined);
+          current();
+          if (status) journal.saveTransport(resource, record.operation_id, record.relay_submission, status.state);
+        }
         const receipt = await this.invoke('operations.receipt', undefined, { params: { operation_id: record.operation_id }, signal: init.signal });
         current();
         if (receipt.operation_id !== record.operation_id || receipt.state !== 'completed' || !receipt.response || !Number.isInteger(receipt.response.status)) throw new Error('The previous change has an unknown outcome; it will not be repeated');
@@ -303,6 +323,8 @@ export class ISCPTransport {
           } }, rawBody);
         current();
         const body = await response.clone().json().catch(() => undefined);
+        const submission = transportSubmission(body);
+        if (submission) journal.saveTransport(resource, record.operation_id, submission);
         const unresolved = [body?.code, body?.error_code, response.headers.get('x-sparkclaw-error-code')].some(code =>
           ['operation_outcome_unknown', 'operation_receipt_unavailable', 'operation_receipt_capacity'].includes(code));
         // Unclassified server failures cannot prove whether an effect committed.
@@ -371,6 +393,8 @@ export class ISCPTransport {
     const result=await response.json();
     if(!response.ok){
       const error=new Error(result.error||"ISCP operation failed");
+      const submission = transportSubmission(result);
+      if (submission) error.relaySubmission = submission;
       // Domain adapters return their typed code in the authenticated JSON body.
       // Preserve envelope/header precedence except the closed legacy event
       // error: older Gateways wrapped cursor_gap with generic revision_conflict.
@@ -606,6 +630,14 @@ export class ISCPTransport {
         if (!call) continue;
         if (!call.stream) { this.#fail("disconnected"); return; }
         call.event(frame.event, frame.authority_valid_for_ms, frame.authority_deadline_ms);
+      } else if (frame.type === 'relay_submission_status') {
+        const call = this.pending.get(frame.id);
+        if (!call) continue;
+        if (!call.originalSubmission || frame.message_id !== call.originalSubmission.message_id || typeof frame.found !== 'boolean') { this.#fail('disconnected'); return; }
+        if (!frame.found) { call.resolve(undefined); continue; }
+        const status = frame.submission;
+        if (!status || Object.entries(call.originalSubmission).some(([key, value]) => status[key] !== value) || !['pending', 'unknown', 'accepted', 'absent', 'expired', 'rejected'].includes(status.state)) { this.#fail('disconnected'); return; }
+        call.resolve(status);
       } else if (frame.type === "response") {
         const call = this.pending.get(frame.id);
         if (!call) continue; // Late canceled calls cannot cross the request fence.
@@ -622,6 +654,14 @@ export class ISCPTransport {
 
   #fail(state) { this.close(); this.#state(state); }
   #state(state) { this.state = state; this.onState(state); }
+}
+
+function transportSubmission(result) {
+  const value = result?.relay_submission;
+  if (result?.code !== 'transport_outcome_unknown' || !value || Object.keys(value).sort().join() !== 'envelope_digest,history_id,message_id,not_after,session_id') return;
+  const id = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u, digest = /^[A-Za-z0-9_-]{43}$/u;
+  if (!id.test(value.message_id) || !id.test(value.session_id) || !digest.test(value.history_id) || !digest.test(value.envelope_digest) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u.test(value.not_after) || !Number.isFinite(Date.parse(value.not_after))) return;
+  return { ...value };
 }
 
 export function mapISCPRequest(raw, init, origin, expanded = false) {

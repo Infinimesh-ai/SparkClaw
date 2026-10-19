@@ -339,11 +339,14 @@ test('unknown mail send fence permits explicit reconciliation without touching l
     else if (call.request.operation === 'mail.drafts.reconcile') body = { id: 'draft', version: 5, state: 'sent' };
     else assert.fail('unexpected operation');
     child.send({ ipc_version: 1, type: 'response', id: call.id, response: { type: 'task.result', profile: 'sparkclaw.workbench.transport.v2', id: call.id, status: 200, body } });
-  }, { journalRoot: root, timeoutMS: 20, readLocalFile() { assert.fail('receipt recovery read a local file'); } });
+  // The lost reply is the injected fault; encrypted journal fsync must have
+  // time to complete before that fault under the parallel desktop suite.
+  }, { journalRoot: root, timeoutMS: 200, readLocalFile() { assert.fail('receipt recovery read a local file'); } });
   await f.transport.start();
   f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities: { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session', authorization_revision: 1, expires_at: new Date(Date.now() + 60000).toISOString(), operations: ['mail.drafts.list', 'mail.drafts.send', 'mail.drafts.reconcile', 'operations.receipt'], binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' } } });
   const request = { method: 'POST', body: JSON.stringify({ expected_version: 4, idempotency_key: requestID }) };
   await assert.rejects(f.transport.fetch(`${origin}/api/email/drafts/draft/send`, request), /deadline/);
+  f.transport.timeoutMS = 1000;
   await assert.rejects(f.transport.fetch(`${origin}/api/email/drafts/draft/send`, request), /unknown/);
   const reconciled = await f.transport.fetch(`${origin}/api/email/drafts/draft/reconcile`, { method: 'POST', body: '{}' });
   assert.equal((await reconciled.json()).state, 'sent');

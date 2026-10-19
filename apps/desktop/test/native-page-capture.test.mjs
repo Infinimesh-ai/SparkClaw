@@ -114,3 +114,38 @@ test("an empty CDP result cannot beat a later valid native image", async () => {
   assert.equal((await capture(record)).data, bytes.toString("base64"));
   assert.deepEqual(record.calls.at(-1), ["detach"]);
 });
+
+
+test("a cold Viz error retries the read in the same deadline without waiting for stalled CDP", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let calls = 0;
+  const bytes = Buffer.from("fresh native PNG");
+  const record = fixture({ visible: false, native: async () => {
+    if (++calls === 1) throw new Error("UnknownVizError");
+    return { isEmpty: () => false, resize: () => ({ toPNG: () => bytes }) };
+  }, cdp: () => new Promise(() => {}) });
+  const result = capture(record);
+  for (let index = 0; index < 10; index++) await Promise.resolve();
+  t.mock.timers.tick(50);
+  assert.equal((await result).data, bytes.toString("base64"));
+  assert.equal(calls, 2);
+  assert.deepEqual(record.calls.at(-1), ["detach"]);
+  t.mock.timers.tick(5000);
+  assert.equal(calls, 2);
+});
+
+test("revocation during surface startup prevents the next native read", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let calls = 0, revoked = false;
+  const record = fixture({ visible: false, native: async () => {
+    calls++; throw new Error("UnknownVizError");
+  }, cdp: async () => { throw new Error("CDP unavailable"); } });
+  const result = capture(record, () => { if (revoked) throw new Error("lease fenced"); });
+  const rejected = assert.rejects(result, AggregateError);
+  for (let index = 0; index < 10; index++) await Promise.resolve();
+  revoked = true;
+  t.mock.timers.tick(50);
+  await rejected;
+  assert.equal(calls, 1);
+  assert.deepEqual(record.calls.at(-1), ["detach"]);
+});

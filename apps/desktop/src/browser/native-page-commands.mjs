@@ -101,13 +101,11 @@ async function captureHiddenViewport(record, fence) {
   const debuggerSession = record.webContents.debugger;
   if (record.webContents.isDestroyed() || debuggerSession.isAttached()) throw new Error("Browser display surface is unavailable");
   const { width, height } = record.view.getBounds();
+  const completed = new AbortController();
   debuggerSession.attach("1.3");
   try {
     const image = await captureDeadline(Promise.any([
-      record.webContents.capturePage().then(image => {
-        if (image.isEmpty()) throw new Error("Browser display surface is unavailable");
-        return image;
-      }),
+      captureNativeSurface(record, fence, completed.signal),
       debuggerSession.sendCommand("Page.captureScreenshot", {
         format: "png", fromSurface: true, captureBeyondViewport: true,
         clip: { x: 0, y: 0, width, height, scale: CAPTURE_WIDTH / width },
@@ -124,9 +122,33 @@ async function captureHiddenViewport(record, fence) {
     fence();
     return image.resize({ width: CAPTURE_WIDTH }).toPNG();
   } finally {
+    completed.abort();
     // A later native/CDP result cannot escape after the winner or timeout.
     if (!record.webContents.isDestroyed() && debuggerSession.isAttached()) debuggerSession.detach();
   }
+}
+
+async function captureNativeSurface(record, fence, signal) {
+  // A never-presented view can reject its first read while Viz creates its
+  // surface. Retry only these surface errors within the shared capture budget.
+  // This never retries a browser action, changes presentation or extends a lease.
+  while (!signal.aborted) {
+    fence();
+    try {
+      const image = await record.webContents.capturePage();
+      if (image.isEmpty()) throw new Error("Browser display surface is unavailable");
+      return image;
+    } catch (error) {
+      if (signal.aborted || !/^(UnknownVizError|Current display surface not available for capture|Browser display surface is unavailable)$/u.test(error.message)) throw error;
+    }
+    await new Promise(resolve => {
+      const done = () => { clearTimeout(timer); signal.removeEventListener("abort", done); resolve(); };
+      const timer = setTimeout(done, 50);
+      signal.addEventListener("abort", done, { once: true });
+      if (signal.aborted) done();
+    });
+  }
+  throw new Error("Browser capture completed");
 }
 
 async function captureTaskViewport(record, fence, surfaceError = new Error("Browser display surface is unavailable"), timeout = 3000) {

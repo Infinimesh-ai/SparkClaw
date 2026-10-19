@@ -1,3 +1,4 @@
+import { VoiceDraftPersistence } from "../lib/voiceDraftPersistence";
 import { useBrowserLayout } from "../hooks/useBrowserLayout";
 import { useMessageScroll } from "../hooks/useMessageScroll";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -259,20 +260,22 @@ export function LocalWorkbench() {
     return () => { active = false; unsubscribe?.(); window.clearInterval(timer); if (paint !== undefined) window.cancelAnimationFrame(paint); };
   }, [selected, store, surfaceError, readContent]);
 
-  const applyVoiceTranscript = useCallback(async (result: { text: string }, anchor: VoiceDraftAnchor) => {
-    if (anchor.sessionId !== selectedRef.current || draftRef.current !== anchor.draft) return false;
-    const start = Math.min(anchor.selectionStart, draftRef.current.length);
-    const end = Math.min(Math.max(anchor.selectionEnd, start), draftRef.current.length);
-    const inserted = insertVoiceTranscript(draftRef.current, result.text, start, end);
-    draftRef.current = inserted.value;
-    setDraft(inserted.value);
-    window.requestAnimationFrame(() => {
-      composerInputRef.current?.focus();
-      composerInputRef.current?.setSelectionRange(inserted.caret, inserted.caret);
-    });
-    await drafts.flush();
-    return true;
-  }, [drafts, setDraft]);
+  const voiceDraftPersistence = useMemo(() => new VoiceDraftPersistence(), [store]);
+  const applyVoiceTranscript = useCallback(async (result: { text: string; request_id: string }, anchor: VoiceDraftAnchor) => {
+    return voiceDraftPersistence.apply(JSON.stringify([anchor.sessionId, result.request_id]), () => {
+      if (anchor.sessionId !== selectedRef.current || draftRef.current !== anchor.draft) return false;
+      const start = Math.min(anchor.selectionStart, draftRef.current.length);
+      const end = Math.min(Math.max(anchor.selectionEnd, start), draftRef.current.length);
+      const inserted = insertVoiceTranscript(draftRef.current, result.text, start, end);
+      draftRef.current = inserted.value;
+      setDraft(inserted.value);
+      window.requestAnimationFrame(() => {
+        composerInputRef.current?.focus();
+        composerInputRef.current?.setSelectionRange(inserted.caret, inserted.caret);
+      });
+      return true;
+    }, () => drafts.flush(anchor.sessionId));
+  }, [drafts, setDraft, voiceDraftPersistence]);
   const voice = useVoiceInput({
     speech: ready?.speech ?? null,
     sessionId: selected,

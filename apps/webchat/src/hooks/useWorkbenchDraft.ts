@@ -52,7 +52,7 @@ export function useWorkbenchDraft(adapter: WorkbenchDraftAdapter, onError: (erro
     select,
     id: () => current.current,
     content, attachments,
-    flush: () => drafts.flush(current.current),
+    flush: (id = current.current) => drafts.flush(id),
     saveCurrentOverLatest: () => drafts.saveCurrentOverLatest(current.current),
     accept: (id: string, value: WorkbenchDraft) => drafts.accept(id, value),
   };

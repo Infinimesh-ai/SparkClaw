@@ -1,3 +1,4 @@
+import { VoiceDraftPersistence } from "./lib/voiceDraftPersistence";
 import { useBrowserLayout } from "./hooks/useBrowserLayout";
 import { useMessageScroll } from "./hooks/useMessageScroll";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -422,24 +423,26 @@ export function App() {
   const pendingApprovals = useMemo(() => approvals.filter((approval) => approval.status === "pending"), [approvals]);
   const pendingCandidates = useMemo(() => candidates.filter((candidate) => candidate.status === "pending"), [candidates]);
   const active = sessions.find((session) => session.id === activeSession);
-  const applyVoiceTranscript = useCallback(async (result: { text: string }, anchor: VoiceDraftAnchor) => {
-    const currentDraft = draftsBySessionRef.current[anchor.sessionId] ?? "";
-    if (currentDraft !== anchor.draft) return false;
-    const start = Math.min(anchor.selectionStart, currentDraft.length);
-    const end = Math.min(Math.max(anchor.selectionEnd, start), currentDraft.length);
-    const inserted = insertVoiceTranscript(currentDraft, result.text, start, end);
-    const nextDrafts = { ...draftsBySessionRef.current, [anchor.sessionId]: inserted.value };
-    draftsBySessionRef.current = nextDrafts;
-    setDraftsBySession(nextDrafts);
-    if (anchor.sessionId === activeSession) {
-      window.requestAnimationFrame(() => {
-        composerInputRef.current?.focus();
-        composerInputRef.current?.setSelectionRange(inserted.caret, inserted.caret);
-      });
-    }
-    await drafts.repository.flush(anchor.sessionId);
-    return true;
-  }, [activeSession, drafts.repository, setDraftsBySession]);
+  const voiceDraftPersistence = useMemo(() => new VoiceDraftPersistence(), [drafts.repository]);
+  const applyVoiceTranscript = useCallback(async (result: { text: string; request_id: string }, anchor: VoiceDraftAnchor) => {
+    return voiceDraftPersistence.apply(JSON.stringify([anchor.sessionId, result.request_id]), () => {
+      const currentDraft = draftsBySessionRef.current[anchor.sessionId] ?? "";
+      if (currentDraft !== anchor.draft) return false;
+      const start = Math.min(anchor.selectionStart, currentDraft.length);
+      const end = Math.min(Math.max(anchor.selectionEnd, start), currentDraft.length);
+      const inserted = insertVoiceTranscript(currentDraft, result.text, start, end);
+      const nextDrafts = { ...draftsBySessionRef.current, [anchor.sessionId]: inserted.value };
+      draftsBySessionRef.current = nextDrafts;
+      setDraftsBySession(nextDrafts);
+      if (anchor.sessionId === activeSession) {
+        window.requestAnimationFrame(() => {
+          composerInputRef.current?.focus();
+          composerInputRef.current?.setSelectionRange(inserted.caret, inserted.caret);
+        });
+      }
+      return true;
+    }, () => drafts.repository.flush(anchor.sessionId));
+  }, [activeSession, drafts.repository, setDraftsBySession, voiceDraftPersistence]);
 
   const voice = useVoiceInput({
     speech: ready?.speech ?? null,

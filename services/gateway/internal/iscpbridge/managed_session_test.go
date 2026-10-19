@@ -402,3 +402,20 @@ func TestManagedReopenRejectsTamperAndWindow(t *testing.T) {
 		t.Fatal("expected route TTL rejection")
 	}
 }
+
+func TestManagedSocketReplacementInvalidatesOldSession(t *testing.T) {
+	h := newManagedHarness(t)
+	_, old := h.runHandshake(t.Context())
+	h.takeSubmitted()
+	if _, ok := h.service.session(old); !ok {
+		t.Fatal("missing established session")
+	}
+	h.service.resetRelaySessions()
+	if _, ok := h.service.session(old); ok {
+		t.Fatal("old socket retained encrypted sending capability")
+	}
+	_, fresh := h.runHandshake(t.Context())
+	if fresh == old {
+		t.Fatal("replacement reused old session lineage")
+	}
+}

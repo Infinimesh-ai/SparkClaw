@@ -71,10 +71,17 @@ func NewService(config Config, gateway *GatewayClient, relay *RelayClient, devic
 	if device.Identity.DeviceID == "" {
 		return nil, errors.New("device identity is required")
 	}
-	return &Service{
-		config: config, provider: iscpcrypto.NewProvider(), device: device, gateway: gateway, relay: relay,
-		sessions: map[string]*secureSession{}, pumps: map[string]context.CancelFunc{},
-	}, nil
+	s := &Service{config: config, provider: iscpcrypto.NewProvider(), device: device, gateway: gateway, relay: relay, sessions: map[string]*secureSession{}, pumps: map[string]context.CancelFunc{}}
+	relay.SetSessionUsable(func(id string) bool {
+		secured, ok := s.session(id)
+		if !ok {
+			return false
+		}
+		secured.mu.Lock()
+		defer secured.mu.Unlock()
+		return secured.state != nil && secured.state.Ready() && time.Now().Before(secured.expiresAt)
+	})
+	return s, nil
 }
 
 func LoadService(config Config) (*Service, error) {
@@ -116,6 +123,15 @@ func (s *Service) Run(ctx context.Context) error {
 	ready := func() {
 		if s.managedMode() {
 			managedStart.Do(func() { s.runManagedInitiators(ctx); go s.runManagedLifecycle(ctx) })
+			s.mu.RLock()
+			peers := make([]*managedPeer, 0, len(s.managedPeers))
+			for _, peer := range s.managedPeers {
+				peers = append(peers, peer)
+			}
+			s.mu.RUnlock()
+			for _, peer := range peers {
+				peer.signalReinitiate()
+			}
 		}
 	}
 
@@ -123,6 +139,7 @@ func (s *Service) Run(ctx context.Context) error {
 	maxBackoff := time.Duration(s.config.Relay.ReconnectMaxSeconds) * time.Second
 	for {
 		err := s.relay.RunOnceReady(ctx, s.handleRelayMessage, ready)
+		s.resetRelaySessions()
 		if ctx.Err() != nil {
 			s.closePumps()
 			return ctx.Err()
@@ -587,4 +604,30 @@ func earlierTime(a, b time.Time) time.Time {
 		return a
 	}
 	return b
+}
+
+// Reauthentication stays within RunOnceReady. A returned socket (including
+// a scope/identity change) invalidates every old E2E sending capability.
+func (s *Service) resetRelaySessions() {
+	s.mu.Lock()
+	for key, cancel := range s.pumps {
+		cancel()
+		delete(s.pumps, key)
+	}
+	s.sessions = map[string]*secureSession{}
+	peers := make([]*managedPeer, 0, len(s.managedPeers))
+	for _, peer := range s.managedPeers {
+		peers = append(peers, peer)
+	}
+	s.mu.Unlock()
+	for _, peer := range peers {
+		peer.mu.Lock()
+		peer.markStale(peer.sessionID)
+		peer.sessionID = ""
+		peer.local = session.LocalHello{}
+		peer.state = nil
+		peer.manifestSent = false
+		peer.peerManifest = nil
+		peer.mu.Unlock()
+	}
 }

@@ -36,10 +36,10 @@ async function until(predicate, label, budgetMS = 30000) {
   throw new Error(`Native mail qualification timed out: ${label}`);
 }
 async function click(labels) {
-  assert.equal(await evaluate(`(()=>{const button=[...document.querySelectorAll('button')].find(item=>${JSON.stringify(labels)}.includes(item.getAttribute('aria-label') || item.textContent.trim()));if(!button||button.disabled)return false;button.click();return true;})()`), true, `Enabled button ${labels}`);
+  assert.equal(await evaluate(`(()=>{const button=[...document.querySelectorAll('button')].find(item=>${JSON.stringify(labels)}.includes(item.getAttribute('aria-label') || item.textContent.trim()));if(!button||button.matches(':disabled'))return false;button.click();return true;})()`), true, `Enabled button ${labels}`);
 }
 async function input(labels, value) {
-  assert.equal(await evaluate(`(()=>{const element=[...document.querySelectorAll('input,textarea')].find(item=>${JSON.stringify(labels)}.includes(item.getAttribute('aria-label') || item.closest('label')?.childNodes[0]?.textContent.trim()));if(!element||element.disabled)return false;const prototype=element.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(prototype,'value').set.call(element,${JSON.stringify(value)});element.dispatchEvent(new Event('input',{bubbles:true}));return true;})()`), true, `Editable input ${labels}`);
+  assert.equal(await evaluate(`(()=>{const element=[...document.querySelectorAll('input,textarea')].find(item=>${JSON.stringify(labels)}.includes(item.getAttribute('aria-label') || item.closest('label')?.childNodes[0]?.textContent.trim()));if(!element||element.matches(':disabled'))return false;const prototype=element.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(prototype,'value').set.call(element,${JSON.stringify(value)});element.dispatchEvent(new Event('input',{bubbles:true}));return true;})()`), true, `Editable input ${labels}`);
 }
 const text = () => evaluate("document.querySelector('.emailComposer')?.textContent || ''");
 const readSink = async () => JSON.parse(await fs.readFile(path.join(fixture, 'sink-evidence.json'), 'utf8'));
@@ -72,11 +72,11 @@ void app.whenReady().then(async () => {
     await until(() => evaluate("Boolean(document.querySelector('dialog.emailPopup[open]'))"), 'mail cache panel');
     await until(() => evaluate("document.querySelector('.emailAddressFilter select')?.options.length > 1"), 'original popup mailbox inventory');
     await click(['Write email', '写邮件']);
-    await until(() => evaluate("Boolean(document.querySelector('.emailComposer'))"), 'mail draft editor');
+    await until(() => evaluate("Boolean(document.querySelector('.emailComposer fieldset:not(:disabled)'))"), 'mail draft editor ready');
     assert.equal(await evaluate("Boolean(document.querySelector('.emailComposer input[type=file]'))"), false);
     await input(['To', '收件人'], 'sink@example.test');
     await input(['Subject', '主题'], 'Native workspace attachment');
-    await input(['Body', '正文'], 'Only the reviewed workspace file should be delivered.');
+    await input(['Message body', '正文'], 'Only the reviewed workspace file should be delivered.');
     await until(() => evaluate(`Boolean(document.querySelector('option[value="${originalFile.id}"]'))`), 'desktop local file inventory');
     await selectFile(originalFile.id);
     await click(['Send', '发送']);
@@ -111,9 +111,10 @@ void app.whenReady().then(async () => {
     evidence.checks.push('desktop_owned_file_transferred_without_gateway_source_access_or_decoy_read');
     evidence.checks.push('renderer_saved_and_confirmed_manifest_delivers_identical_bytes_to_loopback_sink');
     await click(['Write email', '写邮件']);
+    await until(() => evaluate("Boolean(document.querySelector('.emailComposer fieldset:not(:disabled)'))"), 'new draft ready');
     await input(['To', '收件人'], 'sink@example.test');
     await input(['Subject', '主题'], 'Lost receipt native attachment');
-    await input(['Body', '正文'], 'The provider accepts this once, then drops its response.');
+    await input(['Message body', '正文'], 'The provider accepts this once, then drops its response.');
     await selectFile(updatedFile.id);
     await click(['Send', '发送']);
     await until(async () => (await text()).includes(digest), 'second immutable review');
@@ -140,11 +141,12 @@ void app.whenReady().then(async () => {
     const capacityHash = 'sha256:' + crypto.createHash('sha256').update(capacityBytes).digest('hex');
     const capacityFile = await evaluate(`window.sparkclawClientStore.saveFile(${JSON.stringify(conversation.id)},'capacity-10MiB.txt',new Uint8Array(10*1024*1024).fill(0x61))`);
     await click(['Write email', '写邮件']);
+    await until(() => evaluate("Boolean(document.querySelector('.emailComposer fieldset:not(:disabled)'))"), 'capacity draft ready');
     await click(['Refresh local files', '刷新本机文件']);
     await until(() => evaluate(`Boolean(document.querySelector('option[value="${capacityFile.id}"]'))`), 'capacity local file inventory');
     await input(['To', '收件人'], 'sink@example.test');
     await input(['Subject', '主题'], 'Desktop local capacity attachment');
-    await input(['Body', '正文'], 'Controlled sink qualification at the advertised file transfer ceiling.');
+    await input(['Message body', '正文'], 'Controlled sink qualification at the advertised file transfer ceiling.');
     await selectFile(capacityFile.id);
     const transferStarted = Date.now();
     await click(['Send', '发送']);

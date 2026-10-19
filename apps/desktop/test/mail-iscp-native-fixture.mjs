@@ -36,10 +36,10 @@ async function until(predicate, label, budgetMS = 30000) {
   throw new Error(`Native mail qualification timed out: ${label}`);
 }
 async function click(labels) {
-  assert.equal(await evaluate(`(()=>{const button=[...document.querySelectorAll('button')].find(item=>${JSON.stringify(labels)}.includes(item.textContent.trim()));if(!button||button.disabled)return false;button.click();return true;})()`), true, `Enabled button ${labels}`);
+  assert.equal(await evaluate(`(()=>{const button=[...document.querySelectorAll('button')].find(item=>${JSON.stringify(labels)}.includes(item.getAttribute('aria-label') || item.textContent.trim()));if(!button||button.disabled)return false;button.click();return true;})()`), true, `Enabled button ${labels}`);
 }
 async function input(labels, value) {
-  assert.equal(await evaluate(`(()=>{const element=[...document.querySelectorAll('input,textarea')].find(item=>${JSON.stringify(labels)}.includes(item.getAttribute('aria-label')));if(!element||element.disabled)return false;const prototype=element.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(prototype,'value').set.call(element,${JSON.stringify(value)});element.dispatchEvent(new Event('input',{bubbles:true}));return true;})()`), true, `Editable input ${labels}`);
+  assert.equal(await evaluate(`(()=>{const element=[...document.querySelectorAll('input,textarea')].find(item=>${JSON.stringify(labels)}.includes(item.getAttribute('aria-label') || item.closest('label')?.childNodes[0]?.textContent.trim()));if(!element||element.disabled)return false;const prototype=element.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(prototype,'value').set.call(element,${JSON.stringify(value)});element.dispatchEvent(new Event('input',{bubbles:true}));return true;})()`), true, `Editable input ${labels}`);
 }
 const text = () => evaluate("document.querySelector('.emailComposer')?.textContent || ''");
 const readSink = async () => JSON.parse(await fs.readFile(path.join(fixture, 'sink-evidence.json'), 'utf8'));
@@ -69,8 +69,9 @@ void app.whenReady().then(async () => {
       await click(['Add attachment','添加附件']);
     };
     await click(['Mail', '邮箱']);
-    await until(() => evaluate("Boolean(document.querySelector('.mailCachePanel'))"), 'mail cache panel');
-    await click(['Refresh mailboxes', '更新邮箱列表']);
+    await until(() => evaluate("Boolean(document.querySelector('dialog.emailPopup[open]'))"), 'mail cache panel');
+    await until(() => evaluate("document.querySelector('.emailAddressFilter select')?.options.length > 1"), 'original popup mailbox inventory');
+    await click(['Write email', '写邮件']);
     await until(() => evaluate("Boolean(document.querySelector('.emailComposer'))"), 'mail draft editor');
     assert.equal(await evaluate("Boolean(document.querySelector('.emailComposer input[type=file]'))"), false);
     await input(['To', '收件人'], 'sink@example.test');
@@ -78,7 +79,7 @@ void app.whenReady().then(async () => {
     await input(['Body', '正文'], 'Only the reviewed workspace file should be delivered.');
     await until(() => evaluate(`Boolean(document.querySelector('option[value="${originalFile.id}"]'))`), 'desktop local file inventory');
     await selectFile(originalFile.id);
-    await click(['Review and send', '检查并发送']);
+    await click(['Send', '发送']);
     await until(() => evaluate("Boolean(document.querySelector('.emailComposer [role=region]'))"), 'saved manifest review');
     assert.ok((await text()).includes(initialDigest));
     await fs.writeFile(path.join(desktopData, 'workbench/files', originalFile.id), updated, { mode: 0o600 });
@@ -89,19 +90,19 @@ void app.whenReady().then(async () => {
     await fs.writeFile(path.join(desktopData, 'workbench/files', originalFile.id), initial, { mode: 0o600 });
     const updatedFile = await saveLocal(updated);
     await click(['Reload draft', '重新读取草稿']);
-    await until(() => evaluate("![...document.querySelectorAll('.emailComposer button')].find(b=>/^(Review and send|检查并发送)$/.test(b.textContent))?.disabled"), 'draft reload');
+    await until(() => evaluate("![...document.querySelectorAll('.emailComposer button')].find(b=>/^(Send|发送)$/.test(b.textContent))?.disabled"), 'draft reload');
     assert.equal(await evaluate(`(()=>{const button=document.querySelector('button[aria-label="Remove attachment ${originalFile.id}"],button[aria-label="移除附件 ${originalFile.id}"]');if(!button)return false;button.click();return true;})()`),true);
     await click(['Refresh local files', '刷新本机文件']);
     await until(() => evaluate(`Boolean(document.querySelector('option[value="${updatedFile.id}"]'))`), 'replacement desktop file inventory');
     await selectFile(updatedFile.id);
-    await click(['Review and send', '检查并发送']);
+    await click(['Send', '发送']);
     await until(async () => (await text()).includes(digest), 'fresh attachment hash review');
     assert.ok((await text()).includes(attachmentName));
     await evaluate("(()=>{const review=document.querySelector('.emailComposer [role=region]');review.querySelector('details').open=true;review.scrollIntoView({block:'center'});})()");
     await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
     await fs.writeFile(path.join(fixture, 'native-mail-review.png'), (await window.webContents.capturePage()).toPNG(), { mode: 0o600 });
     await click(['Confirm sending this version', '确认发送此版本']);
-    await until(async () => /The provider confirmed sending|服务方已确认发送/u.test(await text()), 'positive provider receipt');
+    await until(async () => /Provider confirmed sending|服务商已确认发送/u.test(await text()), 'positive provider receipt');
     let sink = await readSink();
     assert.equal(sink.sends.length, 1); assert.equal(sink.sends[0].attachments[0].sha256, digest);
     assert.equal(sink.sends[0].attachments[0].bytes_base64, updated.toString('base64'));
@@ -109,28 +110,28 @@ void app.whenReady().then(async () => {
     assert.equal(await fs.readFile(path.join(fixture, 'workspace/reports/native-attachment.txt'), 'utf8'), 'Gateway decoy: these bytes must never be attached by SparkX.\n');
     evidence.checks.push('desktop_owned_file_transferred_without_gateway_source_access_or_decoy_read');
     evidence.checks.push('renderer_saved_and_confirmed_manifest_delivers_identical_bytes_to_loopback_sink');
-    await click(['New draft', '新草稿']);
+    await click(['Write email', '写邮件']);
     await input(['To', '收件人'], 'sink@example.test');
     await input(['Subject', '主题'], 'Lost receipt native attachment');
     await input(['Body', '正文'], 'The provider accepts this once, then drops its response.');
     await selectFile(updatedFile.id);
-    await click(['Review and send', '检查并发送']);
+    await click(['Send', '发送']);
     await until(async () => (await text()).includes(digest), 'second immutable review');
     await click(['Confirm sending this version', '确认发送此版本']);
-    await until(async () => /Send outcome is unknown|发送结果不确定/u.test(await text()), 'missing receipt unknown state');
-    await until(async () => (await readSink()).sends.length === 2 && await evaluate("Boolean([...document.querySelectorAll('.emailComposer button')].find(button=>/^(Reconcile send outcome|核对发送结果)$/.test(button.textContent)&&!button.disabled))"), 'provider effect and completed unknown response');
+    await until(async () => /Sending result needs confirmation|发送结果待确认/u.test(await text()), 'missing receipt unknown state');
+    await until(async () => (await readSink()).sends.length === 2 && await evaluate("Boolean([...document.querySelectorAll('.emailComposer button')].find(button=>/^(Check sending result|核对发送结果)$/.test(button.textContent)&&!button.disabled))"), 'provider effect and completed unknown response');
     assert.equal(await evaluate("Boolean(document.querySelector('.emailComposer fieldset').disabled)"), true);
-    assert.equal(await evaluate("[...document.querySelectorAll('.emailComposer button')].some(button=>/^(Confirm sending this version|确认发送此版本|Review and send|检查并发送)$/.test(button.textContent))"), false);
+    assert.equal(await evaluate("[...document.querySelectorAll('.emailComposer button')].some(button=>/^(Confirm sending this version|确认发送此版本|Send|发送)$/.test(button.textContent))"), false);
     sink = await readSink(); assert.equal(sink.sends.length, 2);
     // Receipt recovery must succeed even after the desktop source is removed.
     await fs.unlink(path.join(desktopData, 'workbench/files', updatedFile.id));
-    await click(['Reconcile send outcome', '核对发送结果']);
-    await until(async () => /The provider confirmed sending|服务方已确认发送/u.test(await text()), 'original receipt reconciled');
+    await click(['Check sending result', '核对发送结果']);
+    await until(async () => /Provider confirmed sending|服务商已确认发送/u.test(await text()), 'original receipt reconciled');
     sink = await readSink(); assert.equal(sink.sends.length, 2); assert.equal(sink.reconciles, 1);
     assert.equal(sink.sends[1].attachments[0].sha256, digest);
     assert.equal(sink.sends[1].attachments[0].bytes_base64, updated.toString('base64'));
     evidence.checks.push('lost_provider_receipt_remains_unknown_until_reconciliation_and_never_resends');
-    await evaluate("[...document.querySelectorAll('.emailComposer [role=status]')].find(item=>/The provider confirmed sending|服务方已确认发送/.test(item.textContent)).scrollIntoView({block:'center'})");
+    await evaluate("[...document.querySelectorAll('.emailComposer [role=status]')].find(item=>/Provider confirmed sending|服务商已确认发送/.test(item.textContent)).scrollIntoView({block:'center'})");
     await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
     await fs.writeFile(path.join(fixture, 'native-mail-reconciled.png'), (await window.webContents.capturePage()).toPNG(), { mode: 0o600 });
     // Exercise the advertised object-transfer ceiling through the production
@@ -138,7 +139,7 @@ void app.whenReady().then(async () => {
     const capacityBytes = Buffer.alloc(10 * 1024 * 1024, 0x61);
     const capacityHash = 'sha256:' + crypto.createHash('sha256').update(capacityBytes).digest('hex');
     const capacityFile = await evaluate(`window.sparkclawClientStore.saveFile(${JSON.stringify(conversation.id)},'capacity-10MiB.txt',new Uint8Array(10*1024*1024).fill(0x61))`);
-    await click(['New draft', '新草稿']);
+    await click(['Write email', '写邮件']);
     await click(['Refresh local files', '刷新本机文件']);
     await until(() => evaluate(`Boolean(document.querySelector('option[value="${capacityFile.id}"]'))`), 'capacity local file inventory');
     await input(['To', '收件人'], 'sink@example.test');
@@ -146,11 +147,11 @@ void app.whenReady().then(async () => {
     await input(['Body', '正文'], 'Controlled sink qualification at the advertised file transfer ceiling.');
     await selectFile(capacityFile.id);
     const transferStarted = Date.now();
-    await click(['Review and send', '检查并发送']);
+    await click(['Send', '发送']);
     await until(async () => (await text()).includes(capacityHash), '10 MiB desktop object review', 180000);
     const transferMS = Date.now() - transferStarted;
     await click(['Confirm sending this version', '确认发送此版本']);
-    await until(async () => /The provider confirmed sending|服务方已确认发送/u.test(await text()), '10 MiB controlled sink receipt', 180000);
+    await until(async () => /Provider confirmed sending|服务商已确认发送/u.test(await text()), '10 MiB controlled sink receipt', 180000);
     sink = await readSink();
     assert.equal(sink.sends.length, 3);
     assert.equal(sink.sends[2].attachments[0].bytes_base64, capacityBytes.toString('base64'));

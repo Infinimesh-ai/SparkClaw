@@ -70,6 +70,8 @@ func TestISCPSpeechTerminalSurvivesRestartWithoutProviderReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Reading a completed transcript does not require a live provider backend.
+	server.speech = nil
 	recovered := restarted(ctx, poll)
 	if recovered.Status != 200 || !bytes.Equal(recovered.Body, final) {
 		t.Fatalf("lost terminal: %s / %s", final, recovered.Body)

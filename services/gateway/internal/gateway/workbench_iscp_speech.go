@@ -34,7 +34,7 @@ type iscpSpeechSession struct {
 }
 
 func (a *iscpDomainAdapter) speech(ctx context.Context, request iscpworkbench.Request) iscpDomainResult {
-	if a.server.speech == nil {
+	if a.server.speech == nil && (request.Operation == iscpworkbench.OperationSpeechStatus || request.Operation == iscpworkbench.OperationSpeechTranscribe || request.Operation == iscpworkbench.OperationSpeechSessionOpen) {
 		return domainError(503, "speech_unavailable")
 	}
 	if request.Operation == iscpworkbench.OperationSpeechStatus {

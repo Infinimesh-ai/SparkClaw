@@ -68,7 +68,7 @@ void app.whenReady().then(async () => {
       assert.equal(await evaluate(`(()=>{const element=document.querySelector('select[aria-label="Local workspace file"],select[aria-label="本机工作区文件"]');if(!element||!Array.from(element.options).some(option=>option.value===${JSON.stringify(fileID)}))return false;Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(element,${JSON.stringify(fileID)});element.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`),true);
       await click(['Add attachment','添加附件']);
     };
-    await click(['Mail', '邮箱']);
+    await click(['Email', '邮件']);
     await until(() => evaluate("Boolean(document.querySelector('dialog.emailPopup[open]'))"), 'mail cache panel');
     await until(() => evaluate("document.querySelector('.emailAddressFilter select')?.options.length > 1"), 'original popup mailbox inventory');
     await click(['Write email', '写邮件']);
@@ -165,7 +165,10 @@ void app.whenReady().then(async () => {
     evidence.passed = true;
   } catch (error) {
     evidence.error = error.message;
-    if (window && !window.isDestroyed()) evidence.last_mail_UI = await text().catch(() => 'Renderer unavailable');
+    if (window && !window.isDestroyed()) {
+      evidence.last_mail_UI = await evaluate("document.body.innerText").catch(() => 'Renderer unavailable');
+      evidence.buttons = await evaluate("[...document.querySelectorAll('button')].map(button => ({label:button.getAttribute('aria-label') || button.textContent.trim(), disabled:button.disabled}))").catch(() => []);
+    }
     console.error(error.stack);
   }
   finally {

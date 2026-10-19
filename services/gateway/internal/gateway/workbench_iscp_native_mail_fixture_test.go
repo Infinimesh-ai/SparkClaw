@@ -215,7 +215,8 @@ func TestWorkbenchISCPNativeMailQualificationFixture(t *testing.T) {
 	cfg.Gateway.DeploymentID = transport.Binding.DeploymentID
 	tools := toolhub.New(cfg, repository)
 	defer tools.Close()
-	server := New(cfg, repository, tools, agent.Runtime{}, WithEmailManagement(service), WithExecutions(filepath.Join(root, "execution"), nil))
+	controller := emailautomation.NewController(repository, emailautomation.DefaultRegistry(), nil, nil)
+	server := New(cfg, repository, tools, agent.Runtime{}, WithEmailController(controller), WithEmailManagement(service), WithExecutions(filepath.Join(root, "execution"), nil))
 	defer server.executions.Close()
 	lifecycle, cancel := context.WithCancel(t.Context())
 	defer cancel()

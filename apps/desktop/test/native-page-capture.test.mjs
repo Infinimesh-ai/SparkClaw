@@ -4,7 +4,7 @@ import { nativePageCommand } from "../src/browser/native-page-commands.mjs";
 
 const binding = { page_id: "page_fixture" };
 const capture = (record, fence = () => {}) => nativePageCommand(record, "screenshot", {}, binding, fence);
-function fixture({ native, cdp, attached = false } = {}) {
+function fixture({ native, cdp, attached = false, visible = true } = {}) {
   const calls = [];
   const debuggerSession = {
     isAttached: () => attached,
@@ -12,7 +12,7 @@ function fixture({ native, cdp, attached = false } = {}) {
     detach() { calls.push(["detach"]); attached = false; },
     sendCommand(method, params) { calls.push([method, params]); return cdp(); },
   };
-  return { calls, view: { getBounds: () => ({width:640,height:720}) }, webContents: { capturePage: native || (() => Promise.reject(new Error("no display surface"))), debugger: debuggerSession, isDestroyed: () => false } };
+  return { calls, view: { getVisible: () => visible, getBounds: () => ({width:640,height:720}) }, webContents: { capturePage: native || (() => Promise.reject(new Error("no display surface"))), debugger: debuggerSession, isDestroyed: () => false } };
 }
 
 test("native capture normalizes the bounded output without opening a debugger", async () => {
@@ -61,4 +61,22 @@ test("capture output still obeys the host reply budget", async () => {
   const record = fixture({ native: async () => ({ isEmpty: () => false, resize: () => ({ toPNG: () => Buffer.alloc((64 << 10) + 1) }) }) });
   await assert.rejects(capture(record), /bounded output budget/);
   assert.deepEqual(record.calls, []);
+});
+
+
+test("a never-presented view skips a stalled native surface and captures its fixed viewport immediately", async () => {
+  let nativeCalls = 0;
+  const record = fixture({ visible: false, native: () => { nativeCalls++; return new Promise(() => {}); },
+    cdp: async () => { throw new Error("viewport reached"); } });
+  await assert.rejects(capture(record), /viewport reached/);
+  assert.equal(nativeCalls, 0);
+  assert.equal(record.calls[1][0], "Page.captureScreenshot");
+  assert.deepEqual(record.calls.at(-1), ["detach"]);
+});
+
+test("a hidden view cannot replace another debugger session", async () => {
+  const record = fixture({ visible: false, attached: true });
+  await assert.rejects(capture(record), /display surface is unavailable/);
+  assert.deepEqual(record.calls, []);
+  assert.equal(record.webContents.debugger.isAttached(), true);
 });

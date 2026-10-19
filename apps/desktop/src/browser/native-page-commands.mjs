@@ -82,6 +82,10 @@ function lookup(args) {
 }
 
 async function captureScreenshot(record, fence) {
+  // Hidden task views have no presented native surface. Starting capturePage
+  // there can consume the command deadline before Chromium gets a chance to
+  // render its fixed viewport. Capture them directly without presenting them.
+  if (record.view.getVisible?.() === false) return captureTaskViewport(record, fence);
   try {
     const image = await captureDeadline(record.webContents.capturePage(), 5000);
     fence();
@@ -89,31 +93,34 @@ async function captureScreenshot(record, fence) {
     return image.resize({ width: CAPTURE_WIDTH }).toPNG();
   } catch (error) {
     fence();
-    // A never-presented WebContentsView has no native display surface. Ask
-    // Chromium to render only our fixed task viewport, leaving the selected
-    // conversation, window visibility and owner focus unchanged. No debugger
-    // method or parameters are accepted from the wire, and an existing
-    // debugger session must never be displaced.
-    const debuggerSession = record.webContents.debugger;
-    if (record.webContents.isDestroyed() || debuggerSession.isAttached()) throw error;
-    const { width, height } = record.view.getBounds();
-    debuggerSession.attach("1.3");
-    try {
-      const result = await captureDeadline(debuggerSession.sendCommand("Page.captureScreenshot", {
-        format: "png", fromSurface: true, captureBeyondViewport: true,
-        clip: { x: 0, y: 0, width, height, scale: CAPTURE_WIDTH / width },
-      }), 3000);
-      fence();
-      // Electron display scale differs between Retina and ordinary displays.
-      // Normalize both native and Chromium captures to the same output width.
-      const { nativeImage } = await import("electron");
-      fence();
-      const image = nativeImage.createFromBuffer(Buffer.from(result.data, "base64"));
-      if (image.isEmpty()) throw new Error("Browser screenshot is empty");
-      return image.resize({ width: CAPTURE_WIDTH }).toPNG();
-    } finally {
-      if (!record.webContents.isDestroyed() && debuggerSession.isAttached()) debuggerSession.detach();
-    }
+    return captureTaskViewport(record, fence, error);
+  }
+}
+
+async function captureTaskViewport(record, fence, surfaceError = new Error("Browser display surface is unavailable")) {
+  // Ask Chromium to render only our fixed task viewport, leaving the selected
+  // conversation, window visibility and owner focus unchanged. No debugger
+  // method or parameters are accepted from the wire, and an existing
+  // debugger session must never be displaced.
+  const debuggerSession = record.webContents.debugger;
+  if (record.webContents.isDestroyed() || debuggerSession.isAttached()) throw surfaceError;
+  const { width, height } = record.view.getBounds();
+  debuggerSession.attach("1.3");
+  try {
+    const result = await captureDeadline(debuggerSession.sendCommand("Page.captureScreenshot", {
+      format: "png", fromSurface: true, captureBeyondViewport: true,
+      clip: { x: 0, y: 0, width, height, scale: CAPTURE_WIDTH / width },
+    }), 3000);
+    fence();
+    // Electron display scale differs between Retina and ordinary displays.
+    // Normalize both native and Chromium captures to the same output width.
+    const { nativeImage } = await import("electron");
+    fence();
+    const image = nativeImage.createFromBuffer(Buffer.from(result.data, "base64"));
+    if (image.isEmpty()) throw new Error("Browser screenshot is empty");
+    return image.resize({ width: CAPTURE_WIDTH }).toPNG();
+  } finally {
+    if (!record.webContents.isDestroyed() && debuggerSession.isAttached()) debuggerSession.detach();
   }
 }
 

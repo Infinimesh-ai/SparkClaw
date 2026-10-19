@@ -12,6 +12,7 @@ type Reply = {
   accepted_sequence?: number;
   events?: Array<{ sequence: number; event: SpeechRealtimeEvent }>;
   closed?: boolean;
+  recovering?: boolean;
 };
 
 export class ISCPSpeechRealtimeClient {
@@ -83,7 +84,9 @@ export class ISCPSpeechRealtimeClient {
     try {
       await this.pipeline;
       if (this.closed) throw new Error("Speech input incomplete");
-      await this.rpc({ action: "finish", session_id: this.session, last_sequence: this.sequence - 1, total_samples: this.samples, reason });
+      // The original finish may already have reached the provider. Keep polling
+      // its session inside this same deadline; never resend captured audio.
+      void this.rpc({ action: "finish", session_id: this.session, last_sequence: this.sequence - 1, total_samples: this.samples, reason }).catch(() => {});
       return await final;
     } finally { window.clearTimeout(deadline); }
   }
@@ -105,6 +108,7 @@ export class ISCPSpeechRealtimeClient {
     try {
       const result = await this.rpc({ action: "events", session_id: this.session, after: this.cursor });
       if (this.closed) return;
+      if (result.recovering === true && this.finishing) return;
       if (result.session_id !== this.session || !Array.isArray(result.events) || result.events.length > 64) throw new Error("Invalid speech events");
       for (const item of result.events) {
         if (!Number.isSafeInteger(item.sequence) || item.sequence < 1) throw new Error("Invalid speech sequence");

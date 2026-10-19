@@ -18,18 +18,19 @@ type iscpSpeechEvent struct {
 	Event    speech.RealtimeEvent `json:"event"`
 }
 type iscpSpeechSession struct {
-	mu               sync.Mutex
-	id, scope        string
-	session          speech.RealtimeSession
-	ctx              context.Context
-	cancel           context.CancelFunc
-	last             uint32
-	samples          int64
-	digests          map[uint32]string
-	providerAck      uint32
-	sequence, ack    uint64
-	events           []iscpSpeechEvent
-	finished, closed bool
+	mu                              sync.Mutex
+	id, scope                       string
+	session                         speech.RealtimeSession
+	ctx                             context.Context
+	cancel                          context.CancelFunc
+	last                            uint32
+	samples                         int64
+	digests                         map[uint32]string
+	providerAck                     uint32
+	sequence, ack                   uint64
+	events                          []iscpSpeechEvent
+	finished, closed                bool
+	terminalStored, storageReserved bool
 }
 
 func (a *iscpDomainAdapter) speech(ctx context.Context, request iscpworkbench.Request) iscpDomainResult {
@@ -84,7 +85,11 @@ func (a *iscpDomainAdapter) speech(ctx context.Context, request iscpworkbench.Re
 	a.speechMu.Lock()
 	session := a.speechSessions[input.SessionID]
 	a.speechMu.Unlock()
-	if session == nil || session.scope != a.transientScopeFromContext(ctx, principal, request.InstallationID) {
+	scope := a.transientScopeFromContext(ctx, principal, request.InstallationID)
+	if session == nil && request.Operation == iscpworkbench.OperationSpeechSessionEvents {
+		return a.recoveredSpeechEvents(scope, input.SessionID, input.After)
+	}
+	if session == nil || session.scope != scope {
 		return domainError(404, "speech_session_not_found")
 	}
 	session.mu.Lock()
@@ -161,6 +166,12 @@ func (a *iscpDomainAdapter) speech(ctx context.Context, request iscpworkbench.Re
 		}
 		return domainJSON(200, map[string]bool{"cancelled": true})
 	case iscpworkbench.OperationSpeechSessionEvents:
+		if session.closed || len(session.events) > 0 && speechTerminal(session.events[len(session.events)-1].Event) {
+			if err := a.persistSpeechTerminal(session); err != nil {
+				return domainError(503, "speech_receipt_unavailable")
+			}
+			return a.recoveredSpeechEvents(scope, session.id, input.After)
+		}
 		if input.After < session.ack || input.After > session.sequence {
 			return domainError(409, "cursor_gap")
 		}
@@ -275,6 +286,18 @@ func (a *iscpDomainAdapter) openSpeech(ctx context.Context, request iscpworkbenc
 	if count >= 2 || active >= 32 {
 		return domainError(429, "speech_session_capacity")
 	}
+	id := app.NewID("iscp_speech")
+	if err := a.prepareSpeechCheckpoint(scope, id); err != nil {
+		return domainError(503, "speech_receipt_unavailable")
+	}
+	reserved := true
+	defer func() {
+		if reserved {
+			a.receipts.mu.Lock()
+			a.receipts.reserved -= domainReceiptMaxBytes
+			a.receipts.mu.Unlock()
+		}
+	}()
 	connectCtx, cancel := context.WithTimeout(ctx, speech.RealtimeConnectTimeout*time.Second)
 	defer cancel()
 	stream, err := a.server.speech.StartRealtime(connectCtx, speech.RealtimeRequest{RequestID: input.RequestID, SessionID: input.SessionID, Language: input.Language, MaxAudioSeconds: speechMaxAudioSeconds(a.server.cfg)})
@@ -287,7 +310,8 @@ func (a *iscpDomainAdapter) openSpeech(ctx context.Context, request iscpworkbenc
 		return domainError(401, "authorization_closed")
 	}
 	connected, stop := context.WithTimeout(connected, time.Duration(speechMaxAudioSeconds(a.server.cfg)+speech.RealtimeFinalTimeout+30)*time.Second)
-	session := &iscpSpeechSession{id: app.NewID("iscp_speech"), scope: scope, session: stream, ctx: connected, cancel: stop, digests: map[uint32]string{}}
+	session := &iscpSpeechSession{id: id, scope: scope, session: stream, ctx: connected, cancel: stop, digests: map[uint32]string{}, storageReserved: true}
+	reserved = false
 	a.speechSessions[session.id] = session
 	go a.readSpeechEvents(session, release)
 	// Outer v2 admission supplies this authenticated policy checker. A quiet
@@ -304,8 +328,11 @@ func (a *iscpDomainAdapter) readSpeechEvents(session *iscpSpeechSession, release
 	defer func() {
 		session.mu.Lock()
 		session.closed = true
+		err := a.persistSpeechTerminal(session)
 		session.mu.Unlock()
-		time.AfterFunc(time.Minute, func() { a.speechMu.Lock(); delete(a.speechSessions, session.id); a.speechMu.Unlock() })
+		if err == nil {
+			time.AfterFunc(time.Minute, func() { a.speechMu.Lock(); delete(a.speechSessions, session.id); a.speechMu.Unlock() })
+		}
 	}()
 	for {
 		event, err := session.session.ReadEvent(session.ctx)

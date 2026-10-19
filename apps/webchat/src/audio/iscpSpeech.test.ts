@@ -83,3 +83,36 @@ it("cancels a pending final immediately and rejects incompatible audio negotiati
   await expect(ISCPSpeechRealtimeClient.connect(request, f.handlers)).rejects.toThrow("Invalid speech negotiation");
   expect(f.rpc).toHaveBeenCalledWith({ action: "cancel", session_id: "invalid" });
 });
+
+it("recovers a final after lost finish and temporary reconnect without resending audio", async () => {
+  const f = fixture(); const client = await ISCPSpeechRealtimeClient.connect(request, f.handlers);
+  client.push(new Int16Array(1600));
+  await vi.advanceTimersByTimeAsync(0);
+  let reconnect = true;
+  f.rpc.mockImplementation(async input => {
+    if (input.action === "finish") throw new Error("finish response lost");
+    if (input.action === "events") return reconnect ? { recovering: true } : { session_id: "stream", events: [{ sequence: 1, event: { event: "final", revision: 1, text: "recovered" } }], closed: true };
+    return {};
+  });
+  const final = client.finish("manual_stop");
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.handlers.onFailure).not.toHaveBeenCalled();
+  reconnect = false;
+  await vi.advanceTimersByTimeAsync(250);
+  expect((await final).text).toBe("recovered");
+  expect(f.rpc.mock.calls.filter(call => call[0].action === "finish")).toHaveLength(1);
+  expect(f.rpc.mock.calls.filter(call => call[0].action === "frame")).toHaveLength(1);
+});
+
+it("does not extend the original final deadline while reconnecting or waiting for a lost RPC", async () => {
+  const f = fixture(); const client = await ISCPSpeechRealtimeClient.connect(request, f.handlers);
+  client.push(new Int16Array(1600));
+  await vi.advanceTimersByTimeAsync(0);
+  f.rpc.mockImplementation(async input => input.action === "finish" ? new Promise(() => {}) : input.action === "events" ? { recovering: true } : {});
+  const outcome = client.finish("manual_stop").catch(error => error);
+  await vi.advanceTimersByTimeAsync(11999);
+  expect(f.handlers.onFailure).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(await outcome).toEqual({ code: "speech_timeout", retryable: false });
+  expect(f.rpc.mock.calls.filter(call => call[0].action === "finish")).toHaveLength(1);
+});

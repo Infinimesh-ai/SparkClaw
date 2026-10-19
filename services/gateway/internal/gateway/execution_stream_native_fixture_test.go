@@ -112,11 +112,18 @@ func TestExecutionStreamNativeQualificationFixture(t *testing.T) {
 		_, port, _ := net.SplitHostPort(listener.Addr().String())
 		origin = "http://127.0.0.1:" + port
 	}
-	relay, err := ref.New(ref.Config{SignerFile: filepath.Join(root, "relay-signer.json"), DomainID: "stream-native-domain", RelayID: "stream-native-relay", BaseURL: origin, WebSocketURL: strings.Replace(origin, "http:", "ws:", 1) + "/v2/relay/connect", ProfileGate: iscpconfig.DefaultGate(iscpconfig.ProfileLocalLab), DB: pool})
-	if err != nil {
-		t.Fatal(err)
+	var relayHandler http.Handler
+	externalRelay := os.Getenv("SPARKCLAW_STREAM_FIXTURE_RELAY_BINARY") != ""
+	if externalRelay {
+		relayHandler = independentNativeRelay(t, ctx, origin)
+	} else {
+		relay, err := ref.New(ref.Config{SignerFile: filepath.Join(root, "relay-signer.json"), DomainID: "stream-native-domain", RelayID: "stream-native-relay", BaseURL: origin, WebSocketURL: strings.Replace(origin, "http:", "ws:", 1) + "/v2/relay/connect", ProfileGate: iscpconfig.DefaultGate(iscpconfig.ProfileLocalLab), DB: pool})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer relay.Close()
+		relayHandler = relay.Handler()
 	}
-	defer relay.Close()
 	var mu sync.Mutex
 	runs := map[string]*nativeStreamRun{}
 	executionStarts := map[string]int{}
@@ -127,7 +134,6 @@ func TestExecutionStreamNativeQualificationFixture(t *testing.T) {
 	evidence := func() map[string]any {
 		return map[string]any{"runs": runs, "execution_starts": executionStarts, "iscp_operations": operations, "relay_connect_requests": connects, "direct_business_attempts": directBusiness, "model": modelMetadata}
 	}
-	relayHandler := relay.Handler()
 	httpServer := &http.Server{ReadHeaderTimeout: 3 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/fixture/") {
 			if r.Header.Get("Authorization") != "Bearer "+token {
@@ -149,7 +155,7 @@ func TestExecutionStreamNativeQualificationFixture(t *testing.T) {
 			return
 		}
 		mu.Lock()
-		if r.URL.Path == "/v2/relay/connect" {
+		if r.URL.Path == "/v2/relay/connect" || r.URL.Path == "/v2/relay/duplex" {
 			connects++
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/") {
@@ -173,6 +179,9 @@ func TestExecutionStreamNativeQualificationFixture(t *testing.T) {
 			t.Fatal(err)
 		}
 		peers[name] = peer
+	}
+	if externalRelay {
+		bootstrapIndependentNativeRelay(t, startup)
 	}
 	issuerDir := filepath.Join(root, "issuer")
 	if _, err = iscplocalissuer.Initialize(issuerDir, peers["desktop"].IdentityFile, peers["gateway"].IdentityFile, "stream-native-relay"); err != nil {

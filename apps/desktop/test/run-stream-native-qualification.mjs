@@ -27,6 +27,14 @@ const password = crypto.randomBytes(24).toString("hex");
 const token = crypto.randomBytes(24).toString("hex");
 let fixture;
 const evidence = { schema_version: 1, root, samples, mode, ...(mode !== "real-model" ? {chars_per_sample: 600 * repetitions} : {}), production_data: false, postgres_container: container, source_revision: (await run("git", ["rev-parse", "HEAD"])).stdout.trim() };
+if (process.env.SPARKCLAW_STREAM_FIXTURE_RELAY_BINARY) {
+  evidence.independent_relay = {};
+  for (const [kind, key] of [['relay', 'SPARKCLAW_STREAM_FIXTURE_RELAY_BINARY'], ['maintenance', 'SPARKCLAW_STREAM_FIXTURE_MAINTENANCE_BINARY']]) {
+    const binary = process.env[key];
+    if (!path.isAbsolute(binary || '')) throw new Error('Absolute independent Relay fixture binaries required');
+    evidence.independent_relay[kind] = { path: binary, sha256: crypto.createHash('sha256').update(await fs.readFile(binary)).digest('hex') };
+  }
+}
 console.log(JSON.stringify({ event: "stream_native_lab", root, samples }));
 try {
   await run("docker", ["run", "--detach", "--name", container, "--label", `io.sparkclaw.stream.fixture=${id}`, "--publish", "127.0.0.1::5432", "--tmpfs", "/var/lib/postgresql:rw", "--env", "POSTGRES_PASSWORD", "--env", "POSTGRES_DB=stream_fixture", "postgres:18"], {env: {...process.env, POSTGRES_PASSWORD: password}});

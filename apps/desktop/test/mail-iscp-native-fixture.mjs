@@ -169,6 +169,7 @@ void app.whenReady().then(async () => {
     evidence.error = error.message;
     if (window && !window.isDestroyed()) {
       evidence.last_mail_UI = await evaluate("document.body.innerText").catch(() => 'Renderer unavailable');
+      evidence.last_connection = await evaluate("window.sparkclawDesktop.localConnection().then(({state,reason,error,generation}) => ({state,reason,error,generation}))").catch(() => null);
       evidence.buttons = await evaluate("[...document.querySelectorAll('button')].map(button => ({label:button.getAttribute('aria-label') || button.textContent.trim(), disabled:button.disabled}))").catch(() => []);
     }
     console.error(error.stack);

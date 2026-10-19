@@ -139,6 +139,16 @@ test('explicit action IDs distinguish identical completed inputs and preserve un
   assert.equal(f.effects, 3); assert.equal(f.transport.mutations.read('mail-draft:draft').operation_id, unresolved);
 });
 
+test('the same explicit action retrieves its original result even after a newer independent resource revision', async t => {
+  const f = fixture(t); await f.start();
+  const options = { method: 'POST', body: JSON.stringify({ display_name: 'X' }), headers: { 'x-sparkclaw-action-id': '00000000-0000-4000-8000-000000000001' } };
+  await f.transport.fetch(`${origin}/api/owner`, options); const original = f.operationID;
+  f.owner = { display_name: 'Y' }; f.revision = 'other-client-revision';
+  await f.transport.fetch(`${origin}/api/owner`);
+  assert.equal((await (await f.transport.fetch(`${origin}/api/owner`, options)).json()).display_name, 'X');
+  assert.equal(f.owner.display_name, 'Y'); assert.equal(f.effects, 1); assert.equal(f.operationID, original);
+});
+
 test('authority changing during an awaited body upload prevents the original mutation write', async t => {
   const f = fixture(t); await f.start();
   f.transport.objects.upload = async () => {

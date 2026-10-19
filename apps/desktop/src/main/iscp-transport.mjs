@@ -234,7 +234,7 @@ export class ISCPTransport {
     const revision = this.resourceRevisions.get(resource);
     const confirmedSuccessor = record?.phase === 'applied' && !browserMutationResource(request) && (
       init.actionID && record.action_id && init.actionID !== record.action_id ||
-      revision && record.response?.body?.revision && revision !== record.response.body.revision);
+      !(init.actionID && record.action_id) && revision && record.response?.body?.revision && revision !== record.response.body.revision);
     if (confirmedSuccessor) {
       journal.retire(resource, record.operation_id, { reason: 'new_foreground_action', ...(init.actionID ? { action_id: init.actionID } : {}), ...(revision ? { revision } : {}) });
       record = undefined;

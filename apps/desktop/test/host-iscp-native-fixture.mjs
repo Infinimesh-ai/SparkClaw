@@ -10,7 +10,7 @@ const root = process.env.SPARKCLAW_HOST_ISCP_FIXTURE_ROOT;
 process.env.SPARKCLAW_DESKTOP_ISCP_LOCAL_TEST = "1";
 process.env.SPARKCLAW_DESKTOP_ISCP_CONFIG = path.join(root, "desktop-profile.json");
 process.env.SPARKCLAW_DESKTOP_USER_DATA_DIR = path.join(root, "profile");
-let agent, window;
+let agent, window, diagnosticControl;
 const startHost = BrowserHostAgent.prototype.start;
 BrowserHostAgent.prototype.start = function (...args) { agent = this; return startHost.apply(this, args); };
 const evidence = { event: "sparkclaw_host_iscp_native_qualification", platform: process.platform, architecture: process.arch, electron: process.versions.electron, chromium: process.versions.chrome, production_entry: true, compositor_switches: [], direct_business_attempts: 0, host_websocket_attempts: 0, native_clicks: 0 };
@@ -36,6 +36,7 @@ void app.whenReady().then(async () => {
       assert.ok(["/qualify/step", "/qualify/evidence"].includes(route));
       return debugFetch(`${page.origin}${route}`, { ...init, headers: { ...init.headers, Authorization: `Bearer ${process.env.SPARKCLAW_HOST_ISCP_FIXTURE_TOKEN}` } });
     };
+    diagnosticControl = control;
     await until(async () => { window = BrowserWindow.getAllWindows()[0]; return window && !window.webContents.isLoading() && await window.webContents.executeJavaScript("Boolean(window.sparkclawDesktop && document.querySelector('.localWorkbench'))"); }, "real workbench");
     const evaluate = source => window.webContents.executeJavaScript(source, true);
     await until(async () => (await evaluate("window.sparkclawDesktop.localConnection()")).state === "connected" && agent, "native ISCP connection");
@@ -75,6 +76,7 @@ void app.whenReady().then(async () => {
     };
     await evaluate("window.sparkclawDesktop.grantBrowserHost()");
     assert.equal(agent.state, "connected");
+    assert.equal(agent.scope.installation_id, installationID, "Fixture and native host must use the same installation");
     const step = async (operation, args = {}, commandID = crypto.randomUUID()) => {
       const response = await control("/qualify/step", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ operation, arguments: args, command_id: commandID }) });
       const result = await response.json();
@@ -173,7 +175,14 @@ void app.whenReady().then(async () => {
     Object.assign(evidence, { unknown_write_not_repeated: true, production_gateway_adapters: true, pinned_issuer_and_compatible_local_relay: true, host_channel: "iscp_poll_reply", real_electron_webcontents: true, iscp_operations: backend.iscp_operations, screenshot_passed: !screenshotError, local_unknown_receipts: 1, backend_unknown_receipts: backend.fences.length, production_data: false });
     if (screenshotError) throw new Error(`Native screenshot unavailable: ${screenshotError.message}`);
     Object.assign(evidence, { passed: true, real_electron_webcontents: true, production_gateway_adapters: true, pinned_issuer_and_compatible_local_relay: true, host_channel: "iscp_poll_reply", read_and_reversible_fill: true, screenshot_bytes: png.length, unknown_write_not_repeated: true, iscp_operations: backend.iscp_operations, production_data: false });
-  } catch (error) { evidence.error = error.message; console.error(error.stack); }
+  } catch (error) {
+    evidence.error = error.message; console.error(error.stack);
+    evidence.host_state = agent?.snapshot();
+    if (diagnosticControl) {
+      try { evidence.backend_at_failure = await (await diagnosticControl("/qualify/evidence")).json(); }
+      catch (failure) { evidence.diagnostic_error = failure.message; }
+    }
+  }
   finally {
     clearTimeout(deadline);
     await agent?.stop().catch(() => {});
@@ -186,7 +195,7 @@ void app.whenReady().then(async () => {
       const business = urls.filter(raw=>{const url=new URL(raw);return url.origin !== process.env.SPARKCLAW_HOST_ISCP_FIXTURE_ORIGIN || !["/fixture","/favicon.ico"].includes(url.pathname);});
       evidence.chromium_network = {controlled_page_urls:urls.length,direct_business_urls:business.length};
       assert.deepEqual(business,[]);
-    } catch(error) { evidence.passed=false;evidence.error=error.message; }
+    } catch(error) { evidence.passed=false;evidence.network_error=error.message;evidence.error ||= error.message; }
 
     agent?.auth.transport?.close();
     await fs.writeFile(path.join(root, "evidence.json"), JSON.stringify(evidence, null, 2), { mode: 0o600 });

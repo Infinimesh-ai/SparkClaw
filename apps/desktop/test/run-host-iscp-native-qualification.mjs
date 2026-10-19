@@ -36,7 +36,7 @@ let broker, xvfb;
 try {
   const enrollment = await readPrivateJSON(path.join(lab, "gateway/enrollment.json"));
   enrollment.relay_base_url = metadata.relay_url;
-  enrollment.relay_websocket_url = new URL("/v2/relay/connect", metadata.relay_url).href.replace(/^http/u, "ws");
+  enrollment.relay_websocket_url = new URL("/v2/relay/duplex", metadata.relay_url).href.replace(/^http/u, "ws");
   await writePrivateJSON(path.join(temporary, "gateway-enrollment.json"), enrollment);
   for (const peer of ["desktop", "gateway"]) {
     const profile = await readPrivateJSON(path.join(lab, `${peer}-helper.json`));

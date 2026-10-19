@@ -74,25 +74,18 @@ func newManagedHarness(t *testing.T) *managedHarness {
 
 	h := &managedHarness{t: t, provider: provider, bridge: bridge, phone: phone, trustSigner: trustSigner, grant: grant}
 
-	relayServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if h.lifecycleHandler != nil && h.lifecycleHandler(w, r) {
+	relayServer, relaySigner := newSubmissionPeer(t, bridge, "relay-test", "tok_a", func(raw json.RawMessage) {
+		var env envelope.SecureEnvelope
+		if err := json.Unmarshal(raw, &env); err != nil {
+			t.Error(err)
 			return
 		}
-		if r.URL.Path == relayEnvelopePath {
-			var env envelope.SecureEnvelope
-			if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			h.mu.Lock()
-			h.submitted = append(h.submitted, env)
-			h.mu.Unlock()
-			w.WriteHeader(http.StatusAccepted)
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	t.Cleanup(relayServer.Close)
+		h.mu.Lock()
+		h.submitted = append(h.submitted, env)
+		h.mu.Unlock()
+	}, func(w http.ResponseWriter, r *http.Request) bool {
+		return h.lifecycleHandler != nil && h.lifecycleHandler(w, r)
+	})
 
 	gatewayServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request Request
@@ -104,16 +97,17 @@ func newManagedHarness(t *testing.T) *managedHarness {
 	t.Cleanup(gatewayServer.Close)
 
 	bundle := EnrollmentBundle{
-		Type:              EnrollmentBundleType,
-		Mode:              BundleModeManaged,
-		DomainID:          "dom_test",
-		DeviceID:          bridge.Identity.DeviceID,
-		RelayID:           "relay-test",
-		RelayBaseURL:      relayServer.URL,
-		RelayWebSocketURL: "ws" + strings.TrimPrefix(relayServer.URL, "http") + "/v2/relay/connect",
-		TrustRootIdentity: trustSigner.Identity,
-		Access:            RelayCredential{DomainID: "dom_test", DeviceID: bridge.Identity.DeviceID, Token: "tok_a", ExpiresAt: now.Add(time.Hour)},
-		Refresh:           RelayCredential{DomainID: "dom_test", DeviceID: bridge.Identity.DeviceID, Token: "tok_r", ExpiresAt: now.Add(24 * time.Hour)},
+		Type:                EnrollmentBundleType,
+		Mode:                BundleModeManaged,
+		DomainID:            "dom_test",
+		DeviceID:            bridge.Identity.DeviceID,
+		RelayID:             "relay-test",
+		RelayBaseURL:        relayServer.URL,
+		RelaySignerIdentity: &relaySigner,
+		RelayWebSocketURL:   "ws" + strings.TrimPrefix(relayServer.URL, "http") + "/v2/relay/duplex",
+		TrustRootIdentity:   trustSigner.Identity,
+		Access:              RelayCredential{DomainID: "dom_test", DeviceID: bridge.Identity.DeviceID, Token: "tok_a", ExpiresAt: now.Add(time.Hour)},
+		Refresh:             RelayCredential{DomainID: "dom_test", DeviceID: bridge.Identity.DeviceID, Token: "tok_r", ExpiresAt: now.Add(24 * time.Hour)},
 		Peers: []PeerAuthorization{{
 			Identity:      phone.Identity,
 			OutboundGrant: grant,
@@ -128,6 +122,7 @@ func newManagedHarness(t *testing.T) *managedHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	startSubmissionPeerClient(t, relay)
 	gateway, err := NewGatewayClient(GatewayClientOptions{BaseURL: gatewayServer.URL, Token: "test-token", Timeout: 5 * time.Second})
 	if err != nil {
 		t.Fatal(err)

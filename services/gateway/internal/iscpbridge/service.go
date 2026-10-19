@@ -3,6 +3,7 @@ package iscpbridge
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -111,14 +112,17 @@ func LoadService(config Config) (*Service, error) {
 func (s *Service) Run(ctx context.Context) error {
 	// Managed bundles flip the session direction: the Bridge holds the grant
 	// and initiates toward the responder-only phone (ISCP v0.2).
-	if s.managedMode() {
-		s.runManagedInitiators(ctx)
-		go s.runManagedLifecycle(ctx)
+	var managedStart sync.Once
+	ready := func() {
+		if s.managedMode() {
+			managedStart.Do(func() { s.runManagedInitiators(ctx); go s.runManagedLifecycle(ctx) })
+		}
 	}
+
 	backoff := time.Duration(s.config.Relay.ReconnectMinSeconds) * time.Second
 	maxBackoff := time.Duration(s.config.Relay.ReconnectMaxSeconds) * time.Second
 	for {
-		err := s.relay.RunOnce(ctx, s.handleRelayMessage)
+		err := s.relay.RunOnceReady(ctx, s.handleRelayMessage, ready)
 		if ctx.Err() != nil {
 			s.closePumps()
 			return ctx.Err()
@@ -167,6 +171,19 @@ func (s *Service) handleRelayMessage(ctx context.Context, raw json.RawMessage) e
 		var secureEnvelope envelope.SecureEnvelope
 		if err := strictUnmarshal(raw, &secureEnvelope); err != nil {
 			return errors.New("Relay delivered an invalid SecureEnvelope")
+		}
+		if secureEnvelope.PayloadType == session.TypeHello || secureEnvelope.PayloadType == session.TypeReady {
+			payload, err := base64.RawURLEncoding.Strict().DecodeString(secureEnvelope.Ciphertext)
+			if err != nil {
+				return errors.New("invalid handshake encoding")
+			}
+			var binding struct {
+				SessionID string `json:"session_id"`
+			}
+			if json.Unmarshal(payload, &binding) != nil || binding.SessionID != secureEnvelope.SessionID {
+				return errors.New("handshake session binding mismatch")
+			}
+			return s.handleFrame(ctx, relayFrame{Type: wireFrameType, DomainID: secureEnvelope.DomainID, MessageID: secureEnvelope.MessageID, SenderDeviceID: secureEnvelope.SenderDeviceID, RecipientDeviceID: secureEnvelope.RecipientDeviceID, PayloadType: secureEnvelope.PayloadType, Route: secureEnvelope.Route, Payload: payload})
 		}
 		return s.handleSecureEnvelope(ctx, secureEnvelope)
 	default:
@@ -365,16 +382,15 @@ func (s *Service) handleSecureEnvelope(ctx context.Context, secureEnvelope envel
 func (s *Service) sendFrame(ctx context.Context, peerDeviceID, payloadType string, value any) error {
 	raw, err := json.Marshal(value)
 	if err != nil {
-		return errors.New("encode session frame")
+		return err
 	}
-	bundle := s.relay.Enrollment()
-	frame := relayFrame{
-		Type: wireFrameType, DomainID: bundle.DomainID, MessageID: newWireID("frame"),
-		SenderDeviceID: bundle.DeviceID, RecipientDeviceID: peerDeviceID, PayloadType: payloadType,
-		Route:   envelope.Route{RelayID: bundle.RelayID, TTLSeconds: s.config.Relay.EnvelopeTTLSeconds, Priority: defaultBridgeRoutePriority},
-		Payload: raw,
+	var binding struct {
+		SessionID string `json:"session_id"`
 	}
-	return s.relay.Submit(ctx, frame)
+	if json.Unmarshal(raw, &binding) != nil || binding.SessionID == "" {
+		return errors.New("handshake session ID required")
+	}
+	return s.submitHandshake(ctx, peerDeviceID, binding.SessionID, payloadType, value)
 }
 
 func (s *Service) sendSecure(ctx context.Context, secured *secureSession, payloadType string, value any) error {
@@ -387,11 +403,17 @@ func (s *Service) sendSecure(ctx context.Context, secured *secureSession, payloa
 	secureEnvelope, err := envelope.Encrypt(s.provider, secured.state, newWireID("message"), payloadType, envelope.Route{
 		RelayID: bundle.RelayID, TTLSeconds: s.config.Relay.EnvelopeTTLSeconds, Priority: defaultBridgeRoutePriority,
 	}, plaintext)
-	secured.mu.Unlock()
 	if err != nil {
+		secured.mu.Unlock()
 		return errors.New("encrypt Bridge payload")
 	}
-	return s.relay.Submit(ctx, secureEnvelope)
+	future, err := s.relay.Enqueue(ctx, secureEnvelope)
+	secured.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	_, err = future.Wait(ctx)
+	return err
 }
 
 func (s *Service) startOperationPump(parent context.Context, secured *secureSession, original Request, operation Operation) {

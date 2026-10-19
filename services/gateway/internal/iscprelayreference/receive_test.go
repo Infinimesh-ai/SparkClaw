@@ -3,7 +3,6 @@ package iscprelayreference
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -287,47 +286,21 @@ func TestMemoryReceiveReservationPreservesFailedMessage(t *testing.T) {
 	}
 }
 
-func TestReceiveStreamClientContinuousUntilCanceled(t *testing.T) {
+// This embedded v0.2 reference implementation is retained only for legacy
+// server regression tests. Production duplex clients must fail closed here.
+func TestDuplexClientRejectsLegacyReferenceServer(t *testing.T) {
 	f := newReceiveFixture(t, false)
-	bundle := iscpbridge.EnrollmentBundle{DomainID: "domain-a", DeviceID: f.recipient.Identity.DeviceID, RelayID: "relay-a", RelayBaseURL: f.h.URL, RelayWebSocketURL: "ws" + strings.TrimPrefix(f.h.URL, "http") + "/v2/relay/connect", Access: iscpbridge.RelayCredential{DomainID: "domain-a", DeviceID: f.recipient.Identity.DeviceID, Token: "unused-receive-access", ExpiresAt: time.Now().Add(time.Hour)}}
+	bundle := iscpbridge.EnrollmentBundle{DomainID: "domain-a", DeviceID: f.recipient.Identity.DeviceID, RelayID: "relay-a", RelayBaseURL: f.h.URL, RelayWebSocketURL: "ws" + strings.TrimPrefix(f.h.URL, "http") + "/v2/relay/duplex", Access: iscpbridge.RelayCredential{DomainID: "domain-a", DeviceID: f.recipient.Identity.DeviceID, Token: "unused-receive-access", ExpiresAt: time.Now().Add(time.Hour)}}
 	c, err := iscpbridge.NewRelayClient(iscpbridge.ProfileLocalLab, "", bundle, f.recipient, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	ready := make(chan struct{})
-	received := make(chan string, 2)
-	finished := make(chan error, 1)
-	go func() {
-		finished <- c.RunOnceReady(ctx, func(_ context.Context, raw json.RawMessage) error {
-			var v struct {
-				ID string `json:"message_id"`
-			}
-			if err := json.Unmarshal(raw, &v); err != nil {
-				return err
-			}
-			received <- v.ID
-			return nil
-		}, func() { close(ready) })
-	}()
-	select {
-	case <-ready:
-	case <-ctx.Done():
-		t.Fatal(ctx.Err())
-	}
-	f.send(t, "reference-client", 1)
-	select {
-	case id := <-received:
-		if id != "reference-client" {
-			t.Fatal(id)
-		}
-	case <-ctx.Done():
-		t.Fatal(ctx.Err())
-	}
-	cancel()
-	if err := <-finished; !errors.Is(err, context.Canceled) {
-		t.Fatalf("canceled continuous receive: %v", err)
+	ready := false
+	err = c.RunOnceReady(ctx, func(context.Context, json.RawMessage) error { return nil }, func() { ready = true })
+	if err == nil || ready {
+		t.Fatalf("legacy server authorized duplex readiness: ready=%v err=%v", ready, err)
 	}
 }
 

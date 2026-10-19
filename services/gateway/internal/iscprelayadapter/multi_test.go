@@ -14,13 +14,13 @@ import (
 	"time"
 
 	node "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeissuer"
-	ref "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscprelayreference"
 	gate "github.com/Infinimesh-ai/ISCP/pkg/iscp/config"
 	c "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/identity"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/provisioning"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/trust"
 	"github.com/Infinimesh-ai/ISCP/pkg/server/postgres"
+	ref "github.com/Infinimesh-ai/ISCP/pkg/server/relay"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -383,7 +383,7 @@ func TestOperatorBindScopesApprovedServicesAndPreservesAdminBootstrap(t *testing
 	if e != nil {
 		t.Fatal(e)
 	}
-	relay, e := ref.New(ref.Config{DomainID: "test-domain", RelayID: "test-relay", BaseURL: "https://127.0.0.1", WebSocketURL: "wss://127.0.0.1/v2/relay/connect", AdminToken: "operator-test-only", AllowedOrigins: []string{"https://127.0.0.1"}, ProfileGate: gate.DefaultGate(gate.ProfileProduction), DB: pool, Managed: m})
+	relay, e := ref.New(ref.Config{DomainID: "test-domain", RelayID: "test-relay", BaseURL: "https://127.0.0.1", WebSocketURL: "wss://127.0.0.1/v2/relay/duplex", AdminToken: "operator-test-only", AllowedOrigins: []string{"https://127.0.0.1"}, ProfileGate: gate.DefaultGate(gate.ProfileProduction), DB: pool, Managed: m})
 	if e != nil {
 		t.Fatal(e)
 	}

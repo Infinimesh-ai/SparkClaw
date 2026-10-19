@@ -2,6 +2,7 @@ package iscpbridge
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -40,31 +41,22 @@ func TestServiceSessionHandshakeAndEncryptedGatewayRequest(t *testing.T) {
 	})
 
 	delivered := make(chan json.RawMessage, 8)
-	relayServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var raw json.RawMessage
-		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
-			t.Errorf("decode submitted envelope: %v", err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		delivered <- append(json.RawMessage(nil), raw...)
-		w.WriteHeader(http.StatusAccepted)
-	}))
-	defer relayServer.Close()
+	relayServer, relaySigner := newSubmissionPeer(t, bridgeDevice, "relay-test", "access", func(raw json.RawMessage) { delivered <- append(json.RawMessage(nil), raw...) }, nil)
 
 	bundle := EnrollmentBundle{
 		Type: EnrollmentBundleType, DomainID: "domain-test", DeviceID: bridgeDevice.Identity.DeviceID,
-		RelayID: "relay-test", RelayBaseURL: relayServer.URL, RelayWebSocketURL: "ws" + strings.TrimPrefix(relayServer.URL, "http") + "/v2/relay/connect",
-		TrustRootIdentity: root.Identity,
-		Access:            RelayCredential{DomainID: "domain-test", DeviceID: bridgeDevice.Identity.DeviceID, Token: "access", ExpiresAt: now.Add(time.Hour)},
-		Refresh:           RelayCredential{DomainID: "domain-test", DeviceID: bridgeDevice.Identity.DeviceID, Token: "refresh", ExpiresAt: now.Add(time.Hour)},
-		Peers:             []PeerAuthorization{{Identity: peerDevice.Identity, InboundGrant: inbound, OutboundGrant: outbound}},
-		IssuedAt:          now, ExpiresAt: now.Add(time.Hour),
+		RelayID: "relay-test", RelayBaseURL: relayServer.URL, RelayWebSocketURL: "ws" + strings.TrimPrefix(relayServer.URL, "http") + "/v2/relay/duplex",
+		TrustRootIdentity: root.Identity, RelaySignerIdentity: &relaySigner,
+		Access:   RelayCredential{DomainID: "domain-test", DeviceID: bridgeDevice.Identity.DeviceID, Token: "access", ExpiresAt: now.Add(time.Hour)},
+		Refresh:  RelayCredential{DomainID: "domain-test", DeviceID: bridgeDevice.Identity.DeviceID, Token: "refresh", ExpiresAt: now.Add(time.Hour)},
+		Peers:    []PeerAuthorization{{Identity: peerDevice.Identity, InboundGrant: inbound, OutboundGrant: outbound}},
+		IssuedAt: now, ExpiresAt: now.Add(time.Hour),
 	}
 	relay, err := NewRelayClient(ProfileLocalLab, t.TempDir()+"/enrollment.json", bundle, bridgeDevice, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
+	startSubmissionPeerClient(t, relay)
 	mcpRequests := make(chan mcpaccess.PeerRequest, 1)
 	gatewayServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/bridge/v1/mcp/dispatch" {
@@ -228,11 +220,15 @@ func TestServiceSessionHandshakeAndEncryptedGatewayRequest(t *testing.T) {
 
 func decodeSubmittedFrame(t *testing.T, raw json.RawMessage) relayFrame {
 	t.Helper()
-	var frame relayFrame
-	if err := json.Unmarshal(raw, &frame); err != nil {
+	var env envelope.SecureEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
 		t.Fatal(err)
 	}
-	return frame
+	payload, err := base64.RawURLEncoding.Strict().DecodeString(env.Ciphertext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return relayFrame{Type: wireFrameType, DomainID: env.DomainID, MessageID: env.MessageID, SenderDeviceID: env.SenderDeviceID, RecipientDeviceID: env.RecipientDeviceID, PayloadType: env.PayloadType, Route: env.Route, Payload: payload}
 }
 
 func decodeSubmittedEnvelope(t *testing.T, raw json.RawMessage) envelope.SecureEnvelope {

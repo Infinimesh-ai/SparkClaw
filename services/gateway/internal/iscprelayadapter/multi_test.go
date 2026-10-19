@@ -14,13 +14,13 @@ import (
 	"time"
 
 	node "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeissuer"
+	ref "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscprelayreference"
 	gate "github.com/Infinimesh-ai/ISCP/pkg/iscp/config"
 	c "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/identity"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/provisioning"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/trust"
 	"github.com/Infinimesh-ai/ISCP/pkg/server/postgres"
-	ref "github.com/Infinimesh-ai/ISCP/pkg/server/relay"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

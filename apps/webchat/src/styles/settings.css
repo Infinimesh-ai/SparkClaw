@@ -596,6 +596,42 @@
   line-height: var(--line-label);
 }
 
+.weixinBindingDialog {
+  width: min(360px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-small);
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.weixinBindingDialog::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.weixinBindingDialogBody {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.weixinBindingDialogBody > svg {
+  width: min(256px, 100%);
+  height: auto;
+  flex-shrink: 0;
+}
+
+.weixinBindingDialogBody p {
+  margin: 0;
+}
+
 .bindingScanned {
   display: flex;
   align-items: center;

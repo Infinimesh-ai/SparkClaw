@@ -34,3 +34,20 @@ test("workbench desktop keeps conversation and scheduling ownership local", () =
     "/api/unknown",
   ]) assert.equal(proxyAPIAllowed(pathname), false, pathname);
 });
+
+test("desktop website sign-in stays on the backend while token bindings and checks remain available", () => {
+  for (const path of [
+    "/api/email/providers/outlook/login-browser",
+    "/api/email/providers/gmail/%6cogin-browser",
+    "/api/browser/extension/ai-platforms/chatgpt/login",
+    "/api/browser/extension/ai-platforms/gemini/login/",
+  ]) assert.equal(proxyAPIAllowed(path), false, path);
+  for (const path of [
+    "/api/email/providers/outlook/check",
+    "/api/browser/extension/ai-platforms/chatgpt/check",
+    "/api/browser/extension/token",
+    "/api/notification-bindings/weixin/start",
+    "/api/notification-bindings/binding-1/login-url",
+    "/api/iscp-pairing/start",
+  ]) assert.equal(proxyAPIAllowed(path), true, path);
+});

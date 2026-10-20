@@ -532,6 +532,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/mcp-servers/{name}/refresh", s.refreshMCPServer)
 	s.mux.HandleFunc("POST /api/notification-bindings/{channel}/start", s.startNotificationBinding)
 	s.mux.HandleFunc("GET /api/notification-bindings/{id}", s.getNotificationBinding)
+	s.mux.HandleFunc("GET /api/notification-bindings/{id}/login-url", s.getNotificationBindingLoginURL)
 	s.mux.HandleFunc("POST /api/notification-bindings/{id}/poll", s.pollNotificationBinding)
 	s.mux.HandleFunc("POST /api/notification-bindings/{id}/browser", s.openNotificationBindingBrowser)
 	s.mux.HandleFunc("DELETE /api/notification-bindings/{id}", s.revokeNotificationBinding)

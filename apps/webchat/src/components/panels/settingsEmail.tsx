@@ -10,7 +10,7 @@ type Feedback = {
   message: string;
 };
 
-export function BrowserEmailSettings({ text, backendLoginNotice }: { text: Copy; backendLoginNotice?: string }) {
+export function BrowserEmailSettings({ text, backendLoginNotice, loginAvailable = true }: { text: Copy; backendLoginNotice?: string; loginAvailable?: boolean }) {
   const [providers, setProviders] = useState<EmailProviderStatus[] | null>(null);
   const [busy, setBusy] = useState("");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
@@ -143,14 +143,14 @@ export function BrowserEmailSettings({ text, backendLoginNotice }: { text: Copy;
                 <button
                   className="miniIconButton"
                   type="button"
-                  onClick={() => void run(
+                  onClick={() => loginAvailable && void run(
                     `login:${provider.provider}`,
                     () => api.openEmailLoginBrowser(provider.provider),
                     text.settings.browserEmailLoginOpened,
                     backendLoginNotice || text.settings.browserEmailLoginOpenedDetail
                   )}
-                  disabled={Boolean(busy) || !known || !provider.enabled}
-                  title={text.settings.browserEmailOpenLogin}
+                  disabled={!loginAvailable || Boolean(busy) || !known || !provider.enabled}
+                  title={!loginAvailable && backendLoginNotice ? backendLoginNotice : text.settings.browserEmailOpenLogin}
                   aria-label={text.settings.browserEmailOpenLogin}
                 >
                   <LogIn size={14} />

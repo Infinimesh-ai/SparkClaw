@@ -1,12 +1,13 @@
 // Notification-binding + connector section of the settings panel: per-channel
 // enable toggles, bind/refresh/revoke actions, QR / secret-token setup flows,
-// and the pending-binding poller. Pure move from settings.tsx.
-import { useState } from "react";
+// and the pending-binding poller.
+import { useEffect, useState } from "react";
 import {
   CheckCircle2,
   KeyRound,
   MonitorUp,
   Plus,
+  QrCode,
   RefreshCw,
   Send,
   Trash2
@@ -15,6 +16,8 @@ import type { ConnectorStatus, NotificationBinding } from "../../api/types";
 import type { Copy as CopyText, Language } from "../../i18n";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useBindingPolling } from "../../hooks/useBindingPolling";
+import { desktopCapability } from "../../desktop/capability";
+import { WeixinBindingDialog } from "./weixinBindingDialog";
 import {
   bindingsForConnector,
   connectorBindingStartDisabled,
@@ -45,7 +48,7 @@ export function ConnectorBindingSettings({
   notificationBindings: NotificationBinding[];
   text: CopyText;
   language: Language;
-  onStartNotificationBinding: (channel: string, botToken?: string) => Promise<void>;
+  onStartNotificationBinding: (channel: string, botToken?: string) => Promise<NotificationBinding>;
   onRefreshNotificationBinding: (id: string, signal?: AbortSignal) => Promise<NotificationBinding>;
   onOpenNotificationBindingBrowser: (id: string) => Promise<void>;
   onRevokeNotificationBinding: (id: string) => Promise<void>;
@@ -53,6 +56,18 @@ export function ConnectorBindingSettings({
 }) {
   const [bindingError, setBindingError] = useState("");
   const [telegramToken, setTelegramToken] = useState("");
+  const [qrBindingID, setQRBindingID] = useState("");
+  const desktop = Boolean(desktopCapability());
+  const qrBinding = notificationBindings.find(binding => binding.id === qrBindingID);
+  useEffect(() => {
+    if (!qrBindingID) return;
+    if (!qrBinding || bindingsUnavailable || qrBinding.status === "active" || qrBinding.status === "revoked") {
+      if (qrBinding?.status === "active") {
+        setBindingError("");
+      }
+      setQRBindingID("");
+    }
+  }, [qrBindingID, qrBinding, bindingsUnavailable]);
   const pendingBindingKey = pendingBindingPollKey(bindingsUnavailable ? [] : notificationBindings);
   const bindingAction = useAsyncAction({
     clearError: () => setBindingError(""),
@@ -82,7 +97,8 @@ export function ConnectorBindingSettings({
       return;
     }
     await bindingAction.run(`start:${channel}`, async () => {
-      await onStartNotificationBinding(channel, botToken);
+      const binding = await onStartNotificationBinding(channel, botToken);
+      if (desktop && channel === "weixin") setQRBindingID(binding.id);
       if (needsSecret) {
         setTelegramToken("");
       }
@@ -201,7 +217,13 @@ export function ConnectorBindingSettings({
                 </dl>
                 {binding.status === "waiting_scan" && (
                   <div className="bindingQr">
-                    {binding.qr_code_image || isImageLikeQR(binding.qr_code_url) ? (
+                    {desktop && channel === "weixin" ? (
+                      <button className="secondaryButton" onClick={() => { setBindingError(""); setQRBindingID(binding.id); }} disabled={Boolean(bindingsUnavailable) || bindingBusy}>
+                        <QrCode size={15} />
+                        <span>{text.settings.showWeixinQr}</span>
+                      </button>
+                    ) : (binding.qr_code_image || isImageLikeQR(binding.qr_code_url)) &&
+                      (!desktop || qrImageSource(binding.qr_code_image || binding.qr_code_url).startsWith("data:image/")) ? (
                       <img src={qrImageSource(binding.qr_code_image || binding.qr_code_url)} alt={waitingInstruction} />
                     ) : binding.qr_code_url ? (
                       <button className="secondaryButton" onClick={() => void openBindingBrowser(binding.id)} disabled={Boolean(bindingsUnavailable) || bindingBusy}>
@@ -247,6 +269,9 @@ export function ConnectorBindingSettings({
     <>
       {connectors.filter((item) => item.channel !== "mcp").map(renderNotificationBindingSection)}
       {bindingError && <span className="compactError">{bindingError}</span>}
+      {desktop && qrBinding && !bindingsUnavailable && !["active", "revoked"].includes(qrBinding.status) &&
+        <WeixinBindingDialog key={qrBinding.id} binding={qrBinding} text={text} busy={bindingBusy} error={bindingError}
+          onClose={() => setQRBindingID("")} onRestart={() => void startBinding("weixin")} />}
     </>
   );
 }

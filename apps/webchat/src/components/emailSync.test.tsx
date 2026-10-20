@@ -87,6 +87,25 @@ describe("email sync persistent warnings and Refresh", () => {
     }
     expect(login).not.toHaveBeenCalled(); expect(check).not.toHaveBeenCalled();
   });
+  it("resumes an account signed in on the backend without enabling desktop sign-in", async () => {
+    const value = status(); value.mailboxes[0].state = "login_required";
+    const login = vi.spyOn(api, "openEmailLoginBrowser");
+    const check = vi.spyOn(api, "checkEmailProvider").mockResolvedValue(providers[0]);
+    vi.mocked(api.updateEmailIntake).mockResolvedValue({ mailbox: value.mailboxes[0] });
+    const loginNotice = "Complete sign-in in the backend.";
+    await act(async () => root.render(<MailWorkspaceContext.Provider value={{ identity: 1, enabled: true, sendEnabled: true,
+      loginEnabled: false, resumeEnabled: true, loginNotice, attachmentsEnabled: true, listFiles: vi.fn(), conversationID: "local",
+      onFileSaved: vi.fn(), download: vi.fn() }}><Harness value={value} /></MailWorkspaceContext.Provider>));
+    expect(buttons(text.email.signInAgain)[0].disabled).toBe(true);
+    expect(buttons(text.email.resumeAfterLogin)[0].disabled).toBe(false);
+    expect(container.textContent).toContain(loginNotice);
+    await click(text.email.signInAgain);
+    await click(text.email.resumeAfterLogin);
+    expect(check).toHaveBeenCalledExactlyOnceWith("qq_mail");
+    expect(api.updateEmailIntake).toHaveBeenCalledExactlyOnceWith("qq_mail", true, 3);
+    expect(api.syncEmail).toHaveBeenCalledExactlyOnceWith("mailbox-qq");
+    expect(login).not.toHaveBeenCalled();
+  });
   async function history(index = 0) {
     await click(text.email.receivingSettings); await click(text.email.viewWarnings, index);
   }

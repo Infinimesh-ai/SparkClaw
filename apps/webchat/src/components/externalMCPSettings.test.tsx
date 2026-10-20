@@ -11,7 +11,11 @@ import { ExternalMCPSettings } from "./externalMCPSettings";
 describe("ExternalMCPSettings transports", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("updates ISCP and LAN access with the current connector version", async () => {
+  it.each([
+    { mode: "WebChat", lanOrigin: undefined },
+    { mode: "LAN desktop", lanOrigin: "https://backend.example.test:18789" },
+    { mode: "ISCP desktop", lanOrigin: null },
+  ])("updates transports and displays the correct LAN address for $mode", async ({ lanOrigin }) => {
     const connector: ConnectorStatus = {
       channel: "mcp",
       provider: "iscp-mcp",
@@ -50,6 +54,7 @@ describe("ExternalMCPSettings transports", () => {
       root.render(
         <ExternalMCPSettings
           connector={connector}
+          lanOrigin={lanOrigin}
           text={dictionaries.en}
           language="en"
           onUpdateConnector={async () => connector}
@@ -63,7 +68,13 @@ describe("ExternalMCPSettings transports", () => {
     expect(iscp.checked).toBe(true);
 
     const lan = container.querySelector(`input[aria-label="${dictionaries.en.settings.allowLANAccess}"]`) as HTMLInputElement;
-    expect(container.textContent).toContain(`${window.location.origin}/mcp`);
+    if (lanOrigin === null) {
+      expect(container.textContent).toContain("Use the backend’s LAN HTTPS address with the /mcp path.");
+      expect(container.textContent).not.toContain(`${window.location.origin}/mcp`);
+      expect(container.querySelector(".externalMCPTransport code")).toBeNull();
+    } else {
+      expect(container.textContent).toContain(`${lanOrigin ?? window.location.origin}/mcp`);
+    }
     await act(async () => lan.click());
     expect(update).toHaveBeenNthCalledWith(2, true, true, 2);
     expect(lan.checked).toBe(true);

@@ -10,7 +10,9 @@ const platforms: {id: AIPlatform; name: string}[] = [
   {id: "gemini", name: "Gemini"}, {id: "grok", name: "Grok"}
 ];
 
-export function AIPlatformLoginSettings({text, language}: {text: Copy; language: Language}) {
+export function AIPlatformLoginSettings({text, language, backendLoginNotice, loginAvailable = true, statusAvailable = true}: {
+  text: Copy; language: Language; backendLoginNotice?: string; loginAvailable?: boolean; statusAvailable?: boolean;
+}) {
   const [status, setStatus] = useState<AIPlatformLoginOverview | null>(null);
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState("");
@@ -19,10 +21,11 @@ export function AIPlatformLoginSettings({text, language}: {text: Copy; language:
   const active = useRef(true);
   useEffect(() => {
     active.current = true;
+    if (!statusAvailable) {setStatus(null);return () => {active.current = false;};}
     api.aiPlatformLogins().then(value => {if (active.current) setStatus(value);})
       .catch(() => {if (active.current) setFeedback(text.settings.aiPlatformLoadFailed);});
     return () => {active.current = false;};
-  }, [text.settings.aiPlatformLoadFailed]);
+  }, [text.settings.aiPlatformLoadFailed, statusAvailable]);
   useEffect(() => {const timer = window.setInterval(() => setNow(Date.now()), 30000);return () => window.clearInterval(timer);}, []);
   const labels: Record<AIPlatformLoginState, string> = {
     unchecked: text.settings.aiPlatformUnchecked, signed_in: text.settings.aiPlatformSignedIn,
@@ -30,7 +33,7 @@ export function AIPlatformLoginSettings({text, language}: {text: Copy; language:
     unconfirmed: text.settings.aiPlatformUnconfirmed
   };
   async function run(provider: AIPlatform | "all" | "refresh", login = false) {
-    if (lock.current) return;
+    if (lock.current || !statusAvailable || login && !loginAvailable) return;
     lock.current = true; setBusy(provider); setFeedback("");
     const errors: string[] = [];
     try {
@@ -51,12 +54,13 @@ export function AIPlatformLoginSettings({text, language}: {text: Copy; language:
   }
   return <div className="integrationDetail" aria-busy={!!busy}>
     <p className="muted">{text.settings.aiPlatformDescription}</p>
+    {backendLoginNotice && <p className="settingsSurfaceHint">{backendLoginNotice}</p>}
     <div className="integrationStatusBar">
       <strong>{text.settings.browserControl}</strong>
       <span>{status ? integrationStateLabel(status.browser_state, text) : text.settings.aiPlatformUnchecked}</span>
-      <button type="button" disabled={!!busy} onClick={() => void run("refresh")}>{text.settings.aiPlatformRefresh}</button>
+      <button type="button" disabled={!!busy || !statusAvailable} onClick={() => void run("refresh")}>{text.settings.aiPlatformRefresh}</button>
     </div>
-    <button type="button" disabled={!!busy || !status} onClick={() => void run("all")}>{text.settings.aiPlatformCheckAll}</button>
+    <button type="button" disabled={!!busy || !status || !statusAvailable} onClick={() => void run("all")}>{text.settings.aiPlatformCheckAll}</button>
     {feedback && <p role="status">{feedback}</p>}
     {platforms.map(p => {
       const value = status?.providers.find(s => s.provider === p.id);
@@ -67,8 +71,8 @@ export function AIPlatformLoginSettings({text, language}: {text: Copy; language:
         {value?.checked_at && <p className="muted">{text.settings.aiPlatformRecentCheck}: {formatDateTime(value.checked_at, language)}</p>}
         {value?.error_code && <p>{value.error_code}</p>}
         <div className="row">
-          <button type="button" disabled={!!busy || !status} onClick={() => void run(p.id, true)}>{text.settings.aiPlatformOpenLogin}</button>
-          <button type="button" disabled={!!busy || !status} onClick={() => void run(p.id)}>{text.settings.aiPlatformCheck}</button>
+          <button type="button" disabled={!!busy || !status || !statusAvailable || !loginAvailable} title={!loginAvailable ? backendLoginNotice : undefined} onClick={() => void run(p.id, true)}>{text.settings.aiPlatformOpenLogin}</button>
+          <button type="button" disabled={!!busy || !status || !statusAvailable} onClick={() => void run(p.id)}>{text.settings.aiPlatformCheck}</button>
         </div>
       </article>;
     })}

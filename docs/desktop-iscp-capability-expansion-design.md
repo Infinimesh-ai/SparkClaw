@@ -1093,6 +1093,49 @@ see section 9 of [the deployment record](public-iscp-node-deployment.md) for evi
 and rollback boundaries. The other M1 Pro Mac receives the same arm64 installer;
 direct installation is limited to this Mac. Relay/issuer binaries are unchanged.
 
+## 9.19. Desktop connection bindings (2026-10-20)
+
+Desktop LAN HTTPS and ISCP now share the original connection components. Email
+and AI platform sign-in reuse backend browser sessions, so their sign-in buttons
+remain visible but disabled on Desktop, with instructions to finish in the
+backend. Email connection checks and resume after backend sign-in remain available.
+The native API proxy also rejects those website sign-in routes. Backend WebChat
+retains its existing login flow.
+
+Weixin QR, Telegram Bot Token, browser extension Token, Info License, LocalMind
+credentials and external MCP authorization can be configured from Desktop.
+ISCP adds 23 fixed application operations and independently negotiated
+`settings_bindings`, `settings_browser_control` and `settings_mcp_access` surfaces;
+existing credential operations are reused. The optional `connection_settings`
+application negotiation preserves the exact preceding table for older peers,
+with only safe negotiation reads retried. Older backends retain every menu entry
+but disable unsupported operations. No Relay or independent control schema changes.
+Desktop Weixin binding opens a QR image dialog in the existing connection detail.
+It resolves the current owner/actor-scoped pending binding through the existing
+LAN/ISCP login-URL read, validates the provider URL and expiry, and encodes the
+provider's `qrcode_img_content` locally. No website is loaded. Existing backend
+polling advances from scanning to phone confirmation; only backend `active`
+closes the dialog as successful. Expiry removes the image even when disconnected,
+and allows an explicit new binding. Closing/reopening the dialog reuses the same
+binding; late QR reads are cancelled on close. Backend WebChat keeps its existing
+Chromium action.
+
+Binding records, active selections, token hashes and sealed credentials continue
+to live in the existing Gateway stores. Website cookies remain in the backend
+browser profile. The Desktop's encrypted operation journal may retain an in-flight
+credential or a returned one-use ticket for retry recovery; it is not the binding
+registry. The Gateway's encrypted receipt journal replays the original issuance
+after a lost reply. Repeated polls get new action identities only after delivery,
+so they can observe progress without duplicating an unresolved operation. QR
+start/poll keep a 60-second deadline for the provider’s bounded 35-second request,
+without extending earlier caller cancellation. A later explicit browser credential
+check can recover from a terminal provider failure; unknown results stay fenced.
+
+Validation covers the original eight-entry directory and existing controls,
+LAN/ISCP sign-in restrictions, typed route/capability gates, owner isolation,
+provider progression, sealed persistence and lost-reply/restart recovery. This is
+a source change; installed clients and running Gateways are not updated by it.
+
 ## 10. Related designs
 
 - [Local ISCP integration and renewal acceptance](desktop-iscp-connection-design.md): implemented baseline and actual evidence scope.

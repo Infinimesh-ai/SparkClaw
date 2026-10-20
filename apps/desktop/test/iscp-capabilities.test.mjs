@@ -36,7 +36,7 @@ test('workspace attachment sending requires its own qualification and the qualif
 });
 
 test('mail settings qualify independently before any mailbox exists and expire with the report', () => {
-  const operations = ['mail.providers.list','mail.providers.update','mail.providers.check','mail.providers.login'];
+  const operations = ['mail.providers.list','mail.providers.update','mail.providers.check'];
   const full = {...manifest,operations};
   const capabilities = [{...row,id:'mail_settings'}];
   const projection = projectISCPCapabilities(full,{...full,capabilities});
@@ -45,6 +45,21 @@ test('mail settings qualify independently before any mailbox exists and expire w
   assert.equal(projection.mail,false);
   assert.equal(projectISCPCapabilities(full,{...full,capabilities},Date.now()+120000).surfaces.mail_settings.enabled,false);
   for(const name of operations)assert.equal(projectISCPCapabilities({...full,operations:operations.filter(value=>value!==name)},{...full,capabilities}).surfaces.mail_settings.enabled,false);
+});
+
+test('connection binding surfaces require complete independently qualified operation sets', () => {
+  const definitions=JSON.parse(readFileSync(new URL('../src/shared/iscp-operations.json',import.meta.url),'utf8'));
+  const full={...manifest,operations:definitions.map(operation=>operation.name)};
+  const capabilities=ISCP_SURFACES.map(id=>({...row,id}));
+  for (const [surface, required] of [
+    ['settings_bindings', 'settings.bindings.login'],
+    ['settings_browser_control', 'settings.browser.save'],
+    ['settings_mcp_access', 'settings.mcp.pairing.start'],
+  ]) {
+    assert.equal(projectISCPCapabilities(full,{...full,capabilities}).surfaces[surface].enabled,true);
+    assert.equal(projectISCPCapabilities({...full,operations:full.operations.filter(op=>op!==required)},{...full,capabilities}).surfaces[surface].enabled,false);
+    assert.equal(projectISCPCapabilities(full,{...full,capabilities:capabilities.filter(value=>value.id!==surface)}).surfaces[surface].enabled,false);
+  }
 });
 
 test('original mail popup has its complete qualification gate independent of provider send readiness', () => {

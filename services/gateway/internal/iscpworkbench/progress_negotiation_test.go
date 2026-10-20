@@ -41,7 +41,7 @@ func TestProgressNegotiationExactNewAndLegacyMatrices(t *testing.T) {
 }
 
 func TestProgressNegotiationPreservesOldUnboundedAndBoundedOffers(t *testing.T) {
-	for _, generation := range []string{"progress", "unbounded", "bounded"} {
+	for _, generation := range []string{"settings", "progress", "unbounded", "bounded"} {
 		t.Run(generation, func(t *testing.T) {
 			calls := 0
 			seen := map[string]bool{}
@@ -55,7 +55,10 @@ func TestProgressNegotiationPreservesOldUnboundedAndBoundedOffers(t *testing.T) 
 				if json.Unmarshal(r.Body, &offer) != nil {
 					t.Fatal("bad offer")
 				}
-				if generation != "progress" && offer.Negotiation.ExecutionProgress {
+				if generation != "settings" && offer.Negotiation.ConnectionSettings {
+					return Response{Status: 400}, nil
+				}
+				if generation != "settings" && generation != "progress" && offer.Negotiation.ExecutionProgress {
 					return Response{Status: 400}, nil
 				}
 				if generation == "bounded" && offer.Negotiation.UnboundedRPC {
@@ -64,12 +67,12 @@ func TestProgressNegotiationPreservesOldUnboundedAndBoundedOffers(t *testing.T) 
 				if generation == "unbounded" && !offer.Negotiation.UnboundedRPC {
 					t.Fatal("fallback lost old unbounded capability")
 				}
-				if generation == "progress" && !offer.Negotiation.ExecutionProgress {
+				if (generation == "settings" || generation == "progress") && !offer.Negotiation.ExecutionProgress {
 					t.Fatal("new feature not offered")
 				}
 				return Response{Status: 200}, nil
 			}, []string{ProfileV2, Profile})
-			want := map[string]int{"progress": 1, "unbounded": 2, "bounded": 3}[generation]
+			want := map[string]int{"settings": 1, "progress": 2, "unbounded": 3, "bounded": 4}[generation]
 			if err != nil || response.Status != 200 || calls != want {
 				t.Fatalf("calls=%d err=%v", calls, err)
 			}
@@ -85,6 +88,7 @@ func TestProgressNegotiationOnlyAdvertisesRequestedExtension(t *testing.T) {
 			request.Negotiation.Profiles = []string{ProfileV2, Profile}
 			request.Negotiation.ExecutionProgress = offer.progress
 			request.Negotiation.UnboundedRPC = offer.unbounded
+			request.Negotiation.ConnectionSettings = true
 			body, _ := json.Marshal(request)
 			response, err := i.Call(t.Context(), Request{Type: RequestType, Profile: Profile, ID: newUUID(), Operation: OperationIdentity, Body: body})
 			var reply negotiationReply

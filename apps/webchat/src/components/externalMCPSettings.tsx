@@ -29,12 +29,15 @@ import { formatTime, shortId } from "../lib/format";
 
 type ExternalMCPSettingsProps = {
   connector?: ConnectorStatus;
+  // Undefined uses the WebChat origin; null means the desktop connection does
+  // not advertise a LAN address (for example an ISCP-only descriptor).
+  lanOrigin?: string | null;
   text: Copy;
   language: Language;
   onUpdateConnector: (channel: string, enabled: boolean, expectedVersion: number) => Promise<ConnectorStatus>;
 };
 
-export function ExternalMCPSettings({ connector, text, language, onUpdateConnector }: ExternalMCPSettingsProps) {
+export function ExternalMCPSettings({ connector, lanOrigin, text, language, onUpdateConnector }: ExternalMCPSettingsProps) {
   const [status, setStatus] = useState<ISCPPairingStatus | null>(null);
   const [connectorState, setConnectorState] = useState(connector);
   const [onboardings, setOnboardings] = useState<ISCPOnboarding[]>([]);
@@ -176,7 +179,7 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
   }
 
   const connectorTitle = enabled ? text.settings.disableExternalMCP : text.settings.enableExternalMCP;
-  const directEndpoint = typeof window === "undefined" ? endpointPath : `${window.location.origin}${endpointPath}`;
+  const directEndpoint = lanOrigin === null ? null : `${lanOrigin ?? (typeof window === "undefined" ? "" : window.location.origin)}${endpointPath}`;
   return (
     <article className="settingsBlock externalMCPBlock">
       <div className="approvalTop">
@@ -240,7 +243,9 @@ export function ExternalMCPSettings({ connector, text, language, onUpdateConnect
               <div className="externalMCPTransport">
                 <div>
                   <strong>{text.settings.allowLANAccess}</strong>
-                  <code>{directEndpoint}</code>
+                  {directEndpoint ? <code>{directEndpoint}</code> : <small>{language === "zh"
+                    ? `请使用后端的局域网 HTTPS 地址，并添加 ${endpointPath} 路径。`
+                    : `Use the backend’s LAN HTTPS address with the ${endpointPath} path.`}</small>}
                 </div>
                 <label className="connectorToggle" title={text.settings.allowLANAccess}>
                   <input

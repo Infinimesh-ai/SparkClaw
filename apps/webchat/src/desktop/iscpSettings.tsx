@@ -9,18 +9,38 @@ export function iscpSettingsUnavailable(language: Language) {
   return language === "zh" ? "当前连接暂不支持此操作。" : "This action is unavailable through the current connection.";
 }
 
+export function desktopSettingsAccess(connection: DesktopConnectionStatus | undefined, language: Language): SettingsAccess {
+  const backendLoginNotice = language === "zh"
+    ? "此连接需要复用后端浏览器的登录态，请在后台完成登录绑定。"
+    : "This connection uses the backend browser’s saved sign-in session. Complete sign-in in the backend.";
+  const access = connection?.backend?.transport === "iscp"
+    ? iscpTransportSettingsAccess(connection, language)
+    : { connectorsAvailable: true, unavailable: {} };
+  return {
+    ...access,
+    emailLoginNotice: backendLoginNotice,
+    emailLoginAvailable: false,
+    aiPlatformLoginNotice: backendLoginNotice,
+    aiPlatformLoginAvailable: false,
+    aiPlatformStatusAvailable: connection?.backend?.transport !== "iscp",
+    mcpLANOrigin: connection?.backend?.transport !== "iscp" && connection?.backend?.origin
+      ? connection.backend.origin : null,
+  };
+}
+
 // Transport constraints belong to actions, never to the shared menu or layout.
-export function iscpSettingsAccess(connection: DesktopConnectionStatus, language: Language): SettingsAccess {
+function iscpTransportSettingsAccess(connection: DesktopConnectionStatus, language: Language): SettingsAccess {
   const unavailable = iscpSettingsUnavailable(language);
   const credentials = surfaceEnabled(connection, "settings_credentials");
   return {
     connectorsAvailable: surfaceEnabled(connection, "settings_connectors"),
-    bindingsUnavailable: unavailable,
+    bindingsUnavailable: surfaceEnabled(connection, "settings_bindings") ? undefined : unavailable,
     clientDeletionAvailable: surfaceEnabled(connection, "settings_devices_delete"),
     unavailable: {
       ...(!surfaceEnabled(connection, "settings_devices") ? { clients: unavailable } : {}), "tool-policy": unavailable,
       ...(!surfaceEnabled(connection, "settings_connectors") ? { messaging: unavailable } : {}),
-      "browser-control": unavailable, "ai-platform-login": unavailable, "external-mcp": unavailable,
+      ...(!surfaceEnabled(connection, "settings_browser_control") ? { "browser-control": unavailable } : {}),
+      ...(!surfaceEnabled(connection, "settings_mcp_access") ? { "external-mcp": unavailable } : {}),
       ...(!surfaceEnabled(connection, "mail_settings") ? { "browser-email": unavailable } : {}),
       ...(!credentials ? { info: unavailable, localmind: unavailable } : {}),
     },
@@ -30,9 +50,6 @@ export function iscpSettingsAccess(connection: DesktopConnectionStatus, language
       if (!status) throw new Error(unavailable);
       return status;
     },
-    emailLoginNotice: language === "zh"
-      ? "登录操作将在后端专用浏览器打开邮箱页面；请在那里完成登录，然后检查连接。打开页面不会证明已登录。"
-      : "Sign-in opens the mailbox in the backend’s dedicated browser. Sign in there, then check the connection. Opening a page does not confirm sign-in.",
   };
 }
 

@@ -124,6 +124,10 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 		e.mu.Unlock()
 		return errors.New("operation not admitted by negotiated direction/profile")
 	}
+	if connectionSettingsOperation(request.Operation) && !slices.Contains(e.session.capabilities.Operations, request.Operation) {
+		e.mu.Unlock()
+		return errors.New("connection settings operation was not negotiated")
+	}
 	info := SessionInfo{SessionID: id, Profile: profile, GrantRevision: e.grantMaterial().grant.RevocationEpoch, Binding: e.config.Binding, QualifiedOperations: slices.Clone(e.config.QualifiedCapabilities)}
 	if _, ok := e.session.seenRequests[request.ID]; ok {
 		e.mu.Unlock()
@@ -260,6 +264,10 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (result Response, 
 		e.mu.Unlock()
 		return Response{}, errors.New("v2 profile is not negotiated")
 	}
+	if connectionSettingsOperation(request.Operation) && !slices.Contains(e.session.capabilities.Operations, request.Operation) {
+		e.mu.Unlock()
+		return Response{}, errors.New("connection settings operation was not negotiated")
+	}
 	if _, exists := e.session.sentRequests[request.ID]; exists {
 		e.mu.Unlock()
 		return Response{}, errors.New("reused workbench call ID in session")
@@ -353,6 +361,10 @@ func (e *Endpoint) operationSlots(r Request) chan struct{} {
 // the ordinary 30-second deadline and earlier caller/session cancellation.
 func operationTimeout(operation string) time.Duration {
 	switch operation {
+	case OperationSettingsBindingsStart, OperationSettingsBindingsPoll:
+		// The Weixin provider's bounded QR request can take 35 seconds. Leave
+		// time to commit its result without renewing earlier caller deadlines.
+		return 60 * time.Second
 	case OperationMailDraftsSave, OperationMailDraftsSend, OperationMailDraftsReconcile, OperationMailSend, OperationMailProvidersCheck, OperationMailProvidersLogin, OperationMailIntakeUpdate, OperationMailRepliesPolish, OperationMailSourceCleanup, OperationMailConversationsDelete:
 		return 180 * time.Second
 	default:

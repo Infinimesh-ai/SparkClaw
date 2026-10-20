@@ -284,6 +284,7 @@ export function InspectorColumn({
       } else {
         await refreshGlobal();
       }
+      return binding;
     } catch (err) {
       const message = notificationBindingErrorMessage(err, text);
       setError(message);

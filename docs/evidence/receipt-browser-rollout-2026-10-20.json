@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-20",
+  "product_revision": "094deb8f51a47786b9c31f202d2dc4f0d04bd58f",
+  "published_commits": [
+    "c0d6f5e9",
+    "0fbbbaa1",
+    "26a8df49",
+    "094deb8f"
+  ],
+  "scope": [
+    "current Mac SparkX",
+    "work2 Gateway"
+  ],
+  "artifacts": [
+    {
+      "name": "SparkX-0.1.0-20261020-094deb8f-mac-arm64.dmg",
+      "bytes": 136929320,
+      "sha256": "8cf16d529512fa677dee98f510ff81bf657237870bd4cbf11f9cdb42bba2253d"
+    },
+    {
+      "name": "SparkX-0.1.0-20261020-094deb8f-mac-arm64.zip",
+      "bytes": 136796765,
+      "sha256": "ab76ca4f3d358dec9ab4d81ce92771f17c8d4171afe0962bd7cdc817d9df30d9"
+    }
+  ],
+  "package_verification": {
+    "tracked_source_files": 66,
+    "ui_files": 5,
+    "helper_sha256": "f0d7e794d1b71a7a59e517bef5192d0dfd5c1a441634d07f5f76cb0ea7724f03",
+    "package_allowlist": true,
+    "source_ui_helper_parity": true,
+    "dmg_verified": true,
+    "dmg_payload_parity": true,
+    "zip_payload_parity": true,
+    "app_files_and_symlinks": 277,
+    "developer_id_signed": false,
+    "notarized": false
+  },
+  "installed_application_matches_package": true,
+  "source_validation": {
+    "desktop_tests": 490,
+    "webchat_tests": 361,
+    "linux_go_packages": 75,
+    "go_build_vet": true,
+    "native_lan": true,
+    "native_iscp_capture_modes": 7,
+    "source_unchanged_since_validation": true
+  },
+  "local_preservation": {
+    "profiles": 6,
+    "tables": 97,
+    "messages": 22,
+    "all_original_business_rows_preserved": true,
+    "runtime_event_projections_updated": [
+      {
+        "profile": "Main",
+        "table": "event_projection",
+        "scope_keys_preserved": true,
+        "source": "client-store.mjs:549"
+      }
+    ],
+    "conversations_and_drafts_preserved": true,
+    "stable_identity_configuration_preserved": true,
+    "mutable_transport_journals_changed": 2
+  },
+  "gateway": {
+    "source": "094deb8f51a47786b9c31f202d2dc4f0d04bd58f",
+    "image": "sha256:e8bdbdb5effdba11e812d1d94c746d07cb6114869d94e69ae1f3b444755ea483",
+    "binary_sha256": "45f1daa2d137fbb7a480335cc2f05706cb7cef4f0f2870bfa243ce7f429c3853",
+    "protected_files": 904,
+    "original_receipt_files": 65758,
+    "original_receipts_preserved": true,
+    "business_tables_preserved": 41,
+    "environment_and_host_config_preserved": true,
+    "retired_catalog_created": true,
+    "source_checkout_updated": true,
+    "rollback_image": "sha256:a0df531a69e10ba00f555bfbb488a1280fe6ebd03bf1f884229579305b020d5d"
+  },
+  "live": {
+    "gateway_health": "healthy",
+    "issuer_active": true,
+    "retention_warnings": 0,
+    "new_completed_receipts_timestamped": 17,
+    "normal_restart_browser_register_succeeded": true,
+    "durable_recreation_recipe_valid": true
+  },
+  "installed_ui": {
+    "iscp_connected": true,
+    "browser_host_connected": true,
+    "unknown_browser_writes": 0,
+    "manual_browser_authorization_removed": true,
+    "original_conversation_read": true,
+    "browser_panel_open_collapse": true,
+    "mail_popup_open_close": true,
+    "normal_launch_restored": true,
+    "inspection_port_closed": true
+  },
+  "database_copies_or_backups_created": false,
+  "new_model_tasks": 0,
+  "notes": [
+    "Old receipts without an authenticated completion time remain intact. No claim of production expiry before the seven-day deadline.",
+    "A private Docker create recipe pins the new image and preserves the original environment, mounts and addresses.",
+    "Rollback image 0fbbbaa1 understands the new receipt format; the retained c0d6 container must not be restarted as a writable rollback.",
+    "Initial legacy-Docker COPY --chmod failure and overly broad mutable event/control-journal comparisons were retained; deployment and data checks pass after correcting those validation assumptions."
+  ]
+}

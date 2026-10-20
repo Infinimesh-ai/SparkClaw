@@ -839,3 +839,47 @@ inspection arguments. No model task or server deployment is performed;
 cross-project contracts remain unchanged. Packages remain unsigned and
 unnotarized. See the
 [sanitized installation receipt](evidence/desktop-browser-fixes-install-2026-10-20.json).
+
+## 17. Receipt retention and automatic browser rollout (2026-10-20)
+
+Product `094deb8f` is published and installed on the current ARM64 Mac, with
+`c0d6f5e9`, `0fbbbaa1` and `26a8df49`. ISCP and pinned HTTPS LAN establish the
+local browser automatically. The separate authorization button and renderer API
+are removed; original browser tabs, panel controls and task permissions remain.
+The installed ISCP client connects its Host Agent without a click, reads the
+original conversation and opens/closes the browser panel and mail popup. Normal
+startup is restored, with no inspector arguments or listening inspection port.
+
+Fresh `20261020-094deb8f` DMG/ZIP and SHA256SUMS are in Downloads. The public
+allowlist, 66 source files, five UI resources and helper match the source;
+all 277 application entries match the build, mounted DMG, extracted ZIP and
+installed app. Packages remain unsigned/unnotarized. Existing source validation
+covers Desktop490, WebChat361, Linux75/build/vet and actual native LAN/ISCP,
+including seven ISCP capture modes; product source is unchanged since those gates.
+
+The work2 Gateway runs a new image with the seven-day business-result retention,
+earliest-expiry index, hourly reconciliation, startup/capacity triggers and
+bounded batches. The remote checkout also advances to `094deb8f`. A root-private
+recreation recipe pins the image and preserves the original environment, mounts
+and network addresses. Its read-only validation passes and recreation refuses an
+existing target. A separately prepared `0fbbbaa1` image supports the new journal
+format for rollback; never restart the retained `c0d6f5e9` container as a writable
+rollback or delete deduplication indexes. Both images pass UID execution and
+actual document read checks. Relay/issuer versions and other nodes are unchanged;
+the issuer is active and the live ISCP path works.
+
+Preservation checks retain the original records in 41 server business tables,
+904 protected configuration/workspace/identity files and all 65,758 original
+receipt-directory files. The new catalog exists and new completed receipts carry
+authenticated timestamps; no retention warnings occur. Legacy records remain,
+and production expiry is not claimed before the seven-day deadline. The Mac's
+six profiles retain 22 messages, conversations, drafts and stable identities
+across 97 checked tables. One existing event projection advances within its
+original scope, and two encrypted control/transport journals advance normally.
+No database copies, backups, resets or new model tasks are created. The previous
+application and compatible server rollback are retained.
+
+Initial old-Docker `COPY --chmod` rejection and overly broad comparisons of
+mutable event/control journals remain in private evidence. The corrected image
+build and scoped preservation checks pass. See the
+[sanitized rollout receipt](evidence/receipt-browser-rollout-2026-10-20.json).

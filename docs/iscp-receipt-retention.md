@@ -83,3 +83,7 @@ interrupted collection, bounded progress, byte accounting and lifecycle cleanup.
 Scheduler tests cover earlier deadline updates, empty-index idling, startup and
 late journal creation, hourly reconciliation, capacity pressure, contention and
 failed-entry backoff.
+
+On 2026-10-20, product `094deb8f` was deployed to the current work2 Gateway, with
+a compatible rollback image and all original receipts preserved. See the
+[scoped rollout record](public-iscp-node-deployment.md#17-receipt-retention-and-automatic-browser-rollout-2026-10-20).

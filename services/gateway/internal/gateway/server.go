@@ -79,6 +79,7 @@ type Server struct {
 	mailObjects               *iscpobjects.Store
 	domainReceiptsMu          sync.Mutex
 	domainReceipts            *iscpDomainReceipts
+	domainReceiptWake         chan struct{}
 	cfg                       config.Config
 	store                     Repository
 	tools                     *toolhub.ToolHub

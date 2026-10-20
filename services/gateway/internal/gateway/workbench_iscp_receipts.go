@@ -20,11 +20,16 @@ import (
 // uncertainty fence: a process loss after it never starts the mutation twice.
 // Completed responses are encrypted because settings may contain private data.
 type iscpDomainReceipts struct {
-	root     string
-	aead     cipher.AEAD
-	mu       sync.Mutex
-	reserved int64
-	scan     *os.File
+	root         string
+	aead         cipher.AEAD
+	mu           sync.Mutex
+	reserved     int64
+	scan         *os.File
+	expiries     receiptExpiryHeap
+	expiryByKey  map[string]*receiptExpiry
+	wake         chan struct{}
+	rebuild      bool
+	lastPressure time.Time
 }
 
 const domainReceiptMaxBytes = (8 << 20) + (64 << 10)
@@ -56,7 +61,12 @@ func (s *Server) domainReceiptJournal(root string) (*iscpDomainReceipts, error) 
 	}
 	journal, err := newISCPDomainReceipts(root)
 	if err == nil {
+		if s.domainReceiptWake == nil {
+			s.domainReceiptWake = make(chan struct{}, 1)
+		}
+		journal.wake = s.domainReceiptWake
 		s.domainReceipts = journal
+		journal.notifyRetention()
 	}
 	return journal, err
 }
@@ -107,7 +117,7 @@ func newISCPDomainReceipts(root string) (*iscpDomainReceipts, error) {
 	if err != nil {
 		return nil, err
 	}
-	j := &iscpDomainReceipts{root: root, aead: aead}
+	j := &iscpDomainReceipts{root: root, aead: aead, expiryByKey: map[string]*receiptExpiry{}, wake: make(chan struct{}, 1), rebuild: true}
 	if err := j.initializeRetiredCatalog(); err != nil {
 		return nil, err
 	}
@@ -180,7 +190,11 @@ func (j *iscpDomainReceipts) save(scope, id string, receipt iscpDomainReceipt) e
 	}
 	path := j.path(scope, id)
 	sealed := append(append([]byte(nil), domainReceiptV2...), j.aead.Seal(nonce, nonce, raw, []byte("iscp-domain-receipt-v2\x00"+filepath.Base(path)))...)
-	return writeReceiptFile(path, sealed)
+	if err := writeReceiptFile(path, sealed); err != nil {
+		return err
+	}
+	j.indexReceipt(filepath.Base(path), receipt)
+	return nil
 }
 
 func writeReceiptFile(path string, sealed []byte) error {
@@ -221,10 +235,18 @@ func syncReceiptDir(root string) error {
 // active calls reserve future bytes in addition to durable file sizes.
 func (j *iscpDomainReceipts) hasCapacity(reserve int64) bool {
 	entries, err := os.ReadDir(j.root)
-	if err != nil || len(entries) >= domainReceiptRecords {
+	if err != nil {
 		return false
 	}
 	total := j.reserved + reserve
+	defer func() {
+		if len(entries) >= domainReceiptRecords*4/5 || total >= domainReceiptTotalBytes*4/5 {
+			j.pressureCleanup(domainNow())
+		}
+	}()
+	if len(entries) >= domainReceiptRecords {
+		return false
+	}
 	for _, entry := range entries {
 		if entry.Name() == "retired" {
 			size, err := j.retiredBytes()

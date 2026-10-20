@@ -11,11 +11,23 @@ Relay admission and issuer authentication receipts retain their separate rules.
 ## Collection and recovery
 
 New completed mutation receipts contain an authenticated completion timestamp.
-The existing Gateway retention coordinator performs an initial sweep and then
-examines up to 256 entries every minute, with a 250 ms processing budget between
-entries. The directory cursor advances across ticks; collection can lag the
-seven-day threshold while a large directory is scanned. The coordinator stops
-and releases its directory handle during Gateway shutdown.
+A lifecycle-owned Gateway worker keeps an in-memory expiry index and wakes at
+the earliest indexed deadline. Successful receipt commits update the index and
+reset the timer when needed; an empty index disables the expiry timer. Startup
+rebuilds this derived index from authenticated files and collects expired results.
+An hourly directory pass reconciles missed updates. Admission checks also request
+reconciliation when the entry count or byte budget (including active reservations)
+reaches 80%, coalescing sustained pressure requests to once per minute.
+
+All triggers use the same bounded collector: at most 256 entries or a 250 ms
+budget checked between entries, followed by a 10 ms pause if work remains. Index
+rebuilding uses a directory cursor across batches. Each entry releases the
+journal lock; a collector encountering an active request yields. Capacity checks
+only signal the worker and may still reject admission until space is reclaimed.
+Deletion rechecks the durable timestamp, so a stale index cannot expire a newer
+result. Failed expiry attempts back off for a minute without starving other keys.
+A large backlog or slow individual filesystem operation can delay collection.
+Gateway shutdown cancels the worker and closes its directory cursor.
 
 Before expiry, replay and lookup return the original result. After collection,
 the existing `operation_outcome_unknown` / `state: unknown` recovery responses
@@ -68,3 +80,6 @@ No UI layout, menus, conversation data or task results outside this receipt
 journal change. Tests cover real owner mutation/replay, restart, exact expiry,
 scope isolation, unknown/legacy preservation, missing and corrupt history,
 interrupted collection, bounded progress, byte accounting and lifecycle cleanup.
+Scheduler tests cover earlier deadline updates, empty-index idling, startup and
+late journal creation, hourly reconciliation, capacity pressure, contention and
+failed-entry backoff.

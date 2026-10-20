@@ -1,12 +1,10 @@
 package gateway
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +12,6 @@ import (
 )
 
 const domainReceiptRetention = 7 * 24 * time.Hour
-const domainReceiptSweepInterval = time.Minute
 const domainReceiptSweepLimit = 256
 const domainReceiptSweepBudget = 250 * time.Millisecond
 const domainRetiredShardBytes = 4 << 20
@@ -34,6 +31,7 @@ type iscpRetiredShard struct {
 type iscpReceiptSweep struct {
 	Scanned int
 	Expired int
+	More    bool
 }
 
 func (j *iscpDomainReceipts) retiredRoot() string { return filepath.Join(j.root, "retired") }
@@ -250,56 +248,6 @@ func (j *iscpDomainReceipts) retiredBytes() (int64, error) {
 		total += info.Size()
 	}
 	return total, nil
-}
-
-// sweep is a bounded directory walk, not a full listing on every tick. Only
-// authenticated completion times in the new format qualify. Intent fences,
-// legacy ciphertext, subscription state and speech checkpoints are retained.
-func (j *iscpDomainReceipts) sweep(ctx context.Context, now time.Time) (iscpReceiptSweep, error) {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	var result iscpReceiptSweep
-	if err := ctx.Err(); err != nil {
-		return result, err
-	}
-	if j.scan == nil {
-		var err error
-		j.scan, err = os.Open(j.root)
-		if err != nil {
-			return result, err
-		}
-	}
-	deadline := time.Now().Add(domainReceiptSweepBudget)
-	for result.Scanned < domainReceiptSweepLimit && time.Now().Before(deadline) {
-		if err := ctx.Err(); err != nil {
-			return result, err
-		}
-		names, err := j.scan.Readdirnames(1)
-		if err != nil {
-			j.closeScanLocked()
-			if errors.Is(err, io.EOF) {
-				return result, nil
-			}
-			return result, err
-		}
-		result.Scanned++
-		key := names[0]
-		if !receiptKeyValid(key) {
-			continue
-		}
-		receipt, found, err := j.readReceipt(filepath.Join(j.root, key), nil)
-		if err != nil {
-			return result, err
-		}
-		if !found || !receipt.Complete || receipt.CompletedAt.IsZero() || receipt.CompletedAt.Add(domainReceiptRetention).After(now) || receipt.Digest == "" || !domainMutation(receipt.Operation) {
-			continue
-		}
-		if err = j.retireReceipt(key, receipt); err != nil {
-			return result, err
-		}
-		result.Expired++
-	}
-	return result, nil
 }
 
 func (j *iscpDomainReceipts) closeScanLocked() {

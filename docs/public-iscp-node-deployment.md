@@ -990,3 +990,33 @@ business tables, 904 protected files and 66,286 receipt files are preserved;
 the issuer is active with no retention warnings and both recreation recipes
 validate. The Mac retains six profiles, 97 tables and 22 messages, and normal
 launch is restored. Remote CI run39405381343 keeps the four recorded failures.
+
+### 19.2. Desktop management requests and Weixin session state (2026-10-20)
+
+Product `1620cbe2` is installed on the current Mac, work2 Gateway and WebChat;
+`bafcfd26` images are the rollback. Desktop binding revoke, Info/LocalMind
+credential deletion, browser-token removal and MCP ticket/binding/record deletion
+send bodyless requests; the workbench proxy forwarded an empty buffer that the
+ISCP transport rejected locally, so those actions reported the backend as
+unavailable and never reached work2. Empty bodies are now treated as no body; the
+installed client receives the backend's own responses.
+
+A Weixin user keeps one working bot session. work2 holds the original binding
+(channel default) and a binding scanned again today; the provider rejects the
+original with getupdates errcode -14. That is now recorded as
+`weixin_session_expired` and shown as readable text, successful polls clear the
+error, and shutdown cancellation is not recorded. A new QR activation revokes
+older QR bindings of the same owner and user, and revoking a default binding
+promotes the newest remaining one. The existing original binding is left for the
+owner to revoke from Desktop.
+
+The first `1620cbe2` cutover rolled back automatically because the preservation
+check found the original binding's row changed. A column-level check then
+confirmed only `last_error` (`weixin_sync_failed` -> `weixin_session_expired`),
+`version` and `updated_at` moved; the restaged cutover allowed exactly that.
+All other records in 41 tables, 904 protected files and 66,531 receipt files are
+preserved, recreation recipes validate and the issuer is active. The Mac retains
+six profiles, 97 tables and 22 messages; normal launch is restored. Remote CI
+run39410196761 keeps the recorded Electron/SUID and Compose failures; the known
+`TestSessionMessageAdmissionRejectsConcurrentSubmission` TempDir cleanup race
+appeared in the Gateway job instead of Gateway race this time.

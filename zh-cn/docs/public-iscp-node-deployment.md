@@ -765,3 +765,25 @@ Gateway和WebChat，`2ec7c9d0` 镜像作为回滚。
 并显示后台登录提示。41个业务表、904个受保护文件和66,286个回执文件均保留；issuer
 正常、没有回执保留告警，两项重建脚本校验通过。Mac保留6个profile、97张表和22条消息，
 已恢复普通启动。远端CI run39405381343仍为此前四类失败。
+
+### 19.2. 桌面端管理请求与微信会话状态（2026-10-20）
+
+产品 `1620cbe2` 已安装到当前Mac、work2 Gateway和WebChat，`bafcfd26` 镜像作为回滚。
+桌面端撤销绑定、删除Info/LocalMind凭证、移除浏览器扩展令牌以及删除MCP票据/绑定/记录
+发送的是无请求体的请求；workbench代理转发了空缓冲区，ISCP传输层在本地把它当作非法JSON
+拒绝，这些操作因此显示后端不可用，且从未到达work2。现在空请求体按无请求体处理，安装端
+能收到后端的真实响应。
+
+每个微信用户只保留一个可用bot会话。work2上有原绑定（渠道默认）和今天重新扫码的绑定，
+服务商对原绑定的getupdates返回errcode -14。现在记录为 `weixin_session_expired` 并以可读
+文字显示，成功轮询会清除错误，关停取消不再记为失败。新的二维码绑定激活时会撤销同一owner、
+同一用户的较早二维码绑定；撤销默认绑定时，最新的剩余绑定成为默认。现有原绑定留给用户在
+桌面端撤销。
+
+`1620cbe2` 首次切换因保全检查发现原绑定行变化而自动回滚。按列核对后确认只有
+`last_error`（`weixin_sync_failed` -> `weixin_session_expired`）、`version` 和
+`updated_at` 变化，重新暂存的切换只放行这一变化。41个表的其余记录、904个受保护文件和
+66,531个回执文件均保留，重建脚本校验通过，issuer正常。Mac保留6个profile、97张表和
+22条消息，已恢复普通启动。远端CI run39410196761仍有已记录的Electron/SUID和Compose失败；
+已知的 `TestSessionMessageAdmissionRejectsConcurrentSubmission` 临时目录清理竞态这次出现在
+Gateway任务而不是Gateway race任务中。

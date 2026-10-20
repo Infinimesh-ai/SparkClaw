@@ -933,3 +933,43 @@ Remote CI run39392771879 is **not green**: Docs, WebChat, Gateway race and ASR
 pass, while the same previously recorded temporary-directory cleanup race,
 Electron readiness/SUID sandbox setup and Compose error-message assertion fail.
 Those CI defects remain unresolved; the deployment checks do not replace them.
+
+## 19. Approval, binding and Info template follow-up (2026-10-20)
+
+Product `2ec7c9d0` is published on main and installed on the current ARM64 Mac,
+work2 Gateway and its separate WebChat service. It refines the section 18
+features: composer approvals unlock after a resolved decision even if refresh
+fails, the Weixin QR dialog follows server state, and Info details keep links and
+display text well formed. Desktop mail settings now only check sign-in state:
+ISCP no longer has a backend email sign-in browser operation, and the installed
+client receives HTTP 501 for that route while provider reads succeed. Weixin
+binding polls are status reads without operation receipts or Desktop journal
+records; the QR dialog closes on the first `active` poll. No compatibility with
+older clients is kept. Relay/issuer and other nodes retain their versions.
+
+The first cutover of `1645833f` rolled back automatically: existing responder and
+helper configurations list the removed mail sign-in operation as qualified, and
+validation refused them. `2ec7c9d0` drops that retired name on load (other
+unknown operations still fail) and keeps historical poll/login receipts valid
+fences. work2 had no such receipts or retired shards. Earlier staged images for
+`2ed4be04`/`1645833f` were never served and remain only as stopped records.
+
+Matching DMG/ZIP and SHA256SUMS use `20261020-2ec7c9d0` names in Downloads. The 66
+desktop source files, five UI resources, helper and 277 application entries match
+the build and installed package; packages remain unsigned and unnotarized. Source
+gates: WebChat414, Desktop498, iscpworkbench and affected Gateway packages, with
+the five previously recorded macOS Gateway failures unchanged.
+
+The new Gateway/WebChat images are layered on the previous images with identical
+environment, HostConfig, mounts and addresses. All records in 41 business tables,
+904 protected files and 66,242 receipt files are preserved; served UI files and
+the Gateway proxy match; the issuer is active with no retention warnings. Pinned
+recreation recipes for both services validate and refuse an existing target; the
+`8209f553` images remain the rollback. The Mac retains six profiles, 97 tables and
+22 messages; only the normal event projection and one transport journal advance.
+ISCP connects, connection surfaces are enabled and settings reads return 200. A
+normal single-process launch without inspection arguments is restored.
+
+Remote CI run39403158327 is **not green**: Gateway, WebChat, Docs and ASR pass;
+the previously recorded Gateway race cleanup, Electron readiness/SUID sandbox and
+Compose error-message assertions still fail.

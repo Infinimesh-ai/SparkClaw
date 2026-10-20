@@ -159,6 +159,8 @@ export class ISCPTransport {
 
   async fetch(raw, init = {}) {
     if (this.state !== "transport_ready") throw new ISCPRequestNotSentError("ISCP transport is unavailable", "unavailable");
+    // An empty body (for example a bodyless DELETE from the renderer) is no body.
+    if (init.body !== undefined && init.body !== null && (init.body === "" || init.body.byteLength === 0)) init = { ...init, body: undefined };
     if (!this.capabilities) {
       let request;
       try { request = mapISCPRequest(raw, init, this.origin); }

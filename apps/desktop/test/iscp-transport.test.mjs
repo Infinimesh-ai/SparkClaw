@@ -318,6 +318,21 @@ test('revoking a binding is not refused while its provider poll is still waiting
   assert.equal((await (await poll).json()).status,'waiting_scan');
 });
 
+test('a bodyless DELETE from the renderer reaches the backend as an empty request', async t => {
+  const f=fixture(t,(call,child)=>child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:{status:'revoked'}}}));
+  await f.transport.start();
+  f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{
+    schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,
+    expires_at:new Date(Date.now()+60000).toISOString(),binding:{deployment_id:'d',owner_id:'o',client_id:'c'},
+    operations:['settings.bindings.revoke','settings.mcp.tickets.delete'],
+  }});
+  for (const [route,body] of [['/api/notification-bindings/binding',new ArrayBuffer(0)],['/api/mcp-access/tickets/ticket',new Uint8Array(0)]]) {
+    const response=await f.transport.fetch(`${origin}${route}`,{method:'DELETE',body,actionID:crypto.randomUUID()});
+    assert.equal(response.status,200,route);
+  }
+  assert.deepEqual(f.calls.map(call=>[call.request.operation,call.request.body]),[['settings.bindings.revoke',undefined],['settings.mcp.tickets.delete',undefined]]);
+});
+
 test('QR binding operations retain a sixty-second original deadline for the provider long poll', async t => {
   const f=fixture(t, (call,child)=>child.send({ipc_version:1,type:'response',id:call.id,response:{
     type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:{status:'waiting_scan'},

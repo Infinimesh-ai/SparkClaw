@@ -641,7 +641,9 @@ async function proxyWorkbenchRequest(auth, request, target) {
   headers.delete("authorization");
   headers.delete("cookie");
   const method = request.method.toUpperCase();
-  const body = method === "GET" || method === "HEAD" ? undefined : await request.arrayBuffer();
+  const raw = method === "GET" || method === "HEAD" ? undefined : await request.arrayBuffer();
+  // A bodyless DELETE/POST arrives as an empty buffer; forward it as no body.
+  const body = raw?.byteLength ? raw : undefined;
   const response = await auth.authorizedFetch(target, { method, headers, body, redirect: "manual", signal: request.signal });
   if (response.status >= 300 && response.status < 400) {
     return new Response("Cross-origin redirects are not allowed", { status: 502 });

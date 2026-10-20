@@ -331,6 +331,7 @@ export const en = {
       requestedMedia: "Requested media",
       requestedMediaUnverified: "Requested media (not yet verified)",
       waiting: "Task in progress…",
+      viewDetails: "View details",
       taskCompleted: "Task completed",
       toolStarted: "Calling tool",
       toolCompleted: "Tool completed",
@@ -339,11 +340,7 @@ export const en = {
       approvalApproved: "Approval granted",
       approvalRejected: "Approval rejected",
       streamDetached: "Connection dropped. Checking the original request for its result; it will not be submitted again.",
-      dismissNotice: "Dismiss notice",
-      correction: "Correction",
-      helpful: "Mark helpful",
-      unhelpful: "Mark not helpful",
-      saveCorrection: "Save correction"
+      dismissNotice: "Dismiss notice"
     },
     auth: {
       gatewayToken: "Gateway token",
@@ -373,7 +370,6 @@ export const en = {
       memory: "Memory update failed",
       memoryEdit: "Memory edit failed",
       memoryDelete: "Memory delete failed",
-      feedback: "Feedback save failed",
       memoryExport: "Memory export failed",
       policyUpdate: "Tool policy update failed",
       ownerUpdate: "Owner profile update failed",

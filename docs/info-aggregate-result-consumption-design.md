@@ -413,21 +413,42 @@ finalizer after Info returns. A typed renderer consumes only
 
 Rendering rules are:
 
-1. Render the upstream summary as the lead only when cited facts or conflict
+1. Render the upstream summary as the visible answer only when cited facts or conflict
    viewpoints make the answer usable. There is no display-string sniffing, no
    local summary rewrite, and no citation edge is invented for the summary.
-2. Render admitted facts in Info-returned order. Each fact carries citation
-   markers resolved from its own source IDs.
-3. Render conflicts explicitly with their independently cited viewpoints.
-4. Render freshness when staleness risk is not low or when a latest source date
-   materially bounds a current-information answer.
-5. Render every admitted uncertainty item in a limitations section.
-6. Render a compact source list keyed by the same citation markers. A valid
-   non-linkable source is shown as a plain label, never as a fabricated link.
-7. State projection omissions when status is partial. Never silently present a
-   partial projection as complete.
+   Without a usable summary, show up to two whole admitted facts in order; conflict-only answers
+   explicitly indicate disagreement.
+2. Details show at most two whole facts in Info order, skipping exact repetitions
+   of the lead or another displayed claim. Fallback facts already in the answer
+   are not repeated in details. Each claim keeps its own source-ID edges.
+3. Show the first conflict group with all its cited viewpoints, and indicate
+   when additional disagreements exist. Never keep only one side of a conflict.
+4. Present the latest source date as a readable date label. Add a natural-language
+   freshness caution for high risk, or medium risk with no source date; do not
+   expose enum values such as `current` or `medium`.
+5. Show up to two distinct uncertainty notes, without a diagnostic section heading.
+6. Show only sources supporting the displayed claims/viewpoints, preserving their
+   relative Info order and assigning matching display citation numbers. If no
+   claim edges are displayed, show up to three sources for reference. Link titles
+   are clickable in details; non-linkable sources use a plain label. Missing titles
+   use a neutral numbered label, not internal source IDs.
+7. Translate partial evidence and metadata findings to one brief readable notice.
+   Components, omission counts, reason codes and validation diagnostics stay in
+   the stored evidence, not in the user-facing detail view.
 8. For `no_results` or `failed`, return a typed unavailable/no-reliable-results
    response instead of exposing a provider status sentence as an answer.
+
+Items 2–7 belong to a trailing standard `<details>` block in the existing message
+text. WebChat and Desktop render it as an initially closed “View details” control
+inside the original bubble. The client recognizes structure, never translated
+heading text, and uses the ordinary escaped-text renderer for both bodies.
+Incomplete disclosure markup stays hidden during streaming. Non-Web delivery
+expands this concise block and its source links to plain text, preserving the original stored content.
+No Info response, evidence projection, browser URL selection or transport schema
+changes are required.
+
+This is a selective presentation, not the full evidence record. Display limits
+do not alter, rerank or discard persisted Info evidence or browser URL candidates.
 
 Info-supplied text is normalized to plain display text. HTML is escaped or
 removed, Markdown control syntax from upstream text is not executed, and

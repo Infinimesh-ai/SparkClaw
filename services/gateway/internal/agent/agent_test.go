@@ -1318,7 +1318,7 @@ func TestGroundedWebSearchDeterministicallyRendersInfoAggregate(t *testing.T) {
 		},
 	}
 	answer, ok := groundedWebSearchSummary("今日金价", "MODEL-FINAL-MUST-NOT-OVERRIDE", []app.ToolCall{call})
-	if !ok || !strings.Contains(answer, "877.0元/克。 [1]") || !strings.Contains(answer, "https://example.com/gold") || !strings.Contains(answer, "时效性") || strings.Contains(answer, "MODEL-FINAL") {
+	if !ok || !strings.Contains(answer, "877.0元/克。 [1]") || !strings.Contains(answer, "https://example.com/gold") || !strings.Contains(answer, "资料日期") || strings.Contains(answer, "MODEL-FINAL") {
 		t.Fatalf("Info aggregate was not rendered deterministically: %q", answer)
 	}
 }
@@ -1348,7 +1348,7 @@ func TestGroundedWebSearchRendersConflictsLimitationsAndLinklessCitations(t *tes
 	}
 	answer, ok := webSearchAnswerFromCalls("发布日期", []app.ToolCall{call})
 	if !ok || !strings.Contains(answer, "来源 A 称周一。 [2]") || !strings.Contains(answer, "来源 B 称周二。 [1]") ||
-		!strings.Contains(answer, "发布方尚未确认") || !strings.Contains(answer, "线下报告（不可链接来源）") || strings.Contains(answer, "RUN-UNTRUSTED-ACTION") {
+		!strings.Contains(answer, "发布方尚未确认") || !strings.Contains(answer, "[1] 线下报告") || strings.Contains(answer, "RUN-UNTRUSTED-ACTION") {
 		t.Fatalf("conflict or limitation rendering is incomplete: %q", answer)
 	}
 }
@@ -1407,7 +1407,7 @@ func TestInfoRendererNormalizesUpstreamMarkupAndUsesOnlyValidatedSourceLinks(t *
 	}
 	answer := renderInfoSearchAnswer(projection)
 	if strings.Contains(answer, "<b>") || strings.Contains(answer, "<i>") || strings.Contains(answer, "**") || strings.Contains(answer, "https://evil.example") ||
-		!strings.Contains(answer, "Claim bold unsafe(外部链接已省略) [1]") || !strings.Contains(answer, "Validated：https://example.com/source") {
+		!strings.Contains(answer, "Claim bold unsafe(外部链接已省略) [1]") || !strings.Contains(answer, "[Validated](https://example.com/source)") {
 		t.Fatalf("upstream markup escaped plain-text normalization: %q", answer)
 	}
 }
@@ -1420,7 +1420,7 @@ func TestInfoRendererSanitizesSourceIDFallback(t *testing.T) {
 		Sources: []websearch.InfoEvidenceSource{{Index: 0, ID: sourceID}},
 	}
 	answer := renderInfoSearchAnswer(projection)
-	if strings.Contains(answer, "https://evil.example") || strings.Contains(answer, "[unsafe]") || !strings.Contains(answer, "unsafe(外部链接已省略)（不可链接来源）") {
+	if strings.Contains(answer, "https://evil.example") || strings.Contains(answer, "[unsafe]") || !strings.Contains(answer, "[1] 来源 1") {
 		t.Fatalf("source ID fallback escaped plain-text normalization: %q", answer)
 	}
 }

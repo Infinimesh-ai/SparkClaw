@@ -72,97 +72,157 @@ func latestCompletedWebSearchIsInfo(calls []app.ToolCall) bool {
 	return false
 }
 
+// This is a concise reading view, not an export of the evidence projection.
+// Whole claims retain Info order and their own source edges; raw evidence and
+// diagnostics remain available in the stored tool result.
 func renderInfoSearchAnswer(projection websearch.InfoEvidenceProjection) string {
 	switch projection.Status {
 	case websearch.InfoProjectionFailed:
-		return "联网搜索结果不可用：Info 聚合结果未通过完整性校验。"
+		return "暂时无法获取可靠的搜索结果，请稍后再试。"
 	case websearch.InfoProjectionNoResults:
-		return "没有找到带有可靠来源关联的联网搜索结果。"
+		return "暂时没有找到可靠的搜索结果。"
 	}
 	if !websearch.InfoEvidenceProjectionHasEvidence(projection) {
-		return "联网搜索结果不完整：投影容量内没有可安全展示的来源支持结论。"
+		return "当前搜索结果不足以给出可靠结论。"
 	}
 
+	answer := ""
+	if projection.Summary != nil {
+		answer = cleanInfoEvidenceForUser(projection.Summary.Text)
+	}
+	facts := infoDisplayFacts(projection.Facts, answer)
+	conflicts := projection.Conflicts
+	if len(conflicts) > 1 {
+		conflicts = conflicts[:1]
+	}
+	sources := infoDisplaySources(projection.Sources, facts, conflicts)
 	markers := map[string]int{}
-	for index, source := range projection.Sources {
+	for index, source := range sources {
 		markers[source.ID] = index + 1
 	}
-	lines := []string{"联网搜索结果："}
-	if projection.Summary != nil {
-		if summary := cleanInfoEvidenceForUser(projection.Summary.Text); summary != "" {
-			lines = append(lines, summary)
+
+	lines := []string{}
+	claims := []string{}
+	for _, fact := range facts {
+		claims = append(claims, fact.Claim+infoCitationMarkers(fact.SourceIDs, markers))
+	}
+	if answer == "" {
+		answer = strings.Join(claims, "\n")
+	} else {
+		for _, claim := range claims {
+			lines = append(lines, "- "+claim)
 		}
 	}
-	if len(projection.Facts) > 0 {
-		lines = append(lines, "", "事实：")
-		for _, fact := range projection.Facts {
-			claim := cleanInfoEvidenceForUser(fact.Claim)
-			if claim != "" {
-				lines = append(lines, "- "+claim+infoCitationMarkers(fact.SourceIDs, markers))
+	if answer == "" {
+		if len(conflicts) > 0 {
+			answer = "来源说法尚不一致，暂时无法给出确定结论。"
+		} else {
+			answer = "当前搜索结果不足以给出可靠结论。"
+		}
+	}
+	for _, conflict := range conflicts {
+		topic := cleanInfoEvidenceForUser(conflict.Topic)
+		if topic == "" {
+			topic = "这项信息"
+		}
+		lines = append(lines, "", "关于“"+topic+"”，来源说法不一致：")
+		// Keep both sides of the selected conflict; never turn disagreement
+		// into a single apparently settled claim to shorten the display.
+		for _, viewpoint := range conflict.Viewpoints {
+			if claim := cleanInfoEvidenceForUser(viewpoint.Claim); claim != "" {
+				lines = append(lines, "- "+claim+infoCitationMarkers(viewpoint.SourceIDs, markers))
 			}
 		}
 	}
-	if len(projection.Conflicts) > 0 {
-		lines = append(lines, "", "存在分歧：")
-		for _, conflict := range projection.Conflicts {
-			lines = append(lines, "- "+cleanInfoEvidenceForUser(conflict.Topic))
-			for _, viewpoint := range conflict.Viewpoints {
-				claim := cleanInfoEvidenceForUser(viewpoint.Claim)
-				if claim != "" {
-					lines = append(lines, "  - "+claim+infoCitationMarkers(viewpoint.SourceIDs, markers))
-				}
-			}
+	if len(projection.Conflicts) > len(conflicts) {
+		lines = append(lines, "", "其他信息也存在不同说法，请结合来源原文判断。")
+	}
+	if projection.Freshness.LatestSourceDate != nil {
+		lines = append(lines, "", "资料日期："+cleanInfoEvidenceForUser(*projection.Freshness.LatestSourceDate))
+	}
+	if projection.Freshness.StalenessRisk == "high" ||
+		(projection.Freshness.StalenessRisk == "medium" && projection.Freshness.LatestSourceDate == nil) {
+		lines = append(lines, "", "资料可能已有变化，请以来源的最新信息为准。")
+	}
+	seenNotes := map[string]bool{answer: true}
+	noteCount := 0
+	for _, uncertainty := range projection.Uncertainty {
+		note := cleanInfoEvidenceForUser(uncertainty)
+		if note == "" || seenNotes[note] {
+			continue
+		}
+		seenNotes[note] = true
+		lines = append(lines, "", note)
+		noteCount++
+		if noteCount == 2 {
+			break
 		}
 	}
-	if shouldRenderInfoFreshness(projection.Freshness) {
-		parts := []string{}
-		if status := cleanInfoEvidenceForUser(projection.Freshness.Status); status != "" {
-			parts = append(parts, "状态 "+status)
-		}
-		if projection.Freshness.LatestSourceDate != nil {
-			parts = append(parts, "最新来源日期 "+cleanInfoEvidenceForUser(*projection.Freshness.LatestSourceDate))
-		}
-		if risk := cleanInfoEvidenceForUser(projection.Freshness.StalenessRisk); risk != "" {
-			parts = append(parts, "过时风险 "+risk)
-		}
-		if len(parts) > 0 {
-			lines = append(lines, "", "时效性："+strings.Join(parts, "；")+"。")
-		}
+	if projection.Status == websearch.InfoProjectionPartial {
+		lines = append(lines, "", "当前可用信息不完整，以上内容仅供参考。")
+	} else if len(projection.Findings) > 0 {
+		lines = append(lines, "", "部分资料信息尚待确认。")
 	}
-	if len(projection.Uncertainty) > 0 || projection.Status == websearch.InfoProjectionPartial || len(projection.Findings) > 0 {
-		lines = append(lines, "", "限制：")
-		for _, uncertainty := range projection.Uncertainty {
-			if text := cleanInfoEvidenceForUser(uncertainty); text != "" {
-				lines = append(lines, "- "+text)
-			}
-		}
-		for _, finding := range projection.Findings {
-			lines = append(lines, "- Info 契约值需要审查："+cleanInfoEvidenceForUser(finding.Component)+" ("+cleanInfoEvidenceForUser(finding.Code)+")")
-		}
-		if projection.Status == websearch.InfoProjectionPartial {
-			for _, omission := range projection.Omissions {
-				lines = append(lines, fmt.Sprintf("- 结果投影省略 %s（%s，%d 项）。", cleanInfoEvidenceForUser(omission.Component), cleanInfoEvidenceForUser(omission.Reason), omission.Count))
-			}
-		}
-	}
-	if len(projection.Sources) > 0 {
-		lines = append(lines, "", "来源：")
-		for index, source := range projection.Sources {
+	if len(sources) > 0 {
+		lines = append(lines, "", "参考来源")
+		for index, source := range sources {
 			label := cleanInfoEvidenceForUser(source.Title)
-			if label == "" {
-				label = cleanInfoEvidenceForUser(source.ID)
-			}
 			if label == "" {
 				label = fmt.Sprintf("来源 %d", index+1)
 			}
 			if source.Linkable {
-				lines = append(lines, fmt.Sprintf("[%d] %s：%s", index+1, label, source.URL))
-			} else {
-				lines = append(lines, fmt.Sprintf("[%d] %s（不可链接来源）", index+1, label))
+				// Prevent source URLs from terminating the Markdown link.
+				target := strings.NewReplacer("(", "%28", ")", "%29", "<", "%3C", ">", "%3E").Replace(source.URL)
+				label = "[" + label + "](" + target + ")"
+			}
+			lines = append(lines, fmt.Sprintf("[%d] %s", index+1, label))
+		}
+	}
+	details := strings.TrimSpace(strings.Join(lines, "\n"))
+	if details == "" {
+		return answer
+	}
+	return answer + "\n\n<details>\n<summary>查看详情</summary>\n\n" + details + "\n</details>"
+}
+
+func infoDisplayFacts(facts []websearch.InfoEvidenceFact, summary string) []websearch.InfoEvidenceFact {
+	out := []websearch.InfoEvidenceFact{}
+	seen := map[string]bool{summary: true}
+	for _, fact := range facts {
+		fact.Claim = cleanInfoEvidenceForUser(fact.Claim)
+		if fact.Claim == "" || seen[fact.Claim] {
+			continue
+		}
+		seen[fact.Claim] = true
+		out = append(out, fact)
+		if len(out) == 2 {
+			break
+		}
+	}
+	return out
+}
+
+func infoDisplaySources(sources []websearch.InfoEvidenceSource, facts []websearch.InfoEvidenceFact, conflicts []websearch.InfoEvidenceConflict) []websearch.InfoEvidenceSource {
+	referenced := map[string]bool{}
+	for _, fact := range facts {
+		for _, id := range fact.SourceIDs {
+			referenced[strings.TrimSpace(id)] = true
+		}
+	}
+	for _, conflict := range conflicts {
+		for _, viewpoint := range conflict.Viewpoints {
+			for _, id := range viewpoint.SourceIDs {
+				referenced[strings.TrimSpace(id)] = true
 			}
 		}
 	}
-	return strings.Join(lines, "\n")
+	out := []websearch.InfoEvidenceSource{}
+	for _, source := range sources {
+		if referenced[source.ID] || (len(referenced) == 0 && len(out) < 3) {
+			out = append(out, source)
+		}
+	}
+	return out
 }
 
 func infoCitationMarkers(sourceIDs []string, markers map[string]int) string {
@@ -179,10 +239,6 @@ func infoCitationMarkers(sourceIDs []string, markers map[string]int) string {
 		return ""
 	}
 	return " " + strings.Join(parts, "")
-}
-
-func shouldRenderInfoFreshness(freshness websearch.Freshness) bool {
-	return freshness.LatestSourceDate != nil || (strings.TrimSpace(freshness.StalenessRisk) != "" && !strings.EqualFold(strings.TrimSpace(freshness.StalenessRisk), "low"))
 }
 
 func cleanInfoEvidenceForUser(value string) string {

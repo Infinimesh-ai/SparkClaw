@@ -122,6 +122,47 @@ div.messageList {
   color: var(--cyber-blue);
 }
 
+.messageDetails {
+  margin-top: 12px;
+}
+
+.messageDetails > summary {
+  width: fit-content;
+  color: var(--text-secondary);
+  font-size: var(--font-ui);
+  cursor: pointer;
+}
+
+.messageDetails > summary:hover {
+  color: var(--text-primary);
+}
+
+.messageDetails[open] > summary {
+  margin-bottom: 12px;
+}
+
+.messageDetails > .messageContent {
+  padding-left: 14px;
+  border-left: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.messageDetails .messageContent p,
+.messageDetails .messageList {
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
+}
+
+.messageSourceLink {
+  color: var(--cyber-blue);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.messageSourceLink:hover {
+  text-decoration: underline;
+}
+
 .message p {
   min-width: 0;
   max-width: 100%;
@@ -393,46 +434,4 @@ ul.messageList li + li {
   border-radius: var(--radius-small);
   object-fit: contain;
   background: var(--surface-deep);
-}
-
-.feedbackBar {
-  display: grid;
-  grid-template-columns: 28px 28px minmax(90px, 1fr) 28px;
-  gap: 6px;
-  margin-top: 14px;
-  max-width: 580px;
-}
-
-.feedbackBar button {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-small);
-  color: var(--text-secondary);
-  background: var(--surface);
-}
-
-.feedbackBar button:hover {
-  color: var(--text-primary);
-  background: var(--surface-hover);
-}
-
-.feedbackBar input {
-  min-width: 0;
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-small);
-  outline: none;
-  color: var(--text-primary);
-  background: var(--surface-deep);
-  font-size: var(--font-ui);
-  line-height: var(--line-ui);
-}
-
-.feedbackBar input:focus {
-  border-color: var(--cyber-blue);
-  box-shadow: 0 0 0 1px rgba(66, 133, 244, 0.18);
 }

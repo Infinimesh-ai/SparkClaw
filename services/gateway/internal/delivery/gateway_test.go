@@ -162,7 +162,7 @@ func TestGatewayDeliversAllPartsThroughRegisteredProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := app.MessageContent{Parts: []app.MessagePart{
-		{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "hello"},
+		{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "hello\n\n<details>\n<summary>查看详情</summary>\n\nEvidence [1]\n[1] [Report](https://example.com)\n</details>"},
 		{ID: "image", Kind: app.MessagePartImage, Disposition: app.MessageDispositionAttachment, ArtifactID: "img"},
 		{ID: "voice", Kind: app.MessagePartAudio, Disposition: app.MessageDispositionVoiceNote, ArtifactID: "voice"},
 		{ID: "file", Kind: app.MessagePartFile, Disposition: app.MessageDispositionAttachment, ArtifactID: "file"},
@@ -174,6 +174,12 @@ func TestGatewayDeliversAllPartsThroughRegisteredProvider(t *testing.T) {
 	}
 	if len(fake.requests) != 1 || len(fake.requests[0].Content.Parts) != len(content.Parts) {
 		t.Fatalf("provider did not receive the complete ordered payload: %#v", fake.requests)
+	}
+	if fake.requests[0].Content.Parts[0].Text != "hello\n\nEvidence [1]\n[1] Report：https://example.com" {
+		t.Fatalf("plain-text channel should receive all evidence without disclosure tags: %#v", fake.requests[0].Content)
+	}
+	if request.Content.Parts[0].Text != content.Parts[0].Text || request.Content.Parts[0].Text == fake.requests[0].Content.Parts[0].Text {
+		t.Fatal("channel formatting mutated the original persisted content")
 	}
 }
 

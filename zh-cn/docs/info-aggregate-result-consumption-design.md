@@ -358,18 +358,31 @@ finalizer。类型化 renderer 只消费 `info_aggregate_projection_v4`。
 
 渲染规则如下：
 
-1. 只有 cited fact 或 conflict viewpoint 使回答可用时，才把上游 summary 作为开头。
+1. 只有 cited fact 或 conflict viewpoint 使回答可用时，才把上游 summary 作为默认可见的答案。
    取消展示字符串嗅探，不做本地 summary 改写，也不为 summary 编造 citation 边。
-2. 按 Info 返回顺序渲染已接纳 fact；每个 fact 携带从自身 source ID 解析出的 citation marker。
-3. 明确渲染 conflict，并分别引用各 viewpoint 的 source。
-4. 当 staleness risk 不是 low，或 latest source date 对当前信息答案构成实质边界时，
-   渲染 freshness。
-5. 在“限制”部分渲染每一条已接纳 uncertainty。
-6. 使用相同 citation marker 渲染精简 source 列表。有效但不可链接的 source 以普通 label
-   展示，绝不生成伪造链接。
-7. Status 为 partial 时说明 projection omission，绝不把 partial 静默展示为 complete。
+   缺少可用 summary 时按顺序显示最多两条完整事实；只有分歧时明确提示来源说法不一致。
+2. 详情按 Info 顺序最多展示两条完整事实，跳过与正文或已展示事实完全一致的文本；
+   已作为正文兜底显示的事实不再重复。每条事实保留其自身 source-ID 引用关系。
+3. 展示首组分歧及其全部带引用的观点，存在更多分歧时作简短提示，不能只展示一方。
+4. 将最新来源日期展示为易读的日期说明。高过时风险，或缺少日期的中等风险，使用自然语言
+   提醒；不显示 `current`、`medium` 等枚举值。
+5. 最多展示两条不同的不确定性说明，不设置诊断式标题。
+6. 仅展示所选事实/观点的支持来源，保留 Info 相对顺序并同步生成展示引用编号。
+   没有展示事实引用边时最多提供三条参考来源。详情中来源标题可点击，不可链接来源显示
+   普通标签；缺少标题时使用中性编号，不暴露内部 source ID。
+7. 将部分证据缺失或元数据异常转换为一条简短说明。组件名称、省略数量、原因代码和
+   校验诊断保留在存储证据中，不进入用户详情。
 8. 对 `no_results` 或 `failed`，返回类型化的“不可用/没有可靠结果”，不能把 provider
    状态句当作答案暴露。
+
+第 2–7 项位于现有消息文本末尾的标准 `<details>` 块中。WebChat 与桌面端在原消息气泡内
+将其渲染为默认关闭的“查看详情”控件。客户端识别结构，不依赖翻译后的标题文字；
+正文和详情都使用原有的转义文本渲染器。流式输出尚未完成的折叠标记不会展示。
+非 Web 渠道将简洁折叠块及来源链接展开为纯文本，并保留原始存储内容。本次不改 Info 返回值、
+证据投影、浏览器 URL 选择或传输 schema。
+
+这是有选择的阅读视图，不是完整证据记录。展示条数限制不改变、重排或删除已持久化的
+Info 证据，也不影响浏览器 URL 候选。
 
 Info 返回的文本会规范化为普通展示文本。HTML 会被转义或移除，上游文本中的 Markdown
 控制语法不会执行，hyperlink 只从经过校验的 source metadata 创建。上游内容绝不能发出

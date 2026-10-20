@@ -67,6 +67,7 @@ func (g *Gateway) Deliver(ctx context.Context, request app.DeliveryRequest) (app
 		if g.providers == nil {
 			return failedReceipt(endpoint, request, "provider registry is unavailable"), errors.New("provider registry is unavailable")
 		}
+		request.Content = plainTextDeliveryContent(request.Content)
 		return g.providers.Deliver(ctx, endpoint, request)
 	default:
 		err := fmt.Errorf("unsupported endpoint kind %q", endpoint.Kind)

@@ -2,10 +2,11 @@
 // workspace images/screenshots, and stream status lines.
 import { Component, createRef, Fragment, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { Check, Download, FileQuestion, FileSearch, LoaderCircle, ThumbsDown, ThumbsUp } from "lucide-react";
+import { Download, FileQuestion, FileSearch, LoaderCircle } from "lucide-react";
 import { fetchAuthedBlob, fetchDocumentFile, openDocumentFile, workspaceScreenshotURL } from "../api/client";
 import { cssToken, formatTime } from "../lib/format";
 import { MESSAGE_STREAM_STARTED_EVENT } from "../lib/messageStream";
+import { parseMessageDisclosure } from "../lib/messageDisclosure";
 import { useSmoothReveal } from "../lib/smoothReveal";
 import type { Message, MessageAttachment, MessageMediaLocator } from "../api/types";
 import type { Copy, Language } from "../i18n";
@@ -23,8 +24,7 @@ export function MessageBubble({
   language,
   inProgress = false,
   sessionSource,
-  scrollAnchorId,
-  onFeedback
+  scrollAnchorId
 }: {
   message: Message;
   streamStatuses: StreamStatus[];
@@ -33,24 +33,7 @@ export function MessageBubble({
   inProgress?: boolean;
   sessionSource?: string;
   scrollAnchorId?: string;
-  onFeedback: (rating: "up" | "down" | "corrected", correction?: string) => Promise<void>;
 }) {
-  const [correction, setCorrection] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  async function submit(rating: "up" | "down" | "corrected") {
-    if (saving || !message.run_id) return;
-    setSaving(true);
-    try {
-      await onFeedback(rating, rating === "corrected" ? correction.trim() : "");
-      if (rating === "corrected") setCorrection("");
-    } catch {
-      return;
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
     <article className={`message ${message.role}`} data-message-id={message.id} data-scroll-anchor={scrollAnchorId ?? message.id}>
       <div className="messageMeta">
@@ -62,29 +45,9 @@ export function MessageBubble({
       )}
       {inProgress && !message.content.trim() && <div className="taskProgress" role="status"><LoaderCircle size={15} aria-hidden="true" /><span>{text.chat.waiting}</span></div>}
       {streamStatuses.length > 0 && <StreamStatusList statuses={inProgress ? streamStatuses.filter(status => status.id !== "waiting") : streamStatuses} />}
-      {message.content.trim() && <MessageContent content={message.content} sessionId={message.session_id} text={text} />}
+      {message.content.trim() && <MessageContent content={message.content} sessionId={message.session_id} text={text} allowDetails={message.role === "assistant"} inProgress={inProgress} />}
       {message.requested_media && message.requested_media.length > 0 && (
         <RequestedMedia locators={message.requested_media} text={text} />
-      )}
-      {message.role === "assistant" && message.run_id && (
-        <div className="feedbackBar">
-          <button onClick={() => void submit("up")} disabled={saving} title={text.chat.helpful}>
-            <ThumbsUp size={14} />
-          </button>
-          <button onClick={() => void submit("down")} disabled={saving} title={text.chat.unhelpful}>
-            <ThumbsDown size={14} />
-          </button>
-          <input
-            aria-label={text.chat.correction}
-            value={correction}
-            onChange={(event) => setCorrection(event.target.value)}
-            disabled={saving}
-            placeholder={text.chat.correction}
-          />
-          <button onClick={() => void submit("corrected")} disabled={saving || !correction.trim()} title={text.chat.saveCorrection}>
-            <Check size={14} />
-          </button>
-        </div>
       )}
     </article>
   );
@@ -95,7 +58,7 @@ export function TaskProgressMessage({ id, sessionId, createdAt, text, language, 
 }) {
   const shown = useSmoothReveal(direct ? "" : content);
   return <MessageBubble message={{ id: `progress:${id}`, session_id: sessionId, role: "assistant", content: direct ? content : shown, created_at: createdAt }}
-    scrollAnchorId={scrollAnchorId} inProgress streamStatuses={[]} text={text} language={language} onFeedback={async () => {}} />;
+    scrollAnchorId={scrollAnchorId} inProgress streamStatuses={[]} text={text} language={language} />;
 }
 
 export function RequestedMedia({ locators, text }: { locators: MessageMediaLocator[]; text: Copy }) {
@@ -261,7 +224,21 @@ export function upsertStreamStatus(statuses: StreamStatus[], next: StreamStatus)
   return [...filtered, next].slice(-5);
 }
 
-export function MessageContent({ content, sessionId, text }: { content: string; sessionId: string; text: Copy }) {
+export function MessageContent({ content, sessionId, text, allowDetails = false, inProgress = false }: {
+  content: string; sessionId: string; text: Copy; allowDetails?: boolean; inProgress?: boolean;
+}) {
+  const disclosure = allowDetails ? parseMessageDisclosure(content, inProgress) : null;
+  if (disclosure) return (
+    <>
+      <RenderedMessageText content={disclosure.answer} />
+      {disclosure.details && (
+        <details className="messageDetails">
+          <summary>{text.chat.viewDetails}</summary>
+          <RenderedMessageText content={disclosure.details} allowLinks />
+        </details>
+      )}
+    </>
+  );
   const documentResult = parseDocumentResultContent(content);
   if (documentResult) return <WorkspaceDocumentResult path={documentResult.path} sessionId={sessionId} label={documentResult.label || text.chat.modifiedFile} text={text} />;
   const mediaImage = parseSingleMediaImageContent(content);
@@ -378,7 +355,7 @@ type TextSelectionSnapshot = {
   anchorNode: Node; anchorOffset: number; focusNode: Node; focusOffset: number;
 };
 
-export class RenderedMessageText extends Component<{ content: string }, Record<string, never>, TextSelectionSnapshot | null> {
+export class RenderedMessageText extends Component<{ content: string; allowLinks?: boolean }, Record<string, never>, TextSelectionSnapshot | null> {
   private contentRef = createRef<HTMLDivElement>();
 
   getSnapshotBeforeUpdate(previous: Readonly<{ content: string }>): TextSelectionSnapshot | null {
@@ -431,7 +408,7 @@ export class RenderedMessageText extends Component<{ content: string }, Record<s
         if (block.type === "heading") {
           return (
             <p key={index} className={`messageHeading level${block.level}`}>
-              {renderInlineMessageText(block.text, index)}
+              {renderInlineMessageText(block.text, index, this.props.allowLinks)}
             </p>
           );
         }
@@ -439,12 +416,12 @@ export class RenderedMessageText extends Component<{ content: string }, Record<s
           return (
             <ul key={index} className="messageList">
               {block.items.map((item, itemIndex) => (
-                <li key={itemIndex}>{renderInlineMessageText(item, itemIndex)}</li>
+                <li key={itemIndex}>{renderInlineMessageText(item, itemIndex, this.props.allowLinks)}</li>
               ))}
             </ul>
           );
         }
-        return <p key={index}>{renderInlineMessageText(block.text, index)}</p>;
+        return <p key={index}>{renderInlineMessageText(block.text, index, this.props.allowLinks)}</p>;
       })}
     </div>
     );
@@ -538,9 +515,11 @@ export function parseMessageBlocks(content: string): MessageBlock[] {
   return blocks.length > 0 ? blocks : [{ type: "paragraph", text: content }];
 }
 
-export function renderInlineMessageText(text: string, keyPrefix: number) {
+export function renderInlineMessageText(text: string, keyPrefix: number, allowLinks = false) {
   const nodes: ReactNode[] = [];
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  const pattern = allowLinks
+    ? /(\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|\*\*[^*]+\*\*|`[^`]+`)/g
+    : /(\*\*[^*]+\*\*|`[^`]+`)/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   let part = 0;
@@ -549,7 +528,17 @@ export function renderInlineMessageText(text: string, keyPrefix: number) {
       nodes.push(renderPlainMessageText(text.slice(lastIndex, match.index), `${keyPrefix}-${part++}`));
     }
     const token = match[0];
-    if (token.startsWith("**")) {
+    const link = allowLinks ? token.match(/^\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)$/) : null;
+    if (link) {
+      let href = "";
+      try {
+        const parsed = new URL(link[2]);
+        if (!parsed.username && !parsed.password && ["http:", "https:"].includes(parsed.protocol)) href = parsed.href;
+      } catch { /* Invalid links remain ordinary escaped text. */ }
+      nodes.push(href
+        ? <a key={`${keyPrefix}-${part++}`} className="messageSourceLink" href={href} target="_blank" rel="noopener noreferrer">{link[1]}</a>
+        : renderPlainMessageText(token, `${keyPrefix}-${part++}`));
+    } else if (token.startsWith("**")) {
       nodes.push(
         <strong key={`${keyPrefix}-${part++}`} className="messageStrong">
           {renderPlainMessageText(token.slice(2, -2), `${keyPrefix}-${part++}`)}

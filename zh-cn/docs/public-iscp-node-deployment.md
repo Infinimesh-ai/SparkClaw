@@ -684,3 +684,9 @@ work2 Gateway已使用新镜像，启用业务结果七天保留、最早到期�
 首次旧Docker拒绝 `COPY --chmod`，以及将可变事件／控制日志纳入逐字节不变断言
 的验证错误均保留于私有证据。改用兼容构建语法并按明确记录类型核对后通过。
 见[脱敏发布回执](../../docs/evidence/receipt-browser-rollout-2026-10-20.json)。
+
+`094deb8f`远端CI**未全绿**。run39380313739的Docs、Gateway race、WebChat和ASR
+通过，但Gateway临时目录清理竞态、Electron就绪／SUID沙箱配置及Compose错误文案
+断言失败。上一版 `667566a7` 的run39370919665具有相同失败特征（清理竞态出现在
+其race任务中）。这些既有CI问题仍未修复；上述本地门槛和实际部署验收不代表远端
+CI通过。

@@ -103,5 +103,25 @@
     "A private Docker create recipe pins the new image and preserves the original environment, mounts and addresses.",
     "Rollback image 0fbbbaa1 understands the new receipt format; the retained c0d6 container must not be restarted as a writable rollback.",
     "Initial legacy-Docker COPY --chmod failure and overly broad mutable event/control-journal comparisons were retained; deployment and data checks pass after correcting those validation assumptions."
-  ]
+  ],
+  "remote_ci": {
+    "product_run_id": 39380313739,
+    "product_revision": "094deb8f51a47786b9c31f202d2dc4f0d04bd58f",
+    "conclusion": "failure",
+    "baseline_run_id": 39370919665,
+    "baseline_revision": "667566a7f124af886adb4e46e713655037db8acb",
+    "matching_baseline_failures": [
+      "Gateway TestSessionMessageAdmissionRejectsConcurrentSubmission TempDir cleanup race",
+      "Electron adapter exited before ready",
+      "Electron anchor Linux SUID sandbox configuration",
+      "Compose test_local_entry_rejects_remote_model_override error-message assertion"
+    ],
+    "passed_jobs": [
+      "Docs",
+      "Gateway race",
+      "WebChat",
+      "ASR Runtime"
+    ],
+    "all_ci_green": false
+  }
 }

@@ -883,3 +883,10 @@ Initial old-Docker `COPY --chmod` rejection and overly broad comparisons of
 mutable event/control journals remain in private evidence. The corrected image
 build and scoped preservation checks pass. See the
 [sanitized rollout receipt](evidence/receipt-browser-rollout-2026-10-20.json).
+
+Remote CI for `094deb8f` is **not green**. Run39380313739 passes Docs, Gateway
+race, WebChat and ASR, but fails the Gateway temporary-directory cleanup race,
+Electron readiness/SUID sandbox setup and a Compose error-message assertion.
+The previous `667566a7` run39370919665 has the same failure signatures (the cleanup
+race appears in its race job). These existing CI failures remain unresolved;
+local product gates and live deployment checks above do not imply remote CI success.

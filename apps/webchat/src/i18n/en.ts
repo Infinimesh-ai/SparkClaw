@@ -648,6 +648,14 @@ export const en = {
       bindTelegram: "Bind Telegram",
       addTelegramBinding: "Add Telegram binding",
       revokeBinding: "Revoke binding",
+      bindingErrors: {
+        weixin_session_expired: "This Weixin session is no longer valid (for example after binding again). Revoke it or scan to bind again.",
+        weixin_sync_failed: "Weixin message sync failed temporarily; it retries automatically.",
+        connector_setup_interrupted: "Binding setup was interrupted. Start a new binding.",
+        connector_unavailable: "The connection service is temporarily unavailable.",
+        connector_operation_failed: "The connection operation failed. Try again.",
+        connector_provider_pending: "The provider is still processing this binding."
+      },
       scanWeixin: "Scan with Weixin to bind reminders.",
       scannedWeixin: "Scanned. Confirm on your phone.",
       telegramToken: "Bot Token",

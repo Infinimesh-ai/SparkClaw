@@ -25,6 +25,7 @@ import {
   pendingBindingPollKey
 } from "../../lib/connectors";
 import {
+  bindingErrorLabel,
   bindingStatusLabel,
   formatTime,
   isImageLikeQR,
@@ -251,7 +252,7 @@ export function ConnectorBindingSettings({
                     <span>{text.settings.telegramAwaitingMessage}</span>
                   </div>
                 )}
-                {binding.last_error && <span className="compactError">{binding.last_error}</span>}
+                {binding.last_error && <span className="compactError">{bindingErrorLabel(binding.last_error, text)}</span>}
               </div>
             ))}
           </div>

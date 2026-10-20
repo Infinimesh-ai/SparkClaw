@@ -83,6 +83,12 @@ export function formatState(state: string, text: Copy) {
   return text.state[state as keyof Copy["state"]] ?? state;
 }
 
+// Backend binding errors are stable codes; unknown codes stay visible as-is.
+export function bindingErrorLabel(code: string, text: Copy) {
+  const labels: Record<string, string> = text.settings.bindingErrors;
+  return Object.hasOwn(labels, code) ? labels[code] : code;
+}
+
 export function bindingStatusLabel(status: string, text: Copy) {
   switch (status) {
     case "waiting_scan":

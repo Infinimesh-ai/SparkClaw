@@ -650,6 +650,14 @@ export const zh = {
       bindTelegram: "绑定 Telegram",
       addTelegramBinding: "新增 Telegram 绑定",
       revokeBinding: "撤销绑定",
+      bindingErrors: {
+        weixin_session_expired: "该微信会话已失效（例如已重新绑定），可撤销此绑定或重新扫码绑定。",
+        weixin_sync_failed: "微信消息同步暂时失败，会自动重试。",
+        connector_setup_interrupted: "绑定过程已中断，请重新发起绑定。",
+        connector_unavailable: "连接服务暂时不可用。",
+        connector_operation_failed: "连接操作失败，请重试。",
+        connector_provider_pending: "服务商仍在处理此绑定。"
+      },
       scanWeixin: "用微信扫码绑定提醒。",
       scannedWeixin: "已扫码，请在手机上确认。",
       telegramToken: "Bot Token",

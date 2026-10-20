@@ -5,7 +5,7 @@ import { api, APIError } from "../../api/client";
 import type { NotificationBinding } from "../../api/types";
 import type { Copy } from "../../i18n";
 import { useDismissibleLayer } from "../../hooks/useDismissibleLayer";
-import { bindingStatusLabel } from "../../lib/format";
+import { bindingErrorLabel, bindingStatusLabel } from "../../lib/format";
 
 export function WeixinBindingDialog({ binding, text, busy, error, onClose, onRestart, onRefresh }: {
   binding: NotificationBinding;
@@ -75,7 +75,7 @@ export function WeixinBindingDialog({ binding, text, busy, error, onClose, onRes
       <p role="status">{expired ? text.settings.weixinQrExpired : failed ? bindingStatusLabel(binding.status, text)
         : binding.status === "waiting_confirm" ? <><CheckCircle2 size={20} /> {text.settings.scannedWeixin}</>
         : waitingScan ? text.settings.scanWeixin : text.settings.weixinQrLoading}</p>
-      {(qrError || error || binding.last_error) && <p className="compactError" role="alert">{qrError || error || binding.last_error}</p>}
+      {(qrError || error || binding.last_error) && <p className="compactError" role="alert">{qrError || error || (binding.last_error && bindingErrorLabel(binding.last_error, text))}</p>}
       {waitingScan && qrError && <button type="button" className="secondaryButton" onClick={() => setAttempt(value => value + 1)}>{text.common.refresh}</button>}
       {(expired || failed) && <button type="button" className="secondaryButton" disabled={busy} onClick={onRestart}>{text.settings.weixinQrRestart}</button>}
     </div>

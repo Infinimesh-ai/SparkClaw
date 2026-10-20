@@ -174,6 +174,23 @@ describe("desktop Weixin binding dialog", () => {
     expect(dialog()?.textContent).not.toContain(text.settings.bindingQrUnavailable);
   });
 
+  it("explains an expired Weixin session and still offers revocation", async () => {
+    const revoke = vi.fn(async () => {});
+    function Harness() {
+      return <ConnectorBindingSettings connectors={[{ ...connector, state: "active", binding_status: "active" }]}
+        notificationBindings={[{ ...binding("active"), last_error: "weixin_session_expired", default_for_channel: true }]}
+        text={text} language="en" onStartNotificationBinding={start} onRefreshNotificationBinding={refresh}
+        onOpenNotificationBindingBrowser={openBrowser} onRevokeNotificationBinding={revoke} onUpdateConnector={async () => connector} />;
+    }
+    await act(async () => root.render(<Harness />));
+    expect(container.textContent).toContain(text.settings.bindingErrors.weixin_session_expired);
+    expect(container.textContent).not.toContain("weixin_session_expired");
+    const revokeButton = container.querySelector<HTMLButtonElement>(`button[title="${text.settings.revokeBinding}"]`)!;
+    expect(revokeButton.disabled).toBe(false);
+    await act(async () => revokeButton.click());
+    expect(revoke).toHaveBeenCalledWith("binding-1");
+  });
+
   it("keeps the existing backend WebChat browser action", async () => {
     delete window.sparkclawDesktop;
     await render();

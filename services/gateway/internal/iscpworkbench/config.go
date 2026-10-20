@@ -109,6 +109,7 @@ func loadConfig(path string, controlOnly bool) (Config, error) {
 	if cfg.GrantRenewal != nil && !filepath.IsAbs(cfg.GrantRenewal.PendingFile) {
 		cfg.GrantRenewal.PendingFile = filepath.Join(base, cfg.GrantRenewal.PendingFile)
 	}
+	cfg.QualifiedCapabilities = withoutRetiredOperations(cfg.QualifiedCapabilities)
 	if err := cfg.Validate(); err != nil {
 		return cfg, err
 	}
@@ -116,6 +117,24 @@ func loadConfig(path string, controlOnly bool) (Config, error) {
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+// Operations removed from the registry that existing node and desktop
+// configurations may still list as qualified. They are dropped on load; any
+// other unknown name still fails validation.
+var retiredOperations = map[string]bool{"mail.providers.login": true}
+
+func withoutRetiredOperations(names []string) []string {
+	if names == nil {
+		return nil
+	}
+	kept := make([]string, 0, len(names))
+	for _, name := range names {
+		if !retiredOperations[name] {
+			kept = append(kept, name)
+		}
+	}
+	return kept
 }
 
 func (c Config) Validate() error {

@@ -26,7 +26,9 @@ type iscpDomainReceipts struct {
 
 const domainReceiptMaxBytes = (8 << 20) + (64 << 10)
 const domainReceiptTotalBytes = 512 << 20
-const domainReceiptRecords = 65536
+// Retain original receipts while allowing existing installations that reached
+// the former record ceiling to recover. The independent 512 MiB budget remains.
+const domainReceiptRecords = 262144
 
 type iscpDomainReceipt struct {
 	Version   int             `json:"version"`

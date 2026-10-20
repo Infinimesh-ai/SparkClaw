@@ -252,7 +252,7 @@ export class ISCPTransport {
       journal.retire(resource, record.operation_id, { reason: 'new_foreground_action', ...(init.actionID ? { action_id: init.actionID } : {}), ...(revision ? { revision } : {}) });
       record = undefined;
     }
-    if (record?.phase === 'applied' && record.response?.body?.code === 'operation_not_sent') {
+    if (record?.phase === 'applied' && (record.response?.body?.code === 'operation_not_sent' || receiptCapacityRejected(record.response.status, record.response.body))) {
       // Only a new foreground action can succeed a locally closed never-sent
       // intent. READY recovery never renews its deadline or creates a new ID.
       journal.retire(resource, record.operation_id, { reason: 'explicit_retry_after_non_submission' });
@@ -326,9 +326,9 @@ export class ISCPTransport {
         const submission = transportSubmission(body);
         if (submission) journal.saveTransport(resource, record.operation_id, submission);
         const unresolved = [body?.code, body?.error_code, response.headers.get('x-sparkclaw-error-code')].some(code =>
-          ['operation_outcome_unknown', 'operation_receipt_unavailable', 'operation_receipt_capacity'].includes(code));
+          ['operation_outcome_unknown', 'operation_receipt_unavailable'].includes(code));
         // Unclassified server failures cannot prove whether an effect committed.
-        if (!unresolved && response.status < 500) journal.saveResult(resource, record.operation_id, { status: response.status, ...(body !== undefined ? { body } : {}) });
+        if (!unresolved && (response.status < 500 || receiptCapacityRejected(response.status, body))) journal.saveResult(resource, record.operation_id, { status: response.status, ...(body !== undefined ? { body } : {}) });
         return response;
       } catch (error) {
         if (error instanceof LocalMailAttachmentError) {
@@ -392,17 +392,20 @@ export class ISCPTransport {
     }
     const result=await response.json();
     if(!response.ok){
-      const error=new Error(result.error||"ISCP operation failed");
+      const bodyCode=typeof result.code==='string'&&/^[a-z][a-z0-9_]{0,79}$/u.test(result.code)?result.code:undefined;
+      const error=new Error(result.error || (receiptCapacityRejected(response.status, result)
+        ? 'Backend operation storage is full. Retry after the service is repaired.'
+        : `ISCP operation failed (${bodyCode || result.error_code || response.status})`));
       const submission = transportSubmission(result);
       if (submission) error.relaySubmission = submission;
       // Domain adapters return their typed code in the authenticated JSON body.
       // Preserve envelope/header precedence except the closed legacy event
       // error: older Gateways wrapped cursor_gap with generic revision_conflict.
-      const bodyCode=typeof result.code==='string'&&/^[a-z][a-z0-9_]{0,79}$/u.test(result.code)?result.code:undefined;
       error.code=result.error_code||response.headers.get("x-sparkclaw-error-code")||bodyCode;
+      if(response.status===409&&response.headers.get("x-sparkclaw-error-code")==='revision_conflict'&&
+        response.headers.get("x-sparkclaw-retryable")!=='true'&&Object.keys(result).length===2&&result.retryable===false&&
+        (operation==='events.pull'&&bodyCode==='cursor_gap'||operation.startsWith('browser.host.')&&bodyCode==='browser_fenced'))error.code=bodyCode;
       settleBrowserLifecycle(this.mutations, request, undefined, error.code);
-      if(operation==='events.pull'&&response.status===409&&response.headers.get("x-sparkclaw-error-code")==='revision_conflict'&&
-        response.headers.get("x-sparkclaw-retryable")!=='true'&&Object.keys(result).length===2&&result.code==='cursor_gap'&&result.retryable===false)error.code='cursor_gap';
       error.status=response.status;error.retryable=result.retryable===true||response.headers.get("x-sparkclaw-retryable")==="true";throw error;
     }
     settleBrowserLifecycle(this.mutations, request, result);
@@ -654,6 +657,13 @@ export class ISCPTransport {
 
   #fail(state) { this.close(); this.#state(state); }
   #state(state) { this.state = state; this.onState(state); }
+}
+
+function receiptCapacityRejected(status, body) {
+  // The authenticated Gateway returns this closed response before persisting
+  // an intent or dispatching a mutation. Generic 5xx/missing receipts stay unknown.
+  return status === 507 && body?.code === 'operation_receipt_capacity' && body.retryable === false &&
+    Object.keys(body).sort().join() === 'code,retryable';
 }
 
 function transportSubmission(result) {

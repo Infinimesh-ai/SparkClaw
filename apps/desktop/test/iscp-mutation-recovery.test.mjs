@@ -29,7 +29,9 @@ function fixture(t) {
         done(); return;
       }
       let body, status = 200;
-      if (call.request.operation === 'mail.drafts.save') {
+      if (call.request.operation === 'mail.drafts.save' && f.rejection) {
+        ({status,body}=f.rejection);
+      } else if (call.request.operation === 'mail.drafts.save') {
         assert.equal(f.transport.mutations.read('mail-draft:draft').phase, 'attempted', 'attempt must survive process loss before pipe write');
         f.effects++; f.operationID = call.request.operation_id;
         if (f.lost) { done(); return; }
@@ -73,6 +75,26 @@ test('business READY automatically looks up an attempted original ID and preserv
   assert.equal((await(await f.transport.fetch(route,input)).json()).version,3);
   assert.equal(f.transport.mutations.read('mail-draft:draft').operation_id,id);
   assert.equal(f.effects,1);
+});
+
+test('typed receipt capacity rejection settles without an effect and permits a later retry',async t=>{
+ const f=fixture(t);f.lost=false;f.rejection={status:507,body:{code:'operation_receipt_capacity',retryable:false}};await f.start();
+ assert.equal((await f.transport.fetch(route,input)).status,507);
+ const rejected=f.transport.mutations.read('mail-draft:draft');
+ assert.equal(rejected.phase,'applied');assert.equal(rejected.response.status,507);assert.equal(f.effects,0);
+ await f.restart();await tick();assert.equal(f.calls.filter(c=>c.request.operation==='operations.receipt').length,0);
+ f.rejection=undefined;assert.equal((await f.transport.fetch(route,input)).status,200);
+ assert.equal(f.effects,1);assert.notEqual(f.operationID,rejected.operation_id);
+});
+
+for(const rejection of [
+ {status:503,body:{code:'operation_receipt_capacity',retryable:false}},
+ {status:507,body:{code:'operation_receipt_capacity',retryable:true}},
+ {status:507,body:{code:'operation_receipt_capacity',retryable:false,unexpected:true}},
+ {status:507,body:{code:'operation_outcome_unknown',retryable:false}},
+])test(`unproven server failure remains uncertain: ${JSON.stringify(rejection)}`,async t=>{
+ const f=fixture(t);f.rejection=rejection;await f.start();await f.transport.fetch(route,input);
+ assert.equal(f.transport.mutations.read('mail-draft:draft').phase,'attempted');
 });
 test('a missing receipt after reconnect keeps uncertainty and never admits another effect, including a new auth revision', async t => {
   const f = fixture(t); await f.start(); await assert.rejects(f.transport.fetch(route,input), /deadline/);

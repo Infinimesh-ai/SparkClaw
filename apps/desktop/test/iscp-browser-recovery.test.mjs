@@ -31,13 +31,16 @@ test('browser successor requires original terminal grant expiry or the exact con
  assert.notEqual(pending.operation_id,g.operation_id);
 });
 test('lost automatic grant/register results reconcile original IDs instead of revoking another grant or changing epoch', async t=>{
- const root=directory(t),receipts=new Map(),effects=new Map(),calls=[];let child,lose=true;
- const capabilities={schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),binding:{deployment_id:'d',owner_id:'o',client_id:'c'},operations:['browser.host.grant','browser.host.register','browser.host.close','operations.receipt']};
+ const root=directory(t),receipts=new Map(),effects=new Map(),calls=[];let child,lose=true,fenced='';
+ const capabilities={schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),binding:{deployment_id:'d',owner_id:'o',client_id:'c'},operations:['browser.host.grant','browser.host.register','browser.host.poll','browser.host.close','operations.receipt']};
  const transport=new ISCPTransport({origin:'https://iscp.invalid',configPath:'/private/test.json',journalRoot:root,mutationProtector,installationID:'installation',timeoutMS:300,spawnProcess:()=>{
   child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>{};
   child.send=frame=>child.stdout.write(JSON.stringify({ipc_version:1,...frame})+'\n');
   child.stdin=new Writable({write(chunk,_,done){
    const call=JSON.parse(chunk);calls.push(call.request);let body;
+   if(call.request.operation===fenced){
+    child.send({type:'response',id:call.id,response:{type:'task.result',profile:capabilities.profile,id:call.id,status:409,error_code:'revision_conflict',retryable:false,body:{code:'browser_fenced',retryable:false}}});done();return;
+   }
    if(call.request.operation==='operations.receipt')body={state:'completed',operation_id:call.request.params.operation_id,response:{status:200,body:receipts.get(call.request.params.operation_id)}};
    else {
     effects.set(call.request.operation,(effects.get(call.request.operation)||0)+1);
@@ -59,5 +62,16 @@ test('lost automatic grant/register results reconcile original IDs instead of re
  lose=false;await transport.invoke('browser.host.close',{host_id:'host',connection_epoch:'original-epoch'});
  await transport.invoke('browser.host.register',registration);assert.equal(effects.get('browser.host.register'),2);
  const registrations=calls.filter(call=>call.operation==='browser.host.register');assert.notEqual(registrations[0].operation_id,registrations[1].operation_id);
+ // A real Gateway wraps browser fences in the generic revision_conflict code.
+ // Retire only the confirmed polling epoch, then the refused registration/grant.
+ fenced='browser.host.poll';
+ await assert.rejects(transport.invoke(fenced,{host_id:'host',connection_epoch:'original-epoch',after:0}),error=>error.code==='browser_fenced');
+ assert.equal(transport.mutations.read('browser-register:installation:host'),undefined);
+ assert.equal(transport.mutations.read('browser-grant:installation').response.status,200);
+ fenced='browser.host.register';
+ await assert.rejects(transport.invoke(fenced,registration),error=>error.code==='browser_fenced');
+ assert.equal(transport.mutations.read('browser-register:installation:host'),undefined);
+ assert.equal(transport.mutations.read('browser-grant:installation'),undefined);
+ fenced='';await transport.invoke('browser.host.grant',{});assert.equal(effects.get('browser.host.grant'),2);
  for(const file of fs.readdirSync(path.join(root,'mutations'))) assert.equal(fs.readFileSync(path.join(root,'mutations',file)).includes(Buffer.from('PRIVATE-GRANT')),false);
 });

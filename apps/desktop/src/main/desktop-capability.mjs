@@ -40,6 +40,7 @@ export class DesktopCapability {
     this.emitQueued = true;
     queueMicrotask(() => {
       this.emitQueued = false;
+      if (this.window.isDestroyed?.()) return;
       if (!this.window.webContents.isDestroyed()) this.window.webContents.send(STATE_CHANNEL, this.snapshot());
     });
   }

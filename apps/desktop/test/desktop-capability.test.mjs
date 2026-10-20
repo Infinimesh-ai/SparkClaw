@@ -3,6 +3,15 @@ import test from "node:test";
 
 import { DesktopCapability } from "../src/main/desktop-capability.mjs";
 
+test('queued state notification does not access a destroyed native window',async()=>{
+ let destroyed=false;
+ const window={isDestroyed:()=>destroyed,get webContents(){throw new Error('Object has been destroyed');}};
+ const capability=new DesktopCapability({window});
+ capability.changed();destroyed=true;
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(capability.emitQueued,false);
+});
+
 test("desktop capability admits only the trusted workbench main frame and opaque bounded operations", async () => {
   let handler;
   const ipcMain = {

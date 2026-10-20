@@ -65,3 +65,25 @@ test('restarting after event persistence and a lost ACK replays and reconciles t
  const original=new ISCPEventClient(options);await assert.rejects(original.poll(),/ACK lost/);original.close();
  await new ISCPEventClient(options).poll();assert.equal(commits,1);assert.equal(acks,2);assert.equal(reconciles,2);
 });
+
+test('idle polling does not create ACK receipts and an uncertain ACK keeps its operation ID',async()=>{
+ let stored={cursor:'prior',revision:1,epoch:'epoch',snapshot:{}},fail=true;
+ let packet={cursor:'next',revision:2,epoch:'epoch',events:[{sequence:2,category:'tasks'}],snapshot:{executions:[]}};
+ const acks=[];
+ const store={eventProjection:()=>stored,pending:()=>[],commitEventProjection:(_scope,value)=>{stored=value;}};
+ const auth={generation:1,status:{state:'connected',capabilities:{events:true}},invokeISCP:async(op,body,options)=>{
+  if(op==='events.pull')return packet;
+  assert.equal(op,'events.ack');acks.push({cursor:body.cursor,id:options.operationID});
+  if(fail){fail=false;throw new Error('ACK lost');}return{};
+ }};
+ const options={auth,store,execution:{reconcilePending:async()=>{}},getIdentity:()=>({deployment_id:'deployment',owner_id:'owner',client_id:'client'})};
+ const client=new ISCPEventClient(options);
+ await assert.rejects(client.poll(),/ACK lost/);await client.poll();
+ assert.equal(acks.length,2);assert.equal(acks[0].id,acks[1].id);
+ for(let i=0;i<20;i++)await client.poll();
+ assert.equal(acks.length,2,'unchanged acknowledged cursor needs no further ACK');
+ packet={...packet,cursor:'newer',revision:3,events:[{sequence:3,category:'settings'}]};
+ await client.poll();assert.equal(acks.length,3);assert.notEqual(acks[2].id,acks[1].id);
+ auth.generation++;await client.poll();assert.equal(acks.length,4,'new connection confirms its current packet');
+ client.close();await new ISCPEventClient(options).poll();assert.equal(acks.length,5,'restart safely confirms durable projection once');
+});

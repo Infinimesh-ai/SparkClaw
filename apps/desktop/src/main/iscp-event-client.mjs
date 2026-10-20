@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { traceLatency, latencyNow } from "./latency-trace.mjs";
 // Events are invalidations. Durable execution lookup remains authoritative and
 // is the only path that commits a result or acknowledges delivery.
@@ -41,8 +42,16 @@ export class ISCPEventClient {
     same();traceLatency('events.reconcile.end');
    };
    const acknowledge=async()=>{
-    same();traceLatency('events.ack.start');
-    try{await this.auth.invokeISCP('events.ack',{cursor:reply.cursor},{signal:controller.signal});same();traceLatency('events.ack.end');}
+    same();
+    // Idle polls return the same cursor. A successful ACK remains valid for
+    // this connection; a lost response retries the same operation identity.
+    // Restart sends one fresh, idempotent ACK for the durable projection.
+    const key=JSON.stringify([scopeKey(scope),authGeneration,reply.epoch,reply.cursor]);
+    if(this.acknowledgment?.key!==key)this.acknowledgment={key,operationID:crypto.randomUUID(),complete:false};
+    const acknowledgment=this.acknowledgment;
+    if(acknowledgment.complete)return;
+    traceLatency('events.ack.start');
+    try{await this.auth.invokeISCP('events.ack',{cursor:reply.cursor},{signal:controller.signal,operationID:acknowledgment.operationID});same();acknowledgment.complete=true;traceLatency('events.ack.end');}
     catch(error){traceLatency('events.ack.failed');throw error;}
    };
    const settled=await Promise.allSettled([reconcile(),acknowledge()]);

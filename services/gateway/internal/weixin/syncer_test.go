@@ -203,6 +203,38 @@ func TestSyncerStoresOnlyStableProviderFailure(t *testing.T) {
 	}
 }
 
+func TestSyncerRecordsExpiredSessionAndClearsItAfterRecovery(t *testing.T) {
+	var expired atomic.Bool
+	expired.Store(true)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if expired.Load() {
+			_, _ = w.Write([]byte(`{"ret":-14,"errcode":-14,"errmsg":"session timeout"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ret":0,"msgs":[],"get_updates_buf":""}`))
+	}))
+	defer server.Close()
+	st := store.NewMemoryStore()
+	vault := newWeixinTestVault(t, st)
+	credentialRef := sealWeixinTestCredential(t, vault, "binding-session-expired", "bot-secret")
+	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
+		ID: "binding-session-expired", OwnerID: app.DefaultOwnerID, Channel: "weixin",
+		Provider: "openclaw-weixin-qr", Status: app.NotificationBindingActive,
+		ExternalUserID: "recipient", CredentialRef: credentialRef, BaseURL: server.URL,
+	})
+	syncer := NewSyncer(st).WithCredentialVault(vault)
+	syncer.Tick(t.Context(), weixinTestRuntimeScope())
+	if stored, _ := storetest.MustGetNotificationBinding(t, st, binding.ID); stored.LastError != "weixin_session_expired" {
+		t.Fatalf("expired session recorded as %q", stored.LastError)
+	}
+	expired.Store(false)
+	syncer.Tick(t.Context(), weixinTestRuntimeScope())
+	if stored, _ := storetest.MustGetNotificationBinding(t, st, binding.ID); stored.LastError != "" {
+		t.Fatalf("successful poll kept error %q", stored.LastError)
+	}
+}
+
 func TestSyncerOwnerGateRetainsUndispatchedBatchUntilReenabled(t *testing.T) {
 	st := store.NewMemoryStore()
 	binding := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{

@@ -131,6 +131,10 @@ func (s *Syncer) tick(ctx, workCtx context.Context, scope connectorruntime.Runti
 			continue
 		}
 		if err := s.syncBinding(ctx, workCtx, scope, binding); err != nil {
+			if ctx.Err() != nil {
+				// Shutdown or cancellation is not a provider failure.
+				return
+			}
 			replacement := binding
 			replacement.LastError = stableWeixinSyncError(err)
 			if _, updateErr := s.store.UpdateNotificationBinding(ctx, store.NewNotificationBindingUpdate(binding, replacement)); updateErr != nil {
@@ -154,6 +158,16 @@ func stableWeixinSyncError(err error) string {
 	}
 	return "weixin_sync_failed"
 }
+
+// weixinSessionExpiredCode is getupdates errcode -14 ("session timeout"): the
+// provider no longer accepts this bot session, for example after the same
+// Weixin user bound a new one. Polling cannot recover it; rebinding can.
+const weixinSessionExpiredCode = -14
+
+type weixinSyncError struct{ code string }
+
+func (e *weixinSyncError) Error() string     { return e.code }
+func (e *weixinSyncError) ErrorCode() string { return e.code }
 
 // Wait blocks until every in-flight dispatch batch has finished.
 func (s *Syncer) Wait() {
@@ -239,6 +253,9 @@ func (s *Syncer) syncBinding(ctx, workCtx context.Context, scope connectorruntim
 	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
 		return err
 	}
+	if decoded.Ret == weixinSessionExpiredCode || decoded.ErrCode == weixinSessionExpiredCode {
+		return &weixinSyncError{code: "weixin_session_expired"}
+	}
 	if decoded.Ret != 0 || decoded.ErrCode != 0 {
 		message := decoded.ErrMsg
 		if message == "" {
@@ -246,7 +263,9 @@ func (s *Syncer) syncBinding(ctx, workCtx context.Context, scope connectorruntim
 		}
 		return fmt.Errorf("%s", message)
 	}
-	changed := false
+	// A successful poll proves the session works; clear an earlier failure.
+	changed := binding.LastError != ""
+	binding.LastError = ""
 	envelopes := []inboundEnvelope{}
 	for _, msg := range decoded.Msgs {
 		contextToken := strings.TrimSpace(msg.ContextToken)

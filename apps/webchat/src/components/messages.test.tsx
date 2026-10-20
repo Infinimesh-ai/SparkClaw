@@ -16,7 +16,7 @@ describe("task progress in the answer", () => {
     const render = (content: string) => renderToStaticMarkup(<MessageBubble
       message={{ id: "answer", session_id: "session", role: "assistant", content, created_at: "" }} inProgress
       streamStatuses={[{ id: "waiting", type: "waiting", text: dictionaries.en.chat.waiting }, { id: "tool", type: "tool_started", text: "Reading file" }]}
-      text={dictionaries.en} language="en" onFeedback={async () => {}} />);
+      text={dictionaries.en} language="en" />);
     expect(render("").split(dictionaries.en.chat.waiting)).toHaveLength(2);
     const markup = render("First answer text");
     expect(markup).not.toContain("taskProgress");
@@ -78,7 +78,6 @@ describe("MessageBubble external AI requirements", () => {
         text={dictionaries.en}
         language="en"
         sessionSource="mcp"
-        onFeedback={async () => {}}
       />
     );
 
@@ -88,5 +87,34 @@ describe("MessageBubble external AI requirements", () => {
     expect(markup).toContain("quarterly report");
     expect(markup).not.toContain("Open attachment");
     expect(markup).not.toContain(">You<");
+  });
+});
+
+describe("answer details in the original message bubble", () => {
+  const content = "最终结果。\n\n<details>\n<summary>查看详情</summary>\n\n- 事实依据。 [1]\n\n参考来源\n[1] [报价来源](https://example.com)\n[不安全](javascript:alert%281%29)\n<script>alert(1)</script>\n</details>";
+  const render = (role: "assistant" | "user", language: "zh" | "en" = "zh") => renderToStaticMarkup(
+    <MessageBubble message={{ id: "answer", session_id: "session", role, content, created_at: "", run_id: "run" }}
+      streamStatuses={[]} text={dictionaries[language]} language={language} />
+  );
+
+  it.each(["zh", "en"] as const)("keeps the answer visible and details closed by default in %s", language => {
+    const markup = render("assistant", language);
+    expect(markup).toContain("<p>最终结果。</p>");
+    expect(markup).toContain(`<details class="messageDetails"><summary>${dictionaries[language].chat.viewDetails}</summary>`);
+    expect(markup).not.toContain(" open");
+    expect(markup).toContain("事实依据。 [1]");
+    expect(markup).toContain("https://example.com");
+    expect(markup).toContain('href="https://example.com/" target="_blank" rel="noopener noreferrer">报价来源</a>');
+    expect(markup).not.toContain('href="javascript:');
+    expect(markup).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(markup).not.toContain("<script>");
+    expect(markup).not.toContain('class="feedbackBar"');
+  });
+
+  it("preserves user text literally rather than adding a disclosure control", () => {
+    const markup = render("user");
+    expect(markup).not.toContain("<details");
+    expect(markup).toContain("&lt;details&gt;");
+    expect(markup).not.toContain('class="feedbackBar"');
   });
 });

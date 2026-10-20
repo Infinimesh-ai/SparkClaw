@@ -17,7 +17,7 @@ const preview: LocalConversationContent = { messages: [], files: [], tasks: [{ i
 const final: LocalConversationContent = { messages: [{ id: "durable-message", request_id: "request", role: "assistant", content: "前六个字符，权威完成。", created_at: "" }], files: [], tasks: [{ ...preview.tasks[0], status: "delivered" }] };
 function Rows({ content }: { content: LocalConversationContent }) {
   return localMessageRows(content, "conversation").map(row => <MessageBubble key={row.key} message={row.message}
-    scrollAnchorId={row.scrollAnchorId} inProgress={row.inProgress} streamStatuses={[]} text={dictionaries.zh} language="zh" onFeedback={async () => {}} />);
+    scrollAnchorId={row.scrollAnchorId} inProgress={row.inProgress} streamStatuses={[]} text={dictionaries.zh} language="zh" />);
 }
 
 describe("execution answer projection in original messages", () => {

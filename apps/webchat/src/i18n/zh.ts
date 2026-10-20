@@ -333,6 +333,7 @@ export const zh = {
       requestedMedia: "请求的媒体",
       requestedMediaUnverified: "请求的媒体（尚未验证）",
       waiting: "任务正在进行中…",
+      viewDetails: "查看详情",
       taskCompleted: "任务已完成",
       toolStarted: "正在调用工具",
       toolCompleted: "工具调用完成",
@@ -341,11 +342,7 @@ export const zh = {
       approvalApproved: "审批已通过",
       approvalRejected: "审批已拒绝",
       streamDetached: "连接已中断，正在查询原请求的结果，不会再次提交。",
-      dismissNotice: "关闭提示",
-      correction: "修正内容",
-      helpful: "标记有用",
-      unhelpful: "标记无用",
-      saveCorrection: "保存修正"
+      dismissNotice: "关闭提示"
     },
     auth: {
       gatewayToken: "Gateway token",
@@ -375,7 +372,6 @@ export const zh = {
       memory: "记忆更新失败",
       memoryEdit: "记忆编辑失败",
       memoryDelete: "记忆删除失败",
-      feedback: "反馈保存失败",
       memoryExport: "记忆导出失败",
       policyUpdate: "工具策略更新失败",
       ownerUpdate: "Owner 资料更新失败",

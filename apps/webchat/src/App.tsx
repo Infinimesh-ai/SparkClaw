@@ -610,21 +610,6 @@ export function App() {
     }
   }
 
-  async function saveFeedback(message: Message, rating: "up" | "down" | "corrected", correction = "") {
-    if (!message.run_id) return;
-    try {
-      setError("");
-      await api.saveRunFeedback(message.run_id, message.id, rating, "", correction);
-      await Promise.all([refreshSession(activeSession), refreshGlobal()]);
-      if (traceRun?.run.id === message.run_id) {
-        await openTrace(message.run_id);
-      }
-    } catch (err) {
-      surfaceError(err, text.errors.feedback);
-      throw err;
-    }
-  }
-
   async function openTrace(runId: string) {
     try {
       setTraceLoading(true);
@@ -952,7 +937,6 @@ export function App() {
                   text={text}
                   language={language}
                   sessionSource={active?.source}
-                  onFeedback={(rating, correction) => saveFeedback(message, rating, correction)}
                 />
               ))
             )}

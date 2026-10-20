@@ -48,6 +48,9 @@ The workbench includes:
   activation and bindings, and policy settings;
 - Simplified Chinese and English UI.
 
+Assistant answers in WebChat and Desktop have no rating buttons or correction
+input. Info answers retain the result and the expandable “View details” control.
+
 ## State And Refresh
 
 Startup loads readiness first, then authentication and private state. Bearer
@@ -63,7 +66,7 @@ five-second reconciliation as fallback. Initial connection, overflow and
 Gateway restart cause a full resync; stale responses are generation-guarded.
 
 Mutations refresh their affected state immediately: chat send, schedule change,
-delivery, approval resolution, memory action, feedback, owner/client/policy
+delivery, approval resolution, memory action, owner/client/policy
 change, connector activation or binding, and eval run.
 
 The Status view consumes Gateway's ordered `resident_services` readiness

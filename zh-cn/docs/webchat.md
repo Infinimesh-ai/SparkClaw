@@ -38,6 +38,9 @@ approval、trace、persistence、delivery、schedule 和 connector binding 的�
   artifact、eval、status、owner/client setting、connector activation/binding 和 policy setting；
 - 简体中文和英文 UI。
 
+WebChat 和桌面端的回答下方不显示评价按钮或修正输入框。Info 回答保留结果正文和可展开的
+“查看详情”。
+
 ## 状态与刷新
 
 启动先加载 readiness，再处理 authentication 和 private state。Bearer token 来自
@@ -50,7 +53,7 @@ Owner 可在设置中签发独立 Web Client；token 只展示一次并由用户
 guard 丢弃。
 
 mutation 后立即刷新相关状态：chat send、schedule change、delivery、approval resolution、
-memory action、feedback、owner/client/policy change、connector activation/binding 和 eval run。
+memory action、owner/client/policy change、connector activation/binding 和 eval run。
 
 Status 视图消费 Gateway 按固定顺序提供的 `resident_services` readiness projection，覆盖 Fast、
 embedding、guard、ASR 与 OCR。每行展示 backend、model、readiness 和最近一次持久化调用状态，

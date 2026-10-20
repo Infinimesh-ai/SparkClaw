@@ -37,7 +37,6 @@ import type {
   OwnerProfile,
   PublicConfig,
   ReadyStatus,
-  RunFeedback,
   RunTrace,
   Schedule,
   ScheduleAction,
@@ -758,11 +757,6 @@ export const api = {
     const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
     return request<{ documents: ArtifactObject[] }>(`/api/documents/available${query}`);
   },
-  saveRunFeedback: (runId: string, messageId: string, rating: "up" | "down" | "corrected", note = "", correction = "") =>
-    request<RunFeedback>(`/api/runs/${runId}/feedback`, {
-      method: "POST",
-      body: JSON.stringify({ message_id: messageId, rating, note, correction })
-    }),
   toolCalls: (sessionId: string) => request<{ tool_calls: ToolCall[] }>(`/api/sessions/${sessionId}/tool-calls`),
   modelCalls: (sessionId: string) => request<{ model_calls: ModelCall[] }>(`/api/sessions/${sessionId}/model-calls`),
   audit: (sessionId: string) => request<{ audit_events: AuditEvent[] }>(`/api/sessions/${sessionId}/audit`),

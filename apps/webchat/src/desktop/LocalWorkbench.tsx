@@ -537,7 +537,7 @@ export function LocalWorkbench() {
           </section>)}
           {localMessageRows(content, selected, pendingTasks).map(row => <MessageBubble key={row.key}
             message={row.message} scrollAnchorId={row.scrollAnchorId} inProgress={row.inProgress}
-            streamStatuses={[]} text={text} language={language} onFeedback={async () => {}} />)}
+            streamStatuses={[]} text={text} language={language} />)}
           {submitting && !pendingTasks.length && <TaskProgressMessage id="submitting" sessionId={selected}
             createdAt={new Date().toISOString()} text={text} language={language} />}
           {content.tasks.filter((task) => task.status === "delivery_too_large").map((task) => <section className="localFeedback" role="alert" key={task.id}>

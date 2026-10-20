@@ -84,18 +84,21 @@ func TestISCPSpeechTerminalSurvivesRestartWithoutProviderReplay(t *testing.T) {
 	if got := restarted(ctx, poll); got.Status == 200 {
 		t.Fatal("cross-installation terminal disclosure")
 	}
-	entries, err := os.ReadDir(filepath.Join(server.executionRoot, "iscp-domain-receipts"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		raw, err := os.ReadFile(filepath.Join(server.executionRoot, "iscp-domain-receipts", entry.Name()))
+	err = filepath.Walk(filepath.Join(server.executionRoot, "iscp-domain-receipts"), func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		raw, err := os.ReadFile(path)
 		if err != nil {
-			t.Fatal(err)
+			return err
 		}
 		if bytes.Contains(raw, []byte("live final")) {
 			t.Fatal("plaintext transcript")
 		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

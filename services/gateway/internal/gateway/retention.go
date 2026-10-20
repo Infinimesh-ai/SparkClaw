@@ -35,8 +35,11 @@ func (s *Server) StartRetentionSweeps(ctx context.Context) {
 	s.streamWG.Add(1)
 	go func() {
 		defer s.streamWG.Done()
+		defer s.closeDomainReceiptScan()
 		ticker := time.NewTicker(retentionSweepInterval)
 		defer ticker.Stop()
+		receiptTicker := time.NewTicker(domainReceiptSweepInterval)
+		defer receiptTicker.Stop()
 		s.runRetentionSweep(ctx)
 		for {
 			select {
@@ -44,6 +47,8 @@ func (s *Server) StartRetentionSweeps(ctx context.Context) {
 				return
 			case <-ticker.C:
 				s.runRetentionSweep(ctx)
+			case <-receiptTicker.C:
+				s.applyDomainReceiptRetention(ctx)
 			}
 		}
 	}()
@@ -59,6 +64,33 @@ func (s *Server) runRetentionSweep(ctx context.Context) {
 		slog.Warn("passive notification retention sweep unavailable", "code", store.StoreErrorCodeOf(err))
 	}
 	s.applyPPTXSealedCandidateRetention(sweepCtx)
+	s.applyDomainReceiptRetention(sweepCtx)
+}
+
+func (s *Server) applyDomainReceiptRetention(ctx context.Context) {
+	s.domainReceiptsMu.Lock()
+	journal := s.domainReceipts
+	s.domainReceiptsMu.Unlock()
+	if journal == nil || ctx.Err() != nil {
+		return
+	}
+	result, err := journal.sweep(ctx, domainNow())
+	if err != nil && ctx.Err() == nil {
+		// Never log receipt keys, decrypted content or identity scopes.
+		slog.Warn("ISCP receipt retention sweep incomplete", "scanned", result.Scanned, "expired", result.Expired)
+	} else if result.Expired > 0 {
+		slog.Info("ISCP receipt results expired", "scanned", result.Scanned, "expired", result.Expired)
+	}
+}
+
+func (s *Server) closeDomainReceiptScan() {
+	s.domainReceiptsMu.Lock()
+	defer s.domainReceiptsMu.Unlock()
+	if s.domainReceipts != nil {
+		s.domainReceipts.mu.Lock()
+		defer s.domainReceipts.mu.Unlock()
+		s.domainReceipts.closeScanLocked()
+	}
 }
 
 // applyPPTXSealedCandidateRetention runs one bounded sweep over the sealed

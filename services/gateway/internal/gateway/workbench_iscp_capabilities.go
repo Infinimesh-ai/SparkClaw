@@ -98,6 +98,7 @@ func (a *iscpDomainAdapter) capabilityLimits() map[string]any {
 	return map[string]any{
 		"message_bytes": iscpworkbench.MaxMessageBytes, "notification_watermark_items": 500,
 		"operation_receipt_retention": "durable_bounded_journal", "operation_receipt_records": domainReceiptRecords, "operation_receipt_max_bytes": domainReceiptMaxBytes, "operation_receipt_total_bytes": domainReceiptTotalBytes,
+		"operation_receipt_result_retention_seconds": int64(domainReceiptRetention / time.Second),
 		"chunk_bytes": iscpobjects.ChunkBytes, "transfer_window": iscpobjects.Window,
 		"object_max_bytes": limits.MaxObjectBytes, "object_owner_bytes": limits.MaxOwnerBytes, "object_total_bytes": limits.MaxTotalBytes,
 		"active_transfers": limits.MaxTransfers, "object_records": limits.MaxRecords,

@@ -64,6 +64,7 @@
 | [ISCP Bridge](iscp-bridge.md) | 当前共享 Bridge；LocalMind 使用属于旧链路，JingSi 使用保留到 direct-LAN client 与实体验证完成 |
 | [SparkX 与 SparkClaw 本地 ISCP 联调](desktop-iscp-connection-design.md) | 已实现纯文本 transport 和自动续签；本地 Docker Relay、已安装 SparkX 与真实后端验收，以及明确范围的恢复证据 |
 | [ISCP 能力扩展设计](desktop-iscp-capability-expansion-design.md) | 待实施：基础接口、文件／产物分块、审批／事件、邮件／浏览器／工具、语音；各项经权限、实际结果、恢复和零 HTTP 回退验收后开放界面 |
+| [ISCP 业务回执自动保留](iscp-receipt-retention.md) | 七天结果自动清理、持久紧凑去重记录及安全升级/回退边界 |
 | [公共 Relay 与服务端签发设计](public-iscp-relay-node-issuer-design.md) | TEST1 IP HTTPS/WSS 为唯一新增公网应用入口；经出站控制转发到达 work2 私有签发服务；保留 SparkX 凭据入口与既有 LAN |
 | [公共 ISCP 执行记录](public-iscp-node-deployment.md) | IP 443 发布、独立节点权威、持久生命周期、配对回滚及剩余原生验收门禁 |
 | [统一第三方 ISCP MCP 接入](unified-third-party-access-design.md) | 已实现本地 Route MCP runtime 与分离的 ISCP pairing、SparkClaw MCP access ticket；生产 provisioning、外部 gateway 验证和 LocalMind 旧链路删除仍待完成；不含 JingSi |

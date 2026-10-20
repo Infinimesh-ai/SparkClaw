@@ -50,7 +50,7 @@ func (s *Server) NewWorkbenchISCPDomainHandler(cfg iscpworkbench.Config) (iscpwo
 	if err != nil {
 		return nil, err
 	}
-	journal, err := newISCPDomainReceipts(absolute)
+	journal, err := s.domainReceiptJournal(absolute)
 	if err != nil {
 		return nil, err
 	}

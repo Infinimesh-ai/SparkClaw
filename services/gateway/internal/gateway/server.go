@@ -77,6 +77,8 @@ type Server struct {
 	executions                *execution.Service
 	mailObjectsMu             sync.Mutex
 	mailObjects               *iscpobjects.Store
+	domainReceiptsMu          sync.Mutex
+	domainReceipts            *iscpDomainReceipts
 	cfg                       config.Config
 	store                     Repository
 	tools                     *toolhub.ToolHub

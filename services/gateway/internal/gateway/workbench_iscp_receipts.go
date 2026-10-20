@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
 )
@@ -22,21 +24,41 @@ type iscpDomainReceipts struct {
 	aead     cipher.AEAD
 	mu       sync.Mutex
 	reserved int64
+	scan     *os.File
 }
 
 const domainReceiptMaxBytes = (8 << 20) + (64 << 10)
 const domainReceiptTotalBytes = 512 << 20
+
 // Retain original receipts while allowing existing installations that reached
 // the former record ceiling to recover. The independent 512 MiB budget remains.
 const domainReceiptRecords = 262144
 
 type iscpDomainReceipt struct {
-	Version   int             `json:"version"`
-	Digest    string          `json:"digest"`
-	Operation string          `json:"operation"`
-	Complete  bool            `json:"complete"`
-	Status    int             `json:"status,omitempty"`
-	Body      json.RawMessage `json:"body,omitempty"`
+	Version     int             `json:"version"`
+	Digest      string          `json:"digest"`
+	Operation   string          `json:"operation"`
+	Complete    bool            `json:"complete"`
+	Status      int             `json:"status,omitempty"`
+	Body        json.RawMessage `json:"body,omitempty"`
+	CompletedAt time.Time       `json:"completed_at,omitempty"`
+}
+
+// All peer adapters share admission reservations and cleanup serialization.
+func (s *Server) domainReceiptJournal(root string) (*iscpDomainReceipts, error) {
+	s.domainReceiptsMu.Lock()
+	defer s.domainReceiptsMu.Unlock()
+	if s.domainReceipts != nil {
+		if s.domainReceipts.root != filepath.Join(root, "iscp-domain-receipts") {
+			return nil, errors.New("ISCP operation storage root changed")
+		}
+		return s.domainReceipts, nil
+	}
+	journal, err := newISCPDomainReceipts(root)
+	if err == nil {
+		s.domainReceipts = journal
+	}
+	return journal, err
 }
 
 func newISCPDomainReceipts(root string) (*iscpDomainReceipts, error) {
@@ -85,13 +107,27 @@ func newISCPDomainReceipts(root string) (*iscpDomainReceipts, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &iscpDomainReceipts{root: root, aead: aead}, nil
+	j := &iscpDomainReceipts{root: root, aead: aead}
+	if err := j.initializeRetiredCatalog(); err != nil {
+		return nil, err
+	}
+	return j, nil
 }
 func (j *iscpDomainReceipts) path(scope, operationID string) string {
 	return filepath.Join(j.root, execution.Digest([]byte(scope+"\x00"+operationID))+".sealed")
 }
 func (j *iscpDomainReceipts) load(scope, id string) (iscpDomainReceipt, bool, error) {
 	path := j.path(scope, id)
+	key := filepath.Base(path)
+	if receipt, found, err := j.loadRetired(key); err != nil || found {
+		return receipt, found, err
+	}
+	return j.readReceipt(path, []byte(scope+"\x00"+id))
+}
+
+var domainReceiptV2 = []byte("sparkclaw-receipt-v2\x00")
+
+func (j *iscpDomainReceipts) readReceipt(path string, legacyAAD []byte) (iscpDomainReceipt, bool, error) {
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return iscpDomainReceipt{}, false, nil
@@ -108,7 +144,19 @@ func (j *iscpDomainReceipts) load(scope, id string) (iscpDomainReceipt, bool, er
 	if err != nil || len(sealed) <= j.aead.NonceSize() || len(sealed) > domainReceiptMaxBytes+64 {
 		return iscpDomainReceipt{}, false, errors.New("invalid receipt")
 	}
-	raw, err := j.aead.Open(nil, sealed[:j.aead.NonceSize()], sealed[j.aead.NonceSize():], []byte(scope+"\x00"+id))
+	aad := legacyAAD
+	if bytes.HasPrefix(sealed, domainReceiptV2) {
+		sealed = sealed[len(domainReceiptV2):]
+		aad = []byte("iscp-domain-receipt-v2\x00" + filepath.Base(path))
+	} else if legacyAAD == nil {
+		// Old records have no authenticated completion timestamp and their AAD
+		// is not recoverable from the filename. Never expire them using mtime.
+		return iscpDomainReceipt{}, false, nil
+	}
+	if len(sealed) <= j.aead.NonceSize() {
+		return iscpDomainReceipt{}, false, errors.New("invalid receipt")
+	}
+	raw, err := j.aead.Open(nil, sealed[:j.aead.NonceSize()], sealed[j.aead.NonceSize():], aad)
 	if err != nil {
 		return iscpDomainReceipt{}, false, err
 	}
@@ -119,6 +167,9 @@ func (j *iscpDomainReceipts) load(scope, id string) (iscpDomainReceipt, bool, er
 	return receipt, true, nil
 }
 func (j *iscpDomainReceipts) save(scope, id string, receipt iscpDomainReceipt) error {
+	if receipt.Complete && receipt.CompletedAt.IsZero() && execution.UUID(id) && domainMutation(receipt.Operation) {
+		receipt.CompletedAt = domainNow()
+	}
 	raw, err := json.Marshal(receipt)
 	if err != nil || len(raw) > domainReceiptMaxBytes {
 		return errors.New("receipt exceeds limit")
@@ -127,8 +178,14 @@ func (j *iscpDomainReceipts) save(scope, id string, receipt iscpDomainReceipt) e
 	if _, err = rand.Read(nonce); err != nil {
 		return err
 	}
-	sealed := j.aead.Seal(nonce, nonce, raw, []byte(scope+"\x00"+id))
-	file, err := os.CreateTemp(j.root, ".pending-")
+	path := j.path(scope, id)
+	sealed := append(append([]byte(nil), domainReceiptV2...), j.aead.Seal(nonce, nonce, raw, []byte("iscp-domain-receipt-v2\x00"+filepath.Base(path)))...)
+	return writeReceiptFile(path, sealed)
+}
+
+func writeReceiptFile(path string, sealed []byte) error {
+	root := filepath.Dir(path)
+	file, err := os.CreateTemp(root, ".pending-")
 	if err != nil {
 		return err
 	}
@@ -144,10 +201,14 @@ func (j *iscpDomainReceipts) save(scope, id string, receipt iscpDomainReceipt) e
 	if err != nil {
 		return err
 	}
-	if err = os.Rename(name, j.path(scope, id)); err != nil {
+	if err = os.Rename(name, path); err != nil {
 		return err
 	}
-	dir, err := os.Open(j.root)
+	return syncReceiptDir(root)
+}
+
+func syncReceiptDir(root string) error {
+	dir, err := os.Open(root)
 	if err != nil {
 		return err
 	}
@@ -165,6 +226,17 @@ func (j *iscpDomainReceipts) hasCapacity(reserve int64) bool {
 	}
 	total := j.reserved + reserve
 	for _, entry := range entries {
+		if entry.Name() == "retired" {
+			size, err := j.retiredBytes()
+			if err != nil {
+				return false
+			}
+			total += size
+			if total > domainReceiptTotalBytes {
+				return false
+			}
+			continue
+		}
 		info, err := entry.Info()
 		if err != nil || !info.Mode().IsRegular() {
 			return false

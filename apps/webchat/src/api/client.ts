@@ -665,20 +665,22 @@ export const api = {
     request<NotificationBinding>(`/api/notification-bindings/${id}`, { signal }),
   pollNotificationBinding: (id: string, signal?: AbortSignal) =>
     request<NotificationBinding>(`/api/notification-bindings/${id}/poll`, { method: "POST", body: "{}", signal }),
-  openNotificationBindingBrowser: async (id: string) => {
-    const desktop = desktopCapability();
-    if (!desktop) return request<{ opened: boolean }>(`/api/notification-bindings/${id}/browser`, { method: "POST", body: "{}" });
-    // Resolve a fresh, owner-scoped pending QR at the backend. Desktop opens
-    // only the provider QR page; the backend still owns the resulting binding.
-    const login = await request<{ url: string; expires_at?: string }>(`/api/notification-bindings/${id}/login-url`);
-    const url = new URL(login.url);
+  notificationBindingQR: async (id: string, signal?: AbortSignal) => {
+    // This is the provider's QR content, not a page to load. Validate a fresh,
+    // owner-scoped pending binding before encoding it locally in the dialog.
+    const login = await request<{ url: string; expires_at: string }>(`/api/notification-bindings/${encodeURIComponent(id)}/login-url`, { signal });
+    if (!login || typeof login.url !== "string" || typeof login.expires_at !== "string") throw new Error("Weixin login link is unavailable");
+    let url: URL;
+    try { url = new URL(login.url); } catch { throw new Error("Weixin login link is unavailable"); }
     if (url.protocol !== "https:" || url.hostname !== "liteapp.weixin.qq.com" || url.username || url.password ||
-        url.port && url.port !== "443" || login.expires_at && !(Date.parse(login.expires_at) > Date.now())) {
+        url.port && url.port !== "443" || !(Date.parse(login.expires_at) > Date.now()) || new TextEncoder().encode(login.url).length > 2048) {
       throw new Error("Weixin login link is unavailable");
     }
-    const page = await desktop.createPersonal(url.href);
-    await desktop.presentPersonal(page.page_ref);
-    return { opened: true };
+    return login;
+  },
+  openNotificationBindingBrowser: async (id: string) => {
+    if (desktopCapability()) throw new Error("Use the Weixin QR dialog on Desktop");
+    return request<{ opened: boolean }>(`/api/notification-bindings/${encodeURIComponent(id)}/browser`, { method: "POST", body: "{}" });
   },
   revokeNotificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`, { method: "DELETE" }),
   deliveryEndpoints: () => request<{ endpoints: DeliveryEndpoint[] }>("/api/delivery-endpoints"),

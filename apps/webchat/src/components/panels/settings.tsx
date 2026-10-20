@@ -125,7 +125,7 @@ export function SettingsPanel({
   onUpdateOwner: (displayName: string, email: string, preferences: Record<string, string>) => Promise<void>;
   onIssueClient?: (name: string, idempotencyKey: string) => Promise<import("../../api/types").IssuedClientCredential>;
   onRevokeClient: (id: string) => Promise<void>;
-  onStartNotificationBinding: (channel: string, botToken?: string) => Promise<void>;
+  onStartNotificationBinding: (channel: string, botToken?: string) => Promise<NotificationBinding>;
   onRefreshNotificationBinding: (id: string, signal?: AbortSignal) => Promise<NotificationBinding>;
   onOpenNotificationBindingBrowser: (id: string) => Promise<void>;
   onRevokeNotificationBinding: (id: string) => Promise<void>;

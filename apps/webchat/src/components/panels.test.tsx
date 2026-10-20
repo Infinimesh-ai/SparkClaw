@@ -214,7 +214,7 @@ describe("SettingsPanel External MCP", () => {
         connectionsOnly
         runtimeConfig={settingsConfig} ownerProfile={null} clients={[]} connectors={[connector]} notificationBindings={[]}
         text={dictionaries.en} language="en" onUpdateOwner={async () => {}} onRevokeClient={async () => {}}
-        onStartNotificationBinding={async () => {}} onRefreshNotificationBinding={async () => ({}) as never}
+        onStartNotificationBinding={async () => ({}) as never} onRefreshNotificationBinding={async () => ({}) as never}
         onOpenNotificationBindingBrowser={async () => {}}
         onRevokeNotificationBinding={async () => {}} onUpdateConnector={async () => connector} onUpdatePolicy={async () => {}}
       />
@@ -244,7 +244,7 @@ describe("SettingsPanel Weixin login", () => {
         notificationBindings={[binding]}
         text={dictionaries.en}
         language="en"
-        onStartNotificationBinding={async () => {}}
+        onStartNotificationBinding={async () => ({}) as never}
         onRefreshNotificationBinding={async () => binding}
         onOpenNotificationBindingBrowser={async () => {}}
         onRevokeNotificationBinding={async () => {}}

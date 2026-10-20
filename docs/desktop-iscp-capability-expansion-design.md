@@ -1110,9 +1110,15 @@ existing credential operations are reused. The optional `connection_settings`
 application negotiation preserves the exact preceding table for older peers,
 with only safe negotiation reads retried. Older backends retain every menu entry
 but disable unsupported operations. No Relay or independent control schema changes.
-The QR button resolves the current owner/actor-scoped pending binding, validates
-its provider URL and expiry, then displays it in the client's existing browser
-panel. It does not require opening a browser on the Gateway host.
+Desktop Weixin binding opens a QR image dialog in the existing connection detail.
+It resolves the current owner/actor-scoped pending binding through the existing
+LAN/ISCP login-URL read, validates the provider URL and expiry, and encodes the
+provider's `qrcode_img_content` locally. No website is loaded. Existing backend
+polling advances from scanning to phone confirmation; only backend `active`
+closes the dialog as successful. Expiry removes the image even when disconnected,
+and allows an explicit new binding. Closing/reopening the dialog reuses the same
+binding; late QR reads are cancelled on close. Backend WebChat keeps its existing
+Chromium action.
 
 Binding records, active selections, token hashes and sealed credentials continue
 to live in the existing Gateway stores. Website cookies remain in the backend

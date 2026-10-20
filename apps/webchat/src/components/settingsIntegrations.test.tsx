@@ -214,7 +214,7 @@ describe("Connection directory navigation", () => {
           connectionsOnly
           runtimeConfig={runtimeConfig} ownerProfile={null} clients={[]} connectors={[]} notificationBindings={[]}
           text={dictionaries.en} language="en" onUpdateOwner={async () => {}} onRevokeClient={async () => {}}
-          onStartNotificationBinding={async () => {}} onRefreshNotificationBinding={async () => ({}) as never}
+          onStartNotificationBinding={async () => ({}) as never} onRefreshNotificationBinding={async () => ({}) as never}
           onOpenNotificationBindingBrowser={async () => {}} onRevokeNotificationBinding={async () => {}}
           onUpdateConnector={async () => ({}) as never} onUpdatePolicy={async () => {}}
         />
@@ -250,7 +250,7 @@ describe("Connection directory navigation", () => {
         <SettingsPanel
           runtimeConfig={runtimeConfig} ownerProfile={null} clients={[]} connectors={[]} notificationBindings={[]}
           text={dictionaries.en} language="en" onUpdateOwner={async () => {}} onRevokeClient={async () => {}}
-          onStartNotificationBinding={async () => {}} onRefreshNotificationBinding={async () => ({}) as never}
+          onStartNotificationBinding={async () => ({}) as never} onRefreshNotificationBinding={async () => ({}) as never}
           onOpenNotificationBindingBrowser={async () => {}} onRevokeNotificationBinding={async () => {}}
           onUpdateConnector={async () => ({}) as never} onUpdatePolicy={async () => {}}
         />
@@ -277,7 +277,7 @@ describe("Connection directory navigation", () => {
           section="connections"
           runtimeConfig={runtimeConfig} ownerProfile={null} clients={[]} connectors={messageConnectors} notificationBindings={[]}
           text={dictionaries.zh} language="zh" onUpdateOwner={async () => {}} onRevokeClient={async () => {}}
-          onStartNotificationBinding={async () => {}} onRefreshNotificationBinding={async () => ({}) as never}
+          onStartNotificationBinding={async () => ({}) as never} onRefreshNotificationBinding={async () => ({}) as never}
           onOpenNotificationBindingBrowser={async () => {}} onRevokeNotificationBinding={async () => {}}
           onUpdateConnector={async () => ({}) as never} onUpdatePolicy={async () => {}}
         />
@@ -306,7 +306,7 @@ describe("Connection directory navigation", () => {
           section="general"
           runtimeConfig={runtimeConfig} ownerProfile={null} clients={[]} connectors={[]} notificationBindings={[]}
           text={dictionaries.zh} language="zh" onLanguageChange={() => {}} onUpdateOwner={async () => {}} onRevokeClient={async () => {}}
-          onStartNotificationBinding={async () => {}} onRefreshNotificationBinding={async () => ({}) as never}
+          onStartNotificationBinding={async () => ({}) as never} onRefreshNotificationBinding={async () => ({}) as never}
           onOpenNotificationBindingBrowser={async () => {}} onRevokeNotificationBinding={async () => {}}
           onUpdateConnector={async () => ({}) as never} onUpdatePolicy={async () => {}}
         />
@@ -326,7 +326,7 @@ describe("Connection directory navigation", () => {
     const props = {
       runtimeConfig, ownerProfile: null, clients: [], connectors: [], notificationBindings: [],
       text: dictionaries.en, language: "en" as const, onUpdateOwner: async () => {}, onRevokeClient: async () => {},
-      onStartNotificationBinding: async () => {}, onRefreshNotificationBinding: async () => ({}) as never,
+      onStartNotificationBinding: async () => ({}) as never, onRefreshNotificationBinding: async () => ({}) as never,
       onOpenNotificationBindingBrowser: async () => {}, onRevokeNotificationBinding: async () => {},
       onUpdateConnector: async () => ({}) as never, onUpdatePolicy
     };
@@ -357,7 +357,7 @@ describe("Connection directory navigation", () => {
     const props = {
       runtimeConfig: null, ownerProfile: null, clients: [], connectors: [], notificationBindings: [],
       text: dictionaries.zh, language: "zh" as const, onUpdateOwner: async () => {}, onRevokeClient: async () => {},
-      onStartNotificationBinding: async () => {}, onRefreshNotificationBinding: async () => ({}) as never,
+      onStartNotificationBinding: async () => ({}) as never, onRefreshNotificationBinding: async () => ({}) as never,
       onOpenNotificationBindingBrowser: async () => {}, onRevokeNotificationBinding: async () => {},
       onUpdateConnector: async () => ({}) as never, onUpdatePolicy: async () => {}, onCheckStatus
     };

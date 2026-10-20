@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-20",
+  "product_revision": "f41f9367a25dfaa1bf71563c72c8f37a304a1228",
+  "fix_commits": [
+    "c19a0abf",
+    "dec4bb28",
+    "f41f9367"
+  ],
+  "platform": "darwin",
+  "architecture": "arm64",
+  "checks": {
+    "desktop_tests": 479,
+    "focused_ui_tests": 36,
+    "native_layout_cases": 48,
+    "linux_go_test_packages": 75,
+    "go_build": true,
+    "go_vet": true,
+    "strict_ui_build": true,
+    "public_package_allowlist": true,
+    "packaged_desktop_source_files": 66,
+    "ui_files": 5,
+    "ui_byte_identical_to_previous_installation": true,
+    "app_files_and_symlinks": 277,
+    "dmg_payload_parity": true,
+    "zip_payload_parity": true,
+    "installed_application_parity": true
+  },
+  "preservation": {
+    "tables": 97,
+    "messages": 22,
+    "original_rows_unchanged": true,
+    "draft_contents_unchanged": true,
+    "configuration_files": 90,
+    "byte_identical_configuration_files": 85,
+    "stable_identity_authority_and_permissions_preserved": true,
+    "normal_renewal_json_files": 2,
+    "updated_mutable_transport_journals": 3,
+    "unopened_profiles_unchanged": true,
+    "database_copies": 0,
+    "database_backups": 0
+  },
+  "installed_ui_checks": [
+    "original_conversation",
+    "browser_widen_restore_collapse",
+    "closed_window_reopen_without_overlay",
+    "mail_open_close_and_focus_return",
+    "nine_settings_sections",
+    "original_active_device"
+  ],
+  "artifacts": [
+    {
+      "name": "SparkX-0.1.0-20261020-f41f9367-mac-arm64.dmg",
+      "bytes": 136923726,
+      "sha256": "90fcc97d32c89818ab63634c11a10e94f10c30d18e3fc1ff0b3d84e7262c4bce"
+    },
+    {
+      "name": "SparkX-0.1.0-20261020-f41f9367-mac-arm64.zip",
+      "bytes": 136796338,
+      "sha256": "f89345d4419a4531d52540f25e501b89c11d39a5b19aef41610ae32479b96f75"
+    }
+  ],
+  "developer_id_signed": false,
+  "notarized": false,
+  "model_tasks_submitted": 0,
+  "server_deployment": false,
+  "qualification_notes": [
+    "macOS full suite retains Linux-only /dev/shm failures; complete Linux suite passes. macOS canonical short temporary path resolves local socket/path checks; initial cleanup failure passed rerun.",
+    "The initial preservation checker classified three mutable encrypted transport journals as static configuration. Original failure and corrected classification are retained; identity and permission fingerprints match.",
+    "Installed HTTP redirect fixture is incompatible with the existing HTTPS address normalizer. Redirect acceptance uses the isolated native suite; installed checks cover original UI and window behavior."
+  ]
+}

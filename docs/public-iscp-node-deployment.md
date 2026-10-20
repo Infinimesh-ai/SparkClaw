@@ -806,3 +806,36 @@ schema change or database copies/backups. Of 72 protected configuration files,
 preserving connection identity and permissions. Normal launch is restored. This
 CSS-only source change does not alter the streaming implementation or servers.
 See the [sanitized receipt](evidence/composer-mail-alignment-2026-10-18.json).
+
+## 16. Local browser fixes installed (2026-10-20)
+
+The local macOS ARM64 client now runs product revision `f41f9367`, including
+`c19a0abf` (replacement-document navigation), `dec4bb28` (workbench reload/crash
+cleanup), and `f41f9367` (trusted browser hiding after connection loss). Personal
+navigation preserves genuine failures; retained pages require explicit selection
+after the workbench releases their presentation. Original menus, layout and
+interactions remain, and all five built UI files match the previous installation.
+
+Desktop 479, focused UI 36 and native layout 48 checks pass, including actual
+close/reactivation with connection loss, redirect/new-page/popup handling,
+renderer reload/crash and retained input. Strict UI build, Go build/vet and all
+75 Linux test packages pass. The macOS full suite encounters Linux-only
+`/dev/shm` tests; path/socket checks require a canonical, short temporary
+directory. Initial environment and cleanup failures remain in private evidence.
+
+Fresh DMG/ZIP packages and SHA256SUMS use `20261020-f41f9367` filenames in
+Downloads. Source/UI/helper audits and all 277 application entries match across
+the build, mounted DMG, extracted ZIP and `/Applications/SparkX.app`. Cold checks
+retain every original row across 97 tables, all 22 messages, draft contents and
+stable identity/permission configuration. Of 90 protected files, 85 are identical;
+two credential JSON files renew normally and three mutable encrypted transport
+journals advance. No database is copied, backed up or reset. The previous program
+is retained separately.
+
+The installed app retains the original conversation, nine settings sections,
+active device and mail popup/focus behavior. Collapsing a native page and reopening
+the window leaves the conversation unobscured. Normal launch is restored without
+inspection arguments. No model task or server deployment is performed;
+cross-project contracts remain unchanged. Packages remain unsigned and
+unnotarized. See the
+[sanitized installation receipt](evidence/desktop-browser-fixes-install-2026-10-20.json).

@@ -35,12 +35,12 @@ function emailInitials(value: string) {
   const name = value.split("@")[0]?.trim() || "?";
   return name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toLocaleUpperCase()).join("") || "?";
 }
-export function EmailPopupEntry({ text, language, enabled = true }: { text: Copy; language: Language; enabled?: boolean }) {
+export function EmailPopupEntry({ text, language, enabled = true, suspended = false }: { text: Copy; language: Language; enabled?: boolean; suspended?: boolean }) {
   const workspace = useMailWorkspace();
-  return <EmailPopupEntryContent key={workspace?.identity ?? "host"} text={text} language={language} entryEnabled={enabled} />;
+  return <EmailPopupEntryContent key={workspace?.identity ?? "host"} text={text} language={language} entryEnabled={enabled} suspended={suspended} />;
 }
 
-function EmailPopupEntryContent({ text, language, entryEnabled }: { text: Copy; language: Language; entryEnabled: boolean }) {
+function EmailPopupEntryContent({ text, language, entryEnabled, suspended }: { text: Copy; language: Language; entryEnabled: boolean; suspended: boolean }) {
   const workspace = useMailWorkspace();
   const enabled = entryEnabled && (workspace?.enabled ?? true);
   const loginRequired = useEmailLoginAlert(enabled);
@@ -49,15 +49,15 @@ function EmailPopupEntryContent({ text, language, entryEnabled }: { text: Copy; 
   return <>
     <button type="button" disabled={!enabled} className="iconButton emailEntryButton" title={loginRequired ? text.email.loginExpired : text.email.title} aria-label={text.email.title} aria-describedby={loginRequired ? "email-login-alert" : undefined} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}><Mail size={18} />{loginRequired && <span className="emailLoginDot" aria-hidden="true" />}</button>
     {loginRequired && <span id="email-login-alert" className="emailAlertAccessible" role="status">{text.email.loginExpired}</span>}
-    {open && createPortal(<EmailPopup text={text} language={language} selection={selection} onSelect={setSelection} onClose={() => setOpen(false)} />, document.body)}
+    {open && createPortal(<EmailPopup text={text} language={language} selection={selection} onSelect={setSelection} onClose={() => setOpen(false)} suspended={suspended} />, document.body)}
   </>;
 }
 
-export function EmailPopup({ text, language, selection, onSelect, onClose }: {
-  text: Copy; language: Language; selection: string; onSelect: (id: string) => void; onClose: () => void;
+export function EmailPopup({ text, language, selection, onSelect, onClose, suspended = false }: {
+  text: Copy; language: Language; selection: string; onSelect: (id: string) => void; onClose: () => void; suspended?: boolean;
 }) {
   const workspace = useMailWorkspace();
-  const enabled = workspace?.enabled ?? true;
+  const enabled = !suspended && (workspace?.enabled ?? true);
   const dialog = useRef<HTMLDialogElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const [mailboxId, setMailboxId] = useState("");
@@ -134,11 +134,12 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
     : "complete";
 
   useEffect(() => {
+    if (suspended) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const element = dialog.current;
     if (element?.showModal) element.showModal(); else element?.setAttribute("open", "");
     return () => { if (element?.close) element.close(); previous?.focus(); };
-  }, []);
+  }, [suspended]);
   useEffect(() => { if (viewport) viewport.scrollTop = 0; }, [viewport, mailViewKey]);
   useEffect(() => { setDeleteConfirm(false); }, [selection]);
   useEffect(() => {
@@ -191,7 +192,7 @@ export function EmailPopup({ text, language, selection, onSelect, onClose }: {
   const entryCounts = !pending ? conversations.counts : undefined;
   const sectionLabel = entry === "notification" ? text.email.information : pending ? text.email.pending : text.email.interactions;
   return (
-    <dialog ref={dialog} className={`emailPopup ${detailVisible ? "detailVisible" : ""}`} aria-labelledby="email-popup-title" onSubmit={event => event.stopPropagation()} onCancel={(event) => { event.preventDefault(); void closePopup(); }} onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Escape") { event.preventDefault(); void closePopup(); } }}>
+    <dialog ref={dialog} hidden={suspended} inert={suspended} className={`emailPopup ${detailVisible ? "detailVisible" : ""}`} aria-labelledby="email-popup-title" onSubmit={event => event.stopPropagation()} onCancel={(event) => { event.preventDefault(); void closePopup(); }} onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Escape") { event.preventDefault(); void closePopup(); } }}>
       <header className="emailPopupHeader">
         <div className="emailPopupTitle"><span className="emailPopupTitleIcon"><Mail size={19} /></span><span><h2 id="email-popup-title">{text.email.title}</h2><p>{text.email.windowDescription}</p></span></div>
         <button className="iconButton emailPopupClose" onClick={() => void closePopup()} aria-label={text.common.close} title={text.common.close}><X size={19} /></button>

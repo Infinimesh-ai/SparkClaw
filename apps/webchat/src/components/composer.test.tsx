@@ -6,7 +6,7 @@ import { ComposerSurface, type ComposerSurfaceProps } from "./composer";
 import { dictionaries } from "../i18n";
 import type { VoiceInputModel } from "../hooks/useVoiceInput";
 
-vi.mock("./emailPopup", () => ({ EmailPopupEntry: () => <button type="button">Mail</button> }));
+vi.mock("./emailPopup", () => ({ EmailPopupEntry: ({ enabled }: { enabled: boolean }) => <button type="button" disabled={!enabled}>Mail</button> }));
 afterEach(() => { document.body.replaceChildren(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 it("guards IME/voice/busy submits, grows to six lines and retains input and good attachments after upload failure", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -45,6 +45,57 @@ it("guards IME/voice/busy submits, grows to six lines and retains input and good
     expect(upload).toHaveBeenCalledTimes(2);expect(host.querySelector(".composerUploadFailure")).toBeNull();
     await act(async () => root.render(<Fixture busy />));await key({});expect(send).toHaveBeenCalledTimes(1);
   } finally { await act(async () => root.unmount());style.remove(); }
+});
+
+it("covers and locks all composer entry points until approvals resolve, then restores the existing draft and attachments", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  const send = vi.fn(), upload = vi.fn(), choose = vi.fn(), remove = vi.fn(), change = vi.fn();
+  const voice = { state: "recording", active: true, toggle: vi.fn(), cancel: vi.fn(), stopPreview: vi.fn() } as unknown as VoiceInputModel;
+  function Fixture({ pending }: { pending: boolean }) {
+    const ref = useRef<HTMLTextAreaElement>(null);
+    return <ComposerSurface text={dictionaries.en} language="en" activeSession="a" activeInput="retained draft"
+      activeAttachments={[{ name: "good.txt", rel_path: "good.txt" }]} busy={false} voice={voice}
+      composerInputRef={ref} approvalPending={pending} approvals={<button type="button">Approval choice</button>}
+      onInputChange={change} onSend={send} onUploadDocument={upload} onChooseDocument={choose}
+      onOpenAttachment={vi.fn()} onRemoveAttachment={remove} />;
+  }
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+  try {
+    await act(async () => root.render(<Fixture pending={false} />));
+    const input = host.querySelector("textarea")!;
+    input.focus();
+    await act(async () => root.render(<Fixture pending />));
+    expect(host.querySelector<HTMLElement>(".composerInputSurface")!.hidden).toBe(true);
+    expect(input.disabled).toBe(true);
+    expect(document.activeElement).toBe(host.querySelector(".composerApprovalOverlay"));
+    expect(voice.cancel).toHaveBeenCalledTimes(1);
+    expect(voice.stopPreview).toHaveBeenCalledTimes(1);
+    for (const control of host.querySelectorAll<HTMLButtonElement>(".uploadButton, .attachmentRemove, .voiceButton, .voiceDeviceButton, .sendButton")) {
+      expect(control.disabled).toBe(true);
+      await act(async () => control.click());
+    }
+    expect([...host.querySelectorAll<HTMLButtonElement>(".composer button")].find(button => button.textContent === "Mail")!.disabled).toBe(true);
+    const fileInput = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(fileInput, "files", { configurable: true, value: [new File(["fixture"], "late.txt")] });
+    await act(async () => {
+      fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "new requirement");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    for (const callback of [send, upload, choose, remove, change, voice.toggle]) expect(callback).not.toHaveBeenCalled();
+    voice.active = false;
+    await act(async () => root.render(<Fixture pending={false} />));
+    expect(host.querySelector(".composerApprovalOverlay")).toBeNull();
+    expect(host.querySelector("textarea")).toBe(input);
+    expect(input.disabled).toBe(false);
+    expect(input.value).toBe("retained draft");
+    expect(host.querySelector(".attachmentTray")!.textContent).toContain("good.txt");
+    await act(async () => host.querySelector<HTMLButtonElement>(".sendButton")!.click());
+    expect(send).toHaveBeenCalledTimes(1);
+  } finally { await act(async () => root.unmount()); }
 });
 
 type UploadAvailability = Partial<Pick<ComposerSurfaceProps, "busy" | "uploadingDocument" | "canCompose" | "filesEnabled">>;

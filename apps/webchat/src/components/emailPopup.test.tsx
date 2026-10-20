@@ -64,6 +64,27 @@ describe("email popup owner flow", () => {
     expect(keyDown).not.toHaveBeenCalled();
   });
 
+  it("suspends an open mail window for approval and restores its unsaved input afterward", async () => {
+    await open();
+    const popup = document.body.querySelector("dialog")!;
+    const input = popup.querySelector<HTMLInputElement>("input")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "unsaved search");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => root.render(<EmailPopupEntry text={text} language="en" enabled={false} suspended />));
+    expect(document.body.querySelector("dialog")).toBe(popup);
+    expect(popup.hidden).toBe(true);
+    expect(popup.hasAttribute("inert")).toBe(true);
+    expect(popup.querySelector("fieldset")!.disabled).toBe(true);
+    expect(input.value).toBe("unsaved search");
+    await act(async () => root.render(<EmailPopupEntry text={text} language="en" />));
+    expect(popup.hidden).toBe(false);
+    expect(popup.querySelector("fieldset")!.disabled).toBe(false);
+    expect(document.body.querySelector("dialog input")).toBe(input);
+    expect(input.value).toBe("unsaved search");
+  });
+
   it("shows localized message summaries without a conversation overview and keeps source details safe", async () => {
     const trigger = await open();
     expect(document.body.querySelector("dialog[open]")).not.toBeNull();

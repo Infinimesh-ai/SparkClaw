@@ -21,6 +21,7 @@ import { InspectorColumn } from "./components/inspector";
 import { InspectorResizeHandle, useInspectorWidth } from "./components/inspectorResize";
 import type { PanelTab } from "./components/inspector";
 import { ComposerDock } from "./components/composer";
+import { pendingSessionApprovals, SessionComposerApprovals } from "./components/sessionComposerApprovals";
 import { NotificationCenter } from "./components/notificationCenter";
 import { ScheduleBar, ScheduleCreateDialog } from "./components/schedules";
 import { SessionSidebar } from "./components/sidebar";
@@ -92,6 +93,7 @@ export function App() {
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [episodes, setEpisodes] = useState<EpisodeSummary[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
+  const approvalsRef = useRef(approvals); approvalsRef.current = approvals;
   const [candidates, setCandidates] = useState<MemoryCandidate[]>([]);
   const [memories, setMemories] = useState<Memory[]>([]);
   const [ready, setReady] = useState<ReadyStatus | null>(null);
@@ -421,11 +423,13 @@ export function App() {
   }
 
   const pendingApprovals = useMemo(() => approvals.filter((approval) => approval.status === "pending"), [approvals]);
+  const approvalPending = pendingSessionApprovals(approvals, activeSession).length > 0;
   const pendingCandidates = useMemo(() => candidates.filter((candidate) => candidate.status === "pending"), [candidates]);
   const active = sessions.find((session) => session.id === activeSession);
   const voiceDraftPersistence = useMemo(() => new VoiceDraftPersistence(), [drafts.repository]);
   const applyVoiceTranscript = useCallback(async (result: { text: string; request_id: string }, anchor: VoiceDraftAnchor) => {
     return voiceDraftPersistence.apply(JSON.stringify([anchor.sessionId, result.request_id]), () => {
+      if (pendingSessionApprovals(approvalsRef.current, anchor.sessionId).length) return false;
       const currentDraft = draftsBySessionRef.current[anchor.sessionId] ?? "";
       if (currentDraft !== anchor.draft) return false;
       const start = Math.min(anchor.selectionStart, currentDraft.length);
@@ -448,14 +452,14 @@ export function App() {
     speech: ready?.speech ?? null,
     sessionId: activeSession,
     language: runtimeConfig?.speech.default_language ?? "auto",
-    externallyDisabled: busy || !activeSession || active?.source === "mcp",
+    externallyDisabled: approvalPending || busy || !activeSession || active?.source === "mcp",
     onTranscript: applyVoiceTranscript
   });
   async function send(content = activeInput, sessionId = activeSession) {
     const trimmed = content.trim();
     const attachments = attachmentsBySession[sessionId] ?? [];
     const session = sessions.find((item) => item.id === sessionId);
-    if (session?.source === "mcp" || (!trimmed && attachments.length === 0) || busy || voice.active || (sessionId === activeSession && draftAlreadySubmitted)) return;
+    if (pendingSessionApprovals(approvalsRef.current, sessionId).length || session?.source === "mcp" || (!trimmed && attachments.length === 0) || busy || voice.active || (sessionId === activeSession && draftAlreadySubmitted)) return;
     const requestID = newWorkbenchRequestID();
     const userMessageId = `local-user-${requestID}`;
     const assistantMessageId = `local-assistant-${Date.now()}`;
@@ -479,6 +483,7 @@ export function App() {
         });
       }
       const submittedDraft = await drafts.repository.flush(sessionId);
+      if (pendingSessionApprovals(approvalsRef.current, sessionId).length) return;
       activeMessageStreamRef.current = sessionId;
       setStreamingMessageID(assistantMessageId);
       const now = new Date().toISOString();
@@ -978,6 +983,17 @@ export function App() {
               activeSession={activeSession}
               activeInput={activeInput}
               activeAttachments={activeAttachments}
+              approvalPending={approvalPending}
+              approvals={<SessionComposerApprovals key={activeSession} approvals={approvals} sessionID={activeSession}
+                text={text} language={language} enabled={!authRecovery && (!desktop || desktopConnectionState === "connected")}
+                onDecide={async (approval, choice) => {
+                  try {
+                    if (choice === "approve") await api.approve(approval.id);
+                    else await api.reject(approval.id);
+                  } finally {
+                    await Promise.allSettled([refreshGlobal(), refreshSession(approval.session_id)]);
+                  }
+                }} />}
               busy={busy}
               canCompose={drafts.loaded[activeSession] === true}
               canSend={drafts.loaded[activeSession] === true && !draftAlreadySubmitted && (!activeSession || requestsBySession[activeSession] !== undefined)}

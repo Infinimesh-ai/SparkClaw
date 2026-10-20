@@ -799,7 +799,8 @@ describe("workbench local workbench", () => {
     let release: () => void = () => {};
     const receipt = new Promise<void>((resolve) => { release = resolve; });
     const decideApproval = vi.fn(async () => { await receipt; approval = { ...approval, state: decision === "approve" ? "approved" : "rejected", decision, actionable: false }; return { resolved: true as const }; });
-    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => [row]), create: vi.fn(async () => row),
+    const drafts = draftAPI(); await drafts.saveDraft(row.id, "Keep my draft", [], 0);
+    window.sparkclawClientStore = { schemaVersion: 1, ...drafts, list: vi.fn(async () => [row]), create: vi.fn(async () => row),
       read: vi.fn(async () => ({ messages: [], tasks: [{ id: "task", request_id: "original-request", status: "running", explicitly_submitted: 1, created_at: "", approvals: [approval] }], files: [] })),
       enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval,
       scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
@@ -810,19 +811,35 @@ describe("workbench local workbench", () => {
       await act(async () => root.render(<LocalWorkbench />));
       await act(async () => host.querySelector<HTMLButtonElement>("nav button")!.click());
       expect(host.querySelector(".localTaskList")).toBeNull();
-      expect(host.querySelector(".localApproval h3")!.textContent).toBe("browser.type");
-      expect(host.querySelector(".localApproval pre")!.textContent).toContain("<script>Synthetic text</script>");
-      expect(host.querySelector(".localApproval script")).toBeNull();
+      expect(host.querySelector(".composerApprovalDetails strong")!.textContent).toBe("browser.type");
+      expect(host.querySelector(".composerApproval pre")!.textContent).toContain("<script>Synthetic text</script>");
+      expect(host.querySelector(".composerApproval script")).toBeNull();
       expect(decideApproval).not.toHaveBeenCalled();
-      const button = [...host.querySelectorAll<HTMLButtonElement>(".localApproval button")].find((item) => item.textContent === (decision === "approve" ? "Approve this action" : "Reject this action"))!;
+      expect(host.querySelector(".messageList .composerApproval")).toBeNull();
+      expect(host.querySelector(".composerDock .composerApproval")).not.toBeNull();
+      const draftInput = host.querySelector<HTMLTextAreaElement>(".composer textarea")!;
+      expect(draftInput.disabled).toBe(true);
+      expect(host.querySelector<HTMLElement>(".composerInputSurface")!.hidden).toBe(true);
+      expect(draftInput.value).toBe("Keep my draft");
+      await act(async () => host.querySelector("form.composer")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      expect(window.sparkclawClientStore!.enqueueDraft).not.toHaveBeenCalled();
+      const button = host.querySelector<HTMLButtonElement>(".composerApproval footer button")!;
+      expect(button.disabled).toBe(true);
+      await act(async () => host.querySelector<HTMLInputElement>(`.composerApproval input[value="${decision}"]`)!.click());
+      expect(decideApproval).not.toHaveBeenCalled();
       await act(async () => button.click());
       expect(decideApproval).toHaveBeenCalledWith("original-request", "approval", approval.digest, decision);
-      expect([...host.querySelectorAll<HTMLButtonElement>(".localApproval button")].every((item) => item.disabled)).toBe(true);
+      expect([...host.querySelectorAll<HTMLButtonElement>(".composerApproval button")].every((item) => item.disabled)).toBe(true);
       await act(async () => button.click());
       expect(decideApproval).toHaveBeenCalledTimes(1);
+      expect(draftInput.disabled).toBe(true);
       await act(async () => release());
-      expect(host.textContent).toContain(decision === "approve" ? "Approval accepted" : "Rejection accepted");
-      expect(host.querySelectorAll(".localApproval button").length).toBe(0);
+      expect(host.querySelector(".composerApproval")).toBeNull();
+      expect(host.querySelector<HTMLTextAreaElement>(".composer textarea")!.value).toBe("Keep my draft");
+      expect(host.querySelector<HTMLTextAreaElement>(".composer textarea")).toBe(draftInput);
+      expect(draftInput.disabled).toBe(false);
+      expect(host.querySelector<HTMLElement>(".composerInputSurface")!.hidden).toBe(false);
+      expect(host.querySelectorAll(".composerApproval button").length).toBe(0);
       expect(window.sparkclawClientStore!.submit).not.toHaveBeenCalled();
     } finally { release(); await act(async () => root.unmount()); }
   });
@@ -847,16 +864,18 @@ describe("workbench local workbench", () => {
     try {
       await act(async () => root.render(<LocalWorkbench />));
       await act(async () => host.querySelector<HTMLButtonElement>("nav button")!.click());
-      const sections = [...host.querySelectorAll(".localApproval")];
+      const sections = [...host.querySelectorAll(".composerApproval")];
       expect([...sections[0].querySelectorAll<HTMLButtonElement>("button")].every((button) => button.disabled)).toBe(true);
-      expect(sections[0].textContent).toContain("Refresh the current operation");
+      expect(sections[0].textContent).toContain("Wait for the current operation");
       expect(sections[1].textContent).toContain("Approval expired");
-      expect(sections[1].querySelectorAll("button").length).toBe(0);
+      expect(sections[1].querySelector<HTMLButtonElement>("button")!.disabled).toBe(true);
       expect(sections[2].textContent).toContain("Decision receipt is uncertain");
-      expect(sections[2].querySelectorAll("button").length).toBe(0);
+      expect(sections[2].querySelector<HTMLButtonElement>("button")!.disabled).toBe(true);
       expect(sections[3].querySelectorAll("button").length).toBe(1);
       const retry = sections[3].querySelector<HTMLButtonElement>("button")!;
-      expect(retry.textContent).toBe("Retry original rejection");
+      expect(retry.textContent).toBe("Retry same decision");
+      expect(sections[3].querySelector<HTMLInputElement>('input[value="reject"]')!.checked).toBe(true);
+      expect(sections[3].querySelector<HTMLInputElement>('input[value="approve"]')!.disabled).toBe(true);
       await act(async () => retry.click());
       expect(decideApproval).toHaveBeenCalledWith("original-request", "retry", base.digest, "reject");
       expect(decideApproval).toHaveBeenCalledTimes(1);

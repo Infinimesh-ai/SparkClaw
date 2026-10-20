@@ -21,6 +21,7 @@ import { clientStore, type LocalConversation, type LocalConversationContent, typ
 import { desktopCapability } from "./capability";
 import type { DesktopConnectionStatus, DesktopState } from "./types";
 import { BrowserPanel } from "./BrowserPanel";
+import { LocalComposerApprovals, pendingLocalApprovals } from "./localComposerApprovals";
 import { localMessageRows } from "./localMessageRows";
 import { ConversationReadVersion } from "./conversationReadVersion";
 import { MessageBubble, TaskProgressMessage } from "../components/messages";
@@ -56,6 +57,8 @@ export function LocalWorkbench() {
   const selectedRef = useRef(selected); selectedRef.current = selected;
   const readGeneration = useRef(0);
   const [content, setContent] = useState(emptyContent);
+  const approvalPending = pendingLocalApprovals(content.tasks).length > 0;
+  const approvalPendingRef = useRef(approvalPending); approvalPendingRef.current = approvalPending;
   const contentReads = useRef(new ConversationReadVersion());
   const readContent = useCallback((id: string) => {
     const generation = readGeneration.current;
@@ -82,6 +85,7 @@ export function LocalWorkbench() {
   const [mailIdentity, setMailIdentity] = useState(0);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [documentPickerOpen, setDocumentPickerOpen] = useState(false);
+  useEffect(() => { if (approvalPending) setDocumentPickerOpen(false); }, [approvalPending]);
   const [tab, setTab] = useState<PanelTab>("timeline");
   const [currentClientID, setCurrentClientID] = useState("");
   const [connection, setConnection] = useState<DesktopConnectionStatus>();
@@ -263,7 +267,7 @@ export function LocalWorkbench() {
   const voiceDraftPersistence = useMemo(() => new VoiceDraftPersistence(), [store, localScopeKey]);
   const applyVoiceTranscript = useCallback(async (result: { text: string; request_id: string }, anchor: VoiceDraftAnchor) => {
     return voiceDraftPersistence.apply(JSON.stringify([anchor.sessionId, result.request_id]), () => {
-      if (anchor.sessionId !== selectedRef.current || draftRef.current !== anchor.draft) return false;
+      if (approvalPendingRef.current || anchor.sessionId !== selectedRef.current || draftRef.current !== anchor.draft) return false;
       const start = Math.min(anchor.selectionStart, draftRef.current.length);
       const end = Math.min(Math.max(anchor.selectionEnd, start), draftRef.current.length);
       const inserted = insertVoiceTranscript(draftRef.current, result.text, start, end);
@@ -284,7 +288,7 @@ export function LocalWorkbench() {
     speech: ready?.speech ?? null,
     sessionId: selected,
     language: runtimeConfig?.speech.default_language ?? "auto",
-    externallyDisabled: busy || !selected || !capabilities.speech,
+    externallyDisabled: approvalPending || busy || !selected || !capabilities.speech,
     iscp, iscpRealtime: surfaceEnabled(connection, "speech_realtime"),
     onTranscript: applyVoiceTranscript
   });
@@ -358,6 +362,7 @@ export function LocalWorkbench() {
     return conversation.id;
   }
   async function save(submit = true) {
+    if (approvalPendingRef.current) return;
     if (!draft.trim() && !inputFiles.length) return;
     await action(async () => {
       if (submit) setSubmittingConversation(selectedRef.current);
@@ -365,6 +370,7 @@ export function LocalWorkbench() {
         const id = await ensureConversation();
         if (submit) setSubmittingConversation(id);
         const saved = await drafts.flush();
+        if (approvalPendingRef.current) return;
         const sourceID = drafts.id();
         const queued = await store.enqueueDraft(id, sourceID, saved.revision, draftScopes.get(sourceID) ?? "");
         if (submit) setSubmittingTaskID(queued.task.id);
@@ -386,7 +392,6 @@ export function LocalWorkbench() {
     const id = selected;
     try {
       await store.decideApproval(task.request_id, approval.approval_id, approval.digest, decision);
-      setNotice(decision === "approve" ? (zh ? "批准决定已接收，任务将继续执行。" : "Approval accepted. The task can continue.") : (zh ? "拒绝决定已接收。" : "Rejection accepted."));
     } finally { if (selectedRef.current === id) await readContent(id); await reload(); }
   }
   async function renameConversation(id: string) {
@@ -399,7 +404,7 @@ export function LocalWorkbench() {
     finally { setSessionActionID(""); }
   }
   async function saveFile(file?: File) {
-    if (!file) return undefined;
+    if (approvalPendingRef.current || !file) return undefined;
     let uploadSession = selectedRef.current;
     let saved: Awaited<ReturnType<typeof store.saveFile>> | undefined;
     try {
@@ -546,23 +551,6 @@ export function LocalWorkbench() {
           {content.tasks.filter((task) => task.termination_reason).map((task) => <section className="localFeedback" role="status" key={`termination:${task.id}`}>
             <p>{zh ? "服务重启已终结此任务。已记录的审批决定仍保留，任务不会自动重发。" : "The gateway restart ended this task. Recorded approval decisions are retained; the task will not be resubmitted."}</p>
           </section>)}
-          {content.tasks.flatMap((task) => (task.approvals ?? [])
-            .filter((approval) => ["pending", "decision_pending", "decision_unknown"].includes(approval.state))
-            .map((approval) => ({ task, approval }))).map(({ task, approval }) => {
-                const pending = ["pending", "decision_pending"].includes(approval.state);
-                const expired = Date.parse(approval.expires_at) <= Date.now();
-                return <section className="localApproval" key={`${task.id}:${approval.approval_id}`} aria-label={zh ? "操作审批" : "Action approval"}>
-                  <h3>{approval.tool}</h3><p>{approval.summary}</p>
-                  <pre aria-label={zh ? "操作参数" : "Action parameters"}>{JSON.stringify(approval.arguments, null, 2)}</pre>
-                  <p role="status">{pending && expired ? (zh ? "审批已过期，无法继续操作。" : "Approval expired. It can no longer be acted on.") : approvalLabel(approval.state, zh)}</p>
-                  {pending && !expired && !approval.actionable && <small>{zh ? "请刷新当前执行后再决定；未核实的审批不能操作。" : "Refresh the current operation before deciding. Unverified approvals cannot be acted on."}</small>}
-                  {pending && !expired && <div className="localTaskActions">{(["approve", "reject"] as const).filter((decision) => !approval.decision || approval.decision === decision).map((decision) => <button type="button" key={decision} disabled={busy || connection?.state !== "connected" || (!approval.actionable || !capabilities.approvals)} onClick={() => void action(() => decideApproval(task, approval, decision))}>
-                    {approval.decision ? (decision === "approve" ? (zh ? "重试原批准决定" : "Retry original approval") : (zh ? "重试原拒绝决定" : "Retry original rejection")) : (decision === "approve" ? (zh ? "批准此操作" : "Approve this action") : (zh ? "拒绝此操作" : "Reject this action"))}
-                  </button>)}</div>}
-                </section>;
-          })}
-
-
         </div>
         {messageScroll.away && <div className="messageScrollAction"><button type="button" className="messageLatest" onClick={messageScroll.resume}>{zh ? "回到最新" : "Return to latest"}</button></div>}
         <MailWorkspaceContext.Provider value={{
@@ -585,6 +573,9 @@ export function LocalWorkbench() {
           },
         }}>
         <ComposerSurface text={text} language={language} activeSession={selected} activeInput={draft}
+          approvalPending={approvalPending}
+          approvals={<LocalComposerApprovals key={`${localScopeKey}:${selected}`} tasks={content.tasks} language={language}
+            enabled={!busy && connection?.state === "connected" && capabilities.approvals} onDecide={decideApproval} />}
           activeAttachments={activeAttachments} busy={busy} voice={voice} composerInputRef={composerInputRef}
           filesEnabled={capabilities.files} mailEnabled={capabilities.mail && connection?.state === "connected"}
           canCompose={drafts.ready} canSend={connection?.state === "connected" && drafts.ready && (!iscp || Boolean(runtimeConfig && ready && ownerProfile))}
@@ -603,7 +594,7 @@ export function LocalWorkbench() {
           <button type="button" onClick={() => void drafts.flush().catch(surfaceError)}>{zh ? "重试保存草稿" : "Retry saving draft"}</button>
           <button type="button" onClick={() => void drafts.saveCurrentOverLatest().catch(surfaceError)}>{zh ? "用我的输入替换已保存草稿" : "Replace saved draft with my text"}</button>
         </div>}
-        {documentPickerOpen && <ComposerDocumentPicker documents={localDocuments} text={text} language={language}
+        {documentPickerOpen && !approvalPending && <ComposerDocumentPicker documents={localDocuments} text={text} language={language}
           onChoose={(document) => {
             if (document.bytes > 8 * 1024 * 1024) { surfaceError(new Error(zh ? '文件超过执行附件 8 MiB 限制。' : 'File exceeds the 8 MiB execution attachment limit.')); return; }
             setInputFiles((current) => current.includes(document.id) ? current : [...current, document.id]);
@@ -624,17 +615,6 @@ export function LocalWorkbench() {
     </main>
     {searchOpen && <TaskSearch language={language} sessions={conversations} onSelect={(conversation) => { setSearchOpen(false); void select(conversation.id).catch(surfaceError); }} onClose={() => setSearchOpen(false)} />}
   </div>;
-}
-
-function approvalLabel(state: LocalApproval["state"], zh: boolean) {
-  const labels: Record<LocalApproval["state"], [string, string]> = {
-    pending: ["等待你明确批准或拒绝", "Waiting for your explicit approval or rejection"],
-    decision_pending: ["决定已保存，后端接收结果待核对", "Decision saved; backend receipt awaiting reconciliation"],
-    approved: ["已批准", "Approved"], rejected: ["已拒绝", "Rejected"], resolved: ["后端已不再等待此审批", "The backend no longer awaits this approval"],
-    expired: ["审批已结束或过期", "Approval ended or expired"],
-    decision_unknown: ["决定接收结果不确定，当前不能继续操作", "Decision receipt is uncertain. No further action is currently available"],
-  };
-  return labels[state][zh ? 0 : 1];
 }
 
 function workbenchDraft(value: LocalDraft) { return { content: value.content, attachment_ids: value.local_file_ids, revision: value.revision }; }

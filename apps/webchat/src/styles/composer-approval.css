@@ -1,0 +1,61 @@
+.composerApprovals {
+  display: grid;
+  gap: 12px;
+  max-height: min(480px, 48dvh);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.composerApproval {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--control-border);
+  border-radius: 16px;
+  color: var(--text-primary);
+  background: var(--surface);
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
+}
+
+.composerApproval header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+
+.composerApprovalQuestion { margin: 12px 0 8px; font-weight: 600; overflow-wrap: anywhere; }
+.composerApprovalDetails { margin-bottom: 12px; color: var(--text-secondary); }
+.composerApprovalDetails > summary { cursor: pointer; font-size: var(--font-meta); }
+.composerApprovalDetails pre { max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--font-meta); }
+.composerApprovalDetails p { overflow-wrap: anywhere; }
+.composerApproval fieldset { display: grid; gap: 6px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.composerApproval legend { margin-bottom: 8px; font-size: var(--font-meta); color: var(--text-secondary); }
+.composerApprovalOption {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  cursor: pointer;
+}
+.composerApprovalOption input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.composerApprovalOption:has(input:focus-visible) { outline: 2px solid var(--cyber-blue); outline-offset: 2px; }
+.composerApprovalOption:hover { background: var(--surface-hover); }
+.composerApprovalOption.selected { border-color: var(--cyber-blue); background: var(--surface-muted); }
+.composerApprovalOption:has(input:disabled) { opacity: .55; cursor: default; }
+.composerApprovalOption > span:nth-of-type(2) { flex: 1; min-width: 0; }
+.composerApprovalOption strong { font-weight: 600; }
+.composerApprovalOption small { margin-left: 10px; color: var(--text-secondary); font-size: var(--font-meta); }
+.composerApprovalNumber { display: grid; place-items: center; width: 24px; height: 24px; flex: 0 0 auto; border: 1px solid var(--border-subtle); border-radius: 6px; color: var(--text-secondary); font-size: var(--font-meta); }
+.composerApproval footer { display: flex; justify-content: flex-end; margin-top: 12px; }
+.composerApproval footer button { padding: 7px 16px; min-height: 34px; border: 1px solid var(--control-border); border-radius: 8px; color: var(--text-primary); background: var(--surface-muted); }
+.composerApproval footer button:hover:not(:disabled) { background: var(--surface-hover); }
+.composerApprovalStatus { margin: 10px 0 0; font-size: var(--font-meta); color: var(--text-secondary); overflow-wrap: anywhere; }
+.composerApproval .compactError { margin: 10px 0 0; overflow-wrap: anywhere; }
+.composerInputSurface[hidden] { display: none; }
+.emailPopup[hidden] { display: none; }
+.composerApprovalOverlay { min-width: 0; outline: none; }
+

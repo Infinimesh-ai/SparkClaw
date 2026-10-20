@@ -92,6 +92,17 @@ Structured owner actions are not converted back into ambiguous prose:
 - ordinary tool approval modifications validate JSON and keep verifier-owned
   fields read-only; Happy Team plan approvals render typed task/goal/plan data
   and submit only edited plan text, never raw remote tool arguments;
+- pending approvals for the current conversation cover the original input
+  in the shared composer dock. Each card offers only Yes and No, with
+  no default selection and an explicit Submit button. Details remain readable.
+  Text, send, attachment, voice and mail input stay blocked until all pending
+  decisions are resolved, including while submitting or retrying. Drafts,
+  attachments and any open mail editor are preserved and restored afterward;
+  the approval center remains available.
+  Desktop decisions use the original request/approval/digest; host decisions
+  use the existing approval API. Expired, offline, unverified and uncertain
+  requests stay disabled. After an attempted decision, only that same choice
+  can be retried; a decision never sends the draft or creates a new task.
 - workspace files are uploaded and fetched through authenticated document APIs;
 - speech capture acquires the microphone before reserving realtime ASR, then
   starts one AudioWorklet only after the realtime session is ready. Its stateful

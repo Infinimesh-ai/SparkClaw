@@ -74,27 +74,7 @@ export function ApprovalPanel({
                 ))}
               </div>
             )}
-            {workspaceAccess ? (
-              <WorkspaceApprovalDetails presentation={workspaceAccess} argumentsValue={approval.arguments} text={text} />
-            ) : happyPlan ? (
-              <div className="happyPlanDetails">
-                <span className="approvalSource">{text.approval.happyTeam}</span>
-                <div>
-                  <small>{text.approval.taskTitle}</small>
-                  <p>{happyPlan.title}</p>
-                </div>
-                <div>
-                  <small>{text.approval.taskGoal}</small>
-                  <p>{happyPlan.goal_prompt}</p>
-                </div>
-                <div>
-                  <small>{text.approval.taskPlan}</small>
-                  {planAvailable ? <pre>{happyPlan.plan ?? ""}</pre> : <p className="compactError">{text.approval.planUnavailable}</p>}
-                </div>
-              </div>
-            ) : (
-              <JsonBlock value={stripSystemArgs(approval.arguments)} />
-            )}
+            <ApprovalDetails approval={approval} text={text} />
             {approval.status === "pending" ? (
               <>
                 {!argumentsLocked && editing === approval.id && (
@@ -126,6 +106,22 @@ export function ApprovalPanel({
       )}
     </div>
   );
+}
+
+export function ApprovalDetails({ approval, text }: { approval: Approval; text: CopyText }) {
+  const happyPlan = approval.source === "happy_team_plan" ? approval.external_context : undefined;
+  const planAvailable = happyPlan?.plan_availability === "available";
+  const workspaceAccess = approval.presentation?.kind === "external_mcp_workspace_data_access" ? approval.presentation : undefined;
+  if (workspaceAccess) return <WorkspaceApprovalDetails presentation={workspaceAccess} argumentsValue={approval.arguments} text={text} />;
+  if (happyPlan) return <div className="happyPlanDetails">
+    <span className="approvalSource">{text.approval.happyTeam}</span>
+    <div><small>{text.approval.taskTitle}</small><p>{happyPlan.title}</p></div>
+    <div><small>{text.approval.taskGoal}</small><p>{happyPlan.goal_prompt}</p></div>
+    <div><small>{text.approval.taskPlan}</small>
+      {planAvailable ? <pre>{happyPlan.plan ?? ""}</pre> : <p className="compactError">{text.approval.planUnavailable}</p>}
+    </div>
+  </div>;
+  return <JsonBlock value={stripSystemArgs(approval.arguments)} />;
 }
 
 function WorkspaceApprovalDetails({

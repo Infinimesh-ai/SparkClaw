@@ -71,6 +71,13 @@ browser 不重建 service identity 或 health rule。
   Message Runtime 路由 typed media part。
 - 普通 tool approval modification 校验 JSON，并让 verifier-owned field 保持只读；Happy Team
   plan approval 展示 typed task/goal/plan，只提交编辑后的计划文本，不暴露 raw remote tool argument。
+- 当前对话的待审批操作覆盖共用输入区的原输入框。审批卡片仅提供“是”和“否”，
+  不默认选中，选择后点击“提交”。操作详情可展开查看。全部待审批决定处理完成前，
+  文字、发送、附件、语音和邮件输入均锁定，提交等待和失败重试期间也不能输入新需求。
+  原草稿、附件及已打开的邮件编辑状态保留，审批结束后恢复，审批中心仍可访问。
+  桌面端沿用原 request/approval/digest，宿主端沿用原审批 API；
+  过期、离线、未核实和结果不确定的请求保持禁用。尝试提交后只能重试同一决定，
+  审批不会发送草稿或新建任务。
 - workspace file 通过 authenticated document API 上传和读取。
 - speech capture 会先取得 microphone，再预留 realtime ASR；只有 realtime session ready 后才启动
   单个 AudioWorklet。stateful resampler 把同一份 16 kHz PCM16 同时交给 revisioned live preview、

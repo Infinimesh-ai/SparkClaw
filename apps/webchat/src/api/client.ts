@@ -661,9 +661,9 @@ export const api = {
       body: JSON.stringify({ default_for_channel: false, credential_secret: botToken })
     }),
   notificationBinding: (id: string, signal?: AbortSignal) =>
-    request<NotificationBinding>(`/api/notification-bindings/${id}`, { signal }),
+    request<NotificationBinding>(`/api/notification-bindings/${encodeURIComponent(id)}`, { signal }),
   pollNotificationBinding: (id: string, signal?: AbortSignal) =>
-    request<NotificationBinding>(`/api/notification-bindings/${id}/poll`, { method: "POST", body: "{}", signal }),
+    request<NotificationBinding>(`/api/notification-bindings/${encodeURIComponent(id)}/poll`, { method: "POST", body: "{}", signal }),
   notificationBindingQR: async (id: string, signal?: AbortSignal) => {
     // This is the provider's QR content, not a page to load. Validate a fresh,
     // owner-scoped pending binding before encoding it locally in the dialog.
@@ -681,7 +681,7 @@ export const api = {
     if (desktopCapability()) throw new Error("Use the Weixin QR dialog on Desktop");
     return request<{ opened: boolean }>(`/api/notification-bindings/${encodeURIComponent(id)}/browser`, { method: "POST", body: "{}" });
   },
-  revokeNotificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`, { method: "DELETE" }),
+  revokeNotificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${encodeURIComponent(id)}`, { method: "DELETE" }),
   deliveryEndpoints: () => request<{ endpoints: DeliveryEndpoint[] }>("/api/delivery-endpoints"),
   schedules: () => request<{ schedules: Schedule[] }>("/api/schedules"),
   createSchedule: (content: string) =>

@@ -7,16 +7,21 @@ type BindingPollingOptions = {
   refreshBinding: (id: string, signal?: AbortSignal) => Promise<NotificationBinding>;
   fallbackError: string;
   onError: (message: string) => void;
+  // Called with the previously reported poll error once polling succeeds again.
+  onRecovered?: (message: string) => void;
 };
 
 export function useBindingPolling({
   pendingBindingKey,
   refreshBinding,
   fallbackError,
-  onError
+  onError,
+  onRecovered
 }: BindingPollingOptions) {
   const refreshBindingRef = useRef(refreshBinding);
   const onErrorRef = useRef(onError);
+  const onRecoveredRef = useRef(onRecovered);
+  onRecoveredRef.current = onRecovered;
 
   useEffect(() => {
     refreshBindingRef.current = refreshBinding;
@@ -32,6 +37,11 @@ export function useBindingPolling({
     let cancelled = false;
     let timer = 0;
     let controller: AbortController | null = null;
+    let reportedError = "";
+    const report = (message: string) => {
+      reportedError = message;
+      onErrorRef.current(message);
+    };
     const poll = () => {
       controller = new AbortController();
       void Promise.allSettled(pendingIDs.map((id) => refreshBindingRef.current(id, controller?.signal)))
@@ -40,9 +50,13 @@ export function useBindingPolling({
           if (cancelled) return;
           const rejected = results.find((result) => result.status === "rejected");
           if (rejected?.status === "rejected") {
-            onErrorRef.current(rejected.reason instanceof Error ? rejected.reason.message : fallbackError);
+            report(rejected.reason instanceof Error ? rejected.reason.message : fallbackError);
             timer = window.setTimeout(poll, 4000);
             return;
+          }
+          if (reportedError) {
+            onRecoveredRef.current?.(reportedError);
+            reportedError = "";
           }
           const hasStillPending = results.some((result) => result.status === "fulfilled" && isBindingSetupPending(result.value));
           if (!hasStillPending) return;
@@ -50,7 +64,7 @@ export function useBindingPolling({
         })
         .catch((error: unknown) => {
           if (!cancelled) {
-            onErrorRef.current(error instanceof Error ? error.message : fallbackError);
+            report(error instanceof Error ? error.message : fallbackError);
             timer = window.setTimeout(poll, 4000);
           }
         });

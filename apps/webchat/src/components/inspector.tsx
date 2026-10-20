@@ -279,10 +279,16 @@ export function InspectorColumn({
       setError("");
       const binding = await api.startNotificationBinding(channel, botToken);
       setNotificationBindings((current) => [binding, ...current.filter((item) => item.id !== binding.id)]);
-      if (channel === "telegram") {
-        setRuntimeConfig(await api.config());
-      } else {
-        await refreshGlobal();
+      // The binding already exists; a failed follow-up refresh must not hide
+      // its QR dialog or invite a duplicate start.
+      try {
+        if (channel === "telegram") {
+          setRuntimeConfig(await api.config());
+        } else {
+          await refreshGlobal();
+        }
+      } catch (err) {
+        setError(notificationBindingErrorMessage(err, text));
       }
       return binding;
     } catch (err) {

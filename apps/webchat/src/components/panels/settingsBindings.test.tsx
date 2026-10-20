@@ -3,7 +3,7 @@ import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock, MockInstance } from "vitest";
-import { api } from "../../api/client";
+import { api, APIError } from "../../api/client";
 import type { ConnectorStatus, NotificationBinding } from "../../api/types";
 import { dictionaries } from "../../i18n";
 import { ConnectorBindingSettings } from "./settingsBindings";
@@ -144,6 +144,34 @@ describe("desktop Weixin binding dialog", () => {
     await act(async () => state === "unavailable" ? disabled("Reconnect") : update(state === "removed" ? [] : [binding(state)]));
     expect(dialog()).toBeNull();
     expect(container.querySelector('svg[role="img"]')).toBeNull();
+  });
+
+  it("returns with the same binding after a temporary disconnect", async () => {
+    await render([binding()]);
+    await click(text.settings.showWeixinQr);
+    await act(async () => disabled("Reconnect"));
+    expect(dialog()).toBeNull();
+    await act(async () => disabled(""));
+    expect(dialog()?.open).toBe(true);
+  });
+
+  it("clears a polling error once polling succeeds again", async () => {
+    await render([binding()]);
+    refresh.mockRejectedValueOnce(new Error("Temporary poll failure"));
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(container.textContent).toContain("Temporary poll failure");
+    await act(async () => vi.advanceTimersByTimeAsync(4000));
+    expect(container.textContent).not.toContain("Temporary poll failure");
+  });
+
+  it("follows the server state when the QR read conflicts instead of offering a futile retry", async () => {
+    qr.mockRejectedValueOnce(new APIError(409, "binding is not waiting for scan"));
+    await render([binding()]);
+    refresh.mockResolvedValueOnce(binding("waiting_confirm"));
+    await click(text.settings.showWeixinQr);
+    expect(refresh).toHaveBeenCalledWith("binding-1", expect.any(AbortSignal));
+    expect(dialog()?.textContent).toContain(text.settings.scannedWeixin);
+    expect(dialog()?.textContent).not.toContain(text.settings.bindingQrUnavailable);
   });
 
   it("keeps the existing backend WebChat browser action", async () => {

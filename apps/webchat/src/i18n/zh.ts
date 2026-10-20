@@ -677,6 +677,7 @@ export const zh = {
       openWeixinLogin: "在 Chromium 中打开",
       showWeixinQr: "显示二维码",
       weixinQrLoading: "正在加载二维码…",
+      weixinQrImage: "微信绑定二维码",
       weixinQrExpired: "二维码已过期，请重新获取。",
       weixinQrRestart: "重新获取二维码",
       bindingUnavailable: "当前构建不包含此连接器",

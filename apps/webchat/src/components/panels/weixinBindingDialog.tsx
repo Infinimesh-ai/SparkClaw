@@ -1,19 +1,20 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { CheckCircle2, X } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { api } from "../../api/client";
+import { api, APIError } from "../../api/client";
 import type { NotificationBinding } from "../../api/types";
 import type { Copy } from "../../i18n";
 import { useDismissibleLayer } from "../../hooks/useDismissibleLayer";
 import { bindingStatusLabel } from "../../lib/format";
 
-export function WeixinBindingDialog({ binding, text, busy, error, onClose, onRestart }: {
+export function WeixinBindingDialog({ binding, text, busy, error, onClose, onRestart, onRefresh }: {
   binding: NotificationBinding;
   text: Copy;
   busy: boolean;
   error: string;
   onClose: () => void;
   onRestart: () => void;
+  onRefresh: (signal: AbortSignal) => Promise<NotificationBinding>;
 }) {
   const dialogRef = useDismissibleLayer<HTMLDialogElement>({ open: true, onDismiss: onClose });
   const titleID = useId();
@@ -25,6 +26,7 @@ export function WeixinBindingDialog({ binding, text, busy, error, onClose, onRes
   const expired = binding.status === "expired" || Number.isFinite(expiresAt) && expiresAt <= now;
   const failed = binding.status === "failed";
   const waitingScan = binding.status === "waiting_scan" && !expired;
+  const onRefreshRef = useRef(onRefresh); onRefreshRef.current = onRefresh;
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -45,8 +47,17 @@ export function WeixinBindingDialog({ binding, text, busy, error, onClose, onRes
     setQRError("");
     void api.notificationBindingQR(binding.id, controller.signal).then(value => {
       if (!controller.signal.aborted) setQR(value);
-    }).catch(() => {
-      if (!controller.signal.aborted) setQRError(text.settings.bindingQrUnavailable);
+    }).catch((reason: unknown) => {
+      if (controller.signal.aborted) return;
+      // 409: the binding left waiting_scan on the server (scanned or expired).
+      // Refresh it so the dialog follows the new state instead of offering a
+      // QR retry that can only conflict again.
+      if (!(reason instanceof APIError && reason.status === 409)) { setQRError(text.settings.bindingQrUnavailable); return; }
+      void onRefreshRef.current(controller.signal).then(current => {
+        if (!controller.signal.aborted && current.status === "waiting_scan") setQRError(text.settings.bindingQrUnavailable);
+      }).catch(() => {
+        if (!controller.signal.aborted) setQRError(text.settings.bindingQrUnavailable);
+      });
     });
     return () => controller.abort();
   }, [binding.id, waitingScan, attempt, text.settings.bindingQrUnavailable]);
@@ -59,11 +70,11 @@ export function WeixinBindingDialog({ binding, text, busy, error, onClose, onRes
     </div>
     <div className="weixinBindingDialogBody">
       {waitingScan && !qrError && (qr
-        ? <QRCodeSVG value={qr.url} size={256} level="M" marginSize={4} role="img" aria-label={text.settings.scanWeixin} />
-        : <p role="status">{text.settings.weixinQrLoading}</p>)}
+        ? <QRCodeSVG value={qr.url} size={256} level="M" marginSize={4} role="img" aria-label={text.settings.weixinQrImage} />
+        : <p>{text.settings.weixinQrLoading}</p>)}
       <p role="status">{expired ? text.settings.weixinQrExpired : failed ? bindingStatusLabel(binding.status, text)
         : binding.status === "waiting_confirm" ? <><CheckCircle2 size={20} /> {text.settings.scannedWeixin}</>
-        : text.settings.scanWeixin}</p>
+        : waitingScan ? text.settings.scanWeixin : text.settings.weixinQrLoading}</p>
       {(qrError || error || binding.last_error) && <p className="compactError" role="alert">{qrError || error || binding.last_error}</p>}
       {waitingScan && qrError && <button type="button" className="secondaryButton" onClick={() => setAttempt(value => value + 1)}>{text.common.refresh}</button>}
       {(expired || failed) && <button type="button" className="secondaryButton" disabled={busy} onClick={onRestart}>{text.settings.weixinQrRestart}</button>}

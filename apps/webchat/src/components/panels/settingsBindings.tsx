@@ -61,13 +61,15 @@ export function ConnectorBindingSettings({
   const qrBinding = notificationBindings.find(binding => binding.id === qrBindingID);
   useEffect(() => {
     if (!qrBindingID) return;
-    if (!qrBinding || bindingsUnavailable || qrBinding.status === "active" || qrBinding.status === "revoked") {
+    // A temporary disconnect only hides the dialog; it returns with the same
+    // binding once settings are reachable again.
+    if (!qrBinding || qrBinding.status === "active" || qrBinding.status === "revoked") {
       if (qrBinding?.status === "active") {
         setBindingError("");
       }
       setQRBindingID("");
     }
-  }, [qrBindingID, qrBinding, bindingsUnavailable]);
+  }, [qrBindingID, qrBinding]);
   const pendingBindingKey = pendingBindingPollKey(bindingsUnavailable ? [] : notificationBindings);
   const bindingAction = useAsyncAction({
     clearError: () => setBindingError(""),
@@ -84,7 +86,8 @@ export function ConnectorBindingSettings({
     pendingBindingKey,
     refreshBinding: onRefreshNotificationBinding,
     fallbackError: text.errors.binding,
-    onError: setBindingError
+    onError: setBindingError,
+    onRecovered: (message) => setBindingError(current => current === message ? "" : current)
   });
 
   async function startBinding(channel: string) {
@@ -271,7 +274,8 @@ export function ConnectorBindingSettings({
       {bindingError && <span className="compactError">{bindingError}</span>}
       {desktop && qrBinding && !bindingsUnavailable && !["active", "revoked"].includes(qrBinding.status) &&
         <WeixinBindingDialog key={qrBinding.id} binding={qrBinding} text={text} busy={bindingBusy} error={bindingError}
-          onClose={() => setQRBindingID("")} onRestart={() => void startBinding("weixin")} />}
+          onClose={() => setQRBindingID("")} onRestart={() => void startBinding("weixin")}
+          onRefresh={signal => onRefreshNotificationBinding(qrBinding.id, signal)} />}
     </>
   );
 }

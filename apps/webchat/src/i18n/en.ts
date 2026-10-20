@@ -675,6 +675,7 @@ export const en = {
       openWeixinLogin: "Open in Chromium",
       showWeixinQr: "Show QR code",
       weixinQrLoading: "Loading QR code…",
+      weixinQrImage: "Weixin binding QR code",
       weixinQrExpired: "This QR code has expired. Get a new one.",
       weixinQrRestart: "Get a new QR code",
       bindingUnavailable: "Connector unavailable in this build",

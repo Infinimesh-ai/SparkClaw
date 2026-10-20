@@ -973,3 +973,20 @@ normal single-process launch without inspection arguments is restored.
 Remote CI run39403158327 is **not green**: Gateway, WebChat, Docs and ASR pass;
 the previously recorded Gateway race cleanup, Electron readiness/SUID sandbox and
 Compose error-message assertions still fail.
+
+### 19.1. Desktop email sign-in as a presentation change (2026-10-20)
+
+At the user's direction, cancelling desktop email sign-in only removes the
+button. Product `bafcfd26` restores the ISCP `mail.providers.login` operation,
+its receipt fencing and desktop deadlines, and drops the loader workaround;
+Desktop settings and mail login recovery render no email sign-in button while
+the backend sign-in hint, connection check and resume remain. Weixin polls stay
+receipt-free reads. It is installed on the current Mac, work2 Gateway and
+WebChat with the same procedure; `2ec7c9d0` images are the rollback.
+
+The installed client negotiates `mail.providers.login` again; the email settings
+rows show only Set default and Check connection with the backend hint. All 41
+business tables, 904 protected files and 66,286 receipt files are preserved;
+the issuer is active with no retention warnings and both recreation recipes
+validate. The Mac retains six profiles, 97 tables and 22 messages, and normal
+launch is restored. Remote CI run39405381343 keeps the four recorded failures.

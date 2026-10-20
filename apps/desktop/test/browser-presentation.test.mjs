@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { BrowserPresentation } from "../src/main/presentation.mjs";
 
 function fixture(explicitSelection = true) {
@@ -9,15 +10,16 @@ function fixture(explicitSelection = true) {
     webContents: { on() {}, focus() { this.focused = true; }, isDestroyed: () => false },
   });
   const shield = view();
+  const workbench = new EventEmitter();
   const presentation = new BrowserPresentation({
-    window: { contentView: { addChildView() {}, removeChildView() {} } }, shieldView: shield, explicitSelection,
+    window: { webContents: workbench, contentView: { addChildView() {}, removeChildView() {} } }, shieldView: shield, explicitSelection,
   });
   const record = id => {
     const nativeView = view();
     const page = { tabID: id, pageRef: id, role: "personal", view: nativeView, webContents: nativeView.webContents };
     presentation.add(page); return page;
   };
-  return { presentation, shield, first: record("first"), second: record("second") };
+  return { presentation, shield, workbench, first: record("first"), second: record("second") };
 }
 
 test("workbench presentation requires explicit selection and preserves DOM focus after overlays", () => {
@@ -45,3 +47,27 @@ test("task-only qualification retains automatic presentation and shield focus", 
   assert.equal(shield.visible, true);
   assert.equal(shield.webContents.focused, true);
 });
+
+for (const role of ["personal", "task"]) {
+  for (const event of ["did-start-navigation", "render-process-gone"]) {
+    test(`${role} presentation is released on workbench ${event} until explicitly selected again`, () => {
+      const { presentation, shield, workbench, first } = fixture();
+      first.role = role;
+      const show = explicit => role === "task" ? presentation.showTask(first, explicit) : presentation.showPersonal(first, explicit);
+      show(true);
+      workbench.emit("did-start-navigation", { isMainFrame: false, isSameDocument: false });
+      workbench.emit("did-start-navigation", { isMainFrame: true, isSameDocument: true });
+      assert.equal(first.view.visible, true, "subframes and same-document routes keep the selected page");
+      workbench.emit(event, { isMainFrame: true, isSameDocument: false });
+      assert.equal(first.view.visible, false);
+      assert.equal(shield.visible, false);
+      assert.equal(presentation.status().presented_page_ref, "");
+      show(false);
+      assert.equal(first.view.visible, false, "background activity cannot restore a lost selection");
+      assert.equal(presentation.records.get(first.tabID), first, "the retained page is not destroyed");
+      show(true);
+      assert.equal(first.view.visible, true);
+      assert.equal(shield.visible, role === "task");
+    });
+  }
+}

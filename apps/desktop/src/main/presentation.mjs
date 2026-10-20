@@ -19,6 +19,15 @@ export class BrowserPresentation {
     shieldView.setVisible(false);
     shieldView.webContents.on("before-input-event", (event) => event.preventDefault());
     shieldView.webContents.on("context-menu", (event) => event.preventDefault());
+    if (explicitSelection) {
+      // Native pages survive a workbench reload/crash, but the replacement
+      // document starts with its browser closed. React cleanup cannot run when
+      // that document is lost; revoke its presentation in the owning process.
+      window.webContents.on("did-start-navigation", (details) => {
+        if (details.isMainFrame && !details.isSameDocument) this.setPanelVisible(false);
+      });
+      window.webContents.on("render-process-gone", () => this.setPanelVisible(false));
+    }
   }
 
   add(record) {

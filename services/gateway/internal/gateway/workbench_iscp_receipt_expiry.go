@@ -50,7 +50,7 @@ func (h *receiptExpiryHeap) Pop() any {
 }
 
 func receiptExpiryTime(receipt iscpDomainReceipt) time.Time {
-	if !receipt.Complete || receipt.CompletedAt.IsZero() || receipt.Digest == "" || !domainMutation(receipt.Operation) {
+	if !receipt.Complete || receipt.CompletedAt.IsZero() || receipt.Digest == "" || !domainReceiptFence(receipt.Operation) {
 		return time.Time{}
 	}
 	return receipt.CompletedAt.Add(domainReceiptRetention)

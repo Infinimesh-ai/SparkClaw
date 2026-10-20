@@ -152,7 +152,7 @@ func (j *iscpDomainReceipts) readRetiredShard(bucket string) (iscpRetiredShard, 
 		return shard, errors.New("invalid retired receipt schema")
 	}
 	for key, receipt := range shard.Entries {
-		if !receiptKeyValid(key) || key[:2] != bucket || receipt.Digest == "" || !domainMutation(receipt.Operation) {
+		if !receiptKeyValid(key) || key[:2] != bucket || receipt.Digest == "" || !domainReceiptFence(receipt.Operation) {
 			return shard, errors.New("invalid retired receipt fence")
 		}
 	}

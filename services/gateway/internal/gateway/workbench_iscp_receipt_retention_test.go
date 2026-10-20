@@ -371,3 +371,28 @@ func TestISCPReceiptRetentionMissingHistoryNeverBecomesAbsence(t *testing.T) {
 		})
 	}
 }
+
+func TestISCPReceiptRetentionKeepsHistoricalPollAndLoginFences(t *testing.T) {
+	j := receiptRetentionFixture(t)
+	now := time.Now().UTC()
+	ids := map[string]string{}
+	for _, operation := range []string{"settings.bindings.poll", "mail.providers.login"} {
+		ids[operation] = domainTestRequest("id", nil).ID
+		receipt := completedRetentionReceipt(now.Add(-domainReceiptRetention))
+		receipt.Operation = operation
+		// save() no longer stamps these operations; write the stamp that the
+		// earlier release persisted.
+		if err := j.save("scope", ids[operation], receipt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if result, err := j.sweep(t.Context(), now); err != nil || result.Expired != 2 {
+		t.Fatalf("historical receipts did not expire: %+v, %v", result, err)
+	}
+	for operation, id := range ids {
+		receipt, found, err := j.load("scope", id)
+		if err != nil || !found || receipt.Complete || receipt.Operation != operation {
+			t.Fatalf("%s retired fence unreadable: %+v found=%v err=%v", operation, receipt, found, err)
+		}
+	}
+}

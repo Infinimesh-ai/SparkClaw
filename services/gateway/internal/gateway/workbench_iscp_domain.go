@@ -145,6 +145,18 @@ func domainMutation(operation string) bool {
 	return found && spec.Recovery == "operation_receipt"
 }
 
+// Operations that wrote receipts in earlier releases but no longer do. Their
+// persisted receipts stay valid fences and expire on the normal schedule; they
+// are never written again or replayed to clients.
+var domainHistoricalReceiptOperations = map[string]bool{
+	"mail.providers.login":   true,
+	"settings.bindings.poll": true,
+}
+
+func domainReceiptFence(operation string) bool {
+	return domainMutation(operation) || domainHistoricalReceiptOperations[operation]
+}
+
 func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.Request) iscpDomainResult {
 	switch request.Operation {
 	case iscpworkbench.OperationExecutionProgressStream:

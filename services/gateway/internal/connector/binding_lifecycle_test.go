@@ -435,3 +435,67 @@ func TestBindingLifecycleFileRestartRetainsCleanupProofAndTerminalIDs(t *testing
 		}
 	}
 }
+
+func TestBindingLifecycleWeixinRebindRetiresOlderSessionAndKeepsDefault(t *testing.T) {
+	st := store.NewMemoryStore()
+	older := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
+		ID: "binding-older", OwnerID: "owner", ActorID: "actor", Channel: "weixin", Provider: "openclaw-weixin-qr",
+		Status: app.NotificationBindingActive, ExternalUserID: "wx-user", DefaultForChannel: true,
+	})
+	other := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
+		ID: "binding-other-user", OwnerID: "owner", ActorID: "actor", Channel: "weixin", Provider: "openclaw-weixin-qr",
+		Status: app.NotificationBindingActive, ExternalUserID: "wx-other",
+	})
+	time.Sleep(2 * time.Millisecond)
+	adapter := &lifecycleTestAdapter{poll: func(context.Context, app.NotificationBinding) (binding.PollResult, error) {
+		return binding.PollResult{Status: app.NotificationBindingActive, ExternalUserID: "wx-user"}, nil
+	}}
+	cfg := config.Default()
+	cfg.Tools.Notifications.Channels = map[string]config.NotificationChannelConfig{"weixin": {Enabled: true, Provider: "openclaw-weixin-qr"}}
+	registry := NewRegistry(cfg, st)
+	if err := registry.Register(Registration{Channel: "weixin", SetupKind: app.ConnectorSetupQR, Binding: adapter, BindingProvider: "openclaw-weixin-qr"}); err != nil {
+		t.Fatal(err)
+	}
+	started, err := registry.StartNotificationBinding(t.Context(), app.NotificationBinding{OwnerID: "owner", ActorID: "actor", Channel: "weixin"}, binding.StartOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := registry.PollNotificationBinding(t.Context(), started.ID)
+	if err != nil || active.Status != app.NotificationBindingActive || !active.DefaultForChannel {
+		t.Fatalf("replacement active=%#v err=%v", active, err)
+	}
+	if stored, _ := storetest.MustGetNotificationBinding(t, st, older.ID); stored.Status != app.NotificationBindingRevoked || stored.DefaultForChannel {
+		t.Fatalf("older session not retired: %#v", stored)
+	}
+	if stored, _ := storetest.MustGetNotificationBinding(t, st, other.ID); stored.Status != app.NotificationBindingActive {
+		t.Fatalf("another Weixin user's binding changed: %#v", stored)
+	}
+}
+
+func TestBindingLifecycleRevokingDefaultPromotesNewestRemainingBinding(t *testing.T) {
+	st := store.NewMemoryStore()
+	first := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
+		ID: "binding-default", OwnerID: "owner", ActorID: "actor", Channel: "alpha", Provider: "alpha-provider",
+		Status: app.NotificationBindingActive, DefaultForChannel: true,
+	})
+	time.Sleep(2 * time.Millisecond)
+	second := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
+		ID: "binding-second", OwnerID: "owner", ActorID: "actor", Channel: "alpha", Provider: "alpha-provider",
+		Status: app.NotificationBindingActive,
+	})
+	foreign := storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
+		ID: "binding-foreign", OwnerID: "other-owner", ActorID: "other", Channel: "alpha", Provider: "alpha-provider",
+		Status: app.NotificationBindingActive,
+	})
+	registry := NewRegistry(lifecycleTestConfig(), st)
+	registerLifecycleTestConnector(t, registry, &lifecycleTestAdapter{}, nil, "")
+	if _, err := registry.RevokeNotificationBinding(t.Context(), first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if stored, _ := storetest.MustGetNotificationBinding(t, st, second.ID); !stored.DefaultForChannel {
+		t.Fatal("remaining binding did not become the channel default")
+	}
+	if stored, _ := storetest.MustGetNotificationBinding(t, st, foreign.ID); stored.DefaultForChannel {
+		t.Fatal("another owner's binding became the default")
+	}
+}

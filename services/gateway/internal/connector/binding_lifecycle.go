@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 
@@ -142,7 +143,7 @@ func (r *Registry) PollNotificationBinding(ctx context.Context, id string) (app.
 		}
 		committed, prior, updateErr := r.updateBindingAndResolve(ctx, pending, active)
 		if updateErr == nil {
-			return committed, nil
+			return r.supersedeWeixinBindings(ctx, committed), nil
 		}
 		if prior {
 			if cleanupErr := r.abortSeal(ctx, pending); cleanupErr != nil {
@@ -160,7 +161,80 @@ func (r *Registry) PollNotificationBinding(ctx context.Context, id string) (app.
 		}
 	}
 	committed, _, err := r.updateBindingAndResolve(ctx, current, replacement)
+	if err == nil && committed.Status == app.NotificationBindingActive {
+		committed = r.supersedeWeixinBindings(ctx, committed)
+	}
 	return committed, err
+}
+
+// The provider keeps one working bot session per Weixin user: after a new QR
+// login binding activates, getupdates rejects the older session with errcode -14.
+// Retire older active bindings of the same owner and Weixin user; revocation
+// hands the channel default to the newest remaining binding. Failures leave
+// the new binding active and are retried by the user's explicit revoke.
+func (r *Registry) supersedeWeixinBindings(ctx context.Context, active app.NotificationBinding) app.NotificationBinding {
+	externalUser := strings.TrimSpace(active.ExternalUserID)
+	if normalizeChannel(active.Channel) != "weixin" || !weixinproto.IsQRLoginProvider(active.Provider) ||
+		active.Status != app.NotificationBindingActive || externalUser == "" {
+		return active
+	}
+	bindings, err := r.store.ListNotificationBindings(ctx, active.Channel, app.NotificationBindingActive)
+	if err != nil {
+		slog.Warn("superseded Weixin bindings could not be listed", "binding_id", active.ID, "code", store.StoreErrorCodeOf(err))
+		return active
+	}
+	superseded := false
+	for _, older := range bindings {
+		if older.ID == active.ID || older.OwnerID != active.OwnerID || !weixinproto.IsQRLoginProvider(older.Provider) ||
+			strings.TrimSpace(older.ExternalUserID) != externalUser || !older.CreatedAt.Before(active.CreatedAt) {
+			continue
+		}
+		if _, err := r.RevokeNotificationBinding(ctx, older.ID); err != nil {
+			slog.Warn("superseded Weixin binding could not be revoked", "binding_id", older.ID, "replacement_id", active.ID, "error", err)
+			continue
+		}
+		superseded = true
+	}
+	if !superseded {
+		return active
+	}
+	if current, found, err := r.store.GetNotificationBinding(ctx, active.ID); err == nil && found {
+		return current
+	}
+	return active
+}
+
+// After the channel default is revoked, the newest remaining active binding of
+// the same owner becomes the default so notifications keep a destination.
+func (r *Registry) promoteChannelDefault(ctx context.Context, revoked app.NotificationBinding) {
+	bindings, err := r.store.ListNotificationBindings(ctx, revoked.Channel, app.NotificationBindingActive)
+	if err != nil {
+		slog.Warn("channel default could not be reassigned", "channel", revoked.Channel, "code", store.StoreErrorCodeOf(err))
+		return
+	}
+	var newest *app.NotificationBinding
+	for index := range bindings {
+		candidate := &bindings[index]
+		if candidate.ID == revoked.ID || candidate.OwnerID != revoked.OwnerID {
+			continue
+		}
+		if candidate.DefaultForChannel {
+			return
+		}
+		if newest == nil || candidate.CreatedAt.After(newest.CreatedAt) {
+			newest = candidate
+		}
+	}
+	if newest == nil {
+		return
+	}
+	// Optimistic update without the candidate's lock: the caller may already
+	// hold it while superseding. A concurrent change simply wins.
+	promoted := *newest
+	promoted.DefaultForChannel = true
+	if _, err := r.store.UpdateNotificationBinding(ctx, store.NewNotificationBindingUpdate(*newest, promoted)); err != nil {
+		slog.Warn("channel default could not be reassigned", "binding_id", newest.ID, "code", store.StoreErrorCodeOf(err))
+	}
 }
 
 func (r *Registry) RevokeNotificationBinding(ctx context.Context, id string) (app.NotificationBinding, error) {
@@ -180,6 +254,7 @@ func (r *Registry) RevokeNotificationBinding(ctx context.Context, id string) (ap
 	if current.Status == app.NotificationBindingFailed || current.Status == app.NotificationBindingExpired {
 		return current, storeErrorConflict("terminal notification binding cannot be revoked")
 	}
+	wasDefault := current.DefaultForChannel
 	if current.Status != app.NotificationBindingRevoking {
 		replacement := current
 		replacement.Status = app.NotificationBindingRevoking
@@ -206,6 +281,9 @@ func (r *Registry) RevokeNotificationBinding(ctx context.Context, id string) (ap
 	revoked.Status = app.NotificationBindingRevoked
 	revoked.DefaultForChannel = false
 	committed, _, err := r.updateBindingAndResolve(ctx, current, revoked)
+	if err == nil && wasDefault {
+		r.promoteChannelDefault(ctx, committed)
+	}
 	return committed, err
 }
 

@@ -175,6 +175,14 @@ SparkClaw-owned QR tabs without stopping persistent Chromium. The owner opens
 no display socket, cannot take over existing owner tabs, and never falls back
 to the default browser.
 
+The provider keeps one working bot session per Weixin user. When a QR binding
+activates, older active QR bindings of the same owner and Weixin user are
+revoked, and the channel default moves to the newest remaining binding whenever
+a default binding is revoked. A `getupdates` errcode -14 (`session timeout`) is
+recorded as `weixin_session_expired`; any successful poll clears the binding's
+error, and shutdown cancellation is not recorded. WebChat and Desktop show these
+codes as readable text and can revoke any binding.
+
 ## Speech Transcription
 
 Speech is an optional adapter shared by WebChat microphone input and Telegram

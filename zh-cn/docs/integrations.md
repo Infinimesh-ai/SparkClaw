@@ -135,6 +135,12 @@ SparkClaw 拥有的 QR Tab，但不会停止持久 Chromium。Owner 在宿主桌
 **SparkClaw Browser** 完成 QR 交互；Gateway 不获得 display socket，不能接管既有 owner tab，
 也绝不回退到默认浏览器。
 
+服务商对每个微信用户只保留一个可用的 bot 会话。QR binding 激活时，同一 owner、同一微信用户
+的较早 active QR binding 会被撤销；撤销默认 binding 时，默认身份转给最新的剩余 binding。
+`getupdates` 返回 errcode -14（`session timeout`）时记录为 `weixin_session_expired`；任一次
+成功轮询都会清除 binding 错误，关停取消不记为失败。WebChat 和桌面端以可读文字显示这些
+错误码，并可撤销任一 binding。
+
 ## 语音转写
 
 Speech 是 WebChat microphone 和 Telegram voice note 共享的可选 adapter。一个 SparkClaw ASR

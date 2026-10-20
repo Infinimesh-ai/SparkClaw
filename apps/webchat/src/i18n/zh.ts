@@ -417,7 +417,26 @@ export const zh = {
       originalMCPConversation: "原 MCP 对话",
       approvedDestination: "已批准的目标",
       noReturn: "不返回内容",
-      technicalDetails: "技术详情"
+      technicalDetails: "技术详情",
+      composer: {
+        title: "需要你的确认",
+        viewDetails: "查看操作详情",
+        question: "是否允许执行此操作？",
+        yes: "是",
+        no: "否",
+        allow: "允许本次操作",
+        reject: "拒绝本次操作",
+        submit: "提交",
+        submitting: "正在提交…",
+        retry: "重试原决定",
+        received: "决定已接收。",
+        expired: "审批已过期，无法继续操作。",
+        submitFailed: "提交失败，请重试原决定。",
+        offline: "审批暂时不可用，连接恢复后可继续。",
+        uncertain: "决定接收结果不确定，当前不能继续操作。",
+        unverified: "请等待当前操作核实后再决定。",
+        overlayLabel: "请先完成审批，再继续输入"
+      }
     },
     memory: {
       title: "记忆审查",

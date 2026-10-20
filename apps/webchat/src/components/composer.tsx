@@ -105,6 +105,11 @@ export function ComposerSurface({
     wasAwaitingApproval.current = approvalPending;
   }, [approvalPending, activeSession, composerInputRef]);
   useEffect(() => {
+    // Resolving one of several approvals unmounts its section; keep keyboard
+    // focus inside the overlay instead of letting it fall to the page.
+    if (approvalPending && document.activeElement === document.body) approvalOverlayRef.current?.focus();
+  });
+  useEffect(() => {
     if (!approvalPending) return;
     setIsComposingInput(false);
     if (voiceRef.current.active) void voiceRef.current.cancel();
@@ -213,7 +218,7 @@ export function ComposerSurface({
     </form>
     </div>
     {approvalPending && <div className="composerApprovalOverlay" ref={approvalOverlayRef} tabIndex={-1} role="region"
-      aria-label={language === "zh" ? "请先完成审批，再继续输入" : "Complete approval before continuing"}>
+      aria-label={text.approval.composer.overlayLabel}>
       {approvals}
     </div>}
   </div>;

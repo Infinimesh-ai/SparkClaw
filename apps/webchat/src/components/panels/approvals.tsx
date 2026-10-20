@@ -54,20 +54,19 @@ export function ApprovalPanel({
         <span className="muted">{text.approval.empty}</span>
       ) : (
         approvals.map((approval) => {
-          const happyPlan = approval.source === "happy_team_plan" ? approval.external_context : undefined;
-          const planAvailable = happyPlan?.plan_availability === "available";
+          const { context: happyPlan, available: planAvailable } = happyPlanState(approval);
+          const headline = approvalHeadline(approval, text);
           const contextBound = Boolean(approval.policy_context);
           const argumentsLocked = contextBound || Boolean(approval.arguments_immutable);
-          const workspaceAccess = approval.presentation?.kind === "external_mcp_workspace_data_access" ? approval.presentation : undefined;
           const resolving = resolvingId === approval.id;
           return (
           <article className={`approvalItem ${approval.risk}`} key={approval.id}>
             <div className="approvalTop">
-              <strong>{workspaceAccess ? text.approval.workspaceDataTitle : approval.summary}</strong>
+              <strong>{headline.title}</strong>
               <RiskPill risk={approval.risk} text={text} />
             </div>
-            <p>{workspaceAccess ? text.approval.workspaceDataReason : approval.reason}</p>
-            {!workspaceAccess && approval.resources.length > 0 && (
+            <p>{headline.reason}</p>
+            {headline.showResources && approval.resources.length > 0 && (
               <div className="evalCases">
                 {approval.resources.map((resource) => (
                   <span key={resource}>{resource}</span>
@@ -108,9 +107,22 @@ export function ApprovalPanel({
   );
 }
 
+export function happyPlanState(approval: Approval) {
+  const context = approval.source === "happy_team_plan" ? approval.external_context : undefined;
+  return { context, available: context?.plan_availability === "available" };
+}
+
+// Shared by the approval inbox and the composer so both describe the request
+// identically; workspace-data requests replace the raw tool summary.
+export function approvalHeadline(approval: Approval, text: CopyText) {
+  const workspaceAccess = approval.presentation?.kind === "external_mcp_workspace_data_access";
+  return workspaceAccess
+    ? { title: text.approval.workspaceDataTitle, reason: text.approval.workspaceDataReason, showResources: false }
+    : { title: approval.summary, reason: approval.reason, showResources: true };
+}
+
 export function ApprovalDetails({ approval, text }: { approval: Approval; text: CopyText }) {
-  const happyPlan = approval.source === "happy_team_plan" ? approval.external_context : undefined;
-  const planAvailable = happyPlan?.plan_availability === "available";
+  const { context: happyPlan, available: planAvailable } = happyPlanState(approval);
   const workspaceAccess = approval.presentation?.kind === "external_mcp_workspace_data_access" ? approval.presentation : undefined;
   if (workspaceAccess) return <WorkspaceApprovalDetails presentation={workspaceAccess} argumentsValue={approval.arguments} text={text} />;
   if (happyPlan) return <div className="happyPlanDetails">

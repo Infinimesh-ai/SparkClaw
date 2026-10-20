@@ -969,11 +969,14 @@ export function App() {
               activeAttachments={activeAttachments}
               approvalPending={approvalPending}
               approvals={<SessionComposerApprovals key={activeSession} approvals={approvals} sessionID={activeSession}
-                text={text} language={language} enabled={!authRecovery && (!desktop || desktopConnectionState === "connected")}
+                text={text} enabled={!authRecovery && (!desktop || desktopConnectionState === "connected")}
                 onDecide={async (approval, choice) => {
                   try {
                     if (choice === "approve") await api.approve(approval.id);
                     else await api.reject(approval.id);
+                    // A resolved approval must not keep the composer locked
+                    // when the following refresh fails.
+                    setApprovals(current => current.filter(item => item.id !== approval.id));
                   } finally {
                     await Promise.allSettled([refreshGlobal(), refreshSession(approval.session_id)]);
                   }

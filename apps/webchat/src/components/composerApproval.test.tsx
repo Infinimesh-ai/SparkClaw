@@ -20,7 +20,7 @@ const submit = () => act(async () => host.querySelector<HTMLButtonElement>("foot
 
 it("requires an explicit yes/no selection, preserves a failed decision and retries only that choice", async () => {
   const decide = vi.fn().mockRejectedValueOnce(new Error("Receipt not confirmed")).mockResolvedValue(undefined);
-  await act(async () => root.render(<ComposerApproval language="zh" summary="发送这封邮件？" details={<pre>Recipient and body</pre>} onDecide={decide} />));
+  await act(async () => root.render(<ComposerApproval text={dictionaries.zh} summary="发送这封邮件？" details={<pre>Recipient and body</pre>} lockOnAttempt onDecide={decide} />));
   expect(host.querySelectorAll('input[type="radio"]')).toHaveLength(2);
   expect(host.querySelectorAll('input:checked')).toHaveLength(0);
   expect(host.querySelector<HTMLButtonElement>("button")!.disabled).toBe(true);
@@ -33,10 +33,21 @@ it("requires an explicit yes/no selection, preserves a failed decision and retri
   expect(host.querySelector<HTMLButtonElement>("button")!.disabled).toBe(true);
 });
 
+it("lets an unbound approval change its answer after a failed submission", async () => {
+  const decide = vi.fn().mockRejectedValueOnce(new Error("Server error")).mockResolvedValue(undefined);
+  await act(async () => root.render(<ComposerApproval text={dictionaries.en} summary="Run" details={null} onDecide={decide} />));
+  await choose("approve"); await submit();
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe("Server error");
+  expect(host.querySelector<HTMLInputElement>('input[value="reject"]')!.disabled).toBe(false);
+  await choose("reject"); await submit();
+  expect(decide.mock.calls).toEqual([["approve"], ["reject"]]);
+  expect(host.querySelector('[role="status"]')?.textContent).toBe("Decision received.");
+});
+
 it("expires without polling or a rerender and cannot submit a choice after expiry", async () => {
   vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-20T08:00:00Z"));
   const decide = vi.fn();
-  await act(async () => root.render(<ComposerApproval language="en" summary="Edit file" details={null}
+  await act(async () => root.render(<ComposerApproval text={dictionaries.en} summary="Edit file" details={null}
     expiresAt="2026-10-20T08:00:01Z" onDecide={decide} />));
   await choose("approve");
   await act(async () => { vi.advanceTimersByTime(1001); });
@@ -53,7 +64,7 @@ it("shows only the active session and pending requests; switching context cannot
   const decide = vi.fn();
   const render = (sessionID: string) => act(async () => root.render(<SessionComposerApprovals key={sessionID}
     approvals={[approval, { ...approval, id: "other", session_id: "second" }, { ...approval, id: "resolved", status: "approved" }]}
-    sessionID={sessionID} text={dictionaries.en} language="en" enabled onDecide={decide} />));
+    sessionID={sessionID} text={dictionaries.en} enabled onDecide={decide} />));
   await render("first"); expect(host.querySelectorAll("section")).toHaveLength(1); await choose("approve");
   await render("second"); expect(host.querySelectorAll("input:checked")).toHaveLength(0); await choose("reject"); await submit();
   expect(decide).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "other", session_id: "second" }), "reject");
@@ -63,7 +74,7 @@ it("keeps both choices disabled offline, and permits rejecting an unavailable Ha
   const decide = vi.fn();
   const render = (enabled: boolean) => act(async () => root.render(<SessionComposerApprovals
     approvals={[{ ...approval, source: "happy_team_plan", external_context: { provider: "happy", title: "Plan", goal_prompt: "Goal", plan_availability: "temporarily_unavailable" } }]}
-    sessionID="first" text={dictionaries.en} language="en" enabled={enabled} onDecide={decide} />));
+    sessionID="first" text={dictionaries.en} enabled={enabled} onDecide={decide} />));
   await render(false); await choose("reject"); await submit(); expect(decide).not.toHaveBeenCalled();
   await render(true);
   expect(host.querySelector<HTMLInputElement>('input[value="approve"]')!.disabled).toBe(true);
@@ -77,9 +88,19 @@ it("disables unverified or unavailable local approvals and retires terminated ta
     approval_id: "a", digest: "d", state: "pending", tool: "browser.type", summary: "Type text", arguments: {},
     expires_at: new Date(Date.now() + 60000).toISOString(), actionable: true,
   }] };
-  const render = (tasks: LocalTask[], enabled: boolean) => act(async () => root.render(<LocalComposerApprovals tasks={tasks} language="en" enabled={enabled} onDecide={decide} />));
+  const render = (tasks: LocalTask[], enabled: boolean) => act(async () => root.render(<LocalComposerApprovals tasks={tasks} text={dictionaries.en} enabled={enabled} onDecide={decide} />));
   await render([task], false); await choose("approve"); await submit(); expect(decide).not.toHaveBeenCalled();
   await render([task], true); await choose("approve"); await submit();
   expect(decide).toHaveBeenCalledExactlyOnceWith(task, task.approvals![0], "approve");
   await render([{ ...task, termination_reason: "gateway_restart" }], true); expect(host.querySelector("section")).toBeNull();
+});
+
+it("describes workspace-data requests in the composer as the approval inbox does", async () => {
+  const workspace = { ...approval, summary: "raw tool summary", reason: "raw reason", resources: ["/private/path"],
+    presentation: { kind: "external_mcp_workspace_data_access", session_id: "first", requester: "AI", return_route: {}, scope: "single_operation" } } satisfies Approval;
+  await act(async () => root.render(<SessionComposerApprovals approvals={[workspace]} sessionID="first" text={dictionaries.en} enabled onDecide={vi.fn()} />));
+  expect(host.querySelector(".composerApprovalQuestion")?.textContent).toBe(dictionaries.en.approval.workspaceDataTitle);
+  expect(host.textContent).toContain(dictionaries.en.approval.workspaceDataReason);
+  expect(host.textContent).not.toContain("raw tool summary");
+  expect(host.textContent).not.toContain("/private/path");
 });

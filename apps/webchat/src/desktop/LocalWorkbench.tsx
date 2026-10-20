@@ -587,7 +587,7 @@ export function LocalWorkbench() {
         }}>
         <ComposerSurface text={text} language={language} activeSession={selected} activeInput={draft}
           approvalPending={approvalPending}
-          approvals={<LocalComposerApprovals key={`${localScopeKey}:${selected}`} tasks={content.tasks} language={language}
+          approvals={<LocalComposerApprovals key={`${localScopeKey}:${selected}`} tasks={content.tasks} text={text}
             enabled={!busy && connection?.state === "connected" && capabilities.approvals} onDecide={decideApproval} />}
           activeAttachments={activeAttachments} busy={busy} voice={voice} composerInputRef={composerInputRef}
           filesEnabled={capabilities.files} mailEnabled={capabilities.mail && connection?.state === "connected"}

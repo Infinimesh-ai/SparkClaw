@@ -415,7 +415,26 @@ export const en = {
       originalMCPConversation: "Original MCP conversation",
       approvedDestination: "Approved destination",
       noReturn: "No content return",
-      technicalDetails: "Technical details"
+      technicalDetails: "Technical details",
+      composer: {
+        title: "Your approval is needed",
+        viewDetails: "View action details",
+        question: "Allow this action?",
+        yes: "Yes",
+        no: "No",
+        allow: "Allow this action",
+        reject: "Reject this action",
+        submit: "Submit",
+        submitting: "Submitting…",
+        retry: "Retry same decision",
+        received: "Decision received.",
+        expired: "Approval expired. It can no longer be acted on.",
+        submitFailed: "Could not submit. Retry the same decision.",
+        offline: "Approval is unavailable. Continue when the connection recovers.",
+        uncertain: "Decision receipt is uncertain. No further action is currently available.",
+        unverified: "Wait for the current operation to be verified before deciding.",
+        overlayLabel: "Complete approval before continuing"
+      }
     },
     memory: {
       title: "Memory Review",

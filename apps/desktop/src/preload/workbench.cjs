@@ -94,7 +94,6 @@ contextBridge.exposeInMainWorld("sparkclawDesktop", Object.freeze({
   },
   state: () => invoke("state"),
   selectConversation: (local_conversation_id) => invoke("selectConversation", { local_conversation_id }),
-  grantBrowserHost: () => invoke("grantBrowserHost"),
   reconcileBrowserHost: (command_id, digest, outcome) => invoke("reconcileBrowserHost", { command_id, digest, outcome }),
   createPersonal: (url) => invoke("createPersonal", url ? { url } : {}),
   navigatePersonal: (pageRef, url) => invoke("navigatePersonal", { page_ref: pageRef, url }),

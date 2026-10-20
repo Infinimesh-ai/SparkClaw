@@ -345,10 +345,6 @@ async function start() {
     browserServices: ownerBrowserServices,
     browserHost: browserHost ? {
       snapshot: () => browserHost.snapshot(),
-      grant: async () => {
-        await prepareBrowserHostScope();
-        return browserHost.grant();
-      },
       reconcile: async (...args) => {
         await prepareBrowserHostScope();
         return browserHost.reconcile(...args);
@@ -359,7 +355,7 @@ async function start() {
     getCapabilities: () => desktopAuth?.status.capabilities,
   }).start();
   // The UDS adapter is a frozen Linux qualification transport. Production
-  // browser execution uses the explicitly granted outbound Host transport. macOS
+  // browser execution uses the automatically connected outbound Host transport. macOS
   // never reads Linux adapter secrets or starts the qualification owner service.
   if (qualification && process.platform === "linux") {
   adapter = new ElectronAdapterServer({
@@ -708,8 +704,9 @@ function prepareBrowserHostScope() {
     if (scope?.installation_id !== localStore.installationID || scope.owner_id !== connection.ownerID || scope.client_id !== connection.clientID) {
       await browserHost.start({ installation_id: localStore.installationID });
     }
-    await browserHost.refreshFences();
-    browserHost.autoGrantISCP();
+    // The automatic connection refreshes fences itself and owns transient
+    // retries, including a failed first connection. No renderer action is needed.
+    browserHost.autoConnect();
     desktopCapability?.changed();
   });
   return browserHostPreparation;

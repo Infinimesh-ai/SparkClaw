@@ -46,6 +46,7 @@ test("desktop capability admits only the trusted workbench main frame and opaque
 
   const state = await handler(event, { schema_version: 1, operation: "state" });
   assert.equal(state.runtime_generation, "a".repeat(32));
+  await assert.rejects(handler(event, { schema_version: 1, operation: "grantBrowserHost" }), /operation is unavailable/);
   await assert.rejects(handler({ sender: webContents, senderFrame: { url: mainFrame.url } }, {
     schema_version: 1, operation: "state",
   }), /not trusted/);

@@ -19,7 +19,7 @@ async function fixture(t, execute) {
  const socket = new EventEmitter(); socket.results = []; socket.send = (value) => socket.results.push(value); socket.close = () => { if (!socket.closed) { socket.closed = true; socket.emit("close"); } };
  const agent = new BrowserHostAgent({ auth, registry, userDataDir: root, execute: execute || (async (_record, _op, _args, b, fence) => { fence(); return { text: b.local_conversation_id }; }), connect: async () => { setTimeout(() => socket.emit("message", { schema_version: 1, type: "welcome", host_id: "host_test", runtime_generation: "runtime_test", connection_epoch: "epoch_test", authorization_digest: "a".repeat(64), lease_seconds: 30, heartbeat_seconds: 10 }), 0); return socket; } });
  t.after(() => agent.stop()); await agent.start({ installation_id: "installation" });
- assert.equal(grantCalls, 0, "login/start cannot grant the browser"); await agent.grant();
+ assert.equal(grantCalls, 0, "initializing a scope alone does not start the host channel"); agent.autoConnect(); await until(() => agent.state === "connected");
  return { root, agent, socket, pages, registry, auth, closed: () => closed };
 }
 test("host admits exact scoped commands and fences foreign identity/epoch/script injection", async (t) => {
@@ -87,7 +87,7 @@ test("lost reply after durable local completion merges backend unknown by exact 
  await assert.rejects(agent.refreshFences(), /digest conflicts/);assert.equal(agent.state, "reconciliation_conflict");assert.equal(pages.size, 0);
 });
 
-test("ISCP connection grants the device browser automatically and retries after failure, LAN does not", async (t) => {
+test("ISCP and LAN connections start the device browser automatically with bounded retries", async (t) => {
  const root = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-host-auto-"));t.after(() => fs.rm(root, { recursive: true, force: true }));
  const registry = { runtimeGeneration: "runtime_test", closeHostPages() {} };
  const auth = { status: { state: "connected", capabilities: { browser: true } }, connection: { ownerID: "owner", clientID: "client" }, descriptor: { transport: "iscp" } };
@@ -96,22 +96,26 @@ test("ISCP connection grants the device browser automatically and retries after 
  await agent.start({ installation_id: "installation" });
  let grants = 0; let fail = true;
  agent.grant = async () => { grants++; if (fail) { fail = false; throw new Error("unavailable"); } agent.state = "connected"; };
- agent.autoGrantISCP();
+ agent.autoConnect();
  await until(() => grants === 1 && !agent.autoGranting);
  assert.ok(agent.autoGrantTimer, "a failed automatic grant schedules a retry");
- agent.autoGrantDelay = 0; agent.autoGrantISCP();
+ agent.autoGrantDelay = 0; agent.autoConnect();
  await until(() => agent.state === "connected");
  assert.equal(grants, 2);
- agent.autoGrantISCP(); await new Promise((resolve) => setTimeout(resolve, 10));
+ agent.autoConnect(); await new Promise((resolve) => setTimeout(resolve, 10));
  assert.equal(grants, 2, "an already connected host is not granted again");
 
- agent.state = "fenced"; agent.autoGrantISCP(); await new Promise((resolve) => setTimeout(resolve, 10));
+ agent.state = "fenced"; agent.autoConnect(); await new Promise((resolve) => setTimeout(resolve, 10));
  assert.equal(grants, 2, "a fenced host waits for the user");
- agent.state = "ungranted"; auth.status.capabilities.browser = false; agent.autoGrantISCP(); await new Promise((resolve) => setTimeout(resolve, 10));
+ agent.state = "ungranted"; auth.status.capabilities.browser = false; agent.autoConnect(); await new Promise((resolve) => setTimeout(resolve, 10));
  assert.equal(grants, 2, "no grant without the backend browser capability");
  auth.status.capabilities.browser = true; auth.descriptor = { schemaVersion: 2, origin: "https://example.test" };
- agent.autoGrantISCP(); await new Promise((resolve) => setTimeout(resolve, 10));
- assert.equal(grants, 2, "LAN keeps the explicit user grant");
+ agent.autoConnect(); await new Promise((resolve) => setTimeout(resolve, 10));
+ assert.equal(grants, 3, "LAN also connects without a user grant");
+ auth.status.state = "locked"; agent.state = "ungranted"; agent.autoConnect(); await new Promise((resolve) => setTimeout(resolve, 10));
+ assert.equal(grants, 3, "a locked desktop cannot start the browser");
+ auth.status.state = "connected"; auth.descriptor = { schemaVersion: 1 }; agent.autoConnect(); await new Promise((resolve) => setTimeout(resolve, 10));
+ assert.equal(grants, 3, "legacy qualification transports do not inherit LAN authority");
 });
 
 async function grantConcurrencyFixture(t) {
@@ -131,9 +135,9 @@ async function grantConcurrencyFixture(t) {
  return {agent,auth,grants,registers,closes,finish,polls:()=>polls};
 }
 
-test('automatic and manual browser grants share one live owner; connected activation is idempotent',async t=>{
- const f=await grantConcurrencyFixture(t);f.agent.autoGrantISCP();await until(()=>f.grants.length===1);
- const manual=f.agent.grant();const another=f.agent.grant();f.finish(0);await Promise.all([manual,another]);await until(()=>!f.agent.autoGranting);
+test('concurrent browser setup shares one live owner and connected setup is idempotent',async t=>{
+ const f=await grantConcurrencyFixture(t);f.agent.autoConnect();await until(()=>f.grants.length===1);
+ const setup=f.agent.grant();const another=f.agent.grant();f.finish(0);await Promise.all([setup,another]);await until(()=>!f.agent.autoGranting);
  assert.equal(f.agent.state,'connected');assert.equal(f.grants.length,1);assert.equal(f.registers.length,1);assert.equal(f.closes.length,0);
  const epoch=f.agent.epoch,socket=f.agent.socket,generation=f.agent.generation;
  await f.agent.grant();assert.equal(f.grants.length,1);assert.equal(f.registers.length,1);assert.equal(f.closes.length,0);assert.equal(f.agent.epoch,epoch);assert.equal(f.agent.socket,socket);assert.equal(f.agent.generation,generation);
@@ -146,4 +150,51 @@ test('stopped or replaced scope cannot be revived by a late grant result',async 
  f.auth.generation++;f.auth.connection={ownerID:'next-owner',clientID:'next-client'};await f.agent.start({installation_id:'next-installation'});
  const fresh=f.agent.grant();await until(()=>f.grants.length===3);f.finish(2);await fresh;const socket=f.agent.socket,epoch=f.agent.epoch;
  f.finish(1);await oldRejected;assert.equal(f.agent.state,'connected');assert.equal(f.agent.scope.owner_id,'next-owner');assert.equal(f.agent.socket,socket);assert.equal(f.agent.epoch,epoch);assert.equal(f.registers.length,1);assert.equal(f.closes.length,0);
+});
+
+
+test('automatic setup cannot restart a suspended host after a late response', async t => {
+ const f = await grantConcurrencyFixture(t); f.agent.autoConnect(); await until(() => f.grants.length === 1);
+ await f.agent.suspend(); f.finish(0); await until(() => !f.agent.autoGranting);
+ assert.equal(f.agent.state, 'suspended'); assert.equal(f.agent.autoGrantTimer, undefined); assert.equal(f.registers.length, 0);
+ f.agent.autoConnect(); await until(() => f.grants.length === 2); f.finish(1); await until(() => f.agent.state === 'connected');
+ assert.equal(f.registers.length, 1);
+});
+
+test('automatic setup resumes the new scope after the previous in-flight setup settles', async t => {
+ const f = await grantConcurrencyFixture(t); f.agent.autoConnect(); await until(() => f.grants.length === 1);
+ await f.agent.start({ installation_id: 'next-installation' }); f.agent.autoConnect(); f.finish(0);
+ await until(() => f.grants.length === 2); f.finish(1); await until(() => f.agent.state === 'connected');
+ assert.equal(f.agent.scope.installation_id, 'next-installation'); assert.equal(f.registers.length, 1);
+});
+
+test('LAN automatically restores a lost channel without re-enabling browser access', async t => {
+ const f = await fixture(t); let reconnects = 0;
+ f.agent.connect = async () => {
+  reconnects++;
+  const socket = new EventEmitter(); socket.send = () => {}; socket.close = () => socket.emit('close');
+  setTimeout(() => socket.emit('message', { schema_version: 1, type: 'welcome', host_id: 'host_test', runtime_generation: 'runtime_test', connection_epoch: 'next_epoch', authorization_digest: 'a'.repeat(64), lease_seconds: 30, heartbeat_seconds: 10 }), 0);
+  return socket;
+ };
+ f.socket.close();
+ assert.equal(f.agent.state, 'disconnected'); assert.ok(f.agent.autoGrantTimer);
+ // Await the production reconnect timer, without another connection/UI call.
+ for (let attempt = 0; attempt < 300 && f.agent.state !== 'connected'; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+ assert.equal(f.agent.state, 'connected'); assert.equal(reconnects, 1); assert.equal(f.agent.epoch, 'next_epoch');
+});
+
+test('automatic connection preserves a reconciliation conflict without retrying it', async t => {
+ const f = await grantConcurrencyFixture(t), b = binding();
+ const write = command('click', b, { ref: 'snapshot:e1', snapshot_id: 'snapshot' });
+ await f.agent.journal.begin(write);
+ await f.agent.journal.finish(write.command_id, 'unknown');
+ const fence = { command_id: write.command_id, scope: { ...scope, local_conversation_id: 'A', local_task_id: 'task_A' },
+  host_id: b.host_id, runtime_generation: b.runtime_generation, connection_epoch: b.connection_epoch, lease_id: b.lease_id,
+  page_id: b.page_id, page_generation: b.page_generation, authorization_digest: b.authorization_digest,
+  digest: '0'.repeat(64), write: true, state: 'unknown', updated_at: new Date().toISOString() };
+ const invoke = f.auth.invokeISCP;
+ f.auth.invokeISCP = async (...args) => args[0] === 'browser.receipt' ? { fences: [fence] } : invoke(...args);
+ f.agent.autoConnect(); await until(() => f.grants.length === 1); f.finish(0); await until(() => !f.agent.autoGranting);
+ assert.equal(f.agent.state, 'reconciliation_conflict'); assert.equal(f.agent.autoGrantTimer, undefined);
+ assert.equal(f.agent.socket, undefined); assert.equal(f.agent.journal.unknown(scope).length, 1);
 });

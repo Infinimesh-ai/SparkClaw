@@ -55,7 +55,7 @@ beforeEach(() => {
 });
 
 describe("workbench local workbench", () => {
-  it("opens the browser panel with a draggable divider in the desktop workbench", async () => {
+  it.each(["iscp", "lan"] as const)("opens the original browser panel without manual authorization over %s", async transport => {
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
     vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
     vi.spyOn(api, "ready").mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof api.ready>>);
@@ -66,7 +66,7 @@ describe("workbench local workbench", () => {
     let changed = (_status: DesktopConnectionStatus) => {};
     let browserEnabled = true;
     const connectionStatus = (enabled: boolean): DesktopConnectionStatus => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
-      backend: { schema_version: 3, transport: "iscp", deployment_id: "test", origin: "https://fixture.invalid" },
+      backend: transport === "iscp" ? { schema_version: 3, transport: "iscp", deployment_id: "test", origin: "https://fixture.invalid" } : { schema_version: 2, deployment_id: "test", origin: "https://fixture.invalid" },
       capabilities: { operations: [], files: false, mail: false, browser: enabled, speech: false, approvals: false, settings: false,
         surfaces: { browser: { enabled, reason: "" } } } });
     const desktopState = { pages: [], downloads: [], permissions: [], presentation: { panel_bounds: { x: 0, y: 0, width: 1, height: 1 }, insufficient_space: false, presented_page_ref: "", layout_revision: 0 } };
@@ -80,6 +80,8 @@ describe("workbench local workbench", () => {
       expect(host.querySelector(".inspectorResizeHandle")).toBeNull();
       await act(async () => host.querySelector<HTMLButtonElement>(".rightSidebarToggle")!.click());
       expect(host.querySelector(".desktopBrowserPanel")).not.toBeNull();
+      expect(host.querySelector(".localBrowserGrant, .localBrowserAuthorization")).toBeNull();
+      expect(host.textContent).not.toMatch(/Authorize this browser|授权本机浏览器/);
       const handle = host.querySelector<HTMLElement>('.inspectorResizeHandle[role="separator"]')!;
       expect(handle).not.toBeNull();
       expect(handle.parentElement).toBe(host.querySelector(".desktopBrowserPanel")!.parentElement);
@@ -88,11 +90,12 @@ describe("workbench local workbench", () => {
       expect(window.localStorage.getItem("sparkx.inspector-width")).toBe("240");
       await act(async () => host.querySelector<HTMLButtonElement>(".desktopBrowserWindowActions button")!.click());
       expect(host.querySelector("main.browserFocus")).not.toBeNull();
-      await act(async () => { browserEnabled = false; changed(connectionStatus(false)); });
+      if (transport === "iscp") await act(async () => { browserEnabled = false; changed(connectionStatus(false)); });
+      else await act(async () => [...host.querySelectorAll<HTMLButtonElement>(".desktopBrowserWindowActions button")].at(-1)!.click());
       expect(host.querySelector("main.browserFocus, main.withInspector")).toBeNull();
       expect(host.querySelector<HTMLElement>(".desktopBrowserPanel")?.hidden).toBe(true);
       expect(host.querySelector(".chatColumn")?.hasAttribute("inert")).toBe(false);
-      expect(host.querySelector<HTMLButtonElement>(".rightSidebarToggle")?.disabled).toBe(true);
+      expect(host.querySelector<HTMLButtonElement>(".rightSidebarToggle")?.disabled).toBe(transport === "iscp");
     } finally { await act(async () => root.unmount()); }
   });
 

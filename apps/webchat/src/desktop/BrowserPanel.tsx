@@ -1,4 +1,4 @@
-import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -42,7 +42,6 @@ const copy = {
 export type BrowserPanelProps = {
   language: Language;
   localConversationID?: string;
-  toolbar?: ReactNode;
   open?: boolean;
   visible?: boolean;
   onCollapse?: () => void;
@@ -52,7 +51,7 @@ export type BrowserPanelProps = {
 
 // Keep this component mounted when collapsed: address drafts belong to tabs,
 // and native views must be hidden without destroying their browsing state.
-export function BrowserPanel({ language, localConversationID, toolbar, open = true,
+export function BrowserPanel({ language, localConversationID, open = true,
   visible = open, onCollapse, wide: controlledWide, onWideChange }: BrowserPanelProps) {
   const desktop = desktopCapability();
   const text = copy[language];
@@ -238,7 +237,6 @@ export function BrowserPanel({ language, localConversationID, toolbar, open = tr
   const toggleTransfers = () => { setShowTransfers(current => !current); setMenuOpen(false); };
 
   return <aside className={`taskInspector desktopBrowserPanel ${wide ? "wide" : ""}`} hidden={!shown} aria-label={text.browser}>
-    {toolbar}
       <div className="desktopBrowserTabBar">
         <div className="desktopTabStrip" role="tablist" aria-label={text.browser}>
           {!activePage && <div className="desktopTab desktopTabPlaceholder selected" role="tab" aria-selected="true">

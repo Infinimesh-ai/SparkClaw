@@ -1,8 +1,6 @@
 /* Desktop-only controls complement the shared production workbench UI. */
 .localChat[hidden] { display: none; }
 .localListNotice { padding: 4px 12px; color: var(--text-secondary); font-size: var(--font-ui); line-height: var(--line-ui); }
-.localBrowserAuthorization:empty { display: none; }
-.localBrowserAuthorization { padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); }
 .localScheduleEmpty { color: var(--text-secondary); }
 .localPhaseNotice { max-width: 70ch; margin-block: 0 28px; color: var(--text-secondary); line-height: 1.65; }
 .localHistory details p { font-size: var(--font-ui); overflow-wrap: anywhere; color: var(--text-secondary); line-height: var(--line-ui); }
@@ -26,9 +24,9 @@
 .localSchedules form button { justify-self: start; padding: 10px 12px; border-radius: var(--radius-control); color: var(--text-primary); background: var(--surface-muted); }
 .localUnknownWrite { margin-block: 20px; padding-block: 12px; border-block: 1px solid var(--border-strong); }
 .localTaskActions, .localComposerActions { display: flex; gap: 8px; flex-wrap: wrap; }
-.localTaskActions button, .localComposerActions button, .localBrowserGrant { display: flex; gap: 6px; align-items: center; border-radius: var(--radius-control); padding: 8px 12px; background: var(--surface-muted); color: var(--text-primary); }
-.localTaskActions button:disabled, .localComposerActions button:disabled, .localBrowserGrant:disabled { opacity: .5; cursor: not-allowed; }
-.localTaskActions button:focus-visible, .localComposerActions button:focus-visible, .localBrowserGrant:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 3px; }
+.localTaskActions button, .localComposerActions button { display: flex; gap: 6px; align-items: center; border-radius: var(--radius-control); padding: 8px 12px; background: var(--surface-muted); color: var(--text-primary); }
+.localTaskActions button:disabled, .localComposerActions button:disabled { opacity: .5; cursor: not-allowed; }
+.localTaskActions button:focus-visible, .localComposerActions button:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 3px; }
 .localFileRow button { display: flex; align-items: center; gap: 6px; padding: 8px; background: var(--surface-muted); color: var(--text-primary); border-radius: var(--radius-control); }
 .localFeedback { margin: 12px 32px; color: var(--text-primary); line-height: 1.5; }
 .localFeedback[role=alert] { color: var(--crimson-danger); }

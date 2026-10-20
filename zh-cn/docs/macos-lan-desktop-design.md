@@ -53,7 +53,7 @@
 
 严格 v1 回环解析器继续用于 Linux／qualification。已另行实现无密钥的 v2 HTTPS 描述，核验部署、Owner、公开 CA／主机名及证书指纹，凭据身份保留在主进程安全 vault。宿主权限和服务端安装身份绑定已实现，见[阶段记录](client-r3-implementation.md)。
 
-工作台凭据允许范围内的业务请求，独立宿主授权允许浏览器命令。Mac main 主动建立 WSS 控制通道，注册宿主身份、运行代次与能力，不开放 Mac 入站监听或裸远程 CDP。宿主绑定经认证的 Owner／客户端安装实例；重连产生新连接代次并撤销旧租约。
+工作台凭据允许范围内的业务请求，独立的协议宿主授权允许浏览器命令。2026-10-20起，桌面主进程在连接验证通过后自动获取并刷新该授权，HTTPS局域网和ISCP均适用；用户无需配置或点击本机浏览器授权。任务审批和未知写入核对仍独立保留。Mac main 主动建立 WSS 控制通道，注册宿主身份、运行代次与能力，不开放 Mac 入站监听或裸远程 CDP。宿主绑定经认证的 Owner／客户端安装实例；重连产生新连接代次并撤销旧租约。
 
 Host 只接收实际 TLS 到达 Gateway 的连接。可设置 `gateway.tls_cert_file`／`gateway.tls_key_file` 启用原生 TLS，或使用 HTTPS upstream 代理；仅终止 TLS 后转发 HTTP 及可伪造转发头均不能代替。证书／私钥由部署用户配置，源码交付不修改现有服务，详见 [Mac 连接指南](macos-connection-guide.md)。
 

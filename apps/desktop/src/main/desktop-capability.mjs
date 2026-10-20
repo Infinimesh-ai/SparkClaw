@@ -79,10 +79,6 @@ export class DesktopCapability {
         exactKeys(request, ["operation", "schema_version", "command_id", "digest", "outcome"]);
         if (!this.browserHost) throw new Error("Browser host is unavailable");
         return this.browserHost.reconcile(request.command_id, request.digest, request.outcome);
-      case "grantBrowserHost":
-        exactKeys(request, ["operation", "schema_version"]);
-        if (!this.browserHost) throw new Error("Browser host is unavailable");
-        return this.browserHost.grant();
       case "state":
         exactKeys(request, ["operation", "schema_version"]);
         return this.snapshot();

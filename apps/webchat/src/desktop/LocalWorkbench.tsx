@@ -620,10 +620,7 @@ export function LocalWorkbench() {
         {capabilities.browser && browserLayout.visible && typeof desktop.state === "function" && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} onHide={closeBrowser} />}
 
       </>}
-        {browserLayout.mounted && typeof desktop.state === "function" && <BrowserPanel open={browserOpen} visible={capabilities.browser && browserLayout.visible} onCollapse={closeBrowser} wide={browserLayout.wide} onWideChange={browserLayout.setWide} language={language} localConversationID={selected} toolbar={<div className="localBrowserAuthorization">{selected && desktop.grantBrowserHost && <button className="localBrowserGrant" type="button" disabled={busy || connection?.state !== "connected"} onClick={() => void action(async () => {
-            await desktop.grantBrowserHost!();
-            setNotice(zh ? "已授权本机浏览器执行当前设备的任务。" : "This device's browser is authorized for its tasks.");
-          })}>{zh ? "授权本机浏览器" : "Authorize this browser"}</button>}</div>} />}
+        {browserLayout.mounted && typeof desktop.state === "function" && <BrowserPanel open={browserOpen} visible={capabilities.browser && browserLayout.visible} onCollapse={closeBrowser} wide={browserLayout.wide} onWideChange={browserLayout.setWide} language={language} localConversationID={selected} />}
     </main>
     {searchOpen && <TaskSearch language={language} sessions={conversations} onSelect={(conversation) => { setSearchOpen(false); void select(conversation.id).catch(surfaceError); }} onClose={() => setSearchOpen(false)} />}
   </div>;

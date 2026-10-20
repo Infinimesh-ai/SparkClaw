@@ -32,7 +32,7 @@ Recording insertion and its application marker commit in one local SQLite transa
 
 The UI keeps the original components, menus, layout and styles. Unavailable operations retain their entries and are disabled. No persistent transport diagnostics are added to product screens.
 
-The existing browser authorization button joins an automatic grant already in progress and returns the existing valid host when connected. Repeated clicks do not destroy the active owner or reuse a closed epoch. A late result from a stopped or replaced scope cannot register over the new host.
+The October 19 implementation coalesced manual and automatic browser setup into one live owner. The October 20 follow-up removes the manual browser-authorization button and renderer grant API: verified ISCP and HTTPS LAN desktop connections both establish and restore the host automatically. Repeated setup notifications preserve a valid host. A late result from a stopped, suspended or replaced scope cannot register over the current host; unknown writes still require reconciliation.
 
 ## Qualification evidence
 

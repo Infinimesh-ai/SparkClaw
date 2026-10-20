@@ -70,13 +70,13 @@ ClientStore 位于 `userData/client-r3`，由 main 管理 SQLite WAL／FULL，sc
 | `POST /api/r3/executions/{request}/ack` 和 `/cancel` | 持久接收或保守取消，不虚构完成 |
 | `GET /api/r3/mail/mailboxes`／`POST /api/r3/mail/{mailbox}/sync` | 授权目录及 cursor／limit 同步；会修改 journal 的工作使用 POST |
 | `GET /api/r3/mail/{mailbox}/messages/{mail}/attachments/{part}` | 后端权威附件，校验大小／哈希，明确保存本地副本 |
-| `POST /api/r3/hosts/grants`、`GET /api/r3/hosts/connect` | 独立明确 Host grant 和客户端鉴权出站 WSS |
+| `POST /api/r3/hosts/grants`、`GET /api/r3/hosts/connect` | 主进程管理 Host grant 和客户端鉴权出站 WSS |
 | `GET /api/r3/hosts/fences`、`POST /reconcile`、`POST /{host}/revoke` | 无正文未知记录、明确观测结果与独立 Host 撤销 |
 | `POST /api/r3/schedules/lease`、`POST /{request}/renew` 或 `/cancel` | 内存未来上下文，绑定可续租的安装客户端在线租约 |
 
 Gateway 可选原生 TLS 使用成对绝对路径 `gateway.tls_cert_file`／`gateway.tls_key_file` 或 `SPARKCLAW_GATEWAY_TLS_CERT_FILE`／`SPARKCLAW_GATEWAY_TLS_KEY_FILE`。无效证书对启动失败；私钥必须为 Gateway 用户拥有的普通私有文件，不能为 symlink。最低 TLS 1.2，Host 接入要求 TLS 实际到达 Gateway；代理需 HTTPS upstream，转发头不能授予访问。未配置时保留既有 HTTP 监听，源码交付不配置证书或生产入口。
 
-renderer 不能代理这些 R3 传输。Desktop main 管理 ExecutionClient、ScheduleClient、MailSyncClient 和 BrowserHostAgent，退出／休眠／不可用时中止，恢复连接后继续状态核对。浏览器失去通道后需再次明确授权。认证代际阻止同身份的迟到响应落盘／ACK。
+renderer 不能代理这些 R3 传输。Desktop main 管理 ExecutionClient、ScheduleClient、MailSyncClient 和 BrowserHostAgent，退出／休眠／不可用时中止，恢复连接后继续状态核对。2026-10-20起，已验证的桌面连接在ISCP和固定证书的HTTPS局域网下均自动建立本机浏览器宿主；首次失败、通道丢失及宿主租约到期按有界退避恢复，不再提供浏览器授权按钮或renderer授权API。退出、休眠、身份切换及浏览器能力不可用仍中止访问，未知写入及核对冲突继续保留围栏。认证代际阻止同身份的迟到响应落盘／ACK。
 
 策略要求的审批保留在原临时 workflow 内，状态公开有界不可变参数及执行期限。明确批准通过正常 Runtime 校验执行原已保存工具调用并继续原 run，拒绝终止临时 workflow。批准后工具失败保守终止为 `unknown`，不虚报完成，不重放可能已经部分生效的外部写入。客户端上下文不携带审批权限，后端永久账本不保存审批正文。主进程先以相同身份／代际新查询确认 running 才开放动作，恢复／离线快照只读。决定响应丢失时核对原请求并保留决定不确定状态，不新提交任务。活动执行内同摘要同决定重复幂等，冲突拒绝；重启／取消／到期不重放审批。
 

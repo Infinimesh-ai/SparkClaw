@@ -74,7 +74,10 @@ void app.whenReady().then(async () => {
       }
       return result;
     };
-    await evaluate("window.sparkclawDesktop.grantBrowserHost()");
+    assert.equal(await evaluate("typeof window.sparkclawDesktop.grantBrowserHost"), "undefined");
+    assert.equal(await evaluate("Boolean(document.querySelector('.localBrowserGrant, .localBrowserAuthorization'))"), false);
+    await until(() => agent.state === "connected", "automatic browser connection");
+    evidence.automatic_browser_connection = true;
     assert.equal(agent.state, "connected");
     assert.equal(agent.scope.installation_id, installationID, "Fixture and native host must use the same installation");
     const step = async (operation, args = {}, commandID = crypto.randomUUID()) => {

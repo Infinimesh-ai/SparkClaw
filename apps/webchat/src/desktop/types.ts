@@ -105,7 +105,6 @@ export type SparkClawDesktop = {
   onLocalConnection(listener: (status: DesktopConnectionStatus) => void): () => void;
   state(): Promise<DesktopState>;
   selectConversation?(localConversationID: string): Promise<{ page_ref: string }>;
-  grantBrowserHost?(): Promise<{ granted: boolean }>;
   reconcileBrowserHost?(commandID: string, digest: string, outcome: "observed_completed" | "observed_not_applied"): Promise<{ completed: true }>;
   createPersonal(url?: string): Promise<{ page_ref: string }>;
   navigatePersonal(pageRef: string, url: string): Promise<{ completed: true }>;

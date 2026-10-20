@@ -43,7 +43,9 @@ try {
     return result;
   } });
   await agent.start({ installation_id: "qualification-installation" });
-  assert.equal(agent.state, "ungranted"); await agent.grant();
+  assert.equal(agent.state, "ungranted"); agent.autoConnect();
+  for (let attempt = 0; attempt < 500 && agent.state !== "connected"; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(agent.state, "connected", "LAN host must connect automatically");
   async function step(conversation, operation, args = {}, task = `task_${conversation}`) {
     const response = await auth.authorizedFetch(`${descriptor.origin}/qualify/step`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversation_id: conversation, task_id: task, operation, arguments: args }) });
     const value = await response.json(); if (!response.ok) throw new Error(value.error); return value;
@@ -81,7 +83,7 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(registry.records.size, 0); assert.equal(agent.journal.unknown({ owner_id: "qualification-owner", client_id: "qualification-client", installation_id: "qualification-installation" }).length, 1);
   const fences = await (await auth.authorizedFetch(`${descriptor.origin}/qualify/fences`)).json(); assert.equal(fences.length, 1); assert.equal(fences[0].state, "unknown");
-  console.log(JSON.stringify({ event: "sparkclaw_host_native_qualification", passed: true, platform: process.platform, architecture: process.arch, electron: process.versions.electron, chromium: process.versions.chrome, real_embedded_views: true, actual_embedded_click_and_fill: true, conversations: 2, rapid_switches: 20, same_view_released_reacquired: true, late_reply_cannot_select_other_page: true, system_browser_command_rejected: true, host_popup_blocked: true, response_loss_fenced_unknown_write: true, standalone_browser: false, production_data: false }));
+  console.log(JSON.stringify({ event: "sparkclaw_host_native_qualification", passed: true, platform: process.platform, architecture: process.arch, electron: process.versions.electron, chromium: process.versions.chrome, real_embedded_views: true, actual_embedded_click_and_fill: true, automatic_browser_connection: true, conversations: 2, rapid_switches: 20, same_view_released_reacquired: true, late_reply_cannot_select_other_page: true, system_browser_command_rejected: true, host_popup_blocked: true, response_loss_fenced_unknown_write: true, standalone_browser: false, production_data: false }));
   await agent.stop(); window.destroy(); app.exit(0);
 } catch (error) { console.error(error.stack); await agent?.stop().catch(() => {}); window?.destroy(); app.exit(1); }
 });

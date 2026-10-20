@@ -297,7 +297,7 @@ test("only bounded mail workflows and supported login operations receive longer 
   for (const [route, method] of [["/api/email/drafts", "POST"], ["/api/email/drafts/draft/send", "POST"], ["/api/email/drafts", "GET"], ["/api/email/drafts/draft/reconcile", "POST"], ["/api/owner", "POST"], ["/api/email/providers/qq_mail/check", "POST"], ["/api/email/providers/outlook/login-browser", "POST"], ["/api/email/providers/other/check", "POST"], ["/api/email/drafts/draft/reconcile", "GET"], ["/api/email/drafts/draft/reconcile", "PUT"], ["/api/email/drafts/draft/reconcile/extra", "POST"], ["/api/email/drafts/draft/reconcile?extra=1", "POST"]]) {
     assert.equal((await auth.authorizedFetch(`https://iscp.invalid${route}`, { method })).status, 204);
   }
-  assert.deepEqual(budgets, [180000, 180000, 30000, 180000, 30000, 180000, 30000, 30000, 30000, 30000, 30000, 30000]);
+  assert.deepEqual(budgets, [180000, 180000, 30000, 180000, 30000, 180000, 180000, 30000, 30000, 30000, 30000, 30000]);
   const canceled = new AbortController(); canceled.abort();
   auth.transport.fetch = async (_url, init) => { assert.equal(init.signal.aborted, true); return new Response(null, { status: 204 }); };
   for (const route of ["/api/email/drafts", "/api/email/drafts/draft/reconcile"]) {

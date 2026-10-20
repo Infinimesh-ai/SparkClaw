@@ -47,6 +47,7 @@ const (
 	OperationMailProvidersList = "mail.providers.list"
 	OperationMailProvidersUpdate = "mail.providers.update"
 	OperationMailProvidersCheck = "mail.providers.check"
+	OperationMailProvidersLogin = "mail.providers.login"
 	OperationMailMailboxes = "mail.mailboxes"
 	OperationMailSync = "mail.sync"
 	OperationMailMessage = "mail.message"

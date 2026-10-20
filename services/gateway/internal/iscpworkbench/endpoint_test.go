@@ -510,33 +510,3 @@ func TestExplicitLocalLabConfigUsesRelaySignerWithoutCloudRoot(t *testing.T) {
 		t.Fatal("local-lab connected to a LAN host")
 	}
 }
-
-func TestLoadConfigDropsRetiredQualifiedOperationsOnly(t *testing.T) {
-	desktop, _ := testMaterials(t)
-	path := writeFixtureConfig(t, desktop, RoleInitiator)
-	rewrite := func(names []string) {
-		t.Helper()
-		var raw map[string]any
-		data, err := os.ReadFile(path)
-		if err != nil || json.Unmarshal(data, &raw) != nil {
-			t.Fatal("read fixture configuration")
-		}
-		raw["qualified_capabilities"] = names
-		data, _ = json.Marshal(raw)
-		if err := os.WriteFile(path, data, 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	rewrite([]string{OperationMailProvidersCheck, "mail.providers.login"})
-	cfg, err := LoadConfig(path)
-	if err != nil {
-		t.Fatalf("retired qualified operation blocked startup: %v", err)
-	}
-	if len(cfg.QualifiedCapabilities) != 1 || cfg.QualifiedCapabilities[0] != OperationMailProvidersCheck {
-		t.Fatalf("qualified operations = %v", cfg.QualifiedCapabilities)
-	}
-	rewrite([]string{"mail.providers.unknown"})
-	if _, err := LoadConfig(path); err == nil {
-		t.Fatal("unknown qualified operation accepted")
-	}
-}

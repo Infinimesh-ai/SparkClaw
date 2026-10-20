@@ -381,7 +381,7 @@ export class DesktopAuth {
     const generation = this.generation;
     const mailMutation = ["POST", "PUT"].includes((init.method || "GET").toUpperCase()) && /^\/api\/email\/drafts(?:\/[^/]+(?:\/send)?)?$/u.test(url.pathname) && !url.search;
     const mailReconcile = (init.method || "GET").toUpperCase() === "POST" && /^\/api\/email\/drafts\/[^/]+\/reconcile$/u.test(url.pathname) && !url.search;
-    const mailLogin = (init.method || "GET").toUpperCase() === "POST" && /^\/api\/email\/providers\/(outlook|qq_mail|gmail)\/check$/u.test(url.pathname) && !url.search;
+    const mailLogin = (init.method || "GET").toUpperCase() === "POST" && /^\/api\/email\/providers\/(outlook|qq_mail|gmail)\/(check|login-browser)$/u.test(url.pathname) && !url.search;
     const method = (init.method || 'GET').toUpperCase();
     const startupRead = this.descriptor.transport === "iscp" && method === "GET" && ISCP_STARTUP_READS.has(url.pathname) && !url.search && !url.hash && init.body == null;
     const transport = this.transport;

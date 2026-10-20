@@ -82,7 +82,7 @@ const popupRoutes = [
  ['POST','/api/email/replies/polish','mail.replies.polish'], ['GET','/api/email/sent-sources?mailbox_id=box','mail.sent_sources'], ['GET','/api/email/sync-status','mail.sync.status'],
  ['GET','/api/email/sync-warnings?mailbox_id=box&cursor=next','mail.sync.warnings'], ['POST','/api/email/sync-warnings/warning/acknowledge','mail.sync.acknowledge'],
  ['POST','/api/email/sync','mail.sync.request'], ['POST','/api/email/messages/viewed','mail.viewed'], ['POST','/api/email/messages/mail/reanalyze','mail.reanalyze'],
- ['PATCH','/api/email/providers/outlook','mail.providers.update'], ['POST','/api/email/providers/outlook/check','mail.providers.check'],
+ ['PATCH','/api/email/providers/outlook','mail.providers.update'], ['POST','/api/email/providers/outlook/login-browser','mail.providers.login'], ['POST','/api/email/providers/outlook/check','mail.providers.check'],
 ];
 test('every original popup route uses a fixed typed operation with bounded multi-target presentations', () => {
  for (const [method,path,operation] of popupRoutes) assert.equal(mapV2Route(new URL(path,'https://iscp.invalid'),method, method === 'GET' ? undefined : {}).operation,operation,path);
@@ -97,8 +97,6 @@ test('every original popup route uses a fixed typed operation with bounded multi
  assert.throws(()=>map('/api/email/drafts/draft','PUT',{id:'other'}));
  assert.throws(()=>map('/api/email/drafts/draft?draft=other'));
  assert.throws(()=>map('/api/email/messages/mail/file','DELETE'));
- // Desktop mail settings check sign-in state only; the sign-in browser stays backend-only.
- assert.throws(()=>map('/api/email/providers/outlook/login-browser','POST',{}));
 });
 test('events, browser channel and speech clients use fixed forward operations only',()=>{
  const operations=['capabilities.get','operations.receipt','events.snapshot','events.pull','events.ack','browser.host.grant','browser.host.register','browser.host.poll','browser.host.reply','browser.host.heartbeat','browser.host.close','browser.receipt','browser.reconcile','speech.transcribe','speech.cancel','speech.session.open','speech.session.frame','speech.session.events','speech.session.finish','speech.session.cancel','transfer.open','transfer.chunk','transfer.status','transfer.commit','object.describe','object.read','object.release'];

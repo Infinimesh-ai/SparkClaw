@@ -12,7 +12,7 @@ export function pinnedHTTPSFetch(descriptor) {
     const mailTransfer = method === "POST" && url.pathname === "/api/v1/mail/attachments";
     const mailMutation = ["POST", "PUT"].includes(method) && /^\/api\/email\/drafts(?:\/[^/]+(?:\/send)?)?$/u.test(url.pathname);
     const mailReconcile = method === "POST" && /^\/api\/email\/drafts\/[^/]+\/reconcile$/u.test(url.pathname);
-    const mailLogin = method === "POST" && /^\/api\/email\/providers\/(outlook|qq_mail|gmail)\/check$/u.test(url.pathname);
+    const mailLogin = method === "POST" && /^\/api\/email\/providers\/(outlook|qq_mail|gmail)\/(check|login-browser)$/u.test(url.pathname);
     const timeout = !url.search && (mailTransfer || mailMutation || mailReconcile || mailLogin) ? 180000 : 30000;
     const headers = new Headers(init.headers);
     if (body !== undefined) {

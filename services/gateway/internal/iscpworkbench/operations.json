@@ -676,6 +676,25 @@
     "capacity_class": "business"
   },
   {
+    "name": "mail.providers.login",
+    "constant": "OperationMailProvidersLogin",
+    "version": 2,
+    "direction": "forward",
+    "scope": "browser.login",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "provider"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/email/providers/{provider}/login-browser"
+    },
+    "capacity_class": "business"
+  },
+  {
     "name": "mail.mailboxes",
     "constant": "OperationMailMailboxes",
     "version": 2,

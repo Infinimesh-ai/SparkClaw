@@ -120,7 +120,7 @@ test("HTTPS validates CA, hostname and leaf pin before transmitting any credenti
   ]) {
     await (await pinnedHTTPSFetch(base)(origin + route, { ...init, headers: { authorization }, method })).arrayBuffer();
   }
-  assert.deepEqual(budgets, [180000, 30000, 180000, 30000, 30000, 180000, 30000, 30000, 30000, 30000, 30000]);
+  assert.deepEqual(budgets, [180000, 180000, 180000, 30000, 30000, 180000, 30000, 30000, 30000, 30000, 30000]);
 
   // The longer reconciliation allowance must not mask an earlier caller abort.
   // Wait for real TLS admission so this covers an in-flight request, not just a

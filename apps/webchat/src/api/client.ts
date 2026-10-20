@@ -159,7 +159,7 @@ async function request<T>(path: string, init?: RequestInit, base = API_BASE): Pr
   });
   if (!response.ok) {
     let body: { error?: unknown; code?: unknown; retryable?: unknown } = {};
-    try { body = await response.json(); action?.delivered(response.status, body); } catch { /* An unreadable reply leaves its action unresolved. */ }
+    try { body = await response.json(); action?.delivered(response.status, body, path === "/api/browser/extension/check"); } catch { /* An unreadable reply leaves its action unresolved. */ }
     throw new APIError(
       response.status,
       typeof body.error === "string" ? body.error : `HTTP ${response.status}`,
@@ -665,8 +665,21 @@ export const api = {
     request<NotificationBinding>(`/api/notification-bindings/${id}`, { signal }),
   pollNotificationBinding: (id: string, signal?: AbortSignal) =>
     request<NotificationBinding>(`/api/notification-bindings/${id}/poll`, { method: "POST", body: "{}", signal }),
-  openNotificationBindingBrowser: (id: string) =>
-    request<{ opened: boolean }>(`/api/notification-bindings/${id}/browser`, { method: "POST", body: "{}" }),
+  openNotificationBindingBrowser: async (id: string) => {
+    const desktop = desktopCapability();
+    if (!desktop) return request<{ opened: boolean }>(`/api/notification-bindings/${id}/browser`, { method: "POST", body: "{}" });
+    // Resolve a fresh, owner-scoped pending QR at the backend. Desktop opens
+    // only the provider QR page; the backend still owns the resulting binding.
+    const login = await request<{ url: string; expires_at?: string }>(`/api/notification-bindings/${id}/login-url`);
+    const url = new URL(login.url);
+    if (url.protocol !== "https:" || url.hostname !== "liteapp.weixin.qq.com" || url.username || url.password ||
+        url.port && url.port !== "443" || login.expires_at && !(Date.parse(login.expires_at) > Date.now())) {
+      throw new Error("Weixin login link is unavailable");
+    }
+    const page = await desktop.createPersonal(url.href);
+    await desktop.presentPersonal(page.page_ref);
+    return { opened: true };
+  },
   revokeNotificationBinding: (id: string) => request<NotificationBinding>(`/api/notification-bindings/${id}`, { method: "DELETE" }),
   deliveryEndpoints: () => request<{ endpoints: DeliveryEndpoint[] }>("/api/delivery-endpoints"),
   schedules: () => request<{ schedules: Schedule[] }>("/api/schedules"),

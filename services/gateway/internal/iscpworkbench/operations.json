@@ -1933,5 +1933,417 @@
       "request_id"
     ],
     "capacity_class": "business"
+  },
+  {
+    "name": "settings.bindings.list",
+    "constant": "OperationSettingsBindingsList",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.read",
+    "mutation": false,
+    "recovery": "none",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [
+      "channel",
+      "status"
+    ],
+    "http": {
+      "method": "GET",
+      "path": "/api/notification-bindings"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.bindings.start",
+    "constant": "OperationSettingsBindingsStart",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [
+      "channel"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/notification-bindings/{channel}/start"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.bindings.get",
+    "constant": "OperationSettingsBindingsGet",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.read",
+    "mutation": false,
+    "recovery": "none",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [
+      "binding_id"
+    ],
+    "http": {
+      "method": "GET",
+      "path": "/api/notification-bindings/{binding_id}"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.bindings.poll",
+    "constant": "OperationSettingsBindingsPoll",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [
+      "binding_id"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/notification-bindings/{binding_id}/poll"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.bindings.revoke",
+    "constant": "OperationSettingsBindingsRevoke",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [
+      "binding_id"
+    ],
+    "http": {
+      "method": "DELETE",
+      "path": "/api/notification-bindings/{binding_id}"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.bindings.login",
+    "constant": "OperationSettingsBindingsLogin",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.read",
+    "mutation": false,
+    "recovery": "none",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [
+      "binding_id"
+    ],
+    "http": {
+      "method": "GET",
+      "path": "/api/notification-bindings/{binding_id}/login-url"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.browser.get",
+    "constant": "OperationSettingsBrowserGet",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.read",
+    "mutation": false,
+    "recovery": "none",
+    "limit_bytes": 8192,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "GET",
+      "path": "/api/browser/extension"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.browser.save",
+    "constant": "OperationSettingsBrowserSave",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 8192,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "PUT",
+      "path": "/api/browser/extension/token"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.browser.check",
+    "constant": "OperationSettingsBrowserCheck",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 8192,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "POST",
+      "path": "/api/browser/extension/check"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.browser.delete",
+    "constant": "OperationSettingsBrowserDelete",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 8192,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "DELETE",
+      "path": "/api/browser/extension/token"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.mcp.catalog",
+    "constant": "OperationSettingsMCPCatalog",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.read",
+    "mutation": false,
+    "recovery": "none",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "GET",
+      "path": "/api/mcp-access/catalog"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.mcp.transports",
+    "constant": "OperationSettingsMCPTransports",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "PATCH",
+      "path": "/api/mcp-access/transports"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.mcp.tickets.list",
+    "constant": "OperationSettingsMCPTicketsList",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.read",
+    "mutation": false,
+    "recovery": "none",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "GET",
+      "path": "/api/mcp-access/tickets"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.mcp.tickets.issue",
+    "constant": "OperationSettingsMCPTicketsIssue",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "POST",
+      "path": "/api/mcp-access/tickets"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.mcp.tickets.revoke",
+    "constant": "OperationSettingsMCPTicketsRevoke",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [
+      "ticket_id"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/mcp-access/tickets/{ticket_id}/revoke"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.mcp.tickets.delete",
+    "constant": "OperationSettingsMCPTicketsDelete",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [
+      "ticket_id"
+    ],
+    "http": {
+      "method": "DELETE",
+      "path": "/api/mcp-access/tickets/{ticket_id}"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.mcp.bindings.list",
+    "constant": "OperationSettingsMCPBindingsList",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.read",
+    "mutation": false,
+    "recovery": "none",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "GET",
+      "path": "/api/mcp-access/bindings"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.mcp.bindings.revoke",
+    "constant": "OperationSettingsMCPBindingsRevoke",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [
+      "binding_id"
+    ],
+    "http": {
+      "method": "POST",
+      "path": "/api/mcp-access/bindings/{binding_id}/revoke"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.mcp.bindings.delete",
+    "constant": "OperationSettingsMCPBindingsDelete",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [
+      "binding_id"
+    ],
+    "http": {
+      "method": "DELETE",
+      "path": "/api/mcp-access/bindings/{binding_id}"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.mcp.records.delete",
+    "constant": "OperationSettingsMCPRecordsDelete",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "DELETE",
+      "path": "/api/mcp-access/records"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.mcp.pairing.status",
+    "constant": "OperationSettingsMCPPairingStatus",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.read",
+    "mutation": false,
+    "recovery": "none",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "GET",
+      "path": "/api/iscp-pairing/status"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.mcp.pairing.onboardings",
+    "constant": "OperationSettingsMCPPairingOnboardings",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.read",
+    "mutation": false,
+    "recovery": "none",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "GET",
+      "path": "/api/iscp-pairing/onboardings"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "settings.mcp.pairing.start",
+    "constant": "OperationSettingsMCPPairingStart",
+    "version": 2,
+    "direction": "forward",
+    "scope": "settings.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 4096,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "POST",
+      "path": "/api/iscp-pairing/start"
+    },
+    "capacity_class": "business"
   }
 ]

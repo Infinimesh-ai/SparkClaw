@@ -9,7 +9,7 @@ import { SessionSidebar } from "../components/sidebar";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy } from "../components/workbench";
 import { MailWorkspaceContext } from "./MailWorkspaceContext";
 import type {} from "./mailCapability";
-import { ISCPDeviceAuthorization, iscpSettingsAccess, iscpSettingsUnavailable } from "./iscpSettings";
+import { ISCPDeviceAuthorization, desktopSettingsAccess, iscpSettingsUnavailable } from "./iscpSettings";
 import { surfaceEnabled } from "./capability";
 import { api } from "../api/client";
 import { InspectorColumn, type PanelTab } from "../components/inspector";
@@ -93,6 +93,7 @@ export function LocalWorkbench() {
     browser: surfaceEnabled(connection, "browser"), speech: surfaceEnabled(connection, "speech_recording"),
     approvals: surfaceEnabled(connection, "approvals"), notifications: surfaceEnabled(connection, "notifications"),
     settingsOwner: surfaceEnabled(connection, "settings_owner"), settingsConnectors: surfaceEnabled(connection, "settings_connectors"),
+    settingsBindings: surfaceEnabled(connection, "settings_bindings"),
   };
   const browserLayout = useBrowserLayout(browserOpen, inspectorResize.width, capabilities.browser && !settings && page === "chat");
   const messageScroll = useMessageScroll(selected, !settings && page === "chat");
@@ -122,10 +123,10 @@ export function LocalWorkbench() {
   const [auditEvents] = useState<AuditEvent[]>([]);
   const [episodes] = useState<EpisodeSummary[]>([]);
   const settingsScope = connection && JSON.stringify([connection.backend?.deployment_id, connection.owner_id, connection.client_id, connection.authorization_revision]);
-  const settingsAccess = iscp && connection ? {
-    ...iscpSettingsAccess(connection, language),
-    deviceAuthorization: <ISCPDeviceAuthorization key={settingsScope} connection={connection} language={language} />,
-  } : undefined;
+  const settingsAccess = {
+    ...desktopSettingsAccess(connection, language),
+    ...(iscp && connection ? { deviceAuthorization: <ISCPDeviceAuthorization key={settingsScope} connection={connection} language={language} /> } : {}),
+  };
 
   const surfaceError = useCallback((err: unknown, fallback = zh ? "操作失败，请重试。" : "Something went wrong. Try again.") => {
     setError(err instanceof Error ? err.message : fallback);
@@ -133,11 +134,15 @@ export function LocalWorkbench() {
   useEffect(() => {
     if (!iscp) return;
     setConnectors([]);
+    setNotificationBindings([]);
     if (!settings || tab !== "connections" || !capabilities.settingsConnectors) return;
     let active = true;
     void api.connectors().then(value => { if (active) setConnectors(value.connectors); }).catch(surfaceError);
+    if (capabilities.settingsBindings) {
+      void api.notificationBindings().then(value => { if (active) setNotificationBindings(value.bindings); }).catch(surfaceError);
+    }
     return () => { active = false; };
-  }, [iscp, settings, tab, capabilities.settingsConnectors, settingsScope, surfaceError]);
+  }, [iscp, settings, tab, capabilities.settingsConnectors, capabilities.settingsBindings, settingsScope, surfaceError]);
   const scopeError = useRef(surfaceError); scopeError.current = surfaceError;
   const localScopeKey = JSON.stringify([
     Boolean(connection && ["connected", "reconnecting", "service_unavailable"].includes(connection.state)),
@@ -170,8 +175,14 @@ export function LocalWorkbench() {
     const config = await api.config();
     setRuntimeConfig(config);
     if (iscp) {
-      const [status, owner] = await Promise.all([api.ready(), api.owner()]);
+      const [status, owner, connectorList, bindingList] = await Promise.all([
+        api.ready(), api.owner(),
+        capabilities.settingsConnectors ? api.connectors() : null,
+        capabilities.settingsBindings ? api.notificationBindings() : null,
+      ]);
       setReady(status); setOwnerProfile(owner);
+      if (connectorList) setConnectors(connectorList.connectors);
+      if (bindingList) setNotificationBindings(bindingList.bindings);
       return;
     }
     const results = await Promise.allSettled([
@@ -190,7 +201,7 @@ export function LocalWorkbench() {
     if (evalList.status === "fulfilled") setEvalRuns(evalList.value.eval_runs ?? []);
     if (artifactList.status === "fulfilled") setArtifacts(artifactList.value.artifacts ?? []);
     if (traces.status === "fulfilled") setTraceList(traces.value.traces ?? []);
-  }, [iscp]);
+  }, [iscp, capabilities.settingsConnectors, capabilities.settingsBindings]);
   const select = useCallback(async (id: string) => {
     setPage("chat");
     if (selectedRef.current === id) return;
@@ -568,7 +579,9 @@ export function LocalWorkbench() {
         <MailWorkspaceContext.Provider value={{
           identity: mailIdentity,
           enabled: connection?.state === "connected" && capabilities.mail && Boolean(mailScope),
-          loginEnabled: connection?.state === "connected" && surfaceEnabled(connection, "mail_settings"),
+          loginEnabled: false,
+          resumeEnabled: connection?.state === "connected" && surfaceEnabled(connection, "mail_settings"),
+          loginNotice: settingsAccess.emailLoginNotice,
           sendEnabled: connection?.state === "connected" && surfaceEnabled(connection, "mail_send"),
           attachmentsEnabled: connection?.state === "connected" && surfaceEnabled(connection, "mail_send_attachments"),
           listFiles: store.listFiles, conversationID: selected,

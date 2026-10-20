@@ -4,6 +4,38 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MessageStreamDeliveryError } from "../lib/messageStream";
 import { api, APIError, apiToken, bindAPITokenToDeployment, clearAPIToken, saveAPIToken, documentFileURL, messageStreamRequestBody, scheduleActionRequestBody, scheduleCreateRequestBody, streamWorkbenchInvalidations } from "./client";
 
+describe("desktop Weixin QR binding", () => {
+  afterEach(() => { delete window.sparkclawDesktop; vi.unstubAllGlobals(); });
+  function setup(result: { url: string; expires_at?: string }) {
+    const createPersonal = vi.fn(async () => ({ page_ref: "qr-page" }));
+    const presentPersonal = vi.fn(async () => ({ completed: true }));
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, createPersonal, presentPersonal } as unknown as NonNullable<typeof window.sparkclawDesktop>;
+    const fetch = vi.fn(async () => new Response(JSON.stringify(result)));
+    vi.stubGlobal("fetch", fetch);
+    return { createPersonal, presentPersonal, fetch };
+  }
+  it("resolves a fresh backend binding and presents the QR on this client without opening the backend browser", async () => {
+    const url = "https://liteapp.weixin.qq.com/q/pending";
+    const f = setup({ url, expires_at: new Date(Date.now() + 60_000).toISOString() });
+    expect(await api.openNotificationBindingBrowser("binding-1")).toEqual({ opened: true });
+    expect(f.fetch).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("/api/notification-bindings/binding-1/login-url"), expect.anything());
+    expect(f.createPersonal).toHaveBeenCalledExactlyOnceWith(url);
+    expect(f.presentPersonal).toHaveBeenCalledExactlyOnceWith("qr-page");
+  });
+  it.each([
+    { url: "https://other.example/q" },
+    { url: "http://liteapp.weixin.qq.com/q" },
+    { url: "https://user:secret@liteapp.weixin.qq.com/q" },
+    { url: "https://liteapp.weixin.qq.com:8080/q" },
+    { url: "https://liteapp.weixin.qq.com/q", expires_at: new Date(0).toISOString() },
+    { url: "https://liteapp.weixin.qq.com/q", expires_at: "invalid" },
+  ])("does not open an invalid or expired QR link: $url", async value => {
+    const f = setup(value);
+    await expect(api.openNotificationBindingBrowser("binding-1")).rejects.toThrow("unavailable");
+    expect(f.createPersonal).not.toHaveBeenCalled();
+  });
+});
+
 describe("email refresh request identity", () => {
   let values: Map<string, string>;
   beforeEach(() => {

@@ -274,6 +274,109 @@ test('v2 negotiation routes only registered operations, uses CAS and unwraps met
  assert.equal(f.calls.length,2);
 });
 
+test('connection snapshots coexist and binding polls advance only after delivery with a new action', async t => {
+  t.mock.method(globalThis, 'fetch', () => assert.fail('connection settings bypassed ISCP'));
+  const names = ['settings.mcp.catalog', 'settings.mcp.tickets.list', 'settings.mcp.bindings.list',
+    'settings.mcp.pairing.status', 'settings.mcp.pairing.onboardings', 'settings.bindings.poll'];
+  const capabilities = {schema_version:2, profile:'sparkclaw.workbench.transport.v2', session_id:'session', authorization_revision:1,
+    expires_at:new Date(Date.now()+60000).toISOString(), binding:{deployment_id:'d',owner_id:'o',client_id:'c'}, operations:names};
+  let polls = 0;
+  const f = fixture(t, (call, child) => {
+    const body = call.request.operation === 'settings.bindings.poll' ? {status: ++polls === 1 ? 'waiting_scan' : 'active'} : {operation:call.request.operation};
+    setImmediate(() => child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:capabilities.profile,id:call.id,status:200,body}}));
+  });
+  await f.transport.start(); f.children[0].send({ipc_version:1,type:'capabilities',capabilities});
+  const paths = ['/api/mcp-access/catalog','/api/mcp-access/tickets','/api/mcp-access/bindings','/api/iscp-pairing/status','/api/iscp-pairing/onboardings'];
+  const responses = await Promise.all(paths.map(async route => (await f.transport.fetch(`${origin}${route}`)).json()));
+  assert.equal(responses.length, 5);
+  const first = {method:'POST',body:'{}',actionID:crypto.randomUUID()};
+  assert.equal((await (await f.transport.fetch(`${origin}/api/notification-bindings/binding/poll`, first)).json()).status, 'waiting_scan');
+  assert.equal((await (await f.transport.fetch(`${origin}/api/notification-bindings/binding/poll`, first)).json()).status, 'waiting_scan');
+  assert.equal(polls, 1, 'same unresolved/delivered action replays its result');
+  assert.equal((await (await f.transport.fetch(`${origin}/api/notification-bindings/binding/poll`, {...first,actionID:crypto.randomUUID()})).json()).status, 'active');
+  assert.equal(polls, 2, 'a later delivered polling cycle queries the provider again');
+});
+
+test('QR binding operations retain a sixty-second original deadline for the provider long poll', async t => {
+  const f=fixture(t, (call,child)=>child.send({ipc_version:1,type:'response',id:call.id,response:{
+    type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:{status:'waiting_scan'},
+  }}), {timeoutMS:30000});
+  await f.transport.start();
+  f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{
+    schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,
+    expires_at:new Date(Date.now()+120000).toISOString(),binding:{deployment_id:'d',owner_id:'o',client_id:'c'},
+    operations:['settings.bindings.start','settings.bindings.poll'],
+  }});
+  for (const [route,resource] of [['weixin/start','binding:weixin'],['binding/poll','binding:binding']]) {
+    await f.transport.fetch(`${origin}/api/notification-bindings/${route}`,{method:'POST',body:'{}'});
+    const record=f.transport.mutations.read(resource);
+    const budget=record.not_after-record.created_at;
+    assert.ok(budget>59000 && budget<=60000, `QR provider budget was ${budget}`);
+  }
+});
+
+test('a later browser check reconciles the failed receipt before admitting a fresh check', async t => {
+  let checks=0, recovered=false;
+  const f=fixture(t,(call,child)=>{
+    let body,status=200;
+    if(call.request.operation==='operations.receipt') body=recovered
+      ? {state:'completed',operation_id:call.request.params.operation_id,response:{status:503,body:{code:'controller_unavailable'}}}
+      : {state:'unknown',operation_id:call.request.params.operation_id};
+    else { checks++; status=checks===1?503:200; body=checks===1?{code:'controller_unavailable'}:{state:'ready'}; }
+    child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status,body}});
+  });
+  await f.transport.start();
+  f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{
+    schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,
+    expires_at:new Date(Date.now()+60000).toISOString(),binding:{deployment_id:'d',owner_id:'o',client_id:'c'},
+    operations:['settings.browser.check','operations.receipt'],
+  }});
+  const check=()=>f.transport.fetch(`${origin}/api/browser/extension/check`,{method:'POST',body:'{}',actionID:crypto.randomUUID()});
+  assert.equal((await check()).status,503);
+  await assert.rejects(check(),/unknown/); assert.equal(checks,1);
+  recovered=true;
+  assert.equal((await check()).status,503); assert.equal(checks,1);
+  assert.equal((await (await check()).json()).state,'ready'); assert.equal(checks,2);
+});
+
+test('lost binding and token replies reconcile the original sealed intent after restart without repeating effects', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'iscp-connections-'));
+  t.after(() => fs.rmSync(root,{recursive:true,force:true}));
+  t.mock.method(globalThis, 'fetch', () => assert.fail('binding bypassed encrypted ISCP'));
+  const effects = new Map(), receipts = new Map();
+  let recovered = false;
+  const cases = [
+    ['POST','/api/notification-bindings/telegram/start',{credential_secret:'private-bot-token'},'settings.bindings.start'],
+    ['PUT','/api/browser/extension/token',{token:'private-extension-token'},'settings.browser.save'],
+    ['POST','/api/mcp-access/tickets',{display_name:'desktop'},'settings.mcp.tickets.issue'],
+    ['POST','/api/iscp-pairing/start',{display_name:'desktop'},'settings.mcp.pairing.start'],
+  ];
+  const capabilities={schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,
+    expires_at:new Date(Date.now()+60000).toISOString(),operations:[...cases.map(row=>row[3]),'operations.receipt'],binding:{deployment_id:'d',owner_id:'o',client_id:'c'}};
+  const f=fixture(t,(call,child)=>{
+    const {operation,operation_id}=call.request;
+    if(operation==='operations.receipt') {
+      child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:capabilities.profile,id:call.id,status:200,
+        body:recovered?{state:'completed',operation_id:call.request.params.operation_id,response:receipts.get(call.request.params.operation_id)}:{state:'unknown'}}});
+      return;
+    }
+    effects.set(operation,(effects.get(operation)||0)+1);
+    receipts.set(operation_id,{status:200,body:{operation,secret:'private-issued-ticket'}});
+  },{journalRoot:root,timeoutMS:100});
+  const start=async()=>{await f.transport.start();f.children.at(-1).send({ipc_version:1,type:'capabilities',capabilities});};
+  await start();
+  for(const [method,route,body] of cases) await assert.rejects(f.transport.fetch(`${origin}${route}`,{method,body:JSON.stringify(body)}),/deadline/);
+  f.transport.close(); await start(); recovered=true;
+  for(const [method,route,body,operation] of cases) {
+    const result=await(await f.transport.fetch(`${origin}${route}`,{method,body:JSON.stringify(body)})).json();
+    assert.equal(result.operation,operation); assert.equal(effects.get(operation),1);
+  }
+  for(const filename of fs.readdirSync(path.join(root,'mutations'))) {
+    const content=fs.readFileSync(path.join(root,'mutations',filename));
+    for(const secret of ['private-bot-token','private-extension-token','private-issued-ticket']) assert.ok(!content.includes(Buffer.from(secret)));
+  }
+});
+
 test('authorization deletion uses isolated control helper and verifies durable receipt identity after revoked session',async t=>{
  const operationID='12345678-1234-4123-8123-123456789abc';let args;let step=1;
  const transport=new ISCPTransport({configPath:'/private/config.json',origin,expectedIdentity:{domain_id:'domain'},timeoutMS:100,
@@ -448,7 +551,7 @@ test('original popup mutations retain their original receipt across helper resta
    assert.ok(operation_id);
    mutations.set(operation,(mutations.get(operation)||0)+1);
    receipts.set(operation_id,{status:200,body:{operation,version:3}});
- },{journalRoot:root,timeoutMS:15});
+ },{journalRoot:root,timeoutMS:100});
  const cases = [
    ['POST','/api/email/messages/mail/classification',{expected_version:2,command_key:'classification'},'mail.classification'],
    ['POST','/api/email/conversations/conversation/rename',{title:'Edited',expected_version:2,command_key:'rename'},'mail.conversations.rename'],

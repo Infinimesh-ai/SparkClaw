@@ -14,9 +14,12 @@ export async function retainedAction(target: string, method: string, body: strin
   if (!previous) storage.setItem(key, id);
   return {
     id,
-    delivered(status: number, result: unknown) {
+    delivered(status: number, result: unknown, repeatableCheck = false) {
       const value = result as { code?: string; error_code?: string } | null;
-      if (status >= 500 || status === 429 || unresolved.has(value?.code ?? '') || unresolved.has(value?.error_code ?? '')) return;
+      if (status >= 500 && !repeatableCheck || status === 429 || unresolved.has(value?.code ?? '') || unresolved.has(value?.error_code ?? '')) return;
+      // A credential check changes no binding. A later explicit check may get
+      // a new UI identity; the native journal still reconciles any unresolved
+      // operation before it admits that successor.
       if (storage.getItem(key) === id) storage.removeItem(key);
     }
   };

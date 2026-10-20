@@ -31,6 +31,11 @@ function matchesPrefix(pathname, prefix) {
 // APIs as WebChat. Conversation history, schedules and uploads remain owned by
 // the client-local store and are deliberately absent from this allowlist.
 export function proxyAPIAllowed(pathname) {
+  try { pathname = decodeURIComponent(pathname); } catch { return false; }
+  // Website sessions are established in the backend browser. Desktop clients
+  // can inspect/check those accounts but cannot initiate their sign-in flow.
+  if (/^\/api\/email\/providers\/[^/]+\/login-browser\/?$/u.test(pathname) ||
+      /^\/api\/browser\/extension\/ai-platforms\/[^/]+\/login\/?$/u.test(pathname)) return false;
   if (pathname === "/readyz" || pathname === "/api/documents/file") return true;
   return PRESENTATION_API_PREFIXES.some((prefix) => matchesPrefix(pathname, prefix));
 }

@@ -97,6 +97,7 @@ type negotiationOffer struct {
 		UnboundedRPC        bool     `json:"unbounded_rpc,omitempty"`
 		ExecutionProgress   bool     `json:"execution_progress,omitempty"`
 		StreamSchemaVersion int      `json:"stream_schema_version,omitempty"`
+		ConnectionSettings  bool     `json:"connection_settings,omitempty"`
 	} `json:"transport_negotiation"`
 }
 type negotiationReply struct {
@@ -142,6 +143,10 @@ func (e *Endpoint) answerNegotiation(ctx context.Context, id string, r Request) 
 		profile = ProfileV2
 	}
 	caps := e.capabilitiesFor(id, profile)
+	if !offer.Negotiation.ConnectionSettings {
+		caps.Operations = withoutConnectionSettings(caps.Operations)
+		caps.QualifiedOperations = withoutConnectionSettings(caps.QualifiedOperations)
+	}
 	if !offer.Negotiation.ExecutionProgress {
 		caps.Operations = withoutProgress(caps.Operations)
 		caps.QualifiedOperations = withoutProgress(caps.QualifiedOperations)
@@ -214,6 +219,7 @@ func requestRPCNegotiation(ctx context.Context, caller func(context.Context, Req
 	offer.Negotiation.Profiles = profiles
 	offer.Negotiation.UnboundedRPC = true
 	offer.Negotiation.ExecutionProgress = slices.Contains(profiles, ProfileV2)
+	offer.Negotiation.ConnectionSettings = slices.Contains(profiles, ProfileV2)
 	if offer.Negotiation.ExecutionProgress {
 		offer.Negotiation.StreamSchemaVersion = 1
 	}
@@ -223,6 +229,12 @@ func requestRPCNegotiation(ctx context.Context, caller func(context.Context, Req
 	}
 	r, err := call()
 	// Each retry is only the read-only negotiation, never a user operation.
+	// Old strict responders predate connection settings but can still support
+	// progress and unbounded RPC. Drop only the new application extension first.
+	if err == nil && offer.Negotiation.ConnectionSettings && (r.Status == 400 || r.Status == 404 || r.Status == 501) {
+		offer.Negotiation.ConnectionSettings = false
+		r, err = call()
+	}
 	// First keep unbounded RPC support when a peer predates progress.
 	if err == nil && offer.Negotiation.ExecutionProgress && (r.Status == 400 || r.Status == 404 || r.Status == 501) {
 		offer.Negotiation.ExecutionProgress = false
@@ -248,11 +260,11 @@ func validateNegotiation(c TransportCapabilities, id string, mode ...string) err
 	now := time.Now()
 	compatible := slices.Equal(c.Operations, ops)
 	if c.Profile == ProfileV2 {
-		compatible = compatible || slices.Equal(c.Operations, withoutProgress(ops)) || slices.Equal(c.Operations, withoutStream(ops)) || slices.Equal(c.Operations, withoutStream(withoutProgress(ops)))
+		compatible = compatibleV2Operations(c.Operations, ops)
 	}
 	if c.Profile == ProfileV2 && (len(mode) == 0 || mode[0] != "node-managed") {
 		localOps := OperationsV2ForMode("local-test")
-		compatible = compatible || slices.Equal(c.Operations, localOps) || slices.Equal(c.Operations, withoutProgress(localOps)) || slices.Equal(c.Operations, withoutStream(localOps)) || slices.Equal(c.Operations, withoutStream(withoutProgress(localOps)))
+		compatible = compatible || compatibleV2Operations(c.Operations, localOps)
 	}
 	expectedLimits := TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, c.Limits.Concurrent, 8192, 2}
 	// Original v1 Grants predate revocation epochs. negotiate still binds this
@@ -264,7 +276,7 @@ func validateNegotiation(c TransportCapabilities, id string, mode ...string) err
 		return errors.New("incompatible stream schema")
 	}
 	for _, name := range c.QualifiedOperations {
-		if !slices.Contains(ops, name) || (name == OperationExecutionProgress && !slices.Contains(c.Operations, name)) {
+		if !slices.Contains(ops, name) || (name == OperationExecutionProgress || connectionSettingsOperation(name)) && !slices.Contains(c.Operations, name) {
 			return errors.New("unregistered qualified operation")
 		}
 	}
@@ -291,4 +303,37 @@ func withoutProgress(ops []string) []string {
 
 func withoutStream(ops []string) []string {
 	return slices.DeleteFunc(slices.Clone(ops), func(op string) bool { return op == OperationExecutionProgressStream })
+}
+
+// Connection settings extend SparkClaw's application table only by explicit
+// opt-in. Keep the exact preceding table compatible in both directions; this
+// is not permission to advertise an arbitrary subset of registered operations.
+func compatibleV2Operations(actual, current []string) bool {
+	for _, base := range [][]string{current, withoutConnectionSettings(current)} {
+		if slices.Equal(actual, base) || slices.Equal(actual, withoutProgress(base)) ||
+			slices.Equal(actual, withoutStream(base)) || slices.Equal(actual, withoutStream(withoutProgress(base))) {
+			return true
+		}
+	}
+	return false
+}
+
+func withoutConnectionSettings(ops []string) []string {
+	return slices.DeleteFunc(slices.Clone(ops), connectionSettingsOperation)
+}
+
+func connectionSettingsOperation(operation string) bool {
+	switch operation {
+	case OperationSettingsBindingsList, OperationSettingsBindingsStart, OperationSettingsBindingsGet,
+		OperationSettingsBindingsPoll, OperationSettingsBindingsRevoke, OperationSettingsBindingsLogin,
+		OperationSettingsBrowserGet, OperationSettingsBrowserSave, OperationSettingsBrowserCheck, OperationSettingsBrowserDelete,
+		OperationSettingsMCPCatalog, OperationSettingsMCPTransports, OperationSettingsMCPTicketsList,
+		OperationSettingsMCPTicketsIssue, OperationSettingsMCPTicketsRevoke, OperationSettingsMCPTicketsDelete,
+		OperationSettingsMCPBindingsList, OperationSettingsMCPBindingsRevoke, OperationSettingsMCPBindingsDelete,
+		OperationSettingsMCPRecordsDelete, OperationSettingsMCPPairingStatus, OperationSettingsMCPPairingOnboardings,
+		OperationSettingsMCPPairingStart:
+		return true
+	default:
+		return false
+	}
 }

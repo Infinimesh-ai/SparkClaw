@@ -365,7 +365,8 @@ describe("workbench local workbench", () => {
     window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => []), create: vi.fn(),
       read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(),
       submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
-    vi.spyOn(api, "emailSyncStatus").mockResolvedValue({ version: 1, backlog: 0, pending_count: 0, mailboxes: [{ id: "box", version: 1, provider: "outlook", address: "owner@example.test", active_binding: true, intake_enabled: true, state: "active" }] });
+    vi.spyOn(api, "emailSyncStatus").mockResolvedValue({ version: 1, backlog: 0, pending_count: 0, mailboxes: [{ id: "box", version: 1, provider: "outlook", address: "owner@example.test", active_binding: true, intake_enabled: true, state: "login_required" }] });
+    const login = vi.spyOn(api, "openEmailLoginBrowser");
     vi.spyOn(api, "emailProviders").mockResolvedValue({ providers: [] });
     vi.spyOn(api, "emailConversations").mockResolvedValue({ version: 1, conversations: [] });
     vi.spyOn(api, "emailInteractionMails").mockResolvedValue({ version: 1, messages: [] });
@@ -376,6 +377,11 @@ describe("workbench local workbench", () => {
       expect(capability).not.toHaveBeenCalled();
       await act(async () => host.querySelector<HTMLButtonElement>(".composer .emailEntryButton")!.click());
       expect(document.body.querySelector("dialog.emailPopup[open]")).not.toBeNull();
+      const signIn = [...document.body.querySelectorAll<HTMLButtonElement>(".emailLoginRecovery button")].find(button => button.textContent === dictionaries.en.email.signInAgain)!;
+      const resume = [...document.body.querySelectorAll<HTMLButtonElement>(".emailLoginRecovery button")].find(button => button.textContent === dictionaries.en.email.resumeAfterLogin)!;
+      expect(signIn.disabled).toBe(true); expect(resume.disabled).toBe(false);
+      await act(async () => signIn.click()); expect(login).not.toHaveBeenCalled();
+      expect(document.body.querySelector(".emailLoginRecovery")?.textContent).toContain("Complete sign-in in the backend.");
       expect(host.querySelector(".mailCachePanel")).toBeNull();
       expect([...host.querySelectorAll(".topbarActions button")].some(button => button.textContent === "Mail")).toBe(false);
       await act(async () => [...document.body.querySelectorAll<HTMLButtonElement>(".emailToolbarActions button")].find(button => button.textContent === dictionaries.en.email.compose)!.click());
@@ -458,6 +464,49 @@ describe("workbench local workbench", () => {
       expect(host.textContent).toContain("ISCP response");
       expect(host.querySelector("form.composer")).not.toBeNull();
       expect(fetch).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); }
+  });
+  it("refreshes a revoked ISCP binding in the currently open connection detail", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
+    vi.spyOn(api, "ready").mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof api.ready>>);
+    vi.spyOn(api, "owner").mockResolvedValue({ id: "owner", display_name: "ISCP owner", created_at: "", updated_at: "" });
+    const connector = { channel: "weixin", provider: "openclaw-weixin-qr", setup_kind: "qr", available: true, enabled: true,
+      running: true, state: "active", binding_status: "active", binding_startable: true, supports_multiple_bindings: true, version: 5 } as const;
+    let revoked = false;
+    const binding = { id: "existing-binding", owner_id: "owner", channel: "weixin", provider: "openclaw-weixin-qr",
+      status: "active", display_name: "Existing Weixin account", default_for_channel: true, scopes: [], created_at: "", updated_at: "" };
+    const connectors = vi.spyOn(api, "connectors").mockResolvedValue({ connectors: [connector] });
+    const list = vi.spyOn(api, "notificationBindings").mockImplementation(async () => ({ bindings: [{ ...binding, status: revoked ? "revoked" : "active" }] }));
+    const revoke = vi.spyOn(api, "revokeNotificationBinding").mockImplementation(async () => {
+      revoked = true; return { ...binding, status: "revoked" };
+    });
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => []), create: vi.fn(),
+      read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(),
+      submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(),
+      scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
+        backend: { schema_version: 3, transport: "iscp", origin: "https://iscp.invalid", deployment_id: "deployment" },
+        capabilities: { operations: [], files: false, mail: false, browser: false, speech: false, approvals: false, settings: true,
+          surfaces: { settings_connectors: { enabled: true, reason: "" }, settings_bindings: { enabled: true, reason: "" } } },
+      })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"), root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      await act(async () => host.querySelector<HTMLButtonElement>(".sidebarAccountTrigger")!.click());
+      await act(async () => [...host.querySelectorAll<HTMLButtonElement>(".sidebarAccountMenuItem")].find(button => button.textContent === "Workspace settings")!.click());
+      await act(async () => [...host.querySelectorAll<HTMLButtonElement>(".settingsPageNavigation button")].find(button => button.textContent === "Connections")!.click());
+      await act(async () => [...host.querySelectorAll<HTMLButtonElement>(".settingsConnectionRow")].find(button => button.textContent?.includes("Weixin"))!.click());
+      expect(host.querySelector(".bindingItem")?.textContent).toContain("Existing Weixin account");
+      const readCount = list.mock.calls.length, connectorReads = connectors.mock.calls.length;
+      await act(async () => host.querySelector<HTMLButtonElement>('button[title="Revoke binding"]')!.click());
+      expect(revoke).toHaveBeenCalledExactlyOnceWith("existing-binding");
+      expect(list.mock.calls.length).toBeGreaterThan(readCount);
+      expect(connectors.mock.calls.length).toBeGreaterThan(connectorReads);
+      expect(host.querySelector(".settingsBack")?.textContent).toBe("Weixin");
+      expect(host.querySelector(".bindingItem")).toBeNull();
+      expect(host.querySelector(".bindingEmpty button")?.textContent).toContain("Bind Weixin");
     } finally { await act(async () => root.unmount()); }
   });
   it("uses the shared Linux conversation, mailbox and complete settings presentation", async () => {

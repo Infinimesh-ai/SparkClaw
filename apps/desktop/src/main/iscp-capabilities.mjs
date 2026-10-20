@@ -3,12 +3,15 @@ const SURFACES = Object.freeze({
   settings_devices: ['clients.list', 'clients.issue', 'clients.revoke'],
   settings_devices_delete: ['clients.delete'],
   settings_connectors: ['settings.connectors.list', 'settings.connectors.patch'],
+  settings_bindings: ['settings.bindings.list', 'settings.bindings.start', 'settings.bindings.get', 'settings.bindings.poll', 'settings.bindings.revoke', 'settings.bindings.login'],
+  settings_browser_control: ['settings.browser.get', 'settings.browser.save', 'settings.browser.check', 'settings.browser.delete'],
+  settings_mcp_access: ['settings.mcp.catalog', 'settings.mcp.transports', 'settings.mcp.tickets.list', 'settings.mcp.tickets.issue', 'settings.mcp.tickets.revoke', 'settings.mcp.tickets.delete', 'settings.mcp.bindings.list', 'settings.mcp.bindings.revoke', 'settings.mcp.bindings.delete', 'settings.mcp.records.delete', 'settings.mcp.pairing.status', 'settings.mcp.pairing.onboardings', 'settings.mcp.pairing.start'],
   settings_credentials: ['settings.integrations.list', 'settings.credentials.add', 'settings.credentials.activate', 'settings.credentials.check', 'settings.credentials.delete'],
   notifications: ['notifications.list', 'notifications.read', 'notifications.read_all'],
   files: ['transfer.open', 'transfer.status', 'transfer.chunk', 'transfer.commit', 'transfer.abort', 'object.describe', 'object.read', 'object.release', 'execution.input.put', 'execution.file.get'],
   approvals: ['approvals.list', 'approvals.get', 'approvals.decide'],
   events: ['events.pull', 'events.ack', 'events.snapshot'],
-  mail_settings: ['mail.providers.list', 'mail.providers.update', 'mail.providers.check', 'mail.providers.login'],
+  mail_settings: ['mail.providers.list', 'mail.providers.update', 'mail.providers.check'],
   mail_popup: ['mail.providers.list', 'mail.message', 'mail.conversations.list', 'mail.conversations.get', 'mail.conversations.messages', 'mail.conversations.rename', 'mail.conversations.delete', 'mail.pending', 'mail.notifications', 'mail.interaction', 'mail.verification', 'mail.render_preview', 'mail.source.cleanup', 'mail.file', 'mail.classification', 'mail.assignment', 'mail.sender_rules.list', 'mail.sender_rules.update', 'mail.presentations.get', 'mail.presentations.ensure', 'mail.compose.capabilities', 'mail.replies.polish', 'mail.sent_sources', 'mail.sync.status', 'mail.sync.warnings', 'mail.sync.acknowledge', 'mail.sync.request', 'mail.viewed', 'mail.reanalyze', 'mail.intake.update', 'object.read'],
   mail_read: ['mail.mailboxes', 'mail.sync', 'mail.message'],
   mail_attachments: ['mail.attachment'],
@@ -45,7 +48,7 @@ export function projectISCPCapabilities(manifest, report, now = Date.now()) {
   const enabled = (surface) => surfaces[surface].enabled;
   return Object.freeze({ operations: Object.freeze([...operations]), surfaces: Object.freeze(surfaces),
     files: enabled('files'), mail: enabled('mail_popup'), browser: enabled('browser'), speech: enabled('speech_recording'),
-    approvals: enabled('approvals'), settings: enabled('settings_owner') || enabled('settings_connectors') || enabled('settings_credentials') || enabled('mail_settings'),
+    approvals: enabled('approvals'), settings: enabled('settings_owner') || enabled('settings_connectors') || enabled('settings_credentials') || enabled('settings_bindings') || enabled('settings_browser_control') || enabled('settings_mcp_access') || enabled('mail_settings'),
     notifications: enabled('notifications'), events: enabled('events'),
   });
 }

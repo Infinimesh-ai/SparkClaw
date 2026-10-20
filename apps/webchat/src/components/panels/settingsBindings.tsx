@@ -15,6 +15,7 @@ import type { ConnectorStatus, NotificationBinding } from "../../api/types";
 import type { Copy as CopyText, Language } from "../../i18n";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useBindingPolling } from "../../hooks/useBindingPolling";
+import { desktopCapability } from "../../desktop/capability";
 import {
   bindingsForConnector,
   connectorBindingStartDisabled,
@@ -201,7 +202,8 @@ export function ConnectorBindingSettings({
                 </dl>
                 {binding.status === "waiting_scan" && (
                   <div className="bindingQr">
-                    {binding.qr_code_image || isImageLikeQR(binding.qr_code_url) ? (
+                    {(binding.qr_code_image || isImageLikeQR(binding.qr_code_url)) &&
+                      (!desktopCapability() || qrImageSource(binding.qr_code_image || binding.qr_code_url).startsWith("data:image/")) ? (
                       <img src={qrImageSource(binding.qr_code_image || binding.qr_code_url)} alt={waitingInstruction} />
                     ) : binding.qr_code_url ? (
                       <button className="secondaryButton" onClick={() => void openBindingBrowser(binding.id)} disabled={Boolean(bindingsUnavailable) || bindingBusy}>

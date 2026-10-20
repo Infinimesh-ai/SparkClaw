@@ -189,6 +189,12 @@ func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.
 		return a.connectors(ctx, request)
 	case iscpworkbench.OperationSettingsIntegrationsList, iscpworkbench.OperationSettingsCredentialsAdd, iscpworkbench.OperationSettingsCredentialsActivate, iscpworkbench.OperationSettingsCredentialsCheck, iscpworkbench.OperationSettingsCredentialsDelete:
 		return a.integrations(ctx, request)
+	case iscpworkbench.OperationSettingsBindingsList, iscpworkbench.OperationSettingsBindingsStart, iscpworkbench.OperationSettingsBindingsGet, iscpworkbench.OperationSettingsBindingsPoll, iscpworkbench.OperationSettingsBindingsRevoke, iscpworkbench.OperationSettingsBindingsLogin:
+		return a.connectionBindings(ctx, request)
+	case iscpworkbench.OperationSettingsBrowserGet, iscpworkbench.OperationSettingsBrowserSave, iscpworkbench.OperationSettingsBrowserCheck, iscpworkbench.OperationSettingsBrowserDelete:
+		return a.browserSettings(ctx, request)
+	case iscpworkbench.OperationSettingsMCPCatalog, iscpworkbench.OperationSettingsMCPTransports, iscpworkbench.OperationSettingsMCPTicketsList, iscpworkbench.OperationSettingsMCPTicketsIssue, iscpworkbench.OperationSettingsMCPTicketsRevoke, iscpworkbench.OperationSettingsMCPTicketsDelete, iscpworkbench.OperationSettingsMCPBindingsList, iscpworkbench.OperationSettingsMCPBindingsRevoke, iscpworkbench.OperationSettingsMCPBindingsDelete, iscpworkbench.OperationSettingsMCPRecordsDelete, iscpworkbench.OperationSettingsMCPPairingStatus, iscpworkbench.OperationSettingsMCPPairingOnboardings, iscpworkbench.OperationSettingsMCPPairingStart:
+		return a.mcpSettings(ctx, request)
 	case iscpworkbench.OperationSpeechStatus, iscpworkbench.OperationSpeechTranscribe, iscpworkbench.OperationSpeechCancel, iscpworkbench.OperationSpeechSessionOpen, iscpworkbench.OperationSpeechSessionFrame, iscpworkbench.OperationSpeechSessionFinish, iscpworkbench.OperationSpeechSessionCancel, iscpworkbench.OperationSpeechSessionEvents:
 		return a.speech(ctx, request)
 	case iscpworkbench.OperationEventsSnapshot, iscpworkbench.OperationStateSnapshot, iscpworkbench.OperationEventsPull, iscpworkbench.OperationEventsAck, iscpworkbench.OperationEventsSubscribe, iscpworkbench.OperationEventsResume, iscpworkbench.OperationEventsUnsubscribe:

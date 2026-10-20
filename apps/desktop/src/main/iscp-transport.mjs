@@ -24,6 +24,9 @@ const ADMISSION_QUEUE_LIMIT = 24;
 const BEFORE_SEND = Symbol('durable mutation attempt');
 const ORIGINAL_DEADLINE = Symbol('original mutation deadline');
 function requestTimeout(operation, timeoutMS) {
+  // The Weixin provider can hold a QR request for up to 35 seconds.
+  // Keep one bounded operation deadline across admission, send and recovery.
+  if (timeoutMS === 30000 && ["settings.bindings.start", "settings.bindings.poll"].includes(operation)) return 60000;
   return ["mail.drafts.save", "mail.drafts.send", "mail.drafts.reconcile", "mail.drafts.resolve", "mail.providers.check", "mail.providers.login", "mail.intake.update", "mail.replies.polish", "mail.source.cleanup", "mail.conversations.delete"].includes(operation) && timeoutMS === 30000 ? 180000 : timeoutMS;
 }
 function mutationResponse(value) {
@@ -230,9 +233,10 @@ export class ISCPTransport {
   async #presentation(request,init,rawBody) {
     const spec=requireOperation(request.operation);
     const family=request.operation.split(".")[1];
-    const resource=request.operation.startsWith("mail.") ? mailMutationResource(request) : request.operation === "execution.approval" ? `approval:${request.params?.request_id}:${request.params?.approval_id}` : request.operation.startsWith("notifications.") ? "notifications" : family==='owner' ? 'owner' : family==='connectors' ? 'connectors' : `integration:${request.params?.integration_id || ''}`;
-    // Concurrent popup snapshots are reads, not competing mutation intents.
-    if (request.operation.startsWith('mail.') && !spec.mutation) return this.#applyPresentation(resource, spec, request, init, rawBody);
+    const resource=request.operation.startsWith("mail.") ? mailMutationResource(request) : request.operation === "execution.approval" ? `approval:${request.params?.request_id}:${request.params?.approval_id}` : request.operation.startsWith("notifications.") ? "notifications" : family==='owner' ? 'owner' : family==='connectors' ? 'connectors' : family === 'bindings' ? `binding:${request.params?.binding_id || request.params?.channel || 'list'}` : family === 'browser' ? 'browser-extension' : family === 'mcp' ? `mcp:${request.operation.split('.')[2]}:${request.params?.ticket_id || request.params?.binding_id || ''}` : `integration:${request.params?.integration_id || ''}`;
+    // Concurrent settings and popup snapshots are reads, not competing mutation intents.
+    // Reading state must remain possible while an uncertain write is reconciled.
+    if (!spec.mutation) return this.#applyPresentation(resource, spec, request, init, rawBody);
     if (this.presentationPending.has(resource)) throw new ISCPRequestNotSentError("A change to this resource is already in progress", "capacity");
     this.presentationPending.add(resource);
     try { return await this.#applyPresentation(resource, spec, request, init, rawBody); }

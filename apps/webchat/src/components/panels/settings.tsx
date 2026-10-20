@@ -71,6 +71,11 @@ export type SettingsAccess = {
   clientDeletionAvailable?: boolean;
   loadIntegrationStatus?: (id: IntegrationID) => Promise<IntegrationStatus>;
   emailLoginNotice?: string;
+  emailLoginAvailable?: boolean;
+  aiPlatformLoginNotice?: string;
+  aiPlatformLoginAvailable?: boolean;
+  aiPlatformStatusAvailable?: boolean;
+  mcpLANOrigin?: string | null;
   deviceAuthorization?: ReactNode;
 };
 
@@ -414,11 +419,11 @@ export function SettingsPanel({
             onUpdateConnector={onUpdateConnector}
           />}
           {detail === "browser-control" && <BrowserControlSettings text={text} language={language} />}
-          {detail === "ai-platform-login" && <AIPlatformLoginSettings text={text} language={language} />}
-          {detail === "browser-email" && <BrowserEmailSettings text={text} backendLoginNotice={access?.emailLoginNotice} />}
+          {detail === "ai-platform-login" && <AIPlatformLoginSettings text={text} language={language} backendLoginNotice={access?.aiPlatformLoginNotice} loginAvailable={access?.aiPlatformLoginAvailable} statusAvailable={access?.aiPlatformStatusAvailable} />}
+          {detail === "browser-email" && <BrowserEmailSettings text={text} backendLoginNotice={access?.emailLoginNotice} loginAvailable={access?.emailLoginAvailable} />}
           {detail === "info" && <IntegrationCredentialSettings id="infinimesh-info" status={infoStatus} text={text} language={language} onStatus={updateIntegration} loadStatus={access?.loadIntegrationStatus} />}
           {detail === "localmind" && <IntegrationCredentialSettings id="localmind" status={localMindStatus} text={text} language={language} onStatus={updateIntegration} loadStatus={access?.loadIntegrationStatus} />}
-          {detail === "external-mcp" && <ExternalMCPSettings connector={connectors.find((item) => item.channel === "mcp")} text={text} language={language} onUpdateConnector={onUpdateConnector} />}
+          {detail === "external-mcp" && <ExternalMCPSettings connector={connectors.find((item) => item.channel === "mcp")} text={text} language={language} onUpdateConnector={onUpdateConnector} lanOrigin={access?.mcpLANOrigin} />}
           </>}
         </div>
       );
@@ -479,6 +484,7 @@ export function SettingsPanel({
             <ArrowLeft size={16} />
             <span>{detailTitle}</span>
           </button>
+          {access?.unavailable[detail] ? <p className="settingsSurfaceHint" role="status">{access.unavailable[detail]}</p> : <>
           {detail === "owner" && <OwnerProfileSettings ownerProfile={ownerProfile} text={text} onUpdateOwner={onUpdateOwner} />}
           {detail === "clients" && <PairedClientsSettings clients={clients} text={text} language={language} currentClientID={currentClientID}
             clientsLoading={clientsLoading} clientsError={clientsError} onReloadClients={onReloadClients}
@@ -495,6 +501,7 @@ export function SettingsPanel({
           )}
           {detail === "messaging" && (
             <ConnectorBindingSettings
+              bindingsUnavailable={access?.bindingsUnavailable}
               connectors={connectors}
               notificationBindings={notificationBindings}
               text={text}
@@ -507,17 +514,18 @@ export function SettingsPanel({
             />
           )}
           {detail === "browser-control" && <BrowserControlSettings text={text} language={language} />}
-          {detail === "ai-platform-login" && <AIPlatformLoginSettings text={text} language={language} />}
-          {detail === "browser-email" && <BrowserEmailSettings text={text} />}
+          {detail === "ai-platform-login" && <AIPlatformLoginSettings text={text} language={language} backendLoginNotice={access?.aiPlatformLoginNotice} loginAvailable={access?.aiPlatformLoginAvailable} statusAvailable={access?.aiPlatformStatusAvailable} />}
+          {detail === "browser-email" && <BrowserEmailSettings text={text} backendLoginNotice={access?.emailLoginNotice} loginAvailable={access?.emailLoginAvailable} />}
           {detail === "info" && (
-            <IntegrationCredentialSettings id="infinimesh-info" status={infoStatus} text={text} language={language} onStatus={updateIntegration} />
+            <IntegrationCredentialSettings id="infinimesh-info" status={infoStatus} text={text} language={language} onStatus={updateIntegration} loadStatus={access?.loadIntegrationStatus} />
           )}
           {detail === "localmind" && (
-            <IntegrationCredentialSettings id="localmind" status={localMindStatus} text={text} language={language} onStatus={updateIntegration} />
+            <IntegrationCredentialSettings id="localmind" status={localMindStatus} text={text} language={language} onStatus={updateIntegration} loadStatus={access?.loadIntegrationStatus} />
           )}
           {detail === "external-mcp" && (
             <ExternalMCPSettings
               connector={connectors.find((item) => item.channel === "mcp")}
+              lanOrigin={access?.mcpLANOrigin}
               text={text}
               language={language}
               onUpdateConnector={onUpdateConnector}
@@ -620,6 +628,7 @@ export function SettingsPanel({
               </dl>
             </article>
           )}
+          </>}
         </div>
       ) : (
         <div className="settingsDirectory">

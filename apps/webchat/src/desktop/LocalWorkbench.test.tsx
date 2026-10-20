@@ -377,10 +377,9 @@ describe("workbench local workbench", () => {
       expect(capability).not.toHaveBeenCalled();
       await act(async () => host.querySelector<HTMLButtonElement>(".composer .emailEntryButton")!.click());
       expect(document.body.querySelector("dialog.emailPopup[open]")).not.toBeNull();
-      const signIn = [...document.body.querySelectorAll<HTMLButtonElement>(".emailLoginRecovery button")].find(button => button.textContent === dictionaries.en.email.signInAgain)!;
+      const signIn = [...document.body.querySelectorAll<HTMLButtonElement>(".emailLoginRecovery button")].find(button => button.textContent === dictionaries.en.email.signInAgain);
       const resume = [...document.body.querySelectorAll<HTMLButtonElement>(".emailLoginRecovery button")].find(button => button.textContent === dictionaries.en.email.resumeAfterLogin)!;
-      expect(signIn.disabled).toBe(true); expect(resume.disabled).toBe(false);
-      await act(async () => signIn.click()); expect(login).not.toHaveBeenCalled();
+      expect(signIn).toBeUndefined(); expect(resume.disabled).toBe(false); expect(login).not.toHaveBeenCalled();
       expect(document.body.querySelector(".emailLoginRecovery")?.textContent).toContain("Complete sign-in in the backend.");
       expect(host.querySelector(".mailCachePanel")).toBeNull();
       expect([...host.querySelectorAll(".topbarActions button")].some(button => button.textContent === "Mail")).toBe(false);

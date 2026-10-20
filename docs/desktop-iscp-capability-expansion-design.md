@@ -1096,11 +1096,11 @@ direct installation is limited to this Mac. Relay/issuer binaries are unchanged.
 ## 9.19. Desktop connection bindings (2026-10-20)
 
 Desktop LAN HTTPS and ISCP now share the original connection components. Email
-and AI platform sign-in reuse backend browser sessions, so their sign-in buttons
-remain visible but disabled on Desktop, with instructions to finish in the
-backend. Email connection checks and resume after backend sign-in remain available.
-The native API proxy also rejects those website sign-in routes, and ISCP has no
-operation for opening the backend email sign-in browser. Backend WebChat
+and AI platform sign-in reuse backend browser sessions. Desktop shows no email
+sign-in button (settings or mail login recovery); AI platform sign-in remains
+visible but disabled. Both show instructions to finish in the backend. Email
+connection checks and resume after backend sign-in remain available.
+The native API proxy also rejects those website sign-in routes. Backend WebChat
 retains its existing login flow.
 
 Weixin QR, Telegram Bot Token, browser extension Token, Info License, LocalMind

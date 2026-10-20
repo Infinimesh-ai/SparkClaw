@@ -140,21 +140,22 @@ export function BrowserEmailSettings({ text, backendLoginNotice, loginAvailable 
                 >
                   <Star size={14} fill={provider.default ? "currentColor" : "none"} />
                 </button>
-                <button
+                {/* Desktop clients do not offer email sign-in; it stays in backend WebChat. */}
+                {loginAvailable && <button
                   className="miniIconButton"
                   type="button"
-                  onClick={() => loginAvailable && void run(
+                  onClick={() => void run(
                     `login:${provider.provider}`,
                     () => api.openEmailLoginBrowser(provider.provider),
                     text.settings.browserEmailLoginOpened,
                     backendLoginNotice || text.settings.browserEmailLoginOpenedDetail
                   )}
-                  disabled={!loginAvailable || Boolean(busy) || !known || !provider.enabled}
-                  title={!loginAvailable && backendLoginNotice ? backendLoginNotice : text.settings.browserEmailOpenLogin}
+                  disabled={Boolean(busy) || !known || !provider.enabled}
+                  title={text.settings.browserEmailOpenLogin}
                   aria-label={text.settings.browserEmailOpenLogin}
                 >
                   <LogIn size={14} />
-                </button>
+                </button>}
                 <button
                   className="miniIconButton"
                   type="button"

@@ -92,9 +92,7 @@ it("keeps the original connections directory and mounts only qualified provider 
     expect(host.textContent).toContain("Complete sign-in in the backend.");
     expect(login).not.toHaveBeenCalled(); expect(check).not.toHaveBeenCalled();
     const outlook = [...host.querySelectorAll(".emailProviderRow")].find(row => row.textContent?.includes("Outlook"))!;
-    const loginButton = outlook.querySelector<HTMLButtonElement>(`button[aria-label="${dictionaries.en.settings.browserEmailOpenLogin}"]`)!;
-    expect(loginButton.disabled).toBe(true);
-    await act(async () => loginButton.click());
+    expect(outlook.querySelector(`button[aria-label="${dictionaries.en.settings.browserEmailOpenLogin}"]`)).toBeNull();
     expect(login).not.toHaveBeenCalled();
     await act(async () => outlook.querySelector<HTMLButtonElement>(`button[aria-label="${dictionaries.en.settings.checkConnection}"]`)!.click());
     expect(check).toHaveBeenCalledWith("outlook"); expect(send).not.toHaveBeenCalled();
@@ -121,10 +119,7 @@ it.each(["lan", "iscp"] as const)("keeps all eight entries and prevents website 
     await act(async () => button(host, "Email").click());
     expect(list).toHaveBeenCalledOnce();
     expect(host.querySelectorAll(".emailProviderRow")).toHaveLength(3);
-    for (const login of host.querySelectorAll<HTMLButtonElement>(`button[aria-label="${dictionaries.en.settings.browserEmailOpenLogin}"]`)) {
-      expect(login.disabled).toBe(true);
-      await act(async () => login.click());
-    }
+    expect(host.querySelectorAll(`button[aria-label="${dictionaries.en.settings.browserEmailOpenLogin}"]`)).toHaveLength(0);
     const outlook = [...host.querySelectorAll(".emailProviderRow")].find(row => row.textContent?.includes("Outlook"))!;
     await act(async () => outlook.querySelector<HTMLButtonElement>(`button[aria-label="${dictionaries.en.settings.checkConnection}"]`)!.click());
     expect(check).toHaveBeenCalledWith("outlook");

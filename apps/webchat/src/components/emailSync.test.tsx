@@ -76,15 +76,14 @@ describe("email sync persistent warnings and Refresh", () => {
     const button = buttons(label)[index]; expect(button).toBeDefined();
     await act(async () => button.click());
   }
-  it("keeps login recovery disabled without the desktop login capability", async () => {
+  it("offers no sign-in button without the desktop login capability", async () => {
     const value = status(); value.mailboxes[0].state = "login_required";
     const login = vi.spyOn(api, "openEmailLoginBrowser");
     const check = vi.spyOn(api, "checkEmailProvider");
     await act(async () => root.render(<MailWorkspaceContext.Provider value={{ identity: 1, enabled: true, sendEnabled: true, loginEnabled: false, attachmentsEnabled: true, listFiles: vi.fn(), conversationID: "local", onFileSaved: vi.fn(), download: vi.fn() }}><Harness value={value} /></MailWorkspaceContext.Provider>));
-    for (const label of [text.email.signInAgain, text.email.resumeAfterLogin]) {
-      expect(buttons(label)[0].disabled).toBe(true);
-      await click(label);
-    }
+    expect(buttons(text.email.signInAgain)).toHaveLength(0);
+    expect(buttons(text.email.resumeAfterLogin)[0].disabled).toBe(true);
+    await click(text.email.resumeAfterLogin);
     expect(login).not.toHaveBeenCalled(); expect(check).not.toHaveBeenCalled();
   });
   it("resumes an account signed in on the backend without enabling desktop sign-in", async () => {
@@ -96,10 +95,9 @@ describe("email sync persistent warnings and Refresh", () => {
     await act(async () => root.render(<MailWorkspaceContext.Provider value={{ identity: 1, enabled: true, sendEnabled: true,
       loginEnabled: false, resumeEnabled: true, loginNotice, attachmentsEnabled: true, listFiles: vi.fn(), conversationID: "local",
       onFileSaved: vi.fn(), download: vi.fn() }}><Harness value={value} /></MailWorkspaceContext.Provider>));
-    expect(buttons(text.email.signInAgain)[0].disabled).toBe(true);
+    expect(buttons(text.email.signInAgain)).toHaveLength(0);
     expect(buttons(text.email.resumeAfterLogin)[0].disabled).toBe(false);
     expect(container.textContent).toContain(loginNotice);
-    await click(text.email.signInAgain);
     await click(text.email.resumeAfterLogin);
     expect(check).toHaveBeenCalledExactlyOnceWith("qq_mail");
     expect(api.updateEmailIntake).toHaveBeenCalledExactlyOnceWith("qq_mail", true, 3);

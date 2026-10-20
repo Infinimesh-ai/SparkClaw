@@ -111,7 +111,7 @@ export function EmailSync({ status, providers, mailboxId, text, language, onRefr
       </div>}
       {(status?.mailboxes ?? []).filter((mailbox) => mailbox.intake_enabled && mailbox.state === "login_required").map((mailbox) => <div className="emailLoginRecovery" role="status" key={mailbox.id}>
         <strong>{mailbox.address}</strong><span>{text.email.loginExpired}</span>
-        <button className="emailTextButton" disabled={Boolean(busy) || !loginEnabled} title={!loginEnabled ? workspace?.loginNotice : undefined} onClick={() => void recover(mailbox.provider, false)}>{text.email.signInAgain}</button>
+        {loginEnabled && <button className="emailTextButton" disabled={Boolean(busy)} onClick={() => void recover(mailbox.provider, false)}>{text.email.signInAgain}</button>}
         <button className="emailTextButton" disabled={Boolean(busy) || !resumeEnabled} onClick={() => void recover(mailbox.provider, true)}>{text.email.resumeAfterLogin}</button>
         <small>{workspace?.loginNotice || text.email.loginRecoveryHelp}</small>
       </div>)}

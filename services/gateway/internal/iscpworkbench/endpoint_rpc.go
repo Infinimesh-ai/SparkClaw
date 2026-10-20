@@ -365,7 +365,7 @@ func operationTimeout(operation string) time.Duration {
 		// The Weixin provider's bounded QR request can take 35 seconds. Leave
 		// time to commit its result without renewing earlier caller deadlines.
 		return 60 * time.Second
-	case OperationMailDraftsSave, OperationMailDraftsSend, OperationMailDraftsReconcile, OperationMailSend, OperationMailProvidersCheck, OperationMailProvidersLogin, OperationMailIntakeUpdate, OperationMailRepliesPolish, OperationMailSourceCleanup, OperationMailConversationsDelete:
+	case OperationMailDraftsSave, OperationMailDraftsSend, OperationMailDraftsReconcile, OperationMailSend, OperationMailProvidersCheck, OperationMailIntakeUpdate, OperationMailRepliesPolish, OperationMailSourceCleanup, OperationMailConversationsDelete:
 		return 180 * time.Second
 	default:
 		return requestTimeout

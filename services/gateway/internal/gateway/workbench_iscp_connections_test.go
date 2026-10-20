@@ -117,7 +117,7 @@ func (a *desktopQRBindingAdapter) Poll(context.Context, app.NotificationBinding)
 	return binding.PollResult{Status: app.NotificationBindingActive, AccountID: "weixin-account"}, nil
 }
 
-func TestISCPDomainConnectionBindingPollReplaysOnceAndNewPollProgresses(t *testing.T) {
+func TestISCPDomainConnectionBindingPollReadsCurrentProviderState(t *testing.T) {
 	server, repo, cfg, _ := workbenchISCPFixture(t, nil)
 	server.cfg.Tools.Notifications.Channels["weixin"] = config.NotificationChannelConfig{Enabled: true, Provider: weixinproto.QRProvider}
 	adapter := &desktopQRBindingAdapter{}
@@ -167,12 +167,9 @@ func TestISCPDomainConnectionBindingPollReplaysOnceAndNewPollProgresses(t *testi
 	if first.Status != http.StatusOK || !bytes.Contains(first.Body, []byte(`"status":"waiting_confirm"`)) || adapter.polls.Load() != 1 {
 		t.Fatalf("first poll: status=%d count=%d body=%s", first.Status, adapter.polls.Load(), first.Body)
 	}
-	if replay := handler(ctx, poll); replay.Status != http.StatusOK || !bytes.Equal(replay.Body, first.Body) || adapter.polls.Load() != 1 {
-		t.Fatalf("retry repeated provider call: status=%d count=%d", replay.Status, adapter.polls.Load())
-	}
-	next := domainTestRequest("settings.bindings.poll", []byte(`{}`))
-	next.Params = poll.Params
-	if completed := handler(ctx, next); completed.Status != http.StatusOK ||
+	// Polling is a status read without an operation receipt: the same request
+	// queries the provider again and observes the completed binding.
+	if completed := handler(ctx, poll); completed.Status != http.StatusOK ||
 		!bytes.Contains(completed.Body, []byte(`"status":"active"`)) || adapter.polls.Load() != 2 {
 		t.Fatalf("fresh poll did not progress: status=%d count=%d body=%s", completed.Status, adapter.polls.Load(), completed.Body)
 	}

@@ -274,7 +274,7 @@ test('v2 negotiation routes only registered operations, uses CAS and unwraps met
  assert.equal(f.calls.length,2);
 });
 
-test('connection snapshots coexist and binding polls advance only after delivery with a new action', async t => {
+test('connection snapshots coexist and binding polls read current state without a durable receipt', async t => {
   t.mock.method(globalThis, 'fetch', () => assert.fail('connection settings bypassed ISCP'));
   const names = ['settings.mcp.catalog', 'settings.mcp.tickets.list', 'settings.mcp.bindings.list',
     'settings.mcp.pairing.status', 'settings.mcp.pairing.onboardings', 'settings.bindings.poll'];
@@ -289,12 +289,33 @@ test('connection snapshots coexist and binding polls advance only after delivery
   const paths = ['/api/mcp-access/catalog','/api/mcp-access/tickets','/api/mcp-access/bindings','/api/iscp-pairing/status','/api/iscp-pairing/onboardings'];
   const responses = await Promise.all(paths.map(async route => (await f.transport.fetch(`${origin}${route}`)).json()));
   assert.equal(responses.length, 5);
-  const first = {method:'POST',body:'{}',actionID:crypto.randomUUID()};
-  assert.equal((await (await f.transport.fetch(`${origin}/api/notification-bindings/binding/poll`, first)).json()).status, 'waiting_scan');
-  assert.equal((await (await f.transport.fetch(`${origin}/api/notification-bindings/binding/poll`, first)).json()).status, 'waiting_scan');
-  assert.equal(polls, 1, 'same unresolved/delivered action replays its result');
-  assert.equal((await (await f.transport.fetch(`${origin}/api/notification-bindings/binding/poll`, {...first,actionID:crypto.randomUUID()})).json()).status, 'active');
-  assert.equal(polls, 2, 'a later delivered polling cycle queries the provider again');
+  const poll = {method:'POST',body:'{}'};
+  assert.equal((await (await f.transport.fetch(`${origin}/api/notification-bindings/binding/poll`, poll)).json()).status, 'waiting_scan');
+  assert.equal(f.transport.mutations?.read('binding:binding') ?? null, null, 'a poll leaves no durable journal record');
+  assert.equal(f.calls.find(call => call.request.operation === 'settings.bindings.poll').request.operation_id, undefined, 'a poll requests no receipt');
+  assert.equal((await (await f.transport.fetch(`${origin}/api/notification-bindings/binding/poll`, poll)).json()).status, 'active');
+  assert.equal(polls, 2, 'each poll queries the provider for the current state');
+});
+
+test('revoking a binding is not refused while its provider poll is still waiting', async t => {
+  let releasePoll;
+  const f=fixture(t,(call,child)=>{
+    const reply=()=>child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,
+      body:{status:call.request.operation==='settings.bindings.poll'?'waiting_scan':'revoked'}}});
+    if(call.request.operation==='settings.bindings.poll') releasePoll=reply; else setImmediate(reply);
+  });
+  await f.transport.start();
+  f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{
+    schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,
+    expires_at:new Date(Date.now()+60000).toISOString(),binding:{deployment_id:'d',owner_id:'o',client_id:'c'},
+    operations:['settings.bindings.poll','settings.bindings.revoke'],
+  }});
+  const poll=f.transport.fetch(`${origin}/api/notification-bindings/binding/poll`,{method:'POST',body:'{}',actionID:crypto.randomUUID()});
+  while(!releasePoll) await new Promise(resolve=>setImmediate(resolve));
+  const revoke=await f.transport.fetch(`${origin}/api/notification-bindings/binding`,{method:'DELETE',actionID:crypto.randomUUID()});
+  assert.equal((await revoke.json()).status,'revoked');
+  releasePoll();
+  assert.equal((await (await poll).json()).status,'waiting_scan');
 });
 
 test('QR binding operations retain a sixty-second original deadline for the provider long poll', async t => {
@@ -307,12 +328,29 @@ test('QR binding operations retain a sixty-second original deadline for the prov
     expires_at:new Date(Date.now()+120000).toISOString(),binding:{deployment_id:'d',owner_id:'o',client_id:'c'},
     operations:['settings.bindings.start','settings.bindings.poll'],
   }});
-  for (const [route,resource] of [['weixin/start','binding:weixin'],['binding/poll','binding:binding']]) {
+  for (const [route,resource] of [['weixin/start','binding:weixin']]) {
     await f.transport.fetch(`${origin}/api/notification-bindings/${route}`,{method:'POST',body:'{}'});
     const record=f.transport.mutations.read(resource);
     const budget=record.not_after-record.created_at;
     assert.ok(budget>59000 && budget<=60000, `QR provider budget was ${budget}`);
   }
+});
+
+test('a binding poll keeps the sixty-second provider budget without a journal record', async t => {
+  const f=fixture(t,(call,child)=>setTimeout(()=>child.send({ipc_version:1,type:'response',id:call.id,response:{
+    type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:{status:'active'},
+  }}),45000),{timeoutMS:30000});
+  await f.transport.start();
+  f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{
+    schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,
+    expires_at:new Date(Date.now()+120000).toISOString(),binding:{deployment_id:'d',owner_id:'o',client_id:'c'},
+    operations:['settings.bindings.poll'],
+  }});
+  t.mock.timers.enable({apis:['setTimeout']});
+  const pending=f.transport.fetch(`${origin}/api/notification-bindings/binding/poll`,{method:'POST',body:'{}'});
+  for (let i=0;i<5;i++) await Promise.resolve();
+  t.mock.timers.tick(45000);
+  assert.equal((await (await pending).json()).status,'active');
 });
 
 test('a later browser check reconciles the failed receipt before admitting a fresh check', async t => {
@@ -486,14 +524,14 @@ test('mail save, receipt reconciliation and provider probes can complete beyond 
     setTimeout(() => child.send({ ipc_version: 1, type: 'response', id: call.id, response: { type: 'task.result', profile: 'sparkclaw.workbench.transport.v2', id: call.id, status: 200, body: { id: 'draft', version: 1 } } }), 45000);
   }, { journalRoot: root, timeoutMS: 30000 });
   await f.transport.start();
-  f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities: { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session', authorization_revision: 1, expires_at: new Date(Date.now() + 300000).toISOString(), operations: ['mail.drafts.save', 'mail.drafts.list', 'mail.drafts.reconcile', 'mail.providers.check', 'mail.providers.login'], binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' } } });
+  f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities: { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session', authorization_revision: 1, expires_at: new Date(Date.now() + 300000).toISOString(), operations: ['mail.drafts.save', 'mail.drafts.list', 'mail.drafts.reconcile', 'mail.providers.check'], binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' } } });
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const saving = f.transport.fetch(`${origin}/api/email/drafts`, { method: 'POST', body: JSON.stringify({ id: 'draft', attachments: [] }) });
   for (let i = 0; i < 5; i++) await Promise.resolve();
   assert.equal(f.calls.length, 1);
   t.mock.timers.tick(45000);
   assert.equal((await (await saving).json()).version, 1);
-  for (const action of ['check', 'login-browser']) {
+  for (const action of ['check']) {
     const pending = f.transport.fetch(`${origin}/api/email/providers/qq_mail/${action}`, {method:'POST',body:'{}'});
     for (let i = 0; i < 5; i++) await Promise.resolve();
     t.mock.timers.tick(45000);
@@ -516,23 +554,14 @@ test('mail save, receipt reconciliation and provider probes can complete beyond 
   t.mock.timers.tick(30000); await rejected;
 });
 
-test('mail provider login uses a durable receipt after an explicit unknown response and never reopens', async t => {
-  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'iscp-provider-login-'));
-  t.after(() => fs.rmSync(root, {recursive:true, force:true}));
-  const f = fixture(t, (call, child) => {
-    const operation = call.request.operation;
-    const body = operation === 'operations.receipt' ? {state:'unknown'} : operation === 'mail.providers.login' ? {code:'operation_outcome_unknown', error:'Login outcome is unknown'} : {provider:'outlook', state:'ready'};
-    child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:operation === 'mail.providers.login' ? 409 : 200,body}});
-  }, {journalRoot:root});
+test('desktop mail settings check sign-in state but cannot open the sign-in browser', async t => {
+  const f = fixture(t, (call, child) => child.send({ipc_version:1,type:'response',id:call.id,response:{type:'task.result',profile:'sparkclaw.workbench.transport.v2',id:call.id,status:200,body:{provider:'outlook', state:'ready'}}}));
   await f.transport.start();
-  f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:['mail.providers.login','mail.providers.check','operations.receipt'],binding:{deployment_id:'d',owner_id:'o',client_id:'c'}}});
+  f.children[0].send({ipc_version:1,type:'capabilities',capabilities:{schema_version:2,profile:'sparkclaw.workbench.transport.v2',session_id:'session',authorization_revision:1,expires_at:new Date(Date.now()+60000).toISOString(),operations:['mail.providers.check'],binding:{deployment_id:'d',owner_id:'o',client_id:'c'}}});
   const request = {method:'POST',body:'{}'};
-  assert.equal((await f.transport.fetch(`${origin}/api/email/providers/outlook/login-browser`,request)).status,409);
-  assert.ok(f.transport.mutations.read('mail-provider:outlook:login'));
-  await assert.rejects(f.transport.fetch(`${origin}/api/email/providers/outlook/login-browser`,request), /unknown/);
+  await assert.rejects(f.transport.fetch(`${origin}/api/email/providers/outlook/login-browser`,request));
   assert.equal((await f.transport.fetch(`${origin}/api/email/providers/outlook/check`,request)).status,200);
-  assert.deepEqual(f.calls.map(call => call.request.operation), ['mail.providers.login','operations.receipt','mail.providers.check']);
+  assert.deepEqual(f.calls.map(call => call.request.operation), ['mail.providers.check']);
 });
 
 test('original popup mutations retain their original receipt across helper restart without HTTP or repeated effects', async t => {

@@ -11,7 +11,7 @@ import (
 	wb "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 )
 
-var mailProviderOperations = []string{wb.OperationMailProvidersList, wb.OperationMailProvidersUpdate, wb.OperationMailProvidersCheck, wb.OperationMailProvidersLogin}
+var mailProviderOperations = []string{wb.OperationMailProvidersList, wb.OperationMailProvidersUpdate, wb.OperationMailProvidersCheck}
 
 func TestISCPMailProviderExactPermissionAndQualification(t *testing.T) {
 	server, _, cfg, _ := workbenchISCPFixture(t, nil)
@@ -39,7 +39,7 @@ func TestISCPMailProviderExactPermissionAndQualification(t *testing.T) {
 		t.Fatal("unconfigured providers must still be configurable")
 	}
 	// Trusted ISCP sessions are not narrowed by grant scopes or qualification.
-	a.config.QualifiedCapabilities = mailProviderOperations[:3]
+	a.config.QualifiedCapabilities = mailProviderOperations[:2]
 	if !inspect(nil).Enabled {
 		t.Fatal("scope-free trusted session lost mail settings")
 	}
@@ -78,7 +78,7 @@ func TestISCPMailProviderUsesBackendAndReplaysSideEffectsOnce(t *testing.T) {
 			t.Fatal("receipt differs")
 		}
 	}
-	if !slices.Equal(controller.actions, []string{"update", "check", "login"}) {
+	if !slices.Equal(controller.actions, []string{"update", "check"}) {
 		t.Fatal(controller.actions)
 	}
 	for _, body := range []string{`{"intake_enabled":true,"expected_mailbox_version":0}`, `{"enabled":true}`, `{"enabled":true,"expected_version":-1}`} {
@@ -86,52 +86,33 @@ func TestISCPMailProviderUsesBackendAndReplaysSideEffectsOnce(t *testing.T) {
 		request.Params = map[string]string{"provider": "outlook"}
 		requireV2Status(t, f.call(t, request), 400)
 	}
-	invalid := v2Request(wb.OperationMailProvidersLogin, []byte(`{"url":"https://evil.test"}`))
+	invalid := v2Request(wb.OperationMailProvidersCheck, []byte(`{"url":"https://evil.test"}`))
 	invalid.Params = map[string]string{"provider": "outlook"}
 	requireV2Status(t, f.call(t, invalid), 400)
-	if len(controller.actions) != 3 {
+	if len(controller.actions) != 2 {
 		t.Fatal("invalid input reached provider")
 	}
 }
 
-func TestISCPMailProviderLoginTrustsSessionAndUnknownNeverReopens(t *testing.T) {
-	t.Run("trusted session login", func(t *testing.T) {
-		server, _, cfg, _ := workbenchISCPFixture(t, nil)
-		controller := &fakeEmailController{}
-		server.email = controller
-		f := startV2EncryptedFixture(t, server, cfg, []string{"mail.read"}, mailProviderOperations)
-		f.bind(t)
-		request := v2Request(wb.OperationMailProvidersLogin, []byte(`{}`))
-		request.Params = map[string]string{"provider": "qq_mail"}
-		requireV2Status(t, f.call(t, request), 200)
-		if len(controller.actions) != 1 {
-			t.Fatal("trusted ISCP login did not reach the provider")
-		}
-	})
-	t.Run("backend response lost", func(t *testing.T) {
-		server, _, cfg, _ := workbenchISCPFixture(t, nil)
-		controller := &fakeEmailController{err: &emailautomation.Error{Code: app.ToolErrorEmailProviderUnavailable, Message: "controller response lost"}}
-		server.email = controller
-		handler, err := server.NewWorkbenchISCPDomainHandler(cfg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		request := domainTestRequest(wb.OperationMailProvidersLogin, []byte(`{}`))
-		request.Params = map[string]string{"provider": "qq_mail"}
-		result := handler(domainTestContext(t), request)
-		if result.Status != 409 || !bytes.Contains(result.Body, []byte("operation_outcome_unknown")) {
-			t.Fatalf("%+v", result)
-		}
-		restarted, err := server.NewWorkbenchISCPDomainHandler(cfg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		controller.err = nil
-		if got := restarted(domainTestContext(t), request); got.Status != 409 {
-			t.Fatalf("%+v", got)
-		}
-		if !slices.Equal(controller.actions, []string{"login"}) {
-			t.Fatal("repeated unknown login", controller.actions)
-		}
-	})
+// Desktop mail settings only check sign-in state; opening the backend sign-in
+// browser is not an ISCP operation.
+func TestISCPMailProviderLoginBrowserIsNotAnOperation(t *testing.T) {
+	if _, found := wb.LookupOperation("mail.providers.login"); found {
+		t.Fatal("mail sign-in browser is registered as an ISCP operation")
+	}
+	server, _, cfg, _ := workbenchISCPFixture(t, nil)
+	controller := &fakeEmailController{}
+	server.email = controller
+	handler, err := server.NewWorkbenchISCPDomainHandler(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := domainTestRequest("mail.providers.login", []byte(`{}`))
+	request.Params = map[string]string{"provider": "qq_mail"}
+	if result := handler(domainTestContext(t), request); result.Status < 400 {
+		t.Fatalf("login browser request was accepted: %+v", result)
+	}
+	if len(controller.actions) != 0 {
+		t.Fatal("login browser request reached the provider", controller.actions)
+	}
 }

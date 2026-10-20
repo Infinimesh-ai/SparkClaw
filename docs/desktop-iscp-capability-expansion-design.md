@@ -1099,7 +1099,8 @@ Desktop LAN HTTPS and ISCP now share the original connection components. Email
 and AI platform sign-in reuse backend browser sessions, so their sign-in buttons
 remain visible but disabled on Desktop, with instructions to finish in the
 backend. Email connection checks and resume after backend sign-in remain available.
-The native API proxy also rejects those website sign-in routes. Backend WebChat
+The native API proxy also rejects those website sign-in routes, and ISCP has no
+operation for opening the backend email sign-in browser. Backend WebChat
 retains its existing login flow.
 
 Weixin QR, Telegram Bot Token, browser extension Token, Info License, LocalMind
@@ -1125,9 +1126,9 @@ to live in the existing Gateway stores. Website cookies remain in the backend
 browser profile. The Desktop's encrypted operation journal may retain an in-flight
 credential or a returned one-use ticket for retry recovery; it is not the binding
 registry. The Gateway's encrypted receipt journal replays the original issuance
-after a lost reply. Repeated polls get new action identities only after delivery,
-so they can observe progress without duplicating an unresolved operation. QR
-start/poll keep a 60-second deadline for the provider’s bounded 35-second request,
+after a lost reply. A binding poll is a status read: it writes no operation
+receipt or Desktop journal record, queries the provider each time and closes the
+QR dialog once it returns `active`. QR start/poll keep a 60-second deadline for the provider’s bounded 35-second request,
 without extending earlier caller cancellation. A later explicit browser credential
 check can recover from a terminal provider failure; unknown results stay fenced.
 

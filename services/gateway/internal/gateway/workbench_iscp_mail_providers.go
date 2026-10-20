@@ -41,11 +41,6 @@ func (a *iscpDomainAdapter) mailProviders(ctx context.Context, request iscpworkb
 			return domainError(400, "invalid_input")
 		}
 		return domainHTTP(ctx, request, http.MethodPost, a.server.checkEmailProvider, params)
-	case iscpworkbench.OperationMailProvidersLogin:
-		if !domainEmpty(request.Body) {
-			return domainError(400, "invalid_input")
-		}
-		return domainHTTP(ctx, request, http.MethodPost, a.server.openEmailLoginBrowser, params)
 	}
 	return domainError(501, "capability_unavailable")
 }

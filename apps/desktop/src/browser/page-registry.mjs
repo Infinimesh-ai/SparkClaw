@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 import { ELECTRON_CONNECT_URL } from "./protocol.mjs";
+import { loadPersonalPage } from "./personal-page-load.mjs";
 
 const ALLOWED_ROLES = new Set(["personal", "task"]);
 
@@ -129,7 +130,7 @@ export class PageRegistry {
 
   async createPersonalPage(url = "about:blank") {
     const record = this.#createRecord({ role: "personal", url });
-    await record.webContents.loadURL(url);
+    await loadPersonalPage(record.webContents, url);
     this.presentation.showPersonal(record);
     this.#changed();
     return record;
@@ -216,7 +217,7 @@ export class PageRegistry {
 
   async navigatePersonal(pageRef, url) {
     const record = this.getPersonal(pageRef);
-    await record.webContents.loadURL(url);
+    await loadPersonalPage(record.webContents, url);
     this.#changed();
     return record;
   }
@@ -436,7 +437,10 @@ export class PageRegistry {
             url: details.url,
             openerTabID: record.tabID,
           });
-          void popup.webContents.loadURL(details.url || "about:blank")
+          const loading = record.role === "personal"
+            ? loadPersonalPage(popup.webContents, details.url || "about:blank")
+            : popup.webContents.loadURL(details.url || "about:blank");
+          void loading
             .catch(() => this.destroy(popup.tabID, "load_failed"));
           if (record.connectionID) {
             this.connections.get(record.connectionID)?.facade?.tabs.onCreated.emit(publicTab(popup));

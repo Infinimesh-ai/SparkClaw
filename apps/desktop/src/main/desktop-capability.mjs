@@ -60,10 +60,13 @@ export class DesktopCapability {
 
   async #invoke(event, request) {
     this.#authorize(event);
-    if (!this.authorizeSession()) throw new Error("Desktop session is locked");
     if (!plainObject(request) || request.schema_version !== 1 || typeof request.operation !== "string") {
       throw new Error("Desktop capability request is invalid");
     }
+    // Losing the connection can collapse/unmount the browser while the window
+    // is hidden. Its trusted UI must still be able to remove the native overlay;
+    // otherwise reopening shows the retained page over the conversation.
+    if (request.operation !== "hideBrowser" && !this.authorizeSession()) throw new Error("Desktop session is locked");
     if (this.getCapabilities()?.browser === false && !["state", "selectConversation", "hideBrowser"].includes(request.operation)) {
       throw new Error("Browser operations are unavailable through this transport");
     }

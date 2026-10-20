@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { DesktopCapability } from "../src/main/desktop-capability.mjs";
 import { BrowserPresentation } from "../src/main/presentation.mjs";
 import { PageRegistry } from "../src/browser/page-registry.mjs";
+import { bindWorkbenchActivation } from "../src/main/workbench-activation.mjs";
 
 const temporary = process.env.SPARKCLAW_LAYOUT_ROOT;
 const directory = path.dirname(fileURLToPath(import.meta.url));
@@ -15,7 +16,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: "sparkclaw-app", privileges: { s
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 app.whenReady().then(async () => {
   app.dock?.hide();
-  let window, capability, registry;
+  let window, capability, registry, authorized = true;
   try {
     const [javascript, css] = await Promise.all(["panel.js", "panel.css"].map(file => fs.readFile(path.join(temporary, "ui", file), "utf8")));
     const html = `<html><head><meta charset="utf-8"><style>${css}</style></head><body><div id="root"></div><script>${javascript}</script></body></html>`;
@@ -23,14 +24,22 @@ app.whenReady().then(async () => {
     session.defaultSession.protocol.handle("sparkclaw-app", () => new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } }));
     window = new BrowserWindow({ show: false, width: 1440, height: 900, webPreferences: {
       preload: path.join(directory, "../src/preload/workbench.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+    window.on("close", event => { event.preventDefault(); window.hide(); });
+    bindWorkbenchActivation(app, () => window);
     const browserSession = session.fromPartition("isolated-panel-native");
-    browserSession.protocol.handle("https", () => new Response("<html><title>Isolated page</title><body>Fixture <input value='retained native input'></body></html>", { headers: { "content-type": "text/html" } }));
+    browserSession.protocol.handle("https", async ({ url }) => {
+      if (url.endsWith("/slow")) await pause(500);
+      if (url.endsWith("/failure")) return Response.error();
+      return new Response(url.endsWith("/redirect")
+        ? '<html><img src="/slow"><script>setTimeout(() => location.replace("https://fixture.test/page"), 50)</script></html>'
+        : "<html><title>Isolated page</title><body>Fixture <input value='retained native input'></body></html>", { headers: { "content-type": "text/html" } });
+    });
     browserSession.webRequest.onBeforeRequest(({ url }, callback) => callback({ cancel: !url.startsWith("https://fixture.test/") && url !== "about:blank" }));
     const shieldView = new WebContentsView({ webPreferences: { session: browserSession, sandbox: true, nodeIntegration: false, backgroundThrottling: false } });
     const presentation = new BrowserPresentation({ window, shieldView, explicitSelection: true });
     registry = new PageRegistry({ runtimeGeneration: "a".repeat(32), browserSession, presentation,
       createView: () => new WebContentsView({ webPreferences: { session: browserSession, sandbox: true, nodeIntegration: false, backgroundThrottling: false } }) });
-    capability = new DesktopCapability({ ipcMain, window, registry, presentation,
+    capability = new DesktopCapability({ ipcMain, window, registry, presentation, authorizeSession: () => authorized,
       browserServices: { snapshot: () => ({ downloads: [], permissions: [] }) }, runtimeGeneration: "a".repeat(32) }).start();
     window.setContentSize(1440, 900);
     await window.loadURL("sparkclaw-app://workbench/index.html");
@@ -55,6 +64,9 @@ app.whenReady().then(async () => {
       }, `${label}: bounds did not settle: ${JSON.stringify(presentation.bounds())}`);
     }
     await check("initial direct blank");
+    window.show();
+    await pause(100);
+    await check("initial visible window");
     assert.equal(registry.records.size, 1);
     assert.equal(presentation.presented, null, "blank is DOM only");
     await until(() => evaluate("document.activeElement === document.querySelector('.desktopAddressBar input')"), "address must receive focus");
@@ -79,6 +91,38 @@ app.whenReady().then(async () => {
     const record = presentation.presented;
     await check("real view");
     assert.equal(record.view.getVisible(), true);
+    const pageBounds = record.view.getBounds();
+    window.close();
+    await pause(100);
+    app.emit("activate");
+    await pause(100);
+    assert.deepEqual(record.view.getBounds(), pageBounds, "reopening must not expand the page over the conversation");
+    assert.equal(record.view.getVisible(), true);
+    let abortedLoads = 0;
+    record.webContents.on("did-fail-load", (_event, code, _description, _url, mainFrame) => {
+      if (mainFrame && code === -3) abortedLoads++;
+    });
+    await evaluate(`(() => { const input=document.querySelector('.desktopAddressBar input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'https://fixture.test/redirect'); input.dispatchEvent(new Event('input',{bubbles:true})); })()`);
+    await evaluate("document.querySelector('.desktopAddressBar').requestSubmit()");
+    await until(() => abortedLoads > 0, "fixture must exercise Electron ERR_ABORTED");
+    await until(() => record.webContents.getURL() === "https://fixture.test/page" && !record.webContents.isLoading(), "redirect did not finish");
+    assert.ok(abortedLoads > 0, "fixture must exercise Electron ERR_ABORTED");
+    await check("redirect after aborted initial load");
+    const created = await evaluate("window.sparkclawDesktop.createPersonal('https://fixture.test/redirect')");
+    const createdPage = registry.getPersonal(created.page_ref);
+    assert.equal(createdPage.webContents.getURL(), "https://fixture.test/page");
+    registry.closePersonal(created.page_ref);
+    const beforePopup = new Set(registry.records.keys());
+    await record.webContents.executeJavaScript("window.open('https://fixture.test/redirect'); void 0");
+    await until(() => [...registry.records.values()].some(page => !beforePopup.has(page.tabID) && page.webContents.getURL() === "https://fixture.test/page" && !page.webContents.isLoading()), "redirected personal popup was lost");
+    const popup = [...registry.records.values()].find(page => !beforePopup.has(page.tabID));
+    assert.equal(popup.destroyed, false);
+    registry.closePersonal(popup.pageRef);
+    const failed = await evaluate(`window.sparkclawDesktop.navigatePersonal(${JSON.stringify(record.pageRef)}, 'https://fixture.test/failure').then(() => '', error => error.message)`);
+    assert.match(failed, /ERR_FAILED/);
+    await evaluate(`window.sparkclawDesktop.navigatePersonal(${JSON.stringify(record.pageRef)}, 'https://fixture.test/page')`);
+    registry.showByRef(record.pageRef, "personal");
+    await check("normal navigation after genuine failure");
     await evaluate("document.querySelector('#show-modal').click()");
     await until(() => !record.view.getVisible(), "native view obscures modal");
     await evaluate("document.querySelector('#close-modal').click()");
@@ -112,6 +156,61 @@ app.whenReady().then(async () => {
     window.webContents.sendInputEvent({ type:"mouseMove", x:1438, y:handle.y, button:"left", modifiers:["leftButtonDown"] });
     window.webContents.sendInputEvent({ type:"mouseUp", x:1438, y:handle.y, button:"left", clickCount:1 });
     await until(() => evaluate("document.querySelector('.desktopBrowserPanel').hidden"), "drag-to-hide failed");
-    console.log(JSON.stringify({ event:"browser_panel_layout",passed:true,cases:cases.length,real_component_css_preload_ipc:true,real_native_view:true,zoom:true,modal_occlusion:true,focus_layout:true,retained_page:true,divider_keyboard:true,divider_hide:true,network:false,production_data:false }));
+    window.close();
+    await pause(100);
+    app.emit("activate");
+    await pause(100);
+    assert.equal(record.view.getVisible(), false, "reopening the window must keep collapsed pages hidden");
+    assert.equal(await evaluate("document.querySelector('#chat-input').value"), "Preserved draft");
+    // A restored workbench starts with its browser closed; native pages outlive
+    // the renderer and cannot rely on React's unmount cleanup during reload.
+    await evaluate("document.querySelector('#toggle-panel').click()");
+    await evaluate("document.querySelector('.desktopTabSelect').click()");
+    await until(() => record.view.getVisible(), "retained tab must be selectable");
+    await window.loadURL("sparkclaw-app://workbench/index.html?closed=1");
+    await until(() => evaluate("Boolean(document.querySelector('#chat-input'))"), "workbench did not reload");
+    assert.equal(record.view.getVisible(), false, "reloaded workbench must not be covered by its retained page");
+    const reselect = async () => {
+      await evaluate("document.querySelector('#toggle-panel').click()");
+      await until(() => evaluate("Boolean(document.querySelector('.desktopTabSelect'))"), "retained tabs did not return");
+      await evaluate("document.querySelector('.desktopTabSelect').click()");
+      await until(() => presentation.presented === record && record.view.getVisible(), "same page not restored");
+      await check("retained page after renderer recovery");
+      assert.deepEqual(record.view.getBounds(), presentation.bounds());
+      assert.equal(await record.webContents.executeJavaScript("document.querySelector('input').value"), "retained native input");
+    };
+    await reselect();
+    let crashed = false;
+    window.webContents.once("render-process-gone", () => { crashed = true; });
+    window.webContents.forcefullyCrashRenderer();
+    await until(() => crashed, "workbench renderer did not crash");
+    assert.equal(record.view.getVisible(), false, "crashed workbench must release native presentation immediately");
+    assert.equal(shieldView.getVisible(), false);
+    presentation.showPersonal(record);
+    assert.equal(record.view.getVisible(), false, "background page cannot cover the recovering workbench");
+    await window.loadURL("sparkclaw-app://workbench/index.html?closed=1");
+    await until(() => evaluate("Boolean(document.querySelector('#chat-input'))"), "workbench did not recover");
+    assert.equal(record.view.getVisible(), false);
+    await reselect();
+    // Connection loss can collapse the browser while the window is closed.
+    // Reopening must not reveal the native page left behind by that cleanup.
+    await evaluate("document.querySelector('[aria-label=\"Widen browser\"]').click()");
+    await check("wide page before close");
+    window.close();
+    assert.equal(window.isVisible(), false);
+    authorized = false;
+    window.webContents.send("sparkclaw-local-backend:state", { state: "reconnecting", backend: { transport: "iscp" }, capabilities: { surfaces: { browser: { enabled: false } } } });
+    await until(() => evaluate("document.querySelector('.desktopBrowserPanel').hidden"), "unavailable browser must collapse");
+    await pause(100);
+    authorized = true;
+    window.webContents.send("sparkclaw-local-backend:state", { state: "connected", backend: { transport: "iscp" }, capabilities: { surfaces: { browser: { enabled: true } } } });
+    app.emit("activate");
+    await pause(100);
+    assert.equal(record.view.getVisible(), false, "close/reopen after reconnect must not cover the conversation");
+    assert.equal(await evaluate("document.querySelector('#chat-input').value"), "Preserved draft");
+    await reselect();
+    await evaluate("document.querySelector('[aria-label=\"Restore browser width\"]').click()");
+    await check("split restored after close/reconnect");
+    console.log(JSON.stringify({ event:"browser_panel_layout",passed:true,cases:cases.length,real_component_css_preload_ipc:true,real_native_view:true,zoom:true,modal_occlusion:true,focus_layout:true,retained_page:true,divider_keyboard:true,divider_hide:true,window_reopen:true,closed_window_reconnect:true,renderer_reload:true,renderer_crash_recovery:true,aborted_redirect:true,redirected_new_page:true,redirected_popup:true,real_failure_reported:true,network:false,production_data:false }));
   } finally { capability?.close(); for (const record of registry?.records.values() ?? []) record.webContents.close(); window?.destroy(); }
 }).then(() => app.exit(0)).catch(error => { console.error(error); app.exit(1); });

@@ -104,3 +104,27 @@ test("native bounds convert page zoom once and hidden views stay dismissible aft
     await assert.rejects(invoke(event,{schema_version:1,operation:"createPersonal"}),/unavailable/);
   } finally { capability.close(); }
 });
+
+test("a disconnected session can hide a native page only through the trusted workbench", async () => {
+  let invoke, hidden = 0;
+  const ipcMain = { handle(_channel, fn) { invoke = fn; }, removeHandler() {} };
+  const mainFrame = { url: "sparkclaw-app://workbench/index.html" };
+  const webContents = { mainFrame };
+  const capability = new DesktopCapability({ ipcMain, window: { webContents }, authorizeSession: () => false,
+    registry: { setChangeListener() {}, hidePresented() { hidden++; } },
+    presentation: { setPanelVisible(visible) { assert.equal(visible, false); } },
+  }).start();
+  const event = { sender: webContents, senderFrame: mainFrame };
+  const request = { schema_version: 1, operation: "hideBrowser" };
+  try {
+    await assert.rejects(invoke({ ...event, senderFrame: { url: mainFrame.url } }, request), /not trusted/);
+    await assert.rejects(invoke(event, { ...request, page_ref: "extra" }), /fields are invalid/);
+    assert.equal(hidden, 0);
+    await invoke(event, request);
+    assert.equal(hidden, 1);
+    for (const operation of ["state", "createPersonal", "presentPersonal", "observeTask", "setBounds", "grantBrowserHost"]) {
+      await assert.rejects(invoke(event, { schema_version: 1, operation }), /session is locked/);
+    }
+    assert.equal(hidden, 1);
+  } finally { capability.close(); }
+});

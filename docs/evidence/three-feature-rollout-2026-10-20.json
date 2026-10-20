@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-20",
+  "product_revision": "8209f553a78d26093e0674f22f753b64be6b3456",
+  "scope": [
+    "current Mac SparkX",
+    "work2 Gateway",
+    "work2 WebChat"
+  ],
+  "artifacts": [
+    {
+      "name": "SparkX-0.1.0-20261020-8209f553-mac-arm64.dmg",
+      "bytes": 136981983,
+      "sha256": "7c2eed217188fd9a7a7a61cd41eba676f05c5c69f83ab3b4c76969a7ab5dbe19"
+    },
+    {
+      "name": "SparkX-0.1.0-20261020-8209f553-mac-arm64.zip",
+      "bytes": 136810513,
+      "sha256": "3f2a56555226274feb2ba2a41d9f064ed73a291ce7ef2149e4eb88ad1af5da3f"
+    }
+  ],
+  "package_verification": {
+    "tracked_source_files": 66,
+    "ui_files": 5,
+    "helper_sha256": "97fad479ca322e9fca1fd338bd00cde5a9b6327abf86c688d9bd0e321e5bf98f",
+    "package_allowlist": true,
+    "source_ui_helper_parity": true,
+    "developer_id_signed": false,
+    "notarized": false,
+    "dmg_verified": true,
+    "dmg_payload_parity": true,
+    "zip_payload_parity": true,
+    "app_files_and_symlinks": 277,
+    "published_to_downloads": true
+  },
+  "installed_application_matches_package": true,
+  "source_validation": {
+    "desktop_tests": 496,
+    "webchat_tests": 409,
+    "linux_go_packages": 75,
+    "go_build_vet_each_integration_stage": true,
+    "docs": 123,
+    "native_component_checks": 35,
+    "qr_decodes": 6,
+    "product_source_unchanged_since_validation": true
+  },
+  "local_preservation": {
+    "profiles": 6,
+    "tables": 97,
+    "messages": 22,
+    "all_original_business_rows_preserved": true,
+    "runtime_event_projections_updated": [
+      {
+        "profile": "Main",
+        "table": "event_projection",
+        "scope_keys_preserved": true,
+        "source": "client-store.mjs:549"
+      }
+    ],
+    "conversations_and_drafts_preserved": true,
+    "stable_identity_configuration_preserved": true,
+    "mutable_transport_journals_changed": 1,
+    "original_owned_files_preserved_except_browser_lifecycle": true,
+    "browser_lifecycle_journals_advanced": [
+      {
+        "profile": "Main",
+        "kind": "browser.host.register"
+      },
+      {
+        "profile": "Main",
+        "kind": "browser.host.grant"
+      }
+    ],
+    "launchers_unchanged": true
+  },
+  "server": {
+    "phase": "healthy",
+    "source": "8209f553a78d26093e0674f22f753b64be6b3456",
+    "gateway_image": "sha256:a693e997755d692f0fd04e82a74e521d566bd031db381dac715ec62a4d03a218",
+    "webchat_image": "sha256:0feda346274d952aefd739bbaaec556159be436dde96ba8fb8f5b82ed6d2e190",
+    "binary_sha256": "d95bb451bf63262cad55e6ae480dae2ff18b9581205b856110906cda9c8c3bd0",
+    "protected_files": 904,
+    "original_receipt_files": 66037,
+    "original_receipts_preserved": true,
+    "business_tables_preserved": 41,
+    "environment_host_config_and_addresses_preserved": true,
+    "source_checkout_updated": true,
+    "webchat_served_files": 5,
+    "webchat_tls_and_gateway_proxy": true,
+    "rollback_image": "sha256:e8bdbdb5effdba11e812d1d94c746d07cb6114869d94e69ae1f3b444755ea483",
+    "webchat_rollback_image": "sha256:eee9961e6c18b89421ad20a9527abcf6101693a7c006489f96b87a619c0724c3"
+  },
+  "live": {
+    "gateway_healthy": true,
+    "issuer_active": true,
+    "iscp_connected": true,
+    "browser_host_connected": true,
+    "new_settings_surfaces_enabled": {
+      "settings_bindings": true,
+      "settings_browser_control": true,
+      "settings_mcp_access": true,
+      "settings_credentials": true
+    },
+    "read_only_requests": [
+      {
+        "route": "/api/integrations",
+        "status": 200,
+        "keys": [
+          "integrations",
+          "resource_revisions"
+        ]
+      },
+      {
+        "route": "/api/notification-bindings",
+        "status": 200,
+        "keys": [
+          "bindings"
+        ]
+      },
+      {
+        "route": "/api/mcp-access/catalog",
+        "status": 200,
+        "keys": [
+          "business_tool",
+          "domain_id",
+          "endpoint_path",
+          "iscp_enabled",
+          "lan_access_enabled",
+          "scope",
+          "transport_version"
+        ]
+      }
+    ],
+    "original_conversation_read": true,
+    "settings_sections": 9,
+    "connection_entries": 8,
+    "initial_settings_503_cleared_by_existing_retry": true,
+    "normal_launch_restored": true,
+    "inspection_port_closed": true,
+    "single_process": true,
+    "started_at": "2026-10-20T16:29:29+08:00",
+    "normal_restart_browser_register_succeeded": true,
+    "gateway_recreation_valid": true,
+    "webchat_recreation_valid": true
+  },
+  "database_copies_or_backups_created": false,
+  "new_model_tasks": 0,
+  "new_account_bindings": 0,
+  "notes": [
+    "Relay/issuer and other nodes retain their versions.",
+    "Info URL-discovery gating remains deferred.",
+    "Initial settings HTTP503 cleared after Retry loading; no persistent error remained during the installed settings check.",
+    "An overbroad owned-file comparison was corrected only for two browser lifecycle journal resources, identified by their installation-scoped hashes and authenticated server grant receipts. All other original owned files remain identical."
+  ],
+  "remote_ci": {
+    "run_id": 39392771879,
+    "product_revision": "8209f553a78d26093e0674f22f753b64be6b3456",
+    "conclusion": "failure",
+    "all_ci_green": false,
+    "previously_recorded_failure_signatures": [
+      "Gateway TestSessionMessageAdmissionRejectsConcurrentSubmission TempDir cleanup race",
+      "Electron adapter readiness",
+      "Electron anchor SUID sandbox configuration",
+      "Compose test_local_entry_rejects_remote_model_override error-message assertion"
+    ],
+    "passed_jobs": [
+      "ASR Runtime",
+      "WebChat",
+      "Docs",
+      "Gateway race (concurrency-heavy packages)"
+    ]
+  }
+}

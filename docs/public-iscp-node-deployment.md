@@ -890,3 +890,46 @@ Electron readiness/SUID sandbox setup and a Compose error-message assertion.
 The previous `667566a7` run39370919665 has the same failure signatures (the cleanup
 race appears in its race job). These existing CI failures remain unresolved;
 local product gates and live deployment checks above do not imply remote CI success.
+
+## 18. Approval, Info and connection settings rollout (2026-10-20)
+
+Product `8209f553` is published on main and installed on the current ARM64 Mac,
+work2 Gateway and its separate WebChat service. The conversation composer now
+holds pending approvals; Info answers show their concise result with optional
+details; desktop connection settings use the existing backend records over
+LAN/ISCP, including the local Weixin QR dialog. Relay/issuer and other nodes
+retain their existing versions. The deferred Info URL-discovery defect remains.
+
+The matching DMG/ZIP and SHA256SUMS use `20261020-8209f553` filenames in Downloads.
+All 66 desktop source files, five UI resources, the helper and 277 application
+entries match the build and installed package. Packages remain unsigned and
+unnotarized. Existing integration gates pass: Desktop496, WebChat409, Linux75
+test packages/build/vet, 123 bilingual documents, 35 native component checks and
+six QR decodes. These synthetic checks do not claim a new real-account scan.
+
+The deployed Gateway and WebChat use new immutable image IDs layered on their
+previous images, preserving runtime dependencies, environment, HostConfig,
+mounts and network addresses. The five HTTPS-served UI files match the package,
+and the WebChat Gateway proxy passes its health check. Root-private recreation
+recipes for both services pin the exact images and refuse an existing target;
+the original images and stopped containers remain available for rollback.
+
+All original records in 41 server business tables, 904 protected configuration,
+identity and workspace files, and 66,037 original receipt files are preserved.
+The Mac retains six profiles, 97 tables, 22 messages, original conversations,
+drafts and stable identities. Normal event projection and control/browser
+lifecycle journals advance without changing business content. No database copy,
+reset, new model task or account binding is performed.
+
+The installed ISCP client negotiates the added connection capabilities and reads
+integrations, notification bindings and MCP access successfully. The original
+conversation, nine settings sections and eight connection entries remain.
+One initial settings read returned HTTP503; the existing Retry loading action
+cleared it and loaded the original Weixin binding and Info status. A normal
+restart restores automatic browser registration; inspection arguments are removed.
+See the [sanitized rollout receipt](evidence/three-feature-rollout-2026-10-20.json).
+
+Remote CI run39392771879 is **not green**: Docs, WebChat, Gateway race and ASR
+pass, while the same previously recorded temporary-directory cleanup race,
+Electron readiness/SUID sandbox setup and Compose error-message assertion fail.
+Those CI defects remain unresolved; the deployment checks do not replace them.

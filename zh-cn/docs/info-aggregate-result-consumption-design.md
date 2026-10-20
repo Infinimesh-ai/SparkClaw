@@ -385,7 +385,9 @@ finalizer。类型化 renderer 只消费 `info_aggregate_projection_v4`。
 Info 证据，也不影响浏览器 URL 候选。
 
 Info 返回的文本会规范化为普通展示文本。HTML 会被转义或移除，上游文本中的 Markdown
-控制语法不会执行，hyperlink 只从经过校验的 source metadata 创建。上游内容绝不能发出
+控制语法不会执行，hyperlink 只从经过校验的 source metadata 创建。行首的标题、引用和
+列表标记会被中和，使 claim 不会变成 Markdown 块；链接目标经过百分号编码，使 Web 与纯文本
+链接模式都把它识别为一个整体。重复检查忽略全/半角、大小写和末尾标点。上游内容绝不能发出
 tool call 或改变 Workflow state。
 
 ## Observation 与 Audit 契约

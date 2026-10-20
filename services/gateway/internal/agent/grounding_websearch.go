@@ -5,8 +5,11 @@ package agent
 import (
 	"fmt"
 	"html"
+	"net/url"
 	"regexp"
 	"strings"
+
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/websearch"
@@ -56,9 +59,25 @@ func webSearchAnswerFromCalls(goal string, calls []app.ToolCall) (string, bool) 
 }
 
 var (
-	infoHTMLTagPattern = regexp.MustCompile(`(?i)</?[a-z][^>]*>`)
-	infoURLPattern     = regexp.MustCompile(`(?i)https?://[^\s)\]}>]+`)
+	infoHTMLTagPattern     = regexp.MustCompile(`(?i)</?[a-z][^>]*>`)
+	infoURLPattern         = regexp.MustCompile(`(?i)https?://[^\s)\]}>]+`)
+	infoLeadingBlockMarker = regexp.MustCompile(`^(?:[#>*+-]+\s+)+`)
+	infoLeadingOrdinal     = regexp.MustCompile(`^(\d+)([.)])(\s)`)
 )
+
+// Display limits keep the reading view short; the stored tool result retains
+// every fact, conflict and note.
+const (
+	infoMaxDisplayFacts     = 2
+	infoMaxConflictGroups   = 1
+	infoMaxUncertaintyNotes = 2
+	infoFallbackSourceCount = 3
+)
+
+// infoDisclosureOpen starts the trailing disclosure block. Its exact shape is
+// parsed by delivery.plainTextDeliveryContent and the WebChat
+// parseMessageDisclosure; change all three together.
+const infoDisclosureOpen = "\n\n<details>\n<summary>查看详情</summary>\n\n"
 
 func latestCompletedWebSearchIsInfo(calls []app.ToolCall) bool {
 	for index := len(calls) - 1; index >= 0; index-- {
@@ -92,13 +111,15 @@ func renderInfoSearchAnswer(projection websearch.InfoEvidenceProjection) string 
 	}
 	facts := infoDisplayFacts(projection.Facts, answer)
 	conflicts := projection.Conflicts
-	if len(conflicts) > 1 {
-		conflicts = conflicts[:1]
+	if len(conflicts) > infoMaxConflictGroups {
+		conflicts = conflicts[:infoMaxConflictGroups]
 	}
 	sources := infoDisplaySources(projection.Sources, facts, conflicts)
 	markers := map[string]int{}
 	for index, source := range sources {
-		markers[source.ID] = index + 1
+		if id := strings.TrimSpace(source.ID); id != "" {
+			markers[id] = index + 1
+		}
 	}
 
 	lines := []string{}
@@ -138,23 +159,28 @@ func renderInfoSearchAnswer(projection websearch.InfoEvidenceProjection) string 
 		lines = append(lines, "", "其他信息也存在不同说法，请结合来源原文判断。")
 	}
 	if projection.Freshness.LatestSourceDate != nil {
-		lines = append(lines, "", "资料日期："+cleanInfoEvidenceForUser(*projection.Freshness.LatestSourceDate))
+		if date := cleanInfoEvidenceForUser(*projection.Freshness.LatestSourceDate); date != "" {
+			lines = append(lines, "", "资料日期："+date)
+		}
 	}
 	if projection.Freshness.StalenessRisk == "high" ||
 		(projection.Freshness.StalenessRisk == "medium" && projection.Freshness.LatestSourceDate == nil) {
 		lines = append(lines, "", "资料可能已有变化，请以来源的最新信息为准。")
 	}
-	seenNotes := map[string]bool{answer: true}
+	seenNotes := infoDisplaySeen{}
+	seenNotes.add(answer)
+	for _, fact := range facts {
+		seenNotes.add(fact.Claim)
+	}
 	noteCount := 0
 	for _, uncertainty := range projection.Uncertainty {
 		note := cleanInfoEvidenceForUser(uncertainty)
-		if note == "" || seenNotes[note] {
+		if !seenNotes.add(note) {
 			continue
 		}
-		seenNotes[note] = true
 		lines = append(lines, "", note)
 		noteCount++
-		if noteCount == 2 {
+		if noteCount == infoMaxUncertaintyNotes {
 			break
 		}
 	}
@@ -170,9 +196,7 @@ func renderInfoSearchAnswer(projection websearch.InfoEvidenceProjection) string 
 			if label == "" {
 				label = fmt.Sprintf("来源 %d", index+1)
 			}
-			if source.Linkable {
-				// Prevent source URLs from terminating the Markdown link.
-				target := strings.NewReplacer("(", "%28", ")", "%29", "<", "%3C", ">", "%3E").Replace(source.URL)
+			if target := infoMarkdownLinkTarget(source); target != "" {
 				label = "[" + label + "](" + target + ")"
 			}
 			lines = append(lines, fmt.Sprintf("[%d] %s", index+1, label))
@@ -182,43 +206,73 @@ func renderInfoSearchAnswer(projection websearch.InfoEvidenceProjection) string 
 	if details == "" {
 		return answer
 	}
-	return answer + "\n\n<details>\n<summary>查看详情</summary>\n\n" + details + "\n</details>"
+	return answer + infoDisclosureOpen + details + "\n</details>"
+}
+
+// infoDisplaySeen suppresses repeated display text that differs only in
+// width, letter case or trailing punctuation.
+type infoDisplaySeen map[string]bool
+
+func (seen infoDisplaySeen) add(text string) bool {
+	key := strings.ToLower(strings.TrimRight(norm.NFKC.String(text), "。.!！?？;；,，: \t"))
+	if key == "" || seen[key] {
+		return false
+	}
+	seen[key] = true
+	return true
 }
 
 func infoDisplayFacts(facts []websearch.InfoEvidenceFact, summary string) []websearch.InfoEvidenceFact {
 	out := []websearch.InfoEvidenceFact{}
-	seen := map[string]bool{summary: true}
+	seen := infoDisplaySeen{}
+	seen.add(summary)
 	for _, fact := range facts {
 		fact.Claim = cleanInfoEvidenceForUser(fact.Claim)
-		if fact.Claim == "" || seen[fact.Claim] {
+		if !seen.add(fact.Claim) {
 			continue
 		}
-		seen[fact.Claim] = true
 		out = append(out, fact)
-		if len(out) == 2 {
+		if len(out) == infoMaxDisplayFacts {
 			break
 		}
 	}
 	return out
 }
 
+// infoMarkdownLinkTarget returns a link target that the WebChat and plain-text
+// link patterns accept as one token, or "" when the source is not linkable.
+func infoMarkdownLinkTarget(source websearch.InfoEvidenceSource) string {
+	if !source.Linkable {
+		return ""
+	}
+	parsed, err := url.Parse(strings.TrimSpace(source.URL))
+	if err != nil {
+		return ""
+	}
+	return strings.NewReplacer(" ", "%20", "(", "%28", ")", "%29", "<", "%3C", ">", "%3E").Replace(parsed.String())
+}
+
 func infoDisplaySources(sources []websearch.InfoEvidenceSource, facts []websearch.InfoEvidenceFact, conflicts []websearch.InfoEvidenceConflict) []websearch.InfoEvidenceSource {
 	referenced := map[string]bool{}
 	for _, fact := range facts {
 		for _, id := range fact.SourceIDs {
-			referenced[strings.TrimSpace(id)] = true
+			if id = strings.TrimSpace(id); id != "" {
+				referenced[id] = true
+			}
 		}
 	}
 	for _, conflict := range conflicts {
 		for _, viewpoint := range conflict.Viewpoints {
 			for _, id := range viewpoint.SourceIDs {
-				referenced[strings.TrimSpace(id)] = true
+				if id = strings.TrimSpace(id); id != "" {
+					referenced[id] = true
+				}
 			}
 		}
 	}
 	out := []websearch.InfoEvidenceSource{}
 	for _, source := range sources {
-		if referenced[source.ID] || (len(referenced) == 0 && len(out) < 3) {
+		if referenced[strings.TrimSpace(source.ID)] || (len(referenced) == 0 && len(out) < infoFallbackSourceCount) {
 			out = append(out, source)
 		}
 	}
@@ -244,7 +298,17 @@ func infoCitationMarkers(sourceIDs []string, markers map[string]int) string {
 func cleanInfoEvidenceForUser(value string) string {
 	value = html.UnescapeString(value)
 	value = infoHTMLTagPattern.ReplaceAllString(value, " ")
-	value = infoURLPattern.ReplaceAllString(value, "[外部链接已省略]")
+	// A URL already enclosed in parentheses (such as a Markdown link target)
+	// keeps them; a bare URL gets its own so the notice reads as an aside.
+	value = infoURLPattern.ReplaceAllString(value, "\x00")
+	value = strings.NewReplacer("(\x00)", "(外部链接已省略)", "\x00", "（外部链接已省略）").Replace(value)
 	value = strings.NewReplacer("\\", "", "**", "", "__", "", "`", "", "[", "", "]", "", "<", "", ">", "").Replace(value)
-	return strings.Join(strings.Fields(value), " ")
+	value = strings.Join(strings.Fields(value), " ")
+	// Display text is placed at line starts; keep it from becoming a heading,
+	// quote or list item in the Markdown-like message renderer.
+	value = infoLeadingBlockMarker.ReplaceAllString(value, "")
+	return infoLeadingOrdinal.ReplaceAllStringFunc(value, func(match string) string {
+		parts := infoLeadingOrdinal.FindStringSubmatch(match)
+		return parts[1] + map[string]string{".": "．", ")": "）"}[parts[2]] + parts[3]
+	})
 }

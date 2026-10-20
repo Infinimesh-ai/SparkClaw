@@ -452,8 +452,12 @@ do not alter, rerank or discard persisted Info evidence or browser URL candidate
 
 Info-supplied text is normalized to plain display text. HTML is escaped or
 removed, Markdown control syntax from upstream text is not executed, and
-hyperlinks are created only from validated source metadata. Upstream content
-can never emit a tool call or alter Workflow state.
+hyperlinks are created only from validated source metadata. Leading heading,
+quote and list markers are neutralized so a claim cannot become a Markdown
+block, and link targets are percent-encoded so the Web and plain-text link
+patterns read them as one token. Repetition checks ignore width, letter case and
+trailing punctuation. Upstream content can never emit a tool call or alter
+Workflow state.
 
 ## Observation And Audit Contract
 

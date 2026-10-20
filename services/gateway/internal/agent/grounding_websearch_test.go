@@ -100,3 +100,42 @@ func TestInfoRendererKeepsGoldDetailsSelectiveAndReadable(t *testing.T) {
 		t.Fatal("display selection changed the evidence projection")
 	}
 }
+
+func TestInfoRendererKeepsDisplayTextAndLinksWellFormed(t *testing.T) {
+	empty := " <b></b> "
+	projection := websearch.InfoEvidenceProjection{
+		Status:    websearch.InfoProjectionComplete,
+		Freshness: websearch.Freshness{Status: "current", LatestSourceDate: &empty},
+		Facts: []websearch.InfoEvidenceFact{
+			{Claim: "# 2024. 销量上升", SourceIDs: []string{" a "}},
+			{Claim: "２０２４. 销量上升。", SourceIDs: []string{"a"}},
+			{Claim: "- 详见 https://example.com/raw", SourceIDs: []string{"b"}},
+		},
+		Uncertainty: []string{"详见 （外部链接已省略）。", "仍需确认"},
+		Sources: []websearch.InfoEvidenceSource{
+			{ID: "a ", Title: "Space", URL: "https://example.com/a b?q=x y", Linkable: true},
+			{ID: "b", Title: "Paren", URL: "https://example.com/(x)", Linkable: true},
+		},
+	}
+	answer, details, ok := strings.Cut(renderInfoSearchAnswer(projection), infoDisclosureOpen)
+	if !ok {
+		t.Fatalf("missing disclosure: %q", answer)
+	}
+	if answer != "2024． 销量上升 [1]\n详见 （外部链接已省略） [2]" {
+		t.Fatalf("display text should not become Markdown blocks or repeat width variants: %q", answer)
+	}
+	for _, want := range []string{
+		"[1] [Space](https://example.com/a%20b?q=x%20y)",
+		"[2] [Paren](https://example.com/%28x%29)",
+		"仍需确认",
+	} {
+		if !strings.Contains(details, want) {
+			t.Errorf("missing %q: %s", want, details)
+		}
+	}
+	for _, unwanted := range []string{"资料日期", "详见 （外部链接已省略）。"} {
+		if strings.Contains(details, unwanted) {
+			t.Errorf("details should omit %q: %s", unwanted, details)
+		}
+	}
+}

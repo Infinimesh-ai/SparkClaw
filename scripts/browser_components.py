@@ -20,6 +20,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SYSTEM = Path('/opt/sparkclaw/browser-components')
+MANAGED_EXTENSION = Path('/opt/sparkclaw/tampermonkey')
 
 
 def policy_location(machine):
@@ -231,13 +232,42 @@ def install_public_directories():
         directory.chmod(0o755)
 
 
+def worker_identity(extension, version):
+    value = json.loads((extension / 'manifest.json').read_text())
+    if value.get('version') != version:
+        raise ValueError('managed extension version differs from its receipt')
+    worker = value.get('background', {}).get('service_worker')
+    if not isinstance(worker, str) or not worker or Path(worker).name != worker or worker in ('.', '..'):
+        raise ValueError('invalid managed background worker path')
+    return worker, digest((extension / worker).read_bytes())
+
+
+def verify_worker_update(target, extension, receipt):
+    version = receipt['manifest']['tampermonkey']['productVersion']
+    candidate = worker_identity(target / 'tampermonkey', version)
+    previous = SYSTEM / 'receipt.json'
+    if not previous.exists():
+        return
+    installed = json.loads(previous.read_text())
+    prior_version = installed['manifest']['tampermonkey']['productVersion']
+    prior = worker_identity(extension, prior_version)
+    # Chromium retains an unpacked extension's worker registration by version.
+    # A changed policy hash changes our worker URL; replacing its file under the
+    # same version can strand native imports on the removed previous worker.
+    if version == prior_version and candidate != prior:
+        raise ValueError('managed background worker changed; increase productVersion before installing')
+
+
 def install_system(target):
     if os.getuid() != 0:
         raise ValueError('system component installation requires root')
     receipt = json.loads((target / 'receipt.json').read_text())
     extension = Path(receipt['manifest']['tampermonkey']['path'])
-    if str(extension) != '/opt/sparkclaw/tampermonkey':
+    if extension != MANAGED_EXTENSION:
         raise ValueError('unexpected product extension path')
+    # Validate before touching public directories, pending trees or the policy.
+    # A different version also permits a deliberate paired release rollback.
+    verify_worker_update(target, extension, receipt)
     install_public_directories()
     pending = extension.with_name('tampermonkey.pending')
     if pending.exists():

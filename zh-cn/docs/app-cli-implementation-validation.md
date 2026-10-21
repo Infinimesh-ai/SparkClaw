@@ -37,6 +37,13 @@ Linux Reader 变化必须通过既有浏览器组件流程暂存并安装；只�
 profile 修复失败检查。保留原先匹配的组件和运行包以便回滚；失败时继续关闭
 应用请求入口。
 
+受管扩展的后台 worker 地址或字节发生变化时，包括 Reader 策略哈希变化，必须
+同步提升 `productVersion` 与 `patchRevision`。扩展版本不变时，Chromium 可能
+沿用旧 worker 注册。`install-system` 会在写入任何已安装目录或策略之前拒绝
+这种组合，并提示提升 `productVersion`；相同 worker 字节的重复安装，以及
+明确使用不同版本的配套回滚仍然允许。更新必须走原生扩展生命周期，不得删除
+Service Worker 数据库或修改已消费导入记录。
+
 发布证据必须分别记录 App-CLI 运行包与 Controller 依赖一致性、Linux 已安装及
 已导入 Reader 的哈希，以及 Desktop 生成 Reader 资产。启动后还需通过新的
 任务页面验证实际采集元数据与已读确认；安装门禁本身不代表真实收发通过，也

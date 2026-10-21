@@ -63,6 +63,15 @@ session, and complete native import readiness before this gate. Never clear a
 profile to repair a failed check. Retain the prior matched component/runtime
 set for rollback, and keep admission stopped on failure.
 
+The managed extension's `productVersion` and `patchRevision` must advance when
+its background worker URL or bytes change, including a new Reader policy hash.
+Chromium can retain the previous worker registration when the extension version
+is unchanged. `install-system` rejects that combination before writing any
+installed directory or policy and tells the operator to increase
+`productVersion`. Identical worker reinstalls and deliberate different-version
+paired rollbacks remain supported. Update through the native extension lifecycle;
+do not delete Service Worker databases or edit consumed-import records.
+
 Release evidence must separately record App-CLI runtime and Controller dependency
 parity, Linux installed/imported Reader hashes, and Desktop generated Reader
 assets. After startup, verify actual collection metadata and read confirmation

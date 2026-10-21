@@ -51,6 +51,83 @@ class BrowserComponentsTest(unittest.TestCase):
                 components.extract_unpacked_extension(archive, self.root / 'extension')
         self.assertFalse((self.root / 'escape').exists())
 
+    def worker_update_fixture(self, version='5.5.0.11', worker='old-worker.js', body='old worker'):
+        system = self.root / 'public/browser-components'
+        extension = system.parent / 'tampermonkey'
+        policy = self.root / 'policy/managed.json'
+        candidate = self.root / 'candidate'
+        for path in [system, extension, policy.parent, candidate / 'tampermonkey']:
+            path.mkdir(parents=True, exist_ok=True)
+
+        def write(directory, release, filename, source):
+            (directory / 'tampermonkey').mkdir(exist_ok=True)
+            (directory / 'tampermonkey/manifest.json').write_text(json.dumps({
+                'version': release, 'background': {'service_worker': filename}}))
+            (directory / 'tampermonkey' / filename).write_text(source)
+            (directory / 'receipt.json').write_text(json.dumps({'manifest': {'tampermonkey': {
+                'path': str(extension), 'productVersion': release}}}))
+            (directory / 'policy.json').write_text(json.dumps({'fixture_version': release, 'worker': filename}))
+
+        old = self.root / 'old'
+        old.mkdir()
+        write(old, '5.5.0.11', 'old-worker.js', 'old worker')
+        shutil.copytree(old / 'tampermonkey', extension, dirs_exist_ok=True)
+        shutil.copyfile(old / 'receipt.json', system / 'receipt.json')
+        shutil.copyfile(old / 'policy.json', policy)
+        write(candidate, version, worker, body)
+        self.prefs.write_text('{"fixture":"preserve owner session"}')
+        return system, extension, policy, candidate
+
+    def install_fixture(self, paths):
+        system, extension, policy, candidate = paths
+        with patch.object(components, 'SYSTEM', system), patch.object(components, 'POLICY', policy), \
+                patch.object(components, 'POLICY_DIRECTORY_DEPTH', 1), \
+                patch.object(components, 'MANAGED_EXTENSION', extension), \
+                patch.object(components.os, 'getuid', return_value=0), patch.object(components.os, 'chown'):
+            components.install_system(candidate)
+
+    def test_same_version_worker_change_rejected_before_any_production_write(self):
+        for filename, body in [('new-worker.js', 'old worker'), ('old-worker.js', 'changed worker')]:
+            with self.subTest(filename=filename):
+                paths = self.worker_update_fixture(worker=filename, body=body)
+                system, extension, policy, _ = paths
+                before = {str(p): (p.read_bytes(), stat.S_IMODE(p.stat().st_mode))
+                          for root in [system.parent, policy.parent, self.profile]
+                          for p in root.rglob('*') if p.is_file()}
+                with patch.object(components, 'install_public_directories') as write:
+                    with self.assertRaisesRegex(ValueError, 'increase productVersion'):
+                        self.install_fixture(paths)
+                    write.assert_not_called()
+                after = {str(p): (p.read_bytes(), stat.S_IMODE(p.stat().st_mode))
+                         for root in [system.parent, policy.parent, self.profile]
+                         for p in root.rglob('*') if p.is_file()}
+                self.assertEqual(before, after)
+                self.assertFalse(extension.with_name('tampermonkey.pending').exists())
+                self.assertFalse(extension.with_name('tampermonkey.previous').exists())
+                for root in [system.parent, policy.parent, self.root / 'candidate', self.root / 'old']:
+                    shutil.rmtree(root)
+
+    def test_changed_worker_installs_with_new_version_and_keeps_previous_tree(self):
+        paths = self.worker_update_fixture(version='5.5.0.12', worker='new-worker.js', body='new worker')
+        _, extension, policy, candidate = paths
+        original_preferences = self.prefs.read_bytes()
+        self.install_fixture(paths)
+        self.assertEqual((extension / 'new-worker.js').read_text(), 'new worker')
+        self.assertEqual((extension.with_name('tampermonkey.previous') / 'old-worker.js').read_text(), 'old worker')
+        self.assertEqual(policy.read_bytes(), (candidate / 'policy.json').read_bytes())
+        self.assertEqual(self.prefs.read_bytes(), original_preferences)
+
+    def test_same_worker_bytes_can_be_reinstalled_at_the_same_version(self):
+        paths = self.worker_update_fixture()
+        self.install_fixture(paths)
+        self.install_fixture(paths)
+        self.assertEqual((paths[1] / 'old-worker.js').read_text(), 'old worker')
+
+    def test_different_version_paired_rollback_is_not_blocked(self):
+        paths = self.worker_update_fixture(version='5.5.0.10', worker='rollback-worker.js', body='previous release')
+        self.install_fixture(paths)
+        self.assertEqual((paths[1] / 'rollback-worker.js').read_text(), 'previous release')
+
     def test_system_check_rejects_reserved_metadata_even_if_receipt_is_current(self):
         extension = self.root / 'extension'
         (extension / '_metadata').mkdir(parents=True)

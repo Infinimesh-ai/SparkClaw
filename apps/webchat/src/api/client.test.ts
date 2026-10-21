@@ -317,3 +317,50 @@ describe("revoked credential deletion through the desktop request boundary", () 
     expect(new URL(requests[0].url).pathname).toBe("/api/clients/revoked-device");
   });
 });
+
+describe("desktop email connection check recovery", () => {
+  beforeEach(async () => {
+    const { webcrypto } = await vi.importActual<{ webcrypto: Crypto }>("node:crypto");
+    vi.stubGlobal("crypto", webcrypto);
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", { getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value), removeItem: (key: string) => values.delete(key) });
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1 } as NonNullable<typeof window.sparkclawDesktop>;
+  });
+  afterEach(() => { delete window.sparkclawDesktop; vi.unstubAllGlobals(); });
+
+  it.each(["gmail", "outlook", "qq_mail"] as const)("starts a new explicit %s check after a delivered provider failure", async provider => {
+    const actions: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      actions.push(new Headers(init.headers).get("x-sparkclaw-action-id")!);
+      return new Response(JSON.stringify({ code: "email_provider_unavailable", error: "Unavailable" }), { status: 503 });
+    }));
+    await expect(api.checkEmailProvider(provider)).rejects.toMatchObject({ status: 503 });
+    await expect(api.checkEmailProvider(provider)).rejects.toMatchObject({ status: 503 });
+    expect(actions).toHaveLength(2);
+    expect(actions[0]).toMatch(/^[a-f0-9-]{36}$/);
+    expect(actions[1]).not.toBe(actions[0]);
+  });
+
+  it.each(["operation_outcome_unknown", "operation_receipt_unavailable", "operation_receipt_capacity"])("retains %s check identity for receipt reconciliation", async code => {
+    const actions: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      actions.push(new Headers(init.headers).get("x-sparkclaw-action-id")!);
+      return new Response(JSON.stringify({ code, error: "Unavailable" }), { status: 503 });
+    }));
+    await expect(api.checkEmailProvider("gmail")).rejects.toMatchObject({ status: 503 });
+    await expect(api.checkEmailProvider("gmail")).rejects.toMatchObject({ status: 503 });
+    expect(actions[1]).toBe(actions[0]);
+  });
+
+  it("keeps a failed send's original identity instead of creating another send", async () => {
+    const actions: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      actions.push(new Headers(init.headers).get("x-sparkclaw-action-id")!);
+      return new Response(JSON.stringify({ code: "email_provider_unavailable", error: "Unavailable" }), { status: 503 });
+    }));
+    await expect(api.sendEmailDraft("draft", 1, "original-send")).rejects.toMatchObject({ status: 503 });
+    await expect(api.sendEmailDraft("draft", 1, "original-send")).rejects.toMatchObject({ status: 503 });
+    expect(actions[1]).toBe(actions[0]);
+  });
+});

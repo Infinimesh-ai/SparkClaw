@@ -158,7 +158,12 @@ async function request<T>(path: string, init?: RequestInit, base = API_BASE): Pr
   });
   if (!response.ok) {
     let body: { error?: unknown; code?: unknown; retryable?: unknown } = {};
-    try { body = await response.json(); action?.delivered(response.status, body, path === "/api/browser/extension/check"); } catch { /* An unreadable reply leaves its action unresolved. */ }
+    try {
+      body = await response.json();
+      const repeatableCheck = path === "/api/browser/extension/check" ||
+        /^\/api\/email\/providers\/(gmail|outlook|qq_mail)\/check$/.test(path);
+      action?.delivered(response.status, body, repeatableCheck);
+    } catch { /* An unreadable reply leaves its action unresolved. */ }
     throw new APIError(
       response.status,
       typeof body.error === "string" ? body.error : `HTTP ${response.status}`,

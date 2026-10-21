@@ -161,6 +161,7 @@ var scriptErrorCodes = map[string]app.ToolErrorCode{
 	"provider_origin_mismatch":             app.ToolErrorEmailPageContractChanged,
 	"email_account_identity_mismatch":      app.ToolErrorEmailPageContractChanged,
 	"email_account_identity_unavailable":   app.ToolErrorEmailPageContractChanged,
+	"email_account_address_unqualified":    app.ToolErrorEmailPageContractChanged,
 	"email_message_identity_invalid":       app.ToolErrorEmailPageContractChanged,
 	"email_message_identity_ambiguous":     app.ToolErrorEmailPageContractChanged,
 	"email_pinned_message_unavailable":     app.ToolErrorEmailPageContractChanged,

@@ -736,3 +736,81 @@ The first attempt automatically rolled back because the preservation check treat
 CI run `39557880097` passes Gateway, WebChat, Docs and ASR. Its four failures match baseline run `39411141335`: asynchronous test-directory cleanup, the Compose expected error text, Electron anchor sandbox setup and another Electron exit before readiness. Eleven relevant source/lock/workflow blobs are unchanged; CI is not fully green. Matching ARM64 desktop packages were built and audited, but this work2 rollout does not replace the installed Mac application. Private release evidence is retained under `/Users/dev/.cache/sparkclaw-upgrades/20261021-mail-r28/`.
 
 Live observation started at 07:15:10 UTC and crossed the first ten-minute Controller maintenance boundary at approximately 07:23:41. Both mailboxes kept advancing, the original two watch task IDs and page sessions remained, and leases directly showed concurrent watch/read activity during `collect_page`. The maintenance window returned only HTTP 200 responses, with a maximum 24.578 ms latency; no ECONNRESET, cleanup fence or service restart occurred. The owner then explicitly requested closure, so the planned second boundary and full 22-minute observation are not claimed. No new mail triggered a natural mark-read during this observation: its acceptance is the real capture-to-mark VM and Gateway regression suite, not a live remote-write claim. Historical unknown/sent drafts and the 80 pre-existing uncertain tasks remain protected; none was resent.
+
+### Release 28 follow-up: current Mac installation and live mail qualification
+
+The current Mac was first upgraded at 07:36:25 UTC, then received the qualified
+`6471e0fe` desktop hotfix at **07:55:05 UTC (15:55:05 Asia/Shanghai)** on
+2026-10-21. Work2 runs `7668d911` after the successful 08:11:34 UTC cutover;
+that commit contains the same desktop/UI source plus the Controller fix.
+App-CLI remains `.28`, with the same runtime digest and protocols. The installed
+ARM64 app matches all 277 packaged files/links. The retained DMG SHA-256 is
+`825145974d2ad2013d4c825e3dd76b0ea21abbca2ca91586f2f1ee524b39644b`.
+
+Actual qualification exposed two additional defects. Provider checks retained a
+completed 503 foreground action indefinitely; explicit repeatable checks now get
+a new identity only after a definitive response, while unknown checks and sends
+keep their original identities. A failed write-page close could leave unrelated
+resident read/watch handles preventing cleanup proof forever. The Controller
+now retires only the fully enumerated, eligible resident receive slots, including
+superseded epochs, and still requires zero Host handles, zero task/stale browser
+pages and an unchanged page fence before clearing it. Unknown/exclusive/bootstrap
+handles and process fences remain closed. An independent review caught and tested
+the higher-epoch recovery case before deployment. No old send is replayed.
+
+WebChat 425 tests and strict build, Desktop 499, Linux Controller 303 with 109
+platform/opt-in skips, Linux Go 75 packages/build/vet, and independent focused
+review tests pass. Work2 preserved 41 tables, 1,606 workspace files and 70,238
+existing receipts during the hotfix cutover; the same Gateway binary/container
+and original browser process remain. The Controller itself proved and removed
+the existing page fence; no operator deleted it. Final Mac preservation checks
+retain all six profiles, 97 tables, 22 original messages, conversations, drafts,
+stable identities and four launchers. Only the known event projection and three
+rotating transport journals changed. Original payload/profile backups remain.
+Normal launch resumed at 08:23:32 UTC with the inspector port closed; its original
+mail popup loaded both test threads and live 08:24 synchronization progress.
+
+All three original Check connection buttons returned HTTP 200/ready between
+08:20:26 and 08:21:07 UTC. QQ and Outlook report healthy polling. Gmail explicitly
+reports `not_enabled`; the provider send-enable switch is not proof of an intake
+binding. The original nine settings navigation entries and three provider rows,
+transient feedback, mail popup, test-message list and original download path were
+inspected in the installed app.
+
+Live results below use Asia/Shanghai on 2026-10-21. Six directed pairs were
+planned with unique markers, but only two were sent; the other four remain
+unattempted because Gmail has no receiving mailbox binding.
+
+| Direction | Observed times | Result |
+| --- | --- | --- |
+| Outlook → QQ | Mac send started 15:47:23; discovered 15:48:51; original captured 15:48:52.815; parsed 15:48:53.047 | Received and parsed in about 90 seconds from the send request. Mac downloaded the exact 11,780-byte original at 15:50:09.939; SHA-256 matches. |
+| QQ → Outlook | Safe new attempt started 16:12:21; runtime send completed 16:13:38; Mac received `sent` at 16:13:41 | Microsoft rejected the configured recipient at 16:13:33 with SMTP 550 5.5.0 / S2017062302. This is a confirmed bounce, not a successful delivery. |
+| QQ → Gmail; Outlook → Gmail; Gmail → QQ; Gmail → Outlook | Not sent | Gmail intake is unresolved; no duplicate send or alternate transport bypass was attempted. |
+
+The initial QQ attempt has definitive `effect=0`, no dispatch and a cancelled
+terminal record, permitting the one fresh-key attempt above. Outlook initially
+returned unknown after cleanup timed out; receipt reconciliation at 15:49:51
+updated that same draft to sent, with no resend. Provider `eml_date` is the
+message Date header, not an exact delivery timestamp. The table uses Gateway
+capture/parse evidence instead.
+
+Gmail's first intake operation at 07:48:17 UTC retained an incomplete ISCP intent;
+its receipt is still `unknown`. Native recovery correctly prevents a successor.
+The supplied version-zero request is valid, but ready probes do not create a
+mailbox, and there is no formal intake-resolution endpoint. Current evidence
+does not distinguish context cancellation, interruption or completion-receipt
+persistence failure. The receipt was not cleared or fabricated. Outlook's bound
+account address matches fresh Reader discovery but differs from the From address
+of the delivered test. The former received a confirmed bounce; the latter's
+ability to receive is unproved. Do not silently replace mailbox identity with a
+sender alias.
+
+Two subsequent natural QQ mark-read tasks completed and dispatched without
+`INVALID_REQUEST`, but returned `read_state=unknown`; actual remote read-state
+confirmation is therefore still unqualified. All 80 historical uncertain tasks
+and three historical drafts retain their original hashes. This is a successful
+installation and partial live-mail qualification, **not** three-provider
+end-to-end acceptance or attachment-upload acceptance. Private evidence, retained
+test mail and rollback packages are under the release's `mac-upgrade/` directory.
+
+Post-cutover read-only observation ran 08:12:06.349–08:24:18.301 UTC (12 minutes 11.952 seconds, 108 snapshots). No new ECONNRESET, cleanup diagnostic/fence, watch termination or service restart appeared; service PIDs/restart counts stayed unchanged and live watch/read residency was observed. The temporary observers stopped normally.

@@ -56,6 +56,16 @@ test('intent renewal does not destroy a task while the resident supervisor is re
  slots.get('gmail').ready=false;slots.get('gmail').task.status='pending';
  feed.tick();await new Promise(setImmediate);assert.deepEqual(calls,['proof','start']);
 });
+test('a watch retired for cleanup is replaced through the existing read-only observer path',async t=>{
+ const {feed,slots,calls}=await fixture(t);await Promise.all([...feed.work.values()].map(w=>w.promise));
+ const retired=slots.get('gmail');retired.task.status='failed';retired.state='degraded';retired.ready=false;
+ feed.tick();await Promise.all([...feed.work.values()].map(w=>w.promise));
+ assert.deepEqual(calls,['proof','start','stop','start']);
+ assert.notEqual(slots.get('gmail'),retired);assert.equal(slots.get('gmail').task.status,'running');
+ assert.ok(feed.events.some(event=>event.kind==='resync_required'&&event.reason==='observer_degraded'));
+ feed.tick();await Promise.all([...feed.work.values()].map(w=>w.promise));
+ assert.equal(calls.filter(call=>call==='start').length,2,'running replacement is not restarted');
+});
 test('rebinding rejects old document events and stop cannot be undone by an in-flight start',async t=>{
  const {feed,slots}=await fixture(t);const old={...slots.get('gmail')};
  await feed.reconcile({...auth(),bindings:[{...binding(),account_address:'new@example.test',binding_generation:3}]});

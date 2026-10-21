@@ -59,7 +59,8 @@ test('unproven page cleanup stays fenced after daemon reaping and across Host re
   driver.handles.add(handle);
   await assert.rejects(driver.close(handle), failure);
   assert.equal(reaped, 1); assert.equal(removed, 0);
-  await assert.rejects(driver.close(handle), failure);
+  await assert.rejects(driver.close(handle), {code: 'browser_cleanup_pending'});
+  assert.equal(handle.cleanupFailure, failure, 'later admission proof must not rewrite the original failure');
   await assert.rejects(driver.create({}), {code: 'browser_cleanup_pending'});
   const restarted = new ApplicationHostDriver({runtimeRoot: root});
   await assert.rejects(restarted.assertCleanupClear(), {code: 'browser_cleanup_pending'});

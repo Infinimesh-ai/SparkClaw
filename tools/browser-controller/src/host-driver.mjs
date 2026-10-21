@@ -75,8 +75,8 @@ export class ApplicationHostDriver {
   }
   // A page-scope fence records that every owned process was reaped but the
   // task page closure itself was unproven (typically a page already closed
-  // under the CLI). It is proved when this Host owns no other resource and
-  // the Bridge reports no task-owned or stale task tab in any window.
+  // under the CLI). Healthy receive resources may be retired first; proof
+  // still requires no Host resource and no task-owned/stale Bridge tab.
   #proveCleanup(fence) {
     // Concurrent admissions share one proof; it is dropped once settled.
     if (!this.cleanupProof) {
@@ -87,9 +87,18 @@ export class ApplicationHostDriver {
     return this.cleanupProof;
   }
   async #attemptCleanupProof(fence) {
-    if (this.handles.size) return 'resources_open';
     if (Date.now() - (this.lastCleanupProofMS ?? 0) < CLEANUP_PROOF_INTERVAL_MS) return 'proof_deferred';
     this.lastCleanupProofMS = Date.now();
+    if (this.handles.size) {
+      const handles = [...this.handles];
+      // A count of resident pages cannot identify a failed write page. Retire
+      // only known read/watch resources, then use the original zero-tab proof.
+      if (!this.drainCleanupReads || handles.some(handle => handle.closed || handle.cleanupFailure || handle.bootstrap ||
+          !['read', 'watch'].includes(handle.activityKind) ||
+          [...handle.activities.values()].some(activity => !['read', 'watch'].includes(activity.kind)))) return 'resources_open';
+      try {await this.drainCleanupReads(handles);} catch {return 'resources_open';}
+      if (this.handles.size || (await this.#readCleanupFence())?.raw !== fence.raw) return 'resources_open';
+    }
     const windows = await (this.bridgeTaskStatus ?? defaultBridgeTaskStatus)();
     if (!windows) return 'bridge_unavailable';
     if (windows.some(window => window.task_tabs || window.stale_task_tabs)) return 'task_tabs_present';
@@ -145,7 +154,7 @@ export class ApplicationHostDriver {
     const sessionID = `session_${crypto.randomBytes(16).toString('hex')}`;
     const state = await createInvocationState(this.runtimeRoot, sessionID, {}, 'host');
     const handle = {state, page: null, events: [], sequence: 0, eventKey: crypto.randomBytes(32).toString('hex'),
-      activities: new Map(), epoch, generation, closed: false, resource};
+      activities: new Map(), epoch, generation, closed: false, resource, activityKind: spec.host.activity ?? 'exclusive'};
     this.handles.add(handle);
     let phase = 'reserve';
     try {
@@ -256,8 +265,17 @@ export class ApplicationHostDriver {
     return {artifact: {path: file, bytes: bytes.length, sha256: crypto.createHash('sha256').update(bytes).digest('hex')}};
   }
   async close(handle) {
+    // Host hello can revisit a fenced slot before another create attempts
+    // recovery. A reaped handle is idempotent only after the same strict proof;
+    // retain its original failure for the already-issued task receipt.
+    if (handle?.closed) {
+      if (handle.cleanupFailure) {
+        await this.assertCleanupClear();
+      }
+      return;
+    }
     if (handle?.cleanupFailure) throw handle.cleanupFailure;
-    if (!handle || handle.closed) return;
+    if (!handle) return;
     let failure;
     const diagnose = (phase, error) => this.diagnostic?.({event: 'application_host_cleanup', phase,
       code: error.code, reason: error.diagnosticReason, command: error.diagnosticCommand});

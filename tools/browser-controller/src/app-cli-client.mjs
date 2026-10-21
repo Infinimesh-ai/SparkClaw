@@ -67,7 +67,33 @@ export class AppCLIClientFactory {
     return {task: resolved.task ?? (resolved.lifecycle && {id: resolved.lifecycle.task_id, status: resolved.lifecycle.status}),
       ...(resolved.lifecycle ? {lifecycle: resolved.lifecycle} : {})};
   }
-  bindController(controller) {if (this.driver) {this.driver.controller = controller; this.driver.drainIdle = () => this.host.drainIdle();}}
+  bindController(controller) {
+    if (!this.driver) return;
+    this.driver.controller = controller;
+    this.driver.drainIdle = () => this.host.drainIdle();
+    this.driver.drainCleanupReads = handles => this.drainCleanupReads(handles);
+  }
+  async drainCleanupReads(handles) {
+    const host = this.host;
+    if (!host || host.closed) return;
+    const slots = handles.map(handle => [...host.resources.values()].find(slot => slot.handle === handle));
+    // Verify the whole batch before retiring anything. Pending admission may
+    // acquire a write reservation; unknown or changing resources stay fenced.
+    if (slots.some(slot => !slot || slot.creating || slot.fenced || slot.disposing || slot.retiring ||
+        slot.handle.closed || slot.handle.cleanupFailure || slot.handle.bootstrap ||
+        !['read', 'watch'].includes(slot.handle.activityKind) ||
+        [...slot.leases].some(id => {
+          const lease = host.leases.get(id);
+          return !lease || lease.pending || !['read', 'watch'].includes(lease.kind);
+        }))) return;
+    // Epoch hello may already have retired receive leases before revisiting
+    // the failed slot. They are safe to drain without waiting on that hello.
+    // Close admission synchronously for every selected pool before yielding.
+    // Existing read calls drain through dispose; no write lease is cancelled.
+    for (const slot of slots) slot.retiring = (slot.retiring ?? 0) + 1;
+    try {for (const slot of slots) await host.dispose(slot);}
+    finally {for (const slot of slots) slot.retiring--;}
+  }
   info() {return {app_cli: this.client ? 'lifecycle-3.0' : this.initializationError ?? 'unconfigured', browser_host: '1.0'};}
   requireClient() {
     if (!this.client) throw new ControllerError('browser_script_unavailable', 'Application release is not configured', {status: 503});

@@ -187,7 +187,7 @@ for (const cancel of ['revoke', 'close', 'expire']) test(`late beginActivity com
 test('failed cleanup with a pending admission retains the original error and fence', async t => {
   const f = await fixture(t, {cleanupFails: true}), waiting = settled(f.acquire('watch')); await turn();
   await assert.rejects(f.port.drop(f.lease(f.read.lease_id)), {code: 'browser_extension_unavailable'});
-  assert.equal((await waiting).error?.code, 'browser_extension_unavailable');
+  assert.equal((await waiting).error?.code, 'browser_cleanup_pending');
   assert.equal(f.handle.cleanupFailure?.diagnosticCommand, 'tab-list');
   await assert.rejects(f.driver.assertCleanupClear(), {code: 'browser_cleanup_pending'});
   assert.equal(f.controller.providerReservations.size, 0);

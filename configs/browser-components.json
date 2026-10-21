@@ -5,8 +5,8 @@
     "url": "https://clients2.google.com/service/update2/crx?response=redirect&prodversion=148.0.7778.0&acceptformat=crx3&x=id%3Ddhdgffkkebhmkfjojejmpbldmpobfkfo%26uc",
     "sha256": "bcaec082c439e11c4df683f43d07e9ac3d4439251d72b91c5b452f977dac15d5",
     "path": "/opt/sparkclaw/tampermonkey",
-    "productVersion": "5.5.0.12",
-    "patchRevision": 12
+    "productVersion": "5.5.0.13",
+    "patchRevision": 13
   },
   "scripts": [
     {
@@ -25,16 +25,16 @@
       "requires": [],
       "uuid": "5b4323dc-326f-4fbb-a1a0-4ac8c00631c0",
       "source": "app-cli",
-      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/be1f5f80a5ce9649ade39afb2dcbd0a496f2319f/runtimes/browser/assets/mail/qq-mail-reader.user.js"
+      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/19c32e46da332f5e4f38e01d55496de64d1b639f/runtimes/browser/assets/mail/qq-mail-reader.user.js"
     },
     {
       "file": "gmail-mail-reader.user.js",
       "version": "0.2.0",
-      "sha256": "5e2da302a0804f060adda20ba8cb6f6c28fb969ce47d27f15aaaae589d9b8213",
+      "sha256": "26aff1480bcfc75a1228bd3f317b9db9cb076149b7326f1dc4a1e580641f7f2e",
       "requires": [],
       "uuid": "1b57e83c-a914-48c1-a490-77d4bca191d5",
       "source": "app-cli",
-      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/be1f5f80a5ce9649ade39afb2dcbd0a496f2319f/runtimes/browser/assets/mail/gmail-mail-reader.user.js"
+      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/19c32e46da332f5e4f38e01d55496de64d1b639f/runtimes/browser/assets/mail/gmail-mail-reader.user.js"
     },
     {
       "file": "outlook-mail-reader.user.js",
@@ -43,7 +43,7 @@
       "requires": [],
       "uuid": "c2b90f5c-629d-41bd-8fc8-179729ad70b4",
       "source": "app-cli",
-      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/be1f5f80a5ce9649ade39afb2dcbd0a496f2319f/runtimes/browser/assets/mail/outlook-mail-reader.user.js"
+      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/19c32e46da332f5e4f38e01d55496de64d1b639f/runtimes/browser/assets/mail/outlook-mail-reader.user.js"
     }
   ]
 }

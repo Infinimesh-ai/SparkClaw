@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "id": "0.3.0-sparkclaw.29",
-  "runtime_digest": "ee54abf77af90ae4dff89f0eae2c4747607a84c20031ecbdba8faa87f0d72f93",
+  "id": "0.3.0-sparkclaw.30",
+  "runtime_digest": "00b1d804bc974e0f795f1f83c6459b5b06f56280824e19b41e43a9e4353a2900",
   "source_repository": "https://github.com/ZZZZJJJ0928/App-CLI",
-  "source_commit": "be1f5f80a5ce9649ade39afb2dcbd0a496f2319f",
-  "python_source_digest": "f2169018f20fcc44fa28b6b4bb53173aedda0ea31b71bc4b9c0811e7dd6bbc4f",
+  "source_commit": "19c32e46da332f5e4f38e01d55496de64d1b639f",
+  "python_source_digest": "0f78c8bec8991075916e170d75f8e28d55b43df366ffaea2e1ceb7e075e4ffb4",
   "runtime_protocol": "3.0",
   "host_protocol": "1.0",
   "ledger_version": 2,
@@ -14,12 +14,12 @@
       "sha256": "e99394c278eed0e2ee36f7a1289c0327af0a355b1726472a8296563d5fb0fde6"
     },
     "wheel": {
-      "file": "infinimesh_app_cli-0.3.0+sparkclaw.29-py3-none-any.whl",
-      "sha256": "6d1b45281ac8c90615905c221612cd0a908e8d65e82bc3b9edd27ac88e40b697"
+      "file": "infinimesh_app_cli-0.3.0+sparkclaw.30-py3-none-any.whl",
+      "sha256": "685229509a3cce28ffdbdc4203b5ba7f058db90053cc3273b4abcf9381bd5bc8"
     },
     "runtime": {
-      "file": "infinimesh-app-cli-runtime-0.3.0-sparkclaw.29.tgz",
-      "sha256": "f9de72efd6e1563bdfe2928985c77fe26f302c107126b5246a10aea63b586c62"
+      "file": "infinimesh-app-cli-runtime-0.3.0-sparkclaw.30.tgz",
+      "sha256": "916d7eec9e04f952eb4e96b14572e674c4052d29949a9b49d918f03634fc16f1"
     }
   }
 }

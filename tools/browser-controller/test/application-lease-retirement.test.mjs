@@ -109,18 +109,15 @@ test('epoch revocation during a queued parked release closes without reviving au
   assert.deepEqual(f.counts(), {watchdogCloses: 0, explicitCloses: 1, reaped: 1});
 });
 
-test('parked retirement is bounded and cannot revive a resource already disposed by another release', async t => {
+test('watch retirement closes a parked receive page in either release order without reviving it', async t => {
   for (const readFirst of [true, false]) {
     const f = await fixture(t), read = f.port.leases.get('read'), watch = f.port.leases.get('watch');
     await Promise.all(readFirst ? [f.port.drop(read, {park: true}), f.port.drop(watch)] : [f.port.drop(watch), f.port.drop(read, {park: true})]);
     assert.ok(f.published.every(stamp => stamp.activities.length || stamp.idle_until_ms > 1000));
     assert.equal(f.counts().watchdogCloses, 0);
-    if (readFirst) {
-      assert.equal(f.counts().explicitCloses, 0); f.advance(5001); await f.tick();
-      assert.equal(f.counts().watchdogCloses, 1, 'idle retention must still expire');
-    } else {
-      assert.equal(f.counts().explicitCloses, 1); assert.equal(f.port.resources.size, 0);
-    }
+    assert.equal(f.counts().explicitCloses, 1); assert.equal(f.port.resources.size, 0);
+    f.advance(5001); await f.tick();
+    assert.equal(f.counts().watchdogCloses, 0, 'a stopped watch must not leave an idle page for the watchdog');
   }
 });
 

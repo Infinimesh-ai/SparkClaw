@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 
@@ -215,10 +216,21 @@ func (r *PlaywrightRunner) MarkRead(ctx context.Context, provider Provider, requ
 		return app.EmailMarkReadResult{}, err
 	}
 	var output app.EmailMarkReadResult
-	if decodeStrictJSON(raw, &output) != nil || output.SchemaVersion != 1 || output.Provider != provider.ID || output.Target != *request.Binding.Target || output.ObservedAt.IsZero() || !validReadState(output.ReadState) {
+	if decodeStrictJSON(raw, &output) != nil || output.SchemaVersion != 1 || output.Provider != provider.ID || !sameMarkReadTarget(output.Target, *request.Binding.Target) || output.ObservedAt.IsZero() || !validReadState(output.ReadState) {
 		return app.EmailMarkReadResult{}, codedError(app.ToolErrorEmailScriptInvalidOutput, "Invalid email read confirmation")
 	}
 	return output, nil
+}
+
+func sameMarkReadTarget(got, want app.EmailCaptureTarget) bool {
+	// JSON decoding allocates a new timestamp. Compare the instant, including
+	// subsecond precision, while preserving every other bound identity field.
+	if (got.ReceivedAt == nil) != (want.ReceivedAt == nil) ||
+		(got.ReceivedAt != nil && !got.ReceivedAt.Equal(*want.ReceivedAt)) {
+		return false
+	}
+	got.ReceivedAt, want.ReceivedAt = nil, nil
+	return reflect.DeepEqual(got, want)
 }
 
 func validReadState(value string) bool {

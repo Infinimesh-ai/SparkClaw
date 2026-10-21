@@ -41,7 +41,8 @@ func (f *splitRangeFixture) CollectPageForOwner(_ context.Context, _ string, req
 
 type qqMarkReadPageFixture struct {
 	*intakeFixture
-	markCalls int
+	markCalls  int
+	markTarget app.EmailCaptureTarget
 }
 
 func (f *qqMarkReadPageFixture) AdmitIntake(context.Context, string, string) (app.EmailAdmissionBinding, error) {
@@ -54,6 +55,8 @@ func (f *qqMarkReadPageFixture) DiscoverForOwner(_ context.Context, _ string, _ 
 
 func (f *qqMarkReadPageFixture) CollectPageForOwner(ctx context.Context, owner string, r app.EmailReadRequest) (app.EmailPageResult, error) {
 	target := app.EmailCaptureTarget{AccountAddress: "owner@qq.example", ProviderMessageID: "qq-message-1", ProviderSelectionID: "qq-message-1", Folder: "inbox"}
+	received := time.Date(2026, 9, 7, 2, 0, 0, 123456789, time.UTC)
+	target.ReceivedAt = &received
 	capture, err := fixtureCaptureForProviderContent(ctx, f.root, owner, emailautomation.PageCaptureInvocationID(r.InvocationID, app.EmailProviderQQMail, target), "fixture-qq-box", "fixture-qq-mail", target.ProviderMessageID, "2026/09/07", app.EmailProviderQQMail, target.AccountAddress, "", "")
 	if err != nil {
 		return app.EmailPageResult{}, err
@@ -65,6 +68,7 @@ func (f *qqMarkReadPageFixture) CollectPageForOwner(ctx context.Context, owner s
 
 func (f *qqMarkReadPageFixture) MarkReadForOwner(_ context.Context, _ string, request app.EmailMarkReadRequest) (app.EmailMarkReadResult, error) {
 	f.markCalls++
+	f.markTarget = *request.Binding.Target
 	return app.EmailMarkReadResult{SchemaVersion: 1, Provider: app.EmailProviderQQMail, Target: *request.Binding.Target, ReadState: "read", ObservedAt: time.Now().UTC()}, nil
 }
 
@@ -265,6 +269,9 @@ func TestQQPageIntakeMarksReadOnlyAfterSourceCommitAndPersistsConfirmation(t *te
 	}
 	if browser.markCalls != 1 {
 		t.Fatalf("post-commit mark-read calls=%d", browser.markCalls)
+	}
+	if browser.markTarget.ReceivedAt == nil || !browser.markTarget.ReceivedAt.Equal(time.Date(2026, 9, 7, 2, 0, 0, 123456789, time.UTC)) {
+		t.Fatalf("mark-read lost captured receipt time: %+v", browser.markTarget)
 	}
 	mails, err := repo.ListEmailMails(t.Context(), store.EmailQuery{OwnerID: "email-owner", MailboxID: box.ID, Limit: 10})
 	if err != nil || len(mails.Items) != 1 || mails.Items[0].CaptureState != app.EmailCaptureComplete || mails.Items[0].RemoteReadState != "read" {

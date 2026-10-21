@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Qualify installed paired releases and whole-set rollback in disposable state.
+"""Qualify paired releases in disposable state or an installed mail deployment.
 
-No browser or mailbox is contacted. The second release changes only a NOTICE
-fixture, with matching runtime, wheel and consumer hashes, to exercise rollback.
+The default uses a NOTICE fixture to exercise compatible whole-set rollback.
+The explicit installed mode reads native managed-script import evidence without
+opening pages, sending mail, changing a profile or activating a release.
 """
+import argparse
 import base64
+import contextlib
 import csv
 import fcntl
 import hashlib
@@ -70,7 +73,45 @@ def fixture_release(source, target):
     (target / "release.json").write_bytes(encoded(release))
 
 
-def main():
+def qualify_installed(root, profile):
+    root = root.resolve()
+    current = root / "current.json"
+    original = current.read_bytes()
+    pointer = json.loads(original)
+    config_path = Path(pointer["config"])
+    config_bytes = config_path.read_bytes()
+    config = json.loads(config_bytes)
+    command = [sys.executable, str(ROOT / "scripts/install-app-cli.py"), "--check",
+               "--root", str(root), "--host-socket", config["browser_host_socket"],
+               "--host-runtime-root", config["host_runtime_root"],
+               "--workspace-root", config["workspace_root"], "--profile", config["profile_id"],
+               "--node", config["node"]]
+    anchor = config.get("anchor")
+    if anchor:
+        endpoint = "socket" if "socket" in anchor else "url"
+        command.extend(["--anchor-" + endpoint, anchor[endpoint],
+                        "--anchor-token-file", anchor["token_file"]])
+    if config.get("storage", {}).get("budget_bytes") is not None:
+        command.extend(["--storage-budget-bytes", str(config["storage"]["budget_bytes"])])
+    checked = json.loads(subprocess.check_output(command, text=True,
+                        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}))
+    if checked != pointer:
+        raise ValueError("Active App-CLI release differs from the checked installed release")
+    # Installation alone does not update Linux's separate managed Reader policy
+    # or its native import. Same-version script changes must match source bytes.
+    sys.dont_write_bytecode = True
+    import browser_components
+    with contextlib.redirect_stdout(sys.stderr):
+        browser_components.verify_system()
+        browser_components.verify_profile(profile.resolve())
+    if current.read_bytes() != original or config_path.read_bytes() != config_bytes:
+        raise ValueError("Active App-CLI release changed during mail qualification")
+    return {"release_id": pointer["release_id"], "active_application_release": True,
+            "installed_browser_components": True, "native_managed_reader_import": True,
+            "browser_or_mail_actions": False}
+
+
+def qualify_disposable():
     with tempfile.TemporaryDirectory(prefix="app-cli-paired-") as temp:
         base = Path(temp).resolve()
         consumer = base / "consumer"
@@ -151,6 +192,21 @@ def main():
             "mixed_python_runtime_rejected": True, "mixed_consumer_rejected": True,
             "live_host_activation_rejected": True, "live_executor_activation_rejected": True,
             "whole_set_rollback": True, "durable_state_preserved": True, "epoch_monotonic": True}))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--installed-root", type=Path,
+                        help="read-only final gate for this installed application release")
+    parser.add_argument("--browser-profile", type=Path,
+                        help="existing dedicated user-data directory; required with --installed-root")
+    args = parser.parse_args()
+    if bool(args.installed_root) != bool(args.browser_profile):
+        parser.error("--installed-root and --browser-profile must be supplied together")
+    if args.installed_root:
+        print(json.dumps(qualify_installed(args.installed_root, args.browser_profile)))
+    else:
+        qualify_disposable()
 
 
 if __name__ == "__main__":

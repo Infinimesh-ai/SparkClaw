@@ -33,6 +33,42 @@ fencing and bounded page parking survive control-process failures. A failed
 application-release check disables application admission while generic browser
 startup remains available.
 
+## Installed mail release gate
+
+A mail deployment is ready only when the active App-CLI installation and the
+dedicated browser's managed Readers belong to the same release. After component
+activation and before reopening application admission, run as the browser owner:
+
+```bash
+python3 scripts/qualify-app-cli-release.py \
+  --installed-root "${XDG_DATA_HOME:-$HOME/.local/share}/sparkclaw/app-cli" \
+  --browser-profile "${XDG_DATA_HOME:-$HOME/.local/share}/sparkclaw/browser/default/user-data"
+```
+
+This explicit mode verifies the active `current.json` against the existing
+installer's `--check`, preserving its host, progress-anchor, workspace, storage
+and profile parameters. It then uses `browser_components.check` and the native
+profile check to verify the installed receipt, policy, extension/source bytes,
+stable script UUIDs, enabled state and consumed import hashes. Any stale or
+mixed component fails the gate, including changed Reader bytes with the same
+`0.2.0` version. It opens no page, sends no mail, activates no release and changes
+no profile. Ordinary App-CLI-only installation and the qualifier's default
+disposable rollback test retain their existing scope.
+
+Stage and install changed Linux Reader components through the existing browser
+component workflow; updating the runtime archive and source projections alone
+does not update `/opt` or the browser's native import. Drain application work
+while the browser remains alive, preserve the existing login profile and owner
+session, and complete native import readiness before this gate. Never clear a
+profile to repair a failed check. Retain the prior matched component/runtime
+set for rollback, and keep admission stopped on failure.
+
+Release evidence must separately record App-CLI runtime and Controller dependency
+parity, Linux installed/imported Reader hashes, and Desktop generated Reader
+assets. After startup, verify actual collection metadata and read confirmation
+through a newly owned page; this installation gate does not qualify live mail
+delivery or prove that an older, already open document has reloaded its Reader.
+
 ## Initial extraction verification
 
 Host: Linux ARM64, Python 3.12, Node 26.2.0. Actual isolated browser:

@@ -12,6 +12,36 @@ Gateway → 已鉴权的 owner Controller → App-CLI Python 公共 Registry →
 
 Executor 将请求键与主体/owner/意图持久绑定；丢包查原 task，无法确认受理时不得重发。执行授权过期不撤销合法查询/取消权限。恢复依赖原 journal、效果围栏和递增 epoch。read/watch 各持活动租约，实际 daemon 到期、清理失败隔离和有界 park 在控制进程丢失后仍生效。应用发行校验失败只禁用应用准入，普通浏览器仍可启动。
 
+## 已安装邮件发行版验收门禁
+
+邮件部署只有在当前 App-CLI 安装与专用浏览器的受管 Reader 属于同一发行版时
+才算就绪。组件激活完成、重新开放应用请求入口之前，以浏览器所属用户运行：
+
+```bash
+python3 scripts/qualify-app-cli-release.py \
+  --installed-root "${XDG_DATA_HOME:-$HOME/.local/share}/sparkclaw/app-cli" \
+  --browser-profile "${XDG_DATA_HOME:-$HOME/.local/share}/sparkclaw/browser/default/user-data"
+```
+
+这一显式模式使用既有安装器的 `--check` 核实当前 `current.json`，完整传入其
+Host、进度锚点、工作区、存储和 profile 参数；随后调用 `browser_components.check`
+及原生 profile 检查，核对安装回执、策略、扩展与脚本字节、稳定脚本 UUID、
+启用状态及已消费的导入哈希。任何过期或混用组件都会使门禁失败，包括版本号
+同为 `0.2.0`、但 Reader 字节不同的情况。检查不会打开页面、发送邮件、激活
+发行版或修改 profile。普通 App-CLI 单独安装与此验收器默认的隔离回滚测试
+保持原有范围。
+
+Linux Reader 变化必须通过既有浏览器组件流程暂存并安装；只更新运行包及源码
+投影不会更新 `/opt` 或浏览器原生导入。应在浏览器仍存活时排空应用任务，保留
+原有登录 profile 和用户会话，完成原生导入就绪检查后再运行此门禁。不得清空
+profile 修复失败检查。保留原先匹配的组件和运行包以便回滚；失败时继续关闭
+应用请求入口。
+
+发布证据必须分别记录 App-CLI 运行包与 Controller 依赖一致性、Linux 已安装及
+已导入 Reader 的哈希，以及 Desktop 生成 Reader 资产。启动后还需通过新的
+任务页面验证实际采集元数据与已读确认；安装门禁本身不代表真实收发通过，也
+不能证明原先已打开的文档已重新加载 Reader。
+
 ## 初始抽离阶段验证
 
 环境：Linux ARM64、Python 3.12、Node 26.2.0。实际隔离浏览器：Electron 44.4.3、Chromium 152.0.7977.130、内置 Node 24.21.0。

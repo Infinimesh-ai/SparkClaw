@@ -153,8 +153,13 @@ func emailBind(e *emailEngine, c EmailBindCommand) (app.EmailMailbox, error) {
 		boundary = baseline.StartedAt
 		m = app.EmailMailbox{ID: id, OwnerID: e.owner, Provider: c.Provider, Address: c.Address, NormalizedAddress: address, Boundary: postgresTime(boundary), ActivatedAt: postgresTime(boundary)}
 	}
-	if err := emailSetDelivery(&m, c.DeliveryAddress, c.AccountAliases); err != nil {
-		return m, err
+	// Pausing performs no fresh native observation. Keep the metadata read
+	// inside this transaction, not an older UI/service snapshot that may have
+	// preceded a concurrent successful sync and address withdrawal.
+	if !exists || c.Enabled {
+		if err := emailSetDelivery(&m, c.DeliveryAddress, c.AccountAliases); err != nil {
+			return m, err
+		}
 	}
 	m.BindingGeneration++
 	emailReanchorBinding(&m)

@@ -51,6 +51,13 @@ func TestDeliveryAddressRefreshPreservesMailboxAndBusinessIdentity(t *testing.T)
 		if f.box.DeliveryAddress != "" || len(f.box.AccountAliases) != 0 || f.box.ContactAddress() != "" || f.box.Address != before.Address {
 			t.Fatal("missing native evidence retained unverified Outlook SMTP or changed identity")
 		}
+		// A pause that read the pre-sync projection must not resurrect it.
+		paused, err := f.repo.BindEmailMailbox(t.Context(), EmailBindCommand{EmailCommand: f.command(), Provider: f.box.Provider, Address: f.box.Address, ExpectedVersion: f.box.Version, Enabled: false, DeliveryAddress: stored.DeliveryAddress, AccountAliases: stored.AccountAliases})
+		f.must(err)
+		if paused.IntakeEnabled || paused.DeliveryAddress != "" || len(paused.AccountAliases) != 0 || paused.ID != before.ID {
+			t.Fatal("pause restored stale delivery evidence or changed identity")
+		}
+
 	})
 }
 

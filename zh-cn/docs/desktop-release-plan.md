@@ -9,7 +9,7 @@
 
 ## 候选版本身份
 
-候选版本为 Linux/ARM64 SparkX Desktop `0.1.0`，使用 Electron `44.4.3`、自带 Chromium `152.0.7977.130` 和 Electron Node `24.21.0`。控制兼容基线为 Browser Bridge `1.0.28`、Playwright MCP `0.0.80`、CLI `0.1.19` 和 Playwright `1.63.0-alpha-2026-08-31`。
+候选版本为 Linux/ARM64 SparkX Desktop `0.1.0`，使用 Electron `44.4.3`、自带 Chromium `152.0.7977.130` 和 Electron Node `24.21.0`。控制兼容基线为 Browser Bridge `1.0.29`、Playwright MCP `0.0.80`、CLI `0.1.19` 和 Playwright `1.63.0-alpha-2026-08-31`。
 
 | 制品 | 字节 | SHA-256 |
 |---|---:|---|

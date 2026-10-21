@@ -22,7 +22,7 @@
     "dist:mac-x64": "node scripts/package-macos.mjs --arch x64"
   },
   "dependencies": {
-    "@sparkclaw/browser-bridge": "1.0.28"
+    "@sparkclaw/browser-bridge": "1.0.29"
   },
   "engines": {
     "node": ">=26 <27",

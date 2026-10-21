@@ -11,7 +11,7 @@ deployment still requires the acceptance and authorization below.
 
 ## Candidate Identity
 
-The candidate is Linux/ARM64 SparkX Desktop `0.1.0`, built with Electron `44.4.3`, bundled Chromium `152.0.7977.130`, and Electron Node `24.21.0`. Its control compatibility baseline is Browser Bridge `1.0.28`, Playwright MCP `0.0.80`, CLI `0.1.19`, and Playwright `1.63.0-alpha-2026-08-31`.
+The candidate is Linux/ARM64 SparkX Desktop `0.1.0`, built with Electron `44.4.3`, bundled Chromium `152.0.7977.130`, and Electron Node `24.21.0`. Its control compatibility baseline is Browser Bridge `1.0.29`, Playwright MCP `0.0.80`, CLI `0.1.19`, and Playwright `1.63.0-alpha-2026-08-31`.
 
 | Artifact | Bytes | SHA-256 |
 |---|---:|---|

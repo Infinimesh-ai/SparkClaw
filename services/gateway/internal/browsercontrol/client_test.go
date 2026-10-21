@@ -205,6 +205,9 @@ func TestHTTPControllerClientRunsStrictScriptProtocol(t *testing.T) {
 				SourceChecksum: `sha256:` + strings.Repeat("c", 64), CredentialGeneration: 4,
 				ControllerGeneration: 9, SessionGeneration: 5,
 				Result: json.RawMessage(`{"schema_version":1,"status":"ready","provider":"gmail"}`),
+				// The exact App-CLI .26+ mail client lifecycle projection.
+				Lifecycle: &ScriptLifecycle{OperationID: "op", TaskID: "task", Status: "completed", TerminalRevision: 4,
+					ResultDigest: strings.Repeat("d", 64), Effect: new(bool)},
 			})
 		case "/v1/open-provider-login":
 			var input struct {
@@ -239,7 +242,8 @@ func TestHTTPControllerClientRunsStrictScriptProtocol(t *testing.T) {
 		Provider: "gmail", Operation: "probe", ScriptID: "gmail.login_probe", Revision: 1,
 		Input: map[string]any{"schema_version": 1, "operation": "probe"},
 	}, []byte(secret))
-	if err != nil || result.State != "completed" || result.SessionGeneration != 5 {
+	if err != nil || result.State != "completed" || result.SessionGeneration != 5 ||
+		result.Lifecycle == nil || result.Lifecycle.Effect == nil || *result.Lifecycle.Effect {
 		t.Fatalf("script result=%#v err=%v", result, err)
 	}
 	opened, err := client.OpenProviderLogin(t.Context(), OpenProviderLoginRequest{

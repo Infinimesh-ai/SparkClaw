@@ -16,6 +16,9 @@ type ScriptLifecycle struct {
 	ResultDigest     string `json:"result_digest,omitempty"`
 	Attempt          int64  `json:"attempt,omitempty"`
 	Resolution       string `json:"resolution,omitempty"`
+	// Effect reports whether the task released a provider dispatch. Results
+	// carry it since App-CLI .26; strict decoding must accept it.
+	Effect *bool `json:"effect,omitempty"`
 }
 
 // EpochState reports the request epochs in which new operation identities

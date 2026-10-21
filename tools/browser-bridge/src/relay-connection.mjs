@@ -158,7 +158,12 @@ export class RelayConnection {
       throw new Error("Tab is outside the task allowlist");
     }
     await this.chrome.tabs.remove(args[0]);
-    for (const id of ids) this.#forgetTab(id);
+    // Chrome may resolve removal before delivering onRemoved/onDetach. If we
+    // forget ownership first, those later events are filtered and Playwright
+    // waits forever for its page's closed notification. Successful removal is
+    // closure proof for these exact owned IDs; use the same forwarding path,
+    // which also deduplicates earlier events and ignores released ownership.
+    for (const id of ids) await this.#onChromeEvent("chrome.tabs.onRemoved", [id]);
     return {};
   }
 

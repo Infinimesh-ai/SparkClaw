@@ -218,6 +218,72 @@ test("closing a controlled task tab cancels only its control and closes an empty
   assert.deepEqual(fixture.calls.detach, [], "Chrome already detached the debugger when the tab disappeared");
 });
 
+test("successful task removal delivers closure whether Chrome events precede or follow its reply", async () => {
+  for (const order of ["events-first", "reply-first"]) {
+    const fixture = createFixture();
+    const relay = new RelayConnection(fixture.options);
+    const detached = [];
+    relay.ontabdetached = tabId => detached.push(tabId);
+    await relay.handleCommand({ id: 1, method: "chrome.debugger.attach", params: [{ tabId: 2 }, "1.3"] });
+    await relay.handleCommand({ id: 2, method: "chrome.tabs.create", params: [{ url: "https://example.com/task" }] });
+    await relay.handleCommand({ id: 3, method: "chrome.debugger.attach", params: [{ tabId: 3 }, "1.3"] });
+    const removedEvents = id => {
+      fixture.events.debuggerDetach.emit({ tabId: id }, "target_closed");
+      fixture.events.tabsRemoved.emit(id, { windowId: 7, isWindowClosing: false });
+    };
+    fixture.chromeAPI.tabs.remove = async id => {
+      fixture.calls.remove.push(id);
+      if (order === "events-first") removedEvents(id);
+    };
+
+    for (const id of [3, 2]) {
+      await relay.handleCommand({ id: id + 10, method: "chrome.tabs.remove", params: [id] });
+      if (order === "reply-first") removedEvents(id);
+      const removals = fixture.webSocket.sent.map(JSON.parse).filter(message => message.method === "chrome.tabs.onRemoved");
+      assert.equal(removals.filter(message => message.params[0] === id).length, 1,
+        `${order}: Playwright must observe every removed target exactly once`);
+      assert.deepEqual(detached, id === 3 ? [3] : [3, 2]);
+      assert.equal(relay.closed, id === 2, `${order}: close only after the last owned tab`);
+    }
+    assert.deepEqual(fixture.calls.remove, [3, 2]);
+    assert.deepEqual(fixture.calls.detach, [], "a removed tab needs no second debugger detach");
+  }
+});
+
+test("failed removal keeps ownership and cannot invent a closed target", async () => {
+  const fixture = createFixture();
+  const relay = new RelayConnection(fixture.options);
+  await relay.handleCommand({ id: 1, method: "chrome.debugger.attach", params: [{ tabId: 2 }, "1.3"] });
+  fixture.chromeAPI.tabs.remove = async () => { throw new Error("Chrome removal failed"); };
+  await assert.rejects(relay.handleCommand({ id: 2, method: "chrome.tabs.remove", params: [2] }), /removal failed/);
+  assert.deepEqual(relay.connectedTabIds(), [2]);
+  assert.deepEqual([...relay.attachedTabs], [2]);
+  assert.deepEqual(fixture.webSocket.sent, []);
+  assert.equal(relay.closed, false);
+  relay.close("test finished");
+});
+
+test("removal completion never admits foreign events or revives handed-off ownership", async () => {
+  const fixture = createFixture();
+  const relay = new RelayConnection(fixture.options);
+  await relay.handleCommand({ id: 1, method: "chrome.debugger.attach", params: [{ tabId: 2 }, "1.3"] });
+  await relay.handleCommand({ id: 2, method: "chrome.tabs.create", params: [{ url: "https://example.com/task" }] });
+  let complete;
+  fixture.chromeAPI.tabs.remove = () => new Promise(resolve => { complete = resolve; });
+  const removal = relay.handleCommand({ id: 3, method: "chrome.tabs.remove", params: [3] });
+  relay.releaseTab(3);
+  fixture.events.debuggerDetach.emit({ tabId: 1 }, "target_closed");
+  fixture.events.tabsRemoved.emit(1, { windowId: 7, isWindowClosing: false });
+  complete();
+  await removal;
+  fixture.events.tabsRemoved.emit(3, { windowId: 7, isWindowClosing: false });
+  assert.deepEqual(fixture.webSocket.sent, []);
+  assert.deepEqual(relay.connectedTabIds(), [2]);
+  assert.equal(relay.closed, false);
+  await assert.rejects(relay.handleCommand({ id: 4, method: "chrome.tabs.remove", params: [[2, 1]] }), /outside the task allowlist/);
+  relay.close("test finished");
+});
+
 test("concurrent relay groups isolate events, popups and disconnect cleanup", async () => {
   const fixture = createFixture();
   const first = new RelayConnection(fixture.options);

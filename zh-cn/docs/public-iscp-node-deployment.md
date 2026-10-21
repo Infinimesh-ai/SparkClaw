@@ -19,8 +19,8 @@ InfiniCenter，不声称有中枢 `accepted` 决策。
 
 | 主机 | 实际职责 | 开放范围 |
 |---|---|---|
-| PVE | `pve-iscp-443.service`，脚本 `/usr/local/sbin/pve-iscp-443` | 唯一新增公网应用映射为 TCP `443` 到 TEST1 `10.20.0.20:443`；窄范围回程/reflection 支持 work2 出站 |
-| TEST1，VM100 | IP TLS/Nginx、Relay、PostgreSQL 18、独立控制转发 | [HTTPS 入口](https://210.16.177.239)、`wss://210.16.177.239/v2/relay/connect`；Relay/数据库/控制内部和管理入口保持私有 |
+| PVE | `pve-iscp-18443.service`，脚本 `/usr/local/sbin/pve-iscp-18443`（443 已停用，见 §20） | 唯一公网应用映射为 TCP `18443` 到 TEST1 `10.20.0.20:443`；窄范围回程/reflection 支持工作节点出站 |
+| TEST1，VM100 | IP TLS/Nginx、Relay、PostgreSQL 18、独立控制转发 | §20 起为 `https://210.16.177.239:18443`、`wss://210.16.177.239:18443/v2/relay/duplex`；Relay/数据库/控制内部和管理入口保持私有 |
 | work2，VM104 | 原 Gateway，加独立节点签发/出站代理 | 无新增虚拟机网络或公网应用 listener；签发管理使用 Unix socket，控制链主动出站至 TEST1 HTTPS/WSS |
 | SparkX | 原 UI，加凭据/main/helper 适配 | 本连接只访问 TEST1 IP 入口；设备私钥及本机工作台数据保留在桌面 |
 
@@ -787,3 +787,21 @@ Gateway和WebChat，`2ec7c9d0` 镜像作为回滚。
 22条消息，已恢复普通启动。远端CI run39410196761仍有已记录的Electron/SUID和Compose失败；
 已知的 `TestSessionMessageAdmissionRejectsConcurrentSubmission` 临时目录清理竞态这次出现在
 Gateway任务而不是Gateway race任务中。
+
+## 20. Relay 公网入口由 443 迁至 18443（2026-10-21）
+
+决策0046。约01:50 UTC起，上游网络对公网 `80/443` 的每个外部TLS握手注入RST（Wi-Fi与移动热点一致；
+PVE无拒绝规则，TEST1只收到入向RST）。Relay现发布 `https://210.16.177.239:18443` 与
+`wss://210.16.177.239:18443/v2/relay/duplex`。PVE `pve-iscp-18443.service`（[脚本](../../docker/iscp-public/pve-iscp-18443.sh)）
+把公网 `18443`（外网与vmnet0回环）映射到TEST1 `10.20.0.20:443`，Nginx不变；`pve-iscp-443.service` 已停用并保留用于回滚。
+
+域、Relay ID、签名者、TLS证书、历史、身份、授权与业务数据均不变：凭据绑定Relay ID与固定信息，不绑定URL。
+每份注册及其封存的 `*.credentials.v2` 租约都存有须与签名发现信息一致的地址副本，因此15个服务身份在一次停机窗口
+（101秒）内用 `iscp-relay-origin-migrate`（`services/gateway/cmd/`）同时迁移：只改两个地址，用设备密钥与运行时路径
+（Gateway应答端为容器路径）重新封装租约，保留其余字段且可重复执行。各节点 `authority/template.json` 的origin与TEST1
+`relay.env`（`ISCP_RELAY_BASE_URL`、`ISCP_RELAY_WS_URL`、`ISCP_ALLOWED_ORIGINS`）已更新，此后签发的邀请带 `:18443`。
+15个服务身份重新在线，work2收信继续。
+
+桌面端无法原地改地址。当前Mac主档案经work2迁移邀请重新注册，保留 `sparkx-iscp-remote-8143225e`，3个会话与8条消息仍在；
+其他桌面档案重新连接时需要新邀请。回滚：在TEST1和各节点恢复 `/var/backups/sparkclaw-relay-18443-20261021`，重新启用
+`pve-iscp-443.service`，按原顺序重启，无需重新注册。2026-10-19的Gateway重建包记录的是旧WSS地址，再次使用前须重新生成。

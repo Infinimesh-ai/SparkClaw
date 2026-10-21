@@ -23,8 +23,8 @@ these additional nodes.
 
 | Host | Deployed role | Exposure |
 |---|---|---|
-| PVE | `pve-iscp-443.service`, script `/usr/local/sbin/pve-iscp-443` | The sole new public application mapping is TCP `443` to TEST1 `10.20.0.20:443`; narrow return/reflection rules support work2 outbound traffic |
-| TEST1, VM100 | IP TLS/Nginx, Relay, PostgreSQL 18 and independent control forwarder | [HTTPS origin](https://210.16.177.239), `wss://210.16.177.239/v2/relay/connect`; Relay/db/control internals and management remain private |
+| PVE | `pve-iscp-18443.service`, script `/usr/local/sbin/pve-iscp-18443` (443 retired, see §20) | The sole public application mapping is TCP `18443` to TEST1 `10.20.0.20:443`; narrow return/reflection rules support work node outbound traffic |
+| TEST1, VM100 | IP TLS/Nginx, Relay, PostgreSQL 18 and independent control forwarder | Since §20: `https://210.16.177.239:18443`, `wss://210.16.177.239:18443/v2/relay/duplex`; Relay/db/control internals and management remain private |
 | work2, VM104 | Existing Gateway plus independent node issuer/outbound agent | No new guest-network or public application listener; issuer administration uses Unix sockets and control traffic initiates outbound HTTPS/WSS to TEST1 |
 | SparkX | Existing UI plus credential/main/helper adapter | Only the TEST1 IP origin for this connection; private device key and local workbench data stay on the desktop |
 
@@ -1020,3 +1020,33 @@ six profiles, 97 tables and 22 messages; normal launch is restored. Remote CI
 run39410196761 keeps the recorded Electron/SUID and Compose failures; the known
 `TestSessionMessageAdmissionRejectsConcurrentSubmission` TempDir cleanup race
 appeared in the Gateway job instead of Gateway race this time.
+
+## 20. Relay ingress moved from 443 to 18443 (2026-10-21)
+
+Decision 0046. From about 01:50 UTC the upstream network injected RSTs into every
+external TLS handshake on public `80/443` (Wi-Fi and a mobile hotspot behaved the
+same; PVE had no reject rule and TEST1 only received inbound RSTs). The Relay now
+publishes `https://210.16.177.239:18443` and `wss://210.16.177.239:18443/v2/relay/duplex`.
+PVE `pve-iscp-18443.service` ([script](../docker/iscp-public/pve-iscp-18443.sh))
+maps public `18443` (external and the vmnet0 reflection) to TEST1 `10.20.0.20:443`,
+where Nginx is unchanged. `pve-iscp-443.service` is disabled and kept for rollback.
+
+Domain, Relay ID, signer, TLS certificate, history, identities, grants and business
+data are unchanged: credentials bind the Relay ID and pins, not the URL. Each
+enrollment and its sealed `*.credentials.v2` lease keep URL copies that must equal
+the signed descriptor, so all fifteen service peers moved in one stopped window
+(101 s) with `iscp-relay-origin-migrate` (`services/gateway/cmd/`). It rewrites only
+the two URLs, re-seals the lease with the device key and the runtime path (the
+Gateway responder uses its container path), retains every other field and is
+idempotent. Each node's `authority/template.json` origin and TEST1 `relay.env`
+(`ISCP_RELAY_BASE_URL`, `ISCP_RELAY_WS_URL`, `ISCP_ALLOWED_ORIGINS`) were updated;
+invitations issued afterwards carry `:18443`. Fifteen peers reconnected and work2
+mail sync continued.
+
+Desktop clients cannot change the URL in place. The current Mac main profile was
+re-enrolled through a work2 migration invitation that kept `sparkx-iscp-remote-8143225e`;
+its three conversations and eight messages remain. Other desktop profiles need a new
+invitation when they reconnect. Rollback: restore `/var/backups/sparkclaw-relay-18443-20261021`
+on TEST1 and each node, re-enable `pve-iscp-443.service`, and restart in the same
+order; no re-enrollment is needed. The 2026-10-19 Gateway persistence package records
+the former WSS URL and must be regenerated before it is used again.

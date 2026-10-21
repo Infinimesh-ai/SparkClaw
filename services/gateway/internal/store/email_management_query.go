@@ -144,7 +144,11 @@ func emailConcerns(e *emailEngine, q EmailQuery) ([]app.EmailAssignmentConcern, 
 	return rows, e.err
 }
 func emailQueryRows[T any](e *emailEngine, q EmailQuery, kind string) ([]T, error) {
-	rows := emailList[T](e, emailRowsQuery{Kind: kind, Parent: q.MailboxID, After: q.After, Limit: emailLimit(q.Limit), Asc: kind == "thread"})
+	query := emailRowsQuery{Kind: kind, Parent: q.MailboxID, After: q.After, Limit: emailLimit(q.Limit), Asc: kind == "thread"}
+	if kind == "job" {
+		query.Related = q.JobKind
+	}
+	rows := emailList[T](e, query)
 	return rows, e.err
 }
 

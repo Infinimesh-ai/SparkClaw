@@ -101,6 +101,38 @@ describe("Browser email settings", () => {
     await act(async () => root.unmount());
   });
 
+  it.each(["en", "zh"] as const)("shows sync health only after checking and preserves provider controls in %s", async language => {
+    const copy = dictionaries[language];
+    vi.spyOn(api, "emailProviders").mockResolvedValue({ providers: [gmail, outlook, qq] });
+    const check = vi.spyOn(api, "checkEmailProvider");
+    const container = document.createElement("div"), root = createRoot(container);
+    await act(async () => root.render(<BrowserEmailSettings text={copy} />));
+    const controls = container.querySelector(".emailProviderList")!.innerHTML;
+    expect(container.querySelector(".credentialValidationFeedback")).toBeNull();
+    const cases = [
+      ["stalled", "email_sync_stalled", copy.settings.browserEmailSyncStalled, "error"],
+      ["paused", undefined, copy.settings.browserEmailSyncPaused, "success"],
+      ["not_enabled", undefined, copy.settings.browserEmailSyncNotEnabled, "success"],
+      ["starting", undefined, copy.settings.browserEmailSyncStarting, "success"],
+      ["needs_attention", "email_interval_overflow", copy.settings.browserEmailSyncOverflow, "error"],
+      ["needs_attention", "email_incremental_unqualified", copy.settings.browserEmailSyncUnqualified, "error"],
+      ["unavailable", undefined, copy.settings.browserEmailSyncUnavailable, "error"],
+      ["healthy", undefined, copy.settings.browserEmailSyncHealthy, "success"],
+    ] as const;
+    for (const [state, code, message, tone] of cases) {
+      check.mockResolvedValue({ ...gmail, sync_health: { state, code, checked_at: "2026-10-21T12:00:00Z", stall_after_seconds: 900 } });
+      await act(async () => providerRow(container, "Gmail").querySelector<HTMLButtonElement>(`button[title="${copy.settings.checkConnection}"]`)!.click());
+      expect(container.querySelector(`.credentialValidationFeedback.${tone}`)?.textContent).toContain(message);
+      expect(container.querySelector(".emailProviderList")!.innerHTML).toBe(controls);
+    }
+    // A later failed provider probe takes priority over the previous health.
+    check.mockRejectedValue(new APIError(409, "Please sign in again", "email_login_required", false));
+    await act(async () => providerRow(container, "Gmail").querySelector<HTMLButtonElement>(`button[title="${copy.settings.checkConnection}"]`)!.click());
+    expect(container.textContent).toContain("Please sign in again");
+    expect(container.textContent).not.toContain(copy.settings.browserEmailSyncHealthy);
+    await act(async () => root.unmount());
+  });
+
   it("refreshes persisted provider state after an action failure", async () => {
     const failed: EmailProviderStatus = { ...gmail, state: "needs_attention", error_code: "email_page_contract_changed", version: 4 };
     vi.spyOn(api, "emailProviders")

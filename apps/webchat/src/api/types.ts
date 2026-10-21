@@ -612,6 +612,15 @@ export type EmailProviderStatus = {
   error_code?: string;
   version: number;
   updated_at?: string;
+  // Only returned by the explicit provider connection check.
+  sync_health?: {
+    state: "healthy" | "starting" | "stalled" | "paused" | "not_enabled" | "needs_attention" | "unavailable";
+    code?: string;
+    checked_at: string;
+    poll_through?: string;
+    expected_interval_seconds?: number;
+    stall_after_seconds?: number;
+  };
 };
 
 export type BrowserExtensionStatus = {

@@ -300,13 +300,17 @@ func (s *Service) workOne(ctx context.Context, kinds []string) (bool, error) {
 	return false, nil
 }
 
-func (s *Service) execute(parent context.Context, job app.EmailJob) {
+func (s *Service) jobTimeout(kind string) time.Duration {
 	timeout := s.opts.JobTimeout
-	if _, pageMode := s.browser.(PageBrowser); pageMode && job.Kind == app.EmailJobDiscover {
+	if _, pageMode := s.browser.(PageBrowser); pageMode && kind == app.EmailJobDiscover {
 		// One bounded provider response plus direct local source publication.
 		timeout = max(timeout, 10*time.Minute)
 	}
-	ctx, cancel := context.WithTimeout(parent, timeout)
+	return timeout
+}
+
+func (s *Service) execute(parent context.Context, job app.EmailJob) {
+	ctx, cancel := context.WithTimeout(parent, s.jobTimeout(job.Kind))
 	defer s.trackBrowserJob(job, cancel)()
 	leaseDone := make(chan struct{})
 	go func() {

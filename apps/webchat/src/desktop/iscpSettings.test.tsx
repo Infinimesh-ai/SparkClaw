@@ -108,7 +108,9 @@ it.each(["lan", "iscp"] as const)("keeps all eight entries and prevents website 
     account: "default" as const, state: "ready" as const, version: 3 }];
   const list = vi.spyOn(api, "emailProviders").mockResolvedValue({ providers });
   const emailLogin = vi.spyOn(api, "openEmailLoginBrowser");
-  const check = vi.spyOn(api, "checkEmailProvider").mockResolvedValue(providers[0]);
+  const check = vi.spyOn(api, "checkEmailProvider").mockResolvedValue({ ...providers[0], sync_health: {
+    state: "stalled", code: "email_sync_stalled", checked_at: "2026-10-21T12:00:00Z",
+  } });
   const aiList = vi.spyOn(api, "aiPlatformLogins").mockResolvedValue({ browser_state: "ready", profile_id: "default", providers: [] });
   const aiLogin = vi.spyOn(api, "openAIPlatformLogin");
   const integrations = vi.spyOn(api, "integrations").mockResolvedValue({ integrations: [] });
@@ -123,6 +125,8 @@ it.each(["lan", "iscp"] as const)("keeps all eight entries and prevents website 
     const outlook = [...host.querySelectorAll(".emailProviderRow")].find(row => row.textContent?.includes("Outlook"))!;
     await act(async () => outlook.querySelector<HTMLButtonElement>(`button[aria-label="${dictionaries.en.settings.checkConnection}"]`)!.click());
     expect(check).toHaveBeenCalledWith("outlook");
+    expect(host.querySelector(".credentialValidationFeedback.error")?.textContent).toContain(dictionaries.en.settings.browserEmailSyncStalled);
+    expect(host.querySelectorAll(".emailProviderRow")).toHaveLength(3);
     await act(async () => host.querySelector<HTMLButtonElement>(".settingsBack")!.click());
     await act(async () => button(host, dictionaries.en.settings.aiPlatformLogin).click());
     expect(host.querySelectorAll("article")).toHaveLength(4);

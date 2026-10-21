@@ -280,6 +280,7 @@ type EmailRefreshResult struct {
 	Remaining bool `json:"remaining"`
 }
 type EmailQuery struct {
+	JobKind              string
 	MailMessageID        string
 	MailThreadID         string
 	CursorKind           string

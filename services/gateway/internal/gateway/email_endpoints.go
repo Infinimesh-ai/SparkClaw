@@ -5,8 +5,10 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailautomation"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailmanagement"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -99,7 +101,18 @@ func (s *Server) checkEmailProvider(w http.ResponseWriter, r *http.Request) {
 		writeEmailError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, status)
+	health := emailmanagement.SyncHealth{State: emailmanagement.SyncHealthUnavailable, CheckedAt: time.Now().UTC()}
+	if s.emailManagement != nil {
+		health, err = s.emailManagement.ProviderSyncHealth(r.Context(), principal.OwnerID, provider)
+		if err != nil {
+			writeEmailError(w, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, struct {
+		emailautomation.ProviderStatus
+		SyncHealth emailmanagement.SyncHealth `json:"sync_health"`
+	}{status, health})
 }
 
 func writeEmailError(w http.ResponseWriter, err error) {

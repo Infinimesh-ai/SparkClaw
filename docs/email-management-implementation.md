@@ -4,6 +4,30 @@
 
 2026-09-09 analysis/UI increment is implemented in the worktree, not deployed. See [current scope and limitations](email-management-analysis-v2.md#8-implementation-and-validation-2026-09-09). Notification routing, manual sender rules, body-only models, localized presentations and drafts/new compose are wired; native replies/CC and complete Sent matter linking remain outstanding.
 
+## On-demand receiving health (2026-10-21)
+
+Each provider row's **Check connection** retains the existing login probe and
+adds `sync_health` to its successful HTTP/ISCP response. Desktop and WebChat show
+the result only in the existing action feedback; provider state, menus, layout
+and background page loading remain unchanged. Login, browser cleanup and busy
+errors retain priority. The header button still refreshes saved provider state.
+
+The health query reads the active owner's mailbox and its discovery schedule.
+`poll_through` advances on completed collection, including an empty mailbox;
+message arrival, a successful login probe and repeated failed attempts do not
+count as progress. Stalling means no progress for the maximum of 15 minutes,
+three scheduled polling intervals, and one interval plus the actual discovery
+timeout plus the scheduler tick. Current defaults give 15 minutes for ordinary
+polling and 16 minutes for qualified five-minute quiet polling. Disabled intake,
+paused jobs, unqualified providers and overflow confirmation have distinct
+results instead of a stalled alarm.
+
+The internal additive `intake_enabled_at` mailbox field grants initial/resume
+time only when a binding is enabled; it preserves the historical timeline and
+business data. Older records use the current binding's original discovery-job
+creation time, or mailbox activation when no job exists. Checks never backfill
+timestamps, renew deadlines, advance watermarks or start receiving work.
+
 ## Active Mail Reading Contract (2026-09-18)
 
 ### Structured content and user-clicked actions (2026-09-18)

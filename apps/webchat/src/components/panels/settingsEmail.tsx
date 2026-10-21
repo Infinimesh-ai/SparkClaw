@@ -53,8 +53,11 @@ export function BrowserEmailSettings({ text, backendLoginNotice, loginAvailable 
     setBusy(key);
     setFeedback(null);
     try {
-      replaceProvider(await action());
-      setFeedback({ tone: "success", title: successTitle, message: successMessage });
+      const result = await action();
+      replaceProvider(result);
+      setFeedback(key.startsWith("check:") && result.sync_health
+        ? syncHealthFeedback(result.sync_health, text)
+        : { tone: "success", title: successTitle, message: successMessage });
     } catch (reason) {
       setFeedback({ tone: "error", title: text.settings.browserEmailActionFailed, message: actionErrorMessage(reason, text) });
       try {
@@ -221,6 +224,19 @@ function emailStateLabel(state: EmailProviderState, text: Copy) {
 
 function errorMessage(reason: unknown) {
   return reason instanceof Error ? reason.message : String(reason);
+}
+
+function syncHealthFeedback(health: NonNullable<EmailProviderStatus["sync_health"]>, text: Copy): Feedback {
+  const copy = text.settings;
+  switch (health.state) {
+    case "stalled": return { tone: "error", title: copy.browserEmailSyncAttention, message: copy.browserEmailSyncStalled };
+    case "unavailable": return { tone: "error", title: copy.browserEmailSyncAttention, message: copy.browserEmailSyncUnavailable };
+    case "needs_attention": return { tone: "error", title: copy.browserEmailSyncAttention, message: health.code === "email_interval_overflow" ? copy.browserEmailSyncOverflow : copy.browserEmailSyncUnqualified };
+    case "healthy": return { tone: "success", title: copy.browserEmailCheckSucceeded, message: copy.browserEmailSyncHealthy };
+    case "starting": return { tone: "success", title: copy.browserEmailCheckSucceeded, message: copy.browserEmailSyncStarting };
+    case "paused": return { tone: "success", title: copy.browserEmailCheckSucceeded, message: copy.browserEmailSyncPaused };
+    case "not_enabled": return { tone: "success", title: copy.browserEmailCheckSucceeded, message: copy.browserEmailSyncNotEnabled };
+  }
 }
 
 // Codes whose Gateway prose would not tell the user what is happening.

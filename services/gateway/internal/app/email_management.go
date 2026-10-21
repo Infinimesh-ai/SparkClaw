@@ -89,6 +89,7 @@ type EmailMailbox struct {
 	BindingGeneration              int64             `json:"binding_generation"`
 	Active                         bool              `json:"active"`
 	IntakeEnabled                  bool              `json:"intake_enabled"`
+	IntakeEnabledAt                time.Time         `json:"intake_enabled_at,omitempty"`
 	ScopeVersion                   string            `json:"scope_version,omitempty"`
 	DeploymentAnchor               time.Time         `json:"deployment_anchor,omitempty"`
 	DiscoveredThrough              time.Time         `json:"discovered_through,omitempty"`

@@ -144,6 +144,11 @@ func emailBind(e *emailEngine, c EmailBindCommand) (app.EmailMailbox, error) {
 	m.Version = selection.Version
 	m.Active = true
 	m.IntakeEnabled = c.Enabled
+	if c.Enabled {
+		// Anchor startup grace separately from the retained historical boundary.
+		// Attempts and observer updates must never refresh this timestamp.
+		m.IntakeEnabledAt = e.now
+	}
 	m.ErrorCode = ""
 	m.UpdatedAt = e.now
 	emailSaveMailbox(e, m)

@@ -205,6 +205,13 @@ var scriptErrorCodes = map[string]app.ToolErrorCode{
 	"email_source_recovery_pending": app.ToolErrorEmailScriptInvalidOutput,
 }
 
+// hostRejectionCodes are App-CLI task reasons raised by the SparkClaw browser
+// host before any provider script or page runs; the mail client reports them
+// in lower case in place of a script error code.
+var hostRejectionCodes = map[string]app.ToolErrorCode{
+	"browser_cleanup_pending": app.ToolErrorEmailBrowserCleanupPending,
+}
+
 func normalizeScriptErrorCode(code string) app.ToolErrorCode {
 	switch app.ToolErrorCode(code) {
 	case app.ToolErrorEmailNotConfigured, app.ToolErrorEmailLoginRequired, app.ToolErrorEmailAccountAmbiguous,
@@ -239,6 +246,8 @@ func publicScriptErrorMessage(code app.ToolErrorCode) string {
 		return "Email was not sent; the reviewed draft can be sent again"
 	case app.ToolErrorEmailScriptTimeout:
 		return "Email provider script timed out"
+	case app.ToolErrorEmailBrowserCleanupPending:
+		return "SparkClaw browser has not yet confirmed that an earlier email task page closed"
 	case app.ToolErrorEmailScriptInvalidOutput:
 		return "Email provider script returned invalid output"
 	default:

@@ -129,6 +129,6 @@ test('unknown cleanup failures remain fenced after concurrent retirements', asyn
   const results = await Promise.allSettled([...f.port.leases.values()].map(lease => f.port.drop(lease)));
   assert.ok(results.every(result => result.status === 'rejected'));
   assert.equal(f.slot.fenced, true); assert.equal(f.handle.cleanupFailure?.code, 'browser_extension_unavailable');
-  await assert.rejects(f.driver.assertCleanupClear(), {code: 'browser_extension_unavailable'});
+  await assert.rejects(f.driver.assertCleanupClear(), {code: 'browser_cleanup_pending'});
   assert.equal((await fs.stat(path.join(f.root, 'cleanup-fence.json'))).mode & 0o777, 0o600);
 });

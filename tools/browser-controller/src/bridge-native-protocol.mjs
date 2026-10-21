@@ -1,3 +1,4 @@
+import net from "node:net";
 import path from "node:path";
 
 export const BRIDGE_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm";
@@ -122,4 +123,46 @@ export function decodeNativeMessages(buffer) {
     offset += 4 + length;
   }
   return { messages, remaining: buffer.subarray(offset) };
+}
+
+// Asks the loaded Bridge how many task-owned tabs remain in each window. The
+// counts are global to the profile, so callers own the "nothing else of ours
+// is open" half of any cleanup proof. Any failure resolves to null.
+export function queryBridgeTaskStatus(socketPath, timeoutMS = 5000) {
+  return new Promise((resolve) => {
+    let received = "";
+    let settled = false;
+    const socket = net.createConnection(socketPath);
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMS);
+    timer.unref?.();
+    socket.setEncoding("utf8");
+    socket.on("connect", () => socket.write(`${JSON.stringify({ schema_version: 1, operation: "taskStatus" })}\n`));
+    socket.on("data", (chunk) => {
+      received += chunk;
+      if (received.length > MAX_NATIVE_MESSAGE_BYTES) return finish(null);
+      const newline = received.indexOf("\n");
+      if (newline < 0) return;
+      try {
+        const result = JSON.parse(received.slice(0, newline));
+        finish(validTaskStatus(result) ? result.windows : null);
+      } catch {
+        finish(null);
+      }
+    });
+    socket.on("error", () => finish(null));
+    socket.on("close", () => finish(null));
+  });
+}
+
+function validTaskStatus(value) {
+  return value?.schema_version === 1 && value.state === "ready" && Array.isArray(value.windows) &&
+    value.windows.length <= 100 && value.windows.every((window) => window && typeof window === "object" &&
+      [window.task_tabs, window.stale_task_tabs].every((count) => Number.isSafeInteger(count) && count >= 0));
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, CircleAlert, LoaderCircle, LogIn, Mail, RefreshCw, Star } from "lucide-react";
-import { api } from "../../api/client";
+import { api, APIError } from "../../api/client";
 import type { EmailProviderState, EmailProviderStatus } from "../../api/types";
 import type { Copy } from "../../i18n";
 
@@ -56,7 +56,7 @@ export function BrowserEmailSettings({ text, backendLoginNotice, loginAvailable 
       replaceProvider(await action());
       setFeedback({ tone: "success", title: successTitle, message: successMessage });
     } catch (reason) {
-      setFeedback({ tone: "error", title: text.settings.browserEmailActionFailed, message: errorMessage(reason) });
+      setFeedback({ tone: "error", title: text.settings.browserEmailActionFailed, message: actionErrorMessage(reason, text) });
       try {
         await refreshProviders();
       } catch {
@@ -221,4 +221,10 @@ function emailStateLabel(state: EmailProviderState, text: Copy) {
 
 function errorMessage(reason: unknown) {
   return reason instanceof Error ? reason.message : String(reason);
+}
+
+// Codes whose Gateway prose would not tell the user what is happening.
+function actionErrorMessage(reason: unknown, text: Copy) {
+  if (reason instanceof APIError && reason.code === "email_browser_cleanup_pending") return text.settings.browserEmailCleanupPending;
+  return errorMessage(reason);
 }

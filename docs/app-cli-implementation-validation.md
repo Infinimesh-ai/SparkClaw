@@ -442,11 +442,23 @@ Machine-readable sanitized evidence: [app-cli-extraction.json](evaluation/app-cl
 
 If page cleanup cannot be proven, the Host writes a private `cleanup-fence.json`
 in its `cli-runtime` directory. Reaping a daemon does not erase this fence;
-application admission stays disabled across Host restarts while ordinary browser
-startup remains available. Stop Executor/Controller, restart the dedicated
-browser and verify that the previous owned task pages are gone before an operator
-archives the diagnostic and removes this **Host cleanup fence only**. Then rerun
-setup/check. Never remove `authority.json`, ledger, grant index or send journal.
+admissions are rejected with `browser_cleanup_pending` (Gateway
+`email_browser_cleanup_pending`, shown as a readable hint on Check connection)
+and logged as `application_cleanup_fenced` at most every 10 minutes.
+
+The fence records its scope. A `page` fence means every owned process was reaped
+and only the task page closure was unproven, for example a page already closed
+under the CLI. A later admission clears it, logging
+`application_cleanup_fence_cleared`, only when this Host owns no other resource
+and the Bridge reports no task-owned or stale task tab in any window (asked at
+most every 15 seconds, and only when `SPARKCLAW_BROWSER_BRIDGE_NATIVE_SOCKET` is
+configured). A `page` fence does not disable Host startup. A `process` fence
+(reaping failed) or a fence without a scope still disables admission across
+restarts and is never cleared automatically: stop Executor/Controller, restart
+the dedicated browser and verify that the previous owned task pages are gone
+before an operator archives the diagnostic and removes this **Host cleanup fence
+only**. Then rerun setup/check. Never remove `authority.json`, ledger, grant
+index or send journal.
 
 The initial Windows CI run exposed locale-dependent Unicode fixture reads; explicit UTF-8 fixed both failures. The final matrix is green.
 

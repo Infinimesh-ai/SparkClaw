@@ -3,7 +3,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "../../api/client";
+import { api, APIError } from "../../api/client";
 import type { EmailProviderStatus } from "../../api/types";
 import { dictionaries } from "../../i18n";
 import { BrowserEmailSettings } from "./settingsEmail";
@@ -46,6 +46,28 @@ describe("Browser email settings", () => {
     await act(async () => checkButton(row).click());
     expect(check).toHaveBeenCalledWith("outlook");
     expect(container.textContent).toContain("o***@outlook.com");
+    await act(async () => root.unmount());
+  });
+
+  it("explains a pending browser cleanup instead of a generic provider outage", async () => {
+    vi.spyOn(api, "emailProviders").mockResolvedValue({ providers: [
+      { ...gmail, state: "temporarily_unavailable", error_code: "email_browser_cleanup_pending" }, outlook, qq
+    ] });
+    vi.spyOn(api, "checkEmailProvider").mockRejectedValue(new APIError(503,
+      "SparkClaw browser has not yet confirmed that an earlier email task page closed", "email_browser_cleanup_pending", true));
+    const { container, root } = await renderEmailSettings();
+    await flushEffects();
+
+    const row = providerRow(container, "Gmail");
+    expect(row.textContent).toContain(dictionaries.en.settings.integrationTemporarilyUnavailable);
+    await act(async () => checkButton(row).click());
+    expect(container.textContent).toContain(dictionaries.en.settings.browserEmailActionFailed);
+    expect(container.textContent).toContain(dictionaries.en.settings.browserEmailCleanupPending);
+    // Other failures keep the Gateway's message.
+    vi.spyOn(api, "checkEmailProvider").mockRejectedValue(new APIError(503, "Email provider is unavailable", "email_provider_unavailable", true));
+    await act(async () => checkButton(row).click());
+    expect(container.textContent).toContain("Email provider is unavailable");
+    expect(container.textContent).not.toContain(dictionaries.en.settings.browserEmailCleanupPending);
     await act(async () => root.unmount());
   });
 

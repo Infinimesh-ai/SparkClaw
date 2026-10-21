@@ -141,7 +141,7 @@ test('admission starts page authority only after reservation and remains capped 
   f.advance(15001); await f.tick();
   assert.equal(f.counts().watchdogCloses, 1, 'actual admitted grant expiry still revokes the page');
   await assert.rejects(f.port.expire(), {code: 'HOST_CLEANUP_FAILED'});
-  await assert.rejects(f.driver.assertCleanupClear(), {code: 'browser_extension_unavailable'});
+  await assert.rejects(f.driver.assertCleanupClear(), {code: 'browser_cleanup_pending'});
 });
 
 test('an expired pending grant cannot revive a still-authorized Reader or erase its stamp', async t => {
@@ -189,7 +189,7 @@ test('failed cleanup with a pending admission retains the original error and fen
   await assert.rejects(f.port.drop(f.lease(f.read.lease_id)), {code: 'browser_extension_unavailable'});
   assert.equal((await waiting).error?.code, 'browser_extension_unavailable');
   assert.equal(f.handle.cleanupFailure?.diagnosticCommand, 'tab-list');
-  await assert.rejects(f.driver.assertCleanupClear(), {code: 'browser_extension_unavailable'});
+  await assert.rejects(f.driver.assertCleanupClear(), {code: 'browser_cleanup_pending'});
   assert.equal(f.controller.providerReservations.size, 0);
   assert.deepEqual(f.counts(), {watchdogCloses: 0, explicitCloses: 1, reaped: 1});
 });

@@ -73,12 +73,15 @@ const (
 	ToolErrorEmailAccountAmbiguous           ToolErrorCode = "email_account_ambiguous"
 	ToolErrorEmailProviderUnavailable        ToolErrorCode = "email_provider_unavailable"
 	ToolErrorEmailBrowserBusy                ToolErrorCode = "email_browser_busy"
-	ToolErrorEmailPageContractChanged        ToolErrorCode = "email_page_contract_changed"
-	ToolErrorEmailInvalidInput               ToolErrorCode = "email_invalid_input"
-	ToolErrorEmailDraftConflict              ToolErrorCode = "email_draft_conflict"
-	ToolErrorEmailDraftVerificationFailed    ToolErrorCode = "email_draft_verification_failed"
-	ToolErrorEmailSendControlUnverified      ToolErrorCode = "email_send_control_unverified"
-	ToolErrorEmailSendOutcomeUnknown         ToolErrorCode = "email_send_outcome_unknown"
+	// ToolErrorEmailBrowserCleanupPending: the browser host has not yet proved
+	// that an earlier task page closed, so it admits no mail operation.
+	ToolErrorEmailBrowserCleanupPending   ToolErrorCode = "email_browser_cleanup_pending"
+	ToolErrorEmailPageContractChanged     ToolErrorCode = "email_page_contract_changed"
+	ToolErrorEmailInvalidInput            ToolErrorCode = "email_invalid_input"
+	ToolErrorEmailDraftConflict           ToolErrorCode = "email_draft_conflict"
+	ToolErrorEmailDraftVerificationFailed ToolErrorCode = "email_draft_verification_failed"
+	ToolErrorEmailSendControlUnverified   ToolErrorCode = "email_send_control_unverified"
+	ToolErrorEmailSendOutcomeUnknown      ToolErrorCode = "email_send_outcome_unknown"
 	// ToolErrorEmailSendNotDispatched: the runtime proved the send never
 	// released its dispatch; the reviewed draft may be sent again.
 	ToolErrorEmailSendNotDispatched   ToolErrorCode = "email_send_not_dispatched"

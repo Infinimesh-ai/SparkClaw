@@ -3,6 +3,7 @@
   "description": "Every error code the Controller may return to Gateway and the browsercontrol code Gateway projects it to. errors.mjs rejects unknown codes at construction; client_test.go asserts mapControllerFailure agrees with this table.",
   "codes": {
     "browser_busy": { "gateway_code": "browser_busy", "gateway_retryable": true },
+    "browser_cleanup_pending": { "gateway_code": "browser_cleanup_pending", "gateway_retryable": true },
     "browser_controller_stale": { "gateway_code": "browser_controller_stale", "gateway_retryable": false },
     "browser_controller_stopping": { "gateway_code": "browser_controller_unavailable", "gateway_retryable": true },
     "browser_controller_unavailable": { "gateway_code": "browser_controller_unavailable", "gateway_retryable": true },

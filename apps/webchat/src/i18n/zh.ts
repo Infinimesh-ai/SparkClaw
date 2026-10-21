@@ -593,6 +593,7 @@ export const zh = {
 	  browserEmailCheckSucceeded: "邮箱登录有效",
 	  browserEmailCheckSucceededDetail: "此 Provider 已可用于发送邮件。",
 	  browserEmailLoginRequired: "需要登录",
+	  browserEmailCleanupPending: "SparkX 专用浏览器尚未确认上一个邮箱任务页已关闭，会自动重试；如持续出现，请关闭该浏览器中残留的邮箱任务页或重启该浏览器后再检查。",
 	  info: "Infinimesh Info",
 	  localMind: "LocalMind",
 	  loadingIntegrations: "正在加载状态",

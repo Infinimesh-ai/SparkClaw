@@ -184,7 +184,9 @@ SparkClaw 抽离及后续修复已合并到 main；供应商实现仍在 App-CLI
 
 脱敏的机器可读证据：[app-cli-extraction.json](../../docs/evaluation/app-cli-extraction.json)。
 
-无法证明任务页清理成功时，Host 在私有 `cli-runtime` 写入 `cleanup-fence.json`。回收 daemon 不会清除此围栏，Host 重启后仍禁用应用准入，普通浏览器启动不受影响。操作员须停止 Executor/Controller、重启专用浏览器并确认旧任务页消失，再归档诊断并仅移除这个 **Host 清理围栏**，随后重新 setup/check。不得移除 `authority.json`、ledger、授权索引或发送 journal。
+无法证明任务页清理成功时，Host 在私有 `cli-runtime` 写入 `cleanup-fence.json`。回收 daemon 不会清除此围栏；应用准入以 `browser_cleanup_pending` 拒绝（Gateway 为 `email_browser_cleanup_pending`，检查连接时显示可读提示），并最多每 10 分钟记录一次 `application_cleanup_fenced`。
+
+围栏记录其范围。`page` 围栏表示自有进程均已回收、仅任务页关闭未获证明（例如页面已在 CLI 之下被关闭）。之后的准入仅在本 Host 不再持有其他资源、且 Bridge 报告所有窗口均无任务页或遗留任务页时清除它，并记录 `application_cleanup_fence_cleared`（最多每 15 秒询问一次，且仅在配置了 `SPARKCLAW_BROWSER_BRIDGE_NATIVE_SOCKET` 时询问）。`page` 围栏不会阻止 Host 启动。`process` 围栏（回收失败）或无范围的旧围栏在 Host 重启后仍禁用应用准入，且不会自动清除：操作员须停止 Executor/Controller、重启专用浏览器并确认旧任务页消失，再归档诊断并仅移除这个 **Host 清理围栏**，随后重新 setup/check。不得移除 `authority.json`、ledger、授权索引或发送 journal。
 
 首轮 Windows CI 检出 Unicode 夹具按系统编码读取的问题；显式 UTF-8 修复两项失败，最终矩阵全部通过。
 

@@ -5,15 +5,26 @@ import net from 'node:net';
 import {fileURLToPath} from 'node:url';
 import {HostPage} from './host-page.mjs';
 import {createInvocationState, prepareRuntimeRoot, clientContractError} from './cli-runtime.mjs';
+import {nativeSocketPath, queryBridgeTaskStatus} from './bridge-native-protocol.mjs';
+import {ControllerError} from './errors.mjs';
 import {registerElectronConnection} from './electron-adapter-client.mjs';
 import {listenOwnerOnlyUnixSocket} from './unix-socket.mjs';
+
+const CLEANUP_FENCE = 'cleanup-fence.json';
+const FENCED_SESSION = /^session-[0-9a-f]{24}$/u;
+// Bounds how often a fenced admission may ask the Bridge for its task tabs.
+const CLEANUP_PROOF_INTERVAL_MS = 15_000;
+// A fenced Host rejects every admission; log the rejection, not each retry.
+const FENCED_DIAGNOSTIC_INTERVAL_MS = 10 * 60_000;
 
 // Resource ownership only: application selectors, origin sets, hooks, budgets
 // and preparation assets arrive exclusively from the verified release binding.
 export class ApplicationHostDriver {
   constructor(options) {Object.assign(this, options); this.handles = new Set(); this.connections = new Set();}
   async prepare() {
-    await this.assertCleanupClear();
+    // A page-scope fence is proved or retained at admission, not at startup:
+    // the Bridge may connect after the Controller does.
+    await this.assertCleanupClear({startup: true});
     await prepareRuntimeRoot(this.runtimeRoot);
     this.eventSocket = path.join(this.runtimeRoot, `events-${process.pid}.sock`);
     this.events = net.createServer(socket => {
@@ -40,18 +51,90 @@ export class ApplicationHostDriver {
     });
     await listenOwnerOnlyUnixSocket(this.events, this.eventSocket);
   }
-  async assertCleanupClear() {
-    if (await fs.lstat(path.join(this.runtimeRoot, 'cleanup-fence.json')).catch(error => {
-      if (error.code === 'ENOENT') return null;
-      throw error;
-    })) throw clientContractError('application_cleanup_fenced');
+  async assertCleanupClear({startup = false} = {}) {
+    const fence = await this.#readCleanupFence();
+    if (!fence) return;
+    if (fence.scope === 'page') {
+      const outcome = await this.#proveCleanup(fence);
+      if (outcome === 'cleared' || startup) return;
+      throw this.#fencedError(fence, outcome);
+    }
+    // Owned processes were not proved gone, or a fence predates scopes:
+    // only an operator can establish that nothing of this Host still runs.
+    throw this.#fencedError(fence, 'operator_required');
   }
-  async fenceCleanup(handle, error) {
+  async #readCleanupFence() {
+    let raw;
+    try {raw = await fs.readFile(path.join(this.runtimeRoot, CLEANUP_FENCE), 'utf8');}
+    catch (error) {if (error.code === 'ENOENT') return null; throw error;}
+    try {
+      const value = JSON.parse(raw);
+      const sessions = Array.isArray(value?.sessions) ? value.sessions.filter(name => FENCED_SESSION.test(name)) : [];
+      return {raw, scope: value?.scope === 'page' ? 'page' : 'process', sessions};
+    } catch {return {raw, scope: 'process', sessions: []};}
+  }
+  // A page-scope fence records that every owned process was reaped but the
+  // task page closure itself was unproven (typically a page already closed
+  // under the CLI). It is proved when this Host owns no other resource and
+  // the Bridge reports no task-owned or stale task tab in any window.
+  #proveCleanup(fence) {
+    // Concurrent admissions share one proof; it is dropped once settled.
+    if (!this.cleanupProof) {
+      const proof = this.#attemptCleanupProof(fence);
+      this.cleanupProof = proof;
+      proof.finally(() => {if (this.cleanupProof === proof) this.cleanupProof = null;}).catch(() => {});
+    }
+    return this.cleanupProof;
+  }
+  async #attemptCleanupProof(fence) {
+    if (this.handles.size) return 'resources_open';
+    if (Date.now() - (this.lastCleanupProofMS ?? 0) < CLEANUP_PROOF_INTERVAL_MS) return 'proof_deferred';
+    this.lastCleanupProofMS = Date.now();
+    const windows = await (this.bridgeTaskStatus ?? defaultBridgeTaskStatus)();
+    if (!windows) return 'bridge_unavailable';
+    if (windows.some(window => window.task_tabs || window.stale_task_tabs)) return 'task_tabs_present';
+    // A resource admitted before the fence may have failed while the Bridge
+    // answered; its newer fence must not be cleared by this proof.
+    if (this.handles.size || (await this.#readCleanupFence())?.raw !== fence.raw) return 'resources_open';
+    await this.#clearCleanupFence(fence, windows.length);
+    return 'cleared';
+  }
+  async #clearCleanupFence(fence, windows) {
+    for (const name of fence.sessions) {
+      const directory = path.join(this.runtimeRoot, name);
+      if (![...this.handles].some(handle => handle.state?.directory === directory)) await fs.rm(directory, {recursive: true, force: true});
+    }
+    await fs.rm(path.join(this.runtimeRoot, CLEANUP_FENCE), {force: true});
+    const directory = await fs.open(this.runtimeRoot, 'r');
+    try {await directory.sync();} finally {await directory.close();}
+    this.lastFencedDiagnosticMS = 0;
+    this.diagnostic?.({event: 'application_cleanup_fence_cleared', scope: fence.scope, sessions: fence.sessions.length, windows});
+  }
+  #fencedError(fence, outcome) {
+    if (Date.now() - (this.lastFencedDiagnosticMS ?? 0) >= FENCED_DIAGNOSTIC_INTERVAL_MS) {
+      this.lastFencedDiagnosticMS = Date.now();
+      this.diagnostic?.({event: 'application_cleanup_fenced', scope: fence.scope, reason: outcome});
+    }
+    return new ControllerError('browser_cleanup_pending', 'browser task page cleanup is not yet proven', {
+      status: 503, retryable: true, diagnosticReason: 'application_cleanup_fenced',
+    });
+  }
+  async fenceCleanup(handle, error, scope = 'process') {
     handle.cleanupFailure = error;
-    const file = path.join(this.runtimeRoot, 'cleanup-fence.json');
+    const existing = await this.#readCleanupFence();
+    const sessions = new Set(existing?.sessions ?? []);
+    const name = handle.state?.directory && path.basename(handle.state.directory);
+    if (name && FENCED_SESSION.test(name)) sessions.add(name);
+    // An unproven process fence is never narrowed by a later page failure.
+    const recorded = existing?.scope === 'process' ? 'process' : scope;
+    const file = path.join(this.runtimeRoot, CLEANUP_FENCE);
     const temporary = file + '.' + crypto.randomUUID();
     const fd = await fs.open(temporary, 'wx', 0o600);
-    try {await fd.writeFile(JSON.stringify({schema_version: 1, reason: 'owned_resource_cleanup_unproven'})); await fd.sync();}
+    try {
+      await fd.writeFile(JSON.stringify({schema_version: 1, reason: 'owned_resource_cleanup_unproven', scope: recorded,
+        sessions: [...sessions], fenced_ms: Date.now()}));
+      await fd.sync();
+    }
     finally {await fd.close();}
     await fs.rename(temporary, file);
     const directory = await fs.open(this.runtimeRoot, 'r');
@@ -181,8 +264,8 @@ export class ApplicationHostDriver {
     try {await handle.page?.closeTaskPage();} catch (error) {diagnose('close_page', error); failure = error;}
     try {await handle.page?.stop();} catch (error) {diagnose('stop_cli', error); failure ??= error;}
     // Reaping is the final owned-process fence, even if the page call failed.
-    try {await handle.state.reapDaemon();} catch (error) {diagnose('reap', error); await this.fenceCleanup(handle, error); throw error;}
-    if (failure) await this.fenceCleanup(handle, failure);
+    try {await handle.state.reapDaemon();} catch (error) {diagnose('reap', error); await this.fenceCleanup(handle, error, 'process'); throw error;}
+    if (failure) await this.fenceCleanup(handle, failure, 'page');
     else await handle.state.remove();
     if (handle.bootstrap) {this.controller.finishApplication(handle.bootstrap); handle.bootstrap = null;}
     for (const id of handle.activities.keys()) await this.revokeActivity(handle, id);
@@ -206,4 +289,13 @@ export class ApplicationHostDriver {
     }
     if (failure) throw failure;
   }
+}
+
+// Only a deployment that names its Bridge socket (the systemd unit does) is
+// asked; tests and Electron hosts without a Bridge never prove a fence.
+function defaultBridgeTaskStatus() {
+  if (!process.env.SPARKCLAW_BROWSER_BRIDGE_NATIVE_SOCKET?.trim()) return Promise.resolve(null);
+  let socketPath;
+  try {socketPath = nativeSocketPath();} catch {return Promise.resolve(null);}
+  return queryBridgeTaskStatus(socketPath);
 }

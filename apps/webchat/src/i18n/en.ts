@@ -591,6 +591,7 @@ export const en = {
 	  browserEmailCheckSucceeded: "Email login is valid",
 	  browserEmailCheckSucceededDetail: "This provider is ready to send email.",
 	  browserEmailLoginRequired: "Login required",
+	  browserEmailCleanupPending: "The SparkX browser has not yet confirmed that an earlier email task page closed. It retries automatically; if this persists, close leftover email task tabs in the SparkX browser or restart it, then check again.",
 	  info: "Infinimesh Info",
 	  localMind: "LocalMind",
 	  loadingIntegrations: "Loading status",

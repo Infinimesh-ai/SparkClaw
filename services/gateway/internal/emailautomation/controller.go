@@ -303,7 +303,7 @@ func (c *Controller) persistProbe(ctx context.Context, setting app.EmailProvider
 		case app.ToolErrorEmailLoginRequired, app.ToolErrorEmailNotConfigured:
 			setting.State = app.EmailStateLoginRequired
 			setting.AccountHint = ""
-		case app.ToolErrorEmailProviderUnavailable, app.ToolErrorEmailScriptTimeout:
+		case app.ToolErrorEmailProviderUnavailable, app.ToolErrorEmailScriptTimeout, app.ToolErrorEmailBrowserCleanupPending:
 			setting.State = app.EmailStateTemporarilyUnavailable
 		default:
 			setting.State = app.EmailStateNeedsAttention

@@ -388,6 +388,7 @@ type controllerCodeProjection struct {
 // TestControllerErrorCodesMatchTheSharedTable fails when the two drift.
 var controllerCodeProjections = map[string]controllerCodeProjection{
 	"browser_busy":                   {CodeBusy, true, "controller reported a busy profile"},
+	"browser_cleanup_pending":        {CodeCleanupPending, true, "controller has not yet proved task page cleanup"},
 	"browser_controller_stale":       {CodeControllerStale, false, "controller generation changed"},
 	"browser_controller_stopping":    {CodeControllerUnavailable, true, "controller is stopping"},
 	"browser_controller_unavailable": {CodeControllerUnavailable, true, "controller is temporarily unavailable"},

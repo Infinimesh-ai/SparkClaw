@@ -60,8 +60,8 @@ test('unproven page cleanup stays fenced after daemon reaping and across Host re
   await assert.rejects(driver.close(handle), failure);
   assert.equal(reaped, 1); assert.equal(removed, 0);
   await assert.rejects(driver.close(handle), failure);
-  await assert.rejects(driver.create({}), {code: 'browser_extension_unavailable'});
+  await assert.rejects(driver.create({}), {code: 'browser_cleanup_pending'});
   const restarted = new ApplicationHostDriver({runtimeRoot: root});
-  await assert.rejects(restarted.assertCleanupClear(), {code: 'browser_extension_unavailable'});
+  await assert.rejects(restarted.assertCleanupClear(), {code: 'browser_cleanup_pending'});
   assert.equal((await fs.stat(path.join(root, 'cleanup-fence.json'))).mode & 0o777, 0o600);
 });

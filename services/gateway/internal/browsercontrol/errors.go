@@ -9,6 +9,7 @@ const (
 	CodeExtensionUnavailable  = "browser_extension_unavailable"
 	CodeExtensionRejected     = "browser_extension_rejected"
 	CodeBusy                  = "browser_busy"
+	CodeCleanupPending        = "browser_cleanup_pending"
 	CodeCredentialStale       = "browser_credential_stale"
 	CodeControllerStale       = "browser_controller_stale"
 	CodeSessionNotFound       = "browser_session_not_found"

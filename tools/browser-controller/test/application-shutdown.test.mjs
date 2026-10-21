@@ -121,7 +121,7 @@ test('failed owned-process reaping remains fenced without an unresolved reservat
   await assertClosed(f);
   assert.equal(f.handle.cleanupFailure, failure); assert.equal(f.counts.removed, 0);
   assert.equal((await fs.stat(path.join(f.runtimeRoot, 'cleanup-fence.json'))).mode & 0o777, 0o600);
-  await assert.rejects(new ApplicationHostDriver({runtimeRoot: f.runtimeRoot}).assertCleanupClear(), {code: 'browser_extension_unavailable'});
+  await assert.rejects(new ApplicationHostDriver({runtimeRoot: f.runtimeRoot}).assertCleanupClear(), {code: 'browser_cleanup_pending'});
 });
 
 test('feed failure remains observable when later page cleanup also fails and retains its fence', async t => {

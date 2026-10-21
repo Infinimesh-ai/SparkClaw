@@ -275,6 +275,9 @@ func playwrightScriptFailure(provider Provider, raw json.RawMessage) error {
 		!scriptCodePattern.MatchString(output.Code) {
 		return codedError(app.ToolErrorEmailScriptInvalidOutput, "Email provider script returned an invalid error")
 	}
+	if code, ok := hostRejectionCodes[output.Code]; ok {
+		return &Error{Code: code, Message: publicScriptErrorMessage(code), localOperational: true}
+	}
 	code := normalizeScriptErrorCode(output.Code)
 	local := output.Code == "email_batch_limit" || output.Code == "email_local_io" || output.Code == "email_source_conflict" || output.Code == "email_source_recovery_pending"
 	return &Error{Code: code, Message: publicScriptErrorMessage(code), localOperational: local}
@@ -298,6 +301,9 @@ func mapPlaywrightError(err error, send bool) error {
 		return codedError(app.ToolErrorEmailAdmissionStale, "Email login admission is stale; check login status again")
 	case browsercontrol.CodeScriptTimeout:
 		return codedError(app.ToolErrorEmailScriptTimeout, "Email provider script timed out")
+	case browsercontrol.CodeCleanupPending:
+		// Rejected before any page or dispatch, for sends as well.
+		return &Error{Code: app.ToolErrorEmailBrowserCleanupPending, Message: publicScriptErrorMessage(app.ToolErrorEmailBrowserCleanupPending), localOperational: true}
 	case browsercontrol.CodePageStale:
 		return codedError(app.ToolErrorEmailPageContractChanged, "Email provider page contract changed")
 	case browsercontrol.CodeControllerUnavailable:

@@ -114,7 +114,7 @@ func writeEmailError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, err)
 	case app.ToolErrorEmailPageContractChanged, app.ToolErrorEmailDraftVerificationFailed, app.ToolErrorEmailSendControlUnverified, app.ToolErrorEmailScriptInvalidOutput, app.ToolErrorEmailSendNotDispatched:
 		writeError(w, http.StatusUnprocessableEntity, err)
-	case app.ToolErrorEmailProviderUnavailable, app.ToolErrorEmailScriptTimeout:
+	case app.ToolErrorEmailProviderUnavailable, app.ToolErrorEmailScriptTimeout, app.ToolErrorEmailBrowserCleanupPending:
 		writeError(w, http.StatusServiceUnavailable, err)
 	case app.ToolErrorEmailSendOutcomeUnknown:
 		writeError(w, http.StatusBadGateway, err)

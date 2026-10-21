@@ -23,10 +23,9 @@ cleanup() {
 trap cleanup EXIT
 current=false
 if python3 "$ROOT/scripts/browser_components.py" check >/dev/null 2>&1; then
-  # Reuse only a completely verified deployment. Creating a new deployment
-  # hash/worker URL on every setup leaves an unchanged-version unpacked
-  # extension's persisted service-worker registration pointing at a removed
-  # file. Real manifest/source/policy changes still fail check and are staged.
+  # Reuse only a completely verified deployment. Identical release inputs now
+  # stage identical bytes, but reuse also avoids unnecessary public-file writes.
+  # Real manifest/source/policy changes still fail check and are staged.
   current=true
   printf 'Reusing verified pinned browser components and managed policy\n'
 else

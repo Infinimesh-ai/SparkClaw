@@ -207,7 +207,7 @@ class BrowserComponentsTest(unittest.TestCase):
         commands = fixture / 'bin'
         commands.mkdir()
         state = fixture / 'state.json'
-        state.write_text(json.dumps({'verified': False, 'generation': 0, 'actions': []}))
+        state.write_text(json.dumps({'verified': False, 'generation': 0, 'release': 'first', 'actions': []}))
         fake_python = commands / 'python3'
         fake_python.write_text('#!' + sys.executable + '\n' + '''import json,os,pathlib,sys
 p=pathlib.Path(os.environ['COMPONENT_INSTALL_TEST_STATE'])
@@ -215,7 +215,7 @@ s=json.loads(p.read_text());action=sys.argv[2];s['actions'].append(action)
 status=0
 if action=='check':status=0 if s['verified'] else 1
 elif action=='stage':s['generation']+=1
-elif action=='install-system':s['verified']=True;s['worker']='worker-'+str(s['generation'])
+elif action=='install-system':s['verified']=True;s['worker']='worker-'+s['release']
 p.write_text(json.dumps(s));sys.exit(status)
 ''')
         fake_python.chmod(0o755)
@@ -236,15 +236,23 @@ p.write_text(json.dumps(s));sys.exit(status)
         self.assertEqual(repeated['actions'].count('stage'), 1)
         self.assertEqual(repeated['actions'].count('install-system'), 1)
         self.assertEqual(repeated['actions'].count('prepare-profile'), 2)
-        # A failed full verification still requires a fresh real deployment.
+        # Repair public files by restaging the same artifact, not a new worker.
         repeated['verified'] = False
         state.write_text(json.dumps(repeated))
         invoke()
         changed = json.loads(state.read_text())
-        self.assertNotEqual(changed['worker'], repeated['worker'])
+        self.assertEqual(changed['worker'], repeated['worker'])
         self.assertEqual(changed['actions'].count('stage'), 2)
         self.assertEqual(changed['actions'].count('install-system'), 2)
         self.assertEqual(changed['actions'].count('prepare-profile'), 3)
+        changed.update(verified=False, release='next')
+        state.write_text(json.dumps(changed))
+        invoke()
+        upgraded = json.loads(state.read_text())
+        self.assertNotEqual(upgraded['worker'], changed['worker'])
+        self.assertEqual(upgraded['actions'].count('stage'), 3)
+        self.assertEqual(upgraded['actions'].count('install-system'), 3)
+        self.assertEqual(upgraded['actions'].count('prepare-profile'), 4)
 
     def test_reuse_requires_safe_public_ownership_permissions_and_no_symlinks(self):
         system = self.root / 'opt/sparkclaw/browser-components'

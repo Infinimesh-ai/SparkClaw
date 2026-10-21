@@ -36,6 +36,7 @@ def policy_location(machine):
 
 POLICY, POLICY_DIRECTORY_DEPTH = policy_location(os.uname().machine)
 RETIRED_MANAGED_UUIDS = ('c6378bd8-6136-4f1b-81be-2c0fed94baf3',)
+MANAGED_IMPORT_OPTIONS = {'haltOnError': True, 'installAsSystemScripts': True}
 
 
 def digest(data):
@@ -110,6 +111,18 @@ def make_provisioning(m):
     return {'version': '1', 'scripts': scripts}
 
 
+def provisioning_generation(m, provisioning):
+    # Only public release inputs belong here, never time, staging paths or
+    # profile state. Native consumed hashes must survive identical restaging.
+    # A deliberate reimport requires a new productVersion, even if script
+    # source versions are unchanged; verify_worker_update enforces that gate.
+    inputs = {'schema': 'sparkclaw-native-provisioning-v1', 'manifest': m,
+              'provisioning': provisioning, 'import_options': MANAGED_IMPORT_OPTIONS,
+              'retired_managed_uuids': RETIRED_MANAGED_UUIDS}
+    return digest(json.dumps(inputs, sort_keys=True, separators=(',', ':'),
+                             ensure_ascii=False).encode('utf8'))
+
+
 def extract_unpacked_extension(archive, extension):
     for item in archive.infolist():
         relative = Path(item.filename)
@@ -146,7 +159,7 @@ def stage(target):
     if json.loads((extension / 'manifest.json').read_text())['version'] != m['tampermonkey']['version']:
         raise ValueError('Tampermonkey version mismatch')
     provisioning = make_provisioning(m)
-    provisioning['deployment'] = str(time.time_ns())
+    provisioning['deployment'] = provisioning_generation(m, provisioning)
     expected_hash = '1:' + provisioning_hash(provisioning)
     pending = '!e||!e.jsonImport?.some(x=>x.hash===' + json.dumps(expected_hash) + ')'
     # Chromium 148 initializes managed policy after about five seconds. Upstream
@@ -212,7 +225,7 @@ def stage(target):
     policy = {'3rdparty': {'extensions': {identity: {'jsonImport': [{
         'hash': expected_hash,
         'url': 'data:application/json;base64,' + base64.b64encode(json.dumps(provisioning, ensure_ascii=False).encode()).decode(),
-        'haltOnError': True, 'installAsSystemScripts': True}]}}}}
+        **MANAGED_IMPORT_OPTIONS}]}}}}
     (target / 'policy.json').write_text(json.dumps(policy, ensure_ascii=False))
     receipt = {'manifest': m, 'extensionID': identity, 'policySHA256': digest((target / 'policy.json').read_bytes()),
                'files': {str(p.relative_to(extension)): digest(p.read_bytes()) for p in extension.rglob('*') if p.is_file()}}

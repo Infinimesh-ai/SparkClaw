@@ -45,7 +45,7 @@ export function EmailSync({ status, providers, mailboxId, text, language, onRefr
       if (verify && mailbox) {
         const checked = await api.checkEmailProvider(provider);
         if (checked.state !== "ready") throw new Error(text.email.loginExpired);
-        await api.updateEmailIntake(provider, true, mailbox.version);
+        await api.updateEmailIntake(provider, true, status?.provider_versions?.[provider] ?? mailbox.version);
         const result = await manualRefresh.refresh(mailbox.id);
         if (result) setScheduled(result.scheduled);
       } else {
@@ -67,7 +67,7 @@ export function EmailSync({ status, providers, mailboxId, text, language, onRefr
   async function intake(provider: EmailProviderStatus) {
     const mailbox = providerMailbox(status, provider.provider);
     setBusy(provider.provider);
-    try { await api.updateEmailIntake(provider.provider, !(mailbox?.active_binding && mailbox.intake_enabled), mailbox?.version ?? 0); await onRefresh(); }
+    try { await api.updateEmailIntake(provider.provider, !(mailbox?.active_binding && mailbox.intake_enabled), status?.provider_versions?.[provider.provider] ?? mailbox?.version ?? 0); await onRefresh(); }
     catch (reason) { onError(reason); await onRefresh(); }
     finally { setBusy(""); }
   }

@@ -92,6 +92,8 @@ func (a *iscpDomainAdapter) mailPopup(ctx context.Context, request iscpworkbench
 		if !app.KnownEmailProvider(request.Params["provider"]) || domainDecode(request.Body, &input) != nil || input.Enabled == nil || input.Version == nil || *input.Version < 0 {
 			return domainError(400, "invalid_input")
 		}
+		operation := a.intakeOperation(ctx, request, *input.Enabled, *input.Version)
+		ctx = context.WithValue(ctx, emailIntakeOperationContextKey{}, operation)
 		return domainHTTP(ctx, request, http.MethodPatch, a.server.updateEmailProvider, map[string]string{"provider": request.Params["provider"]})
 	default:
 		return domainError(501, "capability_unavailable")
@@ -170,6 +172,6 @@ func mailPopupOperations() []string {
 		iscpworkbench.OperationMailPresentationsGet, iscpworkbench.OperationMailPresentationsEnsure, iscpworkbench.OperationMailComposeCapabilities,
 		iscpworkbench.OperationMailRepliesPolish, iscpworkbench.OperationMailSentSources,
 		iscpworkbench.OperationMailSyncStatus, iscpworkbench.OperationMailSyncWarnings, iscpworkbench.OperationMailSyncAcknowledge, iscpworkbench.OperationMailSyncRequest,
-		iscpworkbench.OperationMailViewed, iscpworkbench.OperationMailReanalyze, iscpworkbench.OperationMailIntakeUpdate,
+		iscpworkbench.OperationMailViewed, iscpworkbench.OperationMailReanalyze, iscpworkbench.OperationMailIntakeUpdate, iscpworkbench.OperationMailIntakeReconcile,
 	}
 }

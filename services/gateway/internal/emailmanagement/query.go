@@ -138,12 +138,13 @@ type MessagesView struct {
 	NextCursor string                  `json:"next_cursor,omitempty"`
 }
 type StatusView struct {
-	Capacity      *CapacityView `json:"capacity,omitempty"`
-	Version       int64         `json:"version"`
-	Mailboxes     []MailboxView `json:"mailboxes"`
-	Backlog       int           `json:"backlog"`
-	PendingCount  int           `json:"pending_count"`
-	CapturedCount int           `json:"captured_count"`
+	ProviderVersions map[string]int64 `json:"provider_versions"`
+	Capacity         *CapacityView    `json:"capacity,omitempty"`
+	Version          int64            `json:"version"`
+	Mailboxes        []MailboxView    `json:"mailboxes"`
+	Backlog          int              `json:"backlog"`
+	PendingCount     int              `json:"pending_count"`
+	CapturedCount    int              `json:"captured_count"`
 }
 type ViewedResult struct {
 	Version int64    `json:"version"`
@@ -559,6 +560,10 @@ func (s *Service) Status(ctx context.Context, owner string) (StatusView, error) 
 		}
 		if capacity := s.capacity(); capacity.State != "unknown" {
 			out.Capacity = &capacity
+		}
+		out.ProviderVersions, err = s.repository.GetEmailProviderVersions(ctx, owner)
+		if err != nil {
+			return out, err
 		}
 		mailboxes, err := s.repository.ListEmailMailboxes(ctx, owner)
 		if err != nil {

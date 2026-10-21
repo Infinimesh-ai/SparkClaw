@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailmanagement"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -293,7 +294,13 @@ func (s *Server) configureEmailIntake(w http.ResponseWriter, r *http.Request, pr
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	mailbox, err := s.emailManagement.Configure(ctx, principalForRequest(r).OwnerID, provider, enabled, version)
+	var mailbox app.EmailMailbox
+	var err error
+	if operation, ok := ctx.Value(emailIntakeOperationContextKey{}).(store.EmailIntakeOperation); ok {
+		mailbox, err = s.emailManagement.ConfigureOperation(ctx, principalForRequest(r).OwnerID, operation)
+	} else {
+		mailbox, err = s.emailManagement.Configure(ctx, principalForRequest(r).OwnerID, provider, enabled, version)
+	}
 	if err != nil {
 		writeEmailManagementError(w, err)
 		return

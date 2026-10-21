@@ -144,6 +144,7 @@ export type EmailSyncWarning = {
 export type EmailSyncWarningPage = { items: EmailSyncWarning[]; next_cursor?: string };
 
 export type EmailSyncStatus = {
+  provider_versions?: Partial<Record<EmailMailbox["provider"], number>>;
   version: number;
   mailboxes: EmailMailbox[];
   backlog: number;

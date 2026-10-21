@@ -267,7 +267,12 @@ export class ISCPTransport {
     if (record && !(record.phase === 'applied' && !journal.matches(record, request))) {
       const response = await this.#reconcileMutation(journal, resource, record, init);
       if (!journal.matches(record, request)) {
+        const receivingNotApplied = record.operation === 'mail.intake.update' && request.operation === record.operation &&
+          journal.read(resource)?.response?.body?.code === 'email_intake_not_applied';
         if (journal.read(resource)?.response) journal.complete(resource, record.operation_id);
+        // A status refresh may already expose the fenced provider version.
+        // Deliver the original explanation before admitting a later user action.
+        if (receivingNotApplied) return this.#presentationResponse(resource, response);
         throw new Error("The previous change was reconciled. Review the current value before making another change");
       }
       if (journal.read(resource)?.response) journal.complete(resource, record.operation_id);
@@ -299,8 +304,21 @@ export class ISCPTransport {
           current();
           if (status) journal.saveTransport(resource, record.operation_id, record.relay_submission, status.state);
         }
-        const receipt = await this.invoke('operations.receipt', undefined, { params: { operation_id: record.operation_id }, signal: init.signal });
+        let receipt = await this.invoke('operations.receipt', undefined, { params: { operation_id: record.operation_id }, signal: init.signal });
         current();
+        if (receipt.state === 'unknown' && receipt.operation_id === record.operation_id && record.schema_version === 2 &&
+            record.operation === 'mail.intake.update' && this.capabilities.operations.includes('mail.intake.reconcile')) {
+          const original = record.request;
+          const resolved = await this.invoke('mail.intake.reconcile', { operation_id: record.operation_id, original: {
+            operation: original.operation, params: original.params, body: original.body,
+            ...(record.expected_revision ? { expected_revision: record.expected_revision } : {}),
+            ...(original.request_id ? { request_id: original.request_id } : {}),
+            ...(original.input_digest ? { input_digest: original.input_digest } : {}),
+          } }, { params: original.params, installationID: original.installation_id, signal: init.signal });
+          current();
+          if (resolved.input_digest !== receipt.input_digest) throw new Error('Receiving reconciliation receipt differs from the original');
+          receipt = resolved;
+        }
         if (receipt.operation_id !== record.operation_id || receipt.state !== 'completed' || !receipt.response || !Number.isInteger(receipt.response.status)) throw new Error('The previous change has an unknown outcome; it will not be repeated');
         if (record.schema_version === 2) journal.saveResult(resource, record.operation_id, receipt.response);
         return mutationResponse(receipt.response);

@@ -92,6 +92,21 @@ func emailBound(e *emailEngine, id string, generation int64) (app.EmailMailbox, 
 	return m, nil
 }
 func emailBind(e *emailEngine, c EmailBindCommand) (app.EmailMailbox, error) {
+	if c.IntakeOperation != nil {
+		if !c.IntakeOperation.valid() || c.IntakeOperation.Provider != c.Provider || c.IntakeOperation.Enabled != c.Enabled || c.IntakeOperation.ExpectedVersion != c.ExpectedVersion {
+			return app.EmailMailbox{}, errEmailInvalid
+		}
+		resolved, found := emailIntakeResult(e, *c.IntakeOperation)
+		if e.err != nil {
+			return app.EmailMailbox{}, e.err
+		}
+		if found {
+			if resolved.State != EmailIntakeCommitted {
+				return app.EmailMailbox{}, errEmailConflict
+			}
+			return resolved.Mailbox, nil
+		}
+	}
 	if !app.KnownEmailProvider(c.Provider) || c.ExpectedVersion < 0 {
 		return app.EmailMailbox{}, errEmailInvalid
 	}
@@ -155,6 +170,9 @@ func emailBind(e *emailEngine, c EmailBindCommand) (app.EmailMailbox, error) {
 	m.ErrorCode = ""
 	m.UpdatedAt = e.now
 	emailSaveMailbox(e, m)
+	if c.IntakeOperation != nil {
+		emailSaveIntakeResult(e, EmailIntakeResolution{Operation: *c.IntakeOperation, State: EmailIntakeCommitted, Version: m.Version, Mailbox: m})
+	}
 	return m, e.err
 }
 func emailPause(e *emailEngine, c EmailPauseCommand) (app.EmailMailbox, error) {

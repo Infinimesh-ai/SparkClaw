@@ -89,15 +89,7 @@ func (a *iscpDomainAdapter) handle(ctx context.Context, request iscpworkbench.Re
 	if domainTransientOperation(request.Operation) {
 		scope = a.transientScopeFromContext(ctx, principal, request.InstallationID)
 	}
-	digestRaw, _ := json.Marshal(struct {
-		Operation   string
-		Params      map[string]string
-		Revision    string
-		RequestID   string
-		InputDigest string
-		Body        json.RawMessage
-	}{request.Operation, request.Params, request.ExpectedRevision, request.RequestID, request.InputDigest, request.Body})
-	digest := execution.Digest(digestRaw)
+	digest := domainRequestDigest(request)
 	// Serialize the same durable operation only. Typed domain CAS arbitrates
 	// resources, while cancellation remains available during long provider calls.
 	unlock := a.server.lockApproval("iscp-operation:" + scope + "\x00" + request.OperationID)
@@ -129,11 +121,22 @@ func (a *iscpDomainAdapter) handle(ctx context.Context, request iscpworkbench.Re
 	result := a.dispatch(ctx, request)
 	a.receipts.mu.Lock()
 	a.receipts.reserved -= domainReceiptMaxBytes
+	// A concurrent intake reconciler can establish a durable negative fence.
+	// Never overwrite its terminal result with a delayed original response.
+	if request.Operation == iscpworkbench.OperationMailIntakeUpdate {
+		if current, found, loadErr := a.receipts.load(scope, request.OperationID); loadErr != nil {
+			return respond(domainError(409, "operation_outcome_unknown"))
+		} else if found && current.Complete {
+			return respond(iscpDomainResult{status: current.Status, body: current.Body})
+		}
+	}
 	// Never erase an intent on cancellation or uncertain persistence. The client
 	// reconciles business state and cannot turn a lost response into a second write.
 	// Login may have opened the browser before a provider/storage failure. Keep
 	// that intent fenced as well; the independent check action remains available.
-	if ctx.Err() != nil || request.Operation == iscpworkbench.OperationMailProvidersLogin && result.status > http.StatusBadRequest {
+	// Intake storage can report an uncertain commit without canceling the
+	// request. Keep server failures open for the original business reconciliation.
+	if ctx.Err() != nil || request.Operation == iscpworkbench.OperationMailProvidersLogin && result.status > http.StatusBadRequest || request.Operation == iscpworkbench.OperationMailIntakeUpdate && result.status >= http.StatusInternalServerError {
 		return respond(domainError(409, "operation_outcome_unknown"))
 	}
 	receipt.Complete, receipt.Status, receipt.Body = true, result.status, result.body
@@ -160,6 +163,8 @@ func domainReceiptFence(operation string) bool {
 
 func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.Request) iscpDomainResult {
 	switch request.Operation {
+	case iscpworkbench.OperationMailIntakeReconcile:
+		return a.reconcileMailIntake(ctx, request)
 	case iscpworkbench.OperationExecutionProgressStream:
 		return a.executionProgressStream(ctx, request)
 	case iscpworkbench.OperationExecutionProgress:
@@ -298,4 +303,16 @@ func (a *iscpDomainAdapter) transientScopeFromContext(ctx context.Context, princ
 
 func domainTransientOperation(operation string) bool {
 	return strings.HasPrefix(operation, "events.") || strings.HasPrefix(operation, "speech.session.") || strings.HasPrefix(operation, "browser.host.") || operation == iscpworkbench.OperationSpeechCancel
+}
+
+func domainRequestDigest(request iscpworkbench.Request) string {
+	digestRaw, _ := json.Marshal(struct {
+		Operation   string
+		Params      map[string]string
+		Revision    string
+		RequestID   string
+		InputDigest string
+		Body        json.RawMessage
+	}{request.Operation, request.Params, request.ExpectedRevision, request.RequestID, request.InputDigest, request.Body})
+	return execution.Digest(digestRaw)
 }

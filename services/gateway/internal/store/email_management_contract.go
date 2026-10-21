@@ -23,6 +23,7 @@ type EmailBindCommand struct {
 	// its paused state; it is not the replacement mailbox historical version.
 	ExpectedVersion int64
 	Boundary        time.Time
+	IntakeOperation *EmailIntakeOperation
 }
 type EmailPauseCommand struct {
 	EmailCommand

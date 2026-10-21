@@ -306,4 +306,18 @@ describe("email sync persistent warnings and Refresh", () => {
     expect(refresh).not.toHaveBeenCalled(); noReceiveSideEffects();
     if (operation !== "sync") expect(api.syncEmail).not.toHaveBeenCalled();
   });
+  it("preserves the original intake toggle and uses the fenced version without a mailbox", async () => {
+    const value: EmailSyncStatus = { version: 2, backlog: 0, pending_count: 0, mailboxes: [], provider_versions: { qq_mail: 1 } };
+    vi.mocked(api.updateEmailIntake).mockRejectedValueOnce({ status: 409, code: "email_intake_not_applied" });
+    await render(value); await click(text.email.receivingSettings);
+    const toggle = container.querySelector<HTMLInputElement>('input[aria-label="QQ Mail: ' + text.email.receive + '"]')!;
+    expect(toggle).not.toBeNull(); expect(toggle.checked).toBe(false); expect(toggle.disabled).toBe(false);
+    await act(async () => toggle.click());
+    expect(api.updateEmailIntake).toHaveBeenCalledExactlyOnceWith("qq_mail", true, 1);
+    expect(container.querySelector('[data-testid="action-error"]')?.textContent).toBe(text.email.intakeNotApplied);
+    expect(refresh).toHaveBeenCalled(); expect(toggle.checked).toBe(false); expect(toggle.disabled).toBe(false);
+    expect(buttons(text.email.receivingSettings)).toHaveLength(1);
+    expect(container.querySelector('.emailSyncBar')).not.toBeNull();
+  });
+
 });

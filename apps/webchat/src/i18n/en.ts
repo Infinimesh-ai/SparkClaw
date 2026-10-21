@@ -172,6 +172,7 @@ export const en = {
       backlog: "Processing queue",
       syncScheduled: "Sync scheduled",
       sync: "Sync now",
+      intakeNotApplied: "The previous receiving change was not applied. Check the current setting and try again.",
       intakeHelp: "Receiving checks only the interval after the last completed checkpoint. By default, the next round starts 1 minute after the current round finishes. Refresh submits once and stays disabled until the queued sync finishes; during automatic sync it requests one following round. Closing this window keeps receiving enabled; turn off the switch to stop scans.",
       oneAccount: "One active receiving account per provider. Previous accounts remain available in the address filter; switching accounts pauses their collection.",
       verifyAccount: "Account will be verified when receiving is enabled",

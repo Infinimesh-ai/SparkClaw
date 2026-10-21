@@ -18,6 +18,8 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 		OperationListEmailDraftPage:          {ID: OperationListEmailDraftPage, Repository: "EmailRepository", Method: "ListEmailDraftPage", Mode: operationRead, Timeout: timeoutRead},
 		OperationListEmailDrafts:             {ID: OperationListEmailDrafts, Repository: "EmailRepository", Method: "ListEmailDrafts", Mode: operationRead, Timeout: timeoutRead},
 		OperationGetEmailThread:              {ID: OperationGetEmailThread, Repository: "EmailRepository", Method: "GetEmailThread", Mode: operationRead, Timeout: timeoutRead},
+		OperationGetEmailProviderVersions:    {ID: OperationGetEmailProviderVersions, Repository: "EmailRepository", Method: "GetEmailProviderVersions", Mode: operationRead, Timeout: timeoutRead},
+		OperationResolveEmailIntake:          {ID: OperationResolveEmailIntake, Repository: "EmailRepository", Method: "ResolveEmailIntake", Mode: operationWrite, Timeout: timeoutTransaction},
 		OperationBindEmailMailbox:            {ID: OperationBindEmailMailbox, Repository: "EmailRepository", Method: "BindEmailMailbox", Mode: operationWrite, Timeout: timeoutTransaction},
 		OperationPauseEmailMailbox:           {ID: OperationPauseEmailMailbox, Repository: "EmailRepository", Method: "PauseEmailMailbox", Mode: operationWrite, Timeout: timeoutTransaction},
 		OperationGetEmailOwnerStatus:         {ID: OperationGetEmailOwnerStatus, Repository: "EmailRepository", Method: "GetEmailOwnerStatus", Mode: operationRead, Timeout: timeoutRead},

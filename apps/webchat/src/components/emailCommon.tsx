@@ -30,6 +30,7 @@ export function emailErrorLabel(reason: unknown, text: Copy): string {
   if (error.code === "email_reply_polish_unavailable") return text.email.actionFailed;
   if (error.code === "email_multiple_recipients_unavailable") return text.email.recipientLimit;
   if (error.code === "email_reply_unsupported" || error.code === "email_send_unsupported") return text.email.sendUnsupported;
+  if (error.code === "email_intake_not_applied") return text.email.intakeNotApplied;
   if (error.status === 409) return text.email.stateChanged;
   if (error.status === 401 || error.status === 403) return text.email.notAuthorized;
   return text.email.actionFailed;

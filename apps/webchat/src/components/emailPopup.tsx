@@ -14,7 +14,7 @@ import { useEmailViewing } from "../hooks/useEmailViewing";
 import { EmailEventAssignment, EmailEventRename } from "./emailEventAssignment";
 import { EmailMessageCard } from "./emailMessage";
 import { EmailSync } from "./emailSync";
-import { EmailProgress, emailErrorLabel, emailEventTitle } from "./emailCommon";
+import { EmailProgress, emailErrorLabel, emailEventTitle, emailMailboxLabel } from "./emailCommon";
 import { EmailCompose, EmailDraftList, type EmailComposeTarget } from "./emailCompose";
 import { EmailSenderRules } from "./emailSenderRules";
 
@@ -120,7 +120,11 @@ export function EmailPopup({ text, language, selection, onSelect, onClose, suspe
   const displayMails = conversationMode
     ? [...mails.items].sort((left, right) => Date.parse(left.sent_at || left.arrived_at) - Date.parse(right.sent_at || right.arrived_at))
     : mails.items;
-  const receivingAddresses = conversationMode ? uniqueAddresses(displayMails.map((mail) => mail.receiving_address)) : [];
+  const receivingLabel = (mail: EmailMessage) => {
+    const mailbox = overview.status?.mailboxes.find((item) => item.id === mail.mailbox_id);
+    return mailbox ? emailMailboxLabel(mailbox) : mail.receiving_address;
+  };
+  const receivingAddresses = conversationMode ? uniqueAddresses(displayMails.map(receivingLabel)) : [];
   const senderAddresses = conversationMode ? uniqueAddresses(displayMails.map((mail) => mail.from)) : [];
   const addressFallback = mails.loading ? text.email.loading : text.common.notSet;
   const presentations = useEmailPresentations("mail", conversationMode ? displayMails.map((mail) => mail.id) : [], language, enabled);
@@ -201,7 +205,7 @@ export function EmailPopup({ text, language, selection, onSelect, onClose, suspe
       <form className="emailFilters" onSubmit={(event) => { event.preventDefault(); setQuery(searchDraft.trim()); }}>
         <label className="emailAddressFilter"><AtSign size={16} /><select aria-label={text.email.receivingAddress} value={mailboxId} onChange={(event) => setMailboxId(event.target.value)}>
           <option value="">{text.email.allAddresses}</option>
-          {(overview.status?.mailboxes ?? []).map((mailbox) => <option value={mailbox.id} key={mailbox.id}>{mailbox.address}</option>)}
+          {(overview.status?.mailboxes ?? []).map((mailbox) => <option value={mailbox.id} key={mailbox.id}>{emailMailboxLabel(mailbox)}</option>)}
         </select></label>
         <label className="emailSearch"><Search size={16} /><input ref={searchInput} type="search" aria-label={text.email.search} placeholder={text.email.search} value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} /><button type="submit" aria-label={text.email.searchAction} title={text.email.searchAction}><Search size={15} /></button></label>
         <div className="emailToolbarActions">
@@ -272,7 +276,7 @@ export function EmailPopup({ text, language, selection, onSelect, onClose, suspe
               {selected.historical_mixed && <p className="emailWarning">{text.email.historicalMixed} · {text.email.membershipFixed}</p>}
               {(selected.concerns ?? []).map((concern) => <aside className="emailConcern" key={concern.id}><strong>{concern.kind === "suspected_duplicate" ? text.email.suspectedDuplicate : text.email.pendingCorrection}</strong><p>{text.email.eventCorrectionHelp}</p><small>{text.email.membershipFixed}</small><div>{(concern.related_conversation_ids ?? []).map((id, index) => <button className="emailTextButton" key={id} onClick={() => void openEvent(id).catch(setActionError)}>{text.email.relatedConversation} {index + 1}</button>)}</div></aside>)}
             </header> : singleId ? <header className="emailDetailHeader"><h2 tabIndex={-1}>{sectionLabel}</h2></header> : <p className="emailEmpty">{selection ? text.email.loading : text.email.selectConversation}</p>}
-            {displayMails.map((mail) => <div key={mail.id}><EmailMessageCard mail={mail} viewed={mail.viewed || viewed(mail.id)} text={text} language={language} busy={busyMail === mail.id} onReanalyze={(id) => void reanalyze(id)} onError={setActionError} presentation={conversationMode ? presentations.items[mail.id] : undefined} onRetryPresentation={presentations.retry} onClassify={classify} onOpenMail={(id) => select(`mail:${id}`)} onOpenConversation={singleId ? (id) => void openEvent(id).catch(setActionError) : undefined} onReply={conversationMode ? undefined : (mail, all) => void openComposer({ mode: all ? "reply_all" : "reply", mailId: mail.id, mailboxId: mail.mailbox_id })} conversationMode={conversationMode} />{!conversationMode && <EmailEventAssignment mail={mail} text={text} onError={setActionError} onSaved={async (id) => { await refresh(); await openEvent(id); }} />}</div>)}
+            {displayMails.map((mail) => <div key={mail.id}><EmailMessageCard mail={mail} receivingAddressLabel={receivingLabel(mail)} viewed={mail.viewed || viewed(mail.id)} text={text} language={language} busy={busyMail === mail.id} onReanalyze={(id) => void reanalyze(id)} onError={setActionError} presentation={conversationMode ? presentations.items[mail.id] : undefined} onRetryPresentation={presentations.retry} onClassify={classify} onOpenMail={(id) => select(`mail:${id}`)} onOpenConversation={singleId ? (id) => void openEvent(id).catch(setActionError) : undefined} onReply={conversationMode ? undefined : (mail, all) => void openComposer({ mode: all ? "reply_all" : "reply", mailId: mail.id, mailboxId: mail.mailbox_id })} conversationMode={conversationMode} />{!conversationMode && <EmailEventAssignment mail={mail} text={text} onError={setActionError} onSaved={async (id) => { await refresh(); await openEvent(id); }} />}</div>)}
             {pending && mails.items.length === 0 && <p className="emailEmpty">{mails.loading ? text.email.loading : text.email.emptyPending}</p>}
             {mails.nextCursor && <button className="emailLoadMore" disabled={mails.loading} onClick={() => void mails.loadMore()}>{text.email.moreMessages}</button>}
           </div>

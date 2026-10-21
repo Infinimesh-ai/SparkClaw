@@ -49,6 +49,31 @@ describe("email popup owner flow", () => {
     return trigger;
   }
 
+  it.each(["recipient@example.test", undefined])("uses a verified Outlook filter label while keeping mailbox-ID requests (%s)", async deliveryAddress => {
+    const outlook = { ...status.mailboxes[0], provider: "outlook" as const, address: "outlook_internal@outlook.com", delivery_address: deliveryAddress, account_aliases: deliveryAddress ? [deliveryAddress] : undefined };
+    vi.mocked(api.emailSyncStatus).mockResolvedValue({ ...status, mailboxes: [outlook,
+      { ...status.mailboxes[0], id: "legacy-qq", provider: "qq_mail", address: "legacy@qq.com" },
+      { ...status.mailboxes[0], id: "legacy-gmail", address: "legacy@gmail.com" }] });
+    vi.mocked(api.emailMessages).mockResolvedValue({ version: 1, messages: [{ ...mail("source"), receiving_address: outlook.address }] });
+    vi.mocked(api.emailPending).mockResolvedValue({ version: 1, messages: [{ ...mail("pending-source"), receiving_address: outlook.address }] });
+    await open();
+    const select = document.body.querySelector<HTMLSelectElement>(".emailAddressFilter select")!;
+    expect([...select.options].map(option => [option.value, option.textContent])).toEqual([
+      ["", text.email.allAddresses], ["account-1", deliveryAddress || "Outlook"], ["legacy-qq", "legacy@qq.com"], ["legacy-gmail", "legacy@gmail.com"],
+    ]);
+    expect(document.body.textContent).not.toContain(outlook.address);
+    await act(async () => { select.value = "account-1"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(api.emailConversations).toHaveBeenLastCalledWith(expect.objectContaining({ mailbox_id: "account-1" }), expect.any(AbortSignal));
+    expect(select.value).toBe("account-1");
+    await act(async () => (document.body.querySelector(".emailConversationRow") as HTMLElement).click());
+    expect(document.body.querySelector(".emailConversationAddresses > div:first-child dd")?.textContent).toBe(deliveryAddress || "Outlook");
+    await act(async () => [...document.body.querySelectorAll<HTMLButtonElement>(".emailCategoryTabs button")][2].click());
+    const receivingRow = [...document.body.querySelectorAll(".emailAddresses dt")].find(row => row.textContent === text.email.receivingAddress)!;
+    expect(receivingRow.nextElementSibling?.textContent).toBe(deliveryAddress || "Outlook");
+    expect(document.body.textContent).not.toContain(outlook.address);
+    expect(api.markEmailViewed).not.toHaveBeenCalled();
+  });
+
   it("keeps popup search and keyboard events outside the chat composer form", async () => {
     const submit = vi.fn((event: React.FormEvent) => event.preventDefault());
     const keyDown = vi.fn();

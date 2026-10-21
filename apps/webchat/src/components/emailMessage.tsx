@@ -9,7 +9,7 @@ import { EmailVerification } from "./emailVerification";
 import { EmailClassificationControls } from "./emailClassification";
 import { EmailProgress } from "./emailCommon";
 
-export function EmailMessageCard({ mail, viewed, text, language, busy, onReanalyze, onError, presentation, onClassify, onReply, onRetryPresentation, onOpenConversation, onOpenMail, conversationMode = false }: {
+export function EmailMessageCard({ mail, viewed, text, language, busy, onReanalyze, onError, presentation, onClassify, onReply, onRetryPresentation, onOpenConversation, onOpenMail, conversationMode = false, receivingAddressLabel }: {
   mail: EmailMessage; viewed: boolean; text: Copy; language: Language; busy: boolean;
   onReanalyze: (id: string) => void; onError: (reason: unknown) => void;
   presentation?: EmailPresentation;
@@ -19,6 +19,7 @@ export function EmailMessageCard({ mail, viewed, text, language, busy, onReanaly
   onOpenConversation?: (id: string) => void;
   onOpenMail?: (id: string) => void;
   conversationMode?: boolean;
+  receivingAddressLabel?: string;
 }) {
   const workspace = useMailWorkspace();
   const download = (part = "", name = "original.eml") => workspace ? workspace.download(mail.mailbox_id, mail.id, part) : openEmailFile(mail.id, part, name);
@@ -42,7 +43,7 @@ export function EmailMessageCard({ mail, viewed, text, language, busy, onReanaly
         <dt>{text.email.from}</dt><dd>{mail.from || text.common.notSet}</dd>
         <dt>{text.email.to}</dt><dd>{(mail.to ?? []).join(", ") || text.common.notSet}</dd>
         {(mail.cc ?? []).length > 0 && <><dt>{text.email.cc}</dt><dd>{mail.cc.join(", ")}</dd></>}
-        <dt>{text.email.receivingAddress}</dt><dd>{mail.receiving_address}</dd>
+        <dt>{text.email.receivingAddress}</dt><dd>{receivingAddressLabel ?? mail.receiving_address}</dd>
       </dl>}
       {mail.verification && <EmailVerification mailId={mail.id} value={mail.verification} purpose={presentation?.state === "ready" ? presentation.purpose : undefined} text={text} language={language} />}
       {!conversationMode && onClassify && <EmailClassificationControls mail={mail} presentation={presentation} text={text} busy={busy} onChange={onClassify} />}

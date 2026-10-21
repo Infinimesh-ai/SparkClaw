@@ -4,7 +4,7 @@ import { api, APIError } from "../api/client";
 import type { EmailComposeCapabilities, EmailDraft, EmailMailbox, EmailMessage } from "../api/email";
 import type { Copy, Language } from "../i18n";
 import { formatDateTime } from "../lib/format";
-import { emailErrorLabel, emailSendFailureLabel } from "./emailCommon";
+import { emailErrorLabel, emailMailboxLabel, emailSendFailureLabel } from "./emailCommon";
 import { MailAttachmentManifest, WorkspaceMailAttachments } from "../desktop/MailDraftAttachments";
 import { useMailWorkspace } from "../desktop/MailWorkspaceContext";
 import type { LocalFile } from "../desktop/clientStore";
@@ -223,7 +223,7 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
     <fieldset disabled={busy || locked || !!review}>
       {!compact && <label>{text.email.sendingAddress}<select value={mailbox} onChange={(e) => { setMailbox(e.target.value); edited(); }}>
         {!mailbox && <option value="">{text.email.noSendingAccount}</option>}
-        {mailboxes.filter((m) => m.active_binding || m.id === mailbox).map((m) => <option key={m.id} value={m.id}>{m.address}</option>)}
+        {mailboxes.filter((m) => m.active_binding || m.id === mailbox).map((m) => <option key={m.id} value={m.id}>{emailMailboxLabel(m)}</option>)}
       </select></label>}
       {!compact && <label>{text.email.to}<input value={to} placeholder={text.email.recipientHint} onChange={(e) => { setTo(e.target.value); edited(); }} /></label>}
       {!compact && <label>{text.email.cc}<input value={cc} placeholder={text.email.recipientHint} onChange={(e) => { setCC(e.target.value); edited(); }} /></label>}

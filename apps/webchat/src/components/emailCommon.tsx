@@ -1,5 +1,9 @@
-import type { EmailConversation } from "../api/email";
+import type { EmailConversation, EmailMailbox } from "../api/email";
 import type { Copy } from "../i18n";
+
+export function emailMailboxLabel(mailbox: EmailMailbox): string {
+  return mailbox.delivery_address || (mailbox.provider === "outlook" ? "Outlook" : mailbox.address);
+}
 
 export function emailProgressLabel(state: string | undefined, text: Copy) {
   if (!state) return "";

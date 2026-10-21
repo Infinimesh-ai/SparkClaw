@@ -12,6 +12,29 @@ const draft: EmailDraft = { id: "d", version: 1, mailbox_id: "box", mode: "compo
 const mailboxes = [{ id: "box", version: 1, provider: "gmail" as const, address: "owner@example.com", intake_enabled: false, active_binding: true, state: "ready" }];
 afterEach(() => vi.restoreAllMocks());
 describe("email compose safety", () => {
+  it.each(["recipient@example.test", undefined])("projects the Outlook sending label without changing the draft mailbox identity (%s)", async (deliveryAddress) => {
+    vi.spyOn(api, "emailComposeCapabilities").mockResolvedValue({ compose: true, reply: true, reply_all: true, cc: true, max_to: 100 });
+    vi.spyOn(api, "emailDraft").mockResolvedValue(draft);
+    const save = vi.spyOn(api, "saveEmailDraft").mockResolvedValue({ ...draft, version: 2 });
+    const send = vi.spyOn(api, "sendEmailDraft");
+    const box = { ...mailboxes[0], provider: "outlook" as const, address: "outlook_internal@outlook.com", delivery_address: deliveryAddress, account_aliases: deliveryAddress ? [deliveryAddress] : undefined };
+    const host = document.createElement("div"), root = createRoot(host);
+    try {
+      const render = (delivery_address: string | undefined) => <EmailCompose target={{ mode: "compose", draftId: "d" }} mailboxes={[{ ...box, delivery_address }]} text={text} language="zh" onClose={() => {}} onBeforeClose={() => {}} />;
+      await act(async () => root.render(render(deliveryAddress)));
+      const select = host.querySelector("select")!;
+      expect(select.value).toBe("box"); expect(select.options[0].value).toBe("box");
+      expect(select.options[0].textContent).toBe(deliveryAddress || "Outlook");
+      expect(host.textContent).not.toContain(box.address);
+      await act(async () => root.render(render("new-alias@example.test")));
+      expect(host.querySelector("select")).toBe(select); expect(select.value).toBe("box");
+      expect(select.options[0].textContent).toBe("new-alias@example.test");
+      await act(async () => [...host.querySelectorAll("button")].find(button => button.textContent === text.email.saveDraft)!.click());
+      expect(save).toHaveBeenCalledWith(expect.objectContaining({ id: "d", mailbox_id: "box", expected_version: 1, body: "Text", subject: "Subject" }));
+      expect(send).not.toHaveBeenCalled();
+    } finally { act(() => root.unmount()); }
+  });
+
   it("shows obsolete attachment manifests and requires explicit removal before saving or sending", async () => {
     vi.spyOn(api, "emailComposeCapabilities").mockResolvedValue({ compose: true, reply: true, reply_all: true, cc: true, max_to: 100 });
     vi.spyOn(api, "emailDraft").mockResolvedValue({ ...draft, attachments: [{ path: "reports/a.pdf", name: "a.pdf", size_bytes: 123, sha256: "a".repeat(64) }] });

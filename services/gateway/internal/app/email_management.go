@@ -60,6 +60,8 @@ func EmailAnalysisReferences(references []string) []string {
 // EmailMailbox identifies a verified provider account independently of settings
 // and browser credentials. Only one mailbox per owner/provider can be active.
 type EmailMailbox struct {
+	DeliveryAddress                string            `json:"delivery_address,omitempty"`
+	AccountAliases                 []string          `json:"account_aliases,omitempty"`
 	ObserverEpoch                  string            `json:"observer_epoch,omitempty"`
 	ObserverCredentialGeneration   int64             `json:"observer_credential_generation,omitempty"`
 	WatchEpoch                     string            `json:"watch_epoch,omitempty"`

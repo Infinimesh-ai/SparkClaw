@@ -13,6 +13,8 @@ type EmailCommand struct {
 	CommandKey string
 }
 type EmailBindCommand struct {
+	DeliveryAddress string
+	AccountAliases  []string
 	EmailCommand
 	Provider string
 	Address  string
@@ -70,6 +72,9 @@ type EmailSyncFailureOutcome struct {
 // advances the checkpoint only after the caller has durably represented every
 // returned stable identity as complete, purged, retryable, or suppressed.
 type EmailSyncCommitCommand struct {
+	DeliveryObserved bool
+	DeliveryAddress  string
+	AccountAliases   []string
 	EmailCommand
 	Lease             EmailJobLease
 	ObservedAt        time.Time

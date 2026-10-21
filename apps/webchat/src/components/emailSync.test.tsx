@@ -76,6 +76,25 @@ describe("email sync persistent warnings and Refresh", () => {
     const button = buttons(label)[index]; expect(button).toBeDefined();
     await act(async () => button.click());
   }
+  it.each(["recipient@example.test", undefined])("keeps intake and cleanup identity/version while projecting Outlook labels (%s)", async deliveryAddress => {
+    const mailbox = { ...status().mailboxes[0], provider: "outlook" as const, address: "outlook_internal@outlook.com", delivery_address: deliveryAddress,
+      account_aliases: deliveryAddress ? [deliveryAddress] : undefined, state: "login_required" };
+    const value = { ...status(), mailboxes: [mailbox] };
+    const outlook = { ...providers[0], provider: "outlook" as const, display_name: "Outlook" };
+    vi.mocked(api.updateEmailIntake).mockResolvedValue({ mailbox });
+    vi.mocked(api.cleanupEmailSource).mockResolvedValue({ scope: "mailbox", purged: 0, freed_bytes: 0, partial: false });
+    await act(async () => root.render(<EmailSync status={value} providers={[outlook]} mailboxId={mailbox.id} text={text} language="en" onRefresh={refresh} onError={error} />));
+    expect(container.querySelector(".emailLoginRecovery strong")?.textContent).toBe(deliveryAddress || "Outlook");
+    await click(text.email.receivingSettings);
+    expect(container.querySelector(".emailIntakeRow small")?.textContent).toBe(deliveryAddress || "Outlook");
+    expect(container.querySelector(".emailCoverage strong")?.textContent).toBe(deliveryAddress || "Outlook");
+    expect(container.textContent).not.toContain(mailbox.address);
+    await act(async () => container.querySelector<HTMLInputElement>("input[type=checkbox]")!.click());
+    expect(api.updateEmailIntake).toHaveBeenCalledWith("outlook", false, 3);
+    await click(text.email.cleanupMailbox);
+    expect(api.cleanupEmailSource).toHaveBeenCalledWith(expect.objectContaining({ scope: "mailbox", mailbox_id: mailbox.id }));
+  });
+
   it("offers no sign-in button without the desktop login capability", async () => {
     const value = status(); value.mailboxes[0].state = "login_required";
     const login = vi.spyOn(api, "openEmailLoginBrowser");

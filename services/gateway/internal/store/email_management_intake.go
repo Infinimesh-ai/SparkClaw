@@ -138,6 +138,9 @@ func emailBind(e *emailEngine, c EmailBindCommand) (app.EmailMailbox, error) {
 		boundary = baseline.StartedAt
 		m = app.EmailMailbox{ID: id, OwnerID: e.owner, Provider: c.Provider, Address: c.Address, NormalizedAddress: address, Boundary: postgresTime(boundary), ActivatedAt: postgresTime(boundary)}
 	}
+	if err := emailSetDelivery(&m, c.DeliveryAddress, c.AccountAliases); err != nil {
+		return m, err
+	}
 	m.BindingGeneration++
 	emailReanchorBinding(&m)
 	m.RefreshPending = false

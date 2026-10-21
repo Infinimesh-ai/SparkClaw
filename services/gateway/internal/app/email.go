@@ -276,14 +276,16 @@ type EmailMarkReadResult struct {
 }
 
 type EmailDiscoveryResult struct {
-	SchemaVersion  int                    `json:"schema_version"`
-	Provider       string                 `json:"provider"`
-	Status         string                 `json:"status"`
-	AccountAddress string                 `json:"account_address"`
-	Candidates     []EmailCaptureTarget   `json:"candidates"`
-	Threads        []EmailThreadTarget    `json:"threads,omitempty"`
-	Coverage       EmailDiscoveryCoverage `json:"coverage"`
-	ObservedAt     time.Time              `json:"observed_at"`
+	DeliveryAddress string                 `json:"delivery_address,omitempty"`
+	AccountAliases  []string               `json:"account_aliases,omitempty"`
+	SchemaVersion   int                    `json:"schema_version"`
+	Provider        string                 `json:"provider"`
+	Status          string                 `json:"status"`
+	AccountAddress  string                 `json:"account_address"`
+	Candidates      []EmailCaptureTarget   `json:"candidates"`
+	Threads         []EmailThreadTarget    `json:"threads,omitempty"`
+	Coverage        EmailDiscoveryCoverage `json:"coverage"`
+	ObservedAt      time.Time              `json:"observed_at"`
 }
 
 // EmailCaptureReceipt references script-captured source material; it is not

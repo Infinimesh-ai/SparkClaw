@@ -131,13 +131,31 @@ func decodeDiscoveryResult(raw []byte, provider Provider, request ReadRequest, m
 	}
 	var output app.EmailDiscoveryResult
 	var fields map[string]json.RawMessage
-	if json.Unmarshal(raw, &fields) != nil || len(fields) != 7 && (request.Discovery == nil || len(fields) != 8 || len(fields["threads"]) == 0) {
+	if json.Unmarshal(raw, &fields) != nil {
 		return invalid("missing_top_field")
 	}
 	for _, key := range []string{"schema_version", "provider", "status", "account_address", "candidates", "coverage", "observed_at"} {
 		if len(fields[key]) == 0 || string(fields[key]) == "null" {
 			return invalid("coverage_shape")
 		}
+	}
+	expectedFields := 7
+	if threads, present := fields["threads"]; present {
+		if request.Discovery == nil || string(threads) == "null" {
+			return invalid("unexpected_threads")
+		}
+		expectedFields++
+	}
+	_, hasDelivery := fields["delivery_address"]
+	_, hasAliases := fields["account_aliases"]
+	if hasDelivery != hasAliases {
+		return invalid("delivery_identity_incomplete")
+	}
+	if hasDelivery {
+		expectedFields += 2
+	}
+	if len(fields) != expectedFields {
+		return invalid("unexpected_top_field")
 	}
 	var coverageFields map[string]json.RawMessage
 	if json.Unmarshal(fields["coverage"], &coverageFields) != nil || len(coverageFields) < 5 {
@@ -152,6 +170,9 @@ func decodeDiscoveryResult(raw []byte, provider Provider, request ReadRequest, m
 		output.SchemaVersion != 1 || output.Provider != provider.ID || output.ObservedAt.IsZero() || output.Candidates == nil || len(output.Candidates) > 100 ||
 		!validMailTarget(app.EmailCaptureTarget{AccountAddress: output.AccountAddress, ProviderMessageID: "check", ProviderSelectionID: "check"}) {
 		return invalid("coverage_invalid")
+	}
+	if hasDelivery && !app.ValidEmailDeliveryAddresses(output.DeliveryAddress, output.AccountAliases) {
+		return invalid("delivery_identity_invalid")
 	}
 	coverage := output.Coverage
 	if !validCoverage(coverage, len(output.Candidates)) {

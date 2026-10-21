@@ -94,29 +94,31 @@ type MessageView struct {
 	ProcessingState           string                   `json:"processing_state"`
 }
 type MailboxView struct {
-	RefreshPending             bool   `json:"refresh_pending"`
-	RefreshRequestID           string `json:"refresh_request_id,omitempty"`
-	ID                         string `json:"id"`
-	Version                    int64  `json:"version"`
-	Provider                   string `json:"provider"`
-	Address                    string `json:"address"`
-	IntakeEnabled              bool   `json:"intake_enabled"`
-	ActiveBinding              bool   `json:"active_binding"`
-	State                      string `json:"state"`
-	ScopeVersion               string `json:"scope_version,omitempty"`
-	ProviderMode               string `json:"provider_mode,omitempty"`
-	LastSyncAt                 string `json:"last_sync_at,omitempty"`
-	CoverageStart              string `json:"coverage_start,omitempty"`
-	CoverageEnd                string `json:"coverage_end,omitempty"`
-	PollThrough                string `json:"poll_through,omitempty"`
-	InflightUntil              string `json:"inflight_until,omitempty"`
-	PendingFailureCount        int    `json:"pending_failure_count"`
-	SuppressedMailCount        int    `json:"suppressed_mail_count"`
-	CoverageGapCount           int    `json:"coverage_gap_count"`
-	UnacknowledgedWarningCount int    `json:"unacknowledged_warning_count"`
-	RefreshAvailable           bool   `json:"refresh_available"`
-	Gap                        string `json:"gap,omitempty"`
-	Error                      string `json:"error,omitempty"`
+	DeliveryAddress            string   `json:"delivery_address,omitempty"`
+	AccountAliases             []string `json:"account_aliases,omitempty"`
+	RefreshPending             bool     `json:"refresh_pending"`
+	RefreshRequestID           string   `json:"refresh_request_id,omitempty"`
+	ID                         string   `json:"id"`
+	Version                    int64    `json:"version"`
+	Provider                   string   `json:"provider"`
+	Address                    string   `json:"address"`
+	IntakeEnabled              bool     `json:"intake_enabled"`
+	ActiveBinding              bool     `json:"active_binding"`
+	State                      string   `json:"state"`
+	ScopeVersion               string   `json:"scope_version,omitempty"`
+	ProviderMode               string   `json:"provider_mode,omitempty"`
+	LastSyncAt                 string   `json:"last_sync_at,omitempty"`
+	CoverageStart              string   `json:"coverage_start,omitempty"`
+	CoverageEnd                string   `json:"coverage_end,omitempty"`
+	PollThrough                string   `json:"poll_through,omitempty"`
+	InflightUntil              string   `json:"inflight_until,omitempty"`
+	PendingFailureCount        int      `json:"pending_failure_count"`
+	SuppressedMailCount        int      `json:"suppressed_mail_count"`
+	CoverageGapCount           int      `json:"coverage_gap_count"`
+	UnacknowledgedWarningCount int      `json:"unacknowledged_warning_count"`
+	RefreshAvailable           bool     `json:"refresh_available"`
+	Gap                        string   `json:"gap,omitempty"`
+	Error                      string   `json:"error,omitempty"`
 }
 type ConversationsView struct {
 	Counts        *store.EmailScopeCounts `json:"counts,omitempty"`
@@ -386,7 +388,7 @@ func (s *Service) messageView(ctx context.Context, owner string, row app.EmailMa
 			}
 		}
 	}
-	out.ReceivingAddress = mailbox.Address
+	out.ReceivingAddress = mailbox.ContactAddress()
 	if row.CaptureID != "" {
 		capture, found, err := s.repository.GetEmailCapture(ctx, owner, row.CaptureID)
 		if err != nil {
@@ -496,7 +498,7 @@ func (s *Service) messageView(ctx context.Context, owner string, row app.EmailMa
 	return out, nil
 }
 func ProjectMailbox(mailbox app.EmailMailbox) MailboxView {
-	out := MailboxView{ID: mailbox.ID, Version: mailbox.Version, Provider: mailbox.Provider, Address: mailbox.Address, IntakeEnabled: mailbox.IntakeEnabled, ActiveBinding: mailbox.Active, State: "active", ScopeVersion: mailbox.ScopeVersion, ProviderMode: mailbox.ProviderMode, LastSyncAt: emailTime(mailbox.LastCheckedAt), CoverageStart: emailTime(mailbox.ActivatedAt), CoverageEnd: emailTime(mailbox.Boundary), PollThrough: emailTime(mailbox.PollThrough), InflightUntil: emailTime(mailbox.InflightUntil), PendingFailureCount: mailbox.PendingFailureCount, SuppressedMailCount: mailbox.SuppressedMailCount, CoverageGapCount: mailbox.CoverageGapCount, UnacknowledgedWarningCount: mailbox.UnacknowledgedWarningCount, RefreshAvailable: mailbox.PendingFailureCount > 0 || mailbox.SyncState == app.EmailSyncOverflowConfirmation || mailbox.SyncState == app.EmailSyncIncomplete}
+	out := MailboxView{DeliveryAddress: mailbox.DeliveryAddress, AccountAliases: append([]string(nil), mailbox.AccountAliases...), ID: mailbox.ID, Version: mailbox.Version, Provider: mailbox.Provider, Address: mailbox.Address, IntakeEnabled: mailbox.IntakeEnabled, ActiveBinding: mailbox.Active, State: "active", ScopeVersion: mailbox.ScopeVersion, ProviderMode: mailbox.ProviderMode, LastSyncAt: emailTime(mailbox.LastCheckedAt), CoverageStart: emailTime(mailbox.ActivatedAt), CoverageEnd: emailTime(mailbox.Boundary), PollThrough: emailTime(mailbox.PollThrough), InflightUntil: emailTime(mailbox.InflightUntil), PendingFailureCount: mailbox.PendingFailureCount, SuppressedMailCount: mailbox.SuppressedMailCount, CoverageGapCount: mailbox.CoverageGapCount, UnacknowledgedWarningCount: mailbox.UnacknowledgedWarningCount, RefreshAvailable: mailbox.PendingFailureCount > 0 || mailbox.SyncState == app.EmailSyncOverflowConfirmation || mailbox.SyncState == app.EmailSyncIncomplete}
 	out.RefreshPending, out.RefreshRequestID = mailbox.RefreshPending, mailbox.RefreshRequestID
 	if mailbox.ScopeVersion == app.EmailSyncScopeTimelineV2 {
 		out.CoverageStart = emailTime(mailbox.DeploymentAnchor)

@@ -31,7 +31,7 @@ func (s *Service) Configure(ctx context.Context, owner, provider string, enabled
 		if current.ID == "" {
 			return current, ErrNotFound
 		}
-		paused, err := s.repository.BindEmailMailbox(ctx, store.EmailBindCommand{EmailCommand: command(owner, app.NewID("mailbox_pause")), Provider: provider, Address: current.Address, Enabled: false, ExpectedVersion: expectedVersion, Boundary: current.Boundary})
+		paused, err := s.repository.BindEmailMailbox(ctx, store.EmailBindCommand{EmailCommand: command(owner, app.NewID("mailbox_pause")), Provider: provider, Address: current.Address, DeliveryAddress: current.DeliveryAddress, AccountAliases: current.AccountAliases, Enabled: false, ExpectedVersion: expectedVersion, Boundary: current.Boundary})
 		if err == nil {
 			s.cancelMailboxBrowserJobs(owner, current.ID)
 		}
@@ -56,7 +56,7 @@ func (s *Service) Configure(ctx context.Context, owner, provider string, enabled
 	if current.IntakeEnabled && current.ErrorCode == string(app.ToolErrorEmailLoginRequired) && !strings.EqualFold(observed.AccountAddress, current.Address) {
 		return current, ErrConflict
 	}
-	mailbox, err := s.repository.BindEmailMailbox(ctx, store.EmailBindCommand{EmailCommand: command(owner, request.InvocationID), Provider: provider, Address: observed.AccountAddress, Enabled: true, ExpectedVersion: expectedVersion, Boundary: activation})
+	mailbox, err := s.repository.BindEmailMailbox(ctx, store.EmailBindCommand{EmailCommand: command(owner, request.InvocationID), Provider: provider, Address: observed.AccountAddress, DeliveryAddress: observed.DeliveryAddress, AccountAliases: observed.AccountAliases, Enabled: true, ExpectedVersion: expectedVersion, Boundary: activation})
 	if err == nil {
 		if current.ID != "" && (current.ID != mailbox.ID || current.BindingGeneration != mailbox.BindingGeneration) {
 			s.cancelMailboxBrowserJobs(owner, current.ID)

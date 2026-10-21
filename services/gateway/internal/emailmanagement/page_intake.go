@@ -328,7 +328,11 @@ func (s *Service) publishIncrementalPage(ctx context.Context, job app.EmailJob, 
 		// certified; its failure cannot be promoted to new-tail overflow.
 		complete, overflow, reason = false, false, "email_overlap_incomplete"
 	}
-	commit := store.EmailSyncCommitCommand{EmailCommand: command(job.OwnerID, key+":commit"), MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, IntervalStart: checkpoint.IntervalStart, IntervalEnd: checkpoint.IntervalEnd, ProviderMode: mode, Trigger: syncTrigger(job), Actor: syncActor(job), InvocationID: request.InvocationID, ReaderRevision: request.ScriptRevision, Complete: complete, Overflow: overflow, SplitOverlap: len(parts) == 2, UnsupportedItems: unsupported, ErrorCode: reason, FailureScope: app.EmailSyncFailureProviderOperational, Outcomes: outcomes, Members: members, Captures: captures, Lease: lease(job, s.now()), ObservedAt: observedAt}
+	delivery, aliases, identityErr := pageDeliveryIdentity(parts)
+	if identityErr != nil {
+		return identityErr
+	}
+	commit := store.EmailSyncCommitCommand{DeliveryObserved: true, DeliveryAddress: delivery, AccountAliases: aliases, EmailCommand: command(job.OwnerID, key+":commit"), MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, IntervalStart: checkpoint.IntervalStart, IntervalEnd: checkpoint.IntervalEnd, ProviderMode: mode, Trigger: syncTrigger(job), Actor: syncActor(job), InvocationID: request.InvocationID, ReaderRevision: request.ScriptRevision, Complete: complete, Overflow: overflow, SplitOverlap: len(parts) == 2, UnsupportedItems: unsupported, ErrorCode: reason, FailureScope: app.EmailSyncFailureProviderOperational, Outcomes: outcomes, Members: members, Captures: captures, Lease: lease(job, s.now()), ObservedAt: observedAt}
 	if len(parts) == 2 && overflow {
 		commit.OverflowIntervalStart = checkpoint.OverlapEnd
 	}

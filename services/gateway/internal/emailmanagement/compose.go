@@ -138,17 +138,24 @@ func (s *Service) SaveDraft(ctx context.Context, owner string, d store.EmailDraf
 		return d, ErrNotFound
 	}
 	d.MailboxGeneration = mailbox.BindingGeneration
-	// Reply-all excludes every known owner mailbox, using exact local-part identity.
+	// Preserve legacy mailbox local-part matching; native verified aliases use
+	// the provider metadata contract's case-insensitive address identity.
 	excluded := map[string]bool{}
+	verifiedAliases := map[string]bool{}
 	if d.Mode == "reply_all" {
 		mailboxes, err := s.repository.ListEmailMailboxes(ctx, owner)
 		if err != nil {
 			return d, err
 		}
 		for _, m := range mailboxes {
-			a, e := composeAddress(m.Address)
-			if e == nil {
+			if a, e := composeAddress(m.Address); e == nil {
 				excluded[a] = true
+			}
+			addresses := append([]string{m.DeliveryAddress}, m.AccountAliases...)
+			for _, address := range addresses {
+				if a, e := composeAddress(address); e == nil {
+					verifiedAliases[strings.ToLower(a)] = true
+				}
 			}
 		}
 	}
@@ -160,7 +167,7 @@ func (s *Service) SaveDraft(ctx context.Context, owner string, d store.EmailDraf
 			if e != nil {
 				return nil, e
 			}
-			if !seen[a] && !excluded[a] {
+			if !seen[a] && !excluded[a] && !verifiedAliases[strings.ToLower(a)] {
 				out = append(out, a)
 				seen[a] = true
 			}

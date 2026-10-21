@@ -6,7 +6,7 @@ import type { EmailSyncStatus, EmailCleanupScope, EmailSyncWarning } from "../ap
 import type { EmailProviderStatus } from "../api/types";
 import type { Copy, Language } from "../i18n";
 import { formatDateTime } from "../lib/format";
-import { EmailProgress } from "./emailCommon";
+import { EmailProgress, emailMailboxLabel } from "./emailCommon";
 import { useEmailRefresh } from "../hooks/useEmailRefresh";
 
 function providerMailbox(status: EmailSyncStatus | null, provider: EmailProviderStatus["provider"]) {
@@ -110,7 +110,7 @@ export function EmailSync({ status, providers, mailboxId, text, language, onRefr
         <button className="emailTextButton" disabled={Boolean(busy)} onClick={() => void cleanup("all")}>{text.email.cleanupAll}</button>
       </div>}
       {(status?.mailboxes ?? []).filter((mailbox) => mailbox.intake_enabled && mailbox.state === "login_required").map((mailbox) => <div className="emailLoginRecovery" role="status" key={mailbox.id}>
-        <strong>{mailbox.address}</strong><span>{text.email.loginExpired}</span>
+        <strong>{emailMailboxLabel(mailbox)}</strong><span>{text.email.loginExpired}</span>
         {loginEnabled && <button className="emailTextButton" disabled={Boolean(busy)} onClick={() => void recover(mailbox.provider, false)}>{text.email.signInAgain}</button>}
         <button className="emailTextButton" disabled={Boolean(busy) || !resumeEnabled} onClick={() => void recover(mailbox.provider, true)}>{text.email.resumeAfterLogin}</button>
         <small>{workspace?.loginNotice || text.email.loginRecoveryHelp}</small>
@@ -121,7 +121,7 @@ export function EmailSync({ status, providers, mailboxId, text, language, onRefr
         {providers.map((provider) => {
           const mailbox = providerMailbox(status, provider.provider);
           return <div className="emailIntakeRow" key={provider.provider}>
-            <div><strong>{provider.display_name}</strong><small>{mailbox?.address || provider.account_hint || text.email.verifyAccount}</small>
+            <div><strong>{provider.display_name}</strong><small>{mailbox ? emailMailboxLabel(mailbox) : provider.provider === "outlook" ? provider.display_name : provider.account_hint || text.email.verifyAccount}</small>
               {!provider.enabled && <small>{text.email.providerSetup}</small>}
               {mailbox && <EmailProgress state={mailbox.state} text={text} />}
             </div>
@@ -133,7 +133,7 @@ export function EmailSync({ status, providers, mailboxId, text, language, onRefr
           </div>;
         })}
         {(status?.mailboxes ?? []).map((mailbox) => <div className="emailCoverage" key={mailbox.id}>
-          <strong>{mailbox.address}</strong> <EmailProgress state={mailbox.state} text={text} />
+          <strong>{emailMailboxLabel(mailbox)}</strong> <EmailProgress state={mailbox.state} text={text} />
           {mailbox.last_sync_at && <span>{text.email.lastSync}: {formatDateTime(mailbox.last_sync_at, language)}</span>}
           {(mailbox.coverage_start || mailbox.coverage_end) && <span>{text.email.coverage}: {mailbox.coverage_start ? formatDateTime(mailbox.coverage_start, language) : "—"} → {mailbox.coverage_end ? formatDateTime(mailbox.coverage_end, language) : "—"}</span>}
           {mailbox.gap && <p className="emailWarning">{text.email.coverageGap}: {text.email.needsAttention}</p>}

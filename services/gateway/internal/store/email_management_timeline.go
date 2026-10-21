@@ -172,6 +172,13 @@ func emailCommitSync(e *emailEngine, c EmailSyncCommitCommand) (EmailSyncCommitR
 	if err != nil {
 		return out, err
 	}
+	if c.DeliveryObserved {
+		if err := emailSetDelivery(&box, c.DeliveryAddress, c.AccountAliases); err != nil {
+			return out, err
+		}
+	} else if c.DeliveryAddress != "" || len(c.AccountAliases) != 0 {
+		return out, errEmailInvalid
+	}
 	if !box.InflightStart.Equal(postgresTime(c.IntervalStart)) || !box.InflightUntil.Equal(postgresTime(c.IntervalEnd)) || box.InflightOverlapEnd.After(box.PollThrough) {
 		return out, errEmailConflict
 	}

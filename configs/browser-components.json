@@ -5,8 +5,8 @@
     "url": "https://clients2.google.com/service/update2/crx?response=redirect&prodversion=148.0.7778.0&acceptformat=crx3&x=id%3Ddhdgffkkebhmkfjojejmpbldmpobfkfo%26uc",
     "sha256": "bcaec082c439e11c4df683f43d07e9ac3d4439251d72b91c5b452f977dac15d5",
     "path": "/opt/sparkclaw/tampermonkey",
-    "productVersion": "5.5.0.14",
-    "patchRevision": 14
+    "productVersion": "5.5.0.15",
+    "patchRevision": 15
   },
   "scripts": [
     {
@@ -21,29 +21,29 @@
     {
       "file": "qq-mail-reader.user.js",
       "version": "0.2.0",
-      "sha256": "1215330b0f115251b571f015e3f0e260c9e4115309699a7e105fb30cbe217ad7",
+      "sha256": "a6fdc47d6032689de829995b75b40a176546716f82acb06422c294546ad0e201",
       "requires": [],
       "uuid": "5b4323dc-326f-4fbb-a1a0-4ac8c00631c0",
       "source": "app-cli",
-      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/a91396eb68845b2f85f6786f2677e35858d95de6/runtimes/browser/assets/mail/qq-mail-reader.user.js"
+      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/c7181087526c75b12e28442479bd8c3c0c36dad7/runtimes/browser/assets/mail/qq-mail-reader.user.js"
     },
     {
       "file": "gmail-mail-reader.user.js",
       "version": "0.2.0",
-      "sha256": "26aff1480bcfc75a1228bd3f317b9db9cb076149b7326f1dc4a1e580641f7f2e",
+      "sha256": "7e14d954202a60bd38dd57227baab3d063e3628dc4998599fd6f4c3608692f5c",
       "requires": [],
       "uuid": "1b57e83c-a914-48c1-a490-77d4bca191d5",
       "source": "app-cli",
-      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/a91396eb68845b2f85f6786f2677e35858d95de6/runtimes/browser/assets/mail/gmail-mail-reader.user.js"
+      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/c7181087526c75b12e28442479bd8c3c0c36dad7/runtimes/browser/assets/mail/gmail-mail-reader.user.js"
     },
     {
       "file": "outlook-mail-reader.user.js",
       "version": "0.2.0",
-      "sha256": "63b5a956814f6d95bcd10ea86a68c3682a5a1339acfeee696026a5fc3f91f278",
+      "sha256": "f449dfc3231fd55523a260a956b0a05db5190852b083342cecaaee0dc384ea87",
       "requires": [],
       "uuid": "c2b90f5c-629d-41bd-8fc8-179729ad70b4",
       "source": "app-cli",
-      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/a91396eb68845b2f85f6786f2677e35858d95de6/runtimes/browser/assets/mail/outlook-mail-reader.user.js"
+      "url": "https://github.com/ZZZZJJJ0928/App-CLI/blob/c7181087526c75b12e28442479bd8c3c0c36dad7/runtimes/browser/assets/mail/outlook-mail-reader.user.js"
     }
   ]
 }

@@ -108,8 +108,8 @@ export class AppCLIClientFactory {
       const identity = request.operation === 'observe' ? crypto.createHash('sha256').update(JSON.stringify([
         request.token, request.credentialGeneration, request.provider, request.input.account_address?.toLowerCase(), request.input.owner_scope,
       ])).digest('hex') : null;
-      const response = await client.execute({...request, onEvent: (slot, kind, reason) => this.mailObserverSink?.(
-        request.provider, {...slot, identity}, kind, reason)});
+      const response = await client.execute({...request, onEvent: (slot, kind, reason, targets) => this.mailObserverSink?.(
+        request.provider, {...slot, identity}, kind, reason, targets)});
       // Executor admission contention is a returned task, not necessarily a
       // thrown error. Preserve the Gateway's short yield for the same read.
       if (['read', 'capture', 'collect_page'].includes(request.operation) && response.state === 'failed' &&

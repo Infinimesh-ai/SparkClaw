@@ -6,17 +6,32 @@ const providers = new Set(['qq_mail', 'gmail', 'outlook']);
 const states = new Set(['starting', 'watching', 'degraded', 'login_required', 'stopped']);
 const reasons = new Set(['qq_inbound_envelope', 'gmail_topic_invalidation', 'outlook_delivery_change']);
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
+const candidateID = /^[A-Za-z0-9_+=:.\/~\-]{1,512}$/u;
+const receiptTime = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)$/u;
+// Candidate targets are the provider's own arrival identifiers. They are
+// forwarded only in this exact bounded shape; anything else is dropped.
+function candidates(targets) {
+  if (!Array.isArray(targets) || targets.length > 16) return [];
+  const valid = targets.every(t => t && typeof t === 'object' && !Array.isArray(t) &&
+    Object.keys(t).every(key => ['provider_message_id', 'provider_item_id', 'received_at'].includes(key)) &&
+    (t.provider_message_id !== undefined || t.provider_item_id !== undefined) &&
+    [t.provider_message_id, t.provider_item_id].every(id => id === undefined || typeof id === 'string' && candidateID.test(id)) &&
+    (t.received_at === undefined || typeof t.received_at === 'string' && receiptTime.test(t.received_at)));
+  return valid ? targets.map(t => ({...t})) : [];
+}
 const stale = () => new ControllerError('browser_page_stale', 'mail observer lease is stale', {status:409, retryable:true});
 
 // A bounded, acknowledged long-poll feed over the owner-only Controller socket.
 // Waiting and lease renewal never enter the browser/Reader reservation gate.
 export class MailObserverFeed {
-  constructor(controller, {leaseMS=90000, pollMS=25000, limit=128, now=Date.now}={}) {
+  // Watch events are read every tickMS; with resident App-CLI sessions each
+  // read is one local socket exchange rather than two process spawns.
+  constructor(controller, {leaseMS=90000, pollMS=25000, limit=128, tickMS=1000, now=Date.now}={}) {
     this.controller=controller; this.leaseMS=leaseMS; this.pollMS=pollMS; this.limit=limit; this.now=now;
     this.epoch=crypto.randomUUID(); this.sequence=0; this.acked=0; this.events=[];
     this.bindings=new Map(); this.work=new Map(); this.waiters=new Set(); this.owned=new Set(); this.closed=false;
-    if (controller.scriptFactory) controller.scriptFactory.mailObserverSink=(provider, slot, kind, reason) => this.observe(provider, slot, kind, reason);
-    this.timer=setInterval(() => this.tick(), 5000); this.timer.unref();
+    if (controller.scriptFactory) controller.scriptFactory.mailObserverSink=(provider, slot, kind, reason, targets) => this.observe(provider, slot, kind, reason, targets);
+    this.timer=setInterval(() => this.tick(), tickMS); this.timer.unref();
   }
 
   auth(input, proof=false) {
@@ -67,7 +82,7 @@ export class MailObserverFeed {
     } finally {input.token='';}
   }
 
-  observe(provider,slot,kind,reason) {
+  observe(provider,slot,kind,reason,targets) {
     const b=this.bindings.get(provider);
     if (!b || b.identity!==slot.identity || this.now()>=this.expires) return;
     if (b.watchEpoch!==slot.epoch) {b.watchEpoch=slot.epoch; this.publish(b,'resync_required','document_replaced');}
@@ -76,23 +91,24 @@ export class MailObserverFeed {
       b.state=state; this.publish(b,'watch_state','state_changed');
       if (state==='degraded' || state==='login_required') this.publish(b,'resync_required','observer_degraded');
     }
-    if (kind==='mailbox_changed' && reasons.has(reason)) this.publish(b,kind,reason);
+    if (kind==='mailbox_changed' && reasons.has(reason)) this.publish(b,kind,reason,candidates(targets));
     else if (kind==='resync_required') this.publish(b,kind,'sequence_gap');
   }
 
-  publish(b,kind,reason) {
+  publish(b,kind,reason,targets=[]) {
     // Overflow replaces the entire backlog with one catch-up per binding.
     // Unacknowledged loss can never silently become an empty healthy feed.
     if (this.events.length>=this.limit) {
       this.events=[];
       for (const item of this.bindings.values()) this.append(item,'resync_required','buffer_overflow');
     }
-    this.append(b,kind,reason); this.notify();
+    this.append(b,kind,reason,targets); this.notify();
   }
-  append(b,kind,reason) {
+  append(b,kind,reason,targets=[]) {
     this.events.push({epoch:this.epoch,sequence:++this.sequence,provider:b.provider,owner_scope:b.owner_scope,
       mailbox_id:b.mailbox_id,binding_generation:b.binding_generation,credential_generation:this.generation,
-      watch_epoch:b.watchEpoch ?? '',kind,reason,state:b.state,observed_at:new Date(this.now()).toISOString()});
+      watch_epoch:b.watchEpoch ?? '',kind,reason,state:b.state,observed_at:new Date(this.now()).toISOString(),
+      ...(targets.length ? {targets} : {})});
   }
   notify() {for (const resolve of this.waiters) resolve(); this.waiters.clear();}
 

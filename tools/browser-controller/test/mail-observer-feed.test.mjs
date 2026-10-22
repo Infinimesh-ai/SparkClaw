@@ -73,3 +73,21 @@ test('rebinding rejects old document events and stop cannot be undone by an in-f
  feed.observe('gmail',old,'mailbox_changed','gmail_topic_invalidation');assert.equal(feed.sequence,seq);
  await feed.reconcile({...auth(),bindings:[]});await Promise.all([...feed.work.values()].map(w=>w.promise));assert.equal(slots.has('gmail'),false);
 });
+test('arrival candidates are forwarded in their exact bounded shape and never invent a target',async t=>{
+ const {feed,lease,slots}=await fixture(t);
+ const request=()=>({...auth(),epoch:lease.epoch});
+ feed.observe('gmail',slots.get('gmail'),'mailbox_changed','gmail_topic_invalidation',[{provider_message_id:'ZC0001-fixture'},{provider_item_id:'item-1',received_at:'2026-09-24T09:00:00Z'}]);
+ feed.observe('gmail',slots.get('gmail'),'mailbox_changed','gmail_topic_invalidation',[{provider_message_id:'x',subject:'private'}]);
+ feed.observe('gmail',slots.get('gmail'),'mailbox_changed','gmail_topic_invalidation');
+ const events=(await feed.poll(request())).events.filter(e=>e.kind==='mailbox_changed');
+ assert.equal(events.length,3);
+ assert.deepEqual(events[0].targets,[{provider_message_id:'ZC0001-fixture'},{provider_item_id:'item-1',received_at:'2026-09-24T09:00:00Z'}]);
+ assert.equal('targets' in events[1],false);assert.equal('targets' in events[2],false);
+ assert.equal(JSON.stringify(events).includes('private'),false);
+});
+test('watch events are read on the configured cadence',async t=>{
+ const {feed}=await fixture(t,{tickMS:20});
+ let polls=0;feed.controller.scriptFactory.pollWatch=async()=>{polls++;return null;};
+ await new Promise(resolve=>setTimeout(resolve,130));
+ assert.ok(polls>=3,`expected frequent watch reads, got ${polls}`);
+});

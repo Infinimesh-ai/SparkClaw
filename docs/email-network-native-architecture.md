@@ -473,6 +473,60 @@ Batching a mutation's guarded steps into one process, as `cli-read-batch.mjs` do
 for reads, is a separate follow-up; with the lane fix, it affects send latency
 only, not inbound work.
 
+### 9.5 QQ replay qualification and work2 release 33 (2026-10-22)
+
+The owner explicitly authorized publication, work2 deployment and new brief test
+messages, while prohibiting resends of historical unknown mail. App-CLI main
+`8a35bef` is published as immutable `0.3.0-sparkclaw.33`, paired with SparkClaw
+`28f87ea5`, Tampermonkey `5.5.0.16` and unchanged Bridge `1.0.29`. This round does
+not upgrade the Mac installation or ISCP. The mutation lanes in 9.4 are integrated.
+
+The QQ prototype now learns only a qualified `func=1` send; `func=2` draft saves
+cannot supply a template. A successful same-origin response must contain
+`head.ret=0` and `body.messageid`. After DOM confirmation, an independent
+`POST /list/maillist` read must join that identifier to a unique Sent row with
+`dirid=3`, the exact subject, sender and sole recipient. The normal receipt uses
+that row's `emailid`; the private journal retains both identifiers and the proof.
+A replay also takes a pre-send Sent baseline and rejects existing or ambiguous
+IDs. HTTP success alone is insufficient. The template is single-use, stays only
+in the same page's memory for at most 120 seconds, and clears old content,
+recipient and draft ID. Unknown outcomes never fall back or dispatch again.
+
+Qualified QQ send pages may remain warm under the explicit work2 opt-in. They
+have a separate mutation pool, verify the same document/account on reuse and
+clear round secrets and diagnostics while parked. The Controller refreshes the
+lease registration, abort signal and deadline before reloading secrets, so a
+previous lease's cancelled signal cannot poison a new send. Read pages retain
+their independent lane. Default deployments keep native send disabled.
+
+Release validation: App-CLI runtime **533/533**, Python **90/90**, generated assets,
+public-tree and exact wheel/runtime/source closure pass. Controller **294 passed,
+126 skipped**; Linux Go tests across **75 packages**, build/vet and WebChat build
+pass. The served WebChat's five files match the original deployment byte for
+byte; no UI source changed.
+
+work2 passed final release, service-health and preservation gates at
+**07:25:09 UTC**. All 41 business tables, 2,446 original workspace files, 76,892
+original receipt files and 92 historical unknown rows remain. Initial managed
+Reader import timed out twice. A temporary loopback-only diagnostic observed
+the new worker receiving empty managed storage, retrying eight times and then
+importing successfully. This supports a startup timing race, but the first two
+attempts lacked worker-console evidence and their exact cause is unproven.
+Normal startup then passed the complete installed/native gates; temporary
+launch overrides and the debug port were removed. Admission was paused during
+recovery; no database, ledger or browser profile was restored.
+
+The first fresh .33 DOM test was confirmed `sent` in **83.393 s** at the API
+(**63.686 s** inside the send adapter). Its template was rejected with
+`response_identifier`, so the second send was not attempted. The actual loaded
+QQ bundle defaults its send XHR to `responseType=json`; the .33 observer passed
+an empty string for that response type. This is a live qualification failure,
+not successful replay. Historical unknown rows stayed at 92 with no additions.
+The diagnostic collector also failed independently: Playwright's request client
+requested browser-wide cookies, which the formal Bridge rejects. Its zero
+records cannot establish that no network send occurred. The temporary client
+was revoked (HTTP 401 verified), and its credential file was deleted.
+
 ## 10. Cross-Project Impact
 
 - App-CLI (SparkClaw-owned fork) receives N1–N3 runtime changes as a paired

@@ -56,6 +56,7 @@ The design and implementation ledger below record the confirmed model and releas
 | [Email timeline incremental sync](email-timeline-incremental-sync-design.md) | Acceptance-gated true incrementality for QQ/Gmail/Outlook, dual watermarks, direct-local batch journal, one carry-forward retry, bounded overflow gaps, scheduler-free terminal warnings, and immediate Refresh |
 | [Mail cross-round reuse](email-cross-round-reuse.md) | Bounded owned-page/connection reuse, per-round identity checks, intake-proof freshness and cold/warm performance evidence |
 | [Email notification wakeups](email-notification-wakeup-design.md) | Accepted design, pending implementation: provider hints wake existing collection, 60-second periodic verification, independent observer lifetime, coalescing and recovery |
+| [Network-native mail architecture v4](email-network-native-architecture.md) | Proposed browser-session-only reorganization: exact push targets, learned native request templates with response proof, resident App-CLI control plane, narrowed locks and faster presentation-plane transport |
 | [Document workflows](document-workflows.md) | Structured reads, bounded edits, enrichment, preservation, and format coverage |
 | [External integrations](integrations.md) | LocalMind task MCP, Telegram, Weixin, speech transcription, and Infinimesh Info |
 | [LocalMind Workflows](localmind-task-workflow-design.md) | Implemented explicit text delegation with read/write approval separation, bounded status-query completion, contextual query, and cancel |

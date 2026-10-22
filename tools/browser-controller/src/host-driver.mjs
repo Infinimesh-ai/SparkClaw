@@ -225,6 +225,13 @@ export class ApplicationHostDriver {
       return {events, cursor: events.at(-1)?.sequence ?? cursor,
         gap: cursor > handle.sequence || Boolean(handle.events[0] && cursor < handle.events[0].sequence - 1)};
     }
+    const page = handle.page;
+    // A retained page still carries the retired lease's aborted signal and
+    // deadline. Refresh its authority before every page call, including the
+    // secret reload that is the first action of a newly admitted send.
+    page.registration = {...page.registration, ...spec.host.page};
+    page.signal = current.reservation ? AbortSignal.any([signal, current.reservation.abortController.signal]) : signal;
+    page.deadline = Date.now() + Math.min(spec.timeout_ms, 300000);
     if (method === 'setSecrets') {
       const secrets = args[0];
       if (!secrets || Object.keys(secrets).length > 104 || Object.entries(secrets).some(([key, value]) =>
@@ -240,9 +247,6 @@ export class ApplicationHostDriver {
       await handle.page.reloadSecrets();
       return true;
     }
-    const page = handle.page;
-    page.registration = {...page.registration, ...spec.host.page};
-    page.signal = current.reservation ? AbortSignal.any([signal, current.reservation.abortController.signal]) : signal; page.deadline = Date.now() + Math.min(spec.timeout_ms, 300000);
     if (method === 'download') {
       const destination = path.resolve(args[1]);
       const root = path.resolve(handle.resource.workspace_root ?? '');

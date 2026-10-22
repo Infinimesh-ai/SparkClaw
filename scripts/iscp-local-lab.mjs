@@ -265,12 +265,18 @@ export async function upLab(directory) {
   metadata.gateway_runtime_image_id = command("docker", ["image", "inspect", "sparkclaw-gateway:latest", "--format", "{{.Id}}"]);
   await writePrivateJSON(path.join(directory, "run.json"), metadata);
   if (containerState(metadata.gateway_container, metadata.lab_id)) command("docker", ["rm", "--force", metadata.gateway_container]);
+  // Opt-in private Gateway RPC timings for measurement runs (see iscp-object-gate.mjs).
+  const trace = [];
+  if (process.env.SPARKCLAW_LAB_GATEWAY_LATENCY_TRACE === "1") {
+    await fs.mkdir(path.join(directory, "evidence/gateway-trace"), { recursive: true, mode: 0o700 });
+    trace.push("--env", "SPARKCLAW_PRIVATE_LATENCY_TRACE_DIR=/lab/evidence/gateway-trace");
+  }
   command("docker", ["run", "--detach", "--name", metadata.gateway_container, "--label", `${labLabel}=${metadata.lab_id}`, "--network", metadata.network,
     "--user", String(process.getuid()), "--mount", `type=bind,source=${directory},target=/lab`, "--entrypoint", "/lab/bin/gateway-linux",
     "--env", `SPARKCLAW_DEPLOYMENT_ID=${metadata.deployment_id}`, "--env", "SPARKCLAW_DESKTOP_CLIENT_FILE=/lab/backend-client.json",
     "--env", "SPARKCLAW_WORKBENCH_ISCP_LOCAL_TEST=1", "--env", "SPARKCLAW_WORKBENCH_ISCP_CONFIG=/lab/gateway-container-helper.json",
     "--env", "SPARKCLAW_MODEL_CAPACITY_CATALOG=/lab/model.profiles.json", "--env", "SPARKCLAW_BROWSER_CHROMIUM_EXECUTABLE=", "--env", "SPARKCLAW_BROWSER_PROFILE_DIR=",
-    "--log-opt", "max-size=10m", "--log-opt", "max-file=2", "sparkclaw-gateway:latest", "-config", "/lab/gateway-config.json"]);
+    ...trace, "--log-opt", "max-size=10m", "--log-opt", "max-file=2", "sparkclaw-gateway:latest", "-config", "/lab/gateway-config.json"]);
   // No Gateway HTTP ports are published: all business calls use encrypted ISCP.
   await new Promise(resolve => setTimeout(resolve, 500));
   if (!containerState(metadata.gateway_container, metadata.lab_id)?.State.Running) throw new Error("Local Gateway startup failed; inspect its Docker log");

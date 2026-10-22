@@ -1,8 +1,9 @@
 import { VoiceDraftPersistence } from "../lib/voiceDraftPersistence";
+import { useConfirm } from "../components/confirmation";
 import { useBrowserLayout } from "../hooks/useBrowserLayout";
 import { useMessageScroll } from "../hooks/useMessageScroll";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Globe2, PanelLeft, Plus } from "lucide-react";
+import { ArrowLeft, Plus } from "lucide-react";
 import { ScheduleBar, ScheduleCreateDialog } from "../components/schedules";
 import { useLocalSchedules } from "./useLocalSchedules";
 import { SessionSidebar } from "../components/sidebar";
@@ -34,6 +35,7 @@ import type { VoiceDraftAnchor } from "../hooks/useVoiceInput";
 import { insertVoiceTranscript } from "../lib/voiceDraft";
 import { usePassiveNotifications } from "../hooks/usePassiveNotifications";
 import { NotificationCenter } from "../components/notificationCenter";
+import { ActionIcon } from "../components/ActionIcon";
 import type {
   Approval, ArtifactObject, AuditEvent, Client, ConnectorStatus, EpisodeSummary, EvalRun, Memory,
   MemoryCandidate, MessageAttachment, ModelCall, NotificationBinding, OwnerProfile, PublicConfig,
@@ -49,6 +51,8 @@ export function LocalWorkbench() {
   const store = clientStore()!;
   const desktop = desktopCapability()!;
   const [language, setLanguage] = useState<Language>(initialLanguage);
+  useEffect(() => { document.documentElement.lang = language === "zh" ? "zh-CN" : "en"; }, [language]);
+  const confirm = useConfirm(dictionaries[language]);
   const zh = language === "zh";
   const copy = workbenchCopy[language];
   const inspectorResize = useInspectorWidth();
@@ -217,7 +221,7 @@ export function LocalWorkbench() {
     await readContent(id);
   }, [desktop, store, selectDraft, capabilities.browser, readContent]);
   useEffect(() => {
-    applyAppearance();
+    const disposeAppearance = applyAppearance();
     let active = true;
     const connectionChanged = (status: DesktopConnectionStatus) => {
       if (active) {
@@ -236,7 +240,7 @@ export function LocalWorkbench() {
     const browserChanged = (state: DesktopState) => { if (active) setBrowserState(state); };
     if (connection?.backend && capabilities.browser && typeof desktop.state === "function") void desktop.state().then(browserChanged).catch(surfaceError);
     const unsubscribeBrowser = desktop.onState?.(browserChanged);
-    return () => { active = false; unsubscribe?.(); unsubscribeBrowser?.(); ++readGeneration.current; };
+    return () => { active = false; disposeAppearance(); unsubscribe?.(); unsubscribeBrowser?.(); ++readGeneration.current; };
   }, [desktop, store, surfaceError, capabilities.browser, connection?.backend?.origin]);
   useEffect(() => {
     let active = true;
@@ -325,7 +329,7 @@ export function LocalWorkbench() {
     });
   }
   async function deleteConversation(id: string) {
-    if (busyRef.current || !window.confirm(dictionaries[language].nav.confirmDeleteLocalSession)) return;
+    if (busyRef.current || !(await confirm(dictionaries[language].nav.confirmDeleteLocalSession, { danger: true }))) return;
     await action(async () => {
       await drafts.flush();
       ++readGeneration.current;
@@ -496,7 +500,7 @@ export function LocalWorkbench() {
     return () => window.removeEventListener("keydown", shortcut);
   });
 
-  return <div className={`shell workbench localWorkbench ${settings ? "settingsPageMode" : sidebarCollapsed ? "sidebarCollapsed" : ""}`}>
+  return <div className={`shell workbench glassWorkbench localWorkbench ${settings ? "settingsPageMode" : sidebarCollapsed ? "sidebarCollapsed" : ""}`}>
     {settings ? <WorkspaceSettingsSidebar text={text} language={language} tab={tab}
       pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length} onTabChange={setTab} onBack={() => setSettings(false)} /> : <SessionSidebar
       text={text} language={language} page={page} ownerProfile={ownerProfile}
@@ -515,14 +519,14 @@ export function LocalWorkbench() {
     />}
     <main ref={browserLayout.workspaceRef} className={`${settings ? "settingsPageMain" : "workspace desktopWorkbench"} ${capabilities.browser && browserOpen && !settings && page === "chat" ? "withInspector" : ""} ${inspectorResize.resizing ? "resizingInspector" : ""} ${browserLayout.className}`} style={settings ? undefined : inspectorResize.style} aria-busy={busy}>
       {!settings && <header className="topbar">
-        <button className="iconButton sidebarToggle" type="button" aria-label={copy.toggleNav} onClick={() => setSidebarCollapsed((current) => !current)}><PanelLeft size={18} /></button>
+        <button className="iconButton sidebarToggle" type="button" aria-label={copy.toggleNav} onClick={() => setSidebarCollapsed((current) => !current)}><ActionIcon name="panel-left" /></button>
         <span className="workspaceLabel">{copy.local}</span>
         <div className="topbarActions">
           <NotificationCenter notifications={passiveNotifications.notifications} unreadCount={passiveNotifications.unreadCount}
             open={passiveNotifications.open} toast={passiveNotifications.toast} error={passiveNotifications.error}
             language={language} text={text} onToggle={() => passiveNotifications.setOpen((current) => !current)}
             onDismissToast={passiveNotifications.dismissToast} onRead={passiveNotifications.markRead} onReadAll={passiveNotifications.markAllRead} />
-          {typeof desktop.state === "function" && <button disabled={!capabilities.browser || connection?.state !== "connected"} className={`iconButton rightSidebarToggle ${browserOpen ? "active" : ""}`} type="button" ref={browserLayout.triggerRef} aria-label={browserLayout.visible ? (zh ? "收起浏览器" : "Collapse browser") : (zh ? "打开浏览器" : "Open browser")} title={!capabilities.browser || connection?.state !== "connected" ? (zh ? "浏览器暂时不可用" : "Browser unavailable") : browserLayout.visible ? (zh ? "收起浏览器" : "Collapse browser") : (zh ? "打开浏览器" : "Open browser")} aria-expanded={browserLayout.visible} onClick={toggleBrowser}><Globe2 size={18} /></button>}
+          {typeof desktop.state === "function" && <button disabled={!capabilities.browser || connection?.state !== "connected"} className={`iconButton rightSidebarToggle ${browserOpen ? "active" : ""}`} type="button" ref={browserLayout.triggerRef} aria-label={browserLayout.visible ? (zh ? "收起浏览器" : "Collapse browser") : (zh ? "打开浏览器" : "Open browser")} title={!capabilities.browser || connection?.state !== "connected" ? (zh ? "浏览器暂时不可用" : "Browser unavailable") : browserLayout.visible ? (zh ? "收起浏览器" : "Collapse browser") : (zh ? "打开浏览器" : "Open browser")} aria-expanded={browserLayout.visible} onClick={toggleBrowser}><ActionIcon name="globe" active={browserLayout.visible} /></button>}
         </div>
       </header>}
       {error && <div className="localFeedback" role="alert"><p>{error}</p><button type="button" onClick={() => void reload().then(async () => { if (iscp && connection?.state === "connected") await refreshGlobal(); setError(""); }).catch(surfaceError)}>{zh ? "重试读取" : "Retry loading"}</button></div>}
@@ -570,6 +574,7 @@ export function LocalWorkbench() {
           loginEnabled: false,
           resumeEnabled: connection?.state === "connected" && surfaceEnabled(connection, "mail_settings"),
           loginNotice: settingsAccess.emailLoginNotice,
+          accountsEnabled: connection?.state === "connected" && surfaceEnabled(connection, "mail_accounts"),
           sendEnabled: connection?.state === "connected" && surfaceEnabled(connection, "mail_send"),
           attachmentsEnabled: connection?.state === "connected" && surfaceEnabled(connection, "mail_send_attachments"),
           listFiles: store.listFiles, conversationID: selected,
@@ -615,6 +620,7 @@ export function LocalWorkbench() {
           }} onClose={() => setDocumentPickerOpen(false)} />}
         </section>
         {page === "schedules" && <div className="workbenchPage schedulePage">
+          <button className="secondaryButton workbenchPageBack" type="button" onClick={() => { setPage("chat"); setTab("timeline"); }}><ArrowLeft size={16} strokeWidth={1.75} aria-hidden="true" />{copy.backToHome}</button>
           <div className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div><button className="primaryButton" onClick={() => setScheduleCreateOpen(true)} disabled={busy || Boolean(localSchedules.busyID) || voice.active}><Plus size={15} />{copy.newSchedule}</button></div>
           <ScheduleBar key={localScopeKey} schedules={localSchedules.schedules} open={scheduleBarOpen} loading={localSchedules.loading} busyId={localSchedules.busyID}
             language={language} text={text} onToggle={() => setScheduleBarOpen(value => !value)}

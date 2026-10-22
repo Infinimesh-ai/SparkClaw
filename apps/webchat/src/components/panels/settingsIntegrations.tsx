@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useConfirm } from "../confirmation";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, CircleAlert, KeyRound, LoaderCircle, Plus, Power, RefreshCw, ServerCog, Trash2 } from "lucide-react";
 import { api } from "../../api/client";
 import type { IntegrationID, IntegrationStatus } from "../../api/types";
@@ -34,13 +35,22 @@ export function IntegrationCredentialSettings({
   onStatus: (status: IntegrationStatus) => void;
   loadStatus?: (id: IntegrationID) => Promise<IntegrationStatus>;
 }) {
+  const confirm = useConfirm(text);
   const [label, setLabel] = useState("");
   const [licenseId, setLicenseId] = useState("");
   const [licenseKey, setLicenseKey] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [bearerToken, setBearerToken] = useState("");
-  const [busy, setBusy] = useState("");
+  const [busy, setBusyState] = useState("");
+  const busyRef = useRef("");
+  const mountedRef = useRef(true);
+  function setBusy(next: string) { busyRef.current = next; setBusyState(next); }
   const [feedback, setFeedback] = useState<CredentialFeedback | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     if (status) return;
@@ -66,7 +76,7 @@ export function IntegrationCredentialSettings({
   }
 
   async function run(key: string, action: () => Promise<IntegrationStatus>, options: RunOptions = {}) {
-    if (busy) return;
+    if (busyRef.current || !mountedRef.current) return;
     setBusy(key);
     setFeedback(null);
     try {
@@ -128,20 +138,20 @@ export function IntegrationCredentialSettings({
   // active selection is a no-op.
   const activationHealthy = Boolean(status && (status.state === "ready" || status.state === "configured"));
 
-  function activateCredential(credentialId: string) {
+  async function activateCredential(credentialId: string) {
     if (!status || (status.active_credential_id === credentialId && activationHealthy)) return;
-    if (status.configured && !window.confirm(text.settings.switchCredentialConfirm)) return;
+    if (status.configured && !(await confirm(text.settings.switchCredentialConfirm))) return;
     void run(`activate:${credentialId}`, () => api.activateIntegrationCredential(id, credentialId));
   }
 
-  function activateOperator() {
+  async function activateOperator() {
     if (!status || (status.source === "operator" && activationHealthy)) return;
-    if (status.configured && !window.confirm(text.settings.switchCredentialConfirm)) return;
+    if (status.configured && !(await confirm(text.settings.switchCredentialConfirm))) return;
     void run("activate:operator", () => api.activateIntegrationOperator(id));
   }
 
-  function deleteCredential(credentialId: string) {
-    if (!window.confirm(text.settings.deleteCredentialConfirm)) return;
+  async function deleteCredential(credentialId: string) {
+    if (!(await confirm(text.settings.deleteCredentialConfirm, { danger: true }))) return;
     void run(`delete:${credentialId}`, () => api.deleteIntegrationCredential(id, credentialId));
   }
 

@@ -1,8 +1,9 @@
+import { useConfirm } from "../components/confirmation";
 // Session create/rename/delete plus the rename-form state, which route
 // through the gateway session endpoints and reset the per-session UI state
 // owned by the parent. Extracted from App.tsx so the root component stays
 // below the size baseline.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { api } from "../api/client";
 import type {
@@ -59,9 +60,16 @@ export function useSessionCrud({
   refreshSession,
   refreshGlobal
 }: Options) {
+  const confirm = useConfirm(text);
   const [editingSession, setEditingSession] = useState("");
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [sessionActionId, setSessionActionId] = useState("");
+  const sessionActionRef = useRef("");
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   async function createSession() {
     try {
@@ -94,8 +102,9 @@ export function useSessionCrud({
 
   async function renameSession(id: string) {
     const title = sessionTitleDraft.trim();
-    if (!title || sessionActionId) return;
+    if (!title || sessionActionRef.current || !mountedRef.current) return;
     try {
+      sessionActionRef.current = id;
       setSessionActionId(id);
       setError("");
       const updated = await api.updateSession(id, title);
@@ -104,13 +113,16 @@ export function useSessionCrud({
     } catch (err) {
       surfaceError(err, text.errors.renameSession);
     } finally {
+      sessionActionRef.current = "";
       setSessionActionId("");
     }
   }
 
   async function deleteSession(id: string) {
-    if (sessionActionId || !window.confirm(text.nav.confirmDeleteSession)) return;
+    if (sessionActionRef.current || !(await confirm(text.nav.confirmDeleteSession, { danger: true }))) return;
+    if (sessionActionRef.current || !mountedRef.current) return;
     try {
+      sessionActionRef.current = id;
       setSessionActionId(id);
       setError("");
       await api.deleteSession(id);
@@ -133,6 +145,7 @@ export function useSessionCrud({
     } catch (err) {
       surfaceError(err, text.errors.deleteSession);
     } finally {
+      sessionActionRef.current = "";
       setSessionActionId("");
     }
   }

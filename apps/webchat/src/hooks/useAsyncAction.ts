@@ -8,6 +8,7 @@ type AsyncActionOptions = {
 export function useAsyncAction({ clearError, onError }: AsyncActionOptions = {}) {
   const [busy, setBusy] = useState("");
   const mountedRef = useRef(true);
+  const runningRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -17,7 +18,8 @@ export function useAsyncAction({ clearError, onError }: AsyncActionOptions = {})
   }, []);
 
   async function run<T>(action: string, task: () => Promise<T>): Promise<T | undefined> {
-    if (busy) return undefined;
+    if (!mountedRef.current || runningRef.current) return undefined;
+    runningRef.current = true;
     setBusy(action);
     clearError?.();
     try {
@@ -26,6 +28,7 @@ export function useAsyncAction({ clearError, onError }: AsyncActionOptions = {})
       if (mountedRef.current) onError?.(error);
       return undefined;
     } finally {
+      runningRef.current = false;
       if (mountedRef.current) setBusy("");
     }
   }

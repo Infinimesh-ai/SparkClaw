@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
-import type { EmailConversation, EmailMessage, EmailSyncStatus } from "../api/email";
+import type { EmailConversation, EmailDraft, EmailMessage, EmailSyncStatus } from "../api/email";
 import { dictionaries } from "../i18n";
 import { EmailPopupEntry } from "./emailPopup";
 
@@ -16,6 +16,7 @@ describe("email popup owner flow", () => {
   let root: ReturnType<typeof createRoot>;
   let container: HTMLElement;
   beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.useFakeTimers();
     const storage = new Map<string, string>();
     Object.defineProperty(window, "localStorage", { configurable: true, value: { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => storage.set(k, v), removeItem: (k: string) => storage.delete(k) } });
@@ -36,7 +37,7 @@ describe("email popup owner flow", () => {
     vi.spyOn(api, "updateEmailIntake").mockResolvedValue({ mailbox: { ...status.mailboxes[0], version: 4, intake_enabled: false } });
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   });
-  afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.useRealTimers(); });
+  afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals(); });
   function button(label: string) {
     const match = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.getAttribute("aria-label") === label || element.textContent?.trim() === label);
     if (!match) throw new Error(`Missing button ${label}`);
@@ -48,6 +49,208 @@ describe("email popup owner flow", () => {
     await act(async () => trigger.click());
     return trigger;
   }
+  async function edit(element: HTMLInputElement | HTMLTextAreaElement, value: string) {
+    const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(element, value);
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+  async function chooseAddress(value: string) {
+    await act(async () => {
+      const select = document.body.querySelector<HTMLSelectElement>(".emailAddressFilter select")!;
+      select.value = value; select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+
+  it("toggles an empty composer closed and open again without closing the mail popup", async () => {
+    const save = vi.spyOn(api, "saveEmailDraft").mockRejectedValue(new Error("An empty composer must not save"));
+    const send = vi.spyOn(api, "sendEmailDraft").mockRejectedValue(new Error("Toggling must not send mail"));
+    await open();
+    const popup = document.body.querySelector("dialog[open]")!;
+    const compose = button(text.email.compose);
+    expect(compose.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => compose.click());
+    expect(compose.getAttribute("aria-expanded")).toBe("true");
+    expect(document.body.querySelector(".emailComposer")).not.toBeNull();
+    await act(async () => compose.click());
+    expect(compose.getAttribute("aria-expanded")).toBe("false");
+    expect(document.body.querySelector(".emailComposer")).toBeNull();
+    expect(document.body.querySelector("dialog[open]")).toBe(popup);
+
+    await act(async () => compose.click());
+    expect(compose.getAttribute("aria-expanded")).toBe("true");
+    expect(document.body.querySelector<HTMLTextAreaElement>(".emailComposer textarea")?.value).toBe("");
+    expect(document.body.querySelector("dialog[open]")).toBe(popup);
+    expect(save).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("waits for the edited composer to save before toggling closed and ignores repeated clicks while saving", async () => {
+    const savedDraft: EmailDraft = { id: "toggle-saved-draft", version: 1, mailbox_id: "account-1", mode: "compose", to: [], cc: [], subject: "", body: "Keep this draft before I leave", state: "draft" };
+    let finishSave!: (draft: EmailDraft) => void;
+    const save = vi.spyOn(api, "saveEmailDraft").mockImplementation(() => new Promise(resolve => { finishSave = resolve; }));
+    const send = vi.spyOn(api, "sendEmailDraft").mockRejectedValue(new Error("Toggling must not send mail"));
+    await open();
+    const popup = document.body.querySelector("dialog[open]")!;
+    const compose = button(text.email.compose);
+    await act(async () => compose.click());
+    const composer = document.body.querySelector(".emailComposer")!;
+    await edit(composer.querySelector("textarea")!, savedDraft.body);
+
+    await act(async () => compose.click());
+    expect(save).toHaveBeenCalledOnce();
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ id: expect.any(String), expected_version: 0, mailbox_id: "account-1", mode: "compose", body: savedDraft.body }));
+    expect(compose.getAttribute("aria-expanded")).toBe("true");
+    expect(document.body.querySelector(".emailComposer")).toBe(composer);
+    expect(composer.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(savedDraft.body);
+    expect(compose.closest("fieldset")?.disabled).toBe(true);
+    await act(async () => compose.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(save).toHaveBeenCalledOnce();
+
+    await act(async () => finishSave(savedDraft));
+    expect(document.body.querySelector(".emailComposer")).toBeNull();
+    expect(compose.getAttribute("aria-expanded")).toBe("false");
+    expect(compose.closest("fieldset")?.disabled).toBe(false);
+    expect(document.body.querySelector("dialog[open]")).toBe(popup);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("keeps an edited composer open after a failed save and closes it only after a successful retry", async () => {
+    const savedDraft: EmailDraft = { id: "toggle-retried-draft", version: 1, mailbox_id: "account-1", mode: "compose", to: [], cc: [], subject: "", body: "Do not lose this unsaved draft", state: "draft" };
+    const save = vi.spyOn(api, "saveEmailDraft").mockRejectedValueOnce(new Error("Offline")).mockResolvedValueOnce(savedDraft);
+    const send = vi.spyOn(api, "sendEmailDraft").mockRejectedValue(new Error("Toggling must not send mail"));
+    await open();
+    const popup = document.body.querySelector("dialog[open]")!;
+    const compose = button(text.email.compose);
+    await act(async () => compose.click());
+    const composer = document.body.querySelector(".emailComposer")!;
+    await edit(composer.querySelector("textarea")!, savedDraft.body);
+
+    await act(async () => compose.click());
+    expect(save).toHaveBeenCalledOnce();
+    expect(document.body.querySelector(".emailComposer")).toBe(composer);
+    expect(composer.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(savedDraft.body);
+    expect(compose.getAttribute("aria-expanded")).toBe("true");
+    expect(compose.closest("fieldset")?.disabled).toBe(false);
+    expect(composer.querySelector('[role="alert"]')?.textContent).toContain(text.email.actionFailed);
+    expect(document.body.querySelector("dialog[open]")).toBe(popup);
+
+    await act(async () => compose.click());
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save.mock.calls[1][0]).toEqual(save.mock.calls[0][0]);
+    expect(document.body.querySelector(".emailComposer")).toBeNull();
+    expect(compose.getAttribute("aria-expanded")).toBe("false");
+    expect(document.body.querySelector("dialog[open]")).toBe(popup);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("retains reply intent across conversations, category switches and closing the popup", async () => {
+    vi.mocked(api.emailMessages).mockImplementation(async id => ({ version: 1, messages: [mail(`intent-${id}`)] }));
+    await open();
+    const row = (index: number) => document.body.querySelectorAll<HTMLButtonElement>(".emailConversationRow")[index];
+    await act(async () => row(0).click());
+    await edit(document.body.querySelector(".emailReplyComposer textarea")!, "Keep this proposal until I return");
+    await act(async () => row(1).click());
+    await act(async () => row(0).click());
+    expect(document.body.querySelector<HTMLTextAreaElement>(".emailReplyComposer textarea")?.value).toBe("Keep this proposal until I return");
+    await act(async () => button(text.email.information).click());
+    await act(async () => button(text.email.interactions).click());
+    expect(document.body.querySelector<HTMLTextAreaElement>(".emailReplyComposer textarea")?.value).toBe("Keep this proposal until I return");
+    await act(async () => button(text.common.close).click());
+    await act(async () => button(text.email.title).click());
+    expect(document.body.querySelector<HTMLTextAreaElement>(".emailReplyComposer textarea")?.value).toBe("Keep this proposal until I return");
+    await edit(document.body.querySelector(".emailReplyComposer textarea")!, "");
+  });
+
+  it("blocks every view transition when the current reply cannot be saved", async () => {
+    vi.mocked(api.emailMessages).mockImplementation(async id => ({ version: 1, messages: [mail(`blocked-${id}`)] }));
+    vi.mocked(api.emailSyncStatus).mockResolvedValue({ ...status, mailboxes: [...status.mailboxes, { ...status.mailboxes[0], id: "account-2", address: "second@example.com" }] });
+    const draft: EmailDraft = { id: "blocked-draft", version: 1, mailbox_id: "account-1", mode: "reply", reply_mail_id: "blocked-purchase", to: ["vendor@example.com"], cc: [], subject: "Reply", body: "Generated body", state: "draft" };
+    vi.spyOn(api, "polishEmailReply").mockResolvedValue(draft);
+    const save = vi.spyOn(api, "saveEmailDraft").mockRejectedValue(new Error("Offline"));
+    const read = vi.spyOn(api, "emailDraft");
+    await open();
+    await act(async () => document.body.querySelectorAll<HTMLButtonElement>(".emailConversationRow")[0].click());
+    await edit(document.body.querySelector(".emailReplyComposer textarea")!, "Generate the reply");
+    await act(async () => button(text.email.polishReply).click());
+    await edit(document.body.querySelector(".emailReplyComposer textarea")!, "Unsaved local correction");
+    await act(async () => document.body.querySelectorAll<HTMLButtonElement>(".emailConversationRow")[1].click());
+    await act(async () => button(text.email.information).click());
+    await chooseAddress("account-2");
+    await edit(document.body.querySelector(".emailSearch input")!, "different topic");
+    await act(async () => document.body.querySelector(".emailFilters")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await act(async () => button(text.common.close).click());
+    expect(document.body.querySelector("dialog")).not.toBeNull();
+    expect(document.body.querySelector(".emailDetailHeader h2")?.textContent).toBe("Procurement");
+    expect(document.body.querySelector<HTMLSelectElement>(".emailAddressFilter select")?.value).toBe("");
+    expect(document.body.querySelector<HTMLTextAreaElement>(".emailReplyComposer textarea")?.value).toBe("Unsaved local correction");
+    expect(save).toHaveBeenCalledTimes(5); expect(read).not.toHaveBeenCalled();
+    expect(api.emailMessages).not.toHaveBeenCalledWith("payment", expect.anything(), expect.anything());
+    expect(api.emailConversations).toHaveBeenLastCalledWith(expect.objectContaining({ mailbox_id: "", q: "", entry: "interaction" }), expect.any(AbortSignal));
+  });
+
+  it("clears stale details on address or search changes and restores the complete scope on reopen", async () => {
+    vi.mocked(api.emailSyncStatus).mockResolvedValue({ ...status, mailboxes: [...status.mailboxes, { ...status.mailboxes[0], id: "account-2", address: "second@example.com" }] });
+    await open();
+    await act(async () => document.body.querySelectorAll<HTMLButtonElement>(".emailConversationRow")[0].click());
+    await chooseAddress("account-2");
+    expect(document.body.querySelector(".emailDetailHeader h2")).toBeNull();
+    expect(document.body.querySelector(".emailReplyComposer")).toBeNull();
+    expect(api.emailConversations).toHaveBeenLastCalledWith(expect.objectContaining({ mailbox_id: "account-2" }), expect.any(AbortSignal));
+    await act(async () => document.body.querySelectorAll<HTMLButtonElement>(".emailConversationRow")[1].click());
+    await edit(document.body.querySelector(".emailSearch input")!, "budget");
+    await act(async () => document.body.querySelector(".emailFilters")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(document.body.querySelector(".emailDetailHeader h2")).toBeNull();
+    expect(api.emailConversations).toHaveBeenLastCalledWith(expect.objectContaining({ mailbox_id: "account-2", q: "budget" }), expect.any(AbortSignal));
+    await act(async () => document.body.querySelectorAll<HTMLButtonElement>(".emailConversationRow")[1].click());
+    await act(async () => button(text.common.close).click());
+    await act(async () => button(text.email.title).click());
+    expect(document.body.querySelector<HTMLSelectElement>(".emailAddressFilter select")?.value).toBe("account-2");
+    expect(document.body.querySelector<HTMLInputElement>(".emailSearch input")?.value).toBe("budget");
+    expect(document.body.querySelector(".emailDetailHeader h2")?.textContent).toBe("Payment");
+    expect(api.emailConversations).toHaveBeenLastCalledWith(expect.objectContaining({ mailbox_id: "account-2", q: "budget" }), expect.any(AbortSignal));
+  });
+
+  it("finishes saving before navigation and ignores a competing transition while saving", async () => {
+    vi.mocked(api.emailMessages).mockImplementation(async id => ({ version: 1, messages: [mail(`saving-${id}`)] }));
+    const draft: EmailDraft = { id: "save-before-navigation", version: 1, mailbox_id: "account-1", mode: "reply", reply_mail_id: "saving-purchase", to: ["vendor@example.com"], cc: [], subject: "Reply", body: "Generated body", state: "draft" };
+    vi.spyOn(api, "polishEmailReply").mockResolvedValue(draft);
+    let finishSave!: (draft: EmailDraft) => void;
+    const save = vi.spyOn(api, "saveEmailDraft").mockImplementation(() => new Promise(resolve => { finishSave = resolve; }));
+    const savedDraft = { ...draft, version: 2, body: "The saved revision" };
+    vi.spyOn(api, "emailDraft").mockResolvedValue(savedDraft);
+    await open();
+    await act(async () => document.body.querySelectorAll<HTMLButtonElement>(".emailConversationRow")[0].click());
+    await edit(document.body.querySelector(".emailReplyComposer textarea")!, "Generate my reply");
+    await act(async () => button(text.email.polishReply).click());
+    await edit(document.body.querySelector(".emailReplyComposer textarea")!, savedDraft.body);
+    await act(async () => document.body.querySelectorAll<HTMLButtonElement>(".emailConversationRow")[1].click());
+    expect(document.body.querySelector(".emailDetailHeader h2")?.textContent).toBe("Procurement");
+    await act(async () => button(text.email.information).dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(save).toHaveBeenCalledOnce();
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ id: draft.id, body: savedDraft.body, expected_version: 1 }));
+    await act(async () => finishSave(savedDraft));
+    expect(document.body.querySelector(".emailDetailHeader h2")?.textContent).toBe("Payment");
+    expect(api.emailConversations).toHaveBeenLastCalledWith(expect.objectContaining({ entry: "interaction" }), expect.any(AbortSignal));
+    await act(async () => document.body.querySelectorAll<HTMLButtonElement>(".emailConversationRow")[0].click());
+    expect(document.body.querySelector<HTMLTextAreaElement>(".emailReplyComposer textarea")?.value).toBe(savedDraft.body);
+  });
+
+  it("keeps the reply target fixed while writing when newer incoming mail arrives", async () => {
+    const original = { ...mail("stable-original"), from: "original@example.com" };
+    vi.mocked(api.emailMessages).mockResolvedValue({ version: 1, messages: [original] });
+    await open();
+    await act(async () => document.body.querySelectorAll<HTMLButtonElement>(".emailConversationRow")[0].click());
+    await edit(document.body.querySelector(".emailReplyComposer textarea")!, "Do not change the recipient while I write");
+    vi.mocked(api.emailMessages).mockResolvedValue({ version: 2, messages: [original, { ...mail("newer-arrival"), from: "new@example.com", arrived_at: "2026-09-10T08:00:00Z" }] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(document.body.querySelector<HTMLTextAreaElement>(".emailReplyComposer textarea")?.value).toBe("Do not change the recipient while I write");
+    expect(document.body.querySelector(".emailReplyComposer .emailReplyRecipient")?.textContent).toContain("original@example.com");
+    expect(document.body.querySelector(".emailReplyComposer .emailReplyRecipient")?.textContent).not.toContain("new@example.com");
+    await edit(document.body.querySelector(".emailReplyComposer textarea")!, "");
+  });
 
   it.each(["recipient@example.test", undefined])("uses a verified Outlook filter label while keeping mailbox-ID requests (%s)", async deliveryAddress => {
     const outlook = { ...status.mailboxes[0], provider: "outlook" as const, address: "outlook_internal@outlook.com", delivery_address: deliveryAddress, account_aliases: deliveryAddress ? [deliveryAddress] : undefined };
@@ -108,6 +311,34 @@ describe("email popup owner flow", () => {
     expect(popup.querySelector("fieldset")!.disabled).toBe(false);
     expect(document.body.querySelector("dialog input")).toBe(input);
     expect(input.value).toBe("unsaved search");
+  });
+
+  it("lets Escape dismiss a sender-rule native picker before closing the mail dialog", async () => {
+    vi.spyOn(api, "emailSenderRules").mockResolvedValue({ rules: [{ id: "rule", address: "vendor@example.com", entry: "interaction", revision: 1, enabled: true }] });
+    const supports = vi.fn((condition: string) => condition === "selector(select:open)");
+    vi.stubGlobal("CSS", { supports });
+    const trigger = await open();
+    await act(async () => button(text.email.senderRules).click());
+    const popup = document.body.querySelector("dialog")!;
+    const select = popup.querySelector<HTMLSelectElement>(".emailRules select")!;
+    expect(select).not.toBeNull();
+    const nativeMatches = select.matches.bind(select);
+    let pickerOpen = true;
+    vi.spyOn(select, "matches").mockImplementation((selector) => selector === ":open" ? pickerOpen : nativeMatches(selector));
+    select.focus();
+
+    const dismissPicker = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    await act(async () => select.dispatchEvent(dismissPicker));
+    expect(supports).toHaveBeenCalledWith("selector(select:open)");
+    expect(document.body.querySelector("dialog")).toBe(popup);
+    expect(dismissPicker.defaultPrevented).toBe(false);
+
+    pickerOpen = false;
+    const dismissMail = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    await act(async () => select.dispatchEvent(dismissMail));
+    expect(document.body.querySelector("dialog")).toBeNull();
+    expect(dismissMail.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("shows localized message summaries without a conversation overview and keeps source details safe", async () => {

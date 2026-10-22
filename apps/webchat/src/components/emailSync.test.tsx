@@ -10,6 +10,8 @@ import { emailErrorLabel } from "./emailCommon";
 import { MailWorkspaceContext } from "../desktop/MailWorkspaceContext";
 import { EmailSync } from "./emailSync";
 
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
 const text = dictionaries.en;
 const warning: EmailSyncWarning = {
   id: "warning-qq", mailbox_id: "mailbox-qq", warning_ref: "local-warning-1",
@@ -54,21 +56,22 @@ describe("email sync persistent warnings and Refresh", () => {
     vi.spyOn(api, "emailSyncWarnings").mockResolvedValue({ items: [{ ...warning }] });
     vi.spyOn(api, "acknowledgeEmailSyncWarning").mockResolvedValue({ ...warning, acknowledged_at: "2026-09-16T00:00:00Z" });
     vi.spyOn(api, "updateEmailIntake");
-    vi.spyOn(api, "cleanupEmailSource");
+    vi.spyOn(api, "emailAccounts").mockRejectedValue(new Error("Legacy account listing unavailable"));
+    vi.spyOn(api, "cleanupEmailSource").mockResolvedValue({ scope: "all", purged: 2, freed_bytes: 1024, partial: false });
   });
   afterEach(() => {
     act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.clearAllMocks(); vi.useRealTimers();
   });
   // Match EmailPopup's error callback + safe user-facing label contract without
   // bringing unrelated conversation, body, and provider polling into this test.
-  function Harness({ value }: { value: EmailSyncStatus }) {
+  function Harness({ value, mailboxId = "mailbox-gmail" }: { value: EmailSyncStatus; mailboxId?: string }) {
     const [reason, setReason] = useState<unknown>(null);
-    return <><EmailSync status={value} providers={providers} mailboxId="mailbox-gmail"
+    return <><EmailSync status={value} providers={providers} mailboxId={mailboxId}
       text={text} language="en" onRefresh={refresh}
       onError={(failure) => { error(failure); setReason(failure); }} />
       {reason ? <div role="alert" data-testid="action-error">{emailErrorLabel(reason, text)}</div> : null}</>;
   }
-  async function render(value = status()) { await act(async () => root.render(<Harness value={value} />)); }
+  async function render(value = status(), mailboxId = "mailbox-gmail") { await act(async () => root.render(<Harness value={value} mailboxId={mailboxId} />)); }
   function buttons(label: string) {
     return [...container.querySelectorAll<HTMLButtonElement>("button")].filter((button) => button.textContent === label);
   }
@@ -86,12 +89,13 @@ describe("email sync persistent warnings and Refresh", () => {
     await act(async () => root.render(<EmailSync status={value} providers={[outlook]} mailboxId={mailbox.id} text={text} language="en" onRefresh={refresh} onError={error} />));
     expect(container.querySelector(".emailLoginRecovery strong")?.textContent).toBe(deliveryAddress || "Outlook");
     await click(text.email.receivingSettings);
-    expect(container.querySelector(".emailIntakeRow small")?.textContent).toBe(deliveryAddress || "Outlook");
+    expect(container.querySelector(".emailAccountRow strong")?.textContent).toBe(deliveryAddress || "Outlook");
     expect(container.querySelector(".emailCoverage strong")?.textContent).toBe(deliveryAddress || "Outlook");
     expect(container.textContent).not.toContain(mailbox.address);
     await act(async () => container.querySelector<HTMLInputElement>("input[type=checkbox]")!.click());
     expect(api.updateEmailIntake).toHaveBeenCalledWith("outlook", false, 3);
     await click(text.email.cleanupMailbox);
+    await click(text.email.cleanupConfirmAction);
     expect(api.cleanupEmailSource).toHaveBeenCalledWith(expect.objectContaining({ scope: "mailbox", mailbox_id: mailbox.id }));
   });
 
@@ -132,7 +136,7 @@ describe("email sync persistent warnings and Refresh", () => {
   }
 
   it("shows aggregate unacknowledged warnings while collapsed without fetching details", async () => {
-    await render();
+    await render(status(), "");
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(`${text.email.syncWarnings}: 3`);
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(text.email.suppressedWarning);
     expect(api.emailSyncWarnings).not.toHaveBeenCalled();
@@ -169,7 +173,7 @@ describe("email sync persistent warnings and Refresh", () => {
     expect(api.syncEmail).toHaveBeenCalledExactlyOnceWith("mailbox-gmail");
     expect(refresh).toHaveBeenCalledOnce();
     expect(container.textContent).toContain(text.email.syncScheduled);
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(`${text.email.syncWarnings}: 3`);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(`${text.email.syncWarnings}: 2`);
     expect(api.acknowledgeEmailSyncWarning).not.toHaveBeenCalled(); noReceiveSideEffects();
   });
 
@@ -301,7 +305,7 @@ describe("email sync persistent warnings and Refresh", () => {
     expect(container.querySelector('[data-testid="action-error"]')?.textContent).toBe(emailErrorLabel(failure, text));
     expect(container.textContent).not.toContain(failure.message);
     expect(container.textContent).toContain(warning.warning_ref);
-    expect(container.querySelector('.emailCapacityWarning[role="alert"]')?.textContent).toContain(`${text.email.syncWarnings}: 3`);
+    expect(container.querySelector('.emailCapacityWarning[role="alert"]')?.textContent).toContain(`${text.email.syncWarnings}: 2`);
     expect(buttons(text.email.sync)[0].disabled).toBe(false);
     expect(refresh).not.toHaveBeenCalled(); noReceiveSideEffects();
     if (operation !== "sync") expect(api.syncEmail).not.toHaveBeenCalled();
@@ -310,7 +314,7 @@ describe("email sync persistent warnings and Refresh", () => {
     const value: EmailSyncStatus = { version: 2, backlog: 0, pending_count: 0, mailboxes: [], provider_versions: { qq_mail: 1 } };
     vi.mocked(api.updateEmailIntake).mockRejectedValueOnce({ status: 409, code: "email_intake_not_applied" });
     await render(value); await click(text.email.receivingSettings);
-    const toggle = container.querySelector<HTMLInputElement>('input[aria-label="QQ Mail: ' + text.email.receive + '"]')!;
+    const toggle = container.querySelector<HTMLInputElement>('.emailAccountGroup[aria-label="QQ Mail"] input[aria-label$=": ' + text.email.accountReceiveLabel + '"]')!;
     expect(toggle).not.toBeNull(); expect(toggle.checked).toBe(false); expect(toggle.disabled).toBe(false);
     await act(async () => toggle.click());
     expect(api.updateEmailIntake).toHaveBeenCalledExactlyOnceWith("qq_mail", true, 1);
@@ -320,4 +324,103 @@ describe("email sync persistent warnings and Refresh", () => {
     expect(container.querySelector('.emailSyncBar')).not.toBeNull();
   });
 
+
+  it("keeps connection state, backlog, timestamp and warnings within the selected mailbox", async () => {
+    const value = status(); value.backlog = 93;
+    Object.assign(value.mailboxes[0], { backlog: 90, last_sync_at: "2026-09-20T11:00:00Z" });
+    Object.assign(value.mailboxes[1], { backlog: 3, last_sync_at: "2026-09-19T09:00:00Z" });
+    await render(value);
+    expect(container.querySelector(".emailSyncState small")?.textContent).toBe(text.email.syncPaused);
+    expect(container.querySelector(".emailSyncQueue strong")?.textContent).toBe("3");
+    expect(container.querySelector(".emailSyncLast")?.textContent).toContain("Sep 19");
+    expect(container.querySelector('.emailCapacityWarning[role="alert"]')?.textContent).toContain(`${text.email.syncWarnings}: 2`);
+    expect(buttons(text.email.sync)[0].title).toContain("gmail@example.com");
+    await render(value, "mailbox-qq");
+    expect(container.querySelector(".emailSyncState small")?.textContent).toBe(text.email.syncConnected);
+    expect(container.querySelector(".emailSyncQueue strong")?.textContent).toBe("90");
+    expect(container.querySelector(".emailSyncLast")?.textContent).toContain("Sep 20");
+    expect(container.querySelector('.emailCapacityWarning[role="alert"]')?.textContent).toContain(`${text.email.syncWarnings}: 1`);
+    await render(value, "");
+    expect(container.querySelector(".emailSyncQueue strong")?.textContent).toBe("93");
+    expect(container.querySelector('.emailCapacityWarning[role="alert"]')?.textContent).toContain(`${text.email.syncWarnings}: 3`);
+  });
+
+  it("does not display a previous mailbox's scheduled state after switching filters", async () => {
+    await render(); await click(text.email.sync);
+    expect(container.textContent).toContain(text.email.syncScheduled);
+    await render(status(), "mailbox-qq");
+    expect(container.textContent).not.toContain(text.email.syncScheduled);
+  });
+
+  it("confirms capacity cleanup in the email layer and focuses cancellation first", async () => {
+    const value = status(); value.capacity = { state: "critical", total_bytes: 2048, free_bytes: 16, used_percent: 99 };
+    await render(value);
+    const trigger = buttons(text.email.cleanupAll)[0];
+    await act(async () => trigger.click());
+    const confirmation = container.querySelector('[role="alertdialog"]');
+    expect(confirmation).not.toBeNull();
+    expect(confirmation?.textContent).toContain(text.email.cleanupAllScope);
+    expect(confirmation?.textContent).toContain(text.email.cleanupConsequences);
+    expect(document.activeElement?.textContent).toBe(text.common.cancel);
+    expect(api.cleanupEmailSource).not.toHaveBeenCalled();
+    await click(text.common.cancel);
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(api.cleanupEmailSource).not.toHaveBeenCalled();
+  });
+
+  it("Escape cancels cleanup without reaching the enclosing email dialog", async () => {
+    await render(); await click(text.email.receivingSettings); await click(text.email.cleanupMailbox);
+    const bubble = vi.fn(); container.addEventListener("keydown", bubble);
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    await act(async () => document.activeElement?.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(true);
+    expect(bubble).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(api.cleanupEmailSource).not.toHaveBeenCalled();
+  });
+
+  it("snapshots the mailbox address and ID, and submits only once after confirmation", async () => {
+    let finish!: (result: Awaited<ReturnType<typeof api.cleanupEmailSource>>) => void;
+    vi.mocked(api.cleanupEmailSource).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await render(); await click(text.email.receivingSettings); await click(text.email.cleanupMailbox);
+    expect(container.querySelector('[role="alertdialog"]')?.textContent).toContain("qq@example.com");
+    // A filter switch cannot silently change an already reviewed cleanup scope.
+    await render(status(), "mailbox-gmail");
+    await act(async () => {
+      buttons(text.email.cleanupConfirmAction)[0].click();
+      buttons(text.email.cleanupConfirmAction)[0].click();
+    });
+    expect(api.cleanupEmailSource).toHaveBeenCalledExactlyOnceWith({ scope: "mailbox", mailbox_id: "mailbox-qq", command_key: expect.any(String) });
+    expect(buttons(text.email.cleanupConfirmAction)[0].disabled).toBe(true);
+    await act(async () => finish({ scope: "mailbox", purged: 1, freed_bytes: 256, partial: false }));
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("states date cleanup affects every mailbox and retains the reviewed date", async () => {
+    await render(); await click(text.email.receivingSettings);
+    const date = container.querySelector<HTMLInputElement>('input[type="date"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(date, "2026-09-19");
+      date.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(text.email.cleanupDate);
+    expect(container.querySelector('[role="alertdialog"]')?.textContent).toContain(`${text.email.cleanupDateScope} 2026-09-19`);
+    expect(api.cleanupEmailSource).not.toHaveBeenCalled();
+    await click(text.email.cleanupConfirmAction);
+    expect(api.cleanupEmailSource).toHaveBeenCalledExactlyOnceWith({ scope: "date", date: "2026-09-19", command_key: expect.any(String) });
+  });
+
+  it("confirms full cleanup from expanded settings and reports safe cleanup errors", async () => {
+    const failure = new Error("private cleanup failure");
+    vi.mocked(api.cleanupEmailSource).mockRejectedValueOnce(failure);
+    await render(); await click(text.email.receivingSettings); await click(text.email.cleanupAll);
+    expect(container.querySelector('[role="alertdialog"]')?.textContent).toContain(text.email.cleanupAllScope);
+    await click(text.email.cleanupConfirmAction);
+    expect(api.cleanupEmailSource).toHaveBeenCalledExactlyOnceWith({ scope: "all", command_key: expect.any(String) });
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(container.querySelector('[data-testid="action-error"]')?.textContent).toBe(emailErrorLabel(failure, text));
+    expect(container.textContent).not.toContain("private cleanup failure");
+  });
 });

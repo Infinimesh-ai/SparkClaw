@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useConfirm } from "../confirmation";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, CircleAlert, KeyRound, LoaderCircle, RefreshCw, Trash2 } from "lucide-react";
 import { api } from "../../api/client";
 import type { BrowserExtensionStatus } from "../../api/types";
@@ -13,10 +14,19 @@ type Feedback = {
 };
 
 export function BrowserControlSettings({ text, language }: { text: Copy; language: Language }) {
+  const confirm = useConfirm(text);
   const [status, setStatus] = useState<BrowserExtensionStatus | null>(null);
   const [token, setToken] = useState("");
-  const [busy, setBusy] = useState("");
+  const [busy, setBusyState] = useState("");
+  const busyRef = useRef("");
+  const mountedRef = useRef(true);
+  function setBusy(next: string) { busyRef.current = next; setBusyState(next); }
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -40,7 +50,7 @@ export function BrowserControlSettings({ text, language }: { text: Copy; languag
     successTitle: string,
     successMessage: string
   ) {
-    if (busy) return;
+    if (busyRef.current || !mountedRef.current) return;
     setBusy(key);
     setFeedback(null);
     try {
@@ -76,8 +86,8 @@ export function BrowserControlSettings({ text, language }: { text: Copy; languag
     );
   }
 
-  function removeToken() {
-    if (!window.confirm(text.settings.browserControlRemoveConfirm)) return;
+  async function removeToken() {
+    if (!(await confirm(text.settings.browserControlRemoveConfirm, { danger: true }))) return;
     void run(
       "remove",
       () => api.removeBrowserExtensionToken(),

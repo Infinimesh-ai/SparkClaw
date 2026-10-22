@@ -1,0 +1,55 @@
+/* Frost the floating surfaces themselves so fixed positioning stays stable. */
+.workbench.glassWorkbench :is(.notificationInbox, .notificationToast) {
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 22px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 18px 48px var(--ui-glass-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  backdrop-filter: blur(24px) saturate(120%);
+}
+.workbench.glassWorkbench .notificationInbox > header {
+  min-height: 72px;
+  padding: 14px 16px;
+  border-bottom-color: color-mix(in srgb, var(--ui-muted) 12%, transparent);
+}
+.workbench.glassWorkbench .notificationInbox > header strong { color: var(--ui-ink); font-size: 16px; line-height: 24px; }
+.workbench.glassWorkbench .notificationInbox > header span { color: var(--ui-muted); }
+.workbench.glassWorkbench .notificationItem {
+  min-height: 88px;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom-color: color-mix(in srgb, var(--ui-muted) 12%, transparent);
+  background: var(--ui-glass);
+}
+.workbench.glassWorkbench .notificationItem.unread { background: color-mix(in srgb, var(--ui-blue) 6%, var(--ui-glass-strong)); }
+.workbench.glassWorkbench .notificationItem.unread .notificationUnreadDot { background: var(--ui-blue); box-shadow: none; }
+.workbench.glassWorkbench :is(.notificationItem strong, .notificationToast strong) { color: var(--ui-ink); font-weight: 600; }
+.workbench.glassWorkbench :is(.notificationItem span, .notificationItem time, .notificationToast span, .notificationEmpty) { color: var(--ui-muted); }
+.workbench.glassWorkbench :is(.notificationOpen, .notificationToast > a, .notificationToast > button) {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 12px;
+  color: var(--ui-muted);
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.workbench.glassWorkbench :is(.notificationOpen, .notificationToast > a, .notificationToast > button):hover {
+  color: var(--ui-blue);
+  background: var(--ui-glass-strong);
+}
+.workbench.glassWorkbench .notificationItem { grid-template-columns: 8px minmax(0, 1fr) 36px; }
+.workbench.glassWorkbench .notificationToast {
+  grid-template-columns: 20px minmax(0, 1fr) 36px 36px;
+  gap: 10px;
+  min-height: 80px;
+  padding: 14px;
+}
+.workbench.glassWorkbench .notificationToast > svg { color: var(--ui-blue); }
+.workbench.glassWorkbench .notificationEmpty { padding: 32px 20px; }
+.workbench.glassWorkbench .notificationBadge { border-color: var(--ui-ground); }
+
+@media (prefers-reduced-transparency: reduce) {
+  .workbench.glassWorkbench :is(.notificationInbox, .notificationToast) { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--surface-solid); }
+}

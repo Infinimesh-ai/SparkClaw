@@ -9,6 +9,41 @@
 .settingsSurfaceHint { display: block; margin-top: 8px; color: var(--text-secondary); font-size: var(--font-label); line-height: var(--line-label); }
 
 /* Text preferences change type metrics, leaving native-panel CSS geometry intact. */
+html[data-text-size="small"] {
+  --font-body: 15px;
+  --line-body: 26px;
+  --font-ui: 13px;
+  --line-ui: 19px;
+  --font-label: 12px;
+  --line-label: 18px;
+  --font-meta: 11px;
+  --line-meta: 16px;
+  --font-title: 20px;
+  --line-title: 28px;
+  --font-section: 15px;
+  --line-section: 22px;
+  --font-code: 12px;
+  --line-code: 20px;
+}
+
+/* Homepage reading roles also follow Small where their default metrics are fixed. */
+html[data-text-size="small"] .homePresentation :is(.workspaceLabel, .conversationListHeader, .connectionNoticeCopy strong, .connectionNoticeCopy small, .connectionNoticeAction, .workbenchSuggestions button) {
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
+}
+html[data-text-size="small"] .homePresentation :is(.sessionSelect .sessionTitle, .sidebarScheduleLink, .sidebarAccountIdentity strong, .composerModelButton) {
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+}
+html[data-text-size="small"] .homePresentation .workbenchWelcome p {
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
+}
+html[data-text-size="small"] .homePresentation .composer textarea {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+
 html[data-text-size="large"] {
   --font-body: 18px;
   --line-body: 32px;

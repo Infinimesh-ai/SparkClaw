@@ -101,6 +101,7 @@ export type EmailMailbox = {
   id: string;
   version: number;
   provider: EmailProviderStatus["provider"];
+  account_id?: string;
   address: string;
   delivery_address?: string;
   account_aliases?: string[];

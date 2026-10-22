@@ -1,0 +1,494 @@
+/* Settings retain their existing navigation, groups and form flow. Glass is a
+   surface treatment: ancestors stay unfiltered so floating layers keep their
+   viewport positioning and native control behavior. */
+.glassWorkbench .settingsPageSidebar {
+  height: 100%;
+  min-height: 0;
+  padding: 20px 16px 14px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 26px;
+  color: var(--ui-ink);
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 12px 32px var(--ui-glass-shadow);
+}
+.glassWorkbench .settingsPageBack {
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px;
+  border-radius: 12px;
+  color: var(--ui-ink);
+}
+.glassWorkbench .settingsPageBack:hover { background: var(--ui-glass-strong); }
+.glassWorkbench .settingsPageSearch {
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
+  min-height: 42px;
+  margin: 16px 0 18px;
+  padding-inline: 10px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 14px;
+  color: var(--ui-muted);
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.glassWorkbench .settingsPageSearch:focus-within {
+  border-color: var(--ui-blue);
+  outline: 2px solid color-mix(in srgb, var(--ui-blue) 18%, transparent);
+  outline-offset: 1px;
+}
+.glassWorkbench .settingsPageSearch input {
+  min-height: 0;
+  border: 0;
+  outline: 0;
+  color: var(--ui-ink);
+  background: transparent;
+  box-shadow: none;
+}
+.glassWorkbench .settingsPageSearch input::placeholder { color: var(--ui-muted); }
+/* Hide the rail without consuming menu width or disabling native scrolling. */
+.glassWorkbench .settingsPageNavigation {
+  gap: 10px;
+  scrollbar-width: none;
+  scrollbar-gutter: auto;
+}
+.glassWorkbench .settingsPageNavigation::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.glassWorkbench .settingsPageNavigationGroup { padding-bottom: 0; }
+.glassWorkbench .settingsPageGroupLabel {
+  padding: 8px 10px 6px;
+  color: var(--ui-muted);
+  font-size: var(--font-meta);
+  font-weight: 550;
+  line-height: var(--line-meta);
+}
+.glassWorkbench .settingsPageNavigation button {
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  margin-block: 2px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  color: var(--ui-muted);
+  background: transparent;
+}
+.glassWorkbench .settingsPageNavigation button:hover {
+  color: var(--ui-ink);
+  background: var(--ui-glass);
+}
+.glassWorkbench .settingsPageNavigation button.selected {
+  border-color: var(--ui-glass-edge);
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 4px 12px var(--ui-glass-shadow);
+  font-weight: 600;
+}
+.glassWorkbench .settingsPageNavigation button small {
+  min-width: 20px;
+  padding: 1px 6px;
+  color: var(--ui-muted);
+  background: var(--ui-glass);
+}
+.glassWorkbench .settingsPageNavigation p { color: var(--ui-muted); }
+.glassWorkbench .settingsPageBack > svg,
+.glassWorkbench .settingsPageSearch > svg,
+.glassWorkbench .settingsPageNavigation button > svg { width: 20px; height: 20px; stroke-width: 1.75; }
+
+.glassWorkbench .settingsPageMain {
+  height: 100%;
+  min-height: 0;
+  background: transparent;
+  scrollbar-gutter: stable;
+}
+.glassWorkbench .settingsPageContent { padding-block: 32px 40px; }
+.glassWorkbench .settingsPageHeader { margin-bottom: 28px; }
+.glassWorkbench .settingsPageHeader h1 { color: var(--ui-ink); font-weight: 600; }
+.glassWorkbench .settingsPageHeader p { color: var(--ui-muted); }
+.workbench.glassWorkbench .settingsPageMain .settingsSurface { gap: 22px; padding-bottom: 20px; }
+.glassWorkbench .settingsPageMain .settingsSurfaceSection,
+.glassWorkbench .settingsPageMain .settingsBlock {
+  gap: 10px;
+  padding: 22px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 22px;
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 10px 28px var(--ui-glass-shadow);
+}
+.glassWorkbench .settingsPageMain .settingsBlock:first-of-type { border-top: 1px solid var(--ui-glass-edge); }
+.glassWorkbench .settingsPageMain .settingsSurfaceSection :is(.settingsBlock, .settingsSurfaceSection) {
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.glassWorkbench .settingsSurfaceSection > h2,
+.glassWorkbench .settingsSurfaceSectionHeading h2 {
+  margin-bottom: 4px;
+  color: var(--ui-ink);
+  font-size: var(--font-section);
+  font-weight: 600;
+  line-height: var(--line-section);
+}
+.glassWorkbench .settingsSurfaceSectionHeading { flex-wrap: wrap; gap: 10px; }
+.glassWorkbench .settingsSurfaceRow { gap: 20px; padding-block: 16px; }
+.glassWorkbench .settingsSurfaceRow:last-child,
+.glassWorkbench .settingsConnectionRow:last-child,
+.glassWorkbench .settingsPolicyColumns:last-child { border-bottom: 0; }
+.glassWorkbench .settingsSurfaceCopy strong { color: var(--ui-ink); font-weight: 500; }
+.glassWorkbench .settingsSurfaceCopy small,
+.glassWorkbench .settingsSurfaceHint,
+.glassWorkbench .settingsSurfaceRow output { color: var(--ui-muted); }
+.workbench.glassWorkbench .settingsPageMain .settingsSurfaceRow select:not([multiple]) {
+  min-height: 40px;
+  border-color: color-mix(in srgb, var(--ui-muted) 18%, var(--ui-glass-edge));
+  border-radius: 12px;
+  cursor: pointer;
+}
+.workbench.glassWorkbench .settingsPageMain .settingsSurfaceRow select:not([multiple]):disabled {
+  color: var(--ui-disabled);
+  cursor: not-allowed;
+}
+.glassWorkbench .settingsSurfaceRow select:disabled::picker-icon { color: var(--ui-disabled); }
+.glassWorkbench .settingsStatusBar { padding-block: 0 12px; }
+.glassWorkbench .settingsStatusBar > span { color: var(--ui-muted); }
+.glassWorkbench .settingsBack {
+  min-height: 40px;
+  margin-bottom: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 12px;
+  color: var(--ui-ink);
+  background: var(--ui-glass);
+}
+.glassWorkbench .settingsBack:hover { background: var(--ui-glass-strong); }
+.glassWorkbench .settingsPageMain .settingsDetailView { gap: 16px; }
+.glassWorkbench .settingsPageMain .settingsCategoryTabs {
+  gap: 4px;
+  padding: 4px;
+  border-color: var(--ui-glass-edge);
+  border-radius: 16px;
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.glassWorkbench .settingsCategoryTabs button { border: 0; border-radius: 12px; }
+.glassWorkbench .settingsPageMain .settingsCategoryTabs button.selected {
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 3px 9px var(--ui-glass-shadow);
+}
+.glassWorkbench .settingsSegmented {
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 14px;
+  background: var(--ui-glass);
+}
+.glassWorkbench .settingsSegmented button { min-height: 34px; padding: 6px 10px; border-radius: 10px; color: var(--ui-muted); }
+.glassWorkbench .settingsSegmented button.selected {
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 3px 9px var(--ui-glass-shadow);
+}
+.glassWorkbench .settingsSwitch { width: 40px; height: 24px; border: 1px solid var(--ui-glass-edge); background: var(--control-border); }
+.glassWorkbench .settingsSwitch span { top: 2px; left: 2px; width: 18px; height: 18px; background: #fff; box-shadow: 0 2px 4px rgb(44 57 78 / 16%); }
+.glassWorkbench .settingsSwitch[aria-checked="true"] { background: var(--ui-blue); }
+.glassWorkbench .settingsSwitch[aria-checked="true"] span { transform: translateX(16px); }
+.glassWorkbench .settingsSwitch:disabled { cursor: not-allowed; opacity: .5; }
+
+.glassWorkbench .settingsConnectionRow { grid-template-columns: 44px minmax(0, 1fr) auto auto; column-gap: 14px; padding: 16px 4px; border-radius: 12px; }
+.glassWorkbench .settingsConnectionRow:hover { background: var(--ui-glass); }
+.glassWorkbench :is(.settingsConnectionIcon, .settingsDirectoryIcon, .credentialIcon) {
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 12px;
+  color: var(--ui-muted);
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+/* Connection identities have a stronger title and quieter supporting copy. */
+.glassWorkbench .settingsConnectionIcon { width: 44px; height: 44px; color: var(--ui-ink); }
+.glassWorkbench .settingsConnectionIcon > svg { width: 22px; height: 22px; }
+.glassWorkbench .settingsConnectionIcon:has(> .connectionArtwork) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.glassWorkbench .settingsConnectionIcon > .connectionArtwork {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.glassWorkbench .settingsConnectionRow .settingsSurfaceCopy { gap: 2px; }
+.glassWorkbench .settingsConnectionRow .settingsSurfaceCopy strong {
+  font-size: var(--font-section);
+  font-weight: 600;
+  line-height: var(--line-section);
+}
+.glassWorkbench .settingsConnectionRow .settingsSurfaceCopy small {
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+}
+/* Generated raster alpha supplies the complete mark; the theme supplies its ink. */
+.glassWorkbench .providerBrandIcon {
+  display: block;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  background-color: var(--ui-blue);
+  -webkit-mask: var(--provider-icon-image) center / contain no-repeat;
+  mask: var(--provider-icon-image) center / contain no-repeat;
+}
+.glassWorkbench .settingsProviderHeading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.glassWorkbench .settingsConnectionAction {
+  grid-column: 4;
+  min-height: 36px;
+  padding: 7px 12px;
+  border-color: var(--ui-glass-edge);
+  border-radius: 999px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.glassWorkbench .settingsConnectionRow:hover .settingsConnectionAction { background: var(--ui-glass-strong); }
+.glassWorkbench .settingsPageMain .settingsDirectory { padding: 4px 14px; border: 1px solid var(--ui-glass-edge); border-radius: 22px; background: var(--ui-glass); box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 10px 28px var(--ui-glass-shadow); }
+.glassWorkbench .settingsPageMain .settingsDirectoryRow { grid-template-columns: 30px minmax(0, 1fr) 18px; padding: 16px 4px; border-radius: 12px; }
+.glassWorkbench .settingsPageMain .settingsDirectoryRow:hover { background: var(--ui-glass-strong); }
+.glassWorkbench .settingsPageMain .settingsDirectoryIcon { width: 30px; height: 30px; }
+.glassWorkbench .settingsLanguageChoices button { border-color: var(--ui-glass-edge); border-radius: 12px; background: var(--ui-glass); }
+.glassWorkbench .settingsLanguageChoices button.selected { border-color: var(--ui-blue); color: var(--ui-blue); background: var(--ui-glass-strong); }
+
+/* Nested records are quieter than their containing section. */
+.glassWorkbench :is(.clientItem, .clientIssuance, .externalMCPTransport, .externalMCPGrant, .externalMCPRecord, .bindingItem) {
+  border-color: var(--ui-glass-edge);
+  border-radius: 14px;
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.glassWorkbench .clientSettings .issuedClientCredential { border-radius: 14px; background: var(--ui-glass-strong); }
+.glassWorkbench .copyOnceCredential { border-radius: 14px; }
+.glassWorkbench .credentialValidationFeedback {
+  --feedback-status: var(--amber-warning);
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 14px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+  overflow-wrap: anywhere;
+}
+.glassWorkbench .credentialValidationFeedback:has(> .credentialValidationIcon) { grid-template-columns: 24px minmax(0, 1fr); }
+.glassWorkbench .credentialValidationFeedback.error { --feedback-status: var(--crimson-danger); }
+.glassWorkbench .credentialValidationFeedback.success { --feedback-status: var(--emerald-success); }
+.glassWorkbench .credentialValidationFeedback.progress { --feedback-status: var(--ui-blue); }
+.glassWorkbench .credentialValidationFeedback .credentialValidationIcon {
+  border-radius: 8px;
+  color: var(--feedback-status);
+  background: color-mix(in srgb, var(--feedback-status) 8%, transparent);
+}
+.glassWorkbench .credentialValidationIcon > svg { width: 18px; height: 18px; stroke-width: 1.75; }
+.glassWorkbench .credentialValidationCopy > p { margin: 0; }
+.glassWorkbench .credentialValidationCopy > button { margin-top: 8px; }
+.glassWorkbench .credentialRow.selected,
+.glassWorkbench .emailProviderRow.selected { background: var(--ui-glass-strong); box-shadow: inset 2px 0 0 var(--ui-blue); }
+.glassWorkbench .bindingQr { border-radius: 16px; background: var(--ui-glass); }
+.glassWorkbench .bindingScanned { border-radius: 16px; }
+.glassWorkbench .integrationState { border-radius: 999px; padding-inline: 9px; }
+.glassWorkbench .externalMCPActionRow { min-width: 0; }
+
+/* Controls inside expanded settings use the same roles as their outer page.
+   These branches include native buttons without a shared button class. */
+.glassWorkbench .settingsPageMain .integrationDetail button:not([class]) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 12px;
+  color: var(--ui-ink);
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+  font-family: var(--font-sans);
+  font-size: var(--font-ui);
+  font-weight: 500;
+  line-height: var(--line-ui);
+}
+.glassWorkbench .settingsPageMain .integrationDetail button:not([class]):hover:not(:disabled) { background: var(--ui-glass-strong); }
+.glassWorkbench .settingsPageMain .integrationDetail .row:has(> button:not([class])) { display: flex; flex-wrap: wrap; gap: 8px; }
+.glassWorkbench .settingsPageMain :is(.externalMCPAction, .externalMCPPrimary),
+.glassWorkbench .settingsPageMain .clientSettings .clientIssuance .approve {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 999px;
+  color: var(--ui-on-blue);
+  background: var(--ui-primary);
+  box-shadow: inset 0 1px 1px var(--ui-glass-highlight), 0 3px 8px var(--ui-glass-shadow);
+  font-family: var(--font-sans);
+  font-size: var(--font-ui);
+  font-weight: 500;
+  line-height: var(--line-ui);
+}
+.glassWorkbench .settingsPageMain :is(.externalMCPAction, .externalMCPPrimary):hover:not(:disabled),
+.glassWorkbench .settingsPageMain .clientSettings .clientIssuance .approve:hover:not(:disabled) { background: var(--ui-primary-hover); }
+.glassWorkbench .settingsPageMain :is(.externalMCPAction, .externalMCPPrimary) > svg { flex-shrink: 0; width: 20px; height: 20px; stroke-width: 1.75; }
+.glassWorkbench .settingsPageMain .externalMCPDeleteAll {
+  display: grid;
+  place-items: center;
+  flex-basis: 36px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--crimson-danger) 20%, transparent);
+  border-radius: 12px;
+  color: var(--crimson-danger);
+  background: var(--danger-surface);
+}
+.glassWorkbench .settingsPageMain .externalMCPDeleteAll > svg { width: 20px; height: 20px; stroke-width: 1.75; }
+.glassWorkbench .settingsPageMain .externalMCPDeleteAll:hover:not(:disabled) { border-color: var(--crimson-danger); }
+.glassWorkbench .settingsPageMain .buttonRow button.approve {
+  color: var(--ui-on-blue);
+  background: var(--ui-primary);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 3px 8px var(--ui-glass-shadow);
+}
+.glassWorkbench .settingsPageMain .buttonRow button.approve:hover:not(:disabled) { background: var(--ui-primary-hover); }
+.glassWorkbench .settingsPageMain .buttonRow button:disabled { box-shadow: none; }
+.glassWorkbench .settingsPageMain :is(.externalMCPAction, .externalMCPPrimary, .externalMCPDeleteAll, .integrationDetail button:not([class])):active:not(:disabled) { transform: translateY(1px); }
+.glassWorkbench .settingsPageMain :is(.externalMCPAction, .externalMCPPrimary, .externalMCPDeleteAll, .integrationDetail button:not([class]), .clientSettings button):disabled {
+  cursor: not-allowed;
+  filter: none;
+  box-shadow: none;
+  opacity: .5;
+}
+
+/* Owner, credential, browser-token and policy editors keep their existing
+   form flow. Checkboxes, range controls and connector switches keep their
+   dedicated dimensions. */
+.glassWorkbench .settingsPageMain :is(.ownerEditor, .policyEditor, .credentialForm, .clientIssuance) { gap: 12px; }
+.glassWorkbench .settingsPageMain :is(.ownerEditor, .policyEditor, .credentialForm, .clientIssuance) > label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ui-muted);
+  font-size: var(--font-label);
+  font-weight: 500;
+  line-height: var(--line-label);
+}
+.glassWorkbench .settingsPageMain :is(.ownerEditor, .policyEditor, .credentialForm, .clientIssuance, .inputGroup.compact) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea) {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--ui-input-edge);
+  border-radius: 12px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+  font-family: var(--font-sans);
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
+}
+.glassWorkbench .settingsPageMain :is(.ownerEditor, .credentialForm, .clientIssuance, .inputGroup.compact) input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) { height: 40px; min-height: 40px; }
+.glassWorkbench .settingsPageMain :is(.ownerEditor, .policyEditor, .credentialForm, .clientIssuance, .inputGroup.compact) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea):focus {
+  border-color: var(--ui-blue);
+  outline: 2px solid var(--ui-blue);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+.glassWorkbench .settingsPageMain :is(.ownerEditor, .policyEditor, .credentialForm, .clientIssuance, .inputGroup.compact) :is(input, textarea):disabled { color: var(--ui-muted); cursor: not-allowed; opacity: .55; }
+.glassWorkbench .settingsPageMain .copyOnceCredential code {
+  padding: 12px;
+  border: 1px solid var(--ui-input-edge);
+  border-radius: 12px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.glassWorkbench .settingsPageMain .connectorToggle > span { border-color: var(--ui-input-edge); background: var(--ui-glass); }
+.glassWorkbench .settingsPageMain .connectorToggle input:checked + span { border-color: var(--ui-blue); background: color-mix(in srgb, var(--ui-blue) 16%, transparent); }
+.glassWorkbench .settingsPageMain .connectorToggle input:checked + span::after { background: var(--ui-blue); }
+
+/* Read-only diagnostic records and history selection share the nested glass
+   surface. Result labels retain their success, warning and failure colors. */
+.glassWorkbench .settingsPageMain :is(.artifactItem, .traceHistory button, .evalHistory button) {
+  border-color: var(--ui-glass-edge);
+  border-radius: 14px;
+  color: var(--ui-ink);
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.glassWorkbench .settingsPageMain .jsonBlock { border-color: var(--ui-input-edge); border-radius: 14px; background: var(--ui-glass-strong); }
+.glassWorkbench .settingsPageMain :is(.traceHistory button, .evalHistory button) { min-height: 40px; }
+.glassWorkbench .settingsPageMain :is(.traceHistory button, .evalHistory button):hover:not(:disabled) { background: var(--ui-glass-strong); }
+.glassWorkbench .settingsPageMain :is(.traceHistory button, .evalHistory button).selected { border-color: var(--ui-blue); background: var(--ui-glass-strong); }
+.glassWorkbench .settingsPageMain :is(.traceHistory button, .evalHistory button):disabled { cursor: not-allowed; opacity: .5; box-shadow: none; }
+.glassWorkbench .settingsPageMain .evalCases span:not(.passed, .failed),
+.glassWorkbench .settingsPageMain .pill { border-color: var(--ui-glass-edge); border-radius: 999px; background: var(--ui-glass); }
+
+@media (max-width: 840px) {
+  .glassWorkbench .settingsPageSidebar { border-radius: 0 24px 24px 0; }
+}
+@media (max-width: 600px) {
+  .glassWorkbench .settingsPageSidebar { padding: 14px 7px; border-radius: 0 18px 18px 0; }
+  .glassWorkbench .settingsPageBack { gap: 6px; padding-inline: 4px; }
+  .glassWorkbench .settingsPageSearch { gap: 5px; margin-block: 12px 16px; padding-inline: 6px; }
+  .glassWorkbench .settingsPageGroupLabel { padding-inline: 7px; }
+  .glassWorkbench .settingsPageNavigation button { grid-template-columns: 20px minmax(0, 1fr); gap: 6px; min-height: 42px; padding-inline: 7px; border-radius: 12px; }
+  .glassWorkbench .settingsPageContent { padding: 24px 14px; }
+  .glassWorkbench .settingsPageHeader { margin-bottom: 22px; }
+  .workbench.glassWorkbench .settingsPageMain .settingsSurface { gap: 16px; }
+  .glassWorkbench .settingsPageMain .settingsSurfaceSection,
+  .glassWorkbench .settingsPageMain .settingsBlock { padding: 16px 14px; border-radius: 18px; }
+  .glassWorkbench .settingsSurfaceRow { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .glassWorkbench .settingsSegmented { flex-wrap: wrap; max-width: 100%; justify-self: start; }
+  .glassWorkbench .settingsSegmented button { min-width: 0; padding-inline: 8px; }
+  .glassWorkbench .settingsConnectionRow { grid-template-columns: 40px minmax(0, 1fr); column-gap: 12px; }
+  .glassWorkbench .settingsConnectionIcon { align-self: start; width: 40px; height: 40px; }
+  .glassWorkbench .settingsConnectionAction { grid-column: 2; }
+  .glassWorkbench .settingsPageMain .settingsDirectory { padding-inline: 10px; border-radius: 18px; }
+  .glassWorkbench .externalMCPActionRow { grid-template-columns: minmax(0, 1fr); }
+  .glassWorkbench .externalMCPActionRow > button { justify-self: start; }
+  .glassWorkbench .settingsPolicyColumns,
+  .glassWorkbench .settingsPolicyEditor { grid-template-columns: minmax(0, 1fr); }
+  .glassWorkbench .settingsLanguageChoices { grid-template-columns: minmax(0, 1fr); }
+  .glassWorkbench .integrationStatusActions { flex-wrap: wrap; }
+  .glassWorkbench .settingsPageMain :is(.externalMCPAction, .externalMCPPrimary) { max-width: 100%; white-space: normal; }
+}
+@media (max-width: 380px) {
+  .glassWorkbench .settingsPageContent { padding-inline: 10px; }
+  .glassWorkbench .settingsPageMain .settingsSurfaceSection,
+  .glassWorkbench .settingsPageMain .settingsBlock { padding-inline: 10px; }
+  /* Let descriptions use the full row when the settings rail leaves little room. */
+  .glassWorkbench .settingsConnectionRow { row-gap: 8px; }
+  .glassWorkbench .settingsConnectionIcon { align-self: center; }
+  .glassWorkbench .settingsConnectionRow .settingsSurfaceCopy { display: contents; }
+  .glassWorkbench .settingsConnectionRow .settingsSurfaceCopy strong { grid-column: 2; }
+  .glassWorkbench .settingsConnectionRow .settingsSurfaceCopy small,
+  .glassWorkbench .settingsConnectionStatus,
+  .glassWorkbench .settingsConnectionAction { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .glassWorkbench .settingsSwitch,
+  .glassWorkbench .settingsSwitch span { transition: none; }
+}

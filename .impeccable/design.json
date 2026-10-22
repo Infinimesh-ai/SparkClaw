@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-20T05:54:28.838446Z",
+  "title": "Design System: SparkX workbench",
+  "extensions": {
+    "shadows": [
+      {
+        "name": "section",
+        "value": "inset 0 1px 0 var(--ui-glass-highlight), 0 10px 28px var(--ui-glass-shadow)",
+        "purpose": "Settings sections and the schedule list container."
+      },
+      {
+        "name": "floating",
+        "value": "inset 0 1px 0 var(--ui-glass-highlight), 0 18px 48px var(--ui-glass-shadow)",
+        "purpose": "Search, document, device and account surfaces, notifications and toasts."
+      },
+      {
+        "name": "dialog",
+        "value": "inset 0 1px 0 var(--ui-glass-highlight), 0 24px 64px var(--ui-glass-shadow)",
+        "purpose": "Schedule and confirmation dialogs."
+      },
+      {
+        "name": "mail-window",
+        "value": "inset 0 1px 0 var(--ui-glass-highlight), 0 24px 72px var(--ui-glass-shadow)",
+        "purpose": "The existing mail window."
+      }
+    ],
+    "motion": [
+      {
+        "name": "paired-icon",
+        "value": "opacity 120ms ease",
+        "purpose": "Line/solid icon transition; removed by prefers-reduced-motion."
+      },
+      {
+        "name": "enabled-press",
+        "value": "translateY(1px)",
+        "purpose": "Momentary press on enabled actions only."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "schedule-columns",
+        "value": "900px"
+      },
+      {
+        "name": "drawer",
+        "value": "840px"
+      },
+      {
+        "name": "mail-full-screen",
+        "value": "720px"
+      },
+      {
+        "name": "compact-pages",
+        "value": "600px"
+      },
+      {
+        "name": "compact-dialog-and-schedule",
+        "value": "480px"
+      },
+      {
+        "name": "narrow-composer",
+        "value": "380px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary action",
+      "kind": "button",
+      "description": "Shared pill action with the workbench primary gradient; mail and confirmation use the solid blue variant.",
+      "html": "<button class=\"ds-primary\" type=\"button\">Continue</button>",
+      "css": ".ds-primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;font-family:var(--font-sans);font-size:var(--font-ui);font-weight:500;line-height:var(--line-ui);cursor:pointer;padding:8px 18px;border:1px solid var(--ui-glass-edge);border-radius:999px;color:var(--ui-on-blue);background:var(--ui-primary);box-shadow:inset 0 1px 1px rgb(255 255 255 / 26%),0 3px 8px rgb(16 111 244 / 15%)}.ds-primary:hover:not(:disabled){background:var(--ui-primary-hover)}.ds-primary:focus-visible{outline:2px solid var(--ui-blue);outline-offset:2px;}.ds-primary:active:not(:disabled){transform:translateY(1px)}.ds-primary:disabled{cursor:not-allowed;opacity:.5;box-shadow:none}"
+    },
+    {
+      "name": "Secondary action",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Quiet glass action with a brighter hover surface and visible keyboard focus.",
+      "html": "<button class=\"ds-secondary\" type=\"button\">Cancel</button>",
+      "css": ".ds-secondary{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;font-family:var(--font-sans);font-size:var(--font-ui);font-weight:500;line-height:var(--line-ui);cursor:pointer;padding:7px 12px;border:1px solid var(--ui-glass-edge);border-radius:var(--control-radius);color:var(--ui-ink);background:var(--ui-glass);box-shadow:inset 0 1px 0 var(--ui-glass-highlight)}.ds-secondary:hover:not(:disabled){background:var(--ui-glass-strong)}.ds-secondary:focus-visible{outline:2px solid var(--ui-blue);outline-offset:2px;}.ds-secondary:active:not(:disabled){transform:translateY(1px)}.ds-secondary:disabled{cursor:not-allowed;opacity:.5;box-shadow:none}"
+    },
+    {
+      "name": "Destructive confirmation action",
+      "kind": "button",
+      "description": "Filled danger action for the existing destructive confirmation option.",
+      "html": "<button class=\"ds-danger\" type=\"button\">Continue</button>",
+      "css": ".ds-danger{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;font-family:var(--font-sans);font-size:var(--font-ui);font-weight:500;line-height:var(--line-ui);cursor:pointer;padding:8px 18px;border:1px solid var(--ui-glass-edge);border-radius:999px;color:var(--status-button-text);background:var(--crimson-danger);box-shadow:inset 0 1px 0 rgb(255 255 255 / 20%),0 4px 10px color-mix(in srgb,var(--crimson-danger) 18%,transparent)}.ds-danger:hover:not(:disabled){background:color-mix(in srgb,var(--crimson-danger) 92%,var(--ui-ink))}.ds-danger:focus-visible{outline:2px solid var(--ui-blue);outline-offset:2px;}.ds-danger:active:not(:disabled){transform:translateY(1px)}.ds-danger:disabled{cursor:not-allowed;opacity:.5;box-shadow:none}"
+    },
+    {
+      "name": "Text field",
+      "kind": "input",
+      "description": "A more opaque field inside the shared glass surface.",
+      "html": "<label class=\"ds-field-label\">Name<input class=\"ds-field\" type=\"text\" placeholder=\"Enter a name\" /></label>",
+      "css": ".ds-field-label{display:grid;gap:8px;color:var(--ui-muted);font-family:var(--font-sans);font-size:var(--font-ui);line-height:var(--line-ui)}.ds-field{min-width:0;min-height:40px;padding:9px 12px;border:1px solid var(--ui-input-edge);border-radius:12px;color:var(--ui-ink);background:var(--ui-glass-strong);box-shadow:inset 0 1px 0 var(--ui-glass-highlight);font:inherit}.ds-field::placeholder{color:var(--ui-muted)}.ds-field:focus-visible{outline:2px solid var(--ui-blue);outline-offset:2px;}.ds-field:disabled{cursor:not-allowed;opacity:.6}"
+    },
+    {
+      "name": "Paired navigation state",
+      "kind": "nav",
+      "refersTo": "navigation-selected",
+      "description": "Line glyphs remain on hover; the selected/current state uses its authored solid silhouette.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Mail\"><button class=\"ds-nav-item\" type=\"button\" aria-current=\"page\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><g class=\"ds-nav-line\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"5\" width=\"18\" height=\"14\" rx=\"3\"/><path d=\"m4 7 8 6 8-6\"/></g><g class=\"ds-nav-solid\" fill=\"currentColor\"><path fill-rule=\"evenodd\" d=\"M6 4.5h12A3.5 3.5 0 0 1 21.5 8v8a3.5 3.5 0 0 1-3.5 3.5H6A3.5 3.5 0 0 1 2.5 16V8A3.5 3.5 0 0 1 6 4.5Zm-.6 3a.8.8 0 0 0-.9 1.3l7 5.2a.8.8 0 0 0 1 0l7-5.2a.8.8 0 0 0-.9-1.3L12 12.3 5.4 7.5Z\"/></g></svg><span>Mail</span></button></nav>",
+      "css": ".ds-nav{max-width:260px}.ds-nav-item{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:center;gap:10px;width:100%;min-height:44px;padding:10px;border:1px solid transparent;border-radius:14px;color:var(--ui-muted);background:transparent;font-family:var(--font-sans);font-size:var(--font-ui);line-height:var(--line-ui);text-align:left;cursor:pointer}.ds-nav-item:hover:not(:disabled){color:var(--ui-ink);background:var(--ui-glass)}.ds-nav-item:focus-visible{outline:2px solid var(--ui-blue);outline-offset:2px;}.ds-nav-item[aria-current=\"page\"]{border-color:var(--ui-glass-edge);color:var(--ui-ink);background:var(--ui-glass-strong);box-shadow:inset 0 1px 0 var(--ui-glass-highlight),0 4px 12px var(--ui-glass-shadow);font-weight:600}.ds-nav-solid{opacity:0}.ds-nav-line,.ds-nav-solid{transition:opacity 120ms ease}.ds-nav-item[aria-current=\"page\"] .ds-nav-line,.ds-nav-item:active:not(:disabled) .ds-nav-line{opacity:0}.ds-nav-item[aria-current=\"page\"] .ds-nav-solid,.ds-nav-item:active:not(:disabled) .ds-nav-solid{opacity:1}.ds-nav-item:disabled{cursor:not-allowed;opacity:.5}@media(prefers-reduced-motion:reduce){.ds-nav-line,.ds-nav-solid{transition:none}}"
+    },
+    {
+      "name": "Schedule count",
+      "kind": "chip",
+      "description": "A quiet informational count badge, using the existing schedule accent treatment.",
+      "html": "<span class=\"ds-count\">3</span>",
+      "css": ".ds-count{display:inline-flex;align-items:center;padding:3px 8px;border:1px solid color-mix(in srgb,var(--ui-blue) 14%,transparent);border-radius:999px;color:var(--ui-blue);background:color-mix(in srgb,var(--ui-blue) 7%,transparent);font-family:var(--font-sans);font-size:var(--font-meta);line-height:var(--line-meta)}"
+    },
+    {
+      "name": "Settings section",
+      "kind": "card",
+      "refersTo": "glass-section",
+      "description": "Quiet section elevation; nested records use dividers and do not repeat this outer shadow.",
+      "html": "<section class=\"ds-section\"><h2>Appearance</h2><p>Choose your display preferences.</p></section>",
+      "css": ".ds-section{display:grid;gap:10px;padding:22px;border:1px solid var(--ui-glass-edge);border-radius:22px;color:var(--ui-ink);background:var(--ui-glass);box-shadow:inset 0 1px 0 var(--ui-glass-highlight),0 10px 28px var(--ui-glass-shadow);font-family:var(--font-sans)}.ds-section h2{margin:0 0 4px;font-size:var(--font-section);font-weight:600;line-height:var(--line-section)}.ds-section p{margin:0;color:var(--ui-muted);font-size:var(--font-label);line-height:var(--line-label)}@media(max-width:600px){.ds-section{padding:16px 14px;border-radius:18px}}"
+    },
+    {
+      "name": "Confirmation surface",
+      "kind": "custom",
+      "description": "Appearance preview only. Application use requires ConfirmationProvider/useConfirm for focus, cancellation and queue behavior.",
+      "html": "<div class=\"ds-confirm\"><h2>Continue with this action?</h2><div class=\"ds-confirm-actions\"><button class=\"ds-confirm-cancel\" type=\"button\">Cancel</button><button class=\"ds-confirm-accept\" type=\"button\">Continue</button></div></div>",
+      "css": ".ds-confirm{display:grid;gap:24px;max-width:440px;padding:24px;border:1px solid var(--ui-glass-edge);border-radius:26px;color:var(--ui-ink);background:var(--ui-glass-strong);box-shadow:inset 0 1px 0 var(--ui-glass-highlight),0 24px 64px var(--ui-glass-shadow);-webkit-backdrop-filter:blur(24px) saturate(120%);backdrop-filter:blur(24px) saturate(120%);font-family:var(--font-sans)}.ds-confirm h2{margin:0;overflow-wrap:anywhere;font-size:18px;font-weight:600;line-height:28px}.ds-confirm-actions{display:flex;justify-content:flex-end;gap:10px}.ds-confirm-actions button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;font-family:var(--font-sans);font-size:var(--font-ui);font-weight:500;line-height:var(--line-ui);cursor:pointer;padding:8px 18px;border:1px solid var(--ui-glass-edge);border-radius:999px}.ds-confirm-cancel{color:var(--ui-ink);background:var(--ui-glass);box-shadow:inset 0 1px 0 var(--ui-glass-highlight)}.ds-confirm-cancel:hover{background:var(--ui-glass-strong)}.ds-confirm-accept{color:var(--ui-on-blue);background:var(--ui-blue);box-shadow:inset 0 1px 0 rgb(255 255 255 / 24%),0 4px 10px color-mix(in srgb,var(--ui-blue) 18%,transparent)}.ds-confirm-accept:hover{background:color-mix(in srgb,var(--ui-blue) 92%,var(--ui-ink))}.ds-confirm-actions button:focus-visible{outline:2px solid var(--ui-blue);outline-offset:2px;}.ds-confirm-actions button:active:not(:disabled){transform:translateY(1px)}@media(max-width:480px){.ds-confirm{gap:20px;padding:20px;border-radius:22px}}@media(prefers-reduced-transparency:reduce){.ds-confirm{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--surface-solid)}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "A quiet local-agent workspace in pale frosted glass.",
+    "overview": "The user-supplied Iconly component reference accepted on 2026-10-19 establishes the material, action shapes and paired icon states. That treatment now extends from the homepage across the existing workbench: settings, schedules, mail, notifications, task search, document selection, device menus, account menus and confirmations. It is one visual system, with the existing routes, content, capabilities, layouts and workflows retained.\n\nThis is an operator interface. Reading, composing and understanding actual state take priority over material effects. The homepage keeps its accepted geometry; secondary pages retain their established information structure and density.",
+    "keyCharacteristics": [
+      "Cool gray ground, milky translucent surfaces, bright inner edges and soft depth.",
+      "Blue primary actions; authored line and solid glyphs tied to real UI state.",
+      "Stable layouts and accessible interactions across themes and text preferences."
+    ],
+    "rules": [
+      {
+        "name": "The Surface Frost Rule",
+        "body": "Blur belongs on the visible sidebar, card or floating surface itself. Keep workspace, header and overlay ancestors unfiltered so fixed notifications and dialogs keep their viewport positioning. Native dialog backdrops may use their existing light blur.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Real State Rule",
+        "body": "Resting and hover states keep the line glyph. Real open, selected, current or pressed state shows the solid glyph and the more opaque selected surface. Closing a menu or panel restores its line trigger. One-shot actions may show the solid glyph during an enabled press. Disabled buttons do not gain a pressed state.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "**Do** extend the shared material through `--ui-*` while retaining homepage geometry and `--home-*` rules.",
+      "**Do** preserve all existing routes, menus, controls, business behavior and API boundaries.",
+      "**Do** verify original interactions alongside new styling in light, dark, large-text and reduced-preference modes.",
+      "**Do** show failure or recovery guidance when the user needs to act, and keep temporarily unavailable entry points with disabled operations."
+    ],
+    "donts": [
+      "**Don't** replace existing screens with simplified pages or remove entry points to make the styling easier.",
+      "**Don't** blur workspace or header ancestors, clip floating menus, or make body portals depend on homepage-only tokens.",
+      "**Don't** change the Spark X wordmark, graphic mark, icon state semantics or confirmation focus behavior.",
+      "**Don't** add artificial connection states, placeholder data, permanent technical status UI or decorative animation."
+    ]
+  }
+}

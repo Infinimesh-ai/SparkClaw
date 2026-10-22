@@ -1,4 +1,5 @@
-import { Copy, KeyRound, LogOut, RefreshCw, Trash2 } from "lucide-react";
+import { useConfirm } from "../confirmation";
+import { CircleAlert, Copy, KeyRound, LogOut, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { APIError } from "../../api/client";
 import type { Client, IssuedClientCredential } from "../../api/types";
@@ -27,6 +28,7 @@ export function PairedClientsSettings({
   onIssueClient?: (name: string, idempotencyKey: string) => Promise<IssuedClientCredential>;
   onRevokeClient: (id: string) => Promise<void>;
 }) {
+  const confirm = useConfirm(text);
   const [clientName, setClientName] = useState("");
   const [issued, setIssued] = useState<IssuedClientCredential | null>(null);
   const [pending, setPending] = useState<IssuanceRequest | null>(null);
@@ -143,7 +145,8 @@ export function PairedClientsSettings({
       setActionError(text.settings.clientLogoutFailed);
       return;
     }
-    if (current && !window.confirm(text.settings.revokeCurrentClientConfirm)) return;
+    if (current && !(await confirm(text.settings.revokeCurrentClientConfirm, { danger: true }))) return;
+    if (action.current || !mounted.current) return;
     action.current = client.id;
     setBusy(client.id);
     setActionError("");
@@ -186,7 +189,8 @@ export function PairedClientsSettings({
 
   async function deleteClient(client: Client) {
     if (action.current || !client.revoked_at || !currentClientID || !onDeleteClient) return;
-    if (!window.confirm(text.settings.deleteRevokedClientConfirm.replace("{name}", client.name))) return;
+    if (!(await confirm(text.settings.deleteRevokedClientConfirm.replace("{name}", client.name), { danger: true }))) return;
+    if (action.current || !mounted.current) return;
     action.current = client.id;
     setBusy(client.id);
     setActionError("");
@@ -226,17 +230,26 @@ export function PairedClientsSettings({
         </div>
         {copyFeedback && <small role="status">{copyFeedback}</small>}
       </div>}
-      {issuanceError && <p className="credentialValidationFeedback error" role="alert">{issuanceError}</p>}
+      {issuanceError && <p className="credentialValidationFeedback error" role="alert">
+        <span className="credentialValidationIcon" aria-hidden="true"><CircleAlert size={18} strokeWidth={1.75} /></span>
+        <span className="credentialValidationCopy">{issuanceError}</span>
+      </p>}
       {pending && <small>{text.settings.pendingClientName}: {pending.name}</small>}
       {recovery?.clientID && <small>{text.settings.clientID}: {recovery.clientID}</small>}
     </div>}
     {listLoading && <p className="muted" role="status">{text.settings.loadingClients}</p>}
     {listFailed && <div className="credentialValidationFeedback error" role="alert">
-      <p>{text.settings.clientsLoadFailed}</p>
-      {onReloadClients && <button type="button" className="ghost" disabled={listLoading} onClick={() => void loadClients()}>{text.settings.retryClients}</button>}
+      <span className="credentialValidationIcon" aria-hidden="true"><CircleAlert size={18} strokeWidth={1.75} /></span>
+      <div className="credentialValidationCopy">
+        <p>{text.settings.clientsLoadFailed}</p>
+        {onReloadClients && <button type="button" className="ghost" disabled={listLoading} onClick={() => void loadClients()}>{text.settings.retryClients}</button>}
+      </div>
     </div>}
     {!listLoading && !listFailed && visibleClients.length === 0 && <span className="muted">{text.settings.noClients}</span>}
-    {!listLoading && visibleClients.length > 0 && !currentClientID && <p className="credentialValidationFeedback error" role="alert">{text.settings.clientsIdentityUnavailable}</p>}
+    {!listLoading && visibleClients.length > 0 && !currentClientID && <p className="credentialValidationFeedback error" role="alert">
+      <span className="credentialValidationIcon" aria-hidden="true"><CircleAlert size={18} strokeWidth={1.75} /></span>
+      <span className="credentialValidationCopy">{text.settings.clientsIdentityUnavailable}</span>
+    </p>}
     {visibleClients.length > 0 && <div className="clientList">
       {visibleClients.map((client) => <div className="clientItem" key={client.id}>
         <div>
@@ -250,7 +263,10 @@ export function PairedClientsSettings({
         {client.revoked_at && <button type="button" className="reject" onClick={() => void deleteClient(client)} disabled={Boolean(busy) || !currentClientID || !onDeleteClient} aria-label={`${text.settings.deleteRevokedClient}: ${client.name}`} title={text.settings.deleteRevokedClient}><Trash2 size={14} /></button>}
       </div>)}
     </div>}
-    {actionError && <p className="credentialValidationFeedback error" role="alert">{actionError}</p>}
+    {actionError && <p className="credentialValidationFeedback error" role="alert">
+      <span className="credentialValidationIcon" aria-hidden="true"><CircleAlert size={18} strokeWidth={1.75} /></span>
+      <span className="credentialValidationCopy">{actionError}</span>
+    </p>}
     {onLogout && <button type="button" className="ghost clientLogout" disabled={Boolean(busy)} onClick={() => void logout()}><LogOut size={14} /> {text.settings.logoutClient}</button>}
   </article>;
 }

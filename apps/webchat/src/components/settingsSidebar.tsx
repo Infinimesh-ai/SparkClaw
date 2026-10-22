@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
-import { ArrowLeft, Brain, Bot, CircleAlert, History, KeyRound, Palette, PlugZap, Search, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import type { Copy, Language } from "../i18n";
 import type { PanelTab } from "./inspector";
 import { workbenchCopy } from "./workbench";
+import { ActionIcon } from "./ActionIcon";
 
 type WorkspaceSettingsSidebarProps = {
   text: Copy;
@@ -26,15 +27,15 @@ export function WorkspaceSettingsSidebar({
   const copy = workbenchCopy[language];
   const [query, setQuery] = useState("");
   const items = useMemo(() => [
-    { group: "workspace" as const, id: "settings" as const, label: copy.general, icon: SlidersHorizontal, count: 0 },
-    { group: "workspace" as const, id: "appearance" as const, label: copy.appearance, icon: Palette, count: 0 },
-    { group: "workspace" as const, id: "devices" as const, label: copy.devices, icon: KeyRound, count: 0 },
-    { group: "agent" as const, id: "models-tools" as const, label: copy.modelsTools, icon: Bot, count: 0 },
-    { group: "agent" as const, id: "permissions" as const, label: copy.permissions, icon: ShieldCheck, count: 0 },
-    { group: "agent" as const, id: "connections" as const, label: copy.connections, icon: PlugZap, count: 0 },
-    { group: "context" as const, id: "memory" as const, label: text.tabs.memory, icon: Brain, count: pendingCandidateCount },
-    { group: "activity" as const, id: "approvals" as const, label: text.tabs.approvals, icon: CircleAlert, count: pendingApprovalCount },
-    { group: "activity" as const, id: "timeline" as const, label: text.tabs.timeline, icon: History, count: 0 },
+    { group: "workspace" as const, id: "settings" as const, label: copy.general, icon: "settings" as const, count: 0 },
+    { group: "workspace" as const, id: "appearance" as const, label: copy.appearance, icon: "appearance" as const, count: 0 },
+    { group: "workspace" as const, id: "devices" as const, label: copy.devices, icon: "devices" as const, count: 0 },
+    { group: "agent" as const, id: "models-tools" as const, label: copy.modelsTools, icon: "models" as const, count: 0 },
+    { group: "agent" as const, id: "permissions" as const, label: copy.permissions, icon: "permissions" as const, count: 0 },
+    { group: "agent" as const, id: "connections" as const, label: copy.connections, icon: "connections" as const, count: 0 },
+    { group: "context" as const, id: "memory" as const, label: text.tabs.memory, icon: "memory" as const, count: pendingCandidateCount },
+    { group: "activity" as const, id: "approvals" as const, label: text.tabs.approvals, icon: "approvals" as const, count: pendingApprovalCount },
+    { group: "activity" as const, id: "timeline" as const, label: text.tabs.timeline, icon: "timeline" as const, count: 0 },
   ], [copy.appearance, copy.connections, copy.devices, copy.general, copy.modelsTools, copy.permissions, pendingApprovalCount, pendingCandidateCount, text.tabs]);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleItems = items.filter((item) =>
@@ -44,12 +45,12 @@ export function WorkspaceSettingsSidebar({
   return (
     <aside className="settingsPageSidebar">
       <button className="settingsPageBack" type="button" onClick={onBack}>
-        <ArrowLeft size={17} />
+        <ArrowLeft size={18} strokeWidth={1.75} aria-hidden="true" />
         <span>{copy.backToApp}</span>
       </button>
 
       <label className="settingsPageSearch">
-        <Search size={15} aria-hidden="true" />
+        <ActionIcon name="search" />
         <input
           type="search"
           value={query}
@@ -65,7 +66,7 @@ export function WorkspaceSettingsSidebar({
           if (groupItems.length === 0) return null;
           return <div className="settingsPageNavigationGroup" key={group}>
             <span className="settingsPageGroupLabel">{copy.settingsGroups[group]}</span>
-            {groupItems.map(({ id, label, icon: Icon, count }) => (
+            {groupItems.map(({ id, label, icon, count }) => (
               <button
                 className={tab === id ? "selected" : ""}
                 type="button"
@@ -73,7 +74,7 @@ export function WorkspaceSettingsSidebar({
                 aria-current={tab === id ? "page" : undefined}
                 onClick={() => onTabChange(id)}
               >
-                <Icon size={16} />
+                <ActionIcon name={icon} active={tab === id} />
                 <span>{label}</span>
                 {count > 0 && <small>{count}</small>}
               </button>

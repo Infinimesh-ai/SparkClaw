@@ -1,0 +1,132 @@
+/* The schedule keeps its existing table and dialogs inside the shared material. */
+.workbench.glassWorkbench .scheduleBar {
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 22px;
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 10px 28px var(--ui-glass-shadow);
+}
+
+.workbench.glassWorkbench .scheduleBarHeader {
+  min-height: 64px;
+  padding: 12px 16px;
+}
+
+.workbench.glassWorkbench .scheduleBarIdentity { gap: 10px; }
+.workbench.glassWorkbench .scheduleBarIdentity > svg { color: var(--ui-blue); }
+.workbench.glassWorkbench .scheduleBarIdentity strong { color: var(--ui-ink); font-weight: 600; }
+.workbench.glassWorkbench .scheduleNext { color: var(--ui-muted); }
+.workbench.glassWorkbench .scheduleCount {
+  padding: 3px 8px;
+  border-color: color-mix(in srgb, var(--ui-blue) 14%, transparent);
+  border-radius: 999px;
+  color: var(--ui-blue);
+  background: color-mix(in srgb, var(--ui-blue) 7%, transparent);
+}
+
+.workbench.glassWorkbench .scheduleList {
+  border-top-color: color-mix(in srgb, var(--ui-muted) 12%, transparent);
+  background: var(--ui-glass-strong);
+}
+.workbench.glassWorkbench .scheduleRow {
+  grid-template-columns: 8px minmax(110px, 1.25fr) minmax(100px, .9fr) minmax(68px, .55fr) minmax(100px, .7fr) minmax(54px, auto) max-content;
+  min-height: 62px;
+  padding: 10px 16px;
+  border-bottom-color: color-mix(in srgb, var(--ui-muted) 12%, transparent);
+}
+.workbench.glassWorkbench .scheduleRow > strong { color: var(--ui-ink); }
+.workbench.glassWorkbench :is(.scheduleEndpoint, .schedulePattern, .scheduleRow time, .scheduleEmpty) { color: var(--ui-muted); }
+.workbench.glassWorkbench .scheduleEmpty { min-height: 100px; padding: 24px 16px; }
+.workbench.glassWorkbench :is(.scheduleBarActions, .scheduleRowActions) { gap: 6px; }
+.workbench.glassWorkbench :is(.scheduleBarActions, .scheduleRowActions) .miniIconButton {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+}
+
+.workbench.glassWorkbench .scheduleDialog {
+  gap: 20px;
+  padding: 24px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 26px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 24px 64px var(--ui-glass-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  backdrop-filter: blur(24px) saturate(120%);
+}
+.workbench.glassWorkbench .scheduleCreateDialog { width: min(600px, calc(100vw - 32px)); }
+.workbench.glassWorkbench .scheduleCreateIntro { gap: 12px; }
+.workbench.glassWorkbench .scheduleCreateIntro > svg { margin-top: 3px; color: var(--ui-blue); }
+.workbench.glassWorkbench :is(.scheduleCreateIntro h2, .scheduleDialog .documentPickerHeader > strong, .scheduleDeleteDialog > strong) {
+  color: var(--ui-ink);
+  font-size: 18px;
+  line-height: 26px;
+}
+.workbench.glassWorkbench :is(.scheduleCreateIntro p, .scheduleDialog label, .scheduleDeleteDialog p) { color: var(--ui-muted); }
+.workbench.glassWorkbench .scheduleDialog label { gap: 8px; }
+.workbench.glassWorkbench .scheduleDialog .attachmentRemove {
+  width: 32px;
+  height: 32px;
+  border-radius: 12px;
+}
+.workbench.glassWorkbench .scheduleDialog :is(input, textarea) {
+  padding: 11px 14px;
+  border-color: color-mix(in srgb, var(--ui-muted) 18%, transparent);
+  border-radius: 14px;
+  color: var(--ui-ink);
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.workbench.glassWorkbench .scheduleDialog :is(input, textarea):focus {
+  border-color: var(--ui-blue);
+  box-shadow: none;
+}
+.workbench.glassWorkbench .scheduleDialog textarea { min-height: 132px; }
+.workbench.glassWorkbench .scheduleDialogGrid { gap: 14px; }
+.workbench.glassWorkbench :is(.scheduleDialogEndpoint, .scheduleCreateResult) {
+  padding: 12px 14px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 14px;
+  color: var(--ui-muted);
+  background: var(--ui-glass);
+}
+.workbench.glassWorkbench .scheduleDialogEndpoint strong { color: var(--ui-ink); }
+.workbench.glassWorkbench .scheduleDialogActions { gap: 10px; }
+.workbench.glassWorkbench .scheduleDialogActions :is(.primaryButton, .secondaryButton, .dangerButton) { min-height: 40px; padding-inline: 18px; }
+.workbench.glassWorkbench .scheduleDeleteDialog blockquote {
+  padding: 12px 14px;
+  border-radius: 0 12px 12px 0;
+  color: var(--ui-ink);
+  background: var(--ui-glass);
+}
+
+@media (max-width: 900px) {
+  .workbench.glassWorkbench .scheduleRow { grid-template-columns: 8px minmax(0, 1fr) minmax(90px, auto) max-content; }
+}
+
+@media (max-width: 600px) {
+  .workbench.glassWorkbench .scheduleBarHeader { padding: 12px; }
+  .workbench.glassWorkbench .scheduleRow { padding: 10px 12px; }
+  .workbench.glassWorkbench .scheduleDialog { gap: 18px; padding: 20px; border-radius: 22px; }
+  .workbench.glassWorkbench .scheduleDialogActions :is(.primaryButton, .secondaryButton, .dangerButton) { padding-inline: 14px; }
+}
+
+@media (max-width: 480px) {
+  .workbench.glassWorkbench .scheduleRow { grid-template-columns: 8px minmax(0, 1fr) max-content; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .workbench.glassWorkbench .scheduleDialog { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--surface-solid); }
+}
+.glassWorkbench .workbenchPageBack {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  margin-bottom: 20px;
+  padding: 6px 10px;
+  color: var(--ui-muted);
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+}
+

@@ -1,0 +1,156 @@
+/* Controls revealed inside existing menus, editors and browser panels.
+   Keep their original position, task flow and semantic status colors. */
+.glassWorkbench .sessionRenameForm {
+  grid-template-columns: minmax(0, 1fr) 36px 36px;
+  gap: 4px;
+}
+.glassWorkbench .sessionRenameForm input {
+  width: 100%;
+  height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--ui-input-edge);
+  border-radius: 12px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+}
+.glassWorkbench .sessionRenameForm input:focus { border-color: var(--ui-blue); outline: 2px solid var(--ui-blue); outline-offset: 2px; }
+.glassWorkbench :is(.voicePreviewButton, .voiceStatusAction, .voiceStatusDismiss) {
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 12px;
+  color: var(--ui-ink);
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+}
+.glassWorkbench .voiceStatusDismiss { width: 36px; padding: 0; }
+.glassWorkbench :is(.voicePreviewButton, .voiceStatusAction, .voiceStatusDismiss):hover:not(:disabled) { background: var(--ui-glass-strong); }
+.glassWorkbench :is(.voicePreviewButton, .voiceStatusAction, .voiceStatusDismiss):disabled { opacity: .5; box-shadow: none; cursor: not-allowed; }
+.glassWorkbench .voicePreviewButton > svg { width: 18px; height: 18px; stroke-width: 1.75; }
+.glassWorkbench :is(.voiceStatusAction, .voiceStatusDismiss) > svg { width: 16px; height: 16px; stroke-width: 1.75; }
+.glassWorkbench .voicePreviewRow { padding: 10px; border-top-color: var(--ui-divider); }
+.glassWorkbench .voicePreviewLevel { background: var(--ui-input-edge); }
+
+.workbench.glassWorkbench :is(.approvalEdit, .memoryEdit) :is(input, textarea) {
+  min-height: 40px;
+  padding: 9px 12px;
+  border-color: var(--ui-input-edge);
+  border-radius: 12px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
+}
+.workbench.glassWorkbench :is(.approvalEdit, .memoryEdit) :is(input, textarea):focus {
+  border-color: var(--ui-blue);
+  outline: 2px solid var(--ui-blue);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+.workbench.glassWorkbench :is(.approvalItem, .memoryItem) .buttonRow button.approve { color: var(--ui-on-blue); background: var(--ui-primary); }
+.workbench.glassWorkbench .approvalItem.dangerous .buttonRow button.approve { color: var(--status-button-text); background: var(--crimson-danger); }
+.glassWorkbench :is(.jsonBlock, .happyPlanDetails pre, .workspaceApprovalDetails details) { border-color: var(--ui-input-edge); border-radius: 14px; background: var(--ui-glass-strong); }
+.glassWorkbench .workspaceApprovalDetails details { padding: 0 12px; border: 1px solid var(--ui-glass-edge); }
+.glassWorkbench .workspaceApprovalDetails details summary { min-height: 40px; padding-block: 10px; color: var(--ui-muted); font-size: var(--font-label); line-height: var(--line-label); }
+.glassWorkbench .workspaceApprovalDetails details[open] summary { color: var(--ui-ink); }
+
+/* The browser overflow menu was frosted, but its inner rows and transfer
+   controls still used the old compact styling. No blur on panel ancestors. */
+.glassWorkbench .desktopBrowserMenu { padding: 8px; }
+.glassWorkbench .desktopBrowserMenu button {
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
+  min-height: 40px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  color: var(--ui-muted);
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
+}
+.glassWorkbench .desktopBrowserMenu button:hover:not(:disabled) { color: var(--ui-ink); background: var(--ui-glass-strong); }
+.glassWorkbench .desktopBrowserMenu button > svg { width: 20px; height: 20px; stroke-width: 1.75; }
+.glassWorkbench .desktopTransfers { padding: 10px; border-color: var(--ui-divider); background: var(--ui-glass); }
+.glassWorkbench :is(.desktopPermissionRequest, .desktopDownload) { gap: 8px; padding: 10px; border-radius: 14px; background: var(--ui-glass); }
+.glassWorkbench :is(.desktopPermissionRequest, .desktopDownload) + :is(.desktopPermissionRequest, .desktopDownload) { margin-top: 6px; }
+.glassWorkbench :is(.desktopPermissionRequest, .desktopDownload) button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 12px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+}
+.glassWorkbench :is(.desktopPermissionRequest, .desktopDownload) button:hover:not(:disabled) { background: var(--ui-glass); }
+.glassWorkbench .desktopPermissionRequest button.allow { color: var(--ui-on-blue); background: var(--ui-primary); }
+.glassWorkbench .desktopPermissionRequest button.allow:hover:not(:disabled) { background: var(--ui-primary-hover); }
+.glassWorkbench :is(.desktopPermissionRequest, .desktopDownload) button > svg { width: 18px; height: 18px; stroke-width: 1.75; }
+.glassWorkbench :is(.desktopBrowserMenu, .desktopPermissionRequest, .desktopDownload) button:disabled { opacity: .5; box-shadow: none; cursor: not-allowed; }
+.glassWorkbench .desktopOmnibox { min-height: 40px; border-color: var(--ui-input-edge); border-radius: 12px; background: var(--ui-glass-strong); box-shadow: inset 0 1px 0 var(--ui-glass-highlight); }
+.glassWorkbench .desktopOmnibox:focus-within { outline: 2px solid var(--ui-blue); outline-offset: 2px; border-color: var(--ui-blue); box-shadow: none; }
+.glassWorkbench .desktopOmnibox input { min-height: 36px; border: 0; border-radius: 0; outline: none; background: transparent; box-shadow: none; }
+.glassWorkbench .desktopOmnibox button { border-radius: 10px; }
+
+@media (max-width: 600px) {
+  .glassWorkbench .voiceStatus { flex-wrap: wrap; }
+  .glassWorkbench .voiceStatusLabel { flex: 1 1 100%; }
+  .glassWorkbench :is(.desktopPermissionRequest, .desktopDownload) { grid-template-columns: 18px minmax(0, 1fr); }
+  .glassWorkbench :is(.desktopPermissionRequest, .desktopDownload) button { grid-column: 2; justify-self: start; }
+}
+
+/* Composer approvals and the WeChat binding window postdate the reference
+   snapshot; give them the same card, row and floating-window material. */
+.glassWorkbench .composerApproval {
+  padding: 18px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 22px;
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 12px 30px var(--ui-glass-shadow);
+}
+.glassWorkbench .composerApproval header { color: var(--ui-muted); }
+.glassWorkbench .composerApproval header > svg { width: 20px; height: 20px; stroke-width: 1.75; color: var(--ui-blue); }
+.glassWorkbench .composerApprovalOption { min-height: 44px; border-color: var(--ui-divider); border-radius: 14px; background: var(--ui-glass); }
+.glassWorkbench .composerApprovalOption:hover { background: var(--ui-glass-strong); }
+.glassWorkbench .composerApprovalOption.selected { border-color: var(--ui-blue); background: var(--ui-glass-strong); box-shadow: inset 0 1px 0 var(--ui-glass-highlight); }
+.glassWorkbench .composerApprovalOption:has(input:focus-visible) { outline-color: var(--ui-blue); }
+.glassWorkbench .composerApprovalNumber { border-color: var(--ui-divider); border-radius: 10px; color: var(--ui-muted); background: var(--ui-glass-strong); }
+.glassWorkbench .composerApproval footer button {
+  min-height: 40px;
+  padding: 8px 18px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 999px;
+  color: var(--ui-on-blue);
+  background: var(--ui-primary);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 24%);
+}
+.glassWorkbench .composerApproval footer button:hover:not(:disabled) { background: var(--ui-primary-hover); }
+.glassWorkbench .composerApproval footer button:disabled { color: var(--ui-disabled); background: var(--ui-glass); box-shadow: none; cursor: not-allowed; }
+.glassWorkbench .composerApprovalOverlay:focus-visible { outline-color: var(--ui-blue); border-radius: 22px; }
+.glassWorkbench .weixinBindingDialog {
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 26px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 24px 64px var(--ui-glass-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  backdrop-filter: blur(24px) saturate(120%);
+}
+.glassWorkbench .weixinBindingDialog::backdrop { background: rgb(37 45 59 / 20%); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
+.glassWorkbench .weixinBindingDialog .taskInspectorHeader { padding: 18px 18px 0 24px; border: 0; background: transparent; }
+.glassWorkbench .weixinBindingDialogBody > svg { border-radius: 16px; background: #fff; }
+.glassWorkbench .bindingScanned { border-color: color-mix(in srgb, var(--ui-blue) 30%, transparent); border-radius: 14px; color: var(--ui-blue); background: color-mix(in srgb, var(--ui-blue) 8%, var(--ui-glass-strong)); }
+@media (prefers-reduced-transparency: reduce) {
+  .glassWorkbench .weixinBindingDialog { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--surface-solid); }
+}

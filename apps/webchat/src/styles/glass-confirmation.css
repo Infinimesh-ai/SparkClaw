@@ -1,0 +1,48 @@
+.glassWorkbench .confirmationOverlay {
+  position: fixed;
+  z-index: 240;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(37 45 59 / 20%);
+}
+.glassWorkbench .confirmationDialog {
+  box-sizing: border-box;
+  display: grid;
+  gap: 24px;
+  width: min(440px, 100%);
+  max-height: calc(100dvh - 40px);
+  padding: 24px;
+  overflow: auto;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 26px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 24px 64px var(--ui-glass-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  backdrop-filter: blur(24px) saturate(120%);
+  font-family: var(--font-sans);
+}
+.glassWorkbench .confirmationDialog h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 28px;
+}
+.glassWorkbench .confirmationActions { display: flex; justify-content: flex-end; gap: 10px; }
+.glassWorkbench .confirmationActions button { min-height: 40px; padding: 8px 18px; border-radius: 999px; font-size: var(--font-ui); line-height: var(--line-ui); }
+.glassWorkbench .confirmationCancel { border: 1px solid var(--ui-glass-edge); color: var(--ui-ink); background: var(--ui-glass); box-shadow: inset 0 1px 0 var(--ui-glass-highlight); }
+.glassWorkbench .confirmationAccept { border: 1px solid var(--ui-glass-edge); color: var(--ui-on-blue, #fff); background: var(--ui-blue); box-shadow: inset 0 1px 0 rgb(255 255 255 / 24%), 0 4px 10px color-mix(in srgb, var(--ui-blue) 18%, transparent); }
+.glassWorkbench .confirmationCancel:hover { background: var(--ui-glass-strong); }
+.glassWorkbench .confirmationAccept:hover { background: color-mix(in srgb, var(--ui-blue) 92%, var(--ui-ink)); }
+.glassWorkbench .confirmationAccept.isDanger { color: var(--status-button-text); background: var(--crimson-danger); box-shadow: inset 0 1px 0 rgb(255 255 255 / 20%), 0 4px 10px color-mix(in srgb, var(--crimson-danger) 18%, transparent); }
+.glassWorkbench .confirmationAccept.isDanger:hover { background: color-mix(in srgb, var(--crimson-danger) 92%, var(--ui-ink)); }
+
+@media (max-width: 480px) {
+  .glassWorkbench .confirmationDialog { gap: 20px; padding: 20px; border-radius: 22px; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glassWorkbench .confirmationDialog { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--surface-solid); }
+}

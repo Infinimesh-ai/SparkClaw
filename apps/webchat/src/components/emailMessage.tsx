@@ -35,6 +35,9 @@ export function EmailMessageCard({ mail, viewed, text, language, busy, onReanaly
         {!viewed && <span className="emailUnseen">{text.email.unseen}</span>}
         <time dateTime={time}>{!mail.sent_at && `${text.email.arrivalTime}: `}{formatDateTime(time, language)}</time>
       </header>
+      {conversationMode && <p className="emailReplyRecipient emailMessageIdentity" aria-label={outgoing ? text.email.sendingAddress : text.email.receivingAddress}>
+        {outgoing ? <>{text.email.from}: {mail.from || text.common.notSet}{" → "}{text.email.to}: {(mail.to ?? []).join(", ") || text.common.notSet}</> : <>{text.email.receivingAddress}: {mail.receiving_address || text.common.notSet}</>}
+      </p>}
       {!conversationMode && mail.history_state && mail.history_state !== "complete" && <p className="emailWarning" role="status">{mail.history_state === "pending" ? text.email.historyPending : mail.history_state === "failed" ? text.email.historyFailed : text.email.historyMissing}</p>}
       {mail.local_send_id && !mail.original_available && <p className="emailNotice">{mail.confirmation_source === "owner_confirmed_capture" ? text.email.sendOwnerConfirmed : text.email.sendSucceeded} · {text.email.sendEvidencePending}</p>}
       {presentation?.state === "ready" && presentation.service_label && <strong>{presentation.service_label}</strong>}

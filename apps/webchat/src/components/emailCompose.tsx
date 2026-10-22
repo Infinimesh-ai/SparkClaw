@@ -9,16 +9,22 @@ import { MailAttachmentManifest, WorkspaceMailAttachments } from "../desktop/Mai
 import { useMailWorkspace } from "../desktop/MailWorkspaceContext";
 import type { LocalFile } from "../desktop/clientStore";
 
-export type EmailComposeTarget = { mode: "compose" | "reply" | "reply_all"; mailId?: string; mailboxId?: string; draftId?: string; instanceId?: string };
+export type EmailComposeTarget = { mode: "compose" | "reply" | "reply_all"; mailId?: string; mailboxId?: string; draftId?: string; instanceId?: string; replyRecipient?: string; sendingAddress?: string };
 const splitAddresses = (value: string) => value.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
+// Reply intents are private working notes, kept only in this application session.
+// Persisted bodies stay in the server draft; failed saves never enter this cache.
+const replyWork = new Map<string, { instruction: string; id: string; draftId?: string }>();
 
-export function EmailCompose({ target, mailboxes, text, language, onClose, onBeforeClose, onSent, variant = "full" }: {
+export function EmailCompose({ target, mailboxes, text, language, onClose, onBeforeClose, onEditingChange, onSent, variant = "full" }: {
   target: EmailComposeTarget; mailboxes: EmailMailbox[]; text: Copy; language: Language; onClose: () => void;
   onBeforeClose: (handler: (() => Promise<boolean>) | null) => void;
+  onEditingChange?: (editing: boolean) => void;
   onSent?: (draft: EmailDraft) => void;
   variant?: "full" | "conversation";
 }) {
   const workspace = useMailWorkspace();
+  const replyWorkKey = variant === "conversation" && target.mailId && !target.draftId ? `${workspace?.identity ?? "browser"}:${target.mailboxId ?? ""}:${target.mailId}` : "";
+  const previousReply = useRef(replyWorkKey ? replyWork.get(replyWorkKey) : undefined);
   const [draft, setDraft] = useState<EmailDraft | null>(null);
   const [capabilities, setCapabilities] = useState<EmailComposeCapabilities | null>(null);
   const [mailbox, setMailbox] = useState(target.mailboxId ?? mailboxes.find((m) => m.active_binding)?.id ?? "");
@@ -30,7 +36,7 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
   const [error, setError] = useState<unknown>(null);
   const [selectingSource, setSelectingSource] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [instruction, setInstruction] = useState("");
+  const [instruction, setInstruction] = useState(previousReply.current?.instruction ?? "");
   const [attachmentIDs, setAttachmentIDs] = useState<string[]>([]);
   const [localFiles, setLocalFiles] = useState<LocalFile[]>([]);
   const [pendingFile, setPendingFile] = useState("");
@@ -41,17 +47,24 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
   const active = useRef(true);
   const executing = useRef(false);
   const sendKey = useRef("");
-  const initialId = useRef(crypto.randomUUID());
+  const initialId = useRef(previousReply.current?.id ?? crypto.randomUUID());
   const actionsEnabled = !workspace || workspace.enabled && workspace.sendEnabled;
   const actionsAllowed = useRef(actionsEnabled);
   actionsAllowed.current = actionsEnabled;
   const previousConnectionEnabled = useRef(workspace?.enabled);
   const attachmentsEnabled = Boolean(workspace?.enabled && workspace.attachmentsEnabled && capabilities?.workspace_attachments);
+  function rememberReply(instructionValue: string, value = draft) {
+    if (!replyWorkKey) return;
+    if (!instructionValue && !value) { replyWork.delete(replyWorkKey); return; }
+    replyWork.set(replyWorkKey, { instruction: instructionValue, id: initialId.current, draftId: value?.id });
+  }
   function populate(value: EmailDraft) {
     setDraft(value); setMailbox(value.mailbox_id); setTo((value.to ?? []).join(", ")); setCC((value.cc ?? []).join(", ")); setSubject(value.subject); setBody(value.body);
     setAttachmentIDs((value.attachments ?? []).map(item => item.local_file_id || `legacy:${item.path || item.name}`));
     if (value.attachments?.length) setRequiresReview(true);
-    setPendingFile(""); setReloadRequired(false);
+    setPendingFile(""); setReloadRequired(false); setSaved(true);
+    if (value.state === "sent") { replyWork.delete(replyWorkKey); setInstruction(""); }
+    else rememberReply(instruction, value);
   }
   useEffect(() => {
     active.current = true;
@@ -60,8 +73,9 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
       try {
         const caps = await api.emailComposeCapabilities();
         if (mounted) setCapabilities(caps);
-        if (target.draftId) {
-          const value = await api.emailDraft(target.draftId);
+        const savedDraftId = target.draftId ?? previousReply.current?.draftId;
+        if (savedDraftId) {
+          const value = await api.emailDraft(savedDraftId);
           if (mounted) populate(value);
         } else if (target.mode !== "compose" && variant !== "conversation") {
           const value = await api.saveEmailDraft({ id: initialId.current, expected_version: 0, mailbox_id: target.mailboxId ?? "", mode: target.mode, reply_mail_id: target.mailId, to: [], cc: [], subject: "", body: "" }).catch(async (reason) => {
@@ -69,12 +83,19 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
           });
           if (mounted) populate(value);
         }
-      } catch (reason) { if (mounted) setError(reason); }
+      } catch (reason) {
+        if (mounted) {
+          setError(reason);
+          if (reason instanceof APIError && reason.status === 404 && previousReply.current?.draftId) {
+            replyWork.delete(replyWorkKey); previousReply.current = undefined; initialId.current = crypto.randomUUID(); setInstruction("");
+          }
+        }
+      }
       finally { if (mounted) setBusy(false); }
     }
     void load();
     return () => { mounted = false; active.current = false; };
-  }, [target, variant]);
+  }, [target.mode, target.mailId, target.mailboxId, target.draftId, target.instanceId, variant]);
   useEffect(() => {
     const previous = previousConnectionEnabled.current;
     previousConnectionEnabled.current = workspace?.enabled;
@@ -98,6 +119,16 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
   const canSave = actionsEnabled && !busy && !locked && !review && !reloadRequired && !pendingFile && !attachmentIDs.some(id => id.startsWith("legacy:")) && (attachmentsEnabled || !attachmentIDs.length);
   const tooManyRecipients = Boolean(capabilities && splitAddresses(to).length + splitAddresses(cc).length > capabilities.max_to);
   const unsupported = tooManyRecipients || !capabilities || !capabilities[mode] || !capabilities.cc && splitAddresses(cc).length > 0 || splitAddresses(to).length > capabilities.max_to;
+  const hasUnsavedWork = !saved && Boolean(instruction || to || cc || subject || body || attachmentIDs.length || pendingFile);
+  const editing = busy || Boolean(review) || hasUnsavedWork || variant === "conversation" && Boolean(draft && !locked);
+  useEffect(() => { onEditingChange?.(editing); }, [editing, onEditingChange]);
+  useEffect(() => () => onEditingChange?.(false), [onEditingChange]);
+  useEffect(() => {
+    if (!hasUnsavedWork || locked) return;
+    const protect = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", protect);
+    return () => window.removeEventListener("beforeunload", protect);
+  }, [hasUnsavedWork, locked]);
   function edited() { setSaved(false); setReview(null); }
   function addAttachment() {
     const file = localFiles.find(item => item.id === pendingFile);
@@ -118,11 +149,9 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
     if (locked) return true;
     if (!canSave || send && unsupported) return false;
     executing.current = true; setBusy(true); setError(null); setSaved(false);
-    let persisted = false;
     try {
       const value = await api.saveEmailDraft({ id: draft?.id ?? initialId.current, expected_version: draft?.version ?? 0, mailbox_id: mailbox, mode, reply_mail_id: draft?.reply_mail_id ?? target.mailId, to: splitAddresses(to), cc: splitAddresses(cc), subject, body, ...(workspace || requiresReview ? { attachments: attachmentIDs.map(local_file_id => ({ local_file_id })) } : {}) });
       if (!active.current) return false;
-      persisted = true;
       populate(value); setSaved(true);
       if (send) {
         if (requiresReview || value.attachments?.length) setReview(structuredClone(value));
@@ -133,7 +162,6 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
       if (active.current) {
         setError(reason);
         if (reason instanceof APIError && reason.code === "email_conflict") { setReview(null); setReloadRequired(true); }
-        else if (!draft && !persisted) { try { populate(await api.emailDraft(initialId.current)); } catch { /* Preserve local editor for explicit retry. */ } }
       }
       return false;
     }
@@ -199,6 +227,7 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
   closeHandler.current = async () => {
     if (locked) return true;
     if (busy || executing.current) return false;
+    if (!draft && variant === "conversation") { rememberReply(instruction); return true; }
     if (saved || (!draft && !to && !cc && !subject && !body && !attachmentIDs.length && !pendingFile)) return true;
     return save(false);
   };
@@ -208,10 +237,14 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
   }, [onBeforeClose]);
   async function close() { if (await closeHandler.current()) onClose(); }
   const compact = variant === "conversation";
+  const sendingAddress = mailboxes.find(item => item.id === (draft?.mailbox_id ?? mailbox))?.address || target.sendingAddress || text.common.notSet;
+  const replyRecipient = to || target.replyRecipient || text.common.notSet;
+  const replyIdentity = <p className="emailReplyRecipient" aria-label={language === "zh" ? "回复身份" : "Reply identity"}><span>{text.email.sendingAddress}: {sendingAddress}</span>{" → "}<span>{text.email.replyRecipient}: {replyRecipient}</span></p>;
   if (compact && !draft) {
     return <section className="emailReplyComposer" aria-label={text.email.reply}>
       <header><span className="emailReplyIcon"><Sparkles size={16} /></span><div><h3>{text.email.tellHowToReply}</h3><p>{text.email.replyPolishHelp}</p></div></header>
-      <textarea aria-label={text.email.replyIntent} rows={3} value={instruction} placeholder={text.email.replyIntentPlaceholder} disabled={busy} onChange={(event) => setInstruction(event.target.value)} />
+      {replyIdentity}
+      <textarea aria-label={text.email.replyIntent} rows={3} value={instruction} placeholder={text.email.replyIntentPlaceholder} disabled={busy} onChange={(event) => { const value = event.target.value; setInstruction(value); rememberReply(value); }} />
       {error ? <p role="alert">{emailErrorLabel(error, text)}</p> : null}
       {!busy && capabilities && !capabilities.reply && <p className="emailWarning">{text.email.sendUnsupported}</p>}
       <footer><span>{text.email.replyDraftEditable}</span><button className="emailReplyPrimary" disabled={busy || !actionsEnabled || !capabilities?.reply || !instruction.trim()} onClick={() => void polish()}><Sparkles size={15} />{busy ? text.common.running : text.email.polishReply}</button></footer>
@@ -221,24 +254,25 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
   return <section className={compact ? "emailReplyComposer emailReplyDraft" : "emailComposer"} aria-label={mode === "compose" ? text.email.compose : mode === "reply_all" ? text.email.replyAll : text.email.reply}>
     <header><h3>{compact ? text.email.polishedReply : mode === "compose" ? text.email.compose : mode === "reply_all" ? text.email.replyAll : text.email.reply}</h3>{!compact && <button className="emailTextButton" disabled={busy && !locked} onClick={() => void close()}>{text.common.close}</button>}</header>
     <fieldset disabled={busy || locked || !!review}>
-      {!compact && <label>{text.email.sendingAddress}<select value={mailbox} onChange={(e) => { setMailbox(e.target.value); edited(); }}>
+      {!compact && <label>{text.email.sendingAddress}<select value={mailbox} disabled={mode !== "compose"} onChange={(e) => { setMailbox(e.target.value); edited(); }}>
         {!mailbox && <option value="">{text.email.noSendingAccount}</option>}
         {mailboxes.filter((m) => m.active_binding || m.id === mailbox).map((m) => <option key={m.id} value={m.id}>{emailMailboxLabel(m)}</option>)}
       </select></label>}
       {!compact && <label>{text.email.to}<input value={to} placeholder={text.email.recipientHint} onChange={(e) => { setTo(e.target.value); edited(); }} /></label>}
       {!compact && <label>{text.email.cc}<input value={cc} placeholder={text.email.recipientHint} onChange={(e) => { setCC(e.target.value); edited(); }} /></label>}
       {!compact && <label>{text.email.subject}<input value={subject} required placeholder={text.email.subjectRequired} onChange={(e) => { setSubject(e.target.value); edited(); }} /></label>}
-      {compact && <p className="emailReplyRecipient">{text.email.replyRecipient}: {to}</p>}
+      {compact && replyIdentity}
       <label className={compact ? "emailReplyBody" : undefined}>{compact ? text.email.editPolishedReply : text.email.body}<textarea rows={compact ? 7 : 8} value={body} placeholder={text.email.bodyPlaceholder} onChange={(e) => { setBody(e.target.value); edited(); }} /></label>
       {!locked && (attachmentsEnabled || attachmentIDs.length > 0) && <WorkspaceMailAttachments language={language} ids={attachmentIDs} files={localFiles} saved={draft?.attachments ?? []} pendingFile={pendingFile} onPendingFile={value => { setPendingFile(value); edited(); }} onRefresh={() => setFileRevision(value => value + 1)} onAdd={addAttachment} onRemove={id => { setAttachmentIDs(ids => ids.filter(item => item !== id)); setRequiresReview(true); edited(); }} enabled={attachmentsEnabled}/>}
     </fieldset>
     {review && <section role="region" aria-label={language === "zh" ? "发送确认" : "Send confirmation"}>
       <p>{language === "zh" ? `确认发送版本 ${review.version}` : `Confirm sending version ${review.version}`}</p>
+      <p>{text.email.from}: {mailboxes.find(item => item.id === review.mailbox_id)?.address || target.sendingAddress || text.common.notSet}</p>
       <p>{review.to.join(", ")}{review.cc.length ? ` · CC: ${review.cc.join(", ")}` : ""}</p>
       <strong>{review.subject}</strong><pre className="emailOriginalBody">{review.body}</pre>
       <MailAttachmentManifest language={language} attachments={review.attachments ?? []}/>
       <button className="emailTextButton" type="button" disabled={busy} onClick={() => setReview(null)}>{language === "zh" ? "返回修改" : "Edit message"}</button>
-      <button className="emailTextButton" type="button" disabled={busy || !actionsEnabled || unsupported || (!!review.attachments?.length && !attachmentsEnabled)} onClick={() => void confirmSend()}>{language === "zh" ? "确认发送此版本" : "Confirm sending this version"}</button>
+      <button className="emailTextButton emailComposeSend" type="button" disabled={busy || !actionsEnabled || unsupported || (!!review.attachments?.length && !attachmentsEnabled)} onClick={() => void confirmSend()}>{language === "zh" ? "确认发送此版本" : "Confirm sending this version"}</button>
     </section>}
     {!review && hasWorkspaceAttachments && <MailAttachmentManifest language={language} attachments={draft?.attachments ?? []}/>}
     {!actionsEnabled && <p role="status">{language === "zh" ? "邮件操作暂不可用。未保存的编辑保留在本窗口中；连接与授权恢复后可继续。" : "Mail actions are unavailable. Unsaved edits remain in this window until connection and authorization recover."}</p>}
@@ -258,7 +292,7 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
       <button className="emailTextButton" type="button" disabled={!actionsEnabled} onClick={() => void resolve("accept_unknown")}>{text.email.resolveAcceptUnknown}</button></p>}
     {draft?.state === "failed" && <p role="alert">{emailSendFailureLabel(draft.error_code, text)}</p>}
     {saved && draft?.state === "draft" && <p role="status">{text.email.draftSaved}</p>}
-    {!review && <footer><button className="emailTextButton" disabled={!canSave || !mailbox} onClick={() => void save(false)}>{text.email.saveDraft}</button>{compact ? <button className="emailReplyPrimary" disabled={!canSend} onClick={() => void save(true)}><Send size={15} />{text.email.sendReply}</button> : <button className="emailTextButton" disabled={!canSend} onClick={() => void save(true)}>{text.email.send}</button>}</footer>}
+    {!review && <footer><button className="emailTextButton" disabled={!canSave || !mailbox} onClick={() => void save(false)}>{text.email.saveDraft}</button>{compact ? <button className="emailReplyPrimary" disabled={!canSend} onClick={() => void save(true)}><Send size={15} />{text.email.sendReply}</button> : <button className="emailTextButton emailComposeSend" disabled={!canSend} onClick={() => void save(true)}>{text.email.send}</button>}</footer>}
   </section>;
 }
 

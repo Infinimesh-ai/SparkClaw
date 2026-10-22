@@ -1,0 +1,56 @@
+/* Preferences share the real chat measure and surface tokens with the preview. */
+html[data-reading-width="wide"] { --reading-width: 1040px; }
+html[data-reading-width="wide"] .homePresentation .homeChat > .composerDock {
+  width: min(100%, var(--reading-width));
+}
+
+.settingsAppearanceControls { display: grid; gap: 22px; min-width: 0; }
+@media (min-width: 1280px) {
+  .settingsPageContent:has(.settingsAppearance) { width: min(100%, 1120px); }
+  .workbench.glassWorkbench .settingsPageMain .settingsAppearance {
+    grid-template-columns: minmax(0, 1fr) 300px;
+    align-items: start;
+  }
+  .settingsAppearanceControls { grid-column: 1; grid-row: 1; }
+  .settingsAppearance > .appearancePreview {
+    grid-column: 2;
+    grid-row: 1;
+    position: sticky;
+    top: 24px;
+  }
+}
+@media (max-width: 600px) {
+  .settingsAppearanceControls { gap: 16px; }
+}
+
+html[data-resolved-transparency="reduced"] .glassWorkbench {
+  --ui-glass: #f4f6f8;
+  --ui-glass-strong: #fafbfc;
+  --home-glass: var(--ui-glass);
+  --home-glass-strong: var(--ui-glass-strong);
+}
+html[data-resolved-theme="dark"][data-resolved-transparency="reduced"] .glassWorkbench {
+  --ui-glass: #2a3442;
+  --ui-glass-strong: #303b4b;
+}
+html[data-resolved-transparency="reduced"] .glassWorkbench,
+html[data-resolved-transparency="reduced"] .glassWorkbench *,
+html[data-resolved-transparency="reduced"] .glassWorkbench *::before,
+html[data-resolved-transparency="reduced"] .glassWorkbench *::after,
+html[data-resolved-transparency="reduced"] .glassWorkbench dialog::backdrop {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Match the system reduced-motion behavior, including native picker arrows. */
+html[data-resolved-motion="reduced"] *,
+html[data-resolved-motion="reduced"] *::before,
+html[data-resolved-motion="reduced"] *::after,
+html[data-resolved-motion="reduced"] select::picker-icon {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  animation-delay: 0ms !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0ms !important;
+  scroll-behavior: auto !important;
+}

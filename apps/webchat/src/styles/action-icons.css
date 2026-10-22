@@ -1,0 +1,36 @@
+.actionIcon {
+  display: inline-block;
+  flex: 0 0 auto;
+  vertical-align: middle;
+  overflow: visible;
+}
+
+.actionIconOutline,
+.actionIconSolid {
+  transition: opacity 120ms ease;
+}
+
+.actionIconOutline {
+  opacity: 1;
+}
+
+.actionIconSolid {
+  opacity: 0;
+}
+
+.actionIcon.isSolid > .actionIconOutline,
+.glassWorkbench :is(button:active:not(:disabled), [aria-expanded="true"], [aria-pressed="true"], [aria-current="page"], [aria-selected="true"], .selected, .active) .actionIcon > .actionIconOutline {
+  opacity: 0;
+}
+
+.actionIcon.isSolid > .actionIconSolid,
+.glassWorkbench :is(button:active:not(:disabled), [aria-expanded="true"], [aria-pressed="true"], [aria-current="page"], [aria-selected="true"], .selected, .active) .actionIcon > .actionIconSolid {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .actionIconOutline,
+  .actionIconSolid {
+    transition: none;
+  }
+}

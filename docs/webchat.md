@@ -51,6 +51,13 @@ The workbench includes:
 Assistant answers in WebChat and Desktop have no rating buttons or correction
 input. Info answers retain the result and the expandable “View details” control.
 
+WebChat and the SparkX desktop renderer share one frosted-glass visual system
+recorded in [DESIGN.md](../DESIGN.md). Settings › Appearance keeps theme, text
+size, reading width, transparency and motion as local preferences with a live
+sample conversation. Interface areas whose backend is not available yet, such as
+additional mail receiving accounts, keep their entries visible with disabled
+actions.
+
 ## State And Refresh
 
 Startup loads readiness first, then authentication and private state. Bearer

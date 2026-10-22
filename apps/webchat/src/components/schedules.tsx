@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from "react";
-import { AlertTriangle, ArrowUp, ChevronDown, Clock3, Pencil, RefreshCw, Trash2, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, Pencil, RefreshCw, Trash2, X } from "lucide-react";
 import type { Schedule } from "../api/types";
 import type { Copy, Language } from "../i18n";
 import { formatScheduleTime, schedulePattern } from "../lib/schedules";
 import { useDismissibleLayer } from "../hooks/useDismissibleLayer";
 import { clientTimezone } from "../lib/timezone";
+import { ActionIcon } from "./ActionIcon";
 
 export type ScheduleEditDraft = {
   text: string;
@@ -67,14 +68,14 @@ export function ScheduleCreateDialog({ busy, text, onClose, onCreate }: Schedule
       <form className="scheduleDialog scheduleCreateDialog" onSubmit={(event) => void submit(event)}>
         <div className="documentPickerHeader scheduleCreateDialogHeader">
           <div className="scheduleCreateIntro">
-            <Clock3 size={18} aria-hidden="true" />
+            <ActionIcon name="calendar" />
             <div>
               <h2 id="schedule-create-title">{text.schedules.createTitle}</h2>
               <p>{text.schedules.createDescription}</p>
             </div>
           </div>
           <button className="attachmentRemove" type="button" onClick={onClose} disabled={busy || submitting} title={text.common.close} aria-label={text.common.close}>
-            <X size={14} />
+            <X size={16} strokeWidth={1.75} />
           </button>
         </div>
         <textarea
@@ -94,7 +95,7 @@ export function ScheduleCreateDialog({ busy, text, onClose, onCreate }: Schedule
             disabled={busy || submitting || !request.trim()}
           >
             <span>{submitting ? text.schedules.creating : text.schedules.createAction}</span>
-            <ArrowUp size={15} />
+            <ActionIcon name="arrow-up" />
           </button>
         </div>
       </form>
@@ -167,7 +168,7 @@ export function ScheduleBar({ schedules, open, loading, busyId, language, text, 
       <section className={`scheduleBar ${open ? "open" : ""}`} aria-label={text.schedules.title}>
         <header className="scheduleBarHeader">
           <div className="scheduleBarIdentity">
-            <Clock3 size={16} />
+            <ActionIcon name="calendar" active={open} />
             <strong>{text.schedules.title}</strong>
             <span className="scheduleCount">{schedules.filter((schedule) => schedule.status !== "missed").length} {text.schedules.activeSuffix}</span>
           </div>
@@ -176,10 +177,10 @@ export function ScheduleBar({ schedules, open, loading, busyId, language, text, 
           </p>
           <div className="scheduleBarActions">
             <button className="miniIconButton" type="button" onClick={onRefresh} disabled={loading} title={loading ? text.schedules.refreshing : text.common.refresh}>
-              <RefreshCw className={loading ? "spin" : ""} size={14} />
+              <RefreshCw className={loading ? "spin" : ""} size={20} strokeWidth={1.75} />
             </button>
             <button className="miniIconButton scheduleToggle" type="button" onClick={onToggle} aria-expanded={open} title={open ? text.schedules.collapse : text.schedules.expand}>
-              <ChevronDown size={15} />
+              <ChevronDown size={16} strokeWidth={1.75} />
             </button>
           </div>
         </header>
@@ -200,12 +201,12 @@ export function ScheduleBar({ schedules, open, loading, busyId, language, text, 
                   <span className={`scheduleState ${schedule.status}`}>{schedule.local_state && localScheduleLabels[schedule.local_state] ? localScheduleLabels[schedule.local_state][language === 'zh' ? 0 : 1] : schedule.status === "sending" ? text.schedules.statusSending : schedule.status === "missed" ? text.schedules.statusMissed : schedule.status === "submitted" ? text.schedules.statusSubmitted : text.schedules.statusPending}{(schedule.missed_count ?? 0) > 1 ? ` · ${schedule.missed_count}` : ''}</span>
                   <div className="scheduleRowActions">
                     <button className="miniIconButton" type="button" onClick={() => beginEdit(schedule)} disabled={!schedule.editable || busy} title={schedule.editable ? text.schedules.edit : text.schedules.editUnavailable}>
-                      <Pencil size={13} />
+                      <Pencil size={20} strokeWidth={1.75} />
                     </button>
                     <button className="miniIconButton dangerIconButton" type="button" onClick={() => setDeleting(schedule)} disabled={!schedule.cancelable || busy} title={text.schedules.delete}>
-                      <Trash2 size={13} />
+                      <Trash2 size={20} strokeWidth={1.75} />
                     </button>
-                    {schedule.status === 'missed' && onRunNow && <button className="miniIconButton" type="button" disabled={busy} title={language === 'zh' ? '立即执行新请求' : 'Run now as a new request'} onClick={() => void onRunNow(schedule).catch(() => {})}><ArrowUp size={13} /></button>}
+                    {schedule.status === 'missed' && onRunNow && <button className="miniIconButton" type="button" disabled={busy} title={language === 'zh' ? '立即执行新请求' : 'Run now as a new request'} onClick={() => void onRunNow(schedule).catch(() => {})}><ActionIcon name="arrow-up" /></button>}
                   </div>
                 </div>
               );
@@ -220,7 +221,7 @@ export function ScheduleBar({ schedules, open, loading, busyId, language, text, 
             <div className="documentPickerHeader">
               <strong>{text.schedules.editTitle}</strong>
               <button className="attachmentRemove" type="button" onClick={() => setEditing(null)} disabled={busyId === editing.id} title={text.common.cancel}>
-                <X size={14} />
+                <X size={16} strokeWidth={1.75} />
               </button>
             </div>
             <label>
@@ -254,7 +255,7 @@ export function ScheduleBar({ schedules, open, loading, busyId, language, text, 
             <div className="scheduleDialogActions">
               <button className="secondaryButton" type="button" onClick={() => setEditing(null)} disabled={busyId === editing.id}>{text.common.cancel}</button>
               <button className="primaryButton" type="submit" disabled={busyId === editing.id || !draft.text.trim() || !draft.dueTime || !draft.timezone.trim()}>
-                <Pencil size={15} />
+                <Pencil size={20} strokeWidth={1.75} />
                 <span>{text.common.save}</span>
               </button>
             </div>
@@ -265,14 +266,14 @@ export function ScheduleBar({ schedules, open, loading, busyId, language, text, 
       {deleting ? (
         <div ref={deleteDialogRef} tabIndex={-1} className="documentPickerOverlay" role="dialog" aria-modal="true" aria-label={text.schedules.deleteTitle}>
           <div className="scheduleDialog scheduleDeleteDialog">
-            <AlertTriangle size={22} />
+            <AlertTriangle size={22} strokeWidth={1.75} />
             <strong>{text.schedules.deleteTitle}</strong>
             <p>{text.schedules.deleteConfirm}</p>
             <blockquote>{deleting.title}</blockquote>
             <div className="scheduleDialogActions">
               <button className="secondaryButton" type="button" onClick={() => setDeleting(null)} disabled={busyId === deleting.id}>{text.common.cancel}</button>
               <button className="dangerButton" type="button" onClick={() => void confirmDelete()} disabled={busyId === deleting.id}>
-                <Trash2 size={15} />
+                <Trash2 size={20} strokeWidth={1.75} />
                 <span>{text.schedules.confirmDelete}</span>
               </button>
             </div>

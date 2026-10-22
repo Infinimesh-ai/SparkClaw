@@ -3,6 +3,7 @@
 // observed arrival interval, so text flows instead of jumping by paragraphs.
 // Display only: the snapshot itself is never altered or delayed beyond one gap.
 import { useEffect, useRef, useState } from "react";
+import { APPEARANCE_CHANGE_EVENT, currentMotion } from "./appearance";
 
 const MIN_INTERVAL_MS = 120;
 const MAX_INTERVAL_MS = 1500;
@@ -37,17 +38,28 @@ export function revealStep(state: RevealState, target: string, speed: number, el
 }
 
 function reducedMotion() {
-  return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return currentMotion() === "reduced" || (typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 }
 
 export function useSmoothReveal(target: string): string {
   const state = useRef<RevealState>(revealState(target));
   const [shown, setShown] = useState(target);
+  const [reduce, setReduce] = useState(reducedMotion);
+  useEffect(() => {
+    const updateMotion = () => setReduce(reducedMotion());
+    const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    window.addEventListener(APPEARANCE_CHANGE_EVENT, updateMotion);
+    media?.addEventListener("change", updateMotion);
+    return () => {
+      window.removeEventListener(APPEARANCE_CHANGE_EVENT, updateMotion);
+      media?.removeEventListener("change", updateMotion);
+    };
+  }, []);
   useEffect(() => {
     const current = state.current;
     if (target === current.shown) return;
     const speed = revealArrival(current, target, performance.now());
-    if (!speed || reducedMotion() || typeof window.requestAnimationFrame !== "function") {
+    if (!speed || reduce || typeof window.requestAnimationFrame !== "function") {
       Object.assign(current, revealState(target), { lastArrival: current.lastArrival, interval: current.interval });
       setShown(target);
       return;
@@ -61,6 +73,6 @@ export function useSmoothReveal(target: string): string {
     };
     frame = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(frame);
-  }, [target]);
+  }, [target, reduce]);
   return shown;
 }

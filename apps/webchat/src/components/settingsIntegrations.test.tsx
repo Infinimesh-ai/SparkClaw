@@ -8,6 +8,7 @@ import type { ConnectorStatus, IntegrationStatus, PublicConfig } from "../api/ty
 import { dictionaries } from "../i18n";
 import { SettingsPanel } from "./panels";
 import { IntegrationCredentialSettings } from "./panels/settingsIntegrations";
+import { ConfirmationProvider } from "./confirmation";
 
 const infoStatus: IntegrationStatus = {
   id: "infinimesh-info",
@@ -198,6 +199,26 @@ describe("Integration credential settings", () => {
     expect(confirm).toHaveBeenCalledTimes(2);
     expect(activate).toHaveBeenCalledWith("infinimesh-info", "info-a");
     await act(async () => root.unmount());
+  });
+
+  it("does not activate twice when queued confirmations resume old handlers", async () => {
+    let resolveActivation!: (status: IntegrationStatus) => void;
+    const pending = new Promise<IntegrationStatus>(resolve => { resolveActivation = resolve; });
+    const activate = vi.spyOn(api, "activateIntegrationCredential").mockReturnValue(pending);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<ConfirmationProvider><IntegrationCredentialSettings id="infinimesh-info" status={infoStatus} text={dictionaries.en} language="en" onStatus={() => {}} /></ConfirmationProvider>));
+      const row = Array.from(container.querySelectorAll(".credentialRow")).find(item => item.textContent?.includes("Family account"));
+      const button = row!.querySelector<HTMLButtonElement>(`button[title="${dictionaries.en.settings.useCredential}"]`)!;
+      await act(async () => { button.click(); button.click(); });
+      await act(async () => document.querySelector<HTMLButtonElement>(".confirmationAccept")!.click());
+      expect(activate).toHaveBeenCalledExactlyOnceWith("infinimesh-info", "info-a");
+      expect(document.querySelector(".confirmationAccept")).not.toBeNull();
+      await act(async () => document.querySelector<HTMLButtonElement>(".confirmationAccept")!.click());
+      expect(activate).toHaveBeenCalledOnce();
+      await act(async () => resolveActivation(infoStatus));
+    } finally { await act(async () => root.unmount()); }
   });
 });
 

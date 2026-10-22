@@ -43,6 +43,31 @@ describe("email owner API", () => {
     }));
   });
 
+  it("addresses additional email accounts by opaque ID while keeping the default provider API", async () => {
+    const fetcher = vi.fn(async () => ({ ok: true, json: async () => ({ account_id: "email/account +2", version: 9 }) }));
+    vi.stubGlobal("fetch", fetcher);
+    await api.emailAccounts();
+    await api.addEmailAccount("gmail");
+    await api.updateEmailAccount("email/account +2", 8, { enabled: true });
+    await api.openEmailAccountLogin("email/account +2");
+    await api.checkEmailAccount("email/account +2");
+    await api.updateEmailAccountIntake("email/account +2", true, 17);
+    await api.updateEmailIntake("gmail", false, 3);
+    expect(fetcher.mock.calls).toEqual([
+      ["/api/email/accounts", expect.anything()],
+      ["/api/email/accounts", expect.objectContaining({ method: "POST", body: '{"provider":"gmail"}' })],
+      ["/api/email/accounts/email%2Faccount%20%2B2", expect.objectContaining({ method: "PATCH", body: '{"enabled":true,"expected_version":8}' })],
+      ["/api/email/accounts/email%2Faccount%20%2B2/login", expect.objectContaining({ method: "POST", body: "{}" })],
+      ["/api/email/accounts/email%2Faccount%20%2B2/check", expect.objectContaining({ method: "POST", body: "{}" })],
+      ["/api/email/accounts/email%2Faccount%20%2B2/intake", expect.objectContaining({ method: "PUT", body: '{"enabled":true,"expected_version":17}' })],
+      ["/api/email/providers/gmail", expect.objectContaining({ method: "PATCH", body: '{"intake_enabled":false,"expected_mailbox_version":3}' })],
+    ]);
+    for (const call of fetcher.mock.calls) {
+      const [, init] = call as unknown as [string, RequestInit];
+      expect(init.headers).toMatchObject({ Authorization: "Bearer owner-token" });
+    }
+  });
+
   it("downloads untrusted files by mail/part identity without host paths, URL credentials or executable blobs", async () => {
     vi.useFakeTimers();
     expect(emailFileURL("mail/id", "part &1")).toBe("/api/email/messages/mail%2Fid/file?part_id=part%20%261");

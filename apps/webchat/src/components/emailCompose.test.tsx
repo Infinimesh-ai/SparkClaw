@@ -60,7 +60,10 @@ describe("email compose safety", () => {
     const onSent = vi.fn();
     const host = document.createElement("div"); const root = createRoot(host);
     try {
-      await act(async () => root.render(<EmailCompose variant="conversation" target={{ mode: "reply", mailId: "incoming", mailboxId: "box" }} mailboxes={mailboxes} text={text} language="zh" onClose={() => {}} onBeforeClose={() => {}} onSent={onSent} />));
+      await act(async () => root.render(<EmailCompose variant="conversation" target={{ mode: "reply", mailId: "incoming", mailboxId: "box", replyRecipient: "organizer@example.com", sendingAddress: "old@example.com" }} mailboxes={mailboxes} text={text} language="zh" onClose={() => {}} onBeforeClose={() => {}} onSent={onSent} />));
+      expect(host.querySelector('[aria-label="回复身份"]')?.textContent).toContain("owner@example.com");
+      expect(host.querySelector('[aria-label="回复身份"]')?.textContent).toContain("organizer@example.com");
+      expect(host.querySelector('[aria-label="回复身份"]')?.textContent).not.toContain("old@example.com");
       const intent = host.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${text.email.replyIntent}"]`)!;
       expect(intent).not.toBeNull();
       await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(intent, "确认能参加，并索要会议链接"); intent.dispatchEvent(new Event("input", { bubbles: true })); });
@@ -118,10 +121,12 @@ describe("email compose safety", () => {
     const host = document.createElement("div"); const root = createRoot(host);
     try {
       await act(async () => root.render(<EmailCompose target={{ mode: "compose", draftId: "d" }} mailboxes={mailboxes} text={text} language="zh" onClose={() => {}} onBeforeClose={register} />));
+      const body = host.querySelector("textarea")!;
+      await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(body, "A correction before switching"); body.dispatchEvent(new Event("input", { bubbles: true })); });
       let allowed = false;
       await act(async () => { allowed = await closeGuard!(); });
       expect(allowed).toBe(true);
-      expect(save).toHaveBeenCalledWith(expect.objectContaining({ id: "d", expected_version: 1, body: "Text" }));
+      expect(save).toHaveBeenCalledWith(expect.objectContaining({ id: "d", expected_version: 1, body: "A correction before switching" }));
     } finally { act(() => root.unmount()); }
   });
 

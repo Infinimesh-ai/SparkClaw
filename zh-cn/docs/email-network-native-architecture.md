@@ -350,6 +350,39 @@ Python 3.11 **90/90**；生成 userscript/binding 与公开树检查通过。基
 独立的发信/收信通道提交仍待未来配对发行整合与验收。负责人先前要求“部署和真实发信前问我”继续有效；
 这些结果不代表 N6 完成，也不代表已获得实机提速。
 
+
+### 9.4 发信阻塞收信：根因与修复（2026-10-22）
+
+work2 04:00–04:50 UTC 的 executor 账本记录了实际阻塞：04:02:05.8 开始的一次
+QQ 发信持续 77 秒，同秒创建的 Gmail、Outlook `collect_page` 分别在 78.8 秒和
+78.6 秒后完成，平时热页面轮询分别只需 1.5–3 秒和 10–13 秒。每次发信和 QQ
+标记已读（33–38 秒）都有类似现象；发信后的首轮收信因 Reader 页已冷却，耗时 13–29 秒。
+
+不同供应商使用独立 executor 通道，但浏览器整体预留仍将它们串行化，同一供应商的
+executor 工作也共用通道。阻塞来自四层：
+
+| 层 | 修复前的位置 | 影响 |
+|---|---|---|
+| Binding | App-CLI `applications/mail/build-bindings.mjs` | send/mark-read 在 `send`/`mark_read` family 中声明 `activity: 'exclusive'` |
+| Browser Controller | `host-driver.mjs` → `controller.mjs` | 独占整个浏览器配置，其他供应商预留等待整个发信过程，`drainIdle()` 关闭所有停驻 Reader 页 |
+| Executor | App-CLI `executor.mjs` | `owner + spec.resource` 通道中，send 的 resource 原为供应商，因此同供应商收信排在其后 |
+| Gateway | `SendForOwner`、`MarkReadForOwner`、`provider_lock.go` | 操作全程持有同一供应商锁 |
+
+配对 mutation-lane 改动将 send/mark-read 的 `resource` 和 `host.family` 设为
+`<provider>.mutation`，并在 binding schema 增加 `mutation` activity。Controller
+通过 `reservationPolicy()` 读取 binding：mutation 只预留该供应商的变更通道，
+不排空 Reader 页，同时仍让登录、连接验证和通用浏览器访问等待。Gateway 也拆分
+inbound/mutation 锁。同一供应商的变更仍跨 owner 串行，取消的等待者不进入浏览器。
+任务页位于 Bridge 的非焦点任务窗口，未授权交接时禁止 `Page.bringToFront`，
+发信页与 Reader 页不争夺焦点。
+
+单次发信耗时 60–100 秒的主要原因是新建进程。一次 compose 在夹具中执行 23–27
+个页面调用；`host-page.mjs` 每次调用单独启动 `playwright-cli.js`，每条命令先
+`tab-list` 核对拓扑，click/fill/press 后再 eval `location.href`，总计约 70–85
+次进程启动。work2 单次 CLI 冷启动约 0.42 秒；证明等待较短（Gmail 最多 12 × 250 ms，
+QQ 列表最多 10 秒）。将受控变更步骤批量执行是另一个改进方向，通道修复使其开销
+只影响发信，不再阻塞收信。本节的本地集成不等于部署或实机并发验收。
+
 ## 10. 跨项目影响
 
 - App-CLI（SparkClaw 维护的分叉）以配对发行接收 N1–N3 运行时改动；SparkClaw

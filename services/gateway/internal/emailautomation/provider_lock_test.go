@@ -35,6 +35,9 @@ func (r *providerBlockingRunner) credentialGeneration(context.Context, uint64) (
 func (r *providerBlockingRunner) Read(ctx context.Context, provider Provider, _ ReadRequest) (ReadResult, error) {
 	return ReadResult{Status: "empty"}, r.wait(ctx, provider)
 }
+func (r *providerBlockingRunner) Send(ctx context.Context, provider Provider, _ SendRequest) (SendResult, error) {
+	return SendResult{Provider: provider.ID, Status: "sent"}, r.wait(ctx, provider)
+}
 
 func providerConcurrencyFixture(t *testing.T) (*Controller, *providerBlockingRunner) {
 	t.Helper()
@@ -142,11 +145,7 @@ func TestCanceledProviderWaitersNeverReachBrowser(t *testing.T) {
 		},
 		"admit-send":   func(ctx context.Context) error { _, err := controller.Admit(ctx, "other", "gmail"); return err },
 		"admit-intake": func(ctx context.Context) error { _, err := controller.AdmitIntake(ctx, "other", "gmail"); return err },
-		"send": func(ctx context.Context) error {
-			_, err := controller.SendForOwner(ctx, "other", SendRequest{Provider: "gmail", Account: app.EmailAccountDefault, SettingVersion: 1})
-			return err
-		},
-		"read": func(ctx context.Context) error { _, err := controller.ReadForOwner(ctx, "other", request); return err },
+		"read":         func(ctx context.Context) error { _, err := controller.ReadForOwner(ctx, "other", request); return err },
 		"capture": func(ctx context.Context) error {
 			capture := request
 			capture.Target = &target
@@ -168,10 +167,6 @@ func TestCanceledProviderWaitersNeverReachBrowser(t *testing.T) {
 			_, err := controller.CollectPageForOwner(ctx, "other", binding)
 			return err
 		},
-		"mark-read": func(ctx context.Context) error {
-			_, err := controller.MarkReadForOwner(ctx, "other", app.EmailMarkReadRequest{Binding: request})
-			return err
-		},
 	}
 	for name, operation := range operations {
 		t.Run(name, func(t *testing.T) {
@@ -191,6 +186,57 @@ func TestCanceledProviderWaitersNeverReachBrowser(t *testing.T) {
 	select {
 	case provider := <-runner.entered:
 		t.Fatalf("canceled waiter entered %s", provider)
+	default:
+	}
+}
+
+// A send owns its own task page. It must neither wait for nor hold the shared
+// inbound page of its provider, while mutations of one provider still
+// serialize across owners and canceled mutation waiters never reach the page.
+func TestProviderMutationLaneIsIndependentOfInbound(t *testing.T) {
+	controller, runner := providerConcurrencyFixture(t)
+	read := ReadRequest{Provider: "gmail", Account: app.EmailAccountDefault, SettingVersion: 1}
+	send := SendRequest{Provider: "gmail", Account: app.EmailAccountDefault, SettingVersion: 1}
+	reading := make(chan error, 1)
+	go func() { _, err := controller.ReadForOwner(t.Context(), "owner", read); reading <- err }()
+	awaitProvider(t, runner.entered)
+	// Mark-read is admitted past the lock (and rejected by its own target
+	// validation) while a read holds the inbound lane.
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	_, err := controller.MarkReadForOwner(ctx, "other", app.EmailMarkReadRequest{Binding: read})
+	cancel()
+	if errors.Is(err, context.DeadlineExceeded) || ErrorCode(err) != app.ToolErrorEmailInvalidInput {
+		t.Fatalf("mark-read waited behind inbound work: %v", err)
+	}
+	sending := make(chan error, 1)
+	go func() { _, err := controller.SendForOwner(t.Context(), "owner", send); sending <- err }()
+	if provider := awaitProvider(t, runner.entered); provider != "gmail" {
+		t.Fatalf("send entered %s", provider)
+	}
+	for name, operation := range map[string]func(context.Context) error{
+		"send": func(ctx context.Context) error { _, err := controller.SendForOwner(ctx, "other", send); return err },
+		"mark-read": func(ctx context.Context) error {
+			_, err := controller.MarkReadForOwner(ctx, "other", app.EmailMarkReadRequest{Binding: read})
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+			defer cancel()
+			if err := operation(ctx); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("mutation overlapped the active send: %v", err)
+			}
+		})
+	}
+	close(runner.release)
+	for _, done := range []chan error{reading, sending} {
+		if err := awaitOperation(t, done); err != nil {
+			t.Fatal(err)
+		}
+	}
+	select {
+	case provider := <-runner.entered:
+		t.Fatalf("canceled mutation waiter entered %s", provider)
 	default:
 	}
 }

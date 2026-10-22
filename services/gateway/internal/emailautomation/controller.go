@@ -211,7 +211,7 @@ func (c *Controller) SendForOwner(ctx context.Context, ownerID string, request S
 	if !ok {
 		return SendResult{}, codedError(app.ToolErrorEmailInvalidInput, "Email provider is not registered")
 	}
-	release, lockErr := c.lockProvider(ctx, provider.ID)
+	release, lockErr := c.lockProviderLane(ctx, provider.ID, providerLaneMutation)
 	if lockErr != nil {
 		return SendResult{}, lockErr
 	}

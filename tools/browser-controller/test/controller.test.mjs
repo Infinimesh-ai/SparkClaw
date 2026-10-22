@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import fs from 'node:fs';
 
-import { BrowserController } from "./fixtures/application-controller.mjs";
+import { BrowserController, bindingPolicy } from "./fixtures/application-controller.mjs";
+import { reservationPolicy } from "../src/host-driver.mjs";
 
 const token = "qualification-token-value";
 
@@ -512,6 +513,10 @@ test("script factories must expose explicit pool lifecycle methods", () => {
   }
 });
 
+// Send is whole-profile work only where the paired binding still declares it
+// exclusive; a mutation lane neither drains nor waits for Reader pages.
+const sendExclusive = bindingPolicy('outlook', 'send').exclusive;
+
 test("exclusive actions drain idle mail pages before opening clients or provider scripts",async()=>{
   for(const mode of ['validation','mcp','login','send']) {
     const events=[],factory=new FakeFactory(),scripts=new FakeScriptFactory();
@@ -524,12 +529,13 @@ test("exclusive actions drain idle mail pages before opening clients or provider
     if(mode==='mcp')await controller.acquire(acquireInput());
     if(mode==='login')await controller.openProviderLogin({profile_id:'default',task_id:'login',provider:'gmail'});
     if(mode==='send')await controller.runScript(runScriptInput({operation:'send'}));
-    assert.deepEqual(events,['drain',mode==='login'?'login':mode==='send'?'send':'open']);await controller.shutdown();
+    const drained=mode!=='send'||sendExclusive;
+    assert.deepEqual(events,[...drained?['drain']:[],mode==='login'?'login':mode==='send'?'send':'open']);await controller.shutdown();
   }
 });
 
 test("failed idle cleanup blocks every exclusive action and releases its reservation",async()=>{
-  for(const mode of ['validation','mcp','login','send']) {
+  for(const mode of ['validation','mcp','login',...sendExclusive?['send']:[]]) {
     const factory=new FakeFactory(),scripts=new FakeScriptFactory();
     scripts.drainIdleMailReads=async()=>{throw new Error('cleanup failed');};
     const controller=new BrowserController({clientFactory:factory,scriptFactory:scripts});
@@ -629,7 +635,7 @@ test("three providers overlap, while same-provider work waits without blocking f
   assert.equal(controller.health().state, "ready");
 });
 
-test("exclusive MCP, validation, login and send cannot overlap receiving", async () => {
+test("exclusive MCP, validation and login cannot overlap receiving", async () => {
   const { controller, scripts } = parallelController();
   const running = controller.runScript(providerInput("gmail"));
   await waitFor(() => scripts.calls.length === 1, 500);
@@ -637,15 +643,50 @@ test("exclusive MCP, validation, login and send cannot overlap receiving", async
     () => controller.acquire(acquireInput()),
     () => controller.validateToken({ profile_id: "default", token }),
     () => controller.openProviderLogin({ profile_id: "default", task_id: "login", provider: "outlook" }),
-    () => controller.runScript(providerInput("outlook", { operation: "send" })),
+    ...sendExclusive ? [() => controller.runScript(providerInput("outlook", { operation: "send" }))] : [],
   ]) await assert.rejects(action(), error => error.code === "browser_busy");
   scripts.calls[0].gate.resolve();
   await running;
+});
+
+test("send follows the paired binding: a mutation lane overlaps receiving, exclusive send does not", async () => {
+  const { controller, scripts } = parallelController();
   const send = controller.runScript(providerInput("outlook", { operation: "send" }));
-  await waitFor(() => scripts.calls.length === 2, 500);
-  await assert.rejects(controller.runScript(providerInput("gmail")), error => error.code === "browser_busy");
-  scripts.calls[1].gate.resolve();
+  await waitFor(() => scripts.calls.length === 1, 500);
+  const reads = ["gmail", "outlook", "qq_mail"].map(provider => controller.runScript(providerInput(provider)));
+  if (sendExclusive) {
+    for (const read of reads) await assert.rejects(read, error => error.code === "browser_busy");
+  } else {
+    await waitFor(() => scripts.calls.length === 4, 500);
+    await assert.rejects(controller.runScript(providerInput("outlook", { operation: "send", task_id: "second-send" })),
+      error => error.code === "browser_busy");
+    for (const call of scripts.calls.slice(1)) call.gate.resolve();
+    await Promise.all(reads);
+  }
+  scripts.calls[0].gate.resolve();
   await send;
+});
+
+test("mail mutation families overlap inbound pages and other providers while whole-profile work waits", async () => {
+  const controller = new BrowserController({ clientFactory: new FakeFactory() });
+  const reserve = (taskID, family, activity, waitMS = 0) =>
+    controller.reserveApplication({ taskID, ...reservationPolicy({ host: { family, activity } }, activity), waitMS });
+  assert.deepEqual(reservationPolicy({ host: { family: "gmail.mutation", activity: "mutation" } }, "mutation"),
+    { resource: "gmail.mutation", exclusive: false });
+  assert.equal(reservationPolicy({ host: { family: "send", activity: "exclusive" } }, "exclusive").exclusive, true);
+  const send = await reserve("qq-send", "qq_mail.mutation", "mutation");
+  const others = await Promise.all([reserve("qq-read", "qq_mail.inbound", "read"), reserve("gmail-read", "gmail.inbound", "read"),
+    reserve("outlook-read", "outlook.inbound", "read"), reserve("gmail-send", "gmail.mutation", "mutation")]);
+  await assert.rejects(reserve("qq-send-2", "qq_mail.mutation", "mutation"), error => error.code === "browser_busy");
+  let acquired = false;
+  const mcp = controller.acquire(acquireInput({ wait_timeout_ms: 1000 })).then(lease => { acquired = true; return lease; });
+  for (const reservation of others) controller.finishApplication(reservation);
+  await new Promise(setImmediate);
+  assert.equal(acquired, false, "whole-profile work overlapped a mutation");
+  controller.finishApplication(send);
+  const lease = await mcp;
+  await controller.release({ session_id: lease.session_id, controller_generation: lease.controller_generation, session_generation: lease.session_generation });
+  await controller.shutdown();
 });
 
 test("waiting exclusive work gets a turn before new provider scans", async () => {

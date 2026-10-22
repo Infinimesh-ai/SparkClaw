@@ -1,4 +1,14 @@
+import fs from 'node:fs';
 import {BrowserController as Controller} from '../../src/controller.mjs';
+import {reservationPolicy} from '../../src/host-driver.mjs';
+
+// Mirrors the paired release: the installed binding names each operation's
+// scheduler family and sharing, as it does for ApplicationHostDriver.
+export function bindingPolicy(provider, operation) {
+  const binding = JSON.parse(fs.readFileSync(new URL(`../../node_modules/@infinimesh/app-cli-runtime/bindings/mail-${provider.replace('_', '-')}.json`, import.meta.url)));
+  const spec = binding.commands[operation === 'observe' ? 'watch' : operation];
+  return reservationPolicy(spec, spec.host.activity);
+}
 
 // Scheduler unit tests replace the external application host, not Registry.
 // The fake backend deliberately enters through the same public reservation
@@ -12,11 +22,11 @@ export class BrowserController extends Controller {
     const work = new Set();
     factory.runScript = args => {
       const pending = (async () => {
-        const exclusive = args.operation === 'send';
-        const reservation = await this.reserveApplication({taskID: args.taskID, resource: args.provider,
-          exclusive, signal: args.signal, waitMS: args.waitMS ?? 0});
+        const policy = bindingPolicy(args.provider, args.operation);
+        const reservation = await this.reserveApplication({taskID: args.taskID, ...policy,
+          signal: args.signal, waitMS: args.waitMS ?? 0});
         try {
-          if (exclusive) await factory.drainIdleMailReads();
+          if (policy.exclusive) await factory.drainIdleMailReads();
           return await run({...args, sessionID: reservation.sessionID,
             sessionGeneration: reservation.sessionGeneration, controllerGeneration: this.controllerGeneration,
             signal: args.signal ? AbortSignal.any([args.signal, reservation.abortController.signal]) : reservation.abortController.signal});

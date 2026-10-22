@@ -106,7 +106,7 @@ func (c *Controller) EnumerateThreadForOwner(ctx context.Context, ownerID string
 }
 
 func (c *Controller) MarkReadForOwner(ctx context.Context, ownerID string, request app.EmailMarkReadRequest) (app.EmailMarkReadResult, error) {
-	release, lockErr := c.lockProvider(ctx, request.Binding.Provider)
+	release, lockErr := c.lockProviderLane(ctx, request.Binding.Provider, providerLaneMutation)
 	if lockErr != nil {
 		return app.EmailMarkReadResult{}, lockErr
 	}

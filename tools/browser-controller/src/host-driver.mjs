@@ -19,6 +19,14 @@ const FENCED_DIAGNOSTIC_INTERVAL_MS = 10 * 60_000;
 
 // Resource ownership only: application selectors, origin sets, hooks, budgets
 // and preparation assets arrive exclusively from the verified release binding.
+// The verified binding names the scheduler resource and its sharing. Only
+// whole-profile work (`exclusive`) waits for every provider and drains idle
+// Reader pages. A mail `mutation` (send, mark-read) owns its task page in its
+// provider's mutation family: it overlaps inbound pages and other providers.
+export function reservationPolicy(spec, activity) {
+  return {resource: spec.host.family ?? spec.resource, exclusive: activity === 'exclusive'};
+}
+
 export class ApplicationHostDriver {
   constructor(options) {Object.assign(this, options); this.handles = new Set(); this.connections = new Set();}
   async prepare() {
@@ -158,10 +166,10 @@ export class ApplicationHostDriver {
     this.handles.add(handle);
     let phase = 'reserve';
     try {
-      handle.bootstrap = await this.controller.reserveApplication({taskID: task, resource: spec.host.family ?? spec.resource,
-        exclusive: spec.host.activity === 'exclusive',
+      const policy = reservationPolicy(spec, spec.host.activity);
+      handle.bootstrap = await this.controller.reserveApplication({taskID: task, ...policy,
         waitMS: Math.max(0, Math.min(30000, spec.timeout_ms ?? 30000, grant.execution_expires_ms - Date.now()))});
-      if (spec.host.activity === 'exclusive') await this.drainIdle?.();
+      if (policy.exclusive) await this.drainIdle?.();
       const registration = {...spec.host.page};
       registration.beforeNavigationSources = await Promise.all((registration.beforeNavigationAssets ?? []).map(async relative => {
         const absolute = path.resolve(this.releaseRoot, relative);
@@ -196,7 +204,7 @@ export class ApplicationHostDriver {
     }
   }
   async beginActivity(handle, {id, kind, spec, resource, grant, signal, task}) {
-    const reservation = handle.bootstrap ?? await this.controller.reserveApplication({taskID: task, resource: spec.host.family ?? spec.resource, exclusive: kind === 'exclusive', signal,
+    const reservation = handle.bootstrap ?? await this.controller.reserveApplication({taskID: task, ...reservationPolicy(spec, kind), signal,
       waitMS: Math.max(0, Math.min(30000, spec.timeout_ms ?? 30000, grant.execution_expires_ms - Date.now()))});
     handle.bootstrap = null;
     handle.activities.set(id, {reservation, kind, spec, resource});

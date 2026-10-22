@@ -272,6 +272,13 @@ Lanes are keyed by owner, provider and page class: the shared inbound page
 queue behind each other. The Gateway provider lock is narrowed to admission of a
 single page operation rather than whole collection budgets.
 
+In concrete terms (9.3): send and mark-read declare the binding activity
+`mutation` in the family and executor lane `<provider>.mutation`; the Browser
+Controller reserves that family like any provider page, so it neither waits for
+nor drains inbound pages of any provider. Only login, validation and generic
+browser access stay whole-profile `exclusive`. The Gateway keeps one inbound and
+one mutation lock per provider.
+
 ### 4.9 Presentation plane (ISCP)
 
 - **Object pipelining.** The server already advertises a credit window; desktop
@@ -425,6 +432,46 @@ release, merge into main, Mac/work2 upgrade or UI change occurred. The separate
 mutation-lane commits remain independent; a future paired release must integrate
 and qualify them. The owner's prior instruction still requires approval before
 deployment or real test mail. These results do not close N6 or establish latency.
+### 9.4 Send blocking inbound work: root cause and fix (2026-10-22)
+
+The work2 executor ledger for 04:00–04:50 UTC shows the block directly. A QQ send
+started at 04:02:05.8 and ran 77 s; Gmail and Outlook `collect_page` tasks created
+in the same second finished 78.8 s and 78.6 s later (warm rounds take 1.5–3 s and
+10–13 s). The same happened around every send and around each QQ mark-read
+(33–38 s). The first round on each provider after a send then took 13–29 s, because
+its Reader page was cold.
+
+Different providers have independent executor lanes, but browser-wide reservations
+still serialize them. Same-provider executor work also shares a lane. The block
+has four layers:
+
+| Layer | Location (before fix) | Effect |
+|---|---|---|
+| Binding | App-CLI `applications/mail/build-bindings.mjs:38` | send/mark-read declared `activity: 'exclusive'` in families `send`/`mark_read` |
+| Browser Controller | `tools/browser-controller/src/host-driver.mjs:161-164,199` → `controller.mjs:443-447` | `exclusive` takes the whole-profile reservation: every provider's page reservation waits for the entire send, and `drainIdle()` disposes every parked Reader page |
+| Executor | App-CLI `runtimes/browser/src/executor.mjs:278` | lane `owner + spec.resource`; send's resource was the provider, so the same provider's inbound tasks queued behind it |
+| Gateway | `emailautomation/controller.go:214`, `intake_operations.go:109` | `SendForOwner`/`MarkReadForOwner` held the single per-provider lock (`provider_lock.go`) for the whole operation |
+
+The paired mutation-lane change gives send and mark-read
+`resource` and `host.family` `<provider>.mutation` and the new binding activity
+`mutation` (schema enum extended). The Controller derives a reservation from the
+binding through `reservationPolicy()`: a mutation is a provider-keyed
+reservation, does not drain, and still makes login, validation and generic
+browser access wait. The Gateway splits the provider lock into inbound and
+mutation lanes. Task pages are inactive tabs in the Bridge's unfocused task
+window, with `Page.bringToFront` blocked unless a handoff is granted, so a send
+page shares no focus with Reader pages.
+
+Why one send takes 60–100 s: proof waits are small (Gmail polls the toast at most
+12 × 250 ms; QQ waits at most 10 s for the list). The time goes to spawning
+processes. A compose send makes 23–27 page calls (a fixture count over
+`sendManagedMail`). `host-page.mjs` runs each call as separate `playwright-cli.js`
+processes: a `tab-list` topology check before every command (`#withTaskSelected`)
+and a `location.href` eval after every click, fill and press. That comes to about
+70–85 process spawns per send. Starting the CLI process alone takes 0.42 s on work2.
+Batching a mutation's guarded steps into one process, as `cli-read-batch.mjs` does
+for reads, is a separate follow-up; with the lane fix, it affects send latency
+only, not inbound work.
 
 ## 10. Cross-Project Impact
 

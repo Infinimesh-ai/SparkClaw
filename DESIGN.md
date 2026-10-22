@@ -90,6 +90,8 @@ components:
 
 # Design System: SparkX workbench
 
+> Language: English | [简体中文](zh-cn/DESIGN.md)
+
 ## Overview
 
 **Creative North Star: "A quiet local-agent workspace in pale frosted glass."**
@@ -339,6 +341,13 @@ Opening sign-in never starts receiving. Keep unavailable actions disabled using
 the runtime and transport capabilities; an unavailable runtime still permits
 stopping an existing account when its management API remains available.
 
+Additional receiving accounts are a frontend surface until a backend provides
+them: account rows and "Add account" stay visible, and their actions remain
+disabled unless the account list reports `multi_account_available` and, on
+desktop, the connection exposes the `mail_accounts` surface. Desktop keeps its
+existing rule of no email sign-in button; identity checks and resume after
+backend sign-in stay available.
+
 Original-file cleanup confirms its exact mailbox or global/date scope before
 submission. The confirmation states that local originals and attachments become
 unavailable while message metadata/text and remote mailbox messages remain.
@@ -352,6 +361,14 @@ Errors and validation feedback use the same neutral glass surface, a 1px edge,
 or large red fields. A compact status icon carries error, warning, success or
 progress color; keep recovery actions beside the relevant message and preserve
 all error text, alert/status semantics and disabled states.
+
+### Composer approvals and binding windows
+
+Composer approvals replace the composer input with a card (22px) on the same
+strong glass. Answer rows use 14px corners and a 44px minimum height; the
+selected row gains the blue edge. Submission is the blue pill primary action
+and stays disabled until a choice exists. The WeChat binding window uses the
+floating dialog material (26px), with the QR code on a white 16px tile.
 
 ### Confirmations
 

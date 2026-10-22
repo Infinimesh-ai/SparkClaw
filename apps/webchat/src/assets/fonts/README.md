@@ -1,3 +1,5 @@
+> Language: English | [简体中文](../../../../../zh-cn/apps/webchat/src/assets/fonts/README.md)
+
 League Spartan variable font (Latin subset), served locally for the Spark X wordmark.
 
 Source: https://fonts.google.com/specimen/League+Spartan

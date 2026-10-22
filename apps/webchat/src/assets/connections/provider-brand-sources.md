@@ -1,5 +1,7 @@
 # Provider icon sources
 
+> Language: English | [简体中文](../../../../../zh-cn/apps/webchat/src/assets/connections/provider-brand-sources.md)
+
 Original provider images were collected as visual references for the imagegen
 pass used by the Connections detail panels. The generated raster artwork is
 styled for SparkClaw using brand blue `#086DE1` and a consistent fine-line

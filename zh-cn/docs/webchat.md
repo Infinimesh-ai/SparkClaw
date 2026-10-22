@@ -41,6 +41,11 @@ approval、trace、persistence、delivery、schedule 和 connector binding 的�
 WebChat 和桌面端的回答下方不显示评价按钮或修正输入框。Info 回答保留结果正文和可展开的
 “查看详情”。
 
+WebChat 和 SparkX 桌面渲染层共用一套磨砂玻璃视觉系统，记录在
+[DESIGN.md](../DESIGN.md)。设置 › 外观把主题、文字大小、阅读宽度、透明度和动态效果
+保存为本地偏好，并提供实时示例对话。后端尚未提供的界面区域（如附加邮件接收账户）
+保留入口，相关操作保持禁用。
+
 ## 状态与刷新
 
 启动先加载 readiness，再处理 authentication 和 private state。Bearer token 来自

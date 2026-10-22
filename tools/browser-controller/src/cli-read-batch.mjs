@@ -9,7 +9,7 @@ import {assertExpectedOrigin,assertTaskTopology,parseTabs,sanitizeTabListOutput}
 import {ControllerError} from './errors.mjs';
 import {MAX_CLI_OUTPUT_BYTES,clientContractError,clientTimeoutError,clientUnavailableError,pageStale,classifyProcessExit} from './cli-runtime.mjs';
 
-async function guardedReadBatch(request, run, token) {
+export async function guardedReadBatch(request, run, token) {
   if(!Number.isSafeInteger(request.taskIndex)||request.taskIndex<0||!Array.isArray(request.ownerTabs)||
       !Array.isArray(request.origins)||!request.origins.length||typeof request.code!=='string'||Buffer.byteLength(request.code)>72<<10||
       !Number.isSafeInteger(request.actionTimeoutMS)||request.actionTimeoutMS<1||!Number.isSafeInteger(request.readTimeoutMS)||request.readTimeoutMS<1)throw clientContractError();
@@ -40,30 +40,29 @@ async function guardedReadBatch(request, run, token) {
   return output;
 }
 
-async function main() {
-  const args=process.argv.slice(2),requestPath=args[1],directory=path.dirname(process.cwd());
-  if(args.length!==2||args[0]!=='--batch-request'||!path.isAbsolute(requestPath)||path.dirname(requestPath)!==directory||
-      !/^read-batch-[0-9a-f-]{36}\.json$/.test(path.basename(requestPath)))throw clientContractError();
-  const stat=await fs.lstat(requestPath);
-  if(!stat.isFile()||stat.isSymbolicLink()||stat.size>512<<10||(stat.mode&0o077)||await fs.realpath(requestPath)!==requestPath)throw clientContractError();
-  const request=JSON.parse(await fs.readFile(requestPath,'utf8'));
+// Proves that the task directory's metadata names a live daemon for exactly
+// this session, then connects through the pinned upstream Session protocol.
+// Shared by the one-shot read batch and the resident page transport.
+export async function openPinnedSession(sessionName, directory) {
   const metadata=JSON.parse(await fs.readFile(path.join(directory,'metadata.json'),'utf8'));
-  if(!/^sc-cli-[a-f0-9]{20}$/.test(request.sessionName)||metadata.session_name!==request.sessionName||!Number.isSafeInteger(metadata.pid)||metadata.pid<=1)throw clientContractError();
+  if(!/^sc-cli-[a-f0-9]{20}$/.test(sessionName)||metadata.session_name!==sessionName||!Number.isSafeInteger(metadata.pid)||metadata.pid<=1)throw clientContractError();
   const command=await fs.readFile(`/proc/${metadata.pid}/cmdline`);
-  if(!command.toString().split('\0').includes(request.sessionName))throw clientContractError();
+  if(!command.toString().split('\0').includes(sessionName))throw clientContractError();
   const require=createRequire(import.meta.url);
   if(require('../node_modules/playwright-core/package.json').version!=='1.63.0-alpha-2026-08-31')throw clientContractError();
   const {Session}=require('../node_modules/playwright-core/lib/tools/cli-client/session.js');
   const {Registry,createClientInfo}=require('../node_modules/playwright-core/lib/tools/cli-client/registry.js');
   const info=createClientInfo();
   if(!path.resolve(info.daemonProfilesDir).startsWith(path.resolve(directory,'cache')+path.sep))throw clientContractError();
-  const entry=await new Registry(new Map()).loadEntry(info,request.sessionName);
+  const entry=await new Registry(new Map()).loadEntry(info,sessionName);
   const entryStat=await fs.lstat(entry.file);
   if(!entryStat.isFile()||entryStat.isSymbolicLink()||await fs.realpath(entry.file)!==path.resolve(entry.file))throw clientContractError();
-  if(entry.config.name!==request.sessionName||entry.config.version!==info.version||entry.config.attached!==true)throw clientContractError();
+  if(entry.config.name!==sessionName||entry.config.version!==info.version||entry.config.attached!==true)throw clientContractError();
   const socketStat=await fs.lstat(entry.config.socketPath);
   if(!socketStat.isSocket()||socketStat.isSymbolicLink()||socketStat.uid!==process.getuid())throw clientContractError();
-  let timeoutMS=0,timedOut=false,overflow=false;
+  // timeoutMS 0 leaves the deadline to the caller (the resident transport's
+  // parent kills the whole process); the one-shot batch bounds every step.
+  const limits={timeoutMS:0,timedOut:false,overflow:false};
   // Session.run provides the pinned protocol. Bound its socket before handing
   // it to the upstream framing decoder, which otherwise has an unbounded buffer.
   class BoundedSession extends Session {
@@ -71,18 +70,30 @@ async function main() {
       return new Promise((resolve,reject)=>{
         const socket=net.createConnection(this.config.socketPath,()=>resolve({socket}));
         let bytes=0;
-        const timer=setTimeout(()=>{timedOut=true;socket.destroy();reject(clientTimeoutError('timeout'));},timeoutMS);
-        socket.on('data',chunk=>{bytes+=chunk.length;if(bytes>16*MAX_CLI_OUTPUT_BYTES){overflow=true;socket.destroy();}});
+        const timer=limits.timeoutMS?setTimeout(()=>{limits.timedOut=true;socket.destroy();reject(clientTimeoutError('timeout'));},limits.timeoutMS):null;
+        socket.on('data',chunk=>{bytes+=chunk.length;if(bytes>16*MAX_CLI_OUTPUT_BYTES){limits.overflow=true;socket.destroy();}});
         socket.once('close',()=>clearTimeout(timer));socket.on('error',()=>reject(clientUnavailableError()));
       });
     }
   }
   const session=new BoundedSession(entry);
-  const output=await guardedReadBatch(request,async(args,ms)=>{
-    timeoutMS=ms;timedOut=false;overflow=false;
-    try{return await session.run(info,args,{raw:true,json:false});}
-    catch(cause){if(timedOut)throw clientTimeoutError('timeout');if(overflow)throw clientContractError('output_overflow');throw cause;}
-  },process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN);
+  const run=async(args,{raw=true,json=false,timeoutMS=0}={})=>{
+    limits.timeoutMS=timeoutMS;limits.timedOut=false;limits.overflow=false;
+    try{return await session.run(info,args,{raw,json});}
+    catch(cause){if(limits.timedOut)throw clientTimeoutError('timeout');if(limits.overflow)throw clientContractError('output_overflow');throw cause;}
+  };
+  return {info,entry,run,require};
+}
+
+async function main() {
+  const args=process.argv.slice(2),requestPath=args[1],directory=path.dirname(process.cwd());
+  if(args.length!==2||args[0]!=='--batch-request'||!path.isAbsolute(requestPath)||path.dirname(requestPath)!==directory||
+      !/^read-batch-[0-9a-f-]{36}\.json$/.test(path.basename(requestPath)))throw clientContractError();
+  const stat=await fs.lstat(requestPath);
+  if(!stat.isFile()||stat.isSymbolicLink()||stat.size>512<<10||(stat.mode&0o077)||await fs.realpath(requestPath)!==requestPath)throw clientContractError();
+  const request=JSON.parse(await fs.readFile(requestPath,'utf8'));
+  const pinned=await openPinnedSession(request.sessionName,directory);
+  const output=await guardedReadBatch(request,(args,ms)=>pinned.run(args,{timeoutMS:ms}),process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN);
   return {output};
 }
 

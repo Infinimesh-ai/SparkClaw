@@ -398,6 +398,34 @@ an original. Outlook rounds take 13–15 s and each send 60–100 s; sends block
 inbound work for every provider (section 4.8 not yet effective). The 10 MiB
 object transfer was not exercised.
 
+### 9.3 Local learning and QQ replay prototype (2026-10-22)
+
+App-CLI `874d1ff` on `claude/mail-native-send` resumes the interrupted work.
+Response-shape learning now covers bounded XHR/fetch responses and Outlook
+Worker/MessagePort callbacks; the early hook is also bound to Outlook send pages.
+Requests and callbacks must belong to the same active learning window.
+
+The QQ prototype is opt-in (`APP_CLI_MAIL_NATIVE_SEND=qq_mail`), same-account,
+single-recipient, plain-compose only. An independently confirmed DOM send can
+teach one page-private template; expiry/account changes discard it. Old message
+fields and draft identity are cleared, and unsupported fields/modes are rejected.
+The existing authority release and durable journal precede its single dispatch.
+Every replay result remains `unknown`, even HTTP 200 / `ret=0`, until the actual
+response identifier and independent native Sent read are qualified. Lost replies
+and reconciliation never resend. A warm mutation page is required; this change
+does not introduce page retention, and cold pages keep the existing DOM flow.
+
+Local macOS validation: Node 26.2.0 runtime **508/508**, no skips, with serial
+file scheduling and recovery cases enabled; Python 3.11 **90/90**; generated
+userscripts/bindings and public-tree checks pass. Baseline and candidate parallel
+runs both exposed two short-deadline executor failures; the serial candidate run
+passes. Canonical `TMPDIR=/private/tmp` avoids the baseline's symlink-path failures.
+All provider transports in the added tests are synthetic. No live send, push,
+release, merge into main, Mac/work2 upgrade or UI change occurred. The separate
+mutation-lane commits remain independent; a future paired release must integrate
+and qualify them. The owner's prior instruction still requires approval before
+deployment or real test mail. These results do not close N6 or establish latency.
+
 ## 10. Cross-Project Impact
 
 - App-CLI (SparkClaw-owned fork) receives N1–N3 runtime changes as a paired

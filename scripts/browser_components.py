@@ -163,11 +163,12 @@ def stage(target):
     expected_hash = '1:' + provisioning_hash(provisioning)
     pending = '!e||!e.jsonImport?.some(x=>x.hash===' + json.dumps(expected_hash) + ')'
     # Chromium 148 initializes managed policy after about five seconds. Upstream
-    # abandons it after one second; retain its bounded algorithm with a bounded 20s budget.
+    # can see empty storage while the policy service initializes. Allow a bounded
+    # 100s budget, including delayed worker startup on an existing work2 profile.
     background = extension / 'background.js'
     source = background.read_text()
     old = 'for(let t=5;!e&&t>0;--t)5!==t&&console.warn(`Managed storage is slow or not responding! Retrying (attempt ${5-t})...`)'
-    new = 'for(let t=50;(' + pending + ')&&t>0;--t)50!==t&&console.warn(`Managed storage is slow or not responding! Retrying (attempt ${50-t})...`)'
+    new = 'for(let t=250;(' + pending + ')&&t>0;--t)250!==t&&console.warn(`Managed storage is slow or not responding! Retrying (attempt ${250-t})...`)'
     if source.count(old) != 1:
         raise ValueError('Tampermonkey managed-policy compatibility patch no longer matches')
     source = source.replace(old, new)
@@ -404,7 +405,7 @@ def verify_profile(profile):
 
 def wait_profile(profile):
     error = None
-    for _ in range(30):
+    for _ in range(90):
         try:
             verify_profile(profile)
             return

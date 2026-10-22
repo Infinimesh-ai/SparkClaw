@@ -29,6 +29,21 @@ class BrowserComponentsTest(unittest.TestCase):
         self.identity = components.extension_id('/opt/sparkclaw/tampermonkey')
         self.prefs = self.default / 'Preferences'
 
+    def test_readiness_allows_policy_import_after_the_previous_minute_budget(self):
+        attempts = [ValueError('policy not yet imported')] * 40 + [None]
+        with patch.object(components, 'verify_profile', side_effect=attempts) as verify, \
+                patch.object(components.time, 'sleep') as sleep:
+            components.wait_profile(self.profile)
+        self.assertEqual(verify.call_count, 41)
+        self.assertEqual(sleep.call_count, 40)
+
+    def test_readiness_still_fails_when_policy_never_imports(self):
+        with patch.object(components, 'verify_profile', side_effect=ValueError('not imported')) as verify, \
+                patch.object(components.time, 'sleep'):
+            with self.assertRaisesRegex(ValueError, 'readiness timed out: not imported'):
+                components.wait_profile(self.profile)
+        self.assertEqual(verify.call_count, 90)
+
     def test_unpacked_extension_omits_signed_metadata_but_retains_code(self):
         data = io.BytesIO()
         with zipfile.ZipFile(data, 'w') as archive:

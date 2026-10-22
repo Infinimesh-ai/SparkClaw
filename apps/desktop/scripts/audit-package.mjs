@@ -39,7 +39,7 @@ export default async function auditPackage(context) {
   if (!helperInfo.isFile() || helperInfo.isSymbolicLink() || !(helperInfo.mode & 0o111)) throw new Error("Installation package requires an executable ISCP helper");
   const helperSHA256 = crypto.createHash("sha256").update(await fs.readFile(helper)).digest("hex");
   const entries = await walk(webchat);
-  if (!entries.includes("index.html") || entries.some((entry) => privatePattern.test(entry) || !/\.(?:html|js|css|png|svg|woff2|json|ico)$/iu.test(entry))) {
+  if (!entries.includes("index.html") || entries.some((entry) => privatePattern.test(entry) || !/\.(?:html|js|css|png|svg|webp|woff2|json|ico)$/iu.test(entry))) {
     throw new Error("Installation package WebChat resources are outside the built UI allowlist");
   }
   await fs.writeFile(path.join(resources, "client-package-audit.json"), JSON.stringify({

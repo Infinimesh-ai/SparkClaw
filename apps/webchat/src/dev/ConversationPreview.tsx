@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import type { Message, Session } from "../api/types";
 import { ActionIcon } from "../components/ActionIcon";
 import { ComposerSurface } from "../components/composer";
+import { ComposerApproval } from "../components/composerApproval";
 import { MessageBubble } from "../components/messages";
 import { NotificationCenter } from "../components/notificationCenter";
 import { SessionSidebar } from "../components/sidebar";
@@ -124,6 +125,7 @@ function ConversationPreview() {
   const messageScroll = useMessageScroll(selected);
   const active = conversations.find(conversation => conversation.id === selected)!;
   const showHome = active.messages.length === 0;
+  const approvalPreview = new URLSearchParams(window.location.search).get("approval") === "1";
 
   function selectConversation(conversation: PreviewConversation) {
     setSelected(conversation.id);
@@ -227,7 +229,11 @@ function ConversationPreview() {
           onChooseDocument={() => setNotice("文件选择在此预览中不可用。")}
           onOpenAttachment={() => setNotice("附件在此预览中不可用。")}
           onRemoveAttachment={() => setNotice("附件在此预览中不可用。")}
-          onOpenModels={showHome ? returnToApplication : undefined} />
+          onOpenModels={showHome ? returnToApplication : undefined}
+          approvalPending={approvalPreview}
+          approvals={approvalPreview ? <div className="composerApprovals"><ComposerApproval text={text}
+            summary="示例审批 · 是否允许整理明天的日程？" details={<p>示例内容：只读取本对话中的安排，不会提交任何任务。</p>}
+            onDecide={async () => setNotice("审批在此预览中不可用。")} /></div> : undefined} />
       </section>
     </section>
     {searchOpen && <TaskSearch language={language} sessions={conversations} onSelect={selectConversation} onClose={() => setSearchOpen(false)} />}

@@ -109,3 +109,48 @@
   .glassWorkbench :is(.desktopPermissionRequest, .desktopDownload) { grid-template-columns: 18px minmax(0, 1fr); }
   .glassWorkbench :is(.desktopPermissionRequest, .desktopDownload) button { grid-column: 2; justify-self: start; }
 }
+
+/* Composer approvals and the WeChat binding window postdate the reference
+   snapshot; give them the same card, row and floating-window material. */
+.glassWorkbench .composerApproval {
+  padding: 18px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 22px;
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 12px 30px var(--ui-glass-shadow);
+}
+.glassWorkbench .composerApproval header { color: var(--ui-muted); }
+.glassWorkbench .composerApproval header > svg { width: 20px; height: 20px; stroke-width: 1.75; color: var(--ui-blue); }
+.glassWorkbench .composerApprovalOption { min-height: 44px; border-color: var(--ui-divider); border-radius: 14px; background: var(--ui-glass); }
+.glassWorkbench .composerApprovalOption:hover { background: var(--ui-glass-strong); }
+.glassWorkbench .composerApprovalOption.selected { border-color: var(--ui-blue); background: var(--ui-glass-strong); box-shadow: inset 0 1px 0 var(--ui-glass-highlight); }
+.glassWorkbench .composerApprovalOption:has(input:focus-visible) { outline-color: var(--ui-blue); }
+.glassWorkbench .composerApprovalNumber { border-color: var(--ui-divider); border-radius: 10px; color: var(--ui-muted); background: var(--ui-glass-strong); }
+.glassWorkbench .composerApproval footer button {
+  min-height: 40px;
+  padding: 8px 18px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 999px;
+  color: var(--ui-on-blue);
+  background: var(--ui-primary);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 24%);
+}
+.glassWorkbench .composerApproval footer button:hover:not(:disabled) { background: var(--ui-primary-hover); }
+.glassWorkbench .composerApproval footer button:disabled { color: var(--ui-disabled); background: var(--ui-glass); box-shadow: none; cursor: not-allowed; }
+.glassWorkbench .composerApprovalOverlay:focus-visible { outline-color: var(--ui-blue); border-radius: 22px; }
+.glassWorkbench .weixinBindingDialog {
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 26px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 24px 64px var(--ui-glass-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  backdrop-filter: blur(24px) saturate(120%);
+}
+.glassWorkbench .weixinBindingDialog::backdrop { background: rgb(37 45 59 / 20%); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
+.glassWorkbench .weixinBindingDialog .taskInspectorHeader { padding: 18px 18px 0 24px; border: 0; background: transparent; }
+.glassWorkbench .weixinBindingDialogBody > svg { border-radius: 16px; background: #fff; }
+.glassWorkbench .bindingScanned { border-color: color-mix(in srgb, var(--ui-blue) 30%, transparent); border-radius: 14px; color: var(--ui-blue); background: color-mix(in srgb, var(--ui-blue) 8%, var(--ui-glass-strong)); }
+@media (prefers-reduced-transparency: reduce) {
+  .glassWorkbench .weixinBindingDialog { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--surface-solid); }
+}

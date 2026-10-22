@@ -174,7 +174,7 @@ interval sweep (fallback cadence) ───────────────�
 
   | Provider | Source | Target fields |
   |---|---|---|
-  | QQ | notify envelope `type:'0'`, `mid` | `provider_message_id=mid`; selection = message; folder from the next list row when known |
+  | QQ | notify envelope `type:'0'`, field `e` (`mid` only deduplicates) | `provider_message_id=e`, the list `emailid`; selection = message; folder from the next list row when known |
   | Outlook | `RowAdded`/`RowModified` with `Item.ItemId` + `DateTimeReceived`, or conversation `ItemIds` | `provider_message_id` resolved through the recorded row (ImmutableId form), `received_at` |
   | Gmail | topic invalidation is content-free; the page's own follow-up `bv`/sync response rows newer than the last emitted row | `provider_message_id`, `provider_native_id`, thread |
 
@@ -292,7 +292,7 @@ single page operation rather than whole collection budgets.
 
 | Operation | QQ Mail | Gmail | Outlook |
 |---|---|---|---|
-| Change listener | WebSocket notify → **exact `mid` target** | multi-watch invalidation → **rows from own sync response** | `subscribeToRowNotifications` → **exact ItemId target** |
+| Change listener | WebSocket notify → **exact `e` (emailid) target** | multi-watch invalidation → **rows from own sync response** | `subscribeToRowNotifications` → **exact ItemId target** |
 | Discovery | `/list/search` replay (kept) | `bv` replay (kept) | UI-typed search → **learned search request replay**, UI only to relearn |
 | Original | `/read/readmail func=5` (kept, 1 s pacing) | `view=att` (kept) | `DownloadMessage` + page header token (kept) |
 | Mark-read | DOM row click + search confirm → **learned native request** | `unknown` → **learned native request** | `unknown` → **learned native request** |
@@ -384,7 +384,7 @@ three times) all ended `sent`; none was ambiguous or resent.
 
 | Gate | Result |
 |---|---|
-| Push target | **Open.** Candidates reach the Gateway, but none matched: the QQ notify `mid` and the list `provider_message_id` are different identifier spaces; Outlook `ItemId` candidates were unmatched; Gmail carries none. Capture use stays blocked. |
+| Push target | **Open.** Candidates reach the Gateway, but none matched: the QQ notify `mid` and the list `provider_message_id` are different identifier spaces; Outlook `ItemId` candidates were unmatched; Gmail carries none. Capture use stays blocked. A live envelope then showed QQ's own `e` field equals the list `emailid` (SHA-256 match); App-CLI `a849d2d` (not released) emits `e` and returns the Outlook search ItemId as the native locator, so both can be measured again after a release. |
 | Learned search (Outlook) | **Partly met.** 13 consecutive rounds (04:22–04:35 UTC) left the search box unchanged, so none typed into the UI; the forced-401 relearn was not exercised. |
 | Native mark-read | **Shape only.** QQ recorded `/read/readmail` and related requests; Gmail and Outlook issue none yet. Replay is N6. |
 | Network send proof | **Shape only.** QQ recorded `POST /send/sendmail` and Gmail `/sync/u/:id/i/s`; Outlook's send left no same-origin page request. Identifier matching is N6. |

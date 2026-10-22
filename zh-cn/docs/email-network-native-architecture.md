@@ -146,7 +146,7 @@ Gateway 推送目标集合 ──► 确切目标抓取轮次 ──► CommitEm
 
   | 服务商 | 来源 | 目标字段 |
   |---|---|---|
-  | QQ | 通知信封 `type:'0'`、`mid` | `provider_message_id=mid`；选择即邮件本身；文件夹在已知时取自下一条列表行 |
+  | QQ | 通知信封 `type:'0'`、字段 `e`（`mid` 仅用于去重） | `provider_message_id=e`，即列表 `emailid`；选择即邮件本身；文件夹在已知时取自下一条列表行 |
   | Outlook | 带 `Item.ItemId` 与 `DateTimeReceived` 的 `RowAdded`/`RowModified`，或会话 `ItemIds` | 经已记录行解析得到的 `provider_message_id`（ImmutableId 形式）、`received_at` |
   | Gmail | topic 失效通知不含内容；取页面随后自身 `bv`/同步响应中比上次发出的行更新的行 | `provider_message_id`、`provider_native_id`、会话 |
 
@@ -236,7 +236,7 @@ QQ 与 Gmail 的网络来源通过学习窗口识别，合格后提升。
 
 | 操作 | QQ 邮箱 | Gmail | Outlook |
 |---|---|---|---|
-| 变化监听 | WebSocket 通知 → **确切 `mid` 目标** | multi-watch 失效 → **自身同步响应中的行** | `subscribeToRowNotifications` → **确切 ItemId 目标** |
+| 变化监听 | WebSocket 通知 → **确切 `e`（emailid）目标** | multi-watch 失效 → **自身同步响应中的行** | `subscribeToRowNotifications` → **确切 ItemId 目标** |
 | 发现 | `/list/search` 重放（保留） | `bv` 重放（保留） | 界面输入搜索 → **重放已学习的搜索请求**，界面只用于重新学习 |
 | 原件 | `/read/readmail func=5`（保留，1 秒节流） | `view=att`（保留） | `DownloadMessage` + 页面请求头令牌（保留） |
 | 标记已读 | DOM 行点击 + 搜索确认 → **已学习的原生请求** | `unknown` → **已学习的原生请求** | `unknown` → **已学习的原生请求** |
@@ -320,7 +320,7 @@ work2 共真实发信 9 封（三轮，每个服务商各发、收三次），�
 
 | 门禁 | 结果 |
 |---|---|
-| 推送目标 | **未通过。** 候选已到达 Gateway，但无一命中：QQ 通知 `mid` 与列表 `provider_message_id` 属于不同标识空间；Outlook `ItemId` 候选未命中；Gmail 无候选。抓取使用继续阻断。 |
+| 推送目标 | **未通过。** 候选已到达 Gateway，但无一命中：QQ 通知 `mid` 与列表 `provider_message_id` 属于不同标识空间；Outlook `ItemId` 候选未命中；Gmail 无候选。抓取使用继续阻断。随后实测信封显示 QQ 自身的 `e` 字段等于列表 `emailid`（SHA-256 一致）；App-CLI `a849d2d`（未发行）改为发出 `e`，并把 Outlook 搜索行的 ItemId 作为原生定位符返回，发行后可重新测量。 |
 | 学习搜索（Outlook） | **部分满足。** 连续 13 轮（04:22–04:35 UTC）搜索框不变，即均未在 UI 输入；强制 401 后重学未验证。 |
 | 原生标记已读 | **仅形状。** QQ 记录到 `/read/readmail` 等请求；Gmail、Outlook 尚未发出。重放属 N6。 |
 | 网络发信证明 | **仅形状。** QQ 记录到 `POST /send/sendmail`，Gmail 为 `/sync/u/:id/i/s`；Outlook 发信未留下同源页面请求。标识比对属 N6。 |

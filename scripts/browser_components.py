@@ -136,6 +136,13 @@ def extract_unpacked_extension(archive, extension):
         archive.extract(item, extension)
 
 
+# The worker's bound for a delayed policy, and the readiness gate above it.
+MANAGED_POLICY_WAIT_MS = 240000
+PROFILE_READINESS_ATTEMPTS = 150
+MANAGED_POLICY_WAKE = ("self.__sparkclawManagedWake=new Set();try{chrome.storage.onChanged.addListener((c,a)=>{"
+                       "if(a==='managed')for(const w of [...self.__sparkclawManagedWake])w()})}catch{}\n")
+
+
 def stage(target):
     m = manifest()
     target.mkdir(parents=True, exist_ok=True)
@@ -162,23 +169,32 @@ def stage(target):
     provisioning['deployment'] = provisioning_generation(m, provisioning)
     expected_hash = '1:' + provisioning_hash(provisioning)
     pending = '!e||!e.jsonImport?.some(x=>x.hash===' + json.dumps(expected_hash) + ')'
-    # Chromium 148 initializes managed policy after about five seconds. Upstream
-    # can see empty storage while the policy service initializes. Allow a bounded
-    # 100s budget, including delayed worker startup on an existing work2 profile.
+    # The worker's first managed read returns {} and the policy appears later
+    # (work2: 2.5 s, 6 s, and later than 51 s). Upstream imports only during
+    # worker startup, so any fixed retry count loses that race and only a
+    # second start or TM reload imported it. Skip waiting when this hash is
+    # already consumed; otherwise re-read every 2 s or on the managed
+    # storage.onChanged event, bounded at 240 s (beyond Chromium's 180 s
+    # after-startup failsafe). The top-level listener also wakes a worker that
+    # Chromium stopped meanwhile; its normal startup then imports natively.
     background = extension / 'background.js'
     source = background.read_text()
     old = 'for(let t=5;!e&&t>0;--t)5!==t&&console.warn(`Managed storage is slow or not responding! Retrying (attempt ${5-t})...`)'
-    new = 'for(let t=250;(' + pending + ')&&t>0;--t)250!==t&&console.warn(`Managed storage is slow or not responding! Retrying (attempt ${250-t})...`)'
+    new = ('for(let t=0,sparkclawStart=Date.now(),sparkclawConsumed=!!(await Rh.get())[' + json.dumps(expected_hash) + '];'
+           't<1||!sparkclawConsumed&&(' + pending + ')&&Date.now()-sparkclawStart<' + str(MANAGED_POLICY_WAIT_MS) + ';++t)'
+           't%15==1&&console.warn(`provisioning[sparkclaw]: managed policy not yet available after ${Date.now()-sparkclawStart} ms`)')
     if source.count(old) != 1:
         raise ValueError('Tampermonkey managed-policy compatibility patch no longer matches')
     source = source.replace(old, new)
-    # An immediate empty object must not exhaust all retries in milliseconds.
     wait_old = 'e=n,t(!0)}))}))]);return e})();return{\n...e}})();if(!e||!e.jsonImport)return;'
-    wait_new = 'e=n,t(!0)}))}))]),(' + pending + ')&&await new Promise(e=>se(e,200));return e})();return{\n...e}})();if(!e||!e.jsonImport)return;'
+    wait_new = ('e=n,t(!0)}))}))]),(' + pending + ')?!sparkclawConsumed&&Date.now()-sparkclawStart<' + str(MANAGED_POLICY_WAIT_MS) +
+                '&&await new Promise(r=>{const w=self.__sparkclawManagedWake,done=()=>{w?.delete(done);r()};w?.add(done);se(done,2000)})'
+                ':t&&console.info(`provisioning[sparkclaw]: managed policy available after ${Date.now()-sparkclawStart} ms`);'
+                'return e})();return{\n...e}})();if(!e||!e.jsonImport)return;')
     if source.count(wait_old) != 1:
         raise ValueError('Tampermonkey policy backoff patch no longer matches')
+    source = MANAGED_POLICY_WAKE + source.replace(wait_old, wait_new)
     worker = f"sparkclaw-background-{m['tampermonkey']['productVersion']}-{expected_hash[2:14]}.js"
-    source = source.replace(wait_old, wait_new)
     # Native provisioning otherwise generates a new UUID on every deployment,
     # even for an existing system script. Honor the product's stable manifest ID.
     uuid_old = 'const n=Pe(),{file_url:r,source:s,storage:i,options:c,resources:l,requires:u}=e'
@@ -405,7 +421,7 @@ def verify_profile(profile):
 
 def wait_profile(profile):
     error = None
-    for _ in range(90):
+    for _ in range(PROFILE_READINESS_ATTEMPTS):
         try:
             verify_profile(profile)
             return

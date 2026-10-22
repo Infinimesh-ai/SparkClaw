@@ -716,6 +716,68 @@ Outlook cannot qualify until its notifications carry the canonical identity and
 its originals capture again; its own-send wakes would also reset the gate.
 Gmail cannot qualify.
 
+### 9.8 Leftover .31 mail issues: root causes and fixes (2026-10-22)
+
+Branches: App-CLI `claude/mail-r31-leftovers` (`5210205`, `c013cfd`, `5e43ba5`)
+and SparkClaw `claude/mail-r31-leftovers-a91ace`. Evidence came from source,
+history, earlier private evidence and read-only work2 ledger, journal and
+Gateway queries. No mail was sent and no work2 state changed. Every fix has a
+regression case that fails on the old code. None is released. All App-CLI
+changes and the Tampermonkey worker change need one paired release with a new
+Tampermonkey product version.
+
+| Issue | Root cause | Fix |
+|---|---|---|
+| Gmail normal-Inbox sync | **Not broken.** On work2, every normal-Inbox arrival since `.31` was captured automatically. Examples: 10-21 15:41; 10-22 04:03, 04:15 and 04:25, each discovered within 7–89 s. 1,245 of 1,246 `collect_page` rounds completed. The two `.30` messages that were "not accepted" went to Spam, which the Reader excludes by design. | None. One real gap remains, described below. |
+| Attachment send | Outlook was only ever qualified with a 158-byte file. Its ready check required the card to read exactly `<bytes> 字节/bytes`. Outlook shows that only for files under 1 KiB; larger files get a rounded KB/MB label. So every larger attachment timed out with `email_attachment_upload_unverified`, and the draft was discarded. | `5e43ba5` accepts KB/MB/GB labels within their displayed precision. Byte identity is still proven by the SHA-256 manifest of the input's actual Files. |
+| Outlook reply target | Since reads became network-only, `openNativeReplyTarget` only lists the item and never opens it on the send page. The editor proof still reads `globalThis[evidence_key].records`, a store the network Reader never creates. The reply could therefore never be linked. | `c013cfd`: see the reply list below. |
+| Outlook account check timeout | The reply's sender check was the first evaluation on a freshly navigated inbox. It polled for up to 5 s inside one CLI `eval`. That eval's fixed 10 s budget also covers process start, two 500 ms settles and Playwright's wait of up to 5 s for requests the booting page issued meanwhile. Compose sends passed only because their Sent-baseline wait ran first. | `5210205`: one page turn per read, up to 12 reads or 12 s; then the existing account-menu fallback runs, and Escape is always pressed. |
+| First Tampermonkey import | The worker's first managed read returns `{}`, and the policy appears later: 2.5 s, 6 s, and still absent after 51 s on `.34`. Upstream imports only at worker startup. Our patch only raised its retry count, so a late policy waited for the next worker start or a TM reload. The same loop also held every later start for about 50 s. | SparkClaw `scripts/browser_components.py`; see the Tampermonkey list below. |
+
+How the Outlook reply now works (`c013cfd`):
+
+- The send page opens the target conversation's own route.
+- The early bridge now keeps the startup conversation IDs and counts, but no subjects or bodies. The Reader's new `replyTarget` uses them to prove that the item is the conversation's only local, non-draft message. Otherwise the send fails closed with `email_reply_target_unverified`. Multi-message conversations are not supported yet.
+- The open step refuses when the route, or a selected list row, names another conversation.
+- The editor must sit inside the pane whose Reply control was clicked.
+
+How the Tampermonkey worker now waits for policy:
+
+- It does not wait at all when the provisioning hash is already consumed.
+- Otherwise it re-reads every 2 s, or at once when a top-level `storage.onChanged('managed')` event arrives. The wait is bounded at 240 s, longer than Chromium's 180 s after-startup failsafe.
+- The listener also restarts a stopped worker when the policy arrives.
+- `wait-profile` now allows 150 × 2 s.
+
+Tests:
+
+| Area | Result |
+|---|---|
+| App-CLI runtime | 550 of 553 passed and 2 skipped in a parallel run. The one failure is the known short-deadline executor case from 9.3. `executor` and `machine-session` pass 26/26 serially. |
+| App-CLI Python | 90/90 |
+| App-CLI public tree | pass |
+| Controller | 294 passed, 137 skipped. The 11 new opt-in attachment cases pass against the fixed runtime, and the six accepted labels fail against vendored `.34`. |
+| SparkClaw `test_browser*` | 64 passed, 1 skipped. The new Node harness runs upstream's own read text: a policy arriving at 60.5 s is lost by the old patch and imported at arrival by the new one. |
+| Real pinned CRX | Still stages and passes `node --check`. |
+| Go | `go test ./...` passes with `TMPDIR=/private/tmp`. Without it, two packages reject macOS's symlinked temporary directory. |
+
+Live verification (not done here):
+
+1. **Tampermonkey, no mail.** Install the paired version, then do one cold start with admission stopped. Pass means the import succeeds on the first start, with no TM reload. Record the worker's `managed policy available after N ms` line. A further restart must not wait.
+2. **Outlook reply (real send).** Reply to a fresh single-message Inbox mail. Confirm:
+   - the sender check passes without `browser_script_timeout`;
+   - the route and editor proofs pass;
+   - the reply arrives threaded.
+   A multi-message conversation must fail with `email_reply_target_unverified` and leave no draft.
+3. **Attachments (real sends).** About 100 KB and 5–10 MiB files on each provider. Check delivery, attachment hash and total time. Outlook's KB/MB label format is inferred and not yet observed; an `APP_CLI_MAIL_SEND_EVIDENCE=1` draft diagnostic can confirm it before any send.
+
+Still open:
+
+- **Gmail candidates carry no receipt time** (`network-reader.mjs` `candidate()`). The Gateway therefore never marks a Gmail arrival as found only by polling. The fix also needs the Gateway retry-target comparison (`collect_page.go`) to ignore Gmail receipt time. Those files are being changed by the parallel inbound session, so it is left for after that merge.
+- The Gmail file input's placement in the composer is unverified; Gmail attachment sends have never run.
+- After a failed upload, a chooser modal is deliberately left in place, so the draft discard can fail.
+- Two opt-in attachment fixtures already fail on `.34` (`INPUT_VALIDATION_FAILED`, and a hook string that no longer exists).
+- Gmail and QQ reply proofs were not changed. They depend on the target being open in the page, which the network lookup also does not do.
+
 ## 10. Cross-Project Impact
 
 - App-CLI (SparkClaw-owned fork) receives N1–N3 runtime changes as a paired

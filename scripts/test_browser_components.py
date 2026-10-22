@@ -42,7 +42,7 @@ class BrowserComponentsTest(unittest.TestCase):
                 patch.object(components.time, 'sleep'):
             with self.assertRaisesRegex(ValueError, 'readiness timed out: not imported'):
                 components.wait_profile(self.profile)
-        self.assertEqual(verify.call_count, 90)
+        self.assertEqual(verify.call_count, components.PROFILE_READINESS_ATTEMPTS)
 
     def test_unpacked_extension_omits_signed_metadata_but_retains_code(self):
         data = io.BytesIO()

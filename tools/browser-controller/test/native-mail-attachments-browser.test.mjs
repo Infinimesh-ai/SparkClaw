@@ -15,7 +15,7 @@ const {uploadManagedAttachments,verifyManagedAttachments,attachmentDOM}=await im
 const enabled=process.env.SPARKCLAW_MAIL_BROWSER_TEST==='1';
 const sha=bytes=>'sha256:'+crypto.createHash('sha256').update(bytes).digest('hex');
 
-async function fixture(t,mode='normal') {
+async function fixture(t,mode='normal',{bytes:fixtureBytes}={}) {
   const root=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'mail-native-ribbon-')));
   t.after(()=>fs.rm(root,{recursive:true,force:true}));
   const server=http.createServer((req,res)=>{res.setHeader('content-type','text/html; charset=utf-8');res.end(`<!doctype html>
@@ -69,7 +69,7 @@ async function fixture(t,mode='normal') {
     if(mode==='ambiguous-composer')document.getElementById('other').innerHTML='<div contenteditable="true" aria-label="邮件正文">Decoy</div>';
     if(mode==='ambiguous-ribbon')button.parentElement.append(button.cloneNode(true));
   },mode);
-  const bytes=Buffer.from('Synthetic approved workspace attachment\n');
+  const bytes=fixtureBytes??Buffer.from('Synthetic approved workspace attachment\n');
   const relative=`.sparkclaw-mail-send-${'b'.repeat(32)}/00/native.txt`, filename=path.join(root,relative);
   await fs.mkdir(path.dirname(filename),{recursive:true,mode:0o700});await fs.writeFile(filename,bytes,{mode:0o600});
   const manifest=[{path:relative,name:'native.txt',size_bytes:bytes.length,sha256:sha(bytes)}];
@@ -152,6 +152,17 @@ for(const [mode,reason] of [['ambiguous-menu','EMAIL_ATTACHMENT_CONTROL_UNAVAILA
 test('observed Outlook native card plus exact byte proof accepts only the empty accessibility alert',{skip:!enabled},async t=>{
   const f=await fixture(t,'outlook-card');await uploadManagedAttachments(f.tab,'outlook',f.root,f.manifest,f.before);await verifyManagedAttachments(f.tab,'outlook',f.manifest);
   assert.deepEqual(await f.page.evaluate(()=>uploads),[{id:'actual',name:'native.txt',bytes:[...f.bytes]}]);assert.equal(await f.page.evaluate(()=>sendClicks),0);assert.equal(f.effects(),1);
+});
+// Outlook labels files of 1 KiB or more with a rounded size, not bytes.
+const relabelOutlookCard=(page,label)=>page.evaluate(label=>{const card=window.__sparkclawManagedMail.root.querySelector('.av-container').children[0],size=card.querySelector('[title="native.txt"]').nextElementSibling;
+  size.title=size.textContent=label;card.setAttribute('aria-label','native.txt 打开 '+label);},label);
+for(const [bytes,label] of [[15_000,'15 KB'],[15_000,'14.6 KB'],[2_048,'2 KB'],[1_572_864,'1.5 MB'],[1_500_000,'1.4 MB'],[15_000,'15 千字节']])test(`observed Outlook card accepts a rounded size label: ${label} for ${bytes} bytes`,{skip:!enabled,timeout:60000},async t=>{
+  const f=await fixture(t,'outlook-card',{bytes:Buffer.alloc(bytes,0x61)});await uploadManagedAttachments(f.tab,'outlook',f.root,f.manifest,f.before);
+  await relabelOutlookCard(f.page,label);await verifyManagedAttachments(f.tab,'outlook',f.manifest);assert.equal(await f.page.evaluate(()=>sendClicks),0);
+});
+for(const [bytes,label] of [[1_024,'3 KB'],[15_000,'KB'],[15_000,'15'],[2_048,'2048.5 字节'],[1_572_864,'3 MB']])test(`observed Outlook card rejects a mismatched size label: ${label} for ${bytes} bytes`,{skip:!enabled,timeout:60000},async t=>{
+  const f=await fixture(t,'outlook-card',{bytes:Buffer.alloc(bytes,0x61)});await uploadManagedAttachments(f.tab,'outlook',f.root,f.manifest,f.before);
+  await relabelOutlookCard(f.page,label);await assert.rejects(verifyManagedAttachments(f.tab,'outlook',f.manifest),/email_attachment_upload_unverified/);assert.equal(await f.page.evaluate(()=>sendClicks),0);
 });
 for(const mode of ['extra-card','hidden-extra-card','duplicate-name','name-substring','size-mismatch','summary-mismatch','disabled-menu','missing-menu','uploading','failure-alert','nonempty-accessibility-alert','blank-error','alert-child','alert-label','alert-title','alert-labelledby','alert-describedby','alert-empty-labelledby','alert-empty-describedby','missing-proof','relocated-input'])test(`observed Outlook card fails closed: ${mode}`,{skip:!enabled},async t=>{
   const f=await fixture(t,'outlook-card');await uploadManagedAttachments(f.tab,'outlook',f.root,f.manifest,f.before);

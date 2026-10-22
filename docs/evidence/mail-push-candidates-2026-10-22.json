@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "collected_at": "2026-10-22T09:20:00Z",
+  "host": "work2",
+  "method": "read-only: docker logs of the three Gateway containers and READ ONLY SQL over email_management_records; nothing on work2 was changed",
+  "identifiers": "none recorded; subjects compared by SHA-256 inside the read-only script",
+  "candidate_outcomes": {
+    "note": "Gateway log lines. 'unmatched' is logged lazily at the next record/match after the 15-minute expiry; candidates pending at a container stop are lost. Per-event target counts are not logged.",
+    "release_32": {"window": "03:49-07:24", "qq_mail": {"wakes": 8, "matched": 0, "unmatched": 7, "identifier": "mid"}, "outlook": {"wakes": 7, "matched": 0, "unmatched": 5, "identifier": "ItemId"}, "gmail": {"wakes": 3, "identifier": "none"}},
+    "release_33": {"window": "07:24-08:10", "qq_mail": {"wakes": 0}, "outlook": {"wakes": 1, "matched_item_id": 1, "latency_ms": [18787]}, "gmail": {"wakes": 0}},
+    "release_34": {"window": "08:10-09:16", "qq_mail": {"wakes": 2, "matched_message_id": 2, "unmatched": 0, "latency_ms": [5716, 6670]}, "outlook": {"wakes": 2, "matched_item_id": 2, "unmatched": 0, "latency_ms": [20433, 23907]}, "gmail": {"wakes": 0}}
+  },
+  "arrivals": {
+    "sends_counted": 15,
+    "window": "2026-10-22T04:03Z-08:13Z",
+    "to_qq_or_gmail": [
+      {"sent": "04:03:23", "from": "qq_mail", "to": "gmail", "inbound": "04:04:41", "subject_equal": true, "original": "complete"},
+      {"sent": "04:06:07", "from": "outlook", "to": "qq_mail", "inbound": "04:06:13", "subject_equal": true, "original": "complete"},
+      {"sent": "04:15:51", "from": "outlook", "to": "gmail", "inbound": "04:15:52", "subject_equal": true, "original": "complete"},
+      {"sent": "04:17:05", "from": "gmail", "to": "qq_mail", "inbound": "04:17:18", "subject_equal": true, "original": "complete"},
+      {"sent": "04:25:21", "from": "qq_mail", "to": "gmail", "inbound": "04:25:24", "subject_equal": true, "original": "complete"},
+      {"sent": "04:26:44", "from": "outlook", "to": "qq_mail", "inbound": "04:26:47", "subject_equal": true, "original": "complete"},
+      {"sent": "05:20:37", "from": "gmail", "to": "qq_mail", "inbound": "05:20:54", "subject_equal": true, "original": "complete"},
+      {"sent": "05:23:09", "from": "gmail", "to": "qq_mail", "inbound": "05:23:25", "subject_equal": true, "original": "complete"}
+    ],
+    "to_outlook": [
+      {"sent": "04:04:39", "from": "gmail", "inbound_discovered": "04:06:57", "inbound_source_time": "04:04:47"},
+      {"sent": "04:10:35", "from": "qq_mail", "inbound_discovered": "04:10:55", "inbound_source_time": "04:10:32"},
+      {"sent": "04:28:32", "from": "gmail", "inbound_discovered": "04:28:54", "inbound_source_time": "04:28:40"},
+      {"sent": "06:49:47", "from": "qq_mail", "inbound_discovered": "06:50:10", "inbound_source_time": "06:49:44"},
+      {"sent": "07:27:11", "from": "qq_mail", "inbound_discovered": "07:27:09", "inbound_source_time": "07:27:00", "notification_item_id_matched": true},
+      {"sent": "08:12:50", "from": "qq_mail", "inbound_discovered": "08:12:53", "inbound_source_time": "08:12:44", "notification_item_id_matched": true},
+      {"sent": "08:13:17", "from": "qq_mail", "inbound_discovered": "08:13:23", "inbound_source_time": "08:13:12", "notification_item_id_matched": true}
+    ],
+    "outlook_rows": "all seven pending; each has one open sync_failure at stage original, email_network_original_unqualified, 16 attempts; no other Outlook inbound row that day",
+    "sent_time": "discovered_at of the local Sent row, written after the send API returned",
+    "message_id": "not comparable: no Sent row has a captured original (source_pending)"
+  }
+}

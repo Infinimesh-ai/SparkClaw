@@ -27,6 +27,9 @@ type SyncHealth struct {
 	PollThrough             *time.Time `json:"poll_through,omitempty"`
 	ExpectedIntervalSeconds int64      `json:"expected_interval_seconds,omitempty"`
 	StallAfterSeconds       int64      `json:"stall_after_seconds,omitempty"`
+	// PushTarget reports the provider's notification-target gate for
+	// diagnostics; the settings view does not render it.
+	PushTarget *PushTargetStatus `json:"push_target,omitempty"`
 }
 
 func (s *Service) ProviderSyncHealth(ctx context.Context, owner, provider string) (SyncHealth, error) {
@@ -63,7 +66,16 @@ func (s *Service) ProviderSyncHealth(ctx context.Context, owner, provider string
 			out.State = SyncHealthUnavailable
 			return out, nil
 		}
-		return s.mailboxSyncHealth(box, current), nil
+		health := s.mailboxSyncHealth(box, current)
+		if s.pushq != nil {
+			status := s.pushq.status(owner, box)
+			if relaxed, _ := s.pushq.relaxedInterval(owner, box); relaxed > 0 && box.WatchState == "watching" {
+				status.RelaxedPollingApplies = true
+			}
+			status.PollIntervalSeconds = int64(s.verificationInterval(box) / time.Second)
+			health.PushTarget = &status
+		}
+		return health, nil
 	}
 	return out, nil
 }

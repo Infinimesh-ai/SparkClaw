@@ -155,7 +155,10 @@ func (s *Service) admitObserverBatch(ctx context.Context, lease browsercontrol.M
 			}
 			if result.Accepted && !result.Duplicate && event.Kind != "watch_state" {
 				if event.Kind == "mailbox_changed" {
-					s.push.record(t.owner, t.box.ID, t.box.Provider, event.Targets, s.now())
+					now := s.now()
+					expired := s.push.record(t.owner, t.box.ID, t.box.Provider, event.Targets, now)
+					s.pushq.observeRound(t.owner, t.box, nil, expired, pushRoundDirect{}, now)
+					s.pushq.observeNotification(t.owner, t.box, event.Reason, event.Targets, now)
 				}
 				s.signal()
 				slog.Info("email notification wake accepted", "provider", event.Provider, "sequence", event.Sequence, "reason", event.Reason)

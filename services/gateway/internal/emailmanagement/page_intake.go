@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -202,9 +203,14 @@ func (s *Service) collectPageIncrement(ctx context.Context, job app.EmailJob, br
 			}
 		}
 		binding.Discovery.SkipProviderMessageIDs = ids
+	} else if err := s.addDirectTargets(ctx, job.OwnerID, mailbox, checkpoint, binding.Discovery); err != nil {
+		return err
 	}
 	part, err := s.collectTimelinePart(ctx, job, browser, mailbox, binding)
 	if err != nil {
+		if len(binding.Discovery.DirectTargetIDs) > 0 && ctx.Err() == nil && emailautomation.ErrorCode(err) != app.ToolErrorEmailBrowserBusy {
+			s.pushq.degrade(job.OwnerID, mailbox, "direct_round_failed", s.now())
+		}
 		return s.commitListFailure(ctx, job, checkpoint, mode, registered.CollectPage.Revision, err)
 	}
 	parts := []timelinePagePart{part}
@@ -217,6 +223,7 @@ func (s *Service) collectPageIncrement(ctx context.Context, job app.EmailJob, br
 			options := *binding.Discovery
 			options.IntervalStart, options.IntervalEnd = bounds[0], bounds[1]
 			options.RetryTargets = nil // existing failures remain open for a later round
+			options.DirectTargetIDs = nil
 			if index == 1 {
 				options.SkipProviderMessageIDs = nil
 			}
@@ -231,6 +238,49 @@ func (s *Service) collectPageIncrement(ctx context.Context, job app.EmailJob, br
 		}
 	}
 	return s.publishIncrementalPage(ctx, job, mailbox, binding, parts, checkpoint, retryMails, mode)
+}
+
+// addDirectTargets appends a qualified mailbox's frozen notification targets
+// as exact retry targets. IDs already retried, skipped or held complete by
+// Store are left to the list, so a direct target never re-captures a mail.
+func (s *Service) addDirectTargets(ctx context.Context, owner string, mailbox app.EmailMailbox, checkpoint store.EmailSyncCheckpoint, d *app.EmailDiscoveryOptions) error {
+	targets, _ := s.pushq.directTargets(owner, mailbox, mailbox.CheckpointRevision, checkpoint.IntervalStart, s.now())
+	used := map[string]bool{}
+	for _, target := range d.RetryTargets {
+		used[target.ProviderMessageID] = true
+	}
+	for _, id := range d.SkipProviderMessageIDs {
+		used[id] = true
+	}
+	for _, target := range targets {
+		if used[target.ProviderMessageID] || len(d.RetryTargets) >= 50 {
+			continue
+		}
+		mail, found, err := s.repository.GetEmailMail(ctx, owner, store.EmailMailID(owner, mailbox.ID, target.ProviderMessageID))
+		if err != nil {
+			return err
+		}
+		if found && (mail.MailboxID != mailbox.ID || mail.CaptureID != "" || mail.SyncState == app.EmailMailSyncSuppressed) {
+			continue
+		}
+		used[target.ProviderMessageID] = true
+		d.RetryTargets = append(d.RetryTargets, target)
+		d.DirectTargetIDs = append(d.DirectTargetIDs, target.ProviderMessageID)
+	}
+	return nil
+}
+
+// directMember admits a direct target the list did not name, timed by the
+// original's own received_at.
+func directMember(target app.EmailCaptureTarget, capture store.EmailSyncCapture) store.EmailDiscoveryMember {
+	member := store.EmailDiscoveryMember{ProviderMessageID: target.ProviderMessageID, ProviderSelectionID: target.ProviderSelectionID, ProviderThreadID: target.ProviderThreadID, Folder: target.Folder, Direction: pageDirection(target.Folder), Reason: "recent_inbound", RemoteReadState: "unknown"}
+	var manifest struct {
+		ReceivedAt time.Time `json:"received_at"`
+	}
+	if json.Unmarshal([]byte(capture.Capture.ManifestJSON), &manifest) == nil {
+		member.SourceTime = manifest.ReceivedAt
+	}
+	return member
 }
 
 func pageOverflow(page app.EmailPageResult) bool {
@@ -261,7 +311,15 @@ func (s *Service) publishIncrementalPage(ctx context.Context, job app.EmailJob, 
 	key := fmt.Sprintf("timeline-source:%s:%d:%s:%s", mailbox.ID, checkpoint.Mailbox.CheckpointRevision, checkpoint.IntervalStart.UTC().Format(time.RFC3339Nano), checkpoint.IntervalEnd.UTC().Format(time.RFC3339Nano))
 	members := make([]store.EmailDiscoveryMember, 0, 100)
 	seenMembers := map[string]bool{}
+	directTargets := map[string]app.EmailCaptureTarget{}
+	round := pushRoundDirect{}
 	for _, part := range parts {
+		for _, target := range part.request.Discovery.RetryTargets {
+			if slices.Contains(part.request.Discovery.DirectTargetIDs, target.ProviderMessageID) {
+				directTargets[target.ProviderMessageID] = target
+				round.attempted = append(round.attempted, target.ProviderMessageID)
+			}
+		}
 		for _, target := range part.page.Discovery.Candidates {
 			if seenMembers[target.ProviderMessageID] {
 				return errors.New("email_duplicate_split_identity")
@@ -272,6 +330,23 @@ func (s *Service) publishIncrementalPage(ctx context.Context, job app.EmailJob, 
 				received = *target.ReceivedAt
 			}
 			members = append(members, store.EmailDiscoveryMember{ProviderMessageID: target.ProviderMessageID, ProviderNativeID: target.ProviderNativeID, ProviderSelectionID: target.ProviderSelectionID, ProviderThreadID: target.ProviderThreadID, Folder: target.Folder, Direction: pageDirection(target.Folder), Reason: "recent_inbound", SourceTime: received, RemoteReadState: "unknown"})
+			// The Reader captured its own row; a direct target that does not
+			// rebuild that row means the learned shape no longer holds.
+			if direct, ok := directTargets[target.ProviderMessageID]; ok && (direct.ProviderSelectionID != target.ProviderSelectionID || direct.Folder != target.Folder ||
+				direct.ProviderThreadID != "" && direct.ProviderThreadID != target.ProviderThreadID || target.ProviderNativeID != "") && round.failed == "" {
+				round.failed = "direct_shape_mismatch"
+			}
+		}
+	}
+	listed := members
+	// Unlisted direct targets are known to Store only through this commit.
+	directOnly := func(id string) bool {
+		_, direct := directTargets[id]
+		return direct && !seenMembers[id]
+	}
+	directFailed := func(reason string) {
+		if round.failed == "" {
+			round.failed = reason
 		}
 	}
 	captures := []store.EmailSyncCapture{}
@@ -281,8 +356,20 @@ func (s *Service) publishIncrementalPage(ctx context.Context, job app.EmailJob, 
 			invocation := emailautomation.PageCaptureInvocationID(part.request.InvocationID, mailbox.Provider, captured.Target)
 			prepared, err := s.preparePageCapture(ctx, job.OwnerID, mailbox, captured.Target.ProviderMessageID, captured.Result, invocation)
 			if err != nil {
+				if directOnly(captured.Target.ProviderMessageID) {
+					directFailed("direct_source_invalid")
+					continue
+				}
 				outcomes = append(outcomes, store.EmailSyncFailureOutcome{ProviderMessageID: captured.Target.ProviderMessageID, Stage: "source_validation", Scope: app.EmailSyncFailureLocalOperational, ErrorCode: safeCode(err)})
 				continue
+			}
+			if directOnly(captured.Target.ProviderMessageID) {
+				if len(members) >= 50 {
+					directFailed("direct_member_limit")
+					continue
+				}
+				members = append(members, directMember(captured.Target, prepared))
+				round.captured++
 			}
 			if prior, repairing := retryMails[captured.Target.ProviderMessageID]; repairing && prior.CaptureID != "" {
 				old, found, err := s.repository.GetEmailCapture(ctx, job.OwnerID, prior.CaptureID)
@@ -299,6 +386,10 @@ func (s *Service) publishIncrementalPage(ctx context.Context, job app.EmailJob, 
 			outcomes = append(outcomes, store.EmailSyncFailureOutcome{ProviderMessageID: captured.Target.ProviderMessageID, Stage: "original", Success: true})
 		}
 		for _, failure := range part.page.Failures {
+			if directOnly(failure.Target.ProviderMessageID) {
+				directFailed("direct_capture_failed")
+				continue
+			}
 			outcomes = append(outcomes, store.EmailSyncFailureOutcome{ProviderMessageID: failure.Target.ProviderMessageID, Stage: "original", Scope: failure.Scope, ErrorCode: failure.ErrorCode, Qualified: failure.Qualified})
 		}
 	}
@@ -340,7 +431,10 @@ func (s *Service) publishIncrementalPage(ctx context.Context, job app.EmailJob, 
 	if err = s.reconcileError(ctx, commit.EmailCommand, err); err != nil {
 		return err
 	}
-	s.push.match(job.OwnerID, mailbox.ID, members, s.now())
+	// Only the list's own rows qualify a notification identifier.
+	now := s.now()
+	matches, expired := s.push.match(job.OwnerID, mailbox.ID, listed, now)
+	s.pushq.observeRound(job.OwnerID, mailbox, matches, expired, round, now)
 	// QQ's qualified reader confirms the remote effect from a fresh provider
 	// list response. Run it only after the complete original is canonical in
 	// Store; a failed or uncertain effect never rolls back source durability.

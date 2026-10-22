@@ -538,3 +538,9 @@ func emailCollectRows(e *emailEngine, q emailRowsQuery) ([]EmailRecord, error) {
 func EmailProviderThreadID(mailboxID, providerThreadID string) string {
 	return emailID(mailboxID, providerThreadID)
 }
+
+// EmailMailID is the Store identity of a provider message in one mailbox, the
+// same identity discovery admission and page captures use.
+func EmailMailID(ownerID, mailboxID, providerMessageID string) string {
+	return emailID(normalizeConnectorOwner(ownerID), mailboxID, providerMessageID)
+}

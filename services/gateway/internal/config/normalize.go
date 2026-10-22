@@ -138,6 +138,19 @@ func normalizePassiveNotificationsConfig(notifications *PassiveNotificationsConf
 	return nil
 }
 
+func normalizeEmailIntakeConfig(intake *EmailIntakeConfig) error {
+	if intake.PushQualificationThreshold == 0 {
+		intake.PushQualificationThreshold = Default().EmailIntake.PushQualificationThreshold
+	}
+	if intake.PushQualificationThreshold < 1 || intake.PushQualificationThreshold > 20 {
+		return errors.New("email_intake.push_qualification_threshold must be between 1 and 20")
+	}
+	if intake.QualifiedPollIntervalSeconds != 0 && (intake.QualifiedPollIntervalSeconds < 60 || intake.QualifiedPollIntervalSeconds > 300) {
+		return errors.New("email_intake.qualified_poll_interval_seconds must be 0 (unchanged) or between 60 and 300")
+	}
+	return nil
+}
+
 // normalizeRemindersConfig backfills a non-positive delivery-attempt cap with
 // the default so a partial tools.reminders section cannot silently make the
 // scheduler retry a failing publish forever.

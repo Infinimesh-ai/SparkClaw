@@ -206,12 +206,12 @@ interval sweep (fallback cadence) ───────────────�
    captures. This matters because the identifiers are not proven equal: Outlook
    notifications carry the movable `ItemId` while qualified captures key on
    `ImmutableId`, and Gmail invalidations carry no identifier at all.
-5. **After the gate (planned).** For a provider whose candidates match reliably
-   (section 8), the Gateway persists them as a pushed-target set (bounded,
-   generation-bound) in the transaction that bumps `SignalRevision`, and the next
-   increment passes them as exact retry targets, so they are captured even when
-   time-range discovery would miss them. Gmail Spam stays excluded by the same
-   folder policy as discovery.
+5. **After the gate (implemented, default off; section 9.7).** For a mailbox
+   whose candidates matched the listed row for three consecutive natural
+   arrivals, the Gateway keeps them as a bounded, generation-bound pending set in
+   its own persisted gate, and the next increment passes them as exact retry
+   targets, so they are captured even when time-range discovery would miss them.
+   Gmail Spam stays excluded by the same folder policy as discovery.
 6. The interval sweep is unchanged and remains authoritative for coverage. Once
    a provider's push path is qualified, its periodic cadence may use the
    existing five-minute quiet tier. Notifications and new plans now wake idle
@@ -349,7 +349,7 @@ message ≤ 20 ms on work2; 10 MiB object transfer ≤ 30 s.
 | Stage | Scope | Projects | State |
 |---|---|---|---|
 | N1 | Resident control plane: session pool, direct executor socket, adaptive wait; Controller watch-event cadence 1 s | App-CLI, SparkClaw | implemented locally |
-| N2 | Push targets: observer extraction, watch forwarding, feed field and Gateway match measurement; use as exact retry targets after the gate | App-CLI, SparkClaw | measurement implemented; capture use planned |
+| N2 | Push targets: observer extraction, watch forwarding, feed field and Gateway match measurement; use as exact retry targets after the gate | App-CLI, SparkClaw | measurement deployed; gated capture use implemented locally, default off (9.7) |
 | N3 | Learned Outlook search replay; learning window recorder (evidence only) | App-CLI | implemented locally |
 | N4 | Presentation plane: object pipelining, receipt counters; Relay drain (ISCP) | SparkClaw, ISCP | implemented locally |
 | N5 | Page-resident capture stream with a dedicated Store commit | App-CLI, SparkClaw | deferred until N1–N4 measured |
@@ -614,6 +614,105 @@ An independent **08:20:53 UTC** read-only check confirmed healthy services,
 no active sends or pending release, unchanged 93 unknown rows, and both durable
 send proofs. At that snapshot, 110 original terminal rows were absent; the
 full-identity check remains explicitly failed.
+
+### 9.7 Notification-target qualification, arrivals and gated direct fetch (2026-10-22)
+
+**Evidence (work2, read-only, about 09:20 UTC).** Sources were the logs of the
+three Gateway containers (.32 03:49–07:24, .33 07:24–08:10, .34 since 08:10) and
+read-only SQL over `email_management_records`. Nothing on work2 changed.
+Identifiers were not exported; subjects were compared by SHA-256 inside the
+probe. Details are in
+[the candidate and arrival evidence](evidence/mail-push-candidates-2026-10-22.json).
+
+| Release | QQ | Outlook | Gmail |
+| --- | --- | --- | --- |
+| .32 (`mid`, movable `ItemId`) | 8 wakes; 0 matched, 7 unmatched | 7 wakes; 0 matched, 5 unmatched | 3 wakes, no identifier |
+| .33 | no arrival | 1 matched by `item_id` (18.8 s) | none |
+| .34 (`e`, search `ItemId` as native ID) | 2 matched by `message_id` (5.7 s, 6.7 s), 0 unmatched | 2 matched by `item_id` (20.4 s, 23.9 s), 0 unmatched | none |
+
+Unmatched lines are written lazily after the 15-minute expiry, and candidates
+still pending when a container stops are lost, so the .32 unmatched counts are
+lower bounds. The two .34 QQ matches are the first live proof that QQ's `e`
+equals the listed row's identity; both were natural arrivals (08:27:54 and
+09:02:28). Outlook matches only by `ItemId` against the row's native locator;
+its canonical identity remains the `ImmutableId`, which notifications do not
+carry. Outlook delivery-change wakes also fired at its own three sends
+(04:06, 04:15 and 04:26), while QQ envelope wakes occurred only for inbound
+mail. Gmail invalidations carried no identifier.
+
+**Receiver arrival of the 15 real sends of 2026-10-22** (the nine 9.2 sends, two
+more Gmail→QQ sends at 05:20 and 05:23, the .32 baseline, the .33 learning send
+and the .34 pair):
+
+- Eight sends to QQ or Gmail: each has one inbound row with the identical
+  subject digest and a complete original, discovered 1–78 s after the local
+  Sent row (the 78 s case is the 04:03 send that still blocked inbound work,
+  section 9.4).
+- Seven sends to Outlook (the recipient is the Outlook mailbox's delivery
+  alias): each has exactly one Outlook inbound row whose provider receipt time
+  lies within 11 s of the local Sent row, in send order. The Sent row is
+  written after the send API returns. Outlook had no other inbound row that
+  day. All seven rows remain `pending` with an open failure at stage
+  `original` (`email_network_original_unqualified`, 16 attempts each). Without
+  an original there is no subject, so delivery is established by time
+  correlation only; for the last three it is also linked through the
+  notification `ItemId` matched to the row's native locator.
+- Message-ID comparison was not possible for any provider: no local Sent row
+  has a captured original.
+
+**Gated direct fetch (this branch, default off).** The Gateway now keeps a
+per-mailbox gate in `email/<owner scope>/push/qualification.json` (atomic
+replace; unreadable or unsaved state is list-only). A candidate advances it only
+when it matched by `message_id` and the listed row is rebuildable from that
+identifier: folder `inbox`, selection (and thread) equal to the identifier, no
+native locator. `SPARKCLAW_EMAIL_PUSH_QUALIFICATION_THRESHOLD` (default 3)
+consecutive advances qualify the mailbox. Any unmatched candidate, a non-canonical
+match, a changed row shape, a failed direct capture or a failed round that
+carried direct targets resets it to zero. A new binding generation also resets
+it. Counting runs regardless of the switch; only
+`SPARKCLAW_EMAIL_PUSH_DIRECT_FETCH=true` turns qualified identifiers into
+targets.
+
+While qualified and switched on, notification identifiers are kept as pending
+targets (at most 16, 15-minute expiry). The next non-final increment passes at
+most 8 as ordinary Reader retry targets, frozen per checkpoint revision so a
+yielded round replays the same request. Identifiers already retried, skipped or
+captured in Store are left to the list. When the Reader also lists the
+identifier, it captures its own row; the Gateway accepts that row for a marked
+direct target, and a learned shape that no longer rebuilds it degrades the gate.
+An unlisted identifier is fetched through the existing retained-original endpoint
+and admitted in the same commit, timed by the original's `received_at`. Its
+failure is not recorded as a mail failure and degrades the gate. Both paths use
+the existing manifest verification, `PageCaptureInvocationID`, Store identity
+and receipts. Only list rows advance the counter; a direct-only capture is
+counted separately. The time-range sweep still runs in every round.
+
+`SPARKCLAW_EMAIL_QUALIFIED_POLL_INTERVAL_SECONDS` (0, or 60–300) relaxes the
+periodic sweep only while the switch is on, the mailbox is qualified and its
+watch is `watching`. With the default 0, cadence and schedule keys are unchanged.
+When it is configured, the gate's transition epoch is added to the schedule
+command key, because command receipts replay and the earlier one-minute key
+would otherwise be a no-op after a degradation. The gate is projected, without
+identifiers, as `sync_health.push_target` on the existing provider check
+response; the settings view does not render it.
+
+Tests cover threshold counting and restart persistence, each reset path, Gmail
+without identifiers, Outlook `ItemId` matches, frozen and bounded targets,
+interval switching with distinct schedule keys, and end-to-end unlisted,
+listed-and-direct and failed direct rounds. The Reader-validation case proves an
+unmarked retry target still binds exactly.
+
+**Conditions before enabling on a deployment.** (1) Deploy with the switch off.
+After cutover, wait until the QQ gate reports `qualified` from at least three
+natural arrivals, with `unmatched` 0. The two .34 matches are not carried into
+the new state. (2) Turn on direct fetch only. Then require three further
+natural arrivals where `direct_failed` stays 0 and the counter keeps advancing,
+plus a Store check showing one mail per provider identifier. That is the
+section 8 push-target gate. (3) Only then set the relaxed interval (300) for
+QQ, and confirm that a forced degradation returns the schedule to one minute.
+Outlook cannot qualify until its notifications carry the canonical identity and
+its originals capture again; its own-send wakes would also reset the gate.
+Gmail cannot qualify.
 
 ## 10. Cross-Project Impact
 

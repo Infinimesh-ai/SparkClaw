@@ -265,6 +265,9 @@ var envBindings = []envBinding{
 	{name: "SPARKCLAW_BROWSER_AUTOMATION_SETTLE_QUIET_PERIOD_MS", doc: "Quiet period that counts as settled.", apply: envInt(func(c *Config) *int { return &c.Adapters.BrowserAutomation.SettleQuietPeriodMS })},
 	{name: "SPARKCLAW_BROWSER_AUTOMATION_SETTLE_POLL_INTERVAL_MS", doc: "Settle polling interval.", apply: envInt(func(c *Config) *int { return &c.Adapters.BrowserAutomation.SettlePollIntervalMS })},
 	{name: "SPARKCLAW_BROWSER_AUTOMATION_ROUTE_REBIND_LIMIT", doc: "Maximum route rebinds per navigation.", apply: envInt(func(c *Config) *int { return &c.Adapters.BrowserAutomation.RouteRebindLimit })},
+	{name: "SPARKCLAW_EMAIL_PUSH_DIRECT_FETCH", doc: "Capture qualified notification targets directly (default off).", apply: envBool(func(c *Config) *bool { return &c.EmailIntake.PushDirectFetch })},
+	{name: "SPARKCLAW_EMAIL_PUSH_QUALIFICATION_THRESHOLD", doc: "Consecutive matched natural arrivals before direct fetch (default 3).", apply: envInt(func(c *Config) *int { return &c.EmailIntake.PushQualificationThreshold })},
+	{name: "SPARKCLAW_EMAIL_QUALIFIED_POLL_INTERVAL_SECONDS", doc: "Periodic sweep for a qualified direct-fetch provider; 0 keeps the current cadence.", apply: envInt(func(c *Config) *int { return &c.EmailIntake.QualifiedPollIntervalSeconds })},
 	{name: "SPARKCLAW_BROWSER_EXTENSION_CONTROLLER_SOCKET", doc: "Absolute path of the Browser Bridge controller socket.", apply: envString(func(c *Config) *string { return &c.Adapters.BrowserAutomation.PlaywrightExtension.ControllerSocket })},
 	{name: "SPARKCLAW_BROWSER_EXTENSION_PROFILE_ID", doc: "Browser Bridge profile identifier (must be default).", apply: envString(func(c *Config) *string { return &c.Adapters.BrowserAutomation.PlaywrightExtension.ProfileID })},
 	{name: "SPARKCLAW_BROWSER_EXTENSION_CONNECT_TIMEOUT_MS", doc: "Browser Bridge socket connect timeout (rejects non-integers).", apply: func(cfg *Config, value string) error {

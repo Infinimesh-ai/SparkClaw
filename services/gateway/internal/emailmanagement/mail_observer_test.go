@@ -78,8 +78,8 @@ func TestObserverAcknowledgesOnlyCommittedWakeAndRechecksDisabledIntent(t *testi
 	if acks != 1 {
 		t.Fatal("committed event not acknowledged")
 	}
-	if kinds := s.push.match("email-owner", box.ID, []store.EmailDiscoveryMember{{ProviderMessageID: "candidate-1"}}, time.Now().UTC()); len(kinds) != 1 {
-		t.Fatalf("admitted candidate was not recorded once: %v", kinds)
+	if matches, _ := s.push.match("email-owner", box.ID, []store.EmailDiscoveryMember{{ProviderMessageID: "candidate-1"}}, time.Now().UTC()); len(matches) != 1 {
+		t.Fatalf("admitted candidate was not recorded once: %v", matches)
 	}
 	setting.Enabled = false
 	_, err = repo.UpdateEmailProviderSetting(t.Context(), setting, setting.Version)

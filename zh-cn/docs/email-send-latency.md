@@ -2,7 +2,7 @@
 
 > 语言：简体中文 | [English](../../docs/email-send-latency.md)
 
-- 状态：**已在分支实现，未部署；尚无实机测量**
+- 状态：**已随 35 版于 2026-10-22 部署；常驻页面传输暴露 QQ 页面就绪竞态后已在 work2 关闭，登录检查复用实机未生效（见[第 9.10 节](email-network-native-architecture.md)）**
 - 日期：2026-10-22
 - 基线：SparkClaw `0560d221`，App-CLI `e147d45`（34 版），Tampermonkey 5.5.0.17
 - 背景：[网络原生邮件架构](email-network-native-architecture.md) 第 9.4–9.6 节

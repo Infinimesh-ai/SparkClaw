@@ -605,6 +605,36 @@ Tampermonkey worker 现在这样等待策略：
 - 两个可选附件用例在 `.34` 上本来就失败（`INPUT_VALIDATION_FAILED`，以及一个已不存在的钩子字符串）。
 - Gmail 和 QQ 的回复证明未改动。它们依赖目标邮件已在页面中打开，而网络查找同样不会打开它。
 
+### 9.10 35 版部署与实机结果（2026-10-22）
+
+9.9 节留给分支 `claude/mail-gate-measurements-047589` 上的门槛测量，该分支尚未合并。
+
+上线内容：App-CLI `d8b2a01`（35 版：按功能查找的 Outlook 原件解析器、可复用并带前置检查的
+QQ 原生发信、Outlook 回信/发件人/附件修复），SparkClaw `d85233fb`（配对、Tampermonkey
+5.5.0.18、常驻页面传输、登录检查复用、带门禁的通知目标直取，默认关闭），以及 Mac 上的
+SparkX `aaf98ea9`（`aaf98ea9` 只是在安装包 UI 审计里加入 WebP；Spark X 玻璃设计带有 WebP
+图标）。work2 也从本版起提供 Spark X 玻璃风格的 WebChat。
+
+work2 切换（10:47–10:54 UTC）第一次尝试即健康。41 张业务表、2,583 个工作区文件和 77,785 个
+回执文件全部保留；93 条历史 unknown 任务在每一步前后都没有变化。
+
+| 项目 | 实机结果 |
+|---|---|
+| Tampermonkey 托管策略导入 | **未修好。** 第 1 次浏览器启动等满 300 秒 `wait-profile` 仍未导入；第 2 次启动 6 秒导入，与 .34 相同。第 1 次启动的日志里没有 Tampermonkey worker 输出，原因仍未查明。 |
+| 常驻页面传输（发信/标记已读页面） | **导致 QQ 发信退化，已在 work2 关闭。** 一个页面用 1 个 CLI + 1 个传输进程跑了 36 条命令（原来 70–85 个进程），但命令变快后，未改动的 QQ `sent_baseline` 点击在“已发送”文件夹渲染前就到达：`click` 失败 `process_exit_target_missing`（`browser_extension_unavailable`），发信以 `email_send_not_dispatched`、`attempted:false` 结束。已通过 Controller drop-in `96-r35-page-transport-off.conf` 设置文档中的开关 `SPARKCLAW_BROWSER_PAGE_TRANSPORT=off`。 |
+| QQ 原生发信（35 版） | **有效。** 传输关闭后：DOM 学习发信 API 79.9 秒（执行器 62.1 秒）；随后原生发信 API 18.6 秒（执行器 6.4 秒，请求 566 ms，已发送证明 1.7 秒）；超过 150 秒后（超过旧的 2 分钟模板时限）第三封原生发信 API 19.1 秒（执行器 7.0 秒，请求 518 ms，已发送证明 2.2 秒）。每封都有一条确认的已发送证明。 |
+| 登录检查复用（120 秒） | **未生效。** 每封 QQ 发信前仍跑一次 `probe`，包括距第一次 probe 85 秒的第二封。 |
+| Outlook 原件抓取 | **有效。** 三封 QQ -> Outlook 邮件都恰好入站一次，`capture_state=complete` 且已解析，最后一封发出后 21 秒内完成。 |
+| Outlook 回复单封会话 | **安全失败。** `prepare_draft` 以 `email_reply_editor_unverified` 结束；`attempted:false`、`email_send_not_dispatched`，没有发出。 |
+| 通知目标 | Outlook 按 `item_id` 匹配 3/3，但属于 `non_canonical_match`，连续计数仍为 0。测试期间没有 QQ 来信。直取保持关闭。 |
+| 1 KiB 以上附件、10 MiB 传输 | 未运行。附件发信从 SparkX 写信界面开始（本机文件、ISCP 对象、审批），不经 Gateway API。 |
+
+每封信都只发一次，使用新的幂等键；没有重试，也没有调用 reconcile 或 resolve。临时 API
+客户端均已吊销（之后返回 HTTP 401），凭据文件已删除。
+
+待办：QQ 发信流程的页面就绪修复（之后才能重新打开传输）；发信自身的页面活动为何让登录复用失效；
+Outlook 回信编辑器检查；Tampermonkey 首次启动导入。
+
 ## 10. 跨项目影响
 
 - App-CLI（SparkClaw 维护的分叉）以配对发行接收 N1–N3 运行时改动；SparkClaw

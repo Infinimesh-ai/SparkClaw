@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/email-send-latency.md)
 
-- Status: **implemented on a branch, not deployed; no live measurement yet**
+- Status: **deployed with release 35 on 2026-10-22; the resident page transport is switched off on work2 after it exposed a QQ page-readiness race, and login-check reuse did not take effect live (see [section 9.10](email-network-native-architecture.md))**
 - Date: 2026-10-22
 - Baseline: SparkClaw `0560d221`, App-CLI `e147d45` (release 34), Tampermonkey 5.5.0.17
 - Context: [network-native mail architecture](email-network-native-architecture.md),

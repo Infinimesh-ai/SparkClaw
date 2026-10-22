@@ -778,6 +778,42 @@ Still open:
 - Two opt-in attachment fixtures already fail on `.34` (`INPUT_VALIDATION_FAILED`, and a hook string that no longer exists).
 - Gmail and QQ reply proofs were not changed. They depend on the target being open in the page, which the network lookup also does not do.
 
+### 9.10 Release 35 deployment and live results (2026-10-22)
+
+Section 9.9 is reserved for the gate measurements on branch
+`claude/mail-gate-measurements-047589`, which is not merged yet.
+
+Shipped: App-CLI `d8b2a01` (release 35: function-based Outlook original
+resolver, reusable preflighted QQ native send, Outlook reply/sender/attachment
+fixes), SparkClaw `d85233fb` (pairing, Tampermonkey 5.5.0.18, resident page
+transport, login-check reuse, gated notification-target fetch, default off),
+and SparkX `aaf98ea9` on the Mac (`aaf98ea9` only adds WebP to the package UI
+audit; the Spark X glass design ships WebP icons). work2 also serves the Spark X
+glass WebChat from this release.
+
+Cutover (work2, 10:47–10:54 UTC) became healthy on the first attempt. All 41
+business tables, 2,583 workspace files and 77,785 receipt files were preserved;
+the 93 historical unknown tasks were unchanged before and after every step.
+
+| Item | Live result |
+|---|---|
+| Tampermonkey managed-policy import | **Not fixed.** Browser start 1 waited the full 300 s `wait-profile` without importing; start 2 imported in 6 s, the same pattern as .34. The start-1 journal carries no Tampermonkey worker output, so the cause is still open. |
+| Resident page transport (send/mark-read pages) | **Regressed QQ sends; disabled on work2.** One page ran 36 commands in 1 CLI + 1 transport process (formerly 70–85 processes), but the faster commands reached the unchanged QQ `sent_baseline` click before the Sent folder rendered: `click` failed `process_exit_target_missing` (`browser_extension_unavailable`), and the send ended `email_send_not_dispatched` with `attempted:false`. The documented switch `SPARKCLAW_BROWSER_PAGE_TRANSPORT=off` is now set by the Controller drop-in `96-r35-page-transport-off.conf`. |
+| QQ native send (release 35) | **Works.** With the transport off: DOM teaching send API 79.9 s (executor 62.1 s); next native send API 18.6 s (executor 6.4 s, request 566 ms, Sent proof 1.7 s); a third native send after more than 150 s (past the old 2-minute template age) API 19.1 s (executor 7.0 s, request 518 ms, Sent proof 2.2 s). Each had one confirmed Sent proof. |
+| Login-check reuse (120 s) | **Not effective.** A QQ `probe` still ran before every send, including the second send 85 s after the first probe. |
+| Outlook original capture | **Works.** All three QQ -> Outlook messages arrived inbound exactly once, with `capture_state=complete` and a parsed representation, within 21 s after the last send. |
+| Outlook reply to a single-message conversation | **Fails safely.** `prepare_draft` ended `email_reply_editor_unverified`; `attempted:false`, `email_send_not_dispatched`, nothing sent. |
+| Notification targets | Outlook matched by `item_id` 3/3 but as `non_canonical_match`, so the consecutive counter stays 0. No QQ inbound arrived during the run. Direct fetch stays off. |
+| Attachments >= 1 KiB, 10 MiB transfer | Not run. Attachment sends start from the SparkX composer (local file, ISCP object, approval), not from the Gateway API. |
+
+Each send ran once with a fresh idempotency key; there were no retries and no
+reconcile or resolve calls. The temporary API clients were revoked (HTTP 401
+afterwards) and their credential files removed.
+
+Open items: a page-readiness fix for the QQ send flow before the transport can be
+re-enabled; why the send's own page activity invalidates login reuse; the Outlook
+reply editor check; and the first-start Tampermonkey import.
+
 ## 10. Cross-Project Impact
 
 - App-CLI (SparkClaw-owned fork) receives N1–N3 runtime changes as a paired

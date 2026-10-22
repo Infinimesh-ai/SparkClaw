@@ -2,7 +2,7 @@
 
 > 语言：简体中文 | [English](../../docs/email-network-native-architecture.md)
 
-- 状态：**设计提案；N1–N3 及 N4 中 SparkClaw/ISCP 部分已在本地实现，未部署（第 9 节）**
+- 状态：**设计提案；N1–N3 及 N4 中 SparkClaw/ISCP 部分已于 2026-10-22 部署；实机门禁部分未完成（第 9.2 节）**
 - 日期：2026-10-22
 - 基线：SparkClaw `456b9fb3`，App-CLI `a91396e`（release 31），ISCP `2a252fe`
 - 方向上取代以下文档（保留其全部已接受不变量）：
@@ -305,8 +305,31 @@ QQ、Gmail ≤ 1 秒，Outlook ≤ 2 秒；work2 上控制消息 ≤ 20 毫秒�
 | 对象流水线、窗口 8 | SparkClaw `9595f139` | Desktop 510；续传与已完成传输回归 |
 | Relay 排空与唤醒 | ISCP `f603722` | 关闭空闲 tick 时 24 条连续准入 217 毫秒送达；批次为 1 时失败 |
 
-均未推送或部署。work2、TEST1 与 Mac 保持现有发行，直到负责人批准上线；第 8 节的
-实机门禁仍未完成。
+负责人于 2026-10-22 批准上线及真实测试发信，见 9.2。
+
+### 9.2 部署与实机门禁（2026-10-22）
+
+已部署：TEST1 Relay 为 ISCP `f603722`（仅替换程序，停机 1.5 秒；40 秒内 12 个设备投递
+317 条消息）；work2 为源码 `dceb0308`，配 App-CLI `.32`、Tampermonkey 5.5.0.15（r15）与
+Bridge 1.0.29（03:51 UTC；41 张表、2 132 个工作区文件、75 815 个回执保全；92 条历史
+unknown 执行记录不变）；Mac SparkX 由 `8701f4e7` 构建，该提交重新生成了 `.32` 遗留过期的
+桌面托管阅读脚本 preload（6 个 profile、97 张表、22 条消息保全）。work2 上 Tampermonkey
+原生导入两次超时，原因是 Chromium 托管策略在 worker 重试预算之后才可读；第三次启动导入成功。
+
+work2 共真实发信 9 封（三轮，每个服务商各发、收三次），全部 `sent`，无结果不明、无重发。
+
+| 门禁 | 结果 |
+|---|---|
+| 推送目标 | **未通过。** 候选已到达 Gateway，但无一命中：QQ 通知 `mid` 与列表 `provider_message_id` 属于不同标识空间；Outlook `ItemId` 候选未命中；Gmail 无候选。抓取使用继续阻断。 |
+| 学习搜索（Outlook） | **部分满足。** 连续 13 轮（04:22–04:35 UTC）搜索框不变，即均未在 UI 输入；强制 401 后重学未验证。 |
+| 原生标记已读 | **仅形状。** QQ 记录到 `/read/readmail` 等请求；Gmail、Outlook 尚未发出。重放属 N6。 |
+| 网络发信证明 | **仅形状。** QQ 记录到 `POST /send/sendmail`，Gmail 为 `/sync/u/:id/i/s`；Outlook 发信未留下同源页面请求。标识比对属 N6。 |
+| 控制面 | **部分满足。** 常驻 `--machine --session` 与直连 executor socket 已生效，控制消息不再逐条新起 Python/Node；但每条 Playwright 页面命令仍新起 `playwright-cli.js`（约 24 次/分钟）。单条消息耗时无法单独测出。 |
+
+对照目标：通知→提交 QQ 为 5.1–8.0 秒，Gmail 为 2.4–11.3 秒（发信占用浏览器时为 85 秒）；
+Outlook 未能提交，因其原件解析停在 `modules` 阶段（网页客户端分包编号已变化，非 `.32`
+引起），Outlook 来信只停留在已发现、无原件。Outlook 每轮 13–15 秒，每次发信 60–100 秒；
+发信会阻塞所有服务商的收信（4.8 节尚未生效）。10 MiB 对象传输未测。
 
 ## 10. 跨项目影响
 

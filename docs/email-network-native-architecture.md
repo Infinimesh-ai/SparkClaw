@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/email-network-native-architecture.md)
 
-- Status: **proposed design; N1–N3 and the SparkClaw/ISCP parts of N4 implemented locally, not deployed (section 9)**
+- Status: **proposed design; N1–N3 and the SparkClaw/ISCP parts of N4 deployed 2026-10-22; live gates partly open (section 9.2)**
 - Date: 2026-10-22
 - Baselines: SparkClaw `456b9fb3`, App-CLI `a91396e` (release 31), ISCP `2a252fe`
 - Supersedes as direction (keeps every accepted invariant of):
@@ -365,8 +365,38 @@ establish provider behavior.
 | Object pipelining, window 8 | SparkClaw `9595f139` | Desktop 510; resume and completed-transfer regressions |
 | Relay drain and wake | ISCP `f603722` | 24 back-to-back admissions in 217 ms with idle tick disabled; fails with batch 1 |
 
-Nothing is pushed or deployed. Work2, TEST1 and the Mac keep their current
-releases until the owner approves a rollout; live gates in section 8 remain open.
+The owner approved the rollout and real test sends on 2026-10-22; see 9.2.
+
+### 9.2 Deployment and live gates (2026-10-22)
+
+Deployed: TEST1 Relay ISCP `f603722` (program only, 1.5 s downtime; 12 devices
+delivered 317 messages within 40 s); work2 source `dceb0308` with App-CLI `.32`,
+Tampermonkey 5.5.0.15 (r15) and Bridge 1.0.29 (03:51 UTC; 41 tables, 2 132
+workspace files and 75 815 receipts preserved; 92 historical unknown executor rows
+unchanged); Mac SparkX built from `8701f4e7`, which regenerates the desktop managed
+reader preload that `.32` left stale (6 profiles, 97 tables, 22 messages
+preserved). On work2 the native Tampermonkey import timed out twice because
+Chromium's managed policy became readable only after the worker's retry budget; a
+third start imported it.
+
+Nine real sends from work2 (three rounds, each provider sending and receiving
+three times) all ended `sent`; none was ambiguous or resent.
+
+| Gate | Result |
+|---|---|
+| Push target | **Open.** Candidates reach the Gateway, but none matched: the QQ notify `mid` and the list `provider_message_id` are different identifier spaces; Outlook `ItemId` candidates were unmatched; Gmail carries none. Capture use stays blocked. |
+| Learned search (Outlook) | **Partly met.** 13 consecutive rounds (04:22–04:35 UTC) left the search box unchanged, so none typed into the UI; the forced-401 relearn was not exercised. |
+| Native mark-read | **Shape only.** QQ recorded `/read/readmail` and related requests; Gmail and Outlook issue none yet. Replay is N6. |
+| Network send proof | **Shape only.** QQ recorded `POST /send/sendmail` and Gmail `/sync/u/:id/i/s`; Outlook's send left no same-origin page request. Identifier matching is N6. |
+| Control plane | **Partly met.** Resident `--machine --session` processes and the direct executor socket are in use; no Python/Node spawn per control message. Each Playwright page command still spawns `playwright-cli.js` (about 24 per minute). Per-message latency could not be isolated. |
+
+Measured against the targets: notification → committed was 5.1–8.0 s for QQ and
+2.4–11.3 s for Gmail (85 s when a send held the browser); Outlook did not commit,
+because its original resolver stops at `modules` (the web client's chunk IDs
+changed, which `.32` did not cause), so Outlook arrivals stay discovered without
+an original. Outlook rounds take 13–15 s and each send 60–100 s; sends block
+inbound work for every provider (section 4.8 not yet effective). The 10 MiB
+object transfer was not exercised.
 
 ## 10. Cross-Project Impact
 

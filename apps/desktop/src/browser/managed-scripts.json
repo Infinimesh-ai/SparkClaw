@@ -52,7 +52,7 @@
       "id": "5b4323dc-326f-4fbb-a1a0-4ac8c00631c0",
       "file": "qq-mail-reader.user.js",
       "version": "0.2.0",
-      "sha256": "1215330b0f115251b571f015e3f0e260c9e4115309699a7e105fb30cbe217ad7",
+      "sha256": "a6fdc47d6032689de829995b75b40a176546716f82acb06422c294546ad0e201",
       "origins": [
         "https://wx.mail.qq.com"
       ],
@@ -72,7 +72,7 @@
       "id": "1b57e83c-a914-48c1-a490-77d4bca191d5",
       "file": "gmail-mail-reader.user.js",
       "version": "0.2.0",
-      "sha256": "26aff1480bcfc75a1228bd3f317b9db9cb076149b7326f1dc4a1e580641f7f2e",
+      "sha256": "7e14d954202a60bd38dd57227baab3d063e3628dc4998599fd6f4c3608692f5c",
       "origins": [
         "https://mail.google.com"
       ],
@@ -92,7 +92,7 @@
       "id": "c2b90f5c-629d-41bd-8fc8-179729ad70b4",
       "file": "outlook-mail-reader.user.js",
       "version": "0.2.0",
-      "sha256": "63b5a956814f6d95bcd10ea86a68c3682a5a1339acfeee696026a5fc3f91f278",
+      "sha256": "f449dfc3231fd55523a260a956b0a05db5190852b083342cecaaee0dc384ea87",
       "origins": [
         "https://outlook.live.com",
         "https://outlook.office.com",

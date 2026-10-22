@@ -59,6 +59,9 @@ func (c *Controller) intakeProbe(ctx context.Context, key intakeProbeKey, provid
 		c.forgetIntakeProbe(key)
 	}
 	proof, err := c.probe(ctx, provider, app.NewID("email_intake_admit"))
+	if err != nil {
+		c.forgetSendAdmission(key)
+	}
 	return proof, false, err
 }
 
@@ -74,7 +77,10 @@ func (c *Controller) rememberIntakeProbe(key intakeProbeKey, setting app.EmailPr
 	c.intakeProbes[key] = intakeProbeEntry{settingVersion: setting.Version, account: setting.Account, cachedAt: c.now(), proof: proof}
 }
 
+// Every reason to distrust the intake proof (setting change, credential
+// generation change, provider not ready) also invalidates send admission.
 func (c *Controller) forgetIntakeProbe(key intakeProbeKey) {
+	c.forgetSendAdmission(key)
 	c.intakeProbesMu.Lock()
 	defer c.intakeProbesMu.Unlock()
 	delete(c.intakeProbes, key)

@@ -180,6 +180,9 @@ func Load(path string) (Config, error) {
 	if extension.ConnectTimeoutMS < 1000 || extension.ConnectTimeoutMS > 120000 {
 		return Config{}, errors.New("adapters.browserAutomation.playwrightExtension.connectTimeoutMs must be between 1000 and 120000")
 	}
+	if extension.MailSendLoginReuseSeconds < 0 || extension.MailSendLoginReuseSeconds > 600 {
+		return Config{}, errors.New("adapters.browserAutomation.playwrightExtension.mailSendLoginReuseSeconds must be between 0 and 600")
+	}
 	if err := normalizeRuntimeLimits(&cfg.Runtime); err != nil {
 		return Config{}, err
 	}

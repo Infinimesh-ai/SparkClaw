@@ -85,10 +85,52 @@ export async function createInvocationState(runtimeRoot, sessionID, input, opera
   };
 }
 
-export async function runProcess(spawnImpl, executable, args, options) {
-  if (options.secrets.some((secret) => secret && args.some((arg) => arg === secret))) {
+export function assertArgumentsWithoutSecrets(args, secrets) {
+  if (secrets.some((secret) => secret && args.some((arg) => arg === secret))) {
     throw clientContractError();
   }
+}
+
+// Applies the CLI process contract to a finished command: forbidden output,
+// exit classification and the caller's stdout transform. Spawned processes and
+// the resident page transport (which reports the same exit/stdout/stderr) share it.
+export function settleProcessOutput(code, signal, stdoutText, stderrText, options) {
+  if (code !== 0 || signal !== null) {
+    const forbidden = inspectForbiddenOutput(
+      stdoutText,
+      stderrText,
+      options.forbiddenOutputValues,
+    );
+    if (forbidden) {
+      throw clientContractError("forbidden_output", forbidden);
+    }
+    const diagnostic = classifyProcessExit(stdoutText, stderrText);
+    throw clientUnavailableError(
+      undefined,
+      diagnostic.reason,
+      diagnostic.context,
+    );
+  }
+  if (options.stdoutTransform) {
+    try {
+      stdoutText = options.stdoutTransform(stdoutText);
+    } catch (error) {
+      throw error instanceof ControllerError ? error : clientContractError();
+    }
+  }
+  const forbidden = inspectForbiddenOutput(
+    stdoutText,
+    stderrText,
+    options.forbiddenOutputValues,
+  );
+  if (forbidden) {
+    throw clientContractError("forbidden_output", forbidden);
+  }
+  return stdoutText.trim();
+}
+
+export async function runProcess(spawnImpl, executable, args, options) {
+  assertArgumentsWithoutSecrets(args, options.secrets);
   return await new Promise((resolve, reject) => {
     let child;
     try {
@@ -134,42 +176,13 @@ export async function runProcess(spawnImpl, executable, args, options) {
       if (aborted) return finish(clientUnavailableError());
       if (timedOut) return finish(clientTimeoutError("timeout"));
       if (overflow) return finish(clientContractError("output_overflow"));
-      let stdoutText = stdout.toString("utf8");
-      const stderrText = stderr.toString("utf8");
-      if (code !== 0 || signal !== null) {
-        const forbidden = inspectForbiddenOutput(
-          stdoutText,
-          stderrText,
-          options.forbiddenOutputValues,
-        );
-        if (forbidden) {
-          return finish(clientContractError("forbidden_output", forbidden));
-        }
-        const diagnostic = classifyProcessExit(stdoutText, stderrText);
-        return finish(clientUnavailableError(
-          undefined,
-          diagnostic.reason,
-          diagnostic.context,
-        ));
+      let value;
+      try {
+        value = settleProcessOutput(code, signal, stdout.toString("utf8"), stderr.toString("utf8"), options);
+      } catch (error) {
+        return finish(error);
       }
-      if (options.stdoutTransform) {
-        try {
-          stdoutText = options.stdoutTransform(stdoutText);
-        } catch (error) {
-          return finish(
-            error instanceof ControllerError ? error : clientContractError(),
-          );
-        }
-      }
-      const forbidden = inspectForbiddenOutput(
-        stdoutText,
-        stderrText,
-        options.forbiddenOutputValues,
-      );
-      if (forbidden) {
-        return finish(clientContractError("forbidden_output", forbidden));
-      }
-      finish(null, stdoutText.trim());
+      finish(null, value);
     });
 
     function finish(error, value) {

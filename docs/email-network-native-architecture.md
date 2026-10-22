@@ -472,6 +472,8 @@ and a `location.href` eval after every click, fill and press. That comes to abou
 Batching a mutation's guarded steps into one process, as `cli-read-batch.mjs` does
 for reads, is a separate follow-up; with the lane fix, it affects send latency
 only, not inbound work.
+That follow-up is implemented on a branch, together with login-check reuse
+before sends, in [mail send latency](email-send-latency.md); it is not deployed.
 
 ### 9.5 QQ replay qualification and work2 release 33 (2026-10-22)
 

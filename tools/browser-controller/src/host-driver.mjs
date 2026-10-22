@@ -27,6 +27,17 @@ export function reservationPolicy(spec, activity) {
   return {resource: spec.host.family ?? spec.resource, exclusive: activity === 'exclusive'};
 }
 
+// Which task pages run their CLI commands through one resident transport
+// process (cli-page-transport.mjs) instead of one playwright-cli.js process per
+// command. `mutation` (default) covers send and mark-read pages; `all` adds
+// Reader/watch pages; `off` restores per-command processes everywhere.
+export function pageTransportEnabled(activity, setting = process.env.SPARKCLAW_BROWSER_PAGE_TRANSPORT) {
+  const mode = (setting ?? '').trim() || 'mutation';
+  if (mode === 'off') return false;
+  if (mode === 'all') return true;
+  return activity === 'mutation';
+}
+
 export class ApplicationHostDriver {
   constructor(options) {Object.assign(this, options); this.handles = new Set(); this.connections = new Set();}
   async prepare() {
@@ -193,7 +204,8 @@ export class ApplicationHostDriver {
         binding: {task_id: task, session_id: sessionID, controller_generation: this.controller.controllerGeneration,
           session_generation: epoch, page_generation: 1}}) : null;
       handle.page = new HostPage({...this, registration, state, token: resource.token, leaseFile, hookConfig, electronConnection,
-        signal: handle.bootstrap.abortController.signal, batchReadCommands: true});
+        signal: handle.bootstrap.abortController.signal, batchReadCommands: true,
+        pageTransport: pageTransportEnabled(handle.activityKind, this.pageTransportMode)});
       phase = 'attach'; await handle.page.attach(); phase = 'create_page'; await handle.page.createTaskPage();
       return handle;
     } catch (error) {

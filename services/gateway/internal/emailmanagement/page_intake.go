@@ -340,6 +340,7 @@ func (s *Service) publishIncrementalPage(ctx context.Context, job app.EmailJob, 
 	if err = s.reconcileError(ctx, commit.EmailCommand, err); err != nil {
 		return err
 	}
+	s.push.match(job.OwnerID, mailbox.ID, members, s.now())
 	// QQ's qualified reader confirms the remote effect from a fresh provider
 	// list response. Run it only after the complete original is canonical in
 	// Store; a failed or uncertain effect never rolls back source durability.

@@ -54,7 +54,8 @@ func TestObserverAcknowledgesOnlyCommittedWakeAndRechecksDisabledIntent(t *testi
 	if err = s.registerObservers(t.Context(), lease, targets); err != nil {
 		t.Fatal(err)
 	}
-	event := browsercontrol.MailObserverEvent{Epoch: lease.Epoch, CredentialGeneration: 7, Sequence: 1, Provider: app.EmailProviderGmail, OwnerScope: targets[0].binding.OwnerScope, MailboxID: box.ID, BindingGeneration: box.BindingGeneration, Kind: "mailbox_changed", Reason: "gmail_topic_invalidation", State: "watching"}
+	event := browsercontrol.MailObserverEvent{Epoch: lease.Epoch, CredentialGeneration: 7, Sequence: 1, Provider: app.EmailProviderGmail, OwnerScope: targets[0].binding.OwnerScope, MailboxID: box.ID, BindingGeneration: box.BindingGeneration, Kind: "mailbox_changed", Reason: "gmail_topic_invalidation", State: "watching",
+		Targets: []browsercontrol.MailObserverTarget{{ProviderMessageID: "candidate-1"}}}
 	batch := browsercontrol.MailObserverBatch{Epoch: lease.Epoch, Events: []browsercontrol.MailObserverEvent{event}}
 	acks := 0
 	s.opts.ObserverTransport = observerTransportFixture{ack: func(seq int64) error {
@@ -76,6 +77,9 @@ func TestObserverAcknowledgesOnlyCommittedWakeAndRechecksDisabledIntent(t *testi
 	}
 	if acks != 1 {
 		t.Fatal("committed event not acknowledged")
+	}
+	if kinds := s.push.match("email-owner", box.ID, []store.EmailDiscoveryMember{{ProviderMessageID: "candidate-1"}}, time.Now().UTC()); len(kinds) != 1 {
+		t.Fatalf("admitted candidate was not recorded once: %v", kinds)
 	}
 	setting.Enabled = false
 	_, err = repo.UpdateEmailProviderSetting(t.Context(), setting, setting.Version)

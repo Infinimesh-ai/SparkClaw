@@ -83,6 +83,11 @@ type Service struct {
 	now         func() time.Time
 	ownerTurn   atomic.Uint64
 	browserJobs map[string]browserJobExecution
+	push        pushCandidates
+	// Idle workers wait on workWake; signal closes it so a notification or new
+	// plan reaches a worker immediately instead of after its idle sleep.
+	wakeMu   sync.Mutex
+	workWake chan struct{}
 }
 
 func New(repository Repository, browser Browser, registry emailautomation.Registry, analyzer Analyzer, extractor DocumentExtractor, opts Options) (*Service, error) {
@@ -179,6 +184,25 @@ func (s *Service) signal() {
 	case s.wake <- struct{}{}:
 	default:
 	}
+	s.wakeWorkers()
+}
+
+func (s *Service) workSignal() <-chan struct{} {
+	s.wakeMu.Lock()
+	defer s.wakeMu.Unlock()
+	if s.workWake == nil {
+		s.workWake = make(chan struct{})
+	}
+	return s.workWake
+}
+
+func (s *Service) wakeWorkers() {
+	s.wakeMu.Lock()
+	defer s.wakeMu.Unlock()
+	if s.workWake != nil {
+		close(s.workWake)
+		s.workWake = nil
+	}
 }
 
 func (s *Service) planLoop(ctx context.Context) {
@@ -188,6 +212,7 @@ func (s *Service) planLoop(ctx context.Context) {
 		if err := s.plan(ctx); err != nil && ctx.Err() == nil {
 			slog.Warn("email scheduling failed", "code", safeCode(err))
 		}
+		s.wakeWorkers()
 		select {
 		case <-ctx.Done():
 			return
@@ -247,6 +272,9 @@ func (s *Service) plan(ctx context.Context) error {
 func (s *Service) worker(ctx context.Context, kinds []string) {
 	turn := 0
 	for {
+		// Take the wake channel before looking for work so a signal raised
+		// during the claim is not missed by the idle wait below.
+		woken := s.workSignal()
 		ordered := append(append([]string{}, kinds[turn:]...), kinds[:turn]...)
 		turn = (turn + 1) % len(kinds)
 		worked, err := s.workOne(ctx, ordered)
@@ -264,6 +292,8 @@ func (s *Service) worker(ctx context.Context, kinds []string) {
 		case <-ctx.Done():
 			timer.Stop()
 			return
+		case <-woken:
+			timer.Stop()
 		case <-timer.C:
 		}
 	}

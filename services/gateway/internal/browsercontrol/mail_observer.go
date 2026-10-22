@@ -3,8 +3,44 @@ package browsercontrol
 import (
 	"context"
 	"errors"
+	"regexp"
 	"time"
 )
+
+// Candidate targets are the provider's own arrival identifiers, forwarded by
+// the Controller in one bounded shape. They are evidence, not capture targets.
+type MailObserverTarget struct {
+	ProviderMessageID string     `json:"provider_message_id,omitempty"`
+	ProviderItemID    string     `json:"provider_item_id,omitempty"`
+	ReceivedAt        *time.Time `json:"received_at,omitempty"`
+}
+
+const maxMailObserverTargets = 16
+
+var mailObserverTargetID = regexp.MustCompile(`^[A-Za-z0-9_+=:./~-]{1,512}$`)
+
+func validMailObserverTargets(kind string, targets []MailObserverTarget) bool {
+	if len(targets) == 0 {
+		return true
+	}
+	if kind != "mailbox_changed" || len(targets) > maxMailObserverTargets {
+		return false
+	}
+	for _, target := range targets {
+		if target.ProviderMessageID == "" && target.ProviderItemID == "" {
+			return false
+		}
+		for _, id := range []string{target.ProviderMessageID, target.ProviderItemID} {
+			if id != "" && !mailObserverTargetID.MatchString(id) {
+				return false
+			}
+		}
+		if target.ReceivedAt != nil && target.ReceivedAt.IsZero() {
+			return false
+		}
+	}
+	return true
+}
 
 type MailObserverBinding struct {
 	Provider          string `json:"provider"`
@@ -41,6 +77,8 @@ type MailObserverEvent struct {
 	Reason               string    `json:"reason"`
 	State                string    `json:"state"`
 	ObservedAt           time.Time `json:"observed_at"`
+	// Optional candidates on mailbox_changed; older Controllers omit them.
+	Targets []MailObserverTarget `json:"targets,omitempty"`
 }
 type MailObserverBatch struct {
 	SchemaVersion int                 `json:"schema_version"`
@@ -118,7 +156,7 @@ func (s *Service) PollMailObservers(ctx context.Context, lease MailObserverLease
 	if err == nil {
 		var last int64
 		for _, e := range out.Events {
-			if e.Epoch != lease.Epoch || e.CredentialGeneration != lease.CredentialGeneration || e.Sequence <= last || len(e.MailboxID) > 128 || len(e.OwnerScope) != 64 || len(e.WatchEpoch) > 128 || len(e.Reason) > 64 || e.ObservedAt.IsZero() {
+			if e.Epoch != lease.Epoch || e.CredentialGeneration != lease.CredentialGeneration || e.Sequence <= last || len(e.MailboxID) > 128 || len(e.OwnerScope) != 64 || len(e.WatchEpoch) > 128 || len(e.Reason) > 64 || e.ObservedAt.IsZero() || !validMailObserverTargets(e.Kind, e.Targets) {
 				return out, invalidControllerResponse()
 			}
 			last = e.Sequence

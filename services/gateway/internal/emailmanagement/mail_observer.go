@@ -154,6 +154,9 @@ func (s *Service) admitObserverBatch(ctx context.Context, lease browsercontrol.M
 				return err
 			}
 			if result.Accepted && !result.Duplicate && event.Kind != "watch_state" {
+				if event.Kind == "mailbox_changed" {
+					s.push.record(t.owner, t.box.ID, t.box.Provider, event.Targets, s.now())
+				}
 				s.signal()
 				slog.Info("email notification wake accepted", "provider", event.Provider, "sequence", event.Sequence, "reason", event.Reason)
 			}

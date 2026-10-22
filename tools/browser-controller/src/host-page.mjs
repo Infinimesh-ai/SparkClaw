@@ -12,14 +12,20 @@ import { downloadFromPage } from "./cli-download.mjs";
 const AWAITED_CODE_MARKER = '/* app-cli:awaited-code:v1 */';
 import {
   MAX_CLI_OUTPUT_BYTES,
+  assertArgumentsWithoutSecrets,
   clientContractError,
   clientTimeoutError,
   clientUnavailableError,
   pageStale,
   runProcess,
   scrubPlaywrightEnvironment,
+  settleProcessOutput,
 } from "./cli-runtime.mjs";
 import { electronConnectionEnvironment } from "./electron-adapter-client.mjs";
+import { TRANSPORT_COMMANDS } from "./cli-page-transport.mjs";
+import { PageTransport, PageTransportUnavailable } from "./page-transport.mjs";
+
+const PINNED_CLI_ENTRY = fileURLToPath(new URL('../node_modules/@playwright/cli/playwright-cli.js', import.meta.url));
 
 const TRANSIENT_EVALUATION_ATTEMPTS = 4;
 const TRANSIENT_EVALUATION_DELAY_MS = 250;
@@ -69,7 +75,8 @@ export class HostPage {
     this.attached = false;
     this.effectAttempted = false;
     this.backgroundPrepared = false;
-
+    // Process accounting for the page lifetime (reported at stop).
+    this.processStats = { cli: 0, transportCommands: 0, transportFallbacks: 0, started: Date.now() };
   }
 
   async attach() {
@@ -175,6 +182,7 @@ export class HostPage {
   }
 
   async stop() {
+    await this.#closeTransport();
     if (!this.attached) return;
     this.cleanupDeadline ??= Date.now() + 20_000;
     this.attached = false;
@@ -458,18 +466,23 @@ export class HostPage {
         path.resolve(this.entryPoint) === fileURLToPath(new URL('../node_modules/@playwright/cli/playwright-cli.js', import.meta.url))) {
       const requestPath=path.join(this.state.directory,`read-batch-${crypto.randomUUID()}.json`);
       try {
-        await fs.writeFile(requestPath,JSON.stringify({sessionName:this.sessionName,taskIndex:this.taskIndex,ownerTabs:this.ownerTabs,
-          origins:this.registration.origins,code:guardedCode,actionTimeoutMS:this.actionTimeoutMS,readTimeoutMS:Math.max(this.actionTimeoutMS,timeoutMS)}),{flag:'wx',mode:0o600});
-        const output=await this.#run(['--batch-request',requestPath],Math.max(this.actionTimeoutMS,timeoutMS)+6*this.actionTimeoutMS,
-          raw=>{
-            const envelope=parseJSON(raw);
-            if(envelope?.error){
-              if(!['browser_page_stale','browser_extension_unavailable','browser_script_timeout'].includes(envelope.error.code))throw clientContractError();
-              throw new ControllerError(envelope.error.code,'browser guarded read failed',{status:envelope.error.code==='browser_page_stale'?409:envelope.error.code==='browser_script_timeout'?504:503,retryable:envelope.error.code!=='browser_page_stale',diagnosticReason:envelope.error.reason});
-            }
-            if(typeof envelope?.output!=='string')throw clientContractError();
-            return envelope.output;
-          },fileURLToPath(new URL('./cli-read-batch.mjs',import.meta.url)));
+        const request={sessionName:this.sessionName,taskIndex:this.taskIndex,ownerTabs:this.ownerTabs,
+          origins:this.registration.origins,code:guardedCode,actionTimeoutMS:this.actionTimeoutMS,readTimeoutMS:Math.max(this.actionTimeoutMS,timeoutMS)};
+        const unwrap=raw=>{
+          const envelope=parseJSON(raw);
+          if(envelope?.error){
+            if(!['browser_page_stale','browser_extension_unavailable','browser_script_timeout'].includes(envelope.error.code))throw clientContractError();
+            throw new ControllerError(envelope.error.code,'browser guarded read failed',{status:envelope.error.code==='browser_page_stale'?409:envelope.error.code==='browser_script_timeout'?504:503,retryable:envelope.error.code!=='browser_page_stale',diagnosticReason:envelope.error.reason});
+          }
+          if(typeof envelope?.output!=='string')throw clientContractError();
+          return envelope.output;
+        };
+        const batchTimeoutMS=Math.max(this.actionTimeoutMS,timeoutMS)+6*this.actionTimeoutMS;
+        let output=await this.#transportBatch(request,batchTimeoutMS,unwrap);
+        if(output===undefined){
+          await fs.writeFile(requestPath,JSON.stringify(request),{flag:'wx',mode:0o600});
+          output=await this.#run(['--batch-request',requestPath],batchTimeoutMS,unwrap,fileURLToPath(new URL('./cli-read-batch.mjs',import.meta.url)));
+        }
         const value=parseJSON(output);
         if(!value||!Object.hasOwn(value,'result'))throw clientContractError();
         for(const url of [value.initial_url,value.final_url])assertExpectedOrigin(url,undefined,this.registration.origins);
@@ -682,12 +695,15 @@ export class HostPage {
     assertTaskTopology(tabs,this.taskIndex,this.ownerTabs);
   }
 
-  async #run(args, requestedTimeoutMS = this.actionTimeoutMS, stdoutTransform, entryPoint=this.entryPoint) {
+  #runContext(requestedTimeoutMS) {
     const signal = this.cleanupDeadline === undefined ? this.signal : undefined;
     if (signal?.aborted) throw clientUnavailableError();
     const remaining = (this.cleanupDeadline ?? this.deadline) - Date.now();
     if (remaining <= 0) throw clientTimeoutError();
-    const timeoutMS = Math.max(1, Math.min(requestedTimeoutMS, remaining));
+    return { signal, timeoutMS: Math.max(1, Math.min(requestedTimeoutMS, remaining)) };
+  }
+
+  #environment() {
     const env = scrubPlaywrightEnvironment({ ...process.env, ...this.extraEnv });
     const awaitedNetworkRead = this.registration.awaitedRead === true;
     Object.assign(env, this.state.environment, {
@@ -712,20 +728,110 @@ export class HostPage {
     if (this.executablePath) env.PLAYWRIGHT_MCP_EXECUTABLE_PATH = this.executablePath;
     if (this.userDataDir) env.PLAYWRIGHT_MCP_USER_DATA_DIR = this.userDataDir;
     if (this.state.secretsPath) env.PLAYWRIGHT_MCP_CONFIG = this.state.secretsPath;
+    return env;
+  }
+
+  // The resident transport serves the same pinned CLI commands as the
+  // per-command processes, against the same attached daemon. It is used only
+  // for the production entry point on Linux (daemon ownership is proved through
+  // /proc, as for guarded read batches), after attach recorded the daemon.
+  #transportReady() {
+    return this.pageTransport === true && this.attached && process.platform === 'linux' && !this.electronConnection &&
+      path.resolve(this.entryPoint) === PINNED_CLI_ENTRY && this.transportDisabled !== true;
+  }
+
+  #transport() {
+    this.transport ??= new PageTransport({ spawn: this.spawn, cwd: this.state.outputDir, env: this.#environment(),
+      sessionName: this.sessionName, idleMS: this.pageTransportIdleMS });
+    return this.transport;
+  }
+
+  // Returns undefined when the request was never sent (the caller then uses
+  // its ordinary process); any failure after sending is final.
+  async #transportRequest(message, timeoutMS, signal) {
+    const transport = this.#transport();
+    if (transport.busy) return undefined;
     try {
-      return await runProcess(this.spawn, process.execPath, [entryPoint, ...args], {
-        cwd: this.state.outputDir,
-        env,
-        timeoutMS,
-        secrets: [...this.state.secretValues, this.token],
-        forbiddenOutputValues: args.includes("eval")
-          ? [this.token]
-          : [...this.state.secretValues, this.token],
-        signal,
-        stdoutTransform,
-      });
+      const response = await transport.request(message, { timeoutMS, signal });
+      this.processStats.transportCommands += 1;
+      return response;
     } catch (error) {
-      const command = entryPoint!==this.entryPoint?'run-code':args.find((value) => !value.startsWith("-"));
+      if (!(error instanceof PageTransportUnavailable)) throw error;
+      this.processStats.transportFallbacks += 1;
+      if (error.reason !== 'busy') {
+        // A helper that cannot prove the daemon is not retried for this page.
+        this.transportDisabled = true;
+        this.diagnostic?.({ event: 'application_page_transport_unavailable', reason: error.reason });
+      }
+      return undefined;
+    }
+  }
+
+  async #transportBatch(request, requestedTimeoutMS, unwrap) {
+    if (!this.#transportReady()) return undefined;
+    try {
+      const { signal, timeoutMS } = this.#runContext(requestedTimeoutMS);
+      const response = await this.#transportRequest({ batch: request }, timeoutMS, signal);
+      if (response === undefined) return undefined;
+      if (!response.envelope) throw clientContractError('transport_protocol');
+      const raw = JSON.stringify(response.envelope);
+      if (raw.includes(this.token)) throw clientContractError('forbidden_output');
+      return unwrap(raw);
+    } catch (error) {
+      // Same attribution as the one-shot batch process.
+      if (error instanceof ControllerError) Object.defineProperty(error, "diagnosticCommand", { value: 'run-code', enumerable: false });
+      throw error;
+    }
+  }
+
+  async #closeTransport() {
+    const transport = this.transport;
+    this.transport = null;
+    if (!transport && !this.processStats.cli) return;
+    try { await transport?.close(); }
+    finally {
+      if (!this.processStatsReported) {
+        this.processStatsReported = true;
+        this.diagnostic?.({ event: 'application_page_processes', cli_processes: this.processStats.cli,
+          transport_processes: transport?.spawns ?? 0, transport_commands: this.processStats.transportCommands,
+          transport_fallbacks: this.processStats.transportFallbacks, lifetime_ms: Date.now() - this.processStats.started });
+      }
+    }
+  }
+
+  async #run(args, requestedTimeoutMS = this.actionTimeoutMS, stdoutTransform, entryPoint=this.entryPoint) {
+    const { signal, timeoutMS } = this.#runContext(requestedTimeoutMS);
+    const options = {
+      cwd: this.state.outputDir,
+      env: this.#environment(),
+      timeoutMS,
+      secrets: [...this.state.secretValues, this.token],
+      forbiddenOutputValues: args.includes("eval")
+        ? [this.token]
+        : [...this.state.secretValues, this.token],
+      signal,
+      stdoutTransform,
+    };
+    const command = entryPoint!==this.entryPoint?'run-code':args.find((value) => !value.startsWith("-"));
+    try {
+      if (entryPoint === this.entryPoint && args[0] === '--raw' && TRANSPORT_COMMANDS.has(command) && this.#transportReady()) {
+        assertArgumentsWithoutSecrets(args, options.secrets);
+        const response = await this.#transportRequest({ args }, timeoutMS, signal);
+        if (response !== undefined) {
+          if (response.overflow) throw clientContractError("output_overflow");
+          if (response.error) throw clientContractError(response.error.reason);
+          if (![0, 1].includes(response.code) || typeof response.stdout !== 'string' || typeof response.stderr !== 'string' ||
+              Buffer.byteLength(response.stdout) > MAX_CLI_OUTPUT_BYTES || Buffer.byteLength(response.stderr) > MAX_CLI_OUTPUT_BYTES) {
+            throw clientContractError('transport_protocol');
+          }
+          return settleProcessOutput(response.code, null, response.stdout, response.stderr, options);
+        }
+        // A helper that never started must not extend the page deadline.
+        Object.assign(options, this.#runContext(requestedTimeoutMS));
+      }
+      this.processStats.cli += 1;
+      return await runProcess(this.spawn, process.execPath, [entryPoint, ...args], options);
+    } catch (error) {
       if (error instanceof ControllerError && CLI_COMMANDS.has(command)) {
         Object.defineProperty(error, "diagnosticCommand", {
           value: command,

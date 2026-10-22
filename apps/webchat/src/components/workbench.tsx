@@ -3,14 +3,14 @@ import { ArrowRight, X } from "lucide-react";
 import type { Language } from "../i18n";
 import type { Session } from "../api/types";
 import { useDismissibleLayer } from "../hooks/useDismissibleLayer";
-import workbenchMark from "../../../desktop/src/assets/icon.png";
+import workbenchMark from "../assets/sparkx-mark.png";
 
 export type WorkspacePage = "chat" | "schedules" | "channels" | "memory" | "approvals" | "settings";
 export const workbenchCopy = {
   zh: {
     newTask: "新任务", search: "搜索任务", recent: "最近任务",
     schedules: "日程", channels: "通讯工具", memory: "记忆", approvals: "审批中心", settings: "工作区设置",
-    greeting: "你的本地智能体，随时待命", headline: "我们要做什么", outcome: "",
+    greeting: "你的本地智能体，随时待命", headline: "我们要做什么", outcome: "描述任务，让 SparkX 规划工作。",
     steps: "每一步，都有迹可循", reliable: "本地理解，可靠执行", resume: "接着上次的思路", all: "查看全部",
     empty: "还没有任务，从一个想法开始。", noMatches: "没有匹配的任务，试试其他关键词。",
     stepTitles: ["本地理解", "网络搜索", "逻辑判断", "交付结果"],
@@ -18,12 +18,12 @@ export const workbenchCopy = {
     pageTitles: { schedules: "让日常，自动发生。", channels: "所有连接，集中管理。", memory: "越了解你，越得心应手。", approvals: "关键操作，由你决定。", settings: "工作区设置" },
     pageDescriptions: { schedules: "安排一次，按时执行。把重复的事留给 SparkX。", channels: "集中管理消息、浏览器、服务与外部工具连接。", memory: "你决定 SparkX 记住什么。随时查看、编辑或移除。", approvals: "先查看影响范围，再允许 SparkX 继续。", settings: "按你的习惯，安排 SparkX 的工作方式。" },
     local: "本地工作区", connectGateway: "连接你的网关", connectGatewayDescription: "配对本地运行环境以启用模型和工具。", pairRuntime: "配对运行环境", inspector: "任务检查", toggleNav: "切换侧栏", toggleInspector: "切换检查面板", resizeInspector: "拖动调整面板宽度", newSchedule: "新建定时任务", addMemory: "添加记忆", memoryPrompt: "请记住：",
-    general: "常规", appearance: "外观", devices: "设备与凭据", modelsTools: "模型与工具", permissions: "权限", connections: "连接", diagnostics: "诊断", backToApp: "返回应用", searchSettings: "搜索设置…", settingsNavigation: "设置导航", settingsGroup: "工作区", noSettingsMatches: "没有匹配的设置",
+    general: "常规", appearance: "外观", devices: "设备与凭据", modelsTools: "模型与工具", permissions: "权限", connections: "连接", diagnostics: "诊断", backToApp: "返回应用", backToHome: "返回首页", searchSettings: "搜索设置…", settingsNavigation: "设置导航", settingsGroup: "工作区", noSettingsMatches: "没有匹配的设置",
     settingsGroups: { workspace: "工作区", agent: "智能体", context: "上下文", activity: "活动" },
     settingsTitles: { settings: "常规", appearance: "外观", devices: "设备与凭据", "models-tools": "模型与工具", permissions: "权限", connections: "连接", approvals: "审批", memory: "记忆", timeline: "时间线", trace: "追踪", status: "诊断" },
     settingsDescriptions: {
       settings: "管理当前工作区中已实际生效的通用设置。",
-      appearance: "调整界面的主题和文字大小。",
+      appearance: "调整主题、阅读方式和视觉效果。",
       devices: "为每台设备签发独立凭据，查看或撤销访问权限。",
       "models-tools": "管理任务可以使用的工具。",
       permissions: "查看并调整工具的审批与拒绝策略。",
@@ -38,7 +38,7 @@ export const workbenchCopy = {
   en: {
     newTask: "New task", search: "Search tasks", recent: "Recent tasks",
     schedules: "Schedule", channels: "Connections", memory: "Memory", approvals: "Approvals", settings: "Workspace settings",
-    greeting: "Your local agent, ready when you are", headline: "What should we do?", outcome: "",
+    greeting: "Your local agent, ready when you are", headline: "What should we do?", outcome: "Describe a task. SparkX plans the work.",
     steps: "Every step, in the open", reliable: "Local context. Reliable execution.", resume: "Pick up where you left off", all: "View all",
     empty: "No tasks yet. Start with an idea.", noMatches: "No matching tasks. Try another keyword.",
     stepTitles: ["Local context", "Web search", "Reasoning", "Deliver results"],
@@ -46,12 +46,12 @@ export const workbenchCopy = {
     pageTitles: { schedules: "Make everyday work automatic.", channels: "All connections, one place.", memory: "An assistant that gets to know you.", approvals: "Important actions are your decision.", settings: "Workspace settings" },
     pageDescriptions: { schedules: "Plan once. Let SparkX handle the repetition.", channels: "Manage messaging, browser, service, and external tool connections in one place.", memory: "Choose what SparkX remembers. Review, edit, or remove it anytime.", approvals: "Review the impact before allowing SparkX to continue.", settings: "Make SparkX work the way you do." },
     local: "Local workspace", connectGateway: "Connect your gateway", connectGatewayDescription: "Pair a local runtime to enable models and tools.", pairRuntime: "Pair runtime", inspector: "Task inspector", toggleNav: "Toggle sidebar", toggleInspector: "Toggle inspector", resizeInspector: "Drag to resize panel", newSchedule: "New scheduled task", addMemory: "Add memory", memoryPrompt: "Please remember: ",
-    general: "General", appearance: "Appearance", devices: "Devices & credentials", modelsTools: "Models & tools", permissions: "Permissions", connections: "Connections", diagnostics: "Diagnostics", backToApp: "Back to app", searchSettings: "Search settings…", settingsNavigation: "Settings navigation", settingsGroup: "Workspace", noSettingsMatches: "No matching settings",
+    general: "General", appearance: "Appearance", devices: "Devices & credentials", modelsTools: "Models & tools", permissions: "Permissions", connections: "Connections", diagnostics: "Diagnostics", backToApp: "Back to app", backToHome: "Back to home", searchSettings: "Search settings…", settingsNavigation: "Settings navigation", settingsGroup: "Workspace", noSettingsMatches: "No matching settings",
     settingsGroups: { workspace: "Workspace", agent: "Agent", context: "Context", activity: "Activity" },
     settingsTitles: { settings: "General", appearance: "Appearance", devices: "Devices & credentials", "models-tools": "Models & tools", permissions: "Permissions", connections: "Connections", approvals: "Approvals", memory: "Memory", timeline: "Timeline", trace: "Trace", status: "Diagnostics" },
     settingsDescriptions: {
       settings: "Manage general settings that are supported by the current workspace.",
-      appearance: "Adjust the interface theme and text size.",
+      appearance: "Adjust the theme, reading layout, and visual effects.",
       devices: "Issue a separate credential for each device, review access, or revoke it.",
       "models-tools": "Manage the tools available to tasks.",
       permissions: "Review and change tool approval and denial policy.",
@@ -65,11 +65,33 @@ export const workbenchCopy = {
   }
 };
 
-export function WorkbenchWelcome({ language }: { language: Language }) {
+export function WorkbenchWelcome({ language, description = false }: { language: Language; description?: boolean }) {
   const copy = workbenchCopy[language];
   return <div className="workbenchWelcome">
     <img className="welcomeBrandMark" src={workbenchMark} alt="" aria-hidden="true" />
     <h1>{copy.headline}</h1>
+    {description && <p>{copy.outcome}</p>}
+  </div>;
+}
+
+const suggestedTasks = {
+  en: [
+    { label: "Summarize workspace", prompt: "Summarize the latest documents in this workspace" },
+    { label: "Plan a project", prompt: "Create a step-by-step plan for this project" },
+    { label: "Review activity", prompt: "Review recent tool activity and flag anything unusual" }
+  ],
+  zh: [
+    { label: "总结工作区", prompt: "总结此工作区中的最新文档" },
+    { label: "规划项目", prompt: "为这个项目制定分步计划" },
+    { label: "查看活动", prompt: "检查最近的工具活动，并标记异常情况" }
+  ]
+};
+
+export function WorkbenchSuggestions({ language, disabled, onSelect }: {
+  language: Language; disabled: boolean; onSelect: (prompt: string) => void;
+}) {
+  return <div className="workbenchSuggestions" aria-label={language === "zh" ? "建议任务" : "Suggested tasks"}>
+    {suggestedTasks[language].map(task => <button key={task.label} type="button" disabled={disabled} onClick={() => onSelect(task.prompt)}>{task.label}</button>)}
   </div>;
 }
 

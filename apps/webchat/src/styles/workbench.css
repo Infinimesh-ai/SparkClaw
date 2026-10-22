@@ -1,4 +1,12 @@
 /* Workbench presentation; shared tokens live in foundation.css. */
+@font-face {
+  font-family: "League Spartan";
+  src: url("../assets/fonts/league-spartan-latin-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 button, input, textarea, select, a { outline-offset: 4px; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--cyber-blue); }
 ::selection { color: var(--text-primary); background: var(--selection); }
@@ -28,10 +36,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .workbench .brandRow { padding: 0 4px 24px; gap: 8px; }
 .workbench .brand { display: flex; align-items: center; min-width: 0; padding: 0; color: var(--text-primary); background: transparent; text-align: left; }
 .workbenchBrandMark, .welcomeBrandMark { display: block; object-fit: contain; }
-.workbenchBrandMark { width: 31px; height: 31px; flex: 0 0 31px; }
-.workbench .brand .workbenchBrandName { margin: 0 0 0 8px; color: var(--text-primary); font-family: var(--font-sans); font-size: var(--font-title); font-weight: 600; line-height: var(--line-title); letter-spacing: normal; text-transform: none; }
-.workbench .brand .workbenchBrandName span { display: inline; margin: 0; color: var(--cyber-blue); font-family: inherit; font-size: inherit; font-weight: 600; letter-spacing: normal; text-transform: none; }
+.workbenchBrandMark { width: 30px; height: 30px; flex: 0 0 30px; }
+/* Balance Spartan's visible letterforms with the mark, including its inset. */
+.workbench .brand .workbenchBrandName { margin: 0 0 0 8px; color: var(--text-primary); font-family: "League Spartan", var(--font-sans); font-size: 22px; font-weight: 600; line-height: 30px; letter-spacing: -.4px; white-space: nowrap; text-transform: none; transform: translateY(3px); }
+.workbench .brand .workbenchBrandName span { display: inline; margin: 0; color: var(--cyber-blue); font: inherit; letter-spacing: inherit; vertical-align: baseline; text-transform: none; }
 .workbench .brandRow .iconButton { min-width: 32px; width: 32px; padding: 0; display: grid; }
+.workbench .brandRow .sidebarCollapseButton { grid-template-columns: minmax(0, 1fr); place-items: center; gap: 0; flex-shrink: 0; }
 .workbench .iconButton { background: transparent; border: 0; box-shadow: none; color: var(--text-secondary); width: 32px; height: 32px; }
 .workbench .iconButton:hover { background: var(--surface-hover); }
 .workbench .primaryButton, .workbench .sendButton { color: var(--accent-text); background: var(--cyber-blue); box-shadow: none; border-radius: 8px; font-weight: 500; }

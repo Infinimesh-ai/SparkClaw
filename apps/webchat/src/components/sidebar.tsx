@@ -1,19 +1,122 @@
-// Session sidebar: the schedule entry, task conversation list, and direct actions.
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CalendarDays, LoaderCircle, LogOut, MoreHorizontal, PanelLeft, Pencil, Save, Search, Settings, SquarePen, Trash2, X } from "lucide-react";
+// Session sidebar: the schedule entry, task conversation list, and action menus.
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { LoaderCircle, LogOut, MoreHorizontal, Pencil, Save, Trash2, X } from "lucide-react";
 import { workbenchCopy, type WorkspacePage } from "./workbench";
-import workbenchMark from "../../../desktop/src/assets/icon.png";
+import workbenchMark from "../assets/sparkx-mark.png";
 import type { Copy, Language } from "../i18n";
 import type { OwnerProfile, Session } from "../api/types";
 import { useDismissibleLayer } from "../hooks/useDismissibleLayer";
 import { shortId } from "../lib/format";
 import type { ConversationActivity } from "../lib/conversationActivity";
+import { ActionIcon } from "./ActionIcon";
 
 type SidebarConversation = Pick<Session, "id" | "title"> & { source?: string };
+
+function moveMenuFocus(event: KeyboardEvent<HTMLDivElement>) {
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)'));
+  if (!items.length) return;
+  event.preventDefault();
+  const current = items.indexOf(document.activeElement as HTMLButtonElement);
+  const index = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+  items[index].focus();
+}
+
+function SessionActionMenu({ title, language, text, renameDisabled, deleteDisabled, onRename, onDelete }: {
+  title: string;
+  language: Language;
+  text: Copy;
+  renameDisabled: boolean;
+  deleteDisabled: boolean;
+  onRename?: () => void;
+  onDelete?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const menuId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useDismissibleLayer<HTMLDivElement>({
+    open,
+    onDismiss: () => setOpen(false),
+    initialFocus: '[role="menuitem"]:not(:disabled)',
+    restoreFocusRef: triggerRef
+  });
+  const label = `${language === "zh" ? "会话操作" : "Conversation actions"}: ${title}`;
+  function runAction(action: () => void) {
+    setOpen(false);
+    // A confirmation opened by an action must restore a surviving control,
+    // rather than the menu item that disappears as soon as it is chosen.
+    triggerRef.current?.focus({ preventScroll: true });
+    action();
+  }
+
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current || !menuRef.current) return;
+    // Render outside the scrolling list, with the same surface tokens as mail.
+    // Align to the trigger and flip upward for rows near the viewport bottom.
+    const trigger = triggerRef.current.getBoundingClientRect();
+    const menu = menuRef.current.getBoundingClientRect();
+    const margin = 12, gap = 6;
+    const below = trigger.bottom + gap;
+    setPosition({
+      left: Math.max(margin, Math.min(trigger.right - menu.width, window.innerWidth - menu.width - margin)),
+      top: Math.max(margin, Math.min(below + menu.height <= window.innerHeight - margin ? below : trigger.top - gap - menu.height, window.innerHeight - menu.height - margin))
+    });
+  }, [open, menuRef]);
+
+  useEffect(() => {
+    if (!open) return;
+    function dismissOutside(event: Event) {
+      if (event.target instanceof Node && !menuRef.current?.contains(event.target) && !triggerRef.current?.contains(event.target)) setOpen(false);
+    }
+    function dismissOnViewportChange(event: Event) {
+      if (!(event.target instanceof Node) || !menuRef.current?.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener("pointerdown", dismissOutside);
+    document.addEventListener("focusin", dismissOutside);
+    window.addEventListener("scroll", dismissOnViewportChange, true);
+    window.addEventListener("resize", dismissOnViewportChange);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside);
+      document.removeEventListener("focusin", dismissOutside);
+      window.removeEventListener("scroll", dismissOnViewportChange, true);
+      window.removeEventListener("resize", dismissOnViewportChange);
+    };
+  }, [open, menuRef]);
+
+  return <div className="sessionActions">
+    <button ref={triggerRef} className="sessionMenuTrigger" type="button"
+      title={label} aria-label={label} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined}
+      disabled={renameDisabled && deleteDisabled}
+      onClick={() => setOpen(current => !current)}
+      onKeyDown={event => {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          setOpen(true);
+        }
+      }}>
+      <MoreHorizontal size={18} strokeWidth={1.75} aria-hidden="true" />
+    </button>
+    {open && createPortal(<div ref={menuRef} id={menuId} className="sessionMenu" role="menu" aria-label={label}
+      tabIndex={-1} style={position} onKeyDown={moveMenuFocus}>
+      {onRename && <button className="sessionMenuItem" type="button" role="menuitem" disabled={renameDisabled}
+        onClick={() => runAction(onRename)}>
+        <Pencil size={16} strokeWidth={1.75} aria-hidden="true" /><span>{text.nav.renameSession}</span>
+      </button>}
+      {onDelete && <button className="sessionMenuItem isDestructive" type="button" role="menuitem" disabled={deleteDisabled}
+        aria-label={`${text.nav.deleteSession}: ${title}`} onClick={() => runAction(onDelete)}>
+        <Trash2 size={16} strokeWidth={1.75} aria-hidden="true" /><span>{text.nav.deleteSession}</span>
+      </button>}
+    </div>, document.body)}
+  </div>;
+}
 
 type SessionSidebarProps<T extends SidebarConversation> = {
   text: Copy;
   language: Language;
+  home?: boolean;
+  searchOpen?: boolean;
   page: WorkspacePage;
   ownerProfile: OwnerProfile | null;
   sessions: T[];
@@ -40,6 +143,7 @@ type SessionSidebarProps<T extends SidebarConversation> = {
 export function SessionSidebar<T extends SidebarConversation>({
   text,
   language,
+  searchOpen = false,
   page,
   ownerProfile,
   sessions,
@@ -70,11 +174,16 @@ export function SessionSidebar<T extends SidebarConversation>({
   const accountLayerRef = useDismissibleLayer<HTMLDivElement>({ open: accountMenuOpen, onDismiss: () => setAccountMenuOpen(false), initialFocus: '[role="menuitem"]', restoreFocusRef: accountTriggerRef });
   const accountName = ownerProfile?.display_name.trim() || text.app.name;
   const accountEmail = ownerProfile?.email?.trim();
-  const accountInitial = (accountName.match(/[A-Z\p{L}]/gu) ?? Array.from(accountName))
-    .slice(0, 2)
-    .join("")
-    .toLocaleUpperCase() || "SX";
   const accountContext = accountEmail || copy.local;
+  const scheduleLink = <button
+    className="sidebarScheduleLink"
+    type="button"
+    aria-current={page === "schedules" ? "page" : undefined}
+    onClick={() => onNavigate?.("schedules")}
+  >
+    <ActionIcon name="calendar" active={page === "schedules"} />
+    <span>{copy.schedules}</span>
+  </button>;
 
   useEffect(() => {
     if (!accountMenuOpen) return;
@@ -94,31 +203,21 @@ export function SessionSidebar<T extends SidebarConversation>({
       <div className="brandRow">
         <button className="brand" type="button" onClick={() => onNavigate?.("chat")} title={text.app.tagline}>
           <img className="workbenchBrandMark" src={workbenchMark} alt="" aria-hidden="true" />
-          <span className="workbenchBrandName">Spark<span>X</span></span>
+          <span className="workbenchBrandName">Spark <span>X</span></span>
         </button>
-        <button className="iconButton subtle" onClick={onToggleSidebar} title={`${copy.toggleNav} (⌘/Ctrl+B)`} aria-keyshortcuts="Meta+B Control+B" aria-label={copy.toggleNav}>
-          <PanelLeft size={17} />
+        <button className="iconButton subtle sidebarCollapseButton" onClick={onToggleSidebar} title={`${copy.toggleNav} (⌘/Ctrl+B)`} aria-keyshortcuts="Meta+B Control+B" aria-label={copy.toggleNav}>
+          <ActionIcon name="panel-left" />
         </button>
       </div>
-
-      <button
-        className="sidebarScheduleLink"
-        type="button"
-        aria-current={page === "schedules" ? "page" : undefined}
-        onClick={() => onNavigate?.("schedules")}
-      >
-        <CalendarDays size={17} strokeWidth={1.7} aria-hidden="true" />
-        <span>{copy.schedules}</span>
-      </button>
 
       <div className="conversationListHeader">
         <span>{copy.recent}</span>
         <div className="conversationListActions">
-          <button className="conversationHeaderButton" onClick={onSearch} title={`${copy.search} (⌘/Ctrl+K)`} aria-keyshortcuts="Meta+K Control+K" aria-label={copy.search}>
-            <Search size={15.5} strokeWidth={1.7} />
+          <button className="conversationHeaderButton" onClick={onSearch} title={`${copy.search} (⌘/Ctrl+K)`} aria-keyshortcuts="Meta+K Control+K" aria-label={copy.search} aria-haspopup="dialog" aria-expanded={searchOpen}>
+            <ActionIcon name="search" active={searchOpen} />
           </button>
           <button className="conversationHeaderButton newConversationButton" disabled={busy} onClick={onCreateSession} title={`${text.nav.newSession} (⌘/Ctrl+N)`} aria-keyshortcuts="Meta+N Control+N" aria-label={text.nav.newSession}>
-            <SquarePen size={16} strokeWidth={1.6} />
+            <ActionIcon name="compose" />
           </button>
         </div>
       </div>
@@ -135,6 +234,7 @@ export function SessionSidebar<T extends SidebarConversation>({
                 }}
               >
                 <input
+                  autoFocus
                   aria-label={text.nav.renameSession}
                   value={sessionTitleDraft}
                   onChange={(event) => onTitleDraftChange?.(event.target.value)}
@@ -158,32 +258,24 @@ export function SessionSidebar<T extends SidebarConversation>({
                     {activityBySession[session.id] === "running" ? <LoaderCircle size={13} aria-hidden="true" /> : <i aria-hidden="true" />}
                   </span>}
                 </button>
-                {(onStartRename || onDeleteSession) && <div className="sessionActions">
-                  {onStartRename && <button className="miniIconButton" onClick={() => onStartRename?.(session)} disabled={sessionActionId === session.id} title={text.nav.renameSession}>
-                    <Pencil size={13} />
-                  </button>}
-                  {onDeleteSession && <button className="miniIconButton dangerIcon" type="button" onClick={() => onDeleteSession(session.id)} disabled={busy || Boolean(sessionActionId)} title={text.nav.deleteSession} aria-label={`${text.nav.deleteSession}: ${session.title}`}>
-                    <Trash2 size={13} />
-                  </button>}
-                </div>}
+                {(onStartRename || onDeleteSession) && <SessionActionMenu
+                  title={session.title} language={language} text={text}
+                  renameDisabled={!onStartRename || sessionActionId === session.id}
+                  deleteDisabled={!onDeleteSession || busy || Boolean(sessionActionId)}
+                  onRename={onStartRename ? () => onStartRename(session) : undefined}
+                  onDelete={onDeleteSession ? () => onDeleteSession(session.id) : undefined}
+                />}
               </>
             )}
           </div>
         ))}
       </nav>
       <div className="sidebarFooter">
+        {scheduleLink}
         <div className="sidebarAccount" ref={accountMenuRef}>
-          {accountMenuOpen && <div ref={accountLayerRef} className="sidebarAccountMenu" role="menu" aria-label={accountName} onKeyDown={event => {
-            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-            const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)'));
-            if (!items.length) return;
-            event.preventDefault();
-            const current = items.indexOf(document.activeElement as HTMLButtonElement);
-            const index = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-            items[index].focus();
-          }}>
+          {accountMenuOpen && <div ref={accountLayerRef} className="sidebarAccountMenu" role="menu" aria-label={accountName} onKeyDown={moveMenuFocus}>
             <div className="sidebarAccountSummary">
-              <span className="workspaceAvatar" aria-hidden="true">{accountInitial}</span>
+              <span className="workspaceAvatar" aria-hidden="true"><ActionIcon name="account" active={accountMenuOpen} /></span>
               <span className="sidebarAccountIdentity">
                 <strong>{accountName}</strong>
                 <small>{accountContext}</small>
@@ -198,10 +290,10 @@ export function SessionSidebar<T extends SidebarConversation>({
                 onNavigate?.("settings");
               }}
             >
-              <Settings size={16} />
+              <ActionIcon name="settings" />
               <span title={`${copy.settings} (⌘/Ctrl+,)`}>{copy.settings}</span>
             </button>
-            {onLogout && <button className="sidebarAccountMenuItem" type="button" role="menuitem" onClick={() => { setAccountMenuOpen(false); onLogout(); }}><LogOut size={16} /><span>{language === "zh" ? "退出登录" : "Sign out"}</span></button>}
+            {onLogout && <button className="sidebarAccountMenuItem" type="button" role="menuitem" onClick={() => { setAccountMenuOpen(false); onLogout(); }}><LogOut size={18} strokeWidth={1.75} aria-hidden="true" /><span>{language === "zh" ? "退出登录" : "Sign out"}</span></button>}
           </div>}
           <button
             ref={accountTriggerRef}
@@ -211,12 +303,12 @@ export function SessionSidebar<T extends SidebarConversation>({
             aria-expanded={accountMenuOpen}
             onClick={() => setAccountMenuOpen((current) => !current)}
           >
-            <span className="workspaceAvatar" aria-hidden="true">{accountInitial}</span>
+            <span className="workspaceAvatar" aria-hidden="true"><ActionIcon name="account" active={accountMenuOpen} /></span>
             <span className="sidebarAccountIdentity">
               <strong>{accountName}</strong>
               <small>{accountContext}</small>
             </span>
-            <MoreHorizontal size={16} aria-hidden="true" />
+            <MoreHorizontal size={16} strokeWidth={1.75} aria-hidden="true" />
           </button>
         </div>
       </div>

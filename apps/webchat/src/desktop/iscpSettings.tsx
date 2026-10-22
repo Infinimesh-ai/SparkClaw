@@ -71,7 +71,7 @@ export function ISCPDeviceAuthorization({ connection, language }: { connection: 
     {connection.authorization_revision && <p className="settingsSurfaceHint">{zh ? "当前授权版本：" : "Current authorization revision: "}{connection.authorization_revision}</p>}
     {review ? <div role="region" aria-label={zh ? "删除授权确认" : "Authorization deletion confirmation"}>
       <p>{zh ? "确认永久删除此设备的当前授权？完成后需安装新的授权配置才能重新连接。" : "Permanently delete this device’s current authorization? Reconnecting afterward requires newly installed authorization."}</p>
-      <div className="buttonRow"><button type="button" className="ghost" disabled={busy} onClick={() => setReview(false)}>{zh ? "取消" : "Cancel"}</button>
+      <div className="buttonRow textActions"><button type="button" className="ghost" disabled={busy} onClick={() => setReview(false)}>{zh ? "取消" : "Cancel"}</button>
         <button type="button" className="reject" disabled={busy} onClick={() => void remove()}>{zh ? "确认删除授权" : "Confirm deletion"}</button></div>
     </div> : <button type="button" className="reject" disabled={busy || !window.sparkclawDesktop?.deleteAuthorization} onClick={() => setReview(true)}>{zh ? "删除此设备授权" : "Delete this device authorization"}</button>}
     {error && <p className="compactError" role="alert">{error}</p>}

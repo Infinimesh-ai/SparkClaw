@@ -18,6 +18,7 @@ import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useBindingPolling } from "../../hooks/useBindingPolling";
 import { desktopCapability } from "../../desktop/capability";
 import { WeixinBindingDialog } from "./weixinBindingDialog";
+import { ProviderBrandIcon } from "../ProviderBrandIcon";
 import {
   bindingsForConnector,
   connectorBindingStartDisabled,
@@ -155,7 +156,7 @@ export function ConnectorBindingSettings({
       <article className="settingsBlock" key={channel}>
         <div className="approvalTop">
           <span className="settingsTitle">
-            <Icon size={15} />
+            {isTelegram || channel === "weixin" ? <ProviderBrandIcon name={isTelegram ? "telegram" : "weixin"} /> : <Icon size={15} />}
             <strong>{title}</strong>
           </span>
           <div className="buttonRow compactButtons">

@@ -8,6 +8,39 @@ import type { SparkClawDesktop, DesktopState, DesktopConnectionStatus } from "./
 import type { LocalApproval, LocalConversationContent, LocalDraft, LocalTask } from "./clientStore";
 import { dictionaries, LANGUAGE_STORAGE_KEY } from "../i18n";
 
+async function openConversationMenu(host: HTMLElement, title?: string) {
+  if (!host.isConnected) {
+    host.dataset.localWorkbenchTestHost = "";
+    document.body.append(host);
+  }
+  const row = [...host.querySelectorAll<HTMLElement>(".sessionItem")]
+    .find(item => title === undefined || item.querySelector<HTMLButtonElement>(".sessionSelect")?.title === title)!;
+  const trigger = row.querySelector<HTMLButtonElement>(".sessionMenuTrigger")!;
+  await act(async () => trigger.click());
+  const menu = document.querySelector<HTMLElement>(".sessionMenu")!;
+  expect(menu).not.toBeNull();
+  expect(trigger.getAttribute("aria-controls")).toBe(menu.id);
+  return menu;
+}
+
+async function chooseConversationAction(host: HTMLElement, title: string, action: string) {
+  const menu = await openConversationMenu(host, title);
+  const button = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    .find(item => item.textContent === action)!;
+  expect(button.disabled).toBe(false);
+  await act(async () => button.click());
+}
+
+async function expectRenameAvailable(host: HTMLElement, label: string) {
+  const menu = await openConversationMenu(host);
+  const rename = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    .find(item => item.textContent === label)!;
+  expect(rename).toBeDefined();
+  expect(rename.disabled).toBe(false);
+  await act(async () => rename.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  expect(document.querySelector(".sessionMenu")).toBeNull();
+}
+
 function draftAPI() {
   const rows = new Map<string, LocalDraft>();
   const read = (id: string) => rows.get(id) ?? { scope_key: "test-scope", content: "", local_file_ids: [], revision: 0 };
@@ -45,6 +78,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  document.querySelectorAll("[data-local-workbench-test-host]").forEach(host => host.remove());
   delete window.sparkclawClientStore; delete window.sparkclawDesktop;
   delete window.sparkclawMailSync;
   vi.unstubAllGlobals(); vi.restoreAllMocks(); window.localStorage.clear();
@@ -55,6 +89,56 @@ beforeEach(() => {
 });
 
 describe("workbench local workbench", () => {
+  it.each(["en", "zh"] as const)("returns from schedules without creating a conversation or losing either draft in %s", async language => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+    vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
+    vi.spyOn(api, "ready").mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof api.ready>>);
+    vi.spyOn(api, "owner").mockResolvedValue({ id: "owner", display_name: "Test", created_at: "", updated_at: "" });
+    const row = { id: "existing-conversation", title: "Keep this conversation", created_at: "", updated_at: "" };
+    const drafts = draftAPI(), create = vi.fn(), enqueue = vi.fn();
+    window.sparkclawClientStore = { schemaVersion: 1, ...drafts, list: vi.fn(async () => [row]), create, enqueue,
+      read: vi.fn(async () => ({ messages: [{ id: "existing-message", role: "user" as const, content: "Keep this message", created_at: "" }], tasks: [], files: [] })),
+      submit: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
+      scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
+      backend: { schema_version: 3, transport: "iscp", deployment_id: "test" } })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"), root = createRoot(host);
+    const previousLanguage = document.documentElement.lang;
+    const input = () => host.querySelector<HTMLTextAreaElement>("form.composer textarea")!;
+    const setInput = async (value: string) => act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input(), value);
+      input().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const visitAndReturn = async () => {
+      await act(async () => host.querySelector<HTMLButtonElement>(".sidebarScheduleLink")!.click());
+      expect(host.querySelector(".schedulePage")).not.toBeNull();
+      const back = host.querySelector<HTMLButtonElement>(".workbenchPageBack")!;
+      expect(back.textContent).toBe(language === "zh" ? "返回首页" : "Back to home");
+      await act(async () => back.click());
+      expect(host.querySelector(".schedulePage")).toBeNull();
+      expect(host.querySelector<HTMLElement>(".chatColumn")!.hidden).toBe(false);
+    };
+    try {
+      document.documentElement.lang = language === "zh" ? "en" : "zh-CN";
+      await act(async () => root.render(<LocalWorkbench />));
+      expect(document.documentElement.lang).toBe(language === "zh" ? "zh-CN" : "en");
+      await setInput("Unsent welcome draft");
+      await visitAndReturn();
+      expect(input().value).toBe("Unsent welcome draft");
+      expect(host.querySelector(".workbenchWelcome")).not.toBeNull();
+      await act(async () => host.querySelector<HTMLButtonElement>(".sessionSelect")!.click());
+      await setInput("Unsent conversation draft");
+      await visitAndReturn();
+      expect(input().value).toBe("Unsent conversation draft");
+      expect(host.querySelector(".sessionItem.active .sessionSelect")?.textContent).toContain(row.title);
+      expect(host.querySelector(".messageList")?.textContent).toContain("Keep this message");
+      expect(create).not.toHaveBeenCalled(); expect(enqueue).not.toHaveBeenCalled();
+      expect(drafts.remove).not.toHaveBeenCalled(); expect(drafts.moveWelcomeDraft).not.toHaveBeenCalled();
+      await act(async () => host.querySelector<HTMLButtonElement>(".newConversationButton")!.click());
+      expect(input().value).toBe("Unsent welcome draft");
+    } finally { await act(async () => root.unmount()); document.documentElement.lang = previousLanguage; }
+  });
+
   it.each(["iscp", "lan"] as const)("opens the original browser panel without manual authorization over %s", async transport => {
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
     vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
@@ -141,7 +225,7 @@ describe("workbench local workbench", () => {
         expect(host.querySelector(".sessionItem.active .sessionSelect")?.textContent).toContain(question);
         expect(host.textContent).toContain("Backend unavailable");
         expect(host.querySelector(".sessionRenameForm")).toBeNull();
-        expect(host.querySelector(`[title="${dictionaries[language].nav.renameSession}"]`)).not.toBeNull();
+        await expectRenameAvailable(host, dictionaries[language].nav.renameSession);
         expect(host.querySelector(".sidebarScheduleLink")).not.toBeNull();
       }
       expect(create).toHaveBeenCalledTimes(2);
@@ -209,7 +293,7 @@ describe("workbench local workbench", () => {
         expect(host.querySelector(".taskProgress")).toBeNull();
       }
       expect(host.querySelector("form.composer")).not.toBeNull();
-      expect(host.querySelector(`[title="${dictionaries[language].nav.renameSession}"]`)).not.toBeNull();
+      await expectRenameAvailable(host, dictionaries[language].nav.renameSession);
       expect(host.querySelector(".sidebarScheduleLink")).not.toBeNull();
       expect(submit).toHaveBeenCalledTimes(1); expect(enqueue).toHaveBeenCalledTimes(1);
     } finally { await act(async () => root.unmount()); }
@@ -244,7 +328,7 @@ describe("workbench local workbench", () => {
       expect(host.querySelector('.localFileRow')).toBeNull();
       await act(async () => host.querySelector<HTMLButtonElement>('.messageDocumentResult')!.click());
       expect(exportFile).toHaveBeenCalledWith(output.artifact_id); expect(open).not.toHaveBeenCalled();
-      await act(async () => host.querySelector<HTMLButtonElement>(`[title="${copy.nav.renameSession}"]`)!.click());
+      await chooseConversationAction(host, row.title, copy.nav.renameSession);
       const input = host.querySelector<HTMLInputElement>('.sessionRenameForm input')!;
       await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Updated title'); input.dispatchEvent(new Event('input', { bubbles: true })); });
       await act(async () => host.querySelector<HTMLFormElement>('.sessionRenameForm')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
@@ -302,24 +386,24 @@ describe("workbench local workbench", () => {
     const fetch = vi.fn(() => { throw new Error("unexpected network request"); }); vi.stubGlobal("fetch", fetch);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     const host = document.createElement("div"), root = createRoot(host);
-    const deleteButton = (title: string) => host.querySelector<HTMLButtonElement>(`[aria-label="${dictionaries[language].nav.deleteSession}: ${title}"]`)!;
+    const deleteConversation = (title: string) => chooseConversationAction(host, title, dictionaries[language].nav.deleteSession);
     const input = () => host.querySelector<HTMLTextAreaElement>(".composer textarea")!;
     try {
       await act(async () => root.render(<LocalWorkbench />));
       await act(async () => host.querySelector<HTMLButtonElement>(".sessionSelect")!.click());
       expect(input().value).toBe("First draft");
-      await act(async () => deleteButton(third.title).click());
+      await deleteConversation(third.title);
       expect(confirm).toHaveBeenCalledWith(dictionaries[language].nav.confirmDeleteLocalSession);
       expect(remove).not.toHaveBeenCalled();
       confirm.mockReturnValue(true);
-      await act(async () => deleteButton(third.title).click());
+      await deleteConversation(third.title);
       expect(input().value).toBe("First draft"); expect(host.textContent).toContain("first history");
       expect(host.textContent).not.toContain(third.title);
-      await act(async () => deleteButton(first.title).click());
+      await deleteConversation(first.title);
       expect(host.querySelector(".sessionItem.active")?.textContent).toContain(second.title);
       expect(input().value).toBe("Second draft"); expect(host.textContent).toContain("second history");
       expect(host.textContent).not.toContain("first history");
-      await act(async () => deleteButton(second.title).click());
+      await deleteConversation(second.title);
       expect(host.querySelectorAll(".sessionItem")).toHaveLength(0);
       expect(input().value).toBe(""); expect(host.querySelector(".homeChat")).not.toBeNull();
       expect(remove.mock.calls).toEqual([[third.id], [first.id], [second.id]]);
@@ -345,12 +429,13 @@ describe("workbench local workbench", () => {
     try {
       await act(async () => root.render(<LocalWorkbench />));
       await act(async () => host.querySelector<HTMLButtonElement>(".sessionSelect")!.click());
-      await act(async () => host.querySelector<HTMLButtonElement>(".dangerIcon")!.click());
+      await chooseConversationAction(host, row.title, dictionaries.en.nav.deleteSession);
       expect(remove).toHaveBeenCalledWith(row.id);
       expect(host.querySelector(".sessionItem.active")?.textContent).toContain(row.title);
       expect(host.querySelector<HTMLTextAreaElement>(".composer textarea")?.value).toBe("Keep draft");
       expect(host.querySelector('[role="alert"]')?.textContent).toContain(outcome === "failed" ? "Disk unavailable" : "active or unresolved task");
-      expect(host.querySelector<HTMLButtonElement>(".dangerIcon")?.disabled).toBe(false);
+      const menu = await openConversationMenu(host, row.title);
+      expect(menu.querySelector<HTMLButtonElement>(`[aria-label="${dictionaries.en.nav.deleteSession}: ${row.title}"]`)?.disabled).toBe(false);
     } finally { await act(async () => root.unmount()); }
   });
 

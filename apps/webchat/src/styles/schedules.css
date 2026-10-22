@@ -27,16 +27,16 @@
 
 .scheduleCreateIntro h2 {
   color: var(--text-primary);
-  font-size: var(--font-ui);
+  font-size: var(--font-section);
   font-weight: 600;
-  line-height: var(--line-ui);
+  line-height: var(--line-section);
 }
 
 .scheduleCreateIntro p {
   margin-top: 5px;
   color: var(--text-secondary);
-  font-size: var(--font-label);
-  line-height: var(--line-label);
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
 }
 
 .scheduleCreateDialog {
@@ -55,12 +55,13 @@
   padding: 12px 14px;
   resize: vertical;
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--control-radius);
   outline: none;
   color: var(--text-primary);
   background: var(--surface-raised);
-  font: inherit;
-  line-height: 1.55;
+  font-family: var(--font-sans);
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
 }
 
 .scheduleCreateDialog textarea:focus {
@@ -145,8 +146,10 @@
 }
 
 .scheduleBarActions .miniIconButton {
-  width: 32px;
-  height: 32px;
+  width: var(--control-height-small);
+  height: var(--control-height-small);
+  padding: 0;
+  border-radius: var(--control-radius);
 }
 
 .scheduleToggle svg {
@@ -242,12 +245,14 @@
 .scheduleRowActions {
 	display: flex;
 	justify-content: flex-end;
-	gap: 3px;
+	gap: 4px;
 }
 
 .scheduleRowActions .miniIconButton {
-	width: 32px;
-	height: 32px;
+	width: var(--control-height-small);
+	height: var(--control-height-small);
+	padding: 0;
+	border-radius: var(--control-radius);
 }
 
 .dangerIconButton:not(:disabled) {
@@ -276,18 +281,40 @@
   line-height: var(--line-label);
 }
 
+.scheduleDialog .documentPickerHeader > strong,
+.scheduleDeleteDialog > strong {
+  color: var(--text-primary);
+  font-size: var(--font-section);
+  font-weight: 600;
+  line-height: var(--line-section);
+}
+
+.scheduleDialog .attachmentRemove {
+  flex: 0 0 auto;
+  width: var(--control-height-small);
+  height: var(--control-height-small);
+  padding: 0;
+  border-radius: var(--control-radius);
+}
+
 .scheduleDialog input,
 .scheduleDialog textarea {
 	box-sizing: border-box;
 	width: 100%;
 	min-width: 0;
-	padding: 9px 10px;
+	padding: 7px 10px;
 	border: 1px solid var(--border-subtle);
-	border-radius: 6px;
+	border-radius: var(--control-radius);
 	outline: none;
 	color: var(--text-primary);
 	background: var(--surface-raised);
-	font: inherit;
+	font-family: var(--font-sans);
+	font-size: var(--font-ui);
+	line-height: var(--line-ui);
+}
+
+.scheduleDialog input {
+  min-height: var(--control-height);
 }
 
 .scheduleDialog textarea {
@@ -327,7 +354,7 @@
 .scheduleDialogActions {
 	display: flex;
 	justify-content: flex-end;
-	gap: 8px;
+	gap: var(--control-gap);
 }
 
 .scheduleDeleteDialog {

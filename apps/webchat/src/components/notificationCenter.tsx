@@ -1,9 +1,10 @@
 import { useRef } from "react";
 import { useDismissibleLayer } from "../hooks/useDismissibleLayer";
-import { Bell, CheckCheck, ExternalLink, X } from "lucide-react";
+import { CheckCheck, ExternalLink, X } from "lucide-react";
 import type { PassiveNotification } from "../api/types";
 import type { Copy, Language } from "../i18n";
 import { formatDateTime } from "../lib/format";
+import { ActionIcon } from "./ActionIcon";
 
 type NotificationCenterProps = {
   notifications: PassiveNotification[];
@@ -17,6 +18,7 @@ type NotificationCenterProps = {
   onDismissToast: () => void;
   onRead: (id: string) => Promise<void>;
   onReadAll: () => Promise<void>;
+  home?: boolean;
 };
 
 function notificationKind(notification: PassiveNotification, text: Copy) {
@@ -66,7 +68,7 @@ export function NotificationCenter({
           aria-label={text.notifications.title}
           aria-expanded={open}
         >
-          <Bell size={18} />
+          <ActionIcon name="bell" active={open} />
           {unreadCount > 0 ? <span className="notificationBadge">{unreadCount > 99 ? "99+" : unreadCount}</span> : null}
         </button>
         {open ? (
@@ -83,7 +85,7 @@ export function NotificationCenter({
                 title={text.notifications.markAllRead}
                 aria-label={text.notifications.markAllRead}
               >
-                <CheckCheck size={14} />
+                <CheckCheck size={20} strokeWidth={1.75} />
               </button>
             </header>
             {error ? <p className="notificationError" role="alert">{error}</p> : null}
@@ -107,7 +109,7 @@ export function NotificationCenter({
                     title={text.notifications.open}
                     aria-label={text.notifications.open}
                   >
-                    <ExternalLink size={15} />
+                    <ExternalLink size={20} strokeWidth={1.75} />
                   </a>
                 </article>
               ))}
@@ -117,7 +119,7 @@ export function NotificationCenter({
       </div>
       {toast ? (
         <aside className="notificationToast" role="status">
-          <Bell size={17} />
+          <ActionIcon name="bell" />
           <div>
             <strong>{notificationSource(toast)}</strong>
             <span>{notificationKind(toast, text)}</span>
@@ -130,10 +132,10 @@ export function NotificationCenter({
             title={text.notifications.open}
             aria-label={text.notifications.open}
           >
-            <ExternalLink size={15} />
+            <ExternalLink size={20} strokeWidth={1.75} />
           </a>
           <button onClick={onDismissToast} title={text.notifications.dismiss} aria-label={text.notifications.dismiss}>
-            <X size={15} />
+            <X size={16} strokeWidth={1.75} />
           </button>
         </aside>
       ) : null}

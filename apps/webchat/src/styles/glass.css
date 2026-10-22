@@ -1,0 +1,297 @@
+/* Extend the accepted homepage material to the existing workbench surfaces.
+   The body carries tokens for portals; layout containers stay unfiltered. */
+.glassWorkbench {
+  --ui-ground: #eceef1;
+  --ui-ink: #252a32;
+  --ui-muted: #626b77;
+  --ui-blue: #086de1;
+  --ui-on-blue: #fff;
+  --ui-glass: rgb(255 255 255 / 48%);
+  --ui-glass-strong: rgb(255 255 255 / 78%);
+  --ui-glass-edge: rgb(255 255 255 / 88%);
+  --ui-glass-highlight: rgb(255 255 255 / 92%);
+  --ui-glass-shadow: rgb(44 57 78 / 10%);
+  --ui-solid: #f7f8fa;
+  --ui-divider: rgb(112 125 144 / 14%);
+  --ui-input-edge: rgb(112 125 144 / 24%);
+  --ui-disabled: #939ca9;
+  --ui-primary: linear-gradient(155deg, #0872eb, #065cdb);
+  --ui-primary-hover: linear-gradient(155deg, #0868dc, #0553cb);
+  --background: var(--ui-ground);
+  --panel-surface: var(--ui-glass);
+  --surface: var(--ui-glass-strong);
+  --surface-raised: var(--ui-glass-strong);
+  --surface-solid: var(--ui-solid);
+  --surface-muted: var(--ui-glass);
+  --surface-hover: var(--ui-glass-strong);
+  --text-primary: var(--ui-ink);
+  --text-secondary: var(--ui-muted);
+  --text-muted: var(--ui-muted);
+  --text-tertiary: var(--ui-muted);
+  --cyber-blue: var(--ui-blue);
+  --accent-text: var(--ui-on-blue);
+  --border-subtle: var(--ui-divider);
+  --border-strong: var(--ui-input-edge);
+  --control-border: var(--ui-input-edge);
+  --control-icon-size: 20px;
+  --control-icon-stroke: 1.75;
+  --control-height: 40px;
+  --control-height-small: 36px;
+  --control-radius: 12px;
+  --radius-panel: 22px;
+  --radius-control: 12px;
+  --radius-small: 10px;
+  color: var(--ui-ink);
+}
+html[data-resolved-theme="dark"] .glassWorkbench {
+  --ui-ground: #1c222b;
+  --ui-ink: #edf2f8;
+  --ui-muted: #b3becb;
+  --ui-blue: #82b7ff;
+  --ui-on-blue: #13243e;
+  --ui-glass: rgb(48 58 73 / 62%);
+  --ui-glass-strong: rgb(48 58 73 / 90%);
+  --ui-glass-edge: rgb(255 255 255 / 13%);
+  --ui-glass-highlight: rgb(255 255 255 / 10%);
+  --ui-glass-shadow: rgb(0 0 0 / 25%);
+  --ui-solid: #2a3442;
+  --ui-divider: rgb(175 193 220 / 15%);
+  --ui-input-edge: rgb(175 193 220 / 30%);
+  --ui-disabled: #7d8a9d;
+  --ui-primary: linear-gradient(155deg, #92c3ff, #62a2f4);
+  --ui-primary-hover: linear-gradient(155deg, #a4ceff, #7bb2f8);
+}
+.workbench.glassWorkbench {
+  --header-height: 68px;
+  gap: 14px;
+  padding: 14px;
+  background: radial-gradient(ellipse at 56% 46%, rgb(255 255 255 / 86%), transparent 70%), var(--ui-ground);
+}
+html[data-resolved-theme="dark"] .workbench.glassWorkbench {
+  background: radial-gradient(ellipse at 56% 46%, rgb(74 94 123 / 17%), transparent 70%), var(--ui-ground);
+}
+.workbench.glassWorkbench > .workspace { background: transparent; }
+
+/* Navigation uses one consistent plane on every destination. */
+.workbench.glassWorkbench .sidebar {
+  height: 100%;
+  padding: 20px 16px 14px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 26px;
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 12px 32px rgb(44 57 78 / 4%);
+  -webkit-backdrop-filter: blur(22px) saturate(115%);
+  backdrop-filter: blur(22px) saturate(115%);
+}
+.glassWorkbench .brandRow { gap: 10px; padding: 0 8px 24px; }
+.glassWorkbench .brand { gap: 0; }
+.glassWorkbench .brandRow .sidebarCollapseButton { width: 36px; height: 36px; min-width: 36px; border: 1px solid var(--ui-glass-edge); border-radius: 12px; background: var(--ui-glass); box-shadow: inset 0 1px 0 var(--ui-glass-highlight); }
+.glassWorkbench .conversationListHeader { min-height: 44px; padding: 0 8px 8px; color: var(--ui-muted); font-size: var(--font-meta); font-weight: 550; }
+.glassWorkbench .conversationListActions { gap: 4px; }
+.glassWorkbench .conversationHeaderButton { width: 36px; height: 36px; border-radius: 12px; color: var(--ui-muted); }
+.glassWorkbench .sessionList { flex: 1; min-height: 0; gap: 4px; }
+.glassWorkbench .sessionItem { min-height: 42px; padding: 10px 12px; border-radius: 14px; }
+.glassWorkbench .sessionItem.active { color: var(--ui-ink); background: var(--ui-glass-strong); box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 3px 10px var(--ui-glass-shadow); }
+.glassWorkbench .sessionSelect .sessionTitle { font-size: var(--font-label); }
+.glassWorkbench .sidebarScheduleLink { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 8px; flex-shrink: 0; min-height: 44px; margin: 12px 0 4px; padding: 8px; border: 1px solid transparent; border-radius: 14px; color: var(--ui-muted); font-size: var(--font-label); line-height: 20px; }
+.glassWorkbench .sidebarScheduleLink > svg { justify-self: center; }
+.glassWorkbench .sidebarFooter { flex-shrink: 0; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--ui-divider); }
+.glassWorkbench .sidebarAccount { padding-top: 0; }
+.glassWorkbench .sidebarAccountTrigger { display: grid; grid-template-columns: 32px minmax(0, 1fr) 32px; gap: 8px; min-height: 52px; padding: 8px; border: 1px solid transparent; border-radius: 16px; }
+.glassWorkbench .sidebarAccountTrigger > svg { justify-self: center; margin: 0; }
+.glassWorkbench .workspaceAvatar { width: 32px; height: 32px; flex-basis: 32px; border-radius: 12px; color: var(--ui-muted); background: var(--ui-glass); box-shadow: inset 0 1px 0 var(--ui-glass-highlight); }
+.glassWorkbench .sidebarAccountIdentity strong { font-size: var(--font-label); font-weight: 600; line-height: 18px; }
+.glassWorkbench .sidebarAccountIdentity small { color: var(--ui-muted); font-size: 11px; line-height: 16px; }
+.glassWorkbench .topbar { padding-left: 24px; padding-right: calc(24px + min(var(--inspector-offset), 100% - 160px)); }
+.glassWorkbench .workspaceLabel { padding: 7px 12px; border: 1px solid var(--ui-glass-edge); border-radius: 999px; color: var(--ui-muted); background: var(--ui-glass); font-size: var(--font-meta); font-weight: 500; line-height: var(--line-ui); }
+.workbench.glassWorkbench .topbar .iconButton { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid var(--ui-glass-edge); border-radius: 12px; color: var(--ui-muted); background: var(--ui-glass); box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 2px 6px var(--ui-glass-shadow); }
+.workbench.glassWorkbench .topbar .sidebarToggle { display: none; }
+.workbench.glassWorkbench.sidebarCollapsed .topbar .sidebarToggle { display: grid; }
+.glassWorkbench :is(.sidebarScheduleLink, .sidebarAccountTrigger, .topbar .iconButton)[aria-expanded="true"],
+.glassWorkbench .sidebarScheduleLink[aria-current="page"] { border-color: var(--ui-glass-edge); color: var(--ui-ink); background: var(--ui-glass-strong); box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 4px 12px var(--ui-glass-shadow); }
+.glassWorkbench :is(.conversationHeaderButton, .sidebarScheduleLink, .sidebarAccountTrigger, .brandRow .iconButton):hover:not(:disabled) { color: var(--ui-ink); background: var(--ui-glass-strong); }
+
+/* Shared action roles. Status colors and real disabled attributes stay intact. */
+.glassWorkbench :is(.secondaryButton, .clientSettings button, .settingsPanel button.ghost, .buttonRow button, .miniIconButton) {
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: var(--control-radius);
+  color: var(--ui-ink);
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.workbench.glassWorkbench :is(.primaryButton, .credentialSubmit) {
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 999px;
+  color: var(--ui-on-blue);
+  background: var(--ui-primary);
+  box-shadow: inset 0 1px 1px rgb(255 255 255 / 26%), 0 3px 8px rgb(16 111 244 / 15%);
+}
+.workbench.glassWorkbench :is(.primaryButton, .credentialSubmit):hover:not(:disabled) { color: var(--ui-on-blue); background: var(--ui-primary-hover); }
+.glassWorkbench :is(.dangerButton, .clientSettings button.reject, .buttonRow button.reject, .buttonRow button.danger, .miniIconButton.dangerIcon) { color: var(--crimson-danger); border: 1px solid color-mix(in srgb, var(--crimson-danger) 20%, transparent); background: var(--danger-surface); box-shadow: none; }
+.glassWorkbench :is(.secondaryButton, .miniIconButton, .buttonRow button, .clientSettings button):hover:not(:disabled) { background: var(--ui-glass-strong); }
+.glassWorkbench :is(.primaryButton, .secondaryButton, .dangerButton, .iconButton, .miniIconButton):disabled { cursor: not-allowed; box-shadow: none; opacity: .5; }
+.glassWorkbench :is(.primaryButton, .secondaryButton, .dangerButton, .iconButton, .miniIconButton):active:not(:disabled) { transform: translateY(1px); }
+.glassWorkbench :is(.iconButton, .conversationHeaderButton, .sidebarScheduleLink, .sidebarAccountMenuItem) > svg { width: 20px; height: 20px; stroke-width: 1.75; flex-shrink: 0; }
+.glassWorkbench :is(.taskInspectorHeader, .documentPickerHeader, .desktopBrowserHeader) .iconButton > svg { width: 16px; height: 16px; }
+.workbench.glassWorkbench :is(.settingsPageMain, .documentPicker, .taskSearchDialog, .inspectorColumn) :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select) {
+  border-color: var(--ui-input-edge);
+  border-radius: 12px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.glassWorkbench :is(input, textarea, select)::placeholder { color: var(--ui-muted); }
+.glassWorkbench :is(input, textarea, select):focus-visible { outline-color: var(--ui-blue); }
+.workbench.glassWorkbench .settingsPageSearch input { border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+
+/* Pair runtime expands inline on both the welcome and settings surfaces. */
+.workbench.glassWorkbench .connectionNotice {
+  border-color: var(--ui-glass-edge);
+  border-radius: 18px;
+  color: var(--ui-ink);
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 6px 20px var(--ui-glass-shadow);
+}
+.workbench.glassWorkbench .connectionNotice .connectionNoticeCopy small { color: var(--ui-muted); }
+.workbench.glassWorkbench .connectionNotice .connectionNoticeAuth { min-width: 0; }
+.workbench.glassWorkbench .connectionNotice .connectionNoticeAuth .tokenForm {
+  grid-template-columns: minmax(0, 1fr) 40px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+.workbench.glassWorkbench .connectionNotice .connectionNoticeAuth .tokenForm input {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  min-height: 40px;
+  padding: 9px 12px;
+  border: 1px solid var(--ui-input-edge);
+  border-radius: 12px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
+}
+.workbench.glassWorkbench .connectionNotice .connectionNoticeAuth .tokenForm input:focus {
+  border-color: var(--ui-blue);
+  outline: 2px solid var(--ui-blue);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+.workbench.glassWorkbench .connectionNotice .connectionNoticeAuth .tokenForm button {
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 12px;
+  color: var(--ui-on-blue);
+  background: var(--ui-primary);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 3px 8px var(--ui-glass-shadow);
+}
+.workbench.glassWorkbench .connectionNotice .connectionNoticeAuth .tokenForm button > svg { width: 20px; height: 20px; }
+.workbench.glassWorkbench .connectionNotice .connectionNoticeAuth .tokenForm button:hover:not(:disabled) { background: var(--ui-primary-hover); }
+.workbench.glassWorkbench .connectionNotice .connectionNoticeAuth .tokenForm button:active:not(:disabled) { transform: translateY(1px); }
+.workbench.glassWorkbench .connectionNotice .connectionNoticeAuth .tokenForm button:disabled { color: var(--ui-disabled); background: var(--ui-glass); box-shadow: inset 0 1px 0 var(--ui-glass-highlight); cursor: not-allowed; opacity: 1; }
+
+/* Search, document picker and menus share a floating glass material. */
+.glassWorkbench :is(.taskSearchDialog, .documentPicker, .voiceDeviceMenu, .sidebarAccountMenu, .desktopBrowserMenu) {
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 22px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 18px 48px var(--ui-glass-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  backdrop-filter: blur(24px) saturate(120%);
+}
+.glassWorkbench .taskSearchDialog { padding: 20px; }
+.glassWorkbench .taskSearchDialog::backdrop { background: rgb(37 45 59 / 20%); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.glassWorkbench .taskSearchDialog input { padding: 11px 12px; min-height: 44px; }
+.glassWorkbench .taskSearchResults { margin-top: 12px; }
+.glassWorkbench .taskSearchResults button { min-height: 44px; padding: 10px 12px; border-radius: 12px; }
+.glassWorkbench .taskSearchResults button:is(:hover, [aria-selected="true"]) { background: var(--ui-glass-strong); }
+.glassWorkbench .documentPickerOverlay { padding: 16px; background: rgb(37 45 59 / 20%); }
+.glassWorkbench .documentPicker { padding: 22px; }
+.glassWorkbench .documentPickerHeader { padding-bottom: 12px; }
+.glassWorkbench .documentPickerHeader > strong { font-size: var(--font-section); font-weight: 600; }
+.glassWorkbench :is(.taskInspectorHeader, .documentPickerHeader) .iconButton,
+.glassWorkbench .documentPickerHeader .attachmentRemove { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--ui-glass-edge); border-radius: 12px; color: var(--ui-muted); background: var(--ui-glass); }
+.glassWorkbench .documentPickerList { border-color: var(--ui-divider); border-radius: 14px; }
+.glassWorkbench .finderHeader { color: var(--ui-muted); background: var(--ui-glass); }
+.glassWorkbench .finderRow { min-height: 48px; border-color: var(--ui-divider); }
+.glassWorkbench .finderRow:nth-child(even) { background: transparent; }
+.glassWorkbench .finderRow.file:hover { background: var(--ui-glass-strong); }
+.glassWorkbench .voiceDeviceMenu { padding: 8px; }
+.glassWorkbench .voiceDeviceMenu > strong { padding: 8px 10px; }
+.glassWorkbench .voiceDeviceMenu > button { min-height: 40px; border-radius: 12px; }
+.glassWorkbench .voiceDeviceMenu > button:is(:hover, .selected) { background: var(--ui-glass-strong); }
+.glassWorkbench .sidebarAccountMenu { padding: 8px; }
+.glassWorkbench .sidebarAccountMenuItem { min-height: 40px; border-radius: 12px; }
+.glassWorkbench .sidebarAccountMenuItem:hover { background: var(--ui-glass-strong); }
+
+/* Conversation and activity panels keep their existing topology and density. */
+.workbench.glassWorkbench:not(.homePresentation) .composer { border-color: var(--ui-glass-edge); border-radius: 24px; background: var(--ui-glass-strong); box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 12px 30px var(--ui-glass-shadow); overflow: visible; }
+.workbench.glassWorkbench:not(.homePresentation) .composer:focus-within { border-color: var(--ui-blue); }
+.workbench.glassWorkbench:not(.homePresentation) .composer :is(.uploadButton, .emailEntryButton, .voiceDeviceButton) { border-radius: 10px; color: var(--ui-muted); background: var(--ui-glass); }
+.workbench.glassWorkbench:not(.homePresentation) .composer .sendButton { border: 1px solid var(--ui-glass-edge); border-radius: 50%; color: var(--ui-on-blue); background: var(--ui-primary); }
+.workbench.glassWorkbench:not(.homePresentation) .composer .sendButton:disabled { color: var(--ui-disabled); background: var(--ui-glass); opacity: 1; }
+.workbench.glassWorkbench .message.user { border: 1px solid var(--ui-glass-edge); border-radius: 18px 18px 6px 18px; background: var(--ui-glass-strong); }
+.workbench.glassWorkbench .workbenchPage { padding-block: 28px; }
+.glassWorkbench .workbenchPageHeader { align-items: flex-start; margin-bottom: 28px; }
+.glassWorkbench .workbenchPageHeader h1 { color: var(--ui-ink); font-weight: 600; }
+.glassWorkbench .workbenchPageHeader p { color: var(--ui-muted); }
+.workbench.glassWorkbench :is(.taskInspector, .inspectorColumn) { border: 1px solid var(--ui-glass-edge); border-radius: 22px; background: var(--ui-glass); box-shadow: inset 0 1px 0 var(--ui-glass-highlight); }
+.workbench.glassWorkbench :is(.workbenchPage, .settingsPageMain) .inspectorColumn { border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.glassWorkbench .tabs { gap: 4px; padding: 6px; border-color: var(--ui-divider); background: transparent; }
+.glassWorkbench .tabs button { min-height: 36px; border-radius: 12px; color: var(--ui-muted); }
+.glassWorkbench .tabs button.selected { color: var(--ui-ink); background: var(--ui-glass-strong); box-shadow: inset 0 1px 0 var(--ui-glass-highlight); }
+.glassWorkbench :is(.toolCall, .approvalItem, .memoryItem, .traceSummary, .traceRow, .diagnosticRow, .episodeItem, .evalResult) { border-color: var(--ui-glass-edge); border-radius: 16px; background: var(--ui-glass-strong); box-shadow: inset 0 1px 0 var(--ui-glass-highlight); }
+.glassWorkbench .desktopBrowserHeader { border-color: var(--ui-divider); background: var(--ui-glass); }
+.glassWorkbench .desktopConnectionBanner { border-radius: 18px; }
+.glassWorkbench :is(.errorBanner, .noticeBanner) { border-radius: 16px; }
+.workbench.glassWorkbench .errorBanner {
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 14px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+}
+.glassWorkbench .feedbackStatusIcon { flex: 0 0 18px; width: 18px; height: 18px; margin-top: 1px; color: var(--crimson-danger); }
+.workbench.glassWorkbench :is(.localFeedback[role="alert"], .localDraftRecovery, .desktopBrowserError) {
+  padding: 12px 14px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 14px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+  overflow-wrap: anywhere;
+}
+.glassWorkbench :is(.localFeedback[role="alert"], .localDraftRecovery) > p { margin: 0; }
+.glassWorkbench :is(.localFeedback[role="alert"], .localDraftRecovery) > button { margin-top: 8px; }
+
+@media (max-width: 840px) {
+  .workbench.glassWorkbench { gap: 0; padding: 0; }
+  .workbench.glassWorkbench .sidebar { top: 0; bottom: 0; left: 0; height: 100dvh; border-radius: 0 24px 24px 0; background: var(--ui-glass-strong); }
+  .workbench.glassWorkbench .topbar { padding-inline: 20px; }
+  .workbench.glassWorkbench .topbar .sidebarToggle { display: grid; }
+  .workbench.glassWorkbench .connectionNotice.pairing { grid-template-columns: 32px minmax(0, 1fr); }
+  .workbench.glassWorkbench .connectionNotice.pairing .connectionNoticeAuth { grid-column: 1 / -1; width: 100%; }
+}
+@media (max-width: 600px) {
+  .workbench.glassWorkbench .workbenchPage { padding: 24px 16px; }
+  .glassWorkbench .workbenchPageHeader { flex-wrap: wrap; gap: 16px; }
+  .glassWorkbench .documentPicker { padding: 18px 14px; border-radius: 22px; }
+  .glassWorkbench .taskSearchDialog { padding: 18px 14px; }
+  .glassWorkbench .sidebarAccountIdentity strong { line-height: var(--line-label); }
+}
+html[data-text-size="large"] .glassWorkbench .sidebarAccountIdentity strong { line-height: var(--line-label); }

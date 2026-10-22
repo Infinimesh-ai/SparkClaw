@@ -492,6 +492,21 @@ export const api = {
   connectors: () => request<{ connectors: ConnectorStatus[] }>("/api/connectors"),
   integrations: () => request<{ integrations: IntegrationStatus[] }>("/api/integrations"),
   emailProviders: () => request<{ providers: EmailProviderStatus[] }>("/api/email/providers"),
+  emailAccounts: () => request<{ accounts: EmailProviderStatus[] }>("/api/email/accounts"),
+  addEmailAccount: (provider: EmailProviderStatus["provider"]) =>
+    request<EmailProviderStatus>("/api/email/accounts", { method: "POST", body: JSON.stringify({ provider }) }),
+  updateEmailAccount: (accountID: string, expectedVersion: number, changes: { enabled?: boolean; default?: boolean }) =>
+    request<EmailProviderStatus>(`/api/email/accounts/${encodeURIComponent(accountID)}`, {
+      method: "PATCH", body: JSON.stringify({ ...changes, expected_version: expectedVersion })
+    }),
+  openEmailAccountLogin: (accountID: string) =>
+    request<EmailProviderStatus>(`/api/email/accounts/${encodeURIComponent(accountID)}/login`, { method: "POST", body: "{}" }),
+  checkEmailAccount: (accountID: string) =>
+    request<EmailProviderStatus>(`/api/email/accounts/${encodeURIComponent(accountID)}/check`, { method: "POST", body: "{}" }),
+  updateEmailAccountIntake: (accountID: string, enabled: boolean, mailboxVersion: number) =>
+    request<{ mailbox: EmailMailbox }>(`/api/email/accounts/${encodeURIComponent(accountID)}/intake`, {
+      method: "PUT", body: JSON.stringify({ enabled, expected_version: mailboxVersion })
+    }),
   emailConversations: (filters: EmailFilters = {}, signal?: AbortSignal) =>
     request<EmailConversationPage>(`/api/email/conversations${emailQuery(filters)}`, { signal }),
   emailConversation: (id: string, signal?: AbortSignal) =>

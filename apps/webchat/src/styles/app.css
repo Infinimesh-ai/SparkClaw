@@ -12,3 +12,26 @@
 @import "./workbench.css";
 @import "./appearance.css";
 @import "./panel-layout.css";
+@import "./controls.css";
+@import "./home.css";
+@import "./glass.css";
+@import "./glass-conversation.css";
+@import "./glass-settings.css";
+@import "./glass-email.css";
+@import "./glass-schedules.css";
+@import "./glass-notifications.css";
+@import "./glass-confirmation.css";
+@import "./glass-expanded.css";
+@import "./glass-select.css";
+@import "./session-menu.css";
+@import "./action-icons.css";
+@import "./appearance-preview.css";
+@import "./appearance-effects.css";
+@import "./chinese-typography.css";
+
+@media (prefers-reduced-transparency: reduce) {
+  .glassWorkbench { --ui-glass: #f4f6f8; --ui-glass-strong: #fafbfc; }
+  html[data-resolved-theme="dark"] .glassWorkbench { --ui-glass: #2a3442; --ui-glass-strong: #303b4b; }
+  .glassWorkbench :is(.sidebar, .taskSearchDialog, .documentPicker, .voiceDeviceMenu, .sidebarAccountMenu, .desktopBrowserMenu, .scheduleDialog, .emailPopup, .notificationInbox, .notificationToast, .confirmationDialog),
+  .glassWorkbench dialog::backdrop { -webkit-backdrop-filter: none; backdrop-filter: none; }
+}

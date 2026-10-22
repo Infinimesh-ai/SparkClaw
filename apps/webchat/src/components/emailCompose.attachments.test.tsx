@@ -52,6 +52,7 @@ it("keeps the original Send control and confirms only the exact saved local atta
     expect(f.save).toHaveBeenCalledWith(expect.objectContaining({ id: "draft", expected_version: 4, attachments: [{ local_file_id: attachment.local_file_id }] }));
     const review = f.host.querySelector('[aria-label="Send confirmation"]')!;
     expect(review.textContent).toContain("Confirm sending version 5"); expect(review.textContent).toContain("8,123 B"); expect(review.textContent).toContain(attachment.sha256);
+    expect(review.textContent).toContain(`${text.email.from}: owner@example.com`);
     expect(f.host.querySelector("fieldset")!.disabled).toBe(true); expect(send).not.toHaveBeenCalled();
     const confirm = f.button("Confirm sending this version"); await act(async () => { confirm.click(); confirm.click(); });
     expect(f.save).toHaveBeenCalledOnce(); expect(send).toHaveBeenCalledOnce(); expect(send).toHaveBeenCalledWith("draft", 5, expect.any(String));

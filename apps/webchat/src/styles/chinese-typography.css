@@ -1,0 +1,69 @@
+/* CJK glyphs have a denser visual footprint. Calibrate the Chinese interface
+   by role while keeping the user's Small / Default / Large preference. */
+html:lang(zh) {
+  --font-body: 15px;
+  --line-body: 26px;
+  --font-ui: 13px;
+  --line-ui: 19px;
+  --font-label: 12px;
+  --line-label: 18px;
+  --font-meta: 11px;
+  --line-meta: 16px;
+  --font-title: 20px;
+  --line-title: 28px;
+  --font-section: 15px;
+  --line-section: 22px;
+  --font-code: 12px;
+  --line-code: 20px;
+}
+html:lang(zh)[data-text-size="small"] {
+  --font-body: 14px;
+  --line-body: 24px;
+  --font-ui: 12px;
+  --line-ui: 18px;
+  --font-label: 11px;
+  --line-label: 17px;
+  --font-meta: 11px;
+  --line-meta: 16px;
+  --font-title: 19px;
+  --line-title: 26px;
+  --font-section: 14px;
+  --line-section: 20px;
+  --font-code: 12px;
+  --line-code: 20px;
+}
+html:lang(zh)[data-text-size="large"] {
+  --font-body: 17px;
+  --line-body: 30px;
+  --font-ui: 15px;
+  --line-ui: 22px;
+  --font-label: 14px;
+  --line-label: 20px;
+  --font-meta: 13px;
+  --line-meta: 18px;
+  --font-title: 22px;
+  --line-title: 32px;
+  --font-section: 17px;
+  --line-section: 26px;
+  --font-code: 14px;
+  --line-code: 22px;
+}
+
+/* The welcome page has fixed reading roles; link them back to the same scale.
+   Keep the approved display heading and wordmark at their existing sizes. */
+html:lang(zh) .homePresentation :is(.workspaceLabel, .conversationListHeader, .connectionNoticeCopy strong, .connectionNoticeCopy small, .connectionNoticeAction, .workbenchSuggestions button) {
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
+}
+html:lang(zh) .homePresentation :is(.sessionSelect .sessionTitle, .sidebarScheduleLink, .sidebarAccountIdentity strong, .composerModelButton) {
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+}
+html:lang(zh) .homePresentation .workbenchWelcome p {
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
+}
+html:lang(zh) .homePresentation .composer textarea {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}

@@ -1,3 +1,4 @@
+import { useConfirm } from "./confirmation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
@@ -38,6 +39,7 @@ type ExternalMCPSettingsProps = {
 };
 
 export function ExternalMCPSettings({ connector, lanOrigin, text, language, onUpdateConnector }: ExternalMCPSettingsProps) {
+  const confirm = useConfirm(text);
   const [status, setStatus] = useState<ISCPPairingStatus | null>(null);
   const [connectorState, setConnectorState] = useState(connector);
   const [onboardings, setOnboardings] = useState<ISCPOnboarding[]>([]);
@@ -328,18 +330,18 @@ export function ExternalMCPSettings({ connector, lanOrigin, text, language, onUp
             busy={busy}
             onRevokeTicket={(id) => void run(`ticket:${id}`, async () => { await api.revokeMCPAccessTicket(id); await refresh(); })}
             onRevokeBinding={(id) => void run(`binding:${id}`, async () => { await api.revokeMCPBinding(id); await refresh(); })}
-            onDeleteTicket={(id) => {
-              if (window.confirm(text.settings.confirmDeleteAccessRecord)) {
+            onDeleteTicket={async (id) => {
+              if (await confirm(text.settings.confirmDeleteAccessRecord, { danger: true })) {
                 void run(`delete-ticket:${id}`, async () => { await api.deleteMCPAccessTicket(id); await refresh(); });
               }
             }}
-            onDeleteBinding={(id) => {
-              if (window.confirm(text.settings.confirmDeleteAccessRecord)) {
+            onDeleteBinding={async (id) => {
+              if (await confirm(text.settings.confirmDeleteAccessRecord, { danger: true })) {
                 void run(`delete-binding:${id}`, async () => { await api.deleteMCPBinding(id); await refresh(); });
               }
             }}
-            onDeleteAll={() => {
-              if (window.confirm(text.settings.confirmDeleteAllAccessRecords)) {
+            onDeleteAll={async () => {
+              if (await confirm(text.settings.confirmDeleteAllAccessRecords, { danger: true })) {
                 void run("delete-access-records", async () => { await api.deleteAllMCPAccessRecords(); await refresh(); });
               }
             }}

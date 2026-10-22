@@ -4,6 +4,7 @@ import type { AIPlatform, AIPlatformLoginOverview, AIPlatformLoginState } from "
 import type { Copy, Language } from "../../i18n";
 import { formatDateTime } from "../../lib/format";
 import { integrationStateLabel } from "./settingsIntegrationState";
+import { ProviderBrandIcon } from "../ProviderBrandIcon";
 
 const platforms: {id: AIPlatform; name: string}[] = [
   {id: "chatgpt", name: "ChatGPT"}, {id: "claude", name: "Claude"},
@@ -66,7 +67,10 @@ export function AIPlatformLoginSettings({text, language, backendLoginNotice, log
       const value = status?.providers.find(s => s.provider === p.id);
       const stale = value?.checked_at && now - Date.parse(value.checked_at) > 300000;
       return <article className="settingsBlock" key={p.id}>
-        <strong>{p.name}</strong>
+        <div className="settingsProviderHeading">
+          <span className="credentialIcon"><ProviderBrandIcon name={p.id} /></span>
+          <strong>{p.name}</strong>
+        </div>
         <p>{busy === p.id ? text.settings.aiPlatformChecking : labels[stale ? "unchecked" : value?.state || "unchecked"]}</p>
         {value?.checked_at && <p className="muted">{text.settings.aiPlatformRecentCheck}: {formatDateTime(value.checked_at, language)}</p>}
         {value?.error_code && <p>{value.error_code}</p>}

@@ -1,0 +1,116 @@
+/* A small conversation using the same material and type as the live workbench.
+   Appearance preferences flow through the shared root tokens and data states. */
+.appearancePreview {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.appearancePreviewHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  min-width: 0;
+}
+.appearancePreviewHeader h2 {
+  margin: 0;
+  color: var(--ui-ink);
+  font-size: var(--font-section);
+  font-weight: 600;
+  line-height: var(--line-section);
+}
+.appearancePreviewHeader > span {
+  color: var(--ui-muted);
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
+}
+.appearancePreviewCanvas {
+  container-type: inline-size;
+  min-width: 0;
+  padding: 20px;
+  overflow: hidden;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 16px;
+  color: var(--ui-ink);
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+  -webkit-backdrop-filter: blur(18px) saturate(120%);
+  backdrop-filter: blur(18px) saturate(120%);
+}
+.appearancePreviewConversation {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 76%;
+  min-width: 0;
+  margin-inline: auto;
+  font-family: var(--font-sans);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  overflow-wrap: anywhere;
+}
+.appearancePreviewCanvas[data-reading-width="wide"] .appearancePreviewConversation { width: 100%; }
+.appearancePreviewConversation p { margin: 0; }
+.appearancePreviewUser {
+  align-self: flex-end;
+  width: fit-content;
+  max-width: 90%;
+  padding: 9px 14px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 18px 18px 6px 18px;
+  background: var(--ui-glass-strong);
+}
+.appearancePreviewAssistant {
+  min-width: 0;
+  padding-inline-start: 14px;
+  border-inline-start: 1px solid var(--ui-blue);
+}
+.appearancePreviewMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--ui-blue);
+  font-size: var(--font-meta);
+  font-weight: 600;
+  line-height: var(--line-meta);
+}
+.appearancePreviewMeta > svg { flex: none; }
+.appearancePreviewAssistant ul {
+  margin: 6px 0 0;
+  padding-inline-start: 20px;
+}
+.appearancePreviewAssistant li { padding-inline-start: 2px; }
+.appearancePreviewAssistant li::marker { color: var(--ui-muted); }
+
+/* Re-enter once when the motion choice changes; never run an idle animation. */
+.appearancePreviewUser { animation: appearancePreviewMessage 440ms cubic-bezier(.22, 1, .36, 1) both; }
+.appearancePreviewAssistant { animation: appearancePreviewMessage 520ms cubic-bezier(.22, 1, .36, 1) 90ms both; }
+@keyframes appearancePreviewMessage {
+  from { opacity: .4; transform: translateY(8px); filter: blur(2px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+html[data-resolved-motion="reduced"] .appearancePreview :is(.appearancePreviewUser, .appearancePreviewAssistant) { animation: none; }
+html[data-resolved-transparency="reduced"] .appearancePreviewCanvas {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Keep the measure difference visible without making narrow settings panes
+   turn the sample into a column of isolated words. */
+@container (max-width: 280px) {
+  .appearancePreviewConversation { width: 86%; gap: 16px; }
+  .appearancePreviewUser { max-width: 100%; padding: 8px 11px; }
+  .appearancePreviewAssistant { padding-inline-start: 10px; }
+  .appearancePreviewAssistant ul { padding-inline-start: 17px; }
+}
+@media (max-width: 600px) {
+  .appearancePreviewCanvas { padding: 14px 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .appearancePreview :is(.appearancePreviewUser, .appearancePreviewAssistant) { animation: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .appearancePreviewCanvas { -webkit-backdrop-filter: none; backdrop-filter: none; }
+}

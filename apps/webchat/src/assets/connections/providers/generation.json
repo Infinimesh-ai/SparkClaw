@@ -1,0 +1,32 @@
+{
+  "generator": "Built-in image_gen",
+  "transparent_background": true,
+  "brandBlue": "#086DE1",
+  "activeAssetOverrides": { "qq_mail": "qq_mail-v2.webp" },
+  "revisionRecords": ["qq_mail-v2-generation.json"],
+  "referenceNote": "Official original product/app marks. See ../provider-brand-sources.md.",
+  "delivery": "192px lossless WebP with original generated alpha. The runtime uses these raster alpha masks to apply the active theme's brand blue; no SVG geometry is authored or bundled for these marks.",
+  "commonPrompt": "Use case: logo-brand. Asset type: ONE production detail-level provider identity icon for a refined desktop settings UI. Generate a square 1024x1024 PNG with GENUINE TRANSPARENT ALPHA. The input image is an ORIGINAL BRAND SHAPE REFERENCE, not a style or background to copy. Preserve the referenced brand mark's distinctive geometry and proportions, but re-author the mark as crisp, elegant uniform rounded MONOLINE artwork in a SINGLE flat brand-blue ink #086DE1. This is a line-style icon, not a filled glossy app icon. Transparent interiors and gaps between strokes. Strong legibility at a final 22x22 CSS pixels: use approximately 1.5/24 of full canvas as stroke thickness, uncomplicated clean contours, optically balanced. Complete mark centered precisely and fills 88 percent of the square canvas with equal transparent padding. NO surrounding app tile, no white/black/colored background, no container except a frame that is intrinsic to the brand mark itself, NO shadows, no glass, no glow, no bevel, no 3D material, no gradients, no extra symbol, no wordmark, no words, no watermark, no checkerboard. Every visible stroke is solid #086DE1, all surrounding background and interior empty spaces are transparent. Do not invent a generic replacement. ",
+  "subjects": {
+    "qq_mail": "Subject: QQ MAIL. Follow the original reference's rounded rectangular envelope with its broad angular V-shaped flap. Convert its original white envelope into brand-blue monoline, remove the yellow/orange app background completely. Keep the crisp envelope proportions and distinctive V fold; no penguin, no circular border, no QQ letters.",
+    "outlook": "Subject: MICROSOFT OUTLOOK. Follow the CURRENT original reference's rounded folded envelope / stacked slanted ribbons. Preserve the outer envelope silhouette and its two layered diagonal fold contours, redrawn as an uncluttered blue monoline mark. Do not add an O tile, since it is absent from this original reference. Remove the white canvas and all gradient fills.",
+    "chatgpt": "Subject: CHATGPT. Closely preserve the original six-lobed interlocking knot / blossom, its hexagonal central opening, and the correct alternating over-under ribbon geometry. Translate each ribbon into clean blue linework and transparent negative spaces. Exact six-part rotational rhythm, no extra loops, no generic rosette or robot. Remove the white rounded-square tile and every 3D bevel.",
+    "grok": "Subject: GROK. Closely preserve the reference's broken circular orbit crossed by one long sharp diagonal slash sweeping from lower left to upper right, with its distinct upper-right extension and lower-left sweep. Make a clean blue monoline reading of the original mark with transparent center; remove black rounded-square tile and metallic bevel. Not a generic prohibition sign.",
+    "claude": "Subject: CLAUDE. Preserve the reference's irregular approximately twelve-ray spark/asterisk: the distinct slightly uneven radial angles and ray lengths are the identity. Render each broad original ray as one clean uniform rounded blue line stroke meeting at a shared center. No enclosing circle, no double outlines around each ray, no extra rays, no text. Warm clay reference color becomes #086DE1.",
+    "gemini": "Subject: GOOGLE GEMINI. Preserve the reference's unmistakable concave four-point sparkle with four graceful inward curves and pointed cardinal tips. Render only one crisp rounded blue outline contour with completely transparent interior. Remove all reference gradient fills; no extra stars, no rounded-square app tile, no text.",
+    "telegram": "Subject: TELEGRAM. Preserve the reference's distinct swept rounded paper-plane silhouette and its central diagonal fold, as clean blue monoline contours. Remove the surrounding cyan circular badge entirely, keeping only the paper airplane mark on alpha. No enclosing disc, no generic send arrow, no extra lines or text.",
+    "gmail": "Subject: GMAIL. Preserve the original rounded folded M shape: two upright stems and a wide angular downward central V fold, its original proportions and rounded upper shoulders. Translate its broad multicolor ribbons into a clear medium-weight blue monoline M mark with transparent interiors. No extra surrounding envelope rectangle, no app tile, no lowercase g, no wordmark. Keep the identity distinctly different from QQ Mail's framed rectangular envelope.",
+    "weixin": "Subject: WEIXIN / WECHAT. Preserve the original two overlapping speech bubbles, larger back bubble at upper left and smaller front bubble at lower right, with their precise short tails and two substantial blue conversation dots on each. Translate solid white reference bubbles into blue monoline contours with transparent interiors. Maintain visual breaks where the front bubble overlaps the rear bubble. No green circle, no app tile or text."
+  },
+  "generatedOriginals": {
+    "qq_mail": "exec-c656597f-20f2-4089-95f8-e4106a9a6e51.png",
+    "outlook": "exec-df7002d9-e922-458d-a272-04c3441443cb.png",
+    "gmail": "exec-052ccdac-cb21-453a-9796-0dddb5ffc8ea.png",
+    "chatgpt": "exec-5b5f68fb-c6a9-4d80-8cbe-b51f61e0a12a.png",
+    "claude": "exec-239aaf43-d10a-4e26-9e0f-d17ab62152a0.png",
+    "gemini": "exec-3085445d-634c-4c67-b8dd-d3dd745d3fc7.png",
+    "grok": "exec-be30254b-10ac-4c12-9ad0-560d5f95759f.png",
+    "weixin": "exec-65462423-4578-4f1c-8a7b-a3913a09dd02.png",
+    "telegram": "exec-e78a792f-6efa-4dd1-827e-7696e412e6b4.png"
+  }
+}

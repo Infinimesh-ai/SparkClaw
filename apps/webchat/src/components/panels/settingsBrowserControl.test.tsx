@@ -7,6 +7,7 @@ import { api } from "../../api/client";
 import type { BrowserExtensionStatus } from "../../api/types";
 import { dictionaries } from "../../i18n";
 import { BrowserControlSettings } from "./settingsBrowserControl";
+import { ConfirmationProvider } from "../confirmation";
 
 const notConfigured: BrowserExtensionStatus = {
   configured: false,
@@ -87,6 +88,26 @@ describe("Browser control settings", () => {
     expect(container.textContent).toContain(dictionaries.en.settings.browserControlRemovedDetail);
     expect(container.textContent).not.toContain("qualification-token-value");
     await act(async () => root.unmount());
+  });
+
+  it("does not submit parallel removals when two queued confirmations are accepted", async () => {
+    vi.spyOn(api, "browserExtension").mockResolvedValue(ready);
+    let resolveRemoval!: (status: BrowserExtensionStatus) => void;
+    const pending = new Promise<BrowserExtensionStatus>(resolve => { resolveRemoval = resolve; });
+    const remove = vi.spyOn(api, "removeBrowserExtensionToken").mockReturnValue(pending);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<ConfirmationProvider><BrowserControlSettings text={dictionaries.en} language="en" /></ConfirmationProvider>));
+      const button = container.querySelector<HTMLButtonElement>(`button[title="${dictionaries.en.settings.browserControlRemove}"]`)!;
+      await act(async () => { button.click(); button.click(); });
+      await act(async () => document.querySelector<HTMLButtonElement>(".confirmationAccept")!.click());
+      expect(remove).toHaveBeenCalledOnce();
+      expect(document.querySelector(".confirmationAccept")).not.toBeNull();
+      await act(async () => document.querySelector<HTMLButtonElement>(".confirmationAccept")!.click());
+      expect(remove).toHaveBeenCalledOnce();
+      await act(async () => resolveRemoval(notConfigured));
+    } finally { await act(async () => root.unmount()); }
   });
 });
 

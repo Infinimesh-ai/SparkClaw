@@ -1,0 +1,204 @@
+/* Shared control roles for the existing pages, menus and dialogs.
+   Homepage composition and brand typography remain in home/workbench.css. */
+.workbench :is(.primaryButton, .secondaryButton, .dangerButton),
+.workbench .clientSettings button,
+.workbench .credentialSubmit,
+.workbench .buttonRow button,
+.workbench .settingsPanel button.ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--control-gap);
+  min-height: var(--control-height);
+  padding: 7px 12px;
+  border-radius: var(--control-radius);
+  font-family: var(--font-sans);
+  font-size: var(--font-ui);
+  font-weight: 500;
+  line-height: var(--line-ui);
+}
+.workbench .buttonRow { gap: var(--control-gap); }
+.workbench :is(.primaryButton, .secondaryButton, .dangerButton) > svg,
+.workbench .clientSettings button > svg,
+.workbench .credentialSubmit > svg,
+.workbench .buttonRow button > svg,
+.workbench .settingsPanel button.ghost > svg {
+  flex-shrink: 0;
+  width: var(--control-icon-size);
+  height: var(--control-icon-size);
+  stroke-width: var(--control-icon-stroke);
+}
+.workbench .topbar .iconButton > svg {
+  width: var(--control-icon-size);
+  height: var(--control-icon-size);
+  stroke-width: var(--control-icon-stroke);
+}
+
+/* Compact actions keep one consistent hit area; status and disclosure
+   glyphs can stay smaller than navigational symbols. */
+.workbench .miniIconButton,
+.workbench .buttonRow button,
+.workbench .clientItem > button.reject {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: var(--control-height-small);
+  height: var(--control-height-small);
+  min-width: var(--control-height-small);
+  min-height: var(--control-height-small);
+  padding: 0;
+  border-radius: var(--control-radius);
+}
+.workbench .miniIconButton > svg,
+.workbench .buttonRow button > svg,
+.workbench .clientItem > button.reject > svg {
+  width: var(--control-icon-size);
+  height: var(--control-icon-size);
+  stroke-width: var(--control-icon-stroke);
+}
+.workbench .buttonRow.textActions button {
+  display: inline-flex;
+  width: auto;
+  height: auto;
+  min-height: var(--control-height);
+  padding: 7px 12px;
+}
+.workbench :is(.settingsStatusBar, .integrationStatusBar) .secondaryButton {
+  min-height: var(--control-height-small);
+  padding: 5px 10px;
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+}
+.workbench .credentialActions { grid-template-columns: repeat(3, var(--control-height-small)); gap: 4px; }
+.workbench .emailProviderActions { grid-template-columns: repeat(3, var(--control-height-small)) 34px; }
+
+/* Settings: common reading scale and shared navigation icon slots. */
+.settingsPageSidebar,
+.settingsPageMain,
+.workbenchPage,
+.taskSearchDialog,
+.documentPicker,
+.voiceDeviceMenu {
+  font-family: var(--font-sans);
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
+}
+.settingsPageBack {
+  gap: var(--control-gap);
+  min-height: var(--control-height);
+  padding: 7px 8px;
+  border-radius: var(--control-radius);
+  font-weight: 500;
+}
+.settingsPageBack:hover { background: var(--surface-hover); }
+.settingsPageSearch { grid-template-columns: 20px minmax(0, 1fr); gap: var(--control-gap); }
+.settingsPageNavigation button { grid-template-columns: 20px minmax(0, 1fr) auto; gap: var(--control-gap); border-radius: var(--control-radius); }
+.settingsPageNavigation button.selected { font-weight: 500; }
+.settingsPageGroupLabel { font-size: var(--font-meta); font-weight: 600; line-height: var(--line-meta); }
+.settingsPageBack > svg,
+.settingsPageSearch > svg,
+.settingsPageNavigation button > svg,
+.settingsDirectoryIcon > svg,
+.settingsConnectionIcon > svg,
+.credentialIcon > svg,
+.settingsCategoryTabs button > svg {
+  flex-shrink: 0;
+  width: var(--control-icon-size);
+  height: var(--control-icon-size);
+  stroke-width: var(--control-icon-stroke);
+}
+.settingsDirectoryRow > svg,
+.settingsBack > svg { width: 16px; height: 16px; stroke-width: var(--control-icon-stroke); }
+.workbenchPageHeader h1,
+.settingsPageHeader h1 { font-weight: 600; }
+.settingsSurfaceSection > h2,
+.settingsSurfaceSectionHeading h2 {
+  color: var(--text-primary);
+  font-size: var(--font-section);
+  line-height: var(--line-section);
+}
+.workbench .settingsPageMain :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  min-height: var(--control-height);
+  border-radius: var(--control-radius);
+  font-family: var(--font-sans);
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
+}
+.settingsConnectionAction { min-height: var(--control-height-small); padding: 5px 10px; border-radius: var(--control-radius); }
+.settingsSegmented button {
+  min-height: var(--control-height-small);
+  padding: 5px 10px;
+  font-size: var(--font-ui);
+  font-weight: 500;
+  line-height: var(--line-ui);
+}
+
+/* Search and document dialogs share header and dismissal conventions. */
+.taskSearchDialog .taskInspectorHeader,
+.documentPickerHeader,
+.documentPickerHeader > strong {
+  color: var(--text-primary);
+  font-size: var(--font-section);
+  font-weight: 600;
+  line-height: var(--line-section);
+}
+.taskSearchDialog .taskInspectorHeader .iconButton,
+.documentPickerHeader .attachmentRemove {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: var(--control-height-small);
+  height: var(--control-height-small);
+  padding: 0;
+  border-radius: var(--control-radius);
+}
+.taskSearchDialog .taskInspectorHeader .iconButton > svg,
+.documentPickerHeader .attachmentRemove > svg {
+  width: var(--control-icon-size);
+  height: var(--control-icon-size);
+  stroke-width: var(--control-icon-stroke);
+}
+.taskSearchDialog input,
+.taskSearchResults button { font-size: var(--font-ui); font-weight: 400; line-height: var(--line-ui); }
+.taskSearchResults button { align-items: center; min-height: 44px; border-radius: var(--control-radius); }
+.taskSearchResults button > svg { flex-shrink: 0; width: 16px; height: 16px; stroke-width: var(--control-icon-stroke); }
+.documentPicker,
+.scheduleDialog,
+.taskSearchDialog { border-radius: 12px; box-shadow: 0 20px 60px rgb(15 23 42 / 18%); }
+.scheduleCreateIntro p { font-weight: 400; }
+.scheduleCreateDialog textarea:focus { box-shadow: none; }
+.documentPickerHeader { min-height: 40px; padding: 0 2px 6px; }
+.documentPickerList { overflow-x: auto; }
+.finderHeader { font-size: var(--font-meta); line-height: var(--line-meta); }
+.finderRow { font-size: var(--font-label); line-height: var(--line-label); }
+.finderRow strong { font-weight: 500; }
+.finderName > svg { flex-shrink: 0; width: var(--control-icon-size); height: var(--control-icon-size); stroke-width: var(--control-icon-stroke); }
+
+/* Device menus and inspector retain their existing behavior and structure. */
+.voiceDeviceMenu > strong { font-size: var(--font-meta); font-weight: 600; line-height: var(--line-meta); }
+.voiceDeviceMenu > button {
+  min-height: var(--control-height);
+  border-radius: var(--control-radius);
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
+}
+.voiceDeviceMenu > button > svg { width: 16px; height: 16px; stroke-width: var(--control-icon-stroke); }
+.voicePreviewButton { min-height: var(--control-height-small); gap: var(--control-gap); border-radius: var(--control-radius); font-size: var(--font-label); }
+.voicePreviewButton > svg { stroke-width: var(--control-icon-stroke); }
+.voiceDeviceMenu { box-shadow: 0 12px 32px rgb(15 23 42 / 16%); }
+.workbench .sectionHeader h2 { color: var(--text-primary); font-size: var(--font-ui); line-height: var(--line-ui); }
+.workbench .sectionHeader > svg { width: var(--control-icon-size); height: var(--control-icon-size); stroke-width: var(--control-icon-stroke); }
+.workbench .tabs button > svg { width: 16px; height: 16px; stroke-width: var(--control-icon-stroke); }
+.workbench .sidebarAccountMenuItem { min-height: var(--control-height); border-radius: var(--control-radius); gap: var(--control-gap); }
+
+@media (max-width: 600px) {
+  .settingsPageNavigation button { grid-template-columns: 20px minmax(0, 1fr); gap: 6px; }
+  .settingsPageBack { padding-inline: 3px; }
+  .settingsPageSearch { gap: 4px; padding-inline: 6px; }
+  .workbench :is(.settingsStatusBar, .integrationStatusBar) { flex-wrap: wrap; gap: var(--control-gap); }
+  .settingsSurfaceRow { column-gap: 12px; }
+  .settingsSurfaceRow select { min-width: min(142px, 100%); max-width: 100%; }
+  .settingsSegmented button { padding-inline: 6px; }
+}
+
+html[data-resolved-theme="dark"] :is(.documentPicker, .scheduleDialog, .taskSearchDialog, .voiceDeviceMenu) { box-shadow: 0 16px 48px rgb(0 0 0 / 32%); }

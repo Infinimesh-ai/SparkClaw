@@ -1,0 +1,477 @@
+/* Mail keeps its three-pane workspace and protected send/review flow.
+   Frost is on the window; dense reading surfaces remain nearly opaque. */
+.glassWorkbench .emailPopup {
+  --email-ink: var(--ui-ink);
+  --email-muted: var(--ui-muted);
+  --email-line: color-mix(in srgb, var(--ui-muted) 14%, transparent);
+  --email-panel: var(--ui-glass);
+  --email-blue-soft: color-mix(in srgb, var(--ui-blue) 9%, var(--ui-glass-strong));
+  --email-reading: color-mix(in srgb, var(--ui-solid) 94%, var(--ui-glass-strong));
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 26px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 24px 72px var(--ui-glass-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  backdrop-filter: blur(24px) saturate(120%);
+}
+.glassWorkbench .emailPopup::backdrop {
+  background: rgb(31 43 61 / 22%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.glassWorkbench .emailPopup :is(svg.lucide, .actionIcon) {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  stroke-width: 1.75;
+}
+.glassWorkbench .emailPopup :is(.emailPopupClose, .emailMobileBack) svg,
+.glassWorkbench .emailPopup svg.lucide-chevron-down,
+.glassWorkbench .emailPopup .emailCategoryNote svg {
+  width: 16px;
+  height: 16px;
+}
+.glassWorkbench .emailPopupHeader { min-height: 76px; padding-block: 16px; }
+.glassWorkbench .emailPopupHeader h2 { color: var(--ui-ink); }
+.glassWorkbench .emailPopupHeader p { color: var(--ui-muted); }
+.glassWorkbench .emailPopupTitleIcon,
+.glassWorkbench .emailReplyIcon,
+.glassWorkbench .emailThreadAvatar,
+.glassWorkbench .emailConversationAvatar {
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 12px;
+  color: var(--ui-blue);
+  background: var(--email-blue-soft);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.glassWorkbench .emailPopupTitleIcon { width: 38px; height: 38px; flex-basis: 38px; }
+.glassWorkbench .emailPopupClose {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 12px;
+  color: var(--ui-muted);
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.glassWorkbench .emailPopup .emailPopupClose svg { color: inherit; }
+.glassWorkbench .emailFilters { padding-block: 12px; }
+.glassWorkbench .emailAddressFilter,
+.glassWorkbench .emailSearch {
+  height: 40px;
+  min-height: 40px;
+  border: 1px solid color-mix(in srgb, var(--ui-muted) 18%, var(--ui-glass-edge));
+  border-radius: 12px;
+  color: var(--ui-muted);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.glassWorkbench .emailAddressFilter { position: relative; grid-template-columns: 20px minmax(0, 1fr) 16px; padding-inline: 10px; }
+.glassWorkbench .emailAddressFilter > svg { pointer-events: none; }
+.glassWorkbench .emailAddressValue { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ui-ink); pointer-events: none; }
+.glassWorkbench .emailAddressFilter select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 38px;
+  min-height: 38px;
+  border-radius: 12px;
+  appearance: none;
+  background: transparent;
+  color: transparent;
+  cursor: pointer;
+}
+.glassWorkbench .emailAddressFilter option { color: var(--ui-ink); }
+.glassWorkbench .emailSearch { grid-template-columns: 20px minmax(0, 1fr) 36px; }
+.glassWorkbench .emailSearch input { color: var(--ui-ink); background: transparent; }
+.glassWorkbench .emailPopup :is(.emailSearch input, .emailAddressFilter select):focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.glassWorkbench .emailSearch input::placeholder { color: var(--ui-muted); }
+.glassWorkbench .emailSearch button { width: 36px; height: 36px; border-radius: 10px; }
+/* The shared picker styles live in glass-select.css. This trigger displays its
+   own value and chevron above the transparent native control. */
+@supports (appearance: base-select) {
+  .glassWorkbench .emailAddressFilter select::picker-icon { visibility: hidden; }
+  .glassWorkbench .emailAddressFilter:has(select:open) > .lucide-chevron-down { rotate: 180deg; }
+}
+.glassWorkbench .emailPopup :is(.emailTextButton, .emailLoadMore) {
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: var(--ui-muted);
+  font-weight: 500;
+}
+.glassWorkbench .emailToolbarActions { gap: 6px; }
+.glassWorkbench .emailToolbarActions .emailTextButton {
+  min-height: 40px;
+  border-color: var(--ui-glass-edge);
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.glassWorkbench .emailPopup :is(.emailTextButton, .emailLoadMore, .emailPopupClose, .emailSearch button):hover:not(:disabled) {
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+}
+.glassWorkbench .emailToolbarActions .emailTextButton[aria-expanded="true"] {
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+}
+.glassWorkbench .emailPopup :is(.emailTextButton, .emailReplyPrimary, .emailDangerButton, .emailPopupClose):active:not(:disabled) {
+  transform: translateY(1px);
+}
+.glassWorkbench .emailSyncBar { gap: 14px; background: var(--ui-glass); }
+.glassWorkbench .emailSyncState .emailTextButton { padding-inline: 0; border: 0; border-radius: 0; }
+.glassWorkbench .emailSyncState .emailTextButton:hover:not(:disabled) { background: transparent; }
+.glassWorkbench .emailSyncNow { background: var(--ui-glass); }
+.glassWorkbench .emailCategoryPane { padding: 16px 10px 12px; background: var(--ui-glass); }
+.glassWorkbench .emailCategoryPane .emailCategoryTabs { gap: 5px; }
+.glassWorkbench .emailCategoryTabs button {
+  min-height: 42px;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  color: var(--ui-muted);
+}
+.glassWorkbench .emailCategoryTabs button:hover:not(:disabled) { background: var(--ui-glass); }
+.glassWorkbench .emailCategoryTabs button.selected {
+  color: var(--ui-ink);
+  border-color: var(--ui-glass-edge);
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 3px 10px var(--ui-glass-shadow);
+}
+.glassWorkbench .emailCategoryTabs button.selected small { color: var(--ui-blue); background: var(--email-blue-soft); }
+.glassWorkbench .emailCategoryTabs button span { min-width: 0; overflow-wrap: anywhere; }
+.glassWorkbench .emailConversationPane { background: var(--ui-glass); }
+.glassWorkbench .emailConversationHeader { min-height: 64px; }
+.glassWorkbench .emailConversationHeader > button { width: 36px; height: 36px; flex-basis: 36px; border-radius: 12px; }
+.glassWorkbench .emailConversationHeader > button:hover:not(:disabled) { background: var(--ui-glass-strong); }
+.glassWorkbench .emailConversationRow { background: transparent; }
+.glassWorkbench .emailConversationRow:hover:not(:disabled) { background: var(--ui-glass); }
+.glassWorkbench .emailConversationRow.selected {
+  background: var(--ui-glass-strong);
+  box-shadow: inset 2px 0 0 var(--ui-blue);
+}
+.glassWorkbench .emailDetailPane { background: var(--email-reading); }
+.glassWorkbench .emailMessage {
+  border-color: var(--email-line);
+  border-radius: 20px;
+  background: var(--email-reading);
+}
+.glassWorkbench .emailMessage.unseen { border-color: color-mix(in srgb, var(--ui-blue) 28%, var(--email-line)); }
+.glassWorkbench .emailConversationMessage { border-radius: 20px 20px 20px 7px; }
+.glassWorkbench .emailConversationMessage.outgoing {
+  border-radius: 20px 20px 7px 20px;
+  border-color: color-mix(in srgb, var(--ui-blue) 18%, var(--email-line));
+  background: var(--email-blue-soft);
+}
+.glassWorkbench .emailStructuredContent { border-radius: 14px; background: var(--email-reading); }
+.glassWorkbench .emailPopup :is(.emailRules, .emailSyncDetails) {
+  padding-block: 16px;
+  border-color: var(--email-line);
+  background: var(--email-reading);
+}
+.glassWorkbench .emailAccountGroup { border-bottom: 1px solid var(--email-line); padding-bottom: 8px; }
+.glassWorkbench .emailAccountGroup > .emailIntakeRow:first-child { border-top: 0; }
+.glassWorkbench .emailAccountRow { flex-wrap: wrap; gap: 8px; }
+.glassWorkbench .emailAccountRow > div { flex: 1 1 180px; }
+.glassWorkbench .emailAccountRow .emailTextButton { flex-shrink: 0; }
+.glassWorkbench .emailAccountRow .connectorToggle { flex-shrink: 0; margin-inline-start: auto; }
+.glassWorkbench .emailMessageIdentity { margin-top: 8px; font-size: var(--font-label); line-height: var(--line-label); color: var(--ui-muted); }
+.glassWorkbench .emailSync > .emailDeleteConfirm { margin: 10px 20px; }
+.glassWorkbench .emailSync > .emailDeleteConfirm > div { min-width: 0; flex: 1 1 100%; }
+.glassWorkbench .emailSync > .emailDeleteConfirm p { margin: 6px 0; overflow-wrap: anywhere; }
+.glassWorkbench .emailSync > .emailDeleteConfirm > button:first-of-type { margin-inline-start: auto; }
+.glassWorkbench .emailRule + .emailRule { border-top: 1px solid var(--email-line); }
+.glassWorkbench .emailRule select,
+.glassWorkbench .emailComposer :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea),
+.glassWorkbench .emailEventEdit :is(input:not([type="checkbox"]), select),
+.glassWorkbench .emailReplyComposer > textarea,
+.glassWorkbench .emailReplyComposer .emailReplyBody textarea {
+  border: 1px solid color-mix(in srgb, var(--ui-muted) 18%, var(--ui-glass-edge));
+  border-radius: 12px;
+  color: var(--ui-ink);
+  background: var(--email-reading);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.glassWorkbench .emailComposer :is(input:not([type="checkbox"]), select),
+.glassWorkbench .emailEventEdit :is(input:not([type="checkbox"]), select),
+.glassWorkbench .emailRule select { min-height: 40px; }
+.glassWorkbench .emailPopup :is(input, textarea)::placeholder { color: var(--ui-muted); }
+.glassWorkbench .emailPopup :is(.emailSearch, .emailAddressFilter):focus-within,
+.glassWorkbench .emailPopup :is(.emailComposer, .emailReplyComposer, .emailEventEdit) :is(input, select, textarea):focus {
+  border-color: var(--ui-blue);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-blue) 12%, transparent);
+}
+.glassWorkbench .emailComposer {
+  padding-block: 18px;
+  border-color: var(--email-line);
+  background: var(--email-reading);
+}
+.glassWorkbench .emailComposer header { margin-bottom: 16px; }
+.glassWorkbench .emailComposer fieldset { gap: 12px; }
+.glassWorkbench .emailComposer footer { margin-top: 16px; }
+.glassWorkbench .emailReplyComposer {
+  padding: 18px;
+  border-color: var(--ui-glass-edge);
+  border-radius: 22px 22px 0 0;
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 -8px 28px var(--ui-glass-shadow);
+}
+.glassWorkbench .emailPopup :is(.emailClassificationEdit, .emailEventEdit form, .emailDeleteConfirm) {
+  border-radius: 14px;
+  background: var(--ui-glass);
+}
+.glassWorkbench .emailPopup :is(.emailComposer, .emailReplyComposer) section[role="region"] {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--email-line);
+  border-radius: 16px;
+  background: var(--email-reading);
+}
+.glassWorkbench .emailComposer > footer .emailTextButton {
+  min-height: 40px;
+  border-color: var(--ui-glass-edge);
+  border-radius: 999px;
+  background: var(--ui-glass);
+}
+.glassWorkbench .emailPopup :is(.emailComposer, .emailReplyComposer) section button:not([class]) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  margin: 4px 6px 4px 0;
+  padding: 7px 10px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 12px;
+  color: var(--ui-muted);
+  background: var(--ui-glass);
+  font: inherit;
+}
+.glassWorkbench .emailPopup :is(.emailComposer, .emailReplyComposer) section button:not([class]):hover:not(:disabled) {
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+}
+.glassWorkbench .emailPopup .emailReplyPrimary,
+.glassWorkbench .emailPopup .emailComposeSend,
+.glassWorkbench .emailComposer > footer .emailComposeSend {
+  min-height: 40px;
+  padding: 8px 16px;
+  border: 1px solid color-mix(in srgb, var(--ui-glass-edge) 45%, transparent);
+  border-radius: 999px;
+  color: var(--ui-on-blue, #fff);
+  background: var(--ui-blue);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 24%), 0 3px 8px color-mix(in srgb, var(--ui-blue) 15%, transparent);
+}
+.glassWorkbench .emailPopup .emailReplyPrimary:hover:not(:disabled),
+.glassWorkbench .emailPopup .emailComposeSend:hover:not(:disabled),
+.glassWorkbench .emailComposer > footer .emailComposeSend:hover:not(:disabled) {
+  color: var(--ui-on-blue, #fff);
+  background: var(--ui-blue);
+  filter: brightness(1.04);
+}
+.glassWorkbench .emailPopup .emailDangerButton { min-height: 40px; border-radius: 999px; }
+.glassWorkbench .emailPopup .emailTextButton.emailDangerText { color: var(--crimson-danger); }
+.glassWorkbench .emailPopup button:disabled {
+  opacity: .45;
+  box-shadow: none;
+  transform: none;
+  cursor: not-allowed;
+}
+.glassWorkbench .emailPopup :is(input, select, textarea):disabled { opacity: .6; cursor: not-allowed; }
+
+/* Secondary mail actions: source picking, cleanup, evidence and review keep
+   the same controls as their entry panels, including the compact reply flow. */
+.glassWorkbench .emailPopup :is(.emailRules > input, .emailCleanup input[type="date"], .emailReplyComposer section select) {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 40px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--ui-input-edge);
+  border-radius: 12px;
+  color: var(--ui-ink);
+  background: var(--email-reading);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+  font: inherit;
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
+}
+.glassWorkbench .emailRules > input { width: 100%; margin-bottom: 12px; }
+.glassWorkbench .emailPopup :is(.emailRules > input, .emailCleanup input[type="date"], .emailRule select, .emailReplyComposer section select):focus-visible {
+  border-color: var(--ui-blue);
+  outline: 2px solid var(--ui-blue);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+.glassWorkbench .emailPopup :is(.emailSyncDetails, .emailClassificationEdit, .emailEventEdit form, .emailVerification, .emailDeleteConfirm, .emailComposer section[role="region"]) .emailTextButton:not(.emailComposeSend):not(.emailDangerText) {
+  min-height: 36px;
+  border-color: var(--ui-glass-edge);
+  color: var(--ui-ink);
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.glassWorkbench .emailPopup :is(.emailSyncDetails, .emailClassificationEdit, .emailEventEdit form, .emailVerification, .emailDeleteConfirm, .emailComposer section[role="region"]) .emailTextButton:not(.emailComposeSend):not(.emailDangerText):hover:not(:disabled) {
+  background: var(--ui-glass-strong);
+}
+.glassWorkbench .emailRules > .emailTextButton {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 14px;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-color: var(--ui-glass-edge);
+  background: var(--ui-glass);
+  color: var(--ui-ink);
+  overflow-wrap: anywhere;
+}
+.glassWorkbench .emailRules > .emailTextButton small { min-width: 0; overflow-wrap: anywhere; }
+.glassWorkbench .emailRules > .emailTextButton[aria-pressed="true"] {
+  border-color: var(--ui-blue);
+  background: var(--email-blue-soft);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+  outline: none;
+}
+.glassWorkbench .emailRules > div:not(.emailRule),
+.glassWorkbench .emailPopup :is(.emailClassificationEdit, .emailEventEdit form, .emailVerification) {
+  padding: 14px;
+  border: 1px solid var(--email-line);
+  border-radius: 16px;
+  color: var(--ui-ink);
+  background: var(--email-reading);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+  overflow-wrap: anywhere;
+}
+.glassWorkbench .emailRules > div:not(.emailRule) { margin-top: 12px; }
+.glassWorkbench .emailRule { gap: 10px 12px; padding-block: 12px; }
+.glassWorkbench .emailRule > strong { flex: 1 1 180px; min-width: 0; }
+.glassWorkbench .emailRule > small { color: var(--ui-muted); }
+.glassWorkbench .emailCoverage { border-color: var(--email-line); }
+.glassWorkbench .emailCleanup { gap: 10px; }
+.glassWorkbench .emailCleanup label { min-width: 0; flex-wrap: wrap; gap: 8px; }
+.glassWorkbench .emailPopup :is(.emailCapacityWarning, .emailLoginRecovery, .emailConcern) {
+  color: var(--ui-ink);
+  border-color: color-mix(in srgb, var(--amber-warning) 28%, var(--email-line));
+  background: color-mix(in srgb, var(--amber-warning) 6%, var(--email-reading));
+}
+.glassWorkbench .emailPopup :is(.emailCapacityWarning, .emailLoginRecovery) {
+  padding-block: 12px;
+  border-bottom: 1px solid var(--email-line);
+}
+.glassWorkbench .emailConcern { border-radius: 16px; }
+.glassWorkbench .emailPopup .emailDeleteConfirm {
+  border-color: color-mix(in srgb, var(--crimson-danger) 28%, var(--email-line));
+  background: color-mix(in srgb, var(--crimson-danger) 5%, var(--email-reading));
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.glassWorkbench .emailPopup .emailDangerButton {
+  border: 1px solid color-mix(in srgb, var(--crimson-danger) 35%, transparent);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 18%);
+}
+.glassWorkbench .emailPopup .emailDangerButton:hover:not(:disabled) { filter: brightness(1.06); }
+.glassWorkbench .emailPopup :is(.emailClassification > details, .emailConversationTechnical, .emailRenderPreview, .emailVerification > details, .emailComposer section details, .emailReplyComposer section details) {
+  margin-block: 12px;
+  padding: 0;
+  border: 1px solid var(--email-line);
+  border-radius: 14px;
+  color: var(--ui-muted);
+  background: var(--email-reading);
+}
+.glassWorkbench .emailPopup :is(.emailClassification > details, .emailConversationTechnical, .emailRenderPreview, .emailVerification > details, .emailComposer section details, .emailReplyComposer section details) > summary {
+  box-sizing: border-box;
+  min-height: 40px;
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 13px;
+  color: var(--ui-muted);
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.glassWorkbench .emailPopup :is(.emailClassification > details, .emailConversationTechnical, .emailRenderPreview, .emailVerification > details, .emailComposer section details, .emailReplyComposer section details) > summary::marker { color: var(--ui-muted); }
+.glassWorkbench .emailPopup :is(.emailClassification > details, .emailConversationTechnical, .emailRenderPreview, .emailVerification > details, .emailComposer section details, .emailReplyComposer section details) > summary:hover,
+.glassWorkbench .emailPopup :is(.emailClassification > details, .emailConversationTechnical, .emailRenderPreview, .emailVerification > details, .emailComposer section details, .emailReplyComposer section details)[open] > summary {
+  color: var(--ui-ink);
+  background: var(--ui-glass);
+}
+.glassWorkbench .emailPopup :is(.emailClassification > details, .emailConversationTechnical, .emailRenderPreview, .emailVerification > details, .emailComposer section details, .emailReplyComposer section details) > summary:focus-visible {
+  outline: 2px solid var(--ui-blue);
+  outline-offset: 2px;
+}
+.glassWorkbench .emailPopup :is(.emailClassification > details, .emailConversationTechnical, .emailRenderPreview, .emailVerification > details, .emailComposer section details, .emailReplyComposer section details) > :not(summary) { margin: 12px; }
+.glassWorkbench .emailPopup :is(.emailClassification, .emailVerification) blockquote {
+  padding: 10px 12px;
+  border-left: 2px solid var(--ui-input-edge);
+  border-radius: 0 10px 10px 0;
+  background: var(--ui-glass);
+  color: var(--ui-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.glassWorkbench .emailPopup :is(.emailComposer, .emailReplyComposer) section:not(.emailRules) > h4 { margin: 0 0 10px; font-size: var(--font-ui); line-height: var(--line-ui); }
+.glassWorkbench .emailPopup :is(.emailComposer, .emailReplyComposer) > section:not(.emailRules):not([role]),
+.glassWorkbench .emailPopup :is(.emailComposer, .emailReplyComposer) > fieldset > section {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--email-line);
+  border-radius: 16px;
+  background: var(--email-reading);
+}
+.glassWorkbench .emailPopup :is(.emailComposer, .emailReplyComposer) section:not(.emailRules) > ul { padding-left: 20px; }
+.glassWorkbench .emailPopup :is(.emailComposer, .emailReplyComposer) section:not(.emailRules) li { margin-block: 10px; overflow-wrap: anywhere; }
+.glassWorkbench .emailPopup :is(.emailComposer, .emailReplyComposer) section details > code {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--ui-glass);
+  font: var(--font-code)/var(--line-code) var(--mono);
+  overflow-wrap: anywhere;
+}
+.glassWorkbench .emailPopup .emailVerification { margin-block: 14px; }
+.glassWorkbench .emailVerification > div { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.glassWorkbench .emailVerification > div > code {
+  padding: 9px 12px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 12px;
+  background: var(--ui-glass);
+  color: var(--ui-ink);
+  font-family: var(--mono);
+  font-size: var(--font-section);
+  letter-spacing: .08em;
+  overflow-wrap: anywhere;
+}
+.glassWorkbench .emailPopup :is(.emailComposer, .emailReplyComposer, .emailVerification) > [role="alert"] { color: var(--crimson-danger); }
+.glassWorkbench .emailPopup .emailProgress { border-color: var(--ui-input-edge); border-radius: 8px; padding: 3px 7px; }
+.glassWorkbench .emailPopup :is(.emailComposer, .emailReplyComposer) section[role="region"] > .emailTextButton { margin: 6px 6px 0 0; }
+.glassWorkbench .emailPopup button:disabled { box-shadow: none; }
+@media (max-width: 720px) {
+  .glassWorkbench .emailPopup { border: 0; border-radius: 0; }
+  .glassWorkbench .emailPopupHeader { min-height: 68px; padding-block: 12px; }
+  .glassWorkbench .emailFilters { padding-block: 10px; }
+  .glassWorkbench .emailToolbarActions { gap: 4px; }
+  .glassWorkbench .emailToolbarActions .emailTextButton { min-height: 36px; padding-inline: 8px; }
+  .glassWorkbench .emailSyncBar { gap: 7px; }
+  .glassWorkbench .emailCategoryPane { padding: 8px; }
+  .glassWorkbench .emailCategoryTabs button { min-height: 40px; gap: 4px; font-size: var(--font-label); line-height: var(--line-label); }
+  .glassWorkbench .emailReplyComposer { padding: 16px; }
+  .glassWorkbench .emailPopup :is(.emailCapacityWarning, .emailLoginRecovery) { padding-inline: 16px; }
+  .glassWorkbench .emailPopup :is(.emailRules, .emailSyncDetails) { max-height: 32dvh; }
+  .glassWorkbench .emailCleanup label { flex: 1 1 100%; }
+  .glassWorkbench .emailCleanup input[type="date"] { flex: 1 1 150px; }
+  .glassWorkbench .emailRule > select { flex: 1 1 130px; max-width: 100%; }
+  .glassWorkbench .emailEventEdit form { min-width: 0; }
+  .glassWorkbench .emailDetailHeader > .emailEventEdit:has(form) { display: block; margin-right: 0; }
+  .glassWorkbench .emailPopup :is(.emailComposer, .emailReplyComposer) section[role="region"] > .emailTextButton { width: 100%; justify-content: center; margin-inline: 0; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glassWorkbench .emailPopup,
+  .glassWorkbench .emailPopup::backdrop { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .glassWorkbench .emailPopup { background: var(--surface); }
+}

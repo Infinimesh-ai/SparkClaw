@@ -4,15 +4,18 @@ import type { Copy as CopyText } from "../i18n";
 import type { VoiceInputModel, VoiceInputState } from "../hooks/useVoiceInput";
 import { voiceCaptureFailureLabel, voiceInputLabel, voiceInputTitle } from "../lib/voiceLabels";
 import { voicePhaseIsRecording } from "../lib/voiceState";
+import { ActionIcon } from "./ActionIcon";
 
 export function VoiceInputControl({
   voice,
   text,
-  onToggle
+  onToggle,
+  home = false
 }: {
   voice: VoiceInputModel;
   text: CopyText;
   onToggle: () => void;
+  home?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement | null>(null);
@@ -22,12 +25,12 @@ export function VoiceInputControl({
   const previewError = voiceCaptureFailureLabel(voice.previewErrorCode, "", text);
   const recording = state !== "disabled" && voicePhaseIsRecording(state);
   const icon = state === "disabled"
-    ? <MicOff size={18} />
+    ? home ? <ActionIcon name="microphone-off" /> : <MicOff size={18} />
     : recording
       ? <Square size={16} fill="currentColor" />
       : state !== "idle" && state !== "error" && state !== "retryable_error" && state !== "pending_insert"
         ? <LoaderCircle className="spin" size={18} />
-        : <Mic size={18} />;
+        : home ? <ActionIcon name="microphone" active={open} /> : <Mic size={18} />;
 
   useEffect(() => {
     if (!open) return;

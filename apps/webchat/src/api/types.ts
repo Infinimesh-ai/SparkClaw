@@ -605,7 +605,9 @@ export type EmailProviderStatus = {
   display_name: string;
   enabled: boolean;
   default: boolean;
-  account: "default";
+  account: string;
+  account_id?: string;
+  multi_account_available?: boolean;
   account_hint?: string;
   state: EmailProviderState;
   last_checked_at?: string;

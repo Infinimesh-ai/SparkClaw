@@ -5,7 +5,7 @@
 // the injected callbacks, so behavior is unchanged.
 import { useCallback, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { FileSearch, Gauge, MemoryStick, ScrollText, Settings, ShieldAlert } from "lucide-react";
+import { ActionIcon } from "./ActionIcon";
 import { api, APIError, clearAPIToken } from "../api/client";
 import type { Copy, Language } from "../i18n";
 import { isBindingSetupPending } from "../lib/connectors";
@@ -363,29 +363,29 @@ export function InspectorColumn({
       <div className="inspectorTitle">INSPECTOR</div>
       {showTabs && <div className="tabs">
         <button className={tab === "timeline" ? "selected" : ""} onClick={() => onTabChange("timeline")} title={text.tabs.timeline}>
-          <FileSearch size={16} />
+          <ActionIcon name="timeline" size={18} />
           <span>{text.tabs.timeline}</span>
         </button>
         <button className={tab === "approvals" ? "selected" : ""} onClick={() => onTabChange("approvals")} title={text.tabs.approvals}>
-          <ShieldAlert size={16} />
+          <ActionIcon name="permissions" size={18} />
           <span>{text.tabs.approvals}</span>
           {pendingApprovalCount > 0 && <small>{pendingApprovalCount}</small>}
         </button>
         <button className={tab === "memory" ? "selected" : ""} onClick={() => onTabChange("memory")} title={text.tabs.memory}>
-          <MemoryStick size={16} />
+          <ActionIcon name="memory" size={18} />
           <span>{text.tabs.memory}</span>
           {pendingCandidateCount > 0 && <small>{pendingCandidateCount}</small>}
         </button>
         <button className={tab === "trace" ? "selected" : ""} onClick={() => onTabChange("trace")} title={text.tabs.trace}>
-          <ScrollText size={16} />
+          <ActionIcon name="document" size={18} />
           <span>{text.tabs.trace}</span>
         </button>
         <button className={tab === "status" ? "selected" : ""} onClick={() => onTabChange("status")} title={text.tabs.status}>
-          <Gauge size={16} />
+          <ActionIcon name="info" size={18} />
           <span>{text.tabs.status}</span>
         </button>
         <button className={tab === "settings" ? "selected" : ""} onClick={() => onTabChange("settings")} title={text.tabs.settings}>
-          <Settings size={16} />
+          <ActionIcon name="settings" size={18} />
           <span>{text.tabs.settings}</span>
         </button>
       </div>}

@@ -3,6 +3,25 @@ import { describe, expect, it } from "vitest";
 import { dictionaries } from "../i18n";
 import { MessageAttachments, MessageBubble, TaskProgressMessage } from "./messages";
 
+describe("completed assistant messages", () => {
+  it.each(["en", "zh"] as const)("keeps the answer and activity without feedback controls in %s", language => {
+    const text = dictionaries[language];
+    const markup = renderToStaticMarkup(<MessageBubble
+      message={{ id: "answer", session_id: "session", role: "assistant", run_id: "completed-run", content: "A **finished answer**.\n\nAnother paragraph.", created_at: "" }}
+      streamStatuses={[{ id: "tool", type: "tool_completed", text: "File read complete" }]}
+      text={text} language={language} />);
+
+    expect(markup).toContain('class="message assistant"');
+    expect(markup).toMatch(/<strong\b[^>]*>finished answer<\/strong>/);
+    expect(markup).toContain("Another paragraph.");
+    expect(markup).toContain("File read complete");
+    expect(markup).not.toContain("feedbackBar");
+    expect(markup).not.toContain("lucide-thumbs");
+    expect(markup).not.toContain("<input");
+    expect(markup).not.toMatch(/title="(?:Mark helpful|Mark not helpful|Save correction|标记有用|标记无用|保存修正)"/);
+  });
+});
+
 describe("task progress in the answer", () => {
   it.each(["en", "zh"] as const)("shows an accessible immediate answer placeholder in %s", language => {
     const markup = renderToStaticMarkup(<TaskProgressMessage id="request" sessionId="session" createdAt="" text={dictionaries[language]} language={language} />);

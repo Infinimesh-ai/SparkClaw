@@ -35,8 +35,14 @@ import type {
 import type { Copy as CopyText, Language } from "../../i18n";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { formatRisk, parseToolList, profileLabel, rateLimitLabel, retentionLabel } from "../../lib/format";
-import { currentTextSize, currentTheme, setTextSize, setTheme, type TextSize, type Theme } from "../../lib/appearance";
+import {
+  currentMotion, currentReadingWidth, currentTextSize, currentTheme, currentTransparency,
+  setMotion, setReadingWidth, setTextSize, setTheme, setTransparency,
+  type Motion, type ReadingWidth, type TextSize, type Theme, type Transparency
+} from "../../lib/appearance";
+import { AppearancePreview } from "../AppearancePreview";
 import { ExternalMCPSettings } from "../externalMCPSettings";
+import { ConnectionIcon } from "../ConnectionIcon";
 import { SectionHeader } from "./primitives";
 import { ConnectorBindingSettings } from "./settingsBindings";
 import { PairedClientsSettings, type ClientSettingsActions } from "./settingsClients";
@@ -146,6 +152,9 @@ export function SettingsPanel({
   const [statusError, setStatusError] = useState("");
   const [theme, updateTheme] = useState<Theme>(() => currentTheme());
   const [textSize, updateTextSize] = useState<TextSize>(() => currentTextSize());
+  const [readingWidth, updateReadingWidth] = useState<ReadingWidth>(() => currentReadingWidth());
+  const [transparency, updateTransparency] = useState<Transparency>(() => currentTransparency());
+  const [motion, updateMotion] = useState<Motion>(() => currentMotion());
   const [loginStartup, setLoginStartup] = useState<{ supported: boolean; enabled: boolean } | null>(null);
   const [loginBusy, setLoginBusy] = useState(false);
   const policyAction = useAsyncAction({ clearError: () => setPolicyError(""), onError: (error) => setPolicyError(error instanceof Error ? error.message : String(error)) });
@@ -237,15 +246,29 @@ export function SettingsPanel({
 
   if (section === "appearance") {
     const surface = settingsSurfaceCopy[language];
-    return <div className="panelStack settingsPanel settingsSurface">
+    return <div className="panelStack settingsPanel settingsSurface settingsAppearance">
+      <AppearancePreview language={language} readingWidth={readingWidth} motion={motion} />
+      <div className="settingsAppearanceControls">
       <section className="settingsSurfaceSection"><h2>{surface.interface}</h2>
         <div className="settingsSurfaceRow"><span className="settingsSurfaceCopy"><strong>{surface.theme}</strong><small>{surface.themeDescription}</small></span>
           <div className="settingsSegmented" role="group" aria-label={surface.theme}>{(["system", "light", "dark"] as const).map((value) => <button key={value} type="button" className={theme === value ? "selected" : ""} aria-pressed={theme === value} onClick={() => { setTheme(value); updateTheme(value); }}>{surface[value]}</button>)}</div>
         </div>
         <label className="settingsSurfaceRow"><span className="settingsSurfaceCopy"><strong>{surface.textSize}</strong><small>{surface.textSizeDescription}</small></span>
-          <select aria-label={surface.textSize} value={textSize} onChange={(event) => { const value = event.target.value as TextSize; setTextSize(value); updateTextSize(value); }}><option value="default">{surface.defaultSize}</option><option value="large">{surface.largeSize}</option></select>
+          <select aria-label={surface.textSize} value={textSize} onChange={(event) => { const value = event.target.value as TextSize; setTextSize(value); updateTextSize(value); }}><option value="small">{surface.smallSize}</option><option value="default">{surface.defaultSize}</option><option value="large">{surface.largeSize}</option></select>
+        </label>
+        <label className="settingsSurfaceRow"><span className="settingsSurfaceCopy"><strong>{surface.readingWidth}</strong><small>{surface.readingWidthDescription}</small></span>
+          <select aria-label={surface.readingWidth} value={readingWidth} onChange={(event) => { const value = event.target.value as ReadingWidth; setReadingWidth(value); updateReadingWidth(value); }}><option value="standard">{surface.standardWidth}</option><option value="wide">{surface.wideWidth}</option></select>
         </label>
       </section>
+      <section className="settingsSurfaceSection"><h2>{surface.visualEffects}</h2>
+        <label className="settingsSurfaceRow"><span className="settingsSurfaceCopy"><strong>{surface.transparency}</strong><small>{surface.transparencyDescription}</small></span>
+          <select aria-label={surface.transparency} value={transparency} onChange={(event) => { const value = event.target.value as Transparency; setTransparency(value); updateTransparency(value); }}><option value="system">{surface.followSystem}</option><option value="reduced">{surface.reduceTransparency}</option></select>
+        </label>
+        <label className="settingsSurfaceRow"><span className="settingsSurfaceCopy"><strong>{surface.motion}</strong><small>{surface.motionDescription}</small></span>
+          <select aria-label={surface.motion} value={motion} onChange={(event) => { const value = event.target.value as Motion; setMotion(value); updateMotion(value); }}><option value="system">{surface.followSystem}</option><option value="reduced">{surface.reduceMotion}</option></select>
+        </label>
+      </section>
+      </div>
     </div>;
   }
 
@@ -434,10 +457,10 @@ export function SettingsPanel({
         <SettingsStatus available={connectors.length > 0} busy={checkingStatus} error={statusError} surface={surface} onCheck={() => void checkStatus(section)} />
         <section className="settingsSurfaceSection">
           <h2>{surface.messagingChannels}</h2>
-          <ConnectionRow icon={<Mail size={17} />} title={surface.email} description={surface.emailDescription} action={surface.manage} onClick={() => setDetail("browser-email")} />
+          <ConnectionRow icon={<ConnectionIcon name="email" />} title={surface.email} description={surface.emailDescription} action={surface.manage} onClick={() => setDetail("browser-email")} />
           {messageConnectors.map((connector) => <ConnectionRow
             key={connector.channel}
-            icon={<MessageSquare size={17} />}
+            icon={<ConnectionIcon name={connector.channel === "telegram" ? "telegram" : "weixin"} />}
             title={connectorTitle(connector, text)}
             description={`${connector.provider ? `${connector.provider} · ` : ""}${connector.state === "status_pending" ? surface.statusPending : connectorDirectoryStatus(connector, text)}`}
             status={connector.state === "status_pending" ? undefined : connector.enabled ? text.settings.active : text.common.disabled}
@@ -449,11 +472,11 @@ export function SettingsPanel({
 
         <section className="settingsSurfaceSection">
           <h2>{surface.services}</h2>
-          <ConnectionRow icon={<Cable size={17} />} title={text.settings.browserControl} description={text.settings.browserControlSharedProfile} action={surface.manage} onClick={() => setDetail("browser-control")} />
-          <ConnectionRow icon={<Bot size={17} />} title={text.settings.aiPlatformLogin} description={text.settings.aiPlatformNames} action={surface.manage} onClick={() => setDetail("ai-platform-login")} />
-          <ConnectionRow icon={<DatabaseZap size={17} />} title={text.settings.info} description={integrationDirectoryStatus(infoStatus, integrationLoadFailed, text)} action={surface.manage} onClick={() => setDetail("info")} />
-          <ConnectionRow icon={<Network size={17} />} title={text.settings.localMind} description={integrationDirectoryStatus(localMindStatus, integrationLoadFailed, text)} action={surface.manage} onClick={() => setDetail("localmind")} />
-          <ConnectionRow icon={<Cable size={17} />} title={text.settings.externalMCP} description={connectors.find((item) => item.channel === "mcp")?.enabled ? text.settings.active : text.common.disabled} action={surface.manage} onClick={() => setDetail("external-mcp")} />
+          <ConnectionRow icon={<ConnectionIcon name="browser" />} title={text.settings.browserControl} description={text.settings.browserControlSharedProfile} action={surface.manage} onClick={() => setDetail("browser-control")} />
+          <ConnectionRow icon={<ConnectionIcon name="ai-login" />} title={text.settings.aiPlatformLogin} description={text.settings.aiPlatformNames} action={surface.manage} onClick={() => setDetail("ai-platform-login")} />
+          <ConnectionRow icon={<ConnectionIcon name="info" />} title={text.settings.info} description={integrationDirectoryStatus(infoStatus, integrationLoadFailed, text)} action={surface.manage} onClick={() => setDetail("info")} />
+          <ConnectionRow icon={<ConnectionIcon name="localmind" />} title={text.settings.localMind} description={integrationDirectoryStatus(localMindStatus, integrationLoadFailed, text)} action={surface.manage} onClick={() => setDetail("localmind")} />
+          <ConnectionRow icon={<ConnectionIcon name="mcp" />} title={text.settings.externalMCP} description={connectors.find((item) => item.channel === "mcp")?.enabled ? text.settings.active : text.common.disabled} action={surface.manage} onClick={() => setDetail("external-mcp")} />
         </section>
       </div>
     );
@@ -679,7 +702,18 @@ const settingsSurfaceCopy = {
     system: "跟随系统", light: "浅色", dark: "深色",
     textSize: "文字大小",
     textSizeDescription: "调整整个界面的阅读尺寸。",
-    defaultSize: "默认", largeSize: "较大",
+    smallSize: "较小", defaultSize: "默认", largeSize: "较大",
+    readingWidth: "阅读宽度",
+    readingWidthDescription: "调整对话内容和输入框的最大宽度。",
+    standardWidth: "标准", wideWidth: "宽屏",
+    visualEffects: "视觉效果",
+    followSystem: "跟随系统",
+    transparency: "透明效果",
+    transparencyDescription: "减少透明与模糊，让界面更清晰。",
+    reduceTransparency: "减少透明效果",
+    motion: "动态效果",
+    motionDescription: "减少界面动效，直接显示回复内容。",
+    reduceMotion: "减少动态效果",
     tools: "工具",
     toolLabels: { web: "网络访问", files: "工作区文件", shell: "终端命令", "file-changes": "文件变更", external: "外部操作" },
     toolDescriptions: { web: "允许任务浏览网站并获取实时信息。", files: "允许任务读取和处理工作区文件。", shell: "在审批策略下运行本地命令。", "file-changes": "", external: "" },
@@ -714,7 +748,18 @@ const settingsSurfaceCopy = {
     system: "System", light: "Light", dark: "Dark",
     textSize: "Text size",
     textSizeDescription: "Adjust the reading size across the interface.",
-    defaultSize: "Default", largeSize: "Large",
+    smallSize: "Small", defaultSize: "Default", largeSize: "Large",
+    readingWidth: "Reading width",
+    readingWidthDescription: "Set the maximum width of messages and the composer.",
+    standardWidth: "Standard", wideWidth: "Wide",
+    visualEffects: "Visual effects",
+    followSystem: "Follow system",
+    transparency: "Transparency",
+    transparencyDescription: "Reduce transparency and blur for clearer surfaces.",
+    reduceTransparency: "Reduce transparency",
+    motion: "Motion",
+    motionDescription: "Reduce interface animation and reveal replies immediately.",
+    reduceMotion: "Reduce motion",
     tools: "Tools",
     toolLabels: { web: "Web access", files: "Workspace files", shell: "Shell commands", "file-changes": "File changes", external: "External actions" },
     toolDescriptions: { web: "Allow tasks to browse sites and retrieve current information.", files: "Allow tasks to read and work with workspace files.", shell: "Run local commands under your approval policy.", "file-changes": "", external: "" },

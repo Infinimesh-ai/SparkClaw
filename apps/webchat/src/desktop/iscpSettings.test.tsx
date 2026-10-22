@@ -59,9 +59,11 @@ it.each(["en", "zh"] as const)("uses the same original general and appearance ma
   try {
     for (const section of ["general", "appearance"] as const) {
       await act(async () => root.render(<SettingsPanel key={`direct-${section}`} {...props} section={section} text={dictionaries[language]} language={language} onLanguageChange={vi.fn()} />));
-      const original = host.innerHTML;
+      // Remounting allocates new React ids; compare the markup they label.
+      const markup = () => host.innerHTML.replace(/_r_[0-9a-z]+_/g, "_r_id_");
+      const original = markup();
       await act(async () => root.render(<SettingsPanel key={`iscp-${section}`} {...props} section={section} access={desktopSettingsAccess(connection(false), language)} text={dictionaries[language]} language={language} onLanguageChange={vi.fn()} />));
-      expect(host.innerHTML).toBe(original);
+      expect(markup()).toBe(original);
     }
     expect(integrations).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); }

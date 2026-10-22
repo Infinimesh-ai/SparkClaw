@@ -5,7 +5,7 @@
 // Message sending and the voice hook stay in the parent.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, FormEvent, KeyboardEvent, MutableRefObject, ReactNode, SetStateAction } from "react";
-import { ArrowUp, FileSearch, Upload, X } from "lucide-react";
+import { FileSearch, X } from "lucide-react";
 import { api, openDocumentFile } from "../api/client";
 import type { Copy as CopyText, Language } from "../i18n";
 import { isImageAttachment, isImageContentType, WorkspaceFileImage } from "./messages";
@@ -26,6 +26,7 @@ import type { ArtifactObject, MessageAttachment } from "../api/types";
 import { useDismissibleLayer } from "../hooks/useDismissibleLayer";
 import { EmailPopupEntry } from "./emailPopup";
 import type { VoiceInputModel } from "../hooks/useVoiceInput";
+import { ActionIcon } from "./ActionIcon";
 
 // Creating a conversation can move a welcome upload before its promise settles.
 // Keep failure ownership tied to that operation, not the currently visible chat.
@@ -59,6 +60,7 @@ export type ComposerSurfaceProps = {
   onOpenAttachment: (attachment: MessageAttachment) => void | Promise<void>;
   onRemoveAttachment: (attachment: MessageAttachment) => void;
   onSend: () => void;
+  onOpenModels?: () => void;
 };
 
 // The composer chrome is shared by the browser/Linux workbench and the workbench
@@ -87,7 +89,8 @@ export function ComposerSurface({
   onChooseDocument,
   onOpenAttachment,
   onRemoveAttachment,
-  onSend
+  onSend,
+  onOpenModels
 }: ComposerSurfaceProps) {
   const [isComposingInput, setIsComposingInput] = useState(false);
   const [compositionEndedAt, setCompositionEndedAt] = useState(0);
@@ -203,15 +206,19 @@ export function ComposerSurface({
           if (file) void upload(file);
         }} />
       <button className="uploadButton" type="button" disabled={uploadDisabled}
-        title={uploading || uploadingDocument ? text.chat.uploading : text.chat.upload} onClick={() => uploadInputRef.current?.click()}><Upload size={18} /></button>
+        title={uploading || uploadingDocument ? text.chat.uploading : text.chat.upload} onClick={() => uploadInputRef.current?.click()}><ActionIcon name="upload" /></button>
       <button className="uploadButton" type="button" disabled={approvalPending || busy || choosingDocument || !canCompose || !filesEnabled}
-        title={choosingDocument ? text.chat.choosingFile : text.chat.chooseFile} onClick={() => void onChooseDocument()}><FileSearch size={18} /></button>
-      <EmailPopupEntry text={text} language={language} enabled={mailEnabled && !approvalPending} suspended={approvalPending} />
-      <VoiceInputControl voice={approvalPending ? { ...voice, disabled: true } : voice} text={text} onToggle={() => { if (!approvalPending) voice.toggle(currentVoiceAnchor()); }} />
+        title={choosingDocument ? text.chat.choosingFile : text.chat.chooseFile} onClick={() => void onChooseDocument()}><ActionIcon name="document" /></button>
+      <EmailPopupEntry text={text} language={language} enabled={mailEnabled && !approvalPending} suspended={approvalPending} home />
+      <VoiceInputControl voice={approvalPending ? { ...voice, disabled: true } : voice} text={text} home onToggle={() => { if (!approvalPending) voice.toggle(currentVoiceAnchor()); }} />
       <textarea rows={1} ref={composerInputRef} value={activeInput} onChange={(event) => { if (!approvalPending) onInputChange(event.target.value); }} onKeyDown={keyDown}
         onCompositionStart={() => setIsComposingInput(true)} onCompositionEnd={() => { setIsComposingInput(false); setCompositionEndedAt(Date.now()); }}
         placeholder={text.chat.placeholder} aria-label={text.chat.placeholder} disabled={approvalPending || busy || !canCompose} />
-      <button className="sendButton" disabled={approvalPending || busy || uploading || uploadingDocument || !canSend || voice.active || (!activeInput.trim() && activeAttachments.length === 0)} title={text.chat.send}><ArrowUp size={18} /></button>
+      {onOpenModels && <button className="composerModelButton" type="button" onClick={onOpenModels} disabled={approvalPending}
+        aria-label={language === "zh" ? "模型与工具" : "Models & tools"} title={language === "zh" ? "模型与工具" : "Models & tools"}>
+        <ActionIcon name="settings" /><span>{language === "zh" ? "模型与工具" : "Models & tools"}</span>
+      </button>}
+      <button className="sendButton" disabled={approvalPending || busy || uploading || uploadingDocument || !canSend || voice.active || (!activeInput.trim() && activeAttachments.length === 0)} title={text.chat.send}><ActionIcon name="arrow-up" /></button>
       <VoiceInputStatus state={voice.state} level={voice.level} elapsedMs={voice.elapsedMs} partialText={voice.partialText}
         partialFrozen={voice.partialFrozen} label={voiceLabel} retryable={voice.retryable} pendingInsert={voice.hasPendingTranscript}
         text={text} onRetry={() => { if (!approvalPending) voice.retry(); }} onInsertPending={() => { if (!approvalPending) voice.insertPending(currentVoiceAnchor()); }} onDismiss={() => void voice.cancel()} />
@@ -265,7 +272,7 @@ export function ComposerDocumentPicker({
         {sortedDocuments.map((document) => {
           const usage = documentUsage[document.key];
           return <button className="finderRow file" key={document.id} type="button" onClick={() => choose(document)}>
-            <span className="finderName fileName"><FileSearch size={16} /><strong>{fileNameFromPath(document.key)}</strong></span>
+            <span className="finderName fileName"><ActionIcon name="document" /><strong>{fileNameFromPath(document.key)}</strong></span>
             <span>{usage ? `${usage.count} ${text.chat.usedTimes}` : text.chat.neverUsed}</span>
             <span>{usage ? formatDateTime(usage.last_used_at, language) : "--"}</span>
             <span>{formatBytes(document.bytes)}</span><span>{fileKindLabel(document)}</span>
@@ -296,6 +303,7 @@ type ComposerDockProps = {
   setError: (message: string) => void;
   refreshGlobal: () => Promise<void>;
   onSend: () => void;
+  onOpenModels?: () => void;
 };
 
 export function ComposerDock({
@@ -315,7 +323,8 @@ export function ComposerDock({
   setAttachmentsBySession,
   setError,
   refreshGlobal,
-  onSend
+  onSend,
+  onOpenModels
 }: ComposerDockProps) {
   const [availableDocuments, setAvailableDocuments] = useState<ArtifactObject[]>([]);
   const [choosingDocument, setChoosingDocument] = useState(false);
@@ -406,7 +415,7 @@ export function ComposerDock({
         onInputChange={(value) => setDraftsBySession((current) => ({ ...current, [activeSession]: value }))}
         onUploadDocument={(file) => uploadDocument(file)} onChooseDocument={openDocumentPicker}
         onOpenAttachment={(attachment) => openDocumentFile(attachment.rel_path, activeSession).catch(() => undefined)}
-        onRemoveAttachment={(attachment) => removeAttachment(activeSession, attachment)} onSend={onSend} />
+        onRemoveAttachment={(attachment) => removeAttachment(activeSession, attachment)} onSend={onSend} onOpenModels={onOpenModels} />
       {documentPickerOpen && !approvalPending && <ComposerDocumentPicker documents={availableDocuments} text={text} language={language}
         onChoose={chooseAvailableDocument} onClose={() => setDocumentPickerOpen(false)} />}
     </>

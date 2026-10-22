@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, CircleAlert, LoaderCircle, LogIn, Mail, RefreshCw, Star } from "lucide-react";
+import { CheckCircle2, CircleAlert, LoaderCircle, LogIn, RefreshCw, Star } from "lucide-react";
 import { api, APIError } from "../../api/client";
 import type { EmailProviderState, EmailProviderStatus } from "../../api/types";
 import type { Copy } from "../../i18n";
+import { ProviderBrandIcon } from "../ProviderBrandIcon";
 
 type Feedback = {
   tone: "success" | "error";
@@ -127,7 +128,7 @@ export function BrowserEmailSettings({ text, backendLoginNotice, loginAvailable 
           const toggleTitle = provider.enabled ? text.settings.browserEmailDisable : text.settings.browserEmailEnable;
           return (
             <div className={`emailProviderRow ${provider.default ? "selected" : ""}`} key={provider.provider}>
-              <span className="credentialIcon"><Mail size={16} /></span>
+              <span className="credentialIcon"><ProviderBrandIcon name={provider.provider} /></span>
               <div className="credentialIdentity">
                 <strong>{provider.display_name}</strong>
                 <small>{state}{provider.account_hint ? ` · ${provider.account_hint}` : ""}</small>

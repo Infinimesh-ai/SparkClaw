@@ -65,6 +65,21 @@ describe("useAsyncAction", () => {
     await act(async () => { resolveTask?.(); await completion; });
   });
 
+  it("locks synchronously even when a confirmation resumes an older run callback", async () => {
+    let resolveTask!: () => void;
+    const firstTask = new Promise<void>(resolve => { resolveTask = resolve; });
+    const second = vi.fn(async () => {});
+    const hook = renderHook();
+    const oldRun = hook.value().run;
+    let completion!: Promise<void | undefined>;
+    await act(async () => {
+      completion = oldRun("first", () => firstTask);
+      await oldRun("second", second);
+    });
+    expect(second).not.toHaveBeenCalled();
+    await act(async () => { resolveTask(); await completion; });
+  });
+
   it("does not write state or report errors after unmount", async () => {
     let rejectTask: ((error: Error) => void) | undefined;
     const task = new Promise<void>((_resolve, reject) => { rejectTask = reject; });

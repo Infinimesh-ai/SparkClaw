@@ -1,0 +1,100 @@
+/* Shared native pickers keep form semantics, keyboard selection and top-layer
+   placement. Engines without base-select retain their original native menus. */
+@supports (appearance: base-select) {
+  .glassWorkbench select:not([multiple]),
+  .glassWorkbench select:not([multiple])::picker(select) {
+    appearance: base-select;
+  }
+
+  .glassWorkbench select:not([multiple]) { align-items: center; gap: 12px; }
+  .glassWorkbench .settingsSurfaceRow select { padding-inline: 12px; }
+  .glassWorkbench select:not([multiple])::picker-icon {
+    content: "";
+    flex: 0 0 16px;
+    align-self: center;
+    width: 16px;
+    height: 16px;
+    margin-inline-start: auto;
+    margin-inline-end: 0;
+    color: var(--ui-muted);
+    background: currentColor;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+    rotate: 0deg;
+    transition: rotate 120ms ease;
+  }
+  .glassWorkbench select:not([multiple]):open::picker-icon { rotate: 180deg; }
+
+  .glassWorkbench select:not([multiple])::picker(select) {
+    /* Every select has an implicit anchor. Align its end edge, then let the
+       browser flip the menu when the viewport leaves less room on that side. */
+    position: fixed;
+    inset: auto;
+    position-area: block-end span-inline-start;
+    justify-self: end;
+    align-self: start;
+    position-try-order: normal;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+    inline-size: max-content;
+    min-inline-size: anchor-size(width);
+    max-inline-size: min(28rem, calc(100dvw - 24px));
+    max-block-size: min(320px, calc(100dvh - 32px));
+    box-sizing: border-box;
+    margin: 8px 0;
+    padding: 6px;
+    border: 1px solid var(--ui-glass-edge);
+    border-radius: 16px;
+    color: var(--ui-ink);
+    background: var(--ui-solid);
+    box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 12px 32px var(--ui-glass-shadow);
+    font-family: var(--font-sans);
+    font-size: var(--font-ui);
+    line-height: var(--line-ui);
+    text-align: start;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .glassWorkbench select:not([multiple]) option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-block-size: 40px;
+    padding: 9px 10px;
+    border-radius: 10px;
+    color: var(--ui-muted);
+    background: transparent;
+    font: inherit;
+    text-align: start;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+  .glassWorkbench select:not([multiple]) option:checked {
+    color: var(--ui-ink);
+    background: color-mix(in srgb, var(--ui-blue) 10%, transparent);
+    font-weight: 600;
+  }
+  .glassWorkbench select:not([multiple]) option:not(:disabled):is(:hover, :focus-visible) {
+    color: var(--ui-ink);
+    background: var(--ui-glass-strong);
+    outline: none;
+  }
+  .glassWorkbench select:not([multiple]) option:disabled { color: var(--ui-disabled); cursor: not-allowed; }
+  .glassWorkbench select:not([multiple]) option::checkmark {
+    order: 1;
+    flex-shrink: 0;
+    margin-inline-start: auto;
+    color: var(--ui-blue);
+  }
+
+  /* The mailbox trigger has its own displayed value and chevron. Only its
+     menu needs the wider address-reading measure. */
+  .glassWorkbench .emailAddressFilter select::picker(select) {
+    min-inline-size: min(240px, calc(100dvw - 24px));
+    inline-size: max(240px, anchor-size(width));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glassWorkbench select::picker-icon { transition: none; }
+}

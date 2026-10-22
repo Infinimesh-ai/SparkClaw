@@ -2,8 +2,8 @@ import { VoiceDraftPersistence } from "./lib/voiceDraftPersistence";
 import { useBrowserLayout } from "./hooks/useBrowserLayout";
 import { useMessageScroll } from "./hooks/useMessageScroll";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { KeyRound, Globe2, PanelLeft, PanelRight, PlugZap, Plus, X } from "lucide-react";
-import { TaskSearch, WorkbenchWelcome, workbenchCopy, type WorkspacePage } from "./components/workbench";
+import { ArrowLeft, PlugZap, Plus, X } from "lucide-react";
+import { TaskSearch, WorkbenchWelcome, WorkbenchSuggestions, workbenchCopy, type WorkspacePage } from "./components/workbench";
 import { WorkbenchRequests } from "./components/workbenchRequests";
 import { api, APIError, apiToken, clearAPIToken, saveAPIToken, streamWorkbenchInvalidations } from "./api/client";
 import { dictionaries, initialLanguage, LANGUAGE_STORAGE_KEY } from "./i18n";
@@ -23,6 +23,7 @@ import type { PanelTab } from "./components/inspector";
 import { ComposerDock } from "./components/composer";
 import { pendingSessionApprovals, SessionComposerApprovals } from "./components/sessionComposerApprovals";
 import { NotificationCenter } from "./components/notificationCenter";
+import { ActionIcon } from "./components/ActionIcon";
 import { ScheduleBar, ScheduleCreateDialog } from "./components/schedules";
 import { SessionSidebar } from "./components/sidebar";
 import { WorkspaceSettingsSidebar } from "./components/settingsSidebar";
@@ -810,7 +811,7 @@ export function App() {
   const settingsPageDescription = tab === "memory" || tab === "approvals" ? "" : copy.settingsDescriptions[tab];
 
   return (
-    <main className={`shell workbench ${page === "settings" ? "settingsPageMode" : ""} ${sidebarCollapsed ? "sidebarCollapsed" : ""} ${ready?.ok ? "gateway-ready" : "gateway-offline"}`}>
+    <main className={`shell workbench glassWorkbench ${showHome ? "homePresentation" : ""} ${page === "settings" ? "settingsPageMode" : ""} ${sidebarCollapsed ? "sidebarCollapsed" : ""} ${ready?.ok ? "gateway-ready" : "gateway-offline"}`}>
       <div className="connectionBar" aria-hidden="true" />
       {desktop && desktopConnectionState !== "connected" ? <div className="desktopConnectionBanner" role="status">
         <span>{text.auth.desktopConnection[desktopConnectionState as keyof typeof text.auth.desktopConnection] ?? text.auth.desktopConnection.service_unavailable}</span>
@@ -819,6 +820,8 @@ export function App() {
       {page !== "settings" && <SessionSidebar
         text={text}
         language={language}
+        home={showHome}
+        searchOpen={searchOpen}
         page={page}
         ownerProfile={ownerProfile}
         onNavigate={(next) => { if (next === "chat") { if (messages.length) void newTask(); else navigate(next); } else navigate(next); }}
@@ -842,10 +845,11 @@ export function App() {
 
       <section ref={browserLayout.workspaceRef} hidden={page === "settings"} className={`workspace ${error ? "hasError" : ""} ${showHome ? "homeWorkspace" : ""} ${fullPanel ? "panelWorkspace" : ""} ${inspectorOpen && page === "chat" ? "withInspector" : ""} ${inspectorResize.resizing ? "resizingInspector" : ""} ${desktopCapability() ? "desktopWorkbench" : ""} ${browserLayout.className}`} style={inspectorResize.style}>
         <header className="topbar">
-          <button className="iconButton sidebarToggle" onClick={() => setSidebarCollapsed(current => !current)} aria-label={copy.toggleNav}><PanelLeft size={18} /></button>
+          <button className="iconButton sidebarToggle" onClick={() => setSidebarCollapsed(current => !current)} aria-label={copy.toggleNav}><ActionIcon name="panel-left" /></button>
           <span className="workspaceLabel">{copy.local}</span>
           <div className="topbarActions">
             <NotificationCenter
+              home={showHome}
               notifications={passiveNotifications.notifications}
               unreadCount={passiveNotifications.unreadCount}
               open={passiveNotifications.open}
@@ -858,7 +862,7 @@ export function App() {
               onRead={passiveNotifications.markRead}
               onReadAll={passiveNotifications.markAllRead}
             />
-            {page === "chat" && <button className={`iconButton rightSidebarToggle ${inspectorOpen ? "active" : ""}`} ref={browserLayout.triggerRef} onClick={toggleBrowser} aria-label={desktop ? browserLayout.visible ? (language === "zh" ? "收起浏览器" : "Collapse browser") : (language === "zh" ? "打开浏览器" : "Open browser") : copy.toggleInspector} aria-expanded={desktop ? browserLayout.visible : inspectorOpen}>{desktop ? <Globe2 size={18} /> : <PanelRight size={18} />}</button>}
+            {page === "chat" && <button className={`iconButton rightSidebarToggle ${inspectorOpen ? "active" : ""}`} ref={browserLayout.triggerRef} onClick={toggleBrowser} aria-label={desktop ? browserLayout.visible ? (language === "zh" ? "收起浏览器" : "Collapse browser") : (language === "zh" ? "打开浏览器" : "Open browser") : copy.toggleInspector} aria-expanded={desktop ? browserLayout.visible : inspectorOpen}><ActionIcon name={desktop ? "globe" : "panel-right"} active={desktop ? browserLayout.visible : inspectorOpen} /></button>}
           </div>
         </header>
 
@@ -879,8 +883,8 @@ export function App() {
                     placeholder={text.auth.gatewayToken}
                     type="password"
                   />
-                  <button type="submit" disabled={!tokenInput.trim()} title={text.common.saveToken}>
-                    <KeyRound size={15} />
+                  <button type="submit" disabled={!tokenInput.trim()} title={text.common.saveToken} aria-label={text.common.saveToken}>
+                    <ActionIcon name="devices" />
                   </button>
                 </form>
               </div>
@@ -889,7 +893,8 @@ export function App() {
         )}
 
         {error && !authRecovery && (ready || !showHome) && (
-          <div className="errorBanner">
+          <div className="errorBanner" role="alert">
+            <ActionIcon name="circle-alert" size={18} className="feedbackStatusIcon" />
             <span>{error}</span>
           </div>
         )}
@@ -903,7 +908,9 @@ export function App() {
           </div>
         )}
 
-        {page === "schedules" && <div className="workbenchPage schedulePage"><div className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div><button className="primaryButton" onClick={() => setScheduleCreateOpen(true)} disabled={busy || voice.active}><Plus size={15} />{copy.newSchedule}</button></div><ScheduleBar
+        {page === "schedules" && <div className="workbenchPage schedulePage">
+          <button className="secondaryButton workbenchPageBack" type="button" onClick={() => navigate("chat")}><ArrowLeft size={16} strokeWidth={1.75} aria-hidden="true" />{copy.backToHome}</button>
+          <div className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div><button className="primaryButton" onClick={() => setScheduleCreateOpen(true)} disabled={busy || voice.active}><Plus size={15} />{copy.newSchedule}</button></div><ScheduleBar
           schedules={schedules}
           open={scheduleBarOpen}
           loading={schedulesRefreshing}
@@ -931,7 +938,7 @@ export function App() {
             onCancel={(requestID) => { void api.cancelWorkbenchRequest(activeSession, requestID).then(() => refreshSession(activeSession)).catch((err) => surfaceError(err, text.errors.message)); }} />
           <div ref={messageScroll.listRef} className="messageList" aria-label={showHome ? text.chat.emptyTitle : undefined}>
             {messages.length === 0 ? (
-              <WorkbenchWelcome language={language} />
+              <WorkbenchWelcome language={language} description />
             ) : (
               messages.map((message) => (
                 <MessageBubble
@@ -950,7 +957,7 @@ export function App() {
                 createdAt={active?.updated_at ?? ""} text={text} language={language} />)}
           </div>
           {messageScroll.away && <div className="messageScrollAction"><button type="button" className="messageLatest" onClick={messageScroll.resume}>{language === "zh" ? "回到最新" : "Return to latest"}</button></div>}
-          {active?.source !== "mcp" && <div className="draftStatus" role="status">
+          {active?.source !== "mcp" && Boolean(activeSession || activeInput || activeAttachments.length) && <div className="draftStatus" role="status">
             {draftAlreadySubmitted && <span>{language === "zh" ? "此版本草稿已提交，请先检查原请求状态。" : "This draft revision was submitted. Check the original request status."} </span>}
             {language === "zh"
               ? drafts.status[activeSession] === "saved" ? "草稿已保存" : drafts.status[activeSession] === "error" ? "草稿尚未保存" : "正在保存草稿…"
@@ -991,8 +998,13 @@ export function App() {
               setError={setError}
               refreshGlobal={refreshGlobal}
               onSend={() => void send()}
+              onOpenModels={showHome ? () => { navigate("settings"); setTab("models-tools"); } : undefined}
             />
           )}
+          {showHome && <WorkbenchSuggestions language={language} disabled={busy || drafts.loaded[activeSession] !== true} onSelect={prompt => {
+            setDraftsBySession(current => ({ ...current, [activeSession]: prompt }));
+            composerInputRef.current?.focus();
+          }} />}
         </section>}
       {page === "chat" && inspectorOpen && (!desktop || browserLayout.visible) && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} onHide={closeBrowser} />}
       {desktop ? browserLayout.mounted && <BrowserPanel language={language} open={inspectorOpen} visible={browserLayout.visible} onCollapse={closeBrowser} wide={browserLayout.wide} onWideChange={browserLayout.setWide} />
@@ -1013,13 +1025,13 @@ export function App() {
         />
         <section className="settingsPageMain">
           <div className="settingsPageContent">
-            {authRecovery && !desktop && <div className="connectionNotice settingsConnectionNotice" role="status">
+            {authRecovery && !desktop && <div className={`connectionNotice settingsConnectionNotice ${pairRuntimeOpen ? "pairing" : ""}`} role="status">
               <span className="connectionNoticeIcon" aria-hidden="true"><PlugZap size={17} /></span>
               <span className="connectionNoticeCopy"><strong>{copy.connectGateway}</strong><small>{copy.connectGatewayDescription}</small></span>
               {pairRuntimeOpen ? <div className="authActions connectionNoticeAuth">
                 <form className="tokenForm" onSubmit={(event) => void submitToken(event)}>
                   <input aria-label={text.auth.gatewayToken} value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} placeholder={text.auth.gatewayToken} type="password" />
-                  <button type="submit" disabled={!tokenInput.trim()} title={text.common.saveToken}><KeyRound size={15} /></button>
+                  <button type="submit" disabled={!tokenInput.trim()} title={text.common.saveToken} aria-label={text.common.saveToken}><ActionIcon name="devices" /></button>
                 </form>
               </div> : <button className="connectionNoticeAction" type="button" onClick={() => setPairRuntimeOpen(true)}>{copy.pairRuntime}</button>}
             </div>}

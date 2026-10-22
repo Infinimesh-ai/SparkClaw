@@ -58,8 +58,17 @@
 }
 
 .notificationInbox > header strong {
-  font-size: var(--font-ui);
-  line-height: var(--line-ui);
+  font-size: var(--font-section);
+  font-weight: 600;
+  line-height: var(--line-section);
+}
+
+.notificationInbox > header .miniIconButton {
+  flex: 0 0 auto;
+  width: var(--control-height-small);
+  height: var(--control-height-small);
+  padding: 0;
+  border-radius: var(--control-radius);
 }
 
 .notificationInbox > header span {
@@ -77,7 +86,7 @@
 
 .notificationItem {
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) 32px;
+  grid-template-columns: 8px minmax(0, 1fr) var(--control-height-small);
   align-items: center;
   gap: 9px;
   min-height: 72px;
@@ -124,8 +133,8 @@
 
 .notificationItem span {
   color: var(--text-secondary);
-  font-size: var(--font-label);
-  line-height: var(--line-label);
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
 }
 
 .notificationItem time {
@@ -140,10 +149,11 @@
 .notificationToast > button {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: var(--control-height-small);
+  height: var(--control-height-small);
+  padding: 0;
   border: 1px solid var(--border-subtle);
-  border-radius: 6px;
+  border-radius: var(--control-radius);
   color: var(--text-secondary);
   background: var(--surface-muted);
 }
@@ -179,7 +189,7 @@
   right: 24px;
   bottom: 24px;
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 32px 32px;
+  grid-template-columns: var(--control-icon-size) minmax(0, 1fr) var(--control-height-small) var(--control-height-small);
   align-items: center;
   gap: 9px;
   width: min(380px, calc(100vw - 32px));
@@ -214,8 +224,8 @@
 
 .notificationToast span {
   color: var(--text-secondary);
-  font-size: var(--font-label);
-  line-height: var(--line-label);
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
 }
 
 .errorBanner {

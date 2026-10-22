@@ -1,0 +1,77 @@
+/* Reading and composing share the accepted workbench material.
+   Keep the real message, attachment and task interactions in place. */
+.glassWorkbench { --chat-user-surface: color-mix(in srgb, var(--ui-blue) 9%, var(--ui-solid)); }
+html[data-resolved-theme="dark"] .glassWorkbench { --chat-user-surface: color-mix(in srgb, var(--ui-blue) 17%, var(--ui-solid)); }
+.workbench.glassWorkbench .messageMeta {
+  color: var(--ui-muted);
+  font-size: var(--font-label);
+  font-weight: 550;
+  line-height: var(--line-label);
+}
+.workbench.glassWorkbench .messageMeta time {
+  flex-shrink: 0;
+  color: var(--ui-muted);
+  font-size: var(--font-meta);
+  font-weight: 400;
+  line-height: var(--line-meta);
+  font-variant-numeric: tabular-nums;
+}
+.workbench.glassWorkbench .message.assistant .messageMeta > span { color: var(--ui-blue); font-weight: 600; }
+.workbench.glassWorkbench .message.user {
+  padding: 14px 18px;
+  border-color: color-mix(in srgb, var(--ui-blue) 12%, var(--ui-glass-edge));
+  background: var(--chat-user-surface);
+}
+.glassWorkbench .appearancePreviewUser { border-color: color-mix(in srgb, var(--ui-blue) 12%, var(--ui-glass-edge)); background: var(--chat-user-surface); }
+.workbench.glassWorkbench .message.user .messageContent > p:first-child { margin-top: 8px; }
+.glassWorkbench .messageCode { border-color: var(--ui-divider); border-radius: 6px; color: var(--ui-ink); background: var(--ui-glass); }
+.glassWorkbench .message .messageHeading { margin-top: 24px; margin-bottom: 8px; }
+.glassWorkbench .messageContent > .messageHeading:first-child { margin-top: 12px; }
+
+.glassWorkbench .chatColumn:not(.homeChat) .attachmentTray { padding: 0 0 10px; }
+.glassWorkbench .chatColumn:not(.homeChat) .attachmentChip {
+  grid-template-columns: minmax(0, 1fr) 36px;
+  border-color: var(--ui-glass-edge);
+  border-radius: 12px;
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.glassWorkbench .chatColumn:not(.homeChat) .attachmentOpen { min-height: 36px; padding: 7px 10px; gap: 8px; color: var(--ui-ink); }
+.glassWorkbench .chatColumn:not(.homeChat) .attachmentOpen > svg { width: 18px; height: 18px; color: var(--ui-blue); stroke-width: 1.75; }
+.glassWorkbench .chatColumn:not(.homeChat) .attachmentChip .attachmentRemove { width: 36px; height: 36px; color: var(--ui-muted); }
+.glassWorkbench .chatColumn:not(.homeChat) .attachmentChip :is(.attachmentOpen, .attachmentRemove):hover:not(:disabled) { color: var(--ui-ink); background: var(--ui-glass); }
+.glassWorkbench :is(.messageAttachment, .messageDocumentResult) {
+  min-height: 40px;
+  padding: 9px 12px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 12px;
+  color: var(--ui-ink);
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
+}
+.glassWorkbench :is(.messageAttachment, .messageDocumentResult):hover { border-color: var(--ui-input-edge); color: var(--ui-ink); background: var(--ui-glass-strong); }
+.glassWorkbench :is(.messageAttachment, .messageDocumentResult) > svg { color: var(--ui-blue); stroke-width: 1.75; }
+.glassWorkbench .messageAttachment.image { padding: 6px; }
+.glassWorkbench .messageDocumentResult small { color: var(--ui-muted); }
+
+.glassWorkbench .streamStatus {
+  padding: 5px 9px;
+  border-color: var(--ui-glass-edge);
+  border-radius: 10px;
+  color: var(--ui-muted);
+  background: var(--ui-glass);
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+}
+.glassWorkbench .streamStatus:is(.tool_started, .approval_pending) { color: var(--amber-warning); border-color: color-mix(in srgb, var(--amber-warning) 20%, transparent); background: color-mix(in srgb, var(--amber-warning) 8%, var(--ui-glass)); }
+.glassWorkbench .streamStatus:is(.tool_completed, .approval_approved) { color: var(--ui-blue); border-color: color-mix(in srgb, var(--ui-blue) 16%, transparent); background: color-mix(in srgb, var(--ui-blue) 7%, var(--ui-glass)); }
+.glassWorkbench .streamStatus:is(.tool_failed, .approval_rejected) { color: var(--crimson-danger); border-color: color-mix(in srgb, var(--crimson-danger) 20%, transparent); background: color-mix(in srgb, var(--crimson-danger) 8%, var(--ui-glass)); }
+.glassWorkbench .taskProgress { color: var(--ui-muted); }
+
+@media (min-width: 601px) {
+  .workbench.glassWorkbench .chatColumn:not(.homeChat) .composer { grid-template-columns: 36px 36px 36px 60px minmax(0, 1fr) 36px; }
+  .workbench.glassWorkbench .chatColumn:not(.homeChat) .composer :is(.uploadButton, .emailEntryButton) { width: 36px; height: 36px; }
+  .workbench.glassWorkbench .chatColumn:not(.homeChat) .voiceControl { width: 60px; height: 36px; grid-template-columns: 36px 24px; }
+  .workbench.glassWorkbench .chatColumn:not(.homeChat) .voiceButton { width: 36px; height: 36px; }
+  .workbench.glassWorkbench .chatColumn:not(.homeChat) .voiceDeviceButton { height: 36px; }
+}

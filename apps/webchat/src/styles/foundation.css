@@ -66,6 +66,12 @@
   --radius-panel: 12px;
   --radius-control: 8px;
   --radius-small: 6px;
+  --control-height: 36px;
+  --control-height-small: 32px;
+  --control-icon-size: 18px;
+  --control-icon-stroke: 1.75;
+  --control-radius: 8px;
+  --control-gap: 8px;
 }
 
 * {

@@ -154,6 +154,10 @@ var scriptErrorCodes = map[string]app.ToolErrorCode{
 	"email_network_mark_read_unqualified":  app.ToolErrorEmailPageContractChanged,
 	"email_network_target_unobserved":      app.ToolErrorEmailPageContractChanged,
 	"email_network_interval_required":      app.ToolErrorEmailPageContractChanged,
+	// The reader consumes these to relearn Outlook's native search once; if one
+	// ever escapes, it means the learned request contract no longer holds.
+	"email_network_template_unlearned":     app.ToolErrorEmailPageContractChanged,
+	"email_network_template_stale":         app.ToolErrorEmailPageContractChanged,
 	"email_network_read_failed":            app.ToolErrorEmailProviderUnavailable,
 	"page_contract_changed":                app.ToolErrorEmailPageContractChanged,
 	"email_attachment_control_unavailable": app.ToolErrorEmailPageContractChanged,

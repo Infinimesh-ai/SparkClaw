@@ -508,3 +508,15 @@ Gmail第一次接收开启操作在15:48:17留下未完成ISCP意图，回执仍
 或附件上传全部通过**。私有证据、测试邮件与回滚包保留在本发布的 `mac-upgrade/`。
 
 切换后只读观察为16:12:06.349–16:24:18.301（12分11.952秒，108快照），无新ECONNRESET、清理诊断/围栏、watch终止或服务重启；服务PID/重启数保持，并观测到同页live watch/read复用。临时观察器已正常停止。
+
+### Release 32：网络原生邮件（2026-10-22，仅本地）
+
+配对 App-CLI `0.3.0-sparkclaw.32` 使用源码 `c718108`，运行时摘要
+`f0fd2c4916deae41924e405c3359201c00b3e9b6a4e6919f4f94ea2537e862e7`；Reader 字节变化，受管油猴
+worker 升至 r15。范围与证据见[网络原生邮件架构](email-network-native-architecture.md)：常驻
+machine 会话与直连 executor socket、Outlook 已学习搜索重放、通知候选目标、原生请求学习窗口，
+以及 SparkClaw/ISCP 展示平面改动。Host 协议 1.0、运行时协议 3.0、账本 2 不变，无需迁移。
+
+本地门禁：App-CLI Python 90、runtime 477（启用恢复用例）；Controller 291 通过 / 126 跳过；
+Desktop 510；受影响 Gateway 包与 `go vet` 在 Linux 通过，macOS 14 个既有环境失败与未修改基线一致。
+均未推送、安装或部署，实机验收未完成。

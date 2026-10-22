@@ -859,3 +859,19 @@ end-to-end acceptance or attachment-upload acceptance. Private evidence, retaine
 test mail and rollback packages are under the release's `mac-upgrade/` directory.
 
 Post-cutover read-only observation ran 08:12:06.349–08:24:18.301 UTC (12 minutes 11.952 seconds, 108 snapshots). No new ECONNRESET, cleanup diagnostic/fence, watch termination or service restart appeared; service PIDs/restart counts stayed unchanged and live watch/read residency was observed. The temporary observers stopped normally.
+
+### Release 32: network-native mail (2026-10-22, local only)
+
+Paired App-CLI `0.3.0-sparkclaw.32` uses source `c718108` and runtime digest
+`f0fd2c4916deae41924e405c3359201c00b3e9b6a4e6919f4f94ea2537e862e7`; the managed
+Tampermonkey worker moves to r15 because Reader bytes changed. Scope and evidence
+are in the [network-native mail architecture](email-network-native-architecture.md):
+resident machine sessions with a direct executor socket, Outlook learned-search
+replay, notification candidate targets, the native-request learning window, and
+the SparkClaw/ISCP presentation-plane changes. Host protocol 1.0, runtime protocol
+3.0 and ledger 2 are unchanged; no migration is needed.
+
+Local gates: App-CLI Python 90 and runtime 477 (recovery cases enabled); Controller
+291 pass / 126 skip; Desktop 510; affected Gateway packages and `go vet` pass on
+Linux, and the 14 macOS-only failures match the unmodified baseline. Nothing is
+pushed, installed or deployed; live acceptance remains open.

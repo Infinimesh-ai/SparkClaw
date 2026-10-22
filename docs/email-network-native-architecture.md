@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/email-network-native-architecture.md)
 
-- Status: **proposed design; stage N1–N3 implementation in progress (section 9)**
+- Status: **proposed design; N1–N3 and the SparkClaw/ISCP parts of N4 implemented locally, not deployed (section 9)**
 - Date: 2026-10-22
 - Baselines: SparkClaw `456b9fb3`, App-CLI `a91396e` (release 31), ISCP `2a252fe`
 - Supersedes as direction (keeps every accepted invariant of):
@@ -198,16 +198,24 @@ interval sweep (fallback cadence) ───────────────�
    per document).
 3. The Controller feed reads watch events on a 1 s cadence instead of 5 s once
    control calls are resident (N1), and publishes them immediately.
-4. The Gateway persists the targets into the mailbox's *pushed-target set*
-   (bounded at 50, deduplicated, generation-bound) in the same Store transaction
-   that bumps `SignalRevision`.
-5. The next increment passes pushed targets as exact retry targets, so they are
-   captured even when the time-range discovery would miss them (spam/folder
-   filters, partial pages, grouped rows). The commit removes them from the set;
-   failures follow the existing two-attempt retry accounting.
+4. **Qualification first (implemented).** The Gateway accepts the optional
+   `targets` field, keeps the candidates in memory per mailbox (bounded at 64,
+   15-minute expiry) and, after every committed round, logs whether each
+   candidate named a round member — by message id, item id or receipt time — and
+   with what latency. Identifiers are never logged. Nothing changes what a round
+   captures. This matters because the identifiers are not proven equal: Outlook
+   notifications carry the movable `ItemId` while qualified captures key on
+   `ImmutableId`, and Gmail invalidations carry no identifier at all.
+5. **After the gate (planned).** For a provider whose candidates match reliably
+   (section 8), the Gateway persists them as a pushed-target set (bounded,
+   generation-bound) in the transaction that bumps `SignalRevision`, and the next
+   increment passes them as exact retry targets, so they are captured even when
+   time-range discovery would miss them. Gmail Spam stays excluded by the same
+   folder policy as discovery.
 6. The interval sweep is unchanged and remains authoritative for coverage. Once
-   a provider's push path is qualified (section 8), its periodic cadence may use
-   the existing five-minute quiet tier.
+   a provider's push path is qualified, its periodic cadence may use the
+   existing five-minute quiet tier. Notifications and new plans now wake idle
+   email workers immediately instead of after their one-second idle sleep.
 
 A fully page-resident capture stream (bytes produced by the watch itself and
 committed without a Gateway round) is the next step (N5). It is deferred until
@@ -333,16 +341,32 @@ message ≤ 20 ms on work2; 10 MiB object transfer ≤ 30 s.
 
 | Stage | Scope | Projects | State |
 |---|---|---|---|
-| N1 | Resident control plane: session pool, direct executor socket, adaptive wait; Controller watch-event cadence 1 s | App-CLI, SparkClaw | in progress |
-| N2 | Exact push targets: observer extraction, watch forwarding, feed field, Gateway pushed-target set used as exact retry targets | App-CLI, SparkClaw | in progress |
-| N3 | Learned Outlook search replay; learning window recorder (evidence only) | App-CLI | in progress |
-| N4 | Presentation plane: object pipelining, receipt counters; Relay drain (ISCP) | SparkClaw, ISCP | planned |
+| N1 | Resident control plane: session pool, direct executor socket, adaptive wait; Controller watch-event cadence 1 s | App-CLI, SparkClaw | implemented locally |
+| N2 | Push targets: observer extraction, watch forwarding, feed field and Gateway match measurement; use as exact retry targets after the gate | App-CLI, SparkClaw | measurement implemented; capture use planned |
+| N3 | Learned Outlook search replay; learning window recorder (evidence only) | App-CLI | implemented locally |
+| N4 | Presentation plane: object pipelining, receipt counters; Relay drain (ISCP) | SparkClaw, ISCP | implemented locally |
 | N5 | Page-resident capture stream with a dedicated Store commit | App-CLI, SparkClaw | deferred until N1–N4 measured |
 | N6 | Native mark-read/send replay and network identity per provider | App-CLI, SparkClaw | after live qualification |
 
 Live qualification on work2 (natural arrivals, owner-approved test sends) is
 required before any stage is declared accepted; automated tests do not
 establish provider behavior.
+
+### 9.1 Implementation record (2026-10-22)
+
+| Change | Commits | Local evidence |
+|---|---|---|
+| Resident sessions, direct socket, adaptive wait | App-CLI `f391ccc` | 20 status reads: 2 056 ms one-shot vs 40 ms resident; Python 90 |
+| Outlook learned-search replay | App-CLI `26a0a44` | 40 range and 4 reader fallback cases |
+| Notification candidate targets | App-CLI `22754ce`; SparkClaw `5fb241be`, `fe89ca9a` | real executor/Registry watch case, strict-decode contract case |
+| Learning-window recorder | App-CLI `dee39a1` | shape-only, redaction and bound cases |
+| Release `.32`, worker r15 | App-CLI `c718108`; SparkClaw `fe89ca9a`, `57e7ad6f` | runtime 477 (recovery cases enabled); Controller 291 pass / 126 skip; affected Go packages and vet pass on Linux |
+| Receipt capacity cache | SparkClaw `7dc9b003` | cache equals fresh scan after save/overwrite/retire |
+| Object pipelining, window 8 | SparkClaw `9595f139` | Desktop 510; resume and completed-transfer regressions |
+| Relay drain and wake | ISCP `f603722` | 24 back-to-back admissions in 217 ms with idle tick disabled; fails with batch 1 |
+
+Nothing is pushed or deployed. Work2, TEST1 and the Mac keep their current
+releases until the owner approves a rollout; live gates in section 8 remain open.
 
 ## 10. Cross-Project Impact
 

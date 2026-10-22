@@ -275,6 +275,9 @@ var envBindings = []envBinding{
 		cfg.Adapters.BrowserAutomation.PlaywrightExtension.ConnectTimeoutMS = timeoutMS
 		return nil
 	}},
+	{name: "SPARKCLAW_MAIL_SEND_LOGIN_REUSE_SECONDS", doc: "Seconds a mail send may reuse a recent full login check (0 always checks).", apply: envInt(func(c *Config) *int {
+		return &c.Adapters.BrowserAutomation.PlaywrightExtension.MailSendLoginReuseSeconds
+	})},
 	{name: "SPARKCLAW_OCR_ENABLED", doc: "Enable the document OCR adapter.", apply: envBool(func(c *Config) *bool { return &c.Adapters.DocumentOCR.Enabled })},
 	{name: "SPARKCLAW_OCR_PROVIDER", doc: "OCR provider (openai-http).", apply: envString(func(c *Config) *string { return &c.Adapters.DocumentOCR.Provider })},
 	{name: "SPARKCLAW_OCR_BASE_URL", doc: "OCR model server base URL.", apply: envString(func(c *Config) *string { return &c.Adapters.DocumentOCR.BaseURL })},

@@ -362,6 +362,9 @@ type PlaywrightExtensionConfig struct {
 	ControllerSocket string `json:"controllerSocket"`
 	ProfileID        string `json:"profileID"`
 	ConnectTimeoutMS int    `json:"connectTimeoutMs"`
+	// MailSendLoginReuseSeconds lets a send reuse a full mail login check made
+	// within this many seconds (0 disables; see emailautomation send admission).
+	MailSendLoginReuseSeconds int `json:"mailSendLoginReuseSeconds"`
 }
 
 type DocumentOCRAdapterConfig struct {

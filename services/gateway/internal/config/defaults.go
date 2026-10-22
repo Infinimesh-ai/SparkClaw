@@ -172,6 +172,8 @@ func Default() Config {
 					ControllerSocket: "/run/sparkclaw/browser-controller/controller.sock",
 					ProfileID:        "default",
 					ConnectTimeoutMS: 20000,
+					// Matches emailautomation.DefaultSendAdmissionReuse.
+					MailSendLoginReuseSeconds: 120,
 				},
 			},
 			DocumentOCR: DocumentOCRAdapterConfig{

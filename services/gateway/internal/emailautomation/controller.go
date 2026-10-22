@@ -52,6 +52,9 @@ type Controller struct {
 	intakeProbesMu       sync.Mutex
 	captureWorkspaceRoot string
 	intakeProbes         map[intakeProbeKey]intakeProbeEntry
+	sendAdmissionsMu     sync.Mutex
+	sendAdmissionWindow  time.Duration
+	sendAdmissions       map[intakeProbeKey]sendAdmissionEntry
 }
 
 func (c *Controller) WithCaptureWorkspaceRoot(root string) *Controller {
@@ -141,6 +144,8 @@ func (c *Controller) OpenLoginBrowser(ctx context.Context, ownerID, actorID, pro
 	if !exists || !setting.Enabled {
 		return ProviderStatus{}, codedError(app.ToolErrorEmailNotConfigured, "Enable the email provider before opening its login")
 	}
+	// The owner is re-authenticating; no earlier login proof may admit a send.
+	c.forgetSendAdmission(intakeProbeKey{ownerID: ownerID, providerID: provider.ID})
 	if err := c.browser.OpenLogin(ctx, provider); err != nil {
 		return ProviderStatus{}, err
 	}
@@ -173,8 +178,14 @@ func (c *Controller) Check(ctx context.Context, ownerID, actorID, providerID str
 	if !exists || !setting.Enabled {
 		return providerStatus(provider, settingOrEmpty(setting, exists, ownerID, provider.ID)), codedError(app.ToolErrorEmailNotConfigured, "Email provider is not enabled")
 	}
+	key := intakeProbeKey{ownerID: ownerID, providerID: provider.ID}
 	result, probeErr := c.probe(ctx, provider, app.NewID("email_probe"))
 	updated, persistErr := c.persistProbe(ctx, setting, actorID, result, probeErr)
+	if persistErr != nil || probeErr != nil {
+		c.forgetSendAdmission(key)
+	} else {
+		c.rememberSendAdmission(ctx, key, updated, result)
+	}
 	if persistErr != nil {
 		return ProviderStatus{}, persistErr
 	}
@@ -191,14 +202,22 @@ func (c *Controller) Admit(ctx context.Context, ownerID, request string) (Admiss
 		return AdmissionResult{}, lockErr
 	}
 	defer release()
+	key := intakeProbeKey{ownerID: ownerID, providerID: provider.ID}
+	if reused, ok := c.reuseSendAdmission(ctx, key, provider); ok {
+		return reused, nil
+	}
 	result, probeErr := c.probe(ctx, provider, app.NewID("email_admit"))
 	updated, persistErr := c.persistProbe(ctx, setting, "email_admission", result, probeErr)
+	if persistErr != nil || probeErr != nil {
+		c.forgetSendAdmission(key)
+	}
 	if persistErr != nil {
 		return AdmissionResult{}, persistErr
 	}
 	if probeErr != nil {
 		return AdmissionResult{}, probeErr
 	}
+	c.rememberSendAdmission(ctx, key, updated, result)
 	return AdmissionResult{
 		Provider: provider.ID, Account: app.EmailAccountDefault, AccountHint: updated.AccountHint,
 		SettingVersion: updated.Version, BrowserCredentialGeneration: result.Generation,
@@ -226,7 +245,13 @@ func (c *Controller) SendForOwner(ctx context.Context, ownerID string, request S
 	if c.runner == nil {
 		return SendResult{}, codedError(app.ToolErrorEmailProviderUnavailable, "Email provider scripts are unavailable")
 	}
-	return c.runner.Send(ctx, provider, request)
+	result, err := c.runner.Send(ctx, provider, request)
+	if err != nil || result.Status != "sent" {
+		// Whatever stopped this send (lost login, page change, unknown
+		// outcome), the next admission checks the login page again.
+		c.forgetSendAdmission(intakeProbeKey{ownerID: ownerID, providerID: provider.ID})
+	}
+	return result, err
 }
 
 func (c *Controller) probe(ctx context.Context, provider Provider, invocationID string) (ProbeResult, error) {

@@ -87,6 +87,7 @@ func newGatewayServices(
 		emailRunner,
 	)
 	emailController.WithCaptureWorkspaceRoot(cfg.Workspaces.DefaultRoot)
+	emailController.WithSendAdmissionReuse(time.Duration(extensionConfig.MailSendLoginReuseSeconds) * time.Second)
 	warnDivergentEmailWorkspace(cfg.Workspaces.DefaultRoot)
 	emailManagement, err := emailmanagement.New(st, emailController, emailRegistry, emailmanagement.NewModelAnalyzer(models), tools, emailmanagement.Options{WorkspaceRoot: cfg.Workspaces.DefaultRoot, QualifiedProviderModes: qualifiedEmailTimelineModes(), ObserverTransport: browserControl})
 	if err != nil {

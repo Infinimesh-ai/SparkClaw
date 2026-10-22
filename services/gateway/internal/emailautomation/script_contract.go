@@ -152,6 +152,7 @@ var scriptErrorCodes = map[string]app.ToolErrorCode{
 	"email_network_original_unqualified":   app.ToolErrorEmailPageContractChanged,
 	"email_network_thread_unqualified":     app.ToolErrorEmailPageContractChanged,
 	"email_network_mark_read_unqualified":  app.ToolErrorEmailPageContractChanged,
+	"email_network_sent_unqualified":       app.ToolErrorEmailPageContractChanged,
 	"email_network_target_unobserved":      app.ToolErrorEmailPageContractChanged,
 	"email_network_interval_required":      app.ToolErrorEmailPageContractChanged,
 	// The reader consumes these to relearn Outlook's native search once; if one

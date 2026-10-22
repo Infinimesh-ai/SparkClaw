@@ -6,6 +6,25 @@ const HASH=/^[a-f0-9]{64}$/u;
 const ID=/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u;
 const digest=(bytes)=>crypto.createHash('sha256').update(bytes).digest('hex');
 const MAX_BYTES=64*1024*1024;
+// Chunks in flight per transfer: uploads follow the receiver's advertised
+// credit window (sequential when none is advertised); reads use a fixed bound.
+const MAX_UPLOAD_WINDOW=8,DOWNLOAD_WINDOW=4;
+
+// Runs `task(index)` for indices [first,count) with at most `width` in flight.
+// The first failure stops issuing new work; it is rethrown after in-flight
+// tasks settle so no journal write races a later retry.
+// The journal's next offset is a chunk boundary, or the object size once done.
+function resumeIndex(next,size,chunkBytes){
+  if(next>=size)return Math.ceil(size/chunkBytes);
+  if(!Number.isSafeInteger(next)||next<0||next%chunkBytes)throw new Error('Object journal checkpoint is not a chunk boundary');
+  return next/chunkBytes;
+}
+async function pipeline(first,count,width,task,signal){
+  let next=first,failure=null;
+  const worker=async()=>{while(failure===null&&next<count){const index=next++;try{signal?.throwIfAborted();await task(index);}catch(error){failure??=error;}}};
+  await Promise.all(Array.from({length:Math.max(1,Math.min(width,count-first))},worker));
+  if(failure!==null)throw failure;
+}
 
 // Every checkpoint follows fsync of its bytes. A session/Grant changes transport,
 // never the immutable identity of an upload or download. No execution is retried.
@@ -34,13 +53,20 @@ export class ISCPObjectClient {
     }
     const opened=await this.#call('transfer.open',{transfer_id:journal.transfer_id,...manifest},signal);
     if(opened.expires_at)journal.expires_at=opened.expires_at;
-    // Re-send only the last unconfirmed chunk. Receivers reject conflicting bytes
-    // and return the original durable receipt for an identical chunk/commit.
-    for(let offset=journal.next;offset<bytes.length;offset+=this.chunkBytes){
-      signal?.throwIfAborted();const content=bytes.subarray(offset,Math.min(offset+this.chunkBytes,bytes.length));
-      await this.#call('transfer.chunk',{transfer_id:journal.transfer_id,index:offset/this.chunkBytes,offset,sha256:digest(content),data_base64:content.toString('base64')},signal);
-      journal.next=offset+content.length;this.#save(key,journal);
-    }
+    // Re-send from the first unconfirmed chunk. Receivers reject conflicting
+    // bytes and return the original durable receipt for an identical chunk, so
+    // chunks confirmed out of order are simply confirmed again after a restart.
+    // The journal only ever advances over the contiguous confirmed prefix.
+    const window=Number.isSafeInteger(opened.window)&&opened.window>0?Math.min(opened.window,MAX_UPLOAD_WINDOW):1;
+    const total=Math.ceil(bytes.length/this.chunkBytes),confirmed=new Set();
+    await pipeline(resumeIndex(journal.next,bytes.length,this.chunkBytes),total,window,async index=>{
+      const offset=index*this.chunkBytes,content=bytes.subarray(offset,Math.min(offset+this.chunkBytes,bytes.length));
+      await this.#call('transfer.chunk',{transfer_id:journal.transfer_id,index,offset,sha256:digest(content),data_base64:content.toString('base64')},signal);
+      confirmed.add(index);
+      const before=journal.next;
+      while(confirmed.has(journal.next/this.chunkBytes)){confirmed.delete(journal.next/this.chunkBytes);journal.next=Math.min(journal.next+this.chunkBytes,bytes.length);}
+      if(journal.next!==before)this.#save(key,journal);
+    },signal);
     const receipt=await this.#call('transfer.commit',{transfer_id:journal.transfer_id},signal);
     const object=receipt.object??receipt;
     validateObject(object);
@@ -58,15 +84,20 @@ export class ISCPObjectClient {
     if(journal.direction!=='download'||JSON.stringify(journal.object)!==JSON.stringify(object))throw new Error('Object download journal conflict');
     const chunks=[];
     for(let offset=0;offset<journal.next;offset+=this.chunkBytes){const stored=fs.readFileSync(this.#chunkPath(key,offset/this.chunkBytes));const bytes=stored.subarray(32);if(bytes.length!==Math.min(this.chunkBytes,object.size-offset)||stored.subarray(0,32).toString('hex')!==digest(bytes))throw new Error('Object journal integrity mismatch');chunks.push(bytes);}
-    for(let offset=journal.next;offset<object.size;){
-      signal?.throwIfAborted();const length=Math.min(this.chunkBytes,object.size-offset);
+    // Reads complete out of order; each verified chunk is durable before the
+    // journal advances over the contiguous prefix it completes.
+    const total=Math.ceil(object.size/this.chunkBytes),ready=new Map();
+    await pipeline(resumeIndex(journal.next,object.size,this.chunkBytes),total,DOWNLOAD_WINDOW,async index=>{
+      const offset=index*this.chunkBytes,length=Math.min(this.chunkBytes,object.size-offset);
       const received=await this.#call('object.read',{object_id:object.object_id,version:object.version,offset,length},signal);
       const bytes=decode(received.data_base64);
       if(received.offset!==offset||bytes.length!==length||received.sha256!==digest(bytes))throw new Error('Object chunk integrity mismatch');
-      const index=offset/this.chunkBytes;this.#write(this.#chunkPath(key,index),Buffer.concat([Buffer.from(received.sha256,'hex'),bytes]));
-      journal.next=offset+bytes.length;this.#save(key,journal);
-      chunks.push(bytes);offset=journal.next;
-    }
+      this.#write(this.#chunkPath(key,index),Buffer.concat([Buffer.from(received.sha256,'hex'),bytes]));
+      ready.set(index,bytes);
+      const before=journal.next;
+      while(ready.has(journal.next/this.chunkBytes)){const done=ready.get(journal.next/this.chunkBytes);ready.delete(journal.next/this.chunkBytes);chunks.push(done);journal.next+=done.length;}
+      if(journal.next!==before)this.#save(key,journal);
+    },signal);
     const content=Buffer.concat(chunks);
     if(content.length!==object.size||digest(content)!==object.sha256)throw new Error('Object final integrity mismatch');
     return content;

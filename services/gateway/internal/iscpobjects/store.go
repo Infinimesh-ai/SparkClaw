@@ -21,7 +21,7 @@ import (
 )
 
 const ChunkBytes = 8192
-const Window = 2
+const Window = 8
 const checkpointPage = 256
 
 var idPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)

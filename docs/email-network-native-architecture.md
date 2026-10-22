@@ -527,6 +527,94 @@ requested browser-wide cookies, which the formal Bridge rejects. Its zero
 records cannot establish that no network send occurred. The temporary client
 was revoked (HTTP 401 verified), and its credential file was deleted.
 
+### 9.6 JSON XHR response fix and release 34 (2026-10-22)
+
+App-CLI `e147d45` freezes immutable `.34`, paired with SparkClaw `1def2c5d`
+and Tampermonkey `5.5.0.17`. The actual QQ site bundle was inspected without
+sending another mail: `/send/sendmail` uses `post`'s default JSON response type.
+The Reader now normalizes that browser-decoded JSON only in the current learning
+window. Serialization is limited to 1 MiB UTF-8, 4,096 nodes and 32 levels; it
+rejects accessors, cycles and invalid values without invoking `toJSON`. Both
+response-shape learning and the send-template observer consume the same bounded
+text. The text XHR path remains covered. The old implementation fails the new
+valid-JSON regression; the fixed complete runtime suite passes **547/547**.
+
+The paired release closure, fresh-install/tamper/mixed-version/rollback gates,
+Controller **294 passed/126 skipped**, component tests **33 passed/1 skipped**,
+Linux emailautomation tests, binary build and original WebChat build pass.
+The Linux binary and five served UI files are byte-identical to .33. Python
+application logic is unchanged from its .33 **90/90** validation; the full
+75-package Go/build/vet result from .33 remains the baseline. The release also
+extends the bounded managed-policy and profile readiness budgets; that alone
+does not establish the cause or resolution of the earlier import failures.
+
+work2 became healthy at **08:11:08 UTC**, preserving 41 business tables, 2,472
+original workspace files and 76,978 original receipt files. The larger import
+budget still timed out twice. During stopped-admission diagnosis, managed policy
+changed from absent to the expected value before an explicit policy refresh;
+its timing cause remains unresolved. One guarded TM reload then passed the
+four-script import check in **2.388 s**. Normal startup passed import and Bridge
+handshake, but an early Preferences snapshot still held the reload's temporary
+registration. After Chrome flushed its normal registration, the **original
+strict preference gate** passed, with no exception or profile edits. Four
+browser starts and one extension reload are recorded. The temporary launcher
+override and debug port were removed before admission; no database, ledger or
+profile backup was restored.
+
+Before this cutover, a diagnostic temporary page in an active Outlook context
+was strongly correlated with `page_topology_changed` and one `collect_page`
+task becoming uncertain. Exact cross-process linkage is inferred from timing
+and operations, because Controller records lacked the task ID. All original
+92 unknown rows remain unchanged; the total is now 93. The additional row is
+a read operation, not a send, and has not been retried or resolved. Future
+diagnostics must not create pages in an active production task's context.
+
+The final .34 live qualification **passed** using two fresh, brief QQ→Outlook
+messages. The first produced a qualified template; the second consumed it once
+in the same page. Each emitted exactly one `/send/sendmail` `func=1` request,
+returned `head.ret=0`, and matched the independent Sent listing by both IDs,
+folder, sender, recipient and subject. The native journal is durably `sent`,
+with `qq_sent_list_v1`, `fresh=true`, both identifiers and the normal receipt's
+matching emailid. The two messages have different response and Sent identifiers.
+
+| Measurement | DOM learning | Native replay |
+| --- | ---: | ---: |
+| Send API wall time | 83.823 s | 23.874 s |
+| Managed send adapter | 59.361 s | 10.386 s |
+| Passive request→response | 735 ms | 484 ms |
+| First matching Sent response after send response | 1,553 ms | 4,232 ms |
+
+The native adapter's own timing is **486 ms** for the request and **4,617 ms**
+for its Sent verification loop; these have different measurement boundaries
+from passive network timestamps. This single pair measures about 72% lower API
+wall time, not a latency guarantee. Raw response IDs stay in private evidence;
+their hashes and exact equality checks are in
+[the qualification evidence](evidence/mail-native-replay-2026-10-22.json).
+
+The .34 run preserved all 93 unknown rows and added none. Across this authorized
+continuation, four fresh test messages were sent (a .32 baseline, the .33
+learning failure, and the final .34 pair); none resent historical mail. The
+temporary client was revoked, HTTP 401 verified, and its credential file removed.
+Active diagnostic listeners were removed; the native mutation context closed.
+One transient observer-install error is retained in evidence; both sends'
+request/response/Sent proofs were collected. Outlook inbox arrival remains
+unverified: no captured record or exact subject-to-item-ID link was available.
+That is not evidence of nondelivery and does not establish inbound acceptance.
+
+The later all-task-ID preservation check did **not** pass: 102 terminal rows
+from preflight were absent (97 completed, four cancelled, one failed). Nine
+disappeared before the .34 freeze and 93 after the healthy cutover. All frozen
+task identities were present at cutover; unknown rows remain intact. Unchanged
+.33/.34 GC code, its five-minute schedule and the observed timing support normal
+retention cleanup, but old per-row epoch/ACK/finish data and itemized GC logs
+were unavailable. That attribution is an inference, not proof of each row's
+expiry. The original failed check is retained; no database was restored and no
+general exception for missing terminal tasks was introduced.
+An independent **08:20:53 UTC** read-only check confirmed healthy services,
+no active sends or pending release, unchanged 93 unknown rows, and both durable
+send proofs. At that snapshot, 110 original terminal rows were absent; the
+full-identity check remains explicitly failed.
+
 ## 10. Cross-Project Impact
 
 - App-CLI (SparkClaw-owned fork) receives N1–N3 runtime changes as a paired

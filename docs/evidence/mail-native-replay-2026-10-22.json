@@ -1,0 +1,282 @@
+{
+  "app_cli_source": "e147d45babb7d63bc32d6d5bfcc8a7fc529d5cf2",
+  "runtime_sha256": "26976e546d62bd1b0b0a9102a4ec33a4d5424ee95d34a61a7460ec9838cbf2b9",
+  "deployment": {
+    "source": "1def2c5da12e0fb96e6da438472b1f364b870458",
+    "release_id": "0.3.0-sparkclaw.34",
+    "phase": "healthy",
+    "completed_at": "2026-10-22T08:11:08.053851+00:00",
+    "business_tables_preserved": 41,
+    "workspace_files_preserved": 2472,
+    "original_receipt_files": 76978,
+    "component_start_attempts": 4,
+    "tm_extension_reload_count": 1
+  },
+  "qualification": {
+    "source": "1def2c5da12e0fb96e6da438472b1f364b870458",
+    "release_id": "0.3.0-sparkclaw.34",
+    "sends": [
+      {
+        "phase": "dom_learning",
+        "requested_at": "2026-10-22T08:11:26.804262+00:00",
+        "start_ms": 1792656686804,
+        "http": 200,
+        "transport_error": null,
+        "seconds": 83.823,
+        "end_ms": 1792656770627,
+        "state": "sent",
+        "error_code": null,
+        "func1_request_count": 1,
+        "network_proofs": [
+          {
+            "request_ms": 735,
+            "response_ret": 0,
+            "response_status": 200,
+            "response_message_id_sha256": "4c636711a3c34c03bfd04c2938b4b11ff74673c3c2a5a3ea192112555108b4c3",
+            "sent_matches": [
+              {
+                "emailid_sha256": "60fe18e602f84525beb9ee5a4386bd3d24030c8890f026e93d9fe23c1edd8284",
+                "messageid_sha256": "4c636711a3c34c03bfd04c2938b4b11ff74673c3c2a5a3ea192112555108b4c3",
+                "dirid": 3,
+                "subject_exact": true,
+                "sender_exact": true,
+                "recipient_exact": true,
+                "after_response_ms": 1553
+              },
+              {
+                "emailid_sha256": "60fe18e602f84525beb9ee5a4386bd3d24030c8890f026e93d9fe23c1edd8284",
+                "messageid_sha256": "4c636711a3c34c03bfd04c2938b4b11ff74673c3c2a5a3ea192112555108b4c3",
+                "dirid": 3,
+                "subject_exact": true,
+                "sender_exact": true,
+                "recipient_exact": true,
+                "after_response_ms": 10292
+              },
+              {
+                "emailid_sha256": "60fe18e602f84525beb9ee5a4386bd3d24030c8890f026e93d9fe23c1edd8284",
+                "messageid_sha256": "4c636711a3c34c03bfd04c2938b4b11ff74673c3c2a5a3ea192112555108b4c3",
+                "dirid": 3,
+                "subject_exact": true,
+                "sender_exact": true,
+                "recipient_exact": true,
+                "after_response_ms": 10291
+              },
+              {
+                "emailid_sha256": "60fe18e602f84525beb9ee5a4386bd3d24030c8890f026e93d9fe23c1edd8284",
+                "messageid_sha256": "4c636711a3c34c03bfd04c2938b4b11ff74673c3c2a5a3ea192112555108b4c3",
+                "dirid": 3,
+                "subject_exact": true,
+                "sender_exact": true,
+                "recipient_exact": true,
+                "after_response_ms": 30177
+              },
+              {
+                "emailid_sha256": "60fe18e602f84525beb9ee5a4386bd3d24030c8890f026e93d9fe23c1edd8284",
+                "messageid_sha256": "4c636711a3c34c03bfd04c2938b4b11ff74673c3c2a5a3ea192112555108b4c3",
+                "dirid": 3,
+                "subject_exact": true,
+                "sender_exact": true,
+                "recipient_exact": true,
+                "after_response_ms": 31994
+              },
+              {
+                "emailid_sha256": "60fe18e602f84525beb9ee5a4386bd3d24030c8890f026e93d9fe23c1edd8284",
+                "messageid_sha256": "4c636711a3c34c03bfd04c2938b4b11ff74673c3c2a5a3ea192112555108b4c3",
+                "dirid": 3,
+                "subject_exact": true,
+                "sender_exact": true,
+                "recipient_exact": true,
+                "after_response_ms": 35276
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "phase": "native_replay",
+        "requested_at": "2026-10-22T08:12:53.506232+00:00",
+        "start_ms": 1792656773506,
+        "http": 200,
+        "transport_error": null,
+        "seconds": 23.874,
+        "end_ms": 1792656797380,
+        "state": "sent",
+        "error_code": null,
+        "func1_request_count": 1,
+        "network_proofs": [
+          {
+            "request_ms": 484,
+            "response_ret": 0,
+            "response_status": 200,
+            "response_message_id_sha256": "2b56fc4ed2533814562428adaa30d7aa3cb91318be6628f8c8ff25086e6d99e8",
+            "sent_matches": [
+              {
+                "emailid_sha256": "ec04af5dae539796161509aa8fe363fd1220acb6a3302564adf108ee61907268",
+                "messageid_sha256": "2b56fc4ed2533814562428adaa30d7aa3cb91318be6628f8c8ff25086e6d99e8",
+                "dirid": 3,
+                "subject_exact": true,
+                "sender_exact": true,
+                "recipient_exact": true,
+                "after_response_ms": 4232
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "second_send_attempted": true,
+    "ready_context_count": 1,
+    "second_skip_reason": null,
+    "first_to_second_gate_seconds": 2.28,
+    "persisted_native_proof": {
+      "verified": true,
+      "provider_message_id_sha256": "ec04af5dae539796161509aa8fe363fd1220acb6a3302564adf108ee61907268",
+      "response_message_id_sha256": "2b56fc4ed2533814562428adaa30d7aa3cb91318be6628f8c8ff25086e6d99e8",
+      "timings": {
+        "request_ms": 486,
+        "sent_verify_ms": 4617
+      }
+    },
+    "outlook_arrivals": [
+      {
+        "index": 0,
+        "count": 0,
+        "inbound_exactly_once": false
+      },
+      {
+        "index": 1,
+        "count": 0,
+        "inbound_exactly_once": false
+      }
+    ],
+    "outlook_inbox_observed": [
+      {
+        "index": 0,
+        "verified": false,
+        "unique_message_count": null,
+        "reason": "exact_subject_to_item_id_unavailable"
+      },
+      {
+        "index": 1,
+        "verified": false,
+        "unique_message_count": null,
+        "reason": "exact_subject_to_item_id_unavailable"
+      }
+    ],
+    "timing_events": [
+      {
+        "at_us": 1792656766315911,
+        "event": "mail_send_timing",
+        "provider": "qq_mail",
+        "path": "dom",
+        "attempted": true,
+        "confirmed": true,
+        "total_ms": 59361
+      },
+      {
+        "at_us": 1792656791664637,
+        "event": "mail_send_timing",
+        "provider": "qq_mail",
+        "path": "native",
+        "attempted": true,
+        "confirmed": true,
+        "total_ms": 10386,
+        "request_ms": 486,
+        "sent_verify_ms": 4617
+      }
+    ],
+    "native_events": [
+      {
+        "at_us": 1792656791662629,
+        "event": "mail_native_send",
+        "provider": "qq_mail",
+        "outcome": "sent"
+      }
+    ],
+    "template_events": [
+      {
+        "at_us": 1792656766314198,
+        "event": "mail_send_template",
+        "provider": "qq_mail",
+        "ready": true,
+        "reason": "ready"
+      }
+    ],
+    "network_records": 43,
+    "observer_errors": 1,
+    "historical_unknown_count": 93,
+    "historical_unknown_unchanged": true,
+    "new_unknown_count": 0,
+    "client_revoked": true,
+    "revoked_credential_http": 401,
+    "credential_file_removed": true,
+    "native_replay_qualified": true
+  },
+  "historical_unknown": {
+    "original_count": 92,
+    "original_rows_unchanged": true,
+    "resent": 0,
+    "new_read_uncertain": 1,
+    "new_send_unknown": 0,
+    "read_reason": "BROWSER_PAGE_STALE / page_topology_changed during earlier temporary-page diagnostic; cross-process linkage inferred"
+  },
+  "limitations": [
+    "Outlook inbox arrival was not independently verified; absent capture is not proof of nondelivery.",
+    "One observer install attempt failed; two actual func=1 sends and their responses/Sent matches were collected.",
+    "Managed policy startup timing root cause remains unresolved."
+  ],
+  "timing_scope": {
+    "seconds": "Gateway send API call wall time",
+    "timing_events.total_ms": "managed send adapter wall time",
+    "persisted_native_proof.timings.request_ms": "native browser request wall time",
+    "persisted_native_proof.timings.sent_verify_ms": "native independent Sent confirmation loop wall time",
+    "network_proofs.request_ms": "independent passive request-to-response timestamps; a separate clock boundary"
+  },
+  "terminal_history_audit": {
+    "original_all_task_identity_check_passed": false,
+    "missing_preflight_ids": 102,
+    "missing_status_counts": {
+      "completed": 97,
+      "cancelled": 4,
+      "failed": 1
+    },
+    "before_freeze": 9,
+    "after_healthy": 93,
+    "all_frozen_ids_preserved_at_cutover": true,
+    "unknown_rows_preserved": true,
+    "retention_gc_source_changed": false,
+    "attribution": "Existing periodic GC is strongly supported by unchanged source and timing, but inferred; old per-row epoch/ACK/finish evidence and per-item GC logs are unavailable.",
+    "original_failed_check_preserved": true,
+    "database_restored": false,
+    "general_missing_terminal_exception_added": false
+  },
+  "final_read_only_check": {
+    "health_no_resend_checks_passed": true,
+    "original_full_identity_gate_passed": false,
+    "missing_terminal_count_current": 110,
+    "missing_terminal_statuses_current": {
+      "cancelled": 4,
+      "completed": 105,
+      "failed": 1
+    },
+    "original_92_unknown_full_rows_unchanged": true,
+    "current_unknown_count": 93,
+    "current_93_unknown_equal_pre_live_and_post_live": true,
+    "active_send_count": 0,
+    "pending_release_count": 0,
+    "fresh_send_task_count": 2,
+    "fresh_send_ids_match_qualification": true,
+    "client_revoked_with_401": true,
+    "credential_file_absent": true,
+    "live_native_replay_qualified": true,
+    "normal_resume_strict_preferences_used": true,
+    "registration_exception_used": false,
+    "normal_resume_installed_gate_passed": true,
+    "debugging_absent": true,
+    "report_scope": "Independent read-only health and no-resend verification; does not supersede the failed full historical task identity gate.",
+    "outlook_receiver_exact_arrival_verified": false,
+    "observed_at": "2026-10-22T08:20:53.173297+00:00",
+    "gateway_health": "healthy",
+    "durable_send_proofs_unchanged": true
+  }
+}

@@ -201,6 +201,9 @@ func Load(path string) (Config, error) {
 	if err := normalizePassiveNotificationsConfig(&cfg.PassiveNotifications); err != nil {
 		return Config{}, err
 	}
+	if err := normalizeEmailIntakeConfig(&cfg.EmailIntake); err != nil {
+		return Config{}, err
+	}
 	if err := normalizeDocumentOCRConfig(&cfg.Adapters.DocumentOCR); err != nil {
 		return Config{}, err
 	}

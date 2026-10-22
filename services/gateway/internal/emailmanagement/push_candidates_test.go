@@ -23,9 +23,9 @@ func TestPushCandidatesMatchCommittedMembersByEachProviderIdentity(t *testing.T)
 		{ProviderMessageID: "immutable", ProviderNativeID: "item-native"},
 		{ProviderMessageID: "other", SourceTime: received},
 	}
-	kinds := p.match("owner", "box", members, now.Add(3*time.Second))
-	if len(kinds) != 3 || kinds[0] != "message_id" || kinds[1] != "item_id" || kinds[2] != "received_at" {
-		t.Fatalf("match kinds: %v", kinds)
+	matches, _ := p.match("owner", "box", members, now.Add(3*time.Second))
+	if len(matches) != 3 || matches[0].kind != "message_id" || matches[1].kind != "item_id" || matches[2].kind != "received_at" || matches[1].member.ProviderNativeID != "item-native" {
+		t.Fatalf("matches: %v", matches)
 	}
 	if _, left := p.byMailbox[pushCandidateKey("owner", "box")]; left {
 		t.Fatal("matched candidates must be removed")
@@ -36,11 +36,11 @@ func TestPushCandidatesStayIsolatedExpireAndAreBounded(t *testing.T) {
 	now := time.Date(2026, 10, 22, 8, 0, 0, 0, time.UTC)
 	var p pushCandidates
 	p.record("owner", "box", app.EmailProviderQQMail, []browsercontrol.MailObserverTarget{{ProviderMessageID: "a"}}, now)
-	if kinds := p.match("other-owner", "box", []store.EmailDiscoveryMember{{ProviderMessageID: "a"}}, now); len(kinds) != 0 {
+	if matches, _ := p.match("other-owner", "box", []store.EmailDiscoveryMember{{ProviderMessageID: "a"}}, now); len(matches) != 0 {
 		t.Fatal("candidates must not cross owners")
 	}
-	if kinds := p.match("owner", "box", []store.EmailDiscoveryMember{{ProviderMessageID: "a"}}, now.Add(pushCandidateTTL)); len(kinds) != 0 {
-		t.Fatal("expired candidates must not match")
+	if matches, expired := p.match("owner", "box", []store.EmailDiscoveryMember{{ProviderMessageID: "a"}}, now.Add(pushCandidateTTL)); len(matches) != 0 || len(expired) != 1 {
+		t.Fatal("expired candidates must not match and must be reported")
 	}
 	for i := 0; i < maxPushCandidatesPerMail+10; i++ {
 		p.record("owner", "box", app.EmailProviderQQMail, []browsercontrol.MailObserverTarget{{ProviderMessageID: string(rune('A'+i%26)) + string(rune('a'+i/26))}}, now)

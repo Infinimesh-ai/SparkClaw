@@ -39,10 +39,16 @@ type Options struct {
 	// A provider may use the quiet tier only after its notification adapter
 	// passed protocol fixtures and live qualification on this runtime.
 	QualifiedWakeProviders map[string]bool
+	PushDirectFetch        PushDirectFetchOptions
 }
 
 func (s *Service) verificationInterval(box app.EmailMailbox) time.Duration {
 	base := s.opts.ScanInterval
+	// Notifications carry a qualified provider's arrivals; the sweep remains
+	// for coverage, and any degradation returns it to the normal cadence.
+	if relaxed, _ := s.pushq.relaxedInterval(box.OwnerID, box); relaxed > 0 && box.WatchState == "watching" {
+		return max(base, relaxed)
+	}
 	if !s.opts.QualifiedWakeProviders[box.Provider] || !box.WakeAdapterQualified || box.WatchState != "watching" {
 		return base
 	}
@@ -59,6 +65,18 @@ func (s *Service) verificationInterval(box app.EmailMailbox) time.Duration {
 	default:
 		return 5 * base
 	}
+}
+
+// pollCommandKey names one schedule request. Command receipts replay, so a
+// return to an interval used before needs a key of its own: while the relaxed
+// sweep is configured, the push gate's transition epoch is part of the key.
+func (s *Service) pollCommandKey(owner string, box app.EmailMailbox, interval time.Duration) string {
+	key := fmt.Sprintf("poll-v1:%s:%d:%d", box.ID, box.BindingGeneration, interval)
+	if s.opts.PushDirectFetch.Enabled && s.opts.PushDirectFetch.QualifiedPollInterval > 0 {
+		_, epoch := s.pushq.relaxedInterval(owner, box)
+		key = fmt.Sprintf("%s:q%d", key, epoch)
+	}
+	return key
 }
 
 func (s *Service) incrementalMode(provider string) string {
@@ -84,6 +102,7 @@ type Service struct {
 	ownerTurn   atomic.Uint64
 	browserJobs map[string]browserJobExecution
 	push        pushCandidates
+	pushq       *pushQualifications
 	// Idle workers wait on workWake; signal closes it so a notification or new
 	// plan reaches a worker immediately instead of after its idle sleep.
 	wakeMu   sync.Mutex
@@ -109,7 +128,13 @@ func New(repository Repository, browser Browser, registry emailautomation.Regist
 	if opts.ScanInterval < time.Second || opts.LeaseDuration < 3*time.Second || opts.JobTimeout < time.Second || opts.ModelWorkers < 1 || opts.ModelWorkers > 4 {
 		return nil, errors.New("email management limits are invalid")
 	}
-	return &Service{repository: repository, browser: browser, registry: registry, analyzer: analyzer, extractor: extractor, opts: opts, wake: make(chan struct{}, 1), now: func() time.Time { return time.Now().UTC() }}, nil
+	if opts.PushDirectFetch.Threshold == 0 {
+		opts.PushDirectFetch.Threshold = 3
+	}
+	if opts.PushDirectFetch.Threshold < 1 || opts.PushDirectFetch.QualifiedPollInterval < 0 || opts.PushDirectFetch.QualifiedPollInterval > 5*time.Minute {
+		return nil, errors.New("email push direct fetch limits are invalid")
+	}
+	return &Service{repository: repository, browser: browser, registry: registry, analyzer: analyzer, extractor: extractor, opts: opts, pushq: newPushQualifications(opts.WorkspaceRoot, opts.PushDirectFetch), wake: make(chan struct{}, 1), now: func() time.Time { return time.Now().UTC() }}, nil
 }
 
 func (s *Service) Start(parent context.Context) {
@@ -252,7 +277,7 @@ func (s *Service) plan(ctx context.Context) error {
 				continue
 			}
 			interval := s.verificationInterval(mailbox)
-			_, err = s.repository.RequestEmailJob(ctx, store.EmailJobRequest{EmailCommand: command(owner.ID, fmt.Sprintf("poll-v1:%s:%d:%d", mailbox.ID, mailbox.BindingGeneration, interval)), Kind: app.EmailJobDiscover, TargetID: mailbox.ID, MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, Rearm: true, RearmFailed: true, AutomaticPoll: true, RepeatInterval: interval})
+			_, err = s.repository.RequestEmailJob(ctx, store.EmailJobRequest{EmailCommand: command(owner.ID, s.pollCommandKey(owner.ID, mailbox, interval)), Kind: app.EmailJobDiscover, TargetID: mailbox.ID, MailboxID: mailbox.ID, BindingGeneration: mailbox.BindingGeneration, Rearm: true, RearmFailed: true, AutomaticPoll: true, RepeatInterval: interval})
 			if err != nil {
 				return err
 			}

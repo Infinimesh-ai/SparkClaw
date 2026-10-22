@@ -40,6 +40,7 @@ type Config struct {
 	Memory        MemoryConfig               `json:"memory"`
 	// PassiveNotifications bounds the durable ISCP notification inbox.
 	PassiveNotifications PassiveNotificationsConfig `json:"passive_notifications"`
+	EmailIntake          EmailIntakeConfig          `json:"email_intake"`
 	Workspaces           WorkspaceConfig            `json:"workspaces"`
 	Storage              StorageConfig              `json:"storage"`
 	State                StateConfig                `json:"state"`
@@ -330,6 +331,19 @@ type MemoryConfig struct {
 type PassiveNotificationsConfig struct {
 	MaxPerOwner   int `json:"max_per_owner"`
 	RetentionDays int `json:"retention_days"`
+}
+
+// EmailIntakeConfig gates the use of provider notification identifiers.
+// PushDirectFetch lets a provider whose notification identifiers named the
+// list's own row for PushQualificationThreshold consecutive natural arrivals
+// pass them to the Reader as exact capture targets; any mismatch or failed
+// direct capture returns it to list-only discovery. QualifiedPollIntervalSeconds
+// relaxes that provider's periodic sweep only while it stays qualified and
+// direct fetch is on; 0 keeps the current cadence.
+type EmailIntakeConfig struct {
+	PushDirectFetch              bool `json:"push_direct_fetch"`
+	PushQualificationThreshold   int  `json:"push_qualification_threshold"`
+	QualifiedPollIntervalSeconds int  `json:"qualified_poll_interval_seconds"`
 }
 
 type SandboxConfig struct {

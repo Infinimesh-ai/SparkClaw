@@ -199,6 +199,10 @@ type EmailDiscoveryOptions struct {
 	ProviderMode           string               `json:"provider_mode,omitempty"`
 	RetryTargets           []EmailCaptureTarget `json:"retry_targets,omitempty"`
 	SkipProviderMessageIDs []string             `json:"skip_provider_message_ids,omitempty"`
+	// DirectTargetIDs marks retry targets built from qualified notification
+	// identifiers. It never leaves the Gateway: the Reader treats them as
+	// ordinary retry targets and prefers its own row when it lists the same ID.
+	DirectTargetIDs []string `json:"-"`
 }
 
 // EmailCaptureTarget is Runtime-owned discovery evidence, never model-selected.

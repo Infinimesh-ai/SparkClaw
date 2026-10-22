@@ -432,3 +432,40 @@ func TestCollectPageEmptyBatchPreservesPartialDiscoveryCoverage(t *testing.T) {
 		}
 	}
 }
+
+// A notification target names only the identifier; when the Reader lists the
+// same row it captures that row, and only marked direct targets may differ
+// from it in observation fields.
+func TestPageDirectTargetDefersToListedRowOnlyWhenMarked(t *testing.T) {
+	provider, _ := DefaultRegistry().Get("gmail")
+	for _, marked := range []bool{false, true} {
+		request := pageRequest()
+		wire := pageWire(t)
+		discovery := wire["discovery"].(app.EmailDiscoveryResult)
+		listed := discovery.Candidates[0]
+		received := request.Discovery.IntervalStart.Add(time.Minute)
+		listed.ReceivedAt, listed.ProviderThreadID = &received, "thread"
+		discovery.Candidates[0] = listed
+		wire["discovery"] = discovery
+		direct := app.EmailCaptureTarget{AccountAddress: listed.AccountAddress, ProviderMessageID: listed.ProviderMessageID, ProviderSelectionID: listed.ProviderSelectionID, Folder: "inbox"}
+		request.Discovery.RetryTargets = []app.EmailCaptureTarget{direct}
+		if marked {
+			request.Discovery.DirectTargetIDs = []string{direct.ProviderMessageID}
+		}
+		wire["discovery_options"] = request.Discovery
+		wire["captures"].([]any)[0].(map[string]any)["target"] = listed
+		output, err := decodePageResult(pageWireBytes(t, wire), provider, request)
+		if !marked {
+			if ErrorCode(err) != app.ToolErrorEmailScriptInvalidOutput {
+				t.Fatalf("an unmarked retry target must still bind exactly: %v", err)
+			}
+			continue
+		}
+		if err != nil || len(output.Captures) != 1 || output.Captures[0].Target.ProviderThreadID != "thread" || !output.Captures[0].Target.ReceivedAt.Equal(received) {
+			t.Fatalf("listed row did not stand for the direct target: %v", err)
+		}
+		if raw, _ := json.Marshal(request.Discovery); strings.Contains(string(raw), "direct") {
+			t.Fatal("direct target marks must not reach the Reader")
+		}
+	}
+}

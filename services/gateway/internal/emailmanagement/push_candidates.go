@@ -9,12 +9,12 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
-// Provider arrival notifications name candidate targets (QQ's mid, Outlook's
-// ItemId and receipt time). Until a qualification run proves that a provider's
-// candidates name the Reader's targets, they are only measured: each candidate
-// is matched against the members of the next committed rounds and the match
-// kind and latency are logged. Nothing here changes what a round captures, and
-// no identifier is written to logs.
+// Provider arrival notifications name candidate targets (QQ's list emailid,
+// Outlook's ItemId and receipt time). Each candidate is matched against the
+// members of the next committed rounds and the match kind and latency are
+// logged; push_qualification.go turns those outcomes into the per-provider
+// direct-fetch gate. Nothing here changes what a round captures, and no
+// identifier is written to logs.
 const (
 	pushCandidateTTL         = 15 * time.Minute
 	maxPushCandidatesPerMail = 64
@@ -26,6 +26,13 @@ type pushCandidate struct {
 	observedAt time.Time
 }
 
+// pushMatch is one candidate that named a committed round member.
+type pushMatch struct {
+	candidate pushCandidate
+	member    store.EmailDiscoveryMember
+	kind      string
+}
+
 type pushCandidates struct {
 	mu        sync.Mutex
 	byMailbox map[string][]pushCandidate
@@ -33,9 +40,10 @@ type pushCandidates struct {
 
 func pushCandidateKey(owner, mailbox string) string { return owner + "\x00" + mailbox }
 
-func (p *pushCandidates) record(owner, mailbox, provider string, targets []browsercontrol.MailObserverTarget, now time.Time) {
+// record keeps new candidates and returns the ones that expired unmatched.
+func (p *pushCandidates) record(owner, mailbox, provider string, targets []browsercontrol.MailObserverTarget, now time.Time) []pushCandidate {
 	if len(targets) == 0 {
-		return
+		return nil
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -43,7 +51,7 @@ func (p *pushCandidates) record(owner, mailbox, provider string, targets []brows
 		p.byMailbox = map[string][]pushCandidate{}
 	}
 	key := pushCandidateKey(owner, mailbox)
-	pending := expirePushCandidates(p.byMailbox[key], now)
+	pending, expired := expirePushCandidates(p.byMailbox[key], now)
 	for _, target := range targets {
 		duplicate := false
 		for _, existing := range pending {
@@ -60,20 +68,24 @@ func (p *pushCandidates) record(owner, mailbox, provider string, targets []brows
 		pending = pending[len(pending)-maxPushCandidatesPerMail:]
 	}
 	p.byMailbox[key] = pending
+	return expired
 }
 
-// match reports which candidates name a committed round member and drops them.
-func (p *pushCandidates) match(owner, mailbox string, members []store.EmailDiscoveryMember, now time.Time) []string {
+// match reports which candidates name a committed round member and drops
+// them, together with the candidates that expired unmatched.
+func (p *pushCandidates) match(owner, mailbox string, members []store.EmailDiscoveryMember, now time.Time) ([]pushMatch, []pushCandidate) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	key := pushCandidateKey(owner, mailbox)
-	pending := expirePushCandidates(p.byMailbox[key], now)
-	kinds := []string{}
+	pending, expired := expirePushCandidates(p.byMailbox[key], now)
+	matches := []pushMatch{}
 	remaining := pending[:0]
 	for _, candidate := range pending {
 		kind := ""
+		var named store.EmailDiscoveryMember
 		for _, member := range members {
 			if kind = pushMatchKind(candidate.target, member); kind != "" {
+				named = member
 				break
 			}
 		}
@@ -81,7 +93,7 @@ func (p *pushCandidates) match(owner, mailbox string, members []store.EmailDisco
 			remaining = append(remaining, candidate)
 			continue
 		}
-		kinds = append(kinds, kind)
+		matches = append(matches, pushMatch{candidate: candidate, member: named, kind: kind})
 		slog.Info("email push candidate matched", "provider", candidate.provider, "match", kind, "latency_ms", now.Sub(candidate.observedAt).Milliseconds())
 	}
 	if len(remaining) == 0 {
@@ -89,7 +101,7 @@ func (p *pushCandidates) match(owner, mailbox string, members []store.EmailDisco
 	} else {
 		p.byMailbox[key] = remaining
 	}
-	return kinds
+	return matches, expired
 }
 
 func pushMatchKind(target browsercontrol.MailObserverTarget, member store.EmailDiscoveryMember) string {
@@ -104,8 +116,9 @@ func pushMatchKind(target browsercontrol.MailObserverTarget, member store.EmailD
 	return ""
 }
 
-func expirePushCandidates(pending []pushCandidate, now time.Time) []pushCandidate {
+func expirePushCandidates(pending []pushCandidate, now time.Time) ([]pushCandidate, []pushCandidate) {
 	kept := pending[:0]
+	var expired []pushCandidate
 	for _, candidate := range pending {
 		if now.Sub(candidate.observedAt) < pushCandidateTTL {
 			kept = append(kept, candidate)
@@ -116,6 +129,7 @@ func expirePushCandidates(pending []pushCandidate, now time.Time) []pushCandidat
 			kind = "message_id"
 		}
 		slog.Info("email push candidate unmatched", "provider", candidate.provider, "candidate", kind)
+		expired = append(expired, candidate)
 	}
-	return kept
+	return kept, expired
 }

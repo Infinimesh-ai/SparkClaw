@@ -211,6 +211,11 @@ func validPageResult(output app.EmailPageResult, provider Provider, request Read
 	}
 	for _, target := range request.Discovery.RetryTargets {
 		if existing, duplicate := candidates[target.ProviderMessageID]; duplicate {
+			// A notification target carries only the identifier; the Reader
+			// captures its own listed row, so the listed observation stands.
+			if slices.Contains(request.Discovery.DirectTargetIDs, target.ProviderMessageID) && target.RecoveryCapture == nil {
+				continue
+			}
 			base := target
 			base.RecoveryCapture = nil
 			// Outlook exposes sub-microsecond receipt times, while the Store

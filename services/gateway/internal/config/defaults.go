@@ -218,6 +218,9 @@ func Default() Config {
 			MaxPerOwner:   500,
 			RetentionDays: 90,
 		},
+		EmailIntake: EmailIntakeConfig{
+			PushQualificationThreshold: 3,
+		},
 		Workspaces: WorkspaceConfig{
 			DefaultRoot: "./data/workspaces",
 			Allowlist:   []string{"./data/workspaces"},

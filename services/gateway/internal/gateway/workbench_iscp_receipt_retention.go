@@ -171,6 +171,8 @@ func (j *iscpDomainReceipts) loadRetired(key string) (iscpDomainReceipt, bool, e
 }
 
 func (j *iscpDomainReceipts) retireReceipt(key string, receipt iscpDomainReceipt) error {
+	// Retirement rewrites a shard and removes a result: rescan on next admission.
+	j.usage.valid = false
 	shard, err := j.readRetiredShard(key[:2])
 	if err != nil {
 		return err

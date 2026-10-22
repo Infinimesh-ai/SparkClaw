@@ -30,7 +30,19 @@ type iscpDomainReceipts struct {
 	wake         chan struct{}
 	rebuild      bool
 	lastPressure time.Time
+	// usage caches the directory scan behind hasCapacity. save keeps it exact,
+	// retirement invalidates it, and it is rescanned at least every minute.
+	usage domainReceiptUsage
 }
+
+type domainReceiptUsage struct {
+	valid   bool
+	at      time.Time
+	records int
+	bytes   int64
+}
+
+const domainReceiptUsageTTL = time.Minute
 
 const domainReceiptMaxBytes = (8 << 20) + (64 << 10)
 const domainReceiptTotalBytes = 512 << 20
@@ -190,8 +202,19 @@ func (j *iscpDomainReceipts) save(scope, id string, receipt iscpDomainReceipt) e
 	}
 	path := j.path(scope, id)
 	sealed := append(append([]byte(nil), domainReceiptV2...), j.aead.Seal(nonce, nonce, raw, []byte("iscp-domain-receipt-v2\x00"+filepath.Base(path)))...)
+	previous, statErr := os.Lstat(path)
 	if err := writeReceiptFile(path, sealed); err != nil {
+		j.usage.valid = false
 		return err
+	}
+	switch {
+	case statErr == nil && previous.Mode().IsRegular():
+		j.usage.bytes += int64(len(sealed)) - previous.Size()
+	case errors.Is(statErr, os.ErrNotExist):
+		j.usage.records++
+		j.usage.bytes += int64(len(sealed))
+	default:
+		j.usage.valid = false
 	}
 	j.indexReceipt(filepath.Base(path), receipt)
 	return nil
@@ -234,39 +257,46 @@ func syncReceiptDir(root string) error {
 // Incomplete intents found after restart never execute, so only this process's
 // active calls reserve future bytes in addition to durable file sizes.
 func (j *iscpDomainReceipts) hasCapacity(reserve int64) bool {
-	entries, err := os.ReadDir(j.root)
-	if err != nil {
-		return false
+	now := domainNow()
+	if !j.usage.valid || now.Sub(j.usage.at) >= domainReceiptUsageTTL || now.Before(j.usage.at) {
+		records, bytes, ok := j.scanUsage()
+		if !ok {
+			j.usage.valid = false
+			return false
+		}
+		j.usage = domainReceiptUsage{valid: true, at: now, records: records, bytes: bytes}
 	}
-	total := j.reserved + reserve
+	total := j.reserved + reserve + j.usage.bytes
 	defer func() {
-		if len(entries) >= domainReceiptRecords*4/5 || total >= domainReceiptTotalBytes*4/5 {
-			j.pressureCleanup(domainNow())
+		if j.usage.records >= domainReceiptRecords*4/5 || total >= domainReceiptTotalBytes*4/5 {
+			j.pressureCleanup(now)
 		}
 	}()
-	if len(entries) >= domainReceiptRecords {
-		return false
+	return j.usage.records < domainReceiptRecords && total <= domainReceiptTotalBytes
+}
+
+// scanUsage counts directory entries and their bytes, including retired
+// fences; an unsafe entry makes the journal refuse new work.
+func (j *iscpDomainReceipts) scanUsage() (int, int64, bool) {
+	entries, err := os.ReadDir(j.root)
+	if err != nil {
+		return 0, 0, false
 	}
+	var total int64
 	for _, entry := range entries {
 		if entry.Name() == "retired" {
 			size, err := j.retiredBytes()
 			if err != nil {
-				return false
+				return 0, 0, false
 			}
 			total += size
-			if total > domainReceiptTotalBytes {
-				return false
-			}
 			continue
 		}
 		info, err := entry.Info()
 		if err != nil || !info.Mode().IsRegular() {
-			return false
+			return 0, 0, false
 		}
 		total += info.Size()
-		if total > domainReceiptTotalBytes {
-			return false
-		}
 	}
-	return true
+	return len(entries), total, true
 }

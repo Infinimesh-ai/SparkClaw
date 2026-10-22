@@ -290,6 +290,8 @@ func TestISCPReceiptSweepIsBoundedAndReclaimsSlots(t *testing.T) {
 	}
 	err = f.Truncate(domainReceiptTotalBytes)
 	_ = f.Close()
+	// Writes outside the journal are seen at the next usage rescan.
+	j.usage.valid = false
 	if err != nil || j.hasCapacity(1) {
 		t.Fatal("retired bytes bypass shared quota", err)
 	}
@@ -394,5 +396,58 @@ func TestISCPReceiptRetentionKeepsHistoricalPollFences(t *testing.T) {
 		if err != nil || !found || receipt.Complete || receipt.Operation != operation {
 			t.Fatalf("%s retired fence unreadable: %+v found=%v err=%v", operation, receipt, found, err)
 		}
+	}
+}
+
+func TestISCPReceiptCapacityUsesExactCachedUsageInsteadOfScanningEachCall(t *testing.T) {
+	j := receiptRetentionFixture(t)
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	scan := func() (int, int64) {
+		records, bytes, ok := j.scanUsage()
+		if !ok {
+			t.Fatal("scan failed")
+		}
+		return records, bytes
+	}
+	if !j.hasCapacity(1) {
+		t.Fatal("empty journal refused work")
+	}
+	now := time.Now().UTC()
+	first, second := domainTestRequest("id", nil).ID, domainTestRequest("id", nil).ID
+	for _, id := range []string{first, second, first} { // the third call overwrites
+		receipt := completedRetentionReceipt(now)
+		if id == first {
+			receipt.Body = json.RawMessage(`{"private":"a longer replacement body"}`)
+		}
+		if err := j.save("scope", id, receipt); err != nil {
+			t.Fatal(err)
+		}
+		records, bytes := scan()
+		if !j.usage.valid || j.usage.records != records || j.usage.bytes != bytes {
+			t.Fatalf("cached usage %+v differs from scan %d/%d", j.usage, records, bytes)
+		}
+	}
+	// A directory change behind the journal is invisible until the rescan.
+	if err := os.WriteFile(filepath.Join(j.root, "external"), make([]byte, 1024), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cached := j.usage
+	if !j.hasCapacity(1) || j.usage != cached {
+		t.Fatal("capacity check rescanned within the cache window")
+	}
+	j.usage.at = j.usage.at.Add(-domainReceiptUsageTTL)
+	if !j.hasCapacity(1) {
+		t.Fatal("rescan refused work")
+	}
+	if records, bytes := scan(); j.usage.records != records || j.usage.bytes != bytes {
+		t.Fatal("expired cache did not rescan")
+	}
+	key := filepath.Base(j.path("scope", second))
+	if err := j.retireReceipt(key, completedRetentionReceipt(now.Add(-domainReceiptRetention))); err != nil {
+		t.Fatal(err)
+	}
+	if j.usage.valid {
+		t.Fatal("retirement must invalidate cached usage")
 	}
 }

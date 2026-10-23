@@ -9,10 +9,26 @@ import {assertExpectedOrigin,assertTaskTopology,parseTabs,sanitizeTabListOutput}
 import {ControllerError} from './errors.mjs';
 import {MAX_CLI_OUTPUT_BYTES,clientContractError,clientTimeoutError,clientUnavailableError,pageStale,classifyProcessExit} from './cli-runtime.mjs';
 
+export const MAX_CODE_REQUEST_CODE_BYTES = 72 << 10;
+export const MAX_CODE_REQUEST_ARGUMENT_BYTES = 512 << 10;
+export const MAX_REQUEST_FILE_BYTES = 704 << 10;
+const AWAITED_CODE_MARKER = '/* app-cli:awaited-code:v1 */';
+
+// A guarded code request carries `argument` beside its fixed page function.
+// They are joined only here, and the joined code goes to the daemon over its
+// Session socket: the argument never appears in a process argument list.
+export function joinedCode(request) {
+  if (!Object.hasOwn(request, 'argument')) return request.code;
+  const argument = JSON.stringify(request.argument);
+  if (typeof argument !== 'string' || Buffer.byteLength(argument) > MAX_CODE_REQUEST_ARGUMENT_BYTES) throw clientContractError();
+  return `${request.code.startsWith(AWAITED_CODE_MARKER) ? AWAITED_CODE_MARKER + '\n' : ''}async page => (${request.code})(page, ${argument})`;
+}
+
 export async function guardedReadBatch(request, run, token) {
   if(!Number.isSafeInteger(request.taskIndex)||request.taskIndex<0||!Array.isArray(request.ownerTabs)||
-      !Array.isArray(request.origins)||!request.origins.length||typeof request.code!=='string'||Buffer.byteLength(request.code)>72<<10||
+      !Array.isArray(request.origins)||!request.origins.length||typeof request.code!=='string'||Buffer.byteLength(request.code)>MAX_CODE_REQUEST_CODE_BYTES||
       !Number.isSafeInteger(request.actionTimeoutMS)||request.actionTimeoutMS<1||!Number.isSafeInteger(request.readTimeoutMS)||request.readTimeoutMS<1)throw clientContractError();
+  const code=joinedCode(request);
   const invoke=async(args,tabList=false)=>{
     const response=await run(args,args._[0]==='run-code'?request.readTimeoutMS:request.actionTimeoutMS);
     if(typeof response?.text!=='string'||Buffer.byteLength(response.text)>MAX_CLI_OUTPUT_BYTES)throw clientContractError('output_overflow');
@@ -32,7 +48,7 @@ export async function guardedReadBatch(request, run, token) {
     assertExpectedOrigin(tabs[request.taskIndex].url,undefined,request.origins);
   };
   await selected();
-  const output=await invoke({_:['run-code',request.code]});
+  const output=await invoke({_:['run-code',code]});
   await selected();
   let value;try{value=JSON.parse(output);}catch{throw clientContractError();}
   if(!value||!Object.hasOwn(value,'result'))throw clientContractError();
@@ -87,11 +103,15 @@ export async function openPinnedSession(sessionName, directory) {
 
 async function main() {
   const args=process.argv.slice(2),requestPath=args[1],directory=path.dirname(process.cwd());
-  if(args.length!==2||args[0]!=='--batch-request'||!path.isAbsolute(requestPath)||path.dirname(requestPath)!==directory||
-      !/^read-batch-[0-9a-f-]{36}\.json$/.test(path.basename(requestPath)))throw clientContractError();
+  const codeRequest=args[0]==='--code-request';
+  if(args.length!==2||!['--batch-request','--code-request'].includes(args[0])||!path.isAbsolute(requestPath)||path.dirname(requestPath)!==directory||
+      !(codeRequest?/^code-request-[0-9a-f-]{36}\.json$/:/^read-batch-[0-9a-f-]{36}\.json$/).test(path.basename(requestPath)))throw clientContractError();
   const stat=await fs.lstat(requestPath);
-  if(!stat.isFile()||stat.isSymbolicLink()||stat.size>512<<10||(stat.mode&0o077)||await fs.realpath(requestPath)!==requestPath)throw clientContractError();
+  if(!stat.isFile()||stat.isSymbolicLink()||stat.size>(codeRequest?MAX_REQUEST_FILE_BYTES:512<<10)||(stat.mode&0o077)||await fs.realpath(requestPath)!==requestPath)throw clientContractError();
   const request=JSON.parse(await fs.readFile(requestPath,'utf8'));
+  // Used once: the private request file is removed before anything runs.
+  if(codeRequest){await fs.unlink(requestPath);if(!Object.hasOwn(request,'argument'))throw clientContractError();}
+  else if(Object.hasOwn(request,'argument'))throw clientContractError();
   const pinned=await openPinnedSession(request.sessionName,directory);
   const output=await guardedReadBatch(request,(args,ms)=>pinned.run(args,{timeoutMS:ms}),process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN);
   return {output};

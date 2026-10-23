@@ -6,16 +6,17 @@
 // Protocol (newline-delimited JSON): after proving daemon ownership the child
 // writes {"ready":true}. Each request {"id","args"} is one CLI invocation and is
 // answered with the exit code, stdout and stderr that playwright-cli.js would
-// have produced; {"id","batch"} runs cli-read-batch's guarded read and answers
-// with its envelope. Requests run strictly one at a time. Deadlines, abort and
+// have produced; {"id","batch"} runs cli-read-batch's guarded read and
+// {"id","code_request"} its guarded code request (with a private argument),
+// both answered with the guarded envelope. Requests run strictly one at a time. Deadlines, abort and
 // output classification belong to the parent, which kills this process.
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {ControllerError} from './errors.mjs';
-import {guardedReadBatch, openPinnedSession} from './cli-read-batch.mjs';
+import {MAX_REQUEST_FILE_BYTES, guardedReadBatch, openPinnedSession} from './cli-read-batch.mjs';
 import {MAX_CLI_OUTPUT_BYTES, clientContractError, clientUnavailableError} from './cli-runtime.mjs';
 
-export const MAX_TRANSPORT_REQUEST_BYTES = 512 << 10;
+export const MAX_TRANSPORT_REQUEST_BYTES = MAX_REQUEST_FILE_BYTES;
 // Commands HostPage issues through `run`; lifecycle commands (attach, close,
 // detach, list, ...) keep their own processes and are refused here.
 export const TRANSPORT_COMMANDS = new Set(['click', 'eval', 'fill', 'goto', 'press', 'run-code', 'tab-close', 'tab-list', 'tab-select']);
@@ -86,8 +87,8 @@ async function serve(sessionName) {
     return {code: result.isError ? 1 : 0, stdout: `${result.text}\n`, stderr: ''};
   }
 
-  async function batch(request) {
-    if (!request || request.sessionName !== sessionName) throw clientContractError();
+  async function batch(request, codeRequest) {
+    if (!request || request.sessionName !== sessionName || Object.hasOwn(request, 'argument') !== codeRequest) throw clientContractError();
     try {
       const output = await guardedReadBatch(request, (args, ms) => pinned.run(args, {timeoutMS: ms}), token);
       if (capture.stderr) throw clientContractError();
@@ -102,15 +103,16 @@ async function serve(sessionName) {
   const handle = async line => {
     let request;
     try {request = JSON.parse(line);} catch {process.exit(2);}
-    if (!request || !Number.isSafeInteger(request.id) || (request.args === undefined) === (request.batch === undefined)) process.exit(2);
+    if (!request || !Number.isSafeInteger(request.id) || [request.args, request.batch, request.code_request].filter(value => value !== undefined).length !== 1) process.exit(2);
     capture = new Capture();
+    const guarded = request.batch ?? request.code_request;
     let response;
-    try {response = request.batch ? await batch(request.batch) : await command(request.args);}
+    try {response = guarded ? await batch(guarded, request.code_request !== undefined) : await command(request.args);}
     catch (error) {
       const safe = error instanceof ControllerError ? error : clientContractError();
       response = {error: {code: safe.code, reason: safe.diagnosticReason ?? 'transport_contract'}};
     }
-    if (!request.batch && response.code !== undefined) {
+    if (!guarded && response.code !== undefined) {
       response.stdout = capture.stdout + response.stdout;
       response.stderr = capture.stderr + response.stderr;
       if (Buffer.byteLength(response.stdout) > MAX_CLI_OUTPUT_BYTES || Buffer.byteLength(response.stderr) > MAX_CLI_OUTPUT_BYTES) response = {overflow: true};

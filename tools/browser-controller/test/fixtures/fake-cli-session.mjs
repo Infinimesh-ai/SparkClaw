@@ -14,7 +14,7 @@ const server=net.createServer(socket=>{
  let buffer='';socket.on('data',async bytes=>{
   buffer+=bytes;const at=buffer.indexOf('\n');if(at<0)return;
   const request=JSON.parse(buffer.slice(0,at)),name=request.params.args._[0];buffer=buffer.slice(at+1);
-  await fs.appendFile(log,JSON.stringify({command:name})+'\n');
+  await fs.appendFile(log,JSON.stringify({command:name,...(mode==='code'&&name==='run-code'?{code:request.params.args._[1]}:{})})+'\n');
   let text;
   if(name==='tab-list'){
    const bad=mode==='pre-owner'||mode==='post-owner'&&ran;

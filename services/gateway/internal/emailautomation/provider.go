@@ -40,6 +40,9 @@ type providerScriptContractEntry struct {
 	ScriptID  string `json:"script_id"`
 	Revision  int    `json:"revision"`
 	TimeoutMS int    `json:"timeout_ms"`
+	// SendAdmission is declared on send scripts that check the signed-in
+	// account inside the page themselves ("in_page").
+	SendAdmission string `json:"send_admission,omitempty"`
 }
 
 // Script identifies a provider script by the ID and revision App-CLI resolves through its public Registry; Timeout is the controller-side
@@ -66,7 +69,13 @@ type Provider struct {
 	Capture         Script
 	CollectPage     Script
 	Observe         Script
+	// SendAdmission "in_page": the send script checks the account inside the
+	// signed-in page, so Admit relies on persisted state, not a probe.
+	SendAdmission string
 }
+
+// SendAdmissionInPage is the only declared send admission.
+const SendAdmissionInPage = "in_page"
 
 type Registry struct {
 	providers map[string]Provider
@@ -150,7 +159,14 @@ func registryFromContract(raw []byte) (Registry, error) {
 		return Registry{}, fmt.Errorf("email provider script contract schema %d is unsupported", contract.SchemaVersion)
 	}
 	scripts := map[string]Script{}
+	admissions := map[string]string{}
 	for _, entry := range contract.Scripts {
+		if entry.SendAdmission != "" && (entry.Operation != "send" || entry.SendAdmission != SendAdmissionInPage) {
+			return Registry{}, fmt.Errorf("email provider script contract declares unsupported admission for %s %s", entry.Provider, entry.Operation)
+		}
+		if entry.SendAdmission != "" {
+			admissions[entry.Provider] = entry.SendAdmission
+		}
 		if !app.KnownEmailProvider(entry.Provider) || entry.Operation != "probe" && entry.Operation != "send" && entry.Operation != "read" && entry.Operation != "discover" && entry.Operation != "capture" && entry.Operation != "enumerate_thread" && entry.Operation != "mark_read" && entry.Operation != "collect_page" && entry.Operation != "observe" {
 			return Registry{}, fmt.Errorf("email provider script contract lists unknown %s %s", entry.Provider, entry.Operation)
 		}
@@ -177,6 +193,7 @@ func registryFromContract(raw []byte) (Registry, error) {
 		providers = append(providers, Provider{
 			ID: id, DisplayName: app.EmailProviderDisplayName(id), Aliases: providerAliases[id],
 			Probe: probe, Send: send, Read: read, Discover: discover, Capture: capture, EnumerateThread: enumerate, MarkRead: markRead, CollectPage: collectPage, Observe: observe,
+			SendAdmission: admissions[id],
 		})
 	}
 	if len(scripts) != 9*len(providers) {

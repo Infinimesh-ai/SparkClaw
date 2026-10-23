@@ -203,6 +203,9 @@ func (c *Controller) Admit(ctx context.Context, ownerID, request string) (Admiss
 	}
 	defer release()
 	key := intakeProbeKey{ownerID: ownerID, providerID: provider.ID}
+	if admitted, ok := c.inPageSendAdmission(ctx, key, provider); ok {
+		return admitted, nil
+	}
 	if reused, ok := c.reuseSendAdmission(ctx, key, provider); ok {
 		return reused, nil
 	}
@@ -251,7 +254,26 @@ func (c *Controller) SendForOwner(ctx context.Context, ownerID string, request S
 		// outcome), the next admission checks the login page again.
 		c.forgetSendAdmission(intakeProbeKey{ownerID: ownerID, providerID: provider.ID})
 	}
+	if category, ok := result.NotSent.RejectionCategory(provider.ID); err == nil && result.Status == "not_sent" && ok && category == app.EmailRejectionLogin {
+		// The provider refused the session: the existing setting entry asks
+		// the user to sign in again. The send result stands either way; if
+		// this update fails, the next admission probes and records it.
+		_ = c.markLoginRequired(ctx, setting)
+	}
 	return result, err
+}
+
+func (c *Controller) markLoginRequired(ctx context.Context, setting app.EmailProviderSetting) error {
+	now := c.now()
+	setting.UpdatedBy = "email_send"
+	setting.LastCheckedAt = &now
+	setting.State = app.EmailStateLoginRequired
+	setting.ErrorCode = string(app.ToolErrorEmailLoginRequired)
+	setting.AccountHint = ""
+	if _, err := c.store.UpdateEmailProviderSetting(context.WithoutCancel(ctx), setting, setting.Version); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *Controller) probe(ctx context.Context, provider Provider, invocationID string) (ProbeResult, error) {

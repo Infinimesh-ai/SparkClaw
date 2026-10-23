@@ -222,7 +222,7 @@ func (r *PlaywrightRunner) Send(
 		NotSent           *app.EmailNotSentProof `json:"not_sent,omitempty"`
 	}
 	if err := decodeStrictJSON(result.Result, &output); err != nil ||
-		output.SchemaVersion != 1 || (output.Status != "sent" && !(request.Mode != "" && output.Status == "unknown") && !(request.Mode == "reconcile" && output.Status == "not_sent")) || output.Provider != provider.ID ||
+		output.SchemaVersion != 1 || (output.Status != "sent" && !(request.Mode != "" && output.Status == "unknown") && !(request.Mode != "" && output.Status == "not_sent")) || output.Provider != provider.ID ||
 		output.RecipientDigest != expectedDigest ||
 		!validSendProviderID(output.ProviderMessageID, request.Mode != "") || !validSendProviderID(output.ProviderThreadID, request.Mode != "") ||
 		result.CredentialGeneration != generation {
@@ -230,6 +230,11 @@ func (r *PlaywrightRunner) Send(
 	}
 	if (output.Status == "not_sent" && (!output.NotSent.ValidFor(request.InvocationID, provider.ID) || output.ProviderMessageID != "" || output.ProviderThreadID != "")) || (output.Status != "not_sent" && output.NotSent != nil) {
 		return SendResult{}, codedError(app.ToolErrorEmailScriptInvalidOutput, "Email negative send proof does not match the original invocation")
+	}
+	// Outside reconciliation, only the provider's own explicit rejection of
+	// this dispatch can prove that it was not sent.
+	if output.Status == "not_sent" && request.Mode != "reconcile" && output.NotSent.Kind != "provider_rejected" {
+		return SendResult{}, codedError(app.ToolErrorEmailScriptInvalidOutput, "Email negative send proof is not a provider rejection")
 	}
 	if output.Status == "unknown" && request.Mode != "reconcile" {
 		return SendResult{}, codedError(app.ToolErrorEmailSendOutcomeUnknown, "Email send outcome is pending confirmation")
@@ -240,8 +245,9 @@ func (r *PlaywrightRunner) Send(
 		NotSent:                     output.NotSent,
 		BrowserCredentialGeneration: uint64(result.CredentialGeneration), ScriptRevision: provider.Send.Revision,
 	}
-	// A terminal lifecycle 3.0 result is acknowledged after durable receipt.
-	if lifecycle := result.Lifecycle; lifecycle != nil && output.Status == "sent" && lifecycle.Status == "completed" &&
+	// A terminal lifecycle 3.0 result, sent or explicitly rejected, is
+	// acknowledged after durable receipt.
+	if lifecycle := result.Lifecycle; lifecycle != nil && (output.Status == "sent" || output.Status == "not_sent" && output.NotSent.Kind == "provider_rejected") && lifecycle.Status == "completed" &&
 		lifecycle.OperationID == request.InvocationID && lifecycle.TaskID != "" && lifecycle.TerminalRevision > 0 && len(lifecycle.ResultDigest) == 64 {
 		sent.Lifecycle = &app.EmailRuntimeLifecycle{OperationID: lifecycle.OperationID, TaskID: lifecycle.TaskID,
 			TerminalRevision: lifecycle.TerminalRevision, ResultDigest: lifecycle.ResultDigest}

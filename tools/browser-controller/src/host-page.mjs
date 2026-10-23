@@ -23,6 +23,7 @@ import {
 } from "./cli-runtime.mjs";
 import { electronConnectionEnvironment } from "./electron-adapter-client.mjs";
 import { TRANSPORT_COMMANDS } from "./cli-page-transport.mjs";
+import { MAX_CODE_REQUEST_ARGUMENT_BYTES, MAX_CODE_REQUEST_CODE_BYTES } from "./cli-read-batch.mjs";
 import { PageTransport, PageTransportUnavailable } from "./page-transport.mjs";
 
 const PINNED_CLI_ENTRY = fileURLToPath(new URL('../node_modules/@playwright/cli/playwright-cli.js', import.meta.url));
@@ -129,6 +130,10 @@ export class HostPage {
       throw pageStale("task_page_missing");
     }
     this.taskReady = true;
+    // A request file is used once; one left by an interrupted process is never run.
+    for (const name of await fs.readdir(this.state.directory).catch(() => [])) {
+      if (/^(?:read-batch|code-request)-[0-9a-f-]{36}\.json$/.test(name)) await fs.rm(path.join(this.state.directory, name), {force: true});
+    }
     await this.#withTaskSelected(() => this.#run(['--raw', `-s=${this.sessionName}`, 'run-code',
       '/* app-cli:guard:v1 */ async page => true']));
     if (this.registration.hook) {
@@ -511,6 +516,65 @@ export class HostPage {
     return parseJSON(output);
   }
 
+  // Guarded code request for mutation pages. `code` is a small fixed page
+  // function `(page, argument) => ...`; `argument` (message content) is joined
+  // with it only inside the guarded process and reaches the browser through the
+  // daemon's Session socket, never through an argument list. The request goes
+  // over the resident transport's stdin or a one-use 0600 file. Topology and
+  // origin checks stay; there is no read-only wrapper.
+  async runCodeRequest(code, argument, timeoutMS = 30_000) {
+    if (!this.registration.codeEnabled || this.registration.readOnlyCode === true || typeof code !== "string" ||
+        Buffer.byteLength(code) > MAX_CODE_REQUEST_CODE_BYTES || !Number.isSafeInteger(timeoutMS) || timeoutMS < 1 || timeoutMS > 60_000) throw clientContractError();
+    let value;
+    try { value = JSON.parse(JSON.stringify(argument ?? null)); } catch { throw clientContractError(); }
+    if (Buffer.byteLength(JSON.stringify(value)) > MAX_CODE_REQUEST_ARGUMENT_BYTES) throw clientContractError();
+    // Daemon ownership is proved through /proc; elsewhere no private path exists.
+    if (process.platform !== 'linux' || this.batchReadCommands === false || this.electronConnection ||
+        path.resolve(this.entryPoint) !== PINNED_CLI_ENTRY) throw clientContractError('code_request_unsupported');
+    const origins = JSON.stringify(this.registration.origins), denied = JSON.stringify(this.registration.deniedURLs ?? []);
+    const guardedCode = `${AWAITED_CODE_MARKER}\nasync (page, argument) => {
+      const initial_url = page.url();
+      let allowed = false;
+      try {
+        const url = new URL(initial_url);
+        allowed = ${origins}.some(origin => initial_url === origin || ['/', '?', '#'].some(separator => initial_url.startsWith(origin + separator))) &&
+          !${denied}.some(rule => url.origin === rule.origin && new RegExp(rule.path).test(url.pathname.toLowerCase()) &&
+            Object.entries(rule.query ?? {}).every(([key, expected]) => url.searchParams.get(key) === expected));
+      } catch {}
+      if (!allowed) return {initial_url, final_url: initial_url, result: null};
+      const result = await (${code})(page, argument);
+      return {initial_url, final_url: page.url(), result};
+    }`;
+    const requestPath = path.join(this.state.directory, `code-request-${crypto.randomUUID()}.json`);
+    try {
+      const request = {sessionName: this.sessionName, taskIndex: this.taskIndex, ownerTabs: this.ownerTabs, origins: this.registration.origins,
+        code: guardedCode, argument: value, actionTimeoutMS: this.actionTimeoutMS, readTimeoutMS: Math.max(this.actionTimeoutMS, timeoutMS)};
+      const unwrap = raw => {
+        const envelope = parseJSON(raw);
+        if (envelope?.error) {
+          if (!['browser_page_stale', 'browser_extension_unavailable', 'browser_script_timeout'].includes(envelope.error.code)) throw clientContractError();
+          throw new ControllerError(envelope.error.code, 'browser guarded code request failed', {status: envelope.error.code === 'browser_page_stale' ? 409 :
+            envelope.error.code === 'browser_script_timeout' ? 504 : 503, retryable: false, diagnosticReason: envelope.error.reason});
+        }
+        if (typeof envelope?.output !== 'string') throw clientContractError();
+        return envelope.output;
+      };
+      const requestTimeoutMS = Math.max(this.actionTimeoutMS, timeoutMS) + 6 * this.actionTimeoutMS;
+      let output = await this.#transportBatch(request, requestTimeoutMS, unwrap, 'code_request');
+      if (output === undefined) {
+        await fs.writeFile(requestPath, JSON.stringify(request), {flag: 'wx', mode: 0o600});
+        output = await this.#run(['--code-request', requestPath], requestTimeoutMS, unwrap, fileURLToPath(new URL('./cli-read-batch.mjs', import.meta.url)));
+      }
+      const result = parseJSON(output);
+      if (!result || !Object.hasOwn(result, 'result')) throw clientContractError();
+      for (const url of [result.initial_url, result.final_url]) {
+        assertExpectedOrigin(url, undefined, this.registration.origins);
+        this.#assertProviderURL(url);
+      }
+      return result.result;
+    } finally { await fs.rm(requestPath, {force: true}); }
+  }
+
   async download(selector, destination, maxBytes) {
     if (!this.registration.downloadEnabled || typeof selector !== "string" || !selector ||
         !path.isAbsolute(destination) || !Number.isSafeInteger(maxBytes) || maxBytes <= 0 || maxBytes > 110 << 20) throw clientContractError();
@@ -767,11 +831,11 @@ export class HostPage {
     }
   }
 
-  async #transportBatch(request, requestedTimeoutMS, unwrap) {
+  async #transportBatch(request, requestedTimeoutMS, unwrap, kind = 'batch') {
     if (!this.#transportReady()) return undefined;
     try {
       const { signal, timeoutMS } = this.#runContext(requestedTimeoutMS);
-      const response = await this.#transportRequest({ batch: request }, timeoutMS, signal);
+      const response = await this.#transportRequest({ [kind]: request }, timeoutMS, signal);
       if (response === undefined) return undefined;
       if (!response.envelope) throw clientContractError('transport_protocol');
       const raw = JSON.stringify(response.envelope);

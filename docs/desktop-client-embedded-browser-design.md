@@ -175,20 +175,20 @@ streaming browser or external-window fallback. Observation can change which
 view is presented but must not call handoff, bring a task into keyboard focus,
 change its Controller page selection, or detach/rebind its debugger session.
 
-Personal pages resize with their panel. A task's CSS viewport and scale are
-established before automation and remain fixed for the active session. Begin
-qualification at 640 CSS px width with an explicitly recorded height/DPI/zoom.
-A panel too small for that view shows status and an expand action. Any necessary
-viewport change occurs at a verified runtime boundary with fresh layout evidence.
+Personal and task pages resize to the available browser panel, including retained
+completed task pages. A 640 × 720 size is only an initial background default; it
+does not center or hide a displayed page in a smaller panel. Width/height changes
+advance a local layout revision, even when the page later returns to its old size.
+Snapshots and layout-dependent commands require the current revision and renderer
+viewport. A stale action is rejected before dispatch; an already-started write
+keeps the existing unknown-outcome rule. Fresh observation is required after resize.
 Background rendering and timers must remain sufficient for providers when the
 view is hidden, detached from presentation, or the workbench is minimized.
 
-**2026-10-23 owner requirement update:** the fixed visible viewport and small-panel
-hiding above describe the historical v1 implementation, not the accepted future
-display target. Automated pages must adapt to the available area like normal
-browser pages. Keep control ownership separate from display sizing and refresh
-layout-dependent evidence when needed. This change is pending implementation;
-see [BR-01 and the retained follow-up](desktop-browser-follow-up-2026-10-23.md).
+**2026-10-23 implementation:** this replaces the historical fixed visible viewport
+at the owner's request. Existing tabs, explicit selection, input ownership,
+occlusion and collapse controls remain. See the
+[combined follow-up and acceptance](desktop-browser-follow-up-2026-10-23.md).
 
 Display states remain `idle`, `agent_running`, `login_required`,
 `checking_login`, `completed`, and `failed`. Browser/view availability is separate

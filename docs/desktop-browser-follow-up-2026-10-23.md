@@ -2,7 +2,49 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-browser-follow-up-2026-10-23.md)
 
-## Scope and acceptance correction
+## Implementation and live acceptance update
+
+The owner subsequently authorized a combined implementation, preserving the original
+UI, followed by real-machine acceptance. Product revision `cf1b8100` is now installed
+on the Mac and deployed to work2. Test-only capacity correction `36240150` does not
+change the deployed binary. The original investigation below remains a historical
+checkpoint; its “all open” statements are not the current status.
+
+| ID | Current result | Evidence and remaining boundary |
+| --- | --- | --- |
+| BR-01 | Adaptive display implemented; native layout acceptance passed. | Both active and released task pages fill the panel. Local revisions reject stale actions before dispatch. Actual original renderer/native-view qualification covers 48 existing layout cases plus 12 leased/released cases, narrow panels, 1×/1.5× zoom, occlusion and page identity. Installed main UI shows the real Apple page at 240 px, normal split width and full browser width. |
+| BR-02 | Requested title/body reading succeeds on the deployed version. | The former workflow navigated twice. Same-target reads now reuse the live binding and do not navigate again or silently rebind. Real work2 comparison changes `acquire → navigate → navigate → read → release` into `acquire → navigate → read → release`; title/body and final business completion pass. The exact older request `5748f181…` is not fully reproducible, so duplicate navigation is not claimed as its sole proven cause. |
+| BR-03 | Explicit verified revocation reason and existing login UI passed. | A bounded issuer authorization check preserves the typed signed revocation signal across reconnect/restart. Ordinary disconnection and generic 401/403 do not manufacture revocation. Existing credential form/history remain; Reconnect is disabled for revoked authorization. |
+| BR-04 | Real in-flight revocation passed using a disposable identity. | Installed helper/UI hashes and product source match. One live read had executed but its result remained in flight. Revocation clears the active lease/page, fences the old result, rejects the old binding and returns business 401. Restart remains revoked. Already-read content cannot be undone. |
+| BR-05 | Native navigation diagnosis implemented and verified. | The original example.com log contains `ERR_NAME_NOT_RESOLVED`; it is an environmental DNS failure whose reason was lost. Bounded native error codes and command deadlines now remain distinct from true fencing. Installed UI reports `browser dns resolution failed` for a controlled `.invalid` domain; Apple success is independently verified. |
+| BR-06 | Optional qualification passed; real send/receive/attachment acceptance remains open. | Linux full Go/build/vet, 526 desktop tests, 504 WebChat tests, all 131 optional browser/recovery cases and file/PostgreSQL 10,000-mail capacity pass. Three specifically approved emails each stopped before provider dispatch at `EMAIL_DRAFT_FIELDS_UNVERIFIED`; actual sends 0, retries 0. Common multiline-editor readback diagnosis and repair are in progress. |
+
+The optional capacity fixture previously put 10,000 mails and related records in
+one transaction despite production admission allowing only 100 per command.
+Bounded 100-mail fixture transactions retain all 10,000 mails, 9,000 captured mails,
+900 conversations, 1,000 queued jobs, original assertions and the 60-second limit.
+Mac and Linux PostgreSQL list/detail P95 were 34.85 ms and 13.38 ms. Original failed
+runs remain recorded rather than being replaced with successful logs.
+
+The installed application matches 296 package entries; the stopped cutover preserved
+6 existing profiles and 97 tables exactly. Work2 preserves 41 business tables,
+77 original draft/send snapshots and 106 historical unknown records. The first
+strict cutover comparison failed on three periodic discovery jobs advancing through
+normal restart states; field-level classification and the original failed receipt
+are retained. No historical send was retried. Revocation acceptance leaves all six
+QA identities revoked and all four original invitation records exactly unchanged.
+
+The approved mail matrix used normal progress-report bodies with unchanged tiny
+synthetic text attachments: QQ → Outlook, Outlook → Gmail, Gmail → QQ, once each.
+Formal HTTPS object upload and saved draft attachment metadata passed, but native
+attachment upload, sender Sent proof, receiver arrival, Inbox/Spam classification,
+automatic intake and received-file SHA checks were not reached. This is not Mac
+ISCP local-file upload acceptance. New sends require a concrete follow-up approval
+after the repair; failed drafts and unknown records remain preserved.
+
+The [redacted combined receipt](evidence/desktop-browser-six-fixes-2026-10-23.json) indexes the immutable local evidence. During the installed conversation-switch check, the helper was replaced and released task pages disappeared. Existing session-fence code clears those pages; Grant timing supports renewal as the trigger, but no continuous transport log establishes the initiating event. Chat history remained. Do not count this cross-reconnect check as retained-page acceptance; the separate same-connection native fixture passes 20 switches. This retention boundary remains recorded for follow-up.
+
+## Historical investigation: scope and acceptance correction
 
 The owner requires an automated page to display like a normal browser page:
 fill the available browser area and adapt when the window/panel changes size.

@@ -1,0 +1,279 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-23",
+  "status": "browser_fixes_qualified_mail_repair_in_progress",
+  "source_revision": "cf1b81009b3a0bb122daa03352164bff4ff633f0",
+  "test_only_capacity_revision": "36240150",
+  "deployment": {
+    "phase": "healthy",
+    "source": "cf1b81009b3a0bb122daa03352164bff4ff633f0",
+    "previous_source": "85aa9193aca5ecfa7f45e6040f4b3c156ff3fdf8",
+    "old_image": "sha256:8c1e152aa7b19e20907a42c3a8d514b4926776f4ff2b86bf4a822bf0332c6c64",
+    "image": "sha256:ce814bdc134dcfbf0c8a6e6dfad4ae741d4f0294d6e15ec7c39235b9b460935d",
+    "started_at": "2026-10-23T09:41:41.101060+00:00",
+    "completed_at": "2026-10-23T09:44:53.736735+00:00",
+    "business_tables_preserved": 41,
+    "initial_strict_comparison_failed": true,
+    "discovery_runtime_jobs": 3,
+    "unknown_before": 106,
+    "unknown_after": 106,
+    "protected_config_exact": true,
+    "resident_pids_unchanged": true,
+    "webchat_unchanged": true,
+    "app_cli_unchanged": true
+  },
+  "mac_installation": {
+    "source": "cf1b81009b3a0bb122daa03352164bff4ff633f0",
+    "installed": true,
+    "package_entries_exact": 296,
+    "profiles_exact": 6,
+    "original_tables": 97,
+    "installed_at": "2026-10-23T09:41:19Z"
+  },
+  "validation": {
+    "desktop": {
+      "passed": 526,
+      "skipped": 0
+    },
+    "webchat": {
+      "passed": 504,
+      "files": 82
+    },
+    "linux_go": {
+      "packages_passed": 75,
+      "build": true,
+      "vet": true
+    },
+    "optional_browser_recovery": {
+      "passed": 131,
+      "skipped": 0
+    },
+    "controller_coverage_union": {
+      "passed": 469
+    },
+    "native_layout": {
+      "existing_layout_cases": 48,
+      "leased_released_cases": 12,
+      "smallest_native_view_width": 239,
+      "zoom_factors": [
+        1,
+        1.5
+      ],
+      "stale_action_effects": 0,
+      "fresh_action_effects": 1
+    },
+    "native_lan_host": {
+      "passed": true,
+      "conversation_switches": 20,
+      "page_identity_preserved": true,
+      "stale_predispatch_unknown_added": 0,
+      "lost_started_write_remains_unknown": true
+    },
+    "capacity": {
+      "mails": 10000,
+      "captured": 9000,
+      "conversations": 900,
+      "queued_jobs": 1000,
+      "seed_batch_size": 100,
+      "operation_deadline_seconds": 60,
+      "mac_postgres_p95_ms": 34.848,
+      "linux_postgres_p95_ms": 13.376,
+      "file_and_postgres_passed_both_platforms": true
+    }
+  },
+  "installed_ui": {
+    "normal_entry": true,
+    "debug_ports_used": false,
+    "apple_title_body_returned": true,
+    "apple_panel_widths_css_px": [
+      240,
+      468
+    ],
+    "wide_mode": true,
+    "menu_occlusion": true,
+    "collapse_and_reopen_entry": true,
+    "explicit_tab_selection_required": true,
+    "invalid_domain_result": "The workflow is blocked: browser dns resolution failed.",
+    "cross_renewal_retained_native_page": "not passed: helper replacement observed; existing reconnect/session fence clears task pages. Grant timing supports renewal as trigger, without continuous transport log. Chat history retained; same-session fixture passes."
+  },
+  "revocation": {
+    "passed": true,
+    "helper_sha256": "9ef613726b84d44fac7a63dd72d3dfd00889102bb966f6b79aa20b222bdc6ab2",
+    "ui_index_sha256": "6bc4c132556c82036facb656f9f011b35b3429e6cb08a814c3baf9eb3d017b0e",
+    "read_executed_before_revoke": true,
+    "result_returned_before_revoke": false,
+    "before_revoke": {
+      "pages": 1,
+      "leases": 1
+    },
+    "after_revoke": {
+      "pages": 0,
+      "leases": 0
+    },
+    "delayed_result_error": "command_fenced",
+    "old_binding_status": 503,
+    "business_status": 401,
+    "restart_explicit_revoked": true,
+    "local_timing_ms": {
+      "management_call_begin_to_host_fence": 1389,
+      "management_call_begin_to_verified_revoked": 1527,
+      "management_return_to_verified_revoked": 11
+    },
+    "original_invitation_records_exact": true,
+    "qa_devices_revoked": 6
+  },
+  "mail_first_attempt": {
+    "status": "FAILED_BEFORE_DISPATCH",
+    "formal_api_attempts": 3,
+    "provider_dispatches": 0,
+    "retries": 0,
+    "cases": [
+      {
+        "route": "qq_mail -> outlook",
+        "state": "failed",
+        "failure_phase": "prepare_draft",
+        "failure_code": "email_draft_fields_unverified",
+        "ledger_effect": 0,
+        "formal_attachment_object_upload_verified": true,
+        "native_attachment_upload": "not reached",
+        "receiver_arrival": "not reached; no dispatch",
+        "original_received_attachment_sha256": "not qualified"
+      },
+      {
+        "route": "outlook -> gmail",
+        "state": "failed",
+        "failure_phase": "prepare_draft",
+        "failure_code": "email_draft_fields_unverified",
+        "ledger_effect": 0,
+        "formal_attachment_object_upload_verified": true,
+        "native_attachment_upload": "not reached",
+        "receiver_arrival": "not reached; no dispatch",
+        "original_received_attachment_sha256": "not qualified"
+      },
+      {
+        "route": "gmail -> qq_mail",
+        "state": "failed",
+        "failure_phase": "prepare_draft",
+        "failure_code": "email_draft_fields_unverified",
+        "ledger_effect": 0,
+        "formal_attachment_object_upload_verified": true,
+        "native_attachment_upload": "not reached",
+        "receiver_arrival": "not reached; no dispatch",
+        "original_received_attachment_sha256": "not qualified"
+      }
+    ],
+    "preservation": {
+      "old_draft_send_snapshot_count": 77,
+      "old_draft_send_snapshots_exact": true,
+      "new_drafts": 3,
+      "new_send_snapshots": 3,
+      "old_unknown_count": 106,
+      "old_unknown_exact": true,
+      "new_unknown": 0,
+      "mailbox_identity_configuration_exact": true,
+      "health": "healthy",
+      "pending_release": 0,
+      "active_sends": 0,
+      "cleanup_fence": false
+    },
+    "qa_revoked_and_401": true,
+    "scope": "User-approved three provider routes via formal Gateway HTTPS installation/object/draft/send. Not Mac ISCP local-file upload qualification."
+  },
+  "retained_failures": [
+    "Original Apple read request 5748f181 is not fully reproduced; duplicate navigation is not asserted as its sole root cause.",
+    "Original example.com ERR_NAME_NOT_RESOLVED was obscured by generic command_fenced.",
+    "First native resize/zoom fixture exposed stale UI error residue, fixed before successful rerun; screen-clamped resize fixture corrected.",
+    "Optional browser lifecycle-2 fixtures and single-transaction PostgreSQL capacity setup failures retained.",
+    "First strict deployment preservation comparison failed on three periodic discovery jobs; exact runtime-field classification retained.",
+    "r5 dev harness used stale helper then stale UI resources; installed matching resources and r6 pass.",
+    "Initial device audit incorrectly keyed two invitations by client_id; unique invitation_id full-record audit preserves all four originals.",
+    "Three approved mail attempts stopped before dispatch; receive/attachment acceptance remains open."
+  ],
+  "sources": [
+    {
+      "path": "/Users/dev/.cache/sparkclaw-upgrades/20261023-browser-six/deployment.json",
+      "sha256": "04bf4e44df3b587b91578ff5b19ec8c2ea1c41947781b07eeb331e9bec5bfbd6"
+    },
+    {
+      "path": "/Users/dev/.cache/sparkclaw-upgrades/20261023-browser-six/evidence/mac-installation.json",
+      "sha256": "5b7b8f3e04065353dcc03b114a39ba70de6d4d5997b589762b01be54008dea9e"
+    },
+    {
+      "path": "/private/tmp/sparkclaw-work2-revoke-20261023-r6/summary.redacted.json",
+      "sha256": "acb89f434872ec04c61e55db52b878ac3e445b40b4cce1f47d2f914041610fa4"
+    },
+    {
+      "path": "/Users/dev/.cache/sparkclaw-acceptance/20261023-br06-ba207148/capacity-batched/summary.json",
+      "sha256": "b55c7d7d9501e49860810e513fe252eea96056f668ca41f0dd7aca90c68388e4"
+    },
+    {
+      "path": "/Users/dev/.cache/sparkclaw-acceptance/20261023-br06-ba207148/live-mail-plan/live-result.public.json",
+      "sha256": "b8601b0321abe904482b87a88837847f8a24d10029f338799868df723dce23f0"
+    },
+    {
+      "path": "/Users/dev/.cache/sparkclaw-upgrades/20261023-browser-six/evidence/mac-released-page-boundary.redacted.json",
+      "sha256": "101ff1a728a15a9c36278a548eb65ec36d263de1d671cd1cb75b1839cc8de1de"
+    },
+    {
+      "path": "/Users/dev/.cache/sparkclaw-upgrades/20261023-browser-six/evidence/mac-post-acceptance-preservation.redacted.json",
+      "sha256": "5fee1e54e0025938e106ce56672597706b9733b7e9440bd3e805133cd31f890a"
+    }
+  ],
+  "screenshots": [
+    {
+      "path": "/Users/dev/.cache/sparkclaw-upgrades/20261023-browser-six/evidence/mac-browser-menu.png",
+      "sha256": "010f4163b55a827dd0397a23d412824fff404dd07a3bef396e0d81650286ca2b"
+    },
+    {
+      "path": "/Users/dev/.cache/sparkclaw-upgrades/20261023-browser-six/evidence/mac-invalid-domain-result.png",
+      "sha256": "5e2b912cba95fb7680340eb5a0444f3fb46856bb3d54978de718f3aa2aca77ed"
+    },
+    {
+      "path": "/Users/dev/.cache/sparkclaw-upgrades/20261023-browser-six/evidence/mac-task-keyboard-min.png",
+      "sha256": "2877bbb6974220ba4fc9080c758949be9f552fe285d1976a0c7e046855bbf8f0"
+    },
+    {
+      "path": "/Users/dev/.cache/sparkclaw-upgrades/20261023-browser-six/evidence/mac-task-narrow.png",
+      "sha256": "dd6aea345bc440d7901a42d512ab5fa00f5504cc0d28ae36681c48bb6edfb448"
+    },
+    {
+      "path": "/Users/dev/.cache/sparkclaw-upgrades/20261023-browser-six/evidence/mac-task-wide.png",
+      "sha256": "be0678ef9bb97602abb32422cbe5a3a5c53164d68ee955970363a0097de03813"
+    },
+    {
+      "path": "/Users/dev/.cache/sparkclaw-upgrades/20261023-browser-six/evidence/mac-task-zoom-out.png",
+      "sha256": "b8870b1fe4662c4024931d06e5c4a72442e2e43fcb5549c86c85150f865fa0a1"
+    }
+  ],
+  "mac_post_acceptance_preservation": {
+    "profiles": 6,
+    "tables": 97,
+    "original_messages": 30,
+    "all_original_database_primary_keys_retained": true,
+    "original_messages_and_tasks_exact": true,
+    "original_draft_content_exact": true,
+    "changed_empty_draft_revision": [
+      127,
+      131
+    ],
+    "event_projection_changes": [
+      "cursor",
+      "revision",
+      "epoch"
+    ],
+    "event_scope_and_snapshot_exact": true,
+    "new_conversations": 2,
+    "new_messages": 4,
+    "stable_grant_and_enrollment_identity_exact": true,
+    "protocol_envelopes_changed": [
+      "node-control/operations.v2",
+      "relay.enrollment.json.credentials.v2",
+      "relay.enrollment.json.duplex.pending.v1"
+    ],
+    "unchanged_other_profiles": 5,
+    "original_owned_files_exact": true,
+    "launchers_exact": true,
+    "package_entries_exact": 296,
+    "limits": "Live protocol envelopes renew and advance; this is not a byte-identical post-session profile claim."
+  }
+}

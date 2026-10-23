@@ -1549,6 +1549,31 @@
       "new_freeze_actions": 0,
       "new_send_actions": 0,
       "mac_locked_at": "2026-10-23T19:25:30Z"
+    },
+    "v5_fixed_data_replay": {
+      "first_attempt_failed_at": "2026-10-23T19:54:35Z",
+      "first_remote_elapsed_seconds": 222.25818334240466,
+      "failure": "Python3.14 cold ASCII codec import rejected by fixed path audit guard before emitter",
+      "timeout": false,
+      "original_failed_summary_sha256": "308198101f1784e041b073a0ea930eca6218845d6a40249705b40ae16a75d534",
+      "small_readonly_diagnostic_sha256": "496a850e159b210ba940d0db14270ae946685f997b7c0f5846a816a152f17b8c",
+      "guard_not_widened": true,
+      "corrected_small_tests": 13,
+      "root_independent_rerun": 13,
+      "v5_revision3_small_tests": 112,
+      "v5_revision3_index_sha256": "b0e005e78eda04697d5ec1616d080caeda5465233a40356d11e482cda0249afb",
+      "explicit_freeze_ssh_seconds": 900,
+      "explicit_freeze_remote_seconds": 890,
+      "corrected_replay_remote_total_seconds_limit": 900,
+      "corrected_replay_ssh_seconds": 910,
+      "local_prepare_receive_seconds": 240,
+      "memory_reserves_unchanged": true,
+      "original47_files_retained": true,
+      "corrected_single_replay_started_at": "2026-10-23T20:03:14.866364Z",
+      "completed": false,
+      "capacity_qualified": false,
+      "sql_service_mail_actions": 0,
+      "candidate_activated": false
     }
   }
 }

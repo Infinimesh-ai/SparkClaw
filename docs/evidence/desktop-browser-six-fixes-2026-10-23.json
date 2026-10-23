@@ -1351,6 +1351,38 @@
         "historical_full_preservation_review_pending": true,
         "allow_start": false
       }
+    },
+    "restored_fresh_baseline": {
+      "observed_at": "2026-10-23T17:30:33.114774+00:00",
+      "ledger_observed_at": "2026-10-23T17:31:05.328Z",
+      "transfer_seconds": 73.2,
+      "snapshot_sha256": "e78370b78996492e7db993d8d623fb4c6564790f7687e3e69eada421f188edb2",
+      "core_full_rows_exact": {
+        "draft": 101,
+        "send": 57,
+        "unknown": 112,
+        "devices": 10
+      },
+      "source_image_config_exact": true,
+      "healthy": true,
+      "browser_pid": "1945702",
+      "fresh_baseline_root_review_sha256": "6430a6664b8c2664b4d3afe2062e9b05a18c192648a3964e0ccca7dadc51c3ba",
+      "independent_review_sha256": "a381719138d0f460842c21fba0cfd1a543fc7d2d9b68b702caa38e8759f76439",
+      "missing_historical_completed_collect_rows": 216,
+      "includes_prior_cutover_missing26": true,
+      "missing_send_overlap": 0,
+      "new_tasks": 197,
+      "old_watches_running_to_cancelled": 3,
+      "old_workspace_files_missing": 0,
+      "old_controls_exact": true,
+      "old_read_states_exact": true,
+      "old_receipts_missing": 0,
+      "old_receipt_change_only_approved_events_pull": true,
+      "qualification_file_changed": true,
+      "actual_deletion_cause_proven": false,
+      "full_historical_preservation_claimed": false,
+      "new_runtime_exemptions": false,
+      "deployment_released": false
     }
   }
 }

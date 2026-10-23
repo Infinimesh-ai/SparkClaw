@@ -1150,7 +1150,7 @@
     "query_completeness_fix": "b4907ef3880d3e28a2ed8f16618b6cb3dc291d77"
   },
   "mail_combined_r41": {
-    "phase": "qualified_pushed_pending_live_deployment",
+    "phase": "staged_cutover_01_aborted_before_switch_old39_healthy",
     "source": "2396381e62f208a1503e13841b9b12bbdb5053ff",
     "appcli_source": "bcc55506cc933f981668e3b2d1ed1eba1bf4c6a3",
     "runtime_digest": "e315727dfe2802b92ef97f3fc0828825e343b3056f5a8d3214207c32840a7db4",
@@ -1223,6 +1223,98 @@
       "remote_actions": 0,
       "legacy_sync_no_automatic_exemption": true,
       "historical57_missing_cause_unproved": true
+    },
+    "preflight": {
+      "observed_at": "2026-10-23T16:09:04.009229+00:00",
+      "ledger_observed_at": "2026-10-23T16:09:35.339Z",
+      "private_sha256": "d81256f4810f888784fda276c0bf5db6f92c0fd535d5742c3c92c0568de21428",
+      "root_baseline_review_sha256": "749ccbd1cc95374c35068b54bb3743de5a99ecbfa3906228eb64ffc23be16795",
+      "independent_review_sha256": "a70eb107dcdfaabe9597dba08358ae8f782a7cb6f431259ae0172f342c501934",
+      "counts": {
+        "tables": 41,
+        "draft_send": 101,
+        "unknown": 112,
+        "send_tasks": 57,
+        "devices": 10,
+        "ledger_tasks": 27124
+      },
+      "raw_lineage_failure_retained": true,
+      "only_raw_lineage_difference": "Same two complete historical QQ collect uncertain rows, rebound explicitly to the new baseline; no new unknown or replay",
+      "historical_pre_d41_gap": {
+        "missing_terminal_rows_vs_d40_preflight": 240,
+        "previously_recorded": 57,
+        "additional_before_d41_baseline": 183,
+        "previous_statuses": {
+          "completed": 239,
+          "cancelled": 1
+        },
+        "send_overlap": 0,
+        "unknown_rows_exact": true,
+        "workspace_missing": 0,
+        "workspace_changed": "One push/qualification.json digest; old full content not available, cause unproved",
+        "workspace_added": 18,
+        "controls_exact": true,
+        "receipts_missing": 0,
+        "receipts_changed": "Only prior reviewed events.pull/event-subscription file",
+        "receipts_added": 461,
+        "gc_cause_proved": false,
+        "root_private_evidence_sha256": "6734bf7615cbb28483497a197f1053cc230f59548f67c01e35247f9703a256e4"
+      },
+      "new_baseline_to_frozen_requires_strict_preservation": true
+    },
+    "stage": {
+      "completed_at": "2026-10-23T16:18:15.737124+00:00",
+      "source": "2396381e62f208a1503e13841b9b12bbdb5053ff",
+      "gateway_image": "sha256:c1a0271c1f34c5454be29334bc791e271b84b5d3cc3d6a0d3930b5b51e0dca57",
+      "receipt_sha256": "41687d7c299eb6fbbd73c36db1eae951496774637454b55e7383d8ce710e651a",
+      "unknown_gate_passed": true
+    },
+    "cutover_attempt_01": {
+      "phase": "aborted_before_switch",
+      "finished_at": "2026-10-23T16:22:23.029132+00:00",
+      "source_switched": false,
+      "component_activation_attempted": false,
+      "old_39_restored_healthy": true,
+      "summary_sha256": "42dfc230c821ffcf7cef060bf448fb022a4ba3477f9e597b189d34b3b596aeec",
+      "raw_postmortem_sha256": "8f0ffb2bc8c23fb01eaba99b96ddf6c8407059d95d0c0678d2d9c3bf9b8d0355",
+      "strict_business_changes": [
+        "reference search Version 266 to 267",
+        "counter arrival Value 174 to 175",
+        "old empty-key sync created_at/sort overwrite",
+        "owner_status captured_count 142 to 143 and revision 224560 to 224753"
+      ],
+      "source_classification_sha256": "e77d9811c240787aa0cdb03d9b17a4c67e4174294e16577845b5eae2eac8fc63",
+      "independent_protected_failures": {
+        "missing_original_completed_tasks": 26,
+        "actual_gc_deletion_proof": false,
+        "qualification_digest_changed": true
+      },
+      "preserved": {
+        "draft_send": 101,
+        "send_tasks": 57,
+        "unknown_rows": 112,
+        "old_workspace_files_missing": 0,
+        "controls": 2,
+        "receipt_missing": 0,
+        "only_changed_receipt": "previously reviewed events.pull file"
+      },
+      "all_phase_flags_closed": true,
+      "new_exemptions": false,
+      "missing26_observable_retention": {
+        "all_collect_page": true,
+        "all_completed": true,
+        "ack_present": 0,
+        "external_dispatches": 0,
+        "all_observable_retention_conditions_met": true,
+        "unacked_retention_ms": 86400000,
+        "crossed_retention_during_window": 22,
+        "reclaimed_counter_delta": 26,
+        "source_files_exact_to_live": 3,
+        "actual_deletion_evidence": false,
+        "active_map_observed": false,
+        "automatic_exception": false,
+        "root_review_sha256": "a5eeb453178f0259005f25bee0ef9d02a68bd4329627e3a13094cde0f0d743b7"
+      }
     }
   }
 }

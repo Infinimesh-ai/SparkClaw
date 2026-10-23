@@ -21,6 +21,10 @@ type PlaywrightController interface {
 	AcquireSession(context.Context, string, time.Duration, time.Duration) (browsercontrol.Session, error)
 }
 
+type playwrightControllerChecker interface {
+	Check(context.Context) (browsercontrol.Status, error)
+}
+
 type PlaywrightExtensionAdapter struct {
 	cfg        config.Config
 	controller PlaywrightController
@@ -49,6 +53,12 @@ func (a *PlaywrightExtensionAdapter) Health(ctx context.Context, args map[string
 		return Result{}, errors.New("playwright extension controller is unavailable")
 	}
 	status := a.controller.Status(ctx)
+	// A stored credential starts unvalidated after every Gateway restart, so a
+	// cached non-ready state is refreshed with one fresh controller probe.
+	if checker, ok := a.controller.(playwrightControllerChecker); ok && status.Configured &&
+		status.State != app.IntegrationStateReady && status.State != app.IntegrationStateChecking {
+		status, _ = checker.Check(ctx)
+	}
 	output := map[string]any{
 		"ok":                    status.Configured && status.State == app.IntegrationStateReady,
 		"status":                status.State,

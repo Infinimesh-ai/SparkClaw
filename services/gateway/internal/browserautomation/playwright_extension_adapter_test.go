@@ -218,6 +218,53 @@ func TestPlaywrightExtensionAdapterKeepsSessionAfterToolContextEnds(t *testing.T
 	}
 }
 
+type checkingPlaywrightController struct {
+	*fakePlaywrightController
+	state  browsercontrol.Status
+	result browsercontrol.Status
+	checks int
+}
+
+func (c *checkingPlaywrightController) Status(context.Context) browsercontrol.Status { return c.state }
+
+func (c *checkingPlaywrightController) Check(context.Context) (browsercontrol.Status, error) {
+	c.checks++
+	c.state = c.result
+	if c.result.State != app.IntegrationStateReady {
+		return c.state, errors.New("controller unavailable")
+	}
+	return c.state, nil
+}
+
+func TestPlaywrightExtensionAdapterHealthRefreshesUnvalidatedCredential(t *testing.T) {
+	ready := browsercontrol.Status{Configured: true, State: app.IntegrationStateReady, ProfileID: "default", CredentialGeneration: 7}
+	unavailable := browsercontrol.Status{Configured: true, State: app.IntegrationStateTemporarilyUnavailable, ProfileID: "default", ErrorCode: "controller_unavailable"}
+	for _, test := range []struct {
+		name   string
+		state  browsercontrol.Status
+		result browsercontrol.Status
+		checks int
+		ok     bool
+	}{
+		{"restart leaves needs attention", browsercontrol.Status{Configured: true, State: app.IntegrationStateNeedsAttention, ProfileID: "default"}, ready, 1, true},
+		{"probe still fails", browsercontrol.Status{Configured: true, State: app.IntegrationStateTemporarilyUnavailable, ProfileID: "default"}, unavailable, 1, false},
+		{"already ready", ready, ready, 0, true},
+		{"not configured", browsercontrol.Status{State: app.IntegrationStateNotConfigured, ProfileID: "default"}, ready, 0, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			controller := &checkingPlaywrightController{fakePlaywrightController: newFakePlaywrightController(), state: test.state, result: test.result}
+			result, err := NewPlaywrightExtensionAdapter(playwrightAdapterTestConfig(), controller).Health(context.Background(), map[string]any{})
+			if err != nil {
+				t.Fatalf("health: %v", err)
+			}
+			output := mapValue(result.Output)
+			if controller.checks != test.checks || output["ok"] != test.ok {
+				t.Fatalf("checks=%d ok=%v output=%#v", controller.checks, output["ok"], output)
+			}
+		})
+	}
+}
+
 const fakePlaywrightPageText = "Account owner@example.com has a usable application page with navigation, profile, settings, and recent messages."
 
 type fakePlaywrightController struct {

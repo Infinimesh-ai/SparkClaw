@@ -44,7 +44,7 @@ import { ISCPEventClient } from "./iscp-event-client.mjs";
 import { ISCPSpeechClient } from "./iscp-audio-client.mjs";
 import { ISCPRecordingClient } from "./iscp-recording-client.mjs";
 import { configureWorkbenchPermissions } from "./workbench-permissions.mjs";
-import { proxyAPIAllowed } from "./workbench-proxy-policy.mjs";
+import { proxyAPIAllowed, settledBackendState } from "./workbench-proxy-policy.mjs";
 import { bindWorkbenchActivation } from "./workbench-activation.mjs";
 import { resolveISCPLaunchProfile } from "./iscp-launch-profile.mjs";
 
@@ -98,6 +98,7 @@ void app.whenReady().then(start).catch((error) => {
 let iscpEvents;
 let iscpSpeech;
 let iscpRecording;
+const backendStateWaiters = new Set();
 
 async function start() {
   const internalProtocolHandler = (request) => {
@@ -138,6 +139,7 @@ async function start() {
     launchSelectionPath: path.join(launchSelectionDirectory, "iscp-launch-profile.json"), userDataDirectory: app.getPath("userData"),
     packaged: app.isPackaged, resourcesPath: process.resourcesPath,
     onChange: (status) => {
+      for (const waiter of [...backendStateWaiters]) waiter();
       if (quitting) return;
       if (status.state === "connected" && !suspended) {
         executionClient?.start();
@@ -602,7 +604,10 @@ function workbenchProtocolHandler(root, auth) {
       const origin = auth.descriptor?.origin || "http://127.0.0.1:18790";
       const proxy = proxyTarget(url, origin);
       if (proxy) {
-        const state = auth.status.state;
+        const state = await settledBackendState({
+          state: () => auth.status.state, signal: request.signal,
+          subscribe: (waiter) => { backendStateWaiters.add(waiter); return () => backendStateWaiters.delete(waiter); },
+        });
         if (state === "identity_conflict") return new Response("Backend identity conflict", { status: 409 });
         if (["invalid_authentication", "locked", "secure_storage_unavailable"].includes(state)) return new Response("Desktop authentication is locked", { status: 401 });
         if (state !== "connected") { traceISCPRead({ phase: "proxy-gate", path: new URL(proxy).pathname, auth, callerSignal: request.signal, responseStatus: 503 }); return new Response("Backend is unavailable", { status: 503 }); }

@@ -39,3 +39,27 @@ export function proxyAPIAllowed(pathname) {
   if (pathname === "/readyz" || pathname === "/api/documents/file") return true;
   return PRESENTATION_API_PREFIXES.some((prefix) => matchesPrefix(pathname, prefix));
 }
+
+const TRANSIENT_BACKEND_STATES = new Set(["reconnecting", "service_unavailable"]);
+
+// Views mounted while a saved connection is still being verified (app start,
+// update relaunch, reconnect) wait briefly for it instead of failing before
+// anything was sent. Any other state, abort or timeout answers immediately.
+export function settledBackendState({ state, subscribe, signal, timeoutMS = 15000 }) {
+  if (!TRANSIENT_BACKEND_STATES.has(state()) || signal?.aborted) return Promise.resolve(state());
+  return new Promise((resolve) => {
+    let done = false;
+    let unsubscribe = () => {};
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      unsubscribe();
+      signal?.removeEventListener("abort", finish);
+      resolve(state());
+    };
+    const timer = setTimeout(finish, timeoutMS);
+    signal?.addEventListener("abort", finish, { once: true });
+    unsubscribe = subscribe(() => { if (!TRANSIENT_BACKEND_STATES.has(state())) finish(); });
+  });
+}

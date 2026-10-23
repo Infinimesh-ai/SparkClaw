@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { BrowserNavigationError } from "./command-errors.mjs";
 
 const WORLD = 1004;
 const CAPTURE_WIDTH = 480;
@@ -42,7 +43,8 @@ export async function nativePageCommand(record, operation, args, binding, fence)
   if (["click", "fill", "select"].includes(operation)) assertSnapshotLayout(record, args.snapshot_id);
   fence();
   if (operation === "navigate") {
-    await record.webContents.loadURL(args.url);
+    try { await record.webContents.loadURL(args.url); }
+    catch (error) { fence(); throw new BrowserNavigationError(error); }
     fence();
     return { page_id: binding.page_id, url: record.webContents.getURL(), title: record.webContents.getTitle(), page_generation: binding.page_generation, surface_visible: surfaceVisible(record) };
   }

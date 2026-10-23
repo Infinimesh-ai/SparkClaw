@@ -369,7 +369,7 @@ func (b *Broker) Dispatch(ctx context.Context, binding Binding, commandID, opera
 		}
 	} else if response.Status == "failed" {
 		fence.State = "failed"
-		err = ErrFence
+		err = failedHostCommand(operation, response)
 	} else {
 		fence.State = "completed"
 	}

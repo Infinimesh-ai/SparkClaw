@@ -210,6 +210,19 @@ func adaptGenericWorkflowOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) a
 		Status:     call.Status,
 		Retryable:  call.Status == app.ToolCallStatusFailed,
 	}
+	if call.Status == app.ToolCallStatusFailed && strings.HasPrefix(call.Tool, "browser.") {
+		switch app.ToolErrorCode(call.ErrorCode) {
+		case app.ToolErrorBrowserDNSResolutionFailed:
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalBrowserDNSResolutionFailed}
+		case app.ToolErrorBrowserNavigationFailed:
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalBrowserNavigationFailed}
+		case app.ToolErrorBrowserCommandTimeout:
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalBrowserCommandTimeout}
+		}
+		if len(outcome.Signals) > 0 {
+			outcome.Retryable = false
+		}
+	}
 	if output, ok := anyMap(call.Result); ok {
 		if ref := firstNonEmptyString(output["output_path"], output["screenshot_path"], output["path"]); ref != "" {
 			outcome.Refs = []app.ResourceRef{{Kind: "path", Ref: ref, Provenance: call.ID}}

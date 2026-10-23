@@ -583,7 +583,7 @@ func assessBrowserRevision2(state *app.WorkflowState, outcome app.ToolOutcome, i
 			}
 			return browserRevision2NeedsMore(assessment, signal, next, outcome.Refs)
 		}
-		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_settle_timeout"
+		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, browserCommandFailureReason(outcome, "browser_settle_timeout")
 	case browserStageSnapshotHidden:
 		refs, reason := browserRevision2ValidatedSnapshot(state, outcome, app.BrowserPresentationHidden)
 		if reason == "" && interaction && !browserSnapshotHasInteractionEvidence(refs) {
@@ -738,7 +738,7 @@ func browserRevision2Acquired(assessment app.NodeAssessment, outcome app.ToolOut
 	if containsOutcomeSignal(outcome.Signals, signal) {
 		return browserRevision2NeedsMore(assessment, signal, browserStageSettleHidden, outcome.Refs)
 	}
-	assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, failure
+	assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, browserCommandFailureReason(outcome, failure)
 	return assessment
 }
 

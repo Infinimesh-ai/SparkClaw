@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { BrowserCommandTimeoutError, browserCommandFailure } from "./command-errors.mjs";
 import path from "node:path";
 import { connectPinnedHostSocket } from "./host-socket.mjs";
 import { HostJournal } from "./host-journal.mjs";
@@ -276,7 +277,7 @@ export class BrowserHostAgent {
         if (generation !== this.generation || this.state !== "connected") throw new Error("Host was fenced during page acquisition");
         // An acquisition that outlived its deadline was already reported as
         // failed; give the conversation's page back instead of holding it.
-        if (deadline !== undefined && performance.now() >= deadline) { this.registry.releaseHostPage(b); throw new Error("Browser command deadline"); }
+        if (deadline !== undefined && performance.now() >= deadline) { this.registry.releaseHostPage(b); throw new BrowserCommandTimeoutError(); }
         const lease = { binding: b, record, deadline: Infinity };
         if (!this.#iscp()) {
           lease.deadline = performance.now() + Math.min(30000, Math.max(0, Date.parse(b.lease_expires_at) - Date.now()));
@@ -287,7 +288,8 @@ export class BrowserHostAgent {
       }
       const fence = () => {
         const lease = this.leases.get(b.lease_id);
-        if (generation !== this.generation || this.state !== "connected" || !lease || !sameBinding(lease.binding, b) || performance.now() >= lease.deadline || deadline !== undefined && performance.now() >= deadline) throw new Error("Browser command lease is fenced");
+        if (generation !== this.generation || this.state !== "connected" || !lease || !sameBinding(lease.binding, b) || performance.now() >= lease.deadline) throw new Error("Browser command lease is fenced");
+        if (deadline !== undefined && performance.now() >= deadline) throw new BrowserCommandTimeoutError();
         this.registry.requireHostPage(b);
       };
       fence();
@@ -314,10 +316,10 @@ export class BrowserHostAgent {
       // A command still running after its deadline reports for itself in the
       // local journal; the Gateway already holds its write as unknown.
       run.catch(() => {});
-      outcome = deadline === undefined ? await run : await Promise.race([run, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Browser command deadline")), Math.max(1, deadline - performance.now())); })]);
-    } catch {
+      outcome = deadline === undefined ? await run : await Promise.race([run, new Promise((_, reject) => { timer = setTimeout(() => reject(new BrowserCommandTimeoutError()), Math.max(1, deadline - performance.now())); })]);
+    } catch (error) {
       if (write && begun) await this.journal.finish(command.command_id, "unknown").catch(() => {});
-      outcome = [write && begun ? "unknown" : "failed", {}, begun ? "write_outcome_unknown" : "command_fenced"];
+      outcome = write && begun ? ["unknown", {}, "write_outcome_unknown"] : browserCommandFailure(error, command.operation);
     } finally { clearTimeout(timer); this.onChange(); }
     return this.#result(command, ...outcome);
   }

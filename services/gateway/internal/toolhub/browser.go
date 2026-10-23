@@ -45,6 +45,9 @@ func (h *ToolHub) browserRead(ctx context.Context, args map[string]any, sessionI
 			return result, nil
 		}
 		if requireBrowserSession {
+			if app.ToolErrorCodeFrom(err) != "" {
+				return Result{}, fmt.Errorf("managed browser session read failed: %w", err)
+			}
 			return Result{}, &app.CodedToolError{Code: app.ToolErrorBrowserSessionRequired, Err: fmt.Errorf("managed browser session read failed: %w", err)}
 		}
 		fallback, fallbackErr := h.browserReadDirect(ctx, parsed, maxBytes, metadata, sessionID, runID, "direct_http_fallback", err)

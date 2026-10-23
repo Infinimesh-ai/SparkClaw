@@ -90,7 +90,7 @@ func (browserPageReadProfile) Assess(state *app.WorkflowState, outcome app.ToolO
 		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalOpenCompleted) && browserPageReadOpenedTarget(state, outcome.Refs) {
 			return browserRevision2NeedsMore(assessment, app.OutcomeSignalOpenCompleted, browserPageReadStageRead, outcome.Refs)
 		}
-		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_open_failed"
+		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, browserCommandFailureReason(outcome, "browser_open_failed")
 	case browserPageReadStageRead:
 		if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalContentAvailable) && browserPageReadURLMatchesTarget(state, outcome.Refs) {
 			assessment.Status = app.AssessmentComplete
@@ -99,7 +99,7 @@ func (browserPageReadProfile) Assess(state *app.WorkflowState, outcome app.ToolO
 			assessment.ReasonCode = "browser_page_content_available"
 			return assessment
 		}
-		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_page_read_failed"
+		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, browserCommandFailureReason(outcome, "browser_page_read_failed")
 	default:
 		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "browser_page_read_stage_invalid"
 	}

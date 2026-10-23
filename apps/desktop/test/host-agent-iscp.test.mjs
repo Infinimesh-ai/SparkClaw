@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { BrowserHostAgent, commandDigest, iscpAuthorizationDigest, iscpHostID, RESULT_BUDGET_BYTES } from "../src/browser/host-agent.mjs";
+import { nativePageCommand } from "../src/browser/native-page-commands.mjs";
 
 const scope = { owner_id: "owner", client_id: "client", installation_id: "installation" };
 const SESSION = "11111111-1111-4111-8111-111111111111";
@@ -99,6 +100,32 @@ test("the command deadline answers before the ISCP timeout: unknown for writes, 
   assert.equal(replay.body.status, "unknown"); assert.equal(replay.body.error_code, "write_replay_requires_reconciliation");
   const readResult = await send(f.agent, command("read", a));
   assert.equal(readResult.body.status, "failed");
+  assert.equal(readResult.body.error_code, "command_timeout");
+});
+
+test("native navigation failures retain bounded codes without retrying or copying error URLs", async (t) => {
+  for (const nativeCode of ["ERR_NAME_NOT_RESOLVED", "ERR_CONNECTION_REFUSED", "ERR_CERT_AUTHORITY_INVALID", "https://private.test/?token=secret"]) {
+    let loads = 0;
+    const record = { webContents: { loadURL: async () => { loads++; throw Object.assign(new Error("load failed at https://private.test/?token=secret"), { code: nativeCode }); } } };
+    const f = await fixture(t, { execute: (_record, operation, args, b, fence) => nativePageCommand(record, operation, args, b, fence) });
+    f.agent.autoConnect();
+    const a = binding(); await send(f.agent, command("acquire", a));
+    const result = await send(f.agent, command("navigate", a, { url: "https://example.test/" }));
+    assert.equal(result.body.status, "failed"); assert.equal(result.body.error_code, "navigation_failed");
+    assert.equal(result.body.output.native_error_code, nativeCode.startsWith("ERR_") ? nativeCode : "ERR_FAILED");
+    assert.equal(loads, 1); assert.equal(f.agent.journal.unknown(scope).length, 0);
+    assert.doesNotMatch(JSON.stringify(result), /private\.test|secret/u);
+  }
+});
+
+test("navigation completion after deadline cannot turn a failed command into success", async (t) => {
+  let finish; let checks = 0;
+  const f = await fixture(t, { execute: async (_record, _operation, _args, _b, fence) => { await new Promise(resolve => { finish = resolve; }); checks++; fence(); return { url: "https://example.test/" }; } });
+  f.agent.autoConnect(); const a = binding(); await send(f.agent, command("acquire", a));
+  const result = await send(f.agent, command("navigate", a, { url: "https://example.test/" }));
+  assert.equal(result.body.status, "failed"); assert.equal(result.body.error_code, "command_timeout");
+  finish(); await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(checks, 1); assert.deepEqual(result.body.output, {}); assert.equal(f.agent.journal.unknown(scope).length, 0);
 });
 
 test("results stay inside the reverse response budget", async (t) => {

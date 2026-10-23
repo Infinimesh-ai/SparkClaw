@@ -2,6 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-browser-follow-up-2026-10-23.md)
 
+
+Latest checkpoint (20:21 UTC): BR-01 through BR-05 retain their passed native acceptance. Candidate `.41` remains unactivated and uninstalled. Its corrected remote saved-data replay passed, but the local receive has not started decoding because the unchanged memory reserve leaves less than the 2 GiB minimum working budget. Four completed test containers belonging to this task were stopped without deleting containers, volumes or evidence; the other 18 containers were not changed. Available memory remains about 3.70 GB. The Mac is still locked, and the owner has been asked to unlock it and free approximately 1 GB by closing idle applications. All execution gates stay closed. Actual sends remain QQ 0, Outlook 1, Gmail 1; the two sent messages will not be resent.
+
 ## Implementation and live acceptance update
 
 The owner subsequently authorized a combined implementation, preserving the original
@@ -370,6 +373,8 @@ The local deployment preparation and receiver now use the reviewed bounded JSON 
 At 19:54 UTC the first fixed-data computation replay failed after 222.258 seconds before compression: opening its ASCII response file caused Python 3.14 to load that codec lazily, and the exact-path audit guard rejected the library read. The full traceback and a separately bounded read of this attempt’s small failure/resource files prove the failure location. This was not a timeout or a live product failure. No SQL, service, installation or mail action occurred. The complete boundary and envelope files were written, but no completed replay, peak-memory qualification or wire result exists. All failed artifacts remain retained.
 
 The corrected replay initializes only the required ASCII codec before installing the unchanged guard. Thirteen small tests, independently rerun by root, reproduce the cold failure and verify unchanged complete emitter bytes and denied outside access. V5 revision 3 changes only three runtime time-limit constants: its prospective freeze SSH window is 900 seconds (890 remote), while the corrected saved-file replay has one 900-second calculation-and-transfer alarm and a 910-second SSH limit. Other phases remain 1,800 seconds and local preparation/receive remain 240 seconds. All full data checks and memory reserves are unchanged. This is an explicit bounded harness-policy revision, not proof of capacity and not a browser product timeout change. The original 300-second policy and all 47 revision-2 files remain preserved. The corrected one-shot replay began at 20:03 UTC; deployment, new baseline admission and live mail remain closed pending its results and separate exact reviews.
+
+At 20:11:59 UTC the corrected remote replay completed: 477.105 seconds of calculation, 524.981 seconds including capture, six completed checkpoints, and two exact full-boundary comparisons. Peak RSS was 3,920,748,544 bytes under a 5,115,928,576-byte hard address-space limit. The complete response was streamed and independently hashed. The original unknown-row mismatch remains false; this fixed-file replay performed no SQL, service or mail operation and does not qualify a live deployment. At 20:14:54 UTC its separately released local receive stopped at the memory precheck: 3,977,822,208 bytes available left only 1,830,338,560 bytes after the required reserve, below the 2 GiB working minimum. No decode child started. The original successful remote output and failed local receipt are retained; no automatic retry or reduced memory reserve is permitted. A new local-only receive must use the identical saved response after sufficient memory is available.
 
 ## Historical investigation: scope and acceptance correction
 

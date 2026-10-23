@@ -1573,7 +1573,36 @@
       "completed": false,
       "capacity_qualified": false,
       "sql_service_mail_actions": 0,
-      "candidate_activated": false
+      "candidate_activated": false,
+      "remote_completed": true,
+      "remote_completed_at": "2026-10-23T20:11:59.912305Z",
+      "remote_compute_seconds": 477.1048973565921,
+      "capture_total_seconds": 524.9810250001028,
+      "remote_peak_rss_bytes": 3920748544,
+      "remote_hard_limit_bytes": 5115928576,
+      "remote_summary_sha256": "3c3249d37585667a5594368f1df2d8cd31db34fdd55220227d6bd8bf33359516",
+      "local_receive_completed": false,
+      "local_receive_failed_before_child": true,
+      "local_receive_failure": "Insufficient local memory after unchanged reserve; no child started",
+      "local_receive_failure_summary_sha256": "e832018c1fa755067dd072042c1957f5f13d7a0b017508a4ed509c3e8a861808",
+      "local_available_bytes": 3977822208,
+      "local_remaining_working_bytes": 1830338560,
+      "original_unknown_check_preserved_false": true
+    },
+    "local_receive_resource_blocker": {
+      "status": "waiting_for_manual_memory_release_and_mac_unlock",
+      "task_test_containers_stopped": 4,
+      "other_containers_unchanged": 18,
+      "host_evidence_files_verified": 19,
+      "containers_volumes_evidence_retained": true,
+      "stop_receipt_sha256": "310ea8e3b17bb299e219e533e3f39afee88cb0ac0f502ca9450d73466305ff85",
+      "available_bytes_after_stop": 3700490240,
+      "minimum_total_available_bytes": 4294967296,
+      "new_local_only_candidate_closed": true,
+      "new_local_only_code_review_sha256": "0d162304d4dd04dfafbb6dc0af947ba331323f29f2712543e49052615293defe",
+      "all_execution_gates_closed": true,
+      "new_remote_actions": 0,
+      "new_mail_actions": 0
     }
   }
 }

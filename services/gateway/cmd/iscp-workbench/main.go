@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 )
 
@@ -103,6 +104,12 @@ func main() {
 		cfg, err = iscpworkbench.LoadRuntimeConfig(context.Background(), *configPath)
 	}
 	if err != nil {
+		// Expired transport material can require issuer recovery before Run.
+		// Preserve a verified terminal result on the normal identity-bound IPC
+		// path; stderr or an unsigned HTTP failure never authorizes this state.
+		if !*controlOnly && !*check {
+			reportStartupRevocation(&ipcWriter{writer: os.Stdout}, *configPath, err)
+		}
 		fmt.Fprintln(os.Stderr, "ISCP workbench profile validation failed:", err)
 		os.Exit(1)
 	}
@@ -163,6 +170,24 @@ func main() {
 	if err := serveWithReverse(ctx, os.Stdin, writer, endpoint, bridge); err != nil {
 		fmt.Fprintln(os.Stderr, "ISCP workbench helper stopped:", err)
 		os.Exit(1)
+	}
+}
+
+func reportStartupRevocation(writer *ipcWriter, configPath string, cause error) {
+	if !errors.Is(cause, iscpbridge.ErrAuthorizationRevoked) {
+		return
+	}
+	cfg, err := iscpworkbench.LoadControlConfig(configPath)
+	if err != nil {
+		return
+	}
+	control, err := iscpworkbench.NewAuthorizationControl(cfg)
+	if err != nil {
+		return
+	}
+	defer control.Close()
+	if writer.send(map[string]any{"ipc_version": ipcVersion, "type": "hello", "stream_schema_version": 1, "identity": control.PublicIdentity(), "operations": iscpworkbench.Operations(), "max_request_bytes": iscpworkbench.MaxRequestBytes, "max_response_bytes": iscpworkbench.MaxResponseBytes}) == nil {
+		_ = writer.send(map[string]any{"ipc_version": ipcVersion, "type": "state", "state": "authorization_revoked"})
 	}
 }
 

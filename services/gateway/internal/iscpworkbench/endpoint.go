@@ -260,6 +260,22 @@ func (e *Endpoint) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		if e.config.Mode == "node-managed" && e.config.Role == RoleInitiator {
+			// Fence desktop operations immediately while the reason is checked.
+			// The nonterminal state keeps the pipe alive for the signed result.
+			e.setState("connecting")
+			// A disconnected Relay cannot tell us whether its otherwise-valid
+			// cached access/Grant was revoked. Confirm that reason with the
+			// existing signed issuer check before the desktop replaces this
+			// helper. This runs once per failed connection, never on an idle
+			// timer, and an unsigned denial remains a temporary disconnect.
+			checkCtx, cancelCheck := context.WithTimeout(ctx, 5*time.Second)
+			_ = e.checkAuthorization(checkCtx)
+			cancelCheck()
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+		}
 		if recoveryErr := e.recoverLiveNodeTransport(ctx); recoveryErr != nil {
 			e.observeAuthorizationError(recoveryErr)
 		}

@@ -282,4 +282,29 @@ func TestHelperNodeEnrollmentReplayExpiredResultAndPrivateActivation(t *testing.
 	}
 	registration.mu.Unlock()
 
+	// Startup recovery can reject a revoked identity before constructing the
+	// endpoint. Report only a verified typed result after the retained private
+	// profile still proves the same public identity; never forward stderr text.
+	var startup bytes.Buffer
+	reportStartupRevocation(&ipcWriter{writer: &startup}, wrapper.HelperConfig, errors.New("HTTP 403 authorization_revoked"))
+	if startup.Len() != 0 {
+		t.Fatal("unsigned denial was reported as revocation")
+	}
+	reportStartupRevocation(&ipcWriter{writer: &startup}, wrapper.HelperConfig+"-missing", iscpbridge.ErrAuthorizationRevoked)
+	if startup.Len() != 0 {
+		t.Fatal("unvalidated identity was reported as revocation")
+	}
+	reportStartupRevocation(&ipcWriter{writer: &startup}, wrapper.HelperConfig, iscpbridge.ErrAuthorizationRevoked)
+	var hello struct {
+		Type     string                       `json:"type"`
+		Identity iscpworkbench.PublicIdentity `json:"identity"`
+	}
+	var revoked struct {
+		Type  string `json:"type"`
+		State string `json:"state"`
+	}
+	decoder := json.NewDecoder(&startup)
+	if decoder.Decode(&hello) != nil || decoder.Decode(&revoked) != nil || hello.Type != "hello" || hello.Identity.InitiatorDeviceID != frame.Descriptor.InitiatorDeviceID || revoked.Type != "state" || revoked.State != "authorization_revoked" {
+		t.Fatal("startup revocation lost its validated identity or typed reason")
+	}
 }

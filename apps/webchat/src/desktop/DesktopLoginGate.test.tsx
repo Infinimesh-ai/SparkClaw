@@ -88,4 +88,23 @@ describe("desktop secure login gate", () => {
       expect(host.querySelector("[data-protected]")).toBeNull();
     } finally { await act(async () => root.unmount()); }
   });
+
+  it.each(["en", "zh"])("shows verified revocation in the existing login form and retains credential recovery in %s", async language => {
+    window.localStorage.setItem("sparkclaw.language", language);
+    const status = { ...locked, state: "invalid_authentication", transport_stage: "authorization_revoked" } as DesktopConnectionStatus;
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: async () => status, enroll: vi.fn(), retryLocalConnection: vi.fn(), onLocalConnection: () => () => {},
+    } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"), root = createRoot(host);
+    try {
+      await act(async () => root.render(<DesktopLoginGate><div data-protected="true">Local</div></DesktopLoginGate>));
+      expect(host.querySelector(".desktopLoginStatus")?.textContent).toContain(language === "zh" ? "此设备授权已撤销" : "This device’s authorization was revoked");
+      expect(host.querySelector(".desktopLoginStatus")?.textContent).toContain(language === "zh" ? "本地历史仍会保留" : "Your local history is retained");
+      expect(host.querySelector<HTMLInputElement>("#desktopCredential")?.disabled).toBe(false);
+      expect(host.querySelector<HTMLButtonElement>(".desktopLoginSecondary")?.disabled).toBe(true);
+      expect(host.querySelector("select")).not.toBeNull();
+      expect(host.textContent).toContain(locked.backend!.origin);
+      expect(host.querySelector("[data-protected]")).toBeNull();
+    } finally { await act(async () => root.unmount()); }
+  });
 });

@@ -119,3 +119,28 @@ test('LAN retains its five-second identity deadline and changed identity/install
   direct.connection = { origin: direct.descriptor.origin, deploymentID: scope.deployment_id, ownerID: scope.owner_id, clientID: scope.client_id, authorization: 'Bearer synthetic' };
   assert.equal((await direct.retry()).state, 'connected'); assert.deepEqual(budgets, [5000, 5000]);
 });
+
+test('verified helper revocation stays terminal after close and retry without losing its UI reason', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.auth.initialize()).state, 'connected');
+  const transport = f.transports[0], before = f.calls.length;
+  transport.options.onState('authorization_revoked');
+  assert.equal(f.auth.status.state, 'invalid_authentication');
+  assert.equal(f.auth.status.transport_stage, 'authorization_revoked');
+  transport.options.onState('closed');
+  const retried = await f.auth.retry();
+  assert.equal(retried.state, 'invalid_authentication');
+  assert.equal(retried.transport_stage, 'authorization_revoked');
+  assert.equal(f.calls.length, before, 'retry must not reconnect or resubmit under revoked authority');
+  assert.equal((await f.auth.authorizedFetch('https://iscp.invalid/api/owner')).status, 401);
+});
+
+test('ordinary helper disconnect preserves temporary recovery without claiming revoked authority', async t => {
+  const f = await fixture(t);
+  await f.auth.initialize();
+  f.transports[0].options.onState('disconnected');
+  assert.equal(f.auth.status.state, 'service_unavailable');
+  assert.equal(f.auth.status.transport_stage, 'disconnected');
+  assert.equal(f.auth.authorizationRevoked, undefined);
+  assert.equal((await f.auth.retry()).state, 'connected');
+});

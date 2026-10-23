@@ -711,7 +711,7 @@ export class DesktopAuth {
         initiator_device_id: this.descriptor.initiatorDeviceID, responder_device_id: this.descriptor.responderDeviceID,
         responder_key_thumbprint: this.descriptor.responderKeyThumbprint, relay_url: this.descriptor.relayURL, relay_profile: this.descriptor.relayProfile, test_mode: this.descriptor.testMode, ...(this.descriptor.mode ? { mode: this.descriptor.mode } : {}) } : {}),
       ...(this.descriptor.certificateSHA256 ? { tls_certificate_sha256: this.descriptor.certificateSHA256 } : {}),
-    } } : {}), ...(this.descriptor?.transport === "iscp" ? { transport_stage: this.transportStage, test_mode: this.descriptor.testMode, ...(this.descriptor.mode ? { mode: this.descriptor.mode } : {}),
+    } } : {}), ...(this.descriptor?.transport === "iscp" ? { transport_stage: this.authorizationRevoked ? "authorization_revoked" : this.transportStage, test_mode: this.descriptor.testMode, ...(this.descriptor.mode ? { mode: this.descriptor.mode } : {}),
       capabilities: projectISCPCapabilities(this.transport?.capabilities, this.capabilityReport) } : {}), ...(this.connection && (this.connection.transport !== "iscp" || this.connection.identityVerified) ? { client_id: this.connection.clientID, owner_id: this.connection.ownerID } : {}) });
     this.#scheduleCapabilityExpiry();
     this.onChange(this.status);

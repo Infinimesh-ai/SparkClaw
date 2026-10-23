@@ -1477,6 +1477,45 @@
         "retry_count": 0,
         "closed_receipt_sha256": "fd4664fb208c82faedb1ad416b003fb33e1024995201b6c3b9575ebba5714605",
         "watchdog_sha256": "f5605c7fd7c748e2218913abd2d03a83bc5a524ad7317f97415c31a1134f7cc6"
+      },
+      "bounded_parser_forensic": {
+        "executed_once": true,
+        "complete_decode": true,
+        "exit_code": 0,
+        "elapsed_seconds": 51.491587582975626,
+        "child_rss_cap_bytes": 2301632512,
+        "sampled_peak_rss_bytes": 2027896832,
+        "raw_envelope_bytes": 767100884,
+        "all_hashes_exact": true,
+        "old_unknown_rows_exact": 112,
+        "current_unknown_count": 113,
+        "new_unknown_count": 1,
+        "new_unknown_app": "mail-outlook",
+        "new_unknown_command": "collect_page",
+        "new_unknown_reason": "BROWSER_EXTENSION_UNAVAILABLE",
+        "new_unknown_finished_at": "2026-10-23T17:52:37.081Z",
+        "new_unknown_row_sha256": "94f8461818a4e5b2afd5f4a479656983b32e0150b6ac233d872c62508baacf19",
+        "new_send_count": 0,
+        "historical_unknown_send_count": 1,
+        "original_failed_comparison_retained": true,
+        "remote_operations": 0,
+        "v5_qualified": false,
+        "result_sha256": "17574b5efee830cb7e137f5847df87869672bda53be70be8e482a8fdca0a2970",
+        "closed_receipt_sha256": "00f08eac52051ea0bb7693da15e91aad454039add088d08057877ff57884aa1e"
+      },
+      "fresh_baseline_review": {
+        "independent_complete_difference_items": 4301,
+        "independent_verification_sha256": "3222728a00bbaf91c34f97a3dc576e65a81d7e8698f14d965ebe009738beb07a",
+        "root_review_sha256": "97eec2d424cb467de645a9a8bf334dcd4622fe5848215b95ca42a31cd87b05eb",
+        "exact_unknown_appendix_sha256": "9405016109394427b8655b9483fc781a5270f93aab98f707266fa46ce8d188d6",
+        "data_audit_sha256": "0ab7fb8f3f3b8bc087311df2bc1a68922c8f0aae6c310cbaeb411acebaa273c4",
+        "new_protected_unknown_count": 113,
+        "historical_missing_executor_rows": 381,
+        "additional_missing_since_prior_fresh": 165,
+        "gc_cause_proven": false,
+        "complete_history_preservation_claimed": false,
+        "new_postbaseline_preservation_exceptions": false,
+        "remote_phase_authorized": false
       }
     }
   }

@@ -100,9 +100,35 @@ Runtime 602 tests pass (2 existing skips), Python 90 and 24 focused checks pass.
 Final isolated QQ/editor Chromium qualification passes 12 cases; the preceding
 `6a9b546` passes 9 cases through the actual pinned MCP wrapper, including full
 synthetic file transfer and a real 20-second rejection. No live page or email is
-used by these fixtures. Reader assets remain exact. Paired `.38` release
-preparation is in progress; none of these diagnostics proves a live root cause
-or closes the three mail blockers.
+used by these fixtures. Reader assets remain exact. The paired `.38` release is
+frozen at App-CLI `aa93070b` and integrated in SparkClaw `58c347b5`. Two independent
+builds produce four byte-identical artifacts; 236 affected Controller cases,
+526 desktop tests, 3 projection tests and 11 paired-release checks pass without
+skips. Reader/preload, native provisioning, desktop, WebChat and production Go
+remain unchanged. The third cutover is healthy at 12:10:35 UTC, preserving
+41 tables, 89 draft/send rows and all 108 historical unknown rows. The Gateway
+binary remains `cf1b8100`; Mac, WebChat and browser components remain exact.
+None of these diagnostic checks proves a live root cause or closes the three
+mail blockers.
+
+The first `.38` cutover stopped before activation when Gateway shutdown cancelled
+an in-flight Gmail `collect_page` task. Its local capture effect became transiently
+uncertain, raising the observed count to 109. After restoring `.37`, the existing
+mail client reconciled the same local task to completed; no manual replay or
+resolution occurred. The original 108 unknown rows remain exact. This is not a
+mail dispatch and is not added to the permanent unknown baseline. The failed
+cutover is retained; subsequent attempts first wait for a short stable idle window.
+The second attempt passes the frozen database/ledger checks and starts `.38`, but
+rolls back because one operation-receipt file changed. Authenticated decryption
+then proves that exact file is the mutable `events.pull` / `event-subscription`
+state, including a matching cursor scope and derived filename. All other 85,454
+original receipts are exact and none are missing. Only this proved subscription
+file is allowed to advance in the recovery attempt; the initial strict failure
+and successful `.37` rollback remain recorded. The third attempt passes with
+this exact exception. The live-mail preflight then identifies a harness-only
+JSON hashing difference (`ensure_ascii`): recomputing all 108 current full rows
+with the original algorithm matches every protected hash. It stops before QA
+creation or draft/send; the original baseline is retained.
 
 A read-only preflight before the `.37` deployment found one additional Outlook
 `collect_page` / `PROVIDER_SCRIPT_FAILED` uncertain record at 10:21:52 UTC.
@@ -120,8 +146,9 @@ replaces uncoded errors and loses their original class and phase. Nine nearby
 successful discovery rounds were empty and captured no originals, so they prove
 recovery of discovery only. The receive modules are unchanged in `.37`; do not
 claim the send-body repair fixes collection or that empty rounds qualify delivery.
-A future bounded phase/exception diagnostic is needed to identify the underlying
-failure without exposing message content or changing unknown/retry semantics.
+The `.38` runtime adds bounded phase/exception diagnostics for future failures
+without exposing message content or changing unknown/retry semantics; it does not
+retroactively identify those two earlier causes.
 
 The [redacted combined receipt](evidence/desktop-browser-six-fixes-2026-10-23.json) indexes the immutable local evidence. During the installed conversation-switch check, the helper was replaced and released task pages disappeared. Existing session-fence code clears those pages; Grant timing supports renewal as the trigger, but no continuous transport log establishes the initiating event. Chat history remained. Do not count this cross-reconnect check as retained-page acceptance; the separate same-connection native fixture passes 20 switches. This retention boundary remains recorded for follow-up.
 

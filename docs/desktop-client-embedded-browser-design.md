@@ -183,6 +183,13 @@ viewport change occurs at a verified runtime boundary with fresh layout evidence
 Background rendering and timers must remain sufficient for providers when the
 view is hidden, detached from presentation, or the workbench is minimized.
 
+**2026-10-23 owner requirement update:** the fixed visible viewport and small-panel
+hiding above describe the historical v1 implementation, not the accepted future
+display target. Automated pages must adapt to the available area like normal
+browser pages. Keep control ownership separate from display sizing and refresh
+layout-dependent evidence when needed. This change is pending implementation;
+see [BR-01 and the retained follow-up](desktop-browser-follow-up-2026-10-23.md).
+
 Display states remain `idle`, `agent_running`, `login_required`,
 `checking_login`, `completed`, and `failed`. Browser/view availability is separate
 from task state; renderer loss is not task completion. These are local display

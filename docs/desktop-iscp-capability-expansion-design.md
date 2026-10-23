@@ -1143,6 +1143,11 @@ a source change; installed clients and running Gateways are not updated by it.
 
 ## 9.20. Reverse browser command acceptance continuation (2026-10-23)
 
+**Owner review follow-up:** the fixed, centered task viewport and small-panel
+disappearance are an open display defect. Fullscreen/widening below is a
+workaround, not normal-browser experience acceptance. See the
+[retained findings and six follow-up items](desktop-browser-follow-up-2026-10-23.md).
+
 The owner's later authorization to push, deploy work2 and install the Mac client
 supersedes the earlier source-only checkpoint. The installed Mac package remains
 the paired `c804402a` build (296 files/links); work2 retains App-CLI `.36`, TM

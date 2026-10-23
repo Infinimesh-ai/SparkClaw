@@ -1137,7 +1137,7 @@
   "sent_original_local_candidate": {
     "appcli_source": "38e15e2a018ea0dce8b90128c9e66b897b6aeea0",
     "gateway_source": "d1b3b53965b512d2a15f3db7fb5efe645172b5d3",
-    "integrated": false,
+    "integrated": true,
     "deployed": false,
     "live_sent_read": false,
     "gateway_affected_passed": 1479,
@@ -1146,6 +1146,55 @@
     "gateway_vet": true,
     "existing_gmail_original_format_compatible": true,
     "appcli_full_concurrent_executor_deadline_failure_retained": true,
-    "appcli_unchanged_isolated_executor_passed": 21
+    "appcli_unchanged_isolated_executor_passed": 21,
+    "query_completeness_fix": "b4907ef3880d3e28a2ed8f16618b6cb3dc291d77"
+  },
+  "mail_combined_r41": {
+    "phase": "qualified_pushed_pending_live_deployment",
+    "source": "2396381e62f208a1503e13841b9b12bbdb5053ff",
+    "appcli_source": "bcc55506cc933f981668e3b2d1ed1eba1bf4c6a3",
+    "runtime_digest": "e315727dfe2802b92ef97f3fc0828825e343b3056f5a8d3214207c32840a7db4",
+    "outer_manifest_sha256": "75d895001b78de05225009c25a76ddc0c0ba8293c4d0acb43cfc2feb6967b99a",
+    "qualification_sha256": "335edc06ff94160a7e2e948f2ec8d0b13eb04d552392a3699c841dab10c18627",
+    "checks": {
+      "go_packages": 75,
+      "go_test_nodes_passed": 5490,
+      "go_original_skipped_nodes": 191,
+      "new_pg_subtests_skipped_in_network_none_full_suite": 2,
+      "new_pg_subtests_executed_separately": 2,
+      "build": true,
+      "vet": true,
+      "runtime_passed": 678,
+      "runtime_original_skips": 2,
+      "wrapper_chromium": 7,
+      "wrapper_sends": 0,
+      "python_final_wheel": 90,
+      "controller": 236,
+      "desktop": 526,
+      "paired_python312": 11,
+      "projection": 3,
+      "reproducible_artifacts": 4,
+      "runtime_files_exact_to_source": 88
+    },
+    "gateway_binary_sha256": "941e48ba39cb83a6c45751e44ba2be5721e5ccb2a81d517be1ea8e4cf6818e7b",
+    "tampermonkey": "5.5.0.21",
+    "deployed": false,
+    "mac_installed": false,
+    "live_mail_actions": 0,
+    "mail_runner_closed": true,
+    "eligible_first_dispatch_cases": [
+      1
+    ],
+    "never_resend_cases": [
+      2,
+      3
+    ],
+    "existing_reanalysis_cases": [
+      2,
+      3
+    ],
+    "existing_gmail_sent_read_cases": [
+      3
+    ]
   }
 }

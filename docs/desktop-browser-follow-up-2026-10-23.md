@@ -335,6 +335,14 @@ The complete frozen audit preserves all 101 draft/send rows, 57 send tasks, 112 
 
 The typed Gmail Sent-original adapter is now implemented locally in AppCLI `38e15e2a` and Gateway `d1b3b539`. Gateway affected-package checks pass with 1,479 cases and 14 existing skips; build and vet pass. The stored Gmail-origin original also passes the new full-file hash and exact header predicate. These are local compatibility checks, not live Sent evidence. AppCLI's full concurrent suite retains one executor deadline failure; the unchanged isolated executor suite passes. A successor release is under review, with no further deployment authorized by the closed release scripts.
 
+## Successor `.41`: qualified and pushed, live acceptance pending
+
+AppCLI `bcc55506` and SparkClaw `2396381e` are pushed. They include the minimal sync-history identity fix and a normal authenticated typed Gmail Sent read. Independent review reproduced and fixed three cases where a stale same-query response or a continuation page could appear to prove a unique result. The Reader now binds evidence to the request that started in the current query round, requires initial-page semantics and a terminal response, and rejects ambiguous candidates. Native original headers and the complete file digest remain checked before success.
+
+Runtime passes 678 tests with two existing skips; seven isolated Chromium wrapper cases pass with zero sends. The integrated Linux Gateway passes all 75 packages, build and vet (5,490 passing test nodes). The original 191 skipped nodes remain; two new PostgreSQL history subtests skip in this network-disabled run, but both were separately executed successfully against isolated PostgreSQL before integration. Final installed-wheel Python 90, Controller 236, Desktop 526, paired installer 11 and projection 3 checks pass. Four final release outputs reproduce byte-for-byte, and an independent check matches all 88 Runtime files to the frozen source. The earlier concurrent executor deadline failure remains recorded; the final full suite passes without changing that deadline.
+
+The consumer updates managed Reader assets and Tampermonkey patch 21, preserving the original UI and interactions. The Gateway binary is rebuilt from the final consumer source; its Gateway/module tree and output bytes match the already tested integrated source. No `.41` deployment, Mac installation or live email action is claimed at this checkpoint. The new mail runner remains closed: one original QQ first dispatch, explicit reanalysis of the two existing receiver captures, and one Gmail Sent read of the already-sent third case. Cases two and three remain structurally excluded from send commands.
+
 ## Historical investigation: scope and acceptance correction
 
 The owner requires an automated page to display like a normal browser page:

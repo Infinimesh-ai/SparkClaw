@@ -11,6 +11,8 @@ import (
 	"path"
 	"regexp"
 	"strings"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
 const maxCaptureManifestBytes = 1 << 20
@@ -59,6 +61,11 @@ func verifyCapture(ctx context.Context, workspaceRoot string, request ReadReques
 		return err
 	}
 	defer root.Close()
+	if request.SentMatch != nil {
+		if err := sentCapturePath(root, ref.ManifestPath); err != nil {
+			return err
+		}
+	}
 	file, err := root.Open(ref.ManifestPath)
 	if err != nil {
 		return err
@@ -77,18 +84,23 @@ func verifyCapture(ctx context.Context, workspaceRoot string, request ReadReques
 		return invalid
 	}
 	var manifest struct {
-		SchemaVersion     int    `json:"schema_version"`
-		Stage             string `json:"stage"`
-		Provider          string `json:"provider"`
-		MailID            string `json:"mail_id"`
-		MailboxID         string `json:"mailbox_id"`
-		CaptureID         string `json:"capture_id"`
-		InvocationID      string `json:"invocation_id"`
-		DatePath          string `json:"date_path"`
-		Status            string `json:"status"`
-		AccountAddress    string `json:"account_address"`
-		ProviderMessageID string `json:"provider_message_id"`
-		Files             []struct {
+		SchemaVersion       int             `json:"schema_version"`
+		Stage               string          `json:"stage"`
+		Provider            string          `json:"provider"`
+		MailID              string          `json:"mail_id"`
+		MailboxID           string          `json:"mailbox_id"`
+		CaptureID           string          `json:"capture_id"`
+		InvocationID        string          `json:"invocation_id"`
+		DatePath            string          `json:"date_path"`
+		Status              string          `json:"status"`
+		AccountAddress      string          `json:"account_address"`
+		ProviderMessageID   string          `json:"provider_message_id"`
+		ProviderSelectionID string          `json:"provider_selection_id"`
+		ProviderNativeID    string          `json:"provider_native_id"`
+		Acquisition         string          `json:"acquisition"`
+		Folder              string          `json:"folder"`
+		SentMatch           json.RawMessage `json:"sent_match"`
+		Files               []struct {
 			Path   string `json:"path"`
 			SHA256 string `json:"sha256"`
 			Bytes  int64  `json:"bytes"`
@@ -98,6 +110,20 @@ func verifyCapture(ctx context.Context, workspaceRoot string, request ReadReques
 		return invalid
 	}
 	prefix := path.Dir(expected) + "/"
+	if request.SentMatch != nil {
+		match, err := app.DecodeEmailSentMatch(manifest.SentMatch)
+		if err != nil || *match != *request.SentMatch || request.SentMatch.Validate() != nil || request.Provider != app.EmailProviderGmail || result.Status != "collected" || manifest.Acquisition != "rfc822" || manifest.Folder != "sent" || !sameSentAddress(manifest.AccountAddress, request.AccountAddress) || !mailLocatorPattern.MatchString(manifest.ProviderMessageID) || len(manifest.ProviderMessageID) > 1024 || len(manifest.Files) != 1 || manifest.Files[0].Path != prefix+"message.eml" {
+			return invalid
+		}
+		if !mailLocatorPattern.MatchString(manifest.ProviderSelectionID) || len(manifest.ProviderSelectionID) > 1024 || !mailLocatorPattern.MatchString(manifest.ProviderNativeID) || len(manifest.ProviderNativeID) > 1024 {
+			return invalid
+		}
+		mailboxHash := sha256.Sum256([]byte(request.Provider + "\x00" + strings.ToLower(request.AccountAddress)))
+		mailHash := sha256.Sum256([]byte(ref.MailboxID + "\x00" + manifest.ProviderMessageID))
+		if ref.MailboxID != "mb_"+hex.EncodeToString(mailboxHash[:])[:32] || ref.MailID != "mail_"+hex.EncodeToString(mailHash[:])[:32] {
+			return invalid
+		}
+	}
 	if request.Target != nil && (!strings.EqualFold(manifest.AccountAddress, request.Target.AccountAddress) || manifest.ProviderMessageID != request.Target.ProviderMessageID) {
 		return invalid
 	}
@@ -114,6 +140,11 @@ func verifyCapture(ctx context.Context, workspaceRoot string, request ReadReques
 		seen[source.Path] = true
 		if err := verifyCaptureFileStat(root, source.Path, source.Bytes); err != nil {
 			return err
+		}
+		if request.SentMatch != nil {
+			if err := verifySentOriginal(ctx, root, source.Path, source.Bytes, source.SHA256, request.AccountAddress, *request.SentMatch); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

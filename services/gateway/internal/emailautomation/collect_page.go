@@ -40,7 +40,7 @@ func PageCaptureInvocationID(batchInvocationID, provider string, target app.Emai
 
 func validPageRequest(request ReadRequest) bool {
 	d := request.Discovery
-	if request.Target != nil || d == nil || d.Lane != "recent_inbound" ||
+	if request.Target != nil || request.SentMatch != nil || d == nil || d.Lane != "recent_inbound" ||
 		(d.ProviderMode != app.EmailProviderModeChangeCursor && d.ProviderMode != app.EmailProviderModeTimeRange) || len(d.RetryTargets) > 50 || len(d.SkipProviderMessageIDs) > 100 ||
 		!validMailTarget(app.EmailCaptureTarget{AccountAddress: d.AccountAddress, ProviderMessageID: "check", ProviderSelectionID: "check"}) ||
 		d.IntervalStart.IsZero() || !d.IntervalStart.Before(d.IntervalEnd) || d.Limit < 1 || d.Limit > 50 || d.Continuation != "" {

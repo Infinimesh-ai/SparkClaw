@@ -33,6 +33,9 @@ func (c *Controller) ReadForOwner(ctx context.Context, ownerID string, request R
 	if !ok || strings.TrimSpace(ownerID) == "" {
 		return ReadResult{}, codedError(app.ToolErrorEmailInvalidInput, "Email provider or owner is invalid")
 	}
+	if err := validateSentRead(request); err != nil {
+		return ReadResult{}, err
+	}
 	release, lockErr := c.lockProvider(ctx, provider.ID)
 	if lockErr != nil {
 		return ReadResult{}, lockErr
@@ -48,14 +51,35 @@ func (c *Controller) ReadForOwner(ctx context.Context, ownerID string, request R
 	if c.runner == nil {
 		return ReadResult{}, codedError(app.ToolErrorEmailProviderUnavailable, "Email provider scripts are unavailable")
 	}
+	// Never accept a caller-selected account, including from internal callers.
+	request.AccountAddress = ""
+	var sentMailbox app.EmailMailbox
+	if request.SentMatch != nil {
+		sentMailbox, err = c.sentReadMailbox(ctx, ownerID, provider.ID)
+		if err != nil {
+			return ReadResult{}, err
+		}
+		request.AccountAddress = sentMailbox.Address
+		frozen := *request.SentMatch
+		request.SentMatch = &frozen
+	}
 	digest := sha256.Sum256([]byte(ownerID))
 	request.OwnerScope = hex.EncodeToString(digest[:])
 	result, err := c.runner.Read(ctx, provider, request)
 	if err != nil {
 		return ReadResult{}, err
 	}
+	if request.SentMatch != nil {
+		// Account replacement/revocation during the single task invalidates its
+		// result; it never starts a second query or capture task.
+		current, found, settingErr := c.store.GetEmailProviderSetting(ctx, ownerID, provider.ID)
+		mailbox, mailboxErr := c.sentReadMailbox(ctx, ownerID, provider.ID)
+		if settingErr != nil || mailboxErr != nil || !found || !current.Enabled || current.State != app.EmailStateReady || current.Version != request.SettingVersion || current.Account != request.Account || mailbox.Address != sentMailbox.Address || mailbox.ID != sentMailbox.ID || mailbox.BindingGeneration != sentMailbox.BindingGeneration {
+			return ReadResult{}, codedError(app.ToolErrorEmailAdmissionStale, "Email account changed during Sent capture")
+		}
+	}
 	if result.Status == "empty" && result.Capture == nil {
-		if request.Target != nil {
+		if request.Target != nil || request.SentMatch != nil {
 			return ReadResult{}, codedError(app.ToolErrorEmailScriptInvalidOutput, "Specified email cannot return empty")
 		}
 		return result, nil
@@ -67,6 +91,12 @@ func (c *Controller) ReadForOwner(ctx context.Context, ownerID string, request R
 }
 
 func (r *PlaywrightRunner) Read(ctx context.Context, provider Provider, request ReadRequest) (ReadResult, error) {
+	if err := validateSentRead(request); err != nil {
+		return ReadResult{}, err
+	}
+	if request.SentMatch != nil && !app.ValidEmailSentMatchAddress(request.AccountAddress) {
+		return ReadResult{}, codedError(app.ToolErrorEmailInvalidInput, "Sent account binding is missing")
+	}
 	script, operation := provider.Read, "read"
 	if request.Target != nil {
 		script, operation = provider.Capture, "capture"
@@ -84,14 +114,19 @@ func (r *PlaywrightRunner) Read(ctx context.Context, provider Provider, request 
 		return ReadResult{}, err
 	}
 	input := struct {
-		SchemaVersion int                     `json:"schema_version"`
-		Operation     string                  `json:"operation"`
-		InvocationID  string                  `json:"invocation_id"`
-		Provider      string                  `json:"provider"`
-		Account       string                  `json:"account"`
-		OwnerScope    string                  `json:"owner_scope"`
-		Target        *app.EmailCaptureTarget `json:"target,omitempty"`
-	}{1, operation, request.InvocationID, provider.ID, app.EmailAccountDefault, request.OwnerScope, request.Target}
+		SchemaVersion  int                     `json:"schema_version"`
+		Operation      string                  `json:"operation"`
+		InvocationID   string                  `json:"invocation_id"`
+		Provider       string                  `json:"provider"`
+		Account        string                  `json:"account"`
+		OwnerScope     string                  `json:"owner_scope"`
+		Target         *app.EmailCaptureTarget `json:"target,omitempty"`
+		SentMatch      *app.EmailSentMatch     `json:"sent_match,omitempty"`
+		AccountAddress string                  `json:"account_address,omitempty"`
+	}{1, operation, request.InvocationID, provider.ID, app.EmailAccountDefault, request.OwnerScope, request.Target, request.SentMatch, ""}
+	if request.SentMatch != nil {
+		input.AccountAddress = request.AccountAddress
+	}
 	ctx, cancel := scriptContext(ctx, script)
 	defer cancel()
 	result, err := r.runScript(ctx, browsercontrol.RunScriptRequest{
@@ -106,6 +141,11 @@ func (r *PlaywrightRunner) Read(ctx context.Context, provider Provider, request 
 	}
 	if result.State != "completed" || result.CredentialGeneration != generation {
 		return ReadResult{}, codedError(app.ToolErrorEmailScriptInvalidOutput, "Email capture script returned an invalid receipt")
+	}
+	if request.SentMatch != nil {
+		if _, err := r.credentialGeneration(ctx, request.BrowserCredentialGeneration); err != nil {
+			return ReadResult{}, err
+		}
 	}
 	return decodeReadReceipt(result.Result, provider, request, generation, script)
 }
@@ -126,7 +166,7 @@ func decodeReadReceipt(raw []byte, provider Provider, request ReadRequest, gener
 	var capture *app.EmailCaptureReceipt
 	switch output.Status {
 	case "empty":
-		if string(output.Capture) != "null" || request.Target != nil {
+		if string(output.Capture) != "null" || request.Target != nil || request.SentMatch != nil {
 			return invalid()
 		}
 	case "collected", "partial":

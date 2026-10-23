@@ -184,6 +184,10 @@ type EmailReadRequest struct {
 	SettingVersion              int64
 	Target                      *EmailCaptureTarget
 	Discovery                   *EmailDiscoveryOptions
+	SentMatch                   *EmailSentMatch
+	// AccountAddress is supplied by the Controller only for SentMatch, from
+	// the owner's unique active mailbox. It is never a public tool argument.
+	AccountAddress string
 }
 
 // EmailDiscoveryOptions pins a bounded received-time observation to the admitted

@@ -2,6 +2,7 @@ package toolhub
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -28,6 +29,12 @@ func emailReadDefinition() app.ToolDefinition {
 		"provider": map[string]any{"type": "string", "enum": emailProviderEnum()}, "account": map[string]any{"type": "string", "enum": []any{app.EmailAccountDefault}},
 		"account_hint": map[string]any{"type": "string", "maxLength": 64}, "setting_version": stringSchema(), "browser_credential_generation": stringSchema(),
 		"probe_revision": stringSchema(), "read_script_revision": stringSchema(), "validated_at": stringSchema(), "invocation_id": stringSchema(),
+		"sent_match": strictObjectSchema([]string{"folder", "subject", "recipient", "interval_start", "interval_end"}, map[string]any{
+			"folder":         map[string]any{"type": "string", "enum": []any{"sent"}},
+			"subject":        map[string]any{"type": "string", "minLength": 1, "maxLength": app.EmailSentMatchMaxSubjectBytes},
+			"recipient":      map[string]any{"type": "string", "minLength": 1, "maxLength": 254},
+			"interval_start": stringSchema(), "interval_end": stringSchema(),
+		}),
 	})
 	definition.OutputSchema = strictObjectSchema([]string{"provider", "status", "capture", "browser_credential_generation", "script_revision"}, map[string]any{
 		"provider": stringSchema(), "status": map[string]any{"type": "string", "enum": []any{"empty", "collected", "partial"}}, "browser_credential_generation": integerSchema(), "script_revision": integerSchema(),
@@ -49,6 +56,17 @@ func (h *ToolHub) emailRead(ctx context.Context, args map[string]any, sessionID 
 	}
 	if h.store == nil || strings.TrimSpace(sessionID) == "" {
 		return invalid()
+	}
+	var sentMatch *app.EmailSentMatch
+	if value, present := args["sent_match"]; present {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return invalid()
+		}
+		sentMatch, err = app.DecodeEmailSentMatch(raw)
+		if err != nil {
+			return invalid()
+		}
 	}
 	session, found, err := h.store.GetSession(ctx, sessionID)
 	if err != nil {
@@ -76,6 +94,7 @@ func (h *ToolHub) emailRead(ctx context.Context, args map[string]any, sessionID 
 	result, err := h.emailReader.ReadForOwner(ctx, session.OwnerID, app.EmailReadRequest{
 		Provider: stringArg(args, "provider", ""), Account: stringArg(args, "account", ""), InvocationID: stringArg(args, "invocation_id", ""),
 		BrowserCredentialGeneration: generation, ProbeRevision: probe, ScriptRevision: revision, SettingVersion: settingVersion,
+		SentMatch: sentMatch,
 	})
 	if err != nil {
 		var classified emailToolError

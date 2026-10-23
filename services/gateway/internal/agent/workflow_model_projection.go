@@ -79,6 +79,11 @@ func modelRequiredWorkflowArguments(selectedEntries []app.ToolDirectoryEntryID, 
 
 func runtimeBoundModelArguments(run app.AgentRun, node app.WorkflowNode, state app.WorkflowNodeState, selectedEntries []app.ToolDirectoryEntryID, definition app.ToolDefinition) map[string]bool {
 	bound := map[string]bool{}
+	// Chat's existing read workflow is synchronization-only. The explicit
+	// selector is available through the authenticated manual tool surface.
+	if run.Workflow != nil && run.Workflow.Plan.ProfileID == app.WorkflowBrowserEmail && definition.Name == app.ToolEmailRead {
+		bound["sent_match"] = true
+	}
 	capabilities := selectedWorkflowCapabilities(selectedEntries, definition)
 	for _, capability := range capabilities {
 		for qualifier, value := range capability.Qualifiers {

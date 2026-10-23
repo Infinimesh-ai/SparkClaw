@@ -61,7 +61,7 @@ func validRecoveryCapture(target app.EmailCaptureTarget) bool {
 // The caller must persist candidates before scheduling any capture.
 func (c *Controller) DiscoverForOwner(ctx context.Context, ownerID string, request ReadRequest) (app.EmailDiscoveryResult, error) {
 	provider, ok := c.registry.Get(request.Provider)
-	if !ok || strings.TrimSpace(ownerID) == "" || request.Target != nil {
+	if !ok || strings.TrimSpace(ownerID) == "" || request.Target != nil || request.SentMatch != nil {
 		return app.EmailDiscoveryResult{}, codedError(app.ToolErrorEmailInvalidInput, "Invalid discovery binding")
 	}
 	release, lockErr := c.lockProvider(ctx, provider.ID)
@@ -88,7 +88,7 @@ func (r *PlaywrightRunner) Discover(ctx context.Context, provider Provider, requ
 	invalid := func() (app.EmailDiscoveryResult, error) {
 		return app.EmailDiscoveryResult{}, codedError(app.ToolErrorEmailScriptInvalidOutput, "Invalid email discovery result")
 	}
-	if request.Provider != provider.ID || request.Account != app.EmailAccountDefault || request.Target != nil || request.BrowserCredentialGeneration == 0 ||
+	if request.Provider != provider.ID || request.Account != app.EmailAccountDefault || request.Target != nil || request.SentMatch != nil || request.BrowserCredentialGeneration == 0 ||
 		request.ProbeRevision != provider.Probe.Revision || request.ScriptRevision != provider.Discover.Revision || !scopeDigestPattern.MatchString(request.OwnerScope) || !invocationIDPattern.MatchString(request.InvocationID) {
 		return app.EmailDiscoveryResult{}, codedError(app.ToolErrorEmailInvalidInput, "Invalid discovery binding")
 	}

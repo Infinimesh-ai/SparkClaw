@@ -93,6 +93,22 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		}
 		return ManualInvocation{Call: call}, ManualInvocationDenied{Reason: decision.Reason}
 	}
+	if name == app.ToolEmailRead && args["sent_match"] != nil {
+		bound, admissionErr := r.admitManualSentRead(ctx, sessionID, runID, args)
+		if admissionErr != nil {
+			done := time.Now().UTC()
+			call.Status, call.Error, call.CompletedAt = app.ToolCallStatusFailed, admissionErr.Error(), &done
+			call.ErrorCode = string(app.ToolErrorCodeFrom(admissionErr))
+			if _, saveErr := r.saveRun(ctx, app.AgentRun{ID: runID, SessionID: sessionID, State: "failed", Risk: def.Risk, StartedAt: now, CompletedAt: &done, Summary: admissionErr.Error()}); saveErr != nil {
+				return ManualInvocation{}, fmt.Errorf("persist failed Sent admission run: %w", saveErr)
+			}
+			if _, saveErr := r.saveToolCall(ctx, call); saveErr != nil {
+				return ManualInvocation{}, fmt.Errorf("persist failed Sent admission call: %w", saveErr)
+			}
+			return ManualInvocation{Call: call}, ManualExecutionError{Err: admissionErr}
+		}
+		args, call.Arguments = bound, bound
+	}
 	pptxMutation := r.tools.IsPPTXMutationTool(name, args)
 	pptxVisualWarning := ""
 	if pptxMutation {

@@ -107,6 +107,11 @@ func (r Runtime) materializeWorkflowBoundArguments(ctx context.Context, runID st
 	if !ok || run.Workflow == nil || run.Workflow.Plan.ProfileID != plan.WorkflowID {
 		return plan, nil
 	}
+	if plan.WorkflowID == app.WorkflowBrowserEmail && plan.Name == app.ToolEmailRead {
+		if _, supplied := plan.Args["sent_match"]; supplied {
+			return toolPlan{}, errors.New("the synchronization read workflow cannot select Sent originals")
+		}
+	}
 	state, ok := run.Workflow.Nodes[plan.WorkflowNodeID]
 	if !ok || state.Status != app.WorkflowNodeActive || state.ScopeRevision != plan.ScopeRevision {
 		return plan, nil

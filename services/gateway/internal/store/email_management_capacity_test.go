@@ -32,7 +32,7 @@ func TestEmailManagementCapacityQualification(t *testing.T) {
 				var err error
 				box, err = seed.BindEmailMailbox(t.Context(), EmailBindCommand{EmailCommand: f.command(), Provider: app.EmailProviderGmail, Address: "capacity@example.com", Enabled: true})
 				f.must(err)
-				_, err = emailMemoryRun(seed, t.Context(), OperationAdmitEmailDiscovery, owner, "capacity-fixture", nil, true, func(e *emailEngine) (struct{}, error) { return struct{}{}, seedEmailCapacity(e, box) })
+				_, err = emailMemoryRun(seed, t.Context(), OperationAdmitEmailDiscovery, owner, "capacity-fixture", nil, true, func(e *emailEngine) (struct{}, error) { return struct{}{}, seedEmailCapacity(e, box, 0, 10000, e.now) })
 				f.must(err)
 				raw, err := json.Marshal(seed.snapshot())
 				f.must(err)
@@ -58,10 +58,25 @@ func TestEmailManagementCapacityQualification(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				_, err = emailPostgresRun(s, t.Context(), OperationAdmitEmailDiscovery, owner, "capacity-fixture", nil, true, func(e *emailEngine) (struct{}, error) { return struct{}{}, seedEmailCapacity(e, box) })
-				if err != nil {
-					t.Fatal(err)
+				// Production admission accepts at most 100 mails per command. Keep
+				// fixture transactions equally bounded: seeding all 10,000 mails
+				// plus captured sources in one transaction exceeds the normal
+				// operation deadline before capacity measurements can even begin.
+				const seedBatchSize = 100
+				fixtureTime := postgresTime(time.Now())
+				var slowestSeedBatch time.Duration
+				for first := 0; first < 10000; first += seedBatchSize {
+					last := min(first+seedBatchSize, 10000)
+					started := time.Now()
+					_, err = emailPostgresRun(s, t.Context(), OperationAdmitEmailDiscovery, owner, fmt.Sprintf("capacity-fixture-%05d", first), nil, true, func(e *emailEngine) (struct{}, error) {
+						return struct{}{}, seedEmailCapacity(e, box, first, last, fixtureTime)
+					})
+					if err != nil {
+						t.Fatalf("seed mails [%d,%d): %v", first, last, err)
+					}
+					slowestSeedBatch = max(slowestSeedBatch, time.Since(started))
 				}
+				t.Logf("fixture mails=10000 captured=9000 conversations=900 queued_jobs=1000 seed_batch_size=%d slowest_seed_batch=%s", seedBatchSize, slowestSeedBatch)
 				repo = s
 				restart = func() EmailRepository {
 					next, err := NewPostgresStore(t.Context(), dsn)
@@ -81,7 +96,7 @@ func TestEmailManagementCapacityQualification(t *testing.T) {
 				t.Fatal(err)
 			}
 			statusLatency := time.Since(start)
-			if status.CapturedCount != 9000 || status.BacklogCount != 1000 {
+			if status.CapturedCount != 9000 || status.ConversationCount != 900 || status.BacklogCount != 1000 {
 				t.Fatalf("fixture counts %+v", status)
 			}
 			start = time.Now()
@@ -162,9 +177,8 @@ func TestEmailManagementCapacityQualification(t *testing.T) {
 		})
 	}
 }
-func seedEmailCapacity(e *emailEngine, box app.EmailMailbox) error {
-	now := e.now
-	for n := 0; n < 10000; n++ {
+func seedEmailCapacity(e *emailEngine, box app.EmailMailbox, first, last int, now time.Time) error {
+	for n := first; n < last; n++ {
 		id := fmt.Sprintf("fixture-mail-%05d", n)
 		m := app.EmailMail{ID: id, OwnerID: e.owner, MailboxID: box.ID, ProviderMessageID: id, ProviderSelectionID: id, Direction: "inbound", SourceTime: now.Add(time.Duration(n) * time.Second), DiscoveredAt: now, ArrivalSequence: int64(n + 1), InputVersion: 1, Subject: "invoice reference", Participants: []string{"supplier@example.com"}, AssignmentState: app.EmailAssignmentPending, CaptureState: "pending", ParseState: "pending"}
 		if n < 9000 {

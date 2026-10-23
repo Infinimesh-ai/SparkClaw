@@ -2,7 +2,7 @@
 
 > 语言：简体中文 | [English](../../docs/email-qq-direct-native-send.md)
 
-- 状态：**设计提案，尚未实施**（2026-10-23 第二版，按负责人十条意见修订）。写作过程中没有改代码、没有部署，也没有发送邮件。
+- 状态：**已在本地实现，尚未发布**（2026-10-23）。设计为第二版（按负责人十条意见修订）。实现：App-CLI 分支 `claude/mail-qq-direct-send`（`322fd94`，文档 `b6f334d`），SparkClaw 分支 `claude/mail-qq-direct-send`（Browser Controller `a5135b58`、Gateway `89a30aa6`），见第 17 节。没有发布、没有部署，也没有发送邮件。
 - 基线：App-CLI `d8b2a01`（35 版）、SparkClaw `a78433c3`、Tampermonkey 5.5.0.18
 - 背景：[网络原生邮件架构](email-network-native-architecture.md) 第 9.3–9.6、9.10 节；[邮件发信耗时](email-send-latency.md)
 - 范围：以 QQ 邮箱的新撰写发送作为**锚点**，先在 QQ 上完整实现这一模式，再推广到 Gmail 和 Outlook（第 15 节）。本文的第一个实施版本只改变 QQ 新撰写发送的行为；Gmail、Outlook、回复、附件和标记已读在各自完成推广前保持现状。改动涉及 **App-CLI、Gateway 和 Browser Controller**，其中通用部分要按与提供方无关的接口实现。
@@ -410,3 +410,19 @@ QQ 是这一模式的锚点，不是终点。实现时要把通用部分和 QQ �
 - 多收件人和抄送的开放节奏。
 - 常驻页面传输的重新开启时机，取决于 DOM 发信页面就绪问题的修复（第 9 节）。
 - Gmail 与 Outlook 的推广顺序，以及推广时是否把回复和附件一并纳入（第 15 节）。
+
+## 17. 实现状态（2026-10-23，本地）
+
+| 组件 | 实现方式 |
+|---|---|
+| 通用原生发送 | App-CLI `lib/native-send.mjs`：preflight（失败时导航恢复一次）、放行发送并写 `dispatching` 日志、一次 dispatch、按响应判定、一次有界查询；无 DOM 回退，不重发。 |
+| 发布开关 | `lib/native-send-config.mjs`（`enabled`、`receipt_provider_message_id`）；`APP_CLI_MAIL_NATIVE_SEND` 退役。QQ 已启用，`mailid` 回执关闭。 |
+| QQ 模块 | `lib/qq-native-send.mjs`（范围、恢复页面、12 个码）与 `userscripts/lib/qq-sendmail-v1.mjs`（字段、时区、`r`、正文规则、sid、查询）。删除 `qq-send-prototype.mjs`。 |
+| 日志、输出 schema、恢复 | `dispatching → not_sent(provider_rejected)` 原子替换；`provider_rejected` 带类别 `reason` 和清单内的 `provider_code`。 |
+| 处理器 | 原生发送跳过 `setSecrets`、后台页准备、`prepareMailRound` 和 `parkSendTemplate`；结果确定后页面停驻，登录类拒绝使页面失效。 |
+| Browser Controller | `HostPage.runCodeRequest`（code ≤ 72 KiB，argument ≤ 512 KiB），经常驻传输 stdin（`code_request`）或一次性 0600 的 `code-request-*.json` 文件，受保护进程先删除文件再执行；页面启动时清除残留文件。没有 Linux `/proc` 证明时拒绝。 |
+| Gateway | 校验 `provider_rejected` 证明；正常模式接受并 ACK `not_sent`；草稿错误码 `email_send_rejected_login_required` / `_invalid_parameter` / `_temporarily` 与 `email_send_template_drift`；登录类拒绝把设置置为 `login_required`；`send_admission: in_page` 时发送前不再探测。 |
+| 界面 | 不变。新的草稿错误码沿用现有的通用发送失败文字。 |
+
+尚未完成：配套发布（App-CLI 构建、SparkClaw 版本固定与 `provider_scripts.json` 同步、新的 Tampermonkey 版本）、第 5 节中守护进程日志/trace 的核查，以及 13.3 的实机验收。preflight 阶段的登录或账号失败目前到达草稿时仍是 `email_send_not_dispatched`，因为运行时对未放行的发送统一这样报告；只有发送后的登录类拒绝或下一次探测才会把设置置为 `login_required`。
+

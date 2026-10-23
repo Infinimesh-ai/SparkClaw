@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/email-qq-direct-native-send.md)
 
-- Status: **design proposal, not implemented** (2026-10-23, second revision, following the owner's ten review points). No code was changed, nothing was deployed and no mail was sent while writing it.
+- Status: **implemented locally, not released** (2026-10-23). Design: second revision, following the owner's ten review points. Implementation: App-CLI branch `claude/mail-qq-direct-send` (`322fd94`, docs `b6f334d`) and SparkClaw branch `claude/mail-qq-direct-send` (Browser Controller `a5135b58`, Gateway `89a30aa6`); see section 17. Nothing was released or deployed and no mail was sent.
 - Baseline: App-CLI `d8b2a01` (release 35), SparkClaw `a78433c3`, Tampermonkey 5.5.0.18
 - Context: [network-native mail architecture](email-network-native-architecture.md), sections 9.3–9.6 and 9.10; [mail send latency](email-send-latency.md)
 - Scope: QQ Mail new-compose sends are the **anchor**. The pattern is fully implemented on QQ first and then extended to Gmail and Outlook (section 15). The first implementation changes behavior only for QQ new-compose sends; Gmail, Outlook, replies, attachments and mark-read stay as they are until each is brought over. The changes touch **App-CLI, the Gateway and the Browser Controller**, and their shared parts must be built as provider-independent interfaces.
@@ -415,3 +415,19 @@ Known starting points: some Outlook writes go through a Web Worker and MessagePo
 - When to open several recipients and cc.
 - When to re-enable the resident page transport, which depends on fixing DOM-send page readiness (section 9).
 - The order of the Gmail and Outlook extensions, and whether replies and attachments are brought over at the same time (section 15).
+
+## 17. Implementation status (2026-10-23, local)
+
+| Component | Implemented as |
+|---|---|
+| Shared native send | App-CLI `lib/native-send.mjs`: preflight with one recovery navigation, release + `dispatching` journal, one dispatch, response decision, one bounded lookup; no DOM fallback, no resend. |
+| Release switches | `lib/native-send-config.mjs` (`enabled`, `receipt_provider_message_id`); `APP_CLI_MAIL_NATIVE_SEND` is retired. QQ is enabled; the `mailid` receipt is off. |
+| QQ modules | `lib/qq-native-send.mjs` (scope, recovery page, 12 codes) and `userscripts/lib/qq-sendmail-v1.mjs` (fields, time zones, `r`, body rule, sid, lookup). `qq-send-prototype.mjs` is removed. |
+| Journal, schema, recovery | `dispatching → not_sent(provider_rejected)` replaces atomically; `provider_rejected` carries a category `reason` and a listed `provider_code`. |
+| Handlers | Native sends skip `setSecrets`, background preparation, `prepareMailRound` and `parkSendTemplate`; decided pages stay parked, a login rejection invalidates the page. |
+| Browser Controller | `HostPage.runCodeRequest` (code ≤ 72 KiB, argument ≤ 512 KiB) through transport stdin (`code_request`) or a one-use 0600 `code-request-*.json` file that the guarded process deletes first; leftover files are removed at page start. Refused without the Linux `/proc` proof. |
+| Gateway | `provider_rejected` proof validation, `not_sent` accepted and ACKed in normal mode, draft codes `email_send_rejected_login_required` / `_invalid_parameter` / `_temporarily` and `email_send_template_drift`, login rejection → setting `login_required`, `send_admission: in_page` → no pre-send probe. |
+| UI | Unchanged. New draft codes show the existing generic send-failure text. |
+
+Not done yet: the paired release (App-CLI build, SparkClaw pin and `provider_scripts.json` sync, new Tampermonkey version), the daemon log/trace check in section 5, and the live qualification in 13.3. A login or account failure in preflight still reaches the draft as `email_send_not_dispatched`, because the runtime reports an undispatched send that way; the setting moves to `login_required` only on a post-send login rejection or the next probe.
+

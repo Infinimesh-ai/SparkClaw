@@ -1315,6 +1315,42 @@
         "automatic_exception": false,
         "root_review_sha256": "a5eeb453178f0259005f25bee0ef9d02a68bd4329627e3a13094cde0f0d743b7"
       }
+    },
+    "v2_freeze_stop": {
+      "at": "2026-10-23T17:00:47Z",
+      "phase": "freeze_failed_requires_inspection",
+      "candidate_activated": false,
+      "core_not_rechecked_by_compact_read": true,
+      "services_stopped_confirmed_at": "2026-10-23T17:14:16Z",
+      "compact_receipt_sha256": "eebf203b5766c2e825fbe0844162adfbae9fd1916a54f3e8edecabf91ca5145b",
+      "root_network_review_sha256": "79293c844601c993f4b71168ad472a81132acda4bc1374eb612aa7f111097165",
+      "independent_network_review_sha256": "6a40c2321fe2516b551a7f8b32c96b7fa0c356da4f45675f105d15e6a0df8aa6",
+      "cause": "Running network address guard incorrectly reused after confirmed Docker stop; persistent network configuration exact",
+      "runtime_fields_cleared": [
+        "EndpointID",
+        "Gateway",
+        "IPAddress",
+        "MacAddress",
+        "IPPrefixLen"
+      ],
+      "full_read_terminated_without_result": true,
+      "original_service_restoration": "healthy_2026-10-23T17:22:12Z",
+      "all_phase_flags_closed": true,
+      "restoration": {
+        "result_sha256": "f8d92810aded8c41c679319ae3d5fe80427cffafb6a9a10d32f0a31473d03248",
+        "same_gateway_container": true,
+        "core_full_rows_exact": {
+          "draft": 101,
+          "send": 57,
+          "unknown": 112,
+          "devices": 10
+        },
+        "installed_or_rebuilt": false,
+        "data_restored_or_deleted": false,
+        "upgrade_continued": false,
+        "historical_full_preservation_review_pending": true,
+        "allow_start": false
+      }
     }
   }
 }

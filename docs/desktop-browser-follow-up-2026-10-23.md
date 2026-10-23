@@ -17,7 +17,7 @@ checkpoint; its “all open” statements are not the current status.
 | BR-03 | Explicit verified revocation reason and existing login UI passed. | A bounded issuer authorization check preserves the typed signed revocation signal across reconnect/restart. Ordinary disconnection and generic 401/403 do not manufacture revocation. Existing credential form/history remain; Reconnect is disabled for revoked authorization. |
 | BR-04 | Real in-flight revocation passed using a disposable identity. | Installed helper/UI hashes and product source match. One live read had executed but its result remained in flight. Revocation clears the active lease/page, fences the old result, rejects the old binding and returns business 401. Restart remains revoked. Already-read content cannot be undone. |
 | BR-05 | Native navigation diagnosis implemented and verified. | The original example.com log contains `ERR_NAME_NOT_RESOLVED`; it is an environmental DNS failure whose reason was lost. Bounded native error codes and command deadlines now remain distinct from true fencing. Installed UI reports `browser dns resolution failed` for a controlled `.invalid` domain; Apple success is independently verified. |
-| BR-06 | Optional qualification passed; real send/receive/attachment acceptance remains open. | Linux full Go/build/vet, 526 desktop tests, 504 WebChat tests, all 131 optional browser/recovery cases and file/PostgreSQL 10,000-mail capacity pass. The initial three attempts and the three `.37` continuations all have proven zero dispatches. The live blockers are QQ editor validation, Outlook strict body verification and Gmail attachment confirmation. Isolated fixture success does not qualify actual delivery. |
+| BR-06 | Optional qualification passed; real send/receive/attachment acceptance remains open. | Linux full Go/build/vet, 526 desktop tests, 504 WebChat tests, all 131 optional browser/recovery cases and file/PostgreSQL 10,000-mail capacity pass. The initial three attempts and the three continuations in each of `.37` and `.38` all have proven zero dispatches. The `.38` live evidence identifies the same style-only line readback failure in QQ and Outlook; Gmail attachment confirmation remains open. The earlier QQ editor failure did not recur, which does not retroactively explain it. Isolated fixture success does not qualify actual delivery. |
 
 The optional capacity fixture previously put 10,000 mails and related records in
 one transaction despite production admission allowing only 100 per command.
@@ -149,6 +149,48 @@ claim the send-body repair fixes collection or that empty rounds qualify deliver
 The `.38` runtime adds bounded phase/exception diagnostics for future failures
 without exposing message content or changing unknown/retry semantics; it does not
 retroactively identify those two earlier causes.
+
+The `.38` QQ and Outlook attempts again prove zero dispatches, now with a
+specific shared cause: each editor contains six direct style-only DIV lines,
+alternating text and empty-line BR placeholders. The attribute guard selects
+`innerText`, producing 109 characters instead of the approved 106. Both live
+structures and fallback reasons are captured; original CSS values are not.
+App-CLI `2a7b87c` accepts this flat style-only shape only after visible/plain-text
+style checks on the body root and each line. Exact digest verification remains.
+An independent pinned Chromium wrapper passes 16 cases, including preservation
+of the DOM, focus and selection, and rejection of hidden/generated content.
+This is a local candidate, not a live repair qualification.
+
+Before Gmail staging, a new QQ `collect_page` failure raised the retained unknown
+count from 108 to 109. Its full row proves a local collection operation with no
+send dispatch; the prior 108 unknown rows and all 93 current draft/send rows are
+exact. The safe diagnostic records a handler Error after about 20 seconds, but
+contains no task ID or specific timeout code; this alone does not prove a timeout.
+The stopped runner was closed and its QA revoked (old token 401, credential
+removed). Gmail was untouched, and its separately reviewed continuation protects
+all 109 unknown rows and all 93 draft/send rows. Old failures are not replayed.
+
+The independent `.38` Gmail continuation also conclusively stopped before
+dispatch (`EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED`, effect 0). Its exact guard is
+`row_count`: zero recognized rows for one expected attachment, with an already
+captured File manifest and no pending upload. The live structure contains a
+visible `.dL` card with the matching `.vI` filename and enabled remove control,
+but the adapter requires an `.aQH` ancestor. The original file input has been
+replaced. This proves a recognition gap, not completed delivery. The journal
+reader initially failed because default `journalctl -o json` emitted null for a
+large MESSAGE; `--all` recovered the original diagnostic. That harness failure
+and all old receipts are retained. Full lifecycle classification proves zero
+actual sends across all nine `.36`/`.37`/`.38` requests. The Gmail QA is revoked
+(token 401, credentials deleted), both continuation entries are closed, and
+all 109 unknown rows plus the preceding 93 draft/send rows remain exact; the
+current draft/send inventory contains 95 rows.
+
+App-CLI `80bdd51` separately fixes a confirmed reader error-mapping defect:
+numeric DOMException codes previously became a generic provider script failure.
+The adapter now uses the existing fixed read-failure code and preserves only safe
+TimeoutError/AbortError names. It neither retries nor changes timeouts or Reader
+assets. Targeted tests pass 29 cases, and the integrated body/error check passes
+19. This does not prove that the earlier live collection failures were timeouts.
 
 The [redacted combined receipt](evidence/desktop-browser-six-fixes-2026-10-23.json) indexes the immutable local evidence. During the installed conversation-switch check, the helper was replaced and released task pages disappeared. Existing session-fence code clears those pages; Grant timing supports renewal as the trigger, but no continuous transport log establishes the initiating event. Chat history remained. Do not count this cross-reconnect check as retained-page acceptance; the separate same-connection native fixture passes 20 switches. This retention boundary remains recorded for follow-up.
 

@@ -664,5 +664,70 @@
       "send_called": false,
       "baseline_changed": false
     }
+  },
+  "mail_r38_live_acceptance": {
+    "status": "All three .38 messages proven not dispatched; functional repairs in progress",
+    "actual_dispatches_before_gmail": 0,
+    "qq_outlook_body_guard": "block_attributes",
+    "expected_length": 106,
+    "actual_length": 109,
+    "live_shape": "six direct DIVs, only style attribute, alternating text and single BR placeholder",
+    "original_CSS_values_captured": false,
+    "protected_draft_send_full_rows": 93,
+    "prior_unknown_full_rows_exact": 108,
+    "new_unknown": {
+      "id": "9dba54b9-c437-4e3e-80cf-d731b545bc69",
+      "provider": "qq_mail",
+      "command": "collect_page",
+      "status": "uncertain",
+      "effect": 1,
+      "dispatch": null,
+      "row_sha256": "3a5bf4a4a1a0363e930d179346edf97eda84cfc2db6fec0f57e09d23ec301efa",
+      "exact_timeout_cause_proven": false
+    },
+    "retained_unknown_total": 109,
+    "evidence_root": "/Users/dev/.cache/sparkclaw-acceptance/20261023-mail-diagnostics-r38/live-mail-plan",
+    "candidate": {
+      "app_cli_source": "2a7b87cfe80b8cb49c7d71d4a16a68ffcc4fb757",
+      "pinned_wrapper_pass": 16,
+      "send_clicks": 0,
+      "strict_body_digest_retained": true,
+      "deployed": false
+    },
+    "api_requests_in_r38": 3,
+    "actual_provider_dispatches": 0,
+    "all_three_release_api_requests": 9,
+    "all_three_release_actual_dispatches": 0,
+    "current_draft_send_full_rows": 95,
+    "gmail": {
+      "task_id": "8619f59a-9668-44b6-9589-81dc64cb58a6",
+      "failure": "EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED",
+      "guard": "row_count",
+      "known_rows": 0,
+      "expected_count": 1,
+      "manifest_present": true,
+      "input_connected": false,
+      "live_card_shape": "visible dL with matching vI and enabled remove, not matched by aQH dL selector",
+      "classification": "not_dispatched",
+      "negative_journal_bound": true,
+      "qa_revoked_200_token_401_credential_deleted": true,
+      "all_entrypoints_closed": true,
+      "evidence_root": "/Users/dev/.cache/sparkclaw-acceptance/20261023-mail-diagnostics-r38/case3-continuation",
+      "harness_failure": "journalctl default JSON emits null for oversized MESSAGE; --all retrieves original, old TypeError retained"
+    }
+  },
+  "mail_reader_error_mapping_repair": {
+    "app_cli_source": "80bdd51",
+    "status": "local integrated, not deployed",
+    "existing_public_error_code": "email_network_read_failed",
+    "safe_exception_names": [
+      "TimeoutError",
+      "AbortError"
+    ],
+    "targeted_pass": 29,
+    "integrated_body_error_pass": 19,
+    "requests_retried": false,
+    "reader_assets_changed": false,
+    "earlier_live_timeout_cause_proven": false
   }
 }

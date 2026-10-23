@@ -1448,7 +1448,36 @@
       },
       "new_freeze_authorized": false,
       "candidate_activated": false,
-      "new_mail_actions": 0
+      "new_mail_actions": 0,
+      "live_readonly_split_execution": {
+        "executed": true,
+        "exit_code": 1,
+        "tables": 41,
+        "rows": 289338,
+        "raw_envelope_bytes": 767100884,
+        "response_bytes": 155251490,
+        "response_sha256": "c1ee138df9ec80c551456ad3336a82f19f82d551c8954f59b6d660adac55b0f0",
+        "summary_sha256": "4c89ac56e29a651a63705a48c63bef74963d82a6f9124cdf3101df0ab06b27ec",
+        "closed_receipt_sha256": "49df3f634fb86232ed8d4e16a861f4b1a765cd4d240a6d1ec16f85198b4ccda0",
+        "old_service_healthy_before_after": true,
+        "core_failure": "unknown_full_rows_exact",
+        "unknown_classified": false,
+        "v4_qualified": false
+      },
+      "local_forensic_execution": {
+        "executed_once": true,
+        "exit_code": 1,
+        "worker_exit_code": -15,
+        "failure": "local_decode_rss_limit",
+        "child_rss_limit_bytes": 2287730688,
+        "sampled_peak_rss_bytes": 2406383616,
+        "full_raw_decompression_hash_exact": true,
+        "complete_decode": false,
+        "remote_operations": 0,
+        "retry_count": 0,
+        "closed_receipt_sha256": "fd4664fb208c82faedb1ad416b003fb33e1024995201b6c3b9575ebba5714605",
+        "watchdog_sha256": "f5605c7fd7c748e2218913abd2d03a83bc5a524ad7317f97415c31a1134f7cc6"
+      }
     }
   }
 }

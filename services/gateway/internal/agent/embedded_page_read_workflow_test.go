@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 
@@ -57,7 +58,7 @@ func TestExecutionEmbeddedPageReadUsesScopedAdapterThroughWorkflow(t *testing.T)
 	if len(calls) != 3 || calls[1].Tool != "browser.open" || calls[2].Tool != "browser.read" {
 		t.Fatalf("expected fixed status/open/read chain, got %#v", calls)
 	}
-	if len(host.operations) == 0 || host.operations[len(host.operations)-1] != "read" {
-		t.Fatalf("workflow did not read the acquired embedded page: %v", host.operations)
+	if !reflect.DeepEqual(host.operations, []string{"navigate", "read"}) {
+		t.Fatalf("workflow must read the opened page without a second navigation: %v", host.operations)
 	}
 }

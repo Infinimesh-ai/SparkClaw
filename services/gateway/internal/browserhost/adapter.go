@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -310,6 +312,9 @@ func (a *ScopedAdapter) Health(ctx context.Context, _ map[string]any) (browserau
 func (a *ScopedAdapter) Call(ctx context.Context, tool string, args map[string]any) (browserautomation.Result, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	return a.callLocked(ctx, tool, args)
+}
+func (a *ScopedAdapter) callLocked(ctx context.Context, tool string, args map[string]any) (browserautomation.Result, error) {
 	presentation, _ := args["presentation"].(string)
 	if presentation != "hidden" && presentation != "visible" {
 		presentation = "visible"
@@ -521,11 +526,27 @@ func surfaceVisible(output map[string]any) bool {
 	visible, _ := output["surface_visible"].(bool)
 	return visible
 }
-func (a *ScopedAdapter) ReadPage(ctx context.Context, url string, args map[string]any) (browserautomation.PageReadResult, error) {
-	if _, err := a.Call(ctx, "browser.open", map[string]any{"url": url}); err != nil {
-		return browserautomation.PageReadResult{}, err
+func (a *ScopedAdapter) ReadPage(ctx context.Context, targetURL string, args map[string]any) (browserautomation.PageReadResult, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	reuse, _ := args["reuse_active_page"].(bool)
+	if reuse {
+		// Reuse is a bound read, not permission to navigate or reacquire after
+		// losing a lease. Dispatch still verifies that this binding is live.
+		if a.closed || a.binding == nil || !sameReadURL(a.activeURL, targetURL) {
+			return browserautomation.PageReadResult{}, ErrFence
+		}
+	} else {
+		openArgs := make(map[string]any, len(args)+1)
+		for key, value := range args {
+			openArgs[key] = value
+		}
+		openArgs["url"] = targetURL
+		if _, err := a.callLocked(ctx, "browser.open", openArgs); err != nil {
+			return browserautomation.PageReadResult{}, err
+		}
 	}
-	result, err := a.Call(ctx, "browser.read", args)
+	result, err := a.callLocked(ctx, "browser.read", args)
 	if err != nil {
 		return browserautomation.PageReadResult{}, err
 	}
@@ -537,6 +558,14 @@ func (a *ScopedAdapter) ReadPage(ctx context.Context, url string, args map[strin
 	if err = json.Unmarshal(raw, &read); err != nil {
 		return read, err
 	}
+	if read.FinalURL != "" {
+		a.activeURL = read.FinalURL
+	}
+	if reuse && (!sameReadURL(read.URL, targetURL) || !sameReadURL(read.FinalURL, targetURL)) {
+		// The page may have navigated itself since open; do not return content
+		// from a different document or silently reload the requested one.
+		return browserautomation.PageReadResult{}, ErrFence
+	}
 	read.Provider = "browser_host"
 	read.Rendered = true
 	read.Untrusted = true
@@ -546,6 +575,21 @@ func (a *ScopedAdapter) ReadPage(ctx context.Context, url string, args map[strin
 		read.Actions = []string{}
 	}
 	return read, nil
+}
+
+func sameReadURL(left, right string) bool {
+	normalize := func(raw string) string {
+		parsed, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+			return ""
+		}
+		parsed.Host = strings.ToLower(parsed.Host)
+		if parsed.Path == "" {
+			parsed.Path = "/"
+		}
+		return parsed.String()
+	}
+	return normalize(left) != "" && normalize(left) == normalize(right)
 }
 func (a *ScopedAdapter) ReleaseSession(_ map[string]any) error {
 	a.mu.Lock()

@@ -323,3 +323,43 @@ func TestCredentialScopeSnapshotDoesNotDisconnectNewOwner(t *testing.T) {
 		})
 	}
 }
+
+func TestRelayJournalWindowedChunksQualification(t *testing.T) {
+	if os.Getenv("SC_RELAY_JOURNAL_BENCH") != "1" {
+		t.Skip("explicit fsync performance qualification")
+	}
+	p := crypto.NewProvider()
+	id, _ := identity.NewDevice(p, "domain", "sender", time.Now())
+	c := &RelayClient{provider: p, device: id, enrollmentPath: filepath.Join(t.TempDir(), "enrollment.json"), enrollment: EnrollmentBundle{DomainID: "domain", DeviceID: "sender", RelayID: "relay"}}
+	if err := c.initRelayJournal(); err != nil {
+		t.Fatal(err)
+	}
+	// One writer journals each submission in order (as relaySocket.writer does)
+	// while receipts and waiter acknowledgements for an 8-chunk window complete
+	// concurrently, like a 10 MiB object transfer.
+	window := make(chan struct{}, 8)
+	done := make(chan error, 1280)
+	start := time.Now()
+	for i := 0; i < 1280; i++ {
+		window <- struct{}{}
+		sub := RelaySubmission{MessageID: fmt.Sprint(i), EnvelopeDigest: duplex.RandomID(), HistoryID: "history", NotAfter: duplex.Timestamp(time.Now().Add(time.Minute)), SessionID: "session", Envelope: json.RawMessage(`{"ciphertext":"` + strings.Repeat("A", 12000) + `"}`)}
+		if err := c.journalBeforeWrite(sub, false); err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			defer func() { <-window }()
+			receipt := &AcceptanceReceipt{MessageID: sub.MessageID}
+			c.resolveRelaySubmission(sub, "accepted", receipt)
+			f := &ReceiptFuture{owner: c, Submission: sub, done: make(chan struct{}), written: true}
+			f.finish(receipt, nil)
+			_, err := f.Wait(context.Background())
+			done <- err
+		}()
+	}
+	for i := 0; i < 1280; i++ {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Logf("1280 x 12KB journal, window 8: elapsed=%s", time.Since(start))
+}

@@ -778,10 +778,112 @@ Still open:
 - Two opt-in attachment fixtures already fail on `.34` (`INPUT_VALIDATION_FAILED`, and a hook string that no longer exists).
 - Gmail and QQ reply proofs were not changed. They depend on the target being open in the page, which the network lookup also does not do.
 
-### 9.10 Release 35 deployment and live results (2026-10-22)
+### 9.9 Section 8 control message and 10 MiB object gates (2026-10-22)
 
-Section 9.9 is reserved for the gate measurements on branch
-`claude/mail-gate-measurements-047589`, which is not merged yet.
+Tools: `scripts/mail-control-gate.mjs` and `scripts/iscp-object-gate.mjs`
+(tests in `scripts/test/mail-gate-measurements.test.mjs`). Samples are
+nearest-rank percentiles. No mail was sent, no release, configuration or
+service changed, and nothing was restarted.
+
+**Control message ≤ 20 ms on work2: met.** The control message is the
+Lifecycle 3.0 `lookup` the Gateway outbox drain sends, here for three already
+admitted sends (one per provider). It is posted to the Browser Controller
+socket and passes the Controller, MailboxClient, the resident
+`app_cli --machine --session` pool and the direct executor socket. `lookup`
+only reads the ledger. Every sample counted only when the executor returned
+`known` for that row.
+
+| Run (work2, 09:22–09:24 UTC) | n | p50 | p95 | max |
+| --- | ---: | ---: | ---: | ---: |
+| QQ | 200 | 6.828 ms | 8.184 ms | 359.276 ms |
+| Gmail | 200 | 6.895 ms | 7.971 ms | 9.581 ms |
+| Outlook | 200 | 6.877 ms | 8.147 ms | 441.579 ms |
+| All | 600 | 6.861 ms | 8.171 ms | 441.579 ms |
+
+Time is client-side, from request start to the full JSON response, on one
+keep-alive connection with 100 ms spacing and three warm-up requests per run.
+Two of 600 samples exceeded 20 ms; their cause was not isolated. The four
+resident session PIDs were the same before and after each run, so no process
+was spawned per message. The Gateway's own lock and container hop are outside
+this boundary.
+
+**10 MiB object transfer ≤ 30 s: not met in the local lab; not measured
+live.** The lab (`iscp-local-lab prepare-expansion`, Relay built from ISCP
+`f603722`) runs the real desktop transport and Go helper, a reference Relay
+container and the Gateway container on this Mac. Each sample uploads 10 MiB
+of random bytes with purpose `file`, downloads them and verifies the digest,
+then releases the object. The final run used unchanged code:
+
+| Lab, unchanged code (5 samples, 537 s) | p50 | p95 |
+| --- | ---: | ---: |
+| Upload | 49.619 s | 51.292 s |
+| Download | 56.914 s | 57.369 s |
+| `capabilities.get`, idle (n = 30) | 51.148 ms | 62.530 ms |
+| `capabilities.get` during a transfer (n = 843) | 199.794 ms | 333.490 ms |
+
+Earlier runs on unchanged code gave 45.9–50.5 s up and 52.7–57.9 s down.
+Other sessions' containers were loading the Docker VM during all lab runs.
+
+The window was not the limit. Uploads kept 8 chunks in flight and downloads
+4, yet each direction moved about 23–28 chunks per second. Joined desktop,
+helper and Gateway traces show this:
+
+- An idle RPC took about 12 ms each way through the Relay.
+- Under load (first unchanged-code run), a chunk's request took p50 177 ms
+  to reach the Gateway.
+  The Gateway handler took 24.5 ms, under one store mutex with two fsync'd
+  writes.
+
+**Bottleneck: the helper's sealed Relay pending journal.** For every
+submitted envelope, `iscpbridge/relay_pending.go` decrypts the whole journal,
+re-encrypts it and rewrites it with file and directory sync. It does this three
+times (before write, on the Relay receipt, on the waiter's acknowledgement),
+under one journal mutex and an OS lock. The single socket writer waits for the
+first rewrite, and the reader waits for the second. A 10 MiB transfer is 1,280
+envelopes from the desktop, so every chunk pays this on the Mac. Go's sync on
+macOS is a full fsync.
+
+| fsync measurement | Result |
+| --- | ---: |
+| Env-gated journal qualification, 1,280 sequential 12 KB envelopes, Mac | 59.5 s |
+| Same, window 8 (new `TestRelayJournalWindowedChunksQualification`), Mac | 33.7 s, 35.5 s |
+| work2 ext4, 16 KB journal-style rewrite (file and directory fsync), n = 300 | p50 0.726 ms, p95 1.042 ms |
+| work2 ext4, store chunk plus `state.json` rewrite, n = 1,280 | p50 1.883 ms, p95 2.573 ms |
+| Mac → TEST1, ICMP RTT / warm HTTPS `/readyz` | 38.6 ms / 38.5–51.5 ms |
+
+work2's disk is cheap. The Mac initiator's journal alone is close to the
+whole lab transfer time. In the lab the Gateway's state is also on the Mac
+disk, through a Docker bind mount, so the lab charges full fsyncs at both
+ends. Live, the responder writes to work2 ext4 instead, but the desktop-side
+cost and the 38 ms Relay RTT apply.
+
+**Trial, reverted.** A group-commit journal (concurrent changes share one
+sealed checkpoint) and writer-side batching of queued submits were tried
+locally.
+
+- Instrumented, one windowed run used 2,416 checkpoints for 3,840 changes.
+  Persisting took 31.9 s of its 32.5 s.
+- The windowed qualification ran in 21.3–47.5 s (noisy).
+- The lab gave 36.0–39.9 s up and 45.9–59.9 s down (p50). That is still over
+  30 s.
+- Twice, after 2–3 samples, the transport dropped with "ISCP transport is
+  unavailable". The 5-sample run on unchanged code did not drop.
+
+The change was not kept. The journal stays as at `cd5bb79a`; the fix is a
+separate task.
+
+**Live 10 MiB was not measured.** The only live desktop is the user's running
+SparkX. A second helper on its device identity would share its sealed
+credential lease and Relay journal (with an OS lock) and its keychain key, so
+it could interfere with the user's connection. Relaunching SparkX under the
+tool needs the owner's approval. `iscp-object-gate.mjs --helper-config …
+--allow-production` supports that run once approved.
+
+From passive work2 Gateway traces of the live SparkX, the server-side
+`capabilities.get` handler took p50 138.9 ms and p95 150.0 ms (n = 585),
+against 2.6 ms in the lab. That cost was not investigated.
+
+### 9.10 Release 35 deployment and live results (2026-10-22)
 
 Shipped: App-CLI `d8b2a01` (release 35: function-based Outlook original
 resolver, reusable preflighted QQ native send, Outlook reply/sender/attachment

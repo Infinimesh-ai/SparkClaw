@@ -1,0 +1,281 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-23",
+  "scope": "Installed Mac and work2 reverse browser command acceptance; no live email sends",
+  "source": "85aa9193aca5ecfa7f45e6040f4b3c156ff3fdf8",
+  "mac_package_source": "c804402a",
+  "app_cli_release": "0.3.0-sparkclaw.36",
+  "tampermonkey_version": "5.5.0.19",
+  "gateway_image": "sha256:8c1e152aa7b19e20907a42c3a8d514b4926776f4ff2b86bf4a822bf0332c6c64",
+  "gateway_binary_sha256": "4ed6eb86a0afb174301eeed329f261ea3540d37a35c3de3863424d32482bb536",
+  "product_fix": "Final browser-open answer grounded in persisted verified workflow result; actual host visibility preserved",
+  "ui_product_changes": false,
+  "idle": {
+    "utc_start": "07:35:00",
+    "utc_end": "07:40:00",
+    "duration_seconds": 300,
+    "client_browser_calls": 0,
+    "server_browser_events": 0,
+    "earlier_window_strict_zero_failed_due_to_one_reconnect_receipt": true
+  },
+  "real_apple_tasks": {
+    "after_fix": {
+      "window_start": "2026-10-23T08:05:50Z",
+      "window_end": "2026-10-23T08:09:13Z",
+      "reverse_commands": 8,
+      "reverse_results": 8,
+      "reverse_result_statuses": {
+        "ok": 8
+      },
+      "retired_host_events": 0,
+      "browser_request_types": {
+        "browser.command": 8
+      }
+    },
+    "after_restart": {
+      "window_start": "2026-10-23T08:09:30Z",
+      "window_end": "2026-10-23T08:12:30Z",
+      "reverse_commands": 8,
+      "reverse_results": 8,
+      "reverse_result_statuses": {
+        "ok": 8
+      },
+      "retired_host_events": 0,
+      "browser_request_types": {
+        "browser.receipt": 1,
+        "browser.command": 8
+      }
+    }
+  },
+  "gateway_restart": {
+    "started_at": "2026-10-23T08:09:14.919559+00:00",
+    "healthy_at": "2026-10-23T08:09:29.816588+00:00",
+    "container_unchanged": true,
+    "image": "sha256:8c1e152aa7b19e20907a42c3a8d514b4926776f4ff2b86bf4a822bf0332c6c64",
+    "health": "healthy"
+  },
+  "native_isolated": {
+    "passed": true,
+    "reverse_commands": 36,
+    "capture_modes_passed": 7,
+    "native_clicks": 1,
+    "unknown_receipts_local": 1,
+    "unknown_receipts_backend": 1,
+    "direct_business_attempts": 0,
+    "host_websocket_attempts": 0
+  },
+  "isolated_authorization": {
+    "passed": true,
+    "phases": [
+      "delete",
+      "restart"
+    ],
+    "signed_deletion_retained_without_relay": true,
+    "direct_business_attempts": 0
+  },
+  "work2_device_revocation": {
+    "result": "live revocation fail-closed verified; stronger in-flight read experiment incomplete",
+    "default_scopes_only": true,
+    "device_preservation": {
+      "original_count": 4,
+      "original_active_count": 2,
+      "original_records_unchanged": true,
+      "qa_records_count": 4,
+      "qa_records_all_revoked": true,
+      "final_count": 8
+    },
+    "native_positive": {
+      "authenticated": true,
+      "normal_desktop_enrollment": true,
+      "Apple_acquire_navigate_release": "completed",
+      "native_navigate_count": 1,
+      "browser_HTTP_resource_rejections": 0,
+      "business_HTTP_fallback_attempts": 0,
+      "write_attempts": 0
+    },
+    "extra_read_task": {
+      "request_id": "5748f181-74af-476f-b00c-abbd6ac6cdee",
+      "requested_URL": "https://www.apple.com.cn/store",
+      "delivery_status": "delivered",
+      "delivery_ACK": 1,
+      "business_result": "blocked",
+      "assistant_result": "The workflow is blocked: browser open failed.",
+      "actual_read_or_snapshot_count": 0,
+      "native_navigation_is_not_full_workflow_pass": true,
+      "harness_error": "Timed out: actual reverse browser read"
+    },
+    "revocation": {
+      "receipt": {
+        "revision": 2,
+        "revocation_complete": true,
+        "state": "revoked"
+      },
+      "server_management_elapsed_ms": 302.19054222106934,
+      "other_devices_unchanged": true,
+      "last_business_200_at": "2026-10-23T08:28:50.253Z",
+      "transport_disconnected_during_revocation_at": "2026-10-23T08:28:50.901Z",
+      "inflight_lease_at_revoke": false,
+      "leases_already_released": true,
+      "immediate_active_session_fence_evidence": "transport closed/disconnected during management revocation; no local-to-server timing claim because clocks differ"
+    },
+    "post_revocation": {
+      "normal_restart": {
+        "auth_state": "reconnecting",
+        "transport_state": "connecting",
+        "host_state": "suspended",
+        "pages": 0,
+        "leases": 0
+      },
+      "business_status": 401,
+      "new_helper_connect_elapsed_ms": 483,
+      "new_helper_connected": false,
+      "new_helper_error": "ISCP transport is unavailable",
+      "explicit_authorization_revoked_signal": false,
+      "UI": "Connection unavailable. Reconnect to continue.",
+      "submissions": 0,
+      "reverse_commands": 0,
+      "native_commands": 0,
+      "direct_business_attempts": 0,
+      "passed": true
+    },
+    "limitations": [
+      "No real native read/snapshot in this extra QA workflow; business result blocked despite native navigate completion.",
+      "No in-flight cancellation or old-binding replay assertion on real work2 in this run; active lease/session fences covered separately by local unit fixture.",
+      "Revoked device received disconnected/reconnecting states, not explicit authorization_revoked. UI wording remains generic unavailable.",
+      "post-revocation pages0/leases0 verifies absence after restart, not cleanup of an active lease during revoke.",
+      "First three QA identities failed enrollment/harness preparation before task submission; all revoked.",
+      "r4 enrollment used same credential at most3 attempts; first future-Grant preparation failure and second transient transport unavailable retained.",
+      "Prior distinct example.com request hit native navigation deadline; retained; not replayed.",
+      "The extra read-oriented QA failure does not supersede parent main-Mac completed Apple-browser acceptance."
+    ],
+    "cleanup": {
+      "all_four_QA_devices_revoked": true,
+      "normal_Mac_identity_untouched": true,
+      "harness_exited": true,
+      "no_repository_file_edits": true,
+      "no_work2_deployment_by_this_agent": true,
+      "remaining_test_processes": []
+    }
+  },
+  "regression": {
+    "linux_source": "5ecf88159766bdf680e660c57c449c31acf9527f",
+    "linux_go_packages_passed": 75,
+    "linux_go_tests_including_subtests": {
+      "pass": 5280,
+      "skip": 191
+    },
+    "controller": {
+      "tests": 469,
+      "suites": 0,
+      "pass": 349,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 120,
+      "todo": 0
+    },
+    "fixed_agent_full_package_passed": true,
+    "fixed_linux_amd64_build_and_agent_vet_passed": true,
+    "desktop_passed": 519,
+    "webchat_passed": 501,
+    "ui_reconciliation_fixture_passed": 4,
+    "ui_fixture_simulated_timeout_and_iscp_receipts": true
+  },
+  "preservation": {
+    "server_table_count": 41,
+    "ordinary_tables_exact": 37,
+    "ordinary_tables_with_additions": [
+      "audit_events",
+      "events",
+      "model_calls"
+    ],
+    "original_email_records": 102165,
+    "unchanged_email_records": 102158,
+    "draft_send_records_exact": 77,
+    "runtime_progress_records": 7,
+    "new_sync_command_receipts": 26,
+    "strict_initial_comparison_failed_and_preserved": true,
+    "original_rows_preserved": true,
+    "snapshot_transactionally_frozen": false,
+    "protected_config_exact": true,
+    "webchat_unchanged": true,
+    "app_cli_unchanged": true,
+    "resident_pids_unchanged": true,
+    "historical_unknown": 106,
+    "new_unknown": 0,
+    "mac_profiles": 6,
+    "mac_tables": 97,
+    "original_mac_messages": 20,
+    "mac_package_entries_exact": 296,
+    "mac_original_rows_and_draft_contents_preserved": true,
+    "mac_exact_snapshot_equality": false,
+    "mac_runtime_changes": [
+      {
+        "profile": "Main",
+        "table": "drafts",
+        "changed_rows": 1,
+        "reason": "draft revision only; content and attachments exact"
+      },
+      {
+        "profile": "Main",
+        "table": "event_projection",
+        "changed_rows": 1,
+        "reason": "live event cursor/snapshot projection"
+      },
+      {
+        "profile": "Main",
+        "runtime_cache": "operations.v2",
+        "reason": "protocol operation/credential/duplex cache advances during reconnect"
+      },
+      {
+        "profile": "Main",
+        "runtime_cache": "relay.enrollment.json.credentials.v2",
+        "reason": "protocol operation/credential/duplex cache advances during reconnect"
+      },
+      {
+        "profile": "Main",
+        "runtime_cache": "relay.enrollment.json.duplex.pending.v1",
+        "reason": "protocol operation/credential/duplex cache advances during reconnect"
+      }
+    ]
+  },
+  "cleanup": {
+    "mac_normal_launch_without_debug_flags": true,
+    "closed_debug_ports": [
+      9229,
+      9339
+    ],
+    "isolated_lab_containers_removed": true,
+    "all_four_qa_devices_revoked": true,
+    "qa_harnesses_exited": true
+  },
+  "limits": [
+    "Optional live provider, PostgreSQL and opt-in cases are not established by default Linux unit suites.",
+    "UI reconciliation fixtures use simulated timeout and ISCP responses; native lost-write evidence is separate.",
+    "Original-data preservation is checked at captured snapshots, not continuous transactional immutability.",
+    "Real email send and receive acceptance remains separate under the owner's confirmation-before-send instruction.",
+    "InfiniCenter decisions 0035 and 0049 remain proposed; no shared protocol or cross-project acceptance."
+  ],
+  "evidence_sha256": {
+    "idle-5min-client.json": "7f768bee646df54c6c267afe5d9962cf92b658843d1a64b84c34126bf3061163",
+    "idle-5min-server.json": "d54f1fa81244bdfca82d8159d114857495a83498c7d20f784f7d5cc413ef476b",
+    "browser-trace-summary.json": "5592f0898e8d4c62bbe1a108931d823e639bf8a74eab70535af580fdb64edb97",
+    "apple-after-fix-native.png": "c6d670cd2e152aa118ab27f353a259219f53bf49ab775875b6cb99d43fdffa76",
+    "apple-after-fix-ui.txt": "150aeeb080f766da189aba66a510da92322d6a50987c27cdfcaf33b1d25241af",
+    "apple-after-restart-ui.txt": "9c9d64efdfdc8b3d0d0cfa192f7bb04eae27d3375590b8b36e4a938a8192c3b8",
+    "normal-launch-ui.txt": "233dd251a8046fca3c30eafb9a1e4a491eb82024cf5ccf77ed62cd8cb8445947",
+    "gateway-restart.json": "52c8d61a2ed4f3eed7465078930183d1ef384dfaa7e88dc2dc585c0761b977da",
+    "deployment.json": "a5da7f6e241e885f85199ac4a05db09e67c44e9afb933c005ed8fa18a57f6205",
+    "work2-final.public.json": "f6b51219902331713a4eebb7f617fd25654b2b9d1947f3ddf62ba5cbe65d4ac0",
+    "data-preservation/receipt.json": "fdf88911fbc8b88baec72db74190cdc953e117c8ce89d2b82031845a48e66f14",
+    "mac-final-verification.json": "ddf00d528175579c390f7be24d4a052adb1170c2a59529407699edc05d4323ab",
+    "linux/summary.json": "a967220033d88a3b343a7d349474bf5d43dd3438867a0a0d7103176827d61af0",
+    "ui-fences/summary.json": "12f25b919a720e3afc96b484cb2e31ee7262ba0ffcfdf00fe50b3a97aaaea1d4",
+    "work2-revocation-summary.json": "7a80cb35f4768dbc3f23b77db6efd43aaa04c05a85de002ebb866ae5ab02f2ce",
+    "deployment-attempts.json": "333b226be871eca1a25dfd2e5831fd937a6939c18ed7d255523372a33e018608"
+  },
+  "docs_validation": {
+    "project_markdown_files": 131,
+    "mirrors_and_links": "passed"
+  },
+  "final_server_observed_at": "2026-10-23T08:37:00.413646+00:00"
+}

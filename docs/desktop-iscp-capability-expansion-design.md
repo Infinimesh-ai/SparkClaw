@@ -1141,6 +1141,71 @@ LAN/ISCP sign-in restrictions, typed route/capability gates, owner isolation,
 provider progression, sealed persistence and lost-reply/restart recovery. This is
 a source change; installed clients and running Gateways are not updated by it.
 
+## 9.20. Reverse browser command acceptance continuation (2026-10-23)
+
+The owner's later authorization to push, deploy work2 and install the Mac client
+supersedes the earlier source-only checkpoint. The installed Mac package remains
+the paired `c804402a` build (296 files/links); work2 retains App-CLI `.36`, TM
+`5.5.0.19` and its existing WebChat. Gateway-only fix `85aa9193` is pushed and
+deployed as image `8c1e152aa7b1…`; the previous image and exact recreation recipe
+are retained for rollback. No real email was sent during this continuation.
+
+Acceptance exposed a final-answer defect: a successful browser-open workflow
+does not call `assess_goal`, so summary grounding selected an earlier empty
+`list_tabs` and said no browser was open. The fix uses the persisted successful
+workflow result only when its latest snapshot, digest, owner, page, profile,
+provider session and source call match. Later actions/failures invalidate that
+fallback. Actual host `surface_visible` controls the wording: a hidden completed
+task page is described as available through the existing browser entry. The
+original UI and explicit task-tab selection are unchanged.
+
+| Gate | Recorded result |
+| --- | --- |
+| Stable idle | 07:35–07:40 UTC: zero `browser.*` calls on both client and server. The earlier window had one reconnect-triggered receipt read and remains a failed strict-zero window. |
+| Installed Mac + work2 | “打开苹果官网” succeeds after the fix, with the correct final reply and a real Apple Store Chromium task page. Each task has eight successful reverse commands and zero retired `browser.host.*` calls. |
+| Gateway restart | Explicit restart 08:09:14–08:09:29 UTC; the next Mac task succeeds without login, authorization or reconnect actions. One session-triggered `browser.receipt` read precedes the eight task commands. A transient old-view HTTP 503 was observed during restart. |
+| Original UI | Browser entry, original panel, personal/task tabs, explicit selection, widening, hiding, conversation switching and retained chat replies exercised. The fixed 640×720 task viewport requires sufficient panel space; fullscreen plus the existing widen control displays it. |
+| Native isolated transport | Real Electron/Chromium and ISCP: 36 reverse commands, read/fill/click and seven screenshot modes pass; a deliberately lost write response leaves one effect and unknown fences on both sides, with repeat execution rejected. No direct business HTTP/WS or host WebSocket. |
+| Unknown-write controls | Original `LocalWorkbench` + real `BrowserHostAgent`/`HostJournal`: four isolated fixtures cover English/Chinese and both reconciliation buttons. Simulated timeout/ISCP receipts are separate from the real native lost-response test. |
+| Regression | Linux: all 75 Go test packages, build/vet; Controller 349 pass/120 opt-in skips. Fixed agent package and Linux amd64 build/vet pass. Desktop 519/519 and WebChat 501/501 pass. Optional live-provider cases remain separate. |
+
+The real work2 test device is revoked with a revision-2 complete receipt. Its
+active transport closes during revocation; after a normal restart, business
+access returns 401 and a new helper cannot connect (483 ms). There are zero
+commands, resubmissions or HTTP fallbacks after revocation. All four temporary
+QA devices are revoked; the four original device records remain exact.
+The observed state is disconnected/reconnecting with generic unavailable wording,
+not an explicit `authorization_revoked` signal. Its lease had already been
+released, so this does not qualify cancellation of an in-flight command.
+
+An additional read-oriented Apple QA task remains **blocked** with
+`browser_open_failed`: native navigation completed, but no read or snapshot ran.
+Its delivered/ACK state records delivery of that failure, not business success.
+This remains a separate follow-up; it does not replace the two successful
+installed-Mac browser-open runs. Earlier disposable enrollment preparation and
+example.com navigation-deadline failures are also retained, without replay.
+
+Mac normal launch is restored, without inspector/CDP flags or ports 9229/9339.
+All six profiles, 97 tables, 20 original messages, original draft contents,
+attachments and owned files are retained. Only the draft revision, live event
+projection and three protocol recovery caches advance; full snapshot equality
+is therefore not claimed. The installed package still matches all 296 entries.
+
+The Gateway cutover's first strict database comparison failed on live sync job
+progress; that failure was preserved and independently audited. All original
+rows in 41 tables remain, including 102165 email identities and 77 exact
+draft/send records. Three discover jobs, three mailboxes and the derived counter
+advance; 26 new records are sync command receipts. This is original-data
+preservation, not a transactionally frozen database. Protected configurations,
+WebChat, App-CLI and resident service PIDs remain unchanged; all 106 prior unknown
+receipts remain with zero additions. Initial deployment-script parsing and bundle
+permission failures occurred before service cutover and are retained in evidence.
+
+See the [redacted acceptance receipt](evidence/desktop-browser-reverse-2026-10-23.json).
+Private traces and screenshots stay in the operator's protected evidence directory.
+InfiniCenter decisions 0035/0049 remain proposed; no shared ISCP contract changes
+or cross-project acceptance are asserted.
+
 ## 10. Related designs
 
 - [Local ISCP integration and renewal acceptance](desktop-iscp-connection-design.md): implemented baseline and actual evidence scope.

@@ -317,6 +317,24 @@ Go source are unchanged from the prior passing run; this log alone does not prov
 the cause. Docs, Gateway race, WebChat and ASR pass. Retain the new failure as well;
 the earlier Linux 75-package pass does not make this later CI run green.
 
+## Combined mail repair `.40`: cutover aborted before activation
+
+AppCLI `529d14fd` and SparkClaw `08b14c4a` are pushed. The candidate adds bounded QQ Sent-entry readiness, preserves plain MIME whitespace, permits explicit reanalysis of existing legacy captures, and provides internal exact-ID Gmail Sent capture. A complete normal typed Sent-selector entry is still being implemented; internal capability alone is not live Sent-original acceptance.
+
+The release passes Linux build/vet and 75 Go packages, Runtime 650 tests (two original skips), Python 90, Controller 236, Desktop 526 and three projection checks. Four paired artifacts reproduce byte-for-byte. Eleven paired installer checks pass on macOS Python 3.12; the Linux Python 3.11.2 `tarfile.extractall(filter=...)` compatibility failure is retained, not reported as a passing Linux check. The Mac candidate only changes packaged managed Reader assets and the corresponding archive integrity value; it is built but not installed while the Mac is locked.
+
+One read-only preflight at 14:42 UTC stopped before stage/cutover. All 101 draft/send rows, 57 send task identities, 10 device records and the prior 110 unknown rows remain exact; two additional `.39` QQ `collect_page` unknown rows were observed. Both are local capture operations with no released dispatch. Their time windows contain explicit `TimeoutError`/`email_network_read_failed` handler events, but those logs lack task IDs and native request stages, so the precise network cause remains unproved. Full rows, raw logs and the original STOP are retained. They must be reviewed and protected individually before proceeding; no unknown is replayed, deleted or silently treated as success.
+
+The two successful `.39` messages will never be resent. Only the original approved QQ message remains eligible for its first actual dispatch. The receiver originals will be reanalyzed explicitly after deployment, preserving originals and old representations. The Outlook extra terminal LF already present in the native original remains a separate strict-content mismatch.
+
+After individual review, an exact appendix added only those two collection rows to protection, retaining the original failed preflight. Stage passed at 14:58:46 UTC. Cutover attempt 01 stopped during the frozen business comparison at 15:02 UTC, before switching source or activating components. The original `.39` services were restored and checked healthy at 15:04:17 UTC. All deployment entry points are closed; no mail was sent or reanalyzed by `.40`.
+
+The five differing business rows have distinct causes. Two discovery jobs advance the existing `post_activity_recheck` flag. Two mailbox differences result from inconsistent zero-time normalization in the comparison scripts; their actual field changes are already permitted runtime progress. One sync-history row is a real product defect: periodic commits omit the command identity when admitting discovered mail, so the owner plus an empty key repeatedly selects and overwrites the same sync-history row. The actual frozen row ID matches that calculation. A minimal command-identity propagation fix is being qualified; old history is not rewritten or deleted.
+
+The complete frozen audit preserves all 101 draft/send rows, 57 send tasks, 112 unknown rows, 3,310 workspace files and two control files. All 86,357 prior receipts exist; only the previously approved event-subscription receipt advances. Separately, 57 historical task rows (56 completed, one cancelled) are absent, with no overlap with protected sends or unknowns. Their deletion cause is not yet proven; retain that failed preservation check and do not label it confirmed garbage collection.
+
+The typed Gmail Sent-original adapter is now implemented locally in AppCLI `38e15e2a` and Gateway `d1b3b539`. Gateway affected-package checks pass with 1,479 cases and 14 existing skips; build and vet pass. The stored Gmail-origin original also passes the new full-file hash and exact header predicate. These are local compatibility checks, not live Sent evidence. AppCLI's full concurrent suite retains one executor deadline failure; the unchanged isolated executor suite passes. A successor release is under review, with no further deployment authorized by the closed release scripts.
+
 ## Historical investigation: scope and acceptance correction
 
 The owner requires an automated page to display like a normal browser page:

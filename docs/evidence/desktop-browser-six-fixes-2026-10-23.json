@@ -1054,5 +1054,98 @@
         "sha256": "398ed9c1e16263f8d1aca5c9643728f7832e78eca419afda3de21487b5b3e89a"
       }
     ]
+  },
+  "mail_combined_r40": {
+    "appcli_source": "529d14fd67751a04d2d333947ff18f21fd1ac087",
+    "source": "08b14c4a617c495aced02e7c4322c3956f4774d3",
+    "pushed": true,
+    "runtime_release": "0.3.0-sparkclaw.40",
+    "runtime_digest": "298e7ef738ac4815bd262d5e1f40b3445dbec804723319a5978fc851580a0711",
+    "phase": "aborted_before_switch_old_release_restored",
+    "checks": {
+      "linux_go_packages": 75,
+      "build": true,
+      "vet": true,
+      "runtime_passed": 650,
+      "runtime_original_skips": 2,
+      "python": 90,
+      "controller": 236,
+      "desktop": 526,
+      "projection": 3,
+      "reproducible_artifacts": 4,
+      "paired_mac_python312": 11,
+      "paired_linux_python3112": "retained unsupported tarfile filter failure"
+    },
+    "mac_built": true,
+    "mac_installed": false,
+    "mac_blocker": "Locked desktop; manual unlock requested",
+    "preflight": {
+      "sha256": "561a2aa42374d793909a961b293d93d2ffd41634b6a386c24d07b38121096900",
+      "tables": 41,
+      "draft_send": 101,
+      "send_tasks": 57,
+      "devices": 10,
+      "previous_unknown_exact": 110,
+      "new_unknown": 2,
+      "unknown_total": 112,
+      "stage_called": false,
+      "cutover_called": false,
+      "classification_sha256": "7d5e5a9018d4f8137706543366415d979a48045e8541495fe5db97a2bcbe5054",
+      "cause": "Time-window associated explicit handler TimeoutError; native request and unique task linkage unproved"
+    },
+    "mail_dispatches_this_release": 0,
+    "sent_originals_live_verified": false,
+    "explicit_reanalysis_performed": false,
+    "stage": {
+      "passed_at": "2026-10-23T14:58:46Z",
+      "new_unknown": 0,
+      "receipt_sha256": "7dfa125741fedd6e8a0846dd84cd63cdc092e58d37540d8f31de7f846f475496"
+    },
+    "cutover_attempt_01": {
+      "phase": "aborted_before_switch",
+      "source_switched": false,
+      "component_activation_attempted": false,
+      "old_release_healthy_at": "2026-10-23T15:04:17Z",
+      "all_entries_closed": true,
+      "failure_review_sha256": "86c5b332eafb176e7f26f72648856f0ae876f145b58c2a567b8e1d03f2d4efce",
+      "full_frozen_audit_sha256": "fa612260f40aa16bd17a43a317ee8a39e68b97c5682dbc2d330097a4f1eb906a",
+      "postmortem_sha256": "eb24a7fdc5a4a8f9af84a2a329b8a69cade47c611e38ed99e97baae7a043b5eb",
+      "business_differences": {
+        "discover_runtime_progress": 2,
+        "mailbox_normalization_mismatch": 2,
+        "sync_history_empty_command_key_collision": 1
+      },
+      "protected_exact": {
+        "draft_send": 101,
+        "send_tasks": 57,
+        "unknown": 112,
+        "workspace_files": 3310,
+        "control_files": 2
+      },
+      "receipts_original_present": 86357,
+      "receipt_changes_only_prior_approved_event_subscription": 1,
+      "historical_tasks_missing": {
+        "total": 57,
+        "completed": 56,
+        "cancelled": 1,
+        "overlap_send_or_unknown": 0,
+        "cause": "unproved; not classified as confirmed GC"
+      }
+    },
+    "unknown_appendix_sha256": "3475808dc781c7fd65d17f3026001202deda435cd107b9b4f40f839f4ff3cc32"
+  },
+  "sent_original_local_candidate": {
+    "appcli_source": "38e15e2a018ea0dce8b90128c9e66b897b6aeea0",
+    "gateway_source": "d1b3b53965b512d2a15f3db7fb5efe645172b5d3",
+    "integrated": false,
+    "deployed": false,
+    "live_sent_read": false,
+    "gateway_affected_passed": 1479,
+    "gateway_original_skips": 14,
+    "gateway_build": true,
+    "gateway_vet": true,
+    "existing_gmail_original_format_compatible": true,
+    "appcli_full_concurrent_executor_deadline_failure_retained": true,
+    "appcli_unchanged_isolated_executor_passed": 21
   }
 }

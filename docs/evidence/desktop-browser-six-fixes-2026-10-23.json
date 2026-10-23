@@ -1195,6 +1195,34 @@
     ],
     "existing_gmail_sent_read_cases": [
       3
-    ]
+    ],
+    "mac_package_review": {
+      "bundle_entries": 296,
+      "asar_entries": 83,
+      "changed_bundle_entries": [
+        "Contents/Info.plist",
+        "Contents/Resources/app.asar",
+        "Contents/Resources/client-package-audit.json",
+        "Contents/Resources/iscp-workbench"
+      ],
+      "changed_asar_files": [
+        "src/browser/managed-scripts.json",
+        "src/preload/managed-scripts.cjs"
+      ],
+      "helper_sha256": "f97b42f272ec60ee73c5b96d103fd41292740965465fbad5dac55d41ad75c6e0",
+      "helper_rebuilt_exact": true,
+      "mac_protocol_packages_passed": 2,
+      "artifact_review_sha256": "f06ae923a446114549d39b401abdf23b2f0e3f71fd95b4ed67ead258a7eb3183",
+      "initial_difference_failure_retained": true,
+      "install_released": false,
+      "native_ui_pending_unlock": true
+    },
+    "deployment_script_review": {
+      "distinct_tests_passed": 66,
+      "review_sha256": "b6bd0e4df9f44eb45ed68298cbb4e0dd81637904dd8292668f1609c40371a1e5",
+      "remote_actions": 0,
+      "legacy_sync_no_automatic_exemption": true,
+      "historical57_missing_cause_unproved": true
+    }
   }
 }

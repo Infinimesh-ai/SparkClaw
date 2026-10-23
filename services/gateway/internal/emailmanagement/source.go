@@ -18,7 +18,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
-const parserVersion = "captured-mime-v5-safe-render"
+const parserVersion = "captured-mime-v6-preserve-plain"
 const maxSourceBytes int64 = 220 << 20
 
 type DocumentExtractor interface {

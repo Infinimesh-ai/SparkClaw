@@ -135,8 +135,9 @@ func parseMIMEOriginalContent(ctx context.Context, workspace string, ref sourceF
 	if drainErr != nil || hashed.bytes != ref.Bytes || hashed.sum() != ref.SHA256 {
 		return emailRenderCandidate{}, errors.New("email_source_integrity")
 	}
-	body := strings.TrimSpace(strings.Join(state.plainBodies, "\n\n"))
-	if body == "" && len(state.htmlBodies) > 0 {
+	body := strings.Join(state.plainBodies, "\n\n")
+	// Whitespace can select the HTML fallback, but is part of a plain original.
+	if strings.TrimSpace(body) == "" && len(state.htmlBodies) > 0 {
 		body = strings.TrimSpace(htmlText(strings.Join(state.htmlBodies, "\n")))
 	}
 	if !utf8.ValidString(body) || len(body) > maxMIMEBodyBytes {

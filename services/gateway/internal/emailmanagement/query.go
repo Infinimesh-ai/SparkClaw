@@ -649,6 +649,10 @@ func (s *Service) Reanalyze(ctx context.Context, owner, id string) (ScheduleResu
 	kinds := []string{app.EmailJobClassification}
 	if mail.RepresentationID == "" || mail.ParseState == app.EmailParseFailed || mail.ParseState == app.EmailParsePartial || mail.ParseState == app.EmailParseUnsupported {
 		kinds = []string{app.EmailJobParse}
+	} else if reparse, err := s.hasLegacyPlainSource(ctx, owner, mail); err != nil {
+		return ScheduleResult{}, err
+	} else if reparse {
+		kinds = []string{app.EmailJobParse}
 	}
 	for _, kind := range kinds {
 		_, err = s.repository.RequestEmailJob(ctx, store.EmailJobRequest{EmailCommand: command(owner, app.NewID("email_reanalyze")), Kind: kind, TargetID: id, Rearm: true, ForceAnalysis: kind != app.EmailJobParse})
@@ -658,4 +662,33 @@ func (s *Service) Reanalyze(ctx context.Context, owner, id string) (ScheduleResu
 	}
 	s.signal()
 	return ScheduleResult{Scheduled: true}, nil
+}
+
+// Only an explicit reanalysis upgrades the known whitespace-trimming parser.
+// The parse worker revalidates the manifest, identity and original hash, then
+// publishes a new representation without replacing the source or old revision.
+func (s *Service) hasLegacyPlainSource(ctx context.Context, owner string, mail app.EmailMail) (bool, error) {
+	representation, found, err := s.repository.GetEmailRepresentation(ctx, owner, mail.RepresentationID)
+	if err != nil || !found {
+		return false, err
+	}
+	if representation.ParserVersion != "captured-mime-v5-safe-render" || representation.MailID != mail.ID || representation.CaptureID != mail.CaptureID {
+		return false, nil
+	}
+	capture, found, err := s.repository.GetEmailCapture(ctx, owner, mail.CaptureID)
+	if err != nil || !found {
+		return false, err
+	}
+	if capture.MailID != mail.ID || capture.PurgedAt != nil || capture.State != app.EmailCaptureComplete {
+		return false, nil
+	}
+	root, err := os.OpenRoot(s.opts.WorkspaceRoot)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer root.Close()
+	return sourcePresent(root, capture.ManifestPath) && sourcePresent(root, capture.OriginalPath), nil
 }

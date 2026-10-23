@@ -223,7 +223,9 @@ func emailCommitSync(e *emailEngine, c EmailSyncCommitCommand) (EmailSyncCommitR
 		}
 	}
 	if len(c.Members) > 0 {
-		_, err = emailAdmit(e, EmailDiscoveryCommand{MailboxID: box.ID, BindingGeneration: box.BindingGeneration, Lease: c.Lease, PageBatch: true, MaxPendingJobs: 1000, ObservedAt: c.ObservedAt, Coverage: "partial", Trigger: "recent_inbound", Members: c.Members})
+		// Admission's history row belongs to this commit. The outer command
+		// receipt already makes replay idempotent; an empty key overwrites history.
+		_, err = emailAdmit(e, EmailDiscoveryCommand{EmailCommand: c.EmailCommand, MailboxID: box.ID, BindingGeneration: box.BindingGeneration, Lease: c.Lease, PageBatch: true, MaxPendingJobs: 1000, ObservedAt: c.ObservedAt, Coverage: "partial", Trigger: "recent_inbound", Members: c.Members})
 		if err != nil {
 			return out, err
 		}

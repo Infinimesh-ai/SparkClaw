@@ -282,6 +282,17 @@ func (s *Service) SendDraft(ctx context.Context, owner, id string, expected int6
 		}
 	} else {
 		proof = &receipt
+		if receipt.Status == "not_sent" {
+			// The provider explicitly rejected this dispatch: definitively not
+			// sent. Its specific code names the cause; a login rejection has
+			// already moved the provider setting to login_required.
+			if receipt.Provider != binding.Provider || !receipt.NotSent.ValidFor(claimed.Draft.Snapshot.InvocationID, receipt.Provider) ||
+				receipt.NotSent.RejectionErrorCode(receipt.Provider) == "" {
+				state, code, proof = "unknown", "email_send_outcome_unknown", nil
+			} else {
+				state, code = "failed", receipt.NotSent.RejectionErrorCode(receipt.Provider)
+			}
+		}
 	}
 	// Persist completion even if the HTTP client disconnected; an interrupted process leaves sending fenced.
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)

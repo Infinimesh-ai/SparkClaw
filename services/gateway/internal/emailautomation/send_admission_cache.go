@@ -98,12 +98,57 @@ func (c *Controller) reuseSendAdmission(ctx context.Context, key intakeProbeKey,
 	}, true
 }
 
+// inPageSendAdmission admits a provider whose send script checks the account
+// inside the signed-in page (send_admission: in_page) without a probe. It
+// relies only on persisted state and the last ready probe of this controller:
+// the setting is still ready without an error code, its version and account
+// are those of that probe, the browser credential generation is unchanged and
+// no mailbox observer reports a lost login or an error. There is no time
+// window: the page itself refuses a send it cannot check. Anything else
+// returns false and the caller probes as before.
+func (c *Controller) inPageSendAdmission(ctx context.Context, key intakeProbeKey, provider Provider) (AdmissionResult, bool) {
+	if provider.SendAdmission != SendAdmissionInPage {
+		return AdmissionResult{}, false
+	}
+	c.sendAdmissionsMu.Lock()
+	entry, exists := c.sendAdmissions[key]
+	c.sendAdmissionsMu.Unlock()
+	reader, canCheck := c.runner.(intakeCredentialReader)
+	if !exists || !canCheck {
+		return AdmissionResult{}, false
+	}
+	setting, found, err := c.store.GetEmailProviderSetting(ctx, key.ownerID, key.providerID)
+	if err != nil || !found || !setting.Enabled || setting.State != app.EmailStateReady || setting.ErrorCode != "" ||
+		setting.Version != entry.settingVersion || setting.Account != entry.account || entry.proof.Revision != provider.Probe.Revision {
+		c.forgetSendAdmission(key)
+		return AdmissionResult{}, false
+	}
+	generation, err := reader.credentialGeneration(ctx, 0)
+	if err != nil || uint64(generation) != entry.proof.Generation {
+		c.forgetSendAdmission(key)
+		return AdmissionResult{}, false
+	}
+	if _, usable := c.mailboxSignals(ctx, key); !usable {
+		c.forgetSendAdmission(key)
+		return AdmissionResult{}, false
+	}
+	return AdmissionResult{
+		Provider: provider.ID, Account: app.EmailAccountDefault, AccountHint: setting.AccountHint,
+		SettingVersion: setting.Version, BrowserCredentialGeneration: entry.proof.Generation,
+		ProbeRevision: provider.Probe.Revision, SendScriptRevision: provider.Send.Revision, ReadScriptRevision: provider.Read.Revision,
+		ValidatedAt: entry.proof.CheckedAt,
+	}, true
+}
+
 // rememberSendAdmission records a fresh persisted-ready probe. The signal
 // snapshot is taken after the probe, so a reload during it forces a new probe.
 func (c *Controller) rememberSendAdmission(ctx context.Context, key intakeProbeKey, setting app.EmailProviderSetting, proof ProbeResult) {
 	c.sendAdmissionsMu.Lock()
 	enabled := c.sendAdmissionWindow > 0
 	c.sendAdmissionsMu.Unlock()
+	if provider, ok := c.registry.Get(key.providerID); ok && provider.SendAdmission == SendAdmissionInPage {
+		enabled = true
+	}
 	if _, canCheck := c.runner.(intakeCredentialReader); !enabled || !canCheck || setting.State != app.EmailStateReady {
 		c.forgetSendAdmission(key)
 		return

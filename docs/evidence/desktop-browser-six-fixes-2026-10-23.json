@@ -1383,6 +1383,39 @@
       "full_historical_preservation_claimed": false,
       "new_runtime_exemptions": false,
       "deployment_released": false
+    },
+    "v3_freeze_stop": {
+      "attempt_started_at": "2026-10-23T17:42:17Z",
+      "failed_at": "2026-10-23T17:43:32Z",
+      "candidate_activated": false,
+      "phase": "freeze_failed_requires_inspection",
+      "cause_proven": "PostgreSQL jsonb_agg array total exceeds268435455byte limit during full raw database export",
+      "ssh_error_sha256": "dcd6732d889b9211f064f6aa1b38ca9bd8ebe87406ddb6e0386e1dded13051b2",
+      "postgres_log_sha256": "04ad798251eb1eb6fa061d6b1fc9cfd8ab4a0b5da5b8a29cf29fe6acc9a250dc",
+      "compact_receipt_sha256": "572c4734f90be3bdd91f4db35a8520184d0dca35c06588b65f114735d6b1d01f",
+      "remote_failure_sha256": "bb76555e97d6146b4fc0306f69b60b4f62e902df4ce9f42f495225a403460f3d",
+      "quiesced": true,
+      "components_attempted": false,
+      "same_old_container_source_image_config": true,
+      "core_not_rechecked_by_compact_read": true,
+      "original_service_restore_released": true,
+      "original_service_restore_completed": true,
+      "next_freeze_requires_local_large_pg_and_live_readonly_export": true,
+      "restoration": {
+        "healthy_at": "2026-10-23T17:51:41Z",
+        "evidence_directory": "reviewed-freeze-v3-original-service-restore",
+        "result_sha256": "f8d92810aded8c41c679319ae3d5fe80427cffafb6a9a10d32f0a31473d03248",
+        "distinct_execution_closed_receipt_sha256": "804f0e2a2d026042437b7dc7adeb71828399cbb8eae222897cf96e69f92fa0db",
+        "same_gateway_container": true,
+        "core_full_rows_exact": {
+          "draft": 101,
+          "send": 57,
+          "unknown": 112,
+          "devices": 10
+        },
+        "allow_start": false,
+        "candidate_activated": false
+      }
     }
   }
 }

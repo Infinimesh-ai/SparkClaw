@@ -89,15 +89,26 @@ test('replacing the stage with an outside symlink cannot change uploaded bytes',
 
 for(const timing of ['before_dispatch','during_hash'])test(`moving the authorized input prevents upload: ${timing}`,{skip:!enabled},async t=>{
   const f=await fixture(t),run=f.tab.runReadCode;
+  let armed=false;
   f.tab.runReadCode=async code=>{
-    if(code.includes('return page.evaluate(async token'))await f.page.evaluate(timing=>{
-      const move=()=>document.querySelector('#other').append(document.querySelector('input'));
-      if(timing==='before_dispatch')move();
-      else {const digest=crypto.subtle.digest.bind(crypto.subtle);crypto.subtle.digest=(...args)=>{move();return digest(...args);};}
-    },timing);
+    if(!armed){
+      armed=true;
+      // The first transfer call follows attachment preparation. Arm the actual
+      // DOM/hash boundary without depending on generated JavaScript spelling.
+      await f.page.evaluate(timing=>{
+        const state=globalThis.__sparkclawManagedMail,input=document.querySelector('input');
+        if(!state.attachmentPrepared||state.attachmentInput!==input)throw new Error('fixture input was not authorized');
+        globalThis.fixtureInputMoves=0;
+        const move=()=>{globalThis.fixtureInputMoves++;document.querySelector('#other').append(input);};
+        if(timing==='before_dispatch')move();
+        else {const digest=crypto.subtle.digest.bind(crypto.subtle);crypto.subtle.digest=(...args)=>{move();return digest(...args);};}
+      },timing);
+    }
     return run(code);
   };
   await assert.rejects(uploadManagedAttachments(f.tab,'gmail',f.directory,f.manifest,f.before),/email_attachment_control_unavailable/);
+  assert.equal(armed,true);
+  assert.equal(await f.page.evaluate(()=>globalThis.fixtureInputMoves),1,'the requested relocation must actually occur');
   assert.equal(f.uploads.length,0);
 });
 

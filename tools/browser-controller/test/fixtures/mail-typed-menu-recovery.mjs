@@ -21,10 +21,10 @@ export async function assertTypedMenuRecovery(t,{runtime,tab,root,manifest,reaso
   let executor; t.after(async()=>{await executor?.close();ledger.close();});
   const input={schema_version:1,operation:'send',provider:'outlook',account:'default',account_address:'owner@example.test',invocation_id:'menu-proof-fixture',mode:'compose',
     message:{to:['sink@example.test'],cc:[],subject:'Synthetic',body:{format:'text',content:'Body'},attachments:manifest}};
-  const request={protocol_version:'2.0',operation:'invoke',app:binding.manifest.id,command:'send',request_key:'menu-key',arguments:input,deadline_ms:Date.now()+60000};
+  const request={protocol_version:'3.0',operation:'prepare',app:binding.manifest.id,command:'send',request_key:'op3.1.1.'+'0'.repeat(32),arguments:input,deadline_ms:Date.now()+60000};
   const resource={binding_digest:digest(binding),workspace_root:root};
   request.authorization_ref=authorization.issue({principal:'product-owner',owner:'owner',app:request.app,command:'send',request_key:request.request_key,
-    side_effect:binding.manifest.commands.find(c=>c.name==='send').side_effect,intent_digest:intentDigest(request),operations:['invoke','lookup','status','reconcile'],access_expires_ms:Date.now()+120000,
+    side_effect:binding.manifest.commands.find(c=>c.name==='send').side_effect,intent_digest:intentDigest(request),operations:['prepare','invoke','lookup','status','reconcile'],access_expires_ms:Date.now()+120000,
     execution_expires_ms:request.deadline_ms,max_deadline_ms:request.deadline_ms,task_id:null,revision:1},resource);
   const hash=value=>crypto.createHash('sha256').update(value).digest('hex');let filled=false,effects=0,hostAcquires=0;
   const providerTab={...tab,
@@ -44,19 +44,27 @@ export async function assertTypedMenuRecovery(t,{runtime,tab,root,manifest,reaso
     async click(){assert.fail('menu failure must never reach provider Send');}};
   const handlers=await mailHandlers();
   const original={...handlers,[binding.commands.send.handler]:{async run(args,context){
-    try {return {data:await sendManagedMail(args,'outlook',{emailWorkspaceRoot:root,beforeEffect:()=>{context.beforeEffect();effects++;},
+    // Deliberately release this synthetic task before the controlled menu failure
+    // so receipt-only recovery is exercised from the durable uncertain state.
+    await context.beforeEffect();effects++;
+    try {return {data:await sendManagedMail(args,'outlook',{emailWorkspaceRoot:root,
       withSendTab:callback=>callback(providerTab),notSentReceipt:(req,error)=>createNotSentReceipt(req,context,error,'pre_dispatch_failure')})};}
     catch(error){throw Object.assign(error,{code:error.code.toUpperCase()});}
   }}};
   executor=new Executor({ledger,authorization,bindings:[binding],handlers:original,host:{async acquire(){return {async release(){}};}}});
-  const started=await executor.control(request);await executor.active.get(started.task.id)?.promise;
+  await executor.start();
+  const prepared=await executor.control(request);
+  assert.equal(prepared.task.status,'prepared');assert.equal(effects,0);
+  const started=await executor.control({protocol_version:'3.0',operation:'invoke',app:request.app,command:'send',
+    task_id:prepared.task.id,authorization_ref:request.authorization_ref});await executor.active.get(started.task.id)?.promise;
   const previous=ledger.get(started.task.id);assert.equal(previous.reason,reason);assert.equal(previous.status,'uncertain');assert.equal(previous.effect,1);assert.equal(effects,1);
   const journal=()=>openSendJournal(root,validateManagedSend(input,'outlook'));
   const persisted=(await journal()).saved;assert.equal(persisted.stage,'not_sent');assert.equal(persisted.receipt.not_sent.kind,'pre_dispatch_failure');assert.equal(persisted.receipt.not_sent.reason,reason);
   assert.equal(persisted.receipt.not_sent.intent_digest,intentDigest(request));assert.equal(persisted.receipt.not_sent.resource_digest,digest(resource));assert.equal(await(await journal()).write('dispatching'),false);
   await executor.close();
   executor=new Executor({ledger,authorization,bindings:[binding],handlers,host:{async acquire(){hostAcquires++;assert.fail('reconciliation must not acquire browser');}}});
-  const control={protocol_version:'2.0',operation:'reconcile',app:request.app,command:'send',task_id:started.task.id,authorization_ref:request.authorization_ref};
+  await executor.start();
+  const control={protocol_version:'3.0',operation:'reconcile',app:request.app,command:'send',task_id:started.task.id,authorization_ref:request.authorization_ref};
   await executor.control(control);await executor.active.get(started.task.id)?.promise;
   const result=await executor.control({...control,operation:'status'});
   assert.equal(result.task.status,'completed');assert.deepEqual(result.data,persisted.receipt);assert.equal(ledger.get(started.task.id).effect,1);assert.equal(effects,1);assert.equal(hostAcquires,0);

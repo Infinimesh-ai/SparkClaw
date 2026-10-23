@@ -1517,6 +1517,38 @@
         "new_postbaseline_preservation_exceptions": false,
         "remote_phase_authorized": false
       }
+    },
+    "v5_preparation_update": {
+      "status": "closed_pending_actual_capacity_and_new_complete_baseline",
+      "old_release_healthy_at": "2026-10-23T19:28:05.876Z",
+      "protected_draft_send_device_counts": [
+        101,
+        57,
+        10
+      ],
+      "original113_unknown_full_rows_exact": true,
+      "current_unknown_count": 116,
+      "new_unknown_count": 3,
+      "new_unknown_apps": [
+        "mail-gmail",
+        "mail-qq-mail",
+        "mail-qq-mail"
+      ],
+      "new_unknown_command": "collect_page",
+      "new_unknown_reason_observed_only": "EMAIL_NETWORK_READ_FAILED",
+      "new_unknown_root_cause_attributed": false,
+      "full_rows_and_15_events_sha256": "cfd1d0879aeab06bf2172b5296851d43e967a57fe0c36577ce6d0250df086764",
+      "root_classification_sha256": "3a0644ee1b646651b8368740dcfae4b939aa35798a8131e9e00f0f996416b871",
+      "new_complete_baseline_required": true,
+      "old113_not_patched": true,
+      "local_minimum_working_memory_bytes": 2147483648,
+      "remote_minimum_working_memory_bytes": 4294967296,
+      "minimum_business_reserve_bytes": 2147483648,
+      "minimum_reserved_fraction": 0.5,
+      "actual_phase_capacity_qualified": false,
+      "new_freeze_actions": 0,
+      "new_send_actions": 0,
+      "mac_locked_at": "2026-10-23T19:25:30Z"
     }
   }
 }

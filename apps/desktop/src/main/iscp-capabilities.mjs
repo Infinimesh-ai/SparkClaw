@@ -17,7 +17,7 @@ const SURFACES = Object.freeze({
   mail_attachments: ['mail.attachment'],
   mail_send: ['mail.drafts.list', 'mail.drafts.save', 'mail.drafts.send', 'mail.drafts.reconcile', 'mail.drafts.resolve'],
   mail_send_attachments: ['mail.drafts.list', 'mail.drafts.save', 'mail.drafts.send', 'mail.drafts.reconcile', 'mail.drafts.resolve'],
-  browser: ['browser.host.grant', 'browser.host.revoke', 'browser.host.register', 'browser.host.poll', 'browser.host.reply', 'browser.host.heartbeat', 'browser.host.close', 'browser.receipt', 'browser.reconcile'],
+  browser: ['browser.command', 'browser.receipt', 'browser.reconcile'],
   speech_recording: ['speech.status', 'speech.transcribe', 'speech.cancel'],
   speech_realtime: ['speech.session.open', 'speech.session.frame', 'speech.session.events', 'speech.session.finish', 'speech.session.cancel'],
   speech_playback: ['audio.playback'],

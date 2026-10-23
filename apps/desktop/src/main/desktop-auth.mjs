@@ -17,8 +17,8 @@ import { traceISCPRead } from "./iscp-read-diagnostics.mjs";
 const ISCP_STARTUP_READS = new Set(["/api/config", "/readyz", "/api/owner", "/api/notifications", "/api/clients", "/api/workbench/identity", "/api/email/sync-status"]);
 
 export class DesktopAuth {
-  constructor({ readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification = false, requireLAN = false, fetcher, iscpProfilePath, allowLocalISCPTest = false, allowNodeManagedISCP = false, nodeEnroller = enrollNodeISCP, launchSelectionPath, userDataDirectory, selectionWriter = persistNodeISCPLaunchProfile, packaged = false, resourcesPath, transportFactory = (options) => new ISCPTransport(options), onChange = () => {}, onLock = () => {} }) {
-    Object.assign(this, { readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification, requireLAN, fetcher, iscpProfilePath, allowLocalISCPTest, allowNodeManagedISCP, nodeEnroller, launchSelectionPath, userDataDirectory, selectionWriter, packaged, resourcesPath, transportFactory, onChange, onLock });
+  constructor({ readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification = false, requireLAN = false, fetcher, iscpProfilePath, allowLocalISCPTest = false, allowNodeManagedISCP = false, nodeEnroller = enrollNodeISCP, launchSelectionPath, userDataDirectory, selectionWriter = persistNodeISCPLaunchProfile, packaged = false, resourcesPath, transportFactory = (options) => new ISCPTransport(options), onChange = () => {}, onLock = () => {}, onReverse }) {
+    Object.assign(this, { readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification, requireLAN, fetcher, iscpProfilePath, allowLocalISCPTest, allowNodeManagedISCP, nodeEnroller, launchSelectionPath, userDataDirectory, selectionWriter, packaged, resourcesPath, transportFactory, onChange, onLock, onReverse });
     this.requests = new Set();
     this.defaultVault = vault;
     this.generation = 0;
@@ -556,6 +556,9 @@ export class DesktopAuth {
         journalRoot: path.join(path.dirname(this.descriptorPath), "iscp-objects"),
         mutationProtector: this.defaultVault,
         onCapabilities: () => { if (this.transport !== transport) return; if(this.status.state === "connected") this.#set("connected"); },
+        // Reverse calls reach the device only through its current, verified
+        // connection; a superseded transport or a non-connected state refuses.
+        onReverse: (request, session) => this.transport === transport && this.status.state === "connected" ? this.onReverse?.(request, session) : undefined,
         onState: (state) => {
           if (this.transport !== transport) return;
           this.transportStage = state;

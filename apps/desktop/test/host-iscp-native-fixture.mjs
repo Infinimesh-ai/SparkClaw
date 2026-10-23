@@ -13,7 +13,7 @@ process.env.SPARKCLAW_DESKTOP_USER_DATA_DIR = path.join(root, "profile");
 let agent, window, diagnosticControl;
 const startHost = BrowserHostAgent.prototype.start;
 BrowserHostAgent.prototype.start = function (...args) { agent = this; return startHost.apply(this, args); };
-const evidence = { event: "sparkclaw_host_iscp_native_qualification", platform: process.platform, architecture: process.arch, electron: process.versions.electron, chromium: process.versions.chrome, production_entry: true, compositor_switches: [], direct_business_attempts: 0, host_websocket_attempts: 0, native_clicks: 0 };
+const evidence = { event: "sparkclaw_host_iscp_native_qualification", platform: process.platform, architecture: process.arch, electron: process.versions.electron, chromium: process.versions.chrome, production_entry: true, compositor_switches: [], direct_business_attempts: 0, host_websocket_attempts: 0, native_clicks: 0, reverse_commands: 0 };
 const deadline = setTimeout(() => { console.error("Native ISCP host deadline exceeded"); app.exit(1); }, 90000);
 const blocked = () => { evidence.direct_business_attempts++; throw new Error("Direct Gateway HTTP is forbidden in this ISCP fixture"); };
 globalThis.fetch = blocked;
@@ -56,6 +56,8 @@ void app.whenReady().then(async () => {
     });
     let loseWriteReply = false;
     agent.connect = () => { evidence.host_websocket_attempts++; throw new Error("Host WebSocket transport is forbidden"); };
+    const productionReverse = agent.handleReverse.bind(agent);
+    agent.handleReverse = (...args) => { evidence.reverse_commands++; return productionReverse(...args); };
     const productionExecute = agent.execute;
     agent.execute = async (...args) => {
       let result;
@@ -193,14 +195,16 @@ void app.whenReady().then(async () => {
     assert.equal(backend.fences.length, 1);
     assert.equal(backend.fences[0].state, "unknown");
     assert.equal(backend.fences[0].command_id, writeID);
-    for (const operation of ["browser.host.grant", "browser.host.register", "browser.host.poll", "browser.host.reply", "browser.receipt"]) assert.ok(backend.iscp_operations[operation] > 0, `${operation} did not traverse ISCP`);
+    assert.ok(backend.iscp_operations["browser.receipt"] > 0, "browser.receipt did not traverse ISCP");
+    for (const operation of Object.keys(backend.iscp_operations)) assert.ok(!operation.startsWith("browser.host."), `${operation} is a retired polling host operation`);
+    assert.ok(evidence.reverse_commands > 0, "browser commands did not arrive as reverse ISCP calls");
     assert.equal(backend.direct_business_attempts, 0);
     assert.equal(evidence.direct_business_attempts, 0);
     assert.equal(evidence.host_websocket_attempts, 0);
     assert.equal(evidence.native_clicks, 1);
-    Object.assign(evidence, { unknown_write_not_repeated: true, production_gateway_adapters: true, pinned_issuer_and_compatible_local_relay: true, host_channel: "iscp_poll_reply", real_electron_webcontents: true, iscp_operations: backend.iscp_operations, screenshot_passed: !screenshotError, local_unknown_receipts: 1, backend_unknown_receipts: backend.fences.length, production_data: false });
+    Object.assign(evidence, { unknown_write_not_repeated: true, production_gateway_adapters: true, pinned_issuer_and_compatible_local_relay: true, host_channel: "iscp_reverse_command", real_electron_webcontents: true, iscp_operations: backend.iscp_operations, screenshot_passed: !screenshotError, local_unknown_receipts: 1, backend_unknown_receipts: backend.fences.length, production_data: false });
     if (screenshotError) throw new Error(`Native screenshot unavailable: ${screenshotError.message}`);
-    Object.assign(evidence, { passed: true, real_electron_webcontents: true, production_gateway_adapters: true, pinned_issuer_and_compatible_local_relay: true, host_channel: "iscp_poll_reply", read_and_reversible_fill: true, screenshot_bytes: png.length, unknown_write_not_repeated: true, iscp_operations: backend.iscp_operations, production_data: false });
+    Object.assign(evidence, { passed: true, real_electron_webcontents: true, production_gateway_adapters: true, pinned_issuer_and_compatible_local_relay: true, host_channel: "iscp_reverse_command", read_and_reversible_fill: true, screenshot_bytes: png.length, unknown_write_not_repeated: true, iscp_operations: backend.iscp_operations, production_data: false });
   } catch (error) {
     evidence.error = error.message; console.error(error.stack);
     evidence.host_state = agent?.snapshot();

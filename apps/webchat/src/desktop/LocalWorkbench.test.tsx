@@ -183,6 +183,39 @@ describe("workbench local workbench", () => {
     } finally { await act(async () => root.unmount()); }
   });
 
+  it("keeps the uncertain browser write notice and both reconciliation actions over ISCP reverse commands", async () => {
+    vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
+    vi.spyOn(api, "ready").mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof api.ready>>);
+    vi.spyOn(api, "owner").mockResolvedValue({ id: "owner", display_name: "Test", created_at: "", updated_at: "" });
+    const row = { id: "conversation", title: "Browser task", created_at: "", updated_at: "" };
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), list: vi.fn(async () => [row]), create: vi.fn(), enqueue: vi.fn(),
+      read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), submit: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(), reconcile: vi.fn(),
+      cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    const unknown = { command_id: "cmd_click", digest: "d".repeat(64), local_conversation_id: "conversation", local_task_id: "task" };
+    let unknownWrites = [unknown];
+    const desktopState = () => ({ pages: [], downloads: [], permissions: [], browser_host: { state: "connected", role: "client_embedded", unknown_writes: unknownWrites },
+      presentation: { panel_bounds: { x: 0, y: 0, width: 1, height: 1 }, insufficient_space: false, presented_page_ref: "", layout_revision: 0 } });
+    const reconcileBrowserHost = vi.fn(async () => { unknownWrites = []; return { completed: true as const }; });
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, reconcileBrowserHost,
+      state: vi.fn(async () => desktopState()), onState: vi.fn(() => () => {}), hideBrowser: vi.fn(async () => ({})),
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
+        backend: { schema_version: 3, transport: "iscp", deployment_id: "test", origin: "https://fixture.invalid" },
+        capabilities: { operations: [], files: false, mail: false, browser: true, speech: false, approvals: false, settings: false, surfaces: { browser: { enabled: true, reason: "" } } } })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"), root = createRoot(host);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      await act(async () => host.querySelector<HTMLButtonElement>(".sessionSelect")!.click());
+      const notice = host.querySelector(".localUnknownWrite[role=alert]")!;
+      expect(notice?.textContent).toContain("Browser action outcome uncertain");
+      const buttons = [...notice.querySelectorAll<HTMLButtonElement>(".localTaskActions button")];
+      expect(buttons.map(button => button.textContent)).toEqual(["I verified the action completed", "I verified no change occurred"]);
+      expect(buttons.every(button => !button.disabled)).toBe(true);
+      await act(async () => buttons[1].click());
+      expect(reconcileBrowserHost).toHaveBeenCalledWith("cmd_click", unknown.digest, "observed_not_applied");
+      expect(host.querySelector(".localUnknownWrite")).toBeNull();
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it.each(["en", "zh"] as const)("refreshes question titles from both conversation entry points before a failed network submission in %s", async language => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
     vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);

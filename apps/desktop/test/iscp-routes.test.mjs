@@ -98,8 +98,10 @@ test('every original popup route uses a fixed typed operation with bounded multi
  assert.throws(()=>map('/api/email/drafts/draft?draft=other'));
  assert.throws(()=>map('/api/email/messages/mail/file','DELETE'));
 });
-test('events, browser channel and speech clients use fixed forward operations only',()=>{
- const operations=['capabilities.get','operations.receipt','events.snapshot','events.pull','events.ack','browser.host.grant','browser.host.register','browser.host.poll','browser.host.reply','browser.host.heartbeat','browser.host.close','browser.receipt','browser.reconcile','speech.transcribe','speech.cancel','speech.session.open','speech.session.frame','speech.session.events','speech.session.finish','speech.session.cancel','transfer.open','transfer.chunk','transfer.status','transfer.commit','object.describe','object.read','object.release'];
+test('events, browser fences and speech clients use fixed forward operations only',()=>{
+ const operations=['capabilities.get','operations.receipt','events.snapshot','events.pull','events.ack','browser.receipt','browser.reconcile','speech.transcribe','speech.cancel','speech.session.open','speech.session.frame','speech.session.events','speech.session.finish','speech.session.cancel','transfer.open','transfer.chunk','transfer.status','transfer.commit','object.describe','object.read','object.release'];
  for(const operation of operations) assert.equal(requireOperation(operation).direction,'forward');
  assert.throws(()=>requireOperation('browser.command'));
+ // The embedded browser has no forward host lifecycle left to call.
+ for(const operation of ['browser.host.grant','browser.host.register','browser.host.poll','browser.host.reply','browser.host.heartbeat','browser.host.close','browser.host.revoke']) assert.throws(()=>requireOperation(operation));
 });

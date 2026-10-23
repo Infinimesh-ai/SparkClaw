@@ -164,6 +164,7 @@ async function start() {
       }
       if (window && !window.isDestroyed()) window.webContents.send("sparkclaw-local-backend:state", status);
     },
+    onReverse: (request, session) => browserHost?.handleReverse(request, session),
     onLock: async () => {
       executionClient?.close();
       iscpEvents?.close();
@@ -711,8 +712,9 @@ function prepareBrowserHostScope() {
     if (scope?.installation_id !== localStore.installationID || scope.owner_id !== connection.ownerID || scope.client_id !== connection.clientID) {
       await browserHost.start({ installation_id: localStore.installationID });
     }
-    // The automatic connection refreshes fences itself and owns transient
-    // retries, including a failed first connection. No renderer action is needed.
+    // LAN connects its host socket automatically and owns transient retries.
+    // ISCP only binds to the current session and reads its fences once; the
+    // Gateway sends commands over that session when it automates a task.
     browserHost.autoConnect();
     desktopCapability?.changed();
   });

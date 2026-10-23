@@ -7,7 +7,6 @@ import { mapV2Route, requireOperation } from "./iscp-routes.mjs";
 import { ISCPMutationJournal } from "./iscp-mutation-journal.mjs";
 import { LocalMailAttachmentError, localAttachmentErrorResponse, prepareMailAttachments } from "./iscp-mail-attachments.mjs";
 import { ISCPObjectClient } from "./iscp-object-client.mjs";
-import { browserMutationResource, expireBrowserGrant, settleBrowserLifecycle } from "./iscp-browser-recovery.mjs";
 export const ISCP_V2_PROFILE = "sparkclaw.workbench.transport.v2";
 
 export const ISCP_PROFILE = "sparkclaw.workbench.transport.v1";
@@ -28,6 +27,10 @@ function requestTimeout(operation, timeoutMS) {
   // Keep one bounded operation deadline across admission, send and recovery.
   if (timeoutMS === 30000 && ["settings.bindings.start", "settings.bindings.poll"].includes(operation)) return 60000;
   return ["mail.drafts.save", "mail.drafts.send", "mail.drafts.reconcile", "mail.drafts.resolve", "mail.providers.check", "mail.providers.login", "mail.intake.update", "mail.replies.polish", "mail.source.cleanup", "mail.conversations.delete"].includes(operation) && timeoutMS === 30000 ? 180000 : timeoutMS;
+}
+// A reconciliation keeps one durable intent per uncertain browser write.
+function browserReconcileResource(request) {
+  if (request.operation === 'browser.reconcile') return `browser-reconcile:${request.installation_id || ''}:${request.body?.command_id}`;
 }
 function mutationResponse(value) {
   return new Response([204, 205, 304].includes(value.status) ? null : JSON.stringify(value.body), { status: value.status, headers: { 'content-type': 'application/json' } });
@@ -63,8 +66,8 @@ export function iscpHelperExecutable({ packaged = false, resourcesPath } = {}) {
 // Private pipes are the only Desktop ↔ helper boundary. The helper owns SDK
 // credentials and encrypted Relay traffic; this adapter accepts fixed RPC only.
 export class ISCPTransport {
-  constructor({ clientOperationVault, readLocalFile, canSendMailAttachments = () => false, configPath, origin, expectedIdentity, expectedBinding, installationID, packaged = false, resourcesPath, spawnProcess = spawn, timeoutMS = 30000, onState = () => {}, onCapabilities = () => {}, journalRoot, mutationProtector }) {
-    Object.assign(this, { clientOperationVault, readLocalFile, canSendMailAttachments, configPath, origin, expectedIdentity, expectedBinding, installationID, packaged, resourcesPath, spawnProcess, timeoutMS, onState, onCapabilities, journalRoot, mutationProtector });
+  constructor({ clientOperationVault, readLocalFile, canSendMailAttachments = () => false, configPath, origin, expectedIdentity, expectedBinding, installationID, packaged = false, resourcesPath, spawnProcess = spawn, timeoutMS = 30000, onState = () => {}, onCapabilities = () => {}, onReverse, journalRoot, mutationProtector }) {
+    Object.assign(this, { clientOperationVault, readLocalFile, canSendMailAttachments, configPath, origin, expectedIdentity, expectedBinding, installationID, packaged, resourcesPath, spawnProcess, timeoutMS, onState, onCapabilities, onReverse, journalRoot, mutationProtector });
     this.resourceRevisions = new Map();
     this.presentationPending = new Set();
     this.mutationFlights = new Map();
@@ -251,7 +254,7 @@ export class ISCPTransport {
     if (!journal) throw new ISCPRequestNotSentError("Durable settings recovery is unavailable");
     let record = journal.read(resource);
     const revision = this.resourceRevisions.get(resource);
-    const confirmedSuccessor = record?.phase === 'applied' && !browserMutationResource(request) && (
+    const confirmedSuccessor = record?.phase === 'applied' && !browserReconcileResource(request) && (
       init.actionID && record.action_id && init.actionID !== record.action_id ||
       !(init.actionID && record.action_id) && revision && record.response?.body?.revision && revision !== record.response.body.revision);
     if (confirmedSuccessor) {
@@ -401,13 +404,12 @@ export class ISCPTransport {
       ...(options.params?{params:options.params}:{}),...(options.operationID?{operation_id:options.operationID}:{}),
       ...(options.expectedRevision?{expected_revision:options.expectedRevision}:{}),
       ...((options.installationID||this.installationID)?{installation_id:options.installationID||this.installationID}:{}),...(options.requestID?{request_id:options.requestID}:{})};
-    const browserResource = browserMutationResource(request);
+    const browserResource = browserReconcileResource(request);
     let response;
     if (browserResource) {
-      if (this.presentationPending.has(browserResource)) throw new ISCPRequestNotSentError('A browser lifecycle operation is already in progress', 'capacity');
+      if (this.presentationPending.has(browserResource)) throw new ISCPRequestNotSentError('A browser reconciliation is already in progress', 'capacity');
       this.presentationPending.add(browserResource);
       try {
-        expireBrowserGrant(this.mutations, request);
         response = await this.#applyPresentation(browserResource, spec, request, options, body === undefined ? undefined : JSON.stringify(body));
       } finally { this.presentationPending.delete(browserResource); }
     } else {
@@ -428,11 +430,9 @@ export class ISCPTransport {
       error.code=result.error_code||response.headers.get("x-sparkclaw-error-code")||bodyCode;
       if(response.status===409&&response.headers.get("x-sparkclaw-error-code")==='revision_conflict'&&
         response.headers.get("x-sparkclaw-retryable")!=='true'&&Object.keys(result).length===2&&result.retryable===false&&
-        (operation==='events.pull'&&bodyCode==='cursor_gap'||operation.startsWith('browser.host.')&&bodyCode==='browser_fenced'))error.code=bodyCode;
-      settleBrowserLifecycle(this.mutations, request, undefined, error.code);
+        operation==='events.pull'&&bodyCode==='cursor_gap')error.code=bodyCode;
       error.status=response.status;error.retryable=result.retryable===true||response.headers.get("x-sparkclaw-retryable")==="true";throw error;
     }
-    settleBrowserLifecycle(this.mutations, request, result);
     return result;
   }
 
@@ -652,6 +652,10 @@ export class ISCPTransport {
           if (!this.recoveryTimer) { this.recoveryTimer = setInterval(() => this.#wakeMutationRecovery(), 5000); this.recoveryTimer.unref?.(); }
           queueMicrotask(() => this.#wakeMutationRecovery());
         }
+      } else if (frame.type === "reverse_request") {
+        const request = frame.request;
+        if (!UUID.test(frame.id || "") || request?.type !== "task.invoke" || request.id !== frame.id || ![ISCP_PROFILE, ISCP_V2_PROFILE].includes(request.profile) || typeof request.operation !== "string") { this.#fail("disconnected"); return; }
+        void this.#reverse(request);
       } else if (frame.type === "stream_event") {
         const call = this.pending.get(frame.id);
         if (!call) continue;
@@ -677,6 +681,30 @@ export class ISCPTransport {
         call.resolve(response);
       } else { this.#fail("disconnected"); return; }
     }
+  }
+
+  // The Gateway reaches the embedded browser only through reverse calls on
+  // this authenticated session. Only browser.command is accepted; anything
+  // else is refused without disturbing the session. A reply belonging to a
+  // closed or replaced helper is dropped, and the Gateway sees it as unknown.
+  async #reverse(request) {
+    const generation = this.generation;
+    const capabilities = this.capabilities;
+    const session = capabilities ? { session_id: capabilities.session_id, authorization_revision: capabilities.authorization_revision } : undefined;
+    let reply;
+    if (request.operation !== "browser.command" || request.profile !== ISCP_V2_PROFILE) reply = { status: 403, error_code: "permission_denied", error: "Reverse operation is not accepted" };
+    else if (!session || typeof this.onReverse !== "function") reply = { status: 503, error_code: "capability_unavailable", error: "Browser is unavailable" };
+    else {
+      try { reply = await this.onReverse(request, session); }
+      catch { reply = { status: 500, error_code: "internal_error", error: "Browser command failed" }; }
+      reply ??= { status: 503, error_code: "capability_unavailable", error: "Browser is unavailable" };
+    }
+    if (generation !== this.generation || !this.child) return;
+    const response = { type: "task.result", profile: request.profile, id: request.id, status: reply.status,
+      ...(reply.body !== undefined ? { body: reply.body } : {}),
+      ...(request.profile === ISCP_V2_PROFILE && reply.error_code ? { error_code: reply.error_code } : {}), ...(reply.error ? { error: reply.error } : {}) };
+    try { this.child.stdin.write(`${JSON.stringify({ ipc_version: 1, type: "reverse_response", id: request.id, response })}\n`); }
+    catch { this.#fail("disconnected"); }
   }
 
   #fail(state) { this.close(); this.#state(state); }

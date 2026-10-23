@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 import path from "node:path";
-import { connectISCPHostChannel } from "./iscp-host-channel.mjs";
 import { connectPinnedHostSocket } from "./host-socket.mjs";
 import { HostJournal } from "./host-journal.mjs";
 import { nativePageCommand } from "./native-page-commands.mjs";
@@ -9,17 +8,25 @@ import { isTLSIdentityError } from "../main/pinned-https.mjs";
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u;
 const HASH = /^[a-f0-9]{64}$/u;
 const BINDING_KEYS = ["owner_id", "client_id", "installation_id", "local_conversation_id", "local_task_id", "host_id", "runtime_generation", "connection_epoch", "lease_id", "page_id", "page_generation", "authorization_digest", "lease_expires_at"];
-const OPS = { acquire: [], release: [], navigate: ["url"], read: ["max_chars"], snapshot: [], click: ["ref", "snapshot_id"], fill: ["ref", "snapshot_id", "value"], select: ["ref", "snapshot_id", "value"], screenshot: [], wait: ["milliseconds"] };
+const OPS = { acquire: [], release: [], navigate: ["url"], read: ["max_chars"], snapshot: [], click: ["ref", "snapshot_id"], fill: ["ref", "snapshot_id", "value"], select: ["ref", "snapshot_id", "value"], screenshot: [], wait: ["milliseconds", "mode", "expected_url", "before_digest", "allow_no_change", "require_ready_state", "timeout_ms"] };
 const WRITE = new Set(["click", "fill", "select"]);
 // A verified desktop connection enables its own embedded browser automatically
 // on both ISCP and pinned HTTPS LAN. Invalid commands and unknown writes retain
 // their existing fences; connecting never authorizes replaying a website write.
 const AUTO_GRANT_STATES = new Set(["ungranted", "suspended", "reconnecting", "disconnected", "lease_expired", "grant_expired", "unavailable"]);
 const AUTO_GRANT_MAX_DELAY_MS = 60000;
+// One reverse command must answer before the 30 s ISCP call timeout, so a
+// slow page reports its own outcome instead of leaving it to the transport.
+export const ISCP_COMMAND_DEADLINE_MS = 25000;
+// The whole reverse response, with binding and envelope, must fit one 64 KiB
+// ISCP message after the helper's JSON escaping.
+export const RESULT_BUDGET_BYTES = 56 << 10;
+// ISCP leases follow the task and its session; they carry no expiry.
+const ISCP_NO_EXPIRY = "0001-01-01T00:00:00Z";
 
 export class BrowserHostAgent {
-  constructor({ auth, registry, userDataDir, onChange = () => {}, connect = connectPinnedHostSocket, execute = nativePageCommand }) {
-    Object.assign(this, { auth, registry, onChange, connect, execute });
+  constructor({ auth, registry, userDataDir, onChange = () => {}, connect = connectPinnedHostSocket, execute = nativePageCommand, commandDeadlineMS = ISCP_COMMAND_DEADLINE_MS }) {
+    Object.assign(this, { auth, registry, onChange, connect, execute, commandDeadlineMS });
     this.journal = new HostJournal(path.join(userDataDir, "workbench", "browser-journal"));
     this.runtime = registry.runtimeGeneration;
     this.state = "ungranted";
@@ -44,6 +51,7 @@ export class BrowserHostAgent {
   // Main-owned connection setup. Credentials and host grants never cross IPC
   // or become local renderer configuration.
   async grant() {
+    if (this.#iscp()) throw new Error("ISCP browser commands use the authenticated device session");
     if (!this.#browserReady()) throw new Error("Browser host requires a connected desktop identity and browser capability");
     const authority = { scope: this.scope, authGeneration: this.auth.generation, connection: this.auth.connection, runtime: this.runtime };
     if (this.grantFlight && this.#sameGrantAuthority(this.grantFlight.authority)) return this.grantFlight.promise;
@@ -72,8 +80,7 @@ export class BrowserHostAgent {
     this.grantRecord = grant;
     const abort = new AbortController(); this.abort = abort;
     try {
-      const connect = this.auth.descriptor?.transport === "iscp" ? (_descriptor, headers, options) => connectISCPHostChannel(this.auth, headers, options) : this.connect;
-      const socket = await connect(this.auth.descriptor, {
+      const socket = await this.connect(this.auth.descriptor, {
         Authorization: this.auth.connection.authorization,
         "X-SparkClaw-Installation": this.scope.installation_id,
         "X-SparkClaw-Host-ID": grant.host_id,
@@ -114,6 +121,7 @@ export class BrowserHostAgent {
   }
   autoConnect() {
     clearTimeout(this.autoGrantTimer); this.autoGrantTimer = undefined;
+    if (this.#iscp()) { this.connectISCP(); return; }
     if (!this.#browserReady() || !AUTO_GRANT_STATES.has(this.state)) return;
     if (this.autoGranting) { this.pendingAutoConnectRevision = this.autoConnectRevision; return; }
     const revision = this.autoConnectRevision;
@@ -128,6 +136,51 @@ export class BrowserHostAgent {
       this.pendingAutoConnectRevision = undefined;
       if (pending !== undefined && pending !== revision && pending === this.autoConnectRevision) this.autoConnect();
     });
+  }
+  // ISCP: the embedded browser runs on its own. Nothing is granted, polled or
+  // renewed; the Gateway sends reverse browser.command calls on the session
+  // that already authenticates this device, only while automating a task.
+  connectISCP(session = this.auth.transport?.capabilities) {
+    if (!this.#iscp() || !this.#browserReady() || ["fenced", "reconciliation_conflict"].includes(this.state)) return;
+    if (!ID.test(session?.session_id || "") || !Number.isSafeInteger(session.authorization_revision) || session.authorization_revision < 1) return;
+    if (this.iscpSession?.session_id === session.session_id && this.iscpSession.authorization_revision === session.authorization_revision && this.state === "connected") return;
+    // A new session ends every lease of the old one; uncertain writes stay in
+    // the fences, which are read once for this session and never replayed.
+    this.generation++;
+    this.#disconnect("connected");
+    this.iscpSession = Object.freeze({ session_id: session.session_id, authorization_revision: session.authorization_revision });
+    const generation = this.generation;
+    this.refreshFences().catch(() => {}).finally(() => { if (generation === this.generation) this.onChange(); });
+  }
+  async handleReverse(request, session) {
+    const reply = (status, code, error) => ({ status, error_code: code, error });
+    if (request?.operation !== "browser.command" || !request.body || typeof request.body !== "object") return reply(403, "permission_denied", "Reverse operation is not accepted");
+    if (!this.#iscp() || !this.#browserReady()) return reply(503, "capability_unavailable", "Browser is unavailable");
+    this.connectISCP(session);
+    if (this.state !== "connected" || this.iscpSession?.session_id !== session?.session_id) return reply(503, "capability_unavailable", "Browser is unavailable");
+    const command = request.body;
+    try { validateCommand(command); if (!this.#validISCPBinding(command.binding, command.operation) || command.digest !== commandDigest(command)) throw new Error("Command binding differs"); }
+    catch { return { status: 200, body: resultMessage(command, "failed", {}, "command_fenced") }; }
+    const generation = this.generation, key = command.binding.lease_id;
+    const queued = this.queues.get(key) || { promise: Promise.resolve(), count: 0 };
+    if (this.queues.size >= 32 && !this.queues.has(key) || queued.count >= 64) return { status: 200, body: resultMessage(command, "failed", {}, "command_fenced") };
+    queued.count++;
+    const result = queued.promise.then(() => this.#command(command, generation, performance.now() + this.commandDeadlineMS));
+    queued.promise = result.catch(() => {}).finally(() => { queued.count--; if (!queued.count && this.queues.get(key) === queued) this.queues.delete(key); });
+    this.queues.set(key, queued);
+    return { status: 200, body: await result };
+  }
+  #iscp() { return this.auth.descriptor?.transport === "iscp"; }
+  #validISCPBinding(binding, operation) {
+    const session = this.iscpSession;
+    if (!session || !binding || !BINDING_KEYS.every((key) => key in binding) || Object.keys(binding).length !== BINDING_KEYS.length ||
+        !BINDING_KEYS.filter((key) => key.endsWith("_id") || key === "runtime_generation" || key === "connection_epoch").every((key) => ID.test(binding[key])) ||
+        binding.owner_id !== this.scope?.owner_id || binding.client_id !== this.scope?.client_id || binding.installation_id !== this.scope?.installation_id ||
+        binding.connection_epoch !== session.session_id || binding.runtime_generation !== `iscp_${session.session_id}` ||
+        binding.host_id !== iscpHostID(this.scope, session.session_id) || binding.authorization_digest !== iscpAuthorizationDigest(session.session_id, session.authorization_revision) ||
+        binding.lease_expires_at !== ISCP_NO_EXPIRY || !Number.isSafeInteger(binding.page_generation) || binding.page_generation < 1) return false;
+    const lease = this.leases.get(binding.lease_id);
+    return operation === "acquire" ? !lease : Boolean(lease) && sameBinding(lease.binding, binding);
   }
   #browserReady() {
     return Boolean(this.scope) && this.auth.status.state === "connected" && this.auth.status.capabilities?.browser !== false &&
@@ -209,49 +262,66 @@ export class BrowserHostAgent {
     queued.promise = queued.promise.then(() => this.#command(command, generation)).catch(() => this.#disconnect("fenced")).finally(() => { queued.count--; if (!queued.count && this.queues.get(key) === queued) this.queues.delete(key); });
     this.queues.set(key, queued);
   }
-  async #command(command, generation) {
+  async #command(command, generation, deadline) {
     const b = command.binding; const write = WRITE.has(command.operation);
     let begun = false;
-    try {
+    let timer;
+    const work = async () => {
       if (generation !== this.generation || this.state !== "connected") throw new Error("Host generation is stale");
       if (command.operation === "acquire") {
         if (this.journal.unknown(this.scope).some((row) => row.local_conversation_id === b.local_conversation_id) || this.leases.has(b.lease_id)) throw new Error("Conversation write outcome is unknown");
         const record = this.registry.acquireHostPage(b);
         await record.hostInitialLoad;
         if (generation !== this.generation || this.state !== "connected") throw new Error("Host was fenced during page acquisition");
-        const deadline = performance.now() + Math.min(30000, Math.max(0, Date.parse(b.lease_expires_at) - Date.now()));
-        const lease = { binding: b, record, deadline, timer: setTimeout(() => this.#expire(b.lease_id), Math.max(1, deadline - performance.now())) };
-        lease.timer.unref?.(); this.leases.set(b.lease_id, lease);
-        this.#result(command, "completed", { page_id: b.page_id, page_ref: record.pageRef }); return;
+        // An acquisition that outlived its deadline was already reported as
+        // failed; give the conversation's page back instead of holding it.
+        if (deadline !== undefined && performance.now() >= deadline) { this.registry.releaseHostPage(b); throw new Error("Browser command deadline"); }
+        const lease = { binding: b, record, deadline: Infinity };
+        if (!this.#iscp()) {
+          lease.deadline = performance.now() + Math.min(30000, Math.max(0, Date.parse(b.lease_expires_at) - Date.now()));
+          lease.timer = setTimeout(() => this.#expire(b.lease_id), Math.max(1, lease.deadline - performance.now())); lease.timer.unref?.();
+        }
+        this.leases.set(b.lease_id, lease);
+        return ["completed", { page_id: b.page_id, page_ref: record.pageRef }];
       }
       const fence = () => {
         const lease = this.leases.get(b.lease_id);
-        if (generation !== this.generation || this.state !== "connected" || !lease || !sameBinding(lease.binding, b) || performance.now() >= lease.deadline) throw new Error("Browser command lease is fenced");
+        if (generation !== this.generation || this.state !== "connected" || !lease || !sameBinding(lease.binding, b) || performance.now() >= lease.deadline || deadline !== undefined && performance.now() >= deadline) throw new Error("Browser command lease is fenced");
         this.registry.requireHostPage(b);
       };
       fence();
       if (command.operation === "release") {
         const lease = this.leases.get(b.lease_id); clearTimeout(lease.timer);
-        this.registry.releaseHostPage(b); this.leases.delete(b.lease_id); this.#result(command, "completed", { released: true }); return;
+        this.registry.releaseHostPage(b); this.leases.delete(b.lease_id); return ["completed", { released: true }];
       }
       if (write) {
         const state = await this.journal.begin(command);
-        if (state !== "new") { this.#result(command, "unknown", {}, "write_replay_requires_reconciliation"); return; }
+        if (state !== "new") return ["unknown", {}, "write_replay_requires_reconciliation"];
         begun = true; fence();
       }
       const result = await this.execute(this.registry.requireHostPage(b), command.operation, command.arguments, b, fence);
       fence();
       if (write) await this.journal.finish(command.command_id, "completed");
-      this.#result(command, "completed", result);
+      return ["completed", result];
+    };
+    let outcome;
+    try {
+      const run = work();
+      // A command still running after its deadline reports for itself in the
+      // local journal; the Gateway already holds its write as unknown.
+      run.catch(() => {});
+      outcome = deadline === undefined ? await run : await Promise.race([run, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Browser command deadline")), Math.max(1, deadline - performance.now())); })]);
     } catch {
       if (write && begun) await this.journal.finish(command.command_id, "unknown").catch(() => {});
-      this.#result(command, write && begun ? "unknown" : "failed", {}, begun ? "write_outcome_unknown" : "command_fenced");
-    } finally { this.onChange(); }
+      outcome = [write && begun ? "unknown" : "failed", {}, begun ? "write_outcome_unknown" : "command_fenced"];
+    } finally { clearTimeout(timer); this.onChange(); }
+    return this.#result(command, ...outcome);
   }
   #result(command, status, output, errorCode) {
-    if (!this.socket || this.state !== "connected") return;
-    if (Buffer.byteLength(JSON.stringify(output)) > 96 << 10) { status = "failed"; output = {}; errorCode = "result_budget_exceeded"; }
-    this.socket.send({ schema_version: 1, type: "result", command_id: command.command_id, binding: command.binding, status, output, ...(errorCode ? { error_code: errorCode } : {}) });
+    const message = resultMessage(command, status, output, errorCode);
+    if (this.#iscp()) return message;
+    if (this.socket && this.state === "connected") this.socket.send(message);
+    return message;
   }
   #validBinding(binding) {
     return binding && BINDING_KEYS.every((key) => key in binding) && Object.keys(binding).length === BINDING_KEYS.length &&
@@ -271,13 +341,26 @@ export class BrowserHostAgent {
     this.abort?.abort(); this.abort = undefined;
     const socket = this.socket; this.socket = undefined; socket?.close();
     for (const lease of this.leases.values()) clearTimeout(lease.timer);
-    this.leases.clear(); this.queues.clear(); this.registry.closeHostPages("host_disconnected"); this.epoch = undefined; this.grantRecord = undefined;
+    this.leases.clear(); this.queues.clear(); this.registry.closeHostPages("host_disconnected"); this.epoch = undefined; this.grantRecord = undefined; this.iscpSession = undefined;
     this.#state(state);
-    if (["disconnected", "lease_expired", "grant_expired"].includes(state) && !this.autoGranting && this.#browserReady()) this.#scheduleAutoGrant(this.autoGrantDelay || 1000);
+    if (!this.#iscp() && ["disconnected", "lease_expired", "grant_expired"].includes(state) && !this.autoGranting && this.#browserReady()) this.#scheduleAutoGrant(this.autoGrantDelay || 1000);
   }
   #state(value) { this.state = value; this.onChange(); }
 }
 
+// Both sides derive these from the session, so a binding the Gateway did not
+// build for this exact device session can never address a page.
+const sha256 = (value) => crypto.createHash("sha256").update(value, "utf8").digest("hex");
+export function iscpHostID(scope, sessionID) { return `iscp_${sha256(`sparkclaw.browser.iscp.host.v1\0${scope.owner_id}\0${scope.client_id}\0${scope.installation_id}\0${sessionID}`).slice(0, 32)}`; }
+export function iscpAuthorizationDigest(sessionID, revision) { return sha256(`sparkclaw.browser.iscp.authorization.v1\0${sessionID}\0${revision}`); }
+// Bytes after the helper re-encodes JSON, which escapes <, >, & and U+2028/9.
+export function encodedBytes(value) { return Buffer.byteLength(JSON.stringify(value).replace(/[<>&\u2028\u2029]/gu, "\\u0000")); }
+function resultMessage(command, status, output, errorCode) {
+  let message = { schema_version: 1, type: "result", command_id: command?.command_id, binding: command?.binding, status, output, ...(errorCode ? { error_code: errorCode } : {}) };
+  // An oversized read fails; a write keeps its outcome and drops only output.
+  if (encodedBytes(output) > RESULT_BUDGET_BYTES) message = { ...message, status: WRITE.has(command?.operation) || status === "unknown" ? status : "failed", output: {}, error_code: "result_budget_exceeded" };
+  return message;
+}
 function sameBinding(a, b) { return BINDING_KEYS.filter((key) => key !== "lease_expires_at").every((key) => a?.[key] === b?.[key]); }
 export function commandDigest(command) { return crypto.createHash("sha256").update(canonical({ ...command, digest: "" })).digest("hex"); }
 function canonical(value) {
@@ -292,6 +375,11 @@ function validateCommand(command) {
   if (command.operation === "navigate") { const url = new URL(args.url); if (typeof args.url !== "string" || args.url.length > 16384 || url.protocol !== "https:" || url.username || url.password) throw new Error("Browser URL is invalid"); }
   if (WRITE.has(command.operation) && (typeof args.ref !== "string" || args.ref.length > 256 || !args.ref || typeof args.snapshot_id !== "string" || args.snapshot_id.length > 160 || !args.snapshot_id)) throw new Error("Snapshot reference is invalid");
   if (["fill", "select"].includes(command.operation) && (typeof args.value !== "string" || args.value.length > 16384)) throw new Error("Draft value is invalid");
-  if (command.operation === "read" && args.max_chars !== undefined && (!Number.isSafeInteger(args.max_chars) || args.max_chars < 1 || args.max_chars > 65536)) throw new Error("Read limit is invalid");
-  if (command.operation === "wait" && (!Number.isSafeInteger(args.milliseconds) || args.milliseconds < 0 || args.milliseconds > 5000)) throw new Error("Wait limit is invalid");
+  if (command.operation === "read" && args.max_chars !== undefined && (!Number.isSafeInteger(args.max_chars) || args.max_chars < 1 || args.max_chars > 24000)) throw new Error("Read limit is invalid");
+  if (command.operation === "wait" && args.mode === undefined && (Object.keys(args).join() !== "milliseconds" || !Number.isSafeInteger(args.milliseconds) || args.milliseconds < 0 || args.milliseconds > 5000)) throw new Error("Wait limit is invalid");
+  if (command.operation === "wait" && args.mode !== undefined && (args.mode !== "stable_state" || "milliseconds" in args ||
+      args.expected_url !== undefined && (typeof args.expected_url !== "string" || args.expected_url.length > 16384) ||
+      args.before_digest !== undefined && !HASH.test(args.before_digest) ||
+      ["allow_no_change", "require_ready_state"].some((key) => args[key] !== undefined && typeof args[key] !== "boolean") ||
+      args.timeout_ms !== undefined && (!Number.isSafeInteger(args.timeout_ms) || args.timeout_ms < 500 || args.timeout_ms > 15000))) throw new Error("Stable wait is invalid");
 }

@@ -14,7 +14,7 @@ const lab = process.argv[2];
 if (!["linux", "darwin"].includes(process.platform) || process.argv.length !== 3 || !path.isAbsolute(lab || "")) throw new Error("Usage: Node 26 run-host-iscp-native-qualification.mjs <prepared private expansion lab>");
 await assertPrivateDirectory(lab);
 const metadata = await readPrivateJSON(path.join(lab, "run.json"));
-if (!metadata.qualified_operations?.includes("browser.host.poll")) throw new Error("An explicitly qualified disposable expansion lab is required");
+if (!metadata.qualified_operations?.includes("browser.command")) throw new Error("An explicitly qualified disposable expansion lab is required");
 const exec = promisify(execFile);
 const run = (command,args,options={}) => exec(command,args,{timeout:180000,killSignal:"SIGKILL",...options});
 try {

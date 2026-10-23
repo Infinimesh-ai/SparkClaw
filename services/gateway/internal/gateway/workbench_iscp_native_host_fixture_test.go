@@ -71,6 +71,9 @@ func TestWorkbenchISCPNativeHostQualificationFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer endpoint.Close()
+	// Production routing: the broker reaches the native host only by reverse
+	// browser.command calls on this endpoint's authenticated session.
+	defer server.browserRoutes.add(endpointBrowserRoute(endpoint, ""))()
 	go func() { _ = endpoint.Run(lifecycle) }()
 	identity := browserhost.Identity{OwnerID: transport.Binding.OwnerID, ClientID: transport.Binding.ClientID, InstallationID: os.Getenv("SPARKCLAW_HOST_ISCP_INSTALLATION")}
 	bindings := map[string]browserhost.Binding{}

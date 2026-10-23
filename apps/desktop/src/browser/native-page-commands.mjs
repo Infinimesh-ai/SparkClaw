@@ -4,6 +4,26 @@ const WORLD = 1004;
 const CAPTURE_WIDTH = 480;
 const hash = (value) => crypto.createHash("sha256").update(typeof value === "string" ? value : JSON.stringify(value)).digest("hex");
 const execute = (record, code) => record.webContents.executeJavaScriptInIsolatedWorld(WORLD, [{ code }]);
+// The rendered-content digest a snapshot reports and a stable wait compares.
+const CONTENT_TEXT_CHARS = 12000;
+export const contentDigest = (title, text) => hash(`${title}\n${text}`);
+// Room left for page data inside the 56 KiB result budget after its fields.
+const READ_TEXT_BYTES = 40 << 10;
+const SNAPSHOT_BYTES = 52 << 10;
+const SCREENSHOT_BYTES = 39 << 10;
+const STABLE_QUIET_MS = 500;
+const STABLE_POLL_MS = 100;
+const STABLE_TIMEOUT_MS = 15000;
+const encoded = (value) => Buffer.byteLength(JSON.stringify(value).replace(/[<>&\u2028\u2029]/gu, "\\u0000"));
+// Whether the owner can currently see this task's page; the requested
+// presentation lane is the Gateway's to report.
+const surfaceVisible = (record) => record.view?.getVisible?.() !== false && record.webContents?.isDestroyed?.() !== true;
+function fitText(text, bytes) {
+  if (encoded(text) <= bytes) return text;
+  let low = 0, high = text.length;
+  while (low < high) { const mid = Math.ceil((low + high) / 2); if (encoded(text.slice(0, mid)) <= bytes) low = mid; else high = mid - 1; }
+  return text.slice(0, low);
+}
 
 // Every script is owned by this module. The wire supplies only bounded data;
 // it cannot select a JS expression, debugger method, selector or file path.
@@ -12,12 +32,14 @@ export async function nativePageCommand(record, operation, args, binding, fence)
   if (operation === "navigate") {
     await record.webContents.loadURL(args.url);
     fence();
-    return { page_id: binding.page_id, url: record.webContents.getURL(), title: record.webContents.getTitle(), page_generation: binding.page_generation };
+    return { page_id: binding.page_id, url: record.webContents.getURL(), title: record.webContents.getTitle(), page_generation: binding.page_generation, surface_visible: surfaceVisible(record) };
   }
   if (operation === "read") {
     const max = Math.min(args.max_chars || 16384, 24000);
     const page = await execute(record, `(()=>({url:location.href,final_url:location.href,title:document.title,text:(document.body?.innerText||'').slice(0,${max}),ready_state:document.readyState,lang:document.documentElement.lang,rendered:true,content_type:'text/html'}))()`);
-    fence(); return { ...page, page_id: binding.page_id, untrusted: true };
+    fence();
+    const text = fitText(page.text, READ_TEXT_BYTES);
+    return { ...page, text, ...(text.length < page.text.length ? { truncated: true } : {}), page_id: binding.page_id, untrusted: true, surface_visible: surfaceVisible(record) };
   }
   if (operation === "snapshot") {
     const snapshotID = `snapshot_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -32,16 +54,27 @@ export async function nativePageCommand(record, operation, args, binding, fence)
         const uid=snapshotID+':e'+(controls.length+1);refs.set(uid,element);controls.push({ref:uid,uid,role,name,label:name,tag,type,visible:true,enabled:!element.disabled,clickable:['button','link'].includes(role),editable:role==='textbox',value_kind:'text',box:{x:box.x,y:box.y,width:box.width,height:box.height}});
       }
       globalThis.__sparkclawBrowserRefs={snapshotID,refs,url:location.href};
-      return {url:location.href,title:document.title,controls,text:(document.body?.innerText||'').slice(0,12000)};
+      return {url:location.href,title:document.title,controls,text:(document.body?.innerText||'').slice(0,${CONTENT_TEXT_CHARS})};
     })()`);
     fence();
-    const digest = hash(result); const contentDigest = hash(`${result.title}\n${result.text}`);
-    const aria = result.controls.map((control) => `[ref=${control.ref}] ${control.role} ${control.name}`).join("\n");
-    const controls = result.controls.map((control, index) => ({ ...control, ordinal: index + 1, short_ref: `e${index + 1}`, fingerprint: hash(control), snapshot_id: snapshotID }));
-    const snapshot = { schema_version: "browser_interaction_snapshot_v1", snapshot_id: snapshotID, page_id: binding.page_id, page_generation: binding.page_generation,
-      session_generation: binding.page_generation, url: result.url, title: result.title, digest, content_digest: contentDigest, controls_total: controls.length, controls_returned: controls.length,
-      controls, refs: controls, action_refs: controls.filter((control) => control.clickable).map((control) => control.ref), aria, truncated: false, browser_page_auth_state: "unknown", browser_page_auth_confidence: "unknown" };
-    return { snapshot_id: snapshotID, page_id: binding.page_id, digest, content_digest: contentDigest, snapshot, text: `Page: ${result.url}\n${aria}`, browser_page_auth_state: "unknown" };
+    const digest = hash(result); const content = contentDigest(result.title, result.text);
+    const previous = record.lastHostSnapshot;
+    record.lastHostSnapshot = { id: snapshotID, digest, pageGeneration: binding.page_generation };
+    const sameSession = previous?.pageGeneration === binding.page_generation;
+    const all = result.controls.map((control, index) => ({ ...control, ordinal: index + 1, short_ref: `e${index + 1}`, fingerprint: hash(control), snapshot_id: snapshotID }));
+    const build = (controls) => {
+      const aria = controls.map((control) => `[ref=${control.ref}] ${control.role} ${control.name}`).join("\n");
+      const snapshot = { schema_version: "browser_interaction_snapshot_v1", snapshot_id: snapshotID, previous_snapshot_id: sameSession ? previous.id : "", repeated: sameSession && previous.digest === digest,
+        page_id: binding.page_id, page_generation: binding.page_generation,
+        session_generation: binding.page_generation, url: result.url, title: result.title, digest, content_digest: content, controls_total: all.length, controls_returned: controls.length,
+        controls, refs: controls, action_refs: controls.filter((control) => control.clickable).map((control) => control.ref), aria, truncated: controls.length < all.length, browser_page_auth_state: "unknown", browser_page_auth_confidence: "unknown" };
+      return { snapshot_id: snapshotID, page_id: binding.page_id, digest, content_digest: content, snapshot, text: `Page: ${result.url}\n${aria}`, browser_page_auth_state: "unknown", surface_visible: surfaceVisible(record) };
+    };
+    // Keep the most relevant leading controls when the page has more than one
+    // reverse response can carry; the snapshot says it was truncated.
+    let count = all.length, output = build(all);
+    while (count > 0 && encoded(output) > SNAPSHOT_BYTES) { count = Math.floor(count / 2); output = build(all.slice(0, count)); }
+    return output;
   }
   if (operation === "click") {
     const position = await execute(record, `(()=>{${lookup(args)} const box=element.getBoundingClientRect();const x=box.x+box.width/2,y=box.y+box.height/2;
@@ -70,11 +103,33 @@ export async function nativePageCommand(record, operation, args, binding, fence)
   }
   if (operation === "screenshot") {
     const data = await captureScreenshot(record, fence);
-    if (data.length > 64 << 10) throw new Error("Screenshot exceeds the bounded output budget");
+    // Base64 output must fit the reverse result budget with its fields.
+    if (data.length > SCREENSHOT_BYTES) throw new Error("Screenshot exceeds the bounded output budget");
     return { page_id: binding.page_id, data: data.toString("base64"), mimeType: "image/png" };
   }
+  if (operation === "wait" && args.mode === "stable_state") return stableState(record, args, binding, fence);
   if (operation === "wait") { await new Promise((resolve) => setTimeout(resolve, args.milliseconds)); fence(); return { page_id: binding.page_id, waited: true }; }
   throw new Error("Browser operation is unavailable");
+}
+// The page counts as settled when its URL and rendered content stay the same
+// for the quiet period, decided here inside the page with no remote polling.
+async function stableState(record, args, binding, fence) {
+  const started = performance.now(), timeout = Math.min(args.timeout_ms || STABLE_TIMEOUT_MS, STABLE_TIMEOUT_MS);
+  const requireReady = args.require_ready_state !== false, allowNoChange = args.allow_no_change === true;
+  let last, stableSince = 0, observations = 0;
+  for (;;) {
+    fence();
+    const page = await execute(record, `(()=>({url:location.href,title:document.title,text:(document.body?.innerText||'').slice(0,${CONTENT_TEXT_CHARS}),ready_state:document.readyState}))()`);
+    fence(); observations++;
+    const digest = contentDigest(page.title, page.text), now = performance.now();
+    if (!last || last.url !== page.url || last.digest !== digest) { last = { url: page.url, digest }; stableSince = now; }
+    const ready = !requireReady || ["interactive", "complete"].includes(page.ready_state);
+    const changed = !args.before_digest || digest !== args.before_digest;
+    const base = { page_id: binding.page_id, url: page.url, title: page.title, state_digest: digest, state_changed: changed, observations, quiet_period_ms: STABLE_QUIET_MS, surface_visible: surfaceVisible(record) };
+    if (ready && now - stableSince >= STABLE_QUIET_MS && (changed || allowNoChange)) return { status: "stable", ...base };
+    if (now - started >= timeout) return { status: "timeout", ...base };
+    await new Promise((resolve) => setTimeout(resolve, STABLE_POLL_MS));
+  }
 }
 function lookup(args) {
   return `const state=globalThis.__sparkclawBrowserRefs;if(!state||state.snapshotID!==${JSON.stringify(args.snapshot_id)}||state.url!==location.href)throw Error('Snapshot is stale');

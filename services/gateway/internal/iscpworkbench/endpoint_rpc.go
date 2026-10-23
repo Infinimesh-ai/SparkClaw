@@ -256,6 +256,10 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (result Response, 
 		defer func() { <-slots }()
 	}
 	e.mu.Lock()
+	if want, ok := ctx.Value(expectedSessionKey{}).(string); ok && (e.closed || e.session == nil || e.session.id != want) {
+		e.mu.Unlock()
+		return Response{}, ErrPeerUnavailable
+	}
 	if e.closed || e.session == nil || !e.session.manifest {
 		e.mu.Unlock()
 		return Response{}, errors.New("workbench transport is not ready")

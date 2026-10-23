@@ -96,3 +96,10 @@ func maxInt(left, right int) int {
 	}
 	return right
 }
+
+// SettledBrowserRoute applies the frozen-target route rule to a page another
+// host reported as settled. A non-empty result is the same-origin route to
+// rebind to before the page counts as settled.
+func SettledBrowserRoute(expectedRaw, currentRaw string, targetKind app.BrowserTargetKind) (string, error) {
+	return settleBrowserRoute(expectedRaw, currentRaw, targetKind)
+}

@@ -362,7 +362,7 @@
       "dispatch_releases": 0
     },
     "evidence_root": "/Users/dev/.cache/sparkclaw-acceptance/20261023-mail-body-r37",
-    "live_acceptance": "Existing human approval remains valid for the same three approved actual messages; all prior attempts proven not dispatched; root integration hold pending final account/plan checks",
+    "live_acceptance": "Three .37 continuations failed before actual dispatch: QQ editor, Outlook body, Gmail attachment confirmation. All six original/.37 API attempts have proven provider dispatch0. Existing authorization remains for each original message at most1 actual dispatch; no uncertain resend.",
     "deployment": {
       "phase": "healthy",
       "operation": "20261023-mail-r37",
@@ -524,5 +524,62 @@
         "sha256": "55a5066fb06f1c14e9c38bcddc2d1b2d9028e9f23984538f331964350fd75a8b"
       }
     ]
+  },
+  "mail_r37_live_acceptance": {
+    "status": "FAILED_BEFORE_DISPATCH",
+    "api_attempts": 3,
+    "actual_provider_dispatches": 0,
+    "new_unknown_count": 0,
+    "unknown_records_exact": 108,
+    "cases": [
+      {
+        "route": "qq_mail -> outlook",
+        "failure": "EMAIL_REPLY_EDITOR_UNVERIFIED",
+        "phase": "prepare_draft",
+        "effect": 0,
+        "attempted": false,
+        "confirmed": false,
+        "body_fill_and_attachment_upload": "not reached"
+      },
+      {
+        "route": "outlook -> gmail",
+        "failure": "EMAIL_DRAFT_FIELDS_UNVERIFIED",
+        "phase": "prepare_draft",
+        "effect": 0,
+        "attempted": false,
+        "confirmed": false,
+        "fields": [
+          "body"
+        ],
+        "body_length_expected": 106,
+        "body_length_actual": 109,
+        "actual_hash_matches_prior_synthetic_innerText_failure": true,
+        "live_DOM_shape_proven": false,
+        "attachment_upload": "not reached"
+      },
+      {
+        "route": "gmail -> qq_mail",
+        "failure": "EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED",
+        "phase": "prepare_draft",
+        "effect": 0,
+        "attempted": false,
+        "confirmed": false,
+        "body_preparation": "passed",
+        "attachment_ready_guard": "not identified in old logs"
+      }
+    ],
+    "qa_cleanup": {
+      "qq_revoked_and_old_token_401": true,
+      "remaining_qa_revoked_status": 200,
+      "remaining_qa_old_token_status": 401,
+      "remaining_qa_revoked_at": "2026-10-23T11:15:08.094597+00:00",
+      "local_credentials_deleted": true,
+      "continuation_entry_points_closed": true
+    },
+    "evidence_roots": [
+      "/Users/dev/.cache/sparkclaw-acceptance/20261023-mail-body-r37/live-mail-plan",
+      "/Users/dev/.cache/sparkclaw-acceptance/20261023-mail-body-r37/remaining-two-r37"
+    ],
+    "qualification_limit": "No actual Sent, receiver original or received attachment qualification; no confirmed provider dispatch."
   }
 }

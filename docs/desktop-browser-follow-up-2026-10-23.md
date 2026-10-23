@@ -17,7 +17,7 @@ checkpoint; its “all open” statements are not the current status.
 | BR-03 | Explicit verified revocation reason and existing login UI passed. | A bounded issuer authorization check preserves the typed signed revocation signal across reconnect/restart. Ordinary disconnection and generic 401/403 do not manufacture revocation. Existing credential form/history remain; Reconnect is disabled for revoked authorization. |
 | BR-04 | Real in-flight revocation passed using a disposable identity. | Installed helper/UI hashes and product source match. One live read had executed but its result remained in flight. Revocation clears the active lease/page, fences the old result, rejects the old binding and returns business 401. Restart remains revoked. Already-read content cannot be undone. |
 | BR-05 | Native navigation diagnosis implemented and verified. | The original example.com log contains `ERR_NAME_NOT_RESOLVED`; it is an environmental DNS failure whose reason was lost. Bounded native error codes and command deadlines now remain distinct from true fencing. Installed UI reports `browser dns resolution failed` for a controlled `.invalid` domain; Apple success is independently verified. |
-| BR-06 | Optional qualification passed; real send/receive/attachment acceptance remains open. | Linux full Go/build/vet, 526 desktop tests, 504 WebChat tests, all 131 optional browser/recovery cases and file/PostgreSQL 10,000-mail capacity pass. Three specifically approved emails each stopped before provider dispatch at `EMAIL_DRAFT_FIELDS_UNVERIFIED`; actual sends 0, retries 0. The strict multiline-editor readback fix is integrated in App-CLI `.37`; new live mail acceptance is pending. |
+| BR-06 | Optional qualification passed; real send/receive/attachment acceptance remains open. | Linux full Go/build/vet, 526 desktop tests, 504 WebChat tests, all 131 optional browser/recovery cases and file/PostgreSQL 10,000-mail capacity pass. The initial three attempts and the three `.37` continuations all have proven zero dispatches. The live blockers are QQ editor validation, Outlook strict body verification and Gmail attachment confirmation. Isolated fixture success does not qualify actual delivery. |
 
 The optional capacity fixture previously put 10,000 mails and related records in
 one transaction despite production admission allowing only 100 per command.
@@ -63,6 +63,36 @@ rerun after missing Chromium OS dependencies were installed. That environmental
 failure remains retained. All three frozen subject/body/attachment combinations
 reach the actual send adapter's pre-dispatch gate in an isolated Chromium fixture;
 no dispatch is released. This is preparation, not provider delivery acceptance.
+
+The first `.37` continuation stopped at QQ `EMAIL_REPLY_EDITOR_UNVERIFIED`,
+before field filling or attachment upload. Its receipt has `effect=0`,
+`attempted=false` and `confirmed=false`; two observed clicks do not establish
+which editor guard failed. The failed runner was closed and its QA identity
+revoked (old token 401), preserving all 83 old draft/send records and adding two.
+The independently continued Outlook case also has proven zero dispatches and
+fails `EMAIL_DRAFT_FIELDS_UNVERIFIED` on the body alone: expected length 106,
+actual 109. Its actual hash equals the earlier synthetic `innerText` failure,
+which proves the same wrong readback text, not the live DOM shape or fallback
+branch. All 85 preceding draft/send records and 108 unknown records remain exact;
+two Outlook records bring the observed draft/send total to 87. The original
+message content and attachment bytes stay unchanged. Gmail was continued only
+under its original authorization; neither failed case was silently replayed.
+
+The Gmail continuation passes body preparation but fails
+`EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED`, again with `effect=0`, `attempted=false`
+and `confirmed=false`. The existing logs do not identify the exact attachment
+readiness guard, so this does not establish complete provider attachment upload.
+All preceding 87 draft/send records and 108 unknown records remain exact. Both
+continuation entry points are closed; the QA identity was revoked at 11:15:08 UTC,
+the old token returned 401, and local credentials were deleted. None of the three
+approved original messages has yet been dispatched.
+
+Privacy-bounded editor and collection diagnostics are implemented locally in
+App-CLI `902e3cb`, with fixed guard/error enums and bounded counts/timings. Runtime
+588 tests pass (2 existing skips), Python 90 and 11 isolated Chromium scenarios
+pass. This diagnostic commit is not yet deployed and does not claim to repair
+the newly observed live failures. Additional body-reader branch diagnostics are
+being prepared before the next paired release.
 
 A read-only preflight before the `.37` deployment found one additional Outlook
 `collect_page` / `PROVIDER_SCRIPT_FAILED` uncertain record at 10:21:52 UTC.

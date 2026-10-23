@@ -144,6 +144,26 @@ describe("desktop browser entry", () => {
       expect(f.desktop.presentPersonal).toHaveBeenCalledTimes(calls + 1);
     } finally { await f.cleanup(); }
   });
+
+  it("recovers a rejected resize and ignores a late failure from an older measurement", async () => {
+    const f = await fixture([page(1, "https://task.test", "task"), page(2)]);
+    try {
+      const browser = f.host.querySelector<HTMLElement>(".desktopBrowserHost")!;
+      vi.spyOn(browser, "getBoundingClientRect").mockReturnValue({ x: 800, y: 224, width: 480, height: 420 } as DOMRect);
+      vi.mocked(f.desktop.setBounds).mockRejectedValueOnce(new Error("Desktop browser bounds are outside the workbench"));
+      await act(async () => f.host.querySelectorAll<HTMLButtonElement>(".desktopTabSelect")[0].click());
+      expect(f.host.querySelector(".desktopBrowserError")?.textContent).toContain("outside the workbench");
+      await act(async () => observers.at(-1)!([], {} as ResizeObserver));
+      expect(f.host.querySelector(".desktopBrowserError")).toBeNull();
+      expect(f.desktop.observeTask).toHaveBeenCalledWith(page(1).page_ref);
+      let rejectOld!: (error: Error) => void;
+      vi.mocked(f.desktop.setBounds).mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectOld = reject; }));
+      await act(async () => observers.at(-1)!([], {} as ResizeObserver));
+      await act(async () => observers.at(-1)!([], {} as ResizeObserver));
+      await act(async () => rejectOld(new Error("Desktop browser bounds are outside the workbench")));
+      expect(f.host.querySelector(".desktopBrowserError")).toBeNull();
+    } finally { await f.cleanup(); }
+  });
 });
 it("resolves addresses and searches without permitting credentials", () => {
   expect(resolveBrowserInput("http://example.com/docs")).toBe("https://example.com/docs");

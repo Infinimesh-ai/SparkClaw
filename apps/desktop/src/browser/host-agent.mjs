@@ -3,6 +3,7 @@ import path from "node:path";
 import { connectPinnedHostSocket } from "./host-socket.mjs";
 import { HostJournal } from "./host-journal.mjs";
 import { nativePageCommand } from "./native-page-commands.mjs";
+import { assertSnapshotLayout } from "./native-page-commands.mjs";
 import { isTLSIdentityError } from "../main/pinned-https.mjs";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u;
@@ -295,6 +296,9 @@ export class BrowserHostAgent {
         this.registry.releaseHostPage(b); this.leases.delete(b.lease_id); return ["completed", { released: true }];
       }
       if (write) {
+        // A known resize cannot dispatch a stale action or create a new
+        // uncertain-write fence. Existing receipts still take the replay path.
+        if (!this.journal.rows.has(command.command_id)) assertSnapshotLayout(this.registry.requireHostPage(b), command.arguments.snapshot_id);
         const state = await this.journal.begin(command);
         if (state !== "new") return ["unknown", {}, "write_replay_requires_reconciliation"];
         begun = true; fence();

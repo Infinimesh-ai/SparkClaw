@@ -18,6 +18,13 @@ const encoded = (value) => Buffer.byteLength(JSON.stringify(value).replace(/[<>&
 // Whether the owner can currently see this task's page; the requested
 // presentation lane is the Gateway's to report.
 const surfaceVisible = (record) => record.view?.getVisible?.() !== false && record.webContents?.isDestroyed?.() !== true;
+function staleLayout() {
+  return Object.assign(new Error("Browser viewport changed; take a fresh snapshot"), { code: "browser_snapshot_stale" });
+}
+export function assertSnapshotLayout(record, snapshotID) {
+  const snapshot = record.lastHostSnapshot;
+  if (snapshot?.id === snapshotID && snapshot.layoutRevision !== undefined && snapshot.layoutRevision !== (record.layoutRevision ?? 0)) throw staleLayout();
+}
 function fitText(text, bytes) {
   if (encoded(text) <= bytes) return text;
   let low = 0, high = text.length;
@@ -28,6 +35,11 @@ function fitText(text, bytes) {
 // Every script is owned by this module. The wire supplies only bounded data;
 // it cannot select a JS expression, debugger method, selector or file path.
 export async function nativePageCommand(record, operation, args, binding, fence) {
+  if (["snapshot", "screenshot", "click", "fill", "select"].includes(operation)) {
+    const revision = record.layoutRevision ?? 0, leaseFence = fence;
+    fence = () => { leaseFence(); if ((record.layoutRevision ?? 0) !== revision) throw staleLayout(); };
+  }
+  if (["click", "fill", "select"].includes(operation)) assertSnapshotLayout(record, args.snapshot_id);
   fence();
   if (operation === "navigate") {
     await record.webContents.loadURL(args.url);
@@ -53,18 +65,18 @@ export async function nativePageCommand(record, operation, args, binding, fence)
         const role=element.getAttribute('role')||(tag==='a'?'link':tag==='select'?'combobox':['input','textarea'].includes(tag)?'textbox':'button');
         const uid=snapshotID+':e'+(controls.length+1);refs.set(uid,element);controls.push({ref:uid,uid,role,name,label:name,tag,type,visible:true,enabled:!element.disabled,clickable:['button','link'].includes(role),editable:role==='textbox',value_kind:'text',box:{x:box.x,y:box.y,width:box.width,height:box.height}});
       }
-      globalThis.__sparkclawBrowserRefs={snapshotID,refs,url:location.href};
+      globalThis.__sparkclawBrowserRefs={snapshotID,refs,url:location.href,width:innerWidth,height:innerHeight};
       return {url:location.href,title:document.title,controls,text:(document.body?.innerText||'').slice(0,${CONTENT_TEXT_CHARS})};
     })()`);
     fence();
     const digest = hash(result); const content = contentDigest(result.title, result.text);
     const previous = record.lastHostSnapshot;
-    record.lastHostSnapshot = { id: snapshotID, digest, pageGeneration: binding.page_generation };
+    record.lastHostSnapshot = { id: snapshotID, digest, pageGeneration: binding.page_generation, layoutRevision: record.layoutRevision ?? 0 };
     const sameSession = previous?.pageGeneration === binding.page_generation;
     const all = result.controls.map((control, index) => ({ ...control, ordinal: index + 1, short_ref: `e${index + 1}`, fingerprint: hash(control), snapshot_id: snapshotID }));
     const build = (controls) => {
       const aria = controls.map((control) => `[ref=${control.ref}] ${control.role} ${control.name}`).join("\n");
-      const snapshot = { schema_version: "browser_interaction_snapshot_v1", snapshot_id: snapshotID, previous_snapshot_id: sameSession ? previous.id : "", repeated: sameSession && previous.digest === digest,
+      const snapshot = { schema_version: "browser_interaction_snapshot_v1", snapshot_id: snapshotID, previous_snapshot_id: sameSession ? previous.id : "", repeated: sameSession && previous.digest === digest && previous.layoutRevision === record.lastHostSnapshot.layoutRevision,
         page_id: binding.page_id, page_generation: binding.page_generation,
         session_generation: binding.page_generation, url: result.url, title: result.title, digest, content_digest: content, controls_total: all.length, controls_returned: controls.length,
         controls, refs: controls, action_refs: controls.filter((control) => control.clickable).map((control) => control.ref), aria, truncated: controls.length < all.length, browser_page_auth_state: "unknown", browser_page_auth_confidence: "unknown" };
@@ -132,7 +144,7 @@ async function stableState(record, args, binding, fence) {
   }
 }
 function lookup(args) {
-  return `const state=globalThis.__sparkclawBrowserRefs;if(!state||state.snapshotID!==${JSON.stringify(args.snapshot_id)}||state.url!==location.href)throw Error('Snapshot is stale');
+  return `const state=globalThis.__sparkclawBrowserRefs;if(!state||state.snapshotID!==${JSON.stringify(args.snapshot_id)}||state.url!==location.href||state.width!==innerWidth||state.height!==innerHeight)throw Error('Snapshot is stale');
     const element=state.refs.get(${JSON.stringify(args.ref)});if(!element||!element.isConnected)throw Error('Reference is stale');`;
 }
 
@@ -207,7 +219,7 @@ async function captureNativeSurface(record, fence, signal) {
 }
 
 async function captureTaskViewport(record, fence, surfaceError = new Error("Browser display surface is unavailable"), timeout = 3000) {
-  // Ask Chromium to render only our fixed task viewport, leaving the selected
+  // Ask Chromium to render only the page's current viewport, leaving the selected
   // conversation, window visibility and owner focus unchanged. No debugger
   // method or parameters are accepted from the wire, and an existing
   // debugger session must never be displaced.

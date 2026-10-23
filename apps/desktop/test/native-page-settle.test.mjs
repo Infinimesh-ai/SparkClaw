@@ -43,3 +43,22 @@ test("page reads are cut to the result budget by encoded bytes", async () => {
   const read = await nativePageCommand(page([state("&".repeat(24000))]), "read", { max_chars: 24000 }, binding, () => {});
   assert.equal(read.truncated, true); assert.ok(encodedBytes(read) <= RESULT_BUDGET_BYTES);
 });
+
+test("resizing invalidates action references and cannot publish a snapshot of an old layout", async () => {
+  const record = page([{ url: "https://example.test/", title: "Example", controls: [], text: "body" }]);
+  record.layoutRevision = 0;
+  const snapshot = await nativePageCommand(record, "snapshot", {}, binding, () => {});
+  record.layoutRevision++;
+  let effects = 0;
+  record.webContents.executeJavaScriptInIsolatedWorld = async () => { effects++; };
+  for (const operation of ["click", "fill", "select"]) {
+    await assert.rejects(nativePageCommand(record, operation, { snapshot_id: snapshot.snapshot_id, ref: "e1", value: "draft" }, binding, () => {}), /viewport changed/);
+  }
+  assert.equal(effects, 0);
+  record.webContents.executeJavaScriptInIsolatedWorld = async () => {
+    record.layoutRevision++;
+    return { url: "https://example.test/", title: "Example", controls: [], text: "body" };
+  };
+  await assert.rejects(nativePageCommand(record, "snapshot", {}, binding, () => {}), /viewport changed/);
+  assert.equal(record.lastHostSnapshot.id, snapshot.snapshot_id, "a racing layout cannot replace the last verified snapshot");
+});

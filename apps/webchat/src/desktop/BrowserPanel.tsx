@@ -26,14 +26,14 @@ const copy = {
   en: {
     browser: "Browser", collapse: "Collapse browser", newTab: "New tab",
     address: "Search or enter an address", go: "Open", start: "Start browsing", startHint: "Enter a URL to open a page",
-    taskPage: "Task page", readOnly: "Read-only task page", small: "The panel is too small for the fixed 640 × 720 task viewport.",
+    taskPage: "Task page", readOnly: "Read-only task page",
     close: "Close tab", back: "Back", forward: "Forward", reload: "Reload", expand: "Widen browser", restore: "Restore browser width", more: "More browser actions",
     transfers: "Downloads & permissions", allow: "Allow", deny: "Deny", cancel: "Cancel", show: "Show in folder",
   },
   zh: {
     browser: "浏览器", collapse: "收起浏览器", newTab: "新标签页",
     address: "搜索或输入网址", go: "打开", start: "开始浏览", startHint: "输入 URL 以打开页面",
-    taskPage: "任务页面", readOnly: "任务页面 · 只读", small: "面板空间不足，任务视口固定为 640 × 720。",
+    taskPage: "任务页面", readOnly: "任务页面 · 只读",
     close: "关闭标签页", back: "后退", forward: "前进", reload: "刷新", expand: "加宽浏览器", restore: "恢复浏览器宽度", more: "更多浏览器操作",
     transfers: "下载与权限", allow: "允许", deny: "拒绝", cancel: "取消", show: "在文件夹中显示",
   },
@@ -58,6 +58,7 @@ export function BrowserPanel({ language, localConversationID, open = true,
   const hostRef = useRef<HTMLDivElement | null>(null);
   const addressRef = useRef<HTMLInputElement | null>(null);
   const boundsRevision = useRef(0);
+  const boundsError = useRef("");
   const nativePresented = useRef("");
   const [state, setState] = useState<DesktopState | null>(null);
   const [selectedPageRef, setSelectedPageRef] = useState("");
@@ -165,15 +166,22 @@ export function BrowserPanel({ language, localConversationID, open = true,
       const x = Math.ceil(bounds.x), y = Math.ceil(bounds.y);
       const width = Math.floor(bounds.x + bounds.width) - x, height = Math.floor(bounds.y + bounds.height) - y;
       if (width <= 0 || height <= 0) return;
+      const revision = ++boundsRevision.current;
       try {
-        await desktop.setBounds({ x, y, width, height }, ++boundsRevision.current);
-        if (cancelled || !shownRef.current) return;
+        await desktop.setBounds({ x, y, width, height }, revision);
+        if (cancelled || !shownRef.current || revision !== boundsRevision.current) return;
+        // Main can reject a measurement made before a window resize/zoom
+        // reaches the renderer. A later accepted layout clears only that error.
+        const recovered = boundsError.current;
+        if (recovered) { setError(current => current === recovered ? "" : current); boundsError.current = ""; }
         if (nativePresented.current !== activePage.page_ref) {
           if (activePage.role === "personal") await desktop.presentPersonal(activePage.page_ref);
           else await desktop.observeTask(activePage.page_ref);
           nativePresented.current = activePage.page_ref;
         }
-      } catch (reason) { if (!cancelled) setError(message(reason)); }
+      } catch (reason) {
+        if (!cancelled && revision === boundsRevision.current) { boundsError.current = message(reason); setError(boundsError.current); }
+      }
     };
     const observer = new ResizeObserver(() => { void update(); });
     observer.observe(host);
@@ -296,7 +304,6 @@ export function BrowserPanel({ language, localConversationID, open = true,
       {error && <div className="desktopBrowserError" role="alert">{error}</div>}
       <div ref={hostRef} className="desktopBrowserHost">
         {(!activePage || blankPage) && <div className="desktopBrowserEmptyState"><Globe2 size={30} /><h2>{text.start}</h2><p>{text.startHint}</p></div>}
-        {activePage?.role === "task" && state?.presentation.insufficient_space && <p>{text.small}</p>}
       </div>
   </aside>;
 }

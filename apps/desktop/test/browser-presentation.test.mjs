@@ -6,7 +6,7 @@ import { BrowserPresentation } from "../src/main/presentation.mjs";
 function fixture(explicitSelection = true) {
   const view = () => ({
     visible: false, focused: false,
-    setBounds() {}, setVisible(value) { this.visible = value; },
+    setBounds(bounds) { this.bounds = { ...bounds }; }, setVisible(value) { this.visible = value; },
     webContents: { on() {}, focus() { this.focused = true; }, isDestroyed: () => false },
   });
   const shield = view();
@@ -46,6 +46,34 @@ test("task-only qualification retains automatic presentation and shield focus", 
   assert.equal(first.view.visible, true);
   assert.equal(shield.visible, true);
   assert.equal(shield.webContents.focused, true);
+});
+
+test("task pages fill small and large panels without recreating pages or losing the shield", () => {
+  const { presentation, shield, first, second } = fixture();
+  first.role = "task";
+  presentation.showTask(first, true);
+  for (const bounds of [{ x: 700, y: 120, width: 480, height: 420 }, { x: 300, y: 95, width: 1100, height: 800 }]) {
+    presentation.setPanelBounds(bounds);
+    assert.deepEqual(first.view.bounds, bounds);
+    assert.deepEqual(shield.bounds, bounds);
+    assert.equal(first.view.visible, true);
+    assert.equal(shield.visible, true);
+    assert.equal(presentation.status().insufficient_space, false);
+    assert.equal(presentation.records.get(first.tabID), first);
+  }
+  const revision = first.layoutRevision;
+  presentation.setPanelBounds({ ...first.view.bounds, x: 310 });
+  assert.equal(first.layoutRevision, revision, "moving a viewport does not reflow its content");
+  presentation.showPersonal(second, true);
+  presentation.setPanelBounds({ x: 300, y: 95, width: 420, height: 360 });
+  assert.equal(first.layoutRevision, revision, "hidden retained pages keep their last layout");
+  presentation.showTask(first, true);
+  assert.deepEqual(first.view.bounds, presentation.bounds());
+  assert.equal(first.layoutRevision, revision + 1);
+  presentation.setPanelVisible(false);
+  presentation.setPanelBounds({ x: 300, y: 95, width: 500, height: 400 });
+  assert.equal(first.view.visible, false, "resizing cannot reopen a collapsed task page");
+  assert.equal(shield.visible, false);
 });
 
 for (const role of ["personal", "task"]) {

@@ -111,6 +111,26 @@ test("results stay inside the reverse response budget", async (t) => {
   assert.equal(click.body.status, "completed", "a completed write keeps its outcome"); assert.deepEqual(click.body.output, {});
 });
 
+test("a known resized snapshot is refused before dispatch while old uncertain writes remain fenced", async (t) => {
+  let effects = 0;
+  const f = await fixture(t, { execute: async () => { effects++; return { clicked: "e1" }; } }); f.agent.autoConnect();
+  const b = binding(); await send(f.agent, command("acquire", b));
+  const record = f.pages.get("A");
+  record.lastHostSnapshot = { id: "snapshot", layoutRevision: 0 };
+  record.layoutRevision = 1;
+  const stale = command("click", b, { snapshot_id: "snapshot", ref: "snapshot:e1" });
+  const denied = await send(f.agent, stale);
+  assert.equal(denied.body.status, "failed");
+  assert.equal(effects, 0); assert.equal(f.agent.journal.rows.size, 0);
+  await f.agent.journal.begin(stale); await f.agent.journal.finish(stale.command_id, "unknown");
+  const replay = await send(f.agent, stale);
+  assert.equal(replay.body.status, "unknown"); assert.equal(replay.body.error_code, "write_replay_requires_reconciliation");
+  assert.equal(effects, 0); assert.equal(f.agent.journal.unknown(scope).length, 1);
+  record.lastHostSnapshot = { id: "fresh", layoutRevision: 1 };
+  const fresh = await send(f.agent, command("click", b, { snapshot_id: "fresh", ref: "fresh:e1" }, "fresh_click"));
+  assert.equal(fresh.body.status, "completed"); assert.equal(effects, 1);
+});
+
 test("a conflicting fence on connect stops automation until the owner reconciles", async (t) => {
   const write = command("click", binding(), { ref: "snapshot:e1", snapshot_id: "snapshot" });
   const b = binding();

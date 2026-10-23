@@ -7,6 +7,7 @@ import { DesktopCapability } from "../src/main/desktop-capability.mjs";
 import { BrowserPresentation } from "../src/main/presentation.mjs";
 import { PageRegistry } from "../src/browser/page-registry.mjs";
 import { bindWorkbenchActivation } from "../src/main/workbench-activation.mjs";
+import { nativePageCommand } from "../src/browser/native-page-commands.mjs";
 
 const temporary = process.env.SPARKCLAW_LAYOUT_ROOT;
 const directory = path.dirname(fileURLToPath(import.meta.url));
@@ -211,6 +212,58 @@ app.whenReady().then(async () => {
     await reselect();
     await evaluate("document.querySelector('[aria-label=\"Restore browser width\"]').click()");
     await check("split restored after close/reconnect");
-    console.log(JSON.stringify({ event:"browser_panel_layout",passed:true,cases:cases.length,real_component_css_preload_ipc:true,real_native_view:true,zoom:true,modal_occlusion:true,focus_layout:true,retained_page:true,divider_keyboard:true,divider_hide:true,window_reopen:true,closed_window_reconnect:true,renderer_reload:true,renderer_crash_recovery:true,aborted_redirect:true,redirected_new_page:true,redirected_popup:true,real_failure_reported:true,network:false,production_data:false }));
+    // A leased and a released task page use the same native panel geometry as
+    // personal pages, including sizes below the former 640 x 720 threshold.
+    const binding = { local_conversation_id: "layout", local_task_id: "task_layout", lease_id: "lease_layout", page_id: "page_layout", page_generation: 1 };
+    registry.selectConversation("layout");
+    const task = registry.acquireHostPage(binding);
+    await task.hostInitialLoad;
+    await task.webContents.loadURL("https://fixture.test/task");
+    await until(() => evaluate("Boolean(document.querySelector('.desktopTabSelect[title=\"Isolated page\"]'))"), "task tab missing");
+    const selectTask = async () => {
+      await until(() => evaluate("[...document.querySelectorAll('.desktopTabSelect')].some(button => button.querySelector('.lucide-eye'))"), "task tab missing");
+      await evaluate("[...document.querySelectorAll('.desktopTabSelect')].find(button => button.querySelector('.lucide-eye')).click()");
+      await until(() => presentation.presented === task && task.view.getVisible(), "task page not shown");
+    };
+    await selectTask();
+    const taskID = task.webContents.id;
+    const taskCases = [];
+    for (const released of [false, true]) {
+      if (released) registry.releaseHostPage(binding);
+      for (const [width, height] of [[1440,900], [1180,720], [1920,1080]]) {
+        window.setContentSize(width, height);
+        for (const zoom of [1, 1.5]) {
+          window.webContents.setZoomFactor(zoom); await pause(220);
+          if (await evaluate("document.querySelector('.desktopBrowserPanel').hidden")) await evaluate("document.querySelector('#toggle-panel').click()");
+          await selectTask(); await check(`task ${width}x${height} zoom ${zoom} released ${released}`);
+          assert.deepEqual(task.view.getBounds(), presentation.bounds());
+          assert.deepEqual(shieldView.getBounds(), presentation.bounds());
+          assert.equal(task.view.getVisible(), true); assert.equal(shieldView.getVisible(), true);
+          assert.equal(task.webContents.id, taskID);
+          assert.equal(presentation.status().insufficient_space, false);
+          assert.equal(await task.webContents.executeJavaScript("document.querySelector('input').value"), "retained native input");
+          taskCases.push({ width, height, zoom, released, viewport: task.view.getBounds() });
+        }
+      }
+    }
+    assert.ok(taskCases.some(item => item.viewport.width < 640));
+    assert.ok(taskCases.some(item => item.viewport.height < 720));
+    window.webContents.setZoomFactor(1); window.setContentSize(1440,900); await pause(220); await check("task action layout");
+    await task.webContents.executeJavaScript("window.fixtureClicks=0;const button=document.createElement('button');button.textContent='Layout action';button.onclick=()=>window.fixtureClicks++;document.body.prepend(button)");
+    const oldSnapshot = await nativePageCommand(task, "snapshot", {}, binding, () => {});
+    const oldAction = oldSnapshot.snapshot.controls.find(item => item.name === "Layout action");
+    window.setContentSize(1440,580); await pause(220); await check("task action resized");
+    await assert.rejects(nativePageCommand(task, "click", { snapshot_id: oldSnapshot.snapshot_id, ref: oldAction.ref }, binding, () => {}), /viewport changed/);
+    assert.equal(await task.webContents.executeJavaScript("window.fixtureClicks"), 0);
+    const freshSnapshot = await nativePageCommand(task, "snapshot", {}, binding, () => {});
+    const freshAction = freshSnapshot.snapshot.controls.find(item => item.name === "Layout action");
+    await nativePageCommand(task, "click", { snapshot_id: freshSnapshot.snapshot_id, ref: freshAction.ref }, binding, () => {});
+    assert.equal(await task.webContents.executeJavaScript("window.fixtureClicks"), 1);
+    await evaluate("document.querySelector('#show-modal').click()");
+    await until(() => !task.view.getVisible(), "task obscures modal");
+    assert.equal(shieldView.getVisible(), false);
+    await evaluate("document.querySelector('#close-modal').click()");
+    await until(() => task.view.getVisible(), "task not restored after modal");
+    console.log(JSON.stringify({ event:"browser_panel_layout",passed:true,cases:cases.length,task_cases:taskCases,task_resize_stale_action_refused:true,real_component_css_preload_ipc:true,real_native_view:true,zoom:true,modal_occlusion:true,focus_layout:true,retained_page:true,divider_keyboard:true,divider_hide:true,window_reopen:true,closed_window_reconnect:true,renderer_reload:true,renderer_crash_recovery:true,aborted_redirect:true,redirected_new_page:true,redirected_popup:true,real_failure_reported:true,network:false,production_data:false }));
   } finally { capability?.close(); for (const record of registry?.records.values() ?? []) record.webContents.close(); window?.destroy(); }
 }).then(() => app.exit(0)).catch(error => { console.error(error); app.exit(1); });

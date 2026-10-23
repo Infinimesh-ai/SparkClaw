@@ -204,11 +204,15 @@ P2 验证真实 execution 产物提交、落盘、下载和 ACK 路径，可用�
 
 ### 6.2 浏览器
 
-操作族为 `browser.host.grant/revoke`、`browser.command/receipt/reconcile` 与浏览器状态事件。这是 Gateway 经同一认证 ISCP 会话向桌面宿主发送受限命令的反向链路，需要单独的方向／schema／权限白名单，不等于 responder 获得任意本机控制权。
+内置浏览器自带内核，普通浏览完全不与 Gateway 通信：设备已绑定、ISCP 会话已连接时，桌面不为浏览器做任何授权、注册、轮询或心跳。只有 Gateway 执行任务自动化时，才在已认证该设备的 ISCP 会话上发起反向 `browser.command` 调用。每条命令一次往返，没有排队、序号游标或状态轮询。桌面只接受这一个反向操作，其他反向操作一律回 403，会话不断开。正向操作只保留 `browser.receipt`（读取写入 fence）和 `browser.reconcile`（记录已核实的结果）。原轮询宿主操作 `browser.host.grant/revoke/register/poll/reply/heartbeat/close` 已删除。
 
-复用现有 browser host broker、Owner Controller、任务 tab 所有权和 write fence；grant 绑定 host、installation、会话／任务、允许动作、tab 及有效期。截图／下载／导出文件走 P2，进度／授权／命令状态走 P3。浏览器读取与登录授权、点击外部写动作独立控制，撤销必须停止后续命令。桌面已有 URL、cookie、登录态不能作为任意任务的默认权限。
+授权就是 ISCP 会话本身的授权。Endpoint 对每条消息都校验设备凭证、Grant 和 `authorization_revision`，因此没有单独的浏览器授权，也没有 15 分钟过期。设备凭证携带 `sparkclaw.workbench.v1`；操作表中的 `browser.control` 只是分类，不按 peer scope 校验。能否控制沿用现有开关：Gateway 的 `browser` 能力族，以及桌面的 `capabilities.browser`。binding 由两端各自从会话推导：`connection_epoch` 是 ISCP session ID，`runtime_generation` 是 `iscp_<session ID>`，`host_id` 是 Owner、Client、installation 和会话的哈希，`authorization_digest` 是 session ID 与授权修订的哈希。桌面拒绝任何自己推导不出的 binding。吊销设备或授权修订变化会结束会话，随即释放全部租约、取消进行中的调用，不确定的写入留在 fence 中。新会话（包括 Gateway 或 helper 重启后）会关闭旧会话的任务页租约。之后桌面用 `browser.receipt` 读取一次 fence，由事件触发，不定时。原有的“浏览器操作结果不确定”提示交给用户执行 `browser.reconcile`，不自动重放。
 
-命令结果丢失先按原 command ID 核对 fence；不能重放发送、下单等未知写动作。单纯重载页面不构成核对写入结果。断线释放控制 lease；重新连接不能自动控制未重新确认所有权的 tab。受控页面访问外网是工具业务流量，桌面到 Gateway 的控制／截图上传仍只能走 ISCP。
+控制按需进行。`browser.status` 只检查本地状态：peer 会话已就绪、浏览器能力族已开启；会话恢复中时最多等待 10 秒，不发送任何命令。第一个工具调用才获取任务页，租约跟随任务：任务结束、释放会话或会话变化时释放。ISCP 租约不靠心跳续期。桌面给每条命令设 25 秒截止，保证自己的结果（写入为 `unknown`，读取为 `failed`）先于 30 秒的 ISCP 调用超时返回；稳定等待在页面内 15 秒内判定。结果体按转义后的 JSON 计不超过 56 KiB，使整个反向响应装进一条 64 KiB 消息。快照截掉末尾控件并标明截断，页面读取按编码字节截断，超过 39 KiB 的截图直接失败。反向调用本身返回 `outcome_unknown` 时，读取直接报错，可以重试；写入按原 command ID 和摘要进入 `unknown` fence，绝不重发。只有执行前的拒绝（没有会话，或桌面自己回 403/503）能证明写入未执行。
+
+工具语义与 Controller 适配器一致。`browser.wait mode=stable_state` 在页面内判定：URL 和 `title\ntext` 摘要在静默期内保持不变，摘要算法与快照的 `content_digest` 相同。Gateway 按冻结目标的路由规则校验，必要时同源重绑定路由，最多两次。快照带 `owner_id`、`profile_id`、请求的 `presentation`、`provider_session_ref`、`previous_snapshot_id` 和 `repeated`；宿主用 `surface_visible` 报告页面实际是否可见。任务导航前 `browser.list_tabs` 不列出页面。`browser.focus` 只针对本任务租约内的页面，不改变用户正在查看的会话。
+
+超出结果预算的截图、下载和导出走 P2。LAN 直连保留固定证书的 WebSocket 宿主及其授权、心跳和租约续期，不属于 ISCP 路径。桌面已有的 URL、cookie、登录态不能作为任意任务的默认权限。单纯重载页面不构成核对写入结果。受控页面访问外网是工具业务流量，桌面到 Gateway 的控制和截图上传仍只能走 ISCP。
 
 ### 6.3 其他工具
 

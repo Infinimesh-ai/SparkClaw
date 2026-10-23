@@ -73,7 +73,7 @@ The independently continued Outlook case also has proven zero dispatches and
 fails `EMAIL_DRAFT_FIELDS_UNVERIFIED` on the body alone: expected length 106,
 actual 109. Its actual hash equals the earlier synthetic `innerText` failure,
 which proves the same wrong readback text, not the live DOM shape or fallback
-branch. All 85 preceding draft/send records and 108 unknown records remain exact;
+branch. All 85 preceding draft/send payload hashes and 108 unknown records remain exact;
 two Outlook records bring the observed draft/send total to 87. The original
 message content and attachment bytes stay unchanged. Gmail was continued only
 under its original authorization; neither failed case was silently replayed.
@@ -82,17 +82,27 @@ The Gmail continuation passes body preparation but fails
 `EMAIL_ATTACHMENT_UPLOAD_UNVERIFIED`, again with `effect=0`, `attempted=false`
 and `confirmed=false`. The existing logs do not identify the exact attachment
 readiness guard, so this does not establish complete provider attachment upload.
-All preceding 87 draft/send records and 108 unknown records remain exact. Both
+All preceding 87 draft/send payload hashes and 108 unknown records remain exact. Both
 continuation entry points are closed; the QA identity was revoked at 11:15:08 UTC,
 the old token returned 401, and local credentials were deleted. None of the three
-approved original messages has yet been dispatched.
+approved original messages has yet been dispatched. The final full inventory proves
+all original 83 draft/send rows unchanged and provides full-row fingerprints for
+the current 89 rows; later per-case 85/87 checks used payload hashes, not all columns.
 
-Privacy-bounded editor and collection diagnostics are implemented locally in
-App-CLI `902e3cb`, with fixed guard/error enums and bounded counts/timings. Runtime
-588 tests pass (2 existing skips), Python 90 and 11 isolated Chromium scenarios
-pass. This diagnostic commit is not yet deployed and does not claim to repair
-the newly observed live failures. Additional body-reader branch diagnostics are
-being prepared before the next paired release.
+Privacy-bounded editor, body and attachment diagnostics are integrated locally in
+App-CLI `dad885dd` (including `902e3cb` and `6a9b546`). Fixed guard/error enums,
+bounded structure and counts identify future failures; strict account, ownership,
+body and attachment checks remain intact. The last attachment readiness result
+survives the unchanged 20-second wait. Optional structure logs retain a bounded
+first context or a minimal record when the 16 KB limit is exceeded. That source
+risk does not establish why the prior live Gmail diagnostic was absent.
+Runtime 602 tests pass (2 existing skips), Python 90 and 24 focused checks pass.
+Final isolated QQ/editor Chromium qualification passes 12 cases; the preceding
+`6a9b546` passes 9 cases through the actual pinned MCP wrapper, including full
+synthetic file transfer and a real 20-second rejection. No live page or email is
+used by these fixtures. Reader assets remain exact. Paired `.38` release
+preparation is in progress; none of these diagnostics proves a live root cause
+or closes the three mail blockers.
 
 A read-only preflight before the `.37` deployment found one additional Outlook
 `collect_page` / `PROVIDER_SCRIPT_FAILED` uncertain record at 10:21:52 UTC.

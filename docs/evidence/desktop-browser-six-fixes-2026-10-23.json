@@ -580,6 +580,34 @@
       "/Users/dev/.cache/sparkclaw-acceptance/20261023-mail-body-r37/live-mail-plan",
       "/Users/dev/.cache/sparkclaw-acceptance/20261023-mail-body-r37/remaining-two-r37"
     ],
-    "qualification_limit": "No actual Sent, receiver original or received attachment qualification; no confirmed provider dispatch."
+    "qualification_limit": "No actual Sent, receiver original or received attachment qualification; no confirmed provider dispatch.",
+    "preservation": {
+      "pre_release83_full_draft_rows_exact": true,
+      "pre_case3_87_payload_hashes_exact": true,
+      "final89_full_draft_row_fingerprints_available": true,
+      "devices10_exact": true,
+      "full_inventory_sha256": "618c834795bee0a179365d958be05d8d5d8146aff3d133bb2fad611420ea438e",
+      "full_inventory_path": "/Users/dev/.cache/sparkclaw-acceptance/20261023-mail-body-r37/final-live-handoff/work2-final.private.json"
+    }
+  },
+  "mail_diagnostics_repair": {
+    "product_commit": "dad885dd54ab0db94434a8feb9e1a6bba4cb7288",
+    "status": "locally_integrated_paired_release_pending",
+    "runtime_tests": {
+      "passed": 602,
+      "skipped": 2
+    },
+    "python_tests_passed": 90,
+    "root_independent_targeted_passed": 24,
+    "final_qq_chromium_passed": 12,
+    "actual_pinned_mcp_wrapper": {
+      "source": "6a9b5462a8d0556a47e945b76ec1c4637e7f051e",
+      "passed": 9,
+      "provider_dispatches": 0
+    },
+    "strict_body_attachment_account_and_ownership_checks_unchanged": true,
+    "reader_assets_exact": true,
+    "actual_live_root_causes_proven": false,
+    "evidence_root": "/Users/dev/.cache/sparkclaw-acceptance/20261023-mail-body-r37/readback-attachment-diagnostic"
   }
 }

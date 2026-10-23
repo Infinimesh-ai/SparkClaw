@@ -293,3 +293,19 @@ func TestLegacyClientWithExistingGrantUsesExactV1OnV2Responder(t *testing.T) {
 		t.Fatal("compatibility path rewrote an issued Grant")
 	}
 }
+
+func TestQualifiedCapabilitiesDropRetiredBrowserHostOperations(t *testing.T) {
+	for _, name := range retiredOperations {
+		if _, ok := LookupOperation(name); ok {
+			t.Fatalf("retired operation %s is still registered", name)
+		}
+	}
+	got := withoutRetiredOperations([]string{OperationExecutionProgress, "browser.host.grant", "browser.host.poll"})
+	if !slices.Equal(got, []string{OperationExecutionProgress}) {
+		t.Fatalf("filtered = %v", got)
+	}
+	cfg := Config{QualifiedCapabilities: withoutRetiredOperations([]string{"browser.host.grant", "not.an.operation"})}
+	if err := cfg.Validate(); err == nil || err.Error() != "unknown qualified operation" {
+		t.Fatalf("unknown operation accepted: %v", err)
+	}
+}

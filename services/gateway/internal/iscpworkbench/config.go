@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -109,6 +110,7 @@ func loadConfig(path string, controlOnly bool) (Config, error) {
 	if cfg.GrantRenewal != nil && !filepath.IsAbs(cfg.GrantRenewal.PendingFile) {
 		cfg.GrantRenewal.PendingFile = filepath.Join(base, cfg.GrantRenewal.PendingFile)
 	}
+	cfg.QualifiedCapabilities = withoutRetiredOperations(cfg.QualifiedCapabilities)
 	if err := cfg.Validate(); err != nil {
 		return cfg, err
 	}
@@ -116,6 +118,21 @@ func loadConfig(path string, controlOnly bool) (Config, error) {
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+// retiredOperations were removed from the operation table but may still be
+// listed by configurations qualified before their removal. They are dropped on
+// load rather than rejected; any other unknown name still fails validation.
+var retiredOperations = []string{
+	"browser.host.grant", "browser.host.revoke", "browser.host.register", "browser.host.poll",
+	"browser.host.reply", "browser.host.heartbeat", "browser.host.close",
+}
+
+func withoutRetiredOperations(names []string) []string {
+	if names == nil {
+		return nil
+	}
+	return slices.DeleteFunc(slices.Clone(names), func(name string) bool { return slices.Contains(retiredOperations, name) })
 }
 
 func (c Config) Validate() error {

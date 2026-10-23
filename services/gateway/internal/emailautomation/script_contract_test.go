@@ -30,7 +30,10 @@ var providerUnavailableScriptCodes = map[string]bool{
 	"email_tab_cleanup_failed":        true,
 	"email_capture_unavailable":       true,
 	"email_network_read_failed":       true,
-	"login_probe_browser_failure":     true,
+	// The maintained native send could not be used before any dispatch
+	// release (page, script or template unavailable); nothing was sent.
+	"email_native_send_unavailable": true,
+	"login_probe_browser_failure":   true,
 	// The Controller envelope substitutes this code when a script error
 	// carries no well-formed code of its own.
 	"provider_script_failed": true,

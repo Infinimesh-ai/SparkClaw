@@ -424,5 +424,7 @@ QQ 是这一模式的锚点，不是终点。实现时要把通用部分和 QQ �
 | Gateway | 校验 `provider_rejected` 证明；正常模式接受并 ACK `not_sent`；草稿错误码 `email_send_rejected_login_required` / `_invalid_parameter` / `_temporarily` 与 `email_send_template_drift`；登录类拒绝把设置置为 `login_required`；`send_admission: in_page` 时发送前不再探测。 |
 | 界面 | 不变。新的草稿错误码沿用现有的通用发送失败文字。 |
 
-尚未完成：配套发布（App-CLI 构建、SparkClaw 版本固定与 `provider_scripts.json` 同步、新的 Tampermonkey 版本）、第 5 节中守护进程日志/trace 的核查，以及 13.3 的实机验收。preflight 阶段的登录或账号失败目前到达草稿时仍是 `email_send_not_dispatched`，因为运行时对未放行的发送统一这样报告；只有发送后的登录类拒绝或下一次探测才会把设置置为 `login_required`。
+配套发布已准备、未部署（2026-10-23）：App-CLI 第 36 版（冻结提交 `da62e87`，并从该提交可复现地重新构建）、Tampermonkey 5.5.0.19，以及 SparkClaw 的版本固定、vendor 的 wheel 与运行时包、controller 依赖锁、`provider_scripts.json`（`send_admission: in_page`）和桌面端托管脚本预加载。装上 .36 运行时后，controller 测试、投影与托管脚本检查、配套发布资格检查和一次性安装均通过。配对时还把 `email_native_send_unavailable`（发生在任何放行之前，未发出）映射为服务商不可用，并删除了只有原型才会产生的 `email_network_sent_unqualified`。
+
+尚未完成：部署、第 5 节中守护进程日志/trace 的核查，以及 13.3 的实机验收。preflight 阶段的登录或账号失败目前到达草稿时仍是 `email_send_not_dispatched`，因为运行时对未放行的发送统一这样报告；只有发送后的登录类拒绝或下一次探测才会把设置置为 `login_required`。
 

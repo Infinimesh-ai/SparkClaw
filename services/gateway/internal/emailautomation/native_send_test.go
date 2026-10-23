@@ -49,8 +49,7 @@ func (s *scriptedController) count(operation string) int {
 // declares QQ's in-page send admission.
 func inPageRegistry(t *testing.T) Registry {
 	t.Helper()
-	raw := bytes.Replace(providerScriptContract, []byte(`"script_id": "qqmail.send",`), []byte(`"script_id": "qqmail.send", "send_admission": "in_page",`), 1)
-	registry, err := registryFromContract(raw)
+	registry, err := registryFromContract(providerScriptContract)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +156,7 @@ func TestProviderScriptContractDeclaresInPageAdmissionOnlyForSends(t *testing.T)
 		t.Fatalf("admission qq=%q gmail=%q", provider.SendAdmission, gmail.SendAdmission)
 	}
 	for _, raw := range [][]byte{
-		bytes.Replace(providerScriptContract, []byte(`"script_id": "qqmail.send",`), []byte(`"script_id": "qqmail.send", "send_admission": "none",`), 1),
+		bytes.Replace(providerScriptContract, []byte(`"send_admission": "in_page"`), []byte(`"send_admission": "none"`), 1),
 		bytes.Replace(providerScriptContract, []byte(`"script_id": "qqmail.login_probe",`), []byte(`"script_id": "qqmail.login_probe", "send_admission": "in_page",`), 1),
 	} {
 		if _, err := registryFromContract(raw); err == nil {

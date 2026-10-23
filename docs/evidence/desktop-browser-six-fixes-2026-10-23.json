@@ -252,10 +252,6 @@
     "all_original_database_primary_keys_retained": true,
     "original_messages_and_tasks_exact": true,
     "original_draft_content_exact": true,
-    "changed_empty_draft_revision": [
-      127,
-      131
-    ],
     "event_projection_changes": [
       "cursor",
       "revision",
@@ -274,6 +270,259 @@
     "original_owned_files_exact": true,
     "launchers_exact": true,
     "package_entries_exact": 296,
-    "limits": "Live protocol envelopes renew and advance; this is not a byte-identical post-session profile claim."
+    "limits": "Live protocol envelopes renew and advance; this is not a byte-identical post-session profile claim.",
+    "changed_draft_revision": [
+      127,
+      131
+    ]
+  },
+  "remote_ci": {
+    "run_id": 39937253127,
+    "source": "f7f8df8bf597fea4c9fd610cbdfd83be50e7ab7d",
+    "status": "completed",
+    "conclusion": "failure",
+    "passed_jobs": [
+      "Docs",
+      "Gateway",
+      "Gateway race",
+      "WebChat",
+      "ASR Runtime"
+    ],
+    "passed_desktop_steps": [
+      "526 unit tests",
+      "managed preload check",
+      "actual native LAN host qualification",
+      "paired release qualification"
+    ],
+    "failures": [
+      {
+        "job": "Compose",
+        "signature": "test_local_entry_rejects_remote_model_override expects override error; current validator reports FAST/DEEP URL mismatch",
+        "same_as_baseline_run": 39926475358
+      },
+      {
+        "job": "Browser surface Electron anchor",
+        "signature": "Electron SUID sandbox helper ownership/mode is not configured by runner",
+        "same_as_baseline_run": 39926475358
+      },
+      {
+        "job": "Desktop Electron adapter",
+        "signature": "phase-one disposable Electron exits before readiness (code null); stderr discarded by unchanged harness",
+        "cause": "not established by this log; separate native host fixture passes; no blanket green claim"
+      }
+    ],
+    "logs": [
+      {
+        "name": "baseline-anchor.log",
+        "sha256": "55398f3e694a0096aaed88d89e0bdb99d3ae5d1c03233d50ef91bd2c8808084f"
+      },
+      {
+        "name": "baseline-compose.log",
+        "sha256": "d306642c1ec1244850b4a3f37a5114627f1f68db0d3358c33cb83c25c3a0292a"
+      },
+      {
+        "name": "baseline-desktop.log",
+        "sha256": "6b2aec9a070f4b375cf1530b1dab0ef51fa535716898b9412d3fe79d2fa34564"
+      },
+      {
+        "name": "current-anchor.log",
+        "sha256": "3cc0aeebdcc2bf93eb374e237e09ae36f99227fa86ef7d5745d2851d7e1566d9"
+      },
+      {
+        "name": "current-compose.log",
+        "sha256": "11cbc4abc1e6436b2a4f59c239860060b1bc9165e6c846b145b3601186d230b3"
+      },
+      {
+        "name": "current-desktop.log",
+        "sha256": "30fe8e6bb59621506d2c9cab96e7bff284b67856c68407e227716c2ba50c09c8"
+      }
+    ]
+  },
+  "mail_body_repair": {
+    "product_commit": "7371628c2ebeeadc67f578747224d379134d85ff",
+    "appcli_release_commit": "91c3a160b6136dc134f62c6af90ac0d8ba996f80",
+    "consumer_commit": "29097af7fcdbd87e5e054f9cd025ee38a1b14dfa",
+    "release": "0.3.0-sparkclaw.37",
+    "runtime_digest": "ce50af5aa6aac24542716224e01312b55ae996fc68edba9d47be8c6c1ff2882e",
+    "strict_body_digest_retained": true,
+    "editor_mutation_by_readback": false,
+    "original_live_exact_cause_proven": false,
+    "runtime_tests": {
+      "passed": 581,
+      "skipped": 2
+    },
+    "python_tests_passed": 90,
+    "controller_cases": {
+      "passed": 469,
+      "skipped": 0,
+      "execution": "356 initial passes plus 113 passes after Chromium OS dependencies installed; initial failure retained"
+    },
+    "isolated_frozen_mail_combinations": {
+      "passed": 3,
+      "dispatch_releases": 0
+    },
+    "evidence_root": "/Users/dev/.cache/sparkclaw-acceptance/20261023-mail-body-r37",
+    "live_acceptance": "Existing human approval remains valid for the same three approved actual messages; all prior attempts proven not dispatched; root integration hold pending final account/plan checks",
+    "deployment": {
+      "phase": "healthy",
+      "operation": "20261023-mail-r37",
+      "consumer_source": "29097af7fcdbd87e5e054f9cd025ee38a1b14dfa",
+      "gateway_binary_source": "cf1b81009b3a0bb122daa03352164bff4ff633f0",
+      "gateway_image": "sha256:ce814bdc134dcfbf0c8a6e6dfad4ae741d4f0294d6e15ec7c39235b9b460935d",
+      "started_at": "2026-10-23T10:41:31.809290+00:00",
+      "release_id": "0.3.0-sparkclaw.37",
+      "gateway_same_container": true,
+      "webchat_same_container": true,
+      "browser_same_pid": true,
+      "managed_components_unchanged": true,
+      "device_records_exact": true,
+      "business_tables_preserved": 41,
+      "draft_snapshots_exact": 83,
+      "unknown_exact": 108,
+      "completed_at": "2026-10-23T10:43:47.083208+00:00",
+      "final_checked_at": "2026-10-23T10:44:01.646874+00:00",
+      "gateway_health": "healthy",
+      "gateway_binary_sha256": "d53b58bd90014bbbf9f92d56ec9b093177cd09c769070e488685a61cf080530b",
+      "webchat_image": "sha256:cd8fd1866a15cfc133ca79de8eb3511b0a49b27e3c8f8d664aa45772f9f49ab9",
+      "tampermonkey_version": "5.5.0.19",
+      "unknown_count": 108,
+      "historical_unknown_count": 106,
+      "preexisting_additional_collect_page_uncertain": 2,
+      "pending_release": 0,
+      "active_tasks": [
+        [
+          "collect_page",
+          "running",
+          1
+        ],
+        [
+          "watch",
+          "running",
+          3
+        ]
+      ],
+      "original_device_records_exact": 4,
+      "all_device_records_exact": 10,
+      "mailbox_delivery_address_and_aliases_exact": true,
+      "managed_component_receipt_sha256": "236870e100c00476a865cb3077b8c74df46ef5c4fc3617df44ec1ed8c6c89930",
+      "unit_pids": {
+        "sparkclaw-browser.service": {
+          "before": "2605041",
+          "after": "2605041",
+          "active": true
+        },
+        "sparkclaw-browser-controller.service": {
+          "before": "2673218",
+          "after": "3856414",
+          "active": true
+        },
+        "sparkclaw-app-cli-executor.service": {
+          "before": "2673222",
+          "after": "3856418",
+          "active": true
+        }
+      },
+      "strict_before_admission": {
+        "raw_database_exact": true,
+        "tables": 41,
+        "draft_snapshots_exact": 83,
+        "unknown_exact": 108,
+        "workspace_receipts_controls_and_ledger_exact": true,
+        "checked_before_start": true
+      },
+      "post_start_initial_strict": {
+        "passed": true,
+        "failure": null
+      },
+      "classified_discover_jobs": 3,
+      "files_preserved": {
+        "workspaces": 3083,
+        "operation_receipts": 85041
+      },
+      "initial_preflight_106_count_failure_retained": true,
+      "first_stage_107_count_failure_retained": true,
+      "stage_recovered_once_after_exact_footprint_check": true,
+      "real_mail_dispatches": 0
+    }
+  },
+  "pre_r37_unknown_delta": {
+    "historical_count": 106,
+    "historical_records_exact": true,
+    "added_before_deployment": 2,
+    "current_protected_count": 108,
+    "provider": "outlook",
+    "command": "collect_page",
+    "reason": "PROVIDER_SCRIPT_FAILED",
+    "created_at": "2026-10-23T10:21:52.427Z",
+    "side_effect": "local_mutation",
+    "not_mail_dispatch": true,
+    "resolved_or_replayed": false,
+    "evidence": "/Users/dev/.cache/sparkclaw-upgrades/20261023-mail-r37/evidence/unknown-delta.redacted.json",
+    "second_created_at": "2026-10-23T10:28:17.036Z",
+    "first_stage_blocked": true,
+    "original_stage_failure_retained": true,
+    "protection_appendix": "/Users/dev/.cache/sparkclaw-upgrades/20261023-mail-r37/evidence/unknown-baseline-appendix-01.json"
+  },
+  "retained_outlook_collection_issue": {
+    "status": "underlying_exception_not_established",
+    "pre_deployment_failures": 2,
+    "nearby_empty_completed_rounds": 9,
+    "captures_in_those_rounds": 0,
+    "receive_source_unchanged_in_r37": true,
+    "diagnostic_gap": "Uncoded mail handler exceptions lose original type and stage behind PROVIDER_SCRIPT_FAILED",
+    "evidence": "/Users/dev/.cache/sparkclaw-upgrades/20261023-mail-r37/evidence/collect-diagnostic/summary.redacted.json"
+  },
+  "remote_ci_r37": {
+    "run_id": 39939779045,
+    "source": "29097af7fcdbd87e5e054f9cd025ee38a1b14dfa",
+    "status": "completed",
+    "conclusion": "failure",
+    "passed_jobs": [
+      "Docs",
+      "Gateway race",
+      "WebChat",
+      "ASR Runtime"
+    ],
+    "failed_jobs": [
+      {
+        "job": "Gateway",
+        "failure": "TestSessionMessageAdmissionRejectsConcurrentSubmission TempDir cleanup: workbench-state.json.execution directory not empty",
+        "test_and_product_source_unchanged_from_prior_passing_run": true,
+        "cause": "Background cleanup race is suggested by the directory-not-empty signature, but not established by this log; retained without blanket green claim"
+      },
+      {
+        "job": "Compose",
+        "failure": "Unchanged remote-model-override expected error versus FAST/DEEP URL mismatch",
+        "matches_prior_run": 39937253127
+      },
+      {
+        "job": "Browser surface Electron anchor",
+        "failure": "SUID sandbox helper ownership/mode not configured",
+        "matches_prior_run": 39937253127
+      },
+      {
+        "job": "Desktop Electron adapter",
+        "failure": "Disposable phase-one Electron exits before ready: null; underlying stderr absent",
+        "matches_prior_run": 39937253127
+      }
+    ],
+    "logs": [
+      {
+        "name": "anchor.log",
+        "sha256": "c7ff3ba719beb933ae3f7d3bc9c6230ab667c499b02328301ea5272aad8c74fd"
+      },
+      {
+        "name": "compose.log",
+        "sha256": "27e6a5db724bd62449a9884d35d51dc20f13f8af29cbec128966856f0993dd7f"
+      },
+      {
+        "name": "desktop.log",
+        "sha256": "adad279f35671e3021717f2d9f0f8fc45c8a2347a09fd811135ca12f05169e6e"
+      },
+      {
+        "name": "gateway.log",
+        "sha256": "55a5066fb06f1c14e9c38bcddc2d1b2d9028e9f23984538f331964350fd75a8b"
+      }
+    ]
   }
 }

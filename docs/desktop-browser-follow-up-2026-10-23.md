@@ -17,7 +17,7 @@ checkpoint; its “all open” statements are not the current status.
 | BR-03 | Explicit verified revocation reason and existing login UI passed. | A bounded issuer authorization check preserves the typed signed revocation signal across reconnect/restart. Ordinary disconnection and generic 401/403 do not manufacture revocation. Existing credential form/history remain; Reconnect is disabled for revoked authorization. |
 | BR-04 | Real in-flight revocation passed using a disposable identity. | Installed helper/UI hashes and product source match. One live read had executed but its result remained in flight. Revocation clears the active lease/page, fences the old result, rejects the old binding and returns business 401. Restart remains revoked. Already-read content cannot be undone. |
 | BR-05 | Native navigation diagnosis implemented and verified. | The original example.com log contains `ERR_NAME_NOT_RESOLVED`; it is an environmental DNS failure whose reason was lost. Bounded native error codes and command deadlines now remain distinct from true fencing. Installed UI reports `browser dns resolution failed` for a controlled `.invalid` domain; Apple success is independently verified. |
-| BR-06 | Optional qualification passed; real send/receive/attachment acceptance remains open. | Linux full Go/build/vet, 526 desktop tests, 504 WebChat tests, all 131 optional browser/recovery cases and file/PostgreSQL 10,000-mail capacity pass. Three specifically approved emails each stopped before provider dispatch at `EMAIL_DRAFT_FIELDS_UNVERIFIED`; actual sends 0, retries 0. Common multiline-editor readback diagnosis and repair are in progress. |
+| BR-06 | Optional qualification passed; real send/receive/attachment acceptance remains open. | Linux full Go/build/vet, 526 desktop tests, 504 WebChat tests, all 131 optional browser/recovery cases and file/PostgreSQL 10,000-mail capacity pass. Three specifically approved emails each stopped before provider dispatch at `EMAIL_DRAFT_FIELDS_UNVERIFIED`; actual sends 0, retries 0. The strict multiline-editor readback fix is integrated in App-CLI `.37`; new live mail acceptance is pending. |
 
 The optional capacity fixture previously put 10,000 mails and related records in
 one transaction despite production admission allowing only 100 per command.
@@ -39,10 +39,60 @@ synthetic text attachments: QQ → Outlook, Outlook → Gmail, Gmail → QQ, onc
 Formal HTTPS object upload and saved draft attachment metadata passed, but native
 attachment upload, sender Sent proof, receiver arrival, Inbox/Spam classification,
 automatic intake and received-file SHA checks were not reached. This is not Mac
-ISCP local-file upload acceptance. New sends require a concrete follow-up approval
-after the repair; failed drafts and unknown records remain preserved.
+ISCP local-file upload acceptance. The owner already approved these three actual deliveries. Because all original
+attempts are confirmed not dispatched, that authorization remains valid for the
+same exact approved messages after repair, with at most one actual dispatch each.
+Use fresh internal execution IDs while preserving the original failed records;
+never replay an uncertain send or broaden the recipient/content scope.
+
+App-CLI `7371628` fixes Chromium plaintext editors whose empty-line `<div><br></div>`
+structure was double-counted by `innerText`. The reader recognizes only the exact
+native plaintext shape, preserves empty/trailing lines and all text bytes, and
+keeps the original strict body digest comparison. Other rich markup retains the
+existing fallback. It does not modify the editor or trim mismatches away. The
+old live logs lack per-field hashes, so the original three failures cannot be
+attributed solely to this cause; the isolated reproduction and fix are verified.
+Frozen release `.37` is App-CLI `91c3a160`, consumed by SparkClaw `29097af7`.
+The minimal work2 cutover completed healthy at 10:43:47 UTC. Gateway binary
+`cf1b8100`, Gateway/WebChat containers, browser PID, managed components and the
+installed Mac application stay unchanged. All 41 tables, 83 draft/send snapshots
+and 108 existing unknown records pass preservation checks.
+Runtime 581 tests pass (2 pre-existing skips), Python 90 pass, and Controller
+469/469 cases run with no skips across the initial 356 passes and a 113-case
+rerun after missing Chromium OS dependencies were installed. That environmental
+failure remains retained. All three frozen subject/body/attachment combinations
+reach the actual send adapter's pre-dispatch gate in an isolated Chromium fixture;
+no dispatch is released. This is preparation, not provider delivery acceptance.
+
+A read-only preflight before the `.37` deployment found one additional Outlook
+`collect_page` / `PROVIDER_SCRIPT_FAILED` uncertain record at 10:21:52 UTC.
+The original 106 unknown records remain exact; the complete protection baseline
+was 107. A second pre-stage Outlook collection failure at 10:28:17 UTC raised
+it to 108 and correctly blocked the first staging attempt. The original failure
+and the independently reviewed protection appendix remain retained; the resumed
+stage and final cutover preserve all 108 records. Each new record is a local collection operation, not `send` or
+`prepare_draft`, and predates any `.37` deployment. It is retained, not resolved
+or replayed, and must not be described as a new send-unknown outcome.
+
+The two Outlook collection failures remain a separate retained diagnostic gap.
+The available ledger only preserves `PROVIDER_SCRIPT_FAILED`; the mail handler
+replaces uncoded errors and loses their original class and phase. Nine nearby
+successful discovery rounds were empty and captured no originals, so they prove
+recovery of discovery only. The receive modules are unchanged in `.37`; do not
+claim the send-body repair fixes collection or that empty rounds qualify delivery.
+A future bounded phase/exception diagnostic is needed to identify the underlying
+failure without exposing message content or changing unknown/retry semantics.
 
 The [redacted combined receipt](evidence/desktop-browser-six-fixes-2026-10-23.json) indexes the immutable local evidence. During the installed conversation-switch check, the helper was replaced and released task pages disappeared. Existing session-fence code clears those pages; Grant timing supports renewal as the trigger, but no continuous transport log establishes the initiating event. Chat history remained. Do not count this cross-reconnect check as retained-page acceptance; the separate same-connection native fixture passes 20 switches. This retention boundary remains recorded for follow-up.
+
+Remote CI run `39937253127` passes Docs, Gateway, Gateway race, WebChat and ASR. Desktop unit tests, native LAN host and paired-release steps also pass. Overall CI remains red: Compose error-precedence and Electron anchor sandbox setup match the prior baseline; the separate phase-one Electron exits before readiness with discarded stderr, so its exact cause is unproved. These are retained limits, not a full-green CI claim.
+
+The later `.37` run `39939779045` retains those three failures and adds one
+Gateway test cleanup failure: `TestSessionMessageAdmissionRejectsConcurrentSubmission`
+cannot remove a nonempty temporary execution directory. That test and production
+Go source are unchanged from the prior passing run; this log alone does not prove
+the cause. Docs, Gateway race, WebChat and ASR pass. Retain the new failure as well;
+the earlier Linux 75-package pass does not make this later CI run green.
 
 ## Historical investigation: scope and acceptance correction
 

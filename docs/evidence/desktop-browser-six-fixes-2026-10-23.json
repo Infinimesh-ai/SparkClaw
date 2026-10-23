@@ -729,5 +729,330 @@
     "requests_retried": false,
     "reader_assets_changed": false,
     "earlier_live_timeout_cause_proven": false
+  },
+  "mail_functional_r39": {
+    "status": "deployed_healthy_original_three_message_acceptance_released_results_pending",
+    "product_source": "c1ef60d50e84d6b7799df9b9912cd20cf4d20989",
+    "generated_bindings_source": "79ab4766c075487a00a4d8f65e69d325949fb004",
+    "prepare_source": "d6f629cbcc8eb2f161d1c99c87e09892064a76dc",
+    "app_cli_release_source": "8308d99f535597504ca9a903caad3e9eed78d1f9",
+    "consumer_source": "9eab082c32dbf8abf2b120247af8f5f107a563c8",
+    "both_repositories_pushed": true,
+    "publication_authority": "Root integration and push confirmation; the earlier local release summary records its own pre-push checkpoint unchanged.",
+    "release": "0.3.0-sparkclaw.39",
+    "source_date_epoch": 1792760234,
+    "paired_manifest_sha256": "a8c2acebfa2bdc35ab6b0faff62a0b319209af0150ec3c1f4cf19063c87ee011",
+    "runtime_digest": "dd1c55fb6173f3bfba4b7cb00119599bb2810d207d5f0fa4a6948eb454c7d44e",
+    "artifacts": {
+      "python_dependencies": {
+        "file": "python-requirements.txt",
+        "sha256": "e99394c278eed0e2ee36f7a1289c0327af0a355b1726472a8296563d5fb0fde6"
+      },
+      "wheel": {
+        "file": "infinimesh_app_cli-0.3.0+sparkclaw.39-py3-none-any.whl",
+        "sha256": "00340cdf9e0ab0a29664eefcc8ba65761812bd6ef11427f88481cdacc3c3d2fb"
+      },
+      "runtime": {
+        "file": "infinimesh-app-cli-runtime-0.3.0-sparkclaw.39.tgz",
+        "sha256": "aac433ab88e884c37b48c9e82b057933699d921aa2ce55c3c4540051f71c2b9f"
+      }
+    },
+    "reproducibility": {
+      "independent_build_outputs_byte_identical": 4,
+      "packaged_runtime_files_hash_and_source_exact": 87
+    },
+    "changes": [
+      "Strict visible flat style-only native body line readback for QQ/Outlook; all text and blank lines preserved, exact body digest retained.",
+      "Gmail completed card recognized outside the legacy aQH ancestor with exact name, remove control, captured File manifest and original composer/input context; original input may detach.",
+      "Reader numeric DOMException uses existing safe read-failure code and bounded exception names; no retry or timeout change."
+    ],
+    "checks": {
+      "linux_runtime": {
+        "passed": 630,
+        "failed": 0,
+        "preexisting_skipped": 2,
+        "source": "79ab4766c075487a00a4d8f65e69d325949fb004",
+        "only_packaging_metadata_changed_to_final_freeze": true
+      },
+      "linux_final_wheel_python": {
+        "passed": 90,
+        "failed": 0
+      },
+      "linux_controller_affected_optional": {
+        "passed": 236,
+        "failed": 0,
+        "skipped": 0
+      },
+      "paired_release": 11,
+      "projection_regressions": 3,
+      "body_pinned_wrapper": {
+        "passed": 16,
+        "send_clicks": 0
+      },
+      "gmail_pinned_wrapper": {
+        "passed": 9,
+        "send_clicks": 0
+      }
+    },
+    "unchanged": {
+      "mail_assets_byte_identical": 5,
+      "consumer_projections_byte_identical": 4,
+      "tampermonkey_version": "5.5.0.19",
+      "reader_fixed_source_commit": "da62e8739f8a8090fb374f833d14c001029b72b6",
+      "native_desktop_webchat_gateway_go": true,
+      "runtime_protocol": "3.0",
+      "host_protocol": "1.0",
+      "ledger_version": 2
+    },
+    "initial_environment_failures_preserved": [
+      {
+        "log": "logs/linux-python.log",
+        "result": "2 failures and 8 errors",
+        "classification": "isolated venv lacked installed project; -I child intentionally ignores PYTHONPATH",
+        "resolution": "final .39 wheel installed offline and all 90 tests rerun successfully without PYTHONPATH"
+      },
+      {
+        "log": "logs/linux-python-install-project.log",
+        "result": "editable install failed",
+        "classification": "offline wheel cache did not contain required build setuptools >=77.0.3",
+        "resolution": "installed already built frozen .39 wheel with no-index/no-deps; no product or test change"
+      },
+      {
+        "log": "logs/provider-contract-check.log",
+        "classification": "consumer worktree dependencies not installed",
+        "resolution": "same check passed in Linux consumer after npm ci from pinned final .39 tar"
+      }
+    ],
+    "initial_environment_failure_log_root": "/Users/dev/.cache/sparkclaw-acceptance/20261023-mail-functional-r39/release",
+    "historical_preservation_boundary": {
+      "status": "failed_historical_preservation_retained",
+      "missing_completed_executor_rows": 106,
+      "missing_intersection_with_protected_unknown109": 0,
+      "missing_intersection_with_protected_send54": 0,
+      "missing_rows_old_metadata": "Only status and digest retained; old app/command/finished/ack/epoch and GC trigger records unavailable.",
+      "gc_is_possible_mechanism": true,
+      "per_row_gc_causality_proven": false,
+      "old_raw_content_available": false,
+      "changed_qualification_files": 1,
+      "changed_execution_control_files": 1,
+      "changed_provider_settings_row_fingerprints": 3,
+      "exact_old_field_differences_proven": false,
+      "atomic_cross_store_snapshot": false,
+      "remaining_terminal_rows_modified": 0,
+      "missing_original_workspace_files": 0,
+      "missing_original_receipts": 0,
+      "only_changed_receipt_is_previous_authenticated_event_subscription": true,
+      "no_original_mail_draft_record_changed_or_deleted": true,
+      "no_history_table_rows_deleted": true
+    },
+    "fresh_baseline_acceptance": {
+      "at": "2026-10-23T13:02:05.678404+00:00",
+      "reviewer": "root",
+      "baseline_sha256": "d6fa1e465a80f1c955096f08b7ca0d5ac8081210e962017135be243ac253b70e",
+      "historical_failure_recast_as_pass": false,
+      "full_draft_send_rows_exact": 95,
+      "unknown_rows_exact": 109,
+      "protected_send_task_ids_present": 54,
+      "original_device_rows_exact": 10,
+      "mailbox_identity_and_aliases_exact": true,
+      "independent_full_row_checks": {
+        "handoff_unknown_index_matches_full_rows": true,
+        "draft_digest_rows_exact": true,
+        "draft_full_rows_exact": true,
+        "unknown_full_rows_exact": true,
+        "original_devices_exact": true,
+        "mailbox_identity_configuration_exact": true,
+        "consumer_source_exact": true,
+        "release_exact": true,
+        "gateway_image_exact": true,
+        "runtime_manifest_and_config_exact": true,
+        "send_task_set_exact": true
+      },
+      "no_new_protection_exceptions": true,
+      "acceptance_itself_authorizes_activation": false,
+      "cutover_requirement": "After producer stop/drain, freeze current raw tables/workspace/control/ledger/drafts/unknown and require exact switching preservation. Only the previously authenticated single event-subscription receipt may advance after admission."
+    },
+    "staging_checkpoint": {
+      "at": "2026-10-23T13:11:13.602235+00:00",
+      "phase": "stage_completed_cutover_blocked",
+      "source": "9eab082c32dbf8abf2b120247af8f5f107a563c8",
+      "candidate_release": "0.3.0-sparkclaw.39",
+      "stage_receipt_sha256": "adc58c8546f20da81bfbaaaf199e83a47f9baf1dea488747d186735c9966edeb",
+      "reason": "additional_unknown_requires_root_review",
+      "protected_unknown_count": 109,
+      "protected_unknown_exact": true,
+      "observed_unknown_count": 110,
+      "additional_records": [
+        {
+          "row_sha256": "83a51b0ddf49e9884ba418ebd57cb91e07391edf61d3807dd2e73e6c6d88c2a2",
+          "task_id_sha256": "b479c55638b08895670b2a20cd63134a39be3d6d58f843b8639ff0bdd4bb45de",
+          "command": "collect_page",
+          "status": "uncertain",
+          "app": "mail-qq-mail",
+          "created_ms": 1792760912481,
+          "finished_ms": 1792760934857,
+          "reason": "PROVIDER_SCRIPT_FAILED",
+          "recovery_class": "replay_safe_local",
+          "side_effect": "local_mutation",
+          "created_at_utc": "2026-10-23T13:08:32.481000+00:00",
+          "finished_at_utc": "2026-10-23T13:08:54.857000+00:00"
+        }
+      ],
+      "cutover_called": false,
+      "services_stopped": false,
+      "live_checkout_unchanged": true,
+      "gateway_unchanged": true,
+      "browser_unchanged": true,
+      "retry_performed": false,
+      "baseline_modified": false
+    },
+    "live_acceptance": {
+      "prior_api_requests": 9,
+      "prior_actual_provider_dispatches": 0,
+      "release39_healthy_deployment_proven": true,
+      "release39_live_mail_sent_or_received_proven": false,
+      "sent_receiver_original_and_attachment_sha_qualification": "open",
+      "original_approved_three_message_scope_unchanged": true,
+      "original_three_message_execution_released_by_root": true,
+      "new_mail_results_at_this_checkpoint": "pending; no claim of dispatch, Sent, receipt or attachment integrity"
+    },
+    "evidence": [
+      {
+        "path": "/Users/dev/.cache/sparkclaw-acceptance/20261023-mail-functional-r39/release/summary.json",
+        "sha256": "3b3866cdab8310117428fb08839eac425f8a87ae79deab636699975660d8d662"
+      },
+      {
+        "path": "/Users/dev/.cache/sparkclaw-upgrades/20261023-mail-diagnostics-r39/evidence/stage-complete-cutover-stop.redacted.json",
+        "sha256": "a2c64e7d83cc8aa07b15e02cba0ecf41f8a36518b8821d02e13b4ddd12bddbcb"
+      },
+      {
+        "path": "/Users/dev/.cache/sparkclaw-upgrades/20261023-mail-diagnostics-r39/evidence/historical-boundary-review.redacted.json",
+        "sha256": "a8dd23b8c295f8f88dc105a20dc221edd5987f749e294e45c9fba7076d4d5b1e"
+      },
+      {
+        "path": "/Users/dev/.cache/sparkclaw-upgrades/20261023-mail-diagnostics-r39/evidence/fresh-baseline-acceptance.root.json",
+        "sha256": "9f0fded7de4e5ab2d1170bba1fd7378c66ea281fab4c782339aba057a721d253"
+      },
+      {
+        "path": "/Users/dev/.cache/sparkclaw-upgrades/20261023-mail-diagnostics-r39/evidence/mail-runner-handoff.redacted.json",
+        "sha256": "e15f7d9caaa0eaad92bffafe688a6ca8c01d79c2c5d584c0ec89344dc586941a"
+      },
+      {
+        "path": "/Users/dev/.cache/sparkclaw-upgrades/20261023-mail-diagnostics-r39/evidence/cutover-handoff.private.json",
+        "sha256": "283be3809e1d3e9357f2651b09a66972d0c5d79db95ca44816926eb74eb457d0"
+      },
+      {
+        "path": "/Users/dev/.cache/sparkclaw-upgrades/20261023-mail-diagnostics-r39/evidence/unknown-appendix-01.root.json",
+        "sha256": "f3688b243d233ed9a0d325bd0f000d3e9b9f567f1ea375ea9ea0fe0cb0c2ed91"
+      }
+    ],
+    "deployment": {
+      "status": "healthy",
+      "cutover_attempt_id": "attempt-01",
+      "healthy_at": "2026-10-23T13:22:29.512341+00:00",
+      "fresh_handoff_at": "2026-10-23T13:23:04.825865+00:00",
+      "source": "9eab082c32dbf8abf2b120247af8f5f107a563c8",
+      "app_cli_source": "8308d99f535597504ca9a903caad3e9eed78d1f9",
+      "release": "0.3.0-sparkclaw.39",
+      "root_independent_full_row_checks_passed": true,
+      "full_draft_send_rows_exact": 95,
+      "protected_unknown_rows_exact": 110,
+      "protected_send_task_ids_exact": 54,
+      "original_device_rows_exact": 10,
+      "raw_stopped_state_tables_exact_before_admission": 41,
+      "post_start_strict_check_passed": true,
+      "only_existing_authenticated_events_pull_receipt_exception": {
+        "approved_file_count": 1,
+        "changed_file_count": 1,
+        "proof_exception_sha256": "a3233e950a5a337b41150a62506520afc6ff3ef60ab39a4d5aaab8176a7305bc",
+        "only_events_pull_subscription": true
+      },
+      "gateway_binary_source": "cf1b81009b3a0bb122daa03352164bff4ff633f0",
+      "gateway_container_id": "02152fcba52618ddf4ca97fcd036fd244e6236d02daca7419bf447ab16376b5d",
+      "gateway_image": "sha256:ce814bdc134dcfbf0c8a6e6dfad4ae741d4f0294d6e15ec7c39235b9b460935d",
+      "browser_pid_original": true,
+      "browser_pid": "2605041",
+      "reader_native_ui_mac_tm19_unchanged": true,
+      "retention_sidecar": {
+        "rows": 27086,
+        "sha256": "ea8dcb2fae08cb73f9c63ae4e972410dd8328ef0174123a6e6cb36f3e9ca10cf",
+        "purpose": "Full current row metadata for future preservation analysis",
+        "historical_missing106_reconstructed": false,
+        "historical_missing106_gc_causality_proven": false
+      },
+      "mail_send_authorization_from_handoff": false,
+      "receipt_sha256": {
+        "cutover.json": "49dc3bbc23695ff74c7c27be2417a64dd3f0dfd42e4d739d794cdfa5a2ebc775",
+        "cutover-initial.json": "fc63a46bfbef1db74fffce87959b2140424a8ecfc5566c7ef738fd5a9eee7c63",
+        "pre-stop-quiet-window.json": "dd466976276e52f4d7c7151311ffa994791bacffd45c1a31f58c5142bf2e86b4",
+        "cutover-frozen-unknown-delta.json": "35488e422a9dd4f70f106382f8a3f754130a8bec88dbdb2ba4dcf3eac7c87141",
+        "strict-before-admission.json": "74d880a0e3030d6a8dcd1208817e031e420223db40d336fbbcb115233aa63842",
+        "business-initial-strict.json": "be5f670a4ec11a78ed20d6dc9b142a57616f432c22a78076dcc591e7e08c26d1",
+        "discovery-job-progress.json": "89cce1e10c3ebce883974b74052f71bda6037372ad09cec5503b838cf62e9a86",
+        "protected-after.json": "99b489e58a8621663fa44ab41d7199d3c080f204971f22c73b27a1d9fa20e1a4",
+        "expected-delivery-projections.json": "b3e67af4fb398a009fb79f89cde18488e6a4de505b6fa759ae61412124b9510f",
+        "expected-read-confirmations.json": "5faee8d9ad591d8657d50e3df67ee7589919672eb818d728a4771a6ed49ee8cd",
+        "expected-owner-counter-progress.json": "6e0a6d347505eb8e345c9be1b470880fc57394c9381a993d1fba8751dedcb0b3",
+        "ledger-retention-before.private.json": "ea8dcb2fae08cb73f9c63ae4e972410dd8328ef0174123a6e6cb36f3e9ca10cf"
+      }
+    },
+    "unknown_appendix_01": {
+      "at": "2026-10-23T13:18:40.062511+00:00",
+      "approved_by": "root",
+      "protected_count_before": 109,
+      "protected_count_after": 110,
+      "exact_added_row_sha256": "83a51b0ddf49e9884ba418ebd57cb91e07391edf61d3807dd2e73e6c6d88c2a2",
+      "command": "collect_page",
+      "provider": "qq_mail",
+      "status": "uncertain",
+      "classification": "One additional pre-cutover .38 QQ collect_page unknown local outcome; not a send task. Exact cause not established. Preserve full row without replay, resolution, or deletion.",
+      "original_95_drafts109_unknowns10_devices54_send_ids_exact": true,
+      "new_row_exact_since_stage": true,
+      "original_stage_stop_and_baseline_preserved": true,
+      "no_new_protection_exemptions": true,
+      "replayed_resolved_or_deleted": false,
+      "scope": "Append only this exact row digest to protected set (109 to 110). No exemptions to raw frozen checks, business protection, workspace/control/ledger checks or unknown no-retry policy."
+    }
+  },
+  "r39_live_mail": {
+    "actual_dispatches": 2,
+    "API_submissions": 3,
+    "resubmissions": 0,
+    "case1": "not_dispatched; Sent-baseline click process_exit_target_missing",
+    "case2": "sent once; Gmail Inbox native original and attachment bytes exact; original body has one extra terminal LF",
+    "case3": "sent once; QQ Inbox native original full body and attachment bytes exact",
+    "independent_stored_sent_originals": [
+      0,
+      0
+    ],
+    "strict_whole_route_complete": false,
+    "MessageView_body_tail_loss": "existing MIME TrimSpace, separate from original fidelity",
+    "cleanup": "QA revoke200/token401/credentials deleted/all entries closed",
+    "final_counts": {
+      "drafts": 101,
+      "unknown": 110,
+      "send_tasks": 57,
+      "devices": 10
+    },
+    "original_full_rows_preserved": true,
+    "no_new_unknown": true,
+    "evidence": [
+      {
+        "path": "/Users/dev/.cache/sparkclaw-acceptance/20261023-mail-functional-r39/live-mail-plan/live-r39-final.public.json",
+        "sha256": "7c2fec32417d89f09bb770f0d4fa718438da8330cff7f8d457bcd0966b68e40b"
+      },
+      {
+        "path": "/Users/dev/.cache/sparkclaw-acceptance/20261023-mail-functional-r39/final-live-handoff/handoff.public.json",
+        "sha256": "461910fb2da9026ab8d58fa51e8fc4c1cc6ea4d12e3287da735ff779ab45dcf9"
+      },
+      {
+        "path": "/Users/dev/.cache/sparkclaw-acceptance/20261023-mail-functional-r39/case2-body-forensics/analysis.redacted.json",
+        "sha256": "e1b368dfbb452dd27da8f930c0a83887a13b335972c22986a4665ea67b7572b5"
+      },
+      {
+        "path": "/Users/dev/.cache/sparkclaw-acceptance/20261023-mail-functional-r39/final-live-handoff/root-review.json",
+        "sha256": "398ed9c1e16263f8d1aca5c9643728f7832e78eca419afda3de21487b5b3e89a"
+      }
+    ]
   }
 }

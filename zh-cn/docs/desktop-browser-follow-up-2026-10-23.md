@@ -15,7 +15,7 @@ Mac 并部署 work2。容量测试修正 `36240150` 只改测试，不改变部�
 | BR-03 | 经核实的撤销原因及原登录界面通过。 | 有界授权查询保留签名确认的撤销原因，重连/重启不丢失。普通断线和通用401/403不能自行判定撤销。保留凭据表单与历史；已撤销授权的Reconnect禁用。 |
 | BR-04 | 隔离身份的真实在途撤销通过。 | 安装helper/UI哈希与产品源码一致。一个真实读取已执行但结果仍在途时撤销，活动租约/页面清零、旧结果被围栏拒绝、旧绑定拒绝、业务401，重启仍明确撤销。不能撤回此前已经读取的内容。 |
 | BR-05 | 原生导航失败原因已保留并验证。 | 原example.com日志为 `ERR_NAME_NOT_RESOLVED`，是DNS失败但原因被丢失。现在有界原生错误码、命令截止时间和真正围栏错误分开传递。已安装原界面对受控 `.invalid` 域名明确显示 `browser dns resolution failed`；苹果成功路径另有实证。 |
-| BR-06 | 可选测试通过；真实收发及附件验收仍未完成。 | Linux全Go/build/vet、桌面526、WebChat504、可选浏览器/恢复131项及file/PostgreSQL万封容量均通过。最初3次尝试与`.37`、`.38`各3次续跑全部确证派发0次；`.38`实机已定位QQ/Outlook共有的style行正文读取失败，Gmail附件确认仍未关闭。此前QQ编辑器失败本轮未再现，但不能据此追溯解释旧失败；隔离fixture不能代替真实交付。 |
+| BR-06 | `.39`两封各真实发送一次并进入对方Inbox；QQ方向及严格验收缺口仍未完成。 | 此前9次请求均实际派发0次；`.39` QQ在Sent入口点击目标缺失时于派发前失败。Outlook→Gmail与Gmail→QQ各真实发送一次，收件原文及原附件/下载附件SHA独立核验通过。Gmail→QQ完整原文正文通过；Outlook→Gmail原文多一个末LF。独立Sent原件和MessageView首尾空白保留仍待修复；保留原界面和全部历史失败。 |
 
 容量测试此前将一万封邮件及关联记录放在单事务中，但生产每次准入最多100封。
 现测试按100封分批，保留10000封、9000已捕获、900会话、1000待处理任务、原断言及
@@ -132,7 +132,87 @@ AppCLI `80bdd51`另修复已证实的读取错误映射缺陷：数字DOMExcepti
 AbortError名称。不重试、不改超时或Reader资产。针对性29项与集成正文/错误19项
 通过；不能据此认定此前实机采集失败必然是超时。
 
+功能修复`.39`已冻结并推送双仓：AppCLI
+`8308d99f535597504ca9a903caad3e9eed78d1f9`，SparkClaw配套消费
+`9eab082c32dbf8abf2b120247af8f5f107a563c8`。组合产品源码为
+`c1ef60d50e84d6b7799df9b9912cd20cf4d20989`；binding生成、版本准备与冻结分别提交。
+除style-only正文修复与安全读取错误映射外，Gmail现可识别实机观察到的已完成卡片，
+不再要求`.aQH`祖先；仍严格检查所有权、精确文件名/移除控件、已捕获File字节及原
+composer/input上下文，即使原input已被移除也不重新绑定。独立固定wrapper通过正文16项、
+附件9项，发送点击均为0；原`.38`实机失败证据保留。
+
+Linux Runtime通过630项，保留原有2项跳过；最终wheel安装后的Python90项全部通过。
+受影响Controller及可选Chromium通过236项且无跳过，配套发行通过11项，projection回归
+通过3项。Runtime测试快照与最终冻结之间只改发行元数据。
+固定`SOURCE_DATE_EPOCH=1792760234`的两次独立构建四产物逐字节一致，包内87个Runtime
+文件均与冻结源码摘要匹配。配套manifest SHA-256为
+`a8c2acebfa2bdc35ab6b0faff62a0b319209af0150ec3c1f4cf19063c87ee011`，Runtime摘要为
+`dd1c55fb6173f3bfba4b7cb00119599bb2810d207d5f0fa4a6948eb454c7d44e`。
+全部5个邮件资产与4份consumer生成投影逐字节不变，保留TM `5.5.0.19`及Reader真实固定
+来源`da62e873…`。原生/Desktop、WebChat、Gateway Go与runtime/host/ledger协议均未变。
+Python首次缺项目安装、离线editable安装缺构建依赖，以及主机contract检查缺依赖的失败
+均与限定范围成功复跑一并保留，没有放宽产品断言以获得通过。
+
+部署前历史保全检查发现106条已完成executor记录缺失，原严格检查失败。这些记录与全部
+109条受保护unknown、54个受保护send任务ID的交集均为0。旧快照仅保留这些任务的状态
+和摘要，无法还原原命令、时间戳及逐条GC准入条件。既有终态清理机制只能说明一种可能，
+不能证明这106条缺失由GC造成。一份qualification状态文件、一份execution control文件
+及3条provider-settings行指纹也发生变化；旧原文不可得，之前的精确字段差异仍未证实。
+此次观察跨多个存储，不能称为原子快照；历史保全失败继续保留，不改写为通过。
+
+13:02:05 UTC的root复核接受当前观测基线用于准备修复，同时保留上述历史限制：95条
+草稿/发送完整记录、109条精确unknown、全部54个受保护send任务ID及10条原设备行，
+邮箱身份与aliases不变。这次接受不增加保全例外，本身也不授权激活。生产者停止并排空后，
+当前原始表、workspace/control文件、ledger、草稿与unknown在切换过程中必须精确保持；
+恢复准入后仍仅允许此前经认证的单个event-subscription收据正常推进。
+
+`.39`暂存已完成，但13:11:13 UTC门禁在调用cutover前停止：原109条unknown精确不变，
+新增一条QQ `collect_page` uncertain使观察总数为110。该任务于13:08:32至13:08:54 UTC
+运行，记录`PROVIDER_SCRIPT_FAILED`及本地mutation，属于采集而非发信操作。
+未停止服务，真实checkout/Gateway/浏览器保持原样，没有重试或改写基线。因此此检查点
+不代表`.39`已健康部署，也不代表真实发信成功。此前9次API请求仍全部实际派发0次；
+Sent、收件原文及原附件SHA验收继续开放。下方脱敏收据索引冻结、历史边界审查、
+新鲜基线接受与暂存后停止的证据。
+
+保留上述停止记录后，root于13:18:40 UTC批准`unknown-appendix-01.root.json`，仅将
+该新增QQ采集完整行的精确摘要追加到保护集合，109→110；没有重放、消解或删除该行，
+没有放宽严格保全检查，也未改写原基线。唯一一次恢复切换于13:22:29 UTC健康完成，
+13:23:04 UTC取得新鲜handoff。root独立核验全部95条草稿/发送完整行、110条unknown、
+54个受保护send任务ID与10条设备行。恢复准入前41张表的停服原始快照精确一致，
+启动后的严格检查通过；仅1份此前经认证的`events.pull`订阅收据在既有例外内变化。
+部署采用上述精确源码/发行pins；Gateway程序`cf1b8100`、原Gateway容器、浏览器PID、
+Reader/TM19、UI及当前Mac安装均保持不变。
+
+新增retention sidecar保存27086条executor记录及元数据，供未来保全归因使用；不能
+还原此前106条缺失记录，也不能补证其GC原因，原历史失败继续保留。新鲜脱敏handoff
+SHA-256为`e15f7d9caaa0eaad92bffafe688a6ca8c01d79c2c5d584c0ec89344dc586941a`，
+私密完整handoff SHA-256为
+`283be3809e1d3e9357f2651b09a66972d0c5d79db95ca44816926eb74eb457d0`。
+root随后放行原批准三封相同邮件的执行；本检查点尚无新邮件结果。运行时健康与执行放行
+不能证明实际派发、独立Sent证据、收件到达或原附件完整性。
+
 [统一脱敏收据](../../docs/evidence/desktop-browser-six-fixes-2026-10-23.json)索引本地原始证据。安装界面切换会话时观察到helper更换、已释放任务页消失。既有session围栏会清页，Grant时间支持授权刷新为触发因素，但缺少连续transport日志，不能确定最初触发事件。聊天历史仍在；不能把此次跨重连检查计为任务页保留通过。同一连接内的独立原生fixture通过20次切换。此保留行为边界继续留存后续处理。
+
+`.39`实机本轮对每个获准案例仅提交一次。QQ→Outlook在派发前失败：已有Controller
+事件明确为Sent基线阶段的`phase=click`、`command=click`、
+`reason=process_exit_target_missing`。这把通用扩展错误缩小为点击目标缺失，但尚不能
+证明是延迟加载还是选择器变化。完整negative journal/response/snapshot/task证据确证派发0次。
+
+Outlook→Gmail及Gmail→QQ各获得一个持久化sent结果，root独立核对精确response、snapshot、
+task与journal。两封均自动进入收件方Inbox，原生RFC822来源、发件/收件身份、唯一附件原文件
+及下载part的SHA均通过。已成功发送的两封绝不重发。Gmail→QQ完整批准正文也通过；
+Outlook→Gmail仅在CRLF归一后多一个末尾U+000A（107对106码点）。其base64 plain MIME
+负载本身已有两个末CRLF，Reader保持原生字节，证明差异早于Gateway解析，但不能确定由
+哪个提供商或传输环节加入。严格正文结果仍失败。两封MessageView归一后均为105码点，
+原因是既有MIME解析器裁剪首尾空白；这是单独产品缺陷，保留的原件没有因此丢失内容。
+
+两封独立持久化Sent原件计数仍为0，当前正式Reader/capture链路过滤这类目标；发送回执或
+本地send_snapshot不能代替原生Sent采集。因此原严格whole-route collector仍未完成，
+不能以Inbox送达和附件完整性替代。继续修复QQ入口就绪/目标路径、正文空白保留及已观察
+精确目标的Sent读取。13:37:04 UTC QA撤销200、旧token401、凭据删除，本地/远端入口全部关闭。
+13:38:04 UTC交接中原95条完整草稿记录、110条完整unknown、54个原发送ID和10条设备均保留；
+仅增加6条草稿/快照记录和3个发送任务，总数101/110/57/10，无新增unknown或不确定发送重放。
+原批准QQ邮件仍未发送。
 
 远端CI `39937253127` 的Docs、Gateway、Gateway race、WebChat、ASR通过；桌面单测、真实LAN宿主与配套发行步骤也通过。整体CI仍红：Compose错误优先级断言、Electron anchor沙箱配置与前基线一致；独立phase-one Electron在ready前退出且旧harness丢弃stderr，具体原因未证实。保留这些边界，不宣称CI全绿。
 

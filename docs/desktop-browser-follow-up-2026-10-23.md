@@ -17,7 +17,7 @@ checkpoint; its “all open” statements are not the current status.
 | BR-03 | Explicit verified revocation reason and existing login UI passed. | A bounded issuer authorization check preserves the typed signed revocation signal across reconnect/restart. Ordinary disconnection and generic 401/403 do not manufacture revocation. Existing credential form/history remain; Reconnect is disabled for revoked authorization. |
 | BR-04 | Real in-flight revocation passed using a disposable identity. | Installed helper/UI hashes and product source match. One live read had executed but its result remained in flight. Revocation clears the active lease/page, fences the old result, rejects the old binding and returns business 401. Restart remains revoked. Already-read content cannot be undone. |
 | BR-05 | Native navigation diagnosis implemented and verified. | The original example.com log contains `ERR_NAME_NOT_RESOLVED`; it is an environmental DNS failure whose reason was lost. Bounded native error codes and command deadlines now remain distinct from true fencing. Installed UI reports `browser dns resolution failed` for a controlled `.invalid` domain; Apple success is independently verified. |
-| BR-06 | Optional qualification passed; real send/receive/attachment acceptance remains open. | Linux full Go/build/vet, 526 desktop tests, 504 WebChat tests, all 131 optional browser/recovery cases and file/PostgreSQL 10,000-mail capacity pass. The initial three attempts and the three continuations in each of `.37` and `.38` all have proven zero dispatches. The `.38` live evidence identifies the same style-only line readback failure in QQ and Outlook; Gmail attachment confirmation remains open. The earlier QQ editor failure did not recur, which does not retroactively explain it. Isolated fixture success does not qualify actual delivery. |
+| BR-06 | Two `.39` messages were sent once and captured in the recipient Inbox; the QQ route and strict acceptance gaps remain open. | All nine earlier requests had zero dispatches. In `.39`, QQ fails before dispatch on a missing Sent-entry click target. Outlook→Gmail and Gmail→QQ each have one actual send and independently captured receiver originals plus exact attachment bytes. Gmail→QQ preserves the full approved original body; Outlook→Gmail has one additional terminal LF in the native original. Independent Sent originals and MessageView whitespace preservation remain unfinished. Original UI and historical failures are retained. |
 
 The optional capacity fixture previously put 10,000 mails and related records in
 one transaction despite production admission allowing only 100 per command.
@@ -191,6 +191,120 @@ The adapter now uses the existing fixed read-failure code and preserves only saf
 TimeoutError/AbortError names. It neither retries nor changes timeouts or Reader
 assets. Targeted tests pass 29 cases, and the integrated body/error check passes
 19. This does not prove that the earlier live collection failures were timeouts.
+
+The functional `.39` release is frozen and pushed in both repositories: App-CLI
+`8308d99f535597504ca9a903caad3e9eed78d1f9`, consumed by SparkClaw
+`9eab082c32dbf8abf2b120247af8f5f107a563c8`. The combined product source is
+`c1ef60d50e84d6b7799df9b9912cd20cf4d20989`; generated bindings, version preparation
+and freeze are separate commits. Besides the style-only body repair and safe
+reader error mapping, Gmail now recognizes the observed completed card without
+requiring an `.aQH` ancestor. It preserves ownership, exact filename/remove
+controls, captured File bytes and the original composer/input context even after
+that input is detached. Independent pinned-wrapper checks pass 16 body cases and
+9 attachment cases with zero send clicks; the live `.38` failures remain evidence.
+
+Linux Runtime passes 630 cases with the same two pre-existing skips. Python passes
+all 90 tests against the installed final wheel; affected Controller and optional
+Chromium checks pass 236 with no skips, paired-release checks pass 11, and projection
+regressions pass 3. The Runtime snapshot differs from final freeze only in release
+metadata. Four outputs from independent builds at `SOURCE_DATE_EPOCH=1792760234`
+are byte-identical, and all 87 packaged Runtime files match their frozen source
+hashes. The paired manifest SHA-256 is
+`a8c2acebfa2bdc35ab6b0faff62a0b319209af0150ec3c1f4cf19063c87ee011`; Runtime digest is
+`dd1c55fb6173f3bfba4b7cb00119599bb2810d207d5f0fa4a6948eb454c7d44e`.
+All five mail assets and four consumer projections remain byte-identical, retaining
+TM `5.5.0.19` and the Reader's actual fixed source `da62e873…`. Native/Desktop,
+WebChat, Gateway Go and runtime/host/ledger protocols remain unchanged. The initial
+Python missing-project failures, offline editable-install dependency failure and
+host contract-check missing dependency are retained beside their successful bounded
+reruns; no product assertion was relaxed to produce a pass.
+
+The pre-deployment historical preservation check failed on 106 missing completed
+executor rows. Their intersections with all 109 protected unknown rows and all
+54 protected send task IDs are both zero. The retained old snapshots contain only
+status and digest for those tasks, so their original command, timestamps and
+individual GC eligibility cannot be reconstructed. Existing terminal-row retention
+can explain a possible mechanism, but does not prove GC caused these 106 deletions.
+One qualification state file, one execution control file and three provider-settings
+row fingerprints also changed; old raw contents are unavailable, so exact earlier
+field changes remain unproved. The observation spans multiple stores and is not
+an atomic snapshot. This remains a historical preservation failure, not a pass.
+
+At 13:02:05 UTC, the root review accepted the fresh observed baseline for preparing
+the repair while retaining those historical limits: 95 full draft/send records,
+109 exact unknown rows, all 54 protected send task IDs and 10 original device rows,
+with mailbox identities and aliases unchanged. That acceptance adds no protection
+exception and does not itself authorize activation. After producer stop and drain,
+current raw tables, workspace/control files, ledger, drafts and unknown rows must
+remain exact through switching; only the previously authenticated single
+event-subscription receipt may advance after admission.
+
+The `.39` stage completed, but the 13:11:13 UTC gate stopped before calling cutover:
+the original 109 unknown rows remain exact and a new QQ `collect_page` uncertain
+record raises the observed count to 110. It ran from 13:08:32 to 13:08:54 UTC and
+records `PROVIDER_SCRIPT_FAILED` with a local mutation, not a mail-send operation.
+No service was stopped, the live checkout/Gateway/browser stayed unchanged, and
+there was no retry or baseline rewrite. This checkpoint therefore establishes
+neither a healthy `.39` deployment nor actual mail success. All nine previous API
+requests still have zero actual dispatches; Sent, receiver originals and received
+attachment SHA acceptance remain open. The redacted receipt below indexes the
+freeze, historical review, fresh-baseline acceptance and stopped-stage evidence.
+
+Following that retained stop, root approved `unknown-appendix-01.root.json` at
+13:18:40 UTC to add only the exact new QQ collection row to the protection set,
+109 → 110. The row was neither replayed, resolved nor deleted; strict protection
+checks and the original baseline were not relaxed. The single resumed cutover
+completed healthy at 13:22:29 UTC, followed by a fresh handoff at 13:23:04 UTC.
+Root independently verified all 95 full draft/send rows, 110 unknown rows,
+54 protected send task IDs and 10 device rows. Raw stopped-state snapshots of
+all 41 tables were exact before admission, and the post-start strict check passed.
+Exactly one previously authenticated `events.pull` subscription receipt changed
+under its existing exception. The source/release pins above apply; Gateway binary
+`cf1b8100`, original Gateway container, browser PID, Reader/TM19, UI and installed
+Mac remain unchanged.
+
+A new retention sidecar records 27,086 executor rows with metadata for future
+preservation analysis. It cannot reconstruct the earlier 106 missing rows or prove
+their GC cause; that historical failure remains open. The fresh redacted handoff
+SHA-256 is `e15f7d9caaa0eaad92bffafe688a6ca8c01d79c2c5d584c0ec89344dc586941a`,
+and the private full handoff SHA-256 is
+`283be3809e1d3e9357f2651b09a66972d0c5d79db95ca44816926eb74eb457d0`.
+Root subsequently released execution of the same original three approved messages.
+No new mail result is available at this checkpoint: a healthy runtime and a send
+release do not establish dispatch, independent Sent evidence, receiver arrival or
+received attachment integrity.
+
+The `.39` live run submitted each approved case once. QQ→Outlook failed before
+provider dispatch: the existing Controller event identifies `phase=click`,
+`command=click`, `reason=process_exit_target_missing` during the Sent baseline.
+This narrows the generic extension error to a missing click target, but does not
+yet prove delayed hydration rather than a selector change. Its complete negative
+journal/response/snapshot/task proof establishes zero dispatches.
+
+Outlook→Gmail and Gmail→QQ each returned a durable sent result, independently
+reviewed against the exact response, snapshot, task and journal. Each message was
+automatically captured in the recipient Inbox, with native RFC822 provenance,
+expected sender/recipient and the sole attachment's original and downloaded-part
+SHA-256 verified. Neither successful message will be resent. Gmail→QQ also passes
+the complete approved original body. Outlook→Gmail differs only by one terminal
+U+000A after CRLF normalization (107 versus 106 code points). Its base64 plain MIME
+payload already ends with two CRLFs; the Reader preserved native bytes. This proves
+the difference predates Gateway parsing, not which provider/transport step added it.
+The strict body result remains failed. MessageView normalizes to 105 code points
+for both messages because the existing MIME parser trims surrounding whitespace;
+this is a distinct product defect, not loss from the retained original.
+
+Both independent stored Sent-original counts remain zero. The current formal
+Reader/capture path filters those targets; a send receipt or local send_snapshot
+cannot substitute for native Sent capture. Consequently the original strict
+whole-route collector remains incomplete, despite proven Inbox delivery and
+attachment integrity. Work continues on the QQ entry readiness/target path, plain
+body preservation and observed exact-target Sent reads. QA was revoked at 13:37:04
+UTC (200, then token 401), credentials deleted and all local/remote entries closed.
+The 13:38:04 UTC handoff preserves the original 95 full draft records, 110 full
+unknown rows, 54 prior send IDs and 10 device rows, with exactly six new draft/
+snapshot records and three send tasks: totals 101/110/57/10. No new unknown or
+uncertain-send replay occurred. The original approved QQ message remains unsent.
 
 The [redacted combined receipt](evidence/desktop-browser-six-fixes-2026-10-23.json) indexes the immutable local evidence. During the installed conversation-switch check, the helper was replaced and released task pages disappeared. Existing session-fence code clears those pages; Grant timing supports renewal as the trigger, but no continuous transport log establishes the initiating event. Chat history remained. Do not count this cross-reconnect check as retained-page acceptance; the separate same-connection native fixture passes 20 switches. This retention boundary remains recorded for follow-up.
 

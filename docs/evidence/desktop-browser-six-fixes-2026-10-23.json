@@ -1416,6 +1416,39 @@
         "allow_start": false,
         "candidate_activated": false
       }
+    },
+    "pg_export_qualification": {
+      "local_real_pg_payload_bytes": 283115520,
+      "tables": 41,
+      "empty_tables": 38,
+      "payload_sha_exact": 270,
+      "old_aggregate_limit_reproduced": true,
+      "exporter_summary_sha256": "ac2e2414634cedc7c57b92e23f71221e9bb0f874c3f552bc0ba0d49512f3a10e",
+      "exporter_independent_review_sha256": "e7d11cb6c7a2897e74b804354e5628fe799c36a8bc2c088f47e81b24dbf2395b",
+      "synthetic_full_pipeline": {
+        "raw_bytes": 532870461,
+        "server_peak_rss_bytes": 2494578688,
+        "client_peak_rss_bytes": 2956476416,
+        "summary_sha256": "4798048c2701bd1d789d598126259797e47cc13b79b45e460cc92a0b431c65fd",
+        "real_scale_qualification": false
+      },
+      "live_readonly_candidate": {
+        "independent_checks_passed": 12,
+        "independent_review_sha256": "3f4cbb0a6be31cb2124a8b0a10e59f039797b70238ffbe5e00faa6bdfee31cbf",
+        "executed": false,
+        "resource_block": "Mac available about4.9GB below unchanged4GiB verifier budget plus business reserve",
+        "macos_rlimit_rejected": true,
+        "macos_owned_child_rss_watchdog_tested": true,
+        "local_hard_memory_limit_claimed": false
+      },
+      "owned_fixture_stopped": {
+        "receipt_sha256": "f17e86ce1e13814f8983ff8341f92c3a6f8ebd54071720808fbfce1c971007a4",
+        "other_running_containers_exact": 15,
+        "data_removed": false
+      },
+      "new_freeze_authorized": false,
+      "candidate_activated": false,
+      "new_mail_actions": 0
     }
   }
 }

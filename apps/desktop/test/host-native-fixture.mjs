@@ -55,6 +55,12 @@ try {
   await step("A", "fill", { ref: name.ref, snapshot_id: snapshot.snapshot_id, value: "A local draft" });
   assert.match((await step("A", "read")).text, /Draft: A local draft/);
   snapshot = await step("A", "snapshot"); let button = snapshot.snapshot.controls.find((item) => item.name === "Increment"); assert.ok(button);
+  presentation.setPanelBounds({ x: 700, y: 80, width: 480, height: 540 });
+  await assert.rejects(step("A", "click", { ref: button.ref, snapshot_id: snapshot.snapshot_id }), /fenced|snapshot.*stale/);
+  assert.match((await step("A", "read")).text, /Counter: 0/);
+  assert.equal(agent.snapshot().unknown_writes.length, 0, "a known stale layout did not dispatch a write");
+  assert.equal((await (await auth.authorizedFetch(`${descriptor.origin}/qualify/fences`)).json()).length, 0);
+  snapshot = await step("A", "snapshot"); button = snapshot.snapshot.controls.find((item) => item.name === "Increment");
   await step("A", "click", { ref: button.ref, snapshot_id: snapshot.snapshot_id });
   await new Promise((resolve) => setTimeout(resolve, 100)); assert.match((await step("A", "read")).text, /Counter: 1/);
   const aPage = registry.conversationPages.get("A"); const aContentsID = aPage.webContents.id;

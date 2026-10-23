@@ -4,6 +4,7 @@ package agent
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -26,7 +27,15 @@ func groundedBrowserAutomationSummary(goal, fallback string, calls []app.ToolCal
 }
 
 func browserVerifiedResultAnswerFromCalls(goal string, calls []app.ToolCall) (string, bool) {
-	for index := len(calls) - 1; index >= 0; index-- {
+	snapshotIndex := latestBrowserResultSnapshot(calls)
+	if snapshotIndex < 0 {
+		return "", false
+	}
+	snapshot, ok := browserSnapshotPayload(calls[snapshotIndex].Result)
+	if !ok || cleanOptionalString(snapshot["presentation"]) != string(app.BrowserPresentationVisible) {
+		return "", false
+	}
+	for index := len(calls) - 1; index > snapshotIndex; index-- {
 		call := calls[index]
 		if call.Tool != "browser.assess_goal" || !toolCallCompleted(call) {
 			continue
@@ -36,28 +45,97 @@ func browserVerifiedResultAnswerFromCalls(goal string, calls []app.ToolCall) (st
 			!boolLikeValue(assessment["goal_satisfied"]) {
 			continue
 		}
-		snapshotID := cleanOptionalString(assessment["snapshot_id"])
-		for snapshotIndex := index - 1; snapshotIndex >= 0; snapshotIndex-- {
-			snapshotCall := calls[snapshotIndex]
-			if snapshotCall.Tool != "browser.snapshot" || !toolCallCompleted(snapshotCall) {
-				continue
+		if snapshotID := cleanOptionalString(assessment["snapshot_id"]); snapshotID != "" && cleanOptionalString(snapshot["snapshot_id"]) == snapshotID {
+			if resultURL := cleanOptionalString(snapshot["url"]); resultURL != "" {
+				return browserResultAnswer(goal, resultURL, snapshot, calls[snapshotIndex].Result), true
 			}
-			snapshot, ok := browserSnapshotPayload(snapshotCall.Result)
-			if !ok || cleanOptionalString(snapshot["snapshot_id"]) != snapshotID ||
-				cleanOptionalString(snapshot["presentation"]) != string(app.BrowserPresentationVisible) {
-				continue
-			}
-			resultURL := cleanOptionalString(snapshot["url"])
-			if resultURL == "" {
-				continue
-			}
-			if containsCJK(goal) {
-				return "浏览器操作已完成，结果已在可见浏览器中打开：\n" + resultURL, true
-			}
-			return "Browser automation completed. The verified result is open in the visible browser:\n" + resultURL, true
 		}
 	}
 	return "", false
+}
+
+// Opening a destination finishes at the validated result snapshot; unlike an
+// interaction, it does not call assess_goal. Use the workflow's accepted result,
+// not an arbitrary successful snapshot or its requested presentation lane.
+func browserWorkflowResultAnswer(goal string, run app.AgentRun, calls []app.ToolCall) (string, bool) {
+	state := run.Workflow
+	if state == nil || state.Status != app.WorkflowStatusSucceeded || state.Browser == nil || state.Browser.Result == nil ||
+		(state.Plan.ProfileID != app.WorkflowBrowserAutomation && state.Plan.ProfileID != app.WorkflowBrowserInteraction) {
+		return "", false
+	}
+	evidence := state.Browser.Result
+	index := latestBrowserResultSnapshot(calls)
+	if index < 0 || evidence.VerifiedAt.IsZero() || evidence.VisibleSnapshotID == "" || evidence.VisibleSnapshotDigest == "" ||
+		evidence.VisiblePageID == "" || evidence.VisibleSession.Generation == 0 || evidence.Target.CanonicalURL == "" {
+		return "", false
+	}
+	call := calls[index]
+	if call.RunID != run.ID || call.WorkflowID != state.Plan.ProfileID || !slices.Contains(evidence.SourceToolCallIDs, call.ID) {
+		return "", false
+	}
+	snapshot, ok := browserSnapshotPayload(call.Result)
+	if !ok || cleanOptionalString(snapshot["snapshot_id"]) != evidence.VisibleSnapshotID ||
+		cleanOptionalString(snapshot["digest"]) != evidence.VisibleSnapshotDigest ||
+		cleanOptionalString(snapshot["page_id"]) != evidence.VisiblePageID ||
+		browserSessionGenerationString(snapshot["session_generation"]) != fmt.Sprint(evidence.VisibleSession.Generation) ||
+		cleanOptionalString(snapshot["presentation"]) != string(app.BrowserPresentationVisible) ||
+		cleanOptionalString(snapshot["owner_id"]) != evidence.VisibleSession.OwnerID ||
+		cleanOptionalString(snapshot["profile_id"]) != evidence.VisibleSession.ProfileID ||
+		cleanOptionalString(snapshot["provider_session_ref"]) != evidence.VisibleSession.ProviderSessionRef ||
+		!browserLoginResumeURLUsable(cleanOptionalString(snapshot["url"])) ||
+		browserSafeResultURL(evidence.Target, cleanOptionalString(snapshot["url"])) != evidence.Target.CanonicalURL {
+		return "", false
+	}
+	return browserResultAnswer(goal, evidence.Target.CanonicalURL, snapshot, call.Result), true
+}
+
+// Later actions or failures invalidate an earlier result. The final goal
+// assessment and passive health observations can follow its snapshot.
+func latestBrowserResultSnapshot(calls []app.ToolCall) int {
+	for index := len(calls) - 1; index >= 0; index-- {
+		call := calls[index]
+		if !strings.HasPrefix(call.Tool, "browser.") {
+			continue
+		}
+		if !toolCallCompleted(call) {
+			return -1
+		}
+		switch call.Tool {
+		case "browser.snapshot":
+			return index
+		case "browser.status":
+			continue
+		case "browser.assess_goal":
+			assessment := browserOutcomePayload(call.Result)
+			if assessment["status"] == "succeeded" && boolLikeValue(assessment["goal_satisfied"]) {
+				continue
+			}
+		}
+		return -1
+	}
+	return -1
+}
+
+func browserResultAnswer(goal, resultURL string, snapshot map[string]any, result any) string {
+	// The outer ToolHub envelope may OR the requested visibility into metadata.
+	// Only the provider's output can establish actual surface visibility.
+	visible := boolLikeValue(browserOutcomePayload(result)["surface_visible"])
+	if containsCJK(goal) {
+		if visible {
+			return "浏览器操作已完成，结果已在可见浏览器中打开：\n" + resultURL
+		}
+		if snapshot["profile_id"] == "client_embedded" {
+			return "浏览器操作已完成，结果已加载到当前会话的任务页面，可打开浏览器查看：\n" + resultURL
+		}
+		return "浏览器操作已完成，结果页面：\n" + resultURL
+	}
+	if visible {
+		return "Browser automation completed. The verified result is open in the visible browser:\n" + resultURL
+	}
+	if snapshot["profile_id"] == "client_embedded" {
+		return "Browser automation completed. Open the browser to view the result in this conversation's task page:\n" + resultURL
+	}
+	return "Browser automation completed. Verified result page:\n" + resultURL
 }
 
 func browserInteractionFailureAnswerFromCalls(calls []app.ToolCall) (string, bool) {
@@ -79,6 +157,12 @@ func browserInteractionFailureAnswerFromCalls(calls []app.ToolCall) (string, boo
 func browserTabsAnswerFromCalls(calls []app.ToolCall) (string, bool) {
 	for i := len(calls) - 1; i >= 0; i-- {
 		call := calls[i]
+		if strings.HasPrefix(call.Tool, "browser.") && call.Tool != "browser.list_tabs" && call.Tool != "browser.status" {
+			return "", false
+		}
+		if strings.HasPrefix(call.Tool, "browser.") && !toolCallCompleted(call) {
+			return "", false
+		}
 		if call.Tool != "browser.list_tabs" || !toolCallCompleted(call) {
 			continue
 		}

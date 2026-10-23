@@ -30,6 +30,13 @@ const (
 
 func (r Runtime) applyGroundedSummary(ctx context.Context, sessionID, runID, goal, fallback string, calls []app.ToolCall) string {
 	summary, strategy := groundedSummaryWithStrategy(goal, fallback, calls)
+	if fallbackPolicyEligible(fallback) && r.store != nil && latestBrowserResultSnapshot(calls) >= 0 {
+		if run, ok, err := r.store.GetRun(ctx, runID); err == nil && ok && run.SessionID == sessionID {
+			if result, verified := browserWorkflowResultAnswer(goal, run, calls); verified {
+				summary, strategy = result, strategyGroundedResult
+			}
+		}
+	}
 	if summary != fallback && fallbackPolicyEligible(fallback) {
 		r.addAudit(ctx, app.AuditEvent{
 			SessionID: sessionID,

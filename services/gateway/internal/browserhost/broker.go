@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -29,6 +30,9 @@ type hostConnection struct {
 	pending                             map[string]chan Message
 	generations                         map[string]uint64
 	lastHeartbeat                       time.Time
+	// reverse is set for an ISCP host: commands are calls on that session,
+	// and its leases follow tasks instead of heartbeats or grant expiry.
+	reverse ReverseSession
 }
 
 func (h *hostConnection) send(value any) error {
@@ -45,12 +49,13 @@ func (h *hostConnection) send(value any) error {
 func (h *hostConnection) close() { h.once.Do(func() { close(h.closed); h.conn.Close() }) }
 
 type Broker struct {
-	mu     sync.Mutex
-	root   string
-	grants map[string]*hostGrant
-	hosts  map[string]*hostConnection
-	fences map[string]Fence
-	now    func() time.Time
+	mu      sync.Mutex
+	root    string
+	grants  map[string]*hostGrant
+	hosts   map[string]*hostConnection
+	fences  map[string]Fence
+	now     func() time.Time
+	reverse ReverseRouter
 }
 
 func NewBroker(root string) (*Broker, error) {
@@ -251,9 +256,12 @@ func (b *Broker) Acquire(ctx context.Context, scope Scope) (Binding, error) {
 	if !scope.valid() {
 		return Binding{}, ErrFence
 	}
+	host, err := b.liveHost(scope.Identity)
+	if err != nil {
+		return Binding{}, err
+	}
 	b.mu.Lock()
-	host := b.hosts[scope.Identity.key()]
-	if host == nil || !b.now().Before(host.grantExpires) || b.now().Sub(host.lastHeartbeat) >= LeaseDuration {
+	if b.hosts[scope.Identity.key()] != host {
 		b.mu.Unlock()
 		return Binding{}, ErrUnavailable
 	}
@@ -265,7 +273,7 @@ func (b *Broker) Acquire(ctx context.Context, scope Scope) (Binding, error) {
 	}
 	for _, binding := range host.leases {
 		if binding.Scope.ConversationID == scope.ConversationID {
-			if binding.Scope.TaskID == scope.TaskID && b.now().Before(binding.LeaseExpiresAt) {
+			if binding.Scope.TaskID == scope.TaskID && leaseLive(host, binding, b.now()) {
 				b.mu.Unlock()
 				return binding, nil
 			}
@@ -278,7 +286,10 @@ func (b *Broker) Acquire(ctx context.Context, scope Scope) (Binding, error) {
 		return Binding{}, ErrFence
 	}
 	host.generations[scope.ConversationID]++
-	binding := Binding{Scope: scope, HostID: host.hostID, RuntimeGeneration: host.runtime, ConnectionEpoch: host.epoch, LeaseID: opaque("lease_"), PageID: opaque("page_"), PageGeneration: host.generations[scope.ConversationID], AuthorizationDigest: host.grantDigest, LeaseExpiresAt: minTime(b.now().Add(LeaseDuration), host.grantExpires)}
+	binding := Binding{Scope: scope, HostID: host.hostID, RuntimeGeneration: host.runtime, ConnectionEpoch: host.epoch, LeaseID: opaque("lease_"), PageID: opaque("page_"), PageGeneration: host.generations[scope.ConversationID], AuthorizationDigest: host.grantDigest}
+	if host.reverse == nil {
+		binding.LeaseExpiresAt = minTime(b.now().Add(LeaseDuration), host.grantExpires)
+	}
 	host.leases[binding.LeaseID] = binding
 	b.mu.Unlock()
 	if _, err := b.Dispatch(ctx, binding, opaque("cmd_"), "acquire", map[string]any{}); err != nil {
@@ -300,7 +311,7 @@ func (b *Broker) Dispatch(ctx context.Context, binding Binding, commandID, opera
 		return nil, ErrFence
 	}
 	live, ok := host.leases[binding.LeaseID]
-	if !ok || live.PageID != binding.PageID || live.PageGeneration != binding.PageGeneration || live.Scope != binding.Scope || !b.now().Before(live.LeaseExpiresAt) || !b.now().Before(host.grantExpires) {
+	if !ok || live.PageID != binding.PageID || live.PageGeneration != binding.PageGeneration || live.Scope != binding.Scope || !leaseLive(host, live, b.now()) {
 		b.mu.Unlock()
 		return nil, ErrFence
 	}
@@ -333,29 +344,22 @@ func (b *Broker) Dispatch(ctx context.Context, binding Binding, commandID, opera
 		return nil, err
 	}
 	b.fences[commandID] = fence
-	pending := make(chan Message, 1)
-	host.pending[commandID] = pending
-	b.mu.Unlock()
-	defer func() { b.mu.Lock(); delete(host.pending, commandID); b.mu.Unlock() }()
-	err := host.send(command)
 	var response Message
-	if err == nil {
-		timer := time.NewTimer(LeaseDuration)
-		defer timer.Stop()
-		select {
-		case response = <-pending:
-		case <-ctx.Done():
-			err = ctx.Err()
-		case <-host.closed:
-			err = ErrUnavailable
-		case <-timer.C:
-			err = ErrUnavailable
-		}
+	var err error
+	if host.reverse != nil {
+		b.mu.Unlock()
+		response, err = b.reverseCall(ctx, host, command)
+	} else {
+		response, err = b.dispatchWire(ctx, host, command)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	fence = b.fences[commandID]
-	if err != nil || response.Status == "unknown" {
+	if errors.Is(err, ErrNotDispatched) {
+		// Nothing reached the page, so even a write is not uncertain.
+		fence.State = "failed"
+		err = ErrUnavailable
+	} else if err != nil || response.Status == "unknown" {
 		if fence.Write {
 			fence.State = "unknown"
 			err = ErrUnknown
@@ -378,6 +382,38 @@ func (b *Broker) Dispatch(ctx context.Context, binding Binding, commandID, opera
 		delete(host.leases, binding.LeaseID)
 	}
 	return response.Output, err
+}
+
+// dispatchWire sends on a LAN WebSocket host and waits for its result frame.
+// It is entered with b.mu held and returns with it released.
+func (b *Broker) dispatchWire(ctx context.Context, host *hostConnection, command Command) (Message, error) {
+	commandID := command.CommandID
+	pending := make(chan Message, 1)
+	host.pending[commandID] = pending
+	b.mu.Unlock()
+	defer func() { b.mu.Lock(); delete(host.pending, commandID); b.mu.Unlock() }()
+	err := host.send(command)
+	var response Message
+	if err == nil {
+		timer := time.NewTimer(LeaseDuration)
+		defer timer.Stop()
+		select {
+		case response = <-pending:
+		case <-ctx.Done():
+			err = ctx.Err()
+		case <-host.closed:
+			err = ErrUnavailable
+		case <-timer.C:
+			err = ErrUnavailable
+		}
+	}
+	return response, err
+}
+func leaseLive(host *hostConnection, lease Binding, now time.Time) bool {
+	if host.reverse != nil {
+		return !sessionDone(host.reverse)
+	}
+	return now.Before(lease.LeaseExpiresAt) && now.Before(host.grantExpires)
 }
 func (b *Broker) Release(ctx context.Context, binding Binding) error {
 	_, err := b.Dispatch(ctx, binding, opaque("cmd_"), "release", map[string]any{})
@@ -454,7 +490,7 @@ func (b *Broker) receiveHostMessage(host *hostConnection, message Message) error
 			return ErrFence
 		}
 	case "result":
-		if message.Binding == nil || message.CommandID == "" || len(message.Output) > 96<<10 || (message.Status != "completed" && message.Status != "failed" && message.Status != "unknown") {
+		if message.Binding == nil || message.CommandID == "" || len(message.Output) > MaxResultBytes || (message.Status != "completed" && message.Status != "failed" && message.Status != "unknown") {
 			return ErrFence
 		}
 		b.mu.Lock()

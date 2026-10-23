@@ -70,6 +70,7 @@ type Repository interface {
 
 type Server struct {
 	browserBroker             *browserhost.Broker
+	browserRoutes             workbenchBrowserRoutes
 	mailSync                  *mailsync.Service
 	executionMu               sync.Mutex
 	executionRoot             string

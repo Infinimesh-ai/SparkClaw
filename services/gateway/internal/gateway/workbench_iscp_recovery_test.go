@@ -171,11 +171,11 @@ func TestISCPDomainObjectPurposeBudgetsKeepExecutionEnvelopeBounded(t *testing.T
 		}
 	}
 	for purpose, want := range map[string]int64{"context": 1 << 20, "request_body": 8 << 20} {
-		if limit, ok := domainBodyObjectLimit(iscpworkbench.OperationBrowserHostReply, purpose); !ok || limit != want {
+		if limit, ok := domainBodyObjectLimit(iscpworkbench.OperationBrowserReconcile, purpose); !ok || limit != want {
 			t.Fatal(purpose, limit, ok)
 		}
 	}
-	if _, ok := domainBodyObjectLimit(iscpworkbench.OperationBrowserHostReply, "speech_audio"); ok {
+	if _, ok := domainBodyObjectLimit(iscpworkbench.OperationBrowserReconcile, "speech_audio"); ok {
 		t.Fatal("unrelated object purpose admitted")
 	}
 }

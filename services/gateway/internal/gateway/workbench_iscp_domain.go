@@ -219,7 +219,7 @@ func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.
 		return a.mailProviders(ctx, request)
 	case iscpworkbench.OperationMailMailboxes, iscpworkbench.OperationMailSync, iscpworkbench.OperationMailMessage, iscpworkbench.OperationMailAttachment, iscpworkbench.OperationMailDraftsList, iscpworkbench.OperationMailDraftsSave, iscpworkbench.OperationMailSend, iscpworkbench.OperationMailDraftsSend, iscpworkbench.OperationMailDraftsReconcile, iscpworkbench.OperationMailDraftsResolve:
 		return a.mail(ctx, request)
-	case iscpworkbench.OperationBrowserHostGrant, iscpworkbench.OperationBrowserHostRegister, iscpworkbench.OperationBrowserHostPoll, iscpworkbench.OperationBrowserHostReply, iscpworkbench.OperationBrowserHostHeartbeat, iscpworkbench.OperationBrowserHostClose, iscpworkbench.OperationBrowserHostRevoke, iscpworkbench.OperationBrowserReceipt, iscpworkbench.OperationBrowserReconcile:
+	case iscpworkbench.OperationBrowserReceipt, iscpworkbench.OperationBrowserReconcile:
 		return a.browser(ctx, request)
 	case iscpworkbench.OperationApprovalsList, iscpworkbench.OperationApprovalsGet, iscpworkbench.OperationApprovalsDecide, iscpworkbench.OperationExecutionApproval:
 		return a.approvals(ctx, request)

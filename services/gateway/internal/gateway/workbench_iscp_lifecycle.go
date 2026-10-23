@@ -20,6 +20,8 @@ type WorkbenchISCP struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	once   sync.Once
+	// unroute stops the browser broker from addressing this transport's peers.
+	unroute func()
 }
 
 func (s *Server) StartWorkbenchISCP(ctx context.Context, cfg iscpworkbench.Config, onState func(string)) (*WorkbenchISCP, error) {
@@ -51,7 +53,7 @@ func (s *Server) StartWorkbenchISCP(ctx context.Context, cfg iscpworkbench.Confi
 		release()
 		return nil, err
 	}
-	service := &WorkbenchISCP{endpoint: endpoint, cancel: cancel, done: make(chan struct{})}
+	service := &WorkbenchISCP{endpoint: endpoint, cancel: cancel, done: make(chan struct{}), unroute: s.browserRoutes.add(endpointBrowserRoute(endpoint, cfg.ExpectedInstallationID))}
 	go func() {
 		defer close(service.done)
 		defer release()
@@ -75,6 +77,9 @@ func (s *WorkbenchISCP) Close() error {
 				}
 			}
 			return
+		}
+		if s.unroute != nil {
+			s.unroute()
 		}
 		s.cancel()
 		err = s.endpoint.Close()
@@ -101,7 +106,7 @@ func (s *Server) startNodeWorkbenchISCP(ctx context.Context, cfg iscpworkbench.C
 		cancel()
 		return nil, err
 	}
-	service := &WorkbenchISCP{endpoint: endpoint, cancel: cancel, done: make(chan struct{})}
+	service := &WorkbenchISCP{endpoint: endpoint, cancel: cancel, done: make(chan struct{}), unroute: s.browserRoutes.add(nodeBrowserRoute(endpoint))}
 	go func() {
 		defer close(service.done)
 		defer endpoint.Close()

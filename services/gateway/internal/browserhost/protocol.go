@@ -23,6 +23,14 @@ var ErrUnavailable = errors.New("workbench embedded browser host is unavailable"
 var ErrFence = errors.New("workbench browser command is fenced")
 var ErrUnknown = errors.New("workbench browser write outcome requires reconciliation")
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$`)
+var hexDigest = regexp.MustCompile(`^[a-f0-9]{64}$`)
+
+// MaxReadChars matches the host's page read window.
+const MaxReadChars = 24000
+
+// StableWaitLimit is the host's own settle deadline. It stays inside the
+// host's 25 s command deadline and the 30 s ISCP call timeout.
+const StableWaitLimit = 15 * time.Second
 
 type Identity struct {
 	OwnerID        string `json:"owner_id"`
@@ -102,7 +110,7 @@ func writeOperation(operation string) bool {
 	return operation == "click" || operation == "fill" || operation == "select"
 }
 func validateOperation(operation string, args map[string]any) error {
-	allowed := map[string][]string{"acquire": {}, "release": {}, "read": {"max_chars"}, "snapshot": {}, "navigate": {"url"}, "click": {"ref", "snapshot_id"}, "fill": {"ref", "snapshot_id", "value"}, "select": {"ref", "snapshot_id", "value"}, "screenshot": {}, "wait": {"milliseconds"}}
+	allowed := map[string][]string{"acquire": {}, "release": {}, "read": {"max_chars"}, "snapshot": {}, "navigate": {"url"}, "click": {"ref", "snapshot_id"}, "fill": {"ref", "snapshot_id", "value"}, "select": {"ref", "snapshot_id", "value"}, "screenshot": {}, "wait": {"milliseconds", "mode", "expected_url", "before_digest", "allow_no_change", "require_ready_state", "timeout_ms"}}
 	keys, ok := allowed[operation]
 	if !ok {
 		return ErrFence
@@ -148,21 +156,69 @@ func validateOperation(operation string, args map[string]any) error {
 					ok = true
 				}
 			}
-			if !ok || n < 1 || n > 65536 || n != float64(int(n)) {
+			if !ok || n < 1 || n > MaxReadChars || n != float64(int(n)) {
 				return ErrFence
 			}
 		}
 	case "wait":
-		n, ok := args["milliseconds"].(int)
-		if !ok {
-			if v, yes := args["milliseconds"].(float64); yes && v == float64(int(v)) {
-				n = int(v)
-				ok = true
+		if mode, present := args["mode"]; present {
+			return validateStableWait(mode, args)
+		}
+		for key := range args {
+			if key != "milliseconds" {
+				return ErrFence
 			}
 		}
-		if !ok || n < 0 || n > 5000 {
+		if n, ok := integerArg(args["milliseconds"]); !ok || n < 0 || n > 5000 {
 			return ErrFence
 		}
 	}
 	return nil
+}
+
+// validateStableWait admits the page-local settle check. The host decides
+// stability itself within StableWaitLimit; the wire carries only bounded data.
+func validateStableWait(mode any, args map[string]any) error {
+	if mode != "stable_state" {
+		return ErrFence
+	}
+	if _, present := args["milliseconds"]; present {
+		return ErrFence
+	}
+	if value, present := args["expected_url"]; present {
+		raw, ok := value.(string)
+		parsed, err := url.Parse(raw)
+		if !ok || err != nil || len(raw) > 16384 || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Hostname() == "" || parsed.User != nil {
+			return ErrFence
+		}
+	}
+	if value, present := args["before_digest"]; present {
+		if raw, ok := value.(string); !ok || !hexDigest.MatchString(raw) {
+			return ErrFence
+		}
+	}
+	for _, key := range []string{"allow_no_change", "require_ready_state"} {
+		if value, present := args[key]; present {
+			if _, ok := value.(bool); !ok {
+				return ErrFence
+			}
+		}
+	}
+	if value, present := args["timeout_ms"]; present {
+		if n, ok := integerArg(value); !ok || n < 500 || n > int(StableWaitLimit/time.Millisecond) {
+			return ErrFence
+		}
+	}
+	return nil
+}
+func integerArg(value any) (int, bool) {
+	switch n := value.(type) {
+	case int:
+		return n, true
+	case float64:
+		if n == float64(int(n)) {
+			return int(n), true
+		}
+	}
+	return 0, false
 }

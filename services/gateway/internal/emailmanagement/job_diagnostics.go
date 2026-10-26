@@ -58,14 +58,7 @@ func diagnosticStoreCode(err error) string {
 	}
 }
 
-func diagnosticEmailCode(err error) string {
-	switch code := emailautomation.ErrorCode(err); code {
-	case app.ToolErrorEmailNotConfigured, app.ToolErrorEmailLoginRequired, app.ToolErrorEmailAccountAmbiguous, app.ToolErrorEmailProviderUnavailable, app.ToolErrorEmailBrowserBusy, app.ToolErrorEmailBrowserCleanupPending, app.ToolErrorEmailPageContractChanged, app.ToolErrorEmailInvalidInput, app.ToolErrorEmailDraftConflict, app.ToolErrorEmailDraftVerificationFailed, app.ToolErrorEmailSendControlUnverified, app.ToolErrorEmailSendOutcomeUnknown, app.ToolErrorEmailSendNotDispatched, app.ToolErrorEmailScriptTimeout, app.ToolErrorEmailScriptInvalidOutput, app.ToolErrorEmailAdmissionStale:
-		return string(code)
-	default:
-		return ""
-	}
-}
+func diagnosticEmailCode(err error) string { return emailautomation.DiagnosticCode(err) }
 
 // Public semantics stay in safeCode. This filters only their log projection,
 // because typed error fields can still be constructed with arbitrary values.

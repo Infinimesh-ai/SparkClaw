@@ -255,20 +255,36 @@ func (s *Service) SendDraft(ctx context.Context, owner, id string, expected int6
 	// Issue the operation identity in the runtime's open epoch before the
 	// durable begin, so a replayed product database can never reissue it.
 	invocation := ""
+	identityMode := "legacy_unsupported"
+	var epochError error
+	unstarted := d
+	unstarted.Snapshot = nil // A new attempt must never borrow a previous identity.
 	if lifecycle, ok := s.browser.(LifecycleBrowser); ok {
 		if state, err := lifecycle.OperationEpoch(ctx, binding.Provider); err == nil {
+			identityMode = "epoch"
 			if invocation, err = app.NewOperationID(state.Generation, state.OpenEpoch); err != nil {
+				recordSendDiagnostic(owner, unstarted, "identity", "epoch_allocation_failed", "not_started", err)
 				return d, err
 			}
+		} else {
+			identityMode, epochError = "legacy_epoch_failed", err
 		}
 	}
 	claimed, err := r.ChangeEmailDraft(ctx, store.EmailDraftCommand{OwnerID: owner, Action: "begin", Draft: store.EmailDraft{ID: id}, ExpectedVersion: expected, SendKey: key, InvocationID: invocation})
 	if err != nil {
+		if epochError != nil {
+			recordSendDiagnostic(owner, unstarted, "identity", identityMode, "not_started", epochError)
+		}
+		recordSendDiagnostic(owner, unstarted, "begin", identityMode, "not_started", err)
 		return d, err
 	}
 	if !claimed.Execute {
+		if epochError != nil {
+			recordSendDiagnostic(owner, unstarted, "identity", identityMode, "not_started", epochError)
+		}
 		return claimed.Draft, nil
 	}
+	recordSendDiagnostic(owner, claimed.Draft, "identity", identityMode, "sending", epochError)
 	receipt, sendErr := browser.SendForOwner(ctx, owner, app.EmailSendRequest{Attachments: attachments, Provider: binding.Provider, Account: binding.Account, To: d.To, CC: d.CC, Mode: d.Mode, AccountAddress: mailbox.Address, ReplyTarget: d.ReplyTarget, Subject: d.Subject, Body: d.Body, InvocationID: claimed.Draft.Snapshot.InvocationID, BrowserCredentialGeneration: binding.BrowserCredentialGeneration, ProbeRevision: binding.ProbeRevision, ScriptRevision: binding.SendScriptRevision, SettingVersion: binding.SettingVersion})
 	state, code := "sent", ""
 	var proof *app.EmailSendResult
@@ -294,17 +310,22 @@ func (s *Service) SendDraft(ctx context.Context, owner, id string, expected int6
 			}
 		}
 	}
+	recordSendDiagnostic(owner, claimed.Draft, "send_result", identityMode, state, sendErr)
 	// Persist completion even if the HTTP client disconnected; an interrupted process leaves sending fenced.
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	out, err := r.ChangeEmailDraft(finishCtx, store.EmailDraftCommand{OwnerID: owner, Action: "finish", Draft: store.EmailDraft{ID: id, State: state}, SendKey: key, ErrorCode: code, Receipt: proof})
 	if err != nil {
+		recordSendDiagnostic(owner, claimed.Draft, "persist_result", identityMode, "uncommitted", err)
 		return claimed.Draft, err
 	}
+	recordSendDiagnostic(owner, out.Draft, "persist_result", identityMode, out.Draft.State, nil)
 	// The result is durable; acknowledge it now. A failure is retried by the
 	// lifecycle maintenance loop and never affects the send outcome.
 	if acked, ackErr := s.acknowledgeDraft(finishCtx, owner, out.Draft, mailbox.Provider); ackErr == nil {
 		out.Draft = acked
+	} else {
+		recordSendDiagnostic(owner, out.Draft, "ack", identityMode, out.Draft.State, ackErr)
 	}
 	return out.Draft, nil
 }

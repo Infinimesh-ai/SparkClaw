@@ -3,6 +3,7 @@ package trace
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -49,7 +50,13 @@ func (w *Writer) WriteRun(ctx context.Context, trace RunTrace) error {
 	return err
 }
 
-func (w *Writer) WriteRunObject(ctx context.Context, trace RunTrace) (*artifact.Object, error) {
+func (w *Writer) WriteRunObject(ctx context.Context, trace RunTrace) (result *artifact.Object, resultErr error) {
+	stage := "context"
+	defer func() {
+		if resultErr != nil {
+			resultErr = &writeFailure{stage: stage, cause: resultErr}
+		}
+	}()
 	if w == nil || w.dir == "" {
 		return nil, nil
 	}
@@ -58,31 +65,55 @@ func (w *Writer) WriteRunObject(ctx context.Context, trace RunTrace) (*artifact.
 		return nil, ctx.Err()
 	default:
 	}
+	stage = "local_write"
 	if err := os.MkdirAll(w.dir, 0o755); err != nil {
 		return nil, err
 	}
 	safeTrace := w.redactedTrace(trace)
+	stage = "encode"
 	raw, err := json.MarshalIndent(safeTrace, "", "  ")
 	if err != nil {
 		return nil, err
 	}
 	path := filepath.Join(w.dir, safeTrace.Run.ID+".json")
+	stage = "local_write"
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
 		return nil, err
 	}
 	if w.artifacts == nil {
 		return nil, nil
 	}
+	stage = "artifact_write"
 	object, err := w.artifacts.Put(ctx, filepath.Join("traces", safeTrace.Run.ID+".json"), "application/json", raw)
 	if err != nil {
-		return nil, nil
+		return nil, err
 	}
 	safeTrace.Artifact = &object
+	stage = "encode"
 	raw, err = json.MarshalIndent(safeTrace, "", "  ")
 	if err != nil {
 		return &object, err
 	}
+	stage = "local_index_write"
 	return &object, os.WriteFile(path, raw, 0o644)
+}
+
+// writeFailure preserves errors.Is/As for callers while exposing only a fixed
+// boundary to ordinary diagnostics. The raw error can contain a private path.
+type writeFailure struct {
+	stage string
+	cause error
+}
+
+func (e *writeFailure) Error() string { return "trace evidence write failed" }
+func (e *writeFailure) Unwrap() error { return e.cause }
+
+func WriteFailureStage(err error) string {
+	var failure *writeFailure
+	if errors.As(err, &failure) {
+		return failure.stage
+	}
+	return "trace_write"
 }
 
 func (w *Writer) redactedTrace(in RunTrace) RunTrace {

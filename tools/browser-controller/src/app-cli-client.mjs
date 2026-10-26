@@ -53,8 +53,19 @@ export class AppCLIClientFactory {
     this.host = new BrowserHostPort({authorization: this.client.client.authorization,
       bindings, driver: this.driver, releaseDigest: this.client.config.release_digest, stateDirectory: this.client.config.host_state_directory});
     // Drop authorization heads of reclaimed requests; failures retry later.
-    this.maintenance = setInterval(() => {void this.client?.maintain?.().catch(() => {});}, this.maintenanceIntervalMS ?? 10 * 60_000);
+    this.maintenance = setInterval(() => {void this.maintainApplication();}, this.maintenanceIntervalMS ?? 10 * 60_000);
     this.maintenance.unref();
+  }
+  async maintainApplication() {
+    try {await this.client?.maintain?.();}
+    catch (error) {
+      const code = ['CONTROL_TIMEOUT', 'BACKEND_UNAVAILABLE', 'BACKEND_EXECUTION_FAILED', 'BACKEND_TIMEOUT',
+        'BACKEND_PROTOCOL_INVALID', 'OUTPUT_VALIDATION_FAILED'].includes(error?.code) ? error.code : 'unclassified';
+      // Maintenance is component-scoped: it does not identify a send task.
+      // Neither the error payload nor a failed diagnostic may affect execution.
+      try {await this.diagnostic?.({schema_version: 1, event: 'application_maintenance_failed',
+        stage: 'maintenance', code, evidence: 'incomplete'});} catch {}
+    }
   }
   // Lifecycle 3.0 product control for the Gateway outbox (see controller).
   async lifecycle({action, provider, operation, taskID, terminal_revision, result_digest, receipt_id, resolution, epoch, drained_digest}) {

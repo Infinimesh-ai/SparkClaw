@@ -16,7 +16,7 @@
 [验收记录](desktop-browser-follow-up-2026-10-23.md)最新留存证据仍是 `.39` 运行、`.41` 未激活。
 本轮没有读取实机；这是历史观察，不是新的健康检查。
 
-**实施状态：S1/D08 与 S2/D01/D03/D04 source_verified（第 7–8 节），S3 待实施。** 没有真实发信、部署、接口或 UI 变更。
+**实施状态：S1–S3 source_verified（第 7–9 节），S4 设计待确认，S5 未授权；D05/D09 延期。** 没有真实发信、部署、接口或 UI 变更。
 
 ## 1. 先看完整链路
 
@@ -43,15 +43,15 @@
 | 编号 | 源码发现 | 准确修复边界 |
 |---|---|---|
 | D01 (S2 source_verified) | [`page_intake.go`](../../services/gateway/internal/emailmanagement/page_intake.go) 的 `commitListFailure`（523–539）不写 `InvocationID`；成功提交（426）有。 | 失败历史携带真实失败 invocation；区分调用前失败、采集失败、拆分查询失败，不能伪造未发生调用；不改 checkpoint/重试语义。 |
-| D02 | [`compose.go`](../../services/gateway/internal/emailmanagement/compose.go)（275–282）把多数发送错误压为 `email_send_outcome_unknown`；[`playwright_runner.go`](../../services/gateway/internal/emailautomation/playwright_runner.go) 的 `mapPlaywrightError` 也合并底层错误。 | 另存安全 cause/stage/source layer；保留对外错误行为与 unknown-send 保护。 |
+| D02 (S3 source_verified) | [`compose.go`](../../services/gateway/internal/emailmanagement/compose.go)（275–282）把多数发送错误压为 `email_send_outcome_unknown`；[`playwright_runner.go`](../../services/gateway/internal/emailautomation/playwright_runner.go) 的 `mapPlaywrightError` 也合并底层错误。 | 另存安全 cause/stage/source layer；保留对外错误行为与 unknown-send 保护。 |
 | D03 (S2 source_verified) | [`host-driver.mjs`](../../tools/browser-controller/src/host-driver.mjs)（212–213、270–271）有 phase/code/reason/command，无 task 标识。 | 加入验证过的 task/operation 关联；并发操作不能可靠地靠时间拼接。 |
 | D04 (S2 source_verified) | [`service.go`](../../services/gateway/internal/emailmanagement/service.go) 的 `execute`（380–382）续租失败只 cancel；`safeCode`（434–462）合并未列举的解析/来源/模型错误。 | 对外文案之外保留类型化内部原因和阶段，区分租约/存储失败、取消、超时。 |
 | D05 | [`endpoint_rpc.go`](../../services/gateway/internal/iscpworkbench/endpoint_rpc.go)（174–176）仅用 `callCtx.Err()`记 handler 状态；`commitListFailure` 成功保存业务失败后返回 nil，job 因而可成功。 | 传输/作业完成与业务结果分开；不能为日志变红而改变调度语义。 |
-| D06 | [`latencytrace/trace.go`](../../services/gateway/internal/latencytrace/trace.go) 需手动开启，队列 1,024/文件 64 MiB，有 dropped/limit 标记但初始化/写失败可能静默；[`latency-trace.mjs`](../../apps/desktop/src/main/latency-trace.mjs) 达 100,000 条或写失败静默停止。 | 显式报告启用/关闭/降级、覆盖及丢失；没记录不能证明没执行。 |
-| D07 | [`agent.go`](../../services/gateway/internal/agent/agent.go)（1007）忽略 trace 写失败；[`trace/writer.go`](../../services/gateway/internal/trace/writer.go)（76–78）吞制品写失败；[`app-cli-client.mjs`](../../tools/browser-controller/src/app-cli-client.mjs)（56）吞维护错误。 | 使证据/维护失败可见，不改写邮件结果；Agent trace 本就不覆盖所有直接撰写或后台同步。 |
+| D06 (S3 source_verified) | [`latencytrace/trace.go`](../../services/gateway/internal/latencytrace/trace.go) 需手动开启，队列 1,024/文件 64 MiB，有 dropped/limit 标记但初始化/写失败可能静默；[`latency-trace.mjs`](../../apps/desktop/src/main/latency-trace.mjs) 达 100,000 条或写失败静默停止。 | 显式报告启用/关闭/降级、覆盖及丢失；没记录不能证明没执行。 |
+| D07 (S3 source_verified) | [`agent.go`](../../services/gateway/internal/agent/agent.go)（1007）忽略 trace 写失败；[`trace/writer.go`](../../services/gateway/internal/trace/writer.go)（76–78）吞制品写失败；[`app-cli-client.mjs`](../../tools/browser-controller/src/app-cli-client.mjs)（56）吞维护错误。 | 使证据/维护失败可见，不改写邮件结果；Agent trace 本就不覆盖所有直接撰写或后台同步。 |
 | D08 (S1 source_verified) | [`compose.go`](../../services/gateway/internal/emailmanagement/compose.go)（293）将有效服务商拒绝记作 `failed`，首次 ACK 失败忽略（306）；[`lifecycle_maintenance.go`](../../services/gateway/internal/emailmanagement/lifecycle_maintenance.go)（86）只补偿 `sent`。 | 源码确认 ACK 恢复覆盖缺口；先隔离复现，再包含合格的拒绝终态结果，零再次派发。尚未证实为实机事故原因。 |
 | D09 | [`analysis.go`](../../services/gateway/internal/emailmanagement/analysis.go) 保留失败分析文件，但失败 [`EmailJob`](../../services/gateway/internal/app/email_management.go) 无直接 execution/artifact/ModelCall 索引；`SaveModelCall` 失败仍可能返回生成的 ID。 | 按分析 attempt 建索引，区分持久化成功与仅分配引用；不能把不存在的记录当证据。 |
-| D10 | [`compose.go`](../../services/gateway/internal/emailmanagement/compose.go)（258–264）忽略 epoch 查询错误，可能回退 legacy invocation。 | 记录 identity mode 与安全 epoch 错误；取消 fallback 属另一个行为决策，不能混入加日志。 |
+| D10 (S3 source_verified) | [`compose.go`](../../services/gateway/internal/emailmanagement/compose.go)（258–264）忽略 epoch 查询错误，可能回退 legacy invocation。 | 记录 identity mode 与安全 epoch 错误；取消 fallback 属另一个行为决策，不能混入加日志。 |
 
 已有保护包括不可变发送快照、持久回执、类型化对外错误、未发送证明、同步失败类别/历史、
 revision/lease fencing、原件清单、清理隔离、私有耗时记录。应保留并贯通；仅增加通用 logger 不够。
@@ -92,7 +92,7 @@ revision/lease fencing、原件清单、清理隔离、私有耗时记录。应�
 
 ## 5. 修改顺序与验收
 
-全部批次为 **待实现**。独立业务修复和诊断/schema 工作分开；不相关的新失败另开条目。
+S1–S3 为 **source_verified**；S4/S5 与 D05/D09 待实施。独立业务修复和诊断/schema 工作分开；不相关的新失败另开条目。
 
 | 批次 | 准确改动 | 验收出口 |
 |---|---|---|
@@ -145,3 +145,15 @@ M1 使下一次失败能明确归属，M2/M3 使证据可直接使用。D08 不�
 - 验收/结果：memory/file 实际采集与拆分先红后绿；memory/file/隔离 PostgreSQL 重启后失败身份与完整解码记录一致；Host 并发和真实固定 .41 页面复用；续租/取消/超时/source/model/隐私及调度不变测试与 race 通过。Controller 326 通过 / 148 个原有可选跳过；隔离 Linux 全量 Go 75 包、build/vet 通过。评审追加拆分准入/契约阶段和已知恢复/source 原因的红→绿测试，最终定向 race 覆盖这些补充。源码版本为本卡提交；部署/实机证据：无。
 - 局限：没有新增持久通用诊断流，首因/Host 事件依赖既有日志保留；缺失或身份无效仍为 `incomplete`。operation 通过 task ID + `operation_key_sha256` 联查，不按时间相近推断。D05/D09 延期。
 - 回退：回退本提交；既有可选 InvocationID 字段向后兼容，无迁移或状态机变更。
+
+## 9. S3 / D02、D06、D07、D10 修改卡 — source_verified
+
+- 负责方/状态：SparkClaw 邮件适配器和既有诊断 sink；2026-10-26，仅源码。
+- 失败/证据：S2 `4cde05d6` 会丢失底层 Controller/脚本原因和 epoch 回退模式；关闭/损坏/满载 trace 缺少健康证据；artifact、Agent、反馈刷新和 Controller 维护失败被吞。均先写失败测试，再修复，包含首次/维护 ACK 的可见性；另补旧 operation 误关联、epoch 后 durable begin 失败、ACK 持久化表达的红→绿测试。
+- 目标：补安全原因和证据缺失边界，不改变业务决策，不将无事件解释为未执行。
+- 准确产品范围：`internal/emailautomation/{errors,playwright_runner,diagnostics}.go`；`internal/emailmanagement/{compose,job_diagnostics,lifecycle_maintenance,send_diagnostics}.go`；`internal/latencytrace/trace.go`；`internal/trace/{writer,diagnostics}.go`；`internal/agent/agent.go`；`internal/gateway/traces_endpoints.go`（以上均在 `services/gateway/`）；`apps/desktop/src/main/latency-trace.mjs`；`tools/browser-controller/src/app-cli-client.mjs`。对应测试与负责模块放在一起；无 Store schema 或对外 API 改动。
+- 机制：安全白名单 cause/stage/source 独立于原公开错误映射；owner+draft 引用散列、operation ID 校验；epoch 回退保持，未开始的新尝试清空旧 snapshot。发送观察记 `business_persisted=false`，成功 finish 和持久结果后的 ACK 失败分别表达；诊断不新增 ACK 或派发。trace artifact 错误保留 `errors.Is/As` 和固定阶段；Agent/反馈调用方标 incomplete，不改业务/HTTP 结果；维护诊断回调失败不会传入业务执行。
+- sink 健康：`latency_trace_health` v1 输出 enabled/disabled/degraded、固定原因、`instrumented_boundaries_only`、`evidence=incomplete`、尝试/写入/丢弃/丢失/拒绝元数据计数和首个丢失/最后写入证据。Go 1,024 队列/64 MiB、Desktop 100,000 条上限保留；Go 生产者不等待健康输出，Desktop stderr 失败被约束。转换日志中的计数是当时快照，不是最终总数或持久历史。
+- 验收/结果：原因/身份/unknown/ACK/持久化/隐私先红后绿；邮件、trace、Agent、反馈 race；实际 64 MiB/100,000 条上限、阻塞/损坏 observer、实际 `WithFields` 拒绝路径通过。隔离 Linux 全量 Go（75 个含测试包）、build/vet 通过；Controller 331 通过 / 148 原有可选跳过；WebChat 504 通过；Desktop 全量串行 530 通过。Desktop 首次并行出现一个 authority-change 失败，同文件隔离 16 项及完整串行复跑通过；原失败保留，不改写。App-CLI 投影检查通过，renderer/WebChat/发行 pins 不变。源码版本为本卡提交；部署/实机证据：无。
+- 局限：诊断依赖进程/日志保留，不是新增持久审计账本；未知原因仍 unclassified，缺失健康/Host/trace 仍 incomplete。不证明 `.41` 已安装、原生服务商行为、原件字节或收件人到达。D05/D09 仍延期。
+- 回退：回退本提交；只新增诊断字段，无业务 schema 迁移。旧解析器可忽略新增字段，runtime pins 和已存发送保护不变。

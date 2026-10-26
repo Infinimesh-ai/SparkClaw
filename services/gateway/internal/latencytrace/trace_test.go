@@ -26,13 +26,13 @@ func TestPrivateDestinationAndExclusivePerProcessFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, directory := range []string{"", "relative", public, link, filepath.Join(root, "missing")} {
-		if r := newRecorder(directory); r != nil {
+		if r := testRecorder(directory); r != nil {
 			close(r.queue)
 			<-r.done
 			t.Fatalf("accepted unsafe diagnostic destination %q", directory)
 		}
 	}
-	first, second := newRecorder(private), newRecorder(private)
+	first, second := testRecorder(private), testRecorder(private)
 	if first == nil || second == nil {
 		t.Fatal("private diagnostic destination unavailable")
 	}
@@ -60,7 +60,7 @@ func TestFixedSchemaDoesNotRecordUntrustedFieldsOrErrorText(t *testing.T) {
 	if status(context.Canceled) != "canceled" || status(context.DeadlineExceeded) != "deadline" {
 		t.Fatal("context classification failed")
 	}
-	r := newRecorder(privateTestDirectory(t))
+	r := testRecorder(privateTestDirectory(t))
 	if r == nil {
 		t.Fatal("private recorder unavailable")
 	}
@@ -91,11 +91,11 @@ func TestFixedSchemaDoesNotRecordUntrustedFieldsOrErrorText(t *testing.T) {
 
 func TestTracePressureAndStorageFailureNeverBlockProducer(t *testing.T) {
 	r := &recorder{queue: make(chan event, 1)}
-	r.emit(event{})
+	r.emit(event{Stage: "rpc.call"})
 	done := make(chan struct{})
 	go func() {
 		for range 10000 {
-			r.emit(event{})
+			r.emit(event{Stage: "rpc.call"})
 		}
 		close(done)
 	}()
@@ -107,7 +107,7 @@ func TestTracePressureAndStorageFailureNeverBlockProducer(t *testing.T) {
 	if r.dropped.Load() != 10000 {
 		t.Fatal("dropped timing evidence not counted")
 	}
-	r = newRecorder(privateTestDirectory(t))
+	r = testRecorder(privateTestDirectory(t))
 	if r == nil {
 		t.Fatal("private recorder unavailable")
 	}
@@ -144,3 +144,5 @@ func privateTestDirectory(t *testing.T) string {
 	}
 	return directory
 }
+
+func testRecorder(directory string) *recorder { return startSession(directory).recorder }

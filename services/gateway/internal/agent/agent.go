@@ -1004,7 +1004,7 @@ func (r Runtime) writeTrace(ctx context.Context, run app.AgentRun, chat modelrou
 			slog.Warn("agent trace audit unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
 			return
 		}
-		object, _ := r.traces.WriteRunObject(ctx, trace.RunTrace{
+		object, writeErr := r.traces.WriteRunObject(ctx, trace.RunTrace{
 			Run:        run,
 			Model:      chat,
 			ModelCalls: modelCalls,
@@ -1015,6 +1015,10 @@ func (r Runtime) writeTrace(ctx context.Context, run app.AgentRun, chat modelrou
 			Audit:      audit,
 			Episode:    episode,
 		})
+		if writeErr != nil {
+			slog.Warn("agent trace write unavailable", "run_id", trace.DiagnosticRunID(run.ID),
+				"stage", trace.WriteFailureStage(writeErr), "code", "trace_write_failed", "evidence", "incomplete")
+		}
 		if object != nil {
 			if _, err := r.store.SaveArtifactObject(ctx, app.ArtifactObject{
 				ID:          app.NewID("obj"),

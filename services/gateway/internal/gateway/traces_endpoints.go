@@ -225,7 +225,11 @@ func (s *Server) refreshTrace(ctx context.Context, runID string) {
 		slog.Warn("trace audit refresh unavailable", "run_id", run.ID, "code", store.StoreErrorCodeOf(err))
 		return
 	}
-	object, _ := s.traces.WriteRunObject(ctx, current)
+	object, writeErr := s.traces.WriteRunObject(ctx, current)
+	if writeErr != nil {
+		slog.Warn("trace refresh write unavailable", "run_id", trace.DiagnosticRunID(run.ID),
+			"stage", trace.WriteFailureStage(writeErr), "code", "trace_write_failed", "evidence", "incomplete")
+	}
 	if object != nil {
 		if _, err := s.store.SaveArtifactObject(ctx, app.ArtifactObject{
 			ID:          app.NewID("obj"),

@@ -84,8 +84,11 @@ func (s *Service) lifecycleRound(ctx context.Context) error {
 	}
 	for _, item := range drafts {
 		if pendingTerminalACK(item.draft, item.provider) {
-			if _, err := s.acknowledgeDraft(ctx, item.owner, item.draft, item.provider); err != nil && ctx.Err() != nil {
-				return err
+			if _, err := s.acknowledgeDraft(ctx, item.owner, item.draft, item.provider); err != nil {
+				recordSendDiagnostic(item.owner, item.draft, "ack", "", item.draft.State, err)
+				if ctx.Err() != nil {
+					return err
+				}
 			}
 		}
 	}

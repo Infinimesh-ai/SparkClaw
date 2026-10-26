@@ -282,14 +282,19 @@ func playwrightScriptFailure(provider Provider, raw json.RawMessage) error {
 		return codedError(app.ToolErrorEmailScriptInvalidOutput, "Email provider script returned an invalid error")
 	}
 	if code, ok := hostRejectionCodes[output.Code]; ok {
-		return &Error{Code: code, Message: publicScriptErrorMessage(code), localOperational: true}
+		return &Error{Code: code, Message: publicScriptErrorMessage(code), localOperational: true, diagnostic: scriptFailureDetails(output.Code)}
 	}
 	code := normalizeScriptErrorCode(output.Code)
 	local := output.Code == "email_batch_limit" || output.Code == "email_local_io" || output.Code == "email_source_conflict" || output.Code == "email_source_recovery_pending"
-	return &Error{Code: code, Message: publicScriptErrorMessage(code), localOperational: local}
+	return &Error{Code: code, Message: publicScriptErrorMessage(code), localOperational: local, diagnostic: scriptFailureDetails(output.Code)}
 }
 
-func mapPlaywrightError(err error, send bool) error {
+func mapPlaywrightError(err error, send bool) (mapped error) {
+	defer func() {
+		if typed, ok := mapped.(*Error); ok {
+			typed.diagnostic = controllerFailureDetails(err)
+		}
+	}()
 	if err == nil {
 		return nil
 	}

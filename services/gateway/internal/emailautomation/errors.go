@@ -14,6 +14,7 @@ type Error struct {
 	Code             app.ToolErrorCode
 	Message          string
 	localOperational bool
+	diagnostic       FailureDiagnostic
 }
 
 func (e *Error) Error() string {

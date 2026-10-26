@@ -1,0 +1,247 @@
+{
+  "schema": "sparkclaw.runtime_s5_checkpoint.v1",
+  "date": "2026-10-26",
+  "status": "authorized_preflight_blocked",
+  "target": {
+    "sparkclaw": "0f46702a18e9b8fc8bb4e4fbe43341e097fd7af3",
+    "app_cli": "bcc55506cc933f981668e3b2d1ed1eba1bf4c6a3",
+    "app_cli_release": ".41",
+    "source_tracked_blobs_verified": 2964
+  },
+  "authorization": {
+    "deployment": true,
+    "mac_install_acceptance": true,
+    "push": false,
+    "real_email": false,
+    "app_cli_modification": false
+  },
+  "artifacts": {
+    "bin/iscp-bridge": {
+      "bytes": 16347064,
+      "sha256": "985a1cde94cfaec55c2dc9437380459e4f5521ef400441b836fc925f0d7250ba"
+    },
+    "bin/sparkclaw": {
+      "bytes": 44362268,
+      "sha256": "dfe17fc4362397b97389fa97a06db6d9c0bbd4e799a64abc87d4e315458b6b77"
+    },
+    "bin/sparkclaw-email-diagnose-darwin-arm64": {
+      "bytes": 15021842,
+      "sha256": "8b81aa46e5ae96b74e717936016d267d1683599622f9d0019da57719a6ebf622"
+    },
+    "bin/sparkclaw-email-diagnose-linux-amd64": {
+      "bytes": 15260124,
+      "sha256": "de8ec604de96115b2a11180a7b163d3aebeb2a4ed6736e462a96767a98f6bc52"
+    },
+    "source.bundle": {
+      "bytes": 961205,
+      "sha256": "8bc65e70340fdc4bc86596b0ce8c90bac5ca877f4c68a113158c7e6ae2f61e38"
+    },
+    "source/apps/desktop/dist/SparkX-0.1.0-mac-arm64.dmg": {
+      "bytes": 137576048,
+      "sha256": "09259f0bce2bc899f599f6c9d7eb72b7d864c54a6f0d8d68a168a5dd52a598ed"
+    },
+    "source/apps/desktop/dist/SparkX-0.1.0-mac-arm64.zip": {
+      "bytes": 137441936,
+      "sha256": "92e0c56b7986b9fb9482858f7a31075df4aa44682c6d2c709ca1d3e00fbe63be"
+    }
+  },
+  "build": {
+    "go": "go version go1.25.12 darwin/arm64",
+    "node": "v26.2.0",
+    "mac_after_pack_audit": true,
+    "source_changed_after_build": false,
+    "mac_package_source_audit": {
+      "asar_files_exact": 82,
+      "webchat_files_exact": 24,
+      "package_metadata_omissions": [
+        "scripts",
+        "devDependencies",
+        "build"
+      ],
+      "helper_matches_after_pack_audit": true
+    }
+  },
+  "remote": {
+    "observed_at": "2026-10-26T05:44:17.668831+00:00",
+    "source": "9eab082c32dbf8abf2b120247af8f5f107a563c8",
+    "app_cli_release": "0.3.0-sparkclaw.39",
+    "gateway": {
+      "container_id": "02152fcba52618ddf4ca97fcd036fd244e6236d02daca7419bf447ab16376b5d",
+      "health": "healthy",
+      "image": "sha256:ce814bdc134dcfbf0c8a6e6dfad4ae741d4f0294d6e15ec7c39235b9b460935d",
+      "started_at": "2026-10-23T17:51:28.822084422Z",
+      "state": "running"
+    },
+    "units_active": true,
+    "cache_artifacts_hash_verified": 4,
+    "bundle_verified": true,
+    "gateway_and_diagnostic_help_passed": true,
+    "activated": false,
+    "service_changes": 0
+  },
+  "mac": {
+    "profiles": 6,
+    "tables": 97,
+    "cold_backup_exact": true,
+    "old_app_entries": 296,
+    "candidate_app_entries": 296,
+    "app_replaced": false,
+    "profile_data_restored": false,
+    "native_preexisting_http503": true
+  },
+  "resource_gates": {
+    "local": {
+      "observed_at": "2026-10-26T05:48:37.653996+00:00",
+      "available_bytes": 4034625536,
+      "required_available_bytes": 4294967296,
+      "passed": false
+    },
+    "remote": {
+      "observed_at": "2026-10-26T05:44:17.668831+00:00",
+      "available_bytes": 5671591936,
+      "required_available_bytes": 8589934592,
+      "passed": false
+    },
+    "minimum_reserve_bytes": 2147483648,
+    "minimum_reserve_fraction": 0.5,
+    "minimum_disk_free_bytes": 12884901888,
+    "thresholds_changed": false
+  },
+  "local_apps": {
+    "normal_quit_authorized": [
+      "Chrome",
+      "Claude",
+      "WPS"
+    ],
+    "main_processes_exited": true,
+    "wps_cloud_helpers_retained": true,
+    "forced_termination": false
+  },
+  "acceptance": {
+    "current_full_baseline": false,
+    "same_wire_local_receive_started": false,
+    "frozen_preservation": false,
+    "new_runtime_loaded": false,
+    "installed_ui": false,
+    "provider_rejection_recovery_live": false,
+    "unknown_no_resend_live": false,
+    "diagnostic_artifact_fixture": {
+      "passed": true,
+      "scope": "synthetic darwin-arm64 artifact only; not live or installed acceptance",
+      "binary_invocations": 25,
+      "owner_isolation": true,
+      "file_static_ledger_active_wal_source_unchanged": true,
+      "unknown_recovery": "inspect_without_resend",
+      "os_write_denial_probes": 10,
+      "concurrent_writer_qualified": false
+    }
+  },
+  "limitations": [
+    "No new complete live unknown count is asserted.",
+    "Historical missing terminal rows and failed freezes remain unresolved.",
+    "Mac pre-existing HTTP 503 was observed before installation; remote health does not prove the desktop connection.",
+    "Browser restart is not executed; preservation of unsaved page state is unproved.",
+    "Private deployment admission draft has no execution adapter.",
+    "The synthetic diagnostic fixture initially had mismatched draft/snapshot error codes; the failed run is retained and is not a product regression."
+  ],
+  "operations": {
+    "new_email_dispatches": 0,
+    "unknown_resends": 0,
+    "pushes": 0,
+    "source_activation": 0,
+    "mac_app_replacement": 0,
+    "production_data_restoration": 0
+  },
+  "private_evidence_root": "~/.cache/sparkclaw-upgrades/20261026-runtime-s5-0f46702a",
+  "evidence_refs": [
+    {
+      "relative_private_path": "evidence/artifact-manifest.json",
+      "sha256": "1bd3aecdec74c6b679f63e845e4f50815764d21295c44185da71c87e79e81080"
+    },
+    {
+      "relative_private_path": "evidence/source-after-build-verification.json",
+      "sha256": "3b28eb9037c5e7a015ca69d353c547996ccca406f6dc80485bc6aeb68060dd34"
+    },
+    {
+      "relative_private_path": "evidence/artifact-stage-verification.json",
+      "sha256": "6ad54db118838bfdb32b52e62dadf0ce6dfa5b48006cb17999f9e9bcceffa7f7"
+    },
+    {
+      "relative_private_path": "evidence/remote-preflight-after-stage.json",
+      "sha256": "0fb9ccc7e0c2cefbef5a1d479cc28c6314f4aefceb53dbc954a15c56c764b9eb"
+    },
+    {
+      "relative_private_path": "evidence/go-build-metadata.json",
+      "sha256": "86f917e562bdd9dcf7d80ce8998c8d462257737917ea05969ac3e7b10cfccf1a"
+    },
+    {
+      "relative_private_path": "mac-cold/result.json",
+      "sha256": "ee9bf3d2f6a82ab59f2d890e5a2fce33fbfba69b9d0195410d6690aaad33d641"
+    },
+    {
+      "relative_private_path": "evidence/local-resources-checkpoint.json",
+      "sha256": "d753c7270b058339d959b84c8425c790d8d5ddf1bce93faf8008a1f13ecf5ed4"
+    },
+    {
+      "relative_private_path": "artifact-qualification/evidence/summary.json",
+      "sha256": "e7fcd870c206923bb94b485f161791c63e0fc1c636854c1aa487f534df13a6d2"
+    },
+    {
+      "relative_private_path": "artifact-qualification/evidence/evidence-index.json",
+      "sha256": "cd54a3424a14bc96140efe8fbd1c419ae475cf810a5e13a16e837e7148ef649a"
+    },
+    {
+      "relative_private_path": "evidence/diagnostic-artifact-root-review.json",
+      "sha256": "70f0bf54f0062d31087e8c1e55facb3e8a31aa1c85868389cfad83ef5ac9b82b"
+    },
+    {
+      "relative_private_path": "evidence/mac-package-source-audit.json",
+      "sha256": "e4f2a8db9be759643b3a0daddf437fc9e5e4300784fe8d0696bf98b98759c8a1"
+    },
+    {
+      "relative_private_path": "deployment-draft/evidence/draft-index-v3.json",
+      "sha256": "68b77e0cac78a70fdf53d6d6e76cfe3ca782626dfb8b680bb4afe79b8f95b279"
+    },
+    {
+      "relative_private_path": "deployment-draft/evidence/root-final-tests.log",
+      "sha256": "49c0df37058719f08d6df63771d8fcdd3c65475774db3a2d70b8e413d63357e4"
+    },
+    {
+      "relative_private_path": "maintenance-draft/evidence/green.log",
+      "sha256": "7df297b13f27159ab2a6727b1eeaf95d282904e0950804476293e82238eb0642"
+    },
+    {
+      "relative_private_path": "evidence/docs-check.json",
+      "sha256": "d001a70c2ab0f2fdd1f4cb6d1bb916e1017ec221e040e85a42bac6ea51a22041"
+    },
+    {
+      "relative_private_path": "evidence/team-skills-check.log",
+      "sha256": "16e55365d7b469d861f20bf1380218c5ae2add48e7b4ed33a7af02055fb4528b"
+    },
+    {
+      "relative_private_path": "evidence/docs-precommit-link-failure.json",
+      "sha256": "a4b5fcfb157b457f61c1ea7a319b9c298674789f00a8ba4fe63ce0f25dd3de4b"
+    },
+    {
+      "relative_private_path": "evidence/docs-final-check.json",
+      "sha256": "41cd3ae39ef418c5934cc9ead1e8eaaef6e2fd5e556682c2ec9578d586972856"
+    }
+  ],
+  "private_harness_tests": {
+    "source_and_artifact_admission": 21,
+    "maintenance_fixture": 9,
+    "root_independent_runs_passed": true,
+    "execution_adapter_available": false,
+    "production_maintenance_adapters_available": false,
+    "red_runs_retained": true
+  },
+  "validation": {
+    "bilingual_docs": 134,
+    "docs_passed": true,
+    "team_skills": {
+      "passed": false,
+      "preexisting_metadata_errors": 37,
+      "new_lesson_errors": 0
+    }
+  }
+}

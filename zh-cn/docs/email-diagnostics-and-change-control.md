@@ -169,3 +169,15 @@ M1 使下一次失败能明确归属，M2/M3 使证据可直接使用。D08 不�
 - 验收/结果：重复调用实际命令后 file 字节/权限/mtime/清单不变，ACK 为 0、额外派发为 0；每个 owner 的原始夹具派发各保持 1，同 key 重放不变、unknown 新 key 仍被阻止。真实隔离 PostgreSQL 的 SELECT-only/RLS/事务模式检查和受影响 Go race 通过。Controller 全量 351 通过 / 150 可选或平台跳过；ledger 独立 21 通过 / 1 平台跳过，包含 Linux 静态/活动 WAL 只读挂载验证。Linux 全量 Go build/vet/tests：77 个含测试包通过。App-CLI 投影、134 份双语 Markdown 与 diff 空白检查通过。首次 Linux 源码快照准备因本机 Python 不支持 `tarfile.extractall(filter=...)` 失败，单独保留，不算产品失败或通过。没有 UI 文件变化，不把此前 UI 测试数冒充本轮重跑。外部 TeamSkills 全库检查仍有 37 项既有 lesson 元数据错误，本次更新未新增；不计为通过。
 - 局限：未留存历史始终 incomplete；实际加载版本、清理、trace/run、D09 分析索引无证明。旧 job 日志缺 owner 绑定，不关联；加密快照不支持。生产 ledger 当前需合格 macOS 拒写保护，Linux 缺保护时不打开 ledger，核心读取器仅在拒写夹具下验证。统计为逻辑源数据/投影字节；10 秒工作截止后有界清理/输出开销。以上均明示缺口，不构成改 `.41` 或执行 S5 的授权。
 - 回退：移除/回退独立命令、读取器、包装及测试；无迁移或持久诊断状态，既有回执、unknown 保护与 S1–S3 行为兼容。未部署、未发真实邮件、未推送；S5 等待另行授权。
+
+## 11. S5 部署前置修改卡 — 未部署
+
+- 负责方/状态：SparkClaw 发行验收，2026-10-26。负责人已授权 S5 部署及 Mac 安装验收；不推送、不发真实邮件、不改 App-CLI `.41` 约束仍有效，unknown 永不重发。S1–S4 保持 `source_verified`，不是 `deployed` 或 `accepted`。
+- 目标/失败：安装精确的当前阶段组合，验证恢复、诊断和原 UI。旧 `.41` stage 包含 `2396381e`，不能证明 S1–S4。完整保全流水线目前在解码或停止服务前的资源预检受阻；环境门槛失败不算产品失败。
+- 准确范围：不可变 SparkClaw `0f46702a18e9b8fc8bb4e4fbe43341e097fd7af3` 与不变 App-CLI `bcc55506cc933f981668e3b2d1ed1eba1bf4c6a3`。私有构建/暂存/备份证据在 `~/.cache/sparkclaw-upgrades/20261026-runtime-s5-0f46702a`；仓库改动为本双语检查点、方案第 2 节、跟进记录和[公开证据摘要](../../docs/evidence/runtime-stabilization-s5-2026-10-26.json)。不改 UI、公开码、调度、公共核心或运行时源码。
+- 准备/结果：已构建 Go Gateway/bridge、Linux/macOS 独立诊断二进制；Node 26 Mac DMG/ZIP 构建及包审计通过。全部 2,964 个受控源文件仍匹配 pin。work2 四个缓存制品 SHA 和 bundle 校验通过；Gateway 与诊断 `-h` 成功，未 bootstrap 运行时。Mac 6 个 profile、97 张表冷备逐项一致；旧/新应用清单各 296 项，仍安装旧应用。
+- 制品资格：实际 Darwin 诊断二进制完成 25 次合成调用（24 次预期 exit 0、一个无效参数 exit 2），owner/principal/ledger owner 隔离、unknown `inspect_without_resend` 和 file/static ledger/active WAL 的字节/权限/mtime/清单一致性均通过。10 项 OS 拒写探针通过，没有生产 ACK 或服务商操作。4 项 harness 负控制先失败；首轮合成 draft/snapshot 不一致产生冲突证据，夹具失败已单独保留。根重新校验 89 个证据文件并独立核验前后快照一致。Mac 包 82 个源文件、24 个已构建 UI 文件匹配，仅正常 package 元数据删减不同。私有准入/维护原型在保留红测试后分别通过 21 / 9 项，但仍不可执行生产操作。全部 134 个双语文档检查通过；TeamSkills 仍有相同 37 项既有元数据错误，不计通过。
+- 当前实机证据：05:44:17 UTC，work2 仍为 `9eab082c` / `.39`，同一个健康 Gateway 容器/镜像和三个 active unit。这是新鲜健康观察，不是完整数据保全或 unknown 集合检查。Mac 在安装前已显示 HTTP 503，不能用远端健康覆盖这一问题。
+- 资源边界：05:48:37 UTC 本机可用 3.76 GiB；05:44:17 UTC 远端可用 5.28 GiB。完整校验仍分别要求至少 4 / 8 GiB，保留至少半数可用内存且不少于 2 GiB，以及 12 GiB 磁盘余量。已按明确授权正常退出 Chrome/Claude/WPS；WPS 云后台仍在，没有强制终止。未解码保存响应、未获取新的完整基线、未 freeze、未重启服务、未切换源码或安装 Mac。单独重启浏览器不能替代排空与保全，未保存页面状态能否保全仍无证明。
+- 局限/下一门槛：制品身份核对不能当成实际加载版本验收。私有准入草案保持关闭，尚无部署执行适配器。资源达标后先完成相同保存响应接收、健康态完整新基线与复核，再受控 freeze/激活/健康交接和 Mac UI 验收。S1 拒绝回执补 ACK 必须有精确 task/revision/digest 证明且额外派发为零；unknown 保持完整原行保护。历史缺失行和失败运行继续保留。
+- 回退：没有已激活运行时或应用替换需要回退。保留原 `.39` 服务、旧 Mac 应用、源数据、备份和全部证据；不得用旧数据库恢复掩盖差异。无新增邮件、重发或推送。S5 尚未完成。

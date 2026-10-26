@@ -2,6 +2,20 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-browser-follow-up-2026-10-23.md)
 
+## S5 authorized continuation — 2026-10-26
+
+The owner has now authorized deployment and installed-version acceptance. The
+current target is SparkClaw `0f46702a` plus unchanged App-CLI `.41`; the earlier
+`2396381e` candidate below remains historical. Current no-push and no-real-mail
+constraints take precedence over historical send approvals. Exact artifacts are
+built and cached on work2, and Mac cold preservation passed; neither runtime
+activation nor Mac installation has occurred. At 05:44 UTC work2 still ran healthy
+`.39`; full verification is blocked by the unchanged memory gates. See the
+[S5 change card](email-diagnostics-and-change-control.md#11-s5-deployment-preflight-card--not-deployed)
+and [checkpoint evidence](evidence/runtime-stabilization-s5-2026-10-26.json).
+Historical unknown counts, failed runs and native passes below are not fresh S5
+acceptance. The remaining mail-delivery cases stay deferred.
+
 ## Deferred work list — 2026-10-26
 
 The owner requested an inventory now and handling later. This update only records

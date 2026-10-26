@@ -4,7 +4,7 @@
 
 ## 1. 结论与范围
 
-**状态：实施中，2026-10-26，Asia/Shanghai；S1–S4 source_verified，S5 未授权。**
+**状态：实施中，2026-10-26，Asia/Shanghai；S1–S4 source_verified，S5 已授权；制品已准备，资源门槛阻塞激活。**
 
 App-CLI 当前只有一个应用模块（`runtimes/browser/applications/mail`），也没有已立项的第二个
 消费者。本阶段目标因此限定为：**让现有邮件链路在已有底座上恢复不丢结果、一次失败可以归因、
@@ -23,10 +23,10 @@ ACK 和恢复，Controller Browser Host 负责页面/profile、资源队列和�
 
 | 目标 | 现状（源码已确认） | 出口 |
 |---|---|---|
-| G1 恢复不丢结果 | **S1 source_verified（2026-10-26）**：有效拒绝终态纳入补 ACK；文件 Store 重启复现由红变绿，两个维护轮只 ACK 一次，dispatch 总数保持 1。sent/unknown 与证明身份围栏回归通过。未部署、未实机验收。 | 源码出口满足；部署与安装验收仍须授权。 |
+| G1 恢复不丢结果 | **S1 source_verified（2026-10-26）**：有效拒绝终态纳入补 ACK；文件 Store 重启复现由红变绿，两个维护轮只 ACK 一次，dispatch 总数保持 1。sent/unknown 与证明身份围栏回归通过。未部署、未实机验收。 | 源码出口满足；S5 已另行授权，但尚未通过部署和安装验收。 |
 | G2 一次失败可归因 | **S2/S3 source_verified（2026-10-26）**：失败/拆分 invocation 跨三后端保留；当前 Host activity 关联、续租首因、安全发送原因、epoch 身份模式、ACK/trace/维护失败和有界 sink 健康可见。公开码与调度不变。 | 已埋点边界内源码出口满足；日志缺失仍 incomplete。未部署或实机验收。 |
 | G3 最小只读排障 | **S4 source_verified（2026-10-26）**：独立的 draft/operation/job 作用域报告，支持 file、只读 PostgreSQL、受保护 ledger 与既有日志。拒绝/首次 ACK 失败/重启及 unknown 重复查询后源字节、ACK/派发次数不变；owner/回执/冲突/隐私与资源上限验证通过。 | 已支持读取器的源码出口满足。预期/实际版本、执行/业务/效果/ACK 与证据缺口分列；实际加载版本、旧 job owner 绑定、trace/分析索引或合格 ledger 拒写保护缺失时仍 `incomplete`。未部署，非 S5 验收。 |
-| G4 安装版本验收 | `.41` 已合格打包、未激活。 | 另行取得授权后，按延期验收清单在支持配置上完成，结论分别记录。 |
+| G4 安装版本验收 | **S5 已授权，前置受阻（2026-10-26）**。已构建精确 `0f46702a` + 不变 `.41` 制品；四个远端缓存制品及启动检查通过，Mac 6 个 profile / 97 张表冷备一致。可用内存低于不变的本机 4 GiB / 远端 8 GiB 门槛。尚无新的完整基线，未激活或安装；边界见 [S5 修改卡](email-diagnostics-and-change-control.md#11-s5-部署前置修改卡--未部署)。旧 `2396381e` stage 不能证明 S1–S4。 | 部署并核验支持组合、恢复/诊断证据及原 UI；部署与每项验收分别记录。既有不推送、不发真实邮件、unknown 禁重发约束保持。 |
 
 各 D 项的准确修复边界见[邮件诊断与修改边界](email-diagnostics-and-change-control.md)，本文不重复。
 D05（job 完成与业务结果分离）和 D09（分析 attempt 索引）不阻塞本阶段出口，按邮件文档单独推进。

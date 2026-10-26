@@ -4,7 +4,7 @@
 
 ## 1. Decision and scope
 
-**Status: implementation in progress, 2026-10-26, Asia/Shanghai. S1–S4 source_verified; S5 unauthorized.**
+**Status: implementation in progress, 2026-10-26, Asia/Shanghai. S1–S4 source_verified; S5 authorized; artifacts prepared, resource gates block activation.**
 
 App-CLI currently has a single application module (`runtimes/browser/applications/mail`) and no
 approved second consumer. This stage is therefore limited to: **the existing mail path, on the
@@ -28,10 +28,10 @@ its current owner; no new layer is added.
 
 | Goal | Current state (confirmed in source) | Exit |
 |---|---|---|
-| G1 Recovery keeps results | **S1 source_verified (2026-10-26)**: eligible rejected terminal receipts now recover ACK. File Store restart reproducer changed red → green; two maintenance rounds ACK once and keep total dispatches at 1. sent/unknown and proof identity fencing pass. Not deployed or live accepted. | Source exit met; deployment and installed acceptance remain separately authorized. |
+| G1 Recovery keeps results | **S1 source_verified (2026-10-26)**: eligible rejected terminal receipts now recover ACK. File Store restart reproducer changed red → green; two maintenance rounds ACK once and keep total dispatches at 1. sent/unknown and proof identity fencing pass. Not deployed or live accepted. | Source exit met; S5 is separately authorized but has not passed deployment or installed acceptance. |
 | G2 One failure is attributable | **S2/S3 source_verified (2026-10-26)**: actual failed/split invocation survives all three backends; current Host activity correlation; renewal first cause; safe send causes, epoch identity mode, ACK/trace/maintenance failure and bounded sink health. Public codes and scheduling unchanged. | Source exit met within instrumented boundaries; missing logs remain incomplete. No deployment/live acceptance. |
 | G3 Minimal read-only diagnosis | **S4 source_verified (2026-10-26)**: standalone scoped draft/operation/job report; file, read-only PostgreSQL, guarded ledger and retained-log adapters. Repeated rejection/failed-ACK/restart and unknown queries preserve source bytes, ACK and dispatch counts. Owner/receipt/conflict/privacy and resource bounds verified. | Source exit met within supported readers. Expected/observed versions, execution/business/effect/ACK and evidence gaps remain separate. Missing loaded version, legacy job owner binding, trace/analysis index or qualified ledger write guard stays `incomplete`; no deployment or S5 acceptance. |
-| G4 Installed-version acceptance | `.41` is qualified and packaged but not activated. | After separate authorization, completed on a supported configuration per the deferred acceptance list, with each conclusion recorded separately. |
+| G4 Installed-version acceptance | **S5 authorized; preflight blocked (2026-10-26)**. Exact `0f46702a` + unchanged `.41` artifacts built; four remote cache artifacts and help checks verified; Mac 6-profile/97-table cold backup exact. Available memory is below the unchanged local 4 GiB / remote 8 GiB gates. No fresh full baseline, activation or installation; [S5 card](email-diagnostics-and-change-control.md#11-s5-deployment-preflight-card--not-deployed) records the boundary. Old `2396381e` staging cannot qualify S1–S4. | Deploy and verify the supported combination, recovery/diagnostic evidence and original UI; record deployment and each acceptance result separately. Existing no-push/no-real-mail/unknown-no-resend constraints remain. |
 
 Exact repair boundaries for each D item are in
 [mail diagnostics and change control](email-diagnostics-and-change-control.md) and are not repeated here.

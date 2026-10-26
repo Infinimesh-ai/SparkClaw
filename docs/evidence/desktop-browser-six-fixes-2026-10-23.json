@@ -1604,5 +1604,107 @@
       "new_remote_actions": 0,
       "new_mail_actions": 0
     }
+  },
+  "deferred_follow_up": {
+    "organized_on": "2026-10-26",
+    "timezone": "Asia/Shanghai",
+    "requested_by": "user",
+    "request": "把当前的问题先整理一下，稍后处理",
+    "status": "deferred_by_user",
+    "last_live_checkpoint": "2026-10-23T20:21:00Z",
+    "fresh_live_check_performed": false,
+    "preserved_completed_items": [
+      "BR-01",
+      "BR-02",
+      "BR-03",
+      "BR-04",
+      "BR-05"
+    ],
+    "pending_items": [
+      {
+        "id": "QQ-first-send",
+        "status": "not_sent",
+        "repair_candidate": ".41",
+        "live_validation_pending": true
+      },
+      {
+        "id": "reader-whitespace",
+        "status": "candidate_implemented_not_live",
+        "existing_messages_to_reanalyse": [
+          2,
+          3
+        ]
+      },
+      {
+        "id": "outlook-extra-terminal-LF",
+        "status": "strict_original_body_mismatch",
+        "root_cause_proven": false
+      },
+      {
+        "id": "independent-sent-originals",
+        "status": "incomplete",
+        "gmail_typed_candidate_implemented": true,
+        "qq_outlook_capability_limits_retained": true
+      },
+      {
+        "id": "background-collection-failures",
+        "status": "unresolved",
+        "last_complete_unknown_count": 113,
+        "later_compact_unknown_count": 116,
+        "root_causes_proven": false
+      },
+      {
+        "id": "missing-historical-task-rows",
+        "status": "unresolved",
+        "last_observed_missing": 381,
+        "send_or_unknown_overlap": false,
+        "deletion_cause_proven": false
+      },
+      {
+        "id": "candidate-rollout-and-native-acceptance",
+        "status": "not_activated_or_installed",
+        "remote_saved_replay_passed": true,
+        "local_receive_passed": false,
+        "new_complete_baseline_acquired": false
+      },
+      {
+        "id": "historical-ci-failures",
+        "status": "retained_pending_individual_review"
+      }
+    ],
+    "last_environment_blockers": [
+      "mac_locked",
+      "insufficient_local_memory_after_reserve"
+    ],
+    "environment_must_be_rechecked_on_resume": true,
+    "resume_order": [
+      "recheck_environment_and_running_versions",
+      "receive_identical_saved_response",
+      "capture_and_review_genuine_current_complete_baseline",
+      "controlled_pinned_rollout_and_health_account_checks",
+      "mac_installation_and_original_ui_acceptance",
+      "existing_mail_reanalysis_and_gmail_sent_original",
+      "qq_first_send_and_receiver_attachment_verification",
+      "cleanup_and_archive"
+    ],
+    "actual_send_counts": {
+      "QQ_to_Outlook": 0,
+      "Outlook_to_Gmail": 1,
+      "Gmail_to_QQ": 1
+    },
+    "never_resend_cases": [
+      2,
+      3
+    ],
+    "approved_content_unchanged": true,
+    "source_pin": "2396381e62f208a1503e13841b9b12bbdb5053ff",
+    "appcli_pin": "bcc55506cc933f981668e3b2d1ed1eba1bf4c6a3",
+    "local_entry_flags_checked_closed": true,
+    "new_remote_actions": 0,
+    "new_mail_actions": 0,
+    "automatic_resume_scheduled": false,
+    "resume_local_receive_candidate": "/Users/dev/.cache/sparkclaw-upgrades/20261023-mail-combined-r41/fixed-data-replay-v5-local-receive-02",
+    "new_inventory_candidate": "/Users/dev/.cache/sparkclaw-upgrades/20261023-mail-combined-r41/running-inventory-after-v5-replay-01",
+    "baseline_review_candidate": "/Users/dev/.cache/sparkclaw-upgrades/20261023-mail-combined-r41/fresh-baseline-forensic-review-02"
   }
 }

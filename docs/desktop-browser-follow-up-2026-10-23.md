@@ -2,6 +2,48 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-browser-follow-up-2026-10-23.md)
 
+## Deferred work list — 2026-10-26
+
+The owner requested an inventory now and handling later. This update only records
+the remaining work; it does not resume deployment, installation, live acceptance
+or mail. The facts below come from the last acceptance checkpoint, **2026-10-24
+04:21 Asia/Shanghai**, not a new live check today. BR-01 through BR-05 retain their
+existing native acceptance passes; BR-06 and the follow-up release remain open.
+
+| Pending item | Evidence and boundary | Completion condition |
+| --- | --- | --- |
+| First QQ→Outlook send | Actual sends remain zero. The old version stopped before dispatch because its Sent-entry target was missing. `.41` contains a readiness-wait repair that has not passed live acceptance. | After deployment, health and account checks, send the originally approved message once and verify arrival, body and original attachment bytes. |
+| Reader whitespace preservation | The old presentation loses leading/trailing whitespace. `.41` implements plaintext preservation and explicit reanalysis, but is not live. | Reanalyse the two existing recipient originals, compare displayed text with original bytes, retain old representations/files and test the existing UI interactions. |
+| Extra terminal LF in the Outlook original | The already-sent original has one more LF than the approved body. Its originating stage is unproved; strict body equality remains failed. | Locate the stage and retain its evidence. Do not trim, rewrite the original or resend this message to remove the failure. |
+| Independent Sent originals | Two messages have send receipts and recipient Inbox originals. Independent Sent-original acceptance is incomplete. Gmail has a normal typed tool implementation; QQ and Outlook retain documented entry/capability limitations. | Verify the Gmail Sent original first. Retain QQ/Outlook limitations pending a normal authorized path; a send receipt is not an independent original. |
+| Background collection failures | The last complete protected set was113; a later compact observation found116. Three additions are one Gmail and two QQ uncertain collect_page results, all without send dispatch. Exact network causes are unproved; an earlier Outlook extension-unavailable record is also retained. | Read genuine current state and correlate task, native request and failure stage. Protect every added row; do not treat collection failures as sends or automatically replay them. |
+| Missing historical task rows | The last complete comparison found381 old terminal rows absent:380 completed collection tasks and one cancelled watch, with no protected send/unknown overlap. Deletion cause is unproved. | Preserve the full differences and investigate the deletion path and retention policy. Do not silently restore/delete data or claim proven garbage collection. |
+| `.41` rollout and final Mac acceptance | The pinned candidate is built/staged but not activated/installed. Remote saved-data replay passed; local complete receive failed before decoding at its memory precheck. No new complete running baseline has been acquired. | Complete local receive, a genuine current full baseline and full difference review before controlled cutover, health handoff, Mac installation and existing-UI regression. |
+| Retained CI failures | Compose error-priority, Electron sandbox/startup and Gateway temporary-directory cleanup failures remain recorded. Targeted candidate passes do not close these historical failures. | Revisit the original runs against pinned source and document each result; do not rewrite failed runs as green. |
+
+**Last environmental blockers:** the Mac was locked. After stopping four completed
+test containers, available memory was about3.70GB, below the4GiB required for the
+2GiB local working minimum plus2GiB reserve. The rule reserving at least half of
+available memory also remains. These are historical readings; recheck desktop
+access and memory before resuming.
+
+**Resume order:** recheck environment and running versions → receive the identical
+saved response locally → acquire a genuinely current complete baseline and review
+every difference → controlled `.41` deployment and health/account verification →
+Mac installation and UI acceptance → verify the two existing messages and Gmail
+Sent original → first QQ send with arrival/attachment acceptance → remove temporary
+acceptance permissions and archive results. Background collection, historical row
+loss and CI issues remain separate work items; delivery alone does not close them.
+
+**Preserve on continuation:** existing pages, menus, layouts and interactions;
+all failures and original data; actual send counts QQ0/Outlook1/Gmail1. Keep the
+approved ordinary progress-report bodies and attachments; never resend cases2/3.
+The candidate remains SparkClaw `2396381e62f208a1503e13841b9b12bbdb5053ff` and
+App-CLI `bcc55506cc933f981668e3b2d1ed1eba1bf4c6a3`; later documentation commits on
+floating main are not a substitute release pin. Deployment, local receive and new
+inventory gates were checked closed in this documentation pass. No automatic
+resume or background mail was scheduled.
+
 
 Latest checkpoint (20:21 UTC): BR-01 through BR-05 retain their passed native acceptance. Candidate `.41` remains unactivated and uninstalled. Its corrected remote saved-data replay passed, but the local receive has not started decoding because the unchanged memory reserve leaves less than the 2 GiB minimum working budget. Four completed test containers belonging to this task were stopped without deleting containers, volumes or evidence; the other 18 containers were not changed. Available memory remains about 3.70 GB. The Mac is still locked, and the owner has been asked to unlock it and free approximately 1 GB by closing idle applications. All execution gates stay closed. Actual sends remain QQ 0, Outlook 1, Gmail 1; the two sent messages will not be resent.
 

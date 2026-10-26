@@ -4,7 +4,7 @@
 
 ## 1. 结论与范围
 
-**状态：实施中，2026-10-26，Asia/Shanghai；S1 source_verified，S2/S3 待实施，S4 设计待确认，S5 未授权。**
+**状态：实施中，2026-10-26，Asia/Shanghai；S1/S2 source_verified，S3 待实施，S4 设计待确认，S5 未授权。**
 
 App-CLI 当前只有一个应用模块（`runtimes/browser/applications/mail`），也没有已立项的第二个
 消费者。本阶段目标因此限定为：**让现有邮件链路在已有底座上恢复不丢结果、一次失败可以归因、
@@ -24,7 +24,7 @@ ACK 和恢复，Controller Browser Host 负责页面/profile、资源队列和�
 | 目标 | 现状（源码已确认） | 出口 |
 |---|---|---|
 | G1 恢复不丢结果 | **S1 source_verified（2026-10-26）**：有效拒绝终态纳入补 ACK；文件 Store 重启复现由红变绿，两个维护轮只 ACK 一次，dispatch 总数保持 1。sent/unknown 与证明身份围栏回归通过。未部署、未实机验收。 | 源码出口满足；部署与安装验收仍须授权。 |
-| G2 一次失败可归因 | 失败采集历史无 invocation（D01）、发送错误压成 unknown（D02）、Host 事件无 task（D03）、续租失败丢首因（D04）、维护/trace 写失败被吞（D06/D07）、epoch 查询错误静默回退（D10）。 | 每次失败带真实 operation/invocation/task、阶段和首个安全原因；证据写失败可见；对外错误码与调度语义不变。 |
+| G2 一次失败可归因 | **S2 source_verified（2026-10-26）**：D01 失败/拆分 invocation 持久保留（memory/file/PostgreSQL），调用前失败为空；D03 当前 activity 的 task + operation key 摘要；D04 续租/取消/超时首因与安全来源。公开码和调度不变。D02/D06/D07/D10 留待 S3。 | S2 源码出口满足，S3 待完成；日志缺失仍 incomplete。 |
 | G3 最小只读排障 | 证据分散在回执、任务事件、Host 日志和 trace，需人工拼接。 | 按 draft/operation/job 查询，输出实际版本、最后确认阶段、首个原因、执行结果、业务结果、ACK、缺失证据；不能证明的部分标 `incomplete`。 |
 | G4 安装版本验收 | `.41` 已合格打包、未激活。 | 另行取得授权后，按延期验收清单在支持配置上完成，结论分别记录。 |
 

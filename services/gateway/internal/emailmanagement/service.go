@@ -365,7 +365,10 @@ func (s *Service) jobTimeout(kind string) time.Duration {
 }
 
 func (s *Service) execute(parent context.Context, job app.EmailJob) {
-	ctx, cancel := context.WithTimeout(parent, s.jobTimeout(job.Kind))
+	deadlineCtx, deadlineCancel := context.WithTimeout(parent, s.jobTimeout(job.Kind))
+	defer deadlineCancel()
+	ctx, cancelCause := context.WithCancelCause(deadlineCtx)
+	cancel := func() { cancelCause(context.Canceled) }
 	defer s.trackBrowserJob(job, cancel)()
 	leaseDone := make(chan struct{})
 	go func() {
@@ -378,15 +381,24 @@ func (s *Service) execute(parent context.Context, job app.EmailJob) {
 				return
 			case <-ticker.C:
 				if _, err := s.repository.RenewEmailJob(ctx, store.EmailJobRenew{EmailJobLease: lease(job, s.now()), LeaseDuration: s.opts.LeaseDuration}); err != nil {
-					cancel()
+					cancelCause(&jobRenewalFailure{cause: err})
 					return
 				}
 			}
 		}
 	}()
 	err := s.dispatch(ctx, job)
-	cancel()
+	if err != nil {
+		cancelCause(err)
+	}
+	// A private completion sentinel distinguishes ordinary cleanup from a
+	// real cancellation. Read the first cause after the renewer has stopped,
+	// so a concurrent renewal failure cannot be lost between read and cancel.
+	cancelCause(jobExecutionComplete)
 	<-leaseDone
+	if firstCause := context.Cause(ctx); firstCause != nil && firstCause != jobExecutionComplete {
+		recordJobFailure(job, firstCause, err)
+	}
 	finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
 	defer finishCancel()
 	finish := store.EmailJobFinish{EmailJobLease: lease(job, s.now())}

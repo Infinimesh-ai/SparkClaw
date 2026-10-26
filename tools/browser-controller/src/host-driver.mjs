@@ -17,6 +17,21 @@ const CLEANUP_PROOF_INTERVAL_MS = 15_000;
 // A fenced Host rejects every admission; log the rejection, not each retry.
 const FENCED_DIAGNOSTIC_INTERVAL_MS = 10 * 60_000;
 
+// The pinned HostPort supplies its authenticated grant and ledger task UUID.
+// Request keys may be legacy caller text: validate their protocol shape, then
+// retain only a digest for joining the existing operation without exposing it.
+function taskCorrelation(task, grant) {
+  const result = {correlation: 'incomplete'};
+  if (typeof task !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(task) ||
+      (grant?.task_id != null && grant.task_id !== task)) return result;
+  result.task_id = task;
+  const key = grant?.request_key;
+  if (typeof key !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(key)) return result;
+  result.operation_key_sha256 = crypto.createHash('sha256').update(key).digest('hex');
+  result.correlation = 'complete';
+  return result;
+}
+
 // Resource ownership only: application selectors, origin sets, hooks, budgets
 // and preparation assets arrive exclusively from the verified release binding.
 // The verified binding names the scheduler resource and its sharing. Only
@@ -210,7 +225,7 @@ export class ApplicationHostDriver {
       return handle;
     } catch (error) {
       this.diagnostic?.({event: 'application_host_failed', phase, code: error.code,
-        reason: error.diagnosticReason, command: error.diagnosticCommand});
+        reason: error.diagnosticReason, command: error.diagnosticCommand, ...taskCorrelation(task, grant)});
       try {await this.close(handle);} catch (cleanupError) {cleanupError.resourceHandle = handle; throw cleanupError;}
       throw error;
     }
@@ -219,7 +234,9 @@ export class ApplicationHostDriver {
     const reservation = handle.bootstrap ?? await this.controller.reserveApplication({taskID: task, ...reservationPolicy(spec, kind), signal,
       waitMS: Math.max(0, Math.min(30000, spec.timeout_ms ?? 30000, grant.execution_expires_ms - Date.now()))});
     handle.bootstrap = null;
-    handle.activities.set(id, {reservation, kind, spec, resource});
+    // A pooled page can outlive its creator, so correlation belongs to the
+    // admitted activity and must never be inherited from the page handle.
+    handle.activities.set(id, {reservation, kind, spec, resource, correlation: taskCorrelation(task, grant)});
   }
   async updateLease(handle, stamp) {
     if (!handle || handle.closed) return;
@@ -268,7 +285,7 @@ export class ApplicationHostDriver {
     try {result = await page[method](...args.map(value => value === null ? undefined : value));}
     catch (error) {
       this.diagnostic?.({event: 'application_host_failed', phase: method, code: error.code,
-        reason: error.diagnosticReason, command: error.diagnosticCommand}); throw error;
+        reason: error.diagnosticReason, command: error.diagnosticCommand, ...(current.correlation ?? {correlation: 'incomplete'})}); throw error;
     }
     if (method === 'hookActivate' && current.kind === 'watch' && current.reservation) {
       this.controller.finishApplication(current.reservation); current.reservation = null;

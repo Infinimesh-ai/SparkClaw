@@ -16,7 +16,7 @@
 [验收记录](desktop-browser-follow-up-2026-10-23.md)最新留存证据仍是 `.39` 运行、`.41` 未激活。
 本轮没有读取实机；这是历史观察，不是新的健康检查。
 
-**实施状态：S1/D08 source_verified（第 7 节），其他修复待实施。** 没有真实发信、部署、接口或 UI 变更。
+**实施状态：S1/D08 与 S2/D01/D03/D04 source_verified（第 7–8 节），S3 待实施。** 没有真实发信、部署、接口或 UI 变更。
 
 ## 1. 先看完整链路
 
@@ -42,10 +42,10 @@
 
 | 编号 | 源码发现 | 准确修复边界 |
 |---|---|---|
-| D01 | [`page_intake.go`](../../services/gateway/internal/emailmanagement/page_intake.go) 的 `commitListFailure`（523–539）不写 `InvocationID`；成功提交（426）有。 | 失败历史携带真实失败 invocation；区分调用前失败、采集失败、拆分查询失败，不能伪造未发生调用；不改 checkpoint/重试语义。 |
+| D01 (S2 source_verified) | [`page_intake.go`](../../services/gateway/internal/emailmanagement/page_intake.go) 的 `commitListFailure`（523–539）不写 `InvocationID`；成功提交（426）有。 | 失败历史携带真实失败 invocation；区分调用前失败、采集失败、拆分查询失败，不能伪造未发生调用；不改 checkpoint/重试语义。 |
 | D02 | [`compose.go`](../../services/gateway/internal/emailmanagement/compose.go)（275–282）把多数发送错误压为 `email_send_outcome_unknown`；[`playwright_runner.go`](../../services/gateway/internal/emailautomation/playwright_runner.go) 的 `mapPlaywrightError` 也合并底层错误。 | 另存安全 cause/stage/source layer；保留对外错误行为与 unknown-send 保护。 |
-| D03 | [`host-driver.mjs`](../../tools/browser-controller/src/host-driver.mjs)（212–213、270–271）有 phase/code/reason/command，无 task 标识。 | 加入验证过的 task/operation 关联；并发操作不能可靠地靠时间拼接。 |
-| D04 | [`service.go`](../../services/gateway/internal/emailmanagement/service.go) 的 `execute`（380–382）续租失败只 cancel；`safeCode`（434–462）合并未列举的解析/来源/模型错误。 | 对外文案之外保留类型化内部原因和阶段，区分租约/存储失败、取消、超时。 |
+| D03 (S2 source_verified) | [`host-driver.mjs`](../../tools/browser-controller/src/host-driver.mjs)（212–213、270–271）有 phase/code/reason/command，无 task 标识。 | 加入验证过的 task/operation 关联；并发操作不能可靠地靠时间拼接。 |
+| D04 (S2 source_verified) | [`service.go`](../../services/gateway/internal/emailmanagement/service.go) 的 `execute`（380–382）续租失败只 cancel；`safeCode`（434–462）合并未列举的解析/来源/模型错误。 | 对外文案之外保留类型化内部原因和阶段，区分租约/存储失败、取消、超时。 |
 | D05 | [`endpoint_rpc.go`](../../services/gateway/internal/iscpworkbench/endpoint_rpc.go)（174–176）仅用 `callCtx.Err()`记 handler 状态；`commitListFailure` 成功保存业务失败后返回 nil，job 因而可成功。 | 传输/作业完成与业务结果分开；不能为日志变红而改变调度语义。 |
 | D06 | [`latencytrace/trace.go`](../../services/gateway/internal/latencytrace/trace.go) 需手动开启，队列 1,024/文件 64 MiB，有 dropped/limit 标记但初始化/写失败可能静默；[`latency-trace.mjs`](../../apps/desktop/src/main/latency-trace.mjs) 达 100,000 条或写失败静默停止。 | 显式报告启用/关闭/降级、覆盖及丢失；没记录不能证明没执行。 |
 | D07 | [`agent.go`](../../services/gateway/internal/agent/agent.go)（1007）忽略 trace 写失败；[`trace/writer.go`](../../services/gateway/internal/trace/writer.go)（76–78）吞制品写失败；[`app-cli-client.mjs`](../../tools/browser-controller/src/app-cli-client.mjs)（56）吞维护错误。 | 使证据/维护失败可见，不改写邮件结果；Agent trace 本就不覆盖所有直接撰写或后台同步。 |
@@ -135,3 +135,13 @@ M1 使下一次失败能明确归属，M2/M3 使证据可直接使用。D08 不�
 - 验收与结果：复现先红后绿；两轮只 ACK 一次，拒绝状态/错误码/身份不变、不发布 sent mail，同 key 重放后总发送次数仍为 1。Compose 与证明围栏、隔离 Linux 全量 Go（75 个有测试包）、build/vet、中英文链接检查通过。之前 macOS 路径/tmpfs 和不完整容器配置失败保留在本地日志，不计为通过。证据为同提交 `rejected_ack_recovery_test.go`；源码版本为本卡提交，部署/实机证据：无。
 - 局限：无安装版本证据；S2/S3/S4 独立推进。
 - 回退：回退本提交；无持久格式变化，已有 ACK 标记继续有效。
+
+## 8. S2 / D01、D03、D04 修改卡 — source_verified
+
+- 负责方/状态：SparkClaw 采集、Host、邮件 worker；2026-10-26，仅源码。
+- 失败与证据：S1 源码 `23526369` 下，采集/拆分失败未保留 invocation，Host 并发/页面复用失败无任务关系，续租首因被取消覆盖；三个复现均在修复前先失败。
+- 目标/范围：`page_intake.go` 仅将真实调用身份传入既有 sync 命令；`host-driver.mjs` 关联当前 activity；`service.go`、`job_diagnostics.go` 保留安全首因；新增对应测试与 `email_failure_attribution_test.go`。不改 Store schema、公开码、重试/退避、原 UI 或 App-CLI。
+- 机制：准入/本地恢复/目标准备失败不伪造 invocation；拆分使用失败分段自身 ID。Host 认证 grant 的 request key 校验后以 UTF-8 SHA256 摘要与真实 task UUID 联查，复用页面不借用旧任务。typed 续租取消及独立正常清理 sentinel 保留首因，Finish/RetryAt 仍只取原 dispatch error。安全诊断白名单不输出原始内容或伪造 typed code。
+- 验收/结果：memory/file 实际采集与拆分先红后绿；memory/file/隔离 PostgreSQL 重启后失败身份与完整解码记录一致；Host 并发和真实固定 .41 页面复用；续租/取消/超时/source/model/隐私及调度不变测试与 race 通过。Controller 326 通过 / 148 个原有可选跳过；隔离 Linux 全量 Go 75 包、build/vet 通过。评审追加拆分准入/契约阶段和已知恢复/source 原因的红→绿测试，最终定向 race 覆盖这些补充。源码版本为本卡提交；部署/实机证据：无。
+- 局限：没有新增持久通用诊断流，首因/Host 事件依赖既有日志保留；缺失或身份无效仍为 `incomplete`。operation 通过 task ID + `operation_key_sha256` 联查，不按时间相近推断。D05/D09 延期。
+- 回退：回退本提交；既有可选 InvocationID 字段向后兼容，无迁移或状态机变更。

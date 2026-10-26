@@ -28,8 +28,9 @@ type PageMarkReadBrowser interface {
 }
 
 type timelinePagePart struct {
-	request app.EmailReadRequest
-	page    app.EmailPageResult
+	request      app.EmailReadRequest
+	page         app.EmailPageResult
+	failureStage string
 }
 
 func (s *Service) collectPages(ctx context.Context, job app.EmailJob, browser PageBrowser) error {
@@ -164,7 +165,7 @@ func (s *Service) collectPageIncrement(ctx context.Context, job app.EmailJob, br
 		}
 		admitted, budgetErr := retryBudget.admit(target)
 		if budgetErr != nil {
-			return s.commitListFailure(ctx, job, checkpoint, mode, registered.CollectPage.Revision, budgetErr)
+			return s.commitListFailure(ctx, job, checkpoint, mode, registered.CollectPage.Revision, timelinePagePart{failureStage: "prepare_targets"}, budgetErr)
 		}
 		if !admitted {
 			continue
@@ -211,7 +212,7 @@ func (s *Service) collectPageIncrement(ctx context.Context, job app.EmailJob, br
 		if len(binding.Discovery.DirectTargetIDs) > 0 && ctx.Err() == nil && emailautomation.ErrorCode(err) != app.ToolErrorEmailBrowserBusy {
 			s.pushq.degrade(job.OwnerID, mailbox, "direct_round_failed", s.now())
 		}
-		return s.commitListFailure(ctx, job, checkpoint, mode, registered.CollectPage.Revision, err)
+		return s.commitListFailure(ctx, job, checkpoint, mode, registered.CollectPage.Revision, part, err)
 	}
 	parts := []timelinePagePart{part}
 	if checkpoint.IntervalStart.Before(checkpoint.OverlapEnd) && pageOverflow(part.page) {
@@ -232,7 +233,8 @@ func (s *Service) collectPageIncrement(ctx context.Context, job app.EmailJob, br
 			segment.InvocationID = fmt.Sprintf("email_changes_%s_r%d", hex.EncodeToString(digest[:]), mailbox.CheckpointRevision)
 			piece, segmentErr := s.collectTimelinePart(ctx, job, browser, mailbox, segment)
 			if segmentErr != nil {
-				return s.commitListFailure(ctx, job, checkpoint, mode, registered.CollectPage.Revision, segmentErr)
+				piece.failureStage = "split_" + piece.failureStage
+				return s.commitListFailure(ctx, job, checkpoint, mode, registered.CollectPage.Revision, piece, segmentErr)
 			}
 			parts = append(parts, piece)
 		}
@@ -290,21 +292,24 @@ func pageOverflow(page app.EmailPageResult) bool {
 
 func (s *Service) collectTimelinePart(ctx context.Context, job app.EmailJob, browser PageBrowser, mailbox app.EmailMailbox, request app.EmailReadRequest) (timelinePagePart, error) {
 	if recovered, found, err := s.recoverTimelineBatch(ctx, job.OwnerID, request); found || err != nil {
-		return timelinePagePart{request, recovered}, err
+		if err != nil {
+			return timelinePagePart{failureStage: "recovery"}, err
+		}
+		return timelinePagePart{request: request, page: recovered}, nil
 	}
 	admitted, err := s.browserBinding(ctx, job.OwnerID, mailbox.Provider, request.InvocationID)
 	if err != nil {
-		return timelinePagePart{}, err
+		return timelinePagePart{failureStage: "admission"}, err
 	}
 	admitted.ScriptRevision, admitted.Discovery = request.ScriptRevision, request.Discovery
 	page, err := browser.CollectPageForOwner(ctx, job.OwnerID, admitted)
 	if err != nil {
-		return timelinePagePart{}, err
+		return timelinePagePart{request: admitted, failureStage: "collect"}, err
 	}
 	if page.DiscoveryOptions.Lane != "recent_inbound" || !page.DiscoveryOptions.IntervalStart.Equal(request.Discovery.IntervalStart) || !page.DiscoveryOptions.IntervalEnd.Equal(request.Discovery.IntervalEnd) || !strings.EqualFold(page.AccountAddress, mailbox.Address) {
-		return timelinePagePart{}, errors.New("email_account_changed")
+		return timelinePagePart{request: admitted, failureStage: "page_contract"}, errors.New("email_account_changed")
 	}
-	return timelinePagePart{admitted, page}, nil
+	return timelinePagePart{request: admitted, page: page}, nil
 }
 
 func (s *Service) publishIncrementalPage(ctx context.Context, job app.EmailJob, mailbox app.EmailMailbox, request app.EmailReadRequest, parts []timelinePagePart, checkpoint store.EmailSyncCheckpoint, retryMails map[string]app.EmailMail, mode string) error {
@@ -520,18 +525,20 @@ func (s *Service) markCommittedQQPageRead(ctx context.Context, job app.EmailJob,
 	}
 }
 
-func (s *Service) commitListFailure(ctx context.Context, job app.EmailJob, checkpoint store.EmailSyncCheckpoint, mode string, readerRevision int, cause error) error {
+func (s *Service) commitListFailure(ctx context.Context, job app.EmailJob, checkpoint store.EmailSyncCheckpoint, mode string, readerRevision int, part timelinePagePart, cause error) error {
 	if emailautomation.ErrorCode(cause) == app.ToolErrorEmailBrowserBusy {
 		// No provider attempt occurred. Keep the frozen interval/revision for
 		// a short resource yield; do not create a mailbox failure or warning.
 		return cause
 	}
 	code := safeCode(cause)
+	diagnostic := jobFailureCause(app.EmailJobDiscover, cause)
+	slog.Warn("email collection failed", "schema_version", 1, "job_id", job.ID, "attempt", job.Attempt, "invocation_id", part.request.InvocationID, "stage", part.failureStage, "cause_code", diagnostic.code, "cause_source", diagnostic.source, "public_code", diagnosticPublicCode(cause))
 	if code == "" {
 		code = "email_provider_unavailable"
 	}
 	key := fmt.Sprintf("timeline-list-failure:%s:%d:%s:%s", checkpoint.Mailbox.ID, checkpoint.Mailbox.CheckpointRevision, checkpoint.IntervalStart.UTC().Format(time.RFC3339Nano), checkpoint.IntervalEnd.UTC().Format(time.RFC3339Nano))
-	command := store.EmailSyncCommitCommand{EmailCommand: command(job.OwnerID, key), MailboxID: checkpoint.Mailbox.ID, BindingGeneration: checkpoint.Mailbox.BindingGeneration, IntervalStart: checkpoint.IntervalStart, IntervalEnd: checkpoint.IntervalEnd, ProviderMode: mode, Trigger: syncTrigger(job), Actor: syncActor(job), ReaderRevision: readerRevision, ErrorCode: code, FailureScope: app.EmailSyncFailureProviderOperational}
+	command := store.EmailSyncCommitCommand{EmailCommand: command(job.OwnerID, key), MailboxID: checkpoint.Mailbox.ID, BindingGeneration: checkpoint.Mailbox.BindingGeneration, IntervalStart: checkpoint.IntervalStart, IntervalEnd: checkpoint.IntervalEnd, ProviderMode: mode, Trigger: syncTrigger(job), Actor: syncActor(job), ReaderRevision: readerRevision, InvocationID: part.request.InvocationID, ErrorCode: code, FailureScope: app.EmailSyncFailureProviderOperational}
 	if emailautomation.LocalOperationalFailure(cause) || code == "email_retry_target_too_large" {
 		command.FailureScope = app.EmailSyncFailureLocalOperational
 	}

@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "source_commit": "adaca175d2a0bccdf3da753c901a6d750f08783f",
+  "gateway_sha256": "2bb5267d2908c98908cb4cad9babb7350067cb8a86001c0a192b65665f9e2fec",
+  "artifact_qualification_manifest_sha256": "a35a9aae6c52a248d68adca47bb0667ff0734ad1b0920a54edc12d615f68929e",
+  "artifact_source_manifest_sha256": "6e3e6dc7ed0d8c67fa63cd7e9f3f9108343dae13d7f9fba8857f42d25593f0b7",
+  "harness_freeze_manifest_sha256": "ff5914c9279c384841fdff7d6ed6d500780b10ab2037221ff988d8fcccbd449c",
+  "original_harness_tests": {
+    "tests": 27,
+    "exit_code": 0
+  },
+  "updated_input_harness_tests": {
+    "tests": 27,
+    "exit_code": 0
+  },
+  "cases": 8,
+  "case_exit_codes": {
+    "s1": 0,
+    "unknown": 0,
+    "concurrent": 0,
+    "cancel": 0,
+    "lease": 0,
+    "trace": 0,
+    "latency": 0,
+    "latency_sink": 0
+  },
+  "processes": 12,
+  "normal_stops": 12,
+  "remaining_own_containers": [],
+  "commands_equal_after_exact_input_substitutions": true,
+  "worker_tests_and_assertions_unchanged": true,
+  "old_harness_and_evidence_hashes_unchanged": true,
+  "default_lease_seconds": 180,
+  "default_renew_interval_seconds": 60,
+  "container_image": "sha256:865ab6631f4b8994769d43966141a539b9d1ca1a77bf60b9a639b4324bc946e0",
+  "host_execution": "linux_amd64_through_rosetta",
+  "network": "none",
+  "production_calls": 0,
+  "real_provider": false,
+  "scope": "deployment_artifact_offline_synthetic_fault_acceptance",
+  "does_not_establish_remote_activation": true,
+  "completed_at": "2026-10-26T11:22:33.997488+00:00",
+  "results": {
+    "s1": {
+      "at": "2026-10-26T11:20:19Z",
+      "boundary": "installed_gateway_synthetic_controller_provider",
+      "counters": {
+        "ack_attempts": 2,
+        "ack_failures": 1,
+        "ack_successes": 1,
+        "dispatches": 1,
+        "first_ack_before_restart": true,
+        "gateway_starts": 2,
+        "normal_stops": 2,
+        "success_ack_after_restart": true
+      },
+      "gateway_sha256": "2bb5267d2908c98908cb4cad9babb7350067cb8a86001c0a192b65665f9e2fec",
+      "real_provider": false,
+      "source_commit": "adaca175d2a0bccdf3da753c901a6d750f08783f",
+      "status": "passed"
+    },
+    "unknown": {
+      "acks": 0,
+      "at": "2026-10-26T11:20:21Z",
+      "boundary": "installed_gateway_synthetic_controller_provider",
+      "dispatches": 1,
+      "gateway_sha256": "2bb5267d2908c98908cb4cad9babb7350067cb8a86001c0a192b65665f9e2fec",
+      "new_key_http_status": 409,
+      "same_invocation": true,
+      "source_commit": "adaca175d2a0bccdf3da753c901a6d750f08783f",
+      "status": "passed"
+    },
+    "concurrent": {
+      "actual_jobs": 2,
+      "at": "2026-10-26T11:20:22Z",
+      "boundary": "installed_gateway_synthetic_controller_provider",
+      "causes": [
+        "email_script_timeout",
+        "email_page_contract_changed"
+      ],
+      "distinct_invocations": 2,
+      "gateway_sha256": "2bb5267d2908c98908cb4cad9babb7350067cb8a86001c0a192b65665f9e2fec",
+      "source_commit": "adaca175d2a0bccdf3da753c901a6d750f08783f",
+      "status": "passed"
+    },
+    "cancel": {
+      "at": "2026-10-26T11:20:23Z",
+      "boundary": "installed_gateway_synthetic_controller_provider",
+      "first_cause": {
+        "attempt": "1",
+        "cause_code": "canceled",
+        "cause_source": "context",
+        "generation": "1",
+        "operation": "discover",
+        "public_code": "store_canceled",
+        "schema_version": "1",
+        "stage": "cancellation"
+      },
+      "gateway_sha256": "2bb5267d2908c98908cb4cad9babb7350067cb8a86001c0a192b65665f9e2fec",
+      "lease_timing_unchanged": true,
+      "source_commit": "adaca175d2a0bccdf3da753c901a6d750f08783f",
+      "status": "passed"
+    },
+    "lease": {
+      "at": "2026-10-26T11:21:24Z",
+      "boundary": "installed_gateway_synthetic_controller_provider",
+      "first_cause": {
+        "attempt": "1",
+        "cause_code": "store_unavailable",
+        "cause_source": "store",
+        "generation": "1",
+        "operation": "discover",
+        "public_code": "store_canceled",
+        "schema_version": "1",
+        "stage": "lease_renewal"
+      },
+      "gateway_sha256": "2bb5267d2908c98908cb4cad9babb7350067cb8a86001c0a192b65665f9e2fec",
+      "lease_timing_unchanged": true,
+      "source_commit": "adaca175d2a0bccdf3da753c901a6d750f08783f",
+      "status": "passed"
+    },
+    "trace": {
+      "at": "2026-10-26T11:21:25Z",
+      "boundary": "installed_gateway_normal_http_mock_model",
+      "business_run_equal": true,
+      "feedback_persisted": true,
+      "gateway_sha256": "2bb5267d2908c98908cb4cad9babb7350067cb8a86001c0a192b65665f9e2fec",
+      "latencytrace_coverage": "not_exercised_by_http_mail_or_chat_path",
+      "source_commit": "adaca175d2a0bccdf3da753c901a6d750f08783f",
+      "status": "passed",
+      "trace_failure_stage": "local_write"
+    },
+    "latency": {
+      "at": "2026-10-26T11:21:27Z",
+      "boundary": "installed_gateway_normal_execution_http",
+      "business_payload_exact": true,
+      "diagnostic_fault": "opt_in_initialization_failed",
+      "gateway_sha256": "2bb5267d2908c98908cb4cad9babb7350067cb8a86001c0a192b65665f9e2fec",
+      "latency_health_observed": true,
+      "sink_write_after_init": "not_covered",
+      "source_commit": "adaca175d2a0bccdf3da753c901a6d750f08783f",
+      "status": "passed"
+    },
+    "latency_sink": {
+      "at": "2026-10-26T11:21:29Z",
+      "boundary": "installed_gateway_normal_execution_http",
+      "business_payload_exact": true,
+      "diagnostic_fault": "initialized_sink_ENOSPC",
+      "enabled_to_degraded_observed": true,
+      "gateway_sha256": "2bb5267d2908c98908cb4cad9babb7350067cb8a86001c0a192b65665f9e2fec",
+      "loss_scope": "transition_snapshot_not_total",
+      "source_commit": "adaca175d2a0bccdf3da753c901a6d750f08783f",
+      "status": "passed"
+    }
+  },
+  "prior_checkpoint": {
+    "source": "0f46702a18e9b8fc8bb4e4fbe43341e097fd7af3",
+    "binary_sha256": "dfe17fc4362397b97389fa97a06db6d9c0bbd4e799a64abc87d4e315458b6b77",
+    "passed_cases": 8,
+    "old_private_evidence_hashes_unchanged": true
+  }
+}

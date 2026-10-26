@@ -1,0 +1,84 @@
+{
+  "AppCLI_changed": false,
+  "CGO_ENABLED": "0",
+  "UI_changed": false,
+  "artifact": "gateway-linux-amd64",
+  "artifact_platform": "linux/amd64",
+  "automatic_retry_changed": false,
+  "base_commit": "fb75ac3ba6dd5d17dcebb323a6666bac3702b6eb",
+  "binary_bytes": 44435595,
+  "binary_sha256": "2bb5267d2908c98908cb4cad9babb7350067cb8a86001c0a192b65665f9e2fec",
+  "build_command": "go build -trimpath -o /evidence/gateway-linux-amd64 ./cmd/sparkclaw",
+  "build_exit": 0,
+  "changed_files": {
+    "services/gateway/internal/agent/manual.go": "a3b28283f2077e0a5287cbfd2c20421e833a04f5429e9f027e2e814b03a136e0",
+    "services/gateway/internal/agent/manual_persistence_test.go": "a6a530ff8de8d5c6211d2693d227e0b1427c094e93d7a5705a4b67a585fcaeea"
+  },
+  "cross_build_exit": 0,
+  "deployed_by_subtask": false,
+  "earlier_full_failures_preserved": [
+    {
+      "failed_test": "TestHelperNodeEnrollmentReplayExpiredResultAndPrivateActivation",
+      "failure": "TempDir RemoveAll directory not empty",
+      "independent_recheck": "cleanup-fixture-rerun.log",
+      "log": "full-test.log",
+      "recheck_exit": 0
+    },
+    {
+      "failed_test": "TestExpiredSeedOnlyBootstrapsWithExplicitRenewalAndStillFailsAdmission",
+      "failure": "expired-seed wall clock boundary",
+      "independent_recheck": "expiry-fixture-rerun.log",
+      "log": "full-test-rerun.log",
+      "recheck_exit": 0
+    }
+  ],
+  "final_full_test": {
+    "command": "go test -p 1 -count=1 -json ./...",
+    "exit": 0,
+    "failed": 0,
+    "packages": 77,
+    "pass": 5610,
+    "skip": 203
+  },
+  "go_version": "go1.25.5",
+  "isolated_postgres": {
+    "green_backends": [
+      "memory",
+      "file",
+      "postgres"
+    ],
+    "network": "none",
+    "red_constraint": "tool_calls_run_id_fkey",
+    "red_reproduced_sqlstate": "23503",
+    "synthetic_data_only": true
+  },
+  "log_sha256": {
+    "build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "cleanup-fixture-rerun.log": "c66e3f7ff3c91c578ec1185544a5c8a09694e7ca9182159c6b21df79b37f3b7d",
+    "cross-build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "document-dependencies.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "exit-status.json": "37a7d8b71b43a3ff5b38fe0e986a829980b0e57e45988715ffd2694bed4837ee",
+    "expiry-fixture-rerun.log": "a7f4c6ef2fa3cca2795ad3f508ee930670152977acfa2f926c2da1f4c993070b",
+    "final-test-exit.json": "d0e907167db37c1164d2035c0eaa99dbf63209f3c903dcd96a54900db2b0dc6c",
+    "full-test-final.log": "21a6f0b7f459dbe53fb77d21860c92621484f4a49f378ee20d5329d5bc4e129d",
+    "full-test-rerun.log": "1c60b80b223e978b719a0f434ceb92e537187ab2f7a7511df6ae267056d9264d",
+    "full-test.log": "c2c3652ea143abcfc8ea075d0c8aa00908982fe84ca5a79d38ff7ec8bfb0b3b5",
+    "source-after-check.json": "733bfc9454d083df9fde2c22d93d7bb54d9f4d0c07b94eff9e620f83cc213f44",
+    "source-after-final-check.json": "733bfc9454d083df9fde2c22d93d7bb54d9f4d0c07b94eff9e620f83cc213f44",
+    "source-before-check.json": "733bfc9454d083df9fde2c22d93d7bb54d9f4d0c07b94eff9e620f83cc213f44",
+    "targeted-green.log": "5b8c9b3e0b8d214a891178ad221323c86e27a907eaff8254d9a3ba50b87b7214",
+    "targeted-race.log": "4649f2ac3a4bd64124289702e67759aaac8fb11d65362cfaf844bd8588557ee3",
+    "targeted-red.log": "c1c71efdde4e095137877bf767d6a3299511a6e0deeffe8d157366c6d5c2fd27",
+    "vet.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "schema_changed": false,
+  "schema_version": 1,
+  "source_before_after_exact": true,
+  "source_commit": "adaca175d2a0bccdf3da753c901a6d750f08783f",
+  "source_files": 2974,
+  "source_manifest_sha256": "6e3e6dc7ed0d8c67fa63cd7e9f3f9108343dae13d7f9fba8857f42d25593f0b7",
+  "source_tree": "f548689d4bfbfdeafad8a8a11e4fe91694cf9ac7",
+  "targeted_race_exit": 0,
+  "test_platform": "linux/arm64",
+  "vet_exit": 0
+}

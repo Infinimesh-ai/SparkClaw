@@ -14,9 +14,9 @@
 审计：**2026-10-26，Asia/Shanghai**，源码 `c2b85311`。
 仓内[发行清单](../../vendor/app-cli/release.json)固定 App-CLI `.41` / `bcc55506`；
 原审计引用的[验收记录](desktop-browser-follow-up-2026-10-23.md)为历史 `.39` 状态，未读取实机。
-当前 `.41` 已加载版本和安装证据见第 12–13 节，不反向改写原审计。
+当前 `.41` 已加载版本和安装证据见第 12–16 节，不反向改写原审计。
 
-**实施状态：S1–S4 source_verified 且已部署（第 7–10、12 节）。S5 部署、Mac 安装、支持范围内的只读诊断与可执行原 UI 验收通过。第 13 节记录独立签发器容量修复和一次性清理后原连接恢复；正常退出重启及最终阅读邮件后的保全比对通过，9 项保护集完全一致。D05/D09 延期。** 无真实发信、推送、App-CLI `.41`、公开码、调度或 UI 变更。
+**实施状态：S1–S4 source_verified 且已部署。第 14–16 节记录 Linux 原生只读资格、已部署的通用 manual-call 外键修复及精确制品故障验收。授权 unknown 清理完成，最终观测为 0。完整 S5 邮件验收仍未通过：QQ 正文校验、Outlook 额外 LF、QQ/Outlook 独立 Sent 原件及锁屏后的最终桌面复核待完成。D05/D09 延期。** 不改 App-CLI `.41`、UI、公开码、调度，不增加自动过期，不推送。
 
 ## 1. 先看完整链路
 
@@ -379,3 +379,65 @@ local storage、sessions 和 service-worker storage 均保留。
   验收，避开 `memory.search` 的 retention 副作用，不重复已经完成的服务商读取。
 - 回滚：回退成功路径顺序或恢复旧 Gateway 镜像；无需数据迁移、来源删除、App-CLI 替换
   或 UI 回滚。
+
+## 16. S5 继续验收——已部署并通过范围内检查，邮件矩阵仍未关闭
+
+- 编号/负责人/目标：S5，SparkClaw 执行链路与一次性验收运维。验证实际制品、完成授权业务
+  检查并删除指定 unknown 历史；部署/运维结果与第 14–15 节源码修复分开。未加自动过期或重试机制。
+- 文件/机制：本次验收提交只包含脱敏证据与双语方案、清单、修改卡；私有运维脚本、删除前
+  精确备份及原失败记录留在 Git 外。通用 manual-call 父记录先于子记录持久化修复仅替换
+  Gateway；无邮件分支、schema、UI、公开错误码、调度或 App-CLI `.41` 改动。
+- 先红后绿：真实 PostgreSQL 外键回归先失败，修复后 memory/file/PostgreSQL、重新打开读回
+  及 race 通过。最终 Linux 全量 5,610 pass / 203 skip / 77 包，build/vet/交叉编译通过。
+  前两轮遇到原有临时目录清理与到期时钟边缘失败，保留日志；单项复跑及最终串行全量通过，
+  未改这些产品路径。一次性清理/放行脚本也保留修复前失败测试。完整行 canonical SHA 与操作
+  protocol digest 不同；两次本地复核断言在远端动作前停止，改为完整行相等与正确 SHA 后通过。
+  request epoch 13 与 task ledger epoch 73 分开核对。
+- 精确制品：源码 `adaca175d2a0bccdf3da753c901a6d750f08783f`，与 main `d97cfcf1` 的产品修复相同；
+  可执行文件 SHA-256 `2bb5267d2908c98908cb4cad9babb7350067cb8a86001c0a192b65665f9e2fec`；
+  镜像 `sha256:f388b1958ed13bb299a372dfdb269a5437f890326598ce6350593a39fc9d5a4d`。
+  Controller/远端 checkout、Mac 保持 `0f46702a`；`.41` manifest 保持
+  `e315727dfe2802b92ef97f3fc0828825e343b3056f5a8d3214207c32840a7db4`。
+- 制品故障验收：8 项隔离用例、12 次正常进程停止通过，自有测试容器已清理。拒绝→ACK 503→
+  重启后补 ACK，总派发 1；unknown 重启/同 key 零新增派发、零 ACK，新 key 409。并发原因、
+  正常取消、原 60 秒间隔下真实文件续租失败、trace 失败、latency 初始化失败及真实 ENOSPC
+  写入降级通过。Controller/服务商为模拟，不冒充真实服务商拒绝、实际 `.41` 账本恢复、
+  Browser Host D03、桌面 recorder 或 PostgreSQL 续租故障覆盖。
+  见[制品证据](../../docs/evidence/s5-installed-fault-acceptance-2026-10-26.json)。
+- 部署证据：第一次启动在语义索引 embedding 第 4/5 批触及原有 20 秒截止时间而失败；
+  独立审查后额外正常启动一次转为健康，未改产品超时或调度。Docker 创建态的
+  `OomKillDisable` null/false 差异、健康启动时正常进行的三项采集均曾使运维校验停止，
+  原失败保留。最终原始 HostConfig、保护数据及其他服务一致；不重启恢复 `unless-stopped`。
+  正常 `reminders.list` 返回 200，PostgreSQL 保存恰好一个完成的 run 和 tool call，输出一致；
+  QA 撤销 200、旧凭证 401、凭证文件删除。
+- 业务证据：对两份既有收件原件各重解析一次，旧文件/capture/representation/job 完整保留，
+  各新增一个 v6 parse job/representation；展示保留解码后完整原文。Gmail→QQ 正文/附件与批准
+  内容一致；Outlook→Gmail 原生原件仍多一个末尾 LF，来源阶段未证实。Gmail 独立 Sent 原件
+  通过一次正常 typed read 验证正文/头信息/附件；原 HTTP 500/FK 失败保留，不因原生读取完成
+  就改写为 API 成功，也未重复读取或补造旧 run/call 行。
+- QQ 证据：两次新授权 API 请求均零实际发出。第一次在 Sent 基线账号证据检查停止，无法
+  区分账号 hash 缺失还是不等。后续完成的 QQ 采集提供匹配的账号结果及 profile 证据；
+  第二次进入 `prepare_draft`，只因正文预期 106、读回 109 被
+  `email_draft_fields_unverified` 拒绝。任务 attempt/effect 为 0，dispatch/token 为 null，
+  关联负向 journal 支持未派发。首次结束校验遇到短暂非空闲而停止，保留 STOP，后续仅只读
+  归类。继续修复停在不改 `.41` 的边界，未进行第三次尝试。两个 QA 客户端均已撤销、401
+  验证并删除凭证。原矩阵实际发信仍 QQ 0、Outlook 1、Gmail 1，未重发第 2/3 封。
+- 授权清理：首轮正常冻结删除 154 个 unknown 任务、698 条事件、385 个精确关联文件及
+  PostgreSQL 的两条 unknown draft/snapshot，其余数据一致。恢复后 Gmail 新增一条采集
+  unknown，诊断后未重试；正常 epoch rotation/维护封存其请求命名空间，最终冻结再删除
+  该任务、5 条事件和 3 个文件，一个已缺失关联文件仍作为缺口记录。最终冷读 unknown 0、
+  send 48，其余账本/文件/authority 一致；PostgreSQL 23 类共 132,690 行完整一致，第二轮
+  不删除 PG。累计 **155 任务 / 703 事件 / 388 文件 / 两条 PG 记录**；限于验证所需的私有
+  备份已下载离机保留，无巨量历史恢复或自动 GC。
+- 最终状态：12:29:41 UTC 正常恢复健康；12:39:56 UTC unknown 0、unknown-send 0、send 48、
+  draft/snapshot 103、devices 10、活动发送和 pending release 均 0。浏览器和签发器未重启，
+  源码 manifest、配置、owner 边界保持。第 13 节原 UI 与退出重启验收通过记录保留；最后
+  维护后的 Mac 连接复核因锁屏无法执行，已请求解锁，不切换 profile 或另做 UI 绕行。
+- 局限/回退：完整 S5 邮件矩阵仍有 QQ 正文校验、Outlook 额外 LF、QQ/Outlook 独立 Sent
+  原件未通过。采集失败根因、381 个历史终态缺口和既有 CI 失败仍待独立处理，删除记录不代表
+  根因修复。旧 Gateway 容器/镜像停止保留，可经审查回退；不能恢复已删历史、旧 epoch 或
+  凭证掩盖变化。删除 alias 后 legacy caller 可能分配新 op3，不能声称所有旧 caller ID 永久
+  不可能再次调用；运行时自动 unknown 重发保护不变。不推送、不处理 InfiniCenter。
+- 证据：[业务/部署/清理](../../docs/evidence/s5-business-acceptance-2026-10-26.json)、
+  [源码资格](../../docs/evidence/s5-manual-persistence-fix-2026-10-26.json)。
+- 文档验证：实际 CI 双语镜像/链接检查通过（134 个项目 Markdown），`git diff --check` 通过。独立 Team-Skills 检查仍有 37 个既有 lesson frontmatter 错误和 56 个警告，新 lesson 不在失败列表；未混入无关修复。

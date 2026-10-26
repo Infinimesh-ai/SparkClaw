@@ -2,6 +2,37 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-browser-follow-up-2026-10-23.md)
 
+## Current S5 checkpoint — 2026-10-26, 12:39 UTC
+
+Deployment and scoped acceptance are complete; the full mail matrix is **not** passed.
+Gateway `adaca175d` (main repair `d97cfcf1`) is healthy; Controller/Mac remain
+`0f46702a`, App-CLI `.41` is unchanged. Actual loaded bytes, original configuration,
+real PostgreSQL manual-call persistence and eight isolated artifact fault cases passed.
+Native Linux read-only diagnosis/owner isolation/zero resend passed in card 14.
+The explicit two-round cleanup removed 155 unknown tasks, 703 events, 388 bound files
+and two PG unknown draft/snapshot rows. Final state is unknown 0 / send 48 /
+draft-snapshot 103 / devices 10, with unrelated retained data exact. No automatic GC.
+
+| Item | Current result / remaining boundary |
+|---|---|
+| QQ→Outlook | Two new API requests, zero dispatch. First lacked qualified Sent-baseline account evidence; a later normal collection proved matching account identity. Second stopped at `.41` draft body validation: 106 expected / 109 observed. Negative task/journal proof retained. Further repair requires crossing the no-`.41`-change boundary; no third attempt. |
+| Recipient body preservation | Both existing originals reanalysed exactly once; old source/parse evidence preserved, new displayed bodies equal complete decoded native originals. Gmail approved content/attachment passes. |
+| Outlook extra LF | Still one extra terminal LF in the native original compared with approved content. Its source stage is unproved. |
+| Independent Sent originals | Gmail native Sent original/header/body/attachment verified. Its HTTP 500 exposed the generic manual FK bug, now independently fixed/deployed/verified. QQ/Outlook remain unavailable/unverified. |
+| Collection unknowns | Authorized current rows deleted; final count zero. The Gmail collection failure's underlying request/stage remains unproved. Cleanup does not establish a fix. |
+| Final desktop connection recheck | Earlier original UI/body/browser/quit-relaunch checks passed. The final post-maintenance check is pending because the Mac is locked; manual unlock requested. |
+| Fault acceptance scope | Exact Gateway artifact passes rejection/first-ACK/restart/unknown and attribution/evidence fault cases with synthetic Controller/provider. Actual provider rejection, real `.41` ledger/Browser Host, desktop recorder and PostgreSQL lease fault injection are not claimed. |
+| Historical work | 381 missing terminal rows, retained CI failures and D05/D09 remain separate. The retained first semantic-index startup timeout is not silently marked repaired. |
+
+All temporary acceptance credentials were revoked, denied with 401 and removed.
+Original actual send totals remain QQ 0 / Outlook 1 / Gmail 1. No repeated sends of
+cases 2/3, automatic unknown resend, UI/public-code/scheduling change or push.
+See [cards 14–16](email-diagnostics-and-change-control.md),
+[goal state](application-runtime-stabilization-plan.md) and
+[redacted final evidence](evidence/s5-business-acceptance-2026-10-26.json).
+**All earlier sections below are historical checkpoints; their old no-mail/unknown,
+Linux-reader, resource and activation states do not override this checkpoint.**
+
 ## S5 deployed; original connection and UI acceptance passed — 2026-10-26
 
 Current SparkClaw `0f46702a` and unchanged App-CLI `.41` are deployed; Mac installation,

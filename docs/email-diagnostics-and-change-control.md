@@ -16,9 +16,9 @@ that the plan's steps reference; it is not a separate roadmap.
 
 Audit: **2026-10-26, Asia/Shanghai**, source `c2b85311`. The checked-in
 [release manifest](../vendor/app-cli/release.json) pins App-CLI `.41` / `bcc55506`.
-The original audit referenced the historical `.39` [acceptance record](desktop-browser-follow-up-2026-10-23.md) and did not inspect a live host. Current `.41` loaded-version and installation evidence is recorded in sections 12–13; it does not retroactively change the audit.
+The original audit referenced the historical `.39` [acceptance record](desktop-browser-follow-up-2026-10-23.md) and did not inspect a live host. Current `.41` loaded-version and installation evidence is recorded in sections 12–16; it does not retroactively change the audit.
 
-**Implementation status:** S1–S4 are source_verified and deployed (sections 7–10, 12). S5 deployment, Mac installation, supported read-only diagnostics and available original-UI checks passed. Section 13 records the independent issuer capacity repair and one-time cleanup that restored the original connection; normal quit/relaunch and the final post-mail preservation comparison passed with all nine protected sections exact. D05/D09 remain deferred. No real mail, push, App-CLI `.41`, public-code, scheduling or UI change occurred.
+**Implementation status:** S1–S4 are source_verified and deployed. Cards 14–16 record native Linux read-only qualification, the deployed generic manual-call FK repair and exact-artifact fault acceptance. Authorized unknown cleanup is complete; final observed unknown count is zero. Full S5 mail acceptance remains incomplete: QQ body validation, Outlook extra LF, QQ/Outlook independent Sent originals and the locked-Mac final recheck remain open. D05/D09 are deferred. No App-CLI `.41`, UI, public-code, scheduling or automatic-expiry change; no push.
 
 ## 1. Follow the whole chain
 
@@ -476,3 +476,93 @@ IndexedDB, local storage, sessions and service-worker storage were retained.
   side effects and does not repeat the completed provider read.
 - Rollback: revert the success-order source change / restore the prior Gateway image;
   no data migration, source-row deletion, App-CLI replacement or UI rollback is needed.
+
+## 16. S5 continuation — deployed and scoped acceptance; mail matrix remains open
+
+- ID / owner / objective: S5, SparkClaw runtime and one-time acceptance operators.
+  Qualify the actual release, finish authorized business checks and delete selected
+  unknown history. This card records deployment/operations separately from source
+  repairs in cards 14–15. No automatic expiry or retry mechanism was added.
+- Files / mechanism: final evidence and the bilingual plan/follow-up/card documents
+  are the repository changes in this acceptance commit. Private operators, exact
+  deleted-row backups and original failures remain outside Git. Gateway alone was
+  replaced for the generic manual-call parent-before-child persistence fix; no mail
+  branch, schema, UI, public-code, scheduling or App-CLI `.41` change.
+- Tests first: the real PostgreSQL FK regression failed before repair, then passed
+  in memory/file/PostgreSQL, including reopen and race checks. Final Linux full run:
+  5,610 pass / 203 skip / 77 packages; build, vet and cross-build passed. Two earlier
+  runs retained unrelated temporary-directory and expiry-clock failures; isolated
+  reruns and the final serial suite passed without changing those product paths.
+  One-shot cleanup/release operators also retained their failing guard tests before
+  repair. Full-row canonical SHA is distinct from the operation protocol digest;
+  two local review assertions stopped before remote action and were corrected using
+  exact row equality. Request epoch 13 is distinct from task ledger epoch 73.
+- Exact deployment artifact: source `adaca175d2a0bccdf3da753c901a6d750f08783f`,
+  same production repair as main `d97cfcf1`; executable SHA-256
+  `2bb5267d2908c98908cb4cad9babb7350067cb8a86001c0a192b65665f9e2fec`;
+  image `sha256:f388b1958ed13bb299a372dfdb269a5437f890326598ce6350593a39fc9d5a4d`.
+  Controller/remote checkout and Mac remain `0f46702a`; `.41` manifest remains
+  `e315727dfe2802b92ef97f3fc0828825e343b3056f5a8d3214207c32840a7db4`.
+- Installed artifact faults: eight isolated cases passed with 12 normal process
+  stops and no remaining owned containers. Rejection → ACK 503 → restart produced
+  one total dispatch and one later successful ACK. Unknown restart/same-key reuse
+  produced zero additional dispatch/ACK; a new key returned 409. Concurrent causes,
+  normal cancellation, actual file renewal failure at the unchanged 60-second
+  interval, trace failure, latency initialization failure and real ENOSPC sink
+  degradation passed. Controller/provider are synthetic; this does not qualify real
+  provider rejection, real `.41` ledger recovery, Browser Host D03, desktop recorder
+  or PostgreSQL lease faults. See [artifact evidence](evidence/s5-installed-fault-acceptance-2026-10-26.json).
+- Deployment evidence: the first start failed while building semantic embeddings
+  (batch 4 of 5, existing 20-second deadline). One separately reviewed additional
+  start became healthy; no product timeout or scheduling change. Docker's created
+  `OomKillDisable` null/false mismatch and a normal three-collection startup window
+  caused retained operator stops. Final raw HostConfig, protected data and other
+  services matched; `unless-stopped` was restored without another restart. Normal
+  `reminders.list` returned 200 with exactly one completed parent/run and child/call
+  in PostgreSQL and equal output. QA revoke 200, rejected token 401, token removed.
+- Business evidence: both existing recipient originals were reanalysed once;
+  original files/captures/representations/jobs remain exact, with one new v6 parse
+  job and representation each. The presentation preserves the full decoded original.
+  Gmail→QQ body/attachment matches the approved message. Outlook→Gmail still has
+  one extra terminal LF already in the native original; its source stage is unproved.
+  Gmail's independent Sent original passed exact body/header/attachment checks via
+  one normal typed read. Its original HTTP 500/FK failure remains recorded despite
+  successful native collection; no second read or manufactured run/call rows.
+- QQ evidence: two new authorized API invocations, zero actual sends. First stopped
+  at Sent-baseline account evidence; missing versus unequal account hash remains
+  unproved. A later completed QQ collection supplied matching account/result and
+  profile evidence. The second send progressed to `prepare_draft`, then rejected
+  only the body (106 expected / 109 read back), code `email_draft_fields_unverified`.
+  The task has attempt/effect 0 and null dispatch/token; a bound negative journal
+  corroborates not-dispatched. Its initial finish guard encountered transient
+  non-idle state; original STOP retained, subsequent classification was read-only.
+  Further repair stops at the unchanged `.41` boundary. No third attempt. Both QA
+  clients were revoked/401-checked/deleted. Original actual sends remain QQ 0,
+  Outlook 1, Gmail 1; cases 2/3 were not resent.
+- Authorized cleanup: first normal freeze removed 154 unknown tasks, 698 events,
+  385 exactly bound files and two PostgreSQL unknown draft/snapshot rows. Unrelated
+  data stayed exact. A later Gmail collection produced one new unknown; it was
+  diagnosed and never retried. Normal epoch rotation/maintenance retired its
+  request namespace; final freeze removed that one task, five events and three
+  files. One already absent linked file remained an explicit gap. Final cold readback
+  proved unknown 0, 48 send tasks, unchanged remaining ledger/files/authority and
+  all 132,690 PostgreSQL rows across 23 kinds. No PostgreSQL deletion in round two.
+  Total: **155 tasks / 703 events / 388 files / two PG rows**. Bounded private backups
+  are retained off-host; no bulk history restoration or automatic GC.
+- Final state: normal resume healthy at 12:29:41 UTC; at 12:39:56 UTC unknown 0,
+  unknown-send 0, send 48, draft/snapshot 103, devices 10, active send/pending release
+  0. Browser and issuer stayed unchanged. Source manifest/config/owner boundaries
+  remain intact. Earlier card 13 original UI and quit/relaunch passes remain valid;
+  the final post-maintenance Mac connection recheck could not run because the Mac
+  is locked. Unlock was requested; no replacement profile or UI workaround.
+- Limits / rollback: full S5 mail matrix remains open for QQ body validation,
+  Outlook extra LF and QQ/Outlook independent Sent originals. Collection failure
+  root cause, 381 historical terminal gaps and retained CI failures remain unproved;
+  cleanup does not repair them. Exact old Gateway container/image is retained stopped
+  for reviewed rollback; never restore deleted history, old epochs or credentials
+  to mask changes. Deleted aliases can let a legacy caller allocate a new op3 identity;
+  no claim that all old caller IDs become permanently impossible. Runtime automatic
+  unknown resend protection remains unchanged. No push or InfiniCenter work.
+- Evidence: [business/deployment/cleanup](evidence/s5-business-acceptance-2026-10-26.json),
+  [source qualification](evidence/s5-manual-persistence-fix-2026-10-26.json).
+- Documentation validation: the actual CI mirror/link check passed for 134 project Markdown files and `git diff --check` passed. The separate Team-Skills check still reports 37 pre-existing lesson frontmatter errors and 56 warnings; the new lesson is not among those failures. No unrelated lesson repair is included.

@@ -2,6 +2,34 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-browser-follow-up-2026-10-23.md)
 
+## 当前 S5 检查点——2026-10-26 12:39 UTC
+
+部署与范围内验收已完成，完整邮件矩阵**尚未通过**。Gateway `adaca175d`（main 修复
+`d97cfcf1`）健康；Controller/Mac 保持 `0f46702a`，App-CLI `.41` 不变。实际加载字节、
+原配置、真实 PostgreSQL manual 持久化与 8 项隔离制品故障验收通过；Linux 原生只读诊断、
+owner 隔离、零重发见修改卡 14。两轮明确授权清理累计删除 155 个 unknown 任务、703 条
+事件、388 个关联文件及两条 PG unknown draft/snapshot。最终 unknown 0 / send 48 /
+draft-snapshot 103 / devices 10，其余保留数据一致，未增加自动 GC。
+
+| 项目 | 当前结果 / 剩余边界 |
+|---|---|
+| QQ→Outlook | 两次新 API 请求均零派发。首次缺合格 Sent 基线账号证据，后续正常采集证明账号一致；第二次被 `.41` 草稿正文校验拦截：预期 106 / 读回 109。任务及负向 journal 证据保留；继续修复涉及不改 `.41` 的边界，未进行第三次尝试。 |
+| 收件正文保留 | 两份既有原件各重解析一次，保留旧来源/解析证据，新展示正文与解码后完整原文一致；Gmail 批准正文/附件通过。 |
+| Outlook 额外 LF | 原生原件比批准内容多一个末尾 LF，来源阶段仍未证实。 |
+| 独立 Sent 原件 | Gmail 原生 Sent 头信息/正文/附件已核验；其 HTTP 500 揭示的通用 manual 外键缺陷已独立修复、部署、验收。QQ/Outlook 仍不可用或未验证。 |
+| 采集 unknown | 授权当前记录已删除，最终计数 0；Gmail 采集失败底层请求/阶段仍未证明，删除不等于修复。 |
+| 最后桌面连接复核 | 此前原 UI/正文/浏览器/退出重启通过。最后维护后的复核因 Mac 锁屏待补，已请求手动解锁。 |
+| 故障验收边界 | 精确 Gateway 制品配模拟 Controller/服务商，通过拒绝/首次 ACK/重启/unknown 及归因/证据故障；不声称真实服务商拒绝、实际 `.41` 账本/Browser Host、桌面 recorder、PostgreSQL 续租注入通过。 |
+| 历史独立事项 | 381 个终态行缺失、既有 CI 失败及 D05/D09 分别处理；保留首次语义索引启动超时，不改写为已修复。 |
+
+所有临时验收凭证均已撤销、401 验证并删除。原矩阵实际发信仍 QQ 0 / Outlook 1 /
+Gmail 1；未重发第 2/3 封、未自动重发 unknown、不改 UI/公开码/调度、不推送。
+见[修改卡 14–16](email-diagnostics-and-change-control.md)、
+[目标状态](application-runtime-stabilization-plan.md)及
+[最终脱敏证据](../../docs/evidence/s5-business-acceptance-2026-10-26.json)。
+**以下各节均为历史检查点，其中旧发信限制、unknown、Linux reader、资源门槛和激活状态
+不覆盖本节的当前结论。**
+
 ## S5 已部署，原连接与 UI 验收通过 — 2026-10-26
 
 当前 SparkClaw `0f46702a` 与不变的 App-CLI `.41` 已部署，Mac 安装、Reader 导入、

@@ -4,7 +4,7 @@
 
 ## 1. 结论与范围
 
-**状态：2026-10-26，Asia/Shanghai；S1–S4 source_verified 并已部署，S5 部署与授权范围内的安装版本/UI 验收通过，包含最终退出重启及阅读邮件后保全检查。签发器容量修复和一次性清理后原连接已恢复；未做真实服务商拒绝/首次 ACK 故障注入或真实发信。**
+**状态：2026-10-26，Asia/Shanghai；S1–S4 已部署，精确制品故障验收与 Linux 只读资格通过。S5 部署及原 UI 检查通过，完整邮件验收仍未通过。通用 manual 持久化修复已部署，授权 unknown 清理已完成。准确边界见第 2 节和修改卡 14–16。**
 
 App-CLI 当前只有一个应用模块（`runtimes/browser/applications/mail`），也没有已立项的第二个
 消费者。本阶段目标因此限定为：**让现有邮件链路在已有底座上恢复不丢结果、一次失败可以归因、
@@ -13,7 +13,7 @@ App-CLI 当前只有一个应用模块（`runtimes/browser/applications/mail`）
 
 审计基线：SparkClaw `db9ca9cf`；固定 App-CLI `.41`，源码
 `bcc55506cc933f981668e3b2d1ed1eba1bf4c6a3`。原审计读取源码和既有证据，未重跑测试或检查实机；本轮源码测试见第 2 节与修改卡。
-[验收清单](desktop-browser-follow-up-2026-10-23.md)保留历史 `.39` 检查点；当前实际加载 `.41` 的证据见第 2 节和修改卡 12–13。
+[验收清单](desktop-browser-follow-up-2026-10-23.md)保留历史 `.39` 检查点；当前实际加载 `.41` 的证据见第 2 节和修改卡 12–16。
 
 保留现有分工：App-CLI Registry 负责能力/schema/授权，Executor 与账本负责任务身份、效果、结果、
 ACK 和恢复，Controller Browser Host 负责页面/profile、资源队列和租约，邮件模块负责服务商操作
@@ -23,10 +23,10 @@ ACK 和恢复，Controller Browser Host 负责页面/profile、资源队列和�
 
 | 目标 | 当前证据与部署状态 | 出口 |
 |---|---|---|
-| G1 恢复不丢结果 | **S1 source_verified + deployed（2026-10-26）**：精确 `0f46702a` / 不变 `.41` 已部署。文件 Store 拒绝→首次 ACK 失败→重启复现保持红→绿，dispatch 总数 1。47 个 send 和原 153 个 unknown 原行及事件均保持一致；签发器维护前快照共 154 个 unknown，新增一条 08:08:56 UTC 的 QQ 不确定采集，无 dispatch/token，已纳入保护且不重试。 | 源码出口及实际加载版本检查满足。现有数据中无可用的服务商拒绝案例，未注入真实拒绝/ACK 失败，未发邮件；不宣称实机补 ACK 用例通过。 |
-| G2 一次失败可归因 | **S2/S3 source_verified + deployed（2026-10-26）**：精确 Gateway 二进制与 Controller 源码已加载；归因、安全原因、身份模式及缺证据表达保留修改卡中的源码验证。 | 既有边界内已部署，日志缺失仍 incomplete；未声称新增实机并发失败或续租失败注入通过。公开码、调度不变。 |
-| G3 最小只读排障 | **S4 source_verified + 独立 CLI 已安装；Linux 实机读取通过（2026-10-26，修改卡 14）**。内置私有 namespace/只读挂载/seccomp；原生 amd64 7 项资格测试通过，64 次实际写入均被拒。对恢复后新出现的 Gmail 采集 unknown 实读两次，各读取 6 行，异 owner 不关联任务，原 task/events 保持一致。 | 合格 Linux 环境下的读取能力已验收。报告仍如实 incomplete，不补造版本/日志/trace；未合格权限零打开，缺 WAL/SHM 的冷态 WAL 仍有读取限制。独立命令不 ACK、不重发、不改 App-CLI。 |
-| G4 安装版本验收 | **S5 已部署，原安装/UI 验收通过；继续业务验收发现并在源码修复通用 manual-call PostgreSQL 外键顺序错误（修改卡 15）**：`0f46702a` + 不变 `.41` 实际加载、原生 Reader 导入及 Mac 安装通过。独立替换的 native issuer 只取消 aggregate 4 MiB 与 1024 record 存储上限；明确授权的一次性清理后，原 profile 连接恢复。原邮件入口/列表/详情/正文与个人浏览器交互通过，见修改卡 13。 | 正常退出/零进程/重启、121 项邮件重新加载及最终阅读后保全比对通过，9 项保护集完全一致。正常阅读改变一封邮件的 viewed 状态；未回复、存草稿、发送或重解析。不宣称真实服务商拒绝/首次 ACK 失败注入或真实发送覆盖。无自动过期机制，不改 App-CLI、UI、公开码或调度，不推送。 |
+| G1 恢复不丢结果 | **S1 source_verified、已部署，精确制品隔离验收通过（修改卡 16）。** Gateway `adaca175d`（与 main `d97cfcf1` 的修复相同）在同一文件 Store 下经历拒绝→首次 ACK 503→正常重启：派发总数 1，ACK 尝试 2 次，重启后成功 1 次。unknown 重启后零新增派发、零 ACK，新 send key 返回 409。 | 证明的是实际部署二进制配模拟 Controller/服务商的用例，不冒充真实服务商注入或实际 `.41` 账本恢复。明确授权的一次性 unknown 删除，与保持不变的自动重发保护分开。 |
+| G2 一次失败可归因 | **S2/S3 source_verified、已部署，隔离二进制用例通过。** 两个并发失败保留不同 invocation/原因；正常取消和真实文件 Store 续租失败保留首因；trace、latency 初始化和 ENOSPC 写失败均不改业务结果，并如实报告 incomplete/degraded。 | 保留原 60 秒续租与产品容量边界；实际 Browser Host D03、桌面 recorder、PostgreSQL 续租故障注入不在本次安装制品测试覆盖中。缺证据仍 incomplete，公开码和调度不变。 |
+| G3 最小只读排障 | **S4 source_verified、独立 CLI 已安装，Linux 原生验收通过（修改卡 14）。** amd64 7 项资格测试、64 次实际写入拒绝通过。对 Gmail 采集 unknown 实读两次，各 6 行，原任务/事件一致、owner 隔离；该历史目标随后按明确授权删除。 | 合格 Linux 读取、零 ACK/重发和未合格权限零打开通过；缺日志/版本/trace、冷态 WAL 缺 sidecar 仍明确受限。不改 App-CLI，不增加自动 immutable 回退。 |
+| G4 安装版本验收 | **S5 部署/安装及范围内检查通过，完整邮件验收仍未通过（修改卡 13–16）。** Gateway `adaca175d` 二进制健康；Controller/远端 checkout、Mac 保持 `0f46702a`，App-CLI `.41` 不变。通用 manual-call 外键修复以真实 PostgreSQL `reminders.list` HTTP 200、一个 run/call 成功保存验收。既有收件原件重解析及 Gmail 独立 Sent 正文/附件验证通过。 | 两次新 QQ 请求均证明零派发；最新被 `.41` 草稿正文读回校验拦截（预期 106 / 实际 109），后续修复停在不改 App-CLI 的边界。Outlook 额外 LF、QQ/Outlook 独立 Sent 原件仍未解决。授权清理分两轮共删 155 条 unknown；12:39 UTC 最终观测 unknown 0、send 48、draft/snapshot 103、devices 10、服务健康。此前原 UI/退出重启验收通过；最后一次维护后的桌面复核因 Mac 锁屏待补。无自动过期机制，不改 UI/公开码/调度，不推送。 |
 
 各 D 项的准确修复边界见[邮件诊断与修改边界](email-diagnostics-and-change-control.md)，本文不重复。
 D05（job 完成与业务结果分离）和 D09（分析 attempt 索引）不阻塞本阶段出口，按邮件文档单独推进。

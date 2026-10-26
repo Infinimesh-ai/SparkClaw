@@ -20,7 +20,7 @@ The latest retained [acceptance record](desktop-browser-follow-up-2026-10-23.md)
 still describes `.39` running and `.41` not activated. This audit did not read a
 live host; these are historical observations, not a new health check.
 
-**Implementation status:** S1–S3 are source_verified (sections 7–9); S4 awaits design confirmation, S5 is unauthorized. D05/D09 remain deferred. No real mail, deployment, interface or UI change occurred.
+**Implementation status:** S1–S3 are source_verified (sections 7–9); S4 is design_ready and awaits confirmation, S5 is unauthorized. D05/D09 remain deferred. No real mail, deployment, interface or UI change occurred.
 
 ## 1. Follow the whole chain
 
@@ -124,8 +124,9 @@ work are separate changes. An unrelated failure gets a separate item.
 | M4 — Bounded product repairs | Reproduce/fix D08 first. Give each QQ/body/Sent issue its own current-version reproducer/card. | Rejected result + first ACK failure + restart eventually ACKs with zero redispatch; sent/unknown protection unchanged. Provider repairs verify exact failed boundary and downstream result. |
 | M5 — Installed version and UI | Qualified component set, then explicitly authorized live cases | Actual installed pins and dispatch counts; separate Sent/Inbox/body/attachment/UI results; reuse successful mail read-only where possible; partial matrix is not universal success. |
 
-**Start with the D08 repair (M4) or M1, in either order**: they are independent
-and are committed separately. M1 makes the next failure attributable; M2/M3 make
+**Current authorization starts with D08 (M4), then M1**: they are independent
+and are committed separately. The S4 design for owner confirmation is in section 7 of the
+[stabilization plan](application-runtime-stabilization-plan.md). M1 makes the next failure attributable; M2/M3 make
 the evidence directly usable. Do not bundle D08 into diagnosis work. Deployment and
 acceptance-harness repairs have separate cards, not mail-runtime completion claims.
 

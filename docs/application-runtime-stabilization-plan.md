@@ -4,7 +4,7 @@
 
 ## 1. Decision and scope
 
-**Status: implementation in progress, 2026-10-26, Asia/Shanghai. S1–S3 source_verified; S4 design requires confirmation, S5 unauthorized.**
+**Status: implementation in progress, 2026-10-26, Asia/Shanghai. S1–S3 source_verified; S4 design_ready, awaiting confirmation, S5 unauthorized.**
 
 App-CLI currently has a single application module (`runtimes/browser/applications/mail`) and no
 approved second consumer. This stage is therefore limited to: **the existing mail path, on the
@@ -30,7 +30,7 @@ its current owner; no new layer is added.
 |---|---|---|
 | G1 Recovery keeps results | **S1 source_verified (2026-10-26)**: eligible rejected terminal receipts now recover ACK. File Store restart reproducer changed red → green; two maintenance rounds ACK once and keep total dispatches at 1. sent/unknown and proof identity fencing pass. Not deployed or live accepted. | Source exit met; deployment and installed acceptance remain separately authorized. |
 | G2 One failure is attributable | **S2/S3 source_verified (2026-10-26)**: actual failed/split invocation survives all three backends; current Host activity correlation; renewal first cause; safe send causes, epoch identity mode, ACK/trace/maintenance failure and bounded sink health. Public codes and scheduling unchanged. | Source exit met within instrumented boundaries; missing logs remain incomplete. No deployment/live acceptance. |
-| G3 Minimal read-only diagnosis | Evidence is spread across receipts, task events, Host logs and traces and must be joined by hand. | Query by draft/operation/job and return the loaded versions, last confirmed stage, first cause, execution result, business result, ACK and missing evidence; anything unprovable is `incomplete`. |
+| G3 Minimal read-only diagnosis | **S4 design_ready, awaiting owner confirmation (2026-10-26)**: section 7 specifies a local command, read-only adapters, exact scoped joins, evidence gaps and tests. No report implementation or report validation yet. | After confirmation, query by draft/operation/job and return proved loaded versions, last confirmed stage, first safe cause, execution/business result, ACK and missing evidence; anything unprovable is `incomplete`. |
 | G4 Installed-version acceptance | `.41` is qualified and packaged but not activated. | After separate authorization, completed on a supported configuration per the deferred acceptance list, with each conclusion recorded separately. |
 
 Exact repair boundaries for each D item are in
@@ -43,7 +43,7 @@ exit and proceed separately under the mail document.
 1. **S1 Fix D08**: first add a reproduction test (rejection → failed first ACK → restart/maintenance
    round), then let the maintenance loop cover terminal results carrying a valid rejection proof.
    Commit separately from diagnostics changes.
-2. **S2 Preserve attribution** (mail M1): D01, D03, D04. Independent of S1; either may go first.
+2. **S2 Preserve attribution** (mail M1): D01, D03, D04. Per the current authorization, follow S1.
 3. **S3 Report evidence truthfully** (the necessary part of mail M2): D02 internal cause, D06/D07
    visible write failures, D10 identity mode.
 4. **S4 Read-only report** (minimal mail M3): reuse existing receipts/events/diagnostic entry points
@@ -96,3 +96,124 @@ interfaces or permissions first need an accepted InfiniCenter decision.
 Each implementation records the goal, exact files, preserved semantics, reproduction, result evidence,
 remaining limitations and rollback boundary, and updates the goal table in section 2. A test count
 never closes a goal; unit tests prove only `source_verified`, not `deployed` or `accepted`.
+
+## 7. S4 design for confirmation — no implementation
+
+### 7.1 Entry and scope
+
+Add a local operator command, provisionally `sparkclaw-email-diagnose`, with required `--owner`
+and exactly one of `--draft`, `--operation`, `--job`; output `--format text|json` to stdout.
+For `--operation`, require `--identity-kind invocation|request-key` to avoid an implicit legacy mapping.
+Input sources are explicit local paths or an existing PostgreSQL connection configuration;
+credentials are read from an existing protected configuration or environment, never printed or
+accepted as a command-line password. Ledger input also requires `--ledger-principal` and `--ledger-owner` for its exact scope;
+Gateway owner and ledger owner are not assumed interchangeable. A missing verified mapping is a gap.
+
+This is a SparkClaw mail diagnostic adapter, proposed under `services/gateway/cmd/sparkclaw-email-diagnose`
+and `services/gateway/internal/emaildiagnostics`, with a small standalone Node 26 SQLite reader under
+`tools/browser-controller/scripts/`. It uses existing Go/Node runtimes and schema fixtures. No
+runtime service is started, no external API/UI is added, and App-CLI `.41` stays unchanged. The
+operator must already have source read access; `--owner` narrows joins, not grants permission.
+Memory Store is an in-process test fixture only, not a newly exposed live-memory endpoint.
+
+The report never ACKs, resolves, retries, reconciles, prunes, migrates, renews, creates an epoch or
+imports production bootstrap code. Recovery suggestions are descriptive and contain no executable
+actions. Unknown always stays fenced against resend. D05/D09 remain outside this implementation:
+existing worker completion and business results are displayed separately; missing analysis attempts
+remain missing, with no attempt-index schema or scheduling change.
+
+### 7.2 Source readers and bounds
+
+| Source | Proposed read path | Missing or unsupported case |
+|---|---|---|
+| Gateway PostgreSQL | Read-only, repeatable-read transaction; parameterized owner/kind/id and parent/related queries over existing `email_management_records` indexes; select only required safe projections. No Store constructor/migrations. | Operation → snapshot has no dedicated invocation index: bounded owner-scoped scan of `send_snapshot`, reported as a scan. Timeout/limit/unsupported schema gives incomplete, never a new index or unbounded scan. |
+| Default file Store | Open existing snapshot read-only, stream JSON and retain only selected owner records/fields. Bounded scan is necessary: this monolithic format has no random-access index. Do not call `NewFileStore` or migrated Store read methods. | Changed/truncated file, budget cutoff or unsupported schema gives incomplete. Encrypted snapshots initially report `encrypted_source_unsupported`; no key handling, whole-file plaintext export or decryption change is included. |
+| App-CLI `.41` ledger | Standalone Node native SQLite read-only connection, query-only mode and fixed SELECT/schema-read allowlist. Exact `(principal, owner, request_key)` / task and `(task, sequence)` reads; select safe fields rather than request/data/payload wholesale. | Never instantiate `Ledger`: its constructor changes permissions, schema, epoch and unfinished tasks. No create, journal-mode change, checkpoint, recovery or immutable mode that ignores an active WAL. If the DB/WAL/shared-memory combination cannot be opened without source writes/creation, return incomplete. |
+| Receipts, Host/worker logs, traces and health | Operator-selected retained files, bounded streaming, schema/field allowlists and exact identity matches; use already recorded health events. | No remote journal crawl, provider lookup, live `latencytrace.Status()` initialization or runtime lifecycle calls. Unavailable/expired/malformed/unread evidence is explicit. |
+
+Proposed initial per-query limits: 10 seconds wall time, 2,000 selected domain/event rows, 256 MiB
+snapshot input, 32 MiB total log/trace input, 1 MiB per parsed record and 1 MiB output. Large skipped
+JSON values must be streamed with bounded memory. The result records the limits, sources examined,
+records/bytes read and cutoffs; hitting any limit produces `incomplete`. No automatic budget increase,
+full-database export or persistence of raw input is allowed. Limits are diagnostic resource bounds,
+not business timeouts or evidence-retention policy. Each source has its own snapshot/provenance;
+the report does not claim an atomic cross-store snapshot while services are active.
+
+### 7.3 Joins and interpretation
+
+- Draft → frozen send snapshot → exact invocation/request key → scoped ledger task → ordered task
+  events. Historical snapshots are separate attempts; the current draft cannot overwrite their
+  identity or result. An operation-only query may locate a task while its Gateway reverse lookup
+  is incomplete; that does not prove the draft never existed.
+- Invocation and request key are distinct fields. In `.41`, `op3` passes through; legacy invocation
+  maps through the pinned canonical digest or an existing alias/head record. Read those records and
+  validate owner/app/command binding; never call `MailboxClient.requestKey()`, which can allocate an
+  alias/epoch. Missing or conflicting mapping is `legacy_identity_mapping_missing`/`incomplete`.
+  Hash the verified ledger request key for Host matching, not the unmapped Gateway invocation.
+- Job → existing attempt/generation and recorded failed collection invocation. A pre-call failure
+  has no task only when the existing boundary evidence proves it; absence of a task row alone is
+  insufficient. D09's absent analysis-attempt index is reported, never synthesized from nearby logs.
+- Host requires the exact task ID plus SHA256 of the UTF-8 request key from S2. Gateway draft
+  diagnostics use SHA256 of owner + NUL + draft ID. Hashes assist correlation, not authorization.
+  Other-owner/principal rows and malformed identities are excluded.
+  Also verify the Gateway owner against the task's existing `request.arguments.owner_scope` or
+  equivalent retained binding; a shared ledger owner alone does not prove product-owner isolation.
+- Use task sequence, receipt revision and explicit causal relations. Duplicate events are
+  deduplicated by their original identity/revision; conflicting duplicates and out-of-order gaps
+  remain visible. Never join by timestamp proximity or subtract cross-host clocks for duration.
+- `first_safe_cause` means the earliest proved cause on that exact attempt's causal chain. If
+  competing causes cannot be ordered, show candidates and `incomplete`, not an invented first cause.
+  A Controller/extension code proves its reported boundary, not the provider/network root cause.
+
+### 7.4 Output contract (local report v1)
+
+| Field group | Meaning |
+|---|---|
+| Query/provenance | Remapped owner-scoped references, source kind/schema, read interval and observation provenance; no private path, credentials or raw query text in ordinary output. |
+| Versions | `expected` from release/config manifests separately from `observed_loaded` supported by retained task/run/process evidence. Installed files or a `.41` pin alone do not prove what executed; unavailable observed versions are incomplete. |
+| Progress/cause | Last proved boundary per attempt; first safe code/stage/source or unordered candidates; every claim points to its exact source evidence reference. |
+| Outcomes | Separate execution state, persisted business state, observed business result, effect certainty, ACK state and cleanup state. HTTP/worker success is not sent; an ACK failure is not a new send failure. |
+| Evidence | `incomplete` with fixed missing/conflict reasons per boundary, instrumented coverage and source cutoffs. `present` means only the named evidence was found, never complete end-to-end history. Health transition counters are process-local snapshots, not final totals or continuity across restart. |
+| Recovery | Descriptive eligibility based only on valid existing proof: pending rejected-result ACK may be eligible for existing maintenance; unknown may be inspected without resend. Report invocation performs neither action. |
+
+Example interpretation: durable business `failed/not_sent`, execution `failed` if proved by its
+task, ACK `pending`, safe cause `browser_extension_unavailable` at ACK, evidence `incomplete` where
+Host/version events are missing. This is not proof that sending failed because of the extension:
+the cause is attached to ACK. The report does not flatten this into one success/failure flag.
+
+No addresses, subjects, bodies, filenames, raw URLs, credential/session values, provider payloads
+or raw provider IDs enter output. Private source content is filtered in the reader before
+aggregation; unsafe arbitrary IDs are remapped, never copied into error text. Existing private raw
+artifact access remains separate. No permanent diagnostic store or automatic export is added.
+
+### 7.5 Test-first acceptance and change card
+
+After confirmation, first add failing fixtures proving:
+
+1. The S1 rejection/failed-ACK/restart fixture is reported as durable rejection plus pending ACK;
+   repeated queries leave ACK count, dispatch count, operation identity and unknown fences unchanged.
+2. Before/after domain records, ledger rows/events/epoch/authority marker and DB/WAL/shared-memory
+   bytes and source file inventory are unchanged in quiescent fixtures. File modes/content stay
+   unchanged; access-time changes from OS reads are not business mutation. Write-denying fixtures
+   and mutation spies reject all source writes, including constructor side effects. Exercise active
+   WAL reads separately; unsupported write-free access must fail incomplete rather than repair it.
+3. Memory fixture, default file and isolated PostgreSQL produce equivalent safe evidence; principal/
+   owner mismatch cannot join; concurrent attempts, restart, duplicates/conflicts and out-of-order
+   events cannot lend each other a cause or manufacture completion.
+   Cover direct `op3`, legacy digest, existing alias, missing/conflicting alias and shared ledger-owner
+   fixtures; query must not allocate or delete an alias/head.
+4. Disabled/full/broken/missing/expired logs, unknown schema, encrypted file, oversized input,
+   query timeout and missing actual loaded version produce explicit incomplete reasons. Safe cause
+   allowlists and malicious payload fixtures prove privacy; all limits hold under oversized values.
+5. Expected/observed versions remain separate, read does not instantiate App-CLI/Store runtime,
+   and original public errors, retry/backoff, unknown protection and UI sources stay unchanged.
+
+**S4 card — planned, design_ready:** owner SparkClaw; source baseline `f65f5b50`; current failure is
+manual joining of dispersed evidence. Objective: one bounded, scoped, mutation-free local report.
+Scope/mechanism and proposed tests are above; no report code/tests have been written or executed.
+This document commit is design evidence only, not `source_verified`, deployed or accepted.
+Limits: absent historical evidence cannot be recovered; no durable diagnostic ledger, encrypted-file
+reader, live memory endpoint, provider verification, D05/D09 repair or `.41` installation acceptance.
+Rollback after implementation would remove the standalone reader only; no source data migration.
+If implementation requires changing App-CLI `.41` or a shared contract, stop and report before edits.
+Proceed to S4 tests and implementation only after the owner's confirmation; S5 remains unauthorized.

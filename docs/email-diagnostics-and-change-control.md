@@ -20,7 +20,7 @@ The latest retained [acceptance record](desktop-browser-follow-up-2026-10-23.md)
 still describes `.39` running and `.41` not activated. This audit did not read a
 live host; these are historical observations, not a new health check.
 
-**Implementation status:** S1–S3 are source_verified (sections 7–9); S4 is design_ready and awaits confirmation, S5 is unauthorized. D05/D09 remain deferred. No real mail, deployment, interface or UI change occurred.
+**Implementation status:** S1–S4 are source_verified (sections 7–10); S5 is unauthorized. D05/D09 remain deferred. No real mail, deployment, interface or UI change occurred.
 
 ## 1. Follow the whole chain
 
@@ -113,7 +113,7 @@ every attachment path; a QQ pass does not qualify Gmail or Outlook.
 
 ## 5. Ordered changes and acceptance
 
-S1–S3 are **source_verified**; S4/S5 and D05/D09 are pending. Independent behavior repairs and diagnostic/schema
+S1–S4 are **source_verified**; S5 and D05/D09 are pending. Independent behavior repairs and diagnostic/schema
 work are separate changes. An unrelated failure gets a separate item.
 
 | Batch | Exact change | Acceptance |
@@ -125,7 +125,7 @@ work are separate changes. An unrelated failure gets a separate item.
 | M5 — Installed version and UI | Qualified component set, then explicitly authorized live cases | Actual installed pins and dispatch counts; separate Sent/Inbox/body/attachment/UI results; reuse successful mail read-only where possible; partial matrix is not universal success. |
 
 **Current authorization starts with D08 (M4), then M1**: they are independent
-and are committed separately. The S4 design for owner confirmation is in section 7 of the
+and are committed separately. The approved S4 design and implemented reader limits are in section 7 of the
 [stabilization plan](application-runtime-stabilization-plan.md). M1 makes the next failure attributable; M2/M3 make
 the evidence directly usable. Do not bundle D08 into diagnosis work. Deployment and
 acceptance-harness repairs have separate cards, not mail-runtime completion claims.
@@ -185,3 +185,14 @@ cross-project changes require an accepted InfiniCenter decision.
 - Acceptance/result: red→green cause/identity/unknown/ACK/persistence/privacy tests; mail, trace, Agent and feedback race tests; actual 64 MiB/100,000-record limits, blocked/broken observer and actual `WithFields` rejection; isolated Linux full Go suite (75 tested packages), build/vet; Controller 331 pass / 148 existing optional skips; WebChat 504 pass; Desktop 530 pass in full serial run. First concurrent Desktop run had one authority-change failure, then its isolated 16-test file and the complete serial run passed; that failure remains recorded, not rewritten. App-CLI projections pass; renderer/WebChat/release pins unchanged. Source revision is this card's commit; deployment/live evidence: none.
 - Limitations: diagnostics are process/log-retention dependent, not a new durable audit ledger. Unknown/unlisted causes remain unclassified; absent health/Host/trace evidence remains incomplete. None of this proves installed `.41`, native provider behavior, original bytes or recipient arrival. D05/D09 are still deferred.
 - Rollback: revert this commit; new data are additive diagnostic fields only, with no business schema migration. Earlier optional logs can be ignored; runtime pins and stored send protection are unchanged.
+
+## 10. S4 / minimal M3 change card — source_verified
+
+- Owner/status: SparkClaw mail diagnostic adapter, local source only, 2026-10-26; owner confirmed the section 7 design. Baseline `3793bfac`; source revision is this card's separate implementation commit. Deployed/installed/live evidence: none.
+- Failure/objective: evidence required manual joining and constructing ordinary Store/Ledger readers could mutate it. The initial real File Store fixture reproduced rejection → failed first ACK → restart, then failed because the standalone report command did not exist. Implement one bounded scoped report that preserves the fixture's result, pending ACK and unknown fence.
+- Exact scope: new `services/gateway/cmd/sparkclaw-email-diagnose/`, `services/gateway/internal/emaildiagnostics/`, `services/gateway/internal/emailmanagement/diagnostic_report_test.go`, `tools/browser-controller/scripts/email-diagnostics-ledger.mjs` and `test/email-diagnostics-ledger.test.mjs`; bilingual plan and this card. No existing business/UI/shared-core implementation, schema, public code, scheduler or App-CLI `.41` changes.
+- Mechanism: explicit owner plus draft/operation/job; streaming bounded safe file projection, SELECT-only repeatable-read PostgreSQL, embedded Node ledger reader with OS write denial, retained logs with exact identity. Separate persisted/observed business, execution, effect, ACK, cleanup, expected/loaded version and missing evidence. `.41` send uses an exact persisted task/revision/digest owner binding only when request scope is absent. Conflicting receipts, unknown states, unstable sources, absent mappings and cutoffs cannot grant recovery or invent history. Recovery is descriptive; no business callbacks are linked into the command.
+- Red → green evidence: command/restart/unknown fixture; owner/principal collision, legacy/op3/alias/head mapping, active WAL and required-SHM failure, malformed/changed/oversized sources, privacy, receipt revisions, unordered/conflicting boundary events, health counters and timeout/blocked child output. Additional failures exposed an executable CWD helper and Node preload side effect; embedded code plus restricted first-process environment removes both. Retained local logs are `/tmp/sparkclaw-s4-report-red.log`, `-aggregate-red.log`, `-sources-red.log`, `-ledger-edge-red.log`, `-source-consistency-red.log`, `-last-review-red.log`, `-node-env-red.log` and `-boundary-recovery-red.log` (same prefix). Committed tests are the reproducible evidence; logs are local, not bundled private artifacts.
+- Acceptance/results: repeated actual command queries preserve file bytes/mode/mtime/inventory, zero ACK and zero additional dispatch; each owner's single original fixture dispatch remains 1, same-key replay remains unchanged and a new unknown key remains blocked. SELECT-only real PostgreSQL/RLS/transaction checks and affected Go race tests pass. Controller full suite: 351 pass / 150 optional or platform skips; isolated ledger suite: 21 pass / 1 platform skip, including Linux static/active-WAL read-only-mount qualification. Linux full Go build/vet/tests: 77 tested packages passed. App-CLI projections, all 134 bilingual Markdown files and diff whitespace checks pass. An early Linux source-snapshot preparation failed because the host Python lacks `tarfile.extractall(filter=...)`; it is retained separately and not counted as a product test failure or a pass. No UI files changed; prior UI test counts are not claimed as new S4 runs. External TeamSkills validation still has 37 pre-existing lesson-metadata errors, unchanged by this update; it is not counted as passed.
+- Limits: the report is always incomplete for unretained history; current loaded versions, cleanup, trace/run and D09 analysis indexes remain unproved. Old job logs lack owner binding and cannot be joined. Encrypted file snapshots are unsupported. Production ledger access currently requires the qualified macOS guard; Linux reports that guard missing without opening the ledger, while its core reader was qualified only in a write-denying fixture. Diagnostic counts are logical source/projection bytes; a 10-second work deadline has bounded cleanup/output overhead. These are explicit gaps, not authorization for `.41` changes or S5.
+- Rollback: remove/revert this standalone command, reader, wrapper and tests. No migrations or durable diagnostic state; existing receipts, unknown protection and S1–S3 behavior remain compatible. No deployment, real email or push occurred; S5 awaits separate authorization.

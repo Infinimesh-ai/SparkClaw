@@ -4,7 +4,7 @@
 
 ## 1. 结论与范围
 
-**状态：实施中，2026-10-26，Asia/Shanghai；S1–S3 source_verified，S4 design_ready，待确认，S5 未授权。**
+**状态：实施中，2026-10-26，Asia/Shanghai；S1–S4 source_verified，S5 未授权。**
 
 App-CLI 当前只有一个应用模块（`runtimes/browser/applications/mail`），也没有已立项的第二个
 消费者。本阶段目标因此限定为：**让现有邮件链路在已有底座上恢复不丢结果、一次失败可以归因、
@@ -25,7 +25,7 @@ ACK 和恢复，Controller Browser Host 负责页面/profile、资源队列和�
 |---|---|---|
 | G1 恢复不丢结果 | **S1 source_verified（2026-10-26）**：有效拒绝终态纳入补 ACK；文件 Store 重启复现由红变绿，两个维护轮只 ACK 一次，dispatch 总数保持 1。sent/unknown 与证明身份围栏回归通过。未部署、未实机验收。 | 源码出口满足；部署与安装验收仍须授权。 |
 | G2 一次失败可归因 | **S2/S3 source_verified（2026-10-26）**：失败/拆分 invocation 跨三后端保留；当前 Host activity 关联、续租首因、安全发送原因、epoch 身份模式、ACK/trace/维护失败和有界 sink 健康可见。公开码与调度不变。 | 已埋点边界内源码出口满足；日志缺失仍 incomplete。未部署或实机验收。 |
-| G3 最小只读排障 | **S4 design_ready，待负责人确认（2026-10-26）**：第 7 节明确本地命令、只读适配器、精确作用域关联、证据缺失及测试。尚未实现或验证报告。 | 确认后按 draft/operation/job 查询，输出有证据的实际加载版本、最后确认阶段、首个安全原因、执行/业务结果、ACK、缺失证据；不能证明的部分标 `incomplete`。 |
+| G3 最小只读排障 | **S4 source_verified（2026-10-26）**：独立的 draft/operation/job 作用域报告，支持 file、只读 PostgreSQL、受保护 ledger 与既有日志。拒绝/首次 ACK 失败/重启及 unknown 重复查询后源字节、ACK/派发次数不变；owner/回执/冲突/隐私与资源上限验证通过。 | 已支持读取器的源码出口满足。预期/实际版本、执行/业务/效果/ACK 与证据缺口分列；实际加载版本、旧 job owner 绑定、trace/分析索引或合格 ledger 拒写保护缺失时仍 `incomplete`。未部署，非 S5 验收。 |
 | G4 安装版本验收 | `.41` 已合格打包、未激活。 | 另行取得授权后，按延期验收清单在支持配置上完成，结论分别记录。 |
 
 各 D 项的准确修复边界见[邮件诊断与修改边界](email-diagnostics-and-change-control.md)，本文不重复。
@@ -80,20 +80,21 @@ D05（job 完成与业务结果分离）和 D09（分析 attempt 索引）不阻
 每次实施记录目标、准确文件、保持的语义、复现、结果证据、剩余局限和回退边界，并更新第 2 节目标表的状态。
 不能用测试总数宣布目标完成；单测只能证明 `source_verified`，不等于 `deployed` 或 `accepted`。
 
-## 7. S4 待确认设计 — 尚未实现
+## 7. S4 已确认设计与实现 — source_verified
 
 ### 7.1 入口与范围
 
-新增本地运维命令，暂名 `sparkclaw-email-diagnose`，必填 `--owner`，并在 `--draft`、
+本地运维命令为 `sparkclaw-email-diagnose`，必填 `--owner`，并在 `--draft`、
 `--operation`、`--job` 中选一个；用 `--format text|json` 输出到 stdout。
 使用 `--operation` 时必填 `--identity-kind invocation|request-key`，避免隐式套用旧身份映射。
 输入源为显式指定的本地路径或既有 PostgreSQL 连接配置；凭据仅从已有受保护配置或环境读取，
 不打印、不接收命令行密码。ledger 输入另需 `--ledger-principal` 和 `--ledger-owner` 精确限定作用域；
 不假定 Gateway owner 等于 ledger owner，缺少有依据的映射就记证据缺口。
 
-这是 SparkClaw 邮件诊断适配器，拟放在 `services/gateway/cmd/sparkclaw-email-diagnose` 与
-`services/gateway/internal/emaildiagnostics`，另在 `tools/browser-controller/scripts/` 放一个
-独立 Node 26 SQLite 读取器。沿用现有 Go/Node 运行时和 schema fixture；不启动运行服务、
+这是 SparkClaw 邮件诊断适配器，位于 `services/gateway/cmd/sparkclaw-email-diagnose` 与
+`services/gateway/internal/emaildiagnostics`；Node 26 SQLite 读取器唯一源码是
+`internal/emaildiagnostics/ledger_reader.mjs`，嵌入 Go 命令，`tools/browser-controller/scripts/` 仅薄包装。
+Go 以受限环境执行嵌入代码，不从 CWD 加载 helper，也不继承会提前执行模块或写覆盖率/缓存的 Node 环境。沿用现有 Go/Node 运行时和 schema fixture；不启动运行服务、
 不新增外部 API/UI、不改 App-CLI `.41`。操作者须已有源数据读取权限；`--owner` 只收窄关联，
 不授予权限。Memory Store 只作为进程内测试 fixture，不新增在线内存读取入口。
 
@@ -103,18 +104,26 @@ D05（job 完成与业务结果分离）和 D09（分析 attempt 索引）不阻
 
 ### 7.2 读取方式与资源上限
 
-| 来源 | 拟采用的读取路径 | 缺失或不支持时 |
+| 来源 | 已实现读取路径 | 缺失或不支持时 |
 |---|---|---|
 | Gateway PostgreSQL | 只读 repeatable-read 事务；参数化 owner/kind/id、parent/related 查询，使用已有 `email_management_records` 索引，仅取所需安全投影。不创建 Store 或运行迁移。 | operation → snapshot 没有专用 invocation 索引：按 owner 对 `send_snapshot` 做有界扫描并披露。超时/超限/不支持 schema 则 incomplete，不新增索引或无界扫描。 |
 | 默认 file Store | 只读打开既有快照，流式解析 JSON，只保留目标 owner 的必要记录/字段。单体格式无随机访问索引，必须有界扫描。不调用 `NewFileStore` 或带迁移的 Store 读方法。 | 文件变更/截断、预算耗尽、不支持 schema 均 incomplete。加密快照首版记 `encrypted_source_unsupported`，不纳入密钥处理、整库明文导出或解密改造。 |
 | App-CLI `.41` ledger | 独立 Node 原生 SQLite 只读连接、query-only 模式、固定 SELECT/schema-read 白名单。精确查询 `(principal, owner, request_key)` / task 和 `(task, sequence)`；投影安全字段，不整取 request/data/payload。 | 不实例化 `Ledger`：构造函数会改权限、schema、epoch 和未完成任务。不创建文件、切换 journal、checkpoint、恢复，也不使用忽略活动 WAL 的 immutable 模式。若 DB/WAL/shared-memory 组合无法在不写入/创建源文件的情况下打开，就返回 incomplete。 |
 | 回执、Host/worker 日志、trace、健康信息 | 操作者指定已保留文件，有界流式读取、schema/字段白名单、精确身份关联；读取已有健康事件。 | 不爬远程 journal、不查服务商、不调用会初始化 sink 的在线 `latencytrace.Status()`，不调用 runtime 生命周期。不可用/过期/格式损坏/未读证据明确列出。 |
 
-初版拟定单次查询上限：墙钟 10 秒，选中 domain/event 记录 2,000 条，快照输入 256 MiB，
+单次查询上限：工作截止时间 10 秒，选中 domain/event 记录 2,000 条，快照输入 256 MiB，
 日志/trace 输入合计 32 MiB，单条解析记录 1 MiB，输出 1 MiB。跳过大 JSON 值也必须有界流式处理。
 结果列出上限、检查的来源、已读条数/字节和截断位置；任何上限命中均 `incomplete`。
 不自动放宽预算、不整库导出、不落盘原始输入。这些只是诊断资源上限，不是业务超时或保留策略。
-各来源分别记录快照/证据出处，不声称运行中系统存在跨存储原子快照。
+各来源分别记录快照/证据出处，不声称运行中系统存在跨存储原子快照。CLI 监督自有进程组，
+覆盖 SQLite 子进程；清理/超时输出另有 200/100 ms 有界等待。字节统计指逻辑源数据/投影字节，
+不是 SQLite 物理页 I/O。变化/截断的快照、变化的日志/ledger 不作为证明；截断或冲突证据不能
+提供回执 owner 绑定或补 ACK 资格。
+
+生产 ledger 读取器在 macOS 使用 `sandbox-exec`，先拒绝文件写入及网络，再打开证据。
+Linux 没有合格防护时返回 `ledger_write_guard_unavailable`，不打开 ledger；Linux 核心读取器
+另在禁网、只读容器挂载下通过夹具验证，这不是生产绕过入口。Gateway file/PG/日志读取仍可用。
+仅 SQLite read-only/query-only 不能保证 SHM 字节不变。
 
 ### 7.3 关联与解释
 
@@ -126,12 +135,16 @@ D05（job 完成与业务结果分离）和 D09（分析 attempt 索引）不阻
   可能分配 alias/epoch 的 `MailboxClient.requestKey()`。缺失/冲突映射为
   `legacy_identity_mapping_missing`/`incomplete`。Host 散列取已验证的 ledger request key，
   不取未映射的 Gateway invocation。
-- job → 已有 attempt/generation 和记录的失败采集 invocation。只有既有边界证据能证明调用前失败时，
+- job → 已有 attempt/generation。旧 v1 job 日志缺少 owner 绑定，不能只凭 job ID/attempt 关联，
+  明示 `job_log_owner_binding_missing`；operation 查询可单独读取精确持久采集 invocation 历史。
+  只有既有边界证据能证明调用前失败时，
   才能表示未建 task；缺少 task 行本身不足以证明。D09 分析 attempt 索引缺失如实记录，不从邻近日志拼造。
 - Host 必须同时匹配 task ID 与 S2 的 UTF-8 request key SHA256。Gateway draft 诊断使用
   owner + NUL + draft ID 的 SHA256。散列用于关联，不用于授权；排除其他 owner/principal 和非法身份。
   还须用 task 已有的 `request.arguments.owner_scope` 或等价留存绑定验证 Gateway owner；
-  共用 ledger owner 本身不能证明产品 owner 隔离。
+  共用 ledger owner 本身不能证明产品 owner 隔离。request scope 为 SHA256(Gateway owner)。
+  `.41` send 缺少该字段，替代绑定必须来自 owner 内持久回执，并精确匹配 task、terminal revision、
+  result digest；显式存在但不匹配的 scope 不允许退回回执绑定。
 - 使用 task sequence、receipt revision 和显式因果关系；按原始身份/revision 去重，冲突副本和乱序缺口
   仍可见。不按时间相近关联，不相减跨主机时钟得出耗时。
 - `first_safe_cause` 指精确 attempt 因果链中最早有证据的原因；多个原因无法排序时列候选并标
@@ -158,7 +171,7 @@ ACK 边界安全原因 `browser_extension_unavailable`，缺失 Host/版本事�
 
 ### 7.5 测试先行验收与修改卡
 
-确认后，先加入失败 fixture 证明：
+负责人确认后，先加入失败 fixture 再实现，验证：
 
 1. S1 拒绝/ACK 失败/重启 fixture 被报告为持久拒绝与 pending ACK；重复查询不改变 ACK/派发次数、
    operation 身份和 unknown fence。
@@ -174,10 +187,26 @@ ACK 边界安全原因 `browser_extension_unavailable`，缺失 Host/版本事�
 5. 预期/实际版本分离；读取不实例化 App-CLI/Store runtime；原公开错误、retry/backoff、unknown 保护、
    UI 源码保持不变。
 
-**S4 修改卡 — planned，design_ready：** 负责方 SparkClaw；源码基线 `f65f5b50`；当前问题是分散证据
-需要人工拼接。目标为一次有界、限定作用域、无写入的本地报告；范围/机制和拟定测试见上。
-没有编写或运行报告代码/测试；本次文档提交仅证明设计完成，不是 `source_verified`、部署或实机验收。
-局限：不能恢复历史缺失证据；不包括持久诊断账本、加密快照读取、在线 memory 入口、服务商验证、
-D05/D09 修复或 `.41` 安装验收。实施后的回退仅移除独立读取器，无源数据迁移。
-若实施需要修改 App-CLI `.41` 或共享契约，先停止并报告。
-仅在负责人确认后进入 S4 测试与实现；S5 仍未授权。
+**S4 实施修改卡：**见[邮件边界文档第 10 节](email-diagnostics-and-change-control.md#10-s4--最小-m3-修改卡--source_verified)。源码基线 `3793bfac` 保留已确认设计，实现另作一个提交。D05/D09 与 S5 仍不在范围内。
+
+### 7.6 本地用法与证据局限
+
+在仓库根目录，使用已有 Go 工具链，并将 Node 26 放在 PATH：
+
+```sh
+cd services/gateway
+go run ./cmd/sparkclaw-email-diagnose --owner OWNER --draft DRAFT --snapshot /existing/state.json --format json
+```
+
+已有 PostgreSQL 连接用 `--postgres-env EXISTING_DSN_ENV` 替换 `--snapshot`，只需具有 SELECT 权限的凭据。
+`--operation KEY --identity-kind invocation|request-key` 或 `--job JOB` 可替换 `--draft`。
+可选既有输入：重复 `--log /existing/events.log`、`--release-manifest ../../vendor/app-cli/release.json`，
+以及 `--ledger /existing/ledger.sqlite` 配合 `--ledger-principal`、`--ledger-owner`；legacy 身份另需
+`--index-directory`。不下载或初始化来源；源路径/密码不进入报告输出。
+退出 0 仅表示生成了有界报告，不表示邮件成功或证据完整；2 为输入无效，1 为命令/输出失败；
+超时且输出可写时返回 incomplete 报告。
+
+v1 始终声明 `evidence=incomplete` 与已埋点边界覆盖。没有可信留存加载版本 schema、清理历史、
+trace/run 关联或分析 attempt 索引，这些字段保持 incomplete；预期 `.41` 清单不能证明安装。
+加密快照、缺失/过期历史、不支持 owner 映射明确记缺口。不含服务商验证、在线 memory 入口、
+新增审计库、恢复动作或 S5 验收。

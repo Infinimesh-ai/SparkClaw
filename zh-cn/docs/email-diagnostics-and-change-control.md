@@ -16,7 +16,7 @@
 [验收记录](desktop-browser-follow-up-2026-10-23.md)最新留存证据仍是 `.39` 运行、`.41` 未激活。
 本轮没有读取实机；这是历史观察，不是新的健康检查。
 
-**实施状态：S1–S3 source_verified（第 7–9 节），S4 design_ready，待确认，S5 未授权；D05/D09 延期。** 没有真实发信、部署、接口或 UI 变更。
+**实施状态：S1–S4 source_verified（第 7–10 节），S5 未授权；D05/D09 延期。** 没有真实发信、部署、接口或 UI 变更。
 
 ## 1. 先看完整链路
 
@@ -92,7 +92,7 @@ revision/lease fencing、原件清单、清理隔离、私有耗时记录。应�
 
 ## 5. 修改顺序与验收
 
-S1–S3 为 **source_verified**；S4/S5 与 D05/D09 待实施。独立业务修复和诊断/schema 工作分开；不相关的新失败另开条目。
+S1–S4 为 **source_verified**；S5 与 D05/D09 待实施。独立业务修复和诊断/schema 工作分开；不相关的新失败另开条目。
 
 | 批次 | 准确改动 | 验收出口 |
 |---|---|---|
@@ -103,7 +103,7 @@ S1–S3 为 **source_verified**；S4/S5 与 D05/D09 待实施。独立业务修�
 | M5：安装版本与 UI | 合格组件组合，再执行明确授权实机用例 | 记录实装版本、派发次数；Sent/Inbox/正文/附件/UI 分别结论；尽可能只读复用成功邮件；局部矩阵不称全部成功。 |
 
 **本次授权先做 D08 修复（M4），再做 M1**：二者互不依赖，分别提交。
-S4 待负责人确认的设计见[稳定化方案](application-runtime-stabilization-plan.md)第 7 节。
+S4 已确认设计与读取器局限见[稳定化方案](application-runtime-stabilization-plan.md)第 7 节。
 M1 使下一次失败能明确归属，M2/M3 使证据可直接使用。D08 不能混入诊断补丁。部署和验收脚本另用修改卡，不计为邮件运行态改善。
 
 ## 6. 每次修改必须填的卡片
@@ -158,3 +158,14 @@ M1 使下一次失败能明确归属，M2/M3 使证据可直接使用。D08 不�
 - 验收/结果：原因/身份/unknown/ACK/持久化/隐私先红后绿；邮件、trace、Agent、反馈 race；实际 64 MiB/100,000 条上限、阻塞/损坏 observer、实际 `WithFields` 拒绝路径通过。隔离 Linux 全量 Go（75 个含测试包）、build/vet 通过；Controller 331 通过 / 148 原有可选跳过；WebChat 504 通过；Desktop 全量串行 530 通过。Desktop 首次并行出现一个 authority-change 失败，同文件隔离 16 项及完整串行复跑通过；原失败保留，不改写。App-CLI 投影检查通过，renderer/WebChat/发行 pins 不变。源码版本为本卡提交；部署/实机证据：无。
 - 局限：诊断依赖进程/日志保留，不是新增持久审计账本；未知原因仍 unclassified，缺失健康/Host/trace 仍 incomplete。不证明 `.41` 已安装、原生服务商行为、原件字节或收件人到达。D05/D09 仍延期。
 - 回退：回退本提交；只新增诊断字段，无业务 schema 迁移。旧解析器可忽略新增字段，runtime pins 和已存发送保护不变。
+
+## 10. S4 / 最小 M3 修改卡 — source_verified
+
+- 负责方/状态：SparkClaw 邮件诊断适配器，2026-10-26，仅本地源码；负责人已确认方案第 7 节。基线 `3793bfac`，源码版本为本卡独立实现提交；部署/安装/实机证据：无。
+- 失败/目标：证据需人工拼接，直接构造常规 Store/Ledger 读取器可能写入证据。首个真实 file Store 夹具完成拒绝 → 首次 ACK 失败 → 重启后，因独立报告命令不存在而失败。实现一次有界、限定 owner 的查询，保持拒绝结果、pending ACK 与 unknown 围栏。
+- 准确范围：新增 `services/gateway/cmd/sparkclaw-email-diagnose/`、`services/gateway/internal/emaildiagnostics/`、`services/gateway/internal/emailmanagement/diagnostic_report_test.go`、`tools/browser-controller/scripts/email-diagnostics-ledger.mjs` 与 `test/email-diagnostics-ledger.test.mjs`，以及双语方案/本卡。不改现有业务、UI、公共核心实现、schema、公开码、调度或 App-CLI `.41`。
+- 机制：必填 owner 与 draft/operation/job；流式有界安全 file 投影、仅 SELECT 的 repeatable-read PostgreSQL、OS 拒写保护下的嵌入 Node ledger 读取器，以及精确身份关联的既有日志。持久/观察业务、执行、效果、ACK、清理、预期/加载版本与缺失证据分开。`.41` send 仅在 request scope 缺失时，以精确持久 task/revision/digest 作 owner 替代绑定。回执冲突、unknown、变化来源、缺映射、超限不能授予恢复资格或编造历史；恢复仅说明，命令没有业务动作回调。
+- 先红后绿证据：命令/重启/unknown 夹具，owner/principal 同名隔离，legacy/op3/alias/head，活动 WAL 与缺 SHM 拒写，损坏/变化/超大来源，隐私，回执 revision，乱序/冲突边界，健康计数，超时/子进程输出阻塞。追加失败还复现 CWD helper 执行和 Node preload 写入，分别用嵌入代码与第一层受限环境消除。保留本地日志 `/tmp/sparkclaw-s4-report-red.log`、`-aggregate-red.log`、`-sources-red.log`、`-ledger-edge-red.log`、`-source-consistency-red.log`、`-last-review-red.log`、`-node-env-red.log`、`-boundary-recovery-red.log`（同前缀）；同提交测试是可重现证据，临时日志不作为私有制品入库。
+- 验收/结果：重复调用实际命令后 file 字节/权限/mtime/清单不变，ACK 为 0、额外派发为 0；每个 owner 的原始夹具派发各保持 1，同 key 重放不变、unknown 新 key 仍被阻止。真实隔离 PostgreSQL 的 SELECT-only/RLS/事务模式检查和受影响 Go race 通过。Controller 全量 351 通过 / 150 可选或平台跳过；ledger 独立 21 通过 / 1 平台跳过，包含 Linux 静态/活动 WAL 只读挂载验证。Linux 全量 Go build/vet/tests：77 个含测试包通过。App-CLI 投影、134 份双语 Markdown 与 diff 空白检查通过。首次 Linux 源码快照准备因本机 Python 不支持 `tarfile.extractall(filter=...)` 失败，单独保留，不算产品失败或通过。没有 UI 文件变化，不把此前 UI 测试数冒充本轮重跑。外部 TeamSkills 全库检查仍有 37 项既有 lesson 元数据错误，本次更新未新增；不计为通过。
+- 局限：未留存历史始终 incomplete；实际加载版本、清理、trace/run、D09 分析索引无证明。旧 job 日志缺 owner 绑定，不关联；加密快照不支持。生产 ledger 当前需合格 macOS 拒写保护，Linux 缺保护时不打开 ledger，核心读取器仅在拒写夹具下验证。统计为逻辑源数据/投影字节；10 秒工作截止后有界清理/输出开销。以上均明示缺口，不构成改 `.41` 或执行 S5 的授权。
+- 回退：移除/回退独立命令、读取器、包装及测试；无迁移或持久诊断状态，既有回执、unknown 保护与 S1–S3 行为兼容。未部署、未发真实邮件、未推送；S5 等待另行授权。

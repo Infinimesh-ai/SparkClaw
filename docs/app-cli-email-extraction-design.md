@@ -2,6 +2,11 @@
 
 > Language: English | [简体中文](../zh-cn/docs/app-cli-email-extraction-design.md)
 
+For the 2026-10-26 source assessment and this stage's next steps, use the
+[current-stage stabilization plan](application-runtime-stabilization-plan.md).
+It also lists the production module-integration gaps deferred until a second module is required;
+the dated extraction and acceptance history below remains historical evidence.
+
 - Status: **R3 extraction and cumulative six-route delivery verified; production follow-up deferred until the main-branch merge**
 - Date: 2026-09-30
 - Initial applications: QQ Mail, Gmail, Outlook

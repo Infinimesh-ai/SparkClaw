@@ -69,3 +69,15 @@ This document is the **non-negotiable baseline** for every code contribution, no
 
 - Single file > 800 lines, single function > 100 lines, or one package with 2+ unrelated responsibilities — hitting any of these requires an explanation in the PR description for why it isn't split.
   - *Incident*: `agent.go` once reached 4032 lines mixing six responsibilities; frontend `App.tsx` reached 3609 lines.
+
+## 11. Application and script changes need an explicit objective and evidence
+
+Use the [current-stage runtime stabilization plan](application-runtime-stabilization-plan.md)
+to separate module changes from foundation changes. Record the failed boundary,
+confirmed cause or hypothesis, affected paths/backends, acceptance and remaining
+limitations. For mail, use the concrete findings and change card in the
+[mail diagnosis baseline](email-diagnostics-and-change-control.md). Track source
+verification, deployment and live acceptance separately. Preserve original UI and
+uncertain-write protection; missing logs or successful transport cannot establish
+business success. An existing-capability module must not add application-name branches
+to shared authorization, scheduling or Host logic.

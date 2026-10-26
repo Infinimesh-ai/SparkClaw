@@ -2,6 +2,9 @@
 
 > 语言：简体中文 | [English](../../docs/app-cli-email-extraction-design.md)
 
+2026-10-26 的源码核对和本阶段后续步骤见[当前阶段稳定化方案](application-runtime-stabilization-plan.md)。
+该方案同时列出待出现第二个模块时再处理的生产模块接入缺口；下文带日期的抽离及验收记录继续作为历史证据。
+
 - 状态：**R3 抽离与六向累计送达验证已完成；生产收尾延后至合并主分支后执行**
 - 日期：2026-09-30
 - 首批应用：QQ 邮箱、Gmail、Outlook

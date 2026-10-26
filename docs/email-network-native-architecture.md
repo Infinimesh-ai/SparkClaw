@@ -2,6 +2,10 @@
 
 > Language: English | [简体中文](../zh-cn/docs/email-network-native-architecture.md)
 
+For current source limitations and the next bounded changes, start with the
+[mail diagnostics and change-control baseline](email-diagnostics-and-change-control.md).
+The dated deployment observations below remain historical evidence.
+
 - Status: **proposed design; N1–N3 and the SparkClaw/ISCP parts of N4 deployed 2026-10-22; live gates partly open (section 9.2)**
 - Date: 2026-10-22
 - Baselines: SparkClaw `456b9fb3`, App-CLI `a91396e` (release 31), ISCP `2a252fe`

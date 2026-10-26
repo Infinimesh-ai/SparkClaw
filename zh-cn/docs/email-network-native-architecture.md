@@ -2,6 +2,9 @@
 
 > 语言：简体中文 | [English](../../docs/email-network-native-architecture.md)
 
+当前源码局限与后续修改边界先看[邮件诊断与修改基线](email-diagnostics-and-change-control.md)。
+下文带日期的部署观察继续作为历史证据保留。
+
 - 状态：**设计提案；N1–N3 及 N4 中 SparkClaw/ISCP 部分已于 2026-10-22 部署；实机门禁部分未完成（第 9.2 节）**
 - 日期：2026-10-22
 - 基线：SparkClaw `456b9fb3`，App-CLI `a91396e`（release 31），ISCP `2a252fe`

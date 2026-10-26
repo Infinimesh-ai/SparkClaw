@@ -25,7 +25,7 @@ ACK 和恢复，Controller Browser Host 负责页面/profile、资源队列和�
 |---|---|---|
 | G1 恢复不丢结果 | **S1 source_verified + deployed（2026-10-26）**：精确 `0f46702a` / 不变 `.41` 已部署。文件 Store 拒绝→首次 ACK 失败→重启复现保持红→绿，dispatch 总数 1。47 个 send 和原 153 个 unknown 原行及事件均保持一致；签发器维护前快照共 154 个 unknown，新增一条 08:08:56 UTC 的 QQ 不确定采集，无 dispatch/token，已纳入保护且不重试。 | 源码出口及实际加载版本检查满足。现有数据中无可用的服务商拒绝案例，未注入真实拒绝/ACK 失败，未发邮件；不宣称实机补 ACK 用例通过。 |
 | G2 一次失败可归因 | **S2/S3 source_verified + deployed（2026-10-26）**：精确 Gateway 二进制与 Controller 源码已加载；归因、安全原因、身份模式及缺证据表达保留修改卡中的源码验证。 | 既有边界内已部署，日志缺失仍 incomplete；未声称新增实机并发失败或续租失败注入通过。公开码、调度不变。 |
-| G3 最小只读排障 | **S4 source_verified；现有真实数据只读检查通过（2026-10-26）**：精确 Linux 独立二进制完成 5 次调用，覆盖重复 unknown 报告、owner 隔离及 ledger 保护不可用表达；101 个 draft/send 行和 9 项保护证据集前后完全一致。 | 可用读取器范围验收满足。拒绝案例不可用；Linux ledger 保持 `incomplete`、读取 0 行/0 字节。报告缺失的版本/日志/清理/trace 不用另行部署健康回执补造。 |
+| G3 最小只读排障 | **S4 source_verified + 独立 CLI 已安装；Linux 实机读取通过（2026-10-26，修改卡 14）**。内置私有 namespace/只读挂载/seccomp；原生 amd64 7 项资格测试通过，64 次实际写入均被拒。对恢复后新出现的 Gmail 采集 unknown 实读两次，各读取 6 行，异 owner 不关联任务，原 task/events 保持一致。 | 合格 Linux 环境下的读取能力已验收。报告仍如实 incomplete，不补造版本/日志/trace；未合格权限零打开，缺 WAL/SHM 的冷态 WAL 仍有读取限制。独立命令不 ACK、不重发、不改 App-CLI。 |
 | G4 安装版本验收 | **S5 已部署，授权范围内安装/UI 验收通过（2026-10-26）**：`0f46702a` + 不变 `.41` 实际加载、原生 Reader 导入及 Mac 安装通过。独立替换的 native issuer 只取消 aggregate 4 MiB 与 1024 record 存储上限；明确授权的一次性清理后，原 profile 连接恢复。原邮件入口/列表/详情/正文与个人浏览器交互通过，见修改卡 13。 | 正常退出/零进程/重启、121 项邮件重新加载及最终阅读后保全比对通过，9 项保护集完全一致。正常阅读改变一封邮件的 viewed 状态；未回复、存草稿、发送或重解析。不宣称真实服务商拒绝/首次 ACK 失败注入或真实发送覆盖。无自动过期机制，不改 App-CLI、UI、公开码或调度，不推送。 |
 
 各 D 项的准确修复边界见[邮件诊断与修改边界](email-diagnostics-and-change-control.md)，本文不重复。
@@ -120,10 +120,17 @@ Go 以受限环境执行嵌入代码，不从 CWD 加载 helper，也不继承�
 不是 SQLite 物理页 I/O。变化/截断的快照、变化的日志/ledger 不作为证明；截断或冲突证据不能
 提供回执 owner 绑定或补 ACK 资格。
 
-生产 ledger 读取器在 macOS 使用 `sandbox-exec`，先拒绝文件写入及网络，再打开证据。
-Linux 没有合格防护时返回 `ledger_write_guard_unavailable`，不打开 ledger；Linux 核心读取器
-另在禁网、只读容器挂载下通过夹具验证，这不是生产绕过入口。Gateway file/PG/日志读取仍可用。
-仅 SQLite read-only/query-only 不能保证 SHM 字节不变。
+生产 ledger 读取器在 macOS 使用 `sandbox-exec`。Linux 独立 Go CLI 先建立私有 PID/mount/network/IPC
+namespace，隔离 `/proc`，将全部挂载递归置为只读、nodev、nosuid，再启用 no-new-privileges 和 seccomp。
+只保留 `CAP_DAC_READ_SEARCH`（mask 4）读取应用用户的 0700/0600 证据，不保留可绕过写权限的
+`CAP_DAC_OVERRIDE`；禁止 socket、文件句柄打开及 namespace/mount 逃逸。Node 在源读取前验证真实
+内核状态和拒绝行为；仅传私有 flag 不能绕过。目标主机 7 项资格测试和实际 unknown/owner 报告已通过。
+
+通常需要已有 Node 26 及 sudo/root 的相关内核权限；不自动提权。权限或内核能力不合格时返回
+`ledger_write_guard_unavailable`，源打开数为零。直接 Node wrapper 在 Linux 仍不提供绕过入口。
+默认 DELETE 静态库和活动 WAL 已验证；WAL 模式的冷库若正常关闭后没有 WAL/SHM，仍可能 incomplete。
+不自动使用 immutable、不创建源 sidecar、不降级写保护。活动运行时会自行写入，实机证明为指定行及
+事件未变，不能宣称整个活动 DB/WAL/SHM 字节完全静止；实际写拒绝另由内核资格测试证明。
 
 ### 7.3 关联与解释
 

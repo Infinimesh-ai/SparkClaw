@@ -14,8 +14,12 @@ import (
 )
 
 func TestEmbeddedLedgerReaderUsesGatewayOwnerDigestWithoutMutatingUnknown(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("production ledger reads require the qualified macOS write guard")
+	testEmbeddedLedgerReader(t, false)
+}
+
+func testEmbeddedLedgerReader(t *testing.T, userOwned bool) {
+	if runtime.GOOS != "darwin" && !(runtime.GOOS == "linux" && os.Getenv("SPARKCLAW_TEST_LINUX_LEDGER_GUARD") == "1") {
+		t.Skip("Linux qualification requires an isolated privileged test container")
 	}
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -37,6 +41,16 @@ db.close();fs.chmodSync(p.file,0o600);fs.writeFileSync(p.marker,JSON.stringify({
 	cmd := exec.CommandContext(ctx, node, "--no-warnings", "--input-type=module", "--eval", script, string(payload))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("isolated SQLite fixture: %v %s", err, out)
+	}
+	if userOwned {
+		for _, path := range []string{dir, file, filepath.Join(dir, "authority.json")} {
+			if err := os.Chown(path, 1000, 1000); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Chmod(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	before, err := os.ReadFile(file)
 	if err != nil {

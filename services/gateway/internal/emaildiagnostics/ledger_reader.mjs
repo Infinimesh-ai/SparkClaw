@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import {DatabaseSync} from 'node:sqlite';
+import net from 'node:net';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const MAX_RECORD = 1048576, MAX_ROWS = 2000, MAX_OUTPUT = 1048576, MAX_BYTES = 268435456;
@@ -353,11 +354,66 @@ export function readLedgerUnderGuard(input) {
   finally {try {db?.close();} catch {gap('ledger_read_failed');}}
   return result;
 }
-function guardedProcess() {
+function kernelText(file) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buffer = Buffer.alloc(MAX_RECORD + 1); let length = 0;
+    while (length < buffer.length) {
+      const count = fs.readSync(fd, buffer, length, buffer.length - length, null);
+      if (!count) return buffer.subarray(0, length).toString('utf8');
+      length += count;
+    }
+  } finally {fs.closeSync(fd);}
+  throw new Error('kernel evidence limit');
+}
+async function guardedProcess() {
   // A direct private-worker invocation must not read outside the guard. Opening
   // /dev/null for writing has no effects, but the file-write* sandbox denies it.
-  try {const fd = fs.openSync('/dev/null', 'w'); fs.closeSync(fd); return false;}
-  catch (error) {return process.platform === 'darwin' && error.code === 'EPERM';}
+  if (process.platform === 'darwin') {
+    try {const fd = fs.openSync('/dev/null', 'w'); fs.closeSync(fd); return false;}
+    catch (error) {return error.code === 'EPERM';}
+  }
+  if (process.platform !== 'linux' || process.pid !== 1) return false;
+  try {
+    const directory = fs.opendirSync('/proc');
+    try {
+      for (let count = 0;; count++) {
+        if (count >= 4096) return false;
+        const entry = directory.readSync(); if (!entry) break;
+        if (/^\d+$/u.test(entry.name) && entry.name !== '1') return false;
+      }
+    } finally {directory.closeSync();}
+    const status = kernelText('/proc/self/status');
+    const capability = key => {
+      const match = new RegExp(`^${key}:\\s+([0-9a-f]+)$`, 'mu').exec(status);
+      return match ? BigInt(`0x${match[1]}`) : -1n;
+    };
+    if (!/^NoNewPrivs:\s+1$/mu.test(status) || !/^Seccomp:\s+2$/mu.test(status) ||
+        typeof LINUX_LEDGER_READ_CAPABILITY !== 'bigint' ||
+        !['CapEff', 'CapPrm', 'CapBnd'].every(key => capability(key) === LINUX_LEDGER_READ_CAPABILITY) ||
+        !['CapInh', 'CapAmb'].every(key => capability(key) === 0n)) return false;
+    const mounts = kernelText('/proc/self/mountinfo').trim().split('\n');
+    let proc = false;
+    for (const line of mounts) {
+      const [left, right] = line.split(' - '), fields = left.split(' '), options = new Set(fields[5]?.split(','));
+      if (!right || !['ro', 'nodev', 'nosuid'].every(option => options.has(option))) return false;
+      if (right.split(' ')[0] === 'proc') {
+        if (fields[4] !== '/proc' && !fields[4].startsWith('/proc/')) return false;
+        if (fields[4] === '/proc') proc = true;
+      }
+    }
+    if (!proc) return false;
+    // nodev also closes device-file writes on an otherwise read-only mount.
+    try {const fd = fs.openSync('/dev/null', fs.constants.O_WRONLY); fs.closeSync(fd); return false;}
+    catch (error) {if (error.code !== 'EACCES') return false;}
+    // Seccomp must deny socket creation, including UNIX-domain command paths.
+    // The probe uses an unbound abstract address and never sends any data.
+    return await new Promise(resolve => {
+      const socket = net.createConnection({path: `\0sparkclaw-readonly-${crypto.randomUUID()}`});
+      socket.once('error', error => resolve(error.code === 'EPERM'));
+      socket.once('connect', () => {socket.destroy(); resolve(false);});
+    });
+  } catch {return false;}
 }
 export async function runCLI() {
   let input, bytes = 0, exceeded = false; const chunks = [];
@@ -366,6 +422,6 @@ export async function runCLI() {
   }
   try {input = exceeded ? undefined : strictJSON(Buffer.concat(chunks));} catch {input = undefined;}
   const result = process.argv.includes('--guarded-reader')
-    ? (guardedProcess() ? readLedgerUnderGuard(input) : empty('ledger_write_guard_unavailable')) : readLedger(input);
+    ? (await guardedProcess() ? readLedgerUnderGuard(input) : empty('ledger_write_guard_unavailable')) : readLedger(input);
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }

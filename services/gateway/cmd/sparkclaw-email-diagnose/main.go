@@ -75,6 +75,9 @@ func run(ctx context.Context, args []string, out, errOut io.Writer) int {
 	return 0
 }
 func main() {
+	if code, handled := emaildiagnostics.RunLedgerGuard(os.Args[1:]); handled {
+		os.Exit(code)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if os.Getenv(workerEnvironment) == "1" {

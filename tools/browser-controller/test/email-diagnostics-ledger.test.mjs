@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath, pathToFileURL} from 'node:url';
-import {readLedger} from '../scripts/email-diagnostics-ledger.mjs';
+import {readLedger as readStandaloneLedger} from '../scripts/email-diagnostics-ledger.mjs';
 
 const task = '11111111-1111-4111-8111-111111111111';
 const key = `op3.1.4.${'a'.repeat(32)}`;
@@ -17,10 +17,20 @@ const legacy = {invocation: 'email_changes_fixture_r1', app: 'mail-gmail', comma
 const legacyKey = 'c0b2bff4910620bf3e314e0acce032ca135f72bf7e3edb139a1b2581b786d610';
 const headName = '14c06e0fb30933db33d66d1e04f299d5ddade8a562a65117593d65934fe0a793.head.json';
 const aliasName = 'alias-2b5016559bd021032bd598736ba7b2bce12347768fd09d5414d0f2f4a326ada5.json';
-const guarded = {skip: process.platform !== 'darwin' ? 'macOS write guard unavailable; production must return incomplete' : false};
+// A compiled Go package test binary launches the same native Linux guard as
+// the production CLI. This is a test transport, never a production bypass.
+const linuxBridge = process.platform === 'linux' && process.env.SPARKCLAW_TEST_LINUX_LEDGER_BRIDGE;
+const guarded = {skip: process.platform !== 'darwin' && !linuxBridge ? 'qualified OS write guard unavailable' : false};
+const darwinGuarded = {skip: process.platform !== 'darwin' ? 'macOS sandbox qualification' : false};
+function readLedger(input) {
+  if (!linuxBridge) return readStandaloneLedger(input);
+  const child = spawnSync(linuxBridge, ['--test-launch-ledger', process.execPath],
+    {input: JSON.stringify(input), encoding: 'utf8', timeout: 9000, maxBuffer: 1048576});
+  assert.equal(child.status, 0, child.stderr); return JSON.parse(child.stdout);
+}
 const reader = fileURLToPath(new URL('../scripts/email-diagnostics-ledger.mjs', import.meta.url));
 const canonicalReader = fileURLToPath(new URL('../../../services/gateway/internal/emaildiagnostics/ledger_reader.mjs', import.meta.url));
-function fixture(t, {wal = false, row = {}, schema = 2, nocasePrincipal = false} = {}) {
+function fixture(t, {wal = false, row = {}, schema = 2, nocasePrincipal = false, userOwned = false} = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'email-ledger-read-'));
   fs.chmodSync(root, 0o700);
   const file = path.join(root, 'ledger.sqlite'), index = path.join(root, 'index');
@@ -46,6 +56,11 @@ function fixture(t, {wal = false, row = {}, schema = 2, nocasePrincipal = false}
   let closed = false;
   const close = () => {if (!closed) {db.close(); closed = true;}};
   if (!wal) close();
+  if (userOwned) {
+    for (const file of [root, index, ...fs.readdirSync(root).filter(name => name !== 'index').map(name => path.join(root, name))]) {
+      fs.chownSync(file, 1000, 1000); fs.chmodSync(file, fs.statSync(file).isDirectory() ? 0o700 : 0o600);
+    }
+  }
   t.after(() => {close(); fs.rmSync(root, {recursive: true, force: true});});
   const input = {path: file, principal: 'product-owner', owner: 'ledger-owner', owner_scope: scope, index_directory: index,
     operations: [{request_key: r.request_key, app: r.app, command: r.command}], max_rows: 2000, max_record_bytes: 1048576};
@@ -56,7 +71,7 @@ function snapshot(directory) {
   function visit(dir) {
     for (const name of fs.readdirSync(dir).sort()) {
       const file = path.join(dir, name), stat = fs.lstatSync(file), relative = path.relative(directory, file);
-      result[relative] = {mode: stat.mode, bytes: stat.size, hash: stat.isFile() ? crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') : null};
+      result[relative] = {mode: stat.mode, uid: stat.uid, gid: stat.gid, bytes: stat.size, hash: stat.isFile() ? crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') : null};
       if (stat.isDirectory()) visit(file);
     }
   }
@@ -155,10 +170,10 @@ test('read failures and unknown schemas return bounded fixed gaps without paths 
 });
 test('no qualified platform write guard yields incomplete without opening the source', async t => {
   if (process.platform === 'darwin') {t.skip('production platform has a qualified guard'); return;}
-  const report = await readLedger({path: '/must-not-open/private.sqlite', principal: 'p', owner: 'o', owner_scope: scope, operations: [{request_key: key}]});
+  const report = await readStandaloneLedger({path: '/must-not-open/private.sqlite', principal: 'p', owner: 'o', owner_scope: scope, operations: [{request_key: key}]});
   assert.deepEqual(report.tasks, []); assert.ok(report.gaps.includes('ledger_write_guard_unavailable'));
 });
-test('the OS guard denies real source write/create/chmod calls while SQLite reads active WAL', guarded, t => {
+test('the OS guard denies real source write/create/chmod calls while SQLite reads active WAL', darwinGuarded, t => {
   const f = fixture(t, {wal: true}), before = snapshot(f.root);
   const code = `import fs from 'node:fs'; import {readLedgerUnderGuard} from ${JSON.stringify(pathToFileURL(reader).href)};
     const input=${JSON.stringify(f.input)}, denied=[];
@@ -280,7 +295,7 @@ test('stdin command emits exactly one bounded JSON result and private worker has
   const child = run(JSON.stringify(f.input), ['--guarded-reader']);
   assert.deepEqual(JSON.parse(child.stdout).gaps, ['ledger_write_guard_unavailable']);
 });
-test('embedded source executes via eval and the guarded child uses those same source bytes', guarded, t => {
+test('embedded source executes via eval and the guarded child uses those same source bytes', darwinGuarded, t => {
   const f = fixture(t), before = snapshot(f.root);
   const source = fs.readFileSync(canonicalReader, 'utf8');
   const run = spawnSync(process.execPath, ['--no-warnings', '--input-type=module', '--eval', `${source}\nawait runCLI();`],
@@ -289,6 +304,29 @@ test('embedded source executes via eval and the guarded child uses those same so
   const result = JSON.parse(run.stdout);
   assert.equal(result.tasks[0]?.id, task, run.stdout);
   assert.deepEqual(result.gaps, []); assert.deepEqual(snapshot(f.root), before);
+});
+test('Linux production command uses its own guard for active WAL, owner isolation and unknown zero resend', {
+  skip: process.platform !== 'linux' || !process.env.SPARKCLAW_TEST_LINUX_DIAGNOSTIC_CLI ? 'isolated Linux production command qualification' : false,
+}, t => {
+  const owner = 'fixture-gateway-owner', ownerScope = crypto.createHash('sha256').update(owner).digest('hex');
+  const request = JSON.stringify({app: 'mail-gmail', command: 'send', request_key: key, arguments: {owner_scope: ownerScope}});
+  for (const userOwned of [false, true]) {
+  const f = fixture(t, {wal: true, row: {request}, userOwned}), before = snapshot(f.root);
+  for (const queryOwner of [owner, 'different-owner', owner]) {
+    const child = spawnSync(process.env.SPARKCLAW_TEST_LINUX_DIAGNOSTIC_CLI,
+      ['--owner', queryOwner, '--operation', key, '--identity-kind', 'invocation', '--ledger', f.file,
+        '--ledger-principal', 'product-owner', '--ledger-owner', 'ledger-owner', '--index-directory', f.index, '--format', 'json'],
+      {encoding: 'utf8', timeout: 12000, maxBuffer: 1048576});
+    assert.equal(child.status, 0, child.stderr);
+    const result = JSON.parse(child.stdout), attempt = result.attempts[0];
+    assert.equal(result.read_only, true);
+    if (queryOwner === owner) {
+      assert.equal(attempt.execution, 'uncertain', child.stdout); assert.equal(attempt.effect, 'unknown');
+      assert.equal(attempt.ack, 'pending'); assert.equal(attempt.recovery, 'inspect_without_resend');
+    } else assert.equal(attempt.execution, 'incomplete', child.stdout);
+    assert.deepEqual(snapshot(f.root), before);
+  }
+  }
 });
 test('Linux core reads static and active-WAL fixtures on an OS read-only mount; production has no bypass', {
   skip: !process.env.SPARKCLAW_LEDGER_TEST_DOCKER_IMAGE ? 'optional existing Node 26 image required for isolated Linux read-only-mount qualification' : false,

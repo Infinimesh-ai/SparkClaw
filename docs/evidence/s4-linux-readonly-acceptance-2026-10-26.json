@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-26",
+  "scope": "standalone S4 Linux reader; no App-CLI/runtime/UI/scheduler change",
+  "source_base": "d511a1e0",
+  "source_topics": [
+    "dfd9428e",
+    "2b866299"
+  ],
+  "artifact_sha256": "ad7ae6d7c8af85721d73823c642ed64893903e50cf76ba84fd66c42c24b386cf",
+  "installed_path": "/usr/local/bin/sparkclaw-email-diagnose",
+  "installed_target": "/opt/sparkclaw/releases/20261026-email-diagnostics-ad7ae6d7/bin/sparkclaw-email-diagnose",
+  "source_validation": {
+    "go_tests_passed": 5613,
+    "go_packages_passed": 77,
+    "race_build_vet": "passed",
+    "linux_node_passed": 20,
+    "macos_node_passed": 20,
+    "conditional_node_skips_per_platform": 3
+  },
+  "native_amd64_qualification": {
+    "passed": 7,
+    "skipped": 0,
+    "write_attempts_denied": 64,
+    "handle_escape_syscalls_denied": 2,
+    "unqualified_guard_source_opens": 0,
+    "private_user_owned_sources": "0700 directory /0600 file /uid1000 read succeeds; writes denied"
+  },
+  "live_report": {
+    "at": "2026-10-26T10:26:17.648379+00:00",
+    "passed": true,
+    "artifact_sha256": "ad7ae6d7c8af85721d73823c642ed64893903e50cf76ba84fd66c42c24b386cf",
+    "actual_host_kernel": true,
+    "active_wal": true,
+    "calls": 3,
+    "same_unknown_report": true,
+    "selected_task_and_events_exact": true,
+    "owner_isolated": true,
+    "mail_send": 0,
+    "ack": 0,
+    "source_write_guard": "production command native kernel guard; no external helper guard borrowed",
+    "physical_file_exact_not_claimed": "normal runtime writers remain active",
+    "cases": [
+      {
+        "case": "unknown-1",
+        "execution": "uncertain",
+        "recovery": "inspect_without_resend",
+        "rows_read": 6,
+        "bytes_read": 970,
+        "missing": [
+          "observed_loaded_version_missing",
+          "cleanup_evidence_missing",
+          "logs_not_supplied",
+          "ledger_value_unclassified",
+          "expected_version_not_supplied",
+          "sink_health_not_observed",
+          "trace_link_unavailable"
+        ],
+        "selected_rows_exact": true
+      },
+      {
+        "case": "isolation",
+        "execution": "incomplete",
+        "recovery": "inspect_without_resend",
+        "rows_read": 1,
+        "bytes_read": 862,
+        "missing": [
+          "observed_loaded_version_missing",
+          "cleanup_evidence_missing",
+          "logs_not_supplied",
+          "ledger_scope_unverified",
+          "expected_version_not_supplied",
+          "sink_health_not_observed",
+          "trace_link_unavailable"
+        ],
+        "selected_rows_exact": true
+      },
+      {
+        "case": "unknown-2",
+        "execution": "uncertain",
+        "recovery": "inspect_without_resend",
+        "rows_read": 6,
+        "bytes_read": 970,
+        "missing": [
+          "observed_loaded_version_missing",
+          "cleanup_evidence_missing",
+          "logs_not_supplied",
+          "ledger_value_unclassified",
+          "expected_version_not_supplied",
+          "sink_health_not_observed",
+          "trace_link_unavailable"
+        ],
+        "selected_rows_exact": true
+      }
+    ]
+  },
+  "limitations": [
+    "Requires suitable Linux namespace, recursive mount_setattr and seccomp permissions; no automatic elevation.",
+    "Only CAP_DAC_READ_SEARCH mask4 is retained; CAP_DAC_OVERRIDE is absent.",
+    "A cold WAL-mode database without WAL/SHM may remain incomplete; no automatic immutable mode or source sidecar creation.",
+    "Live runtime writers remain active; selected task/event equality is proved, not whole live DB/WAL/SHM byte equality.",
+    "Missing versions, logs, cleanup or trace remain missing; actual report stays incomplete."
+  ],
+  "retained_failures": [
+    "initial unavailable Linux guard",
+    "occupied PID namespace direct private invocation",
+    "root without read/search capability cannot traverse user-owned private source",
+    "invalid old-image overlay test environment; clean source run passed"
+  ],
+  "app_cli_41_changed": false,
+  "ui_changed": false,
+  "public_codes_changed": false,
+  "scheduling_changed": false,
+  "real_email_sent_by_diagnostics": 0,
+  "push": false
+}

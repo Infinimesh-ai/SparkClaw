@@ -396,3 +396,48 @@ IndexedDB, local storage, sessions and service-worker storage were retained.
   requires every current aggregate to satisfy its 4 MiB/1,024-record behavior and have
   room for the required update; do not silently reinstate the removed SQL limit.
   Public redacted evidence: [issuer capacity cleanup S5 summary](evidence/issuer-capacity-cleanup-s5-2026-10-26.json).
+
+## 14. S4 Linux read-only ledger guard — installed; scoped acceptance passed
+
+- ID / owner / status: S4 minimal M3, SparkClaw diagnostic adapter; source_verified,
+  standalone CLI installed and qualified on the actual Linux amd64 host. This card
+  supersedes the earlier Linux zero-open limitation only when the built-in guard qualifies.
+- Observed failure and objective: the original Linux reader always returned
+  `ledger_write_guard_unavailable`. The first implementation then failed to traverse
+  the actual Ubuntu-owned 0700 directory/0600 ledger after dropping every capability.
+  Reading supported sources now succeeds while kernel-enforced write denial remains.
+- Scope / mechanism: only the standalone diagnostic command, its Go/Node ledger
+  bridge and tests change. A child creates private PID/mount/network/IPC namespaces,
+  private proc and recursive read-only/nodev/nosuid mounts; no-new-privileges/seccomp
+  deny sockets, handles and namespace/mount escapes. Only `CAP_DAC_READ_SEARCH`
+  (mask 4) remains; `CAP_DAC_OVERRIDE` is absent. Node independently verifies these
+  conditions before source access. Caller flags cannot substitute for real isolation.
+  Unsupported permissions fail with zero source opens. No App-CLI, live runtime,
+  public business code, scheduler, owner policy or UI is changed; no ACK/resend exists.
+- Red → green: first reproduced unavailable Linux reads, occupied-PID-namespace
+  escape and unreadable user-owned sources; then repaired each boundary. Clean Linux
+  Go suite: 5,613 passed test events / 77 tested packages, race/build/vet passed;
+  Linux and macOS Node each 20 passed / 3 conditional skips, macOS Go passed.
+  The initial old-image-overlay test contamination is retained and excluded.
+  Actual deployment-host native tests: 7 passed, zero skipped, 64 real writes denied,
+  handle syscalls denied, private user-owned reads passed, unqualified paths zero-open.
+- Actual read acceptance: at 10:26:17 UTC, the same new Gmail collection unknown was
+  reported twice (6 rows / 970 bytes each); selected task plus five events stayed
+  exact, normalized reports agreed and recovery remained `inspect_without_resend`.
+  Another owner could not join the task (one bounded row examined, no task exposed).
+  Missing versions/logs/trace remained incomplete. Runtime writers were active:
+  whole live DB/WAL/SHM byte equality is not claimed. No send or ACK occurred.
+- Result / provenance: source topics `dfd9428e` + `2b866299`, integrated as one main
+  change on `d511a1e0`. At 10:32:37 UTC, newly installed
+  `/usr/local/bin/sparkclaw-email-diagnose` targets
+  `/opt/sparkclaw/releases/20261026-email-diagnostics-ad7ae6d7/bin/sparkclaw-email-diagnose`,
+  SHA-256 `ad7ae6d7c8af85721d73823c642ed64893903e50cf76ba84fd66c42c24b386cf`.
+  Gateway remains `0f46702a`, App-CLI remains `.41`; no service restart for this install.
+  [Redacted acceptance evidence](evidence/s4-linux-readonly-acceptance-2026-10-26.json)
+  separates source, native qualification and actual reads.
+- Remaining limits: requires suitable namespace/mount/seccomp permissions and Node 26;
+  there is no automatic privilege elevation. A cold WAL database with no WAL/SHM may
+  remain incomplete; no source sidecar creation or automatic immutable fallback.
+  This does not repair the newly recurring Gmail collection failure.
+- Rollback: remove only the exact new symlink and release binary, or revert this
+  diagnostic source change. No business migration/data restoration is required.

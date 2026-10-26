@@ -319,3 +319,36 @@ local storage、sessions 和 service-worker storage 均保留。
   差异。换回旧 binary 需逐 aggregate 验证满足其 4 MiB/1024 record 行为，并有下一次
   必需更新空间；不静默恢复已取消的 SQL 限额。
   公开脱敏证据：[签发器容量清理 S5 摘要](../../docs/evidence/issuer-capacity-cleanup-s5-2026-10-26.json)。
+
+## 14. S4 Linux 只读账本保护 — 已安装，限定范围验收通过
+
+- ID / 负责人 / 状态：S4 最小 M3，SparkClaw 诊断适配器；source_verified，独立 CLI 已安装，
+  在实际 Linux amd64 主机通过资格及读取验收。仅当内置保护合格时，替代此前 Linux 零打开限制。
+- 故障与目标：原 Linux reader 恒返回 `ledger_write_guard_unavailable`；初版保护清空全部
+  capability 后，又无法穿过实际 Ubuntu 所有的 0700 目录读取 0600 账本。现在合格来源可读，
+  写入仍由内核拒绝。
+- 范围与机制：仅独立诊断命令、Go/Node 账本桥和测试。子进程建立私有 PID/mount/network/IPC
+  namespace、私有 proc、递归只读/nodev/nosuid 挂载；no-new-privileges/seccomp 禁止 socket、
+  文件 handle 和 namespace/mount 逃逸。仅保留 `CAP_DAC_READ_SEARCH`（mask 4），没有
+  `CAP_DAC_OVERRIDE`。Node 在访问源前独立检查实际条件，不能用调用参数代替保护。
+  权限不合格时零打开。不改 App-CLI、运行时、公开业务码、调度、owner 规则或 UI，不提供 ACK/重发。
+- 红→绿：先复现 Linux 不可用、已有 PID namespace 逃逸、私有用户来源不可读，再逐项修复。
+  干净 Linux Go 全套 5613 个通过事件/77 个测试包，race/build/vet 通过；Linux/macOS Node
+  各 20 通过、3 条件跳过，macOS Go 通过。保留并排除最初旧镜像覆盖污染的测试结果。
+  部署主机原生测试 7 通过、零跳过；64 次真实写入全部被拒，handle syscall 被拒，私有用户来源
+  可读，不合格路径零打开。
+- 实读验收：10:26:17 UTC，对新出现的 Gmail 采集 unknown 读取两次，每次 6 行/970 字节；
+  所选 task 与五条事件完全一致，规范化报告一致，恢复建议保持 `inspect_without_resend`。
+  异 owner 无法关联任务（内部有限检查一行，不输出任务）。缺版本/日志/trace 仍 incomplete。
+  正常运行时写者未停，因此不声称整个实时 DB/WAL/SHM 字节不变；诊断零发送、零 ACK。
+- 结果与来源：源码主题 `dfd9428e` + `2b866299` 在 `d511a1e0` 上合为一次 main 修改。
+  10:32:37 UTC 新安装 `/usr/local/bin/sparkclaw-email-diagnose`，目标为
+  `/opt/sparkclaw/releases/20261026-email-diagnostics-ad7ae6d7/bin/sparkclaw-email-diagnose`，
+  SHA-256 `ad7ae6d7c8af85721d73823c642ed64893903e50cf76ba84fd66c42c24b386cf`。
+  Gateway 仍为 `0f46702a`、App-CLI 仍 `.41`，本次 CLI 安装无需重启服务。
+  [脱敏验收证据](../../docs/evidence/s4-linux-readonly-acceptance-2026-10-26.json)
+  分开记录源码、原生资格和实际读取。
+- 剩余限制：要求合格 namespace/mount/seccomp 权限及 Node 26，不自动提权。
+  缺 WAL/SHM 的冷态 WAL 数据库可能仍 incomplete；不创建源 sidecar、不自动采用 immutable。
+  本项不修复新出现的 Gmail 采集故障。
+- 回滚：仅移除本次精确的新 symlink/发布二进制，或回退诊断源码；无需业务迁移或数据恢复。

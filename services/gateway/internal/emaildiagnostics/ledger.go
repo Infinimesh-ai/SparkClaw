@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"strconv"
 	"time"
 )
@@ -136,7 +135,11 @@ func readLedger(ctx context.Context, r *Report, q Selection, o Options) {
 	if node == "" {
 		node = "node"
 	}
-	cmd := exec.CommandContext(ctx, node, "--no-warnings", "--input-type=module", "--eval", ledgerReaderSource+"\nawait runCLI();")
+	cmd, err := ledgerCommand(ctx, node)
+	if err != nil {
+		gap("ledger_write_guard_unavailable")
+		return
+	}
 	// Do not inherit preload, coverage or cache settings before the OS guard.
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
 	cmd.Stdin = bytes.NewReader(raw)
@@ -147,7 +150,7 @@ func readLedger(ctx context.Context, r *Report, q Selection, o Options) {
 		if ctx.Err() != nil {
 			gap("query_canceled")
 		} else {
-			gap("ledger_reader_failed")
+			gap(ledgerCommandFailure())
 		}
 		return
 	}

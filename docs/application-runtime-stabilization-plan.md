@@ -29,7 +29,7 @@ its current owner; no new layer is added.
 |---|---|---|
 | G1 Recovery keeps results | **S1 source_verified + deployed (2026-10-26)** on exact `0f46702a` / unchanged `.41`. The file Store rejection → failed first ACK → restart test remains red → green, with one total dispatch. All 47 send and the original 153 unknown task rows/events remain exact. The pre-issuer-maintenance snapshot contains 154 unknown, including one additional uncertain QQ collection at 08:08:56 UTC; it has no dispatch/token, is protected and is never retried. | Source exit and loaded-version checks met. No retained provider-rejected case was available for actual recovery acceptance; no live rejection/ACK failure was injected and no mail was sent. |
 | G2 One failure is attributable | **S2/S3 source_verified + deployed (2026-10-26)**. The exact Gateway binary and Controller source are loaded; attribution, safe causes, identity mode and missing-evidence behavior retain the source tests in their change cards. | Deployed within existing boundaries; missing logs remain incomplete. No new live concurrent-failure or lease-failure injection is claimed. Public codes and scheduling are unchanged. |
-| G3 Minimal read-only diagnosis | **S4 source_verified; actual read-only checks passed (2026-10-26)**. The exact standalone Linux binary completed 5 calls on retained data: repeated unknown reports, owner isolation and unavailable ledger-guard handling. All 101 draft/send rows and the 9 protected evidence sections stayed exact. | Available-reader acceptance met. Rejection case unavailable; Linux ledger stays `incomplete` with zero rows/bytes opened. Version/log/cleanup/trace gaps are not filled from the separate deployment health receipt. |
+| G3 Minimal read-only diagnosis | **S4 source_verified + standalone CLI installed; real Linux reads passed (2026-10-26, card 14)**. Its own private namespaces/read-only mounts/seccomp passed 7 native amd64 qualification tests and denied 64 actual writes. Two reports each read 6 rows from the new Gmail collection unknown; another owner did not join the task; selected task/events stayed exact. | Qualified Linux reader acceptance met. Missing versions/logs/trace still produce incomplete. Unavailable guard opens zero sources; cold WAL without WAL/SHM has a retained read limitation. The standalone command never ACKs/resends or changes App-CLI. |
 | G4 Installed-version acceptance | **S5 deployed; authorized installation/UI acceptance passed (2026-10-26)**. `0f46702a` + unchanged `.41` loaded checks, native Reader import and Mac installation pass. The independently replaced native issuer removes only aggregate 4 MiB and 1,024-record storage limits; explicitly authorized one-time cleanup restored the original profile connection. Existing mail entry/list/detail/body and personal-browser interactions passed (card 13). | Normal quit/zero-process/relaunch, 121-entry mail reload and the final post-mail preservation comparison passed; all nine protected sections remained exact. Normal reading changed one message’s viewed state; no reply, draft, send or reanalysis was performed. No live provider-rejection/first-ACK-failure injection or actual send is claimed. No automatic expiry mechanism, App-CLI/UI/public-code/scheduling change or push. |
 
 Exact repair boundaries for each D item are in
@@ -144,11 +144,19 @@ an owned process group, including SQLite children; cleanup and timeout output ha
 Changed/truncated snapshots and changed logs/ledger are not accepted as proof; cutoff or conflicting
 evidence cannot supply receipt owner binding or ACK eligibility.
 
-The production ledger reader is qualified on macOS with `sandbox-exec` denying file writes and network
-access before opening evidence. Linux without a qualified guard returns `ledger_write_guard_unavailable`;
-it does not open the ledger. The Linux core reader is separately tested on a read-only, network-disabled
-container mount; this is fixture qualification, not a production bypass. Gateway file/PG/log readers
-remain available there. SQLite read-only/query-only alone is insufficient to guarantee unchanged SHM.
+The macOS reader uses `sandbox-exec`. The standalone Linux Go CLI first creates private PID/mount/network/IPC
+namespaces and procfs, recursively makes mounts read-only/nodev/nosuid, and applies no-new-privileges and seccomp.
+It retains only `CAP_DAC_READ_SEARCH` (mask 4) for application-owned 0700/0600 evidence, never the write-bypassing
+`CAP_DAC_OVERRIDE`. Sockets, file-handle access and namespace/mount escapes are denied. Node verifies actual kernel
+state and denial before reading a source; a private flag alone cannot bypass the guard. Seven target-host qualification
+tests and actual unknown/owner reports passed.
+
+Existing Node 26 and appropriate kernel permissions, normally sudo/root, are required; there is no automatic elevation.
+An unavailable guard returns `ledger_write_guard_unavailable` with zero source opens. The direct Node wrapper still
+provides no Linux bypass. Default DELETE static databases and active WAL are qualified; a cold WAL-mode database whose
+WAL/SHM disappeared on normal close can still be incomplete. No automatic immutable mode, source sidecar creation or
+weaker write guard is used. Live runtime writers may progress: actual selected rows/events stayed exact, not every byte
+of the live DB/WAL/SHM. Separate native qualification establishes the kernel's actual write denial.
 
 ### 7.3 Joins and interpretation
 

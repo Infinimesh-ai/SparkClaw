@@ -2,32 +2,53 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-browser-follow-up-2026-10-23.md)
 
-## S5 deployed and installed; connection acceptance pending — 2026-10-26
+## S5 deployed; original connection and UI acceptance passed — 2026-10-26
 
-The owner has now authorized deployment and installed-version acceptance. The
-current target is SparkClaw `0f46702a` plus unchanged App-CLI `.41`; the earlier
-`2396381e` candidate below remains historical. Current no-push and no-real-mail
-constraints take precedence over historical send approvals. Exact artifacts are
-built and deployed. The owner explicitly replaced full-history preservation with
-verification-relevant preservation and authorized cleanup. All 47 send / 153
-unknown tasks and their protected evidence remain exact. `.41` native Reader and
-loaded-service verification passed; Mac installation preserved 6 profiles and all
-111 existing tables. Five actual read-only diagnostic calls passed within their
-supported boundaries. The original Mac connection remains unavailable: the
-installed helper reports expired Relay refresh material, then
-`control: authorization_unavailable` on normal recovery. Local navigation/history,
-settings/sidebar and normal quit/relaunch passed; mail/browser interactions remain
-blocked. Management and signed authorization checks pass; an in-memory lower-bound
-reproduction proves that the next required issuer record exceeds its 4 MiB aggregate
-limit. InfiniCenter proposal 0050 requests a separate storage review. No profile,
-credentials or authorization history were replaced or cleared. See the
-[S5 change card](email-diagnostics-and-change-control.md#12-s5-focused-deployment-card--deployed-acceptance-blocked)
-and [focused evidence](evidence/runtime-stabilization-s5-scoped-2026-10-26.json).
-Historical unknown counts, failed runs and native passes below are not fresh S5
-acceptance. The remaining mail-delivery cases stay deferred.
+Current SparkClaw `0f46702a` and unchanged App-CLI `.41` are deployed; Mac installation,
+Reader import, loaded-service checks and supported read-only diagnostics passed. The
+original connection was restored by an independently deployed native issuer capacity
+repair and an explicitly authorized one-time cleanup. The owner rejected automatic
+expiry/GC: only the aggregate seal/open/SQL 4 MiB and 1,024-record limits were removed;
+wire/request limits, identity, UI, public codes and scheduling remain unchanged.
 
-The following full-export/memory/old-release resume instructions are historical;
-the current focused preservation authorization and change card 12 take precedence.
+The exact ISCP `22da89f` base plus the narrow verified patch produced native issuer
+`a866beae…b383f`. Normal maintenance stopped/restarted only issuer; Gateway, Controller,
+Executor and browser PIDs stayed unchanged. One transaction removed 865 Records and
+865 Parents across two active devices, retaining their latest record; eight nonactive
+rows were untouched. Current devices, invitations, profile and identity configuration
+were retained. See [change card 13](email-diagnostics-and-change-control.md) and
+[redacted issuer evidence](evidence/issuer-capacity-cleanup-s5-2026-10-26.json).
+
+- Normal `getApp` restored the original selected Mac profile connection. Existing mail
+  entry/list, retained acceptance-message detail and expanded body passed. Reading one
+  old message changed unviewed from 118 to 117; this is a normal application-state
+  change, not a claim that UI acceptance had zero effects. No reply, reanalysis, draft
+  or send was performed.
+- The personal browser opened the public Apple page. The 462 px panel, wide/restore,
+  new-tab/close and back to `about:blank` passed.
+- At 08:40 UTC normal quit left zero application processes. Original main device,
+  invitation, workbench/connection/profile and identity-configuration hashes matched;
+  only five credential/Relay journal files changed during normal recovery. Generation
+  stayed 548 during cleanup and reached 550 after normal recovery, with zero pending
+  pins. Installed-helper `-check` exited 0 without changing its 17 profile files.
+  Normal relaunch reloaded 121 mail-list entries and returned to the Owner workbench.
+- The final post-mail preservation comparison at approximately 08:41 UTC passed:
+  all nine protected sections stayed exact, including 47 send / 154 unknown / one
+  overlapping unknown-send, 200 task rows, 1,003 events, 101 draft/send-snapshot rows
+  and 10 devices. No unknown task or send change was added after issuer maintenance.
+  The pre-issuer-maintenance snapshot already contained these 154 unknown tasks. The one new
+  QQ uncertain `collect_page` occurred at 08:08:56 UTC, before maintenance, with
+  `EMAIL_NETWORK_LIST_UNQUALIFIED`, null dispatch/token and five events. All original
+  send/153 unknown rows remain exact; the additional collection row is protected and
+  is not retried. Its underlying cause is unproved and it is not a new send.
+
+No live provider-rejection/first-ACK-failure injection or real sending was performed.
+S4 Linux ledger access still reports `incomplete` without opening the ledger. No push
+or App-CLI `.41` change occurred. The history below, including the old connection
+blocker, full-export/memory prerequisites, `2396381e` candidate and send approvals,
+remains historical. Current no-real-mail constraints and focused preservation take
+precedence; section 13 replaces the blocked acceptance state in section 12. Remaining
+mail-delivery/body/Sent-original cases are not closed by these UI checks.
 
 ## Deferred work list — 2026-10-26
 

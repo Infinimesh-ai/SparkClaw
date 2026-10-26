@@ -160,9 +160,6 @@ func (i *Issuer) Execute(ctx context.Context, r control.Request, actor identity.
 		if r.Intent == nil || r.Intent.Preconditions.ResourceVersion != control.Number(s.Revision) {
 			return controlFailure("generation_conflict")
 		}
-		if len(ledger.Records) >= 1024 {
-			return controlFailure("resource_exhausted")
-		}
 		if e := control.CheckPredecessor(*r.Intent, ledger.Records); e != nil {
 			return e
 		}

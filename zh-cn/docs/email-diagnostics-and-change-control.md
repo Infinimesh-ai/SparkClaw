@@ -14,9 +14,9 @@
 审计：**2026-10-26，Asia/Shanghai**，源码 `c2b85311`。
 仓内[发行清单](../../vendor/app-cli/release.json)固定 App-CLI `.41` / `bcc55506`；
 原审计引用的[验收记录](desktop-browser-follow-up-2026-10-23.md)为历史 `.39` 状态，未读取实机。
-当前 `.41` 已加载版本和安装证据见第 12 节，不反向改写原审计。
+当前 `.41` 已加载版本和安装证据见第 12–13 节，不反向改写原审计。
 
-**实施状态：S1–S4 source_verified 且已部署（第 7–10、12 节）。S5 部署、Mac 安装及支持范围内的只读诊断通过，完整 UI 验收受既有连接故障阻塞；D05/D09 延期。** 无真实发信、推送、App-CLI `.41` 源码、接口或 UI 变更。
+**实施状态：S1–S4 source_verified 且已部署（第 7–10、12 节）。S5 部署、Mac 安装、支持范围内的只读诊断与可执行原 UI 验收通过。第 13 节记录独立签发器容量修复和一次性清理后原连接恢复；正常退出重启及最终阅读邮件后的保全比对通过，9 项保护集完全一致。D05/D09 延期。** 无真实发信、推送、App-CLI `.41`、公开码、调度或 UI 变更。
 
 ## 1. 先看完整链路
 
@@ -92,7 +92,7 @@ revision/lease fencing、原件清单、清理隔离、私有耗时记录。应�
 
 ## 5. 修改顺序与验收
 
-S1–S4 为 **source_verified 且已部署**；S5 部分验收结果见第 12 节，D05/D09 仍延期。独立业务修复和诊断/schema 工作分开；不相关的新失败另开条目。
+S1–S4 为 **source_verified 且已部署**；S5 当前验收和未覆盖实机用例的边界见第 13 节，第 12 节保留历史状态；D05/D09 仍延期。独立业务修复和诊断/schema 工作分开；不相关的新失败另开条目。
 
 | 批次 | 准确改动 | 验收出口 |
 |---|---|---|
@@ -184,6 +184,8 @@ M1 使下一次失败能明确归属，M2/M3 使证据可直接使用。D08 不�
 
 ## 12. S5 定向部署修改卡 — 已部署，验收阻塞
 
+**这是签发器维护前的历史检查点。** 下文容量证据与失败均保留。负责人随后明确要求先取消存储上限，再一次性清理无用过期记录，不增加自动过期机制，也不以 InfiniCenter 方案为前置条件。第 13 节记录已完成的修复与当前 UI 结果；下文阻塞状态不再代表现状。
+
 负责人确认浏览器没有未保存内容，并明确允许先清理再升级，只保留本次验证需要
 的证据。此授权替代前一 S5 检查点中的全历史保全/解码前置；其失败作为历史保留，
 不再作为当前准入条件。保留当前全部 send/unknown 原行及相关证据、draft/send
@@ -244,3 +246,76 @@ local storage、sessions 和 service-worker storage 均保留。
 - 回退边界：保留旧源码/镜像/容器、运行时/组件、unit 与 Mac 应用；必要时只恢复
   匹配发行版本，不用旧业务数据库/profile 备份掩盖差异。无推送、真实发送、unknown
   重试或 App-CLI 源码修改。见[定向证据摘要](../../docs/evidence/runtime-stabilization-s5-scoped-2026-10-26.json)。
+
+## 13. S5 签发器容量修复与一次性清理 — 已部署，UI 检查通过
+
+- 负责人/状态：SparkClaw，2026-10-26。用户最终指示是先取消签发器存储容量限制，
+  再明确执行一次无用过期凭证记录清理。**没有增加自动过期/GC 机制或 pruned-generation
+  元数据。** S5 部署与可执行的原 UI 检查通过；正常退出重启和最终阅读邮件后的保全比对通过，9 项保护集完全一致。
+- 现象/目标：第 12 节保留的大小复现证明，累积签名历史可能超过既有 aggregate 上限，
+  阻碍下一次凭据恢复。取消持久化与条数阻塞，保留 wire/request 验证、writer 围栏、
+  设备身份与既有恢复语义。原通用授权错误不足以把所有历史失败都归为容量问题。
+- 准确源码边界：`services/gateway/internal/iscpnodeissuer/store.go` 取消 seal/open
+  的 4 MiB 检查及 SQL `bounded_ciphertext` CHECK，包含既有表迁移；`control_v2.go`
+  取消 1024 record 准入上限；`store_capacity_test.go` 覆盖两者。frame/request/
+  私有文件的其他限额不变。清理是独立的一次性私有 operator，不接入服务循环。
+  不改 App-CLI `.41`、Gateway/Controller/Executor 调度、原 UI 或公开错误码，
+  不向公共核心增加邮件分支。
+- 红→绿/源码验证：四项新增容量测试覆盖大历史加密与读取、超过 1024 条后准入及稳定重放、
+  旧表迁移/重启/事务回滚/writer 围栏。独立验证发现测试 DSN 隔离错误，修正后增加
+  精确 `current_database()` 断言；实际旧 `22da89f` 基线按预期报
+  `legacy constraint remains`，修复版四项连续两轮共 8 次通过，其中包含两次真实隔离
+  PostgreSQL 验证。一次性 selector/operator 的 27 项顶层测试、45 项子测试及 race/vet
+  通过。完整 Linux gateway 共 5606 项测试事件通过、197 项条件跳过、77 个测试包通过、
+  零失败，build/vet 通过。该离线 Linux arm64 运行使用 Go 1.25.5、禁网、3 GiB/3 CPU，
+  现有 module cache 复制有 SHA 验证，源码前后不变；早期 harness/cache/fixture 失败单独保留。
+- 制品/来源：实际旧 native issuer 来自 ISCP
+  `22da89f329a88bde8e12219c359e82063064798b`；其生产 issuer/control 源码与
+  SparkClaw 副本在 import 路径正规化后相同。私有隔离导出精确 ISCP tree，只移植两个
+  生产文件和容量测试，不改 ISCP 工作树。补丁 SHA-256 为
+  `eb1b94f559407d97c43d445eb9d74c41b7353d3e78505e96f89f312ab78b384d`。
+  Go 1.25.12 / Linux amd64 / CGO=0 构建并部署的 native 二进制 SHA-256 为
+  `a866beae2809fe30511b9e0ab010ef333c2ae2ceb7fa80a98b1cd6f36b2b383f`。
+  全源文件哈希、buildinfo 与日志保留在私有 `build-issuer-02` manifest；导出 tree 的
+  buildinfo 为 `(devel)`，以 manifest 绑定来源，不伪造嵌入的 VCS revision。
+- 维护/保全（UTC）：08:29:31 仅正常停止 issuer，私有冷备核实 100 个 node 文件、
+  10 个加密行、writer/schema、storage key 和旧 binary 完全一致。08:30:19 仅删除
+  `bounded_ciphertext`；08:31:07 启动新 native issuer。08:31:30 实际 binary、
+  config、identity、writer 与 guard 精确匹配；Gateway、Controller、Executor、browser
+  PID 均未变。08:31:31 仅 daemon-reload 恢复原 `Restart=on-failure`，额外重启为零。
+- 一次性清理：原始精确计划 SHA-256 为
+  `5df235707d0894a59709135e18048cfad7e462430e227cfc4dfaa3244d635c19`。
+  单事务删除两个活动设备共 865 个 Records 与 865 个 Parents（319 + 546），各保留最新
+  一条；其余 8 个非 active 行不动。密文总量由 6,974,116 降到 393,828 字节，主凭据
+  generation 在清理前后保持 548；后续计划为零候选。管理端三个 GET 均 HTTP 200，
+  原 active device/client/invitation 身份匹配，未靠替换身份或新增邮件操作使连接通过。
+- 当前任务保护：维护前快照共 47 个 send、154 个 unknown、1 个重叠 unknown-send。
+  相比 08:00，新增一条 QQ `collect_page` 在 08:08:56 UTC 成为 uncertain，原因码
+  `EMAIL_NETWORK_LIST_UNQUALIFIED`，dispatch/token 均 null，有 5 个事件，发生于
+  **issuer 维护前**。旧 153 个 unknown 与 send 原行完全一致，新行已纳入保护、不重试；
+  它不是新发送，底层根因仍未证明。
+- 原 UI 实测：正常 `getApp` 恢复 Mac 原选定 profile 的连接；原邮件入口、列表、既有
+  验收邮件详情及正文展开通过。正常阅读改变一封邮件的 viewed 状态，未回复、存草稿、
+  发送或重解析。个人浏览器打开公开 Apple 页面，462 px 面板、wide/restore、新建/关闭
+  标签页以及返回 `about:blank` 均通过。08:40 UTC 正常退出后应用进程为零，原 main device/invitation、workbench/
+  connection/profile 及身份哈希精确匹配。只有 5 个凭证/Relay journal 文件变化：
+  `grant.json`、`relay.enrollment.json` 及其 `.credentials.v2`、`.duplex.pending.v1`
+  journal，以及 `identity/node-control/operations.v2`。正常恢复后 generation 从 548
+  到 550，pending pins 为零；已安装 helper `-check` 退出 0，17 个 profile 文件不变。
+  正常重启后邮件列表重新载入 121 项并回到 Owner 工作台；正常阅读后 unviewed 从 118
+  到 117。**最终阅读邮件后保全比对通过**，精确数量见下项。
+- 最终阅读后保全：约 08:41 UTC，freeze 前快照
+  `fbab80b978b8f9d4b3e95414ec2fb0ad274ca7f271b071d8463776057296eb4f`
+  与 UI 后快照 `6443ddfbfa65bd18caa719dc8610ae534206b5755cd0b1e6229b5e6b1fd30628`
+  的 9 项保护集全 exact：47 send / 154 unknown / 1 个重叠 unknown-send，200 个 task 行、
+  1003 个事件、101 个 draft/send-snapshot 行、10 个设备。维护后没有新增 unknown 或 send
+  变化。其他差异为 observation time、正常 watch 的 mailbox/checkpoint/queue/metadata
+  推进、runtime health 滚动日志与 Mounts 顺序；排序 Mounts 并排除滚动 Health.Log 字段后，
+  完整 runtime_identity 精确一致，原始差异仍保留。私有冷备已离机下载核验：16,019,552
+  字节，SHA-256 `bf908136693d44721d0c4a54eea1af5e5d5c6888d6a32ce8bf9d7177f5c5cbf2`。
+- 局限/回退：没有实机注入服务商拒绝或首次 ACK 失败，没有真实发信，不将 S1 源码覆盖
+  冒充这些实机用例。S4 Linux ledger 读取器仍为 `incomplete`、零打开；无推送。
+  保留冷备和旧 binary，但不得恢复已删凭证历史、旧 generation 或业务数据库来掩盖
+  差异。换回旧 binary 需逐 aggregate 验证满足其 4 MiB/1024 record 行为，并有下一次
+  必需更新空间；不静默恢复已取消的 SQL 限额。
+  公开脱敏证据：[签发器容量清理 S5 摘要](../../docs/evidence/issuer-capacity-cleanup-s5-2026-10-26.json)。

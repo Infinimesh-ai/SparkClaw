@@ -102,8 +102,15 @@ func NewPostgresStore(ctx context.Context, dsn string, key []byte) (*PostgresSto
 		return nil, e
 	}
 	s := &PostgresStore{pool: pool, key: append([]byte{}, key...)}
-	_, e = pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS sparkclaw_iscp_issuer_state (id text PRIMARY KEY, ciphertext bytea NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(), CONSTRAINT bounded_id CHECK(length(id)<=200), CONSTRAINT bounded_ciphertext CHECK(octet_length(ciphertext)<=4194304))`)
+	_, e = pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS sparkclaw_iscp_issuer_state (id text PRIMARY KEY, ciphertext bytea NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(), CONSTRAINT bounded_id CHECK(length(id)<=200))`)
 	if e != nil {
+		pool.Close()
+		return nil, e
+	}
+	// Issuance history is an accumulated encrypted aggregate, not one incoming
+	// control frame. Remove the old storage ceiling on existing installations;
+	// request/frame limits and the writer fence remain independent.
+	if _, e = pool.Exec(ctx, `ALTER TABLE sparkclaw_iscp_issuer_state DROP CONSTRAINT IF EXISTS bounded_ciphertext`); e != nil {
 		pool.Close()
 		return nil, e
 	}
@@ -116,7 +123,7 @@ func NewPostgresStore(ctx context.Context, dsn string, key []byte) (*PostgresSto
 func (s *PostgresStore) Close() { s.pool.Close() }
 func (s *PostgresStore) seal(id string, v *State) ([]byte, error) {
 	b, e := json.Marshal(v)
-	if e != nil || len(b) > 4<<20 {
+	if e != nil {
 		return nil, ErrInvalid
 	}
 	n := make([]byte, 12)
@@ -127,7 +134,7 @@ func (s *PostgresStore) seal(id string, v *State) ([]byte, error) {
 	return append(n, ct...), e
 }
 func (s *PostgresStore) open(id string, b []byte) (*State, error) {
-	if len(b) < 28 || len(b) > 4<<20 {
+	if len(b) < 28 {
 		return nil, ErrInvalid
 	}
 	raw, e := c.NewProvider().Open(s.key, b[:12], b[12:], []byte("sparkclaw/iscp-node/storage/v1\x00"+id))

@@ -2,23 +2,43 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-browser-follow-up-2026-10-23.md)
 
-## S5 已部署安装，连接验收待完成 — 2026-10-26
+## S5 已部署，原连接与 UI 验收通过 — 2026-10-26
 
-负责人现已授权部署与安装版本验收。当前目标为 SparkClaw `0f46702a` + 不变的
-App-CLI `.41`；下文 `2396381e` 候选保持为历史记录。本轮不推送、不发真实邮件
-约束优先于历史发送授权。精确制品已部署。负责人明确将全历史保全改为仅保留验证
-需要的数据，并允许清理；47 个 send、153 个 unknown 及保护证据完全一致。
-`.41` 原生 Reader 与已加载服务检查通过；Mac 安装保留 6 个 profile、全部 111 张
-既有表，现有真实数据的 5 次只读诊断在支持边界内通过。原 Mac 连接仍不可用：
-已安装 helper 报 Relay 刷新材料过期，正常恢复返回 `control: authorization_unavailable`。
-本地导航/历史、设置/侧栏与正常退出重启通过；邮件/浏览器交互仍阻塞，未替换 profile
-或凭据。管理与签名授权查询正常；内存下界复现证明下一条必需记录超过签发器 4 MiB
-聚合上限，已立 InfiniCenter 提案 0050 请求独立存储评审，未删除授权历史。详见 [S5 修改卡](email-diagnostics-and-change-control.md#12-s5-定向部署修改卡--已部署验收阻塞)
-及[定向证据](../../docs/evidence/runtime-stabilization-s5-scoped-2026-10-26.json)。
-下文历史 unknown 数量、失败运行和原生通过结果不能充当新 S5 验收；剩余邮件投递
-用例继续延期。
+当前 SparkClaw `0f46702a` 与不变的 App-CLI `.41` 已部署，Mac 安装、Reader 导入、
+已加载服务检查和支持范围内的只读诊断通过。独立部署 native issuer 容量修复并按明确
+授权完成一次性清理后，原连接恢复。用户最终不要自动过期/GC：只取消 aggregate 的
+seal/open/SQL 4 MiB 和 1024 record 上限，保留 wire/request 限额、身份、原 UI、
+公开码与调度。
 
-下文全量导出、内存门槛、旧版本的恢复顺序均为历史记录；当前定向保全授权与修改卡 12 优先。
+精确 ISCP `22da89f` 基线加已验证窄补丁构建 native issuer `a866beae…b383f`。
+正常维护只停止/启动 issuer；Gateway、Controller、Executor、browser PID 不变。
+单事务清理两个活动设备共 865 个 Records 和 865 个 Parents，各保留最新一条；
+其余 8 个非 active 行不动，原设备、邀请、profile 与身份配置保留。详见
+[修改卡 13](email-diagnostics-and-change-control.md)与
+[签发器脱敏证据](../../docs/evidence/issuer-capacity-cleanup-s5-2026-10-26.json)。
+
+- 正常 `getApp` 恢复 Mac 原选定 profile 连接，原邮件入口/列表、既有验收邮件详情及
+  正文展开通过。阅读一封旧邮件后 unviewed 从 118 变为 117，这是正常应用状态变化，
+  不宣称 UI 验收全只读或零副作用；未回复、重解析、存草稿或发信。
+- 个人浏览器打开公开 Apple 页面，462 px 面板、wide/restore、新建/关闭标签页及返回
+  `about:blank` 通过。
+- 08:40 UTC 正常退出后应用进程为零；原 main device、invitation、workbench/
+  connection/profile 和身份配置哈希精确匹配，只有正常恢复涉及的 5 个凭证/Relay
+  journal 文件变化。清理时 generation 保持 548，正常恢复后为 550，pending pins 为零。
+  已安装 helper `-check` 退出 0，17 个 profile 文件不变；正常重启后邮件列表重新载入
+  121 项，并回到 Owner 工作台。
+- 约 08:41 UTC 最终阅读后保全比对通过：9 项保护集全 exact，47 send / 154 unknown /
+  1 个重叠 unknown-send、200 个 task 行、1003 个事件、101 个 draft/send-snapshot 行、
+  10 个设备。维护后没有新增 unknown 或 send 变化；维护前已存在的新增 QQ uncertain
+  `collect_page` 在 08:08:56 UTC
+  出现，原因码 `EMAIL_NETWORK_LIST_UNQUALIFIED`，dispatch/token 均 null，有 5 个事件。
+  原 send/153 unknown 行精确不变，新采集行纳入保护、不重试；它不是新发送，底层根因未证明。
+
+未做真实服务商拒绝/首次 ACK 故障注入，未发真实邮件。S4 Linux ledger 仍在不打开
+账本的情况下报告 `incomplete`，不推送、不改 App-CLI `.41`。下文旧连接阻塞、全量
+导出/内存前置条件、`2396381e` 候选和历史发信批准均作为历史保留；本轮不发真实邮件
+与定向保全约束优先，第 13 节替代第 12 节的阻塞验收状态。剩余邮件投递、正文、独立
+Sent 原件用例不因这些 UI 检查而关闭。
 
 ## 2026-10-26 待处理清单
 

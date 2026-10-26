@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "status": "deployed_installed_ui_verified",
+  "recorded_at": "2026-10-26T08:45:37.710691+00:00",
+  "scope": {
+    "automatic_expiry_cleanup": false,
+    "one_time_expired_credential_cleanup": true,
+    "app_cli_source": "bcc55506cc933f981668e3b2d1ed1eba1bf4c6a3",
+    "app_cli_changed": false,
+    "real_mail_authorized": false,
+    "push_authorized": false
+  },
+  "native_issuer": {
+    "base_source": "22da89f329a88bde8e12219c359e82063064798b",
+    "patch_sha256": "eb1b94f559407d97c43d445eb9d74c41b7353d3e78505e96f89f312ab78b384d",
+    "candidate_sha256": "a866beae2809fe30511b9e0ab010ef333c2ae2ceb7fa80a98b1cd6f36b2b383f",
+    "source_manifest_sha256": "7dc5d98e55a3ec6064c3b35ad624f53419d931cc8998f18bf1dc351175e2defb"
+  },
+  "product_validation": {
+    "four_capacity_tests_twice": {
+      "pass": 8,
+      "fail": 0
+    },
+    "related_tests": {
+      "pass": 350,
+      "skip": 16,
+      "fail": 0
+    },
+    "related_race": {
+      "pass": 350,
+      "skip": 16,
+      "fail": 0
+    },
+    "root_three_packages_fresh_postgres": "passed",
+    "linux_full": {
+      "passed": 5606,
+      "skipped": 197,
+      "failed": 0,
+      "packages_passed": 77,
+      "build": "passed",
+      "vet": "passed",
+      "network": "none"
+    }
+  },
+  "cleanup_selector": {
+    "source_sha256": "043d524a24473ad5f0db8ab1766bf884240e8597597e602b11170b7a52b2afd2",
+    "top_level_tests": 14,
+    "subtests": 35,
+    "race": "passed",
+    "vet": "passed"
+  },
+  "product_files": {
+    "services/gateway/internal/iscpnodeissuer/store.go": "477db82029e59c0859d424fd462a110916ac00aabbaa009a5c80ac9618e0ae62",
+    "services/gateway/internal/iscpnodeissuer/control_v2.go": "ab5399b9ef31853936a60685d96b4853be222ac5f53616c44d8bbf1a6613844f",
+    "services/gateway/internal/iscpnodeissuer/store_capacity_test.go": "640f7d81b13051994459907851868b0065cc6146f42977a355cbe3b648620b70"
+  },
+  "cleanup_operator": {
+    "top_level_tests": 27,
+    "subtests": 45,
+    "race": "passed",
+    "vet": "passed",
+    "linux_sha256": "2769a06e18a400887ec0beabd3bef44f7f426a5349e15b31db4cae8b977373ac",
+    "plan_sha256": "5df235707d0894a59709135e18048cfad7e462430e227cfc4dfaa3244d635c19",
+    "rows_updated": 2,
+    "records_deleted": 865,
+    "parents_deleted": 865,
+    "per_active_device_records": [
+      [
+        320,
+        1
+      ],
+      [
+        547,
+        1
+      ]
+    ],
+    "other_rows_unchanged": 8,
+    "ciphertext_bytes_before": 6974116,
+    "ciphertext_bytes_after": 393828,
+    "post_cleanup_candidates": 0,
+    "state_generation_during_cleanup": "548 -> 548",
+    "latest_and_recovery_protection": true,
+    "raw_non_target_fields_preserved": true,
+    "automatic_gc": false,
+    "concurrency_regression": "read committed after exclusive writer lock; phantom insertion test red then green"
+  },
+  "deployment": {
+    "native_only": true,
+    "cold_backup_node_files": 100,
+    "cold_backup_state_rows": 10,
+    "cold_backup_local_sha256": "bf908136693d44721d0c4a54eea1af5e5d5c6888d6a32ce8bf9d7177f5c5cbf2",
+    "cold_backup_archive_bytes": 16019552,
+    "stopped_at": "2026-10-26T08:29:31.743100+00:00",
+    "capacity_constraint_dropped_at": "2026-10-26T08:30:19.906758+00:00",
+    "started_at": "2026-10-26T08:31:07.043202+00:00",
+    "verified_at": "2026-10-26T08:31:30.113142+00:00",
+    "original_restart_policy_restored_at": "2026-10-26T08:31:31.614965+00:00",
+    "loaded_sha256": "a866beae2809fe30511b9e0ab010ef333c2ae2ceb7fa80a98b1cd6f36b2b383f",
+    "additional_restart": false,
+    "writer_and_other_guards_exact": true,
+    "config_identity_keys_exact": true,
+    "other_service_processes_unchanged": true,
+    "management_read_statuses": [
+      200,
+      200,
+      200
+    ],
+    "rollback": "preserve current state; never restore pre-cleanup credentials/generations/writer; binary rollback only after current-size/headroom qualification",
+    "final_observation_at": "2026-10-26T08:49:10.059501+00:00",
+    "final_same_native_process": true,
+    "automatic_restarts": 0
+  },
+  "mac_acceptance": {
+    "at": "2026-10-26T08:40:02.689848+00:00",
+    "app_closed_processes": 0,
+    "identity_invitation_config_exact": true,
+    "generation_before": "548",
+    "generation_after_normal_recovery": "550",
+    "pending_pins_after": 0,
+    "changed_profile_files": [
+      "relay.enrollment.json.credentials.v2",
+      "relay.enrollment.json",
+      "grant.json",
+      "relay.enrollment.json.duplex.pending.v1",
+      "identity/node-control/operations.v2"
+    ],
+    "helper_check_exit": 0,
+    "helper_check_no_file_changes": true,
+    "journal_read_only": true,
+    "original_profile_retained": true,
+    "original_mail_list_and_existing_test_mail_body": "passed",
+    "normal_read_marked_one_preexisting_message_viewed": true,
+    "reply_draft_send_reanalysis_actions": 0,
+    "personal_browser_public_page_navigation": "passed",
+    "panel_wide_and_restore_462px": "passed",
+    "personal_tab_create_close_back_to_blank": "passed",
+    "normal_quit_relaunch_and_list_reload": "passed",
+    "original_layout_and_entries": "preserved",
+    "ui_actions_read_only_claim": false,
+    "application_left_on_original_workbench": true,
+    "input_automation_note": "First typed URL omitted colon and navigated to a public search; corrected with paste, then returned to original about:blank."
+  },
+  "preservation": {
+    "before_snapshot_sha256": "fbab80b978b8f9d4b3e95414ec2fb0ad274ca7f271b071d8463776057296eb4f",
+    "after_snapshot_sha256": "6443ddfbfa65bd18caa719dc8610ae534206b5755cd0b1e6229b5e6b1fd30628",
+    "protected_sections_exact": 9,
+    "send": 47,
+    "unknown": 154,
+    "unknown_send": 1,
+    "protected_tasks": 200,
+    "protected_events": 1003,
+    "draft_send_snapshots": 101,
+    "devices": 10,
+    "new_unknown_after_maintenance": 0,
+    "send_or_unknown_rows_events_changed": 0,
+    "premaintenance_addition": {
+      "created_at": "2026-10-26T08:08:56.465000+00:00",
+      "application": "mail-qq-mail",
+      "command": "collect_page",
+      "status": "uncertain",
+      "reason": "EMAIL_NETWORK_LIST_UNQUALIFIED",
+      "dispatch": null,
+      "token": null,
+      "events": 5,
+      "original_153_unknown_and_47_send_preserved": true,
+      "no_retry_or_resolution": true
+    },
+    "other_observed_changes": [
+      "rolling health log and Docker Mounts order only in runtime identity",
+      "observation times",
+      "existing mailbox watch/checkpoint and queue/metadata progress"
+    ],
+    "runtime_identity_after_mount_sort_and_rolling_health_exclusion": "exact"
+  },
+  "limitations": [
+    "No actual provider rejection or failed-first-ACK fault injected; source test and previous retained-data diagnosis remain distinct.",
+    "No real email sent or re-sent; original delivery verification gaps are not closed by this deployment.",
+    "S4 production Linux ledger reader remains incomplete and opens zero rows/bytes without a qualified write-denial guard.",
+    "Eight non-active issuer rows were retained; cleanup applies only to verifiable expired acknowledged control records of active devices.",
+    "Capacity is uncapped; no automatic expiration mechanism was introduced."
+  ],
+  "retained_failures": [
+    "Initial PG test DSN targeted default database; corrected URL and current_database assertion qualify final red/green.",
+    "Root related test first met fixture writer pollution; fresh isolated database passed.",
+    "Darwin full suite had platform-specific tmpfs/symlink path failures; Linux full suite passed.",
+    "Linux preparation failed on login-shell PATH, missing fixtures/module metadata, and removed CWD; final complete offline run passed.",
+    "Maintenance auto-restart and cleanup writer snapshot race were independently found, fixed and tested before activation."
+  ]
+}

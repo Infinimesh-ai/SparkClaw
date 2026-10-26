@@ -4,7 +4,7 @@
 
 ## 1. 结论与范围
 
-**状态：实施中，2026-10-26，Asia/Shanghai；S1–S4 source_verified 并已部署，Mac 已安装；完整 UI 验收被既有签发器历史容量上限阻塞（InfiniCenter 提案 0050）。**
+**状态：2026-10-26，Asia/Shanghai；S1–S4 source_verified 并已部署，S5 部署与授权范围内的安装版本/UI 验收通过，包含最终退出重启及阅读邮件后保全检查。签发器容量修复和一次性清理后原连接已恢复；未做真实服务商拒绝/首次 ACK 故障注入或真实发信。**
 
 App-CLI 当前只有一个应用模块（`runtimes/browser/applications/mail`），也没有已立项的第二个
 消费者。本阶段目标因此限定为：**让现有邮件链路在已有底座上恢复不丢结果、一次失败可以归因、
@@ -13,7 +13,7 @@ App-CLI 当前只有一个应用模块（`runtimes/browser/applications/mail`）
 
 审计基线：SparkClaw `db9ca9cf`；固定 App-CLI `.41`，源码
 `bcc55506cc933f981668e3b2d1ed1eba1bf4c6a3`。原审计读取源码和既有证据，未重跑测试或检查实机；本轮源码测试见第 2 节与修改卡。
-[验收清单](desktop-browser-follow-up-2026-10-23.md)保留历史 `.39` 检查点；当前实际加载 `.41` 的证据见第 2 节和修改卡 12。
+[验收清单](desktop-browser-follow-up-2026-10-23.md)保留历史 `.39` 检查点；当前实际加载 `.41` 的证据见第 2 节和修改卡 12–13。
 
 保留现有分工：App-CLI Registry 负责能力/schema/授权，Executor 与账本负责任务身份、效果、结果、
 ACK 和恢复，Controller Browser Host 负责页面/profile、资源队列和租约，邮件模块负责服务商操作
@@ -23,10 +23,10 @@ ACK 和恢复，Controller Browser Host 负责页面/profile、资源队列和�
 
 | 目标 | 当前证据与部署状态 | 出口 |
 |---|---|---|
-| G1 恢复不丢结果 | **S1 source_verified + deployed（2026-10-26）**：精确 `0f46702a` / 不变 `.41` 已部署。文件 Store 拒绝→首次 ACK 失败→重启复现保持红→绿，dispatch 总数 1。线上 47 个 send、153 个 unknown 原行及事件在部署和诊断前后均不变。 | 源码出口及实际加载版本检查满足。现有数据中无可用的服务商拒绝案例，未注入真实拒绝/ACK 失败，未发邮件；不宣称实机补 ACK 用例通过。 |
+| G1 恢复不丢结果 | **S1 source_verified + deployed（2026-10-26）**：精确 `0f46702a` / 不变 `.41` 已部署。文件 Store 拒绝→首次 ACK 失败→重启复现保持红→绿，dispatch 总数 1。47 个 send 和原 153 个 unknown 原行及事件均保持一致；签发器维护前快照共 154 个 unknown，新增一条 08:08:56 UTC 的 QQ 不确定采集，无 dispatch/token，已纳入保护且不重试。 | 源码出口及实际加载版本检查满足。现有数据中无可用的服务商拒绝案例，未注入真实拒绝/ACK 失败，未发邮件；不宣称实机补 ACK 用例通过。 |
 | G2 一次失败可归因 | **S2/S3 source_verified + deployed（2026-10-26）**：精确 Gateway 二进制与 Controller 源码已加载；归因、安全原因、身份模式及缺证据表达保留修改卡中的源码验证。 | 既有边界内已部署，日志缺失仍 incomplete；未声称新增实机并发失败或续租失败注入通过。公开码、调度不变。 |
 | G3 最小只读排障 | **S4 source_verified；现有真实数据只读检查通过（2026-10-26）**：精确 Linux 独立二进制完成 5 次调用，覆盖重复 unknown 报告、owner 隔离及 ledger 保护不可用表达；101 个 draft/send 行和 9 项保护证据集前后完全一致。 | 可用读取器范围验收满足。拒绝案例不可用；Linux ledger 保持 `incomplete`、读取 0 行/0 字节。报告缺失的版本/日志/清理/trace 不用另行部署健康回执补造。 |
-| G4 安装版本验收 | **已部署并安装 Mac，完整验收未完成（2026-10-26）**：`0f46702a` + 不变 `.41` 实际加载检查和原生 Reader 导入通过。Mac 296 项应用文件、6 个 profile、111 张既有表保全；原导航/历史/设置/侧栏及退出重启通过。 | 原连接仍不可用，阻塞邮件/浏览器交互验收。实际 helper 报 Relay 刷新材料过期，正常恢复返回 `control: authorization_unavailable`；只读授权检查通过，但大小复现证明下一条必需记录超过签发器 4 MiB 聚合上限；独立存储修复见 InfiniCenter 提案 0050。保留原身份和历史。不推送、不发真实邮件，unknown 不重发。 |
+| G4 安装版本验收 | **S5 已部署，授权范围内安装/UI 验收通过（2026-10-26）**：`0f46702a` + 不变 `.41` 实际加载、原生 Reader 导入及 Mac 安装通过。独立替换的 native issuer 只取消 aggregate 4 MiB 与 1024 record 存储上限；明确授权的一次性清理后，原 profile 连接恢复。原邮件入口/列表/详情/正文与个人浏览器交互通过，见修改卡 13。 | 正常退出/零进程/重启、121 项邮件重新加载及最终阅读后保全比对通过，9 项保护集完全一致。正常阅读改变一封邮件的 viewed 状态；未回复、存草稿、发送或重解析。不宣称真实服务商拒绝/首次 ACK 失败注入或真实发送覆盖。无自动过期机制，不改 App-CLI、UI、公开码或调度，不推送。 |
 
 各 D 项的准确修复边界见[邮件诊断与修改边界](email-diagnostics-and-change-control.md)，本文不重复。
 D05（job 完成与业务结果分离）和 D09（分析 attempt 索引）不阻塞本阶段出口，按邮件文档单独推进。

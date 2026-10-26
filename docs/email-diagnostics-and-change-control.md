@@ -16,9 +16,9 @@ that the plan's steps reference; it is not a separate roadmap.
 
 Audit: **2026-10-26, Asia/Shanghai**, source `c2b85311`. The checked-in
 [release manifest](../vendor/app-cli/release.json) pins App-CLI `.41` / `bcc55506`.
-The original audit referenced the historical `.39` [acceptance record](desktop-browser-follow-up-2026-10-23.md) and did not inspect a live host. Current `.41` loaded-version and installation evidence is recorded in section 12; it does not retroactively change the audit.
+The original audit referenced the historical `.39` [acceptance record](desktop-browser-follow-up-2026-10-23.md) and did not inspect a live host. Current `.41` loaded-version and installation evidence is recorded in sections 12–13; it does not retroactively change the audit.
 
-**Implementation status:** S1–S4 are source_verified and deployed (sections 7–10, 12). S5 deployment, Mac installation and supported read-only diagnostics passed; full UI acceptance remains blocked by the existing connection failure. D05/D09 remain deferred. No real mail, push, App-CLI `.41` source, interface or UI change occurred.
+**Implementation status:** S1–S4 are source_verified and deployed (sections 7–10, 12). S5 deployment, Mac installation, supported read-only diagnostics and available original-UI checks passed. Section 13 records the independent issuer capacity repair and one-time cleanup that restored the original connection; normal quit/relaunch and the final post-mail preservation comparison passed with all nine protected sections exact. D05/D09 remain deferred. No real mail, push, App-CLI `.41`, public-code, scheduling or UI change occurred.
 
 ## 1. Follow the whole chain
 
@@ -111,7 +111,7 @@ every attachment path; a QQ pass does not qualify Gmail or Outlook.
 
 ## 5. Ordered changes and acceptance
 
-S1–S4 are **source_verified and deployed**; S5 has the partial acceptance recorded in section 12. D05/D09 remain deferred. Independent behavior repairs and diagnostic/schema
+S1–S4 are **source_verified and deployed**; S5 has the current acceptance and explicit live-case limitations recorded in section 13; section 12 is historical. D05/D09 remain deferred. Independent behavior repairs and diagnostic/schema
 work are separate changes. An unrelated failure gets a separate item.
 
 | Batch | Exact change | Acceptance |
@@ -209,6 +209,8 @@ cross-project changes require an accepted InfiniCenter decision.
 
 ## 12. S5 focused deployment card — deployed; acceptance blocked
 
+**Historical checkpoint before issuer maintenance.** The capacity evidence and failures below remain retained. The owner subsequently directed removal of the storage limits followed by one-time expired-record cleanup, with no automatic expiry mechanism or InfiniCenter prerequisite. The completed repair and current UI results are recorded in section 13; the blocked state below is no longer current.
+
 The owner confirmed that the browser has no unsaved content and explicitly permits
 cleanup before upgrading, retaining only evidence needed for this verification.
 This supersedes the full-history preservation/decode prerequisite in the earlier
@@ -296,3 +298,101 @@ IndexedDB, local storage, sessions and service-worker storage were retained.
   business databases/profile backups to conceal differences. No push, real send,
   unknown retry or App-CLI source change occurred. See the
   [focused evidence summary](evidence/runtime-stabilization-s5-scoped-2026-10-26.json).
+
+## 13. S5 issuer capacity repair and one-time cleanup — deployed; UI checks passed
+
+- Owner/status: SparkClaw, 2026-10-26. The owner's final instruction is to remove the
+  issuer's storage capacity limits, then perform one explicit cleanup of unused expired
+  credential records. **No automatic expiry/GC mechanism or pruned-generation metadata
+  was added.** S5 deployment and authorized installed-version/UI acceptance passed, including normal
+  quit/relaunch and the final post-mail preservation comparison.
+- Failure/goal: the retained size reproduction in section 12 proved that accumulated
+  signed history could exceed the existing aggregate ceiling and obstruct the next
+  credential recovery. Remove the persistence/count obstruction while keeping wire and
+  request validation, writer fencing, device identity and existing recovery semantics.
+  The original generic authorization error is not sufficient to attribute every
+  historical failure to this capacity limit.
+- Exact source boundary: `services/gateway/internal/iscpnodeissuer/store.go` removes
+  the 4 MiB seal/open checks and the SQL `bounded_ciphertext` CHECK, including migration
+  of an existing table; `control_v2.go` removes the 1,024-record admission limit.
+  `store_capacity_test.go` covers both changes. Frame/request/private-file limits remain
+  unchanged. The cleanup is a separate one-time private operator, not a service loop.
+  App-CLI `.41`, Gateway/Controller/Executor scheduling, original UI and public error
+  codes remain unchanged; no mail branch was added to shared core code.
+- Red → green/source verification: four new capacity tests cover large encrypted
+  history, readback, admission past 1,024 records with stable replay, and existing-table
+  migration/restart/rollback/writer fencing. Independent validation exposed a test-DSN
+  isolation error; it was fixed with an exact `current_database()` assertion. The
+  actual old `22da89f` baseline then failed with `legacy constraint remains`; the fixed
+  four tests passed twice, eight test executions, including two real isolated PostgreSQL
+  runs. The one-time selector/operator passed 27 top-level tests and 45 subtests plus
+  race/vet. Full Linux gateway tests passed: 5,606 test events, 197 conditional skips,
+  77 tested packages, zero failures; build/vet passed. The offline Linux arm64 run used
+  Go 1.25.5, no network, 3 GiB/3 CPUs, verified existing module-cache copies and unchanged
+  source hashes. Initial harness/cache/fixture failures remain recorded separately.
+- Artifact/provenance: the actual old native issuer is ISCP
+  `22da89f329a88bde8e12219c359e82063064798b`. Its production issuer/control sources match
+  the SparkClaw copies after import-path normalization. A private export of that exact
+  ISCP tree receives only the two production files and capacity test; the ISCP working
+  tree is untouched. Patch SHA-256 is
+  `eb1b94f559407d97c43d445eb9d74c41b7353d3e78505e96f89f312ab78b384d`.
+  Go 1.25.12 / Linux amd64 / CGO=0 produced and deployed native binary SHA-256
+  `a866beae2809fe30511b9e0ab010ef333c2ae2ceb7fa80a98b1cd6f36b2b383f`.
+  Source-file hashes, buildinfo and logs are retained in the private `build-issuer-02`
+  manifest; the exported tree's buildinfo is `(devel)`, with provenance bound by the
+  manifest rather than an invented embedded VCS revision.
+- Maintenance and preservation (UTC): at 08:29:31, only issuer stopped normally.
+  Private cold backup verified all 100 node files, 10 encrypted rows, writer/schema,
+  storage key and old binary. At 08:30:19 only `bounded_ciphertext` was dropped; at
+  08:31:07 the new native issuer started. At 08:31:30 the actual binary, config,
+  identities, writer and guard matched the intended state. Gateway, Controller,
+  Executor and browser PIDs did not change. At 08:31:31 daemon-reload restored the
+  original `Restart=on-failure`; it caused zero additional restarts.
+- One-time cleanup: the exact original plan SHA-256 is
+  `5df235707d0894a59709135e18048cfad7e462430e227cfc4dfaa3244d635c19`.
+  One transaction removed 865 Records and 865 Parents across two active devices
+  (319 + 546), retaining the latest one for each. All eight nonactive rows were
+  untouched. Total ciphertext fell from 6,974,116 to 393,828 bytes; the main
+  credential generation remained 548 through cleanup. A subsequent plan had zero
+  candidates. Three management GETs returned HTTP 200 with the original active
+  device/client/invitation identities matching. No replacement identity or new mail
+  operation was used to make the connection pass.
+- Current task protection: the pre-maintenance snapshot contains 47 send, 154 unknown
+  and one overlapping unknown-send task. Relative to 08:00, one QQ `collect_page`
+  became uncertain at 08:08:56 UTC with `EMAIL_NETWORK_LIST_UNQUALIFIED`, null
+  dispatch/token and five events, **before issuer maintenance**. Original 153 unknown
+  and send rows remain exact; the new row is protected without retry. It is not a
+  new send and its underlying cause remains unproved.
+- Actual original-UI acceptance: normal `getApp` restored the original selected Mac
+  profile connection. Existing mail entry, list, retained acceptance-message detail
+  and expanded body passed. Normal reading changed one message's viewed state;
+  no reply, draft, send or reanalysis operation was performed. The personal browser
+  opened the public Apple page; its 462 px panel, wide/restore, new-tab/close and back
+  to `about:blank` passed. At 08:40 UTC normal quit left zero app processes; original main device/invitation,
+  workbench/connection/profile and identity hashes matched. Only five credential/Relay
+  journal files changed: `grant.json`, `relay.enrollment.json`, its `.credentials.v2`
+  and `.duplex.pending.v1` journals, and `identity/node-control/operations.v2`. Normal
+  recovery advanced generation from 548 to 550 with zero pending pins. Installed-helper
+  `-check` exited 0 and preserved all 17 profile files; normal relaunch reloaded 121
+  mail-list entries and returned to the Owner workbench. Unviewed changed from 118
+  to 117 after normal reading. **The final post-mail preservation comparison passed**; see the exact counts below.
+- Final post-mail preservation: at approximately 08:41 UTC, the before-freeze
+  snapshot `fbab80b978b8f9d4b3e95414ec2fb0ad274ca7f271b071d8463776057296eb4f`
+  and after-UI snapshot `6443ddfbfa65bd18caa719dc8610ae534206b5755cd0b1e6229b5e6b1fd30628`
+  matched across all nine protected sections: 47 send / 154 unknown / one overlapping
+  unknown-send, 200 task rows, 1,003 events, 101 draft/send-snapshot rows and 10 devices.
+  No new unknown or send change followed issuer maintenance. Other differences were
+  observation time, normal watch mailbox/checkpoint/queue/metadata progress, rolling
+  runtime health logs and mount ordering. Full runtime identity matched after sorting
+  mounts and excluding the rolling health-log field; those raw differences remain
+  retained. The private cold backup was downloaded off-host and verified:
+  16,019,552 bytes, SHA-256
+  `bf908136693d44721d0c4a54eea1af5e5d5c6888d6a32ce8bf9d7177f5c5cbf2`.
+- Limits/rollback: no live provider rejection or first-ACK-failure injection, and no
+  real send occurred; source S1 coverage must not be presented as those live cases.
+  S4's Linux ledger reader remains `incomplete` with zero opens. No push occurred.
+  Retain the cold backups and old binary, but never restore deleted credential history,
+  old generation or business databases to hide changes. Returning to the old binary
+  requires every current aggregate to satisfy its 4 MiB/1,024-record behavior and have
+  room for the required update; do not silently reinstate the removed SQL limit.
+  Public redacted evidence: [issuer capacity cleanup S5 summary](evidence/issuer-capacity-cleanup-s5-2026-10-26.json).

@@ -4,7 +4,7 @@
 
 ## 1. 结论与范围
 
-**状态：实施中，2026-10-26，Asia/Shanghai；S1–S4 source_verified，S5 已授权；制品已准备，资源门槛阻塞激活。**
+**状态：实施中，2026-10-26，Asia/Shanghai；S1–S4 source_verified 并已部署，Mac 已安装；完整 UI 验收被既有签发器历史容量上限阻塞（InfiniCenter 提案 0050）。**
 
 App-CLI 当前只有一个应用模块（`runtimes/browser/applications/mail`），也没有已立项的第二个
 消费者。本阶段目标因此限定为：**让现有邮件链路在已有底座上恢复不丢结果、一次失败可以归因、
@@ -13,7 +13,7 @@ App-CLI 当前只有一个应用模块（`runtimes/browser/applications/mail`）
 
 审计基线：SparkClaw `db9ca9cf`；固定 App-CLI `.41`，源码
 `bcc55506cc933f981668e3b2d1ed1eba1bf4c6a3`。原审计读取源码和既有证据，未重跑测试或检查实机；本轮源码测试见第 2 节与修改卡。
-[延期验收清单](desktop-browser-follow-up-2026-10-23.md)仍记录 `.41` 未激活，`.39` 为最后核验部署。
+[验收清单](desktop-browser-follow-up-2026-10-23.md)保留历史 `.39` 检查点；当前实际加载 `.41` 的证据见第 2 节和修改卡 12。
 
 保留现有分工：App-CLI Registry 负责能力/schema/授权，Executor 与账本负责任务身份、效果、结果、
 ACK 和恢复，Controller Browser Host 负责页面/profile、资源队列和租约，邮件模块负责服务商操作
@@ -21,12 +21,12 @@ ACK 和恢复，Controller Browser Host 负责页面/profile、资源队列和�
 
 ## 2. 本阶段目标
 
-| 目标 | 现状（源码已确认） | 出口 |
+| 目标 | 当前证据与部署状态 | 出口 |
 |---|---|---|
-| G1 恢复不丢结果 | **S1 source_verified（2026-10-26）**：有效拒绝终态纳入补 ACK；文件 Store 重启复现由红变绿，两个维护轮只 ACK 一次，dispatch 总数保持 1。sent/unknown 与证明身份围栏回归通过。未部署、未实机验收。 | 源码出口满足；S5 已另行授权，但尚未通过部署和安装验收。 |
-| G2 一次失败可归因 | **S2/S3 source_verified（2026-10-26）**：失败/拆分 invocation 跨三后端保留；当前 Host activity 关联、续租首因、安全发送原因、epoch 身份模式、ACK/trace/维护失败和有界 sink 健康可见。公开码与调度不变。 | 已埋点边界内源码出口满足；日志缺失仍 incomplete。未部署或实机验收。 |
-| G3 最小只读排障 | **S4 source_verified（2026-10-26）**：独立的 draft/operation/job 作用域报告，支持 file、只读 PostgreSQL、受保护 ledger 与既有日志。拒绝/首次 ACK 失败/重启及 unknown 重复查询后源字节、ACK/派发次数不变；owner/回执/冲突/隐私与资源上限验证通过。 | 已支持读取器的源码出口满足。预期/实际版本、执行/业务/效果/ACK 与证据缺口分列；实际加载版本、旧 job owner 绑定、trace/分析索引或合格 ledger 拒写保护缺失时仍 `incomplete`。未部署，非 S5 验收。 |
-| G4 安装版本验收 | **S5 已授权，前置受阻（2026-10-26）**。已构建精确 `0f46702a` + 不变 `.41` 制品；四个远端缓存制品及启动检查通过，Mac 6 个 profile / 97 张表冷备一致。可用内存低于不变的本机 4 GiB / 远端 8 GiB 门槛。尚无新的完整基线，未激活或安装；边界见 [S5 修改卡](email-diagnostics-and-change-control.md#11-s5-部署前置修改卡--未部署)。旧 `2396381e` stage 不能证明 S1–S4。 | 部署并核验支持组合、恢复/诊断证据及原 UI；部署与每项验收分别记录。既有不推送、不发真实邮件、unknown 禁重发约束保持。 |
+| G1 恢复不丢结果 | **S1 source_verified + deployed（2026-10-26）**：精确 `0f46702a` / 不变 `.41` 已部署。文件 Store 拒绝→首次 ACK 失败→重启复现保持红→绿，dispatch 总数 1。线上 47 个 send、153 个 unknown 原行及事件在部署和诊断前后均不变。 | 源码出口及实际加载版本检查满足。现有数据中无可用的服务商拒绝案例，未注入真实拒绝/ACK 失败，未发邮件；不宣称实机补 ACK 用例通过。 |
+| G2 一次失败可归因 | **S2/S3 source_verified + deployed（2026-10-26）**：精确 Gateway 二进制与 Controller 源码已加载；归因、安全原因、身份模式及缺证据表达保留修改卡中的源码验证。 | 既有边界内已部署，日志缺失仍 incomplete；未声称新增实机并发失败或续租失败注入通过。公开码、调度不变。 |
+| G3 最小只读排障 | **S4 source_verified；现有真实数据只读检查通过（2026-10-26）**：精确 Linux 独立二进制完成 5 次调用，覆盖重复 unknown 报告、owner 隔离及 ledger 保护不可用表达；101 个 draft/send 行和 9 项保护证据集前后完全一致。 | 可用读取器范围验收满足。拒绝案例不可用；Linux ledger 保持 `incomplete`、读取 0 行/0 字节。报告缺失的版本/日志/清理/trace 不用另行部署健康回执补造。 |
+| G4 安装版本验收 | **已部署并安装 Mac，完整验收未完成（2026-10-26）**：`0f46702a` + 不变 `.41` 实际加载检查和原生 Reader 导入通过。Mac 296 项应用文件、6 个 profile、111 张既有表保全；原导航/历史/设置/侧栏及退出重启通过。 | 原连接仍不可用，阻塞邮件/浏览器交互验收。实际 helper 报 Relay 刷新材料过期，正常恢复返回 `control: authorization_unavailable`；只读授权检查通过，但大小复现证明下一条必需记录超过签发器 4 MiB 聚合上限；独立存储修复见 InfiniCenter 提案 0050。保留原身份和历史。不推送、不发真实邮件，unknown 不重发。 |
 
 各 D 项的准确修复边界见[邮件诊断与修改边界](email-diagnostics-and-change-control.md)，本文不重复。
 D05（job 完成与业务结果分离）和 D09（分析 attempt 索引）不阻塞本阶段出口，按邮件文档单独推进。

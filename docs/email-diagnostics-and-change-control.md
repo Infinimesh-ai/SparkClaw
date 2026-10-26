@@ -16,11 +16,9 @@ that the plan's steps reference; it is not a separate roadmap.
 
 Audit: **2026-10-26, Asia/Shanghai**, source `c2b85311`. The checked-in
 [release manifest](../vendor/app-cli/release.json) pins App-CLI `.41` / `bcc55506`.
-The latest retained [acceptance record](desktop-browser-follow-up-2026-10-23.md)
-still describes `.39` running and `.41` not activated. This audit did not read a
-live host; these are historical observations, not a new health check.
+The original audit referenced the historical `.39` [acceptance record](desktop-browser-follow-up-2026-10-23.md) and did not inspect a live host. Current `.41` loaded-version and installation evidence is recorded in section 12; it does not retroactively change the audit.
 
-**Implementation status:** S1–S4 are source_verified (sections 7–10); S5 is unauthorized. D05/D09 remain deferred. No real mail, deployment, interface or UI change occurred.
+**Implementation status:** S1–S4 are source_verified and deployed (sections 7–10, 12). S5 deployment, Mac installation and supported read-only diagnostics passed; full UI acceptance remains blocked by the existing connection failure. D05/D09 remain deferred. No real mail, push, App-CLI `.41` source, interface or UI change occurred.
 
 ## 1. Follow the whole chain
 
@@ -113,7 +111,7 @@ every attachment path; a QQ pass does not qualify Gmail or Outlook.
 
 ## 5. Ordered changes and acceptance
 
-S1–S4 are **source_verified**; S5 and D05/D09 are pending. Independent behavior repairs and diagnostic/schema
+S1–S4 are **source_verified and deployed**; S5 has the partial acceptance recorded in section 12. D05/D09 remain deferred. Independent behavior repairs and diagnostic/schema
 work are separate changes. An unrelated failure gets a separate item.
 
 | Batch | Exact change | Acceptance |
@@ -208,3 +206,93 @@ cross-project changes require an accepted InfiniCenter decision.
 - Resource boundary: local available memory was 3.76 GiB at 05:48:37 UTC; remote was 5.28 GiB at 05:44:17 UTC. Full verification still requires at least 4 / 8 GiB respectively, reserves at least half available memory and at least 2 GiB, and retains 12 GiB disk reserve. Normal Chrome/Claude/WPS exits were specifically authorized; WPS cloud helpers remain, with no forced termination. No saved-response decode, full fresh inventory, freeze, service restart, source switch or Mac installation occurred. Browser-only restart is not an accepted substitute for draining and preservation; unsaved page-state preservation remains unproved.
 - Limits/next gate: exact artifact binding is not loaded-version acceptance. The private admission draft remains closed and has no deployment execution adapter. After resources qualify, complete the same saved-response receive, genuine healthy full baseline and review, then controlled freeze/activation/health and Mac UI acceptance. S1 rejected-result ACK transitions require exact task/revision/digest proof and zero additional dispatch; unknown retains full-row protection. Historical missing rows and failed runs remain recorded.
 - Rollback: no active runtime or application replacement to roll back. Keep the original `.39` services, old Mac bundle, source data, backups and all evidence; never restore old database copies to hide differences. No new mail, resend or push occurred. S5 is unfinished.
+
+## 12. S5 focused deployment card — deployed; acceptance blocked
+
+The owner confirmed that the browser has no unsaved content and explicitly permits
+cleanup before upgrading, retaining only evidence needed for this verification.
+This supersedes the full-history preservation/decode prerequisite in the earlier
+S5 checkpoint; its failures remain historical, not current admission conditions.
+Keep all current send/unknown task rows and their evidence, draft/send snapshots,
+mailbox/identity configuration and exact rollback components. Do not delete or
+resolve unknown, resend mail, modify App-CLI `.41`, push, or change product
+scheduling/UI/public codes. A newly bounded focused collector must prove its own
+resource limits instead of inheriting the obsolete full-export 4/8 GiB thresholds.
+
+Eight obsolete local synthetic exports and `2396381e` DMG/ZIP/source-tar artifacts
+were removed after recording exact paths, sizes and hashes: 2,191,551,482 bytes
+(2.041 GiB). Small failure receipts, scripts, original core evidence, all live data
+and current `0f46702a` artifacts/cold backups remain. This is cleanup of retained
+test artifacts, not a claim that production business data was garbage-collected.
+The stopped browser's three cache directories (98 files, 607,399,085 bytes) were
+also removed; all noncache file bytes and modes matched before/after. Cookies,
+IndexedDB, local storage, sessions and service-worker storage were retained.
+
+- Scope/mechanism: deploy immutable `0f46702a` with unchanged `.41`, using private
+  release operators only. The focused collector reads approximately 1.1 MB with
+  about 60 MiB peak remote RSS; read-only PostgreSQL and an outer read-only mount
+  protect collection. That outer qualification is not a bypass of the production
+  S4 Linux ledger guard. No product UI, code, scheduling or shared contract changes.
+- Preservation: all 47 send and 153 unknown tasks (one overlaps), 199 protected
+  task rows, 998 events, 101 draft/send-snapshot rows, 10 devices, mailbox bindings,
+  release/anchor identity and one exact expired prepared collection row/event
+  survive freeze, cache cleanup, activation, diagnostic calls and the 07:01:04 UTC UI checkpoint.
+  The expired row was reviewed against the unchanged constructor/recovery source;
+  it was not invoked, cancelled, deleted or treated as a generic exception.
+- Activation: normal drain preceded source/runtime/component selection. Native
+  Reader import timed out once, then passed after the one permitted normal
+  restart. `.41`, Tampermonkey `5.5.0.21`, Bridge `1.0.29`, native handshake and
+  installed-release gates passed; the temporary restore-session override was
+  removed. The first timeout's cause remains unproved. Selected user preferences
+  survived; 36 browser metadata changes remain recorded, including a per-site
+  automatic HTTPS-upgrade exception change whose cause is not established.
+- Loaded-service checkpoint: the new Gateway is healthy on the exact staged
+  image. The original admission verifier stopped at an incorrect assertion that
+  both services carry runtime paths in `ExecStart`: Controller uses its existing
+  environment variables, while Executor uses command arguments. Actual process
+  evidence matches `.41`. A separate read-only continuation passed at 06:40:48 UTC,
+  binding the original failure, container ID, PID/start time, actual environment,
+  Python-to-Node handoff and inherited lock FD. The actual handoff first reproduced
+  a failing test; all 13 continuation tests then passed independently. No admission
+  rerun, service restart or fabricated original success receipt occurred.
+- Actual diagnostic acceptance: 5 calls through the exact Linux binary passed
+  repeated unknown reports, owner isolation (zero rows), privacy and Linux's
+  explicit missing ledger guard (zero ledger rows/bytes). All 101 current
+  draft/send-snapshot rows and all 9 independently captured protected sections
+  stayed exact. The provider-rejection category was unavailable. Reports retain
+  version/log/cleanup/trace gaps; the separate health receipt does not fill them.
+- Mac installation: all 296 application entries match the candidate; 6 profiles
+  and 111 existing tables stayed exact at replacement (97 originally counted,
+  plus 14 preexisting Default tables). The old app remains available. Native CUA
+  observations passed original layout/entries, old session history, settings/back,
+  schedule navigation, sidebar shortcut, empty composer focus and normal
+  quit/zero-process/relaunch. These checks did not type/send a message or save a draft.
+- Remaining acceptance: the preexisting Mac connection still blocks mail/browser
+  interaction checks. The actual installed helper's read-only `-check` returns
+  `enrollment Relay refresh credential expired`; two ordinary startups with empty
+  stdin return `control: authorization_unavailable`, with no business frames or
+  profile-file changes. The selected profile remains unchanged. Original-entry
+  relaunch still shows the preserved disabled mail/browser entries. Source tests and
+  synthetic qualification do not replace actual provider rejection, failed-ACK
+  recovery, original-browser interaction or delivery. No real email is authorized.
+- Connection capacity blocker: management identity/client/device reads, the original
+  template TCP/TLS handshake and one signed Authority query (HTTP 200, verified
+  response) passed. A read-only issuer transaction found 547 successful control
+  records/parents, complete open history, no running record and matching writer
+  settings. The same encrypted state remained unchanged. Its serialized plaintext
+  is 4,193,235 bytes; adding only the required next recovery record in memory,
+  omitting its parent/grant/predecessor, reaches 4,195,320 bytes and exceeds the
+  4,194,304-byte seal limit. No credentials were signed, requests sent or state
+  persisted by this size calculation. This proves a capacity obstruction; the
+  original generic 503 lacks a detailed trace, so not every historical failure
+  is assigned this cause. Existing identity and authorization history are retained.
+  InfiniCenter proposal 0050 and ISCP inbox 015 request a separate bounded storage
+  design/review. Open-namespace deduplication and the seven-day signed-result
+  retention contract prohibit clearing these records as ordinary upgrade cache.
+  No issuer repair or contract change was implemented; full S5 acceptance waits
+  for original-identity recovery and the remaining UI checks.
+- Rollback boundary: retain old source/image/container, runtime/components, unit
+  files and Mac bundle. Restore only the matched release if needed; never restore
+  business databases/profile backups to conceal differences. No push, real send,
+  unknown retry or App-CLI source change occurred. See the
+  [focused evidence summary](evidence/runtime-stabilization-s5-scoped-2026-10-26.json).

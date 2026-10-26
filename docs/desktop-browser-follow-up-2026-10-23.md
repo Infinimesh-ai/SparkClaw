@@ -2,19 +2,32 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-browser-follow-up-2026-10-23.md)
 
-## S5 authorized continuation — 2026-10-26
+## S5 deployed and installed; connection acceptance pending — 2026-10-26
 
 The owner has now authorized deployment and installed-version acceptance. The
 current target is SparkClaw `0f46702a` plus unchanged App-CLI `.41`; the earlier
 `2396381e` candidate below remains historical. Current no-push and no-real-mail
 constraints take precedence over historical send approvals. Exact artifacts are
-built and cached on work2, and Mac cold preservation passed; neither runtime
-activation nor Mac installation has occurred. At 05:44 UTC work2 still ran healthy
-`.39`; full verification is blocked by the unchanged memory gates. See the
-[S5 change card](email-diagnostics-and-change-control.md#11-s5-deployment-preflight-card--not-deployed)
-and [checkpoint evidence](evidence/runtime-stabilization-s5-2026-10-26.json).
+built and deployed. The owner explicitly replaced full-history preservation with
+verification-relevant preservation and authorized cleanup. All 47 send / 153
+unknown tasks and their protected evidence remain exact. `.41` native Reader and
+loaded-service verification passed; Mac installation preserved 6 profiles and all
+111 existing tables. Five actual read-only diagnostic calls passed within their
+supported boundaries. The original Mac connection remains unavailable: the
+installed helper reports expired Relay refresh material, then
+`control: authorization_unavailable` on normal recovery. Local navigation/history,
+settings/sidebar and normal quit/relaunch passed; mail/browser interactions remain
+blocked. Management and signed authorization checks pass; an in-memory lower-bound
+reproduction proves that the next required issuer record exceeds its 4 MiB aggregate
+limit. InfiniCenter proposal 0050 requests a separate storage review. No profile,
+credentials or authorization history were replaced or cleared. See the
+[S5 change card](email-diagnostics-and-change-control.md#12-s5-focused-deployment-card--deployed-acceptance-blocked)
+and [focused evidence](evidence/runtime-stabilization-s5-scoped-2026-10-26.json).
 Historical unknown counts, failed runs and native passes below are not fresh S5
 acceptance. The remaining mail-delivery cases stay deferred.
+
+The following full-export/memory/old-release resume instructions are historical;
+the current focused preservation authorization and change card 12 take precedence.
 
 ## Deferred work list — 2026-10-26
 

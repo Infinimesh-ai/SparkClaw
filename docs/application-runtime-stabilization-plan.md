@@ -4,7 +4,7 @@
 
 ## 1. Decision and scope
 
-**Status: implementation in progress, 2026-10-26, Asia/Shanghai. S1–S4 source_verified; S5 authorized; artifacts prepared, resource gates block activation.**
+**Status: implementation in progress, 2026-10-26, Asia/Shanghai. S1–S4 source_verified and deployed; Mac installed; full UI acceptance is blocked by the existing issuer history capacity limit (InfiniCenter proposal 0050).**
 
 App-CLI currently has a single application module (`runtimes/browser/applications/mail`) and no
 approved second consumer. This stage is therefore limited to: **the existing mail path, on the
@@ -15,8 +15,7 @@ of scope; it is designed separately when requirements rise (section 5).
 
 Audit baseline: SparkClaw `db9ca9cf`; pinned App-CLI `.41`, source
 `bcc55506cc933f981668e3b2d1ed1eba1bf4c6a3`. The original audit read source and retained evidence without rerunning tests or inspecting a live system. Current source tests are recorded in section 2 and the change cards. The
-[deferred acceptance list](desktop-browser-follow-up-2026-10-23.md) still records `.41` as not
-activated and `.39` as the last verified deployment.
+[acceptance list](desktop-browser-follow-up-2026-10-23.md) retains the historical `.39` checkpoints; current loaded `.41` evidence is recorded in section 2 and change card 12.
 
 Existing ownership is kept: the App-CLI Registry owns capabilities, schemas and authorization; the
 Executor and ledger own task identity, effects, results, ACK and recovery; the Controller Browser
@@ -26,12 +25,12 @@ its current owner; no new layer is added.
 
 ## 2. Goals for this stage
 
-| Goal | Current state (confirmed in source) | Exit |
+| Goal | Current evidence and deployment state | Exit |
 |---|---|---|
-| G1 Recovery keeps results | **S1 source_verified (2026-10-26)**: eligible rejected terminal receipts now recover ACK. File Store restart reproducer changed red → green; two maintenance rounds ACK once and keep total dispatches at 1. sent/unknown and proof identity fencing pass. Not deployed or live accepted. | Source exit met; S5 is separately authorized but has not passed deployment or installed acceptance. |
-| G2 One failure is attributable | **S2/S3 source_verified (2026-10-26)**: actual failed/split invocation survives all three backends; current Host activity correlation; renewal first cause; safe send causes, epoch identity mode, ACK/trace/maintenance failure and bounded sink health. Public codes and scheduling unchanged. | Source exit met within instrumented boundaries; missing logs remain incomplete. No deployment/live acceptance. |
-| G3 Minimal read-only diagnosis | **S4 source_verified (2026-10-26)**: standalone scoped draft/operation/job report; file, read-only PostgreSQL, guarded ledger and retained-log adapters. Repeated rejection/failed-ACK/restart and unknown queries preserve source bytes, ACK and dispatch counts. Owner/receipt/conflict/privacy and resource bounds verified. | Source exit met within supported readers. Expected/observed versions, execution/business/effect/ACK and evidence gaps remain separate. Missing loaded version, legacy job owner binding, trace/analysis index or qualified ledger write guard stays `incomplete`; no deployment or S5 acceptance. |
-| G4 Installed-version acceptance | **S5 authorized; preflight blocked (2026-10-26)**. Exact `0f46702a` + unchanged `.41` artifacts built; four remote cache artifacts and help checks verified; Mac 6-profile/97-table cold backup exact. Available memory is below the unchanged local 4 GiB / remote 8 GiB gates. No fresh full baseline, activation or installation; [S5 card](email-diagnostics-and-change-control.md#11-s5-deployment-preflight-card--not-deployed) records the boundary. Old `2396381e` staging cannot qualify S1–S4. | Deploy and verify the supported combination, recovery/diagnostic evidence and original UI; record deployment and each acceptance result separately. Existing no-push/no-real-mail/unknown-no-resend constraints remain. |
+| G1 Recovery keeps results | **S1 source_verified + deployed (2026-10-26)** on exact `0f46702a` / unchanged `.41`. The file Store rejection → failed first ACK → restart test remains red → green, with one total dispatch. All 47 live send and 153 unknown task rows/events remain unchanged through rollout and diagnostic checks. | Source exit and loaded-version checks met. No retained provider-rejected case was available for actual recovery acceptance; no live rejection/ACK failure was injected and no mail was sent. |
+| G2 One failure is attributable | **S2/S3 source_verified + deployed (2026-10-26)**. The exact Gateway binary and Controller source are loaded; attribution, safe causes, identity mode and missing-evidence behavior retain the source tests in their change cards. | Deployed within existing boundaries; missing logs remain incomplete. No new live concurrent-failure or lease-failure injection is claimed. Public codes and scheduling are unchanged. |
+| G3 Minimal read-only diagnosis | **S4 source_verified; actual read-only checks passed (2026-10-26)**. The exact standalone Linux binary completed 5 calls on retained data: repeated unknown reports, owner isolation and unavailable ledger-guard handling. All 101 draft/send rows and the 9 protected evidence sections stayed exact. | Available-reader acceptance met. Rejection case unavailable; Linux ledger stays `incomplete` with zero rows/bytes opened. Version/log/cleanup/trace gaps are not filled from the separate deployment health receipt. |
+| G4 Installed-version acceptance | **Deployed and Mac installed; full acceptance incomplete (2026-10-26)**. `0f46702a` + unchanged `.41` loaded checks and native Reader import pass. Mac 296 app entries, 6 profiles and 111 existing tables were verified; original navigation/history/settings/sidebar and quit/relaunch pass. | Original connection remains unavailable, blocking mail/browser interaction acceptance. Actual helper reports expired Relay refresh material and `control: authorization_unavailable`. Authorization checks pass, but a read-only size reproduction proves the next required record exceeds the issuer’s 4 MiB aggregate limit; independent storage repair is proposed in InfiniCenter 0050. Original history/identity are retained. No push, real mail or unknown resend. |
 
 Exact repair boundaries for each D item are in
 [mail diagnostics and change control](email-diagnostics-and-change-control.md) and are not repeated here.

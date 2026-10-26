@@ -1,0 +1,356 @@
+{
+  "schema": "sparkclaw.runtime_s5_scoped.v1",
+  "date": "2026-10-26",
+  "status": "deployed_installed_readonly_diagnostics_passed_ui_connection_blocked",
+  "source_commit": "0f46702a18e9b8fc8bb4e4fbe43341e097fd7af3",
+  "app_cli_source": "bcc55506cc933f981668e3b2d1ed1eba1bf4c6a3",
+  "authorization": {
+    "deploy": true,
+    "install_mac": true,
+    "focused_preservation": true,
+    "cleanup": true,
+    "browser_has_unsaved_content": false,
+    "push": false,
+    "real_email": false
+  },
+  "preservation_scope": [
+    "all current send and unknown task rows and related events",
+    "draft/send snapshots and mailbox/owner configuration",
+    "dispatch/release state and anti-resend authority",
+    "exact source/image/config/component rollback identities",
+    "existing Mac profile data"
+  ],
+  "excluded_bulk_history": [
+    "completed ordinary collection history",
+    "full all-table export",
+    "old synthetic full-export fixtures and obsolete installation artifacts"
+  ],
+  "old_full_export_gate_superseded": true,
+  "cleanup": {
+    "files_removed": 8,
+    "bytes_unlinked": 2191551482,
+    "gib_unlinked": 2.041,
+    "all_expected_absent": true,
+    "live_data_changes": 0,
+    "current_artifact_changes": 0,
+    "failed_history_summaries_retained": true,
+    "remote_browser_cache": {
+      "deleted_directories": 3,
+      "deleted_files": 98,
+      "deleted_bytes": 607399085,
+      "noncache_exact": true,
+      "profile_closed_before_cleanup": true
+    }
+  },
+  "stage": {
+    "phase": "staged",
+    "source": "0f46702a18e9b8fc8bb4e4fbe43341e097fd7af3",
+    "gateway_image": "sha256:c8ffcaec50682e5c13f391fa32798e92d3c650c15f1289461faaf9b4ffc59a89",
+    "runtime_reused": true,
+    "component_reused": true,
+    "old_reader_ready": true,
+    "profile_bytes": 828144908,
+    "cache_bytes": 607415573,
+    "no_admission": true
+  },
+  "installed": true,
+  "accepted": false,
+  "private_evidence_root": "~/.cache/sparkclaw-upgrades/20261026-runtime-s5-0f46702a",
+  "evidence": [
+    {
+      "relative_path": "cleanup-01/intent.json",
+      "sha256": "bc37ecde8794ea226b78ecaf21f878868ec29954637ce05cdb8de813841b6ae0"
+    },
+    {
+      "relative_path": "cleanup-01/result.json",
+      "sha256": "902310f4910a4077f1002574951ab379d779d70ac2ec1310a2e129762de74538"
+    },
+    {
+      "relative_path": "stage-runner-01/code-index.json",
+      "sha256": "9cb009ea762c3c0733b923a7af20003a67f614f83902da32d3e4738dee32a319"
+    },
+    {
+      "relative_path": "stage-runner-01/root-tests.log",
+      "sha256": "b792aabdf7ec18220ca354858e9a860eef9b10323908173b5296039ea6816892"
+    },
+    {
+      "relative_path": "stage-runner-01/evidence/stage.intent.json",
+      "sha256": "624c122de6761862ee37d6ecdfd633206dc342b5dc03d8b5ab22fa812c299ca0"
+    },
+    {
+      "relative_path": "stage-runner-01/evidence/stage.stdout.json",
+      "sha256": "7063b129f424500abeb6ea7829b18b34e4eee2b17ab3668ebaf0eb252b4ad517"
+    },
+    {
+      "relative_path": "operator-evidence/freeze-review.root.json",
+      "sha256": "e96f0ad51ce3316fbf53e4b0f5520d6940e5a547fcc29c5a4b629080587a6dd3"
+    },
+    {
+      "relative_path": "operator-evidence/activation-review.root.json",
+      "sha256": "3270b0e989b6de002c1833484f4338ecd1c09575d3498859c84613494096d190"
+    },
+    {
+      "relative_path": "operator-evidence/activation-activation.json",
+      "sha256": "2073e4028dfa7880a6bd315bbbd7d3916f456464471b6648ab619b2233161c22"
+    },
+    {
+      "relative_path": "operator-evidence/activation-installed-gate.json",
+      "sha256": "f70ee9bfe48506b02043968b2beba367cf96a3b8b9669641a6f32f17c8124dfa"
+    },
+    {
+      "relative_path": "operator-evidence/admit.stderr.private.log",
+      "sha256": "ddf8e4332daa7792174792180a9d7c27b4afbdd6857f2aa5022574d18c535529"
+    },
+    {
+      "relative_path": "operator-evidence/admit-partial-state.json",
+      "sha256": "7b7b4c0fdfd35729d5fc919ec63a54b93412f248d96581306e5fcab09d2f838a"
+    },
+    {
+      "relative_path": "operator-evidence/admit-comparison.json",
+      "sha256": "d9a7cfc56ba69c1c9c8141b6daccffc1cda735ac8946133e70f0d25e81e41fa3"
+    },
+    {
+      "relative_path": "continue-runner-01/code-index.json",
+      "sha256": "d6ccaed162855de3855d02f4cf0406d720d855dabb94520005e2a4b361b2330c"
+    },
+    {
+      "relative_path": "operator-evidence/remote-health-receipt.json",
+      "sha256": "a2abb853be1ddd228ea6e1370405e2e5bf4b35ddc9adc9ba12cd8c0f3e3aaaae"
+    },
+    {
+      "relative_path": "operator-evidence/diagnostic-protection-comparison.json",
+      "sha256": "0adae8aad243716e71a28998deac0ee56457ad093ca55db842020c17235fd83b"
+    },
+    {
+      "relative_path": "linux-diagnostic-actual-01/download-index.json",
+      "sha256": "917cb9d4c2bfaee6fb0126d121623888167bc1c1c34bb305e8f60f839453c4b9"
+    },
+    {
+      "relative_path": "linux-diagnostic-actual-01/summary.json",
+      "sha256": "309e66a7c33626b2870cc293bb09e86d39dc15cbafb60763b7e453596bb22cff"
+    },
+    {
+      "relative_path": "mac-install-once-v1/install-result.json",
+      "sha256": "0118e5edc028f0056cfda1904413219e0da25aa84de634432ab420a78fc70f19"
+    },
+    {
+      "relative_path": "operator-evidence/mac-ui-first-observation.json",
+      "sha256": "bbd0e3074983b944d7048617cc1a20edf9bfbf798887a716b698a5a3637f863d"
+    },
+    {
+      "relative_path": "mac-helper-check-01/summary.json",
+      "sha256": "a1c85031c3fe156682e1672d265fe971a3b494edfc267291e594c88cc2c4c3bf"
+    },
+    {
+      "relative_path": "mac-helper-startup-01/summary.json",
+      "sha256": "2a1651254ed8b495227531f6eba4536825d95b057a25453acc42d8030084d1ef"
+    },
+    {
+      "relative_path": "focused-ui-checkpoint-01/summary.json",
+      "sha256": "e2d041861f824e655d7a694eb7422a7aaab01014f4e586e712a6961268fbb60e"
+    },
+    {
+      "relative_path": "operator-evidence/ui-checkpoint-protection.json",
+      "sha256": "6f94eaa56c0a7796a056f706aca56edd89e546ef7b0e5d603c83a85d6501951c"
+    },
+    {
+      "relative_path": "issuer-auth-readonly-01/evidence/read-result.private.json",
+      "sha256": "277b32c9657b387555ee6be48bf39499e36f09f39e1673c9e8afbbc70b031607"
+    },
+    {
+      "relative_path": "issuer-auth-readonly-01/evidence/loaded-identity.private.json",
+      "sha256": "e394325132381e975081db73bec1a05bfda30f65363cce6fec8682219494c9cf"
+    },
+    {
+      "relative_path": "operator-evidence/ui-post-ready-comparison.json",
+      "sha256": "d2b3afc78c226ea21578858189fec5ef648cf3babef0f65fd4424c78fff9b358"
+    },
+    {
+      "relative_path": "operator-evidence/ui-checkpoint-review.root.json",
+      "sha256": "586a694834f6b1c2b87b1a6f94e1de4e9a5bb3ec6d1c61b273940b38cb9034b4"
+    },
+    {
+      "relative_path": "operator-evidence/issuer-existing-template-tls.json",
+      "sha256": "39b09aca1238ae7b3718635f58fedcdb62fd7172aae90ba27e3927b2f8068b44"
+    },
+    {
+      "relative_path": "operator-evidence/authority-query-actual.json",
+      "sha256": "2bf7466b75f2de0e262d71e10d71e58b740db404f5e0dcf850458f85f06058a4"
+    },
+    {
+      "relative_path": "operator-evidence/issuer-recovery-pg-log-summary.json",
+      "sha256": "3c09673288f01526c6aca277279b69bc322ac11d8288aa5582f5fd7970ec9cce"
+    },
+    {
+      "relative_path": "operator-evidence/issuer-store-query-actual.json",
+      "sha256": "8dca67a0e60c7e1179311cd8581a55d3971e7d504b1924bc33ecd5599d53a20b"
+    },
+    {
+      "relative_path": "operator-evidence/issuer-store-size-actual.json",
+      "sha256": "ce20ce84390779832b6db334295d0e95a19add2232ea7edbfdc4e4bd2eed2185"
+    },
+    {
+      "relative_path": "operator-evidence/issuer-capacity-review.root.json",
+      "sha256": "ea143ef2238b3a04b4b047ef5155a253fc5d05204c90c3fc6df92c105ff44015"
+    },
+    {
+      "relative_path": "operator-evidence/mac-ui-final-observation.json",
+      "sha256": "03710542633143460a3a0c57de62fb62fd8428b1bd6f9d5556e252b166d78705"
+    },
+    {
+      "relative_path": "mac-helper-startup-02/summary.json",
+      "sha256": "c2e176d5cb8e8f28c618147f07d1056b6c9ae9f703de624776798fd5c4867b26"
+    },
+    {
+      "relative_path": "authority-query-01/intent.json",
+      "sha256": "5f10a76350d098c7ddb0cb43040526bfb85660f1803e97c0d710b6f732d2e5e1"
+    },
+    {
+      "relative_path": "authority-query-01/main.go",
+      "sha256": "41a5de994cf638abbf2abd852395ff70e27cf3246e5eb37a20537556d8b85912"
+    },
+    {
+      "relative_path": "authority-query-01/tests.log",
+      "sha256": "36cc735db83481e2a91f24e494325827dd9e010f1e9736882f3e79558eb82908"
+    },
+    {
+      "relative_path": "authority-query-01/store-main.go",
+      "sha256": "727df1b64c21f41bb2248d7c2ceb43966b2b618ea0ff0146627290d1da991091"
+    },
+    {
+      "relative_path": "authority-query-01/store-size-main.go",
+      "sha256": "63d305e5579922e6a75f1e2935e2c24e7d5ef306c7249242ba7c95dd5f0d5a23"
+    },
+    {
+      "relative_path": "operator-evidence/final-validation.json",
+      "sha256": "4c5034b3d9ec7035cba3496beb7881eedf51c2674903dd836e3b566a1016b38b"
+    },
+    {
+      "relative_path": "operator-evidence/teamskills-final-check.log",
+      "sha256": "16e55365d7b469d861f20bf1380218c5ae2add48e7b4ed33a7af02055fb4528b"
+    }
+  ],
+  "focused_preservation": {
+    "protected_tasks": 199,
+    "send_tasks": 47,
+    "unknown_tasks": 153,
+    "unknown_send_tasks": 1,
+    "task_events": 998,
+    "prepared_tasks": 1,
+    "prepared_events": 1,
+    "gateway_drafts_and_send_snapshots": 101,
+    "devices": 10,
+    "baseline_bytes": 1100204,
+    "peak_collector_rss_mib": 59.6,
+    "all_nine_protected_sections_exact_through_first_post_admission_capture": true,
+    "prepared_task": "one exact expired collect_page reviewed against unchanged constructor/recovery source; preserved without execution",
+    "full_history_not_exported": true,
+    "latest_protection_check": {
+      "observed_at": "2026-10-26T07:01:04.381128+00:00",
+      "snapshot_sha256": "b7c592470d3f263a1a5a86198c1e635591372e23dd5b7f8f6bbfc96350c44b0e",
+      "all_nine_protected_sections_exact": true,
+      "unknown_rows": 153,
+      "unknown_send_rows": 1,
+      "send_rows": 47,
+      "drain_gaps": [],
+      "source_config_units_exact_from_ready": true,
+      "gateway_mounts_equal_ignoring_order": true
+    }
+  },
+  "activation": {
+    "native_attempts": [
+      {
+        "attempt": 1,
+        "result": "readiness_timeout"
+      },
+      {
+        "attempt": 2,
+        "result": "passed_after_normal_restart"
+      }
+    ],
+    "first_failure_root_cause": "unproved",
+    "app_cli_release": "0.3.0-sparkclaw.41",
+    "tampermonkey": "5.5.0.21",
+    "bridge": "1.0.29",
+    "native_managed_import": true,
+    "temporary_override_removed": true,
+    "preferences_all_exact": false,
+    "selected_user_preferences_preserved": true
+  },
+  "post_admission": {
+    "gateway_container": "4b3d695d73710a86dbc0be1e346001210237904fab6f1e5d28293c719ac488a9",
+    "gateway_health": "healthy",
+    "current_source": "0f46702a18e9b8fc8bb4e4fbe43341e097fd7af3",
+    "initial_verifier": "failed_wrongly_requiring_controller_runtime_paths_in_ExecStart",
+    "actual_controller_runtime_paths": "Environment",
+    "actual_executor_runtime_paths": "ExecStart",
+    "final_verification": "passed_readonly_continuation",
+    "deployment_repeated": false,
+    "observed_at": "2026-10-26T06:40:48.695139+00:00",
+    "original_failure_preserved": true,
+    "services_restarted_by_continuation": false
+  },
+  "diagnostics": {
+    "actual_invocations": 5,
+    "actual_unknown": "passed_repeated_inspect_without_resend",
+    "owner_isolation": "passed_zero_rows",
+    "provider_rejected_case": "not_available",
+    "production_linux_ledger": "incomplete_guard_unavailable_zero_rows_zero_bytes",
+    "postgres_draft_send_rows_exact": 101,
+    "all_nine_protected_sections_exact": true,
+    "real_email": 0,
+    "injected_ack_failure": false
+  },
+  "mac": {
+    "installed": true,
+    "app_entries": 296,
+    "profiles_preserved": 6,
+    "original_tables": 97,
+    "additional_existing_tables": 14,
+    "all_tables": 111,
+    "cold_profile_bytes_exact": true,
+    "old_app_retained": true,
+    "normal_entry_launch_quit_relaunch": "passed",
+    "navigation_existing_history_sidebar_settings_schedule": "passed",
+    "mail_browser_full_interactions": "blocked_existing_connection",
+    "connection_check": "expired_relay_refresh_credential",
+    "normal_recovery": "control_authorization_unavailable",
+    "profile_changed": false,
+    "full_ui_acceptance": false,
+    "left_open_on_original_entry": true
+  },
+  "connection_blocker": {
+    "normal_helper_recovery_failures": 2,
+    "management_reads": "passed",
+    "original_template_tls": "passed",
+    "signed_authority_query": "200_signature_verified",
+    "issuer_pid_unchanged": true,
+    "selected_device": "active",
+    "writer_settings": "matched_disk_config",
+    "control_records": 547,
+    "all_control_records": "succeeded",
+    "history_complete": true,
+    "history_closed": false,
+    "original_plaintext_bytes": 4193235,
+    "seal_limit_bytes": 4194304,
+    "next_mandatory_record_lower_bound_bytes": 4195320,
+    "capacity_obstruction": "reproduced_in_memory_no_signing_request_or_write",
+    "original_error_detailed_trace": "unavailable",
+    "same_state_ciphertext_hash_on_both_reads": true,
+    "remediation_proposal": "InfiniCenter ProjectGroup-2 0050, proposed; ISCP inbox 015",
+    "authorization_history_deleted": false,
+    "issuer_fix_implemented": false,
+    "loaded_config_timing": "same-second precision cannot establish a change after process load"
+  },
+  "validation": {
+    "observed_at": "2026-10-26T07:22:21.055183+00:00",
+    "docs_ci_markdown_files": 134,
+    "docs_ci": "passed",
+    "git_diff_check": "passed",
+    "indexed_evidence_hashes": "passed",
+    "teamskills_make_check": "failed_existing_errors",
+    "teamskills_errors": 37,
+    "teamskills_warnings": 56,
+    "teamskills_error_lines_equal_prior_check": true
+  }
+}

@@ -352,3 +352,30 @@ local storage、sessions 和 service-worker storage 均保留。
   缺 WAL/SHM 的冷态 WAL 数据库可能仍 incomplete；不创建源 sidecar、不自动采用 immutable。
   本项不修复新出现的 Gmail 采集故障。
 - 回滚：仅移除本次精确的新 symlink/发布二进制，或回退诊断源码；无需业务迁移或数据恢复。
+
+## 15. S5 手工工具结果持久化 — source_verified
+
+- ID / 负责人 / 状态：S5 验收发现，Gateway 通用 manual 调用；source_verified，部署及最终
+  业务验收另行记录。
+- 故障：正常 typed Gmail Sent 读取已在不变 `.41` 上完成，但 Gateway `0f46702a`
+  保存完成态 tool call 时 HTTP 500：`tool_calls_run_id_fkey` / SQLSTATE 23503。
+  成功分支先保存子 call、后保存父 run。普通策略拒绝、执行失败、等待批准路径已先保存 run；
+  不笼统声称其它异常分支均已验证。
+- 证据：一条 completed 原生读取、一个完成态 observation artifact，以及精确的
+  session→admission audit→observation→ledger capture→native manifest 关联，证明原操作
+  已完成。独立 Sent 原件的完整正文、已观察头字段及附件字节均通过。没有再次 read/send；
+  缺失的 run/call 行与原 HTTP 失败仍作为证据保留。
+- 目标 / 范围 / 机制：成功的 manual 调用先保存父 run，再保存子 call，满足 PostgreSQL
+  现有外键，使相同结果可持久化。只改通用成功路径顺序；不新增邮件分支、schema 迁移、
+  Store 契约、公开错误码、调度、App-CLI、UI 或权限变更。
+- 红→绿：新增普通 `memory.search` 回归用合成空库并禁用 retention。原 memory/file
+  通过，真实隔离 PostgreSQL 精确失败于上述外键。最小顺序修复后三后端通过；file/PG
+  重新打开后验证一个完成态 run、恰好一个 call 和输出一致，定向 race 通过。测试不访问
+  真实服务商；保留源码测试和首次失败日志。
+- 结果：源码主题 `adaca175d2a0bccdf3da753c901a6d750f08783f` 单独集成至 main。
+  原 Sent 原件证据独立成立，不把持久化失败改写成 HTTP 200。
+- 剩余限制：不新增跨记录事务，也不补造此前失败请求的 run/call 行。QQ 派发前账号证据
+  失败、Outlook 原文多 LF、采集资格失败仍属独立问题。安装后使用 `reminders.list`
+  验收，避开 `memory.search` 的 retention 副作用，不重复已经完成的服务商读取。
+- 回滚：回退成功路径顺序或恢复旧 Gateway 镜像；无需数据迁移、来源删除、App-CLI 替换
+  或 UI 回滚。

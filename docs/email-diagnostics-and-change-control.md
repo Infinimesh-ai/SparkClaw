@@ -441,3 +441,38 @@ IndexedDB, local storage, sessions and service-worker storage were retained.
   This does not repair the newly recurring Gmail collection failure.
 - Rollback: remove only the exact new symlink and release binary, or revert this
   diagnostic source change. No business migration/data restoration is required.
+
+## 15. S5 manual-tool result persistence — source_verified
+
+- ID / owner / status: S5 acceptance finding, Gateway generic manual invocation;
+  source_verified. Deployment and final business acceptance are recorded separately.
+- Observed failure: the normal typed Gmail Sent read completed on unchanged `.41`,
+  but Gateway `0f46702a` returned HTTP 500 while persisting its completed tool call:
+  `tool_calls_run_id_fkey` / SQLSTATE 23503. The success branch saved the child call
+  before its parent run. Ordinary policy denial, execution failure and approval-pending
+  paths already save the run first; no blanket qualification of other failure branches is claimed.
+- Evidence: one completed native read, a completed observation artifact and the
+  exact session → admission audit → observation → ledger capture → native manifest
+  chain prove the original operation completed. The independent Sent original's
+  full body, observed headers and attachment bytes passed. No second read or send
+  was issued; the missing run/call records and original HTTP failure remain evidence.
+- Objective / scope / mechanism: successful manual calls now persist the parent run
+  before the child call, so the same result survives PostgreSQL's existing foreign key.
+  Only this generic success ordering changes. No mail branch, schema migration,
+  Store contract, public error-code, scheduler, App-CLI, UI or permission change.
+- Red → green: the new ordinary `memory.search` regression uses a synthetic empty
+  store with retention disabled. Original memory/file passed, real isolated PostgreSQL
+  failed with the exact FK error. After the minimal order fix, all three passed;
+  file and PostgreSQL reopen/readback verified one completed run, exactly one call
+  and equal stored output. The targeted race run passed. Tests do not access a real
+  provider. The source tests and original failed logs are retained.
+- Result: source topic `adaca175d2a0bccdf3da753c901a6d750f08783f` is integrated as a
+  separate main change. The actual original Sent evidence stays valid independently
+  of the failed API persistence; it is not rewritten as an HTTP 200 success.
+- Remaining limits: this does not create a cross-record transaction or recover the
+  already failed historical run/call rows. QQ's pre-dispatch account-evidence failure,
+  the Outlook original's extra LF and collection qualification failures are separate.
+  Installed acceptance uses `reminders.list`, which avoids `memory.search` retention
+  side effects and does not repeat the completed provider read.
+- Rollback: revert the success-order source change / restore the prior Gateway image;
+  no data migration, source-row deletion, App-CLI replacement or UI rollback is needed.

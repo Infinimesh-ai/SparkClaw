@@ -310,9 +310,6 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 	call.Result = output.Output
 	call.ObservationSummary = CompressObservation(name, output.Output, r.observationSummaryLimit())
 	call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, archiveOutput(output, call.Result))
-	if _, err := r.saveToolCall(ctx, call); err != nil {
-		return ManualInvocation{}, fmt.Errorf("persist completed manual tool call: %w", err)
-	}
 	if _, err := r.saveRun(ctx, app.AgentRun{
 		ID:          runID,
 		SessionID:   sessionID,
@@ -323,6 +320,10 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		Summary:     call.ObservationSummary,
 	}); err != nil {
 		return ManualInvocation{}, fmt.Errorf("persist completed manual run: %w", err)
+	}
+	// The call references this run in PostgreSQL, just as on failure paths.
+	if _, err := r.saveToolCall(ctx, call); err != nil {
+		return ManualInvocation{}, fmt.Errorf("persist completed manual tool call: %w", err)
 	}
 	return ManualInvocation{Call: call, Result: output.Output}, nil
 }

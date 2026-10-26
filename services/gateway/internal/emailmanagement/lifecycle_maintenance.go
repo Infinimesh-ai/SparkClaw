@@ -83,7 +83,7 @@ func (s *Service) lifecycleRound(ctx context.Context) error {
 		return err
 	}
 	for _, item := range drafts {
-		if item.draft.State == "sent" && item.draft.Receipt != nil && item.draft.Receipt.Lifecycle != nil && !item.draft.Receipt.Lifecycle.Acknowledged {
+		if pendingTerminalACK(item.draft, item.provider) {
 			if _, err := s.acknowledgeDraft(ctx, item.owner, item.draft, item.provider); err != nil && ctx.Err() != nil {
 				return err
 			}
@@ -124,4 +124,21 @@ func (s *Service) lifecycleRound(ctx context.Context) error {
 	sum := sha256.Sum256([]byte(strings.Join(issued, "\n")))
 	_, err = browser.SealOperationEpoch(ctx, provider, draining, hex.EncodeToString(sum[:]))
 	return err
+}
+
+// A failed draft is eligible only when the persisted receipt still proves a
+// rejection of this exact send. Unknown and pre-dispatch failures stay fenced.
+func pendingTerminalACK(d store.EmailDraft, provider string) bool {
+	if d.Receipt == nil || d.Receipt.Lifecycle == nil || d.Receipt.Lifecycle.Acknowledged {
+		return false
+	}
+	if d.State == "sent" {
+		return true
+	}
+	return d.State == "failed" && d.Snapshot != nil &&
+		d.Receipt.Status == "not_sent" && d.Receipt.Provider == provider &&
+		d.Receipt.NotSent.ValidFor(d.Snapshot.InvocationID, provider) &&
+		d.Receipt.NotSent.RejectionErrorCode(provider) != "" &&
+		d.Receipt.Lifecycle.OperationID == d.Snapshot.InvocationID &&
+		d.Receipt.Lifecycle.TaskID == d.Receipt.NotSent.TaskID
 }

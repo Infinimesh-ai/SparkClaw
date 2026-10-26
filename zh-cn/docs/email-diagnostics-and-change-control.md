@@ -16,7 +16,7 @@
 [验收记录](desktop-browser-follow-up-2026-10-23.md)最新留存证据仍是 `.39` 运行、`.41` 未激活。
 本轮没有读取实机；这是历史观察，不是新的健康检查。
 
-**本次仅文档变更。** 下文修复和诊断字段均待实现；没有发信、部署、接口或 UI 变更。
+**实施状态：S1/D08 source_verified（第 7 节），其他修复待实施。** 没有真实发信、部署、接口或 UI 变更。
 
 ## 1. 先看完整链路
 
@@ -49,7 +49,7 @@
 | D05 | [`endpoint_rpc.go`](../../services/gateway/internal/iscpworkbench/endpoint_rpc.go)（174–176）仅用 `callCtx.Err()`记 handler 状态；`commitListFailure` 成功保存业务失败后返回 nil，job 因而可成功。 | 传输/作业完成与业务结果分开；不能为日志变红而改变调度语义。 |
 | D06 | [`latencytrace/trace.go`](../../services/gateway/internal/latencytrace/trace.go) 需手动开启，队列 1,024/文件 64 MiB，有 dropped/limit 标记但初始化/写失败可能静默；[`latency-trace.mjs`](../../apps/desktop/src/main/latency-trace.mjs) 达 100,000 条或写失败静默停止。 | 显式报告启用/关闭/降级、覆盖及丢失；没记录不能证明没执行。 |
 | D07 | [`agent.go`](../../services/gateway/internal/agent/agent.go)（1007）忽略 trace 写失败；[`trace/writer.go`](../../services/gateway/internal/trace/writer.go)（76–78）吞制品写失败；[`app-cli-client.mjs`](../../tools/browser-controller/src/app-cli-client.mjs)（56）吞维护错误。 | 使证据/维护失败可见，不改写邮件结果；Agent trace 本就不覆盖所有直接撰写或后台同步。 |
-| D08 | [`compose.go`](../../services/gateway/internal/emailmanagement/compose.go)（293）将有效服务商拒绝记作 `failed`，首次 ACK 失败忽略（306）；[`lifecycle_maintenance.go`](../../services/gateway/internal/emailmanagement/lifecycle_maintenance.go)（86）只补偿 `sent`。 | 源码确认 ACK 恢复覆盖缺口；先隔离复现，再包含合格的拒绝终态结果，零再次派发。尚未证实为实机事故原因。 |
+| D08 (S1 source_verified) | [`compose.go`](../../services/gateway/internal/emailmanagement/compose.go)（293）将有效服务商拒绝记作 `failed`，首次 ACK 失败忽略（306）；[`lifecycle_maintenance.go`](../../services/gateway/internal/emailmanagement/lifecycle_maintenance.go)（86）只补偿 `sent`。 | 源码确认 ACK 恢复覆盖缺口；先隔离复现，再包含合格的拒绝终态结果，零再次派发。尚未证实为实机事故原因。 |
 | D09 | [`analysis.go`](../../services/gateway/internal/emailmanagement/analysis.go) 保留失败分析文件，但失败 [`EmailJob`](../../services/gateway/internal/app/email_management.go) 无直接 execution/artifact/ModelCall 索引；`SaveModelCall` 失败仍可能返回生成的 ID。 | 按分析 attempt 建索引，区分持久化成功与仅分配引用；不能把不存在的记录当证据。 |
 | D10 | [`compose.go`](../../services/gateway/internal/emailmanagement/compose.go)（258–264）忽略 epoch 查询错误，可能回退 legacy invocation。 | 记录 identity mode 与安全 epoch 错误；取消 fallback 属另一个行为决策，不能混入加日志。 |
 
@@ -125,3 +125,13 @@ M1 使下一次失败能明确归属，M2/M3 使证据可直接使用。D08 不�
 本次范围验收通过、原失败保留、局限更新、真实状态填明，才关闭补丁。单测可证明 `source_verified`，
 不能直接变成 `deployed` 或 `accepted`。只有新变更、新失败或未解决疑点才扩大/重跑测试。
 继续执行[工程底线](engineering-baseline.md)；跨项目改动先有 InfiniCenter accepted 决策。
+
+## 7. S1 / D08 修改卡 — source_verified
+
+- 负责方：SparkClaw 邮件生命周期维护；2026-10-26，仅本地源码。
+- 失败与证据：基线 `e580fc01`，隔离文件 Store 与假服务商。`TestRejectedReceiptACKRecoversAfterFileStoreRestartWithoutRedispatch` 先失败：拒绝回执已持久化，重启后仍无 ACK。不是实机历史事故归因。
+- 目标与范围：仅在 `services/gateway/internal/emailmanagement/lifecycle_maintenance.go` 恢复合格拒绝终态的待补 ACK；无 schema、UI、对外错误码、调度或 App-CLI 改动。
+- 机制：failed + not_sent + provider/invocation/task 一致 + 原有有效拒绝证明；保留 sent 路径，排除 unknown、无证明和已 ACK 回执。复用各后端共同的 ACK 命令。
+- 验收与结果：复现先红后绿；两轮只 ACK 一次，拒绝状态/错误码/身份不变、不发布 sent mail，同 key 重放后总发送次数仍为 1。Compose 与证明围栏、隔离 Linux 全量 Go（75 个有测试包）、build/vet、中英文链接检查通过。之前 macOS 路径/tmpfs 和不完整容器配置失败保留在本地日志，不计为通过。证据为同提交 `rejected_ack_recovery_test.go`；源码版本为本卡提交，部署/实机证据：无。
+- 局限：无安装版本证据；S2/S3/S4 独立推进。
+- 回退：回退本提交；无持久格式变化，已有 ACK 标记继续有效。

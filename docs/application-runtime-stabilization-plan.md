@@ -4,7 +4,7 @@
 
 ## 1. Decision and scope
 
-**Status: proposed, 2026-10-26, Asia/Shanghai; documentation only, every change below is pending.**
+**Status: implementation in progress, 2026-10-26, Asia/Shanghai. S1 source_verified; S2/S3 pending, S4 design requires confirmation, S5 unauthorized.**
 
 App-CLI currently has a single application module (`runtimes/browser/applications/mail`) and no
 approved second consumer. This stage is therefore limited to: **the existing mail path, on the
@@ -14,8 +14,7 @@ acceptance.** Building an "any module changes only module files, never the core"
 of scope; it is designed separately when requirements rise (section 5).
 
 Audit baseline: SparkClaw `db9ca9cf`; pinned App-CLI `.41`, source
-`bcc55506cc933f981668e3b2d1ed1eba1bf4c6a3`. This pass read source and retained evidence; **no tests
-were rerun and no live system was inspected**. The
+`bcc55506cc933f981668e3b2d1ed1eba1bf4c6a3`. The original audit read source and retained evidence without rerunning tests or inspecting a live system. Current source tests are recorded in section 2 and the change cards. The
 [deferred acceptance list](desktop-browser-follow-up-2026-10-23.md) still records `.41` as not
 activated and `.39` as the last verified deployment.
 
@@ -29,7 +28,7 @@ its current owner; no new layer is added.
 
 | Goal | Current state (confirmed in source) | Exit |
 |---|---|---|
-| G1 Recovery keeps results | [`compose.go`](../services/gateway/internal/emailmanagement/compose.go) records a valid provider rejection as `failed` and leaves a failed first ACK to the maintenance loop; [`lifecycle_maintenance.go`](../services/gateway/internal/emailmanagement/lifecycle_maintenance.go) only re-ACKs `sent` (mail diagnostics D08). | Rejection + failed first ACK + restart is ACKed later with zero additional dispatch; sent/unknown protection unchanged. |
+| G1 Recovery keeps results | **S1 source_verified (2026-10-26)**: eligible rejected terminal receipts now recover ACK. File Store restart reproducer changed red → green; two maintenance rounds ACK once and keep total dispatches at 1. sent/unknown and proof identity fencing pass. Not deployed or live accepted. | Source exit met; deployment and installed acceptance remain separately authorized. |
 | G2 One failure is attributable | Failed intake history has no invocation (D01); send errors collapse to unknown (D02); Host events have no task (D03); lease-renewal failure loses its first cause (D04); maintenance/trace write failures are swallowed (D06/D07); epoch lookup errors fall back silently (D10). | Every failure carries the real operation/invocation/task, stage and first safe cause; evidence write failures are visible; external error codes and scheduling semantics unchanged. |
 | G3 Minimal read-only diagnosis | Evidence is spread across receipts, task events, Host logs and traces and must be joined by hand. | Query by draft/operation/job and return the loaded versions, last confirmed stage, first cause, execution result, business result, ACK and missing evidence; anything unprovable is `incomplete`. |
 | G4 Installed-version acceptance | `.41` is qualified and packaged but not activated. | After separate authorization, completed on a supported configuration per the deferred acceptance list, with each conclusion recorded separately. |

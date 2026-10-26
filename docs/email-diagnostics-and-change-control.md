@@ -20,8 +20,7 @@ The latest retained [acceptance record](desktop-browser-follow-up-2026-10-23.md)
 still describes `.39` running and `.41` not activated. This audit did not read a
 live host; these are historical observations, not a new health check.
 
-**This change is documentation only.** Repairs and diagnostic fields below are
-planned, not implemented. No mail, deployment, interface or UI change occurred.
+**Implementation status:** S1/D08 is source_verified (section 7); remaining repairs are pending. No real mail, deployment, interface or UI change occurred.
 
 ## 1. Follow the whole chain
 
@@ -58,7 +57,7 @@ Locate by file/function if line numbers move.
 | D05 | [`endpoint_rpc.go`](../services/gateway/internal/iscpworkbench/endpoint_rpc.go) (174–176) records handler status from `callCtx.Err()` only. `commitListFailure` returns nil after storing a business failure, so the job can succeed. | Separate transport/worker completion from business outcome. Do not change scheduling semantics just to change a log status. |
 | D06 | [`latencytrace/trace.go`](../services/gateway/internal/latencytrace/trace.go) is opt-in and bounded (1,024 queue / 64 MiB), with dropped/limit markers but silent initialization/sink failures. [`latency-trace.mjs`](../apps/desktop/src/main/latency-trace.mjs) silently stops at 100,000 records or write failure. | Report enabled/disabled/degraded state, coverage and loss. Missing events do not prove no execution. |
 | D07 | [`agent.go`](../services/gateway/internal/agent/agent.go) (1007) ignores trace-write error; [`trace/writer.go`](../services/gateway/internal/trace/writer.go) (76–78) suppresses artifact-store error; [`app-cli-client.mjs`](../tools/browser-controller/src/app-cli-client.mjs) (56) suppresses maintenance failure. | Make evidence/maintenance failure observable without rewriting mail results. Agent traces do not cover every direct compose or background sync. |
-| D08 | Validated provider rejection becomes `failed` in [`compose.go`](../services/gateway/internal/emailmanagement/compose.go) (293); first ACK failure is ignored (306). [`lifecycle_maintenance.go`](../services/gateway/internal/emailmanagement/lifecycle_maintenance.go) (86) retries only `sent`. | Source-confirmed ACK recovery coverage gap. First reproduce in isolation, then include eligible rejected terminal results; zero redispatch. Not a proven live incident cause. |
+| D08 (S1 source_verified) | Validated provider rejection becomes `failed` in [`compose.go`](../services/gateway/internal/emailmanagement/compose.go) (293); first ACK failure is ignored (306). [`lifecycle_maintenance.go`](../services/gateway/internal/emailmanagement/lifecycle_maintenance.go) (86) retries only `sent`. | Source-confirmed ACK recovery coverage gap. First reproduce in isolation, then include eligible rejected terminal results; zero redispatch. Not a proven live incident cause. |
 | D09 | [`analysis.go`](../services/gateway/internal/emailmanagement/analysis.go) retains failed analysis files, but failed [`EmailJob`](../services/gateway/internal/app/email_management.go) has no direct execution/artifact/ModelCall index; `SaveModelCall` failure can still return the generated ID. | Index analysis attempts and distinguish artifact/model-call persistence success from an allocated reference. Never present a nonexistent record as evidence. |
 | D10 | [`compose.go`](../services/gateway/internal/emailmanagement/compose.go) (258–264) ignores epoch lookup error and can fall back to a legacy invocation. | Record identity mode and safe epoch failure. Removing fallback would be a separate behavior decision, not a logging fix. |
 
@@ -114,7 +113,7 @@ every attachment path; a QQ pass does not qualify Gmail or Outlook.
 
 ## 5. Ordered changes and acceptance
 
-All batches are **planned**. Independent behavior repairs and diagnostic/schema
+S1/D08 is **source_verified**; other batches are **planned**. Independent behavior repairs and diagnostic/schema
 work are separate changes. An unrelated failure gets a separate item.
 
 | Batch | Exact change | Acceptance |
@@ -153,3 +152,13 @@ limitation and truthful status. Unit tests can establish `source_verified`, not
 `deployed` or `accepted`. Broaden/repeat tests only for a new change, failure or
 unresolved concern. Apply the [engineering baseline](engineering-baseline.md);
 cross-project changes require an accepted InfiniCenter decision.
+
+## 7. S1 / D08 change card — source_verified
+
+- Owner: SparkClaw email lifecycle maintenance; local source only, 2026-10-26.
+- Observed failure / evidence: baseline `e580fc01`, isolated file Store and fake provider. `TestRejectedReceiptACKRecoversAfterFileStoreRestartWithoutRedispatch` failed with no ACK after restart despite a durable rejected receipt. This is not a live incident attribution.
+- Objective / scope: recover pending ACK for validated rejected terminal receipts in `services/gateway/internal/emailmanagement/lifecycle_maintenance.go`; no schema, UI, public error, scheduling or App-CLI change.
+- Mechanism: require failed + not_sent + matching provider/invocation/task + existing valid rejection proof; retain the sent path and reject unknown, unproven and already-ACKed receipts. Uses the existing backend-neutral ACK command.
+- Acceptance / result: reproducer red then green; two rounds ACK exactly once, preserve rejection/code/identity, publish no sent mail, and leave total sends at one after same-key replay. Compose and proof-fencing regressions, isolated Linux full Go suite (75 tested packages), build/vet, and bilingual links pass. Earlier macOS path/tmpfs and incomplete-container setup failures remain in local logs; they are not counted as passes. Evidence is the committed `rejected_ack_recovery_test.go`; source revision is this card's commit, deployment/evidence from live systems: none.
+- Limitation: no installed-version proof. S2/S3 and S4 remain separate.
+- Rollback: revert this commit; no persistent format change, existing ACK flags remain valid.

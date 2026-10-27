@@ -7,6 +7,7 @@ import { fetchAuthedBlob, fetchDocumentFile, openDocumentFile, workspaceScreensh
 import { cssToken, formatTime } from "../lib/format";
 import { MESSAGE_STREAM_STARTED_EVENT } from "../lib/messageStream";
 import { parseMessageDisclosure } from "../lib/messageDisclosure";
+import { readableMath } from "../lib/readableMath";
 import { useSmoothReveal } from "../lib/smoothReveal";
 import type { Message, MessageAttachment, MessageMediaLocator } from "../api/types";
 import type { Copy, Language } from "../i18n";
@@ -227,10 +228,13 @@ export function upsertStreamStatus(statuses: StreamStatus[], next: StreamStatus)
 export function MessageContent({ content, sessionId, text, allowDetails = false, inProgress = false }: {
   content: string; sessionId: string; text: Copy; allowDetails?: boolean; inProgress?: boolean;
 }) {
+  // Assistant answers may cite sources inline and contain LaTeX-style
+  // arithmetic; earlier search answers may still end with a details block.
+  if (allowDetails) content = readableMath(content);
   const disclosure = allowDetails ? parseMessageDisclosure(content, inProgress) : null;
   if (disclosure) return (
     <>
-      <RenderedMessageText content={disclosure.answer} />
+      <RenderedMessageText content={disclosure.answer} allowLinks />
       {disclosure.details && (
         <details className="messageDetails">
           <summary>{text.chat.viewDetails}</summary>
@@ -244,10 +248,10 @@ export function MessageContent({ content, sessionId, text, allowDetails = false,
   const mediaImage = parseSingleMediaImageContent(content);
   if (mediaImage) return <WorkspaceMediaImage path={mediaImage.path} sessionId={sessionId} alt={mediaImage.alt} />;
   const screenshot = parseScreenshotContent(content);
-  if (!screenshot) return <RenderedMessageText content={content} />;
+  if (!screenshot) return <RenderedMessageText content={content} allowLinks={allowDetails} />;
   return (
     <div className="messageContent">
-      {screenshot.text ? <RenderedMessageText content={screenshot.text} /> : null}
+      {screenshot.text ? <RenderedMessageText content={screenshot.text} allowLinks={allowDetails} /> : null}
       <WorkspaceScreenshot path={screenshot.path} />
       <p>截图已保存到：{screenshot.path}</p>
     </div>

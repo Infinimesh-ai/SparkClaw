@@ -49,7 +49,10 @@ The workbench includes:
 - Simplified Chinese and English UI.
 
 Assistant answers in WebChat and Desktop have no rating buttons or correction
-input. Info answers retain the result and the expandable “View details” control.
+input. Info answers show each fact with its source links inline, without a
+collapsed details control; earlier stored answers keep their “View details”
+control. Assistant text shows LaTeX-style arithmetic such as
+`$37 \times 4 = 148$` as plain text (37 × 4 = 148).
 
 WebChat and the SparkX desktop renderer share one frosted-glass visual system
 recorded in [DESIGN.md](../DESIGN.md). Settings › Appearance keeps theme, text

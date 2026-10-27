@@ -266,7 +266,7 @@ MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"`+
 		observation.Structured["projection_status"] != "partial" || observation.Structured["next_step_hint"] != nil {
 		t.Fatalf("malicious text must remain evidence and never become a next-step instruction: %#v", observation)
 	}
-	if !strings.Contains(result.Message.Content, "SparkClaw architecture uses a bounded Workflow runtime [1]") || !strings.Contains(result.Message.Content, "https://example.com/source") ||
+	if !strings.Contains(result.Message.Content, "SparkClaw architecture uses a bounded Workflow runtime。来源：[Official SparkClaw architecture](https://example.com/source)") ||
 		strings.Contains(result.Message.Content, "UNTRUSTED-ACTION-MUST-NOT-ENTER-MODEL-CONTEXT") {
 		t.Fatalf("grounded result did not use the deterministic Info renderer: %q", result.Message.Content)
 	}

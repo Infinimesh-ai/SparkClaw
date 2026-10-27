@@ -413,37 +413,37 @@ finalizer after Info returns. A typed renderer consumes only
 
 Rendering rules are:
 
-1. Render the upstream summary as the visible answer only when cited facts or conflict
-   viewpoints make the answer usable. There is no display-string sniffing, no
-   local summary rewrite, and no citation edge is invented for the summary.
-   Without a usable summary, show up to two whole admitted facts in order; conflict-only answers
-   explicitly indicate disagreement.
-2. Details show at most two whole facts in Info order, skipping exact repetitions
-   of the lead or another displayed claim. Fallback facts already in the answer
-   are not repeated in details. Each claim keeps its own source-ID edges.
-3. Show the first conflict group with all its cited viewpoints, and indicate
-   when additional disagreements exist. Never keep only one side of a conflict.
+1. The upstream summary is not displayed: it has no per-claim source edges and
+   may describe material absent from the validated projection. The visible
+   answer consists of up to three whole admitted facts in Info order, skipping
+   exact repetitions; conflict-only answers explicitly indicate disagreement.
+2. Each displayed claim ends with its own sources, written after the claim as
+   “来源：” followed by the source titles. Linkable sources are clickable title
+   links; non-linkable sources use a plain label. A missing title uses the
+   source host name or a neutral label. Internal source IDs such as `src_002`
+   are removed from all display text and never shown.
+3. Show the first conflict group with all its cited viewpoints, each with its
+   own inline sources, and indicate when additional disagreements exist. Never
+   keep only one side of a conflict.
 4. Present the latest source date as a readable date label. Add a natural-language
    freshness caution for high risk, or medium risk with no source date; do not
    expose enum values such as `current` or `medium`.
 5. Show up to two distinct uncertainty notes, without a diagnostic section heading.
-6. Show only sources supporting the displayed claims/viewpoints, preserving their
-   relative Info order and assigning matching display citation numbers. If no
-   claim edges are displayed, show up to three sources for reference. Link titles
-   are clickable in details; non-linkable sources use a plain label. Missing titles
-   use a neutral numbered label, not internal source IDs.
+6. If no displayed claim has a source edge, list up to three sources after the
+   answer in Info order.
 7. Translate partial evidence and metadata findings to one brief readable notice.
    Components, omission counts, reason codes and validation diagnostics stay in
-   the stored evidence, not in the user-facing detail view.
+   the stored evidence, not in the user-facing view.
 8. For `no_results` or `failed`, return a typed unavailable/no-reliable-results
    response instead of exposing a provider status sentence as an answer.
 
-Items 2–7 belong to a trailing standard `<details>` block in the existing message
-text. WebChat and Desktop render it as an initially closed “View details” control
-inside the original bubble. The client recognizes structure, never translated
-heading text, and uses the ordinary escaped-text renderer for both bodies.
-Incomplete disclosure markup stays hidden during streaming. Non-Web delivery
-expands this concise block and its source links to plain text, preserving the original stored content.
+All items are ordinary message text; there is no collapsed details control or
+numbered reference list. WebChat and Desktop render the source links in the
+assistant message with the ordinary escaped-text renderer. Messages stored
+before this change may still end with a standard `<details>` block; the clients
+continue to render it as an initially closed “View details” control, and
+non-Web delivery still expands it. Non-Web delivery spells out inline source
+links as plain text, preserving the original stored content.
 No Info response, evidence projection, browser URL selection or transport schema
 changes are required.
 

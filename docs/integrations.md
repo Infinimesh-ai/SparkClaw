@@ -274,16 +274,14 @@ enters model evidence, Workflow control, or the user answer.
 The answer projection is `info_aggregate_projection_v4`. It validates unique
 source IDs and citation edges, admits whole facts and conflict viewpoints in
 Info order, excludes snippets, and reports capacity or invalid-reference
-omissions as `partial`. Facts and viewpoints retain their own citation markers;
-freshness, uncertainty, and non-linkable citation labels remain available in
-details. WebChat and Desktop show the summary directly, with a concise
-closed-by-default “View details” control in the existing message bubble. Details
-contain up to two supporting facts, the first complete conflict group if needed,
-a readable source date, up to two uncertainty notes and matching source title
-links. Raw enum values and projection diagnostics are not displayed.
-If the summary is absent, up to two admitted facts form the visible answer without
-being repeated in details; conflict-only results explicitly indicate disagreement.
-Plain-text channels receive the same concise view with readable source URLs.
+omissions as `partial`. WebChat and Desktop show up to three admitted facts directly in the existing
+message bubble, each followed by its own source title links (“来源：…”), plus
+the first complete conflict group if needed, a readable source date, up to two
+uncertainty notes and a brief partial-evidence notice. There is no collapsed
+details control; internal source IDs, raw enum values and projection
+diagnostics are not displayed, and the unsourced upstream summary is not shown.
+Conflict-only results explicitly indicate disagreement. Plain-text channels
+receive the same concise view with readable source URLs.
 A deterministic renderer completes `browser.internet_search` without another
 model finalizer. Browser target identification separately reads the raw ordered
 source view, skips non-linkable entries, and retains the existing HTTPS,

@@ -38,8 +38,9 @@ approval、trace、persistence、delivery、schedule 和 connector binding 的�
   artifact、eval、status、owner/client setting、connector activation/binding 和 policy setting；
 - 简体中文和英文 UI。
 
-WebChat 和桌面端的回答下方不显示评价按钮或修正输入框。Info 回答保留结果正文和可展开的
-“查看详情”。
+WebChat 和桌面端的回答下方不显示评价按钮或修正输入框。Info 回答在每条事实后直接附来源链接，
+不再使用折叠详情；此前存储的回答仍保留“查看详情”。助手回答中的 `$37 \times 4 = 148$`
+等 LaTeX 算式显示为普通文本（37 × 4 = 148）。
 
 WebChat 和 SparkX 桌面渲染层共用一套磨砂玻璃视觉系统，记录在
 [DESIGN.md](../DESIGN.md)。设置 › 外观把主题、文字大小、阅读宽度、透明度和动态效果

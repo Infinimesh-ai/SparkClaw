@@ -109,6 +109,28 @@ describe("MessageBubble external AI requirements", () => {
   });
 });
 
+describe("inline sources and arithmetic in assistant answers", () => {
+  const content = "- 宇航员计划于10月29日出舱。来源：[NASA 最新动态](https://www.nasa.gov/a)\n- 共 $37 \\times 4 = 148$ 件。来源：线下报告\n[不安全](javascript:alert%281%29)";
+  const render = (role: "assistant" | "user") => renderToStaticMarkup(
+    <MessageBubble message={{ id: "answer", session_id: "session", role, content, created_at: "", run_id: "run" }}
+      streamStatuses={[]} text={dictionaries.zh} language="zh" />
+  );
+
+  it("links each source after its own claim and shows readable arithmetic", () => {
+    const markup = render("assistant");
+    expect(markup).not.toContain("<details");
+    expect(markup).toContain('<li>宇航员计划于10月29日出舱。来源：<a class="messageSourceLink" href="https://www.nasa.gov/a" target="_blank" rel="noopener noreferrer">NASA 最新动态</a></li>');
+    expect(markup).toContain("<li>共 37 × 4 = 148 件。来源：线下报告</li>");
+    expect(markup).not.toContain('href="javascript:');
+  });
+
+  it("keeps user text literal", () => {
+    const markup = render("user");
+    expect(markup).not.toContain("<a ");
+    expect(markup).toContain("$37 \\times 4 = 148$");
+  });
+});
+
 describe("answer details in the original message bubble", () => {
   const content = "最终结果。\n\n<details>\n<summary>查看详情</summary>\n\n- 事实依据。 [1]\n\n参考来源\n[1] [报价来源](https://example.com)\n[不安全](javascript:alert%281%29)\n<script>alert(1)</script>\n</details>";
   const render = (role: "assistant" | "user", language: "zh" | "en" = "zh") => renderToStaticMarkup(

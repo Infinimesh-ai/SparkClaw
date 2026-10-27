@@ -163,6 +163,7 @@ func TestGatewayDeliversAllPartsThroughRegisteredProvider(t *testing.T) {
 	}
 	content := app.MessageContent{Parts: []app.MessagePart{
 		{ID: "text", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "hello\n\n<details>\n<summary>查看详情</summary>\n\nEvidence [1]\n[1] [Report](https://example.com)\n</details>"},
+		{ID: "inline", Kind: app.MessagePartText, Disposition: app.MessageDispositionInline, Text: "事实。来源：[报告](https://example.com/r)、线下资料"},
 		{ID: "image", Kind: app.MessagePartImage, Disposition: app.MessageDispositionAttachment, ArtifactID: "img"},
 		{ID: "voice", Kind: app.MessagePartAudio, Disposition: app.MessageDispositionVoiceNote, ArtifactID: "voice"},
 		{ID: "file", Kind: app.MessagePartFile, Disposition: app.MessageDispositionAttachment, ArtifactID: "file"},
@@ -177,6 +178,9 @@ func TestGatewayDeliversAllPartsThroughRegisteredProvider(t *testing.T) {
 	}
 	if fake.requests[0].Content.Parts[0].Text != "hello\n\nEvidence [1]\n[1] Report：https://example.com" {
 		t.Fatalf("plain-text channel should receive all evidence without disclosure tags: %#v", fake.requests[0].Content)
+	}
+	if fake.requests[0].Content.Parts[1].Text != "事实。来源：报告（https://example.com/r）、线下资料" {
+		t.Fatalf("plain-text channel should spell out inline source links: %#v", fake.requests[0].Content.Parts[1])
 	}
 	if request.Content.Parts[0].Text != content.Parts[0].Text || request.Content.Parts[0].Text == fake.requests[0].Content.Parts[0].Text {
 		t.Fatal("channel formatting mutated the original persisted content")

@@ -212,12 +212,10 @@ Workflow control 或用户回答。
 
 回答 projection 为 `info_aggregate_projection_v4`。它校验 source ID 唯一性与 citation 边，
 按 Info 顺序加入完整 fact 和 conflict viewpoint，不包含 snippet，并把容量或无效引用造成的
-省略标为 `partial`。Fact 与 viewpoint 保留各自 citation marker；freshness、uncertainty 和
-不可链接 citation label 保留在详情中。WebChat 与桌面端直接显示 summary，原消息气泡内的
-“查看详情”默认折叠，只展示最多两条支持事实、必要时首组完整分歧、易读来源日期、最多两条
-不确定性说明及对应来源标题链接，不暴露原始枚举值和投影诊断。缺少 summary 时，正文展示
-最多两条已接纳事实且详情不再重复；只有分歧时明确提示来源说法不一致。纯文本渠道接收同样
-精简的内容和可读来源 URL。确定性 renderer 完成 `browser.internet_search`，不增加第二个模型 finalizer。
+省略标为 `partial`。WebChat 与桌面端在原消息气泡内直接展示最多三条已接纳事实，每条句末附自己的来源标题
+链接（“来源：…”），必要时展示首组完整分歧、易读来源日期、最多两条不确定性说明和简短的
+部分证据提示。不再使用折叠详情；不显示内部 source ID、原始枚举值、投影诊断和缺少引用的
+上游 summary。只有分歧时明确提示来源说法不一致。纯文本渠道接收同样精简的内容和可读来源 URL。确定性 renderer 完成 `browser.internet_search`，不增加第二个模型 finalizer。
 浏览器目标识别独立读取 raw 有序 source 视图，跳过不可链接 entry，
 继续执行 HTTPS、DNS/IP 和 redirect 安全门。只读 decoder 支持持久化的 pre-v2 搜索结果；
 新的 ToolHub call 只写 v2。

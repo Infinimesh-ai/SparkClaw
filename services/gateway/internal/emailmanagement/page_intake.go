@@ -150,7 +150,9 @@ func (s *Service) collectPageIncrement(ctx context.Context, job app.EmailJob, br
 			continue
 		}
 		target := app.EmailCaptureTarget{AccountAddress: mailbox.Address, ProviderMessageID: mail.ProviderMessageID, ProviderNativeID: mail.ProviderNativeID, ProviderSelectionID: mail.ProviderSelectionID, ProviderThreadID: mail.ProviderThreadID, Folder: mail.Folder}
-		if mailbox.Provider == app.EmailProviderOutlook && !mail.SourceTime.IsZero() {
+		// QQ and Outlook list receipt times as part of the capture target.
+		// Keep the stored observation so a retry matches the same listed row.
+		if (mailbox.Provider == app.EmailProviderQQMail || mailbox.Provider == app.EmailProviderOutlook) && !mail.SourceTime.IsZero() {
 			received := mail.SourceTime
 			target.ReceivedAt = &received
 		}

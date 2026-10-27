@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-27",
+  "timezone": "Asia/Shanghai",
+  "scope": "authorized publication and current service version reconciliation",
+  "published_source": "ebc35697100a6f171e45d6a7f636f36540604dbc",
+  "source_commits_pushed": 13,
+  "public_history_sanitization": {
+    "developer_absolute_path_fields_removed": 2,
+    "unpublished_commits_rewritten": 7,
+    "original_history_retained_locally": true,
+    "production_source_changed": false,
+    "commit_aliases": {
+      "4897bad340c58ee803a3b80753b8af83b68801ad": "31df587ececfdadcd913a64e673cd8f86c1beafe",
+      "ad29336533fdec9b91196d127771667f6e291d5c": "4cd043dc8c44fe5c5d709819e4de1e48fd44fa86",
+      "d511a1e0dbcea32a7ea3ce7934d93bfce6152ca2": "28576c069f8217ac545a47de00b36abfc600fab8",
+      "fb75ac3ba6dd5d17dcebb323a6666bac3702b6eb": "3ade881fc4a3e396d476c961b92ca42b04bf2a4f",
+      "d97cfcf18ceeb684e3d8725a626af1255d78fd13": "785052279929839ff6fa0546a4d04475b091024f",
+      "297f9c0246e5fabb12f9e6038bd518d469f61aa0": "3a7865a7bfa5e3c3fe15ca1cd9d915be3d22ddaf",
+      "7a0631ddbd0e723b97952b5410d0eb70051e1671": "ebc35697100a6f171e45d6a7f636f36540604dbc"
+    }
+  },
+  "work2": {
+    "before_source": "0f46702a18e9b8fc8bb4e4fbe43341e097fd7af3",
+    "after_source": "ebc35697100a6f171e45d6a7f636f36540604dbc",
+    "fast_forward": true,
+    "worktree_clean": true,
+    "runtime_inventory_exact": true,
+    "config_hashes_exact": true,
+    "service_restarts": 0,
+    "health": {
+      "at": "2026-10-27T04:57:18.127820+00:00",
+      "source": "ebc35697100a6f171e45d6a7f636f36540604dbc",
+      "clean": true,
+      "gateway": [
+        {
+          "path": "/healthz",
+          "status": 200,
+          "content_type": "application/json"
+        },
+        {
+          "path": "/readyz",
+          "status": 200,
+          "content_type": "application/json"
+        }
+      ],
+      "webchat": [
+        {
+          "path": "/",
+          "status": 200,
+          "content_type": "text/html"
+        },
+        {
+          "path": "/pcm-worklet.js",
+          "status": 200,
+          "content_type": "application/javascript"
+        }
+      ],
+      "tls_certificate_validation": true,
+      "tls_client": "existing production Node runtime"
+    }
+  },
+  "gateway": {
+    "loaded_binary_sha256": "2bb5267d2908c98908cb4cad9babb7350067cb8a86001c0a192b65665f9e2fec",
+    "artifact_source": "adaca175d2a0bccdf3da753c901a6d750f08783f",
+    "published_source_for_same_fix": "785052279929839ff6fa0546a4d04475b091024f",
+    "gateway_tree_matches_published_source": true,
+    "historical_exact_source_validation": {
+      "test_date": "2026-10-26",
+      "packages": 77,
+      "passed": 5610,
+      "skipped": 203,
+      "failed": 0,
+      "build_vet_targeted_race": "passed",
+      "original_logs_rehashed": true,
+      "tests_rerun_for_source_sync": false
+    }
+  },
+  "linux_diagnostic": {
+    "loaded_artifact_sha256": "ad7ae6d7c8af85721d73823c642ed64893903e50cf76ba84fd66c42c24b386cf",
+    "already_current": true
+  },
+  "desktop": {
+    "installed_manifest_entries": 296,
+    "installed_manifest_exact": true,
+    "runtime_source_unchanged_since": "0f46702a18e9b8fc8bb4e4fbe43341e097fd7af3",
+    "original_workbench_and_mail_entry_present": true,
+    "mail_list_count": 121,
+    "unviewed_count": 115,
+    "intake_enabled": true,
+    "normal_close_returned_to_workbench": true,
+    "new_send_draft_reanalysis_manual_sync": false
+  },
+  "app_cli": {
+    "version": "0.3.0-sparkclaw.41",
+    "manifest_sha256": "e315727dfe2802b92ef97f3fc0828825e343b3056f5a8d3214207c32840a7db4",
+    "changed": false
+  },
+  "ci": {
+    "run_url": "https://github.com/Infinimesh-ai/SparkClaw/actions/runs/40452288540",
+    "baseline_url": "https://github.com/Infinimesh-ai/SparkClaw/actions/runs/40261157283",
+    "status_at_recording": "in_progress_with_failures",
+    "passed_observed": [
+      "Docs",
+      "WebChat",
+      "ASR Runtime",
+      "Gateway race"
+    ],
+    "in_progress_observed": [
+      "Gateway"
+    ],
+    "failed_observed": {
+      "Browser surface Electron anchor": "Electron SUID sandbox helper ownership/mode; same baseline failure",
+      "Compose": "expected override error differs from fast/deep URL mismatch; same baseline failure",
+      "Desktop Electron adapter": "isolated qualification process exits before readiness; same baseline failure"
+    },
+    "baseline_comparison": {
+      "anchor": {
+        "prior": {
+          "same_failure_present": true,
+          "sha256": "83f5a5a376c58e85839be56dcd4a23d3de67fcc24aab5b6e3eebe398e36592c3"
+        },
+        "current": {
+          "same_failure_present": true,
+          "sha256": "fbbc64e2162098f8ec7ec21dfc2df336d1824783a056ac0b60aab2119d408076"
+        }
+      },
+      "compose": {
+        "prior": {
+          "same_failure_present": true,
+          "sha256": "238dbdf90d3675a06cd186f3fd1ca05b5148f13b4327cbde98231c8d39cbf8ff"
+        },
+        "current": {
+          "same_failure_present": true,
+          "sha256": "b849d690bb045cf2860ceb38483c2d37b0e58da6d0213fd929adc74e5e9a4871"
+        }
+      },
+      "desktop": {
+        "prior": {
+          "same_failure_present": true,
+          "sha256": "c0a9f1c749c0fca604bffa4b7f227b91bee57355425345b09a06e66cfc7a02e8"
+        },
+        "current": {
+          "same_failure_present": true,
+          "sha256": "86719131dad1813394778053bd815d6cb5140333f505fc130a935e6fe630946b"
+        }
+      },
+      "current_run": 40452288540,
+      "prior_run": 40261157283
+    }
+  },
+  "retained_probe_failures": [
+    "First WebChat probe used port 80 instead of its existing TLS port 18790.",
+    "A host Gateway probe used its container-only loopback port and was refused.",
+    "Python 3.14 strict CA validation rejected the existing CA key-usage extension. Existing production Node TLS validation succeeded; no certificate or trust settings changed."
+  ],
+  "limits": [
+    "No new whole-database inventory or unknown/send count assertion.",
+    "QQ body readback, Outlook trailing LF and QQ/Outlook independent Sent originals remain open.",
+    "No shared interface, issuer migration, real mail send or automatic retry change."
+  ]
+}

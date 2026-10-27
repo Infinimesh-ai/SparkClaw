@@ -459,3 +459,11 @@ local storage、sessions 和 service-worker storage 均保留。
   LF、QQ/Outlook 独立 Sent 原件仍未通过。不改 `.41`、UI、公开码、调度；无部署、发信、
   推送，也不需要运行时回退。
 - 验证：项目 CI 双语镜像/链接检查 134 个 Markdown 通过，`git diff --check` 通过；独立 Team-Skills 检查仍有 37 个既有 lesson 元数据错误及 62 个警告。本次仅文档收尾，未重跑产品测试或远端故障用例。
+
+## 18. 已授权推送与服务版本对齐
+
+- 负责人/范围：2026-10-27 负责人明确要求提交推送当前工作区、升级相关服务。已有 13 个提交已发布至 `ebc35697`；work2 从 `0f46702a` 快进至该版本，工作区干净。此前“不推送”描述均保留为历史检查点。推送前保留原提交本地备份，并从未发布历史清理两处本机证据目录；制品与源码别名见[发行证据](../../docs/evidence/service-version-reconciliation-2026-10-27.json)。
+- 实际版本：运行中 Gateway 二进制 SHA256 仍为 `2bb5267d…f9e2fec`，构建来源 `adaca175d`；完整 Gateway 源码树与发布版本相同，manual 修复现为 `78505227`（原 `d97cfcf1`）。已安装 Linux 诊断工具仍为 `ad7ae6d7…b386cf`。Controller、Desktop、WebChat、bridge、helper、脚本及配置自已验收的 `0f46702a` 部署后没有新的运行代码；Mac 安装包 296 项与原验收清单完全一致。现有服务已包含本次修复，因此只同步源码，无需重复构建或重启。
+- 验证：远端 5 个容器身份/进程/配置哈希、3 个 owner 服务进程及私有配置哈希前后一致。使用原生产 Node TLS 校验，Gateway `/healthz`、`/readyz`、WebChat 页面和 JavaScript 音频 worklet 均为 HTTP 200。原桌面邮件入口加载 121 项、未查看 115，正常关闭回到 Owner 工作台；未打开单封邮件或提交新草稿/发信、重解析、手动同步。复核同一完整 Gateway 源码此前 77 包全量 Go 验证（5,610 通过、203 跳过）及 build/vet/定向 race 日志哈希；本次仅源码同步，未重复执行这些测试。
+- CI：当前发布运行已通过 Docs、WebChat、ASR、Gateway race，Gateway 尚在运行；Compose、Electron anchor、Desktop qualification 的失败特征分别与上一 `db9ca9cf` CI 相同，不能报告全绿。保留错误端口探测及 Python 3.14 对现有 CA 的严格校验失败；最终服务检查使用原生产 Node TLS 客户端，未修改证书或信任设置。
+- 局限：App-CLI `.41`、UI、公开码、调度、身份和数据均不变；未重新盘点数据库，不声明新 unknown/send 数量。QQ 正文回读、Outlook 尾随 LF、QQ/Outlook 独立 Sent 原件仍未闭环，本次版本对齐不等于完整邮件矩阵通过。

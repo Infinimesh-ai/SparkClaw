@@ -6,6 +6,8 @@
 
 **Status: 2026-10-27, Asia/Shanghai. S1–S4 deployed; exact-artifact fault acceptance and Linux read-only qualification passed. S5 deployment and original UI checks passed, but full mail acceptance remains incomplete. The generic manual persistence repair is deployed; authorized unknown cleanup is complete. See section 2 and cards 14–17 for precise limits.**
 
+Publication update: the owner-authorized 13-commit release is pushed at `ebc35697`, and work2 is synchronized. Actual runtime artifacts already match the published runtime source; no service restart is needed. See card 18 for current health, preserved UI, commit aliases and the remaining baseline CI failures.
+
 App-CLI currently has a single application module (`runtimes/browser/applications/mail`) and no
 approved second consumer. This stage is therefore limited to: **the existing mail path, on the
 existing foundation, must not lose results during recovery, must make one failure attributable,

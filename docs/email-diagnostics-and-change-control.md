@@ -16,9 +16,9 @@ that the plan's steps reference; it is not a separate roadmap.
 
 Audit: **2026-10-26, Asia/Shanghai**, source `c2b85311`. The checked-in
 [release manifest](../vendor/app-cli/release.json) pins App-CLI `.41` / `bcc55506`.
-The original audit referenced the historical `.39` [acceptance record](desktop-browser-follow-up-2026-10-23.md) and did not inspect a live host. Current `.41` loaded-version and installation evidence is recorded in sections 12–16; it does not retroactively change the audit.
+The original audit referenced the historical `.39` [acceptance record](desktop-browser-follow-up-2026-10-23.md) and did not inspect a live host. Current `.41` loaded-version and installation evidence is recorded in sections 12–17; it does not retroactively change the audit.
 
-**Implementation status:** S1–S4 are source_verified and deployed. Cards 14–16 record native Linux read-only qualification, the deployed generic manual-call FK repair and exact-artifact fault acceptance. Authorized unknown cleanup is complete; final observed unknown count is zero. Full S5 mail acceptance remains incomplete: QQ body validation, Outlook extra LF, QQ/Outlook independent Sent originals and the locked-Mac final recheck remain open. D05/D09 are deferred. No App-CLI `.41`, UI, public-code, scheduling or automatic-expiry change; no push.
+**Implementation status:** S1–S4 are source_verified and deployed. Cards 14–16 record native Linux read-only qualification, the deployed generic manual-call FK repair and exact-artifact fault acceptance. Authorized unknown cleanup is complete; final observed unknown count is zero. Full S5 mail acceptance remains incomplete: QQ body validation, Outlook extra LF, and QQ/Outlook independent Sent originals remain open. The unlocked original desktop connection recheck passed on 2026-10-27 (card 17). D05/D09 are deferred. No App-CLI `.41`, UI, public-code, scheduling or automatic-expiry change; no push.
 
 ## 1. Follow the whole chain
 
@@ -566,3 +566,28 @@ IndexedDB, local storage, sessions and service-worker storage were retained.
 - Evidence: [business/deployment/cleanup](evidence/s5-business-acceptance-2026-10-26.json),
   [source qualification](evidence/s5-manual-persistence-fix-2026-10-26.json).
 - Documentation validation: the actual CI mirror/link check passed for 134 project Markdown files and `git diff --check` passed. The separate Team-Skills check still reports 37 pre-existing lesson frontmatter errors and 56 warnings; the new lesson is not among those failures. No unrelated lesson repair is included.
+
+## 17. S5 final desktop connection recheck — passed after manual unlock
+
+- ID / objective / scope: S5 original SparkX connection recheck on 2026-10-27,
+  after the owner manually unlocked the Mac. Read the original UI and local profile;
+  no product code, release, identity, authorization or configuration change.
+- Initial failure and check: the existing Owner workbench initially displayed HTTP
+  503. One click on its original retry-read control cleared the notice; refreshing
+  the device list succeeded and the three previous S5 acceptance clients were shown
+  revoked. No application restart, new credential or profile selection was needed.
+- Evidence: the original mail entry loaded 121 items (115 unviewed), with intake
+  enabled. No individual message, compose/send, reanalysis or manual synchronization
+  action was opened/submitted. Closing mail returned to the original Owner workbench
+  with no HTTP 503. The running helper used the original enrollment profile; all
+  seven launch/profile/identity/connection configuration files matched the pre-upgrade
+  cold baseline. CUA observations and a private hash comparison support these checks.
+- Result / files: the final desktop connection gate is now passed; section 2 and the
+  current follow-up list are updated, with [redacted evidence](evidence/s5-desktop-recheck-2026-10-27.json).
+  Earlier full UI/quit-relaunch checks remain in card 13; this is a scoped follow-up,
+  not a new full regression or a new remote inventory.
+- Limits / rollback: the initial 503 cause is unproved; normal recovery is not a
+  claimed source repair. QQ draft body, Outlook extra LF and QQ/Outlook independent
+  Sent-original acceptance remain open. No `.41`, UI, public-code or scheduling
+  change, deployment, mail send or push; no runtime rollback is needed.
+- Validation: the project CI mirror/link check passed for 134 Markdown files, and `git diff --check` passed. The separate Team-Skills check retains 37 existing lesson metadata errors and 62 age warnings; no product test or remote fault case was rerun for this documentation-only closeout.

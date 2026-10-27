@@ -2,6 +2,17 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-browser-follow-up-2026-10-23.md)
 
+## 桌面复核补记——2026-10-27 12:41（Asia/Shanghai）
+
+手动解锁后，最后一次原桌面连接复核通过。初始 HTTP 503 在正常重试一次后消失，设备列表
+刷新、121 项邮件列表、返回原 Owner 工作台均成功。运行中 helper 保持原 profile，7 个身份/
+配置文件与升级前基线一致。未重启、重新授权、切换身份、阅读/发送单封邮件或部署。
+初始 503 根因尚未证实，见[修改卡 17](email-diagnostics-and-change-control.md)及
+[证据](../../docs/evidence/s5-desktop-recheck-2026-10-27.json)。
+
+这关闭了下文“Mac 锁屏待复核”一项；QQ 正文校验、Outlook 额外 LF、QQ/Outlook 独立 Sent
+原件仍待处理，完整邮件矩阵未通过。下文 2026-10-26 计数是历史观测，未在本次重新盘点。
+
 ## 当前 S5 检查点——2026-10-26 12:39 UTC
 
 部署与范围内验收已完成，完整邮件矩阵**尚未通过**。Gateway `adaca175d`（main 修复

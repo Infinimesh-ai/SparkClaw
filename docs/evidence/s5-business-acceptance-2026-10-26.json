@@ -349,10 +349,15 @@
     "pg_unknown_draft_snapshot_rows": 2
   },
   "final_desktop_recheck": {
-    "status": "blocked_mac_locked",
-    "prior_card13_ui_acceptance_retained": true,
-    "new_ui_changes": false,
-    "manual_unlock_requested": true
+    "status": "passed_on_follow_up",
+    "completed_date": "2026-10-27",
+    "previous_attempt": {
+      "status": "blocked_mac_locked",
+      "prior_card13_ui_acceptance_retained": true,
+      "new_ui_changes": false,
+      "manual_unlock_requested": true
+    },
+    "evidence": "s5-desktop-recheck-2026-10-27.json"
   },
   "automatic_unknown_resend": false,
   "documentation_validation": {

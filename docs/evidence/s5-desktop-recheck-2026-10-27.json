@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-27",
+  "timezone": "Asia/Shanghai",
+  "completed_at": "2026-10-27T04:41:01.283059+00:00",
+  "status": "passed",
+  "scope": "final_original_desktop_connection_recheck_after_manual_unlock",
+  "evidence_kind": "native CUA accessibility observations plus read-only local process/profile inspection",
+  "initial_observation": {
+    "workbench_visible": true,
+    "http_status_notice": 503,
+    "cause_proved": false
+  },
+  "normal_recovery": {
+    "existing_retry_read_clicks": 1,
+    "device_list_refresh_succeeded": true,
+    "http_503_notice_cleared": true,
+    "new_authorization": false,
+    "profile_switch": false,
+    "application_restart": false
+  },
+  "ui": {
+    "original_owner_workbench_restored": true,
+    "mail_entry_preserved": true,
+    "mail_list_loaded": true,
+    "mail_list_count": 121,
+    "unviewed_count": 115,
+    "mail_intake_enabled": true,
+    "individual_message_opened": false,
+    "send_submissions": 0,
+    "draft_created": false,
+    "reanalyze_submissions": 0,
+    "manual_sync_submissions": 0,
+    "three_previous_s5_clients_shown_revoked": true
+  },
+  "identity": {
+    "original_helper_profile_path_matches": true,
+    "original_launch_identity_connection_config_files_checked": 7,
+    "all_exact": true,
+    "private_comparison_sha256": "0924857df8d707595c2396826bb993e02db1f320271d9f69d94afccc4ebd3616"
+  },
+  "product_changes": false,
+  "deployment": false,
+  "app_cli_41_changed": false,
+  "automatic_unknown_resend": false,
+  "push": false,
+  "limits": [
+    "Initial HTTP 503 root cause not established; successful normal retry does not prove a code fix.",
+    "No new remote inventory: 2026-10-26 unknown/send counts remain dated historical observations.",
+    "This closes only the final desktop connection recheck; QQ body readback, Outlook extra LF and QQ/Outlook independent Sent originals remain open."
+  ],
+  "validation": {
+    "project_ci_markdown_files": 134,
+    "project_ci_mirror_links": "passed",
+    "diff_check": "passed",
+    "external_team_skills": {
+      "exit_code": 2,
+      "existing_metadata_errors": 37,
+      "warnings": 62
+    }
+  }
+}

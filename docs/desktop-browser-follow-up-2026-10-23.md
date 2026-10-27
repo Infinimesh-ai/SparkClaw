@@ -2,6 +2,20 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-browser-follow-up-2026-10-23.md)
 
+## Desktop follow-up — 2026-10-27, 12:41 Asia/Shanghai
+
+The final original-desktop connection recheck passed after manual unlock. An initial
+HTTP 503 disappeared after one normal retry; device refresh, the 121-item mail list
+and return to the original Owner workbench succeeded. The running helper used the
+original profile, and seven identity/configuration files matched the pre-upgrade
+baseline. No restart, new authorization, identity switch, message read/send or deploy.
+The initial 503 cause is unproved. See [card 17](email-diagnostics-and-change-control.md)
+and [evidence](evidence/s5-desktop-recheck-2026-10-27.json).
+
+This closes the locked-Mac item below. QQ body validation, Outlook extra LF and
+QQ/Outlook independent Sent originals remain open; the full mail matrix is not passed.
+The following 2026-10-26 counters are historical observations, not a fresh inventory.
+
 ## Current S5 checkpoint — 2026-10-26, 12:39 UTC
 
 Deployment and scoped acceptance are complete; the full mail matrix is **not** passed.

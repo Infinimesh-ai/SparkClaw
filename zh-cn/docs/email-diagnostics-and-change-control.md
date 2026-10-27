@@ -14,9 +14,9 @@
 审计：**2026-10-26，Asia/Shanghai**，源码 `c2b85311`。
 仓内[发行清单](../../vendor/app-cli/release.json)固定 App-CLI `.41` / `bcc55506`；
 原审计引用的[验收记录](desktop-browser-follow-up-2026-10-23.md)为历史 `.39` 状态，未读取实机。
-当前 `.41` 已加载版本和安装证据见第 12–16 节，不反向改写原审计。
+当前 `.41` 已加载版本和安装证据见第 12–17 节，不反向改写原审计。
 
-**实施状态：S1–S4 source_verified 且已部署。第 14–16 节记录 Linux 原生只读资格、已部署的通用 manual-call 外键修复及精确制品故障验收。授权 unknown 清理完成，最终观测为 0。完整 S5 邮件验收仍未通过：QQ 正文校验、Outlook 额外 LF、QQ/Outlook 独立 Sent 原件及锁屏后的最终桌面复核待完成。D05/D09 延期。** 不改 App-CLI `.41`、UI、公开码、调度，不增加自动过期，不推送。
+**实施状态：S1–S4 source_verified 且已部署。第 14–16 节记录 Linux 原生只读资格、已部署的通用 manual-call 外键修复及精确制品故障验收。授权 unknown 清理完成，最终观测为 0。完整 S5 邮件验收仍未通过：QQ 正文校验、Outlook 额外 LF、QQ/Outlook 独立 Sent 原件待完成；2026-10-27 解锁后的原桌面连接复核已通过（修改卡 17）。D05/D09 延期。** 不改 App-CLI `.41`、UI、公开码、调度，不增加自动过期，不推送。
 
 ## 1. 先看完整链路
 
@@ -441,3 +441,21 @@ local storage、sessions 和 service-worker storage 均保留。
 - 证据：[业务/部署/清理](../../docs/evidence/s5-business-acceptance-2026-10-26.json)、
   [源码资格](../../docs/evidence/s5-manual-persistence-fix-2026-10-26.json)。
 - 文档验证：实际 CI 双语镜像/链接检查通过（134 个项目 Markdown），`git diff --check` 通过。独立 Team-Skills 检查仍有 37 个既有 lesson frontmatter 错误和 56 个警告，新 lesson 不在失败列表；未混入无关修复。
+
+## 17. S5 最终桌面连接复核——手动解锁后通过
+
+- 编号/目标/范围：S5 原 SparkX 连接复核，2026-10-27 用户手动解锁后执行。读取原界面及
+  本机 profile；未修改产品代码、制品、身份、授权或配置。
+- 初始失败与检查：原 Owner 工作台最初显示 HTTP 503，点击原有“重试读取”一次后提示消失；
+  刷新设备列表成功，之前三个 S5 临时验收客户端显示已撤销。未重启应用、创建凭据或切换 profile。
+- 证据：原邮件入口成功显示 121 项、未查看 115，接收开启；未打开单封邮件、撰写/发送、
+  重解析或手动同步。关闭邮件后回到原 Owner 工作台，无 HTTP 503。运行中 helper 仍使用原
+  enrollment profile；launch/profile/身份/连接配置共 7 个文件与升级前冷态基线完全相同。
+  原生 CUA 观察和私有哈希比对支持以上结论。
+- 结果/文件：最终桌面连接关卡通过；已更新方案第 2 节、当前待办及
+  [脱敏证据](../../docs/evidence/s5-desktop-recheck-2026-10-27.json)。第 13 节的完整 UI/退出
+  重启结果保留；本次为限定范围复核，不冒充重新做全量回归或新的远端数据盘点。
+- 局限/回退：最初 503 根因尚未证实，正常恢复不等于源码修复。QQ 草稿正文、Outlook 额外
+  LF、QQ/Outlook 独立 Sent 原件仍未通过。不改 `.41`、UI、公开码、调度；无部署、发信、
+  推送，也不需要运行时回退。
+- 验证：项目 CI 双语镜像/链接检查 134 个 Markdown 通过，`git diff --check` 通过；独立 Team-Skills 检查仍有 37 个既有 lesson 元数据错误及 62 个警告。本次仅文档收尾，未重跑产品测试或远端故障用例。

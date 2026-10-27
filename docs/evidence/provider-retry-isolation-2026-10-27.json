@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-27",
+  "timezone": "Asia/Shanghai",
+  "scope": "Gmail/Outlook retry review; Outlook and QQ parsed-source receipt repair",
+  "source": "c379e56f7eb9da113412182156c06e98d0bdb231",
+  "binary_sha256": "31c10d03fb0941ee64eb35a5fba64b90dcbead7d5a75a90b3737bf44a1d4a103",
+  "image": "sha256:98852def5cf67234081e63429a9741758524f2d8f32509e0bbaca3197dcba01b",
+  "source_manifest_sha256": "f9e5f6064638e90b9ed5e21a9cd697bf773887ef0d3273d03a7711d8e423600a",
+  "findings": {
+    "gmail_qualified_targets_omit_received_at": true,
+    "uncaptured_outlook_receipt_time_already_preserved": true,
+    "parsed_source_time_is_not_provider_receipt_time": true,
+    "recovery_receipt_field": "hash-verified manifest.received_display_text",
+    "unqualified_legacy_target": "deferred; failure retained; fresh listed originals still checked against retained source hashes"
+  },
+  "validation": {
+    "linux": {
+      "packages_passed": 77,
+      "tests_passed": 5637,
+      "tests_skipped": 203,
+      "failures": 0
+    },
+    "exit_codes": {
+      "test": 0,
+      "build": 0,
+      "vet": 0,
+      "cross_build": 0,
+      "source": 0
+    },
+    "race_packages": [
+      "emailmanagement",
+      "emailautomation",
+      "store"
+    ],
+    "file_restart_scenarios": 9,
+    "reproduced_before_fix": 4,
+    "mixed_page_wire_cases": 6,
+    "negative_manifest_cases": 8,
+    "project_docs": 134,
+    "shared_skill_existing_errors": 37,
+    "shared_skill_existing_warnings": 62
+  },
+  "deployment": {
+    "verified_at": "2026-10-27T06:02:41.316623+00:00",
+    "container": "ba6ff8e5618673d84a0dfba9e3737317f0b256b38f6a0be0b6191129a7af7790",
+    "started_at": "2026-10-27T06:01:00.174427115Z",
+    "restart_count": 0,
+    "retained_old_container": "b0bab1dc63593a899ee4aa448b4ada21944f57f75c4ae0a4e348f99a71c45859",
+    "other_services_exact": true,
+    "running_host_config_exact": true,
+    "protected_exact": true,
+    "protected_row_counts": {
+      "ledger_tasks": 58,
+      "ledger_events": 367,
+      "pending_release": 0,
+      "gateway_core": 103,
+      "mailbox_bindings": 3,
+      "provider_settings": 3
+    },
+    "send_tasks": 48,
+    "preexisting_collection_unknowns": 10,
+    "source_fast_forward_clean": true,
+    "app_cli_release": "0.3.0-sparkclaw.41",
+    "mac_unchanged": true
+  },
+  "live": {
+    "observed_at": "2026-10-27T06:03:09.255555+00:00",
+    "mailboxes": [
+      {
+        "kind": "mailbox",
+        "error": null,
+        "pending": "false",
+        "provider": "outlook",
+        "sync_state": "idle",
+        "watch_state": "watching",
+        "poll_through": "2026-10-27T06:02:00.948067Z",
+        "failure_count": null
+      },
+      {
+        "kind": "mailbox",
+        "error": null,
+        "pending": "false",
+        "provider": "gmail",
+        "sync_state": "idle",
+        "watch_state": "watching",
+        "poll_through": "2026-10-27T06:02:48.279991Z",
+        "failure_count": null
+      },
+      {
+        "kind": "mailbox",
+        "error": null,
+        "pending": "false",
+        "provider": "qq_mail",
+        "sync_state": "idle",
+        "watch_state": "watching",
+        "poll_through": "2026-10-27T06:02:52.702793Z",
+        "failure_count": null
+      }
+    ],
+    "open_failures": 0,
+    "healthz": 200,
+    "readyz": 200,
+    "tls_verification": true,
+    "recent_collection_tasks_completed": 9
+  },
+  "retained_failures": [
+    "Initial regression fixture parse-state/final-check mistakes; corrected before meaningful red run.",
+    "Initial deployment readback found 3 active finite tasks; protected rows exact. Reviewed continuation waited for quiet, kept same process and full checks.",
+    "Read-only metadata probe referenced nonexistent updated_ms; corrected bounded query succeeded.",
+    "Shared Team-Skills validator retains 37 pre-existing metadata errors and 62 warnings."
+  ],
+  "limits": [
+    "No production fault injection; old-failure/new-mail isolation qualified with local synthetic sources and real decoder tests.",
+    "Legacy missing-receipt original remains open when not rediscovered; no fabricated recovery evidence.",
+    "No UI, App-CLI, public protocol, storage migration, scheduling, mail send or unknown/send retry."
+  ],
+  "evidence_sha256": {
+    "full_go": "a74cb8d239a3067f3d409005c9465682e0c788b88b11a97cd38aa7fc73d91f49",
+    "race": "adec3a609003ad437882dc02ddb7512db159d749dbfe78ee173f27219e6a0e4a",
+    "readback": "461db119f8305e8053abc7c29c78cf978911246e432ad6dda5cb69ed009daced",
+    "final": "5a5e46f19ede7e07884551b38417b8fa1c2529a0d860e6db01f52d156782d992"
+  }
+}

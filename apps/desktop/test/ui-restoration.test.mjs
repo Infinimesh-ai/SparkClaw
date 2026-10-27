@@ -58,6 +58,28 @@ test('input and output attachments retain their exact message association throug
   assert.equal(f.store.file(scope, original.messages[2].attachments[0].artifact_id).content.toString(), 'output bytes');
 });
 
+test('a uniquely named previous attachment is rebound only within its original conversation', t => {
+  const f = fixture(t), conversation = f.store.create(scope, 'Documents');
+  const other = f.store.create(scope, 'Other');
+  const file = f.store.saveFile(scope, conversation.id, 'sparkx-user-test.txt', Buffer.from('test content'));
+  f.store.enqueue(scope, conversation.id, 'read this', [file.id]);
+  const task = f.store.enqueue(scope, conversation.id, '编辑刚才的 sparkx-user-test.txt 的副本');
+  const envelope = JSON.parse(f.store.request(scope, task.request_id).context_json);
+  assert.deepEqual(envelope.input_files.map(x => x.id), [file.id]);
+  assert.equal(f.store.read(scope, conversation.id).messages.at(-1).attachments[0].artifact_id, file.id);
+  const unrelated = f.store.enqueue(scope, conversation.id, '请继续');
+  assert.equal(JSON.parse(f.store.request(scope, unrelated.request_id).context_json).input_files, undefined);
+  const negated = f.store.enqueue(scope, conversation.id, '不要编辑刚才的 sparkx-user-test.txt');
+  assert.equal(JSON.parse(f.store.request(scope, negated.request_id).context_json).input_files, undefined);
+  const partial = f.store.enqueue(scope, conversation.id, '编辑刚才的 sparkx-user-test.txt.bak');
+  assert.equal(JSON.parse(f.store.request(scope, partial.request_id).context_json).input_files, undefined);
+  const crossConversation = f.store.enqueue(scope, other.id, '编辑刚才的 sparkx-user-test.txt');
+  assert.equal(JSON.parse(f.store.request(scope, crossConversation.request_id).context_json).input_files, undefined);
+  const duplicate = f.store.saveFile(scope, conversation.id, 'sparkx-user-test.txt', Buffer.from('other bytes'));
+  f.store.enqueue(scope, conversation.id, 'read another', [duplicate.id]);
+  assert.throws(() => f.store.enqueue(scope, conversation.id, '编辑刚才的 sparkx-user-test.txt'), /Multiple recent files match/);
+});
+
 test('original natural schedule entry creates local definitions globally without a new sidebar conversation', t => {
   const f = fixture(t), now = Date.parse('2026-10-10T10:00:00Z');
   f.store.createScheduleRequest(scope, '每个工作日早上 9 点整理昨天的项目进展，并把摘要发给我', 'Asia/Shanghai', now);
@@ -142,6 +164,25 @@ test('temporal input preserves task content, validates missing times and honors 
   assert.equal(nextCalendarTime(gap, daily), '2027-03-15T06:30:00.000Z');
   const missed = calendarMissed('2026-10-09T09:00:00Z', recurrenceSpec('weekdays', 'UTC', '2026-10-09T09:00:00Z').calendar, Date.parse('2026-10-12T10:00:00Z'));
   assert.equal(missed.count, 2); assert.equal(missed.nextDue, '2026-10-13T09:00:00.000Z');
+});
+
+test('explicit Chinese calendar dates determine the scheduled instant and reject invalid dates', () => {
+  const now = Date.parse('2026-10-27T06:00:00Z');
+  const plan = parseScheduleRequest('请在2030年10月27日上午10点执行一次测试任务：计算 2 加 3。任务名称为 SparkX 功能测试。', 'Asia/Shanghai', now);
+  assert.equal(plan.dueAt, '2030-10-27T02:00:00.000Z');
+  assert.match(plan.content, /计算 2 加 3/);
+  assert.doesNotMatch(plan.content, /2030年10月27日/);
+  assert.equal(parseScheduleRequest('2028年2月29日下午3点提醒我复查', 'Asia/Shanghai', now).dueAt, '2028-02-29T07:00:00.000Z');
+  assert.throws(() => parseScheduleRequest('2027年2月29日上午10点提醒我复查', 'Asia/Shanghai', now), /does not exist/);
+  assert.throws(() => parseScheduleRequest('2030年10月上午10点提醒我复查', 'Asia/Shanghai', now), /完整的执行日期/);
+});
+
+test('out-of-range explicit dates cannot create an unintended near-term schedule', t => {
+  const f = fixture(t), now = Date.parse('2026-10-27T06:00:00Z');
+  assert.throws(() => f.store.createScheduleRequest(scope, '2030年10月27日上午10点执行测试', 'Asia/Shanghai', now), /366 days/);
+  assert.deepEqual(f.store.listSchedules(scope), []);
+  const scheduled = f.store.createScheduleRequest(scope, '2027年10月27日上午10点执行测试', 'Asia/Shanghai', now);
+  assert.equal(scheduled.due_at, '2027-10-27T02:00:00.000Z');
 });
 
 test('new presentation IPC accepts only owned identifiers and verified bytes, and cannot inject renderer paths or schedule authority', async t => {

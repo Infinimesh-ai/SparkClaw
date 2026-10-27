@@ -120,13 +120,19 @@ export function parseScheduleRequest(request, timezone, now) {
     }
   } else if (interval) intervalMS = recurrenceSpec(interval[0], timezone, new Date(now).toISOString()).intervalMS;
   const relative = interval ? null : take(/in\s+(\d+)\s*(minutes?|hours?|days?|weeks?)|(\d+|[一二两三四五六七八九十]+)\s*(?:个\s*)?(分钟|小时|天|周|minutes?|hours?|days?|weeks?)\s*(?:后|later|from now)/i.exec(header));
-  const absolute = take(/\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?/.exec(header));
+  const absolute = take(/\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?|\d{4}年\s*\d{1,2}月\s*\d{1,2}[日号]/.exec(header));
+  // Never silently discard a partially specified calendar date and schedule
+  // the task for tomorrow instead. Dates in the task body remain opaque.
+  if (!absolute && /\d{4}年\s*\d{1,2}月|\d{4}[-/]\d{1,2}/.test(header.slice(0, firstClock?.index ?? header.length))) {
+    throw new Error('请提供完整的执行日期，例如 2030年10月27日。 Specify a complete execution date.');
+  }
   const day = take(/后天|明天|今天|tomorrow|today/i.exec(header));
   const clock = take(firstClock);
   let dueAt;
   if (absolute) {
-    const [date, time] = absolute[0].split(/[T ]/);
-    const [year, month, dateDay] = date.split('-').map(Number);
+    const chineseDate = /^(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})[日号]$/.exec(absolute[0]);
+    const [date, time] = chineseDate ? [absolute[0], undefined] : absolute[0].split(/[T ]/);
+    const [year, month, dateDay] = chineseDate ? chineseDate.slice(1).map(Number) : date.split('-').map(Number);
     parts = { ...parts, year, month, day: dateDay };
     if (time) { const [hour, minute, second = 0] = time.split(':').map(Number); parts = { ...parts, hour, minute, second }; }
     else if (!clock) throw new Error('请补充执行时间，例如明天早上 9 点。 Specify an execution time, such as tomorrow at 9 AM.');

@@ -7,6 +7,24 @@ import { WORKBENCH_LIMITS } from "../shared/workbench-limits.mjs";
 import { calendarMissed, nextCalendarTime, parseScheduleRequest, recurrenceSpec, zonedTime } from "./local-schedule-time.mjs";
 import { initialQuestionTitle, migrateConversationTitles } from "./client-conversation-titles.mjs";
 
+function explicitlyNamesFile(content, name) {
+  if (!name || !name.includes('.')) return false;
+  let from = 0;
+  for (;;) {
+    const index = content.indexOf(name, from);
+    if (index < 0) return false;
+    const before = content[index - 1] ?? '', after = content[index + name.length] ?? '';
+    if (!/[A-Za-z0-9_.-]/.test(before) && !/[A-Za-z0-9_.-]/.test(after)) return true;
+    from = index + 1;
+  }
+}
+
+function requestsPreviousFileEdit(content) {
+  return /(?:编辑|修改|更改|edit|modify)/i.test(content) &&
+    /(?:刚才|之前|上一|previous|earlier)/i.test(content) &&
+    !/(?:不要|无需|不需要|不应|不能|别|禁止|不再|do not|don't|never|without)/i.test(content);
+}
+
 export const CLIENT_SCHEMA_VERSION = 12;
 export const CLIENT_LIMITS = WORKBENCH_LIMITS;
 const MESSAGE_DELIVERIES_SCHEMA = `CREATE TABLE message_deliveries(message_id TEXT PRIMARY KEY REFERENCES messages(id),
@@ -289,6 +307,18 @@ export class ClientStore {
     content = boundedText(content, CLIENT_LIMITS.inputBytes, "Input").trim();
     if (!content) throw new Error("Input is empty");
     if (!Array.isArray(localFileIDs) || localFileIDs.length > CLIENT_LIMITS.resultFiles || new Set(localFileIDs).size !== localFileIDs.length) throw new Error("Invalid input file selection");
+    if (!localFileIDs.length && !scheduleSpec && requestsPreviousFileEdit(content)) {
+      // A filename explicitly mentioned in a follow-up may refer to a file
+      // already shared in this conversation. Resolve only a unique recent
+      // message attachment; never search another conversation or guess among
+      // same-named files. Explicit current selections always take precedence.
+      const recent = this.db.prepare(`SELECT DISTINCT f.id,f.name FROM files f JOIN message_files mf ON mf.file_id=f.id
+        JOIN (SELECT id FROM messages WHERE conversation_id=? ORDER BY rowid DESC LIMIT ?) m ON m.id=mf.message_id
+        WHERE f.conversation_id=?`).all(conversationID, CLIENT_LIMITS.contextMessages, conversationID);
+      const named = recent.filter(file => explicitlyNamesFile(content, file.name));
+      if (named.length > 1) throw new Error("Multiple recent files match; select the intended file.");
+      if (named.length === 1) localFileIDs = [named[0].id];
+    }
     const inputFiles = localFileIDs.map((id) => {
       uuid(id);
       const record = this.db.prepare("SELECT id,name,size,sha256 FROM files WHERE id=? AND conversation_id=?").get(id, conversationID);

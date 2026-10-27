@@ -149,13 +149,10 @@ func (s *Service) collectPageIncrement(ctx context.Context, job app.EmailJob, br
 		if !found || mail.SyncState == app.EmailMailSyncSuppressed {
 			continue
 		}
+		// Keep immutable-source checks even when this retry cannot be sent:
+		// the same mail may still be encountered in the fresh provider list.
+		retryMails[mail.ProviderMessageID] = mail
 		target := app.EmailCaptureTarget{AccountAddress: mailbox.Address, ProviderMessageID: mail.ProviderMessageID, ProviderNativeID: mail.ProviderNativeID, ProviderSelectionID: mail.ProviderSelectionID, ProviderThreadID: mail.ProviderThreadID, Folder: mail.Folder}
-		// QQ and Outlook list receipt times as part of the capture target.
-		// Keep the stored observation so a retry matches the same listed row.
-		if (mailbox.Provider == app.EmailProviderQQMail || mailbox.Provider == app.EmailProviderOutlook) && !mail.SourceTime.IsZero() {
-			received := mail.SourceTime
-			target.ReceivedAt = &received
-		}
 		if mail.CaptureState == app.EmailCaptureSourceMissing && mail.CaptureID != "" {
 			capture, exists, err := s.repository.GetEmailCapture(ctx, job.OwnerID, mail.CaptureID)
 			if err != nil {
@@ -165,6 +162,13 @@ func (s *Service) collectPageIncrement(ctx context.Context, job app.EmailJob, br
 				target.RecoveryCapture = &capture
 			}
 		}
+		received, qualified := retryReceiptTime(mailbox, mail, target.RecoveryCapture)
+		if !qualified {
+			// An old source without receipt evidence remains an open failure.
+			// Do not fabricate a target that rejects the entire new-mail batch.
+			continue
+		}
+		target.ReceivedAt = received
 		admitted, budgetErr := retryBudget.admit(target)
 		if budgetErr != nil {
 			return s.commitListFailure(ctx, job, checkpoint, mode, registered.CollectPage.Revision, timelinePagePart{failureStage: "prepare_targets"}, budgetErr)
@@ -173,7 +177,6 @@ func (s *Service) collectPageIncrement(ctx context.Context, job app.EmailJob, br
 			continue
 		}
 		retryTargets = append(retryTargets, target)
-		retryMails[mail.ProviderMessageID] = mail
 	}
 	intervalID := sha256.Sum256([]byte(mailbox.ID + "\x00" + checkpoint.IntervalStart.UTC().Format(time.RFC3339Nano) + "\x00" + checkpoint.IntervalEnd.UTC().Format(time.RFC3339Nano)))
 	binding.InvocationID = fmt.Sprintf("email_changes_%s_r%d", hex.EncodeToString(intervalID[:]), mailbox.CheckpointRevision)

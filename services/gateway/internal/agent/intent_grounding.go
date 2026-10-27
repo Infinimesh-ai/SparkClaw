@@ -52,7 +52,11 @@ func (r Runtime) projectIntentGrounding(ctx context.Context, sessionID, runID, c
 	if strings.TrimSpace(projection.WorkspaceRoot) == "" && r.tools != nil {
 		projection.WorkspaceRoot = r.tools.Config().Workspaces.DefaultRoot
 	}
-	for _, rawURL := range extractURLs(content) {
+	urls := extractURLs(content)
+	if len(urls) == 0 {
+		urls = extractBrowserBareURLs(content)
+	}
+	for _, rawURL := range urls {
 		url := normalizeBrowserURL(rawURL)
 		projection.Targets = append(projection.Targets, groundedTarget{Kind: "url", Ref: url, Facts: map[string]string{"url": url}})
 	}

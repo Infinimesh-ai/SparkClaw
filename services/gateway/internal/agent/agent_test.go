@@ -2650,6 +2650,34 @@ func TestExtractURLsNormalizesBareWWW(t *testing.T) {
 	}
 }
 
+func TestBrowserBareDomainIsAnExplicitOwnerTarget(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  string
+	}{
+		{"在浏览器打开 example.com。", "https://example.com"},
+		{"open example.com/path in browser", "https://example.com/path"},
+		{"在浏览器打开 report.txt", ""},
+		{"在浏览器打开 person@example.com 的邮箱", ""},
+		{"编辑之前的 example.com 文件", ""},
+	} {
+		got := extractBrowserBareURLs(tc.input)
+		if tc.want == "" && len(got) != 0 || tc.want != "" && (len(got) != 1 || got[0] != tc.want) {
+			t.Errorf("%q: got %#v, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestGroundBrowserBareDomainAsFrozenURL(t *testing.T) {
+	projection, err := (Runtime{}).projectIntentGrounding(t.Context(), "", "", "在浏览器打开 example.com。", documentContextResolution{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projection.Targets) != 1 || projection.Targets[0].Kind != "url" || projection.Targets[0].Ref != "https://example.com/" {
+		t.Fatalf("owner domain was not grounded as an explicit URL: %#v", projection.Targets)
+	}
+}
+
 func hasModelCallOperation(calls []app.ModelCall, operation, lane string) bool {
 	for _, call := range calls {
 		if call.Operation == operation && call.Lane == lane {

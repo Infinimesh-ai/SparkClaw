@@ -3,6 +3,7 @@ package infinimeshinfo
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -78,6 +79,15 @@ func (w *tokenWallet) Reserve(ctx context.Context, tokenType TokenType) (string,
 		w.mu.Unlock()
 
 		issued, err := w.issuer.Issue(ctx, tokenType, w.batchSize)
+		// A rejected bulk issuance can mean the account has fewer tokens left
+		// than the requested batch, rather than no quota at all. Only a definite
+		// quota rejection is safe to retry: transport failures may have issued
+		// tokens already and must not cause another issuance.
+		var apiErr *APIError
+		if w.batchSize > 1 && ctx.Err() == nil && errors.As(err, &apiErr) &&
+			apiErr.Endpoint == issueTokensPath && apiErr.StatusCode == http.StatusPaymentRequired && apiErr.Code == "QUOTA_EXCEEDED" {
+			issued, err = w.issuer.Issue(ctx, tokenType, 1)
+		}
 		usable := w.usableTokens(tokenType, issued)
 		if err == nil && len(usable) == 0 {
 			err = errNoTokensIssued

@@ -9,7 +9,7 @@ RUN go build -o /out/sparkclaw ./services/gateway/cmd/sparkclaw \
 FROM node:26-bookworm-slim
 WORKDIR /app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
+    && apt-get install -y --no-install-recommends ca-certificates ffmpeg fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-pip \

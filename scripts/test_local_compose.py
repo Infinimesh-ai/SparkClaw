@@ -70,6 +70,10 @@ print(os.environ["SPARKCLAW_TEST_BROWSER_PID"])
 
 
 class LocalComposeTest(unittest.TestCase):
+    def test_gateway_image_installs_chinese_font_for_weather_cards(self) -> None:
+        dockerfile = GATEWAY_DOCKERFILE.read_text(encoding="utf-8")
+        self.assertIn("fonts-noto-cjk", dockerfile)
+
     def run_script(
         self,
         port: str = "19876",

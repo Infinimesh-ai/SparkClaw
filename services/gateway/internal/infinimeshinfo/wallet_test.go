@@ -2,11 +2,59 @@ package infinimeshinfo
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestTokenWalletFallsBackToSingleTokenOnlyForDefiniteQuotaRejection(t *testing.T) {
+	now := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
+	quota := &APIError{Endpoint: issueTokensPath, StatusCode: http.StatusPaymentRequired, Code: "QUOTA_EXCEEDED"}
+	for _, tc := range []struct {
+		name      string
+		firstErr  error
+		singleErr error
+		wantCalls int
+		wantToken bool
+	}{
+		{name: "remaining quota", firstErr: quota, wantCalls: 2, wantToken: true},
+		{name: "fully exhausted", firstErr: quota, singleErr: quota, wantCalls: 2},
+		{name: "unrelated failure", firstErr: &APIError{StatusCode: http.StatusServiceUnavailable, Code: "UNAVAILABLE"}, wantCalls: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			issuer := &fakeTokenIssuer{issue: func(call int, typ TokenType, count int) ([]Token, error) {
+				if call == 1 {
+					if count != 10 {
+						t.Fatalf("initial batch = %d", count)
+					}
+					return nil, tc.firstErr
+				}
+				if count != 1 {
+					t.Fatalf("fallback batch = %d", count)
+				}
+				if tc.singleErr != nil {
+					return nil, tc.singleErr
+				}
+				return []Token{{Type: typ, Value: "single-token", ExpiresAt: now.Add(time.Hour)}}, nil
+			}}
+			wallet := newTokenWallet(issuer, 10, func() time.Time { return now })
+			token, err := wallet.Reserve(context.Background(), TokenTypeBasic)
+			if issuer.callCount() != tc.wantCalls {
+				t.Fatalf("calls = %d, want %d", issuer.callCount(), tc.wantCalls)
+			}
+			if tc.wantToken {
+				if err != nil || token != "single-token" {
+					t.Fatalf("token=%q err=%v", token, err)
+				}
+			} else if token != "" || !errors.Is(err, tc.firstErr) {
+				t.Fatalf("token=%q err=%v", token, err)
+			}
+		})
+	}
+}
 
 type fakeTokenIssuer struct {
 	mu    sync.Mutex

@@ -1,9 +1,12 @@
 package agent
 
 import (
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"golang.org/x/net/publicsuffix"
 )
 
 func searchQuery(content string) string {
@@ -167,6 +170,38 @@ func extractURLs(content string) []string {
 			value = "https://" + value
 		}
 		if value != "" && !seen[value] {
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+// Bare domains are accepted only for explicit browser navigation requests.
+// An ICANN suffix avoids treating ordinary attachment names as web addresses.
+func extractBrowserBareURLs(content string) []string {
+	lower := strings.ToLower(content)
+	if !containsAny(lower, "浏览器", "browser") || !containsAny(lower, "打开", "访问", "open", "visit") {
+		return nil
+	}
+	pattern := regexp.MustCompile(`(?i)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+(?:/[^\s<>"')，。！？；、]*)?`)
+	seen := map[string]bool{}
+	var out []string
+	for _, match := range pattern.FindAllStringIndex(content, -1) {
+		if match[0] > 0 && strings.ContainsRune("@/:._-", rune(content[match[0]-1])) {
+			continue
+		}
+		raw := strings.TrimRight(content[match[0]:match[1]], ".,;!?，。！？")
+		candidate, err := url.Parse("https://" + raw)
+		if err != nil || candidate.Hostname() == "" {
+			continue
+		}
+		suffix, icann := publicsuffix.PublicSuffix(strings.ToLower(candidate.Hostname()))
+		if !icann || suffix == candidate.Hostname() || suffix == "" {
+			continue
+		}
+		value := candidate.String()
+		if !seen[value] {
 			seen[value] = true
 			out = append(out, value)
 		}

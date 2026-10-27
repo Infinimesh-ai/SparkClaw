@@ -467,3 +467,17 @@ local storage、sessions 和 service-worker storage 均保留。
 - 验证：远端 5 个容器身份/进程/配置哈希、3 个 owner 服务进程及私有配置哈希前后一致。使用原生产 Node TLS 校验，Gateway `/healthz`、`/readyz`、WebChat 页面和 JavaScript 音频 worklet 均为 HTTP 200。原桌面邮件入口加载 121 项、未查看 115，正常关闭回到 Owner 工作台；未打开单封邮件或提交新草稿/发信、重解析、手动同步。复核同一完整 Gateway 源码此前 77 包全量 Go 验证（5,610 通过、203 跳过）及 build/vet/定向 race 日志哈希；本次仅源码同步，未重复执行这些测试。
 - CI：当前发布运行已通过 Docs、WebChat、ASR、Gateway race，Gateway 尚在运行；Compose、Electron anchor、Desktop qualification 的失败特征分别与上一 `db9ca9cf` CI 相同，不能报告全绿。保留错误端口探测及 Python 3.14 对现有 CA 的严格校验失败；最终服务检查使用原生产 Node TLS 客户端，未修改证书或信任设置。
 - 局限：App-CLI `.41`、UI、公开码、调度、身份和数据均不变；未重新盘点数据库，不声明新 unknown/send 数量。QQ 正文回读、Outlook 尾随 LF、QQ/Outlook 独立 Sent 原件仍未闭环，本次版本对齐不等于完整邮件矩阵通过。
+
+
+## 19. QQ 重试丢失接收时间导致后续接收阻塞
+
+- 负责人/状态：2026-10-27 负责人报告 QQ 新信未同步、已手动立即同步；修复 `ec14a878` 已部署，限定范围现网验收通过。
+- 原失败：北京时间 13:21:16 的刷新请求已持久受理，Gmail 和 Outlook 完成，QQ 仍 pending。QQ 成功水位停在 10 月 24 日 03:48:28，未解决的列表失败始于 03:50:01。本次手动尝试于 13:21:53 返回 `email_script_invalid_output`。
+- 根因/证据：有界只读取得 App-CLI `.41` 五个任务的原始结果，每份均含七份采集原件，其中包括当天 13:08:36 到达的新信。QQ 旧失败邮件的重试目标遗漏 `received_at`，而其持久 `SourceTime` 及本轮列表目标均保留该时间；严格目标比较因此拒绝整页。把五份原始结果送入不变解码器均重现拒绝，仅补齐请求及回显重试目标的接收时间后，七份原件全部通过解码。私有邮件标识及结果不公开。
+- 范围/机制：`internal/emailmanagement/page_intake.go` 为 QQ 重试保留已存的接收时间，沿用 Outlook 已有路径。严格页面/原件/定位校验、Gmail 行为、来源身份、失败历史、发信保护、调度、App-CLI 及原 UI 不变；无需改库或共享契约。
+- 验收：文件存储回归先复现旧失败在重启后阻塞后续手动刷新，再验证修复后的来源恢复及水位前进。受影响测试及 race 通过。Linux 全量首轮通过 77 包（5,611 项通过、203 跳过），build/vet 和 Linux amd64 交叉构建通过。仅 Gateway 部署及原桌面验证通过；[脱敏证据](../../docs/evidence/qq-sync-retry-recovery-2026-10-27.json) 记录实际加载制品及保留的诊断/准备失败。
+- 回退/局限：只回退 Gateway 修改，存储兼容。本问题属于接收链路，与 QQ 发信正文校验、Outlook 额外 LF 及独立 Sent 原件验收分别处理。
+
+- 现网结果：原手动请求于 13:36:54 完成，七份原件全部 complete 且解析成功（六条新邮件、一条旧待恢复来源）。13:08 的新信已在原 QQ 视图显示，摘要、完整正文及 `.eml` 入口可见。QQ 自动轮询继续前进、监听恢复，原列表失败已解决并保留历史；最终 Gmail/Outlook 无同步错误。验证时正常阅读将这一条标记为已查看。
+- 部署保全：48 条发信任务、10 条既有采集 unknown、合计 58 条受保护任务/367 事件、103 条草稿/发送快照及账号绑定/设置完全一致；其他服务进程/配置及最终完整 Gateway HostConfig 一致。Docker created 状态的 OOM 字段 null/false 投影触发定向续验，两次失败记录保留；启动后该字段回到原 null。旧 Gateway 保留可回退，远端源码已快进至本地修复；未推送、改 App-CLI、重打包 Mac、手工改库或发新邮件。
+- 文档：项目 134 份 Markdown 检查通过。共享 Team-Skills 校验仍为此前记录的 37 项元数据错误/62 项警告，两份新增 lesson 均无错误。

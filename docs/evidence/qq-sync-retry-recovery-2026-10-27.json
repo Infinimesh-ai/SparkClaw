@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-27",
+  "timezone": "Asia/Shanghai",
+  "scope": "QQ failed-original retry receipt-time repair",
+  "source": "ec14a878385b42d62bc6f9dca2478c0a9b10b37d",
+  "deployed_source": "ec14a878385b42d62bc6f9dca2478c0a9b10b37d",
+  "binary_sha256": "1ee0d6630138967a522e3d60ffea9b85f433b81a1b37b1c2402e678827b246e3",
+  "image": "sha256:e26efd92cb6769cc5714156a358f8a847b5e907b095e12a4bb323e269602c91c",
+  "source_manifest_sha256": "55036e97619719018e2d9684c9c1bb6f01becbe3caaeca7ff85b6ba78f8d7070",
+  "manual_refresh": {
+    "accepted_at": "2026-10-27T05:21:16.802802Z",
+    "failed_attempt_at": "2026-10-27T05:21:53.755663Z",
+    "settled_at": "2026-10-27T05:36:54.863289Z",
+    "state": "settled"
+  },
+  "root_cause": {
+    "missing_field": "retry_targets[].received_at",
+    "source_owner": "emailmanagement.collectPageIncrement",
+    "old_failed_original_listed_again": true,
+    "decoder_rejected_entire_page": true,
+    "saved_result_replays": 5,
+    "captures_per_result": 7,
+    "unchanged_decoder_accepts_restored_retry_observation": true
+  },
+  "live_acceptance": {
+    "at": "2026-10-27T05:41:07.603845+00:00",
+    "recovered_originals": 7,
+    "existing_pending_originals_recovered": 1,
+    "new_mail_rows": 6,
+    "complete": 7,
+    "parsed": 7,
+    "reported_mail_list_arrival": "2026-10-27T05:08:36Z",
+    "reported_mail_header_time": "2026-10-27T05:08:33Z",
+    "original_desktop_shows_reported_mail_time": "13:08",
+    "original_desktop_summary_and_full_body": true,
+    "normal_ui_read_marked_one_message_viewed": true,
+    "prior_list_failure": "resolved",
+    "qq_refresh_pending": false,
+    "qq_watch_state": "watching",
+    "qq_watermark_at_final_query": "2026-10-27T05:39:14.783097Z",
+    "gmail_and_outlook_final_error": null,
+    "gateway_healthz": 200,
+    "gateway_readyz": 200,
+    "tls_verification": true
+  },
+  "validation": {
+    "linux": {
+      "packages": 77,
+      "passed": 5611,
+      "skipped": 203,
+      "failures": []
+    },
+    "exit_codes": {
+      "test": 0,
+      "build": 0,
+      "vet": 0,
+      "cross_build": 0,
+      "source": 0
+    },
+    "affected_race": "passed",
+    "file_store_restart_regression": "red_then_green",
+    "docs_checked": 134,
+    "shared_team_skills": {
+      "errors": 37,
+      "warnings": 62,
+      "matches_prior_recorded_counts": true,
+      "new_lesson_errors": 0,
+      "does_not_change_product_test_results": true
+    }
+  },
+  "preservation": {
+    "send_tasks": 48,
+    "existing_collect_unknown_tasks": 10,
+    "protected_task_rows": 58,
+    "protected_events": 367,
+    "draft_and_send_snapshot_rows": 103,
+    "mailbox_bindings": 3,
+    "provider_settings": 3,
+    "exact_rows_and_events": true,
+    "other_service_processes_and_configs_exact": true,
+    "final_host_config_exact": true,
+    "old_gateway_retained": true,
+    "app_cli_changed": false,
+    "mac_package_changed": false,
+    "source_sync_fast_forward": true,
+    "push": false,
+    "new_send": 0,
+    "database_manual_updates": 0
+  },
+  "retained_probe_and_deployment_failures": [
+    "The first private replay fixture omitted Go request JSON field mapping; the corrected replay harness reproduced the real missing receipt-time boundary.",
+    "The first regression fixture used a clock preceding the queued job; corrected setup reproduced the target loss.",
+    "The created container projected OomKillDisable null as false, blocking startup verification. A scoped continuation checked all other fields; after startup the field returned to null and final complete HostConfig matched exactly.",
+    "The first readback continuation expected the created-state false value; the running state restored null. Original strict full verification passed afterward.",
+    "A plain HTTP health probe against the existing HTTPS port returned 400. The final Node probe used the original CA and HTTPS and returned 200."
+  ],
+  "limits": [
+    "Scope covers this QQ receive retry and seven existing originals; it does not qualify all provider operations.",
+    "QQ send-body validation, Outlook trailing LF and independent Sent-original acceptance remain separate.",
+    "No change to strict receipt/locator validation, public API, UI or App-CLI."
+  ],
+  "evidence_sha256": {
+    "evidence/pg-01.jsonl": "950ef6d781c3627eb2a5f27c26e6eeff982d0fda40ff55eca60f819c485a8647",
+    "evidence/ledger-01.private.json": "06cc697a2d8a25f6f1f6cfe4c5066d232a426f75997aa301d1812af21be04f60",
+    "evidence/qq-regression-red-02.log": "39cdac9f78519b55f6f3e7d3b3624d7e64e38ef4dd8e6c46f7e34a022e13c840",
+    "evidence/qq-regression-green.log": "9cd29329d3ac669d8e1b22e3d21a194cb45861c7dc5a106a458a92467a09a5b7",
+    "evidence/affected-race.log": "0d0e51eac32f717bb451709ea1c2c833d638be5ddfaa3d2c3bc69b50c0de9a5d",
+    "qualification/full-test.log": "048c9cdbca4f9015828e36ccdf2411e7d4ec699755fa0548faac8677edaa4011",
+    "evidence/readback-final.json": "8cee8ac76309fd23dd64d6a7afd8dbb2639ca07c2fa7483bbb2ef7bcafefa63d",
+    "evidence/final-mail-01.jsonl": "67872f5e1785f03b6010fb82a6829258f7e530b8a438493feffa78b6e66cedab",
+    "evidence/final-verified.jsonl": "8fc0437d1696fc021ae18e52d0066c93edb2bc1e53f6fb7612b2fc2e3e677668",
+    "evidence/source-sync.json": "51cdd8ea03a7efe792d05b18a72dc369d0312e6907064482111f0d3bc1cba1fd"
+  }
+}

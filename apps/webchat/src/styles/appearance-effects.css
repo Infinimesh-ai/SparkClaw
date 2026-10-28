@@ -1,8 +1,5 @@
 /* Preferences share the real chat measure and surface tokens with the preview. */
 html[data-reading-width="wide"] { --reading-width: 1040px; }
-html[data-reading-width="wide"] .homePresentation .homeChat > .composerDock {
-  width: min(100%, var(--reading-width));
-}
 
 .settingsAppearanceControls { display: grid; gap: 12px; min-width: 0; }
 /* The preview follows the controls in one column at every width. */

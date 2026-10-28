@@ -626,7 +626,7 @@ html:root .clientWindow .clientContent > .shell.workbench { position: relative; 
    conversation's own composer sits; the welcome stays centred above it. */
 html:root .clientWindow .localWorkbench.homePresentation .homeChat { padding-bottom: 20px; }
 html:root .clientWindow .localWorkbench.homePresentation .homeChat > div.messageList { margin: auto; }
-html:root .clientWindow .localWorkbench.homePresentation .homeChat > .composerDock { margin: 28px auto 0; }
+html:root .clientWindow .localWorkbench.homePresentation .homeChat > .composerDock { margin-block: 28px 0; }
 
 /* Dragging an edge on past a column's narrowest or widest width snaps: the
    sidebar or browser hides, and the browser can take the workspace in place of

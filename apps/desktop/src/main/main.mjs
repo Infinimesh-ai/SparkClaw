@@ -47,6 +47,7 @@ import { ISCPRecordingClient } from "./iscp-recording-client.mjs";
 import { configureWorkbenchPermissions } from "./workbench-permissions.mjs";
 import { proxyAPIAllowed, settledBackendState } from "./workbench-proxy-policy.mjs";
 import { bindWorkbenchActivation } from "./workbench-activation.mjs";
+import { bindWindowChrome } from "./window-chrome.mjs";
 import { resolveISCPLaunchProfile } from "./iscp-launch-profile.mjs";
 
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -246,6 +247,7 @@ async function start() {
         ...(!qualification ? ["--sparkclaw-client-store=1"] : [])],
     },
   });
+  bindWindowChrome(window, { inset: insetTitlebar });
   if (!qualification) {
     const localChanged = () => {
       if (window && !window.isDestroyed()) window.webContents.send("sparkclaw-client-store:changed");

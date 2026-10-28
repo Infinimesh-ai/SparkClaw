@@ -1,5 +1,17 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+// A display-only native state projection; no new renderer command capability.
+let nativeFullscreen = false;
+const applyWindowChrome = () => {
+  if (document.documentElement) document.documentElement.dataset.nativeFullscreen = String(nativeFullscreen);
+};
+document.addEventListener("DOMContentLoaded", applyWindowChrome, { once: true });
+ipcRenderer.on("sparkclaw-window:fullscreen", (_event, fullscreen) => {
+  if (typeof fullscreen !== "boolean") return;
+  nativeFullscreen = fullscreen;
+  applyWindowChrome();
+});
+
 const invoke = (operation, fields = {}) => ipcRenderer.invoke("sparkclaw-desktop:invoke", {
   schema_version: 1,
   operation,

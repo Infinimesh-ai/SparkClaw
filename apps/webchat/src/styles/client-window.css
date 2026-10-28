@@ -548,6 +548,39 @@ html:root .clientWindow .workbench.glassWorkbench .sidebar .sessionSelect :is(.s
   font-weight: 400;
   line-height: 20px;
 }
+/* Accepted client typography: 13px navigation and 14px conversation text.
+   The development preview can override sizes without saving preferences. */
+html:root .clientWindow .workbench.glassWorkbench .sidebar .conversationListHeader { font-size: var(--client-sidebar-label-size, var(--client-sidebar-size, 13px)); line-height: 20px; }
+html:root .clientWindow .workbench.glassWorkbench .sidebar > :is(.sidebarNewConversation, .sidebarScheduleLink),
+html:root .clientWindow .workbench.glassWorkbench .sidebar > :is(.sidebarNewConversation, .sidebarScheduleLink) > span,
+html:root .clientWindow .workbench.glassWorkbench .sidebar .sessionSelect :is(.sessionTitle, .sessionTitleText) { font-size: var(--client-sidebar-size, 13px); line-height: max(16px, calc(var(--client-sidebar-size, 13px) + 3px)); }
+html:root .clientWindow .workbench.glassWorkbench .sidebar > :is(.sidebarNewConversation, .sidebarScheduleLink),
+html:root .clientWindow .workbench.glassWorkbench .sidebar :is(.sessionItem, .sessionSelect) { min-height: 28px; }
+html:root .clientWindow .workbench.glassWorkbench .sidebar .sessionSelect { padding-block: 6px; }
+html:root .clientWindow .workbench.glassWorkbench .sidebar .sessionItem.active .sessionTitle { font-size: var(--client-sidebar-size, 13px); line-height: max(16px, calc(var(--client-sidebar-size, 13px) + 3px)); }
+html:root .clientWindow .workbench.glassWorkbench .sidebar > :is(.sidebarNewConversation, .sidebarScheduleLink) { padding-block: 5px; }
+html:root .clientWindow .workbench.glassWorkbench :is(.messageContent, .composer textarea) {
+  font-size: var(--client-reading-size, var(--client-default-reading-size, 14px));
+  color: var(--client-reading-ink, #1b1d21);
+}
+html:root .clientWindow .workbench.glassWorkbench .composer textarea { color: var(--client-composer-ink, var(--client-reading-ink, #1b1d21)); }
+html:root[data-resolved-theme="dark"] .clientWindow .workbench.glassWorkbench :is(.messageContent, .composer textarea) { color: var(--client-reading-ink, var(--ui-ink)); }
+html:root[data-resolved-theme="dark"] .clientWindow .workbench.glassWorkbench .composer textarea { color: var(--client-composer-ink, var(--client-reading-ink, var(--ui-ink))); }
+html[data-text-size="small"] .clientWindow { --client-default-reading-size: 13px; }
+html[data-text-size="large"] .clientWindow { --client-default-reading-size: 15px; }
+.clientWindow .messageContent .messageHeading { font-size: calc(var(--client-reading-size, var(--client-default-reading-size, 14px)) + 2px); line-height: 1.4; }
+.clientWindow .messageContent .messageHeading.level3 { font-size: calc(var(--client-reading-size, var(--client-default-reading-size, 14px)) + 1px); }
+
+/* Reclaim the macOS control inset in fullscreen and group navigation at the
+   window edge, independent of the sidebar's width. */
+html:is([data-native-fullscreen="true"], :fullscreen) .clientWindow .clientWindowControls { display: none; }
+html:is([data-native-fullscreen="true"], :fullscreen) .clientWindow .clientTitlebarLeading { gap: 4px; padding-inline: 8px; }
+html:is([data-native-fullscreen="true"], :fullscreen) .clientWindow .clientSidebarControl { margin-left: 0; }
+@media (display-mode: fullscreen) {
+  .clientWindow .clientWindowControls { display: none; }
+  .clientWindow .clientTitlebarLeading { gap: 4px; padding-inline: 8px; }
+  .clientWindow .clientSidebarControl { margin-left: 0; }
+}
 
 /* The sidebar's edge is a drag handle; its width also sets the title bar's
    leading part. In narrow windows it resizes the overlay the same way. */

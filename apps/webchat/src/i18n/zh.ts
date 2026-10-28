@@ -492,6 +492,8 @@ export const zh = {
       createTitle: "直接描述你想安排的任务",
       createDescription: "写下要做什么、何时执行和是否重复，SparkX 会沿用现有任务链路完成创建。",
       createPlaceholder: "例如：每个工作日早上 9 点整理昨天的项目进展，并把摘要发给我",
+      suggestionsLabel: "你可以安排：",
+      suggestions: ["每天早上 9 点汇总新邮件", "每周五 17 点提醒写周报", "明天上午 10 点提醒开会", "每月 1 日整理上月账单"],
       createAction: "创建定时任务",
       creating: "正在创建…",
       createSuccess: "定时任务已创建。",

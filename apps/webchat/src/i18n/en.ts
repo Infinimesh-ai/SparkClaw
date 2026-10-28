@@ -490,6 +490,8 @@ export const en = {
       createTitle: "Describe the task you want to schedule",
       createDescription: "Say what to do, when to run it, and whether it repeats. SparkX will use the existing task flow to create it.",
       createPlaceholder: "For example: Every weekday at 9 AM, summarize yesterday's project progress and send it to me",
+      suggestionsLabel: "Try scheduling:",
+      suggestions: ["Summarize new mail daily at 9 AM", "Weekly report reminder, Fridays 5 PM", "Meeting reminder tomorrow 10 AM", "Sort last month's bills on the 1st"],
       createAction: "Create scheduled task",
       creating: "Creating…",
       createSuccess: "The scheduled task was created.",

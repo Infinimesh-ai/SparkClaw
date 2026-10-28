@@ -23,8 +23,10 @@ export function ClientWindow({ children }: { children: ReactNode }) {
   </div>;
 }
 
-export function WorkspaceTitlebar({ language, sidebar, back, actions, navigation, hidden = false }: {
+export function WorkspaceTitlebar({ language, title = "", sidebar, back, actions, navigation, hidden = false }: {
   language: Language;
+  // The open conversation's title, shown over the workspace in the client.
+  title?: string;
   sidebar?: ReactNode;
   back?: ReactNode;
   actions: ReactNode;
@@ -48,7 +50,7 @@ export function WorkspaceTitlebar({ language, sidebar, back, actions, navigation
       </nav>
       <div className="clientSidebarControl">{sidebar || <span className="clientSidebarPlaceholder" aria-hidden="true" />}</div>
     </div>
-    <div className="clientTitlebarSpace" aria-hidden="true" />
+    <div className="clientTitlebarMain">{title && <h1 className="clientTitlebarTitle" title={title}>{title}</h1>}</div>
     <div className="clientTitlebarActions topbarActions">{actions}</div>
   </>, titlebar.host);
 }

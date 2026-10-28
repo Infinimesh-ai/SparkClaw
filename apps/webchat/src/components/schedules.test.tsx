@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { dictionaries } from "../i18n";
-import { ScheduleCreateDialog } from "./schedules";
+import { ScheduleCreateDialog, ScheduleSuggestions } from "./schedules";
 
 describe("ScheduleCreateDialog", () => {
   const roots: ReturnType<typeof createRoot>[] = [];
@@ -67,6 +67,23 @@ describe("ScheduleCreateDialog", () => {
 
     expect(onClose).toHaveBeenCalledOnce();
     expect(onCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("ScheduleSuggestions", () => {
+  it("offers example requests that open the create dialog filled in", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host), choose = vi.fn();
+    try {
+      await act(async () => root.render(<ScheduleSuggestions text={dictionaries.zh} disabled={false} onChoose={choose} />));
+      const suggestions = host.querySelectorAll<HTMLButtonElement>(".scheduleSuggestion");
+      expect(suggestions).toHaveLength(dictionaries.zh.schedules.suggestions.length);
+      await act(async () => suggestions[1].click());
+      expect(choose).toHaveBeenCalledExactlyOnceWith(dictionaries.zh.schedules.suggestions[1]);
+      await act(async () => root.render(<ScheduleCreateDialog busy={false} text={dictionaries.zh} initialRequest={dictionaries.zh.schedules.suggestions[1]} onClose={() => {}} onCreate={async () => null} />));
+      expect(host.querySelector("textarea")!.value).toBe(dictionaries.zh.schedules.suggestions[1]);
+    } finally { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); }
   });
 });
 

@@ -4,7 +4,7 @@ import { useBrowserLayout } from "../hooks/useBrowserLayout";
 import { useMessageScroll } from "../hooks/useMessageScroll";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Plus } from "lucide-react";
-import { ScheduleBar, ScheduleCreateDialog } from "../components/schedules";
+import { ScheduleBar, ScheduleCreateDialog, ScheduleSuggestions } from "../components/schedules";
 import { useLocalSchedules } from "./useLocalSchedules";
 import { SessionSidebar } from "../components/sidebar";
 import { useClientTitlebar, WorkspaceTitlebar } from "../components/clientWindow";
@@ -73,6 +73,7 @@ export function LocalWorkbench() {
   const draftRef = useRef("");
   const inputFilesRef = useRef<string[]>([]);
   const [scheduleCreateOpen, setScheduleCreateOpen] = useState(false);
+  const [scheduleRequest, setScheduleRequest] = useState("");
   const [scheduleBarOpen, setScheduleBarOpen] = useState(true);
   const [editingSession, setEditingSession] = useState("");
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
@@ -535,6 +536,7 @@ export function LocalWorkbench() {
     />}
     <main ref={browserLayout.workspaceRef} className={`${settings ? "settingsPageMain" : "workspace desktopWorkbench"} ${homePresentation ? "homeWorkspace" : ""} ${capabilities.browser && browserOpen && !settings && page === "chat" ? "withInspector" : ""} ${inspectorResize.resizing ? "resizingInspector" : ""} ${browserLayout.className}`} style={settings ? undefined : inspectorResize.style} aria-busy={busy}>
       <WorkspaceTitlebar language={language} hidden={settings} navigation={pageHistory}
+        title={!settings && page === "chat" ? conversations.find((conversation) => conversation.id === selected)?.title : undefined}
         sidebar={!settings && <button className="iconButton sidebarToggle" type="button" aria-label={copy.toggleNav} onClick={() => setSidebarCollapsed((current) => !current)}><ActionIcon name="panel-left" /></button>}
         back={(settings || page !== "chat") && <button className="iconButton workspaceBackButton" type="button" disabled={busy}
           onClick={settings ? () => setSettings(false) : () => { setPage("chat"); setTab("timeline"); }}
@@ -637,11 +639,13 @@ export function LocalWorkbench() {
           }} onClose={() => setDocumentPickerOpen(false)} />}
         </section>
         {page === "schedules" && <div className="workbenchPage schedulePage">
-          <div className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div><button className="primaryButton" onClick={() => setScheduleCreateOpen(true)} disabled={busy || Boolean(localSchedules.busyID) || voice.active}><Plus size={15} />{copy.newSchedule}</button></div>
+          <div className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div><button className="primaryButton" onClick={() => { setScheduleRequest(""); setScheduleCreateOpen(true); }} disabled={busy || Boolean(localSchedules.busyID) || voice.active}><Plus size={15} />{copy.newSchedule}</button></div>
+          <ScheduleSuggestions text={text} disabled={busy || Boolean(localSchedules.busyID) || voice.active}
+            onChoose={(request) => { setScheduleRequest(request); setScheduleCreateOpen(true); }} />
           <ScheduleBar key={localScopeKey} schedules={localSchedules.schedules} open={scheduleBarOpen} loading={localSchedules.loading} busyId={localSchedules.busyID}
             language={language} text={text} onToggle={() => setScheduleBarOpen(value => !value)}
             onRefresh={() => void localSchedules.check().catch(() => {})} onEdit={localSchedules.edit} onDelete={localSchedules.cancel} onRunNow={localSchedules.runNow} />
-          {scheduleCreateOpen && <ScheduleCreateDialog busy={busy || Boolean(localSchedules.busyID)} text={text} onClose={() => setScheduleCreateOpen(false)} onCreate={localSchedules.create} />}
+          {scheduleCreateOpen && <ScheduleCreateDialog key={scheduleRequest} initialRequest={scheduleRequest} busy={busy || Boolean(localSchedules.busyID)} text={text} onClose={() => setScheduleCreateOpen(false)} onCreate={localSchedules.create} />}
         </div>}
         {capabilities.browser && browserLayout.visible && typeof desktop.state === "function" && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} onHide={closeBrowser} />}
 

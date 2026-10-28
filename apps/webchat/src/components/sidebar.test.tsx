@@ -414,4 +414,42 @@ describe("SessionSidebar navigation and conversations", () => {
       expect(archiveSelection).not.toHaveBeenCalled();
     } finally { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); }
   });
+
+  it("opens a conversation's actions at the pointer on right click", async () => {
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<SessionSidebar text={dictionaries.en} language="en" page="chat" ownerProfile={null}
+        sessions={[{ id: "one", title: "First" }, { id: "two", title: "Second" }]} activeSession="one"
+        onCreateSession={() => {}} onSearch={() => {}} onSelectSession={() => {}} onStartRename={() => {}} onDeleteSession={() => {}} />));
+      expect(host.querySelector(".sessionTitle")?.textContent).toBe("First");
+      const row = host.querySelectorAll(".sessionItem")[1];
+      const contextMenu = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 });
+      await act(async () => row.dispatchEvent(contextMenu));
+      expect(contextMenu.defaultPrevented).toBe(true);
+      const menu = document.querySelector<HTMLElement>(".sessionMenu")!;
+      expect(menu.getAttribute("aria-label")).toBe("Conversation actions: Second");
+      expect([menu.style.left, menu.style.top]).toEqual(["40px", "60px"]);
+      expect(document.activeElement).toBe(menu.querySelector('[role="menuitem"]'));
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
+  it("measures how far a long title scrolls when its row is hovered", async () => {
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host);
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 0; });
+    try {
+      await act(async () => root.render(<SessionSidebar text={dictionaries.en} language="en" page="chat" ownerProfile={null}
+        sessions={[{ id: "one", title: "A very long conversation title" }, { id: "two", title: "Short" }]} activeSession="one"
+        onCreateSession={() => {}} onSearch={() => {}} onSelectSession={() => {}} />));
+      const [long, short] = Array.from(host.querySelectorAll<HTMLElement>(".sessionTitle"));
+      Object.defineProperties(long, { scrollWidth: { value: 260 }, clientWidth: { value: 160 } });
+      Object.defineProperties(short, { scrollWidth: { value: 60 }, clientWidth: { value: 160 } });
+      const rows = host.querySelectorAll(".sessionItem");
+      await act(async () => { for (const row of rows) row.dispatchEvent(new PointerEvent("pointerover", { bubbles: true })); });
+      expect(long.hasAttribute("data-overflowing")).toBe(true);
+      expect(long.style.getPropertyValue("--session-title-shift")).toBe("-100px");
+      expect(short.hasAttribute("data-overflowing")).toBe(false);
+    } finally { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); }
+  });
 });

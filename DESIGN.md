@@ -197,6 +197,22 @@ same title bar. The web keeps its in-page topbar without page history. The
 desktop home uses the same light welcome presentation as the web home without
 the suggestion row.
 
+The desktop title bar follows the columns beneath it: its leading part continues
+the sidebar surface and divider, and the workspace part shows the open
+conversation's title. With the sidebar collapsed, or in windows of 840px or
+less, the leading part becomes transparent and only as wide as its controls.
+Sidebar conversation rows follow Codex: a plain title that fades out at the row
+edge instead of an ellipsis. Hover or keyboard focus shows the archive and
+ellipsis actions on the right and scrolls a long title once to its end, without
+looping (not under reduced motion); a right click opens the same menu at the
+pointer. Conversation
+history fades under the title bar and above the composer only while more
+history lies in that direction. The schedule page sits lower and offers a row of
+example requests that open the create dialog filled in. In the mail window the
+toolbar rows, list rows, messages and the reply box stay inset from the window
+and pane edges. The desktop window opens at 1280x820, within 85% x 80% of a
+smaller work area, and can shrink to 640x560.
+
 The six-column homepage composer must fit at 320px. Keep its overflow visible
 so the voice-device menu can escape the card. Document overlays keep viewport
 insets (16px), and dialogs constrain their width and height to the viewport.

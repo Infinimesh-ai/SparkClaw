@@ -92,6 +92,11 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
   device-local conversation archiving, simplified message headers and a quieter
   welcome. The desktop draws its own title bar with inset macOS window controls
   and Back/Forward page history.
+- The SparkX desktop title bar is divided by the sidebar column and shows the
+  open conversation's title; sidebar rows follow Codex with fading titles that
+  scroll once on hover, hover actions and a right-click menu; history fades at its scroll edges; the
+  schedule page adds example requests; mail surfaces sit inset; and the window
+  opens at Codex's 1280x820 instead of 1440x900.
 - Downloaded SparkX desktops now unlock with one backend-issued
   `sparkclaw-connect-v1...` connection credential instead of a separate public
   backend JSON and device token. Linux first/recovery issuance and signed-in

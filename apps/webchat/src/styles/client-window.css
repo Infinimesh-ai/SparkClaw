@@ -3,6 +3,8 @@
 .clientWindow {
   --client-titlebar-height: 48px;
   --client-leading-width: var(--sidebar-width);
+  --client-row-hover: color-mix(in srgb, var(--ui-ink) 5%, transparent);
+  --client-row-active: color-mix(in srgb, var(--ui-ink) 8%, transparent);
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -139,4 +141,215 @@ html[data-resolved-theme="dark"] .clientWindow .clientTitlebar .iconButton[aria-
   .clientWindow { --client-leading-width: min(244px, calc(100vw - 100px)); }
   .clientWindow .clientTitlebarLeading { gap: 12px; padding-inline: 8px; }
   .clientWindow .clientTitlebarActions.topbarActions { padding-inline: 4px 8px; }
+}
+
+/* The title bar follows the columns below it: the leading part continues the
+   sidebar and its divider, the rest belongs to the workspace and shows the open
+   conversation's title. */
+.clientWindow .clientTitlebar.workbench.glassWorkbench {
+  border-bottom: 0;
+  background: var(--client-workspace-surface, var(--ui-ground));
+}
+.clientWindow .clientTitlebarLeading {
+  border-right: 1px solid var(--ui-divider);
+  background: var(--client-sidebar-surface, var(--panel-surface));
+}
+.clientWindow .clientTitlebarMain {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  padding-inline: 20px 12px;
+}
+.clientWindow .clientTitlebarTitle {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ui-ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clientWindow:has(.clientContent > .shell.workbench.sidebarCollapsed) .clientTitlebar.workbench.glassWorkbench {
+  --client-leading-width: max-content;
+}
+.clientWindow:has(.clientContent > .shell.workbench.sidebarCollapsed) .clientTitlebarLeading {
+  border-right-color: transparent;
+  background: transparent;
+}
+.clientWindow:has(.clientContent > .shell.workbench.sidebarCollapsed) .clientTitlebarMain { padding-left: 8px; }
+/* Narrow windows show the sidebar as an overlay below the title bar. */
+@media (max-width: 840px) {
+  .clientWindow .clientTitlebar.workbench.glassWorkbench { --client-leading-width: max-content; }
+  .clientWindow .clientTitlebarLeading { border-right-color: transparent; background: transparent; }
+  .clientWindow .clientTitlebarMain { padding-left: 8px; }
+}
+
+/* Conversation rows in the manner of Codex: a plain title that fades out at
+   the row's edge instead of an ellipsis. Hovering shows the row actions and
+   scrolls a long title once to its end; a right click opens the same menu at
+   the pointer. */
+.clientWindow .sidebar .sidebarNewConversation {
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+}
+.clientWindow .sidebar .sidebarNewConversation:hover:not(:disabled) { background: var(--client-row-hover); box-shadow: none; }
+.clientWindow .sidebar .conversationListHeader { min-height: 32px; padding: 14px 4px 4px 8px; }
+.clientWindow .sidebar .conversationListActions { opacity: 0; transition: opacity 120ms ease; }
+.clientWindow .sidebar :is(.conversationListHeader:hover, .conversationListHeader:focus-within) .conversationListActions,
+.clientWindow .sidebar:has(.sessionList:hover) .conversationListActions,
+.clientWindow .sidebar .conversationListActions:has([aria-expanded="true"]) { opacity: 1; }
+.clientWindow .sidebar .sessionList { flex-direction: column; gap: 1px; padding: 0; overflow-x: hidden; overflow-y: auto; }
+.clientWindow .workbench.glassWorkbench .sidebar .sessionItem {
+  position: relative;
+  display: block;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--ui-ink);
+  background: transparent;
+  box-shadow: none;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  transition: background 120ms ease;
+}
+.clientWindow .workbench.glassWorkbench .sidebar .sessionItem:where(:hover, :has(.sessionMenuTrigger[aria-expanded="true"])) { background: var(--client-row-hover); }
+.clientWindow .workbench.glassWorkbench .sidebar .sessionItem.active { background: var(--client-row-active); box-shadow: none; }
+.clientWindow .workbench.glassWorkbench .sidebar .sessionSelect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border-radius: inherit;
+}
+.clientWindow .workbench.glassWorkbench .sidebar .sessionSelect::before { display: none; }
+html:root .clientWindow .workbench.glassWorkbench .sidebar .sessionSelect .sessionTitle,
+html:root .clientWindow .workbench.glassWorkbench .sidebar .sessionItem.active .sessionTitle {
+  flex: 1 1 auto;
+  color: var(--ui-ink);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+}
+@property --session-title-fade-left { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --session-title-fade-right { syntax: "<length>"; inherits: false; initial-value: 20px; }
+html:root .clientWindow .workbench.glassWorkbench .sidebar .sessionSelect .sessionTitle {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--session-title-fade-left), #000 calc(100% - var(--session-title-fade-right)), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 var(--session-title-fade-left), #000 calc(100% - var(--session-title-fade-right)), transparent 100%);
+  transition: --session-title-fade-left 200ms ease, --session-title-fade-right 200ms ease;
+}
+html:root .clientWindow .workbench.glassWorkbench .sidebar .sessionSelect .sessionTitle .sessionTitleText {
+  display: inline-block;
+  max-width: none;
+  overflow: visible;
+  transform: translateX(0);
+  transition: transform 240ms ease;
+}
+.clientWindow .workbench.glassWorkbench .sidebar .sessionItem:is(:hover, :has(:focus-visible)) .sessionTitle[data-overflowing] {
+  --session-title-fade-left: 16px;
+  --session-title-fade-right: 0px;
+  transition-delay: 300ms;
+}
+.clientWindow .workbench.glassWorkbench .sidebar .sessionItem:is(:hover, :has(:focus-visible)) .sessionTitle[data-overflowing] .sessionTitleText {
+  transform: translateX(var(--session-title-shift, 0px));
+  transition: transform var(--session-title-duration, 2s) linear 300ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .clientWindow .workbench.glassWorkbench .sidebar .sessionItem .sessionTitle[data-overflowing] { --session-title-fade-left: 0px; --session-title-fade-right: 20px; }
+  .clientWindow .workbench.glassWorkbench .sidebar .sessionItem .sessionTitle[data-overflowing] .sessionTitleText { transform: none; transition: none; }
+}
+.clientWindow .workbench.glassWorkbench .sidebar .sessionActions {
+  position: absolute;
+  inset: 0 4px 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.clientWindow .workbench.glassWorkbench .sidebar .sessionItem:is(:hover, :has(:focus-visible), :has(.sessionMenuTrigger[aria-expanded="true"])) .sessionActions { opacity: 1; pointer-events: auto; }
+.clientWindow .workbench.glassWorkbench .sidebar .sessionItem:is(:hover, :has(:focus-visible), :has(.sessionMenuTrigger[aria-expanded="true"])) .sessionSelect { padding-right: 56px; }
+.clientWindow .sidebar :is(.sessionArchiveTrigger, .sessionMenuTrigger) { width: 24px; min-width: 24px; height: 24px; border-radius: 6px; }
+
+/* Messages fade out under the title bar and above the composer only while
+   there is more history in that direction. */
+@property --client-history-fade-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --client-history-fade-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes clientHistoryFadeTop { from { --client-history-fade-top: 0px; } to { --client-history-fade-top: 40px; } }
+@keyframes clientHistoryFadeBottom { from { --client-history-fade-bottom: 48px; } to { --client-history-fade-bottom: 0px; } }
+@supports (animation-timeline: scroll()) {
+  .clientWindow .localChat:not(.homeChat) > .messageList {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, rgb(0 0 0 / 40%) calc(var(--client-history-fade-top) * .4), #000 var(--client-history-fade-top), #000 calc(100% - var(--client-history-fade-bottom)), rgb(0 0 0 / 40%) calc(100% - var(--client-history-fade-bottom) * .4), transparent 100%);
+    mask-image: linear-gradient(to bottom, transparent 0, rgb(0 0 0 / 40%) calc(var(--client-history-fade-top) * .4), #000 var(--client-history-fade-top), #000 calc(100% - var(--client-history-fade-bottom)), rgb(0 0 0 / 40%) calc(100% - var(--client-history-fade-bottom) * .4), transparent 100%);
+    animation: clientHistoryFadeTop linear both, clientHistoryFadeBottom linear both;
+    animation-timeline: scroll(self), scroll(self);
+    animation-range: 0 64px, calc(100% - 64px) 100%;
+  }
+}
+
+/* The schedule page sits lower under the title bar, with example requests
+   between its heading and the list. */
+.clientWindow .workbench.glassWorkbench .workspace > .schedulePage { padding-top: 56px; }
+.clientWindow .schedulePage .workbenchPageHeader { margin-bottom: 20px; }
+/* On its own page the list uses the window height; the page scrolls beyond it. */
+.clientWindow .schedulePage .scheduleList { max-height: none; }
+.scheduleSuggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 24px;
+}
+.scheduleSuggestionsLabel { margin-right: 2px; color: var(--ui-muted); font-size: 13px; line-height: 20px; }
+.scheduleSuggestion {
+  min-height: 30px;
+  padding: 5px 11px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 999px;
+  color: var(--ui-ink);
+  background: var(--ui-glass);
+  font-size: 13px;
+  line-height: 18px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.scheduleSuggestion:hover:not(:disabled) { border-color: var(--ui-input-edge, var(--ui-glass-edge)); background: var(--ui-glass-strong); }
+.scheduleSuggestion:focus-visible { outline: 2px solid var(--ui-blue); outline-offset: 2px; }
+.scheduleSuggestion:disabled { opacity: .5; cursor: default; }
+
+/* The mail window keeps its surfaces off its rounded edges: the toolbar rows,
+   list rows, messages and the reply box sit inset from the window and panes. */
+@media (min-width: 721px) {
+  html:has(.clientWindow) .emailPopup :is(.emailPopupHeader, .emailFilters, .emailSyncBar) { padding-inline: 22px; }
+  html:has(.clientWindow) .emailPopup .emailCategoryPane { padding: 12px 10px 18px 14px; }
+  html:has(.clientWindow) .emailPopup .emailCategoryNote { padding: 12px 6px 0; }
+  html:has(.clientWindow) .emailPopup .emailConversationList { padding: 6px 8px 12px; }
+  html:has(.clientWindow) .emailPopup .emailConversationRow {
+    margin-block: 2px;
+    border-bottom: 0;
+    border-radius: 12px;
+  }
+  html:has(.clientWindow) .emailPopup .emailDetailHeader { padding-inline: 24px; }
+  html:has(.clientWindow) .emailPopup .emailTimeline > div:not(.emailDetailHeader) { padding-inline: 24px; }
+  html:has(.clientWindow) .emailPopup .emailTimeline > div:last-child { padding-bottom: 16px; }
+  html:has(.clientWindow) .emailPopup .emailReplyComposer {
+    margin: 0 24px 18px;
+    border-bottom: 1px solid var(--ui-glass-edge);
+    border-radius: 16px;
+  }
 }

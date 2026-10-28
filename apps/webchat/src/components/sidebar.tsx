@@ -12,6 +12,21 @@ import type { ConversationActivity } from "../lib/conversationActivity";
 import { ActionIcon } from "./ActionIcon";
 
 type SidebarConversation = Pick<Session, "id" | "title"> & { source?: string };
+type ContextRequest = { id: string; x: number; y: number; nonce: number };
+
+// A title longer than its row scrolls once to its end while the row is hovered
+// or focused; the stylesheet decides whether and how it moves.
+function measureTitleOverflow(row: HTMLElement) {
+  requestAnimationFrame(() => {
+    const title = row.querySelector<HTMLElement>(".sessionTitle");
+    if (!title) return;
+    const overflow = Math.max(0, title.scrollWidth - title.clientWidth);
+    title.style.setProperty("--session-title-shift", `${-overflow}px`);
+    // A fixed 40px per second, so every title scrolls at the same steady pace.
+    title.style.setProperty("--session-title-duration", `${overflow * 25}ms`);
+    title.toggleAttribute("data-overflowing", overflow > 0);
+  });
+}
 
 // Archiving only hides a conversation from the recent list on this device.
 const archiveStorageKey = (ownerID?: string) => `sparkx.archived-conversations.v1.${ownerID ?? "local"}`;
@@ -35,17 +50,26 @@ function moveMenuFocus(event: KeyboardEvent<HTMLDivElement>) {
   items[index].focus();
 }
 
-function SessionActionMenu({ title, language, text, renameDisabled, deleteDisabled, onRename, onDelete }: {
+function SessionActionMenu({ title, language, text, renameDisabled, deleteDisabled, contextRequest, onRename, onDelete }: {
   title: string;
   language: Language;
   text: Copy;
   renameDisabled: boolean;
   deleteDisabled: boolean;
+  // A right click on the row opens this menu at the pointer.
+  contextRequest?: ContextRequest;
   onRename?: () => void;
   onDelete?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [position, setPosition] = useState({ top: 0, left: 0 });
+  useEffect(() => {
+    if (!contextRequest) return;
+    setPoint({ x: contextRequest.x, y: contextRequest.y });
+    setOpen(true);
+  }, [contextRequest]);
+  useEffect(() => { if (!open) setPoint(null); }, [open]);
   const menuId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useDismissibleLayer<HTMLDivElement>({
@@ -70,12 +94,13 @@ function SessionActionMenu({ title, language, text, renameDisabled, deleteDisabl
     const trigger = triggerRef.current.getBoundingClientRect();
     const menu = menuRef.current.getBoundingClientRect();
     const margin = 12, gap = 6;
-    const below = trigger.bottom + gap;
+    const below = point ? point.y : trigger.bottom + gap;
+    const above = point ? point.y - menu.height : trigger.top - gap - menu.height;
     setPosition({
-      left: Math.max(margin, Math.min(trigger.right - menu.width, window.innerWidth - menu.width - margin)),
-      top: Math.max(margin, Math.min(below + menu.height <= window.innerHeight - margin ? below : trigger.top - gap - menu.height, window.innerHeight - menu.height - margin))
+      left: Math.max(margin, Math.min(point ? point.x : trigger.right - menu.width, window.innerWidth - menu.width - margin)),
+      top: Math.max(margin, Math.min(below + menu.height <= window.innerHeight - margin ? below : above, window.innerHeight - menu.height - margin))
     });
-  }, [open, menuRef]);
+  }, [open, point, menuRef]);
 
   useEffect(() => {
     if (!open) return;
@@ -187,6 +212,7 @@ export function SessionSidebar<T extends SidebarConversation>({
   const [archived, setArchived] = useState(() => readArchived(archiveKey));
   const [showArchived, setShowArchived] = useState(false);
   const [archiveError, setArchiveError] = useState("");
+  const [contextRequest, setContextRequest] = useState<ContextRequest>();
   const searchRef = useRef<HTMLButtonElement>(null);
   const conversations = sessions.filter((session) => session.source !== "mcp");
   const visibleSessions = conversations.filter((session) => archived.includes(session.id) === showArchived);
@@ -289,7 +315,12 @@ export function SessionSidebar<T extends SidebarConversation>({
         {archiveError && <p className="sidebarArchiveNotice" role="alert">{archiveError}</p>}
         {showArchived && !visibleSessions.length && <p className="sidebarArchiveEmpty">{zh ? "暂无归档对话" : "No archived conversations"}</p>}
         {visibleSessions.map((session) => (
-          <div className={`sessionItem ${page === "chat" && session.id === activeSession ? "active" : ""}`} key={session.id}>
+          <div className={`sessionItem ${page === "chat" && session.id === activeSession ? "active" : ""}`} key={session.id}
+            onPointerEnter={(event) => measureTitleOverflow(event.currentTarget)} onFocus={(event) => measureTitleOverflow(event.currentTarget)}
+            onContextMenu={editingSession === session.id || (!onStartRename && !onDeleteSession) ? undefined : (event) => {
+              event.preventDefault();
+              setContextRequest({ id: session.id, x: event.clientX, y: event.clientY, nonce: event.timeStamp });
+            }}>
             {editingSession === session.id ? (
               <form
                 className="sessionRenameForm"
@@ -315,7 +346,7 @@ export function SessionSidebar<T extends SidebarConversation>({
             ) : (
               <>
                 <button className="sessionSelect" title={session.title} disabled={busy} aria-current={page === "chat" && session.id === activeSession ? "page" : undefined} onClick={() => onSelectSession(session)}>
-                  <span className="sessionTitle">{session.title}</span>
+                  <span className="sessionTitle"><span className="sessionTitleText">{session.title}</span></span>
                   <small>{shortId(session.id)}</small>
                   {activityBySession[session.id] && <span className={`sessionActivity ${activityBySession[session.id]}`}
                     role="img" aria-label={activityBySession[session.id] === "running" ? text.chat.waiting : text.chat.taskCompleted}
@@ -332,6 +363,7 @@ export function SessionSidebar<T extends SidebarConversation>({
                     title={session.title} language={language} text={text}
                     renameDisabled={!onStartRename || sessionActionId === session.id}
                     deleteDisabled={!onDeleteSession || busy || Boolean(sessionActionId)}
+                    contextRequest={contextRequest?.id === session.id ? contextRequest : undefined}
                     onRename={onStartRename ? () => onStartRename(session) : undefined}
                     onDelete={onDeleteSession ? () => onDeleteSession(session.id) : undefined}
                   />}

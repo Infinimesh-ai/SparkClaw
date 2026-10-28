@@ -24,10 +24,21 @@ type ScheduleCreateDialogProps = {
   text: Copy;
   onClose: () => void;
   onCreate: (request: string) => Promise<ScheduleCreateResult | null>;
+  initialRequest?: string;
 };
 
-export function ScheduleCreateDialog({ busy, text, onClose, onCreate }: ScheduleCreateDialogProps) {
-  const [request, setRequest] = useState("");
+// Example requests above the schedule list show what can be scheduled; each
+// opens the create dialog with that request filled in for editing.
+export function ScheduleSuggestions({ text, disabled, onChoose }: { text: Copy; disabled: boolean; onChoose: (request: string) => void }) {
+  return <div className="scheduleSuggestions" role="group" aria-label={text.schedules.suggestionsLabel}>
+    <span className="scheduleSuggestionsLabel" aria-hidden="true">{text.schedules.suggestionsLabel}</span>
+    {text.schedules.suggestions.map((suggestion) => <button className="scheduleSuggestion" type="button" key={suggestion} disabled={disabled}
+      onClick={() => onChoose(suggestion)}>{suggestion}</button>)}
+  </div>;
+}
+
+export function ScheduleCreateDialog({ busy, text, onClose, onCreate, initialRequest = "" }: ScheduleCreateDialogProps) {
+  const [request, setRequest] = useState(initialRequest);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState("");
   const dialogRef = useDismissibleLayer<HTMLDivElement>({ open: true, onDismiss: onClose, modal: true, dismissible: !busy && !submitting, initialFocus: "textarea" });

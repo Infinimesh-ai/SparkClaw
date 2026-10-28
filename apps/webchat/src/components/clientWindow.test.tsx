@@ -98,4 +98,17 @@ describe("client title bar", () => {
       expect(host.querySelector('[aria-label="Back"]')).toBeNull();
     } finally { await act(async () => root.unmount()); }
   });
+
+  it("shows the open conversation's title over the workspace", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const host = document.createElement("div"), root = createRoot(host);
+    const render = (title?: string) => root.render(<ClientWindow><WorkspaceTitlebar language="en" title={title} actions={null} /></ClientWindow>);
+    try {
+      await act(async () => render("Quarterly report"));
+      const title = host.querySelector(".clientTitlebarMain .clientTitlebarTitle")!;
+      expect([title.textContent, title.getAttribute("title")]).toEqual(["Quarterly report", "Quarterly report"]);
+      await act(async () => render());
+      expect(host.querySelector(".clientTitlebarTitle")).toBeNull();
+    } finally { await act(async () => root.unmount()); }
+  });
 });

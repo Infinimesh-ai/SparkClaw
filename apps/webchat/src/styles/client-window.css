@@ -143,48 +143,83 @@ html[data-resolved-theme="dark"] .clientWindow .clientTitlebar .iconButton[aria-
   .clientWindow .clientTitlebarActions.topbarActions { padding-inline: 4px 8px; }
 }
 
-/* The title bar follows the columns below it: the leading part continues the
-   sidebar and its divider, the rest belongs to the workspace and shows the open
-   conversation's title. */
-.clientWindow .clientTitlebar.workbench.glassWorkbench {
-  border-bottom: 0;
-  background: var(--client-workspace-surface, var(--ui-ground));
+/* As in Codex, the window is a frame: the title bar and a narrow margin keep
+   the frame colour, and everything below sits in one rounded sheet whose
+   columns are told apart by lines. Short separators in the title bar line up
+   with those lines, and the workspace part shows the conversation's title. */
+.clientWindow {
+  --client-sheet-inset: 8px;
+  --client-sheet-radius: 12px;
+  --client-frame: var(--ui-ground);
+  --client-sheet: #fff;
+  --client-sheet-side: #f7f8fa;
+  --client-pane: var(--client-sheet);
+  --client-leading-width: calc(var(--sidebar-width) + var(--client-sheet-inset) + 1px);
+  background: var(--client-frame);
 }
-.clientWindow .clientTitlebarLeading {
-  border-right: 1px solid var(--ui-divider);
-  background: var(--client-sidebar-surface, var(--panel-surface));
+html[data-resolved-theme="dark"] .clientWindow { --client-sheet: #252c37; --client-sheet-side: #212833; }
+.clientWindow .clientTitlebar.workbench.glassWorkbench { border-bottom: 0; background: transparent; }
+.clientWindow .clientTitlebarLeading { position: relative; }
+.clientWindow :is(.clientTitlebarLeading, .clientTitlebarTrailing)::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  width: 1px;
+  background: var(--ui-divider);
+  pointer-events: none;
 }
+.clientWindow .clientTitlebarLeading::after { right: 0; }
+.clientWindow .clientTitlebarTrailing { position: relative; }
+.clientWindow .clientTitlebarTrailing::after { left: 0; display: none; }
+.clientWindow .clientTitlebar[data-browser-open] .clientTitlebarTrailing::after { display: block; }
+.clientWindow:has(.desktopWorkbench.browserFocus, .desktopBrowserPanel.wide) .clientTitlebarTrailing::after { display: none; }
 .clientWindow .clientTitlebarMain {
   display: flex;
   align-items: center;
   min-width: 0;
   height: 100%;
-  padding-inline: 20px 12px;
+  padding-left: 20px;
 }
+.clientWindow .clientTitlebarMain > .clientTitlebarActions.topbarActions { flex: none; margin-left: auto; }
 .clientWindow .clientTitlebarTitle {
   min-width: 0;
   margin: 0;
   overflow: hidden;
   color: var(--ui-ink);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.clientWindow .clientContent { padding: 0 var(--client-sheet-inset) var(--client-sheet-inset); }
+html:root .clientWindow .clientContent > .shell.workbench {
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--ui-divider);
+  border-radius: var(--client-sheet-radius);
+  background: var(--client-sheet);
+}
+html:root .clientWindow .clientContent > .shell.workbench :is(.sidebar, .settingsPageSidebar) { background: var(--client-sheet-side); }
+html:root .clientWindow .clientContent > .shell.workbench :is(.workspace, .settingsPageMain) { background: transparent; }
 .clientWindow:has(.clientContent > .shell.workbench.sidebarCollapsed) .clientTitlebar.workbench.glassWorkbench {
   --client-leading-width: max-content;
 }
-.clientWindow:has(.clientContent > .shell.workbench.sidebarCollapsed) .clientTitlebarLeading {
-  border-right-color: transparent;
-  background: transparent;
-}
+.clientWindow:has(.clientContent > .shell.workbench.sidebarCollapsed) .clientTitlebarLeading::after { display: none; }
 .clientWindow:has(.clientContent > .shell.workbench.sidebarCollapsed) .clientTitlebarMain { padding-left: 8px; }
-/* Narrow windows show the sidebar as an overlay below the title bar. */
+/* Narrow windows show the sidebar as an overlay inside the sheet's margin. */
 @media (max-width: 840px) {
   .clientWindow .clientTitlebar.workbench.glassWorkbench { --client-leading-width: max-content; }
-  .clientWindow .clientTitlebarLeading { border-right-color: transparent; background: transparent; }
+  .clientWindow .clientTitlebarLeading::after { display: none; }
   .clientWindow .clientTitlebarMain { padding-left: 8px; }
+  html:root .clientWindow .clientContent > .shell.workbench.sidebarCollapsed .sidebar {
+    top: var(--client-titlebar-height);
+    left: var(--client-sheet-inset);
+    bottom: var(--client-sheet-inset);
+    height: auto;
+    border-radius: var(--client-sheet-radius) 0 0 var(--client-sheet-radius);
+  }
 }
 
 /* Conversation rows in the manner of Codex: a plain title that fades out at
@@ -200,11 +235,35 @@ html[data-resolved-theme="dark"] .clientWindow .clientTitlebar .iconButton[aria-
   box-shadow: none;
 }
 .clientWindow .sidebar .sidebarNewConversation:hover:not(:disabled) { background: var(--client-row-hover); box-shadow: none; }
-.clientWindow .sidebar .conversationListHeader { min-height: 32px; padding: 14px 4px 4px 8px; }
-.clientWindow .sidebar .conversationListActions { opacity: 0; transition: opacity 120ms ease; }
-.clientWindow .sidebar :is(.conversationListHeader:hover, .conversationListHeader:focus-within) .conversationListActions,
-.clientWindow .sidebar:has(.sessionList:hover) .conversationListActions,
-.clientWindow .sidebar .conversationListActions:has([aria-expanded="true"]) { opacity: 1; }
+.clientWindow .sidebar .conversationListHeader { align-items: center; min-height: 20px; padding: 14px 6px 6px 8px; line-height: 20px; }
+.clientWindow .sidebar .conversationListActions { display: flex; align-items: center; gap: 2px; height: 20px; }
+.clientWindow .workbench.glassWorkbench .sidebar .conversationHeaderButton {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  min-height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
+}
+.clientWindow .workbench.glassWorkbench .sidebar .conversationHeaderButton:hover:not(:disabled) { background: var(--client-row-hover); }
+.clientWindow .workbench.glassWorkbench .sidebar .conversationHeaderButton > svg { width: 14px; height: 14px; }
+/* Schedule sits under New conversation as a row of the same kind. */
+.clientWindow .workbench.glassWorkbench .sidebar > .sidebarScheduleLink {
+  min-height: 32px;
+  margin: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+}
+.clientWindow .workbench.glassWorkbench .sidebar > .sidebarScheduleLink:hover:not(:disabled) { background: var(--client-row-hover); }
+.clientWindow .workbench.glassWorkbench .sidebar > .sidebarScheduleLink[aria-current="page"] { background: var(--client-row-active); }
 .clientWindow .sidebar .sessionList { flex-direction: column; gap: 1px; padding: 0; overflow-x: hidden; overflow-y: auto; }
 .clientWindow .workbench.glassWorkbench .sidebar .sessionItem {
   position: relative;
@@ -260,10 +319,13 @@ html:root .clientWindow .workbench.glassWorkbench .sidebar .sessionSelect .sessi
   transform: translateX(0);
   transition: transform 240ms ease;
 }
+/* While a long title scrolls both edges fade; the trailing fade lifts only
+   once its end has arrived, so the last characters read in full. */
 .clientWindow .workbench.glassWorkbench .sidebar .sessionItem:is(:hover, :has(:focus-visible)) .sessionTitle[data-overflowing] {
-  --session-title-fade-left: 16px;
+  --session-title-fade-left: 20px;
   --session-title-fade-right: 0px;
-  transition-delay: 300ms;
+  transition: --session-title-fade-left 200ms linear 300ms,
+    --session-title-fade-right 200ms linear calc(300ms + var(--session-title-duration, 2s));
 }
 .clientWindow .workbench.glassWorkbench .sidebar .sessionItem:is(:hover, :has(:focus-visible)) .sessionTitle[data-overflowing] .sessionTitleText {
   transform: translateX(var(--session-title-shift, 0px));
@@ -352,4 +414,134 @@ html:root .clientWindow .workbench.glassWorkbench .sidebar .sessionSelect .sessi
     border-bottom: 1px solid var(--ui-glass-edge);
     border-radius: 16px;
   }
+}
+
+/* The browser opens at 440px beside the conversation and narrows to keep at
+   least 520px for it; a dragged width lasts for this run of the app only. */
+.clientWindow .workbench .workspace.desktopWorkbench:not(.browserFocus) {
+  --inspector-width: 440px;
+  --inspector-span: min(var(--inspector-width), 100% - 526px);
+}
+/* A widened browser can still be dragged back from its leading edge. */
+.clientWindow .workbench .withInspector:has(.desktopBrowserPanel.wide) .inspectorResizeHandle {
+  display: block;
+  right: calc(100% - 8px);
+  z-index: 31;
+}
+
+/* Browser tabs sit in the title bar above the panel; that part of the title
+   bar takes the panel's width and continues its divider. */
+.clientWindow .clientTitlebarTrailing {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  height: 100%;
+}
+.clientWindow .clientTitlebarBrowser { display: flex; flex: 1 1 auto; align-items: center; min-width: 0; height: 100%; }
+.clientWindow .clientTitlebarBrowser:empty { display: none; }
+/* The workspace actions keep their room; the tabs take the panel's width from
+   what is left, so a widened browser still leaves the actions reachable. */
+.clientWindow .clientTitlebar.workbench.glassWorkbench {
+  grid-template-columns: var(--client-leading-width) minmax(96px, 1fr) minmax(0, var(--client-browser-track, 0px));
+}
+.clientWindow .clientTitlebar[data-browser-open] { --client-browser-track: calc(var(--client-browser-width) + var(--client-sheet-inset) + 1px); }
+.clientWindow .clientTitlebarBrowser .desktopBrowserTabBar {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  padding: 0 0 0 4px;
+  border-bottom: 0;
+  background: transparent;
+}
+.clientWindow .clientTitlebarBrowser .desktopTabStrip { min-height: 0; height: 100%; align-items: center; background: transparent; scrollbar-width: none; }
+.clientWindow .clientTitlebarBrowser .desktopTab { flex: 0 1 180px; min-width: 64px; max-width: 180px; height: 30px; margin-left: 2px; }
+.clientWindow .clientTitlebarBrowser :is(.desktopNewTab, .desktopBrowserWindowActions button) { width: 28px; height: 28px; }
+.clientWindow .clientTitlebarBrowser .desktopBrowserWindowActions { margin-left: 2px; }
+.clientWindow .clientTitlebarBrowser .desktopTab { grid-template-columns: minmax(0, 1fr) 24px; }
+.clientWindow .clientTitlebarBrowser .desktopTab .desktopTabSelect { padding-left: 8px; font-size: 12px; line-height: 18px; }
+.clientWindow .clientTitlebarBrowser .desktopTab .desktopTabClose { width: 24px; }
+/* Inactive tabs give their close button's room to the title until hovered. */
+.clientWindow .clientTitlebarBrowser .desktopTab:not(.selected):not(:hover):not(:focus-within) { grid-template-columns: minmax(0, 1fr); }
+.clientWindow .clientTitlebarBrowser .desktopTab:not(.selected):not(:hover):not(:focus-within) .desktopTabClose { display: none; }
+
+/* Below the title bar tabs the address bar continues the same surface: the
+   address field is a quiet fill without an outline or focus ring. */
+.clientWindow .desktopBrowserPanel .desktopAddressBar { background: transparent; }
+.clientWindow .glassWorkbench .desktopBrowserPanel .desktopOmnibox,
+.clientWindow .glassWorkbench .desktopBrowserPanel .desktopOmnibox:focus-within {
+  min-height: 32px;
+  border: 0;
+  border-radius: 8px;
+  outline: none;
+  background: color-mix(in srgb, var(--ui-ink) 5%, transparent);
+  box-shadow: none;
+}
+.clientWindow .glassWorkbench .desktopBrowserPanel .desktopOmnibox:focus-within { background: color-mix(in srgb, var(--ui-ink) 8%, transparent); }
+.clientWindow .glassWorkbench .desktopBrowserPanel .desktopOmnibox input { min-height: 32px; }
+.clientWindow .glassWorkbench .desktopBrowserPanel .desktopOmnibox button { width: 28px; height: 28px; border-radius: 6px; }
+
+/* Like the sidebar, the browser panel sits flush under the title bar: square
+   corners and a single divider instead of a floating glass card. */
+.clientWindow .workbench.glassWorkbench .desktopBrowserPanel {
+  border: 0;
+  border-left: 1px solid var(--ui-divider);
+  border-radius: 0;
+  box-shadow: none;
+}
+.clientWindow .workbench.glassWorkbench .desktopBrowserPanel.wide { border-left-color: transparent; }
+
+/* As in Codex, the title bar is one frame colour and the browser is a lighter
+   pane beneath it: the change of surface marks the edge, and the selected tab
+   is a chip of the pane's colour so the two still read as one. */
+.clientWindow .workbench.glassWorkbench .desktopBrowserPanel,
+.clientWindow .desktopBrowserPanel .desktopBrowserHost { background: var(--client-pane); }
+.clientWindow .clientTitlebarBrowser .desktopTab { border-radius: 8px; transition: background 120ms ease; }
+.clientWindow .clientTitlebarBrowser .desktopTab:hover:not(.selected) { background: color-mix(in srgb, var(--ui-ink) 5%, transparent); }
+.clientWindow .clientTitlebarBrowser .desktopTab.selected {
+  color: var(--ui-ink);
+  background: var(--client-pane);
+  box-shadow: 0 0 0 1px var(--ui-divider), 0 1px 2px rgb(0 0 0 / 5%);
+}
+.clientWindow .workbench.glassWorkbench .sidebar > .sidebarNewConversation:has(+ .sidebarScheduleLink) { margin-bottom: 2px; }
+
+/* The sidebar sits closer to the sheet edge. Brand, New conversation and
+   Schedule icons, the Recent tasks label, the conversation titles and the
+   account avatar share one left edge; Schedule matches New conversation
+   exactly, and the rows read at 14px like Codex. */
+html:root .clientWindow .workbench.glassWorkbench .sidebar { padding-inline: 8px; }
+html:root .clientWindow .workbench.glassWorkbench .sidebar > :is(.sidebarNewConversation, .sidebarScheduleLink) {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 32px;
+  padding: 6px 8px;
+  color: var(--ui-ink);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+html:root .clientWindow .workbench.glassWorkbench .sidebar > :is(.sidebarNewConversation, .sidebarScheduleLink) > span {
+  color: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+html:root .clientWindow .workbench.glassWorkbench .sidebar > :is(.sidebarNewConversation, .sidebarScheduleLink) > svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  color: inherit;
+  stroke-width: 1px;
+}
+html:root .clientWindow .workbench.glassWorkbench .sidebar .sessionItem { min-height: 32px; }
+html:root .clientWindow .workbench.glassWorkbench .sidebar .sessionSelect { min-height: 32px; padding-block: 6px; }
+html:root .clientWindow .workbench.glassWorkbench .sidebar .sessionSelect :is(.sessionTitle, .sessionTitleText) {
+  color: var(--ui-ink);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
 }

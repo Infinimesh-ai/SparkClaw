@@ -1,6 +1,6 @@
 import { VoiceDraftPersistence } from "../lib/voiceDraftPersistence";
 import { useConfirm } from "../components/confirmation";
-import { useBrowserLayout } from "../hooks/useBrowserLayout";
+import { BROWSER_CONVERSATION_RESERVE, BROWSER_DEFAULT_WIDTH, useBrowserLayout } from "../hooks/useBrowserLayout";
 import { useMessageScroll } from "../hooks/useMessageScroll";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Plus } from "lucide-react";
@@ -57,7 +57,7 @@ export function LocalWorkbench() {
   const confirm = useConfirm(dictionaries[language]);
   const zh = language === "zh";
   const copy = workbenchCopy[language];
-  const inspectorResize = useInspectorWidth();
+  const inspectorResize = useInspectorWidth({ persist: false });
   const [conversations, setConversations] = useState<LocalConversation[]>([]);
   const [selected, setSelected] = useState("");
   const selectedRef = useRef(selected); selectedRef.current = selected;
@@ -106,7 +106,7 @@ export function LocalWorkbench() {
     settingsOwner: surfaceEnabled(connection, "settings_owner"), settingsConnectors: surfaceEnabled(connection, "settings_connectors"),
     settingsBindings: surfaceEnabled(connection, "settings_bindings"),
   };
-  const browserLayout = useBrowserLayout(browserOpen, inspectorResize.width, capabilities.browser && !settings && page === "chat");
+  const browserLayout = useBrowserLayout(browserOpen, inspectorResize.width, capabilities.browser && !settings && page === "chat", true);
   const messageScroll = useMessageScroll(selected, !settings && page === "chat");
   const closeBrowser = () => { setBrowserOpen(false); browserLayout.restoreTrigger(); };
   const toggleBrowser = () => {
@@ -520,7 +520,7 @@ export function LocalWorkbench() {
   return <div className={`shell workbench glassWorkbench localWorkbench ${homePresentation ? "homePresentation" : ""} ${settings ? "settingsPageMode" : sidebarCollapsed ? "sidebarCollapsed" : ""}`}>
     {settings ? <WorkspaceSettingsSidebar text={text} language={language} tab={tab}
       pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length} onTabChange={setTab} onBack={() => setSettings(false)} /> : <SessionSidebar
-      text={text} language={language} page={page} ownerProfile={ownerProfile}
+      text={text} language={language} page={page} ownerProfile={ownerProfile} schedulePlacement="top"
       sessions={conversations} activeSession={selected} busy={busy}
       activityBySession={{ ...activityByConversation, ...(selected ? { [selected]: unseenActivity(selectedActivity, page === "chat") } : {}) }}
       onCreateSession={() => void startConversation()} onArchiveSelection={() => void startConversation()} onSelectSession={(conversation) => void select(conversation.id).catch(surfaceError)}
@@ -647,7 +647,8 @@ export function LocalWorkbench() {
             onRefresh={() => void localSchedules.check().catch(() => {})} onEdit={localSchedules.edit} onDelete={localSchedules.cancel} onRunNow={localSchedules.runNow} />
           {scheduleCreateOpen && <ScheduleCreateDialog key={scheduleRequest} initialRequest={scheduleRequest} busy={busy || Boolean(localSchedules.busyID)} text={text} onClose={() => setScheduleCreateOpen(false)} onCreate={localSchedules.create} />}
         </div>}
-        {capabilities.browser && browserLayout.visible && typeof desktop.state === "function" && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} onHide={closeBrowser} />}
+        {capabilities.browser && browserLayout.visible && typeof desktop.state === "function" && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} onHide={closeBrowser}
+          reserve={BROWSER_CONVERSATION_RESERVE} defaultWidth={BROWSER_DEFAULT_WIDTH} onResizeStart={() => browserLayout.setWide(false)} />}
 
       </>}
         {browserLayout.mounted && typeof desktop.state === "function" && <BrowserPanel open={browserOpen} visible={capabilities.browser && browserLayout.visible} onCollapse={closeBrowser} wide={browserLayout.wide} onWideChange={browserLayout.setWide} language={language} localConversationID={selected} />}

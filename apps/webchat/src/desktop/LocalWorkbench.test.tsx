@@ -171,7 +171,8 @@ describe("workbench local workbench", () => {
       expect(handle.parentElement).toBe(host.querySelector(".desktopBrowserPanel")!.parentElement);
       await act(async () => handle.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
       expect(host.querySelector<HTMLElement>("main.workspace")!.style.getPropertyValue("--inspector-width")).toBe("240px");
-      expect(window.localStorage.getItem("sparkx.inspector-width")).toBe("240");
+      // The dragged width lasts for this run only and is never stored.
+      expect(window.localStorage.getItem("sparkx.inspector-width")).toBeNull();
       await act(async () => host.querySelector<HTMLButtonElement>(".desktopBrowserWindowActions button")!.click());
       expect(host.querySelector("main.browserFocus")).not.toBeNull();
       if (transport === "iscp") await act(async () => { browserEnabled = false; changed(connectionStatus(false)); });

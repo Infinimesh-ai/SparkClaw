@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { act, useState } from "react";
+import { act, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ClientWindow, useClientTitlebar, WorkspaceTitlebar } from "./clientWindow";
+import { ClientTitlebarBrowser, ClientWindow, useClientTitlebar, WorkspaceTitlebar } from "./clientWindow";
 import { usePageHistory } from "../hooks/usePageHistory";
 import type { SparkClawDesktop } from "../desktop/types";
 
@@ -109,6 +109,30 @@ describe("client title bar", () => {
       expect([title.textContent, title.getAttribute("title")]).toEqual(["Quarterly report", "Quarterly report"]);
       await act(async () => render());
       expect(host.querySelector(".clientTitlebarTitle")).toBeNull();
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it("moves the open browser's tabs into the title bar above the panel", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    function Panel({ active }: { active: boolean }) {
+      const panel = useRef<HTMLElement | null>(null);
+      return <aside ref={panel} className="desktopBrowserPanel"><ClientTitlebarBrowser active={active} panel={panel}><div className="tabs" /></ClientTitlebarBrowser></aside>;
+    }
+    const host = document.createElement("div"), root = createRoot(host);
+    const render = (active: boolean, client = true) => root.render(client
+      ? <ClientWindow><WorkspaceTitlebar language="en" actions={null} /><Panel active={active} /></ClientWindow> : <Panel active={active} />);
+    try {
+      await act(async () => render(true));
+      const titlebar = host.querySelector<HTMLElement>(".clientTitlebar")!;
+      expect(titlebar.querySelector(".clientTitlebarTrailing .clientTitlebarBrowser .tabs")).not.toBeNull();
+      expect(host.querySelector(".desktopBrowserPanel .tabs")).toBeNull();
+      expect(titlebar.hasAttribute("data-browser-open")).toBe(true);
+      await act(async () => render(false));
+      expect(host.querySelector(".tabs")).toBeNull();
+      expect(titlebar.hasAttribute("data-browser-open")).toBe(false);
+      await act(async () => render(true, false));
+      expect(host.querySelector(".desktopBrowserPanel .tabs")).not.toBeNull();
     } finally { await act(async () => root.unmount()); }
   });
 });

@@ -21,6 +21,7 @@ import type { Language } from "../i18n";
 import { desktopCapability } from "./capability";
 import type { DesktopPage, DesktopState } from "./types";
 import { useDismissibleLayer } from "../hooks/useDismissibleLayer";
+import { ClientTitlebarBrowser } from "../components/clientWindow";
 
 const copy = {
   en: {
@@ -56,6 +57,7 @@ export function BrowserPanel({ language, localConversationID, open = true,
   const desktop = desktopCapability();
   const text = copy[language];
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
   const addressRef = useRef<HTMLInputElement | null>(null);
   const boundsRevision = useRef(0);
   const boundsError = useRef("");
@@ -244,8 +246,8 @@ export function BrowserPanel({ language, localConversationID, open = true,
   };
   const toggleTransfers = () => { setShowTransfers(current => !current); setMenuOpen(false); };
 
-  return <aside className={`taskInspector desktopBrowserPanel ${wide ? "wide" : ""}`} hidden={!shown} aria-label={text.browser}>
-      <div className="desktopBrowserTabBar">
+  return <aside ref={panelRef} className={`taskInspector desktopBrowserPanel ${wide ? "wide" : ""}`} hidden={!shown} aria-label={text.browser}>
+      <ClientTitlebarBrowser active={shown} panel={panelRef}><div className="desktopBrowserTabBar">
         <div className="desktopTabStrip" role="tablist" aria-label={text.browser}>
           {!activePage && <div className="desktopTab desktopTabPlaceholder selected" role="tab" aria-selected="true">
             <span className="desktopTabPlaceholderLabel"><Globe2 size={12} /><span>{text.newTab}</span></span>
@@ -265,7 +267,7 @@ export function BrowserPanel({ language, localConversationID, open = true,
           </button>
           <button type="button" onClick={leaveBrowser} title={text.collapse} aria-label={text.collapse}><PanelRightClose size={15} /></button>
         </div>
-      </div>
+      </div></ClientTitlebarBrowser>
       <form className="desktopAddressBar" onSubmit={navigate}>
         <button type="button" disabled={activePage?.role !== "personal" || !activePage.can_go_back} onClick={() => activePage?.role === "personal" && run(desktop.personalNavigation(activePage.page_ref, "back"))} title={text.back}><ArrowLeft size={15} /></button>
         <button type="button" disabled={activePage?.role !== "personal" || !activePage.can_go_forward} onClick={() => activePage?.role === "personal" && run(desktop.personalNavigation(activePage.page_ref, "forward"))} title={text.forward}><ArrowRight size={15} /></button>

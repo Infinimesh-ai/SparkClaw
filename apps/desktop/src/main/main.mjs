@@ -218,13 +218,13 @@ async function start() {
   workbenchSession.protocol.handle("sparkclaw-app", workbenchProtocolHandler(webchatDistPath(), desktopAuth));
 
   const insetTitlebar = !qualification && process.platform === "darwin";
-  // Open at Codex's default 1280x820, kept within 85% x 80% of a smaller work area.
+  // Open at 1250x800, shrinking only when the work area cannot hold it.
   const workArea = screen.getPrimaryDisplay().workArea;
   window = new BrowserWindow({
     title: qualification ? "SparkX Electron Qualification" : "SparkX",
     icon: DESKTOP_ICON_PATH,
-    width: qualification ? 1440 : Math.max(640, Math.min(1280, Math.round(workArea.width * .85))),
-    height: qualification ? 900 : Math.max(560, Math.min(820, Math.round(workArea.height * .8))),
+    width: qualification ? 1440 : Math.max(640, Math.min(1250, workArea.width)),
+    height: qualification ? 900 : Math.max(560, Math.min(800, workArea.height)),
     minWidth: qualification ? 1180 : 640,
     minHeight: qualification ? 720 : 560,
     x: qualification ? 0 : undefined,

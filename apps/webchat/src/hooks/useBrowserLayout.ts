@@ -1,11 +1,19 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
+// The conversation keeps at least this much beside the browser; the browser
+// narrows to fit and takes over the workspace only below its own minimum.
+export const BROWSER_CONVERSATION_RESERVE = 520 + 6;
+export const BROWSER_MIN_WIDTH = 360;
+export const BROWSER_DEFAULT_WIDTH = 440;
+
 // The split threshold is measured in CSS pixels, after sidebar and page zoom.
-export function browserFocusRequired(width: number, panelWidth: number, wasFocused: boolean) {
-  return width < 520 + 6 + panelWidth + (wasFocused ? 24 : 0);
+// A fitted browser (the desktop client) narrows to keep the conversation; an
+// unfitted one keeps its width and takes over as soon as both no longer fit.
+export function browserFocusRequired(width: number, panelWidth: number, wasFocused: boolean, fitted = false) {
+  return width < BROWSER_CONVERSATION_RESERVE + (fitted ? Math.min(panelWidth, BROWSER_MIN_WIDTH) : panelWidth) + (wasFocused ? 24 : 0);
 }
 
-export function useBrowserLayout(open: boolean, panelWidth: number | null, enabled = true) {
+export function useBrowserLayout(open: boolean, panelWidth: number | null, enabled = true, fitted = false) {
   const workspaceRef = useRef<HTMLElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [mounted, setMounted] = useState(open);
@@ -22,7 +30,7 @@ export function useBrowserLayout(open: boolean, panelWidth: number | null, enabl
       const previous = narrowRef.current;
       const width = workspace.getBoundingClientRect().width;
       if (width <= 0) return;
-      const next = browserFocusRequired(width, panelWidth ?? 640, previous);
+      const next = browserFocusRequired(width, panelWidth ?? (fitted ? BROWSER_DEFAULT_WIDTH : 640), previous, fitted);
       if (next && !previous) {
         const active = document.activeElement;
         setRegion(active instanceof Element && active.closest(".chatColumn") ? "conversation" : "browser");
@@ -33,7 +41,7 @@ export function useBrowserLayout(open: boolean, panelWidth: number | null, enabl
     const observer = new ResizeObserver(update);
     observer.observe(workspace); update();
     return () => observer.disconnect();
-  }, [enabled, panelWidth]);
+  }, [enabled, panelWidth, fitted]);
   const reveal = useCallback(() => setRegion("browser"), []);
   const restoreTrigger = useCallback(() => {
     setWide(false);

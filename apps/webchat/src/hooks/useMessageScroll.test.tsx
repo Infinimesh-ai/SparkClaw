@@ -14,6 +14,13 @@ it("uses measured split space with hysteresis", () => {
   expect(browserFocusRequired(1196, 640, true)).toBe(false);
 });
 
+it("narrows a fitted browser before it takes over the conversation", () => {
+  expect(browserFocusRequired(1006, 640, false, true)).toBe(false);
+  expect(browserFocusRequired(880, 640, false, true)).toBe(true);
+  expect(browserFocusRequired(900, 640, true, true)).toBe(true);
+  expect(browserFocusRequired(920, 640, true, true)).toBe(false);
+});
+
 it("retains reading anchors, selection and per-conversation positions across final identity changes", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });

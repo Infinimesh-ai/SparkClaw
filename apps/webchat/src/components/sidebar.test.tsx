@@ -452,4 +452,16 @@ describe("SessionSidebar navigation and conversations", () => {
       expect(short.hasAttribute("data-overflowing")).toBe(false);
     } finally { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); }
   });
+
+  it("lists Schedule under New conversation when placed at the top", async () => {
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<SessionSidebar text={dictionaries.en} language="en" page="chat" ownerProfile={null} schedulePlacement="top"
+        sessions={[]} activeSession="" onCreateSession={() => {}} onSearch={() => {}} onSelectSession={() => {}} />));
+      const schedule = host.querySelector(".sidebarScheduleLink")!;
+      expect(schedule.previousElementSibling?.className).toBe("sidebarNewConversation");
+      expect(host.querySelector(".sidebarFooter .sidebarScheduleLink")).toBeNull();
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
 });

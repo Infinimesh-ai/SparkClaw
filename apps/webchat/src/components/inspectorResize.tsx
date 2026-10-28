@@ -5,6 +5,9 @@ const STORAGE_KEY = "sparkx.inspector-width";
 const MIN_WIDTH = 240;
 const HIDE_BELOW = 120;
 
+// The desktop browser keeps a dragged width only for this run of the app.
+let sessionWidth: number | null = null;
+
 function storedWidth(): number | null {
   try {
     const value = Number(window.localStorage.getItem(STORAGE_KEY));
@@ -14,14 +17,15 @@ function storedWidth(): number | null {
   }
 }
 
-export function useInspectorWidth() {
-  const [width, setWidth] = useState<number | null>(storedWidth);
+export function useInspectorWidth({ persist = true }: { persist?: boolean } = {}) {
+  const [width, setWidth] = useState<number | null>(() => persist ? storedWidth() : sessionWidth);
   const [resizing, setResizing] = useState(false);
   const commit = useCallback((value: number) => {
     const next = Math.round(Math.max(MIN_WIDTH, value));
     setWidth(next);
+    if (!persist) { sessionWidth = next; return; }
     try { window.localStorage.setItem(STORAGE_KEY, String(next)); } catch { /* Width is a per-viewer convenience. */ }
-  }, []);
+  }, [persist]);
   // A live drag may shrink the panel toward zero before it is hidden or committed.
   const preview = useCallback((value: number) => setWidth(Math.max(0, Math.round(value))), []);
   const style = width === null ? undefined : { "--inspector-width": `${width}px` } as CSSProperties;
@@ -30,17 +34,22 @@ export function useInspectorWidth() {
 
 type ResizeState = ReturnType<typeof useInspectorWidth>;
 
-export function InspectorResizeHandle({ resize, label, onHide }: { resize: ResizeState; label: string; onHide: () => void }) {
+// reserve keeps that much of the workspace for the conversation; onResizeStart
+// lets a widened panel return to its dragged width before the drag continues.
+export function InspectorResizeHandle({ resize, label, onHide, reserve = 0, defaultWidth, onResizeStart }: {
+  resize: ResizeState; label: string; onHide: () => void; reserve?: number; defaultWidth?: number; onResizeStart?: () => void;
+}) {
   const handleRef = useRef<HTMLDivElement | null>(null);
   const workspace = () => handleRef.current?.parentElement ?? null;
   const panel = () => workspace()?.querySelector<HTMLElement>(".taskInspector") ?? null;
-  const maxWidth = () => workspace()?.getBoundingClientRect().width ?? 0;
+  const maxWidth = () => Math.max(MIN_WIDTH, (workspace()?.getBoundingClientRect().width ?? 0) - reserve);
   const currentWidth = () => panel()?.getBoundingClientRect().width ?? 0;
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     const element = panel();
     if (!element || event.button !== 0) return;
     event.preventDefault();
+    onResizeStart?.();
     const right = element.getBoundingClientRect().right;
     const limit = maxWidth();
     const before = resize.width;
@@ -95,8 +104,8 @@ export function InspectorResizeHandle({ resize, label, onHide }: { resize: Resiz
     aria-label={label}
     title={label}
     aria-valuemin={MIN_WIDTH}
-    aria-valuenow={resize.width ?? (typeof window !== "undefined" && window.sparkclawDesktop ? 640 : 360)}
-    aria-valuetext={`${Math.round(resize.width ?? (typeof window !== "undefined" && window.sparkclawDesktop ? 640 : 360))} px`}
+    aria-valuenow={resize.width ?? defaultWidth ?? (typeof window !== "undefined" && window.sparkclawDesktop ? 640 : 360)}
+    aria-valuetext={`${Math.round(resize.width ?? defaultWidth ?? (typeof window !== "undefined" && window.sparkclawDesktop ? 640 : 360))} px`}
     tabIndex={0}
     onPointerDown={onPointerDown}
     onKeyDown={onKeyDown}

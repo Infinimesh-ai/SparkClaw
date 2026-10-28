@@ -197,21 +197,42 @@ same title bar. The web keeps its in-page topbar without page history. The
 desktop home uses the same light welcome presentation as the web home without
 the suggestion row.
 
-The desktop title bar follows the columns beneath it: its leading part continues
-the sidebar surface and divider, and the workspace part shows the open
-conversation's title. With the sidebar collapsed, or in windows of 840px or
-less, the leading part becomes transparent and only as wide as its controls.
+The desktop window follows Codex: the title bar and an 8px margin keep the frame
+colour, and everything below sits in one rounded sheet whose sidebar,
+conversation and browser columns are told apart by lines; the sidebar is a
+slightly darker surface than the white conversation and browser. Short
+separators in the title bar line up with those lines, and the workspace part
+shows the open conversation's title in 12px medium type. With the sidebar
+collapsed, or in windows of 840px or less, the leading part is only as wide as
+its controls. Schedule sits under New conversation and matches it exactly, and
+the search and new conversation buttons beside Recent tasks stay visible within
+the label's height. The sidebar keeps an 8px side margin; the brand, row icons,
+Recent tasks label and conversation titles share one left edge, and rows read at
+14px on 32px lines.
 Sidebar conversation rows follow Codex: a plain title that fades out at the row
 edge instead of an ellipsis. Hover or keyboard focus shows the archive and
-ellipsis actions on the right and scrolls a long title once to its end, without
-looping (not under reduced motion); a right click opens the same menu at the
+ellipsis actions on the right and scrolls a long title once to its end, both
+edges fading while it moves, without looping (not under reduced motion); a right click opens the same menu at the
 pointer. Conversation
 history fades under the title bar and above the composer only while more
 history lies in that direction. The schedule page sits lower and offers a row of
 example requests that open the create dialog filled in. In the mail window the
 toolbar rows, list rows, messages and the reply box stay inset from the window
-and pane edges. The desktop window opens at 1280x820, within 85% x 80% of a
+and pane edges. The desktop window opens at 1250x800, shrinking only to fit a
 smaller work area, and can shrink to 640x560.
+
+The desktop browser opens at 440px beside the conversation and narrows to keep at
+least 520px for it; it takes over the workspace only when even a 360px browser no
+longer fits. A dragged width is kept for the next open in the same run but is not
+stored, so a restart returns to the default; a drag cannot cover the
+conversation, and a widened browser can still be dragged back from its edge.
+Its tabs, new-tab, widen and collapse controls sit in the title bar above the
+panel, and that part of the title bar follows the panel's width, while the
+notification and browser buttons stay over the conversation. Like the sidebar,
+the panel sits flush in the sheet with a single divider; the title bar keeps its
+frame colour above it, and the selected tab is a chip in the pane's colour, as
+in Codex. The address bar
+continues the same surface, and its field is a quiet fill without an outline.
 
 The six-column homepage composer must fit at 320px. Keep its overflow visible
 so the voice-device menu can escape the card. Document overlays keep viewport

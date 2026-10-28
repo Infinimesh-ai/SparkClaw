@@ -96,7 +96,9 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
   open conversation's title; sidebar rows follow Codex with fading titles that
   scroll once on hover, hover actions and a right-click menu; history fades at its scroll edges; the
   schedule page adds example requests; mail surfaces sit inset; and the window
-  opens at Codex's 1280x820 instead of 1440x900.
+  opens at 1250x800 instead of 1440x900. The built-in browser opens at 440px
+  beside the conversation, keeps a dragged width only until restart, can be
+  dragged back from widened mode, and shows its tabs in the title bar.
 - Downloaded SparkX desktops now unlock with one backend-issued
   `sparkclaw-connect-v1...` connection credential instead of a separate public
   backend JSON and device token. Linux first/recovery issuance and signed-in

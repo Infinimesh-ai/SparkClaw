@@ -177,6 +177,8 @@ type SessionSidebarProps<T extends SidebarConversation> = {
   onLogout?: () => void;
   busy?: boolean;
   listNotice?: ReactNode;
+  // The desktop client lists Schedule under New conversation; the web keeps it in the footer.
+  schedulePlacement?: "footer" | "top";
 };
 
 export function SessionSidebar<T extends SidebarConversation>({
@@ -204,7 +206,8 @@ export function SessionSidebar<T extends SidebarConversation>({
   onToggleSidebar,
   onLogout,
   busy = false,
-  listNotice
+  listNotice,
+  schedulePlacement = "footer"
 }: SessionSidebarProps<T>) {
   const copy = workbenchCopy[language];
   const zh = language === "zh";
@@ -294,6 +297,7 @@ export function SessionSidebar<T extends SidebarConversation>({
         <ActionIcon name="compose" />
         <span>{text.nav.newSession}</span>
       </button>
+      {schedulePlacement === "top" && scheduleLink}
 
       <div className="conversationListHeader">
         <span>{showArchived ? (zh ? "已归档对话" : "Archived") : copy.recent}</span>
@@ -374,7 +378,7 @@ export function SessionSidebar<T extends SidebarConversation>({
         ))}
       </nav>
       <div className="sidebarFooter">
-        {scheduleLink}
+        {schedulePlacement === "footer" && scheduleLink}
         <div className="sidebarAccount" ref={accountMenuRef}>
           {accountMenuOpen && <div ref={accountLayerRef} className="sidebarAccountMenu" role="menu" aria-label={accountName} onKeyDown={moveMenuFocus}>
             <div className="sidebarAccountSummary">

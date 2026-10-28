@@ -43,6 +43,8 @@ export function useBrowserLayout(open: boolean, panelWidth: number | null, enabl
     return () => observer.disconnect();
   }, [enabled, panelWidth, fitted]);
   const reveal = useCallback(() => setRegion("browser"), []);
+  // While the browser covers the workspace, the conversation can be shown in its place.
+  const showConversation = useCallback(() => setRegion("conversation"), []);
   const restoreTrigger = useCallback(() => {
     setWide(false);
     requestAnimationFrame(() => triggerRef.current?.focus());
@@ -52,6 +54,8 @@ export function useBrowserLayout(open: boolean, panelWidth: number | null, enabl
     setWide: (value: boolean) => { setWide(value); if (value) setRegion("browser"); },
     visible: enabled && open && (!focused || region === "browser"),
     className: enabled && open && focused ? region === "browser" ? "browserFocus" : "conversationFocus" : "",
-    reveal, restoreTrigger,
+    // The browser covers the conversation, whichever of the two is in front.
+    covering: enabled && open && focused,
+    region, reveal, showConversation, restoreTrigger,
   };
 }

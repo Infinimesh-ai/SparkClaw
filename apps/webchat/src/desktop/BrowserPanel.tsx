@@ -48,12 +48,16 @@ export type BrowserPanelProps = {
   onCollapse?: () => void;
   wide?: boolean;
   onWideChange?: (wide: boolean) => void;
+  // Set while the browser covers the conversation: the client then keeps the
+  // tabs in its title bar even with the conversation in front, none selected.
+  conversationInFront?: boolean;
+  onShowBrowser?: () => void;
 };
 
 // Keep this component mounted when collapsed: address drafts belong to tabs,
 // and native views must be hidden without destroying their browsing state.
 export function BrowserPanel({ language, localConversationID, open = true,
-  visible = open, onCollapse, wide: controlledWide, onWideChange }: BrowserPanelProps) {
+  visible = open, onCollapse, wide: controlledWide, onWideChange, conversationInFront, onShowBrowser }: BrowserPanelProps) {
   const desktop = desktopCapability();
   const text = copy[language];
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -148,11 +152,12 @@ export function BrowserPanel({ language, localConversationID, open = true,
   }, [selectedPageRef, activePage?.url]);
 
   // A native WebContentsView paints above DOM overlays. Suspend presentation
-  // while an app dialog/menu is visible, then restore the same page.
+  // while an app dialog/menu is visible or a drag previews a layout that hides
+  // or covers the panel, then restore the same page.
   useEffect(() => {
-    const update = () => setOccluded(Boolean(document.querySelector('dialog[open], [aria-modal="true"], [role="menu"], .notificationInbox')));
+    const update = () => setOccluded(Boolean(document.querySelector('dialog[open], [aria-modal="true"], [role="menu"], .notificationInbox, [data-browser-suspended]')));
     const observer = new MutationObserver(update);
-    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["open", "aria-modal"] });
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["open", "aria-modal", "data-browser-suspended"] });
     update();
     return () => observer.disconnect();
   }, []);
@@ -230,7 +235,8 @@ export function BrowserPanel({ language, localConversationID, open = true,
     if (activePage?.role === "personal") run(desktop.navigatePersonal(activePage.page_ref, target));
     else void create(target);
   };
-  const choose = (page: DesktopPage) => { setSelectedPageRef(page.page_ref); setMenuOpen(false); };
+  const choose = (page: DesktopPage) => { setSelectedPageRef(page.page_ref); setMenuOpen(false); onShowBrowser?.(); };
+  const browserSelected = !conversationInFront;
   const close = (page: DesktopPage) => run(desktop.closePersonal(page.page_ref).then(() => {
     drafts.current.delete(page.page_ref);
     if (page.page_ref === selectedPageRef) {
@@ -247,20 +253,20 @@ export function BrowserPanel({ language, localConversationID, open = true,
   const toggleTransfers = () => { setShowTransfers(current => !current); setMenuOpen(false); };
 
   return <aside ref={panelRef} className={`taskInspector desktopBrowserPanel ${wide ? "wide" : ""}`} hidden={!shown} aria-label={text.browser}>
-      <ClientTitlebarBrowser active={shown} panel={panelRef}><div className="desktopBrowserTabBar">
+      <ClientTitlebarBrowser active={shown || Boolean(conversationInFront && open)} panel={panelRef}><div className="desktopBrowserTabBar">
         <div className="desktopTabStrip" role="tablist" aria-label={text.browser}>
-          {!activePage && <div className="desktopTab desktopTabPlaceholder selected" role="tab" aria-selected="true">
+          {!activePage && <div className={`desktopTab desktopTabPlaceholder ${browserSelected ? "selected" : ""}`} role="tab" aria-selected={browserSelected} onClick={onShowBrowser}>
             <span className="desktopTabPlaceholderLabel"><Globe2 size={12} /><span>{text.newTab}</span></span>
           </div>}
-          {pages.map((page) => <div key={page.page_ref} className={`desktopTab ${page.page_ref === activePage?.page_ref ? "selected" : ""}`}>
-            <button type="button" className="desktopTabSelect" onClick={() => choose(page)} title={page.title || page.url} role="tab" aria-selected={page.page_ref === activePage?.page_ref}>
+          {pages.map((page) => <div key={page.page_ref} className={`desktopTab ${browserSelected && page.page_ref === activePage?.page_ref ? "selected" : ""}`}>
+            <button type="button" className="desktopTabSelect" onClick={() => choose(page)} title={page.title || page.url} role="tab" aria-selected={browserSelected && page.page_ref === activePage?.page_ref}>
               {page.role === "task" ? <Eye size={12} aria-hidden="true" /> : <Globe2 size={12} aria-hidden="true" />}
               <span>{page.url === "about:blank" ? text.newTab : page.title || page.url || (page.role === "task" ? text.taskPage : text.newTab)}</span>
             </button>
             {page.role === "personal" && <button type="button" className="desktopTabClose" onClick={() => close(page)} title={text.close} aria-label={text.close}><X size={12} /></button>}
           </div>)}
         </div>
-        <button type="button" className="desktopNewTab" onClick={() => void create()} title={text.newTab} aria-label={text.newTab}><Plus size={15} /></button>
+        <button type="button" className="desktopNewTab" onClick={() => { onShowBrowser?.(); void create(); }} title={text.newTab} aria-label={text.newTab}><Plus size={15} /></button>
         <div className="desktopBrowserWindowActions">
           <button type="button" onClick={() => setWide(!wide)} title={wide ? text.restore : text.expand} aria-label={wide ? text.restore : text.expand}>
             {wide ? <Minimize2 size={14} /> : <Maximize2 size={14} />}

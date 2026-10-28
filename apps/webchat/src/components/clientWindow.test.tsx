@@ -2,8 +2,9 @@
 import { act, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ClientTitlebarBrowser, ClientWindow, useClientTitlebar, WorkspaceTitlebar } from "./clientWindow";
+import { ClientConversationTab, ClientSidebarResizeHandle, ClientTitlebarBrowser, ClientWindow, useClientTitlebar, WorkspaceTitlebar } from "./clientWindow";
 import { usePageHistory } from "../hooks/usePageHistory";
+import { SNAP_DISTANCE, snapState } from "./inspectorResize";
 import type { SparkClawDesktop } from "../desktop/types";
 
 type Entry = { page: string; sessionID: string };
@@ -112,6 +113,23 @@ describe("client title bar", () => {
     } finally { await act(async () => root.unmount()); }
   });
 
+  it("places the conversation tab just before the workspace actions", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const host = document.createElement("div"), root = createRoot(host);
+    const onSelect = vi.fn();
+    try {
+      await act(async () => root.render(<ClientWindow><WorkspaceTitlebar language="en"
+        tab={<ClientConversationTab title="Quarterly report" selected onSelect={onSelect} />}
+        actions={<button className="iconButton notificationBell" type="button" aria-label="Notifications" />} /></ClientWindow>));
+      const main = host.querySelector(".clientTitlebarMain")!;
+      expect([...main.children].map((child) => child.className)).toEqual(["clientConversationTab selected", "clientTitlebarActions topbarActions"]);
+      const tab = main.querySelector<HTMLButtonElement>(".clientConversationTab")!;
+      expect([tab.textContent, tab.getAttribute("aria-pressed")]).toEqual(["Quarterly report", "true"]);
+      await act(async () => tab.click());
+      expect(onSelect).toHaveBeenCalledTimes(1);
+    } finally { await act(async () => root.unmount()); }
+  });
+
   it("moves the open browser's tabs into the title bar above the panel", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
@@ -134,5 +152,41 @@ describe("client title bar", () => {
       await act(async () => render(true, false));
       expect(host.querySelector(".desktopBrowserPanel .tabs")).not.toBeNull();
     } finally { await act(async () => root.unmount()); }
+  });
+
+  it("resizes the sidebar from its edge within the window and restores it on double click", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const host = document.createElement("div"), root = createRoot(host);
+    const handle = () => host.querySelector<HTMLElement>(".clientSidebarResizeHandle");
+    const render = (client = true) => root.render(client
+      ? <ClientWindow><aside className="sidebar" /><ClientSidebarResizeHandle label="Resize sidebar" onHide={() => {}} /></ClientWindow>
+      : <ClientSidebarResizeHandle label="Resize sidebar" onHide={() => {}} />);
+    try {
+      await act(async () => render());
+      const window = host.querySelector<HTMLElement>(".clientWindow")!;
+      const width = () => window.style.getPropertyValue("--sidebar-width");
+      window.getBoundingClientRect = () => ({ width: 1280 }) as DOMRect;
+      host.querySelector<HTMLElement>(".sidebar")!.getBoundingClientRect = () => ({ left: 9, width: 244 }) as DOMRect;
+      const press = (key: string) => act(async () => { handle()!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })); });
+      await press("ArrowRight");
+      expect([width(), handle()!.getAttribute("aria-valuenow")]).toEqual(["260px", "260"]);
+      await press("End");
+      expect(width()).toBe("960px");
+      await press("Home");
+      expect(width()).toBe("160px");
+      await act(async () => { handle()!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); });
+      expect([width(), handle()!.getAttribute("aria-valuenow")]).toEqual(["", "244"]);
+      await act(async () => render(false));
+      expect(handle()).toBeNull();
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it("snaps a drag carried past a column's narrowest or widest width", () => {
+    expect(snapState(200, 160, 900)).toBeNull();
+    expect(snapState(160 - SNAP_DISTANCE, 160, 900)).toBeNull();
+    expect(snapState(159 - SNAP_DISTANCE, 160, 900)).toBe("hide");
+    expect(snapState(900 + SNAP_DISTANCE, 160, 900)).toBeNull();
+    expect(snapState(901 + SNAP_DISTANCE, 160, 900)).toBe("fill");
+    expect(snapState(5000, 160, Infinity)).toBeNull();
   });
 });

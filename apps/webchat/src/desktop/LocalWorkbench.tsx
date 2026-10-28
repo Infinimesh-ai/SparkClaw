@@ -7,7 +7,7 @@ import { ArrowLeft, Plus } from "lucide-react";
 import { ScheduleBar, ScheduleCreateDialog, ScheduleSuggestions } from "../components/schedules";
 import { useLocalSchedules } from "./useLocalSchedules";
 import { SessionSidebar } from "../components/sidebar";
-import { useClientTitlebar, WorkspaceTitlebar } from "../components/clientWindow";
+import { ClientConversationTab, ClientSidebarResizeHandle, useClientTitlebar, WorkspaceTitlebar } from "../components/clientWindow";
 import { usePageHistory } from "../hooks/usePageHistory";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy } from "../components/workbench";
 import { MailWorkspaceContext } from "./MailWorkspaceContext";
@@ -89,6 +89,7 @@ export function LocalWorkbench() {
   const [page, setPage] = useState<"chat" | "schedules">("chat");
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const toggleSidebar = () => setSidebarCollapsed((current) => !current);
   const [mailIdentity, setMailIdentity] = useState(0);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [documentPickerOpen, setDocumentPickerOpen] = useState(false);
@@ -108,6 +109,7 @@ export function LocalWorkbench() {
   };
   const browserLayout = useBrowserLayout(browserOpen, inspectorResize.width, capabilities.browser && !settings && page === "chat", true);
   const messageScroll = useMessageScroll(selected, !settings && page === "chat");
+  const browserCovering = capabilities.browser && browserLayout.covering;
   const closeBrowser = () => { setBrowserOpen(false); browserLayout.restoreTrigger(); };
   const toggleBrowser = () => {
     if (browserOpen && browserLayout.visible) closeBrowser();
@@ -496,7 +498,7 @@ export function LocalWorkbench() {
       if (key === "n" && !busy && !voice.active) { event.preventDefault(); setSettings(false); void startConversation(); }
       if (key === ",") { event.preventDefault(); setTab("settings"); setSettings(true); }
       if (key === "b" && !(event.target instanceof Element && event.target.closest('input, textarea, [contenteditable="true"]'))) {
-        event.preventDefault(); setSidebarCollapsed(value => !value);
+        event.preventDefault(); toggleSidebar();
       }
     };
     window.addEventListener("keydown", shortcut);
@@ -530,14 +532,17 @@ export function LocalWorkbench() {
       onTitleDraftChange={setSessionTitleDraft} onRenameSubmit={(id) => void renameConversation(id)}
       onDeleteSession={(id) => void deleteConversation(id)}
       onNavigate={(next) => { if (next === "settings") { setTab("settings"); setSettings(true); } else if (next === "schedules") setPage("schedules"); else void startConversation(); }}
-      onSearch={() => setSearchOpen(true)} onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
+      onSearch={() => setSearchOpen(true)} onToggleSidebar={toggleSidebar}
       onLogout={() => void logout().catch(surfaceError)}
       listNotice={loading ? <p className="localListNotice" role="status">{zh ? "正在读取对话…" : "Loading conversations…"}</p> : !conversations.length ? <p className="localListNotice">{copy.empty}</p> : undefined}
     />}
+    {!settings && <ClientSidebarResizeHandle label={zh ? "调整侧边栏宽度" : "Resize sidebar"} onHide={toggleSidebar} />}
     <main ref={browserLayout.workspaceRef} className={`${settings ? "settingsPageMain" : "workspace desktopWorkbench"} ${homePresentation ? "homeWorkspace" : ""} ${capabilities.browser && browserOpen && !settings && page === "chat" ? "withInspector" : ""} ${inspectorResize.resizing ? "resizingInspector" : ""} ${browserLayout.className}`} style={settings ? undefined : inspectorResize.style} aria-busy={busy}>
       <WorkspaceTitlebar language={language} hidden={settings} navigation={pageHistory}
-        title={!settings && page === "chat" ? conversations.find((conversation) => conversation.id === selected)?.title : undefined}
-        sidebar={!settings && <button className="iconButton sidebarToggle" type="button" aria-label={copy.toggleNav} onClick={() => setSidebarCollapsed((current) => !current)}><ActionIcon name="panel-left" /></button>}
+        title={!settings && page === "chat" && !browserCovering ? conversations.find((conversation) => conversation.id === selected)?.title : undefined}
+        tab={browserCovering && <ClientConversationTab title={conversations.find((conversation) => conversation.id === selected)?.title || (zh ? "新对话" : "New conversation")}
+          selected={browserLayout.region === "conversation"} onSelect={browserLayout.showConversation} />}
+        sidebar={!settings && <button className="iconButton sidebarToggle" type="button" aria-label={copy.toggleNav} onClick={toggleSidebar}><ActionIcon name="panel-left" /></button>}
         back={(settings || page !== "chat") && <button className="iconButton workspaceBackButton" type="button" disabled={busy}
           onClick={settings ? () => setSettings(false) : () => { setPage("chat"); setTab("timeline"); }}
           title={settings ? copy.backToApp : copy.backToHome} aria-label={settings ? copy.backToApp : copy.backToHome}><ArrowLeft size={18} strokeWidth={1.75} /></button>}
@@ -648,10 +653,12 @@ export function LocalWorkbench() {
           {scheduleCreateOpen && <ScheduleCreateDialog key={scheduleRequest} initialRequest={scheduleRequest} busy={busy || Boolean(localSchedules.busyID)} text={text} onClose={() => setScheduleCreateOpen(false)} onCreate={localSchedules.create} />}
         </div>}
         {capabilities.browser && browserLayout.visible && typeof desktop.state === "function" && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} onHide={closeBrowser}
-          reserve={BROWSER_CONVERSATION_RESERVE} defaultWidth={BROWSER_DEFAULT_WIDTH} onResizeStart={() => browserLayout.setWide(false)} />}
+          reserve={BROWSER_CONVERSATION_RESERVE} defaultWidth={BROWSER_DEFAULT_WIDTH} onResizeStart={() => browserLayout.setWide(false)}
+          onExpand={() => browserLayout.setWide(true)} />}
 
       </>}
-        {browserLayout.mounted && typeof desktop.state === "function" && <BrowserPanel open={browserOpen} visible={capabilities.browser && browserLayout.visible} onCollapse={closeBrowser} wide={browserLayout.wide} onWideChange={browserLayout.setWide} language={language} localConversationID={selected} />}
+        {browserLayout.mounted && typeof desktop.state === "function" && <BrowserPanel open={browserOpen} visible={capabilities.browser && browserLayout.visible} onCollapse={closeBrowser} wide={browserLayout.wide} onWideChange={browserLayout.setWide} language={language} localConversationID={selected}
+          conversationInFront={browserCovering ? browserLayout.region === "conversation" : undefined} onShowBrowser={browserLayout.reveal} />}
     </main>
     {searchOpen && <TaskSearch language={language} sessions={conversations} onSelect={(conversation) => { setSearchOpen(false); void select(conversation.id).catch(surfaceError); }} onClose={() => setSearchOpen(false)} />}
   </div>;

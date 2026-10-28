@@ -195,7 +195,23 @@ space. The sidebar and settings navigation sit flush beneath it with a divider
 instead of a floating card. Linux and Windows keep their native frame above the
 same title bar. The web keeps its in-page topbar without page history. The
 desktop home uses the same light welcome presentation as the web home without
-the suggestion row.
+the suggestion row; its composer sits at the bottom where the conversation's
+composer sits, with the welcome centred above it. The sidebar's edge can be
+dragged to any width from 160px up to what leaves the conversation 320px, in a
+docked or overlay sidebar alike, and the title bar's leading part follows it.
+Dragging on 56px past the narrowest width hides the sidebar; the widest width is
+a firm stop, so the sidebar never covers the conversation. The browser's edge
+snaps both ways: past its narrowest width it closes, and past its widest it
+takes the workspace as in widened mode. Each snapped layout shows while
+dragging, the native browser view is suspended while a preview hides it, and a
+double click on the sidebar edge restores 244px. Whenever the browser covers the
+conversation, widened or because the window is too narrow for both, the title bar
+keeps a tab for the conversation just left of the notification button, in place of
+the conversation title: its speech-bubble icon and title switch the workspace to
+the conversation, the browser tabs switch it back, and the browser tabs stay in
+the title bar either way. The workspace part of the title
+bar keeps room for its actions, so they never overlap the tabs. Like the
+browser, the sidebar width lasts until restart and is not stored.
 
 The desktop window follows Codex: the title bar and an 8px margin keep the frame
 colour, and everything below sits in one rounded sheet whose sidebar,

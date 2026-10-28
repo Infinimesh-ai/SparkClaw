@@ -173,7 +173,7 @@ html[data-resolved-theme="dark"] .clientWindow { --client-sheet: #252c37; --clie
 .clientWindow .clientTitlebarTrailing { position: relative; }
 .clientWindow .clientTitlebarTrailing::after { left: 0; display: none; }
 .clientWindow .clientTitlebar[data-browser-open] .clientTitlebarTrailing::after { display: block; }
-.clientWindow:has(.desktopWorkbench.browserFocus, .desktopBrowserPanel.wide) .clientTitlebarTrailing::after { display: none; }
+.clientWindow:has(.desktopWorkbench.browserFocus, .desktopWorkbench.conversationFocus, .desktopBrowserPanel.wide) .clientTitlebarTrailing::after { display: none; }
 .clientWindow .clientTitlebarMain {
   display: flex;
   align-items: center;
@@ -183,6 +183,9 @@ html[data-resolved-theme="dark"] .clientWindow { --client-sheet: #252c37; --clie
 }
 .clientWindow .clientTitlebarMain > .clientTitlebarActions.topbarActions { flex: none; margin-left: auto; }
 .clientWindow .clientTitlebarTitle {
+  /* Only the actions set how narrow the workspace part may get. */
+  contain: inline-size;
+  flex: 1 1 auto;
   min-width: 0;
   margin: 0;
   overflow: hidden;
@@ -443,7 +446,7 @@ html:root .clientWindow .workbench.glassWorkbench .sidebar .sessionSelect .sessi
 /* The workspace actions keep their room; the tabs take the panel's width from
    what is left, so a widened browser still leaves the actions reachable. */
 .clientWindow .clientTitlebar.workbench.glassWorkbench {
-  grid-template-columns: var(--client-leading-width) minmax(96px, 1fr) minmax(0, var(--client-browser-track, 0px));
+  grid-template-columns: var(--client-leading-width) minmax(min-content, 1fr) minmax(0, var(--client-browser-track, 0px));
 }
 .clientWindow .clientTitlebar[data-browser-open] { --client-browser-track: calc(var(--client-browser-width) + var(--client-sheet-inset) + 1px); }
 .clientWindow .clientTitlebarBrowser .desktopBrowserTabBar {
@@ -545,3 +548,107 @@ html:root .clientWindow .workbench.glassWorkbench .sidebar .sessionSelect :is(.s
   font-weight: 400;
   line-height: 20px;
 }
+
+/* The sidebar's edge is a drag handle; its width also sets the title bar's
+   leading part. In narrow windows it resizes the overlay the same way. */
+html:root .clientWindow .clientContent > .shell.workbench { position: relative; }
+.clientWindow .clientSidebarResizeHandle {
+  position: absolute;
+  z-index: 70;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--sidebar-width) - 3px);
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.clientWindow .clientSidebarResizeHandle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: transparent;
+  transition: background-color 120ms ease;
+}
+.clientWindow .clientSidebarResizeHandle:is(:hover, :focus-visible)::after,
+.clientWindow.resizingSidebar .clientSidebarResizeHandle::after { background: var(--ui-divider); }
+.clientWindow .clientSidebarResizeHandle:focus-visible { outline: none; }
+.clientWindow .shell.workbench.sidebarCollapsed > .clientSidebarResizeHandle { display: none; }
+.clientWindow.resizingSidebar, .clientWindow.resizingSidebar * { cursor: col-resize !important; user-select: none; }
+@media (max-width: 840px) {
+  html:root .clientWindow .clientContent > .shell.workbench.sidebarCollapsed .sidebar { width: var(--sidebar-width); }
+  .clientWindow .shell.workbench > .clientSidebarResizeHandle { display: none; }
+  .clientWindow .shell.workbench.sidebarCollapsed > .clientSidebarResizeHandle {
+    position: fixed;
+    display: block;
+    top: var(--client-titlebar-height);
+    bottom: var(--client-sheet-inset);
+    left: calc(var(--client-sheet-inset) + var(--sidebar-width) - 3px);
+  }
+}
+
+/* A new conversation keeps the composer at the bottom, where the
+   conversation's own composer sits; the welcome stays centred above it. */
+html:root .clientWindow .localWorkbench.homePresentation .homeChat { padding-bottom: 20px; }
+html:root .clientWindow .localWorkbench.homePresentation .homeChat > div.messageList { margin: auto; }
+html:root .clientWindow .localWorkbench.homePresentation .homeChat > .composerDock { margin: 28px auto 0; }
+
+/* Dragging an edge on past a column's narrowest or widest width snaps: the
+   sidebar or browser hides, and the browser can take the workspace in place of
+   the conversation; the sidebar stops at its widest width. data-*-snap is the
+   live preview during a drag; the wide browser is the kept layout. */
+@media (min-width: 841px) {
+  .clientWindow[data-sidebar-snap="hide"] .clientContent > .shell.workbench { grid-template-columns: 0 minmax(0, 1fr); }
+  .clientWindow[data-sidebar-snap="hide"] .clientContent > .shell.workbench > .sidebar { visibility: hidden; }
+  .clientWindow[data-sidebar-snap="hide"] .clientSidebarResizeHandle { left: 0; }
+  .clientWindow[data-sidebar-snap="hide"] .clientTitlebar.workbench.glassWorkbench { --client-leading-width: max-content; }
+  .clientWindow[data-sidebar-snap="hide"] .clientTitlebarLeading::after { display: none; }
+  .clientWindow[data-sidebar-snap="hide"] .clientTitlebarMain { padding-left: 8px; }
+
+}
+@media (max-width: 840px) {
+  .clientWindow[data-sidebar-snap="hide"] .clientContent > .shell.workbench.sidebarCollapsed .sidebar { visibility: hidden; }
+  .clientWindow[data-sidebar-snap="hide"] .shell.workbench.sidebarCollapsed > .clientSidebarResizeHandle { left: var(--client-sheet-inset); }
+}
+
+html:root .clientWindow .workbench .desktopWorkbench[data-browser-snap="hide"] > .taskInspector { visibility: hidden; }
+html:root .clientWindow .workbench .desktopWorkbench.withInspector:not(.browserFocus):not(.conversationFocus)[data-browser-snap="hide"] > .chatColumn { margin-right: 0; }
+.clientWindow .workbench .desktopWorkbench[data-browser-snap="hide"] > .inspectorResizeHandle { right: -4px; }
+.clientWindow:has(.desktopWorkbench[data-browser-snap="hide"]) .clientTitlebarTrailing { display: none; }
+html:root .clientWindow .workbench .desktopWorkbench[data-browser-snap="fill"] > .taskInspector { width: 100%; max-width: none; z-index: 30; border-left-color: transparent; }
+.clientWindow .workbench .desktopWorkbench[data-browser-snap="fill"] > .chatColumn { visibility: hidden; }
+.clientWindow .workbench .desktopWorkbench[data-browser-snap="fill"] > .inspectorResizeHandle { right: calc(100% - 8px); z-index: 31; }
+.clientWindow:has(.desktopWorkbench[data-browser-snap="fill"]) .clientTitlebarTrailing::after { display: none; }
+
+/* While the browser covers the conversation, its tab sits just before the
+   workspace actions and reads like a browser tab; the selected one is a chip
+   of the pane's colour. */
+.clientWindow .clientConversationTab {
+  display: flex;
+  flex: 0 1 180px;
+  align-items: center;
+  gap: 6px;
+  min-width: 64px;
+  height: 30px;
+  margin: 0 4px 0 auto;
+  padding: 0 10px 0 8px;
+  overflow: hidden;
+  border-radius: 8px;
+  color: var(--ui-muted);
+  background: transparent;
+  font-size: 12px;
+  line-height: 18px;
+  transition: background 120ms ease;
+  -webkit-app-region: no-drag;
+}
+.clientWindow .clientConversationTab span { flex: 1; min-width: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.clientWindow .clientConversationTab svg { flex: none; }
+.clientWindow .clientConversationTab:hover:not(.selected) { background: color-mix(in srgb, var(--ui-ink) 5%, transparent); }
+.clientWindow .clientConversationTab.selected {
+  color: var(--ui-ink);
+  background: var(--client-pane);
+  box-shadow: 0 0 0 1px var(--ui-divider), 0 1px 2px rgb(0 0 0 / 5%);
+}
+.clientWindow .clientTitlebarMain > .clientConversationTab + .clientTitlebarActions.topbarActions { margin-left: 0; }

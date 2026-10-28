@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BrowserPanel, resolveBrowserInput } from "./BrowserPanel";
+import { BrowserPanel, resolveBrowserInput, type BrowserPanelProps } from "./BrowserPanel";
 import type { DesktopPage, DesktopState, SparkClawDesktop } from "./types";
 
 const page = (id: number, url = "about:blank", role: "personal" | "task" = "personal"): DesktopPage => ({
@@ -37,8 +37,8 @@ async function fixture(pages: DesktopPage[] = []) {
   window.sparkclawDesktop = desktop;
   const host = document.createElement("div"); host.className = "workspace"; document.body.append(host);
   const root = createRoot(host), collapse = vi.fn();
-  const render = async (open = true, visible = open, conversation?: string) => {
-    await act(async () => { root.render(<BrowserPanel language="en" open={open} visible={visible} localConversationID={conversation} onCollapse={collapse} />); });
+  const render = async (open = true, visible = open, conversation?: string, extra: Partial<BrowserPanelProps> = {}) => {
+    await act(async () => { root.render(<BrowserPanel language="en" open={open} visible={visible} localConversationID={conversation} onCollapse={collapse} {...extra} />); });
   };
   await render();
   const input = () => host.querySelector<HTMLInputElement>(".desktopAddressBar input")!;
@@ -142,6 +142,39 @@ describe("desktop browser entry", () => {
       expect(f.desktop.presentPersonal).toHaveBeenCalledTimes(calls);
       await act(async () => modal.remove());
       expect(f.desktop.presentPersonal).toHaveBeenCalledTimes(calls + 1);
+    } finally { await f.cleanup(); }
+  });
+
+  it("hides the native page while a resize drag previews a layout without it", async () => {
+    const f = await fixture([page(1, "https://example.test")]);
+    try {
+      const browser = f.host.querySelector<HTMLElement>(".desktopBrowserHost")!;
+      vi.spyOn(browser, "getBoundingClientRect").mockReturnValue({ x: 800, y: 224, width: 640, height: 600 } as DOMRect);
+      await act(async () => observers.at(-1)!([], {} as ResizeObserver));
+      await act(async () => f.host.querySelectorAll<HTMLButtonElement>(".desktopTabSelect")[0].click());
+      expect(f.desktop.presentPersonal).toHaveBeenCalledWith(page(1).page_ref);
+      const hides = vi.mocked(f.desktop.hideBrowser).mock.calls.length;
+      await act(async () => { f.host.setAttribute("data-browser-suspended", ""); });
+      expect(f.desktop.hideBrowser).toHaveBeenCalledTimes(hides + 1);
+      const presents = vi.mocked(f.desktop.presentPersonal).mock.calls.length;
+      await act(async () => { f.host.removeAttribute("data-browser-suspended"); });
+      expect(f.desktop.presentPersonal).toHaveBeenCalledTimes(presents + 1);
+    } finally { await f.cleanup(); }
+  });
+
+  it("keeps unselected tabs while the conversation is in front of a covering browser", async () => {
+    const f = await fixture([page(1, "https://example.test"), page(2, "https://second.test")]);
+    try {
+      const onShowBrowser = vi.fn();
+      const tabs = () => [...f.host.querySelectorAll<HTMLElement>(".desktopTab")];
+      const selected = () => tabs().map((tab) => tab.classList.contains("selected"));
+      await f.render(true, false, undefined, { conversationInFront: true, onShowBrowser });
+      expect(f.host.querySelector(".desktopBrowserPanel")!.hasAttribute("hidden")).toBe(true);
+      expect(selected().some(Boolean)).toBe(false);
+      await act(async () => tabs()[1].querySelector<HTMLButtonElement>(".desktopTabSelect")!.click());
+      expect(onShowBrowser).toHaveBeenCalledTimes(1);
+      await f.render(true, true, undefined, { conversationInFront: false, onShowBrowser });
+      expect(selected()).toEqual(tabs().map((_, index) => index === 1));
     } finally { await f.cleanup(); }
   });
 

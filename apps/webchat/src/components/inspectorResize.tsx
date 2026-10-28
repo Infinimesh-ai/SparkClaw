@@ -5,6 +5,27 @@ const STORAGE_KEY = "sparkx.inspector-width";
 const MIN_WIDTH = 240;
 const HIDE_BELOW = 120;
 
+// In the desktop client a drag that carries on this far past a panel's narrowest
+// or widest width hides it or lets it take the whole space; the snapped layout
+// shows while dragging and is kept on release.
+export const SNAP_DISTANCE = 56;
+export type DragSnap = "hide" | "fill" | null;
+export function snapState(width: number, min: number, max: number): DragSnap {
+  return width < min - SNAP_DISTANCE ? "hide" : width > max + SNAP_DISTANCE ? "fill" : null;
+}
+
+// The native browser view paints above the page, so a preview that covers or
+// hides it suspends the view, as an open dialog does.
+export function suspendBrowserView(element: HTMLElement, suspended: boolean) {
+  if (suspended) element.setAttribute("data-browser-suspended", "");
+  else element.removeAttribute("data-browser-suspended");
+}
+
+// A snapped preview stays until React has drawn the committed layout.
+export function afterCommit(clear: () => void) {
+  requestAnimationFrame(() => requestAnimationFrame(clear));
+}
+
 // The desktop browser keeps a dragged width only for this run of the app.
 let sessionWidth: number | null = null;
 
@@ -36,8 +57,10 @@ type ResizeState = ReturnType<typeof useInspectorWidth>;
 
 // reserve keeps that much of the workspace for the conversation; onResizeStart
 // lets a widened panel return to its dragged width before the drag continues.
-export function InspectorResizeHandle({ resize, label, onHide, reserve = 0, defaultWidth, onResizeStart }: {
-  resize: ResizeState; label: string; onHide: () => void; reserve?: number; defaultWidth?: number; onResizeStart?: () => void;
+// With onExpand a drag snaps: past the narrowest width it hides the panel and
+// past the widest the panel takes the workspace in place of the conversation.
+export function InspectorResizeHandle({ resize, label, onHide, reserve = 0, defaultWidth, onResizeStart, onExpand }: {
+  resize: ResizeState; label: string; onHide: () => void; reserve?: number; defaultWidth?: number; onResizeStart?: () => void; onExpand?: () => void;
 }) {
   const handleRef = useRef<HTMLDivElement | null>(null);
   const workspace = () => handleRef.current?.parentElement ?? null;
@@ -57,6 +80,13 @@ export function InspectorResizeHandle({ resize, label, onHide, reserve = 0, defa
     target.setPointerCapture(event.pointerId);
     resize.setResizing(true);
     let latest = currentWidth();
+    let state: DragSnap = null;
+    const space = workspace();
+    const preview = (next: DragSnap) => {
+      if (!space) return;
+      if (next) space.dataset.browserSnap = next; else delete space.dataset.browserSnap;
+      suspendBrowserView(space, next === "hide");
+    };
     const stop = () => {
       target.removeEventListener("pointermove", move);
       target.removeEventListener("pointerup", stop);
@@ -65,6 +95,13 @@ export function InspectorResizeHandle({ resize, label, onHide, reserve = 0, defa
       window.removeEventListener("pointerup", stop);
       window.removeEventListener("blur", stop);
       resize.setResizing(false);
+      if (onExpand) {
+        if (!state) { resize.commit(latest); preview(null); return; }
+        resize.restore(before);
+        if (state === "hide") onHide(); else onExpand();
+        afterCommit(() => preview(null));
+        return;
+      }
       if (latest < HIDE_BELOW) {
         resize.restore(before);
         onHide();
@@ -75,7 +112,15 @@ export function InspectorResizeHandle({ resize, label, onHide, reserve = 0, defa
     const move = (moveEvent: globalThis.PointerEvent) => {
       // A release outside the renderer (for example over a native view) still ends the drag.
       if (moveEvent.buttons === 0) return stop();
-      latest = Math.min(limit, right - moveEvent.clientX);
+      const raw = right - moveEvent.clientX;
+      if (onExpand) {
+        state = snapState(raw, MIN_WIDTH, limit);
+        preview(state);
+        latest = Math.min(limit, Math.max(MIN_WIDTH, raw));
+        if (!state) resize.preview(latest);
+        return;
+      }
+      latest = Math.min(limit, raw);
       resize.preview(latest);
     };
     target.addEventListener("pointermove", move);

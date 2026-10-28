@@ -98,7 +98,13 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
   schedule page adds example requests; mail surfaces sit inset; and the window
   opens at 1250x800 instead of 1440x900. The built-in browser opens at 440px
   beside the conversation, keeps a dragged width only until restart, can be
-  dragged back from widened mode, and shows its tabs in the title bar.
+  dragged back from widened mode, and shows its tabs in the title bar. The
+  sidebar can be dragged to any width that leaves the conversation room, and
+  hides when dragged on past its narrowest width; the browser edge likewise
+  closes the browser past its narrowest width and widens it over the
+  conversation past its widest; while the browser covers the conversation, a
+  conversation tab left of the notification button switches between the two. A new
+  conversation keeps its composer at the bottom.
 - Downloaded SparkX desktops now unlock with one backend-issued
   `sparkclaw-connect-v1...` connection credential instead of a separate public
   backend JSON and device token. Linux first/recovery issuance and signed-in

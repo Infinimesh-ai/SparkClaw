@@ -86,6 +86,8 @@ export type SparkClawDesktop = {
   capabilityVersion: 1;
   gatewayBase: string;
   speechBase: string;
+  // "inset": the system window controls float over the client title bar.
+  windowChrome?: "inset" | "native";
   localConnection(): Promise<DesktopConnectionStatus>;
   retryLocalConnection(): Promise<DesktopConnectionStatus>;
   configureBackend?(descriptor: DesktopBackendDescriptor): Promise<DesktopConnectionStatus>;

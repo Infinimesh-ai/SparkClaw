@@ -37,10 +37,10 @@ export function MessageBubble({
 }) {
   return (
     <article className={`message ${message.role}`} data-message-id={message.id} data-scroll-anchor={scrollAnchorId ?? message.id}>
-      <div className="messageMeta">
-        <span>{message.role === "user" ? (sessionSource === "mcp" ? text.chat.requirement : text.chat.you) : text.chat.assistant}</span>
-        {message.created_at && <time>{formatTime(message.created_at, language)}</time>}
-      </div>
+      {(message.role !== "user" || sessionSource === "mcp") && <div className="messageMeta">
+        {message.role === "user" && <span>{text.chat.requirement}</span>}
+        {message.role !== "user" && message.created_at && <time>{formatTime(message.created_at, language)}</time>}
+      </div>}
       {message.attachments && message.attachments.length > 0 && (
         <MessageAttachments attachments={message.attachments} sessionId={message.session_id} text={text} inlineOutputs={message.role === "assistant"} />
       )}

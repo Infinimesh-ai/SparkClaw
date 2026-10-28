@@ -110,7 +110,8 @@ describe("SessionSidebar navigation and conversations", () => {
       onStartRename={rename} onRenameSubmit={submit} onCancelRename={cancel} onDeleteSession={() => {}} />);
     try {
       await act(async () => render());
-      const actions = host.querySelector(".sessionActions")!;
+      expect(host.querySelectorAll(".sessionActions > button.sessionArchiveTrigger")).toHaveLength(1);
+      const actions = host.querySelector(".sessionActionMenu")!;
       expect(actions.querySelectorAll("button")).toHaveLength(1);
       expect(actions.querySelector(".lucide-ellipsis")).not.toBeNull();
       expect(actions.querySelector(".lucide-pencil, .lucide-trash-2")).toBeNull();
@@ -250,7 +251,7 @@ describe("SessionSidebar navigation and conversations", () => {
     expect(markup).not.toContain(dictionaries.en.nav.deleteSession);
   });
 
-  it("keeps the navigation focused on tasks with icon-only conversation creation", () => {
+  it("keeps the navigation focused on tasks with a labelled and an icon-only conversation entry", () => {
     const markup = renderToStaticMarkup(
       <SessionSidebar
         text={dictionaries.en}
@@ -292,7 +293,8 @@ describe("SessionSidebar navigation and conversations", () => {
     expect(markup).toContain("Recent tasks");
     expect(markup).toContain("newConversationButton");
     expect(markup).toContain(`aria-label="${dictionaries.en.nav.newSession}"`);
-    expect(markup).not.toContain(`>${dictionaries.en.nav.newSession}<`);
+    expect(markup.indexOf("sidebarNewConversation")).toBeLessThan(markup.indexOf("conversationListHeader"));
+    expect(markup).toContain(`<span>${dictionaries.en.nav.newSession}</span>`);
     expect(markup).toContain('aria-label="Search tasks"');
     expect(markup).toContain(`aria-label="Toggle sidebar"`);
     expect(markup).toContain("Ada Lovelace");
@@ -350,11 +352,66 @@ describe("SessionSidebar navigation and conversations", () => {
       expect(host.querySelector('[role="menu"]')).not.toBeNull();
       expect(host.textContent).toContain("Workspace settings");
 
-      await act(async () => (host.querySelector('[role="menuitem"]') as HTMLButtonElement).click());
+      const items = [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+      expect(items.map(item => item.textContent)).toEqual(["Archived conversations", "Workspace settings"]);
+      await act(async () => items[1].click());
       expect(onNavigate).toHaveBeenCalledWith("settings");
       expect(host.querySelector('[role="menu"]')).toBeNull();
     } finally {
       await act(async () => root.unmount());
     }
+  });
+
+  it("archives conversations on this device and restores them from the archived list", async () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) });
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 0; });
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host), archiveSelection = vi.fn(), create = vi.fn();
+    const owner = { id: "owner-one", display_name: "Ada", created_at: "", updated_at: "" };
+    const titles = () => [...host.querySelectorAll(".sessionTitle")].map(title => title.textContent);
+    try {
+      await act(async () => root.render(<SessionSidebar text={dictionaries.zh} language="zh" page="chat" ownerProfile={owner}
+        sessions={[{ id: "one", title: "First" }, { id: "two", title: "Second" }]} activeSession="one"
+        onCreateSession={create} onArchiveSelection={archiveSelection} onSearch={() => {}} onSelectSession={() => {}} />));
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="归档对话: First"]')!.click());
+      expect(titles()).toEqual(["Second"]);
+      expect(JSON.parse(values.get("sparkx.archived-conversations.v1.owner-one")!)).toEqual(["one"]);
+      expect(archiveSelection).toHaveBeenCalledExactlyOnceWith({ id: "two", title: "Second" });
+      expect(document.activeElement).toBe(host.querySelector('[aria-label="搜索任务"]'));
+
+      await act(async () => host.querySelector<HTMLButtonElement>(".sidebarAccountTrigger")!.click());
+      const archivedEntry = host.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
+      expect(archivedEntry.textContent).toBe("已归档对话1");
+      await act(async () => archivedEntry.click());
+      expect(host.querySelector(".conversationListHeader > span")!.textContent).toBe("已归档对话");
+      expect(host.querySelector(".newConversationButton")).toBeNull();
+      expect(titles()).toEqual(["First"]);
+
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="取消归档: First"]')!.click());
+      expect(titles()).toEqual([]);
+      expect(host.querySelector(".sidebarArchiveEmpty")!.textContent).toBe("暂无归档对话");
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="返回最近对话"]')!.click());
+      expect(titles()).toEqual(["First", "Second"]);
+      expect(archiveSelection).toHaveBeenCalledOnce();
+
+      await act(async () => host.querySelector<HTMLButtonElement>(".sidebarNewConversation")!.click());
+      expect(create).toHaveBeenCalledOnce();
+    } finally { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); }
+  });
+
+  it("keeps the archive unchanged and explains when browser storage rejects it", async () => {
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => { throw new Error("quota"); } });
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host), archiveSelection = vi.fn();
+    try {
+      await act(async () => root.render(<SessionSidebar text={dictionaries.en} language="en" page="chat" ownerProfile={null}
+        sessions={[{ id: "one", title: "First" }]} activeSession="one"
+        onCreateSession={() => {}} onArchiveSelection={archiveSelection} onSearch={() => {}} onSelectSession={() => {}} />));
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Archive conversation: First"]')!.click());
+      expect(host.querySelector(".sessionTitle")!.textContent).toBe("First");
+      expect(host.querySelector('[role="alert"]')!.textContent).toBe("Could not save the archive state. Check browser storage and try again.");
+      expect(archiveSelection).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); }
   });
 });

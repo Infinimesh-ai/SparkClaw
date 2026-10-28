@@ -153,15 +153,15 @@ heading and control geometry. Persist Small, Default and Large through the same
 local preference so they restore on startup.
 
 Chinese reading roles use a compact scale in `chinese-typography.css`: Default
-body/UI are 15px/13px, Small is 14px/12px, and Large is 17px/15px. Line
-heights follow each role. Apply these mappings to the existing homepage labels
+body/UI are 16px/14px, Small is 14px/12px, and Large is 17px/15px. Line
+heights follow each role. Conversation text, sidebar titles and the composer
+read at 13px (Small 12px, Large 14px) with 1.75 leading. Apply these mappings to the existing homepage labels
 and composer as well, while preserving the brand wordmark and welcome display
 heading. Both web and desktop synchronize the document language on startup.
 English retains its existing scale.
 
 Appearance includes a sample conversation that inherits the live theme, type and
-surface tokens. Keep it beside the controls on wide screens and above them in
-narrow panes. Standard conversation measure is 760px; Wide is 1040px and also
+surface tokens. It follows the controls in a single column at every width. Standard conversation measure is 760px; Wide is 1040px and also
 widens the welcome composer. Transparency and motion each offer System or
 Reduced, respect system accessibility preferences, and persist locally. Reduced
 transparency makes surfaces opaque and removes backdrop blur; Reduced motion
@@ -187,6 +187,15 @@ outer inset and the sidebar becomes a viewport-height drawer. Smaller page
 layouts compact at 600px; mail becomes a full-screen window at 720px. Schedule
 columns progressively adapt at 900px and 480px. Preserve these existing
 responsive behaviors rather than changing the information architecture.
+
+The desktop client draws one 48px title bar above a full-height shell. It holds
+space for the inset macOS window controls, Back and Forward page history, the
+sidebar toggle and the workspace actions; the window is dragged from its empty
+space. The sidebar and settings navigation sit flush beneath it with a divider
+instead of a floating card. Linux and Windows keep their native frame above the
+same title bar. The web keeps its in-page topbar without page history. The
+desktop home uses the same light welcome presentation as the web home without
+the suggestion row.
 
 The six-column homepage composer must fit at 320px. Keep its overflow visible
 so the voice-device menu can escape the card. Document overlays keep viewport
@@ -283,13 +292,18 @@ preserving their fixed positioning. Search, document, device and account
 surfaces share the floating material without removing their current controls.
 
 Conversations keep open assistant responses and softly rounded user messages
-with a pale brand-blue surface, including the Appearance sample. Identity labels
-carry more weight than timestamps. Replies have no thumbs or correction footer.
+with a pale brand-blue surface, including the Appearance sample. User messages
+carry no header; replies show only their time, and managed MCP requirements keep
+their label. Replies have no thumbs or correction footer.
 Attachments and task statuses retain their shared glass material and semantic
-colors. Sidebar rows reveal a single right-aligned ellipsis on hover or keyboard
-focus; touch devices keep it visible. Rename and delete live in its floating
-menu, with viewport clamping, keyboard navigation and the existing delete
-confirmation. Chat composer controls use 36px on desktop and
+colors. A labelled New conversation entry sits above Recent tasks. Sidebar rows reveal
+an archive action and a single right-aligned ellipsis on hover or keyboard
+focus; touch devices keep them visible. Archiving only hides a conversation from
+Recent on this device (browser storage, per owner); the account menu opens the
+Archived list, where the same action restores it. Rename and delete live in the
+floating menu, with viewport clamping, keyboard navigation and the existing
+delete confirmation. Current rows, settings navigation, mail categories and the
+schedule entry use a quiet grey selection fill rather than raised glass. Chat composer controls use 36px on desktop and
 the existing compact geometry on small screens. Homepage composer geometry
 stays unchanged. `conversation-preview.html` is a development-only review entry
 that mounts the real sidebar, message and composer components with in-memory
@@ -298,9 +312,10 @@ to a gateway.
 
 Schedule navigation stays in the shared sidebar footer, above the account
 menu, on both the homepage and the schedule page. Keep its geometry and spacing
-consistent across those destinations. The schedule page has an explicit Back
-to home action that changes the page without creating a conversation or
-clearing the current conversation or input draft.
+consistent across those destinations. On the web, the schedule page has an
+icon Back to home action in its topbar; the desktop uses title-bar page history.
+Either changes the page without creating a conversation or clearing the current
+conversation or input draft.
 
 Runtime pairing expands inline using the same glass field and blue action.
 Its password field and key action share a 40px height; narrow layouts place

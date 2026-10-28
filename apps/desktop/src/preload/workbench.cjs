@@ -66,6 +66,7 @@ contextBridge.exposeInMainWorld("sparkclawDesktop", Object.freeze({
   capabilityVersion: 1,
   gatewayBase: "sparkclaw-app://workbench/desktop-gateway",
   speechBase,
+  windowChrome: process.argv.includes("--sparkclaw-window-chrome=inset") ? "inset" : "native",
   localConnection: () => ipcRenderer.invoke("sparkclaw-local-backend:status"),
   retryLocalConnection: () => ipcRenderer.invoke("sparkclaw-local-backend:retry"),
   configureBackend: (descriptor) => ipcRenderer.invoke("sparkclaw-local-backend:configure", descriptor),

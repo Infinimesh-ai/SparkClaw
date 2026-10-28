@@ -4,24 +4,9 @@ html[data-reading-width="wide"] .homePresentation .homeChat > .composerDock {
   width: min(100%, var(--reading-width));
 }
 
-.settingsAppearanceControls { display: grid; gap: 22px; min-width: 0; }
-@media (min-width: 1280px) {
-  .settingsPageContent:has(.settingsAppearance) { width: min(100%, 1120px); }
-  .workbench.glassWorkbench .settingsPageMain .settingsAppearance {
-    grid-template-columns: minmax(0, 1fr) 300px;
-    align-items: start;
-  }
-  .settingsAppearanceControls { grid-column: 1; grid-row: 1; }
-  .settingsAppearance > .appearancePreview {
-    grid-column: 2;
-    grid-row: 1;
-    position: sticky;
-    top: 24px;
-  }
-}
-@media (max-width: 600px) {
-  .settingsAppearanceControls { gap: 16px; }
-}
+.settingsAppearanceControls { display: grid; gap: 12px; min-width: 0; }
+/* The preview follows the controls in one column at every width. */
+.workbench.glassWorkbench .settingsPageMain .settingsAppearance { grid-template-columns: minmax(0, 1fr); }
 
 html[data-resolved-transparency="reduced"] .glassWorkbench {
   --ui-glass: #f4f6f8;

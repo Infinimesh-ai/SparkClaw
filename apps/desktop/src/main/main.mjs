@@ -216,6 +216,7 @@ async function start() {
   const speechOrigin = desktopAuth.descriptor?.origin || "http://127.0.0.1:18790";
   workbenchSession.protocol.handle("sparkclaw-app", workbenchProtocolHandler(webchatDistPath(), desktopAuth));
 
+  const insetTitlebar = !qualification && process.platform === "darwin";
   window = new BrowserWindow({
     title: qualification ? "SparkX Electron Qualification" : "SparkX",
     icon: DESKTOP_ICON_PATH,
@@ -226,6 +227,9 @@ async function start() {
     x: qualification ? 0 : undefined,
     y: qualification ? 0 : undefined,
     frame: !qualification,
+    // On macOS the system window controls sit inside the workbench's own
+    // 48px title bar; other platforms keep their native frame above it.
+    ...(insetTitlebar ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 18 } } : {}),
     show: false,
     backgroundColor: "#111827",
     webPreferences: {
@@ -235,7 +239,8 @@ async function start() {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
-      additionalArguments: [`--sparkclaw-speech-base=${speechOrigin}`, ...(!qualification ? ["--sparkclaw-client-store=1"] : [])],
+      additionalArguments: [`--sparkclaw-speech-base=${speechOrigin}`, `--sparkclaw-window-chrome=${insetTitlebar ? "inset" : "native"}`,
+        ...(!qualification ? ["--sparkclaw-client-store=1"] : [])],
     },
   });
   if (!qualification) {

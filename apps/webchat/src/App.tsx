@@ -26,6 +26,7 @@ import { NotificationCenter } from "./components/notificationCenter";
 import { ActionIcon } from "./components/ActionIcon";
 import { ScheduleBar, ScheduleCreateDialog } from "./components/schedules";
 import { SessionSidebar } from "./components/sidebar";
+import { useClientTitlebar, WorkspaceTitlebar } from "./components/clientWindow";
 import { WorkspaceSettingsSidebar } from "./components/settingsSidebar";
 import { useDeliveryTarget } from "./hooks/useDeliveryTarget";
 import { usePassiveNotifications } from "./hooks/usePassiveNotifications";
@@ -33,6 +34,7 @@ import { useSchedules } from "./hooks/useSchedules";
 import { useSessionCrud } from "./hooks/useSessionCrud";
 import { useHostWorkbenchDrafts } from "./hooks/useHostWorkbenchDrafts";
 import { useConversationActivity } from "./hooks/useConversationActivity";
+import { usePageHistory } from "./hooks/usePageHistory";
 import { conversationActivity, isTaskInProgress, unseenActivity } from "./lib/conversationActivity";
 import { useVoiceInput } from "./hooks/useVoiceInput";
 import type { VoiceDraftAnchor } from "./hooks/useVoiceInput";
@@ -809,6 +811,17 @@ export function App() {
 
   const settingsPageTitle = copy.settingsTitles[tab];
   const settingsPageDescription = tab === "memory" || tab === "approvals" ? "" : copy.settingsDescriptions[tab];
+  const pageHistory = usePageHistory({ page, sessionID: activeSession, settingsTab: page === "settings" ? tab : "settings" }, {
+    scope: `${authEpoch}:${ownerProfile?.id ?? ""}`,
+    disabled: busy || voice.active,
+    valid: (entry) => entry.sessionID ? sessions.some((session) => session.id === entry.sessionID) : entry.page !== "chat",
+    restore: (entry) => {
+      const session = sessions.find((item) => item.id === entry.sessionID);
+      if (session) selectTask(session);
+      if (entry.page !== "chat") navigate(entry.page);
+      if (entry.page === "settings") setTab(entry.settingsTab);
+    }
+  }, useClientTitlebar());
 
   return (
     <main className={`shell workbench glassWorkbench ${showHome ? "homePresentation" : ""} ${page === "settings" ? "settingsPageMode" : ""} ${sidebarCollapsed ? "sidebarCollapsed" : ""} ${ready?.ok ? "gateway-ready" : "gateway-offline"}`}>
@@ -835,6 +848,7 @@ export function App() {
         sessionTitleDraft={sessionTitleDraft}
         sessionActionId={sessionActionId}
         onCreateSession={() => void newTask()}
+        onArchiveSelection={(next) => { if (next) selectTask(next); else void newTask(); }}
         onSelectSession={selectTask}
         onStartRename={startRenameSession}
         onCancelRename={cancelRenameSession}
@@ -844,10 +858,11 @@ export function App() {
       />}
 
       <section ref={browserLayout.workspaceRef} hidden={page === "settings"} className={`workspace ${error ? "hasError" : ""} ${showHome ? "homeWorkspace" : ""} ${fullPanel ? "panelWorkspace" : ""} ${inspectorOpen && page === "chat" ? "withInspector" : ""} ${inspectorResize.resizing ? "resizingInspector" : ""} ${desktopCapability() ? "desktopWorkbench" : ""} ${browserLayout.className}`} style={inspectorResize.style}>
-        <header className="topbar">
-          <button className="iconButton sidebarToggle" onClick={() => setSidebarCollapsed(current => !current)} aria-label={copy.toggleNav}><ActionIcon name="panel-left" /></button>
-          <span className="workspaceLabel">{copy.local}</span>
-          <div className="topbarActions">
+        <WorkspaceTitlebar language={language} navigation={pageHistory}
+          sidebar={page !== "settings" && <button className="iconButton sidebarToggle" onClick={() => setSidebarCollapsed(current => !current)} aria-label={copy.toggleNav}><ActionIcon name="panel-left" /></button>}
+          back={page !== "chat" && <button className="iconButton workspaceBackButton" type="button" onClick={() => navigate(page === "settings" && settingsReturnPageRef.current !== "settings" ? settingsReturnPageRef.current : "chat")} disabled={busy}
+            title={page === "settings" ? copy.backToApp : copy.backToHome} aria-label={page === "settings" ? copy.backToApp : copy.backToHome}><ArrowLeft size={18} strokeWidth={1.75} /></button>}
+          actions={<>
             <NotificationCenter
               home={showHome}
               notifications={passiveNotifications.notifications}
@@ -863,8 +878,7 @@ export function App() {
               onReadAll={passiveNotifications.markAllRead}
             />
             {page === "chat" && <button className={`iconButton rightSidebarToggle ${inspectorOpen ? "active" : ""}`} ref={browserLayout.triggerRef} onClick={toggleBrowser} aria-label={desktop ? browserLayout.visible ? (language === "zh" ? "收起浏览器" : "Collapse browser") : (language === "zh" ? "打开浏览器" : "Open browser") : copy.toggleInspector} aria-expanded={desktop ? browserLayout.visible : inspectorOpen}><ActionIcon name={desktop ? "globe" : "panel-right"} active={desktop ? browserLayout.visible : inspectorOpen} /></button>}
-          </div>
-        </header>
+          </>} />
 
         {error && (authRecovery || (!ready && showHome)) && (
           <div className={`connectionNotice ${pairRuntimeOpen ? "pairing" : ""}`} role="status">
@@ -909,7 +923,6 @@ export function App() {
         )}
 
         {page === "schedules" && <div className="workbenchPage schedulePage">
-          <button className="secondaryButton workbenchPageBack" type="button" onClick={() => navigate("chat")}><ArrowLeft size={16} strokeWidth={1.75} aria-hidden="true" />{copy.backToHome}</button>
           <div className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div><button className="primaryButton" onClick={() => setScheduleCreateOpen(true)} disabled={busy || voice.active}><Plus size={15} />{copy.newSchedule}</button></div><ScheduleBar
           schedules={schedules}
           open={scheduleBarOpen}
@@ -938,7 +951,7 @@ export function App() {
             onCancel={(requestID) => { void api.cancelWorkbenchRequest(activeSession, requestID).then(() => refreshSession(activeSession)).catch((err) => surfaceError(err, text.errors.message)); }} />
           <div ref={messageScroll.listRef} className="messageList" aria-label={showHome ? text.chat.emptyTitle : undefined}>
             {messages.length === 0 ? (
-              <WorkbenchWelcome language={language} description />
+              <WorkbenchWelcome language={language} />
             ) : (
               messages.map((message) => (
                 <MessageBubble

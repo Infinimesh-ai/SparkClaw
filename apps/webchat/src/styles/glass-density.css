@@ -1,0 +1,445 @@
+/* Spark X density pass: a calmer, more compact rhythm across the shared
+   surfaces. Selection uses a quiet grey fill instead of raised glass, and
+   conversation text follows the reading-size preference. Loaded last so it
+   refines every earlier glass layer. */
+.workbench.glassWorkbench .sessionList { gap: 2px; }
+.workbench.glassWorkbench .sessionItem { border-radius: 10px; min-height: 36px; padding: 4px 10px; }
+.workbench.glassWorkbench .sessionItem.active { color: #30353b; box-shadow: none; background: #e9e9e9; }
+.workbench.glassWorkbench .sessionItem.active .sessionTitle { color: #30353b; font-weight: 650; }
+.workbench.glassWorkbench .sessionItem.active .sessionSelect::before { background: #81878e; }
+html[data-resolved-theme="dark"] .workbench.glassWorkbench .sessionItem.active { color: #e2e2e2; box-shadow: none; background: #3a3a3a; }
+html[data-resolved-theme="dark"] .workbench.glassWorkbench .sessionItem.active .sessionTitle { color: #e2e2e2; }
+html[data-resolved-theme="dark"] .workbench.glassWorkbench .sessionItem.active .sessionSelect::before { background: #a8a8a8; }
+html:not([data-text-size]) .workbench .messageContent,
+html[data-text-size="default"] .workbench .messageContent { font-size: var(--font-label); line-height: 1.75; }
+html:not([data-text-size]) .workbench .messageContent :is(p:not(.messageHeading), ul.messageList),
+html[data-text-size="default"] .workbench .messageContent :is(p:not(.messageHeading), ul.messageList) { line-height: 1.75; }
+.workbench.glassWorkbench .message .messageMeta:has(> time:only-child) { justify-content: flex-end; }
+.glassWorkbench .confirmationAccept.isDanger:hover { color: #fff; }
+.glassWorkbench .settingsPageNavigation { gap: 8px; }
+.glassWorkbench .settingsPageNavigationGroup { flex-direction: column; gap: 2px; display: flex; }
+.glassWorkbench .settingsPageNavigation button { border-radius: 10px; min-height: 36px; margin-block: 0; padding-block: 4px; }
+html:not([data-text-size]) .workbench.glassWorkbench .composer textarea,
+html[data-text-size="default"] .workbench.glassWorkbench .composer textarea { font-size: var(--font-label); color: #596572; line-height: 1.75; }
+html:not([data-text-size]) .workbench.glassWorkbench .composer textarea::placeholder,
+html[data-text-size="default"] .workbench.glassWorkbench .composer textarea::placeholder { color: #78838f; opacity: 1; }
+html[data-resolved-theme="dark"]:is(:not([data-text-size]), [data-text-size="default"]) .workbench.glassWorkbench .composer textarea {
+  color: #c4ccd6;
+}
+html[data-resolved-theme="dark"]:is(:not([data-text-size]), [data-text-size="default"]) .workbench.glassWorkbench .composer textarea::placeholder {
+  color: #a2afbd;
+}
+.workbench.glassWorkbench .message.user .messageContent > p:first-child { margin-top: 0; }
+.glassWorkbench .settingsPageNavigation button.selected {
+  color: #30353b;
+  box-shadow: none;
+  background: #e9e9e9;
+  border-color: transparent;
+  font-weight: 650;
+}
+html[data-resolved-theme="dark"] .glassWorkbench .settingsPageNavigation button.selected { color: #e2e2e2; background: #3a3a3a; }
+.glassWorkbench .settingsPageContent { padding-block: 24px 28px; }
+.glassWorkbench .settingsPageHeader { margin-bottom: 18px; }
+.workbench.glassWorkbench .settingsPageMain .settingsSurface { gap: 14px; padding-bottom: 16px; }
+.workbench.glassWorkbench .settingsPageMain .settingsSurface > .settingsSurfaceSection { gap: 8px; padding: 16px; }
+.glassWorkbench .settingsPageMain .settingsSurfaceSection :is(.settingsBlock, .settingsSurfaceSection) { padding-block: 8px; }
+.glassWorkbench .settingsPageMain .settingsSurfaceRow { gap: 12px; min-height: 52px; padding-block: 10px; }
+.glassWorkbench .taskSearchResults button {
+  border: 0;
+  border-bottom: 1px solid var(--ui-divider);
+  background: transparent;
+  border-radius: 0;
+  min-height: 42px;
+}
+.glassWorkbench .taskSearchResults button:is(:hover, [aria-selected="true"]) { background: #e9e9e9; border-radius: 8px; }
+html[data-resolved-theme="dark"] .glassWorkbench .taskSearchResults button:is(:hover, [aria-selected="true"]) { background: #3a3a3a; }
+.workbench.glassWorkbench :is(.sidebarNewConversation, .newConversationButton):hover:not(:disabled) { background: var(--chat-user-surface); }
+.workbench.glassWorkbench .sidebarNewConversation { border-color: transparent; }
+.workbench.glassWorkbench .sidebarNewConversation:hover:not(:disabled) { box-shadow: none; border-color: transparent; }
+.workbench.homePresentation .welcomeBrandMark,
+html[data-resolved-theme="dark"] .workbench.homePresentation .welcomeBrandMark {
+  width: 80px;
+  height: 80px;
+  box-shadow: none;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  margin-bottom: 16px;
+  padding: 0;
+}
+.workbench.homePresentation .workbenchWelcome h1 { letter-spacing: 0; font-size: 24px; font-weight: 400; line-height: 1.35; }
+.glassWorkbench .emailPopup { --email-control-size: 36px; --email-icon-size: 16px; }
+.glassWorkbench .emailPopup :is(svg.lucide, .actionIcon) { width: var(--email-icon-size); height: var(--email-icon-size); }
+.glassWorkbench .emailPopup :is(.emailPopupClose, .emailMobileBack) svg,
+.glassWorkbench .emailPopup svg.lucide-chevron-down { width: 14px; height: 14px; }
+.glassWorkbench .emailPopupHeader { min-height: 60px; padding: 10px 16px; }
+.glassWorkbench .emailPopupTitle { gap: 9px; }
+.glassWorkbench .emailPopupTitleIcon { border-radius: 10px; flex-basis: 32px; width: 32px; height: 32px; }
+.glassWorkbench .emailPopupHeader h2 { font-size: var(--font-ui); line-height: var(--line-ui); }
+.glassWorkbench .emailFilters { gap: 8px; min-height: 52px; padding: 8px 16px; }
+.glassWorkbench .emailAddressFilter, .glassWorkbench .emailSearch {
+  min-height: var(--email-control-size);
+  height: var(--email-control-size);
+  border-radius: 10px;
+}
+.glassWorkbench .emailAddressFilter { grid-template-columns: 16px minmax(0, 1fr) 14px; gap: 6px; }
+.glassWorkbench .emailAddressFilter select { border-radius: 10px; height: 34px; min-height: 34px; }
+.glassWorkbench .emailSearch { grid-template-columns: 16px minmax(0, 1fr) 32px; gap: 6px; }
+.glassWorkbench .emailSearch input,
+.glassWorkbench .emailAddressFilter select,
+.glassWorkbench .emailAddressValue,
+.glassWorkbench .emailToolbarActions .emailTextButton { font-size: var(--font-label); line-height: var(--line-label); }
+.glassWorkbench .emailSearch button { width: 32px; height: 32px; }
+.glassWorkbench .emailToolbarActions { gap: 4px; }
+.glassWorkbench .emailToolbarActions .emailTextButton { min-height: var(--email-control-size); border-radius: 10px; padding: 6px 8px; }
+.glassWorkbench .emailSyncBar { gap: 10px; min-height: 34px; padding: 4px 16px; }
+.glassWorkbench .emailCategoryPane { padding: 12px 8px 10px; }
+.glassWorkbench .emailCategoryPane .emailCategoryTabs { gap: 2px; }
+.glassWorkbench .emailCategoryTabs button {
+  min-height: 36px;
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+  border-radius: 10px;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 5px 8px;
+}
+.glassWorkbench .emailCategoryTabs button.selected {
+  color: #30353b;
+  box-shadow: none;
+  background: #e9e9e9;
+  border-color: transparent;
+  font-weight: 650;
+}
+.glassWorkbench .emailCategoryTabs button.selected small { color: inherit; background: rgb(255 255 255 / 55%); }
+.glassWorkbench .emailConversationHeader { min-height: 52px; padding: 8px 12px; }
+.glassWorkbench .emailConversationHeader .emailListTitle { font-size: var(--font-label); line-height: var(--line-label); }
+.glassWorkbench .emailConversationRow { grid-template-columns: 28px minmax(0, 1fr); gap: 8px; min-height: 86px; padding: 10px 12px; }
+.glassWorkbench .emailConversationRow.selected { box-shadow: none; background: #e9e9e9; }
+.glassWorkbench .emailThreadAvatar { border-radius: 9px; width: 28px; height: 28px; }
+.glassWorkbench .emailThreadCopy { gap: 3px; }
+.glassWorkbench .emailThreadMeta strong, .glassWorkbench .emailThreadCopy b { font-size: var(--font-label); line-height: var(--line-label); }
+.glassWorkbench .emailDetailHeader { margin-bottom: 10px; padding: 14px 16px 10px; }
+.glassWorkbench .emailReaderHeading { gap: 8px; }
+.glassWorkbench .emailReaderHeading h2 { font-size: var(--font-ui); line-height: var(--line-ui); }
+.glassWorkbench .emailConversationAddresses { gap: 4px; margin-top: 10px; margin-bottom: 8px; }
+.glassWorkbench .emailMessage { border-radius: 16px; margin-block: 10px; padding: 14px; }
+.glassWorkbench .emailConversationMessage { border-radius: 16px 16px 16px 6px; padding: 12px 14px; }
+.glassWorkbench .emailConversationMessage.outgoing { border-radius: 16px 16px 6px; }
+.glassWorkbench .emailConversationAvatar { flex-basis: 28px; width: 28px; height: 28px; }
+.glassWorkbench .emailConversationSender strong { font-size: var(--font-label); line-height: var(--line-label); }
+.glassWorkbench .emailConversationSummary,
+.glassWorkbench .emailSummary,
+.glassWorkbench .emailStructuredContent { font-size: var(--font-label); line-height: 1.75; }
+.glassWorkbench .emailConversationSummary { margin-top: 9px; }
+.glassWorkbench .emailStructuredContent { margin-top: 10px; padding: 12px; }
+.glassWorkbench .emailStructuredContent p { margin-bottom: 10px; }
+.glassWorkbench .emailPopup :is(.emailRules, .emailSyncDetails) { padding-block: 12px; }
+.glassWorkbench .emailPopup :is(.emailClassificationEdit, .emailEventEdit form, .emailVerification) { padding: 12px; }
+.glassWorkbench .emailRule { gap: 8px; padding-block: 9px; }
+.glassWorkbench .emailComposer { padding-block: 14px; }
+.glassWorkbench .emailComposer header { margin-bottom: 12px; }
+.glassWorkbench .emailComposer fieldset { gap: 9px; }
+.glassWorkbench .emailComposer footer { margin-top: 12px; }
+.glassWorkbench .emailReplyComposer { border-radius: 16px 16px 0 0; padding: 12px 14px; }
+.glassWorkbench .emailReplyComposer :is(textarea, .emailReplyBody textarea) {
+  font-size: var(--font-label);
+  margin-top: 10px;
+  padding: 10px 12px;
+  line-height: 1.75;
+}
+.glassWorkbench .emailPopup :is(.emailComposer, .emailReplyComposer) section[role="region"] { border-radius: 12px; margin-top: 12px; padding: 12px; }
+.glassWorkbench .emailPopup :is(.emailComposer, .emailReplyComposer, .emailEventEdit) :is(input, select, textarea) { font-size: var(--font-label); }
+html[data-resolved-theme="dark"] .glassWorkbench .emailCategoryTabs button.selected { color: #e2e2e2; background: #3a3a3a; }
+html[data-resolved-theme="dark"] .glassWorkbench .emailCategoryTabs button.selected small { background: rgb(255 255 255 / 10%); }
+html[data-resolved-theme="dark"] .glassWorkbench .emailConversationRow.selected { background: #3a3a3a; }
+@media (max-width: 720px) {
+  .glassWorkbench .emailPopupHeader { min-height: 56px; padding: 8px 12px; }
+  .glassWorkbench .emailFilters { gap: 6px; padding: 8px 12px; }
+  .glassWorkbench .emailCategoryPane { padding: 6px 8px; }
+  .glassWorkbench .emailCategoryTabs button { grid-template-columns: 16px minmax(0, 1fr); gap: 5px; min-height: 40px; padding: 6px; }
+  .glassWorkbench .emailConversationRow { min-height: 82px; }
+  .glassWorkbench .emailDetailHeader { padding: 12px 14px; }
+  .glassWorkbench .emailReplyComposer { padding: 12px; }
+}
+.glassWorkbench .emailReplyComposer { font-size: var(--font-label); line-height: var(--line-label); }
+.glassWorkbench .emailReplyComposer > header { gap: 8px; }
+.glassWorkbench .emailReplyComposer > header h3 { font-size: var(--font-label); line-height: var(--line-label); }
+.glassWorkbench .emailReplyComposer > header p { font-size: var(--font-label); line-height: var(--line-label); margin-top: 3px; }
+.glassWorkbench .emailReplyComposer > .emailReplyRecipient { font-size: var(--font-meta); line-height: var(--line-meta); margin-top: 6px; }
+.glassWorkbench .emailReplyComposer:not(.emailReplyDraft) > textarea { height: 66px; min-height: 66px; margin-top: 8px; padding: 8px 10px; }
+.glassWorkbench .emailReplyComposer > footer { gap: 8px; margin-top: 8px; }
+.glassWorkbench .emailReplyComposer > footer button { min-height: 36px; padding-block: 6px; }
+.glassWorkbench .emailPopup .emailToolbarActions .emailTextButton[aria-expanded="true"]:not(:disabled) {
+  color: #30353b;
+  box-shadow: none;
+  background: #e9e9e9;
+  border-color: transparent;
+}
+html[data-resolved-theme="dark"] .glassWorkbench .emailPopup .emailToolbarActions .emailTextButton[aria-expanded="true"]:not(:disabled) {
+  color: #e2e2e2;
+  background: #3a3a3a;
+}
+.workbench.glassWorkbench .settingsPageMain { --settings-compact-gap: 12px; }
+.workbench.glassWorkbench .settingsPageContent { padding-block: 22px 28px; }
+.workbench.glassWorkbench .settingsPageHeader { margin-bottom: 16px; }
+.workbench.glassWorkbench .settingsPageHeader p { font-size: var(--font-label); line-height: var(--line-label); margin-top: 6px; }
+.workbench.glassWorkbench .settingsPageMain :is(.settingsSurface, .settingsDetailView, .integrationDetail) { gap: var(--settings-compact-gap); }
+.workbench.glassWorkbench .settingsPageMain .settingsSurface > .settingsSurfaceSection,
+.workbench.glassWorkbench .settingsPageMain .settingsSurface > .settingsBlock,
+.workbench.glassWorkbench .settingsPageMain .settingsDetailView > .settingsBlock { border-radius: 18px; gap: 8px; padding: 16px; }
+.workbench.glassWorkbench .settingsPageMain .settingsSurfaceSection :is(.settingsBlock, .settingsSurfaceSection) { padding-block: 8px; }
+.workbench.glassWorkbench .settingsPageMain .settingsSurfaceRow { gap: 12px; min-height: 48px; padding-block: 9px; }
+.workbench.glassWorkbench .settingsPageMain .settingsSurfaceCopy { gap: 3px; }
+.workbench.glassWorkbench .settingsPageMain :is(.settingsSurfaceCopy strong, .settingsDirectoryIdentity strong, .settingsBlock strong),
+.workbench.glassWorkbench .settingsPageMain :is(.settingsSurfaceCopy small, .settingsDirectoryIdentity small, .settingsSurfaceHint) {
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+}
+.workbench.glassWorkbench .settingsPageMain .settingsConnectionRow {
+  border-radius: 10px;
+  grid-template-columns: 36px minmax(0, 1fr) auto auto;
+  column-gap: 10px;
+  min-height: 52px;
+  padding: 9px 4px;
+}
+.workbench.glassWorkbench .settingsPageMain .settingsConnectionIcon { border-radius: 10px; width: 36px; height: 36px; }
+.workbench.glassWorkbench .settingsPageMain .settingsConnectionIcon:has(> .connectionArtwork) { border-radius: 0; }
+.workbench.glassWorkbench .settingsPageMain .settingsConnectionIcon > svg,
+.workbench.glassWorkbench .settingsPageMain :is(.settingsDirectoryIcon, .credentialIcon) > svg { width: 18px; height: 18px; }
+.workbench.glassWorkbench .settingsPageMain .settingsConnectionAction {
+  min-height: 34px;
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+  padding: 6px 10px;
+}
+.workbench.glassWorkbench .settingsPageMain .settingsDirectory { border-radius: 18px; padding: 4px 12px; }
+.workbench.glassWorkbench .settingsPageMain .settingsDirectoryRow { border-radius: 10px; min-height: 48px; padding: 9px 4px; }
+.workbench.glassWorkbench .settingsPageMain .settingsDirectoryIdentity { gap: 2px; }
+.workbench.glassWorkbench .settingsPageMain .settingsBack {
+  min-height: 36px;
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+  margin-bottom: 4px;
+  padding: 7px 10px;
+}
+.workbench.glassWorkbench .settingsPageMain :is(.settingsBack, .externalMCPAction, .externalMCPPrimary, .integrationDetail button:not([class])) > svg {
+  width: 18px;
+  height: 18px;
+}
+.workbench.glassWorkbench .settingsPageMain :is(.ownerEditor, .policyEditor, .credentialForm, .clientIssuance, .inputGroup.compact) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea) {
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+  padding: 7px 10px;
+}
+.workbench.glassWorkbench .settingsPageMain :is(.ownerEditor, .policyEditor, .credentialForm, .clientIssuance) { gap: 10px; }
+.workbench.glassWorkbench .settingsPageMain :is(.ownerEditor, .policyEditor, .credentialForm, .clientIssuance) > label { gap: 4px; }
+.workbench.glassWorkbench .settingsPageMain :is(.ownerEditor, .credentialForm, .clientIssuance, .inputGroup.compact) input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
+  height: auto;
+  min-height: 36px;
+}
+.workbench.glassWorkbench .settingsPageMain :is(.integrationDetail button:not([class]), .externalMCPAction, .externalMCPPrimary, .clientSettings .clientIssuance .approve) {
+  min-height: 36px;
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+  padding: 7px 12px;
+}
+@media (max-width: 600px) {
+  .workbench.glassWorkbench .settingsPageContent { padding: 20px 12px 24px; }
+  .workbench.glassWorkbench .settingsPageMain .settingsConnectionRow { grid-template-columns: 36px minmax(0, 1fr); column-gap: 10px; }
+  .workbench.glassWorkbench .settingsPageMain .settingsConnectionAction { grid-column: 2; }
+}
+html:is(:not([data-text-size]), [data-text-size="default"]) .glassWorkbench .appearancePreviewConversation {
+  font-size: var(--font-label);
+  line-height: 1.75;
+}
+.glassWorkbench .settingsPageNavigation button > svg { width: 18px; height: 18px; }
+.glassWorkbench .taskSearchDialog { padding: 16px; }
+.glassWorkbench .taskSearchDialog .taskInspectorHeader {
+  min-height: 36px;
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
+  padding: 0 0 10px;
+}
+.workbench.glassWorkbench .taskSearchDialog input {
+  min-height: 40px;
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+  padding: 8px 10px;
+}
+.workbench.glassWorkbench .taskSearchResults button { font-size: var(--font-label); line-height: var(--line-label); }
+.workbench.glassWorkbench .taskSearchResults button > svg { flex-shrink: 0; width: 16px; height: 16px; }
+.glassWorkbench .documentPicker { padding: 16px; }
+.glassWorkbench .documentPickerHeader { gap: 8px; padding-bottom: 10px; }
+.glassWorkbench .documentPickerHeader > strong { font-size: var(--font-ui); line-height: var(--line-ui); }
+.glassWorkbench .documentPicker :is(.finderHeader, .finderRow, .finderRow strong, .muted) {
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+}
+.glassWorkbench .finderRow { min-height: 40px; padding-block: 7px; }
+.glassWorkbench .finderName > svg { flex-shrink: 0; width: 18px; height: 18px; }
+.glassWorkbench .sessionMenu { font-size: var(--font-label); line-height: var(--line-label); padding: 4px; }
+.glassWorkbench .sessionMenuItem { gap: 8px; min-height: 36px; padding: 7px 10px; }
+.glassWorkbench .sessionMenuItem > svg { width: 16px; height: 16px; }
+.workbench.glassWorkbench .notificationInbox > header { min-height: 52px; padding: 10px 14px; }
+.workbench.glassWorkbench .notificationInbox > header strong { font-size: var(--font-ui); line-height: var(--line-ui); }
+.workbench.glassWorkbench .notificationItem { gap: 8px; min-height: 64px; padding: 10px 14px; }
+.workbench.glassWorkbench :is(.notificationItem strong, .notificationEmpty, .notificationToast strong) {
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+}
+.workbench.glassWorkbench .notificationEmpty { padding: 22px 16px; }
+.workbench.glassWorkbench .notificationToast { gap: 8px; min-height: 64px; padding: 10px 12px; }
+.workbench.glassWorkbench :is(.notificationOpen, .notificationToast > a, .notificationToast > button) > svg { width: 16px; height: 16px; }
+.workbench.glassWorkbench .taskInspector .taskInspectorHeader {
+  min-height: 48px;
+  font-size: var(--font-ui);
+  line-height: var(--line-ui);
+  padding: 10px 14px;
+}
+.workbench.glassWorkbench .taskInspector .inspectorColumn { padding-inline: 14px; }
+.workbench.glassWorkbench .taskInspector .panelStack { gap: 10px; padding-block: 12px 16px; }
+.workbench.glassWorkbench .taskInspector :is(.toolCall, .approvalItem, .memoryItem, .traceSummary, .traceRow, .diagnosticRow, .episodeItem, .evalResult) {
+  padding: 10px;
+}
+.workbench.glassWorkbench .taskInspector :is(.toolTitle, .sectionHeader h2) { font-size: var(--font-label); line-height: var(--line-label); }
+.workbench.glassWorkbench .scheduleBarHeader { min-height: 52px; padding: 8px 14px; }
+.workbench.glassWorkbench .scheduleRow { min-height: 52px; padding-block: 8px; }
+.workbench.glassWorkbench .scheduleEmpty { min-height: 72px; padding: 18px 14px; }
+.workbench.glassWorkbench .scheduleDialog { gap: 14px; padding: 18px; }
+.workbench.glassWorkbench :is(.scheduleCreateIntro h2, .scheduleDialog .documentPickerHeader > strong, .scheduleDeleteDialog > strong) {
+  font-size: var(--font-section);
+  line-height: var(--line-section);
+}
+.workbench.glassWorkbench :is(.scheduleCreateIntro p, .scheduleDialog label, .scheduleDeleteDialog p, .scheduleDialog input, .scheduleDialog textarea) {
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+}
+.workbench.glassWorkbench .scheduleDialog :is(input, textarea) { padding: 9px 11px; }
+.workbench.glassWorkbench .scheduleDialog textarea { min-height: 112px; }
+.workbench.glassWorkbench .scheduleDialogGrid { gap: 10px; }
+.workbench.glassWorkbench :is(.scheduleDialogEndpoint, .scheduleCreateResult) { padding: 10px 12px; }
+.workbench.glassWorkbench .scheduleDialogActions { gap: 8px; }
+@media (max-width: 600px) {
+  .glassWorkbench .taskSearchDialog, .glassWorkbench .documentPicker { padding: 14px; }
+  .workbench.glassWorkbench .scheduleBarHeader, .workbench.glassWorkbench .scheduleRow { padding-inline: 12px; }
+  .workbench.glassWorkbench .scheduleDialog { padding: 16px; }
+}
+@media (hover: none), (pointer: coarse) {
+  .glassWorkbench .sessionMenuItem, .glassWorkbench .finderRow { min-height: 44px; }
+}
+.workbench.glassWorkbench .sidebarFooter {
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  padding-top: 8px;
+  display: flex;
+}
+.workbench.glassWorkbench .sidebarScheduleLink {
+  min-height: 36px;
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+  border-radius: 10px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  margin: 0;
+  padding: 4px 8px;
+}
+.workbench.glassWorkbench .sidebarAccount { padding-top: 0; }
+.workbench.glassWorkbench .sidebarAccountTrigger {
+  border-radius: 10px;
+  grid-template-columns: 28px minmax(0, 1fr) 24px;
+  min-height: 44px;
+  padding: 4px 8px;
+}
+.workbench.glassWorkbench .sidebarAccountIdentity { gap: 0; }
+.workbench.glassWorkbench .sidebarAccount .workspaceAvatar { border-radius: 10px; flex-basis: 28px; width: 28px; height: 28px; }
+.workbench.glassWorkbench :is(.sidebarScheduleLink, .sidebarAccountTrigger, .sidebarAccountMenuItem) > svg { width: 18px; height: 18px; }
+.workbench.glassWorkbench .sidebarAccountMenu { border-radius: 14px; gap: 2px; padding: 4px; display: grid; }
+.workbench.glassWorkbench .sidebarAccountSummary { gap: 8px; margin-bottom: 2px; padding: 6px 8px 8px; }
+.workbench.glassWorkbench .sidebarAccountMenuItem {
+  min-height: 36px;
+  font-size: var(--font-label);
+  line-height: var(--line-label);
+  border-radius: 10px;
+  gap: 8px;
+  padding: 6px 8px;
+}
+@media (hover: none), (pointer: coarse) {
+  .workbench.glassWorkbench :is(.sidebarScheduleLink, .sidebarAccountMenuItem) { min-height: 44px; }
+}
+.workbench.glassWorkbench .workspace:has(> .schedulePage) > .topbar { padding-block: 10px 0; }
+.workbench.glassWorkbench .sidebarScheduleLink[aria-current="page"]:not(:disabled) {
+  color: #30353b;
+  box-shadow: none;
+  background: #e9e9e9;
+  border-color: transparent;
+  font-weight: 650;
+}
+html[data-resolved-theme="dark"] .workbench.glassWorkbench .sidebarScheduleLink[aria-current="page"]:not(:disabled) {
+  color: #e2e2e2;
+  background: #3a3a3a;
+}
+.workbench.glassWorkbench .sessionActions { align-items: center; gap: 2px; }
+.sessionArchiveTrigger {
+  width: 28px;
+  height: 28px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  place-items: center;
+  padding: 0;
+  display: grid;
+}
+.sessionArchiveTrigger:hover:not(:disabled) { color: var(--text-primary); background: var(--surface-hover); }
+.sessionArchiveTrigger:disabled { cursor: not-allowed; opacity: .5; }
+.workbench.glassWorkbench :is(.sessionArchiveTrigger, .sessionMenuTrigger) > svg { width: 14.4px; height: 14.4px; }
+.sessionArchiveTrigger:focus-visible { outline: 2px solid var(--ui-blue); outline-offset: 2px; }
+.sidebarArchiveEmpty, .sidebarArchiveNotice { color: var(--text-secondary); font-size: var(--font-label); margin: 8px 10px; line-height: 1.6; }
+.sidebarArchiveCount { color: var(--text-secondary); font-size: var(--font-meta); margin-left: auto; }
+@media (hover: none), (pointer: coarse) {
+  .sessionArchiveTrigger { width: 36px; height: 36px; }
+}
+.workbench.glassWorkbench .workspace > :is(.errorBanner, .noticeBanner, .localFeedback) {
+  width: min(var(--reading-width), calc(100% - 48px));
+  margin-inline: auto;
+}
+.workbench.glassWorkbench .workspace > .schedulePage {
+  width: 100%;
+  max-width: calc(var(--reading-width) + 48px);
+  margin-inline: auto;
+  padding-inline: 24px;
+}
+.workbench.homePresentation .workspace > :is(.errorBanner, .noticeBanner, .localFeedback) {
+  width: min(var(--home-content-width), calc(100% - 56px));
+}
+html[data-reading-width="wide"] .workbench.homePresentation .workspace > :is(.errorBanner, .noticeBanner, .localFeedback) {
+  width: min(var(--reading-width), calc(100% - 56px));
+}
+@media (max-width: 840px) {
+  .workbench.homePresentation .workspace > :is(.errorBanner, .noticeBanner, .localFeedback) {
+    width: min(var(--home-content-width), calc(100% - 40px));
+  }
+  html[data-reading-width="wide"] .workbench.homePresentation .workspace > :is(.errorBanner, .noticeBanner, .localFeedback) {
+    width: min(var(--reading-width), calc(100% - 40px));
+  }
+}
+.workbench.glassWorkbench { --conversation-reading-size: 13px; --conversation-title-leading: 20px; }
+html[data-text-size="small"] .workbench.glassWorkbench { --conversation-reading-size: 12px; --conversation-title-leading: 18px; }
+html[data-text-size="large"] .workbench.glassWorkbench { --conversation-reading-size: 14px; --conversation-title-leading: 22px; }
+html:root .workbench.glassWorkbench .sessionSelect .sessionTitle {
+  font-size: var(--conversation-reading-size);
+  line-height: var(--conversation-title-leading);
+}
+html:root .workbench.glassWorkbench :is(.messageContent, .composer textarea, .appearancePreviewConversation) {
+  font-size: var(--conversation-reading-size);
+  line-height: 1.75;
+}
+html:root .workbench.glassWorkbench .messageContent :is(p:not(.messageHeading), ul.messageList) { line-height: 1.75; }
+.workbench.homePresentation { --home-icon-size: 16px; --control-icon-size: 16px; }
+.workbench.homePresentation :is(.brandRow .iconButton, .conversationHeaderButton, .topbar .iconButton, .sidebarNewConversation, .sidebarScheduleLink, .sidebarAccountTrigger, .composer .uploadButton, .composer > .emailEntryButton, .composer .voiceButton, .composerModelButton, .composer .sendButton) > svg,
+.workbench.homePresentation .workspaceAvatar > svg { width: 16px; height: 16px; }
+.workbench.glassWorkbench .settingsPageMain { --control-icon-size: 16px; }
+.workbench.glassWorkbench .settingsPageMain :is(button, summary) > svg { flex-shrink: 0; width: 16px; height: 16px; }
+.workbench.glassWorkbench .settingsPageMain :is(.settingsBack, .externalMCPAction, .externalMCPPrimary, .externalMCPDeleteAll, .integrationDetail button:not([class])) > svg,
+.workbench.glassWorkbench .settingsPageMain :is(.credentialIcon, .credentialValidationIcon) > svg { width: 16px; height: 16px; }

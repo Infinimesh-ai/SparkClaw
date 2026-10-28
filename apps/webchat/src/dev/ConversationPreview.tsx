@@ -218,7 +218,7 @@ function ConversationPreview() {
         <div ref={messageScroll.listRef} className="messageList" aria-label="示例对话">
           {active.messages.length ? active.messages.map(message => <MessageBubble key={message.id}
             message={message} streamStatuses={message.id === "preview-plan-message-3" ? [{ id: "example-completed", type: "tool_completed", text: "示例状态 · 已完成" }] : []} text={text} language={language} />)
-            : <WorkbenchWelcome language={language} description />}
+            : <WorkbenchWelcome language={language} />}
         </div>
         {messageScroll.away && <div className="messageScrollAction"><button type="button" className="messageLatest" onClick={messageScroll.resume}>回到最新</button></div>}
         <ComposerSurface text={text} language={language} activeSession={selected} activeInput={active.draft}

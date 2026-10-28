@@ -112,8 +112,8 @@ describe("workbench local workbench", () => {
     const visitAndReturn = async () => {
       await act(async () => host.querySelector<HTMLButtonElement>(".sidebarScheduleLink")!.click());
       expect(host.querySelector(".schedulePage")).not.toBeNull();
-      const back = host.querySelector<HTMLButtonElement>(".workbenchPageBack")!;
-      expect(back.textContent).toBe(language === "zh" ? "返回首页" : "Back to home");
+      const back = host.querySelector<HTMLButtonElement>(".topbar .workspaceBackButton")!;
+      expect(back.getAttribute("aria-label")).toBe(language === "zh" ? "返回首页" : "Back to home");
       await act(async () => back.click());
       expect(host.querySelector(".schedulePage")).toBeNull();
       expect(host.querySelector<HTMLElement>(".chatColumn")!.hidden).toBe(false);
@@ -245,7 +245,7 @@ describe("workbench local workbench", () => {
         if (entry === "new-button") {
           await act(async () => host.querySelector<HTMLButtonElement>(".newConversationButton")!.click());
           expect(host.querySelector(".sessionItem.active")).toBeNull();
-          expect(host.textContent).not.toContain(placeholder);
+          expect([...host.querySelectorAll(".sessionTitle")].map(title => title.textContent)).not.toContain(placeholder);
           expect(create).toHaveBeenCalledTimes(1);
         }
         const input = host.querySelector<HTMLTextAreaElement>("form.composer textarea")!;
@@ -639,7 +639,8 @@ describe("workbench local workbench", () => {
     try {
       await act(async () => root.render(<LocalWorkbench />));
       await act(async () => host.querySelector<HTMLButtonElement>(".sessionSelect")!.click());
-      expect(host.querySelector(".message.assistant .messageMeta")?.textContent).toContain("SparkX");
+      expect(host.querySelector(".message.assistant .messageMeta > time")).not.toBeNull();
+      expect(host.querySelector(".message.user .messageMeta")).toBeNull();
       expect(host.querySelectorAll(".composer .uploadButton")).toHaveLength(2);
       expect(host.querySelector(".composer .emailEntryButton")).not.toBeNull();
       expect(host.querySelector(".composer .voiceControl")).not.toBeNull();

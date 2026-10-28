@@ -1,7 +1,7 @@
-// Session sidebar: the schedule entry, task conversation list, and action menus.
+// Session sidebar: the schedule entry, task conversation list, archive, and action menus.
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { LoaderCircle, LogOut, MoreHorizontal, Pencil, Save, Trash2, X } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowLeft, LoaderCircle, LogOut, MoreHorizontal, Pencil, Save, Trash2, X } from "lucide-react";
 import { workbenchCopy, type WorkspacePage } from "./workbench";
 import workbenchMark from "../assets/sparkx-mark.png";
 import type { Copy, Language } from "../i18n";
@@ -12,6 +12,18 @@ import type { ConversationActivity } from "../lib/conversationActivity";
 import { ActionIcon } from "./ActionIcon";
 
 type SidebarConversation = Pick<Session, "id" | "title"> & { source?: string };
+
+// Archiving only hides a conversation from the recent list on this device.
+const archiveStorageKey = (ownerID?: string) => `sparkx.archived-conversations.v1.${ownerID ?? "local"}`;
+
+function readArchived(key: string) {
+  try {
+    const value: unknown = JSON.parse(window.localStorage.getItem(key) ?? "[]");
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 function moveMenuFocus(event: KeyboardEvent<HTMLDivElement>) {
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
@@ -85,7 +97,7 @@ function SessionActionMenu({ title, language, text, renameDisabled, deleteDisabl
     };
   }, [open, menuRef]);
 
-  return <div className="sessionActions">
+  return <div className="sessionActionMenu">
     <button ref={triggerRef} className="sessionMenuTrigger" type="button"
       title={label} aria-label={label} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined}
       disabled={renameDisabled && deleteDisabled}
@@ -126,6 +138,8 @@ type SessionSidebarProps<T extends SidebarConversation> = {
   sessionTitleDraft?: string;
   sessionActionId?: string;
   onCreateSession: () => void;
+  // Called after the open conversation is archived, with the next recent one.
+  onArchiveSelection?: (next: T | undefined) => void;
   onSelectSession: (session: T) => void;
   onStartRename?: (session: T) => void;
   onCancelRename?: () => void;
@@ -153,6 +167,7 @@ export function SessionSidebar<T extends SidebarConversation>({
   sessionTitleDraft = "",
   sessionActionId = "",
   onCreateSession,
+  onArchiveSelection,
   onSelectSession,
   onStartRename,
   onCancelRename,
@@ -167,7 +182,46 @@ export function SessionSidebar<T extends SidebarConversation>({
   listNotice
 }: SessionSidebarProps<T>) {
   const copy = workbenchCopy[language];
-  const visibleSessions = sessions.filter((session) => session.source !== "mcp");
+  const zh = language === "zh";
+  const archiveKey = archiveStorageKey(ownerProfile?.id);
+  const [archived, setArchived] = useState(() => readArchived(archiveKey));
+  const [showArchived, setShowArchived] = useState(false);
+  const [archiveError, setArchiveError] = useState("");
+  const searchRef = useRef<HTMLButtonElement>(null);
+  const conversations = sessions.filter((session) => session.source !== "mcp");
+  const visibleSessions = conversations.filter((session) => archived.includes(session.id) === showArchived);
+  const archivedCount = conversations.filter((session) => archived.includes(session.id)).length;
+  useEffect(() => {
+    setArchived(readArchived(archiveKey));
+    const changed = (event: StorageEvent) => { if (event.key === archiveKey) setArchived(readArchived(archiveKey)); };
+    window.addEventListener("storage", changed);
+    return () => window.removeEventListener("storage", changed);
+  }, [archiveKey]);
+
+  function toggleArchive(session: T) {
+    const wasArchived = archived.includes(session.id);
+    const next = wasArchived ? archived.filter((id) => id !== session.id) : [...archived, session.id];
+    try {
+      window.localStorage.setItem(archiveKey, JSON.stringify(next));
+    } catch {
+      setArchiveError(zh ? "无法保存归档状态，请检查浏览器存储后重试。" : "Could not save the archive state. Check browser storage and try again.");
+      return;
+    }
+    setArchived(next);
+    setArchiveError("");
+    if (!wasArchived && activeSession === session.id) onArchiveSelection?.(conversations.find((item) => !next.includes(item.id)));
+    // The row leaves this list; keep keyboard focus inside the sidebar.
+    requestAnimationFrame(() => searchRef.current?.focus({ preventScroll: true }));
+  }
+
+  const archiveLabel = (title: string) =>
+    `${zh ? showArchived ? "取消归档" : "归档对话" : showArchived ? "Unarchive conversation" : "Archive conversation"}: ${title}`;
+
+  function createSession() {
+    setShowArchived(false);
+    onCreateSession();
+  }
+
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const accountTriggerRef = useRef<HTMLButtonElement>(null);
@@ -210,19 +264,30 @@ export function SessionSidebar<T extends SidebarConversation>({
         </button>
       </div>
 
+      <button className="sidebarNewConversation" type="button" disabled={busy} onClick={createSession}>
+        <ActionIcon name="compose" />
+        <span>{text.nav.newSession}</span>
+      </button>
+
       <div className="conversationListHeader">
-        <span>{copy.recent}</span>
+        <span>{showArchived ? (zh ? "已归档对话" : "Archived") : copy.recent}</span>
         <div className="conversationListActions">
-          <button className="conversationHeaderButton" onClick={onSearch} title={`${copy.search} (⌘/Ctrl+K)`} aria-keyshortcuts="Meta+K Control+K" aria-label={copy.search} aria-haspopup="dialog" aria-expanded={searchOpen}>
+          {showArchived && <button className="conversationHeaderButton" type="button" onClick={() => setShowArchived(false)}
+            title={zh ? "返回最近对话" : "Back to recent conversations"} aria-label={zh ? "返回最近对话" : "Back to recent conversations"}>
+            <ArrowLeft size={16} />
+          </button>}
+          <button ref={searchRef} className="conversationHeaderButton" onClick={onSearch} title={`${copy.search} (⌘/Ctrl+K)`} aria-keyshortcuts="Meta+K Control+K" aria-label={copy.search} aria-haspopup="dialog" aria-expanded={searchOpen}>
             <ActionIcon name="search" active={searchOpen} />
           </button>
-          <button className="conversationHeaderButton newConversationButton" disabled={busy} onClick={onCreateSession} title={`${text.nav.newSession} (⌘/Ctrl+N)`} aria-keyshortcuts="Meta+N Control+N" aria-label={text.nav.newSession}>
+          {!showArchived && <button className="conversationHeaderButton newConversationButton" disabled={busy} onClick={createSession} title={`${text.nav.newSession} (⌘/Ctrl+N)`} aria-keyshortcuts="Meta+N Control+N" aria-label={text.nav.newSession}>
             <ActionIcon name="compose" />
-          </button>
+          </button>}
         </div>
       </div>
       <nav className="sessionList" aria-label={text.nav.sessions}>
         {listNotice}
+        {archiveError && <p className="sidebarArchiveNotice" role="alert">{archiveError}</p>}
+        {showArchived && !visibleSessions.length && <p className="sidebarArchiveEmpty">{zh ? "暂无归档对话" : "No archived conversations"}</p>}
         {visibleSessions.map((session) => (
           <div className={`sessionItem ${page === "chat" && session.id === activeSession ? "active" : ""}`} key={session.id}>
             {editingSession === session.id ? (
@@ -258,13 +323,19 @@ export function SessionSidebar<T extends SidebarConversation>({
                     {activityBySession[session.id] === "running" ? <LoaderCircle size={13} aria-hidden="true" /> : <i aria-hidden="true" />}
                   </span>}
                 </button>
-                {(onStartRename || onDeleteSession) && <SessionActionMenu
-                  title={session.title} language={language} text={text}
-                  renameDisabled={!onStartRename || sessionActionId === session.id}
-                  deleteDisabled={!onDeleteSession || busy || Boolean(sessionActionId)}
-                  onRename={onStartRename ? () => onStartRename(session) : undefined}
-                  onDelete={onDeleteSession ? () => onDeleteSession(session.id) : undefined}
-                />}
+                <div className="sessionActions">
+                  <button className="sessionArchiveTrigger" type="button" disabled={busy || Boolean(sessionActionId)}
+                    title={archiveLabel(session.title)} aria-label={archiveLabel(session.title)} onClick={() => toggleArchive(session)}>
+                    {showArchived ? <ArchiveRestore size={14.4} strokeWidth={1.75} aria-hidden="true" /> : <Archive size={14.4} strokeWidth={1.75} aria-hidden="true" />}
+                  </button>
+                  {(onStartRename || onDeleteSession) && <SessionActionMenu
+                    title={session.title} language={language} text={text}
+                    renameDisabled={!onStartRename || sessionActionId === session.id}
+                    deleteDisabled={!onDeleteSession || busy || Boolean(sessionActionId)}
+                    onRename={onStartRename ? () => onStartRename(session) : undefined}
+                    onDelete={onDeleteSession ? () => onDeleteSession(session.id) : undefined}
+                  />}
+                </div>
               </>
             )}
           </div>
@@ -287,13 +358,26 @@ export function SessionSidebar<T extends SidebarConversation>({
               role="menuitem"
               onClick={() => {
                 setAccountMenuOpen(false);
+                setShowArchived((current) => !current);
+              }}
+            >
+              <Archive size={18} strokeWidth={1.75} aria-hidden="true" />
+              <span>{showArchived ? (zh ? "最近对话" : "Recent conversations") : (zh ? "已归档对话" : "Archived conversations")}</span>
+              {!showArchived && archivedCount > 0 && <small className="sidebarArchiveCount">{archivedCount}</small>}
+            </button>
+            <button
+              className="sidebarAccountMenuItem"
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setAccountMenuOpen(false);
                 onNavigate?.("settings");
               }}
             >
               <ActionIcon name="settings" />
               <span title={`${copy.settings} (⌘/Ctrl+,)`}>{copy.settings}</span>
             </button>
-            {onLogout && <button className="sidebarAccountMenuItem" type="button" role="menuitem" onClick={() => { setAccountMenuOpen(false); onLogout(); }}><LogOut size={18} strokeWidth={1.75} aria-hidden="true" /><span>{language === "zh" ? "退出登录" : "Sign out"}</span></button>}
+            {onLogout && <button className="sidebarAccountMenuItem" type="button" role="menuitem" onClick={() => { setAccountMenuOpen(false); onLogout(); }}><LogOut size={18} strokeWidth={1.75} aria-hidden="true" /><span>{zh ? "退出登录" : "Sign out"}</span></button>}
           </div>}
           <button
             ref={accountTriggerRef}

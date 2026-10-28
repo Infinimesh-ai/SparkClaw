@@ -28,6 +28,7 @@
 @import "./appearance-preview.css";
 @import "./appearance-effects.css";
 @import "./chinese-typography.css";
+@import "./glass-density.css";
 
 @media (prefers-reduced-transparency: reduce) {
   .glassWorkbench { --ui-glass: #f4f6f8; --ui-glass-strong: #fafbfc; }

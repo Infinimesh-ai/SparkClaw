@@ -1,0 +1,142 @@
+/* Desktop client window: a single title bar holds the window controls, page
+   history, sidebar toggle and workspace actions above the full-height shell. */
+.clientWindow {
+  --client-titlebar-height: 48px;
+  --client-leading-width: var(--sidebar-width);
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--ui-ink);
+  background: var(--ui-ground);
+}
+
+.clientWindow .clientTitlebar.workbench.glassWorkbench {
+  --header-height: var(--client-titlebar-height);
+  position: relative;
+  z-index: 120;
+  display: grid;
+  grid-template-columns: var(--client-leading-width) minmax(0, 1fr) auto;
+  align-items: center;
+  flex: 0 0 var(--client-titlebar-height);
+  gap: 0;
+  width: 100%;
+  height: var(--client-titlebar-height);
+  min-height: var(--client-titlebar-height);
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--ui-divider);
+  border-radius: 0;
+  background: var(--ui-glass);
+  box-shadow: none;
+  -webkit-app-region: drag;
+}
+
+.clientWindow .clientTitlebarLeading {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+  height: 100%;
+  padding-inline: 16px 8px;
+}
+
+/* The system draws the close, minimize and zoom controls over this space. */
+.clientWindow .clientWindowControls { flex: none; width: 52px; height: 32px; }
+.clientWindow .clientHistoryControls { display: flex; align-items: center; gap: 2px; }
+.clientWindow .clientSidebarControl { display: flex; align-items: center; margin-left: auto; }
+.clientWindow .clientSidebarPlaceholder { display: block; flex: 0 0 32px; width: 32px; height: 32px; }
+
+.clientWindow .clientTitlebarActions.topbarActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: auto;
+  margin: 0;
+  padding-inline: 8px 12px;
+}
+
+.clientWindow .clientTitlebar :is(button, input, a, .notificationInbox) { -webkit-app-region: no-drag; }
+
+.clientWindow .clientTitlebar .iconButton {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--ui-muted);
+  background: transparent;
+  box-shadow: none;
+}
+.clientWindow .clientTitlebar .iconButton > svg { width: 16px; height: 16px; stroke-width: 1.75px; }
+.clientWindow .clientTitlebar .clientHistoryControls .iconButton { flex-basis: 28px; width: 28px; min-width: 28px; height: 28px; }
+.clientWindow .clientTitlebar .iconButton:hover:not(:disabled) { color: var(--ui-ink); background: var(--ui-glass); box-shadow: none; }
+.clientWindow .clientTitlebar .iconButton[aria-expanded="true"] { color: var(--ui-ink); background: #e9e9e9; box-shadow: none; }
+html[data-resolved-theme="dark"] .clientWindow .clientTitlebar .iconButton[aria-expanded="true"] { background: #3a3a3a; }
+.clientWindow .clientTitlebar .iconButton:disabled { opacity: .3; cursor: default; }
+.clientWindow .clientTitlebar .iconButton:focus-visible { outline: 2px solid var(--ui-blue); outline-offset: 2px; }
+
+.clientWindow .clientTitlebarActions .iconButton {
+  flex-basis: 36px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--ui-glass-edge);
+  border-radius: 12px;
+  background: var(--ui-glass);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 2px 6px var(--ui-glass-shadow);
+}
+.clientWindow .clientTitlebarActions .iconButton:hover:not(:disabled) {
+  background: var(--ui-glass-strong);
+  box-shadow: inset 0 1px 0 var(--ui-glass-highlight), 0 2px 6px var(--ui-glass-shadow);
+}
+
+.clientWindow .clientTitlebar .notificationInbox {
+  position: fixed;
+  top: calc(var(--client-titlebar-height) + 4px);
+  right: 12px;
+  z-index: 260;
+  width: min(360px, 100dvw - 24px);
+  max-height: calc(100dvh - var(--client-titlebar-height) - 20px);
+}
+.clientWindow .clientTitlebar .notificationToast { position: fixed; top: calc(var(--client-titlebar-height) + 10px); right: 16px; }
+
+.clientWindow .clientContent {
+  flex: auto;
+  width: 100%;
+  height: calc(100dvh - var(--client-titlebar-height));
+  min-height: 0;
+  overflow: hidden;
+}
+.clientWindow .clientContent > .shell.workbench { gap: 0; height: 100%; min-height: 0; padding: 0; }
+.clientWindow .clientContent > .shell.workbench :is(.sidebar, .settingsPageSidebar) {
+  height: 100%;
+  border: 0;
+  border-right: 1px solid var(--ui-divider);
+  border-radius: 0;
+  box-shadow: none;
+}
+.clientWindow .clientContent .workspace[hidden],
+.clientWindow .clientContent .brandRow .sidebarCollapseButton { display: none; }
+
+@media (min-width: 640px) and (max-width: 840px) {
+  .clientWindow { --client-leading-width: 216px; }
+}
+
+@media (max-width: 840px) {
+  .clientWindow .clientContent > .shell.workbench.sidebarCollapsed .sidebar {
+    top: var(--client-titlebar-height);
+    height: calc(100dvh - var(--client-titlebar-height));
+  }
+}
+
+@media (max-width: 639px) {
+  .clientWindow { --client-leading-width: min(244px, calc(100vw - 100px)); }
+  .clientWindow .clientTitlebarLeading { gap: 12px; padding-inline: 8px; }
+  .clientWindow .clientTitlebarActions.topbarActions { padding-inline: 4px 8px; }
+}

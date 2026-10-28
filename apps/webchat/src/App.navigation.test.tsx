@@ -51,8 +51,8 @@ describe("host schedule navigation", () => {
         input.dispatchEvent(new Event("input", { bubbles: true }));
       });
       await act(async () => host.querySelector<HTMLButtonElement>(".sidebarScheduleLink")!.click());
-      const back = host.querySelector<HTMLButtonElement>(".workbenchPageBack")!;
-      expect(back.textContent).toBe(language === "zh" ? "返回首页" : "Back to home");
+      const back = host.querySelector<HTMLButtonElement>(".topbar .workspaceBackButton")!;
+      expect(back.getAttribute("aria-label")).toBe(language === "zh" ? "返回首页" : "Back to home");
       await act(async () => back.click());
       expect(host.querySelector(".schedulePage")).toBeNull();
       expect(host.querySelector(".messageList")?.textContent).toContain("Keep this message");

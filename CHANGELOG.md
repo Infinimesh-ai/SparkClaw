@@ -87,6 +87,11 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- WebChat and the SparkX desktop client follow the updated Spark X design: a
+  compact density pass across shared surfaces, a labelled New conversation entry,
+  device-local conversation archiving, simplified message headers and a quieter
+  welcome. The desktop draws its own title bar with inset macOS window controls
+  and Back/Forward page history.
 - Downloaded SparkX desktops now unlock with one backend-issued
   `sparkclaw-connect-v1...` connection credential instead of a separate public
   backend JSON and device token. Linux first/recovery issuance and signed-in

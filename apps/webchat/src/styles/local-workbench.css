@@ -27,3 +27,5 @@
 .localFeedback { margin: 12px 32px; color: var(--text-primary); line-height: 1.5; }
 .localFeedback[role=alert] { color: var(--crimson-danger); }
 .localFeedback button { padding: 8px 12px; border-radius: var(--radius-control); background: var(--surface-muted); color: var(--text-primary); }
+/* The desktop home has no suggestion row, so the composer centres itself. */
+.localWorkbench.homePresentation .homeChat > .composerDock { margin-bottom: auto; }

@@ -1,13 +1,13 @@
 /* CJK glyphs have a denser visual footprint. Calibrate the Chinese interface
    by role while keeping the user's Small / Default / Large preference. */
 html:lang(zh) {
-  --font-body: 15px;
-  --line-body: 26px;
-  --font-ui: 13px;
-  --line-ui: 19px;
-  --font-label: 12px;
-  --line-label: 18px;
-  --font-meta: 11px;
+  --font-body: 16px;
+  --line-body: 27px;
+  --font-ui: 14px;
+  --line-ui: 20px;
+  --font-label: 13px;
+  --line-label: 19px;
+  --font-meta: 12px;
   --line-meta: 16px;
   --font-title: 20px;
   --line-title: 28px;

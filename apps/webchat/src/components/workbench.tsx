@@ -10,7 +10,7 @@ export const workbenchCopy = {
   zh: {
     newTask: "新任务", search: "搜索任务", recent: "最近任务",
     schedules: "日程", channels: "通讯工具", memory: "记忆", approvals: "审批中心", settings: "工作区设置",
-    greeting: "你的本地智能体，随时待命", headline: "我们要做什么", outcome: "描述任务，让 SparkX 规划工作。",
+    greeting: "你的本地智能体，随时待命", headline: "我们要做什么？", outcome: "描述任务，让 SparkX 规划工作。",
     steps: "每一步，都有迹可循", reliable: "本地理解，可靠执行", resume: "接着上次的思路", all: "查看全部",
     empty: "还没有任务，从一个想法开始。", noMatches: "没有匹配的任务，试试其他关键词。",
     stepTitles: ["本地理解", "网络搜索", "逻辑判断", "交付结果"],
@@ -65,12 +65,11 @@ export const workbenchCopy = {
   }
 };
 
-export function WorkbenchWelcome({ language, description = false }: { language: Language; description?: boolean }) {
+export function WorkbenchWelcome({ language }: { language: Language }) {
   const copy = workbenchCopy[language];
   return <div className="workbenchWelcome">
     <img className="welcomeBrandMark" src={workbenchMark} alt="" aria-hidden="true" />
     <h1>{copy.headline}</h1>
-    {description && <p>{copy.outcome}</p>}
   </div>;
 }
 

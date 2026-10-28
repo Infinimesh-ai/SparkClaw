@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { dictionaries } from "../i18n";
 import { SessionSidebar } from "./sidebar";
+import { ArchivedConversationsSettings } from "./panels/settingsArchived";
 import { ConfirmationProvider, useConfirm } from "./confirmation";
 
 describe("SessionSidebar navigation and conversations", () => {
@@ -353,8 +354,8 @@ describe("SessionSidebar navigation and conversations", () => {
       expect(host.textContent).toContain("Workspace settings");
 
       const items = [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
-      expect(items.map(item => item.textContent)).toEqual(["Archived conversations", "Workspace settings"]);
-      await act(async () => items[1].click());
+      expect(items.map(item => item.textContent)).toEqual(["Workspace settings"]);
+      await act(async () => items[0].click());
       expect(onNavigate).toHaveBeenCalledWith("settings");
       expect(host.querySelector('[role="menu"]')).toBeNull();
     } finally {
@@ -362,41 +363,60 @@ describe("SessionSidebar navigation and conversations", () => {
     }
   });
 
-  it("archives conversations on this device and restores them from the archived list", async () => {
+  it("archives conversations on this device and manages them from settings", async () => {
     const values = new Map<string, string>();
     vi.stubGlobal("localStorage", { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) });
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 0; });
     const host = document.createElement("div"); document.body.append(host);
-    const root = createRoot(host), archiveSelection = vi.fn(), create = vi.fn();
+    const root = createRoot(host), archiveSelection = vi.fn(), remove = vi.fn();
     const owner = { id: "owner-one", display_name: "Ada", created_at: "", updated_at: "" };
+    const sessions = [{ id: "one", title: "Quarterly report" }, { id: "two", title: "Second" }, { id: "three", title: "Travel plan" }];
     const titles = () => [...host.querySelectorAll(".sessionTitle")].map(title => title.textContent);
+    const archivedTitles = () => [...host.querySelectorAll(".archivedConversationItem strong")].map(title => title.textContent);
+    const search = async (value: string) => {
+      const input = host.querySelector<HTMLInputElement>('[aria-label="搜索已归档对话"]')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
     try {
-      await act(async () => root.render(<SessionSidebar text={dictionaries.zh} language="zh" page="chat" ownerProfile={owner}
-        sessions={[{ id: "one", title: "First" }, { id: "two", title: "Second" }]} activeSession="one"
-        onCreateSession={create} onArchiveSelection={archiveSelection} onSearch={() => {}} onSelectSession={() => {}} />));
-      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="归档对话: First"]')!.click());
+      await act(async () => root.render(<>
+        <SessionSidebar text={dictionaries.zh} language="zh" page="chat" ownerProfile={owner}
+          sessions={sessions} activeSession="one"
+          onCreateSession={() => {}} onArchiveSelection={archiveSelection} onSearch={() => {}} onSelectSession={() => {}} />
+        <ArchivedConversationsSettings conversations={sessions} ownerID={owner.id} language="zh" onDelete={remove} />
+      </>));
+      expect(host.querySelector(".archivedConversationSettings")!.textContent).toContain("暂无归档对话");
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="归档对话: Quarterly report"]')!.click());
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="归档对话: Travel plan"]')!.click());
       expect(titles()).toEqual(["Second"]);
-      expect(JSON.parse(values.get("sparkx.archived-conversations.v1.owner-one")!)).toEqual(["one"]);
+      expect(JSON.parse(values.get("sparkx.archived-conversations.v1.owner-one")!)).toEqual(["one", "three"]);
       expect(archiveSelection).toHaveBeenCalledExactlyOnceWith({ id: "two", title: "Second" });
       expect(document.activeElement).toBe(host.querySelector('[aria-label="搜索任务"]'));
+      expect(archivedTitles()).toEqual(["Quarterly report", "Travel plan"]);
 
+      // The account menu no longer switches the sidebar to an archived list.
       await act(async () => host.querySelector<HTMLButtonElement>(".sidebarAccountTrigger")!.click());
-      const archivedEntry = host.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
-      expect(archivedEntry.textContent).toBe("已归档对话1");
-      await act(async () => archivedEntry.click());
-      expect(host.querySelector(".conversationListHeader > span")!.textContent).toBe("已归档对话");
-      expect(host.querySelector(".newConversationButton")).toBeNull();
-      expect(titles()).toEqual(["First"]);
+      expect([...host.querySelectorAll('[role="menuitem"]')].map(item => item.textContent)).toEqual(["工作区设置"]);
 
-      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="取消归档: First"]')!.click());
-      expect(titles()).toEqual([]);
-      expect(host.querySelector(".sidebarArchiveEmpty")!.textContent).toBe("暂无归档对话");
-      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="返回最近对话"]')!.click());
-      expect(titles()).toEqual(["First", "Second"]);
+      await search("  REPORT quarterly ");
+      expect(archivedTitles()).toEqual(["Quarterly report"]);
+      await search("three");
+      expect(archivedTitles()).toEqual(["Travel plan"]);
+      await search("missing");
+      expect(archivedTitles()).toEqual([]);
+      expect(host.querySelector('.archivedConversationSettings [role="status"]')!.textContent).toBe("没有匹配的归档对话，试试其他关键词。");
+      await search("");
+
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="删除对话: Travel plan"]')!.click());
+      expect(remove).toHaveBeenCalledExactlyOnceWith("three");
+
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="取消归档: Quarterly report"]')!.click());
+      expect(archivedTitles()).toEqual(["Travel plan"]);
+      expect(titles()).toEqual(["Quarterly report", "Second"]);
+      expect(JSON.parse(values.get("sparkx.archived-conversations.v1.owner-one")!)).toEqual(["three"]);
       expect(archiveSelection).toHaveBeenCalledOnce();
-
-      await act(async () => host.querySelector<HTMLButtonElement>(".sidebarNewConversation")!.click());
-      expect(create).toHaveBeenCalledOnce();
     } finally { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); }
   });
 

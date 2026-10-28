@@ -30,13 +30,14 @@ export function WorkspaceSettingsSidebar({
     { group: "workspace" as const, id: "settings" as const, label: copy.general, icon: "settings" as const, count: 0 },
     { group: "workspace" as const, id: "appearance" as const, label: copy.appearance, icon: "appearance" as const, count: 0 },
     { group: "workspace" as const, id: "devices" as const, label: copy.devices, icon: "devices" as const, count: 0 },
+    { group: "workspace" as const, id: "archived" as const, label: copy.archived, icon: "archive" as const, count: 0 },
     { group: "agent" as const, id: "models-tools" as const, label: copy.modelsTools, icon: "models" as const, count: 0 },
     { group: "agent" as const, id: "permissions" as const, label: copy.permissions, icon: "permissions" as const, count: 0 },
     { group: "agent" as const, id: "connections" as const, label: copy.connections, icon: "connections" as const, count: 0 },
     { group: "context" as const, id: "memory" as const, label: text.tabs.memory, icon: "memory" as const, count: pendingCandidateCount },
     { group: "activity" as const, id: "approvals" as const, label: text.tabs.approvals, icon: "approvals" as const, count: pendingApprovalCount },
     { group: "activity" as const, id: "timeline" as const, label: text.tabs.timeline, icon: "timeline" as const, count: 0 },
-  ], [copy.appearance, copy.connections, copy.devices, copy.general, copy.modelsTools, copy.permissions, pendingApprovalCount, pendingCandidateCount, text.tabs]);
+  ], [copy.appearance, copy.archived, copy.connections, copy.devices, copy.general, copy.modelsTools, copy.permissions, pendingApprovalCount, pendingCandidateCount, text.tabs]);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleItems = items.filter((item) =>
     (!normalizedQuery || item.label.toLocaleLowerCase().includes(normalizedQuery))

@@ -805,6 +805,10 @@ export function App() {
         setOwnerProfile={setOwnerProfile}
         onLanguageChange={setLanguage}
         onOpenSchedules={() => navigate("schedules")}
+        conversations={sessions}
+        conversationBusy={busy || Boolean(sessionActionId)}
+        // Deleting resets the tab for the chat view; stay on the archived list.
+        onDeleteConversation={async (id) => { await deleteSession(id); setTab("archived"); }}
       />
     );
   }

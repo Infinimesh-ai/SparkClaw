@@ -566,7 +566,8 @@ export function LocalWorkbench() {
         refreshActiveSession={async () => {}} setEvalRuns={setEvalRuns} setNotificationBindings={setNotificationBindings}
         setConnectors={setConnectors} setRuntimeConfig={setRuntimeConfig} setOwnerProfile={setOwnerProfile}
         onLanguageChange={changeLanguage} onOpenSchedules={() => {}} currentClientID={currentClientID}
-        onCurrentClientRevoked={logout} onLogout={logout} /></div> : <>
+        onCurrentClientRevoked={logout} onLogout={logout}
+        conversations={conversations} conversationBusy={busy} onDeleteConversation={deleteConversation} /></div> : <>
         <section inert={browserLayout.className === "browserFocus"} className={`chatColumn localChat ${home ? "homeChat" : ""}`} hidden={page !== "chat"}>
         <div ref={messageScroll.listRef} className="messageList localHistory">
           {home && <WorkbenchWelcome language={language} />}

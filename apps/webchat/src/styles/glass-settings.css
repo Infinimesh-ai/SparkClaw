@@ -276,6 +276,9 @@
   background: var(--ui-glass);
   box-shadow: inset 0 1px 0 var(--ui-glass-highlight);
 }
+/* Archived conversations reuse the settings search field and device rows. */
+.glassWorkbench .archivedConversationSettings .archivedConversationSearch { margin: 0; }
+.glassWorkbench .archivedConversationItem .archivedConversationActions { display: flex; gap: 6px; }
 .glassWorkbench .clientSettings .issuedClientCredential { border-radius: 14px; background: var(--ui-glass-strong); }
 .glassWorkbench .copyOnceCredential { border-radius: 14px; }
 .glassWorkbench .credentialValidationFeedback {

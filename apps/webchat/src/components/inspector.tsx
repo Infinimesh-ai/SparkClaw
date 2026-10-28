@@ -20,6 +20,7 @@ import {
   TracePanel
 } from "./panels";
 import type { SettingsAccess, WorkspaceSettingsSection } from "./panels/settings";
+import { ArchivedConversationsSettings, type ArchivedConversation } from "./panels/settingsArchived";
 import type { ClientSettingsActions } from "./panels/settingsClients";
 import type {
   Approval,
@@ -41,7 +42,7 @@ import type {
   TraceMetadata
 } from "../api/types";
 
-export type PanelTab = "timeline" | "approvals" | "memory" | "trace" | "status" | "settings" | "appearance" | "devices" | "models-tools" | "permissions" | "connections";
+export type PanelTab = "timeline" | "approvals" | "memory" | "trace" | "status" | "settings" | "appearance" | "devices" | "archived" | "models-tools" | "permissions" | "connections";
 
 type InspectorColumnProps = ClientSettingsActions & {
   connectionsOnly?: boolean;
@@ -85,6 +86,10 @@ type InspectorColumnProps = ClientSettingsActions & {
   setOwnerProfile: (owner: OwnerProfile) => void;
   onLanguageChange: (language: Language) => void;
   onOpenSchedules: () => void;
+  // The archived conversations settings page lists these and deletes through the owner.
+  conversations?: ArchivedConversation[];
+  conversationBusy?: boolean;
+  onDeleteConversation?: (id: string) => void | Promise<void>;
 };
 
 export function InspectorColumn({
@@ -134,7 +139,10 @@ export function InspectorColumn({
   setRuntimeConfig,
   setOwnerProfile,
   onLanguageChange,
-  onOpenSchedules
+  onOpenSchedules,
+  conversations = [],
+  conversationBusy = false,
+  onDeleteConversation
 }: InspectorColumnProps) {
   const [evalRun, setEvalRun] = useState<EvalRun | null>(null);
   const [resolvingApprovalId, setResolvingApprovalId] = useState("");
@@ -441,6 +449,8 @@ export function InspectorColumn({
           onError={(message) => setError(message)}
         />
       )}
+      {tab === "archived" && <ArchivedConversationsSettings conversations={conversations} ownerID={ownerProfile?.id}
+        language={language} busy={conversationBusy} onDelete={onDeleteConversation} />}
       {(tab === "settings" || tab === "appearance" || tab === "devices" || tab === "models-tools" || tab === "permissions" || tab === "connections") && (
         <SettingsPanel
           key={tab}

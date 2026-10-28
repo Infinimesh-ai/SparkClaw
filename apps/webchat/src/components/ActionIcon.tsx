@@ -27,7 +27,8 @@ export type ActionIconName =
   | "circle-alert"
   | "message-check"
   | "info"
-  | "inbox";
+  | "inbox"
+  | "archive";
 
 type IconPair = { outline: ReactNode; solid: ReactNode };
 
@@ -85,6 +86,10 @@ const icons: Record<ActionIconName, IconPair> = {
   inbox: {
     outline: <><path d="m3 13 3-9h12l3 9v5a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-5Zm0 0h5l1.5 3h5l1.5-3h5" /></>,
     solid: <path fillRule="evenodd" d="M6.2 3.2a1 1 0 0 0-.9.7l-3 9-.1.3V18A3.8 3.8 0 0 0 6 21.8h12a3.8 3.8 0 0 0 3.8-3.8v-4.8l-.1-.3-3-9a1 1 0 0 0-.9-.7H6.2ZM7 5l-2.4 7.2H8a1 1 0 0 1 .9.5l1.1 2.5h4l1.1-2.5a1 1 0 0 1 .9-.5h3.4L17 5H7Z" />
+  },
+  archive: {
+    outline: <><rect x="3" y="4" width="18" height="5" rx="1.5" /><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9m-9 4h4" /></>,
+    solid: <><rect x="2.2" y="3.2" width="19.6" height="6.6" rx="2" /><path fillRule="evenodd" d="M4.2 11h15.6v7a3.8 3.8 0 0 1-3.8 3.8H8A3.8 3.8 0 0 1 4.2 18v-7Zm5.8 2.1a.9.9 0 0 0 0 1.8h4a.9.9 0 0 0 0-1.8h-4Z" /></>
   },
   bell: {
     outline: <><path d="M6 9a6 6 0 0 1 12 0c0 6 2 6 2 8H4c0-2 2-2 2-8Z" /><path d="M9.5 20a2.9 2.9 0 0 0 5 0" /></>,

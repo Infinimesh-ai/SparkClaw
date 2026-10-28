@@ -552,7 +552,7 @@ describe("workbench local workbench", () => {
       await act(async () => settings.click());
       expect(host.querySelector(".settingsPageContent")).not.toBeNull();
       expect([...host.querySelectorAll(".settingsPageNavigation button")].map(button => button.textContent?.trim())).toEqual([
-        "General", "Appearance", "Devices & credentials", "Models & tools", "Permissions", "Connections", "Memory", "Approvals", "Timeline"
+        "General", "Appearance", "Devices & credentials", "Archived conversations", "Models & tools", "Permissions", "Connections", "Memory", "Approvals", "Timeline"
       ]);
       const settingsTab = (name: string) => [...host.querySelectorAll<HTMLButtonElement>(".settingsPageNavigation button")].find(button => button.textContent?.trim() === name)!;
       expect(host.querySelector(".settingsSurface")?.textContent).toContain("Language");
@@ -653,7 +653,7 @@ describe("workbench local workbench", () => {
       const settings = [...host.querySelectorAll<HTMLButtonElement>(".sidebarAccountMenuItem")].find((button) => button.textContent === "Workspace settings")!;
       await act(async () => settings.click());
       expect([...host.querySelectorAll<HTMLButtonElement>(".settingsPageNavigation button")].map((button) => button.textContent?.trim())).toEqual([
-        "General", "Appearance", "Devices & credentials", "Models & tools", "Permissions", "Connections", "Memory", "Approvals", "Timeline"
+        "General", "Appearance", "Devices & credentials", "Archived conversations", "Models & tools", "Permissions", "Connections", "Memory", "Approvals", "Timeline"
       ]);
     } finally { await act(async () => root.unmount()); }
   });

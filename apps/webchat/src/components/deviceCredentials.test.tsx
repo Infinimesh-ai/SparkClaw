@@ -354,7 +354,7 @@ describe("device credentials through the production settings route", () => {
     const change = vi.fn();
     const { host } = await render(<WorkspaceSettingsSidebar text={dictionaries.en} language="en" tab="devices"
       pendingApprovalCount={0} pendingCandidateCount={0} onTabChange={change} onBack={() => {}} />);
-    expect(host.querySelectorAll(".settingsPageNavigation button")).toHaveLength(9);
+    expect(host.querySelectorAll(".settingsPageNavigation button")).toHaveLength(10);
     expect(host.textContent).toContain("General");
     await act(async () => button(host, "Devices & credentials").click());
     expect(change).toHaveBeenCalledWith("devices");

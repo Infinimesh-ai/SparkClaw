@@ -395,8 +395,7 @@ html[data-resolved-theme="dark"] .workbench.glassWorkbench .sidebarScheduleLink[
 .sessionArchiveTrigger:disabled { cursor: not-allowed; opacity: .5; }
 .workbench.glassWorkbench :is(.sessionArchiveTrigger, .sessionMenuTrigger) > svg { width: 14.4px; height: 14.4px; }
 .sessionArchiveTrigger:focus-visible { outline: 2px solid var(--ui-blue); outline-offset: 2px; }
-.sidebarArchiveEmpty, .sidebarArchiveNotice { color: var(--text-secondary); font-size: var(--font-label); margin: 8px 10px; line-height: 1.6; }
-.sidebarArchiveCount { color: var(--text-secondary); font-size: var(--font-meta); margin-left: auto; }
+.sidebarArchiveNotice { color: var(--text-secondary); font-size: var(--font-label); margin: 8px 10px; line-height: 1.6; }
 @media (hover: none), (pointer: coarse) {
   .sessionArchiveTrigger { width: 36px; height: 36px; }
 }

@@ -37,6 +37,24 @@ test("native frames publish fullscreen without using macOS window controls", () 
   assert.equal(published, true);
 });
 
+test("closing a destroyed native window does not access its webContents getter", () => {
+  const window = new EventEmitter(), contents = new EventEmitter();
+  let destroyed = false;
+  Object.assign(contents, { isDestroyed: () => destroyed, send: () => assert.fail("sent after destruction") });
+  Object.assign(window, { isDestroyed: () => destroyed });
+  Object.defineProperty(window, "webContents", { get() {
+    if (destroyed) throw new TypeError("Object has been destroyed");
+    return contents;
+  } });
+  bindWindowChrome(window, { inset: true });
+  destroyed = true;
+  assert.doesNotThrow(() => contents.emit("did-finish-load"));
+  assert.doesNotThrow(() => window.emit("closed"));
+  assert.equal(contents.listenerCount("did-finish-load"), 0);
+  assert.equal(window.listenerCount("enter-full-screen"), 0);
+  assert.equal(window.listenerCount("leave-full-screen"), 0);
+});
+
 test("preload projects only boolean fullscreen state, including before DOM readiness", async () => {
   const ipcRenderer = new EventEmitter();
   let ready;

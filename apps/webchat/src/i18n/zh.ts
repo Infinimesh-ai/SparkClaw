@@ -33,6 +33,8 @@ export const zh = {
       deleteSession: "删除会话",
       confirmDeleteSession: "确定删除这个会话吗？",
       confirmDeleteLocalSession: "确定删除此会话及其本地消息、草稿、文件和定时任务吗？此操作无法撤销。",
+      confirmDeleteArchivedSessions: "确定删除全部 {count} 个已归档会话吗？此操作无法撤销。",
+      confirmDeleteArchivedLocalSessions: "确定删除全部 {count} 个已归档会话及其本地消息、草稿、文件和定时任务吗？此操作无法撤销。",
       language: "语言",
       sessions: "会话"
     },

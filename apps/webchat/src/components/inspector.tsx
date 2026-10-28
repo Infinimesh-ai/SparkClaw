@@ -90,6 +90,7 @@ type InspectorColumnProps = ClientSettingsActions & {
   conversations?: ArchivedConversation[];
   conversationBusy?: boolean;
   onDeleteConversation?: (id: string) => void | Promise<void>;
+  onDeleteConversations?: (ids: string[]) => void | Promise<void>;
 };
 
 export function InspectorColumn({
@@ -142,7 +143,8 @@ export function InspectorColumn({
   onOpenSchedules,
   conversations = [],
   conversationBusy = false,
-  onDeleteConversation
+  onDeleteConversation,
+  onDeleteConversations
 }: InspectorColumnProps) {
   const [evalRun, setEvalRun] = useState<EvalRun | null>(null);
   const [resolvingApprovalId, setResolvingApprovalId] = useState("");
@@ -450,7 +452,7 @@ export function InspectorColumn({
         />
       )}
       {tab === "archived" && <ArchivedConversationsSettings conversations={conversations} ownerID={ownerProfile?.id}
-        language={language} busy={conversationBusy} onDelete={onDeleteConversation} />}
+        language={language} busy={conversationBusy} onDelete={onDeleteConversation} onDeleteAll={onDeleteConversations} />}
       {(tab === "settings" || tab === "appearance" || tab === "devices" || tab === "models-tools" || tab === "permissions" || tab === "connections") && (
         <SettingsPanel
           key={tab}

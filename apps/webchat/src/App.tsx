@@ -35,6 +35,7 @@ import { useSessionCrud } from "./hooks/useSessionCrud";
 import { useHostWorkbenchDrafts } from "./hooks/useHostWorkbenchDrafts";
 import { useConversationActivity } from "./hooks/useConversationActivity";
 import { usePageHistory } from "./hooks/usePageHistory";
+import { useArchivedConversations } from "./hooks/useArchivedConversations";
 import { conversationActivity, isTaskInProgress, unseenActivity } from "./lib/conversationActivity";
 import { useVoiceInput } from "./hooks/useVoiceInput";
 import type { VoiceDraftAnchor } from "./hooks/useVoiceInput";
@@ -102,6 +103,7 @@ export function App() {
   const [ready, setReady] = useState<ReadyStatus | null>(null);
   const [runtimeConfig, setRuntimeConfig] = useState<PublicConfig | null>(null);
   const [ownerProfile, setOwnerProfile] = useState<OwnerProfile | null>(null);
+  const { archived } = useArchivedConversations(ownerProfile?.id);
   const [clients, setClients] = useState<Client[]>([]);
   const [notificationBindings, setNotificationBindings] = useState<NotificationBinding[]>([]);
   const [connectors, setConnectors] = useState<ConnectorStatus[]>([]);
@@ -309,7 +311,8 @@ export function App() {
     startRenameSession,
     cancelRenameSession,
     renameSession,
-    deleteSession
+    deleteSession,
+    deleteSessions
   } = useSessionCrud({
     activeSession,
     text,
@@ -809,16 +812,22 @@ export function App() {
         conversationBusy={busy || Boolean(sessionActionId)}
         // Deleting resets the tab for the chat view; stay on the archived list.
         onDeleteConversation={async (id) => { await deleteSession(id); setTab("archived"); }}
+        onDeleteConversations={async (ids) => { await deleteSessions(ids, text.nav.confirmDeleteArchivedSessions.replace("{count}", String(ids.length))); setTab("archived"); }}
       />
     );
   }
 
+  // Archived conversations never stay in the main view: archiving the open one
+  // starts a new conversation, and history and search skip archived ones.
+  const unarchivedSessions = sessions.filter((session) => !archived.includes(session.id));
+  const activeArchived = Boolean(activeSession) && archived.includes(activeSession);
+  useEffect(() => { if (activeArchived && !busy && !voice.active) void newTask(); }, [activeArchived, busy, voice.active]);
   const settingsPageTitle = copy.settingsTitles[tab];
   const settingsPageDescription = tab === "memory" || tab === "approvals" ? "" : copy.settingsDescriptions[tab];
   const pageHistory = usePageHistory({ page, sessionID: activeSession, settingsTab: page === "settings" ? tab : "settings" }, {
     scope: `${authEpoch}:${ownerProfile?.id ?? ""}`,
     disabled: busy || voice.active,
-    valid: (entry) => entry.sessionID ? sessions.some((session) => session.id === entry.sessionID) : entry.page !== "chat",
+    valid: (entry) => entry.sessionID ? unarchivedSessions.some((session) => session.id === entry.sessionID) : entry.page !== "chat",
     restore: (entry) => {
       const session = sessions.find((item) => item.id === entry.sessionID);
       if (session) selectTask(session);
@@ -852,7 +861,6 @@ export function App() {
         sessionTitleDraft={sessionTitleDraft}
         sessionActionId={sessionActionId}
         onCreateSession={() => void newTask()}
-        onArchiveSelection={(next) => { if (next) selectTask(next); else void newTask(); }}
         onSelectSession={selectTask}
         onStartRename={startRenameSession}
         onCancelRename={cancelRenameSession}
@@ -1060,7 +1068,7 @@ export function App() {
           </div>
         </section>
       </>}
-      {searchOpen && <TaskSearch language={language} sessions={sessions} onSelect={selectTask} onClose={() => setSearchOpen(false)} />}
+      {searchOpen && <TaskSearch language={language} sessions={unarchivedSessions} onSelect={selectTask} onClose={() => setSearchOpen(false)} />}
     </main>
   );
 }

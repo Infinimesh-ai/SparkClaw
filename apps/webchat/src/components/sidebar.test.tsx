@@ -368,7 +368,7 @@ describe("SessionSidebar navigation and conversations", () => {
     vi.stubGlobal("localStorage", { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) });
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 0; });
     const host = document.createElement("div"); document.body.append(host);
-    const root = createRoot(host), archiveSelection = vi.fn(), remove = vi.fn();
+    const root = createRoot(host), remove = vi.fn(), removeAll = vi.fn();
     const owner = { id: "owner-one", display_name: "Ada", created_at: "", updated_at: "" };
     const sessions = [{ id: "one", title: "Quarterly report" }, { id: "two", title: "Second" }, { id: "three", title: "Travel plan" }];
     const titles = () => [...host.querySelectorAll(".sessionTitle")].map(title => title.textContent);
@@ -384,15 +384,15 @@ describe("SessionSidebar navigation and conversations", () => {
       await act(async () => root.render(<>
         <SessionSidebar text={dictionaries.zh} language="zh" page="chat" ownerProfile={owner}
           sessions={sessions} activeSession="one"
-          onCreateSession={() => {}} onArchiveSelection={archiveSelection} onSearch={() => {}} onSelectSession={() => {}} />
-        <ArchivedConversationsSettings conversations={sessions} ownerID={owner.id} language="zh" onDelete={remove} />
+          onCreateSession={() => {}} onSearch={() => {}} onSelectSession={() => {}} />
+        <ArchivedConversationsSettings conversations={sessions} ownerID={owner.id} language="zh" onDelete={remove} onDeleteAll={removeAll} />
       </>));
       expect(host.querySelector(".archivedConversationSettings")!.textContent).toContain("暂无归档对话");
+      expect(host.querySelector(".archivedConversationSummary")).toBeNull();
       await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="归档对话: Quarterly report"]')!.click());
       await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="归档对话: Travel plan"]')!.click());
       expect(titles()).toEqual(["Second"]);
       expect(JSON.parse(values.get("sparkx.archived-conversations.v1.owner-one")!)).toEqual(["one", "three"]);
-      expect(archiveSelection).toHaveBeenCalledExactlyOnceWith({ id: "two", title: "Second" });
       expect(document.activeElement).toBe(host.querySelector('[aria-label="搜索任务"]'));
       expect(archivedTitles()).toEqual(["Quarterly report", "Travel plan"]);
 
@@ -404,6 +404,10 @@ describe("SessionSidebar navigation and conversations", () => {
       expect(archivedTitles()).toEqual(["Quarterly report"]);
       await search("three");
       expect(archivedTitles()).toEqual(["Travel plan"]);
+      // Delete all covers every archived conversation, not only the search matches.
+      expect(host.querySelector(".archivedConversationSummary")!.textContent).toBe("共 2 个已归档对话 全部删除");
+      await act(async () => host.querySelector<HTMLButtonElement>(".archivedConversationSummary button")!.click());
+      expect(removeAll).toHaveBeenCalledExactlyOnceWith(["one", "three"]);
       await search("missing");
       expect(archivedTitles()).toEqual([]);
       expect(host.querySelector('.archivedConversationSettings [role="status"]')!.textContent).toBe("没有匹配的归档对话，试试其他关键词。");
@@ -416,22 +420,20 @@ describe("SessionSidebar navigation and conversations", () => {
       expect(archivedTitles()).toEqual(["Travel plan"]);
       expect(titles()).toEqual(["Quarterly report", "Second"]);
       expect(JSON.parse(values.get("sparkx.archived-conversations.v1.owner-one")!)).toEqual(["three"]);
-      expect(archiveSelection).toHaveBeenCalledOnce();
     } finally { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); }
   });
 
   it("keeps the archive unchanged and explains when browser storage rejects it", async () => {
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => { throw new Error("quota"); } });
     const host = document.createElement("div"); document.body.append(host);
-    const root = createRoot(host), archiveSelection = vi.fn();
+    const root = createRoot(host);
     try {
       await act(async () => root.render(<SessionSidebar text={dictionaries.en} language="en" page="chat" ownerProfile={null}
         sessions={[{ id: "one", title: "First" }]} activeSession="one"
-        onCreateSession={() => {}} onArchiveSelection={archiveSelection} onSearch={() => {}} onSelectSession={() => {}} />));
+        onCreateSession={() => {}} onSearch={() => {}} onSelectSession={() => {}} />));
       await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Archive conversation: First"]')!.click());
       expect(host.querySelector(".sessionTitle")!.textContent).toBe("First");
       expect(host.querySelector('[role="alert"]')!.textContent).toBe("Could not save the archive state. Check browser storage and try again.");
-      expect(archiveSelection).not.toHaveBeenCalled();
     } finally { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); }
   });
 

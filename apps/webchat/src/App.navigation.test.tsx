@@ -63,3 +63,21 @@ describe("host schedule navigation", () => {
     } finally { await act(async () => root.unmount()); }
   });
 });
+
+describe("host archive navigation", () => {
+  it("opens a new conversation once when the open one is archived", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    vi.mocked(api.createSession).mockResolvedValueOnce({ id: "new-conversation", title: "New conversation", source: "webchat", created_at: "", updated_at: "" });
+    const host = document.createElement("div"), root = createRoot(host);
+    try {
+      await act(async () => root.render(<App />));
+      expect(host.querySelector(".sessionItem.active .sessionSelect")?.textContent).toContain("Keep this conversation");
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Archive conversation: Keep this conversation"]')!.click());
+      expect(JSON.parse(window.localStorage.getItem("sparkx.archived-conversations.v1.owner")!)).toEqual(["existing-conversation"]);
+      expect(api.createSession).toHaveBeenCalledOnce();
+      expect([...host.querySelectorAll(".sessionTitle")].map(title => title.textContent)).toEqual(["New conversation"]);
+      expect(host.querySelector(".sessionItem.active .sessionSelect")?.textContent).toContain("New conversation");
+      expect(host.querySelector(".messageList")?.textContent).not.toContain("Keep this message");
+    } finally { await act(async () => root.unmount()); }
+  });
+});

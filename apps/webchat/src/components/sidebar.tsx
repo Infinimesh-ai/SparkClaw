@@ -152,8 +152,6 @@ type SessionSidebarProps<T extends SidebarConversation> = {
   sessionTitleDraft?: string;
   sessionActionId?: string;
   onCreateSession: () => void;
-  // Called after the open conversation is archived, with the next recent one.
-  onArchiveSelection?: (next: T | undefined) => void;
   onSelectSession: (session: T) => void;
   onStartRename?: (session: T) => void;
   onCancelRename?: () => void;
@@ -183,7 +181,6 @@ export function SessionSidebar<T extends SidebarConversation>({
   sessionTitleDraft = "",
   sessionActionId = "",
   onCreateSession,
-  onArchiveSelection,
   onSelectSession,
   onStartRename,
   onCancelRename,
@@ -215,7 +212,6 @@ export function SessionSidebar<T extends SidebarConversation>({
       return;
     }
     setArchiveError("");
-    if (activeSession === session.id) onArchiveSelection?.(conversations.find((item) => !next.includes(item.id)));
     // The row leaves this list; keep keyboard focus inside the sidebar.
     requestAnimationFrame(() => searchRef.current?.focus({ preventScroll: true }));
   }

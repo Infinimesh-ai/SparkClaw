@@ -118,30 +118,49 @@ export function useSessionCrud({
     }
   }
 
-  async function deleteSession(id: string) {
-    if (sessionActionRef.current || !(await confirm(text.nav.confirmDeleteSession, { danger: true }))) return;
+  function deleteSession(id: string) {
+    return deleteSessions([id], text.nav.confirmDeleteSession);
+  }
+
+  // One confirmation covers every id; a failure stops the batch, and the
+  // sessions already deleted are still removed from the UI before it surfaces.
+  async function deleteSessions(ids: string[], confirmation: string) {
+    if (!ids.length || sessionActionRef.current || !(await confirm(confirmation, { danger: true }))) return;
     if (sessionActionRef.current || !mountedRef.current) return;
     try {
-      sessionActionRef.current = id;
-      setSessionActionId(id);
+      sessionActionRef.current = ids[0];
+      setSessionActionId(ids[0]);
       setError("");
-      await api.deleteSession(id);
-      const sessionList = await api.sessions();
-      let next = id === activeSession ? sessionList.sessions[0] : sessionList.sessions.find((session) => session.id === activeSession);
-      if (!next) next = await api.createSession();
-      setDraftsBySession((current) => {
-        const nextDrafts = { ...current };
-        delete nextDrafts[id];
-        return nextDrafts;
-      });
-      setAttachmentsBySession((current) => omitSession(current, id));
-      clearSessionTarget(id);
-      setSessions(next ? [next, ...sessionList.sessions.filter((session) => session.id !== next.id)] : sessionList.sessions);
-      setActiveSession(next.id);
-      cancelRenameSession();
-      setTraceRun(null);
-      setTab("timeline");
-      await Promise.all([refreshSession(next.id), refreshGlobal()]);
+      const deleted: string[] = [];
+      let failure: unknown;
+      for (const id of ids) {
+        try {
+          await api.deleteSession(id);
+          deleted.push(id);
+        } catch (err) {
+          failure = err;
+          break;
+        }
+      }
+      if (deleted.length) {
+        const sessionList = await api.sessions();
+        let next = deleted.includes(activeSession) ? sessionList.sessions[0] : sessionList.sessions.find((session) => session.id === activeSession);
+        if (!next) next = await api.createSession();
+        setDraftsBySession((current) => {
+          const nextDrafts = { ...current };
+          for (const id of deleted) delete nextDrafts[id];
+          return nextDrafts;
+        });
+        setAttachmentsBySession((current) => deleted.reduce(omitSession, current));
+        for (const id of deleted) clearSessionTarget(id);
+        setSessions(next ? [next, ...sessionList.sessions.filter((session) => session.id !== next.id)] : sessionList.sessions);
+        setActiveSession(next.id);
+        cancelRenameSession();
+        setTraceRun(null);
+        setTab("timeline");
+        await Promise.all([refreshSession(next.id), refreshGlobal()]);
+      }
+      if (failure) throw failure;
     } catch (err) {
       surfaceError(err, text.errors.deleteSession);
     } finally {
@@ -159,7 +178,8 @@ export function useSessionCrud({
     startRenameSession,
     cancelRenameSession,
     renameSession,
-    deleteSession
+    deleteSession,
+    deleteSessions
   };
 }
 

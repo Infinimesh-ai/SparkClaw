@@ -279,6 +279,8 @@
 /* Archived conversations reuse the settings search field and device rows. */
 .glassWorkbench .archivedConversationSettings .archivedConversationSearch { margin: 0; }
 .glassWorkbench .archivedConversationItem .archivedConversationActions { display: flex; gap: 6px; }
+.glassWorkbench .archivedConversationSummary { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.glassWorkbench .archivedConversationSummary > button { display: inline-flex; flex-shrink: 0; align-items: center; gap: 6px; padding-inline: 12px; white-space: nowrap; }
 .glassWorkbench .clientSettings .issuedClientCredential { border-radius: 14px; background: var(--ui-glass-strong); }
 .glassWorkbench .copyOnceCredential { border-radius: 14px; }
 .glassWorkbench .credentialValidationFeedback {

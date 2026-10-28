@@ -9,6 +9,7 @@ import { useLocalSchedules } from "./useLocalSchedules";
 import { SessionSidebar } from "../components/sidebar";
 import { ClientConversationTab, ClientSidebarResizeHandle, useClientTitlebar, WorkspaceTitlebar } from "../components/clientWindow";
 import { usePageHistory } from "../hooks/usePageHistory";
+import { useArchivedConversations } from "../hooks/useArchivedConversations";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy } from "../components/workbench";
 import { MailWorkspaceContext } from "./MailWorkspaceContext";
 import type {} from "./mailCapability";
@@ -333,24 +334,42 @@ export function LocalWorkbench() {
       if (capabilities.browser) await desktop.selectConversation?.("");
     });
   }
-  async function deleteConversation(id: string) {
-    if (busyRef.current || !(await confirm(dictionaries[language].nav.confirmDeleteLocalSession, { danger: true }))) return;
+  function deleteConversation(id: string) {
+    return deleteConversations([id], dictionaries[language].nav.confirmDeleteLocalSession);
+  }
+  // One confirmation covers every id. Conversations with unresolved tasks are
+  // kept; a failure stops the batch after reconciling what was already deleted.
+  async function deleteConversations(ids: string[], confirmation: string) {
+    if (!ids.length || busyRef.current || !(await confirm(confirmation, { danger: true }))) return;
     await action(async () => {
       await drafts.flush();
       ++readGeneration.current;
-      const result = await store.remove(id);
-      if (!result.deleted) {
-        setError(zh ? "此会话还有执行中或待核实的任务，请完成或取消并核实后再删除。" : "This conversation has an active or unresolved task. Finish or cancel it and verify its outcome before deleting.");
-        return;
+      const deleted: string[] = [];
+      let blocked = 0, cleanupPending = false, failure: unknown;
+      for (const id of ids) {
+        try {
+          const result = await store.remove(id);
+          if (!result.deleted) { blocked++; continue; }
+          deleted.push(id);
+          draftScopes.delete(id);
+          if (result.cleanup_pending) cleanupPending = true;
+        } catch (err) {
+          failure = err;
+          break;
+        }
       }
-      draftScopes.delete(id);
-      setConversations((current) => current.filter((conversation) => conversation.id !== id));
-      if (result.cleanup_pending) setNotice(zh ? "会话已删除，但本地文件清理未完成。请重启应用重试清理。" : "Conversation deleted. Local file cleanup is pending; restart the app to retry cleanup.");
-      const wasSelected = selectedRef.current === id;
+      if (blocked) setError(ids.length === 1
+        ? zh ? "此会话还有执行中或待核实的任务，请完成或取消并核实后再删除。" : "This conversation has an active or unresolved task. Finish or cancel it and verify its outcome before deleting."
+        : zh ? `${blocked} 个会话还有执行中或待核实的任务，已保留。请完成或取消并核实后再删除。` : `${blocked} conversations have active or unresolved tasks and were kept. Finish or cancel them and verify their outcomes before deleting.`);
+      if (!deleted.length) { if (failure) throw failure; return; }
+      setConversations((current) => current.filter((conversation) => !deleted.includes(conversation.id)));
+      if (cleanupPending) setNotice(zh ? "会话已删除，但本地文件清理未完成。请重启应用重试清理。" : "Conversation deleted. Local file cleanup is pending; restart the app to retry cleanup.");
+      const selectedID = selectedRef.current;
+      const wasSelected = deleted.includes(selectedID);
       if (wasSelected) {
         selectedRef.current = ""; setSelected(""); setContent(emptyContent);
         // A selection whose draft never loaded has no draft entry to discard.
-        if (drafts.id() === id) drafts.accept(id, { content: "", attachment_ids: [], revision: 0 });
+        if (drafts.id() === selectedID) drafts.accept(selectedID, { content: "", attachment_ids: [], revision: 0 });
         setScheduleCreateOpen(false);
         setDocumentPickerOpen(false); setBrowserOpen(false); setPage("chat");
         await selectDraft("");
@@ -358,6 +377,7 @@ export function LocalWorkbench() {
       const remaining = await store.list();
       setConversations(remaining);
       if (wasSelected && remaining[0]) await select(remaining[0].id);
+      if (failure) throw failure;
     });
   }
   async function ensureConversation(onTargetResolved?: (id: string) => void) {
@@ -504,10 +524,16 @@ export function LocalWorkbench() {
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
   });
+  // Archived conversations never stay in the main view: archiving the open one
+  // starts a new conversation, and history and search skip archived ones.
+  const { archived } = useArchivedConversations(ownerProfile?.id);
+  const unarchivedConversations = conversations.filter((conversation) => !archived.includes(conversation.id));
+  const selectedArchived = Boolean(selected) && archived.includes(selected);
+  useEffect(() => { if (selectedArchived && !busy) void startConversation(); }, [selectedArchived, busy]);
   const pageHistory = usePageHistory({ page, settings, sessionID: selected, settingsTab: settings ? tab : "settings" }, {
     scope: localScopeKey,
     disabled: busy || voice.active,
-    valid: (entry) => !entry.sessionID || conversations.some((conversation) => conversation.id === entry.sessionID),
+    valid: (entry) => !entry.sessionID || unarchivedConversations.some((conversation) => conversation.id === entry.sessionID),
     restore: async (entry) => {
       try {
         if (entry.sessionID) await select(entry.sessionID); else await startConversation();
@@ -525,7 +551,7 @@ export function LocalWorkbench() {
       text={text} language={language} page={page} ownerProfile={ownerProfile} schedulePlacement="top"
       sessions={conversations} activeSession={selected} busy={busy}
       activityBySession={{ ...activityByConversation, ...(selected ? { [selected]: unseenActivity(selectedActivity, page === "chat") } : {}) }}
-      onCreateSession={() => void startConversation()} onArchiveSelection={() => void startConversation()} onSelectSession={(conversation) => void select(conversation.id).catch(surfaceError)}
+      onCreateSession={() => void startConversation()} onSelectSession={(conversation) => void select(conversation.id).catch(surfaceError)}
       editingSession={editingSession} sessionTitleDraft={sessionTitleDraft} sessionActionId={sessionActionID}
       onStartRename={(conversation) => { setEditingSession(conversation.id); setSessionTitleDraft(conversation.title); }}
       onCancelRename={() => { setEditingSession(""); setSessionTitleDraft(""); }}
@@ -567,7 +593,8 @@ export function LocalWorkbench() {
         setConnectors={setConnectors} setRuntimeConfig={setRuntimeConfig} setOwnerProfile={setOwnerProfile}
         onLanguageChange={changeLanguage} onOpenSchedules={() => {}} currentClientID={currentClientID}
         onCurrentClientRevoked={logout} onLogout={logout}
-        conversations={conversations} conversationBusy={busy} onDeleteConversation={deleteConversation} /></div> : <>
+        conversations={conversations} conversationBusy={busy} onDeleteConversation={deleteConversation}
+        onDeleteConversations={(ids) => deleteConversations(ids, dictionaries[language].nav.confirmDeleteArchivedLocalSessions.replace("{count}", String(ids.length)))} /></div> : <>
         <section inert={browserLayout.className === "browserFocus"} className={`chatColumn localChat ${home ? "homeChat" : ""}`} hidden={page !== "chat"}>
         <div ref={messageScroll.listRef} className="messageList localHistory">
           {home && <WorkbenchWelcome language={language} />}
@@ -661,7 +688,7 @@ export function LocalWorkbench() {
         {browserLayout.mounted && typeof desktop.state === "function" && <BrowserPanel open={browserOpen} visible={capabilities.browser && browserLayout.visible} onCollapse={closeBrowser} wide={browserLayout.wide} onWideChange={browserLayout.setWide} language={language} localConversationID={selected}
           conversationInFront={browserCovering ? browserLayout.region === "conversation" : undefined} onShowBrowser={browserLayout.reveal} />}
     </main>
-    {searchOpen && <TaskSearch language={language} sessions={conversations} onSelect={(conversation) => { setSearchOpen(false); void select(conversation.id).catch(surfaceError); }} onClose={() => setSearchOpen(false)} />}
+    {searchOpen && <TaskSearch language={language} sessions={unarchivedConversations} onSelect={(conversation) => { setSearchOpen(false); void select(conversation.id).catch(surfaceError); }} onClose={() => setSearchOpen(false)} />}
   </div>;
 }
 

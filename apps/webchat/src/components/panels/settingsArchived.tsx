@@ -15,13 +15,15 @@ function matches(conversation: ArchivedConversation, query: string) {
   return query.toLocaleLowerCase().split(/\s+/).filter(Boolean).every((keyword) => haystack.includes(keyword));
 }
 
-export function ArchivedConversationsSettings({ conversations, ownerID, language, busy = false, onDelete }: {
+export function ArchivedConversationsSettings({ conversations, ownerID, language, busy = false, onDelete, onDeleteAll }: {
   conversations: ArchivedConversation[];
   ownerID?: string;
   language: Language;
   busy?: boolean;
   // Asks for confirmation itself; the conversation leaves the list once it is deleted.
   onDelete?: (id: string) => void | Promise<void>;
+  // Deletes every archived conversation, whatever the search shows, after one confirmation.
+  onDeleteAll?: (ids: string[]) => void | Promise<void>;
 }) {
   const zh = language === "zh";
   const { archived, save } = useArchivedConversations(ownerID);
@@ -45,6 +47,12 @@ export function ArchivedConversationsSettings({ conversations, ownerID, language
       <input type="search" value={query} onChange={(event) => setQuery(event.target.value)}
         aria-label={searchLabel} placeholder={zh ? "按关键词搜索对话…" : "Search conversations by keyword…"} />
     </label>
+    {onDeleteAll && archivedConversations.length > 0 && <div className="archivedConversationSummary">
+      <span className="muted">{zh ? `共 ${archivedConversations.length} 个已归档对话` : `${archivedConversations.length} archived ${archivedConversations.length === 1 ? "conversation" : "conversations"}`}</span>
+      <button type="button" className="reject" disabled={busy} onClick={() => void onDeleteAll(archivedConversations.map((conversation) => conversation.id))}>
+        <Trash2 size={14} /> {zh ? "全部删除" : "Delete all"}
+      </button>
+    </div>}
     {error && <p className="credentialValidationFeedback error" role="alert">
       <span className="credentialValidationIcon" aria-hidden="true"><CircleAlert size={18} strokeWidth={1.75} /></span>
       <span className="credentialValidationCopy">{error}</span>

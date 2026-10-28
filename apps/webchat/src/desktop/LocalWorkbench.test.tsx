@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocalWorkbench } from "./LocalWorkbench";
+import { ClientWindow } from "../components/clientWindow";
 import { api } from "../api/client";
 import type { SparkClawDesktop, DesktopState, DesktopConnectionStatus } from "./types";
 import type { LocalApproval, LocalConversationContent, LocalDraft, LocalTask } from "./clientStore";
@@ -470,6 +471,89 @@ describe("workbench local workbench", () => {
       expect(host.querySelector('[role="alert"]')?.textContent).toContain(outcome === "failed" ? "Disk unavailable" : "active or unresolved task");
       const menu = await openConversationMenu(host, row.title);
       expect(menu.querySelector<HTMLButtonElement>(`[aria-label="${dictionaries.en.nav.deleteSession}: ${row.title}"]`)?.disabled).toBe(false);
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it("keeps an archived conversation out of the main view, page history and task search", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.open = true; } });
+    Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.open = false; } });
+    const first = { id: "first", title: "Keep visible", created_at: "", updated_at: "" };
+    const second = { ...first, id: "second", title: "Archive me" };
+    const third = { ...first, id: "third", title: "Archived elsewhere" };
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), remove: vi.fn(), list: vi.fn(async () => [first, second, third]), create: vi.fn(),
+      read: vi.fn(async (id: string) => ({ messages: [{ id, role: "assistant" as const, content: `${id} history`, created_at: "2026-10-10T00:00:00Z" }], tasks: [], files: [] })),
+      enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
+      scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "service_unavailable", client_id: "client" })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"), root = createRoot(host);
+    const open = async (title: string) => act(async () => [...host.querySelectorAll<HTMLButtonElement>(".sessionSelect")].find(button => button.title === title)!.click());
+    const history = () => host.querySelector(".localHistory")!.textContent;
+    try {
+      await act(async () => root.render(<ClientWindow><LocalWorkbench /></ClientWindow>));
+      await open(first.title);
+      await open(second.title);
+      expect(history()).toContain("second history");
+      await act(async () => host.querySelector<HTMLButtonElement>(`[aria-label="Archive conversation: ${second.title}"]`)!.click());
+      expect(host.querySelector(".homeChat")).not.toBeNull();
+      expect(history()).not.toContain("second history");
+
+      // Back skips the archived conversation and returns to the one before it.
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Back"]')!.click());
+      expect(history()).toContain("first history");
+      expect(host.querySelector(".sessionItem.active")?.textContent).toContain(first.title);
+
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Search tasks"]')!.click());
+      expect([...host.querySelectorAll('.taskSearchResults [role="option"]')].map(option => option.textContent)).toEqual([first.title, third.title]);
+      await act(async () => host.querySelector<HTMLButtonElement>('.taskSearchResults [role="option"]:last-child')!.click());
+      expect(history()).toContain("third history");
+
+      // Archiving from another window also leaves the open conversation.
+      const key = "sparkx.archived-conversations.v1.local";
+      window.localStorage.setItem(key, JSON.stringify([second.id, third.id]));
+      await act(async () => window.dispatchEvent(new StorageEvent("storage", { key })));
+      expect(host.querySelector(".homeChat")).not.toBeNull();
+      expect([...host.querySelectorAll(".sessionTitle")].map(title => title.textContent)).toEqual([first.title]);
+    } finally {
+      await act(async () => root.unmount());
+      Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+      Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
+    }
+  });
+
+  it("deletes every archived conversation from settings after one confirmation and keeps blocked ones", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    window.localStorage.setItem("sparkx.archived-conversations.v1.local", JSON.stringify(["second", "third"]));
+    const first = { id: "first", title: "Recent conversation", created_at: "", updated_at: "" };
+    const second = { ...first, id: "second", title: "Archived finished" };
+    const third = { ...first, id: "third", title: "Archived running" };
+    let rows = [first, second, third];
+    const remove = vi.fn(async (id: string) => {
+      if (id === third.id) return { deleted: false as const, reason: "pending_execution" as const };
+      rows = rows.filter(row => row.id !== id);
+      return { deleted: true as const };
+    });
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), remove, list: vi.fn(async () => rows), create: vi.fn(),
+      read: vi.fn(async () => ({ messages: [], tasks: [], files: [] })), enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(),
+      submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "service_unavailable", client_id: "client" })) } as unknown as SparkClawDesktop;
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const host = document.createElement("div"), root = createRoot(host);
+    const archivedTitles = () => [...host.querySelectorAll(".archivedConversationItem strong")].map(title => title.textContent);
+    try {
+      await act(async () => root.render(<LocalWorkbench />));
+      expect([...host.querySelectorAll(".sessionTitle")].map(title => title.textContent)).toEqual([first.title]);
+      await act(async () => host.querySelector<HTMLButtonElement>(".sidebarAccountTrigger")!.click());
+      await act(async () => [...host.querySelectorAll<HTMLButtonElement>(".sidebarAccountMenuItem")].find(button => button.textContent === "Workspace settings")!.click());
+      await act(async () => [...host.querySelectorAll<HTMLButtonElement>(".settingsPageNavigation button")].find(button => button.textContent?.trim() === "Archived conversations")!.click());
+      expect(archivedTitles()).toEqual([second.title, third.title]);
+      await act(async () => [...host.querySelectorAll<HTMLButtonElement>(".archivedConversationSummary button")].find(button => button.textContent?.trim() === "Delete all")!.click());
+      expect(confirm).toHaveBeenCalledExactlyOnceWith(dictionaries.en.nav.confirmDeleteArchivedLocalSessions.replace("{count}", "2"));
+      expect(remove.mock.calls).toEqual([[second.id], [third.id]]);
+      expect(archivedTitles()).toEqual([third.title]);
+      expect(host.querySelector('[role="alert"]')?.textContent).toContain("1 conversations have active or unresolved tasks and were kept.");
     } finally { await act(async () => root.unmount()); }
   });
 

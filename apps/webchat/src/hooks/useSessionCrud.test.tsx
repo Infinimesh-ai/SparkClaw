@@ -45,3 +45,45 @@ it("does not delete twice when two queued confirmations are accepted during one 
     vi.restoreAllMocks(); vi.unstubAllGlobals();
   }
 });
+
+it("deletes a batch after one confirmation and reconciles what was deleted before a failure", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const failure = new Error("gateway unavailable");
+  const remove = vi.spyOn(api, "deleteSession").mockImplementation(async (id: string) => {
+    if (id === "broken") throw failure;
+    return { id, title: id, created_at: "", updated_at: "" };
+  });
+  vi.spyOn(api, "sessions").mockResolvedValue({ sessions: [
+    { id: "keep", title: "Keep", created_at: "", updated_at: "" },
+    { id: "broken", title: "Broken", created_at: "", updated_at: "" }
+  ] });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const options: Parameters<typeof useSessionCrud>[0] = {
+    activeSession: "first", text: dictionaries.en,
+    setError: vi.fn(), surfaceError: vi.fn(), setSessions: vi.fn(), setActiveSession: vi.fn(),
+    setMessages: vi.fn(), setDraftsBySession: vi.fn(), setAttachmentsBySession: vi.fn(),
+    setToolCalls: vi.fn(), setModelCalls: vi.fn(), setAuditEvents: vi.fn(), setEpisodes: vi.fn(),
+    setTab: vi.fn(), setTraceRun: vi.fn(), clearSessionTarget: vi.fn(),
+    refreshSession: vi.fn(async () => {}), refreshGlobal: vi.fn(async () => {})
+  };
+  function Harness() {
+    const { deleteSessions } = useSessionCrud(options);
+    return <button onClick={() => void deleteSessions(["first", "second", "broken", "after"], "Delete all 4?")}>Delete all</button>;
+  }
+  try {
+    await act(async () => root.render(<ConfirmationProvider><Harness /></ConfirmationProvider>));
+    await act(async () => host.querySelector("button")!.click());
+    expect(document.body.textContent).toContain("Delete all 4?");
+    await act(async () => document.querySelector<HTMLButtonElement>(".confirmationAccept")!.click());
+    expect(remove.mock.calls).toEqual([["first"], ["second"], ["broken"]]);
+    expect(options.clearSessionTarget).toHaveBeenCalledTimes(2);
+    expect(options.setActiveSession).toHaveBeenCalledWith("keep");
+    expect(options.surfaceError).toHaveBeenCalledExactlyOnceWith(failure, dictionaries.en.errors.deleteSession);
+    expect(document.querySelector(".confirmationAccept")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    vi.restoreAllMocks(); vi.unstubAllGlobals();
+  }
+});

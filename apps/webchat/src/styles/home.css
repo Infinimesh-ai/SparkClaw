@@ -169,7 +169,6 @@
   backdrop-filter: blur(24px) saturate(115%);
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
-.homePresentation .composer:focus-within { border-color: rgb(110 165 248 / 65%); box-shadow: inset 0 1px 0 var(--home-glass-highlight), 0 16px 40px var(--home-glass-shadow); }
 .homePresentation .composer textarea { font-size: 16px; line-height: 26px; color: var(--home-ink); }
 .homePresentation .composer textarea::placeholder { color: var(--home-muted); }
 .homePresentation .composer :is(.uploadButton, .emailEntryButton, .voiceButton, .voiceDeviceButton) { align-self: end; width: 36px; height: 36px; padding: 0; border-radius: 12px; }

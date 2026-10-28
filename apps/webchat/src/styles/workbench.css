@@ -103,7 +103,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .workbench .message.user { width: fit-content; max-width: 80%; margin-right: 0; border: 0; border-radius: 13px 13px 4px 13px; background: var(--surface-muted); }
 .workbench .composerDock { border: 0; width: min(var(--reading-width), calc(100% - 48px)); margin: 0 auto; padding: 0 0 20px; background: transparent; }
 .workbench .composer { position: relative; grid-template-columns: 32px 32px 32px 56px minmax(0, 1fr) 36px; gap: 12px 8px; min-height: 112px; margin: 0; padding: 15px 15px 12px; border: 1px solid var(--control-border); border-radius: 16px; background: var(--surface); box-shadow: none; }
-.workbench .composer:focus-within { border-color: var(--cyber-blue); box-shadow: 0 0 0 3px #3b82f60f; }
 .workbench .composer textarea { grid-column: 1 / -1; grid-row: 1; width: 100%; min-height: var(--line-body); height: var(--line-body); max-height: calc(var(--line-body) * 6); padding: 0; background: transparent; border: 0; border-radius: 0; outline: none; font-size: var(--font-body); line-height: var(--line-body); color: var(--text-primary); }
 .workbench .composer textarea::placeholder { color: var(--text-secondary); }
 .workbench .composer .uploadButton { grid-row: 2; width: 32px; height: 32px; border: 0; border-radius: 6px; }

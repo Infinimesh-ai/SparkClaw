@@ -68,9 +68,18 @@ html[data-resolved-theme="dark"] .glassWorkbench { --chat-user-surface: color-mi
 .glassWorkbench .streamStatus:is(.tool_failed, .approval_rejected) { color: var(--crimson-danger); border-color: color-mix(in srgb, var(--crimson-danger) 20%, transparent); background: color-mix(in srgb, var(--crimson-danger) 8%, var(--ui-glass)); }
 .glassWorkbench .taskProgress { color: var(--ui-muted); }
 
+/* The conversation composer groups its tools like the new-conversation one:
+   upload and document, a divider, then mail and voice. */
+.workbench.glassWorkbench .chatColumn:not(.homeChat) .composer { grid-template-columns: 32px 32px 44px 56px minmax(0, 1fr) 36px; column-gap: 4px; }
+.workbench.glassWorkbench .chatColumn:not(.homeChat) .composer > .emailEntryButton { justify-self: end; }
+.workbench.glassWorkbench .chatColumn:not(.homeChat) .composer > .emailEntryButton::before { content: ""; position: absolute; left: -10px; top: 7px; height: 18px; border-left: 1px solid rgb(112 125 144 / 15%); pointer-events: none; }
+.workbench.glassWorkbench .chatColumn:not(.homeChat) .voiceControl { justify-self: end; }
+
 @media (min-width: 601px) {
-  .workbench.glassWorkbench .chatColumn:not(.homeChat) .composer { grid-template-columns: 36px 36px 36px 60px minmax(0, 1fr) 36px; }
-  .workbench.glassWorkbench .chatColumn:not(.homeChat) .composer :is(.uploadButton, .emailEntryButton) { width: 36px; height: 36px; }
+  .workbench.glassWorkbench .chatColumn:not(.homeChat) .composer { grid-template-columns: 36px 36px 52px 64px minmax(0, 1fr) 36px; }
+  .workbench.glassWorkbench .chatColumn:not(.homeChat) .composer :is(.uploadButton, .emailEntryButton) { width: 36px; height: 36px; border-radius: 12px; }
+  .workbench.glassWorkbench .chatColumn:not(.homeChat) .composer > .emailEntryButton::before { top: 9px; }
+  .workbench.glassWorkbench .chatColumn:not(.homeChat) .composer .voiceDeviceButton { border-radius: 0 12px 12px 0; }
   .workbench.glassWorkbench .chatColumn:not(.homeChat) .voiceControl { width: 60px; height: 36px; grid-template-columns: 36px 24px; }
   .workbench.glassWorkbench .chatColumn:not(.homeChat) .voiceButton { width: 36px; height: 36px; }
   .workbench.glassWorkbench .chatColumn:not(.homeChat) .voiceDeviceButton { height: 36px; }

@@ -43,17 +43,20 @@ export async function runPreviewProcess({ launch, jobDirectory, rootDirectory, l
   const startedAt = Date.now();
   const guardian = fileURLToPath(new URL('./local-preview-guardian.mjs', import.meta.url)).replace(/\.asar([/\\])/, '.asar.unpacked$1');
   const child = spawn(process.execPath, [guardian, String(process.pid), String(limits.deadlineMs + limits.cleanupMs + limits.killGraceMs + 1000)], {
-    cwd: jobDirectory, env: { ELECTRON_RUN_AS_NODE: '1', NODE_NO_WARNINGS: '1' }, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
+    cwd: jobDirectory, env: { ELECTRON_RUN_AS_NODE: '1', NODE_NO_WARNINGS: '1' }, detached: true, stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
   });
   child.stdin.on('error', () => {}); // A failed spawn or cancellation can race the initial write.
   child.stdin.write(JSON.stringify(launch) + '\n');
   const known = new Set();
   let spawnedError, closed = false, code, failure, monitoring = false, peakMemory = 0, peakDisk = 0, stoppedAt;
   const closedPromise = new Promise(resolve => {
+    let disconnected = false;
     child.on('error', error => { spawnedError = error; closed = true; resolve(); });
+    child.on('message', message => { if (message?.type === 'preview-exit' && Number.isSafeInteger(message.code)) code = message.code; });
+    child.on('disconnect', () => { disconnected = true; if (closed) resolve(); });
     // Waiting for stdio 'close' could be held open by an abandoned descendant.
-    // On guardian exit, immediately kill and join the entire owned group below.
-    child.on('exit', value => { closed = true; code = value; resolve(); });
+    // IPC EOF drains the final exit report before its guardian kills the group.
+    child.on('exit', value => { closed = true; code ??= value; if (disconnected) resolve(); });
   });
   // Do not retain converter output: it can contain document text or private paths.
   child.stdout?.resume(); child.stderr?.resume();

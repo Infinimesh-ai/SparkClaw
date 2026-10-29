@@ -6,7 +6,7 @@ import path from 'node:path';
 // without looking up a stale PID. The parser cannot block this event loop.
 const owner = Number(process.argv[2]), deadline = Number(process.argv[3]);
 if (!Number.isSafeInteger(owner) || owner < 1 || process.ppid !== owner ||
-    !Number.isSafeInteger(deadline) || deadline < 1 || deadline > 2_147_483_647) process.exit(1);
+    !Number.isSafeInteger(deadline) || deadline < 1 || deadline > 2_147_483_647 || typeof process.send !== 'function') process.exit(1);
 
 const stop = () => {
   // The guardian is the leader of its freshly detached process group. Never
@@ -36,7 +36,12 @@ process.stdin.on('data', chunk => {
     cwd: launch.options.cwd, env: launch.options.env, detached: false, stdio: ['ignore', 'inherit', 'inherit'],
   });
   child.on('error', stop);
-  child.on('exit', code => process.exit(code ?? 1));
+  child.on('exit', code => {
+    // Keep the group leader alive until its descendants are killed, even when
+    // the app dies at the same time. The parser never inherits this IPC channel.
+    process.send({ type: 'preview-exit', code: code ?? 1 }, stop);
+    setTimeout(stop, 50);
+  });
 });
 
 // A live owner must deliver the launch description promptly. This also bounds

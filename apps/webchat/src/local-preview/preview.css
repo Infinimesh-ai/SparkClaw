@@ -22,3 +22,5 @@
 .pdfLiveText{position:absolute;inset:0;z-index:2;pointer-events:none}
 .pdfLiveText .react-pdf__Page{background:transparent!important}
 .pdfLiveText .textLayer{pointer-events:auto}
+.previewWarnings{position:absolute;z-index:20;top:10px;left:10px;right:10px;display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:#fff8e8;border:1px solid #ead8b0;border-radius:8px;color:#665126;box-shadow:0 2px 8px #18202b12;font-size:12px;line-height:1.5;max-height:35%;overflow:auto}
+.previewWarnings details{flex:1;min-width:0;overflow-wrap:anywhere}.previewWarnings summary{cursor:pointer}.previewWarnings p{margin:7px 0 0}.previewWarnings button{flex:none;padding:0 5px;border:0;line-height:20px}

@@ -51,10 +51,14 @@ export default function PdfPreview({ channel }: { channel: DocumentChannel }) {
   }, [channel, zh]);
   if (error) return <p className="previewMessage" role="alert">{error}</p>;
   return file ? <Document className="pdfDocument" file={file} options={options}
+    onPassword={() => {
+      const message = zh ? '此 PDF 需要密码。请先解锁并另存未加密副本后预览。' : 'This PDF requires a password. Unlock it and save an unencrypted copy before previewing.';
+      setError(message); throw new Error(message);
+    }}
     onLoadSuccess={value => {
       if (value.numPages > 10000) setError(zh ? 'PDF 超出 10,000 页预览限制。' : 'PDF exceeds the 10,000 page preview limit.');
       else setPDF(value);
-    }} onLoadError={cause => setError(cause.message)} loading={<p className="previewMessage">{zh ? '正在读取 PDF…' : 'Reading PDF…'}</p>}>
+    }} onLoadError={cause => setError(previous => previous || cause.message)} loading={<p className="previewMessage">{zh ? '正在读取 PDF…' : 'Reading PDF…'}</p>}>
     {pdf && <PdfReader pdf={pdf} channel={channel} onError={cause => setError(previous => previous || cause.message)} />}
   </Document> : null;
 }

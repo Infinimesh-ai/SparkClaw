@@ -88,6 +88,7 @@ export function LocalDocumentPreview({ files, file, loginGeneration, zh, positio
         target.contentWindow?.postMessage({ type: "sparkclaw-preview:init", protocol: 1, document: {
           id: documentId, generation, loginGeneration, name: file.name, size: converted?.size ?? file.size,
           format: converted?.kind || (format === 'office' || format === 'xlsx' || format === 'csv' || format === 'tsv' ? 'unsupported' : format), language: zh ? "zh" : "en", position: initialPosition.current,
+          warnings: format === 'office' ? converted?.warnings?.filter(value => typeof value === 'string').slice(0, 6).map(value => value.slice(0, 512)) : undefined,
         } satisfies PreviewDocument }, PREVIEW_ORIGIN, [channel.port2]);
         initializing = false;
       } catch (reason) { if (active) { setError(localFileError(reason, zh)); if (invalidSource.has((reason as { code?: string })?.code || "")) callbacks.current.onInvalid(); revoke(); } }

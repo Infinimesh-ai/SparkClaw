@@ -181,3 +181,18 @@ it("accepts only its isolated frame handshake and refuses requests for another d
   } finally { await act(async () => root.unmount()); }
   expect(port.close).toHaveBeenCalled();
 });
+
+it("passes bounded Office conversion warnings into the isolated document", async () => {
+  const mock = bridge(), host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
+  const port = { start: vi.fn(), close: vi.fn(), postMessage: vi.fn(), onmessage: null };
+  vi.stubGlobal("MessageChannel", class { port1 = port; port2 = {}; });
+  mock.files.preview = vi.fn(async () => ({ previewId: "preview", kind: "pdf" as const, size: 10, warnings: Array(8).fill("Missing local fonts: " + "x".repeat(700)) }));
+  try {
+    await act(async () => root.render(<LocalDocumentPreview files={mock.files} file={{ ...mock.first, name: "report.docx" }} loginGeneration="login-1" zh={false} onPosition={() => {}} onInvalid={() => {}} />));
+    const frame = host.querySelector("iframe")!, post = vi.spyOn(frame.contentWindow!, "postMessage").mockImplementation(() => {});
+    await act(async () => window.dispatchEvent(new MessageEvent("message", { source: frame.contentWindow, origin: "sparkclaw-preview://viewer", data: { type: "sparkclaw-preview:ready", protocol: 1 } })));
+    const init = post.mock.calls[0][0] as { document: PreviewDocument };
+    expect(init.document.format).toBe("pdf"); expect(init.document.warnings).toHaveLength(6);
+    expect(init.document.warnings![0]).toHaveLength(512); expect(validDocument(init.document)).toBe(true);
+  } finally { await act(async () => root.unmount()); }
+});

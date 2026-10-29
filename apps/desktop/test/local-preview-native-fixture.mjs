@@ -4,6 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { pdfRangeFixture } from './pdf-range-fixture.mjs';
+import { pdfEncryptedFixture } from './pdf-encrypted-fixture.mjs';
 import { createLocalPreviewProtocolHandler, previewRequestAllowed, guardLocalPreviewNavigation } from '../src/main/local-preview-protocol.mjs';
 const temporary=process.env.SPARKCLAW_PREVIEW_TEST_ROOT;
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../..');
@@ -29,7 +30,7 @@ app.whenReady().then(async()=>{
   const errors=[];window.webContents.on('console-message',details=>{if(details.level==='error')errors.push(details.message);});
   await window.loadURL('sparkclaw-app://workbench/index.html');const run=expression=>Promise.race([window.webContents.executeJavaScript(expression),pause(5000).then(()=>{throw new Error('host execution timeout');})]);let frame;
   const until=async(fn,label)=>{const deadline=Date.now()+12000;while(Date.now()<deadline){if(await fn())return;await pause(20);}throw new Error(label+' '+JSON.stringify(errors));};
-  const load=async(format,name,bytes,model,position)=>{const previousFrame=frame;await run(`openFixture(${JSON.stringify({format,name,size:bytes.length,position})},${JSON.stringify([...bytes])},${JSON.stringify(model||null)})`);await until(()=>{frame=window.webContents.mainFrame.frames.find(f=>f!==previousFrame&&f.url.startsWith('sparkclaw-preview://viewer/'));return Boolean(frame);},'frame did not load');};
+  const load=async(format,name,bytes,model,position,warnings)=>{const previousFrame=frame;await run(`openFixture(${JSON.stringify({format,name,size:bytes.length,position,warnings})},${JSON.stringify([...bytes])},${JSON.stringify(model||null)})`);await until(()=>{frame=window.webContents.mainFrame.frames.find(f=>f!==previousFrame&&f.url.startsWith('sparkclaw-preview://viewer/'));return Boolean(frame);},'frame did not load');};
   const screenshot=async name=>{if(process.env.SPARKCLAW_PREVIEW_SCREENSHOTS){await fs.mkdir(process.env.SPARKCLAW_PREVIEW_SCREENSHOTS,{recursive:true});await fs.writeFile(path.join(process.env.SPARKCLAW_PREVIEW_SCREENSHOTS,name+'.png'),(await window.capturePage()).toPNG());}};
   const evaluate=expression=>Promise.race([frame.executeJavaScript(expression),pause(5000).then(()=>{throw new Error('frame execution timeout '+expression);})]);
   window.webContents.debugger.attach('1.3');
@@ -77,9 +78,14 @@ app.whenReady().then(async()=>{
   await load('markdown','unsafe.md',Buffer.from('# Local heading\n\n<script>window.compromised=true</script>\n\n![remote](https://example.com/image.png)\n\n[link](https://example.com)'));
   await until(()=>evaluate("document.querySelector('h1')?.textContent==='Local heading'"),'markdown missing');assert.equal(await evaluate("Boolean(window.compromised||document.querySelector('article script')||document.querySelector('article a[href]'))"),false);
   await screenshot('markdown');
+  await load('pdf','encrypted.pdf',pdfEncryptedFixture());
+  await until(()=>evaluate("document.querySelector('[role=alert]')?.textContent.includes('Unlock it and save an unencrypted copy')"),'encrypted PDF did not fail visibly without a password dialog');
   // A minimal single-page PDF, with exact cross-reference offsets.
   let pdf='%PDF-1.4\n';const offsets=[0];const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>','<< /Length 42 >>\nstream\nBT /F1 12 Tf 20 150 Td (Local PDF) Tj ET\nendstream'];for(let i=0;i<objects.length;i++){offsets.push(Buffer.byteLength(pdf));pdf+=`${i+1} 0 obj\n${objects[i]}\nendobj\n`;}const xref=Buffer.byteLength(pdf);pdf+=`xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
-  await load('pdf','fixture.pdf',Buffer.from(pdf));await until(()=>evaluate("Boolean(document.querySelector('[data-pdf-front] canvas'))"),'PDF canvas missing');
+  await load('pdf','fixture.pdf',Buffer.from(pdf),null,undefined,['Missing local fonts: synthetic-font']);await until(()=>evaluate("Boolean(document.querySelector('[data-pdf-front] canvas'))"),'PDF canvas missing');
+  await until(()=>evaluate("document.querySelector('.previewWarnings')?.textContent.includes('synthetic-font')"),'font feedback missing');
+  await evaluate("document.querySelector('.previewWarnings button').click()");
+  await until(()=>evaluate("!document.querySelector('.previewWarnings')"),'font feedback did not dismiss');
   await until(()=>evaluate("document.querySelector('.react-pdf__Page__textContent')?.textContent.includes('Local PDF')"),'PDF selectable text missing');await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");const canvas=await evaluate("(()=>{const c=document.querySelector('[data-pdf-front] canvas');return {width:c.width,height:c.height};})()");assert.ok(canvas.width*canvas.height<=8_000_000);
   await escapeOrder('pdf');
   await screenshot('pdf');const before=await evaluate('location.href');await evaluate("location.href='sparkclaw-app://workbench/index.html'");await pause(150);assert.equal(frame.url,before);
@@ -180,6 +186,6 @@ app.whenReady().then(async()=>{
   await revokeViewer('image');
   await load('text','reopened.txt',Buffer.from('Fresh preview after revocation'));
   await until(()=>evaluate("document.querySelector('pre')?.textContent==='Fresh preview after revocation'"),'new preview did not recover after revocation');
-  const result={isolation,formats:['text','spreadsheet','markdown','pdf','image'],sheetCopy:copy,sheetSwitch:true,editingBlocked:true,pdfPixels:canvas.width*canvas.height,pdfRangeRead:true,pdfPageSwitch:true,pdfNativePinch:true,pdfTwoAxisPan:true,pdfGestureAnchor:true,smoothIn,smoothOut,pdfNoBlankFrames:true,sharpAtMax,sharpInk,pdfScreenDensity:true,percentageAutoHide:true,percentageIdleSeconds:2,percentagePresetsOnly:true,percentagePlusMinus:true,percentagePresets:true,pdfEscapeMenuFirst:true,imageEscapeMenuFirst:true,escapeFocusRestored:true,revokedPDFUnmounted:true,revokedImageUnmounted:true,revokedChannelSilent:true,reopenAfterRevocation:true,noHorizontalScrollbar:true,pdfNoToolbar:true,imageNativePinch:true,imageNoToolbar:true,pdfZoom:true,pdfPositionRestore:true,pdfContinuousScroll:true,pdfFitWidth:true,pdfResizeAnchor:true,pdfWhiteSurface:true,privatePDFChecked:Boolean(process.env.SPARKCLAW_PREVIEW_TEST_PDF),navigationBlocked:true};console.log(JSON.stringify(result));window.destroy();app.exit(0);
+  const result={isolation,formats:['text','spreadsheet','markdown','pdf','image'],sheetCopy:copy,sheetSwitch:true,editingBlocked:true,pdfPixels:canvas.width*canvas.height,pdfRangeRead:true,pdfPageSwitch:true,pdfNativePinch:true,pdfTwoAxisPan:true,pdfGestureAnchor:true,smoothIn,smoothOut,pdfNoBlankFrames:true,sharpAtMax,sharpInk,pdfScreenDensity:true,percentageAutoHide:true,percentageIdleSeconds:2,percentagePresetsOnly:true,percentagePlusMinus:true,percentagePresets:true,pdfEscapeMenuFirst:true,imageEscapeMenuFirst:true,escapeFocusRestored:true,encryptedPDFRejected:true,officeFontNoticeDismissible:true,revokedPDFUnmounted:true,revokedImageUnmounted:true,revokedChannelSilent:true,reopenAfterRevocation:true,noHorizontalScrollbar:true,pdfNoToolbar:true,imageNativePinch:true,imageNoToolbar:true,pdfZoom:true,pdfPositionRestore:true,pdfContinuousScroll:true,pdfFitWidth:true,pdfResizeAnchor:true,pdfWhiteSurface:true,privatePDFChecked:Boolean(process.env.SPARKCLAW_PREVIEW_TEST_PDF),navigationBlocked:true};console.log(JSON.stringify(result));window.destroy();app.exit(0);
  }catch(error){console.error(error.stack);window?.destroy();app.exit(1);}
 });

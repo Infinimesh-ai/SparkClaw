@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { Component, Suspense, lazy, type ReactNode } from 'react';
 import { DocumentChannel, validDocument, WORKBENCH_ORIGIN } from './channel';
+import { PreviewWarnings } from './PreviewWarnings';
 import './preview.css';
 
 const Pdf = lazy(() => import('./PdfPreview'));
@@ -22,7 +23,7 @@ window.addEventListener('message', (event) => {
   if (channel) { event.ports[0].close(); return; }
   channel = new DocumentChannel(event.ports[0], event.data.document, clear);
   const value = channel; const format = value.document.format; const zh = value.document.language === 'zh';
-  root.render(<PreviewBoundary><Suspense fallback={<p className="previewMessage">{zh ? '正在加载…' : 'Loading…'}</p>}>
+  root.render(<PreviewBoundary><PreviewWarnings warnings={value.document.warnings} zh={zh} /><Suspense fallback={<p className="previewMessage">{zh ? '正在加载…' : 'Loading…'}</p>}>
     {format === 'pdf' ? <Pdf channel={value} /> : format === 'text' ? <Text channel={value} /> : format === 'markdown' ? <Markdown channel={value} /> : format === 'image' ? <Image channel={value} /> : format === 'spreadsheet' ? <Sheet channel={value} /> : <p className="previewMessage">{zh ? '暂不支持此文件格式的预览。' : 'Preview is unavailable for this file format.'}</p>}
   </Suspense></PreviewBoundary>);
 });

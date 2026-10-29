@@ -3,14 +3,15 @@ export const WORKBENCH_ORIGIN = 'sparkclaw-app://workbench';
 export const MAX_READ_BYTES = 256 * 1024;
 export type PreviewFormat = 'pdf' | 'image' | 'text' | 'markdown' | 'spreadsheet' | 'unsupported';
 export type ReadingPosition = { page?: number; zoom?: number; scrollTop?: number; scrollLeft?: number; sheet?: string; offset?: number };
-export type PreviewDocument = { id: string; generation: number; loginGeneration: string; name: string; size: number; format: PreviewFormat; language: 'en' | 'zh'; position?: ReadingPosition };
+export type PreviewDocument = { id: string; generation: number; loginGeneration: string; name: string; size: number; format: PreviewFormat; language: 'en' | 'zh'; position?: ReadingPosition; warnings?: string[] };
 export type PreviewRequest = { type: 'request'; id: number; documentId: string; generation: number; loginGeneration: string; operation: 'read' | 'model' | 'image'; offset?: number; length?: number; relativePath?: string };
 export type PreviewResponse = { type: 'response'; id: number; documentId: string; generation: number; loginGeneration: string; ok: boolean; value?: unknown; error?: { code?: string; message?: string } };
 export type SpreadsheetCell = { row: number; column: number; value: string | number | boolean | null; formula?: string; missingCachedValue?: boolean; style?: { bold?: boolean; italic?: boolean; color?: string; background?: string; fontSize?: number; align?: string; numberFormat?: string } };
 export type SpreadsheetModel = { kind: 'spreadsheet'; sheets: { id: string; name: string; rowCount: number; columnCount: number; cells: SpreadsheetCell[]; merges: { row: number; column: number; rowSpan: number; columnSpan: number }[] }[]; warnings: string[] };
 export function validDocument(value: unknown): value is PreviewDocument {
   const d = value as PreviewDocument;
-  return !!d && typeof d === 'object' && typeof d.id === 'string' && d.id.length > 0 && d.id.length <= 160 && Number.isSafeInteger(d.generation) && d.generation >= 0 && typeof d.loginGeneration === 'string' && d.loginGeneration.length > 0 && d.loginGeneration.length <= 160 && typeof d.name === 'string' && d.name.length <= 4096 && Number.isSafeInteger(d.size) && d.size >= 0 && ['pdf','image','text','markdown','spreadsheet','unsupported'].includes(d.format) && ['en','zh'].includes(d.language);
+  return !!d && typeof d === 'object' && typeof d.id === 'string' && d.id.length > 0 && d.id.length <= 160 && Number.isSafeInteger(d.generation) && d.generation >= 0 && typeof d.loginGeneration === 'string' && d.loginGeneration.length > 0 && d.loginGeneration.length <= 160 && typeof d.name === 'string' && d.name.length <= 4096 && Number.isSafeInteger(d.size) && d.size >= 0 && ['pdf','image','text','markdown','spreadsheet','unsupported'].includes(d.format) && ['en','zh'].includes(d.language)
+    && (d.warnings === undefined || Array.isArray(d.warnings) && d.warnings.length <= 6 && d.warnings.every(value => typeof value === 'string' && value.length <= 512));
 }
 export class DocumentChannel {
   private next = 0;

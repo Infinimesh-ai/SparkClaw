@@ -197,13 +197,28 @@ class LocalComposeTest(unittest.TestCase):
         self.assertEqual(curl_calls, [])
 
     def test_local_entry_rejects_remote_model_override(self) -> None:
-        result, docker_calls, _ = self.run_script(
+        # Keep both lanes equal so this reaches the local-service boundary.
+        result, docker_calls, curl_calls = self.run_script(
+            private_extra=(
+                "SPARKCLAW_FAST_BASE_URL=https://models.example.com/fast/v1\n"
+                "SPARKCLAW_DEEP_BASE_URL=https://models.example.com/fast/v1\n"
+            )
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SPARKCLAW_FAST_BASE_URL must use the local Compose model service", result.stderr)
+        self.assertEqual(docker_calls, [])
+        self.assertEqual(curl_calls, [])
+
+    def test_local_entry_rejects_mismatched_fast_and_deep_endpoints(self) -> None:
+        result, docker_calls, curl_calls = self.run_script(
             private_extra="SPARKCLAW_FAST_BASE_URL=https://models.example.com/fast/v1\n"
         )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("not a supported credential or machine override", result.stderr)
+        self.assertIn("SPARKCLAW_DEEP_BASE_URL must match SPARKCLAW_FAST_BASE_URL", result.stderr)
         self.assertEqual(docker_calls, [])
+        self.assertEqual(curl_calls, [])
 
     def test_ambient_model_and_api_token_values_cannot_create_a_hybrid_mode(self) -> None:
         result, docker_calls, _ = self.run_script(

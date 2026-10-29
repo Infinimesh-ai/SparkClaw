@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "source_base": "c3abcf2c820eedef6971ca26ea8d67fb1e81a8cf",
+  "scope": "Test-fixture repair only; no production Compose, deployment script, service, or remote configuration changes.",
+  "observed_failure": {
+    "test": "LocalComposeTest.test_local_entry_rejects_remote_model_override",
+    "expected_old_message": "not a supported credential or machine override",
+    "actual_message": "SPARKCLAW_DEEP_BASE_URL must match SPARKCLAW_FAST_BASE_URL in both product modes",
+    "current": {
+      "run_id": 40857683224,
+      "job_id": 123392664139,
+      "head": "c3abcf2c820eedef6971ca26ea8d67fb1e81a8cf",
+      "url": "https://github.com/Infinimesh-ai/SparkClaw/actions/runs/40857683224/job/123392664139"
+    },
+    "baseline": {
+      "run_id": 40804151273,
+      "job_id": 123218957366,
+      "head": "1f75fd11b358835435e7134d35c56abfd0770e3a",
+      "url": "https://github.com/Infinimesh-ai/SparkClaw/actions/runs/40804151273/job/123218957366"
+    },
+    "same_failure_in_both": true
+  },
+  "cause": "Commit 0022eff181656d9c85eeb7538a5adf5c333b8047 permits validated private model endpoint overrides. The local test retained an obsolete whitelist error assertion and changed only FAST, so it reached the FAST/DEEP equality check before the local-host check.",
+  "repair": [
+    "Set FAST and DEEP to the same remote URL in the existing rejection case, so it exercises the local Compose model service boundary.",
+    "Keep a separate mismatched FAST/DEEP case for the equality boundary.",
+    "Assert both cases reject before any Docker or curl invocation."
+  ],
+  "validation": {
+    "local_command": "python3 -m unittest scripts/test_local_compose.py",
+    "environment": "macOS arm64, Bash 5.3.15, Node 26.2.0, canonical nonsymlink temporary directory",
+    "before": {
+      "tests": 13,
+      "failures": 1,
+      "same_as_ci": true
+    },
+    "after": {
+      "tests": 14,
+      "failures": 0,
+      "passed": true
+    },
+    "production_files_changed": false,
+    "remote_ci_rerun": "pending parent integration/push",
+    "additional_environment_diagnostics": [
+      "The initial Mac default Bash 3 run failed on existing Bash 4+ syntax; not the GitHub failure.",
+      "Using Bash 5 with the default symlinked Mac temp path failed the existing private-path guard; canonical temp restored the exact GitHub baseline failure.",
+      "The unchanged remote Compose suite was attempted separately; Mac BSD realpath lacks -m, so that extra Linux-oriented suite is not counted as passed."
+    ]
+  },
+  "raw_logs_sha256": {
+    "current-job.log": "4b9341adbb316bd3468009f1970e58fb361cadd5c7270489e6e0bc27accc04ce",
+    "baseline-job.log": "563bdbfe43f22d791e72c32ac0974d638c7c851b4d8dace5685890aa4c07460b",
+    "local-baseline.log": "c2d880f614c924683a0dbcf834ce17d11979d702ab3316a6d90e5ab911135326",
+    "local-bash5-baseline.log": "37b63221139f10ab65ae59ba3f25711cb5272974b2929a9b8799d479abfa12be",
+    "local-canonical-baseline.log": "7b730f11d7d7b3dc64479b77b6d4cca5326a4f164b3724e851f8ab6aae95f710",
+    "local-fixed.log": "f950496683b06149a28ed25babeecf3c0f33cbec26bb4da9e73e1b6045c5724e",
+    "remote-contract-regression.log": "004d652c0e2240b91b98c39387c1a1598bacb3fbe2083f86e27205ef150e0935"
+  }
+}

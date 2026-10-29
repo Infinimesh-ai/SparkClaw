@@ -79,7 +79,9 @@ test('pagination sorts on disk and revisits every entry without full in-memory a
   for (let page = 0; page < 3; page++) names.push(...(await f.service.dispatch({ operation: 'list', ref, page })).entries.map(entry => entry.name));
   assert.deepEqual(names, ['folder', 'file1', 'file2', 'file3', 'file10']);
   await rejects(() => f.service.dispatch({ operation: 'list', ref, cursor: oldCursor }), 'stale_cursor');
-  const hidden = await f.service.dispatch({ operation: 'list', ref, showHidden: true, filter: 'hidden', refresh: true });
+  let hidden = await f.service.dispatch({ operation: 'list', ref, showHidden: true, filter: 'hidden', refresh: true });
+  // A bounded scan may contain no match; directory order differs by filesystem.
+  while (hidden.cursor) hidden = await f.service.dispatch({ operation: 'list', ref, showHidden: true, filter: 'hidden', cursor: hidden.cursor });
   assert.equal(hidden.entries[0].name, '.hidden');
   const stale = hidden.cursor;
   if (stale) await rejects(() => f.service.dispatch({ operation: 'list', ref, cursor: stale, showHidden: true, filter: 'file' }), 'stale_cursor');

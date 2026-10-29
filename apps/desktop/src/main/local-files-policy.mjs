@@ -40,6 +40,20 @@ export function parseMounts(text, platform) {
   return result.sort((a, b) => b.path.length - a.path.length);
 }
 
+async function identifyDarwinVolume(mount) {
+  // Boot-critical mounts cannot be hot-swapped under this process. For other
+  // local volumes a /dev/disk slot can be reused immediately; HFS+ inode and
+  // second-resolution timestamps alone do not identify the mounted volume.
+  if (!LOCAL_TYPES.has(mount.type) || mount.path === '/' || mount.path === '/dev' || within('/System', mount.path)) return mount;
+  if (!/^\/dev\/disk\d+(?:s\d+)*$/.test(mount.source)) return { ...mount, unavailable: true };
+  try {
+    const { stdout } = await execute('/usr/sbin/diskutil', ['info', '-plist', mount.source], { timeout: 2000, maxBuffer: 256 * 1024, env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' } });
+    const uuid = /<key>VolumeUUID<\/key>\s*<string>([a-f\d-]{8,64})<\/string>/i.exec(stdout)?.[1];
+    if (!uuid) return { ...mount, unavailable: true };
+    return { ...mount, id: uuid.toLowerCase() };
+  } catch { return { ...mount, unavailable: true }; }
+}
+
 // Mount inventory reads only local kernel metadata. Unknown/fuse/autofs mounts
 // are not probed: a stat/readdir there could connect to a server or hydrate data.
 export class LocalFilesPolicy {
@@ -62,6 +76,13 @@ export class LocalFilesPolicy {
   }
   async guard(value) {
     const mount = (await this.mounts()).find(entry => within(entry.path, value));
+    // Resolve only the volume being accessed; ordinary Desktop reads must not
+    // wait for every attached disk. Forced inventories create fresh records.
+    if (this.platform === 'darwin' && !this.mountProvider && mount?.local) {
+      mount.identity ??= identifyDarwinVolume(mount);
+      Object.assign(mount, await mount.identity);
+    }
+    if (mount?.unavailable) fail('unavailable', 'This volume identity could not be verified; reconnect it and reopen the file');
     if (!mount?.local) fail('remote_location', 'This location must be opened through the operating system');
     return mount;
   }

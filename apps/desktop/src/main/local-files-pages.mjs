@@ -10,14 +10,22 @@ export class LocalFilesPages {
   async open() {
     await fs.mkdir(this.directory, { recursive: true, mode: 0o700 });
     await fs.chmod(this.directory, 0o700);
+    const space = await fs.statfs(this.directory);
+    if (space.bavail * space.bsize < 64 * 1024) fail('storage_limit', 'Free disk space is too low for the local listing cache');
     this.file = path.join(this.directory, 'directory-pages.sqlite');
-    this.db = new DatabaseSync(this.file);
-    await fs.chmod(this.file, 0o600);
-    this.db.exec(`PRAGMA page_size=4096; PRAGMA max_page_count=${Math.max(16, Math.floor(this.limitBytes / 8192))}; PRAGMA cache_size=-512; PRAGMA mmap_size=0; PRAGMA journal_mode=DELETE;
-      CREATE TABLE IF NOT EXISTS entries(listing TEXT NOT NULL, sequence INTEGER NOT NULL, directory INTEGER NOT NULL, sort_key TEXT NOT NULL, name TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(listing,sequence));
-      CREATE INDEX IF NOT EXISTS entry_order ON entries(listing,directory DESC,sort_key,name,sequence);`);
-    // Lists are authority-scoped and never survive a process restart.
-    this.db.exec('DELETE FROM entries;'); return this;
+    try {
+      this.db = new DatabaseSync(this.file);
+      await fs.chmod(this.file, 0o600);
+      this.db.exec(`PRAGMA page_size=4096; PRAGMA max_page_count=${Math.max(16, Math.floor(this.limitBytes / 8192))}; PRAGMA cache_size=-512; PRAGMA mmap_size=0; PRAGMA journal_mode=DELETE;
+        CREATE TABLE IF NOT EXISTS entries(listing TEXT NOT NULL, sequence INTEGER NOT NULL, directory INTEGER NOT NULL, sort_key TEXT NOT NULL, name TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(listing,sequence));
+        CREATE INDEX IF NOT EXISTS entry_order ON entries(listing,directory DESC,sort_key,name,sequence);`);
+      // Lists are authority-scoped and never survive a process restart.
+      this.db.exec('DELETE FROM entries;'); return this;
+    } catch (error) {
+      this.close();
+      if (error.errcode === 13 || error.code === 'ERR_SQLITE_ERROR' && /full/i.test(error.message)) fail('storage_limit', 'The local listing cache is full; free disk space and retry');
+      throw error;
+    }
   }
   put(listing, entries, start) {
     const insert = this.db.prepare('INSERT INTO entries VALUES(?,?,?,?,?,?)');

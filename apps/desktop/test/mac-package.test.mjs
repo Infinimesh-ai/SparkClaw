@@ -5,7 +5,16 @@ import path from "node:path";
 import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { createPackage } from "@electron/asar";
-import auditPackage, { auditApplicationEntries } from "../scripts/audit-package.mjs";
+import auditPackage, { auditApplicationEntries, auditRuntimeEntries, requiredRuntimeEntries } from "../scripts/audit-package.mjs";
+
+test("package audit rejects missing converter, parser and guardian runtime files", () => {
+  for (const platform of ['darwin', 'linux']) {
+    const entries = requiredRuntimeEntries(platform, 'arm64');
+    auditRuntimeEntries(entries, platform, 'arm64');
+    assert.throws(() => auditRuntimeEntries(['/package.json', '/src/main/main.mjs'], platform, 'arm64'), /missing a required runtime file/);
+    for (const omitted of entries) assert.throws(() => auditRuntimeEntries(entries.filter(entry => entry !== omitted), platform, 'arm64'), /missing a required runtime file/);
+  }
+});
 
 test("client package audit permits public sources and only locked desktop runtime dependencies", () => {
   auditApplicationEntries(["/package.json", "/src/main/main.mjs", "/src/main/secure-credential-store.mjs", "/src/assets/icon.png", "/bin/sparkclaw-electron-browser.mjs", "/node_modules/@sparkclaw/browser-bridge/src/relay-connection.mjs"]);
@@ -30,10 +39,15 @@ test("afterPack audits a synthetic ASAR/resources tree without compiling any Mac
   await fs.writeFile(path.join(resources, "local-preview", "assets", "pdf.worker.mjs"), "// synthetic bundled PDF worker");
   await fs.writeFile(path.join(source, "package.json"), "{}");
   await fs.writeFile(path.join(source, "src", "main", "main.mjs"), "// synthetic public client");
+  for (const entry of requiredRuntimeEntries('darwin', 'arm64')) {
+    const filename = path.join(source, entry);
+    await fs.mkdir(path.dirname(filename), { recursive: true });
+    await fs.writeFile(filename, 'synthetic runtime fixture');
+  }
   await fs.writeFile(path.join(resources, "webchat", "index.html"), "<!doctype html>");
   await fs.writeFile(path.join(resources, "webchat", "assets", "main.js"), "// synthetic built UI");
   await createPackage(source, path.join(resources, "app.asar"));
-  const context = { electronPlatformName: "darwin", appOutDir: output, packager: { appInfo: { productFilename: "SparkX" } } };
+  const context = { electronPlatformName: "darwin", arch: 3, appOutDir: output, packager: { appInfo: { productFilename: "SparkX" } } };
   const plistPath = path.join(resources, "..", "Info.plist");
   await fs.writeFile(plistPath, "<plist><dict><key>CFBundleIconFile</key><string>electron.icns</string></dict></plist>");
   await assert.rejects(auditPackage(context), /SparkX application icon/);

@@ -50,6 +50,26 @@ export function auditApplicationEntries(entries) {
   }
 }
 
+export function requiredRuntimeEntries(platform, architecture) {
+  const modules = [
+    '@sparkclaw/browser-bridge/src/relay-connection.mjs',
+    '@deepseek-ai/libreoffice-kit/lib/index.js', '@deepseek-ai/libreoffice-kit/lib/worker.js',
+    'exceljs/excel.js', 'papaparse/papaparse.js', 'yauzl/index.js',
+  ];
+  const engine = platform === 'darwin' ? `@deepseek-ai/libreoffice-kit-darwin-${architecture}` : '@deepseek-ai/libreoffice-kit-wasm';
+  modules.push(`${engine}/package.json`, `${engine}/prebuilds.json`, ...(platform === 'darwin'
+    ? [`${engine}/bin/dsoffice`, `${engine}/program/LibreOfficeDev.app/Contents/Resources/bootstraprc`]
+    : ['dsoffice.cjs', 'dsoffice.wasm', 'dsoffice.data', 'dsoffice.data.js.metadata'].map(name => `${engine}/assets/${name}`)));
+  return ['src/main/local-preview-worker.mjs', 'src/main/local-preview-guardian.mjs', ...modules.map(name => `node_modules/${name}`)];
+}
+
+export function auditRuntimeEntries(entries, platform, architecture) {
+  const available = new Set(entries.map(entry => entry.replace(/^\//u, '')));
+  for (const entry of requiredRuntimeEntries(platform, architecture)) {
+    if (!available.has(entry)) throw new Error(`Installation package is missing a required runtime file: ${entry}`);
+  }
+}
+
 // electron-builder invokes this on the Mac after assembling its own runtime.
 // It audits our ASAR and extra resources before generating distributables.
 export default async function auditPackage(context) {
@@ -78,6 +98,10 @@ export default async function auditPackage(context) {
       previewEntries.some(entry => !/\.(?:html|js|mjs|css|wasm|bcmap|pfb|ttf|otf|txt|json)$/iu.test(entry) && !/^(?:cmaps|standard_fonts|wasm)\/LICENSE(?:_[A-Z0-9_]+)?$/u.test(entry))) {
     throw new Error("Installation package requires the offline local preview assets");
   }
+  // A dependency allowlist alone accepts an empty node_modules tree. Builder
+  // can silently omit dependencies when a checkout uses linked installations.
+  const architecture = typeof context.arch === 'string' ? context.arch : ({ 1: 'x64', 3: 'arm64' }[context.arch] || process.arch);
+  auditRuntimeEntries(listPackage(path.join(resources, "app.asar")), context.electronPlatformName, architecture);
   await fs.writeFile(path.join(resources, "client-package-audit.json"), JSON.stringify({
     schema_version: 1, platform: context.electronPlatformName,
     client_scope: "public_client_source_and_ui", application_entries: listPackage(path.join(resources, "app.asar")).length,

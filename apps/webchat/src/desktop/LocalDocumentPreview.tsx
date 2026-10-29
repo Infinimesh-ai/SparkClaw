@@ -58,7 +58,7 @@ export function LocalDocumentPreview({ files, file, loginGeneration, zh, positio
           if (data.type === "position") {
             const value = data.position;
             if (value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length <= 5 && Object.entries(value).every(([key, n]) => key === "sheet" ? typeof n === "string" && n.length <= 100 :
-              ["page", "zoom", "scrollTop", "offset"].includes(key) && typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 10_000_000)) callbacks.current.onPosition(value);
+              ["page", "zoom", "scrollTop", "scrollLeft", "offset"].includes(key) && typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 10_000_000)) callbacks.current.onPosition(value);
             return;
           }
           if (data.type !== "request" || !Number.isSafeInteger(data.id) || data.id < 1 || requests.has(data.id) || inflight >= 4) return;

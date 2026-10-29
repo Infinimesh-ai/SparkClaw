@@ -4,7 +4,7 @@ export type LocalFile = {
   ref: string; locator: string; name: string; kind: "directory" | "file" | "link" | "bundle" | "unsupported";
   size: number; version: string; displayPath: string; unavailable?: string;
 };
-export type ReadingPosition = { page?: number; zoom?: number; scrollTop?: number; offset?: number; sheet?: string };
+export type ReadingPosition = { page?: number; zoom?: number; scrollTop?: number; scrollLeft?: number; offset?: number; sheet?: string };
 export type LocalReadingState = {
   tabs: { locator: string; position?: ReadingPosition }[]; active: string;
   expanded: string[]; selected?: string; scrollTop: number; showHidden: boolean; filter: string;

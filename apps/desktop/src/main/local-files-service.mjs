@@ -166,8 +166,8 @@ export class LocalFilesService {
   }
 
   async #roots(generation) {
-    const mounts = await this.policy.mounts(true);
-    const locations = this.rootLocators ?? ['/', os.homedir(), ...['Desktop', 'Documents', 'Downloads'].map(name => path.join(os.homedir(), name)), ...mounts.filter(entry => entry.path !== '/').map(entry => entry.path)];
+    await this.policy.mounts(true);
+    const locations = this.rootLocators ?? ['Desktop', 'Documents', 'Downloads'].map(name => path.join(os.homedir(), name));
     const result = [], seen = new Set();
     for (const value of locations.slice(0, 128)) {
       if (seen.has(value)) continue; seen.add(value);

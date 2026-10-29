@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-local-file-browser-design.md)
 >
-> Date: 2026-10-29. Status: installed on this Mac at the owner's request; implementation evidence is in section 11 and installation evidence in section 12. Full installed-profile and Linux qualification remain open. The confirmed scope is client-local browsing, a Files icon beside Browser, a computer-wide file tree, and DSH-style tree/preview tabs.
+> Date: 2026-10-29. Status: installed on this Mac at the owner's request; implementation evidence is in section 11 and installation evidence in section 12. Full installed-profile and Linux qualification remain open. The confirmed scope is client-local browsing, a Files icon beside Browser, a local file tree rooted at Desktop, Documents and Downloads, and DSH-style tree/preview tabs.
 
 SparkX will expose the computer's files through a read-only panel after desktop sign-in. Directory enumeration, file reads, document conversion, previews and caches stay on that computer. Opening a file does not attach it to a conversation or grant an Agent access. The Files entry and panel remain behind the existing desktop login gate; local processing does not make this an unauthenticated feature.
 
@@ -53,7 +53,7 @@ Use a single docked panel in this version. Do not import DSH's floating windows 
 
 ## 3 Computer-wide tree
 
-The synthetic root is This Computer, accessible after sign-in without an active conversation. Roots come from the local computer, not the backend workspace. On macOS expose the system filesystem and mounted volumes; on Linux expose the filesystem root and mounted volumes. Desktop, Documents and Downloads can be shortcuts to those same locations. DSH's session-workspace root restriction is not carried over.
+The synthetic root is This Computer, accessible after sign-in without an active conversation. Display only the local user's Desktop, Documents and Downloads, in that order. Do not add the home directory, filesystem root or mounted volumes as tree roots. Restore expanded directories only beneath those displayed roots. This is a navigation choice; the existing local file identity and read-only checks still apply to saved document tabs and explicitly followed links. Roots do not come from the backend workspace.
 
 - Expand one directory at a time. Use incremental enumeration and continuation cursors; do not recursively scan the disk or read every child into an unbounded array before truncating the answer.
 - Sort loaded entries with directories first and natural filename ordering. Keep the selected row and scroll anchor stable as batches arrive. Report a directory as complete only after enumeration ends; a large directory must remain reachable through continuation.
@@ -115,13 +115,13 @@ Use a small local registry mapping supported file types to lazy-loaded readers. 
 
 | Format | Selected approach | First-version behavior and limits |
 |---|---|---|
-| PDF | react-pdf with PDF.js | Continuous vertical scrolling, page navigation, zoom, fit width and selectable text on a white surface; bound rendered pages/pixels and cancel retired loads. Full-text search requires its own implementation and is not implied by installing the package |
+| PDF | react-pdf with PDF.js | Continuous scrolling, initial fit width, selectable text and two-finger pinch/pan on a white surface, without a page-number or zoom toolbar; bound rendered pages/pixels and cancel retired loads. Full-text search requires its own implementation and is not implied by installing the package |
 | DOC/DOCX, PPT/PPTX | Bundled @deepseek-ai/libreoffice-kit to PDF, then the same PDF viewer | Static layout preview, missing-font feedback when available; no editing, slideshow animation or macro execution |
 | XLSX | ExcelJS parser and FortuneSheet in read-only mode | Sheets, cell selection/copy, saved formula results and supported basic styles/merges; no recalculation, editing or source export |
 | CSV/TSV | PapaParse and the same spreadsheet surface | Preserve literal strings, leading zeros and formula-looking text; quoted/multiline fields and encoding failures are explicit |
 | Markdown | react-markdown and remark-gfm | Read-only formatted text; raw HTML disabled; local related images use a constrained resolver |
 | Text/code | Bounded text view and lazy highlight.js languages | Wrapping, line navigation and copy; no editor commands or code execution |
-| Raster images and SVG | Native image element with zoom | SVG as an image, not inline executable markup; refuse automatic external resource loads |
+| Raster images and SVG | Native image element with pinch/pan | No zoom toolbar. SVG as an image, not inline executable markup; refuse automatic external resource loads |
 | HTML and unknown files | Text/source view only when safely decodable; otherwise metadata and unsupported-preview state | No active HTML application preview in this version |
 
 Legacy XLS is not included in the first table preview. If added, evaluate SheetJS CE through its official distribution as a separate adapter; do not silently convert it into a lossy table or claim ExcelJS supports it.
@@ -295,3 +295,9 @@ PDF and converted Office pages scroll continuously and fit the panel width witho
 The production build and 553 frontend tests passed. The native Electron fixture covers continuous scrolling, mixed page sizes, white surfaces, fit width, panel resize, reading-position restoration and canvas retirement/budgets, alongside the previous range-read and five-format isolation checks. The private 41-page regression PDF also renders successfully. The original browser's 48 layout and 12 task-page checks pass. No shared contract or counterpart work is required.
 
 Clean source `912df1ff` was packaged and installed locally after cold backups of the app and profiles (76 databases / 343 tables). All 6,946 installed entries match the ZIP, and profile bytes/modes remained unchanged before launch. In the installed app, the original 41-page DOCX restored page 4; native wheel scrolling advanced continuously to page 5. White surfaces, top-frame filenames, reachable actions, split/wide fitting, conversation/document position restoration, Files tree and Browser switching were visually checked. The original file hash, login and conversation list are preserved. See the [validation receipt](evidence/desktop-local-continuous-reader-2026-10-29.json). No push or remote service change occurred; broader format/font and Linux gates remain open.
+
+## 15 Three folder roots and gesture reading — 2026-10-29
+
+The owner further narrowed the file tree to Desktop, Documents and Downloads. Default roots now expose only those three folders, in that order, with unavailable folders retaining their disabled entries. Old expanded locations outside these roots are ignored. Saved document tabs and existing read-only, login and mount checks remain intact.
+
+PDF/Office and image previews no longer show page navigation or zoom controls. A non-passive listener handles Chromium's native trackpad pinch events inside the isolated viewer, anchored to the document point beneath the gesture. Ordinary two-finger movement retains native horizontal/vertical scrolling and momentum; the workbench itself does not zoom. Initial fitting, selectable PDF text, bounded rendering, and local reading position remain. Horizontal reading offset is saved alongside the existing vertical position. PDF zoom remains bounded to 25–300%, images to 10–400%; no permanent gesture/status banner is added.

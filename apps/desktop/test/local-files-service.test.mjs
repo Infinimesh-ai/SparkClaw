@@ -19,6 +19,18 @@ async function fixture(t, options = {}) {
 }
 const rejects = (fn, code) => assert.rejects(fn, error => error.code === code);
 
+test('default roots contain only Desktop, Documents and Downloads, including unavailable folders', async t => {
+  const f = await fixture(t, { roots: undefined });
+  t.mock.method(os, 'homedir', () => f.root);
+  for (const name of ['Desktop', 'Downloads', 'Other']) await fs.mkdir(path.join(f.root, name));
+  f.service.policy.mountProvider = async () => [{ path: '/', type: 'ext4' }, { path: '/external', type: 'ext4' }];
+  const { roots } = await f.service.dispatch({ operation: 'roots' });
+  assert.deepEqual(roots.map(root => root.name), ['Desktop', 'Documents', 'Downloads']);
+  assert.deepEqual(roots.map(root => root.locator), ['Desktop', 'Documents', 'Downloads'].map(name => path.join(f.root, name)));
+  assert.equal(roots[1].unavailable, 'unavailable');
+  assert.ok(roots[0].ref && roots[2].ref);
+});
+
 test('verified bounded windows preserve originals and reject replacement/in-place changes', async t => {
   const f = await fixture(t); const file = await f.file('notes.txt', '原始文件 hello');
   const read = await f.service.dispatch({ operation: 'readBytes', ref: file.ref, version: file.version, offset: 0, length: 100 });

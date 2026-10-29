@@ -71,7 +71,8 @@ export function LocalFileTree({ files, roots, visible, zh, state, onState, onOpe
     if (restored.current || !roots.length || !visible) return;
     restored.current = true;
     void (async () => {
-      for (const locator of state.expanded.slice(0, MAX_EXPANDED)) {
+      const reachable = state.expanded.filter(locator => roots.some(root => locator === root.locator || locator.startsWith(root.locator === '/' ? '/' : `${root.locator}/`)));
+      for (const locator of reachable.slice(0, MAX_EXPANDED)) {
         try { const file = await files.resolve(locator); if (!alive.current) return; await expand(file, {}, [...current.current.keys()].filter(parent => locator.startsWith(parent === "/" ? "/" : `${parent}/`))); } catch { /* Stale locations remain absent until explicitly reopened. */ }
       }
     })();

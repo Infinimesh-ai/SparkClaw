@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Page } from 'react-pdf';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import type { DocumentChannel } from './channel';
+import { usePinchZoom, type ZoomPoint } from './usePinchZoom';
 
 const GAP = 8;
 const MAX_CANVASES = 16;
@@ -38,10 +39,11 @@ export function PdfReader({ pdf, channel, onError }: { pdf: PDFDocumentProxy; ch
   const anchor = useRef<Anchor>({ page: Math.min(pdf.numPages, Math.max(1, Math.floor(saved?.page || 1))), offset: Math.min(1, Math.max(0, saved?.offset || 0)) });
   const [page, setPage] = useState(anchor.current.page);
   const [zoom, setZoom] = useState(Math.max(.25, Math.min(3, saved?.zoom || 1)));
-  const [view, setView] = useState({ width: 600, height: 800, top: 0 });
+  const [view, setView] = useState({ width: 600, height: 800, top: 0, left: saved?.scrollLeft || 0 });
   const [ratios, setRatios] = useState<Map<number, number>>(() => new Map());
   const viewport = useRef<HTMLDivElement>(null);
   const frame = useRef(0);
+  const pinch = useRef<(Anchor & ZoomPoint & { horizontal: number }) | null>(null);
   const errorHandler = useRef(onError); errorHandler.current = onError;
   const boxes = useMemo(() => {
     let top = 0;
@@ -67,17 +69,44 @@ export function PdfReader({ pdf, channel, onError }: { pdf: PDFDocumentProxy; ch
   useLayoutEffect(() => {
     const node = viewport.current; if (!node) return;
     const update = () => setView(previous => ({ ...previous, width: Math.max(1, node.clientWidth), height: node.clientHeight }));
+    node.scrollLeft = saved?.scrollLeft || 0;
     const observer = new ResizeObserver(update); observer.observe(node); update();
     return () => { observer.disconnect(); cancelAnimationFrame(frame.current); };
   }, []);
 
-  // Preserve a page-relative anchor when dimensions arrive, the panel is
-  // resized or zoom changes. Absolute offsets alone drift in mixed-size PDFs.
+  const updateAnchor = (node: HTMLDivElement) => {
+    const index = pageAt(boxes, node.scrollTop + 1), box = boxes[index];
+    anchor.current = { page: index + 1, offset: Math.min(1, Math.max(0, (node.scrollTop - box.top) / box.height)) };
+    setPage(index + 1);
+    setView(previous => ({ ...previous, top: node.scrollTop, left: node.scrollLeft }));
+  };
+  usePinchZoom(viewport, zoom, (next, point) => {
+    const node = viewport.current; if (!node) return;
+    cancelAnimationFrame(frame.current);
+    const index = pageAt(boxes, node.scrollTop + point.y), box = boxes[index];
+    const left = (Math.max(view.width, view.width * zoom) - box.width) / 2;
+    pinch.current = { ...point, page: index + 1, offset: (node.scrollTop + point.y - box.top) / box.height,
+      horizontal: (node.scrollLeft + point.x - left) / box.width };
+    setZoom(next);
+  });
+
+  // Pinch keeps the document point beneath the fingers stationary. Ordinary
+  // panel resizing and lazy page measurements preserve the top reading anchor.
   useLayoutEffect(() => {
     const node = viewport.current; if (!node) return;
-    const box = boxes[anchor.current.page - 1];
-    node.scrollTop = box.top + anchor.current.offset * box.height;
-    setView(previous => previous.top === node.scrollTop ? previous : { ...previous, top: node.scrollTop });
+    const gesture = pinch.current;
+    if (gesture) {
+      const box = boxes[gesture.page - 1];
+      node.scrollTop = box.top + gesture.offset * box.height - gesture.y;
+      node.scrollLeft = (Math.max(view.width, view.width * zoom) - box.width) / 2 + gesture.horizontal * box.width - gesture.x;
+      pinch.current = null;
+      updateAnchor(node);
+    } else {
+      const box = boxes[anchor.current.page - 1];
+      node.scrollTop = box.top + anchor.current.offset * box.height;
+      node.scrollLeft = view.left;
+      setView(previous => previous.top === node.scrollTop && previous.left === node.scrollLeft ? previous : { ...previous, top: node.scrollTop, left: node.scrollLeft });
+    }
   }, [boxes]);
 
   useEffect(() => {
@@ -100,43 +129,17 @@ export function PdfReader({ pdf, channel, onError }: { pdf: PDFDocumentProxy; ch
   }, [pdf, start, end, ratios, zh]);
 
   useEffect(() => {
-    channel.position({ page, zoom, offset: anchor.current.offset, scrollTop: view.top });
-  }, [channel, page, zoom, view.top]);
+    channel.position({ page, zoom, offset: anchor.current.offset, scrollTop: view.top, scrollLeft: view.left });
+  }, [channel, page, zoom, view.top, view.left]);
 
   const captureScroll = () => {
     cancelAnimationFrame(frame.current);
     frame.current = requestAnimationFrame(() => {
       const node = viewport.current; if (!node) return;
-      const index = pageAt(boxes, node.scrollTop + 1), box = boxes[index];
-      anchor.current = { page: index + 1, offset: Math.min(1, Math.max(0, (node.scrollTop - box.top) / box.height)) };
-      setPage(index + 1);
-      setView(previous => ({ ...previous, top: node.scrollTop }));
+      updateAnchor(node);
     });
   };
-  const goToPage = (number: number) => {
-    const next = Math.max(1, Math.min(pdf.numPages, Math.floor(number) || 1));
-    cancelAnimationFrame(frame.current);
-    anchor.current = { page: next, offset: 0 };
-    const node = viewport.current;
-    if (node) { node.scrollTop = boxes[next - 1].top; setView(previous => ({ ...previous, top: node.scrollTop })); }
-    setPage(next);
-  };
-
   return <div className="pdfPreview">
-    <div className="previewToolbar pdfToolbar">
-      <div className="pdfToolbarGroup">
-        <button type="button" disabled={page <= 1} onClick={() => goToPage(page - 1)} aria-label={zh ? '上一页' : 'Previous page'}>‹</button>
-        <label><input aria-label={zh ? '页码' : 'Page number'} type="number" min={1} max={pdf.numPages} value={page} onChange={event => goToPage(Number(event.target.value))} /></label>
-        <span>/ {pdf.numPages}</span>
-        <button type="button" disabled={page >= pdf.numPages} onClick={() => goToPage(page + 1)} aria-label={zh ? '下一页' : 'Next page'}>›</button>
-      </div>
-      <div className="pdfToolbarGroup">
-        <button type="button" disabled={zoom <= .25} onClick={() => setZoom(Math.max(.25, zoom - .25))} aria-label={zh ? '缩小' : 'Zoom out'}>−</button>
-        <span className="pdfZoomValue">{Math.round(zoom * 100)}%</span>
-        <button type="button" disabled={zoom >= 3} onClick={() => setZoom(Math.min(3, zoom + .25))} aria-label={zh ? '放大' : 'Zoom in'}>＋</button>
-        <button type="button" onClick={() => setZoom(1)}>{zh ? '适合宽度' : 'Fit width'}</button>
-      </div>
-    </div>
     <div className="pdfPageViewport" ref={viewport} onScroll={captureScroll} tabIndex={0} aria-label={zh ? '文档内容' : 'Document content'}>
       <div className="pdfPageStack" style={{ height: totalHeight, minWidth: view.width * zoom }}>
         {visiblePages.map(number => {

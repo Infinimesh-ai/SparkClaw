@@ -100,6 +100,18 @@ it("clears document frames and readable state on permission loss and login revoc
   } finally { await f.close(); }
 });
 
+it('restores only expanded folders reachable from the current roots', async () => {
+  const f = await fixture(mock => vi.mocked(mock.files.loadState).mockResolvedValue({ generation: 'login-1', state: {
+    tabs: [], active: 'files', expanded: ['/', '/external', '/fixtures'], scrollTop: 5000, showHidden: false, filter: ''
+  } }));
+  try {
+    expect(f.files.resolve).toHaveBeenCalledWith('/fixtures');
+    expect(f.files.resolve).not.toHaveBeenCalledWith('/');
+    expect(f.files.resolve).not.toHaveBeenCalledWith('/external');
+    expect(f.host.textContent).toContain('Fixtures');
+  } finally { await f.close(); }
+});
+
 it("does not resurrect an in-flight open after login revocation", async () => {
   const f = await fixture();
   try {

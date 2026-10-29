@@ -32,6 +32,7 @@ const adapter = {
 const userDataDir = path.join(temporary, "user-data");
 let xvfb;
 let electron;
+let electronStderr = "";
 let fixtureServer;
 let fixtureServerOrigin = "";
 let mcp;
@@ -401,7 +402,19 @@ try {
     runtime_secret: secret,
     page_ref: crashPage.page_ref,
   });
-  await waitFor(async () => !(await qualificationSnapshot(secret)).pages.some((page) => page.task_id === "phase1-crash"), 5000);
+  try {
+    await waitFor(async () => !(await qualificationSnapshot(secret)).pages.some((page) => page.task_id === "phase1-crash"), 5000);
+  } catch (error) {
+    const state = await qualificationSnapshot(secret).catch(() => null);
+    process.stderr.write(`${JSON.stringify({
+      event: "sparkclaw_renderer_crash_timeout",
+      remaining_task_pages: state?.pages.filter((page) => page.task_id === "phase1-crash"),
+      owned_processes: await ownedProcessStatus(electron?.pid),
+      core_pattern: await fs.readFile("/proc/sys/kernel/core_pattern", "utf8").catch(() => "unavailable"),
+      electron_stderr: electronStderr,
+    })}\n`);
+    throw error;
+  }
   await assert.rejects(mcp.execute("tabs.list", {}));
   await mcp.close();
   mcp = null;
@@ -480,7 +493,8 @@ async function startElectron(display) {
     stdio: ["ignore", "pipe", "pipe"],
   });
   electron = child;
-  child.stderr.on("data", () => {});
+  electronStderr = "";
+  child.stderr.on("data", (chunk) => { electronStderr = (electronStderr + chunk.toString("utf8")).slice(-65536); });
   const line = await readMatchingJSON(child.stdout, child, "sparkclaw_electron_ready", 15_000);
   const socketStat = await fs.lstat(adapter.socketPath);
   const secretStat = await fs.lstat(adapter.secretPath);
@@ -584,6 +598,30 @@ async function waitFor(check, timeoutMS) {
     await delay(50);
   }
   throw new Error("qualification condition timed out");
+}
+
+// Failure-only diagnostics for this fixture's process tree; omit command lines,
+// environment variables and unrelated host processes. Keep the original deadline.
+async function ownedProcessStatus(rootPID) {
+  const pending = [{ pid: rootPID, parent: process.pid }], seen = new Set(), result = [];
+  while (pending.length && seen.size < 64) {
+    const { pid, parent } = pending.shift();
+    if (!Number.isSafeInteger(pid) || pid <= 0 || seen.has(pid)) continue;
+    seen.add(pid);
+    const status = await fs.readFile(`/proc/${pid}/status`, "utf8").catch(() => "");
+    const fields = Object.fromEntries(status.split("\n").filter((line) => /^(Name|State|PPid|CoreDumping|VmRSS|Threads):/u.test(line))
+      .map((line) => [line.slice(0, line.indexOf(":")), line.slice(line.indexOf(":") + 1).trim()]));
+    if (Number(fields.PPid) !== parent) continue;
+    result.push({ pid, ...fields });
+    const tasks = await fs.readdir(`/proc/${pid}/task`).catch(() => []);
+    for (const tid of tasks.filter((value) => /^[0-9]+$/u.test(value)).slice(0, 128)) {
+      const children = await fs.readFile(`/proc/${pid}/task/${tid}/children`, "utf8").catch(() => "");
+      for (const child of children.trim().split(/\s+/u).filter((value) => /^[0-9]+$/u.test(value))) {
+        pending.push({ pid: Number(child), parent: pid });
+      }
+    }
+  }
+  return result;
 }
 
 async function waitForValue(check, timeoutMS) {

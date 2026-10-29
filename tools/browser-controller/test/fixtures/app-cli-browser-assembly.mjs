@@ -26,7 +26,7 @@ export async function assemble({config, authorization}) {
       for (const [key, value] of Object.entries(secrets)) await context.browser.call('fill', '#' + key, value);
       await context.browser.call('inspect', '()=>{const n=document.createElement("div");n.id="EDITOR";n.contentEditable="true";document.body.append(n);return true}');
       await context.browser.call('fill', '#EDITOR', secrets.BODY);
-      const value = await context.browser.call('inspect', `()=>({title:document.title, heading:document.querySelector("#native-target").textContent, private_fields:Object.entries(${JSON.stringify(secrets)}).every(([key,value])=>document.getElementById(key).value===value)&&document.getElementById("EDITOR").innerText===${JSON.stringify(secrets.BODY)}})`);
+      const value = await context.browser.call('inspect', `()=>({title:document.title, heading:document.querySelector("#native-target").textContent, clicked:document.querySelector('[data-sc-fixture-action="prepare"]').dataset.clicked==='true', private_fields:Object.entries(${JSON.stringify(secrets)}).every(([key,value])=>document.getElementById(key).value===value)&&document.getElementById("EDITOR").innerText===${JSON.stringify(secrets.BODY)}})`);
       return {data: value.result};
     }},
   }};

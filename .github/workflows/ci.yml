@@ -105,7 +105,7 @@ jobs:
       - name: Permit user namespaces for the disposable Electron executable
         run: |
           sudo python3 scripts/configure-ci-userns.py \
-            "$(node -p 'require("./tools/browser-surface-host/test/electron-anchor/node_modules/electron")')"
+            "$(bash scripts/resolve-ci-electron.sh ./tools/browser-surface-host/test/electron-anchor/node_modules/electron)"
       - name: Run synthetic surface-host regression checks
         run: make -C tools/browser-surface-host test
       - name: Qualify the disposable Electron anchor
@@ -136,7 +136,7 @@ jobs:
         run: |
           python3 -m unittest scripts/test_ci_userns_profiles.py
           sudo python3 scripts/configure-ci-userns.py \
-            "$(command -v bwrap)" "$(node -p 'require("electron")')"
+            "$(command -v bwrap)" "$(bash scripts/resolve-ci-electron.sh electron)"
       - name: Verify kernel support for isolated preview processes
         run: |
           bwrap --version

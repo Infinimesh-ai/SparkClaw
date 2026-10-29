@@ -59,6 +59,8 @@ test("Mac packaging entry points exist and Linux refuses to invoke any Mac build
   assert.equal(pkg.name, "@sparkclaw/desktop");
   assert.equal(pkg.build.linux.artifactName, "SparkX-${version}-linux-${arch}.${ext}");
   assert.equal(pkg.build.deb.packageName, "sparkclaw");
+  assert.ok(pkg.build.deb.depends.includes("bubblewrap"), "the Linux package must install its preview isolation runtime");
+  assert.ok(pkg.build.deb.depends.includes("procps"), "the Linux package must install process-tree monitoring");
   assert.equal(pkg.build.mac.artifactName, "SparkX-${version}-mac-${arch}.${ext}");
   assert.equal(pkg.scripts["dist:mac-arm64"], "node scripts/package-macos.mjs --arch arm64");
   assert.equal(pkg.scripts["dist:mac-x64"], "node scripts/package-macos.mjs --arch x64");

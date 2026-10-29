@@ -7,7 +7,9 @@ export const LOCAL_PREVIEW_LIMITS = Object.freeze({
   readers: 12, queuedJobs: 8, deadlineMs: 90_000,
   cacheBytes: 96 * 1024 * 1024, cacheEntries: 12,
   taskDiskBytes: 256 * 1024 * 1024, diskBytes: 512 * 1024 * 1024,
-  memoryBytes: 768 * 1024 * 1024, diskHeadroomBytes: 512 * 1024 * 1024,
+  // The Linux WASM engine uses roughly 1.5 GiB resident memory before document
+  // complexity; retain a finite process-tree budget above that measured floor.
+  memoryBytes: (process.platform === 'linux' ? 2048 : 768) * 1024 * 1024, diskHeadroomBytes: 512 * 1024 * 1024,
   monitorMs: 250, killGraceMs: 500, cleanupMs: 5_000, readBytes: 1024 * 1024,
 });
 

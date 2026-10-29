@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { realpath, access, writeFile, readFile, rm } from 'node:fs/promises';
+import { realpath, access, writeFile, readFile, readlink, rm } from 'node:fs/promises';
+import net from 'node:net';
 import path from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -81,13 +82,15 @@ export async function sandboxCommand({ jobDirectory, worker = path.join(sourceDi
     const binary = ['/usr/bin/bwrap', '/bin/bwrap'];
     let command;
     for (const candidate of binary) { try { await access(candidate); command = candidate; break; } catch {} }
-    if (!command) throw previewError('preview_unavailable', 'Install the packaged Bubblewrap isolation support to enable heavy previews.');
+    if (!command) throw previewError('preview_unavailable', 'Install Bubblewrap (bwrap) to enable isolated heavy previews.');
     const readRoots = [...new Set([...roots, ...fontDirectories, path.dirname(runtime), '/usr/lib', '/usr/lib64', '/lib', '/lib64', '/usr/share/icu'])];
-    const args = ['--unshare-all', '--die-with-parent', '--new-session', '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp'];
+    const args = ['--unshare-all', '--die-with-parent', '--new-session', '--proc', '/proc', '--dev', '/dev', '--dir', '/tmp'];
     for (const root of readRoots) { try { await access(root); args.push('--ro-bind', root, root); } catch {} }
     args.push('--bind', jobDirectory, jobDirectory);
     for (const file of readOnlyFiles) args.push('--ro-bind', file, file);
-    args.push('--chdir', jobDirectory, '--', runtime, ...nodeArguments);
+    // Bubblewrap creates writable parent directories in its private root. Keep
+    // that scaffold read-only; the separately bound job remains writable.
+    args.push('--remount-ro', '/', '--remount-ro', '/dev', '--chdir', jobDirectory, '--', runtime, ...nodeArguments);
     return { command, args, options: { cwd: jobDirectory, env: environment, detached: true, stdio: ['ignore', 'pipe', 'pipe'] } };
   }
   throw previewError('preview_unavailable', 'Heavy document previews are unavailable on this platform.');
@@ -99,18 +102,39 @@ export async function verifyPreviewSandbox({ jobDirectory, outsidePath, runtime 
   jobDirectory = await realpath(jobDirectory);
   const probe = path.join(jobDirectory, 'isolation-probe.mjs');
   const result = path.join(jobDirectory, 'isolation-result.json');
-  await writeFile(probe, `import fs from 'node:fs/promises';import net from 'node:net';\nconst outside=${JSON.stringify(outsidePath)},result=${JSON.stringify(result)};\nlet readDenied=false,writeDenied=false,networkDenied=false,metadataDenied=false;try{await fs.stat(outside)}catch(e){metadataDenied=['EPERM','EACCES','ENOENT'].includes(e.code)}try{await fs.readFile(outside)}catch(e){readDenied=['EPERM','EACCES','ENOENT'].includes(e.code)}\ntry{await fs.writeFile(outside+'.write','forbidden')}catch(e){writeDenied=['EPERM','EACCES','ENOENT'].includes(e.code)}\nawait new Promise(resolve=>{const socket=net.connect({host:'127.0.0.1',port:9});socket.on('connect',()=>{socket.destroy();resolve()});socket.on('error',e=>{networkDenied=['EPERM','EACCES','ENETUNREACH'].includes(e.code);resolve()});socket.setTimeout(1000,()=>{socket.destroy();resolve()})});await fs.writeFile(result,JSON.stringify({readDenied,writeDenied,networkDenied,metadataDenied}));`, { mode: 0o600 });
-  const launch = await sandboxCommand({ jobDirectory, worker: probe, runtime, codeRoots });
-  await new Promise((resolve, reject) => {
-    const child = spawn(launch.command, launch.args, launch.options);
-    let stderr = '';
-    child.stderr.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(0, 2048); });
-    const timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }, 5000);
-    child.on('error', error => { clearTimeout(timer); reject(error); });
-    child.on('close', code => { clearTimeout(timer); code === 0 ? resolve() : reject(previewError('preview_unavailable', `Preview isolation probe failed (${code}): ${stderr}`)); });
-  });
-  const checks = JSON.parse(await readFile(result, 'utf8'));
-  await Promise.all([rm(probe, { force: true }), rm(result, { force: true })]);
-  if (!checks.readDenied || !checks.writeDenied || !checks.networkDenied || !checks.metadataDenied) throw previewError('preview_unavailable', 'Preview isolation did not deny all forbidden operations.');
-  return checks;
+  // A closed port is not an isolation test. Keep a known-reachable listener in
+  // the caller's network namespace while the sandbox attempts the same address.
+  const server = net.createServer(socket => socket.destroy());
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+  try {
+    const port = server.address().port;
+    await new Promise((resolve, reject) => {
+      const socket = net.connect({ host: '127.0.0.1', port });
+      socket.once('connect', () => { socket.destroy(); resolve(); }); socket.once('error', reject);
+      socket.setTimeout(1000, () => { socket.destroy(); reject(previewError('preview_unavailable', 'The preview isolation control listener is unavailable.')); });
+    });
+    const namespace = process.platform === 'linux' ? await readlink('/proc/self/ns/net') : null;
+    await writeFile(probe, `import fs from 'node:fs/promises';import net from 'node:net';
+  const outside=${JSON.stringify(outsidePath)},result=${JSON.stringify(result)},namespace=${JSON.stringify(namespace)};
+  let readDenied=false,writeDenied=false,networkDenied=false,metadataDenied=false;
+  try{await fs.stat(outside)}catch(e){metadataDenied=['EPERM','EACCES','ENOENT'].includes(e.code)}
+  try{await fs.readFile(outside)}catch(e){readDenied=['EPERM','EACCES','ENOENT'].includes(e.code)}
+  try{await fs.writeFile(outside+'.write','forbidden')}catch(e){writeDenied=['EPERM','EACCES','ENOENT','EROFS'].includes(e.code)}
+  const separateNetwork=namespace!==null&&(await fs.readlink('/proc/self/ns/net'))!==namespace;
+  await new Promise(resolve=>{const socket=net.connect({host:'127.0.0.1',port:${port}});socket.on('connect',()=>{socket.destroy();resolve()});socket.on('error',e=>{networkDenied=namespace===null?['EPERM','EACCES','ENETUNREACH'].includes(e.code):separateNetwork&&['EPERM','EACCES','ENETUNREACH','ECONNREFUSED'].includes(e.code);resolve()});socket.setTimeout(1000,()=>{socket.destroy();resolve()})});
+  await fs.writeFile(result,JSON.stringify({readDenied,writeDenied,networkDenied,metadataDenied}));`, { mode: 0o600 });
+    const launch = await sandboxCommand({ jobDirectory, worker: probe, runtime, codeRoots });
+    await new Promise((resolve, reject) => {
+      const child = spawn(launch.command, launch.args, launch.options);
+      let stderr = '';
+      child.stderr.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(0, 2048); });
+      const timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }, 5000);
+      child.on('error', error => { clearTimeout(timer); reject(error); });
+      child.on('close', code => { clearTimeout(timer); code === 0 ? resolve() : reject(previewError('preview_unavailable', `Preview isolation probe failed (${code}): ${stderr}`)); });
+    });
+    const checks = JSON.parse(await readFile(result, 'utf8'));
+    await Promise.all([rm(probe, { force: true }), rm(result, { force: true })]);
+    if (!checks.readDenied || !checks.writeDenied || !checks.networkDenied || !checks.metadataDenied) throw previewError('preview_unavailable', 'Preview isolation did not deny all forbidden operations.');
+    return checks;
+  } finally { await new Promise(resolve => server.close(resolve)); }
 }

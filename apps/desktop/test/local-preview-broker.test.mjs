@@ -126,7 +126,7 @@ async function documentFixture() {
   return zip.generateAsync({ type: 'nodebuffer' });
 }
 
-test('real isolated Office conversion preserves source and clears cached PDF authority across logout', { skip: process.platform !== 'darwin', timeout: 100_000 }, async t => {
+test('real isolated Office conversion preserves source and clears cached PDF authority across logout', { skip: !['darwin', 'linux'].includes(process.platform), timeout: 100_000 }, async t => {
   const bytes = await documentFixture(), hash = crypto.createHash('sha256').update(bytes).digest('hex');
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'sparkx-office-qualified-'));
   const metadata = { ref: 'ref', version: 'version', name: 'fixture.docx', size: bytes.length, kind: 'file' };

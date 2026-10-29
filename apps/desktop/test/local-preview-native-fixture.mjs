@@ -8,6 +8,8 @@ import { createLocalPreviewProtocolHandler, previewRequestAllowed, guardLocalPre
 const temporary=process.env.SPARKCLAW_PREVIEW_TEST_ROOT;
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../..');
 app.setName('SparkX isolated document qualification');app.setPath('userData',path.join(temporary,'profile'));
+// Qualify the same high-DPI raster budget on Xvfb and Retina displays.
+app.commandLine.appendSwitch('force-device-scale-factor','2');
 protocol.registerSchemesAsPrivileged(['sparkclaw-app','sparkclaw-preview'].map(scheme=>({scheme,privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}})));
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const host=`<!doctype html><meta charset="utf-8"><style>html,body{margin:0;height:100%}iframe{width:100%;height:100%;border:0}</style><script>
@@ -23,7 +25,7 @@ app.whenReady().then(async()=>{
   const target=session.defaultSession;target.protocol.handle('sparkclaw-app',()=>new Response(host,{headers:{'content-type':'text/html'}}));target.protocol.handle('sparkclaw-preview',createLocalPreviewProtocolHandler(process.env.SPARKCLAW_PREVIEW_TEST_ASSETS || path.join(root,'apps/webchat/dist-preview')));
   target.webRequest.onBeforeRequest((details,callback)=>callback({cancel:!previewRequestAllowed(details)}));
   target.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
-  window=new BrowserWindow({show:false,width:1000,height:800,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});guardLocalPreviewNavigation(window.webContents);window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+  window=new BrowserWindow({show:process.platform==='linux',width:1000,height:800,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});guardLocalPreviewNavigation(window.webContents);window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   const errors=[];window.webContents.on('console-message',details=>{if(details.level==='error')errors.push(details.message);});
   await window.loadURL('sparkclaw-app://workbench/index.html');const run=expression=>Promise.race([window.webContents.executeJavaScript(expression),pause(5000).then(()=>{throw new Error('host execution timeout');})]);let frame;
   const until=async(fn,label)=>{const deadline=Date.now()+12000;while(Date.now()<deadline){if(await fn())return;await pause(20);}throw new Error(label+' '+JSON.stringify(errors));};

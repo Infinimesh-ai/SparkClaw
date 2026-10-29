@@ -126,7 +126,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libasound2t64 libgbm1 libgtk-3-0 libnss3 libxtst6 python3 xvfb
+            bubblewrap procps libasound2t64 libgbm1 libgtk-3-0 libnss3 libxtst6 python3 xvfb
           npm ci
       - name: Test desktop ownership and protocol guards
         run: npm run test:desktop

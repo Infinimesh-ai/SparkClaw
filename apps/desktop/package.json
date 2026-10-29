@@ -135,6 +135,12 @@
     "asarUnpack": [
       "node_modules/**/*",
       "src/main/local-preview*.mjs"
-    ]
+    ],
+    "toolsets": {
+      "appimage": "1.0.3"
+    },
+    "appImage": {
+      "executableArgs": []
+    }
   }
 }

@@ -54,6 +54,13 @@ import { bindWorkbenchActivation } from "./workbench-activation.mjs";
 import { bindWindowChrome } from "./window-chrome.mjs";
 import { resolveISCPLaunchProfile } from "./iscp-launch-profile.mjs";
 
+// Packagers must never silently turn isolation off when user namespaces are
+// unavailable. Reject their fallback before any profile, window, or IPC opens.
+if (app.commandLine.hasSwitch("no-sandbox")) {
+  process.stderr.write("SparkX requires the Chromium sandbox. Enable user namespaces and restart without --no-sandbox.\n");
+  app.exit(1);
+}
+
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DESKTOP_ICON_PATH = path.join(MODULE_DIR, "..", "assets", "icon.png");
 const workbenchQualification = process.argv.includes("--qualification-workbench");

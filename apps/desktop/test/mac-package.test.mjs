@@ -73,6 +73,8 @@ test("Mac packaging entry points exist and Linux refuses to invoke any Mac build
   assert.equal(pkg.name, "@sparkclaw/desktop");
   assert.equal(pkg.build.linux.artifactName, "SparkX-${version}-linux-${arch}.${ext}");
   assert.equal(pkg.build.deb.packageName, "sparkclaw");
+  assert.equal(pkg.build.toolsets.appimage, "1.0.3", "ARM64 must use the static AppImage runtime");
+  assert.deepEqual(pkg.build.appImage.executableArgs, [], "desktop entries must not disable Chromium isolation");
   assert.ok(pkg.build.deb.depends.includes("bubblewrap"), "the Linux package must install its preview isolation runtime");
   assert.ok(pkg.build.deb.depends.includes("procps"), "the Linux package must install process-tree monitoring");
   assert.equal(pkg.build.mac.artifactName, "SparkX-${version}-mac-${arch}.${ext}");

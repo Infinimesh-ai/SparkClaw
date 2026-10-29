@@ -25,7 +25,7 @@ try {
     xvfb.stdout.once("data", (data) => resolve(`:${String(data).trim()}`));xvfb.once("error", reject);
   }) : undefined;
   const electron = process.env.SPARKCLAW_HOST_TEST_ELECTRON || (await import("electron")).default;
-  const flags = process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : [];
+  const flags = process.platform === "linux" ? ["--disable-gpu"] : [];
   const result = await run(electron, [path.join(root, "apps/desktop/test/host-native-fixture.mjs"), ...flags], { cwd: root, timeout: 60000, maxBuffer: 1 << 20, env: { ...process.env, ...(display ? { DISPLAY: display } : {}), SPARKCLAW_HOST_QUALIFICATION_ROOT: temporary, SPARKCLAW_HOST_QUALIFICATION_ORIGIN: origin } });
   process.stdout.write(result.stdout);
 } finally { broker?.kill("SIGTERM");xvfb?.kill("SIGTERM");await fs.rm(temporary, { recursive: true, force: true }); }

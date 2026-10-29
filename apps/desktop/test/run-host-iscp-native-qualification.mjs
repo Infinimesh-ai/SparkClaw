@@ -75,7 +75,7 @@ try {
     xvfb.once("error", reject);
   }) : undefined;
   const electron = process.env.SPARKCLAW_HOST_TEST_ELECTRON || (await import("electron")).default;
-  const flags = process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : [];
+  const flags = process.platform === "linux" ? ["--disable-gpu"] : [];
   const result = await run(electron, [path.join(root, "apps/desktop/test/host-iscp-native-fixture.mjs"), ...flags], { cwd: root, timeout: 100000, killSignal: "SIGKILL", maxBuffer: 1 << 20, env: { ...env, ...(display ? { DISPLAY: display } : {}), SPARKCLAW_HOST_ISCP_FIXTURE_ORIGIN: origin } });
   process.stdout.write(result.stdout);
   const evidence = await readPrivateJSON(path.join(temporary, "evidence.json"));

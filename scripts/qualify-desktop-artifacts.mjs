@@ -61,9 +61,14 @@ try {
     }
     const userData = path.join(temporary, artifact.name.replaceAll(/[^a-zA-Z0-9]/gu, "-"));
     const adapterDirectory = path.join(userData, "adapter");
-    // A non-root extraction cannot retain chrome-sandbox's root ownership. Production
-    // installs still use Electron's sandbox; only this disposable package probe disables it.
-    const ready = await launchAndStop(executable, ["--qualification-workbench", "--disable-gpu", "--no-sandbox"], {
+    const rejectedProfile = `${userData}-sandbox-disabled`;
+    await assert.rejects(run(executable, ['--qualification-workbench', '--disable-gpu', '--no-sandbox'], {
+      cwd: temporary, env: { ...env, SPARKCLAW_DESKTOP_USER_DATA_DIR: rejectedProfile },
+    }), /SparkX requires the Chromium sandbox/u);
+    await assert.rejects(fs.stat(rejectedProfile), { code: 'ENOENT' });
+    // Exercise the real Chromium sandbox. The qualification host must support
+    // unprivileged user namespaces, just as an extracted AppImage requires.
+    const ready = await launchAndStop(executable, ["--qualification-workbench", "--disable-gpu"], {
       ...env,
       SPARKCLAW_DESKTOP_USER_DATA_DIR: userData,
       SPARKCLAW_ELECTRON_ADAPTER_SOCKET: path.join(adapterDirectory, "electron-adapter.sock"),
@@ -77,7 +82,7 @@ try {
     assert.equal(ready.gateway_http_proxy, true);
     assert.equal(ready.gateway_sse_proxy, true);
     assert.equal(ready.speech_websocket_proxy, true);
-    evidence.push({ artifact: artifact.name, launched: true, electron: ready.electron_version, chromium: ready.chromium_version });
+    evidence.push({ artifact: artifact.name, launched: true, electron: ready.electron_version, chromium: ready.chromium_version, renderer_sandbox: ready.renderer_sandbox, unsafe_launch_rejected_before_profile: true });
   }
   process.stdout.write(`${JSON.stringify({ event: "sparkclaw_desktop_artifacts_qualified", isolated_display: true, evidence })}\n`);
 } finally {
@@ -156,9 +161,36 @@ async function startXvfb() {
 
 async function launchAndStop(executable, args, env) {
   const child = spawn(executable, args, { cwd: temporary, env, stdio: ["ignore", "pipe", "pipe"] });
-  const ready = await readMatchingJSON(child.stdout, child.stderr, child, "sparkclaw_electron_ready", 25_000);
-  await stopChild(child);
-  return ready;
+  try {
+    const ready = await readMatchingJSON(child.stdout, child.stderr, child, "sparkclaw_electron_ready", 25_000);
+    return { ...ready, renderer_sandbox: await verifyRendererSandbox(child.pid) };
+  }
+  finally { await stopChild(child); }
+}
+
+async function verifyRendererSandbox(rootPID) {
+  const listing = await run('/bin/ps', ['-axo', 'pid=,ppid=,args=']);
+  const processes = listing.stdout.trim().split('\n').map(line => {
+    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/u);
+    return match ? { pid: Number(match[1]), parent: Number(match[2]), args: match[3] } : null;
+  }).filter(Boolean);
+  const owned = new Set([rootPID]);
+  for (let previous = -1; previous !== owned.size;) {
+    previous = owned.size;
+    for (const process of processes) if (owned.has(process.parent)) owned.add(process.pid);
+  }
+  const renderers = processes.filter(process => owned.has(process.pid) && process.args.includes('--type=renderer'));
+  assert.ok(renderers.length > 0, 'Packaged Chromium did not create a renderer');
+  const evidence = [];
+  for (const renderer of renderers) {
+    assert.ok(!renderer.args.includes('--no-sandbox'), 'Packaged renderer disabled its sandbox');
+    const status = await fs.readFile(`/proc/${renderer.pid}/status`, 'utf8');
+    const field = key => Number(status.match(new RegExp(`^${key}:\\s+(\\d+)`, 'm'))?.[1]);
+    assert.equal(field('Seccomp'), 2, 'Packaged renderer has no seccomp filter');
+    assert.equal(field('NoNewPrivs'), 1, 'Packaged renderer can gain privileges');
+    evidence.push({ seccomp: field('Seccomp'), no_new_privileges: field('NoNewPrivs'), filters: field('Seccomp_filters') });
+  }
+  return evidence;
 }
 
 async function run(executable, args, { cwd, env } = {}) {

@@ -100,8 +100,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential libx11-dev libxtst6 x11-utils xvfb
+            apparmor build-essential libx11-dev libxtst6 x11-utils xvfb
           npm ci --prefix tools/browser-surface-host/test/electron-anchor
+      - name: Permit user namespaces for the disposable Electron executable
+        run: |
+          sudo python3 scripts/configure-ci-userns.py \
+            "$(node -p 'require("./tools/browser-surface-host/test/electron-anchor/node_modules/electron")')"
       - name: Run synthetic surface-host regression checks
         run: make -C tools/browser-surface-host test
       - name: Qualify the disposable Electron anchor
@@ -126,8 +130,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            bubblewrap procps libasound2t64 libgbm1 libgtk-3-0 libnss3 libxtst6 python3 xvfb
+            apparmor bubblewrap procps libasound2t64 libgbm1 libgtk-3-0 libnss3 libxtst6 python3 xvfb
           npm ci
+      - name: Permit user namespaces for the installed sandbox executables
+        run: |
+          python3 -m unittest scripts/test_ci_userns_profiles.py
+          sudo python3 scripts/configure-ci-userns.py \
+            "$(command -v bwrap)" "$(node -p 'require("electron")')"
       - name: Verify kernel support for isolated preview processes
         run: |
           bwrap --version

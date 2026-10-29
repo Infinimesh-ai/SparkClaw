@@ -24,7 +24,13 @@ export function ZoomControl({ zoom, min, max, active, viewport, zh, onZoom }: {
   }, [zoom, active, interaction]);
   const choose = (value: number) => { onZoom(value); setOpen(false); reveal(); trigger.current?.focus(); };
   const steps = [...new Set([min, .25, ...PRESETS, 3, max])].filter(value => value >= min && value <= max).sort((a, b) => a - b);
-  return <div className="zoomControl" data-visible={visible} onPointerEnter={reveal} onPointerMove={reveal} onFocus={reveal} onKeyDown={reveal}
+  return <div className="zoomControl" data-visible={visible} onPointerEnter={reveal} onPointerMove={reveal} onFocus={reveal}
+    onKeyDown={event => {
+      reveal();
+      if (event.key === 'Escape' && open) {
+        event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus();
+      }
+    }}
     onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}>
     {open && <div className="zoomOptions" role="group" aria-label={zh ? '缩放档位' : 'Zoom levels'}>
       {PRESETS.filter(value => value >= min && value <= max).map(value => <button key={value} type="button" aria-pressed={Math.abs(zoom - value) < .005}

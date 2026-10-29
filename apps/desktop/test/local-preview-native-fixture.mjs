@@ -30,6 +30,36 @@ app.whenReady().then(async()=>{
   const load=async(format,name,bytes,model,position)=>{const previousFrame=frame;await run(`openFixture(${JSON.stringify({format,name,size:bytes.length,position})},${JSON.stringify([...bytes])},${JSON.stringify(model||null)})`);await until(()=>{frame=window.webContents.mainFrame.frames.find(f=>f!==previousFrame&&f.url.startsWith('sparkclaw-preview://viewer/'));return Boolean(frame);},'frame did not load');};
   const screenshot=async name=>{if(process.env.SPARKCLAW_PREVIEW_SCREENSHOTS){await fs.mkdir(process.env.SPARKCLAW_PREVIEW_SCREENSHOTS,{recursive:true});await fs.writeFile(path.join(process.env.SPARKCLAW_PREVIEW_SCREENSHOTS,name+'.png'),(await window.capturePage()).toPNG());}};
   const evaluate=expression=>Promise.race([frame.executeJavaScript(expression),pause(5000).then(()=>{throw new Error('frame execution timeout '+expression);})]);
+  window.webContents.debugger.attach('1.3');
+  const escapeOrder=async format=>{
+    const before=await run("receipts.filter(value=>value==='escape').length");
+    await evaluate("document.querySelector('.zoomPercentage').focus();document.querySelector('.zoomPercentage').click()");
+    await until(()=>evaluate("Boolean(document.querySelector('.zoomOptions'))"),format+' zoom menu did not open');
+    // Use native input with focus on a preset, exercising React and window event ordering.
+    await evaluate("document.querySelector('.zoomOptions button').focus()");
+    const escape=async()=>{
+      await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+      await window.webContents.debugger.sendCommand('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+      await pause(100);
+    };
+    await escape();
+    assert.equal(await run("receipts.filter(value=>value==='escape').length"),before,format+' first Escape reached the panel');
+    assert.equal(await evaluate("Boolean(document.querySelector('.zoomOptions'))"),false,format+' first Escape did not close the menu');
+    assert.equal(await evaluate("document.activeElement===document.querySelector('.zoomPercentage')"),true,format+' menu dismissal lost focus');
+    assert.equal(await evaluate("document.querySelector('.zoomPercentage').getAttribute('aria-expanded')"),'false');
+    await escape();
+    assert.equal(await run("receipts.filter(value=>value==='escape').length"),before+1,format+' second Escape did not reach the panel exactly once');
+  };
+  const revokeViewer=async format=>{
+    await run("port.postMessage({type:'revoke'})");
+    await until(()=>evaluate("document.querySelector('.previewMessage')?.textContent==='Preview closed'"),format+' revoked view remained open');
+    assert.equal(await evaluate("document.querySelectorAll('#root canvas,img,.zoomControl').length"),0,format+' revoked content remained mounted');
+    // PDF.js may retain its hidden, zero-sized text measurement canvas outside the root.
+    assert.equal(await evaluate("[...document.querySelectorAll('canvas')].every(canvas=>canvas.width===0&&canvas.height===0&&getComputedStyle(canvas).display==='none')"),true,format+' revoked raster pixels remained allocated');
+    const before=await run('receipts.length');
+    await evaluate("dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
+    await pause(100);assert.equal(await run('receipts.length'),before,format+' revoked channel still sent messages');
+  };
   await load('text','hello.txt',Buffer.from('Hello local preview\n你好世界'));
   await until(()=>evaluate("document.querySelector('pre')?.textContent.includes('你好世界')"),'text missing');
   await screenshot('text');const isolation=await evaluate(`(async()=>{let parentStorage=false,network=false,file=false;try{parent.localStorage.getItem('workbench-secret');}catch{parentStorage=true;}try{await fetch('https://example.com/');}catch{network=true;}try{await fetch('file:///etc/passwd');}catch{file=true;}return {bridge:typeof window.sparkclawLocalFiles,parentStorage,network,file};})()`);
@@ -49,13 +79,14 @@ app.whenReady().then(async()=>{
   let pdf='%PDF-1.4\n';const offsets=[0];const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>','<< /Length 42 >>\nstream\nBT /F1 12 Tf 20 150 Td (Local PDF) Tj ET\nendstream'];for(let i=0;i<objects.length;i++){offsets.push(Buffer.byteLength(pdf));pdf+=`${i+1} 0 obj\n${objects[i]}\nendobj\n`;}const xref=Buffer.byteLength(pdf);pdf+=`xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
   await load('pdf','fixture.pdf',Buffer.from(pdf));await until(()=>evaluate("Boolean(document.querySelector('[data-pdf-front] canvas'))"),'PDF canvas missing');
   await until(()=>evaluate("document.querySelector('.react-pdf__Page__textContent')?.textContent.includes('Local PDF')"),'PDF selectable text missing');await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");const canvas=await evaluate("(()=>{const c=document.querySelector('[data-pdf-front] canvas');return {width:c.width,height:c.height};})()");assert.ok(canvas.width*canvas.height<=8_000_000);
+  await escapeOrder('pdf');
   await screenshot('pdf');const before=await evaluate('location.href');await evaluate("location.href='sparkclaw-app://workbench/index.html'");await pause(150);assert.equal(frame.url,before);
+  await revokeViewer('pdf');
   const ranged=pdfRangeFixture(12,true);
   const expectPDFPage=async text=>until(async()=>{
     const problem=await evaluate("document.querySelector('[role=alert]')?.textContent");if(problem)throw new Error('ranged PDF: '+problem);
     return evaluate(`Boolean(document.querySelector('[data-pdf-front] canvas')) && [...document.querySelectorAll('.pdfLiveText .react-pdf__Page__textContent')].some(node=>node.textContent.includes(${JSON.stringify(text)}))`);
   },'ranged PDF page missing');
-  window.webContents.debugger.attach('1.3');
   const pinch=scaleFactor=>window.webContents.debugger.sendCommand('Input.synthesizePinchGesture',{x:400,y:300,scaleFactor,relativeSpeed:800,gestureSourceType:'mouse'});
   const wheel=(deltaX,deltaY)=>window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseWheel',x:400,y:300,deltaX,deltaY});
   const budget=()=>evaluate("(()=>{const canvases=[...document.querySelectorAll('.pdfPreview canvas')];return canvases.length>0 && canvases.length<=64 && canvases.reduce((sum,c)=>sum+c.width*c.height,0)<=16000000})()");
@@ -131,10 +162,12 @@ app.whenReady().then(async()=>{
     await until(()=>evaluate("Boolean(document.querySelector('.react-pdf__Page__textContent')?.textContent.length)"),'regression PDF text missing');
     await screenshot('pdf-regression');
   }
+  await revokeViewer('pdf');
   const imageBytes=nativeImage.createFromBitmap(Buffer.alloc(2000*1500*4,255),{width:2000,height:1500}).toPNG();
   assert.equal(imageBytes.readUInt32BE(16),2000,'generated image width');
   await load('image','image.png',imageBytes);
   await until(async()=>{const state=await evaluate("({error:document.querySelector('[role=alert]')?.textContent,width:document.querySelector('.imageViewport img')?.naturalWidth})");if(state.error)throw new Error('image: '+state.error);return state.width===2000;},'image did not decode');
+  await escapeOrder('image');
   assert.equal(await evaluate("Boolean(document.querySelector('.imagePreview .previewToolbar,.imagePreview input[type=range]'))"),false);
   await pinch(2);await until(()=>run("positions.at(-1)?.zoom>1.5"),'native pinch did not zoom image');
   const imageBefore=await evaluate("({left:document.querySelector('.imageViewport').scrollLeft,top:document.querySelector('.imageViewport').scrollTop})");
@@ -142,6 +175,9 @@ app.whenReady().then(async()=>{
   await until(()=>evaluate(`document.querySelector('.imageViewport').scrollLeft>${imageBefore.left+20}`),'image pan failed');
   await screenshot('image-pinch');
   await evaluate("dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");await until(()=>run("receipts.includes('escape')"),'Escape was not forwarded');
-  const result={isolation,formats:['text','spreadsheet','markdown','pdf','image'],sheetCopy:copy,sheetSwitch:true,editingBlocked:true,pdfPixels:canvas.width*canvas.height,pdfRangeRead:true,pdfPageSwitch:true,pdfNativePinch:true,pdfTwoAxisPan:true,pdfGestureAnchor:true,smoothIn,smoothOut,pdfNoBlankFrames:true,sharpAtMax,sharpInk,pdfScreenDensity:true,percentageAutoHide:true,percentageIdleSeconds:2,percentagePresetsOnly:true,percentagePlusMinus:true,percentagePresets:true,noHorizontalScrollbar:true,pdfNoToolbar:true,imageNativePinch:true,imageNoToolbar:true,pdfZoom:true,pdfPositionRestore:true,pdfContinuousScroll:true,pdfFitWidth:true,pdfResizeAnchor:true,pdfWhiteSurface:true,privatePDFChecked:Boolean(process.env.SPARKCLAW_PREVIEW_TEST_PDF),navigationBlocked:true};console.log(JSON.stringify(result));window.destroy();app.exit(0);
+  await revokeViewer('image');
+  await load('text','reopened.txt',Buffer.from('Fresh preview after revocation'));
+  await until(()=>evaluate("document.querySelector('pre')?.textContent==='Fresh preview after revocation'"),'new preview did not recover after revocation');
+  const result={isolation,formats:['text','spreadsheet','markdown','pdf','image'],sheetCopy:copy,sheetSwitch:true,editingBlocked:true,pdfPixels:canvas.width*canvas.height,pdfRangeRead:true,pdfPageSwitch:true,pdfNativePinch:true,pdfTwoAxisPan:true,pdfGestureAnchor:true,smoothIn,smoothOut,pdfNoBlankFrames:true,sharpAtMax,sharpInk,pdfScreenDensity:true,percentageAutoHide:true,percentageIdleSeconds:2,percentagePresetsOnly:true,percentagePlusMinus:true,percentagePresets:true,pdfEscapeMenuFirst:true,imageEscapeMenuFirst:true,escapeFocusRestored:true,revokedPDFUnmounted:true,revokedImageUnmounted:true,revokedChannelSilent:true,reopenAfterRevocation:true,noHorizontalScrollbar:true,pdfNoToolbar:true,imageNativePinch:true,imageNoToolbar:true,pdfZoom:true,pdfPositionRestore:true,pdfContinuousScroll:true,pdfFitWidth:true,pdfResizeAnchor:true,pdfWhiteSurface:true,privatePDFChecked:Boolean(process.env.SPARKCLAW_PREVIEW_TEST_PDF),navigationBlocked:true};console.log(JSON.stringify(result));window.destroy();app.exit(0);
  }catch(error){console.error(error.stack);window?.destroy();app.exit(1);}
 });

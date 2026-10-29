@@ -126,12 +126,13 @@ async function documentFixture() {
   return zip.generateAsync({ type: 'nodebuffer' });
 }
 
-test('real isolated bundled Office conversion preserves source and returns bounded PDF bytes', { skip: process.platform !== 'darwin', timeout: 100_000 }, async t => {
+test('real isolated Office conversion preserves source and clears cached PDF authority across logout', { skip: process.platform !== 'darwin', timeout: 100_000 }, async t => {
   const bytes = await documentFixture(), hash = crypto.createHash('sha256').update(bytes).digest('hex');
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'sparkx-office-qualified-'));
   const metadata = { ref: 'ref', version: 'version', name: 'fixture.docx', size: bytes.length, kind: 'file' };
   const observations = [];
-  const broker = new LocalPreviewBroker({ directory, getScope: () => 'fixture-login', stat: async () => metadata, snapshot: async () => ({ bytes: Buffer.from(bytes) }), onObservation: value => observations.push(value) });
+  let scope = 'fixture-login';
+  const broker = new LocalPreviewBroker({ directory, getScope: () => scope, stat: async () => metadata, snapshot: async () => ({ bytes: Buffer.from(bytes) }), onObservation: value => observations.push(value) });
   t.after(async () => { await broker.close(); await fs.rm(directory, { recursive: true, force: true }); });
   const preview = await broker.prepare({ ...request('office'), kind: 'office' });
   assert.equal(preview.kind, 'pdf'); assert.equal(preview.pageCount, 1);
@@ -141,5 +142,22 @@ test('real isolated bundled Office conversion preserves source and returns bound
   broker.release({ readerId: 'office' });
   await assert.rejects(broker.read({ previewId: preview.previewId, readerId: 'office', offset: 0, length: 8 }), { code: 'invalid_reference' });
   await until(() => !broker.active);
+  const cached = await broker.prepare({ ...request('cached'), kind: 'office' });
+  assert.equal(cached.previewId, preview.previewId);
+  const oldRead = { previewId: cached.previewId, readerId: 'cached', offset: 0, length: 8 };
+  assert.ok(Buffer.from((await broker.read(oldRead)).bytes).toString().startsWith('%PDF-'));
+  scope = null; broker.refreshIdentity();
+  await assert.rejects(broker.read(oldRead), { code: 'invalid_reference' });
+  await assert.rejects(broker.prepare({ ...request('signed-out'), kind: 'office' }), { code: 'locked' });
+  await until(() => !broker.active && broker.cache.size === 0);
+  assert.equal(broker.cacheBytes, 0); assert.equal(broker.retainedBytes, 0); assert.equal(broker.reservedInput, 0);
+  assert.equal(broker.readers.size, 0); assert.equal(broker.tasks.size, 0); assert.equal(broker.pendingCleanup.size, 0);
+  assert.deepEqual(await fs.readdir(broker.sessionDirectory), ['owner.json']);
+  scope = 'fixture-login';
+  const reopened = await broker.prepare({ ...request('cached'), kind: 'office' });
+  assert.notEqual(reopened.previewId, cached.previewId);
+  await assert.rejects(broker.read(oldRead), { code: 'invalid_reference' });
+  assert.ok(Buffer.from((await broker.read({ ...oldRead, previewId: reopened.previewId })).bytes).toString().startsWith('%PDF-'));
+  assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), hash);
   t.diagnostic(`Synthetic DOCX observed resources: ${JSON.stringify(observations)}`);
 });

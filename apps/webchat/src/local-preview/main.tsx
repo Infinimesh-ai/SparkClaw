@@ -26,6 +26,7 @@ window.addEventListener('message', (event) => {
     {format === 'pdf' ? <Pdf channel={value} /> : format === 'text' ? <Text channel={value} /> : format === 'markdown' ? <Markdown channel={value} /> : format === 'image' ? <Image channel={value} /> : format === 'spreadsheet' ? <Sheet channel={value} /> : <p className="previewMessage">{zh ? '暂不支持此文件格式的预览。' : 'Preview is unavailable for this file format.'}</p>}
   </Suspense></PreviewBoundary>);
 });
-window.addEventListener('keydown', event => { if(event.key==='Escape'){event.preventDefault();channel?.escape();} },true);
+// Inner controls dismiss first; only an unhandled Escape collapses the file panel.
+window.addEventListener('keydown', event => { if(event.key==='Escape'&&!event.defaultPrevented){event.preventDefault();channel?.escape();} });
 window.addEventListener('pagehide', clear, { once: true });
 window.parent.postMessage({ type: 'sparkclaw-preview:ready', protocol: 1 }, WORKBENCH_ORIGIN);

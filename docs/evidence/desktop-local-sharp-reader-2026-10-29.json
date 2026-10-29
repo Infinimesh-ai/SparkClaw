@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "source_revision": "0488216435088dfbc638da23de34711075f08f97",
+  "installed": true,
+  "pushed": false,
+  "remote_service_changed": false,
+  "frontend_tests_passed": 554,
+  "production_build": "passed",
+  "native_checks": {
+    "isolation": {
+      "bridge": "undefined",
+      "file": true,
+      "network": true,
+      "parentStorage": true
+    },
+    "formats": [
+      "text",
+      "spreadsheet",
+      "markdown",
+      "pdf",
+      "image"
+    ],
+    "sheetCopy": {
+      "html": "<table><tr><td style=\"mso-number-format:'\\@'\">00123</td></tr></table>",
+      "prevented": true,
+      "value": "00123"
+    },
+    "sheetSwitch": true,
+    "editingBlocked": true,
+    "pdfPixels": 1898884,
+    "pdfRangeRead": true,
+    "pdfPageSwitch": true,
+    "pdfNativePinch": true,
+    "pdfTwoAxisPan": true,
+    "pdfGestureAnchor": true,
+    "smoothIn": {
+      "frames": 42,
+      "maxDrift": 0.23327464788735597,
+      "minDetailDensity": 2.2369040955216577,
+      "detailRenders": 4,
+      "blankFrames": 0,
+      "maxPixels": 13650841
+    },
+    "smoothOut": {
+      "frames": 1504,
+      "maxDrift": 0.2547472334003942,
+      "minDetailDensity": 2.4663698472284907,
+      "detailRenders": 17,
+      "blankFrames": 0,
+      "maxPixels": 13702692
+    },
+    "pdfNoBlankFrames": true,
+    "sharpAtMax": {
+      "count": 1,
+      "density": 2.4661751749843073,
+      "screen": 2
+    },
+    "sharpInk": 193346,
+    "pdfScreenDensity": true,
+    "percentageAutoHide": true,
+    "percentageIdleSeconds": 2,
+    "percentagePresetsOnly": true,
+    "percentagePlusMinus": true,
+    "percentagePresets": true,
+    "noHorizontalScrollbar": true,
+    "pdfNoToolbar": true,
+    "imageNativePinch": true,
+    "imageNoToolbar": true,
+    "pdfZoom": true,
+    "pdfPositionRestore": true,
+    "pdfContinuousScroll": true,
+    "pdfFitWidth": true,
+    "pdfResizeAnchor": true,
+    "pdfWhiteSurface": true,
+    "privatePDFChecked": true,
+    "navigationBlocked": true
+  },
+  "gesture_test_method": "Chromium native pinch/wheel input against exact packaged resources in an isolated Electron window; every animation frame checks raster visibility, effective detail density, anchor drift and aggregate pixels. A 300% glyph raster and private PDF screenshots were inspected.",
+  "raster_limits": {
+    "aggregate_pixels": 16000000,
+    "canvas_count": 64,
+    "page_slots": 16,
+    "fallback_generation_target": 1900000,
+    "detail_generation_target": 5900000
+  },
+  "zoom_controls": {
+    "layout": "minus / percentage / plus",
+    "menu_presets_percent": [
+      50,
+      75,
+      100,
+      125,
+      150,
+      200
+    ],
+    "numeric_input": false,
+    "idle_hide_seconds": 2
+  },
+  "source_match": {
+    "sourceFiles": 78,
+    "uiFiles": 24,
+    "viewerFiles": 224,
+    "mismatches": [],
+    "asarSHA256": "305cf8dc4c36467963f19a209e3c9097bd2b48dbc54d04423fbfcdee3b0260ab",
+    "helperSHA256": "9a4da3b7694f7381c5d2e4632e278af8ed1410ad25ae95d84cd150eb19ba98c3"
+  },
+  "artifacts": {
+    "zip": {
+      "file": "SparkX-0.1.0-mac-arm64.zip",
+      "bytes": 222680256,
+      "sha256": "5f04182be043289618df671cb68af71be8a6a5fc3c258f33512e62fe4e25b048"
+    },
+    "dmg": {
+      "file": "SparkX-0.1.0-mac-arm64.dmg",
+      "bytes": 219362971,
+      "sha256": "2ac940769f5601232adad36b062fd9150258c0783af245a09913d645cd31cf34"
+    }
+  },
+  "installed_entries_matched": 6947,
+  "cold_backup_databases": 76,
+  "cold_backup_tables": 343,
+  "profile_bytes_modes_unchanged_before_launch": true,
+  "original_file_unchanged": true,
+  "installed_visual_checks": {
+    "original_document_opened": true,
+    "white_surface": true,
+    "filename_in_titlebar": true,
+    "sharp_text_at_193_percent_inspected": true,
+    "six_presets_visible": true,
+    "preset_selected_200_percent": true,
+    "plus_advanced_to_300_percent": true,
+    "minus_returned_to_200_percent": true,
+    "idle_menu_hide_observed": true,
+    "original_login_and_conversation_list_retained": true
+  },
+  "previous_app": "/Applications/.SparkX-sharp-reader-04882164-previous.app",
+  "open_gates": [
+    "broader format/font fidelity and malformed-document matrix",
+    "Linux isolation/package/UI acceptance"
+  ]
+}

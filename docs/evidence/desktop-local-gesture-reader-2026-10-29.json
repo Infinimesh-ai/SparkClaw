@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "source_revision": "3855de5dd1c75c0b44d41a1d36dea00ae5eb8f40",
+  "installed": true,
+  "pushed": false,
+  "remote_service_changed": false,
+  "roots": [
+    "Desktop",
+    "Documents",
+    "Downloads"
+  ],
+  "frontend_tests_passed": 554,
+  "final_panel_tests_passed": 9,
+  "local_file_service_tests_passed": 19,
+  "production_build": "passed",
+  "native_checks": {
+    "isolation": {
+      "bridge": "undefined",
+      "file": true,
+      "network": true,
+      "parentStorage": true
+    },
+    "formats": [
+      "text",
+      "spreadsheet",
+      "markdown",
+      "pdf",
+      "image"
+    ],
+    "sheetCopy": {
+      "html": "<table><tr><td style=\"mso-number-format:'\\@'\">00123</td></tr></table>",
+      "prevented": true,
+      "value": "00123"
+    },
+    "sheetSwitch": true,
+    "editingBlocked": true,
+    "pdfPixels": 4000000,
+    "pdfRangeRead": true,
+    "pdfPageSwitch": true,
+    "pdfNativePinch": true,
+    "pdfTwoAxisPan": true,
+    "pdfGestureAnchor": true,
+    "pdfNoToolbar": true,
+    "imageNativePinch": true,
+    "imageNoToolbar": true,
+    "pdfZoom": true,
+    "pdfPositionRestore": true,
+    "pdfContinuousScroll": true,
+    "pdfFitWidth": true,
+    "pdfResizeAnchor": true,
+    "pdfWhiteSurface": true,
+    "privatePDFChecked": true,
+    "navigationBlocked": true
+  },
+  "gesture_test_method": "Chromium Input.synthesizePinchGesture(mouse) and Input.dispatchMouseEvent(wheel) against exact packaged viewer resources in an isolated Electron test window",
+  "source_match": {
+    "sourceFiles": 78,
+    "uiFiles": 24,
+    "viewerFiles": 224,
+    "mismatches": [],
+    "asarSHA256": "305cf8dc4c36467963f19a209e3c9097bd2b48dbc54d04423fbfcdee3b0260ab",
+    "helperSHA256": "9a4da3b7694f7381c5d2e4632e278af8ed1410ad25ae95d84cd150eb19ba98c3"
+  },
+  "artifacts": {
+    "zip": {
+      "file": "SparkX-0.1.0-mac-arm64.zip",
+      "bytes": 222677022,
+      "sha256": "ef06f1e985d84bb59b232a77f799c0c4a9442cd4b69546d9ff73b6d80723aa1c"
+    },
+    "dmg": {
+      "file": "SparkX-0.1.0-mac-arm64.dmg",
+      "bytes": 219352034,
+      "sha256": "c754efdc761d0c74bfbc182ec1bff262dc73701ab8008cbf7367ca9a57e67101"
+    }
+  },
+  "installed_entries_matched": 6947,
+  "cold_backup_databases": 76,
+  "cold_backup_tables": 343,
+  "profile_bytes_modes_unchanged_before_launch": true,
+  "original_file_unchanged": true,
+  "installed_visual_checks": {
+    "exactly_three_roots": true,
+    "desktop_expand_and_collapse": true,
+    "filename_in_titlebar": true,
+    "page_and_zoom_toolbar_removed": true,
+    "continuous_scroll": true,
+    "original_document_opened": true,
+    "original_login_and_conversation_list_retained": true
+  },
+  "previous_app": "/Applications/.SparkX-gesture-reader-3855de5d-previous.app",
+  "open_gates": [
+    "broader format/font fidelity and malformed-document matrix",
+    "Linux isolation/package/UI acceptance"
+  ]
+}

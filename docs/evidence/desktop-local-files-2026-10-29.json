@@ -1,0 +1,309 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "source_commit": "5c1647023533d998911e483a804ddbbc06ddcbee",
+  "status": "initial_implementation_candidate_verified",
+  "release_complete": false,
+  "installed_app_changed": false,
+  "pushed": false,
+  "production_service_changed": false,
+  "shared_contract_changed": false,
+  "tests": {
+    "desktop": {
+      "passed": 579,
+      "failed": 0
+    },
+    "frontend": {
+      "passed": 552,
+      "failed": 0,
+      "final_position_fix_focused_passed": 10
+    },
+    "production_build": "passed",
+    "native_browser_layout_cases": 48,
+    "native_task_browser_cases": 12,
+    "package_audit_focused_passed": 3,
+    "go_build": "passed",
+    "go_vet": "passed",
+    "go_full": "not_green",
+    "go_remaining_environment_limit": "3 existing Linux /dev/shm tests on macOS",
+    "go_additional_failures_rerun": "temporary-path string assumption and receipt sweep timing passed focused rerun"
+  },
+  "candidate": {
+    "platform": "darwin-arm64",
+    "type": "isolated unsigned directory candidate; existing helper reused",
+    "packaged_application_entries": 7226,
+    "sourceFiles": 78,
+    "uiFiles": 24,
+    "viewerFiles": 223,
+    "mismatches": [],
+    "resourcesBytes": 236557867,
+    "asarSHA256": "7a5ffebe3abcde30e74360e90e52a21aef4de1d60070b75ed962c67716a124c9"
+  },
+  "packaged_viewer_assets": {
+    "runtime": "development Electron; exact candidate assets",
+    "result": {
+      "isolation": {
+        "bridge": "undefined",
+        "file": true,
+        "network": true,
+        "parentStorage": true
+      },
+      "formats": [
+        "text",
+        "spreadsheet",
+        "markdown",
+        "pdf",
+        "image"
+      ],
+      "sheetCopy": {
+        "html": "<table><tr><td style=\"mso-number-format:'\\@'\">00123</td></tr></table>",
+        "prevented": true,
+        "value": "00123"
+      },
+      "sheetSwitch": true,
+      "editingBlocked": true,
+      "pdfPixels": 937024,
+      "navigationBlocked": true
+    }
+  },
+  "packaged_heavy": {
+    "runtime": "exact candidate SparkX executable and unpacked modules",
+    "checks": [
+      {
+        "name": "all runtime dependencies resolve inside exact candidate",
+        "passed": true
+      },
+      {
+        "name": "exact packaged Electron runtime isolation canary",
+        "passed": true
+      },
+      {
+        "name": "packaged native Office renders one-page PDF",
+        "passed": true
+      },
+      {
+        "name": "bounded PDF read returns actual PDF bytes",
+        "passed": true
+      },
+      {
+        "name": "verified same-source reuse does not reconvert",
+        "passed": true
+      },
+      {
+        "name": "packaged CSV preserves zeros/formula-looking text/multiline Chinese",
+        "passed": true
+      },
+      {
+        "name": "packaged XLSX preserves cached zero/false/missing result",
+        "passed": true
+      },
+      {
+        "name": "packaged XLSX keeps sheets/merges/basic styles",
+        "passed": true
+      },
+      {
+        "name": "cancel waits for worker exit and releases input/slot",
+        "passed": true
+      },
+      {
+        "name": "broker shutdown joins workers and removes owned state",
+        "passed": true
+      },
+      {
+        "name": "original unchanged: cancel.docx",
+        "passed": true
+      },
+      {
+        "name": "original unchanged: literal.csv",
+        "passed": true
+      },
+      {
+        "name": "original unchanged: saved.xlsx",
+        "passed": true
+      },
+      {
+        "name": "original unchanged: 中文.docx",
+        "passed": true
+      }
+    ],
+    "hashes": {
+      "runtime": "52591945c62a357a093d45bab2a13ef95636e5e16c40ea960e428123ce58365e",
+      "broker": "45b3496370c2f2a94c038c460ed61b9a11cfb670e38bb0ae25b0f79092814b0b",
+      "sandbox": "f8074e589c8bff0dc0d5bbd0d34a7f6aa61ec92c7463f621c0da67b0225ce9df",
+      "worker": "1c1da8ff10a699a0f5e454f4ba4f4c3aa66b438fcc8255833a054aa803d54e16",
+      "audit": "4c840addbc1fab43d55f94607bc33d655773218964ff3558b5f923f8f8e22ae3"
+    },
+    "dependency_versions": {
+      "exceljs": "4.4.0",
+      "papaparse": "5.7.0",
+      "yauzl": "3.4.0",
+      "@deepseek-ai/libreoffice-kit": "0.2.3",
+      "@deepseek-ai/libreoffice-kit-darwin-arm64": "0.2.3"
+    },
+    "office": {
+      "kind": "pdf",
+      "size": 26595,
+      "pageCount": 1,
+      "warnings": [
+        "Missing local fonts: PingFang SC"
+      ],
+      "totalMs": 2246,
+      "pdfSha256": "a2469e83af44c0644bde864f9330d08197e61eb1e3ccb95c2e80109ebc69cbec"
+    },
+    "csv": {
+      "totalMs": 127,
+      "modelBytes": 385,
+      "sheets": 1
+    },
+    "xlsx": {
+      "totalMs": 137,
+      "modelBytes": 630,
+      "sheets": 2
+    },
+    "observations": [
+      {
+        "peakMemoryBytes": 350273536,
+        "peakDiskBytes": 783228,
+        "durationMs": 1997,
+        "processJoinMs": 12
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 1,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 3817472,
+        "peakDiskBytes": 5473,
+        "durationMs": 125,
+        "processJoinMs": 13
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 0,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 3866624,
+        "peakDiskBytes": 12625,
+        "durationMs": 135,
+        "processJoinMs": 12
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 0,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 3784704,
+        "peakDiskBytes": 693756,
+        "durationMs": 39,
+        "processJoinMs": 12,
+        "stopToExitMs": 12
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 0,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 3850240,
+        "peakDiskBytes": 693756,
+        "durationMs": 40,
+        "processJoinMs": 12,
+        "stopToExitMs": 12
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 0,
+        "released": true
+      }
+    ],
+    "source_hashes": {
+      "cancel.docx": {
+        "before": "d0b10fc4848ea82c4e192f984afbe05906c91630a94e79bace9be06db37e1003",
+        "after": "d0b10fc4848ea82c4e192f984afbe05906c91630a94e79bace9be06db37e1003"
+      },
+      "literal.csv": {
+        "before": "cca8a51cfb59dbc4382d28b99a48d28c478736cfd1209bb80b3961b9528557bb",
+        "after": "cca8a51cfb59dbc4382d28b99a48d28c478736cfd1209bb80b3961b9528557bb"
+      },
+      "saved.xlsx": {
+        "before": "e211d48065b037f6a174ecdd8a3a0a39d20dc9e7a2b75e3b88d78c4a187ee7e3",
+        "after": "e211d48065b037f6a174ecdd8a3a0a39d20dc9e7a2b75e3b88d78c4a187ee7e3"
+      },
+      "中文.docx": {
+        "before": "fbdf8dddcd516d5f39dcfaeb89bf4badee4791f2df384b421ed8b64c8bd4daec",
+        "after": "fbdf8dddcd516d5f39dcfaeb89bf4badee4791f2df384b421ed8b64c8bd4daec"
+      }
+    },
+    "isolation": {
+      "ok": true,
+      "checks": {
+        "readDenied": true,
+        "writeDenied": true,
+        "networkDenied": true,
+        "metadataDenied": true
+      }
+    }
+  },
+  "packaged_native_descendant_stop": {
+    "passed": true,
+    "native_descendant_observed": true,
+    "runs": [
+      {
+        "action": "cancel",
+        "stopToSlotReleasedMs": 22,
+        "pendingCleanup": 0,
+        "reservedInput": 0
+      },
+      {
+        "action": "close",
+        "stopToSlotReleasedMs": 41,
+        "pendingCleanup": 0,
+        "reservedInput": 0
+      }
+    ],
+    "observations": [
+      {
+        "peakMemoryBytes": 242548736,
+        "peakDiskBytes": 693707,
+        "durationMs": 953,
+        "processJoinMs": 12,
+        "stopToExitMs": 18
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 1,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 227770368,
+        "peakDiskBytes": 1469903,
+        "durationMs": 600,
+        "processJoinMs": 12,
+        "stopToExitMs": 18
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 1,
+        "released": true
+      }
+    ],
+    "remaining_entries": [],
+    "original_unchanged": true
+  },
+  "retained_failures": [
+    "native host numeric message identifiers initially mismatched; fixed using shared channel types",
+    "Mac platform files filter replaced public source allowlist; fixed and regressed",
+    "PDF.js LICENSE resources initially rejected; explicit license asset rule added",
+    "packaged heavy harness /tmp vs /private/tmp assertion stopped before conversion; canonicalized harness and retained original failure"
+  ],
+  "open_gates": [
+    "exact installed-profile login/logout/revocation and Quit/relaunch",
+    "legacy DOC/PPT and malformed/encrypted/font-layout fidelity matrix",
+    "real external-volume/cloud-placeholder/permission transitions",
+    "broader installed resource-budget measurements",
+    "Linux isolation/engine/package/native UI qualification"
+  ]
+}

@@ -1,0 +1,742 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "status": "qualified",
+  "platform": "linux",
+  "architecture": "arm64",
+  "source_commit": "29623d864899de27624449873591c8e609d267ab",
+  "purpose": "Supersedes the Linux packages and installed UI receipt from 64a23b63 after the credential provider owner-shutdown fix; the complete prior format/isolation/capacity qualification remains linked below.",
+  "baseline_receipts": [
+    "docs/evidence/desktop-local-preview-linux-2026-10-29.json",
+    "docs/evidence/desktop-linux-installed-local-files-ui-2026-10-29.json"
+  ],
+  "build": {
+    "clean_git_archive": true,
+    "archive_sha256": "a4109bdb3860069a98657845eee5f2289d1aa5040d70567fe4a7e39df7160875",
+    "fresh_locked_npm_ci": true,
+    "node": "26.8.1",
+    "npm": "11.19.0",
+    "go": "1.25.5",
+    "source_and_runtime_environment": "Debian 12 arm64, Linux 6.12.76-linuxkit; same owned namespace-capable container used for the baseline",
+    "commands": [
+      "npm ci",
+      "npm run build:desktop-ui",
+      "npm run build:iscp-helper -- linux arm64",
+      "npm run check:desktop-managed-scripts",
+      "npm --workspace @sparkclaw/desktop run dist:linux-arm64",
+      "bash scripts/resolve-ci-electron.sh electron",
+      "node scripts/write-desktop-release-manifest.mjs"
+    ]
+  },
+  "artifacts": [
+    {
+      "name": "SparkX-0.1.0-linux-arm64.AppImage",
+      "bytes": 184509680,
+      "sha256": "6542a28f10016d582aa3894a04437813722ababce54558cfebf551efd06e93ac"
+    },
+    {
+      "name": "SparkX-0.1.0-linux-arm64.deb",
+      "bytes": 146839988,
+      "sha256": "052761384e96ed89dd50cc79a17101a6d454460619f6114efc16f8e78881ad80"
+    }
+  ],
+  "runtime": {
+    "electron": "44.4.3",
+    "chromium": "152.0.7977.130",
+    "node": "24.21.0"
+  },
+  "package_audit": {
+    "schema_version": 1,
+    "platform": "linux",
+    "client_scope": "public_client_source_and_ui",
+    "application_entries": 6376,
+    "ui_files": 24,
+    "preview_files": 224,
+    "iscp_helper_sha256": "4ac48dfb86127546decf762299d71223b54a4f1b4197379a5638ee9f1b62650b"
+  },
+  "payload_comparison": {
+    "baseline_source": "64a23b6331948d67c1e5a1fd5b714ef790bc977c",
+    "entries": 6003,
+    "unchanged_entries": 6001,
+    "changed": {
+      "resources/client-package-audit.json": {
+        "old": {
+          "sha256": "1e85f1e6d6f9351a2fee1c329f8eee79686b0b7eeccb7721fe5f3b4385c7027d",
+          "size": 233,
+          "type": "file"
+        },
+        "new": {
+          "sha256": "f3d9b21c3e05d9dd33949f875ca789dad042e7237bbe25418fadccf5aa04eb1e",
+          "size": 233,
+          "type": "file"
+        }
+      },
+      "resources/iscp-workbench": {
+        "old": {
+          "sha256": "29cf3bc06889f38b1ec71b8e2ac94d95fc2409f76bbcc3458ec9f52ca7a16708",
+          "size": 15628220,
+          "type": "file"
+        },
+        "new": {
+          "sha256": "4ac48dfb86127546decf762299d71223b54a4f1b4197379a5638ee9f1b62650b",
+          "size": 15628987,
+          "type": "file"
+        }
+      }
+    },
+    "candidate_equals_dpkg_installed": true,
+    "manifest_sha256": "85ee1a0bc7bab6c54929242adadb940d47b60a35e80724be8f8a9648eb597fbe",
+    "bytes": 529465862,
+    "application_asar_ui_viewer_conversion_dependencies_byte_identical": true
+  },
+  "packaged_execution": {
+    "event": "sparkclaw_desktop_artifacts_qualified",
+    "isolated_display": true,
+    "evidence": [
+      {
+        "artifact": "SparkX-0.1.0-linux-arm64.AppImage",
+        "launched": true,
+        "electron": "44.4.3",
+        "chromium": "152.0.7977.130",
+        "renderer_sandbox": [
+          {
+            "seccomp": 2,
+            "no_new_privileges": 1,
+            "filters": 1
+          },
+          {
+            "seccomp": 2,
+            "no_new_privileges": 1,
+            "filters": 1
+          }
+        ],
+        "unsafe_launch_rejected_before_profile": true
+      },
+      {
+        "artifact": "SparkX-0.1.0-linux-arm64.deb",
+        "launched": true,
+        "electron": "44.4.3",
+        "chromium": "152.0.7977.130",
+        "renderer_sandbox": [
+          {
+            "seccomp": 2,
+            "no_new_privileges": 1,
+            "filters": 1
+          },
+          {
+            "seccomp": 2,
+            "no_new_privileges": 1,
+            "filters": 1
+          }
+        ],
+        "unsafe_launch_rejected_before_profile": true
+      }
+    ]
+  },
+  "required_elf_dependency_closure": {
+    "architecture": "arm64",
+    "depends": "libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0, bubblewrap, procps, libgbm1, libasound2t64 | libasound2",
+    "all_resolved": true,
+    "all_system_libraries_declared_transitively": true,
+    "libraries": [
+      {
+        "library": "libffmpeg.so",
+        "bundled": true
+      },
+      {
+        "library": "libdl.so.2",
+        "package": "libc6",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libpthread.so.0",
+        "package": "libc6",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libglib-2.0.so.0",
+        "package": "libglib2.0-0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libgobject-2.0.so.0",
+        "package": "libglib2.0-0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libgio-2.0.so.0",
+        "package": "libglib2.0-0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libnspr4.so",
+        "package": "libnspr4",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libnss3.so",
+        "package": "libnss3",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libnssutil3.so",
+        "package": "libnss3",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libsmime3.so",
+        "package": "libnss3",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libatk-1.0.so.0",
+        "package": "libatk1.0-0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libatk-bridge-2.0.so.0",
+        "package": "libatk-bridge2.0-0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libcups.so.2",
+        "package": "libcups2",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libdbus-1.so.3",
+        "package": "libdbus-1-3",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libcairo.so.2",
+        "package": "libcairo2",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libgtk-3.so.0",
+        "package": "libgtk-3-0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libpango-1.0.so.0",
+        "package": "libpango-1.0-0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libX11.so.6",
+        "package": "libx11-6",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libXcomposite.so.1",
+        "package": "libxcomposite1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libXdamage.so.1",
+        "package": "libxdamage1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libXext.so.6",
+        "package": "libxext6",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libXfixes.so.3",
+        "package": "libxfixes3",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libXrandr.so.2",
+        "package": "libxrandr2",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libgbm.so.1",
+        "package": "libgbm1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libexpat.so.1",
+        "package": "libexpat1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libxcb.so.1",
+        "package": "libxcb1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libxkbcommon.so.0",
+        "package": "libxkbcommon0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libudev.so.1",
+        "package": "libudev1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libasound.so.2",
+        "package": "libasound2",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libatspi.so.0",
+        "package": "libatspi2.0-0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libm.so.6",
+        "package": "libc6",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libgcc_s.so.1",
+        "package": "libgcc-s1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libc.so.6",
+        "package": "libc6",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libpcre2-8.so.0",
+        "package": "libpcre2-8-0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libffi.so.8",
+        "package": "libffi8",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libgmodule-2.0.so.0",
+        "package": "libglib2.0-0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libz.so.1",
+        "package": "zlib1g",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libmount.so.1",
+        "package": "libmount1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libselinux.so.1",
+        "package": "libselinux1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libplc4.so",
+        "package": "libnspr4",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libplds4.so",
+        "package": "libnspr4",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libgssapi_krb5.so.2",
+        "package": "libgssapi-krb5-2",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libavahi-common.so.3",
+        "package": "libavahi-common3",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libavahi-client.so.3",
+        "package": "libavahi-client3",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libgnutls.so.30",
+        "package": "libgnutls30",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libsystemd.so.0",
+        "package": "libsystemd0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libpixman-1.so.0",
+        "package": "libpixman-1-0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libfontconfig.so.1",
+        "package": "libfontconfig1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libfreetype.so.6",
+        "package": "libfreetype6",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libpng16.so.16",
+        "package": "libpng16-16",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libxcb-shm.so.0",
+        "package": "libxcb-shm0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libxcb-render.so.0",
+        "package": "libxcb-render0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libXrender.so.1",
+        "package": "libxrender1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libgdk-3.so.0",
+        "package": "libgtk-3-0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libpangocairo-1.0.so.0",
+        "package": "libpangocairo-1.0-0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libharfbuzz.so.0",
+        "package": "libharfbuzz0b",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libpangoft2-1.0.so.0",
+        "package": "libpangoft2-1.0-0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libfribidi.so.0",
+        "package": "libfribidi0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libcairo-gobject.so.2",
+        "package": "libcairo-gobject2",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libgdk_pixbuf-2.0.so.0",
+        "package": "libgdk-pixbuf-2.0-0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libepoxy.so.0",
+        "package": "libepoxy0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libXi.so.6",
+        "package": "libxi6",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libthai.so.0",
+        "package": "libthai0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libdrm.so.2",
+        "package": "libdrm2",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libwayland-server.so.0",
+        "package": "libwayland-server0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libXau.so.6",
+        "package": "libxau6",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libXdmcp.so.6",
+        "package": "libxdmcp6",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libblkid.so.1",
+        "package": "libblkid1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libkrb5.so.3",
+        "package": "libkrb5-3",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libk5crypto.so.3",
+        "package": "libk5crypto3",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libcom_err.so.2",
+        "package": "libcom-err2",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libkrb5support.so.0",
+        "package": "libkrb5support0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libp11-kit.so.0",
+        "package": "libp11-kit0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libidn2.so.0",
+        "package": "libidn2-0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libunistring.so.2",
+        "package": "libunistring2",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libtasn1.so.6",
+        "package": "libtasn1-6",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libnettle.so.8",
+        "package": "libnettle8",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libhogweed.so.6",
+        "package": "libhogweed6",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libgmp.so.10",
+        "package": "libgmp10",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libcap.so.2",
+        "package": "libcap2",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libgcrypt.so.20",
+        "package": "libgcrypt20",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "liblzma.so.5",
+        "package": "liblzma5",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libzstd.so.1",
+        "package": "libzstd1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "liblz4.so.1",
+        "package": "liblz4-1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libbrotlidec.so.1",
+        "package": "libbrotli1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libwayland-client.so.0",
+        "package": "libwayland-client0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libwayland-cursor.so.0",
+        "package": "libwayland-cursor0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libwayland-egl.so.1",
+        "package": "libwayland-egl1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libXcursor.so.1",
+        "package": "libxcursor1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libXinerama.so.1",
+        "package": "libxinerama1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libgraphite2.so.3",
+        "package": "libgraphite2-3",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libjpeg.so.62",
+        "package": "libjpeg62-turbo",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libdatrie.so.1",
+        "package": "libdatrie1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libbsd.so.0",
+        "package": "libbsd0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libkeyutils.so.1",
+        "package": "libkeyutils1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libresolv.so.2",
+        "package": "libc6",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libgpg-error.so.0",
+        "package": "libgpg-error0",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libbrotlicommon.so.1",
+        "package": "libbrotli1",
+        "required_dependency_closure": true
+      },
+      {
+        "library": "libmd.so.0",
+        "package": "libmd0",
+        "required_dependency_closure": true
+      }
+    ]
+  },
+  "affected_go_race": {
+    "command": "CGO_ENABLED=1 GOMAXPROCS=2 go test -race -p 2 ./internal/iscpbridge ./cmd/iscp-workbench",
+    "packages": [
+      {
+        "name": "internal/iscpbridge",
+        "passed": true,
+        "seconds": 9.464
+      },
+      {
+        "name": "cmd/iscp-workbench",
+        "passed": true,
+        "seconds": 5.639
+      }
+    ],
+    "log_sha256": "e888f5f4b080fd50aec376aa61a1c50b72848a6b96b67406f74fe4d5c207ccc7"
+  },
+  "installed_ui": {
+    "ordinary_installed_binary": true,
+    "binary": "/opt/SparkX/sparkx",
+    "qualification_mode": false,
+    "no_sandbox": false,
+    "basic_text": false,
+    "synthetic_https_identity_and_documents_only": true,
+    "backend_scope": "Synthetic loopback HTTPS implements identity, installation and auth routes; unrelated workbench requests return 404. This receipt validates local Files UI and preview lifecycle, not production backend functionality.",
+    "driver_sha256": "c34788c2be7357d5497e79dae1efe58cd8a721d82f4bf9a41f4e32a75b94245f",
+    "raw_receipt_sha256": "bfe58ea9c835417bd5681c697d25468dfe49b82e0dfd36a4851716f71d465d21",
+    "passed": true,
+    "checks": {
+      "realEncryptedCredential": {
+        "bytes": 339,
+        "prefix": "v11",
+        "secureStoreAccepted": true,
+        "plaintextTokenAbsent": true
+      },
+      "rootsOnly": true,
+      "pdfCanvasPainted": true,
+      "legacyDOC": true,
+      "pdf": true,
+      "escapeMenuThenPanel": true,
+      "missingFontDismissible": true,
+      "encryptedPDFVisibleError": true,
+      "logoutPanelAndCacheCleared": true,
+      "http401PanelAndCacheCleared": true
+    },
+    "keyring_collection": {
+      "itemCount": 2,
+      "unlocked": true
+    },
+    "renderer_sandbox": [
+      {
+        "seccomp": 2,
+        "noNewPrivs": 1,
+        "noSandbox": false
+      },
+      {
+        "seccomp": 2,
+        "noNewPrivs": 1,
+        "noSandbox": false
+      },
+      {
+        "seccomp": 2,
+        "noNewPrivs": 1,
+        "noSandbox": false
+      }
+    ],
+    "logout_and_401_remaining_cache_entries": "Only the live-process 48-byte owner.json marker; no document payload remains.",
+    "app_asar_sha256": "56f9f3c5be4278ac38800b859ad605347dcd6c2d53aa2041963c75ecc6e0b6d5",
+    "preview_assets": {
+      "files": 224,
+      "manifestSHA256": "e01a4b1a3e55c721f3b5de03e487485ca6ef1d8fd321edd559e1481eabea8337"
+    },
+    "screenshots_visually_checked": [
+      "02-doc.png",
+      "04b-font-dismissed.png",
+      "05-encrypted-pdf.png"
+    ],
+    "live_owned_preview_processes_after_exit": 0
+  },
+  "evidence_sha256": {
+    "linux-release-29623d86-build-final.log": "f0de88d3824bd54d91abdfdb15330712e1e3d88b80c679562d247025518e96b0",
+    "linux-release-29623d86-manifest-dependencies.log": "a50a2fe9e59344ee100ca94dc0a85e864e37a23a89d8b041bae64ef1278c70e1",
+    "linux-packages-29623d86-qualified.log": "d6aa03bcb14fddb380ac8ea55bd858e9bc48bb78943279171cabc736b5d38549",
+    "linux-install-29623d86.log": "041075e58c9a83f28a368b4350ced02e1854763eefdee89417246812fd46ee58",
+    "linux-installed-ui-29623d86.log": "79403096dad2415b2d03b4224131dcacbd7fde0f426338ba46c9eb08687e36c9",
+    "linux-dependency-closure-29623d86.json": "d7cd6bc18eaecd1c4056248af66755493daa1fb71b4f26e1a82592b1b24f7adc",
+    "linux-dependency-closure-29623d86-relative.json": "d7cd6bc18eaecd1c4056248af66755493daa1fb71b4f26e1a82592b1b24f7adc",
+    "installed-ui-29623d86/02-doc.png": "27bf4ac2bebd2b64159ffb40f9000d258696f4a33539b6dd8953b2ffe780251e",
+    "installed-ui-29623d86/04b-font-dismissed.png": "16692f24ee7fb0f412e7b2b98fd015c734033939883cb89b750d5636b8114d6e",
+    "installed-ui-29623d86/05-encrypted-pdf.png": "e74cd0e4a5f4fb94c1ccf873c5cdaa90dd857fcfbad80782a7534a6e16f0af85"
+  },
+  "initial_failures_retained": [
+    "Initial source-directory relocation overlapped an npm install; both abandoned attempts were terminated and node_modules removed before the final fresh npm ci. Neither attempt produced a delivered package.",
+    "The cold Electron44 module had no dist executable for release-manifest inspection. The resolver warmed its real download; manifest and actual package execution then passed.",
+    "Race tests initially lacked a C compiler. The owned test container received gcc/libc6-dev, and both complete affected packages passed with CGO_ENABLED=1.",
+    "The dependency audit compared absolute ldd paths with a relative executable argument; canonicalizing input paths fixes the test script. Absolute and corrected relative invocations produce identical passing dependency receipts."
+  ],
+  "limits_unchanged": [
+    "Linux arm64 Debian12/Xvfb, not an x64/Wayland/all-distribution claim.",
+    "AppImage extract-and-run exercised; direct FUSE mounting remains outside this container.",
+    "Unprivileged namespaces and a real Secret Service remain required; no unsafe fallback was enabled.",
+    "Baseline real cloud placeholder and encrypted legacy DOC/PPT gates remain explicitly owner-waived."
+  ],
+  "production_services_changed": false,
+  "hosted_ci_status": "Tracked separately; local Linux validation does not claim hosted CI completion."
+}

@@ -1,7 +1,7 @@
 """Verify an owned Debian artifact: python3 SCRIPT PACKAGE.deb UNPACKED/sparkx."""
 import json,os,re,subprocess,sys
 from pathlib import Path
-deb,exe=map(Path,sys.argv[1:])
+deb,exe=(Path(argument).resolve(strict=True) for argument in sys.argv[1:])
 depends=subprocess.check_output(['dpkg-deb','-f',str(deb),'Depends'],text=True).strip()
 roots=[]
 for requirement in depends.split(','):

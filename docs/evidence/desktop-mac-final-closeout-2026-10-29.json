@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "status": "candidate_verified_installation_pending",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "source": "0c5d25dc070126e77437fb0f0399cd0bcd3271d6",
+  "previous_installed_source": "29623d864899de27624449873591c8e609d267ab",
+  "previous_installed_receipt": "desktop-mac-helper-closeout-2026-10-29.json",
+  "package": {
+    "source_revision": "0c5d25dc070126e77437fb0f0399cd0bcd3271d6",
+    "helper_sha256": "51e820983b9b5dad2f1297f462f69a47c60a46d595f37e8bd3d6e082e6557752",
+    "desktop_source_files": 79,
+    "workbench": 24,
+    "viewer": 224,
+    "application_entries": 7227,
+    "artifacts": [
+      {
+        "name": "SparkX-0.1.0-mac-arm64.dmg",
+        "bytes": 219376252,
+        "sha256": "57adf1369791139541ae6ca0606479ec1481d9494318b3cfecc7dafbff7a4b11"
+      },
+      {
+        "name": "SparkX-0.1.0-mac-arm64.zip",
+        "bytes": 222684465,
+        "sha256": "4d4c8d223e2aab7fcce0136e5e9558d03ebb3dff4699d48268f688e913dca390"
+      }
+    ],
+    "package_audit": {
+      "schema_version": 1,
+      "platform": "darwin",
+      "client_scope": "public_client_source_and_ui",
+      "application_entries": 7227,
+      "ui_files": 24,
+      "preview_files": 224,
+      "iscp_helper_sha256": "51e820983b9b5dad2f1297f462f69a47c60a46d595f37e8bd3d6e082e6557752"
+    }
+  },
+  "payload_delta": {
+    "source": "0c5d25dc070126e77437fb0f0399cd0bcd3271d6",
+    "previous_source": "29623d864899de27624449873591c8e609d267ab",
+    "entries": 6948,
+    "unchanged_entries": 6946,
+    "changed_entries": [
+      "Contents/Info.plist",
+      "Contents/Resources/app.asar"
+    ],
+    "asar_files_compared": 6500,
+    "asar_changed_files": [
+      "src/main/main.mjs"
+    ],
+    "helper_and_workbench_and_viewer_and_engines_unchanged": true
+  },
+  "dmg_verified": true,
+  "staged_zip_verified": true,
+  "candidate_installed": false,
+  "candidate_installed_UI_qualified": false,
+  "previous_installed_application_and_original_profiles_preserved": true,
+  "scope": "The candidate changes only the dedicated task-qualification presentation mode; ordinary workbench behavior, helper, viewer and conversion assets remain identical. Prior installed acceptance is retained separately and is not reported as a new installation.",
+  "logs": [
+    {
+      "file": "package-mac-0c5d25dc.log",
+      "sha256": "123d5d7fc0b2c5fb46e397b876d15ada8b8b27bd433ca91b53c1d085e478c69f"
+    },
+    {
+      "file": "dmg-0c5d25dc.log",
+      "sha256": "06295b3fbd831bef4a6addaa9f6ee629a5c6c3133867c91d3557fb36f104b657"
+    }
+  ]
+}

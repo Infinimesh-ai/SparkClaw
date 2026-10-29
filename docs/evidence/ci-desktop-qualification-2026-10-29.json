@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "source": "0c5d25dc070126e77437fb0f0399cd0bcd3271d6",
+  "presentation": {
+    "problem": "Task-only qualification has no workbench tab selector; explicit-selection mode left its panel hidden. The MCP task also uses a separate tab from the initial adapter connection.",
+    "repairs": [
+      "Automatic presentation applies only to the task-only qualification window; ordinary and qualification workbench windows retain explicit selection.",
+      "The fixture explicitly presents its actual task and verifies visibility in a fresh snapshot before native mouse, keyboard, clipboard and drag/drop checks."
+    ],
+    "ordinary_workbench_behavior_changed": false,
+    "focused_tests_passed": 8,
+    "independent_review_passed": true
+  },
+  "mcp_event_ordering": {
+    "problem": "The pinned MCP relay processes command responses through asynchronous forwarding, while events are forwarded synchronously. Coalesced WebSocket frames can therefore deliver the default execution context before the preceding frame-tree reply, losing the context needed by page.read.",
+    "observed_red": "An unmodified real Linux fixture hung on popup read; a low-perturbation stress run failed on the fourth popup even though the source wire ordered frame reply before context.",
+    "deterministic_reproduction": "The actual pinned CDPRelay, ExtensionConnection, BrowserModel and ws Receiver/Sender receive coalesced frames; the previous configuration reorders events before the reply and the repaired configuration preserves the sequence.",
+    "repair": "Only the MCP relay delegate opts out of synchronous WebSocket batch events; other WSServer delegates retain the upstream default.",
+    "pinned_version": "1.63.0-alpha-2026-08-31",
+    "version_or_protocol_changed": false,
+    "timeout_increased": false,
+    "desktop_asar_changed_by_this_hook": false,
+    "focused_tests_passed_linux": 8,
+    "focused_tests_passed_mac": 8,
+    "actual_server_option_boundary_test": true,
+    "idempotence_and_drift_checks": true,
+    "independent_review_passed": true
+  },
+  "real_linux_qualification": {
+    "platform": "Debian 12 arm64 / Xvfb X11",
+    "untraced_full_runner_passed": true,
+    "app_cli_processes": 45,
+    "app_cli_transport_fallbacks": 0,
+    "native_input_exercised_visible_page": true,
+    "mcp_popup_read_and_close": true,
+    "download_and_private_artifact_checks": true,
+    "actual_cli_flow": true,
+    "renderer_crash_and_main_restart": true,
+    "extra_popup_cycles": 20,
+    "total_popup_cycles_in_stress_run": 21,
+    "stress_full_runner_exit_code": 0,
+    "owned_processes_remaining_after_cleanup": 0,
+    "temporary_trace_in_product": false
+  },
+  "hosted_red_history": [
+    {
+      "run_id": 40864051045,
+      "source": "7f5d67a7789503f52bea6ac50172c12d8441bb7d",
+      "passed_jobs": 7,
+      "failure": "qualification task presentation assertion"
+    },
+    {
+      "run_id": 40865490207,
+      "source": "812a75dd48be5670947ee22a778f70bcf044d1b0",
+      "passed_jobs": 7,
+      "failure": "new native-input visibility precondition exposed the separate hidden task tab"
+    }
+  ],
+  "hosted_result": "The publishing commit Actions checks are authoritative; hosted success is not inferred from the local fixture.",
+  "diagnostics_retained": [
+    "On macOS, the default /var temporary path alias was rejected by existing private-download realpath checks. The 8 focused tests passed with a canonical task-owned private TMPDIR; the security check was not weakened."
+  ],
+  "logs": [
+    {
+      "file": "ci-7f-desktop.log",
+      "sha256": "c44658383803dbaae9d020fa60c520e91ed7ad767ab7e46aa94042f7f78a42ff"
+    },
+    {
+      "file": "ci-812-desktop.log",
+      "sha256": "e6c8d1e7d56b2a11416276e9bacb974f96916c5cf9a38d078fd551f18603f28a"
+    },
+    {
+      "file": "mcp-ordering-mac-tests.log",
+      "sha256": "1d5e45b08236585a34b55f7db6ddcfd26837e903d30268d8ba1cb58e3ee41f47"
+    },
+    {
+      "file": "ci-f4b-untraced-qualified.log",
+      "sha256": "8d4eb70f9f5e90c6935b13ac95a9ece017cf7ae262fcbee326c00cb75cb06cfd"
+    },
+    {
+      "file": "ci-mcp-ordering-red.log",
+      "sha256": "c05ca186151156d514631ee587baeb732b34109e02dabb563dd17504499f364d"
+    },
+    {
+      "file": "ci-mcp-ordering-green.log",
+      "sha256": "6dc142d4cdd954fcffa558aaea5aaa80bb9ccbaecaec4aa2628c215b5a9f5ee0"
+    },
+    {
+      "file": "ci-mcp-ordering-full-qualified.log",
+      "sha256": "e2c725ea95f027e640adc52a1d1b6b058d47991e06f46ec28cc6806e10033ba3"
+    },
+    {
+      "file": "ci-mcp-ordering-stress-qualified.log",
+      "sha256": "bfb34bf0d354b34c14541b496b0459265808e136259305a79486287336772084"
+    },
+    {
+      "file": "ci-mcp-ordering-stress-runner.mjs",
+      "sha256": "e33d2397156d7f900e94a6c57b06a0f2eb7bd139dfa0ed705e9c47adfe8c3f0e"
+    },
+    {
+      "file": "ci-0c5-desktop.log",
+      "sha256": "279d273eae63522437fc4d64c46e191e2b354db31439475c9aef23fd22d5b376"
+    },
+    {
+      "file": "ci-731-desktop.log",
+      "sha256": "f60daed1bcfde6053e918d680b1a51ac955f69052f42c9ffdde5a1983a803261"
+    },
+    {
+      "file": "ci-self-corefilter-validation.json",
+      "sha256": "0dc419e0789b04ed51c1f79dd08ea1cc8ec736e006f25697a5b363a22d054c64"
+    }
+  ],
+  "production_services_changed": false,
+  "hosted_renderer_crash_followup": {
+    "run_id": 40867083224,
+    "source": "0c5d25dc070126e77437fb0f0399cd0bcd3271d6",
+    "app_cli_mcp_popup_native_input_and_cli_passed": true,
+    "failure": "Task renderer invalidation did not satisfy the original 5-second assertion.",
+    "cause_confirmed": true,
+    "local_source_and_installed_linux_full_runs_passed": true,
+    "diagnostic_commit": "73121e51",
+    "diagnostics": "Retain bounded Electron stderr and report only this fixture process tree, CoreDumping status, core pattern and remaining task pages on failure.",
+    "original_deadline_and_assertion_preserved": true,
+    "status": "local_validation_passed_hosted_result_is_publishing_commit_checks",
+    "diagnostic_run_id": 40868200018,
+    "diagnostic_source": "73121e51dfa7bfb558e3a2559bd404ea5104dd76",
+    "cause": "Two intentionally crashed owned renderers were still CoreDumping=1; hosted systemd-coredump held their exit while collecting memory mappings. The task page had not received render-process-gone.",
+    "owned_renderers_still_dumping": 2,
+    "host_core_pattern": "|/usr/lib/systemd/systemd-coredump %P %u %g %s %t 9223372036854775808 %h %d",
+    "repair_scope": "Set only the disposable qualifier process coredump_filter to zero before spawning its children; fork/exec inheritance excludes large memory mappings. No global core pattern, namespace, sandbox or product behavior change.",
+    "core_handler_completely_disabled": false,
+    "references": [
+      "https://docs.kernel.org/filesystems/proc.html#proc-pid-coredump-filter-core-dump-filtering-settings",
+      "https://man7.org/linux/man-pages/man5/core.5.html"
+    ],
+    "local_validation": {
+      "schema_version": 1,
+      "qualification_exit_code": 0,
+      "full_real_electron_qualification_passed": true,
+      "real_renderer_fatal_and_original_5000ms_assertions_preserved": true,
+      "per_process_filter_write_readback": "00000000",
+      "observed_processes": 41,
+      "observed_renderers": 26,
+      "samples": 293,
+      "every_observed_process_had_a_zero_filter": true,
+      "no_nonzero_filter_observed": true,
+      "global_core_pattern": "core",
+      "global_core_pattern_unchanged": true,
+      "independent_fresh_process_filter": "00000023",
+      "observer_exit_code": 1,
+      "observer_assertion_caveat": "41 PIDs each had at least one valid 00000000 read. No valid nonzero value was observed. Three PIDs subsequently returned empty/unavailable proc-file reads, which are not counted as zero or successful samples; no contemporaneous status was captured to establish the cause. The observer strict assertion failed and the original failure/raw evidence are retained. The actual full qualifier passed independently.",
+      "limits": "This owned Debian12/LinuxKit host uses core_pattern=core, not the GitHub runner systemd-coredump pipe. Hosted CI must verify that the original 5-second exit gate now passes under that collector.",
+      "evidence_sha256": {
+        "ci-self-corefilter-full-qualified.log": "e324e596eba5543eecc29f2b7d39c4d42194d4ae1fe824f66223f2e5d22f4b74",
+        "ci-self-corefilter-process-observer.json": "360b8144b21223803130f17def583b76a700e33f9193eb627f69691f53df0f10",
+        "ci-self-corefilter-runner.mjs": "f9be3ec6b3dc9a79a538143c80f77ac7618306ff974fa376a7e0850a0908b171"
+      },
+      "pids_with_at_least_one_valid_zero_read": 41,
+      "valid_nonzero_reads": 0,
+      "pids_with_unavailable_empty_reads": 3,
+      "unavailable_reads_counted_as_zero": false
+    },
+    "filter_fix_commit": "380a78208176bd87d4694efdee1d9b97a4464644"
+  }
+}

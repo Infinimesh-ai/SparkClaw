@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "base_commit": "73121e51",
+  "fix_commit": "a1ca788b8c84e48fc1ea340c8dce4fc988f48903",
+  "scope": "One gateway integration test; no production code or packaged payload change",
+  "remote_observation": {
+    "run": 40868200018,
+    "test": "TestWorkbenchISCPV2ChunkedOriginalExecutionAndLargeResult",
+    "error": "large result lacks object",
+    "actual_state": "running",
+    "actual_revision": 2
+  },
+  "cause": "The lost 150ms client response does not establish server admission. The test could wait on a zero worker count before the queued Submit called wg.Add, then read a legitimate running response.",
+  "change": "The injected executor signals its actual entry; the test awaits this signal under the fixture context and then joins actual background completion with the same context before the unchanged encrypted terminal lookup/object assertions.",
+  "controlled_red": {
+    "schedule": "Hold the existing server admission mutex until after client timeout and old executions.Wait; hold the injected executor until the running response is observed. All gates are released on cleanup.",
+    "result": "failed with the same revision 2 running response",
+    "evidence": {
+      "file": "controlled-admission-red.log",
+      "sha256": "749da484981751cc097cb31daf79650e6175710a78691510887d3c0a26766de2",
+      "bytes": 794
+    },
+    "patch": {
+      "file": "controlled-red.patch",
+      "sha256": "bd861825135580e4bf7807ebf72ad14dd481e76b441ba7d3489bb20034f6c8c5",
+      "bytes": 2166
+    }
+  },
+  "controlled_green": {
+    "schedule": "Same held admission until after client timeout and held executor; the new execution-entry and completion barriers establish order before terminal lookup.",
+    "iterations": 3,
+    "result": "passed",
+    "elapsed_seconds": 7.797,
+    "evidence": {
+      "file": "controlled-admission-green.log",
+      "sha256": "5ee5a0d4506c28c66ea55dfe9889c27c7a3c3ba87fc3c50f5dc42dfa21dbba90",
+      "bytes": 74
+    },
+    "patch": {
+      "file": "controlled-green.patch",
+      "sha256": "0cca36099a067672a583216266ff72d68b2a99c45da16acfca78e6799c048a5e",
+      "bytes": 2635
+    }
+  },
+  "final_tests": [
+    {
+      "command": "go test -race ./internal/gateway -run '^TestWorkbenchISCPV2ChunkedOriginalExecutionAndLargeResult$' -count=1 -timeout=45s",
+      "result": "passed",
+      "elapsed_seconds": 4.447,
+      "evidence": {
+        "file": "fixed-integration-green.log",
+        "sha256": "020815e323fbc589f98b78242ecbf6f5c57ff7ea993bafe5b780d4ce3d2d0b0d",
+        "bytes": 74
+      }
+    },
+    {
+      "command": "go test -race ./internal/gateway -run '^TestWorkbenchISCPV2ChunkedOriginalExecutionAndLargeResult$' -count=20 -cpu=1,4 -timeout=3m",
+      "iterations": 40,
+      "result": "passed",
+      "failures": 0,
+      "elapsed_seconds": 81.364,
+      "evidence": {
+        "file": "fixed-race-cpu1-4-count20.log",
+        "sha256": "f21de691b85b1430cfb5f8bf1fcbc000eb7117f4c341b9b3d6c688752c7a13ba",
+        "bytes": 75
+      }
+    }
+  ],
+  "production_modified": false,
+  "added_sleeps": false,
+  "assertions_relaxed": false,
+  "docs_modified": false,
+  "reviewed_fix_commit": "caa1b33c91e8cd5639f990b6e6d54c9fc6cf9d50"
+}

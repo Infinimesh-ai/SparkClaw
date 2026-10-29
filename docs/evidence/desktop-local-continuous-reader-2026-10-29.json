@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "source_revision": "912df1ff9f31eb227e11ce54b9d63163d8a86215",
+  "installed": true,
+  "pushed": false,
+  "remote_service_changed": false,
+  "changes": [
+    "white document surface and neutral separators",
+    "existing browser titlebar placement for file tabs",
+    "two-column file tabs with reachable actions",
+    "continuous fit-width PDF and converted Office reading",
+    "page-relative restoration and bounded visible canvases"
+  ],
+  "frontend_tests_passed": 553,
+  "final_panel_tests_passed": 8,
+  "production_build": "passed",
+  "browser_layout_cases": 48,
+  "task_browser_cases": 12,
+  "native_checks": {
+    "isolation": {
+      "bridge": "undefined",
+      "file": true,
+      "network": true,
+      "parentStorage": true
+    },
+    "formats": [
+      "text",
+      "spreadsheet",
+      "markdown",
+      "pdf",
+      "image"
+    ],
+    "sheetCopy": {
+      "html": "<table><tr><td style=\"mso-number-format:'\\@'\">00123</td></tr></table>",
+      "prevented": true,
+      "value": "00123"
+    },
+    "sheetSwitch": true,
+    "editingBlocked": true,
+    "pdfPixels": 4000000,
+    "pdfRangeRead": true,
+    "pdfPageSwitch": true,
+    "pdfZoom": true,
+    "pdfPositionRestore": true,
+    "pdfContinuousScroll": true,
+    "pdfFitWidth": true,
+    "pdfResizeAnchor": true,
+    "pdfWhiteSurface": true,
+    "privatePDFChecked": true,
+    "navigationBlocked": true
+  },
+  "source_match": {
+    "sourceFiles": 78,
+    "uiFiles": 24,
+    "viewerFiles": 223,
+    "mismatches": [],
+    "asarSHA256": "7a5ffebe3abcde30e74360e90e52a21aef4de1d60070b75ed962c67716a124c9",
+    "helperSHA256": "9a4da3b7694f7381c5d2e4632e278af8ed1410ad25ae95d84cd150eb19ba98c3"
+  },
+  "artifacts": {
+    "zip": {
+      "file": "SparkX-0.1.0-mac-arm64.zip",
+      "bytes": 222676180,
+      "sha256": "da9b7d5a65025a469acc5d52ef0bba35eb4e1948dc37f3efe70bcd5da9b2ff86"
+    },
+    "dmg": {
+      "file": "SparkX-0.1.0-mac-arm64.dmg",
+      "bytes": 219351074,
+      "sha256": "d30a79d53203bdcf6daa23fb086d360fbb62b1a9b4941aa51f080b842161cfdf"
+    }
+  },
+  "installed_entries_matched": 6946,
+  "cold_backup_databases": 76,
+  "cold_backup_tables": 343,
+  "profile_bytes_modes_unchanged_before_launch": true,
+  "original_file_unchanged": true,
+  "installed_visual_checks": {
+    "document_pages": 41,
+    "restored_page": 4,
+    "wheel_advanced_to_page": 5,
+    "white_surface": true,
+    "filename_in_window_titlebar": true,
+    "controls_unclipped": true,
+    "split_and_wide_fit_width": true,
+    "conversation_switch_position_restored": true,
+    "file_tree_preserved": true,
+    "browser_files_switching": true,
+    "original_login_and_conversations_retained": true
+  },
+  "previous_app": "/Applications/.SparkX-white-reader-912df1ff-previous.app",
+  "open_gates": [
+    "broader format/font fidelity and malformed-document matrix",
+    "Linux isolation/package/UI acceptance"
+  ]
+}

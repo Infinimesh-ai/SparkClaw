@@ -25,6 +25,8 @@ The [2026-10-29 machine-readable receipt](evidence/desktop-local-format-matrix-2
 
 The generator creates 37 original files. The broker covers 18 of those files plus one generated XLSX (19 cases); the native viewer covers the other 19 original files, five PDFs derived from the accepted Office originals, and the same XLSX (25 cases). Together these are 38 distinct source documents and 44 stage executions. The receipt maps every filename to its stage. The existing native regression also authors a separate encrypted R2 PDF, outside the 37-file generator count.
 
+The [Linux installed UI receipt](evidence/desktop-linux-installed-local-files-ui-2026-10-29.json) separately verifies the final Debian arm64 package in ordinary application mode with an isolated profile, real session DBus/GNOME Keyring and Xvfb. It covers encrypted credential storage, sandboxed renderers, the three folder roots, painted DOC/PDF content, Escape closing the zoom menu before the panel, dismissible missing-font feedback, encrypted-PDF rejection, and sign-out/HTTP-401 removal of the panel and all preview payloads. Only the active process owner marker remains before process exit. Screenshots were inspected for document rendering and readable fallback text after dismissing the font notice. The synthetic identity service deliberately returns 404 for unrelated workbench services; this is not a production backend test.
+
 ## Fidelity and support limits
 
 - Static previews do not edit or recalculate documents and do not execute macros, animations or embedded objects. Password-protected files must be unlocked in another application and saved as separate unencrypted copies.

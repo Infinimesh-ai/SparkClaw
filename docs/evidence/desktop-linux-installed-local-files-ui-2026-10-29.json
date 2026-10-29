@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "scope": "Ordinary UI of dpkg-installed Linux arm64 application with isolated synthetic profile, session DBus, GNOME Keyring, and Xvfb. Not a development viewer fixture.",
+  "packaging_commit": "64a23b6331948d67c1e5a1fd5b714ef790bc977c",
+  "runtime_source_commit": "00a0ebc3b0b7eb4af52da055f139ed47f7537451",
+  "deb": {
+    "name": "SparkX-0.1.0-linux-arm64.deb",
+    "sha256": "3a204bea275a56a7fa43c41017311982275f29cdc7715a79b25ec45a10bfb76d",
+    "bytes": 146841284
+  },
+  "environment": {
+    "distribution": "Debian 12",
+    "architecture": "arm64",
+    "uid": 1100,
+    "display": "isolated Xvfb, 1440x1000x24",
+    "secret_service": "gnome-keyring-daemon with isolated XDG data/runtime and session DBus",
+    "entry": "/opt/SparkX/sparkx",
+    "arguments": [
+      "--remote-debugging-port=0",
+      "--remote-debugging-address=127.0.0.1",
+      "--password-store=gnome-libsecret"
+    ],
+    "qualification_mode": false,
+    "no_sandbox": false,
+    "basic_text": false
+  },
+  "method": "CDP operates the installed app login form, Files tree, tabs, zoom control, and sign-out UI; no preload bridge operations replace UI actions. A synthetic loopback HTTPS server pins its generated certificate and accepts only its generated identity/token. HTTP 401 is triggered after re-login by revoking that mock identity and reloading the page.",
+  "result": {
+    "schema_version": 1,
+    "source": "installed Debian binary /opt/SparkX/sparkx",
+    "ordinaryMode": true,
+    "qualificationFlag": false,
+    "basicText": false,
+    "noSandbox": false,
+    "syntheticOnly": true,
+    "checks": {
+      "realEncryptedCredential": {
+        "bytes": 339,
+        "prefix": "v11",
+        "secureStoreAccepted": true,
+        "plaintextTokenAbsent": true
+      },
+      "rootsOnly": true,
+      "pdfCanvasPainted": true,
+      "legacyDOC": true,
+      "pdf": true,
+      "escapeMenuThenPanel": true,
+      "missingFontDismissible": true,
+      "encryptedPDFVisibleError": true,
+      "logoutPanelAndCacheCleared": true,
+      "http401PanelAndCacheCleared": true
+    },
+    "secretServiceOwned": true,
+    "keyringCollection": {
+      "itemCount": 2,
+      "unlocked": true
+    },
+    "rendererSandbox": [
+      {
+        "pid": 29441,
+        "seccomp": 2,
+        "noNewPrivs": 1,
+        "noSandbox": false
+      },
+      {
+        "pid": 29450,
+        "seccomp": 2,
+        "noNewPrivs": 1,
+        "noSandbox": false
+      },
+      {
+        "pid": 29476,
+        "seccomp": 2,
+        "noNewPrivs": 1,
+        "noSandbox": false
+      }
+    ],
+    "cacheBeforeLogout": [
+      {
+        "name": "local-previews/owner-29343-0c359446-c591-4b53-80bf-250b604c8328/cache-d2f9ab3186b57bfb099a91786f70c81af467a34021aa8aa68b70e768e0e50d93",
+        "bytes": 30252,
+        "pdf": true
+      },
+      {
+        "name": "local-previews/owner-29343-0c359446-c591-4b53-80bf-250b604c8328/owner.json",
+        "bytes": 49,
+        "pdf": false
+      }
+    ],
+    "cacheAfterLogout": [
+      {
+        "name": "local-previews/owner-29343-0c359446-c591-4b53-80bf-250b604c8328/owner.json",
+        "bytes": 49,
+        "pdf": false
+      }
+    ],
+    "cacheAfter401": [
+      {
+        "name": "local-previews/owner-29343-0c359446-c591-4b53-80bf-250b604c8328/owner.json",
+        "bytes": 49,
+        "pdf": false
+      }
+    ],
+    "process": {
+      "pid": 29343,
+      "commandLine": [
+        "/opt/SparkX/sparkx --remote-debugging-port=0 --remote-debugging-address=127.0.0.1 --password-store=gnome-libsecret"
+      ]
+    },
+    "binarySHA256": "b0a14e829b70da12c7a9bb3fd4712bff35ba2ed25910a56af4bfb6d0b529b56d",
+    "installedAppASARSHA256": "56f9f3c5be4278ac38800b859ad605347dcd6c2d53aa2041963c75ecc6e0b6d5",
+    "installedPreviewAssets": {
+      "files": 224,
+      "manifestSHA256": "e01a4b1a3e55c721f3b5de03e487485ca6ef1d8fd321edd559e1481eabea8337"
+    },
+    "package": "sparkclaw 0.1.0 arm64",
+    "passed": true
+  },
+  "cache_interpretation": "The 30,252-byte cached PDF payload exists before sign-out. After both sign-out and 401, no preview payload remains; only the live broker process owner.json marker (49 bytes, no document content) remains until process exit.",
+  "visual_review": [
+    "DOC: native application layout, English/Chinese text, table, image, and continuous mixed-orientation pages are visible.",
+    "Missing-font notice is present and dismissible; screenshot after dismissal visibly retains the fallback text.",
+    "Encrypted PDF displays the unlock-and-save-separate-copy instruction.",
+    "Logout and 401 snapshots show the ordinary locked login gate."
+  ],
+  "limitations": [
+    "This is a real installed application inside an isolated Linux container/Xvfb session, not a physical Linux workstation session.",
+    "The synthetic service intentionally returns 404 for unsupported workbench services; the visible HTTP 404 feedback is expected fixture behavior.",
+    "This UI check does not replace the separate Linux broker/large-document/resource matrix or promise Office pixel fidelity."
+  ],
+  "raw_receipt_sha256": "58ac9220a03987a303b1234bb2f5b620af768f466a3e0978e1a8806683169d1b",
+  "driver": {
+    "name": "driver.mjs",
+    "sha256": "c34788c2be7357d5497e79dae1efe58cd8a721d82f4bf9a41f4e32a75b94245f",
+    "retained": "Private acceptance evidence, together with raw logs and screenshots; no production account or profile was used."
+  },
+  "evidence_sha256": {
+    "01-unlock.png": "d06226f7c4cac040cc8fe8714bc0a038bc2998a26a7b42983031f36a9ff9c2f8",
+    "02-doc.png": "27bf4ac2bebd2b64159ffb40f9000d258696f4a33539b6dd8953b2ffe780251e",
+    "03-pdf.png": "e89876367aad7fa14e45b452ba2716c79c44e4bdf74169cfb05f68424c42e168",
+    "04-font-notice.png": "581682eef8a8e42e61d40a85cb7cc28ea8d397f411c6d40d06ebb650935b2a21",
+    "04b-font-dismissed.png": "79e0d99d2b3096c9a43e8a0659d87ee64d780261261913988b6cc9ab8102252e",
+    "05-encrypted-pdf.png": "b443e47870c348e7865c7ce716331f32e919468a9c856504cd2488eb8115ab0e",
+    "06-logout.png": "3dd157180312c478e4335c544750dec4719c7d3b620e3869c2ade8174a5744bf",
+    "07-revoked.png": "f68af4dd2da9b3d4e60309eed9bd76c9dd9e69cc33846f435a2eb6ccb2d7cdef",
+    "app.log": "1c251d19935451d40e964b8776e2d31a8a09110139bb075c50cc2911b89f501b",
+    "events.jsonl": "79403096dad2415b2d03b4224131dcacbd7fde0f426338ba46c9eb08687e36c9",
+    "keyring.log": "49901ab2ce6977152b85ec1eff0ecea8949698d11afa7db92d3c58380688fc65",
+    "requests.json": "03c829f70446ad0d0f0525541b30ebca7e74e284b3d8f3b5102575f468cce1eb",
+    "result.json": "58ac9220a03987a303b1234bb2f5b620af768f466a3e0978e1a8806683169d1b",
+    "run.log": "79403096dad2415b2d03b4224131dcacbd7fde0f426338ba46c9eb08687e36c9"
+  },
+  "prior_driver_attempts": [
+    {
+      "run": "001",
+      "status": "driver assertion failure",
+      "reason": "Expected .pdf suffix; real cache entries have opaque cache- names. Corrected to verify PDF bytes."
+    },
+    {
+      "run": "002",
+      "status": "UI assertions passed; receipt metadata query failed",
+      "reason": "Used sparkx instead of installed Debian package name sparkclaw."
+    },
+    {
+      "run": "003",
+      "status": "passed",
+      "reason": "Added actual painted-pixel waiting and a post-dismissal screenshot for stronger visual evidence."
+    },
+    {
+      "run": "004",
+      "status": "driver timing failure",
+      "reason": "Root list assertion ran before asynchronous root loading finished; added explicit wait."
+    },
+    {
+      "run": "005",
+      "status": "passed",
+      "reason": "Added post-dismissal screenshot; final complete run is 006."
+    }
+  ],
+  "passed": true,
+  "mock_requests": {
+    "count": 22,
+    "revoked_count": 2,
+    "routes": [
+      "GET /api/config",
+      "GET /api/email/sync-status",
+      "GET /api/notifications",
+      "GET /api/workbench/identity",
+      "POST /api/v1/browser/hosts/grants",
+      "POST /api/v1/installations"
+    ],
+    "production_service_contacted": false,
+    "credential_values_recorded": false
+  }
+}

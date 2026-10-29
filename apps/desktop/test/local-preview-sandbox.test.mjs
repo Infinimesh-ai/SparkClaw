@@ -16,7 +16,7 @@ test('actual OS sandbox denies data read, write and loopback outside a private t
   if (process.platform === 'linux') {
     try { await fs.access('/usr/bin/bwrap'); } catch { t.skip('Bubblewrap is not installed on this test host; heavy previews remain unavailable.'); return; }
   }
-  assert.deepEqual(await verifyPreviewSandbox({ jobDirectory: job, outsidePath: outside, codeRoots: [] }), { readDenied: true, writeDenied: true, networkDenied: true });
+  assert.deepEqual(await verifyPreviewSandbox({ jobDirectory: job, outsidePath: outside, codeRoots: [] }), { readDenied: true, writeDenied: true, networkDenied: true, metadataDenied: true });
   assert.equal(await fs.readFile(outside, 'utf8'), 'private');
   await assert.rejects(fs.stat(outside + '.write'), { code: 'ENOENT' });
 });

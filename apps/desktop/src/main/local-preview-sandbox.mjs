@@ -37,7 +37,12 @@ export function macSandboxProfile({ runtime, codeRoots, jobDirectory, fontDirect
     // A Node or Electron executable can require siblings (ICU, dylibs, Resources).
     path.dirname(runtime), ...(path.basename(path.dirname(runtime)) === 'MacOS' ? [path.resolve(runtime, '../../Frameworks')] : []),
   ])];
-  return `(version 1)\n(deny default)\n(allow process*)\n(allow signal (target self))\n(allow sysctl-read)\n(allow mach-lookup (global-name "com.apple.system.logger") (global-name "com.apple.fonts"))\n(allow file-read-metadata)\n(allow file-read-data (literal "/"))\n${readRoots.map(root => `(allow file-read* (subpath ${quote(root)}))`).join('\n')}\n(allow file-read* (literal "/dev/null") (literal "/dev/urandom") (literal "/dev/random"))\n(allow file-write* (subpath ${quote(jobDirectory)}) (literal "/dev/null"))\n${readOnlyFiles.map(file => `(deny file-write* (literal ${quote(file)}))`).join('\n')}\n(deny network*)\n`;
+  const ancestors = new Set(['/']);
+  for (const root of readRoots) {
+    let parent = path.dirname(root);
+    while (parent !== '/') { ancestors.add(parent); parent = path.dirname(parent); }
+  }
+  return `(version 1)\n(deny default)\n(allow process*)\n(allow signal (target self))\n(allow sysctl-read)\n(allow mach-lookup (global-name "com.apple.system.logger") (global-name "com.apple.fonts"))\n(allow file-read-metadata ${[...ancestors].map(root => `(literal ${quote(root)})`).join(' ')})\n(allow file-read-data (literal "/"))\n${readRoots.map(root => `(allow file-read* (subpath ${quote(root)}))`).join('\n')}\n(allow file-read* (literal "/dev/null") (literal "/dev/urandom") (literal "/dev/random"))\n(allow file-write* (subpath ${quote(jobDirectory)}) (literal "/dev/null"))\n${readOnlyFiles.map(file => `(deny file-write* (literal ${quote(file)}))`).join('\n')}\n(deny network*)\n`;
 }
 
 export async function sandboxCommand({ jobDirectory, worker = path.join(sourceDirectory, 'local-preview-worker.mjs'),
@@ -47,6 +52,14 @@ export async function sandboxCommand({ jobDirectory, worker = path.join(sourceDi
   worker = await realpath(unpacked(worker));
   readOnlyFiles = await Promise.all(readOnlyFiles.map(file => realpath(file)));
   const roots = [...new Set([await realpath(sourceDirectory), path.dirname(worker), ...(codeRoots ?? await dependencyRoots())])];
+  if (!codeRoots) {
+    let parent = sourceDirectory;
+    while (true) {
+      const modules = path.join(parent, 'node_modules');
+      try { await access(modules); roots.push(modules, await realpath(modules)); } catch {}
+      const next = path.dirname(parent); if (next === parent) break; parent = next;
+    }
+  }
   // Node resolves package scopes above each ESM entry; admit only package.json,
   // not the surrounding checkout/profile directory.
   for (const root of [...roots]) {
@@ -83,9 +96,10 @@ export async function sandboxCommand({ jobDirectory, worker = path.join(sourceDi
 // A positive conversion is not isolation evidence. This probe separately attempts
 // a forbidden read, a forbidden write, and an IPv4 connection from the worker.
 export async function verifyPreviewSandbox({ jobDirectory, outsidePath, runtime = process.execPath, codeRoots }) {
+  jobDirectory = await realpath(jobDirectory);
   const probe = path.join(jobDirectory, 'isolation-probe.mjs');
   const result = path.join(jobDirectory, 'isolation-result.json');
-  await writeFile(probe, `import fs from 'node:fs/promises';import net from 'node:net';\nconst outside=${JSON.stringify(outsidePath)},result=${JSON.stringify(result)};\nlet readDenied=false,writeDenied=false,networkDenied=false;try{await fs.readFile(outside)}catch(e){readDenied=['EPERM','EACCES','ENOENT'].includes(e.code)}\ntry{await fs.writeFile(outside+'.write','forbidden')}catch(e){writeDenied=['EPERM','EACCES','ENOENT'].includes(e.code)}\nawait new Promise(resolve=>{const socket=net.connect({host:'127.0.0.1',port:9});socket.on('connect',()=>{socket.destroy();resolve()});socket.on('error',e=>{networkDenied=['EPERM','EACCES','ENETUNREACH'].includes(e.code);resolve()});socket.setTimeout(1000,()=>{socket.destroy();resolve()})});await fs.writeFile(result,JSON.stringify({readDenied,writeDenied,networkDenied}));`, { mode: 0o600 });
+  await writeFile(probe, `import fs from 'node:fs/promises';import net from 'node:net';\nconst outside=${JSON.stringify(outsidePath)},result=${JSON.stringify(result)};\nlet readDenied=false,writeDenied=false,networkDenied=false,metadataDenied=false;try{await fs.stat(outside)}catch(e){metadataDenied=['EPERM','EACCES','ENOENT'].includes(e.code)}try{await fs.readFile(outside)}catch(e){readDenied=['EPERM','EACCES','ENOENT'].includes(e.code)}\ntry{await fs.writeFile(outside+'.write','forbidden')}catch(e){writeDenied=['EPERM','EACCES','ENOENT'].includes(e.code)}\nawait new Promise(resolve=>{const socket=net.connect({host:'127.0.0.1',port:9});socket.on('connect',()=>{socket.destroy();resolve()});socket.on('error',e=>{networkDenied=['EPERM','EACCES','ENETUNREACH'].includes(e.code);resolve()});socket.setTimeout(1000,()=>{socket.destroy();resolve()})});await fs.writeFile(result,JSON.stringify({readDenied,writeDenied,networkDenied,metadataDenied}));`, { mode: 0o600 });
   const launch = await sandboxCommand({ jobDirectory, worker: probe, runtime, codeRoots });
   await new Promise((resolve, reject) => {
     const child = spawn(launch.command, launch.args, launch.options);
@@ -97,6 +111,6 @@ export async function verifyPreviewSandbox({ jobDirectory, outsidePath, runtime 
   });
   const checks = JSON.parse(await readFile(result, 'utf8'));
   await Promise.all([rm(probe, { force: true }), rm(result, { force: true })]);
-  if (!checks.readDenied || !checks.writeDenied || !checks.networkDenied) throw previewError('preview_unavailable', 'Preview isolation did not deny all forbidden operations.');
+  if (!checks.readDenied || !checks.writeDenied || !checks.networkDenied || !checks.metadataDenied) throw previewError('preview_unavailable', 'Preview isolation did not deny all forbidden operations.');
   return checks;
 }

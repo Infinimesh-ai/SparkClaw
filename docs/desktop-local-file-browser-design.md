@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-local-file-browser-design.md)
 >
-> Date: 2026-10-29. Status: initial implementation is on local main; source and isolated macOS candidate checks are recorded in section 11. Installed-profile acceptance and Linux qualification remain open. The confirmed scope is client-local browsing, a Files icon beside Browser, a computer-wide file tree, and DSH-style tree/preview tabs. This document does not change a running application or authorize a release.
+> Date: 2026-10-29. Status: installed on this Mac at the owner's request; implementation evidence is in section 11 and installation evidence in section 12. Full installed-profile and Linux qualification remain open. The confirmed scope is client-local browsing, a Files icon beside Browser, a computer-wide file tree, and DSH-style tree/preview tabs.
 
 SparkX will expose the computer's files through a read-only panel after desktop sign-in. Directory enumeration, file reads, document conversion, previews and caches stay on that computer. Opening a file does not attach it to a conversation or grant an Agent access. The Files entry and panel remain behind the existing desktop login gate; local processing does not make this an unauthenticated feature.
 
@@ -237,7 +237,7 @@ DSH supplies reference patterns and candidate dependencies. SparkX retains its e
 
 ## 11 Implementation record — 2026-10-29
 
-The initial implementation is committed locally. It preserves the existing workbench and BrowserPanel, adds the Files button inside the existing login gate, and implements the four checkpoints at source level. It has not replaced the installed application, changed a production service, or been pushed. Full release acceptance in section 9 is not yet complete.
+The initial implementation is committed locally. It preserves the existing workbench and BrowserPanel, adds the Files button inside the existing login gate, and implements the four checkpoints at source level. At this checkpoint it had not replaced the installed application, changed a production service, or been pushed. Subsequent authorized installation is recorded in section 12. Full release acceptance in section 9 is not yet complete.
 
 | Area | Implemented source |
 |---|---|
@@ -269,3 +269,11 @@ The exact candidate's bundled executable, broker, parsers and native Office engi
 Go build/vet passed. The macOS full suite encountered three existing Linux `/dev/shm` cases, plus a `/private/tmp` string assumption and a receipt-sweep timing failure. The latter two passed a focused rerun with canonical home-directory temporary storage; the full suite is not reported green.
 
 Remaining release work: exact installed-profile login/logout/revocation and Quit/relaunch acceptance; the full legacy DOC/PPT, encrypted/malformed and font/layout fidelity matrix; real external-volume/cloud/permission transitions; broader installed-budget measurements; and Linux isolation, engine/package and native-UI qualification. Linux uses a separate Bubblewrap launch path; missing isolation leaves affected heavy previews unavailable. No Mac result establishes Linux acceptance. These gates do not require changes in other cluster projects.
+
+## 12 Owner-requested Mac installation — 2026-10-29
+
+Clean commit `ca37d36c` rebuilt the UI, helper and arm64 DMG/ZIP. Package audit, 78 source/24 workbench/223 viewer resource matches, and DMG validation passed. The helper was rebuilt from clean source but has no embedded VCS revision; its provenance is recorded by commit and SHA-256.
+
+After normal Quit, the original app and six profile locations were backed up. The three backup roots contain 75 SQLite databases and 342 tables. Chromium retained a WAL, so the audit used disposable DB/WAL copies rather than checkpointing originals. Original profile bytes/modes and backups remained identical before launch. All 6,946 installed file/symlink entries match the ZIP's contents and modes; the prior application is retained for rollback.
+
+The installed app at `/Applications/SparkX.app` retained the original login profile and conversation list. Files opened and Desktop expanded actual directories. The app was left running on that panel for the owner. Complete document-format, new-app Quit/relaunch, logout/revocation and Linux checks were not rerun in this installation turn and remain open. No remote service change or push occurred. See the [installation receipt](evidence/desktop-local-files-install-2026-10-29.json).

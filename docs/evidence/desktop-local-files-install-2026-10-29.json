@@ -1,0 +1,52 @@
+{
+  "revision": "ca37d36cf88f3d170acec3c51cafe7bb6dd3006e",
+  "sourceClean": true,
+  "sourceMatch": {
+    "sourceFiles": 78,
+    "uiFiles": 24,
+    "viewerFiles": 223,
+    "mismatches": [],
+    "asarSHA256": "7a5ffebe3abcde30e74360e90e52a21aef4de1d60070b75ed962c67716a124c9",
+    "helperSHA256": "9a4da3b7694f7381c5d2e4632e278af8ed1410ad25ae95d84cd150eb19ba98c3"
+  },
+  "artifacts": {
+    "SparkX-0.1.0-mac-arm64.dmg": {
+      "bytes": 219348805,
+      "sha256": "13971cd1e0fd605ad821491afeee2428592a4a6379eaa5647191df0a2d8c10ab"
+    },
+    "SparkX-0.1.0-mac-arm64.zip": {
+      "bytes": 222674800,
+      "sha256": "ab015ce03be00e85d28597693858d495bdcf43c6b7b0fd4997596567c2959b6b"
+    },
+    "SparkX-0.1.0-mac-arm64.zip.blockmap": {
+      "bytes": 234154,
+      "sha256": "dbe96989912dcd4e6e7179f97eda5e45371f03017f8aaa213acc955e07886e43"
+    },
+    "SparkX-0.1.0-mac-arm64.dmg.blockmap": {
+      "bytes": 229399,
+      "sha256": "3911b4696cbd042b0c8b394bc88a4c565fd21578c052f336d7752dce25cf36c3"
+    }
+  },
+  "installedApplication": "/Applications/SparkX.app",
+  "previousApplication": "/Applications/.SparkX-local-files-ca37d36c-previous.app",
+  "helperRevisionEmbedded": false,
+  "helperBuiltFromCleanWorktree": true,
+  "pushed": false,
+  "originalProfilesBytesAndModesUnchangedBeforeLaunch": true,
+  "installed": true,
+  "uiFilesEntry": true,
+  "uiDesktopDirectoryExpanded": true,
+  "existingConversationListVisible": true,
+  "originalLoginProfileRetained": true,
+  "installedDocumentPreviewMatrix": "not rerun in this installation turn",
+  "newAppQuitRelaunch": "not rerun; left running for owner",
+  "preinstallDatabaseCount": 75,
+  "preinstallTableCount": 342,
+  "installedAt": "2026-10-29T07:39:49.669035+00:00",
+  "installedAppEntriesMatched": 6946,
+  "remainingReleaseGates": [
+    "full installed-profile login/logout/revocation/Quit/relaunch",
+    "full format and font fidelity matrix",
+    "Linux qualification"
+  ]
+}

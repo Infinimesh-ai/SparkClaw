@@ -1,0 +1,245 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "installed_source": "00a0ebc3b0b7eb4af52da055f139ed47f7537451",
+  "previous_installed_source": "04882164",
+  "package": {
+    "source_revision": "00a0ebc3b0b7eb4af52da055f139ed47f7537451",
+    "desktop_source_files": 79,
+    "workbench": 24,
+    "viewer": 224,
+    "application_entries": 7227,
+    "artifacts": [
+      {
+        "name": "SparkX-0.1.0-mac-arm64.dmg",
+        "bytes": 219377099,
+        "sha256": "9a8663d2c4faed8ea23dc1cd8f4cb78c1ec9f36160330f88f02fb6fb4e5d0c0f"
+      },
+      {
+        "name": "SparkX-0.1.0-mac-arm64.zip",
+        "bytes": 222684374,
+        "sha256": "ab64b899715feff4d6d60b21da940816c65bbdc698e8e7f107da3ea9d125e96f"
+      }
+    ],
+    "package_audit": {
+      "schema_version": 1,
+      "platform": "darwin",
+      "client_scope": "public_client_source_and_ui",
+      "application_entries": 7227,
+      "ui_files": 24,
+      "preview_files": 224,
+      "iscp_helper_sha256": "9a4da3b7694f7381c5d2e4632e278af8ed1410ad25ae95d84cd150eb19ba98c3"
+    }
+  },
+  "installed_zip_files_and_modes_matched": 6948,
+  "scope": "local installation and read-only local document release acceptance; no production service deployment",
+  "tests": {
+    "webchat": {
+      "passed": 556,
+      "failed": 0
+    },
+    "desktop_final": {
+      "total": 585,
+      "passed": 584,
+      "failed": 0,
+      "skipped": 1,
+      "skip_reason": "Linux-only sandbox case"
+    },
+    "browser_layout": {
+      "passed": true,
+      "cases": 48,
+      "task_cases": 12
+    },
+    "packaged_module_format_matrix": {
+      "passed": 19,
+      "input_originals_preserved": true
+    },
+    "packaged_viewer_format_matrix": {
+      "passed": 25
+    },
+    "packaged_viewer_native": {
+      "isolation": {
+        "bridge": "undefined",
+        "file": true,
+        "network": true,
+        "parentStorage": true
+      },
+      "formats": [
+        "text",
+        "spreadsheet",
+        "markdown",
+        "pdf",
+        "image"
+      ],
+      "sheetCopy": {
+        "html": "<table><tr><td style=\"mso-number-format:'\\@'\">00123</td></tr></table>",
+        "prevented": true,
+        "value": "00123"
+      },
+      "sheetSwitch": true,
+      "editingBlocked": true,
+      "pdfPixels": 1898884,
+      "pdfRangeRead": true,
+      "pdfPageSwitch": true,
+      "pdfNativePinch": true,
+      "pdfTwoAxisPan": true,
+      "pdfGestureAnchor": true,
+      "smoothIn": {
+        "frames": 42,
+        "maxDrift": 0.21768108651917828,
+        "minDetailDensity": 2.188920448160525,
+        "detailRenders": 5,
+        "blankFrames": 0,
+        "maxPixels": 13702692
+      },
+      "smoothOut": {
+        "frames": 1488,
+        "maxDrift": 0.36918385311872726,
+        "minDetailDensity": 2.295208883197971,
+        "detailRenders": 16,
+        "blankFrames": 0,
+        "maxPixels": 13702692
+      },
+      "pdfNoBlankFrames": true,
+      "sharpAtMax": {
+        "count": 1,
+        "density": 2.29502798439319,
+        "screen": 2
+      },
+      "sharpInk": 193346,
+      "pdfScreenDensity": true,
+      "percentageAutoHide": true,
+      "percentageIdleSeconds": 2,
+      "percentagePresetsOnly": true,
+      "percentagePlusMinus": true,
+      "percentagePresets": true,
+      "pdfEscapeMenuFirst": true,
+      "imageEscapeMenuFirst": true,
+      "escapeFocusRestored": true,
+      "encryptedPDFRejected": true,
+      "officeFontNoticeDismissible": true,
+      "revokedPDFUnmounted": true,
+      "revokedImageUnmounted": true,
+      "revokedChannelSilent": true,
+      "reopenAfterRevocation": true,
+      "noHorizontalScrollbar": true,
+      "pdfNoToolbar": true,
+      "imageNativePinch": true,
+      "imageNoToolbar": true,
+      "pdfZoom": true,
+      "pdfPositionRestore": true,
+      "pdfContinuousScroll": true,
+      "pdfFitWidth": true,
+      "pdfResizeAnchor": true,
+      "pdfWhiteSurface": true,
+      "privatePDFChecked": false,
+      "navigationBlocked": true
+    }
+  },
+  "installed_ui": {
+    "actual_binary": true,
+    "real_docx_conversion": true,
+    "menu_escape_first_closes_menu_second_collapses_panel": true,
+    "focus_returns_to_percentage": true,
+    "font_notice_visible_dismissible_body_retained": true,
+    "encrypted_pdf_actionable_error": true,
+    "note": "Font/password manual checks first ran on 5ae6d101. Final 00a0ebc3 differs only in the qualification-only browser-bounds probe; package source and viewer bytes were compared. Final binary separately reran conversion, Esc, logout and authorization revocation."
+  },
+  "installed_lifecycle": {
+    "final_binary_logout": true,
+    "final_binary_https_authorization_revocation": true,
+    "revoked_workbench_and_iframe_removed": true,
+    "all_preview_payloads_removed": true,
+    "encrypted_test_credential_removed": true,
+    "locked_state_survives_restart": true,
+    "test_backend": "synthetic_loopback_https_identity_only",
+    "production_authorization_changed": false,
+    "os_read_permission_test": {
+      "installed_source": "04882164",
+      "mechanism": "chmod 0600 to 0000 on an owned disposable text file, then restore 0600",
+      "visible_body_cleared": true,
+      "denied_reopen_keeps_body_absent": true,
+      "permission_restore_reopens": true
+    }
+  },
+  "retention": {
+    "cold_backup_profiles": 3,
+    "cold_backup_files": 4525,
+    "cold_backup_sqlite_databases": 76,
+    "cold_backup_tables": 343,
+    "original_auth_and_launch_entries_unchanged": 11,
+    "persistent_databases_preserved": 75,
+    "persistent_tables_preserved": 342,
+    "retired_transient_directory_cache_databases": 1,
+    "original_business_rows_removed": 0,
+    "only_existing_rows_updated": [
+      "Chromium DIPS config",
+      "workbench event_projection cursor"
+    ],
+    "original_document_bytes_size_mode_unchanged": true,
+    "original_login_and_conversations_restored": true,
+    "original_tabs_page_zoom_two_axis_scroll_retained": true,
+    "page_fraction_renormalized_delta": 0.00010189272833953638,
+    "only_test_tabs_closed": true,
+    "test_files_removed_from_desktop": true,
+    "original_app_and_profiles_backed_up": true
+  },
+  "diagnostics_retained": {
+    "incomplete_linked_dependency_package_rejected_before_install": true,
+    "complete_locked_npm_ci_used_for_final": true,
+    "parallel_20ms_mail_deadline_test_flaked_then_target_and_complete_concurrency2_passed": true,
+    "first_data_audit_detected_expected_removed_transient_directory_cache_db": true
+  },
+  "user_exemptions": [
+    {
+      "case": "real_not_downloaded_cloud_provider_file",
+      "date": "2026-10-29",
+      "status": "user_waived_not_counted_as_pass"
+    },
+    {
+      "case": "encrypted_legacy_binary_doc_ppt",
+      "date": "2026-10-29",
+      "status": "user_waived_not_counted_as_pass"
+    }
+  ],
+  "private_evidence": {
+    "committed": false,
+    "contains_user_paths_or_auth_metadata": true,
+    "logs": [
+      {
+        "name": "final-desktop-00a0ebc3.log",
+        "sha256": "137e0f573836b08bc7b5d94e518585bc152a4ffd5bf93be894b5952baa01bcaa"
+      },
+      {
+        "name": "integrated-webchat.log",
+        "sha256": "d157ab3a28cf168cf685e685b6203445417c01872e5884471bd29d8aa82fa0fc"
+      },
+      {
+        "name": "final-browser-layout.log",
+        "sha256": "8c117307832762efec242e4e365a6821fcdc69394c37a4dbbb4d2bbeba5388bf"
+      },
+      {
+        "name": "final-mac-native.log",
+        "sha256": "4ddb0ce958a9a6f96bf1b63e829594f9fdf6429cf31ed1ae3b28c62e880588da"
+      },
+      {
+        "name": "final-mac-format-broker.log",
+        "sha256": "81a3f5bf2d159cadf715c1c724f9febbd37eb09623a6c75e12554205c5187a4b"
+      },
+      {
+        "name": "final-mac-format-native.log",
+        "sha256": "59820ea29086882d316cf9197873139d2d563f3854c14cbf2761e475a07c60ee"
+      },
+      {
+        "name": "package-mac-final.log",
+        "sha256": "d1b8dc77553db6f757679fb5bc8f1bcb95ef36f1de368941ff710c3585171c12"
+      },
+      {
+        "name": "dmg-verification.log",
+        "sha256": "555c990ae1956c5c67fe540f85c7b55bcae28bc1a9c3d44a8ba38cd2fa30b627"
+      }
+    ]
+  }
+}

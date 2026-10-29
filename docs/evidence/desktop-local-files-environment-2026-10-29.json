@@ -187,7 +187,7 @@
     "The measured RSS and timings are observations, not universal hard-cap guarantees.",
     "Legacy .icloud path rejection is covered; no actual File Provider hydration or provider-owned UF_DATALESS lifecycle is claimed.",
     "Two owned HFS+ images exercise real kernel detach/remount and ENOSPC; physical device/cable failure is not simulated as hardware evidence.",
-    "The native UI, actual installed owner logout/TCC and Linux package/UI are qualified by the parent task separately."
+    "The native UI, installed logout, authorization invalidation, file-read permission changes and Linux package/UI are qualified by the parent task separately; macOS TCC reset is not claimed."
   ],
   "pushed": false,
   "installed_app_modified": false,

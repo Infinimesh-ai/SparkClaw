@@ -233,10 +233,13 @@ func TestWorkbenchISCPV2SignedPermissionsCASAndDurableReceipt(t *testing.T) {
 }
 func TestWorkbenchISCPV2ChunkedOriginalExecutionAndLargeResult(t *testing.T) {
 	var calls atomic.Int32
+	executionStarted := make(chan struct{})
 	input := bytes.Repeat([]byte("input-verified-"), 1300)
 	resultFile := bytes.Repeat([]byte("output-verified-"), 1500)
 	f := newV2EncryptedFixture(t, func(ctx context.Context, e execution.Envelope, files map[string][]byte) (execution.Output, error) {
-		calls.Add(1)
+		if calls.Add(1) == 1 {
+			close(executionStarted)
+		}
 		if !bytes.Equal(files["99999999-9999-4999-8999-999999999999"], input) {
 			return execution.Output{}, fmt.Errorf("input file bytes changed")
 		}
@@ -268,7 +271,16 @@ func TestWorkbenchISCPV2ChunkedOriginalExecutionAndLargeResult(t *testing.T) {
 	if lostErr == nil {
 		t.Fatal("injected submit result was not lost")
 	}
-	f.server.executions.Wait()
+	// A lost client response can time out before Submit registers its worker.
+	// Waiting on an empty worker group would not wait for that queued request.
+	select {
+	case <-executionStarted:
+	case <-f.ctx.Done():
+		t.Fatal("execution was not admitted after the lost response")
+	}
+	if err := f.server.WaitForBackgroundWork(f.ctx); err != nil {
+		t.Fatalf("execution did not finish after admission: %v", err)
+	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if caps, ok := f.client.Negotiated(); ok && caps.Profile == wb.ProfileV2 {

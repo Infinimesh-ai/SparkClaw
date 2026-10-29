@@ -351,8 +351,10 @@ jobs:
           assert environment["SPARKCLAW_MODEL_CAPACITY_PROFILE"] == "sparkclaw-product-v1"
           assert environment["SPARKCLAW_API_TOKEN"] == ""
           assert environment["SPARKCLAW_PAIRING_REQUIRED"] == "true"
-          assert len(environment["SPARKCLAW_WEBCHAT_PROXY_TOKEN"]) >= 43
-          assert config["services"]["webchat"]["environment"]["SPARKCLAW_WEBCHAT_PROXY_TOKEN"] == environment["SPARKCLAW_WEBCHAT_PROXY_TOKEN"]
+          # Credential-required access must not revive the retired shared proxy
+          # token, even when an old operator environment still supplies it.
+          assert "SPARKCLAW_WEBCHAT_PROXY_TOKEN" not in environment
+          assert "SPARKCLAW_WEBCHAT_PROXY_TOKEN" not in config["services"]["webchat"].get("environment", {})
           assert environment["SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES"] == "200000"
           assert environment["SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES"] == "72000"
           assert environment["SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES"] == "96000"
@@ -370,30 +372,32 @@ jobs:
           fast = config["services"]["sparkclaw-fast"]
           assert fast["image"] == "sparkclaw-chat-vllm-readiness:local"
           assert fast["build"]["dockerfile"] == "docker/images/vllm.Dockerfile"
-          assert fast["build"]["args"]["SPARKCLAW_VLLM_IMAGE"] == "vllm/vllm-openai:v0.24.0"
+          chat_image = "vllm/vllm-openai:nightly@sha256:c4392d76e3eec8983fa152651365158cb062e348fd40398963f499d5867b9e28"
+          assert fast["build"]["args"]["SPARKCLAW_VLLM_IMAGE"] == chat_image
           assert "SPARKCLAW_VLLM_NATIVE_NVFP4_W4A4" not in fast["build"]["args"]
           assert fast["command"][0] == "nvidia/Qwen3.6-35B-A3B-NVFP4"
           assert "--max-model-len" not in fast["command"]
           assert fast["entrypoint"] == ["python3", "/opt/sparkclaw/model_capacity_entrypoint.py"]
           assert fast["environment"]["SPARKCLAW_MODEL_CAPACITY_LANE"] == "fast"
           assert fast["environment"]["SPARKCLAW_MODEL_CAPACITY_PROFILE"] == "sparkclaw-product-v1"
-          assert fast["command"][fast["command"].index("--kv-cache-memory-bytes") + 1] == "8G"
+          assert "--kv-cache-memory-bytes" not in fast["command"]
+          assert fast["command"][fast["command"].index("--gpu-memory-utilization") + 1] == "0.42"
           assert fast["command"][fast["command"].index("--max-num-seqs") + 1] == "4"
-          assert all(flag not in fast["command"] for flag in (
-              "--quantization", "--moe-backend", "--attention-backend", "--kv-cache-dtype",
-          ))
+          for flag, value in {"--quantization": "modelopt", "--moe-backend": "marlin", "--attention-backend": "flashinfer", "--kv-cache-dtype": "fp8"}.items():
+              assert fast["command"][fast["command"].index(flag) + 1] == value
           assert "--speculative-config" not in fast["command"]
           assert fast["healthcheck"]["test"][1] == "python3"
           deep = config["services"]["sparkclaw-deep"]
           assert deep["image"] == "sparkclaw-chat-vllm-readiness:local"
+          assert deep["build"]["args"]["SPARKCLAW_VLLM_IMAGE"] == chat_image
           assert deep["command"][0] == "nvidia/Qwen3.6-35B-A3B-NVFP4"
           assert "--max-model-len" not in deep["command"]
           assert deep["environment"]["SPARKCLAW_MODEL_CAPACITY_LANE"] == "deep"
-          assert deep["command"][deep["command"].index("--kv-cache-memory-bytes") + 1] == "12G"
+          assert "--kv-cache-memory-bytes" not in deep["command"]
+          assert deep["command"][deep["command"].index("--gpu-memory-utilization") + 1] == "0.36"
           assert deep["command"][deep["command"].index("--max-num-seqs") + 1] == "2"
-          assert all(flag not in deep["command"] for flag in (
-              "--quantization", "--moe-backend", "--attention-backend", "--kv-cache-dtype",
-          ))
+          for flag, value in {"--quantization": "modelopt", "--moe-backend": "marlin", "--attention-backend": "flashinfer", "--kv-cache-dtype": "fp8"}.items():
+              assert deep["command"][deep["command"].index(flag) + 1] == value
           assert "--speculative-config" not in deep["command"]
           assert deep["healthcheck"]["test"][1] == "python3"
           assert all(

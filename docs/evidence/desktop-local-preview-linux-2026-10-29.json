@@ -1,0 +1,1211 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "status": "qualified",
+  "platform": "linux",
+  "architecture": "arm64",
+  "provenance": {
+    "runtime_source_commit": "00a0ebc3b0b7eb4af52da055f139ed47f7537451",
+    "package_source_commit": "64a23b6331948d67c1e5a1fd5b714ef790bc977c",
+    "difference": "Only Debian build dependencies and artifact qualification assertions; runtime source and built application payload are byte-identical.",
+    "synthetic_documents_only": true,
+    "mac_results_used_as_linux_evidence": false,
+    "production_services_changed": false
+  },
+  "environment": {
+    "distribution": "Debian GNU/Linux 12 (bookworm)",
+    "kernel": "Linux 6.12.76-linuxkit aarch64",
+    "host": "Docker Desktop Linux VM; commands execute inside Linux, not on the Mac host",
+    "build_node": "26.8.1",
+    "npm": "11.19.0",
+    "go": "1.25.5",
+    "electron": {
+      "electron": "44.4.3",
+      "chromium": "152.0.7977.130",
+      "node": "24.21.0"
+    },
+    "container_memory_bytes": 5368709120,
+    "vm_memory_bytes": 8321515520,
+    "container_cpu_limit": 4,
+    "container_peak_memory_including_file_cache_bytes": 4827418624,
+    "cgroup_oom_events": 0,
+    "cgroup_oom_kills": 0,
+    "disk_available_during_qualification": "367 GiB",
+    "display": "isolated Xvfb; no user desktop or production profile"
+  },
+  "namespace_conditions": {
+    "positive_host": "Owned test container with SYS_ADMIN, seccomp=unconfined, apparmor=unconfined and systempaths=unconfined permits bubblewrap user/PID/mount/network namespaces and a private proc mount. Worker itself is restricted by bubblewrap; Chromium renderer separately proves seccomp=2 and no-new-privileges=1.",
+    "negative_host": {
+      "platform": "linux",
+      "hostNamespaceUnavailable": true,
+      "previewUnavailable": true,
+      "unsafeFallback": false,
+      "reason": "Docker masked proc prevents bubblewrap proc mount"
+    },
+    "policy": "Hosts that cannot establish these namespaces return preview_unavailable; no non-isolated conversion fallback. AppImage or direct --no-sandbox startup is rejected before a user profile is created."
+  },
+  "packages": [
+    {
+      "name": "SparkX-0.1.0-linux-arm64.AppImage",
+      "bytes": 184521684,
+      "sha256": "b9801490b9b8968ac081a613d2646a109bad9c9d7a948a82d22cb269a81e762d"
+    },
+    {
+      "name": "SparkX-0.1.0-linux-arm64.deb",
+      "bytes": 146841284,
+      "sha256": "3a204bea275a56a7fa43c41017311982275f29cdc7715a79b25ec45a10bfb76d"
+    }
+  ],
+  "package_audit": {
+    "schema_version": 1,
+    "platform": "linux",
+    "client_scope": "public_client_source_and_ui",
+    "application_entries": 6376,
+    "ui_files": 24,
+    "preview_files": 224,
+    "iscp_helper_sha256": "29cf3bc06889f38b1ec71b8e2ac94d95fc2409f76bbcc3458ec9f52ca7a16708"
+  },
+  "packaged_execution": {
+    "actual_packaged_executables": true,
+    "appimage_method": "Static AppImage runtime 1.0.3, --appimage-extract then AppRun; FUSE mount not exercised because the test container has no /dev/fuse.",
+    "deb_method": "dpkg-deb extraction qualification, then dpkg -i and ordinary /opt/SparkX/sparkx execution",
+    "evidence": [
+      {
+        "artifact": "SparkX-0.1.0-linux-arm64.AppImage",
+        "launched": true,
+        "electron": "44.4.3",
+        "chromium": "152.0.7977.130",
+        "renderer_sandbox": [
+          {
+            "seccomp": 2,
+            "no_new_privileges": 1,
+            "filters": 1
+          },
+          {
+            "seccomp": 2,
+            "no_new_privileges": 1,
+            "filters": 1
+          }
+        ],
+        "unsafe_launch_rejected_before_profile": true
+      },
+      {
+        "artifact": "SparkX-0.1.0-linux-arm64.deb",
+        "launched": true,
+        "electron": "44.4.3",
+        "chromium": "152.0.7977.130",
+        "renderer_sandbox": [
+          {
+            "seccomp": 2,
+            "no_new_privileges": 1,
+            "filters": 1
+          },
+          {
+            "seccomp": 2,
+            "no_new_privileges": 1,
+            "filters": 1
+          }
+        ],
+        "unsafe_launch_rejected_before_profile": true
+      }
+    ],
+    "runtime_dependency_closure": {
+      "architecture": "arm64",
+      "depends": "libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0, bubblewrap, procps, libgbm1, libasound2t64 | libasound2",
+      "all_resolved": true,
+      "all_system_libraries_declared_transitively": true,
+      "libraries": [
+        {
+          "library": "libffmpeg.so",
+          "bundled": true
+        },
+        {
+          "library": "libdl.so.2",
+          "package": "libc6",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libpthread.so.0",
+          "package": "libc6",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libglib-2.0.so.0",
+          "package": "libglib2.0-0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libgobject-2.0.so.0",
+          "package": "libglib2.0-0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libgio-2.0.so.0",
+          "package": "libglib2.0-0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libnspr4.so",
+          "package": "libnspr4",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libnss3.so",
+          "package": "libnss3",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libnssutil3.so",
+          "package": "libnss3",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libsmime3.so",
+          "package": "libnss3",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libatk-1.0.so.0",
+          "package": "libatk1.0-0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libatk-bridge-2.0.so.0",
+          "package": "libatk-bridge2.0-0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libcups.so.2",
+          "package": "libcups2",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libdbus-1.so.3",
+          "package": "libdbus-1-3",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libcairo.so.2",
+          "package": "libcairo2",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libgtk-3.so.0",
+          "package": "libgtk-3-0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libpango-1.0.so.0",
+          "package": "libpango-1.0-0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libX11.so.6",
+          "package": "libx11-6",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libXcomposite.so.1",
+          "package": "libxcomposite1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libXdamage.so.1",
+          "package": "libxdamage1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libXext.so.6",
+          "package": "libxext6",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libXfixes.so.3",
+          "package": "libxfixes3",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libXrandr.so.2",
+          "package": "libxrandr2",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libgbm.so.1",
+          "package": "libgbm1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libexpat.so.1",
+          "package": "libexpat1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libxcb.so.1",
+          "package": "libxcb1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libxkbcommon.so.0",
+          "package": "libxkbcommon0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libudev.so.1",
+          "package": "libudev1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libasound.so.2",
+          "package": "libasound2",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libatspi.so.0",
+          "package": "libatspi2.0-0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libm.so.6",
+          "package": "libc6",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libgcc_s.so.1",
+          "package": "libgcc-s1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libc.so.6",
+          "package": "libc6",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libpcre2-8.so.0",
+          "package": "libpcre2-8-0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libffi.so.8",
+          "package": "libffi8",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libgmodule-2.0.so.0",
+          "package": "libglib2.0-0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libz.so.1",
+          "package": "zlib1g",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libmount.so.1",
+          "package": "libmount1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libselinux.so.1",
+          "package": "libselinux1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libplc4.so",
+          "package": "libnspr4",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libplds4.so",
+          "package": "libnspr4",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libgssapi_krb5.so.2",
+          "package": "libgssapi-krb5-2",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libavahi-common.so.3",
+          "package": "libavahi-common3",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libavahi-client.so.3",
+          "package": "libavahi-client3",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libgnutls.so.30",
+          "package": "libgnutls30",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libsystemd.so.0",
+          "package": "libsystemd0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libpixman-1.so.0",
+          "package": "libpixman-1-0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libfontconfig.so.1",
+          "package": "libfontconfig1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libfreetype.so.6",
+          "package": "libfreetype6",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libpng16.so.16",
+          "package": "libpng16-16",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libxcb-shm.so.0",
+          "package": "libxcb-shm0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libxcb-render.so.0",
+          "package": "libxcb-render0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libXrender.so.1",
+          "package": "libxrender1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libgdk-3.so.0",
+          "package": "libgtk-3-0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libpangocairo-1.0.so.0",
+          "package": "libpangocairo-1.0-0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libharfbuzz.so.0",
+          "package": "libharfbuzz0b",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libpangoft2-1.0.so.0",
+          "package": "libpangoft2-1.0-0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libfribidi.so.0",
+          "package": "libfribidi0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libcairo-gobject.so.2",
+          "package": "libcairo-gobject2",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libgdk_pixbuf-2.0.so.0",
+          "package": "libgdk-pixbuf-2.0-0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libepoxy.so.0",
+          "package": "libepoxy0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libXi.so.6",
+          "package": "libxi6",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libthai.so.0",
+          "package": "libthai0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libdrm.so.2",
+          "package": "libdrm2",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libwayland-server.so.0",
+          "package": "libwayland-server0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libXau.so.6",
+          "package": "libxau6",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libXdmcp.so.6",
+          "package": "libxdmcp6",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libblkid.so.1",
+          "package": "libblkid1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libkrb5.so.3",
+          "package": "libkrb5-3",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libk5crypto.so.3",
+          "package": "libk5crypto3",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libcom_err.so.2",
+          "package": "libcom-err2",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libkrb5support.so.0",
+          "package": "libkrb5support0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libp11-kit.so.0",
+          "package": "libp11-kit0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libidn2.so.0",
+          "package": "libidn2-0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libunistring.so.2",
+          "package": "libunistring2",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libtasn1.so.6",
+          "package": "libtasn1-6",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libnettle.so.8",
+          "package": "libnettle8",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libhogweed.so.6",
+          "package": "libhogweed6",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libgmp.so.10",
+          "package": "libgmp10",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libcap.so.2",
+          "package": "libcap2",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libgcrypt.so.20",
+          "package": "libgcrypt20",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "liblzma.so.5",
+          "package": "liblzma5",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libzstd.so.1",
+          "package": "libzstd1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "liblz4.so.1",
+          "package": "liblz4-1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libbrotlidec.so.1",
+          "package": "libbrotli1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libwayland-client.so.0",
+          "package": "libwayland-client0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libwayland-cursor.so.0",
+          "package": "libwayland-cursor0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libwayland-egl.so.1",
+          "package": "libwayland-egl1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libXcursor.so.1",
+          "package": "libxcursor1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libXinerama.so.1",
+          "package": "libxinerama1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libgraphite2.so.3",
+          "package": "libgraphite2-3",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libjpeg.so.62",
+          "package": "libjpeg62-turbo",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libdatrie.so.1",
+          "package": "libdatrie1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libbsd.so.0",
+          "package": "libbsd0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libkeyutils.so.1",
+          "package": "libkeyutils1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libresolv.so.2",
+          "package": "libc6",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libgpg-error.so.0",
+          "package": "libgpg-error0",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libbrotlicommon.so.1",
+          "package": "libbrotli1",
+          "required_dependency_closure": true
+        },
+        {
+          "library": "libmd.so.0",
+          "package": "libmd0",
+          "required_dependency_closure": true
+        }
+      ]
+    }
+  },
+  "payload_equality": {
+    "entries": 6003,
+    "bytes": 529465095,
+    "manifest_sha256": "7b066d5de5594d297e7d7cf8fd9cd93cee0e534084f8e27fa1c4081f1526da18",
+    "compared": [
+      "installed 00a0ebc3 application",
+      "installed 64a23b63 application",
+      "audited unpacked application"
+    ],
+    "all_files_and_symlink_targets_equal": true,
+    "builder_removes_build_metadata_from_app_asar_package_json": true
+  },
+  "ordinary_installed_ui": {
+    "passed": true,
+    "raw_receipt_sha256": "58ac9220a03987a303b1234bb2f5b620af768f466a3e0978e1a8806683169d1b",
+    "public_evidence": "desktop-linux-installed-local-files-ui-2026-10-29.json",
+    "mode": "normal installed app, not --qualification",
+    "checks": {
+      "realEncryptedCredential": {
+        "bytes": 339,
+        "prefix": "v11",
+        "secureStoreAccepted": true,
+        "plaintextTokenAbsent": true
+      },
+      "rootsOnly": true,
+      "pdfCanvasPainted": true,
+      "legacyDOC": true,
+      "pdf": true,
+      "escapeMenuThenPanel": true,
+      "missingFontDismissible": true,
+      "encryptedPDFVisibleError": true,
+      "logoutPanelAndCacheCleared": true,
+      "http401PanelAndCacheCleared": true
+    },
+    "real_secret_service": true,
+    "keyring_collection": {
+      "itemCount": 2,
+      "unlocked": true
+    },
+    "encrypted_credential": {
+      "bytes": 339,
+      "prefix": "v11",
+      "secureStoreAccepted": true,
+      "plaintextTokenAbsent": true
+    },
+    "renderer_sandbox": [
+      {
+        "seccomp": 2,
+        "noNewPrivs": 1,
+        "noSandbox": false
+      },
+      {
+        "seccomp": 2,
+        "noNewPrivs": 1,
+        "noSandbox": false
+      },
+      {
+        "seccomp": 2,
+        "noNewPrivs": 1,
+        "noSandbox": false
+      }
+    ],
+    "binary_sha256": "b0a14e829b70da12c7a9bb3fd4712bff35ba2ed25910a56af4bfb6d0b529b56d",
+    "app_asar_sha256": "56f9f3c5be4278ac38800b859ad605347dcd6c2d53aa2041963c75ecc6e0b6d5",
+    "preview_assets": {
+      "files": 224,
+      "manifestSHA256": "e01a4b1a3e55c721f3b5de03e487485ca6ef1d8fd321edd559e1481eabea8337"
+    },
+    "cache_policy": "logout and HTTP401 remove all preview payload; only the non-content owner.json liveness marker remains while the application is open",
+    "public_evidence_sha256": "6fa40b797ceec87109767ab2ea61c4c6406d6e51b437541a25c198cf40446e0a"
+  },
+  "conversion": {
+    "runtime": "Installed /opt/SparkX/sparkx with ELECTRON_RUN_AS_NODE=1 inside bubblewrap; broker and dependencies loaded from installed app.asar.unpacked",
+    "engine": "Bundled @deepseek-ai/libreoffice-kit 0.2.3 WASM",
+    "formats_passed": true,
+    "format_rows": [
+      {
+        "name": "complex.docx",
+        "kind": "office",
+        "expected": "pdf",
+        "inputBytes": 39492,
+        "inputSHA256": "7289e4b10b5020edf70f834ac4f51b498a6cc342338448dbcd8eba510e7fd41e",
+        "actual": "pdf",
+        "pages": 2,
+        "warnings": [
+          "Missing local fonts: Arial"
+        ],
+        "output": "complex.docx.pdf",
+        "outputBytes": 30388,
+        "outputSHA256": "33601f729ae9abf0d22a61dcf1eba8a3616bda82ce61ea9e02247e9a52056091",
+        "elapsedMs": 11727,
+        "originalPreserved": true
+      },
+      {
+        "name": "complex.doc",
+        "kind": "office",
+        "expected": "pdf",
+        "inputBytes": 24064,
+        "inputSHA256": "e8b6d91ab9eb8f46b5db98f2c4fa38d6f511860e5835bfcfe37796acc63522f8",
+        "actual": "pdf",
+        "pages": 2,
+        "warnings": [],
+        "output": "complex.doc.pdf",
+        "outputBytes": 30252,
+        "outputSHA256": "70686083ca3b57bcb7967cdcb62ba7e52e0d1f49c5033f1ec76aa2c921306eda",
+        "elapsedMs": 9856,
+        "originalPreserved": true
+      },
+      {
+        "name": "complex.pptx",
+        "kind": "office",
+        "expected": "pdf",
+        "inputBytes": 32568,
+        "inputSHA256": "02af182e22719c5eddfa4a08dc0b58092fe1a5fd3a52a2a71bd4366c406cfc3a",
+        "actual": "pdf",
+        "pages": 3,
+        "warnings": [
+          "Missing local fonts: Arial"
+        ],
+        "output": "complex.pptx.pdf",
+        "outputBytes": 23174,
+        "outputSHA256": "97ebc70207b2ebbce763a86e3322fabccc517eeb1f1321affb64d12670dca02b",
+        "elapsedMs": 10933,
+        "originalPreserved": true
+      },
+      {
+        "name": "complex.ppt",
+        "kind": "office",
+        "expected": "pdf",
+        "inputBytes": 517120,
+        "inputSHA256": "058a9c2d358416f28d546759828657e7828e26077abe567cc3a2740f9afbd254",
+        "actual": "pdf",
+        "pages": 3,
+        "warnings": [],
+        "output": "complex.ppt.pdf",
+        "outputBytes": 23305,
+        "outputSHA256": "4069bc8cb1e3a8482e00c4d7d18c28f1c53fce64439b5be212cb18a5cfb55506",
+        "elapsedMs": 6639,
+        "originalPreserved": true
+      },
+      {
+        "name": "missing-font.docx",
+        "kind": "office",
+        "expected": "pdf",
+        "inputBytes": 36689,
+        "inputSHA256": "cd796196dff746f9b3fcc1575c73516e377eba04f0d8b5433f23c0cca93cc173",
+        "actual": "pdf",
+        "pages": 1,
+        "warnings": [
+          "Missing local fonts: SparkX Missing Font QA 20261029"
+        ],
+        "output": "missing-font.docx.pdf",
+        "outputBytes": 15433,
+        "outputSHA256": "58732a05630842f98718b71395e997ded3189b1c99eb09446a41aad586f28ff5",
+        "elapsedMs": 4916,
+        "originalPreserved": true
+      },
+      {
+        "name": "encrypted.docx",
+        "kind": "office",
+        "expected": "rejected",
+        "inputBytes": 45056,
+        "inputSHA256": "eee3da2000c80f2c980fe67e9cb013c3136ad1f09265c061cc1c50206aec2915",
+        "actual": "rejected",
+        "errorCode": "invalid_document",
+        "errorMessage": "This file is not a supported ZIP document.",
+        "failure": false,
+        "elapsedMs": 92,
+        "originalPreserved": true
+      },
+      {
+        "name": "encrypted.pptx",
+        "kind": "office",
+        "expected": "rejected",
+        "inputBytes": 37888,
+        "inputSHA256": "98b8c6d5cf514e96817c3226c25e8f0ec4f7d3ecb4c4bf594d7a4964363349f8",
+        "actual": "rejected",
+        "errorCode": "invalid_document",
+        "errorMessage": "This file is not a supported ZIP document.",
+        "failure": false,
+        "elapsedMs": 87,
+        "originalPreserved": true
+      },
+      {
+        "name": "corrupt.docx",
+        "kind": "office",
+        "expected": "rejected",
+        "inputBytes": 64,
+        "inputSHA256": "a526b7631af37653583251d15f855c78e7b172466a4f0296533f189e4aee8bc1",
+        "actual": "rejected",
+        "errorCode": "preview_failed",
+        "errorMessage": "The local document preview could not be created.",
+        "failure": false,
+        "elapsedMs": 89,
+        "originalPreserved": true
+      },
+      {
+        "name": "corrupt.pptx",
+        "kind": "office",
+        "expected": "rejected",
+        "inputBytes": 64,
+        "inputSHA256": "7e636c4a2ab360023cfc7f88983d8fdb12ea133a82a24ea08fd08cd27ed79fb1",
+        "actual": "rejected",
+        "errorCode": "preview_failed",
+        "errorMessage": "The local document preview could not be created.",
+        "failure": false,
+        "elapsedMs": 87,
+        "originalPreserved": true
+      },
+      {
+        "name": "corrupt.doc",
+        "kind": "office",
+        "expected": "rejected",
+        "inputBytes": 512,
+        "inputSHA256": "a899fb4496afa7230c378d5be03cf3461990994993110fd2dad3257111081275",
+        "actual": "rejected",
+        "errorCode": "preview_failed",
+        "errorMessage": "The local document preview could not be created.",
+        "failure": false,
+        "elapsedMs": 367,
+        "originalPreserved": true
+      },
+      {
+        "name": "corrupt.ppt",
+        "kind": "office",
+        "expected": "rejected",
+        "inputBytes": 512,
+        "inputSHA256": "a899fb4496afa7230c378d5be03cf3461990994993110fd2dad3257111081275",
+        "actual": "rejected",
+        "errorCode": "preview_failed",
+        "errorMessage": "The local document preview could not be created.",
+        "failure": false,
+        "elapsedMs": 332,
+        "originalPreserved": true
+      },
+      {
+        "name": "wrong-signature.doc",
+        "kind": "office",
+        "expected": "rejected",
+        "inputBytes": 31,
+        "inputSHA256": "5efc0ecec281a156ec714816c75a5cbbb3b9ce7a4b42e9982a7238df0e2dee0c",
+        "actual": "rejected",
+        "errorCode": "invalid_document",
+        "errorMessage": "The file is not a binary Office document.",
+        "failure": false,
+        "elapsedMs": 79,
+        "originalPreserved": true
+      },
+      {
+        "name": "wrong-signature.ppt",
+        "kind": "office",
+        "expected": "rejected",
+        "inputBytes": 31,
+        "inputSHA256": "f6f4503141381dbe0f33374bd470f2c9a13c6919207e6bf94fdb165531e26813",
+        "actual": "rejected",
+        "errorCode": "invalid_document",
+        "errorMessage": "The file is not a binary Office document.",
+        "failure": false,
+        "elapsedMs": 78,
+        "originalPreserved": true
+      },
+      {
+        "name": "embedded.docx",
+        "kind": "office",
+        "expected": "unsupported",
+        "inputBytes": 39644,
+        "inputSHA256": "dcac78d56a6a06df6c0f4b6a8eacb6905a694aea22bc4051ba4f9adb0dd457a2",
+        "actual": "rejected",
+        "errorCode": "unsupported",
+        "errorMessage": "Macros and embedded objects are not supported in this preview.",
+        "failure": false,
+        "elapsedMs": 106,
+        "originalPreserved": true
+      },
+      {
+        "name": "embedded.pptx",
+        "kind": "office",
+        "expected": "unsupported",
+        "inputBytes": 32718,
+        "inputSHA256": "2b13e44edb661647fc12598e544f7c23f9d2ff68b7857268f402c902a6b378ef",
+        "actual": "rejected",
+        "errorCode": "unsupported",
+        "errorMessage": "Macros and embedded objects are not supported in this preview.",
+        "failure": false,
+        "elapsedMs": 103,
+        "originalPreserved": true
+      },
+      {
+        "name": "valid.csv",
+        "kind": "csv",
+        "expected": "spreadsheet",
+        "inputBytes": 47,
+        "inputSHA256": "a8eaefc5179d7775814551f86916e6718f6682ec9b49ec0be7fd70e266c50738",
+        "actual": "spreadsheet",
+        "warnings": [],
+        "output": "valid.csv.json",
+        "elapsedMs": 362,
+        "originalPreserved": true
+      },
+      {
+        "name": "invalid.csv",
+        "kind": "csv",
+        "expected": "invalid_document",
+        "inputBytes": 9,
+        "inputSHA256": "b093afbc2256282c203017756aa97a17269079b87b50172ab7904bd59437be0e",
+        "actual": "rejected",
+        "errorCode": "invalid_document",
+        "errorMessage": "The table has malformed quoted fields.",
+        "failure": false,
+        "elapsedMs": 203,
+        "originalPreserved": true
+      },
+      {
+        "name": "invalid-utf8.csv",
+        "kind": "csv",
+        "expected": "unsupported_encoding",
+        "inputBytes": 3,
+        "inputSHA256": "b632bfa9c60bc17f7fd78dba311fd3f5dfa66cb8c017a4278e2bae28d668844d",
+        "actual": "rejected",
+        "errorCode": "unsupported_encoding",
+        "errorMessage": "Save this table as UTF-8 before previewing it.",
+        "failure": false,
+        "elapsedMs": 187,
+        "originalPreserved": true
+      },
+      {
+        "name": "complex.xlsx",
+        "kind": "xlsx",
+        "expected": "spreadsheet",
+        "inputBytes": 7156,
+        "inputSHA256": "d189b5855297fff5a76820261463b3c58811f8f4fb7970a581d11f2e247f926e",
+        "actual": "spreadsheet",
+        "warnings": [],
+        "output": "complex.xlsx.json",
+        "elapsedMs": 232,
+        "originalPreserved": true
+      }
+    ],
+    "capacity_passed": true,
+    "capacity_rows": [
+      {
+        "name": "capacity-40-pages.docx",
+        "kind": "office",
+        "expected": "pdf",
+        "inputBytes": 5114521,
+        "inputSHA256": "39fe47497cdbe7f090f440fde5b985c4e72a26addad18a2c23d6c64c7e4cf536",
+        "actual": "pdf",
+        "pages": 40,
+        "warnings": [],
+        "output": "capacity-40-pages.docx.pdf",
+        "outputBytes": 610521,
+        "outputSHA256": "a0859ee250a4deb41daa03d6fda0136c3b4e198947294d4a7ddecea3f35e3035",
+        "elapsedMs": 9921,
+        "originalPreserved": true
+      },
+      {
+        "name": "capacity-20-slides.pptx",
+        "kind": "office",
+        "expected": "pdf",
+        "inputBytes": 5125177,
+        "inputSHA256": "4011645bb0d70578f85e95db67925feb16ba498fff886367f85d7a8da9ca6085",
+        "actual": "pdf",
+        "pages": 20,
+        "warnings": [
+          "Missing local fonts: Arial"
+        ],
+        "output": "capacity-20-slides.pptx.pdf",
+        "outputBytes": 1461182,
+        "outputSHA256": "ec36c28ff4fb62ea587eb59f4f8a3ec34caf3dd43cd37e79512a1eccb49088cf",
+        "elapsedMs": 11368,
+        "originalPreserved": true
+      }
+    ],
+    "independent_pdf_checks": {
+      "format_documents": 5,
+      "format_pages": 11,
+      "geometry_text_and_spatial_chinese": true,
+      "capacity_pages": 60,
+      "capacity_sampled_rasters": 6,
+      "capacity_first_middle_last_text_markers": true
+    },
+    "source_inputs_preserved": true,
+    "committed_capacity_runner_recheck": {
+      "passed": true,
+      "rows": [
+        {
+          "name": "capacity-40-pages.docx",
+          "pages": 40,
+          "inputBytes": 5114521,
+          "inputSHA256": "39fe47497cdbe7f090f440fde5b985c4e72a26addad18a2c23d6c64c7e4cf536",
+          "outputBytes": 610521,
+          "outputSHA256": "bf4a729b709af2058e9e1e31be4958a2717d4a929b9d1786849b8b141b4c72b6",
+          "warnings": [],
+          "originalPreserved": true,
+          "elapsedMs": 4965
+        },
+        {
+          "name": "capacity-20-slides.pptx",
+          "pages": 20,
+          "inputBytes": 5125177,
+          "inputSHA256": "4011645bb0d70578f85e95db67925feb16ba498fff886367f85d7a8da9ca6085",
+          "outputBytes": 1461182,
+          "outputSHA256": "36a70b2ae73589753172b2c6fcf5d58b8cfc05ebef9828cbc374745bdc4680aa",
+          "warnings": [
+            "Missing local fonts: Arial"
+          ],
+          "originalPreserved": true,
+          "elapsedMs": 3488
+        }
+      ],
+      "peak_sampled_rss_bytes": 1511436288
+    }
+  },
+  "resources": {
+    "budget_kind": "Sampled process-tree RSS and finite deadline/disk enforcement, not a claim of an instantaneous hard memory cap",
+    "linux_rss_budget_bytes": 2147483648,
+    "baseline_768_mib_budget_rejected_real_wasm": true,
+    "source_node26_complex_matrix_peak_rss_bytes": 1618948096,
+    "installed_node24_format_peak_rss_bytes": 1522503680,
+    "installed_node24_capacity_peak_rss_bytes": 1527812096,
+    "virtual_address_space_is_not_rss": true,
+    "one_conversion_at_a_time": true,
+    "memory_limit_disk_limit_and_cancel_tests_passed": true,
+    "real_installed_wasm_cancel": {
+      "platform": "linux",
+      "runtime": "/opt/SparkX/sparkx",
+      "realWasmObserved": true,
+      "peakBeforeCancel": 867835904,
+      "observedProcesses": 3,
+      "allObservedProcessesGone": true,
+      "cacheAndReservationsReleased": true,
+      "closeMs": 1131,
+      "result": {
+        "code": "cancelled"
+      },
+      "observations": [
+        {
+          "peakMemoryBytes": 773115904,
+          "peakDiskBytes": 5115353,
+          "durationMs": 2569,
+          "processJoinMs": 900,
+          "stopToExitMs": 906
+        },
+        {
+          "phase": "cleanup",
+          "directoryCleanupMs": 45,
+          "released": true
+        }
+      ]
+    },
+    "linux_owner_lifecycle": {
+      "crash_process_tree_exit_ms": 22,
+      "blocked_owner_process_tree_exit_ms": 1638,
+      "completed_owner_process_tree_exit_ms": 0,
+      "all_three_passed": true,
+      "pid_observation": "Host PID namespace via ps and process-tree traversal; inner sandbox PID 1 is never signaled on the host"
+    }
+  },
+  "native_viewer": {
+    "method": "Real Electron 44.4.3 fixture in Xvfb at 2x display scale using final packaged offline viewer assets; separate from ordinary installed-app evidence above",
+    "result": {
+      "isolation": {
+        "bridge": "undefined",
+        "file": true,
+        "network": true,
+        "parentStorage": true
+      },
+      "formats": [
+        "text",
+        "spreadsheet",
+        "markdown",
+        "pdf",
+        "image"
+      ],
+      "sheetCopy": {
+        "html": "<table><tr><td style=\"mso-number-format:'\\@'\">00123</td></tr></table>",
+        "prevented": true,
+        "value": "00123"
+      },
+      "sheetSwitch": true,
+      "editingBlocked": true,
+      "pdfPixels": 1532644,
+      "pdfRangeRead": true,
+      "pdfPageSwitch": true,
+      "pdfNativePinch": true,
+      "pdfTwoAxisPan": true,
+      "pdfGestureAnchor": true,
+      "smoothIn": {
+        "frames": 29,
+        "maxDrift": 0.07926090468498614,
+        "minDetailDensity": 2,
+        "detailRenders": 3,
+        "blankFrames": 0,
+        "maxPixels": 8962191
+      },
+      "smoothOut": {
+        "frames": 1186,
+        "maxDrift": 0.25429119547658274,
+        "minDetailDensity": 2.7475146742886447,
+        "detailRenders": 13,
+        "blankFrames": 0,
+        "maxPixels": 9374508
+      },
+      "pdfNoBlankFrames": true,
+      "sharpAtMax": {
+        "count": 1,
+        "density": 2.7475146742886447,
+        "screen": 2
+      },
+      "sharpInk": 115915,
+      "pdfScreenDensity": true,
+      "percentageAutoHide": true,
+      "percentageIdleSeconds": 2,
+      "percentagePresetsOnly": true,
+      "percentagePlusMinus": true,
+      "percentagePresets": true,
+      "pdfEscapeMenuFirst": true,
+      "imageEscapeMenuFirst": true,
+      "escapeFocusRestored": true,
+      "encryptedPDFRejected": true,
+      "officeFontNoticeDismissible": true,
+      "revokedPDFUnmounted": true,
+      "revokedImageUnmounted": true,
+      "revokedChannelSilent": true,
+      "reopenAfterRevocation": true,
+      "noHorizontalScrollbar": true,
+      "pdfNoToolbar": true,
+      "imageNativePinch": true,
+      "imageNoToolbar": true,
+      "pdfZoom": true,
+      "pdfPositionRestore": true,
+      "pdfContinuousScroll": true,
+      "pdfFitWidth": true,
+      "pdfResizeAnchor": true,
+      "pdfWhiteSurface": true,
+      "privatePDFChecked": false,
+      "navigationBlocked": true
+    }
+  },
+  "checks": {
+    "desktop": {
+      "tests": 585,
+      "passed": 582,
+      "failed": 0,
+      "skipped": 3,
+      "concurrency": 2,
+      "skip_reason": "Three Mac-specific owner lifecycle cases; all corresponding Linux cases were separately executed and passed using host PID observation."
+    },
+    "webchat": {
+      "files": 89,
+      "passed": 556,
+      "failed": 0
+    },
+    "go": {
+      "build": "passed",
+      "vet": "passed",
+      "test_packages": 77,
+      "unchanged_source_since_qualified_ac30a23a": true
+    },
+    "initial_failures_retained": [
+      "Original Linux bubblewrap scaffold allowed writes outside the job; fixed root/dev read-only mounts.",
+      "Closed-port network probe was invalid on Linux; replaced with known reachable positive control and distinct network namespace.",
+      "768 MiB rejected real WASM; characterized finite 2 GiB Linux RSS budget.",
+      "Old ARM64 AppImage runtime required libz.so and packaging allowed --no-sandbox; replaced static runtime and enforced fail-closed startup.",
+      "Legacy package UI probe assumed 480px; now matches actual viewport bounds.",
+      "Debian metadata omitted ALSA and GBM; complete ELF dependency closure now passes.",
+      "Unbounded parallel desktop test files triggered unrelated 35/50ms recovery timing assumptions; complete concurrency=2 suite passes.",
+      "Image inherited retired test environment variables; complete Go suite passes under explicit clean env."
+    ]
+  },
+  "reproduction": {
+    "environment": "Run as a non-root user on a Linux arm64 namespace-capable host with Node26, Go1.25.5, Xvfb, bubblewrap, procps and Debian package/build dependencies. Use a clean environment to avoid inherited unrelated SPARKCLAW test configuration.",
+    "commands": [
+      "npm ci",
+      "npm run build:desktop-ui",
+      "npm run build:iscp-helper -- linux arm64",
+      "npm run check:desktop-managed-scripts",
+      "npm --workspace @sparkclaw/desktop run dist:linux-arm64",
+      "node scripts/write-desktop-release-manifest.mjs",
+      "node scripts/qualify-desktop-artifacts.mjs",
+      "python3 apps/desktop/test/audit-linux-runtime-dependencies.py apps/desktop/dist/SparkX-0.1.0-linux-arm64.deb apps/desktop/dist/linux-arm64-unpacked/sparkx",
+      "node --test --test-concurrency=2 apps/desktop/test/*.test.mjs",
+      "npm run test:webchat",
+      "SPARKCLAW_PREVIEW_TEST_ASSETS=\"$PWD/apps/desktop/dist/linux-arm64-unpacked/resources/local-preview\" xvfb-run -a node apps/desktop/test/run-local-preview-native.mjs",
+      "python3 apps/desktop/test/generate-linux-capacity-fixtures.py /tmp/large-fixtures",
+      "SPARKCLAW_FORMAT_MODULES=/opt/SparkX/resources/app.asar.unpacked/src/main SPARKCLAW_PREVIEW_RUNTIME=/opt/SparkX/sparkx node apps/desktop/test/run-local-preview-capacity-matrix.mjs /tmp/large-fixtures /tmp/installed-capacity-final",
+      "node apps/desktop/test/run-installed-linux-preview-cancel.mjs"
+    ]
+  },
+  "limits": [
+    "Qualified Debian12 arm64 in Xvfb; no claim of x64, Wayland, every Linux distribution or physical touchpad/hardware-GPU coverage.",
+    "AppImage requires host runtime libraries, bubblewrap/procps and usable namespaces; direct FUSE mounting was not exercised.",
+    "A real secret-service session is required for encrypted login storage; the product rejects basic_text instead of storing plaintext credentials.",
+    "Forty-page DOCX and twenty-slide PPTX characterize tested capacity, not unlimited format/complexity support.",
+    "True cloud placeholders and encrypted legacy DOC/PPT are owner-waived gates recorded in the parent release documentation."
+  ]
+}

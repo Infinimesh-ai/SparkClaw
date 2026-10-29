@@ -37,6 +37,7 @@ type credentialFlight struct {
 }
 type managedCredentialProvider struct {
 	mu          sync.Mutex
+	accessWG    sync.WaitGroup
 	relay       *RelayClient
 	binding     CredentialBinding
 	recovery    CredentialRecovery
@@ -75,6 +76,8 @@ func (r *RelayClient) ConfigureCredentialProvider(binding CredentialBinding, rec
 
 // The installation callback runs after durable CAS and outside every provider
 // mutex/file lock. A lost ACK retries this callback against the retained lease.
+// Callbacks must honor cancellation and must not close their own provider; owner
+// shutdown cancels and joins recovery and installation before returning.
 func (r *RelayClient) ConfigureCredentialProviderWithInstallation(binding CredentialBinding, recovery CredentialRecovery, installed func(context.Context, CredentialLease) error) error {
 	if err := CheckLegacyCredentialPending(r.enrollmentPath); err != nil {
 		return err
@@ -182,6 +185,19 @@ func (p *managedCredentialProvider) EnsureAccess(ctx context.Context, binding Cr
 	if err := CheckLegacyCredentialPending(p.relay.enrollmentPath); err != nil {
 		return CredentialLease{}, err
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	stopOwnerCancellation := context.AfterFunc(p.root, cancel)
+	defer func() { stopOwnerCancellation(); cancel() }()
+	p.mu.Lock()
+	if p.closed || p.root.Err() != nil {
+		p.mu.Unlock()
+		return CredentialLease{}, context.Canceled
+	}
+	// Registration shares the close gate, so no Add can race the shutdown
+	// Wait. The cached installation path is owned work too, without a flight.
+	p.accessWG.Add(1)
+	p.mu.Unlock()
+	defer p.accessWG.Done()
 retry:
 	p.mu.Lock()
 	if p.closed {
@@ -469,12 +485,19 @@ func (p *managedCredentialProvider) Subscribe(ctx context.Context, binding Crede
 	return ch
 }
 func (p *managedCredentialProvider) Close() error {
+	// Cancel before taking mu: an access or invalidation may hold it while
+	// waiting for another process's checkpoint lock and need this cancellation.
+	p.cancel()
 	p.mu.Lock()
-	if !p.closed {
-		p.closed = true
-		p.cancel()
-	}
+	p.closed = true
+	flight := p.flight
 	p.mu.Unlock()
+	// Recovery finalization reacquires mu. Every concurrent Close must join
+	// it outside the lock, including the callbacks after durable installation.
+	if flight != nil {
+		<-flight.done
+	}
+	p.accessWG.Wait()
 	return nil
 }
 func copyCredentialLease(v CredentialLease) CredentialLease {

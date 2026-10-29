@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "source_revision": "c281f0331f67ab82f664ec669bdd494918450298",
+  "installed": true,
+  "pushed": false,
+  "remote_service_changed": false,
+  "frontend_tests_passed": 554,
+  "production_build": "passed",
+  "native_checks": {
+    "isolation": {
+      "bridge": "undefined",
+      "file": true,
+      "network": true,
+      "parentStorage": true
+    },
+    "formats": [
+      "text",
+      "spreadsheet",
+      "markdown",
+      "pdf",
+      "image"
+    ],
+    "sheetCopy": {
+      "html": "<table><tr><td style=\"mso-number-format:'\\@'\">00123</td></tr></table>",
+      "prevented": true,
+      "value": "00123"
+    },
+    "sheetSwitch": true,
+    "editingBlocked": true,
+    "pdfPixels": 3896676,
+    "pdfRangeRead": true,
+    "pdfPageSwitch": true,
+    "pdfNativePinch": true,
+    "pdfTwoAxisPan": true,
+    "pdfGestureAnchor": true,
+    "smoothIn": {
+      "frames": 42,
+      "maxDrift": 0.23302313883300485,
+      "blankFrames": 0,
+      "maxPixels": 7790016
+    },
+    "smoothOut": {
+      "frames": 1504,
+      "maxDrift": 0.2565077967806815,
+      "blankFrames": 0,
+      "maxPixels": 5872316
+    },
+    "pdfNoBlankFrames": true,
+    "percentageAutoHide": true,
+    "percentageFocusHold": true,
+    "percentageManualInput": true,
+    "percentagePresets": true,
+    "noHorizontalScrollbar": true,
+    "pdfNoToolbar": true,
+    "imageNativePinch": true,
+    "imageNoToolbar": true,
+    "pdfZoom": true,
+    "pdfPositionRestore": true,
+    "pdfContinuousScroll": true,
+    "pdfFitWidth": true,
+    "pdfResizeAnchor": true,
+    "pdfWhiteSurface": true,
+    "privatePDFChecked": true,
+    "navigationBlocked": true
+  },
+  "gesture_test_method": "Chromium native pinch/wheel input against exact packaged viewer resources in an isolated Electron window; animation-frame sampling of canvas visibility, anchor drift and aggregate pixels",
+  "source_match": {
+    "sourceFiles": 78,
+    "uiFiles": 24,
+    "viewerFiles": 224,
+    "mismatches": [],
+    "asarSHA256": "305cf8dc4c36467963f19a209e3c9097bd2b48dbc54d04423fbfcdee3b0260ab",
+    "helperSHA256": "9a4da3b7694f7381c5d2e4632e278af8ed1410ad25ae95d84cd150eb19ba98c3"
+  },
+  "artifacts": {
+    "zip": {
+      "file": "SparkX-0.1.0-mac-arm64.zip",
+      "bytes": 222679403,
+      "sha256": "2045ed8101bba5293d493adf038afebbd2504e39c0b21d51c06981b97267b3e3"
+    },
+    "dmg": {
+      "file": "SparkX-0.1.0-mac-arm64.dmg",
+      "bytes": 219361548,
+      "sha256": "8a08f68de4b731e22307dfe6e6be9687f1b8f2d9eeb3a9c21f7b9884fe9515b5"
+    }
+  },
+  "installed_entries_matched": 6947,
+  "cold_backup_databases": 76,
+  "cold_backup_tables": 343,
+  "profile_bytes_modes_unchanged_before_launch": true,
+  "original_file_unchanged": true,
+  "installed_visual_checks": {
+    "original_document_opened": true,
+    "white_surface": true,
+    "filename_in_titlebar": true,
+    "no_horizontal_scrollbar": true,
+    "percentage_changes_observed_in_accessibility_tree": true,
+    "original_login_and_conversation_list_retained": true
+  },
+  "installed_interaction_note": "Automatic control clicks stopped after computer-use reported active user interaction. Percentage manual entry, presets and auto-hide are qualified by the exact-package native fixture.",
+  "retained_failed_attempt": "Preset was overwritten by input blur; fixed with blur suppression and the same regression passed.",
+  "previous_app": "/Applications/.SparkX-smooth-reader-c281f033-previous.app",
+  "open_gates": [
+    "broader format/font fidelity and malformed-document matrix",
+    "Linux isolation/package/UI acceptance"
+  ]
+}

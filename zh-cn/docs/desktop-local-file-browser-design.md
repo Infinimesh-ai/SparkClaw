@@ -362,6 +362,8 @@ Linux arm64 在 Debian 12 的 Xvfb 环境完成验收。AppImage 解包运行及
 
 另一个 helper 退出失败是实际生命周期问题：凭据恢复或缓存安装确认可能在关闭返回后继续写盘。源码 `29623d86` 先取消再获取互斥锁，随后在锁外等待恢复任务及全部已受理访问结束；等待 checkpoint 文件锁的调用也能及时收到取消。四类关闭场景分别通过 100 轮，原 helper 集成场景通过 100 轮 race 检查，两个受影响包也通过 Linux race 检查。协议字段和界面未变。详见[生命周期验收记录](../../docs/evidence/ci-credential-lifecycle-2026-10-29.json)与[Compose 证据](../../docs/evidence/compose-ci-local-profile-2026-10-29.json)。
 
+隔离 App-CLI 验收脚本现通过锁定运行时获取当前 epoch 并分配 `op3` 任务身份，替换已退役的 legacy 固定任务键；隐藏任务页使用既有后台初始化选项，并增加实际 CLI 点击标记断言，同时保留私有字段、幂等重放和清理检查。这些修改只影响验收脚本，原公共授权／invoke／wait 路径及安装包载荷保持不变。
+
 Mac 与 Linux 已从同一干净源码 `29623d86` 重新打包。Mac 6,948 个安装条目匹配已校验 ZIP，相对上一验收包仅 helper 和审计摘要变化。实际文档渲染、两级 Esc、退出重启、原登录与会话通过；完整阅读状态文件保持相同，75 个原持久数据库及业务行保留，仅有一次正常事件游标更新。原文档字节与权限、17 个认证及启动文件保持相同。详见[最终 Mac 验收记录](../../docs/evidence/desktop-mac-helper-closeout-2026-10-29.json)。
 
 Linux 6,003 个实际安装条目匹配最终 DEB，其中 6,001 项与此前验收包相同。AppImage 运行、依赖闭包、Chromium 沙箱、真实密钥环、文档渲染、退出登录及授权撤销在最终安装包再次通过。详见[最终 Linux 验收记录](../../docs/evidence/desktop-linux-helper-closeout-2026-10-29.json)。工作台、查看器及转换资源逐字相同，前述格式与压力验收证据继续适用。源码和脱敏记录发布到现有仓库，远端生产服务保持不变；对应提交的 Actions 检查是远端 CI 结果的事实来源。

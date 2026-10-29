@@ -6,6 +6,18 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const coreRoot = path.join(packageRoot, 'node_modules/playwright-core');
 const expectedVersion = '1.63.0-alpha-2026-08-31';
 const patches = [
+  // The MCP relay resolves replies through several async forwarding layers,
+  // while debugger events are synchronous. Yield between coalesced ws frames
+  // so the earlier frame-tree reply reaches Playwright before default contexts.
+  // Other WSServer delegates keep their upstream synchronous delivery default.
+  [
+    'this._wsServer = new wsServer2({\n          noServer: true,\n          perMessageDeflate',
+    'this._wsServer = new wsServer2({\n          noServer: true,\n          allowSynchronousEvents: this._delegate.allowSynchronousEvents ?? true,\n          perMessageDeflate',
+  ],
+  [
+    'void this._extensionConnectionPromise.catch(logUnhandledError);\n        this._wsServer = new WSServer({',
+    'void this._extensionConnectionPromise.catch(logUnhandledError);\n        this._wsServer = new WSServer({\n          allowSynchronousEvents: false, // SparkClaw MCP reply/event ordering',
+  ],
   [
     'try {\n          await tab2.waitForCompletion(async () => {\n            context.__fn__ = import_vm.default.runInContext',
     'try {\n          await require("../../../src/awaited-mail-read.cjs").waitForMailRead(tab2, params2, async () => {\n            context.__fn__ = import_vm.default.runInContext',

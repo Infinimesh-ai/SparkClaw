@@ -1,26 +1,16 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Page } from 'react-pdf';
-import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { DocumentChannel } from './channel';
 import { usePinchZoom, type ZoomPoint } from './usePinchZoom';
+import { PdfRasterBudget, StablePdfPage } from './StablePdfPage';
+import { ZoomControl } from './ZoomControl';
+import { scrollPadding } from './zoomGeometry';
 
 const GAP = 8;
 const MAX_CANVASES = 16;
-const PIXEL_BUDGET = 8_000_000;
+const FRAME_PIXEL_BUDGET = 3_900_000; // Leave room for the completed frame and rounding.
 type Anchor = { page: number; offset: number };
 type PageBox = { top: number; width: number; height: number };
-
-function RenderedPage({ number, width, pixelRatio, onError }: { number: number; width: number; pixelRatio: number; onError: (cause: Error) => void }) {
-  const loaded = useRef<PDFPageProxy | null>(null);
-  useEffect(() => () => {
-    // React-PDF cancels rendering and zeros its retired canvas; also release
-    // PDF.js operator/image resources instead of retaining every visited page.
-    loaded.current?.cleanup();
-  }, []);
-  return <Page pageNumber={number} width={width} devicePixelRatio={pixelRatio} suspense={false}
-    renderAnnotationLayer={false} renderTextLayer loading={null} onLoadSuccess={value => { loaded.current = value; }}
-    onLoadError={onError} onRenderError={onError} />;
-}
 
 function pageAt(boxes: PageBox[], top: number) {
   let low = 0, high = boxes.length - 1;
@@ -41,8 +31,9 @@ export function PdfReader({ pdf, channel, onError }: { pdf: PDFDocumentProxy; ch
   const [zoom, setZoom] = useState(Math.max(.25, Math.min(3, saved?.zoom || 1)));
   const [view, setView] = useState({ width: 600, height: 800, top: 0, left: saved?.scrollLeft || 0 });
   const [ratios, setRatios] = useState<Map<number, number>>(() => new Map());
+  const [padding, setPadding] = useState({ left: 0, right: 0, top: 0, bottom: 0 });
+  const [rasterBudget] = useState(() => new PdfRasterBudget());
   const viewport = useRef<HTMLDivElement>(null);
-  const frame = useRef(0);
   const pinch = useRef<(Anchor & ZoomPoint & { horizontal: number }) | null>(null);
   const errorHandler = useRef(onError); errorHandler.current = onError;
   const boxes = useMemo(() => {
@@ -57,38 +48,43 @@ export function PdfReader({ pdf, channel, onError }: { pdf: PDFDocumentProxy; ch
     });
   }, [pdf.numPages, view.width, zoom, ratios]);
   const totalHeight = boxes.at(-1)!.top + boxes.at(-1)!.height;
+  const stackWidth = Math.max(view.width, view.width * zoom);
   const first = pageAt(boxes, view.top);
   const last = pageAt(boxes, view.top + view.height);
   const start = Math.max(0, first - 1);
   const end = Math.min(pdf.numPages - 1, last + 1, start + MAX_CANVASES - 1);
   const visiblePages = Array.from({ length: end - start + 1 }, (_, index) => start + index + 1);
   const pixels = visiblePages.reduce((sum, number) => sum + boxes[number - 1].width * boxes[number - 1].height, 0);
-  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(PIXEL_BUDGET / pixels),
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(FRAME_PIXEL_BUDGET / pixels),
     ...visiblePages.map(number => 4096 / Math.max(boxes[number - 1].width, boxes[number - 1].height)));
 
   useLayoutEffect(() => {
     const node = viewport.current; if (!node) return;
-    const update = () => setView(previous => ({ ...previous, width: Math.max(1, node.clientWidth), height: node.clientHeight }));
+    const update = () => { pinch.current = null; setView(previous => ({ ...previous, width: Math.max(1, node.clientWidth), height: node.clientHeight })); };
     node.scrollLeft = saved?.scrollLeft || 0;
     const observer = new ResizeObserver(update); observer.observe(node); update();
-    return () => { observer.disconnect(); cancelAnimationFrame(frame.current); };
+    return () => observer.disconnect();
   }, []);
 
   const updateAnchor = (node: HTMLDivElement) => {
-    const index = pageAt(boxes, node.scrollTop + 1), box = boxes[index];
-    anchor.current = { page: index + 1, offset: Math.min(1, Math.max(0, (node.scrollTop - box.top) / box.height)) };
+    const top = node.scrollTop - padding.top, left = node.scrollLeft - padding.left;
+    const index = pageAt(boxes, top + 1), box = boxes[index];
+    anchor.current = { page: index + 1, offset: (top - box.top) / box.height };
     setPage(index + 1);
-    setView(previous => ({ ...previous, top: node.scrollTop, left: node.scrollLeft }));
+    setView(previous => previous.top === top && previous.left === left ? previous : { ...previous, top, left });
   };
-  usePinchZoom(viewport, zoom, (next, point) => {
+  const changeZoom = (next: number, point: ZoomPoint, origin?: ZoomPoint) => {
     const node = viewport.current; if (!node) return;
-    cancelAnimationFrame(frame.current);
-    const index = pageAt(boxes, node.scrollTop + point.y), box = boxes[index];
-    const left = (Math.max(view.width, view.width * zoom) - box.width) / 2;
-    pinch.current = { ...point, page: index + 1, offset: (node.scrollTop + point.y - box.top) / box.height,
-      horizontal: (node.scrollLeft + point.x - left) / box.width };
+    if (origin || !pinch.current) {
+      const from = origin || point;
+      const top = node.scrollTop - padding.top, left = node.scrollLeft - padding.left;
+      const index = pageAt(boxes, top + from.y), box = boxes[index];
+      pinch.current = { ...point, page: index + 1, offset: (top + from.y - box.top) / box.height,
+        horizontal: (left + from.x - (stackWidth - box.width) / 2) / box.width };
+    } else Object.assign(pinch.current, point);
     setZoom(next);
-  });
+  };
+  const busy = usePinchZoom(viewport, zoom, changeZoom, .25, 3, () => { pinch.current = null; });
 
   // Pinch keeps the document point beneath the fingers stationary. Ordinary
   // panel resizing and lazy page measurements preserve the top reading anchor.
@@ -97,17 +93,22 @@ export function PdfReader({ pdf, channel, onError }: { pdf: PDFDocumentProxy; ch
     const gesture = pinch.current;
     if (gesture) {
       const box = boxes[gesture.page - 1];
-      node.scrollTop = box.top + gesture.offset * box.height - gesture.y;
-      node.scrollLeft = (Math.max(view.width, view.width * zoom) - box.width) / 2 + gesture.horizontal * box.width - gesture.x;
-      pinch.current = null;
+      const top = box.top + gesture.offset * box.height - gesture.y;
+      const left = (stackWidth - box.width) / 2 + gesture.horizontal * box.width - gesture.x;
+      const next = scrollPadding(left, top, stackWidth, totalHeight, view.width, view.height);
+      // Native scroll offsets cannot be negative. Add only the edge space
+      // needed to keep the same document point under the fingers at any scale.
+      if (Object.keys(next).some(key => next[key as keyof typeof next] !== padding[key as keyof typeof next])) { setPadding(next); return; }
+      node.scrollTop = top + padding.top;
+      node.scrollLeft = left + padding.left;
       updateAnchor(node);
     } else {
       const box = boxes[anchor.current.page - 1];
-      node.scrollTop = box.top + anchor.current.offset * box.height;
-      node.scrollLeft = view.left;
-      setView(previous => previous.top === node.scrollTop && previous.left === node.scrollLeft ? previous : { ...previous, top: node.scrollTop, left: node.scrollLeft });
+      node.scrollTop = box.top + anchor.current.offset * box.height + padding.top;
+      node.scrollLeft = view.left + padding.left;
+      updateAnchor(node);
     }
-  }, [boxes]);
+  }, [boxes, padding]);
 
   useEffect(() => {
     let active = true;
@@ -129,26 +130,22 @@ export function PdfReader({ pdf, channel, onError }: { pdf: PDFDocumentProxy; ch
   }, [pdf, start, end, ratios, zh]);
 
   useEffect(() => {
-    channel.position({ page, zoom, offset: anchor.current.offset, scrollTop: view.top, scrollLeft: view.left });
+    channel.position({ page, zoom, offset: Math.max(0, Math.min(1, anchor.current.offset)), scrollTop: Math.max(0, view.top), scrollLeft: Math.max(0, view.left) });
   }, [channel, page, zoom, view.top, view.left]);
 
-  const captureScroll = () => {
-    cancelAnimationFrame(frame.current);
-    frame.current = requestAnimationFrame(() => {
-      const node = viewport.current; if (!node) return;
-      updateAnchor(node);
-    });
-  };
   return <div className="pdfPreview">
-    <div className="pdfPageViewport" ref={viewport} onScroll={captureScroll} tabIndex={0} aria-label={zh ? '文档内容' : 'Document content'}>
-      <div className="pdfPageStack" style={{ height: totalHeight, minWidth: view.width * zoom }}>
+    <div className="pdfPageViewport" ref={viewport} onScroll={event => updateAnchor(event.currentTarget)} tabIndex={0} aria-label={zh ? '文档内容' : 'Document content'}>
+      <div className="pdfPageStack" style={{ height: totalHeight + padding.top + padding.bottom, width: stackWidth + padding.left + padding.right }}>
         {visiblePages.map(number => {
           const box = boxes[number - 1];
-          return <div className="pdfPageSlot" key={number} data-page={number} style={{ top: box.top, width: box.width, height: box.height }}>
-            {ratios.has(number) && <RenderedPage number={number} width={box.width} pixelRatio={pixelRatio} onError={onError} />}
+          return <div className="pdfPageSlot" key={number} data-page={number} style={{ top: padding.top + box.top, left: padding.left + (stackWidth - box.width) / 2, width: box.width, height: box.height }}>
+            {ratios.has(number) && <StablePdfPage number={number} width={box.width} height={box.height} pixelRatio={pixelRatio} busy={busy} budget={rasterBudget} onError={onError} />}
           </div>;
         })}
       </div>
     </div>
+    <ZoomControl zoom={zoom} min={.25} max={3} active={busy} viewport={viewport} zh={zh} onZoom={next => {
+      const point = { x: view.width / 2, y: view.height / 2 }; changeZoom(next, point, point);
+    }} />
   </div>;
 }

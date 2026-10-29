@@ -3,4 +3,18 @@
 .readonlySheet .luckysheet-cs-fillhandle,.readonlySheet .luckysheet-cs-draghandle,.readonlySheet .luckysheet-input-box,.readonlySheet .fortune-add-row{display:none!important}
 
 .pdfPageStack{position:relative;width:100%;background:#f3f4f6}
-.pdfPageSlot{position:absolute;left:50%;transform:translateX(-50%);background:#fff;overflow:hidden}
+.pdfPageSlot{position:absolute;background:#fff;overflow:hidden}
+.pdfRaster{position:absolute;left:0;top:0;transform-origin:top left}
+.pdfPreview,.imagePreview{position:relative}
+.imageStage img{transform:none;left:0;top:0}
+.pdfPageViewport::-webkit-scrollbar,.imageViewport::-webkit-scrollbar{width:6px;height:0}
+.pdfPageViewport::-webkit-scrollbar-thumb,.imageViewport::-webkit-scrollbar-thumb{background:#c7cbd1;border-radius:6px}
+.pdfPageViewport::-webkit-scrollbar-track,.imageViewport::-webkit-scrollbar-track{background:transparent}
+.zoomControl{position:absolute;z-index:10;bottom:18px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;opacity:0;pointer-events:none;transition:opacity .15s ease}
+.zoomControl[data-visible=true]{opacity:1;pointer-events:auto}
+.zoomPercentage{min-width:64px;padding:7px 13px;border-radius:18px;background:rgba(255,255,255,.96);box-shadow:0 2px 12px #18202b18;font-size:12px;font-variant-numeric:tabular-nums}
+.zoomOptions{display:flex;flex-direction:column;gap:10px;padding:12px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 4px 20px #18202b20}
+.zoomOptions label{display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px}
+.zoomOptions input{width:72px;padding:5px 7px;border:1px solid #d6dbe1;border-radius:6px;background:#fff}
+.zoomPresets{display:flex;gap:4px}
+.zoomPresets button{padding:5px 7px;font-size:11px;white-space:nowrap}

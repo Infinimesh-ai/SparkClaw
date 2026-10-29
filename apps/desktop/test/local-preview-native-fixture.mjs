@@ -47,26 +47,30 @@ app.whenReady().then(async()=>{
   await screenshot('markdown');
   // A minimal single-page PDF, with exact cross-reference offsets.
   let pdf='%PDF-1.4\n';const offsets=[0];const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>','<< /Length 42 >>\nstream\nBT /F1 12 Tf 20 150 Td (Local PDF) Tj ET\nendstream'];for(let i=0;i<objects.length;i++){offsets.push(Buffer.byteLength(pdf));pdf+=`${i+1} 0 obj\n${objects[i]}\nendobj\n`;}const xref=Buffer.byteLength(pdf);pdf+=`xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
-  await load('pdf','fixture.pdf',Buffer.from(pdf));await until(()=>evaluate("Boolean(document.querySelector('.react-pdf__Page canvas'))"),'PDF canvas missing');
-  await until(()=>evaluate("document.querySelector('.react-pdf__Page__textContent')?.textContent.includes('Local PDF')"),'PDF selectable text missing');await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");const canvas=await evaluate("(()=>{const c=document.querySelector('.react-pdf__Page canvas');return {width:c.width,height:c.height};})()");assert.ok(canvas.width*canvas.height<=8_000_000);
+  await load('pdf','fixture.pdf',Buffer.from(pdf));await until(()=>evaluate("Boolean(document.querySelector('[data-pdf-front] canvas'))"),'PDF canvas missing');
+  await until(()=>evaluate("document.querySelector('.react-pdf__Page__textContent')?.textContent.includes('Local PDF')"),'PDF selectable text missing');await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");const canvas=await evaluate("(()=>{const c=document.querySelector('[data-pdf-front] canvas');return {width:c.width,height:c.height};})()");assert.ok(canvas.width*canvas.height<=8_000_000);
   await screenshot('pdf');const before=await evaluate('location.href');await evaluate("location.href='sparkclaw-app://workbench/index.html'");await pause(150);assert.equal(frame.url,before);
   const ranged=pdfRangeFixture(12,true);
   const expectPDFPage=async text=>until(async()=>{
     const problem=await evaluate("document.querySelector('[role=alert]')?.textContent");if(problem)throw new Error('ranged PDF: '+problem);
-    return evaluate(`Boolean(document.querySelector('.react-pdf__Page canvas')) && [...document.querySelectorAll('.react-pdf__Page__textContent')].some(node=>node.textContent.includes(${JSON.stringify(text)}))`);
+    return evaluate(`Boolean(document.querySelector('[data-pdf-front] canvas')) && [...document.querySelectorAll('[data-pdf-front] .react-pdf__Page__textContent')].some(node=>node.textContent.includes(${JSON.stringify(text)}))`);
   },'ranged PDF page missing');
   window.webContents.debugger.attach('1.3');
   const pinch=scaleFactor=>window.webContents.debugger.sendCommand('Input.synthesizePinchGesture',{x:400,y:300,scaleFactor,relativeSpeed:800,gestureSourceType:'mouse'});
   const wheel=(deltaX,deltaY)=>window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseWheel',x:400,y:300,deltaX,deltaY});
-  const budget=()=>evaluate("(()=>{const canvases=[...document.querySelectorAll('.react-pdf__Page canvas')];return canvases.length>0 && canvases.length<=16 && canvases.reduce((sum,c)=>sum+c.width*c.height,0)<=8000000})()");
+  const budget=()=>evaluate("(()=>{const canvases=[...document.querySelectorAll('.react-pdf__Page canvas')];return canvases.length>0 && canvases.length<=32 && canvases.reduce((sum,c)=>sum+c.width*c.height,0)<=8000000})()");
   await load('pdf','ranges.pdf',ranged);await expectPDFPage('Range page 1');
-  assert.equal(await evaluate("Boolean(document.querySelector('.pdfPreview button,.pdfPreview input,.pdfPreview .previewToolbar'))"),false);
-  await until(()=>evaluate("(()=>{const view=document.querySelector('.pdfPageViewport'),canvas=document.querySelector('.react-pdf__Page canvas');return Math.abs(canvas.getBoundingClientRect().width-view.clientWidth)<=1})()"),'PDF does not initially fill viewport');
+  assert.equal(await evaluate("Boolean(document.querySelector('.pdfPreview .previewToolbar,.pdfPreview input[type=range]'))"),false);
+  await until(()=>evaluate("(()=>{const view=document.querySelector('.pdfPageViewport'),canvas=document.querySelector('[data-pdf-front] canvas');return Math.abs(canvas.getBoundingClientRect().width-view.clientWidth)<=1})()"),'PDF does not initially fill viewport');
   const anchorAtPointer=()=>evaluate("(()=>{const p=[...document.querySelectorAll('.pdfPageSlot')].find(p=>{const r=p.getBoundingClientRect();return r.top<=300&&r.bottom>300});const r=p.getBoundingClientRect();return {page:p.dataset.page,x:(400-r.left)/r.width,y:(300-r.top)/r.height}})()");
   const anchorBefore=await anchorAtPointer();
+  const traceStart=async()=>evaluate(`(()=>{const p=[...document.querySelectorAll('.pdfPageSlot')].find(p=>{const r=p.getBoundingClientRect();return r.top<=300&&r.bottom>300});const r=p.getBoundingClientRect(),page=p.dataset.page,x=(400-r.left)/r.width,y=(300-r.top)/r.height;window.gestureFrames=[];window.tracing=true;function sample(){if(!window.tracing)return;const slot=document.querySelector('[data-page="'+page+'"]'),box=slot?.getBoundingClientRect(),canvas=slot?.querySelector('[data-pdf-front] canvas'),canvases=[...document.querySelectorAll('.react-pdf__Page canvas')];window.gestureFrames.push({drift:box?Math.max(Math.abs(box.left+x*box.width-400),Math.abs(box.top+y*box.height-300)):9999,blank:!canvas||!canvas.width||getComputedStyle(canvas).visibility==='hidden',pixels:canvases.reduce((n,c)=>n+c.width*c.height,0),count:canvases.length});requestAnimationFrame(sample)}sample()})()`);
+  const traceFinish=async()=>{await pause(250);const frames=await evaluate('window.tracing=false;window.gestureFrames');assert.ok(frames.length>=3);assert.ok(frames.every(f=>!f.blank),'visible PDF frame disappeared during pinch');assert.ok(frames.every(f=>f.pixels<=8000000&&f.count<=32),'transient PDF raster budget exceeded');const drift=Math.max(...frames.map(f=>f.drift));assert.ok(drift<=1.1,'gesture anchor drift in pixels: '+drift);return {frames:frames.length,maxDrift:drift,blankFrames:0,maxPixels:Math.max(...frames.map(f=>f.pixels))};};
+  await traceStart();
   await pinch(1.5);
   await until(()=>run("positions.at(-1)?.zoom>1.2"),'native trackpad pinch did not zoom PDF');
   await pause(200);
+  const smoothIn=await traceFinish();
   const zoomed=await run('positions.at(-1)'),anchorAfter=await anchorAtPointer();
   assert.equal(anchorBefore.page,anchorAfter.page);
   assert.ok(Math.abs(anchorBefore.x-anchorAfter.x)<.01 && Math.abs(anchorBefore.y-anchorAfter.y)<.01,'pinch moved the document point');
@@ -76,7 +80,22 @@ app.whenReady().then(async()=>{
   await pause(100);assert.equal((await run('positions.at(-1)')).zoom,zoomed.zoom);
   assert.equal(await evaluate('visualViewport.scale'),1,'pinch zoomed the browser instead of the document');
   await pinch(20);await until(()=>run("positions.at(-1)?.zoom===3"),'upper zoom bound missing');await until(budget,'canvas budget exceeded at max zoom');
-  await pinch(.01);await until(()=>run("positions.at(-1)?.zoom===.25"),'lower zoom bound missing');await until(budget,'canvas budget exceeded at min zoom');
+  await traceStart();await pinch(.01);await until(()=>run("positions.at(-1)?.zoom===.25"),'lower zoom bound missing');await until(budget,'canvas budget exceeded at min zoom');
+  const smoothOut=await traceFinish();
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('.pdfPageViewport'),'::-webkit-scrollbar').height"),'0px');
+  assert.equal(await evaluate("document.querySelector('.zoomControl').dataset.visible"),'true');
+  await pause(3200);assert.equal(await evaluate("document.querySelector('.zoomControl').dataset.visible"),'false');
+  await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:500,y:window.getContentBounds().height-30});
+  await until(()=>evaluate("document.querySelector('.zoomControl').dataset.visible==='true'"),'bottom hover did not reveal zoom');
+  await evaluate("document.querySelector('.zoomPercentage').click()");
+  await until(()=>evaluate("document.activeElement===document.querySelector('.zoomOptions input')"),'percentage field did not focus');
+  await pause(3200);assert.equal(await evaluate("document.querySelector('.zoomControl').dataset.visible"),'true');
+  await evaluate("(()=>{const input=document.querySelector('.zoomOptions input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'135');input.dispatchEvent(new Event('input',{bubbles:true}));})()");
+  await evaluate("document.querySelector('.zoomOptions input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))");
+  await until(()=>run("positions.at(-1)?.zoom===1.35"),'manual percentage did not apply');
+  await evaluate("document.querySelector('.zoomPercentage').click()");
+  await evaluate("[...document.querySelectorAll('.zoomPresets button')].find(button=>button.textContent==='125%').click()");
+  await until(()=>run("positions.at(-1)?.zoom===1.25"),'percentage preset did not apply');
   await load('text','switch.txt',Buffer.from('Switch away while retaining PDF reading state'));
   await until(()=>evaluate("Boolean(document.querySelector('pre'))"),'switch-away text missing');
   await load('pdf','ranges.pdf',ranged,null,{page:3,zoom:1.25,offset:.3,scrollLeft:70});await expectPDFPage('Range page 3');
@@ -91,7 +110,7 @@ app.whenReady().then(async()=>{
   await until(()=>run(`Math.abs(positions.at(-1)?.offset-${restored.offset})<0.01 && positions.at(-1)?.page===${restored.page} && Math.abs(positions.at(-1)?.scrollLeft-${restored.scrollLeft})<1`),'reading position not restored');
   window.setSize(600,800);
   await until(()=>evaluate("document.querySelector('.pdfPageViewport').clientWidth<650"),'panel resize missing');
-  await until(()=>evaluate(`(()=>{const view=document.querySelector('.pdfPageViewport'),canvas=document.querySelector('.react-pdf__Page canvas');return Math.abs(canvas.getBoundingClientRect().width-view.clientWidth*${restored.zoom})<=1})()`),'resized PDF width incorrect');
+  await until(()=>evaluate(`(()=>{const view=document.querySelector('.pdfPageViewport'),canvas=document.querySelector('[data-pdf-front] canvas');return Math.abs(canvas.getBoundingClientRect().width-view.clientWidth*${restored.zoom})<=1})()`),'resized PDF width incorrect');
   await until(()=>run(`Math.abs(positions.at(-1)?.offset-${restored.offset})<0.01 && positions.at(-1)?.page===${restored.page}`),'resize moved reading position');
   assert.ok(await budget());
   assert.equal(await evaluate("Boolean(document.querySelector('[data-page=\"1\"] canvas'))"),false);
@@ -99,7 +118,7 @@ app.whenReady().then(async()=>{
   if(process.env.SPARKCLAW_PREVIEW_TEST_PDF){
     const bytes=await fs.readFile(process.env.SPARKCLAW_PREVIEW_TEST_PDF);assert.ok(bytes.length<=32*1024*1024);
     await load('pdf','local-regression.pdf',bytes);
-    await until(async()=>{const problem=await evaluate("document.querySelector('[role=alert]')?.textContent");if(problem)throw new Error('regression PDF: '+problem);return evaluate("Boolean(document.querySelector('.react-pdf__Page canvas'))");},'regression PDF canvas missing');
+    await until(async()=>{const problem=await evaluate("document.querySelector('[role=alert]')?.textContent");if(problem)throw new Error('regression PDF: '+problem);return evaluate("Boolean(document.querySelector('[data-pdf-front] canvas'))");},'regression PDF canvas missing');
     await until(()=>evaluate("Boolean(document.querySelector('.react-pdf__Page__textContent')?.textContent.length)"),'regression PDF text missing');
     await screenshot('pdf-regression');
   }
@@ -107,13 +126,13 @@ app.whenReady().then(async()=>{
   assert.equal(imageBytes.readUInt32BE(16),2000,'generated image width');
   await load('image','image.png',imageBytes);
   await until(async()=>{const state=await evaluate("({error:document.querySelector('[role=alert]')?.textContent,width:document.querySelector('.imageViewport img')?.naturalWidth})");if(state.error)throw new Error('image: '+state.error);return state.width===2000;},'image did not decode');
-  assert.equal(await evaluate("Boolean(document.querySelector('.imagePreview button,.imagePreview .previewToolbar'))"),false);
+  assert.equal(await evaluate("Boolean(document.querySelector('.imagePreview .previewToolbar,.imagePreview input[type=range]'))"),false);
   await pinch(2);await until(()=>run("positions.at(-1)?.zoom>1.5"),'native pinch did not zoom image');
   const imageBefore=await evaluate("({left:document.querySelector('.imageViewport').scrollLeft,top:document.querySelector('.imageViewport').scrollTop})");
   await wheel(100,100);
   await until(()=>evaluate(`document.querySelector('.imageViewport').scrollLeft>${imageBefore.left+20}`),'image pan failed');
   await screenshot('image-pinch');
   await evaluate("dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");await until(()=>run("receipts.includes('escape')"),'Escape was not forwarded');
-  const result={isolation,formats:['text','spreadsheet','markdown','pdf','image'],sheetCopy:copy,sheetSwitch:true,editingBlocked:true,pdfPixels:canvas.width*canvas.height,pdfRangeRead:true,pdfPageSwitch:true,pdfNativePinch:true,pdfTwoAxisPan:true,pdfGestureAnchor:true,pdfNoToolbar:true,imageNativePinch:true,imageNoToolbar:true,pdfZoom:true,pdfPositionRestore:true,pdfContinuousScroll:true,pdfFitWidth:true,pdfResizeAnchor:true,pdfWhiteSurface:true,privatePDFChecked:Boolean(process.env.SPARKCLAW_PREVIEW_TEST_PDF),navigationBlocked:true};console.log(JSON.stringify(result));window.destroy();app.exit(0);
+  const result={isolation,formats:['text','spreadsheet','markdown','pdf','image'],sheetCopy:copy,sheetSwitch:true,editingBlocked:true,pdfPixels:canvas.width*canvas.height,pdfRangeRead:true,pdfPageSwitch:true,pdfNativePinch:true,pdfTwoAxisPan:true,pdfGestureAnchor:true,smoothIn,smoothOut,pdfNoBlankFrames:true,percentageAutoHide:true,percentageFocusHold:true,percentageManualInput:true,percentagePresets:true,noHorizontalScrollbar:true,pdfNoToolbar:true,imageNativePinch:true,imageNoToolbar:true,pdfZoom:true,pdfPositionRestore:true,pdfContinuousScroll:true,pdfFitWidth:true,pdfResizeAnchor:true,pdfWhiteSurface:true,privatePDFChecked:Boolean(process.env.SPARKCLAW_PREVIEW_TEST_PDF),navigationBlocked:true};console.log(JSON.stringify(result));window.destroy();app.exit(0);
  }catch(error){console.error(error.stack);window?.destroy();app.exit(1);}
 });

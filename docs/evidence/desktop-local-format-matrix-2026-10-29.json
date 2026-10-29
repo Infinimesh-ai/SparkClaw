@@ -1001,7 +1001,7 @@
   "known_limits": [
     "Missing-font inventory is observable for declared OOXML families, not complete for binary DOC/PPT.",
     "Tested DOC/DOCX Chinese glyph positions are correct, but logical extraction groups font runs in a different order.",
-    "Encrypted legacy binary DOC/PPT were not separately authored; protected OOXML and PDF are genuine fixtures.",
+    "Encrypted legacy binary DOC/PPT verification was expressly exempted by the user on 2026-10-29; no pass is claimed. Protected OOXML and PDF are genuine verified fixtures.",
     "Static preview does not promise Office pagination, editing, recalculation, animations, macros, embedded objects, or password entry.",
     "BMP and invalid UTF-8 can show decoder-level errors; rejection is qualified without a claim of fully localized messages."
   ],
@@ -1012,5 +1012,145 @@
     "native-delivery.log": "b0ff82641cb93f997080f8e774a9b7efc07ed50646b773b47e2d687e39419e9d",
     "converted-baseline/format-contact-sheet.png": "0e09103b64c47464ef622b1c9ecba1e78d99f643047352714e5cfa1d97e8c1c5",
     "native-delivery-screenshots/missing-font-notice.png": "826425928595f306007ed1f0afe16f0d30331567d7571736bd72271abe7f8d90"
+  },
+  "coverage_mapping": {
+    "generated_original_files": 37,
+    "broker_original_files": [
+      "complex.doc",
+      "complex.docx",
+      "complex.ppt",
+      "complex.pptx",
+      "corrupt.doc",
+      "corrupt.docx",
+      "corrupt.ppt",
+      "corrupt.pptx",
+      "embedded.docx",
+      "embedded.pptx",
+      "encrypted.docx",
+      "encrypted.pptx",
+      "invalid-utf8.csv",
+      "invalid.csv",
+      "missing-font.docx",
+      "valid.csv",
+      "wrong-signature.doc",
+      "wrong-signature.ppt"
+    ],
+    "native_direct_original_files": [
+      "active.svg",
+      "animated.gif",
+      "binary.txt",
+      "boundary.txt",
+      "corrupt.pdf",
+      "corrupt.png",
+      "encrypted.pdf",
+      "external.svg",
+      "invalid-utf8.txt",
+      "oversized.png",
+      "safe.svg",
+      "unsafe.md",
+      "unsupported.bmp",
+      "utf8.txt",
+      "valid.gif",
+      "valid.jpg",
+      "valid.pdf",
+      "valid.png",
+      "valid.webp"
+    ],
+    "additional_generated_input": "complex.xlsx",
+    "native_conversion_outputs": [
+      "complex.doc.pdf",
+      "complex.docx.pdf",
+      "complex.ppt.pdf",
+      "complex.pptx.pdf",
+      "missing-font.docx.pdf"
+    ],
+    "counts": {
+      "broker": {
+        "original_files": 18,
+        "generated_xlsx": 1,
+        "total": 19
+      },
+      "native": {
+        "direct_original_files": 19,
+        "office_conversion_outputs": 5,
+        "generated_xlsx": 1,
+        "total": 25
+      },
+      "unique_source_documents": 38,
+      "stage_executions": 44
+    },
+    "notes": [
+      "37 is the fixture generator file count, not an assertion or test-case count.",
+      "The five accepted Office originals are checked by the broker and then again as derived PDF in the native viewer.",
+      "The generated XLSX is checked at both stages; its hash is in the broker matrix.",
+      "The standalone default native regression additionally authors a genuine R2-encrypted PDF; it is not one of the 37 generator files."
+    ]
+  },
+  "acceptance_scope_update": {
+    "date": "2026-10-29",
+    "exempted_by": "explicit user instruction",
+    "item": "Encrypted legacy binary DOC/PPT cross-format samples",
+    "user_instruction": "这两个无需验证",
+    "release_blocker": false,
+    "note": "This user exemption removes the verification requirement; it is not evidence that encrypted legacy inputs passed."
+  },
+  "prior_legacy_authoring_probe": {
+    "qualification_obtained": false,
+    "python_uno_available": false,
+    "libreoffice_version": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+    "attempts": [
+      {
+        "method": "CLI filter Password option",
+        "extension": "doc",
+        "exit_code": 0,
+        "macro_marker": null,
+        "verification": {
+          "exists": true,
+          "bytes": 24064,
+          "sha256": "e8b6d91ab9eb8f46b5db98f2c4fa38d6f511860e5835bfcfe37796acc63522f8",
+          "oleSignature": true,
+          "qualified": false,
+          "parser": "Doc97File",
+          "encrypted": false
+        }
+      },
+      {
+        "method": "Basic UNO storeAsURL Password property",
+        "extension": "doc",
+        "exit_code": 0,
+        "macro_marker": null,
+        "verification": {
+          "exists": false,
+          "qualified": false
+        }
+      },
+      {
+        "method": "CLI filter Password option",
+        "extension": "ppt",
+        "exit_code": 0,
+        "macro_marker": null,
+        "verification": {
+          "exists": true,
+          "bytes": 517120,
+          "sha256": "058a9c2d358416f28d546759828657e7828e26077abe567cc3a2740f9afbd254",
+          "oleSignature": true,
+          "qualified": false,
+          "parser": "Ppt97File",
+          "encrypted": false
+        }
+      },
+      {
+        "method": "Basic UNO storeAsURL Password property",
+        "extension": "ppt",
+        "exit_code": 0,
+        "macro_marker": null,
+        "verification": {
+          "exists": false,
+          "qualified": false
+        }
+      }
+    ],
+    "raw_receipt_sha256": "393f418a699942e437b5acf5eca36fb89f2e8eac2cb17f41e9f611bd13cba871",
+    "interpretation": "CLI Password filter options produced unencrypted OLE; Basic invocation produced no initial execution marker. The observations do not prove that every LibreOffice/UNO build lacks encryption export."
   }
 }

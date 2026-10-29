@@ -23,14 +23,18 @@ This is a finite, reproducible release matrix for the read-only local viewer. It
 
 The [2026-10-29 machine-readable receipt](evidence/desktop-local-format-matrix-2026-10-29.json) records 19 broker cases and 25 native viewer cases on Mac. Five converted Office documents, totaling 11 pages, also pass independent PDF page geometry, expected text, coordinate-ordered Chinese glyph and nonblank raster checks. Visual review of the PDFium contact sheet confirms the expected tables, images, mixed orientation and slide layouts; the native viewer checks each document's canvas and the dismissible font notice. This is not a pixel comparison against Microsoft Office. Every broker source hash is unchanged. These are source/isolated-run results; package and installed-profile results are recorded by the separate release acceptance.
 
+The generator creates 37 original files. The broker covers 18 of those files plus one generated XLSX (19 cases); the native viewer covers the other 19 original files, five PDFs derived from the accepted Office originals, and the same XLSX (25 cases). Together these are 38 distinct source documents and 44 stage executions. The receipt maps every filename to its stage. The existing native regression also authors a separate encrypted R2 PDF, outside the 37-file generator count.
+
 ## Fidelity and support limits
 
 - Static previews do not edit or recalculate documents and do not execute macros, animations or embedded objects. Password-protected files must be unlocked in another application and saved as separate unencrypted copies.
-- Encrypted legacy binary DOC/PPT were not separately authored in this matrix; protected OOXML and PDF use genuine encrypted samples. The matrix is a selected set of reproducible cases, not every format/condition combination.
+- The user explicitly exempted encrypted legacy binary DOC/PPT verification on 2026-10-29. This is outside the required release scope and is not a release blocker; it is not recorded as a pass. Protected OOXML and PDF use genuine encrypted samples. The matrix is a selected set of reproducible cases, not every format/condition combination.
 - The engine reports declared missing font families for OOXML. Its legacy binary DOC/PPT result does not provide a complete missing-font inventory; an empty warning list is not proof of exact font matching. No font is fetched remotely.
 - Source fonts and the installed system font set can change pagination or appearance. The missing-font notice is shown only for a document with engine feedback, can be dismissed, and leaves the reader layout and controls intact.
 - In the tested DOC/DOCX export, Chinese glyphs are spatially correct while the PDF logical extraction order can group separate font runs differently. Copy/extraction order is therefore not guaranteed to reproduce the original sentence. The matrix records this discrepancy rather than treating visual success as exact semantic extraction.
 - Some unsupported images/text currently show decoder-level errors. This qualifies visible bounded rejection, not a claim that every error message is localized or that those formats are supported.
+
+Before that exemption, the available authoring build (LibreOfficeDev 26.8.0.0.alpha0, revision `2c87e51eeaa2b413ff4ae097b2705eea1995d8e5`) was probed with disposable profiles. CLI `Password` filter options produced genuine but unencrypted DOC/PPT according to independent `msoffcrypto` inspection. The Basic UNO `storeAsURL` probe returned without its initial execution marker or an output file, and Python UNO bindings were absent. These observations qualify this environment's attempted authoring paths only; they do not establish a general LibreOffice encryption limitation. Further probing stopped when the user waived the requirement.
 
 ## Reproduce
 

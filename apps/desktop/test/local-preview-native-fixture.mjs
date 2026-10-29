@@ -19,7 +19,7 @@ addEventListener('message',event=>{if(event.origin!=='sparkclaw-preview://viewer
 app.whenReady().then(async()=>{
  app.dock?.hide();let window;
  try{
-  const target=session.defaultSession;target.protocol.handle('sparkclaw-app',()=>new Response(host,{headers:{'content-type':'text/html'}}));target.protocol.handle('sparkclaw-preview',createLocalPreviewProtocolHandler(path.join(root,'apps/webchat/dist-preview')));
+  const target=session.defaultSession;target.protocol.handle('sparkclaw-app',()=>new Response(host,{headers:{'content-type':'text/html'}}));target.protocol.handle('sparkclaw-preview',createLocalPreviewProtocolHandler(process.env.SPARKCLAW_PREVIEW_TEST_ASSETS || path.join(root,'apps/webchat/dist-preview')));
   target.webRequest.onBeforeRequest((details,callback)=>callback({cancel:!previewRequestAllowed(details)}));
   target.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
   window=new BrowserWindow({show:false,width:1000,height:800,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});guardLocalPreviewNavigation(window.webContents);window.webContents.setWindowOpenHandler(()=>({action:'deny'}));

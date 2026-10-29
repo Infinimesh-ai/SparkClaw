@@ -112,6 +112,10 @@
         "NSMicrophoneUsageDescription": "SparkX uses the microphone only when you start voice input."
       },
       "files": [
+        "src/**/*",
+        "bin/**/*",
+        "!bin/iscp-workbench*",
+        "package.json",
         "!node_modules/@deepseek-ai/libreoffice-kit-wasm/**/*"
       ]
     },

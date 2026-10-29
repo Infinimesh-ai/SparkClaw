@@ -24,6 +24,8 @@ test("afterPack audits a synthetic ASAR/resources tree without compiling any Mac
   await fs.mkdir(path.join(source, "src", "main"), { recursive: true });
   await fs.mkdir(path.join(resources, "webchat", "assets"), { recursive: true });
   await fs.mkdir(path.join(resources, "local-preview", "assets"), { recursive: true });
+  await fs.mkdir(path.join(resources, "local-preview", "wasm"), { recursive: true });
+  await fs.writeFile(path.join(resources, "local-preview", "wasm", "LICENSE_QCMS"), "synthetic upstream notice");
   await fs.writeFile(path.join(resources, "local-preview", "index.html"), "<!doctype html>");
   await fs.writeFile(path.join(resources, "local-preview", "assets", "pdf.worker.mjs"), "// synthetic bundled PDF worker");
   await fs.writeFile(path.join(source, "package.json"), "{}");
@@ -62,6 +64,9 @@ test("Mac packaging entry points exist and Linux refuses to invoke any Mac build
   assert.equal(pkg.scripts["dist:mac-x64"], "node scripts/package-macos.mjs --arch x64");
   assert.equal(pkg.build.afterPack, "./scripts/audit-package.mjs");
   assert.equal(pkg.build.mac.hardenedRuntime, true);
+  assert.deepEqual(pkg.build.mac.files.filter(value => !value.includes("libreoffice-kit-wasm")), pkg.build.files, "platform files must retain the public-source allowlist");
+  assert.ok(pkg.build.mac.files.includes("!node_modules/@deepseek-ai/libreoffice-kit-wasm/**/*"));
+  assert.ok(!pkg.build.files.some(value => value.includes("libreoffice-kit-wasm")), "Linux requires its bundled WASM engine");
   if (process.platform === "linux") {
     const result = spawnSync(process.execPath, [new URL("../scripts/package-macos.mjs", import.meta.url).pathname, "--arch", "arm64"], { encoding: "utf8" });
     assert.notEqual(result.status, 0);

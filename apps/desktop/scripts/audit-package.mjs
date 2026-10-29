@@ -75,7 +75,7 @@ export default async function auditPackage(context) {
   }
   const previewEntries = await walk(path.join(resources, "local-preview"));
   if (!previewEntries.includes("index.html") || !previewEntries.some(entry => entry.includes("pdf.worker") && entry.endsWith(".mjs")) ||
-      previewEntries.some(entry => !/\.(?:html|js|mjs|css|wasm|bcmap|pfb|ttf|otf|txt|json)$/iu.test(entry))) {
+      previewEntries.some(entry => !/\.(?:html|js|mjs|css|wasm|bcmap|pfb|ttf|otf|txt|json)$/iu.test(entry) && !/^(?:cmaps|standard_fonts|wasm)\/LICENSE(?:_[A-Z0-9_]+)?$/u.test(entry))) {
     throw new Error("Installation package requires the offline local preview assets");
   }
   await fs.writeFile(path.join(resources, "client-package-audit.json"), JSON.stringify({

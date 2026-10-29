@@ -359,7 +359,9 @@ async function start() {
 
   const shieldView = createShieldView(workbenchSession);
   await shieldView.webContents.loadURL(shieldDocument());
-  const presentation = new BrowserPresentation({ window, shieldView, explicitSelection: true });
+  // The task-only qualification window has no workbench tab selector. Actual
+  // workbench windows still require an explicit selection to reveal a page.
+  const presentation = new BrowserPresentation({ window, shieldView, explicitSelection: !qualification || workbenchQualification });
   const runtimeGeneration = crypto.randomBytes(16).toString("hex");
   registry = new PageRegistry({
     runtimeGeneration,

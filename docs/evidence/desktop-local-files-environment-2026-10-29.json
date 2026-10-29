@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "source_revision": "5c9369493c1ac9635d20c0d2dee59274b50d6fad",
+  "base_revision": "ac30a23a",
+  "qualification": "source modules, real Darwin filesystem and sandboxed subprocesses; owned synthetic fixtures",
+  "changes": [
+    "A trusted guardian holds an owner-specific liveness pipe, independent deadline and process group; its dedicated IPC reports worker exit before killing all group descendants.",
+    "Darwin removable-volume authority includes the accessed volume UUID instead of only a reusable device slot. Unverifiable volume identity fails closed without probing remote filesystems.",
+    "Listing startup reports storage_limit before SQLite allocation on a full filesystem and closes a database if initialization fails.",
+    "Filtered pagination test advances bounded cursors instead of assuming filesystem directory order."
+  ],
+  "commands": [
+    "PATH=<Node26>/bin:$PATH npm run test:desktop",
+    "PATH=<Node26>/bin:$PATH node --test apps/desktop/test/local-preview-sandbox.test.mjs apps/desktop/test/local-preview-broker.test.mjs",
+    "PATH=<Node26>/bin:$PATH node --test apps/desktop/test/local-files-service.test.mjs",
+    "PATH=<Node26>/bin:$PATH node apps/desktop/test/run-local-files-environment.mjs"
+  ],
+  "validation": {
+    "baseline_related_tests": 33,
+    "desktop_tests": 583,
+    "desktop_failures": 0,
+    "final_broker_and_sandbox_tests": 17,
+    "file_service_tests": 19,
+    "owner_exit_ms": {
+      "crash": 21,
+      "blocked": 1630,
+      "completed": 1
+    },
+    "environment": {
+      "platform": "darwin",
+      "node": "v26.2.0",
+      "passed": true,
+      "cases": [
+        {
+          "name": "POSIX permission removal and restoration",
+          "status": "passed",
+          "boundary": "real_os",
+          "old_version_invalid_after_permission_restore": true,
+          "source_bytes_preserved": true,
+          "duration_ms": 100
+        },
+        {
+          "name": "Changed symlink, link cycle and associated-image containment",
+          "status": "passed",
+          "boundary": "real_os",
+          "explicit_link_following": true,
+          "old_target_rejected": true,
+          "outside_image_not_read": true,
+          "duration_ms": 100
+        },
+        {
+          "name": "Legacy iCloud placeholder gate without hydration",
+          "status": "passed",
+          "boundary": "real_os",
+          "mechanism": "real .icloud path; synthetic metadata file",
+          "file_provider_dataless": "not_exercised",
+          "hydration_attempted": false,
+          "duration_ms": 19
+        },
+        {
+          "name": "Large directory bounded pagination and revisiting",
+          "status": "passed",
+          "boundary": "real_os",
+          "input_entries": 33024,
+          "indexed_entries": 25344,
+          "stop_reason": "storage_limit",
+          "calls": 199,
+          "sqlite_bytes": 16728064,
+          "peak_rss_bytes": 135299072,
+          "rss_growth_bytes": 58900480,
+          "bounded_refs": 1024,
+          "duration_ms": 18864
+        },
+        {
+          "name": "Rapid read cancellation, watcher release and bounded references",
+          "status": "passed",
+          "boundary": "real_os",
+          "cycles": 60,
+          "requested_reads": 960,
+          "cancelled_or_bounded": 960,
+          "outstanding_reads": 0,
+          "watchers": 0,
+          "source_hash_preserved": true,
+          "ui_switching": "covered separately by native viewer qualification",
+          "duration_ms": 2879
+        },
+        {
+          "name": "SIGKILL restart cleanup of owned reading indexes and preview cache",
+          "status": "passed",
+          "boundary": "real_os",
+          "owned_abandoned_index_removed": true,
+          "owned_abandoned_cache_removed": true,
+          "live_owner_preserved": true,
+          "unowned_directory_preserved": true,
+          "source_preserved": true,
+          "duration_ms": 581
+        },
+        {
+          "name": "Actual mounted-volume replacement and low-space admission",
+          "status": "passed",
+          "boundary": "real_os",
+          "media": "two owned HFS+ disk images; actual kernel mounts",
+          "physical_hotplug": "not_exercised",
+          "old_reference_rejected_after_detach_and_replacement": true,
+          "free_bytes_before_fill": 32727040,
+          "default_512MiB_reserve_blocks_before_snapshot": true,
+          "real_ENOSPC": true,
+          "listing_recovered_after_space_released": true,
+          "filler_bytes": 32702464,
+          "duration_ms": 8820
+        }
+      ],
+      "remaining_environment_conditions": [
+        "A real File Provider-owned UF_DATALESS object and its provider hydration lifecycle were not created by this isolated runner.",
+        "Disk-image detach/replacement exercises real mount identity; physical cable/device failure is a separate hardware condition."
+      ],
+      "original_user_files_accessed": false,
+      "original_user_permissions_modified": false,
+      "host_disk_filled": false
+    }
+  },
+  "red_tests_preserved": [
+    {
+      "failure": "SIGKILL owner leaves worker and sleeping descendant alive for more than 2000ms",
+      "fixed": true
+    },
+    {
+      "failure": "Worker exits while owner is stopped, then owner dies; a descendant survives the first guardian implementation",
+      "fixed": true
+    },
+    {
+      "failure": "Different HFS+ volume at the same path/device slot admits an old reference",
+      "fixed": true
+    },
+    {
+      "failure": "Real ENOSPC during initial directory-cache creation reported unavailable instead of storage_limit",
+      "fixed": true
+    }
+  ],
+  "read_only_existing_placeholder_inventory": {
+    "provider_roots_present": {
+      "CloudStorage": false,
+      "MobileDocuments": false
+    },
+    "scanned_entries": 12081,
+    "roots": [
+      {
+        "alias": "CloudStorage",
+        "exists": false,
+        "scanned": 0,
+        "bounded_stop": false
+      },
+      {
+        "alias": "MobileDocuments",
+        "exists": false,
+        "scanned": 0,
+        "bounded_stop": false
+      },
+      {
+        "alias": "Downloads",
+        "exists": true,
+        "scanned": 81,
+        "bounded_stop": false
+      },
+      {
+        "alias": "Documents",
+        "exists": true,
+        "scanned": 6000,
+        "bounded_stop": true
+      },
+      {
+        "alias": "Desktop",
+        "exists": true,
+        "scanned": 6000,
+        "bounded_stop": true
+      }
+    ],
+    "dataless_found": 0,
+    "legacy_placeholders_found": 0,
+    "metadata_errors": 0,
+    "content_opened": false,
+    "download_or_eviction_requested": false,
+    "qualification": "No actual provider-backed dataless specimen available in the observed environment; bounded Desktop/Documents scans are not exhaustive."
+  },
+  "limits": [
+    "The measured RSS and timings are observations, not universal hard-cap guarantees.",
+    "Legacy .icloud path rejection is covered; no actual File Provider hydration or provider-owned UF_DATALESS lifecycle is claimed.",
+    "Two owned HFS+ images exercise real kernel detach/remount and ENOSPC; physical device/cable failure is not simulated as hardware evidence.",
+    "The native UI, actual installed owner logout/TCC and Linux package/UI are qualified by the parent task separately."
+  ],
+  "pushed": false,
+  "installed_app_modified": false,
+  "remote_service_modified": false,
+  "source_sha256": {
+    "apps/desktop/src/main/local-preview-guardian.mjs": "0372f5c082e65a431bd6d25a1b363f15d4883b055a15c52790155ea187fbb09f",
+    "apps/desktop/src/main/local-preview-process.mjs": "592420c02fa32867e451f23aea48101cee55bb10f999010b4878e06359f576ac",
+    "apps/desktop/src/main/local-files-policy.mjs": "78da49c3a0e97807ffdf3be4f7717a3fa62f839d2eea1a089e06da57f0e1ac5a",
+    "apps/desktop/src/main/local-files-pages.mjs": "78e5b43412fed0f0fb51032a059971e2b4522780f89fe639daff2ed918867f85",
+    "apps/desktop/test/local-preview-sandbox.test.mjs": "527ca8fe1f73f6c008bf685d3a16608f0886f4583f901031d6d589995d1ad05c",
+    "apps/desktop/test/local-files-service.test.mjs": "01bc32f00ad5db93f6d57c4eb979b2f79a255ce6feda91c7bfb156c4003b3fe3",
+    "apps/desktop/test/run-local-files-environment.mjs": "42aae73cd08f6a5028e15a15479c8a376167983430625bcbfa0ccdb7a94be6b7"
+  }
+}

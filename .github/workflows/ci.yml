@@ -132,6 +132,10 @@ jobs:
         run: npm run test:desktop
       - name: Verify generated managed-script preload
         run: npm run check:desktop-managed-scripts
+      - name: Qualify isolated local viewers and PDF range reads
+        run: |
+          npm run build:local-preview
+          xvfb-run -a node apps/desktop/test/run-local-preview-native.mjs
       - name: Qualify workbench outbound host on actual embedded pages
         run: npm run qualify:desktop-host
       - name: Install and qualify the paired application release

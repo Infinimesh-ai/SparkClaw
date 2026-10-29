@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "source_revision": "db1ed7b9beb5ccd8536d6d73c024209b9c778f2c",
+  "installed": true,
+  "pushed": false,
+  "remote_service_changed": false,
+  "problem": "PDFDataRangeTransport requires one complete requested interval; per-chunk callbacks lost the reader and error cleanup masked the cause with getPage",
+  "synthetic_old_version_failure": "no PDFDataTransportStreamRangeReader instance found",
+  "frontend_tests_passed": 552,
+  "production_build": "passed",
+  "native_checks": {
+    "isolation": {
+      "bridge": "undefined",
+      "file": true,
+      "network": true,
+      "parentStorage": true
+    },
+    "formats": [
+      "text",
+      "spreadsheet",
+      "markdown",
+      "pdf",
+      "image"
+    ],
+    "sheetCopy": {
+      "html": "<table><tr><td style=\"mso-number-format:'\\@'\">00123</td></tr></table>",
+      "prevented": true,
+      "value": "00123"
+    },
+    "sheetSwitch": true,
+    "editingBlocked": true,
+    "pdfPixels": 937024,
+    "pdfRangeRead": true,
+    "pdfPageSwitch": true,
+    "pdfZoom": true,
+    "pdfPositionRestore": true,
+    "privatePDFChecked": true,
+    "navigationBlocked": true
+  },
+  "source_match": {
+    "sourceFiles": 78,
+    "uiFiles": 24,
+    "viewerFiles": 223,
+    "mismatches": [],
+    "asarSHA256": "7a5ffebe3abcde30e74360e90e52a21aef4de1d60070b75ed962c67716a124c9",
+    "helperSHA256": "9a4da3b7694f7381c5d2e4632e278af8ed1410ad25ae95d84cd150eb19ba98c3"
+  },
+  "installed_entries_matched": 6946,
+  "cold_backup_databases": 76,
+  "cold_backup_tables": 343,
+  "profile_bytes_modes_unchanged_before_launch": true,
+  "original_file_unchanged": true,
+  "installed_original_docx_page_count": 41,
+  "installed_original_docx_pages_visibly_checked": [
+    1,
+    2
+  ],
+  "previous_app": "/Applications/.SparkX-pdf-range-db1ed7b9-previous.app",
+  "open_gates": [
+    "broader format/font fidelity",
+    "Linux isolation/package/UI acceptance"
+  ]
+}

@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "source": "29623d864899de27624449873591c8e609d267ab",
+  "previous_qualified_source": "00a0ebc3b0b7eb4af52da055f139ed47f7537451",
+  "reason": "Include credential provider shutdown repair found by hosted CI; no UI or shared protocol changes.",
+  "package": {
+    "source_revision": "29623d864899de27624449873591c8e609d267ab",
+    "helper_sha256": "51e820983b9b5dad2f1297f462f69a47c60a46d595f37e8bd3d6e082e6557752",
+    "desktop_source_files": 79,
+    "workbench": 24,
+    "viewer": 224,
+    "application_entries": 7227,
+    "artifacts": [
+      {
+        "name": "SparkX-0.1.0-mac-arm64.dmg",
+        "bytes": 219377494,
+        "sha256": "8becae4aff5cd201d50028c6983ef3a5ec712382a2dbc7363f7acb7203cc7008"
+      },
+      {
+        "name": "SparkX-0.1.0-mac-arm64.zip",
+        "bytes": 222684398,
+        "sha256": "53a1ad91a7220df12508eec6a7e7379d2f85bc618732dc87091441cbd4fcd4ac"
+      }
+    ],
+    "package_audit": {
+      "schema_version": 1,
+      "platform": "darwin",
+      "client_scope": "public_client_source_and_ui",
+      "application_entries": 7227,
+      "ui_files": 24,
+      "preview_files": 224,
+      "iscp_helper_sha256": "51e820983b9b5dad2f1297f462f69a47c60a46d595f37e8bd3d6e082e6557752"
+    }
+  },
+  "installed": {
+    "source": "29623d864899de27624449873591c8e609d267ab",
+    "entries": 6948,
+    "bytes_modes_match_zip": true,
+    "profiles_unchanged_during_install": true
+  },
+  "payload_delta": {
+    "previous_source": "00a0ebc3",
+    "source": "29623d864899de27624449873591c8e609d267ab",
+    "total_entries": 6948,
+    "unchanged_entries": 6946,
+    "changed_entries": [
+      "Contents/Resources/client-package-audit.json",
+      "Contents/Resources/iscp-workbench"
+    ],
+    "desktop_js_and_workbench_and_viewer_source_unchanged": true
+  },
+  "ordinary_ui": {
+    "source": "29623d864899de27624449873591c8e609d267ab",
+    "ordinary_installed_app": true,
+    "original_login_visible": true,
+    "original_conversations_visible": 3,
+    "original_document_reopened": true,
+    "original_zoom_percent": 132,
+    "menu_presets": [
+      50,
+      75,
+      100,
+      125,
+      150,
+      200
+    ],
+    "first_escape_closes_open_menu_and_restores_focus": true,
+    "first_escape_keeps_file_panel": true,
+    "second_escape_collapses_file_panel": true,
+    "idle_probe_note": "Initial attempts reached an idle/closed menu; counted only the run that positively observed the six presets before Escape.",
+    "normal_quit_relaunch_passed": true,
+    "final_original_document_rendered": true
+  },
+  "retention_after_normal_quit": {
+    "original_persistent_databases_retained": 75,
+    "retired_directory_cache_databases": 1,
+    "business_rows_removed": 0,
+    "schema_changes": 0,
+    "expected_runtime_updates": [
+      {
+        "profile": "main",
+        "table": "event_projection",
+        "updated": 1,
+        "count_before": 1,
+        "count_after": 1
+      }
+    ],
+    "auth_launch_entries_unchanged": 17,
+    "installed_processes_remaining_after_quit": 0,
+    "reading_state_checks": [
+      {
+        "same_saved_state": true
+      }
+    ],
+    "original_document_bytes_size_mode_unchanged": true
+  },
+  "previous_preview_evidence": "desktop-local-preview-release-mac-2026-10-29.json",
+  "lifecycle_regression_evidence": "ci-credential-lifecycle-2026-10-29.json",
+  "scope": "Local application installation only; production services unchanged; original application and cold profile backup retained.",
+  "diagnostics_retained": [
+    "The idle zoom overlay must be positively opened before measuring Escape; no closed-menu probe is counted as a menu test."
+  ],
+  "logs": [
+    {
+      "file": "package-mac-helper-close.log",
+      "sha256": "ec18636565a9358c224c43799e12a19481547da0506d00387b217fef7ec00d0f"
+    },
+    {
+      "file": "dmg-29623d86.log",
+      "sha256": "b66b33f983b68c656d20baceff175a94d11b8d21aa78211eb0ee972b771cc6ee"
+    }
+  ]
+}

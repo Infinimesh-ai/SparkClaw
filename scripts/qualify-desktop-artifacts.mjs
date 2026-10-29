@@ -49,6 +49,10 @@ try {
       assert.equal(field.stdout.trim(), "arm64");
       const packageName = await run("dpkg-deb", ["--field", filename, "Package"]);
       assert.equal(packageName.stdout.trim(), "sparkclaw");
+      const dependencies = (await run("dpkg-deb", ["--field", filename, "Depends"])).stdout;
+      for (const name of ['bubblewrap', 'procps', 'libgbm1', 'libasound2']) {
+        assert.ok(dependencies.includes(name), `Debian package omits required runtime ${name}`);
+      }
       const extracted = path.join(temporary, "deb-root");
       await fs.mkdir(extracted);
       await run("dpkg-deb", ["--extract", filename, extracted]);

@@ -1,0 +1,16 @@
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const webchat = path.join(root, 'apps/webchat');
+const require = createRequire(path.join(webchat, 'package.json'));
+const vite = path.join(path.dirname(require.resolve('vite/package.json')), 'bin/vite.js');
+const result = spawnSync(process.execPath, [vite, 'build', '--config', 'vite.preview.config.ts'], { cwd: webchat, stdio: 'inherit', timeout: 180_000, env: { ...process.env, VITE_SPARKCLAW_API_TOKEN: '', VITE_SPARKCLAW_API_BASE: '' } });
+if (result.error) throw result.error;
+if (result.status !== 0) process.exit(result.status ?? 1);
+const output = path.join(webchat, 'dist-preview');
+await fs.rename(path.join(output, 'local-preview.html'), path.join(output, 'index.html'));
+const pdf = path.dirname(require.resolve('pdfjs-dist/package.json'));
+for (const dir of ['cmaps', 'standard_fonts', 'wasm']) await fs.cp(path.join(pdf, dir), path.join(output, dir), { recursive: true });

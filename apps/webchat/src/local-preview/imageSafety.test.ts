@@ -1,0 +1,7 @@
+// @vitest-environment jsdom
+import { it,expect } from 'vitest';
+import { imageType } from './imageSafety';
+import { relativeImagePath } from './MarkdownPreview';
+it('rejects SVG external links, active markup and pixel bombs before creating image URLs',()=>{const bytes=(s:string)=>new TextEncoder().encode(s);expect(imageType(bytes('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="30"><rect width="20" height="30"/></svg>'))).toEqual({mime:'image/svg+xml',width:20,height:30});for(const source of ['<svg width="1" height="1"><script>alert(1)</script></svg>','<svg width="1" height="1"><image href="file:///etc/passwd"/></svg>','<svg width="1" height="1"><rect style="fill:url(https://example.com/a)"/></svg>','<svg width="999999" height="999999"/>'])expect(()=>imageType(bytes(source))).toThrow();});
+it('admits only relative image locators with no parent-directory escape',()=>{expect(relativeImagePath('images/photo.png')).toBe('images/photo.png');for(const value of ['https://example.com/a','file:///etc/passwd','//example.com/a','../a','%2e%2e/a','/absolute','image.png?url=x','data:image/png;base64,x'])expect(relativeImagePath(value)).toBeNull();});
+it('checks raster dimensions before decoding',()=>{const png=new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,20,0,0,0,30]);expect(imageType(png)).toEqual({mime:'image/png',width:20,height:30});png.set([127,255,255,255],16);expect(()=>imageType(png)).toThrow('pixel');});

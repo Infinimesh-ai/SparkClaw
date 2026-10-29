@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { pdfRangeFixture } from './pdf-range-fixture.mjs';
 import { createLocalPreviewProtocolHandler, previewRequestAllowed, guardLocalPreviewNavigation } from '../src/main/local-preview-protocol.mjs';
 const temporary=process.env.SPARKCLAW_PREVIEW_TEST_ROOT;
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../..');
@@ -26,7 +27,7 @@ app.whenReady().then(async()=>{
   const errors=[];window.webContents.on('console-message',details=>{if(details.level==='error')errors.push(details.message);});
   await window.loadURL('sparkclaw-app://workbench/index.html');const run=expression=>Promise.race([window.webContents.executeJavaScript(expression),pause(5000).then(()=>{throw new Error('host execution timeout');})]);let frame;
   const until=async(fn,label)=>{const deadline=Date.now()+12000;while(Date.now()<deadline){if(await fn())return;await pause(20);}throw new Error(label+' '+JSON.stringify(errors));};
-  const load=async(format,name,bytes,model)=>{const previousFrame=frame;await run(`openFixture(${JSON.stringify({format,name,size:bytes.length})},${JSON.stringify([...bytes])},${JSON.stringify(model||null)})`);await until(()=>{frame=window.webContents.mainFrame.frames.find(f=>f!==previousFrame&&f.url.startsWith('sparkclaw-preview://viewer/'));return Boolean(frame);},'frame did not load');};
+  const load=async(format,name,bytes,model,position)=>{const previousFrame=frame;await run(`openFixture(${JSON.stringify({format,name,size:bytes.length,position})},${JSON.stringify([...bytes])},${JSON.stringify(model||null)})`);await until(()=>{frame=window.webContents.mainFrame.frames.find(f=>f!==previousFrame&&f.url.startsWith('sparkclaw-preview://viewer/'));return Boolean(frame);},'frame did not load');};
   const screenshot=async name=>{if(process.env.SPARKCLAW_PREVIEW_SCREENSHOTS){await fs.mkdir(process.env.SPARKCLAW_PREVIEW_SCREENSHOTS,{recursive:true});await fs.writeFile(path.join(process.env.SPARKCLAW_PREVIEW_SCREENSHOTS,name+'.png'),(await window.capturePage()).toPNG());}};
   const evaluate=expression=>Promise.race([frame.executeJavaScript(expression),pause(5000).then(()=>{throw new Error('frame execution timeout '+expression);})]);
   await load('text','hello.txt',Buffer.from('Hello local preview\n你好世界'));
@@ -49,8 +50,30 @@ app.whenReady().then(async()=>{
   await load('pdf','fixture.pdf',Buffer.from(pdf));await until(()=>evaluate("Boolean(document.querySelector('.react-pdf__Page canvas'))"),'PDF canvas missing');
   await until(()=>evaluate("document.querySelector('.react-pdf__Page__textContent')?.textContent.includes('Local PDF')"),'PDF selectable text missing');await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");const canvas=await evaluate("(()=>{const c=document.querySelector('.react-pdf__Page canvas');return {width:c.width,height:c.height};})()");assert.ok(canvas.width*canvas.height<=8_000_000);
   await screenshot('pdf');const before=await evaluate('location.href');await evaluate("location.href='sparkclaw-app://workbench/index.html'");await pause(150);assert.equal(frame.url,before);
+  const ranged=pdfRangeFixture();
+  const expectPDFPage=async text=>until(async()=>{
+    const problem=await evaluate("document.querySelector('[role=alert]')?.textContent");if(problem)throw new Error('ranged PDF: '+problem);
+    return evaluate(`Boolean(document.querySelector('.react-pdf__Page canvas')) && document.querySelector('.react-pdf__Page__textContent')?.textContent.includes(${JSON.stringify(text)})`);
+  },'ranged PDF page missing');
+  await load('pdf','ranges.pdf',ranged);await expectPDFPage('Range page 1');
+  await evaluate("document.querySelector('[aria-label=\"Next page\"]').click()");await expectPDFPage('Range page 2');
+  await evaluate("document.querySelector('[aria-label=\"Zoom in\"]').click()");
+  await until(()=>evaluate("document.querySelector('.previewToolbar').textContent.includes('125%')"),'PDF zoom missing');await expectPDFPage('Range page 2');
+  await load('text','switch.txt',Buffer.from('Switch away while retaining PDF reading state'));
+  await until(()=>evaluate("Boolean(document.querySelector('pre'))"),'switch-away text missing');
+  await load('pdf','ranges.pdf',ranged,null,{page:3,zoom:1.25});await expectPDFPage('Range page 3');
+  assert.equal(await evaluate("document.querySelectorAll('.react-pdf__Page canvas').length"),1);
+  assert.ok(await evaluate("(()=>{const c=document.querySelector('.react-pdf__Page canvas');return c.width*c.height<=8000000})()"));
+  await screenshot('pdf-ranges');
+  if(process.env.SPARKCLAW_PREVIEW_TEST_PDF){
+    const bytes=await fs.readFile(process.env.SPARKCLAW_PREVIEW_TEST_PDF);assert.ok(bytes.length<=32*1024*1024);
+    await load('pdf','local-regression.pdf',bytes);
+    await until(async()=>{const problem=await evaluate("document.querySelector('[role=alert]')?.textContent");if(problem)throw new Error('regression PDF: '+problem);return evaluate("Boolean(document.querySelector('.react-pdf__Page canvas'))");},'regression PDF canvas missing');
+    await until(()=>evaluate("Boolean(document.querySelector('.react-pdf__Page__textContent')?.textContent.length)"),'regression PDF text missing');
+    await screenshot('pdf-regression');
+  }
   await load('image','pixel.png',Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jGv0AAAAASUVORK5CYII=','base64'));await until(()=>evaluate("document.querySelector('.imageViewport img')?.naturalWidth===1"),'image did not decode');
   await evaluate("dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");await until(()=>run("receipts.includes('escape')"),'Escape was not forwarded');
-  const result={isolation,formats:['text','spreadsheet','markdown','pdf','image'],sheetCopy:copy,sheetSwitch:true,editingBlocked:true,pdfPixels:canvas.width*canvas.height,navigationBlocked:true};console.log(JSON.stringify(result));window.destroy();app.exit(0);
+  const result={isolation,formats:['text','spreadsheet','markdown','pdf','image'],sheetCopy:copy,sheetSwitch:true,editingBlocked:true,pdfPixels:canvas.width*canvas.height,pdfRangeRead:true,pdfPageSwitch:true,pdfZoom:true,pdfPositionRestore:true,privatePDFChecked:Boolean(process.env.SPARKCLAW_PREVIEW_TEST_PDF),navigationBlocked:true};console.log(JSON.stringify(result));window.destroy();app.exit(0);
  }catch(error){console.error(error.stack);window?.destroy();app.exit(1);}
 });

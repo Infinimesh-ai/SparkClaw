@@ -27,14 +27,29 @@ export default function PdfPreview({ channel }: { channel: DocumentChannel }) {
       if (new TextDecoder().decode(initial.slice(0, 5)) !== '%PDF-') throw new Error(zh ? '文件不是有效的 PDF。' : 'File does not have a PDF signature.');
       class Range extends pdfjs.PDFDataRangeTransport {
         stopped = false;
+        queued = 0;
+        pending = Promise.resolve();
         requestDataRange(begin: number, end: number) {
-          void (async () => {
+          if (this.stopped) return;
+          if (!Number.isSafeInteger(begin) || !Number.isSafeInteger(end) || begin < 0 || end <= begin || end > channel.document.size || this.queued >= 64) {
+            this.fail(new Error(zh ? 'PDF 读取范围超出预览限制。' : 'PDF range exceeds the preview limits.'));
+            return;
+          }
+          this.queued++;
+          // PDF.js consumes one complete response for each requested range.
+          // Serialize ranges so only one bounded assembly buffer is retained and
+          // PDF reads cannot exhaust the channel's concurrent-request budget.
+          this.pending = this.pending.then(async () => {
+            if (this.stopped) return;
+            const range = new Uint8Array(end - begin);
             for (let offset = begin; offset < end && !this.stopped; offset += 65536) {
               const bytes = await channel.read(offset, Math.min(65536, end-offset));
-              if (!this.stopped) this.onDataRange(offset, bytes);
+              if (!this.stopped) range.set(bytes, offset-begin);
             }
-          })().catch((cause: Error) => { if (active) setError(cause.message); this.abort(); });
+            if (!this.stopped) this.onDataRange(begin, range);
+          }).catch((cause: Error) => this.fail(cause)).finally(() => { this.queued--; });
         }
+        fail(cause: Error) { this.abort(); if (active) setError(previous => previous || cause.message); }
         abort() { this.stopped = true; }
       }
       transport = new Range(channel.document.size, initial, true);
@@ -44,16 +59,17 @@ export default function PdfPreview({ channel }: { channel: DocumentChannel }) {
   }, [channel, zh]);
   useEffect(() => {
     let active = true; setPageWidth(undefined);
-    if (pdf) void pdf.getPage(page).then((item) => {
+    if (error) return;
+    if (pdf) void Promise.resolve().then(() => pdf.getPage(page)).then((item) => {
       const size = item.getViewport({ scale: 1 });
       // One page canvas, fixed DPR and bounded dimensions/pixels.
       const desired = width * zoom;
       const bounded = Math.min(desired, 4096, 4096 * size.width / size.height, Math.sqrt(8_000_000 * size.width / size.height));
       if (active) setPageWidth(Math.max(1, Math.floor(bounded)));
-    }).catch((cause: Error) => { if (active) setError(cause.message); });
+    }).catch((cause: Error) => { if (active) setError(previous => previous || cause.message); });
     channel.position({ page, zoom });
     return () => { active = false; };
-  }, [pdf, page, width, zoom, channel]);
+  }, [pdf, page, width, zoom, channel, error]);
   if (error) return <p className="previewMessage" role="alert">{error}</p>;
   return <div className="pdfPreview"><div className="previewToolbar">
     <button type="button" disabled={page <= 1} onClick={() => setPage(page-1)} aria-label={zh ? '上一页' : 'Previous page'}>‹</button>
@@ -63,6 +79,6 @@ export default function PdfPreview({ channel }: { channel: DocumentChannel }) {
     <button type="button" onClick={() => setZoom(Math.min(3, zoom+.25))} aria-label={zh ? '放大' : 'Zoom in'}>＋</button>
     <button type="button" onClick={() => setZoom(1)}>{zh ? '适合宽度' : 'Fit width'}</button>
   </div><div className="pdfPageViewport" ref={viewport}>{file && <Document file={file} options={options} onLoadSuccess={value => { setPDF(value); setPage(current => Math.min(current, value.numPages)); }} onLoadError={cause => setError(cause.message)} loading={<p className="previewMessage">{zh ? '正在读取 PDF…' : 'Reading PDF…'}</p>}>
-    {pageWidth && <Page key={page} pageNumber={page} width={pageWidth} devicePixelRatio={1} renderAnnotationLayer={false} renderTextLayer onRenderError={cause => setError(cause.message)} />}
+    {pageWidth && <Page key={page} pageNumber={page} width={pageWidth} devicePixelRatio={1} renderAnnotationLayer={false} renderTextLayer onLoadError={cause => setError(cause.message)} onRenderError={cause => setError(cause.message)} />}
   </Document>}</div></div>;
 }

@@ -482,24 +482,32 @@ async function waitForWorkbench() {
         throw new Error("Packaged workbench proxy qualification failed");
       }
       const desktopUI = await window.webContents.executeJavaScript(`(async()=>{
-        document.querySelector('.rightSidebarToggle')?.click();
-        await new Promise(resolve=>setTimeout(resolve,100));
-        const panel = Boolean(document.querySelector('.desktopBrowserPanel'));
-        document.querySelector('.desktopToolLauncher button:not(:disabled)')?.click();
-        await new Promise(resolve=>setTimeout(resolve,50));
+        for(let attempt=0;attempt<40;attempt++){
+          if(document.querySelector('.rightSidebarToggle:not(:disabled)'))break;
+          await new Promise(resolve=>setTimeout(resolve,50));
+        }
+        document.querySelector('.rightSidebarToggle:not(:disabled)')?.click();
+        for(let attempt=0;attempt<40;attempt++){
+          if(document.querySelector('.desktopNewTab'))break;
+          await new Promise(resolve=>setTimeout(resolve,50));
+        }
         document.querySelector('.desktopNewTab')?.click();
-        let state;
+        let state, bounded=false;
         for(let attempt=0;attempt<40;attempt++){
           state=await window.sparkclawDesktop.state();
-          if(state.pages.some(page=>page.role==='personal') && state.presentation.panel_bounds.width>=480)break;
+          const rect=document.querySelector('.desktopBrowserHost')?.getBoundingClientRect();
+          const bounds=state.presentation.panel_bounds;
+          bounded=Boolean(rect && rect.width>0 && rect.height>0 && bounds.width>0 && bounds.height>0 &&
+            ['x','y','width','height'].every(key=>Math.abs(bounds[key]-rect[key])<=2));
+          if(state.pages.some(page=>page.role==='personal') && bounded)break;
           await new Promise(resolve=>setTimeout(resolve,50));
         }
         const personal=state.pages.find(page=>page.role==='personal');
         if(personal)await window.sparkclawDesktop.closePersonal(personal.page_ref);
-        return {panel, personal:Boolean(personal), bounded:state.presentation.panel_bounds.width>=480};
+        return {panel:Boolean(document.querySelector('.desktopBrowserPanel:not([hidden])')), personal:Boolean(personal), bounded};
       })()`, true);
       if (!desktopUI.panel || !desktopUI.personal || !desktopUI.bounded) {
-        throw new Error("Packaged desktop browser panel qualification failed");
+        throw new Error(`Packaged desktop browser panel qualification failed: ${JSON.stringify(desktopUI)}`);
       }
       return {
         workbench_loaded: true,

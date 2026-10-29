@@ -50,6 +50,14 @@ const evidence = {
 };
 
 try {
+  // This disposable process and its children still crash normally, but do not
+  // hand large renderer mappings to a host's piped core-dump collector. Such
+  // collection can hold the dying process before its exit notification arrives.
+  // This per-process setting leaves the host's global core policy untouched.
+  await fs.writeFile("/proc/self/coredump_filter", "0\n");
+  const coreDumpFilter = (await fs.readFile("/proc/self/coredump_filter", "utf8")).trim();
+  assert.match(coreDumpFilter, /^0+$/u);
+  evidence.fault_injection = { core_dump_filter: coreDumpFilter, scope: "qualification_process_and_children" };
   progress("starting_xvfb");
   const display = await startXvfb();
   evidence.isolated_display = true;
@@ -612,7 +620,7 @@ async function ownedProcessStatus(rootPID) {
     const fields = Object.fromEntries(status.split("\n").filter((line) => /^(Name|State|PPid|CoreDumping|VmRSS|Threads):/u.test(line))
       .map((line) => [line.slice(0, line.indexOf(":")), line.slice(line.indexOf(":") + 1).trim()]));
     if (Number(fields.PPid) !== parent) continue;
-    result.push({ pid, ...fields });
+    result.push({ pid, ...fields, core_dump_filter: (await fs.readFile(`/proc/${pid}/coredump_filter`, "utf8").catch(() => "unavailable")).trim() });
     const tasks = await fs.readdir(`/proc/${pid}/task`).catch(() => []);
     for (const tid of tasks.filter((value) => /^[0-9]+$/u.test(value)).slice(0, 128)) {
       const children = await fs.readFile(`/proc/${pid}/task/${tid}/children`, "utf8").catch(() => "");

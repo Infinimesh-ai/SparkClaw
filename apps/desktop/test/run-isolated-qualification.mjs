@@ -177,7 +177,11 @@ try {
   assert.match(initialRead.page.text, /Cookie: shared=electron/u);
   assert.match(initialRead.page.text, /Worker: ready/u);
   const inputTarget = (await qualificationSnapshot(secret)).pages.find((page) => page.url === `${fixture.origin}/fixture`);
-  assert.equal(inputTarget?.presented, true, "native input isolation must exercise a visible task page");
+  assert.ok(inputTarget);
+  // The MCP task is a new tab; the adapter's initial connection tab is separate.
+  await qualificationShow(secret, inputTarget.page_ref);
+  const visibleInputTarget = (await qualificationSnapshot(secret)).pages.find((page) => page.page_ref === inputTarget.page_ref);
+  assert.equal(visibleInputTarget?.presented, true, "native input isolation must exercise a visible task page");
   evidence.login.local_session_cookie_persisted = true;
 
   const snapshot = await mcp.execute("page.snapshot", { boxes: true });

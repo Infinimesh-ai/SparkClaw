@@ -15,7 +15,7 @@ if (!/^v26\./u.test(process.version)) throw new Error("Use the locked Node.js 26
 const buildEnvironment = { ...process.env, VITE_SPARKCLAW_API_TOKEN: "", VITE_SPARKCLAW_API_BASE: "" };
 
 for (const args of [
-  ["run", "build:webchat"],
+  ["run", "build:desktop-ui"],
   ["run", "build:iscp-helper", "--", "darwin", argument[1]],
   ["run", "check:desktop-managed-scripts"],
   ["--workspace", "@sparkclaw/desktop", "exec", "--", "electron-builder", "--mac", "dmg", "zip", `--${argument[1]}`, "--publish", "never"],

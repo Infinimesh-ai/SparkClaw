@@ -4,17 +4,48 @@ import crypto from "node:crypto";
 
 const privatePattern = /(?:^|\/)(?:\.git|\.env(?:\.[^/]*)?|data|runtime|qualifications?|private|credentials?|\.tools|services|configs|InfiniCenter)(?:\/|$)|(?:^|\/)(?:desktop-client|desktop-profile|iscp-launch-profile|local-workbench|desktop-connection|backend|credential)\.(?:json|bin)$|\.(?:pem|key|sqlite(?:-wal|-shm)?|db|dump)$/iu;
 const desktopRoots = ["package.json", "src", "bin", "node_modules"];
+// Follow only the desktop's locked production graph. Adding a renderer or
+// development dependency does not silently widen the packaged main process.
+const approvedDependencies = await lockedDesktopDependencies();
+
+async function lockedDesktopDependencies() {
+  const lock = JSON.parse(await fs.readFile(new URL("../../../package-lock.json", import.meta.url), "utf8"));
+  const manifest = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8"));
+  const names = new Set(), visited = new Set();
+  const resolve = (base, name) => {
+    for (let current = base; ; current = current.includes("/") ? current.slice(0, current.lastIndexOf("/")) : "") {
+      const candidate = `${current ? current + "/" : ""}node_modules/${name}`;
+      if (lock.packages[candidate]) return candidate;
+      if (!current) throw new Error("A desktop runtime dependency is absent from the lockfile");
+    }
+  };
+  const visit = (entry) => {
+    if (visited.has(entry)) return;
+    visited.add(entry);
+    const record = lock.packages[entry];
+    if (!record) throw new Error("A desktop runtime dependency is absent from the lockfile");
+    if (record.link) return visit(record.resolved);
+    for (const name of Object.keys({ ...record.dependencies, ...record.optionalDependencies })) { names.add(name); visit(resolve(entry, name)); }
+  };
+  for (const name of Object.keys(manifest.dependencies)) { names.add(name); visit(resolve("apps/desktop", name)); }
+  return names;
+}
 
 export function auditApplicationEntries(entries) {
   for (const raw of entries) {
     const entry = raw.replaceAll("\\", "/").replace(/^\//u, "");
     const parts = entry.split("/");
-    if (!entry || parts.some((part) => part === ".." || part === ".") || !desktopRoots.includes(parts[0]) || privatePattern.test(entry)) {
+    if (!entry || parts.some((part) => part === ".." || part === ".") || !desktopRoots.includes(parts[0]) || parts[0] !== "node_modules" && privatePattern.test(entry)) {
       throw new Error("Installation package contains a file outside the public client allowlist");
     }
-    if (parts[0] === "node_modules" && parts.length >= 2 &&
-        !(parts[1] === "@sparkclaw" && (parts.length === 2 || parts[2] === "browser-bridge"))) {
-      throw new Error("Installation package contains an unapproved client dependency");
+    if (parts[0] === "node_modules") {
+      for (let index = 0; index < parts.length - 1; index++) {
+        if (parts[index] !== "node_modules") continue;
+        const name = parts[index + 1].startsWith("@") ? parts.slice(index + 1, index + 3).join("/") : parts[index + 1];
+        if (!approvedDependencies.has(name) && !(name.startsWith("@") && !name.includes("/") && [...approvedDependencies].some(value => value.startsWith(name + "/")))) {
+          throw new Error("Installation package contains an unapproved client dependency");
+        }
+      }
     }
   }
 }
@@ -42,10 +73,16 @@ export default async function auditPackage(context) {
   if (!entries.includes("index.html") || entries.some((entry) => privatePattern.test(entry) || !/\.(?:html|js|css|png|svg|webp|woff2|json|ico)$/iu.test(entry))) {
     throw new Error("Installation package WebChat resources are outside the built UI allowlist");
   }
+  const previewEntries = await walk(path.join(resources, "local-preview"));
+  if (!previewEntries.includes("index.html") || !previewEntries.some(entry => entry.includes("pdf.worker") && entry.endsWith(".mjs")) ||
+      previewEntries.some(entry => !/\.(?:html|js|mjs|css|wasm|bcmap|pfb|ttf|otf|txt|json)$/iu.test(entry))) {
+    throw new Error("Installation package requires the offline local preview assets");
+  }
   await fs.writeFile(path.join(resources, "client-package-audit.json"), JSON.stringify({
     schema_version: 1, platform: context.electronPlatformName,
     client_scope: "public_client_source_and_ui", application_entries: listPackage(path.join(resources, "app.asar")).length,
     ui_files: entries.length,
+    preview_files: previewEntries.length,
     iscp_helper_sha256: helperSHA256,
   }), { mode: 0o644 });
 }

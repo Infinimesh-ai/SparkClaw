@@ -287,6 +287,7 @@ export class LocalFilesService {
         try { entries.push(await this.#reference(entry.locator, false, generation)); }
         catch (error) { entries.push({ ...entry, ref: '', unavailable: publicError(error).code }); }
       }
+      if ((await this.#stat(r.ref, generation)).version !== listing.version) listing.changed = true;
       return { entries, cursor: listing.complete || listing.incomplete || listing.changed ? null : listing.cursor, complete: listing.complete && !listing.changed, page, listing: listing.id, totalLoaded: listing.count, pageSize: this.limits.pageSize, changed: listing.changed, ...(listing.incomplete ? { incomplete: listing.incomplete } : {}) };
     } finally { listing.busy = false; }
   }

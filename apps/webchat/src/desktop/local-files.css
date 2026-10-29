@@ -1,0 +1,29 @@
+.localFilesPanel { display: flex; flex-direction: column; min-width: 0; }
+.workbench .localFilesPanel[hidden] { display: none; }
+.workbench .desktopWorkbench.withInspector:not(.browserFocus):not(.conversationFocus):has(.localFilesPanel:not([hidden])) > .workbenchPage { margin-right: calc(var(--inspector-span) + 6px); }
+.localFilesPanel .localFilesTabBar { flex-shrink: 0; }
+.localFilesPanel .desktopTabStrip { flex: 1; }
+.localFilesTabBar .desktopTab:first-child { grid-template-columns: minmax(0, 1fr); }
+.localFilesTabBar .desktopTabSelect { display: flex; align-items: center; gap: 6px; }
+.localFilesTabBar .desktopTabSelect span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.localFileTree { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.localFileTree[hidden] { display: none; }
+.localFilesTreeTools { display: flex; align-items: center; gap: 8px; padding: 10px 12px 5px; font-size: 12px; }
+.localFilesTreeTools strong { margin-right: auto; font-weight: 500; }
+.localFilesTreeTools label { display: flex; align-items: center; gap: 5px; }
+.localFilesTreeTools input { accent-color: var(--text-primary); }
+.localFilesFilter { padding: 4px 12px 10px; display: flex; flex-direction: column; gap: 5px; color: var(--text-secondary); font-size: 11px; }
+.localFilesFilter input { width: 100%; min-height: 30px; border: 1px solid var(--border-color, #8883); border-radius: 6px; padding: 4px 8px; background: transparent; color: var(--text-primary); font: inherit; font-size: 12px; }
+.localFileTreeViewport { min-height: 0; flex: 1; overflow: auto; contain: strict; }
+.localFileTreeRow { position: absolute; left: 0; right: 0; height: 30px; width: 100%; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 4px; background: transparent; text-align: left; color: inherit; font: inherit; font-size: 12px; padding-right: 10px; }
+.localFileTreeRow > span:not(.localFileTreeIndent) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.localFileTreeRow svg { flex: 0 0 auto; }
+.localFileTreeRow:hover, .localFileTreeRow.selected { background: color-mix(in srgb, currentColor 7%, transparent); }
+.localFileTreeRow:focus-visible { outline: 2px solid var(--accent, #738898); outline-offset: -2px; }
+.localFileTreeIndent { width: 13px; flex-shrink: 0; }
+.localFilesError { margin: 8px 12px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.localFilesError button { display: inline-flex; align-items: center; gap: 5px; font: inherit; }
+.localFilesClear { flex-shrink: 0; border: 0; border-top: 1px solid var(--border-color, #8882); background: transparent; color: var(--text-secondary); padding: 9px 12px; text-align: left; font: inherit; font-size: 11px; }
+.localFilesClear:hover { color: var(--text-primary); }
+.localDocumentPreview { flex: 1; min-height: 0; min-width: 0; display: flex; }
+.localDocumentPreview iframe { width: 100%; height: 100%; min-height: 0; flex: 1; border: 0; background: var(--client-pane, #fff); }

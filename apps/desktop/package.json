@@ -22,7 +22,11 @@
     "dist:mac-x64": "node scripts/package-macos.mjs --arch x64"
   },
   "dependencies": {
-    "@sparkclaw/browser-bridge": "1.0.29"
+    "@deepseek-ai/libreoffice-kit": "0.2.3",
+    "@sparkclaw/browser-bridge": "1.0.29",
+    "exceljs": "4.4.0",
+    "papaparse": "5.7.0",
+    "yauzl": "3.4.0"
   },
   "engines": {
     "node": ">=26 <27",
@@ -55,14 +59,33 @@
       {
         "from": "../webchat/dist",
         "to": "webchat",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../webchat/dist-preview",
+        "to": "local-preview",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "linux": {
       "icon": "src/assets/icon.png",
       "target": [
-        { "target": "AppImage", "arch": ["arm64"] },
-        { "target": "deb", "arch": ["arm64"] }
+        {
+          "target": "AppImage",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
       "category": "Utility",
       "executableName": "sparkx",
@@ -81,10 +104,20 @@
       "hardenedRuntime": true,
       "identity": null,
       "artifactName": "SparkX-${version}-mac-${arch}.${ext}",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "extendInfo": {
         "NSMicrophoneUsageDescription": "SparkX uses the microphone only when you start voice input."
-      }
-    }
+      },
+      "files": [
+        "!node_modules/@deepseek-ai/libreoffice-kit-wasm/**/*"
+      ]
+    },
+    "asarUnpack": [
+      "node_modules/**/*",
+      "src/main/local-preview*.mjs"
+    ]
   }
 }

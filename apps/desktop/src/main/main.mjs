@@ -40,6 +40,10 @@ import { MailSyncStore } from "./mail-sync-store.mjs";
 import { MailSyncClient } from "./mail-sync-client.mjs";
 import { MailSyncCapability } from "./mail-sync-capability.mjs";
 import { ClientStoreCapability } from "./client-store-capability.mjs";
+import { LocalFilesService } from "./local-files-service.mjs";
+import { LocalFilesCapability } from "./local-files-capability.mjs";
+import { LocalPreviewBroker } from "./local-preview-broker.mjs";
+import { createLocalPreviewProtocolHandler, previewRequestAllowed, guardLocalPreviewNavigation } from "./local-preview-protocol.mjs";
 import { exportLocalFile } from "./export-local-file.mjs";
 import { ISCPEventClient } from "./iscp-event-client.mjs";
 import { ISCPSpeechClient } from "./iscp-audio-client.mjs";
@@ -69,6 +73,9 @@ protocol.registerSchemesAsPrivileged([{
 protocol.registerSchemesAsPrivileged([{
   scheme: "sparkclaw-app",
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+}, {
+  scheme: "sparkclaw-preview",
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
 }]);
 
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -83,6 +90,9 @@ let ownerBrowserServices;
 let registry;
 let localStore;
 let localStoreCapability;
+let localFilesService;
+let localFilesCapability;
+let localPreviewBroker;
 let desktopAuth;
 let executionClient;
 let mailStore;
@@ -143,6 +153,7 @@ async function start() {
     onChange: (status) => {
       for (const waiter of [...backendStateWaiters]) waiter();
       if (quitting) return;
+      localFilesService?.refreshIdentity();
       if (status.state === "connected" && !suspended) {
         executionClient?.start();
         void iscpRecording?.start().catch(() => {});
@@ -168,6 +179,7 @@ async function start() {
     },
     onReverse: (request, session) => browserHost?.handleReverse(request, session),
     onLock: async () => {
+      localFilesService?.refreshIdentity();
       executionClient?.close();
       iscpEvents?.close();
       iscpSpeech?.close();
@@ -217,6 +229,8 @@ async function start() {
   });
   const speechOrigin = desktopAuth.descriptor?.origin || "http://127.0.0.1:18790";
   workbenchSession.protocol.handle("sparkclaw-app", workbenchProtocolHandler(webchatDistPath(), desktopAuth));
+  workbenchSession.protocol.handle("sparkclaw-preview", createLocalPreviewProtocolHandler(app.isPackaged
+    ? path.join(process.resourcesPath, "local-preview") : path.resolve(MODULE_DIR, "../../../webchat/dist-preview")));
 
   const insetTitlebar = !qualification && process.platform === "darwin";
   // Open at 1250x800, shrinking only when the work area cannot hold it.
@@ -248,7 +262,20 @@ async function start() {
     },
   });
   bindWindowChrome(window, { inset: insetTitlebar });
+  guardLocalPreviewNavigation(window.webContents);
   if (!qualification) {
+    localFilesService = new LocalFilesService({
+      directory: path.join(app.getPath("userData"), "local-reading"), getIdentity: () => desktopAuth.authorizationRevoked ? null : localIdentity(),
+      onChange: (event) => { if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send("sparkclaw-local-files:changed", event); },
+    });
+    localPreviewBroker = new LocalPreviewBroker({
+      directory: path.join(app.getPath("userData"), "local-previews"),
+      snapshot: (request) => localFilesService.snapshot(request), stat: (request) => localFilesService.stat(request),
+      getScope: () => localFilesService.getScope(),
+    });
+    localFilesService.broker = localPreviewBroker;
+    localFilesService.refreshIdentity();
+    localFilesCapability = new LocalFilesCapability({ ipcMain, window, service: localFilesService }).start();
     const localChanged = () => {
       if (window && !window.isDestroyed()) window.webContents.send("sparkclaw-client-store:changed");
     };
@@ -291,7 +318,11 @@ async function start() {
     ? workbenchDocument()
     : "sparkclaw-app://workbench/index.html";
   window.webContents.on("render-process-gone", () => {
+    localFilesService?.revoke();
     if (!quitting) void window.loadURL(workbenchURL);
+  });
+  window.webContents.on("did-start-navigation", (_event, _url, inPlace, mainFrame) => {
+    if (mainFrame && !inPlace) localFilesService?.revoke();
   });
   powerMonitor.on("suspend", () => {
     suspended = true;
@@ -488,6 +519,8 @@ async function shutdown() {
   mailStore?.close();
   await browserHost?.stop();
   localStoreCapability?.close();
+  await localFilesCapability?.close();
+  await localPreviewBroker?.close();
   localStore?.close();
   await adapter?.close().catch(() => {});
   await registry?.flushBrowserState().catch(() => {});
@@ -568,8 +601,12 @@ function secureSession(targetSession) {
 
 function configureWorkbenchSession(targetSession, targetWindow, speechOrigin) {
   configureWorkbenchPermissions(targetSession, targetWindow, () => desktopAuth?.status.state === "connected" && (desktopAuth.descriptor?.transport !== "iscp" || desktopAuth.status.capabilities?.speech === true));
-  targetSession.webRequest.onBeforeRequest({ urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"] }, (details, callback) => {
-    callback({ cancel: !qualification || desktopAuth.status.state !== "connected" || canonicalOrigin(details.url) !== speechOrigin.replace(/^http/u, "ws") });
+  targetSession.webRequest.onBeforeRequest({ urls: ["<all_urls>"] }, (details, callback) => {
+    if (!previewRequestAllowed(details)) return callback({ cancel: true });
+    if (/^(https?|wss?):/u.test(details.url)) {
+      return callback({ cancel: !qualification || desktopAuth.status.state !== "connected" || canonicalOrigin(details.url) !== speechOrigin.replace(/^http/u, "ws") });
+    }
+    callback({ cancel: details.url.startsWith("file:") });
   });
   targetSession.webRequest.onBeforeSendHeaders({
     urls: [`${speechOrigin.replace(/^http/u, "ws")}/*`],
@@ -680,7 +717,7 @@ function workbenchHeaders(filename, speechOrigin) {
   };
   return {
     "content-type": types[extension] ?? "application/octet-stream",
-    "content-security-policy": `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self' ${speechOrigin.replace(/^http/u, "ws")}; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'`,
+    "content-security-policy": `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self' ${speechOrigin.replace(/^http/u, "ws")}; object-src 'none'; frame-src sparkclaw-preview://viewer; base-uri 'none'; form-action 'none'`,
     "x-content-type-options": "nosniff",
   };
 }

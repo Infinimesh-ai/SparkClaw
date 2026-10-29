@@ -16,6 +16,7 @@ export type ActionIconName =
   | "account"
   | "arrow-up"
   | "globe"
+  | "folder"
   | "appearance"
   | "devices"
   | "models"
@@ -45,6 +46,10 @@ const deviceKeyPath = `${deviceKeyContour}M8 6.65a1.35 1.35 0 1 0 0 2.7a1.35 1.3
 // Each filled drawing has its own silhouette. Transparent details keep the
 // icons legible on both opaque surfaces and translucent controls.
 const icons: Record<ActionIconName, IconPair> = {
+  folder: {
+    outline: <path d="M3 7V5a2 2 0 0 1 2-2h4l3 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />,
+    solid: <path d="M5 2.2A2.8 2.8 0 0 0 2.2 5v14A2.8 2.8 0 0 0 5 21.8h14a2.8 2.8 0 0 0 2.8-2.8V8A2.8 2.8 0 0 0 19 5.2h-6.7l-3-3H5Z" />,
+  },
   appearance: {
     outline: <><path d="M21 11.5C21 6.3 17 3 12 3a9 9 0 0 0 0 18h1.2a2 2 0 0 0 1.5-3.3 1.8 1.8 0 0 1 1.4-3H18a3 3 0 0 0 3-3.2Z" /><circle cx="7.5" cy="11" r=".8" /><circle cx="10" cy="7" r=".8" /><circle cx="15" cy="7.5" r=".8" /></>,
     solid: <path fillRule="evenodd" d="M12 2.2a9.8 9.8 0 0 0 0 19.6h1.2a2.8 2.8 0 0 0 2.1-4.6 1 1 0 0 1 .8-1.7H18a3.8 3.8 0 0 0 3.8-4c0-5.7-4.5-9.3-9.8-9.3ZM7.5 9.7a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6ZM10 5.7a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm5 .5a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Z" />

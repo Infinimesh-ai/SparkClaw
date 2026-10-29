@@ -8,23 +8,34 @@ import { BrowserPresentation } from "../src/main/presentation.mjs";
 import { PageRegistry } from "../src/browser/page-registry.mjs";
 import { bindWorkbenchActivation } from "../src/main/workbench-activation.mjs";
 import { nativePageCommand } from "../src/browser/native-page-commands.mjs";
+import { LocalFilesService } from "../src/main/local-files-service.mjs";
+import { LocalFilesCapability } from "../src/main/local-files-capability.mjs";
+import { createLocalPreviewProtocolHandler, previewRequestAllowed, guardLocalPreviewNavigation } from "../src/main/local-preview-protocol.mjs";
 
 const temporary = process.env.SPARKCLAW_LAYOUT_ROOT;
 const directory = path.dirname(fileURLToPath(import.meta.url));
 app.setName("SparkX isolated layout regression");
 app.setPath("userData", path.join(temporary, "profile"));
-protocol.registerSchemesAsPrivileged([{ scheme: "sparkclaw-app", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+protocol.registerSchemesAsPrivileged(["sparkclaw-app", "sparkclaw-preview"].map(scheme => ({ scheme, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } })));
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 app.whenReady().then(async () => {
   app.dock?.hide();
-  let window, capability, registry, authorized = true;
+  let window, capability, registry, filesCapability, authorized = true;
   try {
     const [javascript, css] = await Promise.all(["panel.js", "panel.css"].map(file => fs.readFile(path.join(temporary, "ui", file), "utf8")));
     const html = `<html><head><meta charset="utf-8"><style>${css}</style></head><body><div id="root"></div><script>${javascript}</script></body></html>`;
-    session.defaultSession.webRequest.onBeforeRequest(({ url }, callback) => callback({ cancel: !url.startsWith("sparkclaw-app://workbench/") }));
+    session.defaultSession.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !previewRequestAllowed(details) || !["sparkclaw-app://workbench/", "sparkclaw-preview://viewer/", "blob:", "data:"].some(prefix => details.url.startsWith(prefix)) }));
     session.defaultSession.protocol.handle("sparkclaw-app", () => new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } }));
+    session.defaultSession.protocol.handle("sparkclaw-preview", createLocalPreviewProtocolHandler(path.resolve(directory, "../../webchat/dist-preview")));
     window = new BrowserWindow({ show: false, width: 1440, height: 900, webPreferences: {
-      preload: path.join(directory, "../src/preload/workbench.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+      preload: path.join(directory, "../src/preload/workbench.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, additionalArguments: ["--sparkclaw-client-store=1"] } });
+    guardLocalPreviewNavigation(window.webContents);
+    const fixtures = path.join(temporary, "local-files"); await fs.mkdir(fixtures);
+    const originalText = "本地只读预览 · preserved original\n";
+    await fs.writeFile(path.join(fixtures, "readme.txt"), originalText);
+    const service = new LocalFilesService({ directory: path.join(temporary, "reading"), roots: [fixtures], getIdentity: () => authorized ? { deployment_id: "test", owner_id: "test", client_id: "test" } : null,
+      onChange: event => window.webContents.send("sparkclaw-local-files:changed", event) });
+    service.refreshIdentity(); filesCapability = new LocalFilesCapability({ ipcMain, window, service }).start();
     window.on("close", event => { event.preventDefault(); window.hide(); });
     bindWorkbenchActivation(app, () => window);
     const browserSession = session.fromPartition("isolated-panel-native");
@@ -93,6 +104,28 @@ app.whenReady().then(async () => {
     await check("real view");
     assert.equal(record.view.getVisible(), true);
     const pageBounds = record.view.getBounds();
+    await evaluate("document.querySelector('#toggle-files').click()");
+    await until(() => !record.view.getVisible(), "native browser obscures Files");
+    await until(() => evaluate("Boolean(document.querySelector('.localFilesPanel [role=treeitem]'))"), "computer tree missing");
+    await evaluate("document.querySelector('.localFilesPanel [role=treeitem]').click()");
+    await until(() => evaluate("[...document.querySelectorAll('.localFilesPanel [role=treeitem]')].some(row=>row.textContent==='readme.txt')"), "local file missing");
+    await evaluate("[...document.querySelectorAll('.localFilesPanel [role=treeitem]')].find(row=>row.textContent==='readme.txt').click()");
+    await until(async () => {
+      const viewer = window.webContents.mainFrame.frames.find(frame => frame.url.startsWith("sparkclaw-preview://viewer/"));
+      return viewer && await viewer.executeJavaScript("document.body.textContent.includes('preserved original')");
+    }, "isolated text preview missing");
+    const viewer = window.webContents.mainFrame.frames.find(frame => frame.url.startsWith("sparkclaw-preview://viewer/"));
+    assert.deepEqual(await viewer.executeJavaScript("[typeof window.sparkclawLocalFiles,typeof window.sparkclawClientStore,typeof window.sparkclawDesktop]"), ["undefined", "undefined", "undefined"]);
+    if (process.env.SPARKCLAW_LAYOUT_EVIDENCE) {
+      await fs.mkdir(process.env.SPARKCLAW_LAYOUT_EVIDENCE, { recursive: true });
+      await fs.writeFile(path.join(process.env.SPARKCLAW_LAYOUT_EVIDENCE, "local-files.png"), (await window.webContents.capturePage()).toPNG());
+    }
+    assert.equal(await fs.readFile(path.join(fixtures, "readme.txt"), "utf8"), originalText);
+    const retainedCount = registry.records.size;
+    await evaluate("document.querySelector('#toggle-panel').click()");
+    await until(() => record.view.getVisible(), "Browser did not restore after Files");
+    assert.equal(registry.records.size, retainedCount, "Files switching must not create browser tabs");
+    assert.equal(await evaluate("document.querySelector('#chat-input').value"), "Preserved draft");
     window.close();
     await pause(100);
     app.emit("activate");
@@ -265,5 +298,5 @@ app.whenReady().then(async () => {
     await evaluate("document.querySelector('#close-modal').click()");
     await until(() => task.view.getVisible(), "task not restored after modal");
     console.log(JSON.stringify({ event:"browser_panel_layout",passed:true,cases:cases.length,task_cases:taskCases,task_resize_stale_action_refused:true,real_component_css_preload_ipc:true,real_native_view:true,zoom:true,modal_occlusion:true,focus_layout:true,retained_page:true,divider_keyboard:true,divider_hide:true,window_reopen:true,closed_window_reconnect:true,renderer_reload:true,renderer_crash_recovery:true,aborted_redirect:true,redirected_new_page:true,redirected_popup:true,real_failure_reported:true,network:false,production_data:false }));
-  } finally { capability?.close(); for (const record of registry?.records.values() ?? []) record.webContents.close(); window?.destroy(); }
+  } finally { await filesCapability?.close(); capability?.close(); for (const record of registry?.records.values() ?? []) record.webContents.close(); window?.destroy(); }
 }).then(() => app.exit(0)).catch(error => { console.error(error); app.exit(1); });

@@ -1,5 +1,9 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+// Defense in depth if subframe preload behavior ever changes. Isolated
+// document frames never receive any workbench bridge or event subscription.
+if (process.isMainFrame !== false && (typeof location === "undefined" || location.protocol !== "sparkclaw-preview:")) {
+
 // A display-only native state projection; no new renderer command capability.
 let nativeFullscreen = false;
 const applyWindowChrome = () => {
@@ -21,6 +25,34 @@ const speechArgument = process.argv.find((value) => value.startsWith("--sparkcla
 const speechBase = speechArgument ? speechArgument.slice("--sparkclaw-speech-base=".length) : "";
 
 if (process.argv.includes("--sparkclaw-client-store=1")) {
+  // A separate, read-only local capability. Do not route it through ClientStore
+  // or expose it to a document iframe or an embedded browser page.
+  // Preserve typed errors as data: contextBridge does not preserve custom
+  // properties of Error objects. The renderer adapter unwraps this envelope.
+  const filesInvoke = (operation, fields = {}) => ipcRenderer.invoke("sparkclaw-local-files:invoke", { schema_version: 1, operation, ...fields });
+  if (process.isMainFrame !== false && location.protocol === "sparkclaw-app:" && location.hostname === "workbench") {
+    contextBridge.exposeInMainWorld("sparkclawLocalFiles", Object.freeze({
+      envelopeVersion: 1,
+      roots: () => filesInvoke("roots"), resolve: (locator) => filesInvoke("resolve", { locator }),
+      stat: (ref) => filesInvoke("stat", { ref }), list: (fields) => filesInvoke("list", fields),
+      readBytes: (fields) => filesInvoke("readBytes", fields), readText: (fields) => filesInvoke("readText", fields),
+      relativeImage: (fields) => filesInvoke("relativeImage", fields), followLink: (fields) => filesInvoke("followLink", fields),
+      watch: (ref) => filesInvoke("watch", { ref }), unwatch: (ref) => filesInvoke("unwatch", { ref }),
+      release: (ref) => filesInvoke("release", { ref }), cancel: (request_id) => filesInvoke("cancel", { request_id }),
+      setVisible: (visible) => filesInvoke("setVisible", { visible }),
+      loadState: () => filesInvoke("loadState"), saveState: (state) => filesInvoke("saveState", { state }),
+      clear: () => filesInvoke("clear"), preview: (fields) => filesInvoke("preview", fields),
+      readPreview: (fields) => filesInvoke("readPreview", fields),
+      releasePreview: (readerId) => filesInvoke("releasePreview", { readerId }),
+      cancelPreview: (readerId) => filesInvoke("cancelPreview", { readerId }),
+      onChange: (listener) => {
+        if (typeof listener !== "function") throw new TypeError("Local files listener is invalid");
+        const wrapped = (_event, value) => listener(value);
+        ipcRenderer.on("sparkclaw-local-files:changed", wrapped);
+        return () => ipcRenderer.removeListener("sparkclaw-local-files:changed", wrapped);
+      },
+    }));
+  }
   const storeInvoke = (operation, fields = {}) => ipcRenderer.invoke("sparkclaw-client-store:invoke", {
     schema_version: 1, operation, ...fields,
   });
@@ -126,3 +158,4 @@ contextBridge.exposeInMainWorld("sparkclawDesktop", Object.freeze({
     return () => ipcRenderer.removeListener("sparkclaw-desktop:state", wrapped);
   },
 }));
+}

@@ -7,8 +7,9 @@ import { spawnSync } from "node:child_process";
 import { createPackage } from "@electron/asar";
 import auditPackage, { auditApplicationEntries } from "../scripts/audit-package.mjs";
 
-test("client package audit permits only public sources and the owned bridge dependency", () => {
+test("client package audit permits public sources and only locked desktop runtime dependencies", () => {
   auditApplicationEntries(["/package.json", "/src/main/main.mjs", "/src/main/secure-credential-store.mjs", "/src/assets/icon.png", "/bin/sparkclaw-electron-browser.mjs", "/node_modules/@sparkclaw/browser-bridge/src/relay-connection.mjs"]);
+  auditApplicationEntries(["/node_modules/exceljs/lib/doc/workbook.js", "/node_modules/@deepseek-ai/libreoffice-kit-darwin-arm64/program/resource/data/file"]);
   for (const entry of ["/data/runtime/desktop-client.json", "/services/gateway/gateway", "/.env", "/src/private/key.pem", "/src/credential.sqlite", "/src/iscp-launch-profile.json", "/src/desktop-profile.json", "/node_modules/unknown-dependency/index.js", "/src/../data/secrets.json"]) {
     assert.throws(() => auditApplicationEntries([entry]), /allowlist|unapproved/);
   }
@@ -22,6 +23,9 @@ test("afterPack audits a synthetic ASAR/resources tree without compiling any Mac
   const resources = path.join(output, "SparkX.app", "Contents", "Resources");
   await fs.mkdir(path.join(source, "src", "main"), { recursive: true });
   await fs.mkdir(path.join(resources, "webchat", "assets"), { recursive: true });
+  await fs.mkdir(path.join(resources, "local-preview", "assets"), { recursive: true });
+  await fs.writeFile(path.join(resources, "local-preview", "index.html"), "<!doctype html>");
+  await fs.writeFile(path.join(resources, "local-preview", "assets", "pdf.worker.mjs"), "// synthetic bundled PDF worker");
   await fs.writeFile(path.join(source, "package.json"), "{}");
   await fs.writeFile(path.join(source, "src", "main", "main.mjs"), "// synthetic public client");
   await fs.writeFile(path.join(resources, "webchat", "index.html"), "<!doctype html>");

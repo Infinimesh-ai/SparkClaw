@@ -7,6 +7,7 @@ import { ClientWindow } from "../components/clientWindow";
 import { api } from "../api/client";
 import type { SparkClawDesktop, DesktopState, DesktopConnectionStatus } from "./types";
 import type { LocalApproval, LocalConversationContent, LocalDraft, LocalTask } from "./clientStore";
+import type { LocalFilesBridge } from "./localFiles";
 import { dictionaries, LANGUAGE_STORAGE_KEY } from "../i18n";
 
 async function openConversationMenu(host: HTMLElement, title?: string) {
@@ -82,6 +83,7 @@ afterEach(() => {
   document.querySelectorAll("[data-local-workbench-test-host]").forEach(host => host.remove());
   delete window.sparkclawClientStore; delete window.sparkclawDesktop;
   delete window.sparkclawMailSync;
+  delete window.sparkclawLocalFiles;
   vi.unstubAllGlobals(); vi.restoreAllMocks(); window.localStorage.clear();
 });
 
@@ -159,12 +161,30 @@ describe("workbench local workbench", () => {
       state: vi.fn(async () => desktopState), createPersonal: vi.fn(async () => ({ page_ref: "page_" + "1".repeat(32) })), onState: vi.fn(() => () => {}), hideBrowser: vi.fn(async () => ({})),
       onLocalConnection: (listener: typeof changed) => { changed = listener; return () => {}; },
       localConnection: vi.fn(async () => connectionStatus(browserEnabled)) } as unknown as SparkClawDesktop;
+    window.sparkclawLocalFiles = {
+      roots: vi.fn(async () => ({ roots: [], generation: "local-generation" })),
+      loadState: vi.fn(async () => ({ state: null, generation: "local-generation" })),
+      setVisible: vi.fn(async () => ({})), saveState: vi.fn(async () => ({})), onChange: () => () => {},
+    } as unknown as LocalFilesBridge;
     const host = document.createElement("div"), root = createRoot(host);
     try {
       await act(async () => root.render(<LocalWorkbench />));
       expect(host.querySelector(".inspectorResizeHandle")).toBeNull();
       await act(async () => host.querySelector<HTMLButtonElement>(".rightSidebarToggle")!.click());
       expect(host.querySelector(".desktopBrowserPanel")).not.toBeNull();
+      const originalPanel = host.querySelector<HTMLElement>(".desktopBrowserPanel")!;
+      const createdTabs = vi.mocked(window.sparkclawDesktop.createPersonal).mock.calls.length;
+      // Local browsing is independent of the remote files capability and
+      // doesn't unmount or reopen the original browser component.
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Files"]')!.click());
+      expect(originalPanel.hidden).toBe(true);
+      expect(host.querySelector<HTMLElement>(".localFilesPanel")!.hidden).toBe(false);
+      expect(window.sparkclawClientStore.saveFile).not.toHaveBeenCalled();
+      expect(window.sparkclawClientStore.enqueue).not.toHaveBeenCalled();
+      await act(async () => host.querySelector<HTMLButtonElement>(".rightSidebarToggle")!.click());
+      expect(host.querySelector(".desktopBrowserPanel")).toBe(originalPanel);
+      expect(originalPanel.hidden).toBe(false);
+      expect(window.sparkclawDesktop.createPersonal).toHaveBeenCalledTimes(createdTabs);
       expect(host.querySelector(".localBrowserGrant, .localBrowserAuthorization")).toBeNull();
       expect(host.textContent).not.toMatch(/Authorize this browser|授权本机浏览器/);
       const handle = host.querySelector<HTMLElement>('.inspectorResizeHandle[role="separator"]')!;

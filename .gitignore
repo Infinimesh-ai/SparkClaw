@@ -8,6 +8,7 @@ CLAUDE.md
 configs/iscp-bridge.local-lab.json
 node_modules/
 dist/
+dist-preview/
 apps/desktop/bin/iscp-workbench
 apps/desktop/bin/iscp-workbench.exe
 build/

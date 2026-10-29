@@ -164,6 +164,7 @@ check "npm 11" bash -lc '[[ "$(npm --version)" == 11.* ]]'
 check "npm install scripts approved" check_npm_install_script_approvals
 check "local credential provisioning" check_workbench_credentials
 check "Node document dependencies" node -e 'for (const name of ["@mozilla/readability", "jsdom", "exceljs"]) require(name)'
+check "Desktop local preview dependencies" node scripts/check-local-preview-dependencies.mjs
 check "Python 3.12" python3 -c 'import sys; raise SystemExit(sys.version_info[:2] != (3, 12))'
 check "pip" python3 -m pip --version
 check "Python document dependencies" python3 -c 'import docx, lxml, PIL, pptx, pypdf, pypdfium2'

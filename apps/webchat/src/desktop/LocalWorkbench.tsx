@@ -25,6 +25,8 @@ import { clientStore, type LocalConversation, type LocalConversationContent, typ
 import { desktopCapability } from "./capability";
 import type { DesktopConnectionStatus, DesktopState } from "./types";
 import { BrowserPanel } from "./BrowserPanel";
+import { LocalFilesPanel } from "./LocalFilesPanel";
+import { localFilesCapability } from "./localFiles";
 import { LocalComposerApprovals, pendingLocalApprovals } from "./localComposerApprovals";
 import { localMessageRows } from "./localMessageRows";
 import { ConversationReadVersion } from "./conversationReadVersion";
@@ -93,6 +95,12 @@ export function LocalWorkbench() {
   const toggleSidebar = () => setSidebarCollapsed((current) => !current);
   const [mailIdentity, setMailIdentity] = useState(0);
   const [browserOpen, setBrowserOpen] = useState(false);
+  const [browserMounted, setBrowserMounted] = useState(false);
+  const [rightSurface, setRightSurface] = useState<"browser" | "files" | null>(null);
+  const filesOpen = rightSurface === "files";
+  const [filesMounted, setFilesMounted] = useState(false);
+  const filesTrigger = useRef<HTMLButtonElement>(null);
+  const localFiles = localFilesCapability();
   const [documentPickerOpen, setDocumentPickerOpen] = useState(false);
   useEffect(() => { if (approvalPending) setDocumentPickerOpen(false); }, [approvalPending]);
   const [tab, setTab] = useState<PanelTab>("timeline");
@@ -108,13 +116,19 @@ export function LocalWorkbench() {
     settingsOwner: surfaceEnabled(connection, "settings_owner"), settingsConnectors: surfaceEnabled(connection, "settings_connectors"),
     settingsBindings: surfaceEnabled(connection, "settings_bindings"),
   };
-  const browserLayout = useBrowserLayout(browserOpen, inspectorResize.width, capabilities.browser && !settings && page === "chat", true);
+  const browserLayout = useBrowserLayout(rightSurface !== null, inspectorResize.width, (capabilities.browser || Boolean(localFiles)) && !settings && (page === "chat" || filesOpen), true);
   const messageScroll = useMessageScroll(selected, !settings && page === "chat");
-  const browserCovering = capabilities.browser && browserLayout.covering;
-  const closeBrowser = () => { setBrowserOpen(false); browserLayout.restoreTrigger(); };
+  const browserCovering = browserLayout.covering;
+  const closeBrowser = () => { setBrowserOpen(false); setRightSurface(null); browserLayout.restoreTrigger(); };
+  const closeFiles = () => { setRightSurface(null); browserLayout.setWide(false); requestAnimationFrame(() => filesTrigger.current?.focus()); };
+  const toggleFiles = () => {
+    if (filesOpen && browserLayout.visible) closeFiles();
+    else { setFilesMounted(true); setRightSurface("files"); browserLayout.reveal(); }
+  };
   const toggleBrowser = () => {
-    if (browserOpen && browserLayout.visible) closeBrowser();
-    else { browserLayout.reveal(); setBrowserOpen(true); }
+    setBrowserMounted(true);
+    if (rightSurface === "browser" && browserLayout.visible) closeBrowser();
+    else { setRightSurface("browser"); browserLayout.reveal(); setBrowserOpen(true); }
   };
   const [browserState, setBrowserState] = useState<DesktopState>();
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -371,7 +385,7 @@ export function LocalWorkbench() {
         // A selection whose draft never loaded has no draft entry to discard.
         if (drafts.id() === selectedID) drafts.accept(selectedID, { content: "", attachment_ids: [], revision: 0 });
         setScheduleCreateOpen(false);
-        setDocumentPickerOpen(false); setBrowserOpen(false); setPage("chat");
+        setDocumentPickerOpen(false); setBrowserOpen(false); setRightSurface(null); setPage("chat");
         await selectDraft("");
       }
       const remaining = await store.list();
@@ -480,7 +494,7 @@ export function LocalWorkbench() {
   const localSchedules = useLocalSchedules(store, localScopeKey, page === "schedules" && !settings, surfaceError);
   useEffect(() => { setEditingSession(""); setSessionTitleDraft(""); setScheduleCreateOpen(false); }, [localScopeKey]);
   useEffect(() => { if (page !== "schedules" || settings) setScheduleCreateOpen(false); }, [page, settings]);
-  useEffect(() => { if (!capabilities.browser) setBrowserOpen(false); }, [capabilities.browser]);
+  useEffect(() => { if (!capabilities.browser) { setBrowserOpen(false); setRightSurface(current => current === "browser" ? null : current); } }, [capabilities.browser]);
   const text = dictionaries[language];
   const pendingApprovals = approvals.filter((approval) => approval.status === "pending");
   const pendingCandidates = candidates.filter((candidate) => candidate.status === "pending");
@@ -509,7 +523,7 @@ export function LocalWorkbench() {
       if (event.defaultPrevented || event.isComposing) return;
       const layered = document.querySelector('dialog[open], [role="dialog"], [role="menu"], .notificationInbox');
       if (event.key === "Escape") {
-        if (!layered && browserLayout.visible) { event.preventDefault(); closeBrowser(); }
+        if (!layered && browserLayout.visible) { event.preventDefault(); if (filesOpen) closeFiles(); else closeBrowser(); }
         return;
       }
       if (!(event.metaKey || event.ctrlKey) || event.altKey || layered) return;
@@ -563,10 +577,10 @@ export function LocalWorkbench() {
       listNotice={loading ? <p className="localListNotice" role="status">{zh ? "正在读取对话…" : "Loading conversations…"}</p> : !conversations.length ? <p className="localListNotice">{copy.empty}</p> : undefined}
     />}
     {!settings && <ClientSidebarResizeHandle label={zh ? "调整侧边栏宽度" : "Resize sidebar"} onHide={toggleSidebar} />}
-    <main ref={browserLayout.workspaceRef} className={`${settings ? "settingsPageMain" : "workspace desktopWorkbench"} ${homePresentation ? "homeWorkspace" : ""} ${capabilities.browser && browserOpen && !settings && page === "chat" ? "withInspector" : ""} ${inspectorResize.resizing ? "resizingInspector" : ""} ${browserLayout.className}`} style={settings ? undefined : inspectorResize.style} aria-busy={busy}>
+    <main ref={browserLayout.workspaceRef} className={`${settings ? "settingsPageMain" : "workspace desktopWorkbench"} ${homePresentation ? "homeWorkspace" : ""} ${(filesOpen || capabilities.browser && rightSurface === "browser" && page === "chat") && !settings ? "withInspector" : ""} ${inspectorResize.resizing ? "resizingInspector" : ""} ${browserLayout.className}`} style={settings ? undefined : inspectorResize.style} aria-busy={busy}>
       <WorkspaceTitlebar language={language} hidden={settings} navigation={pageHistory}
         title={!settings && page === "chat" && !browserCovering ? conversations.find((conversation) => conversation.id === selected)?.title : undefined}
-        tab={browserCovering && <ClientConversationTab title={conversations.find((conversation) => conversation.id === selected)?.title || (zh ? "新对话" : "New conversation")}
+        tab={browserCovering && <ClientConversationTab title={page === "schedules" ? (zh ? "日程" : "Schedules") : conversations.find((conversation) => conversation.id === selected)?.title || (zh ? "新对话" : "New conversation")}
           selected={browserLayout.region === "conversation"} onSelect={browserLayout.showConversation} />}
         sidebar={!settings && <button className="iconButton sidebarToggle" type="button" aria-label={copy.toggleNav} onClick={toggleSidebar}><ActionIcon name="panel-left" /></button>}
         back={(settings || page !== "chat") && <button className="iconButton workspaceBackButton" type="button" disabled={busy}
@@ -577,7 +591,9 @@ export function LocalWorkbench() {
             open={passiveNotifications.open} toast={passiveNotifications.toast} error={passiveNotifications.error}
             language={language} text={text} onToggle={() => passiveNotifications.setOpen((current) => !current)}
             onDismissToast={passiveNotifications.dismissToast} onRead={passiveNotifications.markRead} onReadAll={passiveNotifications.markAllRead} />
-          {!settings && typeof desktop.state === "function" && <button disabled={!capabilities.browser || connection?.state !== "connected"} className={`iconButton rightSidebarToggle ${browserOpen ? "active" : ""}`} type="button" ref={browserLayout.triggerRef} aria-label={browserLayout.visible ? (zh ? "收起浏览器" : "Collapse browser") : (zh ? "打开浏览器" : "Open browser")} title={!capabilities.browser || connection?.state !== "connected" ? (zh ? "浏览器暂时不可用" : "Browser unavailable") : browserLayout.visible ? (zh ? "收起浏览器" : "Collapse browser") : (zh ? "打开浏览器" : "Open browser")} aria-expanded={browserLayout.visible} onClick={toggleBrowser}><ActionIcon name="globe" active={browserLayout.visible} /></button>}
+          {!settings && typeof desktop.state === "function" && <button disabled={!capabilities.browser || connection?.state !== "connected"} className={`iconButton rightSidebarToggle ${rightSurface === "browser" ? "active" : ""}`} type="button" ref={browserLayout.triggerRef} aria-label={rightSurface === "browser" && browserLayout.visible ? (zh ? "收起浏览器" : "Collapse browser") : (zh ? "打开浏览器" : "Open browser")} title={!capabilities.browser || connection?.state !== "connected" ? (zh ? "浏览器暂时不可用" : "Browser unavailable") : rightSurface === "browser" && browserLayout.visible ? (zh ? "收起浏览器" : "Collapse browser") : (zh ? "打开浏览器" : "Open browser")} aria-expanded={rightSurface === "browser" && browserLayout.visible} onClick={toggleBrowser}><ActionIcon name="globe" active={rightSurface === "browser" && browserLayout.visible} /></button>}
+          {!settings && localFiles && <button type="button" className={`iconButton rightSidebarToggle ${filesOpen ? "active" : ""}`} ref={filesTrigger}
+            title="Files" aria-label="Files" aria-expanded={filesOpen && browserLayout.visible} onClick={toggleFiles}><ActionIcon name="folder" active={filesOpen && browserLayout.visible} /></button>}
         </>} />
       {error && <div className="localFeedback" role="alert"><p>{error}</p><button type="button" onClick={() => void reload().then(async () => { if (iscp && connection?.state === "connected") await refreshGlobal(); setError(""); }).catch(surfaceError)}>{zh ? "重试读取" : "Retry loading"}</button></div>}
       {notice && <p className="localFeedback" role="status">{notice}</p>}
@@ -680,13 +696,15 @@ export function LocalWorkbench() {
             onRefresh={() => void localSchedules.check().catch(() => {})} onEdit={localSchedules.edit} onDelete={localSchedules.cancel} onRunNow={localSchedules.runNow} />
           {scheduleCreateOpen && <ScheduleCreateDialog key={scheduleRequest} initialRequest={scheduleRequest} busy={busy || Boolean(localSchedules.busyID)} text={text} onClose={() => setScheduleCreateOpen(false)} onCreate={localSchedules.create} />}
         </div>}
-        {capabilities.browser && browserLayout.visible && typeof desktop.state === "function" && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} onHide={closeBrowser}
+        {browserLayout.visible && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} onHide={filesOpen ? closeFiles : closeBrowser}
           reserve={BROWSER_CONVERSATION_RESERVE} defaultWidth={BROWSER_DEFAULT_WIDTH} onResizeStart={() => browserLayout.setWide(false)}
           onExpand={() => browserLayout.setWide(true)} />}
 
       </>}
-        {browserLayout.mounted && typeof desktop.state === "function" && <BrowserPanel open={browserOpen} visible={capabilities.browser && browserLayout.visible} onCollapse={closeBrowser} wide={browserLayout.wide} onWideChange={browserLayout.setWide} language={language} localConversationID={selected}
-          conversationInFront={browserCovering ? browserLayout.region === "conversation" : undefined} onShowBrowser={browserLayout.reveal} />}
+        {browserMounted && typeof desktop.state === "function" && <BrowserPanel open={browserOpen} visible={rightSurface === "browser" && capabilities.browser && browserLayout.visible} onCollapse={closeBrowser} wide={browserLayout.wide} onWideChange={browserLayout.setWide} language={language} localConversationID={selected}
+          conversationInFront={rightSurface === "browser" && browserCovering ? browserLayout.region === "conversation" : undefined} onShowBrowser={browserLayout.reveal} />}
+        {filesMounted && localFiles && <LocalFilesPanel files={localFiles} open={filesOpen} visible={filesOpen && browserLayout.visible} language={language} wide={browserLayout.wide}
+          onWideChange={browserLayout.setWide} onCollapse={closeFiles} conversationInFront={filesOpen && browserCovering ? browserLayout.region === "conversation" : undefined} onShowFiles={browserLayout.reveal} />}
     </main>
     {searchOpen && <TaskSearch language={language} sessions={unarchivedConversations} onSelect={(conversation) => { setSearchOpen(false); void select(conversation.id).catch(surfaceError); }} onClose={() => setSearchOpen(false)} />}
   </div>;

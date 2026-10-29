@@ -101,6 +101,15 @@ test('current-directory mutation invalidates cursor instead of mixing generation
   const fresh = await f.service.dispatch({ operation: 'list', ref, refresh: true }); assert.notEqual(fresh.listing, listing.listing);
 });
 
+test('a mutation during the first unwatched batch cannot claim a complete listing', async t => {
+  const f = await fixture(t); await f.file('first');
+  const { roots } = await f.service.dispatch({ operation: 'roots' });
+  const guard = f.service.policy.guard.bind(f.service.policy); let changed = false;
+  f.service.policy.guard = async value => { const result = await guard(value); if (!changed && value.endsWith('/first')) { changed = true; await fs.writeFile(path.join(f.source, 'arrived-during-list'), 'new'); } return result; };
+  const listing = await f.service.dispatch({ operation: 'list', ref: roots[0].ref });
+  assert.equal(listing.changed, true); assert.equal(listing.complete, false); assert.equal(listing.cursor, null);
+});
+
 test('links require explicit following and ancestor cycles are rejected', async t => {
   const f = await fixture(t), file = await f.file('target');
   await fs.symlink(file.locator, path.join(f.source, 'alias'));

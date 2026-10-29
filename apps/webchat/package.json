@@ -12,13 +12,19 @@
     "test:voice": "vitest run src/audio/microphones.test.ts src/audio/pcm16.test.ts src/audio/pcmCapture.test.ts src/audio/realtimeSpeech.test.ts src/audio/silenceDetector.test.ts src/audio/wav.test.ts src/hooks/useVoiceInput.test.tsx src/lib/voiceDraft.test.ts src/lib/voiceState.test.ts"
   },
   "dependencies": {
+    "@fortune-sheet/react": "1.0.4",
     "@vitejs/plugin-react": "^6.0.2",
-    "vite": "^8.0.16",
-    "typescript": "^6.0.3",
+    "highlight.js": "11.12.0",
+    "lucide-react": "^0.555.0",
+    "pdfjs-dist": "6.3.289",
+    "qrcode.react": "4.2.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
-    "lucide-react": "^0.555.0",
-    "qrcode.react": "4.2.0"
+    "react-markdown": "10.1.0",
+    "react-pdf": "11.0.0",
+    "remark-gfm": "4.0.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
   },
   "devDependencies": {
     "@types/react": "^19.2.7",

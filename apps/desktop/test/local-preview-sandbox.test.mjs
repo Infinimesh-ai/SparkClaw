@@ -74,3 +74,26 @@ test('cancellation joins both worker and its sleeping descendant before returnin
   await rejected;
   for (const pid of pids) assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
 });
+
+for (const mode of ['crash', 'blocked']) test(`owner ${mode} cannot leave an unbounded isolated worker or descendant`, { skip: process.platform !== 'darwin', timeout: 10_000 }, async t => {
+  const base = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sparkx-preview-owner-crash-')));
+  const script = path.join(base, 'worker.mjs'), ownerScript = path.join(base, 'owner.mjs');
+  let owner, pids = [];
+  t.after(async () => {
+    owner?.kill('SIGCONT'); owner?.kill('SIGKILL');
+    for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+    await fs.rm(base, { recursive: true, force: true });
+  });
+  await fs.writeFile(script, `import {spawn} from 'node:child_process';import fs from 'node:fs';const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});fs.writeFileSync('pids.json',JSON.stringify([process.pid,child.pid]));setInterval(()=>{},1000);`);
+  await fs.writeFile(ownerScript, `import {sandboxCommand} from ${JSON.stringify(new URL('../src/main/local-preview-sandbox.mjs', import.meta.url).href)};import {runPreviewProcess} from ${JSON.stringify(new URL('../src/main/local-preview-process.mjs', import.meta.url).href)};import {previewLimits} from ${JSON.stringify(new URL('../src/main/local-preview-limits.mjs', import.meta.url).href)};const launch=await sandboxCommand({jobDirectory:${JSON.stringify(base)},worker:${JSON.stringify(script)},codeRoots:[]});await runPreviewProcess({launch,jobDirectory:${JSON.stringify(base)},rootDirectory:${JSON.stringify(base)},limits:previewLimits({deadlineMs:${mode === 'crash' ? 8000 : 500},monitorMs:50,cleanupMs:100,killGraceMs:50}),signal:new AbortController().signal});`);
+  owner = spawn(process.execPath, [ownerScript], { stdio: 'ignore' });
+  for (let n = 0; n < 100; n++) { try { pids = JSON.parse(await fs.readFile(path.join(base, 'pids.json'), 'utf8')); break; } catch { await new Promise(resolve => setTimeout(resolve, 20)); } }
+  assert.equal(pids.length, 2, 'owned worker and descendant did not start');
+  const exited = new Promise(resolve => owner.once('exit', resolve));
+  owner.kill(mode === 'crash' ? 'SIGKILL' : 'SIGSTOP'); if (mode === 'crash') await exited;
+  const alive = pid => { try { process.kill(pid, 0); return true; } catch (e) { if (e.code === 'ESRCH') return false; throw e; } };
+  const started = Date.now();
+  while (pids.some(alive) && Date.now() - started < 3000) await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(pids.filter(alive), [], `preview processes survived ${mode} owner`);
+  t.diagnostic(`Owner ${mode} process-tree exit: ${Date.now() - started}ms`);
+});

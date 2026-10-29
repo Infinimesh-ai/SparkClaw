@@ -2,6 +2,7 @@ import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { opendir, lstat } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { previewError } from './local-preview-limits.mjs';
 
 const run = promisify(execFile);
@@ -40,12 +41,19 @@ export async function processTree(root, known = new Set()) {
 export async function runPreviewProcess({ launch, jobDirectory, rootDirectory, limits, signal, onObservation = () => {} }) {
   if (signal.aborted) throw signal.reason;
   const startedAt = Date.now();
-  const child = spawn(launch.command, launch.args, launch.options);
+  const guardian = fileURLToPath(new URL('./local-preview-guardian.mjs', import.meta.url)).replace(/\.asar([/\\])/, '.asar.unpacked$1');
+  const child = spawn(process.execPath, [guardian, String(process.pid), String(limits.deadlineMs + limits.cleanupMs + limits.killGraceMs + 1000)], {
+    cwd: jobDirectory, env: { ELECTRON_RUN_AS_NODE: '1', NODE_NO_WARNINGS: '1' }, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  child.stdin.on('error', () => {}); // A failed spawn or cancellation can race the initial write.
+  child.stdin.write(JSON.stringify(launch) + '\n');
   const known = new Set();
   let spawnedError, closed = false, code, failure, monitoring = false, peakMemory = 0, peakDisk = 0, stoppedAt;
   const closedPromise = new Promise(resolve => {
-    child.on('error', error => { spawnedError = error; });
-    child.on('close', value => { closed = true; code = value; resolve(); });
+    child.on('error', error => { spawnedError = error; closed = true; resolve(); });
+    // Waiting for stdio 'close' could be held open by an abandoned descendant.
+    // On guardian exit, immediately kill and join the entire owned group below.
+    child.on('exit', value => { closed = true; code = value; resolve(); });
   });
   // Do not retain converter output: it can contain document text or private paths.
   child.stdout?.resume(); child.stderr?.resume();
@@ -93,6 +101,7 @@ export async function runPreviewProcess({ launch, jobDirectory, rootDirectory, l
     return { code, peakMemoryBytes: peakMemory, peakDiskBytes: peakDisk };
   } finally {
     clearInterval(timer); clearInterval(escalation); clearTimeout(deadline); clearTimeout(forceTimer);
+    child.stdin.destroy();
     signal.removeEventListener('abort', aborted);
   }
 }

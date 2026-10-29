@@ -1,0 +1,1016 @@
+{
+  "schema_version": 1,
+  "qualified_on": "2026-10-29",
+  "scope": "Mac source build and isolated native Electron viewer; no installed-profile or Linux claim",
+  "source_commit": "8c1c8c926407d8c688c6364653727d96085644f0",
+  "broker_source_base": "ac30a23a",
+  "synthetic_only": true,
+  "environment": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "node": "26.2.0",
+    "electron": "44.4.3",
+    "office_engine": "libreoffice-kit 0.2.3"
+  },
+  "fixture_manifest": {
+    "schema_version": 1,
+    "synthetic_only": true,
+    "generator": "python-docx/python-pptx/Pillow/pypdf/msoffcrypto; LibreOffice CLI legacy export",
+    "files": {
+      "active.svg": {
+        "bytes": 111,
+        "sha256": "bf2306a22977ebf6570b2b48821928f04f16ddea69189a383d77b0ecead00de8"
+      },
+      "animated.gif": {
+        "bytes": 1749,
+        "sha256": "60a6250721af489a83a896d8e4cb842f300cea95f1f765f7b7608f61e920f499"
+      },
+      "binary.txt": {
+        "bytes": 11,
+        "sha256": "cbe22be2d7e981ae1bf78f64cac93f7eff20617c64e7064b6ab94b0517b4d735"
+      },
+      "boundary.txt": {
+        "bytes": 262153,
+        "sha256": "0dd8ad5dd8fe89a8f09cf991ed4cc185297a23d70c21da5ba2e9f059c0793eb8"
+      },
+      "complex.doc": {
+        "bytes": 24064,
+        "sha256": "e8b6d91ab9eb8f46b5db98f2c4fa38d6f511860e5835bfcfe37796acc63522f8"
+      },
+      "complex.docx": {
+        "bytes": 39492,
+        "sha256": "7289e4b10b5020edf70f834ac4f51b498a6cc342338448dbcd8eba510e7fd41e"
+      },
+      "complex.ppt": {
+        "bytes": 517120,
+        "sha256": "058a9c2d358416f28d546759828657e7828e26077abe567cc3a2740f9afbd254"
+      },
+      "complex.pptx": {
+        "bytes": 32568,
+        "sha256": "02af182e22719c5eddfa4a08dc0b58092fe1a5fd3a52a2a71bd4366c406cfc3a"
+      },
+      "corrupt.doc": {
+        "bytes": 512,
+        "sha256": "a899fb4496afa7230c378d5be03cf3461990994993110fd2dad3257111081275"
+      },
+      "corrupt.docx": {
+        "bytes": 64,
+        "sha256": "a526b7631af37653583251d15f855c78e7b172466a4f0296533f189e4aee8bc1"
+      },
+      "corrupt.pdf": {
+        "bytes": 29,
+        "sha256": "223c2c56d22ca0e02fe964cbf9a1e43043eae2d5b3132a573038ab3cb1a766ec"
+      },
+      "corrupt.png": {
+        "bytes": 40,
+        "sha256": "3fec9519d46a611d9eda6fa4eedd94a959f7e5b6098567b2ddef705a115ae865"
+      },
+      "corrupt.ppt": {
+        "bytes": 512,
+        "sha256": "a899fb4496afa7230c378d5be03cf3461990994993110fd2dad3257111081275"
+      },
+      "corrupt.pptx": {
+        "bytes": 64,
+        "sha256": "7e636c4a2ab360023cfc7f88983d8fdb12ea133a82a24ea08fd08cd27ed79fb1"
+      },
+      "embedded.docx": {
+        "bytes": 39644,
+        "sha256": "dcac78d56a6a06df6c0f4b6a8eacb6905a694aea22bc4051ba4f9adb0dd457a2"
+      },
+      "embedded.pptx": {
+        "bytes": 32718,
+        "sha256": "2b13e44edb661647fc12598e544f7c23f9d2ff68b7857268f402c902a6b378ef"
+      },
+      "encrypted.docx": {
+        "bytes": 45056,
+        "sha256": "eee3da2000c80f2c980fe67e9cb013c3136ad1f09265c061cc1c50206aec2915"
+      },
+      "encrypted.pdf": {
+        "bytes": 1817,
+        "sha256": "27fd2beab9e5f86a42141b7386285289851d2d0a6a938f4a5a7383aa03b2b507"
+      },
+      "encrypted.pptx": {
+        "bytes": 37888,
+        "sha256": "98b8c6d5cf514e96817c3226c25e8f0ec4f7d3ecb4c4bf594d7a4964363349f8"
+      },
+      "external.svg": {
+        "bytes": 122,
+        "sha256": "d7eeb8513483b0007c897d67d4769773e18d2d9999fb139692161bf4fed62f2d"
+      },
+      "invalid-utf8.csv": {
+        "bytes": 3,
+        "sha256": "b632bfa9c60bc17f7fd78dba311fd3f5dfa66cb8c017a4278e2bae28d668844d"
+      },
+      "invalid-utf8.txt": {
+        "bytes": 3,
+        "sha256": "b632bfa9c60bc17f7fd78dba311fd3f5dfa66cb8c017a4278e2bae28d668844d"
+      },
+      "invalid.csv": {
+        "bytes": 9,
+        "sha256": "b093afbc2256282c203017756aa97a17269079b87b50172ab7904bd59437be0e"
+      },
+      "missing-font.docx": {
+        "bytes": 36689,
+        "sha256": "cd796196dff746f9b3fcc1575c73516e377eba04f0d8b5433f23c0cca93cc173"
+      },
+      "oversized.png": {
+        "bytes": 1106,
+        "sha256": "84dd333ee843bbf6023cc52a42d3177a5b6492066fc206f4a11da650dfd60428"
+      },
+      "safe.svg": {
+        "bytes": 115,
+        "sha256": "90225a0ff4e0c7266ef57f6a0f3f7b8cbe93cf75bcdaa7a12ac62ada0a78db7d"
+      },
+      "unsafe.md": {
+        "bytes": 172,
+        "sha256": "a716b5a978fcf442cfdea53b4faf638f186e7a9d1e76b0ac4403dcd9fb022f44"
+      },
+      "unsupported.bmp": {
+        "bytes": 172854,
+        "sha256": "b2d153e59b17ff7919160fd675e669a45fab027c43db0e93a1d479daf0b7c634"
+      },
+      "utf8.txt": {
+        "bytes": 58,
+        "sha256": "c4b583761a0c18673afaf7b4bace0ce1d4cd005dba82ea4629885766f70b7d3b"
+      },
+      "valid.csv": {
+        "bytes": 47,
+        "sha256": "a8eaefc5179d7775814551f86916e6718f6682ec9b49ec0be7fd70e266c50738"
+      },
+      "valid.gif": {
+        "bytes": 1310,
+        "sha256": "213f5661cdb2d4e34fc2bab32c75a7325e2a254475bc69ffcdd5a4859306d8a7"
+      },
+      "valid.jpg": {
+        "bytes": 4837,
+        "sha256": "a17eb52d4e55b321df92c5bca825d4a615f9a1537cb7bf0528d9b953f248a905"
+      },
+      "valid.pdf": {
+        "bytes": 961,
+        "sha256": "6835fcfd594e51af8e38ac047c140f682e3a888534bb48d31746891f0c6d46b1"
+      },
+      "valid.png": {
+        "bytes": 1106,
+        "sha256": "9b8b92189863005b177bf83c8bc6fde5e31a091732e0da32f039c5d70ed3e2e5"
+      },
+      "valid.webp": {
+        "bytes": 1642,
+        "sha256": "2d47bd9c36f09e8e607518cdb6a679f23e7e2d5b38b35ab9decebe9e788deae1"
+      },
+      "wrong-signature.doc": {
+        "bytes": 31,
+        "sha256": "5efc0ecec281a156ec714816c75a5cbbb3b9ce7a4b42e9982a7238df0e2dee0c"
+      },
+      "wrong-signature.ppt": {
+        "bytes": 31,
+        "sha256": "f6f4503141381dbe0f33374bd470f2c9a13c6919207e6bf94fdb165531e26813"
+      }
+    }
+  },
+  "broker_matrix": {
+    "schema_version": 1,
+    "platform": "darwin",
+    "architecture": "arm64",
+    "syntheticOnly": true,
+    "engine": "0.2.3",
+    "rows": [
+      {
+        "name": "complex.docx",
+        "kind": "office",
+        "expected": "pdf",
+        "inputBytes": 39492,
+        "inputSHA256": "7289e4b10b5020edf70f834ac4f51b498a6cc342338448dbcd8eba510e7fd41e",
+        "actual": "pdf",
+        "pages": 2,
+        "warnings": [],
+        "output": "complex.docx.pdf",
+        "outputBytes": 57958,
+        "outputSHA256": "9c9ef7595aae73bf2e58fc5e6081775b03df016cfdc79524388602b85bfe24ea",
+        "elapsedMs": 2443,
+        "originalPreserved": true
+      },
+      {
+        "name": "complex.doc",
+        "kind": "office",
+        "expected": "pdf",
+        "inputBytes": 24064,
+        "inputSHA256": "e8b6d91ab9eb8f46b5db98f2c4fa38d6f511860e5835bfcfe37796acc63522f8",
+        "actual": "pdf",
+        "pages": 2,
+        "warnings": [],
+        "output": "complex.doc.pdf",
+        "outputBytes": 57986,
+        "outputSHA256": "93d500bddda5b88ca3b8a49d94bc9d0b3e6925ecfdb97c4307254faee1889959",
+        "elapsedMs": 1514,
+        "originalPreserved": true
+      },
+      {
+        "name": "complex.pptx",
+        "kind": "office",
+        "expected": "pdf",
+        "inputBytes": 32568,
+        "inputSHA256": "02af182e22719c5eddfa4a08dc0b58092fe1a5fd3a52a2a71bd4366c406cfc3a",
+        "actual": "pdf",
+        "pages": 3,
+        "warnings": [],
+        "output": "complex.pptx.pdf",
+        "outputBytes": 41814,
+        "outputSHA256": "6661c866b9c3661ce18fcd28edb418bc64aabb9bcd36b08b32b2681aee390a82",
+        "elapsedMs": 1340,
+        "originalPreserved": true
+      },
+      {
+        "name": "complex.ppt",
+        "kind": "office",
+        "expected": "pdf",
+        "inputBytes": 517120,
+        "inputSHA256": "058a9c2d358416f28d546759828657e7828e26077abe567cc3a2740f9afbd254",
+        "actual": "pdf",
+        "pages": 3,
+        "warnings": [],
+        "output": "complex.ppt.pdf",
+        "outputBytes": 42798,
+        "outputSHA256": "c1b3db2cea74604c94676d2b18e50f861d88f363b8d5ee83515a94151bc3e1b1",
+        "elapsedMs": 1463,
+        "originalPreserved": true
+      },
+      {
+        "name": "missing-font.docx",
+        "kind": "office",
+        "expected": "pdf",
+        "inputBytes": 36689,
+        "inputSHA256": "cd796196dff746f9b3fcc1575c73516e377eba04f0d8b5433f23c0cca93cc173",
+        "actual": "pdf",
+        "pages": 1,
+        "warnings": [
+          "Missing local fonts: SparkX Missing Font QA 20261029"
+        ],
+        "output": "missing-font.docx.pdf",
+        "outputBytes": 26056,
+        "outputSHA256": "2a26c8a906b4ff8fd40e7b7163cbeb9cb3fa61758cb5b4d40a826ff77b64463c",
+        "elapsedMs": 1238,
+        "originalPreserved": true
+      },
+      {
+        "name": "encrypted.docx",
+        "kind": "office",
+        "expected": "rejected",
+        "inputBytes": 45056,
+        "inputSHA256": "eee3da2000c80f2c980fe67e9cb013c3136ad1f09265c061cc1c50206aec2915",
+        "actual": "rejected",
+        "errorCode": "invalid_document",
+        "errorMessage": "This file is not a supported ZIP document.",
+        "elapsedMs": 52,
+        "originalPreserved": true
+      },
+      {
+        "name": "encrypted.pptx",
+        "kind": "office",
+        "expected": "rejected",
+        "inputBytes": 37888,
+        "inputSHA256": "98b8c6d5cf514e96817c3226c25e8f0ec4f7d3ecb4c4bf594d7a4964363349f8",
+        "actual": "rejected",
+        "errorCode": "invalid_document",
+        "errorMessage": "This file is not a supported ZIP document.",
+        "elapsedMs": 48,
+        "originalPreserved": true
+      },
+      {
+        "name": "corrupt.docx",
+        "kind": "office",
+        "expected": "rejected",
+        "inputBytes": 64,
+        "inputSHA256": "a526b7631af37653583251d15f855c78e7b172466a4f0296533f189e4aee8bc1",
+        "actual": "rejected",
+        "errorCode": "preview_failed",
+        "errorMessage": "The local document preview could not be created.",
+        "elapsedMs": 47,
+        "originalPreserved": true
+      },
+      {
+        "name": "corrupt.pptx",
+        "kind": "office",
+        "expected": "rejected",
+        "inputBytes": 64,
+        "inputSHA256": "7e636c4a2ab360023cfc7f88983d8fdb12ea133a82a24ea08fd08cd27ed79fb1",
+        "actual": "rejected",
+        "errorCode": "preview_failed",
+        "errorMessage": "The local document preview could not be created.",
+        "elapsedMs": 47,
+        "originalPreserved": true
+      },
+      {
+        "name": "corrupt.doc",
+        "kind": "office",
+        "expected": "rejected",
+        "inputBytes": 512,
+        "inputSHA256": "a899fb4496afa7230c378d5be03cf3461990994993110fd2dad3257111081275",
+        "actual": "rejected",
+        "errorCode": "preview_failed",
+        "errorMessage": "The local document preview could not be created.",
+        "elapsedMs": 452,
+        "originalPreserved": true
+      },
+      {
+        "name": "corrupt.ppt",
+        "kind": "office",
+        "expected": "rejected",
+        "inputBytes": 512,
+        "inputSHA256": "a899fb4496afa7230c378d5be03cf3461990994993110fd2dad3257111081275",
+        "actual": "rejected",
+        "errorCode": "preview_failed",
+        "errorMessage": "The local document preview could not be created.",
+        "elapsedMs": 438,
+        "originalPreserved": true
+      },
+      {
+        "name": "wrong-signature.doc",
+        "kind": "office",
+        "expected": "rejected",
+        "inputBytes": 31,
+        "inputSHA256": "5efc0ecec281a156ec714816c75a5cbbb3b9ce7a4b42e9982a7238df0e2dee0c",
+        "actual": "rejected",
+        "errorCode": "invalid_document",
+        "errorMessage": "The file is not a binary Office document.",
+        "elapsedMs": 46,
+        "originalPreserved": true
+      },
+      {
+        "name": "wrong-signature.ppt",
+        "kind": "office",
+        "expected": "rejected",
+        "inputBytes": 31,
+        "inputSHA256": "f6f4503141381dbe0f33374bd470f2c9a13c6919207e6bf94fdb165531e26813",
+        "actual": "rejected",
+        "errorCode": "invalid_document",
+        "errorMessage": "The file is not a binary Office document.",
+        "elapsedMs": 46,
+        "originalPreserved": true
+      },
+      {
+        "name": "embedded.docx",
+        "kind": "office",
+        "expected": "unsupported",
+        "inputBytes": 39644,
+        "inputSHA256": "dcac78d56a6a06df6c0f4b6a8eacb6905a694aea22bc4051ba4f9adb0dd457a2",
+        "actual": "rejected",
+        "errorCode": "unsupported",
+        "errorMessage": "Macros and embedded objects are not supported in this preview.",
+        "elapsedMs": 60,
+        "originalPreserved": true
+      },
+      {
+        "name": "embedded.pptx",
+        "kind": "office",
+        "expected": "unsupported",
+        "inputBytes": 32718,
+        "inputSHA256": "2b13e44edb661647fc12598e544f7c23f9d2ff68b7857268f402c902a6b378ef",
+        "actual": "rejected",
+        "errorCode": "unsupported",
+        "errorMessage": "Macros and embedded objects are not supported in this preview.",
+        "elapsedMs": 58,
+        "originalPreserved": true
+      },
+      {
+        "name": "valid.csv",
+        "kind": "csv",
+        "expected": "spreadsheet",
+        "inputBytes": 47,
+        "inputSHA256": "a8eaefc5179d7775814551f86916e6718f6682ec9b49ec0be7fd70e266c50738",
+        "actual": "spreadsheet",
+        "warnings": [],
+        "output": "valid.csv.json",
+        "elapsedMs": 185,
+        "originalPreserved": true
+      },
+      {
+        "name": "invalid.csv",
+        "kind": "csv",
+        "expected": "invalid_document",
+        "inputBytes": 9,
+        "inputSHA256": "b093afbc2256282c203017756aa97a17269079b87b50172ab7904bd59437be0e",
+        "actual": "rejected",
+        "errorCode": "invalid_document",
+        "errorMessage": "The table has malformed quoted fields.",
+        "elapsedMs": 111,
+        "originalPreserved": true
+      },
+      {
+        "name": "invalid-utf8.csv",
+        "kind": "csv",
+        "expected": "unsupported_encoding",
+        "inputBytes": 3,
+        "inputSHA256": "b632bfa9c60bc17f7fd78dba311fd3f5dfa66cb8c017a4278e2bae28d668844d",
+        "actual": "rejected",
+        "errorCode": "unsupported_encoding",
+        "errorMessage": "Save this table as UTF-8 before previewing it.",
+        "elapsedMs": 163,
+        "originalPreserved": true
+      },
+      {
+        "name": "complex.xlsx",
+        "kind": "xlsx",
+        "expected": "spreadsheet",
+        "inputBytes": 7156,
+        "inputSHA256": "cb4cc574adb47e2819d736a7074374d8831f271d7a21759c36659140c821d701",
+        "actual": "spreadsheet",
+        "warnings": [],
+        "output": "complex.xlsx.json",
+        "elapsedMs": 175,
+        "originalPreserved": true
+      }
+    ],
+    "observations": [
+      {
+        "peakMemoryBytes": 460619776,
+        "peakDiskBytes": 3068547,
+        "durationMs": 2304,
+        "processJoinMs": 14
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 1,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 421478400,
+        "peakDiskBytes": 803074,
+        "durationMs": 1505,
+        "processJoinMs": 12
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 0,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 587235328,
+        "peakDiskBytes": 814149,
+        "durationMs": 1333,
+        "processJoinMs": 12
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 0,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 523206656,
+        "peakDiskBytes": 1296130,
+        "durationMs": 1456,
+        "processJoinMs": 13
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 0,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 493273088,
+        "peakDiskBytes": 2949723,
+        "durationMs": 1230,
+        "processJoinMs": 13
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 0,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 3817472,
+        "peakDiskBytes": 50525,
+        "durationMs": 45,
+        "processJoinMs": 13
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 0,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 3833856,
+        "peakDiskBytes": 43357,
+        "durationMs": 41,
+        "processJoinMs": 12
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 1,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 3866624,
+        "peakDiskBytes": 5533,
+        "durationMs": 41,
+        "processJoinMs": 12
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 1,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 3817472,
+        "peakDiskBytes": 5533,
+        "durationMs": 41,
+        "processJoinMs": 13
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 0,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 275464192,
+        "peakDiskBytes": 5979,
+        "durationMs": 444,
+        "processJoinMs": 13
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 0,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 282214400,
+        "peakDiskBytes": 5979,
+        "durationMs": 432,
+        "processJoinMs": 13
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 1,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 3850240,
+        "peakDiskBytes": 5498,
+        "durationMs": 40,
+        "processJoinMs": 13
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 1,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 3866624,
+        "peakDiskBytes": 5498,
+        "durationMs": 40,
+        "processJoinMs": 13
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 0,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 3833856,
+        "peakDiskBytes": 45113,
+        "durationMs": 54,
+        "processJoinMs": 13
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 0,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 3866624,
+        "peakDiskBytes": 38187,
+        "durationMs": 50,
+        "processJoinMs": 12
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 0,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 3768320,
+        "peakDiskBytes": 5512,
+        "durationMs": 182,
+        "processJoinMs": 12
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 0,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 3817472,
+        "peakDiskBytes": 5474,
+        "durationMs": 109,
+        "processJoinMs": 13
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 0,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 3768320,
+        "peakDiskBytes": 5468,
+        "durationMs": 161,
+        "processJoinMs": 15
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 1,
+        "released": true
+      },
+      {
+        "peakMemoryBytes": 4063232,
+        "peakDiskBytes": 12624,
+        "durationMs": 172,
+        "processJoinMs": 15
+      },
+      {
+        "phase": "cleanup",
+        "directoryCleanupMs": 1,
+        "released": true
+      }
+    ],
+    "passed": true
+  },
+  "independent_pdf_checks": {
+    "passed": true,
+    "checks": [
+      {
+        "name": "complex.docx",
+        "pages": 2,
+        "geometry": [
+          [
+            612.0,
+            792.0
+          ],
+          [
+            792.0,
+            612.0
+          ]
+        ],
+        "expectedTextPresent": true,
+        "chineseSpatialOrderCorrect": true,
+        "chineseLogicalExtractionOrderCorrect": false,
+        "nonWhitePixels": [
+          27083,
+          6398
+        ]
+      },
+      {
+        "name": "complex.doc",
+        "pages": 2,
+        "geometry": [
+          [
+            612.0,
+            792.0
+          ],
+          [
+            792.0,
+            612.0
+          ]
+        ],
+        "expectedTextPresent": true,
+        "chineseSpatialOrderCorrect": true,
+        "chineseLogicalExtractionOrderCorrect": false,
+        "nonWhitePixels": [
+          26950,
+          6398
+        ]
+      },
+      {
+        "name": "complex.pptx",
+        "pages": 3,
+        "geometry": [
+          [
+            959.981102362205,
+            540.0
+          ],
+          [
+            959.981102362205,
+            540.0
+          ],
+          [
+            959.981102362205,
+            540.0
+          ]
+        ],
+        "expectedTextPresent": true,
+        "chineseSpatialOrderCorrect": true,
+        "chineseLogicalExtractionOrderCorrect": true,
+        "nonWhitePixels": [
+          67224,
+          67365,
+          67389
+        ]
+      },
+      {
+        "name": "complex.ppt",
+        "pages": 3,
+        "geometry": [
+          [
+            960.094488188976,
+            540.0
+          ],
+          [
+            960.094488188976,
+            540.0
+          ],
+          [
+            960.094488188976,
+            540.0
+          ]
+        ],
+        "expectedTextPresent": true,
+        "chineseSpatialOrderCorrect": true,
+        "chineseLogicalExtractionOrderCorrect": true,
+        "nonWhitePixels": [
+          66908,
+          67018,
+          67041
+        ]
+      },
+      {
+        "name": "missing-font.docx",
+        "pages": 1,
+        "geometry": [
+          [
+            612.0,
+            792.0
+          ]
+        ],
+        "expectedTextPresent": true,
+        "chineseSpatialOrderCorrect": true,
+        "chineseLogicalExtractionOrderCorrect": true,
+        "nonWhitePixels": [
+          862
+        ]
+      }
+    ]
+  },
+  "native_format_matrix": {
+    "passed": true,
+    "platform": "darwin",
+    "syntheticOnly": true,
+    "nativeViewer": true,
+    "results": [
+      {
+        "name": "encrypted.pdf",
+        "outcome": "rejected",
+        "message": "This PDF requires a password. Unlock it and save an unencrypted copy before previewing.",
+        "elapsedMs": 628
+      },
+      {
+        "name": "corrupt.pdf",
+        "outcome": "rejected",
+        "message": "Invalid PDF structure.",
+        "elapsedMs": 645
+      },
+      {
+        "name": "valid.pdf",
+        "outcome": "rendered",
+        "elapsedMs": 733
+      },
+      {
+        "name": "valid.png",
+        "outcome": "rendered",
+        "elapsedMs": 366
+      },
+      {
+        "name": "valid.jpg",
+        "outcome": "rendered",
+        "elapsedMs": 375
+      },
+      {
+        "name": "valid.webp",
+        "outcome": "rendered",
+        "elapsedMs": 366
+      },
+      {
+        "name": "valid.gif",
+        "outcome": "rendered",
+        "elapsedMs": 372
+      },
+      {
+        "name": "safe.svg",
+        "outcome": "rendered",
+        "elapsedMs": 375
+      },
+      {
+        "name": "corrupt.png",
+        "outcome": "rejected",
+        "message": "Image could not be decoded.",
+        "elapsedMs": 343
+      },
+      {
+        "name": "oversized.png",
+        "outcome": "rejected",
+        "message": "Image exceeds the decoded pixel limit or has unsupported dimensions",
+        "elapsedMs": 340
+      },
+      {
+        "name": "active.svg",
+        "outcome": "rejected",
+        "message": "SVG contains unsupported active content",
+        "elapsedMs": 342
+      },
+      {
+        "name": "external.svg",
+        "outcome": "rejected",
+        "message": "SVG external resources are unavailable",
+        "elapsedMs": 348
+      },
+      {
+        "name": "animated.gif",
+        "outcome": "rejected",
+        "message": "Animated images are unavailable",
+        "elapsedMs": 350
+      },
+      {
+        "name": "unsupported.bmp",
+        "outcome": "rejected",
+        "message": "Failed to execute 'decode' on 'TextDecoder': The encoded data was not valid.",
+        "elapsedMs": 374
+      },
+      {
+        "name": "utf8.txt",
+        "outcome": "rendered",
+        "elapsedMs": 409
+      },
+      {
+        "name": "boundary.txt",
+        "outcome": "rendered",
+        "elapsedMs": 428
+      },
+      {
+        "name": "binary.txt",
+        "outcome": "rejected",
+        "message": "Binary data cannot be shown as text",
+        "elapsedMs": 342
+      },
+      {
+        "name": "invalid-utf8.txt",
+        "outcome": "rejected",
+        "message": "Failed to execute 'decode' on 'TextDecoder': The encoded data was not valid.",
+        "elapsedMs": 344
+      },
+      {
+        "name": "unsafe.md",
+        "outcome": "rendered",
+        "elapsedMs": 367
+      },
+      {
+        "name": "complex.docx.pdf",
+        "outcome": "rendered",
+        "elapsedMs": 732
+      },
+      {
+        "name": "complex.doc.pdf",
+        "outcome": "rendered",
+        "elapsedMs": 736
+      },
+      {
+        "name": "complex.pptx.pdf",
+        "outcome": "rendered",
+        "elapsedMs": 710
+      },
+      {
+        "name": "complex.ppt.pdf",
+        "outcome": "rendered",
+        "elapsedMs": 727
+      },
+      {
+        "name": "missing-font.docx.pdf",
+        "outcome": "rendered",
+        "elapsedMs": 742
+      },
+      {
+        "name": "complex.xlsx",
+        "outcome": "rendered",
+        "cachedFormulaAndSheetSwitch": true
+      }
+    ]
+  },
+  "existing_native_regression": {
+    "isolation": {
+      "bridge": "undefined",
+      "file": true,
+      "network": true,
+      "parentStorage": true
+    },
+    "formats": [
+      "text",
+      "spreadsheet",
+      "markdown",
+      "pdf",
+      "image"
+    ],
+    "sheetCopy": {
+      "html": "<table><tr><td style=\"mso-number-format:'\\@'\">00123</td></tr></table>",
+      "prevented": true,
+      "value": "00123"
+    },
+    "sheetSwitch": true,
+    "editingBlocked": true,
+    "pdfPixels": 1898884,
+    "pdfRangeRead": true,
+    "pdfPageSwitch": true,
+    "pdfNativePinch": true,
+    "pdfTwoAxisPan": true,
+    "pdfGestureAnchor": true,
+    "smoothIn": {
+      "frames": 41,
+      "maxDrift": 0.22723843058349757,
+      "minDetailDensity": 2.213649827783034,
+      "detailRenders": 4,
+      "blankFrames": 0,
+      "maxPixels": 13702692
+    },
+    "smoothOut": {
+      "frames": 1505,
+      "maxDrift": 0.25528169014080504,
+      "minDetailDensity": 2.2944381245928076,
+      "detailRenders": 16,
+      "blankFrames": 0,
+      "maxPixels": 13702692
+    },
+    "pdfNoBlankFrames": true,
+    "sharpAtMax": {
+      "count": 1,
+      "density": 2.2942571632998527,
+      "screen": 2
+    },
+    "sharpInk": 193323,
+    "pdfScreenDensity": true,
+    "percentageAutoHide": true,
+    "percentageIdleSeconds": 2,
+    "percentagePresetsOnly": true,
+    "percentagePlusMinus": true,
+    "percentagePresets": true,
+    "pdfEscapeMenuFirst": true,
+    "imageEscapeMenuFirst": true,
+    "escapeFocusRestored": true,
+    "encryptedPDFRejected": true,
+    "officeFontNoticeDismissible": true,
+    "revokedPDFUnmounted": true,
+    "revokedImageUnmounted": true,
+    "revokedChannelSilent": true,
+    "reopenAfterRevocation": true,
+    "noHorizontalScrollbar": true,
+    "pdfNoToolbar": true,
+    "imageNativePinch": true,
+    "imageNoToolbar": true,
+    "pdfZoom": true,
+    "pdfPositionRestore": true,
+    "pdfContinuousScroll": true,
+    "pdfFitWidth": true,
+    "pdfResizeAnchor": true,
+    "pdfWhiteSurface": true,
+    "privatePDFChecked": false,
+    "navigationBlocked": true
+  },
+  "frontend": {
+    "test_files": 89,
+    "tests": 556,
+    "passed": true,
+    "desktop_ui_build": "passed"
+  },
+  "visual_review": {
+    "office_contact_sheet": {
+      "documents": 5,
+      "pages": 11,
+      "confirmed": [
+        "tables",
+        "images",
+        "mixed portrait/landscape pages",
+        "wide slides",
+        "Chinese and English glyphs"
+      ],
+      "tool": "PDFium raster contact sheet"
+    },
+    "native_font_notice": {
+      "confirmed": [
+        "local overlay",
+        "readable fallback content",
+        "unchanged white reading surface"
+      ],
+      "dismissal_asserted": true
+    },
+    "scope": "Visual inspection plus structural/text assertions; no Microsoft Office reference pixel comparison."
+  },
+  "known_limits": [
+    "Missing-font inventory is observable for declared OOXML families, not complete for binary DOC/PPT.",
+    "Tested DOC/DOCX Chinese glyph positions are correct, but logical extraction groups font runs in a different order.",
+    "Encrypted legacy binary DOC/PPT were not separately authored; protected OOXML and PDF are genuine fixtures.",
+    "Static preview does not promise Office pagination, editing, recalculation, animations, macros, embedded objects, or password entry.",
+    "BMP and invalid UTF-8 can show decoder-level errors; rejection is qualified without a claim of fully localized messages."
+  ],
+  "evidence_sha256": {
+    "build-delivery.log": "55dd1d0168b36a85ccccb1d3ec99745f532c6c6b472085f0f01c9cfcef9dc44e",
+    "web-tests-final.log": "2cd57a4a8cb2288f5e20cf24eb17635860fa43bca0f784cdab33a1a4bb30eea3",
+    "full-native-final.log": "b57b2a52420ace4395efe7721e93af643d183efea64a95b615c8514659f009b0",
+    "native-delivery.log": "b0ff82641cb93f997080f8e774a9b7efc07ed50646b773b47e2d687e39419e9d",
+    "converted-baseline/format-contact-sheet.png": "0e09103b64c47464ef622b1c9ecba1e78d99f643047352714e5cfa1d97e8c1c5",
+    "native-delivery-screenshots/missing-font-notice.png": "826425928595f306007ed1f0afe16f0d30331567d7571736bd72271abe7f8d90"
+  }
+}

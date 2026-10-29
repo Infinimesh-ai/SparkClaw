@@ -1,0 +1,151 @@
+{
+  "date": "2026-10-29",
+  "source_commit": "5b2da6623c49125812622f7877df8cf0c4a72fdd",
+  "base_commit": "e9032ee4",
+  "scope": "macOS source and isolated qualification; no installation or remote change",
+  "installed_source_from_previous_delivery": "04882164",
+  "installed_app_modified": false,
+  "pushed": false,
+  "remote_services_modified": false,
+  "owner_profile_used": false,
+  "private_document_used": false,
+  "change": "Zoom controls consume Escape while their preset menu is open and restore trigger focus; the viewer forwards only unhandled bubble-phase Escape.",
+  "red_green": {
+    "baseline_failure": "pdf first Escape reached the panel: 1 !== 0",
+    "fixed_pdf_and_image": true,
+    "native_input": "Chromium Input.dispatchKeyEvent"
+  },
+  "validation": {
+    "webchat_tests": 554,
+    "desktop_tests": 580,
+    "focused_broker_tests": 9,
+    "desktop_ui_build": true,
+    "browser_layout_cases": 48,
+    "task_browser_cases": 12,
+    "native_preview": {
+      "isolation": {
+        "bridge": "undefined",
+        "file": true,
+        "network": true,
+        "parentStorage": true
+      },
+      "formats": [
+        "text",
+        "spreadsheet",
+        "markdown",
+        "pdf",
+        "image"
+      ],
+      "sheetCopy": {
+        "html": "<table><tr><td style=\"mso-number-format:'\\@'\">00123</td></tr></table>",
+        "prevented": true,
+        "value": "00123"
+      },
+      "sheetSwitch": true,
+      "editingBlocked": true,
+      "pdfPixels": 1898884,
+      "pdfRangeRead": true,
+      "pdfPageSwitch": true,
+      "pdfNativePinch": true,
+      "pdfTwoAxisPan": true,
+      "pdfGestureAnchor": true,
+      "smoothIn": {
+        "frames": 42,
+        "maxDrift": 0.22761569416502425,
+        "minDetailDensity": 2.136127083242993,
+        "detailRenders": 3,
+        "blankFrames": 0,
+        "maxPixels": 13528467
+      },
+      "smoothOut": {
+        "frames": 1505,
+        "maxDrift": 0.2569322183098848,
+        "minDetailDensity": 2.500545051595906,
+        "detailRenders": 17,
+        "blankFrames": 0,
+        "maxPixels": 13702692
+      },
+      "pdfNoBlankFrames": true,
+      "sharpAtMax": {
+        "count": 1,
+        "density": 2.500347974214349,
+        "screen": 2
+      },
+      "sharpInk": 193323,
+      "pdfScreenDensity": true,
+      "percentageAutoHide": true,
+      "percentageIdleSeconds": 2,
+      "percentagePresetsOnly": true,
+      "percentagePlusMinus": true,
+      "percentagePresets": true,
+      "pdfEscapeMenuFirst": true,
+      "imageEscapeMenuFirst": true,
+      "escapeFocusRestored": true,
+      "revokedPDFUnmounted": true,
+      "revokedImageUnmounted": true,
+      "revokedChannelSilent": true,
+      "reopenAfterRevocation": true,
+      "noHorizontalScrollbar": true,
+      "pdfNoToolbar": true,
+      "imageNativePinch": true,
+      "imageNoToolbar": true,
+      "pdfZoom": true,
+      "pdfPositionRestore": true,
+      "pdfContinuousScroll": true,
+      "pdfFitWidth": true,
+      "pdfResizeAnchor": true,
+      "pdfWhiteSurface": true,
+      "privatePDFChecked": false,
+      "navigationBlocked": true
+    },
+    "real_office_lifecycle": {
+      "synthetic_docx": true,
+      "native_sandboxed_engine": true,
+      "identity_change_injected": true,
+      "cached_pdf_read_before_logout": true,
+      "old_reference_rejected_after_logout": true,
+      "new_prepare_locked_while_signed_out": true,
+      "readers_tasks_cache_bytes_reservations_zero": true,
+      "session_directory_contains_only_owner_marker": true,
+      "same_identity_relogin_new_preview_id": true,
+      "old_preview_id_rejected_even_with_reused_reader_id": true,
+      "source_hash_preserved": true
+    },
+    "go": {
+      "build": true,
+      "vet": true,
+      "full_suite_green": false,
+      "initial_passing_packages": 74,
+      "canonical_short_temp_rerun_passed": [
+        "cmd/sparkclaw",
+        "internal/browserhost",
+        "internal/gateway: TestExecutionInstalledClientControlHTTPMatchesClosedRequestShapes"
+      ],
+      "remaining_mac_failures": [
+        "TestExecutionRealDocumentWorkflowWaitsForInstalledClientApproval",
+        "TestExecutionStartupRemovesOnlyOwnedDeploymentMemoryWorkspaces",
+        "TestExecutionRealWorkflowUsesOnlyClientContextAndNoLegacyPersistence"
+      ],
+      "reason": "Existing Linux memory-backed /dev/shm workspace requirements; Gateway source unchanged."
+    }
+  },
+  "retained_diagnostics": [
+    "sendInputEvent did not deliver keys to the hidden qualification window; replaced with Chromium native keyboard dispatch before establishing the red test.",
+    "The first revoke assertion counted a hidden 0x0 PDF.js measurement canvas as content. The final check requires no document content and only hidden zero-sized remaining canvases.",
+    "Initial Go command at workspace root did not target a module. Gateway module build/vet passed; default macOS temp symlink failures passed with a canonical short temp directory."
+  ],
+  "remaining_release_gates": [
+    "Rebuild/install the Escape fix and verify against the actual installed profile.",
+    "Complete legacy DOC/PPT, complex layout, missing-font, encrypted and corrupt-document matrix.",
+    "Actual installed logout and permission-revocation lifecycle across old channels and caches.",
+    "Real cloud placeholders, permission changes, external-volume links, large directories, rapid switching, low disk and crash cleanup.",
+    "Linux isolation, engine, packages and native UI.",
+    "Remote publication has not been performed."
+  ],
+  "source_sha256": {
+    "apps/webchat/src/local-preview/ZoomControl.tsx": "a64744808cb353b281ce690093269c49634e817156e1652fe4770428165d6cbc",
+    "apps/webchat/src/local-preview/main.tsx": "ed64b0a3cbd34197374667609df52d81f7b5d5f5c50993cf7ea88a73f575a8dd",
+    "apps/desktop/test/local-preview-native-fixture.mjs": "afb91ebea90d2bc70b1866836970ec6a9a20a6aa7f64a4626b077c3accc1e2fa",
+    "apps/desktop/test/local-preview-broker.test.mjs": "100fdd3c5ebed5ec9fd3e993b683ab767d5587fdb133fc5877fb527b2ac9a34b"
+  }
+}

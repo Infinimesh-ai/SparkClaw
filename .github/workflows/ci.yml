@@ -128,8 +128,23 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             bubblewrap procps libasound2t64 libgbm1 libgtk-3-0 libnss3 libxtst6 python3 xvfb
           npm ci
+      - name: Verify kernel support for isolated preview processes
+        run: |
+          bwrap --version
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ['unprivileged_userns_clone', 'apparmor_restrict_unprivileged_userns']:
+              path = Path('/proc/sys/kernel') / name
+              print(name, path.read_text().strip() if path.exists() else 'not present')
+          PY
+          bwrap --unshare-all --die-with-parent --ro-bind / / --proc /proc --dev /dev /bin/true
       - name: Test desktop ownership and protocol guards
-        run: npm run test:desktop
+        # Real isolated Office conversion has a measured 2 GiB Linux RSS budget.
+        # Bound file-level parallelism so unrelated short-deadline fixtures do
+        # not contend with every desktop test process at once.
+        run: |
+          npm run check:workbench-contract
+          node --test --test-concurrency=2 apps/desktop/test/*.test.mjs
       - name: Verify generated managed-script preload
         run: npm run check:desktop-managed-scripts
       - name: Qualify isolated local viewers and PDF range reads

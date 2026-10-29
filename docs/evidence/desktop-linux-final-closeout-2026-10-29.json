@@ -1,0 +1,347 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "status": "qualified",
+  "platform": "linux",
+  "architecture": "arm64",
+  "source_commit": "0c5d25dc070126e77437fb0f0399cd0bcd3271d6",
+  "supersedes_packages_from": "29623d864899de27624449873591c8e609d267ab",
+  "baseline_receipts": [
+    "docs/evidence/desktop-local-preview-linux-2026-10-29.json",
+    "docs/evidence/desktop-linux-installed-local-files-ui-2026-10-29.json",
+    "docs/evidence/desktop-linux-helper-closeout-2026-10-29.json"
+  ],
+  "scope": "Final package rebuild after restoring automatic presentation only in the dedicated task qualification window. Ordinary and workbench-qualification modes keep explicit selection. The MCP receive-ordering fix is an external pinned controller hook and is not included in the application ASAR.",
+  "build": {
+    "clean_git_archive": true,
+    "archive_sha256": "e0dc48da348bf7ef7fefaca274d1c75b441c9a4dd5c22b8be982a4a7633e9f3c",
+    "locked_dependencies_reused": true,
+    "dependency_lockfiles_unchanged_from_29623d86": true,
+    "dependency_origin": "Complete successful npm ci from the preceding qualified build; no partial or symlinked external node_modules reused. The pinned controller install hook passed --check.",
+    "node": "26.8.1",
+    "npm": "11.19.0",
+    "go": "1.25.5",
+    "environment": "Owned Debian12 arm64 container, Linux6.12.76-linuxkit, 5GiB memory / 4 CPU quota, unprivileged preview uid1100.",
+    "commands": [
+      "node tools/browser-controller/src/install-playwright-downloads.mjs --check",
+      "npm run build:desktop-ui",
+      "npm run build:iscp-helper -- linux arm64",
+      "npm run check:desktop-managed-scripts",
+      "npm --workspace @sparkclaw/desktop run dist:linux-arm64",
+      "node scripts/write-desktop-release-manifest.mjs"
+    ]
+  },
+  "artifacts": [
+    {
+      "name": "SparkX-0.1.0-linux-arm64.AppImage",
+      "bytes": 184509621,
+      "sha256": "4d424e5aec8bb308a2952938699f0a3aca45ecfea08aa6c5541ea70553730e0a"
+    },
+    {
+      "name": "SparkX-0.1.0-linux-arm64.deb",
+      "bytes": 146839428,
+      "sha256": "d058d175d990101f1356886ea630119f8a5965e3f2cdd88bd329ba9ba31ca9b9"
+    }
+  ],
+  "runtime": {
+    "electron": "44.4.3",
+    "chromium": "152.0.7977.130",
+    "node": "24.21.0"
+  },
+  "package_audit": {
+    "schema_version": 1,
+    "platform": "linux",
+    "client_scope": "public_client_source_and_ui",
+    "application_entries": 6376,
+    "ui_files": 24,
+    "preview_files": 224,
+    "iscp_helper_sha256": "4ac48dfb86127546decf762299d71223b54a4f1b4197379a5638ee9f1b62650b"
+  },
+  "payload_comparison": {
+    "baseline_source": "29623d864899de27624449873591c8e609d267ab",
+    "entries": 6003,
+    "unchanged_entries": 6002,
+    "changed": {
+      "resources/app.asar": {
+        "old": {
+          "sha256": "56f9f3c5be4278ac38800b859ad605347dcd6c2d53aa2041963c75ecc6e0b6d5",
+          "size": 3125635,
+          "type": "file"
+        },
+        "new": {
+          "sha256": "2caa27ea63fd61488af4734e6d92818f52f3b0204d58017ab9044097f1c9c952",
+          "size": 3125826,
+          "type": "file"
+        }
+      }
+    },
+    "candidate_equals_dpkg_installed": true,
+    "manifest_sha256": "55ced77cc0932a0bfa8371d307767a4fadd735019c8ff2dc7c620cff06d7c89d",
+    "application_asar": {
+      "entries": 6376,
+      "files": 5753,
+      "unchangedFiles": 5752,
+      "changed": [
+        {
+          "file": "src/main/main.mjs",
+          "before": "890e9c8cf06f254fb5603e2421f941d46acccd6d1742cb25745a500f88d855c9",
+          "after": "6d318246f855e3e3109b55cc9d4730171b7db6d131897aafb2cd2018ff55c499"
+        }
+      ],
+      "viewerAndConversionSourceIdentical": true,
+      "bridgeIdentical": true
+    },
+    "unchanged_helper_ui_viewer_conversion_assets": true
+  },
+  "packaged_execution": {
+    "event": "sparkclaw_desktop_artifacts_qualified",
+    "isolated_display": true,
+    "evidence": [
+      {
+        "artifact": "SparkX-0.1.0-linux-arm64.AppImage",
+        "launched": true,
+        "electron": "44.4.3",
+        "chromium": "152.0.7977.130",
+        "renderer_sandbox": [
+          {
+            "seccomp": 2,
+            "no_new_privileges": 1,
+            "filters": 1
+          },
+          {
+            "seccomp": 2,
+            "no_new_privileges": 1,
+            "filters": 1
+          },
+          {
+            "seccomp": 2,
+            "no_new_privileges": 1,
+            "filters": 1
+          }
+        ],
+        "unsafe_launch_rejected_before_profile": true
+      },
+      {
+        "artifact": "SparkX-0.1.0-linux-arm64.deb",
+        "launched": true,
+        "electron": "44.4.3",
+        "chromium": "152.0.7977.130",
+        "renderer_sandbox": [
+          {
+            "seccomp": 2,
+            "no_new_privileges": 1,
+            "filters": 1
+          },
+          {
+            "seccomp": 2,
+            "no_new_privileges": 1,
+            "filters": 1
+          },
+          {
+            "seccomp": 2,
+            "no_new_privileges": 1,
+            "filters": 1
+          }
+        ],
+        "unsafe_launch_rejected_before_profile": true
+      }
+    ]
+  },
+  "required_elf_dependency_closure": {
+    "all_resolved": true,
+    "all_system_libraries_declared_transitively": true,
+    "depends": "libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0, bubblewrap, procps, libgbm1, libasound2t64 | libasound2",
+    "libraries": 99,
+    "identical_to_29623d86_receipt": true,
+    "sha256": "d7cd6bc18eaecd1c4056248af66755493daa1fb71b4f26e1a82592b1b24f7adc"
+  },
+  "installed_ui": {
+    "ordinary_installed_binary": true,
+    "binary": "/opt/SparkX/sparkx",
+    "qualification_mode": false,
+    "no_sandbox": false,
+    "basic_text": false,
+    "synthetic_https_identity_and_documents_only": true,
+    "backend_scope": "Loopback synthetic HTTPS implements identity, installation and auth routes. Unrelated requests return 404; screenshots do not validate the production workbench backend.",
+    "driver_sha256": "c34788c2be7357d5497e79dae1efe58cd8a721d82f4bf9a41f4e32a75b94245f",
+    "raw_receipt_sha256": "0a2b193b5002aa6b668c74646e7a9326c11497abf416bb16dfa2977f99ed3531",
+    "passed": true,
+    "checks": {
+      "realEncryptedCredential": {
+        "bytes": 339,
+        "prefix": "v11",
+        "secureStoreAccepted": true,
+        "plaintextTokenAbsent": true
+      },
+      "rootsOnly": true,
+      "pdfCanvasPainted": true,
+      "legacyDOC": true,
+      "pdf": true,
+      "escapeMenuThenPanel": true,
+      "missingFontDismissible": true,
+      "encryptedPDFVisibleError": true,
+      "logoutPanelAndCacheCleared": true,
+      "http401PanelAndCacheCleared": true
+    },
+    "keyring_collection": {
+      "itemCount": 2,
+      "unlocked": true
+    },
+    "renderer_sandbox": [
+      {
+        "seccomp": 2,
+        "noNewPrivs": 1,
+        "noSandbox": false
+      },
+      {
+        "seccomp": 2,
+        "noNewPrivs": 1,
+        "noSandbox": false
+      },
+      {
+        "seccomp": 2,
+        "noNewPrivs": 1,
+        "noSandbox": false
+      }
+    ],
+    "logout_and_401_remaining_cache_entries": "Only the live-process 48-byte owner.json marker; no document payload remains.",
+    "binary_sha256": "b0a14e829b70da12c7a9bb3fd4712bff35ba2ed25910a56af4bfb6d0b529b56d",
+    "app_asar_sha256": "2caa27ea63fd61488af4734e6d92818f52f3b0204d58017ab9044097f1c9c952",
+    "preview_assets": {
+      "files": 224,
+      "manifestSHA256": "e01a4b1a3e55c721f3b5de03e487485ca6ef1d8fd321edd559e1481eabea8337"
+    },
+    "screenshots_visually_checked": [
+      "02-doc.png",
+      "04b-font-dismissed.png",
+      "05-encrypted-pdf.png"
+    ]
+  },
+  "installed_task_qualification": {
+    "actual_installed_binary": "/opt/SparkX/sparkx",
+    "arguments": [
+      "--qualification",
+      "--disable-gpu"
+    ],
+    "source_main_argument_omitted": true,
+    "runner_difference": "Only the executable path and removal of the development main-file argument differ from the full committed runner; every assertion and timeout is preserved.",
+    "renderer_and_main_process_restarts_use_installed_binary": true,
+    "exit_code": 0,
+    "evidence": {
+      "schema_version": 1,
+      "isolated_display": true,
+      "versions": {
+        "electron": "44.4.3",
+        "chromium": "152.0.7977.130",
+        "node": "24.21.0",
+        "architecture": "arm64"
+      },
+      "mcp": {
+        "actual_client": true,
+        "navigate": true,
+        "read": true,
+        "snapshot": true,
+        "fill": true,
+        "click": true,
+        "screenshot": true,
+        "download_artifact": true,
+        "download_source_cleaned": true
+      },
+      "cli": {
+        "actual_client": true,
+        "attach": true,
+        "navigate": true,
+        "snapshot": true,
+        "fill": true,
+        "click": true,
+        "evaluate_read": true,
+        "screenshot": true,
+        "open_close_page": true
+      },
+      "isolation": {
+        "personal_target_hidden": true,
+        "native_pointer_blocked": true,
+        "native_keyboard_blocked": true,
+        "native_context_menu_blocked": true,
+        "native_shortcuts_blocked": true,
+        "native_paste_blocked": true,
+        "native_drag_drop_blocked": true,
+        "native_ime_sequence_blocked": true,
+        "javascript_dialog_dismissed": true,
+        "devtools_closed": true,
+        "automation_input_working": true
+      },
+      "observation": {
+        "opaque_target_stable": true,
+        "viewport_bounds_stable": true,
+        "switching_did_not_replace_target": true,
+        "hidden_background_execution": true
+      },
+      "login": {
+        "provider_website_tested": false,
+        "local_session_cookie_persisted": true
+      },
+      "lifecycle": {
+        "close_to_hide": true,
+        "same_runtime_reopened": true,
+        "workbench_renderer_recovered": true,
+        "task_renderer_invalidated": true,
+        "main_restart_generation_invalidated": true,
+        "browser_session_persisted_across_restart": true,
+        "unknown_effects_replayed": false
+      },
+      "scripts": {
+        "document_start_main_world": true,
+        "gm_persistence": true,
+        "gm_menu_command": true
+      },
+      "app_cli": {
+        "public_registry": true,
+        "runtime_v2": true,
+        "resident_executor": true,
+        "browser_host": true,
+        "actual_owned_page": true,
+        "actual_cli_click": true,
+        "lifecycle3_identity": true,
+        "idempotent_replay": true,
+        "cleanup": true,
+        "non_mail_application": true,
+        "late_private_fields": true
+      },
+      "targets": {
+        "worker_scoped": true,
+        "oopif_scoped": true,
+        "popup_adopted": true
+      }
+    }
+  },
+  "reused_checks": {
+    "full_format_compatibility_and_60_page_stress": "Byte-identical viewer, engine and preview sources/resources to the qualified 296/64 baseline; broad format and memory/cancellation qualification remains valid.",
+    "go_race": "The installed helper SHA256 is identical to 29623d86; Linux iscpbridge and cmd/iscp-workbench -race evidence is retained in desktop-linux-helper-closeout-2026-10-29.json."
+  },
+  "evidence_sha256": {
+    "linux-release-0c5d25dc-build.log": "18e479a50a091168005f67f59b05afd329cb4b2b5a9853a9a5c63ede56817ee4",
+    "linux-packages-0c5d25dc-qualified.log": "936e17d9cdcb37d868eea8dc672a420b6b8f6115d070ee607ecb9b050b74ea94",
+    "linux-install-0c5d25dc.log": "e033e0a2bb5bc94d605c35c180485c786109e3bf9303a152ebc90c7745583532",
+    "linux-installed-ui-0c5d25dc.log": "79403096dad2415b2d03b4224131dcacbd7fde0f426338ba46c9eb08687e36c9",
+    "linux-dependency-closure-0c5d25dc.json": "d7cd6bc18eaecd1c4056248af66755493daa1fb71b4f26e1a82592b1b24f7adc",
+    "linux-installed-full-qualification-0c5d25dc.mjs": "2aaa2252d8e04c4d20200fd5e17d5fd99faf0ae3dfcf28c6e54e8cdb0248fa8d",
+    "linux-installed-full-qualification-0c5d25dc.log": "9d75dbd6de1a65704111ba47c218ff25287df6d04d89ccf287c753e1883f6c20",
+    "asar-0c5d25dc-delta.json": "6d275055da50f999a412df479d293d0f0c4e23443778d57ca7e6624a61e53692",
+    "payload-0c5d25dc-delta.json": "ec8d1de0a5e90d1ee54e05f9992e9e6f260dc896c0d4a70d31d1c0549967b8ba",
+    "installed-payload-0c5d25dc.json": "55ced77cc0932a0bfa8371d307767a4fadd735019c8ff2dc7c620cff06d7c89d",
+    "linux-final-processes-0c5d25dc.log": "1b5f9c4eabde7bf1987d0712e94d199033b521b0ca4014090fec35f81c0c7406",
+    "installed-ui-0c5d25dc/02-doc.png": "27bf4ac2bebd2b64159ffb40f9000d258696f4a33539b6dd8953b2ffe780251e",
+    "installed-ui-0c5d25dc/04b-font-dismissed.png": "16692f24ee7fb0f412e7b2b98fd015c734033939883cb89b750d5636b8114d6e",
+    "installed-ui-0c5d25dc/05-encrypted-pdf.png": "e74cd0e4a5f4fb94c1ccf873c5cdaa90dd857fcfbad80782a7534a6e16f0af85"
+  },
+  "live_owned_preview_processes_after_exit": 0,
+  "limits": [
+    "Linux arm64 Debian12/Xvfb; not a claim about every distribution, x64 or Wayland.",
+    "AppImage was extracted and its real executable launched; direct FUSE mounting is not exercised in this container.",
+    "Unprivileged namespaces and real Secret Service remain required. No sandbox or credential-storage fallback was enabled.",
+    "Real cloud placeholders and encrypted legacy DOC/PPT remain explicitly owner-waived baseline gates."
+  ],
+  "production_services_changed": false,
+  "hosted_ci_status": "Tracked separately by the aggregate CI receipt; this local receipt does not claim hosted CI completion."
+}

@@ -117,9 +117,9 @@ export function LocalFilesPanel({ files, open, visible, language, wide, onWideCh
       const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
       buttons[next].focus(); buttons[next].click();
     }}>
-      <div className={`desktopTab ${state.active === "files" ? "selected" : ""}`}><button className="desktopTabSelect" type="button" role="tab" aria-selected={state.active === "files"} onClick={() => { updateState({ active: "files" }); onShowFiles(); }}><Folder size={14} /><span>{zh ? "文件" : "Files"}</span></button></div>
-      {tabs.map(tab => <div className={`desktopTab ${state.active === tab.file.locator ? "selected" : ""}`} key={tab.file.locator} title={tab.file.displayPath}>
-        <button type="button" className="desktopTabSelect" role="tab" aria-selected={state.active === tab.file.locator} onClick={() => { updateState({ active: tab.file.locator }); onShowFiles(); }}
+      <div className={`desktopTab ${!conversationInFront && state.active === "files" ? "selected" : ""}`}><button className="desktopTabSelect" type="button" role="tab" aria-selected={!conversationInFront && state.active === "files"} onClick={() => { updateState({ active: "files" }); onShowFiles(); }}><Folder size={14} /><span>{zh ? "文件" : "Files"}</span></button></div>
+      {tabs.map(tab => <div className={`desktopTab ${!conversationInFront && state.active === tab.file.locator ? "selected" : ""}`} key={tab.file.locator} title={tab.file.displayPath}>
+        <button type="button" className="desktopTabSelect" role="tab" aria-selected={!conversationInFront && state.active === tab.file.locator} onClick={() => { updateState({ active: tab.file.locator }); onShowFiles(); }}
           onKeyDown={event => { if (event.key === "Delete") { event.preventDefault(); closeTab(tab); } }}><span>{tab.file.name}</span></button>
         <button type="button" className="desktopTabClose" aria-label={`${zh ? "关闭" : "Close"} ${tab.file.name}`} onClick={() => closeTab(tab)}><X size={13} /></button>
       </div>)}
@@ -128,9 +128,8 @@ export function LocalFilesPanel({ files, open, visible, language, wide, onWideCh
       <button type="button" className="iconButton" title={zh ? "收起文件" : "Collapse files"} aria-label={zh ? "收起文件" : "Collapse files"} onClick={onCollapse}><PanelRightClose size={15} /></button></div>
   </div>;
   return <>
-    {open && conversationInFront !== undefined && <ClientTitlebarBrowser active panel={panelRef}>{tabBar}</ClientTitlebarBrowser>}
     <aside ref={panelRef} className={`taskInspector desktopBrowserPanel localFilesPanel ${wide ? "wide" : ""}`} hidden={!visible} aria-label={zh ? "文件" : "Files"}>
-      {conversationInFront === undefined && tabBar}
+      <ClientTitlebarBrowser active={visible || Boolean(open && conversationInFront)} panel={panelRef}>{tabBar}</ClientTitlebarBrowser>
       {error && <p role="alert" className="localFilesError">{error}</p>}
       {loaded && <LocalFileTree key={generation} files={files} roots={roots} visible={visible && state.active === "files"} zh={zh} state={state} onState={updateState} onOpen={entry => void openFile(entry)} />}
       {state.active === "files" && <button type="button" className="localFilesClear" onClick={() => void clear()}>{zh ? "清除本地预览缓存与阅读记录" : "Clear local previews and reading history"}</button>}

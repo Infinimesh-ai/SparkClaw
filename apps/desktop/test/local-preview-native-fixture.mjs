@@ -12,10 +12,10 @@ protocol.registerSchemesAsPrivileged(['sparkclaw-app','sparkclaw-preview'].map(s
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const host=`<!doctype html><meta charset="utf-8"><style>html,body{margin:0;height:100%}iframe{width:100%;height:100%;border:0}</style><script>
 window.sparkclawLocalFiles={secret:'workbench-only'};localStorage.setItem('workbench-secret','private');
-let current,port,sequence=0;window.receipts=[];
+let current,port,sequence=0;window.receipts=[];window.positions=[];
 window.openFixture=(document,bytes,model)=>{if(port){port.postMessage({type:'revoke'});port.close();}document={...document,id:'document-'+(++sequence),generation:sequence,loginGeneration:'login',language:'en'};current={document,bytes,model};const frame=documentCreate();return document.id;};
 function documentCreate(){document.querySelector('iframe')?.remove();const frame=document.createElement('iframe');frame.sandbox='allow-scripts allow-same-origin';frame.src='sparkclaw-preview://viewer/index.html';document.body.append(frame);return frame;}
-addEventListener('message',event=>{if(event.origin!=='sparkclaw-preview://viewer'||event.source!==document.querySelector('iframe')?.contentWindow||event.data?.type!=='sparkclaw-preview:ready')return;const channel=new MessageChannel();port=channel.port1;port.onmessage=({data:m})=>{window.receipts.push(m.operation||m.type);if(m.type!=='request')return;const value=m.operation==='read'?{bytes:new Uint8Array(current.bytes.slice(m.offset,m.offset+m.length))}:m.operation==='model'?current.model:undefined;port.postMessage({...m,type:'response',ok:value!==undefined,value,error:{message:'Unavailable fixture'}});};port.start();event.source.postMessage({type:'sparkclaw-preview:init',protocol:1,document:current.document},event.origin,[channel.port2]);});
+addEventListener('message',event=>{if(event.origin!=='sparkclaw-preview://viewer'||event.source!==document.querySelector('iframe')?.contentWindow||event.data?.type!=='sparkclaw-preview:ready')return;const channel=new MessageChannel();port=channel.port1;port.onmessage=({data:m})=>{window.receipts.push(m.operation||m.type);if(m.type==='position')window.positions.push(m.position);if(m.type!=='request')return;const value=m.operation==='read'?{bytes:new Uint8Array(current.bytes.slice(m.offset,m.offset+m.length))}:m.operation==='model'?current.model:undefined;port.postMessage({...m,type:'response',ok:value!==undefined,value,error:{message:'Unavailable fixture'}});};port.start();event.source.postMessage({type:'sparkclaw-preview:init',protocol:1,document:current.document},event.origin,[channel.port2]);});
 </script><body></body>`;
 app.whenReady().then(async()=>{
  app.dock?.hide();let window;
@@ -50,10 +50,10 @@ app.whenReady().then(async()=>{
   await load('pdf','fixture.pdf',Buffer.from(pdf));await until(()=>evaluate("Boolean(document.querySelector('.react-pdf__Page canvas'))"),'PDF canvas missing');
   await until(()=>evaluate("document.querySelector('.react-pdf__Page__textContent')?.textContent.includes('Local PDF')"),'PDF selectable text missing');await evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");const canvas=await evaluate("(()=>{const c=document.querySelector('.react-pdf__Page canvas');return {width:c.width,height:c.height};})()");assert.ok(canvas.width*canvas.height<=8_000_000);
   await screenshot('pdf');const before=await evaluate('location.href');await evaluate("location.href='sparkclaw-app://workbench/index.html'");await pause(150);assert.equal(frame.url,before);
-  const ranged=pdfRangeFixture();
+  const ranged=pdfRangeFixture(12,true);
   const expectPDFPage=async text=>until(async()=>{
     const problem=await evaluate("document.querySelector('[role=alert]')?.textContent");if(problem)throw new Error('ranged PDF: '+problem);
-    return evaluate(`Boolean(document.querySelector('.react-pdf__Page canvas')) && document.querySelector('.react-pdf__Page__textContent')?.textContent.includes(${JSON.stringify(text)})`);
+    return evaluate(`Boolean(document.querySelector('.react-pdf__Page canvas')) && [...document.querySelectorAll('.react-pdf__Page__textContent')].some(node=>node.textContent.includes(${JSON.stringify(text)}))`);
   },'ranged PDF page missing');
   await load('pdf','ranges.pdf',ranged);await expectPDFPage('Range page 1');
   await evaluate("document.querySelector('[aria-label=\"Next page\"]').click()");await expectPDFPage('Range page 2');
@@ -62,8 +62,30 @@ app.whenReady().then(async()=>{
   await load('text','switch.txt',Buffer.from('Switch away while retaining PDF reading state'));
   await until(()=>evaluate("Boolean(document.querySelector('pre'))"),'switch-away text missing');
   await load('pdf','ranges.pdf',ranged,null,{page:3,zoom:1.25});await expectPDFPage('Range page 3');
-  assert.equal(await evaluate("document.querySelectorAll('.react-pdf__Page canvas').length"),1);
-  assert.ok(await evaluate("(()=>{const c=document.querySelector('.react-pdf__Page canvas');return c.width*c.height<=8000000})()"));
+  const budget=()=>evaluate("(()=>{const canvases=[...document.querySelectorAll('.react-pdf__Page canvas')];return canvases.length<=16 && canvases.reduce((sum,c)=>sum+c.width*c.height,0)<=8000000})()");
+  assert.ok(await budget());
+  // Viewport scrolling crosses page boundaries and retires distant canvases.
+  await evaluate("document.querySelector('.pdfPageViewport').scrollTop += 1700");
+  await until(()=>evaluate("Number(document.querySelector('[aria-label=\"Page number\"]').value)>3"),'scroll did not advance page');
+  await until(()=>run("positions.at(-1)?.page>3"),'scroll position missing');
+  const reading=await run('positions.at(-1)');
+  await expectPDFPage('Range page '+reading.page);
+  await evaluate("[...document.querySelectorAll('button')].find(b=>b.textContent==='Fit width').click()");
+  await until(()=>evaluate("document.querySelector('.previewToolbar').textContent.includes('100%')"),'fit width missing');
+  await until(()=>evaluate("(()=>{const view=document.querySelector('.pdfPageViewport'),canvas=document.querySelector('.react-pdf__Page canvas');return Math.abs(canvas.getBoundingClientRect().width-view.clientWidth)<=1})()"),'PDF does not fill viewport');
+  assert.equal(await evaluate("getComputedStyle(document.documentElement).backgroundColor"),'rgb(255, 255, 255)');
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('.pdfToolbar')).backgroundColor"),'rgb(255, 255, 255)');
+  await pause(100);const restored=await run('positions.at(-1)');
+  assert.ok(restored.offset>0 && restored.offset<1);
+  await load('text','switch.txt',Buffer.from('Leave continuous PDF'));
+  await load('pdf','ranges.pdf',ranged,null,restored);await expectPDFPage('Range page '+restored.page);
+  await until(()=>run(`Math.abs(positions.at(-1)?.offset-${restored.offset})<0.01 && positions.at(-1)?.page===${restored.page}`),'relative reading position not restored');
+  window.setSize(600,800);
+  await until(()=>evaluate("document.querySelector('.pdfPageViewport').clientWidth<650"),'panel resize missing');
+  await until(()=>evaluate("(()=>{const view=document.querySelector('.pdfPageViewport'),canvas=document.querySelector('.react-pdf__Page canvas');return Math.abs(canvas.getBoundingClientRect().width-view.clientWidth)<=1})()"),'resized PDF does not fill width');
+  await until(()=>run(`Math.abs(positions.at(-1)?.offset-${restored.offset})<0.01 && positions.at(-1)?.page===${restored.page}`),'resize moved reading position');
+  assert.ok(await budget());
+  assert.equal(await evaluate("Boolean(document.querySelector('[data-page=\"1\"] canvas'))"),false);
   await screenshot('pdf-ranges');
   if(process.env.SPARKCLAW_PREVIEW_TEST_PDF){
     const bytes=await fs.readFile(process.env.SPARKCLAW_PREVIEW_TEST_PDF);assert.ok(bytes.length<=32*1024*1024);
@@ -74,6 +96,6 @@ app.whenReady().then(async()=>{
   }
   await load('image','pixel.png',Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jGv0AAAAASUVORK5CYII=','base64'));await until(()=>evaluate("document.querySelector('.imageViewport img')?.naturalWidth===1"),'image did not decode');
   await evaluate("dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");await until(()=>run("receipts.includes('escape')"),'Escape was not forwarded');
-  const result={isolation,formats:['text','spreadsheet','markdown','pdf','image'],sheetCopy:copy,sheetSwitch:true,editingBlocked:true,pdfPixels:canvas.width*canvas.height,pdfRangeRead:true,pdfPageSwitch:true,pdfZoom:true,pdfPositionRestore:true,privatePDFChecked:Boolean(process.env.SPARKCLAW_PREVIEW_TEST_PDF),navigationBlocked:true};console.log(JSON.stringify(result));window.destroy();app.exit(0);
+  const result={isolation,formats:['text','spreadsheet','markdown','pdf','image'],sheetCopy:copy,sheetSwitch:true,editingBlocked:true,pdfPixels:canvas.width*canvas.height,pdfRangeRead:true,pdfPageSwitch:true,pdfZoom:true,pdfPositionRestore:true,pdfContinuousScroll:true,pdfFitWidth:true,pdfResizeAnchor:true,pdfWhiteSurface:true,privatePDFChecked:Boolean(process.env.SPARKCLAW_PREVIEW_TEST_PDF),navigationBlocked:true};console.log(JSON.stringify(result));window.destroy();app.exit(0);
  }catch(error){console.error(error.stack);window?.destroy();app.exit(1);}
 });

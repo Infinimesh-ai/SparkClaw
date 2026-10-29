@@ -6,6 +6,7 @@ import { LocalFilesPanel } from "./LocalFilesPanel";
 import { LocalDocumentPreview } from "./LocalDocumentPreview";
 import { localFilesCapability, type LocalFile, type LocalFileChange, type LocalFilesBridge } from "./localFiles";
 import { validDocument, type PreviewDocument } from '../local-preview/channel';
+import { ClientWindow, WorkspaceTitlebar } from '../components/clientWindow';
 
 const directory: LocalFile = { ref: "root", locator: "/fixtures", name: "Fixtures", kind: "directory", size: 0, version: "v1", displayPath: "/fixtures" };
 const documentFile = (id: string): LocalFile => ({ ref: id, locator: `/fixtures/${id}/report.txt`, name: "report.txt", kind: "file", size: 4, version: "v1", displayPath: `/fixtures/${id}/report.txt` });
@@ -59,6 +60,31 @@ it("retains independent same-name tabs, tree selection and lightweight state whi
     expect(f.host.querySelectorAll('[role="tab"]')).toHaveLength(2);
     expect(f.files.release).toHaveBeenCalledWith("one");
   } finally { await f.close(); }
+});
+
+it("places file tabs in the desktop title bar in split and covering layouts, with one copy of the controls", async () => {
+  const mock = bridge(), host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host), collapse = vi.fn();
+  vi.mocked(mock.files.loadState).mockResolvedValue({ generation: 'login-1', state: { tabs: [{ locator: mock.first.locator }], active: mock.first.locator, expanded: [], scrollTop: 0, showHidden: false, filter: '' } });
+  const render = (visible: boolean, conversationInFront?: boolean) => act(async () => root.render(<ClientWindow>
+    <WorkspaceTitlebar language="en" actions={<button>Browser</button>} />
+    <LocalFilesPanel files={mock.files} open visible={visible} language="en" wide={false} onWideChange={() => {}} onCollapse={collapse} onShowFiles={() => {}} conversationInFront={conversationInFront} />
+  </ClientWindow>));
+  try {
+    await render(true);
+    expect(host.querySelector('.clientTitlebar [role="tab"][aria-selected="true"]')?.textContent).toBe('report.txt');
+    expect(host.querySelector('.localFilesPanel [role="tablist"]')).toBeNull();
+    expect(host.querySelectorAll('[aria-label="Collapse files"]')).toHaveLength(1);
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Collapse files"]')!.click());
+    expect(collapse).toHaveBeenCalledOnce();
+    await render(false, true);
+    expect(host.querySelector('.clientTitlebar [role="tablist"]')).not.toBeNull();
+    expect(host.querySelector('iframe')).toBeNull();
+    await render(false);
+    expect(host.querySelector('.clientTitlebar [role="tablist"]')).toBeNull();
+    await render(true);
+    expect(host.querySelectorAll('iframe')).toHaveLength(1);
+  } finally { await act(async () => root.unmount()); }
 });
 
 it("clears document frames and readable state on permission loss and login revocation", async () => {

@@ -115,7 +115,7 @@ Use a small local registry mapping supported file types to lazy-loaded readers. 
 
 | Format | Selected approach | First-version behavior and limits |
 |---|---|---|
-| PDF | react-pdf with PDF.js | Page navigation, zoom, fit width and selectable text; bound rendered pages/pixels and cancel retired loads. Full-text search requires its own implementation and is not implied by installing the package |
+| PDF | react-pdf with PDF.js | Continuous vertical scrolling, page navigation, zoom, fit width and selectable text on a white surface; bound rendered pages/pixels and cancel retired loads. Full-text search requires its own implementation and is not implied by installing the package |
 | DOC/DOCX, PPT/PPTX | Bundled @deepseek-ai/libreoffice-kit to PDF, then the same PDF viewer | Static layout preview, missing-font feedback when available; no editing, slideshow animation or macro execution |
 | XLSX | ExcelJS parser and FortuneSheet in read-only mode | Sheets, cell selection/copy, saved formula results and supported basic styles/merges; no recalculation, editing or source export |
 | CSV/TSV | PapaParse and the same spreadsheet surface | Preserve literal strings, leading zeros and formula-looking text; quoted/multiline fields and encoding failures are explicit |
@@ -285,3 +285,11 @@ An owner-reported DOCX preview failed after successful conversion to a 41-page P
 Source `db1ed7b9` assembles each requested interval before one callback, serializes intervals to retain one assembly buffer, caps queued requests, and stops stale/error page work. IPC reads remain bounded and original files stay read-only. A generated multi-window PDF reproduces the old failure without user content; fixed native checks cover range reads, page switching, zoom, reading-position restoration and the five existing viewer formats. This native fixture is added to the Electron CI job; a Linux CI run is not claimed here.
 
 All 552 frontend tests and production build passed. A fresh arm64 package passed source/resource, DMG and 6,946-entry installation checks. Profiles were cold-backed up (76 databases / 343 tables), with bytes/modes unchanged before launch. The installed version reopened the same original DOCX and displayed pages 1 and 2 of 41; its source hash is unchanged. No push or remote service change. See the [sanitized correction receipt](evidence/desktop-local-pdf-range-fix-2026-10-29.json). The broader format, font and Linux gates remain open.
+
+## 14 Continuous document reading — 2026-10-29
+
+At the owner's request, document surfaces and toolbars use white with neutral gray separators. File tabs use the existing browser title-bar portal in both split and covering layouts. The pinned Files tab, filename tabs, close/resize/collapse controls and file tree remain available; the file strip uses two columns so the window actions no longer occupy the browser's unused new-tab column.
+
+PDF and converted Office pages scroll continuously and fit the panel width without an inset frame. Page navigation, selectable text, zoom and fit-width controls remain. Resizing or reopening restores a page-relative reading position, including for mixed page sizes. Only the visible pages and adjacent pages render, with at most 16 canvases, 8 million aggregate canvas pixels, 4,096 pixels per canvas dimension and DPR at most 2; retired pages release canvas and PDF.js resources. Source admission remains 64 MiB; page geometry is capped at 10,000 pages. These are conservative code limits, not full malformed-document or platform qualification.
+
+The production build and 553 frontend tests passed. The native Electron fixture covers continuous scrolling, mixed page sizes, white surfaces, fit width, panel resize, reading-position restoration and canvas retirement/budgets, alongside the previous range-read and five-format isolation checks. The private 41-page regression PDF also renders successfully. Installed-app verification follows packaging; no shared contract or counterpart work is required.

@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Page } from 'react-pdf';
 import type { PDFPageProxy } from 'pdfjs-dist';
 
-type Raster = { id: number; width: number; ratio: number; pixels: number; release: () => void };
+export type Raster = { id: number; width: number; ratio: number; pixels: number; release: () => void };
 
 // Both the visible raster and its replacement count toward the same limit.
 export class PdfRasterBudget {
@@ -12,7 +12,7 @@ export class PdfRasterBudget {
   private listeners = new Set<() => void>();
   reserve(width: number, height: number, ratio: number): Raster | undefined {
     const pixels = Math.ceil(width * ratio) * Math.ceil(height * ratio);
-    if (this.count >= 32 || this.pixels + pixels > 8_000_000) return;
+    if (this.count >= 64 || this.pixels + pixels > 16_000_000) return;
     this.pixels += pixels; this.count++;
     let released = false;
     return { id: ++this.next, width, ratio, pixels, release: () => {
@@ -27,15 +27,9 @@ export class PdfRasterBudget {
 const RasterPage = memo(function RasterPage({ number, raster, ready, loaded, onError }: {
   number: number; raster: Raster; ready: (id: number) => void; loaded: (page: PDFPageProxy) => void; onError: (cause: Error) => void;
 }) {
-  const complete = useRef({ canvas: false, text: false });
-  const finish = (part: 'canvas' | 'text') => {
-    complete.current[part] = true;
-    if (complete.current.canvas && complete.current.text) ready(raster.id);
-  };
   return <Page pageNumber={number} width={raster.width} devicePixelRatio={raster.ratio} suspense={false}
-    _enableRegisterUnregisterPage={false} renderAnnotationLayer={false} renderTextLayer loading={null}
-    onLoadSuccess={loaded} onRenderSuccess={() => finish('canvas')} onRenderTextLayerSuccess={() => finish('text')}
-    onGetTextError={() => finish('text')} onRenderTextLayerError={() => finish('text')}
+    _enableRegisterUnregisterPage={false} renderAnnotationLayer={false} renderTextLayer={false} loading={null}
+    onLoadSuccess={loaded} onRenderSuccess={() => ready(raster.id)}
     onLoadError={onError} onRenderError={onError} />;
 });
 

@@ -1,14 +1,16 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { Page } from 'react-pdf';
 import type { DocumentChannel } from './channel';
 import { usePinchZoom, type ZoomPoint } from './usePinchZoom';
 import { PdfRasterBudget, StablePdfPage } from './StablePdfPage';
 import { ZoomControl } from './ZoomControl';
 import { scrollPadding } from './zoomGeometry';
+import { SharpPdfRegion } from './SharpPdfRegion';
 
 const GAP = 8;
 const MAX_CANVASES = 16;
-const FRAME_PIXEL_BUDGET = 3_900_000; // Leave room for the completed frame and rounding.
+const FRAME_PIXEL_BUDGET = 1_900_000; // Fallback pages; visible detail has a separate 5.9M frame target.
 type Anchor = { page: number; offset: number };
 type PageBox = { top: number; width: number; height: number };
 
@@ -57,6 +59,15 @@ export function PdfReader({ pdf, channel, onError }: { pdf: PDFDocumentProxy; ch
   const pixels = visiblePages.reduce((sum, number) => sum + boxes[number - 1].width * boxes[number - 1].height, 0);
   const pixelRatio = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(FRAME_PIXEL_BUDGET / pixels),
     ...visiblePages.map(number => 4096 / Math.max(boxes[number - 1].width, boxes[number - 1].height)));
+  const regions = visiblePages.map(number => {
+    const box = boxes[number - 1], left = (stackWidth - box.width) / 2;
+    const x = Math.max(0, view.left - left), y = Math.max(0, view.top - box.top);
+    return { x, y, width: Math.max(0, Math.min(box.width, view.left + view.width - left) - x),
+      height: Math.max(0, Math.min(box.height, view.top + view.height - box.top) - y) };
+  });
+  const detailPixels = regions.reduce((sum, region) => sum + (region.width > 0 && region.height > 0 ? (region.width + 96) * (region.height + 96) : 0), 0);
+  const detailRatio = Math.min((window.devicePixelRatio || 1) * 1.5, Math.sqrt(5_900_000 / Math.max(1, detailPixels)),
+    4096 / (Math.max(view.width, view.height) + 96));
 
   useLayoutEffect(() => {
     const node = viewport.current; if (!node) return;
@@ -136,10 +147,14 @@ export function PdfReader({ pdf, channel, onError }: { pdf: PDFDocumentProxy; ch
   return <div className="pdfPreview">
     <div className="pdfPageViewport" ref={viewport} onScroll={event => updateAnchor(event.currentTarget)} tabIndex={0} aria-label={zh ? '文档内容' : 'Document content'}>
       <div className="pdfPageStack" style={{ height: totalHeight + padding.top + padding.bottom, width: stackWidth + padding.left + padding.right }}>
-        {visiblePages.map(number => {
+        {visiblePages.map((number, index) => {
           const box = boxes[number - 1];
           return <div className="pdfPageSlot" key={number} data-page={number} style={{ top: padding.top + box.top, left: padding.left + (stackWidth - box.width) / 2, width: box.width, height: box.height }}>
             {ratios.has(number) && <StablePdfPage number={number} width={box.width} height={box.height} pixelRatio={pixelRatio} busy={busy} budget={rasterBudget} onError={onError} />}
+            {ratios.has(number) && regions[index].width > 0 && regions[index].height > 0 && <SharpPdfRegion pdf={pdf} number={number} width={box.width} height={box.height}
+              region={regions[index]} pixelRatio={detailRatio} budget={rasterBudget} onError={onError} />}
+            {ratios.has(number) && <div className="pdfLiveText"><Page pageNumber={number} width={box.width} renderMode="none" renderAnnotationLayer={false}
+              renderTextLayer _enableRegisterUnregisterPage={false} suspense={false} loading={null} onLoadError={onError} /></div>}
           </div>;
         })}
       </div>

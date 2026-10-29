@@ -648,13 +648,13 @@ func TestSessionMessageAdmissionRejectsConcurrentSubmission(t *testing.T) {
 	defer tools.Close()
 	runtime := agent.NewRuntime(repository, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	server := New(cfg, repository, tools, runtime)
+	lifecycle, stopLifecycle := context.WithCancel(context.Background())
+	server.BindLifecycleContext(lifecycle)
 	started := make(chan struct{})
 	release := make(chan struct{})
-	executionDone := make(chan struct{})
 	server.streamMessage = func(_ context.Context, sessionID, _ string, _ []agent.MessageAttachment, _ app.MessageIngressContext, _ agent.StreamHandler) (agent.Result, error) {
 		close(started)
 		<-release
-		close(executionDone)
 		return agent.Result{Run: app.AgentRun{SessionID: sessionID}, Message: app.Message{SessionID: sessionID}}, nil
 	}
 
@@ -663,6 +663,26 @@ func TestSessionMessageAdmissionRejectsConcurrentSubmission(t *testing.T) {
 	firstRequest.SetPathValue("id", session.ID)
 	firstResponse := httptest.NewRecorder()
 	firstDone := make(chan struct{})
+	defer func() {
+		cancelFirst()
+		close(release)
+		select {
+		case <-firstDone:
+		case <-time.After(2 * time.Second):
+			t.Error("disconnected stream handler did not return during cleanup")
+		}
+		// Returning from the injected model is not the end of the worker:
+		// admission completion still persists its result in the temporary root.
+		wait, stopWait := context.WithTimeout(context.Background(), 2*time.Second)
+		defer stopWait()
+		if err := server.WaitForBackgroundWork(wait); err != nil {
+			t.Errorf("detached message execution did not finish: %v", err)
+		}
+		stopLifecycle()
+		if server.executions != nil {
+			server.executions.Close()
+		}
+	}()
 	go func() {
 		server.postMessageStream(firstResponse, firstRequest)
 		close(firstDone)
@@ -685,12 +705,6 @@ func TestSessionMessageAdmissionRejectsConcurrentSubmission(t *testing.T) {
 	server.postMessageStream(secondResponse, secondRequest)
 	if secondResponse.Code != http.StatusConflict {
 		t.Fatalf("concurrent message status=%d body=%s", secondResponse.Code, secondResponse.Body.String())
-	}
-	close(release)
-	select {
-	case <-executionDone:
-	case <-time.After(2 * time.Second):
-		t.Fatal("detached message execution did not finish")
 	}
 }
 

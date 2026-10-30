@@ -59,7 +59,10 @@ void app.whenReady().then(async () => {
   try {
     await until(async () => { window = BrowserWindow.getAllWindows()[0]; return window && !window.webContents.isLoading() &&
       await window.webContents.executeJavaScript("Boolean(window.sparkclawClientStore && document.querySelector('.localWorkbench'))"); }, "original workbench");
-    const evaluate = source => window.webContents.executeJavaScript(source, true);
+    const evaluate = async source => {
+      try { return await window.webContents.executeJavaScript(source, true); }
+      catch (error) { throw new Error(`Renderer evaluation failed: ${source}`, { cause: error }); }
+    };
     await until(async () => execution && (await evaluate("window.sparkclawDesktop.localConnection()")).state === "connected", "ISCP connection");
     window.show(); window.focus();
     window.webContents.session.webRequest.onBeforeRequest({ urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"] }, (_request, callback) => {
@@ -88,7 +91,7 @@ void app.whenReady().then(async () => {
     const settle = () => evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))");
     const rows = () => evaluate("[...document.querySelectorAll('.scheduleRow > strong')].map(row=>row.textContent)");
     const back = async () => {
-      await click(".topbar .workspaceBackButton");
+      await click(".clientHistoryControls button:first-child:not(:disabled), .topbar .workspaceBackButton");
       await until(() => evaluate("!document.querySelector('.schedulePage') && !document.querySelector('.chatColumn').hidden"), "original chat return");
     };
     const send = async input => {
@@ -164,7 +167,14 @@ void app.whenReady().then(async () => {
     await evaluate(`(() => { const row=[...document.querySelectorAll('.sessionSelect')].find(row=>row.textContent.includes(${JSON.stringify(conversationTitle)})); if(!row)throw new Error('Original conversation missing'); row.click(); })()`);
     await until(() => evaluate("document.querySelector('.composer textarea')?.value === '未发送的本地草稿'"), "original conversation draft restored");
     assert.equal(await evaluate("Boolean(document.querySelector('.schedulePage'))"), false);
-    evidence.cases.push("duplicate delivery, refresh and historical conversation reopening do not repeat navigation or lose drafts");
+    window.webContents.reload();
+    await until(async () => !window.webContents.isLoading() && await evaluate("Boolean(document.querySelector('.workbenchWelcome') && document.querySelector('.sessionSelect'))"), "renderer reload retains original welcome page");
+    assert.equal(await evaluate("Boolean(document.querySelector('.schedulePage'))"), false);
+    await evaluate(`(() => { const row=[...document.querySelectorAll('.sessionSelect')].find(row=>row.textContent.includes(${JSON.stringify(conversationTitle)})); if(!row)throw new Error('Original conversation missing after reload'); row.click(); })()`);
+    await until(() => evaluate("document.querySelector('.composer textarea')?.value === '未发送的本地草稿'"), "reopening after renderer reload restores original draft");
+    execution.onChange(); await settle();
+    assert.equal(await evaluate("Boolean(document.querySelector('.schedulePage'))"), false);
+    evidence.cases.push("duplicate delivery, refresh, renderer reload and historical conversation reopening do not repeat navigation or lose drafts");
 
     await click(".sidebarScheduleLink");
     await until(async () => (await rows()).length === 2, "manual entry resets date filter");
@@ -182,13 +192,14 @@ void app.whenReady().then(async () => {
       await click(".scheduleDeleteDialog .dangerButton");
       await until(async () => (await rows()).length === 1 - i, "local list after deletion");
     }
+    await click(".scheduleToggle");
     await back();
     const empty = await send("显示我的日程");
     assert.equal(empty.payload.client_action?.type, "schedule.show");
     await until(() => evaluate("Boolean(document.querySelector('.schedulePage .scheduleEmpty'))"), "original empty schedule view");
     await receipt(empty.id, "shown");
     await fs.writeFile(path.join(root, "native-schedule-empty.png"), (await window.webContents.capturePage()).toPNG(), { mode: 0o600 });
-    evidence.cases.push("manual entry, create-dialog cancel, collapse/expand and empty-list presentation");
+    evidence.cases.push("manual entry, create-dialog cancel, collapse/expand and presentation expands a previously collapsed empty list");
 
     await back();
     failRead = true;

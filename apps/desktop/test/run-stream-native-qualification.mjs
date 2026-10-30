@@ -74,7 +74,7 @@ try {
     path.join(repository, "apps/desktop/src/main/desktop-auth.mjs"),
     path.join(repository, "apps/desktop/src/main/iscp-transport.mjs"),
     path.join(repository, "apps/desktop/test/stream-native-fixture.mjs"),
-    ...(scheduleMode ? [path.join(repository, "apps/desktop/test/schedule-native-fixture.mjs"), path.join(repository, "apps/desktop/test/run-schedule-native-qualification.mjs"), path.join(repository, "apps/desktop/test/iscp-native-relay-fixture.go")] : []),
+    ...(scheduleMode ? [path.join(repository, "apps/desktop/src/main/schedule-presentation.mjs"), path.join(repository, "apps/desktop/test/schedule-native-fixture.mjs"), path.join(repository, "apps/desktop/test/run-schedule-native-qualification.mjs"), path.join(repository, "apps/desktop/test/iscp-native-relay-fixture.go")] : []),
     path.join(repository, "apps/desktop/test/run-stream-native-qualification.mjs"),
     ...assets.filter(file => /\.(?:js|css)$/u.test(file)).map(file => path.join(repository, "apps/webchat/dist/assets", file)),
   ].map(fingerprint));

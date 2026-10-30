@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "date": "2026-10-29",
-  "status": "candidate_verified_installation_pending",
+  "status": "installed_and_qualified",
   "platform": "darwin",
   "architecture": "arm64",
   "source": "0c5d25dc070126e77437fb0f0399cd0bcd3271d6",
@@ -53,10 +53,10 @@
   },
   "dmg_verified": true,
   "staged_zip_verified": true,
-  "candidate_installed": false,
-  "candidate_installed_UI_qualified": false,
+  "candidate_installed": true,
+  "candidate_installed_UI_qualified": true,
   "previous_installed_application_and_original_profiles_preserved": true,
-  "scope": "The candidate changes only the dedicated task-qualification presentation mode; ordinary workbench behavior, helper, viewer and conversion assets remain identical. Prior installed acceptance is retained separately and is not reported as a new installation.",
+  "scope": "Final package installed and ordinary UI checked on 2026-10-30. The only payload change from the prior qualified package is dedicated task-qualification presentation mode; helper, ordinary UI, viewer and conversion assets are unchanged. Prior broader format, lifecycle and stress acceptance remains separately recorded.",
   "logs": [
     {
       "file": "package-mac-0c5d25dc.log",
@@ -65,6 +65,144 @@
     {
       "file": "dmg-0c5d25dc.log",
       "sha256": "06295b3fbd831bef4a6addaa9f6ee629a5c6c3133867c91d3557fb36f104b657"
+    }
+  ],
+  "installed_on": "2026-10-30",
+  "installation": {
+    "source": "0c5d25dc070126e77437fb0f0399cd0bcd3271d6",
+    "entries": 6948,
+    "bytes_modes_match_zip": true,
+    "profiles_unchanged_during_install": true
+  },
+  "cold_backup": {
+    "profiles": 3,
+    "databases": 76,
+    "tables": 343,
+    "previous_application_retained": true
+  },
+  "ordinary_installed_ui": {
+    "source": "0c5d25dc070126e77437fb0f0399cd0bcd3271d6",
+    "date": "2026-10-30",
+    "ordinary_installed_app": true,
+    "original_login_visible": true,
+    "original_conversations_visible": 3,
+    "original_document_reopened": true,
+    "original_zoom_percent": 132,
+    "white_document_surface_and_original_workbench_verified": true,
+    "menu_presets": [
+      50,
+      75,
+      100,
+      125,
+      150,
+      200
+    ],
+    "first_escape_closes_open_menu_and_restores_focus": true,
+    "first_escape_keeps_file_panel": true,
+    "second_escape_collapses_file_panel": true,
+    "diagnostics_retained": [
+      "The first post-install getApp call timed out during startup; the next observed the ordinary signed-in workbench.",
+      "The first click woke idle zoom controls; only the positively observed open menu followed by Escape was counted."
+    ],
+    "file_tree_roots": [
+      "Desktop",
+      "Documents",
+      "Downloads"
+    ],
+    "file_tab_and_original_document_tab_roundtrip": true,
+    "original_reading_state_and_zoom_restored_after_roundtrip": true,
+    "normal_quit_remaining_installed_processes": 0,
+    "ordinary_relaunch_original_login_conversations_document_and_zoom_passed": true,
+    "explicit_final_menu_quit_and_tool_relaunch_passed": true
+  },
+  "retention": {
+    "source": "0c5d25dc070126e77437fb0f0399cd0bcd3271d6",
+    "date": "2026-10-30",
+    "retained_databases": 75,
+    "retired_directory_cache_databases": 1,
+    "business_rows_removed": 0,
+    "schema_changes": 0,
+    "runtime_database_updates": [
+      {
+        "profile": "main",
+        "table": "event_projection",
+        "updated": 1,
+        "count_before": 1,
+        "count_after": 1
+      }
+    ],
+    "auth_launch_entries_unchanged": 16,
+    "stable_device_identity_binding_configuration_files_unchanged": 24,
+    "encrypted_runtime_checkpoint_updates": [
+      {
+        "profile": "main",
+        "file_type": "encrypted_runtime_lease_checkpoint",
+        "mode": "0600",
+        "size_before": 5303,
+        "size_after": 5303,
+        "before_sha256": "d743c788e0b4574f110a1caed82dd444e689b21739868b3f4dfb51086c49c2ba",
+        "after_sha256": "5c69a1852c871f4e70773336eccb9b552353c6d6a1997318268f3bfea665bb93",
+        "contents_not_decrypted": true
+      }
+    ],
+    "enrollment_runtime_file_update_counts": {
+      "relay.enrollment.json.credentials.v2": 1,
+      "relay.enrollment.json": 1,
+      "grant.json": 1,
+      "relay.enrollment.json.duplex.pending.v1": 1,
+      "operations.v2": 1
+    },
+    "changed_enrollment_fields": [
+      "refresh.expires_at",
+      "refresh.token",
+      "access.expires_at",
+      "access.token",
+      "expires_at",
+      "issued_at"
+    ],
+    "changed_grant_fields": [
+      "not_before",
+      "expires_at",
+      "signature.value",
+      "grant_id"
+    ],
+    "runtime_state_interpretation": "Renewable access/refresh/grant fields changed, while all original identity and binding/configuration bytes stayed equal. The encrypted checkpoint was not decrypted, so its specific internal transition is not asserted. Runtime journal updates are retained, not rolled back.",
+    "reading_state_files_unchanged": 1,
+    "original_document_bytes_size_mode_unchanged": true,
+    "cold_original_profiles_and_previous_application_backed_up": true
+  },
+  "normal_quit": {
+    "normal_quit_via_application_menu": true,
+    "remaining_installed_processes": 0
+  },
+  "private_evidence": [
+    {
+      "file": "installed-file-check.json",
+      "sha256": "fcc15f90078cb315ef5ee863e85c4d952f7d8a05ba3a7f2f2114cb67a59b6325"
+    },
+    {
+      "file": "installed-ui.json",
+      "sha256": "061cc649949e46527fd6404bed99d65e4683609c8dbacd7c9f02e375b54cc800"
+    },
+    {
+      "file": "retention.json",
+      "sha256": "e48b7d634d5028bfb53916c553e4339a518dbd71d2a95b3c75d92e5f5e4d252a"
+    },
+    {
+      "file": "normal-quit.json",
+      "sha256": "a15cc59355bd4a2260a174f57a8250a108c9341cd69a0b8902ba69e58b8fbf8f"
+    },
+    {
+      "file": "final-normal-quit.json",
+      "sha256": "8c89e7b365b6acdbb1648c8c258ce3a941cc222e28de2842ad7b697aa3aa4afd"
+    },
+    {
+      "file": "strict-auth-byte-audit-finding.json",
+      "sha256": "6ab18792bb2b718d51438aba3334b99ee63e8be866a3aae240fc6974eb8f5a3b"
+    },
+    {
+      "file": "final-relaunch.png",
+      "sha256": "4e1e1f8baaf780d4552dd3227e719bb72e3b6f29f4378c933561ccbbddf56eaf"
     }
   ]
 }

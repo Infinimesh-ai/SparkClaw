@@ -7,6 +7,19 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
+func TestSimpleClientScheduleRangeKeepsModifiersAndNegationForModel(t *testing.T) {
+	for goal, want := range map[string]string{
+		"显示明天的日程": "tomorrow", "请帮我查看下周的日程。": "next_week",
+		"Show tomorrow's schedule": "tomorrow", "please show my schedules for next month": "next_month",
+		"不要显示明天的日程": "", "显示明天的日程并分析冲突": "", "显示明天下午日程": "",
+		"显示今天和明天的日程": "", "显示除明天外的日程": "", "显示2030-01-02的日程": "",
+	} {
+		if got := simpleClientScheduleRange(goal); got != want {
+			t.Errorf("%q: got %q, want %q", goal, got, want)
+		}
+	}
+}
+
 func TestClientScheduleCalendarRanges(t *testing.T) {
 	for _, tc := range []struct{ kind, zone, requested, start, end string }{
 		{"tomorrow", "Asia/Shanghai", "2026-10-29T18:00:00Z", "2026-10-31", "2026-11-01"},

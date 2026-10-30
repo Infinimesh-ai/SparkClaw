@@ -81,6 +81,12 @@ func (r Runtime) dispatchClientSchedulePresentation(ctx context.Context, run app
 }
 
 func (r Runtime) selectClientScheduleView(ctx context.Context, run app.AgentRun, p app.ClientPresentation, goal string) (map[string]string, error) {
+	// Intent routing and guard have already admitted a schedule read. A complete,
+	// simple calendar phrase needs no second model to invent or widen its dates.
+	if kind := simpleClientScheduleRange(goal); kind != "" {
+		fields := map[string]string{"mode": "show", "range": kind, "date_start": "", "date_end": ""}
+		return fields, resolveClientScheduleDates(fields, p)
+	}
 	location, _ := time.LoadLocation(p.Timezone)
 	request := map[string]string{"request": "CLIENT_SCHEDULE_PRESENTATION_REQUEST", "owner_text": goal, "reference_date": p.RequestedAt.In(location).Format(time.DateOnly), "timezone": p.Timezone}
 	raw, _ := json.Marshal(request)

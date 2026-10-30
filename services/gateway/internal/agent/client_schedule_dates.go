@@ -2,10 +2,47 @@ package agent
 
 import (
 	"errors"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
+
+// Match the whole read-only phrase, not isolated keywords: negation, exclusions,
+// multiple dates, analysis and time-of-day filters must remain model decisions.
+// This extracts a date slot only after the normal semantic route admits a read.
+var simpleScheduleRanges = []*regexp.Regexp{
+	regexp.MustCompile(`^(?:请)?(?:帮我)?(?:显示|展示|打开|查看|列出|看看|看一下)(?:一下)?(?:(?:我|本机|本地)(?:的)?)?(今天|明天|后天|本周|这周|下周|本月|这个月|下个月)(?:的)?(?:日程|定时任务|计划任务|提醒)(?:列表)?[。！？?!]?$`),
+	regexp.MustCompile(`^(?:please )?(?:show|open|view|list)(?: me)?(?: my| local)? (today|tomorrow|day after tomorrow|this week|next week|this month|next month)(?:'s)? (?:schedules?|scheduled tasks|reminders?)[.!?]?$`),
+	regexp.MustCompile(`^(?:please )?(?:show|open|view|list)(?: me)?(?: my| local)? (?:schedules?|scheduled tasks|reminders?) for (today|tomorrow|day after tomorrow|this week|next week|this month|next month)[.!?]?$`),
+}
+
+func simpleClientScheduleRange(goal string) string {
+	for _, pattern := range simpleScheduleRanges {
+		match := pattern.FindStringSubmatch(strings.ToLower(strings.TrimSpace(goal)))
+		if len(match) != 2 {
+			continue
+		}
+		switch match[1] {
+		case "今天", "today":
+			return "today"
+		case "明天", "tomorrow":
+			return "tomorrow"
+		case "后天", "day after tomorrow":
+			return "day_after_tomorrow"
+		case "本周", "这周", "this week":
+			return "this_week"
+		case "下周", "next week":
+			return "next_week"
+		case "本月", "这个月", "this month":
+			return "this_month"
+		case "下个月", "next month":
+			return "next_month"
+		}
+	}
+	return ""
+}
 
 // The model selects a calendar concept; arithmetic is bound to the original
 // request's clock and timezone. In particular tomorrow cannot drift to today

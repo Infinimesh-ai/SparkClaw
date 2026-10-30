@@ -6,6 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Plus } from "lucide-react";
 import { ScheduleBar, ScheduleCreateDialog, ScheduleSuggestions } from "../components/schedules";
 import { useLocalSchedules } from "./useLocalSchedules";
+import { useSchedulePresentation } from "./useSchedulePresentation";
+import type { ScheduleViewFilter } from "./clientStore";
 import { SessionSidebar } from "../components/sidebar";
 import { ClientConversationTab, ClientSidebarResizeHandle, useClientTitlebar, WorkspaceTitlebar } from "../components/clientWindow";
 import { usePageHistory } from "../hooks/usePageHistory";
@@ -90,6 +92,7 @@ export function LocalWorkbench() {
   const [notice, setNotice] = useState("");
   const [settings, setSettings] = useState(false);
   const [page, setPage] = useState<"chat" | "schedules">("chat");
+  const [scheduleFilter, setScheduleFilter] = useState<ScheduleViewFilter>();
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const toggleSidebar = () => setSidebarCollapsed((current) => !current);
@@ -436,6 +439,7 @@ export function LocalWorkbench() {
     });
   }
   async function submitTask(task: LocalTask, id: string) {
+    schedulePresentation.arm(task.request_id, id, draftScopes.get(id) ?? "");
     try { await store.submit(task.request_id); }
     finally {
       if (selectedRef.current === id) await readContent(id);
@@ -491,8 +495,16 @@ export function LocalWorkbench() {
     finally { setTraceLoading(false); }
   }
 
-  const localSchedules = useLocalSchedules(store, localScopeKey, page === "schedules" && !settings, surfaceError);
-  useEffect(() => { setEditingSession(""); setSessionTitleDraft(""); setScheduleCreateOpen(false); }, [localScopeKey]);
+  const localSchedules = useLocalSchedules(store, localScopeKey, page === "schedules" && !settings, surfaceError, scheduleFilter);
+  const schedulePresentation = useSchedulePresentation({ store, scope: localScopeKey, conversation: selected,
+    expectedScope: draftScopes.get(selected) ?? "", actions: content.client_actions,
+    visible: page === "schedules" && !settings, active: page === "chat" && !settings,
+    present: (action, rows) => {
+      setScheduleFilter({ date_start: action.date_start, date_end: action.date_end, timezone: action.timezone });
+      localSchedules.present(rows); setScheduleBarOpen(true); setSettings(false); setPage("schedules");
+    }, onError: surfaceError });
+  const openAllSchedules = () => { schedulePresentation.dismiss(); setScheduleFilter(undefined); setSettings(false); setPage("schedules"); };
+  useEffect(() => { setEditingSession(""); setSessionTitleDraft(""); setScheduleCreateOpen(false); setScheduleFilter(undefined); }, [localScopeKey]);
   useEffect(() => { if (page !== "schedules" || settings) setScheduleCreateOpen(false); }, [page, settings]);
   useEffect(() => { if (!capabilities.browser) { setBrowserOpen(false); setRightSurface(current => current === "browser" ? null : current); } }, [capabilities.browser]);
   const text = dictionaries[language];
@@ -571,7 +583,7 @@ export function LocalWorkbench() {
       onCancelRename={() => { setEditingSession(""); setSessionTitleDraft(""); }}
       onTitleDraftChange={setSessionTitleDraft} onRenameSubmit={(id) => void renameConversation(id)}
       onDeleteSession={(id) => void deleteConversation(id)}
-      onNavigate={(next) => { if (next === "settings") { setTab("settings"); setSettings(true); } else if (next === "schedules") setPage("schedules"); else void startConversation(); }}
+      onNavigate={(next) => { if (next === "settings") { setTab("settings"); setSettings(true); } else if (next === "schedules") openAllSchedules(); else void startConversation(); }}
       onSearch={() => setSearchOpen(true)} onToggleSidebar={toggleSidebar}
       onLogout={() => void logout().catch(surfaceError)}
       listNotice={loading ? <p className="localListNotice" role="status">{zh ? "正在读取对话…" : "Loading conversations…"}</p> : !conversations.length ? <p className="localListNotice">{copy.empty}</p> : undefined}
@@ -607,7 +619,7 @@ export function LocalWorkbench() {
         setError={setError} surfaceError={surfaceError} refreshGlobal={refreshGlobal}
         refreshActiveSession={async () => {}} setEvalRuns={setEvalRuns} setNotificationBindings={setNotificationBindings}
         setConnectors={setConnectors} setRuntimeConfig={setRuntimeConfig} setOwnerProfile={setOwnerProfile}
-        onLanguageChange={changeLanguage} onOpenSchedules={() => {}} currentClientID={currentClientID}
+        onLanguageChange={changeLanguage} onOpenSchedules={openAllSchedules} currentClientID={currentClientID}
         onCurrentClientRevoked={logout} onLogout={logout}
         conversations={conversations} conversationBusy={busy} onDeleteConversation={deleteConversation}
         onDeleteConversations={(ids) => deleteConversations(ids, dictionaries[language].nav.confirmDeleteArchivedLocalSessions.replace("{count}", String(ids.length)))} /></div> : <>

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { filterLocalSchedules } from "./schedule-presentation.mjs";
 import { localContentType } from "./client-store.mjs";
 const CHANNEL = "sparkclaw-client-store:invoke";
 
@@ -103,9 +104,39 @@ export class ClientStoreCapability {
         if (!this.schedules) throw new Error("Schedule client is unavailable");
         return this.schedules.create(scope, request.conversation_id, request.content, request.due_at, request.interval_ms);
       case "listSchedules":
-        keys(request, []);
+        keys(request, Object.hasOwn(request, "filter") ? ["filter"] : []);
         if (!this.schedules) throw new Error("Schedule client is unavailable");
-        return this.schedules.list(scope);
+        return filterLocalSchedules(this.schedules.list(scope), request.filter);
+      case "beginSchedulePresentation": {
+        keys(request, ["expected_scope"]);
+        verifyDraftScope();
+        const view = this.store.clientActions.beginView(scope);
+        void this.execution?.flushPresentationReceipts(scope).catch(() => {});
+        return view;
+      }
+      case "claimSchedulePresentation": {
+        keys(request, ["request_id", "conversation_id", "expected_scope", "view_id"]);
+        verifyDraftScope();
+        this.store.clientActions.verifyView(scope, request.view_id);
+        const action = this.store.clientActions.claim(scope, request.request_id, request.conversation_id);
+        if (!action) return null;
+        try {
+          if (!this.schedules) throw new Error("Schedule client is unavailable");
+          const filter = { date_start: action.date_start, date_end: action.date_end, timezone: action.timezone };
+          return { action, schedules: filterLocalSchedules(this.schedules.list(scope), filter) };
+        } catch (error) {
+          this.store.clientActions.finish(scope, request.request_id, "failed");
+          void this.execution?.flushPresentationReceipts(scope).catch(() => {});
+          throw error;
+        }
+      }
+      case "finishSchedulePresentation":
+        keys(request, ["request_id", "status", "expected_scope", "view_id"]);
+        verifyDraftScope();
+        this.store.clientActions.verifyView(scope, request.view_id);
+        this.store.clientActions.finish(scope, request.request_id, request.status);
+        void this.execution?.flushPresentationReceipts(scope).catch(() => {});
+        return { recorded: true };
       case "createScheduleRequest":
         keys(request, ["content", "timezone"]);
         if (!this.schedules) throw new Error("Schedule client is unavailable");

@@ -9,7 +9,11 @@ export type LocalFile = { id: string; name: string; size: number; sha256: string
 export type LocalSchedule = { request_id: string; schedule_id: string; due_at: string; state: string;
   interval_ms: number; definition_state: "active" | "completed" | "canceled"; missed_count: number;
   missed_until?: string | null; claimed_at?: string | null; recovery_request_id?: string | null };
-export type LocalConversationContent = { messages: LocalMessage[]; tasks: LocalTask[]; files: LocalFile[]; schedules?: LocalSchedule[] };
+export type ScheduleViewFilter = { date_start: string; date_end: string; timezone: string };
+export type SchedulePresentation = ScheduleViewFilter & { schema_version: 1; type: 'schedule.show'; action_id: string; request_id: string; local_conversation_id: string; expires_at: string };
+export type SchedulePresentationReceipt = 'shown' | 'failed' | 'skipped';
+export type LocalConversationContent = { messages: LocalMessage[]; tasks: LocalTask[]; files: LocalFile[]; schedules?: LocalSchedule[];
+  client_actions?: Array<SchedulePresentation & { state: 'pending' | 'claimed' | SchedulePresentationReceipt }> };
 export type ClientStoreAPI = {
   schemaVersion: 1;
   list: () => Promise<LocalConversation[]>;
@@ -29,7 +33,10 @@ export type ClientStoreAPI = {
   cancel: (requestID: string) => Promise<LocalTask>;
   decideApproval: (requestID: string, approvalID: string, digest: string, decision: "approve" | "reject") => Promise<{ resolved: true }>;
   scheduleCreate: (id: string, content: string, dueAt: string, intervalMS?: number) => Promise<LocalSchedule>;
-  listSchedules: () => Promise<import('../api/types').Schedule[]>;
+  listSchedules: (filter?: ScheduleViewFilter) => Promise<import('../api/types').Schedule[]>;
+  beginSchedulePresentation?: (expectedScope: string) => Promise<{ view_id: string }>;
+  claimSchedulePresentation?: (requestID: string, conversationID: string, expectedScope: string, viewID: string) => Promise<{ action: SchedulePresentation; schedules: import('../api/types').Schedule[] } | null>;
+  finishSchedulePresentation?: (requestID: string, status: SchedulePresentationReceipt, expectedScope: string, viewID: string) => Promise<{ recorded: true }>;
   createScheduleRequest: (content: string, timezone: string) => Promise<LocalSchedule>;
   editSchedule: (requestID: string, expectedVersion: string, draft: import('../components/schedules').ScheduleEditDraft) => Promise<LocalSchedule>;
   scheduleCheck: (requestID: string) => Promise<LocalSchedule>;

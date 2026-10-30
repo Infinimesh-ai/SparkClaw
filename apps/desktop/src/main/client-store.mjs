@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { CLIENT_ACTIONS_SCHEMA, SchedulePresentations, validateScheduleAction } from "./schedule-presentation.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -25,7 +26,7 @@ function requestsPreviousFileEdit(content) {
     !/(?:不要|无需|不需要|不应|不能|别|禁止|不再|do not|don't|never|without)/i.test(content);
 }
 
-export const CLIENT_SCHEMA_VERSION = 12;
+export const CLIENT_SCHEMA_VERSION = 13;
 export const CLIENT_LIMITS = WORKBENCH_LIMITS;
 const MESSAGE_DELIVERIES_SCHEMA = `CREATE TABLE message_deliveries(message_id TEXT PRIMARY KEY REFERENCES messages(id),
   request_id TEXT NOT NULL,sequence INTEGER NOT NULL,UNIQUE(request_id,sequence),
@@ -57,7 +58,7 @@ export class ClientStore {
     try {
       this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
       const version = this.db.prepare("PRAGMA user_version").get().user_version;
-      if (![0, 6, 7, 8, 9, 10, 11, CLIENT_SCHEMA_VERSION].includes(version)) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
+      if (![0, 6, 7, 8, 9, 10, 11, 12, CLIENT_SCHEMA_VERSION].includes(version)) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
       if (version === 0) this.#initialize();
       if (version === 6) this.#transaction(() => {
         this.db.exec(`CREATE TABLE execution_projection(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id),revision INTEGER NOT NULL,termination_reason TEXT NOT NULL,approval_receipts TEXT NOT NULL,event_state TEXT NOT NULL);
@@ -99,6 +100,13 @@ export class ClientStore {
       if (version !== 0 && version < 12) this.#transaction(() => {
         this.db.exec(`${RECORDING_APPLICATIONS_SCHEMA} PRAGMA user_version=12;`);
       });
+      if (version !== 0 && version < 13) this.#transaction(() => {
+        this.db.exec(`${CLIENT_ACTIONS_SCHEMA} PRAGMA user_version=13;`);
+      });
+      this.clientActions = new SchedulePresentations(this, scopeKey);
+      // A renderer may have displayed a claimed action before a process crash.
+      // Preserve uncertainty without replaying navigation on the next launch.
+      this.db.exec("UPDATE client_actions SET state='skipped' WHERE state IN ('pending','claimed')");
       this.installationID = this.db.prepare("SELECT value FROM metadata WHERE key='installation_id'").get().value;
       // Incomplete atomic file writes are never treated as delivered files.
       const committedFiles = new Set(this.db.prepare("SELECT id FROM files").all().map((file) => file.id));
@@ -129,6 +137,7 @@ export class ClientStore {
           request_id TEXT UNIQUE NOT NULL, input_digest TEXT NOT NULL, context_json TEXT NOT NULL,
           status TEXT NOT NULL, created_at TEXT NOT NULL, explicitly_submitted INTEGER NOT NULL DEFAULT 0,
           updated_at TEXT, submission_claim TEXT);
+        ${CLIENT_ACTIONS_SCHEMA}
         CREATE TABLE files(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id),
           name TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE message_files(message_id TEXT NOT NULL REFERENCES messages(id),file_id TEXT NOT NULL REFERENCES files(id),PRIMARY KEY(message_id,file_id));
@@ -199,7 +208,7 @@ export class ClientStore {
       const requests = "SELECT request_id FROM tasks WHERE conversation_id=?";
       const definitions = this.db.prepare(`SELECT DISTINCT s.schedule_id FROM schedules s JOIN tasks t
         ON t.request_id=s.request_id WHERE t.conversation_id=?`).all(conversationID);
-      for (const table of ["message_deliveries", "delivery_files", "deliveries", "execution_approvals", "execution_projection", "schedules"]) {
+      for (const table of ["client_actions", "message_deliveries", "delivery_files", "deliveries", "execution_approvals", "execution_projection", "schedules"]) {
         this.db.prepare(`DELETE FROM ${table} WHERE request_id IN (${requests})`).run(conversationID);
       }
       for (const definition of definitions) {
@@ -229,6 +238,7 @@ export class ClientStore {
   read(scope, conversationID) {
     this.#conversation(scope, conversationID);
     return {
+      client_actions: this.clientActions.list(conversationID),
       messages: this.db.prepare(`SELECT m.id,m.role,m.content,m.created_at,d.request_id FROM messages m
         LEFT JOIN message_deliveries d ON d.message_id=m.id WHERE m.conversation_id=? ORDER BY m.rowid`).all(conversationID).map(({ request_id, ...message }) => ({ ...message,
         ...(request_id ? { request_id } : {}),
@@ -337,7 +347,9 @@ export class ClientStore {
         .all(conversationID, CLIENT_LIMITS.contextMessages).reverse();
       const envelope = { schema_version: 1, ...scope, installation_id: this.installationID,
         local_conversation_id: conversationID, local_task_id: taskID, request_id: requestID, messages: [],
-        ...(inputFiles.length ? { input_files: inputFiles } : {}) };
+        ...(inputFiles.length ? { input_files: inputFiles } : {}),
+        ...(!scheduleSpec ? { client_presentation: { schema_version: 1, schedule_show: true,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, requested_at: now } } : {}) };
       const messageBudget = CLIENT_LIMITS.contextBytes - Buffer.byteLength(JSON.stringify(envelope)) + 2;
       const context = boundedContext([...history, { role: "user", content }], messageBudget);
       const snapshot = JSON.stringify({ ...envelope, messages: context });
@@ -739,6 +751,7 @@ export class ClientStore {
         this.db.prepare("INSERT INTO messages VALUES(?,?,?,?,?)")
           .run(messageID, task.conversation_id, "assistant", result.content, now);
         this.db.prepare("INSERT INTO deliveries(request_id,sequence,digest) VALUES(?,?,?)").run(request_id, sequence, digest);
+        if (result.client_action) this.clientActions.insert(task, result.client_action);
         this.db.prepare("INSERT INTO message_deliveries(message_id,request_id,sequence) VALUES(?,?,?)").run(messageID, request_id, sequence);
         for (const record of staged) {
           this.#fileManifest(task.conversation_id, record);
@@ -849,9 +862,10 @@ export function boundedContext(history, byteLimit = CLIENT_LIMITS.contextBytes) 
 
 export function parseResultPayload(payload) {
   const value = JSON.parse(payload);
-  if (!value || Object.keys(value).sort().join(",") !== "content,files" ||
+  if (!value || !(["content,files", "client_action,content,files"].includes(Object.keys(value).sort().join(","))) ||
       typeof value.content !== "string" || value.content.includes("\u0000") || !Array.isArray(value.files) ||
       value.files.length > CLIENT_LIMITS.resultFiles) throw new Error("Invalid result payload");
+  if (Object.hasOwn(value, "client_action")) validateScheduleAction(value.client_action);
   const ids = new Set();
   for (const file of value.files) {
     if (!file || Object.keys(file).sort().join(",") !== "id,name,sha256,size" || typeof file.id !== "string" ||

@@ -17,6 +17,7 @@ export class ExecutionClient {
     Object.assign(this, { auth, store, getIdentity, intervalMS, onChange });
     this.operations = new Map();
     this.acknowledgements = new Map();
+    this.presentationAcknowledgements = new Map();
     this.verifiedApprovals = new Map();
     this.controller = new AbortController();
     this.closed = false;
@@ -194,9 +195,36 @@ export class ExecutionClient {
         // Independent requests reconcile concurrently. Each original request
         // retains its identity, cancellation and no-replay fences.
         await Promise.allSettled(requests.map(task => this.closed ? undefined : this.reconcile(scope, task.request_id)));
+        await this.flushPresentationReceipts(scope);
       } while (scan.wake);
     })().finally(() => { if (this.polling === scan) this.polling = undefined; });
     return scan.promise;
+  }
+
+  async flushPresentationReceipts(scope) {
+    scope = this.#boundScope(scope);
+    this.#sameIdentity(scope);
+    await Promise.allSettled(this.store.clientActions.pending(scope).map(async (presentation) => {
+      const key = JSON.stringify([scope.deployment_id, scope.owner_id, scope.client_id, presentation.action_id,
+        scope[AUTH_GENERATION], scope[CLIENT_LIFETIME]]);
+      if (this.presentationAcknowledgements.has(key)) return this.presentationAcknowledgements.get(key);
+      const work = (async () => {
+        const receipt = this.store.receipt(scope, presentation.action_id);
+        if (!receipt) throw new Error("Schedule presentation delivery is unavailable");
+        const response = await this.#fetch(scope, `/api/v1/executions/${presentation.action_id}/ack`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sequence: receipt.sequence, digest: receipt.digest, durable: true, client_action_receipt: presentation }),
+        });
+        if (!response.ok) { await response.body?.cancel(); throw new Error("Schedule presentation acknowledgement is pending"); }
+        await response.body?.cancel();
+        this.#sameIdentity(scope);
+        this.store.acknowledge(scope, presentation.action_id, receipt.sequence, receipt.digest);
+        this.store.clientActions.acknowledge(scope, presentation);
+      })();
+      this.presentationAcknowledgements.set(key, work);
+      try { await work; }
+      finally { if (this.presentationAcknowledgements.get(key) === work) this.presentationAcknowledgements.delete(key); }
+    }));
   }
 
   async #lookup(scope, task) {

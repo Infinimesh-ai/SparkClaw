@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Schedule } from '../api/types';
 import type { ScheduleCreateResult, ScheduleEditDraft } from '../components/schedules';
-import type { ClientStoreAPI } from './clientStore';
+import type { ClientStoreAPI, ScheduleViewFilter } from './clientStore';
 import { clientTimezone } from '../lib/timezone';
 
 // Adapt the original schedule presentation to the local repository. Scope and
 // version checks stay in the native capability, including edits and cancellation.
-export function useLocalSchedules(store: ClientStoreAPI, scope: string, visible: boolean, onError: (error: unknown) => void) {
+export function useLocalSchedules(store: ClientStoreAPI, scope: string, visible: boolean, onError: (error: unknown) => void, filter?: ScheduleViewFilter) {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyID, setBusyID] = useState('');
@@ -16,10 +16,10 @@ export function useLocalSchedules(store: ClientStoreAPI, scope: string, visible:
     const current = scopeRef.current, revision = ++generation.current;
     setLoading(true);
     try {
-      const rows = await store.listSchedules();
+      const rows = await store.listSchedules(filter);
       if (current === scopeRef.current && revision === generation.current) setSchedules(rows);
     } finally { if (current === scopeRef.current && revision === generation.current) setLoading(false); }
-  }, [store]);
+  }, [store, filter]);
   useEffect(() => { ++generation.current; setSchedules([]); setBusyID(''); }, [scope]);
   useEffect(() => {
     if (!visible) return;
@@ -36,6 +36,7 @@ export function useLocalSchedules(store: ClientStoreAPI, scope: string, visible:
     finally { pending.current = false; if (current === scopeRef.current) setBusyID(''); }
   }
   return { schedules, loading, busyID, refresh,
+    present: (rows: Schedule[]) => { ++generation.current; setSchedules(rows); setLoading(false); },
     create: async (request: string): Promise<ScheduleCreateResult> => {
       try { await mutate('create', () => store.createScheduleRequest(request, clientTimezone())); return { success: true, message: '' }; }
       catch (error) { return { success: false, message: error instanceof Error ? error.message : 'Unable to create the schedule.' }; }

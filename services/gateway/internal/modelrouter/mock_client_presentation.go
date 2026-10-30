@@ -18,8 +18,7 @@ func mockClientScheduleView(user string) string {
 	if injected := mockInjectedResponse(request["owner_text"], "MOCK_CLIENT_SCHEDULE_RESPONSE:"); injected != "" {
 		return injected
 	}
-	mode, start, end := "show", "", ""
-	base, _ := time.Parse(time.DateOnly, request["reference_date"])
+	mode, kind, start := "show", "all", ""
 	contains := func(terms ...string) bool {
 		for _, term := range terms {
 			if strings.Contains(text, term) {
@@ -35,41 +34,35 @@ func mockClientScheduleView(user string) string {
 		mode = "clarify"
 	case contains("全部", "所有", "all schedule"):
 	case contains("后天", "day after tomorrow"):
-		start = base.AddDate(0, 0, 2).Format(time.DateOnly)
-		end = base.AddDate(0, 0, 3).Format(time.DateOnly)
+		kind = "day_after_tomorrow"
 	case contains("明天", "tomorrow"):
-		start = base.AddDate(0, 0, 1).Format(time.DateOnly)
-		end = base.AddDate(0, 0, 2).Format(time.DateOnly)
+		kind = "tomorrow"
 	case contains("今天", "today"):
-		start = base.Format(time.DateOnly)
-		end = base.AddDate(0, 0, 1).Format(time.DateOnly)
+		kind = "today"
 	case contains("下周", "next week", "本周", "这周", "this week"):
-		offset := (int(base.Weekday()) + 6) % 7
-		base = base.AddDate(0, 0, -offset)
+		kind = "this_week"
 		if contains("下周", "next week") {
-			base = base.AddDate(0, 0, 7)
+			kind = "next_week"
 		}
-		start = base.Format(time.DateOnly)
-		end = base.AddDate(0, 0, 7).Format(time.DateOnly)
 	case contains("下个月", "next month", "本月", "这个月", "this month"):
-		base = time.Date(base.Year(), base.Month(), 1, 0, 0, 0, 0, time.UTC)
+		kind = "this_month"
 		if contains("下个月", "next month") {
-			base = base.AddDate(0, 1, 0)
+			kind = "next_month"
 		}
-		start = base.Format(time.DateOnly)
-		end = base.AddDate(0, 1, 0).Format(time.DateOnly)
 	default:
 		date := regexp.MustCompile(`\d{4}-\d{2}-\d{2}`).FindString(text)
 		if date != "" {
-			d, err := time.Parse(time.DateOnly, date)
+			_, err := time.Parse(time.DateOnly, date)
 			if err != nil {
 				mode = "clarify"
 			} else {
-				start = date
-				end = d.AddDate(0, 0, 1).Format(time.DateOnly)
+				kind, start = "date", date
 			}
 		}
 	}
-	raw, _ := json.Marshal(map[string]string{"mode": mode, "date_start": start, "date_end": end})
+	if mode != "show" {
+		kind = "none"
+	}
+	raw, _ := json.Marshal(map[string]string{"mode": mode, "range": kind, "date_start": start, "date_end": ""})
 	return string(raw)
 }

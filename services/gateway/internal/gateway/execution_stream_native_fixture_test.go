@@ -129,10 +129,11 @@ func TestExecutionStreamNativeQualificationFixture(t *testing.T) {
 	executionStarts := map[string]int{}
 	operations := map[string]int{}
 	modelMetadata := map[string]any{"kind": "controlled", "batch_interval_ms": 100, "chars_per_batch": 6 * repetitions}
+	scheduleEvidence := newScheduleNativeEvidence(os.Getenv("SPARKCLAW_STREAM_FIXTURE_MODE"))
 	connects, directBusiness := 0, 0
 	nowMS := func() float64 { return float64(time.Now().UnixNano()) / 1e6 }
 	evidence := func() map[string]any {
-		return map[string]any{"runs": runs, "execution_starts": executionStarts, "iscp_operations": operations, "relay_connect_requests": connects, "direct_business_attempts": directBusiness, "model": modelMetadata}
+		return map[string]any{"runs": runs, "execution_starts": executionStarts, "iscp_operations": operations, "relay_connect_requests": connects, "direct_business_attempts": directBusiness, "model": modelMetadata, "schedule": scheduleEvidence.snapshot()}
 	}
 	httpServer := &http.Server{ReadHeaderTimeout: 3 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/fixture/") {
@@ -246,7 +247,8 @@ func TestExecutionStreamNativeQualificationFixture(t *testing.T) {
 	cfg.Gateway.PairingRequired = true
 	cfg.Gateway.WorkbenchISCPLocalTest = true
 	cfg.Gateway.DeploymentID = binding.DeploymentID
-	realModel := os.Getenv("SPARKCLAW_STREAM_FIXTURE_MODE") == "real-model"
+	realModel := os.Getenv("SPARKCLAW_STREAM_FIXTURE_MODE") == "real-model" || os.Getenv("SPARKCLAW_STREAM_FIXTURE_MODE") == "schedule-real-model"
+	productionAgent := realModel || scheduleEvidence != nil
 	if realModel {
 		modelConfig, loadErr := config.Load(os.Getenv("SPARKCLAW_STREAM_FIXTURE_MODEL_CONFIG"))
 		if loadErr != nil || modelConfig.Model.Mock {
@@ -295,7 +297,10 @@ func TestExecutionStreamNativeQualificationFixture(t *testing.T) {
 	}
 	var server *Server
 	runtime := agent.Runtime{}
-	if realModel {
+	if productionAgent {
+		if !realModel {
+			modelMetadata = map[string]any{"kind": "production_agent", "mock": true}
+		}
 		runtime = agent.NewRuntime(repository, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 		execute = func(ctx context.Context, e execution.Envelope, inputs map[string][]byte) (execution.Output, error) {
 			run := &nativeStreamRun{RequestID: e.RequestID, StartedMS: nowMS(), Batches: []nativeStreamBatch{}}
@@ -325,7 +330,9 @@ func TestExecutionStreamNativeQualificationFixture(t *testing.T) {
 		mu.Lock()
 		operations[r.Operation]++
 		mu.Unlock()
-		return handler(ctx, r)
+		response := handler(ctx, r)
+		scheduleEvidence.observe(r, response)
+		return response
 	}, nil)
 	if err != nil {
 		t.Fatal(err)

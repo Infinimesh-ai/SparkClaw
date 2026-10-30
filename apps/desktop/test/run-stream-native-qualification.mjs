@@ -9,10 +9,12 @@ import { fileURLToPath } from "node:url";
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const samples = Number(process.argv[2] || "1");
 const mode = (process.argv[3] || "--controlled").slice(2);
+const scheduleMode = mode === "schedule" || mode === "schedule-real-model";
+const realModel = mode === "real-model" || mode === "schedule-real-model";
 const repetitions = ["long-text", "auto-follow", "joint-ui"].includes(mode) ? 10 : 1;
-if (process.platform !== "darwin" || !/^v26\./u.test(process.version) || !Number.isSafeInteger(samples) || samples < 1 || samples > 20 || process.argv.length > 4 || !["controlled", "long-text", "auto-follow", "joint-ui", "recovery", "real-model"].includes(mode) || (["recovery", "real-model"].includes(mode) && samples !== 1)) throw new Error("Use Node 26 on macOS: run-stream-native-qualification.mjs [1..20] [--long-text|--auto-follow|--joint-ui|--recovery|--real-model]");
-if (mode === "real-model" && !path.isAbsolute(process.env.SPARKCLAW_STREAM_FIXTURE_MODEL_CONFIG || "")) throw new Error("Explicit private SPARKCLAW_STREAM_FIXTURE_MODEL_CONFIG required");
-if (mode === "real-model" && !process.env.SPARKCLAW_STREAM_FIXTURE_LINUX_IMAGE) throw new Error("Explicit SPARKCLAW_STREAM_FIXTURE_LINUX_IMAGE with the repository Linux test dependencies required");
+if (process.platform !== "darwin" || !/^v26\./u.test(process.version) || !Number.isSafeInteger(samples) || samples < 1 || samples > 20 || process.argv.length > 4 || !["controlled", "long-text", "auto-follow", "joint-ui", "recovery", "real-model", "schedule", "schedule-real-model"].includes(mode) || (["recovery", "real-model", "schedule", "schedule-real-model"].includes(mode) && samples !== 1)) throw new Error("Use Node 26 on macOS: run-stream-native-qualification.mjs [1..20] [--long-text|--auto-follow|--joint-ui|--recovery|--real-model]");
+if (realModel && !path.isAbsolute(process.env.SPARKCLAW_STREAM_FIXTURE_MODEL_CONFIG || "")) throw new Error("Explicit private SPARKCLAW_STREAM_FIXTURE_MODEL_CONFIG required");
+if ((realModel || scheduleMode) && !process.env.SPARKCLAW_STREAM_FIXTURE_LINUX_IMAGE) throw new Error("Explicit SPARKCLAW_STREAM_FIXTURE_LINUX_IMAGE with the repository Linux test dependencies required");
 const exec = promisify(execFile);
 const run = (command, args, options = {}) => exec(command, args, { cwd: repository, timeout: 180000, maxBuffer: 2 << 20, ...options });
 const root = await fs.mkdtemp("/private/tmp/sparkclaw-stream-v3-");
@@ -22,11 +24,11 @@ await fs.mkdir(path.join(root, "profile"), { mode: 0o700 });
 const id = crypto.randomUUID();
 const container = `sparkclaw-stream-v3-${id}`;
 const gatewayContainer = `sparkclaw-stream-gateway-${id}`;
-const linuxFixture = mode === "real-model";
+const linuxFixture = realModel || scheduleMode;
 const password = crypto.randomBytes(24).toString("hex");
 const token = crypto.randomBytes(24).toString("hex");
 let fixture;
-const evidence = { schema_version: 1, root, samples, mode, ...(mode !== "real-model" ? {chars_per_sample: 600 * repetitions} : {}), production_data: false, postgres_container: container, source_revision: (await run("git", ["rev-parse", "HEAD"])).stdout.trim() };
+const evidence = { schema_version: 1, root, samples, mode, ...(!realModel && !scheduleMode ? {chars_per_sample: 600 * repetitions} : {}), production_data: false, postgres_container: container, source_revision: (await run("git", ["rev-parse", "HEAD"])).stdout.trim() };
 if (process.env.SPARKCLAW_STREAM_FIXTURE_RELAY_BINARY) {
   evidence.independent_relay = {};
   for (const [kind, key] of [['relay', 'SPARKCLAW_STREAM_FIXTURE_RELAY_BINARY'], ['maintenance', 'SPARKCLAW_STREAM_FIXTURE_MAINTENANCE_BINARY']]) {
@@ -61,6 +63,7 @@ try {
     path.join(repository, "apps/desktop/src/main/desktop-auth.mjs"),
     path.join(repository, "apps/desktop/src/main/iscp-transport.mjs"),
     path.join(repository, "apps/desktop/test/stream-native-fixture.mjs"),
+    ...(scheduleMode ? [path.join(repository, "apps/desktop/test/schedule-native-fixture.mjs"), path.join(repository, "apps/desktop/test/run-schedule-native-qualification.mjs")] : []),
     path.join(repository, "apps/desktop/test/run-stream-native-qualification.mjs"),
     ...assets.filter(file => /\.(?:js|css)$/u.test(file)).map(file => path.join(repository, "apps/webchat/dist/assets", file)),
   ].map(fingerprint));
@@ -75,9 +78,9 @@ try {
     fixtureEnv = {...env, SPARKCLAW_STREAM_FIXTURE_DSN: env.SPARKCLAW_STREAM_FIXTURE_DSN.replace("@127.0.0.1:", "@host.docker.internal:"), SPARKCLAW_STREAM_FIXTURE_LISTEN: `0.0.0.0:${relayPort}`, SPARKCLAW_STREAM_FIXTURE_ISSUER_LISTEN: `0.0.0.0:${issuerPort}`};
     const image = process.env.SPARKCLAW_STREAM_FIXTURE_LINUX_IMAGE;
     evidence.gateway_runtime = {platform: "linux", image_id: (await run("docker", ["image", "inspect", image, "--format", "{{.Id}}"])).stdout.trim(), architecture: process.arch};
-    const privateConfigDirectory = path.dirname(env.SPARKCLAW_STREAM_FIXTURE_MODEL_CONFIG);
+    const configMount = realModel ? ["--volume", `${path.dirname(env.SPARKCLAW_STREAM_FIXTURE_MODEL_CONFIG)}:${path.dirname(env.SPARKCLAW_STREAM_FIXTURE_MODEL_CONFIG)}:ro`] : [];
     fixtureCommand = "docker";
-    fixtureArgs = ["run", "--rm", "--name", gatewayContainer, "--label", `io.sparkclaw.stream.fixture=${id}`, "--user", `${process.getuid()}:${process.getgid()}`, "--shm-size", "256m", "--publish", `127.0.0.1:${relayPort}:${relayPort}`, "--publish", `127.0.0.1:${issuerPort}:${issuerPort}`, "--volume", `${repository}:/repo:ro`, "--volume", `${root}:${root}`, "--volume", `${privateConfigDirectory}:${privateConfigDirectory}:ro`, "--workdir", "/repo", ...Object.keys(fixtureEnv).filter(key => key.startsWith("SPARKCLAW_STREAM_FIXTURE_") || key === "OPENAI_API_KEY").flatMap(key => ["--env", key]), "--entrypoint", path.join(root, "bin/gateway-fixture"), image, ...fixtureArgs];
+    fixtureArgs = ["run", "--rm", "--name", gatewayContainer, "--label", `io.sparkclaw.stream.fixture=${id}`, "--user", `${process.getuid()}:${process.getgid()}`, "--shm-size", "256m", "--publish", `127.0.0.1:${relayPort}:${relayPort}`, "--publish", `127.0.0.1:${issuerPort}:${issuerPort}`, "--volume", `${repository}:/repo:ro`, "--volume", `${root}:${root}`, ...configMount, "--workdir", "/repo", ...Object.keys(fixtureEnv).filter(key => key.startsWith("SPARKCLAW_STREAM_FIXTURE_") || key === "OPENAI_API_KEY").flatMap(key => ["--env", key]), "--entrypoint", path.join(root, "bin/gateway-fixture"), image, ...fixtureArgs];
   }
   const origin = await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error("Continuous Relay fixture startup timed out")), linuxFixture ? 90000 : 45000);
@@ -99,7 +102,7 @@ try {
   delete childEnv.ELECTRON_RUN_AS_NODE;
   // Credentials remain in the private helper pipes/profile. The fixture HTTP
   // endpoint exposes only controlled timing evidence, never business methods.
-  const result = await run(electron, [path.join(repository, "apps/desktop/test/stream-native-fixture.mjs")], { env: childEnv, timeout: (mode === "real-model" ? 300 : samples * 13 + 60) * 1000, maxBuffer: 2 << 20 });
+  const result = await run(electron, [path.join(repository, scheduleMode ? "apps/desktop/test/schedule-native-fixture.mjs" : "apps/desktop/test/stream-native-fixture.mjs")], { env: childEnv, timeout: (scheduleMode ? 420 : realModel ? 300 : samples * 13 + 60) * 1000, maxBuffer: 2 << 20 });
   process.stdout.write(result.stdout);
   const native = JSON.parse(await fs.readFile(path.join(root, "native-evidence.json"), "utf8"));
   Object.assign(evidence, { passed: native.passed === true, summary: native.summary });

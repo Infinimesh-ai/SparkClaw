@@ -1,0 +1,390 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-30",
+  "scope": "Source implementation; isolated Linux Gateway + PostgreSQL + independent encrypted duplex ISCP Relay + production macOS arm64 Electron workbench. Synthetic schedule rows and identities only.",
+  "production_revision": "95d830d16fd039236c7c96197af185886032c90e",
+  "production_source_sha256": {
+    "services/gateway/internal/agent/client_presentation.go": "da7d604ba4d33c490435519949806234a650b6b1dbb3f01edbd4ffe223306e00",
+    "services/gateway/internal/agent/client_schedule_dates.go": "b0c3212fe8f56faf5baa0f5f7b75593e2317a9c6cc1407aad24b954aa95ff752",
+    "services/gateway/internal/app/client_presentation.go": "4fd1355984a76c314a9505e2c65c31d07e7cc485041c379913aa3f4ba77ef818",
+    "services/gateway/internal/execution/service.go": "32ee57accc6b808f4463cf17e2061586ee9ca37f490a674480b00eb512a847dd",
+    "apps/desktop/src/main/client-store.mjs": "40eb4abacbd993b88cd6bedd40bdfe5f5795433b0bd8d7bceb4e4b9bad409c24",
+    "apps/desktop/src/main/client-store-capability.mjs": "691ddcabdb7bbc80045c795a59348376dbceccee423bd3db2f7b687e165f7b73",
+    "apps/desktop/src/main/schedule-presentation.mjs": "b42f03c8b8b3d1d6bb2c6f44aeb665019e32f85dc6eaad7df7c6c7a735a2172b",
+    "apps/desktop/src/main/execution-client.mjs": "baaf34390e0390db4975cc9781e5da196aa52b63ecd772af97e7520bc58a2a43",
+    "apps/desktop/src/preload/workbench.cjs": "6953e9701660c93d95ef737241a580d8718eda6782a056dbe92b7bd333fcb071",
+    "apps/webchat/src/desktop/LocalWorkbench.tsx": "e2db02a44608444d58722a4098466f8b06b0249e9e06eb7a5bd95f57e1329ff7",
+    "apps/webchat/src/desktop/useSchedulePresentation.ts": "f7072172c531f925ba09ef50ed3930cd23a4c8bfbd7fdec4db317eb94dc78439",
+    "apps/webchat/src/desktop/useLocalSchedules.ts": "1fb30c5c64c1dd033ee5d908b906c7cca0490b16bce90a110954d1a7d047f618"
+  },
+  "storage_schema": 13,
+  "checks": {
+    "desktop": {
+      "pass": 593,
+      "skip": 1,
+      "fail": 0,
+      "execution": "Node 26, serial file concurrency",
+      "log_sha256": "aa4640b04b7edf2f03d2092ad07774b4002ef5a6295dcb26c5703828f393a482"
+    },
+    "webchat": {
+      "pass": 561,
+      "fail": 0,
+      "test_files": 90,
+      "log_sha256": "a977491d28c140833b7a671f06ced637ef2939ca0c0673a9705ac18242cde753"
+    },
+    "webchat_production_build": "passed in native qualification",
+    "go_linux": {
+      "revision": "95d830d16fd039236c7c96197af185886032c90e",
+      "toolchains": [
+        "go version go1.25.5 linux/arm64",
+        "v26.2.0",
+        "Python 3.11.2"
+      ],
+      "test_cases_including_subtests": {
+        "pass": 5680,
+        "skip": 203
+      },
+      "packages": {
+        "skip": 12,
+        "pass": 77
+      },
+      "failures": [],
+      "exit_codes": {
+        "test": "0",
+        "build": "0",
+        "vet": "0"
+      },
+      "source_tar_sha256": "714b383a0555e1c2c687867ce974259db5c02178f3acb53719c28bd602a3b03e",
+      "test_output_sha256": "3432060df20efa310bac28743c4cb5fe7fc82d1893d0646467a2eb42c5bc98a7"
+    },
+    "docs": {
+      "source_markdown_files": 137,
+      "mirrors_and_local_links": "passed"
+    }
+  },
+  "native_mock": {
+    "source_revision": "778b93bfa5ccb85203ad4ec4038cc9eb5a6c5cc2",
+    "summary": {
+      "cases": 6,
+      "requests": 4,
+      "receipts": 3,
+      "production_agent": true,
+      "mock": true,
+      "original_ui": true,
+      "local_schedule_contents_uploaded": false,
+      "direct_business_attempts": 0
+    },
+    "cases": [
+      "ordinary chat retains original conversation",
+      "backend natural-language route, local owner-scoped read, original filtered schedule page, durable shown receipt",
+      "original edit, delete-cancel and confirmed delete preserve behavior",
+      "duplicate delivery, refresh, renderer reload and historical conversation reopening do not repeat navigation or lose drafts",
+      "manual entry, create-dialog cancel, collapse/expand and presentation expands a previously collapsed empty list",
+      "local read failure is reported and acknowledged as failed"
+    ],
+    "model": {
+      "kind": "production_agent",
+      "mock": true
+    },
+    "request_inputs": [
+      "你好，请用一句话介绍你自己。",
+      "显示明天的日程",
+      "显示我的日程",
+      "显示我的日程"
+    ],
+    "action_ranges": [
+      {
+        "type": "schedule.show",
+        "date_start": "2026-10-31",
+        "date_end": "2026-11-01",
+        "timezone": "Asia/Shanghai"
+      },
+      {
+        "type": "schedule.show",
+        "date_start": "",
+        "date_end": "",
+        "timezone": "Asia/Shanghai"
+      },
+      {
+        "type": "schedule.show",
+        "date_start": "",
+        "date_end": "",
+        "timezone": "Asia/Shanghai"
+      }
+    ],
+    "receipt_statuses": [
+      "shown",
+      "shown",
+      "failed"
+    ],
+    "source_execution_starts": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "relay_source": {
+      "revision": "f6037224d5b6742cb008ffc946a8ec1834091e91",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "receipt_sha256": "654db461ea90ac96ed6db4f9212b87027f8dada28f6fc7a6d2e2fbd3f2caa8fe",
+    "native_evidence_sha256": "ba5af13db61454cbd478fd767dde30e7a6b6c499e9e942f3ab1f96b084266f00",
+    "screenshots": {
+      "native-schedule-filtered.png": "b240cd293bdc590f8b42c488ed6e52233ffee3212453250484b7191802217a9b",
+      "native-schedule-empty.png": "21e9e8e504c95828ebec10eb6bef63299ec5d1e82168fa4ce437a91475b64068"
+    },
+    "build_fingerprints": [
+      {
+        "path": "apps/desktop/bin/iscp-workbench",
+        "sha256": "419e371fb7a16d05a89ef12f6b98afa2ac1283b04daec058ecd44fd040c1088a"
+      },
+      {
+        "path": "apps/desktop/src/main/main.mjs",
+        "sha256": "6d318246f855e3e3109b55cc9d4730171b7db6d131897aafb2cd2018ff55c499"
+      },
+      {
+        "path": "apps/desktop/src/main/execution-client.mjs",
+        "sha256": "baaf34390e0390db4975cc9781e5da196aa52b63ecd772af97e7520bc58a2a43"
+      },
+      {
+        "path": "apps/desktop/src/main/execution-progress.mjs",
+        "sha256": "bde6599834c4ca4d56791f7ca9b0bad1b3567a08235235b9e0eb6f21b9307209"
+      },
+      {
+        "path": "apps/desktop/src/main/execution-stream-projection.mjs",
+        "sha256": "703a89b758e54a0c8ee3688bb9355ebd5ba07f8abcc4d61b7154af831718d5e4"
+      },
+      {
+        "path": "apps/desktop/src/main/client-store.mjs",
+        "sha256": "40eb4abacbd993b88cd6bedd40bdfe5f5795433b0bd8d7bceb4e4b9bad409c24"
+      },
+      {
+        "path": "apps/desktop/src/main/client-store-capability.mjs",
+        "sha256": "691ddcabdb7bbc80045c795a59348376dbceccee423bd3db2f7b687e165f7b73"
+      },
+      {
+        "path": "apps/desktop/src/main/desktop-auth.mjs",
+        "sha256": "b91141483415cbaae921e28b704eca61463e093c7a5b172960c51d6bdd4b1c13"
+      },
+      {
+        "path": "apps/desktop/src/main/iscp-transport.mjs",
+        "sha256": "455b8f3e0bbf6970b28ec4eaf5310926ff42509cac3f7231d08f658a4bbdf345"
+      },
+      {
+        "path": "apps/desktop/test/stream-native-fixture.mjs",
+        "sha256": "12c3f16da3136b797016b02f86474f46e2ba217805802aa41dd886cd9266f2cf"
+      },
+      {
+        "path": "apps/desktop/src/main/schedule-presentation.mjs",
+        "sha256": "b42f03c8b8b3d1d6bb2c6f44aeb665019e32f85dc6eaad7df7c6c7a735a2172b"
+      },
+      {
+        "path": "apps/desktop/test/schedule-native-fixture.mjs",
+        "sha256": "cabb7cd39505f3b7616ff0c4acb5294669addc36a2939d0254ca11f7d57cbdb8"
+      },
+      {
+        "path": "apps/desktop/test/run-schedule-native-qualification.mjs",
+        "sha256": "2ad4a8a2f90b4f01def0772348df9387c0ae159bbe771c2fcdbd8ae0e5bf2d72"
+      },
+      {
+        "path": "apps/desktop/test/iscp-native-relay-fixture.go",
+        "sha256": "daba72498e9dd7c7021bc8972ac330c1f70647ee41ca36014fdbeb371f95ae50"
+      },
+      {
+        "path": "apps/desktop/test/run-stream-native-qualification.mjs",
+        "sha256": "9ca01aefa95fa75ae8b9f0a879caa2cf404ff6f3bb82f0c9340e1b53786acf6b"
+      },
+      {
+        "path": "apps/webchat/dist/assets/index-4WjX5mUJ.js",
+        "sha256": "89f18f59d4ff8b97ad11c73325f09488c30ccefdab0f16c5bd4fb3ca953cef93"
+      },
+      {
+        "path": "apps/webchat/dist/assets/index-BWkZorh6.css",
+        "sha256": "fd722e707c09682c69e5c20034b94ab926204c420b31d6e0b7fa598eaa06b95a"
+      }
+    ]
+  },
+  "native_real_model": {
+    "source_revision": "95d830d16fd039236c7c96197af185886032c90e",
+    "summary": {
+      "cases": 6,
+      "requests": 4,
+      "receipts": 3,
+      "production_agent": true,
+      "mock": false,
+      "original_ui": true,
+      "local_schedule_contents_uploaded": false,
+      "direct_business_attempts": 0
+    },
+    "cases": [
+      "ordinary chat retains original conversation",
+      "backend natural-language route, local owner-scoped read, original filtered schedule page, durable shown receipt",
+      "original edit, delete-cancel and confirmed delete preserve behavior",
+      "duplicate delivery, refresh, renderer reload and historical conversation reopening do not repeat navigation or lose drafts",
+      "manual entry, create-dialog cancel, collapse/expand and presentation expands a previously collapsed empty list",
+      "local read failure is reported and acknowledged as failed"
+    ],
+    "model": {
+      "deep_model": "sparkclaw-fast",
+      "fast_model": "sparkclaw-fast",
+      "kind": "production_agent",
+      "mock": false
+    },
+    "request_inputs": [
+      "你好，请用一句话介绍你自己。",
+      "显示明天的日程",
+      "显示我的日程",
+      "显示我的日程"
+    ],
+    "action_ranges": [
+      {
+        "type": "schedule.show",
+        "date_start": "2026-10-31",
+        "date_end": "2026-11-01",
+        "timezone": "Asia/Shanghai"
+      },
+      {
+        "type": "schedule.show",
+        "date_start": "",
+        "date_end": "",
+        "timezone": "Asia/Shanghai"
+      },
+      {
+        "type": "schedule.show",
+        "date_start": "",
+        "date_end": "",
+        "timezone": "Asia/Shanghai"
+      }
+    ],
+    "receipt_statuses": [
+      "shown",
+      "shown",
+      "failed"
+    ],
+    "source_execution_starts": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "relay_source": {
+      "revision": "f6037224d5b6742cb008ffc946a8ec1834091e91",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "receipt_sha256": "bdbc5448881f50c0f62322fa55a60bd7df43c054aaf07d17df1654883741871f",
+    "native_evidence_sha256": "f95995f3e6f9f6737f6c5a70b5edf256b96f9e8c97c872197e1c49085dc66e54",
+    "screenshots": {
+      "native-schedule-filtered.png": "66220e00eee76a7e1e4319d69e89e62e5ada95c7f5d6ce9075dc9085883fe6ad",
+      "native-schedule-empty.png": "43963b30ff22a0e8189e03681cff0b0010278bb679b19a349cefcdc4a599db8f"
+    },
+    "build_fingerprints": [
+      {
+        "path": "apps/desktop/bin/iscp-workbench",
+        "sha256": "a9904918192bf3238e2949c64c2c83e7f2c90bf5fb8abc680386da61f2a92953"
+      },
+      {
+        "path": "apps/desktop/src/main/main.mjs",
+        "sha256": "6d318246f855e3e3109b55cc9d4730171b7db6d131897aafb2cd2018ff55c499"
+      },
+      {
+        "path": "apps/desktop/src/main/execution-client.mjs",
+        "sha256": "baaf34390e0390db4975cc9781e5da196aa52b63ecd772af97e7520bc58a2a43"
+      },
+      {
+        "path": "apps/desktop/src/main/execution-progress.mjs",
+        "sha256": "bde6599834c4ca4d56791f7ca9b0bad1b3567a08235235b9e0eb6f21b9307209"
+      },
+      {
+        "path": "apps/desktop/src/main/execution-stream-projection.mjs",
+        "sha256": "703a89b758e54a0c8ee3688bb9355ebd5ba07f8abcc4d61b7154af831718d5e4"
+      },
+      {
+        "path": "apps/desktop/src/main/client-store.mjs",
+        "sha256": "40eb4abacbd993b88cd6bedd40bdfe5f5795433b0bd8d7bceb4e4b9bad409c24"
+      },
+      {
+        "path": "apps/desktop/src/main/client-store-capability.mjs",
+        "sha256": "691ddcabdb7bbc80045c795a59348376dbceccee423bd3db2f7b687e165f7b73"
+      },
+      {
+        "path": "apps/desktop/src/main/desktop-auth.mjs",
+        "sha256": "b91141483415cbaae921e28b704eca61463e093c7a5b172960c51d6bdd4b1c13"
+      },
+      {
+        "path": "apps/desktop/src/main/iscp-transport.mjs",
+        "sha256": "455b8f3e0bbf6970b28ec4eaf5310926ff42509cac3f7231d08f658a4bbdf345"
+      },
+      {
+        "path": "apps/desktop/test/stream-native-fixture.mjs",
+        "sha256": "12c3f16da3136b797016b02f86474f46e2ba217805802aa41dd886cd9266f2cf"
+      },
+      {
+        "path": "apps/desktop/src/main/schedule-presentation.mjs",
+        "sha256": "b42f03c8b8b3d1d6bb2c6f44aeb665019e32f85dc6eaad7df7c6c7a735a2172b"
+      },
+      {
+        "path": "apps/desktop/test/schedule-native-fixture.mjs",
+        "sha256": "cabb7cd39505f3b7616ff0c4acb5294669addc36a2939d0254ca11f7d57cbdb8"
+      },
+      {
+        "path": "apps/desktop/test/run-schedule-native-qualification.mjs",
+        "sha256": "2ad4a8a2f90b4f01def0772348df9387c0ae159bbe771c2fcdbd8ae0e5bf2d72"
+      },
+      {
+        "path": "apps/desktop/test/iscp-native-relay-fixture.go",
+        "sha256": "daba72498e9dd7c7021bc8972ac330c1f70647ee41ca36014fdbeb371f95ae50"
+      },
+      {
+        "path": "apps/desktop/test/run-stream-native-qualification.mjs",
+        "sha256": "9ca01aefa95fa75ae8b9f0a879caa2cf404ff6f3bb82f0c9340e1b53786acf6b"
+      },
+      {
+        "path": "apps/webchat/dist/assets/index-4WjX5mUJ.js",
+        "sha256": "89f18f59d4ff8b97ad11c73325f09488c30ccefdab0f16c5bd4fb3ca953cef93"
+      },
+      {
+        "path": "apps/webchat/dist/assets/index-BWkZorh6.css",
+        "sha256": "fd722e707c09682c69e5c20034b94ab926204c420b31d6e0b7fa598eaa06b95a"
+      }
+    ]
+  },
+  "work2_preservation": {
+    "same_container": true,
+    "same_start_time": true,
+    "same_mounts_as_multiset": true,
+    "same_config_and_model_catalog_hashes": true,
+    "healthy_before_and_after": true
+  },
+  "retained_development_failures": [
+    {
+      "kind": "harness",
+      "detail": "Initial TypeScript test global typing, legacy Relay connection fixture, native titlebar selector and reload-to-welcome assumptions were corrected; original logs remain private."
+    },
+    {
+      "kind": "mock",
+      "detail": "Short schedule request competed with ordinary conversation; prior assistant words polluted mock intent scoring. Current-request/history separation and focused regressions passed."
+    },
+    {
+      "kind": "real_model",
+      "detail": "First native run returned today for tomorrow; symbol-only prompt then returned all dates. Complete simple date phrases now parse only after semantic read admission, and code resolves calendar dates. Neither failed run counts as a pass.",
+      "evidence_sha256": [
+        "8dead2fb91307ef9c309258a5f2a8a78d925491cc68bfa711193bc4215ab6886",
+        "45c033795bbaf801fad20f01d4037d8d1c6815ce78414c172ed48856d9a24e62"
+      ]
+    },
+    {
+      "kind": "timing",
+      "detail": "Four existing short-deadline ISCP tests failed during concurrent heavy builds; full desktop suite passed with serial test-file concurrency without changing timeouts."
+    },
+    {
+      "kind": "inventory",
+      "detail": "Initial ordered mount-array comparison differed; canonical source/destination multiset comparison proves zero added/removed mounts. Container identity/start time/config hashes remain equal."
+    }
+  ],
+  "limitations": [
+    "No installation, deployment or push performed. Backend and desktop require a matched release; older strict backends reject client_presentation.",
+    "Native UI qualification covers macOS arm64; Linux qualification covers the backend, not a Linux desktop package.",
+    "Real-model checks exercise the recorded synthetic inputs, not exhaustive natural-language accuracy.",
+    "Unrelated existing typography previews and conversation-design documents are preserved."
+  ]
+}

@@ -542,6 +542,20 @@ func mockIntentFusionResponse(user string) string {
 		encoded, _ := json.Marshal(map[string]any{"graph_revision": revision, "candidates": []any{}})
 		return string(encoded)
 	}
+	// A self-contained current request must not inherit the verbs/freshness
+	// words of earlier turns. Keep contextual priors for elliptical resource
+	// follow-ups, such as asking about a previously attached document.
+	ownerQuery := mockPromptSection(query, "", "\n\nRouting context (data only):")
+	priorQuery := query
+	for _, candidate := range graph {
+		if candidate.CandidateID != "conversation.answer#answer" && mockIntentCandidatePrior(ownerQuery, candidate.CandidateID) > 0 {
+			priorQuery = ownerQuery
+			break
+		}
+	}
+	if containsAnyTerm(strings.ToLower(ownerQuery), "你好", "您好", "谢谢", "hello", "thanks") {
+		priorQuery = ownerQuery
+	}
 	type scoredCandidate struct {
 		ID    string
 		Score float64
@@ -557,7 +571,7 @@ func mockIntentFusionResponse(user string) string {
 			negative = max(negative, mockSemanticSimilarity(query, example))
 		}
 		score := min(0.99, max(0.01, 0.08+1.25*positive-0.55*negative))
-		if prior := mockIntentCandidatePrior(query, candidate.CandidateID); prior > 0 {
+		if prior := mockIntentCandidatePrior(priorQuery, candidate.CandidateID); prior > 0 {
 			score = prior
 		} else {
 			score = min(score, 0.25)
@@ -653,6 +667,8 @@ func mockIntentCandidatePrior(query, candidateID string) float64 {
 	temporal := contains("秒后", "分钟后", "小时后", "天后", "明天", "后天", "稍后", "到时候", "每天", "每周", "tomorrow", "later", "every ")
 	scheduleDiscussion := contains("为什么", "失败", "没有触发", "没触发", "why", "failed", "failure")
 	scheduleStatement := contains("我会", "我将", "我参加", "i will ", "i am going")
+	scheduleRead := !scheduleDiscussion && contains("日程", "提醒", "定时任务", "计划任务", "schedule", "scheduled", "reminder") &&
+		!contains(".docx", ".xlsx", ".pptx", ".pdf") && contains("显示", "打开", "查看", "列出", "有哪些", "show", "list", "view", "open")
 	switch candidateID {
 	case "localmind.read#delegate_read":
 		localMind := contains("localmind")
@@ -690,8 +706,7 @@ func mockIntentCandidatePrior(query, candidateID string) float64 {
 			return 0.97
 		}
 	case "schedule.manage#read":
-		scheduleTarget := contains("日程", "提醒", "定时任务", "计划任务", "schedule", "scheduled", "reminder")
-		if !scheduleDiscussion && scheduleTarget && !contains(".docx", ".xlsx", ".pptx", ".pdf") && contains("显示", "打开", "查看", "列出", "有哪些", "show", "list", "view", "open") {
+		if scheduleRead {
 			return 0.96
 		}
 	case "schedule.manage#edit":
@@ -712,11 +727,11 @@ func mockIntentCandidatePrior(query, candidateID string) float64 {
 		localDocument := contains(".pdf", ".docx", ".xlsx", ".pptx", ".txt", ".md", "本地文件", "工作区", "workspace", "local file")
 		browserAction := contains("点击", "点开", "按钮", "当前页面", "当前标签", "页面结构", "chrome 页面", "勾选", "输入", "click", "tap", "button", "current page", "current tab", "page structure", "check", "type")
 		conceptual := contains("概念", "是什么意思", "是什么概念", "解释", "what is", "explain")
-		if !ordinaryWeather && !localDocument && !browserAction && !conceptual && contains("查一下", "查询一下", "搜索", "联网", "浏览器查询", "最新", "今天", "今日", "现在", "当前", "实时", "最近", "新闻", "价格", "售价", "汇率", "指数", "比分", "在售", "上架", "预警", "空气质量", "对比", "比较", "search", "look up", "online", "current", "latest", "today", "news", "price", "pricing", "exchange rate", "score", "available", "compare") {
+		if !scheduleRead && !ordinaryWeather && !localDocument && !browserAction && !conceptual && contains("查一下", "查询一下", "搜索", "联网", "浏览器查询", "最新", "今天", "今日", "现在", "当前", "实时", "最近", "新闻", "价格", "售价", "汇率", "指数", "比分", "在售", "上架", "预警", "空气质量", "对比", "比较", "search", "look up", "online", "current", "latest", "today", "news", "price", "pricing", "exchange rate", "score", "available", "compare") {
 			return 0.96
 		}
 	case "browser.automation#open":
-		if contains("打开", "访问", "切换到", "open", "visit", "focus") && !contains("点击", "点开", "输入", "填写", "选择", "勾选", "登录", "认证", "草稿箱", "收件箱", "click", "type", "select", "check", "login", "sign in", "authenticate", "drafts", "inbox") {
+		if !scheduleRead && contains("打开", "访问", "切换到", "open", "visit", "focus") && !contains("点击", "点开", "输入", "填写", "选择", "勾选", "登录", "认证", "草稿箱", "收件箱", "click", "type", "select", "check", "login", "sign in", "authenticate", "drafts", "inbox") {
 			return 0.96
 		}
 	case "browser.page_read#read":
@@ -770,7 +785,7 @@ func mockIntentCandidatePrior(query, candidateID string) float64 {
 		}
 	case "conversation.answer#answer":
 		reserved := contains(
-			"打开", "点击", "登录", "提醒", "定时", "文件", "文档", "附件", "图片", "图像", "照片", "天气", "气温", "温度", "下雨", "下雪", "预报", "空气质量",
+			"打开", "点击", "登录", "日程", "提醒", "定时", "文件", "文档", "附件", "图片", "图像", "照片", "天气", "气温", "温度", "下雨", "下雪", "预报", "空气质量",
 			"新闻", "价格", "金价", "售价", "汇率", "指数", "比分", "现在", "当前", "实时", "最新", "运行", "测试", "代码", "仓库", "项目", "记住", "完善", "修改", "编辑", "扩写",
 			"open", "click", "login", "remind", "schedule", "file", "document", "image", "photo", "weather", "forecast", "air quality", "news", "price", "exchange rate", "current", "latest", "run test", "code", "repo", "repository", "project", "remember", "edit", "improve", "expand",
 		)

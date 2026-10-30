@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -98,5 +99,36 @@ func TestClientScheduleViewStrictModelSelection(t *testing.T) {
 		if err == nil {
 			t.Fatalf("accepted malformed model decision: %s", raw)
 		}
+	}
+}
+
+func TestClientSchedulePresentationAllDatesAfterEarlierDisplay(t *testing.T) {
+	for _, withHistory := range []bool{false, true} {
+		t.Run(fmt.Sprint("history=", withHistory), func(t *testing.T) {
+			runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+			defer closeRuntime()
+			if withHistory {
+				for _, m := range []app.Message{
+					{Role: "user", Content: "你好，请用一句话介绍你自己。"},
+					{Role: "assistant", Content: "I can answer this directly from the current conversation."},
+					{Role: "user", Content: "显示明天的日程"},
+					{Role: "assistant", Content: "已请求在当前桌面打开本机日程。"},
+				} {
+					m.SessionID = session.ID
+					m.CreatedAt = time.Now().UTC()
+					if _, err := st.AddMessage(t.Context(), m); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			ctx := WithClientPresentation(t.Context(), "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", clientPresentationForTest())
+			result, err := runtime.HandleMessage(ctx, session.ID, "显示我的日程")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.ClientAction == nil || result.ClientAction.DateStart != "" || result.ClientAction.DateEnd != "" {
+				t.Fatalf("full schedule display was not handed off: route=%+v action=%+v fusion=%+v", result.RouteDecision, result.ClientAction, result.Run.MessageContext.IntentFusion)
+			}
+		})
 	}
 }

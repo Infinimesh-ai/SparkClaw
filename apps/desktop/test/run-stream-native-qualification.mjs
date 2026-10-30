@@ -29,6 +29,17 @@ const password = crypto.randomBytes(24).toString("hex");
 const token = crypto.randomBytes(24).toString("hex");
 let fixture;
 const evidence = { schema_version: 1, root, samples, mode, ...(!realModel && !scheduleMode ? {chars_per_sample: 600 * repetitions} : {}), production_data: false, postgres_container: container, source_revision: (await run("git", ["rev-parse", "HEAD"])).stdout.trim() };
+if (scheduleMode && !process.env.SPARKCLAW_STREAM_FIXTURE_RELAY_BINARY) {
+  const source = process.env.SPARKCLAW_STREAM_FIXTURE_ISCP_SOURCE;
+  if (!path.isAbsolute(source || "")) throw new Error("Schedule qualification requires explicit SPARKCLAW_STREAM_FIXTURE_ISCP_SOURCE or independent Relay fixture/maintenance binaries");
+  const relayEnv = {...process.env, GOWORK: "off", GOOS: "linux", GOARCH: process.arch === "arm64" ? "arm64" : "amd64", CGO_ENABLED: "0"};
+  const relay = path.join(root, "bin/independent-relay"), maintenance = path.join(root, "bin/independent-maintenance");
+  await run("go", ["build", "-o", relay, path.join(repository, "apps/desktop/test/iscp-native-relay-fixture.go")], {cwd: source, env: relayEnv});
+  await run("go", ["build", "-o", maintenance, "./cmd/iscp-relay-maintenance"], {cwd: source, env: relayEnv});
+  process.env.SPARKCLAW_STREAM_FIXTURE_RELAY_BINARY = relay;
+  process.env.SPARKCLAW_STREAM_FIXTURE_MAINTENANCE_BINARY = maintenance;
+  evidence.independent_relay_source = {revision: (await run("git", ["rev-parse", "HEAD"], {cwd: source})).stdout.trim(), tracked_diff_sha256: crypto.createHash("sha256").update((await run("git", ["diff", "HEAD", "--binary"], {cwd: source})).stdout).digest("hex")};
+}
 if (process.env.SPARKCLAW_STREAM_FIXTURE_RELAY_BINARY) {
   evidence.independent_relay = {};
   for (const [kind, key] of [['relay', 'SPARKCLAW_STREAM_FIXTURE_RELAY_BINARY'], ['maintenance', 'SPARKCLAW_STREAM_FIXTURE_MAINTENANCE_BINARY']]) {
@@ -63,7 +74,7 @@ try {
     path.join(repository, "apps/desktop/src/main/desktop-auth.mjs"),
     path.join(repository, "apps/desktop/src/main/iscp-transport.mjs"),
     path.join(repository, "apps/desktop/test/stream-native-fixture.mjs"),
-    ...(scheduleMode ? [path.join(repository, "apps/desktop/test/schedule-native-fixture.mjs"), path.join(repository, "apps/desktop/test/run-schedule-native-qualification.mjs")] : []),
+    ...(scheduleMode ? [path.join(repository, "apps/desktop/test/schedule-native-fixture.mjs"), path.join(repository, "apps/desktop/test/run-schedule-native-qualification.mjs"), path.join(repository, "apps/desktop/test/iscp-native-relay-fixture.go")] : []),
     path.join(repository, "apps/desktop/test/run-stream-native-qualification.mjs"),
     ...assets.filter(file => /\.(?:js|css)$/u.test(file)).map(file => path.join(repository, "apps/webchat/dist/assets", file)),
   ].map(fingerprint));

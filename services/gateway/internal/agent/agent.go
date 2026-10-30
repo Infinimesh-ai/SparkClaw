@@ -55,6 +55,7 @@ type EmailAdmission interface {
 }
 
 type Result struct {
+	ClientAction   *app.ClientAction   `json:"client_action,omitempty"`
 	Run            app.AgentRun        `json:"run"`
 	Message        app.Message         `json:"message"`
 	ToolCalls      []app.ToolCall      `json:"tool_calls"`
@@ -436,6 +437,11 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	}
 	if route.Status != app.RouteMatched {
 		return r.completeTerminalRoute(ctx, run, visibleContent, returnRoute, route)
+	}
+	if !routing.Delivery.ExplicitExternal {
+		if result, handled, err := r.dispatchClientSchedulePresentation(ctx, run, route, visibleContent); handled {
+			return result, err
+		}
 	}
 	dispatch, err := r.dispatchMatchedWorkflow(ctx, run, route, returnRoute, userMessage.ID)
 	if err != nil {

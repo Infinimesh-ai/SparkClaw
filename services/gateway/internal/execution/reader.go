@@ -70,6 +70,9 @@ func validateResultBundle(f Fence, content bundle) error {
 	if decoder.Decode(&payload) != nil || !json.Valid([]byte(content.Payload)) || len(payload.Files) != len(content.Files) {
 		return ErrUnavailable
 	}
+	if (payload.ClientAction != nil) != f.ClientActionIssued || payload.ClientAction != nil && (!payload.ClientAction.Valid() || payload.ClientAction.RequestID != f.RequestID) {
+		return ErrUnavailable
+	}
 	total := len(content.Payload)
 	ids, names := map[string]bool{}, map[string]bool{}
 	for _, file := range payload.Files {

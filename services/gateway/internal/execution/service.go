@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
@@ -334,6 +335,10 @@ func (s *Service) run(ctx context.Context, key string, e Envelope, files map[str
 		runCtx = context.WithValue(runCtx, answerContextKey{}, answerPublisher{append: func(text string) { s.publishAnswer(key, text) }, reset: func() { s.resetAnswer(key) }})
 		out, err = s.execute(runCtx, e, files)
 	}()
+	if out.ClientAction != nil && (e.ClientPresentation == nil || !e.ClientPresentation.Valid() || !out.ClientAction.Valid() || out.ClientAction.RequestID != e.RequestID || out.ClientAction.ConversationID != e.ConversationID || out.ClientAction.Timezone != e.ClientPresentation.Timezone) {
+		out = Output{}
+		err = errors.New("invalid client action execution binding")
+	}
 	if ctx.Err() != nil {
 		err = ctx.Err()
 	}
@@ -376,7 +381,8 @@ func (s *Service) finish(key string, out Output, executionErr error) {
 		_ = s.saveLocked()
 		return
 	}
-	payload := Payload{Content: out.Content, Files: []File{}}
+
+	payload := Payload{Content: out.Content, Files: []File{}, ClientAction: out.ClientAction}
 	content := bundle{Files: map[string][]byte{}}
 	names := make([]string, 0, len(out.Files))
 	for name := range out.Files {
@@ -427,6 +433,7 @@ func (s *Service) finish(key string, out Output, executionErr error) {
 	f.GeneratedAt = &now
 	f.ExpiresAt = &expiry
 	f.ResultDigest = Digest(raw)
+	f.ClientActionIssued = out.ClientAction != nil
 	s.control.Fences[key] = f
 	if err = s.saveLocked(); err != nil {
 		f.State = "unknown"
@@ -436,7 +443,7 @@ func (s *Service) finish(key string, out Output, executionErr error) {
 	}
 }
 func statusFor(f Fence) Status {
-	status := Status{Revision: f.Revision, TerminationReason: f.TerminationReason, ApprovalReceipts: approvalReceipts(f), SchemaVersion: 1, RequestID: f.RequestID, InputDigest: f.InputDigest, State: f.State, ExpiresAt: f.ExpiresAt}
+	status := Status{ClientActionReceipt: cloneClientActionReceipt(f.ClientActionReceipt), Revision: f.Revision, TerminationReason: f.TerminationReason, ApprovalReceipts: approvalReceipts(f), SchemaVersion: 1, RequestID: f.RequestID, InputDigest: f.InputDigest, State: f.State, ExpiresAt: f.ExpiresAt}
 	if f.State == "accepted" || f.State == "running" {
 		status.ExecutionExpiresAt = &f.Deadline
 	}
@@ -500,6 +507,10 @@ func (s *Service) File(owner, client, request, file string) ([]byte, error) {
 	return raw, nil
 }
 func (s *Service) Ack(owner, client, request string, sequence int, digest string, durable bool) error {
+	return s.AckWithClientAction(owner, client, request, sequence, digest, durable, nil)
+}
+
+func (s *Service) AckWithClientAction(owner, client, request string, sequence int, digest string, durable bool, receipt *app.ClientActionReceipt) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	defer s.pruneProgressLocked()
@@ -511,13 +522,27 @@ func (s *Service) Ack(owner, client, request string, sequence int, digest string
 	if sequence != 1 || !durable || digest != f.ResultDigest || f.ResultDigest == "" {
 		return ErrConflict
 	}
+	if receipt != nil && (!f.ClientActionIssued || !receipt.Valid(request) || f.ClientActionReceipt != nil && *f.ClientActionReceipt != *receipt) {
+		return ErrConflict
+	}
 	if f.State == "delivered" {
+		if receipt != nil && f.ClientActionReceipt == nil {
+			previous := f
+			f.ClientActionReceipt = cloneClientActionReceipt(receipt)
+			f.Revision++
+			s.control.Fences[key] = f
+			if err := s.saveLocked(); err != nil {
+				s.control.Fences[key] = previous
+				return ErrUnavailable
+			}
+		}
 		return removeIfPresent(s.contentPath(key))
 	}
 	if f.State != "completed" || f.ExpiresAt == nil || !f.ExpiresAt.After(s.now()) {
 		return ErrExpired
 	}
 	prior := f
+	f.ClientActionReceipt = cloneClientActionReceipt(receipt)
 	f.State = "delivered"
 	f.Revision++
 	s.control.Fences[key] = f
@@ -664,6 +689,9 @@ func (s *Service) validateControl() error {
 			}
 			f.Revision = 1
 		}
+		if f.ClientActionReceipt != nil && (!f.ClientActionIssued || !f.ClientActionReceipt.Valid(f.RequestID) || f.State != "delivered") || f.ClientActionIssued && f.ResultDigest == "" {
+			return errors.New("invalid client action control receipt")
+		}
 		if err := validateApprovalControl(f); err != nil {
 			return err
 		}
@@ -681,4 +709,12 @@ func (s *Service) validateControl() error {
 	}
 	s.control.Version = controlVersion
 	return nil
+}
+
+func cloneClientActionReceipt(receipt *app.ClientActionReceipt) *app.ClientActionReceipt {
+	if receipt == nil {
+		return nil
+	}
+	copy := *receipt
+	return &copy
 }

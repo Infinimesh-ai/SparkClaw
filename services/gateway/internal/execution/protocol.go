@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/appstream"
 )
 
 const (
@@ -41,16 +42,17 @@ type Message struct {
 	Content string `json:"content"`
 }
 type Envelope struct {
-	SchemaVersion  int       `json:"schema_version"`
-	DeploymentID   string    `json:"deployment_id"`
-	OwnerID        string    `json:"owner_id"`
-	ClientID       string    `json:"client_id"`
-	InstallationID string    `json:"installation_id"`
-	ConversationID string    `json:"local_conversation_id"`
-	TaskID         string    `json:"local_task_id"`
-	RequestID      string    `json:"request_id"`
-	Messages       []Message `json:"messages"`
-	InputFiles     []File    `json:"input_files,omitempty"`
+	SchemaVersion      int                     `json:"schema_version"`
+	DeploymentID       string                  `json:"deployment_id"`
+	OwnerID            string                  `json:"owner_id"`
+	ClientID           string                  `json:"client_id"`
+	InstallationID     string                  `json:"installation_id"`
+	ConversationID     string                  `json:"local_conversation_id"`
+	TaskID             string                  `json:"local_task_id"`
+	RequestID          string                  `json:"request_id"`
+	Messages           []Message               `json:"messages"`
+	InputFiles         []File                  `json:"input_files,omitempty"`
+	ClientPresentation *app.ClientPresentation `json:"client_presentation,omitempty"`
 }
 type File struct {
 	ID     string `json:"id"`
@@ -59,12 +61,14 @@ type File struct {
 	SHA256 string `json:"sha256"`
 }
 type Payload struct {
-	Content string `json:"content"`
-	Files   []File `json:"files"`
+	ClientAction *app.ClientAction `json:"client_action,omitempty"`
+	Content      string            `json:"content"`
+	Files        []File            `json:"files"`
 }
 type Output struct {
-	Content string
-	Files   map[string][]byte
+	ClientAction *app.ClientAction
+	Content      string
+	Files        map[string][]byte
 }
 type Result struct {
 	Sequence int    `json:"sequence"`
@@ -107,22 +111,25 @@ type ApprovalRecord struct {
 }
 
 type Status struct {
-	Revision           uint64            `json:"revision,omitempty"`
-	TerminationReason  TerminationReason `json:"termination_reason,omitempty"`
-	ApprovalReceipts   []ApprovalRecord  `json:"approval_receipts,omitempty"`
-	ExecutionExpiresAt *time.Time        `json:"execution_expires_at,omitempty"`
-	PendingApprovals   []PendingApproval `json:"pending_approvals,omitempty"`
-	SchemaVersion      int               `json:"schema_version"`
-	RequestID          string            `json:"request_id"`
-	InputDigest        string            `json:"input_digest"`
-	State              string            `json:"state"`
-	ExpiresAt          *time.Time        `json:"expires_at,omitempty"`
-	Result             *Result           `json:"result,omitempty"`
+	ClientActionReceipt *app.ClientActionReceipt `json:"client_action_receipt,omitempty"`
+	Revision            uint64                   `json:"revision,omitempty"`
+	TerminationReason   TerminationReason        `json:"termination_reason,omitempty"`
+	ApprovalReceipts    []ApprovalRecord         `json:"approval_receipts,omitempty"`
+	ExecutionExpiresAt  *time.Time               `json:"execution_expires_at,omitempty"`
+	PendingApprovals    []PendingApproval        `json:"pending_approvals,omitempty"`
+	SchemaVersion       int                      `json:"schema_version"`
+	RequestID           string                   `json:"request_id"`
+	InputDigest         string                   `json:"input_digest"`
+	State               string                   `json:"state"`
+	ExpiresAt           *time.Time               `json:"expires_at,omitempty"`
+	Result              *Result                  `json:"result,omitempty"`
 }
 
 // Fence is the complete durable control field allowlist. No maps, arbitrary
 // diagnostic strings, context, titles, prompts or tool outputs may be added.
 type Fence struct {
+	ClientActionIssued  bool                     `json:"client_action_issued,omitempty"`
+	ClientActionReceipt *app.ClientActionReceipt `json:"client_action_receipt,omitempty"`
 	// Process-only progress cursor survives preview eviction, never JSON or restart.
 	progressRevision  uint64
 	progressState     string
@@ -150,14 +157,15 @@ func Decode(raw []byte, digest string) (Envelope, error) {
 	if len(raw) > ContextBytes || !utf8.Valid(raw) || !digestPattern.MatchString(digest) || Digest(raw) != digest {
 		return e, errors.New("invalid workbench context digest or size")
 	}
-	decoder := json.NewDecoder(strings.NewReader(string(raw)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&e); err != nil {
+	if err := appstream.DecodeStrict(raw, &e); err != nil {
 		return e, errors.New("invalid workbench context fields")
 	}
 	// json.Valid rejects a trailing second value. Decode alone does not.
 	if !json.Valid(raw) || e.SchemaVersion != 1 || !identityPattern.MatchString(e.OwnerID) || !identityPattern.MatchString(e.ClientID) || !identityPattern.MatchString(e.DeploymentID) || !UUID(e.InstallationID) || !UUID(e.RequestID) || !UUID(e.ConversationID) || !UUID(e.TaskID) || len(e.Messages) == 0 || len(e.Messages) > ContextMessages {
 		return e, errors.New("invalid workbench execution identity or context")
+	}
+	if e.ClientPresentation != nil && !e.ClientPresentation.Valid() {
+		return e, errors.New("invalid client presentation capability")
 	}
 	fileNames := map[string]bool{}
 	for _, file := range e.InputFiles {

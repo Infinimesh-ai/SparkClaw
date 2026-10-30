@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
 )
 
@@ -188,15 +189,16 @@ func (s *Server) ackExecution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Sequence int    `json:"sequence"`
-		Digest   string `json:"digest"`
-		Durable  bool   `json:"durable"`
+		Sequence            int                      `json:"sequence"`
+		Digest              string                   `json:"digest"`
+		Durable             bool                     `json:"durable"`
+		ClientActionReceipt *app.ClientActionReceipt `json:"client_action_receipt,omitempty"`
 	}
 	if err = readExecutionJSON(r, &input); err != nil {
 		writeError(w, 400, errors.New("invalid workbench receipt"))
 		return
 	}
-	if err = s.executions.Ack(p.OwnerID, p.ClientID, r.PathValue("request"), input.Sequence, input.Digest, input.Durable); err != nil {
+	if err = s.executions.AckWithClientAction(p.OwnerID, p.ClientID, r.PathValue("request"), input.Sequence, input.Digest, input.Durable, input.ClientActionReceipt); err != nil {
 		writeExecutionError(w, err)
 		return
 	}

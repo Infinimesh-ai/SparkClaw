@@ -78,7 +78,7 @@ func (scheduleManageProfile) RoutingSemantics() workflowRoutingSemantics {
 		},
 		{
 			Key: "read", Route: workflowRouteTemplate{Operation: app.RouteOperationRead},
-			EmbedTexts:      []string{"查看我的定时任务", "列出明天的提醒", "我现在有哪些计划任务", "Show my scheduled reminders"},
+			EmbedTexts:      []string{"显示明天的日程", "打开本机日程", "查看我的定时任务", "列出明天的提醒", "我现在有哪些计划任务", "Show my scheduled reminders"},
 			TreeDescription: "List or inspect existing scheduled tasks or reminders without changing them.",
 			HardNegatives:   []string{"为什么提醒没有触发", "查看聊天记录", "告诉我明天有什么会议"},
 		},

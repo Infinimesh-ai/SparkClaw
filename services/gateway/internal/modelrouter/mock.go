@@ -11,6 +11,9 @@ import (
 )
 
 func mockResponse(lane, user string) string {
+	if strings.Contains(user, `"request":"CLIENT_SCHEDULE_PRESENTATION_REQUEST"`) {
+		return mockClientScheduleView(user)
+	}
 	if injected := mockInjectedResponse(user, "MOCK_OPERATION_SELECTION_RESPONSE:"); injected != "" {
 		return injected
 	}
@@ -687,8 +690,8 @@ func mockIntentCandidatePrior(query, candidateID string) float64 {
 			return 0.97
 		}
 	case "schedule.manage#read":
-		scheduleTarget := contains("提醒", "定时任务", "计划任务", "schedule", "scheduled", "reminder")
-		if !scheduleDiscussion && scheduleTarget && contains("查看", "列出", "有哪些", "show", "list", "view") {
+		scheduleTarget := contains("日程", "提醒", "定时任务", "计划任务", "schedule", "scheduled", "reminder")
+		if !scheduleDiscussion && scheduleTarget && !contains(".docx", ".xlsx", ".pptx", ".pdf") && contains("显示", "打开", "查看", "列出", "有哪些", "show", "list", "view", "open") {
 			return 0.96
 		}
 	case "schedule.manage#edit":

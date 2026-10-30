@@ -118,6 +118,9 @@ func (s *Server) executeWorkbenchWorkflow(ctx context.Context, e execution.Envel
 	// A client-provided assistant message is ordinary conversation input. No
 	// previous run, approval, tool receipt or trusted ingress is imported.
 	ctx = agent.WithFinalAnswerFormat(ctx, agent.FinalAnswerMarkdown)
+	if e.ClientPresentation != nil {
+		ctx = agent.WithClientPresentation(ctx, e.RequestID, e.ConversationID, *e.ClientPresentation)
+	}
 	answerStarted := false
 	ctx = agent.WithFinalAnswerStart(ctx, func() {
 		if answerStarted {
@@ -139,7 +142,7 @@ func (s *Server) executeWorkbenchWorkflow(ctx context.Context, e execution.Envel
 	if err != nil {
 		return execution.Output{}, err
 	}
-	out := execution.Output{Content: result.Message.Content, Files: map[string][]byte{}}
+	out := execution.Output{Content: result.Message.Content, ClientAction: result.ClientAction, Files: map[string][]byte{}}
 	size := len(out.Content)
 	entries := 0
 	err = filepath.WalkDir(workspace, func(path string, entry fs.DirEntry, walkErr error) error {

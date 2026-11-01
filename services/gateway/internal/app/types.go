@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/clarification"
 )
 
 type RiskLevel string
@@ -21,6 +23,9 @@ type PolicyResourceClass string
 type PolicyAccessClass string
 type PolicyOutputClass string
 
+// PolicyDeliveryClass marks a tool whose effect fixes a later delivery target.
+type PolicyDeliveryClass string
+
 const (
 	PolicyPrincipalExternalMCPAI PolicyPrincipalClass = "external_mcp_ai"
 
@@ -33,6 +38,10 @@ const (
 	PolicyOutputDocumentContent    PolicyOutputClass = "document_content"
 	PolicyOutputResponseMedia      PolicyOutputClass = "response_media"
 	PolicyOutputToolResult         PolicyOutputClass = "tool_result"
+
+	// PolicyDeliveryExternalEndpoint is a schedule whose due-time result goes
+	// to an endpoint other than the current conversation.
+	PolicyDeliveryExternalEndpoint PolicyDeliveryClass = "external_endpoint"
 )
 
 // ToolCallStatus is the lifecycle state of a ToolCall.
@@ -91,6 +100,7 @@ type PolicyExecutionContext struct {
 	ReturnRoute      ReturnRoute          `json:"return_route,omitempty"`
 	OutputClass      PolicyOutputClass    `json:"output_class,omitempty"`
 	ContractDigest   string               `json:"contract_digest,omitempty"`
+	DeliveryClass    PolicyDeliveryClass  `json:"delivery_class,omitempty"`
 }
 
 type ToolDefinition struct {
@@ -546,14 +556,16 @@ type MemoryExportCounts struct {
 }
 
 type Message struct {
-	ID             string                `json:"id"`
-	SessionID      string                `json:"session_id"`
-	Role           string                `json:"role"`
-	Content        string                `json:"content"`
-	CreatedAt      time.Time             `json:"created_at"`
-	RunID          string                `json:"run_id,omitempty"`
-	Attachments    []MessageAttachment   `json:"attachments,omitempty"`
-	RequestedMedia []MessageMediaLocator `json:"requested_media,omitempty"`
+	ID               string                `json:"id"`
+	SessionID        string                `json:"session_id"`
+	Role             string                `json:"role"`
+	Content          string                `json:"content"`
+	CreatedAt        time.Time             `json:"created_at"`
+	RunID            string                `json:"run_id,omitempty"`
+	Attachments      []MessageAttachment   `json:"attachments,omitempty"`
+	RequestedMedia   []MessageMediaLocator `json:"requested_media,omitempty"`
+	FilesUnavailable bool                  `json:"files_unavailable,omitempty"`
+	Clarification    *clarification.Record `json:"clarification,omitempty"`
 }
 
 type MessageAttachment struct {

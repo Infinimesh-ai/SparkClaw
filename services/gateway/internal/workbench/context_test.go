@@ -30,3 +30,17 @@ func TestInputBudgetDoesNotTruncateOwnerIntent(t *testing.T) {
 		t.Fatal("boundary input rejected")
 	}
 }
+
+func TestContextSelectionRetainsEmptyUnavailableFileBoundary(t *testing.T) {
+	messages := []app.Message{
+		{ID: "old", Role: "user", Attachments: []app.MessageAttachment{{Name: "old.md", RelPath: "old.md"}}},
+		{ID: "missing", Role: "assistant", FilesUnavailable: true},
+		{ID: "empty", Role: "assistant"},
+		{ID: "system", Role: "system", FilesUnavailable: true},
+		{ID: "current", Role: "user", FilesUnavailable: true, RunID: "current"},
+	}
+	selected := SelectMessages(messages, "current", 1)
+	if len(selected) != 1 || selected[0].ID != "missing" || !selected[0].FilesUnavailable {
+		t.Fatalf("latest file boundary was replaced by an older file: %#v", selected)
+	}
+}

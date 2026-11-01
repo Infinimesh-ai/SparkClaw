@@ -119,8 +119,23 @@ func TestWorkflowSemanticGraphIsCatalogValidatedAndCoversScheduleVariants(t *tes
 	if candidate, ok := graph.Candidate("conversation.answer#answer"); !ok || candidate.Route.Operation != app.RouteOperationAnswer {
 		t.Fatal("semantic graph is missing the timer-eligible conversation candidate")
 	}
-	if candidate, ok := graph.Candidate("conversation.answer#publish"); !ok || candidate.Route.Operation != app.RouteOperationPublish {
-		t.Fatal("semantic graph is missing the ordinary multipart message candidate")
+	if _, ok := graph.Candidate("conversation.answer#publish"); ok {
+		t.Fatal("publish must not compete with business intent scoring")
+	}
+	for _, example := range graph.EmbeddingCorpus() {
+		if example.CandidateID == conversationPublishCandidateID {
+			t.Fatal("publish examples remain in the embedding corpus")
+		}
+	}
+	for _, candidate := range treeGraphProjection(graph.Candidates()) {
+		if candidate["candidate_id"] == conversationPublishCandidateID {
+			t.Fatal("publish remains a Tree candidate")
+		}
+	}
+	for _, candidate := range graph.Candidates() {
+		if !candidate.ClarifyLabel.Valid() {
+			t.Fatalf("candidate %s lacks clarification labels", candidate.ID)
+		}
 	}
 }
 
@@ -343,7 +358,7 @@ func (futureWorkflowProfile) Revision() int                { return 1 }
 func (futureWorkflowProfile) Capability() app.CapabilityID { return "future.translate" }
 func (futureWorkflowProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
-		Key: "translate", Route: workflowRouteTemplate{Operation: "translate"},
+		Key: "translate", ClarifyLabel: workflowClarifyLabel{ZH: "翻译内容", EN: "Translate the content"}, Route: workflowRouteTemplate{Operation: "translate"},
 		EmbedTexts: []string{"translate this"}, TreeDescription: "Translate one supplied passage.",
 	}}}
 }

@@ -22,7 +22,7 @@ func TestExecutionAnswerSourceProductionWorkflowCaller(t *testing.T) {
 	bindWorkbenchISCP(t, handler)
 	e := workbenchISCPEnvelope()
 	answer := "{ordinary Markdown} " + strings.Repeat("你好", 100)
-	e.Messages = []execution.Message{{Role: "user", Content: "Say hello.\nMOCK_CONVERSATION_RESPONSE:" + answer}}
+	e.Messages = []execution.Message{{ID: "fixture-message-25-1", Role: "user", Content: "Say hello.\nMOCK_CONVERSATION_RESPONSE:" + answer}}
 	raw, _ := json.Marshal(e)
 	if r := handler(t.Context(), workbenchISCPRequest(wb.OperationSubmit, raw)); r.Status != 202 {
 		t.Fatal(r)

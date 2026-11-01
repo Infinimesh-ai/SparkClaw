@@ -18,13 +18,19 @@ import (
 
 // Exercise the installed-client HTTP boundary rather than a Broker-only fixture.
 func TestExecutionInstalledClientControlHTTPMatchesClosedRequestShapes(t *testing.T) {
-	root := t.TempDir()
+	// macOS exposes its default temporary directory through /var, a symlink.
+	// Use the physical fixture directory so browser-control path hardening does
+	// not mask the HTTP shape checks this test exercises.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := testConfig(root)
 	cfg.Gateway.PairingRequired = true
 	cfg.Gateway.DeploymentID = "execution-host-http"
 	backend := store.NewMemoryStore()
 	const token = "synthetic-execution-host-http-token-long-enough"
-	_, err := backend.RegisterClient(t.Context(), app.Client{ID: "host-client", OwnerID: "owner-host", Name: "fixture", TokenHash: hashSecret(token)})
+	_, err = backend.RegisterClient(t.Context(), app.Client{ID: "host-client", OwnerID: "owner-host", Name: "fixture", TokenHash: hashSecret(token)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,8 +70,8 @@ func TestExecutionInstalledClientControlHTTPMatchesClosedRequestShapes(t *testin
 	if code, _ := request("/api/v1/browser/hosts/grants", `{}`, ""); code != 403 {
 		t.Fatal("missing install header", code)
 	}
-	if code, _ := request("/api/v1/browser/hosts/grants", `{"installation_id":"`+installation+`"}`, installation); code != 400 {
-		t.Fatal("body broadening", code)
+	if code, raw := request("/api/v1/browser/hosts/grants", `{"installation_id":"`+installation+`"}`, installation); code != 400 {
+		t.Fatalf("body broadening: %d %s", code, raw)
 	}
 	code, raw := request("/api/v1/browser/hosts/grants", `{}`, installation)
 	var grant browserhost.Grant

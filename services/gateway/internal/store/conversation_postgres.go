@@ -21,7 +21,7 @@ func (s *PostgresStore) AddMessage(ctx context.Context, message app.Message) (ap
 		return app.Message{}, storeError(ctx, OperationConversationAddMessage, StoreErrorInvalid, err)
 	}
 	if existing, err := scanMessage(s.conversationPostgres.QueryRow(ctx, `
-		SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at
+		SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at, clarification, files_unavailable
 		FROM messages WHERE id = $1
 	`, candidate.ID)); err == nil {
 		return cloneMessage(existing), nil
@@ -49,15 +49,15 @@ func (s *PostgresStore) AddMessage(ctx context.Context, message app.Message) (ap
 		return app.Message{}, conversationBusinessError(ctx, OperationConversationAddMessage, StoreErrorCorrupt, session, transaction, release, err)
 	}
 	stored, err := scanMessage(transaction.QueryRow(ctx, `
-		INSERT INTO messages (id, session_id, run_id, role, content, attachments, requested_media, created_at)
-		VALUES ($1, $2, nullif($3, ''), $4, $5, $6, $7, $8)
+		INSERT INTO messages (id, session_id, run_id, role, content, attachments, requested_media, created_at, clarification, files_unavailable)
+		VALUES ($1, $2, nullif($3, ''), $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (id) DO NOTHING
-		RETURNING id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at
+		RETURNING id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at, clarification, files_unavailable
 	`, candidate.ID, candidate.SessionID, candidate.RunID, candidate.Role, candidate.Content,
-		mustJSON(candidate.Attachments), mustJSON(candidate.RequestedMedia), candidate.CreatedAt))
+		mustJSON(candidate.Attachments), mustJSON(candidate.RequestedMedia), candidate.CreatedAt, mustJSON(candidate.Clarification), candidate.FilesUnavailable))
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing, readErr := scanMessage(transaction.QueryRow(ctx, `
-			SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at
+			SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at, clarification, files_unavailable
 			FROM messages WHERE id = $1
 		`, candidate.ID))
 		if readErr != nil {
@@ -98,7 +98,7 @@ func (s *PostgresStore) ListMessages(ctx context.Context, sessionID string) ([]a
 		return nil, err
 	}
 	rows, err := s.conversationPostgres.Query(ctx, `
-		SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at
+		SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at, clarification, files_unavailable
 		FROM messages
 		WHERE session_id = $1
 		ORDER BY created_at ASC, id ASC
@@ -131,7 +131,7 @@ func (s *PostgresStore) ListRecentMessages(ctx context.Context, sessionID string
 		return nil, storeError(ctx, OperationConversationListRecent, StoreErrorInvalid, err)
 	}
 	rows, err := s.conversationPostgres.Query(ctx, `
-		SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at
+		SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at, clarification, files_unavailable
 		FROM messages
 		WHERE session_id = $1 AND created_at <= $2 AND id <> $3
 		ORDER BY created_at DESC, id DESC

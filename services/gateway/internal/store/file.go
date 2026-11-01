@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -113,6 +114,16 @@ type snapshotCredentialSecret struct {
 
 type snapshotJSON Snapshot
 
+const fileMessageSnapshotSchemaVersion = 2
+
+// The old decoder expects each messages value to be []Message. The numeric
+// version forces that decoder to refuse a new snapshot instead of discarding
+// clarification fields and overwriting their evidence on its next write.
+type versionedSnapshotMessages struct {
+	SchemaVersion int                      `json:"schema_version"`
+	BySession     map[string][]app.Message `json:"by_session"`
+}
+
 func (snapshot Snapshot) MarshalJSON() ([]byte, error) {
 	clients := make(map[string]snapshotClient, len(snapshot.Clients))
 	for id, client := range snapshot.Clients {
@@ -139,15 +150,17 @@ func (snapshot Snapshot) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(struct {
 		snapshotJSON
+		Messages          versionedSnapshotMessages           `json:"messages"`
 		Clients           map[string]snapshotClient           `json:"clients"`
 		PairingCodes      map[string]snapshotPairingCode      `json:"pairing_codes"`
 		CredentialSecrets map[string]snapshotCredentialSecret `json:"credential_secrets"`
-	}{snapshotJSON: snapshotJSON(snapshot), Clients: clients, PairingCodes: pairings, CredentialSecrets: credentials})
+	}{snapshotJSON: snapshotJSON(snapshot), Messages: versionedSnapshotMessages{fileMessageSnapshotSchemaVersion, ensureSliceMap(snapshot.Messages)}, Clients: clients, PairingCodes: pairings, CredentialSecrets: credentials})
 }
 
 func (snapshot *Snapshot) UnmarshalJSON(raw []byte) error {
 	var decoded struct {
 		snapshotJSON
+		Messages          json.RawMessage                     `json:"messages"`
 		Clients           map[string]snapshotClient           `json:"clients"`
 		PairingCodes      map[string]snapshotPairingCode      `json:"pairing_codes"`
 		CredentialSecrets map[string]snapshotCredentialSecret `json:"credential_secrets"`
@@ -155,7 +168,12 @@ func (snapshot *Snapshot) UnmarshalJSON(raw []byte) error {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return err
 	}
+	messages, err := decodeSnapshotMessages(decoded.Messages)
+	if err != nil {
+		return err
+	}
 	*snapshot = Snapshot(decoded.snapshotJSON)
+	snapshot.Messages = messages
 	snapshot.Clients = make(map[string]app.Client, len(decoded.Clients))
 	for id, client := range decoded.Clients {
 		snapshot.Clients[id] = app.Client{
@@ -180,6 +198,36 @@ func (snapshot *Snapshot) UnmarshalJSON(raw []byte) error {
 		}
 	}
 	return nil
+}
+
+func decodeSnapshotMessages(raw json.RawMessage) (map[string][]app.Message, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, fmt.Errorf("decode file message snapshot: %w", err)
+	}
+	// Legacy snapshots may legitimately have a session named schema_version;
+	// its array (or null) remains a legacy message list, with the same identity.
+	version := bytes.TrimSpace(fields["schema_version"])
+	if len(version) > 0 && version[0] != '[' && !bytes.Equal(version, []byte("null")) {
+		var current versionedSnapshotMessages
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&current); err != nil {
+			return nil, fmt.Errorf("decode versioned file message snapshot: %w", err)
+		}
+		if current.SchemaVersion != fileMessageSnapshotSchemaVersion || current.BySession == nil {
+			return nil, fmt.Errorf("unsupported file message snapshot version %d", current.SchemaVersion)
+		}
+		return current.BySession, nil
+	}
+	var legacy map[string][]app.Message
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		return nil, fmt.Errorf("decode legacy file message snapshot: %w", err)
+	}
+	return legacy, nil
 }
 
 func NewFileStore(path string) (*FileStore, error) {

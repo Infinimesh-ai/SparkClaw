@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
@@ -133,6 +134,7 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 	currentToolCalls := toolCallsForRun(storedToolCalls, run.ID)
 	if workflowExecution.FailureCode != "" {
 		run.Summary = publicWorkflowFailureMessage(workflowExecution.FailureCode)
+
 	} else {
 		run.Summary = summarizeRun(workflowExecution.Chat, workflowObservationTexts(workflowExecution.Observations), workflowExecution.Approvals)
 		if strings.TrimSpace(workflowExecution.FinalAnswer) != "" {
@@ -142,6 +144,15 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 	}
 	if strings.TrimSpace(run.Summary) == "" {
 		run.Summary = "The matched workflow completed after its approved action."
+	}
+	sendCall, sendApproval, err := r.queueExternalSendApproval(ctx, &run)
+	if err != nil {
+		return Result{}, true, err
+	}
+	if sendApproval != nil {
+		workflowExecution.ToolCalls = append(workflowExecution.ToolCalls, *sendCall)
+		workflowExecution.Approvals = append(workflowExecution.Approvals, *sendApproval)
+		currentToolCalls = append(currentToolCalls, *sendCall)
 	}
 	if run, err = r.saveRun(ctx, run); err != nil {
 		return Result{}, true, err
@@ -256,14 +267,49 @@ func (r Runtime) completeTerminalRoute(ctx context.Context, run app.AgentRun, go
 	} else {
 		run.Summary = "Blocked: the request cannot be routed under the current capability boundary."
 	}
-	if strings.TrimSpace(route.Reason) != "" {
+	ownerMessage := false
+	chinese := strings.IndexFunc(goal, func(r rune) bool { return unicode.Is(unicode.Han, r) }) >= 0
+	switch route.Reason {
+	case "conversation_file_unavailable":
+		ownerMessage = true
+		if chinese {
+			run.Summary = "之前的会话文件暂不可用，请重新附加文件后再试。"
+		} else {
+			run.Summary = "The previous conversation file is unavailable. Please attach it again and retry."
+		}
+	case "semantic_coverage_low":
+		ownerMessage = true
+		timer := run.MessageContext != nil && run.MessageContext.Source.Kind == app.MessageSourceTimer
+		if timer && chinese {
+			run.Summary = "这条定时任务的内容无法确定如何执行，请修改任务后再试。"
+		} else if timer {
+			run.Summary = "The scheduled request could not be understood. Please revise the schedule."
+		} else if chinese {
+			run.Summary = "我不确定你希望如何处理，请再说明一下你的需求。"
+		} else {
+			run.Summary = "I am not sure how you would like me to proceed. Please clarify your request."
+		}
+	}
+	if message, ok := routingOwnerMessage(route.Reason, chinese, run.MessageContext != nil && run.MessageContext.Source.Kind == app.MessageSourceTimer); ok {
+		run.Summary = message
+		ownerMessage = true
+	}
+	if !ownerMessage && strings.TrimSpace(route.Reason) != "" {
 		run.Summary += " " + strings.TrimSpace(route.Reason)
+	}
+	proposal, _ := ctx.Value(clarificationProposalKey{}).(*clarificationProposal)
+	if proposal != nil {
+		run.Summary = proposal.Text
 	}
 	var err error
 	if run, err = r.saveRun(ctx, run); err != nil {
 		return Result{}, err
 	}
-	assistant, err := r.store.AddMessage(ctx, app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary, CreatedAt: now})
+	message := app.Message{SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: run.Summary, CreatedAt: now}
+	if proposal != nil {
+		message.Clarification = proposal.Record
+	}
+	assistant, err := r.store.AddMessage(ctx, message)
 	if err != nil {
 		return Result{}, fmt.Errorf("persist terminal route response: %w", err)
 	}
@@ -276,7 +322,7 @@ func (r Runtime) completeTerminalRoute(ctx context.Context, run app.AgentRun, go
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Run: run, Message: assistant, RouteDecision: &route, WorkflowResult: result, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}, nil
+	return Result{Run: run, Message: assistant, Clarification: assistant.Clarification, RouteDecision: &route, WorkflowResult: result, ToolCalls: []app.ToolCall{}, Approvals: []app.Approval{}}, nil
 }
 
 func (r Runtime) workflowResultForRun(ctx context.Context, run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, summary string, failureCodes ...workflowFailureCode) (*app.WorkflowResult, error) {
@@ -323,7 +369,7 @@ func (r Runtime) workflowResultForRun(ctx context.Context, run app.AgentRun, rou
 		}
 		result.Error = &app.WorkflowResultError{Code: code, Message: summary}
 	}
-	return result, nil
+	return result, r.protectExternalSendResult(ctx, run, result)
 }
 
 func (r Runtime) workflowResultData(ctx context.Context, run app.AgentRun) (map[string]any, error) {
@@ -447,6 +493,11 @@ func (r Runtime) governWorkflowRequestPart(ctx context.Context, run app.AgentRun
 	if ref == "." || filepath.IsAbs(filepath.FromSlash(ref)) || ref == ".." || strings.HasPrefix(ref, "../") {
 		return app.MessagePart{}, errors.New("workspace file reference is invalid")
 	}
+	if r.tools != nil {
+		if err := r.tools.MaterializeRead(ctx, ref); err != nil {
+			return app.MessagePart{}, err
+		}
+	}
 	workspaceRoot, err := r.workspaceRootForSession(ctx, run.SessionID)
 	if err != nil {
 		return app.MessagePart{}, err
@@ -479,6 +530,13 @@ func (r Runtime) governWorkflowRequestPart(ctx context.Context, run app.AgentRun
 		return app.MessagePart{}, errors.New("workspace file is unavailable")
 	}
 
+	if strings.HasPrefix(ref, "conversation-files/") || part.Resource.Provenance == "delivery_input" {
+		copy, err := r.copyConversationPublication(ctx, root, candidate, part)
+		if err != nil {
+			return app.MessagePart{}, err
+		}
+		return r.governWorkflowRequestPart(ctx, run, copy)
+	}
 	object := app.ArtifactObject{}
 	objects, err := r.store.ListArtifactObjects(ctx, 0)
 	if err != nil {
@@ -880,7 +938,7 @@ func (r Runtime) workflowResultForUnmatched(ctx context.Context, run app.AgentRu
 	if run.MessageContext != nil {
 		result.MCP = run.MessageContext.MCP
 	}
-	return result, nil
+	return result, r.protectExternalSendResult(ctx, run, result)
 }
 
 func workflowResultReturnRoute(status app.WorkflowResultStatus, route app.ReturnRoute) app.ReturnRoute {

@@ -37,6 +37,12 @@ type WorkbenchContext struct {
 }
 type workbenchContextKey struct{}
 
+// ClarificationMessages returns the immutable admission selection. Callers must
+// append the admitted current message, never requery a moving conversation.
+func (s WorkbenchContext) ClarificationMessages() []app.Message {
+	return append([]app.Message(nil), s.history.Selected.Messages...)
+}
+
 func (r Runtime) PrepareWorkbenchContext(ctx context.Context, sessionID string) (WorkbenchContext, error) {
 	before := time.Now().UTC().Truncate(time.Microsecond)
 	history, err := r.buildInvocationHistory(ctx, app.AgentRun{ID: "workbench-admission", SessionID: sessionID, StartedAt: before}, "")

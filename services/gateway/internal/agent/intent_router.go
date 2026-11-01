@@ -19,9 +19,13 @@ import (
 )
 
 type IntentRoutingOutput struct {
-	Route    app.RouteDecision         `json:"route"`
-	Delivery DeliveryDirective         `json:"delivery"`
-	Fusion   *app.IntentFusionDecision `json:"intent_fusion,omitempty"`
+	Route               app.RouteDecision         `json:"route"`
+	Delivery            DeliveryDirective         `json:"delivery"`
+	Fusion              *app.IntentFusionDecision `json:"intent_fusion,omitempty"`
+	Proposal            *clarificationProposal    `json:"-"`
+	Publication         *app.MessageContent       `json:"-"`
+	PublicationLocators []app.MessageMediaLocator `json:"-"`
+	ExpectedEndpoint    string                    `json:"-"`
 }
 
 type semanticIntentRouter struct {
@@ -104,6 +108,9 @@ func (r Runtime) routingInvocationHistory(ctx context.Context, sessionID, runID 
 }
 
 func (r Runtime) routeIntentWithHistory(ctx context.Context, sessionID, runID, ownerText string, resources []app.MessagePart, locators []app.MessageMediaLocator, sourceKind app.MessageSourceKind, history invocationHistory) (IntentRoutingOutput, error) {
+	if missing, _ := ctx.Value(sourceMessageFilesUnavailableKey{}).(bool); missing && strings.TrimSpace(ownerText) == "" {
+		return r.terminalRouting(app.RouteClarify, "conversation_file_unavailable"), nil
+	}
 	if routing, mediaOnly, err := r.routeMediaOnlyMessage(ctx, sessionID, runID, ownerText, resources, locators, sourceKind); mediaOnly || err != nil {
 		return routing, err
 	}
@@ -111,11 +118,9 @@ func (r Runtime) routeIntentWithHistory(ctx context.Context, sessionID, runID, o
 		return IntentRoutingOutput{}, errors.New("semantic intent router is unavailable")
 	}
 	groundingContent := strings.TrimSpace(semanticRoutingContent(ownerText))
-	content := semanticOwnerProjection(groundingContent)
-	delivery, businessContent, err := projectDeliveryDirective(ownerText, content)
-	if err != nil {
-		return IntentRoutingOutput{}, err
-	}
+	content := groundingContent
+	var delivery DeliveryDirective
+	businessContent := content
 	clientTimezone := ""
 	run, hasRun, err := r.store.GetRun(ctx, runID)
 	if err != nil {
@@ -133,12 +138,83 @@ func (r Runtime) routeIntentWithHistory(ctx context.Context, sessionID, runID, o
 			return IntentRoutingOutput{}, err
 		}
 	}
-	grounding, err := r.projectIntentGrounding(ctx, sessionID, runID, groundingContent, documents, history.ToolCandidates)
+	missingCurrent, _ := ctx.Value(sourceMessageFilesUnavailableKey{}).(bool)
+	if missingCurrent {
+		documents = documentContextResolution{Unavailable: true}
+	}
+	promptContext := newTreeRoutingPromptContext(resources, history.Selected, documents)
+	externalMCP := hasRun && run.MessageContext != nil && isExternalMCPInvocation(run.MessageContext.MCP)
+	split, splitErr := r.splitIntentRequest(ctx, sessionID, runID, content, sourceKind, promptContext, externalMCP, time.Duration(r.semanticRouter.calibration.SplitTimeoutMS)*time.Millisecond)
+	selected, _ := ctx.Value(clarificationSelectionKey{}).(*clarificationSelection)
+	if errors.Is(splitErr, errExternalRequestIncomplete) {
+		return r.terminalRouting(app.RouteClarify, "delivery_split_unavailable"), nil
+	}
+	if splitErr == nil {
+		// The split names the channel and recipient; Message Control resolves
+		// them to one registered endpoint and the owner approves the exact send.
+		if delivery, err = splitDeliveryDirective(split); err != nil {
+			return r.terminalRouting(app.RouteClarify, "delivery_confirmation_required"), nil
+		}
+	}
+	expectedEndpoint := ""
+	if delivery.ExplicitExternal {
+		if expectedEndpoint, err = r.deliveryEndpoint(ctx, run, delivery); err != nil {
+			return r.terminalRouting(app.RouteClarify, "delivery_confirmation_required"), nil
+		}
+	}
+	if selected != nil && selected.endpoint != "" && selected.endpoint != expectedEndpoint {
+		return r.terminalRouting(app.RouteClarify, "clarification_binding_changed"), nil
+	}
+	if split.Deferred {
+		if sourceKind == app.MessageSourceTimer {
+			return r.terminalRouting(app.RouteBlocked, "deferred_request_requires_schedule"), nil
+		}
+		for _, d := range documents.References {
+			if strings.HasPrefix(d.Ref, "conversation-files/") {
+				return r.terminalRouting(app.RouteClarify, "deferred_file_unavailable"), nil
+			}
+		}
+	}
+	if splitErr == nil {
+		businessContent = strings.TrimSpace(split.BusinessSpan)
+		// Delivery choices are no longer offered; an outstanding one is stale.
+		if selected != nil && selected.option.Kind == "delivery" {
+			return r.terminalRouting(app.RouteClarify, "clarification_binding_changed"), nil
+		}
+		if businessContent == "" {
+			return r.routePureDelivery(ctx, run, content, split, delivery, resources, locators, sourceKind, history, documents, selected, expectedEndpoint)
+		}
+		// Only the exact business span enters semantic scoring and grounding.
+		if externalMCP {
+			documents = resolveExternalMCPDocumentContext(businessContent, resources)
+		} else {
+			documents, err = r.resolveDocumentContextWithHistory(ctx, sessionID, businessContent, resources, history)
+			if err != nil {
+				return IntentRoutingOutput{}, err
+			}
+		}
+	}
+	if missingCurrent {
+		documents = documentContextResolution{Unavailable: true}
+	}
+	if selected != nil && selected.option.Kind == "file" {
+		var valid bool
+		documents, valid = selectClarificationDocument(documents, selected.option)
+		if !valid {
+			return r.terminalRouting(app.RouteClarify, "clarification_binding_changed"), nil
+		}
+	}
+	grounding, err := r.projectIntentGrounding(ctx, sessionID, runID, businessContent, documents, history.ToolCandidates)
 	if err != nil {
 		return IntentRoutingOutput{}, err
 	}
 	grounding.HasUnsupportedMedia = len(resources) > 0 || len(locators) > 0
 	treePromptContext := newTreeRoutingPromptContext(resources, history.Selected, documents)
+	if splitErr == nil {
+		treePromptContext.DeliveryMode = split.DeliveryMode
+		treePromptContext.DeliveryObjectKind = split.DeliveryObjectKind
+		treePromptContext.Deferred = split.Deferred
+	}
 	channelInputs := newSemanticChannelInputs(businessContent)
 	eligible := r.semanticRouter.graph.EligibleCandidates(sourceKind)
 	if grounding.ExternalMCP || !containsEnglishSemanticTerm(content, "localmind") {
@@ -177,9 +253,29 @@ func (r Runtime) routeIntentWithHistory(ctx context.Context, sessionID, runID, o
 			return IntentRoutingOutput{}, err
 		}
 	}
-	decision = enforceDeliveryFusionBoundary(decision, delivery)
 	fusion := persistedIntentFusion(r.semanticRouter, channels, decision)
-	route, err := r.routeFromFusionDecision(ctx, content, grounding, decision, clientTimezone)
+	if selected != nil && selected.option.Kind == "route" {
+		decision, err = r.applySelectedRoute(ctx, selected, decision, grounding, sourceKind, delivery)
+		if err != nil {
+			return r.terminalRouting(app.RouteClarify, "clarification_binding_changed"), nil
+		}
+	}
+	if len(decision.Candidates) > 0 && isScheduleCreateCandidate(decision.Candidates[0].Candidate) {
+		for _, d := range documents.References {
+			if strings.HasPrefix(d.Ref, "conversation-files/") {
+				return r.terminalRouting(app.RouteClarify, "deferred_file_unavailable"), nil
+			}
+		}
+	}
+	if split.Deferred && (len(decision.Candidates) == 0 || !isScheduleCreateCandidate(decision.Candidates[0].Candidate)) {
+		return r.terminalRouting(app.RouteClarify, "deferred_request_requires_schedule"), nil
+	}
+	if selected != nil && selected.option.Kind == "file" && decision.Verdict == semanticrouting.VerdictClear {
+		if err := r.claimClarification(selected); err != nil {
+			return r.terminalRouting(app.RouteBlocked, "clarification_already_used"), nil
+		}
+	}
+	route, err := r.routeFromFusionDecision(ctx, businessContent, grounding, decision, clientTimezone)
 	if err != nil {
 		return IntentRoutingOutput{}, err
 	}
@@ -197,7 +293,15 @@ func (r Runtime) routeIntentWithHistory(ctx context.Context, sessionID, runID, o
 		},
 	})
 
-	return IntentRoutingOutput{Route: route, Delivery: delivery, Fusion: &fusion}, nil
+	if selected != nil && selected.endpoint != "" {
+		expectedEndpoint = selected.endpoint
+	}
+	output := IntentRoutingOutput{Route: route, Delivery: delivery, Fusion: &fusion, ExpectedEndpoint: expectedEndpoint}
+	if route.Status != app.RouteMatched {
+		output.Delivery = DeliveryDirective{}
+		output.Proposal = r.routingClarification(ctx, ownerText, sourceKind, decision, grounding, documents, route, delivery)
+	}
+	return output, nil
 }
 
 func withoutLocalMindCandidates(candidates []semanticrouting.Candidate) []semanticrouting.Candidate {
@@ -228,21 +332,9 @@ func (r Runtime) routeMediaOnlyMessage(ctx context.Context, sessionID, runID, ow
 			return IntentRoutingOutput{}, false, nil
 		}
 	}
-	if r.semanticRouter == nil || r.semanticRouter.graph == nil {
-		return IntentRoutingOutput{}, true, errors.New("semantic routing graph is unavailable")
-	}
-	candidate, ok := r.semanticRouter.graph.Candidate(conversationPublishCandidateID)
-	if !ok || !candidate.SupportsSource(sourceKind) {
-		return IntentRoutingOutput{}, true, errors.New("ordinary media publication is unavailable")
-	}
-	route := app.RouteDecision{
-		SchemaVersion:   app.RouteDecisionSchemaVersion,
-		Status:          app.RouteMatched,
-		CatalogRevision: r.capabilities.Revision(),
-		CapabilityPath:  append([]app.CapabilityID(nil), candidate.CapabilityPath...),
-		Slots:           app.RouteSlots{Operation: candidate.Route.Operation},
-		Confidence:      1,
-		Reason:          "media_only_message",
+	route, err := r.publicationRoute(sourceKind, "media_only_message")
+	if err != nil {
+		return IntentRoutingOutput{}, true, err
 	}
 	if err := r.capabilities.ValidateDecision(route); err != nil {
 		return IntentRoutingOutput{}, true, err
@@ -251,12 +343,13 @@ func (r Runtime) routeMediaOnlyMessage(ctx context.Context, sessionID, runID, ow
 		SessionID: sessionID, RunID: runID, Actor: "message-router", Type: "capability.routed",
 		Summary: "media_only_message",
 		Fields: map[string]any{
-			"catalog_revision": route.CatalogRevision, "candidate_id": candidate.ID,
+			"catalog_revision": route.CatalogRevision, "candidate_id": conversationPublishCandidateID,
 			"route_status": route.Status, "capability_path": route.CapabilityPath, "route_source": "message_content",
 		},
 	})
 
-	return IntentRoutingOutput{Route: route}, true, nil
+	content := app.MessageContent{Parts: publicationInputParts(resources)}
+	return IntentRoutingOutput{Route: route, Publication: &content, PublicationLocators: append([]app.MessageMediaLocator(nil), locators...)}, true, nil
 }
 
 // semanticChannelInputs carries the owner question to both routing channels;
@@ -270,14 +363,6 @@ type semanticChannelInputs struct {
 func newSemanticChannelInputs(question string) semanticChannelInputs {
 	question = strings.TrimSpace(question)
 	return semanticChannelInputs{EmbeddingQuery: question, TreeQuery: question}
-}
-
-func enforceDeliveryFusionBoundary(decision semanticrouting.Decision, delivery DeliveryDirective) semanticrouting.Decision {
-	if delivery.ExplicitExternal && decision.Degraded {
-		decision.Verdict = semanticrouting.VerdictBlocked
-		decision.ReasonCode = "external_delivery_requires_healthy_semantic_pipeline"
-	}
-	return decision
 }
 
 type embeddingChannelResult struct {
@@ -573,14 +658,6 @@ func withoutCurrentOwnerMessage(messages []app.Message, currentOwnerText string)
 		}
 	}
 	return out
-}
-
-func semanticOwnerProjection(content string) string {
-	const attachmentHeader = "Attached files for this user turn:"
-	if index := strings.LastIndex(content, attachmentHeader); index >= 0 {
-		content = content[:index]
-	}
-	return strings.TrimSpace(content)
 }
 
 func (r Runtime) routeCapability(ctx context.Context, sessionID, runID, content string) (app.RouteDecision, error) {

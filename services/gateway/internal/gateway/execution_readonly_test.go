@@ -28,7 +28,7 @@ func TestExecutionInstalledGETAfterRestartDoesNotStartOrMutateService(t *testing
 	controlRoot := filepath.Join(root, "execution")
 	const install = "11111111-1111-4111-8111-111111111111"
 	const token = "read-only-execution-test-client-token"
-	e := execution.Envelope{SchemaVersion: 1, OwnerID: "owner", ClientID: "client", InstallationID: install, RequestID: testWorkbenchRequestID()}
+	e := execution.Envelope{SchemaVersion: 2, OwnerID: "owner", ClientID: "client", InstallationID: install, RequestID: testWorkbenchRequestID()}
 	cfg := testConfig(root)
 	cfg.Gateway.PairingRequired = true
 	st := store.NewMemoryStore()

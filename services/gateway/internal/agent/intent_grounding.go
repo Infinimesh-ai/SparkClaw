@@ -11,6 +11,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiscope"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/semanticrouting"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
 type groundedTarget struct {
@@ -21,17 +22,18 @@ type groundedTarget struct {
 }
 
 type intentGroundingProjection struct {
-	Targets             []groundedTarget
-	WorkspaceRoot       string
-	SessionID           string
-	RunID               string
-	Run                 app.AgentRun
-	ExternalMCP         bool
-	HasUnsupportedMedia bool
+	Targets                 []groundedTarget
+	WorkspaceRoot           string
+	SessionID               string
+	RunID                   string
+	Run                     app.AgentRun
+	ExternalMCP             bool
+	HasUnsupportedMedia     bool
+	HasUnavailableDocuments bool
 }
 
 func (r Runtime) projectIntentGrounding(ctx context.Context, sessionID, runID, content string, documents documentContextResolution, recentToolCalls []app.ToolCall) (intentGroundingProjection, error) {
-	projection := intentGroundingProjection{SessionID: sessionID, RunID: runID}
+	projection := intentGroundingProjection{SessionID: sessionID, RunID: runID, HasUnavailableDocuments: documents.Unavailable}
 	if r.store != nil {
 		session, ok, err := r.store.GetSession(ctx, sessionID)
 		if err != nil {
@@ -157,6 +159,11 @@ func (r Runtime) routeFromFusionDecision(ctx context.Context, content string, gr
 		base.Slots.Query = materializeRoutedQuery(candidate.Capability, content, currentSearchDateForTimezone(time.Now(), clientTimezone))
 	}
 	if node.Route.RequireTarget {
+		if grounding.HasUnavailableDocuments && slices.Contains(node.Route.TargetKinds, "workspace_path") {
+			base.Status, base.Slots, base.Facts = app.RouteClarify, app.RouteSlots{}, nil
+			base.Reason = "conversation_file_unavailable"
+			return base, nil
+		}
 		compatible := make([]groundedTarget, 0, 1)
 		for _, target := range grounding.Targets {
 			if slices.Contains(node.Route.TargetKinds, target.Kind) {
@@ -195,11 +202,20 @@ func (r Runtime) routeFromFusionDecision(ctx context.Context, content string, gr
 			if grounding.ExternalMCP {
 				preflight, err = preflightExternalMCPDocumentPath(target.Ref, edit)
 			} else {
-				preflight, err = preflightDocumentPath(grounding.WorkspaceRoot, target.Ref, edit)
+				if r.tools != nil {
+					err = r.tools.MaterializeRead(ctx, target.Ref)
+				}
+				if err == nil {
+					preflight, err = preflightDocumentPath(grounding.WorkspaceRoot, target.Ref, edit)
+				}
 			}
 			if err != nil {
 				base.Status, base.Slots, base.Facts = app.RouteBlocked, app.RouteSlots{}, nil
-				base.Reason = "document_preflight_failed: " + err.Error()
+				if errors.Is(err, toolhub.ErrConversationFileUnavailable) {
+					base.Reason = "conversation_file_unavailable"
+				} else {
+					base.Reason = "document_preflight_failed: " + err.Error()
+				}
 				return base, nil
 			}
 			if (candidate.Route.Operation == app.RouteOperationTransform || candidate.Route.Operation == app.RouteOperationEdit) &&

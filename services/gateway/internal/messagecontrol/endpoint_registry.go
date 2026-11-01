@@ -272,8 +272,11 @@ func (r *EndpointRegistry) ResolveTarget(ctx context.Context, request TargetRequ
 		return selection, err
 	}
 	candidates := []app.MessageEndpoint{}
+	// Aliases only widen matching; the requested text is reported unchanged.
+	canonical := canonicalProviderKey(provider)
 	for _, endpoint := range all {
-		if strings.EqualFold(endpoint.ProviderKey, provider) || strings.EqualFold(endpoint.SoftwareDisplayName, provider) {
+		if strings.EqualFold(endpoint.ProviderKey, provider) || strings.EqualFold(endpoint.SoftwareDisplayName, provider) ||
+			strings.EqualFold(endpoint.ProviderKey, canonical) {
 			candidates = append(candidates, endpoint)
 		}
 	}
@@ -383,6 +386,21 @@ func endpointMatchesRecipient(endpoint app.MessageEndpoint, recipient string) bo
 	return strings.EqualFold(string(endpoint.ID), recipient) ||
 		strings.EqualFold(endpoint.RecipientDisplayName, recipient) ||
 		strings.EqualFold(endpoint.ConversationLabel, recipient)
+}
+
+// providerAliases maps the names owners use for a messaging software to its
+// registered provider key.
+var providerAliases = map[string]string{
+	"微信": "weixin", "wechat": "weixin", "vx": "weixin",
+	"电报": "telegram", "tg": "telegram",
+}
+
+func canonicalProviderKey(provider string) string {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if canonical, ok := providerAliases[provider]; ok {
+		return canonical
+	}
+	return provider
 }
 
 func softwareDisplayName(provider string) string {

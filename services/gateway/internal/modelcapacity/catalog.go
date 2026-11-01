@@ -33,22 +33,24 @@ const (
 type Operation string
 
 const (
-	OperationGuardModeration        Operation = "guard.moderation"
-	OperationIntentCatalogEmbedding Operation = "intent.catalog_embedding"
-	OperationIntentQueryEmbedding   Operation = "intent.query_embedding"
-	OperationIntentTreeScore        Operation = "intent.tree_score"
-	OperationIntentTreeRepair       Operation = "intent.tree_repair"
-	OperationWorkflowStep           Operation = "workflow.step"
-	OperationWorkflowDecision       Operation = "workflow.decision"
-	OperationConversationAnswer     Operation = "conversation.answer"
-	OperationWorkflowFinalAnswer    Operation = "workflow.final_answer"
-	OperationDirectChat             Operation = "gateway.direct_chat"
-	OperationImageInspect           Operation = "image.inspect"
-	OperationDocumentImageEnrich    Operation = "document.image_enrichment"
-	OperationPPTXVisualAssessment   Operation = "pptx.visual_assessment"
-	OperationPPTXVisualRepairPlan   Operation = "pptx.visual_repair_plan"
-	OperationDocumentOCR            Operation = "document.ocr"
-	OperationEmailAnalysis          Operation = "email.analysis"
+	OperationGuardModeration          Operation = "guard.moderation"
+	OperationIntentCatalogEmbedding   Operation = "intent.catalog_embedding"
+	OperationIntentQueryEmbedding     Operation = "intent.query_embedding"
+	OperationIntentTreeScore          Operation = "intent.tree_score"
+	OperationIntentTreeRepair         Operation = "intent.tree_repair"
+	OperationIntentRequestSplit       Operation = "intent.request_split"
+	OperationIntentRequestSplitRepair Operation = "intent.request_split_repair"
+	OperationWorkflowStep             Operation = "workflow.step"
+	OperationWorkflowDecision         Operation = "workflow.decision"
+	OperationConversationAnswer       Operation = "conversation.answer"
+	OperationWorkflowFinalAnswer      Operation = "workflow.final_answer"
+	OperationDirectChat               Operation = "gateway.direct_chat"
+	OperationImageInspect             Operation = "image.inspect"
+	OperationDocumentImageEnrich      Operation = "document.image_enrichment"
+	OperationPPTXVisualAssessment     Operation = "pptx.visual_assessment"
+	OperationPPTXVisualRepairPlan     Operation = "pptx.visual_repair_plan"
+	OperationDocumentOCR              Operation = "document.ocr"
+	OperationEmailAnalysis            Operation = "email.analysis"
 )
 
 type OperationSpec struct {
@@ -64,6 +66,8 @@ var operationSpecs = []OperationSpec{
 	{Operation: OperationIntentQueryEmbedding, AllowedLanes: []Lane{LaneEmbedding}},
 	{Operation: OperationIntentTreeScore, OutputClass: OutputCompactStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 	{Operation: OperationIntentTreeRepair, OutputClass: OutputCompactStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
+	{Operation: OperationIntentRequestSplit, OutputClass: OutputCompactStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
+	{Operation: OperationIntentRequestSplitRepair, OutputClass: OutputCompactStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 	{Operation: OperationWorkflowStep, OutputClass: OutputWorkflowStructured, AllowedLanes: []Lane{LaneFast, LaneDeep}, Generates: true},
 	{Operation: OperationWorkflowDecision, OutputClass: OutputWorkflowStructured, AllowedLanes: []Lane{LaneFast, LaneDeep}, Generates: true},
 	{Operation: OperationConversationAnswer, OutputClass: OutputAnswer, AllowedLanes: []Lane{LaneFast, LaneDeep}, Generates: true},

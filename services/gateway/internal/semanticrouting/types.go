@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
@@ -21,7 +23,22 @@ type RouteTemplate struct {
 	FactScope app.RouteFactScope `json:"fact_scope,omitempty"`
 }
 
+type ClarifyLabel struct {
+	ZH string `json:"zh-CN"`
+	EN string `json:"en"`
+}
+
+func (label ClarifyLabel) Valid() bool {
+	for _, value := range []string{label.ZH, label.EN} {
+		if strings.TrimSpace(value) == "" || !utf8.ValidString(value) || utf8.RuneCountInString(value) > 160 || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+			return false
+		}
+	}
+	return true
+}
+
 type IntentVariant struct {
+	ClarifyLabel    ClarifyLabel            `json:"clarify_label"`
 	Key             string                  `json:"key"`
 	Route           RouteTemplate           `json:"route"`
 	EmbedTexts      []string                `json:"embed_texts"`
@@ -41,6 +58,7 @@ type Registration struct {
 }
 
 type Candidate struct {
+	ClarifyLabel    ClarifyLabel            `json:"clarify_label"`
 	ID              string                  `json:"candidate_id"`
 	Key             string                  `json:"key"`
 	Capability      app.CapabilityID        `json:"capability"`
@@ -124,6 +142,9 @@ func Compile(catalog capability.Catalog, registrations []Registration) (*Graph, 
 }
 
 func compileCandidate(node capability.Node, path []app.CapabilityID, registration Registration, variant IntentVariant) (Candidate, error) {
+	if !variant.ClarifyLabel.Valid() {
+		return Candidate{}, fmt.Errorf("semantic routing capability %q requires bounded Chinese and English clarification labels", registration.Capability)
+	}
 	variant.Key = strings.TrimSpace(variant.Key)
 	if !variantKeyPattern.MatchString(variant.Key) {
 		return Candidate{}, fmt.Errorf("semantic routing capability %q has invalid variant key %q", registration.Capability, variant.Key)
@@ -153,7 +174,7 @@ func compileCandidate(node capability.Node, path []app.CapabilityID, registratio
 	return Candidate{
 		ID: string(registration.Capability) + "#" + variant.Key, Key: variant.Key,
 		Capability: registration.Capability, CapabilityPath: append([]app.CapabilityID(nil), path...), Workflow: registration.Workflow,
-		Route: variant.Route, LeafDescription: node.Description,
+		Route: variant.Route, LeafDescription: node.Description, ClarifyLabel: variant.ClarifyLabel,
 		EmbedTexts: variant.EmbedTexts, TreeDescription: variant.TreeDescription,
 		HardNegatives: variant.HardNegatives, SourceKinds: append([]app.MessageSourceKind(nil), variant.SourceKinds...),
 	}, nil

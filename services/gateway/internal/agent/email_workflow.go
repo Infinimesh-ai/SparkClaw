@@ -14,7 +14,7 @@ func (browserEmailProfile) Revision() int                { return 2 }
 func (browserEmailProfile) Capability() app.CapabilityID { return app.CapabilityBrowserEmail }
 func (browserEmailProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
-		Key:   "send",
+		Key: "send", ClarifyLabel: workflowClarifyLabel{ZH: "发送一封邮件", EN: "Send one email"},
 		Route: workflowRouteTemplate{Operation: app.RouteOperationSend},
 		EmbedTexts: []string{
 			"用 Gmail 给 alice@example.com 发一封邮件", "通过 Outlook 发邮件给 Bob", "从 QQ 邮箱发送邮件", "Send an email with Gmail",
@@ -24,7 +24,7 @@ func (browserEmailProfile) RoutingSemantics() workflowRoutingSemantics {
 			"打开 QQ 邮箱网页", "给邮件添加附件", "回复这封邮件", "检查 Outlook 是否登录",
 		},
 	}, {
-		Key:             "read",
+		Key: "read", ClarifyLabel: workflowClarifyLabel{ZH: "读取一封邮件及附件", EN: "Read one email and its attachments"},
 		Route:           workflowRouteTemplate{Operation: app.RouteOperationRead},
 		EmbedTexts:      []string{"读取 Gmail 同步时间范围内的一封邮件", "读取同步时间范围内的一封邮件", "读取 QQ 邮箱邮件并保存附件", "采集 Outlook 同步时间范围内的一封邮件", "Read one email from the current sync interval", "Capture a Gmail email from the current sync interval with its attachments"},
 		TreeDescription: "Capture exactly one email from the current synchronization interval and its available attachments through configured QQ Mail, Outlook, or Gmail into workspace source files. Runtime selects the account; the model supplies no parameters. Returns a capture receipt, not a model summary. Does not search arbitrary folders or reply.",

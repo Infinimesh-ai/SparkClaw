@@ -1,16 +1,18 @@
 {
-  "revision": "intent-fusion-2026-07-24.v3",
-  "alpha": 0.50,
+  "revision": "intent-fusion-2026-10-30.v4",
+  "alpha": 0.5,
   "embedding_example_top_m": 3,
   "embedding_negative_cost": 0.35,
   "embedding_timeout_ms": 20000,
   "tree_timeout_ms": 30000,
+  "split_timeout_ms": 15000,
   "routing_timeout_ms": 45000,
   "clear_minimum": 0.54,
   "clear_margin": 0.06,
   "ambiguous_minimum": 0.46,
   "mutation_minimum": 0.66,
   "mutation_margin": 0.08,
-  "degraded_minimum": 0.70,
-  "degraded_margin": 0.12
+  "degraded_minimum": 0.7,
+  "degraded_margin": 0.12,
+  "clarify_floor": 0.46
 }

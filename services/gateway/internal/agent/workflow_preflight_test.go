@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -267,19 +266,29 @@ func TestDocumentEditUsesSingleGovernedAttachmentPath(t *testing.T) {
 	writeTestOfficePackage(t, path, "word/document.xml")
 	runtime, _, session, closeRuntime := newDocumentDispatchRuntime(t, root)
 	defer closeRuntime()
-	projection := strings.Join([]string{
-		"修改并完善附件文档中五、心得与体会标题下的正文。必须依据结构化读取结果，仅定位并替换 document.p[25]，保持其他内容不变，写入新 DOCX 副本。", "", "Attached files for this user turn:",
-		"- original-display-name.docx path=uploads/report.docx content_type=application/vnd.openxmlformats-officedocument.wordprocessingml.document bytes=128 media_kind=file",
-	}, "\n")
-	routing, err := runtime.routeIntentOutputForTest(session.ID, "turn", projection)
-	if err != nil {
-		t.Fatal(err)
-	}
+	resources := []app.MessagePart{{Kind: app.MessagePartFile, Name: "original-display-name.docx", ContentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", Bytes: 128, Resource: &app.ResourceRef{Kind: "workspace_file", Ref: "uploads/report.docx"}}}
+	routing := mustRouteIntentOutput(t, runtime, session.ID, "修改并完善附件文档中五、心得与体会标题下的正文。必须依据结构化读取结果，仅定位并替换 document.p[25]，保持其他内容不变，写入新 DOCX 副本。", resources, app.MessageSourceWeb)
 	route := routing.Route
 	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
 		route.Slots.TargetRef != "uploads/report.docx" || route.Slots.OutputRef != "uploads/report-2.docx" ||
 		route.Facts["output_path"] != "uploads/report-2.docx" || route.Facts["document_operation"] != "" {
 		t.Fatalf("attached document edit did not freeze its unique governed path: %#v", route)
+	}
+}
+
+func TestDocumentRoutePathsExcludeStructuredBlockLocations(t *testing.T) {
+	for _, content := range []string{"替换 document.p[25] 的内容", "Update document.page[3] only"} {
+		if paths := documentRoutePaths(content); len(paths) != 0 {
+			t.Fatalf("block locator became a file: %#v", paths)
+		}
+	}
+	paths := documentRoutePaths("Edit report.docx at document.p[25]")
+	if len(paths) != 1 || paths[0] != "report.docx" {
+		t.Fatalf("explicit file lost: %#v", paths)
+	}
+	paths = documentRoutePaths("Read document.p")
+	if len(paths) != 1 || paths[0] != "document.p" {
+		t.Fatalf("unindexed file name was filtered: %#v", paths)
 	}
 }
 
@@ -292,14 +301,8 @@ func TestDocumentContentMutationRoutesToEditR6ThenSelectsXLSXEditor(t *testing.T
 	writeTestOfficePackage(t, path, "xl/workbook.xml")
 	runtime, st, session, closeRuntime := newDocumentDispatchRuntime(t, root)
 	defer closeRuntime()
-	projection := strings.Join([]string{
-		"文档末尾新增学号 3，姓名为张七的人", "", "Attached files for this user turn:",
-		"- people.xlsx path=uploads/people.xlsx content_type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet bytes=6791",
-	}, "\n")
-	routing, err := runtime.routeIntentOutputForTest(session.ID, "turn", projection)
-	if err != nil {
-		t.Fatal(err)
-	}
+	resources := []app.MessagePart{{Kind: app.MessagePartFile, Name: "people.xlsx", ContentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", Bytes: 6791, Resource: &app.ResourceRef{Kind: "workspace_file", Ref: "uploads/people.xlsx"}}}
+	routing := mustRouteIntentOutput(t, runtime, session.ID, "文档末尾新增学号 3，姓名为张七的人", resources, app.MessageSourceWeb)
 	route := routing.Route
 	if route.Status != app.RouteMatched || route.CapabilityPath[1] != app.CapabilityDocumentEdit ||
 		route.Facts["document_format"] != app.DocumentFormatXLSX || route.Facts["document_operation"] != "" {
@@ -376,21 +379,14 @@ func TestImageAttachmentUsesDocumentReadOnlyForDirectAnalysis(t *testing.T) {
 	writeTinyPNG(t, filepath.Join(root, "media", "screen.png"))
 	runtime, _, session, closeRuntime := newDocumentDispatchRuntime(t, root)
 	defer closeRuntime()
-	attachment := "\n\nAttached files for this user turn:\n- screen.png path=media/screen.png content_type=image/png bytes=74 media_kind=image"
-
-	directRouting, err := runtime.routeIntentOutputForTest(session.ID, "direct", "这张图片什么内容"+attachment)
-	if err != nil {
-		t.Fatal(err)
-	}
+	resources := []app.MessagePart{{Kind: app.MessagePartImage, Name: "screen.png", ContentType: "image/png", Bytes: 74, Resource: &app.ResourceRef{Kind: "workspace_file", Ref: "media/screen.png"}}}
+	directRouting := mustRouteIntentOutput(t, runtime, session.ID, "这张图片什么内容", resources, app.MessageSourceWeb)
 	direct := directRouting.Route
 	if direct.Status != app.RouteMatched || direct.CapabilityPath[1] != app.CapabilityDocumentRead || direct.Facts["document_format"] != app.DocumentFormatImage {
 		t.Fatalf("direct image analysis did not enter document.read: route=%#v fusion=%+v", direct, directRouting.Fusion)
 	}
 	for _, request := range []string{"把这张图片发送到微信", "这张图片里的新闻是真的吗，帮我联网查证"} {
-		route, err := runtime.routeIntentForTest(session.ID, "other", request+attachment, agentContextSnapshot{})
-		if err != nil {
-			t.Fatal(err)
-		}
+		route := mustRouteIntentWithResources(t, runtime, session.ID, request, resources, app.MessageSourceWeb)
 		if route.Status == app.RouteMatched && len(route.CapabilityPath) > 1 && route.CapabilityPath[1] == app.CapabilityDocumentRead {
 			t.Fatalf("non-analysis image request entered document.read for %q: %#v", request, route)
 		}

@@ -22,7 +22,7 @@ func (browserFormDraftProfile) Finalization() workflowFinalizationMode {
 }
 func (browserFormDraftProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
-		Key: "draft", Route: workflowRouteTemplate{Operation: app.RouteOperationDraft},
+		Key: "draft", ClarifyLabel: workflowClarifyLabel{ZH: "填写网页表单但不提交", EN: "Fill the web form without submitting"}, Route: workflowRouteTemplate{Operation: app.RouteOperationDraft},
 		EmbedTexts: []string{
 			"在当前网页的姓名栏填写张三但不要提交", "把官网联系表单的主题选成技术支持，不要发送", "Fill the visible message field with this text without submitting", "Select the requested option in the web form but leave it as a draft",
 		},

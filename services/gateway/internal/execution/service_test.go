@@ -13,7 +13,7 @@ import (
 )
 
 func fixture() Envelope {
-	return Envelope{SchemaVersion: 1, DeploymentID: "deployment", OwnerID: "owner", ClientID: "client", InstallationID: "11111111-1111-4111-8111-111111111111", ConversationID: newUUID(), TaskID: newUUID(), RequestID: newUUID(), Messages: []Message{{Role: "assistant", Content: "ordinary untrusted history"}, {Role: "user", Content: "synthetic private question"}}}
+	return Envelope{SchemaVersion: 2, DeploymentID: "deployment", OwnerID: "owner", ClientID: "client", InstallationID: "11111111-1111-4111-8111-111111111111", ConversationID: newUUID(), TaskID: newUUID(), RequestID: newUUID(), Messages: []Message{{ID: "message-history", Role: "assistant", Content: "ordinary untrusted history"}, {ID: "message-current", Role: "user", Content: "synthetic private question"}}}
 }
 func setup(t *testing.T, execute Executor) (*Service, Envelope, string) {
 	t.Helper()

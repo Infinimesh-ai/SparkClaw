@@ -130,6 +130,55 @@ func (h *ToolHub) remindersCreate(ctx context.Context, args map[string]any, sess
 	return Result{Output: reminderToolOutput(reminder)}, nil
 }
 
+// ReminderTargetsOtherConversation reports whether a reminders.create or
+// reminders.update call would deliver to a conversation other than the one it
+// was created from. Policy uses it to require approval of that target when the
+// schedule is created, so due-time delivery needs no further approval.
+func (h *ToolHub) ReminderTargetsOtherConversation(ctx context.Context, tool string, args map[string]any, sessionID string) (bool, error) {
+	channel := strings.TrimSpace(stringArg(args, "channel", ""))
+	switch tool {
+	case "reminders.create":
+	case "reminders.update":
+		channelValue, channelChanged := optionalStringArg(args, "channel")
+		_, recipientChanged := optionalStringArg(args, "recipient")
+		if !channelChanged && !recipientChanged {
+			return false, nil
+		}
+		channel = channelValue
+		if !channelChanged {
+			reminder, ok, err := h.store.GetReminder(ctx, strings.TrimSpace(stringArg(args, "reminder_id", "")))
+			if err != nil || !ok {
+				// An unknown reminder fails in the tool itself; still ask first.
+				return true, err
+			}
+			channel = reminder.Channel
+		}
+	default:
+		return false, nil
+	}
+	channel = normalizeReminderChannel(channel)
+	if channel == "" || channel == "web" {
+		return false, nil
+	}
+	// The current external chat only accepts its own active binding, so the
+	// same channel always returns to this conversation.
+	chatSession, ok, err := h.store.FindExternalChatSessionByLinkedSessionID(ctx, sessionID)
+	if err != nil || !ok {
+		return true, err
+	}
+	current := chatSession.Channel
+	if strings.TrimSpace(current) == "" {
+		binding, bindingOK, err := h.store.GetNotificationBinding(ctx, strings.TrimSpace(chatSession.BindingID))
+		if err != nil {
+			return true, err
+		}
+		if bindingOK {
+			current = binding.Channel
+		}
+	}
+	return normalizeReminderChannel(current) != channel, nil
+}
+
 func normalizeReminderChannel(channel string) string {
 	channel = strings.ToLower(strings.TrimSpace(channel))
 	switch channel {

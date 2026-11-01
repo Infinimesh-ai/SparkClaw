@@ -35,6 +35,11 @@ type ExecutionResources struct {
 	// AuthorizeTool rechecks current authority immediately before dispatch,
 	// including calls resumed after an approval. It must not come from the model.
 	AuthorizeTool func(context.Context, string) error
+	// MaterializeConversationFile is trusted execution-owned, read-only access.
+	MaterializeConversationFile func(context.Context, string) error
+	// Workspace accounting is trusted admission state, keyed by output path.
+	ReserveWorkspaceBytes func(string, int) error
+	ReleaseWorkspaceBytes func(string)
 }
 
 type executionResource string
@@ -126,4 +131,18 @@ func (h *ToolHub) validateExecutionSession(ctx context.Context, sessionID string
 		return errors.New("session does not belong to the admitted execution resources")
 	}
 	return nil
+}
+
+// ReserveWorkspaceBytes admits an output before its contents are written. Host
+// workbenches have their own storage lifetime and need no ephemeral reservation.
+func (h *ToolHub) ReserveWorkspaceBytes(path string, size int) error {
+	if h != nil && h.resources != nil && h.resources.ReserveWorkspaceBytes != nil {
+		return h.resources.ReserveWorkspaceBytes(path, size)
+	}
+	return nil
+}
+func (h *ToolHub) ReleaseWorkspaceBytes(path string) {
+	if h != nil && h.resources != nil && h.resources.ReleaseWorkspaceBytes != nil {
+		h.resources.ReleaseWorkspaceBytes(path)
+	}
 }

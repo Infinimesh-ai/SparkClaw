@@ -245,14 +245,14 @@ func testRegistrations() []Registration {
 		{
 			Capability: "test.answer", Workflow: app.WorkflowContractRef{ID: "test.answer", Revision: 1},
 			Semantics: WorkflowSemantics{Variants: []IntentVariant{{
-				Key: "answer", Route: RouteTemplate{Operation: app.RouteOperationAnswer},
+				Key: "answer", ClarifyLabel: ClarifyLabel{ZH: "回答问题", EN: "Answer the question"}, Route: RouteTemplate{Operation: app.RouteOperationAnswer},
 				EmbedTexts: []string{"explain a stable fact"}, TreeDescription: "Answer stable facts.", HardNegatives: []string{"current price"},
 			}}},
 		},
 		{
 			Capability: "test.search", Workflow: app.WorkflowContractRef{ID: "test.search", Revision: 1},
 			Semantics: WorkflowSemantics{Variants: []IntentVariant{{
-				Key: "search", Route: RouteTemplate{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet},
+				Key: "search", ClarifyLabel: ClarifyLabel{ZH: "搜索信息", EN: "Search for information"}, Route: RouteTemplate{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet},
 				EmbedTexts: []string{"find the current price"}, TreeDescription: "Search current facts.", HardNegatives: []string{"stable explanation"},
 			}}},
 		},

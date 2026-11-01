@@ -18,6 +18,9 @@ const (
 )
 
 type documentContextReference struct {
+	HandleID         string
+	SHA256           string
+	Size             int
 	DocumentID       string
 	ParentDocumentID string
 	Ref              string
@@ -32,7 +35,8 @@ type documentContextReference struct {
 }
 
 type documentContextResolution struct {
-	References []documentContextReference
+	References  []documentContextReference
+	Unavailable bool
 }
 
 // resolveExternalMCPDocumentContext only projects locators supplied in the
@@ -63,6 +67,31 @@ func (r Runtime) resolveDocumentContextWithHistory(ctx context.Context, sessionI
 	if paths := documentRoutePaths(content); len(paths) > 0 {
 		references := make([]documentContextReference, 0, len(paths))
 		for _, path := range paths {
+			// Current-turn files win; otherwise explicit names may select any
+			// admitted conversation handle, even outside the recent window.
+			name := filepath.Base(filepath.FromSlash(path))
+			var matches []documentContextReference
+			for _, ref := range documentReferencesFromMessageParts(resources) {
+				if ref.Name == name {
+					matches = append(matches, ref)
+				}
+			}
+			if len(matches) == 0 {
+				for _, message := range history.MessageCandidates {
+					for _, attachment := range message.Attachments {
+						if attachment.Name == name && (attachment.Source == "conversation_attachment" || attachment.Source == "conversation_result") {
+							if message.FilesUnavailable {
+								return documentContextResolution{Unavailable: true}, nil
+							}
+							matches = append(matches, documentReferenceFromMessageAttachment(message, attachment))
+						}
+					}
+				}
+			}
+			if len(matches) > 0 {
+				references = append(references, matches...)
+				continue
+			}
 			reference := documentContextReference{
 				Ref: path, Name: filepath.Base(filepath.FromSlash(path)), Provenance: documentProvenanceExplicitCurrent,
 			}
@@ -84,13 +113,19 @@ func (r Runtime) resolveDocumentContextWithHistory(ctx context.Context, sessionI
 				return documentContextResolution{}, err
 			}
 			if ok {
+				current := references[index]
 				references[index] = documentReferenceFromRecord(record, documentProvenanceCurrentResource)
+				references[index].HandleID, references[index].SHA256, references[index].Size = current.HandleID, current.SHA256, current.Size
 			}
 		}
 		return documentContextResolution{References: references}, nil
 	}
+	messageResolution := recentDocumentMessageResolution(history.Selected.Messages)
+	if messageResolution.Unavailable {
+		return messageResolution, nil
+	}
 	if r.store == nil {
-		return documentContextResolution{}, nil
+		return messageResolution, nil
 	}
 	workspaceRoot, err := r.workspaceRootForSession(ctx, sessionID)
 	if err != nil {
@@ -105,7 +140,7 @@ func (r Runtime) resolveDocumentContextWithHistory(ctx context.Context, sessionI
 	}
 
 	toolReferences := recentDocumentToolReferences(reverseToolCalls(history.ToolCandidates), workspaceRoot)
-	messageReferences := recentDocumentMessageReferences(reverseMessages(history.MessageCandidates))
+	messageReferences := messageResolution.References
 	switch {
 	case len(toolReferences) == 0:
 		return documentContextResolution{References: messageReferences}, nil
@@ -161,6 +196,8 @@ func recentDocumentRecordReferences(records []app.DocumentRecord, workspaceRoot 
 
 func documentReferenceFromRecord(record app.DocumentRecord, provenance string) documentContextReference {
 	return documentContextReference{
+		SHA256:           record.SHA256,
+		Size:             int(record.SizeBytes),
 		DocumentID:       record.ID,
 		ParentDocumentID: record.ParentDocumentID,
 		Ref:              record.GovernedPath,
@@ -187,6 +224,9 @@ func documentReferencesFromMessageParts(resources []app.MessagePart) []documentC
 			continue
 		}
 		references = append(references, documentContextReference{
+			HandleID:    resource.ArtifactID,
+			SHA256:      resource.SHA256,
+			Size:        resource.Bytes,
 			Ref:         resource.Resource.Ref,
 			Name:        resource.Name,
 			ContentType: resource.ContentType,
@@ -257,35 +297,59 @@ func isDocumentContextCall(call app.ToolCall) bool {
 }
 
 func recentDocumentMessageReferences(messages []app.Message) []documentContextReference {
+	return recentDocumentMessageResolution(messages).References
+}
+
+// A missing or trimmed member makes the whole latest group incomplete. Keep
+// that boundary even when it carries no surviving file metadata.
+func recentDocumentMessageResolution(messages []app.Message) documentContextResolution {
 	selectedIndex := -1
 	selectedAt := time.Time{}
 	var selected app.Message
 	for index, message := range messages {
-		if strings.TrimSpace(message.Role) != "user" || len(message.Attachments) == 0 {
+		if (strings.TrimSpace(message.Role) != "user" && strings.TrimSpace(message.Role) != "assistant") || (len(message.Attachments) == 0 && !message.FilesUnavailable) {
 			continue
+		}
+		if message.Role == "assistant" {
+			found := message.FilesUnavailable
+			for _, a := range message.Attachments {
+				if a.Source == "conversation_result" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
 		}
 		if selectedIndex < 0 || message.CreatedAt.After(selectedAt) || message.CreatedAt.Equal(selectedAt) && index > selectedIndex {
 			selectedIndex, selectedAt, selected = index, message.CreatedAt, message
 		}
 	}
 	if selectedIndex < 0 {
-		return nil
+		return documentContextResolution{}
+	}
+	if selected.FilesUnavailable {
+		return documentContextResolution{Unavailable: true}
 	}
 	references := make([]documentContextReference, 0, len(selected.Attachments))
 	for _, attachment := range selected.Attachments {
-		references = append(references, documentContextReference{
-			Ref:         attachment.RelPath,
-			Name:        attachment.Name,
-			ContentType: attachment.ContentType,
-			Format:      documentFormatFromMetadata(attachment.Name, attachment.ContentType),
-			Source:      app.DocumentSourceAttachment,
-			SourceID:    selected.ID,
-			Activity:    app.DocumentActivityAttached,
-			Provenance:  documentProvenanceRecentMessage,
-			ObservedAt:  selectedAt,
-		})
+		if selected.Role == "assistant" && attachment.Source != "conversation_result" {
+			continue
+		}
+		references = append(references, documentReferenceFromMessageAttachment(selected, attachment))
 	}
-	return dedupeDocumentReferences(references)
+	return documentContextResolution{References: dedupeDocumentReferences(references)}
+}
+
+func documentReferenceFromMessageAttachment(message app.Message, attachment app.MessageAttachment) documentContextReference {
+	source := app.DocumentSourceAttachment
+	if attachment.Source == "conversation_result" || attachment.Source == "conversation_attachment" {
+		source = attachment.Source
+	}
+	return documentContextReference{HandleID: attachment.ArtifactID, SHA256: attachment.SHA256, Size: attachment.Bytes, Ref: attachment.RelPath, Name: attachment.Name, ContentType: attachment.ContentType,
+		Format: documentFormatFromMetadata(attachment.Name, attachment.ContentType), Source: source,
+		SourceID: message.ID, Activity: app.DocumentActivityAttached, Provenance: documentProvenanceRecentMessage, ObservedAt: message.CreatedAt}
 }
 
 func dedupeDocumentReferences(references []documentContextReference) []documentContextReference {

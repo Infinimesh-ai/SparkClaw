@@ -21,7 +21,7 @@ func (browserWeatherProfile) Revision() int                { return 3 }
 func (browserWeatherProfile) Capability() app.CapabilityID { return app.CapabilityBrowserWeather }
 func (browserWeatherProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
-		Key:   "read",
+		Key: "read", ClarifyLabel: workflowClarifyLabel{ZH: "查询指定地点的天气", EN: "Check the weather for one location"},
 		Route: workflowRouteTemplate{Operation: app.RouteOperationRead, FactScope: app.RouteFactScopeWeatherSnapshot},
 		EmbedTexts: []string{
 			"上海今天的天气怎么样", "杭州明天会下雨吗", "Show me the weather in London", "北京未来三天的天气预报",

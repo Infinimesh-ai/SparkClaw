@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -122,7 +123,7 @@ func (s *Service) BeginWorkbench(ctx context.Context, binding WorkbenchBinding) 
 	if !digestPattern.MatchString(binding.ContextDigest) || binding.ContextBefore.IsZero() || binding.SubmittedDraftRevision != nil && *binding.SubmittedDraftRevision < 0 {
 		return nil, WorkbenchStatus{}, ErrConflict
 	}
-	if len(s.control.Fences)+len(s.control.WorkbenchFences) >= MaxFences || len(s.active) >= 8 {
+	if len(s.control.Fences)+len(s.control.WorkbenchFences)+len(s.control.ClarificationClaims) >= MaxFences || len(s.active) >= 8 {
 		return nil, WorkbenchStatus{}, ErrCapacity
 	}
 	now := s.now()
@@ -167,7 +168,7 @@ func (s *Service) startWorkbenchLeaseLocked(ctx context.Context, key string, f w
 			state = "unknown"
 		}
 		switch state {
-		case "completed", "approval_pending", "browser_login_blocked", "blocked", "failed", "delivery_failed", "unknown":
+		case "completed", "clarification_required", "approval_pending", "browser_login_blocked", "blocked", "failed", "delivery_failed", "unknown":
 		default:
 			state = "unknown"
 		}
@@ -231,7 +232,7 @@ func (s *Service) validateWorkbenchFences() error {
 		case "running":
 			f.State = "unknown"
 			s.control.WorkbenchFences[key] = f
-		case "completed", "approval_pending", "browser_login_blocked", "blocked", "failed", "delivery_failed", "unknown":
+		case "completed", "clarification_required", "approval_pending", "browser_login_blocked", "blocked", "failed", "delivery_failed", "unknown":
 		default:
 			return errors.New("invalid workbench execution state")
 		}
@@ -382,6 +383,12 @@ func (s *Service) RevokeWorkbenchClient(clientID string) error {
 		s.revokedClients = map[string]bool{}
 	}
 	s.revokedClients[clientID] = true
+	for key := range s.inputs {
+		parts := strings.Split(key, "\x00")
+		if len(parts) == 3 && parts[1] == clientID {
+			delete(s.inputs, key)
+		}
+	}
 	for key, f := range s.control.Fences {
 		if f.ClientID != clientID || (f.State != "accepted" && f.State != "running") {
 			continue
@@ -391,6 +398,7 @@ func (s *Service) RevokeWorkbenchClient(clientID string) error {
 		invalidateApprovals(&f)
 		s.control.Fences[key] = f
 		delete(s.approvals, key)
+		s.dropHandleStageLocked(key)
 		if cancel := s.active[key]; cancel != nil {
 			cancel()
 		}

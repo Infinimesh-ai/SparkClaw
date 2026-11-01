@@ -20,7 +20,7 @@ func (browserInternetSearchProfile) Capability() app.CapabilityID {
 }
 func (browserInternetSearchProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
-		Key:   "search",
+		Key: "search", ClarifyLabel: workflowClarifyLabel{ZH: "联网查询最新信息", EN: "Search for current information"},
 		Route: workflowRouteTemplate{Operation: app.RouteOperationSearch, FactScope: app.RouteFactScopeCurrentInternet},
 		EmbedTexts: []string{
 			"查一下今天的 AI 新闻", "What is the current gold price?", "现在美元兑人民币汇率是多少", "刚结束的比赛比分",

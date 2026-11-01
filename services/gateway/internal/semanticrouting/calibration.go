@@ -5,18 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 )
 
 //go:embed default_calibration.json
 var defaultCalibrationJSON []byte
 
 type Calibration struct {
+	ClarifyFloor          float64 `json:"clarify_floor"`
 	Revision              string  `json:"revision"`
 	Alpha                 float64 `json:"alpha"`
 	EmbeddingExampleTopM  int     `json:"embedding_example_top_m"`
 	EmbeddingNegativeCost float64 `json:"embedding_negative_cost"`
 	EmbeddingTimeoutMS    int     `json:"embedding_timeout_ms"`
 	TreeTimeoutMS         int     `json:"tree_timeout_ms"`
+	SplitTimeoutMS        int     `json:"split_timeout_ms"`
 	RoutingTimeoutMS      int     `json:"routing_timeout_ms"`
 	ClearMinimum          float64 `json:"clear_minimum"`
 	ClearMargin           float64 `json:"clear_margin"`
@@ -43,18 +46,21 @@ func (c Calibration) Validate() error {
 		return errors.New("calibration revision is required")
 	}
 	for name, value := range map[string]float64{
-		"alpha": c.Alpha, "embedding_negative_cost": c.EmbeddingNegativeCost,
+		"clarify_floor": c.ClarifyFloor, "alpha": c.Alpha, "embedding_negative_cost": c.EmbeddingNegativeCost,
 		"clear_minimum": c.ClearMinimum,
 		"clear_margin":  c.ClearMargin, "ambiguous_minimum": c.AmbiguousMinimum,
 		"mutation_minimum": c.MutationMinimum, "mutation_margin": c.MutationMargin,
 		"degraded_minimum": c.DegradedMinimum, "degraded_margin": c.DegradedMargin,
 	} {
-		if value < 0 || value > 1 {
+		if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 1 {
 			return fmt.Errorf("calibration %s is outside [0,1]", name)
 		}
 	}
-	if c.EmbeddingExampleTopM < 1 || c.EmbeddingTimeoutMS < 1 || c.TreeTimeoutMS < 1 || c.RoutingTimeoutMS < 1 {
+	if c.EmbeddingExampleTopM < 1 || c.EmbeddingTimeoutMS < 1 || c.TreeTimeoutMS < 1 || c.SplitTimeoutMS < 1 || c.RoutingTimeoutMS < 1 {
 		return errors.New("calibration ranking bounds are invalid")
+	}
+	if c.ClarifyFloor <= 0 || c.ClarifyFloor > c.AmbiguousMinimum {
+		return errors.New("clarification floor must be positive and no greater than ambiguous minimum")
 	}
 	if c.ClearMinimum < c.AmbiguousMinimum || c.MutationMinimum < c.ClearMinimum || c.DegradedMinimum < c.ClearMinimum {
 		return errors.New("calibration decision thresholds are not monotonic")

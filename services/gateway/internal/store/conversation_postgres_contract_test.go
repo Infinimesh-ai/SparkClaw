@@ -140,7 +140,7 @@ func (r fakeConversationPostgresRow) Scan(destinations ...any) error {
 		*(destinations[7].(*time.Time)) = r.session.UpdatedAt
 		return nil
 	case "message":
-		if len(destinations) != 8 {
+		if len(destinations) != 10 {
 			return errors.New("fake conversation message row shape mismatch")
 		}
 		*(destinations[0].(*string)) = r.message.ID
@@ -151,6 +151,8 @@ func (r fakeConversationPostgresRow) Scan(destinations ...any) error {
 		*(destinations[5].(*[]byte)) = append([]byte(nil), r.attachments...)
 		*(destinations[6].(*[]byte)) = append([]byte(nil), r.requestedMedia...)
 		*(destinations[7].(*time.Time)) = r.message.CreatedAt
+		*(destinations[8].(*[]byte)) = []byte(mustJSON(r.message.Clarification))
+		*(destinations[9].(*bool)) = r.message.FilesUnavailable
 		return nil
 	default:
 		return errors.New("fake conversation row kind mismatch")

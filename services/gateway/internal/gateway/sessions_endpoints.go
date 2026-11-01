@@ -251,7 +251,7 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 		value := input.Schedule.agentAction()
 		action = &value
 	}
-	result, err := s.runtime.HandleAdmittedWorkbenchMessage(admission.context(), sessionID, admission.lease.InputMessageID, admission.lease.RunID, input.Content, sanitizeMessageAttachments(input.Attachments), ingress, action, nil)
+	result, err := s.workbenchRuntime(admission.context()).HandleAdmittedWorkbenchMessage(admission.context(), sessionID, admission.lease.InputMessageID, admission.lease.RunID, input.Content, sanitizeMessageAttachments(input.Attachments), ingress, action, nil)
 	var deliveryErr error
 	if err == nil {
 		_, deliveryErr = s.deliverAgentResult(admission.context(), result)

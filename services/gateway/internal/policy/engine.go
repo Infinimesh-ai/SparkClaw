@@ -82,6 +82,10 @@ func (e Engine) Decide(def app.ToolDefinition, args map[string]any, execution ap
 		decision.RequiresApproval = true
 		decision.Reason = "external MCP AI workspace data access requires owner approval"
 	}
+	if execution.DeliveryClass == app.PolicyDeliveryExternalEndpoint {
+		decision.RequiresApproval = true
+		decision.Reason = "scheduled delivery to another conversation requires owner approval of its target"
+	}
 	if def.Sandbox == "required" || def.Sandbox != "remote" && (def.Risk == app.RiskReversible || def.Risk == app.RiskDangerous) && cfg.Security.SandboxRequiredForMutatingTools {
 		decision.RequiresSandbox = true
 	}

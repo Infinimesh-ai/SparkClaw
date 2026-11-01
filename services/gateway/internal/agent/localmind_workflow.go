@@ -88,7 +88,7 @@ func (localMindQueryProfile) Finalization() workflowFinalizationMode {
 }
 func (localMindQueryProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
-		Key: "query_task", Route: workflowRouteTemplate{Operation: app.RouteOperationRead},
+		Key: "query_task", ClarifyLabel: workflowClarifyLabel{ZH: "查看 LocalMind 任务状态", EN: "Check a LocalMind task"}, Route: workflowRouteTemplate{Operation: app.RouteOperationRead},
 		EmbedTexts: []string{
 			"查询 LocalMind 任务 taskId: task-123 的状态", "LocalMind 刚才那个任务完成了吗", "get the latest LocalMind task status",
 		},
@@ -127,7 +127,7 @@ func (localMindCancelProfile) Finalization() workflowFinalizationMode {
 }
 func (localMindCancelProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
-		Key: "cancel_task", Route: workflowRouteTemplate{Operation: app.RouteOperationDelete},
+		Key: "cancel_task", ClarifyLabel: workflowClarifyLabel{ZH: "取消 LocalMind 任务", EN: "Cancel a LocalMind task"}, Route: workflowRouteTemplate{Operation: app.RouteOperationDelete},
 		EmbedTexts: []string{
 			"取消 LocalMind 任务 taskId: task-123", "把 LocalMind 刚才那个任务停掉", "cancel the latest LocalMind task",
 		},
@@ -164,7 +164,7 @@ func localMindSourceKinds() []app.MessageSourceKind {
 
 func localMindDelegationSemantics(write bool) workflowRoutingSemantics {
 	variant := workflowRoutingVariant{
-		Key: "delegate_read", Route: workflowRouteTemplate{Operation: app.RouteOperationRead},
+		Key: "delegate_read", ClarifyLabel: workflowClarifyLabel{ZH: "交给 LocalMind 阅读或分析", EN: "Ask LocalMind to read or analyze"}, Route: workflowRouteTemplate{Operation: app.RouteOperationRead},
 		EmbedTexts: []string{
 			"请 LocalMind 阅读并总结当前这段文字", "让 LocalMind 阅读并总结这段内容", "请 LocalMind 调研这个问题并回答", "ask LocalMind to compare these options without changing files",
 		},
@@ -174,6 +174,7 @@ func localMindDelegationSemantics(write bool) workflowRoutingSemantics {
 	}
 	if write {
 		variant.Key = "delegate_write"
+		variant.ClarifyLabel = workflowClarifyLabel{ZH: "交给 LocalMind 修改内容", EN: "Ask LocalMind to modify content"}
 		variant.Route.Operation = app.RouteOperationEdit
 		variant.EmbedTexts = []string{
 			"让 LocalMind 创建一份项目报告", "请 LocalMind 更新那个文档", "ask LocalMind to rename and convert the file",

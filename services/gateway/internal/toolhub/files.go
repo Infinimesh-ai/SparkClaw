@@ -16,6 +16,8 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/workspacefiles"
 )
 
+var ErrConversationFileUnavailable = errors.New("conversation file unavailable")
+
 func (h *ToolHub) confirmWorkspaceDataAccess(_ context.Context, args map[string]any) (Result, error) {
 	return Result{Output: map[string]any{
 		"status": "approval_contract_confirmed", "request_digest": strings.TrimSpace(fmt.Sprint(args["request_digest"])),
@@ -48,7 +50,7 @@ func (h *ToolHub) filesSearch(ctx context.Context, args map[string]any) (Result,
 }
 
 func (h *ToolHub) filesRead(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
-	path, err := h.resolvePath(stringArg(args, "path", ""))
+	path, err := h.resolveReadPath(ctx, stringArg(args, "path", ""))
 	if err != nil {
 		return Result{}, err
 	}
@@ -316,6 +318,17 @@ func (h *ToolHub) resolveRoot(root string) (string, error) {
 }
 
 func (h *ToolHub) resolvePath(path string) (string, error) {
+	abs, err := h.resolveWorkspacePath(path)
+	if err != nil {
+		return "", err
+	}
+	if h.isConversationFilePath(abs) {
+		return "", errors.New("conversation files are read-only")
+	}
+	return abs, nil
+}
+
+func (h *ToolHub) resolveWorkspacePath(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", errors.New("path is required")
 	}
@@ -329,6 +342,45 @@ func (h *ToolHub) resolvePath(path string) (string, error) {
 	}
 	if !h.allowed(abs) {
 		return "", fmt.Errorf("path %s is outside workspace allowlist", abs)
+	}
+	return abs, nil
+}
+
+func (h *ToolHub) isConversationFilePath(abs string) bool {
+	if h.resources == nil || h.resources.MaterializeConversationFile == nil {
+		return false
+	}
+	root := filepath.Join(h.cfg.Workspaces.DefaultRoot, "conversation-files")
+	return abs == root || strings.HasPrefix(abs, root+string(os.PathSeparator))
+}
+
+// MaterializeRead is also used by route preflight before it sniffs file bytes.
+func (h *ToolHub) MaterializeRead(ctx context.Context, path string) error {
+	if h.resources == nil || h.resources.MaterializeConversationFile == nil {
+		return nil
+	}
+	abs, err := h.resolveWorkspacePath(path)
+	if err != nil {
+		return err
+	}
+	if h.isConversationFilePath(abs) {
+		if err := h.resources.MaterializeConversationFile(ctx, abs); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return ErrConversationFileUnavailable
+		}
+	}
+	return nil
+}
+
+func (h *ToolHub) resolveReadPath(ctx context.Context, path string) (string, error) {
+	abs, err := h.resolveWorkspacePath(path)
+	if err != nil {
+		return "", err
+	}
+	if err = h.MaterializeRead(ctx, abs); err != nil {
+		return "", err
 	}
 	return abs, nil
 }

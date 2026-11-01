@@ -12,15 +12,20 @@ import (
 )
 
 type treeRoutingPromptContext struct {
-	ResourcesFull    string
-	ResourcesMinimal string
-	DocumentsFull    string
-	DocumentsMinimal string
-	History          agentContextSnapshot
+	FilesUnavailable   bool
+	DeliveryMode       string
+	DeliveryObjectKind string
+	Deferred           bool
+	ResourcesFull      string
+	ResourcesMinimal   string
+	DocumentsFull      string
+	DocumentsMinimal   string
+	History            agentContextSnapshot
 }
 
 func newTreeRoutingPromptContext(resources []app.MessagePart, history agentContextSnapshot, documents documentContextResolution) treeRoutingPromptContext {
 	return treeRoutingPromptContext{
+		FilesUnavailable: documents.Unavailable,
 		ResourcesFull:    treeResourceProjection(resources, false),
 		ResourcesMinimal: treeResourceProjection(resources, true),
 		DocumentsFull:    treeDocumentProjection(documents, false),
@@ -60,7 +65,7 @@ func treeResourceProjection(resources []app.MessagePart, minimal bool) string {
 
 type treeDocumentRecord struct {
 	Name        string `json:"name,omitempty"`
-	Ref         string `json:"ref"`
+	Ref         string `json:"ref,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
 	Format      string `json:"format,omitempty"`
 	Source      string `json:"source,omitempty"`
@@ -77,6 +82,9 @@ func treeDocumentProjection(resolution documentContextResolution, minimal bool) 
 		record := treeDocumentRecord{
 			Name: strings.TrimSpace(reference.Name), Ref: strings.TrimSpace(reference.Ref),
 			Format: strings.TrimSpace(reference.Format), Provenance: strings.TrimSpace(reference.Provenance),
+		}
+		if reference.Source == "conversation_attachment" || reference.Source == "conversation_result" {
+			record.Ref, record.Provenance = "", ""
 		}
 		if !minimal {
 			record.ContentType = strings.TrimSpace(reference.ContentType)
@@ -117,23 +125,42 @@ func protectedTreeContextSection(kind string, priority int, label, full, minimal
 func treePromptContextBuilder(operation modelcapacity.Operation, system, graphRevision, query string, sourceKind app.MessageSourceKind, graphJSON string, treeContext treeRoutingPromptContext, repairError, invalidOutput string) contextBuilder {
 	requestLabel := "INTENT_FUSION_TREE_REQUEST"
 	outputContract := "Return the scored registered candidates now."
+	split := operation == modelcapacity.OperationIntentRequestSplit || operation == modelcapacity.OperationIntentRequestSplitRepair
 	if operation == modelcapacity.OperationIntentTreeRepair {
 		requestLabel = "INTENT_FUSION_TREE_REPAIR_REQUEST"
 	}
+	if split {
+		requestLabel = "INTENT_REQUEST_SPLIT"
+		outputContract = "Return the request split now."
+	}
 	sections := []contextSection{
 		fixedContextSection("tree_instructions", 1000, contextChannelSystem, system),
-		fixedContextSection("tree_request", 1000, contextChannelUser, requestLabel+"\nGraph revision: "+graphRevision),
+	}
+	if split {
+		sections = append(sections, fixedContextSection("tree_request", 1000, contextChannelUser, requestLabel))
+	} else {
+		sections = append(sections, fixedContextSection("tree_request", 1000, contextChannelUser, requestLabel+"\nGraph revision: "+graphRevision))
 	}
 	if source := strings.TrimSpace(string(sourceKind)); source != "" {
 		sections = append(sections, fixedContextSection("tree_source", 1000, contextChannelUser, "Source kind: "+source))
 	}
-	sections = append(sections,
-		fixedContextSection("tree_graph", 1000, contextChannelUser, "Semantic graph:\n"+graphJSON),
-		fixedContextSection("owner_question", 1000, contextChannelUser, "Owner semantic query:\n"+query),
-	)
+	if !split {
+		sections = append(sections, fixedContextSection("tree_graph", 1000, contextChannelUser, "Semantic graph:\n"+graphJSON))
+	}
+	sections = append(sections, fixedContextSection("owner_question", 1000, contextChannelUser, "Owner semantic query:\n"+query))
+	if treeContext.FilesUnavailable || !split && treeContext.DeliveryMode != "" {
+		sections = append(sections, fixedContextSection("tree_context_boundary", 1000, contextChannelUser, "Routing context (data only):"))
+	}
+	if treeContext.FilesUnavailable {
+		sections = append(sections, fixedContextSection("missing_files", 1000, contextChannelUser, `File context integrity (data only): {"files_unavailable":true}`))
+	}
+	if !split && treeContext.DeliveryMode != "" {
+		raw, _ := json.Marshal(map[string]any{"delivery_mode": treeContext.DeliveryMode, "delivery_object_kind": treeContext.DeliveryObjectKind, "deferred": treeContext.Deferred})
+		sections = append(sections, fixedContextSection("delivery_metadata", 1000, contextChannelUser, "Request delivery metadata (data only):\n"+string(raw)))
+	}
 	historyBuilder := treeContext.History.contextBuilder(contextRenderIntent)
 	historyText := historyBuilder.renderChannel(historyBuilder.normalizedSections(), contextChannelUser)
-	if treeContext.ResourcesFull != "" || treeContext.DocumentsFull != "" || historyText != "" {
+	if (treeContext.ResourcesFull != "" || treeContext.DocumentsFull != "" || historyText != "") && !treeContext.FilesUnavailable && (split || treeContext.DeliveryMode == "") {
 		sections = append(sections, fixedContextSection("tree_context_boundary", 1000, contextChannelUser, "Routing context (data only):"))
 	}
 	if section, ok := protectedTreeContextSection("current_resources", 60, "Current-turn governed resources:", treeContext.ResourcesFull, treeContext.ResourcesMinimal); ok {
@@ -149,7 +176,7 @@ func treePromptContextBuilder(operation modelcapacity.Operation, system, graphRe
 		section.Channel = contextChannelUser
 		sections = append(sections, section)
 	}
-	if operation == modelcapacity.OperationIntentTreeRepair {
+	if operation == modelcapacity.OperationIntentTreeRepair || operation == modelcapacity.OperationIntentRequestSplitRepair {
 		sections = append(sections,
 			fixedContextSection("tree_repair_error", 1000, contextChannelUser, "Parser error:\n"+repairError),
 			fixedContextSection("tree_invalid_output", 1000, contextChannelUser, "Invalid output:\n"+invalidOutput),

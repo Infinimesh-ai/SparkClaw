@@ -153,7 +153,9 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, errors.New("context-bound workspace data approvals cannot be modified; reject and submit a new request"))
 		return
 	}
-	if def, ok := s.tools.Definition(call.Tool); ok && def.ArgumentsImmutable {
+	// The approval's own flag also covers contextual locks such as an approved
+	// external send or a schedule target, not only immutable tool definitions.
+	if def, ok := s.tools.Definition(call.Tool); approval.ArgumentsImmutable || ok && def.ArgumentsImmutable {
 		writeError(w, http.StatusConflict, errors.New("approval arguments are immutable; reject and submit a new request"))
 		return
 	}

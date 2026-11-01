@@ -66,7 +66,7 @@ func workbenchISCPRequest(operation string, body []byte) iscpworkbench.Request {
 }
 
 func workbenchISCPEnvelope() execution.Envelope {
-	return execution.Envelope{SchemaVersion: 1, DeploymentID: "iscp-test-deployment", OwnerID: "iscp-owner", ClientID: "iscp-desktop-client", InstallationID: iscpTestInstallation, ConversationID: "22222222-2222-4222-8222-222222222222", TaskID: "33333333-3333-4333-8333-333333333333", RequestID: iscpTestRequest, Messages: []execution.Message{{Role: "assistant", Content: "synthetic desktop original history"}, {Role: "user", Content: "hello synthetic desktop original request"}}}
+	return execution.Envelope{SchemaVersion: 2, DeploymentID: "iscp-test-deployment", OwnerID: "iscp-owner", ClientID: "iscp-desktop-client", InstallationID: iscpTestInstallation, ConversationID: "22222222-2222-4222-8222-222222222222", TaskID: "33333333-3333-4333-8333-333333333333", RequestID: iscpTestRequest, Messages: []execution.Message{{ID: "fixture-message-69-1", Role: "assistant", Content: "synthetic desktop original history"}, {ID: "fixture-message-69-2", Role: "user", Content: "hello synthetic desktop original request"}}}
 }
 
 func bindWorkbenchISCP(t *testing.T, handler iscpworkbench.Handler) {
@@ -204,7 +204,13 @@ func TestWorkbenchISCPRejectsUnsupportedInputBeforeExecutionAndWholeOversizeResu
 	if result := handler(t.Context(), workbenchISCPRequest(iscpworkbench.OperationSubmit, raw)); result.Status != http.StatusNotImplemented || admitted.Load() != 0 {
 		t.Fatalf("unsupported attachment admitted: %+v", result)
 	}
+	e.Messages[0].Files = e.InputFiles
 	e.InputFiles = nil
+	raw, _ = json.Marshal(e)
+	if result := handler(t.Context(), workbenchISCPRequest(iscpworkbench.OperationSubmit, raw)); result.Status != http.StatusNotImplemented || admitted.Load() != 0 {
+		t.Fatalf("unsupported history handle admitted: %+v", result)
+	}
+	e.Messages[0].Files = nil
 	e.OwnerID = "other-owner"
 	raw, _ = json.Marshal(e)
 	if result := handler(t.Context(), workbenchISCPRequest(iscpworkbench.OperationSubmit, raw)); result.Status != http.StatusConflict || admitted.Load() != 0 {

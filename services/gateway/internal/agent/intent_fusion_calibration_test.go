@@ -22,7 +22,11 @@ func TestRealIntentFusionAlphaCalibration(t *testing.T) {
 	if os.Getenv("SPARKCLAW_RUN_REAL_INTENT_CALIBRATION") != "1" {
 		t.Skip("set SPARKCLAW_RUN_REAL_INTENT_CALIBRATION=1 to call the configured models")
 	}
-	cfg, err := config.Load(filepath.Join("..", "..", "..", "..", "configs", "sparkclaw.default.json"))
+	configPath := os.Getenv("SPARKCLAW_INTENT_CALIBRATION_CONFIG")
+	if configPath == "" {
+		configPath = filepath.Join("..", "..", "..", "..", "configs", "sparkclaw.default.json")
+	}
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +45,8 @@ func TestRealIntentFusionAlphaCalibration(t *testing.T) {
 	}
 	runtime := Runtime{store: store.NewMemoryStore(), models: models, semanticRouter: router}
 	eligible := graph.EligibleCandidates(app.MessageSourceWeb)
+	registeredCalibration := semanticrouting.DefaultCalibration()
+	t.Logf("graph=%s catalog=%s calibration=%s clarify_floor=%.4f candidates=%d mock=%t", graph.Revision(), catalog.Revision(), registeredCalibration.Revision, registeredCalibration.ClarifyFloor, len(eligible), cfg.Model.Mock)
 
 	tests := []struct {
 		query     string
@@ -97,6 +103,22 @@ func TestRealIntentFusionAlphaCalibration(t *testing.T) {
 		}()
 	}
 	wait.Wait()
+	for index, test := range tests {
+		result := results[index]
+		ranked, err := semanticrouting.RankFusion(eligible, result.embedding.evidence, result.tree.evidence, map[string]semanticrouting.ChannelState{
+			"embedding": result.embedding.state, "tree": result.tree.state,
+		}, registeredCalibration)
+		if err != nil || len(ranked) == 0 {
+			t.Fatalf("registered calibration %q: %v", test.query, err)
+		}
+		aboveFloor := 0
+		for _, score := range ranked {
+			if score.FusionScore >= registeredCalibration.ClarifyFloor {
+				aboveFloor++
+			}
+		}
+		t.Logf("registered_threshold query=%q expected=%s top1=%s score=%.4f above_clarify_floor=%d", test.query, test.expected, ranked[0].Candidate.ID, ranked[0].FusionScore, aboveFloor)
+	}
 
 	bestAlpha, bestCorrect := 0.0, -1
 	for step := 0; step <= 20; step++ {

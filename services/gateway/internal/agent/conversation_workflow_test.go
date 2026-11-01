@@ -133,7 +133,7 @@ func TestConversationPublishSendsOnlyMediaToSelectedExternalEndpoint(t *testing.
 	}
 	for index, part := range parts {
 		if part.Kind != wantKinds[index] || part.ArtifactID == "" || strings.HasPrefix(part.ArtifactID, "workspace:") ||
-			part.Resource == nil || part.Resource.Ref != attachments[index].RelPath || part.Bytes != attachments[index].Bytes || part.SHA256 == "" {
+			part.Resource == nil || part.Resource.Ref != attachments[index].Name || part.Bytes != attachments[index].Bytes || part.SHA256 == "" {
 			t.Fatalf("ordinary media part was not governed from the source workspace: index=%d part=%#v", index, part)
 		}
 	}

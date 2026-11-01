@@ -2,6 +2,7 @@ package messagecontrol
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -85,6 +86,33 @@ func TestEndpointRegistryDeterministicTargetResolution(t *testing.T) {
 	selection, _ = registry.ResolveTarget(t.Context(), TargetRequest{OwnerID: "owner-a", ActorID: "actor-a", ExternalIntent: true, ProviderKey: "signal"})
 	if selection.Status != app.TargetUnavailable {
 		t.Fatalf("zero endpoints should block: %#v", selection)
+	}
+}
+
+// Owners name channels the way they speak; aliases match the registered
+// provider while the requested text is reported unchanged.
+func TestEndpointRegistryResolvesChannelAliases(t *testing.T) {
+	st := store.NewMemoryStore()
+	saveEndpointFixture(t, st, "bind-tg", "chat-tg", "owner-a", "actor-a", "telegram", "Alex", "user-1", "chat-1", []string{app.BindingScopeMessageSendSelf})
+	saveEndpointFixture(t, st, "bind-wx", "chat-wx", "owner-a", "actor-a", "weixin", "小明", "user-2", "chat-2", []string{app.BindingScopeMessageSendSelf})
+	registry := NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true })
+	for _, tc := range []struct{ provider, recipient, want string }{
+		{"微信", "小明", "chat-wx"}, {"WeChat", "小明", "chat-wx"}, {"vx", "", "chat-wx"}, {" 微信 ", "", "chat-wx"},
+		{"电报", "Alex", "chat-tg"}, {"TG", "", "chat-tg"},
+	} {
+		selection, err := registry.ResolveTarget(t.Context(), TargetRequest{OwnerID: "owner-a", ActorID: "actor-a", ExternalIntent: true, ProviderKey: tc.provider, RecipientText: tc.recipient})
+		if err != nil || selection.Status != app.TargetResolved || selection.ResolvedEndpointID != app.EndpointID(tc.want) {
+			t.Fatalf("alias %q did not resolve to %s: %#v err=%v", tc.provider, tc.want, selection, err)
+		}
+		if selection.RequestedProviderKey != strings.ToLower(strings.TrimSpace(tc.provider)) {
+			t.Fatalf("alias rewrote the requested channel: %#v", selection)
+		}
+	}
+	for _, provider := range []string{"微信群", "telegramx", "qq"} {
+		selection, _ := registry.ResolveTarget(t.Context(), TargetRequest{OwnerID: "owner-a", ActorID: "actor-a", ExternalIntent: true, ProviderKey: provider})
+		if selection.Status != app.TargetUnavailable {
+			t.Fatalf("non-alias %q matched an endpoint: %#v", provider, selection)
+		}
 	}
 }
 

@@ -9,7 +9,7 @@ func documentReadRoutingSemantics() workflowRoutingSemantics {
 	embedTexts = append(embedTexts, documentPPTXReadRoutingExamples()...)
 	embedTexts = append(embedTexts, "检查工作区中的 notes.md")
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
-		Key: "read", Route: workflowRouteTemplate{Operation: app.RouteOperationRead},
+		Key: "read", ClarifyLabel: workflowClarifyLabel{ZH: "阅读并说明文档内容", EN: "Read and explain the document"}, Route: workflowRouteTemplate{Operation: app.RouteOperationRead},
 		EmbedTexts:      embedTexts,
 		TreeDescription: "Read, inspect, summarize, explain, recognize scanned text, or extract the text of a page from exactly one governed workspace document or attachment without modifying it. Optional OCR is evidence inside this workflow, not a separate route. Exporting a page as a new PDF is a transform.",
 		HardNegatives: []string{
@@ -26,11 +26,11 @@ func documentEditRoutingSemantics() workflowRoutingSemantics {
 	embedTexts = append(embedTexts, documentXLSXEditRoutingExamples()...)
 	embedTexts = append(embedTexts, documentPPTXEditRoutingExamples()...)
 	embedTexts = append(embedTexts, "Edit notes.md and replace the heading")
-	hardNegatives := []string{"读取并总结文档", "删除整个文件", "创建新文档", "新建一个演示文稿", "发送演示文稿", "修改网页内容"}
+	hardNegatives := []string{"读取并总结文档", "删除整个文件", "创建新文档", "新建一个演示文稿", "修改网页内容"}
 	hardNegatives = append(hardNegatives, documentDOCXEditRoutingHardNegatives()...)
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{
 		{
-			Key: "edit", Route: workflowRouteTemplate{Operation: app.RouteOperationEdit},
+			Key: "edit", ClarifyLabel: workflowClarifyLabel{ZH: "修改文档并返回新版本", EN: "Edit the document and return a new version"}, Route: workflowRouteTemplate{Operation: app.RouteOperationEdit},
 			EmbedTexts:      embedTexts,
 			TreeDescription: "Edit a copy of one governed text, Word, spreadsheet, or presentation document. The request changes document content rather than deleting the file itself.",
 			HardNegatives:   hardNegatives,

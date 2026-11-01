@@ -13,7 +13,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiscope"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/semanticrouting"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
@@ -107,40 +106,51 @@ func TestIntentRouterSuppliesTypedDirectiveToMessageControl(t *testing.T) {
 		goal      string
 		directive DeliveryDirective
 		selection DeliveryTargetSelection
+		clarify   bool
 	}{
 		{
-			name: "software_and_recipient", goal: "Send the note to Alice via Future Chat",
-			directive: DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "future chat", RequestedRecipientText: "alice"},
-			selection: DeliveryTargetSelection{Status: TargetResolved, RequestedProviderKey: "future chat", RequestedRecipientText: "alice", ResolvedEndpointID: "endpoint_alice", ResolutionRule: "exact_recipient_match"},
+			name: "software_and_recipient", goal: "Explain opportunity cost and send it to Alice via Future Chat",
+			directive: DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "future chat", RequestedRecipientText: "Alice"},
+			selection: DeliveryTargetSelection{Status: TargetResolved, RequestedProviderKey: "future chat", RequestedRecipientText: "Alice", ResolvedEndpointID: "endpoint_alice", ResolutionRule: "exact_recipient_match"},
 		},
 		{
 			name: "software_only", goal: "Send the note externally via Future Chat",
+			clarify:   true,
 			directive: DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "future chat"},
 			selection: DeliveryTargetSelection{Status: TargetNeedsRecipient, RequestedProviderKey: "future chat", ResolutionRule: "software_has_multiple_endpoints"},
 		},
 		{
-			name: "chinese_software_and_recipient", goal: "用微信发给小明",
+			name: "chinese_software_and_recipient", goal: "解释机会成本，通过微信发给小明",
 			directive: DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "微信", RequestedRecipientText: "小明"},
 			selection: DeliveryTargetSelection{Status: TargetResolved, RequestedProviderKey: "微信", RequestedRecipientText: "小明", ResolvedEndpointID: "endpoint_xiaoming", ResolutionRule: "exact_recipient_match"},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			runtime, _, session := defaultWorkflowRuntime(t)
+			runtime, st, session := defaultWorkflowRuntime(t)
 			requests := []MessageControlRouteRequest{}
 			runtime = runtime.WithMessageControlRouter(fixedMessageControlRouter{selection: test.selection, requests: &requests})
-			content := routedMessage(t, runtime, test.goal, test.directive)
-			routing, err := runtime.routeIntent(context.Background(), session.ID, "run_typed", content)
-			if err != nil {
-				t.Fatal(err)
-			}
 			envelope := app.MessageEnvelope{
 				Source:  app.MessageSourceContext{Kind: app.MessageSourceWeb, EndpointID: app.EndpointID("session:" + session.ID)},
 				OwnerID: session.OwnerID, ActorID: session.OwnerID, Authorization: app.MessageAuthorization{PrincipalID: session.OwnerID},
 				ReturnRoute: app.ReturnRoute{Mode: app.ReturnToSource, SourceEndpointID: app.EndpointID("session:" + session.ID)},
 			}
-			if _, _, err := runtime.resolveMessageControl(context.Background(), session.ID, routing.Delivery, envelope); err != nil {
+			testSaveRun(st, app.AgentRun{ID: "run_typed", SessionID: session.ID, StartedAt: time.Now().UTC(), MessageContext: &app.MessageRunContext{Source: envelope.Source, OwnerID: envelope.OwnerID, Authorization: envelope.Authorization, ReturnRoute: envelope.ReturnRoute}})
+			content := routedMessage(t, runtime, test.goal, test.directive)
+			routing, err := runtime.routeIntent(context.Background(), session.ID, "run_typed", content)
+			if err != nil {
 				t.Fatal(err)
+			}
+			if test.clarify {
+				if routing.Route.Status != app.RouteClarify || routing.Delivery.ExplicitExternal {
+					t.Fatalf("missing recipient authorized an external target: routing=%#v requests=%#v", routing, requests)
+				}
+				for _, request := range requests {
+					if request.Directive.RequestedRecipientText != "" {
+						t.Fatalf("missing recipient was invented: %#v", request)
+					}
+				}
+				return
 			}
 			if len(requests) != 1 {
 				t.Fatalf("typed directive did not reach resolver exactly once: %#v", requests)
@@ -159,49 +169,6 @@ func TestIntentRouterSuppliesTypedDirectiveToMessageControl(t *testing.T) {
 	}
 }
 
-func TestExternalSendAuthoritySignalUsesStructuralEvidence(t *testing.T) {
-	if got := trimDeliveryEvidence("Future Chat\t\n"); got != "Future Chat" {
-		t.Fatalf("delivery evidence trim changed the provider span: got %q", got)
-	}
-	for _, test := range []struct {
-		content string
-		want    bool
-	}{
-		{content: "send me a report on climate", want: false},
-		{content: "draft a message using a formal tone", want: false},
-		{content: "发送一份关于软件架构的报告", want: false},
-		{content: "发送平台迁移方案", want: false},
-		{content: "Send the note to Alice via Future Chat", want: true},
-		{content: "Send the note to Alice on Future Chat app", want: true},
-		{content: "用微信发给小明", want: true},
-		{content: "通过未来聊发送到小明", want: true},
-	} {
-		if got := hasExplicitExternalSendSignal(test.content); got != test.want {
-			t.Fatalf("external send signal for %q: got %v want %v", test.content, got, test.want)
-		}
-	}
-	evidence := externalSendEvidenceFromMessage("Send the note to Alice via Future Chat")
-	if evidence.ProviderText != "future chat" || evidence.RecipientText != "alice" {
-		t.Fatalf("delivery evidence was truncated or changed: %#v", evidence)
-	}
-	reversed := externalSendEvidenceFromMessage("Send the note via Future Chat to Alice")
-	if reversed.ProviderText != "future chat" || reversed.RecipientText != "alice" {
-		t.Fatalf("reversed delivery phrase was parsed incorrectly: %#v", reversed)
-	}
-}
-
-func TestIntentRouterGroundsExternalSlotsOnlyInCurrentOwnerMessage(t *testing.T) {
-	owner := "Send the note externally"
-	canonical := owner + "\nAttachment metadata: Future Chat"
-	directive, _, err := projectDeliveryDirective(owner, canonical)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !directive.ExplicitExternal || directive.RequestedProviderKey != "" || directive.RequestedRecipientText != "" {
-		t.Fatalf("non-owner projection grounded delivery fields: %#v", directive)
-	}
-}
-
 func TestExplicitDirectiveCannotFallBackToCanonicalWebSelection(t *testing.T) {
 	directive := DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "future chat"}
 	runtime := Runtime{messageControl: fixedMessageControlRouter{selection: DeliveryTargetSelection{
@@ -215,15 +182,7 @@ func TestExplicitDirectiveCannotFallBackToCanonicalWebSelection(t *testing.T) {
 	}
 }
 
-func TestExternalDeliveryBlocksWhenSemanticPipelineIsDegraded(t *testing.T) {
-	decision := semanticrouting.Decision{Verdict: semanticrouting.VerdictClear, Degraded: true, ReasonCode: "top_candidate_clear"}
-	decision = enforceDeliveryFusionBoundary(decision, DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "future chat"})
-	if decision.Verdict != semanticrouting.VerdictBlocked || decision.ReasonCode != "external_delivery_requires_healthy_semantic_pipeline" {
-		t.Fatalf("degraded semantic decision retained external delivery authority: %#v", decision)
-	}
-}
-
-func TestResolvedMessageControlCannotExecuteUnmatchedBusinessRoute(t *testing.T) {
+func TestMissingDeliveryObjectStopsBeforeExternalExecution(t *testing.T) {
 	runtime, st, session := defaultWorkflowRuntime(t)
 	directive := DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "provider neutral", RequestedRecipientText: "recipient"}
 	requests := []MessageControlRouteRequest{}
@@ -236,24 +195,28 @@ func TestResolvedMessageControlCannotExecuteUnmatchedBusinessRoute(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched {
-		t.Fatalf("delivery selection fabricated a business capability: %#v", result.RouteDecision)
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteClarify {
+		t.Fatalf("unresolved delivery object did not require clarification: %#v", result.RouteDecision)
 	}
-	if result.Run.MessageContext == nil || result.Run.MessageContext.ReturnRoute.Mode != app.ReturnToEndpoint || result.Run.MessageContext.ReturnRoute.EndpointID != "endpoint_exact" {
-		t.Fatalf("resolved endpoint was not frozen in ReturnRoute: %#v", result.Run.MessageContext)
+	if result.Run.MessageContext != nil && result.Run.MessageContext.ReturnRoute.Mode == app.ReturnToEndpoint {
+		t.Fatalf("unresolved object froze an external endpoint: %#v", result.Run.MessageContext)
 	}
-	if !hasAgentAuditField(mustAgentListAudit(t, st, session.ID), "message.control.routed", "status", TargetResolved) {
-		t.Fatalf("typed message control audit is missing: %#v", mustAgentListAudit(t, st, session.ID))
+	if hasAgentAuditField(mustAgentListAudit(t, st, session.ID), "message.control.routed", "status", TargetResolved) {
+		t.Fatal("unresolved object generated an external routing receipt")
 	}
-	if len(requests) != 1 || requests[0].SessionID != session.ID || requests[0].Directive != directive {
-		t.Fatalf("production handler did not pass the exact typed directive: %#v", requests)
+	if len(requests) == 0 {
+		t.Fatal("external target was not validated")
 	}
-	if result.Run.State != "blocked" || len(result.Approvals) != 0 || len(result.ToolCalls) != 0 {
-		t.Fatalf("unmatched business route reached external execution: %#v", result)
+	for _, request := range requests {
+		if request.Directive != directive {
+			t.Fatalf("external resolution changed the owner target: %#v", requests)
+		}
 	}
-	if result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultBlocked ||
-		result.WorkflowResult.Workflow.ID != "router.blocked" || result.WorkflowResult.ReturnRoute.Mode != app.ReturnNowhere {
-		t.Fatalf("blocked unmatched result retained external delivery authority: %#v", result.WorkflowResult)
+	if result.Run.State != "clarification_required" || len(result.Approvals) != 0 || len(result.ToolCalls) != 0 {
+		t.Fatalf("unresolved object reached external execution: %#v", result)
+	}
+	if result.WorkflowResult == nil || result.WorkflowResult.ReturnRoute.Mode == app.ReturnToEndpoint {
+		t.Fatalf("clarification retained external delivery authority: %#v", result.WorkflowResult)
 	}
 	if _, deliverable, err := delivery.RequestFromWorkflowResult(context.Background(), *result.WorkflowResult, exactOnlyReturnRouteResolver{}); err != nil || deliverable {
 		t.Fatalf("blocked unmatched result reached delivery: deliverable=%v err=%v", deliverable, err)
@@ -271,7 +234,7 @@ func TestSoleExternalCandidateStillBlocksWithoutBusinessCapability(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteUnmatched || result.Run.State != "blocked" || len(result.Approvals) != 0 {
+	if result.RouteDecision == nil || result.RouteDecision.Status != app.RouteClarify || result.Run.State != "clarification_required" || len(result.Approvals) != 0 || len(result.ToolCalls) != 0 {
 		t.Fatalf("sole candidate bypassed the missing business capability: %#v", result)
 	}
 }
@@ -282,7 +245,6 @@ func TestMessageControlClarificationStopsBeforeBusinessTools(t *testing.T) {
 		directive DeliveryDirective
 		goal      string
 	}{
-		{status: TargetNeedsChannel, directive: DeliveryDirective{ExplicitExternal: true}, goal: "Search online for current news and send it externally"},
 		{status: TargetNeedsRecipient, directive: DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "provider neutral"}, goal: "Search online for current news and send it externally via Provider Neutral"},
 		{status: TargetAmbiguous, directive: DeliveryDirective{ExplicitExternal: true, RequestedProviderKey: "provider neutral", RequestedRecipientText: "recipient"}, goal: "Search online for current news and send it to recipient via Provider Neutral"},
 	}

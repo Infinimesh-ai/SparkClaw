@@ -100,7 +100,7 @@ func TestExecutionRealDocumentWorkflowWaitsForInstalledClientApproval(t *testing
 			const original = "# Notes\nOriginal reflection\n"
 			const updated = "# Notes\nImproved reflection\n"
 			input := execution.File{ID: "55555555-5555-4555-8555-555555555555", Name: "notes.md", Size: len(original), SHA256: execution.Digest([]byte(original))}
-			e := execution.Envelope{SchemaVersion: 1, DeploymentID: cfg.Gateway.DeploymentID, OwnerID: "workflow-owner", ClientID: "workflow-client", InstallationID: install, ConversationID: "22222222-2222-4222-8222-222222222222", TaskID: "33333333-3333-4333-8333-333333333333", RequestID: "44444444-4444-4444-8444-444444444444", Messages: []execution.Message{{Role: "user", Content: fixture.goal}}, InputFiles: []execution.File{input}}
+			e := execution.Envelope{SchemaVersion: 2, DeploymentID: cfg.Gateway.DeploymentID, OwnerID: "workflow-owner", ClientID: "workflow-client", InstallationID: install, ConversationID: "22222222-2222-4222-8222-222222222222", TaskID: "33333333-3333-4333-8333-333333333333", RequestID: "44444444-4444-4444-8444-444444444444", Messages: []execution.Message{{ID: "fixture-message-103-1", Role: "user", Content: fixture.goal}}, InputFiles: []execution.File{input}}
 			if code, raw := request("PUT", "/api/v1/inputs/"+e.RequestID+"/files/"+input.ID, []byte(original)); code != 200 {
 				t.Fatalf("frozen input upload: %d %s", code, raw)
 			}
@@ -286,6 +286,15 @@ func executionDocumentApprovalModel(t *testing.T) (*httptest.Server, *executionA
 		}
 		var answer any
 		switch {
+		case request.ResponseFormat.JSONSchema.Name == "intent_request_split":
+			_, owner, ok := strings.Cut(prompt, "Owner semantic query:\n")
+			if !ok {
+				t.Error("split request omitted owner query")
+				http.Error(w, "missing owner query", 400)
+				return
+			}
+			owner, _, _ = strings.Cut(owner, "\n\n")
+			answer = map[string]any{"deferred": false, "business_span": strings.TrimSpace(owner), "delivery_mode": "none", "delivery_object_kind": "business_result", "object_span": "", "provider_span": "", "recipient_span": ""}
 		case request.ResponseFormat.JSONSchema.Name == "intent_tree_candidate_scores":
 			calls.routing.Add(1)
 			properties := request.ResponseFormat.JSONSchema.Schema.Properties

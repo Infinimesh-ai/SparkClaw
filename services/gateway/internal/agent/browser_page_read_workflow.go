@@ -22,7 +22,7 @@ func (browserPageReadProfile) Finalization() workflowFinalizationMode {
 }
 func (browserPageReadProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
-		Key: "read", Route: workflowRouteTemplate{Operation: app.RouteOperationRead},
+		Key: "read", ClarifyLabel: workflowClarifyLabel{ZH: "阅读并总结网页", EN: "Read and summarize a web page"}, Route: workflowRouteTemplate{Operation: app.RouteOperationRead},
 		EmbedTexts: []string{
 			"读取这个网页 https://example.com/article", "总结当前指定网址的内容", "阅读苹果官网的产品页面", "Read and summarize this web page", "Extract the content from the official product page",
 		},

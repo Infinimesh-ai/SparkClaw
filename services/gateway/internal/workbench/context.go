@@ -31,7 +31,7 @@ func SelectMessages(messages []app.Message, currentRun string, limit int) []app.
 			continue
 		}
 		role := strings.TrimSpace(message.Role)
-		if role != "user" && role != "assistant" || strings.TrimSpace(message.Content) == "" && len(message.Attachments) == 0 {
+		if role != "user" && role != "assistant" || strings.TrimSpace(message.Content) == "" && len(message.Attachments) == 0 && !message.FilesUnavailable {
 			continue
 		}
 		// Imported envelopes and host history have the same per-message bound.

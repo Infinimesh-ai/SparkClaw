@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -50,11 +51,15 @@ func attachedWorkspaceImageCanFinalize(resources []app.MessagePart, content stri
 	return false
 }
 
+var structuredDocumentLocator = regexp.MustCompile(`\bdocument\.[A-Za-z_][A-Za-z0-9_]*\[[0-9]+\]`)
+
 func documentRoutePaths(content string) []string {
 	if paths := attachmentPathsFromRoutingProjection(content); len(paths) > 0 {
 		return paths
 	}
-	return extractPaths(content)
+	// Structured document block locations are operation qualifiers, not file
+	// names. Keep the original request intact while excluding them from paths.
+	return extractPaths(structuredDocumentLocator.ReplaceAllString(content, " "))
 }
 
 func attachmentPathsFromRoutingProjection(content string) []string {
@@ -152,6 +157,9 @@ func preflightDocumentPath(workspaceRoot, requestedPath string, edit bool) (docu
 
 func nextDocumentOutputRef(root, inputRef string) (string, error) {
 	directory := filepath.Dir(inputRef)
+	if strings.HasPrefix(filepath.ToSlash(inputRef), "conversation-files/") {
+		directory = "."
+	}
 	entries, err := os.ReadDir(filepath.Join(root, directory))
 	if err != nil {
 		return "", err

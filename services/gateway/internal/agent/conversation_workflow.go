@@ -27,7 +27,7 @@ func (conversationAnswerProfile) Capability() app.CapabilityID {
 func (conversationAnswerProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{
 		{
-			Key:   "answer",
+			Key: "answer", ClarifyLabel: workflowClarifyLabel{ZH: "回答或解释这个问题", EN: "Answer or explain this question"},
 			Route: workflowRouteTemplate{Operation: app.RouteOperationAnswer},
 			EmbedTexts: []string{
 				"解释一下光合作用", "What is the capital of France?", "你好，很高兴见到你", "为什么天空是蓝色的",
@@ -35,20 +35,7 @@ func (conversationAnswerProfile) RoutingSemantics() workflowRoutingSemantics {
 			},
 			TreeDescription: "Respond conversationally to greetings, stable common knowledge, simple explanations, plain owner statements, or timer notification payloads using no current external facts, governed resources, or actions. A statement that the owner personally plans to do something later is conversation unless it explicitly asks the system to act.",
 			HardNegatives: []string{
-				"查一下今天的金价", "一分钟后提醒我吃饭", "打开这个网址", "读取这个文档", "今天上海天气怎么样", "发送这个文件",
-			},
-		},
-		{
-			Key:   "publish",
-			Route: workflowRouteTemplate{Operation: app.RouteOperationPublish},
-			EmbedTexts: []string{
-				"发送这个文件", "把附件发出去", "转发这张图片", "Send this attachment", "Publish this message",
-				"把这段文字作为消息发送", "投递这份演示文稿", "发送文件",
-			},
-			TreeDescription: "Publish the current owner-authored message as the ordinary message result. Preserve text-only content; when image, audio, or file parts exist, return only those ordered media parts without the command text. The destination is already carried separately by ReturnRoute and must not affect this business intent. Use only when the owner asks to send or publish the message parts themselves, not to inspect, summarize, edit, or transform an attachment.",
-			HardNegatives: []string{
-				"总结这个附件", "修改这份文档", "这张图片里有什么", "一分钟后发送这个文件", "为什么文件发送失败",
-				"点击当前页面的发送按钮", "click Send on the current page",
+				"查一下今天的金价", "一分钟后提醒我吃饭", "打开这个网址", "读取这个文档", "今天上海天气怎么样",
 			},
 		},
 	}}

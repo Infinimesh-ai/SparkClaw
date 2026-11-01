@@ -68,8 +68,8 @@ func TestWorkbenchCutoverRejectsRetiredRoutesAndDigestWithoutExecuting(t *testin
 	if w := request("POST", "/api/v1/installations", "", []byte(`{"schema_version":1,"installation_id":"`+install+`"}`)); w.Code != 200 {
 		t.Fatalf("fresh binding: %d %s", w.Code, w.Body.String())
 	}
-	e := execution.Envelope{SchemaVersion: 1, DeploymentID: s.cfg.Gateway.DeploymentID, OwnerID: "owner", ClientID: "cutover-client", InstallationID: install,
-		ConversationID: "22222222-2222-4222-8222-222222222222", TaskID: "33333333-3333-4333-8333-333333333333", RequestID: "44444444-4444-4444-8444-444444444444", Messages: []execution.Message{{Role: "user", Content: "one execution"}}}
+	e := execution.Envelope{SchemaVersion: 2, DeploymentID: s.cfg.Gateway.DeploymentID, OwnerID: "owner", ClientID: "cutover-client", InstallationID: install,
+		ConversationID: "22222222-2222-4222-8222-222222222222", TaskID: "33333333-3333-4333-8333-333333333333", RequestID: "44444444-4444-4444-8444-444444444444", Messages: []execution.Message{{ID: "fixture-message-72-1", Role: "user", Content: "one execution"}}}
 	raw, _ := json.Marshal(e)
 	if w := request("POST", "/api/v1/executions", "X-R3-Digest", raw); w.Code != 400 {
 		t.Fatalf("retired digest accepted: %d %s", w.Code, w.Body.String())

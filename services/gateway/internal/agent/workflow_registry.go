@@ -141,6 +141,7 @@ const (
 
 type workflowRoutingSemantics = semanticrouting.WorkflowSemantics
 type workflowRoutingVariant = semanticrouting.IntentVariant
+type workflowClarifyLabel = semanticrouting.ClarifyLabel
 type workflowRouteTemplate = semanticrouting.RouteTemplate
 
 type workflowStageContext struct {

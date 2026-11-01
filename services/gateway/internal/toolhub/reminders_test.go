@@ -298,3 +298,41 @@ func TestRemindersCreateUsesCurrentTelegramChatRecipient(t *testing.T) {
 		t.Fatalf("reminder should capture current Telegram target: %#v", reminder)
 	}
 }
+
+func TestReminderTargetsOtherConversation(t *testing.T) {
+	st := store.NewMemoryStore()
+	web := storetest.MustCreateSession(t, st, "web conversation")
+	linked := storetest.MustCreateSession(t, st, "微信会话")
+	storetest.MustCreateNotificationBinding(t, st, app.NotificationBinding{
+		ID: "bind_weixin", Channel: "weixin", Provider: "openclaw-weixin-qr", Status: "active", CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	})
+	storetest.MustSaveExternalChatSession(t, st, app.WeixinChatSession{
+		BindingID: "bind_weixin", Provider: "openclaw-weixin-qr", ExternalUserID: "wx-user-a", LinkedSessionID: linked.ID,
+		Status: "active", CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	})
+	hub := New(config.Default(), st)
+	for _, tc := range []struct {
+		name, tool, session string
+		args                map[string]any
+		want                bool
+	}{
+		{"web default", "reminders.create", web.ID, map[string]any{"text": "喝水"}, false},
+		{"web explicit", "reminders.create", web.ID, map[string]any{"channel": "web"}, false},
+		{"web to weixin", "reminders.create", web.ID, map[string]any{"channel": "vx"}, true},
+		{"web to named recipient", "reminders.create", web.ID, map[string]any{"channel": "telegram", "recipient": "Alice"}, true},
+		{"weixin to its own chat", "reminders.create", linked.ID, map[string]any{"channel": "wechat"}, false},
+		{"weixin default with recipient", "reminders.create", linked.ID, map[string]any{"recipient": "wx-user-a"}, false},
+		{"weixin to telegram", "reminders.create", linked.ID, map[string]any{"channel": "tg"}, true},
+		{"update text only", "reminders.update", web.ID, map[string]any{"reminder_id": "rem_x", "text": "改"}, false},
+		{"update to weixin", "reminders.update", web.ID, map[string]any{"reminder_id": "rem_x", "channel": "weixin"}, true},
+		{"update recipient of missing reminder", "reminders.update", web.ID, map[string]any{"reminder_id": "rem_missing", "recipient": "Alice"}, true},
+		{"other tool", "reminders.list", web.ID, map[string]any{"channel": "weixin"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := hub.ReminderTargetsOtherConversation(t.Context(), tc.tool, tc.args, tc.session)
+			if err != nil || got != tc.want {
+				t.Fatalf("got %v err %v, want %v", got, err, tc.want)
+			}
+		})
+	}
+}

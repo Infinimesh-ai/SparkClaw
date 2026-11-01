@@ -551,7 +551,7 @@ func (h *ToolHub) validatePPTXSealedManifest(ctx context.Context, manifest pptxS
 	if manifest.OwnerID != ownerID {
 		return errors.New("PPTX sealed candidate belongs to a different owner")
 	}
-	inputPath, err := h.resolvePath(stringArg(args, "path", ""))
+	inputPath, err := h.resolveReadPath(ctx, stringArg(args, "path", ""))
 	if err != nil {
 		return err
 	}

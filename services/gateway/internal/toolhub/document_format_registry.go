@@ -264,7 +264,7 @@ func (h *ToolHub) executeDocumentOperation(ctx context.Context, toolName, reques
 	}
 	registry := toolhubDocumentProviderRegistry()
 	earlyWrapper := registry.errorWrapper(toolName, operation)
-	inputPath, err := h.resolvePath(stringArg(args, "path", ""))
+	inputPath, err := h.resolveReadPath(ctx, stringArg(args, "path", ""))
 	if err != nil {
 		return Result{}, wrapEarlyDocumentProviderError(ctx, earlyWrapper, err)
 	}

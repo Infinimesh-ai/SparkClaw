@@ -175,7 +175,7 @@ func TestExecutionProgressRealFinalStreamAndHTTPIdentity(t *testing.T) {
 	s, _, _, handler := workbenchISCPFixture(t, nil)
 	bindWorkbenchISCP(t, handler)
 	e := workbenchISCPEnvelope()
-	e.Messages = []execution.Message{{Role: "user", Content: "法国的首都是什么？\nMOCK_CONVERSATION_RESPONSE:巴黎。"}}
+	e.Messages = []execution.Message{{ID: "fixture-message-178-1", Role: "user", Content: "法国的首都是什么？\nMOCK_CONVERSATION_RESPONSE:巴黎。"}}
 	raw, _ := json.Marshal(e)
 	submit := handler(t.Context(), workbenchISCPRequest(wb.OperationSubmit, raw))
 	if submit.Status != 202 {

@@ -96,7 +96,11 @@ func (s *Server) newWorkbenchISCPTextHandler(cfg iscpworkbench.Config) (iscpwork
 			if envelope.RequestID != request.RequestID {
 				return result(http.StatusConflict, "execution request ID conflicts with its envelope")
 			}
-			if len(envelope.InputFiles) != 0 && (!expanded || !authorization.AllowFiles) {
+			hasFiles := len(envelope.InputFiles) != 0
+			for _, message := range envelope.Messages {
+				hasFiles = hasFiles || len(message.Files) != 0
+			}
+			if hasFiles && (!expanded || !authorization.AllowFiles) {
 				return result(http.StatusNotImplemented, "ISCP text profile does not support input files or attachments")
 			}
 		}

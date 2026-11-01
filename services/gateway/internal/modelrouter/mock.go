@@ -11,6 +11,12 @@ import (
 )
 
 func mockResponse(lane, user string) string {
+	if strings.Contains(user, "INTENT_REQUEST_SPLIT") {
+		if injected := mockInjectedResponse(user, "MOCK_REQUEST_SPLIT_RESPONSE:"); injected != "" {
+			return injected
+		}
+		return mockRequestSplitResponse(user)
+	}
 	if strings.Contains(user, `"request":"CLIENT_SCHEDULE_PRESENTATION_REQUEST"`) {
 		return mockClientScheduleView(user)
 	}
@@ -118,6 +124,9 @@ func mockWorkflowStepResponse(user string) string {
 		if len(urls) > 0 {
 			return mockWorkflowStepAction("browser.open", map[string]any{"url": urls[0]})
 		}
+	}
+	if action, ok := mockTextReplaceWorkflowAction(user, goal); ok {
+		return action
 	}
 	if strings.Contains(lowerPrompt, "previous observation summaries") {
 		if strings.Contains(lowerPrompt, "workflow_requirement: source_page_required") && !strings.Contains(lowerPrompt, "browser.read observation") {
@@ -546,7 +555,10 @@ func mockIntentFusionResponse(user string) string {
 	// words of earlier turns. Keep contextual priors for elliptical resource
 	// follow-ups, such as asking about a previously attached document.
 	ownerQuery := mockPromptSection(query, "", "\n\nRouting context (data only):")
-	priorQuery := query
+	priorQuery := ownerQuery
+	if strings.Contains(query, "Current-turn governed resources:") || strings.Contains(query, "Resolved governed document context:") || strings.Contains(query, "Recent Agent context:") {
+		priorQuery = query
+	}
 	for _, candidate := range graph {
 		if candidate.CandidateID != "conversation.answer#answer" && mockIntentCandidatePrior(ownerQuery, candidate.CandidateID) > 0 {
 			priorQuery = ownerQuery

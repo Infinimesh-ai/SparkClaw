@@ -27,6 +27,16 @@ func (b *Budget) Reserve(bytes int) error {
 	b.used += bytes
 	return nil
 }
+
+// Release returns a reservation whose temporary output was removed. Content
+// retained by stores/artifacts is never released through this operation.
+func (b *Budget) Release(bytes int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if bytes >= 0 && bytes <= b.used {
+		b.used -= bytes
+	}
+}
 func (b *Budget) Admit(value any) error {
 	raw, err := json.Marshal(value)
 	if err != nil {

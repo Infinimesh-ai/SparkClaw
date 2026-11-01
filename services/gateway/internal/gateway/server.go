@@ -324,7 +324,7 @@ func NewWithTrace(cfg config.Config, st Repository, tools *toolhub.ToolHub, runt
 	}
 	s.streamMessage = func(ctx context.Context, sessionID, content string, attachments []agent.MessageAttachment, ingress app.MessageIngressContext, emit agent.StreamHandler) (agent.Result, error) {
 		if admission, ok := ctx.Value(admittedWorkbenchKey{}).(*execution.WorkbenchLease); ok {
-			return s.runtime.HandleAdmittedWorkbenchMessage(ctx, sessionID, admission.InputMessageID, admission.RunID, content, attachments, ingress, nil, emit)
+			return s.workbenchRuntime(ctx).HandleAdmittedWorkbenchMessage(ctx, sessionID, admission.InputMessageID, admission.RunID, content, attachments, ingress, nil, emit)
 		}
 		return s.runtime.HandleMessageStreamWithIngress(ctx, sessionID, content, attachments, ingress, emit)
 	}
@@ -333,6 +333,10 @@ func NewWithTrace(cfg config.Config, st Repository, tools *toolhub.ToolHub, runt
 	}
 	s.bridge = iscpbridge.NewGatewayAdapter(st, func() iscpbridge.AgentRuntime { return s.runtime })
 	s.bridge.ConfigureNotificationRetention(cfg.PassiveNotifications.MaxPerOwner, cfg.PassiveNotifications.RetentionDays)
+	s.bridge.ConfigureResultDelivery(func(ctx context.Context, result agent.Result) error {
+		_, err := s.deliverAgentResult(ctx, result)
+		return err
+	})
 	s.mcpAccess = mcpaccess.New(st, s.runtime, func(ctx context.Context, result agent.Result) error {
 		if s.endpoints == nil || s.delivery == nil {
 			return errors.New("MCP result delivery is unavailable")

@@ -94,7 +94,7 @@ func TestExecutionHTTPApprovalRunsOriginalToolOnlyAfterExplicitDecision(t *testi
 			if code, raw := request("POST", "/api/v1/installations", []byte(`{"schema_version":1,"installation_id":"`+install+`"}`), install); code != 200 {
 				t.Fatal(code, string(raw))
 			}
-			e := execution.Envelope{SchemaVersion: 1, DeploymentID: cfg.Gateway.DeploymentID, OwnerID: "owner", ClientID: "client", InstallationID: install, ConversationID: "22222222-2222-4222-8222-222222222222", TaskID: "33333333-3333-4333-8333-333333333333", RequestID: "44444444-4444-4444-8444-444444444444", Messages: []execution.Message{{Role: "user", Content: "synthetic context"}}}
+			e := execution.Envelope{SchemaVersion: 2, DeploymentID: cfg.Gateway.DeploymentID, OwnerID: "owner", ClientID: "client", InstallationID: install, ConversationID: "22222222-2222-4222-8222-222222222222", TaskID: "33333333-3333-4333-8333-333333333333", RequestID: "44444444-4444-4444-8444-444444444444", Messages: []execution.Message{{ID: "fixture-message-97-1", Role: "user", Content: "synthetic context"}}}
 			raw, _ := json.Marshal(e)
 			if code, body := request("POST", "/api/v1/executions", raw, install); code != 202 {
 				t.Fatal(code, string(body))

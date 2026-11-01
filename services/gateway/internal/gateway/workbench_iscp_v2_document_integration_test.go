@@ -82,7 +82,7 @@ func TestWorkbenchISCPV2RealDocumentToolRequiresApproval(t *testing.T) {
 			stage.Params = map[string]string{"request_id": iscpTestRequest, "file_id": input.ID}
 			requireV2Status(t, f.call(t, stage), 200)
 			envelope := workbenchISCPEnvelope()
-			envelope.Messages = []execution.Message{{Role: "user", Content: "Edit notes.md and replace Original reflection with Improved reflection."}}
+			envelope.Messages = []execution.Message{{ID: "fixture-message-85-1", Role: "user", Content: "Edit notes.md and replace Original reflection with Improved reflection."}}
 			envelope.InputFiles = []execution.File{input}
 			raw, _ := json.Marshal(envelope)
 			requireV2Status(t, f.call(t, v2Request(wb.OperationSubmit, raw)), 202)

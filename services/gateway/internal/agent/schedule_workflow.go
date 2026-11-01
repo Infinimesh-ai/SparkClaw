@@ -66,7 +66,7 @@ func (scheduleManageProfile) Capability() app.CapabilityID { return app.Capabili
 func (scheduleManageProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{
 		{
-			Key: "create", Route: workflowRouteTemplate{Operation: app.RouteOperationCreate},
+			Key: "create", ClarifyLabel: workflowClarifyLabel{ZH: "创建一个定时任务", EN: "Create a scheduled task"}, Route: workflowRouteTemplate{Operation: app.RouteOperationCreate},
 			EmbedTexts: []string{
 				"一分钟后提醒我吃饭", "一分钟后告知我吃饭", "下午三点叫我开会", "Remind me to call Alice tomorrow",
 				"半小时后查一下上海天气", "每天早上八点提醒我喝水", "到时候跟我说该出发了",
@@ -77,19 +77,19 @@ func (scheduleManageProfile) RoutingSemantics() workflowRoutingSemantics {
 			},
 		},
 		{
-			Key: "read", Route: workflowRouteTemplate{Operation: app.RouteOperationRead},
+			Key: "read", ClarifyLabel: workflowClarifyLabel{ZH: "查看已有日程", EN: "View existing schedules"}, Route: workflowRouteTemplate{Operation: app.RouteOperationRead},
 			EmbedTexts:      []string{"显示明天的日程", "打开本机日程", "查看我的定时任务", "列出明天的提醒", "我现在有哪些计划任务", "Show my scheduled reminders"},
 			TreeDescription: "List or inspect existing scheduled tasks or reminders without changing them.",
 			HardNegatives:   []string{"为什么提醒没有触发", "查看聊天记录", "告诉我明天有什么会议"},
 		},
 		{
-			Key: "edit", Route: workflowRouteTemplate{Operation: app.RouteOperationEdit},
+			Key: "edit", ClarifyLabel: workflowClarifyLabel{ZH: "修改已有定时任务", EN: "Modify an existing scheduled task"}, Route: workflowRouteTemplate{Operation: app.RouteOperationEdit},
 			EmbedTexts:      []string{"把喝水提醒改到下午三点", "修改明天的定时任务", "将那个提醒推迟半小时", "Reschedule my call reminder"},
 			TreeDescription: "Change the time, recurrence, or payload of one existing scheduled task after resolving the target from the task list.",
 			HardNegatives:   []string{"修改文档里的提醒内容", "创建一个新提醒", "为什么提醒时间不对"},
 		},
 		{
-			Key: "delete", Route: workflowRouteTemplate{Operation: app.RouteOperationDelete},
+			Key: "delete", ClarifyLabel: workflowClarifyLabel{ZH: "取消已有定时任务", EN: "Cancel an existing scheduled task"}, Route: workflowRouteTemplate{Operation: app.RouteOperationDelete},
 			EmbedTexts:      []string{"删除喝水提醒", "取消明天的定时任务", "不要再执行那个每周提醒", "Cancel my scheduled reminder"},
 			TreeDescription: "Cancel or delete one existing scheduled task after resolving the target from the task list.",
 			HardNegatives:   []string{"删除这句话里的提醒两个字", "删除文档", "提醒为什么被取消了"},

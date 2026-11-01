@@ -60,6 +60,10 @@ type GatewayAdapter struct {
 	notificationMaxPerOwner   int
 	notificationRetentionDays int
 
+	// deliverResult sends a result that an approval released to an external
+	// endpoint. Set once before serving via ConfigureResultDelivery.
+	deliverResult func(context.Context, agent.Result) error
+
 	mu         sync.Mutex
 	mutationMu sync.Mutex
 	operations map[string]*operationRecord
@@ -140,6 +144,12 @@ func NewGatewayAdapter(st Repository, runtime RuntimeProvider) *GatewayAdapter {
 		operations:     map[string]*operationRecord{},
 		mutations:      map[string]mutationRecord{},
 	}
+}
+
+// ConfigureResultDelivery lets an approval resolved over the bridge send the
+// result it released to an external endpoint, matching the HTTP approval path.
+func (a *GatewayAdapter) ConfigureResultDelivery(deliver func(context.Context, agent.Result) error) {
+	a.deliverResult = deliver
 }
 
 // ConfigureNotificationRetention bounds the durable passive-notification
@@ -612,6 +622,14 @@ func (a *GatewayAdapter) resolveApproval(ctx context.Context, req Request, princ
 			return newResponse(req, "error", nil, nil, bridgeError(CodeInternal, "approved run could not resume", false), now)
 		} else if resumedOK {
 			result = &resumed
+			if resumed.WorkflowResult != nil && resumed.WorkflowResult.ReturnRoute.Mode == app.ReturnToEndpoint {
+				if a.deliverResult == nil {
+					return newResponse(req, "error", nil, nil, bridgeError(CodeInternal, "approved result delivery is unavailable", false), now)
+				}
+				if err := a.deliverResult(ctx, resumed); err != nil {
+					return newResponse(req, "error", nil, nil, bridgeError(CodeInternal, "approved result could not be delivered", false), now)
+				}
+			}
 		}
 	} else if rejected, found, readErr := a.store.GetToolCall(ctx, resolved.ToolCallID); readErr != nil {
 		return newResponse(req, "error", nil, nil, bridgeError(CodeTemporarilyUnavailable, "tool call state is temporarily unavailable", true), now)

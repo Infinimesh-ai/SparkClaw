@@ -14,6 +14,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/appstream"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/clarification"
 )
 
 const (
@@ -38,8 +39,12 @@ var ErrUnavailable = errors.New("workbench control persistence unavailable")
 var ErrExpired = errors.New("workbench delivery content unavailable")
 
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	ID               string                `json:"id"`
+	FilesUnavailable bool                  `json:"files_unavailable,omitempty"`
+	Role             string                `json:"role"`
+	Content          string                `json:"content"`
+	Files            []File                `json:"files,omitempty"`
+	Clarification    *clarification.Record `json:"clarification,omitempty"`
 }
 type Envelope struct {
 	SchemaVersion      int                     `json:"schema_version"`
@@ -61,14 +66,16 @@ type File struct {
 	SHA256 string `json:"sha256"`
 }
 type Payload struct {
-	ClientAction *app.ClientAction `json:"client_action,omitempty"`
-	Content      string            `json:"content"`
-	Files        []File            `json:"files"`
+	ClientAction  *app.ClientAction     `json:"client_action,omitempty"`
+	Clarification *clarification.Record `json:"clarification,omitempty"`
+	Content       string                `json:"content"`
+	Files         []File                `json:"files"`
 }
 type Output struct {
-	ClientAction *app.ClientAction
-	Content      string
-	Files        map[string][]byte
+	ClientAction  *app.ClientAction
+	Clarification *clarification.Record
+	Content       string
+	Files         map[string][]byte
 }
 type Result struct {
 	Sequence int    `json:"sequence"`
@@ -81,6 +88,12 @@ type PendingApproval struct {
 	Tool       string         `json:"tool"`
 	Summary    string         `json:"summary"`
 	Arguments  map[string]any `json:"arguments"`
+}
+
+type PendingInput struct {
+	FileID string `json:"file_id"`
+	Size   int    `json:"size"`
+	SHA256 string `json:"sha256"`
 }
 
 type TerminationReason string
@@ -117,6 +130,7 @@ type Status struct {
 	ApprovalReceipts    []ApprovalRecord         `json:"approval_receipts,omitempty"`
 	ExecutionExpiresAt  *time.Time               `json:"execution_expires_at,omitempty"`
 	PendingApprovals    []PendingApproval        `json:"pending_approvals,omitempty"`
+	PendingInputs       []PendingInput           `json:"pending_inputs,omitempty"`
 	SchemaVersion       int                      `json:"schema_version"`
 	RequestID           string                   `json:"request_id"`
 	InputDigest         string                   `json:"input_digest"`
@@ -161,20 +175,49 @@ func Decode(raw []byte, digest string) (Envelope, error) {
 		return e, errors.New("invalid workbench context fields")
 	}
 	// json.Valid rejects a trailing second value. Decode alone does not.
-	if !json.Valid(raw) || e.SchemaVersion != 1 || !identityPattern.MatchString(e.OwnerID) || !identityPattern.MatchString(e.ClientID) || !identityPattern.MatchString(e.DeploymentID) || !UUID(e.InstallationID) || !UUID(e.RequestID) || !UUID(e.ConversationID) || !UUID(e.TaskID) || len(e.Messages) == 0 || len(e.Messages) > ContextMessages {
+	if !json.Valid(raw) || e.SchemaVersion != 2 || !identityPattern.MatchString(e.OwnerID) || !identityPattern.MatchString(e.ClientID) || !identityPattern.MatchString(e.DeploymentID) || !UUID(e.InstallationID) || !UUID(e.RequestID) || !UUID(e.ConversationID) || !UUID(e.TaskID) || len(e.Messages) == 0 || len(e.Messages) > ContextMessages {
 		return e, errors.New("invalid workbench execution identity or context")
 	}
 	if e.ClientPresentation != nil && !e.ClientPresentation.Valid() {
 		return e, errors.New("invalid client presentation capability")
 	}
+	if len(e.InputFiles) > app.WorkbenchResultFiles {
+		return e, errors.New("too many workbench input files")
+	}
 	fileNames := map[string]bool{}
+	currentFiles := map[string]File{}
 	for _, file := range e.InputFiles {
-		if !validName(file.Name) || fileNames[file.Name] {
+		if !UUID(file.ID) || file.Size < 0 || file.Size > ResultBytes || !digestPattern.MatchString(file.SHA256) || !validName(file.Name) || file.Name == "conversation-files" || fileNames[file.Name] || currentFiles[file.ID].ID != "" {
 			return e, errors.New("workbench input filenames must be valid and unique")
 		}
 		fileNames[file.Name] = true
+		currentFiles[file.ID] = file
 	}
+	handleIDs := map[string]bool{}
+	messageIDs := map[string]bool{}
 	for _, m := range e.Messages {
+		if !identityPattern.MatchString(m.ID) || messageIDs[m.ID] {
+			return e, errors.New("invalid or duplicate workbench message identity")
+		}
+		messageIDs[m.ID] = true
+		if m.Clarification != nil && m.Role != "assistant" {
+			return e, errors.New("clarification must be attached to an assistant message")
+		}
+		if len(m.Files) > app.WorkbenchResultFiles {
+			return e, errors.New("too many message file handles")
+		}
+		for _, file := range m.Files {
+			if !UUID(file.ID) || !validName(file.Name) || file.Size < 0 || file.Size > ResultBytes || !digestPattern.MatchString(file.SHA256) || handleIDs[file.ID] {
+				return e, errors.New("invalid conversation file handle")
+			}
+			if current, exists := currentFiles[file.ID]; exists && current != file {
+				return e, errors.New("conflicting current and historical file identity")
+			}
+			handleIDs[file.ID] = true
+		}
+		if len(handleIDs) > 32 {
+			return e, errors.New("too many conversation file handles")
+		}
 		if (m.Role != "user" && m.Role != "assistant") || len(m.Content) > InputBytes || strings.ContainsRune(m.Content, 0) {
 			return e, errors.New("invalid workbench context message")
 		}

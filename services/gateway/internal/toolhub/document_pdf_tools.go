@@ -12,7 +12,7 @@ import (
 )
 
 func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
-	path, err := h.resolvePath(stringArg(args, "path", ""))
+	path, err := h.resolveReadPath(ctx, stringArg(args, "path", ""))
 	if err != nil {
 		return Result{}, err
 	}

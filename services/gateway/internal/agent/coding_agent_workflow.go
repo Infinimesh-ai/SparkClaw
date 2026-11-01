@@ -15,7 +15,7 @@ func (codingAgentManageProfile) Capability() app.CapabilityID {
 func (codingAgentManageProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{
 		{
-			Key:   "read",
+			Key: "read", ClarifyLabel: workflowClarifyLabel{ZH: "查看编码任务或会话", EN: "Read coding tasks or sessions"},
 			Route: workflowRouteTemplate{Operation: app.RouteOperationRead},
 			EmbedTexts: []string{
 				"列出 Happy Team 里正在运行的编码任务", "查看这个编码任务的状态", "有哪些 Happy 会话", "读取这个 Happy session 的消息记录",
@@ -27,7 +27,7 @@ func (codingAgentManageProfile) RoutingSemantics() workflowRoutingSemantics {
 			},
 		},
 		{
-			Key:   "interact",
+			Key: "interact", ClarifyLabel: workflowClarifyLabel{ZH: "操作编码任务或会话", EN: "Manage coding tasks or sessions"},
 			Route: workflowRouteTemplate{Operation: app.RouteOperationInteract},
 			EmbedTexts: []string{
 				"在 Happy Team 创建一个编码任务", "启动一个新的 Happy 编码会话", "给正在运行的 coding agent 发消息", "停止这个 Happy session",

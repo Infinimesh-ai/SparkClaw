@@ -297,3 +297,28 @@ func externalMCPPolicyTestRun(session app.Session, id string) app.AgentRun {
 		},
 	}
 }
+
+// A schedule that will deliver to another conversation is approved once, when
+// it is created; a schedule for the current conversation is not.
+func TestScheduleToAnotherConversationNeedsApprovalAtCreation(t *testing.T) {
+	runtime, st, session, closeRuntime := newToolPolicyTestRuntime(t)
+	defer closeRuntime()
+	run := app.AgentRun{
+		ID: "run_schedule_target", SessionID: session.ID, State: "executing", StartedAt: time.Now().UTC(),
+		MessageContext: &app.MessageRunContext{OwnerID: session.OwnerID, Authorization: app.MessageAuthorization{PrincipalID: session.OwnerID}},
+	}
+	testSaveRun(st, run)
+	args := map[string]any{"text": "天气", "due_time": "2026-11-01T08:00:00+08:00", "channel": "weixin"}
+	call, approval, _, _ := runtime.runToolPlan(t.Context(), session.ID, run.ID, toolPlan{Name: "reminders.create", Args: args})
+	if approval == nil || call.Status != app.ToolCallStatusApprovalPending || !approval.ArgumentsImmutable || call.Result != nil {
+		t.Fatalf("schedule to another conversation was created without approval: call=%#v approval=%#v", call, approval)
+	}
+	definition, ok := runtime.tools.Definition("reminders.create")
+	if !ok {
+		t.Fatal("reminders.create is unavailable")
+	}
+	execution, err := runtime.toolPolicyExecutionContext(t.Context(), run.ID, definition, map[string]any{"text": "天气", "channel": "web"})
+	if err != nil || execution.DeliveryClass != "" || runtime.policy.Decide(definition, nil, execution).RequiresApproval {
+		t.Fatalf("schedule for the current conversation required approval: %#v %v", execution, err)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/clarification"
 )
 
 var errMessageJSONDecode = errors.New("decode persisted message JSON")
@@ -27,6 +28,11 @@ func prepareMessage(message app.Message, now time.Time) (app.Message, error) {
 func cloneMessage(message app.Message) app.Message {
 	message.Attachments = append([]app.MessageAttachment(nil), message.Attachments...)
 	message.RequestedMedia = append([]app.MessageMediaLocator(nil), message.RequestedMedia...)
+	if message.Clarification != nil {
+		record := *message.Clarification
+		record.Options = append([]clarification.Option(nil), record.Options...)
+		message.Clarification = &record
+	}
 	return message
 }
 

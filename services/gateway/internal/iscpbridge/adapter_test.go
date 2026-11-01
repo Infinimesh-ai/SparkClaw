@@ -293,3 +293,41 @@ func validRequest(requestType, requestID, endpointID, sessionID, idempotencyKey 
 		IssuedAt: now, ExpiresAt: now.Add(5 * time.Minute), Payload: raw,
 	}
 }
+
+type releasedSendRuntime struct{ adapterRuntime }
+
+func (*releasedSendRuntime) ResumeRunAfterApproval(_ context.Context, sessionID, runID string) (agent.Result, bool, error) {
+	return agent.Result{
+		Run:            app.AgentRun{ID: runID, SessionID: sessionID, State: "completed"},
+		WorkflowResult: &app.WorkflowResult{RunID: runID, Status: app.WorkflowResultSucceeded, ReturnRoute: app.ReturnRoute{Mode: app.ReturnToEndpoint, EndpointID: "endpoint_alice"}},
+	}, true, nil
+}
+
+// An approval resolved from the phone releases the external send just like the
+// HTTP approval path.
+func TestGatewayAdapterApprovalDeliversReleasedExternalSend(t *testing.T) {
+	st := store.NewMemoryStore()
+	sessionRecord := storetest.MustCreateSession(t, st, "Approval")
+	approval := app.Approval{
+		ID: "approval-send", SessionID: sessionRecord.ID, RunID: "run-send", ToolCallID: "call-send",
+		Tool: "notify.ask_approval", Risk: app.RiskDangerous, Status: app.ApprovalStatusPending, Summary: "外发确认",
+		Arguments: map[string]any{"endpoint_id": "endpoint_alice"}, ArgumentsImmutable: true, CreatedAt: time.Now().UTC(),
+	}
+	storetest.MustSaveApproval(t, st, approval)
+	runtime := &releasedSendRuntime{adapterRuntime{started: make(chan struct{}, 1)}}
+	adapter := NewGatewayAdapter(st, func() AgentRuntime { return runtime })
+	delivered := []agent.Result{}
+	adapter.ConfigureResultDelivery(func(_ context.Context, result agent.Result) error {
+		delivered = append(delivered, result)
+		return nil
+	})
+	resolve := validRequest(TypeApprovalResolve, "request-send", "endpoint-app", sessionRecord.ID, "approval-send", ApprovalResolvePayload{
+		ApprovalID: approval.ID, Decision: "approved", PreviewHash: ApprovalPreviewHash(approval), ExpectedState: "pending",
+	})
+	if response := adapter.Dispatch(t.Context(), Principal{OwnerID: app.DefaultOwnerID, ActorID: app.DefaultOwnerID}, resolve); response.Status != "ok" {
+		t.Fatalf("approval was not resolved: %#v", response)
+	}
+	if len(delivered) != 1 || delivered[0].WorkflowResult.ReturnRoute.EndpointID != "endpoint_alice" {
+		t.Fatalf("released external send was not delivered once: %#v", delivered)
+	}
+}

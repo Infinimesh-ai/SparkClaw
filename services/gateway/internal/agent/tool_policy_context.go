@@ -18,8 +18,24 @@ func (r Runtime) toolPolicyExecutionContext(ctx context.Context, runID string, d
 	if err != nil {
 		return app.PolicyExecutionContext{}, err
 	}
-	if !ok || run.MessageContext == nil || !isExternalMCPInvocation(run.MessageContext.MCP) {
+	if !ok {
 		return app.PolicyExecutionContext{}, nil
+	}
+	deliveryClass := app.PolicyDeliveryClass("")
+	if r.tools != nil && (run.MessageContext == nil || !isExternalMCPInvocation(run.MessageContext.MCP)) {
+		other, err := r.tools.ReminderTargetsOtherConversation(ctx, definition.Name, args, run.SessionID)
+		if err != nil {
+			return app.PolicyExecutionContext{}, err
+		}
+		if other {
+			deliveryClass = app.PolicyDeliveryExternalEndpoint
+		}
+	}
+	if run.MessageContext == nil || !isExternalMCPInvocation(run.MessageContext.MCP) {
+		if deliveryClass == "" {
+			return app.PolicyExecutionContext{}, nil
+		}
+		return app.PolicyExecutionContext{SchemaVersion: policyExecutionContextSchemaVersion, RunID: run.ID, DeliveryClass: deliveryClass}, nil
 	}
 	context := app.PolicyExecutionContext{
 		SchemaVersion:  policyExecutionContextSchemaVersion,

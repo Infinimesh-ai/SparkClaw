@@ -288,6 +288,16 @@ type MessageRunContext struct {
 	// for deterministic workflow resume, but is never part of owner intent,
 	// risk, guard, message-control, or capability admission.
 	AuthorizedContextData string `json:"authorized_context_data,omitempty"`
+	// ExternalSendApproval is set when an owner's text requested sending to an
+	// endpoint other than the current conversation; delivery waits for owner
+	// approval of the exact result.
+	ExternalSendApproval *ExternalSendApprovalRequirement `json:"external_send_approval,omitempty"`
+}
+
+type ExternalSendApprovalRequirement struct {
+	EndpointID         EndpointID `json:"endpoint_id"`
+	RequestedProvider  string     `json:"requested_provider,omitempty"`
+	RequestedRecipient string     `json:"requested_recipient,omitempty"`
 }
 
 type RouteOperation string

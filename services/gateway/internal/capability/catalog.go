@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-09-10.v27"
+	DefaultCatalogRevision = "2026-10-30.v28"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -31,15 +31,16 @@ type Node struct {
 }
 
 type RouteContract struct {
-	Operations              []app.RouteOperation `json:"operations"`
-	FactScopes              []app.RouteFactScope `json:"fact_scopes,omitempty"`
-	TargetKinds             []string             `json:"target_kinds,omitempty"`
-	RequireQuery            bool                 `json:"require_query,omitempty"`
-	QueryOptionalOperations []app.RouteOperation `json:"query_optional_operations,omitempty"`
-	RequireLocation         bool                 `json:"require_location,omitempty"`
-	RequireTarget           bool                 `json:"require_target,omitempty"`
-	TargetPolicy            RouteTargetPolicy    `json:"target_policy,omitempty"`
-	RequiredFacts           []string             `json:"required_facts,omitempty"`
+	Operations              []app.RouteOperation                           `json:"operations"`
+	OperationSourceKinds    map[app.RouteOperation][]app.MessageSourceKind `json:"operation_source_kinds,omitempty"`
+	FactScopes              []app.RouteFactScope                           `json:"fact_scopes,omitempty"`
+	TargetKinds             []string                                       `json:"target_kinds,omitempty"`
+	RequireQuery            bool                                           `json:"require_query,omitempty"`
+	QueryOptionalOperations []app.RouteOperation                           `json:"query_optional_operations,omitempty"`
+	RequireLocation         bool                                           `json:"require_location,omitempty"`
+	RequireTarget           bool                                           `json:"require_target,omitempty"`
+	TargetPolicy            RouteTargetPolicy                              `json:"target_policy,omitempty"`
+	RequiredFacts           []string                                       `json:"required_facts,omitempty"`
 }
 
 type RouteTargetPolicy string
@@ -51,6 +52,16 @@ const (
 
 func (c RouteContract) AllowsWorkflowTargetResolution() bool {
 	return c.TargetPolicy == RouteTargetRouteOrWorkflowPublicHTTPS
+}
+
+// SupportsSource keeps operation eligibility in the registered contract,
+// including operations deliberately excluded from semantic scoring.
+func (c RouteContract) SupportsSource(operation app.RouteOperation, source app.MessageSourceKind) bool {
+	if !slices.Contains(c.Operations, operation) {
+		return false
+	}
+	kinds, restricted := c.OperationSourceKinds[operation]
+	return !restricted || slices.Contains(kinds, source)
 }
 
 type RouteOption struct {
@@ -135,6 +146,9 @@ func DefaultCatalog() (Catalog, error) {
 		leafRevision(string(app.CapabilityConversationAnswer), "conversation", "Handle ordinary conversation answers and publish owner-authored multipart messages. Current facts, governed-resource inspection, tools, and unrelated actions belong to other capabilities.", 3, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationAnswer, app.RouteOperationPublish}, RequireQuery: true,
 			QueryOptionalOperations: []app.RouteOperation{app.RouteOperationPublish},
+			OperationSourceKinds: map[app.RouteOperation][]app.MessageSourceKind{
+				app.RouteOperationPublish: {app.MessageSourceWeb, app.MessageSourceThirdPartyDevice},
+			},
 		}),
 		branch("browser", string(RootID), "Use current Internet facts, a single-location weather card, or a managed browser session."),
 		leafRevision(string(app.CapabilityBrowserInternetSearch), "browser", "Retrieve read-only facts that depend on current Internet state, including gold prices, exchange rates, stock or index quotes, immediate news, current sports results, schedules, and weather alerts, news, or comparisons. Stable common knowledge that does not depend on current external state is not Internet search.", 2, RouteContract{
@@ -393,6 +407,18 @@ func validateNodeShape(node Node) error {
 				return fmt.Errorf("capability leaf %q has invalid query-optional operation %q", node.ID, operation)
 			}
 		}
+		for operation, kinds := range node.Route.OperationSourceKinds {
+			if !slices.Contains(node.Route.Operations, operation) || len(kinds) == 0 {
+				return fmt.Errorf("capability leaf %q has invalid source restriction for operation %q", node.ID, operation)
+			}
+			seen := make(map[app.MessageSourceKind]bool, len(kinds))
+			for _, kind := range kinds {
+				if (kind != app.MessageSourceWeb && kind != app.MessageSourceThirdPartyDevice && kind != app.MessageSourceTimer) || seen[kind] {
+					return fmt.Errorf("capability leaf %q has invalid source kind %q", node.ID, kind)
+				}
+				seen[kind] = true
+			}
+		}
 	default:
 		return fmt.Errorf("capability %q has invalid kind %q", node.ID, node.Kind)
 	}
@@ -430,6 +456,13 @@ func cloneNode(node Node) Node {
 
 func cloneRouteContract(route RouteContract) RouteContract {
 	route.Operations = append([]app.RouteOperation(nil), route.Operations...)
+	if route.OperationSourceKinds != nil {
+		kinds := make(map[app.RouteOperation][]app.MessageSourceKind, len(route.OperationSourceKinds))
+		for operation, sources := range route.OperationSourceKinds {
+			kinds[operation] = append([]app.MessageSourceKind(nil), sources...)
+		}
+		route.OperationSourceKinds = kinds
+	}
 	route.FactScopes = append([]app.RouteFactScope(nil), route.FactScopes...)
 	route.TargetKinds = append([]string(nil), route.TargetKinds...)
 	route.QueryOptionalOperations = append([]app.RouteOperation(nil), route.QueryOptionalOperations...)

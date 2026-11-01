@@ -696,7 +696,7 @@ func TestMetricsEndpointReturnsRuntimeCounters(t *testing.T) {
 		"sparkclaw_sessions_total 1",
 		"sparkclaw_messages_total 2",
 		"sparkclaw_agent_runs_total 1",
-		"sparkclaw_model_calls_total 5",
+		"sparkclaw_model_calls_total 6",
 		"sparkclaw_model_call_errors_total 0",
 		"sparkclaw_gateway_rate_limit_rejections_total 0",
 		"sparkclaw_memory_candidates_total 0",
@@ -1113,8 +1113,12 @@ func TestMessageStreamPublishesOnlyMediaToSelectedEndpointWithoutApprovalOrWebRe
 	}
 	wantKinds := []app.MessagePartKind{app.MessagePartImage, app.MessagePartAudio, app.MessagePartFile}
 	for index, part := range provider.calls[0].Content.Parts {
-		if part.Kind != wantKinds[index] || part.Kind == app.MessagePartText || part.Resource == nil || part.Resource.Ref != attachments[index].RelPath {
+		if part.Kind != wantKinds[index] || part.Kind == app.MessagePartText || part.Resource == nil || part.Resource.Ref != attachments[index].Name {
 			t.Fatalf("provider received command text or the wrong media part: index=%d part=%#v", index, part)
+		}
+		copied, err := os.ReadFile(filepath.Join(root, part.Resource.Ref))
+		if err != nil || string(copied) != files[index].content {
+			t.Fatalf("independent media output differs: index=%d err=%v", index, err)
 		}
 	}
 	if approvals := storetest.MustListApprovals(t, st, app.ApprovalStatusPending); len(approvals) != 0 {
@@ -1688,6 +1692,48 @@ func TestContextBoundWorkspaceApprovalCannotBeModified(t *testing.T) {
 	stored, _ := storetest.MustGetApproval(t, st, approval.ID)
 	if stored.Arguments["request_digest"] != "frozen" {
 		t.Fatalf("context-bound approval was modified: %#v", stored)
+	}
+}
+
+// An approval locked by its creator (an external send or a schedule target) is
+// immutable even when its tool definition allows edits.
+func TestLockedApprovalArgumentsCannotBeModified(t *testing.T) {
+	root := t.TempDir()
+	cfg := testConfig(root)
+	st := store.NewMemoryStore()
+	session := storetest.MustCreateSession(t, st, "locked approval")
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
+	server := NewWithTrace(cfg, st, tools, runtime, trace.NewWriter(cfg.Storage.TraceDir))
+	ts := httptest.NewServer(server.Handler())
+	defer ts.Close()
+	run := app.AgentRun{ID: "run_locked_modify", SessionID: session.ID, State: "approval_pending", StartedAt: time.Now().UTC()}
+	testSaveRun(st, run)
+	args := map[string]any{"text": "天气", "due_time": "2026-11-01T08:00:00+08:00", "channel": "weixin"}
+	call := app.ToolCall{
+		ID: "tc_locked_modify", SessionID: session.ID, RunID: run.ID, Tool: "reminders.create",
+		Risk: app.RiskReversible, Status: app.ToolCallStatusApprovalPending, Arguments: args, StartedAt: time.Now().UTC(),
+	}
+	approval := app.Approval{
+		ID: "ap_locked_modify", SessionID: session.ID, RunID: run.ID, ToolCallID: call.ID, Tool: call.Tool,
+		Risk: app.RiskReversible, Status: app.ApprovalStatusPending, Arguments: args, ArgumentsImmutable: true, CreatedAt: time.Now().UTC(),
+	}
+	call.ApprovalID = approval.ID
+	testSaveToolCall(st, call)
+	storetest.MustSaveApproval(t, st, approval)
+
+	resp, err := http.Post(ts.URL+"/api/approvals/"+approval.ID+"/modify", "application/json", bytes.NewBufferString(`{"arguments":{"channel":"telegram"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("locked approval modify returned %d", resp.StatusCode)
+	}
+	stored, _ := storetest.MustGetApproval(t, st, approval.ID)
+	if stored.Arguments["channel"] != "weixin" {
+		t.Fatalf("locked approval was modified: %#v", stored)
 	}
 }
 

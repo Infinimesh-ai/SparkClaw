@@ -67,8 +67,8 @@ func scanPairingCode(row scanner) (app.PairingCode, error) {
 
 func scanMessage(row scanner) (app.Message, error) {
 	var message app.Message
-	var attachments, requestedMedia []byte
-	err := row.Scan(&message.ID, &message.SessionID, &message.RunID, &message.Role, &message.Content, &attachments, &requestedMedia, &message.CreatedAt)
+	var attachments, requestedMedia, clarification []byte
+	err := row.Scan(&message.ID, &message.SessionID, &message.RunID, &message.Role, &message.Content, &attachments, &requestedMedia, &message.CreatedAt, &clarification, &message.FilesUnavailable)
 	if err != nil {
 		return app.Message{}, err
 	}
@@ -80,6 +80,11 @@ func scanMessage(row scanner) (app.Message, error) {
 	if len(requestedMedia) > 0 {
 		if err := json.Unmarshal(requestedMedia, &message.RequestedMedia); err != nil {
 			return app.Message{}, fmt.Errorf("%w: requested media: %v", errMessageJSONDecode, err)
+		}
+	}
+	if len(clarification) > 0 {
+		if err := json.Unmarshal(clarification, &message.Clarification); err != nil {
+			return app.Message{}, fmt.Errorf("%w: clarification: %v", errMessageJSONDecode, err)
 		}
 	}
 	return cloneMessage(message), nil

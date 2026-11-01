@@ -68,7 +68,7 @@ func documentPDFReadRoutingExamples() []string {
 
 func documentPDFTransformRoutingVariant() workflowRoutingVariant {
 	return workflowRoutingVariant{
-		Key: "transform", Route: workflowRouteTemplate{Operation: app.RouteOperationTransform},
+		Key: "transform", ClarifyLabel: workflowClarifyLabel{ZH: "处理 PDF 页面并返回新文件", EN: "Transform PDF pages and return new files"}, Route: workflowRouteTemplate{Operation: app.RouteOperationTransform},
 		EmbedTexts: []string{
 			"把 report.pdf 第 3 页导出为新 PDF",
 			"删除 report.pdf 的第 3 页",

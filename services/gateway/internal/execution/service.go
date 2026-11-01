@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/clarification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/latencytrace"
 )
 
@@ -23,21 +24,24 @@ type staged struct {
 	files   map[string][]byte
 }
 type Service struct {
-	lock      *os.File
-	closeOnce sync.Once
-	closed    bool
-	mu        sync.Mutex
-	root      string
-	key       []byte
-	control   control
-	execute   Executor
-	approvals map[string]map[string]*approvalWait
-	active    map[string]context.CancelFunc
-	inputs    map[string]*staged
-	now       func() time.Time
-	start     sync.Once
-	lifecycle context.Context
-	wg        sync.WaitGroup
+	lock               *os.File
+	closeOnce          sync.Once
+	closed             bool
+	mu                 sync.Mutex
+	root               string
+	key                []byte
+	clarificationKey   []byte
+	clarificationDirty bool
+	control            control
+	execute            Executor
+	approvals          map[string]map[string]*approvalWait
+	active             map[string]context.CancelFunc
+	inputs             map[string]*staged
+	handles            map[string]*handleStage
+	now                func() time.Time
+	start              sync.Once
+	lifecycle          context.Context
+	wg                 sync.WaitGroup
 	// In-process admission fence; persistent issuer revocation is checked at
 	// the Gateway boundary after a restart. Existing execution fences remain.
 	revokedClients  map[string]bool
@@ -76,7 +80,7 @@ func New(root string, execute Executor) (*Service, error) {
 			lock.Close()
 		}
 	}()
-	s := &Service{root: root, lock: lock, execute: execute, control: control{Version: controlVersion, Installations: map[string]string{}, Fences: map[string]Fence{}, WorkbenchFences: map[string]workbenchFence{}}, approvals: map[string]map[string]*approvalWait{}, active: map[string]context.CancelFunc{}, inputs: map[string]*staged{}, now: func() time.Time { return time.Now().UTC() }}
+	s := &Service{root: root, lock: lock, execute: execute, control: control{Version: controlVersion, ClarificationClaims: map[string]clarificationClaim{}, Installations: map[string]string{}, Fences: map[string]Fence{}, WorkbenchFences: map[string]workbenchFence{}}, approvals: map[string]map[string]*approvalWait{}, active: map[string]context.CancelFunc{}, inputs: map[string]*staged{}, handles: map[string]*handleStage{}, now: func() time.Time { return time.Now().UTC() }}
 	keyPath := filepath.Join(root, "spool.key")
 	key, err := readPrivate(keyPath, 32)
 	if errors.Is(err, os.ErrNotExist) {
@@ -90,6 +94,19 @@ func New(root string, execute Executor) (*Service, error) {
 		return nil, errors.New("workbench spool key unavailable")
 	}
 	s.key = key
+	clarificationKeyPath := filepath.Join(root, "clarification.key")
+	clarificationKey, err := readPrivate(clarificationKeyPath, 32)
+	if errors.Is(err, os.ErrNotExist) {
+		clarificationKey = make([]byte, 32)
+		_, err = rand.Read(clarificationKey)
+		if err == nil {
+			err = atomicFile(clarificationKeyPath, clarificationKey)
+		}
+	}
+	if err != nil || len(clarificationKey) != 32 {
+		return nil, errors.New("clarification key unavailable")
+	}
+	s.clarificationKey = clarificationKey
 	s.progressEpoch = newUUID()
 	s.progress = map[string]*progressEntry{}
 	s.answers = map[string]*answerEntry{}
@@ -191,9 +208,12 @@ func (s *Service) Upload(owner, client, installation, request, file, digest stri
 	if s.closed {
 		return ErrUnavailable
 	}
+	if s.revokedClients[client] {
+		return ErrExpired
+	}
 	key := keyFor(owner, client, request)
 	if _, found := s.control.Fences[key]; found {
-		return ErrConflict
+		return s.uploadHandleLocked(key, file, digest, raw)
 	}
 	st := s.inputs[key]
 	if st == nil {
@@ -278,7 +298,7 @@ func (s *Service) Submit(ctx context.Context, e Envelope, digest string) (Status
 	if st != nil {
 		reservation = 0
 	}
-	if len(s.control.Fences)+len(s.control.WorkbenchFences) >= MaxFences || s.reservationLocked(e.OwnerID)+reservation > OwnerBytes || len(s.active) >= 8 {
+	if len(s.control.Fences)+len(s.control.WorkbenchFences)+len(s.control.ClarificationClaims) >= MaxFences || s.reservationLocked(e.OwnerID)+reservation > OwnerBytes || len(s.active) >= 8 {
 		s.mu.Unlock()
 		return Status{}, ErrCapacity
 	}
@@ -291,6 +311,7 @@ func (s *Service) Submit(ctx context.Context, e Envelope, digest string) (Status
 		return Status{}, ErrUnavailable
 	}
 	delete(s.inputs, key)
+	s.handles[key] = newHandleStage(e)
 	s.newAnswerLocked(key, f)
 	run, cancel := context.WithDeadline(ctx, f.Deadline)
 	s.active[key] = cancel
@@ -339,6 +360,14 @@ func (s *Service) run(ctx context.Context, key string, e Envelope, files map[str
 		out = Output{}
 		err = errors.New("invalid client action execution binding")
 	}
+	if record := out.Clarification; record != nil {
+		binding := clarification.Binding{OwnerID: e.OwnerID, ClientID: e.ClientID, InstallationID: e.InstallationID, ConversationID: e.ConversationID}
+		revisions := clarification.Revisions{Graph: record.GraphRevision, Catalog: record.CatalogRevision, Calibration: record.CalibrationRevision}
+		if record.RequestID != e.RequestID || record.PromptSHA256 != clarification.TextDigest(out.Content) || s.VerifyClarification(binding, *record, revisions) != nil {
+			out = Output{}
+			err = errors.New("invalid clarification execution binding")
+		}
+	}
 	if ctx.Err() != nil {
 		err = ctx.Err()
 	}
@@ -354,6 +383,7 @@ func (s *Service) finish(key string, out Output, executionErr error) {
 	defer s.mu.Unlock()
 	defer s.pruneProgressLocked()
 	delete(s.approvals, key)
+	s.dropHandleStageLocked(key)
 	if cancel := s.active[key]; cancel != nil {
 		cancel()
 		delete(s.active, key)
@@ -382,7 +412,7 @@ func (s *Service) finish(key string, out Output, executionErr error) {
 		return
 	}
 
-	payload := Payload{Content: out.Content, Files: []File{}, ClientAction: out.ClientAction}
+	payload := Payload{Content: out.Content, Files: []File{}, ClientAction: out.ClientAction, Clarification: out.Clarification}
 	content := bundle{Files: map[string][]byte{}}
 	names := make([]string, 0, len(out.Files))
 	for name := range out.Files {
@@ -463,6 +493,7 @@ func (s *Service) Lookup(owner, client, request string) (Status, error) {
 			status.State = "unknown"
 		} else {
 			status.PendingApprovals = s.pendingLocked(key)
+			status.PendingInputs = s.pendingInputsLocked(key)
 		}
 	}
 	if f.State == "completed" {
@@ -567,6 +598,7 @@ func (s *Service) Cancel(owner, client, request string) error {
 		invalidateApprovals(&f)
 		s.control.Fences[key] = f
 		delete(s.approvals, key)
+		s.dropHandleStageLocked(key)
 		if cancel := s.active[key]; cancel != nil {
 			cancel()
 		}
@@ -587,6 +619,12 @@ func (s *Service) Sweep() error {
 			f.State = "delivery_expired"
 			f.Revision++
 			s.control.Fences[key] = f
+		}
+	}
+	for key := range s.handles {
+		f := s.control.Fences[key]
+		if !f.Deadline.After(now) || (f.State != "accepted" && f.State != "running") {
+			s.dropHandleStageLocked(key)
 		}
 	}
 	for key, st := range s.inputs {
@@ -659,6 +697,10 @@ func (s *Service) Close() {
 			_ = s.saveLocked()
 		}
 		s.approvals = map[string]map[string]*approvalWait{}
+		s.inputs = map[string]*staged{}
+		for key := range s.handles {
+			s.dropHandleStageLocked(key)
+		}
 		for _, cancel := range s.active {
 			cancel()
 		}
@@ -671,7 +713,7 @@ func (s *Service) Close() {
 }
 
 func (s *Service) validateControl() error {
-	if s.control.Version != 2 && s.control.Version != controlVersion {
+	if s.control.Version != 2 && s.control.Version != 3 && s.control.Version != controlVersion {
 		return errors.New("invalid execution control version")
 	}
 	if s.control.Fences == nil || s.control.Installations == nil || s.control.WorkbenchFences == nil || len(s.control.Fences)+len(s.control.WorkbenchFences) > MaxFences {
@@ -703,6 +745,12 @@ func (s *Service) validateControl() error {
 			return errors.New("invalid workbench fence state")
 		}
 		s.control.Fences[key] = f
+	}
+	if s.control.Version < 4 && s.control.ClarificationClaims == nil {
+		s.control.ClarificationClaims = map[string]clarificationClaim{}
+	}
+	if err := s.validateClarificationClaims(); err != nil {
+		return err
 	}
 	if err := s.validateWorkbenchFences(); err != nil {
 		return err

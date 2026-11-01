@@ -148,3 +148,15 @@ func TestPolicyUpdatesReachExistingExecutionScopes(t *testing.T) {
 		t.Fatalf("scope missed current approval policy: %+v", decision)
 	}
 }
+
+func TestScheduledDeliveryToAnotherConversationRequiresApproval(t *testing.T) {
+	engine := New(config.Default())
+	def := app.ToolDefinition{Name: "reminders.create", Risk: app.RiskReversible}
+	if decision := engine.Decide(def, map[string]any{}, app.PolicyExecutionContext{}); decision.RequiresApproval {
+		t.Fatalf("same-conversation schedule required approval: %#v", decision)
+	}
+	decision := engine.Decide(def, map[string]any{"channel": "weixin"}, app.PolicyExecutionContext{DeliveryClass: app.PolicyDeliveryExternalEndpoint})
+	if !decision.Allowed || !decision.RequiresApproval {
+		t.Fatalf("schedule to another conversation did not require approval: %#v", decision)
+	}
+}

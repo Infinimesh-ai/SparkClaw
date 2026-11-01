@@ -49,7 +49,7 @@ func (browserAutomationProfile) Revision() int                { return browserWo
 func (browserAutomationProfile) Capability() app.CapabilityID { return app.CapabilityBrowserAutomation }
 func (browserAutomationProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
-		Key: "open", Route: workflowRouteTemplate{Operation: app.RouteOperationOpen},
+		Key: "open", ClarifyLabel: workflowClarifyLabel{ZH: "打开并展示网页", EN: "Open and show a web page"}, Route: workflowRouteTemplate{Operation: app.RouteOperationOpen},
 		EmbedTexts: []string{
 			"打开 https://example.com", "访问苹果官网", "Open this URL in the browser", "切换到已打开的项目页面",
 		},
@@ -101,7 +101,7 @@ func (browserInteractionProfile) Capability() app.CapabilityID {
 }
 func (browserInteractionProfile) RoutingSemantics() workflowRoutingSemantics {
 	return workflowRoutingSemantics{Variants: []workflowRoutingVariant{{
-		Key: "interact", Route: workflowRouteTemplate{Operation: app.RouteOperationInteract},
+		Key: "interact", ClarifyLabel: workflowClarifyLabel{ZH: "在网页中执行指定点击", EN: "Perform the requested click on the page"}, Route: workflowRouteTemplate{Operation: app.RouteOperationInteract},
 		EmbedTexts: []string{
 			"点击当前页面的下一步", "打开苹果官网并点击 Mac", "打开QQ邮箱的草稿箱", "Click the Learn more button on https://example.com", "在这个标签页点开详情",
 		},

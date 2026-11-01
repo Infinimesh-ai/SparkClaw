@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserhost"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/clarification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -37,7 +39,7 @@ func (s *Server) executeWorkbenchWorkflow(ctx context.Context, e execution.Envel
 	textOnly, _ := ctx.Value(textOnlyExecutionContextKey{}).(bool)
 	var root string
 	if textOnly {
-		if len(e.InputFiles) != 0 || len(inputs) != 0 {
+		if len(e.InputFiles) != 0 || len(inputs) != 0 || envelopeHasHandles(e) {
 			return execution.Output{}, errors.New("text-only execution does not accept files")
 		}
 		// This workspace holds empty directories only. Tool exposure and explicit
@@ -68,6 +70,7 @@ func (s *Server) executeWorkbenchWorkflow(ctx context.Context, e execution.Envel
 			return execution.Output{}, err
 		}
 	}
+	workspaceBudget := newExecutionWorkspaceBudget(workspace, budget)
 	local := store.NewMemoryStore().WithTransientContentAdmission(budget.Admit)
 	var browser browserautomation.Adapter
 	if !textOnly {
@@ -78,13 +81,40 @@ func (s *Server) executeWorkbenchWorkflow(ctx context.Context, e execution.Envel
 		browser = broker.ForScope(browserhost.Scope{Identity: browserhost.Identity{OwnerID: e.OwnerID, ClientID: e.ClientID, InstallationID: e.InstallationID}, ConversationID: e.ConversationID, TaskID: e.TaskID})
 	}
 	artifacts := execution.TemporaryArtifacts{Store: artifact.NewStore(storage), Budget: budget}
-	runtime, releaseRuntime, err := s.runtime.WithExecutionScope(local, executionResourcesForContext(ctx, toolhub.ExecutionResources{
+	materializer := newConversationFileMaterializer(workspace, service, e, budget)
+	resources := toolhub.ExecutionResources{
 		OwnerID: e.OwnerID, WorkspaceRoot: workspace, Artifacts: artifacts, Browser: browser,
 		MaxDuration: execution.ExecutionBudget, MaxObservationBytes: 1 << 20, TextOnly: textOnly,
-	}))
+		ReserveWorkspaceBytes: workspaceBudget.reserve, ReleaseWorkspaceBytes: workspaceBudget.release,
+	}
+	if !textOnly {
+		resources.MaterializeConversationFile = materializer.read
+	}
+	runtime, releaseRuntime, err := s.runtime.WithExecutionScope(local, executionResourcesForContext(ctx, resources))
 	if err != nil {
 		return execution.Output{}, err
 	}
+	var clarificationHistory []clarification.Record
+	if len(e.Messages) > 1 {
+		message := e.Messages[len(e.Messages)-2]
+		if message.Role == "assistant" && message.Clarification != nil {
+			clarificationHistory = append(clarificationHistory, *message.Clarification)
+		}
+	}
+	snapshot, err := executionClarificationSnapshot(e)
+	if err != nil {
+		_ = releaseRuntime(ctx)
+		return execution.Output{}, err
+	}
+	source := string(app.MessageSourceWeb)
+	contextDigest, err := clarification.ContextDigest(snapshot, source)
+	if err != nil {
+		_ = releaseRuntime(ctx)
+		return execution.Output{}, err
+	}
+	runtime = runtime.WithClarificationScope(service, clarification.Binding{OwnerID: e.OwnerID, ClientID: e.ClientID, InstallationID: e.InstallationID, ConversationID: e.ConversationID}, e.RequestID, clarificationHistory).
+		WithClarificationContext(e.Messages[len(e.Messages)-1].ID, contextDigest).
+		WithClarificationSnapshot(snapshot, source)
 	defer func() {
 		if err := releaseRuntime(ctx); err != nil {
 			answer = execution.Output{}
@@ -96,11 +126,30 @@ func (s *Server) executeWorkbenchWorkflow(ctx context.Context, e execution.Envel
 		return execution.Output{}, err
 	}
 	for _, m := range e.Messages[:len(e.Messages)-1] {
-		if _, err = local.AddMessage(ctx, app.Message{ID: app.NewID("m"), SessionID: session.ID, Role: m.Role, Content: m.Content, CreatedAt: time.Now().UTC()}); err != nil {
+		historyAttachments := make([]app.MessageAttachment, 0, len(m.Files))
+		for _, file := range m.Files {
+			path := filepath.Join(workspace, "conversation-files", file.ID, file.Name)
+			if _, ok := materializer.byPath[path]; !ok {
+				continue
+			}
+			source := "conversation_attachment"
+			if m.Role == "assistant" {
+				source = "conversation_result"
+			}
+			historyAttachments = append(historyAttachments, app.MessageAttachment{ArtifactID: file.ID, Name: file.Name, RelPath: filepath.ToSlash(filepath.Join("conversation-files", file.ID, file.Name)), Bytes: file.Size, SHA256: file.SHA256, Source: source})
+		}
+		if _, err = local.AddMessage(ctx, app.Message{ID: m.ID, SessionID: session.ID, Role: m.Role, Content: m.Content, Attachments: historyAttachments, FilesUnavailable: m.FilesUnavailable, Clarification: m.Clarification, CreatedAt: time.Now().UTC()}); err != nil {
 			return execution.Output{}, err
 		}
 	}
 	attachments := []app.MessageAttachment{}
+	current := e.Messages[len(e.Messages)-1]
+	for _, file := range current.Files {
+		path := filepath.Join(workspace, "conversation-files", file.ID, file.Name)
+		if _, ok := materializer.byPath[path]; ok {
+			attachments = append(attachments, app.MessageAttachment{ArtifactID: file.ID, Name: file.Name, RelPath: filepath.ToSlash(filepath.Join("conversation-files", file.ID, file.Name)), Bytes: file.Size, SHA256: file.SHA256, Source: "conversation_attachment"})
+		}
+	}
 	inputNames := map[string]bool{}
 	for _, manifest := range e.InputFiles {
 		// The user-visible name is also the temporary locator. Admission
@@ -113,10 +162,12 @@ func (s *Server) executeWorkbenchWorkflow(ctx context.Context, e execution.Envel
 			return execution.Output{}, err
 		}
 		inputNames[name] = true
-		attachments = append(attachments, app.MessageAttachment{Name: manifest.Name, RelPath: name, Bytes: manifest.Size, SHA256: manifest.SHA256, Source: "client_supplied"})
+		attachments = append(attachments, app.MessageAttachment{ArtifactID: manifest.ID, Name: manifest.Name, RelPath: name, Bytes: manifest.Size, SHA256: manifest.SHA256, Source: "client_supplied"})
 	}
 	// A client-provided assistant message is ordinary conversation input. No
 	// previous run, approval, tool receipt or trusted ingress is imported.
+	ctx = agent.WithSourceMessageID(ctx, current.ID)
+	ctx = agent.WithSourceMessageFilesUnavailable(ctx, current.FilesUnavailable)
 	ctx = agent.WithFinalAnswerFormat(ctx, agent.FinalAnswerMarkdown)
 	if e.ClientPresentation != nil {
 		ctx = agent.WithClientPresentation(ctx, e.RequestID, e.ConversationID, *e.ClientPresentation)
@@ -142,7 +193,7 @@ func (s *Server) executeWorkbenchWorkflow(ctx context.Context, e execution.Envel
 	if err != nil {
 		return execution.Output{}, err
 	}
-	out := execution.Output{Content: result.Message.Content, ClientAction: result.ClientAction, Files: map[string][]byte{}}
+	out := execution.Output{Content: result.Message.Content, ClientAction: result.ClientAction, Clarification: result.Clarification, Files: map[string][]byte{}}
 	size := len(out.Content)
 	entries := 0
 	err = filepath.WalkDir(workspace, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -153,6 +204,9 @@ func (s *Server) executeWorkbenchWorkflow(ctx context.Context, e execution.Envel
 			return err
 		}
 		if entry.IsDir() {
+			if !textOnly && path == filepath.Join(workspace, "conversation-files") {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		entries++
@@ -174,9 +228,22 @@ func (s *Server) executeWorkbenchWorkflow(ctx context.Context, e execution.Envel
 		if _, exists := out.Files[name]; exists {
 			return execution.ErrConflict
 		}
-		raw, err := os.ReadFile(path)
+		if err = workspaceBudget.reserve(path, int(stat.Size())); err != nil {
+			return err
+		}
+		input, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 		if err != nil {
 			return err
+		}
+		opened, err := input.Stat()
+		if err != nil || !opened.Mode().IsRegular() || opened.Size() != stat.Size() {
+			_ = input.Close()
+			return execution.ErrUnavailable
+		}
+		raw, readErr := io.ReadAll(io.LimitReader(input, stat.Size()+1))
+		closeErr := input.Close()
+		if readErr != nil || closeErr != nil || len(raw) != int(stat.Size()) {
+			return execution.ErrUnavailable
 		}
 		size += len(raw)
 		out.Files[name] = raw
@@ -317,4 +384,13 @@ func (s *Server) continueExecutionApprovals(ctx context.Context, service *execut
 		}
 	}
 	return result, nil
+}
+
+func envelopeHasHandles(e execution.Envelope) bool {
+	for _, message := range e.Messages {
+		if len(message.Files) > 0 {
+			return true
+		}
+	}
+	return false
 }

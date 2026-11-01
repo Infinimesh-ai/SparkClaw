@@ -93,7 +93,9 @@ func TestFrozenSourceEndpointAllowsReturnNowhereWithoutSyntheticEndpoint(t *test
 	}
 }
 
-func TestTypedRouterFreezesEndpointWithoutDestinationApproval(t *testing.T) {
+// The text-requested send resolves through the real endpoint registry, waits
+// for owner approval, and only then becomes deliverable to that endpoint.
+func TestTypedRouterFreezesEndpointAndWaitsForSendApproval(t *testing.T) {
 	cfg := integrationTestConfig(t)
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
@@ -104,21 +106,60 @@ func TestTypedRouterFreezesEndpointWithoutDestinationApproval(t *testing.T) {
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil).
 		WithMessageControlRouter(endpointMessageControlRouter{endpoints: endpoints})
 
-	result, err := runtime.HandleMessage(context.Background(), session.ID, `Send a greeting to Chen via Weixin
+	result, err := runtime.HandleMessage(context.Background(), session.ID, `Explain opportunity cost and send it to Chen via Weixin
 MOCK_CONVERSATION_RESPONSE:Greeting ready.`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Run.State != "completed" || result.Run.MessageContext == nil ||
+	if result.Run.State != "approval_pending" || result.Run.MessageContext == nil ||
 		result.Run.MessageContext.ReturnRoute.Mode != app.ReturnToEndpoint || result.Run.MessageContext.ReturnRoute.EndpointID != "chat-c" ||
 		result.RouteDecision == nil || result.RouteDecision.Status != app.RouteMatched || len(result.RouteDecision.CapabilityPath) != 2 ||
-		result.RouteDecision.CapabilityPath[1] != app.CapabilityConversationAnswer || len(result.Approvals) != 0 || len(result.ToolCalls) != 0 ||
-		result.WorkflowResult == nil || result.WorkflowResult.Status != app.WorkflowResultSucceeded ||
-		result.WorkflowResult.ReturnRoute.Mode != app.ReturnToEndpoint || result.WorkflowResult.ReturnRoute.EndpointID != "chat-c" {
-		t.Fatalf("conversation send did not preserve the exact authorized endpoint: %#v", result)
+		result.RouteDecision.CapabilityPath[1] != app.CapabilityConversationAnswer || len(result.Approvals) != 1 ||
+		result.Approvals[0].Arguments["endpoint_id"] != "chat-c" || result.WorkflowResult == nil ||
+		result.WorkflowResult.Status != app.WorkflowResultWaiting || result.WorkflowResult.ReturnRoute.Mode == app.ReturnToEndpoint {
+		t.Fatalf("conversation send did not wait for approval of the exact endpoint: %#v", result)
 	}
-	if _, deliverable, err := delivery.RequestFromWorkflowResult(context.Background(), *result.WorkflowResult, messagecontrol.NewReturnRouteResolver(endpoints)); err != nil || !deliverable {
-		t.Fatalf("authorized conversation result was not deliverable: deliverable=%v err=%v", deliverable, err)
+	if _, deliverable, err := delivery.RequestFromWorkflowResult(context.Background(), *result.WorkflowResult, messagecontrol.NewReturnRouteResolver(endpoints)); err != nil || deliverable {
+		t.Fatalf("unapproved conversation send was deliverable: deliverable=%v err=%v", deliverable, err)
+	}
+	resolved, err := st.ResolveApproval(context.Background(), result.Approvals[0].ID, app.ApprovalStatusApproved, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ExecuteApprovedToolCall(context.Background(), resolved); err != nil {
+		t.Fatal(err)
+	}
+	after, resumed, err := runtime.ResumeRunAfterApproval(context.Background(), session.ID, result.Run.ID)
+	if err != nil || !resumed || after.Run.State != "completed" || after.WorkflowResult == nil ||
+		after.WorkflowResult.Status != app.WorkflowResultSucceeded || after.WorkflowResult.ReturnRoute.EndpointID != "chat-c" {
+		t.Fatalf("approved conversation send did not complete: resumed=%v result=%#v err=%v", resumed, after, err)
+	}
+	if _, deliverable, err := delivery.RequestFromWorkflowResult(context.Background(), *after.WorkflowResult, messagecontrol.NewReturnRouteResolver(endpoints)); err != nil || !deliverable {
+		t.Fatalf("approved conversation result was not deliverable: deliverable=%v err=%v", deliverable, err)
+	}
+}
+
+// A Chinese channel name resolves through the real registry and still waits
+// for the send approval.
+func TestChineseChannelAliasResolvesAndWaitsForSendApproval(t *testing.T) {
+	cfg := integrationTestConfig(t)
+	st := store.NewMemoryStore()
+	tools := toolhub.New(cfg, st)
+	defer tools.Close()
+	session := storetest.MustCreateSessionWithScope(t, st, "Web", "owner-a", t.TempDir(), "webchat", false)
+	saveMessageControlEndpoint(t, st, "bind-c", "chat-c", "owner-a", "owner-a", "weixin", "Chen", "user-3", "chat-3")
+	endpoints := messagecontrol.NewEndpointRegistry(st).WithChannelEnabled(func(string, string) bool { return true })
+	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil).
+		WithMessageControlRouter(endpointMessageControlRouter{endpoints: endpoints})
+
+	result, err := runtime.HandleMessage(context.Background(), session.ID, `解释机会成本，通过微信发给Chen
+MOCK_CONVERSATION_RESPONSE:Greeting ready.`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Run.State != "approval_pending" || len(result.Approvals) != 1 || result.Approvals[0].Arguments["endpoint_id"] != "chat-c" ||
+		result.Approvals[0].Arguments["requested_provider"] != "微信" || result.WorkflowResult == nil || result.WorkflowResult.ReturnRoute.Mode == app.ReturnToEndpoint {
+		t.Fatalf("Chinese channel name did not reach the send approval for the Weixin endpoint: %#v", result)
 	}
 }
 

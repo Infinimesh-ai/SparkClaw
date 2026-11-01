@@ -16,7 +16,7 @@ func TestWorkbenchISCPLocalSchedulePresentationAndReceipt(t *testing.T) {
 	server, repository, _, handler := workbenchISCPFixture(t, nil)
 	bindWorkbenchISCP(t, handler)
 	e := workbenchISCPEnvelope()
-	e.Messages = []execution.Message{{Role: "user", Content: "显示明天的日程"}}
+	e.Messages = []execution.Message{{ID: "fixture-message-19-1", Role: "user", Content: "显示明天的日程"}}
 	e.ClientPresentation = &app.ClientPresentation{SchemaVersion: 1, ScheduleShow: true, Timezone: "Asia/Shanghai", RequestedAt: time.Date(2026, 10, 29, 18, 0, 0, 0, time.UTC)}
 	raw, _ := json.Marshal(e)
 	submit := handler(t.Context(), workbenchISCPRequest(iscpworkbench.OperationSubmit, raw))

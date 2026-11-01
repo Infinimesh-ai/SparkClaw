@@ -49,6 +49,7 @@ type nativeStreamRun struct {
 	FinalBytes  int                 `json:"final_bytes,omitempty"`
 	FinalDigest string              `json:"final_digest,omitempty"`
 	Failed      bool                `json:"failed,omitempty"`
+	Failure     string              `json:"failure,omitempty"`
 }
 
 // Opt-in disposable fixture. Controlled mode substitutes the producer; real
@@ -247,8 +248,8 @@ func TestExecutionStreamNativeQualificationFixture(t *testing.T) {
 	cfg.Gateway.PairingRequired = true
 	cfg.Gateway.WorkbenchISCPLocalTest = true
 	cfg.Gateway.DeploymentID = binding.DeploymentID
-	realModel := os.Getenv("SPARKCLAW_STREAM_FIXTURE_MODE") == "real-model" || os.Getenv("SPARKCLAW_STREAM_FIXTURE_MODE") == "schedule-real-model"
-	productionAgent := realModel || scheduleEvidence != nil
+	realModel := os.Getenv("SPARKCLAW_STREAM_FIXTURE_MODE") == "real-model" || os.Getenv("SPARKCLAW_STREAM_FIXTURE_MODE") == "schedule-real-model" || os.Getenv("SPARKCLAW_STREAM_FIXTURE_MODE") == "conversation-real-model"
+	productionAgent := realModel || scheduleEvidence != nil || os.Getenv("SPARKCLAW_STREAM_FIXTURE_MODE") == "conversation"
 	if realModel {
 		modelConfig, loadErr := config.Load(os.Getenv("SPARKCLAW_STREAM_FIXTURE_MODEL_CONFIG"))
 		if loadErr != nil || modelConfig.Model.Mock {
@@ -311,6 +312,9 @@ func TestExecutionStreamNativeQualificationFixture(t *testing.T) {
 			output, err := server.executeWorkbenchWorkflow(ctx, e, inputs)
 			mu.Lock()
 			run.CompletedMS, run.FinalBytes, run.FinalDigest, run.Failed = nowMS(), len(output.Content), execution.Digest([]byte(output.Content)), err != nil
+			if err != nil {
+				run.Failure = err.Error()
+			}
 			mu.Unlock()
 			return output, err
 		}

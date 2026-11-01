@@ -67,7 +67,7 @@ func TestExecutionRealWorkflowUsesOnlyClientContextAndNoLegacyPersistence(t *tes
 	if code, _ := do("POST", "/api/v1/installations", wrong, token); code != 409 {
 		t.Fatal("rebind", code)
 	}
-	e := execution.Envelope{SchemaVersion: 1, DeploymentID: cfg.Gateway.DeploymentID, OwnerID: "owner-a", ClientID: "execution-client", InstallationID: install, ConversationID: "22222222-2222-4222-8222-222222222222", TaskID: "33333333-3333-4333-8333-333333333333", RequestID: "44444444-4444-4444-8444-444444444444", Messages: []execution.Message{{Role: "assistant", Content: "synthetic local history"}, {Role: "user", Content: "hello synthetic workbench private context"}}}
+	e := execution.Envelope{SchemaVersion: 2, DeploymentID: cfg.Gateway.DeploymentID, OwnerID: "owner-a", ClientID: "execution-client", InstallationID: install, ConversationID: "22222222-2222-4222-8222-222222222222", TaskID: "33333333-3333-4333-8333-333333333333", RequestID: "44444444-4444-4444-8444-444444444444", Messages: []execution.Message{{ID: "fixture-message-70-1", Role: "assistant", Content: "synthetic local history"}, {ID: "fixture-message-70-2", Role: "user", Content: "hello synthetic workbench private context"}}}
 	raw, _ := json.Marshal(e)
 	if code, output := do("POST", "/api/v1/executions", raw, token); code != 202 {
 		t.Fatalf("submit %d %s", code, output)

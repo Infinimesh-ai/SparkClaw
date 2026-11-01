@@ -254,7 +254,7 @@ func TestWorkbenchISCPV2ChunkedOriginalExecutionAndLargeResult(t *testing.T) {
 	requireV2Status(t, f.call(t, stage), 200)
 	envelope := workbenchISCPEnvelope()
 	envelope.Messages[0].Content = strings.Repeat("original context whitespace ", 2000)
-	envelope.Messages = append([]execution.Message{{Role: "user", Content: strings.Repeat("earlier context ", 2000)}}, envelope.Messages...)
+	envelope.Messages = append([]execution.Message{{ID: "fixture-message-257-1", Role: "user", Content: strings.Repeat("earlier context ", 2000)}}, envelope.Messages...)
 	envelope.InputFiles = []execution.File{{ID: "99999999-9999-4999-8999-999999999999", Name: "input.bin", Size: len(input), SHA256: inputRef.SHA256}}
 	original, _ := json.MarshalIndent(envelope, "", "  ")
 	if len(original) <= wb.MaxBodyBytes {
@@ -422,5 +422,66 @@ func TestWorkbenchISCPV2ApprovalDecisionAndRestartTermination(t *testing.T) {
 				t.Fatal("decision receipt repeated work")
 			}
 		})
+	}
+}
+
+func TestWorkbenchISCPV2PostAdmissionConversationHandle(t *testing.T) {
+	content := []byte("synthetic historical content")
+	file := execution.File{ID: "99999999-9999-4999-8999-999999999999", Name: "history.md", Size: len(content), SHA256: execution.Digest(content)}
+	var f *v2EncryptedFixture
+	var calls atomic.Int32
+	f = newV2EncryptedFixture(t, func(ctx context.Context, e execution.Envelope, _ map[string][]byte) (execution.Output, error) {
+		calls.Add(1)
+		raw, err := f.server.executions.AwaitHandle(ctx, e, file.ID)
+		if err != nil {
+			return execution.Output{}, err
+		}
+		if !bytes.Equal(raw, content) {
+			return execution.Output{}, fmt.Errorf("wrong historical bytes")
+		}
+		return execution.Output{Content: "received"}, nil
+	})
+	f.bind(t)
+	envelope := workbenchISCPEnvelope()
+	envelope.Messages[0].Files = []execution.File{file}
+	raw, _ := json.Marshal(envelope)
+	requireV2Status(t, f.call(t, v2Request(wb.OperationSubmit, raw)), 202)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		response := f.call(t, v2Request(wb.OperationLookup, nil))
+		requireV2Status(t, response, 200)
+		var status execution.Status
+		if err := json.Unmarshal(response.Body, &status); err != nil {
+			t.Fatal(err)
+		}
+		if len(status.PendingInputs) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pending handle absent: %+v", status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	ref := f.upload(t, "execution_input", file.Name, "text/markdown", content)
+	put := v2Request(wb.OperationExecutionInputPut, nil)
+	put.Object = &ref
+	put.InputDigest = ref.SHA256
+	put.Params = map[string]string{"request_id": envelope.RequestID, "file_id": file.ID}
+	requireV2Status(t, f.call(t, put), 200)
+	if err := f.server.WaitForBackgroundWork(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+	response := f.call(t, v2Request(wb.OperationLookup, nil))
+	requireV2Status(t, response, 200)
+	var status execution.Status
+	if err := json.Unmarshal(response.Body, &status); err != nil || status.State != "completed" || calls.Load() != 1 {
+		t.Fatalf("status=%+v calls=%d err=%v", status, calls.Load(), err)
+	}
+	f.network.mu.Lock()
+	defer f.network.mu.Unlock()
+	for _, wire := range f.network.envelopes {
+		if bytes.Contains(wire, content) {
+			t.Fatal("relay saw historical plaintext")
+		}
 	}
 }

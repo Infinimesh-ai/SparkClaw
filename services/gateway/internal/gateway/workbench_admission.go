@@ -12,22 +12,29 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/clarification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 type admittedWorkbenchKey struct{}
+type workbenchClarificationRuntimeKey struct{}
 type workbenchAdmission struct {
 	lease         *execution.WorkbenchLease
 	binding       execution.WorkbenchBinding
 	closeOnce     sync.Once
 	release       func()
 	snapshot      agent.WorkbenchContext
+	runtime       *agent.Runtime
 	continuations []*workbenchAdmission
 }
 
 func (a *workbenchAdmission) context() context.Context {
-	return agent.WithWorkbenchContext(context.WithValue(a.lease.Context, admittedWorkbenchKey{}, a.lease), a.snapshot)
+	ctx := agent.WithWorkbenchContext(context.WithValue(a.lease.Context, admittedWorkbenchKey{}, a.lease), a.snapshot)
+	if a.runtime != nil {
+		ctx = context.WithValue(ctx, workbenchClarificationRuntimeKey{}, *a.runtime)
+	}
+	return ctx
 }
 func (a *workbenchAdmission) close() {
 	a.closeOnce.Do(func() {
@@ -144,6 +151,27 @@ func (s *Server) admitWorkbenchMessage(r *http.Request, session app.Session, inp
 		}
 		return nil, nil, err
 	}
+	priorMessages := snapshot.ClarificationMessages()
+	var clarificationHistory []clarification.Record
+	if len(priorMessages) > 0 {
+		previous := priorMessages[len(priorMessages)-1]
+		if previous.Role == "assistant" && previous.Clarification != nil {
+			clarificationHistory = append(clarificationHistory, *previous.Clarification)
+		}
+	}
+	clarificationMessages := agent.ClarificationSnapshot(append(priorMessages, message))
+	source := string(ingress.Source.Kind)
+	if source == "" {
+		source = string(app.MessageSourceWeb)
+	}
+	digest, err := clarification.ContextDigest(clarificationMessages, source)
+	if err != nil {
+		admission.close()
+		return nil, nil, err
+	}
+	boundRuntime := s.runtime.WithClarificationScope(service.WorkbenchClarifications(binding), execution.ClarificationBindingForWorkbench(binding), binding.RequestID, clarificationHistory).
+		WithClarificationContext(message.ID, digest).WithClarificationSnapshot(nil, source)
+	admission.runtime = &boundRuntime
 	if input.DraftRevision != nil {
 		cleared, err := s.store.SaveWorkbenchDraft(lease.Context, binding.OwnerID, binding.SessionID, app.WorkbenchDraft{Revision: *input.DraftRevision})
 		if err == nil {
@@ -382,4 +410,13 @@ func (s *Server) workbenchBrowserContinuation(ctx context.Context, scope executi
 	}
 	parent.continuations = append(parent.continuations, admission)
 	return admission.lease.Context, nil
+}
+
+// The signed selection scope follows this admission through streaming and
+// ordinary JSON entry points; the shared runtime remains immutable.
+func (s *Server) workbenchRuntime(ctx context.Context) agent.Runtime {
+	if runtime, ok := ctx.Value(workbenchClarificationRuntimeKey{}).(agent.Runtime); ok {
+		return runtime
+	}
+	return s.runtime
 }

@@ -83,12 +83,12 @@ export class ClientStoreCapability {
         keys(request, ["conversation_id", "draft_conversation_id", "revision", "expected_scope"]);
         verifyDraftScope();
         {
-          const queued = this.store.enqueueDraft(scope, request.conversation_id, request.draft_conversation_id, request.revision);
+          const queued = this.store.enqueueDraft(scope, request.conversation_id, request.draft_conversation_id, request.revision, capabilities?.files === true);
           return { ...queued, draft: draftResult(queued.draft) };
         }
       case "enqueue":
         keys(request, ["conversation_id", "content", ...(Object.hasOwn(request, "local_file_ids") ? ["local_file_ids"] : [])]);
-        return this.store.enqueue(scope, request.conversation_id, request.content, request.local_file_ids);
+        return this.store.enqueue(scope, request.conversation_id, request.content, request.local_file_ids, undefined, undefined, undefined, capabilities?.files === true);
       case "submit":
       case "reconcile":
       case "cancel":

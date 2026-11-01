@@ -163,7 +163,7 @@ export class ISCPTransport {
   async fetch(raw, init = {}) {
     if (this.state !== "transport_ready") throw new ISCPRequestNotSentError("ISCP transport is unavailable", "unavailable");
     // An empty body (for example a bodyless DELETE from the renderer) is no body.
-    if (init.body !== undefined && init.body !== null && (init.body === "" || init.body.byteLength === 0)) init = { ...init, body: undefined };
+    if (init.body !== undefined && init.body !== null && (init.body === "" || init.body.byteLength === 0 && !(init.body instanceof Uint8Array && (init.method || "GET").toUpperCase() === "PUT"))) init = { ...init, body: undefined };
     if (!this.capabilities) {
       let request;
       try { request = mapISCPRequest(raw, init, this.origin); }
@@ -179,7 +179,7 @@ export class ISCPTransport {
       if(mapped.operation!=='execution.input.put'||!this.objects)throw new ISCPRequestNotSentError("Binary input is unavailable");
       const headers=new Headers(init.headers);
       const object=await this.objects.upload(init.body,{purpose:'execution_input',name:mapped.params.file_id,media_type:'application/octet-stream'},init.signal);
-      return this.#request({...mapped,type:'task.invoke',profile:ISCP_V2_PROFILE,body_object:object,request_id:mapped.params.request_id,installation_id:headers.get('x-sparkclaw-installation'),input_digest:headers.get('x-sparkclaw-digest')},init);
+      return this.#request({...mapped,type:'task.invoke',profile:ISCP_V2_PROFILE,body_object:object,request_id:mapped.params.request_id,installation_id:headers.get('x-sparkclaw-installation'),input_digest:headers.get('x-sparkclaw-digest'),...(init.operationID?{operation_id:init.operationID}:{})},init);
     }
     if(init.body !== undefined && init.body !== null) {
       try {body=JSON.parse(typeof init.body === "string" ? init.body : new TextDecoder("utf-8",{fatal:true}).decode(init.body));}

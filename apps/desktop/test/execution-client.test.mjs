@@ -41,6 +41,30 @@ function result(content = "answer", files = []) {
   return { sequence: 1, digest: hash(payload), payload };
 }
 
+test("old unsent envelopes retain their original bytes and unknown requests use lookup only", async t => {
+  const calls = [];
+  const f = fixture(t, async (url, init = {}) => {
+    calls.push(init.method ?? 'GET');
+    return new Response(JSON.stringify(event(f, 'unknown')));
+  });
+  const legacy = JSON.parse(f.store.request(scope, f.task.request_id).context_json);
+  delete legacy.messages[0].id;
+  const snapshot = JSON.stringify(legacy), digest = hash(snapshot);
+  f.store.db.prepare('UPDATE tasks SET context_json=?,input_digest=? WHERE request_id=?').run(snapshot, digest, f.task.request_id);
+  await assert.rejects(f.client.submit(scope, f.task.request_id), /older context format/);
+  assert.equal(calls.length, 0);
+  let row = f.store.request(scope, f.task.request_id);
+  assert.equal(row.explicitly_submitted, 0);
+  assert.equal(row.context_json, snapshot);
+  assert.equal(row.input_digest, digest);
+  f.store.markSubmitted(scope, f.task.request_id);
+  f.store.setExecutionState(scope, f.task.request_id, 'unknown');
+  f.restart();
+  await f.client.submit(scope, f.task.request_id);
+  assert.deepEqual(calls, ['GET']);
+  assert.equal(f.store.request(scope, f.task.request_id).context_json, snapshot);
+});
+
 test("independent pending executions reconcile together without replaying submissions", async t => {
   let release;
   const blocked = new Promise(resolve => { release = resolve; });
@@ -497,3 +521,20 @@ for (const boundary of ["expiry", "revision", "session", "revocation", "disconne
     assert.equal(f.store.receipt(scope, f.task.request_id), null); assert.equal(f.store.read(scope, f.conversation.id).messages.length, 1); assert.equal(acks, 0);
   });
 }
+
+test('pending conversation handles upload only declared verified files and retain unknown outcomes across restart', async t => {
+  let task, file, calls = 0, wrong = false;
+  const f = fixture(t, async (url, init = {}) => {
+    if (url.includes('/inputs/')) { calls++; assert.equal(init.operationID.length, 36); throw new Error('lost upload response'); }
+    return new Response(JSON.stringify({ schema_version: 1, request_id: task.request_id,
+      input_digest: f.store.request(scope, task.request_id).input_digest, state: 'running',
+      pending_inputs: [{ file_id: wrong ? crypto.randomUUID() : file.id, size: file.size, sha256: file.sha256 }] }));
+  });
+  file = f.store.saveFile(scope, f.conversation.id, 'history.txt', Buffer.from('original content'));
+  f.store.enqueue(scope, f.conversation.id, 'read this', [file.id]);
+  task = f.store.enqueue(scope, f.conversation.id, 'continue', [], undefined, undefined, undefined, true);
+  f.store.markSubmitted(scope, task.request_id);
+  wrong = true; await f.client.reconcile(scope, task.request_id); assert.equal(calls, 0);
+  wrong = false; await f.client.reconcile(scope, task.request_id); assert.equal(calls, 1);
+  f.restart(); await f.client.reconcile(scope, task.request_id); assert.equal(calls, 1, 'unknown outcome was resent after restart');
+});

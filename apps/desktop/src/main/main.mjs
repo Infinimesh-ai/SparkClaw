@@ -308,7 +308,7 @@ async function start() {
     localStoreCapability = new ClientStoreCapability({
       ipcMain, window, store: localStore, execution: executionClient, schedules: scheduleClient,
       getIdentity: localIdentity,
-      getCapabilities: () => desktopAuth.status.capabilities,
+      getCapabilities: () => desktopAuth.descriptor?.transport === "iscp" ? desktopAuth.status.capabilities : { ...desktopAuth.status.capabilities, files: desktopAuth.status.state === "connected" },
       exportFile: (file) => exportLocalFile(file, { dialog, window }),
     }).start();
   }

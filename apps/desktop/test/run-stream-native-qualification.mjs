@@ -10,11 +10,12 @@ const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const samples = Number(process.argv[2] || "1");
 const mode = (process.argv[3] || "--controlled").slice(2);
 const scheduleMode = mode === "schedule" || mode === "schedule-real-model";
-const realModel = mode === "real-model" || mode === "schedule-real-model";
+const conversationMode = mode === "conversation" || mode === "conversation-real-model";
+const realModel = mode === "real-model" || mode === "schedule-real-model" || mode === "conversation-real-model";
 const repetitions = ["long-text", "auto-follow", "joint-ui"].includes(mode) ? 10 : 1;
-if (process.platform !== "darwin" || !/^v26\./u.test(process.version) || !Number.isSafeInteger(samples) || samples < 1 || samples > 20 || process.argv.length > 4 || !["controlled", "long-text", "auto-follow", "joint-ui", "recovery", "real-model", "schedule", "schedule-real-model"].includes(mode) || (["recovery", "real-model", "schedule", "schedule-real-model"].includes(mode) && samples !== 1)) throw new Error("Use Node 26 on macOS: run-stream-native-qualification.mjs [1..20] [--long-text|--auto-follow|--joint-ui|--recovery|--real-model]");
+if (process.platform !== "darwin" || !/^v26\./u.test(process.version) || !Number.isSafeInteger(samples) || samples < 1 || samples > 20 || process.argv.length > 4 || !["controlled", "long-text", "auto-follow", "joint-ui", "recovery", "real-model", "schedule", "schedule-real-model", "conversation", "conversation-real-model"].includes(mode) || (["recovery", "real-model", "schedule", "schedule-real-model", "conversation", "conversation-real-model"].includes(mode) && samples !== 1)) throw new Error("Use Node 26 on macOS: run-stream-native-qualification.mjs [1..20] [--long-text|--auto-follow|--joint-ui|--recovery|--real-model]");
 if (realModel && !path.isAbsolute(process.env.SPARKCLAW_STREAM_FIXTURE_MODEL_CONFIG || "")) throw new Error("Explicit private SPARKCLAW_STREAM_FIXTURE_MODEL_CONFIG required");
-if ((realModel || scheduleMode) && !process.env.SPARKCLAW_STREAM_FIXTURE_LINUX_IMAGE) throw new Error("Explicit SPARKCLAW_STREAM_FIXTURE_LINUX_IMAGE with the repository Linux test dependencies required");
+if ((realModel || scheduleMode || conversationMode) && !process.env.SPARKCLAW_STREAM_FIXTURE_LINUX_IMAGE) throw new Error("Explicit SPARKCLAW_STREAM_FIXTURE_LINUX_IMAGE with the repository Linux test dependencies required");
 const exec = promisify(execFile);
 const run = (command, args, options = {}) => exec(command, args, { cwd: repository, timeout: 180000, maxBuffer: 2 << 20, ...options });
 const root = await fs.mkdtemp("/private/tmp/sparkclaw-stream-v3-");
@@ -24,12 +25,12 @@ await fs.mkdir(path.join(root, "profile"), { mode: 0o700 });
 const id = crypto.randomUUID();
 const container = `sparkclaw-stream-v3-${id}`;
 const gatewayContainer = `sparkclaw-stream-gateway-${id}`;
-const linuxFixture = realModel || scheduleMode;
+const linuxFixture = realModel || scheduleMode || conversationMode;
 const password = crypto.randomBytes(24).toString("hex");
 const token = crypto.randomBytes(24).toString("hex");
 let fixture;
-const evidence = { schema_version: 1, root, samples, mode, ...(!realModel && !scheduleMode ? {chars_per_sample: 600 * repetitions} : {}), production_data: false, postgres_container: container, source_revision: (await run("git", ["rev-parse", "HEAD"])).stdout.trim() };
-if (scheduleMode && !process.env.SPARKCLAW_STREAM_FIXTURE_RELAY_BINARY) {
+const evidence = { schema_version: 1, root, samples, mode, ...(!realModel && !scheduleMode && !conversationMode ? {chars_per_sample: 600 * repetitions} : {}), production_data: false, postgres_container: container, source_revision: (await run("git", ["rev-parse", "HEAD"])).stdout.trim() };
+if ((scheduleMode || conversationMode) && !process.env.SPARKCLAW_STREAM_FIXTURE_RELAY_BINARY) {
   const source = process.env.SPARKCLAW_STREAM_FIXTURE_ISCP_SOURCE;
   if (!path.isAbsolute(source || "")) throw new Error("Schedule qualification requires explicit SPARKCLAW_STREAM_FIXTURE_ISCP_SOURCE or independent Relay fixture/maintenance binaries");
   const relayEnv = {...process.env, GOWORK: "off", GOOS: "linux", GOARCH: process.arch === "arm64" ? "arm64" : "amd64", CGO_ENABLED: "0"};
@@ -67,6 +68,7 @@ try {
     path.join(repository, "apps/desktop/bin/iscp-workbench"),
     path.join(repository, "apps/desktop/src/main/main.mjs"),
     path.join(repository, "apps/desktop/src/main/execution-client.mjs"),
+    path.join(repository, "apps/desktop/src/main/approval-receipt.mjs"),
     path.join(repository, "apps/desktop/src/main/execution-progress.mjs"),
     path.join(repository, "apps/desktop/src/main/execution-stream-projection.mjs"),
     path.join(repository, "apps/desktop/src/main/client-store.mjs"),
@@ -75,13 +77,14 @@ try {
     path.join(repository, "apps/desktop/src/main/iscp-transport.mjs"),
     path.join(repository, "apps/desktop/test/stream-native-fixture.mjs"),
     ...(scheduleMode ? [path.join(repository, "apps/desktop/src/main/schedule-presentation.mjs"), path.join(repository, "apps/desktop/test/schedule-native-fixture.mjs"), path.join(repository, "apps/desktop/test/run-schedule-native-qualification.mjs"), path.join(repository, "apps/desktop/test/iscp-native-relay-fixture.go")] : []),
+    ...(conversationMode ? [path.join(repository, "apps/desktop/test/conversation-native-fixture.mjs"), path.join(repository, "apps/desktop/test/run-conversation-native-qualification.mjs"), path.join(repository, "apps/desktop/src/main/conversation-context.mjs")] : []),
     path.join(repository, "apps/desktop/test/run-stream-native-qualification.mjs"),
     ...assets.filter(file => /\.(?:js|css)$/u.test(file)).map(file => path.join(repository, "apps/webchat/dist/assets", file)),
   ].map(fingerprint));
   evidence.tracked_diff_sha256 = crypto.createHash("sha256").update((await run("git", ["diff", "HEAD", "--binary"])).stdout).digest("hex");
   const env = { ...process.env, TMPDIR: "/private/tmp", SPARKCLAW_STREAM_FIXTURE_ROOT: root, SPARKCLAW_STREAM_FIXTURE_DSN: `postgres://postgres:${password}@127.0.0.1:${port}/stream_fixture?sslmode=disable`, SPARKCLAW_STREAM_FIXTURE_TOKEN: token, SPARKCLAW_STREAM_FIXTURE_SAMPLES: String(samples), SPARKCLAW_STREAM_FIXTURE_REPETITIONS: String(repetitions), SPARKCLAW_STREAM_FIXTURE_MODE: mode };
   let fixtureCommand = path.join(root, "bin/gateway-fixture");
-  let fixtureArgs = ["-test.run", "^TestExecutionStreamNativeQualificationFixture$", "-test.timeout", "8m"];
+  let fixtureArgs = ["-test.run", "^TestExecutionStreamNativeQualificationFixture$", "-test.timeout", conversationMode ? "15m" : "8m"];
   let fixtureEnv = env;
   if (linuxFixture) {
     const unusedPort = () => new Promise((resolve, reject) => { const server = net.createServer(); server.once("error", reject); server.listen(0, "127.0.0.1", () => { const value = server.address().port; server.close(() => resolve(value)); }); });
@@ -113,7 +116,7 @@ try {
   delete childEnv.ELECTRON_RUN_AS_NODE;
   // Credentials remain in the private helper pipes/profile. The fixture HTTP
   // endpoint exposes only controlled timing evidence, never business methods.
-  const result = await run(electron, [path.join(repository, scheduleMode ? "apps/desktop/test/schedule-native-fixture.mjs" : "apps/desktop/test/stream-native-fixture.mjs")], { env: childEnv, timeout: (scheduleMode ? 420 : realModel ? 300 : samples * 13 + 60) * 1000, maxBuffer: 2 << 20 });
+  const result = await run(electron, [path.join(repository, conversationMode ? "apps/desktop/test/conversation-native-fixture.mjs" : scheduleMode ? "apps/desktop/test/schedule-native-fixture.mjs" : "apps/desktop/test/stream-native-fixture.mjs")], { env: childEnv, timeout: (conversationMode ? 840 : scheduleMode ? 420 : realModel ? 300 : samples * 13 + 60) * 1000, maxBuffer: 2 << 20 });
   process.stdout.write(result.stdout);
   const native = JSON.parse(await fs.readFile(path.join(root, "native-evidence.json"), "utf8"));
   Object.assign(evidence, { passed: native.passed === true, summary: native.summary });

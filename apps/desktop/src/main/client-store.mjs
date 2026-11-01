@@ -1,33 +1,24 @@
 import crypto from "node:crypto";
+import { parseStrictJSON } from "./strict-json.mjs";
+import { clarificationRecordDigest, clarificationSelection, conversationContextDigest, validateClarificationRecord } from "./conversation-context.mjs";
 import { CLIENT_ACTIONS_SCHEMA, SchedulePresentations, validateScheduleAction } from "./schedule-presentation.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { captureFileBoundary, readOwnedFile } from "./local-file-boundary.mjs";
+import { availableOwnedFile, captureFileBoundary, readOwnedFile } from "./local-file-boundary.mjs";
 import { WORKBENCH_LIMITS } from "../shared/workbench-limits.mjs";
 import { calendarMissed, nextCalendarTime, parseScheduleRequest, recurrenceSpec, zonedTime } from "./local-schedule-time.mjs";
 import { initialQuestionTitle, migrateConversationTitles } from "./client-conversation-titles.mjs";
 
-function explicitlyNamesFile(content, name) {
-  if (!name || !name.includes('.')) return false;
-  let from = 0;
-  for (;;) {
-    const index = content.indexOf(name, from);
-    if (index < 0) return false;
-    const before = content[index - 1] ?? '', after = content[index + name.length] ?? '';
-    if (!/[A-Za-z0-9_.-]/.test(before) && !/[A-Za-z0-9_.-]/.test(after)) return true;
-    from = index + 1;
-  }
-}
-
-function requestsPreviousFileEdit(content) {
-  return /(?:编辑|修改|更改|edit|modify)/i.test(content) &&
-    /(?:刚才|之前|上一|previous|earlier)/i.test(content) &&
-    !/(?:不要|无需|不需要|不应|不能|别|禁止|不再|do not|don't|never|without)/i.test(content);
-}
-
-export const CLIENT_SCHEMA_VERSION = 13;
+export const CLIENT_SCHEMA_VERSION = 15;
 export const CLIENT_LIMITS = WORKBENCH_LIMITS;
+const CONTEXT_RECORDS_SCHEMA = `CREATE TABLE message_clarifications(message_id TEXT PRIMARY KEY REFERENCES messages(id),record_json TEXT NOT NULL);
+  CREATE TABLE handle_upload_intents(request_id TEXT NOT NULL REFERENCES tasks(request_id),file_id TEXT NOT NULL,
+    sha256 TEXT NOT NULL,operation_id TEXT NOT NULL,state TEXT NOT NULL,PRIMARY KEY(request_id,file_id));`;
+const CLARIFICATION_SELECTIONS_SCHEMA = `CREATE TABLE clarification_selections(
+  clarification_id TEXT PRIMARY KEY, request_id TEXT UNIQUE NOT NULL REFERENCES tasks(request_id),
+  message_id TEXT UNIQUE NOT NULL REFERENCES messages(id), option_number INTEGER NOT NULL CHECK(option_number IN (1,2)),
+  record_sha256 TEXT NOT NULL);`;
 const MESSAGE_DELIVERIES_SCHEMA = `CREATE TABLE message_deliveries(message_id TEXT PRIMARY KEY REFERENCES messages(id),
   request_id TEXT NOT NULL,sequence INTEGER NOT NULL,UNIQUE(request_id,sequence),
   FOREIGN KEY(request_id,sequence) REFERENCES deliveries(request_id,sequence));`;
@@ -58,7 +49,7 @@ export class ClientStore {
     try {
       this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
       const version = this.db.prepare("PRAGMA user_version").get().user_version;
-      if (![0, 6, 7, 8, 9, 10, 11, 12, CLIENT_SCHEMA_VERSION].includes(version)) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
+      if (![0, 6, 7, 8, 9, 10, 11, 12, 13, 14, CLIENT_SCHEMA_VERSION].includes(version)) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
       if (version === 0) this.#initialize();
       if (version === 6) this.#transaction(() => {
         this.db.exec(`CREATE TABLE execution_projection(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id),revision INTEGER NOT NULL,termination_reason TEXT NOT NULL,approval_receipts TEXT NOT NULL,event_state TEXT NOT NULL);
@@ -103,6 +94,12 @@ export class ClientStore {
       if (version !== 0 && version < 13) this.#transaction(() => {
         this.db.exec(`${CLIENT_ACTIONS_SCHEMA} PRAGMA user_version=13;`);
       });
+      if (version !== 0 && version < 14) this.#transaction(() => {
+        this.db.exec(`${CONTEXT_RECORDS_SCHEMA} PRAGMA user_version=14;`);
+      });
+      if (version !== 0 && version < 15) this.#transaction(() => {
+        this.db.exec(`${CLARIFICATION_SELECTIONS_SCHEMA} PRAGMA user_version=15;`);
+      });
       this.clientActions = new SchedulePresentations(this, scopeKey);
       // A renderer may have displayed a claimed action before a process crash.
       // Preserve uncertainty without replaying navigation on the next launch.
@@ -138,6 +135,8 @@ export class ClientStore {
           status TEXT NOT NULL, created_at TEXT NOT NULL, explicitly_submitted INTEGER NOT NULL DEFAULT 0,
           updated_at TEXT, submission_claim TEXT);
         ${CLIENT_ACTIONS_SCHEMA}
+        ${CONTEXT_RECORDS_SCHEMA}
+        ${CLARIFICATION_SELECTIONS_SCHEMA}
         CREATE TABLE files(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id),
           name TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE message_files(message_id TEXT NOT NULL REFERENCES messages(id),file_id TEXT NOT NULL REFERENCES files(id),PRIMARY KEY(message_id,file_id));
@@ -208,13 +207,14 @@ export class ClientStore {
       const requests = "SELECT request_id FROM tasks WHERE conversation_id=?";
       const definitions = this.db.prepare(`SELECT DISTINCT s.schedule_id FROM schedules s JOIN tasks t
         ON t.request_id=s.request_id WHERE t.conversation_id=?`).all(conversationID);
-      for (const table of ["client_actions", "message_deliveries", "delivery_files", "deliveries", "execution_approvals", "execution_projection", "schedules"]) {
+      for (const table of ["clarification_selections", "client_actions", "message_deliveries", "delivery_files", "deliveries", "execution_approvals", "execution_projection", "handle_upload_intents", "schedules"]) {
         this.db.prepare(`DELETE FROM ${table} WHERE request_id IN (${requests})`).run(conversationID);
       }
       for (const definition of definitions) {
         this.db.prepare("DELETE FROM schedule_definitions WHERE id=? AND NOT EXISTS (SELECT 1 FROM schedules WHERE schedule_id=?)")
           .run(definition.schedule_id, definition.schedule_id);
       }
+      this.db.prepare("DELETE FROM message_clarifications WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=?)").run(conversationID);
       this.db.prepare("DELETE FROM message_files WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=?)").run(conversationID);
       for (const table of ["tasks", "messages", "files"]) {
         this.db.prepare(`DELETE FROM ${table} WHERE conversation_id=?`).run(conversationID);
@@ -304,31 +304,19 @@ export class ClientStore {
     });
   }
 
-  enqueueDraft(scope, conversationID, draftConversationID, revision) {
+  enqueueDraft(scope, conversationID, draftConversationID, revision, allowHistoryFiles = false) {
     if (draftConversationID !== "" && draftConversationID !== conversationID) throw new Error("Draft belongs to a different conversation");
     const draft = this.draft(scope, draftConversationID);
     const task = this.enqueue(scope, conversationID, draft.content, draft.local_file_ids, undefined, undefined,
-      { conversationID: draftConversationID, revision });
+      { conversationID: draftConversationID, revision }, allowHistoryFiles);
     return { task, draft: this.draft(scope, draftConversationID) };
   }
 
-  enqueue(scope, conversationID, content, localFileIDs = [], scheduleSpec, recoveringScheduleID, consumedDraft) {
+  enqueue(scope, conversationID, content, localFileIDs = [], scheduleSpec, recoveringScheduleID, consumedDraft, allowHistoryFiles = false) {
     this.#conversation(scope, conversationID);
     content = boundedText(content, CLIENT_LIMITS.inputBytes, "Input").trim();
     if (!content) throw new Error("Input is empty");
     if (!Array.isArray(localFileIDs) || localFileIDs.length > CLIENT_LIMITS.resultFiles || new Set(localFileIDs).size !== localFileIDs.length) throw new Error("Invalid input file selection");
-    if (!localFileIDs.length && !scheduleSpec && requestsPreviousFileEdit(content)) {
-      // A filename explicitly mentioned in a follow-up may refer to a file
-      // already shared in this conversation. Resolve only a unique recent
-      // message attachment; never search another conversation or guess among
-      // same-named files. Explicit current selections always take precedence.
-      const recent = this.db.prepare(`SELECT DISTINCT f.id,f.name FROM files f JOIN message_files mf ON mf.file_id=f.id
-        JOIN (SELECT id FROM messages WHERE conversation_id=? ORDER BY rowid DESC LIMIT ?) m ON m.id=mf.message_id
-        WHERE f.conversation_id=?`).all(conversationID, CLIENT_LIMITS.contextMessages, conversationID);
-      const named = recent.filter(file => explicitlyNamesFile(content, file.name));
-      if (named.length > 1) throw new Error("Multiple recent files match; select the intended file.");
-      if (named.length === 1) localFileIDs = [named[0].id];
-    }
     const inputFiles = localFileIDs.map((id) => {
       uuid(id);
       const record = this.db.prepare("SELECT id,name,size,sha256 FROM files WHERE id=? AND conversation_id=?").get(id, conversationID);
@@ -340,27 +328,136 @@ export class ClientStore {
     const requestID = crypto.randomUUID();
     const taskID = crypto.randomUUID();
     const now = new Date().toISOString();
+    const messageID = crypto.randomUUID();
+    let repeatedTask;
     this.#transaction(() => {
       if (consumedDraft && this.draft(scope, consumedDraft.conversationID).revision !== consumedDraft.revision) throw new Error("Draft changed before submission; review the saved draft");
       if (recoveringScheduleID && this.scheduledRequest(scope, recoveringScheduleID).state !== "missed") throw new Error("Only an unexecuted missed schedule can run now");
-      const history = this.db.prepare("SELECT role,content FROM messages WHERE conversation_id=? ORDER BY rowid DESC LIMIT ?")
-        .all(conversationID, CLIENT_LIMITS.contextMessages).reverse();
-      const envelope = { schema_version: 1, ...scope, installation_id: this.installationID,
+      const rows = this.db.prepare("SELECT id,role,content FROM messages WHERE conversation_id=? ORDER BY rowid DESC LIMIT ?")
+        .all(conversationID, CLIENT_LIMITS.contextMessages);
+      if (!inputFiles.length && !scheduleSpec && rows[0]?.role === "user") {
+        const priorSelection = this.db.prepare(`SELECT s.*,t.id,t.status,t.created_at FROM clarification_selections s
+          JOIN tasks t ON t.request_id=s.request_id WHERE s.message_id=?`).get(rows[0].id);
+        const question = rows[1]?.role === "assistant" ? this.db.prepare("SELECT record_json FROM message_clarifications WHERE message_id=?").get(rows[1].id) : undefined;
+        if (priorSelection && question) {
+          const record = JSON.parse(question.record_json), choice = clarificationSelection(content, record, rows[1].content);
+          if (choice) {
+            if (choice !== priorSelection.option_number || clarificationRecordDigest(record) !== priorSelection.record_sha256) throw new Error("Clarification selection is already queued");
+            repeatedTask = { id: priorSelection.id, request_id: priorSelection.request_id, status: priorSelection.status, created_at: priorSelection.created_at };
+            if (consumedDraft) this.db.prepare("UPDATE drafts SET content='',local_file_ids='[]',revision=revision+1 WHERE scope=? AND conversation_id=?")
+              .run(scopeKey(scope), consumedDraft.conversationID);
+            return;
+          }
+        }
+      }
+      // Current explicit inputs own their identity; do not also project an
+      // older occurrence as an implicit history resource.
+      const seenHandles = new Set(inputFiles.map(file => file.id));
+      const projectedNames = new Map();
+      const history = rows.map(({ id, role, content }, index) => {
+        const files = []; let filesUnavailable = false;
+        const records = this.db.prepare(`SELECT f.id,f.name,f.size,f.sha256 FROM message_files mf JOIN files f ON f.id=mf.file_id
+          WHERE mf.message_id=? AND f.conversation_id=? ORDER BY mf.rowid`).all(id, conversationID);
+        for (const file of records) {
+          if (seenHandles.has(file.id)) continue;
+          if (!allowHistoryFiles || scheduleSpec || files.length >= CLIENT_LIMITS.resultFiles || seenHandles.size - inputFiles.length >= 32 || !UUID.test(file.id) || file.size > CLIENT_LIMITS.resultBytes) { filesUnavailable = true; continue; }
+          try { validFileName(file.name); } catch { filesUnavailable = true; continue; }
+          if (!/^[a-f0-9]{64}$/u.test(file.sha256) || !availableOwnedFile(this.fileBoundary, file.id, file.size)) { filesUnavailable = true; continue; }
+          seenHandles.add(file.id); files.push(file);
+          if (!projectedNames.has(file.name)) projectedNames.set(file.name, new Set());
+          projectedNames.get(file.name).add(file.id);
+        }
+        // Only the immediately preceding assistant question can be executable.
+        // Legacy, malformed and stale records remain readable local history.
+        let clarification;
+        const row = index === 0 && role === "assistant" && !scheduleSpec ? this.db.prepare("SELECT record_json FROM message_clarifications WHERE message_id=?").get(id) : undefined;
+        if (row) {
+          try {
+            const record = JSON.parse(row.record_json);
+            validateClarificationRecord(record);
+            if (record.prompt_sha256 === hash(content)) clarification = record;
+          } catch { /* Preserve its text; never manufacture a valid record. */ }
+        }
+        return { id, role, content, ...(files.length ? { files } : {}),
+          ...(filesUnavailable ? { files_unavailable: true } : {}), ...(clarification ? { clarification } : {}) };
+      }).reverse();
+      // A bounded projection may omit a same-name file from an older message.
+      // Count identities in SQLite, without reading or uploading their content.
+      for (const [name, ids] of projectedNames) {
+        const count = this.db.prepare(`SELECT COUNT(DISTINCT f.id) AS n FROM files f JOIN message_files mf ON mf.file_id=f.id
+          WHERE f.conversation_id=? AND f.name=?`).get(conversationID, name).n;
+        if (count > ids.size) for (const message of history) {
+          if (message.files?.some(file => file.name === name)) message.files_unavailable = true;
+        }
+      }
+      const previous = history.at(-1);
+      const selection = previous?.clarification && !inputFiles.length ? clarificationSelection(content, previous.clarification, previous.content) : 0;
+      let selectedRecord, pinnedHistory;
+      if (selection) {
+        selectedRecord = previous.clarification;
+        if (Date.parse(selectedRecord.expires_at) <= Date.now() || Date.parse(selectedRecord.issued_at) > Date.now()) throw new Error("Clarification expired; describe your request again");
+        const original = this.request(scope, selectedRecord.request_id);
+        if (original.conversation_id !== conversationID) throw new Error("Clarification belongs to another conversation");
+        const source = JSON.parse(original.context_json);
+        const sourceIndex = source.messages.findIndex(message => message.id === selectedRecord.source_message_id);
+        const sourceMessages = source.messages.slice(0, sourceIndex + 1);
+        const originalInputs = sourceIndex === source.messages.length - 1 ? source.input_files ?? [] : [];
+        if (sourceIndex < 0 || hash(sourceMessages.at(-1).content) !== selectedRecord.source_text_sha256 ||
+            conversationContextDigest(sourceMessages, originalInputs) !== selectedRecord.context_sha256) throw new Error("Clarification context changed; describe your request again");
+        pinnedHistory = structuredClone(sourceMessages);
+        for (const message of pinnedHistory) delete message.clarification;
+        const last = pinnedHistory.at(-1), files = new Map((last.files ?? []).map(file => [file.id, file]));
+        for (const file of originalInputs) {
+          const prior = files.get(file.id);
+          if (prior && ['name', 'size', 'sha256'].some(key => prior[key] !== file[key])) throw new Error("Clarification file binding changed");
+          files.set(file.id, file);
+        }
+        if (files.size) last.files = [...files.values()];
+        if (new Set(pinnedHistory.flatMap(message => (message.files ?? []).map(file => file.id))).size > CLIENT_LIMITS.resultFiles) throw new Error("Clarification context exceeds the file limit; describe your request again");
+        for (const message of pinnedHistory) for (const file of message.files ?? []) {
+          const current = this.db.prepare("SELECT id,name,size,sha256 FROM files WHERE id=? AND conversation_id=?").get(file.id, conversationID);
+          if (!allowHistoryFiles || !current || ['name', 'size', 'sha256'].some(key => current[key] !== file[key]) || !availableOwnedFile(this.fileBoundary, file.id, file.size)) throw new Error("Clarification file unavailable; attach it again");
+        }
+        pinnedHistory.push(previous);
+      }
+      const envelope = { schema_version: 2, ...scope, installation_id: this.installationID,
         local_conversation_id: conversationID, local_task_id: taskID, request_id: requestID, messages: [],
         ...(inputFiles.length ? { input_files: inputFiles } : {}),
         ...(!scheduleSpec ? { client_presentation: { schema_version: 1, schedule_show: true,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, requested_at: now } } : {}) };
       const messageBudget = CLIENT_LIMITS.contextBytes - Buffer.byteLength(JSON.stringify(envelope)) + 2;
-      const context = boundedContext([...history, { role: "user", content }], messageBudget);
+      const selectedMessages = [...(pinnedHistory ?? history), { id: messageID, role: "user", content }];
+      let context = boundedContext(selectedMessages, messageBudget);
+      if (!pinnedHistory) {
+        for (;;) {
+          const represented = new Map();
+          for (const message of context) for (const file of message.files ?? []) {
+            if (!represented.has(file.name)) represented.set(file.name, new Set());
+            represented.get(file.name).add(file.id);
+          }
+          for (const [name, ids] of represented) {
+            const count = this.db.prepare(`SELECT COUNT(DISTINCT f.id) AS n FROM files f JOIN message_files mf ON mf.file_id=f.id
+              WHERE f.conversation_id=? AND f.name=?`).get(conversationID, name).n;
+            if (count > ids.size) for (const message of context) if (message.files?.some(file => file.name === name)) message.files_unavailable = true;
+          }
+          const bounded = boundedContext(context, messageBudget);
+          if (bounded.length === context.length) { context = bounded; break; }
+          context = bounded;
+        }
+      }
+      if (pinnedHistory && (context.length !== selectedMessages.length || context.some((message, index) => message.id !== selectedMessages[index].id || message.content !== selectedMessages[index].content))) {
+        throw new Error("Clarification context exceeds the limit; describe your request again");
+      }
       const snapshot = JSON.stringify({ ...envelope, messages: context });
       if (inputFiles.reduce((sum, file) => sum + file.size, Buffer.byteLength(snapshot)) > 32 * 1024 * 1024) throw new Error("Input exceeds 32 MiB task budget");
       const digest = hash(snapshot);
-      const messageID = crypto.randomUUID();
       this.db.prepare("INSERT INTO messages VALUES(?,?,?,?,?)")
         .run(messageID, conversationID, "user", content, now);
       for (const file of inputFiles) this.db.prepare("INSERT INTO message_files VALUES(?,?)").run(messageID, file.id);
       this.db.prepare("INSERT INTO tasks(id,conversation_id,request_id,input_digest,context_json,status,created_at) VALUES(?,?,?,?,?,?,?)")
         .run(taskID, conversationID, requestID, digest, snapshot, scheduleSpec ? "scheduled_local" : "awaiting_runtime", now);
+      if (selectedRecord) this.db.prepare("INSERT INTO clarification_selections VALUES(?,?,?,?,?)")
+        .run(selectedRecord.id, requestID, messageID, selection, clarificationRecordDigest(selectedRecord));
       if (scheduleSpec) {
         this.db.prepare("INSERT INTO schedule_definitions(id,interval_ms,state,calendar) VALUES(?,?,'active',?)").run(requestID, scheduleSpec.intervalMS, JSON.stringify(scheduleSpec.calendar ?? {}));
         this.db.prepare("INSERT INTO schedules(request_id,schedule_id,due_at,state,created_at) VALUES(?,?,?,'saved',?)")
@@ -374,7 +471,7 @@ export class ClientStore {
     });
     // Network submission is deliberately a separate operation. This return is
     // durable local queuing, not server acceptance or completed execution.
-    return { id: taskID, request_id: requestID, status: scheduleSpec ? "scheduled_local" : "awaiting_runtime", created_at: now };
+    return repeatedTask ?? { id: taskID, request_id: requestID, status: scheduleSpec ? "scheduled_local" : "awaiting_runtime", created_at: now };
   }
 
   schedule(scope, conversationID, content, dueAt, now = Date.now(), intervalMS = 0, calendar = {}) {
@@ -542,6 +639,33 @@ export class ClientStore {
     if (!task) throw new Error("Local request not found");
     if (hash(task.context_json) !== task.input_digest) throw new Error("Local immutable context verification failed");
     return task;
+  }
+
+  claimHandleUpload(scope, requestID, manifest) {
+    const task = this.request(scope, requestID);
+    const envelope = JSON.parse(task.context_json);
+    const declared = (envelope.messages ?? []).flatMap(message => message.files ?? []).find(file => file.id === manifest.file_id);
+    if (!declared || declared.sha256 !== manifest.sha256 || declared.size !== manifest.size ||
+        (envelope.input_files ?? []).some(file => file.id === declared.id)) throw new Error("Undeclared conversation file request");
+    return this.#transaction(() => {
+      let row = this.db.prepare("SELECT * FROM handle_upload_intents WHERE request_id=? AND file_id=?").get(requestID, declared.id);
+      if (row && row.sha256 !== declared.sha256) throw new Error("Conversation file upload binding changed");
+      if (!row) {
+        this.db.prepare("INSERT INTO handle_upload_intents VALUES(?,?,?,?,?)").run(requestID, declared.id, declared.sha256, crypto.randomUUID(), "ready");
+        row = this.db.prepare("SELECT * FROM handle_upload_intents WHERE request_id=? AND file_id=?").get(requestID, declared.id);
+      }
+      if (row.state !== "ready") return null;
+      this.db.prepare("UPDATE handle_upload_intents SET state='unknown' WHERE request_id=? AND file_id=? AND state='ready'").run(requestID, declared.id);
+      return { ...row, state: "unknown" };
+    });
+  }
+
+  finishHandleUpload(scope, requestID, fileID, operationID, state) {
+    this.request(scope, requestID);
+    if (!UUID.test(fileID) || !UUID.test(operationID) || !["ready", "done"].includes(state)) throw new Error("Invalid file upload receipt");
+    const result = this.db.prepare("UPDATE handle_upload_intents SET state=? WHERE request_id=? AND file_id=? AND operation_id=? AND state='unknown'")
+      .run(state, requestID, fileID, operationID);
+    if (result.changes !== 1) throw new Error("Conversation file upload receipt conflict");
   }
 
   executionProjection(scope, requestID) {
@@ -726,6 +850,12 @@ export class ClientStore {
     const result = parseResultPayload(payload);
     const task = this.request(scope, request_id);
     if (!task.explicitly_submitted) throw new Error("Task has not been explicitly submitted");
+    if (result.clarification) {
+      const record = result.clarification, context = JSON.parse(task.context_json);
+      const source = context.messages.find(message => message.id === record.source_message_id);
+      if (record.request_id !== request_id || !source || source.role !== "user" || hash(source.content) !== record.source_text_sha256 ||
+          conversationContextDigest(context.messages.slice(0, context.messages.indexOf(source) + 1), source === context.messages.at(-1) ? context.input_files : []) !== record.context_sha256) throw new Error("Clarification request binding changed");
+    }
     const prior = this.receipt(scope, request_id);
     if (prior) {
       if (prior.sequence !== sequence || prior.digest !== digest) throw new Error("Delivery replay changed content");
@@ -750,6 +880,7 @@ export class ClientStore {
         const messageID = crypto.randomUUID();
         this.db.prepare("INSERT INTO messages VALUES(?,?,?,?,?)")
           .run(messageID, task.conversation_id, "assistant", result.content, now);
+        if (result.clarification) this.db.prepare("INSERT INTO message_clarifications VALUES(?,?)").run(messageID, JSON.stringify(result.clarification));
         this.db.prepare("INSERT INTO deliveries(request_id,sequence,digest) VALUES(?,?,?)").run(request_id, sequence, digest);
         if (result.client_action) this.clientActions.insert(task, result.client_action);
         this.db.prepare("INSERT INTO message_deliveries(message_id,request_id,sequence) VALUES(?,?,?)").run(messageID, request_id, sequence);
@@ -851,21 +982,30 @@ export function boundedContext(history, byteLimit = CLIENT_LIMITS.contextBytes) 
   const result = [];
   for (const message of history.slice(-CLIENT_LIMITS.contextMessages).reverse()) {
     if (!["user", "assistant"].includes(message.role)) throw new Error("Context role is invalid");
-    const content = boundedText(message.role === "assistant" ? truncateUTF8(message.content, CLIENT_LIMITS.inputBytes) : message.content,
+    const content = boundedText(message.role === "assistant" && !message.clarification ? truncateUTF8(message.content, CLIENT_LIMITS.inputBytes) : message.content,
       CLIENT_LIMITS.inputBytes, "Context message");
-    if (Buffer.byteLength(JSON.stringify([{ role: message.role, content }, ...result])) > byteLimit) break;
-    result.unshift({ role: message.role, content });
+    if (message.files_unavailable !== undefined && typeof message.files_unavailable !== "boolean") throw new Error("Context file availability is invalid");
+    if (message.id !== undefined && (typeof message.id !== "string" || !ID.test(message.id))) throw new Error("Context message identity is invalid");
+    const projected = { ...(message.id ? { id: message.id } : {}), role: message.role, content,
+      ...(message.files_unavailable === true ? { files_unavailable: true } : {}), ...(message.files?.length ? { files: message.files } : {}),
+      ...(message.role === "assistant" && message.clarification ? { clarification: message.clarification } : {}) };
+    if (Buffer.byteLength(JSON.stringify([projected, ...result])) > byteLimit) break;
+    result.unshift(projected);
   }
   if (!result.length) throw new Error("Context is empty");
   return result;
 }
 
 export function parseResultPayload(payload) {
-  const value = JSON.parse(payload);
-  if (!value || !(["content,files", "client_action,content,files"].includes(Object.keys(value).sort().join(","))) ||
+  const value = parseStrictJSON(payload);
+  if (!value || Object.keys(value).some(key => !["client_action", "clarification", "content", "files"].includes(key)) ||
       typeof value.content !== "string" || value.content.includes("\u0000") || !Array.isArray(value.files) ||
       value.files.length > CLIENT_LIMITS.resultFiles) throw new Error("Invalid result payload");
   if (Object.hasOwn(value, "client_action")) validateScheduleAction(value.client_action);
+  if (Object.hasOwn(value, "clarification")) {
+    validateClarificationRecord(value.clarification);
+    if (value.clarification.prompt_sha256 !== hash(value.content)) throw new Error("Clarification text binding changed");
+  }
   const ids = new Set();
   for (const file of value.files) {
     if (!file || Object.keys(file).sort().join(",") !== "id,name,sha256,size" || typeof file.id !== "string" ||

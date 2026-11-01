@@ -15,6 +15,26 @@ export function captureFileBoundary(root) {
   return { root: canonical, stat };
 }
 
+// Check availability without reading file contents into the execution context.
+// Upload still performs the full descriptor and digest verification below.
+export function availableOwnedFile(boundary, id, size) {
+  if (!["darwin", "linux"].includes(process.platform) || !Number.isSafeInteger(size) || size < 0 || size > WORKBENCH_LIMITS.fileBytes) return false;
+  let directory, descriptor;
+  try {
+    const root = fs.lstatSync(boundary.root);
+    if (!root.isDirectory() || !privateOwned(root) || !same(root, boundary.stat)) return false;
+    directory = fs.openSync(boundary.root, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | (noFollowAny || fs.constants.O_NOFOLLOW));
+    if (!same(fs.fstatSync(directory), boundary.stat)) return false;
+    const filename = path.join(boundary.root, id);
+    descriptor = fs.openSync(process.platform === "linux" ? `/proc/self/fd/${directory}/${id}` : filename,
+      fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | (noFollowAny || fs.constants.O_NOFOLLOW));
+    const entry = fs.fstatSync(descriptor), named = fs.lstatSync(filename), after = fs.lstatSync(boundary.root);
+    return entry.isFile() && privateOwned(entry) && entry.nlink === 1 && entry.size === size && !named.isSymbolicLink() &&
+      same(entry, named) && after.isDirectory() && privateOwned(after) && same(after, boundary.stat);
+  } catch { return false; }
+  finally { if (descriptor !== undefined) fs.closeSync(descriptor); if (directory !== undefined) fs.closeSync(directory); }
+}
+
 export function readOwnedFile(boundary, id, size) {
   if (!["darwin", "linux"].includes(process.platform) || !Number.isSafeInteger(size) || size < 0 || size > WORKBENCH_LIMITS.fileBytes) throw new Error("Local file cannot be read safely");
   const checkRoot = () => {

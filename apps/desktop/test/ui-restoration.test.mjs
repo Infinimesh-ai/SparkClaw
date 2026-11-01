@@ -47,7 +47,7 @@ test('input and output attachments retain their exact message association throug
   assert.equal(original.messages[1].attachments.length, 0);
   assert.equal(original.messages[2].attachments[0].name, 'output.png');
   const installation = f.store.installationID;
-  f.store.db.exec('DROP TABLE client_actions; DROP TABLE recording_applications; DROP TABLE message_deliveries; DROP TABLE message_files; ALTER TABLE conversations DROP COLUMN hidden; ALTER TABLE conversations DROP COLUMN title_pending; ALTER TABLE schedule_definitions DROP COLUMN calendar; PRAGMA user_version=8;');
+  f.store.db.exec('DROP TABLE clarification_selections; DROP TABLE message_clarifications; DROP TABLE handle_upload_intents; DROP TABLE client_actions; DROP TABLE recording_applications; DROP TABLE message_deliveries; DROP TABLE message_files; ALTER TABLE conversations DROP COLUMN hidden; ALTER TABLE conversations DROP COLUMN title_pending; ALTER TABLE schedule_definitions DROP COLUMN calendar; PRAGMA user_version=8;');
   // A real v8 store never had reliable delivery-to-message request linkage.
   // Its historical messages retain their IDs and attachments without guessing.
   for (const message of original.messages) delete message.request_id;
@@ -58,26 +58,21 @@ test('input and output attachments retain their exact message association throug
   assert.equal(f.store.file(scope, original.messages[2].attachments[0].artifact_id).content.toString(), 'output bytes');
 });
 
-test('a uniquely named previous attachment is rebound only within its original conversation', t => {
-  const f = fixture(t), conversation = f.store.create(scope, 'Documents');
-  const other = f.store.create(scope, 'Other');
-  const file = f.store.saveFile(scope, conversation.id, 'sparkx-user-test.txt', Buffer.from('test content'));
+test('history keeps conversation file handles without rebinding or cross-conversation access', t => {
+  const f = fixture(t), conversation = f.store.create(scope, 'Documents'), other = f.store.create(scope, 'Other');
+  const file = f.store.saveFile(scope, conversation.id, 'report.txt', Buffer.from('first'));
   f.store.enqueue(scope, conversation.id, 'read this', [file.id]);
-  const task = f.store.enqueue(scope, conversation.id, '编辑刚才的 sparkx-user-test.txt 的副本');
-  const envelope = JSON.parse(f.store.request(scope, task.request_id).context_json);
-  assert.deepEqual(envelope.input_files.map(x => x.id), [file.id]);
-  assert.equal(f.store.read(scope, conversation.id).messages.at(-1).attachments[0].artifact_id, file.id);
-  const unrelated = f.store.enqueue(scope, conversation.id, '请继续');
-  assert.equal(JSON.parse(f.store.request(scope, unrelated.request_id).context_json).input_files, undefined);
-  const negated = f.store.enqueue(scope, conversation.id, '不要编辑刚才的 sparkx-user-test.txt');
-  assert.equal(JSON.parse(f.store.request(scope, negated.request_id).context_json).input_files, undefined);
-  const partial = f.store.enqueue(scope, conversation.id, '编辑刚才的 sparkx-user-test.txt.bak');
-  assert.equal(JSON.parse(f.store.request(scope, partial.request_id).context_json).input_files, undefined);
-  const crossConversation = f.store.enqueue(scope, other.id, '编辑刚才的 sparkx-user-test.txt');
-  assert.equal(JSON.parse(f.store.request(scope, crossConversation.request_id).context_json).input_files, undefined);
-  const duplicate = f.store.saveFile(scope, conversation.id, 'sparkx-user-test.txt', Buffer.from('other bytes'));
+  const enqueue = (id, text, allowed = true) => f.store.enqueue(scope, id, text, [], undefined, undefined, undefined, allowed);
+  const context = task => JSON.parse(f.store.request(scope, task.request_id).context_json);
+  const task = enqueue(conversation.id, '完善一下发给我');
+  assert.equal(context(task).input_files, undefined);
+  assert.deepEqual(context(task).messages.flatMap(message => message.files ?? []).map(value => value.id), [file.id]);
+  assert.equal(f.store.read(scope, conversation.id).messages.at(-1).attachments.length, 0);
+  assert.deepEqual(context(enqueue(other.id, 'report.txt')).messages.flatMap(message => message.files ?? []), []);
+  assert.deepEqual(context(enqueue(conversation.id, 'continue', false)).messages.flatMap(message => message.files ?? []), []);
+  const duplicate = f.store.saveFile(scope, conversation.id, 'report.txt', Buffer.from('second'));
   f.store.enqueue(scope, conversation.id, 'read another', [duplicate.id]);
-  assert.throws(() => f.store.enqueue(scope, conversation.id, '编辑刚才的 sparkx-user-test.txt'), /Multiple recent files match/);
+  assert.deepEqual(new Set(context(enqueue(conversation.id, 'modify report.txt')).messages.flatMap(message => message.files ?? []).map(value => value.id)), new Set([file.id, duplicate.id]));
 });
 
 test('original natural schedule entry creates local definitions globally without a new sidebar conversation', t => {

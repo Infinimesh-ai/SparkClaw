@@ -194,3 +194,27 @@ test("approval snapshot/disk failure cannot send a decision; IPC keeps scope and
   const content = await capability.dispatch(event, { schema_version: 1, operation: "read", conversation_id: f.conversation.id });
   assert.equal(content.tasks[0].approvals[0].actionable, true);
 });
+
+test('ISCP decision confirms its rich closed receipt through the original client path', async t => {
+  const f = fixture(t);
+  f.auth.descriptor.transport = 'iscp';
+  let revision = 4;
+  let receipts = [];
+  let decisions = 0;
+  f.auth.authorizedExecutionFetch = async (_url, init = {}) => {
+    if (init.method === 'POST') {
+      decisions++;
+      assert.equal(init.expectedRevision, '4');
+      assert.equal(JSON.parse(init.body).input_digest, f.store.request(scope, f.task.request_id).input_digest);
+      revision = 6;
+      receipts = [{ approval_id: approval.approval_id, digest: approval.digest, revision: 5, state: 'decided', decision: 'approve', decided_at: new Date().toISOString() }];
+      f.setPending([]);
+      return new Response(JSON.stringify({ resolved: true, request_id: f.task.request_id, revision: String(revision), state: 'running', approval_receipts: receipts }));
+    }
+    return new Response(JSON.stringify({ ...f.event(), revision, approval_receipts: receipts }));
+  };
+  await f.client.reconcile(scope, f.task.request_id);
+  assert.deepEqual(await f.client.decideApproval(scope, f.task.request_id, approval.approval_id, approval.digest, 'approve'), { resolved: true });
+  assert.equal(f.store.approvals(scope, f.task.request_id)[0].state, 'approved');
+  assert.equal(decisions, 1);
+});

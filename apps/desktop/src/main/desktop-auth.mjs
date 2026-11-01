@@ -330,7 +330,7 @@ export class DesktopAuth {
     if (this.descriptor?.transport !== "iscp") return;
     if(this.transport?.capabilities) {
       const value=JSON.parse(body);
-      if(Buffer.byteLength(body)>8*1024*1024 || value.input_files?.length && !this.status.capabilities?.files) throw new Error("ISCP input capability or budget is unavailable; your draft is retained");
+      if(Buffer.byteLength(body)>8*1024*1024 || (value.input_files?.length || value.messages?.some(message => message.files?.length)) && !this.status.capabilities?.files) throw new Error("ISCP input capability or budget is unavailable; your draft is retained");
       return;
     }
     const request = mapISCPRequest(`${this.descriptor.origin}/api/v1/executions`, { method: "POST", body }, this.descriptor.origin);

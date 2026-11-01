@@ -124,7 +124,7 @@ test('v12 migration preserves installation, original contexts, history and draft
   const f = fixture(t); const installation = f.store.installationID;
   f.store.saveDraft(scope, f.conversation.id, 'Unsent draft', [], 0);
   const before = f.store.read(scope, f.conversation.id);
-  f.store.db.exec('DROP TABLE client_actions; PRAGMA user_version=12;'); f.restart();
+  f.store.db.exec('DROP TABLE clarification_selections; DROP TABLE message_clarifications; DROP TABLE handle_upload_intents; DROP TABLE client_actions; PRAGMA user_version=12;'); f.restart();
   assert.equal(f.store.installationID, installation);
   assert.deepEqual(f.store.read(scope, f.conversation.id), before);
   assert.equal(f.store.request(scope, f.task.request_id).context_json, f.task.context_json);

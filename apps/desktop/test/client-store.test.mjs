@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
+import { conversationContextDigest } from "../src/main/conversation-context.mjs";
 import { ClientStore, CLIENT_SCHEMA_VERSION, CLIENT_LIMITS, boundedContext } from "../src/main/client-store.mjs";
 
 const scope = { deployment_id: "deployment_test", owner_id: "owner_test", client_id: "client_test" };
@@ -19,7 +20,7 @@ test("recording application and draft commit together and survive lost ACK and s
   const root = fixture(t); let store = new ClientStore(root);
   const conversation = store.create(scope, "Original"); const requestID = crypto.randomUUID();
   const installation = store.installationID;
-  store.db.exec("DROP TABLE client_actions; DROP TABLE recording_applications; PRAGMA user_version=11"); store.close();
+  store.db.exec("DROP TABLE clarification_selections; DROP TABLE message_clarifications; DROP TABLE handle_upload_intents; DROP TABLE client_actions; DROP TABLE recording_applications; PRAGMA user_version=11"); store.close();
   store = new ClientStore(root);
   assert.equal(store.installationID, installation); assert.equal(store.recordingApplied(scope, conversation.id, requestID), false);
   store.db.exec("CREATE TRIGGER deny_recording BEFORE INSERT ON recording_applications BEGIN SELECT RAISE(ABORT,'disk failure'); END;");
@@ -147,7 +148,7 @@ test("fresh local stores and authenticated scopes remain independent across rest
   assert.equal(context.installation_id, installation);
   assert.equal(context.local_conversation_id, conversation.id);
   assert.equal(context.local_task_id, task.id);
-  assert.deepEqual(context.messages, [{ role: "user", content: "中文与 emoji 🐾" }]);
+  assert.deepEqual(context.messages, [{ id: store.read(scope, conversation.id).messages[0].id, role: "user", content: "中文与 emoji 🐾" }]);
   store.close();
   store = new ClientStore(root);
   assert.equal(store.installationID, installation);
@@ -298,7 +299,7 @@ test('ISCP schema upgrades preserve existing installations, history, drafts and 
   const bytes=Buffer.from('existing attachment'),file=store.saveFile(scope,conversation.id,'existing.txt',bytes);
   const task=store.enqueue(scope,conversation.id,'existing user message',[file.id]);
   store.saveDraft(scope,conversation.id,'unsent draft',[file.id],0);const before=store.read(scope,conversation.id),inputDigest=store.request(scope,task.request_id).input_digest;
-  store.db.exec('DROP TABLE client_actions; DROP TABLE recording_applications; DROP TABLE message_deliveries; DROP TABLE message_files; ALTER TABLE conversations DROP COLUMN hidden; ALTER TABLE conversations DROP COLUMN title_pending; ALTER TABLE schedule_definitions DROP COLUMN calendar;');
+  store.db.exec('DROP TABLE clarification_selections; DROP TABLE message_clarifications; DROP TABLE handle_upload_intents; DROP TABLE client_actions; DROP TABLE recording_applications; DROP TABLE message_deliveries; DROP TABLE message_files; ALTER TABLE conversations DROP COLUMN hidden; ALTER TABLE conversations DROP COLUMN title_pending; ALTER TABLE schedule_definitions DROP COLUMN calendar;');
   if(version===6)store.db.exec('DROP TABLE execution_projection; DROP TABLE event_projection; PRAGMA user_version=6;');
   else if(version===7)store.db.exec('ALTER TABLE event_projection DROP COLUMN epoch; PRAGMA user_version=7;');
   else store.db.exec('PRAGMA user_version=8;');
@@ -319,7 +320,7 @@ test("v10 migration adds only reliable future message links and preserves every 
   const payload = JSON.stringify({ content: "historical answer", files: [] });
   store.commitDelivery(scope, { request_id: task.request_id, sequence: 1, digest: digest(payload), payload }, new Map());
   store.acknowledge(scope, task.request_id, 1, digest(payload));
-  store.db.exec("DROP TABLE client_actions; DROP TABLE recording_applications; DROP TABLE message_deliveries; PRAGMA user_version=10;");
+  store.db.exec("DROP TABLE clarification_selections; DROP TABLE message_clarifications; DROP TABLE handle_upload_intents; DROP TABLE client_actions; DROP TABLE recording_applications; DROP TABLE message_deliveries; PRAGMA user_version=10;");
   const tables = store.db.prepare("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name").all().map(row => row.name);
   const original = Object.fromEntries(tables.map(table => [table, store.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
   const installation = store.installationID; store.close(); store = new ClientStore(root);
@@ -360,7 +361,7 @@ test("message linkage failure rolls back text, receipt and output files together
 test("failed v11 schema migration leaves v10 rows and version intact", t => {
   const root = fixture(t); const store = new ClientStore(root), conversation = store.create(scope, "preserved");
   store.enqueue(scope, conversation.id, "preserved input");
-  store.db.exec("DROP TABLE client_actions; DROP TABLE recording_applications; DROP TABLE message_deliveries; CREATE TABLE message_deliveries(unrelated TEXT); INSERT INTO message_deliveries VALUES('preserved conflicting data'); PRAGMA user_version=10;");
+  store.db.exec("DROP TABLE clarification_selections; DROP TABLE message_clarifications; DROP TABLE handle_upload_intents; DROP TABLE client_actions; DROP TABLE recording_applications; DROP TABLE message_deliveries; CREATE TABLE message_deliveries(unrelated TEXT); INSERT INTO message_deliveries VALUES('preserved conflicting data'); PRAGMA user_version=10;");
   const original = store.db.prepare("SELECT * FROM messages").all(); store.close();
   assert.throws(() => new ClientStore(root), /already exists/);
   const db = new DatabaseSync(path.join(root, "client.sqlite"));
@@ -368,4 +369,44 @@ test("failed v11 schema migration leaves v10 rows and version intact", t => {
     assert.equal(db.prepare("PRAGMA user_version").get().user_version, 10); assert.deepEqual(db.prepare("SELECT * FROM messages").all(), original);
     assert.equal(db.prepare("SELECT unrelated FROM message_deliveries").get().unrelated, "preserved conflicting data");
   } finally { db.close(); }
+});
+
+test('v13 context migration preserves existing data and rolls back a conflicting migration', t => {
+  const root = fixture(t); let store = new ClientStore(root);
+  const conversation = store.create(scope, 'original'), file = store.saveFile(scope, conversation.id, 'original.txt', Buffer.from('original bytes'));
+  const task = store.enqueue(scope, conversation.id, 'original question', [file.id]);
+  const before = store.read(scope, conversation.id), originalContext = store.request(scope, task.request_id).context_json, installation = store.installationID;
+  store.db.exec("DROP TABLE clarification_selections; DROP TABLE message_clarifications; DROP TABLE handle_upload_intents; CREATE TABLE message_clarifications(conflict TEXT); INSERT INTO message_clarifications VALUES('preserved'); PRAGMA user_version=13;");
+  store.close(); assert.throws(() => new ClientStore(root), /already exists/);
+  const inspect = new DatabaseSync(path.join(root, 'client.sqlite'));
+  assert.equal(inspect.prepare('PRAGMA user_version').get().user_version, 13);
+  assert.equal(inspect.prepare('SELECT conflict FROM message_clarifications').get().conflict, 'preserved');
+  assert.equal(inspect.prepare("SELECT count(*) AS n FROM sqlite_schema WHERE name='handle_upload_intents'").get().n, 0);
+  inspect.exec('DROP TABLE message_clarifications'); inspect.close();
+  store = new ClientStore(root); t.after(() => store.close());
+  assert.equal(store.installationID, installation); assert.deepEqual(store.read(scope, conversation.id), before);
+  assert.equal(store.request(scope, task.request_id).context_json, originalContext);
+  assert.equal(store.file(scope, file.id).content.toString(), 'original bytes');
+  assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, CLIENT_SCHEMA_VERSION);
+});
+
+test('clarification record commits with its assistant message and reappears only as history data', t => {
+  const root = fixture(t); let store = new ClientStore(root);
+  const conversation = store.create(scope, 'clarification'), original = store.enqueue(scope, conversation.id, 'what should happen');
+  store.markSubmitted(scope, original.request_id);
+  const originalContext = store.context(scope, original.request_id);
+  const record = { schema_version: 2, id: crypto.randomUUID(), request_id: original.request_id, source_message_id: originalContext.messages.at(-1).id, source_text_sha256: digest('what should happen'),
+    context_sha256: conversationContextDigest(originalContext.messages), prompt_sha256: digest('请选择处理方式'),
+    issued_at: new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z'),
+    expires_at: new Date(Math.floor(Date.now() / 1000) * 1000 + 3600000).toISOString().replace('.000Z', 'Z'),
+    graph_revision: 'graph.1', catalog_revision: 'catalog.1', calibration_revision: 'calibration.1',
+    options: [{ n: 1, kind: 'route', candidate_id: 'document.read#read', binding_sha256: 'b'.repeat(64) }], mac: 'a'.repeat(64) };
+  const payload = JSON.stringify({ content: '请选择处理方式', files: [], clarification: record });
+  store.commitDelivery(scope, { request_id: original.request_id, sequence: 1, digest: digest(payload), payload }, new Map());
+  store.acknowledge(scope, original.request_id, 1, digest(payload)); store.close(); store = new ClientStore(root);
+  const next = store.enqueue(scope, conversation.id, '1');
+  const messages = JSON.parse(store.request(scope, next.request_id).context_json).messages;
+  assert.deepEqual(messages.at(-2).clarification, record);
+  assert.equal(store.db.prepare('SELECT count(*) AS n FROM message_clarifications').get().n, 1);
+  store.close();
 });

@@ -1,8 +1,10 @@
 import crypto from "node:crypto";
+import { validateApprovalDecisionReceipt } from "./approval-receipt.mjs";
 import { traceLatency, latencyNow } from "./latency-trace.mjs";
 import { CLIENT_LIMITS, parseResultPayload } from "./client-store.mjs";
 import { ISCPRequestNotSentError } from "./iscp-transport.mjs";
 import { ExecutionProgressClient } from "./execution-progress.mjs";
+import { validateSubmissionContext } from "./conversation-context.mjs";
 
 const SERVER_STATES = new Set(["accepted", "running", "completed", "failed", "canceled", "unknown", "delivery_expired", "delivered"]);
 const AUTH_GENERATION = Symbol("execution_auth_generation");
@@ -55,6 +57,7 @@ export class ExecutionClient {
         await this.#lookup(scope, original);
         return this.#view(scope, requestID);
       }
+      validateSubmissionContext(JSON.parse(original.context_json));
       this.auth.validateExecutionRequest?.(original.context_json);
       // Uploading immutable, digest-bound inputs cannot execute this task. Keep
       // its submission fence untouched until staging completes, so an explicit
@@ -150,14 +153,15 @@ export class ExecutionClient {
       this.store.approvalDecision(scope, requestID, approvalID, digest, decision);
       this.onChange();
       try {
+        const approvalRevision = this.store.executionProjection(scope, requestID).revision;
         const response = await this.#fetch(scope, `/api/v1/executions/${requestID}/approvals/${encodeURIComponent(approvalID)}`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ digest, decision, ...(this.auth.descriptor?.transport === "iscp" ? {input_digest:task.input_digest} : {}) }),
-          ...(this.auth.descriptor?.transport === "iscp" ? {expectedRevision:String(this.store.executionProjection(scope,requestID).revision)} : {}),
+          ...(this.auth.descriptor?.transport === "iscp" ? {expectedRevision:String(approvalRevision)} : {}),
         });
         if (!response.ok) { await response.body?.cancel(); throw new Error("Approval decision is awaiting reconciliation"); }
         const receipt = await json(response);
         this.#sameIdentity(scope);
-        if (receipt?.resolved !== true || Object.keys(receipt).join(",") !== "resolved") throw new Error("Invalid approval receipt");
+        validateApprovalDecisionReceipt(receipt, {transport:this.auth.descriptor?.transport, requestID, approvalID, digest, decision, revision:approvalRevision});
         this.store.approvalDecision(scope, requestID, approvalID, digest, decision, true);
         await this.#lookup(scope, task);
         return { resolved: true };
@@ -270,6 +274,7 @@ export class ExecutionClient {
       if (event.result) throw new Error("Unexpected execution result");
       this.store.setExecutionState(scope, task.request_id, event.state);
       this.progressClient.ensure(scope, this.store.request(scope, task.request_id));
+      await this.#uploadRequestedHandles(scope, task, event);
       return;
     }
     const result = event.result;
@@ -310,6 +315,35 @@ export class ExecutionClient {
       });
       if (!response.ok) { await response.body?.cancel(); throw new Error("Input file upload was not accepted"); }
       await response.body?.cancel();
+    }
+  }
+
+  async #uploadRequestedHandles(scope, task, event) {
+    const pending = event.pending_inputs ?? [];
+    if (!Array.isArray(pending) || pending.length > 32 || (pending.length && !["accepted", "running"].includes(event.state))) throw new Error("Invalid requested file state");
+    const seen = new Set();
+    for (const row of pending) {
+      if (!row || Object.keys(row).sort().join(",") !== "file_id,sha256,size" ||
+          !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(row.file_id) ||
+          !Number.isSafeInteger(row.size) || row.size < 0 || row.size > CLIENT_LIMITS.resultBytes || !/^[a-f0-9]{64}$/u.test(row.sha256) || seen.has(row.file_id)) throw new Error("Invalid requested file manifest");
+      seen.add(row.file_id);
+      // Mark the immutable operation uncertain before sending. A crash or lost
+      // response must never create a fresh operation or silently resend it.
+      let intent;
+      try {
+        const file = this.store.file(scope, row.file_id, CLIENT_LIMITS.resultBytes);
+        if (file.content.byteLength !== row.size || sha256(file.content) !== row.sha256) continue;
+        intent = this.store.claimHandleUpload(scope, task.request_id, row);
+        if (!intent) continue;
+        const response = await this.#fetch(scope, `/api/v1/inputs/${task.request_id}/files/${row.file_id}`, {
+          method: "PUT", operationID: intent.operation_id,
+          headers: { "Content-Type": "application/octet-stream", "X-SparkClaw-Digest": row.sha256 }, body: file.content,
+        });
+        await response.body?.cancel();
+        if (response.ok) this.store.finishHandleUpload(scope, task.request_id, row.file_id, intent.operation_id, "done");
+      } catch (error) {
+        if (intent && error instanceof ISCPRequestNotSentError) this.store.finishHandleUpload(scope, task.request_id, row.file_id, intent.operation_id, "ready");
+      }
     }
   }
 

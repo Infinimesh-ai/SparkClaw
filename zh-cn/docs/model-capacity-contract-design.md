@@ -99,7 +99,7 @@ actual_input_tokens <= input_budget
 | 等级 | 代表性工作 |
 |---|---|
 | `guard` | 紧凑 Guard 分类 |
-| `compact_structured` | Tree candidate score 与有界 selection JSON |
+| `compact_structured` | 原文请求拆分、Tree candidate score 与有界 selection JSON |
 | `workflow_structured` | Workflow action/final envelope 与生成的工具参数 |
 | `answer` | 对话、direct chat 与 Workflow 完成后的用户回答 |
 | `vision_structured` | Fast 图片检查与文档图片语义提取 |
@@ -107,6 +107,10 @@ actual_input_tokens <= input_budget
 
 具体正数值是 profile-specific 的保守规划上限。评测覆盖每个等级的代表性最坏案例，确认该上限支持
 当前模型能力；不为每个 operation 搜索各自唯一的最小值。
+
+会话上下文扩展把 `intent.request_split` 与 `intent.request_split_repair` 注册为 Fast lane 的
+`compact_structured` 操作，不新增输出等级或逐调用输出预算覆盖。完整 strict schema 与已准入
+prompt 通过和 Tree 相同的 Router 路径计数。
 
 类型化 operation registry 的概念结构为：
 

@@ -2,6 +2,12 @@
 
 > 语言：[English](../../docs/context-assembly-plan.md) | 简体中文
 
+源码更新（2026-10-30）：请求拆分与会话文件扩展已接入现有 builder。最终校准、原生端验收和
+发布状态见[会话上下文设计](conversation-file-context-and-clarification-design.md)。完整原话仍通过
+早期输入 gate，并保留为 guard、risk 与 Workflow goal 的权威输入。拆分有效后，embedding 与
+Tree 使用逐字 `business_span`；拆分失败且无外发证据时使用原话。拆分及其一次修复使用
+`compact_structured` 和同一份已准入历史／资源快照，不包含候选图，也不预读资源内容。
+
 状态：2026-08-31 完成实施。Observation 去重、滚动 observation 压缩、稳定 prefix 排序、
 ContextBuilder、统一 observation envelope、`observation.read`、Profile 容量集成、有界历史
 获取、fixed owner text 拒绝与合法结构化数据 variant 均已生效。
@@ -66,8 +72,8 @@ episode 和 3 张 image。更大窗口只允许同一批选中信息保留更丰
 ### 已实施变更
 
 - Workflow admission 从所选 profile 解析 typed operation 容量，旧常量与兼容算术已移除；
-- Workflow、Tree 与 conversation-answer builder 在早期超长问题 gate 后，把原样 owner question
-  注册为 fixed section；
+- Workflow 与 conversation-answer builder 在早期超长问题 gate 后保留原样 owner question；
+  Tree 的 fixed section 使用校验后的原文业务片段，或允许拆分回退时的完整原话；
 - Owner text、当前 resource、已解析 document、history、observation、schema 与 output contract
   保持为独立语义 section；
 - JSON、resource、document、evidence 与 tool-schema section 只在完整注册 variant 之间切换；
@@ -135,8 +141,8 @@ Fixed 表示精确保留语义，不表示 provider 必须接纳它。当 option
 而 fixed instruction、原样 owner question、完整 schema 与必要结构化 metadata 仍无法容纳时，assembly
 以类型化 input-too-long error 失败，绝不截断 fixed content 强行 dispatch。
 
-早期 `owner_question_too_long` gate 继续独立存在，因为 Guard 与 Embedding 必须在历史或路由前解析
-原文。后续 whole-request check 仍然必需，因为 system rule、schema、resource、history、observation
+早期 `owner_question_too_long` gate 继续独立存在：完整原话必须在拆分或路由前满足 Guard 与
+Embedding 容量。该准入检查不会把原始交付子句加入业务评分。后续 whole-request check 仍然必需，因为 system rule、schema、resource、history、observation
 与 image token 同样占用容量。
 
 ### 结构化 Variant

@@ -21,6 +21,29 @@ and shutdown.
 This document describes the current implementation. It replaces the completed
 Store migration plans and acceptance records.
 
+## Conversation Context Metadata
+
+The 2026-10-30 [conversation-file and clarification extension](conversation-file-context-and-clarification-design.md)
+persists `Message.FilesUnavailable` and optional `Message.Clarification` with the
+host conversation. Memory, File snapshots and PostgreSQL retain the same fields;
+PostgreSQL migration `0020_conversation_context.sql` adds `files_unavailable`
+(default false) and `clarification` (default JSON null) without replacing existing
+messages. Older records remain ordinary messages with no executable selection.
+
+Signed records use clarification schema 2 and bind identity, original request,
+context digest, displayed question, graph/catalog/calibration revisions and each
+option's resource or endpoint binding. A stored record alone authorizes nothing:
+Agent verifies an adjacent reply and current conditions, and execution control
+atomically claims a successor request before execution. Claims are minimal
+control state, separate from host/desktop conversation retention.
+
+Desktop ClientStore schema 15 retains question records, upload intents and
+selection-to-request associations in its own database; it does not write host
+Store history. Its supported in-place migration preserves schemas 6–14.
+Execution envelope schema 2 and clarification schema 2 are separate from both
+SQLite schema 15 and PostgreSQL migration 0020. The linked design records native
+acceptance and release status; these schema changes do not imply deployment.
+
 ## Ownership Boundary
 
 Repository interfaces live in `services/gateway/internal/store/store.go`.

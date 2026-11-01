@@ -2,6 +2,15 @@
 
 > Language: English | [简体中文](../zh-cn/docs/context-assembly-plan.md)
 
+Source update (2026-10-30): the request-split and conversation-file extension is
+integrated through the existing builders. See the [conversation-context design](conversation-file-context-and-clarification-design.md)
+for final calibration, native acceptance and release status. The original full
+request still passes the early input gate and remains authoritative for guard,
+risk and Workflow goals. After a valid split, embedding and Tree use the exact
+`business_span`; split failure without external evidence uses the original text.
+The split and its single repair use `compact_structured` and the same admitted
+history/resource snapshot, with no candidate graph or resource-content read.
+
 Status: Implemented 2026-08-31. Observation deduplication, rolling observation
 compaction, stable prefix ordering, ContextBuilder, uniform observation
 envelopes, `observation.read`, profile capacity integration, bounded historical
@@ -83,8 +92,9 @@ window only lets the same selected information retain richer legal variants.
 
 - Workflow admission resolves typed operation capacity from the selected
   profile; old constants and compatibility arithmetic are absent.
-- Workflow, Tree, and conversation-answer builders register the unchanged owner
-  question as a fixed section after the early oversized-question gate.
+- Workflow and conversation-answer builders keep the original owner question
+  fixed after the early oversized-question gate; Tree fixes the validated
+  verbatim business span (or the original question on permitted split fallback).
 - Owner text, current resources, resolved documents, history, observations,
   schemas, and output contracts remain separate semantic sections.
 - JSON, resource, document, evidence, and tool-schema sections switch only
@@ -167,8 +177,9 @@ structured metadata do not fit after optional sections reach their smallest
 legal variants, assembly fails with a typed input-too-long error. It never
 truncates fixed content to force dispatch.
 
-The early `owner_question_too_long` gate remains separate because Guard and
-Embedding must parse the unchanged text before history or routing. The later
+The early `owner_question_too_long` gate remains separate: the full original
+request must fit Guard and Embedding capacity before splitting or routing.
+This admission check does not add the original delivery clause to business scoring. The later
 whole-request check is still required because system rules, schemas, resources,
 history, observations, and image tokens also consume capacity.
 

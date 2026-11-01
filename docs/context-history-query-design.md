@@ -2,6 +2,16 @@
 
 > Language: English | [简体中文](../zh-cn/docs/context-history-query-design.md)
 
+Source extension (2026-10-30): the [conversation-file design](conversation-file-context-and-clarification-design.md)
+adds immutable file metadata and signed continuation records to admitted
+messages, without increasing the existing selected history counts. A user or
+assistant message carrying only `files_unavailable=true` remains eligible; it
+must not disappear and expose an older file as the apparent latest attachment.
+Named-file matching may inspect admitted message candidates beyond the selected
+routing window, but does not search outside the submitted envelope or read file
+bytes. Selection continuations retain the original request, signed question and
+current reply in one bounded snapshot; overflow requires restatement.
+
 Status: Implemented 2026-08-31 after acceptance and a minimum-architecture
 review.
 

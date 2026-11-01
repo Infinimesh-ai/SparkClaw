@@ -2,6 +2,18 @@
 
 > Language: English | [简体中文](../zh-cn/docs/workbench-runtime-convergence-design.md)
 
+Source extension (2026-10-30): [conversation files and signed clarification](conversation-file-context-and-clarification-design.md)
+keep this ownership model. Execution envelopes now require schema 2 with message
+IDs, optional scoped file manifests, `files_unavailable`, and signed clarification
+records. Schema 1 is rejected; this requires a matched gateway/desktop release.
+Desktop ClientStore schema 15 migrates supported schemas 6–14 in place and keeps
+existing conversation/file data. The earlier clean-start cutover below does not
+authorize clearing current workbench data for this extension. Host Store adds
+message metadata through migration 0020; execution control owns signing and
+single-use claims, not durable conversation bodies. Implementation and source
+tests do not establish native qualification or deployment; use the linked
+extension's acceptance record for those gates.
+
 Date: 2026-10-06. Status: merged into local `main` on 2026-10-08 from `codex/workbench-runtime-convergence`; source verification and release limits are recorded in the [implementation ledger](workbench-convergence-implementation.md). Production cutover is not performed. Source baseline: local `main` at `9b92968d`. A source revision does not establish the version of a running service or installed application.
 
 SparkClaw keeps both WebChat and desktop workbenches. Both own local persistence and use the same business execution model. WebChat's local data resides on its deployment host, alongside the execution service; desktop data resides on the desktop host. Physical placement and connection methods do not define separate business architectures.

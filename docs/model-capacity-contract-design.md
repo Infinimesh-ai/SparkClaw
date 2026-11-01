@@ -117,7 +117,7 @@ and current model ability:
 | Class | Representative work |
 |---|---|
 | `guard` | Compact Guard classification |
-| `compact_structured` | Tree candidate scores and bounded selection JSON |
+| `compact_structured` | Verbatim request splits, Tree candidate scores and bounded selection JSON |
 | `workflow_structured` | Workflow action/final envelopes and generated tool arguments |
 | `answer` | Conversation, direct-chat, and completed-workflow user answers |
 | `vision_structured` | Fast image inspection and document-image semantic extraction |
@@ -127,6 +127,11 @@ The exact positive values are profile-specific conservative planning limits.
 Evaluation exercises representative worst cases for each class and confirms
 that the chosen ceiling supports the current model capability. It does not
 search for a unique minimum for every operation.
+
+The conversation-context extension registers `intent.request_split` and
+`intent.request_split_repair` on Fast with `compact_structured`; they do not add
+an output class or per-call output-budget override. Their complete strict schema
+and admitted prompt are counted through the same Router path as Tree.
 
 The typed operation registry conceptually contains:
 

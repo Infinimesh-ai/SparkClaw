@@ -9,6 +9,15 @@
 > external AI, not an MCP server consumed by SparkClaw and not SparkClaw's local
 > model. All product boundaries required for implementation are resolved.
 
+> Amendment (2026-10-30, owner decision): an owner's text-requested send to an
+> endpoint other than the current conversation now waits for owner approval of
+> the exact result and endpoint, and a schedule targeting another conversation is
+> approved when created. Returning to the current conversation, composer-selected
+> targets and inbound SparkClaw MCP keep the rules below. The new approval uses
+> action `delivery.external_send`; retired `message_control.external_send`
+> approvals stay blocked. See
+> [conversation file context design 4.6](conversation-file-context-and-clarification-design.md#46-external-send-approval).
+
 ## Decision Summary
 
 Approval is an execution property, not a delivery-destination property. Every

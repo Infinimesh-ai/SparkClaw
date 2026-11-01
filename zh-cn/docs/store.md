@@ -16,6 +16,24 @@ repository，在 memory、file 与 PostgreSQL backend 上实现同一契约，�
 
 本文描述当前实现，并取代已经完成的 Store 迁移方案与验收记录。
 
+## 会话上下文元数据
+
+2026-10-30 的[会话文件与澄清扩展](conversation-file-context-and-clarification-design.md)将
+`Message.FilesUnavailable` 和可选 `Message.Clarification` 与主机会话一起持久化。Memory、File
+snapshot 与 PostgreSQL 保留相同字段；PostgreSQL migration `0020_conversation_context.sql`
+新增 `files_unavailable`（默认 false）和 `clarification`（默认 JSON null），不替换既有消息。
+旧记录仍是普通消息，不携带可执行选择。
+
+签名记录使用 clarification schema 2，绑定身份、原始请求、上下文摘要、展示问题、
+graph／catalog／calibration revision 及各选项的资源或 endpoint binding。仅保存记录不产生
+执行权限：Agent 校验紧邻回复和当前条件后，由执行控制域在执行前原子认领后继请求。
+认领属于最小控制状态，与主机／桌面会话的保留生命周期分离。
+
+桌面 ClientStore schema 15 在自己的数据库中保留问题记录、上传 intent 和选择与请求的关联，
+不写入主机 Store 历史；对支持的 schema 6–14 原地迁移并保留数据。执行 envelope schema 2、
+clarification schema 2 与 SQLite schema 15、PostgreSQL migration 0020 是不同层次的版本。
+原生端验收及发布状态见主设计，这些 schema 变化不代表已经部署。
+
 ## 职责边界
 
 Repository interface 位于 `services/gateway/internal/store/store.go`。消费者只依赖自身使用的

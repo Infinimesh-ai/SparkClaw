@@ -2,6 +2,11 @@
 
 > 语言：[English](../../docs/tree-session-context-parity-design.md) | 简体中文
 
+源码更新（2026-10-30）：[会话文件与请求拆分扩展](conversation-file-context-and-clarification-design.md)
+为 `intent.request_split` 及其一次修复复用本 typed builder。拆分接收原话和已准入元数据，
+不接收候选；业务 Tree 评分接收校验后的原文业务片段和同一快照。下文历史验收覆盖较早的
+Tree 契约，扩展的最终模型校准、配套原生端验收和发布记录在主设计中，不能由旧里程碑推定。
+
 状态：设计经接受与最小架构复审后，于 2026-08-31 完成实施，包括同 session 上下文集成与
 第 8 节的 Tree 结构化输出加固。
 
@@ -40,7 +45,7 @@
 
 - 跨 session retrieval 或 Memory 行为；
 - 固定的 8 条 message、6 条 tool、4 条 episode、3 张 image 选择；
-- Embedding 输入，仍为未经修改的当前 owner 问题；
+- Embedding 上下文隔离：仅使用校验后的原文业务片段，或允许拆分回退时的完整原话；
 - 语义图所有权、fusion weight、threshold 或 route binding；
 - Policy、Approval、artifact authorization 或 external-MCP isolation；
 - temperature、seed、多次采样、consensus 或 score calibration；
@@ -114,6 +119,8 @@ Tree-visible resolved document 只包含：
 name, ref, content_type, format, source, activity, provenance
 ```
 
+会话 handle 投影省略内部 `ref` 与 `provenance`，保留 name、format、source 和 activity 作为
+路由数据。最新文件组不完整构成边界，不能据此选择更旧文件。
 Hash、byte count、dimension、内部 message-part ID、document ID、parent ID 和 source ID 保留在
 权威 Runtime state。Tree 不能把可见 reference 变成授权，也不能绑定最终 target。
 
@@ -133,7 +140,7 @@ Tree 才组装完整请求：
 |---|---|
 | Tree instruction 与 injection boundary | fixed system content |
 | 完整 eligible 语义图及 revision | fixed structured data |
-| Source kind 与原样 owner question | fixed data |
+| Source kind 与原文业务片段（拆分／回退使用原话） | fixed data |
 | 当前受治理 resource | protected `full -> minimal`；不允许任意截断 |
 | 已解析受治理 document | protected `full -> minimal`；不允许任意截断 |
 | 同 session 历史 | Tree-specific `full -> compact -> drop` variant |

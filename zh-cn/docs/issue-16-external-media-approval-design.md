@@ -7,6 +7,12 @@
 > 权威。“外部 MCP”指 SparkClaw 暴露给 external AI 的 MCP surface，而不是 SparkClaw 接入
 > 的 MCP server，也不指 SparkClaw local model。实现所需产品边界均已裁决。
 
+> 修订（2026-10-30，所有者决定）：所有者用文字要求发往当前会话以外端点的外发，现在需等待
+> 所有者审批确切结果和端点；目标为其他会话的定时任务在创建时审批。交回当前会话、输入框手选
+> 目标和入站 SparkClaw MCP 仍按下文规则。新审批使用动作 `delivery.external_send`；已退役的
+> `message_control.external_send` 审批继续被阻止。见
+> [会话文件上下文设计 4.6](conversation-file-context-and-clarification-design.md#46-外发审批)。
+
 ## 决策摘要
 
 审批是 execution property，不是 delivery-destination property。每个 Workflow 使用已注册

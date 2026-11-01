@@ -1,0 +1,412 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-30",
+  "status": "scoped_source_and_isolated_acceptance_passed",
+  "scope": [
+    "conversation_file_context",
+    "verbatim_request_delivery_split",
+    "low_confidence_signed_clarification"
+  ],
+  "owner_deferred": [
+    "document_modification_capability",
+    "document_editor_failures",
+    "generated_replacement_content"
+  ],
+  "release": {
+    "packaged": false,
+    "installed": false,
+    "deployed": false,
+    "pushed": false,
+    "paired_release_accepted": false,
+    "infini_decision_0051": "proposed",
+    "counterpart_review_complete": false
+  },
+  "source": {
+    "head": "022ed7706380f63cad27b577aa92cb31d80b4633",
+    "tar_sha256": "6c084b16806b576ddd77cfca31270e72a07253a54550c646e3d5ae02d98ca88d",
+    "files": 3164,
+    "uncommitted": true,
+    "frozen_manifest_sha256": "ee755c5325a9093c70376e73862e927cb0c70924dbd9d9cafb0170a194c67b55",
+    "product_files_match_qualified_snapshot": true,
+    "post_snapshot_test_overlays": [
+      {
+        "path": "apps/desktop/test/conversation-native-fixture.mjs",
+        "sha256": "f80ec36e6bc30f6f9a6ef50dad55c998d19521b163ab62e308dc03b0184ac771"
+      },
+      {
+        "path": "services/gateway/internal/agent/request_delivery_integration_test.go",
+        "sha256": "ced4dcc91c28ac079517b8444330751e621ce7b3893badc485c7c2895910a4b1"
+      }
+    ],
+    "overlay_validation": "Actual model-call name assertions pass focused race tests; native fixture additionally waits for committed message and original file controls to be visible in both modes",
+    "preexisting_preview_files_preserved": 4
+  },
+  "versions": {
+    "execution_envelope": 2,
+    "clarification_record": 2,
+    "desktop_sqlite": 15,
+    "execution_control": 4,
+    "file_message_container": 2,
+    "postgres_migration": "0020_conversation_context.sql",
+    "graph": "2026-10-30.v28.804ad56ee3ef4ceb",
+    "catalog": "2026-10-30.v28",
+    "calibration": "intent-fusion-2026-10-30.v4",
+    "clarify_floor": 0.46,
+    "model_config_sha256": "156ed22783c816278196c45577e50bbf396571d5a6c47f547b716742d3fe9211"
+  },
+  "tests": {
+    "linux_go": {
+      "pass": 5849,
+      "fail": 0,
+      "skip": 206,
+      "counts_include_subtests": true,
+      "passed_packages": 78,
+      "no_test_packages": 12,
+      "build_exit": 0,
+      "vet_exit": 0,
+      "log_sha256": "1272af4fecd0266e9e47c5c73a4c2d9a094d94b268791a833ac02205dbea8b09"
+    },
+    "agent": {
+      "pass": 801,
+      "fail": 0,
+      "skip": 6
+    },
+    "desktop": {
+      "pass": 609,
+      "fail": 0,
+      "skip": 1,
+      "mode": "full_serial",
+      "initial_concurrent_failures_retained": 2
+    },
+    "documents": {
+      "source_mirror_pairs_checked": 137,
+      "local_links_passed": true,
+      "bilingual_structure_and_example_shapes_passed": true
+    },
+    "webchat": {
+      "pass": 561,
+      "fail": 0,
+      "production_build_passed": true
+    },
+    "store_with_postgres": {
+      "pass": 1825,
+      "fail": 0,
+      "skip": 1
+    },
+    "affected_race": {
+      "packages": [
+        "agent",
+        "toolhub",
+        "gateway"
+      ],
+      "passed": true
+    },
+    "real_split": {
+      "cases": 6,
+      "repeats_per_case": 3,
+      "passed": 18,
+      "failed": 0,
+      "timing": {
+        "samples": 18,
+        "p50_ms": 570,
+        "p90_ms": 1560,
+        "percentile_method": "nearest_rank"
+      }
+    },
+    "real_calibration": {
+      "cases": 23,
+      "top1_correct": 23,
+      "default_and_alpha_sweeps_passed": true
+    }
+  },
+  "native": {
+    "mock": {
+      "summary": {
+        "cases": 7,
+        "requests": 14,
+        "original_ui": true,
+        "mock": true,
+        "wrong_file_deliveries": 0,
+        "duplicate_execution": 0,
+        "direct_business_attempts": 0
+      },
+      "cases": [
+        "original attachment upload and first-turn document read",
+        "second-turn business plus current-route delivery reads the historical file",
+        "pure historical-file delivery returns verified independent output",
+        "same-name signed choice 1 selects exactly its original file",
+        "same-name signed choice 2 selects exactly its original file",
+        "missing latest file asks for reattachment without guessing an older file",
+        "explicit reattachment restores delivery with a new identity"
+      ],
+      "model": {
+        "kind": "production_agent",
+        "mock": true
+      },
+      "executions_started": 14,
+      "operations": {
+        "browser.receipt": 1,
+        "capabilities.get": 1,
+        "events.ack": 1,
+        "events.pull": 10,
+        "events.snapshot": 1,
+        "execution.ack": 14,
+        "execution.file.get": 4,
+        "execution.input.put": 11,
+        "execution.lookup": 18,
+        "execution.progress.stream": 14,
+        "execution.submit": 14,
+        "installation.bind": 1,
+        "notifications.list": 1,
+        "object.describe": 4,
+        "object.read": 4,
+        "presentation.config": 1,
+        "presentation.ready": 1,
+        "settings.owner.get": 1,
+        "transfer.chunk": 7,
+        "transfer.commit": 7,
+        "transfer.open": 7,
+        "workbench.identity": 1
+      },
+      "native_evidence_sha256": "13af6438c31eaff925555759d73862ee74d525a833077a12ef44a40d13142c7b",
+      "build_receipt_sha256": "070cc465fd1221d5cfa8c26e0fe8218a5e5e075a0260f05fcc761c8a7b01b348",
+      "gateway_binary_sha256": "317136eb6a2553f5d89cda56a46c2b66ff159bec1884e4a8b3be51e6c893aeca",
+      "independent_relay_source": {
+        "revision": "f6037224d5b6742cb008ffc946a8ec1834091e91",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "gateway_runtime": {
+        "platform": "linux",
+        "image_id": "sha256:865ab6631f4b8994769d43966141a539b9d1ca1a77bf60b9a639b4324bc946e0",
+        "architecture": "arm64"
+      },
+      "stage_timings": {
+        "send_to_local_delivery": {
+          "samples": 14,
+          "p50_ms": 465,
+          "p90_ms": 4229,
+          "percentile_method": "nearest_rank"
+        },
+        "send_to_visible_result": {
+          "samples": 14,
+          "p50_ms": 465,
+          "p90_ms": 4230,
+          "percentile_method": "nearest_rank"
+        },
+        "historical_upload_roundtrip": {
+          "samples": 4,
+          "p50_ms": 99,
+          "p90_ms": 112,
+          "percentile_method": "nearest_rank"
+        },
+        "pending_detection_to_upload_start": {
+          "samples": 4,
+          "p50_ms": 1,
+          "p90_ms": 3,
+          "percentile_method": "nearest_rank"
+        }
+      }
+    },
+    "real_model": {
+      "summary": {
+        "cases": 7,
+        "requests": 14,
+        "original_ui": true,
+        "mock": false,
+        "wrong_file_deliveries": 0,
+        "duplicate_execution": 0,
+        "direct_business_attempts": 0
+      },
+      "cases": [
+        "original attachment upload and first-turn document read",
+        "second-turn business plus current-route delivery reads the historical file",
+        "pure historical-file delivery returns verified independent output",
+        "same-name signed choice 1 selects exactly its original file",
+        "same-name signed choice 2 selects exactly its original file",
+        "missing latest file asks for reattachment without guessing an older file",
+        "explicit reattachment restores delivery with a new identity"
+      ],
+      "model": {
+        "deep_model": "sparkclaw-fast",
+        "fast_model": "sparkclaw-fast",
+        "kind": "production_agent",
+        "mock": false
+      },
+      "executions_started": 14,
+      "operations": {
+        "browser.receipt": 1,
+        "capabilities.get": 3,
+        "events.ack": 1,
+        "events.pull": 37,
+        "events.snapshot": 1,
+        "execution.ack": 14,
+        "execution.file.get": 4,
+        "execution.input.put": 11,
+        "execution.lookup": 29,
+        "execution.progress.stream": 14,
+        "execution.submit": 14,
+        "installation.bind": 1,
+        "notifications.list": 3,
+        "object.describe": 4,
+        "object.read": 4,
+        "presentation.config": 1,
+        "presentation.ready": 1,
+        "settings.owner.get": 1,
+        "transfer.chunk": 7,
+        "transfer.commit": 7,
+        "transfer.open": 7,
+        "workbench.identity": 1
+      },
+      "native_evidence_sha256": "cdf41d2b355b224eee2cd2ab45bb94ff6a6d4d5987481289005e6b7b1ddb5899",
+      "build_receipt_sha256": "598c7b1dbbc78566ba986959419279583c41b0bc57d0cedd498941b87d351363",
+      "gateway_binary_sha256": "317136eb6a2553f5d89cda56a46c2b66ff159bec1884e4a8b3be51e6c893aeca",
+      "independent_relay_source": {
+        "revision": "f6037224d5b6742cb008ffc946a8ec1834091e91",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "gateway_runtime": {
+        "platform": "linux",
+        "image_id": "sha256:865ab6631f4b8994769d43966141a539b9d1ca1a77bf60b9a639b4324bc946e0",
+        "architecture": "arm64"
+      },
+      "stage_timings": {
+        "send_to_local_delivery": {
+          "samples": 14,
+          "p50_ms": 4534,
+          "p90_ms": 8127,
+          "percentile_method": "nearest_rank"
+        },
+        "send_to_visible_result": {
+          "samples": 14,
+          "p50_ms": 4534,
+          "p90_ms": 8128,
+          "percentile_method": "nearest_rank"
+        },
+        "historical_upload_roundtrip": {
+          "samples": 4,
+          "p50_ms": 100,
+          "p90_ms": 107,
+          "percentile_method": "nearest_rank"
+        },
+        "pending_detection_to_upload_start": {
+          "samples": 4,
+          "p50_ms": 1,
+          "p90_ms": 3,
+          "percentile_method": "nearest_rank"
+        }
+      }
+    }
+  },
+  "boundary_evidence": {
+    "C01": [
+      "desktop/conversation-context: incomplete file groups, trimming and bounds"
+    ],
+    "C02": [
+      "execution/handle_inputs: consistent IDs/digests and current input precedence",
+      "native: both same-name choices"
+    ],
+    "C03": [
+      "execution/handle_inputs: shared concurrent reads and reservations",
+      "gateway/execution_workspace_budget: copy accounting and release"
+    ],
+    "C04": [
+      "desktop/execution-client: unknown upload recovery and restart",
+      "execution/handle_inputs: cancel, deadline, revoke and close"
+    ],
+    "S01": [
+      "agent/intent_request_split_validation",
+      "agent/intent_request_split_call: one repair and shared timeout"
+    ],
+    "S02": [
+      "agent/clarification_boundary: changed endpoint rejection",
+      "agent/intent_request_split_guard: negation and multiple recipients"
+    ],
+    "S03": [
+      "agent/request_delivery_integration: pure delivery scoring bypass and current/conversation file copies"
+    ],
+    "S04": [
+      "agent/intent_request_split: full deferred text",
+      "agent/clarification: timer/source restrictions"
+    ],
+    "Q01": [
+      "clarification: canonical vectors, MAC, scope, expiry and versions",
+      "agent/clarification_boundary: identical-time snapshot and input promotion"
+    ],
+    "Q02": [
+      "execution/clarification: atomic durable claim and restart",
+      "gateway/workbench_clarification: host HTTP restart and original replay"
+    ],
+    "Q03": [
+      "desktop/conversation-context: exact adjacent choice",
+      "agent/clarification_choices: original Top2 only, no backfill"
+    ],
+    "Q04": [
+      "store/conversation_context: memory/file/PostgreSQL parity and migration rollback",
+      "desktop/conversation-context: schema15 migration and transaction rollback"
+    ],
+    "U01": [
+      "native: original sidebar, Files, composer, uploads, history and new conversation",
+      "desktop and WebChat full existing interaction suites"
+    ]
+  },
+  "retained_failures": [
+    {
+      "kind": "real_split",
+      "details": "Initial overlapping spans/wrong object type, then truncated deferred text; strict prompt/repair corrected before 18/18 final run."
+    },
+    {
+      "kind": "old_linux_fixtures",
+      "details": "Initial 10 failing nodes: absent split response, call-count and old input-path assertions; corrected fixtures then final full suite passes."
+    },
+    {
+      "kind": "native_window_occlusion",
+      "details": "Background throttling paused fixture refresh; disabled in fixture only."
+    },
+    {
+      "kind": "approval_receipt_shape",
+      "details": "Existing ISCP richer receipt rejected by HTTP-only validator; transport-specific closed validation added."
+    },
+    {
+      "kind": "current_attachment_delivery",
+      "details": "Real split classified reattached input as conversation_file, omitting a result copy; both object kinds now publish an independent copy."
+    },
+    {
+      "kind": "document_modification",
+      "details": "Generic cross-paragraph edits and generated replacement text diagnostics are deferred by owner. Dedicated prevalidation attempt withdrawn; no edit-fix claim."
+    }
+  ],
+  "performance_limits": {
+    "production_performance_accepted": false,
+    "unmeasured_stages": [
+      "context_construction",
+      "repair_only",
+      "embedding",
+      "tree",
+      "materialization_only",
+      "first_visible_feedback"
+    ],
+    "note": "Upload roundtrip includes service response; native send-to-delivery is not time to first visible feedback."
+  },
+  "evidence_storage": {
+    "private_raw_artifacts_retained": true,
+    "contains_production_data": false,
+    "external_live_messages_sent": false,
+    "log_hashes": {
+      "sparkclaw-context-agent-scoped-final.jsonl": "cab0cb573ba8b2ca73608cf4b4009492cbeb1c12870c3acfd491005ec52e19c7",
+      "sparkclaw-context-desktop-serial-final.log": "37bf0625ee374a89337a68986dd479681f93fecee765a2b84afcd3222c4d98b9",
+      "sparkclaw-context-webchat-tests.log": "11010eecbaf85b86200db073e5814c8bd739470f820a5a586df6f4ef40bcbd20",
+      "sparkclaw-context-store-postgres-final.jsonl": "6a273889ad20366257e038062971484c0af634af463ce689c00e23e4700b382a",
+      "sparkclaw-context-scoped-final-race.log": "ada608e80013aa4405bf7bd0f7aaf2835d5a3d33fa432a9ba63f0dad0e810cd0",
+      "sparkclaw-context-split-bypass-final.log": "f8d748f7ae2000e058a07ac6cbadfa82cfcf7c369ed0bf5208c2269a4910dd2a",
+      "sparkclaw-context-real-split.log": "81ac0ca7c6d447984d8bb744ff164e73faa12a39c3cabc02acad69c8ac3eb322",
+      "sparkclaw-context-real-split-r2.log": "d0c1a0e9438eef6fcb8843e1bff07de557137506f4bed246ad191071c0f728a5",
+      "sparkclaw-context-real-split-r3.log": "7b889b0f825fe4732b1feaac8dac1e2289ad7bc1d3480d4b06ad970e92c3ec4d",
+      "sparkclaw-context-real-calibration-final.log": "9e76e82e10fb03d26c6f42f7d283d292463dad1b78e4b7be5e25fa0881d88d14",
+      "sparkclaw-context-desktop-final.log": "c6e0403440c1d17ae4dc6a21d0d65180c83e6bf989ad17a0994c72f843e36d99",
+      "sparkclaw-conversation-native-real-final.log": "04884e53a48463eb805defc32c66eec90b06aceccd7f8d33f7f468ece862cdb8",
+      "sparkclaw-conversation-native-real-diag.log": "8cca3f1fbebfa8452adfb8413f08747c3e702c5b5770e18a8c9b99dc8b9417ec",
+      "sparkclaw-conversation-native-real-preflight.log": "2d8728d2431543366036523acff0a7b8776c3fb9d2af17c70cb81d0609858ab6",
+      "sparkclaw-conversation-native-real-r4.log": "bb6512c0063d51f1d305e481942a04c0c772459ad8a898d4aaee2acbe76725e1"
+    }
+  }
+}

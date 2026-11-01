@@ -2,52 +2,55 @@
 
 > Language: English | [简体中文](../zh-cn/docs/intent-routing.md)
 
-This document is the current contract for natural-language intent recognition.
-It replaces the former Fast-only classifier, keyword recognizers, routing
-refactor plans, semantic-fusion proposal, profile snapshot, and separate tool
-exposure note.
+This document defines the current source routing contract, including the
+2026-10-30 integration of [conversation files, request splitting and clarification](conversation-file-context-and-clarification-design.md).
+The source now connects validated request splitting, deterministic publication,
+and signed selection dispatch. The linked design records final calibration,
+paired native acceptance and release status separately; source implementation
+does not establish the installed application or deployed service version.
 
 ## Runtime Contract
 
-Natural-language requests are classified by two independent channels over one
-registered semantic graph:
-
 ```text
-current owner-authored question
-  -> candidate-neutral resource resolution
-  -> source-eligible semantic candidates
-      -> embedding similarity scores from the question only
-      -> Fast model reasoning over the question + bounded typed context
-  -> weighted fusion
-  -> final Top-2 decision
-  -> deterministic route assembly
-  -> exactly one leaf Workflow, clarify, blocked, or unmatched
+original owner text + admitted conversation/resource snapshot
+  -> input guard and full-original-question capacity gate
+  -> optional verified adjacent clarification selection
+  -> one request split, at most one repair (no rewriting)
+  -> deterministic external-send and deferred checks
+      -> deferred: whole original request -> schedule validation
+      -> pure delivery: bound object -> Catalog publish route
+      -> business: verbatim business_span
+          -> source-eligible candidates, excluding publish
+              -> embedding: business_span only
+              -> Fast/Tree: same business_span + bounded typed context
+          -> weighted fusion -> Top-2 -> grounding
+  -> policy, approval and current-state checks
+  -> at most one leaf Workflow, or a terminal clarification/block
 ```
 
-The embedding channel receives exactly the current owner-authored question. It
-receives no history, resource marker, attachment metadata, document record, or
-other context. Fast/Tree receives the same question plus bounded current-turn
-resource metadata and recent Agent context as typed data so it can reason over
-follow-up references, omitted subjects or targets, corrections, and ambiguity.
-This asymmetric contract applies to all natural-language intent recognition.
+Textless media bypasses both split and scoring and directly constructs the Catalog
+publish route. Typed schedule actions retain their existing validated path.
+For natural-language business scoring, embedding receives only the exact
+`business_span`, with no resource metadata or history. Tree receives the same span
+and bounded typed context from the admitted snapshot. Failed splits without
+external evidence use the whole original text; failed splits with external
+evidence block. No canonical rewritten request is created or persisted.
 
-There is no model-based request normalization call, canonical request, or
-persisted normalization structure. Fast scores candidates only: it cannot
-rewrite the question, choose a concrete resource, emit a `RouteDecision`, or
-grant authority. Context may help Fast disambiguate meaning, but deterministic
-grounding and Workflow bind resources after fusion.
+The separate Fast split call sees the original request and admitted context,
+without candidates or scores. It may emit only original spans and typed flags.
+Fast/Tree scores candidates; neither call chooses a concrete resource, emits a
+`RouteDecision`, or grants authority. Guard, risk assessment, explicit LocalMind
+assignment and Workflow goal retain the full original text. Query slots and
+business grounding consume the business span; object grounding consumes the
+object span. The main design's section 4.5 is the consumer mapping authority.
 
-The semantic graph is an immutable in-memory projection. It is not a vector
-database and does not own a second capability taxonomy. The graph topology,
-leaf contracts, operations, and Workflow references come from
-`capability.Catalog`; each Workflow Profile contributes realistic embedding
-examples, one Tree description, sibling distinctions, hard negatives, and
-eligible source kinds.
-
-The Gateway builds the embedding index at startup using the configured
-embedding model. A graph or calibration mismatch, invalid registration, or
-unavailable required embedding index fails startup instead of silently
-restoring the old classifier.
+The semantic graph remains an immutable projection of `capability.Catalog` and
+Workflow-owned examples, descriptions, distinctions and eligible sources, not a
+second taxonomy or vector database. Invalid calibration, invalid
+registration or an unavailable required embedding index fails startup. Signed
+choices with stale graph, catalog or calibration revisions are rejected. Removing
+`conversation.answer#publish` from scoring does not remove the Catalog publish
+operation, its Workflow, content governance or external-MCP approvals.
 
 ## Candidate And Score Model
 
@@ -56,7 +59,6 @@ the graph and use `<capability>#<variant>`, for example:
 
 ```text
 conversation.answer#answer
-conversation.answer#publish
 browser.automation#open
 browser.page_read#read
 browser.interaction#interact
@@ -113,13 +115,19 @@ profile output-token allowance are unchanged.
 Workflow-owned semantic registration follows this shape:
 
 ```go
-type RoutingIntentVariant struct {
-    Key                 string
-    Route               RoutingRouteTemplate
-    EmbedTexts          []string
-    TreeDescription     string
-    HardNegatives       []string
-    EligibleSourceKinds []app.MessageSourceKind
+type ClarifyLabel struct {
+    ZH string `json:"zh-CN"`
+    EN string `json:"en"`
+}
+
+type IntentVariant struct {
+    Key             string
+    Route           RouteTemplate
+    EmbedTexts      []string
+    TreeDescription string
+    HardNegatives   []string
+    SourceKinds     []app.MessageSourceKind
+    ClarifyLabel    ClarifyLabel
 }
 ```
 
@@ -129,7 +137,9 @@ type RoutingIntentVariant struct {
   candidates. It is reasoning context, not a keyword list.
 - `HardNegatives` cover locally confusing requests such as quoted intent words,
   troubleshooting statements, negation, and future-tense statements.
-- `EligibleSourceKinds` limits candidates by Web, third-party, or Timer source.
+- `SourceKinds` limits candidates by Web, third-party, or Timer source.
+- `ClarifyLabel` supplies nonempty `zh-CN` and `en` labels. Graph compilation rejects invalid UTF-8, controls and labels over 160 runes; provider-specific variants name their provider. Labels explain a candidate and never grant authority.
+- The Catalog registers operation-level `OperationSourceKinds`; `SupportsSource(operation, source)` remains authoritative for deterministic publication after its scoring candidate is removed.
 - Tool names, approval policy, model lanes, delivery endpoints, and Workflow
   steps do not belong in semantic registration.
 
@@ -144,8 +154,14 @@ workspace paths, attachments, locations, schedule IDs, endpoint IDs, and typed
 toolbar values are extracted before or after semantic ranking by bounded,
 candidate-neutral projectors. The model cannot invent them.
 
-Document grounding uses one recent-document resolver. An explicit current path
-or current governed resource is authoritative. Otherwise, durable
+Document grounding uses one recent-document resolver. Explicit file names first
+match admitted current resources, then all admitted conversation handles;
+different IDs with the same name remain distinct. The latest message with files
+or `files_unavailable` is the history boundary: an incomplete group cannot fall
+back to an older file, and selecting a file does not itself authorize a Workflow.
+Handle ID, SHA-256 and size remain in Runtime binding state, without pre-reading
+bytes. Structured block locators such as `document.p[25]` are operation qualifiers,
+not file paths. Otherwise, durable
 `DocumentRecord` activity is the primary source; successful document tool calls
 and attachment messages remain migration fallbacks for historical state.
 Records expose only bounded metadata to Fast: document ID, governed path, name,
@@ -190,7 +206,7 @@ Only Agent Runtime turns one clear candidate into `RouteDecision`:
 1. Resolve the candidate against the frozen graph revision.
 2. Derive the full capability path from the Catalog.
 3. Copy operation and fact scope from the registered variant.
-4. Bind the query from the untouched owner request and resources from grounding.
+4. Bind the query from the verbatim business span (whole text on allowed fallback), and resources from deterministic grounding.
 5. Validate the complete route against the Catalog.
 6. Resolve and persist exactly one Workflow Profile revision.
 
@@ -210,7 +226,7 @@ route instead of being reclassified as `unmatched`.
 |---|---|---|
 | `clear` | Top-1 passes its calibrated score and margin gates | Run deterministic eligibility checks and dispatch at most one leaf |
 | `ambiguous` | Two candidates remain plausible or required meaning is unresolved | Return `clarify`; execute neither candidate |
-| `low` | No candidate has supported semantic coverage | Return `unmatched` |
+| `low` | No candidate has sufficient execution confidence | Produce terminal clarification: executable Top-2 options only above `clarify_floor` or with a grounded file; otherwise ask for a full description |
 | infrastructure failure | Required channels, graph, or calibration are unavailable | Return `blocked`; do not describe it as user ambiguity |
 
 Mutation and external-delivery routes use stricter score and margin thresholds.
@@ -226,6 +242,8 @@ fingerprints, channel state, per-channel scores, fusion scores, confidence,
 margin, verdict, and reason code. Top-2 supports clarification and diagnostics;
 it never authorizes two Workflows.
 
+Filter only the fused Top-2 against current source, policy and degraded state; do not backfill lower-ranked choices. Desktop and host WebChat save signed questions and accept a verified adjacent selection as a new request. File choices resolve a resource and still require ordinary scoring. Third-party sources use plain restatement prompts, external MCP returns its existing clarify result, and timers terminate without interaction. Record binding, expiry and atomic single-use consumption follow sections 5.4–5.6 of the main design.
+
 ## Scheduling And Delivery Semantics
 
 Scheduling classifies future message publication, not the future payload's
@@ -238,13 +256,21 @@ Delivery selection is independent from business intent. An explicit third-party
 destination is projected and resolved through Message Control; it does not
 change semantic candidate scores. The selected Workflow always returns one
 channel-neutral `WorkflowResult`, which then enters the Delivery Gateway.
-For example, `发送文件` with an attachment selects
-`conversation.answer#publish` whether the frozen `ReturnRoute` points to Web or
-an external endpoint. The selected target changes only delivery: an external
-pure-media result contains only its governed image/audio/file parts, requires no
-send approval, and has no source-WebChat assistant projection. A troubleshooting
-request such as `为什么文件发送失败` is a hard negative for `publish` and must not be
-treated as a request to resend.
+For example, `发送文件` with a uniquely bound attachment is pure delivery and
+constructs the Catalog publish route without scoring. The target changes only
+delivery: external pure-media results contain governed media parts and have no
+source-WebChat assistant projection. A question such as `为什么文件发送失败`
+remains a business question, never a resend command. The split names the
+channel and recipient, and Message Control must resolve a unique registered
+endpoint. A text-requested external send then waits for owner approval of the
+exact result and endpoint before delivery; returning to the current
+conversation needs no approval
+([conversation file context design](conversation-file-context-and-clarification-design.md#46-external-send-approval)).
+
+Deferred requests retain the whole text, must ground to supported schedule
+creation, and cannot execute immediately. Due-time work is split again without
+recursively creating the same schedule. Historical local-file handles are not
+implicitly persisted as schedule inputs; see [Desktop scheduling](desktop-scheduling.md).
 
 Typed WebChat schedule edit/delete actions and persisted resumes already carry
 validated route identity. They bypass natural-language classification but still
@@ -253,19 +279,20 @@ execution.
 
 An attachment-only Web message is also typed input rather than natural
 language. When it has no owner text and every part is image, audio, or file,
-Runtime selects the registered `conversation.answer#publish` candidate directly.
+Runtime constructs the Catalog `conversation.answer` publish route directly, without a semantic candidate.
 The Catalog permits an empty query only for that `publish` operation; ordinary
 conversation `answer` still requires the untouched owner query.
 
 ## Failure And Degradation
 
-- Embedding and Tree execute independently within the total routing deadline.
+- Split and its one repair share `split_timeout_ms` (15000 ms initially); embedding and Tree then execute independently within the routing deadline. All are bounded by the execution deadline.
 - One failed semantic channel may serve read-only routes under stricter degraded
   thresholds; mutation or external effects fail closed.
 - Both semantic channels failing, an index mismatch, or an unknown candidate
   blocks routing.
 - `clarify`, `blocked`, and `unmatched` are terminal. They do not fall through to
-  keyword routing or a generic fallback loop.
+  keyword routing or a generic fallback loop. A signed choice is a new request with fresh checks, not a resumed old execution.
+- Pure delivery does not depend on Tree, but still requires readable resources, source eligibility, governance, delivery health and permission. Unknown upload, claim or delivery outcomes never authorize a new ID or replay.
 
 ## Extending Routing
 

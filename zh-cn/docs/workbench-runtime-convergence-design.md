@@ -2,6 +2,14 @@
 
 > 语言：简体中文 | [English](../../docs/workbench-runtime-convergence-design.md)
 
+源码扩展（2026-10-30）：[会话文件与签名澄清](conversation-file-context-and-clarification-design.md)
+保持本文的归属模型。执行 envelope 现要求 schema 2，携带 message ID、可选的受限文件清单、
+`files_unavailable` 与签名澄清记录；schema 1 被拒绝，Gateway 与桌面端须配套发布。
+桌面 ClientStore schema 15 对支持的 schema 6–14 原地迁移并保留既有会话／文件数据；下文较早的
+全新初始化切换不授权为本扩展清空当前工作台数据。Host Store 通过 migration 0020 增加消息元数据；
+签名和单次消费归执行控制域，不把会话正文变成执行服务的持久归档。实施和源码测试不等同于原生端
+验收或部署，相关门禁以扩展的验收记录为准。
+
 > 实施状态（2026-10-06）：第 2 节保留起始源码盘点，第 7 节记录旧名称到当前名称的映射。当前实现、命令与路径以[实施记录](workbench-convergence-implementation.md)和[发布指南](workbench-release.md)为准；文中的原始阶段门禁不构成部署或完整实机验收声明。
 
 日期：2026-10-06。状态：2026-10-08 已从 `codex/workbench-runtime-convergence` 合入本地 `main`；源码验证与发布边界见[实施记录](workbench-convergence-implementation.md)。未执行生产切换。源码基线：本地 `main` 的 `9b92968d`。源码版本不代表运行中服务或已安装应用的版本。

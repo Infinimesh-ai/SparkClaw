@@ -2,6 +2,13 @@
 
 > 语言：[English](../../docs/context-history-query-design.md) | 简体中文
 
+源码扩展（2026-10-30）：[会话文件设计](conversation-file-context-and-clarification-design.md)
+为已准入消息增加不可变文件元数据与签名续接记录，不扩大既有历史选择数量。只有
+`files_unavailable=true` 的 user／assistant 消息仍符合选择条件，不能被丢弃后使更旧文件看起来
+成为最新附件。明确文件名可以匹配路由选择窗口之外、但仍已准入的消息候选；不会搜索提交 envelope
+之外的历史，也不会读取文件字节。选择续接必须在同一个有界快照内保留原始请求、签名问题和当前
+回复，无法容纳时要求重新说明。
+
 状态：设计经接受与最小架构复审后，于 2026-08-31 完成实施。
 
 本文解决 Agent 上下文组装中的无界 Store 读取问题。SparkClaw 继续保存完整持久化 session 历史，

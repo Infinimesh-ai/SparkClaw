@@ -2,6 +2,14 @@
 
 > Language: English | [简体中文](../zh-cn/docs/tree-session-context-parity-design.md)
 
+Source update (2026-10-30): the [conversation-file and split extension](conversation-file-context-and-clarification-design.md)
+reuses this typed builder for `intent.request_split` and its one repair. Split
+sees the original request and admitted metadata, without candidates; business
+Tree scoring sees the validated verbatim business span and the same snapshot.
+The historical acceptance below covers the earlier Tree contract. Final model
+calibration, paired native acceptance and release of the extension are recorded
+in the linked design, not implied by that earlier milestone.
+
 Status: Implemented 2026-08-31 after acceptance and a minimum-architecture
 review, including same-session context integration and the structural Tree
 output hardening in Section 8.
@@ -45,7 +53,7 @@ It does not change:
 
 - cross-session retrieval or Memory behavior;
 - the fixed 8-message, 6-tool, 4-episode, and 3-image selection;
-- embedding input, which remains the unchanged current owner question;
+- embedding context isolation: only the validated verbatim business span, or the unchanged original request on permitted split fallback;
 - semantic graph ownership, fusion weights, thresholds, or route binding;
 - Policy, Approval, artifact authorization, or external-MCP isolation;
 - temperature, seed, repeated sampling, consensus, or score calibration;
@@ -129,6 +137,9 @@ Tree-visible resolved documents contain only:
 name, ref, content_type, format, source, activity, provenance
 ```
 
+Conversation-handle projections omit internal `ref` and `provenance`; name,
+format, source and activity remain available as routing data. An incomplete
+latest file group is a boundary, never permission to select an older file.
 Hashes, byte counts, dimensions, internal message-part IDs, document IDs,
 parent IDs, and source IDs remain in authoritative Runtime state. Tree cannot
 turn a visible reference into authorization or bind the final target.
@@ -152,7 +163,7 @@ documents, history, response schema, and call options are known:
 |---|---|
 | Tree instructions and injection boundary | fixed system content |
 | Complete eligible semantic graph and revision | fixed structured data |
-| Source kind and unchanged owner question | fixed data |
+| Source kind and verbatim business span (original request for split/fallback) | fixed data |
 | Current governed resources | protected `full -> minimal`; never arbitrary truncation |
 | Resolved governed documents | protected `full -> minimal`; never arbitrary truncation |
 | Same-session history | Tree-specific `full -> compact -> drop` variants |

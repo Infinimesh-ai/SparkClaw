@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/medicine"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -22,8 +23,8 @@ import (
 // The desktop medicine box sends one front-of-package photo, already reduced
 // by the client, or one sentence the owner typed, and receives the medicine it
 // describes sorted into one of the box's fixed functional categories. Nothing
-// is stored here: the inventory stays in the desktop's own database, and the
-// owner reviews every field there before it is saved.
+// is stored by these parsing handlers: the owner reviews fields in the original
+// box UI before saving to the authoritative inventory endpoints.
 const (
 	maxMedicinePhotoBytes     = 4 << 20
 	maxMedicineRequestBytes   = maxMedicinePhotoBytes*4/3 + 4096
@@ -34,8 +35,8 @@ const (
 )
 
 var (
-	medicineCategories = []string{"cold", "fever", "pain", "cough", "digestive", "allergy", "wound", "other"}
-	medicineUnits      = []string{"tablet", "capsule", "sachet", "bottle", "tube", "patch", "box", "ml", "g"}
+	medicineCategories = medicine.Categories
+	medicineUnits      = medicine.Units
 	medicinePhotoTypes = []string{"image/jpeg", "image/png", "image/webp"}
 )
 
@@ -163,6 +164,13 @@ var (
 )
 
 func (s *Server) registerMedicineRoutes() {
+	s.mux.HandleFunc("POST /api/medicine/sync", s.syncMedicine)
+	s.mux.HandleFunc("POST /api/medicine/items", s.createMedicine)
+	s.mux.HandleFunc("PUT /api/medicine/items/{item}", s.updateMedicine)
+	s.mux.HandleFunc("DELETE /api/medicine/items/{item}", s.deleteMedicine)
+	s.mux.HandleFunc("POST /api/medicine/items/batch", s.batchMedicine)
+	s.mux.HandleFunc("POST /api/medicine/import", s.importMedicine)
+	s.mux.HandleFunc("GET /api/medicine/operations/{operation}", s.getMedicineOperation)
 	s.mux.HandleFunc("POST /api/medicine/recognize", s.recognizeMedicine)
 	s.mux.HandleFunc("POST /api/medicine/parse", s.parseMedicine)
 }

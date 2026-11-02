@@ -2303,5 +2303,130 @@
       "path": "/api/medicine/parse"
     },
     "capacity_class": "business"
+  },
+  {
+    "name": "medicine.sync",
+    "constant": "OperationMedicineSync",
+    "version": 2,
+    "direction": "forward",
+    "scope": "medicine.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "POST",
+      "path": "/api/medicine/sync"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "medicine.items.create",
+    "constant": "OperationMedicineItemsCreate",
+    "version": 2,
+    "direction": "forward",
+    "scope": "medicine.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "POST",
+      "path": "/api/medicine/items"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "medicine.items.update",
+    "constant": "OperationMedicineItemsUpdate",
+    "version": 2,
+    "direction": "forward",
+    "scope": "medicine.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "item"
+    ],
+    "http": {
+      "method": "PUT",
+      "path": "/api/medicine/items/{item}"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "medicine.items.delete",
+    "constant": "OperationMedicineItemsDelete",
+    "version": 2,
+    "direction": "forward",
+    "scope": "medicine.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "item"
+    ],
+    "http": {
+      "method": "DELETE",
+      "path": "/api/medicine/items/{item}"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "medicine.items.batch",
+    "constant": "OperationMedicineItemsBatch",
+    "version": 2,
+    "direction": "forward",
+    "scope": "medicine.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "POST",
+      "path": "/api/medicine/items/batch"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "medicine.import",
+    "constant": "OperationMedicineImport",
+    "version": 2,
+    "direction": "forward",
+    "scope": "medicine.write",
+    "mutation": true,
+    "recovery": "operation_receipt",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "POST",
+      "path": "/api/medicine/import"
+    },
+    "capacity_class": "business"
+  },
+  {
+    "name": "medicine.operations.get",
+    "constant": "OperationMedicineOperationsGet",
+    "version": 2,
+    "direction": "forward",
+    "scope": "medicine.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [
+      "operation"
+    ],
+    "http": {
+      "method": "GET",
+      "path": "/api/medicine/operations/{operation}"
+    },
+    "capacity_class": "business"
   }
 ]

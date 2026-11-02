@@ -309,6 +309,8 @@ func workbenchEventCategory(eventType string) string {
 		return "schedules"
 	case "notification", "passive_notification":
 		return "notifications"
+	case "medicine":
+		return "medicine"
 	case "email", "email_mail", "email_conversation", "email_draft", "email_sync":
 		return "email"
 	case "client":

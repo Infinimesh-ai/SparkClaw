@@ -74,6 +74,8 @@ func (a *iscpDomainAdapter) capabilitiesWithSession(ctx context.Context, request
 		{"notifications", []string{iscpworkbench.OperationNotificationsList, iscpworkbench.OperationNotificationsRead, iscpworkbench.OperationNotificationsReadAll}, true},
 		{"medicine", []string{iscpworkbench.OperationMedicineRecognize}, true},
 		{"medicine_text", []string{iscpworkbench.OperationMedicineParse}, true},
+		{"medicine_box_read", []string{iscpworkbench.OperationMedicineSync, iscpworkbench.OperationMedicineOperationsGet}, true},
+		{"medicine_box_write", []string{iscpworkbench.OperationMedicineItemsCreate, iscpworkbench.OperationMedicineItemsUpdate, iscpworkbench.OperationMedicineItemsDelete, iscpworkbench.OperationMedicineItemsBatch, iscpworkbench.OperationMedicineImport}, true},
 	}
 	capabilities := make([]iscpDomainCapability, 0, len(families))
 	operations := []string{}

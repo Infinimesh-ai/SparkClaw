@@ -139,4 +139,11 @@ const (
 	OperationSettingsMCPPairingStart = "settings.mcp.pairing.start"
 	OperationMedicineRecognize = "medicine.recognize"
 	OperationMedicineParse = "medicine.parse"
+	OperationMedicineSync = "medicine.sync"
+	OperationMedicineItemsCreate = "medicine.items.create"
+	OperationMedicineItemsUpdate = "medicine.items.update"
+	OperationMedicineItemsDelete = "medicine.items.delete"
+	OperationMedicineItemsBatch = "medicine.items.batch"
+	OperationMedicineImport = "medicine.import"
+	OperationMedicineOperationsGet = "medicine.operations.get"
 )

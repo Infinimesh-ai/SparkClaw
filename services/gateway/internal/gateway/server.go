@@ -47,6 +47,7 @@ const (
 type streamMessageExecutor func(context.Context, string, string, []agent.MessageAttachment, app.MessageIngressContext, agent.StreamHandler) (agent.Result, error)
 
 type Repository interface {
+	store.MedicineRepository
 	store.ISCPOnboardingRepository
 	store.OwnerRepository
 	store.ClientRepository

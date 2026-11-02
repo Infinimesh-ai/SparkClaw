@@ -225,6 +225,8 @@ func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.
 		return a.approvals(ctx, request)
 	case iscpworkbench.OperationNotificationsList, iscpworkbench.OperationNotificationsRead, iscpworkbench.OperationNotificationsReadAll:
 		return a.notifications(ctx, request)
+	case iscpworkbench.OperationMedicineSync, iscpworkbench.OperationMedicineItemsCreate, iscpworkbench.OperationMedicineItemsUpdate, iscpworkbench.OperationMedicineItemsDelete, iscpworkbench.OperationMedicineItemsBatch, iscpworkbench.OperationMedicineImport, iscpworkbench.OperationMedicineOperationsGet:
+		return a.medicineInventory(ctx, request)
 	case iscpworkbench.OperationMedicineRecognize:
 		if _, _, err := a.executionIdentity(ctx, request); err != nil {
 			return domainError(403, "installation_required")

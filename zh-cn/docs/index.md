@@ -40,6 +40,7 @@
 | [桌面客户端与内置浏览器设计](desktop-client-embedded-browser-design.md) | 既有 Electron／原生视图实现及 Controller / Playwright 适配基线；客户端本地存储与 LAN 宿主控制已实现，当前归属见架构指南 |
 | [桌面端本地文件浏览设计](desktop-local-file-browser-design.md) | 设计与首版实现：登录内 Files 入口、整机本地文件树、隔离预览标签、离线渲染器与客户端边界；记录源码/候选包证据及剩余发布验收 |
 | [药箱界面参考 open-medkit 的适配设计](medicine-box-open-medkit-adaptation-design.md) | 定稿：统计、搜索、效期筛选、默认卡片、详情快速加减数量；字段为名称／有效期／数量／位置／用途／备注，含本机 v1→v2 迁移；照片和文字录入共用同一核对步骤；两个阶段已实现，尚未发布 |
+| [药箱查询与编辑路由设计](medicine-query-routing-design.md) | 设计稿第四版的本地源码实现：药箱数据改为 Gateway 存储、按邮箱方式同步到客户端；一级路由 `medicine` 下设药箱内容查询（记录与按症状建议）、支持批量新增／修改的药箱信息编辑（字段明确直接写，缺失或不明确时审批表单补全）、药品信息查询（Info 或直接调用模型，判断失败走 Info）；分三个阶段配对发布；已记录源码测试与浏览器交互验证，尚未部署或安装 |
 | [Electron 桌面浏览器实施交接](desktop-electron-implementation-handoff.md) | 四阶段实施记录、代码入口、资格证据和剩余用户验收门槛 |
 | [桌面发布与切换方案](desktop-release-plan.md) | 候选哈希、安装／更新／卸载策略、目标主机验收、原子切换与整版回滚 |
 | [Web 与桌面客户端共享本机后端设计](local-shared-backend-design.md) | 已实现基线：共享 Gateway／PostgreSQL 与客户端刷新；R3 替代非邮箱共享存储及桌面仅回环限制 |

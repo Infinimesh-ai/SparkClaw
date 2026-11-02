@@ -7,6 +7,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/medicine"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
 // The service remains backend-owned when an execution receives an ephemeral store.
@@ -49,6 +50,16 @@ func (h *ToolHub) medicineWrite(ctx context.Context, args map[string]any, sessio
 		return Result{}, errors.New("medicine batch is not bound to its workflow")
 	}
 	receipt, err := h.medicine.Apply(ctx, owner, batch)
+	if store.StoreErrorCodeOf(err) == store.StoreErrorUnknownOutcome {
+		// Read the original receipt once; never retry a batch after an uncertain commit.
+		operation, found, lookupErr := h.medicine.Operation(ctx, owner, batch.OperationID)
+		if lookupErr != nil {
+			return Result{}, errors.Join(err, lookupErr)
+		}
+		if found && operation.OperationID == batch.OperationID && operation.Batch != nil && operation.Batch.OperationID == batch.OperationID && operation.Batch.Digest == medicine.BatchDigest(owner, batch) {
+			receipt, err = *operation.Batch, nil
+		}
+	}
 	if err != nil {
 		return Result{}, err
 	}

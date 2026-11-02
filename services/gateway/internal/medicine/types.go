@@ -135,3 +135,7 @@ func (s *Service) Apply(ctx context.Context, owner string, batch Batch) (Receipt
 func (s *Service) Import(ctx context.Context, owner string, req ImportRequest) (ImportResult, error) {
 	return s.repo.ImportMedicines(ctx, owner, req)
 }
+
+func (s *Service) Operation(ctx context.Context, owner, id string) (OperationResult, bool, error) {
+	return s.repo.GetMedicineOperation(ctx, owner, id)
+}

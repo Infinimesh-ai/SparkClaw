@@ -93,6 +93,14 @@ func Digest(value any) string {
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
 }
+
+// BatchDigest binds the immutable payload to its owner for receipt reconciliation.
+func BatchDigest(owner string, batch Batch) string {
+	return Digest(struct {
+		Owner string
+		Batch Batch
+	}{owner, batch})
+}
 func EmptyState(owner string) State {
 	return State{Box: Box{Epoch: "medicine_" + Digest(owner)[:32], Items: []Item{}, Events: []Event{}}, Receipts: map[string]Receipt{}, Imports: map[string]ImportReceipt{}}
 }
@@ -146,10 +154,7 @@ func ApplyBatch(owner string, current State, batch Batch, now time.Time) (State,
 	if batch.Operation == OperationDelete && len(batch.Items) != 1 {
 		return State{}, Receipt{}, ErrInvalid
 	}
-	digest := Digest(struct {
-		Owner string
-		Batch Batch
-	}{owner, batch})
+	digest := BatchDigest(owner, batch)
 	if receipt, ok := current.Receipts[batch.OperationID]; ok {
 		if receipt.Digest != digest {
 			return State{}, Receipt{}, ErrConflict

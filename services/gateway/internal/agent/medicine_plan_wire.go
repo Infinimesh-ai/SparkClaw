@@ -45,7 +45,7 @@ func medicinePlanOptions() modelrouter.ChatOptions {
 	target := object(map[string]any{"name": str, "expires_on": str, "location": str, "evidence": str}, []string{"name", "expires_on", "location", "evidence"})
 	unresolved := object(map[string]any{"field": map[string]any{"type": "string", "enum": append(append([]string{}, medicineChangeFields...), "expiry", "target")}, "reason": map[string]any{"type": "string", "enum": []string{"missing", "ambiguous"}}}, []string{"field", "reason"})
 	entry := object(map[string]any{"changes": map[string]any{"type": "array", "maxItems": 11, "items": change}, "target": target, "unresolved": map[string]any{"type": "array", "maxItems": 14, "items": unresolved}}, []string{"changes", "unresolved"})
-	schema := object(map[string]any{"operation": map[string]any{"type": "string", "enum": []string{"create", "update", "delete"}}, "items": map[string]any{"type": "array", "minItems": 1, "items": entry}}, []string{"operation", "items"})
+	schema := object(map[string]any{"operation": map[string]any{"type": "string", "enum": []string{"create", "update", "delete", "mixed"}}, "items": map[string]any{"type": "array", "minItems": 1, "items": entry}}, []string{"operation", "items"})
 	return modelrouter.ChatOptions{ForceDisableThinking: true, StrictJSONSchema: &modelrouter.StrictJSONSchema{Name: "medicine_edit_v3", Schema: schema}}
 }
 func decodeMedicineModelPlan(raw string) (medicineEditPlan, error) {

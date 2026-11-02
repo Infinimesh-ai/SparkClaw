@@ -44,6 +44,8 @@ type frozenMedicineDraft struct {
 	Items       []frozenMedicineEntry `json:"items"`
 }
 
+var errMedicineMixedOperations = errors.New("同一批次只支持一种新增、修改或删除操作；请拆分请求，整批未写入")
+
 var errMedicineBatchLimit = errors.New("药箱每批支持 1–20 条新增或修改，删除仅支持一条；请拆分请求，整批未写入")
 
 var medicineChangeFields = []string{"name", "category", "quantity", "quantity_delta", "unit", "expires_on", "no_expiry", "location", "usage", "notes", "notes_append"}
@@ -55,6 +57,9 @@ func decodeMedicinePlan(raw string) (medicineEditPlan, error) {
 	}
 	if err := appstream.DecodeStrict([]byte(raw), &plan); err != nil {
 		return plan, err
+	}
+	if plan.Operation == "mixed" {
+		return plan, errMedicineMixedOperations
 	}
 	if len(plan.Items) < 1 || len(plan.Items) > medicine.MaxBatch || !slices.Contains([]string{medicine.OperationCreate, medicine.OperationUpdate, medicine.OperationDelete}, plan.Operation) || plan.Operation == medicine.OperationDelete && len(plan.Items) != 1 {
 		return plan, errMedicineBatchLimit

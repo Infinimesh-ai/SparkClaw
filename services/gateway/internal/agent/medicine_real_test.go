@@ -13,6 +13,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/medicine"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -31,6 +32,8 @@ func TestRealMedicineRoutingAndPlans(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.Model.Mock = false
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseID = ""
+	cfg.Plugins.Entries.InfinimeshInfo.Config.LicenseKey = ""
 	root := t.TempDir()
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
@@ -153,6 +156,55 @@ func TestRealMedicineRoutingAndPlans(t *testing.T) {
 				t.Errorf("count=%d form=%+v err=%v", count, form, err)
 			}
 			t.Logf("batch_count=%d parsed_entries=%d", count, len(plan.Items))
+		}
+	})
+
+	t.Run("answers", func(t *testing.T) {
+		session := storetest.MustCreateSessionWithScope(t, st, "medicine answer qualification", app.DefaultOwnerID, root, "web", false)
+		_, err := medicine.New(st).Apply(ctx, session.OwnerID, medicine.Batch{OperationID: "synthetic_answer_seed", Operation: "create", Items: []medicine.Entry{{EntryID: "one", Fields: medicine.Fields{Name: "甲药", Category: "other", Quantity: 7, Unit: "box", ExpiresOn: "2030-01-01", Location: "合成柜"}}, {EntryID: "two", Fields: medicine.Fields{Name: "布洛芬", Category: "pain", Quantity: 0, Unit: "capsule", ExpiresOn: "2020-01-01", Location: "抽屉"}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		before, _ := st.ReadMedicineBox(ctx, session.OwnerID)
+		for _, c := range []struct {
+			leaf    app.CapabilityID
+			op      app.RouteOperation
+			text    string
+			closing bool
+		}{
+			{app.CapabilityMedicineBoxQuery, app.RouteOperationRead, "药箱里的甲药还剩多少，放在哪里？", false},
+			{app.CapabilityMedicineBoxQuery, app.RouteOperationAnswer, "我头痛发烧，药箱里的布洛芬还可以吃吗？", true},
+			{app.CapabilityMedicineDrugInfo, app.RouteOperationAnswer, "不要联网，介绍布洛芬的常见副作用", true},
+		} {
+			route := app.RouteDecision{SchemaVersion: 1, Status: app.RouteMatched, CatalogRevision: runtime.capabilities.Revision(), CapabilityPath: []app.CapabilityID{"medicine", c.leaf}, Slots: app.RouteSlots{Operation: c.op, Query: c.text}}
+			if c.leaf == app.CapabilityMedicineBoxQuery {
+				route.Slots.FactScope = app.RouteFactScopeMedicineBox
+			}
+			d, err := runtime.dispatchMatchedWorkflow(ctx, app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, StartedAt: time.Now().UTC()}, route, app.ReturnRoute{Mode: app.ReturnToSource}, app.NewID("turn"))
+			if err != nil {
+				t.Error(err)
+				continue
+			}
+			result := runtime.runWorkflow(ctx, session.ID, d.Run, c.text, d.Profile, d.Context, d.Tools)
+			t.Logf("answer leaf=%s op=%s text=%s", c.leaf, c.op, result.FinalAnswer)
+			if !result.Completed || strings.HasSuffix(result.FinalAnswer, toolhub.MedicineClosing) != c.closing {
+				t.Errorf("answer did not complete or closing mismatch: %+v", result)
+			}
+			if c.op == app.RouteOperationRead && (!strings.Contains(result.FinalAnswer, "7") || !strings.Contains(result.FinalAnswer, "合成柜")) {
+				t.Error("read answer omitted recorded quantity/location")
+			}
+			if c.leaf == app.CapabilityMedicineBoxQuery && c.op == app.RouteOperationAnswer && !strings.Contains(result.FinalAnswer, "过期") {
+				t.Error("advice failed to mark expired stock")
+			}
+			for _, call := range result.ToolCalls {
+				if call.Tool == "medicine.box.write" {
+					t.Fatal("read workflow attempted write")
+				}
+			}
+		}
+		after, _ := st.ReadMedicineBox(ctx, session.OwnerID)
+		if before.Sequence != after.Sequence {
+			t.Fatal("answer mutated inventory")
 		}
 	})
 }

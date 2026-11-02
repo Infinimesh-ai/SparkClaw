@@ -360,3 +360,16 @@ func TestMedicineModelPlanRejectsDuplicateFields(t *testing.T) {
 		t.Fatal("duplicate operation accepted")
 	}
 }
+
+func TestMedicineMixedOperationsNeverWrite(t *testing.T) {
+	raw := `{"operation":"mixed","items":[{"changes":{},"unresolved":[]}]}`
+	r, st, s := newMedicineRuntime(t, raw)
+	_, result := dispatchMedicineTest(t, r, st, s, app.RouteOperationCreate, "添加甲药并减少乙药", app.MessageSourceWeb)
+	if !strings.Contains(result.FinalAnswer, "一种") || len(result.Approvals) != 0 {
+		t.Fatal(result)
+	}
+	box, _ := st.ReadMedicineBox(t.Context(), s.OwnerID)
+	if len(box.Items) != 0 {
+		t.Fatal(box)
+	}
+}

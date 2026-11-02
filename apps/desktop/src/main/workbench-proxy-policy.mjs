@@ -11,6 +11,7 @@ const PRESENTATION_API_PREFIXES = [
   "/api/integrations",
   "/api/iscp-pairing",
   "/api/mcp-access",
+  "/api/medicine",
   "/api/memories",
   "/api/memory-candidates",
   "/api/notification-bindings",

@@ -14,6 +14,8 @@ test("workbench desktop exposes the shared presentation APIs", () => {
     "/api/integrations/localmind/credentials",
     "/api/browser/extension/check",
     "/api/mcp-access/tickets",
+    "/api/medicine/recognize",
+    "/api/medicine/parse",
     "/api/approvals/pending/approve",
     "/api/memories/export",
     "/api/notifications/events/stream",

@@ -303,7 +303,9 @@ html[data-resolved-theme="dark"] .medicinePage .medicineSegments button:is(.expi
 .medicineDetail .medicineSameName button:hover { background: var(--client-row-hover, rgba(0, 0, 0, 0.04)); }
 .medicineDetail .medicineDetailActions { align-items: center; }
 .medicineDetail .medicineDetailActions .medicineStatus { margin-right: auto; }
-.glassWorkbench .medicineDialog .medicineDanger, .medicineDialog .medicineDanger { color: var(--medicine-danger); }
+/* The glass secondary-button rule weighs (0,3,1) through its :is() list. */
+.glassWorkbench .medicineDialog .medicineDetailActions button.medicineDanger,
+.medicineDialog .medicineDetailActions button.medicineDanger { color: var(--medicine-danger); }
 
 /* Add and edit dialog. */
 .medicineDialog .medicineSteps { display: flex; gap: 8px; margin: 0; padding: 0; list-style: none; }

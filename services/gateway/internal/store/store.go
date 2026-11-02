@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/medicine"
 )
 
 var ErrReminderConflict = errors.New("pending reminder changed or is no longer available")
@@ -47,6 +48,15 @@ type MessageEventPage struct {
 	Events     []app.Event
 	NextCursor string
 	HasMore    bool
+}
+
+// MedicineRepository is mandatory on every authoritative backend. Its typed
+// methods preserve owner isolation and atomic inventory/receipt commits.
+type MedicineRepository interface {
+	ReadMedicineBox(context.Context, string) (medicine.Box, error)
+	ApplyMedicineBatch(context.Context, string, medicine.Batch) (medicine.Receipt, error)
+	ImportMedicines(context.Context, string, medicine.ImportRequest) (medicine.ImportResult, error)
+	GetMedicineOperation(context.Context, string, string) (medicine.OperationResult, bool, error)
 }
 
 type ISCPOnboardingRepository interface {

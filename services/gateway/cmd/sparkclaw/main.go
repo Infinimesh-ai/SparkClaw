@@ -176,6 +176,7 @@ func main() {
 }
 
 type backend struct {
+	store.MedicineRepository
 	store.ISCPOnboardingRepository
 	store.OwnerRepository
 	store.EmailRepository
@@ -227,6 +228,7 @@ func newStore(ctx context.Context, cfg config.Config) (*store.Runtime, error) {
 
 func backendFromRuntime(runtime *store.Runtime) backend {
 	return backend{
+		MedicineRepository:            runtime.MedicineRepository(),
 		ISCPOnboardingRepository:      runtime.ISCPOnboardingRepository(),
 		OwnerRepository:               runtime.OwnerRepository(),
 		EmailRepository:               runtime.EmailRepository(),

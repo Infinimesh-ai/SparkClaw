@@ -14,6 +14,7 @@ import (
 )
 
 var migratedFileAdmissions = map[string]string{
+	"ReadMedicineBox": "admitMigrated", "ApplyMedicineBatch": "admitMigrated", "ImportMedicines": "admitMigrated", "GetMedicineOperation": "admitMigrated",
 	"SaveISCPOnboarding":  "saveISCPOnboarding",
 	"GetISCPOnboarding":   "getISCPOnboarding",
 	"ListISCPOnboardings": "listISCPOnboardings",

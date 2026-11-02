@@ -241,3 +241,24 @@ func TestMedicineFileAtomicPersistenceFaults(t *testing.T) {
 var _ medicine.Repository = (*MemoryStore)(nil)
 var _ medicine.Repository = (*FileStore)(nil)
 var _ medicine.Repository = (*PostgresStore)(nil)
+
+func TestMedicineFileCorruptInventoryRefused(t *testing.T) {
+	repo, err := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.ApplyMedicineBatch(t.Context(), "owner", medicineTestBatch("create", 1)); err != nil {
+		t.Fatal(err)
+	}
+	repo.inner.mu.Lock()
+	state := repo.inner.medicineBoxes["owner"]
+	state.Items[0].Version = 0
+	repo.inner.medicineBoxes["owner"] = state
+	repo.inner.mu.Unlock()
+	if err = repo.persistSnapshot(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = NewFileStore(repo.path); err == nil {
+		t.Fatal("corrupt medicine inventory was silently accepted")
+	}
+}

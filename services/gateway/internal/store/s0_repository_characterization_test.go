@@ -37,6 +37,7 @@ func s0RepositoryChecks(check func(*testing.T, testBackend, string), dimensions 
 }
 
 var s0RepositoryCharacterizationCases = map[string]s0RepositoryCharacterizationCase{
+	"MedicineRepository":            s0RepositoryChecks(characterizeS0MedicineRepository, s0DimensionSuccess, s0DimensionAbsence),
 	"OwnerRepository":               s0RepositoryChecks(characterizeS0OwnerRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionDuplicate),
 	"ClientRepository":              s0RepositoryChecks(characterizeS0ClientRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate, s0DimensionConflictDeletion),
 	"ISCPOnboardingRepository":      s0RepositoryChecks(characterizeS0ISCPOnboardingRepository, s0DimensionSuccess, s0DimensionAbsence, s0DimensionOrderScope, s0DimensionDuplicate, s0DimensionConflictDeletion),
@@ -994,4 +995,19 @@ func s0EvaluationAliasSafe(t *testing.T, st testBackend) bool {
 	got.Cases[0].Name = "mutated"
 	again, _ := mustGetEvalRun(t, st, "eval-alias")
 	return again.Cases[0].Name != "mutated"
+}
+
+func characterizeS0MedicineRepository(t *testing.T, st testBackend, dimension string) {
+	switch dimension {
+	case s0DimensionSuccess:
+		medicineContract(t, st)
+	case s0DimensionAbsence:
+		box, err := st.ReadMedicineBox(t.Context(), "owner-absent")
+		if err != nil || len(box.Items) != 0 || box.Sequence != 0 {
+			t.Fatal(box, err)
+		}
+		if _, found, err := st.GetMedicineOperation(t.Context(), "owner-absent", "absent-operation"); err != nil || found {
+			t.Fatal(found, err)
+		}
+	}
 }

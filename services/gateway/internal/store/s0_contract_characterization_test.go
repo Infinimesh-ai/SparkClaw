@@ -19,6 +19,7 @@ import (
 )
 
 var s0RepositoryMethods = map[string][]string{
+	"MedicineRepository": {"ReadMedicineBox", "ApplyMedicineBatch", "ImportMedicines", "GetMedicineOperation"},
 	"ApprovalRepository": {
 		"FindApprovalByExternalRef", "GetApproval", "ListApprovals", "ResolveApproval", "ResolveApprovalWithInputs", "SaveApproval", "UpdatePendingApproval",
 	},
@@ -95,8 +96,8 @@ var s0RepositoryMethods = map[string][]string{
 
 func TestS0RepositoryMethodCatalogCharacterization(t *testing.T) {
 	typeOfBackend := reflect.TypeOf((*testBackend)(nil)).Elem()
-	if typeOfBackend.NumMethod() != 161 {
-		t.Fatalf("repository method count = %d, want migrated baseline 161", typeOfBackend.NumMethod())
+	if typeOfBackend.NumMethod() != 165 {
+		t.Fatalf("repository method count = %d, want migrated baseline 165", typeOfBackend.NumMethod())
 	}
 
 	owners := make(map[string]string, typeOfBackend.NumMethod())
@@ -195,7 +196,7 @@ func s4RepositoryLikeType(expression ast.Expr) bool {
 
 func TestS0SnapshotShapeCharacterization(t *testing.T) {
 	want := []string{
-		"WorkbenchDrafts:workbench_drafts,omitempty", "EmailRecords:email_management_records,omitempty", "Sessions:sessions", "Clients:clients", "OwnerProfile:owner_profile", "OwnerProfiles:owner_profiles,omitempty",
+		"MedicineBoxes:medicine_boxes,omitempty", "WorkbenchDrafts:workbench_drafts,omitempty", "EmailRecords:email_management_records,omitempty", "Sessions:sessions", "Clients:clients", "OwnerProfile:owner_profile", "OwnerProfiles:owner_profiles,omitempty",
 		"PairingCodes:pairing_codes", "ISCPOnboardings:iscp_onboardings,omitempty", "MCPAccessTickets:mcp_access_tickets,omitempty",
 		"MCPBindings:mcp_bindings,omitempty", "MCPOperations:mcp_operations,omitempty", "Messages:messages", "RunFeedback:run_feedback",
 		"Runs:runs", "ModelCalls:model_calls", "ToolCalls:tool_calls", "DocumentRecords:document_records,omitempty", "Approvals:approvals",
@@ -505,7 +506,7 @@ func TestS0CatalogRepositoryNamesAreStable(t *testing.T) {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	if len(names) != 20 {
-		t.Fatalf("repository count = %d, want 20: %v", len(names), names)
+	if len(names) != 21 {
+		t.Fatalf("repository count = %d, want 21: %v", len(names), names)
 	}
 }

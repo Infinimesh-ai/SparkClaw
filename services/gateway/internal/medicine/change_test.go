@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -170,4 +171,30 @@ func TestSyncSnapshotMutationResetAndOwner(t *testing.T) {
 
 func (r *repo) GetMedicineOperation(context.Context, string, string) (OperationResult, bool, error) {
 	panic("unused")
+}
+
+func TestBatchReceiptBoundRejectsBeforeCommit(t *testing.T) {
+	create := batch("large-fields", 20)
+	for i := range create.Items {
+		create.Items[i].Fields.Name = strings.Repeat("药", 80)
+		create.Items[i].Fields.Location = strings.Repeat("家", 80)
+		create.Items[i].Fields.Usage = strings.Repeat("用", 80)
+		create.Items[i].Fields.Notes = strings.Repeat("注", 500)
+	}
+	state, receipt, err := ApplyBatch("owner", EmptyState("owner"), create, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	update := Batch{OperationID: "large-result", Operation: OperationUpdate}
+	for i, row := range receipt.Items {
+		f := row.After.Fields
+		f.Quantity = 1
+		update.Items = append(update.Items, Entry{EntryID: fmt.Sprint("e", i), ID: row.After.ID, BaseVersion: 1, Fields: f})
+	}
+	if _, _, err := ApplyBatch("owner", state, update, time.Now()); !errors.Is(err, ErrCapacity) {
+		t.Fatal(err)
+	}
+	if state.Sequence != 20 || len(state.Receipts) != 1 {
+		t.Fatal("oversized response changed input state")
+	}
 }

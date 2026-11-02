@@ -292,6 +292,9 @@ func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
 		if err := validateEmailRecords(snapshot.EmailRecords); err != nil {
 			return nil, fmt.Errorf("validate email management: %w", err)
 		}
+		if err := medicine.ValidateStates(snapshot.MedicineBoxes); err != nil {
+			return nil, fmt.Errorf("validate medicine state: %w", err)
+		}
 		inner.loadSnapshot(snapshot)
 		if err := inner.validateSessionState(); err != nil {
 			return nil, fmt.Errorf("validate session state: %w", err)

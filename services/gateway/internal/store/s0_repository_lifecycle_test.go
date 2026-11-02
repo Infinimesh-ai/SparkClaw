@@ -15,6 +15,14 @@ type s0LifecycleCase struct {
 }
 
 var s0RepositoryLifecycleCases = map[string]s0LifecycleCase{
+	"MedicineRepository": {
+		mutate: func(t *testing.T, st testBackend) {
+			if _, err := st.ApplyMedicineBatch(t.Context(), "owner-lifecycle", medicineTestBatch("medicine-lifecycle", 1)); err != nil {
+				t.Fatal(err)
+			}
+		},
+		eventType: "medicine.changed",
+	},
 	"OwnerRepository": {
 		mutate: func(t *testing.T, st testBackend) {
 			mustSaveOwnerProfile(t, st, app.OwnerProfile{ID: "owner-lifecycle", DisplayName: "Lifecycle"})

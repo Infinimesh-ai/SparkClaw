@@ -7,10 +7,6 @@ import (
 	"time"
 )
 
-// MedicineRepository is implemented by every authoritative store, including the
-// default file store. Workbench-scoped temporary stores are not substituted for it.
-type MedicineRepository = medicine.Repository
-
 func cloneMedicineBoxes(rows map[string]medicine.State) map[string]medicine.State {
 	out := map[string]medicine.State{}
 	for owner, state := range rows {
@@ -39,7 +35,7 @@ func (s *MemoryStore) ReadMedicineBox(ctx context.Context, owner string) (medici
 	if err := operationContextError(OperationMedicineRead, ctx); err != nil {
 		return medicine.Box{}, err
 	}
-	return medicine.CloneState(s.medicineStateLocked(owner)).Box, nil
+	return cloneMedicineValue(s.medicineStateLocked(owner).Box), nil
 }
 func (s *MemoryStore) ApplyMedicineBatch(ctx context.Context, owner string, batch medicine.Batch) (medicine.Receipt, error) {
 	ctx, cancel := operationContext(ctx, OperationMedicineApply, s.operationTimeouts)
@@ -54,6 +50,9 @@ func (s *MemoryStore) ApplyMedicineBatch(ctx context.Context, owner string, batc
 	}
 	next, receipt, err := medicine.ApplyBatch(owner, s.medicineStateLocked(owner), batch, time.Now().UTC())
 	if err != nil {
+		return medicine.Receipt{}, err
+	}
+	if err := operationContextError(OperationMedicineApply, ctx); err != nil {
 		return medicine.Receipt{}, err
 	}
 	if next.Sequence != s.medicineStateLocked(owner).Sequence {
@@ -75,6 +74,9 @@ func (s *MemoryStore) ImportMedicines(ctx context.Context, owner string, req med
 	}
 	next, result, err := medicine.ApplyImport(owner, s.medicineStateLocked(owner), req, time.Now().UTC())
 	if err != nil {
+		return medicine.ImportResult{}, err
+	}
+	if err := operationContextError(OperationMedicineImport, ctx); err != nil {
 		return medicine.ImportResult{}, err
 	}
 	if next.Sequence != s.medicineStateLocked(owner).Sequence {

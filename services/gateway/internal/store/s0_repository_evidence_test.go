@@ -67,6 +67,18 @@ func s0EvidenceRow(cells ...s0EvidenceCell) map[string]s0EvidenceCell {
 // Evidence references use TestName[/subtest]@file.go. The matrix itself is the
 // executable authority for applicability and reference completeness.
 var s0RepositoryCharacterizationEvidence = map[string]map[string]s0EvidenceCell{
+	"MedicineRepository": s0EvidenceRow(
+		s0RepositoryTest("MedicineRepository", s0DimensionSuccess),
+		s0RepositoryTest("MedicineRepository", s0DimensionAbsence),
+		s0Tests("TestMedicineMemoryContract@medicine_contract_test.go"),
+		s0Tests("TestMedicineMemoryContract@medicine_contract_test.go"),
+		s0Tests("TestMedicineMemoryContract@medicine_contract_test.go"),
+		s0Tests("TestMedicineMemoryContract@medicine_contract_test.go"),
+		s0LifecycleTest("MedicineRepository"),
+		s0Tests("TestMedicineFileContractAndRestart@medicine_contract_test.go", "TestMedicineFileAtomicPersistenceFaults@medicine_contract_test.go"),
+		s0Tests("TestMedicineConcurrentBatchCAS@medicine_contract_test.go"),
+		s0Tests("TestMedicinePostgresContract@medicine_contract_test.go"),
+	),
 	"OwnerRepository": s0EvidenceRow(
 		s0RepositoryTest("OwnerRepository", s0DimensionSuccess),
 		s0RepositoryTest("OwnerRepository", s0DimensionAbsence),

@@ -19,6 +19,7 @@ type RuntimeOptions struct {
 }
 
 type repositorySet struct {
+	medicine            MedicineRepository
 	email               EmailRepository
 	emailPresentation   EmailPresentationRepository
 	iscpOnboarding      ISCPOnboardingRepository
@@ -80,7 +81,7 @@ func NewRuntime(ctx context.Context, opts RuntimeOptions) (*Runtime, error) {
 	switch backend {
 	case BackendMemory:
 		memory := NewMemoryStoreWithOptions(timeouts)
-		runtime.repositories = newRepositorySet(memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory)
+		runtime.repositories = newRepositorySet(memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory)
 		runtime.probe = func(context.Context) error { return probeMemoryStore(memory) }
 		runtime.closeBackend = func() error { return nil }
 	case BackendFile:
@@ -94,7 +95,7 @@ func NewRuntime(ctx context.Context, opts RuntimeOptions) (*Runtime, error) {
 		}
 		file.timeouts.supervisor = supervisor
 		file.inner.operationTimeouts.supervisor = supervisor
-		runtime.repositories = newRepositorySet(file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file)
+		runtime.repositories = newRepositorySet(file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file)
 		runtime.probe = func(ctx context.Context) error { return probeFileStore(ctx, file) }
 		runtime.closeBackend = func() error { return nil }
 	case BackendPostgres:
@@ -102,7 +103,7 @@ func NewRuntime(ctx context.Context, opts RuntimeOptions) (*Runtime, error) {
 		if err != nil {
 			return nil, err
 		}
-		runtime.repositories = newRepositorySet(postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres)
+		runtime.repositories = newRepositorySet(postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres)
 		runtime.probe = func(ctx context.Context) error { return probePostgresStore(ctx, postgres) }
 		runtime.closeBackend = func() error {
 			postgres.Close()
@@ -120,6 +121,7 @@ func NewRuntime(ctx context.Context, opts RuntimeOptions) (*Runtime, error) {
 }
 
 func newRepositorySet(
+	medicine MedicineRepository,
 	email EmailRepository,
 	emailPresentation EmailPresentationRepository,
 	iscpOnboarding ISCPOnboardingRepository,
@@ -143,7 +145,7 @@ func newRepositorySet(
 	externalChat ExternalChatRepository,
 	mcp MCPRepository,
 ) repositorySet {
-	return repositorySet{email: email, emailPresentation: emailPresentation,
+	return repositorySet{medicine: medicine, email: email, emailPresentation: emailPresentation,
 		iscpOnboarding: iscpOnboarding, owner: owner, client: client,
 		credential: credential, connector: connector, session: session,
 		conversation: conversation, run: run, document: document,
@@ -293,3 +295,5 @@ func (r *Runtime) EmailRepository() EmailRepository { return r.repositories.emai
 func (r *Runtime) EmailPresentationRepository() EmailPresentationRepository {
 	return r.repositories.emailPresentation
 }
+
+func (r *Runtime) MedicineRepository() MedicineRepository { return r.repositories.medicine }

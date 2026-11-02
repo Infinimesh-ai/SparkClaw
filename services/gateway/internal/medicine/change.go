@@ -166,8 +166,8 @@ func ApplyBatch(owner string, current State, batch Batch, now time.Time) (State,
 		return State{}, Receipt{}, ErrCapacity
 	}
 	next := CloneState(current)
-	if next.Epoch == "" {
-		next = EmptyState(owner)
+	if next.Epoch != EmptyState(owner).Epoch {
+		return State{}, Receipt{}, ErrInvalid
 	}
 	receipt := Receipt{OperationID: batch.OperationID, Digest: digest, Items: []Change{}}
 	seenEntries, seenIDs := map[string]bool{}, map[string]bool{}
@@ -235,6 +235,9 @@ func ApplyBatch(owner string, current State, batch Batch, now time.Time) (State,
 	}
 	sortedItems(next.Items)
 	receipt.Sequence = next.Sequence
+	if raw, err := json.Marshal(receipt); err != nil || len(raw) > MaxReceiptBytes {
+		return State{}, Receipt{}, ErrCapacity
+	}
 	next.Receipts[batch.OperationID] = receipt
 	next.ReceiptCount++
 	return next, receipt, nil
@@ -260,8 +263,8 @@ func ApplyImport(owner string, current State, request ImportRequest, now time.Ti
 		return State{}, ImportResult{}, ErrCapacity
 	}
 	next := CloneState(current)
-	if next.Epoch == "" {
-		next = EmptyState(owner)
+	if next.Epoch != EmptyState(owner).Epoch {
+		return State{}, ImportResult{}, ErrInvalid
 	}
 	result := ImportResult{OperationID: request.OperationID, Items: []Item{}}
 	seen := map[string]bool{}
@@ -294,6 +297,9 @@ func ApplyImport(owner string, current State, request ImportRequest, now time.Ti
 	}
 	sortedItems(next.Items)
 	result.Sequence = next.Sequence
+	if raw, err := json.Marshal(result); err != nil || len(raw) > MaxReceiptBytes {
+		return State{}, ImportResult{}, ErrCapacity
+	}
 	next.Imports[request.OperationID] = ImportReceipt{Digest: digest, Result: result}
 	next.ReceiptCount++
 	return next, result, nil

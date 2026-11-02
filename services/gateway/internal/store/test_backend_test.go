@@ -3,6 +3,7 @@ package store
 // testBackend keeps cross-repository characterization fixtures convenient
 // without restoring a production-wide Store contract.
 type testBackend interface {
+	MedicineRepository
 	ISCPOnboardingRepository
 	OwnerRepository
 	ClientRepository

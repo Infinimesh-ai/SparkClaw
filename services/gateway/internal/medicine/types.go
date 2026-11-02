@@ -15,6 +15,7 @@ const (
 	MaxEvents       = 4096
 	MaxPage         = 100
 	MaxReceipts     = 65536
+	MaxReceiptBytes = 60 << 10
 	OperationCreate = "create"
 	OperationUpdate = "update"
 	OperationDelete = "delete"

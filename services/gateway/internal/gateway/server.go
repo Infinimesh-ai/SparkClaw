@@ -494,6 +494,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/email/providers/{provider}/login-browser", s.openEmailLoginBrowser)
 	s.mux.HandleFunc("POST /api/email/providers/{provider}/check", s.checkEmailProvider)
 	s.registerEmailComposeRoutes()
+	s.registerMedicineRoutes()
 	s.mux.HandleFunc("GET /api/email/presentations", s.getEmailPresentations)
 	s.mux.HandleFunc("POST /api/email/presentations/ensure", s.ensureEmailPresentations)
 	s.mux.HandleFunc("GET /api/email/notifications", s.listEmailRoutedMessages)

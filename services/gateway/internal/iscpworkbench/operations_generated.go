@@ -137,4 +137,5 @@ const (
 	OperationSettingsMCPPairingStatus = "settings.mcp.pairing.status"
 	OperationSettingsMCPPairingOnboardings = "settings.mcp.pairing.onboardings"
 	OperationSettingsMCPPairingStart = "settings.mcp.pairing.start"
+	OperationMedicineRecognize = "medicine.recognize"
 )

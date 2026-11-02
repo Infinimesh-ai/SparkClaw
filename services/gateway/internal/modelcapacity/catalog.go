@@ -51,6 +51,7 @@ const (
 	OperationPPTXVisualRepairPlan     Operation = "pptx.visual_repair_plan"
 	OperationDocumentOCR              Operation = "document.ocr"
 	OperationEmailAnalysis            Operation = "email.analysis"
+	OperationMedicineRecognize        Operation = "medicine.recognize"
 )
 
 type OperationSpec struct {
@@ -79,6 +80,7 @@ var operationSpecs = []OperationSpec{
 	{Operation: OperationPPTXVisualRepairPlan, OutputClass: OutputVisionStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 	{Operation: OperationDocumentOCR, OutputClass: OutputOCRDocument, AllowedLanes: []Lane{LaneOCR}, Generates: true},
 	{Operation: OperationEmailAnalysis, OutputClass: OutputWorkflowStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
+	{Operation: OperationMedicineRecognize, OutputClass: OutputVisionStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 }
 
 func Spec(operation Operation) (OperationSpec, error) {

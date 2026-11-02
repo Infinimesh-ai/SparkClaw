@@ -72,6 +72,7 @@ func (a *iscpDomainAdapter) capabilitiesWithSession(ctx context.Context, request
 		{"settings_credentials", []string{iscpworkbench.OperationSettingsIntegrationsList, iscpworkbench.OperationSettingsCredentialsAdd, iscpworkbench.OperationSettingsCredentialsActivate, iscpworkbench.OperationSettingsCredentialsCheck, iscpworkbench.OperationSettingsCredentialsDelete}, a.server.integrations != nil},
 		{"approvals", []string{iscpworkbench.OperationApprovalsList, iscpworkbench.OperationApprovalsGet, iscpworkbench.OperationApprovalsDecide}, true},
 		{"notifications", []string{iscpworkbench.OperationNotificationsList, iscpworkbench.OperationNotificationsRead, iscpworkbench.OperationNotificationsReadAll}, true},
+		{"medicine", []string{iscpworkbench.OperationMedicineRecognize}, true},
 	}
 	capabilities := make([]iscpDomainCapability, 0, len(families))
 	operations := []string{}

@@ -225,6 +225,11 @@ func (a *iscpDomainAdapter) dispatch(ctx context.Context, request iscpworkbench.
 		return a.approvals(ctx, request)
 	case iscpworkbench.OperationNotificationsList, iscpworkbench.OperationNotificationsRead, iscpworkbench.OperationNotificationsReadAll:
 		return a.notifications(ctx, request)
+	case iscpworkbench.OperationMedicineRecognize:
+		if _, _, err := a.executionIdentity(ctx, request); err != nil {
+			return domainError(403, "installation_required")
+		}
+		return domainHTTP(ctx, request, http.MethodPost, a.server.recognizeMedicine, nil)
 	default:
 		if slices.Contains(mailPopupOperations(), request.Operation) {
 			return a.mailPopup(ctx, request)

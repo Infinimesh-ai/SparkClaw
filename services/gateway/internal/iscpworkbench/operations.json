@@ -2269,5 +2269,22 @@
       "path": "/api/iscp-pairing/start"
     },
     "capacity_class": "business"
+  },
+  {
+    "name": "medicine.recognize",
+    "constant": "OperationMedicineRecognize",
+    "version": 2,
+    "direction": "forward",
+    "scope": "workbench.text",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "http": {
+      "method": "POST",
+      "path": "/api/medicine/recognize"
+    },
+    "capacity_class": "business"
   }
 ]

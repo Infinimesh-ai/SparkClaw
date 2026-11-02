@@ -362,7 +362,8 @@ html[data-resolved-theme="dark"] .medicinePage .medicineSegments button:is(.expi
 .medicineDialog .medicineSourcePhoto.isLarge img { width: 100%; }
 .medicineDialog .medicineFieldset { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 0; border: 0; }
 .medicineDialog .medicineFieldset legend { margin-bottom: 10px; padding: 0; color: var(--ui-ink); font-size: 13px; font-weight: 600; }
-.medicineDialog .medicineDialogGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* Fields keep their own height when a neighbour carries a hint. */
+.medicineDialog .medicineDialogGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
 .medicineDialog .medicineFieldWide { grid-column: 1 / -1; }
 .medicineDialog .medicineCheck { margin-left: 6px; padding: 0 6px; border-radius: 999px; color: var(--medicine-warn); background: var(--medicine-warn-bg); font-size: 11px; font-style: normal; font-weight: 500; line-height: 16px; }
 .medicineDialog .medicineFieldHint { color: var(--ui-muted); font-size: 12px; line-height: 18px; }

@@ -267,6 +267,11 @@ func executionDocumentApprovalModel(t *testing.T) (*httptest.Server, *executionA
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		// The expanded semantic catalog can require exact prompt token admission.
+		if r.URL.Path == "/tokenize" {
+			_ = json.NewEncoder(w).Encode(map[string]int{"count": 1000})
+			return
+		}
 		if r.URL.Path == "/embeddings" {
 			data := []map[string]any{}
 			for index, input := range request.Input {

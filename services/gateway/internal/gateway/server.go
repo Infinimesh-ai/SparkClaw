@@ -296,6 +296,7 @@ func New(cfg config.Config, st Repository, tools *toolhub.ToolHub, runtime agent
 }
 
 func NewWithTrace(cfg config.Config, st Repository, tools *toolhub.ToolHub, runtime agent.Runtime, traces *trace.Writer, options ...Option) *Server {
+	tools.WithMedicineRepository(st)
 	artifacts := tools.ArtifactStore()
 	if artifacts == nil {
 		artifacts = artifact.NewStore(cfg.Storage)

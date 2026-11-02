@@ -21,6 +21,11 @@ const (
 	pptxVisualRepairResultSchema = "sparkclaw.pptx_visual_repair_result.v1"
 	pptxVisualRepairMaxOps       = 8
 
+	// The plan schema version lives in the structured-output name only; see
+	// pptxVisualAssessmentOutputName for why the model-facing schema has no
+	// const schema_version, attempt or slide_index property.
+	pptxVisualRepairPlanOutputName = "pptx_visual_repair_plan_v1"
+
 	// Field bounds shared by the plan JSON schema and plan validation; the
 	// repair script enforces the same limits before mutating the candidate.
 	pptxVisualRepairFontSizeMinPT  = 8
@@ -112,8 +117,8 @@ func (s *pptxVisualQAService) PlanRepair(ctx context.Context, request pptxVisual
 	result, err := s.models.ChatWithProfileOptions(planCtx, modelcapacity.OperationPPTXVisualRepairPlan, "fast", system, string(user), modelrouter.ChatOptions{
 		ForceDisableThinking: true,
 		StrictJSONSchema: &modelrouter.StrictJSONSchema{
-			Name: "pptx_visual_repair_plan", Description: "A bounded current-attempt PPTX visual repair plan.",
-			Schema: pptxVisualRepairPlanJSONSchema(request.Attempt, request.Page.SlideIndex, diagnosticIDs, visualIDs, shapeRefs, allowedOperations),
+			Name: pptxVisualRepairPlanOutputName, Description: "A bounded current-attempt PPTX visual repair plan.",
+			Schema: pptxVisualRepairPlanJSONSchema(diagnosticIDs, visualIDs, shapeRefs, allowedOperations),
 		},
 	})
 	if err != nil {
@@ -125,9 +130,17 @@ func (s *pptxVisualQAService) PlanRepair(ctx context.Context, request pptxVisual
 		}
 		return pptxVisualRepairPlan{}, modelrouter.ChatResult{}, &app.CodedToolError{Code: code, Err: fmt.Errorf("plan PPTX visual repair for slide %d: %w", request.Page.SlideIndex, err)}
 	}
-	var plan pptxVisualRepairPlan
-	if err := decodePPTXVisualStrictJSON([]byte(result.Content), &plan); err != nil {
+	var reply struct {
+		ResolvesDiagnosticIDs  []string                    `json:"resolves_diagnostic_ids"`
+		ResolvesVisualIssueIDs []string                    `json:"resolves_visual_issue_ids"`
+		Operations             []pptxVisualRepairOperation `json:"operations"`
+	}
+	if err := decodePPTXVisualStrictJSON([]byte(result.Content), &reply); err != nil {
 		return pptxVisualRepairPlan{}, modelrouter.ChatResult{}, &app.CodedToolError{Code: app.ToolErrorPPTXRenderRepairInvalid, Err: fmt.Errorf("decode PPTX visual repair plan for slide %d: %w", request.Page.SlideIndex, err)}
+	}
+	plan := pptxVisualRepairPlan{
+		SchemaVersion: pptxVisualRepairPlanSchema, Attempt: request.Attempt, SlideIndex: request.Page.SlideIndex,
+		ResolvesDiagnosticIDs: reply.ResolvesDiagnosticIDs, ResolvesVisualIssueIDs: reply.ResolvesVisualIssueIDs, Operations: reply.Operations,
 	}
 	if err := validatePPTXVisualRepairPlan(plan, request, s.cfg.RepairQualifiedOperations); err != nil {
 		return pptxVisualRepairPlan{}, modelrouter.ChatResult{}, &app.CodedToolError{Code: app.ToolErrorPPTXRenderRepairInvalid, Err: err}
@@ -135,7 +148,10 @@ func (s *pptxVisualQAService) PlanRepair(ctx context.Context, request pptxVisual
 	return plan, result, nil
 }
 
-func pptxVisualRepairPlanJSONSchema(attempt, slideIndex int, diagnosticIDs, visualIDs, shapeRefs, operations []string) map[string]any {
+// pptxVisualRepairPlanJSONSchema has no uniqueItems: the Fast lane's guided
+// decoder rejects the keyword with HTTP 400, and validatePPTXVisualRepairPlan
+// already refuses repeated evidence IDs.
+func pptxVisualRepairPlanJSONSchema(diagnosticIDs, visualIDs, shapeRefs, operations []string) map[string]any {
 	stringEnum := func(values []string) map[string]any {
 		schema := map[string]any{"type": "string"}
 		if len(values) > 0 {
@@ -145,13 +161,10 @@ func pptxVisualRepairPlanJSONSchema(attempt, slideIndex int, diagnosticIDs, visu
 	}
 	return map[string]any{
 		"type": "object", "additionalProperties": false,
-		"required": []string{"schema_version", "attempt", "slide_index", "resolves_diagnostic_ids", "resolves_visual_issue_ids", "operations"},
+		"required": []string{"resolves_diagnostic_ids", "resolves_visual_issue_ids", "operations"},
 		"properties": map[string]any{
-			"schema_version":            map[string]any{"type": "string", "const": pptxVisualRepairPlanSchema},
-			"attempt":                   map[string]any{"type": "integer", "const": attempt},
-			"slide_index":               map[string]any{"type": "integer", "const": slideIndex},
-			"resolves_diagnostic_ids":   map[string]any{"type": "array", "maxItems": len(diagnosticIDs), "uniqueItems": true, "items": stringEnum(diagnosticIDs)},
-			"resolves_visual_issue_ids": map[string]any{"type": "array", "maxItems": len(visualIDs), "uniqueItems": true, "items": stringEnum(visualIDs)},
+			"resolves_diagnostic_ids":   map[string]any{"type": "array", "maxItems": len(diagnosticIDs), "items": stringEnum(diagnosticIDs)},
+			"resolves_visual_issue_ids": map[string]any{"type": "array", "maxItems": len(visualIDs), "items": stringEnum(visualIDs)},
 			"operations": map[string]any{
 				"type": "array", "minItems": 1, "maxItems": pptxVisualRepairMaxOps,
 				"items": map[string]any{

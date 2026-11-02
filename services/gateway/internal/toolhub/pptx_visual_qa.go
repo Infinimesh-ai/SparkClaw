@@ -32,10 +32,17 @@ const (
 	pptxDiagnosticFactsSchema       = "sparkclaw.pptx_diagnostic_facts.v1"
 	pptxVisualRepairContextSchema   = "sparkclaw.pptx_visual_repair_context.v1"
 	pptxVisualAssessmentSchema      = "sparkclaw.pptx_visual_assessment.v1"
-	pptxVisualReadinessSchema       = "sparkclaw.pptx_visual_readiness.v1"
 	pptxVisualModelInputMaxBytes    = 512 << 10
 	pptxVisualAssessmentMaxIssues   = 12
 	pptxVisualAssessmentMaxEvidence = 400
+
+	// Structured-output names carry the contract version. The model-facing
+	// schemas have no const schema_version, slide_index or attempt property:
+	// Runtime already knows those values, and a const property can make the
+	// real Fast model stall on whitespace after the key under guided decoding
+	// until the output budget runs out.
+	pptxVisualReadinessOutputName  = "pptx_visual_readiness_v1"
+	pptxVisualAssessmentOutputName = "pptx_visual_assessment_v1"
 )
 
 type pptxVisualQAErrorKind string
@@ -590,14 +597,13 @@ func (s *pptxVisualQAService) ensureFastImageReady(ctx context.Context) error {
 		return err
 	}
 	schema := modelrouter.StrictJSONSchema{
-		Name:        "pptx_visual_readiness",
+		Name:        pptxVisualReadinessOutputName,
 		Description: "Proves that the exact Fast profile accepts image input and strict JSON output.",
 		Schema: map[string]any{
 			"type": "object", "additionalProperties": false,
-			"required": []string{"schema_version", "image_seen"},
+			"required": []string{"image_seen"},
 			"properties": map[string]any{
-				"schema_version": map[string]any{"type": "string", "const": pptxVisualReadinessSchema},
-				"image_seen":     map[string]any{"type": "boolean", "const": true},
+				"image_seen": map[string]any{"type": "boolean", "const": true},
 			},
 		},
 	}
@@ -609,10 +615,9 @@ func (s *pptxVisualQAService) ensureFastImageReady(ctx context.Context) error {
 		return fmt.Errorf("Fast image readiness probe failed: %w", err)
 	}
 	var readiness struct {
-		SchemaVersion string `json:"schema_version"`
-		ImageSeen     bool   `json:"image_seen"`
+		ImageSeen bool `json:"image_seen"`
 	}
-	if err := decodePPTXVisualStrictJSON([]byte(result.Content), &readiness); err != nil || readiness.SchemaVersion != pptxVisualReadinessSchema || !readiness.ImageSeen {
+	if err := decodePPTXVisualStrictJSON([]byte(result.Content), &readiness); err != nil || !readiness.ImageSeen {
 		return errors.New("Fast image readiness probe returned an invalid strict result")
 	}
 	s.readyMu.Lock()
@@ -643,7 +648,7 @@ func pptxVisualReadinessPNG() ([]byte, error) {
 func (s *pptxVisualQAService) assessPage(ctx context.Context, operation string, page pptxRenderAnalysisPage, pngContent []byte) (pptxVisualAssessment, modelrouter.ChatResult, error) {
 	shapeRefs := offeredPPTXShapeRefs(page.Structure)
 	reviewFacts := reviewablePPTXDiagnosticFacts(page.Diagnostics.Facts)
-	schema := pptxVisualAssessmentJSONSchema(page.SlideIndex, reviewFacts, shapeRefs)
+	schema := pptxVisualAssessmentJSONSchema(reviewFacts, shapeRefs)
 	payload := map[string]any{
 		"schema_version":         "sparkclaw.pptx_visual_review_request.v1",
 		"slide_index":            page.SlideIndex,
@@ -664,14 +669,21 @@ func (s *pptxVisualQAService) assessPage(ctx context.Context, operation string, 
 	modelResult, err := s.models.ChatWithImageOptions(ctx, modelcapacity.OperationPPTXVisualAssessment, "fast", system, string(user), modelrouter.ImageInput{
 		Content: pngContent, ContentType: "image/png",
 	}, modelrouter.ChatOptions{ForceDisableThinking: true, StrictJSONSchema: &modelrouter.StrictJSONSchema{
-		Name: "pptx_visual_assessment", Description: "Semantic review of one fixed-render PPTX page.", Schema: schema,
+		Name: pptxVisualAssessmentOutputName, Description: "Semantic review of one fixed-render PPTX page.", Schema: schema,
 	}})
 	if err != nil {
 		return pptxVisualAssessment{}, modelrouter.ChatResult{}, pptxVisualModelCallError(fmt.Errorf("review rendered PPTX slide %d: %w", page.SlideIndex, err))
 	}
-	var assessment pptxVisualAssessment
-	if err := decodePPTXVisualStrictJSON([]byte(modelResult.Content), &assessment); err != nil {
+	var reply struct {
+		FactReviews      []pptxVisualFactReview      `json:"fact_reviews"`
+		SubjectiveIssues []pptxVisualSubjectiveIssue `json:"subjective_issues"`
+	}
+	if err := decodePPTXVisualStrictJSON([]byte(modelResult.Content), &reply); err != nil {
 		return pptxVisualAssessment{}, modelrouter.ChatResult{}, newPPTXVisualQAError(pptxVisualQAModelError, app.ToolErrorPPTXRenderModelInvalid, fmt.Errorf("decode rendered PPTX slide %d assessment: %w", page.SlideIndex, err))
+	}
+	assessment := pptxVisualAssessment{
+		SchemaVersion: pptxVisualAssessmentSchema, SlideIndex: page.SlideIndex,
+		FactReviews: reply.FactReviews, SubjectiveIssues: reply.SubjectiveIssues,
 	}
 	if err := validatePPTXVisualAssessment(assessment, page.SlideIndex, reviewFacts, shapeRefs); err != nil {
 		return pptxVisualAssessment{}, modelrouter.ChatResult{}, newPPTXVisualQAError(pptxVisualQAModelError, app.ToolErrorPPTXRenderModelInvalid, err)
@@ -693,7 +705,7 @@ func pptxVisualModelCallError(err error) error {
 	return newPPTXVisualQAError(pptxVisualQAModelError, code, err)
 }
 
-func pptxVisualAssessmentJSONSchema(slideIndex int, facts []pptxDiagnosticFact, shapeRefs []string) map[string]any {
+func pptxVisualAssessmentJSONSchema(facts []pptxDiagnosticFact, shapeRefs []string) map[string]any {
 	diagnosticIDs := make([]string, 0, len(facts))
 	for _, fact := range facts {
 		diagnosticIDs = append(diagnosticIDs, fact.DiagnosticID)
@@ -712,10 +724,8 @@ func pptxVisualAssessmentJSONSchema(slideIndex int, facts []pptxDiagnosticFact, 
 	}
 	return map[string]any{
 		"type": "object", "additionalProperties": false,
-		"required": []string{"schema_version", "slide_index", "fact_reviews", "subjective_issues"},
+		"required": []string{"fact_reviews", "subjective_issues"},
 		"properties": map[string]any{
-			"schema_version": map[string]any{"type": "string", "const": pptxVisualAssessmentSchema},
-			"slide_index":    map[string]any{"type": "integer", "const": slideIndex},
 			"fact_reviews": map[string]any{
 				"type": "array", "minItems": len(diagnosticIDs), "maxItems": len(diagnosticIDs),
 				"items": map[string]any{

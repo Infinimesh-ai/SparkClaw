@@ -386,6 +386,13 @@ planner returns a strict structured plan instead of prose or a direct tool call:
 }
 ```
 
+The model does not write `schema_version`, `attempt` or `slide_index`. Its
+strict output schema, named `pptx_visual_repair_plan_v1`, holds only the three
+lists; Runtime fills the envelope from the request. A const property in that
+schema can make the Fast model stall on whitespace under guided decoding, and
+the Fast lane's decoder refuses `uniqueItems`, so Runtime checks that evidence
+IDs do not repeat.
+
 Every plan must reference at least one current-attempt diagnostic ID or visual
 issue ID. Objective repairs cite `resolves_diagnostic_ids`; repairs for
 hierarchy, whitespace, focus, or another subjective class cite
@@ -677,6 +684,10 @@ return a Runtime `status`, policy `verdict`, or blocking severity.
   ]
 }
 ```
+
+As with the repair plan, the model writes only `fact_reviews` and
+`subjective_issues` under the strict output name `pptx_visual_assessment_v1`;
+Runtime fills `schema_version` and `slide_index`.
 
 Every supplied `confirmed` or `observed` fact receives a bounded semantic
 review. Allowed semantic effects are versioned by diagnostic kind:

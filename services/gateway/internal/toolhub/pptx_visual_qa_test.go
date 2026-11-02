@@ -480,9 +480,11 @@ func TestPPTXVisualQAEndToEndUsesFixedRenderAndStrictFastReview(t *testing.T) {
 		jsonSchema, _ := responseFormat["json_schema"].(map[string]any)
 		name, _ := jsonSchema["name"].(string)
 		modelCalls = append(modelCalls, name)
-		content := `{"schema_version":"sparkclaw.pptx_visual_readiness.v1","image_seen":true}`
-		if name == "pptx_visual_assessment" {
-			content = `{"schema_version":"sparkclaw.pptx_visual_assessment.v1","slide_index":1,"fact_reviews":[],"subjective_issues":[]}`
+		schema, _ := jsonSchema["schema"].(map[string]any)
+		assertPPTXVisualSchemaDecodable(t, name, schema)
+		content := `{"image_seen":true}`
+		if name == pptxVisualAssessmentOutputName {
+			content = `{"fact_reviews":[],"subjective_issues":[]}`
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{{"message": map[string]string{"content": content}, "finish_reason": "stop"}},
@@ -502,11 +504,14 @@ func TestPPTXVisualQAEndToEndUsesFixedRenderAndStrictFastReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rendererCalls != 1 || !slices.Equal(modelCalls, []string{"pptx_visual_readiness", "pptx_visual_assessment"}) {
+	if rendererCalls != 1 || !slices.Equal(modelCalls, []string{"pptx_visual_readiness_v1", "pptx_visual_assessment_v1"}) {
 		t.Fatalf("unexpected render/model calls: renderer=%d model=%#v", rendererCalls, modelCalls)
 	}
 	if result.Status != "completed" || result.SlideCount != 1 || len(result.Pages) != 1 || result.Pages[0].SlideIndex != 1 || result.Pages[0].Raster.Width != 960 || result.Pages[0].Raster.Height != 720 || !result.Pages[0].Raster.UniformWhite {
 		t.Fatalf("unexpected PPTX visual QA result: %#v", result)
+	}
+	if assessment := result.Pages[0].Assessment; assessment.SchemaVersion != pptxVisualAssessmentSchema || assessment.SlideIndex != 1 {
+		t.Fatalf("Runtime did not fill the assessment envelope: %#v", assessment)
 	}
 	if len(result.Pages[0].Diagnostics.Facts) != 1 || result.Pages[0].Diagnostics.Facts[0].Kind != "text_clipping" || result.Pages[0].Diagnostics.Facts[0].Status != "unavailable" {
 		t.Fatalf("missing explicit unavailable clipping evidence: %#v", result.Pages[0].Diagnostics)
@@ -644,6 +649,32 @@ with open(__import__("sys").argv[1], "wb") as output:
 	}
 }
 
+// assertPPTXVisualSchemaDecodable fails on schema keywords the real Fast
+// lane cannot decode reliably: uniqueItems is refused by its guided decoder,
+// and a const string or integer can stall generation on whitespace after the
+// key. A const boolean stays allowed as a model assertion such as image_seen.
+func assertPPTXVisualSchemaDecodable(t *testing.T, name string, node any) {
+	t.Helper()
+	switch value := node.(type) {
+	case map[string]any:
+		if _, ok := value["uniqueItems"]; ok {
+			t.Fatalf("strict schema %q uses uniqueItems", name)
+		}
+		if constant, ok := value["const"]; ok {
+			if _, boolean := constant.(bool); !boolean {
+				t.Fatalf("strict schema %q has a non-boolean const %#v", name, constant)
+			}
+		}
+		for _, child := range value {
+			assertPPTXVisualSchemaDecodable(t, name, child)
+		}
+	case []any:
+		for _, child := range value {
+			assertPPTXVisualSchemaDecodable(t, name, child)
+		}
+	}
+}
+
 type stubPPTXVisualModel struct {
 	content string
 	err     error
@@ -703,6 +734,11 @@ func TestPPTXVisualQAErrorsAreTypedByCause(t *testing.T) {
 	page := validPage
 	page.Diagnostics.Facts = []pptxDiagnosticFact{{DiagnosticID: "diag-1", Kind: "geometry_overlap", Status: "confirmed", ShapeRefs: []string{"slide:1:shape:1"}}}
 	page.Structure.Shapes = []map[string]any{{"shape_ref": "slide:1:shape:1"}}
+	validReview := `"fact_reviews":[{"diagnostic_id":"diag-1","semantic_effect":"harmful_obstruction","confidence_milli":900,"evidence":"The card hides the body."}],"subjective_issues":[]}`
+	assessment, _, err := newPPTXVisualQAService(cfg, stubPPTXVisualModel{content: "{" + validReview}).assessPage(t.Context(), "update_slide", page, []byte("png"))
+	if err != nil || assessment.SchemaVersion != pptxVisualAssessmentSchema || assessment.SlideIndex != 1 || len(assessment.FactReviews) != 1 {
+		t.Fatalf("assessPage = %#v, %v; want the reviewed fact inside a Runtime-filled envelope", assessment, err)
+	}
 	for _, test := range []struct {
 		name  string
 		model stubPPTXVisualModel
@@ -711,7 +747,8 @@ func TestPPTXVisualQAErrorsAreTypedByCause(t *testing.T) {
 		{name: "model call failed", model: stubPPTXVisualModel{err: os.ErrDeadlineExceeded}, want: app.ToolErrorPPTXRenderModelUnavailable},
 		{name: "model call cancelled", model: stubPPTXVisualModel{err: context.Canceled}, want: app.ToolErrorPPTXRenderCancelled},
 		{name: "model output not JSON", model: stubPPTXVisualModel{content: "not json"}, want: app.ToolErrorPPTXRenderModelInvalid},
-		{name: "model skipped a required fact", model: stubPPTXVisualModel{content: `{"schema_version":"sparkclaw.pptx_visual_assessment.v1","slide_index":1,"fact_reviews":[],"subjective_issues":[]}`}, want: app.ToolErrorPPTXRenderModelInvalid},
+		{name: "model skipped a required fact", model: stubPPTXVisualModel{content: `{"fact_reviews":[],"subjective_issues":[]}`}, want: app.ToolErrorPPTXRenderModelInvalid},
+		{name: "model echoed an envelope field", model: stubPPTXVisualModel{content: `{"schema_version":"sparkclaw.pptx_visual_assessment.v1",` + validReview}, want: app.ToolErrorPPTXRenderModelInvalid},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service := newPPTXVisualQAService(cfg, test.model)

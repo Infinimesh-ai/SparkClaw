@@ -11,6 +11,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
@@ -479,5 +480,68 @@ func TestPPTXVisualRepairAcceptsAnalysisTargetBindings(t *testing.T) {
 	_, err = applyPPTXVisualRepair(t.Context(), candidatePath, filepath.Join(root, "drifted.pptx"), candidateSHA, drifted, plan)
 	if app.ToolErrorCodeFrom(err) != app.ToolErrorPPTXRenderRepairInvalid || !strings.Contains(err.Error(), "stale") {
 		t.Fatalf("drifted target binding was not refused as stale: %v", err)
+	}
+}
+
+type recordingPPTXVisualPlanModel struct {
+	stubPPTXVisualModel
+	options *modelrouter.ChatOptions
+}
+
+func (m recordingPPTXVisualPlanModel) ChatWithProfileOptions(_ context.Context, _ modelcapacity.Operation, _, _, _ string, options modelrouter.ChatOptions) (modelrouter.ChatResult, error) {
+	*m.options = options
+	return modelrouter.ChatResult{Content: m.content}, m.err
+}
+
+// The planner's strict schema leaves out the envelope Runtime already knows,
+// so PlanRepair fills schema_version, attempt and slide_index from the
+// request and refuses a reply that echoes any of them.
+func TestPPTXVisualRepairPlanFillsEnvelopeFromRequest(t *testing.T) {
+	sha := strings.Repeat("ab", 32)
+	page := pptxVisualQAPageResult{
+		SlideIndex: 3,
+		Structure: pptxVisualRepairContext{SlideIndex: 3, Shapes: []map[string]any{
+			{"shape_ref": "slide:3:shape:2", "changed": true, "edit_capabilities": []any{"set_geometry"}},
+		}},
+		Targets: map[string]string{"slide:3:shape:2": sha},
+	}
+	request := pptxVisualRepairRequest{
+		Attempt: 2, Operation: "update_slide", Authority: pptxVisualRepairAuthority{Class: "exact"}, Page: page,
+		Issues: []PPTXVisualRuntimeIssue{{SlideIndex: 3, Class: "text_clipped", EvidenceSource: app.PPTXVisualEvidenceObjective, EvidenceID: "diag-text-3-2", RepairQualified: true, ShapeRefs: []string{"slide:3:shape:2"}}},
+	}
+	cfg := testPPTXVisualQAConfig("http://127.0.0.1")
+	cfg.RepairQualifiedOperations = []string{"set_geometry"}
+	reply := `"resolves_diagnostic_ids":["diag-text-3-2"],"resolves_visual_issue_ids":[],"operations":[{"op":"set_geometry","shape_ref":"slide:3:shape:2","region_milli":[100,100,400,300]}]}`
+
+	var options modelrouter.ChatOptions
+	plan, _, err := newPPTXVisualQAService(cfg, recordingPPTXVisualPlanModel{stubPPTXVisualModel{content: "{" + reply}, &options}).PlanRepair(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.SchemaVersion != pptxVisualRepairPlanSchema || plan.Attempt != 2 || plan.SlideIndex != 3 || len(plan.Operations) != 1 {
+		t.Fatalf("PlanRepair did not fill the plan envelope from the request: %#v", plan)
+	}
+	if options.StrictJSONSchema == nil || options.StrictJSONSchema.Name != "pptx_visual_repair_plan_v1" {
+		t.Fatalf("unexpected structured-output contract: %#v", options.StrictJSONSchema)
+	}
+	raw, err := json.Marshal(options.StrictJSONSchema.Schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	assertPPTXVisualSchemaDecodable(t, options.StrictJSONSchema.Name, schema)
+
+	for _, echoed := range []string{`"schema_version":"sparkclaw.pptx_visual_repair_plan.v1",`, `"attempt":2,`, `"slide_index":3,`} {
+		_, _, err := newPPTXVisualQAService(cfg, stubPPTXVisualModel{content: "{" + echoed + reply}).PlanRepair(t.Context(), request)
+		if app.ToolErrorCodeFrom(err) != app.ToolErrorPPTXRenderRepairInvalid {
+			t.Fatalf("PlanRepair accepted a reply echoing %s: %v", echoed, err)
+		}
+	}
+	duplicated := strings.Replace(reply, `["diag-text-3-2"]`, `["diag-text-3-2","diag-text-3-2"]`, 1)
+	if _, _, err := newPPTXVisualQAService(cfg, stubPPTXVisualModel{content: "{" + duplicated}).PlanRepair(t.Context(), request); app.ToolErrorCodeFrom(err) != app.ToolErrorPPTXRenderRepairInvalid {
+		t.Fatalf("PlanRepair accepted a repeated evidence ID without uniqueItems in the schema: %v", err)
 	}
 }

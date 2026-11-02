@@ -73,6 +73,7 @@ func (a *iscpDomainAdapter) capabilitiesWithSession(ctx context.Context, request
 		{"approvals", []string{iscpworkbench.OperationApprovalsList, iscpworkbench.OperationApprovalsGet, iscpworkbench.OperationApprovalsDecide}, true},
 		{"notifications", []string{iscpworkbench.OperationNotificationsList, iscpworkbench.OperationNotificationsRead, iscpworkbench.OperationNotificationsReadAll}, true},
 		{"medicine", []string{iscpworkbench.OperationMedicineRecognize}, true},
+		{"medicine_text", []string{iscpworkbench.OperationMedicineParse}, true},
 	}
 	capabilities := make([]iscpDomainCapability, 0, len(families))
 	operations := []string{}

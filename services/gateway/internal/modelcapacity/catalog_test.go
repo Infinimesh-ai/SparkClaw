@@ -24,14 +24,17 @@ func TestOperationRegistryIsCompleteAndUnique(t *testing.T) {
 			}
 		}
 	}
-	if len(seen) != 19 {
-		t.Fatalf("registered operations = %d, want 19", len(seen))
+	if len(seen) != 20 {
+		t.Fatalf("registered operations = %d, want 20", len(seen))
 	}
 	if !seen[OperationEmailAnalysis] || !seen[OperationPPTXVisualAssessment] || !seen[OperationPPTXVisualRepairPlan] {
 		t.Fatal("PPTX visual operations are not registered")
 	}
 	if spec, err := Spec(OperationMedicineRecognize); err != nil || spec.OutputClass != OutputVisionStructured || len(spec.AllowedLanes) != 1 || spec.AllowedLanes[0] != LaneFast {
 		t.Fatalf("medicine recognition must be a fast-lane vision operation: %#v %v", spec, err)
+	}
+	if spec, err := Spec(OperationMedicineParse); err != nil || spec.OutputClass != OutputCompactStructured || len(spec.AllowedLanes) != 1 || spec.AllowedLanes[0] != LaneFast {
+		t.Fatalf("medicine text reading must be a fast-lane structured operation: %#v %v", spec, err)
 	}
 }
 

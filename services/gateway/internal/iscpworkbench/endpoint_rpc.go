@@ -374,6 +374,9 @@ func operationTimeout(operation string) time.Duration {
 	case OperationMedicineRecognize:
 		// One vision model call on a reduced photo; local models can take a minute.
 		return 120 * time.Second
+	case OperationMedicineParse:
+		// One short text model call.
+		return 60 * time.Second
 	default:
 		return requestTimeout
 	}

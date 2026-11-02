@@ -25,10 +25,13 @@ func (browserInternetSearchProfile) RoutingSemantics() workflowRoutingSemantics 
 		EmbedTexts: []string{
 			"查一下今天的 AI 新闻", "What is the current gold price?", "现在美元兑人民币汇率是多少", "刚结束的比赛比分",
 			"苹果官网目前在售的产品和价格", "联网查询最新信息", "比较北京和上海今天的天气", "查询天气预警",
+			"谁是苹果公司的CEO", "Does Node.js support TypeScript natively?", "吃阿司匹林期间能同时吃感冒药吗",
+			"被公司辞退可以拿多少经济补偿", "核实这个说法并给出原始出处",
 		},
-		TreeDescription: "Retrieve read-only facts whose answer depends on current Internet state, including news, prices, availability, sports, alerts, official current catalogs, or multi-source and multi-location comparisons.",
+		TreeDescription: "Retrieve read-only public facts that need external evidence. This includes answers that depend on current Internet state (news, prices, availability, sports, alerts, official current catalogs); facts that may have changed since model training even without a time word, such as who holds an office or role and software, library, API, or product versions, support, and compatibility; the owner's own medication-safety, medical, legal, labor, tax, or financial decisions that must be checked against authoritative current public sources; explicit requests to search, verify a claim, cite sources, or find original documents, including historical ones; and multi-source or multi-location comparisons. It never retrieves the owner's private orders, accounts, messages, files, or local system state, and explanations of settled concepts such as a drug class or a legal term remain conversation.",
 		HardNegatives: []string{
 			"解释什么是黄金", "上海今天的天气卡片", "打开苹果官网", "点击网页上的下一步", "一分钟后查一下新闻",
+			"不要联网，解释一下什么是劳动合同", "解释布洛芬的作用原理", "我的快递现在到哪了",
 		},
 	}}}
 }

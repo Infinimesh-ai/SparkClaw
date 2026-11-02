@@ -396,30 +396,73 @@ func TestBrowserSearchWorkflowUsesCanonicalQueryInsteadOfModelRewrite(t *testing
 	}))
 	defer info.Close()
 
-	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
-		cfg.config.Tools.Web.Search.Enabled = true
-		infoCfg := &cfg.config.Plugins.Entries.InfinimeshInfo.Config
-		infoCfg.BaseURL = info.URL
-		infoCfg.LicenseID = "lic_test"
-		infoCfg.LicenseKey = "ilk_v1.lic_test.test-key"
-		infoCfg.MaxAttempts = 1
-	})
-	defer closeRuntime()
-
-	result, err := runtime.HandleMessage(context.Background(), session.ID, `今天杭州新闻
+	// Exercise the default file backend through route persistence, tool binding,
+	// the HTTP provider boundary and a cold reopen, including historical searches.
+	for _, tc := range []struct {
+		name, query string
+		dated       bool
+	}{
+		{"today", "今天杭州新闻", true},
+		{"historical_policy", "查一下2015年中国的二孩政策原文，不要查当前政策", false},
+		{"earlier_this_year", "查一下2026年1月最新公布的政策原文", false},
+		{"historical_price", "Search for the price of gold in 1980, not current prices", false},
+		{"historical_route", "搜索郑和下西洋的航行路径及史料出处", false},
+		{"word_boundary", "Search for concurrent programming textbooks", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			requestedQuery = ""
+			root := t.TempDir()
+			statePath := filepath.Join(root, "state.json")
+			st, err := store.NewFileStore(statePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := agentTestConfig()
+			cfg.Workspaces.DefaultRoot = root
+			cfg.Workspaces.Allowlist = []string{root}
+			cfg.Storage.TraceDir = filepath.Join(root, "traces")
+			cfg.Storage.ArtifactDir = filepath.Join(root, "artifacts")
+			cfg.Tools.Web.Search.Enabled = true
+			infoCfg := &cfg.Plugins.Entries.InfinimeshInfo.Config
+			infoCfg.BaseURL = info.URL
+			infoCfg.LicenseID = "lic_test"
+			infoCfg.LicenseKey = "ilk_v1.lic_test.test-key"
+			infoCfg.MaxAttempts = 1
+			hub := toolhub.New(cfg, st)
+			defer hub.Close()
+			runtime := NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), nil)
+			session := storetest.MustCreateSessionWithScope(t, st, "search query", app.DefaultOwnerID, root, "web", false)
+			result, err := runtime.HandleMessage(t.Context(), session.ID, tc.query+`
 MOCK_STEP_RESPONSE:{"type":"action","tool":"web.search","arguments":{"query":"完全不同的查询","freshness":"today","max_results":5}}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Run.State != "completed" || len(result.ToolCalls) != 1 || result.ToolCalls[0].Status != app.ToolCallStatusCompleted {
-		t.Fatalf("canonical search should complete, got %#v", result)
-	}
-	want := "今天杭州新闻 " + currentSearchDateForTimezone(time.Now(), "")
-	if result.RouteDecision == nil || result.RouteDecision.Slots.Query != want {
-		t.Fatalf("route did not persist the canonical query: %#v", result.RouteDecision)
-	}
-	if got := result.ToolCalls[0].Arguments["query"]; got != want || requestedQuery != want {
-		t.Fatalf("workflow did not execute the canonical query: tool=%#v provider=%q want=%q", got, requestedQuery, want)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Run.State != "completed" || len(result.ToolCalls) != 1 || result.ToolCalls[0].Status != app.ToolCallStatusCompleted {
+				t.Fatalf("canonical search should complete, got %#v", result)
+			}
+			want := tc.query
+			if tc.dated {
+				want += " " + currentSearchDateForTimezone(time.Now(), "")
+			}
+			if result.RouteDecision == nil || result.RouteDecision.Slots.Query != want {
+				t.Fatalf("route did not persist the requested time scope: %#v", result.RouteDecision)
+			}
+			if got := result.ToolCalls[0].Arguments["query"]; got != want || requestedQuery != want {
+				t.Fatalf("workflow did not execute the frozen query: tool=%#v provider=%q want=%q", got, requestedQuery, want)
+			}
+			reopened, err := store.NewFileStore(statePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			run, found, err := reopened.GetRun(t.Context(), result.Run.ID)
+			if err != nil || !found || run.Workflow == nil || run.Workflow.Route.Slots.Query != want {
+				t.Fatalf("cold reopen lost frozen route: run=%+v found=%t err=%v", run, found, err)
+			}
+			call, found, err := reopened.GetToolCall(t.Context(), result.ToolCalls[0].ID)
+			if err != nil || !found || call.Arguments["query"] != want {
+				t.Fatalf("cold reopen lost executed query: call=%+v found=%t err=%v", call, found, err)
+			}
+		})
 	}
 }
 

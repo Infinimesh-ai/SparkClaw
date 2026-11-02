@@ -26,8 +26,8 @@
 
 | Capability / Profile | 当前可实现 | 固定执行链 | 当前边界 |
 |---|---|---|---|
-| `conversation.answer` r3 | `answer` 变体回答问候、稳定常识和简单解释；`publish` 变体返回普通有序 image、audio 和 file part。入站 MCP 对话可以用相对路径、精确 basename 或不完整文件名描述指定已有 workspace 媒体。 | `detect_response_media` 先冻结未经验证的 locator，并在任何 workspace lookup 前暂停等待 owner approval。审批后才解析并冻结 `none`、`selected`、`clarify` 或 `blocked`，再由 `answer` 执行一次无工具模型回答或确定性发布冻结内容。精确 basename 匹配区分大小写；未命中或名称不完整时使用共享、有界且只匹配文件名的查询并选择稳定 Top-1。结果可以组合回答文本与冻结媒体。 | 外部 MCP 只暴露 `sparkclaw.conversation.send`，不暴露 `files.search` 或 Catalog 叶子。一次 workspace-data approval 绑定 MCP identity、owner authorization、locator、Workflow、output class 和 return route；Delivery 不再二次审批。Inbound MCP run 不继承先前 session context 或 cached derivative。审批前不访问文件或索引，也不接受绝对路径。answer 节点不能再次查询或替换资源，hash/size 变化会阻断整个 multipart 结果。human-explicit text/media send 不增加 destination-only approval。 |
-| `browser.internet_search` r2 | 用冻结 Query 查询公开、时效性的互联网信息。天气预警、新闻、官方来源发现、多来源比较和空气质量调研也走这条通用搜索流程。 | 调用一次 `web.search`；启用时当前由 Infinimesh Info 提供结果，随后确定性渲染经校验的 aggregate。Info 返回的 fact、conflict、viewpoint 和 source 顺序保持不变；结果返回后不再执行第二个 ranker、synthesis、page read 或模型 finalizer。 | 不会打开搜索结果页面、读取已知 URL、操作登录态浏览器，也不会把直接天气问题渲染成卡片。每条显示的 claim 只保留自身有效 source-ID 边；freshness、uncertainty、不可链接 citation 和 projection omission 都会明确展示。上游 next-action 建议不能控制 Workflow 或回答。 |
+| `conversation.answer` r3 | `answer` 变体回答问候、稳定常识、简单解释、创作以及基于 owner 提供内容的推理。路由后不能再搜索，因此训练后可能变化的事实以及 owner 自身的用药、法律、劳动、税务或财务决策改走搜索；`publish` 变体返回普通有序 image、audio 和 file part。入站 MCP 对话可以用相对路径、精确 basename 或不完整文件名描述指定已有 workspace 媒体。 | `detect_response_media` 先冻结未经验证的 locator，并在任何 workspace lookup 前暂停等待 owner approval。审批后才解析并冻结 `none`、`selected`、`clarify` 或 `blocked`，再由 `answer` 执行一次无工具模型回答或确定性发布冻结内容。精确 basename 匹配区分大小写；未命中或名称不完整时使用共享、有界且只匹配文件名的查询并选择稳定 Top-1。结果可以组合回答文本与冻结媒体。 | 外部 MCP 只暴露 `sparkclaw.conversation.send`，不暴露 `files.search` 或 Catalog 叶子。一次 workspace-data approval 绑定 MCP identity、owner authorization、locator、Workflow、output class 和 return route；Delivery 不再二次审批。Inbound MCP run 不继承先前 session context 或 cached derivative。审批前不访问文件或索引，也不接受绝对路径。answer 节点不能再次查询或替换资源，hash/size 变化会阻断整个 multipart 结果。human-explicit text/media send 不增加 destination-only approval。 |
+| `browser.internet_search` r2 | 用冻结 Query 查询需要外部证据的公开信息：当前互联网状态、即使没有时间词也可能在模型训练后变化的事实（现任职务、软件与 API 支持情况或版本）、owner 自身的用药、法律、劳动、税务或财务决策，以及明确要求核实、引用或查找原始出处的请求（包括历史资料）。天气预警、新闻、官方来源发现、多来源比较和空气质量调研也走这条通用搜索流程。冻结 Query 只在 owner 自己使用未被否定的当下时间词时追加客户端日期，话题词、明确日历日期、历史时间范围和其他年份都不会追加。 | 调用一次 `web.search`；启用时当前由 Infinimesh Info 提供结果，随后确定性渲染经校验的 aggregate。Info 返回的 fact、conflict、viewpoint 和 source 顺序保持不变；结果返回后不再执行第二个 ranker、synthesis、page read 或模型 finalizer。 | 不会打开搜索结果页面、读取已知 URL、操作登录态浏览器，也不会把直接天气问题渲染成卡片。每条显示的 claim 只保留自身有效 source-ID 边；freshness、uncertainty、不可链接 citation 和 projection omission 都会明确展示。上游 next-action 建议不能控制 Workflow 或回答。 |
 | `browser.weather` r2 | 针对明确地点生成一张天气 PNG 卡片。卡片使用规范化的当前天气状况和温度、匹配日期的最低/最高温，以及最多五条可用的未来小时数据。 | `weather.lookup` -> `media.render_weather_card`。冻结 route location 绑定到 typed `POST /v1/info/weather` 请求；渲染 Stage 只接收已完成 lookup 的 ref。 | Infinimesh Info 是唯一天气来源，并固定使用 metric 单位。malformed、不完整、不支持单位或鉴权失败会明确失败，不回退到通用 query/search 或解析路径。坐标、AQI 和 alert 不进入卡片 payload。纯文字天气、缺少地点、预警/新闻/来源比较和空气质量调研不属于本 Profile。 |
 | `browser.automation` r3 | 在 Bridge-allowlisted Task Tab 中取得一个明确 HTTP(S) URL、Runtime 注册站点或命名公网网站，用后台和 Handoff 后的 Snapshot 证明结果，并保持已验证的 Handoff Result 打开。现有 Destination Registry 始终先查询；命名目标未命中时使用 Info 有序结构化结果中首个通过安全校验的 URL。 | 命名目标未命中时先后台执行 `web.search` -> `browser.identify_public_target`，然后被动 `browser.status` -> `browser.list_tabs` -> navigate/open -> settle -> 后台 Snapshot 与 Route 校验 -> 可选 Owner 明确请求的视觉检查 -> 显式 Owner Handoff -> settle -> Handoff 后 Snapshot 与 Route 校验。 | Runtime 信任 Info 的相关性排序，但所选 URL 和每次 Redirect 都必须是公网 HTTPS。Owner Tab 与无关 Tab 均不复用；后台工作不改变浏览器焦点，只有显式 Handoff 可把 Task Tab 带到前台。Handoff 校验前 Run 不能成功，生产流程不会关闭 Result Tab。Click、输入、表单、任意网页读取和多 URL 操作不属于本 Profile。浏览器 r1 已退役。 |
 | `browser.page_read` r1 | 在后台 Browser Bridge Task Tab 中读取、总结或提取一个明确 URL 或命名公网页面的有界内容。 | 可选 Info 目标识别 -> `browser.status` -> 对冻结 URL 后台 `browser.open` -> 后台 `browser.read`，同时设置 `require_browser_session=true` 并复用 Active Task Page -> 校验最终 URL 和内容。 | 固定 Health/Open/Read 链不能跳过浏览器取得、不能聚焦 Owner Tab，也不能回退 Direct HTTP。登录或人工验证进入共享 Owner Handoff。开放式调研仍属于 `browser.internet_search`；页面修改和多 URL 不属于本 Profile。成功读取后若最终模型生成不可用，Runtime 会把有界提取内容作为不可信证据返回。 |
@@ -42,6 +42,31 @@
 | `localmind.cancel` r1 | 请求取消一个精确指定或同 session 最近的 LocalMind task。 | Approval -> 调用一次 `localmind.task.cancel`。 | 不先查询，也不在调用后轮询；原样返回 LocalMind 校验通过的取消请求状态。 |
 | `schedule.manage` r3 | 通过对话或类型化 WebChat 任务栏操作创建、列出、修改或取消定时任务。 | Create/Read 为单阶段；Edit/Delete 执行 `reminders.list` -> 唯一 pending 目标与冻结版本 -> `reminders.update` 或 `reminders.cancel`；全部写入使用 `ScheduleRegistry` Compare-and-Swap。 | 任务栏 ID 只是 Hint，必须存在于最新 owner 范围列表。到期内容重新进入普通 Message Runtime，Timer 不选择能力也不直接发送；编辑保持原提醒端。 |
 | `coding.agent_manage` r2 | 通过已配置的 Happy Team 与个人 bridge MCP 端点读取和管理编码 Agent 的任务与会话。 | 单个活动 Stage 只暴露已发现的 `mcp.external` 工具。读取请求可以调用任务/会话列表、详情、计划、机器和 transcript 工具；创建、启动、发消息、停止和取消走正常审批路径。 | MCP observation 是不可信数据，使用前必须摘要。个人 bridge 离线不会停用 Team 任务工具。计划批准/拒绝不进入聊天，只属于人工审批收件箱。 |
+
+## 搜索路由验证
+
+是否需要搜索与请求的时间范围分开判断。隐含变化的事实，以及需要权威公开证据的个人
+决策，在冻结无工具普通问答流程之前进入搜索。稳定概念、创作、对 owner 提供文本或数据
+的转换，以及明确拒绝搜索的请求仍走普通问答。私人订单、余额、账单和本地配置不属于
+公开搜索。这不会给普通问答增加工具回退路径。
+
+查询词不会因为话题词而被补上“最新／当前”。当下时间词可以用客户端日期作锚点；明确
+日期（包括同年较早月份）、其他年份和历史／否定措辞保留 owner 的时间范围。冻结后的
+查询原样传给 Info，模型不能再次改写。
+
+`TestCanonicalizeWebSearchQueryKeepsRequestedTimeScope` 覆盖查询规范化。
+`TestBrowserSearchWorkflowUsesCanonicalQueryInsteadOfModelRewrite` 检查持久化路由、
+工具参数、测试 Info HTTP 请求和文件存储冷启动重读。需要真实 Fast/Embedding 验收时，
+通过正常环境变量提供模型配置，在 `services/gateway` 下运行：
+
+```sh
+SPARKCLAW_RUN_REAL_SEARCH_ACCEPTANCE=1 go test ./internal/agent \
+  -run '^TestRealSearchRoutingAcceptance$' -count=1 -v -timeout=25m
+```
+
+真实测试使用隔离的文件存储，覆盖正例、反例、重复请求和未写入语义示例的改写句。
+路由错误、评分通道不健康或查询词被改写都会导致失败。测试不调用真实 Info 搜索或业务
+工具；路由验收不代表最终答案质量或部署状态。
 
 ## 文档编辑操作
 

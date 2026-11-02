@@ -484,7 +484,7 @@ func TestPPTXVisualQAEndToEndUsesFixedRenderAndStrictFastReview(t *testing.T) {
 		assertPPTXVisualSchemaDecodable(t, name, schema)
 		content := `{"image_seen":true}`
 		if name == pptxVisualAssessmentOutputName {
-			content = `{"fact_reviews":[],"subjective_issues":[]}`
+			content = `{"fact_reviews":{},"subjective_issues":[]}`
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{{"message": map[string]string{"content": content}, "finish_reason": "stop"}},
@@ -734,10 +734,18 @@ func TestPPTXVisualQAErrorsAreTypedByCause(t *testing.T) {
 	page := validPage
 	page.Diagnostics.Facts = []pptxDiagnosticFact{{DiagnosticID: "diag-1", Kind: "geometry_overlap", Status: "confirmed", ShapeRefs: []string{"slide:1:shape:1"}}}
 	page.Structure.Shapes = []map[string]any{{"shape_ref": "slide:1:shape:1"}}
-	validReview := `"fact_reviews":[{"diagnostic_id":"diag-1","semantic_effect":"harmful_obstruction","confidence_milli":900,"evidence":"The card hides the body."}],"subjective_issues":[]}`
+	validReview := `"fact_reviews":{"diag-1":{"semantic_effect":"harmful_obstruction","confidence_milli":900,"evidence":"The card hides the body."}},"subjective_issues":[]}`
 	assessment, _, err := newPPTXVisualQAService(cfg, stubPPTXVisualModel{content: "{" + validReview}).assessPage(t.Context(), "update_slide", page, []byte("png"))
-	if err != nil || assessment.SchemaVersion != pptxVisualAssessmentSchema || assessment.SlideIndex != 1 || len(assessment.FactReviews) != 1 {
+	if err != nil || assessment.SchemaVersion != pptxVisualAssessmentSchema || assessment.SlideIndex != 1 || len(assessment.FactReviews) != 1 || assessment.FactReviews[0].DiagnosticID != "diag-1" {
 		t.Fatalf("assessPage = %#v, %v; want the reviewed fact inside a Runtime-filled envelope", assessment, err)
+	}
+	// An off-canvas shape region copied into a subjective issue is trimmed to
+	// the page, and evidence is bounded in characters like the JSON schema.
+	longEvidence := strings.Repeat("遮", pptxVisualAssessmentMaxEvidence)
+	clipped := `{"fact_reviews":{"diag-1":{"semantic_effect":"intentional_layering","confidence_milli":700,"evidence":"` + longEvidence + `"}},"subjective_issues":[{"visual_issue_id":"visual-1","type":"broken_layout","confidence_milli":800,"region_milli":[900,867,900,167],"shape_refs":["slide:1:shape:1"],"evidence":"` + longEvidence + `"}]}`
+	assessment, _, err = newPPTXVisualQAService(cfg, stubPPTXVisualModel{content: clipped}).assessPage(t.Context(), "update_slide", page, []byte("png"))
+	if err != nil || !slices.Equal(assessment.SubjectiveIssues[0].RegionMilli, []int{900, 867, 100, 133}) {
+		t.Fatalf("assessPage = %#v, %v; want the issue region trimmed to the page", assessment, err)
 	}
 	for _, test := range []struct {
 		name  string
@@ -747,7 +755,9 @@ func TestPPTXVisualQAErrorsAreTypedByCause(t *testing.T) {
 		{name: "model call failed", model: stubPPTXVisualModel{err: os.ErrDeadlineExceeded}, want: app.ToolErrorPPTXRenderModelUnavailable},
 		{name: "model call cancelled", model: stubPPTXVisualModel{err: context.Canceled}, want: app.ToolErrorPPTXRenderCancelled},
 		{name: "model output not JSON", model: stubPPTXVisualModel{content: "not json"}, want: app.ToolErrorPPTXRenderModelInvalid},
-		{name: "model skipped a required fact", model: stubPPTXVisualModel{content: `{"fact_reviews":[],"subjective_issues":[]}`}, want: app.ToolErrorPPTXRenderModelInvalid},
+		{name: "model skipped a required fact", model: stubPPTXVisualModel{content: `{"fact_reviews":{},"subjective_issues":[]}`}, want: app.ToolErrorPPTXRenderModelInvalid},
+		{name: "model reviewed an unknown fact", model: stubPPTXVisualModel{content: `{"fact_reviews":{"diag-1":{"semantic_effect":"harmful_obstruction","confidence_milli":900,"evidence":"x"},"diag-9":{"semantic_effect":"unclear","confidence_milli":100,"evidence":"x"}},"subjective_issues":[]}`}, want: app.ToolErrorPPTXRenderModelInvalid},
+		{name: "model used another kind's effect", model: stubPPTXVisualModel{content: `{"fact_reviews":{"diag-1":{"semantic_effect":"intentional_bleed","confidence_milli":900,"evidence":"x"}},"subjective_issues":[]}`}, want: app.ToolErrorPPTXRenderModelInvalid},
 		{name: "model echoed an envelope field", model: stubPPTXVisualModel{content: `{"schema_version":"sparkclaw.pptx_visual_assessment.v1",` + validReview}, want: app.ToolErrorPPTXRenderModelInvalid},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -763,6 +773,39 @@ func TestPPTXVisualQAErrorsAreTypedByCause(t *testing.T) {
 // A renderer stack that differs from the configured pin must stop the
 // candidate before conversion: the sealed manifest attests to the pin, so
 // evidence from any other Gotenberg or pypdfium2 would make it a false record.
+// Each fact review is keyed by its diagnostic ID and offers only the semantic
+// effects of that fact's kind.
+func TestPPTXVisualAssessmentSchemaOffersEffectsPerDiagnosticKind(t *testing.T) {
+	facts := []pptxDiagnosticFact{
+		{DiagnosticID: "diag-text-1-2", Kind: "text_clipping", Status: "observed"},
+		{DiagnosticID: "diag-overlap-1-1", Kind: "geometry_overlap", Status: "confirmed"},
+		{DiagnosticID: "diag-canvas-1-3", Kind: "off_canvas", Status: "confirmed"},
+	}
+	raw, err := json.Marshal(pptxVisualAssessmentJSONSchema(facts, []string{"slide:1:shape:2"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	assertPPTXVisualSchemaDecodable(t, pptxVisualAssessmentOutputName, schema)
+	reviews := schema["properties"].(map[string]any)["fact_reviews"].(map[string]any)
+	if required, _ := reviews["required"].([]any); len(required) != len(facts) || reviews["additionalProperties"] != false {
+		t.Fatalf("fact_reviews must require exactly the offered facts: %#v", reviews)
+	}
+	for _, fact := range facts {
+		review := reviews["properties"].(map[string]any)[fact.DiagnosticID].(map[string]any)
+		offered := []string{}
+		for _, effect := range review["properties"].(map[string]any)["semantic_effect"].(map[string]any)["enum"].([]any) {
+			offered = append(offered, effect.(string))
+		}
+		if want := app.PPTXVisualSemanticEffectsForDiagnostic(app.PPTXVisualDiagnosticKind(fact.Kind)); !slices.Equal(offered, want) {
+			t.Fatalf("%s offers effects %#v, want %#v", fact.DiagnosticID, offered, want)
+		}
+	}
+}
+
 func TestPPTXVisualQARefusesUnpinnedRendererStack(t *testing.T) {
 	root := t.TempDir()
 	writeSingleSlidePptxFixture(t, root, "candidate.pptx")

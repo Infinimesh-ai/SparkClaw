@@ -46,6 +46,14 @@ def enum_value(value):
     return str(value) if value is not None else ""
 
 
+def shape_role(shape):
+    # python-pptx raises ValueError, not AttributeError, when placeholder_format
+    # is read on a text box, autoshape, picture or group.
+    if not getattr(shape, "is_placeholder", False):
+        return ""
+    return enum_value(shape.placeholder_format.type)
+
+
 def color_value(color_format):
     try:
         if color_format.type is None:
@@ -235,7 +243,7 @@ def collect_shapes(slide, slide_index, changed_indexes, changed_all, operation, 
             "slide_index": slide_index,
             "shape_index": shape_index,
             "shape_type": enum_value(shape.shape_type),
-            "role": enum_value(getattr(getattr(shape, "placeholder_format", None), "type", "")),
+            "role": shape_role(shape),
             "name": bounded_text(getattr(shape, "name", "")),
             "region_milli": region_milli(x, y, width, height, slide_width, slide_height),
             "polygon": polygon,

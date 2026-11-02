@@ -386,12 +386,17 @@ planner returns a strict structured plan instead of prose or a direct tool call:
 }
 ```
 
-The model does not write `schema_version`, `attempt` or `slide_index`. Its
-strict output schema, named `pptx_visual_repair_plan_v1`, holds only the three
-lists; Runtime fills the envelope from the request. A const property in that
-schema can make the Fast model stall on whitespace under guided decoding, and
-the Fast lane's decoder refuses `uniqueItems`, so Runtime checks that evidence
-IDs do not repeat.
+The model does not write this record directly. Its strict output schema,
+named `pptx_visual_repair_plan_v1`, holds `resolves_evidence_ids` (at least one
+diagnostic or visual issue ID) and `operations`. Each operation is one `anyOf`
+branch per qualified op that offers only that op's fields and only the shapes
+validation would accept for it. Runtime fills `schema_version`, `attempt` and
+`slide_index` from the request, splits the cited IDs by evidence source, and
+sets `generated` itself after checking that the shape was created in the
+current run; a model-supplied `generated` is refused. A const property can make
+the Fast model stall on whitespace under guided decoding, and the Fast lane's
+decoder refuses `uniqueItems`, so Runtime checks that evidence IDs do not
+repeat.
 
 Every plan must reference at least one current-attempt diagnostic ID or visual
 issue ID. Objective repairs cite `resolves_diagnostic_ids`; repairs for
@@ -686,8 +691,13 @@ return a Runtime `status`, policy `verdict`, or blocking severity.
 ```
 
 As with the repair plan, the model writes only `fact_reviews` and
-`subjective_issues` under the strict output name `pptx_visual_assessment_v1`;
-Runtime fills `schema_version` and `slide_index`.
+`subjective_issues` under the strict output name `pptx_visual_assessment_v1`.
+There `fact_reviews` is an object keyed by diagnostic ID that requires every
+supplied fact and offers only the semantic effects of that fact's kind; Runtime
+turns it into the list above and fills `schema_version` and `slide_index`.
+`region_milli` is `[x, y, width, height]` in thousandths of the page; Runtime
+trims a subjective issue region that runs past the page edge, and evidence is
+bounded in characters.
 
 Every supplied `confirmed` or `observed` fact receives a bounded semantic
 review. Allowed semantic effects are versioned by diagnostic kind:

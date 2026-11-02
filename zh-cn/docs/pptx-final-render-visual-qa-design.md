@@ -313,10 +313,13 @@ mask、background、badge 与装饰 overlay 都是有效 overlap。同样，`off
 }
 ```
 
-模型不填写 `schema_version`、`attempt` 和 `slide_index`。它的 strict output schema 名为
-`pptx_visual_repair_plan_v1`，只包含三个列表；Runtime 按 request 补齐这三个字段。schema 中的
-const 属性会让 Fast 模型在 guided decoding 下卡在空白字符上，Fast lane 的解码器也不接受
-`uniqueItems`，因此 evidence ID 不重复由 Runtime 校验。
+模型不直接填写这份记录。它的 strict output schema 名为 `pptx_visual_repair_plan_v1`，包含
+`resolves_evidence_ids`（至少一个 diagnostic 或 visual issue ID）和 `operations`。每个
+qualified op 对应一个 `anyOf` 分支，只提供该 op 允许的字段和校验会接受的 shape。Runtime 按
+request 补齐 `schema_version`、`attempt` 和 `slide_index`，按证据来源拆分引用的 ID，并在确认
+shape 由当前 run 创建后自行设置 `generated`；模型提供的 `generated` 会被拒绝。const 属性会让
+Fast 模型在 guided decoding 下卡在空白字符上，Fast lane 的解码器也不接受 `uniqueItems`，因此
+evidence ID 不重复由 Runtime 校验。
 
 每份 plan 必须引用至少一个当前 attempt 的 diagnostic ID 或 visual issue ID。客观 repair 使用
 `resolves_diagnostic_ids`；层级、留白、焦点或其他主观类别 repair 使用
@@ -569,7 +572,11 @@ severity。
 ```
 
 与 repair plan 相同，模型在 strict output 名称 `pptx_visual_assessment_v1` 下只填写
-`fact_reviews` 和 `subjective_issues`；Runtime 补齐 `schema_version` 和 `slide_index`。
+`fact_reviews` 和 `subjective_issues`。其中 `fact_reviews` 是以 diagnostic ID 为键的对象，
+要求覆盖每个已提供的 fact，并只提供该 fact 所属 kind 的 semantic effect；Runtime 把它转换为
+上面的列表，并补齐 `schema_version` 和 `slide_index`。`region_milli` 为页面千分比的
+`[x, y, width, height]`；超出页面边缘的主观 issue 区域由 Runtime 裁剪到页面内，evidence
+按字符数限长。
 
 每个已提供的 `confirmed` 或 `observed` fact 都必须获得有界语义审查。允许的 semantic effect
 按 diagnostic kind 版本化：

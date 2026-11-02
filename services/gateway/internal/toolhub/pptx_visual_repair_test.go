@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -511,14 +512,14 @@ func TestPPTXVisualRepairPlanFillsEnvelopeFromRequest(t *testing.T) {
 	}
 	cfg := testPPTXVisualQAConfig("http://127.0.0.1")
 	cfg.RepairQualifiedOperations = []string{"set_geometry"}
-	reply := `"resolves_diagnostic_ids":["diag-text-3-2"],"resolves_visual_issue_ids":[],"operations":[{"op":"set_geometry","shape_ref":"slide:3:shape:2","region_milli":[100,100,400,300]}]}`
+	reply := `"resolves_evidence_ids":["diag-text-3-2"],"operations":[{"op":"set_geometry","shape_ref":"slide:3:shape:2","region_milli":[100,100,400,300]}]}`
 
 	var options modelrouter.ChatOptions
 	plan, _, err := newPPTXVisualQAService(cfg, recordingPPTXVisualPlanModel{stubPPTXVisualModel{content: "{" + reply}, &options}).PlanRepair(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.SchemaVersion != pptxVisualRepairPlanSchema || plan.Attempt != 2 || plan.SlideIndex != 3 || len(plan.Operations) != 1 {
+	if plan.SchemaVersion != pptxVisualRepairPlanSchema || plan.Attempt != 2 || plan.SlideIndex != 3 || len(plan.Operations) != 1 || !slices.Equal(plan.ResolvesDiagnosticIDs, []string{"diag-text-3-2"}) || plan.ResolvesVisualIssueIDs == nil || len(plan.ResolvesVisualIssueIDs) != 0 {
 		t.Fatalf("PlanRepair did not fill the plan envelope from the request: %#v", plan)
 	}
 	if options.StrictJSONSchema == nil || options.StrictJSONSchema.Name != "pptx_visual_repair_plan_v1" {
@@ -543,5 +544,129 @@ func TestPPTXVisualRepairPlanFillsEnvelopeFromRequest(t *testing.T) {
 	duplicated := strings.Replace(reply, `["diag-text-3-2"]`, `["diag-text-3-2","diag-text-3-2"]`, 1)
 	if _, _, err := newPPTXVisualQAService(cfg, stubPPTXVisualModel{content: "{" + duplicated}).PlanRepair(t.Context(), request); app.ToolErrorCodeFrom(err) != app.ToolErrorPPTXRenderRepairInvalid {
 		t.Fatalf("PlanRepair accepted a repeated evidence ID without uniqueItems in the schema: %v", err)
+	}
+}
+
+// python-pptx raises ValueError when placeholder_format is read on a shape
+// that is not a placeholder, which used to fail the whole render analysis for
+// any slide holding a text box or an autoshape.
+func TestPPTXVisualQAAnalyzesTextBoxesAndAutoShapes(t *testing.T) {
+	root := t.TempDir()
+	candidatePath := filepath.Join(root, "candidate.pptx")
+	script := `
+import sys
+from pptx import Presentation
+from pptx.util import Emu
+prs = Presentation()
+slide = prs.slides.add_slide(prs.slide_layouts[5])
+slide.shapes.title.text = "Roadmap"
+slide.shapes.add_textbox(Emu(457200), Emu(1828800), Emu(3657600), Emu(914400)).text_frame.text = "Text box"
+slide.shapes.add_shape(1, Emu(4572000), Emu(1828800), Emu(2743200), Emu(914400)).text_frame.text = "Callout"
+prs.save(sys.argv[1])
+`
+	if out, err := exec.Command(documentPythonBinary(), "-c", script, candidatePath).CombinedOutput(); err != nil {
+		t.Fatalf("create PPTX fixture: %v\n%s", err, out)
+	}
+	pdfPath := filepath.Join(root, "candidate.pdf")
+	writePPTXVisualQAPDFFixture(t, pdfPath, 960, 720)
+	candidateSHA, err := pptxVisualFileSHA256(t.Context(), candidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	analysis, err := newPPTXVisualQAService(testPPTXVisualQAConfig("http://127.0.0.1"), nil).analyzeRender(t.Context(), pptxVisualQARequest{
+		CandidatePath: candidatePath, Operation: "update_slide", SlideIndexes: []int{1}, ChangedShapeIndexes: map[int][]int{1: {2, 3}},
+	}, candidateSHA, pdfPath, t.TempDir())
+	if err != nil {
+		t.Fatalf("render analysis refused a slide with a text box and an autoshape: %v", err)
+	}
+	roles := map[string]any{}
+	for _, shape := range analysis.Pages[0].Structure.Shapes {
+		roles[shape["shape_ref"].(string)] = shape["role"]
+	}
+	if len(roles) != 3 || roles["slide:1:shape:1"] == "" || roles["slide:1:shape:2"] != "" || roles["slide:1:shape:3"] != "" {
+		t.Fatalf("unexpected shape roles: %#v", roles)
+	}
+}
+
+// The plan schema offers one branch per operation with only that operation's
+// fields and the shapes validation accepts for it. Runtime splits the cited
+// evidence by source and attests generated itself.
+func TestPPTXVisualRepairPlanSchemaOffersOperationBranches(t *testing.T) {
+	sha := strings.Repeat("ab", 32)
+	page := pptxVisualQAPageResult{
+		SlideIndex: 1,
+		Structure: pptxVisualRepairContext{SlideIndex: 1, Shapes: []map[string]any{
+			{"shape_ref": "slide:1:shape:1", "changed": false, "editable": true, "edit_capabilities": []any{"set_geometry", "set_text_style", "rewrite_text", "place_below"}},
+			{"shape_ref": "slide:1:shape:2", "changed": true, "editable": true, "edit_capabilities": []any{"set_geometry", "set_text_style", "rewrite_text", "place_below"}},
+			{"shape_ref": "slide:1:shape:3", "changed": true, "created": true, "edit_capabilities": []any{"set_geometry", "delete_generated_shape"}},
+		}},
+		Targets: map[string]string{"slide:1:shape:1": sha, "slide:1:shape:2": sha, "slide:1:shape:3": sha},
+	}
+	request := pptxVisualRepairRequest{
+		Attempt: 1, Operation: "update_slide", Authority: pptxVisualRepairAuthority{Class: "outcome"}, Page: page,
+		Issues: []PPTXVisualRuntimeIssue{
+			{SlideIndex: 1, Class: "text_clipped", EvidenceSource: app.PPTXVisualEvidenceObjective, EvidenceID: "diag-text-1-2", RepairQualified: true, ShapeRefs: []string{"slide:1:shape:2"}},
+			{SlideIndex: 1, Class: "overcrowded", EvidenceSource: app.PPTXVisualEvidenceSubjective, EvidenceID: "visual-1", RepairQualified: true, ShapeRefs: []string{"slide:1:shape:1", "slide:1:shape:3"}},
+		},
+	}
+	qualified := app.PPTXVisualRepairOperationNames()
+	schema, offered := pptxVisualRepairPlanJSONSchema(request, qualified)
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	assertPPTXVisualSchemaDecodable(t, pptxVisualRepairPlanOutputName, decoded)
+	branches := map[string]map[string]any{}
+	for _, branch := range decoded["properties"].(map[string]any)["operations"].(map[string]any)["items"].(map[string]any)["anyOf"].([]any) {
+		properties := branch.(map[string]any)["properties"].(map[string]any)
+		branches[properties["op"].(map[string]any)["enum"].([]any)[0].(string)] = properties
+	}
+	if len(branches) != len(offered) {
+		t.Fatalf("branches %v do not match offered operations %v", branches, offered)
+	}
+	shapesFor := func(op string) []string {
+		out := []string{}
+		for _, shapeRef := range branches[op]["shape_ref"].(map[string]any)["enum"].([]any) {
+			out = append(out, shapeRef.(string))
+		}
+		return out
+	}
+	if _, ok := branches["set_geometry"]["text"]; ok || len(branches["set_geometry"]) != 3 {
+		t.Fatalf("set_geometry branch must hold only op, shape_ref and region_milli: %#v", branches["set_geometry"])
+	}
+	if got := shapesFor("rewrite_text"); !slices.Equal(got, []string{"slide:1:shape:2"}) {
+		t.Fatalf("rewrite_text offered %v, want only the changed text shape", got)
+	}
+	if got := shapesFor("delete_generated_shape"); !slices.Equal(got, []string{"slide:1:shape:3"}) {
+		t.Fatalf("delete_generated_shape offered %v, want only the created shape", got)
+	}
+	if _, ok := branches["delete_generated_shape"]["generated"]; ok {
+		t.Fatal("the model must not be asked for the generation proof")
+	}
+	evidence := decoded["properties"].(map[string]any)["resolves_evidence_ids"].(map[string]any)
+	if evidence["minItems"] != float64(1) {
+		t.Fatalf("a plan must cite at least one evidence ID: %#v", evidence)
+	}
+
+	cfg := testPPTXVisualQAConfig("http://127.0.0.1")
+	cfg.RepairQualifiedOperations = qualified
+	plan, _, err := newPPTXVisualQAService(cfg, stubPPTXVisualModel{content: `{"resolves_evidence_ids":["visual-1"],"operations":[{"op":"delete_generated_shape","shape_ref":"slide:1:shape:3"}]}`}).PlanRepair(t.Context(), request)
+	if err != nil || !slices.Equal(plan.ResolvesVisualIssueIDs, []string{"visual-1"}) || len(plan.ResolvesDiagnosticIDs) != 0 || plan.Operations[0].Generated == nil || !*plan.Operations[0].Generated {
+		t.Fatalf("PlanRepair = %#v, %v; want the visual evidence split out and generated attested by Runtime", plan, err)
+	}
+	_, _, err = newPPTXVisualQAService(cfg, stubPPTXVisualModel{content: `{"resolves_evidence_ids":["visual-1"],"operations":[{"op":"delete_generated_shape","shape_ref":"slide:1:shape:3","generated":true}]}`}).PlanRepair(t.Context(), request)
+	if app.ToolErrorCodeFrom(err) != app.ToolErrorPPTXRenderRepairInvalid {
+		t.Fatalf("PlanRepair accepted a model-supplied generation proof: %v", err)
+	}
+
+	exact := request
+	exact.Authority = pptxVisualRepairAuthority{Class: "exact"}
+	exact.Issues = exact.Issues[:1]
+	if _, offered := pptxVisualRepairPlanJSONSchema(exact, qualified); slices.Contains(offered, "rewrite_text") || slices.Contains(offered, "delete_generated_shape") || !slices.Contains(offered, "set_geometry") {
+		t.Fatalf("exact authority offered %v", offered)
 	}
 }

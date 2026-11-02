@@ -1,3 +1,4 @@
+import type { ApprovalInputForm, ApprovalInputValues } from "../components/approvalInputForm";
 export type RiskLevel = "read" | "draft" | "reversible" | "dangerous";
 
 export type Session = {
@@ -99,6 +100,9 @@ export type ToolCall = {
 };
 
 export type Approval = {
+  input_form?: ApprovalInputForm;
+  input_form_digest?: string;
+  input_values?: ApprovalInputValues;
   id: string;
   source: "tool" | "happy_team_plan" | string;
   external_id?: string;

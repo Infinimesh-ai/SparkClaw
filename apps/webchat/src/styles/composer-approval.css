@@ -61,3 +61,10 @@
 .emailPopup[hidden] { display: none; }
 .composerApprovalOverlay { min-width: 0; outline: none; }
 .composerApprovalOverlay:focus-visible { outline: 2px solid var(--cyber-blue); outline-offset: 2px; }
+
+.approvalInputForm { display: grid; gap: 12px; }
+.approvalInputForm fieldset { display: grid; gap: 8px; min-width: 0; }
+.approvalInputForm legend { font-weight: 600; }
+.approvalInputField > label { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.approvalInputField > label > span { min-width: 90px; }
+.approvalInputField input:not([type="checkbox"]), .approvalInputField select { min-width: 0; max-width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font: inherit; }

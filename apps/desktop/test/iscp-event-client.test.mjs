@@ -13,7 +13,7 @@ test('lost ACK replays the persisted packet and state invalidations wake every p
  const store={eventProjection:()=>stored,pending:()=>[],commitEventProjection:(_scope,value)=>{commits++;stored=value;}};
  const auth={generation:1,status:{state:'connected',capabilities:{events:true}},invokeISCP:async(op)=>{if(op==='events.pull')return packet;if(op==='events.ack'){acks++;if(acks===1)throw new Error('ACK lost');return{};}throw new Error('Unexpected operation');}};
  const client=new ISCPEventClient({auth,store,execution:{reconcilePending:async()=>{}},getIdentity:()=>({owner_id:'owner'}),onEvents:value=>wakes.push(value)});
- await assert.rejects(client.poll(),/ACK lost/);assert.deepEqual(wakes,[{categories:['tasks','approvals','notifications','settings','email']}]);await client.poll();assert.equal(commits,1);assert.equal(acks,2);assert.deepEqual(wakes,[{categories:['tasks','approvals','notifications','settings','email']},{categories:['tasks','approvals','notifications','settings','email']}]);
+ await assert.rejects(client.poll(),/ACK lost/);assert.deepEqual(wakes,[{categories:['tasks','approvals','notifications','settings','email','medicine']}]);await client.poll();assert.equal(commits,1);assert.equal(acks,2);assert.deepEqual(wakes,[{categories:['tasks','approvals','notifications','settings','email','medicine']},{categories:['tasks','approvals','notifications','settings','email','medicine']}]);
  packet.snapshot={executions:['conflicting']};await assert.rejects(client.poll(),/replay differs/);assert.equal(acks,2);
 });
 

@@ -104,3 +104,36 @@ it("describes workspace-data requests in the composer as the approval inbox does
   expect(host.textContent).not.toContain("raw tool summary");
   expect(host.textContent).not.toContain("/private/path");
 });
+
+const completion = { schema_version: 1, entries: [
+  { id: 'first', label: '布洛芬', summary: '24 粒，2027-05-31 到期', fields: [] },
+  { id: 'second', label: '感冒灵', summary: '6 袋', fields: [{ name: 'expiry', label: '有效期', type: 'date_or_none' as const, required: true }] },
+] };
+it('collects missing batch fields once, preserves them offline, and freezes the original values on an uncertain submission', async () => {
+  const decide = vi.fn().mockRejectedValueOnce(new Error('Receipt lost')).mockResolvedValue(undefined);
+  const render = (offline = false) => act(async () => root.render(<ComposerApproval text={dictionaries.zh} summary="补全药品" details={null} lockOnAttempt
+    inputForm={completion} unavailable={offline ? dictionaries.zh.approval.composer.offline : undefined} onDecide={decide} />));
+  await render(); await choose('approve');
+  expect(host.querySelector<HTMLButtonElement>('footer button')!.disabled).toBe(true);
+  expect(host.querySelectorAll('.approvalInputForm fieldset')).toHaveLength(2);
+  const date = host.querySelector<HTMLInputElement>('input[type="date"]')!;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(date,'2028-01-31'); date.dispatchEvent(new Event('input',{bubbles:true})); });
+  await render(true); expect(date.value).toBe('2028-01-31'); await submit(); expect(decide).not.toHaveBeenCalled();
+  await render(false); expect(host.querySelector('footer button')!.textContent).toBe('补全并写入 2 条');
+  await submit(); expect(decide).toHaveBeenCalledExactlyOnceWith('approve',{second:{expiry:'2028-01-31'}});
+  expect(host.querySelector<HTMLFieldSetElement>('.approvalInputForm fieldset')!.disabled).toBe(true);
+  await submit(); expect(decide.mock.calls).toEqual([['approve',{second:{expiry:'2028-01-31'}}],['approve',{second:{expiry:'2028-01-31'}}]]);
+});
+it('requires an explicit no-expiry choice and permits cancellation without filling fields', async () => {
+  const decide=vi.fn();await act(async()=>root.render(<ComposerApproval text={dictionaries.en} summary="Medicine" details={null} inputForm={completion} onDecide={decide}/>));
+  await choose('approve');expect(host.querySelector<HTMLButtonElement>('footer button')!.disabled).toBe(true);
+  await act(async()=>host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+  await submit();expect(decide).toHaveBeenCalledExactlyOnceWith('approve',{second:{expiry:'no_expiry'}});
+  await act(async()=>root.render(<ComposerApproval key="cancel" text={dictionaries.en} summary="Medicine" details={null} inputForm={completion} onDecide={decide}/>));
+  await choose('reject');await submit();expect(decide).toHaveBeenLastCalledWith('reject');
+});
+it('retains the approval entry but disables unsupported completion form versions', async()=>{
+ const decide=vi.fn();await act(async()=>root.render(<ComposerApproval text={dictionaries.en} summary="Medicine" details={null} inputForm={{...completion,schema_version:2}} onDecide={decide}/>));
+ expect(host.querySelector<HTMLInputElement>('input[value="approve"]')!.disabled).toBe(true);
+ expect(host.textContent).toContain('client that supports');await choose('reject');await submit();expect(decide).toHaveBeenCalledExactlyOnceWith('reject');
+});

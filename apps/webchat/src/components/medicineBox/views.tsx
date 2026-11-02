@@ -53,8 +53,8 @@ export function MedicineCards({ copy, groups, onOpen }: { copy: MedicineCopy; gr
   </ul>;
 }
 
-export function MedicineTable({ copy, groups, onOpen, onEdit, onRemove }: {
-  copy: MedicineCopy; groups: MedicineGroup[]; onOpen: (item: MedicineItem) => void; onEdit: (item: MedicineItem) => void; onRemove: (item: MedicineItem) => void;
+export function MedicineTable({ copy, groups, writable = true, onOpen, onEdit, onRemove }: {
+  writable?: boolean; copy: MedicineCopy; groups: MedicineGroup[]; onOpen: (item: MedicineItem) => void; onEdit: (item: MedicineItem) => void; onRemove: (item: MedicineItem) => void;
 }) {
   return <table className="medicineTable" aria-label={copy.list}>
     <thead><tr>
@@ -76,8 +76,8 @@ export function MedicineTable({ copy, groups, onOpen, onEdit, onRemove }: {
           <td className="medicineNumber medicineRowQuantity"><QuantityValue copy={copy} item={item} /></td>
           <td className="medicineLocationColumn medicineRowLocation">{item.location || "—"}</td>
           <td><div className="medicineRowActions">
-            <button className="iconButton" type="button" title={copy.edit} aria-label={`${copy.edit} ${item.name}`} onClick={() => onEdit(item)}><Pencil size={15} strokeWidth={1.75} /></button>
-            <button className="iconButton" type="button" title={copy.remove} aria-label={`${copy.remove} ${item.name}`} onClick={() => onRemove(item)}><Trash2 size={15} strokeWidth={1.75} /></button>
+            <button className="iconButton" type="button" disabled={!writable} title={!writable ? copy.connectToEdit : copy.edit} aria-label={`${copy.edit} ${item.name}`} onClick={() => onEdit(item)}><Pencil size={15} strokeWidth={1.75} /></button>
+            <button className="iconButton" type="button" disabled={!writable} title={!writable ? copy.connectToEdit : copy.remove} aria-label={`${copy.remove} ${item.name}`} onClick={() => onRemove(item)}><Trash2 size={15} strokeWidth={1.75} /></button>
           </div></td>
         </tr>;
       })}

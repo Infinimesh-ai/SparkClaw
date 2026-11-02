@@ -75,7 +75,7 @@ if (process.argv.includes("--sparkclaw-client-store=1")) {
     submit: (request_id) => storeInvoke("submit", { request_id }),
     reconcile: (request_id) => storeInvoke("reconcile", { request_id }),
     cancel: (request_id) => storeInvoke("cancel", { request_id }),
-    decideApproval: (request_id, approval_id, digest, decision) => storeInvoke("decideApproval", { request_id, approval_id, digest, decision }),
+    decideApproval: (request_id, approval_id, digest, decision, inputs) => storeInvoke("decideApproval", { request_id, approval_id, digest, decision, ...(inputs !== undefined ? { inputs } : {}) }),
     scheduleCreate: (conversation_id, content, due_at, interval_ms = 0) => storeInvoke("scheduleCreate", { conversation_id, content, due_at, interval_ms }),
     listSchedules: (filter) => storeInvoke("listSchedules", filter ? { filter } : {}),
     beginSchedulePresentation: (expected_scope) => storeInvoke("beginSchedulePresentation", { expected_scope }),
@@ -106,13 +106,23 @@ if (process.argv.includes("--sparkclaw-client-store=1")) {
     sync: (mailbox_id) => mailInvoke("sync", { mailbox_id }),
     saveAttachment: (mailbox_id, mail_id, part_id, conversation_id) => mailInvoke("saveAttachment", { mailbox_id, mail_id, part_id, conversation_id }),
   }));
+  ipcRenderer.on("sparkclaw-medicine-box:changed", () => window.dispatchEvent(new Event("sparkclaw-medicine-box:changed")));
   const medicineInvoke = (operation, fields = {}) => ipcRenderer.invoke("sparkclaw-medicine-box:invoke", {
     schema_version: 1, operation, ...fields,
   });
+  const medicineActions = new Map();
+  const medicineWrite = (operation, fields) => {
+    const key = JSON.stringify([operation, fields]);
+    const action = medicineActions.get(key) || { id: crypto.randomUUID() };
+    medicineActions.set(key, action);
+    if (action.promise) return action.promise;
+    action.promise = medicineInvoke(operation, { ...fields, action_id: action.id }).then(result => { if (result?.medicine_error) action.promise = null; else medicineActions.delete(key); return result; }, error => { action.promise = null; throw error; });
+    return action.promise;
+  };
   contextBridge.exposeInMainWorld("sparkclawMedicineBox", Object.freeze({
     list: () => medicineInvoke("list"),
-    save: (medicine) => medicineInvoke("save", { medicine }),
-    remove: (medicine_id) => medicineInvoke("remove", { medicine_id }),
+    save: (medicine) => medicineWrite("save", { medicine }),
+    remove: (medicine_id, base_version) => medicineWrite("remove", { medicine_id, ...(base_version !== undefined ? { base_version } : {}) }),
   }));
 }
 

@@ -1,3 +1,5 @@
+import { ComposerApproval } from "../composerApproval";
+import type { ApprovalInputValues } from "../approvalInputForm";
 import { useState } from "react";
 import { Check, Inbox, Pencil, RefreshCw, ShieldCheck, X } from "lucide-react";
 import type { Approval, ApprovalPresentation } from "../../api/types";
@@ -16,7 +18,7 @@ export function ApprovalPanel({
   approvals: Approval[];
   text: CopyText;
   resolvingId?: string;
-  onResolve: (id: string, accepted: boolean) => void;
+  onResolve: (id: string, accepted: boolean, inputs?: ApprovalInputValues) => void | Promise<void>;
   onModify: (id: string, args: Record<string, unknown>) => void;
   onModifyPlan: (id: string, plan: string) => void;
 }) {
@@ -57,7 +59,7 @@ export function ApprovalPanel({
           const { context: happyPlan, available: planAvailable } = happyPlanState(approval);
           const headline = approvalHeadline(approval, text);
           const contextBound = Boolean(approval.policy_context);
-          const argumentsLocked = contextBound || Boolean(approval.arguments_immutable);
+          const argumentsLocked = Boolean(approval.input_form) || contextBound || Boolean(approval.arguments_immutable);
           const resolving = resolvingId === approval.id;
           return (
           <article className={`approvalItem ${approval.risk}`} key={approval.id}>
@@ -74,7 +76,11 @@ export function ApprovalPanel({
               </div>
             )}
             <ApprovalDetails approval={approval} text={text} />
-            {approval.status === "pending" ? (
+            {approval.status === "pending" ? approval.input_form ? (
+              <ComposerApproval key={approval.input_form_digest} text={text} summary={approval.summary} details={null}
+                inputForm={approval.input_form} inputValues={approval.input_values} lockOnAttempt unavailable={resolvingId ? text.approval.composer.submitting : undefined}
+                onDecide={async (choice, inputs) => { await onResolve(approval.id, choice === "approve", inputs); }} />
+            ) : (
               <>
                 {!argumentsLocked && editing === approval.id && (
                   <div className="approvalEdit">

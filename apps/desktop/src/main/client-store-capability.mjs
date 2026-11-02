@@ -96,9 +96,9 @@ export class ClientStoreCapability {
         if (!this.execution) throw new Error("Execution client is unavailable");
         return this.execution[request.operation](scope, request.request_id);
       case "decideApproval":
-        keys(request, ["request_id", "approval_id", "digest", "decision"]);
+        keys(request, ["request_id", "approval_id", "digest", "decision", ...(Object.hasOwn(request, "inputs") ? ["inputs"] : [])]);
         if (!this.execution) throw new Error("Execution client is unavailable");
-        return this.execution.decideApproval(scope, request.request_id, request.approval_id, request.digest, request.decision);
+        return this.execution.decideApproval(scope, request.request_id, request.approval_id, request.digest, request.decision, request.inputs);
       case "scheduleCreate":
         keys(request, ["conversation_id", "content", "due_at", "interval_ms"]);
         if (!this.schedules) throw new Error("Schedule client is unavailable");

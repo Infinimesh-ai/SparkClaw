@@ -11,7 +11,7 @@ import { useConfirm } from "../confirmation";
 import { ActionIcon } from "../ActionIcon";
 import { MEDICINE_CATEGORIES, MEDICINE_EXPIRING_DAYS, filterMedicines, groupMedicines, medicineBox, medicineStats,
   type MedicineCategory, type MedicineItem, type MedicineSort, type MedicineStatusFilter } from "../../desktop/medicineBox";
-import { fill, medicineBoxCopy } from "./copy";
+import { fill, medicineBoxCopy, medicineWriteProblem } from "./copy";
 import { MedicineCards, MedicineTable } from "./views";
 import { MedicineDetailDialog } from "./detailDialog";
 import { MedicineEntryDialog } from "./entryDialog";
@@ -28,7 +28,7 @@ function preference<T extends string>(key: string, values: readonly T[], fallbac
 }
 function remember(key: string, value: string) { try { localStorage.setItem(key, value); } catch { /* preferences are optional */ } }
 
-export function useMedicineBox(active: boolean, recognitionAvailable: boolean, parseAvailable = false) {
+export function useMedicineBox(active: boolean, recognitionAvailable: boolean, parseAvailable = false, writable = true) {
   const api = medicineBox();
   const [items, setItems] = useState<MedicineItem[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -47,11 +47,12 @@ export function useMedicineBox(active: boolean, recognitionAvailable: boolean, p
     finally { setLoaded(true); }
   }, [api]);
   useEffect(() => { if (active) void reload(); }, [active, reload]);
+  useEffect(() => { const changed = () => { if (active) void reload(); }; window.addEventListener("sparkclaw-medicine-box:changed", changed); return () => window.removeEventListener("sparkclaw-medicine-box:changed", changed); }, [active, reload]);
   const setView = useCallback((value: MedicineView) => { setViewState(value); remember(VIEW_KEY, value); }, []);
   const setSort = useCallback((value: MedicineSort) => { setSortState(value); remember(SORT_KEY, value); }, []);
   const clearFilters = useCallback(() => { setCategory("all"); setStatus("all"); setSearch(""); }, []);
   return { api, items, loaded: loaded || !api, failed, category, setCategory, status, setStatus, search, setSearch, view, setView, sort, setSort, clearFilters,
-    editing, setEditing, detail, setDetail, reload, recognitionAvailable, parseAvailable };
+    editing, setEditing, detail, setDetail, reload, recognitionAvailable, parseAvailable, writable };
 }
 export type MedicineBoxState = ReturnType<typeof useMedicineBox>;
 
@@ -61,7 +62,7 @@ export function MedicineSidebar({ language, box }: { language: Language; box: Me
   const copy = medicineBoxCopy[language];
   return <aside className="sidebar medicineSidebar">
     <div className="brandRow"><h2 className="medicineSidebarTitle"><ActionIcon name="medicine" /><span>{copy.title}</span></h2></div>
-    <button className="sidebarNewConversation" type="button" disabled={!box.api} title={box.api ? undefined : copy.unavailable} onClick={() => box.setEditing({})}>
+    <button className="sidebarNewConversation" type="button" disabled={!box.api || !box.writable} title={!box.api ? copy.unavailable : !box.writable ? copy.connectToEdit : undefined} onClick={() => box.setEditing({})}>
       <Plus size={18} strokeWidth={1.75} aria-hidden="true" />
       <span>{copy.add}</span>
     </button>
@@ -82,17 +83,19 @@ export function MedicineSidebar({ language, box }: { language: Language; box: Me
 export function MedicineWorkspace({ language, box }: { language: Language; box: MedicineBoxState }) {
   const copy = medicineBoxCopy[language];
   const confirm = useConfirm(dictionaries[language]);
+  const [writeProblem, setWriteProblem] = useState("");
   const stats = medicineStats(box.items);
   const filtered = filterMedicines(box.items, { category: box.category, status: box.status, search: box.search }, (category) => copy.categories[category]);
   const groups = groupMedicines(filtered, box.sort);
   const detail = box.detail ? box.items.find((item) => item.id === box.detail) : undefined;
   const filtering = box.category !== "all" || box.status !== "all" || box.search.trim() !== "";
   const remove = async (item: MedicineItem) => {
-    if (!box.api || !await confirm(fill(copy.confirmRemove, { name: item.name }), { danger: true })) return;
-    try { await box.api.remove(item.id); } finally { await box.reload(); }
+    if (!box.api || !box.writable || !await confirm(fill(copy.confirmRemove, { name: item.name }), { danger: true })) return;
+    setWriteProblem("");
+    try { if (item.version !== undefined) await box.api.remove(item.id, item.version); else await box.api.remove(item.id); } catch (error) { setWriteProblem(medicineWriteProblem(error, copy, copy.removeFailed)); } finally { await box.reload(); }
   };
   const statusLabel = { all: copy.statusAll, expiring: fill(copy.expiringWithin, { days: MEDICINE_EXPIRING_DAYS }), expired: copy.expiredCount };
-  const addButton = (className: string) => <button className={className} type="button" disabled={!box.api} title={box.api ? undefined : copy.unavailable} onClick={() => box.setEditing({})}><Plus size={15} />{copy.add}</button>;
+  const addButton = (className: string) => <button className={className} type="button" disabled={!box.api || !box.writable} title={!box.api ? copy.unavailable : !box.writable ? copy.connectToEdit : undefined} onClick={() => box.setEditing({})}><Plus size={15} />{copy.add}</button>;
 
   return <div className="workbenchPage medicinePage">
     <div className="workbenchPageHeader">
@@ -106,6 +109,7 @@ export function MedicineWorkspace({ language, box }: { language: Language; box: 
       </div>
       {addButton("primaryButton")}
     </div>
+    {writeProblem && <p className="compactError" role="alert">{writeProblem}</p>}
     {box.failed && <div className="localFeedback" role="alert"><p>{copy.loadFailed}</p><button type="button" onClick={() => void box.reload()}>{copy.retry}</button></div>}
     {!box.loaded ? <ul className="medicineGrid medicineSkeleton" aria-hidden="true">{Array.from({ length: 6 }, (_, index) => <li key={index}><span /></li>)}</ul>
       : !box.items.length ? !box.failed && <section className="medicineEmpty" aria-label={copy.list}>
@@ -144,12 +148,12 @@ export function MedicineWorkspace({ language, box }: { language: Language; box: 
         </div>}
         {!filtered.length ? <div className="medicineNoMatches"><p>{copy.noMatches}</p><button type="button" className="secondaryButton" onClick={box.clearFilters}>{copy.clearFilters}</button></div>
           : box.view === "cards" ? <MedicineCards copy={copy} groups={groups} onOpen={(item) => box.setDetail(item.id)} />
-          : <MedicineTable copy={copy} groups={groups} onOpen={(item) => box.setDetail(item.id)} onEdit={(item) => box.setEditing({ item })} onRemove={(item) => void remove(item)} />}
+          : <MedicineTable writable={box.writable} copy={copy} groups={groups} onOpen={(item) => box.setDetail(item.id)} onEdit={(item) => box.setEditing({ item })} onRemove={(item) => void remove(item)} />}
       </section>}
-    {detail && box.api && !box.editing && <MedicineDetailDialog key={detail.id} language={language} api={box.api} item={detail} items={box.items}
+    {detail && box.api && !box.editing && <MedicineDetailDialog key={detail.id} language={language} writable={box.writable} api={box.api} item={detail} items={box.items}
       onClose={() => box.setDetail(null)} onSelect={(item) => box.setDetail(item.id)} onChanged={box.reload}
       onEdit={(item) => { box.setDetail(null); box.setEditing({ item }); }} />}
-    {box.editing && box.api && <MedicineEntryDialog language={language} item={box.editing.item} items={box.items} defaultCategory={box.category === "all" ? "" : box.category}
+    {box.editing && box.api && <MedicineEntryDialog writable={box.writable} language={language} item={box.editing.item} items={box.items} defaultCategory={box.category === "all" ? "" : box.category}
       recognitionAvailable={box.recognitionAvailable} parseAvailable={box.parseAvailable}
       onClose={() => box.setEditing(null)}
       onSaved={(saved) => { box.setEditing(null); if (box.category !== "all") box.setCategory(saved.category); void box.reload(); }} />}

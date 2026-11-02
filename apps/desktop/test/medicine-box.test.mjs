@@ -95,7 +95,7 @@ test("a version 1 box upgrades in place and keeps the pack size and manufacturer
       store.save(owner, medicine({ id: v1Rows[1].id, expires_on: "", no_expiry: true }));
     } finally { store.close(); }
     const check = new DatabaseSync(path.join(root, "medicine-box.sqlite"));
-    try { assert.equal(check.prepare("PRAGMA user_version").get().user_version, 2); } finally { check.close(); }
+    try { assert.equal(check.prepare("PRAGMA user_version").get().user_version, 3); } finally { check.close(); }
     // The upgraded box reopens without migrating again.
     const reopened = new MedicineStore(root);
     try { assert.equal(reopened.list(owner).items.find((item) => item.id === v1Rows[1].id).no_expiry, true); } finally { reopened.close(); }
@@ -121,7 +121,7 @@ test("a failed upgrade leaves version 1 untouched and the next start upgrades it
     try { assert.equal(store.list(owner).items.length, v1Rows.length); } finally { store.close(); }
 
     const newer = new DatabaseSync(path.join(root, "medicine-box.sqlite"));
-    newer.exec("PRAGMA user_version=3"); newer.close();
+    newer.exec("PRAGMA user_version=4"); newer.close();
     assert.throws(() => new MedicineStore(root), /newer/);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -132,7 +132,8 @@ test("medicine box IPC takes its scope from the authenticated identity and rejec
   const calls = [];
   const store = { list: (scope) => { calls.push(["list", scope]); return { items: [] }; }, save: (scope, value) => { calls.push(["save", scope, value]); return value; },
     remove: (scope, id) => { calls.push(["remove", scope, id]); return { deleted: true }; } };
-  const capability = new MedicineBoxCapability({ window: { webContents }, store, getIdentity: () => identity });
+  const client = { refresh: async () => {}, save: medicine => store.save(owner, medicine), remove: id => store.remove(owner, id) };
+  const capability = new MedicineBoxCapability({ window: { webContents }, store, client, getIdentity: () => identity });
   const event = { sender: webContents, senderFrame: frame };
   await capability.dispatch(event, { schema_version: 1, operation: "list" });
   await capability.dispatch(event, { schema_version: 1, operation: "save", medicine: medicine() });
@@ -166,4 +167,21 @@ test("photo recognition is its own ISCP surface", () => {
   assert.equal(projectISCPCapabilities(manifest, report).surfaces.medicine.enabled, true);
   assert.equal(projectISCPCapabilities({ ...manifest, operations: [] }, report).surfaces.medicine.enabled, false);
   assert.equal(projectISCPCapabilities(manifest, { ...report, capabilities: [{ ...row, enabled: false, reason: "dependency_unavailable" }] }).surfaces.medicine.reason, "dependency_unavailable");
+});
+
+test('inventory write capability requires the separate read capability without hiding original recognition', () => {
+  const read = ['medicine.sync', 'medicine.operations.get'];
+  const write = ['medicine.items.create', 'medicine.items.update', 'medicine.items.delete', 'medicine.items.batch', 'medicine.import'];
+  const manifest = { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session', authorization_revision: 1, expires_at: new Date(Date.now() + 60000).toISOString(), operations: [...read, ...write, 'medicine.recognize'] };
+  const capabilities = ['medicine_box_read', 'medicine_box_write', 'medicine'].map(id => ({ id, supported: true, permitted: true, qualified: true, enabled: true, dependencies_ready: true }));
+  const report = { ...manifest, capabilities };
+  assert.equal(projectISCPCapabilities(manifest, report).surfaces.medicine_box_write.enabled, true);
+  const limited = projectISCPCapabilities({ ...manifest, operations: [...write, 'medicine.recognize'] }, report).surfaces;
+  assert.equal(limited.medicine_box_write.enabled, false); assert.equal(limited.medicine.enabled, true);
+});
+
+test('medicine IPC preserves a typed version conflict for the original dialog alert', async () => {
+  const frame = { url: 'sparkclaw-app://workbench/index.html' }, webContents = { mainFrame: frame };
+  const capability = new MedicineBoxCapability({ window: { webContents }, getIdentity: () => owner, client: { save: async () => { throw Object.assign(new Error('changed'), { status: 409 }); } } });
+  assert.deepEqual(await capability.dispatch({ sender: webContents, senderFrame: frame }, { schema_version: 1, operation: 'save', medicine: medicine() }), { medicine_error: 'medicine_conflict' });
 });

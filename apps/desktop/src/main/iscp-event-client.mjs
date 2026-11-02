@@ -26,7 +26,7 @@ export class ISCPEventClient {
    if(reply.reset===true&&!resetRequested&&!repeated)throw new Error('Unexpected event reset');
    if(repeated&&reply.snapshot&&JSON.stringify(reply.snapshot)!==JSON.stringify(previous.snapshot))throw new Error('Event replay differs from durable snapshot');
    let sequence=repeated||resetRequested?0:previous.revision;
-   for(const event of events){if(!Number.isSafeInteger(event.sequence)||event.sequence<=sequence||event.sequence>reply.revision||typeof event.category!=='string'||!['state','tasks','approvals','notifications','settings','email'].includes(event.category))throw new Error('Invalid event sequence');sequence=event.sequence;}
+   for(const event of events){if(!Number.isSafeInteger(event.sequence)||event.sequence<=sequence||event.sequence>reply.revision||typeof event.category!=='string'||!['state','tasks','approvals','notifications','settings','email','medicine'].includes(event.category))throw new Error('Invalid event sequence');sequence=event.sequence;}
    if(events.length&&!reply.snapshot)throw new Error('Event changed without an authoritative snapshot');
    if(!repeated)this.store.commitEventProjection(scope,{previous_cursor:previous.cursor,cursor:reply.cursor,revision:reply.revision,snapshot:reply.snapshot??previous.snapshot,epoch:reply.epoch,reset:resetRequested&&reply.reset===true});
    same();
@@ -37,7 +37,7 @@ export class ISCPEventClient {
     if(!reply.snapshot)return;
     same();traceLatency('events.reconcile.start');
     const pending=this.execution.reconcilePending({wake:true});
-    try{same();this.onEvents({categories:[...new Set(events.length&&!events.some(event=>event.category==='state')?events.map(event=>event.category):['tasks','approvals','notifications','settings','email'])]});}
+    try{same();this.onEvents({categories:[...new Set(events.length&&!events.some(event=>event.category==='state')?events.map(event=>event.category):['tasks','approvals','notifications','settings','email','medicine'])]});}
     finally{await pending;}
     same();traceLatency('events.reconcile.end');
    };

@@ -12,7 +12,7 @@ import { ActionIcon } from "../ActionIcon";
 import { MEDICINE_CATEGORIES, MEDICINE_QUANTITY_MAX, MEDICINE_UNITS, medicineBox, medicineGroupKey, monthEnd, suggestMedicineCategory,
   type MedicineCategory, type MedicineItem, type MedicineUnit } from "../../desktop/medicineBox";
 import { prepareMedicinePhoto } from "../../desktop/medicinePhoto";
-import { fill, medicineBoxCopy } from "./copy";
+import { fill, medicineBoxCopy, medicineWriteProblem } from "./copy";
 
 type Draft = {
   name: string; category: MedicineCategory | ""; quantity: string; unit: MedicineUnit;
@@ -28,8 +28,8 @@ const draftExpiry = (draft: Draft) => draft.no_expiry ? "" : draft.month_only ? 
 type Status = { kind: "idle" | "busy" | "problem"; text: string };
 const localToday = (now = new Date()) => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-export function MedicineEntryDialog({ language, item, items, defaultCategory, recognitionAvailable, parseAvailable, onClose, onSaved }: {
-  language: Language; item?: MedicineItem; items: MedicineItem[]; defaultCategory: MedicineCategory | ""; recognitionAvailable: boolean; parseAvailable: boolean;
+export function MedicineEntryDialog({ language, writable = true, item, items, defaultCategory, recognitionAvailable, parseAvailable, onClose, onSaved }: {
+  writable?: boolean; language: Language; item?: MedicineItem; items: MedicineItem[]; defaultCategory: MedicineCategory | ""; recognitionAvailable: boolean; parseAvailable: boolean;
   onClose: () => void; onSaved: (item: MedicineItem) => void;
 }) {
   const copy = medicineBoxCopy[language];
@@ -131,12 +131,12 @@ export function MedicineEntryDialog({ language, item, items, defaultCategory, re
     && (draft.no_expiry || expiry));
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!valid || busy || !draft.category) return;
+    if (!valid || busy || !writable || !draft.category) return;
     setSaving(true);
     try {
-      onSaved(await api.save({ id: item?.id ?? "", name: draft.name.trim(), category: draft.category, quantity: Math.round(quantity * 100) / 100, unit: draft.unit,
+      onSaved(await api.save({ id: item?.id ?? "", ...(item?.version !== undefined ? { version: item.version } : {}), name: draft.name.trim(), category: draft.category, quantity: Math.round(quantity * 100) / 100, unit: draft.unit,
         expires_on: expiry, no_expiry: draft.no_expiry, location: draft.location.trim(), usage: draft.usage.trim(), notes: draft.notes.trim() }));
-    } catch { setStatus({ kind: "problem", text: copy.saveFailed }); }
+    } catch (error) { setStatus({ kind: "problem", text: medicineWriteProblem(error, copy, copy.saveFailed) }); }
     finally { setSaving(false); }
   };
   // Editing a pre-filled field means the owner has checked it.
@@ -269,7 +269,7 @@ export function MedicineEntryDialog({ language, item, items, defaultCategory, re
         <div className="scheduleDialogActions">
           {!item && <button className="secondaryButton medicineBack" type="button" onClick={() => setStep("entry")} disabled={saving}>{copy.back}</button>}
           <button className="secondaryButton" type="button" onClick={onClose} disabled={saving}>{copy.cancel}</button>
-          <button className="primaryButton" type="submit" disabled={busy || !valid}>{saving ? copy.saving : item ? copy.saveChanges : copy.confirmSave}</button>
+          <button className="primaryButton" type="submit" disabled={busy || !valid || !writable} title={!writable ? copy.connectToEdit : undefined}>{saving ? copy.saving : item ? copy.saveChanges : copy.confirmSave}</button>
         </div>
       </>}
     </form>

@@ -1,3 +1,4 @@
+import type { ApprovalInputValues } from "../components/approvalInputForm";
 import { ComposerApproval } from "../components/composerApproval";
 import type { ApprovalChoice } from "../components/composerApproval";
 import type { LocalApproval, LocalTask } from "./clientStore";
@@ -14,7 +15,7 @@ export function LocalComposerApprovals({ tasks, text, enabled, onDecide }: {
   tasks: LocalTask[];
   text: Copy;
   enabled: boolean;
-  onDecide: (task: LocalTask, approval: LocalApproval, decision: ApprovalChoice) => Promise<void>;
+  onDecide: (task: LocalTask, approval: LocalApproval, decision: ApprovalChoice, inputs?: ApprovalInputValues) => Promise<void>;
 }) {
   const copy = text.approval.composer;
   const rows = pendingLocalApprovals(tasks);
@@ -27,6 +28,7 @@ export function LocalComposerApprovals({ tasks, text, enabled, onDecide }: {
     return <ComposerApproval key={`${task.request_id}:${approval.approval_id}:${approval.digest}`} text={text} lockOnAttempt
       summary={approval.summary || approval.tool} expiresAt={approval.expires_at} decision={approval.decision} unavailable={unavailable}
       details={<><strong>{approval.tool}</strong><pre>{JSON.stringify(stripSystemArgs(approval.arguments), null, 2)}</pre></>}
-      onDecide={decision => onDecide(task, approval, decision)} />;
+      inputForm={approval.input_form} inputValues={approval.input_values}
+      onDecide={(decision, inputs) => inputs ? onDecide(task, approval, decision, inputs) : onDecide(task, approval, decision)} />;
   })}</div>;
 }

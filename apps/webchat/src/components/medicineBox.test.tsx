@@ -16,8 +16,8 @@ const recognition = (fields: Partial<MedicineRecognition>): MedicineRecognition 
 const parsed = (fields: Partial<MedicineTextParse>): MedicineTextParse => ({ recognized: true, name: "", category: "other", unit: "tablet", quantity: null, expires_on: "", location: "", usage: "", ...fields });
 const fieldsOf = ({ created_at: _created, updated_at: _updated, ...fields }: MedicineItem): MedicineFields => fields;
 
-function Harness({ recognition, parse }: { recognition: boolean; parse: boolean }) {
-  const box = useMedicineBox(true, recognition, parse);
+function Harness({ recognition = true, parse = true, writable = true }: { recognition?: boolean; parse?: boolean; writable?: boolean }) {
+  const box = useMedicineBox(true, recognition, parse, writable);
   return <><MedicineSidebar language="zh" box={box} /><MedicineWorkspace language="zh" box={box} /></>;
 }
 
@@ -75,6 +75,16 @@ describe("medicine box", () => {
     backend.recognizeMedicine.mockReset();
     backend.parseMedicine.mockReset();
     vi.useRealTimers();
+  });
+
+  it("keeps the existing box readable offline while all add, edit, delete and quantity controls stay disabled", async () => {
+    await act(async()=>root.render(<Harness writable={false}/>));
+    expect(query<HTMLButtonElement>(".sidebarNewConversation").disabled).toBe(true);
+    expect(all(".medicineGrid .medicineCard").length).toBeGreaterThan(0);
+    await click(".medicineCard");
+    expect(all(".medicineDetail button.medicineStep").every(button=>(button as HTMLButtonElement).disabled)).toBe(true);
+    expect(all(".medicineDetailActions button").every(button=>(button as HTMLButtonElement).disabled)).toBe(true);
+    expect(api.save).not.toHaveBeenCalled();expect(api.remove).not.toHaveBeenCalled();
   });
 
   it("shows cards by default with box-wide stats, status badges and sidebar counts", async () => {
@@ -327,6 +337,15 @@ describe("medicine box", () => {
     expect(query('.medicineDialog [role="alert"]').textContent).toBe("识别服务暂不可用，可以直接填写。");
     await click(".medicineSkip");
     expect(query<HTMLInputElement>('.medicineDialog input[name="name"]').disabled).toBe(false);
+  });
+
+  it("keeps the original detail alert and shows a refreshed-record notice for typed conflicts", async () => {
+    api.save.mockResolvedValueOnce({ medicine_error: "medicine_conflict" } as unknown as MedicineItem);
+    await render(); await click('.medicineCard[aria-label^="布洛芬"]');
+    await click('.medicineStep[aria-label="减少 1 粒"]');
+    expect(query('.medicineStatus.problem').textContent).toContain("已在别处修改");
+    expect(query('.medicineQuantityCard').textContent).toContain("12");
+    expect(query('.medicineDetail')).not.toBeNull();
   });
 
   it("opens details from a card and adjusts the quantity by one unit through the same save as an edit", async () => {

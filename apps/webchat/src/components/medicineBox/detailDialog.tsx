@@ -7,11 +7,11 @@ import { useDismissibleLayer } from "../../hooks/useDismissibleLayer";
 import { useConfirm } from "../confirmation";
 import { medicineDaysLeft, medicineFields, medicineGroupKey, medicineStatus, medicineStepAdjustable, sortMedicines, stepQuantity,
   MEDICINE_QUANTITY_MAX, type MedicineBoxAPI, type MedicineItem } from "../../desktop/medicineBox";
-import { expiryText, fill, formatDate, medicineBoxCopy, quantityText } from "./copy";
+import { expiryText, fill, formatDate, medicineBoxCopy, medicineWriteProblem, quantityText } from "./copy";
 import { StatusBadge } from "./views";
 
-export function MedicineDetailDialog({ language, api, item, items, onClose, onSelect, onEdit, onChanged }: {
-  language: Language; api: MedicineBoxAPI; item: MedicineItem; items: MedicineItem[];
+export function MedicineDetailDialog({ language, writable = true, api, item, items, onClose, onSelect, onEdit, onChanged }: {
+  writable?: boolean; language: Language; api: MedicineBoxAPI; item: MedicineItem; items: MedicineItem[];
   onClose: () => void; onSelect: (item: MedicineItem) => void; onEdit: (item: MedicineItem) => void; onChanged: () => Promise<void>;
 }) {
   const copy = medicineBoxCopy[language];
@@ -29,27 +29,27 @@ export function MedicineDetailDialog({ language, api, item, items, onClose, onSe
   const sameName = sortMedicines(items.filter((other) => other.id !== item.id && medicineGroupKey(other.name) === medicineGroupKey(item.name)), "expiry");
 
   const adjust = async (delta: 1 | -1) => {
-    if (busy) return;
+    if (busy || !writable) return;
     const next = stepQuantity(quantity, delta);
     setBusy(true); setPending(next); setProblem("");
     try {
       await api.save({ ...medicineFields(item), quantity: next });
       await onChanged();
-    } catch {
-      setProblem(copy.quantitySaveFailed);
+    } catch (error) {
+      setProblem(medicineWriteProblem(error, copy, copy.quantitySaveFailed));
     } finally { setPending(null); setBusy(false); }
   };
   const remove = async () => {
-    if (busy || !await confirm(fill(copy.confirmRemove, { name: item.name }), { danger: true })) return;
+    if (busy || !writable || !await confirm(fill(copy.confirmRemove, { name: item.name }), { danger: true })) return;
     setBusy(true); setProblem("");
     try {
-      await api.remove(item.id);
+      if (item.version !== undefined) await api.remove(item.id, item.version); else await api.remove(item.id);
       setBusy(false);
       onClose();
       await onChanged();
-    } catch {
+    } catch (error) {
       setBusy(false);
-      setProblem(copy.removeFailed);
+      setProblem(medicineWriteProblem(error, copy, copy.removeFailed));
     }
   };
 
@@ -67,10 +67,10 @@ export function MedicineDetailDialog({ language, api, item, items, onClose, onSe
       <dl className="medicineInfoGrid">
         <div><dt>{copy.expiry}</dt><dd className={`medicineExpiry ${status}`}>{expiryText(copy, item)}</dd></div>
         <div className="medicineQuantityCard"><dt>{copy.quantity}</dt><dd>
-          {medicineStepAdjustable(item.unit) && <button type="button" className="medicineStep" disabled={busy || quantity <= 0}
+          {medicineStepAdjustable(item.unit) && <button type="button" className="medicineStep" disabled={busy || !writable || quantity <= 0}
             aria-label={fill(copy.decrease, { unit })} title={fill(copy.decrease, { unit })} onClick={() => void adjust(-1)}><Minus size={14} strokeWidth={2} /></button>}
           <span aria-live="polite" className={quantity === 0 ? "medicineUsedUp" : ""}>{quantity === 0 ? copy.usedUp : quantityText(copy, quantity, item.unit)}</span>
-          {medicineStepAdjustable(item.unit) && <button type="button" className="medicineStep" disabled={busy || quantity >= MEDICINE_QUANTITY_MAX}
+          {medicineStepAdjustable(item.unit) && <button type="button" className="medicineStep" disabled={busy || !writable || quantity >= MEDICINE_QUANTITY_MAX}
             aria-label={fill(copy.increase, { unit })} title={fill(copy.increase, { unit })} onClick={() => void adjust(1)}><Plus size={14} strokeWidth={2} /></button>}
         </dd></div>
         <div><dt>{copy.location}</dt><dd className={item.location ? "" : "isUnset"}>{item.location || copy.notSet}</dd></div>
@@ -91,8 +91,8 @@ export function MedicineDetailDialog({ language, api, item, items, onClose, onSe
       </section>}
       <div className="scheduleDialogActions medicineDetailActions">
         {problem && <p className="medicineStatus problem" role="alert">{problem}</p>}
-        <button className="secondaryButton medicineDanger" type="button" disabled={busy} onClick={() => void remove()}>{copy.remove}</button>
-        <button className="secondaryButton" type="button" disabled={busy} onClick={() => onEdit(item)}>{copy.edit}</button>
+        <button className="secondaryButton medicineDanger" type="button" disabled={busy || !writable} title={!writable ? copy.connectToEdit : undefined} onClick={() => void remove()}>{copy.remove}</button>
+        <button className="secondaryButton" type="button" disabled={busy || !writable} title={!writable ? copy.connectToEdit : undefined} onClick={() => onEdit(item)}>{copy.edit}</button>
       </div>
     </section>
   </div>;

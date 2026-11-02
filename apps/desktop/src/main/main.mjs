@@ -39,6 +39,7 @@ import { ScheduleClient } from "./schedule-client.mjs";
 import { MailSyncStore } from "./mail-sync-store.mjs";
 import { MailSyncClient } from "./mail-sync-client.mjs";
 import { MailSyncCapability } from "./mail-sync-capability.mjs";
+import { MedicineSyncClient } from "./medicine-sync-client.mjs";
 import { MedicineStore } from "./medicine-store.mjs";
 import { MedicineBoxCapability } from "./medicine-capability.mjs";
 import { ClientStoreCapability } from "./client-store-capability.mjs";
@@ -109,6 +110,7 @@ let mailClient;
 let mailCapability;
 let medicineStore;
 let medicineCapability;
+let medicineClient;
 let browserHost;
 let scheduleClient;
 let browserHostPreparation = Promise.resolve();
@@ -170,6 +172,8 @@ async function start() {
         void iscpRecording?.start().catch(() => {});
         if(status.capabilities?.events)iscpEvents?.start();else iscpEvents?.close();
         scheduleClient?.start();
+        if (status.backend?.transport !== "iscp" || status.capabilities?.surfaces?.medicine_box_read?.enabled) medicineClient?.start();
+        else medicineClient?.close();
         if (status.backend?.transport !== "iscp" || status.capabilities?.mail === true) mailClient?.start();
         else mailClient?.close();
         if (status.backend?.transport !== "iscp" || status.capabilities?.browser === true) void prepareBrowserHostScope().catch(() => {});
@@ -183,7 +187,7 @@ async function start() {
         iscpSpeech?.close();
         iscpRecording?.close();
         scheduleClient?.close();
-        mailClient?.close();
+        mailClient?.close(); medicineClient?.close();
         void browserHost?.suspend();
       }
       if (window && !window.isDestroyed()) window.webContents.send("sparkclaw-local-backend:state", status);
@@ -196,7 +200,7 @@ async function start() {
       iscpSpeech?.close();
       iscpRecording?.close();
       scheduleClient?.close();
-      mailClient?.close();
+      mailClient?.close(); medicineClient?.close();
       await browserHost?.stop();
       for (const [id] of registry?.connections || []) registry.closeConnection(id, "authentication_locked");
       await adapter?.close().catch(() => {});
@@ -292,7 +296,7 @@ async function start() {
     };
     executionClient = new ExecutionClient({ auth: desktopAuth, store: localStore, getIdentity: localIdentity, onChange: localChanged }).start();
     iscpEvents = new ISCPEventClient({ auth: desktopAuth, store: localStore, execution: executionClient, getIdentity: localIdentity,
-      onEvents: (event) => { localChanged(); if(window&&!window.isDestroyed())window.webContents.send("sparkclaw-backend-events",event); } });
+      onEvents: (event) => { localChanged(); if (event.categories.includes("medicine")) void medicineClient?.sync().catch(() => {}); if(window&&!window.isDestroyed())window.webContents.send("sparkclaw-backend-events",event); } });
     if(desktopAuth.status.capabilities?.events)iscpEvents.start();
     scheduleClient = new ScheduleClient({ auth: desktopAuth, store: localStore, execution: executionClient, getIdentity: localIdentity, onChange: localChanged }).start();
     {
@@ -310,7 +314,12 @@ async function start() {
     mailCapability = new MailSyncCapability({ ipcMain, window, client: mailClient, getCapabilities: () => desktopAuth.status.capabilities }).start();
     }
     medicineStore = new MedicineStore(path.join(app.getPath("userData"), "workbench", "medicine"));
-    medicineCapability = new MedicineBoxCapability({ ipcMain, window, store: medicineStore, getIdentity: localIdentity }).start();
+    medicineClient = new MedicineSyncClient({ store: medicineStore, getConnection: () => desktopAuth.connection,
+      getFetch: () => desktopAuth.authorizedFetch.bind(desktopAuth), installationID: localStore.installationID,
+      canWrite: () => desktopAuth.status.state === "connected" && (desktopAuth.descriptor?.transport !== "iscp" || desktopAuth.status.capabilities?.surfaces?.medicine_box_write?.enabled === true),
+      onChange: () => { if(window&&!window.isDestroyed())window.webContents.send("sparkclaw-medicine-box:changed"); } });
+    if (desktopAuth.status.state === "connected" && (desktopAuth.descriptor?.transport !== "iscp" || desktopAuth.status.capabilities?.surfaces?.medicine_box_read?.enabled)) medicineClient.start();
+    medicineCapability = new MedicineBoxCapability({ ipcMain, window, store: medicineStore, client: medicineClient, getIdentity: localIdentity }).start();
     localStoreCapability = new ClientStoreCapability({
       ipcMain, window, store: localStore, execution: executionClient, schedules: scheduleClient,
       getIdentity: localIdentity,
@@ -342,7 +351,7 @@ async function start() {
     desktopAuth.suspend();
     executionClient?.close();
     scheduleClient?.close();
-    mailClient?.close();
+    mailClient?.close(); medicineClient?.close();
     void browserHost?.suspend();
   });
   powerMonitor.on("resume", () => {
@@ -451,7 +460,7 @@ async function start() {
 
   bindWorkbenchActivation(app, () => window);
   app.on("window-all-closed", () => {});
-  app.on("before-quit", () => { quitting = true; desktopAuth.close(); executionClient?.close(); scheduleClient?.close(); mailClient?.close(); });
+  app.on("before-quit", () => { quitting = true; desktopAuth.close(); executionClient?.close(); scheduleClient?.close(); mailClient?.close(); medicineClient?.close(); });
   process.on("SIGINT", () => void shutdown());
   process.on("SIGTERM", () => void shutdown());
 }
@@ -537,7 +546,7 @@ async function shutdown() {
   quitting = true;
   executionClient?.close();
   scheduleClient?.close();
-  mailClient?.close();
+  mailClient?.close(); medicineClient?.close();
   mailCapability?.close();
   mailStore?.close();
   medicineCapability?.close();

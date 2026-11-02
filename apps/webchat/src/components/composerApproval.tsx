@@ -2,13 +2,15 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Check, ShieldCheck } from "lucide-react";
 import type { Copy } from "../i18n";
 
+import { ApprovalFields, approvalFormValid, supportedApprovalForm, type ApprovalInputForm, type ApprovalInputValues } from "./approvalInputForm";
+
 export type ApprovalChoice = "approve" | "reject";
 
 // The caller keys this component by the original approval and its immutable
 // content identity. Choosing an answer never submits a message or grants a task.
 // lockOnAttempt keeps a failed answer fixed for digest-bound approvals, where
 // only the original decision may be retried.
-export function ComposerApproval({ text, summary, details, unavailable, approveUnavailable, expiresAt, decision, lockOnAttempt = false, onDecide }: {
+export function ComposerApproval({ text, summary, details, unavailable, approveUnavailable, expiresAt, decision, lockOnAttempt = false, inputForm, inputValues, onDecide }: {
   text: Copy;
   summary: string;
   details: ReactNode;
@@ -17,9 +19,15 @@ export function ComposerApproval({ text, summary, details, unavailable, approveU
   expiresAt?: string;
   decision?: ApprovalChoice | null;
   lockOnAttempt?: boolean;
-  onDecide: (choice: ApprovalChoice) => Promise<void>;
+  inputForm?: ApprovalInputForm;
+  inputValues?: ApprovalInputValues;
+  onDecide: (choice: ApprovalChoice, inputs?: ApprovalInputValues) => Promise<void>;
 }) {
   const copy = text.approval.composer;
+  const [values, setValues] = useState<ApprovalInputValues>(inputValues ?? {});
+  const supported = !inputForm || supportedApprovalForm(inputForm);
+  const valid = !inputForm || approvalFormValid(inputForm, values);
+  const approveBlocked = approveUnavailable || (!supported ? copy.unsupportedForm : undefined);
   const id = useId();
   const [choice, setChoice] = useState<ApprovalChoice | null>(null);
   const [attempted, setAttempted] = useState<ApprovalChoice | null>(null);
@@ -41,13 +49,13 @@ export function ComposerApproval({ text, summary, details, unavailable, approveU
   }, [deadline, now]);
 
   async function submit() {
-    if (!selected || disabled || (selected === "approve" && approveUnavailable) || inFlight.current) return;
+    if (!selected || disabled || (selected === "approve" && (approveBlocked || !valid)) || inFlight.current) return;
     // Also check at the event boundary in case the tab's timer was suspended.
     if (deadline !== undefined && (!Number.isFinite(deadline) || deadline <= Date.now())) {
       setNow(Date.now()); return;
     }
     inFlight.current = true; setSending(true); setAttempted(selected); setError("");
-    try { await onDecide(selected); setReceived(true); }
+    try { if (inputForm && selected === "approve") await onDecide(selected, structuredClone(values)); else await onDecide(selected); setReceived(true); }
     catch (reason) { setError(reason instanceof Error ? reason.message : copy.submitFailed); }
     finally { inFlight.current = false; setSending(false); }
   }
@@ -57,12 +65,13 @@ export function ComposerApproval({ text, summary, details, unavailable, approveU
     <header><ShieldCheck size={16} /><strong id={`${id}-title`}>{copy.title}</strong></header>
     <p className="composerApprovalQuestion">{summary}</p>
     <details className="composerApprovalDetails"><summary>{copy.viewDetails}</summary>{details}</details>
+    {inputForm && supported && <ApprovalFields form={inputForm} values={values} onChange={setValues} disabled={disabled || Boolean(lockedChoice)} text={text} />}
     <fieldset disabled={disabled}>
       <legend>{copy.question}</legend>
       {(["approve", "reject"] as const).map((value, index) => <label key={value} className={`composerApprovalOption${selected === value ? " selected" : ""}`}>
         <input type="radio" name={`${id}-choice`} value={value} checked={selected === value}
-          disabled={Boolean((lockedChoice && lockedChoice !== value) || (value === "approve" && approveUnavailable))}
-          aria-describedby={value === "approve" && approveUnavailable ? `${id}-approve-unavailable` : undefined} onChange={() => setChoice(value)} />
+          disabled={Boolean((lockedChoice && lockedChoice !== value) || (value === "approve" && approveBlocked))}
+          aria-describedby={value === "approve" && approveBlocked ? `${id}-approve-unavailable` : undefined} onChange={() => setChoice(value)} />
         <span className="composerApprovalNumber" aria-hidden="true">{index + 1}</span>
         <span><strong>{value === "approve" ? copy.yes : copy.no}</strong>
           <small>{value === "approve" ? copy.allow : copy.reject}</small></span>
@@ -71,10 +80,10 @@ export function ComposerApproval({ text, summary, details, unavailable, approveU
     </fieldset>
     {/* Keep the live region mounted so later status changes are announced. */}
     <p className="composerApprovalStatus" role="status">{status}</p>
-    {approveUnavailable && <p className="composerApprovalStatus" id={`${id}-approve-unavailable`}>{approveUnavailable}</p>}
+    {approveBlocked && <p className="composerApprovalStatus" id={`${id}-approve-unavailable`}>{approveBlocked}</p>}
     {error && <p className="compactError" role="alert">{error}</p>}
-    <footer><button type="button" disabled={disabled || !selected || (selected === "approve" && Boolean(approveUnavailable))} onClick={() => void submit()}>
-      {sending ? copy.submitting : lockedChoice ? copy.retry : copy.submit}
+    <footer><button type="button" disabled={disabled || !selected || (selected === "approve" && Boolean(approveBlocked || !valid))} onClick={() => void submit()}>
+      {sending ? copy.submitting : lockedChoice ? copy.retry : inputForm && selected === "approve" ? copy.completeAndWrite.replace("{count}", String(inputForm.entries?.length ?? 0)) : copy.submit}
     </button></footer>
   </section>;
 }

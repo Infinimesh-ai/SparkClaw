@@ -207,7 +207,7 @@ export class ISCPTransport {
       ...(init.operationID?{operation_id:init.operationID}:{}),...(init.expectedRevision?{expected_revision:init.expectedRevision}:{})};
     const rawBody=mapped.body !== body && mapped.operation === 'mail.drafts.save' ? JSON.stringify(mapped.body) : init.body === undefined ? undefined : typeof init.body === "string" ? init.body : new TextDecoder("utf-8",{fatal:true}).decode(init.body);
     if (request.operation.startsWith('clients.')) return this.#clients(request, init, rawBody, headers);
-    if(request.operation.startsWith("settings.") || request.operation.startsWith("notifications.") || request.operation.startsWith("mail.") && requireOperation(request.operation).mutation || request.operation.startsWith("mail.drafts.") || request.operation.startsWith("mail.providers.") || request.operation === "execution.approval") return this.#presentation(request,init,rawBody);
+    if(request.operation.startsWith("medicine.") && requireOperation(request.operation).mutation || request.operation.startsWith("settings.") || request.operation.startsWith("notifications.") || request.operation.startsWith("mail.") && requireOperation(request.operation).mutation || request.operation.startsWith("mail.drafts.") || request.operation.startsWith("mail.providers.") || request.operation === "execution.approval") return this.#presentation(request,init,rawBody);
     return this.#request(request,init,rawBody);
   }
 
@@ -242,7 +242,7 @@ export class ISCPTransport {
   async #presentation(request,init,rawBody) {
     const spec=requireOperation(request.operation);
     const family=request.operation.split(".")[1];
-    const resource=request.operation.startsWith("mail.") ? mailMutationResource(request) : request.operation === "execution.approval" ? `approval:${request.params?.request_id}:${request.params?.approval_id}` : request.operation.startsWith("notifications.") ? "notifications" : family==='owner' ? 'owner' : family==='connectors' ? 'connectors' : family === 'bindings' ? `binding:${request.params?.binding_id || request.params?.channel || 'list'}` : family === 'browser' ? 'browser-extension' : family === 'mcp' ? `mcp:${request.operation.split('.')[2]}:${request.params?.ticket_id || request.params?.binding_id || ''}` : `integration:${request.params?.integration_id || ''}`;
+    const resource=request.operation.startsWith("medicine.") ? `medicine:${request.body?.operation_id || request.params?.item || "box"}` : request.operation.startsWith("mail.") ? mailMutationResource(request) : request.operation === "execution.approval" ? `approval:${request.params?.request_id}:${request.params?.approval_id}` : request.operation.startsWith("notifications.") ? "notifications" : family==='owner' ? 'owner' : family==='connectors' ? 'connectors' : family === 'bindings' ? `binding:${request.params?.binding_id || request.params?.channel || 'list'}` : family === 'browser' ? 'browser-extension' : family === 'mcp' ? `mcp:${request.operation.split('.')[2]}:${request.params?.ticket_id || request.params?.binding_id || ''}` : `integration:${request.params?.integration_id || ''}`;
     // Concurrent settings and popup snapshots are reads, not competing mutation intents.
     // Reading state must remain possible while an uncertain write is reconciled.
     if (!spec.mutation) return this.#applyPresentation(resource, spec, request, init, rawBody);

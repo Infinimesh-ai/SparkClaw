@@ -3,7 +3,7 @@ import type { Language } from "../../i18n";
 import { medicineDaysLeft, medicineStatus, type MedicineItem, type MedicineStatus, type MedicineUnit } from "../../desktop/medicineBox";
 
 const zh = {
-  title: "药箱",
+  title: "药箱", connectToEdit: "连接后可修改", conflict: "这条药品已在别处修改，药箱已刷新。请核对后重新操作。",
   description: "家中常备药品，按功能分类管理。",
   add: "添加药品",
   unavailable: "药箱暂不可用",
@@ -124,7 +124,7 @@ const zh = {
 };
 
 const en: typeof zh = {
-  title: "Medicine box",
+  title: "Medicine box", connectToEdit: "Connect to edit", conflict: "This medicine changed elsewhere. The box has refreshed; review it before trying again.",
   description: "Keep track of the medicines you have at home, sorted by what they treat.",
   add: "Add medicine",
   unavailable: "Medicine box unavailable",
@@ -274,4 +274,8 @@ export function statusText(copy: MedicineCopy, item: Pick<MedicineItem, "expires
 
 export function expiryText(copy: MedicineCopy, item: Pick<MedicineItem, "expires_on" | "no_expiry">) {
   return item.no_expiry ? copy.withoutExpiry : item.expires_on ? formatDate(copy, item.expires_on) : copy.notSet;
+}
+
+export function medicineWriteProblem(error: unknown, copy: MedicineCopy, fallback: string) {
+  return error && typeof error === "object" && "code" in error && error.code === "medicine_conflict" ? copy.conflict : fallback;
 }

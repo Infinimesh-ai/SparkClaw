@@ -177,13 +177,13 @@ test('v14 to v15 migrates atomically without changing original contexts or unkno
   const before = store.request(scope, original.request_id), installation = store.installationID;
   store.db.prepare('INSERT INTO handle_upload_intents VALUES(?,?,?,?,?)').run(original.request_id, crypto.randomUUID(), 'b'.repeat(64), crypto.randomUUID(), 'unknown');
   const unknown = store.db.prepare('SELECT * FROM handle_upload_intents').get();
-  store.db.exec('DROP TABLE clarification_selections; PRAGMA user_version=14'); store.close();
+  store.db.exec('ALTER TABLE execution_approvals DROP COLUMN input_form_json; ALTER TABLE execution_approvals DROP COLUMN input_values_json; ALTER TABLE execution_approvals DROP COLUMN inputs_digest; DROP TABLE clarification_selections; PRAGMA user_version=14'); store.close();
   const migrated = new ClientStore(root);
   assert.equal(migrated.installationID, installation);
   assert.deepEqual(migrated.request(scope, original.request_id), before);
   assert.deepEqual(migrated.db.prepare('SELECT * FROM handle_upload_intents').get(), unknown);
   assert.equal(migrated.db.prepare('PRAGMA user_version').get().user_version, CLIENT_SCHEMA_VERSION);
-  migrated.db.exec("DROP TABLE clarification_selections; CREATE TABLE clarification_selections(conflict TEXT); INSERT INTO clarification_selections VALUES('preserved'); PRAGMA user_version=14"); migrated.close();
+  migrated.db.exec("ALTER TABLE execution_approvals DROP COLUMN input_form_json; ALTER TABLE execution_approvals DROP COLUMN input_values_json; ALTER TABLE execution_approvals DROP COLUMN inputs_digest; DROP TABLE clarification_selections; CREATE TABLE clarification_selections(conflict TEXT); INSERT INTO clarification_selections VALUES('preserved'); PRAGMA user_version=14"); migrated.close();
   assert.throws(() => new ClientStore(root), /already exists/);
   const inspect = new DatabaseSync(path.join(root, 'client.sqlite'));
   assert.equal(inspect.prepare('PRAGMA user_version').get().user_version, 14);

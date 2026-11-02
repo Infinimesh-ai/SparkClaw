@@ -10,7 +10,7 @@ export type MedicineUnit = typeof MEDICINE_UNITS[number];
 // empty `expires_on` without it only occurs on rows saved before expiry
 // became required.
 export type MedicineItem = {
-  id: string; name: string; category: MedicineCategory; quantity: number; unit: MedicineUnit;
+  id: string; version?: number; name: string; category: MedicineCategory; quantity: number; unit: MedicineUnit;
   expires_on: string; no_expiry: boolean; location: string; usage: string; notes: string; created_at: string; updated_at: string;
 };
 // An empty id adds a medicine; an existing id updates that row.
@@ -29,14 +29,25 @@ export type MedicineTextParse = {
 export type MedicineBoxAPI = {
   list: () => Promise<{ items: MedicineItem[] }>;
   save: (medicine: MedicineFields) => Promise<MedicineItem>;
-  remove: (id: string) => Promise<{ deleted: boolean }>;
+  remove: (id: string, baseVersion?: number) => Promise<{ deleted: boolean }>;
 };
 
 declare global {
   interface Window { sparkclawMedicineBox?: MedicineBoxAPI }
 }
 
-export function medicineBox() { return window.sparkclawMedicineBox; }
+const medicineAdapters = new WeakMap<MedicineBoxAPI, MedicineBoxAPI>();
+function checkedMedicineResult<T>(result: T): T {
+  if (result && typeof result === "object" && "medicine_error" in result && result.medicine_error === "medicine_conflict") throw Object.assign(new Error("Medicine changed"), { code: "medicine_conflict" });
+  return result;
+}
+export function medicineBox() {
+  const raw = window.sparkclawMedicineBox;
+  if (!raw) return undefined;
+  let api = medicineAdapters.get(raw);
+  if (!api) { api = { list: () => raw.list(), save: async fields => checkedMedicineResult(await raw.save(fields)), remove: async (id, version) => checkedMedicineResult(await (version === undefined ? raw.remove(id) : raw.remove(id, version))) }; medicineAdapters.set(raw, api); }
+  return api;
+}
 
 // Common household medicines by the words their names carry, checked in this
 // order so a cold remedy that also lowers fever stays under colds. Used when
@@ -58,7 +69,7 @@ export function suggestMedicineCategory(name: string): MedicineCategory | "" {
   return "";
 }
 
-export const medicineFields = (item: MedicineItem): MedicineFields => ({ id: item.id, name: item.name, category: item.category, quantity: item.quantity,
+export const medicineFields = (item: MedicineItem): MedicineFields => ({ id: item.id, ...(item.version !== undefined ? { version: item.version } : {}), name: item.name, category: item.category, quantity: item.quantity,
   unit: item.unit, expires_on: item.expires_on, no_expiry: item.no_expiry, location: item.location, usage: item.usage, notes: item.notes });
 
 // Days until the end of the expiry date in local time; negative once expired.

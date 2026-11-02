@@ -218,3 +218,28 @@ test('ISCP decision confirms its rich closed receipt through the original client
   assert.equal(f.store.approvals(scope, f.task.request_id)[0].state, 'approved');
   assert.equal(decisions, 1);
 });
+
+test('typed completion inputs cross the original execution adapter and remain fixed through a lost response and restart', async t => {
+  const f = fixture(t);
+  const form = { schema_version: 1, entries: [{ id: 'medicine', label: 'Medicine', summary: 'Quantity missing', fields: [{ name: 'quantity', label: 'Quantity', type: 'number', required: true }] }] };
+  f.setPending([{ ...approval, input_form: form }]);
+  const decisions = [];
+  f.auth.authorizedExecutionFetch = async (_url, init = {}) => {
+    if (init.method === 'POST') {
+      decisions.push(JSON.parse(init.body));
+      if (decisions.length === 1) throw new Error('response lost');
+      f.setPending([]); return new Response(JSON.stringify({ resolved: true }));
+    }
+    return new Response(JSON.stringify(f.event()));
+  };
+  await f.client.reconcile(scope, f.task.request_id);
+  const decide = inputs => f.client.decideApproval(scope, f.task.request_id, approval.approval_id, approval.digest, 'approve', inputs);
+  await assert.rejects(decide({ medicine: { quantity: 2 } }), /lost/);
+  f.restart();
+  await assert.rejects(decide({ medicine: { quantity: 3 } }), /cannot be changed/);
+  assert.equal(decisions.length, 1);
+  await decide({ medicine: { quantity: 2 } });
+  assert.deepEqual(decisions[0], { digest: approval.digest, decision: 'approve', input_schema_version: 1, inputs: { medicine: { quantity: 2 } } });
+  assert.deepEqual(decisions[1], decisions[0]);
+  assert.equal(f.store.approvals(scope, f.task.request_id)[0].state, 'approved');
+});

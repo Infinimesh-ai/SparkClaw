@@ -439,6 +439,7 @@ export const zh = {
       noReturn: "不返回内容",
       technicalDetails: "技术详情",
       composer: {
+        chooseValue: "请选择", noExpiry: "无有效期", invalidField: "请填写有效值", unsupportedForm: "请使用支持此补全表单的客户端", completeAndWrite: "补全并写入 {count} 条",
         title: "需要你的确认",
         viewDetails: "查看操作详情",
         question: "是否允许执行此操作？",

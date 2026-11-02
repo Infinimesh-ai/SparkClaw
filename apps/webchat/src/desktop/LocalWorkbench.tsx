@@ -1,3 +1,4 @@
+import type { ApprovalInputValues } from "../components/approvalInputForm";
 import { VoiceDraftPersistence } from "../lib/voiceDraftPersistence";
 import { useConfirm } from "../components/confirmation";
 import { BROWSER_CONVERSATION_RESERVE, BROWSER_DEFAULT_WIDTH, useBrowserLayout } from "../hooks/useBrowserLayout";
@@ -125,7 +126,8 @@ export function LocalWorkbench() {
     settingsBindings: surfaceEnabled(connection, "settings_bindings"),
   };
   const medicineBox = useMedicineBox(module === "medicine", connection?.state === "connected" && surfaceEnabled(connection, "medicine"),
-    connection?.state === "connected" && surfaceEnabled(connection, "medicine_text"));
+    connection?.state === "connected" && surfaceEnabled(connection, "medicine_text"),
+    connection?.state === "connected" && surfaceEnabled(connection, "medicine_box_write"));
   const browserLayout = useBrowserLayout(rightSurface !== null, inspectorResize.width, (capabilities.browser || Boolean(localFiles)) && !settings && (page === "chat" || filesOpen), true);
   const messageScroll = useMessageScroll(selected, !settings && page === "chat");
   const browserCovering = browserLayout.covering;
@@ -453,10 +455,11 @@ export function LocalWorkbench() {
       await reload();
     }
   }
-  async function decideApproval(task: LocalTask, approval: LocalApproval, decision: "approve" | "reject") {
+  async function decideApproval(task: LocalTask, approval: LocalApproval, decision: "approve" | "reject", inputs?: ApprovalInputValues) {
     const id = selected;
     try {
-      await store.decideApproval(task.request_id, approval.approval_id, approval.digest, decision);
+      if (inputs) await store.decideApproval(task.request_id, approval.approval_id, approval.digest, decision, inputs);
+      else await store.decideApproval(task.request_id, approval.approval_id, approval.digest, decision);
     } finally { if (selectedRef.current === id) await readContent(id); await reload(); }
   }
   async function renameConversation(id: string) {

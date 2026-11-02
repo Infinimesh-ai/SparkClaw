@@ -1,3 +1,4 @@
+import type { ApprovalInputValues } from "./approvalInputForm";
 // Inspector column: tab strip plus the timeline/approvals/memory/trace/
 // status/settings panels, together with the gateway calls only these panels
 // trigger. Extracted from App.tsx so the root component stays below the
@@ -181,17 +182,18 @@ export function InspectorColumn({
     setRuntimeConfig(await api.config());
   }
 
-  async function resolveApproval(id: string, accepted: boolean) {
+  async function resolveApproval(id: string, accepted: boolean, inputs?: ApprovalInputValues) {
     if (resolvingApprovalId) return;
     try {
       setError("");
       setResolvingApprovalId(id);
-      if (accepted) await api.approve(id);
+      if (accepted) await api.approve(id, inputs ? { digest: approvals.find(approval => approval.id === id)?.input_form_digest ?? "", input_schema_version: 1, inputs } : undefined);
       else await api.reject(id);
       await Promise.all([refreshGlobal(), refreshActiveSession()]);
     } catch (err) {
       surfaceError(err, text.errors.approval);
       await Promise.allSettled([refreshGlobal(), refreshActiveSession()]);
+      if (inputs || approvals.find(approval => approval.id === id)?.input_form) throw err;
     } finally {
       setResolvingApprovalId("");
     }
@@ -407,7 +409,7 @@ export function InspectorColumn({
           approvals={approvals}
           text={text}
           resolvingId={resolvingApprovalId}
-          onResolve={(id, accepted) => void resolveApproval(id, accepted)}
+          onResolve={(id, accepted, inputs) => resolveApproval(id, accepted, inputs)}
           onModify={(id, args) => void modifyApproval(id, args)}
           onModifyPlan={(id, plan) => void modifyApprovalPlan(id, plan)}
         />

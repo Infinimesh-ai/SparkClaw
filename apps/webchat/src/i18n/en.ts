@@ -437,6 +437,7 @@ export const en = {
       noReturn: "No content return",
       technicalDetails: "Technical details",
       composer: {
+        chooseValue: "Choose a value", noExpiry: "No expiry", invalidField: "Enter a valid value", unsupportedForm: "Use a client that supports this completion form", completeAndWrite: "Complete and write {count} entries",
         title: "Your approval is needed",
         viewDetails: "View action details",
         question: "Allow this action?",

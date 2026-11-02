@@ -1002,9 +1002,9 @@ export function App() {
               approvalPending={approvalPending}
               approvals={<SessionComposerApprovals key={activeSession} approvals={approvals} sessionID={activeSession}
                 text={text} enabled={!authRecovery && (!desktop || desktopConnectionState === "connected")}
-                onDecide={async (approval, choice) => {
+                onDecide={async (approval, choice, inputs) => {
                   try {
-                    if (choice === "approve") await api.approve(approval.id);
+                    if (choice === "approve") await api.approve(approval.id, inputs ? { digest: approval.input_form_digest ?? "", input_schema_version: 1, inputs } : undefined);
                     else await api.reject(approval.id);
                     // A resolved approval must not keep the composer locked
                     // when the following refresh fails.

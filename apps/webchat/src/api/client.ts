@@ -1,3 +1,4 @@
+import type { ApprovalInputValues } from "../components/approvalInputForm";
 import type {
   AgentResult,
   AIPlatform,
@@ -799,8 +800,8 @@ export const api = {
   audit: (sessionId: string) => request<{ audit_events: AuditEvent[] }>(`/api/sessions/${sessionId}/audit`),
   episodes: (sessionId: string) => request<{ episodes: EpisodeSummary[] }>(`/api/sessions/${sessionId}/episodes`),
   approvals: (status = "") => request<{ approvals: Approval[] }>(`/api/approvals${status ? `?status=${status}` : ""}`),
-  approve: (id: string) =>
-    request<ApprovalResolution>(`/api/approvals/${id}/approve`, { method: "POST", body: JSON.stringify({ note: "Approved from WebChat" }) }),
+  approve: (id: string, completion?: { digest: string; input_schema_version: 1; inputs: ApprovalInputValues }) =>
+    request<ApprovalResolution>(`/api/approvals/${id}/approve`, { method: "POST", body: JSON.stringify({ note: "Approved from WebChat", ...completion }) }),
   modifyApproval: (id: string, args: Record<string, unknown>, note = "Modified from WebChat") =>
     request<ApprovalResolution>(`/api/approvals/${id}/modify`, { method: "POST", body: JSON.stringify({ note, args }) }),
   modifyApprovalPlan: (id: string, plan: string, note = "Edited Happy plan from WebChat") =>

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { approvalInputs } from "./approval-input.mjs";
 import { parseStrictJSON } from "./strict-json.mjs";
 import { clarificationRecordDigest, clarificationSelection, conversationContextDigest, validateClarificationRecord } from "./conversation-context.mjs";
 import { CLIENT_ACTIONS_SCHEMA, SchedulePresentations, validateScheduleAction } from "./schedule-presentation.mjs";
@@ -10,7 +11,7 @@ import { WORKBENCH_LIMITS } from "../shared/workbench-limits.mjs";
 import { calendarMissed, nextCalendarTime, parseScheduleRequest, recurrenceSpec, zonedTime } from "./local-schedule-time.mjs";
 import { initialQuestionTitle, migrateConversationTitles } from "./client-conversation-titles.mjs";
 
-export const CLIENT_SCHEMA_VERSION = 15;
+export const CLIENT_SCHEMA_VERSION = 16;
 export const CLIENT_LIMITS = WORKBENCH_LIMITS;
 const CONTEXT_RECORDS_SCHEMA = `CREATE TABLE message_clarifications(message_id TEXT PRIMARY KEY REFERENCES messages(id),record_json TEXT NOT NULL);
   CREATE TABLE handle_upload_intents(request_id TEXT NOT NULL REFERENCES tasks(request_id),file_id TEXT NOT NULL,
@@ -49,7 +50,7 @@ export class ClientStore {
     try {
       this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
       const version = this.db.prepare("PRAGMA user_version").get().user_version;
-      if (![0, 6, 7, 8, 9, 10, 11, 12, 13, 14, CLIENT_SCHEMA_VERSION].includes(version)) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
+      if (![0, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, CLIENT_SCHEMA_VERSION].includes(version)) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
       if (version === 0) this.#initialize();
       if (version === 6) this.#transaction(() => {
         this.db.exec(`CREATE TABLE execution_projection(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id),revision INTEGER NOT NULL,termination_reason TEXT NOT NULL,approval_receipts TEXT NOT NULL,event_state TEXT NOT NULL);
@@ -99,6 +100,12 @@ export class ClientStore {
       });
       if (version !== 0 && version < 15) this.#transaction(() => {
         this.db.exec(`${CLARIFICATION_SELECTIONS_SCHEMA} PRAGMA user_version=15;`);
+      });
+      if (version !== 0 && version < 16) this.#transaction(() => {
+        this.db.exec(`ALTER TABLE execution_approvals ADD COLUMN input_form_json TEXT NOT NULL DEFAULT '';
+          ALTER TABLE execution_approvals ADD COLUMN input_values_json TEXT NOT NULL DEFAULT '';
+          ALTER TABLE execution_approvals ADD COLUMN inputs_digest TEXT NOT NULL DEFAULT '';
+          PRAGMA user_version=16;`);
       });
       this.clientActions = new SchedulePresentations(this, scopeKey);
       // A renderer may have displayed a claimed action before a process crash.
@@ -158,6 +165,7 @@ export class ClientStore {
         CREATE TABLE execution_approvals(request_id TEXT NOT NULL REFERENCES tasks(request_id),
           approval_id TEXT NOT NULL,digest TEXT NOT NULL,tool TEXT NOT NULL,summary TEXT NOT NULL,
           arguments_json TEXT NOT NULL,state TEXT NOT NULL,decision TEXT,expires_at TEXT NOT NULL,
+          input_form_json TEXT NOT NULL DEFAULT '',input_values_json TEXT NOT NULL DEFAULT '',inputs_digest TEXT NOT NULL DEFAULT '',
           PRIMARY KEY(request_id,approval_id));
         CREATE TABLE execution_projection(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id),revision INTEGER NOT NULL,termination_reason TEXT NOT NULL,approval_receipts TEXT NOT NULL,event_state TEXT NOT NULL);
         CREATE TABLE event_projection(scope TEXT PRIMARY KEY,cursor TEXT NOT NULL,revision INTEGER NOT NULL,snapshot TEXT NOT NULL,epoch TEXT NOT NULL DEFAULT '');
@@ -692,8 +700,8 @@ export class ClientStore {
         revision=excluded.revision,termination_reason=excluded.termination_reason,approval_receipts=excluded.approval_receipts,event_state=excluded.event_state`)
         .run(event.request_id, event.revision, event.termination_reason ?? "", JSON.stringify(receipts), event.state);
       for (const receipt of receipts) {
-        const cached = this.db.prepare("SELECT digest,decision FROM execution_approvals WHERE request_id=? AND approval_id=?").get(event.request_id, receipt.approval_id);
-        if (cached && (cached.digest !== receipt.digest || cached.decision && cached.decision !== receipt.decision)) throw new Error("Approval receipt conflicts with local decision");
+        const cached = this.db.prepare("SELECT digest,decision,inputs_digest FROM execution_approvals WHERE request_id=? AND approval_id=?").get(event.request_id, receipt.approval_id);
+        if (cached && (cached.digest !== receipt.digest || cached.decision && (cached.decision !== receipt.decision || cached.inputs_digest !== (receipt.inputs_digest ?? "")))) throw new Error("Approval receipt conflicts with local decision");
         this.db.prepare("UPDATE execution_approvals SET state=?,decision=? WHERE request_id=? AND approval_id=?")
           .run(receipt.state === "decision_unknown" ? "decision_unknown" : receipt.decision === "approve" ? "approved" : "rejected", receipt.decision, event.request_id, receipt.approval_id);
       }
@@ -720,8 +728,8 @@ export class ClientStore {
 
   approvals(scope, requestID) {
     this.request(scope, requestID);
-    return this.db.prepare("SELECT approval_id,digest,tool,summary,arguments_json,state,decision,expires_at FROM execution_approvals WHERE request_id=? ORDER BY rowid")
-      .all(requestID).map(({ arguments_json, ...row }) => ({ ...row, arguments: JSON.parse(arguments_json) }));
+    return this.db.prepare("SELECT approval_id,digest,tool,summary,arguments_json,state,decision,expires_at,input_form_json,input_values_json,inputs_digest FROM execution_approvals WHERE request_id=? ORDER BY rowid")
+      .all(requestID).map(({ arguments_json, input_form_json, input_values_json, ...row }) => ({ ...row, arguments: JSON.parse(arguments_json), ...(input_form_json ? { input_form: JSON.parse(input_form_json) } : {}), ...(input_values_json ? { input_values: JSON.parse(input_values_json) } : {}) }));
   }
 
   syncApprovals(scope, requestID, pending, executionState, expiresAt) {
@@ -730,7 +738,7 @@ export class ClientStore {
     if (pending.length && (typeof expiresAt !== "string" || !Number.isFinite(Date.parse(expiresAt)))) throw new Error("Invalid approval deadline");
     const seen = new Set();
     for (const row of pending) {
-      if (!row || Object.keys(row).sort().join(",") !== "approval_id,arguments,digest,summary,tool" ||
+      if (!row || Object.keys(row).sort().join(",") !== (Object.hasOwn(row, "input_form") ? "approval_id,arguments,digest,input_form,summary,tool" : "approval_id,arguments,digest,summary,tool") ||
           typeof row.approval_id !== "string" || !ID.test(row.approval_id) || seen.has(row.approval_id) ||
           typeof row.digest !== "string" || !/^[a-f0-9]{64}$/u.test(row.digest) || typeof row.tool !== "string" || !ID.test(row.tool) ||
           typeof row.summary !== "string" || row.summary.includes("\u0000") || !row.arguments ||
@@ -741,10 +749,11 @@ export class ClientStore {
       for (const row of pending) {
         const prior = this.db.prepare("SELECT * FROM execution_approvals WHERE request_id=? AND approval_id=?").get(requestID, row.approval_id);
         const argumentsJSON = JSON.stringify(row.arguments);
+        const formJSON = row.input_form ? JSON.stringify(row.input_form) : "";
         if (prior) {
-          if (prior.digest !== row.digest || prior.tool !== row.tool || prior.arguments_json !== argumentsJSON || prior.summary !== row.summary || prior.expires_at !== expiresAt) throw new Error("Approval replay changed content or deadline");
-        } else this.db.prepare("INSERT INTO execution_approvals VALUES(?,?,?,?,?,?,'pending',NULL,?)")
-          .run(requestID, row.approval_id, row.digest, row.tool, row.summary, argumentsJSON, expiresAt);
+          if (prior.digest !== row.digest || prior.tool !== row.tool || prior.arguments_json !== argumentsJSON || prior.summary !== row.summary || prior.expires_at !== expiresAt || prior.input_form_json !== formJSON) throw new Error("Approval replay changed content or deadline");
+        } else this.db.prepare("INSERT INTO execution_approvals(request_id,approval_id,digest,tool,summary,arguments_json,state,decision,expires_at,input_form_json) VALUES(?,?,?,?,?,?,'pending',NULL,?,?)")
+          .run(requestID, row.approval_id, row.digest, row.tool, row.summary, argumentsJSON, expiresAt, formJSON);
       }
       for (const prior of this.db.prepare("SELECT approval_id,state,decision FROM execution_approvals WHERE request_id=?").all(requestID)) {
         if (seen.has(prior.approval_id) || !["pending", "decision_pending"].includes(prior.state)) continue;
@@ -754,14 +763,15 @@ export class ClientStore {
     });
   }
 
-  approvalDecision(scope, requestID, approvalID, digest, decision, resolved = false) {
+  approvalDecision(scope, requestID, approvalID, digest, decision, resolved = false, inputs) {
     const row = this.approvals(scope, requestID).find((approval) => approval.approval_id === approvalID);
     if (!row || row.digest !== digest || !["approve", "reject"].includes(decision)) throw new Error("Approval identity or digest mismatch");
-    if (row.decision && row.decision !== decision) throw new Error("Approval decision cannot be reversed");
+    const checked = approvalInputs(row.input_form, decision, inputs);
+    if (row.decision && (row.decision !== decision || row.inputs_digest !== checked.digest)) throw new Error("Approval decision or inputs cannot be changed");
     if (!["pending", "decision_pending", "approved", "rejected"].includes(row.state)) throw new Error("Approval is no longer actionable");
     const state = resolved ? (decision === "approve" ? "approved" : "rejected") : "decision_pending";
-    this.db.prepare("UPDATE execution_approvals SET state=?,decision=? WHERE request_id=? AND approval_id=?")
-      .run(state, decision, requestID, approvalID);
+    this.db.prepare("UPDATE execution_approvals SET state=?,decision=?,input_values_json=?,inputs_digest=? WHERE request_id=? AND approval_id=?")
+      .run(state, decision, checked.json, checked.digest, requestID, approvalID);
     return { resolved };
   }
 

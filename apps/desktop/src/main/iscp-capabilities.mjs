@@ -23,8 +23,10 @@ const SURFACES = Object.freeze({
   speech_playback: ['audio.playback'],
   medicine: ['medicine.recognize'],
   medicine_text: ['medicine.parse'],
+  medicine_box_read: ['medicine.sync', 'medicine.operations.get'],
+  medicine_box_write: ['medicine.items.create', 'medicine.items.update', 'medicine.items.delete', 'medicine.items.batch', 'medicine.import'],
 });
-const DEPENDENCIES = { mail_read: ['events'], mail_attachments: ['mail_read', 'files'], mail_send: ['mail_read', 'files', 'approvals'], mail_send_attachments: ['mail_send'], browser: ['files', 'approvals', 'events'], speech_recording: ['files'], speech_realtime: ['speech_recording', 'events'], speech_playback: ['speech_realtime'] };
+const DEPENDENCIES = { medicine_box_write: ['medicine_box_read'], mail_read: ['events'], mail_attachments: ['mail_read', 'files'], mail_send: ['mail_read', 'files', 'approvals'], mail_send_attachments: ['mail_send'], browser: ['files', 'approvals', 'events'], speech_recording: ['files'], speech_realtime: ['speech_recording', 'events'], speech_playback: ['speech_realtime'] };
 
 export function isISCPCapabilityReportCurrent(manifest, report, now = Date.now()) {
   return manifest?.schema_version === 2 && manifest.profile === 'sparkclaw.workbench.transport.v2' &&

@@ -1,6 +1,7 @@
+import type { ApprovalInputForm, ApprovalInputValues } from "../components/approvalInputForm";
 export type LocalConversation = { id: string; title: string; created_at: string; updated_at: string };
 export type LocalMessage = { id: string; request_id?: string; role: "user" | "assistant"; content: string; created_at: string; attachments?: import('../api/types').MessageAttachment[] };
-export type LocalApproval = { approval_id: string; digest: string; tool: string; summary: string; arguments: Record<string, unknown>;
+export type LocalApproval = { input_form?: ApprovalInputForm; input_values?: ApprovalInputValues; inputs_digest?: string; approval_id: string; digest: string; tool: string; summary: string; arguments: Record<string, unknown>;
   state: "pending" | "decision_pending" | "approved" | "rejected" | "resolved" | "expired" | "decision_unknown";
   decision?: "approve" | "reject" | null; expires_at: string; actionable?: boolean };
 export type LocalTask = { id: string; request_id: string; status: string; explicitly_submitted?: number; created_at: string; approvals?: LocalApproval[]; revision?: number; termination_reason?: string; approval_receipts?: Array<{ approval_id: string; digest: string; decision: string }>; progress_content?: string; progress_projection?: { request_id: string; input_digest: string; epoch: string; generation: string; revision: number; offset: number; content_digest: string; content: string; state: string } };
@@ -31,7 +32,7 @@ export type ClientStoreAPI = {
   submit: (requestID: string) => Promise<LocalTask>;
   reconcile: (requestID: string) => Promise<LocalTask>;
   cancel: (requestID: string) => Promise<LocalTask>;
-  decideApproval: (requestID: string, approvalID: string, digest: string, decision: "approve" | "reject") => Promise<{ resolved: true }>;
+  decideApproval: (requestID: string, approvalID: string, digest: string, decision: "approve" | "reject", inputs?: ApprovalInputValues) => Promise<{ resolved: true }>;
   scheduleCreate: (id: string, content: string, dueAt: string, intervalMS?: number) => Promise<LocalSchedule>;
   listSchedules: (filter?: ScheduleViewFilter) => Promise<import('../api/types').Schedule[]>;
   beginSchedulePresentation?: (expectedScope: string) => Promise<{ view_id: string }>;

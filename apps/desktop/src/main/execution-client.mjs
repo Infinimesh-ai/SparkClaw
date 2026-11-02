@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { approvalInputs } from "./approval-input.mjs";
 import { validateApprovalDecisionReceipt } from "./approval-receipt.mjs";
 import { traceLatency, latencyNow } from "./latency-trace.mjs";
 import { CLIENT_LIMITS, parseResultPayload } from "./client-store.mjs";
@@ -135,13 +136,15 @@ export class ExecutionClient {
     }));
   }
 
-  async decideApproval(scope, requestID, approvalID, digest, decision) {
+  async decideApproval(scope, requestID, approvalID, digest, decision, inputs) {
     scope = this.#boundScope(scope);
     return this.#serialized(scope, requestID, async () => {
       if (typeof approvalID !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u.test(approvalID) ||
           typeof digest !== "string" || !/^[a-f0-9]{64}$/u.test(digest) || !["approve", "reject"].includes(decision)) throw new Error("Invalid approval decision");
       let row = this.store.approvals(scope, requestID).find((approval) => approval.approval_id === approvalID);
       if (!row || row.digest !== digest || (row.decision && row.decision !== decision)) throw new Error("Approval identity, digest or decision mismatch");
+      const checked = approvalInputs(row.input_form, decision, inputs);
+      if (row.decision && row.inputs_digest !== checked.digest) throw new Error("Approval inputs cannot be changed");
       if (["approved", "rejected"].includes(row.state)) return { resolved: true };
       const task = this.store.request(scope, requestID);
       // A cached local row is display-only. Every explicit decision starts with
@@ -150,19 +153,19 @@ export class ExecutionClient {
       row = this.approvals(scope, requestID).find((approval) => approval.approval_id === approvalID);
       if (row && ["approved", "rejected"].includes(row.state) && row.decision === decision) return { resolved: true };
       if (!row?.actionable || row.digest !== digest) throw new Error("Approval expired or requires renewed verification");
-      this.store.approvalDecision(scope, requestID, approvalID, digest, decision);
+      this.store.approvalDecision(scope, requestID, approvalID, digest, decision, false, inputs);
       this.onChange();
       try {
         const approvalRevision = this.store.executionProjection(scope, requestID).revision;
         const response = await this.#fetch(scope, `/api/v1/executions/${requestID}/approvals/${encodeURIComponent(approvalID)}`, {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ digest, decision, ...(this.auth.descriptor?.transport === "iscp" ? {input_digest:task.input_digest} : {}) }),
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ digest, decision, ...checked.payload, ...(this.auth.descriptor?.transport === "iscp" ? {input_digest:task.input_digest} : {}) }),
           ...(this.auth.descriptor?.transport === "iscp" ? {expectedRevision:String(approvalRevision)} : {}),
         });
         if (!response.ok) { await response.body?.cancel(); throw new Error("Approval decision is awaiting reconciliation"); }
         const receipt = await json(response);
         this.#sameIdentity(scope);
-        validateApprovalDecisionReceipt(receipt, {transport:this.auth.descriptor?.transport, requestID, approvalID, digest, decision, revision:approvalRevision});
-        this.store.approvalDecision(scope, requestID, approvalID, digest, decision, true);
+        validateApprovalDecisionReceipt(receipt, {transport:this.auth.descriptor?.transport, requestID, approvalID, digest, decision, revision:approvalRevision, inputsDigest:checked.digest});
+        this.store.approvalDecision(scope, requestID, approvalID, digest, decision, true, inputs);
         await this.#lookup(scope, task);
         return { resolved: true };
       } catch (error) {

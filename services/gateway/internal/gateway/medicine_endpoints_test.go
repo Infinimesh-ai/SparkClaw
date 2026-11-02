@@ -54,17 +54,20 @@ func TestRecognizeMedicinePhotoSortsTheModelReplyIntoTheBoxCategories(t *testing
 		name, reply string
 		want        medicineRecognition
 	}{
-		{"recognized", `{"is_medicine":true,"name":" 布洛芬缓释胶囊 ","category":"fever","unit":"capsule","usage":"退烧、头痛\n牙痛"}`,
+		{"recognized", `{"is_medicine":true,"generic_name_visible":true,"otc":false,"name":" 布洛芬缓释胶囊 ","category":"fever","unit":"capsule","usage":"退烧、头痛\n牙痛"}`,
 			medicineRecognition{Recognized: true, Name: "布洛芬缓释胶囊", Category: "fever", Unit: "capsule", Usage: "退烧、头痛 牙痛"}},
-		{"unknown category and unit fall back", `{"is_medicine":true,"name":"维生素C片","category":"vitamins","unit":"pill","usage":""}`,
+		{"unknown category and unit fall back", `{"is_medicine":true,"generic_name_visible":true,"otc":false,"name":"维生素C片","category":"vitamins","unit":"pill","usage":""}`,
 			medicineRecognition{Recognized: true, Name: "维生素C片", Category: "other", Unit: "tablet"}},
-		{"not a medicine", `{"is_medicine":false,"name":"","category":"other","unit":"tablet","usage":""}`,
+		// One brand can cover several formulas, so a brand alone gets no efficacy.
+		{"brand without a generic name", `{"is_medicine":true,"generic_name_visible":false,"otc":true,"name":"新康泰克","category":"cold","unit":"tablet","usage":"缓解感冒症状"}`,
+			medicineRecognition{Recognized: true, Name: "新康泰克", Category: "cold", Unit: "tablet"}},
+		{"not a medicine", `{"is_medicine":false,"generic_name_visible":false,"otc":false,"name":"","category":"other","unit":"tablet","usage":""}`,
 			medicineRecognition{Category: "other", Unit: "tablet"}},
-		{"medicine without a name", `{"is_medicine":true,"name":"  ","category":"cold","unit":"sachet","usage":""}`,
+		{"medicine without a name", `{"is_medicine":true,"generic_name_visible":true,"otc":false,"name":"  ","category":"cold","unit":"sachet","usage":""}`,
 			medicineRecognition{Category: "other", Unit: "tablet"}},
 		{"free text", "这是一盒感冒药。", medicineRecognition{Category: "other", Unit: "tablet"}},
 		// The removed fields, or the first release's schema, are not accepted.
-		{"pack size and manufacturer", `{"is_medicine":true,"name":"x","category":"cold","unit":"sachet","usage":"","spec":"10袋"}`,
+		{"pack size and manufacturer", `{"is_medicine":true,"generic_name_visible":true,"otc":false,"name":"x","category":"cold","unit":"sachet","usage":"","spec":"10袋"}`,
 			medicineRecognition{Category: "other", Unit: "tablet"}},
 		{"first release schema", `{"schema_version":"medicine_recognition_v1","is_medicine":true,"name":"x","spec":"","manufacturer":"","category":"cold","unit":"sachet"}`,
 			medicineRecognition{Category: "other", Unit: "tablet"}},
@@ -79,7 +82,7 @@ func TestRecognizeMedicinePhotoSortsTheModelReplyIntoTheBoxCategories(t *testing
 				t.Fatalf("recognition = %#v, want %#v", got, fixture.want)
 			}
 			if model.operation != modelcapacity.OperationMedicineRecognize || model.profile != "fast" || !model.options.ForceDisableThinking ||
-				model.options.StrictJSONSchema == nil || model.options.StrictJSONSchema.Name != "medicine_recognition_v2" ||
+				model.options.StrictJSONSchema == nil || model.options.StrictJSONSchema.Name != "medicine_recognition_v3" ||
 				!bytes.Equal(model.image.Content, photo) || model.image.ContentType != "image/png" {
 				t.Fatalf("model call = %#v", model)
 			}
@@ -117,7 +120,7 @@ func TestRecognizeMedicineEndpointUsesTheFastVisionLane(t *testing.T) {
 			t.Error(err)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{"message": map[string]string{
-			"content": `{"is_medicine":true,"name":"蒙脱石散","category":"digestive","unit":"sachet","usage":"腹泻"}`,
+			"content": `{"is_medicine":true,"generic_name_visible":true,"otc":false,"name":"蒙脱石散","category":"digestive","unit":"sachet","usage":"腹泻"}`,
 		}}}})
 	}))
 	defer model.Close()

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -24,7 +25,7 @@ import (
 //	go test ./internal/gateway -run TestMedicineRealModelSpotCheck -v
 //
 // The photos file maps JPEG paths to the medicine name each must contain,
-// and optionally its category, unit and whether a usage is required.
+// and optionally its category, unit and what its usage must or must not say.
 func TestMedicineRealModelSpotCheck(t *testing.T) {
 	baseURL := os.Getenv("SPARKCLAW_MEDICINE_REAL_MODEL_URL")
 	if baseURL == "" {
@@ -52,8 +53,14 @@ func TestMedicineRealModelSpotCheck(t *testing.T) {
 			Name     string `json:"name"`
 			Category string `json:"category"`
 			Unit     string `json:"unit"`
-			// The model states the efficacy of a medicine it recognized.
-			Usage bool `json:"usage"`
+			// The model states the efficacy of a medicine it recognized:
+			// required, any of these words, none of those, or none at all.
+			Usage     bool     `json:"usage"`
+			UsageAny  []string `json:"usage_any"`
+			UsageNone []string `json:"usage_none"`
+			NoUsage   bool     `json:"no_usage"`
+			// A brand printed larger than the generic name is not the name.
+			NameNot string `json:"name_not"`
 		}
 		if err := json.Unmarshal(raw, &photos); err != nil {
 			t.Fatal(err)
@@ -71,7 +78,9 @@ func TestMedicineRealModelSpotCheck(t *testing.T) {
 				out, _ := json.Marshal(got)
 				t.Logf("%s → %s (model %s)", filepath.Base(path), out, chat.Model)
 				if !got.Recognized || !strings.Contains(got.Name, want.Name) || want.Category != "" && got.Category != want.Category || want.Unit != "" && got.Unit != want.Unit ||
-					want.Usage && got.Usage == "" {
+					want.Usage && got.Usage == "" || want.NoUsage && got.Usage != "" || want.NameNot != "" && strings.Contains(got.Name, want.NameNot) ||
+					len(want.UsageAny) > 0 && !slices.ContainsFunc(want.UsageAny, func(word string) bool { return strings.Contains(got.Usage, word) }) ||
+					slices.ContainsFunc(want.UsageNone, func(word string) bool { return strings.Contains(got.Usage, word) }) {
 					t.Errorf("recognition = %s, want name containing %q, category %q, unit %q", out, want.Name, want.Category, want.Unit)
 				}
 				// The same photo through the HTTP handler the desktop reaches.

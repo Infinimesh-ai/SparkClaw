@@ -23,7 +23,8 @@ import (
 //	SPARKCLAW_MEDICINE_REAL_PHOTOS=/path/photos.json \
 //	go test ./internal/gateway -run TestMedicineRealModelSpotCheck -v
 //
-// The photos file maps JPEG paths to the medicine name each must contain.
+// The photos file maps JPEG paths to the medicine name each must contain,
+// and optionally its category, unit and whether a usage is required.
 func TestMedicineRealModelSpotCheck(t *testing.T) {
 	baseURL := os.Getenv("SPARKCLAW_MEDICINE_REAL_MODEL_URL")
 	if baseURL == "" {
@@ -51,6 +52,8 @@ func TestMedicineRealModelSpotCheck(t *testing.T) {
 			Name     string `json:"name"`
 			Category string `json:"category"`
 			Unit     string `json:"unit"`
+			// The model states the efficacy of a medicine it recognized.
+			Usage bool `json:"usage"`
 		}
 		if err := json.Unmarshal(raw, &photos); err != nil {
 			t.Fatal(err)
@@ -67,7 +70,8 @@ func TestMedicineRealModelSpotCheck(t *testing.T) {
 				}
 				out, _ := json.Marshal(got)
 				t.Logf("%s → %s (model %s)", filepath.Base(path), out, chat.Model)
-				if !got.Recognized || !strings.Contains(got.Name, want.Name) || want.Category != "" && got.Category != want.Category || want.Unit != "" && got.Unit != want.Unit {
+				if !got.Recognized || !strings.Contains(got.Name, want.Name) || want.Category != "" && got.Category != want.Category || want.Unit != "" && got.Unit != want.Unit ||
+					want.Usage && got.Usage == "" {
 					t.Errorf("recognition = %s, want name containing %q, category %q, unit %q", out, want.Name, want.Category, want.Unit)
 				}
 				// The same photo through the HTTP handler the desktop reaches.

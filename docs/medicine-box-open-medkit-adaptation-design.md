@@ -190,7 +190,7 @@ Step 1 opens with a "Photo / Text" segmented switch, defaulting to Photo; when p
 
 Photo:
 - Keeps the existing photo area: a "Choose photo" button, drop, paste, the thumbnail and "Choose another". No "Take photo" button and no `capture` attribute.
-- The photo is read only for the name, functional category and unit visible on the package front, plus the usage from phase 2. The quantity left and the expiry date are never read from the photo, even if a date is printed on it; the owner enters them in step 2, as well as the location and notes.
+- The photo only identifies the medicine: its name is read from the package front. The model then gives the functional category, the unit and, from phase 2, the usage (the medicine's main efficacy) from its own knowledge of that medicine, whether or not the package prints it (owner decision, 2026-11-02). The quantity left and the expiry date are never read from the photo, even if a date is printed on it; the owner enters them in step 2, as well as the location and notes.
 - One fixed line under the photo area: "The photo is only used for recognition and is not kept. Enter the quantity left and the expiry date in the next step."
 - Recognition starts as soon as a photo is chosen, with the existing "Recognizing the medicine…" text; on success the dialog moves to step 2 automatically.
 - On failure (not a medicine, unreadable photo, service unavailable), the dialog stays on step 1, shows the existing problem message and offers "Fill in".
@@ -220,7 +220,7 @@ Step 2: review
 | Name, functional category, unit | Filled by recognition, to check | Filled from the text, to check | Typed by the owner; the name suggests a category |
 | Quantity left, expiry | Empty; the owner must enter them | Filled and marked to check if the text has them, otherwise empty | Typed by the owner |
 | Location | Empty; optional | Filled and marked to check if the text has it, otherwise empty | Typed by the owner; optional |
-| Usage | From phase 2, filled by recognition and marked to check; otherwise empty | Filled and marked to check if the text has it, otherwise empty | Typed by the owner; optional |
+| Usage | From phase 2, the model's efficacy for the recognized medicine, marked to check | Filled and marked to check if the text has it, otherwise empty | Typed by the owner; optional |
 | Notes | Empty; optional | Empty; optional | Typed by the owner; optional |
 | No expiry | Ticked by the owner | Ticked by the owner; never ticked automatically, even if the text says so | Ticked by the owner |
 
@@ -366,7 +366,7 @@ Text entry:
 - The renderer gains `api.parseMedicine(body, signal)`; the result maps into the same draft as photo recognition and then goes to step 2. The parse result has no `no_expiry`; the owner decides whether to tick it.
 
 Recognition changes:
-- The output of `medicine.recognize` becomes `medicine_recognition_v2`: `spec` and `manufacturer` are removed, and an optional `usage` is added (a short summary of the main use or indications printed on the package, empty when not legible). The prompt drops the pack size and manufacturer instructions.
+- The output of `medicine.recognize` becomes `medicine_recognition_v2`: `spec` and `manufacturer` are removed, and `usage` is added: the main efficacy or indications of the recognized medicine, given by the model from its own knowledge whether or not the package prints them, at most 80 characters. The prompt drops the pack size and manufacturer instructions.
 - The renderer stays compatible with an older Gateway: for a v1 result it ignores `spec` and `manufacturer` and leaves `usage` empty.
 
 Release and contract:
@@ -496,4 +496,5 @@ Released at the owner's request as the whole of main, not the medicine box alone
   2. An ISCP request body is capped at 63488 bytes, and the 1600px photo was far larger. The photo is now stepped down from 1024px at quality 0.7 to 512px at 0.4 until its base64 fits 61000 characters (`1ad18b1c`). The real model still read the amoxicillin box correctly at every size from 768px down to 512px.
   3. The detail dialog's delete button lost the danger colour to a heavier glass rule (`223e30e3`).
 - Verified natively after the fixes: pasting the amoxicillin photo led to a review showing 阿莫西林胶囊 with category 其他, unit capsule and the checks marked, focus on the quantity; the entered quantity, expiry and location were saved. A typed sentence led to a review with every stated field marked and the original text shown, then saved. The stats line, the expiring card, sorting, the detail dialog, quick −1 (saved to the desktop store), list view, and deletion from the detail dialog and from a list row, both with confirmation, all worked. Both test entries were deleted afterwards, so the box is empty as before.
-- Open observations: one 768px photo once returned the usage 「细菌感染」, which the box front does not print. The field arrives marked for checking, and the prompt has not been changed. One real click on a card right after saving did not open the detail dialog, and three later attempts did; this was not reproduced.
+- Open observation: one real click on a card right after saving did not open the detail dialog, and three later attempts did; this was not reproduced.
+- Afterwards the owner decided that the photo only identifies the medicine and the model supplies its efficacy (section 5.8). The prompt now asks for the efficacy from the model's knowledge; the spot check requires a usage for photos, and three runs over four sizes of the amoxicillin photo all returned one, such as 「敏感菌所致的呼吸道感染、泌尿生殖道感染、皮肤软组织感染」. Text entry still fills only what the sentence states. This is a Gateway-only change: it takes effect on work2 at the next Gateway deployment.

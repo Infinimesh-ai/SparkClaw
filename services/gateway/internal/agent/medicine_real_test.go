@@ -2,8 +2,11 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -111,7 +114,45 @@ func TestRealMedicineRoutingAndPlans(t *testing.T) {
 				t.Errorf("plan=%+v form=%+v err=%v", p, form, e)
 			} else {
 				t.Logf("plan entries=2 needs_input=%v", c.needsInput)
+				if !c.needsInput {
+					batch, err := materializeMedicineBatch(draft, nil)
+					if err != nil || len(batch.Items) != 2 {
+						t.Fatalf("batch=%+v err=%v", batch, err)
+					}
+					a, b := batch.Items[0].Fields, batch.Items[1].Fields
+					if a.Name != "布洛芬" || a.Quantity != 24 || a.Unit != "capsule" || a.ExpiresOn != "2027-05-31" || a.NoExpiry || a.Usage != "" || a.Location != "" || a.Notes != "" || b.Name != "碘伏" || b.Quantity != 1 || b.Unit != "bottle" || !b.NoExpiry || b.ExpiresOn != "" || b.Usage != "" || b.Location != "" || b.Notes != "" {
+						t.Errorf("unexpected model fields: %+v %+v", a, b)
+					}
+				}
 			}
+		}
+	})
+
+	t.Run("batch_limits", func(t *testing.T) {
+		session := storetest.MustCreateSessionWithScope(t, st, "medicine limits qualification", app.DefaultOwnerID, root, "web", false)
+		for _, count := range []int{20, 21} {
+			parts := []string{}
+			for i := 1; i <= count; i++ {
+				parts = append(parts, fmt.Sprintf("药品%02d 1盒，无有效期", i))
+			}
+			query := "全部添加到药箱：" + strings.Join(parts, "；")
+			run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, Workflow: &app.WorkflowState{Route: app.RouteDecision{Slots: app.RouteSlots{Operation: app.RouteOperationCreate, Query: query}}}}
+			plan, err := runtime.planMedicineEdit(ctx, run, nil)
+			if count > 20 {
+				if !errors.Is(err, errMedicineBatchLimit) {
+					t.Errorf("oversize batch count=%d plan=%+v err=%v", count, plan, err)
+				}
+				continue
+			}
+			if err != nil || len(plan.Items) != count {
+				t.Errorf("count=%d plan=%+v err=%v", count, plan, err)
+				continue
+			}
+			draft, form, err := freezeMedicinePlan(plan, nil, run.ID, query)
+			if err != nil || form != nil || len(draft.Items) != 20 {
+				t.Errorf("count=%d form=%+v err=%v", count, form, err)
+			}
+			t.Logf("batch_count=%d parsed_entries=%d", count, len(plan.Items))
 		}
 	})
 }

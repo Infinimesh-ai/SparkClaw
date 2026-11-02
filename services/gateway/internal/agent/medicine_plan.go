@@ -12,7 +12,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/appstream"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/medicine"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 )
 
 type medicineEditPlan struct {
@@ -49,34 +48,6 @@ var errMedicineBatchLimit = errors.New("药箱每批支持 1–20 条新增或�
 
 var medicineChangeFields = []string{"name", "category", "quantity", "quantity_delta", "unit", "expires_on", "no_expiry", "location", "usage", "notes", "notes_append"}
 
-func medicinePlanOptions() modelrouter.ChatOptions {
-	props := map[string]any{}
-	for _, k := range medicineChangeFields {
-		kind := "string"
-		if k == "quantity" || k == "quantity_delta" {
-			kind = "number"
-		}
-		if k == "no_expiry" {
-			kind = "boolean"
-		}
-		descriptions := map[string]string{
-			"name": "药品名称；只提取用户说出的名称", "category": "分类；无法明确分类时 other", "quantity": "库存数量；24粒表示24，不是服药剂量", "quantity_delta": "用户明确要求增减的库存量；减少为负数", "unit": "库存单位固定映射：片=tablet，粒=capsule，袋=sachet，瓶=bottle，支=tube，贴=patch，盒=box，毫升=ml，克=g", "expires_on": "明确有效期，YYYY-MM-DD 或 YYYY-MM；有年/月即足够，年月格式不是歧义", "no_expiry": "用户明确说无有效期时为true；没有说有效期不能填true", "location": "明确的存放位置", "usage": "用户明确说出的适应症或用途，例如用于皮肤消毒；绝不是数量、单位、服用方法或剂量，不推断药物用途", "notes": "明确备注全文", "notes_append": "明确追加的备注"}
-		props[k] = map[string]any{"type": kind, "description": descriptions[k]}
-	}
-	obj := func(properties map[string]any, required []string) map[string]any {
-		if required == nil {
-			required = []string{}
-		}
-		return map[string]any{"type": "object", "additionalProperties": false, "properties": properties, "required": required}
-	}
-	target := obj(map[string]any{"name": map[string]any{"type": "string"}, "expires_on": map[string]any{"type": "string"}, "location": map[string]any{"type": "string"}}, []string{"name"})
-	evidence := map[string]any{}
-	for _, k := range append(append([]string{}, medicineChangeFields...), "target") {
-		evidence[k] = map[string]any{"type": "string"}
-	}
-	item := obj(map[string]any{"target": target, "changes": obj(props, nil), "evidence": obj(evidence, nil), "unresolved": map[string]any{"type": "array", "maxItems": 14, "items": obj(map[string]any{"field": map[string]any{"type": "string", "enum": append(append([]string{}, medicineChangeFields...), "expiry", "target")}, "reason": map[string]any{"type": "string", "enum": []string{"missing", "ambiguous"}}}, []string{"field", "reason"})}}, []string{"changes", "unresolved", "evidence"})
-	return modelrouter.ChatOptions{ForceDisableThinking: true, StrictJSONSchema: &modelrouter.StrictJSONSchema{Name: "medicine_edit_v2", Schema: obj(map[string]any{"operation": map[string]any{"type": "string", "enum": []string{"create", "update", "delete"}}, "items": map[string]any{"type": "array", "minItems": 1, "items": item}}, []string{"operation", "items"})}}
-}
 func decodeMedicinePlan(raw string) (medicineEditPlan, error) {
 	var plan medicineEditPlan
 	if len(raw) > 64<<10 {

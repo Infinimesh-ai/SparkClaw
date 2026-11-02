@@ -39,7 +39,7 @@ func newMedicineRuntime(t *testing.T, response string) (Runtime, *store.MemorySt
 		if e := json.NewDecoder(r.Body).Decode(&body); e != nil {
 			t.Error(e)
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": response}}}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": medicineModelFixture(response)}}}})
 	}))
 	t.Cleanup(server.Close)
 	cfg := agentTestConfig()
@@ -193,7 +193,7 @@ func TestMedicineDuplicateTargetsAndVersionConflictsAreAtomic(t *testing.T) {
 	p := medicineEditPlan{Operation: "update", Items: []medicinePlannedEntry{{Target: &medicineTarget{Name: "同名药"}, Changes: map[string]any{"quantity_delta": -1.0}, Unresolved: []medicineUnresolved{}, Evidence: map[string]string{"target": "同名药", "quantity_delta": "减1片"}}}}
 	raw, _ := json.Marshal(p)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": string(raw)}}}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": medicineModelFixture(string(raw))}}}})
 	}))
 	defer server.Close()
 	cfg := agentTestConfig()
@@ -305,5 +305,58 @@ func TestMedicineQueryProjectionAndAdviceReadOnly(t *testing.T) {
 	payload = medicineQueryProjection(rows, "2026-11-02")
 	if len(payload) > 48<<10 || !strings.Contains(payload, `"truncated":true`) || !strings.Contains(payload, `"total":2000`) {
 		t.Fatal("unbounded or silently truncated query")
+	}
+}
+
+func medicineModelFixture(raw string) string {
+	var p medicineEditPlan
+	if json.Unmarshal([]byte(raw), &p) != nil || p.Operation == "" {
+		return raw
+	}
+	wire := medicineModelPlan{Operation: p.Operation}
+	for _, item := range p.Items {
+		row := medicineModelEntry{Changes: []medicineModelChange{}, Unresolved: item.Unresolved}
+		for _, key := range medicineChangeFields {
+			if value, ok := item.Changes[key]; ok {
+				row.Changes = append(row.Changes, medicineModelChange{Field: key, Value: value, Evidence: item.Evidence[key]})
+			}
+		}
+		if item.Target != nil {
+			row.Target = &medicineModelTarget{Name: item.Target.Name, ExpiresOn: item.Target.ExpiresOn, Location: item.Target.Location, Evidence: item.Evidence["target"]}
+		}
+		wire.Items = append(wire.Items, row)
+	}
+	data, _ := json.Marshal(wire)
+	return string(data)
+}
+
+func TestMedicineTwentyCompleteRowsCommitAsOneBatch(t *testing.T) {
+	p, _ := decodeMedicinePlan(testMedicinePlan(false))
+	base := p.Items[0]
+	p.Items = nil
+	for i := 0; i < 20; i++ {
+		p.Items = append(p.Items, base)
+	}
+	raw, _ := json.Marshal(p)
+	r, st, s := newMedicineRuntime(t, string(raw))
+	run, result := dispatchMedicineTest(t, r, st, s, app.RouteOperationCreate, medicineBatchText, app.MessageSourceWeb)
+	if run.Workflow.Status != app.WorkflowStatusSucceeded || len(result.Approvals) != 0 {
+		t.Fatalf("%+v", result)
+	}
+	box, err := st.ReadMedicineBox(t.Context(), s.OwnerID)
+	if err != nil || len(box.Items) != 20 {
+		t.Fatalf("box=%+v err=%v", box, err)
+	}
+	calls := toolCallsForRun(testListToolCalls(st, s.ID), run.ID)
+	if len(calls) != 2 || calls[1].Tool != "medicine.box.write" {
+		t.Fatal(calls)
+	}
+}
+func TestMedicineModelPlanRejectsDuplicateFields(t *testing.T) {
+	if _, err := decodeMedicineModelPlan(`{"operation":"create","items":[{"changes":[{"field":"name","value":"甲","evidence":"甲"},{"field":"name","value":"乙","evidence":"乙"}],"unresolved":[]}]}`); err == nil {
+		t.Fatal("duplicate changed field accepted")
+	}
+	if _, err := decodeMedicinePlan(`{"operation":"create","operation":"delete","items":[]}`); err == nil {
+		t.Fatal("duplicate operation accepted")
 	}
 }

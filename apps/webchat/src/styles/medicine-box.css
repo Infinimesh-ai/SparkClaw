@@ -365,6 +365,7 @@ html[data-resolved-theme="dark"] .medicinePage .medicineSegments button:is(.expi
 .medicineDialog .medicineDialogGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .medicineDialog .medicineFieldWide { grid-column: 1 / -1; }
 .medicineDialog .medicineCheck { margin-left: 6px; padding: 0 6px; border-radius: 999px; color: var(--medicine-warn); background: var(--medicine-warn-bg); font-size: 11px; font-style: normal; font-weight: 500; line-height: 16px; }
+.medicineDialog .medicineFieldHint { color: var(--ui-muted); font-size: 12px; line-height: 18px; }
 .medicineDialog .medicineFieldFlash :is(input, select) { animation: medicineFlash 0.5s ease 1; }
 .medicineDialog .medicineExpiryField { display: grid; gap: 6px; }
 .medicineDialog .medicineExpiryField > label { color: var(--ui-muted); font-size: 12px; }

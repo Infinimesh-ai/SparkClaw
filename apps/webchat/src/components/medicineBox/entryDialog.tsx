@@ -259,7 +259,8 @@ export function MedicineEntryDialog({ language, item, items, defaultCategory, re
             <label className={flash("location")}>{fieldLabel("location", copy.location)}
               <input name="location" value={draft.location} maxLength={80} placeholder={copy.locationPlaceholder} disabled={saving} onChange={(event) => update({ location: event.target.value }, "location")} /></label>
             <label className={flash("usage")}>{fieldLabel("usage", copy.usage)}
-              <input name="usage" value={draft.usage} maxLength={80} placeholder={copy.usagePlaceholder} disabled={saving} onChange={(event) => update({ usage: event.target.value }, "usage")} /></label>
+              <input name="usage" value={draft.usage} maxLength={80} placeholder={copy.usagePlaceholder} disabled={saving} onChange={(event) => update({ usage: event.target.value }, "usage")} />
+              {source?.kind === "photo" && prefilled.has("usage") && <small className="medicineFieldHint">{copy.usageFromModel}</small>}</label>
             <label className="medicineFieldWide"><span>{copy.notes}</span>
               <textarea name="notes" value={draft.notes} maxLength={500} rows={3} disabled={saving} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} /></label>
           </div>

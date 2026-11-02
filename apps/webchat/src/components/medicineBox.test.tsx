@@ -161,6 +161,7 @@ describe("medicine box", () => {
     expect(query<HTMLSelectElement>('.medicineDialog select[name="category"]').value).toBe("cold");
     expect(query<HTMLSelectElement>('.medicineDialog select[name="unit"]').value).toBe("capsule");
     expect(query<HTMLInputElement>('.medicineDialog input[name="usage"]').value).toBe("感冒发热");
+    expect(query(".medicineFieldHint").textContent).toBe("功效由模型根据所认药品给出，可能与这盒药的说明书不同，请对照核对。");
     // The photo never fills the quantity, expiry, location or notes.
     for (const name of ["quantity", "expires_on", "location"]) expect(query<HTMLInputElement>(`.medicineDialog input[name="${name}"]`).value).toBe("");
     expect(query<HTMLTextAreaElement>('.medicineDialog textarea[name="notes"]').value).toBe("");
@@ -227,6 +228,8 @@ describe("medicine box", () => {
     expect(query<HTMLInputElement>('.medicineDialog input[name="expires_on"]').value).toBe("2027-12-31");
     expect(query<HTMLInputElement>('.medicineDialog input[name="location"]').value).toBe("客厅抽屉");
     expect(query<HTMLTextAreaElement>('.medicineDialog textarea[name="notes"]').value).toBe("");
+    // The usage came from the owner's own sentence, not from the model.
+    expect(host.querySelector(".medicineFieldHint")).toBeNull();
     expect(query<HTMLInputElement>('.medicineDialog input[name="no_expiry"]').checked).toBe(false);
     expect(all(".medicineFieldFlash")).toHaveLength(6);
     expect(texts(".medicineCheck")).toHaveLength(6);

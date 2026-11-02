@@ -6,9 +6,10 @@ import { ArrowLeft, ArrowRight, MessageCircle } from "lucide-react";
 import type { Language } from "../i18n";
 import type { PageHistory } from "../hooks/usePageHistory";
 import { desktopCapability } from "../desktop/capability";
+import { ActionIcon, type ActionIconName } from "./ActionIcon";
 import { afterCommit, snapState, type DragSnap } from "./inspectorResize";
 
-type TitlebarSlots = { root: HTMLElement | null; host: HTMLElement | null; browser: HTMLElement | null; setBrowser: (element: HTMLElement | null) => void };
+type TitlebarSlots = { root: HTMLElement | null; host: HTMLElement | null; rail: HTMLElement | null; browser: HTMLElement | null; setBrowser: (element: HTMLElement | null) => void };
 const TitlebarHost = createContext<TitlebarSlots | undefined>(undefined);
 
 // Page history belongs to the client title bar; the web keeps browser history.
@@ -28,12 +29,13 @@ const SIDEBAR_CONVERSATION_RESERVE = 320;
 export function ClientWindow({ children }: { children: ReactNode }) {
   const [root, setRoot] = useState<HTMLElement | null>(null);
   const [host, setHost] = useState<HTMLElement | null>(null);
+  const [rail, setRail] = useState<HTMLElement | null>(null);
   const [browser, setBrowser] = useState<HTMLElement | null>(null);
-  const value = useMemo(() => ({ root, host, browser, setBrowser }), [root, host, browser]);
+  const value = useMemo(() => ({ root, host, rail, browser, setBrowser }), [root, host, rail, browser]);
   return <div className="clientWindow glassWorkbench" ref={setRoot}
     style={sidebarSessionWidth === null ? undefined : { "--sidebar-width": `${sidebarSessionWidth}px` } as CSSProperties}>
     <header className="clientTitlebar workbench glassWorkbench" ref={setHost} aria-label="Spark X" />
-    <div className="clientContent"><TitlebarHost.Provider value={value}>{children}</TitlebarHost.Provider></div>
+    <div className="clientContent"><div className="clientRail" ref={setRail} /><TitlebarHost.Provider value={value}>{children}</TitlebarHost.Provider></div>
   </div>;
 }
 
@@ -73,6 +75,25 @@ export function WorkspaceTitlebar({ language, title = "", tab, sidebar, back, ac
     </div>
     <div className="clientTitlebarTrailing"><div className="clientTitlebarBrowser" ref={titlebar.setBrowser} /></div>
   </>, titlebar.host);
+}
+
+export type ClientModule<T extends string> = { id: T; label: string; icon: ActionIconName };
+
+// As in Codex, the app's main destinations sit in a narrow rail on the window
+// frame, left of the sheet; each destination brings its own sidebar.
+export function ClientModuleRail<T extends string>({ label, modules, current, onSelect }: {
+  label: string;
+  modules: ClientModule<T>[];
+  current?: T;
+  onSelect: (id: T) => void;
+}) {
+  const rail = useContext(TitlebarHost)?.rail;
+  if (!rail) return null;
+  return createPortal(<nav className="clientModuleRail" aria-label={label}>
+    {modules.map((module) => <button key={module.id} type="button" className="clientModuleRailItem"
+      aria-label={module.label} title={module.label} aria-current={module.id === current ? "page" : undefined}
+      onClick={() => onSelect(module.id)}><ActionIcon name={module.icon} active={module.id === current} /></button>)}
+  </nav>, rail);
 }
 
 // While the browser covers the conversation, the conversation keeps a tab just
@@ -118,7 +139,9 @@ export function ClientSidebarResizeHandle({ label, onHide }: { label: string; on
   const root = titlebar?.root;
   if (!root) return null;
   const sidebar = () => root.querySelector<HTMLElement>(".clientContent .sidebar");
-  const maxWidth = () => Math.max(SIDEBAR_MIN_WIDTH, root.getBoundingClientRect().width - SIDEBAR_CONVERSATION_RESERVE);
+  // The module rail, when shown, takes its width from the window first.
+  const railWidth = () => titlebar?.rail?.getBoundingClientRect().width ?? 0;
+  const maxWidth = () => Math.max(SIDEBAR_MIN_WIDTH, root.getBoundingClientRect().width - railWidth() - SIDEBAR_CONVERSATION_RESERVE);
   const currentWidth = () => sidebar()?.getBoundingClientRect().width ?? SIDEBAR_DEFAULT_WIDTH;
   const apply = (width: number) => root.style.setProperty("--sidebar-width", `${Math.round(width)}px`);
   const commit = (width: number) => {

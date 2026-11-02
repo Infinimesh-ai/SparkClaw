@@ -685,3 +685,49 @@ html:root .clientWindow .workbench .desktopWorkbench[data-browser-snap="fill"] >
   box-shadow: 0 0 0 1px var(--ui-divider), 0 1px 2px rgb(0 0 0 / 5%);
 }
 .clientWindow .clientTitlebarMain > .clientConversationTab + .clientTitlebarActions.topbarActions { margin-left: 0; }
+
+/* The module rail: as in Codex, the app's main destinations sit on the window
+   frame left of the sheet, and the title bar's leading part spans the rail and
+   the sidebar. The selected destination is a chip of the sheet's colour. */
+.clientWindow { --client-rail-width: 52px; }
+.clientWindow .clientContent { display: flex; }
+.clientWindow .clientContent > .shell.workbench { flex: 1 1 auto; min-width: 0; }
+.clientWindow .clientRail { flex: 0 0 var(--client-rail-width); width: var(--client-rail-width); min-height: 0; }
+.clientWindow .clientRail:empty { display: none; }
+.clientWindow:has(.clientRail:not(:empty)) {
+  --client-leading-width: calc(var(--client-rail-width) + var(--sidebar-width) + 1px);
+}
+.clientWindow:has(.clientRail:not(:empty)) .clientContent { padding-left: 0; }
+.clientWindow .clientModuleRail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 2px 0 8px;
+}
+.clientWindow .clientModuleRailItem {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  color: var(--ui-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.clientWindow .clientModuleRailItem:hover:not([aria-current="page"]) { color: var(--ui-ink); background: var(--client-row-hover); }
+.clientWindow .clientModuleRailItem[aria-current="page"] {
+  color: var(--ui-ink);
+  background: var(--client-sheet);
+  box-shadow: 0 0 0 1px var(--ui-divider), 0 1px 2px rgb(0 0 0 / 5%);
+}
+.clientWindow .clientModuleRailItem:focus-visible { outline: 2px solid var(--ui-blue); outline-offset: 2px; }
+@media (max-width: 840px) {
+  html:root .clientWindow:has(.clientRail:not(:empty)) .clientContent > .shell.workbench.sidebarCollapsed .sidebar { left: var(--client-rail-width); }
+  .clientWindow:has(.clientRail:not(:empty)) .shell.workbench.sidebarCollapsed > .clientSidebarResizeHandle { left: calc(var(--client-rail-width) + var(--sidebar-width) - 3px); }
+  .clientWindow[data-sidebar-snap="hide"]:has(.clientRail:not(:empty)) .shell.workbench.sidebarCollapsed > .clientSidebarResizeHandle { left: var(--client-rail-width); }
+}

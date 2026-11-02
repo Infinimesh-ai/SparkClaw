@@ -1,0 +1,113 @@
+/* Medicine box module: sidebar categories, the medicine list and the add dialog. */
+.medicineSidebar .medicineSidebarTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  margin: 0;
+  color: var(--ui-ink, var(--text-primary));
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 22px;
+}
+.medicineSidebar .medicineSidebarTitle .actionIcon { flex: none; color: var(--cyber-blue); }
+.medicinePage .medicineEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 280px;
+  margin-top: 24px;
+  padding: 32px 24px;
+  border: 1px dashed var(--ui-divider);
+  border-radius: 12px;
+  color: var(--ui-muted);
+  text-align: center;
+}
+.medicinePage .medicineEmpty h2 { margin: 0; color: var(--ui-ink, var(--text-primary)); font-size: 15px; font-weight: 600; line-height: 22px; }
+.medicinePage .medicineEmpty p { margin: 0; font-size: 13px; line-height: 20px; }
+
+.medicineSidebar .medicineCategoryList { gap: 2px; }
+.medicineSidebar .medicineCategory {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--ui-ink, var(--text-primary));
+  background: transparent;
+  font-size: var(--client-sidebar-size, 13px);
+  line-height: 18px;
+  text-align: left;
+}
+.medicineSidebar .medicineCategory:hover { background: var(--client-row-hover, rgba(0, 0, 0, 0.05)); }
+.medicineSidebar .medicineCategory.active { background: var(--client-row-active, rgba(0, 0, 0, 0.08)); font-weight: 600; }
+.medicineSidebar .medicineCategory small { color: var(--ui-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.medicineSidebar .medicineCategory.isEmpty:not(.active) { color: var(--ui-muted); }
+
+.medicinePage .medicineList { display: flex; flex-direction: column; gap: 0; margin: 20px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--ui-divider); }
+.medicinePage .medicineRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(120px, auto) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--ui-divider);
+}
+.medicinePage .medicineRowName { display: grid; gap: 2px; min-width: 0; }
+.medicinePage .medicineRowName strong { overflow: hidden; color: var(--ui-ink, var(--text-primary)); font-size: 14px; font-weight: 600; line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }
+.medicinePage .medicineRowName span { overflow: hidden; color: var(--ui-muted); font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.medicinePage .medicineRowQuantity { display: flex; align-items: baseline; gap: 4px; color: var(--ui-muted); font-size: 12px; white-space: nowrap; }
+.medicinePage .medicineRowQuantity b { color: var(--ui-ink, var(--text-primary)); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.medicinePage .medicineRowMeta { display: grid; justify-items: end; gap: 2px; min-width: 0; font-size: 12px; line-height: 18px; }
+.medicinePage .medicineRowMeta small { max-width: 200px; overflow: hidden; color: var(--ui-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.medicinePage .medicineExpiry { color: var(--ui-muted); white-space: nowrap; }
+.medicinePage .medicineExpiry.soon { color: #b26a00; }
+.medicinePage .medicineExpiry.expired { color: #c62828; font-weight: 600; }
+.medicinePage .medicineRowActions { display: flex; gap: 4px; opacity: 0; transition: opacity 160ms ease; }
+.medicinePage .medicineRow:is(:hover, :focus-within) .medicineRowActions { opacity: 1; }
+
+.medicineDialog .medicinePhotoDrop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 20px 16px;
+  border: 1px dashed var(--ui-divider);
+  border-radius: 12px;
+  color: var(--ui-muted);
+  text-align: center;
+}
+.medicineDialog .medicinePhotoDrop > div { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.medicineDialog .medicinePhotoDrop.hasPhoto { justify-content: flex-start; padding: 12px; text-align: left; }
+.medicineDialog .medicinePhotoDrop.hasPhoto > div { align-items: flex-start; }
+.medicineDialog .medicinePhotoDrop img { flex: none; width: 120px; height: 90px; border-radius: 8px; background: var(--ui-surface, #f4f4f5); object-fit: contain; }
+.medicineDialog .medicinePhotoDrop small { font-size: 12px; }
+.medicineDialog .medicinePhotoButton { display: inline-flex; align-items: center; gap: 6px; }
+.medicineDialog .medicineStatus { margin: 0; color: var(--ui-muted); font-size: 13px; line-height: 20px; }
+.medicineDialog .medicineStatus.recognized { color: var(--ui-ink, var(--text-primary)); }
+.medicineDialog .medicineStatus.problem { color: #b26a00; }
+.medicineDialog .medicineDialogGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.medicineDialog .medicineFieldWide { grid-column: 1 / -1; }
+.medicineDialog select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: 0 10px;
+  border: 1px solid var(--ui-divider);
+  border-radius: var(--radius-control, 8px);
+  color: var(--ui-ink, var(--text-primary));
+  background: var(--ui-surface, transparent);
+  font: inherit;
+}
+.medicineDialog .medicineQuantityInput { display: grid; grid-template-columns: minmax(0, 1fr) 84px; gap: 8px; }
+@media (max-width: 600px) {
+  .medicineDialog .medicineDialogGrid { grid-template-columns: minmax(0, 1fr); }
+  .medicinePage .medicineRow { grid-template-columns: minmax(0, 1fr) auto; }
+  .medicinePage .medicineRowMeta { grid-column: 1 / -1; justify-items: start; }
+}

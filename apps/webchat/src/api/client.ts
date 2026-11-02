@@ -551,6 +551,7 @@ export const api = {
   emailDraft: (id: string) => request<EmailDraft>(`/api/email/drafts/${encodeURIComponent(id)}`),
   saveEmailDraft: (body: EmailDraftInput) => request<EmailDraft>(body.id ? `/api/email/drafts/${encodeURIComponent(body.id)}` : "/api/email/drafts", { method: body.id ? "PUT" : "POST", body: JSON.stringify(body) }),
   polishEmailReply: (body: EmailReplyPolishInput) => request<EmailDraft>("/api/email/replies/polish", { method: "POST", body: JSON.stringify(body) }),
+  recognizeMedicine: (body: { image: string; content_type: "image/jpeg" }, signal?: AbortSignal) => request<import("../desktop/medicineBox").MedicineRecognition>("/api/medicine/recognize", { method: "POST", body: JSON.stringify(body), signal }),
   emailSentSources: (filters: EmailFilters, signal?: AbortSignal) => request<EmailMessagePage>(`/api/email/sent-sources${emailQuery(filters)}`, { signal }),
   reconcileEmailDraft: (id: string, sentMailId?: string) => request<EmailDraft>(`/api/email/drafts/${encodeURIComponent(id)}/reconcile`, { method: "POST", body: JSON.stringify(sentMailId ? { sent_mail_id: sentMailId } : {}) }),
   // Explicit user conclusion for an unknown send; the server never resends.

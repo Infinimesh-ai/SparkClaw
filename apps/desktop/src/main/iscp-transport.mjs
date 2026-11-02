@@ -26,6 +26,8 @@ function requestTimeout(operation, timeoutMS) {
   // The Weixin provider can hold a QR request for up to 35 seconds.
   // Keep one bounded operation deadline across admission, send and recovery.
   if (timeoutMS === 30000 && ["settings.bindings.start", "settings.bindings.poll"].includes(operation)) return 60000;
+  // Medicine recognition is one vision model call on a reduced photo.
+  if (timeoutMS === 30000 && operation === "medicine.recognize") return 120000;
   return ["mail.drafts.save", "mail.drafts.send", "mail.drafts.reconcile", "mail.drafts.resolve", "mail.providers.check", "mail.providers.login", "mail.intake.update", "mail.replies.polish", "mail.source.cleanup", "mail.conversations.delete"].includes(operation) && timeoutMS === 30000 ? 180000 : timeoutMS;
 }
 // A reconciliation keeps one durable intent per uncertain browser write.

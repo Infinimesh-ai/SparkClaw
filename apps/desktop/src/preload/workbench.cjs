@@ -106,6 +106,14 @@ if (process.argv.includes("--sparkclaw-client-store=1")) {
     sync: (mailbox_id) => mailInvoke("sync", { mailbox_id }),
     saveAttachment: (mailbox_id, mail_id, part_id, conversation_id) => mailInvoke("saveAttachment", { mailbox_id, mail_id, part_id, conversation_id }),
   }));
+  const medicineInvoke = (operation, fields = {}) => ipcRenderer.invoke("sparkclaw-medicine-box:invoke", {
+    schema_version: 1, operation, ...fields,
+  });
+  contextBridge.exposeInMainWorld("sparkclawMedicineBox", Object.freeze({
+    list: () => medicineInvoke("list"),
+    save: (medicine) => medicineInvoke("save", { medicine }),
+    remove: (medicine_id) => medicineInvoke("remove", { medicine_id }),
+  }));
 }
 
 contextBridge.exposeInMainWorld("sparkclawDesktop", Object.freeze({

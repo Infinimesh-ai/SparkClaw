@@ -29,7 +29,9 @@ export type ActionIconName =
   | "message-check"
   | "info"
   | "inbox"
-  | "archive";
+  | "archive"
+  | "home"
+  | "medicine";
 
 type IconPair = { outline: ReactNode; solid: ReactNode };
 
@@ -91,6 +93,14 @@ const icons: Record<ActionIconName, IconPair> = {
   inbox: {
     outline: <><path d="m3 13 3-9h12l3 9v5a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-5Zm0 0h5l1.5 3h5l1.5-3h5" /></>,
     solid: <path fillRule="evenodd" d="M6.2 3.2a1 1 0 0 0-.9.7l-3 9-.1.3V18A3.8 3.8 0 0 0 6 21.8h12a3.8 3.8 0 0 0 3.8-3.8v-4.8l-.1-.3-3-9a1 1 0 0 0-.9-.7H6.2ZM7 5l-2.4 7.2H8a1 1 0 0 1 .9.5l1.1 2.5h4l1.1-2.5a1 1 0 0 1 .9-.5h3.4L17 5H7Z" />
+  },
+  home: {
+    outline: <path d="M4 10.4 12 4l8 6.4V19a2 2 0 0 1-2 2h-3.5v-5.5h-5V21H6a2 2 0 0 1-2-2v-8.6Z" />,
+    solid: <path d="M11.4 2.9a1 1 0 0 1 1.2 0l8 6.4c.3.2.4.5.4.8V19a2.8 2.8 0 0 1-2.8 2.8h-3.5a.8.8 0 0 1-.8-.8v-4.7h-3.8V21a.8.8 0 0 1-.8.8H6A2.8 2.8 0 0 1 3.2 19v-8.9c0-.3.1-.6.4-.8l7.8-6.4Z" />
+  },
+  medicine: {
+    outline: <><rect x="3" y="7" width="18" height="13" rx="2.5" /><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7m-3 3.5v6m-3-3h6" /></>,
+    solid: <><path d="M10.5 3.2a2.3 2.3 0 0 0-2.3 2.3v.7h1.6v-.7c0-.4.3-.7.7-.7h3c.4 0 .7.3.7.7v.7h1.6v-.7a2.3 2.3 0 0 0-2.3-2.3h-3Z" /><path fillRule="evenodd" d="M5.5 6.2a3.3 3.3 0 0 0-3.3 3.3v8a3.3 3.3 0 0 0 3.3 3.3h13a3.3 3.3 0 0 0 3.3-3.3v-8a3.3 3.3 0 0 0-3.3-3.3h-13Zm6.5 3.5a.8.8 0 0 1 .8.8v2.2H15a.8.8 0 0 1 0 1.6h-2.2v2.2a.8.8 0 0 1-1.6 0v-2.2H9a.8.8 0 0 1 0-1.6h2.2v-2.2a.8.8 0 0 1 .8-.8Z" /></>
   },
   archive: {
     outline: <><rect x="3" y="4" width="18" height="5" rx="1.5" /><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9m-9 4h4" /></>,

@@ -542,6 +542,45 @@ describe("workbench local workbench", () => {
     }
   });
 
+  it("switches between Home and the medicine box from the module rail and keeps the open conversation", async () => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
+    const first = { id: "first", title: "Keep me open", created_at: "", updated_at: "" };
+    window.sparkclawClientStore = { schemaVersion: 1, ...draftAPI(), remove: vi.fn(), list: vi.fn(async () => [first]), create: vi.fn(),
+      read: vi.fn(async (id: string) => ({ messages: [{ id, role: "assistant" as const, content: `${id} history`, created_at: "2026-10-10T00:00:00Z" }], tasks: [], files: [] })),
+      enqueue: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(), submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
+      scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "service_unavailable", client_id: "client" })) } as unknown as SparkClawDesktop;
+    const host = document.createElement("div"), root = createRoot(host);
+    const rail = (label: string) => host.querySelector<HTMLButtonElement>(`.clientModuleRail [aria-label="${label}"]`)!;
+    try {
+      await act(async () => root.render(<ClientWindow><LocalWorkbench /></ClientWindow>));
+      await act(async () => host.querySelector<HTMLButtonElement>(`.sessionSelect[title="${first.title}"]`)!.click());
+      expect(rail("Home").getAttribute("aria-current")).toBe("page");
+
+      await act(async () => rail("Medicine box").click());
+      expect(rail("Medicine box").getAttribute("aria-current")).toBe("page");
+      expect(host.querySelector(".medicineSidebar")).not.toBeNull();
+      expect(host.querySelector(".sessionList .sessionItem")).toBeNull();
+      expect(host.querySelector(".medicinePage h1")?.textContent).toBe("Medicine box");
+      expect(host.querySelector<HTMLElement>(".localChat")!.hidden).toBe(true);
+      expect(host.querySelector(".clientTitlebarTitle")?.textContent).toBe("Medicine box");
+      // Without the desktop medicine bridge the add entries stay in place but disabled.
+      expect([...host.querySelectorAll<HTMLButtonElement>(".medicineSidebar .sidebarNewConversation, .medicinePage .workbenchPageHeader button")].map(button => button.disabled)).toEqual([true, true]);
+      expect(host.querySelector(".medicineCategory.active")?.textContent).toBe("All medicines0");
+
+      // Back returns to Home with the same conversation still open.
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Back"]')!.click());
+      expect(rail("Home").getAttribute("aria-current")).toBe("page");
+      expect(host.querySelector(".medicinePage")).toBeNull();
+      expect(host.querySelector<HTMLElement>(".localChat")!.hidden).toBe(false);
+      expect(host.querySelector(".localHistory")!.textContent).toContain("first history");
+      expect(host.querySelector(".sessionItem.active")?.textContent).toContain(first.title);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   it("deletes every archived conversation from settings after one confirmation and keeps blocked ones", async () => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
     window.localStorage.setItem("sparkx.archived-conversations.v1.local", JSON.stringify(["second", "third"]));

@@ -21,6 +21,7 @@ const SURFACES = Object.freeze({
   speech_recording: ['speech.status', 'speech.transcribe', 'speech.cancel'],
   speech_realtime: ['speech.session.open', 'speech.session.frame', 'speech.session.events', 'speech.session.finish', 'speech.session.cancel'],
   speech_playback: ['audio.playback'],
+  medicine: ['medicine.recognize'],
 });
 const DEPENDENCIES = { mail_read: ['events'], mail_attachments: ['mail_read', 'files'], mail_send: ['mail_read', 'files', 'approvals'], mail_send_attachments: ['mail_send'], browser: ['files', 'approvals', 'events'], speech_recording: ['files'], speech_realtime: ['speech_recording', 'events'], speech_playback: ['speech_realtime'] };
 

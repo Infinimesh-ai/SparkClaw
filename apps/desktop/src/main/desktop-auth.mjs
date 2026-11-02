@@ -386,7 +386,8 @@ export class DesktopAuth {
     const startupRead = this.descriptor.transport === "iscp" && method === "GET" && ISCP_STARTUP_READS.has(url.pathname) && !url.search && !url.hash && init.body == null;
     const transport = this.transport;
     const mailPopup = !url.search && (method === 'POST' && ['/api/email/replies/polish','/api/email/source/cleanup'].includes(url.pathname) || method === 'DELETE' && /^\/api\/email\/conversations\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u.test(url.pathname) || method === 'PATCH' && /^\/api\/email\/providers\/(outlook|qq_mail|gmail)$/u.test(url.pathname));
-    const requestTimeout = mailMutation || mailReconcile || mailLogin || mailPopup ? 180000 : 30000;
+    const medicineRecognition = method === 'POST' && url.pathname === '/api/medicine/recognize' && !url.search;
+    const requestTimeout = mailMutation || mailReconcile || mailLogin || mailPopup ? 180000 : medicineRecognition ? 120000 : 30000;
     const controller = new AbortController();
     this.requests.add(controller);
     const headers = new Headers(init.headers);

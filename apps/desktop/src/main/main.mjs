@@ -39,6 +39,8 @@ import { ScheduleClient } from "./schedule-client.mjs";
 import { MailSyncStore } from "./mail-sync-store.mjs";
 import { MailSyncClient } from "./mail-sync-client.mjs";
 import { MailSyncCapability } from "./mail-sync-capability.mjs";
+import { MedicineStore } from "./medicine-store.mjs";
+import { MedicineBoxCapability } from "./medicine-capability.mjs";
 import { ClientStoreCapability } from "./client-store-capability.mjs";
 import { LocalFilesService } from "./local-files-service.mjs";
 import { LocalFilesCapability } from "./local-files-capability.mjs";
@@ -105,6 +107,8 @@ let executionClient;
 let mailStore;
 let mailClient;
 let mailCapability;
+let medicineStore;
+let medicineCapability;
 let browserHost;
 let scheduleClient;
 let browserHostPreparation = Promise.resolve();
@@ -305,6 +309,8 @@ async function start() {
     else mailClient.close();
     mailCapability = new MailSyncCapability({ ipcMain, window, client: mailClient, getCapabilities: () => desktopAuth.status.capabilities }).start();
     }
+    medicineStore = new MedicineStore(path.join(app.getPath("userData"), "workbench", "medicine"));
+    medicineCapability = new MedicineBoxCapability({ ipcMain, window, store: medicineStore, getIdentity: localIdentity }).start();
     localStoreCapability = new ClientStoreCapability({
       ipcMain, window, store: localStore, execution: executionClient, schedules: scheduleClient,
       getIdentity: localIdentity,
@@ -534,6 +540,8 @@ async function shutdown() {
   mailClient?.close();
   mailCapability?.close();
   mailStore?.close();
+  medicineCapability?.close();
+  medicineStore?.close();
   await browserHost?.stop();
   localStoreCapability?.close();
   await localFilesCapability?.close();

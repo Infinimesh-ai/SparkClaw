@@ -9,7 +9,8 @@ import { useLocalSchedules } from "./useLocalSchedules";
 import { useSchedulePresentation } from "./useSchedulePresentation";
 import type { ScheduleViewFilter } from "./clientStore";
 import { SessionSidebar } from "../components/sidebar";
-import { ClientConversationTab, ClientSidebarResizeHandle, useClientTitlebar, WorkspaceTitlebar } from "../components/clientWindow";
+import { ClientConversationTab, ClientModuleRail, ClientSidebarResizeHandle, useClientTitlebar, WorkspaceTitlebar } from "../components/clientWindow";
+import { MedicineSidebar, MedicineWorkspace, medicineBoxCopy, useMedicineBox } from "../components/medicineBox";
 import { usePageHistory } from "../hooks/usePageHistory";
 import { useArchivedConversations } from "../hooks/useArchivedConversations";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy } from "../components/workbench";
@@ -92,6 +93,10 @@ export function LocalWorkbench() {
   const [notice, setNotice] = useState("");
   const [settings, setSettings] = useState(false);
   const [page, setPage] = useState<"chat" | "schedules">("chat");
+  // The module rail switches between Home (conversations) and other modules,
+  // each with its own sidebar and workspace.
+  const [module, setModule] = useState<"home" | "medicine">("home");
+  const homeModule = module === "home";
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleViewFilter>();
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -119,6 +124,7 @@ export function LocalWorkbench() {
     settingsOwner: surfaceEnabled(connection, "settings_owner"), settingsConnectors: surfaceEnabled(connection, "settings_connectors"),
     settingsBindings: surfaceEnabled(connection, "settings_bindings"),
   };
+  const medicineBox = useMedicineBox(module === "medicine", connection?.state === "connected" && surfaceEnabled(connection, "medicine"));
   const browserLayout = useBrowserLayout(rightSurface !== null, inspectorResize.width, (capabilities.browser || Boolean(localFiles)) && !settings && (page === "chat" || filesOpen), true);
   const messageScroll = useMessageScroll(selected, !settings && page === "chat");
   const browserCovering = browserLayout.covering;
@@ -495,15 +501,15 @@ export function LocalWorkbench() {
     finally { setTraceLoading(false); }
   }
 
-  const localSchedules = useLocalSchedules(store, localScopeKey, page === "schedules" && !settings, surfaceError, scheduleFilter);
+  const localSchedules = useLocalSchedules(store, localScopeKey, page === "schedules" && !settings && homeModule, surfaceError, scheduleFilter);
   const schedulePresentation = useSchedulePresentation({ store, scope: localScopeKey, conversation: selected,
     expectedScope: draftScopes.get(selected) ?? "", actions: content.client_actions,
-    visible: page === "schedules" && !settings, active: page === "chat" && !settings,
+    visible: page === "schedules" && !settings && homeModule, active: page === "chat" && !settings && homeModule,
     present: (action, rows) => {
       setScheduleFilter({ date_start: action.date_start, date_end: action.date_end, timezone: action.timezone });
       localSchedules.present(rows); setScheduleBarOpen(true); setSettings(false); setPage("schedules");
     }, onError: surfaceError });
-  const openAllSchedules = () => { schedulePresentation.dismiss(); setScheduleFilter(undefined); setSettings(false); setPage("schedules"); };
+  const openAllSchedules = () => { schedulePresentation.dismiss(); setScheduleFilter(undefined); setSettings(false); setModule("home"); setPage("schedules"); };
   useEffect(() => { setEditingSession(""); setSessionTitleDraft(""); setScheduleCreateOpen(false); setScheduleFilter(undefined); }, [localScopeKey]);
   useEffect(() => { if (page !== "schedules" || settings) setScheduleCreateOpen(false); }, [page, settings]);
   useEffect(() => { if (!capabilities.browser) { setBrowserOpen(false); setRightSurface(current => current === "browser" ? null : current); } }, [capabilities.browser]);
@@ -541,7 +547,7 @@ export function LocalWorkbench() {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || layered) return;
       const key = event.key.toLowerCase();
       if (key === "k") { event.preventDefault(); setSearchOpen(true); }
-      if (key === "n" && !busy && !voice.active) { event.preventDefault(); setSettings(false); void startConversation(); }
+      if (key === "n" && !busy && !voice.active) { event.preventDefault(); setSettings(false); setModule("home"); void startConversation(); }
       if (key === ",") { event.preventDefault(); setTab("settings"); setSettings(true); }
       if (key === "b" && !(event.target instanceof Element && event.target.closest('input, textarea, [contenteditable="true"]'))) {
         event.preventDefault(); toggleSidebar();
@@ -556,24 +562,28 @@ export function LocalWorkbench() {
   const unarchivedConversations = conversations.filter((conversation) => !archived.includes(conversation.id));
   const selectedArchived = Boolean(selected) && archived.includes(selected);
   useEffect(() => { if (selectedArchived && !busy) void startConversation(); }, [selectedArchived, busy]);
-  const pageHistory = usePageHistory({ page, settings, sessionID: selected, settingsTab: settings ? tab : "settings" }, {
+  const pageHistory = usePageHistory({ module, page, settings, sessionID: selected, settingsTab: settings ? tab : "settings" }, {
     scope: localScopeKey,
     disabled: busy || voice.active,
     valid: (entry) => !entry.sessionID || unarchivedConversations.some((conversation) => conversation.id === entry.sessionID),
     restore: async (entry) => {
       try {
         if (entry.sessionID) await select(entry.sessionID); else await startConversation();
-        setPage(entry.page); setSettings(entry.settings);
+        setModule(entry.module); setPage(entry.page); setSettings(entry.settings);
         if (entry.settings) setTab(entry.settingsTab);
         setSearchOpen(false); setScheduleCreateOpen(false);
       } catch (error) { surfaceError(error); throw error; }
     },
   }, useClientTitlebar());
 
-  const homePresentation = home && !settings;
+  const homePresentation = home && !settings && homeModule;
+  const medicineCopy = medicineBoxCopy[language];
   return <div className={`shell workbench glassWorkbench localWorkbench ${homePresentation ? "homePresentation" : ""} ${settings ? "settingsPageMode" : sidebarCollapsed ? "sidebarCollapsed" : ""}`}>
+    <ClientModuleRail label={zh ? "模块" : "Modules"} current={settings ? undefined : module}
+      modules={[{ id: "home", label: zh ? "首页" : "Home", icon: "home" }, { id: "medicine", label: medicineCopy.title, icon: "medicine" }]}
+      onSelect={(next) => { setSettings(false); setSearchOpen(false); setModule(next); }} />
     {settings ? <WorkspaceSettingsSidebar text={text} language={language} tab={tab}
-      pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length} onTabChange={setTab} onBack={() => setSettings(false)} /> : <SessionSidebar
+      pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length} onTabChange={setTab} onBack={() => setSettings(false)} /> : !homeModule ? <MedicineSidebar language={language} box={medicineBox} /> : <SessionSidebar
       text={text} language={language} page={page} ownerProfile={ownerProfile} schedulePlacement="top"
       sessions={conversations} activeSession={selected} busy={busy}
       activityBySession={{ ...activityByConversation, ...(selected ? { [selected]: unseenActivity(selectedActivity, page === "chat") } : {}) }}
@@ -589,13 +599,13 @@ export function LocalWorkbench() {
       listNotice={loading ? <p className="localListNotice" role="status">{zh ? "正在读取对话…" : "Loading conversations…"}</p> : !conversations.length ? <p className="localListNotice">{copy.empty}</p> : undefined}
     />}
     {!settings && <ClientSidebarResizeHandle label={zh ? "调整侧边栏宽度" : "Resize sidebar"} onHide={toggleSidebar} />}
-    <main ref={browserLayout.workspaceRef} className={`${settings ? "settingsPageMain" : "workspace desktopWorkbench"} ${homePresentation ? "homeWorkspace" : ""} ${(filesOpen || capabilities.browser && rightSurface === "browser" && page === "chat") && !settings ? "withInspector" : ""} ${inspectorResize.resizing ? "resizingInspector" : ""} ${browserLayout.className}`} style={settings ? undefined : inspectorResize.style} aria-busy={busy}>
+    <main ref={browserLayout.workspaceRef} className={`${settings ? "settingsPageMain" : "workspace desktopWorkbench"} ${homePresentation ? "homeWorkspace" : ""} ${(filesOpen || capabilities.browser && rightSurface === "browser" && page === "chat") && !settings && homeModule ? "withInspector" : ""} ${inspectorResize.resizing ? "resizingInspector" : ""} ${homeModule ? browserLayout.className : ""}`} style={settings ? undefined : inspectorResize.style} aria-busy={busy}>
       <WorkspaceTitlebar language={language} hidden={settings} navigation={pageHistory}
-        title={!settings && page === "chat" && !browserCovering ? conversations.find((conversation) => conversation.id === selected)?.title : undefined}
-        tab={browserCovering && <ClientConversationTab title={page === "schedules" ? (zh ? "日程" : "Schedules") : conversations.find((conversation) => conversation.id === selected)?.title || (zh ? "新对话" : "New conversation")}
+        title={!settings && !homeModule ? medicineCopy.title : !settings && page === "chat" && !browserCovering ? conversations.find((conversation) => conversation.id === selected)?.title : undefined}
+        tab={browserCovering && homeModule && <ClientConversationTab title={page === "schedules" ? (zh ? "日程" : "Schedules") : conversations.find((conversation) => conversation.id === selected)?.title || (zh ? "新对话" : "New conversation")}
           selected={browserLayout.region === "conversation"} onSelect={browserLayout.showConversation} />}
         sidebar={!settings && <button className="iconButton sidebarToggle" type="button" aria-label={copy.toggleNav} onClick={toggleSidebar}><ActionIcon name="panel-left" /></button>}
-        back={(settings || page !== "chat") && <button className="iconButton workspaceBackButton" type="button" disabled={busy}
+        back={(settings || page !== "chat" && homeModule) && <button className="iconButton workspaceBackButton" type="button" disabled={busy}
           onClick={settings ? () => setSettings(false) : () => { setPage("chat"); setTab("timeline"); }}
           title={settings ? copy.backToApp : copy.backToHome} aria-label={settings ? copy.backToApp : copy.backToHome}><ArrowLeft size={18} strokeWidth={1.75} /></button>}
         actions={<>
@@ -603,8 +613,8 @@ export function LocalWorkbench() {
             open={passiveNotifications.open} toast={passiveNotifications.toast} error={passiveNotifications.error}
             language={language} text={text} onToggle={() => passiveNotifications.setOpen((current) => !current)}
             onDismissToast={passiveNotifications.dismissToast} onRead={passiveNotifications.markRead} onReadAll={passiveNotifications.markAllRead} />
-          {!settings && typeof desktop.state === "function" && <button disabled={!capabilities.browser || connection?.state !== "connected"} className={`iconButton rightSidebarToggle ${rightSurface === "browser" ? "active" : ""}`} type="button" ref={browserLayout.triggerRef} aria-label={rightSurface === "browser" && browserLayout.visible ? (zh ? "收起浏览器" : "Collapse browser") : (zh ? "打开浏览器" : "Open browser")} title={!capabilities.browser || connection?.state !== "connected" ? (zh ? "浏览器暂时不可用" : "Browser unavailable") : rightSurface === "browser" && browserLayout.visible ? (zh ? "收起浏览器" : "Collapse browser") : (zh ? "打开浏览器" : "Open browser")} aria-expanded={rightSurface === "browser" && browserLayout.visible} onClick={toggleBrowser}><ActionIcon name="globe" active={rightSurface === "browser" && browserLayout.visible} /></button>}
-          {!settings && localFiles && <button type="button" className={`iconButton rightSidebarToggle ${filesOpen ? "active" : ""}`} ref={filesTrigger}
+          {!settings && homeModule && typeof desktop.state === "function" && <button disabled={!capabilities.browser || connection?.state !== "connected"} className={`iconButton rightSidebarToggle ${rightSurface === "browser" ? "active" : ""}`} type="button" ref={browserLayout.triggerRef} aria-label={rightSurface === "browser" && browserLayout.visible ? (zh ? "收起浏览器" : "Collapse browser") : (zh ? "打开浏览器" : "Open browser")} title={!capabilities.browser || connection?.state !== "connected" ? (zh ? "浏览器暂时不可用" : "Browser unavailable") : rightSurface === "browser" && browserLayout.visible ? (zh ? "收起浏览器" : "Collapse browser") : (zh ? "打开浏览器" : "Open browser")} aria-expanded={rightSurface === "browser" && browserLayout.visible} onClick={toggleBrowser}><ActionIcon name="globe" active={rightSurface === "browser" && browserLayout.visible} /></button>}
+          {!settings && homeModule && localFiles && <button type="button" className={`iconButton rightSidebarToggle ${filesOpen ? "active" : ""}`} ref={filesTrigger}
             title="Files" aria-label="Files" aria-expanded={filesOpen && browserLayout.visible} onClick={toggleFiles}><ActionIcon name="folder" active={filesOpen && browserLayout.visible} /></button>}
         </>} />
       {error && <div className="localFeedback" role="alert"><p>{error}</p><button type="button" onClick={() => void reload().then(async () => { if (iscp && connection?.state === "connected") await refreshGlobal(); setError(""); }).catch(surfaceError)}>{zh ? "重试读取" : "Retry loading"}</button></div>}
@@ -623,7 +633,8 @@ export function LocalWorkbench() {
         onCurrentClientRevoked={logout} onLogout={logout}
         conversations={conversations} conversationBusy={busy} onDeleteConversation={deleteConversation}
         onDeleteConversations={(ids) => deleteConversations(ids, dictionaries[language].nav.confirmDeleteArchivedLocalSessions.replace("{count}", String(ids.length)))} /></div> : <>
-        <section inert={browserLayout.className === "browserFocus"} className={`chatColumn localChat ${home ? "homeChat" : ""}`} hidden={page !== "chat"}>
+        {!homeModule && <MedicineWorkspace language={language} box={medicineBox} />}
+        <section inert={browserLayout.className === "browserFocus"} className={`chatColumn localChat ${home ? "homeChat" : ""}`} hidden={page !== "chat" || !homeModule}>
         <div ref={messageScroll.listRef} className="messageList localHistory">
           {home && <WorkbenchWelcome language={language} />}
           {capabilities.browser && browserState?.browser_host?.unknown_writes?.filter((command) => command.local_conversation_id === selected).map((command) => <section className="localUnknownWrite" role="alert" key={command.command_id}>
@@ -699,7 +710,7 @@ export function LocalWorkbench() {
             setDocumentPickerOpen(false);
           }} onClose={() => setDocumentPickerOpen(false)} />}
         </section>
-        {page === "schedules" && <div className="workbenchPage schedulePage">
+        {page === "schedules" && homeModule && <div className="workbenchPage schedulePage">
           <div className="workbenchPageHeader"><div><h1>{copy.pageTitles.schedules}</h1><p>{copy.pageDescriptions.schedules}</p></div><button className="primaryButton" onClick={() => { setScheduleRequest(""); setScheduleCreateOpen(true); }} disabled={busy || Boolean(localSchedules.busyID) || voice.active}><Plus size={15} />{copy.newSchedule}</button></div>
           <ScheduleSuggestions text={text} disabled={busy || Boolean(localSchedules.busyID) || voice.active}
             onChoose={(request) => { setScheduleRequest(request); setScheduleCreateOpen(true); }} />
@@ -708,17 +719,17 @@ export function LocalWorkbench() {
             onRefresh={() => void localSchedules.check().catch(() => {})} onEdit={localSchedules.edit} onDelete={localSchedules.cancel} onRunNow={localSchedules.runNow} />
           {scheduleCreateOpen && <ScheduleCreateDialog key={scheduleRequest} initialRequest={scheduleRequest} busy={busy || Boolean(localSchedules.busyID)} text={text} onClose={() => setScheduleCreateOpen(false)} onCreate={localSchedules.create} />}
         </div>}
-        {browserLayout.visible && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} onHide={filesOpen ? closeFiles : closeBrowser}
+        {browserLayout.visible && homeModule && <InspectorResizeHandle resize={inspectorResize} label={copy.resizeInspector} onHide={filesOpen ? closeFiles : closeBrowser}
           reserve={BROWSER_CONVERSATION_RESERVE} defaultWidth={BROWSER_DEFAULT_WIDTH} onResizeStart={() => browserLayout.setWide(false)}
           onExpand={() => browserLayout.setWide(true)} />}
 
       </>}
-        {browserMounted && typeof desktop.state === "function" && <BrowserPanel open={browserOpen} visible={rightSurface === "browser" && capabilities.browser && browserLayout.visible} onCollapse={closeBrowser} wide={browserLayout.wide} onWideChange={browserLayout.setWide} language={language} localConversationID={selected}
+        {browserMounted && typeof desktop.state === "function" && <BrowserPanel open={browserOpen} visible={rightSurface === "browser" && capabilities.browser && browserLayout.visible && homeModule} onCollapse={closeBrowser} wide={browserLayout.wide} onWideChange={browserLayout.setWide} language={language} localConversationID={selected}
           conversationInFront={rightSurface === "browser" && browserCovering ? browserLayout.region === "conversation" : undefined} onShowBrowser={browserLayout.reveal} />}
-        {filesMounted && localFiles && <LocalFilesPanel files={localFiles} open={filesOpen} visible={filesOpen && browserLayout.visible} language={language} wide={browserLayout.wide}
+        {filesMounted && localFiles && <LocalFilesPanel files={localFiles} open={filesOpen} visible={filesOpen && browserLayout.visible && homeModule} language={language} wide={browserLayout.wide}
           onWideChange={browserLayout.setWide} onCollapse={closeFiles} conversationInFront={filesOpen && browserCovering ? browserLayout.region === "conversation" : undefined} onShowFiles={browserLayout.reveal} />}
     </main>
-    {searchOpen && <TaskSearch language={language} sessions={unarchivedConversations} onSelect={(conversation) => { setSearchOpen(false); void select(conversation.id).catch(surfaceError); }} onClose={() => setSearchOpen(false)} />}
+    {searchOpen && <TaskSearch language={language} sessions={unarchivedConversations} onSelect={(conversation) => { setSearchOpen(false); setModule("home"); void select(conversation.id).catch(surfaceError); }} onClose={() => setSearchOpen(false)} />}
   </div>;
 }
 

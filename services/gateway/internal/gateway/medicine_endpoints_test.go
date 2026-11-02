@@ -54,17 +54,17 @@ func TestRecognizeMedicinePhotoSortsTheModelReplyIntoTheBoxCategories(t *testing
 		name, reply string
 		want        medicineRecognition
 	}{
-		{"recognized", `{"schema_version":"medicine_recognition_v2","is_medicine":true,"name":" 布洛芬缓释胶囊 ","category":"fever","unit":"capsule","usage":"退烧、头痛\n牙痛"}`,
+		{"recognized", `{"is_medicine":true,"name":" 布洛芬缓释胶囊 ","category":"fever","unit":"capsule","usage":"退烧、头痛\n牙痛"}`,
 			medicineRecognition{Recognized: true, Name: "布洛芬缓释胶囊", Category: "fever", Unit: "capsule", Usage: "退烧、头痛 牙痛"}},
-		{"unknown category and unit fall back", `{"schema_version":"medicine_recognition_v2","is_medicine":true,"name":"维生素C片","category":"vitamins","unit":"pill","usage":""}`,
+		{"unknown category and unit fall back", `{"is_medicine":true,"name":"维生素C片","category":"vitamins","unit":"pill","usage":""}`,
 			medicineRecognition{Recognized: true, Name: "维生素C片", Category: "other", Unit: "tablet"}},
-		{"not a medicine", `{"schema_version":"medicine_recognition_v2","is_medicine":false,"name":"","category":"other","unit":"tablet","usage":""}`,
+		{"not a medicine", `{"is_medicine":false,"name":"","category":"other","unit":"tablet","usage":""}`,
 			medicineRecognition{Category: "other", Unit: "tablet"}},
-		{"medicine without a name", `{"schema_version":"medicine_recognition_v2","is_medicine":true,"name":"  ","category":"cold","unit":"sachet","usage":""}`,
+		{"medicine without a name", `{"is_medicine":true,"name":"  ","category":"cold","unit":"sachet","usage":""}`,
 			medicineRecognition{Category: "other", Unit: "tablet"}},
 		{"free text", "这是一盒感冒药。", medicineRecognition{Category: "other", Unit: "tablet"}},
 		// The removed fields, or the first release's schema, are not accepted.
-		{"pack size and manufacturer", `{"schema_version":"medicine_recognition_v2","is_medicine":true,"name":"x","category":"cold","unit":"sachet","usage":"","spec":"10袋"}`,
+		{"pack size and manufacturer", `{"is_medicine":true,"name":"x","category":"cold","unit":"sachet","usage":"","spec":"10袋"}`,
 			medicineRecognition{Category: "other", Unit: "tablet"}},
 		{"first release schema", `{"schema_version":"medicine_recognition_v1","is_medicine":true,"name":"x","spec":"","manufacturer":"","category":"cold","unit":"sachet"}`,
 			medicineRecognition{Category: "other", Unit: "tablet"}},
@@ -117,7 +117,7 @@ func TestRecognizeMedicineEndpointUsesTheFastVisionLane(t *testing.T) {
 			t.Error(err)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{"message": map[string]string{
-			"content": `{"schema_version":"medicine_recognition_v2","is_medicine":true,"name":"蒙脱石散","category":"digestive","unit":"sachet","usage":"腹泻"}`,
+			"content": `{"is_medicine":true,"name":"蒙脱石散","category":"digestive","unit":"sachet","usage":"腹泻"}`,
 		}}}})
 	}))
 	defer model.Close()
@@ -157,7 +157,7 @@ func TestRecognizeMedicineEndpointUsesTheFastVisionLane(t *testing.T) {
 func TestParseMedicineTextKeepsOnlyWhatTheTextStates(t *testing.T) {
 	quantity := func(value float64) *float64 { return &value }
 	reply := func(fields string) string {
-		return `{"schema_version":"medicine_text_parse_v1","is_medicine":true,"multiple_medicines":false,"category":"fever","unit":"capsule",` + fields + `}`
+		return `{"is_medicine":true,"multiple_medicines":false,"category":"fever","unit":"capsule",` + fields + `}`
 	}
 	for _, fixture := range []struct {
 		name, reply string
@@ -173,9 +173,9 @@ func TestParseMedicineTextKeepsOnlyWhatTheTextStates(t *testing.T) {
 			medicineTextParse{Recognized: true, Name: "布洛芬", Category: "fever", Unit: "capsule"}},
 		{"fractional quantity", reply(`"name":"布洛芬","quantity":2.5,"expires_on":"","location":"","usage":""`),
 			medicineTextParse{Recognized: true, Name: "布洛芬", Category: "fever", Unit: "capsule", Quantity: quantity(2.5)}},
-		{"several medicines", `{"schema_version":"medicine_text_parse_v1","is_medicine":true,"multiple_medicines":true,"name":"布洛芬","category":"fever","unit":"capsule","quantity":2,"expires_on":"","location":"","usage":""}`,
+		{"several medicines", `{"is_medicine":true,"multiple_medicines":true,"name":"布洛芬","category":"fever","unit":"capsule","quantity":2,"expires_on":"","location":"","usage":""}`,
 			medicineTextParse{multiple: true}},
-		{"not a medicine", `{"schema_version":"medicine_text_parse_v1","is_medicine":false,"multiple_medicines":false,"name":"","category":"other","unit":"tablet","quantity":null,"expires_on":"","location":"","usage":""}`,
+		{"not a medicine", `{"is_medicine":false,"multiple_medicines":false,"name":"","category":"other","unit":"tablet","quantity":null,"expires_on":"","location":"","usage":""}`,
 			medicineTextParse{Category: "other", Unit: "tablet"}},
 		{"free text", "布洛芬", medicineTextParse{Category: "other", Unit: "tablet"}},
 	} {
@@ -213,7 +213,7 @@ func TestParseMedicineEndpointValidatesTheSentence(t *testing.T) {
 			t.Error(err)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{"message": map[string]string{
-			"content": `{"schema_version":"medicine_text_parse_v1","is_medicine":true,"multiple_medicines":false,"name":"蒙脱石散","category":"digestive","unit":"sachet","quantity":6,"expires_on":"2027-06-30","location":"","usage":"腹泻"}`,
+			"content": `{"is_medicine":true,"multiple_medicines":false,"name":"蒙脱石散","category":"digestive","unit":"sachet","quantity":6,"expires_on":"2027-06-30","location":"","usage":"腹泻"}`,
 		}}}})
 	}))
 	defer model.Close()

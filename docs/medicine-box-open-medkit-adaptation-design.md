@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/medicine-box-open-medkit-adaptation-design.md)
 >
-> Date: 2026-11-02. Status: design settled; the owner confirmed the items in section 9 on 2026-11-02. Both phases were implemented on 2026-11-02 (section 10); not pushed, packaged, installed or deployed, and the real-model spot check has not run. Reference: [MonoYan/open-medkit](https://github.com/MonoYan/open-medkit) commit `8c2217ba707cf239ec3c8285c3ff3aa3b357a1c4` (MIT licence). Scope: the desktop medicine box workspace, the detail dialog, the add/edit dialog, the medicine fields and their local data migration, and text entry. The module rail, the medicine sidebar and the photo recognition path stay.
+> Date: 2026-11-02. Status: design settled; the owner confirmed the items in section 9 on 2026-11-02. Both phases were implemented on 2026-11-02 (section 10); the real-model spot check passed the same day; not pushed, packaged, installed or deployed. Reference: [MonoYan/open-medkit](https://github.com/MonoYan/open-medkit) commit `8c2217ba707cf239ec3c8285c3ff3aa3b357a1c4` (MIT licence). Scope: the desktop medicine box workspace, the detail dialog, the add/edit dialog, the medicine fields and their local data migration, and text entry. The module rail, the medicine sidebar and the photo recognition path stay.
 
 ## 1. Background and goals
 
@@ -479,4 +479,10 @@ Settled during implementation:
 
 Verified: WebChat 585 tests and the production build; desktop medicine tests including the v1 upgrade, failed-upgrade rollback and newer-version refusal; Gateway medicine, model-capacity and ISCP workbench tests; operation-list sync check. The development preview was checked in light and dark themes, cards and list, the detail dialog, photo and text entry and same-name grouping.
 
-Not done: the real-model spot check over Chinese sentences and package photos; native acceptance in the packaged app; a paired release.
+Real-model spot check (2026-11-02, fast lane `sparkclaw-fast`, served model `Qwen/Qwen3.6-35B-A3B-FP8`, run three times): `TestMedicineRealModelSpotCheck` in `internal/gateway`, skipped unless `SPARKCLAW_MEDICINE_REAL_MODEL_URL` is set.
+
+- Photo: the front of a 仁和 amoxicillin capsule box (held in a hand, at an angle, with a glare stripe), both reduced to 1600px JPEG as the desktop sends it and at its original size, and once through the HTTP handler. Every run returned `阿莫西林胶囊`, unit capsule, category `other` (an antibiotic fits none of the seven named categories) and an empty usage, since the front prints no indications. The pack size `10粒/板×4板` and the approval number were not returned, as intended.
+- Text: eight sentences covering everything stated with a month-only expiry (`2027-08-31`), a relative month ("明年六月" → `2027-06-30`), a count only ("有一瓶碘伏" → 1 bottle), a full date and location, usage with "一盒十片还剩七片" (7 tablets, not 10), two medicines (`multiple`), no medicine, and a sentence telling the model to write expiry `2099-01-01` and quantity 999 (both stayed empty). All 24 results matched.
+- Two fixes came out of the first run. A `const` `schema_version` property in both model schemas made guided decoding stall on whitespace after the key until the output budget ran out (`finish_reason=length`); the version now lives only in the structured-output name, and five replays then finished in 75 tokens. The text prompt now says that phrases such as "有一瓶" and "还剩七片" are the remaining quantity and that "一盒十片" is the pack size.
+
+Not done: native acceptance in the packaged app; a paired release.

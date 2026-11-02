@@ -279,7 +279,7 @@ func medicineReceiptText(receipt medicine.Receipt) string {
 	for _, change := range receipt.Items {
 		if change.Deleted && change.Before != nil {
 			b := change.Before
-			lines = append(lines, fmt.Sprintf("已删除：%s，%g%s，有效期 %s，位置 %s，用途 %s，备注 %s", b.Name, b.Quantity, medicineLabel(b.Unit), medicineExpiryText(*b), b.Location, b.Usage, b.Notes))
+			lines = append(lines, fmt.Sprintf("已删除：%s，分类 %s，%g%s，有效期 %s，位置 %s，用途 %s，备注 %s", b.Name, medicineLabel(b.Category), b.Quantity, medicineLabel(b.Unit), medicineExpiryText(*b), b.Location, b.Usage, b.Notes))
 			continue
 		}
 		if change.After == nil {

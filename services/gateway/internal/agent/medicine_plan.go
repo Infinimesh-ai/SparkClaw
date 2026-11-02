@@ -168,7 +168,7 @@ func freezeMedicinePlan(plan medicineEditPlan, items []medicine.Item, runID, ori
 			if u.Reason == "missing" && (key == "location" || key == "usage" || key == "notes") && strings.TrimSpace(p.Evidence[key]) == "" {
 				continue
 			}
-			if key == "category" {
+			if key == "category" && plan.Operation == medicine.OperationCreate {
 				continue
 			}
 			if key == "expires_on" || key == "no_expiry" {
@@ -187,7 +187,7 @@ func freezeMedicinePlan(plan medicineEditPlan, items []medicine.Item, runID, ori
 		}
 		// Only a verbatim owner span can ground a value; classification alone may default.
 		for key := range entry.Plan.Changes {
-			if key == "category" {
+			if key == "category" && plan.Operation == medicine.OperationCreate {
 				continue
 			}
 			quote := strings.TrimSpace(p.Evidence[key])

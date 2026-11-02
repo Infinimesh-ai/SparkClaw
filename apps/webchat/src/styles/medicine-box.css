@@ -345,6 +345,13 @@ html[data-resolved-theme="dark"] .medicinePage .medicineSegments button:is(.expi
 .medicineDialog .medicineReviewHint,
 .medicineDialog .medicineSameNameHint { margin: 0; color: var(--ui-muted); font-size: 12px; line-height: 18px; }
 .medicineDialog .medicineSameNameHint { padding: 8px 12px; border-radius: 10px; color: var(--ui-ink); background: var(--ui-glass, rgba(0, 0, 0, 0.04)); }
+.medicineDialog .medicineTextEntry { display: grid; gap: 6px; }
+.medicineDialog .medicineTextEntry > span { color: var(--ui-muted); font-size: 12px; }
+.medicineDialog .medicineTextActions { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.medicineDialog .medicineTextActions .primaryButton { flex: none; }
+.medicineDialog .medicineSourceText { padding: 8px 12px; border: 1px solid var(--ui-divider); border-radius: 10px; font-size: 13px; line-height: 20px; }
+.medicineDialog .medicineSourceText summary { color: var(--ui-muted); font-size: 12px; cursor: pointer; }
+.medicineDialog .medicineSourceText p { margin: 6px 0 0; color: var(--ui-ink); overflow-wrap: anywhere; }
 .medicineDialog .medicineStatus { margin: 0; color: var(--ui-muted); font-size: 13px; line-height: 20px; }
 .medicineDialog .medicineStatus.problem { color: var(--medicine-warn); }
 .medicineDialog .medicineSourcePhoto { justify-self: start; height: 72px; padding: 0; border: 1px solid var(--ui-divider); border-radius: 10px; background: var(--ui-surface, #f4f4f5); cursor: zoom-in; overflow: hidden; }

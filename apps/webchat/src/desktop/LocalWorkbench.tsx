@@ -124,7 +124,8 @@ export function LocalWorkbench() {
     settingsOwner: surfaceEnabled(connection, "settings_owner"), settingsConnectors: surfaceEnabled(connection, "settings_connectors"),
     settingsBindings: surfaceEnabled(connection, "settings_bindings"),
   };
-  const medicineBox = useMedicineBox(module === "medicine", connection?.state === "connected" && surfaceEnabled(connection, "medicine"));
+  const medicineBox = useMedicineBox(module === "medicine", connection?.state === "connected" && surfaceEnabled(connection, "medicine"),
+    connection?.state === "connected" && surfaceEnabled(connection, "medicine_text"));
   const browserLayout = useBrowserLayout(rightSurface !== null, inspectorResize.width, (capabilities.browser || Boolean(localFiles)) && !settings && (page === "chat" || filesOpen), true);
   const messageScroll = useMessageScroll(selected, !settings && page === "chat");
   const browserCovering = browserLayout.covering;

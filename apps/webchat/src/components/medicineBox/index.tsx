@@ -1,9 +1,9 @@
 // Medicine box module: its own sidebar beside the module rail and its own
 // workspace page. The workspace follows open-medkit's structure (stats, search,
 // expiry filters, cards or a list, a detail dialog and a two-step add flow) in
-// SparkClaw's own look. Medicines are added from a photo of the package front,
-// which the backend's vision model reads and sorts by what the medicine treats;
-// the owner confirms every field before anything is saved.
+// SparkClaw's own look. Medicines are added from a photo of the package front
+// or one typed sentence, which the backend's models read and sort by what the
+// medicine treats; the owner confirms every field before anything is saved.
 import { useCallback, useEffect, useState } from "react";
 import { LayoutGrid, List, Plus, Search, X } from "lucide-react";
 import { dictionaries, type Language } from "../../i18n";
@@ -28,7 +28,7 @@ function preference<T extends string>(key: string, values: readonly T[], fallbac
 }
 function remember(key: string, value: string) { try { localStorage.setItem(key, value); } catch { /* preferences are optional */ } }
 
-export function useMedicineBox(active: boolean, recognitionAvailable: boolean) {
+export function useMedicineBox(active: boolean, recognitionAvailable: boolean, parseAvailable = false) {
   const api = medicineBox();
   const [items, setItems] = useState<MedicineItem[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -51,7 +51,7 @@ export function useMedicineBox(active: boolean, recognitionAvailable: boolean) {
   const setSort = useCallback((value: MedicineSort) => { setSortState(value); remember(SORT_KEY, value); }, []);
   const clearFilters = useCallback(() => { setCategory("all"); setStatus("all"); setSearch(""); }, []);
   return { api, items, loaded: loaded || !api, failed, category, setCategory, status, setStatus, search, setSearch, view, setView, sort, setSort, clearFilters,
-    editing, setEditing, detail, setDetail, reload, recognitionAvailable };
+    editing, setEditing, detail, setDetail, reload, recognitionAvailable, parseAvailable };
 }
 export type MedicineBoxState = ReturnType<typeof useMedicineBox>;
 
@@ -150,7 +150,7 @@ export function MedicineWorkspace({ language, box }: { language: Language; box: 
       onClose={() => box.setDetail(null)} onSelect={(item) => box.setDetail(item.id)} onChanged={box.reload}
       onEdit={(item) => { box.setDetail(null); box.setEditing({ item }); }} />}
     {box.editing && box.api && <MedicineEntryDialog language={language} item={box.editing.item} items={box.items} defaultCategory={box.category === "all" ? "" : box.category}
-      recognitionAvailable={box.recognitionAvailable}
+      recognitionAvailable={box.recognitionAvailable} parseAvailable={box.parseAvailable}
       onClose={() => box.setEditing(null)}
       onSaved={(saved) => { box.setEditing(null); if (box.category !== "all") box.setCategory(saved.category); void box.reload(); }} />}
   </div>;

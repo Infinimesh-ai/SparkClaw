@@ -149,6 +149,16 @@ test("medicine box IPC takes its scope from the authenticated identity and rejec
   assert.equal(calls.length, 3);
 });
 
+test("text reading is a surface of its own, so an older Gateway only disables text entry", () => {
+  const manifest = { schema_version: 2, profile: "sparkclaw.workbench.transport.v2", session_id: "session", authorization_revision: 1, expires_at: new Date(Date.now() + 60000).toISOString(), operations: ["medicine.recognize", "medicine.parse"] };
+  const rows = ["medicine", "medicine_text"].map((id) => ({ id, supported: true, permitted: true, qualified: true, enabled: true, dependencies_ready: true }));
+  const report = { schema_version: 2, profile: manifest.profile, session_id: "session", authorization_revision: 1, expires_at: manifest.expires_at, capabilities: rows };
+  const both = projectISCPCapabilities(manifest, report).surfaces;
+  assert.deepEqual([both.medicine.enabled, both.medicine_text.enabled], [true, true]);
+  const older = projectISCPCapabilities({ ...manifest, operations: ["medicine.recognize"] }, { ...report, capabilities: rows.slice(0, 1) }).surfaces;
+  assert.deepEqual([older.medicine.enabled, older.medicine_text.enabled, older.medicine_text.reason], [true, false, "permission_or_implementation_missing"]);
+});
+
 test("photo recognition is its own ISCP surface", () => {
   const manifest = { schema_version: 2, profile: "sparkclaw.workbench.transport.v2", session_id: "session", authorization_revision: 1, expires_at: new Date(Date.now() + 60000).toISOString(), operations: ["medicine.recognize"] };
   const row = { id: "medicine", supported: true, permitted: true, qualified: true, enabled: true, dependencies_ready: true };

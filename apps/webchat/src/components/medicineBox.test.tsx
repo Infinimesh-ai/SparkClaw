@@ -3,9 +3,9 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MedicineSidebar, MedicineWorkspace, useMedicineBox } from "./medicineBox";
-import type { MedicineBoxAPI, MedicineFields, MedicineItem, MedicineRecognition } from "../desktop/medicineBox";
+import type { MedicineBoxAPI, MedicineFields, MedicineItem, MedicineRecognition, MedicineTextParse } from "../desktop/medicineBox";
 
-const backend = vi.hoisted(() => ({ recognizeMedicine: vi.fn() }));
+const backend = vi.hoisted(() => ({ recognizeMedicine: vi.fn(), parseMedicine: vi.fn() }));
 vi.mock("../api/client", () => ({ api: backend }));
 vi.mock("../desktop/medicinePhoto", () => ({ prepareMedicinePhoto: vi.fn(async () => ({ image: "cGhvdG8=", content_type: "image/jpeg" })) }));
 
@@ -13,10 +13,11 @@ const ID = (letter: string) => "med_" + letter.repeat(32);
 const item = (fields: Partial<MedicineItem>): MedicineItem => ({ id: ID("a"), name: "布洛芬缓释胶囊", category: "fever", quantity: 12, unit: "capsule",
   expires_on: "2027-12-31", no_expiry: false, location: "客厅抽屉", usage: "退烧、止痛", notes: "", created_at: "2026-10-01T00:00:00.000Z", updated_at: "", ...fields });
 const recognition = (fields: Partial<MedicineRecognition>): MedicineRecognition => ({ recognized: true, name: "", category: "other", unit: "tablet", ...fields });
+const parsed = (fields: Partial<MedicineTextParse>): MedicineTextParse => ({ recognized: true, name: "", category: "other", unit: "tablet", quantity: null, expires_on: "", location: "", usage: "", ...fields });
 const fieldsOf = ({ created_at: _created, updated_at: _updated, ...fields }: MedicineItem): MedicineFields => fields;
 
-function Harness({ recognition }: { recognition: boolean }) {
-  const box = useMedicineBox(true, recognition);
+function Harness({ recognition, parse }: { recognition: boolean; parse: boolean }) {
+  const box = useMedicineBox(true, recognition, parse);
   return <><MedicineSidebar language="zh" box={box} /><MedicineWorkspace language="zh" box={box} /></>;
 }
 
@@ -37,7 +38,12 @@ describe("medicine box", () => {
     Object.defineProperty(input, "files", { value: [new File([new Uint8Array([1])], "front.jpg", { type: "image/jpeg" })], configurable: true });
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
-  const render = async (recognitionAvailable = true) => act(async () => root.render(<Harness recognition={recognitionAvailable} />));
+  const render = async (recognitionAvailable = true, parseAvailable = true) => act(async () => root.render(<Harness recognition={recognitionAvailable} parse={parseAvailable} />));
+  const describeMedicine = async (text: string) => {
+    await click(button(".medicineEntryMethods", "文字"));
+    await type('.medicineDialog textarea[name="description"]', text);
+    await click(button(".medicineTextActions", "解析"));
+  };
   const submit = () => query<HTMLButtonElement>(".medicineDialog button[type=submit]");
 
   beforeEach(async () => {
@@ -67,6 +73,7 @@ describe("medicine box", () => {
     host.remove();
     delete window.sparkclawMedicineBox;
     backend.recognizeMedicine.mockReset();
+    backend.parseMedicine.mockReset();
     vi.useRealTimers();
   });
 
@@ -207,8 +214,102 @@ describe("medicine box", () => {
       location: "厨房药盒", usage: "", notes: "饭前\n空腹" });
   });
 
-  it("starts at the review form when recognition is unavailable and keeps the photo entry disabled", async () => {
-    await render(false);
+  it("reads one typed sentence into the review with every stated field marked to check", async () => {
+    backend.parseMedicine.mockResolvedValue(parsed({ name: "布洛芬缓释胶囊", category: "fever", unit: "capsule", quantity: 14, expires_on: "2027-12-31", location: "客厅抽屉", usage: "退烧止痛" }));
+    await render();
+    await click(".medicineSidebar .sidebarNewConversation");
+    await describeMedicine("布洛芬缓释胶囊，还剩 14 粒，\n2027 年 12 月到期，放在客厅抽屉，退烧止痛");
+    expect(backend.parseMedicine).toHaveBeenCalledWith({ text: "布洛芬缓释胶囊，还剩 14 粒， 2027 年 12 月到期，放在客厅抽屉，退烧止痛", today: "2026-11-02" }, expect.any(AbortSignal));
+    expect(query('.medicineSteps [aria-current="step"]').textContent).toBe("2核对并入库");
+    expect(query(".medicineSourceText p").textContent).toBe("布洛芬缓释胶囊，还剩 14 粒， 2027 年 12 月到期，放在客厅抽屉，退烧止痛");
+    expect(host.querySelector(".medicineSourcePhoto")).toBeNull();
+    expect(query<HTMLInputElement>('.medicineDialog input[name="quantity"]').value).toBe("14");
+    expect(query<HTMLInputElement>('.medicineDialog input[name="expires_on"]').value).toBe("2027-12-31");
+    expect(query<HTMLInputElement>('.medicineDialog input[name="location"]').value).toBe("客厅抽屉");
+    expect(query<HTMLTextAreaElement>('.medicineDialog textarea[name="notes"]').value).toBe("");
+    expect(query<HTMLInputElement>('.medicineDialog input[name="no_expiry"]').checked).toBe(false);
+    expect(all(".medicineFieldFlash")).toHaveLength(6);
+    expect(texts(".medicineCheck")).toHaveLength(6);
+    expect(document.activeElement?.getAttribute("name")).toBe("name");
+    // Editing a field marks it checked.
+    await type('.medicineDialog input[name="location"]', "卧室");
+    expect(texts(".medicineCheck")).toHaveLength(5);
+    expect(api.save).not.toHaveBeenCalled();
+    await click(submit());
+    expect(api.save).toHaveBeenCalledWith({ id: "", name: "布洛芬缓释胶囊", category: "fever", quantity: 14, unit: "capsule", expires_on: "2027-12-31", no_expiry: false,
+      location: "卧室", usage: "退烧止痛", notes: "" });
+  });
+
+  it("leaves unstated fields empty and keeps the owner on step 1 for several, none or an unavailable reader", async () => {
+    await render();
+    await click(".medicineSidebar .sidebarNewConversation");
+    backend.parseMedicine.mockResolvedValueOnce({ recognized: false, multiple: true });
+    await describeMedicine("布洛芬和蒙脱石散各一盒");
+    expect(query('.medicineDialog [role="alert"]').textContent).toBe("一次只能录入一种药品，请分开录入。");
+    expect(query('.medicineSteps [aria-current="step"]').textContent).toBe("1录入");
+    backend.parseMedicine.mockResolvedValueOnce(parsed({ recognized: false }));
+    await click(button(".medicineTextActions", "解析"));
+    expect(query('.medicineDialog [role="alert"]').textContent).toBe("没能从文字里认出药品，请写出药品名称，或直接填写。");
+    backend.parseMedicine.mockRejectedValueOnce(new Error("503"));
+    await click(button(".medicineTextActions", "解析"));
+    expect(query('.medicineDialog [role="alert"]').textContent).toBe("解析服务暂不可用，可以直接填写。");
+    expect(query<HTMLTextAreaElement>('.medicineDialog textarea[name="description"]').value).toBe("布洛芬和蒙脱石散各一盒");
+
+    backend.parseMedicine.mockResolvedValueOnce(parsed({ name: "蒙脱石散", category: "digestive", unit: "sachet" }));
+    await act(async () => {
+      query('.medicineDialog textarea[name="description"]').dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", metaKey: true, bubbles: true }));
+    });
+    expect(query('.medicineSteps [aria-current="step"]').textContent).toBe("2核对并入库");
+    for (const name of ["quantity", "expires_on", "location", "usage"]) expect(query<HTMLInputElement>(`.medicineDialog input[name="${name}"]`).value).toBe("");
+    expect(texts(".medicineCheck")).toEqual(["待核对", "待核对", "单位待核对"]);
+    expect(document.activeElement?.getAttribute("name")).toBe("quantity");
+  });
+
+  it("keeps the Text segment but disables it without the reader, and defaults to it without recognition", async () => {
+    await render(true, false);
+    await click(".medicineSidebar .sidebarNewConversation");
+    const textSegment = button(".medicineEntryMethods", "文字") as HTMLButtonElement;
+    expect(textSegment.disabled).toBe(true);
+    expect(textSegment.title).toBe("解析服务暂不可用，可以直接填写。");
+    await click(button(".medicineDialog", "取消"));
+
+    await render(false, true);
+    await click(".medicineSidebar .sidebarNewConversation");
+    expect(query('.medicineSteps [aria-current="step"]').textContent).toBe("1录入");
+    expect(query('.medicineEntryMethods [aria-pressed="true"]').textContent).toBe("文字");
+    expect(document.activeElement?.getAttribute("name")).toBe("description");
+  });
+
+  it("stores the same record whether a medicine came in by photo, by text or by hand", async () => {
+    backend.recognizeMedicine.mockResolvedValue(recognition({ name: "蒙脱石散", category: "digestive", unit: "sachet" }));
+    backend.parseMedicine.mockResolvedValue(parsed({ name: "蒙脱石散", category: "digestive", unit: "sachet", quantity: 6, location: "厨房" }));
+    await render();
+    const finish = async (fill: string[]) => {
+      if (fill.includes("quantity")) await type('.medicineDialog input[name="quantity"]', "6");
+      if (fill.includes("location")) await type('.medicineDialog input[name="location"]', "厨房");
+      await type('.medicineDialog input[name="expires_on"]', "2027-06-30");
+      await click(submit());
+    };
+    await click(".medicineSidebar .sidebarNewConversation");
+    await choosePhoto();
+    await finish(["quantity", "location"]);
+    await click(".medicineSidebar .sidebarNewConversation");
+    await describeMedicine("蒙脱石散还有 6 袋，放在厨房");
+    await finish([]);
+    await click(".medicineSidebar .sidebarNewConversation");
+    await click(".medicineSkip");
+    await type('.medicineDialog input[name="name"]', "蒙脱石散");
+    await type('.medicineDialog select[name="unit"]', "sachet");
+    await finish(["quantity", "location"]);
+    const saved = api.save.mock.calls.map(([fields]) => fields);
+    expect(saved).toHaveLength(3);
+    expect(saved[1]).toEqual(saved[0]);
+    expect(saved[2]).toEqual(saved[0]);
+    expect(saved[0]).toEqual({ id: "", name: "蒙脱石散", category: "digestive", quantity: 6, unit: "sachet", expires_on: "2027-06-30", no_expiry: false, location: "厨房", usage: "", notes: "" });
+  });
+
+  it("starts at the review form when neither entry is available and keeps the photo entry disabled", async () => {
+    await render(false, false);
     await click(".medicineSidebar .sidebarNewConversation");
     expect(query('.medicineSteps [aria-current="step"]').textContent).toBe("2核对并入库");
     await click(".medicineSteps li:first-child button");
@@ -217,7 +318,7 @@ describe("medicine box", () => {
     await click(button(".medicineDialog", "取消"));
 
     backend.recognizeMedicine.mockRejectedValue(new Error("503"));
-    await render(true);
+    await render(true, false);
     await click(".medicineSidebar .sidebarNewConversation");
     await choosePhoto();
     expect(query('.medicineDialog [role="alert"]').textContent).toBe("识别服务暂不可用，可以直接填写。");

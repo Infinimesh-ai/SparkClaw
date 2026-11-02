@@ -16,6 +16,7 @@ import (
 )
 
 type PostgresStore struct {
+	medicinePostgres                  ownerPostgresOps
 	db                                *pgxpool.Pool
 	operationTimeouts                 OperationTimeouts
 	sessionPostgres                   ownerPostgresOps
@@ -107,6 +108,7 @@ func NewPostgresStoreWithOptions(ctx context.Context, dsn string, timeouts Opera
 	st := &PostgresStore{
 		db: pool, operationTimeouts: normalizeOperationTimeouts(timeouts),
 		sessionPostgres:                   pgxOwnerPostgresOps{pool: pool},
+		medicinePostgres:                  pgxOwnerPostgresOps{pool: pool},
 		sessionCommandGate:                semaphore.NewWeighted(1),
 		sessionWriteHighWater:             map[string]time.Time{},
 		sessionNow:                        time.Now,

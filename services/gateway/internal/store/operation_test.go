@@ -9,6 +9,11 @@ import (
 
 func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 	want := map[StoreOperation]operationSpec{
+		OperationMedicineRead:         {ID: OperationMedicineRead, Repository: "MedicineRepository", Method: "ReadMedicineBox", Mode: operationRead, Timeout: timeoutRead},
+		OperationMedicineApply:        {ID: OperationMedicineApply, Repository: "MedicineRepository", Method: "ApplyMedicineBatch", Mode: operationWrite, Timeout: timeoutTransaction},
+		OperationMedicineImport:       {ID: OperationMedicineImport, Repository: "MedicineRepository", Method: "ImportMedicines", Mode: operationWrite, Timeout: timeoutTransaction},
+		OperationMedicineOperationGet: {ID: OperationMedicineOperationGet, Repository: "MedicineRepository", Method: "GetMedicineOperation", Mode: operationRead, Timeout: timeoutRead},
+
 		OperationApplyEmailObserver:          {ID: OperationApplyEmailObserver, Repository: "EmailRepository", Method: "ApplyEmailObserver", Mode: operationWrite, Timeout: timeoutTransaction},
 		OperationReadEmailPresentations:      {ID: OperationReadEmailPresentations, Repository: "EmailPresentationRepository", Method: "ReadEmailPresentations", Mode: operationRead, Timeout: timeoutRead},
 		OperationEnsureEmailPresentations:    {ID: OperationEnsureEmailPresentations, Repository: "EmailPresentationRepository", Method: "EnsureEmailPresentations", Mode: operationWrite, Timeout: timeoutTransaction},

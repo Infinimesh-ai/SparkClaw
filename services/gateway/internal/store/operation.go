@@ -28,6 +28,10 @@ const (
 type StoreOperation string
 
 const (
+	OperationMedicineRead                StoreOperation = "medicine.read"
+	OperationMedicineApply               StoreOperation = "medicine.apply"
+	OperationMedicineImport              StoreOperation = "medicine.import"
+	OperationMedicineOperationGet        StoreOperation = "medicine.operation_get"
 	OperationGetEmailProviderVersions    StoreOperation = "email_management.GetEmailProviderVersions"
 	OperationResolveEmailIntake          StoreOperation = "email_management.ResolveEmailIntake"
 	OperationWorkbenchDraftGet           StoreOperation = "workbench_draft.get"
@@ -314,6 +318,11 @@ type operationSpec struct {
 }
 
 var operationSpecs = map[StoreOperation]operationSpec{
+	OperationMedicineRead:         {ID: OperationMedicineRead, Repository: "MedicineRepository", Method: "ReadMedicineBox", Mode: operationRead, Timeout: timeoutRead},
+	OperationMedicineApply:        {ID: OperationMedicineApply, Repository: "MedicineRepository", Method: "ApplyMedicineBatch", Mode: operationWrite, Timeout: timeoutTransaction},
+	OperationMedicineImport:       {ID: OperationMedicineImport, Repository: "MedicineRepository", Method: "ImportMedicines", Mode: operationWrite, Timeout: timeoutTransaction},
+	OperationMedicineOperationGet: {ID: OperationMedicineOperationGet, Repository: "MedicineRepository", Method: "GetMedicineOperation", Mode: operationRead, Timeout: timeoutRead},
+
 	OperationReadEmailPresentations:      {ID: OperationReadEmailPresentations, Repository: "EmailPresentationRepository", Method: "ReadEmailPresentations", Mode: operationRead, Timeout: timeoutRead},
 	OperationEnsureEmailPresentations:    {ID: OperationEnsureEmailPresentations, Repository: "EmailPresentationRepository", Method: "EnsureEmailPresentations", Mode: operationWrite, Timeout: timeoutTransaction},
 	OperationGetEmailPresentation:        {ID: OperationGetEmailPresentation, Repository: "EmailPresentationRepository", Method: "GetEmailPresentation", Mode: operationRead, Timeout: timeoutRead},

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/medicine"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -39,6 +40,7 @@ type FileStoreOptions struct {
 }
 
 type Snapshot struct {
+	MedicineBoxes         map[string]medicine.State            `json:"medicine_boxes,omitempty"`
 	WorkbenchDrafts       map[string]app.WorkbenchDraft        `json:"workbench_drafts,omitempty"`
 	EmailRecords          map[string]EmailRecord               `json:"email_management_records,omitempty"`
 	Sessions              map[string]app.Session               `json:"sessions"`

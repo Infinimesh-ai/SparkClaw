@@ -12,6 +12,7 @@ func (s *MemoryStore) snapshot() Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return Snapshot{
+		MedicineBoxes:         cloneMedicineBoxes(s.medicineBoxes),
 		WorkbenchDrafts:       cloneWorkbenchDrafts(s.workbenchDrafts),
 		EmailRecords:          cloneEmailRecords(s.emailRecords),
 		Sessions:              cloneMap(s.sessions),
@@ -57,6 +58,7 @@ func (s *MemoryStore) snapshot() Snapshot {
 func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.medicineBoxes = cloneMedicineBoxes(snapshot.MedicineBoxes)
 	s.emailRecords = cloneEmailRecords(ensureMap(snapshot.EmailRecords))
 	s.workbenchDrafts = cloneWorkbenchDrafts(snapshot.WorkbenchDrafts)
 	s.sessions = ensureMap(snapshot.Sessions)

@@ -5,9 +5,11 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/medicine"
 )
 
 type MemoryStore struct {
+	medicineBoxes                     map[string]medicine.State
 	transientContentAdmission         func(any) error
 	mu                                sync.RWMutex
 	operationTimeouts                 OperationTimeouts
@@ -84,6 +86,7 @@ func NewMemoryStore() *MemoryStore {
 func NewMemoryStoreWithOptions(timeouts OperationTimeouts) *MemoryStore {
 	defaultOwner := app.DefaultOwnerProfile()
 	return &MemoryStore{
+		medicineBoxes:                     map[string]medicine.State{},
 		operationTimeouts:                 normalizeOperationTimeouts(timeouts),
 		workbenchDrafts:                   map[string]app.WorkbenchDraft{},
 		sessions:                          map[string]app.Session{},

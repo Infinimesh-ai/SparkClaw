@@ -92,6 +92,7 @@ func (s *Service) Sync(ctx context.Context, owner, token string, limit int) (Syn
 		c.Offset += len(page.Events)
 	} else if page.Mode == "delta" && page.More {
 		c.Sequence = page.Events[len(page.Events)-1].Sequence
+		page.Sequence = c.Sequence
 	} else {
 		c.Mode = "delta"
 		c.Sequence = box.Sequence

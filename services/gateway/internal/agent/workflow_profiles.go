@@ -25,13 +25,13 @@ func (browserInternetSearchProfile) RoutingSemantics() workflowRoutingSemantics 
 		EmbedTexts: []string{
 			"查一下今天的 AI 新闻", "What is the current gold price?", "现在美元兑人民币汇率是多少", "刚结束的比赛比分",
 			"苹果官网目前在售的产品和价格", "联网查询最新信息", "比较北京和上海今天的天气", "查询天气预警",
-			"谁是苹果公司的CEO", "Does Node.js support TypeScript natively?", "吃阿司匹林期间能同时吃感冒药吗",
+			"谁是苹果公司的CEO", "Does Node.js support TypeScript natively?", "最新公布的公共卫生政策",
 			"被公司辞退可以拿多少经济补偿", "核实这个说法并给出原始出处",
 		},
-		TreeDescription: "Retrieve read-only public facts that need external evidence. This includes answers that depend on current Internet state (news, prices, availability, sports, alerts, official current catalogs); facts that may have changed since model training even without a time word, such as who holds an office or role and software, library, API, or product versions, support, and compatibility; the owner's own medication-safety, medical, legal, labor, tax, or financial decisions that must be checked against authoritative current public sources; explicit requests to search, verify a claim, cite sources, or find original documents, including historical ones; and multi-source or multi-location comparisons. It never retrieves the owner's private orders, accounts, messages, files, or local system state, and explanations of settled concepts such as a drug class or a legal term remain conversation.",
+		TreeDescription: "Retrieve read-only public facts that need external evidence. This includes answers that depend on current Internet state (news, prices, availability, sports, alerts, official current catalogs); facts that may have changed since model training even without a time word, such as who holds an office or role and software, library, API, or product versions, support, and compatibility; the owner's general medical (excluding named medicines and symptom-based what-to-take), legal, labor, tax, or financial decisions that must be checked against authoritative current public sources; explicit requests to search, verify a claim, cite sources, or find original documents, including historical ones; and multi-source or multi-location comparisons. It never retrieves the owner's private orders, accounts, messages, files, or local system state, and general named-medicine questions belong to medicine.drug_info, medicine-box records belong to medicine.box_query, symptom-based what-to-take belongs to medicine.box_query advise, and settled legal concepts remain conversation.",
 		HardNegatives: []string{
 			"解释什么是黄金", "上海今天的天气卡片", "打开苹果官网", "点击网页上的下一步", "一分钟后查一下新闻",
-			"不要联网，解释一下什么是劳动合同", "解释布洛芬的作用原理", "我的快递现在到哪了",
+			"不要联网，解释一下什么是劳动合同", "解释布洛芬的作用原理", "我正在服用华法林，可以同时服用布洛芬吗", "我发烧了吃什么药", "孕期可以吃对乙酰氨基酚吗", "我的快递现在到哪了",
 		},
 	}}}
 }
@@ -483,6 +483,9 @@ func workflowEntryIDsMatchingRequirements(view app.DirectoryView, selected []app
 }
 
 func workflowStageUsesModel(profile workflowProfile, workflow *app.WorkflowState, node app.WorkflowNode, state app.WorkflowNodeState) bool {
+	if _, ok := profile.(workflowRuntimeStageProfile); ok {
+		return false
+	}
 	if node.Goal.Completion != app.CompletionEvidence || node.InvocationMode == app.WorkflowInvocationDirectOnce {
 		return false
 	}

@@ -824,7 +824,7 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 	if err != nil {
 		return Result{}, false, fmt.Errorf("load approval run model calls: %w", err)
 	}
-	if len(seedCalls) == 0 || !hasWorkflowStepModelCall(modelCalls) {
+	if len(seedCalls) == 0 || run.Workflow == nil && !hasWorkflowStepModelCall(modelCalls) {
 		return Result{}, false, nil
 	}
 	if run.Workflow != nil {

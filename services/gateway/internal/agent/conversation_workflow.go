@@ -31,12 +31,12 @@ func (conversationAnswerProfile) RoutingSemantics() workflowRoutingSemantics {
 			Route: workflowRouteTemplate{Operation: app.RouteOperationAnswer},
 			EmbedTexts: []string{
 				"解释一下光合作用", "What is the capital of France?", "你好，很高兴见到你", "为什么天空是蓝色的",
-				"说吃饭", "明天下午三点我参加项目复盘", "请直接回答这个常识问题", "谢谢你的帮助",
+				"说吃饭", "明天下午三点我参加项目复盘", "我刚吃了布洛芬", "请直接回答这个常识问题", "谢谢你的帮助",
 			},
-			TreeDescription: "Respond conversationally to greetings, stable common knowledge, simple explanations of settled concepts, creative writing, reasoning or calculation over owner-supplied content, plain owner statements, or timer notification payloads. This route can never search afterwards, so it excludes current external facts, facts that may have changed since model training even without a time word (officeholders and roles, software or API versions and support), and owner-specific medication, medical, legal, labor, tax, or financial decisions that need authoritative verification; it also excludes governed resources and actions. Requests that explicitly refuse searching stay here. A statement that the owner personally plans to do something later is conversation unless it explicitly asks the system to act.",
+			TreeDescription: "Respond conversationally to greetings, stable common knowledge, simple explanations of settled concepts, creative writing, reasoning or calculation over owner-supplied content, plain owner statements, or timer notification payloads. This route can never search afterwards, so it excludes current external facts, facts that may have changed since model training even without a time word (officeholders and roles, software or API versions and support), and owner-specific medication, medical, legal, labor, tax, or financial decisions that need authoritative verification; it also excludes governed resources and actions. General named-medicine information belongs to medicine.drug_info even if stable or explicitly refusing search; symptom-based what-to-take belongs to medicine.box_query advise. Other requests that explicitly refuse searching stay here. Plain owner reports such as having just taken a medicine are conversation unless they ask a question or request changing box records. A statement that the owner personally plans to do something later is conversation unless it explicitly asks the system to act.",
 			HardNegatives: []string{
 				"查一下今天的金价", "一分钟后提醒我吃饭", "打开这个网址", "读取这个文档", "今天上海天气怎么样",
-				"现在谁是日本首相", "Is HTTP/2 supported by the Python urllib library?", "正在吃降压药能不能同时吃感冒药", "试用期被辞退能要求什么补偿",
+				"现在谁是日本首相", "Is HTTP/2 supported by the Python urllib library?", "正在吃降压药能不能同时吃感冒药", "试用期被辞退能要求什么补偿", "布洛芬属于哪一类药物", "我发烧了吃什么药", "药箱里还剩多少药",
 			},
 		},
 	}}

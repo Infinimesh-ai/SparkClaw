@@ -531,7 +531,9 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		}
 		allObservations = r.compactWorkflowObservationsIfNeeded(ctx, sessionID, run.ID, allObservations, runBudget)
 		stageResult := workflowExecutionResult{}
-		if activeWorkflowNodeUsesMessageContent(run.Workflow) {
+		if runtimeProfile, ok := profile.(workflowRuntimeStageProfile); ok {
+			stageResult = runtimeProfile.RunStage(ctx, r, run, stageContext, visibleTools, allObservations, runBudget)
+		} else if activeWorkflowNodeUsesMessageContent(run.Workflow) {
 			stageResult = r.runWorkflowMessageContentStep(ctx, run)
 		} else if activeWorkflowNodeUsesModelAnswer(run.Workflow) {
 			stageResult = r.runWorkflowModelAnswerStep(ctx, sessionID, run, content, history, emit)

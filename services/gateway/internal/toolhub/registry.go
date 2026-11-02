@@ -316,7 +316,10 @@ var toolRegistry = func() map[string]toolRegistration {
 			map[string]string{app.CapabilityQualifierOperation: string(app.RouteOperationDelete), "stage": "mutate"}, app.OutcomeAdapterScheduleChange,
 			"Cancel an existing scheduled task.", "Use only for schedule.manage delete operations.", "Do not permanently remove schedule history.", app.ToolEffectLocalWrite),
 		"shell.exec_sandboxed": {resource: resourceSandboxWorkspace, run: ctxArgs((*ToolHub).shellExecSandboxed)},
-		"notify.ask_approval":  {run: ctxArgsSessionRun((*ToolHub).notifyAskApproval)},
+		"notify.ask_approval":  workflowRegistration(toolRegistration{run: ctxArgsSessionRun((*ToolHub).notifyAskApproval)}, app.ToolCapabilityWorkflowInput, nil, app.OutcomeAdapterGeneric, "Collect exact owner input.", "Use only for a typed Workflow input form.", "Never infer missing values.", app.ToolEffectLocalCompute),
+		"medicine.box.read":    workflowRegistration(toolRegistration{run: ctxArgsSessionRun((*ToolHub).medicineRead)}, app.ToolCapabilityMedicineRead, nil, app.OutcomeAdapterGeneric, "Read medicine records.", "Use for an owner-scoped medicine workflow.", "Never infer records.", app.ToolEffectLocalRead),
+		"medicine.box.write":   workflowRegistration(toolRegistration{run: ctxArgsSessionRun((*ToolHub).medicineWrite)}, app.ToolCapabilityMedicineWrite, nil, app.OutcomeAdapterGeneric, "Commit one complete medicine batch.", "Use after frozen fields are complete and validated.", "Never write partial or unresolved drafts.", app.ToolEffectLocalWrite),
+		"medicine.drug_info":   workflowRegistration(toolRegistration{run: ctxArgsSessionRun((*ToolHub).medicineDrugInfo)}, app.ToolCapabilityMedicineInfo, nil, app.OutcomeAdapterGeneric, "Read named medicine information.", "Use for medicine knowledge and current public facts.", "Never read private inventory.", app.ToolEffectExternalRead),
 	}
 	for name, registration := range documentToolRegistrations() {
 		registry[name] = registration

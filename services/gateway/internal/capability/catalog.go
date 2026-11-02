@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-10-30.v28"
+	DefaultCatalogRevision = "2026-11-02.v29"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -198,6 +198,10 @@ func DefaultCatalog() (Catalog, error) {
 		leaf(string(app.CapabilityLocalMindCancel), "localmind", "Request cancellation of one explicitly referenced or same-session recent LocalMind task.", RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationDelete}, TargetKinds: []string{string(app.TargetKindLocalMindTask)}, RequireTarget: true,
 		}),
+		branch("medicine", string(RootID), "Read, advise from, or edit the owner's medicine box, or answer medicine questions."),
+		leaf(string(app.CapabilityMedicineBoxQuery), "medicine", "Read the owner's medicine records or give symptom-based advice using their box.", RouteContract{Operations: []app.RouteOperation{app.RouteOperationRead, app.RouteOperationAnswer}, FactScopes: []app.RouteFactScope{app.RouteFactScopeMedicineBox}, RequireQuery: true}),
+		leaf(string(app.CapabilityMedicineBoxEdit), "medicine", "Add or change one or several medicines in the owner's box, or delete one; collect unclear fields before writing.", RouteContract{Operations: []app.RouteOperation{app.RouteOperationCreate, app.RouteOperationEdit, app.RouteOperationDelete}, RequireQuery: true}),
+		leaf(string(app.CapabilityMedicineDrugInfo), "medicine", "Answer named medicine information, interactions, price, availability, recalls, and precautions; does not read private inventory.", RouteContract{Operations: []app.RouteOperation{app.RouteOperationAnswer}, RequireQuery: true}),
 		branch("schedule", string(RootID), "Manage scheduled tasks through the existing Schedule Registry and timer delivery architecture."),
 		leafRevision(string(app.CapabilityScheduleManage), "schedule", "Create, list, update, or cancel scheduled tasks through the registered schedule management workflow.", 3, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationCreate, app.RouteOperationRead, app.RouteOperationEdit, app.RouteOperationDelete}, RequireQuery: true,

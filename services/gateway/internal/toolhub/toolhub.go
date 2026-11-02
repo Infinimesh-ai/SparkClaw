@@ -20,6 +20,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/documentocr"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/medicine"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/remindertarget"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/sandbox"
@@ -41,6 +42,7 @@ type Repository interface {
 }
 
 type ToolHub struct {
+	medicine              *medicine.Service
 	aiChatExporter        AIChatExporter
 	cfg                   config.Config
 	store                 Repository

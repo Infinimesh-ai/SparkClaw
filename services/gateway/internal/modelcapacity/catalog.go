@@ -53,6 +53,8 @@ const (
 	OperationEmailAnalysis            Operation = "email.analysis"
 	OperationMedicineRecognize        Operation = "medicine.recognize"
 	OperationMedicineParse            Operation = "medicine.parse"
+	OperationMedicineEditPlan         Operation = "medicine.edit_plan"
+	OperationMedicineInfoSource       Operation = "medicine.info_source"
 )
 
 type OperationSpec struct {
@@ -82,6 +84,8 @@ var operationSpecs = []OperationSpec{
 	{Operation: OperationDocumentOCR, OutputClass: OutputOCRDocument, AllowedLanes: []Lane{LaneOCR}, Generates: true},
 	{Operation: OperationEmailAnalysis, OutputClass: OutputWorkflowStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 	{Operation: OperationMedicineRecognize, OutputClass: OutputVisionStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
+	{Operation: OperationMedicineEditPlan, OutputClass: OutputWorkflowStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
+	{Operation: OperationMedicineInfoSource, OutputClass: OutputCompactStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 	{Operation: OperationMedicineParse, OutputClass: OutputCompactStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 }
 

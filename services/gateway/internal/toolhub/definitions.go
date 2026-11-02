@@ -6,6 +6,7 @@ import (
 
 func defaultDefinitions() []app.ToolDefinition {
 	definitions := defaultDefinitionsBeforeDocumentFormats()
+	definitions = append(definitions, medicineToolDefinitions()...)
 	definitions = append(definitions, documentToolDefinitions()...)
 	return append(definitions, defaultDefinitionsAfterDocumentFormats()...)
 }
@@ -522,8 +523,9 @@ func defaultDefinitionsAfterDocumentFormats() []app.ToolDefinition {
 			Name:        "notify.ask_approval",
 			Description: "Create an approval request for a pending action.",
 			InputSchema: schema("object", []string{"summary"}, map[string]any{
-				"summary": map[string]any{"type": "string"},
-				"reason":  map[string]any{"type": "string"},
+				"summary":       map[string]any{"type": "string"},
+				"reason":        map[string]any{"type": "string"},
+				"input_context": objectValueSchema(),
 			}),
 			OutputSchema: objectSchema([]string{"status", "approval_id", "tool_call"}, map[string]any{
 				"status":      stringSchema(),

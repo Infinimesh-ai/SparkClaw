@@ -26,15 +26,15 @@ func TestToolRegistryMatchesDefinitions(t *testing.T) {
 	}
 }
 
-func TestOnlyEmailSendDeclaresImmutableArguments(t *testing.T) {
+func TestFrozenSendAndMedicineBatchDeclareImmutableArguments(t *testing.T) {
 	immutable := []string{}
 	for _, definition := range defaultDefinitions() {
 		if definition.ArgumentsImmutable {
 			immutable = append(immutable, definition.Name)
 		}
 	}
-	if len(immutable) != 1 || immutable[0] != app.ToolEmailSend {
-		t.Fatalf("tools with immutable arguments = %v, want only %s", immutable, app.ToolEmailSend)
+	if len(immutable) != 2 || immutable[1] != app.ToolEmailSend || immutable[0] != "medicine.box.write" {
+		t.Fatalf("tools with immutable arguments = %v, want %s and medicine.box.write", immutable, app.ToolEmailSend)
 	}
 	hub := New(config.Default(), store.NewMemoryStore())
 	definition, ok := hub.Definition(app.ToolEmailSend)

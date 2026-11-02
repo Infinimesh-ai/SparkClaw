@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -15,7 +16,7 @@ const documentWorkflowModelLane = "fast"
 
 func workflowModelLaneForProfile(profileID app.WorkflowID) string {
 	switch profileID {
-	case app.WorkflowDocumentRead, app.WorkflowDocumentEdit:
+	case app.WorkflowDocumentRead, app.WorkflowDocumentEdit, app.WorkflowMedicineBoxQuery, app.WorkflowMedicineBoxEdit, app.WorkflowMedicineDrugInfo:
 		return documentWorkflowModelLane
 	default:
 		return workflowExecutionModelLane
@@ -58,6 +59,11 @@ type workflowDecisionReasonCodes struct {
 	NoMatch  string
 	Invalid  string
 	Selected string
+}
+
+// A typed Runtime stage still uses the frozen Workflow scope and ordinary tool outcomes.
+type workflowRuntimeStageProfile interface {
+	RunStage(context.Context, Runtime, app.AgentRun, workflowStageContext, []app.ToolDefinition, []workflowObservation, *workflowRunBudget) workflowExecutionResult
 }
 
 type workflowDirectStageProfile interface {
@@ -227,6 +233,9 @@ func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 		aiChatProfile{provider: "claude"},
 		aiChatProfile{provider: "gemini"},
 		aiChatProfile{provider: "grok"},
+		medicineBoxQueryProfile{},
+		medicineBoxEditProfile{},
+		medicineDrugInfoProfile{},
 		conversationAnswerProfileV1{},
 		conversationAnswerProfileV2{},
 		conversationAnswerProfile{},

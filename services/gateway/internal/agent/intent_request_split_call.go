@@ -155,6 +155,7 @@ func requestSplitSystem() string {
 		"If there is no delivery, use delivery_mode=none, business_span=the entire owner request, delivery_object_kind=business_result, and empty object/provider/recipient spans.",
 		"For deferred requests use the entire owner request as business_span, delivery_mode=none, delivery_object_kind=business_result, and empty object/provider/recipient spans.",
 		"A pure delivery has business_span empty. Its object is an existing conversation_file, previous assistant_text, explicitly supplied current_message, or named_locator. Preserve only the noun phrase or literal payload in object_span, excluding delivery verbs and connectors.",
+		"Keep multiple medicines under one add or update intent together in a single business_span; never split or drop medicines or their fields.",
 		"Retain every business detail, constraint and negation in business_span. Never place business instructions in object_span to evade coverage validation.",
 		`Example owner 完善一下发给我 -> {"deferred":false,"business_span":"完善一下","delivery_mode":"current_route","delivery_object_kind":"business_result","object_span":"","provider_span":"","recipient_span":""}`,
 		`Example owner 把刚才的文件发给我 -> {"deferred":false,"business_span":"","delivery_mode":"current_route","delivery_object_kind":"conversation_file","object_span":"刚才的文件","provider_span":"","recipient_span":""}`,

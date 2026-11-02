@@ -373,3 +373,16 @@ func TestMedicineMixedOperationsNeverWrite(t *testing.T) {
 		t.Fatal(box)
 	}
 }
+
+func TestMedicineAmbiguousRequestedCategoryRequiresCompletion(t *testing.T) {
+	base := medicine.Item{ID: "medicine_one", Version: 3, Fields: medicine.Fields{Name: "布洛芬", Category: "pain", Quantity: 1, Unit: "box", NoExpiry: true}}
+	plan := medicineEditPlan{Operation: "update", Items: []medicinePlannedEntry{{Target: &medicineTarget{Name: "布洛芬"}, Changes: map[string]any{}, Unresolved: []medicineUnresolved{{Field: "category", Reason: "ambiguous"}}, Evidence: map[string]string{"target": "布洛芬"}}}}
+	draft, form, err := freezeMedicinePlan(plan, []medicine.Item{base}, "run", "布洛芬分类改一下")
+	if err != nil || form == nil || len(form.Entries) != 1 || len(form.Entries[0].Fields) != 1 || form.Entries[0].Fields[0].Name != "category" {
+		t.Fatalf("form=%+v err=%v", form, err)
+	}
+	batch, err := materializeMedicineBatch(draft, app.ApprovalInputValues{"entry_1": {"category": "fever"}})
+	if err != nil || batch.Items[0].BaseVersion != 3 || batch.Items[0].Fields.Category != "fever" || batch.Items[0].Fields.Quantity != 1 {
+		t.Fatalf("batch=%+v err=%v", batch, err)
+	}
+}

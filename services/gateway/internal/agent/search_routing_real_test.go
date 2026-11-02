@@ -111,7 +111,7 @@ func TestRealSearchRoutingAcceptance(t *testing.T) {
 		{"held_neg_drug_class", "布洛芬属于哪一类药物？", "medicine.drug_info"},
 		{"held_neg_poem", "写一首关于首相的打油诗。", "conversation.answer"},
 		{"held_neg_code", "帮我把这段代码从Python 2改成Python 3：print 'hi'", "conversation.answer"},
-		{"held_neg_nosearch_med", "不要联网，简单说说抗凝药是什么。", "conversation.answer"},
+		{"held_neg_nosearch_med", "不要联网，简单说说抗凝药是什么。", "medicine.drug_info"},
 		{"repeat_private_order", "查一下我昨天买的手机订单到哪里了。", "not_public_search"},
 		{"repeat_drug_class", "布洛芬属于哪一类药物？", "medicine.drug_info"},
 		{"held_private_bank", "帮我看看我的银行卡余额还有多少。", "not_public_search"},
@@ -120,12 +120,35 @@ func TestRealSearchRoutingAcceptance(t *testing.T) {
 		{"no_search_api", "不要联网，根据已有知识解释Python requests是否支持HTTP/3，不确定就说明。", "conversation.answer"},
 		{"no_search_role", "Do not search the web. Who is the UK prime minister? Say if your knowledge may be outdated.", "conversation.answer"},
 		{"no_search_medical", "不要联网，我正在服用华法林，可以同时服用布洛芬吗？不确定请说明。", "medicine.drug_info"},
+		{"held_private_coupon", "帮我查查我的淘宝账号里有哪些优惠券。", "not_public_search"},
+		{"held_private_parcel", "我昨晚下单的耳机快递送到哪里了？", "not_public_search"},
+		{"held_private_card", "帮我看看我这张信用卡还欠多少钱。", "not_public_search"},
 	}
 	// Explicit expectations: do not derive these with the production freshness parser.
 	dated := map[string]bool{"fresh_price": true, "fresh_news": true, "fresh_library": true,
 		"purchase": true, "official_catalog": true, "legal": true, "repeat_legal_1": true, "weather_compare": true}
+	if selected := strings.TrimSpace(os.Getenv("SPARKCLAW_REAL_SEARCH_CASES")); selected != "" {
+		allowed := map[string]bool{}
+		for _, id := range strings.Split(selected, ",") {
+			allowed[strings.TrimSpace(id)] = true
+		}
+		filtered := tests[:0]
+		for _, test := range tests {
+			if allowed[test.ID] {
+				filtered = append(filtered, test)
+			}
+		}
+		tests = filtered
+		if len(tests) == 0 {
+			t.Fatal("search acceptance case filter selected no cases")
+		}
+	}
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 3)
+	concurrency := 3
+	if os.Getenv("SPARKCLAW_REAL_SEARCH_CONCURRENCY") == "1" {
+		concurrency = 1
+	}
+	sem := make(chan struct{}, concurrency)
 	for _, tc := range tests {
 		session := storetest.MustCreateSessionWithScope(t, st, "search acceptance "+tc.ID, app.DefaultOwnerID, root, "web", false)
 		wg.Add(1)

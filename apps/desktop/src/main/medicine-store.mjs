@@ -13,10 +13,11 @@ function scopeKey(scope) {
   for (const key of ["deployment_id", "owner_id"]) required(typeof scope?.[key] === "string" && ID.test(scope[key]), "Invalid medicine box identity");
   return JSON.stringify([scope.deployment_id, scope.owner_id]);
 }
-function text(value, max, label, optional = false) {
+function text(value, max, label, optional = false, multiline = false) {
   required(typeof value === "string", `Invalid medicine ${label}`);
-  const trimmed = value.trim();
-  required((optional || trimmed.length > 0) && trimmed.length <= max && !/[\u0000-\u001f\u007f]/u.test(trimmed), `Invalid medicine ${label}`);
+  const trimmed = (multiline ? value.replace(/\r\n?/gu, "\n") : value).trim();
+  const control = multiline ? /[\u0000-\u0009\u000b-\u001f\u007f]/u : /[\u0000-\u001f\u007f]/u;
+  required((optional || trimmed.length > 0) && trimmed.length <= max && !control.test(trimmed), `Invalid medicine ${label}`);
   return trimmed;
 }
 function quantity(value) {
@@ -29,8 +30,19 @@ function expiry(value) {
   return value;
 }
 const MEDICINE_ID = /^med_[a-f0-9]{32}$/u;
-const row = (r) => r && ({ id: r.id, name: r.name, spec: r.spec, manufacturer: r.manufacturer, category: r.category,
-  quantity: r.quantity, unit: r.unit, expires_on: r.expires_on, created_at: r.created_at, updated_at: r.updated_at });
+const row = (r) => r && ({ id: r.id, name: r.name, category: r.category, quantity: r.quantity, unit: r.unit, expires_on: r.expires_on,
+  no_expiry: r.no_expiry === 1, location: r.location, usage: r.usage, notes: r.notes, created_at: r.created_at, updated_at: r.updated_at });
+const ITEMS_V2 = (table) => `CREATE TABLE ${table}(scope TEXT NOT NULL,id TEXT NOT NULL,name TEXT NOT NULL,category TEXT NOT NULL,quantity REAL NOT NULL,unit TEXT NOT NULL,
+  expires_on TEXT NOT NULL,no_expiry INTEGER NOT NULL,location TEXT NOT NULL,usage TEXT NOT NULL,notes TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(scope,id))`;
+// Version 1 kept a pack size and a manufacturer. Version 2 drops both fields
+// but keeps what the owner entered by folding them into the notes.
+const MIGRATE_V1 = `BEGIN IMMEDIATE;
+  ${ITEMS_V2("items_v2")};
+  INSERT INTO items_v2 SELECT scope,id,name,category,quantity,unit,expires_on,0,'','',
+    trim(CASE WHEN spec<>'' THEN '规格：'||spec ELSE '' END||CASE WHEN spec<>'' AND manufacturer<>'' THEN char(10) ELSE '' END||CASE WHEN manufacturer<>'' THEN '生产企业：'||manufacturer ELSE '' END),
+    created_at,updated_at FROM items;
+  DROP TABLE items; ALTER TABLE items_v2 RENAME TO items;
+  PRAGMA user_version=2; COMMIT;`;
 
 // A main-owned household inventory. The renderer recognizes a medicine from a
 // photo through the backend and submits only the confirmed fields; the photo
@@ -47,10 +59,12 @@ export class MedicineStore {
     try {
       this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;");
       const version = this.db.prepare("PRAGMA user_version").get().user_version;
-      required(version <= 1, "Medicine box schema is newer; preserve it and upgrade");
-      if (!version) this.db.exec(`BEGIN IMMEDIATE;
-        CREATE TABLE items(scope TEXT NOT NULL,id TEXT NOT NULL,name TEXT NOT NULL,spec TEXT NOT NULL,manufacturer TEXT NOT NULL,category TEXT NOT NULL,quantity REAL NOT NULL,unit TEXT NOT NULL,expires_on TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(scope,id));
-        PRAGMA user_version=1; COMMIT;`);
+      required(version <= 2, "Medicine box schema is newer; preserve it and upgrade");
+      if (!version) this.db.exec(`BEGIN IMMEDIATE; ${ITEMS_V2("items")}; PRAGMA user_version=2; COMMIT;`);
+      if (version === 1) {
+        // A failed upgrade rolls back whole and leaves version 1 for the next start.
+        try { this.db.exec(MIGRATE_V1); } catch (error) { if (this.db.isTransaction) this.db.exec("ROLLBACK"); throw error; }
+      }
     } catch (error) { this.db.close(); throw error; }
   }
   close() { this.db.close(); }
@@ -64,21 +78,24 @@ export class MedicineStore {
     const key = scopeKey(scope);
     required(fields && typeof fields === "object" && !Array.isArray(fields), "Invalid medicine fields");
     required(fields.id === "" || typeof fields.id === "string" && MEDICINE_ID.test(fields.id), "Invalid medicine identity");
-    const value = { name: text(fields.name, 80, "name"), spec: text(fields.spec, 80, "spec", true), manufacturer: text(fields.manufacturer, 80, "manufacturer", true),
-      quantity: quantity(fields.quantity), expires_on: expiry(fields.expires_on) };
+    const value = { name: text(fields.name, 80, "name"), quantity: quantity(fields.quantity), expires_on: expiry(fields.expires_on),
+      location: text(fields.location, 80, "location", true), usage: text(fields.usage, 80, "usage", true), notes: text(fields.notes, 500, "notes", true, true) };
+    // An explicit "no expiry" carries no date. An empty date without it is
+    // accepted only so rows saved before expiry became required stay editable.
+    required(typeof fields.no_expiry === "boolean" && (!fields.no_expiry || value.expires_on === ""), "Invalid medicine expiry");
     required(MEDICINE_CATEGORIES.includes(fields.category), "Invalid medicine category");
     required(MEDICINE_UNITS.includes(fields.unit), "Invalid medicine unit");
     const now = new Date().toISOString();
     return this.#transaction(() => {
       let id = fields.id;
       if (id) {
-        required(this.db.prepare(`UPDATE items SET name=?,spec=?,manufacturer=?,category=?,quantity=?,unit=?,expires_on=?,updated_at=? WHERE scope=? AND id=?`)
-          .run(value.name, value.spec, value.manufacturer, fields.category, value.quantity, fields.unit, value.expires_on, now, key, id).changes === 1, "Medicine no longer exists");
+        required(this.db.prepare(`UPDATE items SET name=?,category=?,quantity=?,unit=?,expires_on=?,no_expiry=?,location=?,usage=?,notes=?,updated_at=? WHERE scope=? AND id=?`)
+          .run(value.name, fields.category, value.quantity, fields.unit, value.expires_on, fields.no_expiry ? 1 : 0, value.location, value.usage, value.notes, now, key, id).changes === 1, "Medicine no longer exists");
       } else {
         required(this.db.prepare("SELECT COUNT(*) AS count FROM items WHERE scope=?").get(key).count < MEDICINE_LIMIT, "Medicine box is full");
         id = `med_${crypto.randomUUID().replaceAll("-", "")}`;
-        this.db.prepare("INSERT INTO items VALUES(?,?,?,?,?,?,?,?,?,?,?)")
-          .run(key, id, value.name, value.spec, value.manufacturer, fields.category, value.quantity, fields.unit, value.expires_on, now, now);
+        this.db.prepare("INSERT INTO items VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)")
+          .run(key, id, value.name, fields.category, value.quantity, fields.unit, value.expires_on, fields.no_expiry ? 1 : 0, value.location, value.usage, value.notes, now, now);
       }
       return row(this.db.prepare("SELECT * FROM items WHERE scope=? AND id=?").get(key, id));
     });

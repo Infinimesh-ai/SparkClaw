@@ -1,6 +1,6 @@
 const CHANNEL = "sparkclaw-medicine-box:invoke";
 const FIELDS = { list: [], save: ["medicine"], remove: ["medicine_id"] };
-const MEDICINE_FIELDS = ["id", "name", "spec", "manufacturer", "category", "quantity", "unit", "expires_on"];
+const MEDICINE_FIELDS = ["id", "name", "category", "quantity", "unit", "expires_on", "no_expiry", "location", "usage", "notes"];
 
 // The renderer supplies only an operation and its own fields; the account the
 // inventory belongs to comes from the authenticated main-process identity.

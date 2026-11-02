@@ -3,12 +3,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { DatabaseSync } from "node:sqlite";
 import { MedicineStore } from "../src/main/medicine-store.mjs";
 import { MedicineBoxCapability } from "../src/main/medicine-capability.mjs";
 import { projectISCPCapabilities } from "../src/main/iscp-capabilities.mjs";
 
 const owner = { deployment_id: "deployment", owner_id: "owner" };
-const medicine = (fields = {}) => ({ id: "", name: "布洛芬缓释胶囊", spec: "0.3g×20粒", manufacturer: "中美天津史克", category: "fever", quantity: 12, unit: "capsule", expires_on: "", ...fields });
+const medicine = (fields = {}) => ({ id: "", name: "布洛芬缓释胶囊", category: "fever", quantity: 12, unit: "capsule", expires_on: "2027-12-31", no_expiry: false,
+  location: "客厅抽屉", usage: "退烧、止痛", notes: "饭后服用\n儿童减半", ...fields });
 const temporaryStore = () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "medicine-box-"));
   return { store: new MedicineStore(root), root };
@@ -35,8 +37,13 @@ test("recognized medicines are added, updated by id and removed per account", ()
     assert.deepEqual(store.list(other).items, []);
     assert.throws(() => store.save(other, medicine({ id: first.id })), /no longer exists/);
 
+    // No expiry carries no date; an empty date alone stays readable for earlier rows.
+    assert.equal(store.save(owner, medicine({ id: first.id, expires_on: "", no_expiry: true })).no_expiry, true);
+    assert.equal(store.save(owner, medicine({ id: first.id, expires_on: "", no_expiry: false })).expires_on, "");
+    assert.equal(store.save(owner, medicine({ id: first.id, location: "", usage: "", notes: "" })).notes, "");
     for (const bad of [{ name: "" }, { name: "x".repeat(81) }, { category: "magic" }, { unit: "spoon" }, { quantity: -1 }, { quantity: 1.234 },
-      { quantity: Number.NaN }, { quantity: "3" }, { expires_on: "2026-02-30" }, { id: "1" }, { manufacturer: "a\nb" }]) {
+      { quantity: Number.NaN }, { quantity: "3" }, { expires_on: "2026-02-30" }, { id: "1" }, { location: "a\nb" }, { usage: "x".repeat(81) },
+      { notes: "x".repeat(501) }, { notes: "a\tb" }, { no_expiry: "yes" }, { no_expiry: true, expires_on: "2027-01-31" }]) {
       assert.throws(() => store.save(owner, medicine(bad)), /Invalid medicine/);
     }
     assert.deepEqual(store.remove(owner, first.id), { deleted: true });
@@ -55,6 +62,70 @@ test("the store survives reopening", () => {
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+// The version 1 layout as the first release created it.
+function versionOneDatabase(root, rows) {
+  fs.mkdirSync(root, { recursive: true });
+  const db = new DatabaseSync(path.join(root, "medicine-box.sqlite"));
+  db.exec(`CREATE TABLE items(scope TEXT NOT NULL,id TEXT NOT NULL,name TEXT NOT NULL,spec TEXT NOT NULL,manufacturer TEXT NOT NULL,category TEXT NOT NULL,quantity REAL NOT NULL,unit TEXT NOT NULL,expires_on TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(scope,id));
+    PRAGMA user_version=1;`);
+  const insert = db.prepare("INSERT INTO items VALUES(?,?,?,?,?,?,?,?,?,?,?)");
+  for (const r of rows) insert.run(JSON.stringify([owner.deployment_id, owner.owner_id]), r.id, r.name, r.spec, r.manufacturer, r.category, r.quantity, r.unit, r.expires_on, r.created_at, r.updated_at);
+  return db;
+}
+const v1Rows = [
+  { id: "med_" + "1".repeat(32), name: "布洛芬缓释胶囊", spec: "0.3g×20粒", manufacturer: "中美天津史克", category: "fever", quantity: 12, unit: "capsule", expires_on: "2027-12-31", created_at: "2026-11-01T00:00:00.000Z", updated_at: "2026-11-01T01:00:00.000Z" },
+  { id: "med_" + "2".repeat(32), name: "蒙脱石散", spec: "3g×10袋", manufacturer: "", category: "digestive", quantity: 2.5, unit: "sachet", expires_on: "", created_at: "2026-11-01T02:00:00.000Z", updated_at: "2026-11-01T02:00:00.000Z" },
+  { id: "med_" + "3".repeat(32), name: "创可贴", spec: "", manufacturer: "云南白药", category: "wound", quantity: 30, unit: "patch", expires_on: "2028-01-31", created_at: "2026-11-01T03:00:00.000Z", updated_at: "2026-11-01T03:00:00.000Z" },
+  { id: "med_" + "4".repeat(32), name: "维生素C片", spec: "", manufacturer: "", category: "other", quantity: 0, unit: "tablet", expires_on: "2026-01-31", created_at: "2026-11-01T04:00:00.000Z", updated_at: "2026-11-01T04:00:00.000Z" },
+];
+
+test("a version 1 box upgrades in place and keeps the pack size and manufacturer in the notes", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "medicine-box-"));
+  try {
+    versionOneDatabase(root, v1Rows).close();
+    const store = new MedicineStore(root);
+    try {
+      const items = Object.fromEntries(store.list(owner).items.map((item) => [item.id, item]));
+      assert.equal(Object.keys(items).length, v1Rows.length);
+      for (const old of v1Rows) {
+        const { spec, manufacturer, ...kept } = old;
+        assert.deepEqual({ ...items[old.id], notes: undefined }, { ...kept, no_expiry: false, location: "", usage: "", notes: undefined });
+      }
+      assert.deepEqual(v1Rows.map((old) => items[old.id].notes), ["规格：0.3g×20粒\n生产企业：中美天津史克", "规格：3g×10袋", "生产企业：云南白药", ""]);
+      store.save(owner, medicine({ id: v1Rows[1].id, expires_on: "", no_expiry: true }));
+    } finally { store.close(); }
+    const check = new DatabaseSync(path.join(root, "medicine-box.sqlite"));
+    try { assert.equal(check.prepare("PRAGMA user_version").get().user_version, 2); } finally { check.close(); }
+    // The upgraded box reopens without migrating again.
+    const reopened = new MedicineStore(root);
+    try { assert.equal(reopened.list(owner).items.find((item) => item.id === v1Rows[1].id).no_expiry, true); } finally { reopened.close(); }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("a failed upgrade leaves version 1 untouched and the next start upgrades it", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "medicine-box-"));
+  try {
+    const db = versionOneDatabase(root, v1Rows);
+    // A stray table with the migration's name makes the upgrade fail midway.
+    db.exec("CREATE TABLE items_v2(x)");
+    db.close();
+    assert.throws(() => new MedicineStore(root), /items_v2/);
+    const check = new DatabaseSync(path.join(root, "medicine-box.sqlite"));
+    try {
+      assert.equal(check.prepare("PRAGMA user_version").get().user_version, 1);
+      assert.equal(check.prepare("SELECT COUNT(*) AS count FROM items").get().count, v1Rows.length);
+      assert.ok(check.prepare("SELECT spec FROM items LIMIT 1").get());
+      check.exec("DROP TABLE items_v2");
+    } finally { check.close(); }
+    const store = new MedicineStore(root);
+    try { assert.equal(store.list(owner).items.length, v1Rows.length); } finally { store.close(); }
+
+    const newer = new DatabaseSync(path.join(root, "medicine-box.sqlite"));
+    newer.exec("PRAGMA user_version=3"); newer.close();
+    assert.throws(() => new MedicineStore(root), /newer/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test("medicine box IPC takes its scope from the authenticated identity and rejects injected fields", async () => {
   const frame = { url: "sparkclaw-app://workbench/index.html" }, webContents = { mainFrame: frame };
   let identity = { deployment_id: "deployment", owner_id: "owner", client_id: "client" };
@@ -69,6 +140,8 @@ test("medicine box IPC takes its scope from the authenticated identity and rejec
   assert.deepEqual(calls.map(([operation, scope]) => [operation, scope]), ["list", "save", "remove"].map((operation) => [operation, owner]));
   await assert.rejects(capability.dispatch(event, { schema_version: 1, operation: "list", owner_id: "other" }), /fields/);
   await assert.rejects(capability.dispatch(event, { schema_version: 1, operation: "save", medicine: { ...medicine(), owner_id: "other" } }), /fields/);
+  // The removed version 1 fields are no longer accepted.
+  await assert.rejects(capability.dispatch(event, { schema_version: 1, operation: "save", medicine: { ...medicine(), spec: "0.3g" } }), /fields/);
   await assert.rejects(capability.dispatch(event, { schema_version: 1, operation: "lookup", code: "1" }), /unavailable/);
   await assert.rejects(capability.dispatch({ ...event, senderFrame: { ...frame } }, { schema_version: 1, operation: "list" }), /trusted/);
   identity = null;

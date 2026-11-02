@@ -280,34 +280,40 @@ func (s *PostgresStore) UpdatePendingApproval(ctx context.Context, command Appro
 }
 
 func (s *PostgresStore) ResolveApproval(ctx context.Context, id string, status app.ApprovalStatus, note string) (app.Approval, error) {
-	return s.ResolveApprovalWithInputs(ctx, id, status, note, app.ApprovalInputSubmission{})
+	ctx, cancel := operationContext(ctx, OperationApprovalResolve, s.operationTimeouts)
+	defer cancel()
+	return s.resolveApprovalInputs(ctx, OperationApprovalResolve, id, status, note, app.ApprovalInputSubmission{})
 }
 
 func (s *PostgresStore) ResolveApprovalWithInputs(ctx context.Context, id string, status app.ApprovalStatus, note string, input app.ApprovalInputSubmission) (app.Approval, error) {
-	ctx, cancel := operationContext(ctx, OperationApprovalResolve, s.operationTimeouts)
+	ctx, cancel := operationContext(ctx, OperationApprovalResolveInputs, s.operationTimeouts)
 	defer cancel()
-	if err := operationContextError(OperationApprovalResolve, ctx); err != nil {
+	return s.resolveApprovalInputs(ctx, OperationApprovalResolveInputs, id, status, note, input)
+}
+
+func (s *PostgresStore) resolveApprovalInputs(ctx context.Context, operation StoreOperation, id string, status app.ApprovalStatus, note string, input app.ApprovalInputSubmission) (app.Approval, error) {
+	if err := operationContextError(operation, ctx); err != nil {
 		return app.Approval{}, err
 	}
-	releaseGate, err := s.acquireApprovalCommand(ctx, OperationApprovalResolve)
+	releaseGate, err := s.acquireApprovalCommand(ctx, operation)
 	if err != nil {
 		return app.Approval{}, err
 	}
 	defer releaseGate()
-	session, transaction, release, err := beginPostgresTransaction(ctx, OperationApprovalResolve, s.approvalPostgres)
+	session, transaction, release, err := beginPostgresTransaction(ctx, operation, s.approvalPostgres)
 	if err != nil {
 		return app.Approval{}, err
 	}
 	defer releasePostgresSession(session, release)
 	if _, err := transaction.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, approvalAdvisoryKey(id)); err != nil {
-		return finishApprovalPostgresStatement(ctx, OperationApprovalResolve, app.Approval{}, session, transaction, release, err)
+		return finishApprovalPostgresStatement(ctx, operation, app.Approval{}, session, transaction, release, err)
 	}
 	current, err := scanApproval(transaction.QueryRow(ctx, approvalSelectSQL+` WHERE id = $1 FOR UPDATE`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return app.Approval{}, approvalPostgresBusinessError(ctx, OperationApprovalResolve, StoreErrorNotFound, session, transaction, release, ErrApprovalNotFound)
+		return app.Approval{}, approvalPostgresBusinessError(ctx, operation, StoreErrorNotFound, session, transaction, release, ErrApprovalNotFound)
 	}
 	if err != nil {
-		return finishApprovalPostgresStatement(ctx, OperationApprovalResolve, app.Approval{}, session, transaction, release, err)
+		return finishApprovalPostgresStatement(ctx, operation, app.Approval{}, session, transaction, release, err)
 	}
 	approval, replay, err := prepareApprovalInputResolution(current, status, note, time.Now(), input)
 	if err != nil {
@@ -315,11 +321,11 @@ func (s *PostgresStore) ResolveApprovalWithInputs(ctx context.Context, id string
 		if errors.Is(err, ErrApprovalConflict) {
 			code = StoreErrorConflict
 		}
-		return app.Approval{}, approvalPostgresBusinessError(ctx, OperationApprovalResolve, code, session, transaction, release, err)
+		return app.Approval{}, approvalPostgresBusinessError(ctx, operation, code, session, transaction, release, err)
 	}
 	if replay {
 		if err := rollbackPostgresTransaction(ctx, session, transaction, release, nil); err != nil {
-			return app.Approval{}, classifyApprovalPostgresError(OperationApprovalResolve, ctx, err)
+			return app.Approval{}, classifyApprovalPostgresError(operation, ctx, err)
 		}
 		return approval, nil
 	}
@@ -327,12 +333,12 @@ func (s *PostgresStore) ResolveApprovalWithInputs(ctx context.Context, id string
 		UPDATE approvals SET status = $2, resolved_at = $3, resolution_note = nullif($4, ''), input_values = $5, inputs_digest = $6
 		WHERE id = $1 AND status = 'pending'
 	`, approval.ID, string(approval.Status), approval.ResolvedAt, approval.ResolutionNote, optionalJSON(approval.InputValues), approval.InputsDigest); err != nil {
-		return finishApprovalPostgresStatement(ctx, OperationApprovalResolve, approval, session, transaction, release, err)
+		return finishApprovalPostgresStatement(ctx, operation, approval, session, transaction, release, err)
 	}
 	if err := appendApprovalLifecycle(transaction, ctx, approval, approvalResolutionActor(approval.Status)); err != nil {
-		return finishApprovalPostgresStatement(ctx, OperationApprovalResolve, approval, session, transaction, release, err)
+		return finishApprovalPostgresStatement(ctx, operation, approval, session, transaction, release, err)
 	}
-	return commitApprovalPostgres(ctx, OperationApprovalResolve, approval, session, transaction, release)
+	return commitApprovalPostgres(ctx, operation, approval, session, transaction, release)
 }
 
 func (s *PostgresStore) ListApprovals(ctx context.Context, status app.ApprovalStatus) ([]app.Approval, error) {

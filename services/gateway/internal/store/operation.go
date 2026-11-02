@@ -135,6 +135,7 @@ const (
 	OperationApprovalFindExternalRef     StoreOperation = "approval.find_external_ref"
 	OperationApprovalUpdatePending       StoreOperation = "approval.update_pending"
 	OperationApprovalResolve             StoreOperation = "approval.resolve"
+	OperationApprovalResolveInputs       StoreOperation = "approval.resolve_inputs"
 	OperationApprovalList                StoreOperation = "approval.list"
 	OperationAuditAdd                    StoreOperation = "audit.add"
 	OperationAuditList                   StoreOperation = "audit.list"
@@ -560,6 +561,10 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationApprovalResolve: {
 		ID: OperationApprovalResolve, Repository: "ApprovalRepository",
 		Method: "ResolveApproval", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationApprovalResolveInputs: {
+		ID: OperationApprovalResolveInputs, Repository: "ApprovalRepository",
+		Method: "ResolveApprovalWithInputs", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
 	OperationApprovalList: {
 		ID: OperationApprovalList, Repository: "ApprovalRepository",

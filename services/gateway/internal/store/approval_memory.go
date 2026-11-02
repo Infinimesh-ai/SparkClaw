@@ -133,23 +133,29 @@ func (s *MemoryStore) UpdatePendingApproval(ctx context.Context, command Approva
 }
 
 func (s *MemoryStore) ResolveApproval(ctx context.Context, id string, status app.ApprovalStatus, note string) (app.Approval, error) {
-	return s.ResolveApprovalWithInputs(ctx, id, status, note, app.ApprovalInputSubmission{})
+	ctx, cancel := operationContext(ctx, OperationApprovalResolve, s.operationTimeouts)
+	defer cancel()
+	return s.resolveApprovalInputs(ctx, OperationApprovalResolve, id, status, note, app.ApprovalInputSubmission{})
 }
 
 func (s *MemoryStore) ResolveApprovalWithInputs(ctx context.Context, id string, status app.ApprovalStatus, note string, input app.ApprovalInputSubmission) (app.Approval, error) {
-	ctx, cancel := operationContext(ctx, OperationApprovalResolve, s.operationTimeouts)
+	ctx, cancel := operationContext(ctx, OperationApprovalResolveInputs, s.operationTimeouts)
 	defer cancel()
-	if err := operationContextError(OperationApprovalResolve, ctx); err != nil {
+	return s.resolveApprovalInputs(ctx, OperationApprovalResolveInputs, id, status, note, input)
+}
+
+func (s *MemoryStore) resolveApprovalInputs(ctx context.Context, operation StoreOperation, id string, status app.ApprovalStatus, note string, input app.ApprovalInputSubmission) (app.Approval, error) {
+	if err := operationContextError(operation, ctx); err != nil {
 		return app.Approval{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := operationContextError(OperationApprovalResolve, ctx); err != nil {
+	if err := operationContextError(operation, ctx); err != nil {
 		return app.Approval{}, err
 	}
 	approval, ok := s.approvals[id]
 	if !ok {
-		return app.Approval{}, storeError(ctx, OperationApprovalResolve, StoreErrorNotFound, ErrApprovalNotFound)
+		return app.Approval{}, storeError(ctx, operation, StoreErrorNotFound, ErrApprovalNotFound)
 	}
 	approval, replay, err := prepareApprovalInputResolution(approval, status, note, time.Now(), input)
 	if err != nil {
@@ -157,7 +163,7 @@ func (s *MemoryStore) ResolveApprovalWithInputs(ctx context.Context, id string, 
 		if errors.Is(err, ErrApprovalConflict) {
 			code = StoreErrorConflict
 		}
-		return app.Approval{}, storeError(ctx, OperationApprovalResolve, code, err)
+		return app.Approval{}, storeError(ctx, operation, code, err)
 	}
 	if replay {
 		return cloneApproval(approval)

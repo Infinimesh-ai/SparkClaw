@@ -40,7 +40,7 @@ var migratedFileAdmissions = map[string]string{
 	"SaveEpisodeSummary": "admitMigrated", "ListEpisodeSummaries": "admitMigrated", "ListRecentEpisodeSummaries": "admitMigrated", "CountEpisodeSummaries": "admitMigrated",
 	"SaveDocumentRecord": "admitMigrated", "GetDocumentRecord": "admitMigrated", "ListDocumentRecords": "admitMigrated",
 	"SaveApproval": "admitMigrated", "GetApproval": "admitMigrated", "FindApprovalByExternalRef": "admitMigrated",
-	"UpdatePendingApproval": "admitMigrated", "ResolveApproval": "admitMigrated", "ListApprovals": "admitMigrated",
+	"UpdatePendingApproval": "admitMigrated", "ResolveApproval": "admitMigrated", "ResolveApprovalWithInputs": "admitMigrated", "ListApprovals": "admitMigrated",
 	"AddAudit": "admitMigrated", "ListAudit": "admitMigrated", "EventsAfter": "admitMigrated", "ReadEventWindow": "admitMigrated",
 	"SaveEvalRun": "admitMigrated", "GetEvalRun": "admitMigrated", "ListEvalRuns": "admitMigrated",
 	"SaveArtifactObject": "admitMigrated", "ListArtifactObjects": "admitMigrated", "FindArtifactObjectByURI": "admitMigrated",

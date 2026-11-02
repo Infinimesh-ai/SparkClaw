@@ -20,7 +20,7 @@ import (
 
 var s0RepositoryMethods = map[string][]string{
 	"ApprovalRepository": {
-		"FindApprovalByExternalRef", "GetApproval", "ListApprovals", "ResolveApproval", "SaveApproval", "UpdatePendingApproval",
+		"FindApprovalByExternalRef", "GetApproval", "ListApprovals", "ResolveApproval", "ResolveApprovalWithInputs", "SaveApproval", "UpdatePendingApproval",
 	},
 	"ArtifactMetadataRepository": {
 		"FindArtifactObjectByURI", "ListArtifactObjects", "SaveArtifactObject",
@@ -95,8 +95,8 @@ var s0RepositoryMethods = map[string][]string{
 
 func TestS0RepositoryMethodCatalogCharacterization(t *testing.T) {
 	typeOfBackend := reflect.TypeOf((*testBackend)(nil)).Elem()
-	if typeOfBackend.NumMethod() != 160 {
-		t.Fatalf("repository method count = %d, want migrated baseline 160", typeOfBackend.NumMethod())
+	if typeOfBackend.NumMethod() != 161 {
+		t.Fatalf("repository method count = %d, want migrated baseline 161", typeOfBackend.NumMethod())
 	}
 
 	owners := make(map[string]string, typeOfBackend.NumMethod())

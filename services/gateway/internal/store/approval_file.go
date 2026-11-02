@@ -47,16 +47,23 @@ func (s *FileStore) UpdatePendingApproval(ctx context.Context, command ApprovalU
 }
 
 func (s *FileStore) ResolveApproval(ctx context.Context, id string, status app.ApprovalStatus, note string) (app.Approval, error) {
-	return s.ResolveApprovalWithInputs(ctx, id, status, note, app.ApprovalInputSubmission{})
-}
-
-func (s *FileStore) ResolveApprovalWithInputs(ctx context.Context, id string, status app.ApprovalStatus, note string, input app.ApprovalInputSubmission) (app.Approval, error) {
 	ctx, release, err := s.admitMigrated(ctx, OperationApprovalResolve, fileAdmissionCapacity)
 	if err != nil {
 		return app.Approval{}, err
 	}
 	defer release()
 	return runFileCommand(s, ctx, OperationApprovalResolve, func(ctx context.Context) (app.Approval, error) {
+		return s.inner.ResolveApproval(ctx, id, status, note)
+	})
+}
+
+func (s *FileStore) ResolveApprovalWithInputs(ctx context.Context, id string, status app.ApprovalStatus, note string, input app.ApprovalInputSubmission) (app.Approval, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationApprovalResolveInputs, fileAdmissionCapacity)
+	if err != nil {
+		return app.Approval{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationApprovalResolveInputs, func(ctx context.Context) (app.Approval, error) {
 		return s.inner.ResolveApprovalWithInputs(ctx, id, status, note, input)
 	})
 }

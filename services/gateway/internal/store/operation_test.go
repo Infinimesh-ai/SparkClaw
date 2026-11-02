@@ -252,6 +252,10 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 			ID: OperationApprovalResolve, Repository: "ApprovalRepository",
 			Method: "ResolveApproval", Mode: operationWrite, Timeout: timeoutTransaction,
 		},
+		OperationApprovalResolveInputs: {
+			ID: OperationApprovalResolveInputs, Repository: "ApprovalRepository",
+			Method: "ResolveApprovalWithInputs", Mode: operationWrite, Timeout: timeoutTransaction,
+		},
 		OperationApprovalList: {
 			ID: OperationApprovalList, Repository: "ApprovalRepository",
 			Method: "ListApprovals", Mode: operationRead, Timeout: timeoutRead,

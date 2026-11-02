@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/medicine"
 	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/medicine"
 )
 
 func medicineTestBatch(id string, n int) medicine.Batch {
@@ -158,7 +159,25 @@ func TestMedicinePostgresContract(t *testing.T) {
 	}
 }
 func TestMedicineConcurrentBatchCAS(t *testing.T) {
-	repo := NewMemoryStore()
+	t.Run("memory", func(t *testing.T) { medicineConcurrentBatchCAS(t, NewMemoryStore()) })
+	t.Run("file", func(t *testing.T) {
+		repo, err := NewFileStore(filepath.Join(t.TempDir(), "state.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		medicineConcurrentBatchCAS(t, repo)
+	})
+	t.Run("postgres", func(t *testing.T) {
+		repo, err := NewPostgresStore(t.Context(), newPostgresMigrationTestSchema(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer repo.Close()
+		medicineConcurrentBatchCAS(t, repo)
+	})
+}
+func medicineConcurrentBatchCAS(t *testing.T, repo medicine.Repository) {
+	t.Helper()
 	created, err := repo.ApplyMedicineBatch(t.Context(), "owner", medicineTestBatch("create", 1))
 	if err != nil {
 		t.Fatal(err)
@@ -260,5 +279,56 @@ func TestMedicineFileCorruptInventoryRefused(t *testing.T) {
 	}
 	if _, err = NewFileStore(repo.path); err == nil {
 		t.Fatal("corrupt medicine inventory was silently accepted")
+	}
+}
+
+func TestMedicinePostgresReceiptFailureRollsBackWholeBatch(t *testing.T) {
+	repo, err := NewPostgresStore(t.Context(), newPostgresMigrationTestSchema(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+	if _, err := repo.ApplyMedicineBatch(t.Context(), "owner", medicineTestBatch("before", 1)); err != nil {
+		t.Fatal(err)
+	}
+	before, err := repo.ReadMedicineBox(t.Context(), "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var eventsBefore int
+	if err := repo.db.QueryRow(t.Context(), `SELECT count(*) FROM events`).Scan(&eventsBefore); err != nil {
+		t.Fatal(err)
+	}
+	// This trigger runs after inventory rows, per-item events and state counters
+	// have been written, immediately before the transaction's durable receipt.
+	if _, err := repo.db.Exec(t.Context(), `CREATE FUNCTION medicine_receipt_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.operation_id = 'fail-receipt' THEN RAISE EXCEPTION 'injected receipt failure'; END IF; RETURN NEW; END $$;
+ CREATE TRIGGER medicine_receipt_failure BEFORE INSERT ON medicine_operation_receipts FOR EACH ROW EXECUTE FUNCTION medicine_receipt_failure()`); err != nil {
+		t.Fatal(err)
+	}
+	batch := medicineTestBatch("fail-receipt", 2)
+	if _, err := repo.ApplyMedicineBatch(t.Context(), "owner", batch); err == nil {
+		t.Fatal("receipt insertion did not fail")
+	}
+	after, err := repo.ReadMedicineBox(t.Context(), "owner")
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatal("partial failed batch", before, after, err)
+	}
+	if _, found, err := repo.GetMedicineOperation(t.Context(), "owner", batch.OperationID); err != nil || found {
+		t.Fatal("failed transaction retained receipt", found, err)
+	}
+	var eventsAfter int
+	if err := repo.db.QueryRow(t.Context(), `SELECT count(*) FROM events`).Scan(&eventsAfter); err != nil || eventsAfter != eventsBefore {
+		t.Fatal("failed transaction emitted global event", eventsBefore, eventsAfter, err)
+	}
+	if _, err := repo.db.Exec(t.Context(), `DROP TRIGGER medicine_receipt_failure ON medicine_operation_receipts`); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := repo.ApplyMedicineBatch(t.Context(), "owner", batch)
+	if err != nil || receipt.Sequence != before.Sequence+2 {
+		t.Fatal(receipt, err)
+	}
+	replayed, err := repo.ApplyMedicineBatch(t.Context(), "owner", batch)
+	if err != nil || !reflect.DeepEqual(receipt, replayed) {
+		t.Fatal("replay changed receipt", replayed, err)
 	}
 }

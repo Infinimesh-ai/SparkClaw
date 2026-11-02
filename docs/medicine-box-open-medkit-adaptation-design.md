@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/medicine-box-open-medkit-adaptation-design.md)
 >
-> Date: 2026-11-02. Status: design settled; the owner confirmed the items in section 9 on 2026-11-02; no code changes yet. Reference: [MonoYan/open-medkit](https://github.com/MonoYan/open-medkit) commit `8c2217ba707cf239ec3c8285c3ff3aa3b357a1c4` (MIT licence). Scope: the desktop medicine box workspace, the detail dialog, the add/edit dialog, the medicine fields and their local data migration, and text entry. The module rail, the medicine sidebar and the photo recognition path stay.
+> Date: 2026-11-02. Status: design settled; the owner confirmed the items in section 9 on 2026-11-02. Both phases were implemented on 2026-11-02 (section 10); not pushed, packaged, installed or deployed, and the real-model spot check has not run. Reference: [MonoYan/open-medkit](https://github.com/MonoYan/open-medkit) commit `8c2217ba707cf239ec3c8285c3ff3aa3b357a1c4` (MIT licence). Scope: the desktop medicine box workspace, the detail dialog, the add/edit dialog, the medicine fields and their local data migration, and text entry. The module rail, the medicine sidebar and the photo recognition path stay.
 
 ## 1. Background and goals
 
@@ -461,3 +461,22 @@ Automation: the full WebChat vitest suite and the production build pass; desktop
 12. No quick adjustment for millilitres and grams.
 13. The same medicine is not merged: separate entries, kept together in the UI; adding a same-name medicine only shows a notice.
 14. The review step shows the photo thumbnail or the original text; cards leave out the usage row when no result has a usage.
+
+## 10. Implementation record (2026-11-02)
+
+Phase 1 shipped in one commit because the renderer and the main process change their field sets together. Phase 2 has a Gateway commit and a desktop/WebChat commit, which must be released as a pair.
+
+Settled during implementation:
+
+- Breakpoints are measured on the workspace width with a container query, because the module rail and the sidebar take about 310px of the window: at 760px and above, the full toolbar and every column; from 560 to 759px, a two-row toolbar and no location column; below 560px, folded list rows and a single card column. A 1024px window gives the middle tier and an 800px window the narrow one.
+- The `version` field in `operations.json` is the transport profile (1 or 2), not the output schema, so `medicine.recognize` stays at 2. Its model output moves to `medicine_recognition_v2` and the HTTP result gains `usage` and drops `spec` and `manufacturer`; the renderer still reads a first-release result and leaves the usage empty.
+- Text reading is its own capability row `medicine_text` (Gateway family and desktop surface). A Gateway without `medicine.parse` disables only the Text segment and leaves photo entry alone.
+- `medicine.parse` runs on the fast lane with output class `compact_structured`. Its timeout is 60 seconds in the Gateway RPC, the desktop ISCP transport and the desktop HTTP path. The Gateway accepts at most 8 KiB of request body.
+- The renderer turns line breaks and repeated spaces in the typed sentence into single spaces before sending it; the Gateway still refuses control characters.
+- When only the unit was pre-filled, the quantity label shows "单位待核对" (Check unit) rather than marking the empty quantity.
+- The step tabs are buttons: "① Add" returns to step 1, where an unavailable entry stays visible and disabled; "② Review" equals "Skip and fill in".
+- Status, filter, sort, grouping, month-end and quantity-step rules are pure functions in `apps/webchat/src/desktop/medicineBox.ts`; the component moved to `apps/webchat/src/components/medicineBox/` with the same exports.
+
+Verified: WebChat 585 tests and the production build; desktop medicine tests including the v1 upgrade, failed-upgrade rollback and newer-version refusal; Gateway medicine, model-capacity and ISCP workbench tests; operation-list sync check. The development preview was checked in light and dark themes, cards and list, the detail dialog, photo and text entry and same-name grouping.
+
+Not done: the real-model spot check over Chinese sentences and package photos; native acceptance in the packaged app; a paired release.

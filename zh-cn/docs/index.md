@@ -39,7 +39,7 @@
 | [浏览器 Runtime](browser-runtime.md) | 当前持久 Chromium、SparkClaw Browser Bridge、Owner-scoped Controller、Task-tab 所有权、登录 Handoff、部署与安全约束 |
 | [桌面客户端与内置浏览器设计](desktop-client-embedded-browser-design.md) | 既有 Electron／原生视图实现及 Controller / Playwright 适配基线；客户端本地存储与 LAN 宿主控制已实现，当前归属见架构指南 |
 | [桌面端本地文件浏览设计](desktop-local-file-browser-design.md) | 设计与首版实现：登录内 Files 入口、整机本地文件树、隔离预览标签、离线渲染器与客户端边界；记录源码/候选包证据及剩余发布验收 |
-| [药箱界面参考 open-medkit 的适配设计](medicine-box-open-medkit-adaptation-design.md) | 定稿：统计、搜索、效期筛选、默认卡片、详情快速加减数量；字段为名称／有效期／数量／位置／用途／备注，含本机 v1→v2 迁移；照片和文字录入共用同一核对步骤；尚无代码 |
+| [药箱界面参考 open-medkit 的适配设计](medicine-box-open-medkit-adaptation-design.md) | 定稿：统计、搜索、效期筛选、默认卡片、详情快速加减数量；字段为名称／有效期／数量／位置／用途／备注，含本机 v1→v2 迁移；照片和文字录入共用同一核对步骤；两个阶段已实现，尚未发布 |
 | [Electron 桌面浏览器实施交接](desktop-electron-implementation-handoff.md) | 四阶段实施记录、代码入口、资格证据和剩余用户验收门槛 |
 | [桌面发布与切换方案](desktop-release-plan.md) | 候选哈希、安装／更新／卸载策略、目标主机验收、原子切换与整版回滚 |
 | [Web 与桌面客户端共享本机后端设计](local-shared-backend-design.md) | 已实现基线：共享 Gateway／PostgreSQL 与客户端刷新；R3 替代非邮箱共享存储及桌面仅回环限制 |

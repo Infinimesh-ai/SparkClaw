@@ -70,6 +70,9 @@ func validateApprovalControl(f Fence) error {
 		if !identityPattern.MatchString(row.ApprovalID) || !digestPattern.MatchString(row.Digest) || row.Revision == 0 || row.Revision > f.Revision || seen[row.ApprovalID] {
 			return errors.New("invalid approval control binding")
 		}
+		if row.InputsDigest != "" && (!digestPattern.MatchString(row.InputsDigest) || row.Decision != "approve" || row.State != ApprovalDecided && row.State != ApprovalDecisionUnknown) {
+			return errors.New("invalid approval inputs receipt")
+		}
 		seen[row.ApprovalID] = true
 		switch row.State {
 		case ApprovalPending:

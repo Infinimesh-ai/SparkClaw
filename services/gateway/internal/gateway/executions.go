@@ -253,14 +253,14 @@ func (s *Server) resolveExecutionApproval(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var input struct {
-		Digest   string `json:"digest"`
+		app.ApprovalInputSubmission
 		Decision string `json:"decision"`
 	}
 	if err = readExecutionJSON(r, &input); err != nil {
 		writeError(w, 400, errors.New("invalid workbench approval decision"))
 		return
 	}
-	if err = s.executions.DecideApproval(p.OwnerID, p.ClientID, r.PathValue("request"), r.PathValue("approval"), input.Digest, input.Decision); err != nil {
+	if err = s.executions.DecideApprovalWithInputs(p.OwnerID, p.ClientID, r.PathValue("request"), r.PathValue("approval"), input.Digest, input.Decision, input.ApprovalInputSubmission); err != nil {
 		writeExecutionError(w, err)
 		return
 	}

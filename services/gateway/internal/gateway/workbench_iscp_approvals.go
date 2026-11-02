@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 )
@@ -65,7 +66,7 @@ func (a *iscpDomainAdapter) approvals(ctx context.Context, request iscpworkbench
 		return domainError(404, "approval_not_found")
 	}
 	var input struct {
-		Digest      string `json:"digest"`
+		app.ApprovalInputSubmission
 		Decision    string `json:"decision"`
 		InputDigest string `json:"input_digest,omitempty"`
 	}
@@ -79,7 +80,7 @@ func (a *iscpDomainAdapter) approvals(ctx context.Context, request iscpworkbench
 	if boundDigest != status.InputDigest || request.ExpectedRevision != revision {
 		return domainError(409, "revision_conflict")
 	}
-	if err = service.DecideApprovalAtRevision(principal.OwnerID, principal.ClientID, requestID, id, input.Digest, input.Decision, status.Revision); err != nil {
+	if err = service.DecideApprovalWithInputsAtRevision(principal.OwnerID, principal.ClientID, requestID, id, input.Digest, input.Decision, status.Revision, input.ApprovalInputSubmission); err != nil {
 		return domainExecutionError(err)
 	}
 	updated, err := service.Lookup(principal.OwnerID, principal.ClientID, requestID)

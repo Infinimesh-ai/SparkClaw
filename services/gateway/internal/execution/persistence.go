@@ -12,7 +12,7 @@ import (
 	"syscall"
 )
 
-const controlVersion = 4
+const controlVersion = 5
 
 type control struct {
 	ClarificationClaims map[string]clarificationClaim `json:"clarification_claims"`

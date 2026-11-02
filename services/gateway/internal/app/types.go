@@ -149,6 +149,10 @@ type ToolCall struct {
 }
 
 type Approval struct {
+	InputForm       *ApprovalInputForm       `json:"input_form,omitempty"`
+	InputFormDigest string                   `json:"input_form_digest,omitempty"`
+	InputValues     ApprovalInputValues      `json:"input_values,omitempty"`
+	InputsDigest    string                   `json:"inputs_digest,omitempty"`
 	ID              string                   `json:"id"`
 	Source          ApprovalSource           `json:"source"`
 	ExternalID      string                   `json:"external_id,omitempty"`

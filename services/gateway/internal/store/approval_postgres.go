@@ -16,7 +16,7 @@ const approvalSelectSQL = `
 	SELECT id, source, external_id, external_context,
 		coalesce(session_id, ''), coalesce(run_id, ''), coalesce(tool_call_id, ''),
 		tool, risk_level, status, summary, reason, resources, arguments, arguments_immutable, created_at,
-		resolved_at, coalesce(resolution_note, ''), policy_context, presentation
+		resolved_at, coalesce(resolution_note, ''), policy_context, presentation, input_form, input_form_digest, input_values, inputs_digest
 	FROM approvals`
 
 func (s *PostgresStore) acquireApprovalCommand(ctx context.Context, operation StoreOperation) (func(), error) {
@@ -181,14 +181,14 @@ func (s *PostgresStore) SaveApproval(ctx context.Context, approval app.Approval)
 		INSERT INTO approvals (
 			id, source, external_id, external_context, session_id, run_id, tool_call_id,
 			tool, risk_level, status, summary, reason, resources, arguments, arguments_immutable, created_at,
-			resolved_at, resolution_note, policy_context, presentation
+			resolved_at, resolution_note, policy_context, presentation, input_form, input_form_digest, input_values, inputs_digest
 		)
 		VALUES ($1, $2, $3, $4, nullif($5, ''), nullif($6, ''), nullif($7, ''), $8,
-			$9, $10, $11, $12, $13, $14, $15, $16, $17, nullif($18, ''), $19, $20)
+			$9, $10, $11, $12, $13, $14, $15, $16, $17, nullif($18, ''), $19, $20, $21, $22, $23, $24)
 	`, approval.ID, string(approval.Source), approval.ExternalID, mustJSON(approval.ExternalContext), approval.SessionID,
 		approval.RunID, approval.ToolCallID, approval.Tool, string(approval.Risk), string(approval.Status), approval.Summary,
 		approval.Reason, mustJSON(approval.Resources), mustJSON(approval.Arguments), approval.ArgumentsImmutable, approval.CreatedAt,
-		approval.ResolvedAt, approval.ResolutionNote, optionalJSON(approval.PolicyContext), optionalJSON(approval.Presentation)); err != nil {
+		approval.ResolvedAt, approval.ResolutionNote, optionalJSON(approval.PolicyContext), optionalJSON(approval.Presentation), optionalJSON(approval.InputForm), approval.InputFormDigest, optionalJSON(approval.InputValues), approval.InputsDigest); err != nil {
 		return finishApprovalPostgresStatement(ctx, OperationApprovalSave, approval, session, transaction, release, err)
 	}
 	if err := appendApprovalLifecycle(transaction, ctx, approval, approvalActor(approval)); err != nil {
@@ -280,6 +280,10 @@ func (s *PostgresStore) UpdatePendingApproval(ctx context.Context, command Appro
 }
 
 func (s *PostgresStore) ResolveApproval(ctx context.Context, id string, status app.ApprovalStatus, note string) (app.Approval, error) {
+	return s.ResolveApprovalWithInputs(ctx, id, status, note, app.ApprovalInputSubmission{})
+}
+
+func (s *PostgresStore) ResolveApprovalWithInputs(ctx context.Context, id string, status app.ApprovalStatus, note string, input app.ApprovalInputSubmission) (app.Approval, error) {
 	ctx, cancel := operationContext(ctx, OperationApprovalResolve, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(OperationApprovalResolve, ctx); err != nil {
@@ -305,7 +309,7 @@ func (s *PostgresStore) ResolveApproval(ctx context.Context, id string, status a
 	if err != nil {
 		return finishApprovalPostgresStatement(ctx, OperationApprovalResolve, app.Approval{}, session, transaction, release, err)
 	}
-	approval, replay, err := prepareApprovalResolution(current, status, note, time.Now())
+	approval, replay, err := prepareApprovalInputResolution(current, status, note, time.Now(), input)
 	if err != nil {
 		code := StoreErrorInvalid
 		if errors.Is(err, ErrApprovalConflict) {
@@ -320,9 +324,9 @@ func (s *PostgresStore) ResolveApproval(ctx context.Context, id string, status a
 		return approval, nil
 	}
 	if _, err := transaction.Exec(ctx, `
-		UPDATE approvals SET status = $2, resolved_at = $3, resolution_note = nullif($4, '')
+		UPDATE approvals SET status = $2, resolved_at = $3, resolution_note = nullif($4, ''), input_values = $5, inputs_digest = $6
 		WHERE id = $1 AND status = 'pending'
-	`, approval.ID, string(approval.Status), approval.ResolvedAt, approval.ResolutionNote); err != nil {
+	`, approval.ID, string(approval.Status), approval.ResolvedAt, approval.ResolutionNote, optionalJSON(approval.InputValues), approval.InputsDigest); err != nil {
 		return finishApprovalPostgresStatement(ctx, OperationApprovalResolve, approval, session, transaction, release, err)
 	}
 	if err := appendApprovalLifecycle(transaction, ctx, approval, approvalResolutionActor(approval.Status)); err != nil {

@@ -713,7 +713,7 @@ func (s *Service) Close() {
 }
 
 func (s *Service) validateControl() error {
-	if s.control.Version != 2 && s.control.Version != 3 && s.control.Version != controlVersion {
+	if s.control.Version != 2 && s.control.Version != 3 && s.control.Version != 4 && s.control.Version != controlVersion {
 		return errors.New("invalid execution control version")
 	}
 	if s.control.Fences == nil || s.control.Installations == nil || s.control.WorkbenchFences == nil || len(s.control.Fences)+len(s.control.WorkbenchFences) > MaxFences {

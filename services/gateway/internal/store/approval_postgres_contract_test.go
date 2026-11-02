@@ -119,6 +119,10 @@ func scanFakeApproval(destinations []any, approval app.Approval, corrupt string)
 	*destinations[17].(*string) = approval.ResolutionNote
 	*destinations[18].(*[]byte) = policyContext
 	*destinations[19].(*[]byte) = presentation
+	*destinations[20].(*[]byte) = marshal(approval.InputForm)
+	*destinations[21].(*string) = approval.InputFormDigest
+	*destinations[22].(*[]byte) = marshal(approval.InputValues)
+	*destinations[23].(*string) = approval.InputsDigest
 	return nil
 }
 

@@ -133,6 +133,10 @@ func (s *MemoryStore) UpdatePendingApproval(ctx context.Context, command Approva
 }
 
 func (s *MemoryStore) ResolveApproval(ctx context.Context, id string, status app.ApprovalStatus, note string) (app.Approval, error) {
+	return s.ResolveApprovalWithInputs(ctx, id, status, note, app.ApprovalInputSubmission{})
+}
+
+func (s *MemoryStore) ResolveApprovalWithInputs(ctx context.Context, id string, status app.ApprovalStatus, note string, input app.ApprovalInputSubmission) (app.Approval, error) {
 	ctx, cancel := operationContext(ctx, OperationApprovalResolve, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(OperationApprovalResolve, ctx); err != nil {
@@ -147,7 +151,7 @@ func (s *MemoryStore) ResolveApproval(ctx context.Context, id string, status app
 	if !ok {
 		return app.Approval{}, storeError(ctx, OperationApprovalResolve, StoreErrorNotFound, ErrApprovalNotFound)
 	}
-	approval, replay, err := prepareApprovalResolution(approval, status, note, time.Now())
+	approval, replay, err := prepareApprovalInputResolution(approval, status, note, time.Now(), input)
 	if err != nil {
 		code := StoreErrorInvalid
 		if errors.Is(err, ErrApprovalConflict) {

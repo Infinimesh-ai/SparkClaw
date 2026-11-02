@@ -160,6 +160,7 @@ type ApprovalRepository interface {
 	FindApprovalByExternalRef(context.Context, app.ApprovalSource, string) (app.Approval, bool, error)
 	UpdatePendingApproval(context.Context, ApprovalUpdateCommand) (app.Approval, error)
 	ResolveApproval(context.Context, string, app.ApprovalStatus, string) (app.Approval, error)
+	ResolveApprovalWithInputs(context.Context, string, app.ApprovalStatus, string, app.ApprovalInputSubmission) (app.Approval, error)
 	ListApprovals(context.Context, app.ApprovalStatus) ([]app.Approval, error)
 }
 

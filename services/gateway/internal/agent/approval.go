@@ -87,6 +87,20 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 		call.Status = app.ToolCallStatusCompletedAfterApproval
 		call.CompletedAt = &now
 		call.Result = map[string]any{"status": "approval_confirmed"}
+		if approval.InputForm != nil {
+			digest, digestErr := app.ApprovalInputsDigest(approval.InputValues)
+			formDigest, formErr := app.ApprovalFormDigest(approval)
+			inputErr := app.ValidateApprovalInputs(approval.InputForm, approval.InputValues)
+			if inputErr != nil || digestErr != nil || formErr != nil || digest != approval.InputsDigest || formDigest != approval.InputFormDigest || compactToolArgsFingerprint(call.Arguments) != compactToolArgsFingerprint(approval.Arguments) {
+				call.Status = app.ToolCallStatusFailedAfterApproval
+				call.Error = "approval input binding is invalid"
+				call.ErrorCode = string(app.ToolErrorPolicyBlocked)
+				call.Result = nil
+				_, err := r.saveToolCall(ctx, call)
+				return call, err
+			}
+			call.Result = map[string]any{"status": "approval_confirmed", "input_values": approval.InputValues, "inputs_digest": approval.InputsDigest}
+		}
 		call.Error = ""
 		call.ErrorCode = ""
 		call.ObservationSummary = CompressObservation(call.Tool, call.Result, r.observationSummaryLimit())

@@ -348,10 +348,11 @@ func scanApproval(row scanner) (app.Approval, error) {
 	var args []byte
 	var policyContext []byte
 	var presentation []byte
+	var inputForm, inputValues []byte
 	err := row.Scan(&approval.ID, &source, &approval.ExternalID, &externalContext,
 		&approval.SessionID, &approval.RunID, &approval.ToolCallID, &approval.Tool, &risk,
 		&status, &approval.Summary, &approval.Reason, &resources, &args, &approval.ArgumentsImmutable,
-		&approval.CreatedAt, &approval.ResolvedAt, &approval.ResolutionNote, &policyContext, &presentation)
+		&approval.CreatedAt, &approval.ResolvedAt, &approval.ResolutionNote, &policyContext, &presentation, &inputForm, &approval.InputFormDigest, &inputValues, &approval.InputsDigest)
 	if err != nil {
 		return app.Approval{}, err
 	}
@@ -382,6 +383,16 @@ func scanApproval(row scanner) (app.Approval, error) {
 		approval.Presentation = &app.ApprovalPresentation{}
 		if err := json.Unmarshal(presentation, approval.Presentation); err != nil {
 			return app.Approval{}, fmt.Errorf("%w: presentation: %v", errApprovalJSONDecode, err)
+		}
+	}
+	if len(inputForm) > 0 && string(inputForm) != "null" {
+		if err := json.Unmarshal(inputForm, &approval.InputForm); err != nil {
+			return app.Approval{}, fmt.Errorf("%w: input form: %v", errApprovalJSONDecode, err)
+		}
+	}
+	if len(inputValues) > 0 && string(inputValues) != "null" {
+		if err := json.Unmarshal(inputValues, &approval.InputValues); err != nil {
+			return app.Approval{}, fmt.Errorf("%w: input values: %v", errApprovalJSONDecode, err)
 		}
 	}
 	return normalizePersistedApproval(approval)

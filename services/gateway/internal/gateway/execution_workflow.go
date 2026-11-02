@@ -313,14 +313,14 @@ func (s *Server) continueExecutionApprovals(ctx context.Context, service *execut
 					public[key] = value
 				}
 			}
-			row, err := execution.NewPendingApproval(approval.ID, approval.Tool, approval.Summary, public)
+			row, err := execution.NewPendingApprovalWithForm(approval.ID, approval.Tool, approval.Summary, public, approval.InputForm)
 			if err != nil {
 				return agent.Result{}, err
 			}
 			if err = budget.Admit(row); err != nil {
 				return agent.Result{}, err
 			}
-			decision, err := service.AwaitApproval(ctx, e, row)
+			decision, values, err := service.AwaitApprovalWithInputs(ctx, e, row)
 			if err != nil {
 				return agent.Result{}, err
 			}
@@ -331,7 +331,11 @@ func (s *Server) continueExecutionApprovals(ctx context.Context, service *execut
 			if decision == "reject" {
 				status = app.ApprovalStatusRejected
 			}
-			resolved, err := local.ResolveApproval(ctx, approval.ID, status, "")
+			submission := app.ApprovalInputSubmission{}
+			if approval.InputForm != nil && status == app.ApprovalStatusApproved {
+				submission = app.ApprovalInputSubmission{Digest: approval.InputFormDigest, SchemaVersion: app.ApprovalInputSchemaVersion, Inputs: values}
+			}
+			resolved, err := local.ResolveApprovalWithInputs(ctx, approval.ID, status, "", submission)
 			if err != nil {
 				return agent.Result{}, err
 			}

@@ -3,19 +3,31 @@ package execution
 import (
 	"context"
 	"encoding/json"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"sort"
 )
 
 // Approval content exists only for the lifetime of the running computation.
 // The durable fence contains only the bound ID/digest and decision receipt.
 type approvalWait struct {
-	row      PendingApproval
-	decision string
-	ready    chan string
+	row          PendingApproval
+	decision     string
+	inputs       app.ApprovalInputValues
+	inputsDigest string
+	ready        chan string
 }
 
 func NewPendingApproval(id, tool, summary string, arguments map[string]any) (PendingApproval, error) {
-	row := PendingApproval{ApprovalID: id, Tool: tool, Summary: summary, Arguments: arguments}
+	return NewPendingApprovalWithForm(id, tool, summary, arguments, nil)
+}
+
+func NewPendingApprovalWithForm(id, tool, summary string, arguments map[string]any, form *app.ApprovalInputForm) (PendingApproval, error) {
+	if form != nil {
+		if err := app.ValidateApprovalInputForm(form); err != nil {
+			return PendingApproval{}, ErrConflict
+		}
+	}
+	row := PendingApproval{ApprovalID: id, Tool: tool, Summary: summary, Arguments: arguments, InputForm: form}
 	if !identityPattern.MatchString(id) || !identityPattern.MatchString(tool) {
 		return row, ErrConflict
 	}
@@ -36,7 +48,7 @@ func NewPendingApproval(id, tool, summary string, arguments map[string]any) (Pen
 }
 
 func (s *Service) AwaitApproval(ctx context.Context, e Envelope, row PendingApproval) (string, error) {
-	checked, err := NewPendingApproval(row.ApprovalID, row.Tool, row.Summary, row.Arguments)
+	checked, err := NewPendingApprovalWithForm(row.ApprovalID, row.Tool, row.Summary, row.Arguments, row.InputForm)
 	if err != nil || checked.Digest != row.Digest {
 		return "", ErrConflict
 	}
@@ -97,16 +109,46 @@ func (s *Service) AwaitApproval(ctx context.Context, e Envelope, row PendingAppr
 	}
 }
 
+// AwaitApprovalWithInputs keeps submitted values only in the live execution.
+// The durable fence stores their digest, never user-entered content.
+func (s *Service) AwaitApprovalWithInputs(ctx context.Context, e Envelope, row PendingApproval) (string, app.ApprovalInputValues, error) {
+	decision, err := s.AwaitApproval(ctx, e, row)
+	if err != nil {
+		return "", nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	wait := s.approvals[keyFor(e.OwnerID, e.ClientID, e.RequestID)][row.ApprovalID]
+	if wait == nil {
+		return "", nil, ErrExpired
+	}
+	raw, err := json.Marshal(wait.inputs)
+	if err != nil {
+		return "", nil, err
+	}
+	var inputs app.ApprovalInputValues
+	if err = json.Unmarshal(raw, &inputs); err != nil {
+		return "", nil, err
+	}
+	return decision, inputs, nil
+}
+
 func (s *Service) DecideApproval(owner, client, request, id, digest, decision string) error {
-	return s.decideApproval(owner, client, request, id, digest, decision, nil)
+	return s.decideApproval(owner, client, request, id, digest, decision, nil, app.ApprovalInputSubmission{})
 }
 
 // DecideApprovalAtRevision binds an ISCP decision to the exact published state.
 // The precondition and durable decision share the execution cancellation lock.
 func (s *Service) DecideApprovalAtRevision(owner, client, request, id, digest, decision string, revision uint64) error {
-	return s.decideApproval(owner, client, request, id, digest, decision, &revision)
+	return s.decideApproval(owner, client, request, id, digest, decision, &revision, app.ApprovalInputSubmission{})
 }
-func (s *Service) decideApproval(owner, client, request, id, digest, decision string, revision *uint64) error {
+func (s *Service) DecideApprovalWithInputs(owner, client, request, id, digest, decision string, input app.ApprovalInputSubmission) error {
+	return s.decideApproval(owner, client, request, id, digest, decision, nil, input)
+}
+func (s *Service) DecideApprovalWithInputsAtRevision(owner, client, request, id, digest, decision string, revision uint64, input app.ApprovalInputSubmission) error {
+	return s.decideApproval(owner, client, request, id, digest, decision, &revision, input)
+}
+func (s *Service) decideApproval(owner, client, request, id, digest, decision string, revision *uint64, input app.ApprovalInputSubmission) error {
 	if !digestPattern.MatchString(digest) || (decision != "approve" && decision != "reject") {
 		return ErrConflict
 	}
@@ -127,8 +169,31 @@ func (s *Service) decideApproval(owner, client, request, id, digest, decision st
 	if wait == nil || wait.row.Digest != digest {
 		return ErrConflict
 	}
+	valuesDigest := ""
+	var values app.ApprovalInputValues
+	if wait.row.InputForm != nil && decision == "approve" {
+		if input.SchemaVersion != app.ApprovalInputSchemaVersion {
+			return ErrConflict
+		}
+		if err := app.ValidateApprovalInputs(wait.row.InputForm, input.Inputs); err != nil {
+			return ErrConflict
+		}
+		raw, err := json.Marshal(input.Inputs)
+		if err != nil {
+			return ErrConflict
+		}
+		if json.Unmarshal(raw, &values) != nil {
+			return ErrConflict
+		}
+		valuesDigest, err = app.ApprovalInputsDigest(values)
+		if err != nil {
+			return ErrConflict
+		}
+	} else if input.SchemaVersion != 0 || len(input.Inputs) > 0 {
+		return ErrConflict
+	}
 	if wait.decision != "" {
-		if wait.decision == decision {
+		if wait.decision == decision && wait.inputsDigest == valuesDigest {
 			return nil
 		}
 		return ErrConflict
@@ -150,6 +215,7 @@ func (s *Service) decideApproval(owner, client, request, id, digest, decision st
 	at := s.now()
 	f.Approvals[index].State = ApprovalDecided
 	f.Approvals[index].Decision = decision
+	f.Approvals[index].InputsDigest = valuesDigest
 	f.Approvals[index].DecidedAt = &at
 	f.Approvals[index].Revision = f.Revision
 	s.control.Fences[key] = f
@@ -160,6 +226,8 @@ func (s *Service) decideApproval(owner, client, request, id, digest, decision st
 		return ErrUnavailable
 	}
 	wait.decision = decision
+	wait.inputs = values
+	wait.inputsDigest = valuesDigest
 	wait.ready <- decision
 	return nil
 }

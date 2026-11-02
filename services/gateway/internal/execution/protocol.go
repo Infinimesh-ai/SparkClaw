@@ -83,11 +83,12 @@ type Result struct {
 	Payload  string `json:"payload"`
 }
 type PendingApproval struct {
-	ApprovalID string         `json:"approval_id"`
-	Digest     string         `json:"digest"`
-	Tool       string         `json:"tool"`
-	Summary    string         `json:"summary"`
-	Arguments  map[string]any `json:"arguments"`
+	InputForm  *app.ApprovalInputForm `json:"input_form,omitempty"`
+	ApprovalID string                 `json:"approval_id"`
+	Digest     string                 `json:"digest"`
+	Tool       string                 `json:"tool"`
+	Summary    string                 `json:"summary"`
+	Arguments  map[string]any         `json:"arguments"`
 }
 
 type PendingInput struct {
@@ -115,12 +116,13 @@ const (
 // ApprovalRecord is a bounded control receipt, never a continuation. Tool names,
 // summaries, arguments and model context remain in the live computation only.
 type ApprovalRecord struct {
-	ApprovalID string        `json:"approval_id"`
-	Digest     string        `json:"digest"`
-	Revision   uint64        `json:"revision"`
-	State      ApprovalState `json:"state"`
-	Decision   string        `json:"decision,omitempty"`
-	DecidedAt  *time.Time    `json:"decided_at,omitempty"`
+	InputsDigest string        `json:"inputs_digest,omitempty"`
+	ApprovalID   string        `json:"approval_id"`
+	Digest       string        `json:"digest"`
+	Revision     uint64        `json:"revision"`
+	State        ApprovalState `json:"state"`
+	Decision     string        `json:"decision,omitempty"`
+	DecidedAt    *time.Time    `json:"decided_at,omitempty"`
 }
 
 type Status struct {

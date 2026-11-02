@@ -149,7 +149,7 @@ func (s *Server) modifyApproval(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("tool call cannot be modified from status %q", call.Status))
 		return
 	}
-	if approval.PolicyContext != nil {
+	if approval.PolicyContext != nil || approval.InputForm != nil {
 		writeError(w, http.StatusConflict, errors.New("context-bound workspace data approvals cannot be modified; reject and submit a new request"))
 		return
 	}
@@ -247,9 +247,10 @@ func (s *Server) modifyHappyPlanApproval(w http.ResponseWriter, r *http.Request,
 
 func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status app.ApprovalStatus) {
 	var input struct {
+		app.ApprovalInputSubmission
 		Note string `json:"note"`
 	}
-	_ = readJSON(r, &input)
+	decodeErr := readJSON(r, &input)
 	unlock := s.lockApproval(r.PathValue("id"))
 	defer unlock()
 	approval, ok, err := s.findApproval(r.Context(), r.PathValue("id"))
@@ -266,6 +267,35 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		return
 	} else if !visible {
 		writeError(w, http.StatusNotFound, errors.New("approval not found"))
+		return
+	}
+	if approval.InputForm != nil && decodeErr != nil {
+		writeError(w, http.StatusBadRequest, decodeErr)
+		return
+	}
+	if approval.InputForm != nil && status == app.ApprovalStatusApproved {
+		if input.Digest != approval.InputFormDigest || input.SchemaVersion != app.ApprovalInputSchemaVersion {
+			writeError(w, http.StatusConflict, errors.New("approval input form changed or unsupported"))
+			return
+		}
+		if err := app.ValidateApprovalInputs(approval.InputForm, input.Inputs); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+	if approval.InputForm != nil && approval.Status != app.ApprovalStatusPending {
+		// Reconcile identical submitted values without executing the continuation twice.
+		receipt, resolveErr := s.store.ResolveApprovalWithInputs(r.Context(), approval.ID, status, input.Note, input.ApprovalInputSubmission)
+		if resolveErr != nil {
+			writeApprovalStoreError(w, resolveErr)
+			return
+		}
+		call, _, callErr := s.store.GetToolCall(r.Context(), approval.ToolCallID)
+		if callErr != nil {
+			writeSessionStoreError(w, callErr)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"approval": receipt, "approval_status": receipt.Status, "tool_call": call, "replayed": true})
 		return
 	}
 	if approval.Status != app.ApprovalStatusPending {
@@ -322,7 +352,7 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 			r = r.WithContext(workbenchContinuation.context())
 		}
 	}
-	candidate, err := s.store.ResolveApproval(r.Context(), approval.ID, status, input.Note)
+	candidate, err := s.store.ResolveApprovalWithInputs(r.Context(), approval.ID, status, input.Note, input.ApprovalInputSubmission)
 	approval, err = store.ReconcileApprovalWrite(r.Context(), s.store, candidate, err)
 	if err != nil {
 		writeApprovalStoreError(w, err)

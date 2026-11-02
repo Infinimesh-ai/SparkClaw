@@ -3,22 +3,212 @@
   "$id": "https://sparkclaw.local/schemas/approval.schema.json",
   "title": "SparkClaw Approval",
   "type": "object",
-  "required": ["id", "session_id", "run_id", "tool_call_id", "tool", "risk", "status", "summary", "reason", "arguments", "created_at"],
+  "required": [
+    "id",
+    "session_id",
+    "run_id",
+    "tool_call_id",
+    "tool",
+    "risk",
+    "status",
+    "summary",
+    "reason",
+    "arguments",
+    "created_at"
+  ],
   "properties": {
-    "id": { "type": "string" },
-    "session_id": { "type": "string" },
-    "run_id": { "type": "string" },
-    "tool_call_id": { "type": "string" },
-    "tool": { "type": "string" },
-    "risk": { "enum": ["read", "draft", "reversible", "dangerous"] },
-    "status": { "enum": ["pending", "approved", "rejected", "modified"] },
-    "summary": { "type": "string" },
-    "reason": { "type": "string" },
-    "resources": { "type": "array", "items": { "type": "string" } },
-    "arguments": { "type": "object" },
-    "created_at": { "type": "string", "format": "date-time" },
-    "resolved_at": { "type": "string", "format": "date-time" },
-    "resolution_note": { "type": "string" }
+    "id": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "tool_call_id": {
+      "type": "string"
+    },
+    "tool": {
+      "type": "string"
+    },
+    "risk": {
+      "enum": [
+        "read",
+        "draft",
+        "reversible",
+        "dangerous"
+      ]
+    },
+    "status": {
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "modified"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "arguments": {
+      "type": "object"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "resolved_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "resolution_note": {
+      "type": "string"
+    },
+    "input_form": {
+      "$ref": "#/$defs/inputForm"
+    },
+    "input_form_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "input_values": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number"
+          ]
+        }
+      }
+    },
+    "inputs_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "inputForm": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "entries"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "label",
+              "summary",
+              "fields"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 160
+              },
+              "summary": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "fields": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "label",
+                    "type",
+                    "required"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "maxLength": 80
+                    },
+                    "label": {
+                      "type": "string",
+                      "maxLength": 160
+                    },
+                    "type": {
+                      "enum": [
+                        "text",
+                        "number",
+                        "select",
+                        "date_or_none"
+                      ]
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "min": {
+                      "type": "number"
+                    },
+                    "max": {
+                      "type": "number"
+                    },
+                    "max_length": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 500
+                    },
+                    "options": {
+                      "type": "array",
+                      "maxItems": 2000,
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "label"
+                        ],
+                        "properties": {
+                          "value": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "label": {
+                            "type": "string",
+                            "maxLength": 500
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
 }

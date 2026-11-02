@@ -57,11 +57,34 @@ func (medicineBoxQueryProfile) RunStage(ctx context.Context, r Runtime, run app.
 
 func medicineQueryProjection(items []medicine.Item, today string) string {
 	items = append([]medicine.Item{}, items...)
-	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].ExpiresOn != items[j].ExpiresOn {
-			return items[i].ExpiresOn != "" && (items[j].ExpiresOn == "" || items[i].ExpiresOn < items[j].ExpiresOn)
+	// Keep equal-name records together; order each group by its earliest expiry.
+	earliest := map[string]string{}
+	for _, item := range items {
+		name := medicine.NormalizeName(item.Name)
+		date := item.ExpiresOn
+		if date == "" {
+			date = "9999-12-31"
 		}
-		return items[i].Name < items[j].Name
+		if old, ok := earliest[name]; !ok || date < old {
+			earliest[name] = date
+		}
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		a, b := medicine.NormalizeName(items[i].Name), medicine.NormalizeName(items[j].Name)
+		if earliest[a] != earliest[b] {
+			return earliest[a] < earliest[b]
+		}
+		if a != b {
+			return a < b
+		}
+		x, y := items[i].ExpiresOn, items[j].ExpiresOn
+		if x == "" {
+			x = "9999-12-31"
+		}
+		if y == "" {
+			y = "9999-12-31"
+		}
+		return x < y
 	})
 	day, _ := time.Parse("2006-01-02", today)
 	rows := []map[string]any{}
@@ -100,8 +123,19 @@ func medicineQueryProjection(items []medicine.Item, today string) string {
 		}
 		raw = encode()
 	}
-	for len(raw) > 48<<10 && len(rows) > 0 {
-		rows = rows[:len(rows)-1]
+	if len(raw) > 48<<10 {
+		all := rows
+		lo, hi := 0, len(all)
+		for lo < hi {
+			mid := (lo + hi + 1) / 2
+			rows = all[:mid]
+			if len(encode()) <= 48<<10 {
+				lo = mid
+			} else {
+				hi = mid - 1
+			}
+		}
+		rows = all[:lo]
 		raw = encode()
 	}
 	return string(raw)

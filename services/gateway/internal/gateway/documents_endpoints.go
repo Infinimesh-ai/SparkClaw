@@ -131,6 +131,10 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 			"bytes":        bytesWritten,
 		},
 	})
+	if !isImage && s.tools != nil {
+		// Invisible import-phase prebuild; a later read builds on demand.
+		s.tools.PrebuildDocumentIndex(path)
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"artifact": object,
 		"path":     path,

@@ -3,8 +3,8 @@
 > 语言： [English](../../docs/large-document-context-design.md) | 简体中文
 
 状态：A 部分（按上下文推导的内容预算）已于 2026-11-03 在源码中实现，尚未部署。B 部分
-（`large_indexed` 结构优先检索策略）是已采纳、尚未实现的设计，所依据的 owner 决定记录在
-第 7 节。
+（`large_indexed` 结构优先检索策略）依据第 7 节记录的 owner 决定实施，其中 B1 阶段（文字层
+PDF、DOCX 和文本）已于同日在源码中实现，B2（分析阶段 OCR）与 B3 尚未实现。
 
 范围：文档读取路径（`internal/document`、`internal/toolhub` 文档工具）、Workflow 证据
 供给、操作决策与最终化（`internal/agent`），以及 runtime 预算配置。保留
@@ -147,7 +147,7 @@ router 现在会先去掉末尾的 `/v1` 再拼接 `/tokenize`（commit `815f2ed
 | 浏览器快照 requirement | 8,000 B | 浏览器证据的组件上限 |
 | 源文件大小门槛、PDF OCR 页数 | 8 MiB、8 页 | 解析与 OCR 成本上限；大文件由 B 部分接管 |
 
-## 4. B 部分：`large_indexed` 策略（已采纳，尚未实现）
+## 4. B 部分：`large_indexed` 策略（B1 已在源码实现；B2、B3 待实施）
 
 ### 4.1 范围与入口
 
@@ -161,25 +161,22 @@ ISCP 执行输入每个文件 8 MiB（`iscpobjects/store.go`），不做分块�
 
 ### 4.2 策略选择
 
-`inspectAndSelect` 已经会遍历策略。在 `small_file_v1` 之后注册 `large_indexed_v1`。满足
-任一条件即需要它：
-
-- 源文件超过 8 MiB（`SmallFileMaxBytes`）；
-- 完整抽取会超过 §3.1 的抽取上限；
-- PDF 中没有文字层的页数超过单次有界读取能 OCR 的页数（当前为 8）。
-
-今天能处理的文件继续走 `small_direct` / `full_text`，行为不变。
+策略由读取结果决定，而不是注册进 pipeline。源文件超过 8 MiB（`SmallFileMaxBytes`）或完整
+抽取超过 §3.1 的上限时，完整读取策略会推迟处理；对 PDF、DOCX 和文本，`files.read` 与
+`pdf.extract_text` 以 §4.7 的目录指针回应这次推迟，其他格式仍返回 `strategy_deferred` 错误。
+无文字层页数超过单次有界读取 OCR 页数（当前为 8）的 PDF 在 B2 纳入。今天能处理的文件继续走
+`small_direct` / `full_text`，行为不变。
 
 ### 4.3 生命周期：导入预建 + 分析兜底
 
-**导入阶段（后台、轻量）。** 上传文件保存后，由 gateway 持有的后台队列（单 worker，关闭时
-取消）判断它是否需要 `large_indexed`。源文件超过 8 MiB 直接判定需要；较小的文件做一次关闭
-enrichment 的纯文本解析，测量抽取大小并统计无文字层的 PDF 页数。需要的文件建立结构图、
-文字层分块和关键词索引。导入阶段：
+**导入阶段（后台、轻量）。** WebChat 文档上传保存后，gateway 把它放入 ToolHub 索引服务的
+队列：单 worker、32 项队列（满时丢弃请求）、随 hub 关闭而取消。worker 对 PDF、DOCX 和文本
+执行纯文本索引抽取；源文件不超过 8 MiB、正文不超过抽取上限且没有缺文字层的 PDF 页时，说明
+完整读取足以处理，不保留索引，否则持久化结构图、文字层分块和关键词索引。导入阶段：
 
 - 不做 OCR，也不调用任何模型；
 - 对用户不可见，界面不新增任何状态字段；
-- 失败只记录在索引 manifest 和审计日志中，由分析阶段重试。
+- 失败时除一行日志外不写入任何内容，由分析阶段重试构建。
 
 **分析阶段（按需）。** 请求读取该文档时：
 
@@ -191,27 +188,30 @@ enrichment 的纯文本解析，测量抽取大小并统计无文字层的 PDF �
 
 OCR 只在这个阶段进行（§4.5）。
 
-**进度。** 只有请求必须等待索引时，用户才会看到相关提示：运行等待或构建索引期间，本次
-运行已有的工具进度显示"正在建立文档索引"。索引已就绪时不显示任何内容，也不新增常驻指示
-（AGENTS.md 的 UI 规则）。
+**进度。** 只有请求必须等待索引时，用户才会看到相关提示：读取等待或构建索引期间，agent 会把
+运行中的工具调用以 `progress: "正在建立文档索引"` 重新保存，这条说明经由现有的
+`tool_call.started` 流事件到达 WebChat，流状态行用它替换通用的"工具开始"文字。索引已就绪时
+不显示任何内容，已完成的调用记录不带这条说明，也不新增常驻指示（AGENTS.md 的 UI 规则）。
 
 ### 4.4 索引内容（每个源文件 SHA-256 只建一次）
 
 1. **结构图**（`outline.json`），按格式：
-   - PDF：书签目录生成标题树和页码范围；没有书签时按固定页窗口，并以大字号行作为候选
-     标题。
-   - DOCX：标题样式和大纲级别；表格作为独立节点。
-   - PPTX：每张幻灯片一个节点，以标题为键。
-   - XLSX：每个 sheet 一个节点，记录表头行和已用区域。
-   - 文本 / Markdown：`#` 标题，否则按固定行窗口。
+   - PDF：书签目录生成标题树和页码范围；没有书签的 PDF 暂无目录，直接检索正文。
+   - DOCX：标题样式（`Heading N`、`标题 N`、`Title`）和大纲级别；每个表格行是一个文本单元。
+   - 文本 / Markdown：`#` 标题；段落以空行分隔。
+   - PPTX（每张幻灯片一个节点）和 XLSX（每个 sheet 一个节点）在 B3 实现。
 2. **分块**（`chunks.jsonl`）：沿结构节点切分，每块约 1,000 字，带少量重叠。每块带锚点
    （页码、标题路径、稳定 block / 段落 / 单元格 ID），沿用现有 citation 词汇。
-3. **关键词索引**：只用纯 Go BM25，本设计不含 embedding。中文按字二元组切分，拉丁文字按词
-   切分，标题权重高于正文。不引入新运行时依赖。
+3. **关键词索引**（`keywords.json`）：只用纯 Go BM25，本设计不含 embedding。中文按字二元组
+   切分，拉丁文字按小写词切分，标题路径中的词计两次。正文与查询都做 NFKC 规范化，因为 PDF
+   文字层常带兼容字形，例如以康熙部首 `⽅` 代替 `方`；两个汉字之间的 PDF 换行会被合并，避免
+   词被拆开。不引入新运行时依赖。
 4. **页码映射**：没有文字层的 PDF 页标记为 `unindexed`，等 OCR 补齐。
 
-按页分批构建，保证单次 adapter 调用不触及 60 秒子进程超时。每批不超过 §3.1 的 2 MiB 抽取
-上限，并流式写盘，不在内存中持有全文。
+PDF 按 40 页一批构建（`scripts/pdf_index.py`，pypdf，仅文本），保证单次 adapter 调用不触及
+60 秒子进程超时；DOCX 一次调用 `scripts/docx_index.py`（python-docx，按正文顺序，不读资源）；
+文本文件逐行流式读取，超过 64 KiB 的行会被切开。构建使用服务自身的 context，因此某个请求
+停止等待不会取消其他请求可能需要的构建。
 
 ### 4.5 OCR 规则
 
@@ -226,51 +226,58 @@ OCR 只在分析阶段进行，使用现有 OvisOCR2 运行时及其单次页数
 
 ### 4.6 存储、隔离与保留
 
-- 索引放在所属工作区根目录的 `.sparkclaw/state/doc-index/<sha256>/` 下（`manifest.json`、
-  `outline.json`、`chunks.jsonl`、`keywords.bin`、`ocr/<page>.json`）。工作区根目录本来就
-  按 owner 或 session 隔离，索引的隔离随之继承；同一工作区内重复上传同一文件复用同一份
-  索引。
-- `.sparkclaw/state` 已经是控制目录：输出路径不能指向它，`files.search` 也会跳过
-  `.sparkclaw`。读取工具目前还不拒绝该路径，B1 补上这一限制，使索引只能通过文档工具访问。
+- 索引放在文档 pipeline 工作区根目录的 `.sparkclaw/state/doc-index/<sha256>/` 下
+  （`manifest.json`、`outline.json`、`chunks.jsonl`、`keywords.json`；B2 增加
+  `ocr/<page>.json`）。该根目录是 hub 配置的工作区根目录，或执行范围（execution scope）中
+  owner 的工作区。查询需要对具有该哈希的文件拥有已授权路径，因此索引访问权限跟随文件访问
+  权限。同一文件重复上传复用同一份索引，最近使用的四份索引常驻内存。
+- `.sparkclaw/state` 是控制目录：输出路径不能指向它，`files.search` 跳过 `.sparkclaw`，现在
+  所有读取路径也会拒绝它，使索引只能通过文档工具访问。
 - manifest 记录源文件 SHA-256、大小、策略与解析器版本、状态（`building`、`ready`、
   `partial`、`failed`）、尝试次数和时间戳。版本变化时重建索引。
-- 工作区中已没有任何文件对应某个哈希时删除该索引；LRU 清理把目录控制在每个工作区的大小
-  上限内（初始 512 MiB）。清理在队列空闲时和 gateway 启动时运行。
+- 索引记录的源路径都已不存在或大小不符时删除该索引；LRU 清理把目录控制在每个工作区 512 MiB
+  以内。每次构建完成后执行一次清理。
 - 使用 Postgres 状态后端时，索引仍放在工作区卷上，因为它是派生数据，丢失只需重建。
 
-### 4.7 模型工具（read 风险，`document.read` capability）
+### 4.7 模型工具（read 风险，各自独立的 capability）
 
 | 工具 | 返回 | 上限 |
 |---|---|---|
 | `document.outline(path)` | 标题树、页码范围、规模、索引状态、未索引页 | 阶段预算 |
 | `document.search(path, keywords[], top_k, section?)` | 带锚点和得分的排序片段 | `top_k x 片段` 不超过阶段预算 |
-| `document.read_range(path, anchor \| pages \| chunk_ids, max_bytes)` | 该范围的正文，被截断时附续读提示 | 不超过阶段预算 |
+| `document.read_range(path, chunk_ids \| page_start..page_end \| section, context)` | 带位置标头的该范围正文；被截断时给出 `next_chunk_id`；预算紧张时先舍弃相邻上下文，再舍弃请求的分块 | 不超过阶段预算 |
 
-对 `large_indexed` 文档，`files.read` 与 `pdf.extract_text` 不再返回
-`strategy_deferred`，改为返回目录以及使用 `document.search` / `document.read_range`
-的提示。
+这些工具使用 `document.outline`、`document.search`、`document.read_range` 三个 capability，
+不会与 `document.read` 的格式 reader 竞争。它们的预算是 Fast lane 的阶段证据预算，也就是文档
+Workflow 运行的 lane。对已建索引的文档，`files.read` 与 `pdf.extract_text` 返回目录（最多
+8,000 字节），并带 `retrieval_required: true`、`read_complete: false` 和使用
+`document.search` / `document.read_range` 的提示。
 
 ### 4.8 Workflow 与路由
 
 `document.read` revision 5 对小文档保持 revision 4 的路径，并增加大文档分支。已持久化的
 revision 4 Plan 恢复时保持原样。
 
-1. `confirm_document_target` 不变。它的确定性 preflight 已经知道路径和格式，现在还会读取
-   索引 manifest 和源文件大小：索引为 `ready` / `building`，或源文件超过 8 MiB 时，直接
-   进入大文档分支。
-2. 否则照常执行现有的 `document_read` 节点。若返回 `strategy_deferred`，评估结果转入大
-   文档分支而不是阻断，因此只有解析后才知道大小的文件同样能处理。
-3. 大文档分支：先执行 `document_outline`（`direct_once`，等待或构建索引），再进入检索
-   阶段。检索阶段由 Fast step 模型把用户请求转成关键词（含中英文同义词），作为它自己调用
-   `document.search` 时的参数，不为改写查询额外调用模型；每个阶段最多检索三轮。检索到的
-   范围在阶段预算内经由供给通道进入该步骤。检索落空时退回按目录标题浏览。
-4. 在最终化预算内基于检索到的范围作答，引用页码或锚点，并说明覆盖了哪些章节。
+1. `confirm_document_target` 不变。
+2. `document_read` 的 `read_by_type` 阶段仍直接调用格式 reader（因为节点现在有 transition，
+   改用 profile 的 direct stage 而不是 `direct_once`）。能完整读取的文档照常完成该节点；被推迟
+   的可索引文档返回目录指针，其 `retrieval_required` 结果携带 `document_outline` 资源引用，
+   并把节点切换到 `retrieve` 阶段。该阶段的 scope 是三个检索工具，每个工具的 `path` 都绑定到
+   冻结的目标。因此路由无需 preflight 探测大小，只有解析后才知道大小的文件同样能处理。
+3. 在 `retrieve` 阶段，Fast step 模型把用户请求转成关键词（含中英文同义词），作为它自己调用
+   `document.search` 时的参数，不为改写查询额外调用模型。最新的目录和检索结果以紧凑文本形式
+   供给（每个命中一行，含分块 ID、页码、章节和片段）。检索与目录结果最多重新进入该阶段四次，
+   指令要求最多检索三次；返回正文的 `document.read_range` 完成该节点，节点允许六次尝试。
+4. 在最终化预算内基于读取结果和检索到的范围作答，引用页码或标题，并说明答案基于检索到的
+   章节。
 
 全文类请求（例如总结整本书）走章节级 map-reduce：每个目录节点生成一份摘要，按节点和源文件
 哈希缓存在索引目录中，最后以这些缓存摘要为证据合并。
 
-**编辑不在范围内。** 对 `large_indexed` 文档的 `document.edit` 请求给出明确的"不支持"答复，
-源文件保持不变。`Pipeline.Edit` 仍会整篇重读源文件。
+**编辑不在范围内。** 在 `document.edit` 中，定位读取若返回 `retrieval_required`，节点以
+`large_document_edit_unsupported` 阻断，用户收到"这个文档太大，暂不支持直接修改，原文件保持
+不变。可以先就其中的内容提问或查找相关段落。"（或对应英文），不运行任何编辑器，源文件保持
+不变。`Pipeline.Edit` 仍会整篇重读源文件。
 
 ### 4.9 追问
 
@@ -290,7 +297,7 @@ revision 4 Plan 恢复时保持原样。
 |---|---|---|
 | A（源码已完成） | 按上下文推导预算、tokenizer 校验收缩、产品 env 设为 `0` | 公式、上限、重渲染与 fail closed 路径的单测；能装入 32K 窗口的文档完整进入最终化；抽取上限跟随最终化模型 |
 | A2（源码已完成） | 真实 tokenizer 每 token 字节数（§3.2.1）；修复 tokenizer 地址；最终化用均匀分布窗口代替只取开头 | 记录实测比例；被截断的 40 章样例从第一章到最后一章都有窗口 |
-| B1 | 索引、后台导入预建、分析阶段现场构建或等待、outline/search/read_range、revision 5 路由、`files.read` 指针，覆盖文字层 PDF、DOCX 和文本 | 300 页文字层 PDF 与 1 MB DOCX 在 dual-light 和产品 profile 上回答定位类问题，页码引用正确；索引就绪时不出现任何可见进度；索引仍在构建时只显示本次运行的进度行 |
+| B1（源码已完成） | 索引、后台导入预建、分析阶段现场构建或等待、outline/search/read_range、revision 5 路由、`files.read` 指针、编辑拒绝，覆盖文字层 PDF、DOCX 和文本 | 单元与端到端测试（mock 模型）：大型 Markdown 书籍依次完成读取 → 检索 → 范围读取 → 最终化，且最终证据包含目标段落；编辑请求被拒绝且文件不变；构建时只有一个进度事件，就绪时没有；上传预建只为大文件保留索引。56 页 Chrome 打印 PDF 与对应 DOCX 都把正确章节排在第一。真实模型与打包客户端验收仍未完成 |
 | B2 | 扫描版 PDF 的分析阶段 OCR | 《计算机网络》（工作区文件）章节问题只 OCR 目录选中的页，重复提问复用结果；不超过 25 MiB 的扫描版 PDF 可以整篇总结 |
 | B3 | XLSX/PPTX 结构与章节 map-reduce | 整书总结说明覆盖范围 |
 

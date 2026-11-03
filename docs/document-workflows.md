@@ -12,10 +12,12 @@ existing file: `report.pdf`, `report-2.pdf`, `report-3.pdf`, and so on.
 
 ## Workflow Boundary
 
-`document.read` revision 4 reads, summarizes, or extracts verbatim in-image text from one exact governed workspace
-file. Its format-qualified reader is a `direct_once` node: Runtime invokes the
-single reader with the frozen path, and Fast only synthesizes the final
-answer from completed evidence. `document.edit` revision 7 reads one exact
+`document.read` revision 5 reads, summarizes, or extracts verbatim in-image text from one exact governed workspace
+file. Runtime invokes the single format-qualified reader directly with the
+frozen path, and Fast only synthesizes the final answer from completed
+evidence. A PDF, DOCX or text file too large to read whole returns its
+outline instead, and the node moves to a retrieval stage that searches and
+reads passages; see [Large document context](large-document-context-design.md). `document.edit` revision 7 reads one exact
 file, resolves one supported
 operation through an explicit Workflow decision node, obtains approval for the
 reversible edit, and writes a new sibling output copy named

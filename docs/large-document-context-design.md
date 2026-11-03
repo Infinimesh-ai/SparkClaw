@@ -4,8 +4,9 @@
 
 Status: Part A (context-derived content budgets) is implemented in source on
 2026-11-03 and not yet deployed. Part B (the `large_indexed` structure-first
-retrieval strategy) is an accepted design, not implemented; the owner
-decisions it follows are recorded in section 7.
+retrieval strategy) follows the owner decisions recorded in section 7; its
+phase B1 (text-layer PDF, DOCX and text) is implemented in source on the same
+day, while B2 (analysis-phase OCR) and B3 are not implemented.
 
 Scope: the document read path (`internal/document`, `internal/toolhub`
 document tools), workflow evidence provisioning, operation decisions and
@@ -176,7 +177,7 @@ so gateway and env must be released together.
 | Browser snapshot requirements | 8,000 B | Component cap of browser evidence |
 | Source size gate, PDF OCR pages | 8 MiB, 8 pages | Parse and OCR cost limits; Part B replaces them for large files |
 
-## 4. Part B: `large_indexed` Strategy (accepted, not implemented)
+## 4. Part B: `large_indexed` Strategy (B1 implemented in source; B2 and B3 pending)
 
 ### 4.1 Scope and entry points
 
@@ -192,30 +193,30 @@ therefore reach the strategy in two ways:
 
 ### 4.2 Selection
 
-`inspectAndSelect` already iterates strategies. Register `large_indexed_v1`
-after `small_file_v1`. A document needs it when any of these holds:
-
-- the source exceeds 8 MiB (`SmallFileMaxBytes`);
-- the complete extraction would exceed the extraction ceiling of section 3.1;
-- a PDF has more pages without a text layer than one bounded read OCRs
-  (currently 8).
-
-Everything that fits today keeps the `small_direct` / `full_text` path,
-unchanged.
+The strategy is selected by the read outcome rather than registered in the
+pipeline. The complete-read strategy defers when the source exceeds 8 MiB
+(`SmallFileMaxBytes`) or the complete extraction exceeds the ceiling of
+section 3.1. For PDF, DOCX and text, `files.read` and `pdf.extract_text` answer
+that deferral with the outline pointer of section 4.7. Other formats keep the
+`strategy_deferred` error. A PDF with more text-less pages than one bounded
+read OCRs (currently 8) joins with B2. Everything that fits today keeps the
+`small_direct` / `full_text` path, unchanged.
 
 ### 4.3 Lifecycle: import pre-build plus analysis fallback
 
-**Import phase (background, lightweight).** After an upload is stored, a
-gateway-owned background queue (one worker, cancelled on shutdown) checks
-whether the file needs `large_indexed`. Sources above 8 MiB qualify directly;
-smaller sources get one text-only parse with enrichment disabled to measure
-the extraction and count text-less PDF pages. Qualifying files get an index
-of the structure map, text-layer chunks and keyword index. The import phase:
+**Import phase (background, lightweight).** After a WebChat document upload
+is stored, the gateway queues it on the ToolHub's index service: one worker,
+a 32-entry queue that drops requests when full, cancelled when the hub
+closes. The worker runs the text-only index extraction of PDF, DOCX and text
+files. When the source is at most 8 MiB, its text fits the extraction ceiling
+and no PDF page lacks text, the document fits the complete-read path and no
+index is kept. Otherwise the structure map, text-layer chunks and keyword
+index are persisted. The import phase:
 
 - never runs OCR or any model call;
 - shows nothing to the owner and adds no status field to the UI;
-- records failures only in the index manifest and audit log, and the analysis
-  phase retries them.
+- writes nothing on failure except a log line, and the analysis phase retries
+  the build.
 
 **Analysis phase (on demand).** When a request reads the document:
 
@@ -228,32 +229,41 @@ of the structure map, text-layer chunks and keyword index. The import phase:
 OCR happens only in this phase (section 4.5).
 
 **Progress.** The owner sees index work only when a request has to wait for
-it: the run's existing tool progress shows "正在建立文档索引" while the run waits
-on or builds the index. Nothing is shown when the index is ready, and no
-resident indicator is added (AGENTS.md UI rules).
+it. While a read waits on or builds the index, the agent re-saves the running
+call with `progress: "正在建立文档索引"`. The note reaches WebChat as the
+existing `tool_call.started` stream event, and the stream status line shows it
+in place of the generic started text. Nothing is shown when the index is
+ready, the completed call record carries no note, and no resident indicator
+is added (AGENTS.md UI rules).
 
 ### 4.4 Index content (once per source SHA-256)
 
 1. **Structure map** (`outline.json`), by format:
-   - PDF: bookmark outline to a heading tree with page ranges; without
-     bookmarks, fixed page windows plus large-font line candidates.
-   - DOCX: heading styles and outline levels; tables as their own nodes.
-   - PPTX: one node per slide, keyed by title.
-   - XLSX: one node per sheet, with header rows and used ranges.
-   - Text / Markdown: `#` headings, otherwise fixed line windows.
+   - PDF: bookmark outline to a heading tree with page ranges. A PDF without
+     bookmarks has no outline yet and is searched directly.
+   - DOCX: heading styles (`Heading N`, `标题 N`, `Title`) and outline levels;
+     each table row is one text unit.
+   - Text / Markdown: `#` headings; paragraphs are blank-line separated.
+   - PPTX (one node per slide) and XLSX (one node per sheet) arrive with B3.
 2. **Chunks** (`chunks.jsonl`): split along structure nodes at about 1,000
    characters with a small overlap. Each chunk carries an anchor (page,
    heading path, stable block / paragraph / cell ID) in the existing citation
    vocabulary.
-3. **Keyword index**: pure-Go BM25 only, with no embeddings in this design.
-   Chinese is tokenized into character bigrams and Latin text into words;
-   heading text is weighted above body text. No new runtime dependency.
+3. **Keyword index** (`keywords.json`): pure-Go BM25 only, with no embeddings
+   in this design. Chinese is tokenized into character bigrams and Latin text
+   into lowercase words; heading-path terms count twice. Text and queries are
+   NFKC-normalized, because PDF text layers often carry compatibility forms
+   such as the Kangxi radical `⽅` for `方`. PDF line breaks between two
+   ideographs are joined so words are not split. No new runtime dependency.
 4. **Page map**: text-less PDF pages are marked `unindexed` until OCR fills
    them.
 
-Builds run in page batches so no adapter call meets the 60-second subprocess
-timeout. Each batch stays within the 2 MiB extraction ceiling of section 3.1
-and is streamed to disk, so the whole text is never held in memory.
+PDF builds run in 40-page batches (`scripts/pdf_index.py`, pypdf, text only)
+so no adapter call meets the 60-second subprocess timeout. DOCX uses one
+`scripts/docx_index.py` call (python-docx, body order, no assets). Text files
+stream line by line, with lines longer than 64 KiB split. Builds run on the
+service's own context, so a request that stops waiting does not cancel a
+build another request may need.
 
 ### 4.5 OCR policy
 
@@ -271,67 +281,78 @@ the index cache, so no page is recognized twice.
 
 ### 4.6 Storage, isolation and retention
 
-- Indexes live under the owning workspace root at
+- Indexes live under the document pipeline's workspace root at
   `.sparkclaw/state/doc-index/<sha256>/` (`manifest.json`, `outline.json`,
-  `chunks.jsonl`, `keywords.bin`, `ocr/<page>.json`). Workspace roots are
-  already owner- or session-scoped, so isolation follows the workspace; the
-  same file uploaded twice in one workspace reuses one index.
-- `.sparkclaw/state` is already a control directory: output paths cannot
-  target it and `files.search` skips `.sparkclaw`. Read tools do not refuse it
-  yet; B1 adds that refusal, so the index is reachable only through the
-  document tools.
+  `chunks.jsonl`, `keywords.json`; B2 adds `ocr/<page>.json`). That root is the
+  hub's configured workspace root, or the owner workspace of an execution
+  scope. A query needs an authorized path to a file with that hash, so index
+  access follows file access. The same file uploaded twice reuses one index,
+  and the four most recently used indexes stay loaded in memory.
+- `.sparkclaw/state` is a control directory: output paths cannot target it,
+  `files.search` skips `.sparkclaw`, and every read path now refuses it, so
+  the index is reachable only through the document tools.
 - The manifest records source SHA-256, size, strategy and parser versions,
   state (`building`, `ready`, `partial`, `failed`), attempts and timestamps.
   A version change rebuilds the index.
-- Cleanup removes an index when no file in the workspace has its hash, and an
-  LRU sweep keeps the directory under a per-workspace size cap (initially
-  512 MiB). Sweeps run when the queue is idle and at gateway start.
+- Cleanup removes an index when none of its recorded source paths still
+  exists with its recorded size, and an LRU sweep keeps the directory under a
+  per-workspace size cap of 512 MiB. A sweep runs after every build.
 - With the Postgres state backend the index stays on the workspace volume,
   because it is derived data. Losing it only costs a rebuild.
 
-### 4.7 Model tools (read risk, `document.read` capability)
+### 4.7 Model tools (read risk, their own capabilities)
 
 | Tool | Returns | Bound |
 |---|---|---|
 | `document.outline(path)` | Heading tree, page ranges, size, index state, unindexed pages | Stage budget |
 | `document.search(path, keywords[], top_k, section?)` | Ranked snippets with anchors and scores | `top_k x snippet` within the stage budget |
-| `document.read_range(path, anchor \| pages \| chunk_ids, max_bytes)` | Text for that range, with a continuation hint when cut | At most the stage budget |
+| `document.read_range(path, chunk_ids \| page_start..page_end \| section, context)` | Text for that range with location headers; `next_chunk_id` when cut; neighbouring context is dropped before requested chunks when the budget is tight | At most the stage budget |
 
-For a `large_indexed` document, `files.read` and `pdf.extract_text` stop
-returning `strategy_deferred` and instead return the outline plus a hint to
-use `document.search` / `document.read_range`.
+The tools carry the capabilities `document.outline`, `document.search` and
+`document.read_range`, so they never compete with the format readers of
+`document.read`. Their budget is the Fast lane's stage evidence budget, the
+lane document workflows run on. For an indexed document, `files.read` and
+`pdf.extract_text` return the outline (at most 8,000 bytes) with
+`retrieval_required: true`, `read_complete: false` and a hint to use
+`document.search` / `document.read_range`.
 
 ### 4.8 Workflow and routing
 
 `document.read` revision 5 keeps the revision 4 path for small documents and
 adds a large branch. Persisted revision 4 plans keep their shape on resume.
 
-1. `confirm_document_target`, unchanged. Its deterministic preflight already
-   knows the path and format. It now also reads the index manifest and the
-   source size, so a document with a `ready` / `building` index, or a source
-   above 8 MiB, enters the large branch directly.
-2. Otherwise the existing `document_read` node runs. If it returns
-   `strategy_deferred`, the assessment routes to the large branch instead of
-   blocking, so files whose size is only discovered by parsing still work.
-3. Large branch: `document_outline` (`direct_once`, waits for or builds the
-   index), then a retrieval stage. In that stage the Fast step model turns the
-   owner request into keywords, including Chinese and English synonyms, as the
-   arguments of its own `document.search` calls. No extra model call is spent
-   on query rewriting, and searches are limited to three rounds per stage.
-   Retrieved ranges reach the step through provisioning under the stage
-   budget. When searches miss, the model falls back to browsing outline
-   titles.
-4. Finalization over the retrieved ranges, under the final budget, citing
-   pages or anchors and stating which sections were covered.
+1. `confirm_document_target`, unchanged.
+2. `document_read`, stage `read_by_type`, still calls the format reader
+   directly (a profile direct stage instead of `direct_once`, because the node
+   now has transitions). A document that fits completes the node as before. A
+   deferred indexable document returns the outline pointer. Its
+   `retrieval_required` outcome carries a `document_outline` resource ref and
+   transitions the node to stage `retrieve`, whose scope is the three
+   retrieval tools, each with `path` bound to the frozen target. Routing
+   therefore needs no preflight size probe; even sizes discovered only by
+   parsing work.
+3. In `retrieve` the Fast step model turns the owner request into keywords,
+   including Chinese and English synonyms, as the arguments of its own
+   `document.search` calls. No extra model call is spent on query rewriting.
+   The latest outline and search results are provisioned as compact text
+   (one line per hit with chunk ID, page, section and snippet). Search and
+   outline outcomes re-enter the stage at most four times; the instruction
+   asks for at most three searches. A `document.read_range` with content
+   completes the node; the node allows six attempts.
+4. Finalization over the read and the retrieved ranges, under the final
+   budget, citing pages or headings and saying the answer is based on the
+   retrieved sections.
 
 Whole-document requests (summarizing a whole book) use chapter-level
 map-reduce: one summary per outline node, cached in the index directory by
 node and source hash, then a final merge whose evidence is the cached
 summaries.
 
-**Edits are out of scope.** A `document.edit` request on a `large_indexed`
-document returns an explicit unsupported reply and leaves the source
-untouched. `Pipeline.Edit` still re-reads the whole source.
+**Edits are out of scope.** In `document.edit`, a locate read that returns
+`retrieval_required` blocks with `large_document_edit_unsupported`. The owner
+receives "这个文档太大，暂不支持直接修改，原文件保持不变。可以先就其中的内容提问或查找相关段落。"
+(or its English equivalent), no editor runs, and the source is untouched.
+`Pipeline.Edit` still re-reads the whole source.
 
 ### 4.9 Follow-up questions
 
@@ -354,7 +375,7 @@ existing wire values.
 |---|---|---|
 | A (done in source) | Context-derived budgets, tokenizer fit, product env `0` | Unit tests for the formula, ceiling, refit and fail-closed paths; a document that fits the 32K window reaches the finalizer whole; extraction follows the finalizer |
 | A2 (done in source) | Real-tokenizer bytes per token (section 3.2.1); tokenizer endpoint fix; evenly spaced finalizer windows instead of head-only truncation | Ratios recorded; a truncated 40-chapter fixture yields windows from the first to the last chapter |
-| B1 | Index, background import pre-build, analysis-phase build or wait, outline/search/read_range, revision 5 routing, `files.read` pointer, for text-layer PDF, DOCX and text | A 300-page text-layer PDF and a 1 MB DOCX answer located questions with correct page citations on dual-light and product profiles; a ready index adds no visible progress; an index still building shows only the run's progress line |
+| B1 (done in source) | Index, background import pre-build, analysis-phase build or wait, outline/search/read_range, revision 5 routing, `files.read` pointer, edit refusal, for text-layer PDF, DOCX and text | Unit and end-to-end tests (mock model): a large Markdown book runs read → search → range read → finalization containing the passage; the edit request is refused with the file unchanged; one progress event while building, none when ready; upload prebuild keeps an index only for the large file. A 56-page Chrome-printed PDF and a matching DOCX rank the right section first. Real-model and packaged-client acceptance are still open |
 | B2 | Analysis-phase OCR for scanned PDFs | *计算机网络* (workspace file) chapter questions OCR only outline-selected pages and reuse them on repeat; a scanned PDF of at most 25 MiB can be summarized whole |
 | B3 | XLSX/PPTX structure and chapter map-reduce | A whole-book summary states its coverage |
 

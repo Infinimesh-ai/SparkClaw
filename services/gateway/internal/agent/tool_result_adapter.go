@@ -921,6 +921,10 @@ func slicePersistedToolEvidenceForRequest(tool string, output any, mode workflow
 				}
 			case tool == "files.read" || tool == "pdf.extract_text" || tool == "images.inspect":
 				return sliceDocumentStructuredEvidenceForRequest(outputMap, maxBytes, ownerRequest)
+			case tool == "document.search":
+				return sliceDocumentSearchEvidence(outputMap, maxBytes)
+			case tool == "document.outline":
+				return boundedUTF8Prefix([]byte(stringValue(outputMap["content"])), maxBytes)
 			}
 		}
 	}
@@ -929,6 +933,29 @@ func slicePersistedToolEvidenceForRequest(tool string, output any, mode workflow
 		return ""
 	}
 	return boundedUTF8Prefix(raw, maxBytes)
+}
+
+// sliceDocumentSearchEvidence renders ranked hits as one line each, in rank
+// order, so the retrieval stage sees every chunk ID it may read.
+func sliceDocumentSearchEvidence(output map[string]any, maxBytes int) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "document.search keywords=%s hits=%d truncated=%t\n",
+		strings.Join(stringSliceValue(output["keywords"]), ", "), intLikeValue(output["count"]), boolValue(output["truncated"]))
+	for _, raw := range anySlice(output["hits"]) {
+		hit, ok := anyMap(raw)
+		if !ok {
+			continue
+		}
+		anchor, _ := anyMap(hit["anchor"])
+		line := fmt.Sprintf("- %s page=%d section=%s score=%v snippet=%s\n",
+			stringValue(hit["chunk_id"]), intLikeValue(anchor["page"]), strings.Join(stringSliceValue(anchor["heading_path"]), " > "),
+			hit["score"], strings.Join(strings.Fields(stringValue(hit["snippet"])), " "))
+		if out.Len()+len(line) > maxBytes {
+			break
+		}
+		out.WriteString(line)
+	}
+	return boundedUTF8Prefix([]byte(out.String()), maxBytes)
 }
 
 func sliceBrowserSnapshotEvidence(snapshot map[string]any, maxBytes int) string {

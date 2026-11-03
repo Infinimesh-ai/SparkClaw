@@ -1545,6 +1545,15 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 	}
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	execCtx = toolhub.WithProgressReporter(execCtx, func(text string) {
+		// A progress note re-saves the running call, which streams it as an
+		// ordinary tool_call event; the completed record carries none.
+		running := call
+		running.Progress = text
+		if _, err := r.saveToolCall(integrationCredentialPersistenceContext(ctx), running); err != nil {
+			slog.Warn("tool progress unavailable", "tool", call.Tool, "run_id", runID, "code", store.StoreErrorCodeOf(err))
+		}
+	})
 	var result toolhub.Result
 	if r.tools.IsPPTXMutationTool(plan.Name, plan.Args) {
 		result, err = r.tools.PublishSealedPPTXCandidate(execCtx, plan.Name, plan.Args, sessionID, runID)

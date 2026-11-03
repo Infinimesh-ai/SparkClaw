@@ -17,6 +17,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/docindex"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/documentocr"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
@@ -58,6 +59,7 @@ type ToolHub struct {
 	ocrRuntime            *documentOCRRuntime
 	pptxVisualQA          pptxVisualQARunner
 	documents             *document.Pipeline
+	documentIndex         *docindex.Service
 	lifecycle             *toolHubLifecycle
 	ownsProviders         bool
 	resources             *ExecutionResources
@@ -189,6 +191,7 @@ func New(cfg config.Config, st Repository) *ToolHub {
 	}
 	h.pptxVisualQA = newPPTXVisualQAService(cfg.Adapters.PPTXVisualQA, h.models)
 	h.documents = newDocumentPipeline(h)
+	h.documentIndex = docindex.NewService(documentIndexExtractor{})
 	for _, def := range defaultDefinitions() {
 		reg, ok := toolRegistry[def.Name]
 		if !ok {
@@ -224,6 +227,9 @@ func (h *ToolHub) Close() error {
 		}
 		if h.ownsProviders && h.ocr != nil {
 			errs = append(errs, h.ocr.Close())
+		}
+		if h.ownsProviders && h.documentIndex != nil {
+			h.documentIndex.Close()
 		}
 		h.lifecycle.closeErr = errors.Join(errs...)
 	})

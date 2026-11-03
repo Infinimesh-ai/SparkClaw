@@ -80,7 +80,7 @@ func (browserInternetSearchProfile) TransitionInstruction(app.ToolOutcome, app.N
 type documentReadProfile struct{}
 
 func (documentReadProfile) ID() app.WorkflowID           { return app.WorkflowDocumentRead }
-func (documentReadProfile) Revision() int                { return 4 }
+func (documentReadProfile) Revision() int                { return 5 }
 func (documentReadProfile) Capability() app.CapabilityID { return app.CapabilityDocumentRead }
 func (documentReadProfile) RoutingSemantics() workflowRoutingSemantics {
 	return documentReadRoutingSemantics()
@@ -92,10 +92,6 @@ func (p documentReadProfile) Resolve(route app.RouteDecision, sourceTurnID strin
 	target := app.TargetRef{Kind: app.TargetKindWorkspacePath, Ref: route.Slots.TargetRef}
 	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWorkspace, app.IntentOperationRead, target, app.DataScopeWorkspace)
 	confirmNodeID := app.WorkflowNodeID("confirm_document_target")
-	readNodeID := app.WorkflowNodeID("document_read")
-	readScope := app.CapabilityScope{Requirements: []app.CapabilityRequirement{{
-		Name: app.ToolCapabilityDocumentRead, Qualifiers: map[string]string{app.CapabilityQualifierFormat: route.Facts["document_format"]},
-	}}}
 	return intent, app.WorkflowPlan{
 		SchemaVersion: 1, ProfileID: p.ID(), ProfileRevision: p.Revision(),
 		InitialNodeIDs: []app.WorkflowNodeID{confirmNodeID}, Completion: app.CompletionEvidence,
@@ -106,30 +102,12 @@ func (p documentReadProfile) Resolve(route app.RouteDecision, sourceTurnID strin
 				InitialScope: app.CapabilityScope{},
 				AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: 1,
 			},
-			{
-				ID: readNodeID, InitialStage: "read_by_type", DependsOn: []app.WorkflowNodeID{confirmNodeID},
-				Goal:             app.NodeGoal{ObjectiveIDs: []string{"objective_1"}, Summary: "Read the exact governed path with its detected format", Completion: app.CompletionEvidence},
-				InitialScope:     readScope,
-				ArgumentBindings: []app.ArgumentBinding{{Capability: app.ToolCapabilityDocumentRead, Argument: "path", ResourceKind: "path", Source: app.ArgumentBindingRouteSlot, SourceKey: "target_ref"}},
-				AllowedRisks:     []app.RiskLevel{app.RiskRead}, MaxAttempts: 1, InvocationMode: app.WorkflowInvocationDirectOnce,
-			},
+			documentReadNode(route.Facts["document_format"]),
 		},
 	}, nil
 }
 func (documentReadProfile) Prepare(state *app.WorkflowState) (workflowPreparation, error) {
 	return documentTargetPreparation(state)
-}
-func (documentReadProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
-	assessment := baseNodeAssessment(outcome)
-	if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalContentAvailable) {
-		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "document_content_available"
-	} else {
-		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, "document_read_failed"
-	}
-	return assessment
-}
-func (documentReadProfile) StageContext(state *app.WorkflowState) workflowStageContext {
-	return workflowStageContextForState(state, "inspect", "workspace", "workspace", "", "Dispatched by the document.read workflow contract.")
 }
 func (documentReadProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
 	return ""
@@ -203,6 +181,10 @@ func (documentEditProfile) Assess(state *app.WorkflowState, outcome app.ToolOutc
 	assessment := baseNodeAssessment(outcome)
 	if outcome.NodeID == "document_locate_evidence" && containsOutcomeSignal(outcome.Signals, app.OutcomeSignalContentAvailable) {
 		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "document_evidence_located"
+	} else if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalRetrievalRequired) {
+		// Editors re-read the whole source, which a document too large to
+		// read whole cannot provide.
+		assessment.Status, assessment.ReasonCode = app.AssessmentBlocked, largeDocumentEditUnsupported
 	} else if outcome.NodeID == "document_edit" && containsOutcomeSignal(outcome.Signals, app.OutcomeSignalEditCompleted) {
 		assessment.Status, assessment.ReasonCode = app.AssessmentComplete, "document_edit_completed"
 	} else {

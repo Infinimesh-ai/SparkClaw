@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"math"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -110,6 +111,9 @@ func mockWorkflowStepResponse(user string) string {
 		return mockWorkflowStepAction("weather.lookup", map[string]any{"location": "workflow-bound location"})
 	case strings.Contains(lowerPrompt, "model-visible tools this workflow stage: media.render_weather_card"):
 		return mockWorkflowStepAction("media.render_weather_card", map[string]any{"weather_payload_ref": "workflow-bound weather payload"})
+	}
+	if action, ok := mockDocumentRetrievalAction(user, goal, lowerPrompt); ok {
+		return action
 	}
 	if stage := mockBrowserInteractionStage(lowerPrompt); stage != "" {
 		return mockBrowserInteractionAction(user, goal, stage)
@@ -386,6 +390,27 @@ func mockWorkflowPageID(prompt string) string {
 		value = value[:end]
 	}
 	return strings.TrimSpace(value)
+}
+
+var mockSearchHitChunk = regexp.MustCompile(`(?m)^- (c\d{5}) page=`)
+
+// mockDocumentRetrievalAction searches with the goal text, then reads the
+// top provisioned hits, as a real step model does in the retrieval stage.
+func mockDocumentRetrievalAction(user, goal, lowerPrompt string) (string, bool) {
+	if !strings.Contains(lowerPrompt, "model-visible tools this workflow stage: ") || !strings.Contains(lowerPrompt, "document.search") {
+		return "", false
+	}
+	if !strings.Contains(user, "document.search keywords=") {
+		return mockWorkflowStepAction("document.search", map[string]any{"keywords": []string{goal}, "top_k": 5}), true
+	}
+	chunks := []string{}
+	for _, match := range mockSearchHitChunk.FindAllStringSubmatch(user, 3) {
+		chunks = append(chunks, match[1])
+	}
+	if len(chunks) == 0 {
+		return mockWorkflowStepAction("document.outline", map[string]any{}), true
+	}
+	return mockWorkflowStepAction("document.read_range", map[string]any{"chunk_ids": chunks}), true
 }
 
 func mockWorkflowStepAction(tool string, args map[string]any) string {

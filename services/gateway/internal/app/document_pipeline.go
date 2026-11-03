@@ -7,13 +7,15 @@ package app
 type DocumentStrategyMode string
 
 const (
-	DocumentStrategySmallDirect DocumentStrategyMode = "small_direct"
+	DocumentStrategySmallDirect  DocumentStrategyMode = "small_direct"
+	DocumentStrategyLargeIndexed DocumentStrategyMode = "large_indexed"
 )
 
 type DocumentContextMode string
 
 const (
-	DocumentContextFullText DocumentContextMode = "full_text"
+	DocumentContextFullText  DocumentContextMode = "full_text"
+	DocumentContextRetrieved DocumentContextMode = "retrieved"
 )
 
 type DocumentProcessingStatus string
@@ -26,4 +28,6 @@ type DocumentIndexStatus string
 
 const (
 	DocumentIndexSkipped DocumentIndexStatus = "skipped"
+	DocumentIndexReady   DocumentIndexStatus = "ready"
+	DocumentIndexPartial DocumentIndexStatus = "partial"
 )

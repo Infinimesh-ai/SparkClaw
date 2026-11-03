@@ -284,8 +284,12 @@ func TestDocumentWorkflowRejectsMissingAmbiguousAndUnsupportedInputs(t *testing.
 	if _, err := hub.Execute(context.Background(), "files.read", map[string]any{"path": "binary.bin"}, "session", "run"); !document.IsErrorCode(err, document.CodeFormatUnsupported) {
 		t.Fatalf("unsupported format did not fail explicitly: %v", err)
 	}
-	if _, err := hub.Execute(context.Background(), "files.read", map[string]any{"path": "large.txt"}, "session", "run"); !document.IsErrorCode(err, document.CodeStrategyDeferred) {
-		t.Fatalf("oversized document did not return deferred: %v", err)
+	large, err := hub.Execute(context.Background(), "files.read", map[string]any{"path": "large.txt"}, "session", "run")
+	if err != nil {
+		t.Fatalf("oversized text document did not fall back to its index: %v", err)
+	}
+	if output := large.Output.(map[string]any); output["retrieval_required"] != true || !strings.HasPrefix(output["content"].(string), "Document outline") {
+		t.Fatalf("oversized document did not return the retrieval pointer: %#v", output["content"])
 	}
 }
 
@@ -326,8 +330,9 @@ func TestDocumentReadExtractionFollowsFinalizerCapacity(t *testing.T) {
 		t.Fatalf("fixture is %d bytes; it must exceed the small-document floor", len(content))
 	}
 	short := newDocumentWorkflowHub(t, root, store.NewMemoryStore())
-	if _, err := short.Execute(context.Background(), "files.read", map[string]any{"path": "long.txt"}, "session", "run"); !document.IsErrorCode(err, document.CodeStrategyDeferred) {
-		t.Fatalf("short-context hub accepted text beyond its extraction floor: %v", err)
+	pointer, err := short.Execute(context.Background(), "files.read", map[string]any{"path": "long.txt"}, "session", "run")
+	if err != nil || pointer.Output.(map[string]any)["retrieval_required"] != true {
+		t.Fatalf("short-context hub did not route text beyond its extraction floor to retrieval: %v", err)
 	}
 
 	cfg := config.Default()

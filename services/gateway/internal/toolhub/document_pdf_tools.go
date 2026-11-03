@@ -19,8 +19,12 @@ func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any, sessi
 	maxBytes := h.documentReadMaxBytes(args)
 	read, err := h.readDocumentWorkflow(withDocumentOCRExecution(ctx, sessionID, runID), path, maxBytes)
 	if err != nil {
-		h.recordPDFReadMetrics(ctx, sessionID, runID, "unavailable", nil, nil)
-		return Result{}, err
+		output, largeErr := h.largeDocumentRead(ctx, path, err)
+		if largeErr != nil {
+			h.recordPDFReadMetrics(ctx, sessionID, runID, "unavailable", nil, nil)
+			return Result{}, largeErr
+		}
+		return Result{Output: output}, nil
 	}
 	structured, err := read.Document.Map()
 	if err != nil {

@@ -62,7 +62,11 @@ func (h *ToolHub) filesRead(ctx context.Context, args map[string]any, sessionID,
 		Required:      boolArg(args, "image_required", false),
 	})
 	if err != nil {
-		return Result{}, err
+		output, largeErr := h.largeDocumentRead(ctx, path, err)
+		if largeErr != nil {
+			return Result{}, largeErr
+		}
+		return Result{Output: output}, nil
 	}
 	output, err := documentReadOutput(read, maxBytes)
 	return Result{Output: output}, err
@@ -375,6 +379,9 @@ func (h *ToolHub) resolveReadPath(ctx context.Context, path string) (string, err
 	abs, err := h.resolveWorkspacePath(path)
 	if err != nil {
 		return "", err
+	}
+	if isSparkClawStatePath(abs) {
+		return "", errors.New("path cannot read SparkClaw control files")
 	}
 	if err = h.MaterializeRead(ctx, abs); err != nil {
 		return "", err

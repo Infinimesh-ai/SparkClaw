@@ -209,7 +209,7 @@ func documentReadRegistration(run toolExecutor, formats []string, summary string
 	registration := workflowRegistration(
 		toolRegistration{run: run}, app.ToolCapabilityDocumentRead,
 		map[string]string{app.CapabilityQualifierFormat: formats[0]}, app.OutcomeAdapterWorkspaceRead,
-		summary, "Use only for the preflighted exact path and detected format in a document read stage; the adapter performs the complete format-specific read and returns bounded evidence.", "Do not use for search, mutation, or oversized documents without a registered strategy.", app.ToolEffectWorkspaceRead,
+		summary, "Use only for the preflighted exact path and detected format in a document read stage; the adapter performs the complete format-specific read and returns bounded evidence.", "Do not use for search or mutation. A document too large to read whole returns its outline and requires the retrieval stage.", app.ToolEffectWorkspaceRead,
 	)
 	registration.capabilities = registration.capabilities[:0]
 	for _, format := range formats {

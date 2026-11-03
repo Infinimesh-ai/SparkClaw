@@ -17,6 +17,13 @@ type workflowFinalEvidenceProjection struct {
 	RuntimeBindingManifestRef string
 }
 
+// documentContentCapability reports whether a call's archived output is
+// document text for finalization: a complete read, or passages retrieved
+// from an indexed large document.
+func documentContentCapability(capability string) bool {
+	return capability == app.ToolCapabilityDocumentRead || capability == app.ToolCapabilityDocumentReadRange
+}
+
 func (projection workflowFinalEvidenceProjection) modelPayload() string {
 	lines := make([]string, 0, len(projection.Evidence))
 	for _, evidence := range projection.Evidence {
@@ -48,7 +55,7 @@ func buildWorkflowFinalEvidenceProjection(
 	}
 	documentEvidence := false
 	for _, call := range calls {
-		if !toolCallCompleted(call) || call.Capability != app.ToolCapabilityDocumentRead {
+		if !toolCallCompleted(call) || !documentContentCapability(call.Capability) {
 			continue
 		}
 		result, ok := anyMap(call.Result)

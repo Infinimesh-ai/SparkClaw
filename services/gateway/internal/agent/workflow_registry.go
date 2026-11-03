@@ -253,6 +253,7 @@ func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 		browserFormDraftProfile{},
 		legacyWorkflowProfile{workflowProfile: browserEmailProfile{}, revision: 1},
 		browserEmailProfile{},
+		legacyWorkflowProfile{workflowProfile: documentReadProfile{}, revision: 4},
 		documentReadProfile{},
 		legacyWorkflowProfile{workflowProfile: documentEditProfile{}, revision: 6},
 		documentEditProfile{},

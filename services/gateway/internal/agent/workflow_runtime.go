@@ -757,7 +757,7 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 			latest.FinalAnswer = "The workflow stopped before its completion rule was satisfied."
 		case storedRun.Workflow.Status == app.WorkflowStatusBlocked && strings.TrimSpace(latest.FinalAnswer) == "":
 			latest.Completed = false
-			latest.FinalAnswer = workflowBlockedMessage(storedRun.Workflow)
+			latest.FinalAnswer = ownerBlockedWorkflowMessage(storedRun.Workflow, content)
 		case storedRun.Workflow.Status == app.WorkflowStatusSucceeded && strings.TrimSpace(latest.FinalAnswer) == "" && profile.Finalization() == workflowFinalizationModel:
 			chat, answer, err := r.synthesizeWorkflowFinalAnswer(
 				ctx, storedRun, content, allCalls, workflowObservationTexts(allObservations),
@@ -938,6 +938,7 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 		"Answer the user's actual request in the same language and do not add unsupported facts.",
 		"When document evidence says read_complete=false, explicitly state the limitation and missing page indexes, summarize only covered pages, and never describe the answer as a complete-PDF summary.",
 		"When evidence says claim_coverage is not complete or limitation_required=true, explicitly state that only the projected content was checked and do not make whole-document or absence claims.",
+		"When document evidence comes from retrieved passages of a large document, answer from those passages, cite their page numbers or section headings, and say the answer is based on the retrieved sections.",
 		"When schedule evidence includes schedule_client_display, display its due_time and timezone instead of the stored schedule timezone.",
 		finalAnswerLanguageInstruction(originalGoal),
 	}, "\n")
@@ -1034,7 +1035,7 @@ func (r Runtime) workflowFinalEvidenceInputs(ctx context.Context, run app.AgentR
 	for index := range materialized {
 		call := materialized[index]
 		archivedBytesByCall[call.ID] = artifactBytesByURI[call.ObservationRef]
-		if !toolCallCompleted(call) || call.Capability != app.ToolCapabilityDocumentRead || strings.TrimSpace(call.ObservationRef) == "" {
+		if !toolCallCompleted(call) || !documentContentCapability(call.Capability) || strings.TrimSpace(call.ObservationRef) == "" {
 			continue
 		}
 		output, artifactBytes, err := r.readArchivedToolObservation(ctx, run, call)

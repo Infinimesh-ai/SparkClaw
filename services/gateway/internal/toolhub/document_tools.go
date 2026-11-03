@@ -47,10 +47,17 @@ func (h *ToolHub) resolveNewOutputPath(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if strings.Contains(abs, string(os.PathSeparator)+".sparkclaw"+string(os.PathSeparator)+"state") {
+	if isSparkClawStatePath(abs) {
 		return "", errors.New("output_path cannot target SparkClaw control files")
 	}
 	return abs, nil
+}
+
+// isSparkClawStatePath reports whether abs is inside a .sparkclaw/state
+// control directory, such as the document index.
+func isSparkClawStatePath(abs string) bool {
+	separator := string(os.PathSeparator)
+	return strings.Contains(abs+separator, separator+".sparkclaw"+separator+"state"+separator)
 }
 
 func replacementArgs(value any) ([]textReplacement, error) {

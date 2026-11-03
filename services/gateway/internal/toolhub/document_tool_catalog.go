@@ -157,10 +157,10 @@ func sharedDocumentToolProviders() []documentToolProvider {
 	)
 	applyDocumentToolBoundary(&officeReplace, "office.replace_text")
 	officeReplace.capabilities = documentEditCapabilities("office.replace_text")
-	return []documentToolProvider{
+	return append([]documentToolProvider{
 		{Definition: filesReadDefinition(), Registration: filesRead},
 		{Definition: officeReplaceTextDefinition(), Registration: officeReplace},
-	}
+	}, documentRetrievalToolProviders()...)
 }
 
 func applyDocumentToolBoundary(registration *toolRegistration, toolName string) {

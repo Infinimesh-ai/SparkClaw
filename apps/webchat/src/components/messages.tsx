@@ -179,7 +179,10 @@ export function streamStatusFromEvent(event: string, data: unknown, text: Copy):
     const tool = stringField(payload, "tool");
     const label = tool ? `：${tool}` : "";
     if (event === "tool_call.started") {
-      return { id: `tool:${tool || "unknown"}`, type: "tool_started", text: `${text.chat.toolStarted}${label}` };
+      // A running call may carry a short progress note, such as a document
+      // index being built; it replaces the generic started line.
+      const progress = stringField(payload, "progress");
+      return { id: `tool:${tool || "unknown"}`, type: "tool_started", text: progress || `${text.chat.toolStarted}${label}` };
     }
     if (event === "tool_call.completed" || event === "tool_call.completed_after_approval") {
       return { id: `tool:${tool || "unknown"}`, type: "tool_completed", text: `${text.chat.toolCompleted}${label}` };

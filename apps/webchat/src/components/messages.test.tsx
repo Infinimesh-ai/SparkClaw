@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { dictionaries } from "../i18n";
-import { MessageAttachments, MessageBubble, TaskProgressMessage } from "./messages";
+import { MessageAttachments, MessageBubble, streamStatusFromEvent, TaskProgressMessage } from "./messages";
 
 describe("completed assistant messages", () => {
   it.each(["en", "zh"] as const)("keeps the answer and activity without feedback controls in %s", language => {
@@ -157,5 +157,16 @@ describe("answer details in the original message bubble", () => {
     expect(markup).not.toContain("<details");
     expect(markup).toContain("&lt;details&gt;");
     expect(markup).not.toContain('class="feedbackBar"');
+  });
+});
+
+describe("stream statuses from tool events", () => {
+  it("shows a running call's progress note instead of the generic started line", () => {
+    const text = dictionaries.zh;
+    const started = { payload: { tool: "files.read" } };
+    const indexing = { payload: { tool: "files.read", progress: "正在建立文档索引" } };
+    expect(streamStatusFromEvent("tool_call.started", started, text)?.text).toBe(`${text.chat.toolStarted}：files.read`);
+    const status = streamStatusFromEvent("tool_call.started", indexing, text);
+    expect(status).toEqual({ id: "tool:files.read", type: "tool_started", text: "正在建立文档索引" });
   });
 });

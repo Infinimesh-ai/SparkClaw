@@ -22,6 +22,7 @@ var workflowOutcomeAdapters = map[app.ToolOutcomeAdapter]workflowOutcomeAdapter{
 	app.OutcomeAdapterWebPage:             adaptWebPageWorkflowOutcome,
 	app.OutcomeAdapterWorkspaceSearch:     adaptWorkspaceSearchOutcome,
 	app.OutcomeAdapterWorkspaceRead:       adaptWorkspaceReadOutcome,
+	app.OutcomeAdapterDocumentRetrieval:   adaptDocumentRetrievalOutcome,
 	app.OutcomeAdapterBrowserHealth:       adaptBrowserHealthOutcome,
 	app.OutcomeAdapterBrowserTabs:         adaptBrowserTabsOutcome,
 	app.OutcomeAdapterBrowserFocus:        adaptBrowserFocusOutcome,
@@ -393,6 +394,16 @@ func adaptWorkspaceSearchOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) a
 func adaptWorkspaceReadOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
 	output, ok := anyMap(call.Result)
+	if ok && toolCallCompleted(call) && boolValue(output["retrieval_required"]) {
+		// An indexed large document returned its outline, not its text.
+		path := firstNonEmptyString(output["rel_path"], output["path"])
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalRetrievalRequired}
+		outcome.Refs = []app.ResourceRef{
+			{Kind: "path", Ref: path, Provenance: call.ID},
+			{Kind: documentOutlineResourceKind, Ref: path, Provenance: call.ID},
+		}
+		return outcome
+	}
 	if ok && toolCallCompleted(call) {
 		coverage := projectDocumentReadCoverage(call, output)
 		contentAvailable := !coverage.Applies || coverage.CoverageStatus == "complete" ||
@@ -403,6 +414,34 @@ func adaptWorkspaceReadOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app
 		if path := firstNonEmptyString(output["rel_path"], output["path"]); path != "" {
 			outcome.Refs = []app.ResourceRef{{Kind: "path", Ref: path, Provenance: call.ID, Attributes: coverage.attributes()}}
 		}
+	}
+	return outcome
+}
+
+// adaptDocumentRetrievalOutcome maps index queries to retrieval-stage
+// signals; each result is a resource ref the next stage provisions.
+func adaptDocumentRetrievalOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
+	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	output, ok := anyMap(call.Result)
+	if !ok || !toolCallCompleted(call) {
+		return outcome
+	}
+	path := firstNonEmptyString(output["rel_path"], output["path"])
+	switch call.Capability {
+	case app.ToolCapabilityDocumentSearch:
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalNoResults}
+		if intLikeValue(output["count"]) > 0 {
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalResultsAvailable}
+		}
+		outcome.Refs = []app.ResourceRef{{Kind: documentSearchResourceKind, Ref: path, Provenance: call.ID}}
+	case app.ToolCapabilityDocumentOutline:
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalResultsAvailable}
+		outcome.Refs = []app.ResourceRef{{Kind: documentOutlineResourceKind, Ref: path, Provenance: call.ID}}
+	case app.ToolCapabilityDocumentReadRange:
+		if strings.TrimSpace(firstNonEmptyString(output["content"])) != "" {
+			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalContentAvailable}
+		}
+		outcome.Refs = []app.ResourceRef{{Kind: documentRangeResourceKind, Ref: path, Provenance: call.ID}}
 	}
 	return outcome
 }

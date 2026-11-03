@@ -365,6 +365,33 @@ func workflowFailure(code workflowFailureCode) ownerFailureMessage {
 	return workflowFailureFallback
 }
 
+// largeDocumentEditUnsupported blocks document.edit on a document too large
+// to read whole (docs/large-document-context-design.md section 4.8).
+const largeDocumentEditUnsupported = "large_document_edit_unsupported"
+
+// blockedWorkflowMessages are owner replies for node reason codes that need
+// more than the generic blocked sentence.
+var blockedWorkflowMessages = map[string]ownerFailureMessage{
+	largeDocumentEditUnsupported: {class: failureUnsupported,
+		zh: "这个文档太大，暂不支持直接修改，原文件保持不变。可以先就其中的内容提问或查找相关段落。",
+		en: "This document is too large to edit directly for now; the original file is unchanged. You can still ask about or search its content."},
+}
+
+// ownerBlockedWorkflowMessage replies for a blocked workflow, using the
+// owner message of a known node reason code before the generic sentence.
+func ownerBlockedWorkflowMessage(state *app.WorkflowState, goal string) string {
+	if state != nil {
+		for _, nodeID := range state.ActiveNodeIDs {
+			if assessment := state.Nodes[nodeID].LastAssessment; assessment != nil {
+				if message, ok := blockedWorkflowMessages[assessment.ReasonCode]; ok {
+					return message.text(chineseRequest(goal), false)
+				}
+			}
+		}
+	}
+	return workflowBlockedMessage(state)
+}
+
 func ownerWorkflowFailureMessage(code workflowFailureCode, run app.AgentRun, goal string) string {
 	chinese := chineseRequest(goal)
 	if code == workflowFailureRequiredToolNotCalled && run.Workflow != nil && run.Workflow.Plan.ProfileID == app.WorkflowDocumentEdit {

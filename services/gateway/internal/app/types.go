@@ -146,6 +146,9 @@ type ToolCall struct {
 	ScopeRevision      int                     `json:"scope_revision,omitempty"`
 	Capability         string                  `json:"capability,omitempty"`
 	PolicyContext      *PolicyExecutionContext `json:"policy_context,omitempty"`
+	// Progress is a short owner-facing note on a running call, such as a
+	// document index being built; it rides the existing tool_call events.
+	Progress string `json:"progress,omitempty"`
 }
 
 type Approval struct {

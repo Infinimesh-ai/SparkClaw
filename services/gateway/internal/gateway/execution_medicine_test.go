@@ -278,9 +278,9 @@ func executionMedicineModel(t *testing.T) (*httptest.Server, *executionApprovalM
 			answer = map[string]any{"graph_revision": properties.Revision.Enum[0], "candidates": candidates}
 		case strings.Contains(prompt, "Classify the user content for SparkClaw safety"):
 			answer = map[string]any{"verdict": "allow", "categories": []string{}, "reason": "synthetic bounded document edit"}
-		case request.ResponseFormat.JSONSchema.Name == "medicine_edit_v3":
+		case request.ResponseFormat.JSONSchema.Name == "medicine_edit_v4":
 			calls.edit.Add(1)
-			answer = json.RawMessage(`{"operation":"create","items":[{"changes":[{"field":"name","value":"布洛芬","evidence":"布洛芬"},{"field":"quantity","value":24,"evidence":"24粒"},{"field":"unit","value":"capsule","evidence":"24粒"}],"unresolved":[{"field":"expiry","reason":"missing"}]},{"changes":[{"field":"name","value":"碘伏","evidence":"碘伏"},{"field":"quantity","value":1,"evidence":"1瓶"},{"field":"unit","value":"bottle","evidence":"1瓶"},{"field":"no_expiry","value":true,"evidence":"无有效期"}],"unresolved":[]}]}`)
+			answer = json.RawMessage(`{"items":[{"action":"create","changes":[{"field":"name","value":"布洛芬","evidence":"布洛芬"},{"field":"quantity","value":24,"evidence":"24粒"},{"field":"unit","value":"capsule","evidence":"24粒"}],"unresolved":[{"field":"expiry","reason":"missing"}]},{"action":"create","changes":[{"field":"name","value":"碘伏","evidence":"碘伏"},{"field":"quantity","value":1,"evidence":"1瓶"},{"field":"unit","value":"bottle","evidence":"1瓶"},{"field":"no_expiry","value":true,"evidence":"无有效期"}],"unresolved":[]}]}`)
 		default:
 			t.Errorf("unexpected synthetic model request path=%s schema=%q: %.160s", r.URL.Path, request.ResponseFormat.JSONSchema.Name, prompt)
 			http.Error(w, "unexpected synthetic model request", 500)

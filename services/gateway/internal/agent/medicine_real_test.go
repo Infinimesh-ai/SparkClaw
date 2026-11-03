@@ -25,7 +25,7 @@ import (
 // isolated file repository. It neither reads personal inventory nor calls Info.
 func TestRealMedicineRoutingAndPlans(t *testing.T) {
 	if os.Getenv("SPARKCLAW_RUN_REAL_MEDICINE") != "1" {
-		t.Skip("set SPARKCLAW_RUN_REAL_MEDICINE=1 to call configured real Fast and embedding models")
+		t.Skip("set SPARKCLAW_RUN_REAL_MEDICINE=1 and SPARKCLAW_MODEL_CAPACITY_PROFILE=sparkclaw-product-v1 to call configured real Fast and embedding models")
 	}
 	cfg, err := config.Load(filepath.Join("..", "..", "..", "..", "configs", "sparkclaw.default.json"))
 	if err != nil {
@@ -129,6 +129,71 @@ func TestRealMedicineRoutingAndPlans(t *testing.T) {
 				}
 			}
 		}
+	})
+
+	t.Run("edit_plans", func(t *testing.T) {
+		session := storetest.MustCreateSessionWithScope(t, st, "medicine edit qualification", app.DefaultOwnerID, root, "web", false)
+		records := []medicine.Item{
+			{ID: "ibuprofen", Version: 1, Fields: medicine.Fields{Name: "布洛芬缓释胶囊", Category: "fever", Quantity: 12, Unit: "capsule", ExpiresOn: "2027-08-31", Location: "客厅抽屉"}},
+			{ID: "cold", Version: 1, Fields: medicine.Fields{Name: "感冒灵颗粒", Category: "cold", Quantity: 3, Unit: "sachet", ExpiresOn: "2026-11-30", Location: "客厅抽屉"}},
+			{ID: "smecta", Version: 1, Fields: medicine.Fields{Name: "蒙脱石散", Category: "digestive", Quantity: 6, Unit: "sachet", ExpiresOn: "2026-03-31", Location: "卧室柜子"}},
+			{ID: "iodine", Version: 1, Fields: medicine.Fields{Name: "碘伏", Category: "wound", Quantity: 1, Unit: "bottle", NoExpiry: true, Location: "卫生间"}},
+		}
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, 3)
+		for i, c := range []struct {
+			text  string
+			op    app.RouteOperation
+			want  map[string]medicine.Fields // record ID -> fields after the batch; nil for delete
+			mixed bool
+		}{
+			{"药箱里的布洛芬减两粒", app.RouteOperationEdit, map[string]medicine.Fields{"ibuprofen": {Quantity: 10, Location: "客厅抽屉"}}, false},
+			{"药箱里的布洛芬吃掉了两粒，感冒灵用掉一袋，帮我更新一下", app.RouteOperationEdit, map[string]medicine.Fields{"ibuprofen": {Quantity: 10, Location: "客厅抽屉"}, "cold": {Quantity: 2, Location: "客厅抽屉"}}, false},
+			{"把药箱里布洛芬改成10粒，感冒灵改成2袋", app.RouteOperationEdit, map[string]medicine.Fields{"ibuprofen": {Quantity: 10, Location: "客厅抽屉"}, "cold": {Quantity: 2, Location: "客厅抽屉"}}, false},
+			{"把卧室柜子的蒙脱石散挪到客厅抽屉", app.RouteOperationEdit, map[string]medicine.Fields{"smecta": {Quantity: 6, Location: "客厅抽屉"}}, false},
+			{"碘伏又买了一瓶", app.RouteOperationEdit, map[string]medicine.Fields{"iodine": {Quantity: 2, Location: "卫生间"}}, false},
+			{"把药箱里过期的蒙脱石散删掉", app.RouteOperationDelete, map[string]medicine.Fields{"smecta": {}}, false},
+			{"新增阿莫西林1盒无有效期，再把布洛芬减两粒", app.RouteOperationCreate, nil, true},
+			{"删掉碘伏，另外感冒灵减一袋", app.RouteOperationDelete, nil, true},
+		} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				run := app.AgentRun{ID: app.NewID("run"), SessionID: session.ID, Workflow: &app.WorkflowState{Route: app.RouteDecision{Slots: app.RouteSlots{Operation: c.op, Query: c.text}}}}
+				p, err := runtime.planMedicineEdit(ctx, run, records)
+				if c.mixed {
+					if !errors.Is(err, errMedicineMixedOperations) {
+						t.Errorf("case=%d mixed request plan=%+v err=%v", i, p, err)
+					}
+					return
+				}
+				if err != nil {
+					t.Errorf("case=%d plan err=%v", i, err)
+					return
+				}
+				draft, form, err := freezeMedicinePlan(p, records, run.ID, c.text)
+				if err != nil || form != nil {
+					t.Errorf("case=%d plan=%+v form=%+v err=%v", i, p, form, err)
+					return
+				}
+				batch, err := materializeMedicineBatch(draft, nil)
+				if err != nil || len(batch.Items) != len(c.want) {
+					t.Errorf("case=%d batch=%+v err=%v", i, batch, err)
+					return
+				}
+				for _, entry := range batch.Items {
+					want, ok := c.want[entry.ID]
+					got := entry.Fields
+					if !ok || batch.Operation != medicine.OperationDelete && (got.Quantity != want.Quantity || got.Location != want.Location) {
+						t.Errorf("case=%d op=%s id=%s fields=%+v want=%+v", i, batch.Operation, entry.ID, got, want)
+					}
+				}
+				t.Logf("case=%d op=%s entries=%d", i, batch.Operation, len(batch.Items))
+			}()
+		}
+		wg.Wait()
 	})
 
 	t.Run("batch_limits", func(t *testing.T) {

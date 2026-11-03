@@ -3,8 +3,10 @@ package agent
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/appstream"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/medicine"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 )
 
@@ -22,14 +24,18 @@ type medicineModelTarget struct {
 	Location  string `json:"location"`
 	Evidence  string `json:"evidence"`
 }
+
+// Each entry carries its own action. A batch-level choice that included
+// "mixed" drew the real model to label plain updates as mixed; per-entry
+// actions let Runtime detect mixed batches deterministically instead.
 type medicineModelEntry struct {
+	Action     string                `json:"action"`
 	Changes    []medicineModelChange `json:"changes"`
 	Target     *medicineModelTarget  `json:"target,omitempty"`
 	Unresolved []medicineUnresolved  `json:"unresolved"`
 }
 type medicineModelPlan struct {
-	Operation string               `json:"operation"`
-	Items     []medicineModelEntry `json:"items"`
+	Items []medicineModelEntry `json:"items"`
 }
 
 func medicinePlanOptions() modelrouter.ChatOptions {
@@ -44,9 +50,10 @@ func medicinePlanOptions() modelrouter.ChatOptions {
 	}, []string{"field", "value", "evidence"})
 	target := object(map[string]any{"name": str, "expires_on": str, "location": str, "evidence": str}, []string{"name", "expires_on", "location", "evidence"})
 	unresolved := object(map[string]any{"field": map[string]any{"type": "string", "enum": append(append([]string{}, medicineChangeFields...), "expiry", "target")}, "reason": map[string]any{"type": "string", "enum": []string{"missing", "ambiguous"}}}, []string{"field", "reason"})
-	entry := object(map[string]any{"changes": map[string]any{"type": "array", "maxItems": 11, "items": change}, "target": target, "unresolved": map[string]any{"type": "array", "maxItems": 14, "items": unresolved}}, []string{"changes", "unresolved"})
-	schema := object(map[string]any{"operation": map[string]any{"type": "string", "enum": []string{"create", "update", "delete", "mixed"}}, "items": map[string]any{"type": "array", "minItems": 1, "items": entry}}, []string{"operation", "items"})
-	return modelrouter.ChatOptions{ForceDisableThinking: true, StrictJSONSchema: &modelrouter.StrictJSONSchema{Name: "medicine_edit_v3", Schema: schema}}
+	action := map[string]any{"type": "string", "enum": []string{medicine.OperationCreate, medicine.OperationUpdate, medicine.OperationDelete}}
+	entry := object(map[string]any{"action": action, "changes": map[string]any{"type": "array", "maxItems": 11, "items": change}, "target": target, "unresolved": map[string]any{"type": "array", "maxItems": 14, "items": unresolved}}, []string{"action", "changes", "unresolved"})
+	schema := object(map[string]any{"items": map[string]any{"type": "array", "minItems": 1, "items": entry}}, []string{"items"})
+	return modelrouter.ChatOptions{ForceDisableThinking: true, StrictJSONSchema: &modelrouter.StrictJSONSchema{Name: "medicine_edit_v4", Schema: schema}}
 }
 func decodeMedicineModelPlan(raw string) (medicineEditPlan, error) {
 	var wire medicineModelPlan
@@ -56,12 +63,30 @@ func decodeMedicineModelPlan(raw string) (medicineEditPlan, error) {
 	if err := appstream.DecodeStrict([]byte(raw), &wire); err != nil {
 		return medicineEditPlan{}, err
 	}
-	plan := medicineEditPlan{Operation: wire.Operation}
+	plan := medicineEditPlan{}
 	for _, item := range wire.Items {
 		if item.Changes == nil || item.Unresolved == nil {
 			return plan, errors.New("missing medicine draft arrays")
 		}
+		if !slices.Contains([]string{medicine.OperationCreate, medicine.OperationUpdate, medicine.OperationDelete}, item.Action) {
+			return plan, errors.New("invalid medicine action")
+		}
+		if plan.Operation == "" {
+			plan.Operation = item.Action
+		} else if item.Action != plan.Operation {
+			return plan, errMedicineMixedOperations
+		}
 		entry := medicinePlannedEntry{Changes: map[string]any{}, Evidence: map[string]string{}, Unresolved: item.Unresolved}
+		if item.Action == medicine.OperationDelete {
+			// A delete writes no fields; only the target can need the owner.
+			item.Changes = nil
+			entry.Unresolved = []medicineUnresolved{}
+			for _, u := range item.Unresolved {
+				if u.Field == "target" {
+					entry.Unresolved = append(entry.Unresolved, u)
+				}
+			}
+		}
 		for _, change := range item.Changes {
 			if _, ok := entry.Changes[change.Field]; ok {
 				return plan, errors.New("duplicate medicine field")

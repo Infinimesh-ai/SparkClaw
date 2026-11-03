@@ -58,9 +58,6 @@ func decodeMedicinePlan(raw string) (medicineEditPlan, error) {
 	if err := appstream.DecodeStrict([]byte(raw), &plan); err != nil {
 		return plan, err
 	}
-	if plan.Operation == "mixed" {
-		return plan, errMedicineMixedOperations
-	}
 	if len(plan.Items) < 1 || len(plan.Items) > medicine.MaxBatch || !slices.Contains([]string{medicine.OperationCreate, medicine.OperationUpdate, medicine.OperationDelete}, plan.Operation) || plan.Operation == medicine.OperationDelete && len(plan.Items) != 1 {
 		return plan, errMedicineBatchLimit
 	}
@@ -174,6 +171,12 @@ func freezeMedicinePlan(plan medicineEditPlan, items []medicine.Item, runID, ori
 			if key == "expires_on" || key == "no_expiry" {
 				key = "expiry"
 			}
+			// Without a requested rename, an unclear name is about which record
+			// is meant: the owner picks a candidate rather than typing a new name.
+			if key == "name" && plan.Operation != medicine.OperationCreate && p.Changes["name"] == nil {
+				fields["target"] = true
+				continue
+			}
 			fields[key] = true
 			if key == "expiry" {
 				delete(entry.Plan.Changes, "expires_on")
@@ -205,22 +208,7 @@ func freezeMedicinePlan(plan medicineEditPlan, items []medicine.Item, runID, ori
 			if quote == "" || !strings.Contains(original, quote) {
 				return draft, nil, errors.New("请明确要修改的药品名称和定位信息；整批未写入")
 			}
-			exact := []medicine.Item{}
-			normal := []medicine.Item{}
-			for _, item := range items {
-				if p.Target.ExpiresOn != "" && medicineMonthEnd(p.Target.ExpiresOn) != item.ExpiresOn || p.Target.Location != "" && p.Target.Location != item.Location {
-					continue
-				}
-				if item.Name == p.Target.Name {
-					exact = append(exact, item)
-				} else if medicine.NormalizeName(item.Name) == medicine.NormalizeName(p.Target.Name) {
-					normal = append(normal, item)
-				}
-			}
-			entry.Candidates = exact
-			if len(exact) == 0 {
-				entry.Candidates = normal
-			}
+			entry.Candidates = medicineTargetCandidates(*p.Target, items)
 			if len(entry.Candidates) == 0 {
 				return draft, nil, fmt.Errorf("药箱里没有 %s 的记录；整批未写入", p.Target.Name)
 			}
@@ -281,6 +269,37 @@ func freezeMedicinePlan(plan medicineEditPlan, items []medicine.Item, runID, ori
 		return draft, nil, errors.New("待补全药品候选过多，请缩小范围；整批未写入")
 	}
 	return draft, form, nil
+}
+
+// medicineTargetCandidates prefers exact, then normalized names. Only when
+// neither matches does it accept records whose name contains the owner's
+// words (or the reverse), so "布洛芬" finds "布洛芬缓释胶囊"; more than one
+// candidate is always put to the owner. A stated location narrows by
+// containment for the same reason ("卧室" in "卧室柜子").
+func medicineTargetCandidates(target medicineTarget, items []medicine.Item) []medicine.Item {
+	want := medicine.NormalizeName(target.Name)
+	place := medicine.NormalizeName(target.Location)
+	exact, normal, partial := []medicine.Item{}, []medicine.Item{}, []medicine.Item{}
+	for _, item := range items {
+		if target.ExpiresOn != "" && medicineMonthEnd(target.ExpiresOn) != item.ExpiresOn || place != "" && !strings.Contains(medicine.NormalizeName(item.Location), place) {
+			continue
+		}
+		name := medicine.NormalizeName(item.Name)
+		switch {
+		case item.Name == target.Name:
+			exact = append(exact, item)
+		case name == want:
+			normal = append(normal, item)
+		case want != "" && (strings.Contains(name, want) || strings.Contains(want, name)):
+			partial = append(partial, item)
+		}
+	}
+	for _, tier := range [][]medicine.Item{exact, normal} {
+		if len(tier) > 0 {
+			return tier
+		}
+	}
+	return partial
 }
 
 func materializeMedicineBatch(draft frozenMedicineDraft, inputs app.ApprovalInputValues) (medicine.Batch, error) {

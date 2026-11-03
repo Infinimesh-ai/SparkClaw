@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -313,9 +314,9 @@ func medicineModelFixture(raw string) string {
 	if json.Unmarshal([]byte(raw), &p) != nil || p.Operation == "" {
 		return raw
 	}
-	wire := medicineModelPlan{Operation: p.Operation}
+	wire := medicineModelPlan{}
 	for _, item := range p.Items {
-		row := medicineModelEntry{Changes: []medicineModelChange{}, Unresolved: item.Unresolved}
+		row := medicineModelEntry{Action: p.Operation, Changes: []medicineModelChange{}, Unresolved: item.Unresolved}
 		for _, key := range medicineChangeFields {
 			if value, ok := item.Changes[key]; ok {
 				row.Changes = append(row.Changes, medicineModelChange{Field: key, Value: value, Evidence: item.Evidence[key]})
@@ -353,7 +354,7 @@ func TestMedicineTwentyCompleteRowsCommitAsOneBatch(t *testing.T) {
 	}
 }
 func TestMedicineModelPlanRejectsDuplicateFields(t *testing.T) {
-	if _, err := decodeMedicineModelPlan(`{"operation":"create","items":[{"changes":[{"field":"name","value":"甲","evidence":"甲"},{"field":"name","value":"乙","evidence":"乙"}],"unresolved":[]}]}`); err == nil {
+	if _, err := decodeMedicineModelPlan(`{"items":[{"action":"create","changes":[{"field":"name","value":"甲","evidence":"甲"},{"field":"name","value":"乙","evidence":"乙"}],"unresolved":[]}]}`); err == nil {
 		t.Fatal("duplicate changed field accepted")
 	}
 	if _, err := decodeMedicinePlan(`{"operation":"create","operation":"delete","items":[]}`); err == nil {
@@ -362,7 +363,7 @@ func TestMedicineModelPlanRejectsDuplicateFields(t *testing.T) {
 }
 
 func TestMedicineMixedOperationsNeverWrite(t *testing.T) {
-	raw := `{"operation":"mixed","items":[{"changes":{},"unresolved":[]}]}`
+	raw := `{"items":[{"action":"create","changes":[{"field":"name","value":"甲药","evidence":"甲药"}],"unresolved":[]},{"action":"update","changes":[{"field":"quantity_delta","value":-1,"evidence":"减少"}],"target":{"name":"乙药","expires_on":"","location":"","evidence":"乙药"},"unresolved":[]}]}`
 	r, st, s := newMedicineRuntime(t, raw)
 	_, result := dispatchMedicineTest(t, r, st, s, app.RouteOperationCreate, "添加甲药并减少乙药", app.MessageSourceWeb)
 	if !strings.Contains(result.FinalAnswer, "一种") || len(result.Approvals) != 0 {
@@ -384,5 +385,109 @@ func TestMedicineAmbiguousRequestedCategoryRequiresCompletion(t *testing.T) {
 	batch, err := materializeMedicineBatch(draft, app.ApprovalInputValues{"entry_1": {"category": "fever"}})
 	if err != nil || batch.Items[0].BaseVersion != 3 || batch.Items[0].Fields.Category != "fever" || batch.Items[0].Fields.Quantity != 1 {
 		t.Fatalf("batch=%+v err=%v", batch, err)
+	}
+}
+
+func TestMedicineModelPlanTakesActionPerEntry(t *testing.T) {
+	update := `{"action":"update","changes":[{"field":"quantity_delta","value":-2,"evidence":"减两粒"}],"target":{"name":"布洛芬","expires_on":"","location":"","evidence":"布洛芬"},"unresolved":[]}`
+	plan, err := decodeMedicineModelPlan(`{"items":[` + update + `,` + strings.ReplaceAll(update, "布洛芬", "感冒灵") + `]}`)
+	if err != nil || plan.Operation != "update" || len(plan.Items) != 2 {
+		t.Fatalf("plan=%+v err=%v", plan, err)
+	}
+	if _, err := decodeMedicineModelPlan(`{"items":[` + update + `,{"action":"delete","changes":[],"target":{"name":"碘伏","expires_on":"","location":"","evidence":"碘伏"},"unresolved":[]}]}`); !errors.Is(err, errMedicineMixedOperations) {
+		t.Fatalf("mixed actions err=%v", err)
+	}
+	if _, err := decodeMedicineModelPlan(`{"items":[` + strings.Replace(update, `"update"`, `"mixed"`, 1) + `]}`); err == nil || errors.Is(err, errMedicineMixedOperations) || errors.Is(err, errMedicineBatchLimit) {
+		t.Fatalf("unknown action must be repairable, err=%v", err)
+	}
+	// A delete writes no fields, so stray changes and field gaps cannot block it.
+	plan, err = decodeMedicineModelPlan(`{"items":[{"action":"delete","changes":[{"field":"location","value":"","evidence":"药箱里"}],"target":{"name":"蒙脱石散","expires_on":"","location":"","evidence":"蒙脱石散"},"unresolved":[{"field":"expiry","reason":"missing"},{"field":"target","reason":"ambiguous"}]}]}`)
+	if err != nil || plan.Operation != "delete" || len(plan.Items[0].Changes) != 0 || len(plan.Items[0].Unresolved) != 1 || plan.Items[0].Unresolved[0].Field != "target" {
+		t.Fatalf("plan=%+v err=%v", plan, err)
+	}
+}
+
+func TestMedicineTargetCandidatesNarrowByTier(t *testing.T) {
+	items := []medicine.Item{
+		{ID: "a", Fields: medicine.Fields{Name: "布洛芬缓释胶囊", Location: "客厅抽屉"}},
+		{ID: "b", Fields: medicine.Fields{Name: "布洛芬混悬液", Location: "卧室柜子"}},
+		{ID: "c", Fields: medicine.Fields{Name: "感冒灵颗粒", Location: "客厅抽屉"}},
+		{ID: "d", Fields: medicine.Fields{Name: "碘伏", Location: "卫生间", NoExpiry: true}},
+	}
+	ids := func(target medicineTarget, items []medicine.Item) string {
+		out := []string{}
+		for _, item := range medicineTargetCandidates(target, items) {
+			out = append(out, item.ID)
+		}
+		return strings.Join(out, ",")
+	}
+	for _, c := range []struct {
+		target medicineTarget
+		want   string
+	}{
+		{medicineTarget{Name: "感冒灵"}, "c"},
+		{medicineTarget{Name: "布洛芬"}, "a,b"},
+		{medicineTarget{Name: "布洛芬", Location: "卧室"}, "b"},
+		{medicineTarget{Name: "碘伏消毒液"}, "d"},
+		{medicineTarget{Name: "阿莫西林"}, ""},
+		{medicineTarget{Name: "感冒灵", Location: "药箱"}, ""},
+	} {
+		if got := ids(c.target, items); got != c.want {
+			t.Errorf("target=%+v got=%q want=%q", c.target, got, c.want)
+		}
+	}
+	// An exact or normalized name wins over longer names that contain it.
+	withExact := append([]medicine.Item{{ID: "e", Fields: medicine.Fields{Name: "布 洛芬"}}}, items...)
+	if got := ids(medicineTarget{Name: "布洛芬"}, withExact); got != "e" {
+		t.Fatalf("got=%q", got)
+	}
+}
+
+func TestMedicineShortNameUpdateWritesDirectly(t *testing.T) {
+	p := medicineEditPlan{Operation: "update", Items: []medicinePlannedEntry{
+		{Target: &medicineTarget{Name: "布洛芬"}, Changes: map[string]any{"quantity_delta": -2.0}, Unresolved: []medicineUnresolved{}, Evidence: map[string]string{"target": "布洛芬", "quantity_delta": "吃掉了两粒"}},
+		{Target: &medicineTarget{Name: "感冒灵"}, Changes: map[string]any{"quantity_delta": -1.0}, Unresolved: []medicineUnresolved{}, Evidence: map[string]string{"target": "感冒灵", "quantity_delta": "用掉一袋"}},
+	}}
+	raw, _ := json.Marshal(p)
+	r, st, s := newMedicineRuntime(t, string(raw))
+	if _, err := medicine.New(st).Apply(t.Context(), s.OwnerID, medicine.Batch{OperationID: "seed", Operation: "create", Items: []medicine.Entry{
+		{EntryID: "a", Fields: medicine.Fields{Name: "布洛芬缓释胶囊", Category: "fever", Quantity: 12, Unit: "capsule", ExpiresOn: "2027-08-31"}},
+		{EntryID: "b", Fields: medicine.Fields{Name: "感冒灵颗粒", Category: "cold", Quantity: 3, Unit: "sachet", ExpiresOn: "2026-11-30"}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	run, result := dispatchMedicineTest(t, r, st, s, app.RouteOperationEdit, "药箱里的布洛芬吃掉了两粒，感冒灵用掉一袋", app.MessageSourceWeb)
+	if run.Workflow.Status != app.WorkflowStatusSucceeded || len(result.Approvals) != 0 || !strings.Contains(result.FinalAnswer, "已更新：布洛芬缓释胶囊") || !strings.Contains(result.FinalAnswer, "已更新：感冒灵颗粒") {
+		t.Fatalf("%+v", result)
+	}
+	box, _ := st.ReadMedicineBox(t.Context(), s.OwnerID)
+	for _, item := range box.Items {
+		if item.Name == "布洛芬缓释胶囊" && item.Quantity != 10 || item.Name == "感冒灵颗粒" && item.Quantity != 2 {
+			t.Fatal(box)
+		}
+	}
+}
+
+func TestMedicineUnclearUpdateNameAsksForTargetNotRename(t *testing.T) {
+	base := medicine.Item{ID: "medicine_one", Version: 2, Fields: medicine.Fields{Name: "布洛芬缓释胶囊", Category: "fever", Quantity: 12, Unit: "capsule", NoExpiry: true}}
+	plan := medicineEditPlan{Operation: "update", Items: []medicinePlannedEntry{{Target: &medicineTarget{Name: "布洛芬"}, Changes: map[string]any{"quantity_delta": -2.0}, Unresolved: []medicineUnresolved{{Field: "name", Reason: "ambiguous"}}, Evidence: map[string]string{"target": "布洛芬", "quantity_delta": "减两粒"}}}}
+	draft, form, err := freezeMedicinePlan(plan, []medicine.Item{base}, "run", "布洛芬减两粒")
+	if err != nil || form == nil || len(form.Entries[0].Fields) != 1 || form.Entries[0].Fields[0].Name != "target" || len(form.Entries[0].Fields[0].Options) != 1 {
+		t.Fatalf("form=%+v err=%v", form, err)
+	}
+	batch, err := materializeMedicineBatch(draft, app.ApprovalInputValues{"entry_1": {"target": base.ID}})
+	if err != nil || batch.Items[0].Fields.Name != base.Name || batch.Items[0].Fields.Quantity != 10 {
+		t.Fatalf("batch=%+v err=%v", batch, err)
+	}
+}
+
+func TestMedicineReceiptNotesZeroOnlyWhenQuantityReachesIt(t *testing.T) {
+	item := func(quantity float64, location string) *medicine.Item {
+		return &medicine.Item{Fields: medicine.Fields{Name: "氯雷他定片", Quantity: quantity, Unit: "tablet", Location: location}}
+	}
+	moved := medicineReceiptText(medicine.Receipt{Items: []medicine.Change{{Before: item(0, "卧室柜子"), After: item(0, "客厅抽屉")}}})
+	used := medicineReceiptText(medicine.Receipt{Items: []medicine.Change{{Before: item(2, "客厅抽屉"), After: item(0, "客厅抽屉")}}})
+	if strings.Contains(moved, "数量已变为 0") || !strings.Contains(used, "数量已变为 0") {
+		t.Fatalf("moved=%q used=%q", moved, used)
 	}
 }

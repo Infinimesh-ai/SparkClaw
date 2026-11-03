@@ -49,3 +49,9 @@ var pdfIndexAdapterScript string
 
 //go:embed scripts/docx_index.py
 var docxIndexAdapterScript string
+
+//go:embed scripts/pptx_index.py
+var pptxIndexAdapterScript string
+
+//go:embed scripts/xlsx_index.js
+var xlsxIndexAdapterScript string

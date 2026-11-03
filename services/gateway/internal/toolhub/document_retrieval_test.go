@@ -111,9 +111,9 @@ func TestReadToolsRefuseTheDocumentIndexDirectory(t *testing.T) {
 
 func TestLargeDocumentReadKeepsDeferredErrorsForUnindexedFormats(t *testing.T) {
 	hub := newDocumentWorkflowHub(t, t.TempDir(), store.NewMemoryStore())
-	deferred := &document.PipelineError{Code: document.CodeStrategyDeferred, Stage: document.StageInspect, Format: app.DocumentFormatXLSX}
-	if _, err := hub.largeDocumentRead(context.Background(), "sheet.xlsx", deferred); !errors.Is(err, deferred) {
-		t.Fatalf("an XLSX deferral was not returned unchanged: %v", err)
+	deferred := &document.PipelineError{Code: document.CodeStrategyDeferred, Stage: document.StageInspect, Format: app.DocumentFormatImage}
+	if _, err := hub.largeDocumentRead(context.Background(), "scan.png", deferred); !errors.Is(err, deferred) {
+		t.Fatalf("an image deferral was not returned unchanged: %v", err)
 	}
 	other := errors.New("parse failed")
 	if _, err := hub.largeDocumentRead(context.Background(), "book.pdf", other); !errors.Is(err, other) {

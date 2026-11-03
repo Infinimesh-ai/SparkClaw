@@ -78,7 +78,13 @@ func (index *Index) Search(request SearchRequest) (SearchResult, error) {
 	used := 0
 	for _, hit := range index.keywords.search(terms, start, end, limit) {
 		chunk := index.Chunks[hit.Chunk]
-		item := SearchHit{ChunkID: chunk.ID, Score: roundScore(hit.Score), Anchor: chunk.Anchor, Matched: hit.Matched, Snippet: snippet(chunk.Text, hit.Matched)}
+		// The snippet centres on the rarest matched term, the one that
+		// identifies this chunk rather than one every chunk shares.
+		rarest := append([]string(nil), hit.Matched...)
+		sort.SliceStable(rarest, func(i, j int) bool {
+			return len(index.keywords.Postings[rarest[i]]) < len(index.keywords.Postings[rarest[j]])
+		})
+		item := SearchHit{ChunkID: chunk.ID, Score: roundScore(hit.Score), Anchor: chunk.Anchor, Matched: hit.Matched, Snippet: snippet(chunk.Text, rarest)}
 		cost := len(item.Snippet) + len(strings.Join(chunk.Anchor.HeadingPath, " ")) + 96
 		if request.MaxBytes > 0 && used+cost > request.MaxBytes {
 			result.Truncated = true

@@ -22,7 +22,7 @@ const outlinePointerMaxBytes = 8000
 
 func documentIndexFormatSupported(format string) bool {
 	switch format {
-	case app.DocumentFormatPDF, app.DocumentFormatDOCX, app.DocumentFormatText:
+	case app.DocumentFormatPDF, app.DocumentFormatDOCX, app.DocumentFormatText, app.DocumentFormatPPTX, app.DocumentFormatXLSX:
 		return true
 	default:
 		return false

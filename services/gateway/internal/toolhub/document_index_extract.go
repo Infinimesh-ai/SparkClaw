@@ -37,6 +37,14 @@ func (documentIndexExtractor) Extract(ctx context.Context, path, format string, 
 		return extractDOCXIndexUnits(ctx, path, emit)
 	case app.DocumentFormatText:
 		return extractTextIndexUnits(ctx, path, emit)
+	case app.DocumentFormatPPTX:
+		return extractScriptIndexUnits(ctx, path, emit, func(ctx context.Context, request map[string]any) (map[string]any, error) {
+			return runPythonAdapter(ctx, pptxIndexAdapterScript, request)
+		})
+	case app.DocumentFormatXLSX:
+		return extractScriptIndexUnits(ctx, path, emit, func(ctx context.Context, request map[string]any) (map[string]any, error) {
+			return runNodeAdapter(ctx, xlsxIndexAdapterScript, request)
+		})
 	default:
 		return docindex.SourceInfo{}, fmt.Errorf("format %q has no document index extractor", format)
 	}
@@ -80,19 +88,27 @@ func extractPDFIndexUnits(ctx context.Context, path string, emit func(docindex.U
 }
 
 func extractDOCXIndexUnits(ctx context.Context, path string, emit func(docindex.Unit) error) (docindex.SourceInfo, error) {
-	out, err := runPythonAdapter(ctx, docxIndexAdapterScript, map[string]any{"path": path})
+	return extractScriptIndexUnits(ctx, path, emit, func(ctx context.Context, request map[string]any) (map[string]any, error) {
+		return runPythonAdapter(ctx, docxIndexAdapterScript, request)
+	})
+}
+
+// extractScriptIndexUnits runs one whole-document extractor that returns
+// {units, pages_total}; slide numbers arrive as unit pages.
+func extractScriptIndexUnits(ctx context.Context, path string, emit func(docindex.Unit) error, run adapterReadFunc) (docindex.SourceInfo, error) {
+	out, err := run(ctx, map[string]any{"path": path})
 	if err != nil {
 		return docindex.SourceInfo{}, err
 	}
 	for _, raw := range documentAnySlice(out["units"]) {
 		unit, _ := documentAnyMap(raw)
 		if err := emit(docindex.Unit{
-			Text: stringArg(unit, "text", ""), HeadingLevel: intArg(unit, "heading_level", 0), Block: stringArg(unit, "block", ""),
+			Text: stringArg(unit, "text", ""), Page: intArg(unit, "page", 0), HeadingLevel: intArg(unit, "heading_level", 0), Block: stringArg(unit, "block", ""),
 		}); err != nil {
 			return docindex.SourceInfo{}, err
 		}
 	}
-	return docindex.SourceInfo{}, nil
+	return docindex.SourceInfo{Pages: intArg(out, "pages_total", 0)}, nil
 }
 
 // extractTextIndexUnits streams plain text as blank-line separated

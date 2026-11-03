@@ -63,6 +63,7 @@ The design and implementation ledger below record the confirmed model and releas
 | [Network-native mail architecture v4](email-network-native-architecture.md) | Proposed browser-session-only reorganization: exact push targets, learned native request templates with response proof, resident App-CLI control plane, narrowed locks and faster presentation-plane transport |
 | [QQ Mail direct native send](email-qq-direct-native-send.md) | Maintained `qq_sendmail_v1` template, in-page account check, private content transfer, response-decided result and `provider_rejected` proof; QQ is the anchor for Gmail and Outlook |
 | [Document workflows](document-workflows.md) | Structured reads, bounded edits, enrichment, preservation, and format coverage |
+| [Large document context](large-document-context-design.md) | Implemented context-derived evidence budgets with tokenizer fit; accepted, unimplemented structure-first `large_indexed` retrieval with import pre-build and analysis-phase OCR |
 | [External integrations](integrations.md) | LocalMind task MCP, Telegram, Weixin, speech transcription, and Infinimesh Info |
 | [LocalMind Workflows](localmind-task-workflow-design.md) | Implemented explicit text delegation with read/write approval separation, bounded status-query completion, contextual query, and cancel |
 | [WebChat voice input design](webchat-voice-input-design.md) | Phase 1 stable capture loop and Phase 2 native record-time ASR, partial/final reconciliation, silence stop, and batch fallback design; LLM polish deferred to Phase 3 |

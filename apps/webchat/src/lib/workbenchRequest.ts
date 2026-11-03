@@ -8,7 +8,7 @@ export function newWorkbenchRequestID(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-export type WorkbenchRequestState = "accepted" | "running" | "approval_pending" | "browser_login_blocked" | "completed" | "blocked" | "delivered" | "delivery_failed" | "failed" | "canceled" | "unknown" | "delivery_expired";
+export type WorkbenchRequestState = "accepted" | "running" | "approval_pending" | "browser_login_blocked" | "completed" | "clarification_required" | "blocked" | "delivered" | "delivery_failed" | "failed" | "canceled" | "unknown" | "delivery_expired";
 
 export type WorkbenchRequestStatus = {
   schema_version: 1;
@@ -24,7 +24,7 @@ export type WorkbenchRequestStatus = {
 export function validateWorkbenchRequestStatus(value: WorkbenchRequestStatus, requestID: string): WorkbenchRequestStatus {
   if (value?.schema_version !== 1 || value.request_id !== requestID ||
       !/^[a-f0-9]{64}$/u.test(value.input_digest) ||
-      !["accepted", "running", "approval_pending", "browser_login_blocked", "completed", "blocked", "delivered", "delivery_failed", "failed", "canceled", "unknown", "delivery_expired"].includes(value.state)) {
+      !["accepted", "running", "approval_pending", "browser_login_blocked", "completed", "clarification_required", "blocked", "delivered", "delivery_failed", "failed", "canceled", "unknown", "delivery_expired"].includes(value.state)) {
     throw new Error("Workbench execution identity is unavailable");
   }
   return value;

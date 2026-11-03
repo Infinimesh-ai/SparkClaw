@@ -2,8 +2,8 @@ import type { Language } from "../i18n";
 import type { WorkbenchRequestState, WorkbenchRequestStatus } from "../lib/workbenchRequest";
 
 const labels: Record<Language, Record<WorkbenchRequestState, string>> = {
-  en: { accepted: "Submitted", running: "Running", approval_pending: "Waiting for approval", browser_login_blocked: "Browser sign-in required", completed: "Completed", blocked: "Blocked", delivered: "Delivered", delivery_failed: "Delivery failed; the execution has finished", failed: "Failed", canceled: "Canceled", unknown: "Outcome unconfirmed; this request will not run again", delivery_expired: "Result delivery expired" },
-  zh: { accepted: "已提交", running: "执行中", approval_pending: "等待审批", browser_login_blocked: "需要登录浏览器", completed: "已完成", blocked: "已阻止", delivered: "已送达", delivery_failed: "执行已结束，投递失败", failed: "执行失败", canceled: "已取消", unknown: "结果待确认；此请求不会再次执行", delivery_expired: "结果投递已过期" }
+  en: { accepted: "Submitted", running: "Running", approval_pending: "Waiting for approval", browser_login_blocked: "Browser sign-in required", completed: "Completed", clarification_required: "Needs more information", blocked: "Blocked", delivered: "Delivered", delivery_failed: "Delivery failed; the execution has finished", failed: "Failed", canceled: "Canceled", unknown: "Outcome unconfirmed; this request will not run again", delivery_expired: "Result delivery expired" },
+  zh: { accepted: "已提交", running: "执行中", approval_pending: "等待审批", browser_login_blocked: "需要登录浏览器", completed: "已完成", clarification_required: "需要补充信息", blocked: "已阻止", delivered: "已送达", delivery_failed: "执行已结束，投递失败", failed: "执行失败", canceled: "已取消", unknown: "结果待确认；此请求不会再次执行", delivery_expired: "结果投递已过期" }
 };
 
 export function WorkbenchRequests({ requests, language, onRefresh, onCancel }: {
@@ -12,7 +12,9 @@ export function WorkbenchRequests({ requests, language, onRefresh, onCancel }: {
   onRefresh: (requestID: string) => void;
   onCancel: (requestID: string) => void;
 }) {
-  const visible = requests.filter((request) => !["completed", "delivered"].includes(request.state));
+  // A clarification is asked in the conversation itself; a second status
+  // banner would only repeat it.
+  const visible = requests.filter((request) => !["completed", "clarification_required", "delivered"].includes(request.state));
   if (!visible.length) return null;
   return <div className="workbenchRequests" aria-label={language === "zh" ? "执行状态" : "Execution status"}>
     {visible.map((request) => <div className="noticeBanner" key={request.request_id}>

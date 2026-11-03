@@ -32,4 +32,13 @@ describe("persisted workbench request recovery", () => {
     expect(cancel).toHaveBeenCalledExactlyOnceWith("running-request");
     await act(async () => root.unmount());
   });
+
+  it("leaves a clarification to the conversation instead of a status banner", async () => {
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    const request: WorkbenchRequestStatus = { schema_version: 1, request_id: "clarify-request", input_digest: "b".repeat(64), state: "clarification_required" };
+    await act(async () => root.render(<WorkbenchRequests requests={[request]} language="zh" onRefresh={() => {}} onCancel={() => {}} />));
+    expect(host.textContent).toBe("");
+    await act(async () => root.unmount());
+  });
 });

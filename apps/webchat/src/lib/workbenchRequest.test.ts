@@ -14,4 +14,9 @@ describe("workbench request identity", () => {
     expect(() => validateWorkbenchRequestStatus(status, newWorkbenchRequestID())).toThrow(/identity/u);
     expect(() => validateWorkbenchRequestStatus({ ...status, input_digest: "bad" }, requestID)).toThrow(/identity/u);
   });
+  it("accepts a request that finished by asking the owner for more information", () => {
+    const requestID = newWorkbenchRequestID();
+    const status = { schema_version: 1 as const, request_id: requestID, input_digest: "a".repeat(64), state: "clarification_required" as const };
+    expect(validateWorkbenchRequestStatus(status, requestID)).toEqual(status);
+  });
 });

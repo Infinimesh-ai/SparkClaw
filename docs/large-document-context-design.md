@@ -4,9 +4,10 @@
 
 Status: Part A (context-derived content budgets) is implemented in source on
 2026-11-03 and not yet deployed. Part B (the `large_indexed` structure-first
-retrieval strategy) follows the owner decisions recorded in section 7; its
-phase B1 (text-layer PDF, DOCX and text) is implemented in source on the same
-day, while B2 (analysis-phase OCR) and B3 are not implemented.
+retrieval strategy) follows the owner decisions recorded in section 7. All
+three phases are implemented in source on the same day: B1 (text-layer PDF,
+DOCX and text), B2 (analysis-phase OCR for scanned PDFs) and B3 (PPTX/XLSX
+structure and whole-document chapter summaries). Nothing is deployed.
 
 Scope: the document read path (`internal/document`, `internal/toolhub`
 document tools), workflow evidence provisioning, operation decisions and
@@ -177,7 +178,7 @@ so gateway and env must be released together.
 | Browser snapshot requirements | 8,000 B | Component cap of browser evidence |
 | Source size gate, PDF OCR pages | 8 MiB, 8 pages | Parse and OCR cost limits; Part B replaces them for large files |
 
-## 4. Part B: `large_indexed` Strategy (B1 implemented in source; B2 and B3 pending)
+## 4. Part B: `large_indexed` Strategy (implemented in source)
 
 ### 4.1 Scope and entry points
 
@@ -196,11 +197,15 @@ therefore reach the strategy in two ways:
 The strategy is selected by the read outcome rather than registered in the
 pipeline. The complete-read strategy defers when the source exceeds 8 MiB
 (`SmallFileMaxBytes`) or the complete extraction exceeds the ceiling of
-section 3.1. For PDF, DOCX and text, `files.read` and `pdf.extract_text` answer
-that deferral with the outline pointer of section 4.7. Other formats keep the
-`strategy_deferred` error. A PDF with more text-less pages than one bounded
-read OCRs (currently 8) joins with B2. Everything that fits today keeps the
-`small_direct` / `full_text` path, unchanged.
+section 3.1. For PDF, DOCX, PPTX, XLSX and text, `files.read` and `pdf.extract_text`
+answer that deferral with the outline pointer of section 4.7. Other formats,
+such as images, keep the `strategy_deferred` error, and so does a read whose
+caller asked for less than the extraction limit. When OCR is enabled, a PDF
+whose text-less pages exceed one complete read's OCR budget (8 pages) also
+moves to retrieval. The pages that read already recognized seed the index
+cache, so they are not recognized twice. Without OCR the partial read stands,
+because retrieval could not recognize the remaining pages either. Everything
+that fits today keeps the `small_direct` / `full_text` path, unchanged.
 
 ### 4.3 Lifecycle: import pre-build plus analysis fallback
 
@@ -244,7 +249,12 @@ is added (AGENTS.md UI rules).
    - DOCX: heading styles (`Heading N`, `标题 N`, `Title`) and outline levels;
      each table row is one text unit.
    - Text / Markdown: `#` headings; paragraphs are blank-line separated.
-   - PPTX (one node per slide) and XLSX (one node per sheet) arrive with B3.
+   - PPTX (`scripts/pptx_index.py`): one level-1 node per slide titled
+     `Slide N: <title>`, then text frames, table rows and speaker notes; the
+     slide number is the anchor's page and range headers say `slide N`.
+   - XLSX (`scripts/xlsx_index.js`): one level-1 node per sheet; every
+     populated row becomes `header: value` pairs from the sheet's first row,
+     so a column value is found together with its column names.
 2. **Chunks** (`chunks.jsonl`): split along structure nodes at about 1,000
    characters with a small overlap. Each chunk carries an anchor (page,
    heading path, stable block / paragraph / cell ID) in the existing citation
@@ -256,7 +266,16 @@ is added (AGENTS.md UI rules).
    such as the Kangxi radical `⽅` for `方`. PDF line breaks between two
    ideographs are joined so words are not split. No new runtime dependency.
 4. **Page map**: text-less PDF pages are marked `unindexed` until OCR fills
-   them.
+   them. An entirely scanned PDF is a valid index with no chunks yet (state
+   `partial`), and outline nodes carry page ranges as well as chunk ranges.
+5. **Extracted source** (`source.json`): the units of the last extraction.
+   Merging recognized pages rebuilds chunks and keywords from it without
+   parsing the document again.
+
+Search snippets centre on the rarest matched term, so a row found by its
+product code shows that code. Search also returns outline sections whose
+titles match the query, which locates chapters of a scanned book before any
+of their pages has text.
 
 PDF builds run in 40-page batches (`scripts/pdf_index.py`, pypdf, text only)
 so no adapter call meets the 60-second subprocess timeout. DOCX uses one
@@ -267,23 +286,31 @@ build another request may need.
 
 ### 4.5 OCR policy
 
-OCR runs only in the analysis phase, through the existing OvisOCR2 runtime
-and its per-call page limits, and every recognized page is written back to
-the index cache, so no page is recognized twice.
+OCR runs only in the analysis phase, through the existing OvisOCR2 runtime at
+its configured concurrency. Pages are rendered as in a complete read
+(`scripts/pdf_index.py` operation `render`, pypdfium2 at scale 2, JPEG of at
+most 4 MiB). Every recognized page is cached in `ocr/<page>.json` as soon as
+its batch finishes, so an interrupted request keeps its work and no page is
+recognized twice. Running calls show `正在识别扫描页（n/m）` in the run's
+progress line.
 
 - **Targeted questions** OCR only the pages that retrieval selects. On a
   scanned PDF, body text is unknown before OCR, so selection uses outline
-  titles and their page ranges.
-- **Whole-document requests**, and targeted questions on scanned files without
-  a usable outline, may OCR every page, in batches, when the source is within
-  the existing 25 MiB upload limit. Workspace-only files above that size keep
-  hit-page OCR and the answer states which pages were not recognized.
+  titles and their page ranges: `document.read_range` on a section or page
+  range recognizes that range's text-less pages first, at most 8 per call,
+  and returns the rest as `unrecognized_pages` / `missing_page_indexes`.
+- **Whole-document requests** (`document.summarize`), and searches on scanned
+  files without an outline, recognize every page in batches when the source
+  is within the existing 25 MiB upload limit. Workspace-only files above that
+  size keep hit-page OCR, and the answer states which pages were not
+  recognized.
 
 ### 4.6 Storage, isolation and retention
 
 - Indexes live under the document pipeline's workspace root at
   `.sparkclaw/state/doc-index/<sha256>/` (`manifest.json`, `outline.json`,
-  `chunks.jsonl`, `keywords.json`; B2 adds `ocr/<page>.json`). That root is the
+  `chunks.jsonl`, `keywords.json`, `source.json`, `ocr/<page>.json`,
+  `summaries/<key>.json`). That root is the
   hub's configured workspace root, or the owner workspace of an execution
   scope. A query needs an authorized path to a file with that hash, so index
   access follows file access. The same file uploaded twice reuses one index,
@@ -305,12 +332,15 @@ the index cache, so no page is recognized twice.
 | Tool | Returns | Bound |
 |---|---|---|
 | `document.outline(path)` | Heading tree, page ranges, size, index state, unindexed pages | Stage budget |
-| `document.search(path, keywords[], top_k, section?)` | Ranked snippets with anchors and scores | `top_k x snippet` within the stage budget |
-| `document.read_range(path, chunk_ids \| page_start..page_end \| section, context)` | Text for that range with location headers; `next_chunk_id` when cut; neighbouring context is dropped before requested chunks when the budget is tight | At most the stage budget |
+| `document.search(path, keywords[], top_k, section?)` | Ranked snippets with anchors and scores, plus outline sections whose titles match; recognizes an outline-less scan within 25 MiB first | `top_k x snippet` within the stage budget |
+| `document.read_range(path, chunk_ids \| page_start..page_end \| section, context)` | Text for that range with location headers (`PDF page N`, `slide N`); recognizes up to 8 scanned pages of the range first; `next_chunk_id` when cut; neighbouring context is dropped before requested chunks when the budget is tight | At most the stage budget |
+| `document.summarize(path)` | One summary per top-level section, as Markdown and as a list; `read_complete` false when sections were sampled or pages stayed unrecognized | Final-answer budget per section call |
 
-The tools carry the capabilities `document.outline`, `document.search` and
-`document.read_range`, so they never compete with the format readers of
-`document.read`. Their budget is the Fast lane's stage evidence budget, the
+The tools carry their own capabilities (`document.outline`, `document.search`,
+`document.read_range`, `document.summarize`), so they never compete with the
+format readers of `document.read`. Search and range reads time out after 15
+and 10 minutes, and summaries after 20, because they may recognize pages or
+call the model per section. Their budget is the Fast lane's stage evidence budget, the
 lane document workflows run on. For an indexed document, `files.read` and
 `pdf.extract_text` return the outline (at most 8,000 bytes) with
 `retrieval_required: true`, `read_complete: false` and a hint to use
@@ -344,9 +374,23 @@ adds a large branch. Persisted revision 4 plans keep their shape on resume.
    retrieved sections.
 
 Whole-document requests (summarizing a whole book) use chapter-level
-map-reduce: one summary per outline node, cached in the index directory by
-node and source hash, then a final merge whose evidence is the cached
-summaries.
+map-reduce through `document.summarize`. The units are the top-level outline
+sections, plus the text before the first heading; more than 16 are merged
+into 16 consecutive groups, and a document without an outline is split into
+windows of about 40 chunks. Each unit is summarized by a Fast call
+(`document.section_summary`, `answer` output class), up to four at a time.
+A unit longer than the Fast final-evidence budget is summarized in parts
+(at most 8, sampled evenly beyond that) whose summaries are merged; a part
+the tokenizer still rejects is halved. Summaries are cached by prompt
+version, title and text, so a repeated request costs no model call. The
+finalizer merges the section summaries and names sampled or unrecognized
+parts.
+
+Once retrieval or summary evidence exists, finalization leaves the outline
+pointer out: its `read_complete: false` and missing pages describe the
+routing read, not the passages or summaries read afterwards. A failed
+retrieval query, such as an unknown section ID, counts as a miss, so the
+step model can query again within the stage's bounded transitions.
 
 **Edits are out of scope.** In `document.edit`, a locate read that returns
 `retrieval_required` blocks with `large_document_edit_unsupported`. The owner
@@ -376,8 +420,8 @@ existing wire values.
 | A (done in source) | Context-derived budgets, tokenizer fit, product env `0` | Unit tests for the formula, ceiling, refit and fail-closed paths; a document that fits the 32K window reaches the finalizer whole; extraction follows the finalizer |
 | A2 (done in source) | Real-tokenizer bytes per token (section 3.2.1); tokenizer endpoint fix; evenly spaced finalizer windows instead of head-only truncation | Ratios recorded; a truncated 40-chapter fixture yields windows from the first to the last chapter |
 | B1 (done in source) | Index, background import pre-build, analysis-phase build or wait, outline/search/read_range, revision 5 routing, `files.read` pointer, edit refusal, for text-layer PDF, DOCX and text | Unit and end-to-end tests (mock model): a large Markdown book runs read → search → range read → finalization containing the passage; the edit request is refused with the file unchanged; one progress event while building, none when ready; upload prebuild keeps an index only for the large file. A 56-page Chrome-printed PDF and a matching DOCX rank the right section first. Real hosted Fast model (product profile): a 394 KB book is read whole and answered correctly; a 790 KB book runs read → search (`慢开始门限 ssthresh 拥塞窗口 cwnd 增长`, chosen by the model) → one range read, answers correctly with its section in 15.5 s including the index build. Packaged-client acceptance is still open |
-| B2 | Analysis-phase OCR for scanned PDFs | *计算机网络* (workspace file) chapter questions OCR only outline-selected pages and reuse them on repeat; a scanned PDF of at most 25 MiB can be summarized whole |
-| B3 | XLSX/PPTX structure and chapter map-reduce | A whole-book summary states its coverage |
+| B2 (done in source) | Analysis-phase OCR for scanned PDFs, title-matched sections, scanned small-PDF routing | Unit tests with a fake OCR adapter cover section OCR in batches of 8, whole-file OCR of an outline-less scan, seeding from a budget-exhausted read, and the OCR-disabled path. Real hosted Fast and OCR models: on the 71 MB *计算机网络* workspace file, "根据 计算机网络.pdf，总结一下 TCP 拥塞控制里慢开始和拥塞避免的内容" ran read → search (sections by title) → one section read that recognized only §5.8.2's pages, in 33 s. A 20-page outline-less scanned excerpt was recognized whole and answered from the transport-layer pages in 44 s |
+| B3 (done in source) | PPTX/XLSX structure and chapter map-reduce | Unit tests cover slide headings and notes, a 6,000-row workbook found by product code, summary units, grouping and windows, the cache, and an end-to-end whole-book request. Real model: "把 book.md 全文总结一下" on the 790 KB book ran read → `document.summarize` and returned a 20-chapter summary in 50 s |
 
 Before each phase, record the baseline for `internal/config`,
 `internal/document`, `internal/toolhub` (after `npm run setup:document-tools`)
@@ -400,8 +444,15 @@ UI rules.
   take minutes. It is batched, cached per page and visible only through the
   run's progress line.
 - **Background parse load.** Import pre-build adds one text-only parse per
-  qualifying upload. The queue has a single worker and yields to interactive
-  reads.
+  qualifying upload. The queue has a single worker, and on-demand builds
+  run beside it rather than behind it.
+- **Summary cost.** A whole-document request makes up to 16 Fast calls the
+  first time (more when sections are split); the cache makes repeats free.
+- **Routing phrasing.** Typed Chinese file names are now found (they were
+  not before this work), but a question phrased as general knowledge, such
+  as "计算机网络.pdf 里 … 是怎么工作的？", may still be answered by the
+  conversation route instead of `document.read`. That is a routing decision
+  outside this design.
 
 ## 7. Decisions (owner, 2026-11-03)
 

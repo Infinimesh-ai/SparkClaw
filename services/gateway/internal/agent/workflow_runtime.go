@@ -468,7 +468,11 @@ func (r Runtime) blockWorkflowSetup(ctx context.Context, run app.AgentRun, goal 
 	}
 	run.State = "blocked"
 	run.CompletedAt = &now
-	run.Summary = ownerWorkflowFailureMessage(workflowFailureSetup, run, goal)
+	code := workflowFailureSetup
+	if modelrouter.IsUnavailable(setupErr) {
+		code = workflowFailureModelUnavailable
+	}
+	run.Summary = ownerWorkflowFailureMessage(code, run, goal)
 	var err error
 	if run, err = r.saveRun(ctx, run); err != nil {
 		return Result{}, err

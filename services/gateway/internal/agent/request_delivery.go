@@ -92,7 +92,7 @@ func (r Runtime) routePureDelivery(ctx context.Context, run app.AgentRun, text s
 			}
 		}
 		if len(documents.References) != 1 {
-			failed := r.terminalRouting(app.RouteClarify, "required_grounded_target_ambiguous")
+			failed := r.terminalRouting(app.RouteClarify, "required_grounded_target_ambiguous: workspace_path")
 			if len(documents.References) == 0 {
 				failed.Route.Reason = "conversation_file_unavailable"
 			}

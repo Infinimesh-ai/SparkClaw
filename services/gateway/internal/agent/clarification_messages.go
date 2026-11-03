@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 )
 
 // Only owner-facing sentences reach the conversation. Diagnostic reason codes
@@ -88,16 +89,23 @@ var routingFailureMessages = map[string]ownerFailureMessage{
 		zh: "当前入口不支持处理邮件。",
 		en: "Email is not supported from this entry point."},
 
-	// Unavailable: the capability exists but cannot run right now.
+	// Unavailable: the capability exists but cannot run right now. A model
+	// outage says so directly rather than naming the pipeline stage it hit.
+	"model_unavailable": {class: failureUnavailable,
+		zh: "模型暂时不可用，请稍后重试。",
+		en: "The model is temporarily unavailable. Please try again later."},
 	"semantic_channels_unavailable": {class: failureUnavailable,
-		zh: "意图识别服务暂时不可用，请稍后重试。",
-		en: "The intent recognition service is temporarily unavailable. Please try again later."},
+		zh: "模型暂时不可用，请稍后重试。",
+		en: "The model is temporarily unavailable. Please try again later."},
+	"semantic_degraded_uncertain": {class: failureUnavailable,
+		zh: "模型暂时不可用，无法确定如何处理这条请求，请稍后重试。",
+		en: "The model is temporarily unavailable, so this request cannot be understood reliably. Please try again later."},
 	"mutation_requires_healthy_semantic_pipeline": {class: failureUnavailable,
-		zh: "意图识别服务暂时只有部分可用，为避免误操作，暂不执行会修改内容的操作，请稍后重试。",
-		en: "The intent recognition service is temporarily degraded, so actions that change content are paused to avoid mistakes. Please try again later."},
+		zh: "模型暂时不可用，为避免误操作，暂不执行会修改内容的操作，请稍后重试。",
+		en: "The model is temporarily unavailable, so actions that change content are paused to avoid mistakes. Please try again later."},
 	"external_delivery_requires_healthy_semantic_pipeline": {class: failureUnavailable,
-		zh: "意图识别服务暂时只有部分可用，为避免发错，暂不执行发送，请稍后重试。",
-		en: "The intent recognition service is temporarily degraded, so sending is paused to avoid mistakes. Please try again later."},
+		zh: "模型暂时不可用，为避免发错，暂不执行发送，请稍后重试。",
+		en: "The model is temporarily unavailable, so sending is paused to avoid mistakes. Please try again later."},
 	"routing_failed": {class: failureUnavailable,
 		zh: "暂时无法处理这条请求，请稍后重试。",
 		en: "This request cannot be processed right now. Please try again later."},
@@ -206,6 +214,15 @@ var (
 	routingUnavailableFallback = routingFailureMessages["routing_failed"]
 )
 
+// routingFailureReason names a routing error by its cause; a model outage is
+// reported as such instead of as a generic routing failure.
+func routingFailureReason(err error) string {
+	if modelrouter.IsUnavailable(err) {
+		return "model_unavailable: " + err.Error()
+	}
+	return "routing_failed: " + err.Error()
+}
+
 func routeReasonCode(reason string) string {
 	code, _, _ := strings.Cut(strings.TrimSpace(reason), ":")
 	return strings.TrimSpace(code)
@@ -215,6 +232,9 @@ func routeReasonCode(reason string) string {
 // any workflow ran. Every route resolves to a message: an unmapped reason falls
 // back by route status, never to the raw diagnostic.
 func routingFailure(route app.RouteDecision) ownerFailureMessage {
+	if message, ok := groundedTargetFailure(route.Reason); ok {
+		return message
+	}
 	if message, ok := routingFailureMessages[routeReasonCode(route.Reason)]; ok {
 		return message
 	}
@@ -224,17 +244,74 @@ func routingFailure(route app.RouteDecision) ownerFailureMessage {
 	return routingUnavailableFallback
 }
 
+// groundedTargetFailure asks for the kind of target the capability accepts
+// ("required_grounded_target_missing: location" asks for a place, not a file).
+func groundedTargetFailure(reason string) (ownerFailureMessage, bool) {
+	code, kinds, _ := strings.Cut(strings.TrimSpace(reason), ":")
+	code = strings.TrimSpace(code)
+	if code != "required_grounded_target_missing" && code != "required_grounded_target_ambiguous" {
+		return ownerFailureMessage{}, false
+	}
+	missing := code == "required_grounded_target_missing"
+	kind := ""
+	for _, candidate := range strings.Split(kinds, ",") {
+		switch strings.TrimSpace(candidate) {
+		case string(app.TargetKindLocation):
+			candidate = "location"
+		case string(app.TargetKindWorkspacePath):
+			candidate = "file"
+		case "url", string(app.TargetKindExplicitURL), string(app.TargetKindBrowserCurrentTab), string(app.TargetKindPublicNamedTarget):
+			candidate = "page"
+		case string(app.TargetKindLocalMindTask):
+			candidate = "localmind_task"
+		default:
+			candidate = ""
+		}
+		if candidate == "" || kind != "" && kind != candidate {
+			kind = "mixed"
+			break
+		}
+		kind = candidate
+	}
+	targets := map[string][2]ownerFailureMessage{
+		"location": {
+			{class: failureNeedsInput, zh: "请告诉我要查询哪个城市或地区。", en: "Please tell me which city or area to check."},
+			{class: failureNeedsInput, zh: "有多个地点都可能是你要查询的，请指明是哪一个。", en: "Several places could match. Please say which one to check."},
+		},
+		"file": {
+			{class: failureNeedsInput, zh: "请告诉我要处理哪个文件。", en: "Please tell me which file to use."},
+			{class: failureNeedsInput, zh: "有多个文件都可能是你要处理的，请指明是哪一个。", en: "Several files could match. Please say which one to use."},
+		},
+		"page": {
+			{class: failureNeedsInput, zh: "请告诉我要打开或处理哪个网页。", en: "Please tell me which web page to open or use."},
+			{class: failureNeedsInput, zh: "有多个网页都可能是你要处理的，请指明是哪一个。", en: "Several web pages could match. Please say which one to use."},
+		},
+		"localmind_task": {
+			{class: failureNeedsInput, zh: "请告诉我要查看哪个 LocalMind 任务。", en: "Please tell me which LocalMind task to use."},
+			{class: failureNeedsInput, zh: "有多个 LocalMind 任务都可能是你要查看的，请指明是哪一个。", en: "Several LocalMind tasks could match. Please say which one to use."},
+		},
+	}
+	pair, ok := targets[kind]
+	if !ok {
+		return routingFailureMessages[code], true
+	}
+	if missing {
+		return pair[0], true
+	}
+	return pair[1], true
+}
+
 var workflowFailureMessages = map[workflowFailureCode]ownerFailureMessage{
 	workflowFailurePromptFixedOversized: {class: failureUnsupported,
 		zh: "当前配置的模型上下文容量不足，不支持处理这类请求，需要换用上下文更大的模型。",
 		en: "The configured model's context window is too small; this kind of request is not supported until a larger model is configured."},
 
 	workflowFailureModelUnavailable: {class: failureUnavailable,
-		zh: "模型服务暂时不可用，请稍后重试。",
-		en: "The model service is temporarily unavailable. Please try again later."},
+		zh: "模型暂时不可用，请稍后重试。",
+		en: "The model is temporarily unavailable. Please try again later."},
 	workflowFailureConversationOutputInvalid: {class: failureUnavailable,
-		zh: "模型这次没有给出可用的回答，请稍后重试。",
-		en: "The model did not return a usable answer this time. Please try again later."},
+		zh: "模型暂时不可用：这次没有返回可用的回答，请稍后重试。",
+		en: "The model is temporarily unavailable: it returned no usable answer this time. Please try again later."},
 	workflowFailureEvidenceUnavailable: {class: failureUnavailable,
 		zh: "完成这项任务所需的资料暂时取不到，请稍后重试。",
 		en: "The information this task needs is unavailable right now. Please try again later."},

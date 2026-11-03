@@ -266,12 +266,12 @@ func (r Router) tokenize(ctx context.Context, profile config.ModelProfile, body 
 	r.authorize(req)
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return 0, err
+		return 0, transportUnavailable(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-		return 0, fmt.Errorf("tokenizer endpoint returned HTTP %d", resp.StatusCode)
+		return 0, statusUnavailable(resp.StatusCode, fmt.Errorf("tokenizer endpoint returned HTTP %d", resp.StatusCode))
 	}
 	var decoded struct {
 		Count  int   `json:"count"`

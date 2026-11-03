@@ -255,10 +255,10 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	r = r.withClarificationSourceText(userMessage.Content)
 	if admissionErr := r.models.AdmitOwnerQuestion(ctx, agentContent); admissionErr != nil {
 		var tooLong *modelrouter.InputTooLongError
-		if !errors.As(admissionErr, &tooLong) {
+		if !errors.As(admissionErr, &tooLong) && !modelrouter.IsUnavailable(admissionErr) {
 			return Result{}, fmt.Errorf("admit owner question: %w", admissionErr)
 		}
-		return r.rejectOwnerQuestionTooLong(ctx, sessionID, requestedRunID, envelope, invocation, clientTimezone, admissionErr)
+		return r.rejectOwnerQuestion(ctx, sessionID, requestedRunID, agentContent, envelope, invocation, clientTimezone, admissionErr)
 	}
 	if err := r.recordMessageDocuments(ctx, session, userMessage); err != nil {
 		return Result{}, fmt.Errorf("persist message documents: %w", err)
@@ -323,7 +323,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	}
 	if originalContent != agentContent {
 		if err := r.models.AdmitOwnerQuestion(ctx, agentContent); err != nil {
-			return r.rejectOwnerQuestionTooLong(ctx, sessionID, run.ID, envelope, invocation, clientTimezone, err)
+			return r.rejectOwnerQuestion(ctx, sessionID, run.ID, agentContent, envelope, invocation, clientTimezone, err)
 		}
 		projection.Resources = restoredResources
 		resourceContext = messageplane.ResourceProjection(restoredResources)
@@ -399,7 +399,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		run.MessageContext.IntentFusion = routing.Fusion
 	}
 	if routingErr != nil {
-		route := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: "routing_failed: " + routingErr.Error()}
+		route := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: routingFailureReason(routingErr)}
 		run.MessageContext.Route = route
 		if run, err = r.saveRun(ctx, run); err != nil {
 			return Result{}, fmt.Errorf("persist routing failure: %w", err)
@@ -641,16 +641,25 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 
 const ownerQuestionTooLongMessage = "问题过长，当前无法解析。请缩短问题后重试。"
 
-func (r Runtime) rejectOwnerQuestionTooLong(ctx context.Context, sessionID, requestedRunID string, envelope app.MessageEnvelope, invocation *app.MCPInvocationRef, clientTimezone string, admissionErr error) (Result, error) {
+// rejectOwnerQuestion closes a request whose mandatory pre-routing admission
+// failed: the question exceeds a model capacity, or the model service needed
+// to measure it is unavailable.
+func (r Runtime) rejectOwnerQuestion(ctx context.Context, sessionID, requestedRunID, question string, envelope app.MessageEnvelope, invocation *app.MCPInvocationRef, clientTimezone string, admissionErr error) (Result, error) {
 	now := time.Now().UTC()
 	route := app.RouteDecision{
 		SchemaVersion:   app.RouteDecisionSchemaVersion,
 		Status:          app.RouteBlocked,
 		CatalogRevision: r.capabilities.Revision(),
 	}
+	summary, reasonCode, auditSummary := ownerQuestionTooLongMessage, "owner_question_too_long", "Owner question exceeded a mandatory pre-routing model capacity"
+	if modelrouter.IsUnavailable(admissionErr) {
+		summary = routingFailureMessages["model_unavailable"].text(chineseRequest(question), envelope.Source.Kind == app.MessageSourceTimer)
+		reasonCode, auditSummary = "model_unavailable", "Owner question admission could not reach its model service"
+		route.Reason = reasonCode
+	}
 	run := app.AgentRun{
 		ID: requestedRunID, SessionID: sessionID, State: "blocked", Risk: app.RiskRead,
-		StartedAt: now, CompletedAt: &now, Summary: ownerQuestionTooLongMessage,
+		StartedAt: now, CompletedAt: &now, Summary: summary,
 		MessageContext: &app.MessageRunContext{
 			OwnerID: envelope.OwnerID, Authorization: envelope.Authorization, Source: envelope.Source,
 			RequestContent: envelope.Content, MediaLocators: append([]app.MessageMediaLocator(nil), envelope.MediaLocators...),
@@ -666,16 +675,16 @@ func (r Runtime) rejectOwnerQuestionTooLong(ctx context.Context, sessionID, requ
 	}
 	r.addAudit(ctx, app.AuditEvent{
 		SessionID: sessionID, RunID: run.ID, Actor: "model_router", Type: "owner_question.rejected",
-		Summary: "Owner question exceeded a mandatory pre-routing model capacity",
-		Fields:  map[string]any{"reason_code": "owner_question_too_long", "admission": admissionErr.Error()},
+		Summary: auditSummary,
+		Fields:  map[string]any{"reason_code": reasonCode, "admission": admissionErr.Error()},
 	})
 	assistant, err := r.store.AddMessage(ctx, app.Message{
-		SessionID: sessionID, RunID: run.ID, Role: "assistant", Content: ownerQuestionTooLongMessage, CreatedAt: now,
+		SessionID: sessionID, RunID: run.ID, Role: "assistant", Content: summary, CreatedAt: now,
 	})
 	if err != nil {
 		return Result{}, fmt.Errorf("persist oversized owner question response: %w", err)
 	}
-	workflowResult, err := r.workflowResultForTerminalRoute(ctx, run, route, envelope.ReturnRoute, ownerQuestionTooLongMessage)
+	workflowResult, err := r.workflowResultForTerminalRoute(ctx, run, route, envelope.ReturnRoute, summary)
 	if err != nil {
 		return Result{}, err
 	}

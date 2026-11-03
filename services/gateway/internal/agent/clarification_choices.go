@@ -180,7 +180,7 @@ func (r Runtime) routingClarification(ctx context.Context, ownerText string, sou
 	if source != app.MessageSourceWeb || g.ExternalMCP || route.Status == app.RouteBlocked {
 		return nil
 	}
-	if route.Reason == "required_grounded_target_ambiguous" {
+	if routeReasonCode(route.Reason) == "required_grounded_target_ambiguous" {
 		return r.fileClarification(ownerText, documents)
 	}
 	if decision.Verdict != semanticrouting.VerdictLow && decision.Verdict != semanticrouting.VerdictAmbiguous {

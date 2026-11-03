@@ -447,11 +447,11 @@ func (r Router) chatCompletionsWithTemperature(ctx context.Context, profile conf
 	r.authorize(req)
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return "", "", tokenUsage{}, err
+		return "", "", tokenUsage{}, transportUnavailable(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", "", tokenUsage{}, modelHTTPError(resp, profile, endpoint, raw, system, user)
+		return "", "", tokenUsage{}, statusUnavailable(resp.StatusCode, modelHTTPError(resp, profile, endpoint, raw, system, user))
 	}
 	var decoded struct {
 		Choices []struct {
@@ -540,11 +540,11 @@ func (r Router) chatCompletionsWithImage(ctx context.Context, profile config.Mod
 	r.authorize(req)
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return "", "", tokenUsage{}, err
+		return "", "", tokenUsage{}, transportUnavailable(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", "", tokenUsage{}, modelHTTPError(resp, profile, endpoint, raw, system, user)
+		return "", "", tokenUsage{}, statusUnavailable(resp.StatusCode, modelHTTPError(resp, profile, endpoint, raw, system, user))
 	}
 	var decoded struct {
 		Choices []struct {
@@ -628,11 +628,11 @@ func (r Router) chatCompletionsStream(ctx context.Context, profile config.ModelP
 	r.authorize(req)
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return "", "", tokenUsage{}, err
+		return "", "", tokenUsage{}, transportUnavailable(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", "", tokenUsage{}, modelHTTPError(resp, profile, endpoint, raw, system, user)
+		return "", "", tokenUsage{}, statusUnavailable(resp.StatusCode, modelHTTPError(resp, profile, endpoint, raw, system, user))
 	}
 	var content strings.Builder
 	usage := tokenUsage{}
@@ -810,11 +810,11 @@ func (r Router) embeddingBatch(ctx context.Context, profile config.ModelProfile,
 	r.authorize(req)
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return nil, tokenUsage{}, err
+		return nil, tokenUsage{}, transportUnavailable(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, tokenUsage{}, fmt.Errorf("embedding router received HTTP %d", resp.StatusCode)
+		return nil, tokenUsage{}, statusUnavailable(resp.StatusCode, fmt.Errorf("embedding router received HTTP %d", resp.StatusCode))
 	}
 	var decoded struct {
 		Data []struct {

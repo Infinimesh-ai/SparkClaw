@@ -111,6 +111,15 @@ func dedupeGroundedTargets(targets []groundedTarget) []groundedTarget {
 	return out
 }
 
+// degradedUncertainReason keeps an unclear verdict reached with a failed
+// semantic channel from reading as the owner's request being unclear.
+func degradedUncertainReason(decision semanticrouting.Decision) string {
+	if decision.Degraded {
+		return "semantic_degraded_uncertain"
+	}
+	return decision.ReasonCode
+}
+
 func (r Runtime) routeFromFusionDecision(ctx context.Context, content string, grounding intentGroundingProjection, decision semanticrouting.Decision, clientTimezone string) (app.RouteDecision, error) {
 	base := app.RouteDecision{
 		SchemaVersion: app.RouteDecisionSchemaVersion, CatalogRevision: r.capabilities.Revision(),
@@ -122,9 +131,11 @@ func (r Runtime) routeFromFusionDecision(ctx context.Context, content string, gr
 		return base, nil
 	case semanticrouting.VerdictLow:
 		base.Status = app.RouteUnmatched
+		base.Reason = degradedUncertainReason(decision)
 		return base, nil
 	case semanticrouting.VerdictAmbiguous:
 		base.Status = app.RouteClarify
+		base.Reason = degradedUncertainReason(decision)
 		return base, nil
 	case semanticrouting.VerdictClear:
 		if len(decision.Candidates) == 0 {
@@ -180,10 +191,12 @@ func (r Runtime) routeFromFusionDecision(ctx context.Context, content string, gr
 			base.Status = app.RouteClarify
 			base.Slots = app.RouteSlots{}
 			base.Facts = nil
+			// The accepted target kinds follow the code so the owner is asked
+			// for a place, a file or a page, whichever this capability needs.
 			if len(compatible) == 0 {
-				base.Reason = "required_grounded_target_missing"
+				base.Reason = "required_grounded_target_missing: " + strings.Join(node.Route.TargetKinds, ",")
 			} else {
-				base.Reason = "required_grounded_target_ambiguous"
+				base.Reason = "required_grounded_target_ambiguous: " + strings.Join(node.Route.TargetKinds, ",")
 			}
 			return base, nil
 		}

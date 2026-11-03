@@ -3,14 +3,23 @@ package agent
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"image"
 	"image/png"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/semanticrouting"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/storetest"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
 // Each class must read as what it is: "not supported" never sounds temporary,
@@ -112,7 +121,7 @@ func TestRoutingFailureTimerWording(t *testing.T) {
 		t.Fatalf("timer semantic_coverage_low = %q", got)
 	}
 	outage := routingFailure(app.RouteDecision{Status: app.RouteBlocked, Reason: "semantic_channels_unavailable"})
-	if got := outage.text(true, true); got != "这条定时任务未能执行：意图识别服务暂时不可用，请稍后重试。" {
+	if got := outage.text(true, true); got != "这条定时任务未能执行：模型暂时不可用，请稍后重试。" {
 		t.Fatalf("timer outage must keep its own cause, got %q", got)
 	}
 	if got := outage.text(false, true); !strings.HasPrefix(got, "The scheduled task did not run: ") || !strings.Contains(got, "temporarily unavailable") {
@@ -197,7 +206,7 @@ func TestMessageControlTerminalRouteReasonsSelectOwnerMessages(t *testing.T) {
 
 func TestOwnerWorkflowFailureMessageIsLocalized(t *testing.T) {
 	run := app.AgentRun{}
-	if got := ownerWorkflowFailureMessage(workflowFailureModelUnavailable, run, "帮我总结一下"); got != "模型服务暂时不可用，请稍后重试。" {
+	if got := ownerWorkflowFailureMessage(workflowFailureModelUnavailable, run, "帮我总结一下"); got != "模型暂时不可用，请稍后重试。" {
 		t.Fatalf("chinese model-unavailable message = %q", got)
 	}
 	if got := ownerWorkflowFailureMessage(workflowFailurePromptFixedOversized, run, "summarize this"); !strings.Contains(got, "not supported") {
@@ -229,5 +238,83 @@ func TestDeliveryEndpointReportsWhichDestinationPartIsMissing(t *testing.T) {
 	}
 	if status, reason := deliveryEndpointRouting(errors.New("other")); status != app.RouteClarify || reason != "delivery_confirmation_required" {
 		t.Fatalf("unclassified endpoint failure = %s %q", status, reason)
+	}
+}
+
+func TestOwnerQuestionAdmissionOutageSaysTheModelIsUnavailable(t *testing.T) {
+	tokenizer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusServiceUnavailable)
+	}))
+	defer tokenizer.Close()
+	cfg := agentTestConfig()
+	st := store.NewMemoryStore()
+	session := storetest.MustCreateSession(t, st, "admission outage")
+	runtime := NewRuntime(st, toolhub.New(cfg, st), policy.New(cfg), modelrouter.New(cfg), nil)
+	unavailable := cfg
+	unavailable.Model.Mock = false
+	unavailable.Model.Embedding.BaseURL = tokenizer.URL
+	unavailable.Model.Embedding.ContextTokens = 32
+	runtime.models = modelrouter.New(unavailable)
+
+	result, err := runtime.HandleMessage(t.Context(), session.ID, strings.Repeat("一个需要计数的问题", 20))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Run.State != "blocked" || result.Message.Content != "模型暂时不可用，请稍后重试。" || result.RouteDecision == nil || result.RouteDecision.Reason != "model_unavailable" {
+		t.Fatalf("admission outage result = state %q message %q route %#v", result.Run.State, result.Message.Content, result.RouteDecision)
+	}
+}
+
+func TestModelOutagesOverrideTheStageFailure(t *testing.T) {
+	outage := &modelrouter.UnavailableError{Err: errors.New("connection refused")}
+	var result workflowExecutionResult
+	result.fail(workflowFailureSemanticPreflight, fmt.Errorf("plan edit: %w", outage))
+	if result.FailureCode != workflowFailureModelUnavailable {
+		t.Fatalf("model outage during preflight kept code %q", result.FailureCode)
+	}
+	result.fail(workflowFailureSemanticPreflight, errors.New("plan is invalid"))
+	if result.FailureCode != workflowFailureSemanticPreflight {
+		t.Fatalf("ordinary preflight failure became %q", result.FailureCode)
+	}
+	if got := routingFailureReason(fmt.Errorf("split: %w", outage)); routeReasonCode(got) != "model_unavailable" {
+		t.Fatalf("routing outage reason = %q", got)
+	}
+	if got := routingFailureReason(errors.New("catalog mismatch")); routeReasonCode(got) != "routing_failed" {
+		t.Fatalf("routing failure reason = %q", got)
+	}
+	for _, reason := range []string{"model_unavailable", "semantic_channels_unavailable", "semantic_degraded_uncertain", "mutation_requires_healthy_semantic_pipeline"} {
+		if zh := routingFailureMessages[reason].zh; !strings.HasPrefix(zh, "模型暂时不可用") {
+			t.Fatalf("%s does not say the model is unavailable: %q", reason, zh)
+		}
+	}
+	if got := ownerWorkflowFailureMessage(workflowFailureModelUnavailable, app.AgentRun{}, "你好"); !strings.HasPrefix(got, "模型暂时不可用") {
+		t.Fatalf("workflow model outage = %q", got)
+	}
+}
+
+func TestDegradedUnclearVerdictBlamesTheModel(t *testing.T) {
+	if got := degradedUncertainReason(semanticrouting.Decision{Degraded: true, ReasonCode: "semantic_coverage_low"}); got != "semantic_degraded_uncertain" {
+		t.Fatalf("degraded low verdict reason = %q", got)
+	}
+	if got := degradedUncertainReason(semanticrouting.Decision{ReasonCode: "top_candidates_compete"}); got != "top_candidates_compete" {
+		t.Fatalf("healthy ambiguous verdict reason = %q", got)
+	}
+}
+
+func TestGroundedTargetFailureAsksForTheAcceptedKind(t *testing.T) {
+	for reason, want := range map[string]string{
+		"required_grounded_target_missing: location":                                    "请告诉我要查询哪个城市或地区。",
+		"required_grounded_target_missing: workspace_path":                              "请告诉我要处理哪个文件。",
+		"required_grounded_target_ambiguous: workspace_path":                            "有多个文件都可能是你要处理的，请指明是哪一个。",
+		"required_grounded_target_missing: url,browser_current_tab,public_named_target": "请告诉我要打开或处理哪个网页。",
+		"required_grounded_target_missing: localmind_task":                              "请告诉我要查看哪个 LocalMind 任务。",
+		"required_grounded_target_missing: location,workspace_path":                     routingFailureMessages["required_grounded_target_missing"].zh,
+		"required_grounded_target_missing":                                              routingFailureMessages["required_grounded_target_missing"].zh,
+	} {
+		message := routingFailure(app.RouteDecision{Status: app.RouteClarify, Reason: reason})
+		assertOwnerFailureWording(t, reason, message)
+		if message.zh != want {
+			t.Fatalf("%q = %q, want %q", reason, message.zh, want)
+		}
 	}
 }

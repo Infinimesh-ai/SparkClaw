@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 )
 
 type workflowFailureCode string
@@ -29,6 +30,10 @@ const (
 )
 
 func (result *workflowExecutionResult) fail(code workflowFailureCode, diagnostic error) {
+	// Whatever stage the call served, a model outage is reported as one.
+	if modelrouter.IsUnavailable(diagnostic) {
+		code = workflowFailureModelUnavailable
+	}
 	result.FailureCode = code
 	result.FailureDiagnostic = workflowFailureDiagnostic(diagnostic)
 	result.FinalAnswer = ""

@@ -58,7 +58,7 @@ func bookUnits() []Unit {
 	return units
 }
 
-func writeSource(t *testing.T, root, rel, content string) {
+func writeSourceFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, rel)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -191,7 +191,7 @@ func TestReadRangeMergesNeighboursAndContinuesAfterTheBudget(t *testing.T) {
 
 func TestServiceBuildsOncePersistsAndReloads(t *testing.T) {
 	root := t.TempDir()
-	writeSource(t, root, "uploads/book.pdf", "source bytes v1")
+	writeSourceFile(t, root, "uploads/book.pdf", "source bytes v1")
 	extractor := &fakeExtractor{units: bookUnits(), gate: make(chan struct{})}
 	service := NewService(extractor)
 	defer service.Close()
@@ -235,7 +235,7 @@ func TestServiceBuildsOncePersistsAndReloads(t *testing.T) {
 
 func TestServiceRecordsFailureAndRetriesOnDemand(t *testing.T) {
 	root := t.TempDir()
-	writeSource(t, root, "doc.txt", "text")
+	writeSourceFile(t, root, "doc.txt", "text")
 	target := Target{WorkspaceRoot: root, RelPath: "doc.txt", Format: "text"}
 	failing := NewService(&fakeExtractor{err: errors.New("parser crashed")})
 	if _, err := failing.Ensure(context.Background(), target, nil); err == nil {
@@ -257,7 +257,7 @@ func TestServiceRecordsFailureAndRetriesOnDemand(t *testing.T) {
 
 func TestPrebuildKeepsNoIndexForSmallDocuments(t *testing.T) {
 	root := t.TempDir()
-	writeSource(t, root, "small.txt", "small")
+	writeSourceFile(t, root, "small.txt", "small")
 	extractor := &fakeExtractor{units: []Unit{{Text: "一段很短的正文。"}}}
 	service := NewService(extractor)
 	defer service.Close()
@@ -281,8 +281,8 @@ func TestPrebuildKeepsNoIndexForSmallDocuments(t *testing.T) {
 
 func TestSweepRemovesIndexesWithoutSources(t *testing.T) {
 	root := t.TempDir()
-	writeSource(t, root, "a.txt", "first source")
-	writeSource(t, root, "b.txt", "second source!")
+	writeSourceFile(t, root, "a.txt", "first source")
+	writeSourceFile(t, root, "b.txt", "second source!")
 	service := NewService(&fakeExtractor{units: bookUnits()})
 	defer service.Close()
 	for _, rel := range []string{"a.txt", "b.txt"} {
@@ -325,5 +325,71 @@ func TestReadRangeDropsContextBeforeRequestedChunks(t *testing.T) {
 	}
 	if len(result.Spans) != 1 || !slices.Equal(result.Spans[0].ChunkIDs, []string{requested.ID}) || result.Truncated {
 		t.Fatalf("context displaced the requested chunk: %+v", result.Spans)
+	}
+}
+
+func scannedBookExtractor() *fakeExtractor {
+	unindexed := []int{}
+	for page := 1; page <= 30; page++ {
+		unindexed = append(unindexed, page)
+	}
+	return &fakeExtractor{info: SourceInfo{Pages: 30, UnindexedPages: unindexed, Outline: []OutlineEntry{
+		{Title: "第1章 概述", Level: 1, Page: 1}, {Title: "第2章 物理层", Level: 1, Page: 11},
+		{Title: "第3章 运输层与拥塞控制", Level: 1, Page: 21}, {Title: "3.1 慢开始", Level: 2, Page: 24},
+	}}}
+}
+
+func TestScannedDocumentIndexLocatesSectionsThenMergesRecognizedPages(t *testing.T) {
+	root := t.TempDir()
+	writeSourceFile(t, root, "scan.pdf", "scanned pdf bytes")
+	extractor := scannedBookExtractor()
+	service := NewService(extractor)
+	defer service.Close()
+	target := Target{WorkspaceRoot: root, RelPath: "scan.pdf", Format: "pdf"}
+
+	index, err := service.Ensure(context.Background(), target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index.Manifest.State != StatePartial || len(index.Chunks) != 0 || len(index.Manifest.UnindexedPages) != 30 {
+		t.Fatalf("scanned index = %+v", index.Manifest)
+	}
+	chapter := index.Outline[2]
+	if chapter.Page != 21 || chapter.PageEnd != 30 || index.Outline[0].PageEnd != 10 || index.Outline[3].PageEnd != 30 {
+		t.Fatalf("outline page ranges are wrong: %+v", index.Outline)
+	}
+	result, err := index.Search(SearchRequest{Keywords: []string{"拥塞控制"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Hits) != 0 || len(result.Sections) != 1 || result.Sections[0].ID != chapter.ID {
+		t.Fatalf("title search did not locate the scanned chapter: %+v", result)
+	}
+	pages, err := index.UnindexedPagesIn(RangeRequest{Section: index.Outline[3].ID})
+	if err != nil || !slices.Equal(pages, []int{24, 25, 26, 27, 28, 29, 30}) {
+		t.Fatalf("section pages needing OCR = %v, %v", pages, err)
+	}
+
+	recognized, err := service.RecognizedPages(context.Background(), target, map[int]string{
+		24: "慢开始算法让拥塞窗口按指数增长，直到慢开始门限。", 25: "拥塞避免阶段每个往返时间增加一个报文段。",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if extractor.calls.Load() != 1 {
+		t.Fatalf("merging recognized pages re-parsed the document %d times", extractor.calls.Load())
+	}
+	if len(recognized.Chunks) == 0 || !slices.Equal(recognized.Manifest.OCRPages, []int{24, 25}) || len(recognized.Manifest.UnindexedPages) != 28 {
+		t.Fatalf("recognized pages were not merged: %+v", recognized.Manifest)
+	}
+	read, err := recognized.ReadRange(RangeRequest{Section: recognized.Outline[3].ID})
+	if err != nil || !strings.Contains(read.Text, "慢开始门限") || read.Spans[0].Anchor.Page != 24 {
+		t.Fatalf("recognized section did not read back: %v %+v", err, read)
+	}
+	reloaded := NewService(&fakeExtractor{err: errors.New("must not rebuild")})
+	defer reloaded.Close()
+	again, err := reloaded.Ensure(context.Background(), target, nil)
+	if err != nil || !slices.Equal(again.Manifest.OCRPages, []int{24, 25}) {
+		t.Fatalf("recognized pages did not persist: %v", err)
 	}
 }

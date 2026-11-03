@@ -17,7 +17,86 @@ const (
 	outlineFile  = "outline.json"
 	chunksFile   = "chunks.jsonl"
 	keywordsFile = "keywords.json"
+	// sourceFile keeps the extracted units, so merging recognized pages
+	// rebuilds chunks and keywords without parsing the document again.
+	sourceFile = "source.json"
+	ocrDirName = "ocr"
 )
+
+// extractedSource is one extraction of a document, in document order.
+type extractedSource struct {
+	Info  SourceInfo `json:"info"`
+	Units []Unit     `json:"units"`
+}
+
+func writeSource(dir string, source extractedSource) (int64, error) {
+	raw, err := json.Marshal(source)
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(raw)), writeFileAtomic(filepath.Join(dir, sourceFile), raw)
+}
+
+func readSource(dir string) (extractedSource, bool, error) {
+	raw, err := os.ReadFile(filepath.Join(dir, sourceFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		return extractedSource{}, false, nil
+	}
+	if err != nil {
+		return extractedSource{}, false, err
+	}
+	var source extractedSource
+	if err := json.Unmarshal(raw, &source); err != nil {
+		return extractedSource{}, false, fmt.Errorf("decode extracted source: %w", err)
+	}
+	return source, true, nil
+}
+
+type ocrPage struct {
+	Page int    `json:"page"`
+	Text string `json:"text"`
+}
+
+func writeOCRPage(dir string, page int, text string) error {
+	ocrDir := filepath.Join(dir, ocrDirName)
+	if err := os.MkdirAll(ocrDir, 0o700); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(ocrPage{Page: page, Text: text})
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(filepath.Join(ocrDir, fmt.Sprintf("%d.json", page)), raw)
+}
+
+// readOCRPages returns the recognized text of every cached page and the
+// bytes the cache occupies.
+func readOCRPages(dir string) (map[int]string, int64, error) {
+	entries, err := os.ReadDir(filepath.Join(dir, ocrDirName))
+	if errors.Is(err, fs.ErrNotExist) {
+		return map[int]string{}, 0, nil
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+	pages := map[int]string{}
+	total := int64(0)
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, ocrDirName, entry.Name()))
+		if err != nil {
+			return nil, 0, err
+		}
+		var page ocrPage
+		if json.Unmarshal(raw, &page) == nil && page.Page > 0 {
+			pages[page.Page] = page.Text
+			total += int64(len(raw))
+		}
+	}
+	return pages, total, nil
+}
 
 // RelativeRoot is the index directory inside a workspace root. It sits in
 // the .sparkclaw/state control directory that file tools refuse.

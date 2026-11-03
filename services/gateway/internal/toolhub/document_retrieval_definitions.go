@@ -28,15 +28,17 @@ func documentRetrievalToolProviders() []documentToolProvider {
 		{
 			Definition: app.ToolDefinition{
 				Name:        "document.search",
-				Description: "Keyword-search an indexed large document and return ranked snippets with chunk IDs, pages and heading paths. Pass several keywords, including Chinese and English synonyms; optionally limit to one outline section.",
+				Description: "Keyword-search an indexed large document and return ranked snippets with chunk IDs, pages and heading paths, plus outline sections whose titles match. Pass several keywords, including Chinese and English synonyms; optionally limit to one outline section. Scanned pages have no text until a range read recognizes them, so use matching sections for them.",
 				InputSchema: schema("object", []string{"path", "keywords"}, map[string]any{
 					"path": stringSchema(), "keywords": stringArraySchema(), "top_k": integerSchema(), "section": stringSchema(),
 				}),
 				OutputSchema: objectSchema([]string{"path", "keywords", "hits", "count", "truncated", "untrusted"}, map[string]any{
 					"path": stringSchema(), "keywords": stringArraySchema(), "terms": stringArraySchema(), "hits": arraySchema(objectValueSchema()),
+					"sections": arraySchema(objectValueSchema()), "unrecognized_pages": arraySchema(integerSchema()),
 					"count": integerSchema(), "truncated": booleanSchema(), "untrusted": booleanSchema(),
 				}),
-				Risk: app.RiskRead, Idempotent: true, TimeoutMS: 125000, Sandbox: "forbidden", Audit: "always",
+				// A scanned file without an outline is recognized whole first.
+				Risk: app.RiskRead, Idempotent: true, TimeoutMS: 900000, Sandbox: "forbidden", Audit: "always",
 			},
 			Registration: workflowRegistration(toolRegistration{run: ctxArgsSessionRun((*ToolHub).documentSearch)},
 				app.ToolCapabilityDocumentSearch, nil, app.OutcomeAdapterDocumentRetrieval,
@@ -47,7 +49,7 @@ func documentRetrievalToolProviders() []documentToolProvider {
 		{
 			Definition: app.ToolDefinition{
 				Name:        "document.read_range",
-				Description: "Read selected passages of an indexed large document by chunk_ids from search (with neighbouring context), by page range, or by outline section. Text is bounded; next_chunk_id continues a cut read.",
+				Description: "Read selected passages of an indexed large document by chunk_ids from search (with neighbouring context), by page range, or by outline section. Scanned pages in a page range or section are recognized first, at most 8 per call; unrecognized_pages lists the rest. Text is bounded; next_chunk_id continues a cut read.",
 				InputSchema: schema("object", []string{"path"}, map[string]any{
 					"path": stringSchema(), "chunk_ids": stringArraySchema(), "page_start": integerSchema(), "page_end": integerSchema(),
 					"section": stringSchema(), "context": integerSchema(),
@@ -55,9 +57,10 @@ func documentRetrievalToolProviders() []documentToolProvider {
 				OutputSchema: objectSchema([]string{"path", "content", "bytes", "spans", "truncated", "untrusted"}, map[string]any{
 					"path": stringSchema(), "rel_path": stringSchema(), "kind": stringSchema(), "content": stringSchema(), "bytes": integerSchema(),
 					"spans": arraySchema(objectValueSchema()), "truncated": booleanSchema(), "next_chunk_id": stringSchema(),
-					"read_complete": booleanSchema(), "untrusted": booleanSchema(),
+					"read_complete": booleanSchema(), "unrecognized_pages": arraySchema(integerSchema()),
+					"missing_page_indexes": arraySchema(integerSchema()), "untrusted": booleanSchema(),
 				}),
-				Risk: app.RiskRead, Idempotent: true, TimeoutMS: 125000, Sandbox: "forbidden", Audit: "always",
+				Risk: app.RiskRead, Idempotent: true, TimeoutMS: 600000, Sandbox: "forbidden", Audit: "always",
 			},
 			Registration: workflowRegistration(toolRegistration{run: ctxArgsSessionRun((*ToolHub).documentReadRange)},
 				app.ToolCapabilityDocumentReadRange, nil, app.OutcomeAdapterDocumentRetrieval,

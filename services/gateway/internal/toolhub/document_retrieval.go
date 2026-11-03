@@ -21,7 +21,12 @@ const documentIndexProgress = "正在建立文档索引"
 const outlinePointerMaxBytes = 8000
 
 func documentIndexFormatSupported(format string) bool {
-	return format == app.DocumentFormatPDF || format == app.DocumentFormatDOCX || format == app.DocumentFormatText
+	switch format {
+	case app.DocumentFormatPDF, app.DocumentFormatDOCX, app.DocumentFormatText:
+		return true
+	default:
+		return false
+	}
 }
 
 // ensureDocumentIndex resolves a governed document and returns its index,
@@ -63,6 +68,12 @@ func (h *ToolHub) largeDocumentRead(ctx context.Context, path string, readErr er
 	if err != nil {
 		return nil, err
 	}
+	return documentRetrievalPointer(h, index, metadata), nil
+}
+
+// documentRetrievalPointer is the read result of an indexed large document:
+// its outline instead of its text, marked retrieval_required.
+func documentRetrievalPointer(h *ToolHub, index *docindex.Index, metadata document.Metadata) map[string]any {
 	outline := renderDocumentOutline(index, outlinePointerMaxBytes)
 	manifest := index.Manifest
 	indexStatus := app.DocumentIndexReady
@@ -74,7 +85,7 @@ func (h *ToolHub) largeDocumentRead(ctx context.Context, path string, readErr er
 		"content": outline, "bytes": len(outline), "source_bytes": manifest.SourceBytes, "max_bytes": h.documentExtractionLimit(),
 		"truncated": false, "untrusted": true, "retrieval_required": true, "read_complete": false, "coverage_status": "partial",
 		"missing_page_indexes": append([]int{}, manifest.UnindexedPages...), "page_status_counts": map[string]any{}, "scanned_unsupported": len(manifest.UnindexedPages) > 0,
-		"next_step_hint": "This document is too large to read whole. Use document.search with keywords from the request, then document.read_range on the best chunk_ids.",
+		"next_step_hint": "This document is too large to read whole. Use document.search with keywords from the request, then document.read_range on the best chunk_ids or a matching section; scanned pages in a section are recognized when it is read.",
 		"document": map[string]any{
 			"format": metadata.Format, "outline": documentJSONValue(documentOutlineNodes(index, 0)),
 			"stats": map[string]any{
@@ -87,7 +98,7 @@ func (h *ToolHub) largeDocumentRead(ctx context.Context, path string, readErr er
 				"index":        map[string]any{"index_status": string(indexStatus), "source_sha256": manifest.SourceSHA256},
 			},
 		},
-	}, nil
+	}
 }
 
 func (h *ToolHub) documentOutline(ctx context.Context, args map[string]any, _, _ string) (Result, error) {
@@ -107,7 +118,8 @@ func (h *ToolHub) documentOutline(ctx context.Context, args map[string]any, _, _
 	}}, nil
 }
 
-func (h *ToolHub) documentSearch(ctx context.Context, args map[string]any, _, _ string) (Result, error) {
+func (h *ToolHub) documentSearch(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
+	ctx = withDocumentOCRExecution(ctx, sessionID, runID)
 	path, err := h.resolveReadPath(ctx, stringArg(args, "path", ""))
 	if err != nil {
 		return Result{}, err
@@ -120,6 +132,14 @@ func (h *ToolHub) documentSearch(ctx context.Context, args map[string]any, _, _ 
 	if err != nil {
 		return Result{}, err
 	}
+	unrecognized := index.Manifest.UnindexedPages
+	if len(unrecognized) > 0 && len(index.Outline) == 0 && index.Manifest.SourceBytes <= documentIndexFullOCRMaxSourceBytes {
+		// A scanned file without an outline cannot be located by title, so
+		// a file within the upload limit is recognized whole first.
+		if index, unrecognized, err = h.recognizeDocumentPages(ctx, metadata, index, unrecognized); err != nil {
+			return Result{}, err
+		}
+	}
 	result, err := index.Search(docindex.SearchRequest{
 		Keywords: keywords, TopK: intArg(args, "top_k", 8), Section: stringArg(args, "section", ""), MaxBytes: h.documentRetrievalMaxBytes(args),
 	})
@@ -128,11 +148,13 @@ func (h *ToolHub) documentSearch(ctx context.Context, args map[string]any, _, _ 
 	}
 	return Result{Output: map[string]any{
 		"path": metadata.Relative, "keywords": keywords, "terms": result.Terms, "hits": documentJSONValue(result.Hits),
-		"count": len(result.Hits), "truncated": result.Truncated, "untrusted": true,
+		"sections": documentJSONValue(result.Sections), "count": len(result.Hits) + len(result.Sections),
+		"unrecognized_pages": append([]int{}, unrecognized...), "truncated": result.Truncated, "untrusted": true,
 	}}, nil
 }
 
-func (h *ToolHub) documentReadRange(ctx context.Context, args map[string]any, _, _ string) (Result, error) {
+func (h *ToolHub) documentReadRange(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
+	ctx = withDocumentOCRExecution(ctx, sessionID, runID)
 	path, err := h.resolveReadPath(ctx, stringArg(args, "path", ""))
 	if err != nil {
 		return Result{}, err
@@ -141,18 +163,45 @@ func (h *ToolHub) documentReadRange(ctx context.Context, args map[string]any, _,
 	if err != nil {
 		return Result{}, err
 	}
-	result, err := index.ReadRange(docindex.RangeRequest{
+	request := docindex.RangeRequest{
 		ChunkIDs: outputStringArray(args["chunk_ids"]), PageStart: intArg(args, "page_start", 0), PageEnd: intArg(args, "page_end", 0),
 		Section: stringArg(args, "section", ""), Context: intArg(args, "context", 1), MaxBytes: h.documentRetrievalMaxBytes(args),
-	})
+	}
+	pending, err := index.UnindexedPagesIn(request)
+	if err != nil {
+		return Result{}, err
+	}
+	// A targeted read recognizes at most one batch of the range's scanned
+	// pages; the rest are reported so the answer can name them.
+	unrecognized := pending[min(len(pending), documentIndexOCRPagesPerCall):]
+	if batch := pending[:min(len(pending), documentIndexOCRPagesPerCall)]; len(batch) > 0 {
+		var failed []int
+		if index, failed, err = h.recognizeDocumentPages(ctx, metadata, index, batch); err != nil {
+			return Result{}, err
+		}
+		unrecognized = append(failed, unrecognized...)
+	}
+	result, err := index.ReadRange(request)
+	if err != nil && len(unrecognized) > 0 {
+		return Result{}, fmt.Errorf("pages %s of this range are scanned and could not be recognized: %w", pageList(unrecognized), err)
+	}
 	if err != nil {
 		return Result{}, err
 	}
 	return Result{Output: map[string]any{
 		"path": metadata.Relative, "rel_path": metadata.Relative, "kind": metadata.Format,
 		"content": result.Text, "bytes": len(result.Text), "spans": documentJSONValue(result.Spans), "truncated": result.Truncated,
-		"next_chunk_id": result.NextChunkID, "read_complete": false, "untrusted": true,
+		"next_chunk_id": result.NextChunkID, "read_complete": false, "unrecognized_pages": append([]int{}, unrecognized...),
+		"missing_page_indexes": append([]int{}, unrecognized...), "untrusted": true,
 	}}, nil
+}
+
+func pageList(pages []int) string {
+	parts := make([]string, 0, len(pages))
+	for _, page := range pages {
+		parts = append(parts, fmt.Sprint(page))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // documentRetrievalMaxBytes bounds one retrieval result by the Fast lane's

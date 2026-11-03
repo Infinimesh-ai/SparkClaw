@@ -2,6 +2,7 @@ package toolhub
 
 import (
 	"context"
+	"fmt"
 	"errors"
 	"os/exec"
 	"path/filepath"
@@ -123,15 +124,20 @@ func TestPDFReadCoverageReportsPageBudgetOmission(t *testing.T) {
 	writePDFReadFixture(t, root, "nine-pages.pdf", "scanned", 9)
 	hub := newPDFReadFixtureHub(root).WithDocumentOCRAdapter(pdfFixtureOCR{markdown: "Recognized fixture page"})
 
+	// More scanned pages than one read recognizes move the PDF to retrieval;
+	// the read's eight recognized pages seed the index and page 9 stays
+	// for analysis-phase OCR.
 	output := executePDFReadFixture(t, hub, "nine-pages.pdf")
-	missing := documentAnySlice(output["missing_page_indexes"])
-	counts := output["page_status_counts"].(map[string]any)
-	pages := documentAnySlice(output["document"].(map[string]any)["pages"])
-	if output["read_complete"] != false || output["coverage_status"] != "partial" || len(missing) != 1 || intArg(map[string]any{"value": missing[0]}, "value", 0) != 9 || intArg(counts, "ocr_succeeded", 0) != 8 || intArg(counts, "budget_omitted", 0) != 1 {
-		t.Fatalf("OCR page budget coverage is incorrect: %#v", output)
+	if output["retrieval_required"] != true || output["read_complete"] != false || output["coverage_status"] != "partial" ||
+		fmt.Sprint(output["missing_page_indexes"]) != "[9]" {
+		t.Fatalf("OCR page budget omission did not move to retrieval: %#v", output)
 	}
-	if pages[8].(map[string]any)["text_status"] != "budget_omitted" {
-		t.Fatalf("ninth page was not marked as budget omitted: %#v", pages[8])
+	index, _, err := hub.ensureDocumentIndex(context.Background(), filepath.Join(root, "nine-pages.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(index.Manifest.OCRPages) != 8 || fmt.Sprint(index.Manifest.UnindexedPages) != "[9]" {
+		t.Fatalf("recognized pages did not seed the index: %+v", index.Manifest)
 	}
 }
 

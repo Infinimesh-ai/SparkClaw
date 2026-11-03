@@ -392,7 +392,10 @@ func mockWorkflowPageID(prompt string) string {
 	return strings.TrimSpace(value)
 }
 
-var mockSearchHitChunk = regexp.MustCompile(`(?m)^- (c\d{5}) page=`)
+var (
+	mockSearchHitChunk   = regexp.MustCompile(`(?m)^- (c\d{5}) page=`)
+	mockSearchHitSection = regexp.MustCompile(`(?m)^- section (n\d{4}) `)
+)
 
 // mockDocumentRetrievalAction searches with the goal text, then reads the
 // top provisioned hits, as a real step model does in the retrieval stage.
@@ -408,6 +411,9 @@ func mockDocumentRetrievalAction(user, goal, lowerPrompt string) (string, bool) 
 		chunks = append(chunks, match[1])
 	}
 	if len(chunks) == 0 {
+		if section := mockSearchHitSection.FindStringSubmatch(user); section != nil {
+			return mockWorkflowStepAction("document.read_range", map[string]any{"section": section[1]}), true
+		}
 		return mockWorkflowStepAction("document.outline", map[string]any{}), true
 	}
 	return mockWorkflowStepAction("document.read_range", map[string]any{"chunk_ids": chunks}), true

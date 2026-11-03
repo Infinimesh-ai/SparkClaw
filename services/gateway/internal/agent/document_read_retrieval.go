@@ -108,4 +108,5 @@ const documentRetrievalInstruction = "Large-document retrieval stage: the docume
 	"Turn the owner request into 2-6 search keywords, including Chinese and English synonyms and the key terms it names, and call document.search; pass section with an outline node ID to search one chapter. " +
 	"Then call document.read_range once with the chunk_ids (at most 12) that answer the request; neighbouring context is added automatically. " +
 	"For a request about a whole chapter, call document.read_range with that chapter's section ID instead. " +
+	"In a scanned document pages have no text until read: when search returns sections but no chunks, call document.read_range with the best section ID or a page range; its scanned pages are recognized first, at most 8 per call. " +
 	"Use document.outline only when searches miss. Search at most three times; after that, read the best chunks you have."

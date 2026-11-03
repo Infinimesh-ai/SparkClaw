@@ -40,11 +40,24 @@ type SearchHit struct {
 	Snippet string   `json:"snippet"`
 }
 
-type SearchResult struct {
-	Terms     []string    `json:"terms"`
-	Hits      []SearchHit `json:"hits"`
-	Truncated bool        `json:"truncated"`
+// SectionHit is an outline node whose title matches the query, so a
+// section can be located before its pages have text, as in a scanned PDF.
+type SectionHit struct {
+	ID      string   `json:"id"`
+	Title   string   `json:"title"`
+	Page    int      `json:"page,omitempty"`
+	PageEnd int      `json:"page_end,omitempty"`
+	Matched []string `json:"matched_terms"`
 }
+
+type SearchResult struct {
+	Terms     []string     `json:"terms"`
+	Hits      []SearchHit  `json:"hits"`
+	Sections  []SectionHit `json:"sections"`
+	Truncated bool         `json:"truncated"`
+}
+
+const maxSectionHits = 5
 
 // Search ranks chunks with BM25 and returns snippets centred on the first
 // matched term, stopping before the results exceed MaxBytes.
@@ -61,7 +74,7 @@ func (index *Index) Search(request SearchRequest) (SearchResult, error) {
 	if limit <= 0 || limit > MaxSearchResults {
 		limit = min(MaxSearchResults, max(limit, 8))
 	}
-	result := SearchResult{Terms: terms, Hits: []SearchHit{}}
+	result := SearchResult{Terms: terms, Hits: []SearchHit{}, Sections: index.matchingSections(terms, start, end)}
 	used := 0
 	for _, hit := range index.keywords.search(terms, start, end, limit) {
 		chunk := index.Chunks[hit.Chunk]
@@ -75,6 +88,72 @@ func (index *Index) Search(request SearchRequest) (SearchResult, error) {
 		result.Hits = append(result.Hits, item)
 	}
 	return result, nil
+}
+
+// matchingSections ranks outline nodes inside [start, end) by how many query
+// terms their titles contain, keeping document order among equals.
+func (index *Index) matchingSections(terms []string, start, end int) []SectionHit {
+	type scored struct {
+		hit   SectionHit
+		count int
+	}
+	candidates := []scored{}
+	for _, node := range index.Outline {
+		if node.ChunkStart < start || (end > start && node.ChunkStart > end) {
+			continue
+		}
+		titleTerms := map[string]bool{}
+		for _, term := range Terms(node.Title) {
+			titleTerms[term] = true
+		}
+		matched := []string{}
+		for _, term := range terms {
+			if titleTerms[term] {
+				matched = append(matched, term)
+			}
+		}
+		if len(matched) > 0 {
+			candidates = append(candidates, scored{hit: SectionHit{ID: node.ID, Title: node.Title, Page: node.Page, PageEnd: node.PageEnd, Matched: matched}, count: len(matched)})
+		}
+	}
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].count > candidates[j].count })
+	out := []SectionHit{}
+	for _, candidate := range candidates[:min(len(candidates), maxSectionHits)] {
+		out = append(out, candidate.hit)
+	}
+	return out
+}
+
+// UnindexedPagesIn lists the requested pages that have no text yet, in page
+// order: those of a page range, or of a section's page range.
+func (index *Index) UnindexedPagesIn(request RangeRequest) ([]int, error) {
+	first, last := request.PageStart, max(request.PageEnd, request.PageStart)
+	if strings.TrimSpace(request.Section) != "" {
+		node, ok := index.outlineNode(request.Section)
+		if !ok {
+			return nil, fmt.Errorf("section %q is not in this document outline", request.Section)
+		}
+		first, last = node.Page, max(node.PageEnd, node.Page)
+	}
+	if first <= 0 {
+		return nil, nil
+	}
+	pages := []int{}
+	for _, page := range index.Manifest.UnindexedPages {
+		if page >= first && page <= last {
+			pages = append(pages, page)
+		}
+	}
+	return pages, nil
+}
+
+func (index *Index) outlineNode(id string) (OutlineNode, bool) {
+	for _, node := range index.Outline {
+		if node.ID == strings.TrimSpace(id) {
+			return node, true
+		}
+	}
+	return OutlineNode{}, false
 }
 
 // RangeRequest selects chunks by ID, by page range, or by outline node.
@@ -125,7 +204,7 @@ func (index *Index) ReadRange(request RangeRequest) (RangeResult, error) {
 		if ordinal == previous+1 {
 			piece = dropRepeatedPrefix(index.Chunks[previous].Text, piece)
 		} else {
-			header = spanHeader(chunk)
+			header = spanHeader(index.Manifest.Format, chunk)
 		}
 		if request.MaxBytes > 0 && out.Len()+len(header)+len(piece)+2 > request.MaxBytes {
 			result.Truncated = true
@@ -245,10 +324,20 @@ func chunkOrdinal(id string, count int) (int, bool) {
 	return number - 1, true
 }
 
-func spanHeader(chunk Chunk) string {
+// spanHeader names a span's location. PDF pages are labelled as PDF page
+// indexes because recognized text often carries the book's own printed page
+// numbers, which differ.
+func spanHeader(format string, chunk Chunk) string {
 	parts := []string{}
 	if chunk.Anchor.Page > 0 {
-		parts = append(parts, "page "+strconv.Itoa(chunk.Anchor.Page))
+		label := "page "
+		switch format {
+		case "pdf":
+			label = "PDF page "
+		case "pptx":
+			label = "slide "
+		}
+		parts = append(parts, label+strconv.Itoa(chunk.Anchor.Page))
 	}
 	if len(chunk.Anchor.HeadingPath) > 0 {
 		parts = append(parts, strings.Join(chunk.Anchor.HeadingPath, " > "))

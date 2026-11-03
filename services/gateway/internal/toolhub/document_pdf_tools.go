@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/docindex"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
@@ -29,6 +30,12 @@ func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any, sessi
 	structured, err := read.Document.Map()
 	if err != nil {
 		return Result{}, err
+	}
+	if output, handled, err := h.scannedPDFRetrieval(ctx, path, structured); handled {
+		if err != nil {
+			return Result{}, err
+		}
+		return Result{Output: output}, nil
 	}
 	stats := read.Document.Stats
 	structuredStats, _ := structured["stats"].(map[string]any)
@@ -56,6 +63,45 @@ func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any, sessi
 		"scanned_unsupported":  boolArg(read.Document.Stats, "scanned_unsupported", false),
 		"document":             structured,
 	}}, nil
+}
+
+// scannedPDFRetrieval moves a scanned PDF whose text-less pages exceed one
+// complete read's OCR budget to retrieval. The pages this read recognized
+// seed the index cache, so they are not recognized twice.
+func (h *ToolHub) scannedPDFRetrieval(ctx context.Context, path string, structured map[string]any) (map[string]any, bool, error) {
+	stats, _ := documentAnyMap(structured["stats"])
+	counts, _ := documentAnyMap(stats["page_status_counts"])
+	if documentIntValue(counts[document.PDFPageTextBudgetOmitted]) == 0 || h.ocr == nil || !h.ocr.Enabled() {
+		// Without OCR, retrieval could not recognize the omitted pages either,
+		// so the partial read stands.
+		return nil, false, nil
+	}
+	metadata, err := document.InspectFile(ctx, h.cfg.Workspaces.DefaultRoot, path)
+	if err != nil {
+		return nil, true, err
+	}
+	recognized := map[int]string{}
+	for _, raw := range documentAnySlice(structured["pages"]) {
+		page, _ := documentAnyMap(raw)
+		if stringArg(page, "text_status", "") == document.PDFPageTextOCRSucceeded {
+			if text := strings.TrimSpace(stringArg(page, "ocr_text", "")); text != "" {
+				recognized[documentIntValue(page["index"])] = text
+			}
+		}
+	}
+	target := docindex.Target{WorkspaceRoot: h.cfg.Workspaces.DefaultRoot, RelPath: metadata.Relative, Format: metadata.Format}
+	waiting := func() { reportToolProgress(ctx, documentIndexProgress) }
+	var index *docindex.Index
+	if len(recognized) > 0 {
+		waiting()
+		index, err = h.documentIndex.RecognizedPages(ctx, target, recognized)
+	} else {
+		index, err = h.documentIndex.Ensure(ctx, target, waiting)
+	}
+	if err != nil {
+		return nil, true, fmt.Errorf("document index is unavailable: %w", err)
+	}
+	return documentRetrievalPointer(h, index, metadata), true, nil
 }
 
 func validatePDFTransformArguments(args map[string]any) error {

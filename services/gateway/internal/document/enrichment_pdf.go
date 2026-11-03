@@ -2,14 +2,16 @@ package document
 
 import "strings"
 
+// PDF page text statuses. The exported ones are also read by the document
+// index, which takes over pages a complete read could not recognize.
 const (
 	pdfPageTextNative        = "native"
 	pdfPageTextOCRPending    = "ocr_pending"
-	pdfPageTextOCRSucceeded  = "ocr_succeeded"
+	PDFPageTextOCRSucceeded  = "ocr_succeeded"
 	pdfPageTextOCRDisabled   = "ocr_disabled"
 	pdfPageTextOCRFailed     = "ocr_failed"
 	pdfPageTextRenderFailed  = "render_failed"
-	pdfPageTextBudgetOmitted = "budget_omitted"
+	PDFPageTextBudgetOmitted = "budget_omitted"
 )
 
 func promotePDFOCRContent(read *ReadResult) {
@@ -55,7 +57,7 @@ func promotePDFOCRContent(read *ReadResult) {
 			page["ocr_cache_record_id"] = ocr["cache_record_id"]
 			page["ocr_prepared_sha256"] = ocr["prepared_sha256"]
 			status, page["text_status_reason"] = finalPDFOCRPageStatus(ocr)
-			if status == pdfPageTextOCRSucceeded {
+			if status == PDFPageTextOCRSucceeded {
 				ocrText := strings.TrimSpace(stringValue(ocr["markdown"]))
 				page["ocr_text"] = ocrText
 				if nativeText == "" {
@@ -73,7 +75,7 @@ func promotePDFOCRContent(read *ReadResult) {
 		}
 		page["text_status"] = status
 		statusCounts[status]++
-		if status != pdfPageTextNative && status != pdfPageTextOCRSucceeded {
+		if status != pdfPageTextNative && status != PDFPageTextOCRSucceeded {
 			missingPages = append(missingPages, pageIndex)
 		}
 		if text != "" {
@@ -118,7 +120,7 @@ func finalPDFOCRPageStatus(ocr map[string]any) (string, any) {
 	switch strings.ToLower(strings.TrimSpace(stringValue(ocr["status"]))) {
 	case "succeeded":
 		if strings.TrimSpace(stringValue(ocr["markdown"])) != "" {
-			return pdfPageTextOCRSucceeded, "ocr_usable_text"
+			return PDFPageTextOCRSucceeded, "ocr_usable_text"
 		}
 		return pdfPageTextOCRFailed, "no_usable_text"
 	case "failed":
@@ -129,7 +131,7 @@ func finalPDFOCRPageStatus(ocr map[string]any) (string, any) {
 		return pdfPageTextRenderFailed, "ocr_page_resource_unavailable"
 	case "skipped":
 		if strings.Contains(strings.ToLower(stringValue(ocr["reason"])), "budget") {
-			return pdfPageTextBudgetOmitted, "ocr_page_budget_exhausted"
+			return PDFPageTextBudgetOmitted, "ocr_page_budget_exhausted"
 		}
 		return pdfPageTextOCRDisabled, "ocr_not_executed"
 	default:

@@ -35,22 +35,24 @@ func (s State) Usable() bool { return s == StateReady || s == StatePartial }
 
 // Manifest describes one persisted index.
 type Manifest struct {
-	SchemaVersion  int       `json:"schema_version"`
-	BuilderVersion string    `json:"builder_version"`
-	SourceSHA256   string    `json:"source_sha256"`
-	SourceBytes    int64     `json:"source_bytes"`
-	Format         string    `json:"format"`
-	SourcePaths    []string  `json:"source_paths"`
-	State          State     `json:"state"`
-	Attempts       int       `json:"attempts"`
-	Error          string    `json:"error,omitempty"`
-	Pages          int       `json:"pages,omitempty"`
-	Chunks         int       `json:"chunks"`
-	TextBytes      int       `json:"text_bytes"`
-	UnindexedPages []int     `json:"unindexed_pages,omitempty"`
-	IndexBytes     int64     `json:"index_bytes"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	LastUsedAt     time.Time `json:"last_used_at"`
+	SchemaVersion  int      `json:"schema_version"`
+	BuilderVersion string   `json:"builder_version"`
+	SourceSHA256   string   `json:"source_sha256"`
+	SourceBytes    int64    `json:"source_bytes"`
+	Format         string   `json:"format"`
+	SourcePaths    []string `json:"source_paths"`
+	State          State    `json:"state"`
+	Attempts       int      `json:"attempts"`
+	Error          string   `json:"error,omitempty"`
+	Pages          int      `json:"pages,omitempty"`
+	Chunks         int      `json:"chunks"`
+	TextBytes      int      `json:"text_bytes"`
+	UnindexedPages []int    `json:"unindexed_pages,omitempty"`
+	// OCRPages are pages whose text came from analysis-phase OCR.
+	OCRPages   []int     `json:"ocr_pages,omitempty"`
+	IndexBytes int64     `json:"index_bytes"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	LastUsedAt time.Time `json:"last_used_at"`
 }
 
 // Anchor locates a chunk in the source document with the existing citation
@@ -70,12 +72,14 @@ type Chunk struct {
 }
 
 // OutlineNode is one heading of the document structure. Chunks
-// [ChunkStart, ChunkEnd) belong to the node and its descendants.
+// [ChunkStart, ChunkEnd) and pages [Page, PageEnd] belong to the node and
+// its descendants.
 type OutlineNode struct {
 	ID         string `json:"id"`
 	Title      string `json:"title"`
 	Level      int    `json:"level"`
 	Page       int    `json:"page,omitempty"`
+	PageEnd    int    `json:"page_end,omitempty"`
 	ChunkStart int    `json:"chunk_start"`
 	ChunkEnd   int    `json:"chunk_end"`
 }
@@ -83,25 +87,25 @@ type OutlineNode struct {
 // Unit is one piece of extracted text in document order: a paragraph, a
 // heading, a table row or a page. HeadingLevel is positive for headings.
 type Unit struct {
-	Text         string
-	Page         int
-	HeadingLevel int
-	Block        string
+	Text         string `json:"text"`
+	Page         int    `json:"page,omitempty"`
+	HeadingLevel int    `json:"heading_level,omitempty"`
+	Block        string `json:"block,omitempty"`
 }
 
 // OutlineEntry is a heading reported by the format itself, such as a PDF
 // bookmark, independent of the text units.
 type OutlineEntry struct {
-	Title string
-	Level int
-	Page  int
+	Title string `json:"title"`
+	Level int    `json:"level"`
+	Page  int    `json:"page"`
 }
 
 // SourceInfo is what an extractor knows about the whole document.
 type SourceInfo struct {
-	Pages          int
-	Outline        []OutlineEntry
-	UnindexedPages []int
+	Pages          int            `json:"pages,omitempty"`
+	Outline        []OutlineEntry `json:"outline,omitempty"`
+	UnindexedPages []int          `json:"unindexed_pages,omitempty"`
 }
 
 // Extractor streams the text units of one document in order. Implementations

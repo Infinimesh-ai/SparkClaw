@@ -955,6 +955,21 @@ func sliceDocumentSearchEvidence(output map[string]any, maxBytes int) string {
 		}
 		out.WriteString(line)
 	}
+	for _, raw := range anySlice(output["sections"]) {
+		section, ok := anyMap(raw)
+		if !ok {
+			continue
+		}
+		line := fmt.Sprintf("- section %s pages=%d-%d title=%s\n", stringValue(section["id"]),
+			intLikeValue(section["page"]), intLikeValue(section["page_end"]), stringValue(section["title"]))
+		if out.Len()+len(line) > maxBytes {
+			break
+		}
+		out.WriteString(line)
+	}
+	if pages := anySlice(output["unrecognized_pages"]); len(pages) > 0 {
+		fmt.Fprintf(&out, "scanned pages without text yet: %d (read a section or page range to recognize them)\n", len(pages))
+	}
 	return boundedUTF8Prefix([]byte(out.String()), maxBytes)
 }
 

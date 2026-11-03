@@ -124,6 +124,19 @@ func (a *assembler) finish(info SourceInfo) ([]Chunk, []OutlineNode) {
 		a.nodes, a.chunks = pageOutline(info.Outline, a.chunks)
 	}
 	for index := range a.nodes {
+		if a.nodes[index].Page <= 0 {
+			continue
+		}
+		end := info.Pages
+		for next := index + 1; next < len(a.nodes); next++ {
+			if a.nodes[next].Level <= a.nodes[index].Level {
+				end = a.nodes[next].Page - 1
+				break
+			}
+		}
+		a.nodes[index].PageEnd = max(end, a.nodes[index].Page)
+	}
+	for index := range a.nodes {
 		end := len(a.chunks)
 		for next := index + 1; next < len(a.nodes); next++ {
 			if a.nodes[next].Level <= a.nodes[index].Level {

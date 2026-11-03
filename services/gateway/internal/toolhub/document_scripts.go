@@ -41,3 +41,11 @@ var pdfAdapterScript string
 
 //go:embed scripts/browser_readability.js
 var browserReadabilityAdapterScript string
+
+// Index extractors read text only, in bounded batches, for docindex.
+
+//go:embed scripts/pdf_index.py
+var pdfIndexAdapterScript string
+
+//go:embed scripts/docx_index.py
+var docxIndexAdapterScript string

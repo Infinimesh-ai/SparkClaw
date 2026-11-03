@@ -10,9 +10,11 @@ let raw = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", chunk => raw += chunk);
 process.stdin.on("end", async () => {
+  // Read outside the try block: the deferral path in catch reports it.
+  let maxBytes = 20000;
   try {
     const req = JSON.parse(raw);
-    const maxBytes = Number(req.max_bytes || 20000);
+    maxBytes = Number(req.max_bytes || 20000);
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(req.path);
     const sheets = [];

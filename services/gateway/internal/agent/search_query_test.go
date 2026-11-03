@@ -32,6 +32,24 @@ func TestCanonicalizeWebSearchQueryKeepsRequestedTimeScope(t *testing.T) {
 		{"现在1999元能买什么手机", "现在1999元能买什么手机 " + date},
 		{"这是不是最新版本", "这是不是最新版本 " + date},
 		{"2026年最新的个税政策", "2026年最新的个税政策 " + date},
+		// Product model numbers and decimal amounts are not years or dates.
+		{"What is the current price of RTX 4090?", "What is the current price of RTX 4090? " + date},
+		{"现在 RTX 5090 的价格", "现在 RTX 5090 的价格 " + date},
+		{"GTX 1080 current price", "GTX 1080 current price " + date},
+		{"现在1999.99元能买什么手机", "现在1999.99元能买什么手机 " + date},
+		{"Current price of gold vs. 1980", "Current price of gold vs. 1980"},
+		{"查一下2026.01.15发布的最新政策", "查一下2026.01.15发布的最新政策"},
+		// Non-temporal senses: nearest place, electric current, moving over somewhere.
+		{"附近最近的药店在哪", "附近最近的药店在哪"},
+		{"离我最近的地铁站", "离我最近的地铁站"},
+		{"最近的新闻有哪些", "最近的新闻有哪些 " + date},
+		{"What is alternating current?", "What is alternating current?"},
+		{"What is the current electric current standard?", "What is the current electric current standard? " + date},
+		{"现在从这里走过去要多久", "现在从这里走过去要多久 " + date},
+		{"现在的物价和过去相比", "现在的物价和过去相比"},
+		// Full-width digits are read like ASCII digits.
+		{"今天的金价 ２０２５年对比", "今天的金价 ２０２５年对比"},
+		{"最新政策 ２０２６年", "最新政策 ２０２６年 " + date},
 	} {
 		if got := canonicalizeWebSearchQuery(test.query, date); got != test.want {
 			t.Errorf("canonicalizeWebSearchQuery(%q) = %q, want %q", test.query, got, test.want)

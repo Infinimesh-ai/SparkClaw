@@ -72,7 +72,10 @@ public search. This does not give the conversation workflow a tool fallback.
 Search queries never acquire synthetic “latest/current” terms from topic words.
 Current-time wording can anchor the client date; explicit dates (including earlier
 months of the same year), other calendar years and historical/negated wording keep
-the owner's time scope. The frozen query is passed to Info without a model rewrite.
+the owner's time scope. Decimal amounts, product or standard numbers such as
+RTX 4090 or ISO 9001, full-width digits, “最近” meaning nearest, “过去” after a
+motion verb, and electrical “current” are not read as time scope. The frozen query
+is passed to Info without a model rewrite.
 
 `TestCanonicalizeWebSearchQueryKeepsRequestedTimeScope` covers query normalization.
 `TestBrowserSearchWorkflowUsesCanonicalQueryInsteadOfModelRewrite` checks the

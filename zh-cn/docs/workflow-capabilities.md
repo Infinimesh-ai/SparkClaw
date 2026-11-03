@@ -52,7 +52,9 @@
 
 查询词不会因为话题词而被补上“最新／当前”。当下时间词可以用客户端日期作锚点；明确
 日期（包括同年较早月份）、其他年份和历史／否定措辞保留 owner 的时间范围。冻结后的
-查询原样传给 Info，模型不能再次改写。
+查询原样传给 Info，模型不能再次改写。小数金额、RTX 4090、ISO 9001 这类型号或标准
+编号、全角数字、表示距离的“最近”、动词后的“过去”以及电学意义的 current 都不算时间
+范围。
 
 `TestCanonicalizeWebSearchQueryKeepsRequestedTimeScope` 覆盖查询规范化。
 `TestBrowserSearchWorkflowUsesCanonicalQueryInsteadOfModelRewrite` 检查持久化路由、

@@ -249,6 +249,16 @@ func (r Router) countTextTokens(ctx context.Context, profile config.ModelProfile
 	return r.tokenize(ctx, profile, map[string]any{"model": modelID(profile), "prompt": input})
 }
 
+// tokenizerEndpoint maps an OpenAI-compatible base URL to the vLLM tokenizer.
+// vLLM serves /tokenize at the server root rather than under /v1, so a
+// trailing /v1 segment is removed; the hosted /fast/v1 route answers /v1/tokenize
+// with 404 but /fast/tokenize with the count.
+func tokenizerEndpoint(baseURL string) string {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	base = strings.TrimSuffix(base, "/v1")
+	return base + "/tokenize"
+}
+
 func (r Router) tokenize(ctx context.Context, profile config.ModelProfile, body map[string]any) (int, error) {
 	if strings.TrimSpace(profile.BaseURL) == "" {
 		return 0, errors.New("tokenizer endpoint is unavailable")
@@ -257,7 +267,7 @@ func (r Router) tokenize(ctx context.Context, profile config.ModelProfile, body 
 	if err != nil {
 		return 0, err
 	}
-	endpoint := strings.TrimRight(profile.BaseURL, "/") + "/tokenize"
+	endpoint := tokenizerEndpoint(profile.BaseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
 	if err != nil {
 		return 0, err

@@ -895,3 +895,46 @@ func TestRouterSendsConfiguredAPIKeyAsBearer(t *testing.T) {
 		}
 	}
 }
+
+func TestTokenizerEndpointUsesTheServerRootUnderAVersionedBase(t *testing.T) {
+	for base, want := range map[string]string{
+		"http://sparkclaw-fast:8001/v1":               "http://sparkclaw-fast:8001/tokenize",
+		"https://sparkclaw.infinimesh.cloud/fast/v1/": "https://sparkclaw.infinimesh.cloud/fast/tokenize",
+		"http://127.0.0.1:8001":                       "http://127.0.0.1:8001/tokenize",
+		"https://models.example.com/proxy/v1beta/v1":  "https://models.example.com/proxy/v1beta/tokenize",
+	} {
+		if got := tokenizerEndpoint(base); got != want {
+			t.Errorf("tokenizerEndpoint(%q) = %q, want %q", base, got, want)
+		}
+	}
+}
+
+func TestChatAdmissionCountsAVersionedBaseAtTheTokenizerRoot(t *testing.T) {
+	tokenizePaths := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/tokenize":
+			tokenizePaths = append(tokenizePaths, r.URL.Path)
+			_ = json.NewEncoder(w).Encode(map[string]any{"count": 40})
+		case "/v1/chat/completions":
+			_ = json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{"message": map[string]string{"content": "ok"}, "finish_reason": "stop"}}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cfg := configtest.MustLoadDefault()
+	cfg.Model.Mock = false
+	cfg.Model.Fast.BaseURL = server.URL + "/v1"
+	cfg.Model.Fast.ContextTokens = 100
+	cfg.Model.Fast.OutputBudgets[modelcapacity.OutputAnswer] = 20
+	router := New(cfg)
+
+	if _, err := router.Chat(t.Context(), Task{Operation: modelcapacity.OperationConversationAnswer, Risk: app.RiskRead}, "system", strings.Repeat("x", 200)); err != nil {
+		t.Fatalf("prompt that fits by exact count was rejected: %v", err)
+	}
+	if len(tokenizePaths) == 0 {
+		t.Fatal("over-bound prompt was not counted with the tokenizer")
+	}
+}

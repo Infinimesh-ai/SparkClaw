@@ -938,10 +938,12 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 		"Answer the user's actual request in the same language and do not add unsupported facts.",
 		"When document evidence says read_complete=false, explicitly state the limitation and missing page indexes, summarize only covered pages, and never describe the answer as a complete-PDF summary.",
 		"When evidence says claim_coverage is not complete or limitation_required=true, explicitly state that only the projected content was checked and do not make whole-document or absence claims.",
-		"When document evidence comes from retrieved passages of a large document, answer from those passages, cite their page numbers or section headings, and say the answer is based on the retrieved sections.",
 		"When schedule evidence includes schedule_client_display, display its due_time and timezone instead of the stored schedule timezone.",
 		finalAnswerLanguageInstruction(originalGoal),
 	}, "\n")
+	if workflowCallsRetrievedPassages(calls) {
+		system += "\nThe document evidence is retrieved passages of a document too large to read whole: answer from those passages, cite their page numbers or section headings, and say the answer is based on the retrieved sections."
+	}
 	inputs, evidenceErr := r.workflowFinalEvidenceInputs(ctx, run, calls)
 	if evidenceErr != nil {
 		return modelrouter.ChatResult{}, "", evidenceErr
@@ -1003,6 +1005,15 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 }
 
 const defaultWorkflowFinalEvidenceMaxBytes = 8000
+
+func workflowCallsRetrievedPassages(calls []app.ToolCall) bool {
+	for _, call := range calls {
+		if toolCallCompleted(call) && call.Capability == app.ToolCapabilityDocumentReadRange {
+			return true
+		}
+	}
+	return false
+}
 
 // workflowFinalEvidenceInputs holds completed calls whose document reads are
 // replaced by their full archived outputs, ready for budgeted projection.

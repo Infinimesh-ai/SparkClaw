@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/delivery"
@@ -133,7 +132,7 @@ func (r Runtime) resumeMatchedWorkflow(ctx context.Context, run app.AgentRun, co
 	}
 	currentToolCalls := toolCallsForRun(storedToolCalls, run.ID)
 	if workflowExecution.FailureCode != "" {
-		run.Summary = publicWorkflowFailureMessage(workflowExecution.FailureCode)
+		run.Summary = ownerWorkflowFailureMessage(workflowExecution.FailureCode, run, content)
 
 	} else {
 		run.Summary = summarizeRun(workflowExecution.Chat, workflowObservationTexts(workflowExecution.Observations), workflowExecution.Approvals)
@@ -263,40 +262,9 @@ func (r Runtime) completeTerminalRoute(ctx context.Context, run app.AgentRun, go
 	run.State = "blocked"
 	if route.Status == app.RouteClarify {
 		run.State = "clarification_required"
-		run.Summary = "I need more information before I can select a registered capability."
-	} else {
-		run.Summary = "Blocked: the request cannot be routed under the current capability boundary."
 	}
-	ownerMessage := false
-	chinese := strings.IndexFunc(goal, func(r rune) bool { return unicode.Is(unicode.Han, r) }) >= 0
-	switch route.Reason {
-	case "conversation_file_unavailable":
-		ownerMessage = true
-		if chinese {
-			run.Summary = "之前的会话文件暂不可用，请重新附加文件后再试。"
-		} else {
-			run.Summary = "The previous conversation file is unavailable. Please attach it again and retry."
-		}
-	case "semantic_coverage_low":
-		ownerMessage = true
-		timer := run.MessageContext != nil && run.MessageContext.Source.Kind == app.MessageSourceTimer
-		if timer && chinese {
-			run.Summary = "这条定时任务的内容无法确定如何执行，请修改任务后再试。"
-		} else if timer {
-			run.Summary = "The scheduled request could not be understood. Please revise the schedule."
-		} else if chinese {
-			run.Summary = "我不确定你希望如何处理，请再说明一下你的需求。"
-		} else {
-			run.Summary = "I am not sure how you would like me to proceed. Please clarify your request."
-		}
-	}
-	if message, ok := routingOwnerMessage(route.Reason, chinese, run.MessageContext != nil && run.MessageContext.Source.Kind == app.MessageSourceTimer); ok {
-		run.Summary = message
-		ownerMessage = true
-	}
-	if !ownerMessage && strings.TrimSpace(route.Reason) != "" {
-		run.Summary += " " + strings.TrimSpace(route.Reason)
-	}
+	timer := run.MessageContext != nil && run.MessageContext.Source.Kind == app.MessageSourceTimer
+	run.Summary = routingFailure(route).text(chineseRequest(goal), timer)
 	proposal, _ := ctx.Value(clarificationProposalKey{}).(*clarificationProposal)
 	if proposal != nil {
 		run.Summary = proposal.Text

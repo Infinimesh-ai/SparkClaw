@@ -214,7 +214,7 @@ func (r Runtime) routeFromFusionDecision(ctx context.Context, content string, gr
 				if errors.Is(err, toolhub.ErrConversationFileUnavailable) {
 					base.Reason = "conversation_file_unavailable"
 				} else {
-					base.Reason = "document_preflight_failed: " + err.Error()
+					base.Reason = documentPreflightReason(err)
 				}
 				return base, nil
 			}

@@ -159,7 +159,7 @@ func (r Runtime) routeIntentWithHistory(ctx context.Context, sessionID, runID, o
 	expectedEndpoint := ""
 	if delivery.ExplicitExternal {
 		if expectedEndpoint, err = r.deliveryEndpoint(ctx, run, delivery); err != nil {
-			return r.terminalRouting(app.RouteClarify, "delivery_confirmation_required"), nil
+			return r.terminalRouting(deliveryEndpointRouting(err)), nil
 		}
 	}
 	if selected != nil && selected.endpoint != "" && selected.endpoint != expectedEndpoint {

@@ -165,14 +165,14 @@ func messageControlTerminalRoute(selection DeliveryTargetSelection, catalogRevis
 	reason := ""
 	switch selection.Status {
 	case TargetNeedsChannel:
-		reason = "External delivery requires an explicit software or channel."
+		reason = "delivery_channel_required: external delivery requires an explicit software or channel"
 	case TargetNeedsRecipient:
-		reason = "External delivery requires one exact recipient endpoint."
+		reason = "delivery_recipient_required: external delivery requires one exact recipient endpoint"
 	case TargetAmbiguous:
-		reason = "External delivery recipient is ambiguous; choose one exact account or chat."
+		reason = "delivery_recipient_ambiguous: external delivery recipient matches more than one account or chat"
 	case TargetUnavailable:
 		status = app.RouteBlocked
-		reason = "The requested external delivery endpoint is unavailable."
+		reason = "delivery_endpoint_unavailable: the requested external delivery endpoint is unavailable"
 	default:
 		return app.RouteDecision{}, false
 	}

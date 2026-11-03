@@ -399,7 +399,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		run.MessageContext.IntentFusion = routing.Fusion
 	}
 	if routingErr != nil {
-		route := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: routingErr.Error()}
+		route := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: "routing_failed: " + routingErr.Error()}
 		run.MessageContext.Route = route
 		if run, err = r.saveRun(ctx, run); err != nil {
 			return Result{}, fmt.Errorf("persist routing failure: %w", err)
@@ -423,7 +423,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	}
 	deliverySelection, returnRoute, controlErr := r.resolveMessageControl(ctx, sessionID, routing.Delivery, envelope)
 	if controlErr != nil {
-		blocked := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: controlErr.Error()}
+		blocked := app.RouteDecision{SchemaVersion: app.RouteDecisionSchemaVersion, Status: app.RouteBlocked, CatalogRevision: r.capabilities.Revision(), Reason: "delivery_target_resolution_failed: " + controlErr.Error()}
 		run.MessageContext.Route = blocked
 		if run, err = r.saveRun(ctx, run); err != nil {
 			return Result{}, fmt.Errorf("persist message control failure: %w", err)
@@ -472,7 +472,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		admitted, admissionErr := r.admitEmailRoute(ctx, run.SessionID, run.ID, envelope.OwnerID, agentContent, route)
 		if admissionErr != nil {
 			route.Status = app.RouteBlocked
-			route.Reason = admissionErr.Error()
+			route.Reason = emailAdmissionReason(admissionErr)
 		} else {
 			route = admitted
 		}

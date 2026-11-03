@@ -20,21 +20,42 @@ type documentPreflight struct {
 	Format    string
 }
 
+// documentPreflightError keeps the original diagnostic text while carrying the
+// stable route reason the owner message is selected by.
+type documentPreflightError struct {
+	reason  string
+	message string
+}
+
+func (e *documentPreflightError) Error() string { return e.message }
+
+func documentPreflightFailure(reason, message string) error {
+	return &documentPreflightError{reason: reason, message: message}
+}
+
+func documentPreflightReason(err error) string {
+	var failure *documentPreflightError
+	if errors.As(err, &failure) {
+		return failure.reason + ": " + failure.message
+	}
+	return "document_preflight_failed: " + err.Error()
+}
+
 func preflightExternalMCPDocumentPath(requestedPath string, edit bool) (documentPreflight, error) {
 	requestedPath = strings.TrimSpace(strings.ReplaceAll(requestedPath, "\\", "/"))
 	if requestedPath == "" || strings.ContainsRune(requestedPath, 0) || strings.Contains(requestedPath, "://") {
-		return documentPreflight{}, errors.New("document path is invalid")
+		return documentPreflight{}, documentPreflightFailure("document_path_unavailable", "document path is invalid")
 	}
 	cleaned := path.Clean(requestedPath)
 	if strings.HasPrefix(cleaned, "/") || cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return documentPreflight{}, errors.New("document path must be workspace-relative")
+		return documentPreflight{}, documentPreflightFailure("document_path_outside_workspace", "document path must be workspace-relative")
 	}
 	format := documentFormatFromMetadata(path.Base(cleaned), "")
 	if format == "" {
-		return documentPreflight{}, errors.New("document format cannot be determined from the requested path")
+		return documentPreflight{}, documentPreflightFailure("document_format_unrecognized", "document format cannot be determined from the requested path")
 	}
 	if edit && format != app.DocumentFormatText && format != app.DocumentFormatDOCX && format != app.DocumentFormatXLSX && format != app.DocumentFormatPPTX && format != app.DocumentFormatPDF {
-		return documentPreflight{}, fmt.Errorf("document format %q is read-only", format)
+		return documentPreflight{}, documentPreflightFailure("document_format_read_only", fmt.Sprintf("document format %q is read-only", format))
 	}
 	return documentPreflight{InputRef: cleaned, Format: format}, nil
 }
@@ -94,15 +115,15 @@ func attachmentPathsFromRoutingProjection(content string) []string {
 func preflightDocumentPath(workspaceRoot, requestedPath string, edit bool) (documentPreflight, error) {
 	workspaceRoot = strings.TrimSpace(workspaceRoot)
 	if workspaceRoot == "" {
-		return documentPreflight{}, errors.New("workspace root is unavailable")
+		return documentPreflight{}, documentPreflightFailure("document_workspace_unavailable", "workspace root is unavailable")
 	}
 	root, err := filepath.Abs(workspaceRoot)
 	if err != nil {
-		return documentPreflight{}, errors.New("workspace root is invalid")
+		return documentPreflight{}, documentPreflightFailure("document_workspace_unavailable", "workspace root is invalid")
 	}
 	requestedPath = strings.TrimSpace(requestedPath)
 	if requestedPath == "" {
-		return documentPreflight{}, errors.New("document path is required")
+		return documentPreflight{}, documentPreflightFailure("document_path_unavailable", "document path is required")
 	}
 	candidate := filepath.Clean(filepath.FromSlash(requestedPath))
 	if !filepath.IsAbs(candidate) {
@@ -110,46 +131,46 @@ func preflightDocumentPath(workspaceRoot, requestedPath string, edit bool) (docu
 	}
 	candidate, err = filepath.Abs(candidate)
 	if err != nil || candidate == root || !strings.HasPrefix(candidate, root+string(os.PathSeparator)) {
-		return documentPreflight{}, errors.New("document path escapes the workspace")
+		return documentPreflight{}, documentPreflightFailure("document_path_outside_workspace", "document path escapes the workspace")
 	}
 	relativeCandidate, err := filepath.Rel(root, candidate)
 	if err != nil || relativeCandidate == "." || strings.HasPrefix(relativeCandidate, ".."+string(os.PathSeparator)) {
-		return documentPreflight{}, errors.New("document path escapes the workspace")
+		return documentPreflight{}, documentPreflightFailure("document_path_outside_workspace", "document path escapes the workspace")
 	}
 	current := root
 	for _, component := range strings.Split(relativeCandidate, string(os.PathSeparator)) {
 		current = filepath.Join(current, component)
 		componentInfo, componentErr := os.Lstat(current)
 		if componentErr != nil {
-			return documentPreflight{}, errors.New("document path is unavailable")
+			return documentPreflight{}, documentPreflightFailure("document_path_unavailable", "document path is unavailable")
 		}
 		if componentInfo.Mode()&os.ModeSymlink != 0 {
-			return documentPreflight{}, errors.New("document path must not traverse symlinks")
+			return documentPreflight{}, documentPreflightFailure("document_path_outside_workspace", "document path must not traverse symlinks")
 		}
 	}
 	info, err := os.Lstat(candidate)
 	if err != nil {
-		return documentPreflight{}, errors.New("document path is unavailable")
+		return documentPreflight{}, documentPreflightFailure("document_path_unavailable", "document path is unavailable")
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return documentPreflight{}, errors.New("document path must be a regular non-symlink file")
+		return documentPreflight{}, documentPreflightFailure("document_path_outside_workspace", "document path must be a regular non-symlink file")
 	}
 	format, err := document.DetectFormat(candidate)
 	if err != nil {
-		return documentPreflight{}, err
+		return documentPreflight{}, documentPreflightFailure("document_format_unrecognized", err.Error())
 	}
 	relative, err := filepath.Rel(root, candidate)
 	if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
-		return documentPreflight{}, errors.New("document path escapes the workspace")
+		return documentPreflight{}, documentPreflightFailure("document_path_outside_workspace", "document path escapes the workspace")
 	}
 	result := documentPreflight{InputRef: filepath.ToSlash(relative), Format: format}
 	if edit {
 		if format != app.DocumentFormatText && format != app.DocumentFormatDOCX && format != app.DocumentFormatXLSX && format != app.DocumentFormatPPTX && format != app.DocumentFormatPDF {
-			return documentPreflight{}, fmt.Errorf("document format %q is read-only", format)
+			return documentPreflight{}, documentPreflightFailure("document_format_read_only", fmt.Sprintf("document format %q is read-only", format))
 		}
 		result.OutputRef, err = nextDocumentOutputRef(root, relative)
 		if err != nil {
-			return documentPreflight{}, errors.New("document output path is unavailable")
+			return documentPreflight{}, documentPreflightFailure("document_workspace_unavailable", "document output path is unavailable")
 		}
 	}
 	return result, nil

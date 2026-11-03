@@ -32,12 +32,34 @@ func (r Runtime) deliveryEndpoint(ctx context.Context, run app.AgentRun, deliver
 	envelope := app.MessageEnvelope{OwnerID: m.OwnerID, ActorID: m.Authorization.PrincipalID, Authorization: m.Authorization, Source: m.Source, ReturnRoute: m.ReturnRoute}
 	selection, route, err := r.resolveMessageControl(ctx, run.SessionID, delivery, envelope)
 	if err != nil {
-		return "", err
+		return "", deliveryEndpointError{status: app.RouteBlocked, reason: "delivery_target_resolution_failed: " + err.Error()}
 	}
 	if selection.Status != TargetResolved || route.Mode != app.ReturnToEndpoint || route.EndpointID == "" {
-		return "", clarification.ErrInvalid
+		if terminal, ok := messageControlTerminalRoute(selection, ""); ok {
+			return "", deliveryEndpointError{status: terminal.Status, reason: terminal.Reason}
+		}
+		return "", deliveryEndpointError{status: app.RouteClarify, reason: "delivery_confirmation_required"}
 	}
 	return string(route.EndpointID), nil
+}
+
+// deliveryEndpointError names why an explicit external send has no exact
+// endpoint (no channel, no recipient, several recipients, endpoint or resolver
+// unavailable), so the owner is not asked to restate what they already said.
+type deliveryEndpointError struct {
+	status app.RouteStatus
+	reason string
+}
+
+func (e deliveryEndpointError) Error() string { return e.reason }
+func (e deliveryEndpointError) Unwrap() error { return clarification.ErrInvalid }
+
+func deliveryEndpointRouting(err error) (app.RouteStatus, string) {
+	var endpointErr deliveryEndpointError
+	if errors.As(err, &endpointErr) {
+		return endpointErr.status, endpointErr.reason
+	}
+	return app.RouteClarify, "delivery_confirmation_required"
 }
 func splitDeliveryDirective(split requestSplit) (DeliveryDirective, error) {
 	if split.DeliveryMode != "explicit_external" {

@@ -10,16 +10,39 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
+var (
+	errEmailOperationUnsupported = errors.New("Unsupported email operation")
+	errEmailAdmissionUnavailable = errors.New("Browser email is not configured")
+)
+
+// emailAdmissionReason keeps the admission diagnostic after a stable reason
+// code, so the owner message distinguishes an unsupported operation from a
+// mailbox that needs sign-in or one that is temporarily unreachable.
+func emailAdmissionReason(err error) string {
+	code := "email_admission_unavailable"
+	var coded interface{ ToolErrorCode() app.ToolErrorCode }
+	switch {
+	case errors.Is(err, errEmailOperationUnsupported):
+		code = "email_operation_unsupported"
+	case errors.Is(err, errEmailAdmissionUnavailable):
+		// Text-only execution scopes withdraw email admission entirely.
+		code = "email_unsupported_here"
+	case errors.As(err, &coded) && strings.TrimSpace(string(coded.ToolErrorCode())) != "":
+		code = string(coded.ToolErrorCode())
+	}
+	return code + ": " + err.Error()
+}
+
 func routeTargetsCapability(route app.RouteDecision, capability app.CapabilityID) bool {
 	return len(route.CapabilityPath) > 0 && route.CapabilityPath[len(route.CapabilityPath)-1] == capability
 }
 
 func (r Runtime) admitEmailRoute(ctx context.Context, sessionID, runID, ownerID, request string, route app.RouteDecision) (app.RouteDecision, error) {
 	if route.Slots.Operation != app.RouteOperationSend && route.Slots.Operation != app.RouteOperationRead {
-		return app.RouteDecision{}, errors.New("Unsupported email operation")
+		return app.RouteDecision{}, errEmailOperationUnsupported
 	}
 	if r.emailAdmission == nil {
-		return app.RouteDecision{}, errors.New("Browser email is not configured")
+		return app.RouteDecision{}, errEmailAdmissionUnavailable
 	}
 	binding, err := r.emailAdmission.Admit(ctx, strings.TrimSpace(ownerID), request)
 	if err != nil {

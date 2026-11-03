@@ -97,8 +97,31 @@ lane 取实际发起模型调用的那条：文档 Workflow 用 Fast，其他 Wo
 - **阶段供给**本来就经过 ContextBuilder admission，会先把供给证据从 full 降到 compact
   （一半）再到 minimal（四分之一），仍装不下才拒绝。
 
-文档大于最终化预算时沿用现有行为：只投影开头部分，标记
-`model_evidence_truncated=true` / `limitation_required=true`，回答会说明只检查了部分内容。
+文档大于最终化预算时，最终化不再只取开头，而是在整篇文档上取均匀分布的窗口：最多 64 个、
+每个至少 2 KB，从空行（段落或 PDF 分页）边界开始，最后一个窗口结束于文档末尾，每段省略的
+内容都标注字节数。标头带有 `model_evidence_truncated=true`、
+`model_evidence_sampling=evenly_spaced_windows` 和 `limitation_required=true`，回答会说明
+只检查了部分内容。
+
+### 3.2.1 每 token 字节数实测（2026-11-03）
+
+使用托管 Fast tokenizer（`Qwen/Qwen3.6-35B-A3B-FP8`，与 dual-light 模型同属 Qwen3.6
+系列）实测：
+
+| 样本 | 每 token 字节数 | 每 token 字符数 |
+|---|---|---|
+| 中文实验报告（DOCX 正文） | 4.77 | 1.97 |
+| 中文设计文档 | 3.63 | 1.93 |
+| 英文设计文档 | 3.94 | 3.92 |
+| 数字表格（8 列小数） | 1.00 | 1.00 |
+| 含数字的商品编码 | 1.13 | 1.13 |
+
+每 token 3 字节对正文是安全的。数字按每字节一个 token 切分，所以数字表格按推导预算渲染时，
+实际 token 数是估算的三倍；这种情况下 tokenizer 校验收缩两次渲染即可收敛。
+
+实测还发现一个缺陷：admission 把精确计数请求发到 `<base>/v1/tokenize`，而 vLLM 在服务
+根路径提供 `/tokenize`，因此任何字节长度超过输入预算的提示词都会以"模型不可用"失败。
+router 现在会先去掉末尾的 `/v1` 再拼接 `/tokenize`（commit `815f2ed6`）。
 
 ### 3.3 运维上限
 
@@ -266,7 +289,7 @@ revision 4 Plan 恢复时保持原样。
 | 阶段 | 内容 | 验收 |
 |---|---|---|
 | A（源码已完成） | 按上下文推导预算、tokenizer 校验收缩、产品 env 设为 `0` | 公式、上限、重渲染与 fail closed 路径的单测；能装入 32K 窗口的文档完整进入最终化；抽取上限跟随最终化模型 |
-| A2 | 在产品与 dual-light 模型上实测中文正文、英文正文和数字表格的真实 tokenizer 每 token 字节数；把最终化的"只保留开头"改为按章节取样 | 记录实测比例；被截断的总结覆盖每一章，而不只是开头 |
+| A2（源码已完成） | 真实 tokenizer 每 token 字节数（§3.2.1）；修复 tokenizer 地址；最终化用均匀分布窗口代替只取开头 | 记录实测比例；被截断的 40 章样例从第一章到最后一章都有窗口 |
 | B1 | 索引、后台导入预建、分析阶段现场构建或等待、outline/search/read_range、revision 5 路由、`files.read` 指针，覆盖文字层 PDF、DOCX 和文本 | 300 页文字层 PDF 与 1 MB DOCX 在 dual-light 和产品 profile 上回答定位类问题，页码引用正确；索引就绪时不出现任何可见进度；索引仍在构建时只显示本次运行的进度行 |
 | B2 | 扫描版 PDF 的分析阶段 OCR | 《计算机网络》（工作区文件）章节问题只 OCR 目录选中的页，重复提问复用结果；不超过 25 MiB 的扫描版 PDF 可以整篇总结 |
 | B3 | XLSX/PPTX 结构与章节 map-reduce | 整书总结说明覆盖范围 |

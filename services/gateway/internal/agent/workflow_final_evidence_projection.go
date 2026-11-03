@@ -72,8 +72,8 @@ func buildWorkflowFinalEvidenceProjection(
 			format = firstNonEmptyString(document["format"], format)
 		}
 		sourceComplete := fileReadComplete(result)
-		projected := boundedUTF8Prefix([]byte(text), remaining)
-		modelTruncated := len([]byte(text)) > len([]byte(projected))
+		projected := sampledDocumentEvidence(text, remaining)
+		modelTruncated := projected != text
 		remaining -= len([]byte(projected))
 		limitationRequired := !sourceComplete || modelTruncated
 		if !sourceComplete {
@@ -93,6 +93,9 @@ func buildWorkflowFinalEvidenceProjection(
 		}
 		header += " source_truncated=" + strconv.FormatBool(boolLikeValue(result["truncated"]))
 		header += " model_evidence_truncated=" + strconv.FormatBool(modelTruncated)
+		if modelTruncated {
+			header += " model_evidence_sampling=evenly_spaced_windows"
+		}
 		header += " claim_coverage=" + map[bool]string{true: workflowCoveragePartial, false: workflowCoverageComplete}[limitationRequired]
 		header += " limitation_required=" + strconv.FormatBool(limitationRequired)
 		if coverage := projectDocumentReadCoverage(call, result); coverage.Applies {

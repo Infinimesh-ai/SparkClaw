@@ -118,10 +118,37 @@ token per byte. Each consumer therefore confirms the rendered prompt:
   degrades provisioned evidence from full to compact (half) to minimal
   (quarter) before refusing.
 
-When a document is larger than the final budget, the finalizer keeps the
-existing behavior: it projects the leading part, marks
-`model_evidence_truncated=true` / `limitation_required=true`, and the answer
-states that only part of the document was checked.
+When a document is larger than the final budget, the finalizer projects
+evenly spaced windows across the whole document instead of only its opening:
+at most 64 windows of at least 2 KB, starting at blank-line (paragraph or PDF
+page) boundaries, with the last window ending at the document's end and each
+omitted span marked with its byte count. The header carries
+`model_evidence_truncated=true`, `model_evidence_sampling=evenly_spaced_windows`
+and `limitation_required=true`, and the answer states that only part of the
+document was checked.
+
+### 3.2.1 Measured bytes per token (2026-11-03)
+
+Measured against the hosted Fast tokenizer (`Qwen/Qwen3.6-35B-A3B-FP8`, the
+same Qwen3.6 family as the dual-light models):
+
+| Sample | Bytes per token | Runes per token |
+|---|---|---|
+| Chinese lab report (DOCX text) | 4.77 | 1.97 |
+| Chinese design document | 3.63 | 1.93 |
+| English design document | 3.94 | 3.92 |
+| Numeric sheet (8 decimal columns) | 1.00 | 1.00 |
+| Product codes with digits | 1.13 | 1.13 |
+
+Three bytes per token is safe for prose. Digits tokenize one per byte, so a
+numeric sheet at the derived budget costs three times its estimate. The
+tokenizer fit converges in two renders in that case.
+
+The measurement also exposed a defect: admission posted exact counts to
+`<base>/v1/tokenize`, but vLLM serves `/tokenize` at the server root, so every
+prompt whose byte length exceeded its input budget failed as "model
+unavailable". The router now strips a trailing `/v1` before `/tokenize`
+(commit `815f2ed6`).
 
 ### 3.3 Operator ceiling
 
@@ -326,7 +353,7 @@ existing wire values.
 | Phase | Content | Acceptance |
 |---|---|---|
 | A (done in source) | Context-derived budgets, tokenizer fit, product env `0` | Unit tests for the formula, ceiling, refit and fail-closed paths; a document that fits the 32K window reaches the finalizer whole; extraction follows the finalizer |
-| A2 | Measure real-tokenizer bytes per token for Chinese prose, English prose and numeric sheets on the product and dual-light models; replace head-only truncation in finalization with per-section sampling | Measured ratios recorded; a truncated summary covers every chapter instead of only the opening |
+| A2 (done in source) | Real-tokenizer bytes per token (section 3.2.1); tokenizer endpoint fix; evenly spaced finalizer windows instead of head-only truncation | Ratios recorded; a truncated 40-chapter fixture yields windows from the first to the last chapter |
 | B1 | Index, background import pre-build, analysis-phase build or wait, outline/search/read_range, revision 5 routing, `files.read` pointer, for text-layer PDF, DOCX and text | A 300-page text-layer PDF and a 1 MB DOCX answer located questions with correct page citations on dual-light and product profiles; a ready index adds no visible progress; an index still building shows only the run's progress line |
 | B2 | Analysis-phase OCR for scanned PDFs | *计算机网络* (workspace file) chapter questions OCR only outline-selected pages and reuse them on repeat; a scanned PDF of at most 25 MiB can be summarized whole |
 | B3 | XLSX/PPTX structure and chapter map-reduce | A whole-book summary states its coverage |

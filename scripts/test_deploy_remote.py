@@ -150,7 +150,7 @@ class DeployRemoteTest(unittest.TestCase):
 
         self.assertEqual(values["SPARKCLAW_MODEL_DISABLE_THINKING"], "true")
         self.assertEqual(values["SPARKCLAW_MODEL_CAPACITY_PROFILE"], "sparkclaw-product-v1")
-        self.assertEqual(values["SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES"], "200000")
+        self.assertEqual(values["SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES"], "0")
         self.assertEqual(values["SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES"], "72000")
         self.assertEqual(values["SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES"], "96000")
         self.assertEqual(values["SPARKCLAW_SPEECH_BASE_URL"], "https://sparkclaw.infinimesh.cloud/asr")

@@ -54,10 +54,7 @@ func (h *ToolHub) filesRead(ctx context.Context, args map[string]any, sessionID,
 	if err != nil {
 		return Result{}, err
 	}
-	maxBytes := intArg(args, "max_bytes", document.SmallExtractedMaxBytes)
-	if maxBytes <= 0 || maxBytes > document.SmallExtractedMaxBytes {
-		maxBytes = document.SmallExtractedMaxBytes
-	}
+	maxBytes := h.documentReadMaxBytes(args)
 	read, err := h.readDocumentWorkflow(withDocumentOCRExecution(ctx, sessionID, runID), path, maxBytes, document.EnrichmentOptions{
 		ImageAnalysis: stringArg(args, "image_analysis", "targeted"),
 		TargetPaths:   outputStringArray(args["image_target_paths"]),

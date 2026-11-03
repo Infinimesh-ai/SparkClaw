@@ -230,7 +230,7 @@ func normalizeRuntimeLimits(rt *RuntimeConfig) error {
 	if rt.ObservationSummaryMaxBytes <= 0 {
 		rt.ObservationSummaryMaxBytes = defaults.ObservationSummaryMaxBytes
 	}
-	if rt.StageEvidenceMaxBytes <= 0 {
+	if rt.StageEvidenceMaxBytes < 0 {
 		rt.StageEvidenceMaxBytes = defaults.StageEvidenceMaxBytes
 	}
 	if rt.StageMaxDurationSeconds <= 0 {

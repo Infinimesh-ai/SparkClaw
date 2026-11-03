@@ -30,7 +30,7 @@ func TestWorkflowEvidenceProvisioningReadsPersistedNodeOutput(t *testing.T) {
 			"source": {Status: app.WorkflowNodeSucceeded, ToolCallIDs: []string{call.ID}},
 		},
 	}
-	provisioned, err := runtime.provisionWorkflowEvidence(context.Background(), run, []workflowEvidenceRequirement{{
+	provisioned, err := runtime.provisionWorkflowEvidence(context.Background(), run, workflowLaneForRun(run), []workflowEvidenceRequirement{{
 		SourceNodeID: "source", Mode: workflowEvidenceStructured, MaxBytes: 8000,
 	}})
 	if err != nil {
@@ -45,7 +45,7 @@ func TestWorkflowEvidenceProvisioningReadsPersistedNodeOutput(t *testing.T) {
 
 	call.ObservationRef = ""
 	testSaveToolCall(st, call)
-	if _, err := runtime.provisionWorkflowEvidence(context.Background(), run, []workflowEvidenceRequirement{{
+	if _, err := runtime.provisionWorkflowEvidence(context.Background(), run, workflowLaneForRun(run), []workflowEvidenceRequirement{{
 		SourceNodeID: "source", Mode: workflowEvidenceHead, MaxBytes: 1000,
 	}}); err == nil || !strings.Contains(err.Error(), "persisted observation reference") {
 		t.Fatalf("missing required evidence did not fail closed: %v", err)
@@ -64,7 +64,7 @@ func TestWorkflowEvidenceDegradationNeverExpandsSmallSlice(t *testing.T) {
 			"source": {Status: app.WorkflowNodeSucceeded, ToolCallIDs: []string{call.ID}},
 		},
 	}
-	provisioned, err := runtime.provisionWorkflowEvidence(context.Background(), run, []workflowEvidenceRequirement{{
+	provisioned, err := runtime.provisionWorkflowEvidence(context.Background(), run, workflowLaneForRun(run), []workflowEvidenceRequirement{{
 		SourceNodeID: "source", Mode: workflowEvidenceHead, MaxBytes: 300,
 	}})
 	if err != nil {

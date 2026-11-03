@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 )
 
 type provisionedWorkflowEvidence struct {
@@ -30,11 +31,16 @@ type archivedToolObservation struct {
 	Output    json.RawMessage `json:"output"`
 }
 
-func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun, requirements []workflowEvidenceRequirement) (provisionedWorkflowEvidence, error) {
+func (r Runtime) provisionWorkflowEvidence(ctx context.Context, run app.AgentRun, lane string, requirements []workflowEvidenceRequirement) (provisionedWorkflowEvidence, error) {
+	return r.provisionWorkflowEvidenceWithin(ctx, run, r.workflowStageEvidenceLimit(lane), requirements)
+}
+
+// provisionWorkflowEvidenceWithin provisions requirements under one total
+// byte budget.
+func (r Runtime) provisionWorkflowEvidenceWithin(ctx context.Context, run app.AgentRun, stageLimit int, requirements []workflowEvidenceRequirement) (provisionedWorkflowEvidence, error) {
 	if len(requirements) == 0 {
 		return provisionedWorkflowEvidence{}, nil
 	}
-	stageLimit := r.workflowStageEvidenceLimit()
 	remaining := stageLimit
 	messages, err := r.store.ListMessages(ctx, run.SessionID)
 	if err != nil {
@@ -259,12 +265,31 @@ func leastCompleteWorkflowCoverage(left, right string) string {
 	return left
 }
 
-func (r Runtime) workflowStageEvidenceLimit() int {
-	stageLimit := r.tools.Config().Runtime.StageEvidenceMaxBytes
-	if stageLimit <= 0 {
-		return 8000
+// workflowStageEvidenceLimit is the evidence budget provisioned to one step or
+// decision on lane, derived from that lane's model input window.
+func (r Runtime) workflowStageEvidenceLimit(lane string) int {
+	return r.tools.Config().StageEvidenceBytes(r.workflowLaneProfile(lane))
+}
+
+// workflowFinalEvidenceLimit is the completed-evidence budget of a final
+// answer rendered on lane.
+func (r Runtime) workflowFinalEvidenceLimit(lane string) int {
+	return r.tools.Config().FinalEvidenceBytes(r.workflowLaneProfile(lane))
+}
+
+func (r Runtime) workflowLaneProfile(lane string) config.ModelProfile {
+	if profile, err := r.models.Profile(laneForFinalStream(lane)); err == nil {
+		return profile
 	}
-	return stageLimit
+	return r.tools.Config().Model.Fast
+}
+
+// workflowLaneForRun is the lane that owns the run's workflow model calls.
+func workflowLaneForRun(run app.AgentRun) string {
+	if run.Workflow == nil {
+		return workflowExecutionModelLane
+	}
+	return workflowModelLaneForProfile(run.Workflow.Plan.ProfileID)
 }
 
 func sliceWorkflowEvidenceForRun(run app.AgentRun, tool string, output any, mode workflowEvidenceSliceMode, maxBytes int, ownerRequest string) (string, error) {

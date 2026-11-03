@@ -63,8 +63,8 @@ contract describing target kind, change kind, placement, owner-content
 requirements, preservation behavior, and semantic usage boundaries. A single
 candidate is selected deterministically; multiple candidates are resolved by a
 Fast model decision over the owner request, normalized candidates, and
-dependency evidence bounded by
-`workflow_stage_evidence_max_bytes` (8,000 bytes by default). DOCX decisions
+dependency evidence bounded by the Fast lane's stage evidence budget (30% of
+its input window; see [Workflow execution](workflow-execution.md)). DOCX decisions
 prioritize explicit stable locations, paragraph ordinals, quoted text, bounded
 neighbors, story-part samples, and operation context before a deterministic
 head/tail fallback. XLSX uses the same `xlsx_sheet_evidence_v1` projection as
@@ -248,8 +248,8 @@ PDF reads publish `read_complete`, `coverage_status`, `page_status_counts`, and
 sorted `missing_page_indexes`. A read is complete only when every page is
 native or successfully recognized. Partial reads with usable evidence can be
 summarized only with an explicit limitation; unavailable reads block. The
-finalizer receives a coverage manifest separately from its bounded 8000-rune
-content excerpt, so excerpt truncation is not reported as source-page loss and
+finalizer receives a coverage manifest separately from its content excerpt,
+bounded by the context-derived final evidence budget, so excerpt truncation is not reported as source-page loss and
 missing pages are never hidden by the excerpt budget. Runtime separately derives
 finalizer claim coverage: a partial source or truncated finalizer excerpt sets
 `limitation_required=true`, forbids whole-document and absence claims, and is

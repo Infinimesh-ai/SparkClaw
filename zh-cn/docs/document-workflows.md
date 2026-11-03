@@ -49,7 +49,8 @@ confirm_document_target
 它按格式限定的 `document.edit` scope，并把每个 eligible entry 规范化为投影内候选契约；该契约
 描述 target kind、change kind、placement、owner-content requirement、preservation behavior
 和语义使用边界。单候选确定性选中；多候选由 Fast 模型依据 owner 请求、规范化候选以及由
-`workflow_stage_evidence_max_bytes` 限制的依赖证据，默认 8,000 bytes。DOCX decision 会
+Fast lane 阶段证据预算（其输入窗口的 30%，见 [Workflow 执行](workflow-execution.md)）限制的
+依赖证据进行选择。DOCX decision 会
 优先选择显式稳定 location、段落序号、引号文本、有界 neighbor、story-part 样本和
 operation context，再使用确定性 head/tail fallback。XLSX 的 operation 选择与 editor
 参数生成使用同一份 `xlsx_sheet_evidence_v1` 投影。选中的 directory entry、capability、
@@ -190,7 +191,7 @@ operation 需要的 slide/shape anchor、current text、layout 摘要和 coverag
 PDF read 会输出 `read_complete`、`coverage_status`、`page_status_counts` 和排序后的
 `missing_page_indexes`。只有全部页面为 native 或 OCR 成功时读取才完整。有可用证据的
 partial read 只能在明确说明限制后总结；unavailable read 会 block。finalizer 单独接收
-coverage manifest 和有界 8000 rune 正文摘录，因此摘录截断不会被误报为源页面丢失，
+coverage manifest 和受按上下文推导的最终证据预算限制的正文摘录，因此摘录截断不会被误报为源页面丢失，
 缺失页面也不会被摘录预算隐藏。Runtime 还会单独派生 finalizer claim coverage：source partial
 或 finalizer 摘录截断都会设置 `limitation_required=true`，禁止整篇与否定性声明，并通过
 `workflow.evidence_projection.created` 记录 finalizer 实际 payload bytes 和 source lineage。

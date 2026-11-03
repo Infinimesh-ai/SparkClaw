@@ -250,11 +250,10 @@ func Default() Config {
 		},
 		Runtime: RuntimeConfig{
 			ObservationSummaryMaxBytes: 2400,
-			// 8000 fits the local 32K-context profile. The hosted product
-			// profile (docker/env/sparkclaw.product.env) raises it to the
-			// extracted-document contract; defaults_contract_test.go pins
-			// that override so the two cannot drift silently.
-			StageEvidenceMaxBytes:         8000,
+			// Zero derives stage and final evidence budgets from the selected
+			// model capacity (config/context_budget.go); a positive value is
+			// an operator ceiling below that derived budget.
+			StageEvidenceMaxBytes:         0,
 			StageMaxDurationSeconds:       180,
 			StageMaxNoProgressActions:     3,
 			StageMaxObservationReads:      2,

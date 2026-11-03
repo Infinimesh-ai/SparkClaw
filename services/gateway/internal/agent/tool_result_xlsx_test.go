@@ -91,7 +91,7 @@ func TestWorkflowXLSXEvidenceUsesOwnerRequestAndAuditsSelectionCounts(t *testing
 			"source": {Status: app.WorkflowNodeSucceeded, ToolCallIDs: []string{call.ID}},
 		},
 	}
-	provisioned, err := runtime.provisionWorkflowEvidence(context.Background(), run, []workflowEvidenceRequirement{{
+	provisioned, err := runtime.provisionWorkflowEvidence(context.Background(), run, workflowLaneForRun(run), []workflowEvidenceRequirement{{
 		SourceNodeID: "source", Mode: workflowEvidenceStructured, MaxBytes: 8000,
 	}})
 	if err != nil {

@@ -35,7 +35,7 @@ type agentDocumentFormatPolicy struct {
 	RouteOperations         []app.RouteOperation
 	GroundRoute             func(string, app.RouteOperation, map[string]string) agentDocumentRouteGrounding
 	ScopeDirectory          func(app.RouteDecision, []app.ToolDirectoryEntry) []app.ToolDirectoryEntry
-	DecisionEvidence        func(Runtime, context.Context, app.AgentRun, app.WorkflowNode, []app.ToolDirectoryEntry) (string, error)
+	DecisionEvidence        func(Runtime, context.Context, app.AgentRun, app.WorkflowNode, []app.ToolDirectoryEntry, int) (string, error)
 	SliceWorkflowEvidence   func(app.AgentRun, string, any, workflowEvidenceSliceMode, int, string) (string, error)
 	ValidateEvidenceSlice   func(string) error
 	ProjectEvidenceAudit    func(string) map[string]any
@@ -253,8 +253,8 @@ func docxAgentDocumentPolicy() agentDocumentFormatPolicy {
 	}
 	return agentDocumentFormatPolicy{
 		Format: app.DocumentFormatDOCX, RouteOperations: []app.RouteOperation{app.RouteOperationEdit},
-		DecisionEvidence: func(runtime Runtime, ctx context.Context, run app.AgentRun, node app.WorkflowNode, entries []app.ToolDirectoryEntry) (string, error) {
-			return runtime.workflowDOCXDecisionEvidence(ctx, run, node, entries)
+		DecisionEvidence: func(runtime Runtime, ctx context.Context, run app.AgentRun, node app.WorkflowNode, entries []app.ToolDirectoryEntry, evidenceBudget int) (string, error) {
+			return runtime.workflowDOCXDecisionEvidence(ctx, run, node, entries, evidenceBudget)
 		},
 		DecisionRules:      []orderedDocumentDecisionRule{{Order: 50, Text: "For DOCX, the listed editors currently mutate body paragraph text or style only. Return a typed no_match for table-cell, header, footer, footnote, endnote, text-box, comment, field, drawing, tracked-change, or other unsupported targets unless one eligible candidate explicitly advertises that target."}},
 		MaterializeSchemas: materializeDOCXMutationSchemas,

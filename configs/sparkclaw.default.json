@@ -250,7 +250,7 @@
   },
   "runtime": {
     "observation_summary_max_bytes": 2400,
-    "workflow_stage_evidence_max_bytes": 8000,
+    "workflow_stage_evidence_max_bytes": 0,
     "workflow_stage_max_duration_seconds": 180,
     "workflow_stage_max_no_progress_actions": 3,
     "workflow_stage_max_observation_reads": 2,

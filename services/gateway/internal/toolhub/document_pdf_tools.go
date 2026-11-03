@@ -16,10 +16,7 @@ func (h *ToolHub) pdfExtractText(ctx context.Context, args map[string]any, sessi
 	if err != nil {
 		return Result{}, err
 	}
-	maxBytes := intArg(args, "max_bytes", document.SmallExtractedMaxBytes)
-	if maxBytes <= 0 || maxBytes > document.SmallExtractedMaxBytes {
-		maxBytes = document.SmallExtractedMaxBytes
-	}
+	maxBytes := h.documentReadMaxBytes(args)
 	read, err := h.readDocumentWorkflow(withDocumentOCRExecution(ctx, sessionID, runID), path, maxBytes)
 	if err != nil {
 		h.recordPDFReadMetrics(ctx, sessionID, runID, "unavailable", nil, nil)

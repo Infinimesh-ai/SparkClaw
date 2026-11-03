@@ -345,7 +345,7 @@ var envBindings = []envBinding{
 	{name: "SPARKCLAW_SANDBOX_IMAGE", doc: "Sandbox container image.", apply: envString(func(c *Config) *string { return &c.Sandbox.Image })},
 	{name: "SPARKCLAW_SANDBOX_NETWORK", doc: "Sandbox container network mode.", apply: envString(func(c *Config) *string { return &c.Sandbox.Network })},
 	{name: "SPARKCLAW_OBSERVATION_SUMMARY_MAX_BYTES", doc: "Maximum bytes of one observation summary.", apply: envInt(func(c *Config) *int { return &c.Runtime.ObservationSummaryMaxBytes })},
-	{name: "SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES", doc: "Maximum persisted evidence bytes provisioned to one workflow stage.", apply: envInt(func(c *Config) *int { return &c.Runtime.StageEvidenceMaxBytes })},
+	{name: "SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES", doc: "Optional ceiling on persisted evidence bytes provisioned to one workflow stage or final answer; 0 derives it from model capacity.", apply: envInt(func(c *Config) *int { return &c.Runtime.StageEvidenceMaxBytes })},
 	{name: "SPARKCLAW_WORKFLOW_STAGE_MAX_OBSERVATION_READS", doc: "Maximum observation.read calls per workflow stage.", apply: envInt(func(c *Config) *int { return &c.Runtime.StageMaxObservationReads })},
 	{name: "SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES", doc: "Observation bytes at which a workflow run compacts; marks the value explicit.", apply: func(cfg *Config, value string) error {
 		if maxBytes, err := strconv.Atoi(value); err == nil {

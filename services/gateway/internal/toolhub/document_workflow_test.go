@@ -12,6 +12,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -313,4 +314,35 @@ func cloneTestMap(source map[string]any) map[string]any {
 		out[key] = value
 	}
 	return out
+}
+
+func TestDocumentReadExtractionFollowsFinalizerCapacity(t *testing.T) {
+	root := t.TempDir()
+	content := strings.Repeat("传输层协议提供端到端的可靠交付。\n", 6000)
+	if err := os.WriteFile(filepath.Join(root, "long.txt"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if len(content) <= document.SmallExtractedMaxBytes {
+		t.Fatalf("fixture is %d bytes; it must exceed the small-document floor", len(content))
+	}
+	short := newDocumentWorkflowHub(t, root, store.NewMemoryStore())
+	if _, err := short.Execute(context.Background(), "files.read", map[string]any{"path": "long.txt"}, "session", "run"); !document.IsErrorCode(err, document.CodeStrategyDeferred) {
+		t.Fatalf("short-context hub accepted text beyond its extraction floor: %v", err)
+	}
+
+	cfg := config.Default()
+	cfg.Workspaces.DefaultRoot = root
+	cfg.Workspaces.Allowlist = []string{root}
+	cfg.Model.Fast.ContextTokens = 262144
+	cfg.Model.Fast.OutputBudgets = map[modelcapacity.OutputBudgetClass]int{modelcapacity.OutputAnswer: 8192}
+	long := New(cfg, store.NewMemoryStore())
+	t.Cleanup(func() { _ = long.Close() })
+	result, err := long.Execute(context.Background(), "files.read", map[string]any{"path": "long.txt"}, "session", "run")
+	if err != nil {
+		t.Fatalf("long-context hub rejected text its finalizer can carry: %v", err)
+	}
+	output := result.Output.(map[string]any)
+	if output["content"] != content || intArg(output, "max_bytes", 0) != cfg.DocumentExtractionBytes(document.SmallExtractedMaxBytes) {
+		t.Fatalf("long document was not read whole under the derived limit: bytes=%v max_bytes=%v", output["bytes"], output["max_bytes"])
+	}
 }

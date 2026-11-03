@@ -135,11 +135,12 @@ func TestWorkflowDOCXDecisionEvidenceKeepsArchivedFallbackWithinBudget(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	evidence, err := runtime.workflowDecisionEvidence(context.Background(), dispatch.Run, node, view.Entries)
+	limit := runtime.workflowStageEvidenceLimit(workflowLaneForRun(dispatch.Run))
+	evidence, err := runtime.workflowDecisionEvidence(context.Background(), dispatch.Run, node, view.Entries, limit)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(evidence, "structured evidence") || len([]byte(evidence)) > runtime.workflowStageEvidenceLimit() {
+	if !strings.Contains(evidence, "structured evidence") || len([]byte(evidence)) > limit {
 		t.Fatalf("archived decision evidence violated its fallback contract: %s", evidence)
 	}
 }

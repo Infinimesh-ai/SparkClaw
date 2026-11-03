@@ -2,7 +2,7 @@ package toolhub
 
 import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 )
 
 func pdfToolDefinitions() []app.ToolDefinition {
@@ -12,7 +12,7 @@ func pdfToolDefinitions() []app.ToolDefinition {
 			Description: "Extract text and stable page blocks from a workspace PDF. When OvisOCR2 is enabled, scanned pages are rasterized and parsed under bounded page and byte budgets; unavailable or failed OCR remains explicit partial evidence.",
 			InputSchema: schema("object", []string{"path"}, map[string]any{
 				"path":      stringSchema(),
-				"max_bytes": map[string]any{"type": "integer", "minimum": float64(1), "maximum": float64(document.SmallExtractedMaxBytes)},
+				"max_bytes": map[string]any{"type": "integer", "minimum": float64(1), "maximum": float64(config.MaxDocumentExtractionBytes)},
 			}),
 			OutputSchema: objectSchema([]string{"path", "content", "bytes", "truncated", "untrusted", "read_complete", "coverage_status", "missing_page_indexes", "page_status_counts", "scanned_unsupported", "document"}, map[string]any{
 				"path":                 stringSchema(),

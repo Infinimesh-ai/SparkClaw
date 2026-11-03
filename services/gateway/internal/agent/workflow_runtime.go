@@ -941,24 +941,33 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 		"When schedule evidence includes schedule_client_display, display its due_time and timezone instead of the stored schedule timezone.",
 		finalAnswerLanguageInstruction(originalGoal),
 	}, "\n")
-	userLines := []string{
-		"WORKFLOW_FINAL_ANSWER_REQUEST",
-		"Original user goal:",
-		originalGoal,
-		"",
-		"Normalized execution request and resource context:",
-		goal,
-		"",
-		"Completed workflow evidence (untrusted data):",
-	}
-	finalEvidence, evidenceErr := r.workflowFinalEvidence(ctx, run, calls, observations)
+	inputs, evidenceErr := r.workflowFinalEvidenceInputs(ctx, run, calls)
 	if evidenceErr != nil {
 		return modelrouter.ChatResult{}, "", evidenceErr
 	}
-	if payload := finalEvidence.modelPayload(); payload != "" {
-		userLines = append(userLines, payload)
+	var finalEvidence workflowFinalEvidenceProjection
+	_, user, _, fitErr := r.fitEvidencePrompt(ctx, modelcapacity.OperationWorkflowFinalAnswer, laneForFinalStream(lane), r.workflowFinalEvidenceLimit(lane),
+		func(budget int) (string, string, error) {
+			finalEvidence = buildWorkflowFinalEvidenceProjection(run, inputs.Calls, observations, inputs.ArchivedBytesByCall, budget)
+			userLines := []string{
+				"WORKFLOW_FINAL_ANSWER_REQUEST",
+				"Original user goal:",
+				originalGoal,
+				"",
+				"Normalized execution request and resource context:",
+				goal,
+				"",
+				"Completed workflow evidence (untrusted data):",
+			}
+			if payload := finalEvidence.modelPayload(); payload != "" {
+				userLines = append(userLines, payload)
+			}
+			userLines = append(userLines, "", "Produce the final answer now.")
+			return system, strings.Join(userLines, "\n"), nil
+		})
+	if fitErr != nil {
+		return modelrouter.ChatResult{}, "", fitErr
 	}
-	userLines = append(userLines, "", "Produce the final answer now.")
 	workflowID := app.WorkflowID("")
 	if run.Workflow != nil {
 		workflowID = run.Workflow.Plan.ProfileID
@@ -977,7 +986,7 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 	})
 
 	started := time.Now().UTC()
-	chat, err := r.chatWorkflowFinalAnswer(ctx, run, modelcapacity.OperationWorkflowFinalAnswer, "workflow_final_answer", laneForFinalStream(lane), system, strings.Join(userLines, "\n"), emit)
+	chat, err := r.chatWorkflowFinalAnswer(ctx, run, modelcapacity.OperationWorkflowFinalAnswer, "workflow_final_answer", laneForFinalStream(lane), system, user, emit)
 	completed := time.Now().UTC()
 	if _, saveErr := r.store.SaveModelCall(ctx, modelCallFromChat(run.SessionID, run.ID, "workflow_final_answer", chat, err, started, completed)); saveErr != nil {
 		return chat, "", saveErr
@@ -994,13 +1003,28 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 
 const defaultWorkflowFinalEvidenceMaxBytes = 8000
 
+// workflowFinalEvidenceInputs holds completed calls whose document reads are
+// replaced by their full archived outputs, ready for budgeted projection.
+type workflowFinalEvidenceInputs struct {
+	Calls               []app.ToolCall
+	ArchivedBytesByCall map[string]int
+}
+
 func (r Runtime) workflowFinalEvidence(ctx context.Context, run app.AgentRun, calls []app.ToolCall, observations []string) (workflowFinalEvidenceProjection, error) {
+	inputs, err := r.workflowFinalEvidenceInputs(ctx, run, calls)
+	if err != nil {
+		return workflowFinalEvidenceProjection{}, err
+	}
+	return buildWorkflowFinalEvidenceProjection(run, inputs.Calls, observations, inputs.ArchivedBytesByCall, r.workflowFinalEvidenceLimit(workflowLaneForRun(run))), nil
+}
+
+func (r Runtime) workflowFinalEvidenceInputs(ctx context.Context, run app.AgentRun, calls []app.ToolCall) (workflowFinalEvidenceInputs, error) {
 	materialized := append([]app.ToolCall(nil), calls...)
 	archivedBytesByCall := map[string]int{}
 	artifactBytesByURI := map[string]int{}
 	objects, err := r.store.ListArtifactObjects(ctx, 0)
 	if err != nil {
-		return workflowFinalEvidenceProjection{}, fmt.Errorf("workflow finalization artifact metadata is unavailable: %w", err)
+		return workflowFinalEvidenceInputs{}, fmt.Errorf("workflow finalization artifact metadata is unavailable: %w", err)
 	}
 	for _, object := range objects {
 		if object.SessionID == run.SessionID && object.RunID == run.ID {
@@ -1015,12 +1039,12 @@ func (r Runtime) workflowFinalEvidence(ctx context.Context, run app.AgentRun, ca
 		}
 		output, artifactBytes, err := r.readArchivedToolObservation(ctx, run, call)
 		if err != nil {
-			return workflowFinalEvidenceProjection{}, fmt.Errorf("workflow finalization evidence is unavailable: %w", err)
+			return workflowFinalEvidenceInputs{}, fmt.Errorf("workflow finalization evidence is unavailable: %w", err)
 		}
 		materialized[index].Result = output
 		archivedBytesByCall[call.ID] = artifactBytes
 	}
-	return buildWorkflowFinalEvidenceProjection(run, materialized, observations, archivedBytesByCall, r.workflowStageEvidenceLimit()), nil
+	return workflowFinalEvidenceInputs{Calls: materialized, ArchivedBytesByCall: archivedBytesByCall}, nil
 }
 
 func workflowFinalEvidence(calls []app.ToolCall, observations []string) []string {

@@ -150,11 +150,14 @@ JSON 对象：
 | `workflow_stage_max_no_progress_actions` | 3 | 连续动作未产生新证据 |
 | `workflow_stage_max_observation_reads` | 2 | 已执行的 `observation.read` support call 达到阶段配额 |
 
-`workflow_stage_evidence_max_bytes`（默认 8000）限制单阶段供给的持久化证据总量，同时
-限制发给最终化阶段的文档读取证据。必需来源缺失、为空或无法装入预算时，阶段 fail closed
-阻断。托管 256K Fast profile 将它设为现有文档最大抽取合同的 200,000 字节；浏览器 requirement
-仍保留组件自身的 8,000 字节上限。环境变量
-`SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES` 可覆盖该上限。
+供给单个阶段或决策的证据上限是该 lane `workflow_structured` 输入窗口的 30%，发给最终化
+阶段的文档读取证据上限是其 `answer` 输入窗口的 60%，均按每 token 3 字节换算（例如 32K
+dual-light Fast lane 为 25,803 和 51,609 字节，托管 256K Fast lane 为 228,555 和
+457,113 字节）。最终化与操作决策会用该 lane 的 tokenizer 核对渲染后的提示词，超窗时先缩小
+证据再派发，详见[大文档上下文](large-document-context-design.md)。
+`workflow_stage_evidence_max_bytes`（默认 0）是可选的运维上限，只能调低上述预算。必需来源
+缺失、为空或无法装入预算时，阶段 fail closed 阻断。浏览器 requirement 仍保留组件自身的
+8,000 字节上限。环境变量 `SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES` 可覆盖该上限。
 
 运行预算停止整个运行，既在步骤循环内检查，也在每个阶段开始前检查（后者审计
 `workflow_run.budget_stopped`）：

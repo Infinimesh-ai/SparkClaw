@@ -319,13 +319,30 @@ func (f InspectorFunc) Inspect(ctx context.Context, root, path string) (Metadata
 }
 
 type Pipeline struct {
-	inspector  Inspector
-	strategies []Strategy
-	enrichers  []DocumentEnricher
+	inspector    Inspector
+	strategies   []Strategy
+	enrichers    []DocumentEnricher
+	maxExtracted int
 }
 
 func NewPipeline(inspector Inspector, strategies ...Strategy) *Pipeline {
 	return &Pipeline{inspector: inspector, strategies: append([]Strategy(nil), strategies...)}
+}
+
+// WithMaxExtractedBytes sets the largest complete extraction a read returns
+// after enrichment; zero keeps SmallExtractedMaxBytes.
+func (p *Pipeline) WithMaxExtractedBytes(limit int) *Pipeline {
+	if p != nil {
+		p.maxExtracted = limit
+	}
+	return p
+}
+
+func (p *Pipeline) extractedLimit() int {
+	if p.maxExtracted <= 0 {
+		return SmallExtractedMaxBytes
+	}
+	return p.maxExtracted
 }
 
 func (p *Pipeline) WithEnrichers(enrichers ...DocumentEnricher) *Pipeline {
@@ -355,8 +372,8 @@ func (p *Pipeline) Read(ctx context.Context, request ReadRequest) (ReadResult, e
 		return ReadResult{}, err
 	}
 	maxExtracted := request.MaxBytes
-	if maxExtracted <= 0 || maxExtracted > SmallExtractedMaxBytes {
-		maxExtracted = SmallExtractedMaxBytes
+	if maxExtracted <= 0 || maxExtracted > p.extractedLimit() {
+		maxExtracted = p.extractedLimit()
 	}
 	if len([]byte(read.Content)) > maxExtracted {
 		return ReadResult{}, deferredExtractedError(metadata, int64(len([]byte(read.Content))), maxExtracted)

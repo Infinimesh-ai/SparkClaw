@@ -12,11 +12,31 @@ import (
 
 func newDocumentPipeline(hub *ToolHub) *document.Pipeline {
 	providers := toolhubDocumentProviderRegistry()
+	limit := hub.documentExtractionLimit()
 	strategy := document.NewSmallFileStrategy(providers.parsers(), providers.editors())
-	return document.NewPipeline(document.InspectorFunc(document.InspectFile), strategy).WithEnrichers(
+	strategy.MaxExtractedBytes = limit
+	return document.NewPipeline(document.InspectorFunc(document.InspectFile), strategy).WithMaxExtractedBytes(limit).WithEnrichers(
 		&ovisDocumentOCREnricher{hub: hub},
 		&fastDocumentImageEnricher{hub: hub},
 	)
+}
+
+// documentExtractionLimit is the largest complete text extraction a document
+// read accepts: the evidence the configured finalizing model can carry, never
+// below the small-document contract.
+func (h *ToolHub) documentExtractionLimit() int {
+	return h.cfg.DocumentExtractionBytes(document.SmallExtractedMaxBytes)
+}
+
+// documentReadMaxBytes resolves a read's max_bytes argument against the
+// extraction limit; omitted or out-of-range values use the limit.
+func (h *ToolHub) documentReadMaxBytes(args map[string]any) int {
+	limit := h.documentExtractionLimit()
+	maxBytes := intArg(args, "max_bytes", limit)
+	if maxBytes <= 0 || maxBytes > limit {
+		return limit
+	}
+	return maxBytes
 }
 
 func applyTextReplacement(_ context.Context, request document.ApplyRequest) (document.ApplyResult, error) {

@@ -192,14 +192,20 @@ Stage budgets stop the step loop (audited as `workflow_step.budget_stopped`):
 | `workflow_stage_max_no_progress_actions` | 3 | consecutive actions produce no new evidence |
 | `workflow_stage_max_observation_reads` | 2 | executed `observation.read` support calls reach the stage quota |
 
-`workflow_stage_evidence_max_bytes` (default 8000) clamps total persisted
-evidence provisioned to one stage and also bounds document-read evidence sent
-to finalization. A required source that is missing, empty, or cannot fit blocks
-the stage fail closed. The hosted 256K Fast profile sets this to 200,000 bytes,
-the existing maximum extracted-document contract; browser requirements keep
+Evidence provisioned to one stage or decision is bounded by 30% of that lane's
+`workflow_structured` input window, and document-read evidence sent to
+finalization by 60% of its `answer` input window, both converted at three
+bytes per token (for example 25,803 and 51,609 bytes on the 32K dual-light
+Fast lane, 228,555 and 457,113 bytes on the hosted 256K Fast lane).
+Finalization and operation decisions confirm the rendered prompt with the
+lane tokenizer and re-render smaller evidence before dispatch; see
+[Large document context](large-document-context-design.md).
+`workflow_stage_evidence_max_bytes` (default 0) is an optional operator
+ceiling that can only lower those budgets. A required source that is missing,
+empty, or cannot fit blocks the stage fail closed. Browser requirements keep
 their own 8,000-byte component cap. The
 `SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES` environment variable overrides
-this limit.
+the ceiling.
 
 Run budgets stop the whole run, checked both inside the step loop and before
 each stage (the latter audited as `workflow_run.budget_stopped`):

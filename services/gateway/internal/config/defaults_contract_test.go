@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
 // repositoryPath resolves a path relative to the repository root.
@@ -357,7 +356,6 @@ func TestProductEnvOverridesAreExplicit(t *testing.T) {
 		"Model.Deep.Model":                         "nvidia/Qwen3.6-35B-A3B-NVFP4 -> sparkclaw-fast",
 		"Model.Embedding.Model":                    "Qwen/Qwen3-Embedding-0.6B -> sparkclaw-embedding",
 		"Model.Guard.Model":                        "Qwen/Qwen3Guard-Gen-0.6B -> sparkclaw-guard",
-		"Runtime.StageEvidenceMaxBytes":            fmt.Sprintf("8000 -> %d", document.SmallExtractedMaxBytes),
 		"Runtime.RunObservationCompactionBytes":    "36000 -> 72000",
 		"Runtime.RunMaxObservationBytes":           "48000 -> 96000",
 		"Runtime.runObservationCompactionExplicit": "false -> true",

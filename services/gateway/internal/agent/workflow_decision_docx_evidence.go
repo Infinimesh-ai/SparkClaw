@@ -32,8 +32,8 @@ type docxDecisionBlock struct {
 	projection map[string]any
 }
 
-func (r Runtime) workflowDOCXDecisionEvidence(ctx context.Context, run app.AgentRun, node app.WorkflowNode, entries []app.ToolDirectoryEntry) (string, error) {
-	remaining := r.workflowStageEvidenceLimit()
+func (r Runtime) workflowDOCXDecisionEvidence(ctx context.Context, run app.AgentRun, node app.WorkflowNode, entries []app.ToolDirectoryEntry, evidenceBudget int) (string, error) {
+	remaining := evidenceBudget
 	sections := []string{}
 	for _, dependency := range node.DependsOn {
 		state, ok := run.Workflow.Nodes[dependency]

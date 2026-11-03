@@ -295,7 +295,7 @@ func (h *ToolHub) executeDocumentOperation(ctx context.Context, toolName, reques
 	request := document.EditRequest{
 		Path: inputPath, OutputPath: outputPath, Operation: operation,
 		Targets: targets, ExpectedMatches: expectedMatches,
-		Arguments: args, MaxBytes: document.SmallExtractedMaxBytes,
+		Arguments: args, MaxBytes: h.documentExtractionLimit(),
 		SourceSHA256: strings.TrimSpace(stringArg(args, app.DocumentSourceSHA256Argument, "")),
 	}
 	if len(targets) > 0 {

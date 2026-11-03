@@ -431,7 +431,7 @@ class RemoteComposeTest(unittest.TestCase):
                 self.assertEqual(local_environment["SPARKCLAW_PAIRING_REQUIRED"], "true")
                 self.assertNotIn("SPARKCLAW_WEBCHAT_PROXY_TOKEN", local_environment)
                 self.assertEqual(local_environment["SPARKCLAW_MODEL_CAPACITY_PROFILE"], "sparkclaw-product-v1")
-                self.assertEqual(local_environment["SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES"], "200000")
+                self.assertEqual(local_environment["SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES"], "0")
                 self.assertEqual(local_environment["SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES"], "72000")
                 self.assertEqual(local_environment["SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES"], "96000")
             self.assertEqual(local_service, remote_service)

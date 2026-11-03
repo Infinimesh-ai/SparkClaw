@@ -64,6 +64,7 @@ func (s *SmallFileStrategy) Read(ctx context.Context, metadata Metadata, request
 	if err != nil {
 		return ReadResult{}, &PipelineError{Code: CodeParseFailed, Stage: StageStructure, Format: metadata.Format, Detail: err.Error()}
 	}
+	representation.Strategy.MaxExtractedBytes = s.extractedLimit()
 	return ReadResult{Metadata: metadata, Content: parsed.Content, Document: representation, Resources: parsed.Resources}, nil
 }
 

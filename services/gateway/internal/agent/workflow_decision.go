@@ -47,6 +47,9 @@ type workflowDecisionProjection struct {
 	Bindings            map[string]app.ToolDirectoryEntryID
 	SourceEventIDs      []string
 	ArchivedBytes       int
+	// EvidenceBudget is the admitted byte budget for dependency evidence and
+	// the owner request in the selection prompt.
+	EvidenceBudget int
 }
 
 func activeWorkflowDecisionNode(state *app.WorkflowState) (app.WorkflowNode, bool, error) {
@@ -111,7 +114,7 @@ func (r Runtime) resolveActiveWorkflowDecisions(ctx context.Context, run *app.Ag
 		instruction, resolveErr := r.completeWorkflowDecision(ctx, run, profile, node, view, view.Entries[0], "deterministic")
 		return instruction, true, resolveErr
 	}
-	decisionProjection, err := r.prepareWorkflowDecisionProjection(ctx, *run, node, view)
+	decisionProjection, err := r.fitWorkflowDecisionProjection(ctx, *run, profile, node, view)
 	if err != nil {
 		return "", false, fmt.Errorf("workflow operation selection evidence is unavailable: %w", err)
 	}
@@ -179,8 +182,31 @@ func (r Runtime) resolveActiveWorkflowDecisions(ctx context.Context, run *app.Ag
 	}
 }
 
-func (r Runtime) prepareWorkflowDecisionProjection(ctx context.Context, run app.AgentRun, node app.WorkflowNode, view app.DirectoryView) (workflowDecisionProjection, error) {
-	dependencyEvidence, err := r.workflowDecisionEvidence(ctx, run, node, view.Entries)
+// fitWorkflowDecisionProjection sizes dependency evidence to the decision
+// lane's input window and confirms the rendered selection prompt with that
+// lane's tokenizer.
+func (r Runtime) fitWorkflowDecisionProjection(ctx context.Context, run app.AgentRun, profile workflowProfile, node app.WorkflowNode, view app.DirectoryView) (workflowDecisionProjection, error) {
+	lane := workflowModelLaneForProfile(profile.ID())
+	var projection workflowDecisionProjection
+	_, _, budget, err := r.fitEvidencePrompt(ctx, modelcapacity.OperationWorkflowDecision, lane, r.workflowStageEvidenceLimit(lane),
+		func(budget int) (string, string, error) {
+			prepared, err := r.prepareWorkflowDecisionProjection(ctx, run, node, view, budget)
+			if err != nil {
+				return "", "", err
+			}
+			projection = prepared
+			system, user := workflowDecisionSelectionPromptWithLimit(run, profile, node, prepared.CandidateProjection, prepared.DependencyEvidence, budget)
+			return system, user, nil
+		})
+	if err != nil {
+		return workflowDecisionProjection{}, err
+	}
+	projection.EvidenceBudget = budget
+	return projection, nil
+}
+
+func (r Runtime) prepareWorkflowDecisionProjection(ctx context.Context, run app.AgentRun, node app.WorkflowNode, view app.DirectoryView, evidenceBudget int) (workflowDecisionProjection, error) {
+	dependencyEvidence, err := r.workflowDecisionEvidence(ctx, run, node, view.Entries, evidenceBudget)
 	if err != nil {
 		return workflowDecisionProjection{}, err
 	}
@@ -238,7 +264,7 @@ func (r Runtime) selectWorkflowDecisionEntry(
 	}
 	system, user := workflowDecisionSelectionPromptWithLimit(
 		run, profile, node, decisionProjection.CandidateProjection, decisionProjection.DependencyEvidence,
-		r.workflowStageEvidenceLimit(), repairProjectionID,
+		decisionProjection.EvidenceBudget, repairProjectionID,
 	)
 
 	started := time.Now().UTC()
@@ -434,10 +460,10 @@ func (r Runtime) workflowDecisionSourceLineage(ctx context.Context, run app.Agen
 	return refs, totalBytes, nil
 }
 
-func (r Runtime) workflowDecisionEvidence(ctx context.Context, run app.AgentRun, node app.WorkflowNode, entries []app.ToolDirectoryEntry) (string, error) {
+func (r Runtime) workflowDecisionEvidence(ctx context.Context, run app.AgentRun, node app.WorkflowNode, entries []app.ToolDirectoryEntry, evidenceBudget int) (string, error) {
 	if run.Workflow != nil {
 		if policy, ok := registeredAgentDocumentFormatPolicies().policyForRoute(run.Workflow.Route); ok && policy.DecisionEvidence != nil {
-			return policy.DecisionEvidence(r, ctx, run, node, entries)
+			return policy.DecisionEvidence(r, ctx, run, node, entries, evidenceBudget)
 		}
 	}
 	requirements := []workflowEvidenceRequirement{}
@@ -453,7 +479,7 @@ func (r Runtime) workflowDecisionEvidence(ctx context.Context, run app.AgentRun,
 	if len(requirements) == 0 {
 		return "", errors.New("decision node has no completed persisted evidence source")
 	}
-	provisioned, err := r.provisionWorkflowEvidence(ctx, run, requirements)
+	provisioned, err := r.provisionWorkflowEvidenceWithin(ctx, run, evidenceBudget, requirements)
 	if err != nil {
 		return "", err
 	}

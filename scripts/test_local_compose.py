@@ -305,7 +305,7 @@ class LocalComposeTest(unittest.TestCase):
         self.assertEqual(product_values["SPARKCLAW_MODEL_CAPACITY_PROFILE"], "sparkclaw-product-v1")
         self.assertEqual(product_values["SPARKCLAW_API_TOKEN"], "")
         self.assertEqual(product_values["SPARKCLAW_PAIRING_REQUIRED"], "true")
-        self.assertEqual(product_values["SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES"], "200000")
+        self.assertEqual(product_values["SPARKCLAW_WORKFLOW_STAGE_EVIDENCE_MAX_BYTES"], "0")
         self.assertEqual(product_values["SPARKCLAW_WORKFLOW_RUN_OBSERVATION_COMPACTION_BYTES"], "72000")
         self.assertEqual(product_values["SPARKCLAW_WORKFLOW_RUN_MAX_OBSERVATION_BYTES"], "96000")
         self.assertEqual(values["SPARKCLAW_FAST_BASE_URL"], "http://sparkclaw-fast:8001/v1")

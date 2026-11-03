@@ -199,7 +199,11 @@ func (r Runtime) runWorkflowStepLoop(ctx context.Context, sessionID string, run 
 	provisioned := provisionedWorkflowEvidence{}
 	var provisionErr error
 	if ctx.Err() == nil {
-		provisioned, provisionErr = r.provisionWorkflowEvidence(ctx, run, stageContext.EvidenceRequirements)
+		lane := stageContext.ModelLaneHint
+		if strings.TrimSpace(lane) == "" {
+			lane = workflowLaneForRun(run)
+		}
+		provisioned, provisionErr = r.provisionWorkflowEvidence(ctx, run, lane, stageContext.EvidenceRequirements)
 	}
 	if provisionErr != nil {
 		r.addAudit(ctx, app.AuditEvent{

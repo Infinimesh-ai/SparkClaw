@@ -7,7 +7,9 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
@@ -80,7 +82,51 @@ func documentRoutePaths(content string) []string {
 	}
 	// Structured document block locations are operation qualifiers, not file
 	// names. Keep the original request intact while excluding them from paths.
-	return extractPaths(structuredDocumentLocator.ReplaceAllString(content, " "))
+	content = structuredDocumentLocator.ReplaceAllString(content, " ")
+	paths := extractPaths(content)
+	for _, path := range unicodeDocumentPaths(content) {
+		if !slices.Contains(paths, path) {
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
+
+// unicodeDocumentName matches a file name whose stem has non-ASCII letters,
+// such as 计算机网络.pdf, which the ASCII path patterns cannot see. Chinese
+// text has no spaces, so the match may start with preceding words
+// ("根据计算机网络.pdf"); workspaceDocumentPath trims them against the
+// workspace.
+var unicodeDocumentName = regexp.MustCompile(`[\p{L}\p{N}_\-]+(?:[/\\][\p{L}\p{N}_.\-]+)*\.[A-Za-z0-9]{1,8}\b`)
+
+func unicodeDocumentPaths(content string) []string {
+	out := []string{}
+	for _, match := range unicodeDocumentName.FindAllString(content, -1) {
+		if strings.IndexFunc(match, func(r rune) bool { return r > unicode.MaxASCII && unicode.IsLetter(r) }) < 0 {
+			continue
+		}
+		clean := filepath.Clean(match)
+		if !slices.Contains(out, clean) {
+			out = append(out, clean)
+		}
+	}
+	return out
+}
+
+// workspaceDocumentPath returns the longest suffix of a non-ASCII path
+// candidate that names a regular file under root, dropping words written
+// directly before the file name. Other candidates are returned unchanged.
+func workspaceDocumentPath(root, path string) string {
+	if strings.TrimSpace(root) == "" || strings.IndexFunc(path, func(r rune) bool { return r > unicode.MaxASCII }) < 0 {
+		return path
+	}
+	for offset := range path {
+		candidate := path[offset:]
+		if info, err := os.Stat(filepath.Join(root, candidate)); err == nil && info.Mode().IsRegular() {
+			return candidate
+		}
+	}
+	return path
 }
 
 func attachmentPathsFromRoutingProjection(content string) []string {

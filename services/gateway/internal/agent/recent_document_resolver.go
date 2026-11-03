@@ -65,8 +65,13 @@ func (r Runtime) resolveDocumentContext(ctx context.Context, sessionID, runID, c
 
 func (r Runtime) resolveDocumentContextWithHistory(ctx context.Context, sessionID, content string, resources []app.MessagePart, history invocationHistory) (documentContextResolution, error) {
 	if paths := documentRoutePaths(content); len(paths) > 0 {
+		workspaceRoot, err := r.workspaceRootForSession(ctx, sessionID)
+		if err != nil {
+			return documentContextResolution{}, err
+		}
 		references := make([]documentContextReference, 0, len(paths))
 		for _, path := range paths {
+			path = workspaceDocumentPath(workspaceRoot, path)
 			// Current-turn files win; otherwise explicit names may select any
 			// admitted conversation handle, even outside the recent window.
 			name := filepath.Base(filepath.FromSlash(path))

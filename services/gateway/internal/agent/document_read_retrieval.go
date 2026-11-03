@@ -26,6 +26,7 @@ func documentRetrievalScope() app.CapabilityScope {
 		{Name: app.ToolCapabilityDocumentOutline},
 		{Name: app.ToolCapabilityDocumentSearch},
 		{Name: app.ToolCapabilityDocumentReadRange},
+		{Name: app.ToolCapabilityDocumentSummarize},
 	}, MaterializeAll: true}
 }
 
@@ -55,11 +56,12 @@ func documentReadNode(format string) app.WorkflowNode {
 		},
 		StageCapabilities: []app.StageCapabilityRule{
 			{Stage: documentReadStage, Capabilities: []string{app.ToolCapabilityDocumentRead}},
-			{Stage: documentRetrievalStage, Capabilities: []string{app.ToolCapabilityDocumentOutline, app.ToolCapabilityDocumentSearch, app.ToolCapabilityDocumentReadRange}},
+			{Stage: documentRetrievalStage, Capabilities: []string{app.ToolCapabilityDocumentOutline, app.ToolCapabilityDocumentSearch, app.ToolCapabilityDocumentReadRange, app.ToolCapabilityDocumentSummarize}},
 		},
 		ArgumentBindings: []app.ArgumentBinding{
 			pathBinding(app.ToolCapabilityDocumentRead), pathBinding(app.ToolCapabilityDocumentOutline),
 			pathBinding(app.ToolCapabilityDocumentSearch), pathBinding(app.ToolCapabilityDocumentReadRange),
+			pathBinding(app.ToolCapabilityDocumentSummarize),
 		},
 		AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: documentReadMaxAttempts,
 	}
@@ -109,4 +111,5 @@ const documentRetrievalInstruction = "Large-document retrieval stage: the docume
 	"Then call document.read_range once with the chunk_ids (at most 12) that answer the request; neighbouring context is added automatically. " +
 	"For a request about a whole chapter, call document.read_range with that chapter's section ID instead. " +
 	"In a scanned document pages have no text until read: when search returns sections but no chunks, call document.read_range with the best section ID or a page range; its scanned pages are recognized first, at most 8 per call. " +
+	"For a request about the whole document, such as summarizing an entire book or report, call document.summarize once instead of searching. " +
 	"Use document.outline only when searches miss. Search at most three times; after that, read the best chunks you have."

@@ -2,8 +2,8 @@ package toolhub
 
 import (
 	"context"
-	"fmt"
 	"errors"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strconv"

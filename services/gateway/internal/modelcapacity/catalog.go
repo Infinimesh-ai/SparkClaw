@@ -50,6 +50,7 @@ const (
 	OperationPPTXVisualAssessment     Operation = "pptx.visual_assessment"
 	OperationPPTXVisualRepairPlan     Operation = "pptx.visual_repair_plan"
 	OperationDocumentOCR              Operation = "document.ocr"
+	OperationDocumentSectionSummary   Operation = "document.section_summary"
 	OperationEmailAnalysis            Operation = "email.analysis"
 	OperationMedicineRecognize        Operation = "medicine.recognize"
 	OperationMedicineParse            Operation = "medicine.parse"
@@ -82,6 +83,7 @@ var operationSpecs = []OperationSpec{
 	{Operation: OperationPPTXVisualAssessment, OutputClass: OutputVisionStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 	{Operation: OperationPPTXVisualRepairPlan, OutputClass: OutputVisionStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 	{Operation: OperationDocumentOCR, OutputClass: OutputOCRDocument, AllowedLanes: []Lane{LaneOCR}, Generates: true},
+	{Operation: OperationDocumentSectionSummary, OutputClass: OutputAnswer, AllowedLanes: []Lane{LaneFast}, Generates: true},
 	{Operation: OperationEmailAnalysis, OutputClass: OutputWorkflowStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 	{Operation: OperationMedicineRecognize, OutputClass: OutputVisionStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 	{Operation: OperationMedicineEditPlan, OutputClass: OutputWorkflowStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},

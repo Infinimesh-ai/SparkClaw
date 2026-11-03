@@ -21,7 +21,8 @@ type workflowFinalEvidenceProjection struct {
 // document text for finalization: a complete read, or passages retrieved
 // from an indexed large document.
 func documentContentCapability(capability string) bool {
-	return capability == app.ToolCapabilityDocumentRead || capability == app.ToolCapabilityDocumentReadRange
+	return capability == app.ToolCapabilityDocumentRead || capability == app.ToolCapabilityDocumentReadRange ||
+		capability == app.ToolCapabilityDocumentSummarize
 }
 
 func (projection workflowFinalEvidenceProjection) modelPayload() string {
@@ -54,12 +55,18 @@ func buildWorkflowFinalEvidenceProjection(
 		remaining = maxEvidenceBytes[0]
 	}
 	documentEvidence := false
+	retrieved := workflowDocumentRetrieval(calls) != ""
 	for _, call := range calls {
 		if !toolCallCompleted(call) || !documentContentCapability(call.Capability) {
 			continue
 		}
 		result, ok := anyMap(call.Result)
 		if !ok {
+			continue
+		}
+		if retrieved && boolLikeValue(result["retrieval_required"]) {
+			// The outline pointer only routed to retrieval; the passages or
+			// section summaries read after it carry their own coverage.
 			continue
 		}
 		text := firstNonEmptyString(result["content"], result["summary"], result["description"], result["text"])

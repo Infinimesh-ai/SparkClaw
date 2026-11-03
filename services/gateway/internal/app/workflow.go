@@ -205,6 +205,7 @@ const (
 	ToolCapabilityDocumentOutline        = "document.outline"
 	ToolCapabilityDocumentSearch         = "document.search"
 	ToolCapabilityDocumentReadRange      = "document.read_range"
+	ToolCapabilityDocumentSummarize      = "document.summarize"
 	ToolCapabilityScheduleManage         = "schedule.manage"
 	ToolCapabilityObservationRead        = "observation.read"
 	ToolWorkspaceDataAccess              = "workspace.data.access"

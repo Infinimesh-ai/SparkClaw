@@ -422,6 +422,13 @@ func adaptWorkspaceReadOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app
 // signals; each result is a resource ref the next stage provisions.
 func adaptDocumentRetrievalOutcome(call app.ToolCall, nodeID app.WorkflowNodeID) app.ToolOutcome {
 	outcome := adaptGenericWorkflowOutcome(call, nodeID)
+	if call.Status == app.ToolCallStatusFailed {
+		// A rejected query, such as an unknown section ID, is a miss: the
+		// step model sees the error and may query again within the stage's
+		// bounded query transitions.
+		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalNoResults}
+		return outcome
+	}
 	output, ok := anyMap(call.Result)
 	if !ok || !toolCallCompleted(call) {
 		return outcome
@@ -437,7 +444,7 @@ func adaptDocumentRetrievalOutcome(call app.ToolCall, nodeID app.WorkflowNodeID)
 	case app.ToolCapabilityDocumentOutline:
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalResultsAvailable}
 		outcome.Refs = []app.ResourceRef{{Kind: documentOutlineResourceKind, Ref: path, Provenance: call.ID}}
-	case app.ToolCapabilityDocumentReadRange:
+	case app.ToolCapabilityDocumentReadRange, app.ToolCapabilityDocumentSummarize:
 		if strings.TrimSpace(firstNonEmptyString(output["content"])) != "" {
 			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalContentAvailable}
 		}

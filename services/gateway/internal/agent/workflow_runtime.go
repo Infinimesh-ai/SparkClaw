@@ -941,7 +941,10 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 		"When schedule evidence includes schedule_client_display, display its due_time and timezone instead of the stored schedule timezone.",
 		finalAnswerLanguageInstruction(originalGoal),
 	}, "\n")
-	if workflowCallsRetrievedPassages(calls) {
+	switch workflowDocumentRetrieval(calls) {
+	case app.ToolCapabilityDocumentSummarize:
+		system += "\nThe document evidence is per-section summaries of a document too large to read whole: merge them into one answer that follows the document's structure, and name any sections or pages the evidence marks as sampled or not recognized."
+	case app.ToolCapabilityDocumentReadRange:
 		system += "\nThe document evidence is retrieved passages of a document too large to read whole: answer from those passages, cite their page numbers or section headings, and say the answer is based on the retrieved sections."
 	}
 	inputs, evidenceErr := r.workflowFinalEvidenceInputs(ctx, run, calls)
@@ -1006,13 +1009,22 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 
 const defaultWorkflowFinalEvidenceMaxBytes = 8000
 
-func workflowCallsRetrievedPassages(calls []app.ToolCall) bool {
+// workflowDocumentRetrieval names how a large document's evidence was
+// gathered: whole-document section summaries, retrieved passages, or "".
+func workflowDocumentRetrieval(calls []app.ToolCall) string {
+	found := ""
 	for _, call := range calls {
-		if toolCallCompleted(call) && call.Capability == app.ToolCapabilityDocumentReadRange {
-			return true
+		if !toolCallCompleted(call) {
+			continue
+		}
+		switch call.Capability {
+		case app.ToolCapabilityDocumentSummarize:
+			return call.Capability
+		case app.ToolCapabilityDocumentReadRange:
+			found = call.Capability
 		}
 	}
-	return false
+	return found
 }
 
 // workflowFinalEvidenceInputs holds completed calls whose document reads are

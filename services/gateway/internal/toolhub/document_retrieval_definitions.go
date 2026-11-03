@@ -68,5 +68,25 @@ func documentRetrievalToolProviders() []documentToolProvider {
 				"Use in a large-document retrieval stage after search, with the chunk_ids that answer the request.",
 				"Do not use to read a whole large document or a small document.", app.ToolEffectWorkspaceRead),
 		},
+		{
+			Definition: app.ToolDefinition{
+				Name:        "document.summarize",
+				Description: "Summarize a whole indexed large document section by section (chapter-level map-reduce, cached per section). Use for requests about the entire document, such as summarizing a whole book or report.",
+				InputSchema: schema("object", []string{"path"}, pathSchema),
+				OutputSchema: objectSchema([]string{"path", "content", "sections", "read_complete", "untrusted"}, map[string]any{
+					"path": stringSchema(), "rel_path": stringSchema(), "kind": stringSchema(), "content": stringSchema(), "bytes": integerSchema(),
+					"sections": arraySchema(objectValueSchema()), "count": integerSchema(), "read_complete": booleanSchema(),
+					"missing_page_indexes": arraySchema(integerSchema()), "untrusted": booleanSchema(),
+				}),
+				// One Fast call per section, plus whole-file OCR of a scanned
+				// file within the upload limit.
+				Risk: app.RiskRead, Idempotent: true, TimeoutMS: 1200000, Sandbox: "forbidden", Audit: "always",
+			},
+			Registration: workflowRegistration(toolRegistration{run: ctxArgsSessionRun((*ToolHub).documentSummarize)},
+				app.ToolCapabilityDocumentSummarize, nil, app.OutcomeAdapterDocumentRetrieval,
+				"Summarize a whole indexed large document section by section.",
+				"Use in a large-document retrieval stage when the request is about the entire document rather than specific passages.",
+				"Do not use for questions that a search and range read answer.", app.ToolEffectWorkspaceRead),
+		},
 	}
 }

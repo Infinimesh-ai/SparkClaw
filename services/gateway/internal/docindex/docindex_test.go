@@ -284,12 +284,13 @@ func TestSweepRemovesIndexesWithoutSources(t *testing.T) {
 	writeSourceFile(t, root, "a.txt", "first source")
 	writeSourceFile(t, root, "b.txt", "second source!")
 	service := NewService(&fakeExtractor{units: bookUnits()})
-	defer service.Close()
 	for _, rel := range []string{"a.txt", "b.txt"} {
 		if _, err := service.Ensure(context.Background(), Target{WorkspaceRoot: root, RelPath: rel, Format: "text"}, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
+	// Each build sweeps in the background after returning; wait for them.
+	service.Close()
 	if err := os.Remove(filepath.Join(root, "a.txt")); err != nil {
 		t.Fatal(err)
 	}
@@ -391,5 +392,27 @@ func TestScannedDocumentIndexLocatesSectionsThenMergesRecognizedPages(t *testing
 	again, err := reloaded.Ensure(context.Background(), target, nil)
 	if err != nil || !slices.Equal(again.Manifest.OCRPages, []int{24, 25}) {
 		t.Fatalf("recognized pages did not persist: %v", err)
+	}
+}
+
+func TestSummaryUnitsFollowTopLevelSectionsAndGroupBeyondTheLimit(t *testing.T) {
+	units := []Unit{{Text: "前言部分介绍本书结构。"}}
+	units = append(units, bookUnits()...)
+	index := newTestIndex(t, units)
+	parts := index.SummaryUnits(16)
+	if len(parts) != 6 || parts[0].ID != "front" || !strings.HasPrefix(parts[1].Title, "第1章") || parts[5].ChunkEnd != len(index.Chunks) {
+		t.Fatalf("summary units = %+v", parts)
+	}
+	if !strings.Contains(index.UnitText(parts[4]), "传输层") && !strings.Contains(index.UnitText(parts[4]), "运输层") {
+		t.Fatalf("unit text does not belong to its chapter: %.80s", index.UnitText(parts[4]))
+	}
+	grouped := index.SummaryUnits(3)
+	if len(grouped) != 3 || grouped[0].ChunkStart != 0 || grouped[2].ChunkEnd != len(index.Chunks) || !strings.Contains(grouped[2].Title, "…") {
+		t.Fatalf("grouped units = %+v", grouped)
+	}
+	flat := newTestIndex(t, []Unit{{Text: strings.Repeat("没有目录的长文本。", 8000)}})
+	windows := flat.SummaryUnits(16)
+	if len(windows) < 2 || windows[0].ChunkStart != 0 || windows[len(windows)-1].ChunkEnd != len(flat.Chunks) {
+		t.Fatalf("outline-less document was not split into windows: %+v", windows)
 	}
 }

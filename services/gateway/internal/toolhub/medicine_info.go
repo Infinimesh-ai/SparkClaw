@@ -46,6 +46,12 @@ func parseMedicineSource(raw string) (medicineSource, error) {
 	return source, nil
 }
 func (h *ToolHub) medicineChat(ctx context.Context, session, run string, op modelcapacity.Operation, system, user string, opts modelrouter.ChatOptions) (modelrouter.ChatResult, error) {
+	return h.recordedFastChat(ctx, session, run, op, system, user, opts)
+}
+
+// recordedFastChat calls the Fast lane for a tool-owned model operation and
+// records the call against the run.
+func (h *ToolHub) recordedFastChat(ctx context.Context, session, run string, op modelcapacity.Operation, system, user string, opts modelrouter.ChatOptions) (modelrouter.ChatResult, error) {
 	started := time.Now().UTC()
 	chat, err := h.models.ChatWithProfileOptions(ctx, op, "fast", system, user, opts)
 	completed := time.Now().UTC()

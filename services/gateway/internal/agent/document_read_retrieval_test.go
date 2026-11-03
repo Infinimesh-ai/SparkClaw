@@ -115,3 +115,39 @@ func TestDocumentEditRefusesALargeDocument(t *testing.T) {
 		}
 	}
 }
+
+func TestDocumentReadSummarizesAWholeLargeDocumentBySection(t *testing.T) {
+	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	writeRetrievalBook(t, session.WorkspaceRoot)
+
+	result, err := runtime.HandleMessage(context.Background(), session.ID, "把 book.md 全文总结一下")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := []string{}
+	for _, call := range testListToolCalls(st, session.ID) {
+		if call.RunID == result.Run.ID {
+			tools = append(tools, call.Tool)
+		}
+	}
+	if strings.Join(tools, ",") != "files.read,document.summarize" || result.Run.Workflow.Status != app.WorkflowStatusSucceeded {
+		t.Fatalf("whole-document request did not summarize by section: tools=%v status=%v", tools, result.Run.Workflow.Status)
+	}
+	projection, err := runtime.workflowFinalEvidence(context.Background(), result.Run, testListToolCalls(st, session.ID), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(projection.modelPayload(), "## 第5章 应用层") {
+		t.Fatal("finalization evidence does not contain the section summaries")
+	}
+}
+
+func TestFailedRetrievalQueryLetsTheStageQueryAgain(t *testing.T) {
+	call := app.ToolCall{ID: "tc_search", Tool: "document.search", Capability: app.ToolCapabilityDocumentSearch, Status: app.ToolCallStatusFailed, Error: `section "n0006" is not in this document outline`}
+	outcome := adaptDocumentRetrievalOutcome(call, documentReadNodeID)
+	assessment := documentReadProfile{}.Assess(nil, outcome)
+	if assessment.Status != app.AssessmentNeedsMoreEvidence {
+		t.Fatalf("a failed retrieval query blocked the node: %+v", assessment)
+	}
+}

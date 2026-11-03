@@ -403,6 +403,9 @@ func mockDocumentRetrievalAction(user, goal, lowerPrompt string) (string, bool) 
 	if !strings.Contains(lowerPrompt, "model-visible tools this workflow stage: ") || !strings.Contains(lowerPrompt, "document.search") {
 		return "", false
 	}
+	if lowerGoal := strings.ToLower(goal); strings.Contains(lowerGoal, "整本") || strings.Contains(lowerGoal, "全文") || strings.Contains(lowerGoal, "whole") {
+		return mockWorkflowStepAction("document.summarize", map[string]any{}), true
+	}
 	if !strings.Contains(user, "document.search keywords=") {
 		return mockWorkflowStepAction("document.search", map[string]any{"keywords": []string{goal}, "top_k": 5}), true
 	}

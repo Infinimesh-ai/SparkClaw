@@ -22,13 +22,16 @@ func applyDocumentScopeToFinalProjection(run app.AgentRun, projection *workflowF
 		}
 	}
 	manifest["continuation_remaining"] = facts[documentReadFactPrefix+"next_cursor"] != ""
-	manifest["model_exposure_complete"] = projection.Coverage.Claim == workflowCoverageComplete
 	manifest["semantic_correctness"] = "not_assessed"
 	if facts[documentReadFactPrefix+"scope_status"] != "complete" {
 		projection.Coverage.Claim = workflowCoveragePartial
 		projection.Coverage.CompleteForConsumer = false
 		projection.Coverage.Omissions = appendUniqueString(projection.Coverage.Omissions, "declared_task_scope_incomplete")
 	}
+	if projection.Coverage.Claim == workflowCoveragePartial {
+		projection.Coverage.CompleteForConsumer = false
+	}
+	manifest["model_exposure_complete"] = projection.Coverage.Claim == workflowCoverageComplete
 	if facts[documentReadFactPrefix+"scope_selector"] != `{"all":true}` {
 		projection.Coverage.Source = workflowCoverageBounded
 	}
@@ -36,24 +39,24 @@ func applyDocumentScopeToFinalProjection(run app.AgentRun, projection *workflowF
 	projection.Evidence = append([]string{"task_scope_manifest: " + string(raw)}, projection.Evidence...)
 }
 
-// Typed values and their dependencies form one semantic object. Never expose
-// a cached formula value while dropping the formula/provenance flags around it.
+// Values and their required context form one semantic object. Headings may
+// carry units or qualifications even when the source node is plain text.
 func scopedDocumentFinalEvidence(output map[string]any, text string, budget int) (string, bool) {
-	typed := false
+	structured := len(anySlice(output["dependencies"])) > 0
 	for _, key := range []string{"nodes", "dependencies"} {
 		for _, raw := range anySlice(output[key]) {
-			if node, ok := anyMap(raw); ok && len(anySlice(node["values"])) > 0 {
-				typed = true
+			if node, ok := anyMap(raw); ok && (len(anySlice(node["values"])) > 0 || len(stringListValue(node["dependencies"])) > 0) {
+				structured = true
 			}
 		}
 	}
-	if !typed {
+	if !structured {
 		projected := sampledDocumentEvidence(text, budget)
 		return projected, projected != text
 	}
 	raw, err := json.Marshal(map[string]any{"nodes": output["nodes"], "dependencies": output["dependencies"], "source_sha256": output["source_sha256"], "structure_generation": output["structure_generation"]})
 	if err != nil || len(raw) > budget {
-		return boundedUTF8Prefix([]byte("[Typed source values and their required context exceed the final model budget and were not projected.]"), max(0, budget)), true
+		return boundedUTF8Prefix([]byte("[Source values and their required context exceed the final model budget and were not projected.]"), max(0, budget)), true
 	}
 	return string(raw), false
 }

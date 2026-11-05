@@ -3,6 +3,7 @@ package toolhub
 import (
 	"encoding/json"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/docindex"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
@@ -24,14 +25,14 @@ func scopedSummaryParts(index *docindex.Index, unit docindex.SummaryUnit, budget
 		end = min(start+1, len(index.Nodes))
 	}
 	nodes := index.Nodes[start:end]
-	typed := false
+	structured := false
 	for _, node := range nodes {
-		if len(node.Values) > 0 {
-			typed = true
+		if len(node.Values) > 0 || len(node.Dependencies) > 0 {
+			structured = true
 			break
 		}
 	}
-	if !typed {
+	if !structured {
 		return splitSummaryText(index.UnitText(unit), budget), nil
 	}
 	parts, missing := []string{}, []string{}
@@ -47,6 +48,7 @@ func scopedSummaryParts(index *docindex.Index, unit docindex.SummaryUnit, budget
 		dependencies := []document.StructureNode{}
 		seen := map[string]bool{node.ID: true}
 		pending := append([]string(nil), node.Dependencies...)
+		dependencyMissing := false
 		for len(pending) > 0 {
 			id := pending[0]
 			pending = pending[1:]
@@ -58,21 +60,69 @@ func scopedSummaryParts(index *docindex.Index, unit docindex.SummaryUnit, budget
 				dependency := index.Nodes[position]
 				dependencies = append(dependencies, dependency)
 				pending = append(pending, dependency.Dependencies...)
+			} else {
+				dependencyMissing = true
 			}
 		}
-		bundle := map[string]any{"node": node, "dependencies": dependencies}
-		raw, _ := json.Marshal([]any{bundle})
-		if len(raw) > budget {
-			missing = append(missing, fmt.Sprintf("%s:node:%s:typed_context_exceeds_budget", unit.ID, node.ID))
+		if dependencyMissing {
+			missing = append(missing, fmt.Sprintf("%s:node:%s:required_dependency_missing", unit.ID, node.ID))
 			continue
 		}
-		candidate := append(append([]any(nil), group...), bundle)
-		raw, _ = json.Marshal(candidate)
-		if len(raw) > budget {
-			flush()
+		bundles, fits := scopedSummaryNodeBundles(node, dependencies, budget)
+		if !fits {
+			missing = append(missing, fmt.Sprintf("%s:node:%s:required_context_exceeds_budget", unit.ID, node.ID))
+			continue
 		}
-		group = append(group, bundle)
+		for _, bundle := range bundles {
+			candidate := append(append([]any(nil), group...), bundle)
+			raw, _ := json.Marshal(candidate)
+			if len(raw) > budget {
+				flush()
+			}
+			group = append(group, bundle)
+		}
 	}
 	flush()
 	return parts, missing
+}
+
+// Text can be continued across parts, but each part retains the full required
+// dependency closure. Typed values stay atomic with their cached-state flags.
+func scopedSummaryNodeBundles(node document.StructureNode, dependencies []document.StructureNode, budget int) ([]any, bool) {
+	bundle := func(start, end int) map[string]any {
+		fragment := node
+		fragment.Text = node.Text[start:end]
+		return map[string]any{"node": fragment, "dependencies": dependencies, "text_byte_start": start, "text_byte_end": end, "whole_node": start == 0 && end == len(node.Text)}
+	}
+	fits := func(value any) bool { raw, err := json.Marshal([]any{value}); return err == nil && len(raw) <= budget }
+	full := bundle(0, len(node.Text))
+	if fits(full) {
+		return []any{full}, true
+	}
+	if len(node.Values) > 0 || node.Text == "" {
+		return nil, false
+	}
+	parts := []any{}
+	for start := 0; start < len(node.Text); {
+		low, high := start+1, min(len(node.Text), start+max(0, budget))
+		best := start
+		for low <= high {
+			mid := low + (high-low)/2
+			if fits(bundle(start, mid)) {
+				best = mid
+				low = mid + 1
+			} else {
+				high = mid - 1
+			}
+		}
+		for best > start && best < len(node.Text) && !utf8.RuneStart(node.Text[best]) {
+			best--
+		}
+		if best == start {
+			return nil, false
+		}
+		parts = append(parts, bundle(start, best))
+		start = best
+	}
+	return parts, true
 }

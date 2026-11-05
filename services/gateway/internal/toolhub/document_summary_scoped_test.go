@@ -129,3 +129,63 @@ func TestScopedSummaryRetainsEmptyFormulaCellsAndDependencies(t *testing.T) {
 		}
 	}
 }
+
+func TestScopedSummaryLateMarkdownUnitKeepsHeadingDependencies(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "fees.md")
+	if err := os.WriteFile(path, []byte("# Fee amount (EUR)\n\n"+strings.Repeat("12\n\n", 100)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := configtest.MustLoadDefault()
+	cfg.Workspaces.DefaultRoot, cfg.Workspaces.Allowlist = root, []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+	defer hub.Close()
+	index, _, err := hub.ensureDocumentIndex(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	units := index.SummaryUnits(documentSummaryMaxUnits)
+	if len(units) < 2 {
+		t.Fatalf("fixture did not create multiple summary units: %d", len(units))
+	}
+	last := units[len(units)-1]
+	if strings.Contains(index.UnitText(last), "EUR") {
+		t.Fatal("fixture already contains heading in last window")
+	}
+	parts, missing := scopedSummaryParts(index, last, 1200)
+	if len(parts) == 0 || len(missing) > 0 {
+		t.Fatalf("lost late text nodes: parts=%d missing=%v", len(parts), missing)
+	}
+	for _, part := range parts {
+		if !strings.Contains(part, "Fee amount (EUR)") || len(part) > 1200 {
+			t.Fatalf("late summary input lost required unit heading: %s", part)
+		}
+	}
+	parts, missing = scopedSummaryParts(index, last, 100)
+	if len(parts) != 0 || len(missing) == 0 {
+		t.Fatalf("budget omitted dependencies without reporting missing scope: parts=%v missing=%v", parts, missing)
+	}
+}
+
+func TestScopedSummaryLongTextFragmentsRetainRequiredContext(t *testing.T) {
+	text := strings.Repeat("报价12。\n", 100) + "LATE_EXCEPTION"
+	node := document.StructureNode{ID: "paragraph", Text: text, Dependencies: []string{"heading"}}
+	dependencies := []document.StructureNode{{ID: "heading", Text: "Fee amount (EUR)"}}
+	bundles, complete := scopedSummaryNodeBundles(node, dependencies, 600)
+	if !complete || len(bundles) < 2 {
+		t.Fatalf("long text was not traversed: complete=%v parts=%d", complete, len(bundles))
+	}
+	var joined strings.Builder
+	for _, raw := range bundles {
+		bundle := raw.(map[string]any)
+		fragment := bundle["node"].(document.StructureNode)
+		encoded, _ := json.Marshal([]any{bundle})
+		if len(encoded) > 600 || !strings.Contains(string(encoded), "Fee amount (EUR)") {
+			t.Fatalf("fragment exceeds budget or drops dependency: %s", encoded)
+		}
+		joined.WriteString(fragment.Text)
+	}
+	if joined.String() != text {
+		t.Fatal("text traversal lost source bytes or late exception")
+	}
+}

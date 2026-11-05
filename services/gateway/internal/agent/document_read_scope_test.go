@@ -278,3 +278,22 @@ func TestScopedFinalProjectionKeepsFormulaAndCachedStateAtomic(t *testing.T) {
 		t.Fatalf("partial typed value escaped: %s", bounded)
 	}
 }
+
+func TestScopedFinalProjectionRetainsPlainTextRequiredUnitContext(t *testing.T) {
+	state := scopedReadState()
+	state.Route.Facts[documentReadFactPrefix+"scope_status"] = "complete"
+	state.Route.Facts[documentReadFactPrefix+"scope_selector"] = `{"node_ids":["amount"]}`
+	output := map[string]any{"content": "12", "source_sha256": "source", "structure_generation": "gen", "read_complete": true,
+		"nodes":        []any{map[string]any{"id": "amount", "text": "12", "dependencies": []string{"heading"}}},
+		"dependencies": []any{map[string]any{"id": "heading", "text": "Fee amount (EUR)"}}}
+	calls := []app.ToolCall{{ID: "read", Tool: "document.read_range", Capability: app.ToolCapabilityDocumentReadRange, Status: app.ToolCallStatusCompleted, Result: output}}
+	full := buildWorkflowFinalEvidenceProjection(app.AgentRun{ID: "run", Workflow: state}, calls, nil, nil, 4096)
+	if !strings.Contains(full.modelPayload(), "Fee amount (EUR)") || full.Coverage.Claim != workflowCoverageComplete || !full.Coverage.CompleteForConsumer {
+		t.Fatalf("plain-text value lost its required unit context: %s", full.modelPayload())
+	}
+	partial := buildWorkflowFinalEvidenceProjection(app.AgentRun{ID: "run", Workflow: state}, calls, nil, nil, 100)
+	payload := partial.modelPayload()
+	if partial.Coverage.Claim != workflowCoveragePartial || partial.Coverage.CompleteForConsumer || !strings.Contains(payload, `"model_exposure_complete":false`) || strings.Contains(payload, "evenly_spaced_windows") || strings.Contains(payload, `"text":"12"`) {
+		t.Fatalf("omitted context advertised complete or sampled exposure: coverage=%#v payload=%s", partial.Coverage, payload)
+	}
+}

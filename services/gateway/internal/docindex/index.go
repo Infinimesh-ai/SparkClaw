@@ -19,6 +19,7 @@ const (
 // Index is a loaded, queryable document index.
 type Index struct {
 	AccessScope  string
+	Acquisition  string
 	cursorSecret string
 	Structure    document.StructureManifest
 	Nodes        []document.StructureNode

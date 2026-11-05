@@ -15,9 +15,9 @@ import (
 const (
 	// SchemaVersion changes when the persisted layout changes.
 	SchemaVersion = 2
-	// BuilderVersion changes when chunking or tokenization changes, so older
-	// indexes are rebuilt instead of mixed with new ones.
-	BuilderVersion = "docindex_structure_bm25_v2"
+	// BuilderVersion changes when extraction guarantees, chunking or tokenization
+	// change, so older indexes are rebuilt instead of mixed with new ones.
+	BuilderVersion = "docindex_structure_bm25_v3"
 )
 
 // State is the lifecycle state recorded in an index manifest.
@@ -133,3 +133,13 @@ type SourceInfo struct {
 type Extractor interface {
 	Extract(ctx context.Context, path, format string, emit func(Unit) error) (SourceInfo, error)
 }
+
+// Acquisition describes this call only; it is not part of canonical source
+// identity, persisted parser output or cursor generation.
+const (
+	AcquisitionMemoryCache = "memory_cache"
+	AcquisitionDiskCache   = "disk_cache"
+	AcquisitionBuilt       = "built"
+	AcquisitionSharedBuild = "shared_build"
+	AcquisitionRebuilt     = "rebuilt"
+)

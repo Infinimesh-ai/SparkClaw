@@ -7,8 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"os"
 	"sync"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/docindex"
@@ -79,10 +77,14 @@ func (h *ToolHub) recognizeDocumentPages(ctx context.Context, metadata document.
 // configured OCR concurrency. Pages that fail or yield no usable text are
 // left out of the result.
 func (h *ToolHub) recognizePageBatch(ctx context.Context, metadata document.Metadata, sourceSHA256, ownerID string, batch []int) (map[int]string, error) {
-	if err := verifyIndexSource(metadata.Path, sourceSHA256); err != nil {
-		return nil, err
-	}
-	out, err := runPythonAdapter(ctx, pdfIndexAdapterScript, map[string]any{"operation": "render", "path": metadata.Path, "pages": batch})
+	target := h.documentIndexTarget(metadata)
+	target.SourceSHA256 = sourceSHA256
+	var out map[string]any
+	err := docindex.WithSourceSnapshot(ctx, target, func(snapshotCtx context.Context, snapshotPath string) error {
+		var err error
+		out, err = runPythonAdapter(snapshotCtx, pdfIndexAdapterScript, map[string]any{"operation": "render", "path": snapshotPath, "pages": batch})
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("render scanned pages: %w", err)
 	}
@@ -124,9 +126,6 @@ func (h *ToolHub) recognizePageBatch(ctx context.Context, metadata document.Meta
 		}()
 	}
 	wait.Wait()
-	if err := verifyIndexSource(metadata.Path, sourceSHA256); err != nil {
-		return nil, err
-	}
 	return texts, nil
 }
 
@@ -135,19 +134,4 @@ func (h *ToolHub) documentIndexTarget(metadata document.Metadata) docindex.Targe
 	raw, _ := json.Marshal([]any{cfg.Enabled, cfg.Provider, cfg.Model, cfg.BaseURL, documentOCRPromptContractVersion, documentIndexOCRPreprocessing, documentOCROutputNormalizationVersion})
 	digest := sha256.Sum256(raw)
 	return docindex.Target{WorkspaceRoot: h.cfg.Workspaces.DefaultRoot, RelPath: metadata.Relative, Format: metadata.Format, SourceSHA256: metadata.SHA256, EnrichmentVersion: hex.EncodeToString(digest[:])}
-}
-func verifyIndexSource(path, expected string) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	digest := sha256.New()
-	if _, err := io.Copy(digest, file); err != nil {
-		return err
-	}
-	if hex.EncodeToString(digest.Sum(nil)) != expected {
-		return fmt.Errorf("document source changed during OCR")
-	}
-	return nil
 }

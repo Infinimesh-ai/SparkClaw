@@ -2,12 +2,9 @@ package docindex
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -154,7 +151,9 @@ func (s *Service) CacheRecognizedPages(target Target, pages map[int]string) erro
 	if err != nil {
 		return err
 	}
-	sum, _, err := fileSHA256(path)
+	hashCtx, cancel := context.WithTimeout(s.ctx, 5*time.Minute)
+	defer cancel()
+	sum, _, err := fileSHA256Context(hashCtx, path, MaxSourceBytes)
 	if err != nil {
 		return err
 	}
@@ -185,12 +184,9 @@ func (s *Service) build(ctx context.Context, target Target, prebuild *Prebuild, 
 	if err != nil {
 		return nil, err
 	}
-	sum, size, err := fileSHA256(path)
+	sum, size, err := fileSHA256Context(ctx, path, MaxSourceBytes)
 	if err != nil {
 		return nil, err
-	}
-	if size > MaxSourceBytes {
-		return nil, errors.New("document source exceeds structure admission")
 	}
 	if target.SourceSHA256 != "" && target.SourceSHA256 != sum {
 		return nil, errors.New("document source version changed")
@@ -203,7 +199,7 @@ func (s *Service) build(ctx context.Context, target Target, prebuild *Prebuild, 
 			if cached := s.cachedLocked(dir); cached != nil && cached.Manifest.Format == target.Format && cached.Manifest.EnrichmentVersion == target.EnrichmentVersion {
 				cached = s.touchCachedLocked(dir, cached, target.RelPath)
 				s.mu.Unlock()
-				return bindIndex(cached, target), nil
+				return bindIndex(cached, target, AcquisitionMemoryCache), nil
 			}
 		}
 		call, inFlight := s.builds[dir]
@@ -212,7 +208,7 @@ func (s *Service) build(ctx context.Context, target Target, prebuild *Prebuild, 
 			if !force {
 				if index, ok := s.loadReadyLocked(dir, target); ok {
 					s.mu.Unlock()
-					return bindIndex(index, target), nil
+					return bindIndex(index, target, AcquisitionDiskCache), nil
 				}
 			}
 			if s.closed {
@@ -240,7 +236,14 @@ func (s *Service) build(ctx context.Context, target Target, prebuild *Prebuild, 
 				force = true
 				continue
 			}
-			return bindIndex(call.index, target), call.err
+			acquisition := AcquisitionSharedBuild
+			if started {
+				acquisition = AcquisitionBuilt
+				if force {
+					acquisition = AcquisitionRebuilt
+				}
+			}
+			return bindIndex(call.index, target, acquisition), call.err
 		}
 	}
 }
@@ -286,7 +289,7 @@ func (s *Service) run(call *buildCall, dir string, target Target, sum string, si
 	}
 }
 
-func (s *Service) buildIndex(dir string, target Target, sum string, size int64, prebuild *Prebuild, reuseSource bool) (*Index, error) {
+func (s *Service) buildIndex(dir string, target Target, sum string, size int64, prebuild *Prebuild, reuseSource bool) (result *Index, resultErr error) {
 	buildCtx, cancel := context.WithTimeout(s.ctx, 5*time.Minute)
 	defer cancel()
 	previous, _, _ := readManifest(dir)
@@ -297,18 +300,15 @@ func (s *Service) buildIndex(dir string, target Target, sum string, size int64, 
 		Attempts: previous.Attempts + 1, UpdatedAt: now, LastUsedAt: now,
 	}
 	// Every size shares the same published build and retry lifecycle.
-	published := true
-	if published {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return nil, err
-		}
-		if err := writeManifest(dir, manifest); err != nil {
-			return nil, err
-		}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, err
+	}
+	if err := writeManifest(dir, manifest); err != nil {
+		return nil, err
 	}
 	fail := func(buildErr error) (*Index, error) {
 		// Failed acquisition is explicit; an on-demand call may retry it.
-		if published && os.MkdirAll(dir, 0o700) == nil {
+		if os.MkdirAll(dir, 0o700) == nil {
 			manifest.State, manifest.Error, manifest.UpdatedAt = StateFailed, buildErr.Error(), s.now().UTC()
 			_ = writeManifest(dir, manifest)
 		}
@@ -320,9 +320,26 @@ func (s *Service) buildIndex(dir string, target Target, sum string, size int64, 
 			source, reused = stored, true
 		}
 	}
+	sourcePath, err := targetPath(target)
+	if err != nil {
+		return fail(err)
+	}
 	if !reused {
+		snapshot, err := snapshotSource(buildCtx, sourcePath, dir, sum, size)
+		if err != nil {
+			return fail(err)
+		}
+		defer func() {
+			if cleanupErr := snapshot.Close(); cleanupErr != nil {
+				result = nil
+				resultErr = errors.Join(resultErr, fmt.Errorf("clean document parser snapshot: %w", cleanupErr))
+				manifest.State = StateFailed
+				manifest.Error = resultErr.Error()
+				_ = writeManifest(dir, manifest)
+			}
+		}()
 		extractedBytes := 0
-		info, err := s.extractor.Extract(buildCtx, filepath.Join(target.WorkspaceRoot, target.RelPath), target.Format, func(unit Unit) error {
+		info, err := s.extractor.Extract(buildCtx, snapshot.Path, target.Format, func(unit Unit) error {
 			raw, _ := json.Marshal(unit)
 			extractedBytes += len(raw)
 			if len(source.Units) >= MaxSourceUnits || extractedBytes > MaxExtractedBytes {
@@ -341,10 +358,20 @@ func (s *Service) buildIndex(dir string, target Target, sum string, size int64, 
 			return fail(errors.New("document pages exceed structure admission"))
 		}
 		source.Info = info
-	}
-	verified, verifiedSize, verifyErr := fileSHA256(filepath.Join(target.WorkspaceRoot, target.RelPath))
-	if verifyErr != nil || verified != sum || verifiedSize != size {
-		return fail(errors.New("document source changed during structure extraction"))
+		if err := snapshot.Verify(buildCtx); err != nil {
+			return fail(err)
+		}
+		if err := snapshot.Close(); err != nil {
+			return fail(fmt.Errorf("clean document parser snapshot: %w", err))
+		}
+	} else {
+		verified, verifiedSize, verifyErr := fileSHA256Context(buildCtx, sourcePath, MaxSourceBytes)
+		if verifyErr != nil {
+			return fail(verifyErr)
+		}
+		if verified != sum || verifiedSize != size {
+			return fail(errors.New("document source changed during structure extraction"))
+		}
 	}
 	recognized, ocrBytes, err := readOCRPages(dir, sum, target.EnrichmentVersion)
 	if err != nil {
@@ -369,7 +396,6 @@ func (s *Service) buildIndex(dir string, target Target, sum string, size int64, 
 		return fail(errors.New("document has no extractable text"))
 	}
 	keywords := buildKeywordIndex(chunks)
-	published = true
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fail(err)
 	}
@@ -442,20 +468,6 @@ func (s *Service) rememberLocked(dir string, index *Index) {
 	}
 }
 
-func fileSHA256(path string) (string, int64, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", 0, err
-	}
-	defer file.Close()
-	hash := sha256.New()
-	size, err := io.Copy(hash, file)
-	if err != nil {
-		return "", 0, err
-	}
-	return hex.EncodeToString(hash.Sum(nil)), size, nil
-}
-
 func targetPath(target Target) (string, error) {
 	if !filepath.IsAbs(target.WorkspaceRoot) || filepath.IsAbs(target.RelPath) {
 		return "", errors.New("document target must be workspace-relative")
@@ -475,11 +487,12 @@ func targetPath(target Target) (string, error) {
 	return path, nil
 }
 
-func bindIndex(index *Index, target Target) *Index {
+func bindIndex(index *Index, target Target, acquisition string) *Index {
 	if index == nil {
 		return nil
 	}
 	copy := *index
+	copy.Acquisition = acquisition
 	root, _ := filepath.EvalSymlinks(target.WorkspaceRoot)
 	copy.AccessScope = structureHash([]string{root, filepath.Clean(target.RelPath)})
 	return &copy

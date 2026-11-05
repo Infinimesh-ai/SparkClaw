@@ -140,6 +140,9 @@ func (mutatingExtractor) Extract(_ context.Context, path, _ string, emit func(Un
 	if err := emit(Unit{Text: "old version"}); err != nil {
 		return SourceInfo{}, err
 	}
+	if err := os.Chmod(path, 0600); err != nil {
+		return SourceInfo{}, err
+	}
 	return SourceInfo{}, os.WriteFile(path, []byte("new version"), 0600)
 }
 func TestStructureRejectsSourceMutationBeforePublishing(t *testing.T) {
@@ -150,6 +153,10 @@ func TestStructureRejectsSourceMutationBeforePublishing(t *testing.T) {
 	defer service.Close()
 	if _, err := service.Ensure(t.Context(), Target{WorkspaceRoot: root, RelPath: "source.txt", Format: "text"}, nil); err == nil || !strings.Contains(err.Error(), "changed") {
 		t.Fatalf("mixed source accepted %v", err)
+	}
+	original, readErr := os.ReadFile(filepath.Join(root, "source.txt"))
+	if readErr != nil || string(original) != "old version" {
+		t.Fatal("parser modified governed original", readErr)
 	}
 	manifest, ok, _ := readManifest(Dir(root, old))
 	if ok && manifest.State.Usable() {

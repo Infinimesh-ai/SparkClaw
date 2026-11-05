@@ -221,6 +221,15 @@ func TestServiceBuildsOncePersistsAndReloads(t *testing.T) {
 	if extractor.calls.Load() != 1 || waited.Load() != 3 {
 		t.Fatalf("extractor calls=%d waiting callbacks=%d, want 1 and 3", extractor.calls.Load(), waited.Load())
 	}
+	counts := map[string]int{}
+	for _, result := range results {
+		if result != nil {
+			counts[result.Acquisition]++
+		}
+	}
+	if counts[AcquisitionBuilt] != 1 || counts[AcquisitionSharedBuild] != 2 {
+		t.Fatalf("shared build attribution = %v", counts)
+	}
 	if results[0] == nil || results[0].Manifest.State != StateReady || results[0].Manifest.Chunks != len(results[0].Chunks) {
 		t.Fatalf("built index is not ready: %+v", results[0])
 	}

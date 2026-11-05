@@ -124,6 +124,36 @@ func TestModelCaptureUnboundTransportPassesRequestAndBodyThrough(t *testing.T) {
 	}
 }
 
+func TestModelCaptureRequiresStreamCompletionUnlessCanceled(t *testing.T) {
+	for _, done := range []bool{false, true} {
+		t.Run(strconv.FormatBool(done), func(t *testing.T) {
+			fixture := newModelCaptureFixture(t, executionevidence.Options{})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\n")
+				if done {
+					_, _ = io.WriteString(w, "data: [DONE]\n\n")
+				}
+			}))
+			defer server.Close()
+			cfg := configtest.MustLoadDefault()
+			cfg.Model.Mock = false
+			cfg.Model.Fast.BaseURL = server.URL
+			result, err := New(cfg).ChatStreamWithProfile(fixture.ctx, modelcapacity.OperationConversationAnswer, "fast", "system", "question", nil)
+			if err != nil || result.Content != "answer" {
+				t.Fatalf("stream behavior changed: %#v %v", result, err)
+			}
+			if err := fixture.recorder.Seal(t.Context(), fixture.scope, "completed"); err != nil {
+				t.Fatal(err)
+			}
+			manifest, err := fixture.recorder.Read(t.Context(), fixture.scope)
+			if err != nil || manifest.Capture.Complete != done || len(manifest.Capture.OpenSpans) != 0 {
+				t.Fatalf("stream completion boundary lost: done=%v capture=%#v %v", done, manifest.Capture, err)
+			}
+		})
+	}
+}
+
 type captureTestTransport func(*http.Request) (*http.Response, error)
 
 func (f captureTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

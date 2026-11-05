@@ -169,6 +169,7 @@ func (b *capturedResponseBody) record() {
 		// Adapters may intentionally leave error bodies unread. Do not drain them
 		// or persist arbitrary error text that could echo authorization material.
 		data["response_body_omitted"] = "http_error_body"
+		captureFailure(b.ctx, b.span, "model_http_error_body_omitted")
 	}
 	if b.readErr != nil && !errors.Is(b.readErr, io.EOF) {
 		status, code = "failed", "model_response_read_failed"
@@ -176,6 +177,7 @@ func (b *capturedResponseBody) record() {
 	if b.ctx.Err() != nil {
 		status, code = "cancelled", captureErrorCode(b.ctx.Err())
 	}
+	b.recordTermination(data)
 	var refs []string
 	if b.bytes > maxCapturedHTTPBytes {
 		captureFailure(b.ctx, b.span, "model_response_capture_limit")
@@ -188,6 +190,35 @@ func (b *capturedResponseBody) record() {
 		Status: status, ErrorCode: code, Attempt: b.attempt, PayloadIDs: refs, Data: data,
 		DurationMS: time.Since(b.started).Milliseconds(),
 	})
+}
+
+// A canceled operation can have complete evidence of its observed prefix.
+// Without cancellation, an unexplained early close leaves an evidence gap.
+func (b *capturedResponseBody) recordTermination(data map[string]any) {
+	complete := errors.Is(b.readErr, io.EOF)
+	termination := "eof"
+	if b.stream {
+		value, _ := capturedStreamResponse(b.buffer.Bytes())
+		complete, _ = value.(map[string]any)["done_received"].(bool)
+		termination = "stream_done"
+	}
+	if b.ctx.Err() != nil {
+		complete = false
+		termination = "canceled"
+		if errors.Is(b.ctx.Err(), context.DeadlineExceeded) {
+			termination = "deadline_exceeded"
+		}
+	} else if b.readErr != nil && !errors.Is(b.readErr, io.EOF) {
+		complete, termination = false, "read_error"
+		captureFailure(b.ctx, b.span, "model_response_read_incomplete")
+	} else if !complete {
+		termination = "closed_before_completion"
+		captureFailure(b.ctx, b.span, "model_response_terminated_early")
+	}
+	if b.status < 200 || b.status >= 300 {
+		complete, termination = false, "http_error_body_omitted"
+	}
+	data["response_complete"], data["termination"] = complete, termination
 }
 
 func (b *capturedResponseBody) captureResponse(data map[string]any) []string {

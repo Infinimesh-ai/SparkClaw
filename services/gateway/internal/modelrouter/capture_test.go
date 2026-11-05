@@ -127,6 +127,11 @@ func TestModelCaptureKeepsPartialStreamWhenConsumerCancels(t *testing.T) {
 		t.Fatalf("partial provider stream not identified: %s", response)
 	}
 	fixture.assertAbsent(t, "hidden-stream-thought")
+	for _, event := range fixture.events(t) {
+		if event.Kind == "model.http.finished" && (event.Data["response_complete"] != false || event.Data["termination"] != "canceled") {
+			t.Fatalf("cancellation boundary missing: %#v", event.Data)
+		}
+	}
 }
 
 func TestModelCaptureFailureDoesNotRetryOrChangeAnswer(t *testing.T) {
@@ -197,7 +202,13 @@ func TestModelCaptureGuardFallbackRetainsFailedTransport(t *testing.T) {
 	if err != nil || !result.Mock || result.CaptureID == "" {
 		t.Fatalf("guard fallback changed: %#v %v", result, err)
 	}
-	fixture.finish(t, "completed")
+	if err := fixture.recorder.Seal(t.Context(), fixture.scope, "completed"); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := fixture.recorder.Read(t.Context(), fixture.scope)
+	if err != nil || manifest.Capture.Complete || len(manifest.Capture.Gaps) == 0 || len(manifest.Capture.OpenSpans) != 0 {
+		t.Fatalf("omitted error body must leave a closed diagnostic capture: %#v %v", manifest.Capture, err)
+	}
 	fixture.assertAbsent(t, "sensitive-provider-error-text")
 	found := false
 	for _, event := range fixture.events(t) {

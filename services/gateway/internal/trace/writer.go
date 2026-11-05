@@ -10,6 +10,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/executionevidence"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 )
 
@@ -17,6 +18,7 @@ type Writer struct {
 	dir            string
 	artifacts      artifact.Store
 	redactPatterns []string
+	evidence       *executionevidence.Recorder
 }
 
 type RunTrace struct {
@@ -34,7 +36,8 @@ type RunTrace struct {
 
 func NewWriter(dir string) *Writer {
 	cfg := config.Default()
-	return &Writer{dir: dir, redactPatterns: traceRedactPatterns(cfg)}
+	cfg.Storage.TraceDir = dir
+	return &Writer{dir: dir, redactPatterns: traceRedactPatterns(cfg), evidence: NewExecutionEvidenceRecorder(dir, cfg)}
 }
 
 func NewWriterFromConfig(cfg config.Config) *Writer {
@@ -42,6 +45,7 @@ func NewWriterFromConfig(cfg config.Config) *Writer {
 		dir:            cfg.Storage.TraceDir,
 		artifacts:      artifact.NewStore(cfg.Storage),
 		redactPatterns: traceRedactPatterns(cfg),
+		evidence:       NewExecutionEvidenceRecorder(cfg.Storage.TraceDir, cfg),
 	}
 }
 

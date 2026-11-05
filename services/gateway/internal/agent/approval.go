@@ -36,6 +36,10 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 		return app.ToolCall{}, fmt.Errorf("approval cannot execute from status %q", persistedApproval.Status)
 	}
 	approval = persistedApproval
+	if run, found, runErr := r.store.GetRun(ctx, call.RunID); runErr == nil && found {
+		ctx = r.executionEvidenceContext(ctx, run)
+	}
+	r.recordEvidenceApproval(ctx, approval)
 	if call.Status != app.ToolCallStatusApprovalPending {
 		return app.ToolCall{}, fmt.Errorf("tool call cannot execute from status %q", call.Status)
 	}
@@ -188,6 +192,7 @@ func (r Runtime) ExecuteApprovedToolCall(ctx context.Context, approval app.Appro
 		return call, nil
 	}
 	call.Status = app.ToolCallStatusRunningAfterApproval
+	execCtx = r.beginEvidenceToolCall(execCtx, call)
 	if _, err := r.saveToolCall(ctx, call); err != nil {
 		return app.ToolCall{}, fmt.Errorf("persist running approved tool call: %w", err)
 	}
@@ -286,7 +291,11 @@ func (r Runtime) CompleteRunIfApprovalsResolved(ctx context.Context, runID strin
 
 func (r Runtime) saveApproval(ctx context.Context, approval app.Approval) (app.Approval, error) {
 	candidate, err := r.store.SaveApproval(ctx, approval)
-	return store.ReconcileApprovalWrite(ctx, r.store, candidate, err)
+	saved, err := store.ReconcileApprovalWrite(ctx, r.store, candidate, err)
+	if err == nil {
+		r.recordEvidenceApproval(ctx, saved)
+	}
+	return saved, err
 }
 
 func (r Runtime) observationSummaryLimit() int {

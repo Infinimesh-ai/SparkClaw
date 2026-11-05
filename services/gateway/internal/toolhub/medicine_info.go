@@ -56,6 +56,9 @@ func (h *ToolHub) recordedFastChat(ctx context.Context, session, run string, op 
 	chat, err := h.models.ChatWithProfileOptions(ctx, op, "fast", system, user, opts)
 	completed := time.Now().UTC()
 	record := app.ModelCall{ID: app.NewID("mcall"), SessionID: session, RunID: run, Operation: string(op), Lane: chat.Lane, Profile: chat.Profile, Model: chat.Model, Mock: chat.Mock, Status: app.ModelCallStatusCompleted, PromptTokens: chat.PromptTokens, ResponseTokens: chat.ResponseTokens, TotalTokens: chat.TotalTokens, LatencyMS: completed.Sub(started).Milliseconds(), StartedAt: started, CompletedAt: &completed}
+	if chat.CaptureID != "" {
+		record.ID = chat.CaptureID
+	}
 	if err != nil {
 		record.Status = app.ModelCallStatusFailed
 		record.Error = err.Error()

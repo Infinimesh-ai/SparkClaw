@@ -49,6 +49,7 @@ func (r Runtime) FailInterruptedRuns(ctx context.Context) (int, error) {
 				ID: app.NewID("audit"), Time: now, Type: "run.interrupted_by_restart", SessionID: run.SessionID, RunID: run.ID,
 				Actor: "agent", Summary: "Marked a run left executing by a previous gateway process as failed",
 			})
+			r.recordEvidenceInterruptedRun(ctx, run)
 			failed++
 		}
 	}

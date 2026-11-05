@@ -237,6 +237,9 @@ func (h *ToolHub) parseDocumentOCR(ctx context.Context, input documentocr.Reques
 	started := time.Now().UTC()
 	modelCallID := app.NewID("mcall")
 	result, callErr := lease.parse(input)
+	if result.CaptureID != "" {
+		modelCallID = result.CaptureID
+	}
 	completed := time.Now().UTC()
 	status := documentOCRResultStatus(result, callErr)
 	reasonCode := documentOCRReasonCode(result, callErr)

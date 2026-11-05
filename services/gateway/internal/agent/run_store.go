@@ -8,7 +8,11 @@ import (
 )
 
 func (r Runtime) saveRun(ctx context.Context, run app.AgentRun) (app.AgentRun, error) {
-	return saveRunRecord(ctx, r.store, run)
+	saved, err := saveRunRecord(ctx, r.store, run)
+	if err == nil {
+		r.recordEvidenceRun(ctx, saved)
+	}
+	return saved, err
 }
 
 func saveRunRecord(ctx context.Context, repository store.RunRepository, run app.AgentRun) (app.AgentRun, error) {
@@ -20,7 +24,11 @@ func saveRunRecord(ctx context.Context, repository store.RunRepository, run app.
 }
 
 func (r Runtime) saveToolCall(ctx context.Context, call app.ToolCall) (app.ToolCall, error) {
-	return saveToolCallRecord(ctx, r.store, call)
+	saved, err := saveToolCallRecord(ctx, r.store, call)
+	if err == nil {
+		r.recordEvidenceToolCall(ctx, saved)
+	}
+	return saved, err
 }
 
 func saveToolCallRecord(ctx context.Context, repository store.RunRepository, call app.ToolCall) (app.ToolCall, error) {

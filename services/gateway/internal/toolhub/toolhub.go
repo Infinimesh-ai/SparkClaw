@@ -122,6 +122,7 @@ func (h *ToolHub) addAudit(ctx context.Context, event app.AuditEvent) {
 	if err := h.store.AddAudit(context.WithoutCancel(ctx), event); err != nil {
 		slog.Warn("toolhub audit unavailable", "type", event.Type, "run_id", event.RunID, "code", store.StoreErrorCodeOf(err))
 	}
+	recordToolAuditEvidence(ctx, event)
 }
 
 type DynamicToolOrigin struct {
@@ -493,14 +494,18 @@ func (h *ToolHub) Execute(ctx context.Context, name string, args map[string]any,
 			return Result{}, &app.CodedToolError{Code: app.ToolErrorResourceUnavailable, Err: err}
 		}
 	}
+	ctx, finishEvidence := beginToolEvidence(ctx, name, args)
 	result, err := executor(h, ctx, name, args, sessionID, runID)
+	if finishEvidence != nil {
+		defer func() { finishEvidence(result, err) }()
+	}
 	if err != nil {
 		if cause := integrationCredentialChangeCause(ctx); cause != nil {
 			return result, cause
 		}
 		return result, err
 	}
-	if err := validateOutput(def, result.Output); err != nil {
+	if err = validateOutput(def, result.Output); err != nil {
 		return Result{}, err
 	}
 	return result, nil

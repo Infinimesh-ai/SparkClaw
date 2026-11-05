@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/executionevidence"
 )
 
 const workflowEvidenceProjectionRecordSchema = "workflow_evidence_projection_record_v1"
@@ -134,6 +135,10 @@ func (r Runtime) recordWorkflowEvidenceProjection(ctx context.Context, run app.A
 		Summary:   "Created a consumer-scoped model evidence projection",
 		Fields:    fields,
 	})
+	r.captureEvidence(ctx, executionevidence.Event{Kind: "model.projection", Status: "projected",
+		NodeID: string(input.Consumer.NodeID), Stage: input.Consumer.Stage,
+		Data: map[string]any{"projection_id": record.ProjectionID, "operation": input.ModelOperation}},
+		"projection", record.ProjectionID, map[string]any{"record": record, "payload": input.Payload})
 
 	return record
 }

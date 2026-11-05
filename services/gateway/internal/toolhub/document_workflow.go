@@ -15,7 +15,14 @@ func newDocumentPipeline(hub *ToolHub) *document.Pipeline {
 	limit := hub.documentExtractionLimit()
 	strategy := document.NewSmallFileStrategy(providers.parsers(), providers.editors())
 	strategy.MaxExtractedBytes = limit
-	return document.NewPipeline(document.InspectorFunc(document.InspectFile), strategy).WithMaxExtractedBytes(limit).WithEnrichers(
+	inspect := document.InspectorFunc(func(ctx context.Context, root, path string) (document.Metadata, error) {
+		metadata, err := document.InspectFile(ctx, root, path)
+		if err == nil {
+			hub.recordDocumentEvidenceSource(ctx, metadata)
+		}
+		return metadata, err
+	})
+	return document.NewPipeline(inspect, strategy).WithMaxExtractedBytes(limit).WithEnrichers(
 		&ovisDocumentOCREnricher{hub: hub},
 		&fastDocumentImageEnricher{hub: hub},
 	)

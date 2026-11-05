@@ -742,7 +742,7 @@ func isSemanticWordByte(value byte) bool {
 
 func modelCallFromEmbedding(sessionID, runID, operation string, result modelrouter.EmbeddingResult, err error, started, completed time.Time) app.ModelCall {
 	return app.ModelCall{
-		ID: app.NewID("mcall"), SessionID: sessionID, RunID: runID, Lane: firstNonEmptyString(result.Lane, "embedding"),
+		ID: firstNonEmptyString(result.CaptureID, app.NewID("mcall")), SessionID: sessionID, RunID: runID, Lane: firstNonEmptyString(result.Lane, "embedding"),
 		Profile: firstNonEmptyString(result.Profile, "unknown"), Model: firstNonEmptyString(result.Model, "unknown"), Operation: operation,
 		Mock: result.Mock, Status: modelCallStatus(err), PromptTokens: result.PromptTokens, TotalTokens: result.TotalTokens,
 		LatencyMS: completed.Sub(started).Milliseconds(), Error: modelCallError(err), StartedAt: started, CompletedAt: &completed,

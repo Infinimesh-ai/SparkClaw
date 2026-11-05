@@ -13,7 +13,7 @@ The application does not invoke a reviewing model, assign semantic quality
 scores, choose a reviewer, or automatically submit evidence externally.
 
 Owner scope confirmation, 2026-11-05: the initial implementation excludes local
-editing of large documents. Each task records its execution chain automatically;
+editing of large documents. Tasks admitted to internal evaluation record their execution chain;
 a ready-to-deliver report/archive is generated only on demand, not at every
 task completion. Existing supported editing remains available.
 
@@ -249,6 +249,17 @@ step for read-only structural access or evidence recording.
 
 ## 7. Per-Execution Evidence Recording
 
+Owner clarification, 2026-11-05: evaluation is an internal tool and must not add
+client transfer, UI, or ordinary interaction overhead. Recording is opt-in via
+`storage.execution_evidence.enabled` (default `false`). When enabled in an
+internal host evaluation environment, the trace root's private `document-evidence/`
+directory holds bounded run evidence. Normal desktop/ISCP executions do not
+inherit this recorder, return evaluation attachments, or retain content on the
+server. Evaluate those document operations through the same runtime in an
+explicitly configured internal environment; do not weaken their content cleanup
+contract to collect samples. Disabled runs have no evaluation evidence and
+cannot later be reconstructed as complete captures.
+
 ### 7.1 Coverage Of The Recorder
 
 Capture all admitted document read/edit runs, including clarification, binding
@@ -319,7 +330,7 @@ gap, and the exporter must not silently use the current file at the old path.
 
 ### 8.1 Delivery Format
 
-Each run receives a local evidence manifest automatically. Task completion seals
+Each run admitted to internal evaluation receives a local manifest. Task completion seals
 the execution record but does not generate a delivery report or ZIP. When the
 owner requests an export, the controlled exporter generates `report.md` and
 materializes one file, `document-evaluation-<run_id>.zip`, from that frozen run.

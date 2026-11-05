@@ -27,6 +27,9 @@ func (r Runtime) WithExecutionScope(st ExecutionRepository, resources toolhub.Ex
 	r.tools = tools
 	r.artifacts = resources.Artifacts
 	r.traces = nil
+	// Transient executions preserve their content-free server retention contract,
+	// even when the resident runtime enables internal evaluation.
+	r.evidence = nil
 	r.exposure = newToolExposureEngine(st, tools, r.policy)
 	r.messageControl = nil
 	if resources.TextOnly {

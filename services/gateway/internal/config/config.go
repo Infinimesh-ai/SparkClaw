@@ -186,6 +186,9 @@ func Load(path string) (Config, error) {
 	if err := normalizeRuntimeLimits(&cfg.Runtime); err != nil {
 		return Config{}, err
 	}
+	if err := normalizeExecutionEvidenceConfig(&cfg.Storage.ExecutionEvidence); err != nil {
+		return Config{}, err
+	}
 	if err := normalizeInfinimeshInfoConfig(&cfg.Plugins.Entries.InfinimeshInfo.Config); err != nil {
 		return Config{}, err
 	}

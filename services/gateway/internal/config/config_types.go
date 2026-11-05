@@ -429,15 +429,16 @@ type WorkspaceConfig struct {
 }
 
 type StorageConfig struct {
-	TraceDir        string `json:"trace_dir"`
-	LogDir          string `json:"log_dir"`
-	ArtifactBackend string `json:"artifact_backend"`
-	ArtifactDir     string `json:"artifact_dir"`
-	ArtifactBucket  string `json:"artifact_bucket"`
-	S3Endpoint      string `json:"s3_endpoint"`
-	S3Region        string `json:"s3_region"`
-	S3AccessKey     string `json:"s3_access_key,omitempty"`
-	S3SecretKey     string `json:"s3_secret_key,omitempty"`
+	ExecutionEvidence ExecutionEvidenceConfig `json:"execution_evidence"`
+	TraceDir          string                  `json:"trace_dir"`
+	LogDir            string                  `json:"log_dir"`
+	ArtifactBackend   string                  `json:"artifact_backend"`
+	ArtifactDir       string                  `json:"artifact_dir"`
+	ArtifactBucket    string                  `json:"artifact_bucket"`
+	S3Endpoint        string                  `json:"s3_endpoint"`
+	S3Region          string                  `json:"s3_region"`
+	S3AccessKey       string                  `json:"s3_access_key,omitempty"`
+	S3SecretKey       string                  `json:"s3_secret_key,omitempty"`
 }
 
 type StateConfig struct {

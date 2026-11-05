@@ -13,6 +13,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/capability"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/clarification"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/executionevidence"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationrun"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messageplane"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
@@ -41,6 +42,7 @@ type Runtime struct {
 	policy          policy.Engine
 	models          modelrouter.Router
 	traces          *trace.Writer
+	evidence        *executionevidence.Recorder
 	artifacts       artifact.Store
 	exposure        *toolExposureEngine
 	profiles        workflowProfileRegistry
@@ -105,6 +107,7 @@ func NewRuntimeWithContext(ctx context.Context, st Repository, tools *toolhub.To
 		policy:         policyEngine,
 		models:         models,
 		traces:         traces,
+		evidence:       traces.ExecutionEvidence(),
 		artifacts:      artifact.NewStore(tools.Config().Storage),
 		exposure:       newToolExposureEngine(st, tools, policyEngine),
 		profiles:       profiles,
@@ -117,6 +120,7 @@ func (r Runtime) addAudit(ctx context.Context, event app.AuditEvent) {
 	if err := r.store.AddAudit(context.WithoutCancel(ctx), event); err != nil {
 		slog.Warn("agent audit unavailable", "type", event.Type, "run_id", event.RunID, "code", store.StoreErrorCodeOf(err))
 	}
+	r.recordEvidenceAudit(ctx, event)
 }
 
 func (r Runtime) WithArtifactStore(artifacts artifact.Store) Runtime {
@@ -289,6 +293,8 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	if run, err = r.saveRun(ctx, run); err != nil {
 		return Result{}, fmt.Errorf("persist received run: %w", err)
 	}
+	ctx = r.executionEvidenceContext(ctx, run)
+	defer r.finishUnsealedEvidence(ctx, run.ID)
 	ctx, endRun := r.bindIntegrationRun(ctx, run.ID)
 	defer endRun()
 	r.addAudit(ctx, app.AuditEvent{
@@ -673,6 +679,8 @@ func (r Runtime) rejectOwnerQuestion(ctx context.Context, sessionID, requestedRu
 	if run, err = r.saveRun(ctx, run); err != nil {
 		return Result{}, fmt.Errorf("persist oversized owner question run: %w", err)
 	}
+	ctx = r.executionEvidenceContext(ctx, run)
+	defer r.finishUnsealedEvidence(ctx, run.ID)
 	r.addAudit(ctx, app.AuditEvent{
 		SessionID: sessionID, RunID: run.ID, Actor: "model_router", Type: "owner_question.rejected",
 		Summary: auditSummary,
@@ -792,6 +800,8 @@ func (r Runtime) ResumeRunAfterApproval(ctx context.Context, sessionID, runID st
 	if !ok || run.SessionID != sessionID || run.State != "approval_pending" {
 		return Result{}, false, nil
 	}
+	ctx = r.executionEvidenceContext(ctx, run)
+	defer r.finishUnsealedEvidence(ctx, run.ID)
 	ctx, endRun := r.bindIntegrationRun(ctx, run.ID)
 	defer endRun()
 	if cause := integrationCredentialChangeCause(ctx); cause != nil {
@@ -1063,6 +1073,7 @@ func laneForFinalStream(lane string) string {
 }
 
 func (r Runtime) writeTrace(ctx context.Context, run app.AgentRun, chat modelrouter.ChatResult, toolCalls []app.ToolCall, approvals []app.Approval, feedback []app.RunFeedback, episode *app.EpisodeSummary) {
+	r.finishExecutionEvidence(ctx, run, chat)
 	if r.traces != nil {
 		messages, err := r.store.ListMessages(ctx, run.SessionID)
 		if err != nil {
@@ -1311,7 +1322,7 @@ func modelCallFromChat(sessionID, runID, operation string, chat modelrouter.Chat
 		chat.Model = "unknown"
 	}
 	return app.ModelCall{
-		ID:             app.NewID("mcall"),
+		ID:             firstNonEmptyString(chat.CaptureID, app.NewID("mcall")),
 		SessionID:      sessionID,
 		RunID:          runID,
 		Lane:           chat.Lane,
@@ -1347,7 +1358,7 @@ func modelCallFromGuard(sessionID, runID string, guard modelrouter.GuardResult, 
 		guard.Model = "unknown"
 	}
 	return app.ModelCall{
-		ID:             app.NewID("mcall"),
+		ID:             firstNonEmptyString(guard.CaptureID, app.NewID("mcall")),
 		SessionID:      sessionID,
 		RunID:          runID,
 		Lane:           guard.Lane,
@@ -1543,6 +1554,7 @@ func (r Runtime) runToolPlan(ctx context.Context, sessionID, runID string, plan 
 			timeout = 15 * time.Second
 		}
 	}
+	ctx = r.beginEvidenceToolCall(ctx, call)
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	execCtx = toolhub.WithProgressReporter(execCtx, func(text string) {

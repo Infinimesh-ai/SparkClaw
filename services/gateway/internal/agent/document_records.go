@@ -13,6 +13,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
 func (r Runtime) recordMessageDocuments(ctx context.Context, session app.Session, message app.Message) error {
@@ -152,6 +153,7 @@ func (r Runtime) recordDocumentEditOutputs(ctx context.Context, call app.ToolCal
 		return err
 	}
 	for _, outputPath := range documentOutputPaths(call, workspaceRoot) {
+		toolhub.CaptureDocumentOutputEvidence(ctx, workspaceRoot, filepath.Join(workspaceRoot, filepath.FromSlash(outputPath)))
 		record, ok, err := r.documentRecordByPath(ctx, call.SessionID, outputPath)
 		if err != nil {
 			return err

@@ -71,6 +71,9 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		Arguments: args,
 		StartedAt: now,
 	}
+	ctx = r.executionEvidenceContext(ctx, app.AgentRun{ID: runID, SessionID: sessionID, State: "received", Risk: def.Risk, StartedAt: now})
+	defer r.finishUnsealedEvidence(ctx, runID)
+	r.recordEvidenceManualRequest(ctx, call)
 	decision := r.policy.Decide(def, args, app.PolicyExecutionContext{})
 	if !decision.Allowed {
 		done := time.Now().UTC()
@@ -274,6 +277,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 		output toolhub.Result
 		err    error
 	)
+	ctx = r.beginEvidenceToolCall(ctx, call)
 	if pptxMutation {
 		output, err = r.tools.PublishSealedPPTXCandidate(ctx, name, args, sessionID, runID)
 	} else {
@@ -308,6 +312,7 @@ func (r Runtime) InvokeToolManually(ctx context.Context, name string, args map[s
 	}
 	call.Status = app.ToolCallStatusCompleted
 	call.Result = output.Output
+	r.recordEvidenceDocumentOutputs(ctx, call)
 	call.ObservationSummary = CompressObservation(name, output.Output, r.observationSummaryLimit())
 	call.ObservationRef = store.ArchiveToolObservation(ctx, r.store, r.artifacts, call, archiveOutput(output, call.Result))
 	if _, err := r.saveRun(ctx, app.AgentRun{

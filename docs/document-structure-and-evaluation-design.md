@@ -412,6 +412,47 @@ archive traversal and decompression-budget violations. Defaults and retention
 must be qualified in phase P0 before implementation is enabled; no unbounded
 new retention or silent deletion of existing history is authorized here.
 
+### 8.4 Internal Capture And Offline Export
+
+Set `storage.execution_evidence.enabled: true` only in the internal host
+evaluation configuration. Captures live under
+`<storage.trace_dir>/document-evidence/`, with owner/session/run scope checks,
+private directory/file permissions and no product UI entry. The default file
+state backend is supported. A normal desktop/ISCP task still clears server
+content and does not upload an evaluation sidecar to its client.
+
+Default limits are 128 MiB per payload, 512 MiB per run, 2 GiB total capture,
+1 MiB per event and 20,000 events per run. Capture operations have a 30-second
+bound; exports have a 120-second bound and a 1 GiB raw/archive budget. These
+are resource ceilings, not promises that every admitted source can be retained.
+Model transport observation has a separate 32 MiB boundary; exceeding it records
+a gap without truncating the business response. Quotas stop new capture; there
+is no automatic expiry or deletion of earlier evidence.
+
+The P0 microbenchmark (`BenchmarkExecutionEvidenceManualRead`, Apple M5,
+Darwin/arm64, five iterations of a 128-line text read) measured about 4.34 ms
+with capture disabled and 625.65 ms with durable capture enabled. This is an
+internal recording-cost sample, not a model latency or product performance
+claim. The default remains disabled; capture costs must be reported when
+comparing evaluation runs.
+
+From `services/gateway`, export an existing run without starting a gateway:
+
+```sh
+go run ./cmd/document-evaluation \
+  --evidence-dir /absolute/trace-dir/document-evidence \
+  --owner OWNER_ID --session SESSION_ID --run RUN_ID \
+  --output /absolute/new-evaluation.zip
+```
+
+The destination must not exist. Add `--diagnostic` to explicitly export an
+unfinished or incomplete capture; missing entries and open operations remain
+visible. `--max-export-bytes` changes the export ceiling. The current CLI exports
+one run per file; a selected collection can be reviewed as several such files.
+It never reads the present source path to replace missing historical bytes,
+replays a task, calls a model, or uploads the package. No evidence can be
+retroactively recovered for a run that occurred while capture was disabled.
+
 ## 9. External Review And Capability Coverage
 
 The owner selects the reviewing model, supplies the evaluation file and question

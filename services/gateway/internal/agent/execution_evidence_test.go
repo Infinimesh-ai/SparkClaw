@@ -172,3 +172,37 @@ func TestExecutionEvidenceManualReadCapturesSuccessAndFailure(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkExecutionEvidenceManualRead(b *testing.B) {
+	for _, enabled := range []bool{false, true} {
+		name := "disabled"
+		if enabled {
+			name = "enabled"
+		}
+		b.Run(name, func(b *testing.B) {
+			cfg := agentTestConfig()
+			root := b.TempDir()
+			cfg.Workspaces.DefaultRoot, cfg.Workspaces.Allowlist = root, []string{root}
+			cfg.Storage.TraceDir, cfg.Storage.ArtifactDir = filepath.Join(root, "traces"), filepath.Join(root, "artifacts")
+			cfg.Storage.ExecutionEvidence.Enabled = enabled
+			st := store.NewMemoryStore()
+			session, err := st.CreateSessionWithScope(b.Context(), "capture benchmark", app.DefaultOwnerID, root, "web", false)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, "source.txt"), []byte(strings.Repeat("A bounded document paragraph.\n", 128)), 0600); err != nil {
+				b.Fatal(err)
+			}
+			hub := toolhub.New(cfg, st)
+			defer hub.Close()
+			runtime := NewRuntime(st, hub, policy.New(cfg), modelrouter.New(cfg), trace.NewWriterFromConfig(cfg))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, err := runtime.InvokeToolManually(b.Context(), "files.read", map[string]any{"path": "source.txt"}, session.ID); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}

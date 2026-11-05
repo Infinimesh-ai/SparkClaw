@@ -308,6 +308,36 @@ document-evaluation-<run_id>.zip
 及解压预算超限。默认值和保留期必须在 P0 验证后才能启用实现；本设计不授权新增无限保留，也不
 授权静默删除现有历史。
 
+### 8.4 内部记录与离线导出
+
+只在内部主机评测配置中设置 `storage.execution_evidence.enabled: true`。记录位于
+`<storage.trace_dir>/document-evidence/`，按 owner／session／run 校验范围，目录和文件采用
+私有权限，不新增产品 UI 入口。支持默认的 file 状态后端。正常桌面／ISCP 任务仍清除服务端
+内容，也不向客户端附加回传评估文件。
+
+默认限制：单载荷 128 MiB、单运行 512 MiB、全部记录 2 GiB、单事件 1 MiB、单运行 20,000 个
+事件；记录操作限时 30 秒，导出限时 120 秒、原始／归档字节预算 1 GiB。这些是资源上限，不是
+所有已接纳来源都能留存的保证。模型传输观测另有 32 MiB 上限；超过上限记录缺口，不截断业务
+响应。配额耗尽只停止新增记录，不自动到期清理或删除已有证据。
+
+P0 微基准 `BenchmarkExecutionEvidenceManualRead`（Apple M5、Darwin/arm64，128 行短文本读取，
+各 5 次）测得关闭采集约 4.34 ms／次，开启持久采集约 625.65 ms／次。这只是内部记录开销样本，
+不代表模型延迟或产品性能。默认保持关闭，比较评测运行时应同时报告采集开销。
+
+在 `services/gateway` 目录中离线导出已有运行，无需启动 gateway：
+
+```sh
+go run ./cmd/document-evaluation \
+  --evidence-dir /absolute/trace-dir/document-evidence \
+  --owner OWNER_ID --session SESSION_ID --run RUN_ID \
+  --output /absolute/new-evaluation.zip
+```
+
+目标文件必须不存在。显式添加 `--diagnostic` 可导出未结束或不完整的记录，仍保留缺失条目和
+未结束操作；`--max-export-bytes` 调整导出上限。当前 CLI 每个文件导出一个运行，选定的多次
+案例可作为多个文件评审。导出不读取当前来源路径补充缺失历史字节，不重跑任务、不调用模型、
+不上传归档。关闭采集期间发生的任务不能事后补出完整证据。
+
 ## 9. 外部评审与能力覆盖
 
 Owner 在 SparkClaw 外选择评审模型、提供评估文件及问题上下文，并解释评审结果。程序不设评审

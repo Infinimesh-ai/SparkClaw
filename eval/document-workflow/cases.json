@@ -1,0 +1,249 @@
+[
+  {
+    "id": "paper_qualification",
+    "request": "仅根据 paper.docx，采访稿能否作为已完成真实访谈的证明？说明原因并标注证据所在段落，不要联网。",
+    "workflow": "document.read",
+    "contains": [
+      [
+        "模拟"
+      ],
+      [
+        "不能",
+        "不可以",
+        "不应"
+      ],
+      [
+        "段",
+        "paragraph"
+      ]
+    ]
+  },
+  {
+    "id": "crawler_tail",
+    "request": "读取 crawler.docx，完整列出“最后的自我检查”部分的七项检查，标注段落位置，不要联网。",
+    "workflow": "document.read",
+    "contains": [
+      [
+        "URL"
+      ],
+      [
+        "DOM"
+      ],
+      [
+        "HTTP"
+      ],
+      [
+        "Playwright"
+      ],
+      [
+        "证据"
+      ],
+      [
+        "许可"
+      ],
+      [
+        "代码"
+      ]
+    ]
+  },
+  {
+    "id": "network_comparison",
+    "request": "根据 networks.pptx 的第14页，比较 TCP 与 UDP 的取舍，指出幻灯片中的适用场景并注明页码，不要联网。",
+    "workflow": "document.read",
+    "contains": [
+      [
+        "TCP"
+      ],
+      [
+        "UDP"
+      ],
+      [
+        "14"
+      ]
+    ],
+    "allow_partial": true
+  },
+  {
+    "id": "paper_summary",
+    "request": "概括 paper.docx 全文及末尾采访稿的主要内容，区分理论分析、访谈设计与已有事实，保留材料的限制说明，不要联网。",
+    "workflow": "document.read",
+    "contains": [
+      [
+        "模拟"
+      ],
+      [
+        "访谈"
+      ],
+      [
+        "未",
+        "尚",
+        "待"
+      ]
+    ]
+  },
+  {
+    "id": "crawler_summary",
+    "request": "总结 crawler.docx 全文的学习路线，覆盖前中后各部分，保留最后的自我检查和采用 CloakBrowser 的限制，给出章节定位，不要联网。",
+    "workflow": "document.read",
+    "contains": [
+      [
+        "CloakBrowser"
+      ],
+      [
+        "许可"
+      ],
+      [
+        "自我检查"
+      ],
+      [
+        "HTTP"
+      ],
+      [
+        "调度"
+      ],
+      [
+        "开始写代码",
+        "先实现哪一层",
+        "编码顺序"
+      ]
+    ]
+  },
+  {
+    "id": "paper_edit",
+    "request": "编辑 paper.docx，把独立标题“采访稿”改成“访谈模拟示例（尚未开展真实采访）”，保持所有其他正文和格式不变，另存为副本，不要联网。",
+    "workflow": "document.edit",
+    "edit": true
+  },
+  {
+    "id": "markdown_exception",
+    "request": "仅根据 retention.md，未成年人试点组应保留记录多少天？说明一般规则与例外并引用位置，不要联网。",
+    "contains": [
+      [
+        "14"
+      ],
+      [
+        "90"
+      ],
+      [
+        "例外"
+      ]
+    ],
+    "workflow": "document.read"
+  },
+  {
+    "id": "plain_comparison",
+    "request": "根据 plain.txt 比较A和B两组方案的预算与工期。把迁移费计入B组，说明差额与税费口径，不要联网。",
+    "contains": [
+      [
+        "100"
+      ],
+      [
+        "20"
+      ],
+      [
+        "8"
+      ],
+      [
+        "11"
+      ],
+      [
+        "税"
+      ]
+    ],
+    "workflow": "document.read"
+  },
+  {
+    "id": "exhaustive_risks",
+    "request": "从 risk-register.md 全文完整提取所有未关闭风险的编号和负责人，注明各自的记录位置。不能只看搜索命中，不要联网。",
+    "contains": [
+      [
+        "R001"
+      ],
+      [
+        "R060"
+      ],
+      [
+        "R120"
+      ],
+      [
+        "甲"
+      ],
+      [
+        "乙"
+      ],
+      [
+        "丙"
+      ]
+    ],
+    "workflow": "document.read",
+    "not_contains": [
+      "R002",
+      "R059",
+      "C002-C062",
+      "仅为抽样结果",
+      "未能完整遍历全文"
+    ]
+  },
+  {
+    "id": "xlsx_calculation",
+    "request": "根据 budget.xlsx 的 Budget 工作表计算有效项目金额合计，排除已取消项目。说明金额单位、税费口径，识别缓存合计与明细是否一致，引用单元格，不要联网。",
+    "contains": [
+      [
+        "220"
+      ],
+      [
+        "万元"
+      ],
+      [
+        "税"
+      ],
+      [
+        "999"
+      ],
+      [
+        "缓存"
+      ]
+    ],
+    "workflow": "document.read"
+  },
+  {
+    "id": "pdf_exception",
+    "request": "根据 policy.pdf 全文，ZETA试点组的记录保留多久？说明普通规则和例外的区别并给出页码，不要联网。",
+    "contains": [
+      [
+        "14"
+      ],
+      [
+        "90"
+      ],
+      [
+        "3"
+      ]
+    ],
+    "workflow": "document.read"
+  },
+  {
+    "id": "pdf_ocr",
+    "request": "读取 scan.pdf 的发票金额、币种和参考编号，给出页码；无法识别的内容不要猜测，不要联网。",
+    "contains": [
+      [
+        "4286",
+        "4,286"
+      ],
+      [
+        "USD",
+        "美元"
+      ],
+      [
+        "ZETA-17"
+      ]
+    ],
+    "workflow": "document.read"
+  },
+  {
+    "id": "markdown_edit",
+    "request": "编辑 retention.md，把一般业务记录保留90天改成保留60天，未成年人试点组14天的例外和其他内容保持不变，另存副本。",
+    "workflow": "document.edit",
+    "edit": true
+  }
+]

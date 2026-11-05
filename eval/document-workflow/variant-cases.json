@@ -1,0 +1,78 @@
+[
+  {
+    "id": "risk_changed_positions",
+    "request": "请逐项核对 risk-variant.md 的整个整改跟踪表，交付尚未关闭事项的编号、责任人及原文位置。不要把章节号当作事项编号，不要联网。",
+    "workflow": "document.read",
+    "contains": [
+      [
+        "XR-09"
+      ],
+      [
+        "Q-301"
+      ],
+      [
+        "Z-888"
+      ],
+      [
+        "丁"
+      ],
+      [
+        "戊"
+      ],
+      [
+        "己"
+      ]
+    ],
+    "not_contains": [
+      "DONE-",
+      "仅为抽样结果",
+      "未能完整遍历全文"
+    ]
+  },
+  {
+    "id": "xlsx_rephrased",
+    "request": "查 budget.xlsx 的 Budget 表：如果不计已取消项目，按明细加起来是多少钱？与表中缓存合计相差多少？请保留单位、含税口径和单元格来源，不要联网。",
+    "workflow": "document.read",
+    "contains": [
+      [
+        "220"
+      ],
+      [
+        "779"
+      ],
+      [
+        "999"
+      ],
+      [
+        "万元"
+      ],
+      [
+        "税"
+      ],
+      [
+        "B3"
+      ],
+      [
+        "B7"
+      ]
+    ]
+  },
+  {
+    "id": "paper_rephrased",
+    "request": "paper.docx 的附件是否真的记录了一次已经发生的采访？请核实正文中的材料来源和限制，再作判断，附上段落证据，不要联网。",
+    "workflow": "document.read",
+    "contains": [
+      [
+        "模拟"
+      ],
+      [
+        "未",
+        "尚"
+      ],
+      [
+        "段",
+        "document.p"
+      ]
+    ]
+  }
+]

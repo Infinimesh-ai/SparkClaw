@@ -147,7 +147,12 @@ func TestScannedSectionReadWithoutOCRNamesTheUnrecognizedPages(t *testing.T) {
 	if err != nil || !slices.Equal(unrecognized, pageRange(7, 12)) {
 		t.Fatalf("pages without an OCR adapter were not reported unrecognized: %v %v", unrecognized, err)
 	}
-	if _, err := hub.Execute(context.Background(), "document.read_range", map[string]any{"path": "scan.pdf", "section": index.Outline[1].ID}, "session", "run"); err == nil || !strings.Contains(err.Error(), "7, 8, 9, 10, 11, 12") {
-		t.Fatalf("a scanned section without OCR did not name its pages: %v", err)
+	result, err := hub.Execute(context.Background(), "document.read_range", map[string]any{"path": "scan.pdf", "section": index.Outline[1].ID}, "session", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := result.Output.(map[string]any)
+	if output["read_complete"] != false || fmt.Sprint(output["unrecognized_pages"]) != "[7 8 9 10 11 12]" {
+		t.Fatalf("scanned-page gaps were hidden: %#v", output)
 	}
 }

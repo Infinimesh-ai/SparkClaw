@@ -2,9 +2,12 @@ package docindex
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -53,16 +56,18 @@ func readSource(dir string) (extractedSource, bool, error) {
 }
 
 type ocrPage struct {
-	Page int    `json:"page"`
-	Text string `json:"text"`
+	SourceSHA256 string `json:"source_sha256"`
+	Version      string `json:"version"`
+	Page         int    `json:"page"`
+	Text         string `json:"text"`
 }
 
-func writeOCRPage(dir string, page int, text string) error {
+func writeOCRPage(dir string, page int, text, sourceSHA, version string) error {
 	ocrDir := filepath.Join(dir, ocrDirName)
 	if err := os.MkdirAll(ocrDir, 0o700); err != nil {
 		return err
 	}
-	raw, err := json.Marshal(ocrPage{Page: page, Text: text})
+	raw, err := json.Marshal(ocrPage{SourceSHA256: sourceSHA, Version: version, Page: page, Text: text})
 	if err != nil {
 		return err
 	}
@@ -71,7 +76,7 @@ func writeOCRPage(dir string, page int, text string) error {
 
 // readOCRPages returns the recognized text of every cached page and the
 // bytes the cache occupies.
-func readOCRPages(dir string) (map[int]string, int64, error) {
+func readOCRPages(dir, sourceSHA, version string) (map[int]string, int64, error) {
 	entries, err := os.ReadDir(filepath.Join(dir, ocrDirName))
 	if errors.Is(err, fs.ErrNotExist) {
 		return map[int]string{}, 0, nil
@@ -85,12 +90,19 @@ func readOCRPages(dir string) (map[int]string, int64, error) {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
+		info, err := entry.Info()
+		if err != nil {
+			return nil, 0, err
+		}
+		if info.Size() > MaxExtractedBytes || total+info.Size() > MaxExtractedBytes {
+			return nil, 0, errors.New("OCR cache exceeds structure admission")
+		}
 		raw, err := os.ReadFile(filepath.Join(dir, ocrDirName, entry.Name()))
 		if err != nil {
 			return nil, 0, err
 		}
 		var page ocrPage
-		if json.Unmarshal(raw, &page) == nil && page.Page > 0 {
+		if json.Unmarshal(raw, &page) == nil && page.Page > 0 && page.SourceSHA256 == sourceSHA && page.Version == version {
 			pages[page.Page] = page.Text
 			total += int64(len(raw))
 		}
@@ -202,6 +214,20 @@ func loadIndex(dir string, manifest Manifest) (*Index, error) {
 	if len(index.Chunks) != manifest.Chunks || len(index.keywords.Lengths) != len(index.Chunks) {
 		return nil, errors.New("document index files do not match their manifest")
 	}
+	rawStructure, err := os.ReadFile(filepath.Join(dir, "structure.json"))
+	if err != nil {
+		return nil, err
+	}
+	var saved struct {
+		CursorSecret string                     `json:"cursor_secret"`
+		Manifest     document.StructureManifest `json:"manifest"`
+		Nodes        []document.StructureNode   `json:"nodes"`
+	}
+	if json.Unmarshal(rawStructure, &saved) != nil || saved.Manifest.SourceSHA256 != manifest.SourceSHA256 || saved.Manifest.StructureGeneration != manifest.StructureGeneration || saved.Manifest.Nodes != len(saved.Nodes) || len(saved.CursorSecret) != 64 || saved.Manifest.StructureGeneration != structureHash([]any{document.StructureParserVersion, saved.Manifest.EnrichmentVersion, saved.Nodes}) {
+		return nil, errors.New("invalid document structure cache")
+	}
+	index.Structure, index.Nodes = saved.Manifest, saved.Nodes
+	index.cursorSecret = saved.CursorSecret
 	return index, nil
 }
 
@@ -280,4 +306,83 @@ func anySourcePresent(workspaceRoot string, manifest Manifest) bool {
 		}
 	}
 	return false
+}
+
+func writeStructure(dir string, manifest document.StructureManifest, nodes []document.StructureNode) (int64, string, error) {
+	key, err := workspaceCursorSecret(filepath.Dir(dir))
+	if err != nil {
+		return 0, "", err
+	}
+	raw, err := json.Marshal(struct {
+		Manifest     document.StructureManifest `json:"manifest"`
+		Nodes        []document.StructureNode   `json:"nodes"`
+		CursorSecret string                     `json:"cursor_secret"`
+	}{manifest, nodes, key})
+	if err != nil {
+		return 0, "", err
+	}
+	return int64(len(raw)), key, writeFileAtomic(filepath.Join(dir, "structure.json"), raw)
+}
+
+// The private workspace key outlives any rebuildable index. Eviction cannot
+// invalidate a cursor while its source, parser, generation and selector agree.
+func workspaceCursorSecret(root string) (string, error) {
+	filename := filepath.Join(root, "cursor.key")
+	read := func() (string, error) {
+		info, err := os.Lstat(filename)
+		if err != nil {
+			return "", err
+		}
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() != 64 {
+			return "", errors.New("invalid private cursor key")
+		}
+		raw, err := os.ReadFile(filename)
+		if err != nil {
+			return "", err
+		}
+		if _, err := hex.DecodeString(string(raw)); err != nil {
+			return "", err
+		}
+		return string(raw), nil
+	}
+	if key, err := read(); err == nil {
+		return key, nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return "", err
+	}
+	key := hex.EncodeToString(secret)
+	file, err := os.CreateTemp(root, ".cursor-key-*")
+	if err != nil {
+		return "", err
+	}
+	name := file.Name()
+	defer os.Remove(name)
+	if err = file.Chmod(0600); err == nil {
+		_, err = file.WriteString(key)
+	}
+	if err == nil {
+		err = file.Sync()
+	}
+	err = errors.Join(err, file.Close())
+	if err != nil {
+		return "", err
+	}
+	if err = os.Link(name, filename); errors.Is(err, fs.ErrExist) {
+		return read()
+	} else if err != nil {
+		return "", err
+	}
+	directory, err := os.Open(root)
+	if err != nil {
+		return "", err
+	}
+	defer directory.Close()
+	if err = directory.Sync(); err != nil {
+		return "", err
+	}
+	return key, nil
 }

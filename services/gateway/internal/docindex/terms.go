@@ -33,7 +33,11 @@ func Terms(text string) []string {
 		}
 		han = han[:0]
 	}
-	for _, r := range norm.NFKC.String(text) {
+	normalized := []rune(norm.NFKC.String(text))
+	for index, r := range normalized {
+		if r == '\n' && index > 0 && index+1 < len(normalized) && unicode.Is(unicode.Han, normalized[index-1]) && unicode.Is(unicode.Han, normalized[index+1]) {
+			continue
+		}
 		switch {
 		case unicode.Is(unicode.Han, r):
 			flushWord()

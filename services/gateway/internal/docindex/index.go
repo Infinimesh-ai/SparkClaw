@@ -3,6 +3,7 @@ package docindex
 import (
 	"errors"
 	"fmt"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,27 +18,36 @@ const (
 
 // Index is a loaded, queryable document index.
 type Index struct {
-	Manifest Manifest
-	Outline  []OutlineNode
-	Chunks   []Chunk
-	keywords keywordIndex
+	AccessScope  string
+	cursorSecret string
+	Structure    document.StructureManifest
+	Nodes        []document.StructureNode
+	Manifest     Manifest
+	Outline      []OutlineNode
+	Chunks       []Chunk
+	keywords     keywordIndex
 }
 
 // SearchRequest searches the whole document, or one outline node and its
 // descendants when Section names a node ID.
 type SearchRequest struct {
-	Keywords []string
-	TopK     int
-	Section  string
-	MaxBytes int
+	SourceSHA256        string
+	StructureGeneration string
+	Keywords            []string
+	TopK                int
+	Section             string
+	MaxBytes            int
 }
 
 type SearchHit struct {
-	ChunkID string   `json:"chunk_id"`
-	Score   float64  `json:"score"`
-	Anchor  Anchor   `json:"anchor"`
-	Matched []string `json:"matched_terms"`
-	Snippet string   `json:"snippet"`
+	NodeID    string   `json:"node_id,omitempty"`
+	ByteStart int      `json:"byte_start,omitempty"`
+	ByteEnd   int      `json:"byte_end,omitempty"`
+	ChunkID   string   `json:"chunk_id"`
+	Score     float64  `json:"score"`
+	Anchor    Anchor   `json:"anchor"`
+	Matched   []string `json:"matched_terms"`
+	Snippet   string   `json:"snippet"`
 }
 
 // SectionHit is an outline node whose title matches the query, so a
@@ -51,10 +61,13 @@ type SectionHit struct {
 }
 
 type SearchResult struct {
-	Terms     []string     `json:"terms"`
-	Hits      []SearchHit  `json:"hits"`
-	Sections  []SectionHit `json:"sections"`
-	Truncated bool         `json:"truncated"`
+	SourceSHA256        string                     `json:"source_sha256"`
+	StructureGeneration string                     `json:"structure_generation"`
+	Coverage            document.StructureCoverage `json:"coverage"`
+	Terms               []string                   `json:"terms"`
+	Hits                []SearchHit                `json:"hits"`
+	Sections            []SectionHit               `json:"sections"`
+	Truncated           bool                       `json:"truncated"`
 }
 
 const maxSectionHits = 5
@@ -62,6 +75,9 @@ const maxSectionHits = 5
 // Search ranks chunks with BM25 and returns snippets centred on the first
 // matched term, stopping before the results exceed MaxBytes.
 func (index *Index) Search(request SearchRequest) (SearchResult, error) {
+	if err := index.ValidateVersion(request.SourceSHA256, request.StructureGeneration); err != nil {
+		return SearchResult{}, err
+	}
 	start, end, err := index.sectionRange(request.Section)
 	if err != nil {
 		return SearchResult{}, err
@@ -74,7 +90,9 @@ func (index *Index) Search(request SearchRequest) (SearchResult, error) {
 	if limit <= 0 || limit > MaxSearchResults {
 		limit = min(MaxSearchResults, max(limit, 8))
 	}
-	result := SearchResult{Terms: terms, Hits: []SearchHit{}, Sections: index.matchingSections(terms, start, end)}
+	result := SearchResult{SourceSHA256: index.Manifest.SourceSHA256, StructureGeneration: index.Manifest.StructureGeneration, Coverage: index.Structure.Coverage, Terms: terms, Hits: []SearchHit{}, Sections: index.matchingSections(terms, start, end)}
+	result.Coverage.Scope = "indexed_scope"
+	result.Coverage.TaskCoverage = "not_assessed"
 	used := 0
 	for _, hit := range index.keywords.search(terms, start, end, limit) {
 		chunk := index.Chunks[hit.Chunk]
@@ -84,7 +102,7 @@ func (index *Index) Search(request SearchRequest) (SearchResult, error) {
 		sort.SliceStable(rarest, func(i, j int) bool {
 			return len(index.keywords.Postings[rarest[i]]) < len(index.keywords.Postings[rarest[j]])
 		})
-		item := SearchHit{ChunkID: chunk.ID, Score: roundScore(hit.Score), Anchor: chunk.Anchor, Matched: hit.Matched, Snippet: snippet(chunk.Text, rarest)}
+		item := SearchHit{NodeID: chunk.NodeID, ByteStart: chunk.ByteStart, ByteEnd: chunk.ByteEnd, ChunkID: chunk.ID, Score: roundScore(hit.Score), Anchor: chunk.Anchor, Matched: hit.Matched, Snippet: snippet(chunk.Text, rarest)}
 		cost := len(item.Snippet) + len(strings.Join(chunk.Anchor.HeadingPath, " ")) + 96
 		if request.MaxBytes > 0 && used+cost > request.MaxBytes {
 			result.Truncated = true
@@ -133,6 +151,23 @@ func (index *Index) matchingSections(terms []string, start, end int) []SectionHi
 // UnindexedPagesIn lists the requested pages that have no text yet, in page
 // order: those of a page range, or of a section's page range.
 func (index *Index) UnindexedPagesIn(request RangeRequest) ([]int, error) {
+	if request.All {
+		return append([]int{}, index.Manifest.UnindexedPages...), nil
+	}
+	if len(request.NodeIDs) > 0 {
+		selected, err := index.selectedNodes(request)
+		if err != nil {
+			return nil, err
+		}
+		pages := []int{}
+		for _, i := range selected {
+			node := index.Nodes[i]
+			if node.Availability == document.NodeUnrecognized && node.Locator.Page > 0 {
+				pages = append(pages, node.Locator.Page)
+			}
+		}
+		return pages, nil
+	}
 	first, last := request.PageStart, max(request.PageEnd, request.PageStart)
 	if strings.TrimSpace(request.Section) != "" {
 		node, ok := index.outlineNode(request.Section)
@@ -165,12 +200,17 @@ func (index *Index) outlineNode(id string) (OutlineNode, bool) {
 // RangeRequest selects chunks by ID, by page range, or by outline node.
 // Context adds that many neighbouring chunks on each side of listed IDs.
 type RangeRequest struct {
-	ChunkIDs  []string
-	PageStart int
-	PageEnd   int
-	Section   string
-	Context   int
-	MaxBytes  int
+	NodeIDs             []string
+	All                 bool
+	Cursor              string
+	SourceSHA256        string
+	StructureGeneration string
+	ChunkIDs            []string
+	PageStart           int
+	PageEnd             int
+	Section             string
+	Context             int
+	MaxBytes            int
 }
 
 type RangeSpan struct {
@@ -179,82 +219,22 @@ type RangeSpan struct {
 }
 
 type RangeResult struct {
-	Text        string      `json:"text"`
-	Spans       []RangeSpan `json:"spans"`
-	Truncated   bool        `json:"truncated"`
-	NextChunkID string      `json:"next_chunk_id,omitempty"`
+	SourceSHA256        string                     `json:"source_sha256"`
+	StructureGeneration string                     `json:"structure_generation"`
+	NextCursor          string                     `json:"next_cursor,omitempty"`
+	Nodes               []NodeFragment             `json:"nodes,omitempty"`
+	Dependencies        []document.StructureNode   `json:"dependencies,omitempty"`
+	Coverage            document.StructureCoverage `json:"coverage"`
+	Text                string                     `json:"text"`
+	Spans               []RangeSpan                `json:"spans"`
+	Truncated           bool                       `json:"truncated"`
+	NextChunkID         string                     `json:"next_chunk_id,omitempty"`
 }
 
-// ReadRange renders the selected chunks in document order. Contiguous chunks
-// form one span with a location header, and the overlap a chunk repeats from
-// its predecessor is dropped. Output stops at MaxBytes; NextChunkID names
-// where a continuation read starts.
+// ReadRange returns canonical source fragments. NextCursor resumes the exact
+// selected node/byte boundary; legacy chunk IDs remain locators, not cursors.
 func (index *Index) ReadRange(request RangeRequest) (RangeResult, error) {
-	ordinals, err := index.rangeOrdinals(request)
-	if err != nil {
-		return RangeResult{}, err
-	}
-	if request.Context > 0 && len(request.ChunkIDs) > 0 && request.MaxBytes > 0 && index.textBytes(ordinals) > request.MaxBytes {
-		// Neighbouring context is dropped before any requested chunk.
-		request.Context = 0
-		if ordinals, err = index.rangeOrdinals(request); err != nil {
-			return RangeResult{}, err
-		}
-	}
-	result := RangeResult{Spans: []RangeSpan{}}
-	var out strings.Builder
-	previous := -2
-	for position, ordinal := range ordinals {
-		chunk := index.Chunks[ordinal]
-		piece, header := chunk.Text, ""
-		if ordinal == previous+1 {
-			piece = dropRepeatedPrefix(index.Chunks[previous].Text, piece)
-		} else {
-			header = spanHeader(index.Manifest.Format, chunk)
-		}
-		if request.MaxBytes > 0 && out.Len()+len(header)+len(piece)+2 > request.MaxBytes {
-			result.Truncated = true
-			if out.Len() > 0 {
-				result.NextChunkID = chunk.ID
-				break
-			}
-			// A single chunk larger than the budget is cut, and reading
-			// continues after it.
-			piece = boundedPrefix(piece, max(0, request.MaxBytes-len(header)-2))
-			if position+1 < len(ordinals) {
-				result.NextChunkID = index.Chunks[ordinals[position+1]].ID
-			}
-		}
-		if header != "" {
-			if out.Len() > 0 {
-				out.WriteString("\n\n")
-			}
-			out.WriteString(header + "\n")
-			result.Spans = append(result.Spans, RangeSpan{Anchor: chunk.Anchor})
-		} else {
-			out.WriteString("\n")
-		}
-		out.WriteString(piece)
-		span := &result.Spans[len(result.Spans)-1]
-		span.ChunkIDs = append(span.ChunkIDs, chunk.ID)
-		if last := chunkLastPage(chunk); last > max(span.Anchor.Page, span.Anchor.PageEnd) {
-			span.Anchor.PageEnd = last
-		}
-		previous = ordinal
-		if result.Truncated {
-			break
-		}
-	}
-	result.Text = out.String()
-	return result, nil
-}
-
-func (index *Index) textBytes(ordinals []int) int {
-	total := 0
-	for _, ordinal := range ordinals {
-		total += len(index.Chunks[ordinal].Text) + 2
-	}
-	return total
+	return index.readNodes(request)
 }
 
 func (index *Index) rangeOrdinals(request RangeRequest) ([]int, error) {
@@ -350,18 +330,6 @@ func spanHeader(format string, chunk Chunk) string {
 	}
 	parts = append(parts, chunk.ID)
 	return "[" + strings.Join(parts, " | ") + "]"
-}
-
-// dropRepeatedPrefix removes the overlap the next chunk carries from the end
-// of the previous one.
-func dropRepeatedPrefix(previous, next string) string {
-	limit := min(len(previous), len(next))
-	for size := min(limit, chunkOverlapRunes*utf8.UTFMax); size > 0; size-- {
-		if strings.HasSuffix(previous, next[:size]) && utf8.ValidString(next[:size]) {
-			return strings.TrimPrefix(next[size:], "\n")
-		}
-	}
-	return next
 }
 
 func snippet(text string, matched []string) string {

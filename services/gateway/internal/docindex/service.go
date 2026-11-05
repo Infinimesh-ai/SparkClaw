@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -23,22 +24,24 @@ const (
 	prebuildQueueSize        = 32
 	cachedIndexes            = 4
 	lastUsedRefresh          = time.Hour
+	MaxSourceBytes           = 256 << 20
+	MaxExtractedBytes        = 64 << 20
+	MaxSourceUnits           = 250000
+	MaxSourcePages           = 100000
 )
-
-// ErrNotRequired reports that a prebuild found a document small enough for
-// the complete-read path, so no index was kept.
-var ErrNotRequired = errors.New("document fits the complete-read path")
 
 // Target names one workspace document. RelPath is relative to
 // WorkspaceRoot, which also scopes the index directory.
 type Target struct {
-	WorkspaceRoot string
-	RelPath       string
-	Format        string
+	WorkspaceRoot     string
+	RelPath           string
+	Format            string
+	SourceSHA256      string
+	EnrichmentVersion string
 }
 
-// Prebuild is a background build request. A document whose source is at most
-// SmallSourceBytes and whose text is at most SmallTextBytes keeps no index.
+// Prebuild shares the on-demand structure build for every document size.
+// The historical Small* fields are ignored for source compatibility.
 type Prebuild struct {
 	Target
 	SmallSourceBytes int64
@@ -121,7 +124,7 @@ func (s *Service) runPrebuilds() {
 		if s.ctx.Err() != nil {
 			continue
 		}
-		if _, err := s.ensure(s.ctx, request.Target, &request, nil); err != nil && !errors.Is(err, ErrNotRequired) && s.ctx.Err() == nil {
+		if _, err := s.ensure(s.ctx, request.Target, &request, nil); err != nil && s.ctx.Err() == nil {
 			slog.Info("document index prebuild failed; analysis will retry", "path", request.RelPath, "error", err)
 		}
 	}
@@ -131,13 +134,7 @@ func (s *Service) runPrebuilds() {
 // progress or building it now. waiting is called once, before blocking, only
 // when the index is not ready; callers use it to show progress.
 func (s *Service) Ensure(ctx context.Context, target Target, waiting func()) (*Index, error) {
-	index, err := s.ensure(ctx, target, nil, waiting)
-	if errors.Is(err, ErrNotRequired) {
-		// A concurrent prebuild judged the document small; this caller
-		// needs the index anyway.
-		return s.ensure(ctx, target, nil, nil)
-	}
-	return index, err
+	return s.ensure(ctx, target, nil, waiting)
 }
 
 // RecognizedPages adds analysis-phase OCR text for pages of target to its
@@ -153,13 +150,23 @@ func (s *Service) RecognizedPages(ctx context.Context, target Target, pages map[
 // CacheRecognizedPages stores OCR text for pages of target without
 // rebuilding, so a long recognition can persist each batch as it finishes.
 func (s *Service) CacheRecognizedPages(target Target, pages map[int]string) error {
-	sum, _, err := fileSHA256(filepath.Join(target.WorkspaceRoot, target.RelPath))
+	path, err := targetPath(target)
 	if err != nil {
 		return err
 	}
+	sum, _, err := fileSHA256(path)
+	if err != nil {
+		return err
+	}
+	if target.SourceSHA256 != "" && sum != target.SourceSHA256 {
+		return errors.New("document source changed during OCR")
+	}
 	dir := Dir(target.WorkspaceRoot, sum)
 	for page, text := range pages {
-		if err := writeOCRPage(dir, page, text); err != nil {
+		if page <= 0 || page > MaxSourcePages || len(text) > MaxExtractedBytes {
+			return errors.New("OCR page exceeds structure admission")
+		}
+		if err := writeOCRPage(dir, page, text, sum, target.EnrichmentVersion); err != nil {
 			return err
 		}
 	}
@@ -174,28 +181,38 @@ func (s *Service) ensure(ctx context.Context, target Target, prebuild *Prebuild,
 // rebuild waits for any build in flight first, so its own merge of cached
 // pages is never answered by an older build.
 func (s *Service) build(ctx context.Context, target Target, prebuild *Prebuild, waiting func(), force bool) (*Index, error) {
-	path := filepath.Join(target.WorkspaceRoot, target.RelPath)
+	path, err := targetPath(target)
+	if err != nil {
+		return nil, err
+	}
 	sum, size, err := fileSHA256(path)
 	if err != nil {
 		return nil, err
+	}
+	if size > MaxSourceBytes {
+		return nil, errors.New("document source exceeds structure admission")
+	}
+	if target.SourceSHA256 != "" && target.SourceSHA256 != sum {
+		return nil, errors.New("document source version changed")
 	}
 	dir := Dir(target.WorkspaceRoot, sum)
 	notified := false
 	for {
 		s.mu.Lock()
 		if !force {
-			if cached := s.cachedLocked(dir); cached != nil {
+			if cached := s.cachedLocked(dir); cached != nil && cached.Manifest.Format == target.Format && cached.Manifest.EnrichmentVersion == target.EnrichmentVersion {
+				cached = s.touchCachedLocked(dir, cached, target.RelPath)
 				s.mu.Unlock()
-				return cached, nil
+				return bindIndex(cached, target), nil
 			}
 		}
 		call, inFlight := s.builds[dir]
 		started := false
 		if !inFlight {
 			if !force {
-				if index, ok := s.loadReadyLocked(dir, target.RelPath); ok {
+				if index, ok := s.loadReadyLocked(dir, target); ok {
 					s.mu.Unlock()
-					return index, nil
+					return bindIndex(index, target), nil
 				}
 			}
 			if s.closed {
@@ -219,18 +236,23 @@ func (s *Service) build(ctx context.Context, target Target, prebuild *Prebuild, 
 			return nil, ctx.Err()
 		}
 		if started || !force {
-			return call.index, call.err
+			if call.err == nil && (call.index.Manifest.Format != target.Format || call.index.Manifest.EnrichmentVersion != target.EnrichmentVersion) {
+				force = true
+				continue
+			}
+			return bindIndex(call.index, target), call.err
 		}
 	}
 }
 
 // loadReadyLocked loads a persisted usable index built by this builder
 // version and records the requesting path as one of its sources.
-func (s *Service) loadReadyLocked(dir, relPath string) (*Index, bool) {
+func (s *Service) loadReadyLocked(dir string, target Target) (*Index, bool) {
 	manifest, ok, err := readManifest(dir)
-	if err != nil || !ok || !manifest.State.Usable() || manifest.BuilderVersion != BuilderVersion || manifest.SchemaVersion != SchemaVersion {
+	if err != nil || !ok || !manifest.State.Usable() || manifest.BuilderVersion != BuilderVersion || manifest.SchemaVersion != SchemaVersion || manifest.Format != target.Format || manifest.EnrichmentVersion != target.EnrichmentVersion {
 		return nil, false
 	}
+	relPath := target.RelPath
 	index, err := loadIndex(dir, manifest)
 	if err != nil {
 		return nil, false
@@ -265,16 +287,17 @@ func (s *Service) run(call *buildCall, dir string, target Target, sum string, si
 }
 
 func (s *Service) buildIndex(dir string, target Target, sum string, size int64, prebuild *Prebuild, reuseSource bool) (*Index, error) {
+	buildCtx, cancel := context.WithTimeout(s.ctx, 5*time.Minute)
+	defer cancel()
 	previous, _, _ := readManifest(dir)
 	now := s.now().UTC()
 	manifest := Manifest{
 		SchemaVersion: SchemaVersion, BuilderVersion: BuilderVersion, SourceSHA256: sum, SourceBytes: size,
-		Format: target.Format, SourcePaths: []string{target.RelPath}, State: StateBuilding,
+		EnrichmentVersion: target.EnrichmentVersion, Format: target.Format, SourcePaths: []string{target.RelPath}, State: StateBuilding,
 		Attempts: previous.Attempts + 1, UpdatedAt: now, LastUsedAt: now,
 	}
-	// An on-demand build records its attempt before extracting. A prebuild
-	// writes nothing until it knows the document needs an index.
-	published := prebuild == nil
+	// Every size shares the same published build and retry lifecycle.
+	published := true
 	if published {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return nil, err
@@ -284,8 +307,7 @@ func (s *Service) buildIndex(dir string, target Target, sum string, size int64, 
 		}
 	}
 	fail := func(buildErr error) (*Index, error) {
-		// A failed prebuild is only logged; the on-demand build that retries
-		// it records its own attempt.
+		// Failed acquisition is explicit; an on-demand call may retry it.
 		if published && os.MkdirAll(dir, 0o700) == nil {
 			manifest.State, manifest.Error, manifest.UpdatedAt = StateFailed, buildErr.Error(), s.now().UTC()
 			_ = writeManifest(dir, manifest)
@@ -293,35 +315,57 @@ func (s *Service) buildIndex(dir string, target Target, sum string, size int64, 
 		return nil, buildErr
 	}
 	source, reused := extractedSource{}, false
-	if reuseSource {
+	if reuseSource && previous.SchemaVersion == SchemaVersion && previous.BuilderVersion == BuilderVersion && previous.Format == target.Format {
 		if stored, ok, err := readSource(dir); err == nil && ok {
 			source, reused = stored, true
 		}
 	}
 	if !reused {
-		info, err := s.extractor.Extract(s.ctx, filepath.Join(target.WorkspaceRoot, target.RelPath), target.Format, func(unit Unit) error {
+		extractedBytes := 0
+		info, err := s.extractor.Extract(buildCtx, filepath.Join(target.WorkspaceRoot, target.RelPath), target.Format, func(unit Unit) error {
+			raw, _ := json.Marshal(unit)
+			extractedBytes += len(raw)
+			if len(source.Units) >= MaxSourceUnits || extractedBytes > MaxExtractedBytes {
+				return errors.New("document extraction exceeds structure admission")
+			}
+			if err := buildCtx.Err(); err != nil {
+				return err
+			}
 			source.Units = append(source.Units, unit)
 			return nil
 		})
 		if err != nil {
 			return fail(fmt.Errorf("extract document text: %w", err))
 		}
+		if info.Pages > MaxSourcePages {
+			return fail(errors.New("document pages exceed structure admission"))
+		}
 		source.Info = info
 	}
-	if prebuild != nil && size <= prebuild.SmallSourceBytes && sourceTextBytes(source.Units) <= prebuild.SmallTextBytes && len(source.Info.UnindexedPages) == 0 {
-		return nil, ErrNotRequired
+	verified, verifiedSize, verifyErr := fileSHA256(filepath.Join(target.WorkspaceRoot, target.RelPath))
+	if verifyErr != nil || verified != sum || verifiedSize != size {
+		return fail(errors.New("document source changed during structure extraction"))
 	}
-	recognized, ocrBytes, err := readOCRPages(dir)
+	recognized, ocrBytes, err := readOCRPages(dir, sum, target.EnrichmentVersion)
 	if err != nil {
 		return fail(err)
 	}
 	units, info, ocrPages := mergeRecognizedPages(source, recognized)
+	canonicalBytes := 0
+	for _, unit := range units {
+		raw, _ := json.Marshal(unit)
+		canonicalBytes += len(raw)
+		if canonicalBytes > MaxExtractedBytes || len(units) > MaxSourceUnits {
+			return fail(errors.New("enriched document exceeds structure admission"))
+		}
+	}
+	units, nodes, structure := buildStructure(sum, target.Format, target.EnrichmentVersion, units, info)
 	assembler := &assembler{}
 	for _, unit := range units {
 		assembler.add(unit)
 	}
 	chunks, outline := assembler.finish(info)
-	if len(chunks) == 0 && len(info.UnindexedPages) == 0 {
+	if len(nodes) == 0 {
 		return fail(errors.New("document has no extractable text"))
 	}
 	keywords := buildKeywordIndex(chunks)
@@ -337,10 +381,15 @@ func (s *Service) buildIndex(dir string, target Target, sum string, size int64, 
 	if err != nil {
 		return fail(err)
 	}
-	indexBytes += sourceBytes + ocrBytes
+	structureBytes, cursorSecret, err := writeStructure(dir, structure, nodes)
+	if err != nil {
+		return fail(err)
+	}
+	indexBytes += sourceBytes + ocrBytes + structureBytes
+	manifest.StructureGeneration = structure.StructureGeneration
 	manifest.OCRPages = ocrPages
 	manifest.State = StateReady
-	if len(info.UnindexedPages) > 0 {
+	if structure.Coverage.Missing > 0 {
 		manifest.State = StatePartial
 	}
 	manifest.Pages, manifest.Chunks, manifest.TextBytes = info.Pages, len(chunks), assembler.textBytes
@@ -348,7 +397,7 @@ func (s *Service) buildIndex(dir string, target Target, sum string, size int64, 
 	if err := writeManifest(dir, manifest); err != nil {
 		return fail(err)
 	}
-	return &Index{Manifest: manifest, Outline: outline, Chunks: chunks, keywords: keywords}, nil
+	return &Index{cursorSecret: cursorSecret, Manifest: manifest, Structure: structure, Nodes: nodes, Outline: outline, Chunks: chunks, keywords: keywords}, nil
 }
 
 // mergeRecognizedPages adds cached OCR text for text-less pages to the
@@ -365,21 +414,14 @@ func mergeRecognizedPages(source extractedSource, recognized map[int]string) ([]
 			info.UnindexedPages = append(info.UnindexedPages, page)
 			continue
 		}
-		units = append(units, Unit{Text: text, Page: page, Block: fmt.Sprintf("document.page[%d]", page)})
+		units = slices.DeleteFunc(units, func(unit Unit) bool { return unit.Page == page && unit.Availability != "available" && unit.Text == "" })
+		units = append(units, Unit{Kind: "page", Provenance: "ocr", Text: text, Page: page, Block: fmt.Sprintf("document.page[%d]", page)})
 		ocrPages = append(ocrPages, page)
 	}
 	if len(ocrPages) > 0 {
 		sort.SliceStable(units, func(i, j int) bool { return units[i].Page < units[j].Page })
 	}
 	return units, info, ocrPages
-}
-
-func sourceTextBytes(units []Unit) int {
-	total := 0
-	for _, unit := range units {
-		total += len(strings.TrimSpace(unit.Text))
-	}
-	return total
 }
 
 func (s *Service) cachedLocked(dir string) *Index {
@@ -412,4 +454,51 @@ func fileSHA256(path string) (string, int64, error) {
 		return "", 0, err
 	}
 	return hex.EncodeToString(hash.Sum(nil)), size, nil
+}
+
+func targetPath(target Target) (string, error) {
+	if !filepath.IsAbs(target.WorkspaceRoot) || filepath.IsAbs(target.RelPath) {
+		return "", errors.New("document target must be workspace-relative")
+	}
+	root, err := filepath.EvalSymlinks(target.WorkspaceRoot)
+	if err != nil {
+		return "", err
+	}
+	path, err := filepath.EvalSymlinks(filepath.Join(root, target.RelPath))
+	if err != nil {
+		return "", err
+	}
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", errors.New("document target escapes workspace")
+	}
+	return path, nil
+}
+
+func bindIndex(index *Index, target Target) *Index {
+	if index == nil {
+		return nil
+	}
+	copy := *index
+	root, _ := filepath.EvalSymlinks(target.WorkspaceRoot)
+	copy.AccessScope = structureHash([]string{root, filepath.Clean(target.RelPath)})
+	return &copy
+}
+
+func (s *Service) touchCachedLocked(dir string, index *Index, relPath string) *Index {
+	if slices.Contains(index.Manifest.SourcePaths, relPath) && s.now().UTC().Sub(index.Manifest.LastUsedAt) < lastUsedRefresh {
+		return index
+	}
+	copy := *index
+	copy.Manifest = index.Manifest
+	copy.Manifest.SourcePaths = append([]string{}, index.Manifest.SourcePaths...)
+	if !slices.Contains(copy.Manifest.SourcePaths, relPath) {
+		copy.Manifest.SourcePaths = append(copy.Manifest.SourcePaths, relPath)
+	}
+	copy.Manifest.LastUsedAt = s.now().UTC()
+	if writeManifest(dir, copy.Manifest) == nil {
+		s.rememberLocked(dir, &copy)
+		return &copy
+	}
+	return index
 }

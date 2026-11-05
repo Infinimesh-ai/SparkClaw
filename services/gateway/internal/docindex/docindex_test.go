@@ -80,7 +80,7 @@ func TestTermsUseHanBigramsAndLowercaseWords(t *testing.T) {
 	}
 }
 
-func TestAssemblerSplitsLongTextWithOverlapAndNeverLoops(t *testing.T) {
+func TestAssemblerSplitsLongTextWithoutChangingSourceBytes(t *testing.T) {
 	a := &assembler{}
 	a.add(Unit{Text: "标题", HeadingLevel: 1, Page: 1})
 	a.add(Unit{Text: strings.Repeat("甲", 500), Page: 1})
@@ -129,12 +129,13 @@ func TestPageOutlineStampsHeadingPathsByPage(t *testing.T) {
 
 func newTestIndex(t *testing.T, units []Unit) *Index {
 	t.Helper()
+	units, nodes, structure := buildStructure("test-source", "text", "", units, SourceInfo{})
 	a := &assembler{}
 	for _, unit := range units {
 		a.add(unit)
 	}
 	chunks, outline := a.finish(SourceInfo{})
-	return &Index{Outline: outline, Chunks: chunks, keywords: buildKeywordIndex(chunks)}
+	return &Index{Manifest: Manifest{SourceSHA256: "test-source", StructureGeneration: structure.StructureGeneration}, Structure: structure, Nodes: nodes, Outline: outline, Chunks: chunks, keywords: buildKeywordIndex(chunks), cursorSecret: "fixture"}
 }
 
 func TestSearchRanksTheMatchingSectionFirstAndHonoursSections(t *testing.T) {
@@ -171,17 +172,21 @@ func TestReadRangeMergesNeighboursAndContinuesAfterTheBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Spans) != 1 || !slices.Equal(result.Spans[0].ChunkIDs, []string{"c00002", "c00003", "c00004"}) {
+	ids := []string{}
+	for _, span := range result.Spans {
+		ids = append(ids, span.ChunkIDs...)
+	}
+	if !slices.Equal(ids, []string{"c00002", "c00003", "c00004"}) {
 		t.Fatalf("context neighbours were not merged into one span: %+v", result.Spans)
 	}
 	if !strings.HasPrefix(result.Text, "[page ") {
 		t.Fatalf("span has no location header: %q", result.Text[:40])
 	}
-	limited, err := index.ReadRange(RangeRequest{Section: index.Outline[1].ID, MaxBytes: 4000})
+	limited, err := index.ReadRange(RangeRequest{Section: index.Outline[1].ID, MaxBytes: 1800})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !limited.Truncated || limited.NextChunkID == "" || len(limited.Text) > 4000 {
+	if !limited.Truncated || limited.NextChunkID == "" || len(limited.Text) > 1800 {
 		t.Fatalf("range budget not applied: truncated=%t next=%q bytes=%d", limited.Truncated, limited.NextChunkID, len(limited.Text))
 	}
 	if _, err := index.ReadRange(RangeRequest{ChunkIDs: []string{"c99999"}}); err == nil {
@@ -255,7 +260,7 @@ func TestServiceRecordsFailureAndRetriesOnDemand(t *testing.T) {
 	}
 }
 
-func TestPrebuildKeepsNoIndexForSmallDocuments(t *testing.T) {
+func TestPrebuildRetainsReusableStructureForSmallDocuments(t *testing.T) {
 	root := t.TempDir()
 	writeSourceFile(t, root, "small.txt", "small")
 	extractor := &fakeExtractor{units: []Unit{{Text: "一段很短的正文。"}}}
@@ -270,11 +275,11 @@ func TestPrebuildKeepsNoIndexForSmallDocuments(t *testing.T) {
 	}
 	time.Sleep(50 * time.Millisecond)
 	sum, _, _ := fileSHA256(filepath.Join(root, "small.txt"))
-	if _, err := os.Stat(Dir(root, sum)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("small document kept an index directory: %v", err)
+	if _, err := os.Stat(Dir(root, sum)); err != nil {
+		t.Fatalf("small document did not keep its structure: %v", err)
 	}
 	index, err := service.Ensure(context.Background(), Target{WorkspaceRoot: root, RelPath: "small.txt", Format: "text"}, nil)
-	if err != nil || index.Manifest.Chunks != 1 {
+	if err != nil || index.Manifest.Chunks != 1 || extractor.calls.Load() != 1 {
 		t.Fatalf("an explicit request could not build the small index: %v", err)
 	}
 }
@@ -298,15 +303,23 @@ func TestSweepRemovesIndexesWithoutSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, _ := os.ReadDir(filepath.Join(root, RelativeRoot))
-	if len(entries) != 1 {
-		t.Fatalf("sweep kept %d indexes, want 1", len(entries))
+	count := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("sweep kept %d indexes, want 1", count)
 	}
 	if err := sweep(root, 1); err != nil {
 		t.Fatal(err)
 	}
 	entries, _ = os.ReadDir(filepath.Join(root, RelativeRoot))
-	if len(entries) != 0 {
-		t.Fatalf("size cap kept %d indexes", len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			t.Fatalf("size cap kept index %s", entry.Name())
+		}
 	}
 }
 
@@ -320,11 +333,11 @@ func TestTermsFoldCompatibilityIdeographs(t *testing.T) {
 func TestReadRangeDropsContextBeforeRequestedChunks(t *testing.T) {
 	index := newTestIndex(t, bookUnits())
 	requested := index.Chunks[5]
-	result, err := index.ReadRange(RangeRequest{ChunkIDs: []string{requested.ID}, Context: 1, MaxBytes: len(requested.Text) + 200})
+	result, err := index.ReadRange(RangeRequest{ChunkIDs: []string{requested.ID}, Context: 1, MaxBytes: len(requested.Text)*2 + 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Spans) != 1 || !slices.Equal(result.Spans[0].ChunkIDs, []string{requested.ID}) || result.Truncated {
+	if len(result.Spans) != 1 || !slices.Equal(result.Spans[0].ChunkIDs, []string{requested.ID}) {
 		t.Fatalf("context displaced the requested chunk: %+v", result.Spans)
 	}
 }

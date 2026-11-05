@@ -98,8 +98,9 @@ func (index *Index) UnitText(unit SummaryUnit) string {
 	for ordinal := unit.ChunkStart; ordinal < unit.ChunkEnd && ordinal < len(index.Chunks); ordinal++ {
 		text := index.Chunks[ordinal].Text
 		if ordinal > unit.ChunkStart {
-			text = dropRepeatedPrefix(index.Chunks[ordinal-1].Text, text)
-			out.WriteString("\n")
+			if index.Chunks[ordinal].NodeID == "" || index.Chunks[ordinal].NodeID != index.Chunks[ordinal-1].NodeID {
+				out.WriteString("\n")
+			}
 		}
 		out.WriteString(text)
 	}

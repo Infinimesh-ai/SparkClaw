@@ -33,7 +33,7 @@ func buildKeywordIndex(chunks []Chunk) keywordIndex {
 	total := 0
 	for ordinal, chunk := range chunks {
 		counts := map[string]int{}
-		for _, term := range Terms(chunk.Text) {
+		for _, term := range Terms(chunk.Text + " " + chunk.SearchText) {
 			counts[term]++
 		}
 		for _, term := range Terms(strings.Join(chunk.Anchor.HeadingPath, " ")) {

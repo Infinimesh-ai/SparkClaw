@@ -1,5 +1,5 @@
 // Package docindex builds and queries the structure-first retrieval index of
-// documents too large to read in one piece: an outline, anchored text chunks
+// documents of every size: an outline, anchored text chunks
 // and a BM25 keyword index, persisted per source SHA-256 under the owning
 // workspace's control directory. Format parsing is supplied by the caller
 // through Extractor; this package never reads document formats itself.
@@ -8,14 +8,16 @@ package docindex
 import (
 	"context"
 	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
 const (
 	// SchemaVersion changes when the persisted layout changes.
-	SchemaVersion = 1
+	SchemaVersion = 2
 	// BuilderVersion changes when chunking or tokenization changes, so older
 	// indexes are rebuilt instead of mixed with new ones.
-	BuilderVersion = "docindex_bm25_bigram_v1"
+	BuilderVersion = "docindex_structure_bm25_v2"
 )
 
 // State is the lifecycle state recorded in an index manifest.
@@ -35,19 +37,21 @@ func (s State) Usable() bool { return s == StateReady || s == StatePartial }
 
 // Manifest describes one persisted index.
 type Manifest struct {
-	SchemaVersion  int      `json:"schema_version"`
-	BuilderVersion string   `json:"builder_version"`
-	SourceSHA256   string   `json:"source_sha256"`
-	SourceBytes    int64    `json:"source_bytes"`
-	Format         string   `json:"format"`
-	SourcePaths    []string `json:"source_paths"`
-	State          State    `json:"state"`
-	Attempts       int      `json:"attempts"`
-	Error          string   `json:"error,omitempty"`
-	Pages          int      `json:"pages,omitempty"`
-	Chunks         int      `json:"chunks"`
-	TextBytes      int      `json:"text_bytes"`
-	UnindexedPages []int    `json:"unindexed_pages,omitempty"`
+	StructureGeneration string   `json:"structure_generation"`
+	EnrichmentVersion   string   `json:"enrichment_version,omitempty"`
+	SchemaVersion       int      `json:"schema_version"`
+	BuilderVersion      string   `json:"builder_version"`
+	SourceSHA256        string   `json:"source_sha256"`
+	SourceBytes         int64    `json:"source_bytes"`
+	Format              string   `json:"format"`
+	SourcePaths         []string `json:"source_paths"`
+	State               State    `json:"state"`
+	Attempts            int      `json:"attempts"`
+	Error               string   `json:"error,omitempty"`
+	Pages               int      `json:"pages,omitempty"`
+	Chunks              int      `json:"chunks"`
+	TextBytes           int      `json:"text_bytes"`
+	UnindexedPages      []int    `json:"unindexed_pages,omitempty"`
 	// OCRPages are pages whose text came from analysis-phase OCR.
 	OCRPages   []int     `json:"ocr_pages,omitempty"`
 	IndexBytes int64     `json:"index_bytes"`
@@ -66,9 +70,13 @@ type Anchor struct {
 
 // Chunk is one retrievable span of document text.
 type Chunk struct {
-	ID     string `json:"id"`
-	Text   string `json:"text"`
-	Anchor Anchor `json:"anchor"`
+	NodeID     string `json:"node_id,omitempty"`
+	ByteStart  int    `json:"byte_start,omitempty"`
+	ByteEnd    int    `json:"byte_end,omitempty"`
+	SearchText string `json:"search_text,omitempty"`
+	ID         string `json:"id"`
+	Text       string `json:"text"`
+	Anchor     Anchor `json:"anchor"`
 }
 
 // OutlineNode is one heading of the document structure. Chunks
@@ -87,10 +95,21 @@ type OutlineNode struct {
 // Unit is one piece of extracted text in document order: a paragraph, a
 // heading, a table row or a page. HeadingLevel is positive for headings.
 type Unit struct {
-	Text         string `json:"text"`
-	Page         int    `json:"page,omitempty"`
-	HeadingLevel int    `json:"heading_level,omitempty"`
-	Block        string `json:"block,omitempty"`
+	NodeID       string                    `json:"node_id,omitempty"`
+	Kind         string                    `json:"kind,omitempty"`
+	Title        string                    `json:"title,omitempty"`
+	SearchText   string                    `json:"search_text,omitempty"`
+	ByteStart    int                       `json:"byte_start,omitempty"`
+	ByteEnd      int                       `json:"byte_end,omitempty"`
+	Values       []map[string]any          `json:"values,omitempty"`
+	Dependencies []string                  `json:"dependencies,omitempty"`
+	Availability document.NodeAvailability `json:"availability,omitempty"`
+	Provenance   string                    `json:"provenance,omitempty"`
+	Reason       string                    `json:"reason,omitempty"`
+	Text         string                    `json:"text"`
+	Page         int                       `json:"page,omitempty"`
+	HeadingLevel int                       `json:"heading_level,omitempty"`
+	Block        string                    `json:"block,omitempty"`
 }
 
 // OutlineEntry is a heading reported by the format itself, such as a PDF
@@ -103,6 +122,7 @@ type OutlineEntry struct {
 
 // SourceInfo is what an extractor knows about the whole document.
 type SourceInfo struct {
+	Limitations    []string       `json:"limitations,omitempty"`
 	Pages          int            `json:"pages,omitempty"`
 	Outline        []OutlineEntry `json:"outline,omitempty"`
 	UnindexedPages []int          `json:"unindexed_pages,omitempty"`

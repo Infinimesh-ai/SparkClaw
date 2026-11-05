@@ -3,16 +3,11 @@ package docindex
 import (
 	"fmt"
 	"sort"
-	"strings"
-	"unicode/utf8"
-
-	"golang.org/x/text/unicode/norm"
 )
 
 const (
-	chunkTargetRunes  = 1000
-	chunkOverlapRunes = 100
-	maxHeadingRunes   = 200
+	chunkTargetRunes = 1000
+	maxHeadingRunes  = 200
 )
 
 // assembler turns ordered units into chunks and outline nodes. Headings
@@ -22,104 +17,56 @@ type assembler struct {
 	chunks      []Chunk
 	nodes       []OutlineNode
 	headingPath []string
-	buffer      strings.Builder
-	bufferRunes int
-	// overlapOnly marks a buffer holding only text carried from the previous
-	// chunk; it is never emitted on its own.
-	overlapOnly bool
-	startPage   int
-	lastPage    int
-	firstBlock  string
 	textBytes   int
 }
 
+// Canonical source units are never normalized or overlapped. Search applies its
+// own normalization, and chunk ranges always address exact bytes in one node.
 func (a *assembler) add(unit Unit) {
-	// NFKC folds compatibility forms that PDF text layers often carry, such
-	// as Kangxi radicals (⽅) for ideographs (方) and full-width letters.
-	text := strings.TrimSpace(norm.NFKC.String(unit.Text))
+	text := unit.Text
 	if text == "" {
 		return
 	}
 	a.textBytes += len(text)
 	if unit.HeadingLevel > 0 {
-		a.flush(false)
-		title := trimRunes(strings.Join(strings.Fields(text), " "), maxHeadingRunes)
-		level := unit.HeadingLevel
-		if level > len(a.headingPath)+1 {
-			level = len(a.headingPath) + 1
+		level := min(unit.HeadingLevel, len(a.headingPath)+1)
+		title := unit.Title
+		if title == "" {
+			title = text
 		}
+		title = trimRunes(title, maxHeadingRunes)
 		a.headingPath = append(a.headingPath[:level-1], title)
-		a.nodes = append(a.nodes, OutlineNode{
-			ID: fmt.Sprintf("n%04d", len(a.nodes)+1), Title: title, Level: level, Page: unit.Page, ChunkStart: len(a.chunks),
-		})
-	}
-	runes := []rune(text)
-	for len(runes) > 0 {
-		room := chunkTargetRunes - a.bufferRunes
-		if room <= 0 {
-			a.flush(true)
-			continue
+		id := unit.NodeID
+		if id == "" {
+			id = fmt.Sprintf("n%04d", len(a.nodes)+1)
 		}
-		take := min(room, len(runes))
-		if take < len(runes) && !a.overlapOnly && a.bufferRunes > 0 && len(runes) <= chunkTargetRunes-chunkOverlapRunes {
-			// The whole unit fits the next chunk: start it there unsplit.
-			a.flush(true)
-			continue
+		a.nodes = append(a.nodes, OutlineNode{ID: id, Title: title, Level: level, Page: unit.Page, ChunkStart: len(a.chunks)})
+	}
+	offset := 0
+	for len(text) > 0 {
+		cut, count := len(text), 0
+		for byteAt := range text {
+			if count == chunkTargetRunes {
+				cut = byteAt
+				break
+			}
+			count++
 		}
-		a.append(string(runes[:take]), unit)
-		runes = runes[take:]
-	}
-}
-
-func (a *assembler) append(text string, unit Unit) {
-	if a.bufferRunes == 0 {
-		a.startPage = unit.Page
-		a.firstBlock = unit.Block
-	} else {
-		a.buffer.WriteString("\n")
-		a.bufferRunes++
-	}
-	if unit.Page > 0 {
-		a.lastPage = unit.Page
-		if a.startPage == 0 {
-			a.startPage = unit.Page
-		}
-	}
-	a.buffer.WriteString(text)
-	a.bufferRunes += utf8.RuneCountInString(text)
-	a.overlapOnly = false
-}
-
-func (a *assembler) flush(overlap bool) {
-	if a.bufferRunes == 0 || a.overlapOnly {
-		a.buffer.Reset()
-		a.bufferRunes, a.overlapOnly = 0, false
-		a.startPage, a.firstBlock = 0, ""
-		return
-	}
-	text := a.buffer.String()
-	anchor := Anchor{Page: a.startPage, HeadingPath: append([]string(nil), a.headingPath...), Block: a.firstBlock}
-	if a.lastPage > a.startPage {
-		anchor.PageEnd = a.lastPage
-	}
-	a.chunks = append(a.chunks, Chunk{ID: fmt.Sprintf("c%05d", len(a.chunks)+1), Text: text, Anchor: anchor})
-	a.buffer.Reset()
-	a.bufferRunes = 0
-	a.startPage, a.firstBlock = 0, ""
-	if overlap {
-		runes := []rune(text)
-		tail := string(runes[max(0, len(runes)-chunkOverlapRunes):])
-		a.startPage = a.lastPage
-		a.buffer.WriteString(tail)
-		a.bufferRunes = utf8.RuneCountInString(tail)
-		a.overlapOnly = true
+		piece := text[:cut]
+		a.chunks = append(a.chunks, Chunk{ID: fmt.Sprintf("c%05d", len(a.chunks)+1), NodeID: unit.NodeID, ByteStart: offset, ByteEnd: offset + len(piece), Text: piece, SearchText: func() string {
+			if offset == 0 {
+				return boundedPrefix(unit.SearchText, 4096)
+			}
+			return ""
+		}(), Anchor: Anchor{Page: unit.Page, HeadingPath: append([]string(nil), a.headingPath...), Block: unit.Block}})
+		offset += len(piece)
+		text = text[len(piece):]
 	}
 }
 
 // finish closes the last chunk, places format-level outline entries (PDF
 // bookmarks) on chunks by page, and computes every node's chunk range.
 func (a *assembler) finish(info SourceInfo) ([]Chunk, []OutlineNode) {
-	a.flush(false)
 	if len(a.nodes) == 0 && len(info.Outline) > 0 {
 		a.nodes, a.chunks = pageOutline(info.Outline, a.chunks)
 	}
@@ -158,7 +105,7 @@ func pageOutline(entries []OutlineEntry, chunks []Chunk) ([]OutlineNode, []Chunk
 	path := []string{}
 	next := 0
 	for _, entry := range ordered {
-		title := trimRunes(strings.Join(strings.Fields(entry.Title), " "), maxHeadingRunes)
+		title := trimRunes(entry.Title, maxHeadingRunes)
 		if title == "" {
 			continue
 		}

@@ -7,10 +7,11 @@
 源码中实现：B1（文字层 PDF、DOCX 和文本）、B2（扫描版 PDF 的分析阶段 OCR）和 B3（PPTX/XLSX
 结构与整篇文档的章节摘要）。均未部署。
 
-后续设计，2026-11-05：[统一文档结构与评估证据](document-structure-and-evaluation-design.md)
-提出所有文档都可结构化访问和按需读取，替代按大小选择能力的方式，同时保留上下文与资源预算；
-并定义每次运行的证据，供 owner 在外部完成评审，程序不调用评审模型。这是未来设计，不改变
-本文件记录的实现状态。
+后续实现，2026-11-05：[统一文档结构与评估证据](document-structure-and-evaluation-design.md)
+已在 revision 6 中实现所有支持格式、所有大小文档的结构化访问及按需读取。下文按大小触发的
+读取 profile 作为历史记录及持久化 revision 4/5 计划的兼容契约保留，上下文、上传和资源边界
+继续生效。内部证据采集默认关闭、按需导出，由 owner 在外部评审，程序不调用评审模型。
+当前仅本地源码实现，owner 验收及部署尚未进行。
 
 范围：文档读取路径（`internal/document`、`internal/toolhub` 文档工具）、Workflow 证据
 供给、操作决策与最终化（`internal/agent`），以及 runtime 预算配置。保留

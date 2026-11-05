@@ -2,13 +2,13 @@
 
 > Language: English | [简体中文](../zh-cn/docs/document-structure-and-evaluation-design.md)
 
-Status: Design only, 2026-11-05. The owner has set the direction: documents of
-every size can use programmatic structure extraction and on-demand reads;
-execution evidence is recorded for the owner to submit, with question context,
-to an external reviewing model. No product implementation, migration,
-deployment, or evaluation result is established by this document.
+Status: P0–P3 implemented in local source, 2026-11-05; owner acceptance is pending.
+Documents of every supported size use programmatic structure extraction and
+on-demand reads. Internal evidence capture is opt-in, defaults off, and exports
+on demand for manual external review. This is not an installed/deployed release
+or a claim of model answer quality. Section 12 records implementation boundaries.
 
-The contracts and phases below are the proposed implementation of that direction.
+The contracts and phases below define the implemented direction.
 The application does not invoke a reviewing model, assign semantic quality
 scores, choose a reviewer, or automatically submit evidence externally.
 
@@ -23,14 +23,14 @@ Unify document access for PDF, DOCX, PPTX, XLSX, plain text and Markdown. Preser
 format-specific capabilities and explicit unsupported features. The first
 implementation keeps the existing one-governed-document workflow boundary;
 multi-turn source selection remains supported, while cross-document reasoning
-is not added by this design. Related runs may be exported together as evidence.
+is not added by this design. The initial exporter emits one run per archive; related runs can be supplied as
+separate files for the same review.
 
-[Large document context](large-document-context-design.md) describes the current
-source implementation and its size-triggered retrieval path. This proposal
-replaces that trigger as the future document-access architecture. Its model
-capacity calculation, tokenizer admission, OCR resource bounds and upload
-limits remain independent constraints. Until implementation, current behavior
-continues to follow that document and [Document workflows](document-workflows.md).
+[Large document context](large-document-context-design.md) records the previous
+size-triggered retrieval path, retained for persisted revision 4/5 plans. New
+revision 6 reads use this unified architecture. Model capacity calculation,
+tokenizer admission, OCR resource bounds and upload limits remain independent
+constraints; [Document workflows](document-workflows.md) describes the active profiles.
 
 [Evidence ownership](workflow-evidence-ownership.md),
 [minimum evidence projection](workflow-minimum-evidence-projection-design.md)
@@ -58,7 +58,7 @@ installed or deployed binary.
 | `internal/trace/writer.go` | Writes a per-run JSON containing run, messages, calls, approvals and audit | Add document evidence export with frozen context and resolvable payloads |
 | `app.ModelCall` and projection audit | Model identity, tokens, latency and projection lineage/counts | Capture the actual dispatched input and returned output of each relevant call |
 
-The current text index is not a lossless document representation. For example,
+The baseline text index was not a lossless document representation. For example,
 search chunk normalization and overlapping text cannot serve as verbatim
 source text or as an editing locator. Existing trace files also do not by
 themselves prove that every model input and referenced source is available.
@@ -120,8 +120,9 @@ Each node carries:
 Node IDs are stable within one source/parser/schema version. A changed file or
 parser invalidates old locators and continuations; mapping to a new version is
 explicit, never an assumed identical ordinal. Build from a verified immutable
-snapshot, or verify the same open source before and after extraction and discard
-a changed result. Do not publish an index mixing two source versions.
+snapshot and verify the snapshot and original source after extraction; discard
+a changed result. Before/after hashes alone cannot exclude a temporary source
+change while a parser runs. Do not publish an index mixing two source versions.
 
 Lazy OCR or structural enrichment also carries a `structure_generation` and an
 enrichment version. It must not silently renumber existing native nodes. Reads
@@ -160,8 +161,10 @@ evaluation evidence. OCR availability and each failed page remain explicit.
 ### 5.1 Access Operations
 
 Extend existing tools/adapters instead of adding a parallel document runtime.
-The following are proposed logical contracts; exact public schema changes must
-be versioned and registered in the existing ToolHub directory.
+The following logical contracts use versioned schemas registered in the existing
+ToolHub directory. Native cell/shape coordinates are node locators; the initial
+range API selects their node IDs, chunks, pages, sections or the whole source,
+not arbitrary cell-expression syntax.
 
 | Operation | Scope and result |
 |---|---|
@@ -343,16 +346,15 @@ document-evaluation-<run_id>.zip
   report.md                   human-readable factual timeline and limitations
   evaluation.json             versioned manifest and event/payload inventory
   events.jsonl                ordered execution events with causal links
-  calls/<call_id>.json         actual dispatched model input and returned output
+  calls/<payload_id>.json         actual dispatched model input and returned output
   evidence/<payload_id>        parse results, reads and projections
   sources/<source_id>/<name>   original bytes for the bound source version
   outputs/<output_id>/<name>   answer or derived document and verification data
   assets/<asset_id>            images/render evidence actually available
 ```
 
-For an explicitly selected group of runs, use one batch archive with the same
-per-run layout, a top-level run inventory and shared hash-addressed assets.
-Related-run links alone do not authorize exporting other owners or sessions.
+Batch archives remain a future extension; the initial CLI exports one run per
+archive. Related-run links alone do not authorize exporting other owners or sessions.
 
 `report.md` is generated deterministically from recorded facts. It contains the
 request, source inventory, scope/coverage, timeline, model-visible evidence
@@ -361,7 +363,13 @@ no quality verdict, inferred reasoning or generated explanation of success.
 
 ### 8.2 Manifest Contract
 
-The proposed `schema_version` is `document_evaluation_v1`.
+The implemented `schema_version` is `document_evaluation_v1`. The table below
+defines logical evidence content, not a list of JSON root keys. `evaluation.json`
+stores scope/status, times, `request_payload_id`, event counts, payload inventory
+and `capture`/`export`/`review`. Full run states, requests, canonical structure,
+task scope, coverage and model calls live in hash-verified payloads referenced
+by `events.jsonl`. The factual report links these records without generating a
+semantic analysis. Missing provider token/cost telemetry remains unknown.
 
 | Field | Contract |
 |---|---|
@@ -377,6 +385,9 @@ The proposed `schema_version` is `document_evaluation_v1`.
 | `capture` | `capture_complete`, required/missing spans, reasons and capture boundary |
 | `export` | `package_complete`, missing entries, redactions, source transformation and export version |
 | `review` | `mode: owner_external`, `status: not_performed`; no model selection or review execution |
+
+Bundle entries in the payload inventory are authoritative; the layout above
+illustrates their roles.
 
 An entirely recorded failed task may have `capture_complete=true`. A successful
 task may have incomplete capture. A package containing all captured payloads can
@@ -510,8 +521,9 @@ Deployment and any shared transport change require their own qualification.
 
 ## 11. Acceptance Matrix
 
-These are implementation checks and evidence requirements, not automated model
-quality judgments. Every case saves the same proposed evaluation bundle.
+These are acceptance cases and evidence requirements, not automated model
+quality judgments or a claim that every real-model case has passed. Captured
+cases use the same evaluation bundle format; owner acceptance remains separate.
 
 | ID | Case | Required observation |
 |---|---|---|
@@ -540,12 +552,70 @@ quality judgments. Every case saves the same proposed evaluation bundle.
 | A23 | Existing WebChat/desktop interactions | Pages, menus, previews, approvals, results and recovery behavior retained |
 | A24 | Task completion followed by owner-requested export, with network-call accounting | Completion seals local records without a delivery report/ZIP; export creates the bundle on demand; zero reviewing-model calls or automatic external submission |
 
-## 12. Design Completion Record
+## 12. Implementation And Acceptance Record
 
-This revision defines the architecture, source/version boundary, task coverage,
-recording lifecycle, single-file export and manual review handoff. The program
-records facts and deterministic checks; the owner performs capability assessment
-with an external model. Implementation, numerical resource defaults, baseline
-case execution, runtime migration and release remain future phase work.
-The owner confirmed that initial delivery excludes large-document local editing
-and does not require a deliverable evaluation file at every task completion.
+P0 records admitted internal runs, frozen request context, run/tool/approval
+states, actual model dispatches and returns, source/output snapshots and full
+canonical structures. Terminal state seals the record; only an explicit CLI
+export creates a ZIP and factual report. Capture failures never repeat a
+business operation. Normal desktop/ISCP execution does not inherit the recorder.
+
+P1/P2 provide versioned canonical nodes for PDF, DOCX, PPTX, XLSX, UTF-8 text and
+Markdown. Parsing uses bounded private immutable snapshots; source changes
+invalidate results. Native text, formula/cached-value distinctions, dependencies,
+unsupported structures and OCR gaps remain explicit. A derived search index
+never replaces original node text. Cache acquisition is recorded as built,
+rebuilt, memory/disk cache or shared build; enrichment changes the generation.
+
+Revision 6 first discovers structure, then declares targeted, exhaustive,
+whole-summary, comparison or calculation scope. Runtime binds the source hash,
+generation and continuation cursor, persists scope in ordinary workflow facts,
+and stops incomplete when coverage or execution budgets prevent completion.
+The final projection separately records whether all acquired evidence reached
+the model. Images retain their existing visual adapter. Persisted revision 4/5
+plans retain their original behavior, and the routing catalog version is unchanged.
+
+Tool policy remains keyed by registered tool names. Revision 6 uses
+`document.outline`, `document.search`, `document.read_range` and
+`document.summarize`; custom named-tool restrictions must cover these operations.
+A `files.read` rule still applies to that direct/legacy tool, not every tool
+with a read effect. The existing policy editor and approval flow are retained.
+
+Legacy direct callers may omit version pins for chunk/section selectors for
+compatibility; such bare selectors cannot promise continuity across source
+changes. New revision 6 workflows always bind the versions. Summary contract 2
+visits every section, includes late parts, and reads at most eight parts per
+section; omitted parts remain partial. Typed values and dependency context are
+projected atomically or reported missing when they exceed the budget. There is
+no spreadsheet recalculation or new large-document local editing.
+
+Source implementation checks cover recorder recovery/export, exact model
+payloads, lossless traversal, format adapters, stale cursors, source changes,
+partial summaries, old-plan cold resume and scope persistence across memory,
+file and PostgreSQL. UI components, transport contracts and store schemas are
+unchanged. Automated checks support the implementation; the A01–A24 real-task
+matrix and semantic quality remain for owner acceptance. No deployment, app
+installation, push or reviewing-model invocation was performed.
+
+### 12.1 Source Validation
+
+Implementation revision `8bebe17c` passed the full isolated Linux Go suite
+(82 tested packages; 12 packages without tests), `go build ./...`, and
+`go vet ./...`. Race checks passed for evidence/model/OCR/index packages and
+focused workflow/ToolHub/gateway integration. The isolated PostgreSQL store
+suite passed, including the new scope persistence contract; file cold-resume
+checks cover both legacy revision 4/5 and revision 6 scope facts.
+
+Unchanged UI/client checks passed: WebChat 595 tests across 93 files plus build;
+desktop client-store/execution-client 52 tests. On Node 26, WebChat tests use
+`NODE_OPTIONS=--no-experimental-webstorage` so jsdom owns localStorage; the
+ordinary invocation's native-storage conflict also reproduces on baseline.
+The full Go baseline and final qualification ran on Linux because macOS has
+existing `/dev/shm` fixture failures. All 141 project Markdown mirror/link
+checks passed. No new native UI or real-model semantic acceptance is claimed.
+
+The first full integration run retained failures from obsolete small-document
+prebuild/single-reader assertions and missing upload-test worker cleanup. The
+final checks verify both upload sizes, actual untrusted range content, named-tool
+approval, structure/scope model telemetry and bounded worker shutdown. The first
+failed run remains distinct from the passing qualification.

@@ -3,8 +3,8 @@
 > 语言： [English](../../docs/document-workflows.md) | 简体中文
 
 [统一文档结构与评估证据设计](document-structure-and-evaluation-design.md) 记录 2026-11-05
-确定的方向：所有大小文档均可按需访问结构，并导出执行证据供人工移交外部评审。该设计尚未实现，
-下文现行 Workflow 契约继续生效。
+的源码实现：所有大小文档均按需访问结构，显式启用内部采集后可导出执行证据供人工外部评审。
+Owner 验收及部署单独完成。
 
 本文档描述当前结构化文档读取与编辑 pipeline，替代第一阶段 structured-enrichment 设计记录，
 同时保留长期有效的格式、证据和保真契约。
@@ -14,8 +14,12 @@ Gateway 上传会把附件原名直接保存在 `uploads/` 或 `media/` 下。�
 
 ## Workflow 边界
 
-`document.read` revision 5 读取、总结一个明确的受治理 workspace 文件，或逐字提取图片内原文；过大而无法整篇读取的
-PDF、DOCX 或文本会返回目录，节点随后进入检索阶段查找并读取段落，详见[大文档上下文](large-document-context-design.md)。Runtime 使用冻结路径直接调用唯一的格式限定 reader，Fast 只根据已完成证据生成最终回答。`document.edit` revision 7 读取一个明确文件，通过显式 Workflow 决策节点解析一个受支持
+`document.read` revision 6 读取或总结一个明确的受治理 workspace 文件。PDF、DOCX、PPTX、
+XLSX、文本和 Markdown 无论大小都先提供结构；Fast 选择语义任务范围，runtime 绑定来源版本，
+在同一范围内续读，直至完整或明确部分完成。短文档全篇任务可能一次有界范围读取即可完成。
+图片保留视觉 reader；持久化的 revision 4/5 计划保留原有直接读取／检索路径。
+详见[统一结构与评估证据](document-structure-and-evaluation-design.md)。
+`document.edit` revision 7 读取一个明确文件，通过显式 Workflow 决策节点解析一个受支持
 operation、为 reversible edit 获取 approval，并写入新的同级
 `<name>-2.<ext>` 输出副本。如果该名称已存在，preflight 会选择第一个可用的
 带编号同级名称，例如 `<name>-3.<ext>`。继续编辑其中一个副本时，会沿用同一

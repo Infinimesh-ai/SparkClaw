@@ -7,9 +7,9 @@ It replaces the first-phase structured-enrichment design record while retaining
 its durable format, evidence, and preservation contracts.
 
 The [unified structure and evaluation evidence design](document-structure-and-evaluation-design.md)
-records the 2026-11-05 direction for on-demand structural access at every document
-size and portable execution evidence for manual external review. It is not yet
-implemented; the active workflow contracts below remain in force.
+records the source implementation of on-demand structural access at every
+document size and opt-in internal execution evidence for manual external review.
+Owner acceptance and deployment remain separate.
 
 Gateway uploads keep the attachment filename directly under `uploads/` or
 `media/`. A duplicate uses the same numeric family without overwriting the
@@ -17,12 +17,14 @@ existing file: `report.pdf`, `report-2.pdf`, `report-3.pdf`, and so on.
 
 ## Workflow Boundary
 
-`document.read` revision 5 reads, summarizes, or extracts verbatim in-image text from one exact governed workspace
-file. Runtime invokes the single format-qualified reader directly with the
-frozen path, and Fast only synthesizes the final answer from completed
-evidence. A PDF, DOCX or text file too large to read whole returns its
-outline instead, and the node moves to a retrieval stage that searches and
-reads passages; see [Large document context](large-document-context-design.md). `document.edit` revision 7 reads one exact
+`document.read` revision 6 reads or summarizes one exact governed workspace
+file. PDF, DOCX, PPTX, XLSX, text and Markdown first expose structure regardless
+of size. Fast selects the semantic task scope; runtime binds source versions
+and continues that same scope until complete or explicitly partial. A short
+whole-source task may fit one bounded range read. Images retain their visual
+reader; persisted revision 4/5 plans retain the previous direct/retrieval path.
+See [Unified structure and evaluation evidence](document-structure-and-evaluation-design.md).
+`document.edit` revision 7 reads one exact
 file, resolves one supported
 operation through an explicit Workflow decision node, obtains approval for the
 reversible edit, and writes a new sibling output copy named

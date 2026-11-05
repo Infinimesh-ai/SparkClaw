@@ -48,9 +48,35 @@ func (r *Recorder) freeze(ctx context.Context, scope Scope, diagnostic bool) (fr
 		r.addGap(&m, "interrupted_spans", "one or more operations have no terminal event in this snapshot")
 	}
 	m.Export = ExportStatus{Complete: true, Diagnostic: diagnostic, MissingEntries: []string{}, GeneratedAt: time.Now().UTC()}
-	if eventsUnavailable {
+	// Preserve dangling references as explicit package omissions in diagnostic
+	// mode. The raw event log remains available for independent review.
+	knownPayloads := make(map[string]bool, len(m.Payloads))
+	for _, p := range m.Payloads {
+		knownPayloads[p.ID] = true
+	}
+	missing := func(entry string) {
+		if !containsEntry(m.Export.MissingEntries, entry) {
+			m.Export.MissingEntries = append(m.Export.MissingEntries, entry)
+		}
 		m.Export.Complete = false
-		m.Export.MissingEntries = append(m.Export.MissingEntries, "events.jsonl")
+	}
+	if !knownPayloads[m.RequestPayloadID] {
+		missing("request")
+	}
+	scanner := bufio.NewScanner(bytes.NewReader(events))
+	scanner.Buffer(make([]byte, 4096), int(r.opts.MaxEventBytes))
+	for scanner.Scan() {
+		var event Event
+		if json.Unmarshal(scanner.Bytes(), &event) == nil {
+			for _, id := range event.PayloadIDs {
+				if !knownPayloads[id] {
+					missing("payload:" + id)
+				}
+			}
+		}
+	}
+	if eventsUnavailable {
+		missing("events.jsonl")
 	}
 	path, err := runPath(scope)
 	if err != nil {

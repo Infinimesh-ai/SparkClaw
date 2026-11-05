@@ -349,6 +349,9 @@ func (r *Recorder) failLocked(root *os.Root, path string, m *Manifest, code stri
 	return cause
 }
 func (r *Recorder) Seal(ctx context.Context, scope Scope, status string) error {
+	if !terminalStatus(status) {
+		return fmt.Errorf("%w: business state %q is not terminal", ErrIncomplete, status)
+	}
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	path, err := runPath(scope)
@@ -360,7 +363,9 @@ func (r *Recorder) Seal(ctx context.Context, scope Scope, status string) error {
 		return err
 	}
 	defer unlock()
-	m, err := r.loadForWrite(root, scope)
+	// A seal is an integrity boundary. Reconcile the complete chain, including
+	// request and payload references, before asserting capture completeness.
+	m, _, err := r.load(root, scope)
 	if err != nil {
 		return err
 	}
@@ -382,6 +387,15 @@ func (r *Recorder) Seal(ctx context.Context, scope Scope, status string) error {
 	}
 	m.Capture.Complete = len(m.Capture.Gaps) == 0 && len(m.Capture.OpenSpans) == 0
 	return atomicJSON(root, path+"/manifest.json", m)
+}
+
+func terminalStatus(status string) bool {
+	switch status {
+	case "completed", "failed", "blocked", "cancelled":
+		return true
+	default:
+		return false
+	}
 }
 func (r *Recorder) Read(ctx context.Context, scope Scope) (Manifest, error) {
 	ctx, cancel := r.timeout(ctx)
@@ -410,10 +424,8 @@ func (r *Recorder) loadForWrite(root *os.Root, scope Scope) (Manifest, error) {
 	if m.Scope != scope || m.SchemaVersion != SchemaVersion {
 		return Manifest{}, ErrScope
 	}
-	for _, p := range m.Payloads {
-		if !validPayload(p) {
-			return Manifest{}, ErrIntegrity
-		}
+	if err := validateCaptureMetadata(m); err != nil {
+		return m, err
 	}
 	info, err := root.Lstat(path + "/events.jsonl")
 	if errors.Is(err, fs.ErrNotExist) && m.EventCount == 0 {
@@ -455,9 +467,17 @@ func (r *Recorder) load(root *os.Root, scope Scope) (Manifest, []byte, error) {
 	if err != nil {
 		return m, nil, err
 	}
+	if err := validateCaptureMetadata(m); err != nil {
+		return m, events, err
+	}
+	payloads := make(map[string]bool, len(m.Payloads))
+	for _, p := range m.Payloads {
+		payloads[p.ID] = true
+	}
 	scanner := bufio.NewScanner(bytes.NewReader(events))
 	scanner.Buffer(make([]byte, 4096), int(r.opts.MaxEventBytes))
 	var count uint64
+	var last Event
 	seen := map[string]bool{}
 	m.Capture.OpenSpans = []string{}
 	for scanner.Scan() {
@@ -465,29 +485,52 @@ func (r *Recorder) load(root *os.Root, scope Scope) (Manifest, []byte, error) {
 		if json.Unmarshal(scanner.Bytes(), &e) != nil || e.RunID != scope.RunID || e.Seq != count+1 || !validID(e.ID) || seen[e.ID] {
 			return m, events, ErrIntegrity
 		}
+		if count == 0 && (e.Kind != "run.begin" || len(e.PayloadIDs) != 1 || e.PayloadIDs[0] != m.RequestPayloadID) {
+			return m, events, ErrIntegrity
+		}
+		for _, id := range e.PayloadIDs {
+			if !payloads[id] {
+				return m, events, ErrIntegrity
+			}
+		}
 		seen[e.ID] = true
 		count++
+		last = e
 		updateOpenSpans(&m.Capture, e)
 	}
 	if scanner.Err() != nil || len(events) > 0 && events[len(events)-1] != '\n' {
 		return m, events, ErrIntegrity
 	}
-	if count < m.EventCount {
+	if count == 0 || count < m.EventCount || count > uint64(r.opts.MaxEvents) {
+		return m, events, ErrIntegrity
+	}
+	if m.Capture.Sealed && (!terminalStatus(m.Status) || m.CompletedAt == nil || last.Kind != "run.sealed" || last.Status != m.Status) {
 		return m, events, ErrIntegrity
 	}
 	m.EventCount = count
 	m.EventBytes = int64(len(events))
-	if !m.Capture.Sealed || len(m.Capture.OpenSpans) > 0 {
+	if !m.Capture.Sealed || len(m.Capture.OpenSpans) > 0 || len(m.Capture.Gaps) > 0 {
 		m.Capture.Complete = false
 	}
-	// Paths are derived solely from typed payload identities, never trusted from
-	// a manifest modified after capture.
-	for _, p := range m.Payloads {
-		if !validPayload(p) {
-			return m, events, ErrIntegrity
-		}
-	}
 	return m, events, nil
+}
+
+func validateCaptureMetadata(m Manifest) error {
+	// A crash before Begin publishes its request/begin event must never become
+	// a complete run merely because later hooks resume this directory.
+	requestFound := false
+	seen := make(map[string]bool, len(m.Payloads))
+	for _, p := range m.Payloads {
+		if !validPayload(p) || seen[p.ID] {
+			return ErrIntegrity
+		}
+		seen[p.ID] = true
+		requestFound = requestFound || p.ID == m.RequestPayloadID && p.Kind == "request"
+	}
+	if !requestFound {
+		return fmt.Errorf("%w: frozen request is unavailable", ErrIntegrity)
+	}
+	return nil
 }
 func validPayload(p Payload) bool {
 	return validID(p.Kind) && len(p.ID) == 64 && hexDigest(p.ID) && len(p.SHA256) == 64 && hexDigest(p.SHA256) && p.Bytes >= 0 &&

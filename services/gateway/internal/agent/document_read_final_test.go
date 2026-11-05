@@ -85,3 +85,31 @@ func TestScopedFinalPromptUsesCumulativePDFCoverage(t *testing.T) {
 		}
 	}
 }
+
+func TestPartialDocumentPresentationRetainsFailureBoundaries(t *testing.T) {
+	state := scopedReadState()
+	state.Plan.ProfileRevision = 7
+	state.Route.Facts[documentReadFactPrefix+"scope_status"] = "partial"
+	state.Nodes[documentReadNodeID] = app.WorkflowNodeState{LastAssessment: &app.NodeAssessment{ReasonCode: "document_scope_incomplete"}}
+	run := app.AgentRun{Workflow: state}
+	calls := []app.ToolCall{{Status: app.ToolCallStatusCompleted, Capability: app.ToolCapabilityDocumentReadRange, Result: map[string]any{"content": "Actual slide text", "read_complete": false}}}
+	if !documentCanPresentPartialEvidence(run, calls) {
+		t.Fatal("read text was discarded due to a visual gap")
+	}
+	for _, reason := range []string{"document_source_version_changed", "document_task_scope_invalid"} {
+		state.Nodes[documentReadNodeID] = app.WorkflowNodeState{LastAssessment: &app.NodeAssessment{ReasonCode: reason}}
+		if documentCanPresentPartialEvidence(run, calls) {
+			t.Fatalf("unsafe partial projection for %s", reason)
+		}
+	}
+	state.Nodes[documentReadNodeID] = app.WorkflowNodeState{LastAssessment: &app.NodeAssessment{ReasonCode: "document_scope_incomplete"}}
+	state.Route.Facts[documentReadFactPrefix+"next_cursor"] = "pending"
+	if documentCanPresentPartialEvidence(run, calls) {
+		t.Fatal("unfinished traversal presented as terminal source gap")
+	}
+	delete(state.Route.Facts, documentReadFactPrefix+"next_cursor")
+	state.Plan.ProfileRevision = 6
+	if documentCanPresentPartialEvidence(run, calls) {
+		t.Fatal("legacy partial behavior changed")
+	}
+}

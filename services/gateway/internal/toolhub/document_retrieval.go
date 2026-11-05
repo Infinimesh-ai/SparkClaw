@@ -184,9 +184,16 @@ func (h *ToolHub) documentReadRange(ctx context.Context, args map[string]any, se
 		return Result{}, err
 	}
 	request := docindex.RangeRequest{
-		NodeIDs: outputStringArray(args["node_ids"]), All: boolArg(args, "all", false), Cursor: stringArg(args, "cursor", ""), SourceSHA256: stringArg(args, "source_sha256", ""), StructureGeneration: stringArg(args, "structure_generation", ""),
+		IncludeDescendants: boolArg(args, "include_descendants", false),
+		NodeIDs:            outputStringArray(args["node_ids"]), All: boolArg(args, "all", false), Cursor: stringArg(args, "cursor", ""), SourceSHA256: stringArg(args, "source_sha256", ""), StructureGeneration: stringArg(args, "structure_generation", ""),
 		ChunkIDs: outputStringArray(args["chunk_ids"]), PageStart: intArg(args, "page_start", 0), PageEnd: intArg(args, "page_end", 0),
 		Section: stringArg(args, "section", ""), Context: intArg(args, "context", 1), MaxBytes: h.documentRetrievalMaxBytes(args),
+	}
+	// Canonical acquisition is archived, not injected verbatim into a model.
+	// New workflows use bounded 64 KiB acquisition batches even when the model
+	// evidence channel is smaller, then select evidence under its own budget.
+	if acquisition := intArg(args, "acquisition_max_bytes", 0); acquisition > 0 {
+		request.MaxBytes = min(max(request.MaxBytes, acquisition), docindex.MaxReadBytes)
 	}
 	if err := index.ValidateVersion(request.SourceSHA256, request.StructureGeneration); err != nil {
 		return Result{}, err
@@ -231,7 +238,8 @@ func (h *ToolHub) documentReadRange(ctx context.Context, args map[string]any, se
 	generationPinned := request.StructureGeneration != "" || request.Cursor != ""
 	return Result{Output: map[string]any{
 		"path": metadata.Relative, "rel_path": metadata.Relative, "kind": metadata.Format,
-		"content": result.Text, "bytes": len(result.Text), "spans": documentJSONValue(result.Spans), "truncated": result.Truncated,
+		"include_descendants": request.IncludeDescendants,
+		"content":             result.Text, "bytes": len(result.Text), "spans": documentJSONValue(result.Spans), "truncated": result.Truncated,
 		"nodes": documentJSONValue(result.Nodes), "dependencies": documentJSONValue(result.Dependencies), "coverage": documentJSONValue(result.Coverage), "structure": documentJSONValue(index.Structure),
 		"source_sha256": result.SourceSHA256, "structure_generation": result.StructureGeneration, "next_cursor": result.NextCursor,
 		"version_pinned": sourcePinned && generationPinned, "source_version_pinned": sourcePinned, "generation_pinned": generationPinned,

@@ -25,17 +25,17 @@ func mockDocumentScopedReadAction(user, goal, prompt string) (string, bool) {
 		if mode == "targeted" {
 			mode = "exhaustive"
 		}
-		return mockWorkflowStepAction("document.read_range", map[string]any{"all": true, "task_mode": mode, "scope_reason": "The request requires the declared whole-source scope."}), true
+		return mockWorkflowStepAction("document.read_range", map[string]any{"all": true, "task_mode": mode, "scope_extent": "whole_document", "scope_reason": "The request requires the declared whole-source scope."}), true
 	}
 	if !strings.Contains(user, "document.search keywords=") {
-		return mockWorkflowStepAction("document.search", map[string]any{"keywords": []string{goal}, "top_k": 5, "task_mode": mode, "scope_reason": "Locate the passage needed for the targeted question."}), true
+		return mockWorkflowStepAction("document.search", map[string]any{"keywords": []string{goal}, "top_k": 5, "task_mode": mode, "scope_extent": "selected_range", "scope_reason": "Locate the passage needed for the targeted question."}), true
 	}
 	chunks := []string{}
 	for _, match := range mockSearchHitChunk.FindAllStringSubmatch(user, 3) {
 		chunks = append(chunks, match[1])
 	}
 	if len(chunks) == 0 {
-		return mockWorkflowStepAction("document.read_range", map[string]any{"all": true, "task_mode": mode}), true
+		return mockWorkflowStepAction("document.read_range", map[string]any{"all": true, "task_mode": mode, "scope_extent": "selected_range"}), true
 	}
-	return mockWorkflowStepAction("document.read_range", map[string]any{"chunk_ids": chunks, "task_mode": mode}), true
+	return mockWorkflowStepAction("document.read_range", map[string]any{"chunk_ids": chunks, "task_mode": mode, "scope_extent": "selected_range"}), true
 }

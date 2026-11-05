@@ -468,7 +468,7 @@ func TestApprovedMCPDocumentReadUsesOneWorkspaceApproval(t *testing.T) {
 	defer closeRuntime()
 	pending, err := runtime.HandleMCPConversation(t.Context(), session.ID, "m_document_once", "run_document_once", app.MCPConversationRequest{
 		Text: `Summarize the document report.txt
-MOCK_STEP_RESPONSE:{"type":"action","tool":"document.read_range","arguments":{"all":true,"task_mode":"whole_summary","scope_reason":"Summarize the whole declared source."}}`,
+MOCK_STEP_RESPONSE:{"type":"action","tool":"document.read_range","arguments":{"all":true,"task_mode":"whole_summary","scope_extent":"whole_document","scope_reason":"Summarize the whole declared source."}}`,
 		Invocation: app.MCPInvocationRef{
 			InvocationID: "inv_document_once", OperationID: "op_document_once", BindingRef: "binding_document_once",
 			BindingRevision: 1, RequesterDeviceID: "device",
@@ -498,7 +498,7 @@ func TestApprovedMCPDocumentReadDoesNotCoverDifferentPathDerivative(t *testing.T
 	defer closeRuntime()
 	pending, err := runtime.HandleMCPConversation(t.Context(), session.ID, "m_document_derivative_scope", "run_document_derivative_scope", app.MCPConversationRequest{
 		Text: `Summarize the document report.txt
-MOCK_STEP_RESPONSE:{"type":"action","tool":"document.read_range","arguments":{"all":true,"task_mode":"whole_summary","scope_reason":"Summarize the whole declared source."}}`,
+MOCK_STEP_RESPONSE:{"type":"action","tool":"document.read_range","arguments":{"all":true,"task_mode":"whole_summary","scope_extent":"whole_document","scope_reason":"Summarize the whole declared source."}}`,
 		Invocation: app.MCPInvocationRef{
 			InvocationID: "inv_document_derivative_scope", OperationID: "op_document_derivative_scope", BindingRef: "binding_document_derivative_scope",
 			BindingRevision: 1, RequesterDeviceID: "device",

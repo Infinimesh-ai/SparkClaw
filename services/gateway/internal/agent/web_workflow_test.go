@@ -844,7 +844,7 @@ func TestDocumentInformationRouteDispatchesRealFileRead(t *testing.T) {
 	defer closeRuntime()
 
 	result, err := runtime.HandleMessage(context.Background(), session.ID, `Summarize the document note.txt
-MOCK_STEP_RESPONSE:{"type":"action","tool":"document.read_range","arguments":{"all":true,"task_mode":"whole_summary","scope_reason":"Summarize the whole declared source."}}`)
+MOCK_STEP_RESPONSE:{"type":"action","tool":"document.read_range","arguments":{"all":true,"task_mode":"whole_summary","scope_extent":"whole_document","scope_reason":"Summarize the whole declared source."}}`)
 	if err != nil {
 		t.Fatal(err)
 	}

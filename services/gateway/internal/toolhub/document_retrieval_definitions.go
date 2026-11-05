@@ -1,6 +1,9 @@
 package toolhub
 
-import "github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+import (
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/docindex"
+)
 
 // documentRetrievalToolProviders are the index query tools of the
 // large-document retrieval stage. Each is read-only and bound to the
@@ -49,10 +52,12 @@ func documentRetrievalToolProviders() []documentToolProvider {
 		{
 			Definition: app.ToolDefinition{
 				Name:        "document.read_range",
-				Description: "Read a declared source scope with exactly one selector: native node_ids, all=true, legacy chunk_ids, page range, section, or continuation cursor. A cursor resumes the original pinned selection and must not be combined with another selector. Read_complete and coverage apply only to that selection, never automatically to the task or whole document. Preserve missing/unrecognized nodes and continue next_cursor.",
+				Description: "Read a declared source scope with exactly one selector: native node_ids, all=true, legacy chunk_ids, page range, section, or continuation cursor. include_descendants expands selected headings to their full section bodies; without it node_ids read only the exact nodes. A cursor resumes the original pinned selection and must not be combined with another selector. Read_complete and coverage apply only to that selection, never automatically to the task or whole document. Preserve missing/unrecognized nodes and continue next_cursor.",
 				InputSchema: schema("object", []string{"path"}, documentScopeInputSchema(map[string]any{
-					"path": stringSchema(), "chunk_ids": stringArraySchema(), "page_start": integerSchema(), "page_end": integerSchema(),
-					"section": stringSchema(), "context": integerSchema(), "node_ids": stringArraySchema(), "all": booleanSchema(),
+					"path": stringSchema(), "chunk_ids": documentRangeIDsSchema(), "page_start": integerSchema(), "page_end": integerSchema(),
+					"section": stringSchema(), "context": integerSchema(), "node_ids": documentRangeIDsSchema(), "all": booleanSchema(),
+					"include_descendants":   booleanSchema(),
+					"acquisition_max_bytes": map[string]any{"type": "integer", "minimum": 1024, "maximum": docindex.MaxReadBytes, "description": "Canonical acquisition budget, independent of model-visible evidence; runtime-owned in revision 7."},
 				})),
 				OutputSchema: objectSchema([]string{"path", "content", "bytes", "spans", "truncated", "untrusted"}, map[string]any{
 					"path": stringSchema(), "rel_path": stringSchema(), "kind": stringSchema(), "content": stringSchema(), "bytes": integerSchema(),
@@ -91,15 +96,24 @@ func documentRetrievalToolProviders() []documentToolProvider {
 	}
 }
 
+func documentRangeIDsSchema() map[string]any {
+	value := stringArraySchema()
+	value["maxItems"] = docindex.MaxRangeChunks
+	value["description"] = "Copy only exact IDs from structure/search evidence. At most 64 IDs; use all=true for a whole source, a heading node with include_descendants for a chapter, or a page range instead of enumerating its IDs."
+	return value
+}
+
 // New optional fields preserve legacy callers while revision 6 binds versions
 // and requires a semantic task scope in its model-visible projection.
 func documentScopeInputSchema(properties map[string]any) map[string]any {
+	properties["scope_extent"] = map[string]any{"type": "string", "enum": []string{"whole_document", "selected_range"}, "description": "Required by workflow revision 7. Use whole_document when the user requires the entire source, all records, or a whole-source summary; runtime traverses all nodes. Use selected_range for named sections, pages or targeted facts. Search hits and an outline page never define the scope of a whole-document request."}
 	properties["source_sha256"] = stringSchema()
 	properties["structure_generation"] = stringSchema()
 	properties["cursor"] = stringSchema()
 	properties["limit"] = integerSchema()
 	properties["max_bytes"] = integerSchema()
 	properties["contract_version"] = integerSchema()
+	properties["task_goal"] = stringSchema()
 	properties["task_mode"] = map[string]any{"type": "string", "enum": []string{"targeted", "exhaustive", "whole_summary", "comparison", "calculation"}}
 	properties["scope_reason"] = stringSchema()
 	return properties

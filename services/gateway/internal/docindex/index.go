@@ -202,6 +202,7 @@ func (index *Index) outlineNode(id string) (OutlineNode, bool) {
 // Context adds that many neighbouring chunks on each side of listed IDs.
 type RangeRequest struct {
 	NodeIDs             []string
+	IncludeDescendants  bool
 	All                 bool
 	Cursor              string
 	SourceSHA256        string

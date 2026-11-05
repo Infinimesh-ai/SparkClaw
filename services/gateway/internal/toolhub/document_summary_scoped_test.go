@@ -189,3 +189,43 @@ func TestScopedSummaryLongTextFragmentsRetainRequiredContext(t *testing.T) {
 		t.Fatal("text traversal lost source bytes or late exception")
 	}
 }
+
+func TestTaskSummaryPreservesRequestedListAndSeparatesCacheByTask(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "list.md"), []byte("# Checklist\n\n1. Initial step.\n2. FINAL_SOURCE_ITEM.\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		requests.Add(1)
+		if !strings.Contains(string(raw), "FINAL_SOURCE_ITEM") || !strings.Contains(string(raw), "EVERY item") || !strings.Contains(string(raw), "task_goal") {
+			t.Error("task summary lost original checklist or preservation instruction")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": "Initial step; FINAL_SOURCE_ITEM"}}}})
+	}))
+	defer server.Close()
+	cfg := configtest.MustLoadDefault()
+	cfg.Model.Mock = false
+	cfg.Model.Fast.BaseURL = server.URL
+	cfg.Workspaces.DefaultRoot, cfg.Workspaces.Allowlist = root, []string{root}
+	hub := New(cfg, store.NewMemoryStore())
+	defer hub.Close()
+	for i, goal := range []string{"Keep the complete checklist", "Keep the complete checklist", "Keep source limitations and checklist"} {
+		result, err := hub.Execute(t.Context(), "document.summarize", map[string]any{"path": "list.md", "contract_version": 3, "task_goal": goal}, "session", "run")
+		if err != nil {
+			t.Fatal(err)
+		}
+		output := result.Output.(map[string]any)
+		if output["contract_version"] != 3 || output["read_complete"] != true || !strings.Contains(output["content"].(string), "FINAL_SOURCE_ITEM") {
+			t.Fatalf("task-aware summary lost source/contract: %#v", output)
+		}
+		want := int32(1)
+		if i == 2 {
+			want = 2
+		}
+		if requests.Load() != want {
+			t.Fatalf("cache task identity: calls=%d want=%d", requests.Load(), want)
+		}
+	}
+}

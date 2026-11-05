@@ -373,17 +373,18 @@ func (index *Index) OutlinePage(request OutlineRequest) (OutlineResult, error) {
 }
 
 type rangeSelection struct {
-	NodeIDs   []string `json:"node_ids,omitempty"`
-	All       bool     `json:"all,omitempty"`
-	ChunkIDs  []string `json:"chunk_ids,omitempty"`
-	PageStart int      `json:"page_start,omitempty"`
-	PageEnd   int      `json:"page_end,omitempty"`
-	Section   string   `json:"section,omitempty"`
-	Context   int      `json:"context,omitempty"`
+	NodeIDs            []string `json:"node_ids,omitempty"`
+	All                bool     `json:"all,omitempty"`
+	ChunkIDs           []string `json:"chunk_ids,omitempty"`
+	PageStart          int      `json:"page_start,omitempty"`
+	PageEnd            int      `json:"page_end,omitempty"`
+	Section            string   `json:"section,omitempty"`
+	Context            int      `json:"context,omitempty"`
+	IncludeDescendants bool     `json:"include_descendants,omitempty"`
 }
 
 func rangeSelectionOf(request RangeRequest) rangeSelection {
-	return rangeSelection{request.NodeIDs, request.All, request.ChunkIDs, request.PageStart, request.PageEnd, request.Section, request.Context}
+	return rangeSelection{NodeIDs: request.NodeIDs, All: request.All, ChunkIDs: request.ChunkIDs, PageStart: request.PageStart, PageEnd: request.PageEnd, Section: request.Section, Context: request.Context, IncludeDescendants: request.IncludeDescendants}
 }
 func (index *Index) restoreRange(request RangeRequest) (RangeRequest, error) {
 	if request.Cursor == "" || request.All || len(request.NodeIDs) > 0 || len(request.ChunkIDs) > 0 || request.PageStart > 0 || request.Section != "" {
@@ -406,6 +407,7 @@ func (index *Index) restoreRange(request RangeRequest) (RangeRequest, error) {
 	}
 	selected := cursor.Request
 	request.NodeIDs, request.All, request.ChunkIDs, request.PageStart, request.PageEnd, request.Section, request.Context = selected.NodeIDs, selected.All, selected.ChunkIDs, selected.PageStart, selected.PageEnd, selected.Section, selected.Context
+	request.IncludeDescendants = selected.IncludeDescendants
 	if _, err := index.cursor(request.Cursor, selectionKey(request)); err != nil {
 		return request, err
 	}

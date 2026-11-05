@@ -18,6 +18,12 @@ func bindScopedDocumentReadArguments(state *app.WorkflowState, plan toolPlan, ar
 		delete(args, key)
 	}
 	facts := state.Route.Facts
+	if state.Plan.ProfileRevision >= 7 {
+		// Legacy section identifiers belong to the old outline, while current
+		// outline/search returns canonical node IDs. Expose only canonical
+		// node/page selectors to new plans, avoiding conflicting selectors.
+		delete(args, "section")
+	}
 	for _, key := range []string{"source_sha256", "structure_generation"} {
 		if value := facts[documentReadFactPrefix+key]; value != "" {
 			args[key] = value
@@ -33,6 +39,9 @@ func bindScopedDocumentReadArguments(state *app.WorkflowState, plan toolPlan, ar
 	if plan.Capability == app.ToolCapabilityDocumentSummarize {
 		mode = "whole_summary"
 		args["contract_version"] = 2
+		if state.Plan.ProfileRevision >= 7 {
+			args["contract_version"] = 3
+		}
 	}
 	if frozen := facts[documentReadFactPrefix+"task_mode"]; frozen != "" {
 		if mode != "" && mode != "<nil>" && mode != frozen {
@@ -44,7 +53,35 @@ func bindScopedDocumentReadArguments(state *app.WorkflowState, plan toolPlan, ar
 	if mode == "" || mode == "<nil>" {
 		return nil, errors.New("document task_mode must be selected before reading")
 	}
+	if state.Plan.ProfileRevision >= 7 && plan.Capability != app.ToolCapabilityDocumentSearch {
+		extent := strings.TrimSpace(stringValue(args["scope_extent"]))
+		if plan.Capability == app.ToolCapabilityDocumentSummarize {
+			extent = "whole_document"
+		}
+		if frozen := facts[documentReadFactPrefix+"scope_extent"]; frozen != "" {
+			if extent != "" && extent != "<nil>" && extent != frozen {
+				return nil, errors.New("document scope extent cannot change after declaration")
+			}
+			extent = frozen
+		}
+		if extent != "whole_document" && extent != "selected_range" {
+			return nil, errors.New("select scope_extent whole_document or selected_range from the user's requested coverage")
+		}
+		args["scope_extent"] = extent
+		if plan.Capability == app.ToolCapabilityDocumentReadRange && extent == "whole_document" && facts[documentReadFactPrefix+"next_cursor"] == "" {
+			// Semantic whole-source intent is authoritative. Runtime enumerates
+			// the source; the model does not copy a paginated outline's IDs.
+			for key := range documentReadSelector(args) {
+				delete(args, key)
+			}
+			args["all"] = true
+		}
+	}
 	if plan.Capability == app.ToolCapabilityDocumentReadRange {
+		if state.Plan.ProfileRevision >= 7 {
+			args["include_descendants"] = true
+			args["acquisition_max_bytes"] = 64 << 10
+		}
 		if cursor := facts[documentReadFactPrefix+"next_cursor"]; cursor != "" {
 			for key := range documentReadSelector(args) {
 				delete(args, key)
@@ -53,6 +90,9 @@ func bindScopedDocumentReadArguments(state *app.WorkflowState, plan toolPlan, ar
 		} else if mode != "targeted" && len(stringSliceValue(args["chunk_ids"])) > 0 {
 			return nil, errors.New("search chunks cannot establish exhaustive, summary, comparison or calculation scope; declare nodes, a typed range or all")
 		}
+	}
+	if state.Plan.ProfileRevision >= 7 && plan.Capability == app.ToolCapabilityDocumentSearch {
+		delete(args, "scope_extent")
 	}
 	return args, nil
 }
@@ -72,15 +112,44 @@ func scopedDocumentReadModelArguments(run app.AgentRun, definition app.ToolDefin
 	if capability == "" {
 		return bound, nil
 	}
+	if run.Workflow.Plan.ProfileRevision >= 7 {
+		bound["section"] = true
+		bound["task_goal"] = true
+		bound["include_descendants"] = true
+		bound["acquisition_max_bytes"] = true
+	}
 	for _, key := range []string{"source_sha256", "structure_generation", "cursor", "contract_version"} {
 		bound[key] = true
 	}
 	if capability == app.ToolCapabilityDocumentOutline {
 		return bound, nil
 	}
+	required := []string{}
 	if run.Workflow.Route.Facts[documentReadFactPrefix+"task_mode"] != "" || capability == app.ToolCapabilityDocumentSummarize {
 		bound["task_mode"] = true
-		return bound, nil
+	} else {
+		required = append(required, "task_mode", "scope_reason")
 	}
-	return bound, []string{"task_mode", "scope_reason"}
+	if run.Workflow.Plan.ProfileRevision >= 7 {
+		if capability == app.ToolCapabilityDocumentSearch || capability == app.ToolCapabilityDocumentSummarize || run.Workflow.Route.Facts[documentReadFactPrefix+"scope_extent"] != "" {
+			bound["scope_extent"] = true
+		} else {
+			required = append(required, "scope_extent")
+		}
+	}
+	return bound, required
+}
+
+// Bind the persisted, governed user text, never a model-generated replacement.
+func documentReadSummaryGoal(run app.AgentRun) string {
+	if run.MessageContext == nil {
+		return ""
+	}
+	parts := []string{}
+	for _, part := range run.MessageContext.RequestContent.Parts {
+		if part.Kind == app.MessagePartText && strings.TrimSpace(part.Text) != "" {
+			parts = append(parts, part.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }

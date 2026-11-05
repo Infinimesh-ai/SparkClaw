@@ -16,7 +16,7 @@ func documentReadOutcomeAttributes(call app.ToolCall, output map[string]any) map
 			attributes[key] = stringValue(value)
 		}
 	}
-	for _, key := range []string{"task_mode", "scope_reason", "cursor"} {
+	for _, key := range []string{"task_mode", "scope_reason", "scope_extent", "cursor", "include_descendants"} {
 		if value, ok := call.Arguments[key]; ok {
 			attributes[key] = stringValue(value)
 		}
@@ -69,6 +69,15 @@ func (documentReadProfile) Assess(state *app.WorkflowState, outcome app.ToolOutc
 			state.Route.Facts[documentReadFactPrefix+"query_failures"] = strconv.Itoa(failures + 1)
 			if failures < 2 {
 				assessment.Status, assessment.ReasonCode = app.AssessmentNeedsMoreEvidence, "document_scope_query_failed"
+			}
+		}
+		// Only an initial selection may be corrected. A frozen scope or cursor
+		// failure must stop; retries retain the original source version pin.
+		if state.Plan.ProfileRevision >= 7 && documentReadOutcomeCapability(outcome) == app.ToolCapabilityDocumentReadRange && state.Route.Facts[documentReadFactPrefix+"scope_selector"] == "" && state.Route.Facts[documentReadFactPrefix+"next_cursor"] == "" {
+			failures, _ := strconv.Atoi(state.Route.Facts[documentReadFactPrefix+"selection_failures"])
+			state.Route.Facts[documentReadFactPrefix+"selection_failures"] = strconv.Itoa(failures + 1)
+			if failures < 2 {
+				assessment.Status, assessment.ReasonCode = app.AssessmentNeedsMoreEvidence, "document_scope_selection_failed"
 			}
 		}
 		return assessment
@@ -135,6 +144,16 @@ func freezeDocumentReadMode(state *app.WorkflowState, attributes map[string]stri
 		return false
 	}
 	facts := state.Route.Facts
+	if state.Plan.ProfileRevision >= 7 && attributes["capability"] != app.ToolCapabilityDocumentSearch {
+		extent := attributes["scope_extent"]
+		if extent != "whole_document" && extent != "selected_range" {
+			return false
+		}
+		if frozen := facts[documentReadFactPrefix+"scope_extent"]; frozen != "" && frozen != extent {
+			return false
+		}
+		facts[documentReadFactPrefix+"scope_extent"] = extent
+	}
 	if current := facts[documentReadFactPrefix+"task_mode"]; current != "" && current != mode {
 		return false
 	}

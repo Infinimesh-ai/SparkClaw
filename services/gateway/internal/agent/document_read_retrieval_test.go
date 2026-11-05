@@ -64,7 +64,7 @@ func TestDocumentReadRetrievesPassagesOfALargeDocument(t *testing.T) {
 		t.Fatalf("the range read missed the slow-start passage: %.300s", stringValue(output["content"]))
 	}
 	if result.Run.Workflow == nil || result.Run.Workflow.Status != app.WorkflowStatusSucceeded ||
-		result.Run.Workflow.Plan.ProfileRevision != 6 || result.Message.Content != "Mock workflow answer grounded in the completed document evidence." {
+		result.Run.Workflow.Plan.ProfileRevision != 7 || result.Message.Content != "Mock workflow answer grounded in the completed document evidence." {
 		t.Fatalf("retrieval did not finish through the finalizer: workflow=%#v answer=%q", result.Run.Workflow, result.Message.Content)
 	}
 	events, err := st.EventsAfter(context.Background(), session.ID, "")

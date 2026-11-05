@@ -334,6 +334,9 @@ func (r Runtime) bindWorkflowToolArguments(ctx context.Context, runID string, pl
 		return args, nil
 	}
 	if plan.WorkflowID == app.WorkflowDocumentRead {
+		if isScopedDocumentRead(run.Workflow) && run.Workflow.Plan.ProfileRevision >= 7 && plan.Capability == app.ToolCapabilityDocumentSummarize {
+			args["task_goal"] = documentReadSummaryGoal(run)
+		}
 		return bindScopedDocumentReadArguments(run.Workflow, plan, args)
 	}
 	state, ok := run.Workflow.Nodes[plan.WorkflowNodeID]
@@ -767,6 +770,13 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		case storedRun.Workflow.Status == app.WorkflowStatusBlocked && strings.TrimSpace(latest.FinalAnswer) == "":
 			latest.Completed = false
 			latest.FinalAnswer = ownerBlockedWorkflowMessage(storedRun.Workflow, content)
+			if documentCanPresentPartialEvidence(storedRun, allCalls) {
+				chat, answer, err := r.synthesizeWorkflowFinalAnswer(ctx, storedRun, content, allCalls, workflowObservationTexts(allObservations), documentWorkflowModelLane, nil)
+				if err == nil && strings.TrimSpace(answer) != "" {
+					latest.Chat = chat
+					latest.FinalAnswer += "\n\n" + answer
+				}
+			}
 		case storedRun.Workflow.Status == app.WorkflowStatusSucceeded && strings.TrimSpace(latest.FinalAnswer) == "" && profile.Finalization() == workflowFinalizationModel:
 			chat, answer, err := r.synthesizeWorkflowFinalAnswer(
 				ctx, storedRun, content, allCalls, workflowObservationTexts(allObservations),
@@ -951,6 +961,10 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 	}, "\n")
 	if isScopedDocumentRead(run.Workflow) {
 		system += "\nDocument evidence uses a declared task scope for every supported size. Respect task_scope_manifest: selected-range completion is not whole-source coverage. If model_exposure_complete=false, you have not seen all required content and must not give whole-document, exhaustive or absence conclusions; explicitly identify the projection limitation. State unread ranges, unknown source units and any model-exposure omissions. Never turn search misses into absence claims. Historical per_call_coverage entries describe only progress when that call finished. An intermediate read_complete=false does not override the cumulative task_scope_manifest: assess completion using its scope_status, required selector and model_exposure_complete, including all later continuation evidence."
+		if run.Workflow.Plan.ProfileRevision >= 7 {
+			system = strings.Replace(system, "If model_exposure_complete=false, you have not seen all required content and must not give whole-document, exhaustive or absence conclusions; explicitly identify the projection limitation.", "If model_exposure_complete=false and task_selection_complete is not true, you have not seen all required content and must not give whole-document, exhaustive or absence conclusions; explicitly identify the projection limitation.", 1)
+			system += "\nIf task_selection_complete=true, bounded task-model batches classified all acquired nonempty source fragments and you see selected ORIGINAL source fragments with their dependencies. The complete declared source WAS traversed and EVERY nonempty fragment WAS evaluated in task batches. Present the extracted items and original locators as the batch extraction result; do not falsely call it sampling, unread intermediate records or unfinished traversal. Historical outline_discovery_coverage only describes the initial navigation page, not content acquisition. Semantic relevance decisions are not independently verified: do not promise infallible exhaustiveness or absence. Do not invent extra names, ranges, categories, or counts for unselected source records. Use ordinary user-facing language, not internal manifest field names or runtime status jargon."
+		}
 	} else {
 		system += "\nWhen document evidence says read_complete=false, explicitly state the limitation and missing page indexes, summarize only covered pages, and never describe the answer as a complete-PDF summary."
 		switch workflowDocumentRetrieval(calls) {
@@ -964,10 +978,15 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 	if evidenceErr != nil {
 		return modelrouter.ChatResult{}, "", evidenceErr
 	}
+	inputs, taskSelection, selectionErr := r.selectDocumentTaskEvidence(ctx, run, originalGoal, inputs, r.workflowFinalEvidenceLimit(lane))
+	if selectionErr != nil {
+		return modelrouter.ChatResult{}, "", selectionErr
+	}
 	var finalEvidence workflowFinalEvidenceProjection
 	_, user, _, fitErr := r.fitEvidencePrompt(ctx, modelcapacity.OperationWorkflowFinalAnswer, laneForFinalStream(lane), r.workflowFinalEvidenceLimit(lane),
 		func(budget int) (string, string, error) {
 			finalEvidence = buildWorkflowFinalEvidenceProjection(run, inputs.Calls, observations, inputs.ArchivedBytesByCall, budget)
+			applyDocumentTaskSelection(&finalEvidence, taskSelection)
 			userLines := []string{
 				"WORKFLOW_FINAL_ANSWER_REQUEST",
 				"Original user goal:",
@@ -980,6 +999,9 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 			}
 			if payload := finalEvidence.modelPayload(); payload != "" {
 				userLines = append(userLines, payload)
+			}
+			if isScopedDocumentRead(run.Workflow) && run.Workflow.Plan.ProfileRevision >= 7 && run.Workflow.Route.Facts[documentReadFactPrefix+"task_mode"] == "whole_summary" {
+				userLines = append(userLines, "", "Return to the original user task after reading the evidence:", originalGoal, "Prioritize the explicitly named sections and lists over optional broad detail. Preserve every supplied item of a specifically requested list, including its final item; do not substitute a different similarly named checklist or reconstruct new items. Keep qualifications and original section/paragraph locators. Treat source coverage separately from semantic correctness.")
 			}
 			userLines = append(userLines, "", "Produce the final answer now.")
 			return system, strings.Join(userLines, "\n"), nil

@@ -35,7 +35,7 @@ func TestScopedDocumentReadStartsWithStructureForShortSource(t *testing.T) {
 		t.Fatalf("short document bypassed structure: %v", names)
 	}
 	facts := result.Run.Workflow.Route.Facts
-	if result.Run.Workflow.Plan.ProfileRevision != 6 || result.Run.Workflow.Status != app.WorkflowStatusSucceeded || facts[documentReadFactPrefix+"scope_status"] != "complete" || facts[documentReadFactPrefix+"source_sha256"] == "" || facts[documentReadFactPrefix+"scope_selector"] != `{"all":true}` {
+	if result.Run.Workflow.Plan.ProfileRevision != 7 || result.Run.Workflow.Status != app.WorkflowStatusSucceeded || facts[documentReadFactPrefix+"scope_status"] != "complete" || facts[documentReadFactPrefix+"source_sha256"] == "" || facts[documentReadFactPrefix+"scope_selector"] != `{"all":true}` {
 		t.Fatalf("declared source scope missing: %#v", result.Run.Workflow)
 	}
 }
@@ -43,7 +43,7 @@ func TestScopedDocumentReadStartsWithStructureForShortSource(t *testing.T) {
 func TestScopedDocumentReadContinuesOneFrozenRange(t *testing.T) {
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) { cfg.config.Runtime.StageEvidenceMaxBytes = 16000 })
 	defer closeRuntime()
-	text := "# Long node\n\n" + strings.Repeat("bounded source content ", 1100) + "LATE_EXCEPTION\n"
+	text := "# Long node\n\n" + strings.Repeat("bounded source content ", 6000) + "LATE_EXCEPTION\n"
 	if err := os.WriteFile(filepath.Join(session.WorkspaceRoot, "range.md"), []byte(text), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestScopedDocumentReadTaskFactsSurviveFileStoreReopen(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "values.md"), []byte("# Values\n\nTwo boxes contain 3 and 4 items.\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	result, err := runtime.HandleMessage(t.Context(), session.ID, "Read values.md\nMOCK_STEP_RESPONSE:{\"type\":\"action\",\"tool\":\"document.read_range\",\"arguments\":{\"all\":true,\"task_mode\":\"calculation\",\"scope_reason\":\"Use the declared dataset.\"}}")
+	result, err := runtime.HandleMessage(t.Context(), session.ID, "Read values.md\nMOCK_STEP_RESPONSE:{\"type\":\"action\",\"tool\":\"document.read_range\",\"arguments\":{\"all\":true,\"task_mode\":\"calculation\",\"scope_extent\":\"whole_document\",\"scope_reason\":\"Use the declared dataset.\"}}")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,6 +179,41 @@ func TestScopedDocumentReadBindsContinuationFromStoredState(t *testing.T) {
 	}
 }
 
+func TestScopedDocumentHeadingExpansionIsRuntimeOwnedAndRevisionBound(t *testing.T) {
+	for _, revision := range []int{6, 7} {
+		state := scopedReadState()
+		state.Plan.ProfileRevision = revision
+		state.ActiveNodeIDs = []app.WorkflowNodeID{documentReadNodeID}
+		args, err := bindScopedDocumentReadArguments(state, toolPlan{Capability: app.ToolCapabilityDocumentReadRange}, map[string]any{"task_mode": "targeted", "scope_extent": "selected_range", "node_ids": []string{"heading"}, "include_descendants": false})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (args["include_descendants"] == true) != (revision == 7) {
+			t.Fatalf("revision %d expansion binding: %+v", revision, args)
+		}
+		profile, err := defaultWorkflowProfileRegistry().Get(app.WorkflowDocumentRead, revision)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(profile.StageContext(state).Reason, "Revision 7") != (revision == 7) {
+			t.Fatal("persisted revision instruction drift")
+		}
+	}
+}
+
+func TestWholeDocumentExtentCannotShrinkToOutlinePage(t *testing.T) {
+	state := scopedReadState()
+	state.Plan.ProfileRevision = 7
+	args, err := bindScopedDocumentReadArguments(state, toolPlan{Capability: app.ToolCapabilityDocumentReadRange}, map[string]any{"task_mode": "exhaustive", "scope_extent": "whole_document", "node_ids": []string{"first_outline_page_only"}, "section": "invented"})
+	if err != nil || args["all"] != true || args["node_ids"] != nil || args["section"] != nil {
+		t.Fatalf("whole-source intent narrowed: %+v %v", args, err)
+	}
+	state.Route.Facts[documentReadFactPrefix+"scope_extent"] = "whole_document"
+	if _, err := bindScopedDocumentReadArguments(state, toolPlan{Capability: app.ToolCapabilityDocumentReadRange}, map[string]any{"task_mode": "exhaustive", "scope_extent": "selected_range", "node_ids": []string{"one"}}); err == nil {
+		t.Fatal("frozen scope extent narrowed")
+	}
+}
+
 func TestScopedFinalProjectionPreservesLateRangeAndExposureLimitation(t *testing.T) {
 	state := scopedReadState()
 	state.Route.Facts[documentReadFactPrefix+"task_mode"] = "whole_summary"
@@ -208,7 +243,7 @@ func TestScopedDocumentReadKeepsImageFormatOnVisualAdapter(t *testing.T) {
 	profile := documentReadProfile{}
 	route := app.RouteDecision{Facts: map[string]string{"document_format": app.DocumentFormatImage}}
 	_, plan, err := profile.Resolve(route, "turn")
-	if err != nil || plan.ProfileRevision != 6 || plan.Nodes[1].InitialStage != documentReadStage || plan.Nodes[1].InitialScope.Requirements[0].Qualifiers[app.CapabilityQualifierFormat] != app.DocumentFormatImage {
+	if err != nil || plan.ProfileRevision != 7 || plan.Nodes[1].InitialStage != documentReadStage || plan.Nodes[1].InitialScope.Requirements[0].Qualifiers[app.CapabilityQualifierFormat] != app.DocumentFormatImage {
 		t.Fatalf("image format lost its visual capability: %#v %v", plan, err)
 	}
 }
@@ -295,5 +330,68 @@ func TestScopedFinalProjectionRetainsPlainTextRequiredUnitContext(t *testing.T) 
 	payload := partial.modelPayload()
 	if partial.Coverage.Claim != workflowCoveragePartial || partial.Coverage.CompleteForConsumer || !strings.Contains(payload, `"model_exposure_complete":false`) || strings.Contains(payload, "evenly_spaced_windows") || strings.Contains(payload, `"text":"12"`) {
 		t.Fatalf("omitted context advertised complete or sampled exposure: coverage=%#v payload=%s", partial.Coverage, payload)
+	}
+}
+
+func TestInitialDocumentSelectionRepairIsBoundedAndCannotChangeFrozenScope(t *testing.T) {
+	state := scopedReadState()
+	state.Plan.ProfileRevision = 7
+	call := app.ToolCall{ID: "bad-selection", Capability: app.ToolCapabilityDocumentReadRange, Status: app.ToolCallStatusFailed, Error: "node is not in this document"}
+	outcome := adaptDocumentRetrievalOutcome(call, documentReadNodeID)
+	for attempt := 0; attempt < 3; attempt++ {
+		assessment := (documentReadProfile{}).Assess(state, outcome)
+		want := app.AssessmentNeedsMoreEvidence
+		if attempt == 2 {
+			want = app.AssessmentBlocked
+		}
+		if assessment.Status != want {
+			t.Fatalf("attempt %d: %+v", attempt, assessment)
+		}
+	}
+	for _, key := range []string{"scope_selector", "next_cursor"} {
+		frozen := scopedReadState()
+		frozen.Plan.ProfileRevision = 7
+		frozen.Route.Facts[documentReadFactPrefix+key] = "frozen"
+		if assessment := (documentReadProfile{}).Assess(frozen, outcome); assessment.Status != app.AssessmentBlocked {
+			t.Fatalf("retried frozen %s: %+v", key, assessment)
+		}
+	}
+	legacy := scopedReadState()
+	if assessment := (documentReadProfile{}).Assess(legacy, outcome); assessment.Status != app.AssessmentBlocked {
+		t.Fatalf("changed revision 6 failure behavior: %+v", assessment)
+	}
+}
+
+func TestNewDocumentPlansUseCanonicalInsteadOfLegacySectionSelectors(t *testing.T) {
+	state := scopedReadState()
+	state.Plan.ProfileRevision = 7
+	args, err := bindScopedDocumentReadArguments(state, toolPlan{Capability: app.ToolCapabilityDocumentReadRange}, map[string]any{"task_mode": "targeted", "scope_extent": "selected_range", "node_ids": []string{"canonical-node"}, "section": "a title is not a legacy section ID"})
+	if err != nil || len(documentReadSelector(args)) != 1 || args["section"] != nil || args["include_descendants"] != true {
+		t.Fatalf("legacy selector conflicts with canonical selection: %#v %v", args, err)
+	}
+	definition := app.ToolDefinition{Capabilities: []app.CapabilityDescriptor{{Name: app.ToolCapabilityDocumentReadRange}}}
+	bound, _ := scopedDocumentReadModelArguments(app.AgentRun{Workflow: state}, definition)
+	if !bound["section"] {
+		t.Fatal("new model schema exposed the legacy section selector")
+	}
+	state.Plan.ProfileRevision = 6
+	bound, _ = scopedDocumentReadModelArguments(app.AgentRun{Workflow: state}, definition)
+	if bound["section"] {
+		t.Fatal("legacy schema changed")
+	}
+}
+
+func TestTaskSummaryBindsPersistedUserGoalAndKeepsLegacyContract(t *testing.T) {
+	run := app.AgentRun{MessageContext: &app.MessageRunContext{RequestContent: app.MessageContent{Parts: []app.MessagePart{{Kind: app.MessagePartText, Text: "Preserve the last checklist"}}}}}
+	if documentReadSummaryGoal(run) != "Preserve the last checklist" || documentReadSummaryGoal(app.AgentRun{}) != "" {
+		t.Fatal("task summary did not use persisted user content")
+	}
+	for _, revision := range []int{6, 7} {
+		state := scopedReadState()
+		state.Plan.ProfileRevision = revision
+		args, err := bindScopedDocumentReadArguments(state, toolPlan{Capability: app.ToolCapabilityDocumentSummarize}, map[string]any{})
+		if err != nil || args["contract_version"] != revision-4 {
+			t.Fatalf("revision %d summary contract: %+v %v", revision, args, err)
+		}
 	}
 }

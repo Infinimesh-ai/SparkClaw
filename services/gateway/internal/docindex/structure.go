@@ -149,6 +149,25 @@ func (index *Index) selectedNodes(request RangeRequest) ([]int, error) {
 			}
 			selected[i] = true
 		}
+		// A heading locates a section, not just its label. Keep the expansion
+		// explicit and cursor-bound so legacy exact-node callers are unchanged.
+		if request.IncludeDescendants {
+			children := map[string][]int{}
+			for i, node := range index.Nodes {
+				children[node.ParentID] = append(children[node.ParentID], i)
+			}
+			pending := append([]string(nil), request.NodeIDs...)
+			for len(pending) > 0 {
+				id := pending[0]
+				pending = pending[1:]
+				for _, i := range children[id] {
+					if !selected[i] {
+						selected[i] = true
+						pending = append(pending, index.Nodes[i].ID)
+					}
+				}
+			}
+		}
 	case request.PageStart > 0:
 		for i, node := range index.Nodes {
 			if node.Locator.Page >= request.PageStart && node.Locator.Page <= max(request.PageStart, request.PageEnd) {

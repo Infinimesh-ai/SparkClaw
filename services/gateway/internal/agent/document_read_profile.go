@@ -15,12 +15,12 @@ const (
 	documentReadFactPrefix     = "document_read_"
 )
 
-// Revision 6 owns its plan and assessment. Persisted r4/r5 plans continue to
-// use documentReadProfileV5, including their original direct-read behavior.
+// Revision 7 expands selected headings to their source-bound descendants.
+// Persisted revisions retain their original selectors and instructions.
 type documentReadProfile struct{}
 
 func (documentReadProfile) ID() app.WorkflowID           { return app.WorkflowDocumentRead }
-func (documentReadProfile) Revision() int                { return 6 }
+func (documentReadProfile) Revision() int                { return 7 }
 func (documentReadProfile) Capability() app.CapabilityID { return app.CapabilityDocumentRead }
 func (documentReadProfile) RoutingSemantics() workflowRoutingSemantics {
 	return documentReadRoutingSemantics()
@@ -93,6 +93,10 @@ func (documentReadProfile) StageContext(state *app.WorkflowState) workflowStageC
 		return (documentReadProfileV5{}).StageContext(state)
 	}
 	stage := workflowStageContextForState(state, "inspect", "workspace", "workspace", "", documentScopedReadInstruction)
+	if state != nil && state.Plan.ProfileRevision >= 7 {
+		stage.Reason += "\nAt the content read, declare scope_extent from the USER REQUEST: whole_document for the entire source/all records, selected_range for named sections/pages/targeted facts. Searching throughout the document does NOT make the requested reading scope whole_document. A partial outline or a search result must never narrow a whole-document request. With whole_document, omit node_ids and chunk_ids: runtime uses all=true and traverses all continuation batches."
+		stage.Reason += "\nRevision 7: whole_summary means synthesizing or summarizing a source; exhaustive means enumerating individual records or items. For a whole-source summary call document.summarize, or read_range with all=true; never enumerate hundreds of IDs from an outline. node_ids and chunk_ids accept at most 64 exact copied IDs. Runtime expands selected heading node_ids to all descendant body nodes, including nested subsections. Select the actual section heading for a complete section or list, not only matching search hits. For worksheets, select the sheet container node rather than copying many cell IDs; all=true is appropriate when all sheets are requested. If a selector fails, correct it using the actual outline or search IDs, never guessed or shortened IDs. Choose page_start/page_end directly when the request names pages or slides. For a targeted fact, search for the requested fact, its qualifications and exceptions before selecting the scope; headings are navigation, never factual answers. When the request requires every item in a named section, read that section's full body. Do not infer missing content from selected nodes or top-k results."
+	}
 	stage.EvidenceRequirements = []workflowEvidenceRequirement{
 		{ResourceKind: documentOutlineResourceKind, Mode: workflowEvidenceStructured, Optional: true},
 		{ResourceKind: documentSearchResourceKind, Mode: workflowEvidenceStructured, Optional: true},

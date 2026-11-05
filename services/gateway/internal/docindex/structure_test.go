@@ -25,6 +25,56 @@ func canonicalFixture(t *testing.T, units []Unit, info SourceInfo) (*Service, Ta
 	return service, target, index
 }
 
+func TestHeadingSelectionTraversesDescendantsWithoutCrossingSibling(t *testing.T) {
+	_, _, index := canonicalFixture(t, []Unit{
+		{Text: "Rules", HeadingLevel: 1},
+		{Text: "ordinary rule"},
+		{Text: "Exceptions", HeadingLevel: 2},
+		{Text: strings.Repeat("exception detail ", 300)},
+		{Text: "LAST_REQUIRED_ITEM"},
+		{Text: "Unrelated", HeadingLevel: 1},
+		{Text: "OUTSIDE_SELECTION"},
+	}, SourceInfo{})
+	heading := index.Nodes[0].ID
+	exact, err := index.ReadRange(RangeRequest{NodeIDs: []string{heading}})
+	if err != nil || len(exact.Nodes) != 1 {
+		t.Fatalf("legacy exact-node selection changed: %+v %v", exact, err)
+	}
+	request := RangeRequest{NodeIDs: []string{heading, index.Nodes[2].ID}, IncludeDescendants: true, MaxBytes: 3000}
+	text := ""
+	for attempt := 0; ; attempt++ {
+		if attempt > 100 {
+			t.Fatal("descendant traversal failed to terminate")
+		}
+		result, err := index.ReadRange(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, node := range result.Nodes {
+			text += node.Text
+		}
+		if result.NextCursor == "" {
+			if result.Coverage.Required != 5 || result.Coverage.Covered != 5 || result.Coverage.Status != "complete" {
+				t.Fatalf("wrong expanded denominator: %+v", result.Coverage)
+			}
+			break
+		}
+		if attempt == 0 {
+			forged := request
+			forged.IncludeDescendants = false
+			forged.Cursor = result.NextCursor
+			if _, err := index.ReadRange(forged); err == nil {
+				t.Fatal("cursor allowed expansion to change")
+			}
+		}
+		// Cursor-only restore must preserve the expanded section.
+		request = RangeRequest{Cursor: result.NextCursor, MaxBytes: 3000}
+	}
+	if !strings.Contains(text, "LAST_REQUIRED_ITEM") || strings.Contains(text, "OUTSIDE_SELECTION") || strings.Count(text, "Exceptions") != 1 {
+		t.Fatalf("incomplete, overlapping or overbroad section: %s", text)
+	}
+}
+
 func TestCanonicalTraversalPreservesOriginalBytesAndRejectsForeignCursors(t *testing.T) {
 	text := "  ＡＢＣ ⽅\t\r\n" + strings.Repeat("原文🙂\t", 4000) + "  END\r\n"
 	_, target, index := canonicalFixture(t, []Unit{{Text: text, Block: "text.bytes[0:60000]"}, {Text: "\n\n", Block: "text.tail"}}, SourceInfo{})

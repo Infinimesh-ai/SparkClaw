@@ -15,8 +15,8 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
-func TestPersistedLegacyDocumentReadResumesOriginalDirectPlan(t *testing.T) {
-	for _, revision := range []int{4, 5} {
+func TestPersistedLegacyDocumentReadResumesOriginalPlan(t *testing.T) {
+	for _, revision := range []int{4, 5, 6} {
 		t.Run(fmt.Sprint(revision), func(t *testing.T) {
 			root := t.TempDir()
 			statePath := filepath.Join(root, "state.json")
@@ -77,7 +77,11 @@ func TestPersistedLegacyDocumentReadResumesOriginalDirectPlan(t *testing.T) {
 				t.Fatalf("legacy workflow drifted after reopen: revision=%d handled=%v err=%v status=%s", revision, handled, err, result.Run.Workflow.Status)
 			}
 			calls, err := reopened.ListToolCalls(t.Context(), session.ID)
-			if err != nil || len(calls) != 1 || calls[0].Tool != "files.read" || calls[0].Status != app.ToolCallStatusCompleted {
+			if revision == 6 {
+				if err != nil || len(calls) != 2 || calls[0].Tool != "document.outline" || calls[1].Tool != "document.read_range" || calls[1].Arguments["include_descendants"] != nil {
+					t.Fatalf("legacy scoped read changed: %#v %v", calls, err)
+				}
+			} else if err != nil || len(calls) != 1 || calls[0].Tool != "files.read" || calls[0].Status != app.ToolCallStatusCompleted {
 				t.Fatalf("legacy direct read changed: %#v %v", calls, err)
 			}
 		})

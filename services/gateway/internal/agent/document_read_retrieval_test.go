@@ -56,7 +56,7 @@ func TestDocumentReadRetrievesPassagesOfALargeDocument(t *testing.T) {
 			rangeCall = call
 		}
 	}
-	if strings.Join(tools, ",") != "files.read,document.search,document.read_range" {
+	if strings.Join(tools, ",") != "document.outline,document.search,document.read_range" {
 		t.Fatalf("retrieval did not read, search and read a range: %v", tools)
 	}
 	output, _ := anyMap(rangeCall.Result)
@@ -64,7 +64,7 @@ func TestDocumentReadRetrievesPassagesOfALargeDocument(t *testing.T) {
 		t.Fatalf("the range read missed the slow-start passage: %.300s", stringValue(output["content"]))
 	}
 	if result.Run.Workflow == nil || result.Run.Workflow.Status != app.WorkflowStatusSucceeded ||
-		result.Run.Workflow.Plan.ProfileRevision != 5 || result.Message.Content != "Mock workflow answer grounded in the completed document evidence." {
+		result.Run.Workflow.Plan.ProfileRevision != 6 || result.Message.Content != "Mock workflow answer grounded in the completed document evidence." {
 		t.Fatalf("retrieval did not finish through the finalizer: workflow=%#v answer=%q", result.Run.Workflow, result.Message.Content)
 	}
 	events, err := st.EventsAfter(context.Background(), session.ID, "")
@@ -73,7 +73,7 @@ func TestDocumentReadRetrievesPassagesOfALargeDocument(t *testing.T) {
 	}
 	progress := 0
 	for _, event := range events {
-		if call, ok := event.Payload.(app.ToolCall); ok && event.Type == "tool_call.started" && call.Tool == "files.read" && call.Progress == "正在建立文档索引" {
+		if call, ok := event.Payload.(app.ToolCall); ok && event.Type == "tool_call.started" && call.Tool == "document.outline" && call.Progress == "正在建立文档索引" {
 			progress++
 		}
 	}
@@ -131,7 +131,7 @@ func TestDocumentReadSummarizesAWholeLargeDocumentBySection(t *testing.T) {
 			tools = append(tools, call.Tool)
 		}
 	}
-	if strings.Join(tools, ",") != "files.read,document.summarize" || result.Run.Workflow.Status != app.WorkflowStatusSucceeded {
+	if strings.Join(tools, ",") != "document.outline,document.summarize" || result.Run.Workflow.Status != app.WorkflowStatusSucceeded {
 		t.Fatalf("whole-document request did not summarize by section: tools=%v status=%v", tools, result.Run.Workflow.Status)
 	}
 	projection, err := runtime.workflowFinalEvidence(context.Background(), result.Run, testListToolCalls(st, session.ID), nil)
@@ -146,7 +146,7 @@ func TestDocumentReadSummarizesAWholeLargeDocumentBySection(t *testing.T) {
 func TestFailedRetrievalQueryLetsTheStageQueryAgain(t *testing.T) {
 	call := app.ToolCall{ID: "tc_search", Tool: "document.search", Capability: app.ToolCapabilityDocumentSearch, Status: app.ToolCallStatusFailed, Error: `section "n0006" is not in this document outline`}
 	outcome := adaptDocumentRetrievalOutcome(call, documentReadNodeID)
-	assessment := documentReadProfile{}.Assess(nil, outcome)
+	assessment := documentReadProfileV5{}.Assess(nil, outcome)
 	if assessment.Status != app.AssessmentNeedsMoreEvidence {
 		t.Fatalf("a failed retrieval query blocked the node: %+v", assessment)
 	}

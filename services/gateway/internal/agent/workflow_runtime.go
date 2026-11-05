@@ -323,7 +323,7 @@ func (r Runtime) bindWorkflowToolArguments(ctx context.Context, runID string, pl
 	for key, value := range plan.Args {
 		args[key] = value
 	}
-	if plan.WorkflowID != app.WorkflowDocumentEdit || r.store == nil {
+	if (plan.WorkflowID != app.WorkflowDocumentEdit && plan.WorkflowID != app.WorkflowDocumentRead) || r.store == nil {
 		return args, nil
 	}
 	run, ok, err := r.store.GetRun(ctx, runID)
@@ -332,6 +332,9 @@ func (r Runtime) bindWorkflowToolArguments(ctx context.Context, runID string, pl
 	}
 	if !ok || run.Workflow == nil || run.Workflow.Plan.ProfileID != plan.WorkflowID {
 		return args, nil
+	}
+	if plan.WorkflowID == app.WorkflowDocumentRead {
+		return bindScopedDocumentReadArguments(run.Workflow, plan, args)
 	}
 	state, ok := run.Workflow.Nodes[plan.WorkflowNodeID]
 	if !ok || state.ScopeRevision != plan.ScopeRevision {
@@ -743,6 +746,9 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 	latest.Observations = allObservations
 	if latest.Halted {
 		latest.Completed = false
+		if latest.FailureCode == "" && isScopedDocumentRead(run.Workflow) && run.Workflow.Route.Facts[documentReadFactPrefix+"scope_status"] == "partial" {
+			latest.FinalAnswer = documentScopedReadMessage(run.Workflow, content)
+		}
 		return latest.withPublicFailureProjection()
 	}
 	storedRun, ok, loadErr := r.store.GetRun(ctx, run.ID)
@@ -755,6 +761,9 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		case storedRun.Workflow.Status == app.WorkflowStatusRunning && latest.BrowserLoginBlock == nil && len(latest.Approvals) == 0:
 			latest.Completed = false
 			latest.FinalAnswer = "The workflow stopped before its completion rule was satisfied."
+			if message := documentScopedReadMessage(storedRun.Workflow, content); message != "" {
+				latest.FinalAnswer = message
+			}
 		case storedRun.Workflow.Status == app.WorkflowStatusBlocked && strings.TrimSpace(latest.FinalAnswer) == "":
 			latest.Completed = false
 			latest.FinalAnswer = ownerBlockedWorkflowMessage(storedRun.Workflow, content)
@@ -941,11 +950,15 @@ func (r Runtime) synthesizeWorkflowFinalAnswer(ctx context.Context, run app.Agen
 		"When schedule evidence includes schedule_client_display, display its due_time and timezone instead of the stored schedule timezone.",
 		finalAnswerLanguageInstruction(originalGoal),
 	}, "\n")
-	switch workflowDocumentRetrieval(calls) {
-	case app.ToolCapabilityDocumentSummarize:
-		system += "\nThe document evidence is per-section summaries of a document too large to read whole: merge them into one answer that follows the document's structure, and name any sections or pages the evidence marks as sampled or not recognized."
-	case app.ToolCapabilityDocumentReadRange:
-		system += "\nThe document evidence is retrieved passages of a document too large to read whole: answer from those passages, cite their page numbers or section headings, and say the answer is based on the retrieved sections."
+	if isScopedDocumentRead(run.Workflow) {
+		system += "\nDocument evidence uses a declared task scope for every supported size. Respect task_scope_manifest: selected-range completion is not whole-source coverage. If model_exposure_complete=false, you have not seen all required content and must not give whole-document, exhaustive or absence conclusions; explicitly identify the projection limitation. State unread ranges, unknown source units and any model-exposure omissions. Never turn search misses into absence claims."
+	} else {
+		switch workflowDocumentRetrieval(calls) {
+		case app.ToolCapabilityDocumentSummarize:
+			system += "\nThe document evidence is per-section summaries of a document too large to read whole: merge them into one answer that follows the document's structure, and name any sections or pages the evidence marks as sampled or not recognized."
+		case app.ToolCapabilityDocumentReadRange:
+			system += "\nThe document evidence is retrieved passages of a document too large to read whole: answer from those passages, cite their page numbers or section headings, and say the answer is based on the retrieved sections."
+		}
 	}
 	inputs, evidenceErr := r.workflowFinalEvidenceInputs(ctx, run, calls)
 	if evidenceErr != nil {

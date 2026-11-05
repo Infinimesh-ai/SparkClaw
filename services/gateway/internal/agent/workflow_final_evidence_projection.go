@@ -55,6 +55,14 @@ func buildWorkflowFinalEvidenceProjection(
 		remaining = maxEvidenceBytes[0]
 	}
 	documentEvidence := false
+	remainingDocumentCalls := 0
+	if isScopedDocumentRead(run.Workflow) {
+		for _, call := range calls {
+			if output, ok := anyMap(call.Result); ok && toolCallCompleted(call) && documentContentCapability(call.Capability) && firstNonEmptyString(output["content"], output["summary"], output["description"], output["text"]) != "" {
+				remainingDocumentCalls++
+			}
+		}
+	}
 	retrieved := workflowDocumentRetrieval(calls) != ""
 	for _, call := range calls {
 		if !toolCallCompleted(call) || !documentContentCapability(call.Capability) {
@@ -86,8 +94,19 @@ func buildWorkflowFinalEvidenceProjection(
 			format = firstNonEmptyString(document["format"], format)
 		}
 		sourceComplete := fileReadComplete(result)
-		projected := sampledDocumentEvidence(text, remaining)
+		if isScopedDocumentRead(run.Workflow) {
+			sourceComplete = run.Workflow.Route.Facts[documentReadFactPrefix+"scope_status"] == "complete"
+		}
+		callBudget := remaining
+		if remainingDocumentCalls > 0 {
+			callBudget = remaining / remainingDocumentCalls
+			remainingDocumentCalls--
+		}
+		projected := sampledDocumentEvidence(text, callBudget)
 		modelTruncated := projected != text
+		if isScopedDocumentRead(run.Workflow) {
+			projected, modelTruncated = scopedDocumentFinalEvidence(result, text, callBudget)
+		}
 		remaining -= len([]byte(projected))
 		limitationRequired := !sourceComplete || modelTruncated
 		if !sourceComplete {
@@ -118,6 +137,7 @@ func buildWorkflowFinalEvidenceProjection(
 		projection.Evidence = append(projection.Evidence, header+"\ncontent:\n"+projected)
 	}
 	if len(projection.Evidence) > 0 {
+		applyDocumentScopeToFinalProjection(run, &projection)
 		return projection
 	}
 
@@ -157,6 +177,7 @@ func buildWorkflowFinalEvidenceProjection(
 		}
 		projection.Coverage.Source = workflowCoverageComplete
 	}
+	applyDocumentScopeToFinalProjection(run, &projection)
 	return projection
 }
 

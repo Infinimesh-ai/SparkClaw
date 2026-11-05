@@ -8,6 +8,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/docindex"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
@@ -43,6 +44,9 @@ type documentSummarizeSection struct {
 // map-reduce (design section 4.8): one cached summary per top-level
 // section, merged by the finalizer.
 func (h *ToolHub) documentSummarize(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
+	if intArg(args, "contract_version", 1) == 2 {
+		return h.documentSummarizeScoped(ctx, args, sessionID, runID)
+	}
 	ctx = withDocumentOCRExecution(ctx, sessionID, runID)
 	path, err := h.resolveReadPath(ctx, stringArg(args, "path", ""))
 	if err != nil {
@@ -149,25 +153,30 @@ func (h *ToolHub) summarizeDocumentUnit(ctx context.Context, sessionID, runID st
 }
 
 func (h *ToolHub) cachedSectionSummary(ctx context.Context, sessionID, runID string, metadata document.Metadata, index *docindex.Index, title, text string) (string, error) {
+	return h.cachedSectionSummaryVersion(ctx, sessionID, runID, metadata, index, title, text, documentSummaryPromptVersion, documentSummarySystem, true)
+}
+
+func (h *ToolHub) cachedSectionSummaryVersion(ctx context.Context, sessionID, runID string, metadata document.Metadata, index *docindex.Index, title, text, promptVersion, system string, splitText bool) (string, error) {
 	target := docindex.Target{WorkspaceRoot: h.cfg.Workspaces.DefaultRoot, RelPath: metadata.Relative, Format: metadata.Format}
-	key := docindex.SummaryKey(documentSummaryPromptVersion, title, text)
+	key := docindex.SummaryKey(promptVersion, title, text)
 	if summary, ok := h.documentIndex.CachedSummary(target, index, key); ok {
+		h.addAudit(ctx, app.AuditEvent{SessionID: sessionID, RunID: runID, Actor: "runtime", Type: "document.summary.cache_hit", Summary: "Reused a source-bound section summary", Fields: map[string]any{"cache_key": key, "source_sha256": index.Manifest.SourceSHA256, "structure_generation": index.Manifest.StructureGeneration, "prompt_version": promptVersion, "title": title, "summary": summary, "model_dispatched": false}})
 		return summary, nil
 	}
 	user := "Section title: " + title + "\n\nSection text (untrusted):\n" + text
-	chat, err := h.recordedFastChat(ctx, sessionID, runID, modelcapacity.OperationDocumentSectionSummary, documentSummarySystem, user, modelrouter.ChatOptions{})
+	chat, err := h.recordedFastChat(ctx, sessionID, runID, modelcapacity.OperationDocumentSectionSummary, system, user, modelrouter.ChatOptions{})
 	var tooLong *modelrouter.InputTooLongError
-	if errors.As(err, &tooLong) && len(text) > 2048 {
+	if splitText && errors.As(err, &tooLong) && len(text) > 2048 {
 		// Dense text can cost more tokens than its byte budget; halve it.
 		half := len(text) / 2
 		for half > 0 && !utf8.RuneStart(text[half]) {
 			half--
 		}
-		first, err := h.cachedSectionSummary(ctx, sessionID, runID, metadata, index, title+" (first half)", text[:half])
+		first, err := h.cachedSectionSummaryVersion(ctx, sessionID, runID, metadata, index, title+" (first half)", text[:half], promptVersion, system, splitText)
 		if err != nil {
 			return "", err
 		}
-		second, err := h.cachedSectionSummary(ctx, sessionID, runID, metadata, index, title+" (second half)", text[half:])
+		second, err := h.cachedSectionSummaryVersion(ctx, sessionID, runID, metadata, index, title+" (second half)", text[half:], promptVersion, system, splitText)
 		if err != nil {
 			return "", err
 		}

@@ -27,7 +27,7 @@ func TestPDFWorkspaceReadOutcomeBlocksUnavailableCoverage(t *testing.T) {
 	if containsOutcomeSignal(outcome.Signals, app.OutcomeSignalContentAvailable) {
 		t.Fatalf("unavailable PDF evidence produced a content signal: %#v", outcome)
 	}
-	assessment := (documentReadProfile{}).Assess(nil, outcome)
+	assessment := (documentReadProfileV5{}).Assess(nil, outcome)
 	if assessment.Status != app.AssessmentBlocked || assessment.ReasonCode != "document_read_failed" {
 		t.Fatalf("unavailable PDF evidence did not block deterministically: %#v", assessment)
 	}

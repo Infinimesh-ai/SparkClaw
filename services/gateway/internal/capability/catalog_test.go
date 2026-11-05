@@ -37,7 +37,7 @@ func TestDefaultCatalogResolvesEveryDocumentedLeaf(t *testing.T) {
 			wantRevision = 3
 		}
 		if leaf.ID == app.CapabilityDocumentRead {
-			wantRevision = 5
+			wantRevision = 6
 		}
 		if leaf.ID == app.CapabilityDocumentEdit {
 			wantRevision = 7

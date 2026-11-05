@@ -77,18 +77,18 @@ func (browserInternetSearchProfile) TransitionInstruction(app.ToolOutcome, app.N
 	return ""
 }
 
-type documentReadProfile struct{}
+type documentReadProfileV5 struct{}
 
-func (documentReadProfile) ID() app.WorkflowID           { return app.WorkflowDocumentRead }
-func (documentReadProfile) Revision() int                { return 5 }
-func (documentReadProfile) Capability() app.CapabilityID { return app.CapabilityDocumentRead }
-func (documentReadProfile) RoutingSemantics() workflowRoutingSemantics {
+func (documentReadProfileV5) ID() app.WorkflowID           { return app.WorkflowDocumentRead }
+func (documentReadProfileV5) Revision() int                { return 5 }
+func (documentReadProfileV5) Capability() app.CapabilityID { return app.CapabilityDocumentRead }
+func (documentReadProfileV5) RoutingSemantics() workflowRoutingSemantics {
 	return documentReadRoutingSemantics()
 }
-func (documentReadProfile) Finalization() workflowFinalizationMode {
+func (documentReadProfileV5) Finalization() workflowFinalizationMode {
 	return workflowFinalizationModel
 }
-func (p documentReadProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
+func (p documentReadProfileV5) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
 	target := app.TargetRef{Kind: app.TargetKindWorkspacePath, Ref: route.Slots.TargetRef}
 	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWorkspace, app.IntentOperationRead, target, app.DataScopeWorkspace)
 	confirmNodeID := app.WorkflowNodeID("confirm_document_target")
@@ -106,10 +106,10 @@ func (p documentReadProfile) Resolve(route app.RouteDecision, sourceTurnID strin
 		},
 	}, nil
 }
-func (documentReadProfile) Prepare(state *app.WorkflowState) (workflowPreparation, error) {
+func (documentReadProfileV5) Prepare(state *app.WorkflowState) (workflowPreparation, error) {
 	return documentTargetPreparation(state)
 }
-func (documentReadProfile) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
+func (documentReadProfileV5) TransitionInstruction(app.ToolOutcome, app.NodeAssessment) string {
 	return ""
 }
 

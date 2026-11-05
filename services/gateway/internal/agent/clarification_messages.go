@@ -380,6 +380,9 @@ var blockedWorkflowMessages = map[string]ownerFailureMessage{
 // ownerBlockedWorkflowMessage replies for a blocked workflow, using the
 // owner message of a known node reason code before the generic sentence.
 func ownerBlockedWorkflowMessage(state *app.WorkflowState, goal string) string {
+	if message := documentScopedReadMessage(state, goal); message != "" {
+		return message
+	}
 	if state != nil {
 		for _, nodeID := range state.ActiveNodeIDs {
 			if assessment := state.Nodes[nodeID].LastAssessment; assessment != nil {
@@ -393,6 +396,9 @@ func ownerBlockedWorkflowMessage(state *app.WorkflowState, goal string) string {
 }
 
 func ownerWorkflowFailureMessage(code workflowFailureCode, run app.AgentRun, goal string) string {
+	if isScopedDocumentRead(run.Workflow) && run.Workflow.Route.Facts[documentReadFactPrefix+"scope_status"] == "partial" {
+		return documentScopedReadMessage(run.Workflow, goal)
+	}
 	chinese := chineseRequest(goal)
 	if code == workflowFailureRequiredToolNotCalled && run.Workflow != nil && run.Workflow.Plan.ProfileID == app.WorkflowDocumentEdit {
 		if chinese {

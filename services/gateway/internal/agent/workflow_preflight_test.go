@@ -32,11 +32,11 @@ func TestDocumentReadPreflightDispatchesOnlyCompatibleReader(t *testing.T) {
 	for _, test := range []struct {
 		path, format, tool string
 	}{
-		{path: "note.txt", format: app.DocumentFormatText, tool: "files.read"},
-		{path: "report.docx", format: app.DocumentFormatDOCX, tool: "files.read"},
-		{path: "report.xlsx", format: app.DocumentFormatXLSX, tool: "files.read"},
-		{path: "report.pptx", format: app.DocumentFormatPPTX, tool: "files.read"},
-		{path: "report.pdf", format: app.DocumentFormatPDF, tool: "pdf.extract_text"},
+		{path: "note.txt", format: app.DocumentFormatText, tool: "document.outline"},
+		{path: "report.docx", format: app.DocumentFormatDOCX, tool: "document.outline"},
+		{path: "report.xlsx", format: app.DocumentFormatXLSX, tool: "document.outline"},
+		{path: "report.pptx", format: app.DocumentFormatPPTX, tool: "document.outline"},
+		{path: "report.pdf", format: app.DocumentFormatPDF, tool: "document.outline"},
 		{path: "screen.png", format: app.DocumentFormatImage, tool: "images.inspect"},
 	} {
 		t.Run(test.format, func(t *testing.T) {
@@ -58,8 +58,11 @@ func TestDocumentReadPreflightDispatchesOnlyCompatibleReader(t *testing.T) {
 				t.Fatalf("read stage exposed an incompatible reader: %#v", visibleToolNames(dispatch.Tools))
 			}
 			node := dispatch.Run.Workflow.Nodes["document_read"]
-			if node.Stage != "read_by_type" || node.ScopeRevision != 1 || len(node.CurrentScope.Requirements) != 1 ||
-				node.CurrentScope.Requirements[0].Qualifiers[app.CapabilityQualifierFormat] != test.format {
+			wantStage := documentStructureStage
+			if test.format == app.DocumentFormatImage {
+				wantStage = documentReadStage
+			}
+			if node.Stage != wantStage || node.ScopeRevision != 1 || len(node.CurrentScope.Requirements) != 1 {
 				t.Fatalf("read operation node was not frozen: %#v", node)
 			}
 			confirmation := dispatch.Run.Workflow.Nodes["confirm_document_target"]

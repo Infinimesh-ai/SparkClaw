@@ -112,6 +112,9 @@ func mockWorkflowStepResponse(user string) string {
 	case strings.Contains(lowerPrompt, "model-visible tools this workflow stage: media.render_weather_card"):
 		return mockWorkflowStepAction("media.render_weather_card", map[string]any{"weather_payload_ref": "workflow-bound weather payload"})
 	}
+	if action, ok := mockDocumentScopedReadAction(user, goal, lowerPrompt); ok {
+		return action
+	}
 	if action, ok := mockDocumentRetrievalAction(user, goal, lowerPrompt); ok {
 		return action
 	}

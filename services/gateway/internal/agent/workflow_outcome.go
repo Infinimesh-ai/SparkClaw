@@ -427,6 +427,7 @@ func adaptDocumentRetrievalOutcome(call app.ToolCall, nodeID app.WorkflowNodeID)
 		// step model sees the error and may query again within the stage's
 		// bounded query transitions.
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalNoResults}
+		outcome.Refs = []app.ResourceRef{{Kind: "document_call", Provenance: call.ID, Attributes: map[string]string{"capability": call.Capability}}}
 		return outcome
 	}
 	output, ok := anyMap(call.Result)
@@ -440,15 +441,15 @@ func adaptDocumentRetrievalOutcome(call app.ToolCall, nodeID app.WorkflowNodeID)
 		if intLikeValue(output["count"]) > 0 {
 			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalResultsAvailable}
 		}
-		outcome.Refs = []app.ResourceRef{{Kind: documentSearchResourceKind, Ref: path, Provenance: call.ID}}
+		outcome.Refs = []app.ResourceRef{{Kind: documentSearchResourceKind, Ref: path, Provenance: call.ID, Attributes: documentReadOutcomeAttributes(call, output)}}
 	case app.ToolCapabilityDocumentOutline:
 		outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalResultsAvailable}
-		outcome.Refs = []app.ResourceRef{{Kind: documentOutlineResourceKind, Ref: path, Provenance: call.ID}}
+		outcome.Refs = []app.ResourceRef{{Kind: documentOutlineResourceKind, Ref: path, Provenance: call.ID, Attributes: documentReadOutcomeAttributes(call, output)}}
 	case app.ToolCapabilityDocumentReadRange, app.ToolCapabilityDocumentSummarize:
 		if strings.TrimSpace(firstNonEmptyString(output["content"])) != "" {
 			outcome.Signals = []app.OutcomeSignal{app.OutcomeSignalContentAvailable}
 		}
-		outcome.Refs = []app.ResourceRef{{Kind: documentRangeResourceKind, Ref: path, Provenance: call.ID}}
+		outcome.Refs = []app.ResourceRef{{Kind: documentRangeResourceKind, Ref: path, Provenance: call.ID, Attributes: documentReadOutcomeAttributes(call, output)}}
 	}
 	return outcome
 }

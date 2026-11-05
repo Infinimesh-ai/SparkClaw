@@ -28,10 +28,14 @@ func workflowModelToolProjection(run app.AgentRun, selectedEntries []app.ToolDir
 	copy(projected, definitions)
 	for index := range projected {
 		bound := runtimeBoundModelArguments(run, node, state, selectedEntries, projected[index])
+		documentBound, documentRequired := scopedDocumentReadModelArguments(run, projected[index])
+		for name := range documentBound {
+			bound[name] = true
+		}
 		if len(bound) > 0 {
 			projected[index].InputSchema = projectToolSchemaWithoutArguments(projected[index].InputSchema, bound)
 		}
-		if required := modelRequiredWorkflowArguments(selectedEntries, projected[index]); len(required) > 0 {
+		if required := append(modelRequiredWorkflowArguments(selectedEntries, projected[index]), documentRequired...); len(required) > 0 {
 			projected[index].InputSchema = requireToolSchemaArguments(projected[index].InputSchema, required)
 		}
 	}

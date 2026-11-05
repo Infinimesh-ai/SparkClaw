@@ -173,7 +173,7 @@ func TestRuntimeAnswersFileReadWithLocalContent(t *testing.T) {
 		t.Fatalf("assistant should synthesize a model final from completed document evidence:\n%s", result.Message.Content)
 	}
 	calls := testListToolCalls(st, session.ID)
-	if len(calls) != 1 || calls[0].Tool != "files.read" || calls[0].Status != app.ToolCallStatusCompleted {
+	if len(calls) != 2 || calls[0].Tool != "document.outline" || calls[1].Tool != "document.summarize" || calls[1].Status != app.ToolCallStatusCompleted {
 		t.Fatalf("unexpected tool calls: %#v", calls)
 	}
 	if hasAgentAuditField(mustAgentListAudit(t, st, session.ID), "fallback.policy_applied", "strategy", "files.read_no_final") {
@@ -185,7 +185,7 @@ func TestRuntimeAnswersFileReadWithLocalContent(t *testing.T) {
 	if result.Run.Workflow == nil || result.Run.Workflow.Status != app.WorkflowStatusSucceeded || result.Run.Workflow.Plan.ProfileID != app.WorkflowDocumentRead {
 		t.Fatalf("workspace read did not complete through its workflow profile: %#v", result.Run.Workflow)
 	}
-	if calls[0].Capability != app.ToolCapabilityDocumentRead || calls[0].WorkflowNodeID != "document_read" || calls[0].ScopeRevision != 1 {
+	if calls[1].Capability != app.ToolCapabilityDocumentSummarize || calls[1].WorkflowNodeID != "document_read" || calls[1].ScopeRevision != 2 {
 		t.Fatalf("file read was not bound to the frozen workflow scope: %#v", calls[0])
 	}
 	confirmation := result.Run.Workflow.Nodes["confirm_document_target"]
@@ -258,12 +258,12 @@ func TestRuntimeFileReadSummaryDoesNotFakeAnswer(t *testing.T) {
 		t.Fatalf("assistant should synthesize a final without exposing raw source content:\n%s", result.Message.Content)
 	}
 	calls := testListToolCalls(st, session.ID)
-	if len(calls) != 1 || calls[0].Result == nil {
+	if len(calls) != 2 || calls[0].Tool != "document.outline" || calls[1].Result == nil {
 		t.Fatalf("expected one completed file read call, got %#v", calls)
 	}
-	resultMap, ok := calls[0].Result.(map[string]any)
+	resultMap, ok := calls[1].Result.(map[string]any)
 	if !ok || boolLikeValue(resultMap["truncated"]) {
-		t.Fatalf("files.read should return this small file without source truncation: %#v", calls[0].Result)
+		t.Fatalf("files.read should return this small file without source truncation: %#v", calls[1].Result)
 	}
 }
 
@@ -288,7 +288,7 @@ func TestRuntimeTreatsFileReadContentAsDataNotInstructions(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := testListToolCalls(st, session.ID)
-	if len(calls) != 1 || calls[0].Tool != "files.read" {
+	if len(calls) != 2 || calls[0].Tool != "document.outline" || calls[1].Tool != "document.summarize" {
 		t.Fatalf("file content should not trigger extra tools: %#v", calls)
 	}
 	if approvals := storetest.MustListApprovals(t, st, ""); len(approvals) != 0 {
@@ -2365,7 +2365,7 @@ func TestRuntimeStoresCompressedObservationSummary(t *testing.T) {
 	cfg.Workspaces.DefaultRoot = root
 	cfg.Workspaces.Allowlist = []string{root}
 	cfg.Runtime.ObservationSummaryMaxBytes = 140
-	cfg.Runtime.RunMaxObservationBytes = 140
+	cfg.Runtime.RunMaxObservationBytes = 1 << 20
 	cfg.Storage.TraceDir = filepath.Join(root, ".sparkclaw", "traces")
 	cfg.Storage.ArtifactDir = filepath.Join(root, ".sparkclaw", "artifacts")
 	st := store.NewMemoryStore()
@@ -2377,17 +2377,20 @@ func TestRuntimeStoresCompressedObservationSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := testListToolCalls(st, session.ID)
-	if len(calls) != 1 || calls[0].Tool != "files.read" {
-		t.Fatalf("unexpected tool calls: %#v", calls)
+	if len(calls) != 2 || calls[0].Tool != "document.outline" || calls[1].Tool != "document.read_range" {
+		for _, call := range calls {
+			t.Logf("tool=%s status=%s error=%s", call.Tool, call.Status, call.Error)
+		}
+		t.Fatalf("unexpected tool call count=%d", len(calls))
 	}
-	if calls[0].ObservationSummary == "" {
+	if calls[1].ObservationSummary == "" {
 		t.Fatalf("compressed observation summary missing: %#v", calls[0])
 	}
 	var adapted toolResultMessage
-	if err := json.Unmarshal([]byte(calls[0].ObservationSummary), &adapted); err != nil {
-		t.Fatalf("summary should be valid adapted tool result JSON: %v\n%s", err, calls[0].ObservationSummary)
+	if err := json.Unmarshal([]byte(calls[1].ObservationSummary), &adapted); err != nil {
+		t.Fatalf("summary should be valid adapted tool result JSON: %v\n%s", err, calls[1].ObservationSummary)
 	}
-	if adapted.ToolCallID != calls[0].ID || adapted.Tool != "files.read" || adapted.Status != app.ToolCallStatusCompleted || !adapted.Untrusted {
+	if adapted.ToolCallID != calls[1].ID || adapted.Tool != "document.read_range" || adapted.Status != app.ToolCallStatusCompleted || !adapted.Untrusted {
 		t.Fatalf("summary missing stable causal fields: %#v", adapted)
 	}
 	if !strings.Contains(adapted.Summary, "Observation bytes=") && adapted.Structured["truncated"] != true {
@@ -2415,32 +2418,39 @@ func TestRuntimeKeepsCompleteDocumentRecoverableUnderUniformObservationCap(t *te
 	tools := toolhub.New(cfg, st)
 	runtime := NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), nil)
 
-	if _, err := runtime.HandleMessage(context.Background(), session.ID, "Read small-doc.txt"); err != nil {
+	result, err := runtime.HandleMessage(context.Background(), session.ID, "Read small-doc.txt")
+	if err != nil {
 		t.Fatal(err)
 	}
 	calls := testListToolCalls(st, session.ID)
-	if len(calls) != 1 || calls[0].Tool != "files.read" {
-		t.Fatalf("unexpected tool calls: %#v", calls)
+	if len(calls) < 2 || calls[0].Tool != "document.outline" {
+		t.Fatalf("structure-first read missing: %d calls", len(calls))
 	}
-	var adapted toolResultMessage
-	if err := json.Unmarshal([]byte(calls[0].ObservationSummary), &adapted); err != nil {
-		t.Fatalf("summary should be valid adapted tool result JSON: %v\n%s", err, calls[0].ObservationSummary)
+	for _, call := range calls[1:] {
+		if call.Tool != "document.read_range" || call.Status != app.ToolCallStatusCompleted {
+			t.Fatalf("range failed: %s %s", call.Tool, call.Error)
+		}
+		var adapted toolResultMessage
+		if err := json.Unmarshal([]byte(call.ObservationSummary), &adapted); err != nil {
+			t.Fatal(err)
+		}
+		if len(call.ObservationSummary) > cfg.Runtime.ObservationSummaryMaxBytes || call.ObservationRef == "" {
+			t.Fatal("range evidence lost its bounded envelope or recovery reference")
+		}
+		full, _, err := runtime.readArchivedToolObservation(t.Context(), result.Run, call)
+		if err != nil || full == nil {
+			t.Fatalf("bounded range was not recoverable: %v", err)
+		}
 	}
-	if len(adapted.Evidence) == 0 || adapted.Evidence[0].Kind != "content_excerpt" {
-		t.Fatalf("large complete document should use a bounded envelope excerpt: %#v", adapted.Evidence)
+	if result.Run.Workflow.Status != app.WorkflowStatusSucceeded || result.Run.Workflow.Route.Facts[documentReadFactPrefix+"scope_status"] != "complete" {
+		t.Fatal("all ranges were not acquired")
 	}
-	evidence := adapted.Evidence[0]
-	if !evidence.Excerpt || !evidence.Omitted || evidence.SourceTruncated || !evidence.ReadComplete {
-		t.Fatalf("envelope truncation must remain separate from source coverage: %#v", evidence)
+	projection, err := runtime.workflowFinalEvidence(t.Context(), result.Run, calls, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(evidence.Text, "小文档开始") || !strings.Contains(evidence.Text, "[truncated:") {
-		t.Fatalf("bounded evidence should keep a marked source excerpt:\n%s", evidence.Text)
-	}
-	if len(calls[0].ObservationSummary) > cfg.Runtime.ObservationSummaryMaxBytes {
-		t.Fatalf("every observation must respect the uniform envelope cap: %d", len(calls[0].ObservationSummary))
-	}
-	if calls[0].ObservationRef == "" || !strings.Contains(stringValue(adapted.Structured["next_step_hint"]), "observation.read") {
-		t.Fatalf("bounded evidence must advertise persisted recovery: ref=%q structured=%#v", calls[0].ObservationRef, adapted.Structured)
+	if !strings.Contains(projection.modelPayload(), "小文档开始") || !strings.Contains(projection.modelPayload(), "小文档结束") {
+		t.Fatal("recovered final evidence omitted a source boundary")
 	}
 }
 

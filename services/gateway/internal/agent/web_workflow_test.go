@@ -844,12 +844,12 @@ func TestDocumentInformationRouteDispatchesRealFileRead(t *testing.T) {
 	defer closeRuntime()
 
 	result, err := runtime.HandleMessage(context.Background(), session.ID, `Summarize the document note.txt
-MOCK_STEP_RESPONSE:{"type":"action","tool":"files.read","arguments":{"path":"note.txt"}}`)
+MOCK_STEP_RESPONSE:{"type":"action","tool":"document.read_range","arguments":{"all":true,"task_mode":"whole_summary","scope_reason":"Summarize the whole declared source."}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertWorkflowClosure(t, result, st, session.ID, app.CapabilityDocumentRead, app.WorkflowDocumentRead,
-		[]string{"files.read"}, []string{app.ToolCapabilityDocumentRead})
+		[]string{"document.outline", "document.read_range"}, []string{app.ToolCapabilityDocumentOutline, app.ToolCapabilityDocumentReadRange})
 }
 
 func TestWebChatImageAttachmentRunsImageInspectWorkflow(t *testing.T) {
@@ -1360,7 +1360,7 @@ func assertWorkflowClosure(t *testing.T, result Result, st *store.MemoryStore, s
 		}
 	}
 	directOnly := workflowID == app.WorkflowBrowserAutomation && result.Run.Workflow.Plan.ProfileRevision >= app.BrowserWorkflowRevision2 ||
-		workflowID == app.WorkflowDocumentRead && result.Run.Workflow.Plan.ProfileRevision >= 3 ||
+		workflowID == app.WorkflowDocumentRead && (result.Run.Workflow.Plan.ProfileRevision < 6 || result.Run.Workflow.Route.Facts["document_format"] == app.DocumentFormatImage) ||
 		workflowID == app.WorkflowBrowserWeather && result.Run.Workflow.Plan.ProfileRevision >= 3
 	if directOnly {
 		if foundWorkflowStep || !hasAgentAuditType(mustAgentListAudit(t, st, sessionID), "workflow.direct_tool_invoked") {

@@ -69,16 +69,16 @@ func documentReadNode(format string) app.WorkflowNode {
 
 // DirectStage runs the format reader directly; only the retrieval stage
 // asks the step model to choose queries.
-func (documentReadProfile) DirectStage(state *app.WorkflowState) bool {
+func (documentReadProfileV5) DirectStage(state *app.WorkflowState) bool {
 	if state == nil || len(state.ActiveNodeIDs) != 1 || state.ActiveNodeIDs[0] != documentReadNodeID {
 		return false
 	}
 	return state.Nodes[documentReadNodeID].Stage == documentReadStage
 }
 
-func (documentReadProfile) DirectStageArguments(*app.WorkflowState) map[string]any { return nil }
+func (documentReadProfileV5) DirectStageArguments(*app.WorkflowState) map[string]any { return nil }
 
-func (documentReadProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
+func (documentReadProfileV5) Assess(_ *app.WorkflowState, outcome app.ToolOutcome) app.NodeAssessment {
 	assessment := baseNodeAssessment(outcome)
 	switch {
 	case containsOutcomeSignal(outcome.Signals, app.OutcomeSignalContentAvailable):
@@ -93,7 +93,7 @@ func (documentReadProfile) Assess(_ *app.WorkflowState, outcome app.ToolOutcome)
 	return assessment
 }
 
-func (documentReadProfile) StageContext(state *app.WorkflowState) workflowStageContext {
+func (documentReadProfileV5) StageContext(state *app.WorkflowState) workflowStageContext {
 	stageContext := workflowStageContextForState(state, "inspect", "workspace", "workspace", "", "Dispatched by the document.read workflow contract.")
 	if state.Nodes[documentReadNodeID].Stage != documentRetrievalStage {
 		return stageContext

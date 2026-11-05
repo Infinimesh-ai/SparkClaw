@@ -32,7 +32,7 @@ func TestModelCaptureStoresDispatchedSchemaAndExcludesHeadersAndReasoning(t *tes
 		if r.Header.Get("Authorization") != "Bearer test-private-provider-key" {
 			t.Error("provider authorization changed")
 		}
-		_, _ = io.WriteString(w, `{"model":"resolved-provider-model","choices":[{"message":{"content":"  exact answer\n","reasoning":"hidden-provider-reasoning"},"finish_reason":"stop"}],"usage":{"prompt_tokens":13,"completion_tokens":4,"total_tokens":17}}`)
+		_, _ = io.WriteString(w, `{"model":"resolved-provider-model","provider_sequence":9007199254740993,"choices":[{"message":{"content":"  exact answer\n","reasoning":"hidden-provider-reasoning"},"finish_reason":"stop"}],"usage":{"prompt_tokens":13,"completion_tokens":4,"total_tokens":17}}`)
 	}))
 	defer server.Close()
 	cfg := configtest.MustLoadDefault()
@@ -61,8 +61,14 @@ func TestModelCaptureStoresDispatchedSchemaAndExcludesHeadersAndReasoning(t *tes
 	if !bytes.Contains(response, []byte(`  exact answer\n`)) || !bytes.Contains(response, []byte("resolved-provider-model")) {
 		t.Fatalf("provider response content/model lost: %s", response)
 	}
+	if !bytes.Contains(response, []byte("9007199254740993")) {
+		t.Fatalf("provider numeric value rounded during capture: %s", response)
+	}
 	fixture.assertAbsent(t, "test-private-provider-key", "private-provider-url-secret", "hidden-provider-reasoning")
 	for _, event := range fixture.events(t) {
+		if event.Kind == "model.http.finished" && event.Data["token_usage_status"] != "reported" {
+			t.Fatalf("provider usage unavailable: %+v", event.Data)
+		}
 		if strings.HasPrefix(event.Kind, "model.http.") && event.CallID != result.CaptureID {
 			t.Fatalf("transport call lost invocation correlation: %#v", event)
 		}
@@ -90,6 +96,11 @@ func TestModelCaptureIncludesExactImageInput(t *testing.T) {
 	raw := fixture.bytes(t, fixture.onlyPayload(t, manifest, "model_request"))
 	if !bytes.Equal(raw, <-bodies) || !bytes.Contains(raw, []byte(base64.StdEncoding.EncodeToString(input.Content))) {
 		t.Fatal("actual image content was not preserved in dispatched request")
+	}
+	for _, event := range fixture.events(t) {
+		if event.Kind == "model.http.finished" && event.Data["token_usage_status"] != "unknown" {
+			t.Fatalf("missing provider usage presented as measured: %+v", event.Data)
+		}
 	}
 }
 

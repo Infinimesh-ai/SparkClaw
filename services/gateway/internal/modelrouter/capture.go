@@ -113,10 +113,14 @@ func (c *CapturedCall) Finish(output any, err error) {
 }
 
 func (c *CapturedCall) fields() map[string]any {
-	return map[string]any{
+	fields := map[string]any{
 		"operation": c.metadata.Operation, "lane": c.metadata.Lane,
 		"profile": c.metadata.Profile, "model": c.metadata.Model, "mock": c.metadata.Mock,
 	}
+	if c.metadata.Mock {
+		fields["token_usage_status"] = "estimated"
+	}
+	return fields
 }
 
 func (c *CapturedCall) payload(kind, name string, value any) []string {

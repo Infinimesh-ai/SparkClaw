@@ -163,7 +163,7 @@ func (b *capturedResponseBody) record() {
 	defer b.mu.Unlock()
 	b.recorded = true
 	status, code := "completed", ""
-	data := map[string]any{"http_status": b.status, "observed_bytes": b.bytes, "stream": b.stream, "body_eof_observed": errors.Is(b.readErr, io.EOF)}
+	data := map[string]any{"http_status": b.status, "observed_bytes": b.bytes, "stream": b.stream, "body_eof_observed": errors.Is(b.readErr, io.EOF), "token_usage_status": "unknown"}
 	if b.status < 200 || b.status >= 300 {
 		status, code = "failed", "model_http_rejected"
 		// Adapters may intentionally leave error bodies unread. Do not drain them
@@ -231,7 +231,7 @@ func (b *capturedResponseBody) captureResponse(data map[string]any) []string {
 		value, err = capturedStreamResponse(raw)
 		data["representation"] = "stream_events_without_hidden_reasoning"
 	} else {
-		err = json.Unmarshal(raw, &value)
+		err = decodeCapturedJSON(raw, &value)
 		data["representation"] = "provider_json_without_hidden_reasoning"
 	}
 	if err != nil {
@@ -243,6 +243,10 @@ func (b *capturedResponseBody) captureResponse(data map[string]any) []string {
 	}
 	value, removed := removeHiddenReasoning(value)
 	data["hidden_reasoning_removed"] = removed
+	data["token_usage_status"] = "unknown"
+	if capturedUsageReported(value) {
+		data["token_usage_status"] = "reported"
+	}
 	payload, err := executionevidence.CaptureJSON(context.WithoutCancel(b.ctx), "model_response", b.span+"-response.json", value)
 	if err != nil {
 		captureFailure(b.ctx, b.span, "model_response_capture_failed")
@@ -269,7 +273,7 @@ func capturedStreamResponse(raw []byte) (any, error) {
 			break
 		}
 		var event any
-		if err := json.Unmarshal(content, &event); err != nil {
+		if err := decodeCapturedJSON(content, &event); err != nil {
 			partial = true
 			continue
 		}
@@ -280,6 +284,37 @@ func capturedStreamResponse(raw []byte) (any, error) {
 		return value, errors.New("stream contains an incomplete event")
 	}
 	return value, nil
+}
+
+func decodeCapturedJSON(raw []byte, value *any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(value); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return errors.New("response contains trailing JSON data")
+	}
+	return nil
+}
+
+func capturedUsageReported(value any) bool {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	if usage, ok := object["usage"].(map[string]any); ok && len(usage) > 0 {
+		return true
+	}
+	if events, ok := object["events"].([]any); ok {
+		for _, event := range events {
+			if capturedUsageReported(event) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func removeHiddenReasoning(value any) (any, bool) {

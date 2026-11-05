@@ -13,6 +13,19 @@ This is the standard instruction document handed to an Agent (e.g. Claude Code) 
 - **Referee**: tests are the sole referee of refactoring correctness. Where coverage is thin, add tests before cutting.
 - Review against the [Engineering Baseline Rules](engineering-baseline.md) — refactoring means bringing existing code back above that baseline.
 
+## Subagent decision rules
+
+These rules also apply to large feature tasks. Keep one main agent responsible for the requirement, design decisions, integration and final acceptance. Task size, package count, or a long-running command alone does not justify another agent; a background command or an isolated worktree does not itself need a separate reasoning context.
+
+- **Check the context boundary first**: will later decisions need the intermediate observations and reasoning, or just a compact result with inspectable evidence? Keep tightly coupled work in the main loop, including sequential producer/consumer changes and changes that repeatedly read or write the same state. Load only the relevant Skill references and tools before adding agents to solve context pressure.
+- **Delegate when isolation has a concrete benefit**: independent investigations with disposable intermediate output, components with settled interfaces and exclusive ownership, or independent review/black-box acceptance. If context growth or tool-selection confusion is the reason, record an observed failure or comparative evaluation; task length alone is not evidence. When no suitable boundary exists, keep even a large task in the main loop.
+- **Define the assignment before spawning**: specify the current requirement and constraints, exact checkout/base, required inputs, dependencies, read-only or writable scope, acceptance checks and expected return. Assign only ready tasks; settle shared interfaces first. Use the smallest useful number of agents within actual capacity, and require the main agent to approve further decomposition instead of recursive fan-out by default.
+- **Keep the critical context with its owner**: send a self-contained, minimal task brief rather than the whole conversation. Return conclusions, file/line or artifact references, actual checks/results and unresolved questions; retain raw evidence for inspection. If agents need repeated clarification, overlapping edits or substantial intermediate context, fold that work back into the main loop or sequence it.
+- **Review independently when warranted**: for substantial or risky changes, give a read-only reviewer the current requirements/constraints, diff and test results, with access to relevant source. Start with a fresh context rather than the author's conversation or rationale. The main agent checks each finding against code/tests before applying it; routine small edits do not require a review agent.
+- **Preserve state and validate the whole task**: maintain the existing design/progress record for long work, including accepted decisions, ownership, dependencies, review dispositions and next checks. Update it before compaction or handoff. Subagent success is only local evidence; verify the integrated user flow and original UI interactions where affected. For a recurring delegation strategy, compare representative end-to-end tasks before/after a change, repeat variable model runs, and inspect individual regressions as well as time/cost rather than claiming a gain from agent count.
+
+This project policy adapts the context-isolation and independent-review principles in [MCode Engineering Note 01](https://my.feishu.cn/wiki/DBtRwh8fpi4ADUkbbEPcuIi8nHe). The article's model-specific token/tool counts and performance anecdotes are not project thresholds. Agent-side assignment and worktree details live in the mounted SOP's `references/project-sop.md`.
+
 ## Step 0: Establish the baseline (never skip)
 
 1. Clean build: `cd services/gateway && go build ./...`
@@ -20,9 +33,9 @@ This is the standard instruction document handed to an Agent (e.g. Claude Code) 
 3. Full tests: `go test ./...`; frontend `npm install && npm run build` (in `apps/webchat`, includes `tsc -b`).
 4. **Record the baseline**: which packages pass, which fail and why. Without separating "already broken" from "broken by me", all later verification is meaningless.
 
-## Step 1: Parallel reconnaissance
+## Step 1: Reconnaissance; parallelize independent questions
 
-- Fan out read-only explore agents by package partition (historical partitioning: `agent` / `toolhub` / `gateway`+`store`+`config` / `weixin`+`notification`+`reminder`+`binding`+`browserautomation` / frontend).
+- Inspect the scope and dependencies in the main loop first. Delegate bounded read-only questions only when they pass the subagent decision rules above; package boundaries are search scopes, not an automatic agent-per-package assignment.
 - Every finding must carry: `file:line`, one-sentence description, severity (high/medium/low), concrete refactoring suggestion.
 - Draw the package dependency graph yourself with `go list` to verify coupling claims — don't take agent summaries on faith.
 
@@ -37,7 +50,7 @@ Rank by value/risk ratio, highest priority first:
 5. **God-file splits** (same-package pure moves, zero API change);
 6. Pure style issues — usually not worth doing; put them in the leftovers list.
 
-Large independent items (concurrency model changes, functional bug fixes, giant-file splits) become **separate background tasks** (spawn_task / dedicated worktrees) that don't block the main line; small certain items go sequentially in the main working tree.
+For a large item, first decide whether its context and write ownership can be isolated. Delegate ready, independent items with explicit acceptance criteria; keep shared-contract, sequential and small certain changes in the main loop. A long test/build can run as a background command without spawning an agent. Use subagents within the current task; create a separate user-owned chat only when the user asks for one.
 
 ## Step 3: Implementation discipline
 
@@ -51,14 +64,14 @@ Large independent items (concurrency model changes, functional bug fixes, giant-
 
 - `go test ./...` fully green (compared against the Step-0 baseline — no new failures allowed); `go vet ./...` clean.
 - Frontend changes: `tsc -b` + `npm run build`; for pure-move splits, use bundle-size comparison as no-behavior-change evidence.
-- With background tasks: verify each in its own worktree first (build + tests + diff spot-check), merge only after quality is confirmed; run affected tests after each branch merge.
+- With implementation subagents: inspect each result and diff, verify isolated branches in their own worktrees first, then integrate one at a time and run affected tests after each merge. Shared-checkout work has no branch merge: review the owned diffs and validate the combined tree. Run the task's end-to-end acceptance after integration; individually passing branches do not establish overall correctness.
 - When merging changes from other sessions, check `git status` and strip stray test-run artifacts.
 
 ## Step 5: Wrap-up
 
-- After merges complete and tests are green: remove merged worktrees and branches.
+- After integration and acceptance are complete: collect every subagent's result or explicit unresolved status, stop remaining task work, and remove only this task's fully integrated worktrees and branches. Preserve unfinished work for handoff.
 - Committing is autonomous; **before pushing `origin main`, list the full commit set in the report** (unless the task instruction explicitly pre-authorizes pushing).
-- Unfinished high-value items: file them as background task suggestions (spawn_task); each task prompt must be self-contained (file paths, problem description, acceptance criteria) without depending on the current session's context.
+- Unfinished high-value items: record self-contained follow-up suggestions (file paths, problem description, acceptance criteria and reason left open). Do not turn a suggestion into a new user-owned chat without the user's request.
 - **Lessons write-back**: capture this pass's new failure patterns as lessons appended under `Team-Skills/projects/SparkClaw/sparkclaw-sop/lessons/` (one file per lesson, append-only, `status: pending`); promotion to guardrails happens at the next consolidation. This document stays lean — do not pile experience into it directly.
 
 ## Report format

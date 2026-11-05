@@ -13,6 +13,7 @@ type Request struct {
 }
 
 type Result struct {
+	CaptureID   string `json:"capture_id,omitempty"`
 	Markdown    string
 	Model       string
 	InferenceMS int64

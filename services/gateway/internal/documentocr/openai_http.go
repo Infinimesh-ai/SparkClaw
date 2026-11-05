@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 )
 
 const (
@@ -43,7 +44,8 @@ func NewOpenAIHTTP(cfg config.DocumentOCRAdapterConfig) (*OpenAIHTTP, error) {
 	return &OpenAIHTTP{
 		cfg: cfg,
 		client: &http.Client{
-			Timeout: time.Duration(cfg.TimeoutSeconds) * time.Second,
+			Timeout:   time.Duration(cfg.TimeoutSeconds) * time.Second,
+			Transport: modelrouter.NewCaptureTransport(nil),
 			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
@@ -76,7 +78,12 @@ func validateEndpoint(cfg config.DocumentOCRAdapterConfig) error {
 
 func (a *OpenAIHTTP) Enabled() bool { return true }
 
-func (a *OpenAIHTTP) Parse(ctx context.Context, input Request) (Result, error) {
+func (a *OpenAIHTTP) Parse(ctx context.Context, input Request) (result Result, resultErr error) {
+	ctx, capture := modelrouter.BeginCapturedCall(ctx, modelrouter.CaptureMetadata{Operation: "document_ocr", Lane: "document_ocr", Profile: a.cfg.Provider, Model: a.cfg.Model})
+	defer func() {
+		result.CaptureID = capture.ID()
+		capture.Finish(result, resultErr)
+	}()
 	if len(input.Content) == 0 {
 		return Result{}, errors.New("document OCR image is empty")
 	}

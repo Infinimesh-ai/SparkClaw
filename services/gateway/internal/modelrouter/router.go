@@ -39,6 +39,7 @@ type Task struct {
 }
 
 type ChatResult struct {
+	CaptureID      string `json:"capture_id,omitempty"`
 	Lane           string `json:"lane"`
 	Profile        string `json:"profile"`
 	Model          string `json:"model"`
@@ -73,6 +74,7 @@ type ModelStreamEvent struct {
 type StreamHandler func(ModelStreamEvent) error
 
 type EmbeddingResult struct {
+	CaptureID    string      `json:"capture_id,omitempty"`
 	Lane         string      `json:"lane"`
 	Profile      string      `json:"profile"`
 	Model        string      `json:"model"`
@@ -83,6 +85,7 @@ type EmbeddingResult struct {
 }
 
 type GuardResult struct {
+	CaptureID      string   `json:"capture_id,omitempty"`
 	Lane           string   `json:"lane"`
 	Profile        string   `json:"profile"`
 	Model          string   `json:"model"`
@@ -108,7 +111,7 @@ func New(cfg config.Config) Router {
 	}
 	return Router{
 		cfg:    cfg,
-		client: &http.Client{Timeout: timeout},
+		client: &http.Client{Timeout: timeout, Transport: NewCaptureTransport(nil)},
 	}
 }
 
@@ -192,13 +195,24 @@ func (r Router) Profile(name string) (config.ModelProfile, error) {
 	}
 }
 
-func (r Router) chatWithProfile(ctx context.Context, profile config.ModelProfile, operation modelcapacity.Operation, system, user string, options ChatOptions) (ChatResult, error) {
+func (r Router) chatWithProfile(ctx context.Context, profile config.ModelProfile, operation modelcapacity.Operation, system, user string, options ChatOptions) (result ChatResult, resultErr error) {
+	ctx, capture := BeginCapturedCall(ctx, CaptureMetadata{Operation: string(operation), Lane: r.LaneFor(profile), Profile: profile.Name, Model: modelID(profile), Mock: r.cfg.Model.Mock})
+	defer func() {
+		result.CaptureID = capture.ID()
+		capture.Finish(result, resultErr)
+	}()
 	lane := r.LaneFor(profile)
 	maxTokens, err := r.admitChat(ctx, profile, operation, system, user, options, 0)
 	if err != nil {
+		if capture != nil {
+			capture.Prepared(map[string]any{"system": system, "user": user, "options": options}, false)
+		}
 		return ChatResult{}, err
 	}
 	if r.cfg.Model.Mock {
+		if capture != nil {
+			capture.Prepared(map[string]any{"system": system, "user": user, "options": options, "max_tokens": maxTokens}, true)
+		}
 		content := mockResponse(lane, user)
 		promptTokens := estimateTokens(system) + estimateTokens(user)
 		responseTokens := estimateTokens(content)
@@ -231,7 +245,12 @@ func (r Router) chatWithProfile(ctx context.Context, profile config.ModelProfile
 	}, nil
 }
 
-func (r Router) chatWithImageProfile(ctx context.Context, profile config.ModelProfile, operation modelcapacity.Operation, system, user string, image ImageInput, options ChatOptions) (ChatResult, error) {
+func (r Router) chatWithImageProfile(ctx context.Context, profile config.ModelProfile, operation modelcapacity.Operation, system, user string, image ImageInput, options ChatOptions) (result ChatResult, resultErr error) {
+	ctx, capture := BeginCapturedCall(ctx, CaptureMetadata{Operation: string(operation), Lane: r.LaneFor(profile), Profile: profile.Name, Model: modelID(profile), Mock: r.cfg.Model.Mock})
+	defer func() {
+		result.CaptureID = capture.ID()
+		capture.Finish(result, resultErr)
+	}()
 	lane := r.LaneFor(profile)
 	if len(image.Content) == 0 {
 		return ChatResult{}, errors.New("image content cannot be empty")
@@ -241,9 +260,15 @@ func (r Router) chatWithImageProfile(ctx context.Context, profile config.ModelPr
 	}
 	maxTokens, err := r.admitChat(ctx, profile, operation, system, user, options, estimateImageTokens(image))
 	if err != nil {
+		if capture != nil {
+			capture.Prepared(map[string]any{"system": system, "user": user, "options": options}, false)
+		}
 		return ChatResult{}, err
 	}
 	if r.cfg.Model.Mock {
+		if capture != nil {
+			capture.Prepared(map[string]any{"system": system, "user": user, "options": options, "max_tokens": maxTokens, "image": map[string]any{"content_type": image.ContentType, "data_base64": base64.StdEncoding.EncodeToString(image.Content)}}, true)
+		}
 		content := "Mock image inspection: image content was received and can be described by the multimodal model."
 		promptTokens := estimateTokens(system) + estimateTokens(user) + len(image.Content)/768
 		responseTokens := estimateTokens(content)
@@ -276,16 +301,42 @@ func (r Router) chatWithImageProfile(ctx context.Context, profile config.ModelPr
 	}, nil
 }
 
-func (r Router) chatStreamWithProfile(ctx context.Context, profile config.ModelProfile, operation modelcapacity.Operation, system, user string, emit StreamHandler) (ChatResult, error) {
+func (r Router) chatStreamWithProfile(ctx context.Context, profile config.ModelProfile, operation modelcapacity.Operation, system, user string, emit StreamHandler) (result ChatResult, resultErr error) {
+	ctx, capture := BeginCapturedCall(ctx, CaptureMetadata{Operation: string(operation), Lane: r.LaneFor(profile), Profile: profile.Name, Model: modelID(profile), Mock: r.cfg.Model.Mock})
+	defer func() {
+		result.CaptureID = capture.ID()
+		capture.Finish(result, resultErr)
+	}()
 	lane := r.LaneFor(profile)
 	maxTokens, err := r.admitChat(ctx, profile, operation, system, user, ChatOptions{}, 0)
 	if err != nil {
+		if capture != nil {
+			capture.Prepared(map[string]any{"system": system, "user": user, "options": ChatOptions{}}, false)
+		}
 		return ChatResult{}, err
 	}
 	if emit == nil {
 		emit = func(ModelStreamEvent) error { return nil }
 	}
+	if capture != nil {
+		var observed strings.Builder
+		deliver := emit
+		emit = func(event ModelStreamEvent) error {
+			if event.Type == "text_delta" {
+				observed.WriteString(event.Text)
+			}
+			return deliver(event)
+		}
+		defer func() {
+			if resultErr != nil && observed.Len() != 0 {
+				capture.observedOutput(map[string]any{"content": observed.String(), "mock": r.cfg.Model.Mock, "consumer_completed": false})
+			}
+		}()
+	}
 	if r.cfg.Model.Mock {
+		if capture != nil {
+			capture.Prepared(map[string]any{"system": system, "user": user, "options": ChatOptions{}, "max_tokens": maxTokens}, true)
+		}
 		content := mockResponse(lane, user)
 		for _, chunk := range streamChunks(content, 12) {
 			if err := emit(ModelStreamEvent{Type: "text_delta", Text: chunk}); err != nil {
@@ -324,7 +375,7 @@ func (r Router) chatStreamWithProfile(ctx context.Context, profile config.ModelP
 	}, nil
 }
 
-func (r Router) Embed(ctx context.Context, operation modelcapacity.Operation, inputs []string) (EmbeddingResult, error) {
+func (r Router) Embed(ctx context.Context, operation modelcapacity.Operation, inputs []string) (result EmbeddingResult, resultErr error) {
 	if len(inputs) == 0 {
 		return EmbeddingResult{}, errors.New("embedding inputs cannot be empty")
 	}
@@ -332,10 +383,21 @@ func (r Router) Embed(ctx context.Context, operation modelcapacity.Operation, in
 	if strings.TrimSpace(profile.Name) == "" {
 		profile.Name = "sparkclaw-embedding"
 	}
+	ctx, capture := BeginCapturedCall(ctx, CaptureMetadata{Operation: string(operation), Lane: "embedding", Profile: profile.Name, Model: modelID(profile), Mock: r.cfg.Model.Mock})
+	defer func() {
+		result.CaptureID = capture.ID()
+		capture.Finish(result, resultErr)
+	}()
 	if err := r.admitEmbedding(ctx, profile, operation, inputs); err != nil {
+		if capture != nil {
+			capture.Prepared(map[string]any{"input": inputs}, false)
+		}
 		return EmbeddingResult{}, err
 	}
 	if r.cfg.Model.Mock {
+		if capture != nil {
+			capture.Prepared(map[string]any{"input": inputs}, true)
+		}
 		promptTokens := estimateTokenList(inputs)
 		return EmbeddingResult{
 			Lane:         "embedding",
@@ -362,7 +424,7 @@ func (r Router) Embed(ctx context.Context, operation modelcapacity.Operation, in
 	}, nil
 }
 
-func (r Router) Guard(ctx context.Context, content string) (GuardResult, error) {
+func (r Router) Guard(ctx context.Context, content string) (result GuardResult, resultErr error) {
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return GuardResult{}, errors.New("guard content cannot be empty")
@@ -371,11 +433,22 @@ func (r Router) Guard(ctx context.Context, content string) (GuardResult, error) 
 	if strings.TrimSpace(profile.Name) == "" {
 		profile.Name = "sparkclaw-guard"
 	}
+	ctx, capture := BeginCapturedCall(ctx, CaptureMetadata{Operation: string(modelcapacity.OperationGuardModeration), Lane: "guard", Profile: profile.Name, Model: modelID(profile), Mock: r.cfg.Model.Mock})
+	defer func() {
+		result.CaptureID = capture.ID()
+		capture.Finish(result, resultErr)
+	}()
 	maxTokens, err := r.admitChat(ctx, profile, modelcapacity.OperationGuardModeration, guardSystemPrompt, content, ChatOptions{}, 0)
 	if err != nil {
+		if capture != nil {
+			capture.Prepared(map[string]any{"system": guardSystemPrompt, "user": content}, false)
+		}
 		return GuardResult{}, err
 	}
 	if r.cfg.Model.Mock {
+		if capture != nil {
+			capture.Prepared(map[string]any{"system": guardSystemPrompt, "user": content, "max_tokens": maxTokens}, true)
+		}
 		promptTokens := estimateTokens(content)
 		result := mockGuard(content)
 		result.Lane = "guard"

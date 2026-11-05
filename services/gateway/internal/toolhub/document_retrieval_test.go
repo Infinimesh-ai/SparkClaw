@@ -87,8 +87,8 @@ func TestLargeDocumentRetrievalToolsLocateAndReadPassages(t *testing.T) {
 	}
 
 	outline, err := hub.Execute(ctx, "document.outline", map[string]any{"path": path}, "session", "run")
-	if err != nil || len(outline.Output.(map[string]any)["outline"].([]any)) != 45 {
-		t.Fatalf("outline tool did not list the 5 chapters and 40 sections: %v", err)
+	if err != nil || len(outline.Output.(map[string]any)["nodes"].([]any)) == 0 || outline.Output.(map[string]any)["next_cursor"] == "" {
+		t.Fatalf("outline tool did not paginate the source nodes: %v", err)
 	}
 }
 
@@ -100,6 +100,13 @@ func TestReadToolsRefuseTheDocumentIndexDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, err := os.ReadDir(filepath.Join(root, docindex.RelativeRoot))
+	directories := entries[:0]
+	for _, entry := range entries {
+		if entry.IsDir() {
+			directories = append(directories, entry)
+		}
+	}
+	entries = directories
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("index directory was not created: %v", err)
 	}

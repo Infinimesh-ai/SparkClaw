@@ -89,7 +89,7 @@ func (h *ToolHub) scannedPDFRetrieval(ctx context.Context, path string, structur
 			}
 		}
 	}
-	target := docindex.Target{WorkspaceRoot: h.cfg.Workspaces.DefaultRoot, RelPath: metadata.Relative, Format: metadata.Format}
+	target := h.documentIndexTarget(metadata)
 	waiting := func() { reportToolProgress(ctx, documentIndexProgress) }
 	var index *docindex.Index
 	if len(recognized) > 0 {

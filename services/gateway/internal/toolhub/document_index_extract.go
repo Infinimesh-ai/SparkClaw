@@ -2,17 +2,18 @@ package toolhub
 
 import (
 	"bufio"
-	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/docindex"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
 // textIndexMaxLineBytes splits a line without newlines, such as minified
@@ -30,6 +31,9 @@ var markdownHeading = regexp.MustCompile(`^(#{1,6})\s+(.+?)\s*#*\s*$`)
 type documentIndexExtractor struct{}
 
 func (documentIndexExtractor) Extract(ctx context.Context, path, format string, emit func(docindex.Unit) error) (docindex.SourceInfo, error) {
+	if err := inspectIndexPackage(ctx, path, format); err != nil {
+		return docindex.SourceInfo{}, err
+	}
 	switch format {
 	case app.DocumentFormatPDF:
 		return extractPDFIndexUnits(ctx, path, emit)
@@ -73,10 +77,13 @@ func extractPDFIndexUnits(ctx context.Context, path string, emit func(docindex.U
 			number := intArg(page, "page", 0)
 			if !boolArg(page, "indexed", false) {
 				info.UnindexedPages = append(info.UnindexedPages, number)
+				if err := emit(docindex.Unit{Kind: "page", Page: number, Block: fmt.Sprintf("document.page[%d]", number), Availability: document.NodeUnrecognized, Reason: "no_native_text"}); err != nil {
+					return docindex.SourceInfo{}, err
+				}
 				continue
 			}
-			text := joinIdeographLineBreaks(stringArg(page, "text", ""))
-			if err := emit(docindex.Unit{Text: text, Page: number, Block: fmt.Sprintf("document.page[%d]", number)}); err != nil {
+			text := stringArg(page, "text", "")
+			if err := emit(docindex.Unit{Kind: "page", Text: text, Page: number, Block: fmt.Sprintf("document.page[%d]", number)}); err != nil {
 				return docindex.SourceInfo{}, err
 			}
 		}
@@ -101,14 +108,19 @@ func extractScriptIndexUnits(ctx context.Context, path string, emit func(docinde
 		return docindex.SourceInfo{}, err
 	}
 	for _, raw := range documentAnySlice(out["units"]) {
-		unit, _ := documentAnyMap(raw)
-		if err := emit(docindex.Unit{
-			Text: stringArg(unit, "text", ""), Page: intArg(unit, "page", 0), HeadingLevel: intArg(unit, "heading_level", 0), Block: stringArg(unit, "block", ""),
-		}); err != nil {
+		encoded, err := json.Marshal(raw)
+		if err != nil {
+			return docindex.SourceInfo{}, err
+		}
+		var unit docindex.Unit
+		if err := json.Unmarshal(encoded, &unit); err != nil {
+			return docindex.SourceInfo{}, err
+		}
+		if err := emit(unit); err != nil {
 			return docindex.SourceInfo{}, err
 		}
 	}
-	return docindex.SourceInfo{Pages: intArg(out, "pages_total", 0)}, nil
+	return docindex.SourceInfo{Pages: intArg(out, "pages_total", 0), Limitations: outputStringArray(out["limitations"])}, nil
 }
 
 // extractTextIndexUnits streams plain text as blank-line separated
@@ -119,90 +131,51 @@ func extractTextIndexUnits(ctx context.Context, path string, emit func(docindex.
 		return docindex.SourceInfo{}, err
 	}
 	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 64<<10), 2*textIndexMaxLineBytes)
-	scanner.Split(boundedLines)
-	paragraph := []string{}
-	startLine := 0
-	flush := func() error {
-		if len(paragraph) == 0 {
-			return nil
+	reader := bufio.NewReaderSize(file, textIndexMaxLineBytes)
+	offset := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return docindex.SourceInfo{}, err
 		}
-		text := strings.Join(paragraph, "\n")
-		paragraph = paragraph[:0]
-		return emit(docindex.Unit{Text: text, Block: fmt.Sprintf("text.line[%d]", startLine)})
-	}
-	for line := 1; scanner.Scan(); line++ {
-		if line%4096 == 0 && ctx.Err() != nil {
-			return docindex.SourceInfo{}, ctx.Err()
-		}
-		text := strings.ToValidUTF8(scanner.Text(), "�")
-		if match := markdownHeading.FindStringSubmatch(text); match != nil {
-			if err := flush(); err != nil {
-				return docindex.SourceInfo{}, err
-			}
-			if err := emit(docindex.Unit{Text: match[2], HeadingLevel: len(match[1]), Block: fmt.Sprintf("text.line[%d]", line)}); err != nil {
-				return docindex.SourceInfo{}, err
-			}
-			continue
-		}
-		if strings.TrimSpace(text) == "" {
-			if err := flush(); err != nil {
-				return docindex.SourceInfo{}, err
-			}
-			continue
-		}
-		if len(paragraph) == 0 {
-			startLine = line
-		}
-		paragraph = append(paragraph, text)
-	}
-	if err := scanner.Err(); err != nil {
-		return docindex.SourceInfo{}, err
-	}
-	return docindex.SourceInfo{}, flush()
-}
-
-// joinIdeographLineBreaks removes PDF layout line breaks between two
-// ideographs, which would otherwise split Chinese words across terms.
-func joinIdeographLineBreaks(text string) string {
-	runes := []rune(text)
-	out := make([]rune, 0, len(runes))
-	for index, r := range runes {
-		if r == '\n' && index > 0 && index+1 < len(runes) && unicode.Is(unicode.Han, runes[index-1]) && unicode.Is(unicode.Han, runes[index+1]) {
-			continue
-		}
-		out = append(out, r)
-	}
-	return string(out)
-}
-
-// boundedLines is bufio.ScanLines with lines longer than
-// textIndexMaxLineBytes cut at a rune boundary.
-func boundedLines(data []byte, atEOF bool) (int, []byte, error) {
-	if newline := bytes.IndexByte(data, '\n'); newline >= 0 && newline < textIndexMaxLineBytes {
-		return newline + 1, bytes.TrimSuffix(data[:newline], []byte("\r")), nil
-	}
-	if len(data) >= textIndexMaxLineBytes {
-		cut := textIndexMaxLineBytes
-		for cut > 0 && cut < len(data) && !utf8.RuneStart(data[cut]) {
-			cut--
-		}
-		if cut == len(data) {
-			// No following byte to test: drop a trailing incomplete rune.
-			for back := 1; back < utf8.UTFMax && back <= cut; back++ {
-				if utf8.RuneStart(data[cut-back]) {
-					if !utf8.FullRune(data[cut-back : cut]) {
-						cut -= back
+		raw, readErr := reader.ReadSlice('\n')
+		if len(raw) > 0 {
+			// Buffer boundaries may split UTF-8. Carry a trailing partial rune into
+			// the next segment without changing or replacing original bytes.
+			data := append([]byte(nil), raw...)
+			if readErr == bufio.ErrBufferFull {
+				for !utf8.Valid(data) && len(data) < textIndexMaxLineBytes+utf8.UTFMax {
+					next, e := reader.ReadByte()
+					if e != nil {
+						return docindex.SourceInfo{}, e
 					}
-					break
+					data = append(data, next)
 				}
 			}
+			if !utf8.Valid(data) {
+				return docindex.SourceInfo{}, fmt.Errorf("text is not valid UTF-8; lossless structural read unavailable")
+			}
+			text := string(data)
+			unit := docindex.Unit{Text: text, Kind: "text", Block: fmt.Sprintf("text.bytes[%d:%d]", offset, offset+len(data)), ByteStart: offset, ByteEnd: offset + len(data)}
+			if match := markdownHeading.FindStringSubmatch(strings.TrimSuffix(strings.TrimSuffix(text, "\n"), "\r")); match != nil {
+				unit.HeadingLevel = len(match[1])
+				unit.Title = match[2]
+				unit.Kind = "heading"
+			}
+			if err := emit(unit); err != nil {
+				return docindex.SourceInfo{}, err
+			}
+			offset += len(data)
 		}
-		return cut, data[:cut], nil
+		if readErr == io.EOF {
+			if offset == 0 {
+				if err := emit(docindex.Unit{Kind: "text", Block: "text.bytes[0:0]"}); err != nil {
+					return docindex.SourceInfo{}, err
+				}
+			}
+			return docindex.SourceInfo{}, nil
+		}
+		if readErr != nil && readErr != bufio.ErrBufferFull {
+			return docindex.SourceInfo{}, readErr
+		}
 	}
-	if atEOF && len(data) > 0 {
-		return len(data), bytes.TrimSuffix(data, []byte("\r")), nil
-	}
-	return 0, nil, nil
 }

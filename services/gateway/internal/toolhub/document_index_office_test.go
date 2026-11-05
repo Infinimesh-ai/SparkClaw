@@ -42,14 +42,14 @@ deck.save(sys.argv[1])
 			headings = append(headings, unit.Text)
 		}
 	}
-	if info.Pages != 3 || strings.Join(headings, "|") != "Slide 1: 项目背景|Slide 2: 技术方案|Slide 3: 里程碑" {
+	if info.Pages != 3 || strings.Join(headings, "|") != "项目背景|技术方案|里程碑" {
 		t.Fatalf("slide headings = %v, pages = %d", headings, info.Pages)
 	}
 	joined := ""
 	for _, unit := range units {
 		joined += unit.Text + "\n"
 	}
-	if !strings.Contains(joined, "采用分层检索架构") || !strings.Contains(joined, "Notes: 讲者备注 3") || units[len(units)-1].Page != 3 {
+	if !strings.Contains(joined, "采用分层检索架构") || !strings.Contains(joined, "讲者备注 3") || units[len(units)-1].Page != 3 {
 		t.Fatalf("slide body or notes were not extracted: %s", joined)
 	}
 }
@@ -81,7 +81,7 @@ const ExcelJS = require("exceljs");
 		t.Fatal(err)
 	}
 	pointer := read.Output.(map[string]any)
-	if pointer["retrieval_required"] != true || !strings.Contains(pointer["content"].(string), "Sheet: 订单") {
+	if pointer["retrieval_required"] != true || !strings.Contains(pointer["content"].(string), "订单") {
 		t.Fatalf("a large workbook did not return its sheet outline: %.200v", pointer["content"])
 	}
 	search, err := hub.Execute(context.Background(), "document.search", map[string]any{"path": "inventory.xlsx", "keywords": []any{"SKU-102345"}}, "session", "run")
@@ -89,7 +89,7 @@ const ExcelJS = require("exceljs");
 		t.Fatal(err)
 	}
 	hits := search.Output.(map[string]any)["hits"].([]any)
-	if len(hits) == 0 || !strings.Contains(hits[0].(map[string]any)["snippet"].(string), "产品编号: SKU-102345") {
+	if len(hits) == 0 || !strings.Contains(hits[0].(map[string]any)["snippet"].(string), "SKU-102345") {
 		t.Fatalf("row search did not find the product by its header-named cell: %#v", hits)
 	}
 }

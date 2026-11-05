@@ -1,4 +1,4 @@
-import base64, io, json, sys, unicodedata
+import base64, io, json, sys
 try:
     from pypdf import PdfReader
 except Exception:
@@ -65,9 +65,6 @@ if req.get("operation") == "render":
         sys.exit(1)
     sys.exit(0)
 
-def meaningful_characters(text):
-    return sum(1 for value in text if unicodedata.category(value)[:1] in ("L", "N"))
-
 def outline_entries(reader):
     entries = []
     def walk(items, level):
@@ -79,7 +76,7 @@ def outline_entries(reader):
                 page = reader.get_destination_page_number(item) + 1
             except Exception:
                 continue
-            title = " ".join(str(getattr(item, "title", "") or "").split())
+            title = str(getattr(item, "title", "") or "")
             if title and page > 0:
                 entries.append({"title": title, "level": level, "page": page})
     try:
@@ -92,13 +89,16 @@ try:
     reader = PdfReader(req["path"])
     total = len(reader.pages)
     pages = []
+    text_bytes = 0
     for index in range(start, min(total, start + count)):
         try:
             text = reader.pages[index].extract_text() or ""
         except Exception:
             text = ""
-        text = text.strip()
-        pages.append({"page": index + 1, "text": text, "indexed": meaningful_characters(text) >= 3})
+        text_bytes += len(text.encode("utf-8"))
+        if text_bytes > (64 << 20):
+            raise ValueError("PDF text exceeds structure extraction admission")
+        pages.append({"page": index + 1, "text": text, "indexed": bool(text.strip())})
     out = {"pages_total": total, "pages": pages}
     if req.get("outline"):
         out["outline"] = outline_entries(reader)

@@ -2,6 +2,10 @@
 
 > 语言： [English](../../docs/document-workflows.md) | 简体中文
 
+[统一文档结构与评估证据设计](document-structure-and-evaluation-design.md) 记录 2026-11-05
+确定的方向：所有大小文档均可按需访问结构，并导出执行证据供人工移交外部评审。该设计尚未实现，
+下文现行 Workflow 契约继续生效。
+
 本文档描述当前结构化文档读取与编辑 pipeline，替代第一阶段 structured-enrichment 设计记录，
 同时保留长期有效的格式、证据和保真契约。
 

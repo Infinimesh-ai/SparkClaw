@@ -6,6 +6,11 @@ This document describes the active structured document read and edit pipeline.
 It replaces the first-phase structured-enrichment design record while retaining
 its durable format, evidence, and preservation contracts.
 
+The [unified structure and evaluation evidence design](document-structure-and-evaluation-design.md)
+records the 2026-11-05 direction for on-demand structural access at every document
+size and portable execution evidence for manual external review. It is not yet
+implemented; the active workflow contracts below remain in force.
+
 Gateway uploads keep the attachment filename directly under `uploads/` or
 `media/`. A duplicate uses the same numeric family without overwriting the
 existing file: `report.pdf`, `report-2.pdf`, `report-3.pdf`, and so on.

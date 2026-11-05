@@ -9,6 +9,13 @@ three phases are implemented in source on the same day: B1 (text-layer PDF,
 DOCX and text), B2 (analysis-phase OCR for scanned PDFs) and B3 (PPTX/XLSX
 structure and whole-document chapter summaries). Nothing is deployed.
 
+Next design, 2026-11-05: [Unified document structure and evaluation evidence](document-structure-and-evaluation-design.md)
+proposes structural access and on-demand reads for every document, replacing
+size-triggered capability selection while retaining context and resource budgets.
+It also defines per-run evidence for owner-led external review, without an
+in-program reviewing model. This is a future design, not a change to the
+implementation status recorded here.
+
 Scope: the document read path (`internal/document`, `internal/toolhub`
 document tools), workflow evidence provisioning, operation decisions and
 finalization (`internal/agent`), and the runtime budget configuration. The

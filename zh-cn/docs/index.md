@@ -61,7 +61,8 @@
 | [网络原生邮件架构 v4](email-network-native-architecture.md) | 提案：仅用浏览器会话重组——确切推送目标、学习原生请求模板并以响应证明、常驻 App-CLI 控制面、收窄锁与更快的展示平面传输 |
 | [QQ 邮箱直连原生发送](email-qq-direct-native-send.md) | 代码维护的 `qq_sendmail_v1` 模板、页内账号核对、私有内容传递、按响应判定结果与 `provider_rejected` 证明；QQ 是 Gmail、Outlook 的锚点 |
 | [文档 Workflow](document-workflows.md) | 结构化读取、受限编辑、enrichment、保真校验和格式覆盖 |
-| [大文档上下文](large-document-context-design.md) | 已实现按上下文推导证据预算与 tokenizer 校验；已采纳、待实施的结构优先 `large_indexed` 检索，含导入预建与分析阶段 OCR |
+| [大文档上下文](large-document-context-design.md) | 已在源码实现按上下文推导预算、结构优先检索、分析阶段 OCR、Office 索引和章节总结；不代表已部署 |
+| [统一文档结构与评估证据](document-structure-and-evaluation-design.md) | 提案：不按大小划分结构访问能力，记录任务覆盖和每次执行证据，导出一个文件供 owner 在外部交给模型评审；程序不内置评审 |
 | [外部集成](integrations.md) | LocalMind task MCP、Telegram、微信、语音转写和 Infinimesh Info |
 | [LocalMind Workflow](localmind-task-workflow-design.md) | 已实现显式文字委派、read/write Approval 拆分、有界状态查询完成、上下文 query 和 cancel |
 | [WebChat 语音输入闭环设计](webchat-voice-input-design.md) | Phase 1 稳定采集闭环，以及 Phase 2 native record-time ASR、partial/final reconciliation、silence stop 与 batch fallback 设计；LLM 润色推迟到 Phase 3 |

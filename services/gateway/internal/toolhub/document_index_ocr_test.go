@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/configtest"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/docindex"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/executionevidence"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -154,5 +156,44 @@ func TestScannedSectionReadWithoutOCRNamesTheUnrecognizedPages(t *testing.T) {
 	output := result.Output.(map[string]any)
 	if output["read_complete"] != false || fmt.Sprint(output["unrecognized_pages"]) != "[7 8 9 10 11 12]" {
 		t.Fatalf("scanned-page gaps were hidden: %#v", output)
+	}
+}
+
+func TestExecutionEvidenceRetainsCanonicalOCRGenerations(t *testing.T) {
+	root := t.TempDir()
+	writeScannedPDF(t, root, "scan.pdf", 1, nil)
+	hub := newScannedPDFHub(t, root, true)
+	recorder := executionevidence.New(filepath.Join(t.TempDir(), "evidence"), executionevidence.DefaultOptions())
+	scope := executionevidence.Scope{OwnerID: "owner", SessionID: "session", RunID: "run"}
+	if err := recorder.Begin(t.Context(), scope, map[string]any{"request": "read scan"}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := recorder.Bind(t.Context(), scope)
+	before, _, err := hub.ensureDocumentIndex(ctx, filepath.Join(root, "scan.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := hub.Execute(ctx, "document.read_range", map[string]any{"path": "scan.pdf", "all": true}, scope.SessionID, scope.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := stringArg(result.Output.(map[string]any), "structure_generation", "")
+	if generation == "" || generation == before.Manifest.StructureGeneration {
+		t.Fatal("OCR did not create a new structure generation")
+	}
+	manifest, err := recorder.Read(t.Context(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]bool{}
+	for _, payload := range manifest.Payloads {
+		if payload.Kind == "document_structure" {
+			found[payload.Name] = true
+		}
+	}
+	for _, expected := range []string{before.Manifest.StructureGeneration, generation} {
+		if !found[before.Manifest.SourceSHA256+"-"+expected+".json"] {
+			t.Fatalf("canonical generation %s was not retained: %v", expected, found)
+		}
 	}
 }

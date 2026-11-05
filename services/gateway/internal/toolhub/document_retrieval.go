@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/docindex"
@@ -42,13 +43,16 @@ func (h *ToolHub) ensureDocumentIndex(ctx context.Context, path string) (*docind
 			Detail: "this format has no document index strategy",
 		}
 	}
+	started := time.Now()
 	index, err := h.documentIndex.Ensure(ctx, h.documentIndexTarget(metadata), func() { reportToolProgress(ctx, documentIndexProgress) })
+	elapsed := time.Since(started)
 	if err != nil {
 		h.recordDocumentEvidenceSource(ctx, metadata)
 		return nil, document.Metadata{}, fmt.Errorf("document index is unavailable: %w", err)
 	}
 	metadata.SHA256 = index.Manifest.SourceSHA256
 	h.recordDocumentEvidenceSource(ctx, metadata)
+	recordDocumentStructureEvidence(ctx, index.Structure, index.Nodes, index.Acquisition, elapsed)
 	return index, metadata, nil
 }
 

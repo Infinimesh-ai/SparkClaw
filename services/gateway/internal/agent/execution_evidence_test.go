@@ -3,6 +3,7 @@ package agent
 import (
 	"archive/zip"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -205,4 +206,60 @@ func BenchmarkExecutionEvidenceManualRead(b *testing.B) {
 			}
 		})
 	}
+}
+
+func TestExecutionEvidenceRetainsCanonicalStructureBeyondOutlinePage(t *testing.T) {
+	runtime, _, session, closeRuntime := newWorkflowE2ERuntime(t, nil)
+	defer closeRuntime()
+	runtime.evidence = executionevidence.New(filepath.Join(t.TempDir(), "evidence"), executionevidence.DefaultOptions())
+	if err := os.WriteFile(filepath.Join(session.WorkspaceRoot, "structure.txt"), []byte(strings.Repeat("Original canonical node.\n", 500)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.InvokeToolManually(t.Context(), "document.outline", map[string]any{"path": "structure.txt"}, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := executionevidence.Scope{OwnerID: session.OwnerID, SessionID: session.ID, RunID: result.Call.RunID}
+	output := filepath.Join(t.TempDir(), "structure.zip")
+	manifest, err := runtime.evidence.Export(t.Context(), scope, output, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := ""
+	for _, payload := range manifest.Payloads {
+		if payload.Kind == "document_structure" {
+			entry = payload.Path
+		}
+	}
+	if entry == "" {
+		t.Fatal("full canonical structure not retained")
+	}
+	archive, err := zip.OpenReader(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Close()
+	for _, file := range archive.File {
+		if file.Name != entry {
+			continue
+		}
+		reader, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer reader.Close()
+		var evidence struct {
+			Nodes []struct {
+				Text string `json:"text"`
+			} `json:"nodes"`
+		}
+		if err := json.NewDecoder(reader).Decode(&evidence); err != nil {
+			t.Fatal(err)
+		}
+		if len(evidence.Nodes) != 500 || evidence.Nodes[499].Text != "Original canonical node.\n" {
+			t.Fatalf("historical structure cropped: %d nodes", len(evidence.Nodes))
+		}
+		return
+	}
+	t.Fatal("canonical payload missing from archive")
 }

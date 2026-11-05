@@ -62,6 +62,22 @@ func (h *ToolHub) recordDocumentEvidenceSource(ctx context.Context, metadata doc
 	recordDocumentEvidenceFile(ctx, h.cfg.Workspaces.DefaultRoot, metadata, "source")
 }
 
+func recordDocumentStructureEvidence(ctx context.Context, structure document.StructureManifest, nodes []document.StructureNode, acquisition string, elapsed time.Duration) {
+	if _, enabled := executionevidence.ScopeFromContext(ctx); !enabled {
+		return
+	}
+	name := structure.SourceSHA256 + "-" + structure.StructureGeneration + ".json"
+	payload, err := executionevidence.CaptureJSON(ctx, "document_structure", name, map[string]any{"structure": structure, "nodes": nodes})
+	if err != nil {
+		_ = executionevidence.MarkGap(ctx, "structure_capture_failed", "historical canonical structure unavailable")
+		return
+	}
+	if err := executionevidence.Record(ctx, executionevidence.Event{Kind: "document.structure", Status: "captured", DurationMS: elapsed.Milliseconds(), PayloadIDs: []string{payload.ID},
+		Data: map[string]any{"source_sha256": structure.SourceSHA256, "structure_generation": structure.StructureGeneration, "cache_result": acquisition, "parser_version": structure.ParserVersion}}); err != nil {
+		_ = executionevidence.MarkGap(ctx, "structure_event_failed", "canonical structure event unavailable")
+	}
+}
+
 func CaptureDocumentOutputEvidence(ctx context.Context, root, path string) {
 	if _, enabled := executionevidence.ScopeFromContext(ctx); !enabled {
 		return

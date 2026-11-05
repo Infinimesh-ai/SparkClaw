@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/docindex"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
@@ -66,10 +67,13 @@ func (h *ToolHub) recognizeDocumentPages(ctx context.Context, metadata document.
 	if len(recognized) == 0 {
 		return index, unrecognized, nil
 	}
+	started := time.Now()
 	rebuilt, err := h.documentIndex.RecognizedPages(ctx, target, nil)
+	elapsed := time.Since(started)
 	if err != nil {
 		return index, pages, err
 	}
+	recordDocumentStructureEvidence(ctx, rebuilt.Structure, rebuilt.Nodes, rebuilt.Acquisition, elapsed)
 	return rebuilt, unrecognized, nil
 }
 

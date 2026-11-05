@@ -85,6 +85,7 @@ func TestUploadDocumentSavesSingleFileArtifact(t *testing.T) {
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
+	defer tools.Close()
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	server := New(cfg, st, tools, runtime)
 	ts := httptest.NewServer(server.Handler())
@@ -151,6 +152,7 @@ func TestUploadDocumentUsesNumericVersionsForDuplicateNames(t *testing.T) {
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
+	defer tools.Close()
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	ts := httptest.NewServer(New(cfg, st, tools, runtime).Handler())
 	defer ts.Close()
@@ -327,6 +329,7 @@ func TestUploadDocumentAddsExtensionFromContentType(t *testing.T) {
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
+	defer tools.Close()
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	server := New(cfg, st, tools, runtime)
 	ts := httptest.NewServer(server.Handler())
@@ -2502,12 +2505,13 @@ func TestToolPolicyEditorPersistsAndUpdatesRuntimePolicy(t *testing.T) {
 
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
+	defer tools.Close()
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	server := New(cfg, st, tools, runtime)
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
-	updateResp, err := http.Post(ts.URL+"/api/tool-policy", "application/json", bytes.NewBufferString(`{"deny":["files.write_draft"],"approval_required":["files.read"]}`))
+	updateResp, err := http.Post(ts.URL+"/api/tool-policy", "application/json", bytes.NewBufferString(`{"deny":["files.write_draft"],"approval_required":["files.read","document.read_range"]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2522,14 +2526,14 @@ func TestToolPolicyEditorPersistsAndUpdatesRuntimePolicy(t *testing.T) {
 	if err := json.NewDecoder(updateResp.Body).Decode(&updated); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(updated.DeniedTools, "files.write_draft") || !slices.Contains(updated.ConfiguredApprovalRequiredTools, "files.read") {
+	if !slices.Contains(updated.DeniedTools, "files.write_draft") || !slices.Contains(updated.ConfiguredApprovalRequiredTools, "files.read") || !slices.Contains(updated.ConfiguredApprovalRequiredTools, "document.read_range") {
 		t.Fatalf("policy update response missing tools: %#v", updated)
 	}
 	raw, err := os.ReadFile(cfg.Security.ToolPolicyPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "files.write_draft") || !strings.Contains(string(raw), "files.read") {
+	if !strings.Contains(string(raw), "files.write_draft") || !strings.Contains(string(raw), "files.read") || !strings.Contains(string(raw), "document.read_range") {
 		t.Fatalf("policy file did not persist update: %s", raw)
 	}
 
@@ -2563,12 +2567,16 @@ func TestToolPolicyEditorPersistsAndUpdatesRuntimePolicy(t *testing.T) {
 	}
 	agentReadResult := sendTestMessageResult(t, ts.URL, sessionID, "Read missing.txt")
 	toolCalls, ok := agentReadResult["tool_calls"].([]any)
-	if !ok || len(toolCalls) != 1 {
-		t.Fatalf("agent read result missing tool call: %#v", agentReadResult)
+	if !ok || len(toolCalls) != 2 {
+		t.Fatalf("agent read result missing structure/range calls: %#v", agentReadResult)
 	}
-	agentReadCall := toolCalls[0].(map[string]any)
-	if agentReadCall["tool"] != "files.read" || agentReadCall["status"] != "approval_pending" {
-		t.Fatalf("agent files.read should require approval after policy update: %#v", agentReadCall)
+	outlineCall := toolCalls[0].(map[string]any)
+	if outlineCall["tool"] != "document.outline" || outlineCall["status"] != "completed" {
+		t.Fatalf("agent did not discover structure before selecting scope: %#v", outlineCall)
+	}
+	agentReadCall := toolCalls[1].(map[string]any)
+	if agentReadCall["tool"] != "document.read_range" || agentReadCall["status"] != "approval_pending" {
+		t.Fatalf("agent range read should require approval after policy update: %#v", agentReadCall)
 	}
 
 	futureToolsResp, err := http.Post(ts.URL+"/api/tool-policy", "application/json", bytes.NewBufferString(`{"deny":["future.tool"],"approval_required":["future.approval"]}`))
@@ -3427,6 +3435,7 @@ func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 
 	st := store.NewMemoryStore()
 	tools := toolhub.New(cfg, st)
+	defer tools.Close()
 	traces := trace.NewWriterFromConfig(cfg)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), traces)
 	server := NewWithTrace(cfg, st, tools, runtime, traces)
@@ -3477,8 +3486,11 @@ func TestTraceEndpointReturnsRunTrace(t *testing.T) {
 		t.Fatalf("trace did not include model call telemetry: %#v", decoded.ModelCalls)
 	}
 	if hasServerTestModelCall(decoded.ModelCalls, "workflow_step_1", "deep") ||
-		hasServerTestModelCall(decoded.ModelCalls, "workflow_step_1", "fast") {
-		t.Fatalf("document.read trace included a model action step before its single bound reader: %#v", decoded.ModelCalls)
+		!hasServerTestModelCall(decoded.ModelCalls, "workflow_step_1", "fast") {
+		t.Fatalf("document.read trace did not record Fast task scope selection: %#v", decoded.ModelCalls)
+	}
+	if len(decoded.ToolCalls) != 2 || decoded.ToolCalls[0]["tool"] != "document.outline" || decoded.ToolCalls[1]["tool"] != "document.read_range" {
+		t.Fatalf("document.read trace did not retain structure then scoped read: %#v", decoded.ToolCalls)
 	}
 	if hasServerTestModelCall(decoded.ModelCalls, "intent_rerank", "reranker") {
 		t.Fatalf("trace included a model call for the removed reranker: %#v", decoded.ModelCalls)

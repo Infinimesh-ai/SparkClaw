@@ -2,12 +2,14 @@ package gateway
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -45,7 +47,7 @@ func uploadTestDocument(t *testing.T, serverURL, name, content string) {
 	}
 }
 
-func TestDocumentUploadPrebuildsAnIndexOnlyForLargeDocuments(t *testing.T) {
+func TestDocumentUploadPrebuildsStructureForEveryDocumentSize(t *testing.T) {
 	root := t.TempDir()
 	cfg := testConfig(root)
 	st := store.NewMemoryStore()
@@ -59,27 +61,37 @@ func TestDocumentUploadPrebuildsAnIndexOnlyForLargeDocuments(t *testing.T) {
 	for section := 0; large.Len() <= 400_000; section++ {
 		fmt.Fprintf(&large, "## 第%d节\n\n%s\n\n", section, strings.Repeat("大文档导入阶段只预建目录和关键词索引。", 20))
 	}
-	uploadTestDocument(t, ts.URL, "small.md", "# Small\nfits the complete-read path")
+	uploadTestDocument(t, ts.URL, "small.md", "# Small\nfits one scoped read")
 	uploadTestDocument(t, ts.URL, "large.md", large.String())
 
 	indexRoot := filepath.Join(cfg.Workspaces.DefaultRoot, docindex.RelativeRoot)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		entries, _ := os.ReadDir(indexRoot)
-		if len(entries) == 1 {
-			manifest, err := os.ReadFile(filepath.Join(indexRoot, entries[0].Name(), "manifest.json"))
-			if err == nil && strings.Contains(string(manifest), `"state":"ready"`) {
-				if !strings.Contains(string(manifest), "large.md") {
-					t.Fatalf("the prebuilt index belongs to the wrong upload: %s", manifest)
+		ready := map[string]bool{}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue // The workspace cursor key is not an index directory.
+			}
+			raw, err := os.ReadFile(filepath.Join(indexRoot, entry.Name(), "manifest.json"))
+			var manifest docindex.Manifest
+			if err != nil || json.Unmarshal(raw, &manifest) != nil || manifest.State != docindex.StateReady {
+				continue
+			}
+			if manifest.StructureGeneration == "" || manifest.Chunks == 0 {
+				t.Fatalf("prebuilt upload has no usable versioned structure: %+v", manifest)
+			}
+			for _, name := range []string{"uploads/small.md", "uploads/large.md"} {
+				if slices.Contains(manifest.SourcePaths, name) {
+					ready[name] = true
 				}
-				return
 			}
 		}
-		if len(entries) > 1 {
-			t.Fatalf("small upload kept an index: %d index directories", len(entries))
+		if len(ready) == 2 {
+			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("large upload was not prebuilt in the background: %d index directories", len(entries))
+			t.Fatalf("uploads were not prebuilt for both sizes: %v", ready)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

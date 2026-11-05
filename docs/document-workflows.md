@@ -17,12 +17,19 @@ existing file: `report.pdf`, `report-2.pdf`, `report-3.pdf`, and so on.
 
 ## Workflow Boundary
 
-`document.read` revision 6 reads or summarizes one exact governed workspace
+`document.read` revision 7 reads or summarizes one exact governed workspace
 file. PDF, DOCX, PPTX, XLSX, text and Markdown first expose structure regardless
 of size. Fast selects the semantic task scope; runtime binds source versions
 and continues that same scope until complete or explicitly partial. A short
 whole-source task may fit one bounded range read. Images retain their visual
-reader; persisted revision 4/5 plans retain the previous direct/retrieval path.
+reader; persisted revisions 4/5/6 retain their original execution contracts.
+Revision 7 expands selected section/sheet containers, separates canonical
+acquisition from model evidence budgets and supports bounded selection of original
+source fragments for large extraction tasks (at most 16 fragments per batch,
+24 batches). Summary contract 3 carries the original task through section/merge
+processing and keys cached summaries by that task; revision 6 keeps contract 2. Unsupported visual content remains
+partial while useful acquired text can be presented. See the
+[evaluation and current limits](document-workflow-evaluation-20261105.md).
 See [Unified structure and evaluation evidence](document-structure-and-evaluation-design.md).
 `document.edit` revision 7 reads one exact
 file, resolves one supported

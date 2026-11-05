@@ -2,7 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/document-structure-and-evaluation-design.md)
 
-Status: P0–P3 implemented in local source, 2026-11-05; owner acceptance is pending.
+Status: P0–P3 implemented in local source, 2026-11-05; revision 7 task evaluation
+and feedback are recorded separately. Full owner acceptance is pending.
 Documents of every supported size use programmatic structure extraction and
 on-demand reads. Internal evidence capture is opt-in, defaults off, and exports
 on demand for manual external review. This is not an installed/deployed release
@@ -28,7 +29,7 @@ separate files for the same review.
 
 [Large document context](large-document-context-design.md) records the previous
 size-triggered retrieval path, retained for persisted revision 4/5 plans. New
-revision 6 reads use this unified architecture. Model capacity calculation,
+revision 6/7 reads use this unified architecture. Model capacity calculation,
 tokenizer admission, OCR resource bounds and upload limits remain independent
 constraints; [Document workflows](document-workflows.md) describes the active profiles.
 
@@ -619,3 +620,14 @@ prebuild/single-reader assertions and missing upload-test worker cleanup. The
 final checks verify both upload sizes, actual untrusted range content, named-tool
 approval, structure/scope model telemetry and bounded worker shutdown. The first
 failed run remains distinct from the passing qualification.
+
+### 12.2 Real-task orchestration feedback
+
+The [2026-11-05 evaluation](document-workflow-evaluation-20261105.md) tests owner
+files and generated fixtures using real models and sealed internal capture. It
+records baseline failures, bounded-budget failures, maintenance verification and
+revision 7 improvements. A workflow remains one unit while its nodes acquire
+continuations and classify source fragments in bounded batches. Raw acquisition,
+model-generated relevance and final model exposure are separate facts. Revisions
+4/5/6 remain frozen; UI, transport and storage schemas remain unchanged. The
+focused evaluation does not replace the full A01–A24 owner acceptance matrix.

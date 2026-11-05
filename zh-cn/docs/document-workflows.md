@@ -14,10 +14,14 @@ Gateway 上传会把附件原名直接保存在 `uploads/` 或 `media/` 下。�
 
 ## Workflow 边界
 
-`document.read` revision 6 读取或总结一个明确的受治理 workspace 文件。PDF、DOCX、PPTX、
+`document.read` revision 7 读取或总结一个明确的受治理 workspace 文件。PDF、DOCX、PPTX、
 XLSX、文本和 Markdown 无论大小都先提供结构；Fast 选择语义任务范围，runtime 绑定来源版本，
 在同一范围内续读，直至完整或明确部分完成。短文档全篇任务可能一次有界范围读取即可完成。
-图片保留视觉 reader；持久化的 revision 4/5 计划保留原有直接读取／检索路径。
+图片保留视觉 reader；持久化的 revision 4/5/6 计划保留原执行契约。
+Revision 7 展开选中的章节／工作表容器，将原文采集与模型证据预算分开，并为大提取任务
+提供有界原文片段筛选（每批最多 16 个片段、最多 24 批）。总结契约 3 将原始任务传入
+分节及合并处理，并按任务隔离缓存；revision 6 保留契约 2。未支持的视觉内容保持部分完成，同时可返回已读取的有用文字。
+详见[评估与当前限制](document-workflow-evaluation-20261105.md)。
 详见[统一结构与评估证据](document-structure-and-evaluation-design.md)。
 `document.edit` revision 7 读取一个明确文件，通过显式 Workflow 决策节点解析一个受支持
 operation、为 reversible edit 获取 approval，并写入新的同级

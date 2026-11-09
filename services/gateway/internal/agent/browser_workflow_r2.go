@@ -971,11 +971,21 @@ func browserPresentationRefs(state *app.WorkflowState, refs []app.ResourceRef) [
 		return refs
 	}
 	targetURL := state.Browser.Result.Target.CanonicalURL
-	return []app.ResourceRef{{
+	presentation := app.ResourceRef{
 		Kind: "browser_result_url", Ref: targetURL,
 		Provenance: state.Browser.Result.HiddenSnapshotID,
 		Attributes: map[string]string{"redacted_url": state.Browser.Result.Target.RedactedURL},
-	}}
+	}
+	// An explicit screenshot inserts a visual stage before presentation. Keep
+	// its current trusted identity until that stage binds its arguments; a URL
+	// alone cannot authorize a generation-bound screenshot. The visual stage
+	// calls this with nil refs afterward and returns to ordinary presentation.
+	if browserVisualReason(state.Route) != "" {
+		if page, snapshot, ok := browserSnapshotRefs(currentBrowserSnapshotRefs(refs)); ok {
+			return []app.ResourceRef{page, snapshot, presentation}
+		}
+	}
+	return []app.ResourceRef{presentation}
 }
 
 func browserPresentationURLMatchesRoute(state *app.WorkflowState, candidateURL string) bool {

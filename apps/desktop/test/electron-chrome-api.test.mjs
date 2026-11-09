@@ -70,6 +70,43 @@ test("ChromeEvent removes listeners before later authority changes", () => {
   assert.deepEqual(observed, ["first"]);
 });
 
+test("hidden screenshot primes a tiny native surface and preserves the exact CDP result and scope", async () => {
+  let visible = false, active = true, wakeError = false;
+  const captures = [], commands = [], image = { data: "authoritative-CDP-image" };
+  const record = {
+    attached: true, childSessions: new Set(), view: { getVisible: () => visible },
+    webContents: {
+      async capturePage(...args) { captures.push(args); if (wakeError) throw new Error("surface unavailable"); return "discarded native image"; },
+      debugger: { async sendCommand(...args) { commands.push(args); return image; } },
+    },
+  };
+  const api = new ElectronChromeAPI({ connectionID: "task-a", downloadRegistry: emptyDownloads(), registry: {
+    get(connection, tab) {
+      if (!active || connection !== "task-a" || tab !== 17) throw new Error("task revoked");
+      return record;
+    },
+  } });
+  const target = { tabId: 17 }, params = Object.freeze({ format: "png", captureBeyondViewport: false,
+    clip: Object.freeze({ x: 7, y: 11, width: 640, height: 720, scale: 1 }) });
+  assert.equal(await api.debugger.sendCommand(target, "Page.captureScreenshot", params), image);
+  assert.deepEqual(captures, [[{ x: 0, y: 0, width: 1, height: 1 }, { stayHidden: true, stayAwake: true }]]);
+  assert.equal(commands[0][1], params);
+  assert.equal(visible, false);
+  visible = true;
+  await api.debugger.sendCommand(target, "Page.captureScreenshot", params);
+  visible = false;
+  await api.debugger.sendCommand(target, "Page.getLayoutMetrics", {});
+  assert.equal(captures.length, 1);
+  await assert.rejects(api.debugger.sendCommand({ ...target, sessionId: "foreign" }, "Page.captureScreenshot", params), /outside the task/);
+  active = false;
+  await assert.rejects(api.debugger.sendCommand(target, "Page.captureScreenshot", params), /revoked/);
+  assert.equal(captures.length, 1); assert.equal(commands.length, 3);
+  active = true; wakeError = true;
+  assert.equal(await api.debugger.sendCommand(target, "Page.captureScreenshot", params), image);
+  record.webContents.debugger.sendCommand = async () => { throw new Error("CDP capture failed"); };
+  await assert.rejects(api.debugger.sendCommand(target, "Page.captureScreenshot", params), /CDP capture failed/);
+});
+
 test("Electron downloads are visible only to the connection that owns the initiating page", async () => {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-electron-download-test-"));
   const browserSession = new EventEmitter();

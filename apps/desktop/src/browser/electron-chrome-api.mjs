@@ -131,6 +131,14 @@ export class ElectronChromeAPI {
     if (sessionID !== undefined && (!record.childSessions.has(sessionID) || typeof sessionID !== "string")) {
       throw new Error("Nested debugger session is outside the task");
     }
+    if (method === "Page.captureScreenshot" && record.view?.getVisible?.() === false) {
+      // A never-presented Linux view can stall CDP capture without a native
+      // frame request. Prime one pixel while keeping presentation/focus hidden;
+      // only the original CDP capture supplies the image, clip and format.
+      // This hint neither retries that command nor extends its MCP deadline.
+      void record.webContents.capturePage({ x: 0, y: 0, width: 1, height: 1 },
+        { stayHidden: true, stayAwake: true }).catch(() => {});
+    }
     return await record.webContents.debugger.sendCommand(method, commandParams, sessionID);
   }
 

@@ -4,6 +4,7 @@
 >
 > Date: 2026-11-10. Status: implementation in progress. Clean-source `ac57fa8b` candidates repair
 > local availability and legacy-peer negotiation; recorded Mac/Linux mixed-peer and large-result fault checks pass.
+> Screenshot qualification exposed two additional defects; source fixes await clean-package qualification.
 > Source, isolated encrypted-Relay and real work2 provider evidence is recorded in §14.
 > TEST1, the remaining acceptance matrix and paired cutover remain open; no production replacement.
 > Owner decisions D1–D3 are retained in §12.
@@ -1131,3 +1132,23 @@ X107/keyring and temporary AppArmor resources are cleared. Production containers
 configuration and the locked GNOME session retain their baselines. This is scoped A07/A08
 evidence for large escaped mutation results; it does not complete screenshot, 10 MiB, capacity,
 expiry, every fault combination, TEST1, offline/native installation or public-WAN timing gates.
+
+
+Packaged screenshot qualification exposed a separate visual-workflow defect: presentation
+selection discarded the trusted page/snapshot refs before `browser.visual_inspect` bound its
+arguments. Preserve those two refs only through the requested visual stage; afterward and for
+ordinary presentation, retain only the result URL. Three profile regressions verify the frozen
+transition and replacement of forged page/generation/digest inputs with current trusted values.
+The working-source Gateway with the unchanged Mac package delivers a 391,703-byte PNG through
+16 encrypted chunks, with identical image/file hashes. This is not a clean-release result.
+
+On work2 Linux, the corrected Gateway reaches screenshot execution, but the hidden view's CDP
+capture stalls until MCP closes the target after 10 seconds. Changing `captureBeyondViewport`
+alone still fails. A diagnostic native `capturePage` request with `stayHidden`/`stayAwake`, reduced
+to a 1×1 pixel region, unblocks the original CDP capture: the 412,276-byte PNG arrives in 80 ms
+(single sample), and its delivered file hash matches. The native hint's image is discarded.
+Source now applies this hint only to hidden screenshots after task/session validation; the
+original CDP parameters, image, errors and deadline remain authoritative. No panel, focus or
+window visibility operation is added. The opt-in packaged screenshot fixture records capture
+metadata, MIME/dimensions, chunk reassembly/file hashes and presentation preservation. Keep the
+failed attempts and diagnostic overrides distinct from qualification of the pending clean pair.

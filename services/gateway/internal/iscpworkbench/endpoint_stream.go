@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/appstream"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
 )
 
 type StreamEmitter interface {
@@ -465,6 +465,16 @@ func (e *Endpoint) acceptStreamControl(raw []byte, id string) error {
 		w.cancel()
 		return nil
 	}
+	// StreamCall sends a final cancel after observing completion. A long-lived
+	// subscription can finish well after its opening horizon; its exact terminal
+	// identity remains valid until this authenticated session ends. Applying the
+	// unknown-open time window here would disconnect unrelated healthy calls.
+	if latest, closed := s.streamClosed[c.SubscriptionID]; closed {
+		if !latest.Equal(*c.LatestOpenAt) {
+			return appstream.ErrInvalid
+		}
+		return nil
+	}
 	now := time.Now()
 	for key, deadline := range s.streamCancels {
 		if now.After(deadline.Add(30 * time.Second)) {
@@ -532,7 +542,15 @@ func (e *Endpoint) acceptStreamRequest(ctx context.Context, r Request, id string
 func (e *Endpoint) runStreamRequest(ctx context.Context, r Request, latest time.Time, w *streamSender) {
 	defer e.workers.Done()
 	defer w.cancel()
-	defer func() { e.mu.Lock(); delete(w.session.streamSenders, r.ID); e.mu.Unlock() }()
+	defer func() {
+		e.mu.Lock()
+		if w.session.streamClosed == nil {
+			w.session.streamClosed = make(map[string]time.Time)
+		}
+		w.session.streamClosed[r.ID] = w.latestOpenAt
+		delete(w.session.streamSenders, r.ID)
+		e.mu.Unlock()
+	}()
 	g, err := e.ensureStreamAuthority(ctx, w.session)
 	if err != nil {
 		return

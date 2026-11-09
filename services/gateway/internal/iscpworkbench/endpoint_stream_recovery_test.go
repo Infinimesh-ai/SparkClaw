@@ -298,8 +298,51 @@ func TestStreamCancelBeforeFirstOpenFencesOriginalRequest(t *testing.T) {
 	if called.Load() != 0 {
 		t.Fatal("cancel-before-open was dropped before first authority snapshot")
 	}
+	r.mu.Lock()
+	closedAt, retained := s.streamClosed[request.ID]
+	r.mu.Unlock()
+	if !retained || !closedAt.Equal(open.Latest) {
+		t.Fatal("completed subscription lost its original cancellation identity")
+	}
 	if err := r.acceptStreamRequest(t.Context(), request, s.id); err != nil || called.Load() != 0 {
 		t.Fatalf("original canceled open revived: %v", err)
+	}
+}
+
+func TestCompletedLongStreamCancelPreservesSessionAndRejectsChangedIdentity(t *testing.T) {
+	i, r, _ := profileEndpoints(t, true, true)
+	r.mu.Lock()
+	s := r.session
+	id := newUUID()
+	latest := time.Now().UTC().Add(-time.Minute)
+	// This subscription was admitted while its opening horizon was current,
+	// then completed after that horizon. No active sender remains.
+	s.seenRequests[id] = struct{}{}
+	s.streamClosed = map[string]time.Time{id: latest}
+	r.mu.Unlock()
+	control := func(subscription string, horizon time.Time) []byte {
+		t.Helper()
+		raw, err := json.Marshal(appstream.Control{Type: appstream.ControlType, SchemaVersion: 1, SubscriptionID: subscription, Action: "cancel", LatestOpenAt: &horizon})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	for range 2 {
+		if err := r.acceptStreamControl(control(id, latest), s.id); err != nil {
+			t.Fatalf("exact late cancellation rejected: %v", err)
+		}
+	}
+	if err := r.acceptStreamControl(control(id, latest.Add(time.Second)), s.id); !errors.Is(err, appstream.ErrInvalid) {
+		t.Fatalf("changed terminal identity accepted: %v", err)
+	}
+	if err := r.acceptStreamControl(control(newUUID(), latest), s.id); !errors.Is(err, appstream.ErrInvalid) {
+		t.Fatalf("unknown expired opening identity accepted: %v", err)
+	}
+	assertIsolationSession(t, r, s)
+	request := Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: OperationSettingsOwnerGet}
+	if response, err := i.Call(t.Context(), request); err != nil || response.Status != 200 {
+		t.Fatalf("unrelated read failed after completed-stream cancellation: %v %+v", err, response)
 	}
 }
 

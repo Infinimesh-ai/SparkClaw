@@ -53,6 +53,7 @@ type activeSession struct {
 	streams                         map[string]*pendingStream
 	streamSenders                   map[string]*streamSender
 	streamCancels                   map[string]time.Time
+	streamClosed                    map[string]time.Time // original opening horizon, retained until session ends
 	id                              string
 	local                           session.LocalHello
 	state                           *session.State

@@ -1,5 +1,5 @@
 // Opt-in actual-package proof: lock through original Settings, restart locked,
-// then unlock with the same device credential and reject the original approval.
+// then unlock with the same device credential and fence the original lease.
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -265,15 +265,22 @@ try {
   await unchangedUnknowns();
   assert.deepEqual(await identity(), evidence.before_identity);
   assert.notEqual(await application.evaluate(() => globalThis.__lockAgent.session.session_id), evidence.execution.old_session);
+  // Logout invalidates browser authority; it does not cancel a remote execution.
+  // Observe its original approval, then explicitly decide it once through the
+  // original API. Even an accepted decision must not enter the retired lease.
+  evidence.original_after_unlock = await readTask(evidence.task);
+  evidence.old_approval_decision = await window.evaluate(({ task, approval }) => window.sparkclawClientStore
+    .decideApproval(task.request_id, approval.approval_id, approval.digest, "approve")
+    .then(value => ({ resolved: value.resolved }), error => ({ error: String(error.message) })),
+  { task: evidence.task, approval: evidence.original_approval });
   await until(async () => {
     evidence.interrupted_state = await readTask(evidence.task);
     return ["failed", "canceled", "unknown", "delivered"].includes(evidence.interrupted_state.tasks.find(row => row.request_id === evidence.task.request_id)?.status);
   }, "original execution terminates");
   const interrupted = evidence.interrupted_state.tasks.find(row => row.request_id === evidence.task.request_id);
   assert.equal(interrupted.approvals?.some(row => row.state === "pending" && row.actionable) || false, false);
-  await rejectOldApproval();
-  assert.equal(await application.evaluate(() => globalThis.__lockTrace.native_calls.filter(row => row.operation === "page.fill").length), 0);
-  evidence.checks.same_credential_unlock_retires_original_approval_without_fill = true;
+  assert.deepEqual(await application.evaluate(() => globalThis.__lockTrace.native_calls), []);
+  evidence.checks.same_credential_unlock_and_explicit_old_decision_cannot_enter_retired_lease = true;
   evidence.recovery_task = await submit("Bob");
   const approval = await pendingApproval(evidence.recovery_task);
   evidence.old_authority_probes = await application.evaluate(async (_electron, { request, authority }) => {
@@ -297,9 +304,8 @@ try {
   assert.equal(evidence.old_lease_probe.outcome, "not_dispatched"); assert.equal(evidence.old_lease_probe.error_code, "browser_session_stale");
   assert.equal(evidence.old_lease_probe.calls_added, 0); assert.equal(evidence.old_lease_probe.live_task, evidence.recovery_task.local_task_id);
   assert.notEqual(evidence.old_lease_probe.live_incarnation, evidence.execution.incarnation);
-  await rejectOldApproval();
   assert.equal(await application.evaluate(() => globalThis.__lockTrace.native_calls.filter(row => row.operation === "page.fill").length), 0);
-  evidence.checks.old_approval_authority_binding_and_lease_cannot_enter_new_incarnation = true;
+  evidence.checks.old_authority_binding_and_lease_cannot_enter_new_incarnation = true;
   await window.evaluate(({ task, approval }) => window.sparkclawClientStore.decideApproval(task.request_id, approval.approval_id, approval.digest, "approve"), { task: evidence.recovery_task, approval });
   await until(async () => {
     evidence.recovery_state = await readTask(evidence.recovery_task);
@@ -323,7 +329,6 @@ try {
   const restarted = evidence.restarted_original.tasks.filter(row => row.request_id === evidence.task.request_id);
   assert.equal(restarted.length, 1); assert.equal(restarted[0].status, interrupted.status);
   assert.equal(restarted[0].approvals?.some(row => row.state === "pending" && row.actionable) || false, false);
-  await rejectOldApproval();
   evidence.restart_trace = await application.evaluate(() => globalThis.__lockTrace);
   assert.deepEqual(evidence.restart_trace.native_calls, []); assert.equal(evidence.restart_trace.business_http, 0);
   evidence.checks.same_profile_restart_retains_identity_retired_approval_and_all_unknowns_without_replay = true;

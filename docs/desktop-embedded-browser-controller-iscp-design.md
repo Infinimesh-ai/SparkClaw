@@ -2,8 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> Date: 2026-11-10. Status: implementation in progress. Current `7c7dd816` packages include
-> the process-exit repair; Mac/Linux preapproval Gateway restart qualification passes within §14's scope.
+> Date: 2026-11-10. Status: implementation in progress. Current `b175325b` packages include
+> original-credential recovery; Mac/Linux native lock/restart/unlock passes within §14's scope.
 > A shared-disk exhaustion incident interrupted work2 PostgreSQL; original service recovered,
 > with the failed preservation audit and changed runtime baseline retained in §14.
 > TEST1, the remaining acceptance matrix and paired cutover remain open; no production package replacement.
@@ -1806,3 +1806,45 @@ disposable device. All activity services and the data forward are stopped; candi
 private display and temporary policies are absent, Relay is unpaused, and production matches the
 post-recovery baseline with 4,536,299,520 bytes free. The historical disk incident and other open
 release gates remain recorded.
+
+The clean `b175325b` Mac DMG/ZIP and Linux AppImage/deb contain the public-identity recovery fix.
+Relative to `7c7dd816`, only `iscp-node-enrollment.mjs` changes among 6,516/6,566 ASAR files;
+all 207 Controller payload files, 24 WebChat resources and helper bytes match. The separate Mac
+installation matches all 8,241 entries in its read-only DMG. Linux uses its verified private
+AppImage extraction and temporary exact-path sandbox policy. Existing native profile data stays
+in place; production installation is not replaced.
+
+Both native packages pass nine lock/recovery checks using the original Settings/Devices logout
+control, original profile and original expired invitation. Pending Alice has zero fills; lock
+closes owned task views, processes, sockets and lease, retains the personal page, and refuses
+protected IPC, retry and old authority. Restart stays locked with zero Controller calls. Entering
+the same credential through the original login form restores the original backend/client/device/
+installation under a different authenticated session, without changing identity-file permissions.
+
+Preserve the first rebuilt Mac failure: recovery succeeded, but the fixture incorrectly assumed
+logout would automatically terminate the remote execution. The original task remained pending
+approval. The corrected fixture creates its own task and explicitly decides its old approval once
+after unlock. Both platforms accept that decision receipt, but the retired browser authority
+admits zero native calls and the execution becomes `unknown`, with no new browser-write unknown
+receipt. This is not automatic approval retirement or a successful original workflow. Old authority
+and binding return 503; an old lease under current authority returns `browser_session_stale` with
+zero calls and leaves the new Controller incarnation intact. A separate new approval fills Bob
+exactly once and delivers its result with sandbox retained/debugger detached. Further restart
+preserves installation/history, cookie, attachment bytes, draft and all Mac nine/Linux eight prior
+unknowns, with zero automatic native calls and no direct business HTTP.
+
+Stopped independent reads match all 12 completed browser receipts from the two passing runs;
+the original executions are unknown and both recovery executions delivered. The first Mac fixture's
+immutable request and two completed receipts remain intact, with no resubmission or approval decision;
+its cached running state before Gateway stop and failed service state after shutdown are recorded
+separately. Retain both failed native observations, the initial read-only verifier's projection-column
+mistake, and prepared but unexecuted Linux v1 fixture. Lock/recovery is now qualified at this scope;
+dedicated-device permanent revocation, TEST1, remaining native/offline/installed matrix, actual Dock,
+WAN and P3/D2/P4/final owner acceptance remain open.
+
+Before staging Linux, only the owned `7c7dd816` and `c6948132` unpacked application trees were
+reclaimed after verifying their retained archives; profiles, receipts, scripts and production data
+were preserved. The four-GiB reserve guard remains unchanged. Activity services, data forward,
+candidate processes, private display and temporary sandbox policies are stopped/removed; Relay
+remains unpaused. Post-recovery production stability is checked separately from the historical
+PostgreSQL incident.

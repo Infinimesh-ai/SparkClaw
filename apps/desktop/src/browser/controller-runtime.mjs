@@ -27,7 +27,7 @@ export class ClientControllerRuntime {
 
   async prepare() {
     try { this.manifest = await verifyControllerBundle(this.bundleRoot); }
-    catch (error) { this.state = "unavailable"; throw error; }
+    catch (error) { this.manifest = null; this.state = "unavailable"; throw error; }
     return this.snapshot();
   }
 

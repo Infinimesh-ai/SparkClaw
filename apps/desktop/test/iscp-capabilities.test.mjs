@@ -5,6 +5,17 @@ import { ISCP_SURFACES, projectISCPCapabilities } from '../src/main/iscp-capabil
 const manifest={schema_version:2,session_id:'session',authorization_revision:1,profile:'sparkclaw.workbench.transport.v2',expires_at:new Date(Date.now()+60000).toISOString(),operations:['settings.owner.get','settings.owner.patch']};
 const report={...manifest};
 const row={id:'settings_owner',qualified:true,supported:true,permitted:true,dependencies_ready:true,enabled:true};
+test('a missing local Controller disables only browser access without granting missing remote permissions', () => {
+ const definitions=JSON.parse(readFileSync(new URL('../src/shared/iscp-operations.json',import.meta.url),'utf8'));
+ const full={...manifest,operations:definitions.map(operation=>operation.name)};
+ const capabilities=ISCP_SURFACES.map(id=>({...row,id}));
+ const ready=projectISCPCapabilities(full,{...full,capabilities});
+ const unavailable=projectISCPCapabilities(full,{...full,capabilities},Date.now(),false);
+ assert.equal(unavailable.browser,false);
+ assert.equal(unavailable.surfaces.browser.reason,'local_runtime_unavailable');
+ for(const id of ISCP_SURFACES.filter(id=>id!=='browser'))assert.deepEqual(unavailable.surfaces[id],ready.surfaces[id]);
+ assert.equal(projectISCPCapabilities({...full,operations:full.operations.filter(op=>op!=='browser.controller.execute')},{...full,capabilities},Date.now(),true).browser,false);
+});
 test('UI projection requires negotiated authorization and all qualification gates independently',()=>{
  assert.equal(projectISCPCapabilities(manifest,{...report,capabilities:[row]}).settings,true);
  for(const field of ['qualified','supported','permitted','dependencies_ready','enabled'])assert.equal(projectISCPCapabilities(manifest,{...report,capabilities:[{...row,[field]:false}]}).settings,false);

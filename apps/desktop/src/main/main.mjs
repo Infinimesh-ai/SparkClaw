@@ -165,6 +165,7 @@ async function start() {
     iscpProfilePath, allowLocalISCPTest, allowNodeManagedISCP,
     launchSelectionPath: path.join(launchSelectionDirectory, "iscp-launch-profile.json"), userDataDirectory: app.getPath("userData"),
     packaged: app.isPackaged, resourcesPath: process.resourcesPath,
+    browserRuntimeAvailable: false,
     onChange: (status) => {
       for (const waiter of [...backendStateWaiters]) waiter();
       if (quitting) return;
@@ -409,7 +410,10 @@ async function start() {
         const identity = localIdentity();
         return !identity || localStore.hasCancellation(identity, binding.local_task_id);
       },
-      onChange: () => desktopCapability?.changed(),
+      onChange: () => {
+        desktopAuth.setBrowserRuntimeAvailable(controller.snapshot().available);
+        desktopCapability?.changed();
+      },
     });
     await prepareBrowserHostScope().catch(() => {});
   }
@@ -808,7 +812,8 @@ function prepareBrowserHostScope() {
     const connection = desktopAuth.connection;
     const scope = browserHost.scope;
     if (scope?.installation_id !== localStore.installationID || scope.owner_id !== connection.ownerID || scope.client_id !== connection.clientID) {
-      await browserHost.start({ installation_id: localStore.installationID });
+      try { await browserHost.start({ installation_id: localStore.installationID }); }
+      finally { desktopAuth.setBrowserRuntimeAvailable(browserHost.runtime.snapshot().available); }
     }
     // Bind before the browser UI is ready so a side-effect-free status probe
     // can bootstrap capability checks. Task dispatch still requires readiness.

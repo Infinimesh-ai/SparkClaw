@@ -17,13 +17,21 @@ import { traceISCPRead } from "./iscp-read-diagnostics.mjs";
 const ISCP_STARTUP_READS = new Set(["/api/config", "/readyz", "/api/owner", "/api/notifications", "/api/clients", "/api/workbench/identity", "/api/email/sync-status"]);
 
 export class DesktopAuth {
-  constructor({ readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification = false, requireLAN = false, fetcher, iscpProfilePath, allowLocalISCPTest = false, allowNodeManagedISCP = false, nodeEnroller = enrollNodeISCP, launchSelectionPath, userDataDirectory, selectionWriter = persistNodeISCPLaunchProfile, packaged = false, resourcesPath, transportFactory = (options) => new ISCPTransport(options), onChange = () => {}, onLock = () => {}, onReverse }) {
+  constructor({ readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification = false, requireLAN = false, fetcher, iscpProfilePath, allowLocalISCPTest = false, allowNodeManagedISCP = false, nodeEnroller = enrollNodeISCP, launchSelectionPath, userDataDirectory, selectionWriter = persistNodeISCPLaunchProfile, packaged = false, resourcesPath, transportFactory = (options) => new ISCPTransport(options), onChange = () => {}, onLock = () => {}, onReverse, browserRuntimeAvailable = true }) {
     Object.assign(this, { readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification, requireLAN, fetcher, iscpProfilePath, allowLocalISCPTest, allowNodeManagedISCP, nodeEnroller, launchSelectionPath, userDataDirectory, selectionWriter, packaged, resourcesPath, transportFactory, onChange, onLock, onReverse });
     this.requests = new Set();
     this.defaultVault = vault;
     this.generation = 0;
     this.vaultOperations = Promise.resolve();
     this.status = Object.freeze({ schema_version: 1, state: "incomplete_setup" });
+    this.browserRuntimeAvailable = browserRuntimeAvailable;
+  }
+
+  setBrowserRuntimeAvailable(available) {
+    if (typeof available !== "boolean") throw new Error("Browser runtime availability must be boolean");
+    if (this.browserRuntimeAvailable === available) return;
+    this.browserRuntimeAvailable = available;
+    if (this.descriptor?.transport === "iscp") this.#set(this.status.state);
   }
 
   async initialize() {
@@ -714,7 +722,7 @@ export class DesktopAuth {
         responder_key_thumbprint: this.descriptor.responderKeyThumbprint, relay_url: this.descriptor.relayURL, relay_profile: this.descriptor.relayProfile, test_mode: this.descriptor.testMode, ...(this.descriptor.mode ? { mode: this.descriptor.mode } : {}) } : {}),
       ...(this.descriptor.certificateSHA256 ? { tls_certificate_sha256: this.descriptor.certificateSHA256 } : {}),
     } } : {}), ...(this.descriptor?.transport === "iscp" ? { transport_stage: this.authorizationRevoked ? "authorization_revoked" : this.transportStage, test_mode: this.descriptor.testMode, ...(this.descriptor.mode ? { mode: this.descriptor.mode } : {}),
-      capabilities: projectISCPCapabilities(this.transport?.capabilities, this.capabilityReport) } : {}), ...(this.connection && (this.connection.transport !== "iscp" || this.connection.identityVerified) ? { client_id: this.connection.clientID, owner_id: this.connection.ownerID } : {}) });
+      capabilities: projectISCPCapabilities(this.transport?.capabilities, this.capabilityReport, Date.now(), this.browserRuntimeAvailable) } : {}), ...(this.connection && (this.connection.transport !== "iscp" || this.connection.identityVerified) ? { client_id: this.connection.clientID, owner_id: this.connection.ownerID } : {}) });
     this.#scheduleCapabilityExpiry();
     this.onChange(this.status);
     return this.status;

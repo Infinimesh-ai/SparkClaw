@@ -439,6 +439,10 @@ Unsupported/temporarily unavailable automation keeps its original entry disabled
 existing task activity presentation; no permanent technical status, transport chooser or new
 simplified page. Failure/recovery text appears only when user action is required. Validate original
 UI behavior as well as the new transport; functional tests alone do not establish preservation.
+Remote permission alone cannot enable the browser surface: main also requires a verified local
+Controller bundle. Start with that local gate closed, reproject the existing connection when
+verification changes, and leave independently qualified files/mail/settings surfaces unchanged.
+Failed re-verification clears cached bundle proof; subsequent cleanup cannot restore that proof.
 
 ## 10. Implementation phases and cutover
 
@@ -1005,3 +1009,14 @@ production container IDs/images/configuration/HostConfig/full mounts/networks/st
 real-provider configuration remain equal to their original baselines. The original GNOME seat
 is still locked. Four artifact hashes and scoped success/failure evidence are in the private
 `candidate-d4eae4c6-index.json`; no deploy, system application replacement or old-path deletion.
+
+A subsequent actual Mac package-copy test removes only its Controller manifest. `d4eae4c6`
+incorrectly keeps the browser surface enabled from the remote qualification report while its local
+Controller is unavailable; retain this failed A01 evidence. Source now combines local bundle
+verification with the existing capability projection and updates the original disabled entry. It
+keeps independent files/mail/settings qualification and cannot revive expired remote authority.
+A second red regression shows that cleanup could expose a previously cached manifest after failed
+verification; invalidating that cache fixes it. Three red cases become green; Desktop 661 pass /
+1 skip and the 38 existing LocalWorkbench tests pass. This is a source repair awaiting refreshed
+package/native missing/corrupt/recovery qualification; the prior `d4eae4c6` package claims do not
+include it. No UI component or wire/database schema changes.

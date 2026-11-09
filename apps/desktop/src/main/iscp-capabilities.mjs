@@ -39,14 +39,15 @@ export function isISCPCapabilityReportCurrent(manifest, report, now = Date.now()
 
 // A permission advertisement is necessary, but is never a release certificate.
 // Qualification is private launcher configuration, not a renderer-controlled bit.
-export function projectISCPCapabilities(manifest, report, now = Date.now()) {
+export function projectISCPCapabilities(manifest, report, now = Date.now(), browserRuntimeAvailable = true) {
   const operations = Array.isArray(manifest?.operations) ? manifest.operations : [];
   const valid = isISCPCapabilityReportCurrent(manifest, report, now);
   const granted = new Set(operations);
   const rows = new Map((Array.isArray(report?.capabilities) ? report.capabilities : []).map((row) => [row.id, row]));
   const surfaces = {};
   for (const [surface, required] of Object.entries(SURFACES)) {
-    const reason = !valid ? 'negotiation_required' : !required.every((op) => granted.has(op)) ? 'permission_or_implementation_missing' : !(rows.get(surface)?.qualified === true && rows.get(surface)?.enabled === true && rows.get(surface)?.permitted === true && rows.get(surface)?.supported === true && rows.get(surface)?.dependencies_ready === true) ? (rows.get(surface)?.reason || 'qualification_required') : !(DEPENDENCIES[surface] || []).every((dependency) => surfaces[dependency]?.enabled) ? 'dependency_unavailable' : '';
+    let reason = !valid ? 'negotiation_required' : !required.every((op) => granted.has(op)) ? 'permission_or_implementation_missing' : !(rows.get(surface)?.qualified === true && rows.get(surface)?.enabled === true && rows.get(surface)?.permitted === true && rows.get(surface)?.supported === true && rows.get(surface)?.dependencies_ready === true) ? (rows.get(surface)?.reason || 'qualification_required') : !(DEPENDENCIES[surface] || []).every((dependency) => surfaces[dependency]?.enabled) ? 'dependency_unavailable' : '';
+    if (!reason && surface === 'browser' && !browserRuntimeAvailable) reason = 'local_runtime_unavailable';
     surfaces[surface] = Object.freeze({ enabled: !reason, reason });
   }
   const enabled = (surface) => surfaces[surface].enabled;

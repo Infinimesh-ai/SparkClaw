@@ -19,6 +19,9 @@ test("lazy Controller status verifies the bundle without starting a child or ada
   await fs.appendFile(path.join(root, "src/client-main.mjs"), "tampered");
   await assert.rejects(runtime.start(), /integrity/);
   assert.equal(runtime.snapshot().available, false);
+  await runtime.stop("qualification_cleanup");
+  assert.equal(runtime.snapshot().available, false, "cleanup cannot resurrect a previously verified but now corrupt bundle");
+  await assert.rejects(runtime.prepare(), /integrity/);
 });
 
 test("runtime directories reject shared permissions, symlinks and overlong Unix paths", async t => {

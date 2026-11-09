@@ -679,4 +679,38 @@ task history and earlier fences survive, no fill is replayed, and a new incarnat
 explicit reconciliation of the observed effect. One cleanup sample is 90 ms, not a percentile.
 The initial failure remains archived. Lifecycle tests reject shared/symlinked/split directories
 and preserve a replaced directory. Controller tests pass 361/151 skipped; desktop remains
-649/1 skipped. These latest cleanup changes still require refreshed packaged candidates.
+649/1 skipped. Refreshed package evidence follows below.
+
+Mac ARM64 and Linux x64 candidates are rebuilt from `9c7905aa`; both contain the same verified
+207-file Controller manifest (18,736,478 bytes). Actual packaged main-process SIGKILL while the
+original field approval is pending removes the owned process group and private runtime files
+on both platforms (single observations: Mac 161 ms, Linux 157 ms). This package test grants no
+fill approval and is distinct from the source post-effect/unknown-write test above. Restarting
+the same profiles then passes the complete form/UI/blocked-Relay groups again: Mac seven and
+work2 real-provider Linux eight. Production containers, configuration, mounts, networks and
+start times still match the original baseline; the temporary AppArmor rule, private display,
+keyring children and candidate Gateway processes are stopped when idle. The GNOME lock remains.
+
+A separate newly enrolled lab on work2 now qualifies the updated Mac package against its real
+provider: six groups pass, approved native `Alice` fill, original controls, retained fences,
+normal Quit, and zero direct business HTTP. Its encrypted ISCP Relay and issuer are reached
+through loopback SSH forwards; the Linux lab's identity/profile is not cloned or reset. The
+single complete workflow is 43,243 ms; the refreshed colocated Linux run is 55,193 ms. These
+include model calls and approval/polling and are not performance percentiles or a comparison
+with the legacy path. This closes that scoped Mac-to-work2 candidate check, not the TEST1 public
+Relay gate. TEST1 authentication, remaining acceptance-matrix rows, installed/offline coverage,
+full latency comparison and paired rollback/cutover remain open.
+
+The refreshed Mac package also passes nine groups with workbench-renderer termination: the
+owned native view hides immediately, main reloads a different renderer PID, the restored draft
+and conversation list allow explicit selection of the same completed native page, and history,
+sandbox and detached debugger remain correct. Closing hides the existing window; dispatching
+the application's activation event shows that same window again. Relay-block recovery still
+passes afterward. This tests the activation handler, not a manual Dock click. The initial
+fixture failures are retained: this Electron reports `killed` for the injected renderer death,
+the pinned Playwright Page permanently treats that target as crashed even after main restores
+it, and selection before draft/list rehydration does not establish a recovered interaction.
+The corrected fixture observes the replacement renderer through main's WebContents and waits
+for the original controls to become ready; it does not reload or repair the app itself. A fresh
+run passes without an observation pause. Native visual inspection of this latest recovery is
+unavailable while the Mac is locked; prior composed-window evidence remains separately scoped.

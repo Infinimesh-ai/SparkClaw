@@ -17,6 +17,7 @@ const {_electron}=await import(pathToFileURL(path.join(resources,"browser-contro
 await fs.mkdir(path.join(directory,"controller-native-profile"),{recursive:true,mode:0o700});
 const evidence={schema_version:1,scope:"packaged_candidate_disposable_ISCP",passed:false,checks:{},tasks:[]};
 let application,window;
+let evaluateWorkbench=(fn,arg)=>window.evaluate(fn,arg);
 let pausedRelay;
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function until(check,label,timeout=60000){
@@ -29,6 +30,35 @@ const nativePages=()=>application.evaluate(async({webContents})=>Promise.all(web
   .map(async page=>({id:page.id,value:await page.executeJavaScript('document.querySelector("input").value'),
     debugger:page.debugger.isAttached(),sandbox:page.getLastWebPreferences().sandbox}))));
 const byCommand=(a,b)=>a.command_id.localeCompare(b.command_id);
+async function qualifyParentExit() {
+  const rows=evidence.processes.map(line=>line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/u));
+  const controllers=rows.filter(row=>row&&row[4].includes(evidence.runtime.resources+"/browser-controller/src/client-main.mjs"));
+  assert.equal(controllers.length,1);
+  const pid=Number(controllers[0][1]);assert.equal(Number(controllers[0][3]),pid);
+  const environment=process.platform==="linux" ? await fs.readFile(`/proc/${pid}/environ`,"utf8") :
+    execFileSync("ps",["eww","-p",String(pid),"-o","command="],{encoding:"utf8"});
+  const socket=environment.match(/(?:^|[\s\0])SPARKCLAW_BROWSER_CONTROLLER_SOCKET=([^\s\0]+)/u)?.[1];
+  assert.ok(socket);
+  const runtimeDirectory=path.dirname(socket);
+  const root=path.join(await fs.realpath("/tmp"),`sparkx-${process.getuid()}`);
+  assert.equal(await fs.realpath(path.dirname(runtimeDirectory)),root);
+  assert.match(path.basename(runtimeDirectory),/^c-[A-Za-z0-9]+$/u);
+  const owned=await fs.lstat(runtimeDirectory);
+  assert.equal(owned.uid,process.getuid());assert.equal(owned.mode&0o077,0);assert.equal(owned.isSymbolicLink(),false);
+  const child=application.process();assert.equal(child.pid,evidence.runtime.pid);
+  const exited=new Promise(resolve=>child.once("exit",(code,signal)=>resolve({code,signal})));
+  const started=performance.now();child.kill("SIGKILL");
+  evidence.parent_exit=await exited;
+  application=undefined;window=undefined;
+  assert.equal(evidence.parent_exit.signal,"SIGKILL");
+  await until(()=>!execFileSync("ps",["-axo","pgid="],{encoding:"utf8"}).split("\n")
+    .some(line=>Number(line.trim())===pid),"packaged orphan process group exit",8000);
+  await assert.rejects(fs.lstat(runtimeDirectory),{code:"ENOENT"});
+  evidence.parent_exit.cleanup_observed_ms=Math.round(performance.now()-started);
+  evidence.parent_exit.boundary="original field approval pending; no fill approval granted";
+  evidence.checks.packaged_parent_exit_removes_owned_group_and_runtime_files=true;
+}
+async function qualify() {
 try{
   const configBytes=await fs.readFile(path.join(directory,"gateway-config.json"));
   const catalogBytes=await fs.readFile(path.join(directory,"model.profiles.json"));
@@ -92,11 +122,17 @@ try{
       assert.ok(evidence.processes.some(line=>line.includes("src/client-main.mjs")));
       assert.ok(evidence.processes.some(line=>line.includes("@playwright/mcp/cli.js")));
       evidence.checks.controller_and_MCP_from_package=true;
+      if(process.env.SPARKCLAW_CONTROLLER_PARENT_EXIT==="1"){
+        evidence.direct_business_http_attempts=await application.evaluate(()=>globalThis.__controllerQualificationHTTP);
+        assert.equal(evidence.direct_business_http_attempts,0);
+        await qualifyParentExit();return true;
+      }
       await window.evaluate(({request,approval})=>window.sparkclawClientStore.decideApproval(request,approval.approval_id,approval.digest,"approve"),{request:task.request_id,approval});
       approved=true;
     }
     return current&&["delivered","failed","canceled","unknown"].includes(current.status);
   },"packaged browser task delivery",90000);
+  if(evidence.parent_exit){evidence.passed=true;return;}
   evidence.workflow_duration_ms=Math.round(performance.now()-taskStarted);
   evidence.tasks.push(state);assert.equal(state.tasks.find(row=>row.request_id===task.request_id).status,"delivered");
   evidence.pages=await nativePages();
@@ -160,25 +196,89 @@ try{
   await window.locator(".desktopTabSelect").filter({hasText:"Packaged Controller"}).click();
   await until(async()=>(await window.evaluate(()=>window.sparkclawDesktop.state())).presentation.presented_page_ref===taskPage.page_ref,"native panel reopening");
   evidence.checks.original_panel_tabs_hide_reopen_widen_restore=true;
+  if(process.env.SPARKCLAW_CONTROLLER_UI_LIFECYCLE==="1"){
+    const nativeID=evidence.pages.find(page=>page.value==="Alice").id;
+    evidence.renderer_crash=await application.evaluate(({BrowserWindow},targetID)=>{
+      const main=BrowserWindow.getAllWindows().find(item=>item.webContents.getURL()==="sparkclaw-app://workbench/index.html");
+      const rendererPID=main.webContents.getOSProcessId();
+      return new Promise(resolve=>{
+        main.webContents.once("render-process-gone",(_event,details)=>resolve({reason:details.reason,renderer_pid:rendererPID,
+          visible_owned_views:main.contentView.children.filter(view=>view.webContents?.id===targetID&&view.getVisible()).length}));
+        main.webContents.forcefullyCrashRenderer();
+      });
+    },nativeID);
+    assert.ok(["crashed","killed"].includes(evidence.renderer_crash.reason));
+    assert.equal(evidence.renderer_crash.visible_owned_views,0);
+    // The pinned Playwright Page permanently closes its protocol scope on a
+    // target crash. Observe the replacement renderer through the real main's
+    // WebContents, without reloading it ourselves or changing product handlers.
+    evaluateWorkbench=(fn,arg)=>application.evaluate(({BrowserWindow},{source,argument})=>{
+      const main=BrowserWindow.getAllWindows().find(item=>item.webContents.getURL()==="sparkclaw-app://workbench/index.html");
+      return main.webContents.executeJavaScript(`(${source})(${JSON.stringify(argument)??"undefined"})`,true);
+    },{source:String(fn),argument:arg});
+    await until(async()=>evaluateWorkbench(()=>Boolean(document.querySelector(".localWorkbench"))).catch(()=>false),"workbench reload after renderer crash");
+    await until(()=>evaluateWorkbench(()=>{
+      const composer=document.querySelector("textarea");return Boolean(composer&&!composer.disabled&&!document.querySelector(".localListNotice[role=status]"));
+    }),"rehydrated draft and conversation list");
+    await evaluateWorkbench(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    evidence.renderer_crash.recovered_pid=await application.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].webContents.getOSProcessId());
+    assert.notEqual(evidence.renderer_crash.recovered_pid,evidence.renderer_crash.renderer_pid);
+    if(process.env.SPARKCLAW_CONTROLLER_UI_RECOVERY_OBSERVE==="1"){
+      const resume=path.join(directory,"evidence/controller-ui-recovered");await fs.rm(resume,{force:true});
+      console.log("packaged_recovered_UI_ready_for_visual_observation");
+      await until(async()=>fs.access(resume).then(()=>true,()=>false),"recovered UI observation",90000);
+    }
+    await until(()=>evaluateWorkbench(title=>{
+      const row=[...document.querySelectorAll(".sessionSelect")].find(item=>item.textContent.includes(title));
+      if(!row||row.disabled)return false;row.click();return true;
+    },title),"enabled original conversation after renderer crash");
+    await until(()=>evaluateWorkbench(title=>document.querySelector('.sessionSelect[aria-current="page"]')?.textContent.includes(title),title),"conversation selection after renderer crash");
+    await until(()=>evaluateWorkbench(()=>{
+      const button=[...document.querySelectorAll("button")].find(item=>/^(打开浏览器|Open browser)$/u.test(item.getAttribute("aria-label")||item.getAttribute("title")||item.textContent));
+      if(!button||button.disabled)return false;button.click();return true;
+    }),"enabled original browser entry after renderer crash");
+    await until(()=>evaluateWorkbench(()=>{
+      const tab=[...document.querySelectorAll(".desktopTabSelect")].find(item=>item.textContent.includes("Packaged Controller"));
+      if(!tab||tab.disabled)return false;tab.click();return true;
+    }),"original task tab after renderer crash");
+    await until(async()=>(await evaluateWorkbench(()=>window.sparkclawDesktop.state())).presentation.presented_page_ref===taskPage.page_ref,"explicit task selection after renderer crash");
+    assert.ok((await nativePages()).some(page=>page.id===nativeID&&page.value==="Alice"&&!page.debugger&&page.sandbox));
+    const history=await evaluateWorkbench(id=>window.sparkclawClientStore.read(id),conversation.id);
+    assert.equal(history.tasks.filter(row=>row.request_id===task.request_id).length,1);
+    evidence.checks.renderer_crash_hides_views_and_preserves_completed_task=true;
+    if(process.platform==="darwin"){
+      const closed=await application.evaluate(({BrowserWindow})=>{
+        const main=BrowserWindow.getAllWindows()[0];const id=main.id;main.close();
+        return {id,destroyed:main.isDestroyed(),visible:main.isVisible()};
+      });
+      assert.equal(closed.destroyed,false);assert.equal(closed.visible,false);
+      const activated=await application.evaluate(({app,BrowserWindow})=>{
+        app.emit("activate");const main=BrowserWindow.getAllWindows()[0];return {id:main.id,visible:main.isVisible()};
+      });
+      assert.equal(activated.id,closed.id);assert.equal(activated.visible,true);
+      assert.ok((await nativePages()).some(page=>page.id===nativeID&&page.value==="Alice"));
+      evidence.checks.mac_close_hides_and_activation_reuses_window=true;
+    }
+  }
   if(process.env.SPARKCLAW_CONTROLLER_RELAY_FAULT==="1"){
     const metadata=JSON.parse(await fs.readFile(path.join(directory,"run.json"),"utf8"));
     const container=JSON.parse(execFileSync("docker",["inspect",metadata.relay_container],{encoding:"utf8"}))[0];
     assert.equal(container.Config.Labels?.["io.sparkclaw.iscp.lab"],metadata.lab_id);
     assert.equal(container.State.Running,true);
-    const personal=(await window.evaluate(()=>window.sparkclawDesktop.state())).pages.filter(page=>page.role==="personal").map(page=>page.page_ref);
+    const personal=(await evaluateWorkbench(()=>window.sparkclawDesktop.state())).pages.filter(page=>page.role==="personal").map(page=>page.page_ref);
     execFileSync("docker",["pause",container.Id]);pausedRelay=container.Id;
-    const interrupted=await window.evaluate(()=>fetch(window.sparkclawDesktop.gatewayBase+"/api/owner",{signal:AbortSignal.timeout(2000)}).then(response=>response.ok,()=>false));
+    const interrupted=await evaluateWorkbench(()=>fetch(window.sparkclawDesktop.gatewayBase+"/api/owner",{signal:AbortSignal.timeout(2000)}).then(response=>response.ok,()=>false));
     assert.equal(interrupted,false);
     execFileSync("docker",["unpause",pausedRelay]);pausedRelay=undefined;
-    const reconnected=await window.evaluate(()=>window.sparkclawDesktop.retryLocalConnection());
+    const reconnected=await evaluateWorkbench(()=>window.sparkclawDesktop.retryLocalConnection());
     assert.equal(reconnected.state,"connected");
-    const original=await window.evaluate(id=>window.sparkclawClientStore.read(id),conversation.id);
+    const original=await evaluateWorkbench(id=>window.sparkclawClientStore.read(id),conversation.id);
     assert.equal(original.tasks.filter(row=>row.request_id===task.request_id).length,1);
     assert.equal(original.tasks.find(row=>row.request_id===task.request_id).status,"delivered");
-    const restored=await window.evaluate(()=>window.sparkclawDesktop.state());
+    const restored=await evaluateWorkbench(()=>window.sparkclawDesktop.state());
     assert.ok(personal.every(ref=>restored.pages.some(page=>page.page_ref===ref&&page.role==="personal")));
     assert.deepEqual([...restored.browser_host.unknown_writes].sort(byCommand),[...evidence.unknown_before].sort(byCommand));
-    assert.equal(await window.evaluate(()=>fetch(window.sparkclawDesktop.gatewayBase+"/api/owner").then(response=>response.status)),200);
+    assert.equal(await evaluateWorkbench(()=>fetch(window.sparkclawDesktop.gatewayBase+"/api/owner").then(response=>response.status)),200);
     evidence.checks.relay_block_has_no_bypass_and_same_profile_recovers=true;
   }
   evidence.direct_business_http_attempts=await application.evaluate(()=>globalThis.__controllerQualificationHTTP);
@@ -188,7 +288,7 @@ try{
   evidence.error=error.stack||String(error);console.error(evidence.error);
   evidence.observed_targets=application?.windows().map(page=>page.url());
   if(application)evidence.native_targets=await application.evaluate(({webContents})=>webContents.getAllWebContents().map(page=>({url:page.getURL(),loading:page.isLoading(),type:page.getType()}))).catch(()=>null);
-  if(window){evidence.connection=await window.evaluate(()=>window.sparkclawDesktop.localConnection()).catch(()=>null);evidence.body=await window.locator("body").innerText().catch(()=>"");await window.screenshot({path:path.join(directory,"evidence/controller-packaged-failure.png")}).catch(()=>{});}
+  if(window){evidence.connection=await evaluateWorkbench(()=>window.sparkclawDesktop.localConnection()).catch(()=>null);evidence.body=await evaluateWorkbench(()=>document.body.innerText).catch(()=>"");evidence.desktop=await evaluateWorkbench(()=>window.sparkclawDesktop.state()).catch(()=>null);await window.screenshot({path:path.join(directory,"evidence/controller-packaged-failure.png")}).catch(()=>{});}
 }finally{
   if(pausedRelay)execFileSync("docker",["unpause",pausedRelay]);
   if(application){
@@ -202,3 +302,5 @@ try{
   console.log(JSON.stringify({passed:evidence.passed,checks:evidence.checks}));
   if(!evidence.passed)process.exitCode=1;
 }
+}
+await qualify();

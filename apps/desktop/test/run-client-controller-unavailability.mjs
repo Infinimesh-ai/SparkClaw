@@ -14,17 +14,21 @@ const phase = process.env.SPARKCLAW_CONTROLLER_UNAVAILABILITY_PHASE;
 const reuseCheckpoint = process.env.SPARKCLAW_CONTROLLER_UNAVAILABILITY_REUSE_CHECKPOINT === "1";
 assert.ok(path.isAbsolute(directory || "") && path.basename(directory).startsWith("sx-controller-iscp-"));
 assert.ok(path.isAbsolute(executablePath || "") && !executablePath.startsWith("/Applications/"));
-assert.ok(["missing", "corrupt", "recovered", "rollback"].includes(phase));
-const unavailable = ["missing", "corrupt"].includes(phase);
-if (unavailable) assert.ok(executablePath.includes("controller-unavailable-"));
+assert.ok(["missing", "corrupt", "recovered", "rollback", "legacy_peer", "legacy_client"].includes(phase));
+const unavailable = ["missing", "corrupt", "legacy_peer", "legacy_client"].includes(phase);
+if (["missing", "corrupt"].includes(phase)) assert.ok(executablePath.includes("controller-unavailable-"));
 const resources = path.resolve(path.dirname(executablePath), process.platform === "darwin" ? "../Resources" : "resources");
-const { _electron } = await import(pathToFileURL(path.join(resources, "browser-controller/node_modules/playwright-core/index.mjs")));
+// Pre-Controller packages have no bundled Playwright observer. Keep their
+// original resources intact and load the observer from an explicit new package.
+const observerResources = process.env.SPARKCLAW_CONTROLLER_OBSERVER_RESOURCES || resources;
+assert.ok(path.isAbsolute(observerResources));
+const { _electron } = await import(pathToFileURL(path.join(observerResources, "browser-controller/node_modules/playwright-core/index.mjs")));
 const profile = path.join(directory, "controller-native-profile");
 const checkpointFile = path.join(directory, "evidence/controller-unavailability-checkpoint.json");
 const output = path.join(directory, `evidence/controller-unavailability-${phase}-${Date.now()}.json`);
 const text = "Synthetic retained attachment: new candidate to recovered and rollback packages.\n";
 const hash = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
-const evidence = { schema_version: 1, phase, reuse_checkpoint: reuseCheckpoint, platform: process.platform, scope: "actual_candidate_encrypted_ISCP", passed: false, checks: {} };
+const evidence = { schema_version: 1, phase, reuse_checkpoint: reuseCheckpoint, observer_resources: observerResources, platform: process.platform, scope: "actual_candidate_encrypted_ISCP", passed: false, checks: {} };
 let application, window, checkpoint;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(predicate, label) {
@@ -78,7 +82,8 @@ try {
     session.fromPartition("persist:sparkclaw-workbench-default").webRequest.onBeforeRequest({ urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"] }, (_request, callback) => { globalThis.__unavailableBusinessHTTP++; callback({ cancel: true }); });
   });
   if (unavailable) {
-    assert.equal(evidence.connection.capabilities.surfaces.browser.reason, "local_runtime_unavailable");
+    assert.equal(evidence.connection.capabilities.surfaces.browser.reason,
+      phase === "legacy_peer" ? "permission_or_implementation_missing" : phase === "legacy_client" ? "capability_unavailable" : "local_runtime_unavailable");
     assert.equal(await window.evaluate(() => window.sparkclawDesktop.createPersonal().then(() => false, () => true)), true);
     evidence.checks.original_browser_IPC_refuses_unavailable_operation = true;
   }

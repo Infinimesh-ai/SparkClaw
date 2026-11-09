@@ -41,7 +41,7 @@ func TestProgressNegotiationExactNewAndLegacyMatrices(t *testing.T) {
 }
 
 func TestProgressNegotiationPreservesOldUnboundedAndBoundedOffers(t *testing.T) {
-	for _, generation := range []string{"settings", "progress", "unbounded", "bounded"} {
+	for _, generation := range []string{"controller", "settings", "progress", "unbounded", "bounded"} {
 		t.Run(generation, func(t *testing.T) {
 			calls := 0
 			seen := map[string]bool{}
@@ -55,10 +55,13 @@ func TestProgressNegotiationPreservesOldUnboundedAndBoundedOffers(t *testing.T) 
 				if json.Unmarshal(r.Body, &offer) != nil {
 					t.Fatal("bad offer")
 				}
-				if generation != "settings" && offer.Negotiation.ConnectionSettings {
+				if generation != "controller" && offer.Negotiation.BrowserController {
 					return Response{Status: 400}, nil
 				}
-				if generation != "settings" && generation != "progress" && offer.Negotiation.ExecutionProgress {
+				if generation != "controller" && generation != "settings" && offer.Negotiation.ConnectionSettings {
+					return Response{Status: 400}, nil
+				}
+				if generation != "controller" && generation != "settings" && generation != "progress" && offer.Negotiation.ExecutionProgress {
 					return Response{Status: 400}, nil
 				}
 				if generation == "bounded" && offer.Negotiation.UnboundedRPC {
@@ -67,12 +70,12 @@ func TestProgressNegotiationPreservesOldUnboundedAndBoundedOffers(t *testing.T) 
 				if generation == "unbounded" && !offer.Negotiation.UnboundedRPC {
 					t.Fatal("fallback lost old unbounded capability")
 				}
-				if (generation == "settings" || generation == "progress") && !offer.Negotiation.ExecutionProgress {
+				if (generation == "controller" || generation == "settings" || generation == "progress") && !offer.Negotiation.ExecutionProgress {
 					t.Fatal("new feature not offered")
 				}
 				return Response{Status: 200}, nil
 			}, []string{ProfileV2, Profile})
-			want := map[string]int{"settings": 1, "progress": 2, "unbounded": 3, "bounded": 4}[generation]
+			want := map[string]int{"controller": 1, "settings": 2, "progress": 3, "unbounded": 4, "bounded": 5}[generation]
 			if err != nil || response.Status != 200 || calls != want {
 				t.Fatalf("calls=%d err=%v", calls, err)
 			}
@@ -89,6 +92,7 @@ func TestProgressNegotiationOnlyAdvertisesRequestedExtension(t *testing.T) {
 			request.Negotiation.ExecutionProgress = offer.progress
 			request.Negotiation.UnboundedRPC = offer.unbounded
 			request.Negotiation.ConnectionSettings = true
+			request.Negotiation.BrowserController = true
 			body, _ := json.Marshal(request)
 			response, err := i.Call(t.Context(), Request{Type: RequestType, Profile: Profile, ID: newUUID(), Operation: OperationIdentity, Body: body})
 			var reply negotiationReply

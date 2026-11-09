@@ -124,11 +124,14 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 		e.mu.Unlock()
 		return errors.New("operation not admitted by negotiated direction/profile")
 	}
-	if connectionSettingsOperation(request.Operation) && !slices.Contains(e.session.capabilities.Operations, request.Operation) {
+	if (connectionSettingsOperation(request.Operation) || browserControllerOperation(request.Operation)) && (e.session.capabilities == nil || !slices.Contains(e.session.capabilities.Operations, request.Operation)) {
 		e.mu.Unlock()
-		return errors.New("connection settings operation was not negotiated")
+		return errors.New("application extension operation was not negotiated")
 	}
 	info := SessionInfo{SessionID: id, Profile: profile, GrantRevision: e.grantMaterial().grant.RevocationEpoch, Binding: e.config.Binding, QualifiedOperations: slices.Clone(e.config.QualifiedCapabilities)}
+	if e.session.capabilities != nil {
+		info.NegotiatedOperations = slices.Clone(e.session.capabilities.Operations)
+	}
 	if _, ok := e.session.seenRequests[request.ID]; ok {
 		e.mu.Unlock()
 		return errors.New("replayed workbench request ID")
@@ -268,9 +271,9 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (result Response, 
 		e.mu.Unlock()
 		return Response{}, errors.New("v2 profile is not negotiated")
 	}
-	if connectionSettingsOperation(request.Operation) && !slices.Contains(e.session.capabilities.Operations, request.Operation) {
+	if (connectionSettingsOperation(request.Operation) || browserControllerOperation(request.Operation)) && (e.session.capabilities == nil || !slices.Contains(e.session.capabilities.Operations, request.Operation)) {
 		e.mu.Unlock()
-		return Response{}, errors.New("connection settings operation was not negotiated")
+		return Response{}, errors.New("application extension operation was not negotiated")
 	}
 	if _, exists := e.session.sentRequests[request.ID]; exists {
 		e.mu.Unlock()

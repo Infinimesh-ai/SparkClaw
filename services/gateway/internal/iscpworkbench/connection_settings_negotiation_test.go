@@ -83,6 +83,7 @@ func TestConnectionSettingsResponderPreservesAnOldClientTable(t *testing.T) {
 			offer.Negotiation.ExecutionProgress = true
 			offer.Negotiation.StreamSchemaVersion = 1
 			offer.Negotiation.ConnectionSettings = settings
+			offer.Negotiation.BrowserController = true
 			body, _ := json.Marshal(offer)
 			reply, err := initiator.Call(t.Context(), Request{
 				Type: RequestType, Profile: Profile, ID: newUUID(), Operation: OperationIdentity, Body: body,
@@ -136,7 +137,7 @@ func TestConnectionSettingsInitiatorRetriesStrictOldResponderWithoutLosingProgre
 		}
 		seen[request.ID] = true
 		// This is the exact offer schema used before connection settings. The
-		// first request must fail its strict decoder and the fallback must pass.
+		// Controller and settings offers fail its strict decoder before the legacy retry.
 		var oldOffer struct {
 			Negotiation struct {
 				Profiles            []string `json:"profiles"`
@@ -146,25 +147,25 @@ func TestConnectionSettingsInitiatorRetriesStrictOldResponderWithoutLosingProgre
 			} `json:"transport_negotiation"`
 		}
 		if strictDecode(request.Body, &oldOffer) != nil {
-			if calls != 1 {
+			if calls > 2 {
 				t.Fatal("fallback retained fields unknown to the preceding responder")
 			}
 			return Response{Status: 400}, nil
 		}
-		if calls != 2 || !oldOffer.Negotiation.ExecutionProgress || !oldOffer.Negotiation.UnboundedRPC || oldOffer.Negotiation.StreamSchemaVersion != 1 {
+		if calls != 3 || !oldOffer.Negotiation.ExecutionProgress || !oldOffer.Negotiation.UnboundedRPC || oldOffer.Negotiation.StreamSchemaVersion != 1 {
 			t.Fatal("fallback dropped independently supported options")
 		}
 		caps := TransportCapabilities{
 			StreamSchemaVersion: 1, SchemaVersion: 2, Profile: ProfileV2, SessionID: "session", Revision: "2",
 			AuthorizationRevision: 1, ExpiresAt: time.Now().Add(time.Minute),
-			Operations: withoutConnectionSettings(OperationsV2()),
+			Operations: withoutBrowserController(withoutConnectionSettings(OperationsV2())),
 			Limits:     TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, 0, 8192, 2},
 		}
 		body, _ := json.Marshal(negotiationReply{Negotiation: &caps})
 		return Response{Status: 200, Body: body}, nil
 	}, []string{ProfileV2, Profile})
 	var result negotiationReply
-	if err != nil || calls != 2 || json.Unmarshal(reply.Body, &result) != nil || result.Negotiation == nil {
+	if err != nil || calls != 3 || json.Unmarshal(reply.Body, &result) != nil || result.Negotiation == nil {
 		t.Fatalf("old responder fallback failed: calls=%d err=%v", calls, err)
 	}
 	if err := validateNegotiation(*result.Negotiation, "session", "node-managed"); err != nil {

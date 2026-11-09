@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
@@ -81,7 +82,7 @@ func (a *iscpDomainAdapter) capabilitiesWithSession(ctx context.Context, request
 	for _, family := range families {
 		capability := iscpDomainCapability{ID: family.id, Operations: family.operations, Supported: true, Permitted: true, Qualified: true, DependenciesReady: family.ready}
 		for _, name := range family.operations {
-			if _, found := iscpworkbench.LookupOperation(name); !found {
+			if _, found := iscpworkbench.LookupOperation(name); !found || family.id == "browser" && !slices.Contains(session.NegotiatedOperations, name) {
 				capability.Supported = false
 				continue
 			}

@@ -561,7 +561,7 @@ func (e *Endpoint) runStreamRequest(ctx context.Context, r Request, latest time.
 	}
 	e.mu.Lock()
 	a := w.session.streamAuthority
-	info := SessionInfo{SessionID: w.session.id, Profile: ProfileV2, GrantRevision: e.grantMaterial().grant.RevocationEpoch, Binding: e.config.Binding, Scopes: slices.Clone(a.policy.Scopes), QualifiedOperations: slices.Clone(w.session.capabilities.QualifiedOperations)}
+	info := SessionInfo{SessionID: w.session.id, Profile: ProfileV2, GrantRevision: e.grantMaterial().grant.RevocationEpoch, Binding: e.config.Binding, Scopes: slices.Clone(a.policy.Scopes), QualifiedOperations: slices.Clone(w.session.capabilities.QualifiedOperations), NegotiatedOperations: slices.Clone(w.session.capabilities.Operations)}
 	e.mu.Unlock()
 	info.CheckAuthorization = func(context.Context) (iscpauth.Policy, error) {
 		e.mu.Lock()

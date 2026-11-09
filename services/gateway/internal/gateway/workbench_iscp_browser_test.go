@@ -24,7 +24,7 @@ func TestISCPBrowserHasNoPollingHostOperations(t *testing.T) {
 	}
 	server, f, cfg := newMailPopupFixture(t, "file")
 	adapter := &iscpDomainAdapter{server: server, config: cfg}
-	result := adapter.capabilitiesWithSession(domainTestContext(t), domainTestRequest(wb.OperationCapabilitiesGet, nil), wb.SessionInfo{Profile: wb.ProfileV2})
+	result := adapter.capabilitiesWithSession(domainTestContext(t), domainTestRequest(wb.OperationCapabilitiesGet, nil), wb.SessionInfo{Profile: wb.ProfileV2, NegotiatedOperations: wb.OperationsV2()})
 	var body struct {
 		Capabilities []iscpDomainCapability `json:"capabilities"`
 		Limits       map[string]any         `json:"limits"`
@@ -53,6 +53,40 @@ func TestControllerReverseOutcomeRequiresLocalNotSentProof(t *testing.T) {
 	for _, response := range []wb.Response{{Status: 403, Code: wb.ErrorPermissionDenied}, {Status: 503, Code: wb.ErrorCapabilityUnavailable}, {Status: 413, Code: wb.ErrorResourceLimit}} {
 		if _, err := controllerReverseOutcome(response, nil); err == nil || errors.Is(err, browsercontrol.ErrControllerNotSent) {
 			t.Fatal(response, err)
+		}
+	}
+}
+
+func TestISCPBrowserAvailabilityRequiresNegotiatedControllerPeer(t *testing.T) {
+	server, f, cfg := newMailPopupFixture(t, "file")
+	adapter := &iscpDomainAdapter{server: server, config: cfg}
+	for _, current := range []bool{false, true} {
+		ops := wb.OperationsV2()
+		if !current {
+			ops = slices.DeleteFunc(slices.Clone(ops), func(name string) bool { return strings.HasPrefix(name, "browser.controller.") })
+		}
+		result := adapter.capabilitiesWithSession(domainTestContext(t), domainTestRequest(wb.OperationCapabilitiesGet, nil), wb.SessionInfo{Profile: wb.ProfileV2, NegotiatedOperations: ops})
+		var body struct {
+			Capabilities []iscpDomainCapability `json:"capabilities"`
+		}
+		f.must(json.Unmarshal(result.body, &body))
+		browserFound, filesFound := false, false
+		for _, row := range body.Capabilities {
+			if row.ID == "browser" {
+				browserFound = true
+				if row.Supported != current || !current && (row.Enabled || row.Reason != "capability_unavailable") {
+					t.Fatalf("current=%v browser projection=%+v", current, row)
+				}
+			}
+			if row.ID == "files" {
+				filesFound = true
+				if !row.Enabled {
+					t.Fatal("browser downgrade disabled unrelated files")
+				}
+			}
+		}
+		if !browserFound || !filesFound {
+			t.Fatal("original surfaces were removed")
 		}
 	}
 }

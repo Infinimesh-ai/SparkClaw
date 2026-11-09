@@ -35,6 +35,7 @@ type SessionInfo struct {
 	GrantRevision               uint64
 	Binding                     *Binding
 	Scopes, QualifiedOperations []string
+	NegotiatedOperations        []string
 	CheckAuthorization          func(context.Context) (iscpauth.Policy, error)
 }
 type sessionInfoKey struct{}
@@ -43,6 +44,7 @@ func SessionFromContext(ctx context.Context) (SessionInfo, bool) {
 	s, ok := ctx.Value(sessionInfoKey{}).(SessionInfo)
 	s.Scopes = slices.Clone(s.Scopes)
 	s.QualifiedOperations = slices.Clone(s.QualifiedOperations)
+	s.NegotiatedOperations = slices.Clone(s.NegotiatedOperations)
 	if s.Binding != nil {
 		b := *s.Binding
 		s.Binding = &b
@@ -98,6 +100,7 @@ type negotiationOffer struct {
 		ExecutionProgress   bool     `json:"execution_progress,omitempty"`
 		StreamSchemaVersion int      `json:"stream_schema_version,omitempty"`
 		ConnectionSettings  bool     `json:"connection_settings,omitempty"`
+		BrowserController   bool     `json:"browser_controller,omitempty"`
 	} `json:"transport_negotiation"`
 }
 type negotiationReply struct {
@@ -143,6 +146,10 @@ func (e *Endpoint) answerNegotiation(ctx context.Context, id string, r Request) 
 		profile = ProfileV2
 	}
 	caps := e.capabilitiesFor(id, profile)
+	if !offer.Negotiation.BrowserController {
+		caps.Operations = withoutBrowserController(caps.Operations)
+		caps.QualifiedOperations = withoutBrowserController(caps.QualifiedOperations)
+	}
 	if !offer.Negotiation.ConnectionSettings {
 		caps.Operations = withoutConnectionSettings(caps.Operations)
 		caps.QualifiedOperations = withoutConnectionSettings(caps.QualifiedOperations)
@@ -220,6 +227,7 @@ func requestRPCNegotiation(ctx context.Context, caller func(context.Context, Req
 	offer.Negotiation.UnboundedRPC = true
 	offer.Negotiation.ExecutionProgress = slices.Contains(profiles, ProfileV2)
 	offer.Negotiation.ConnectionSettings = slices.Contains(profiles, ProfileV2)
+	offer.Negotiation.BrowserController = slices.Contains(profiles, ProfileV2)
 	if offer.Negotiation.ExecutionProgress {
 		offer.Negotiation.StreamSchemaVersion = 1
 	}
@@ -229,6 +237,10 @@ func requestRPCNegotiation(ctx context.Context, caller func(context.Context, Req
 	}
 	r, err := call()
 	// Each retry is only the read-only negotiation, never a user operation.
+	if err == nil && offer.Negotiation.BrowserController && (r.Status == 400 || r.Status == 404 || r.Status == 501) {
+		offer.Negotiation.BrowserController = false
+		r, err = call()
+	}
 	// Old strict responders predate connection settings but can still support
 	// progress and unbounded RPC. Drop only the new application extension first.
 	if err == nil && offer.Negotiation.ConnectionSettings && (r.Status == 400 || r.Status == 404 || r.Status == 501) {
@@ -276,7 +288,7 @@ func validateNegotiation(c TransportCapabilities, id string, mode ...string) err
 		return errors.New("incompatible stream schema")
 	}
 	for _, name := range c.QualifiedOperations {
-		if !slices.Contains(ops, name) || (name == OperationExecutionProgress || connectionSettingsOperation(name)) && !slices.Contains(c.Operations, name) {
+		if !slices.Contains(ops, name) || (name == OperationExecutionProgress || connectionSettingsOperation(name) || browserControllerOperation(name)) && !slices.Contains(c.Operations, name) {
 			return errors.New("unregistered qualified operation")
 		}
 	}
@@ -305,11 +317,11 @@ func withoutStream(ops []string) []string {
 	return slices.DeleteFunc(slices.Clone(ops), func(op string) bool { return op == OperationExecutionProgressStream })
 }
 
-// Connection settings extend SparkClaw's application table only by explicit
-// opt-in. Keep the exact preceding table compatible in both directions; this
+// Application extensions require explicit opt-in. Keep exact preceding
+// tables compatible in both directions; this
 // is not permission to advertise an arbitrary subset of registered operations.
 func compatibleV2Operations(actual, current []string) bool {
-	for _, base := range [][]string{current, withoutConnectionSettings(current)} {
+	for _, base := range [][]string{current, withoutConnectionSettings(current), withoutBrowserController(current), withoutBrowserController(withoutConnectionSettings(current))} {
 		if slices.Equal(actual, base) || slices.Equal(actual, withoutProgress(base)) ||
 			slices.Equal(actual, withoutStream(base)) || slices.Equal(actual, withoutStream(withoutProgress(base))) {
 			return true
@@ -332,6 +344,19 @@ func connectionSettingsOperation(operation string) bool {
 		OperationSettingsMCPBindingsList, OperationSettingsMCPBindingsRevoke, OperationSettingsMCPBindingsDelete,
 		OperationSettingsMCPRecordsDelete, OperationSettingsMCPPairingStatus, OperationSettingsMCPPairingOnboardings,
 		OperationSettingsMCPPairingStart:
+		return true
+	default:
+		return false
+	}
+}
+
+func withoutBrowserController(ops []string) []string {
+	return slices.DeleteFunc(slices.Clone(ops), browserControllerOperation)
+}
+
+func browserControllerOperation(operation string) bool {
+	switch operation {
+	case OperationBrowserControllerStatus, OperationBrowserControllerAcquire, OperationBrowserControllerExecute, OperationBrowserControllerRelease, OperationBrowserControllerChunk:
 		return true
 	default:
 		return false

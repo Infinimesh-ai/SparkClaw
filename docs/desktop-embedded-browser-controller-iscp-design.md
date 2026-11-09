@@ -408,6 +408,16 @@ browser UI capability; it cannot depend on a process-ready browser flag that it 
 An old/mixed peer fails closed for browser automation while unrelated capabilities keep working.
 Malformed app requests receive a typed rejection without destroying an otherwise healthy session.
 
+The application negotiation offer explicitly opts in with `browser_controller: true`. A new
+responder omits all five Controller operations when the peer does not opt in. A new initiator
+retries only the read-only negotiation after an old strict responder rejects the extra field,
+dropping this extension before settings, progress or concurrency features. Accept only complete
+current or preceding operation tables, including the existing extension combinations; partial
+Controller tables and qualified-but-unadvertised Controller operations remain invalid. Both
+request admission directions reject Controller operations absent from that negotiated table.
+The domain capability projection receives the actual peer's negotiated operations and disables
+browser for old clients while retaining independent surfaces. This adds no Relay feature.
+
 ## 8. Security and traffic boundary
 
 Authorization is the existing device session; no new device grant, heartbeat, remote debugging
@@ -1053,3 +1063,14 @@ AppArmor profiles are gone. All three work2 production containers retain their o
 images, configuration, HostConfig, full mounts, networks and start times; real-provider config
 and locked GNOME seat are preserved. TEST1, old/mixed-peer/LAN matrix, remaining native/offline
 and timing gates, complete P3 and D2 deletion are still open. No production installation or push.
+
+Actual `81f796f4` desktop against a clean pre-Controller `b5c21e14` Gateway fails A01: the new
+helper rejects the exact preceding operation table and never connects. The private responder
+configuration omits only the five operations unknown to that old binary; its new Gateway/helper
+files are restored afterward, with the owned Gateway stopped. Preserve this failure separately
+from the successful same-generation checks above. Source now adds the explicit Controller
+negotiation extension described in §7 and passes three red-to-green regressions, exact-table and
+bidirectional admission checks, unrelated-file capability checks, complete `iscpworkbench`,
+targeted race, vet and Gateway ISCP tests. The first Gateway run fails the existing bounded receipt
+sweep at 274/276; its isolated rerun and the complete ISCP rerun pass without receipt code changes.
+The initial failure remains unclassified. New clean packages and native mixed-peer reruns are pending.

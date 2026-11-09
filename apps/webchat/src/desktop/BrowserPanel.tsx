@@ -81,6 +81,7 @@ export function BrowserPanel({ language, localConversationID, open = true,
   const shown = visible && open && !collapsed;
   const shownRef = useRef(shown); shownRef.current = shown;
   const creating = useRef<Promise<string> | null>(null);
+  const selectionRequest = useRef(0);
   const [focusRequest, setFocusRequest] = useState(0);
   const focusedRequest = useRef(0);
   const opened = useRef(false);
@@ -115,7 +116,11 @@ export function BrowserPanel({ language, localConversationID, open = true,
   const create = useCallback((url?: string): Promise<string> => {
     if (!desktop) return Promise.resolve("");
     if (creating.current) return creating.current;
+    const selection = ++selectionRequest.current;
     const operation = desktop.hideBrowser().then(() => desktop.createPersonal(url)).then(async ({ page_ref }) => {
+      // Creating a tab may finish after the user explicitly selects a task.
+      // Keep the new personal tab, without hiding or replacing that selection.
+      if (selection !== selectionRequest.current) return page_ref;
       setSelectedPageRef(page_ref);
       setAddress(url ?? "");
       if (!url) { await desktop.hideBrowser(); setFocusRequest(value => value + 1); }
@@ -235,7 +240,7 @@ export function BrowserPanel({ language, localConversationID, open = true,
     if (activePage?.role === "personal") run(desktop.navigatePersonal(activePage.page_ref, target));
     else void create(target);
   };
-  const choose = (page: DesktopPage) => { setSelectedPageRef(page.page_ref); setMenuOpen(false); onShowBrowser?.(); };
+  const choose = (page: DesktopPage) => { selectionRequest.current++; setSelectedPageRef(page.page_ref); setMenuOpen(false); onShowBrowser?.(); };
   const browserSelected = !conversationInFront;
   const close = (page: DesktopPage) => run(desktop.closePersonal(page.page_ref).then(() => {
     drafts.current.delete(page.page_ref);

@@ -125,6 +125,22 @@ describe("desktop browser entry", () => {
     } finally { await f.cleanup(); }
   });
 
+  it("keeps an explicit task selection when a previously requested blank finishes creating", async () => {
+    const task = page(2, "https://task.test", "task"), blank = page(3);
+    const f = await fixture([page(1), task]);
+    try {
+      let complete!: (value: { page_ref: string }) => void;
+      vi.mocked(f.desktop.createPersonal).mockImplementation(() => new Promise(resolve => { complete = resolve; }));
+      await act(async () => f.host.querySelector<HTMLButtonElement>('[aria-label="New tab"]')!.click());
+      await act(async () => f.host.querySelectorAll<HTMLButtonElement>(".desktopTabSelect")[1].click());
+      const hides = vi.mocked(f.desktop.hideBrowser).mock.calls.length;
+      await act(async () => { f.push({ ...f.state(), pages: [...f.state().pages, blank] }); complete({ page_ref: blank.page_ref }); });
+      expect(f.host.querySelector('.desktopTabSelect[aria-selected="true"]')?.textContent).toContain(task.url);
+      expect(f.input().value).toBe(task.url);
+      expect(f.desktop.hideBrowser).toHaveBeenCalledTimes(hides);
+    } finally { await f.cleanup(); }
+  });
+
   it("rounds bounds inward, tracks layout revisions, and hides native pages under app modals", async () => {
     const f = await fixture([page(1, "https://example.test"), page(2)]);
     try {

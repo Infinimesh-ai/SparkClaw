@@ -17,6 +17,10 @@ assert.ok(directory&&path.isAbsolute(directory)&&path.basename(directory).starts
 assert.ok(executablePath&&path.isAbsolute(executablePath));
 assert.ok(!executablePath.startsWith("/Applications/"),"Qualification requires a separate candidate");
 if(launcher){assert.ok(path.isAbsolute(launcher));assert.ok((await fs.stat(launcher)).isFile());}
+const evidenceName=process.env.SPARKCLAW_CONTROLLER_EVIDENCE_NAME;
+if(evidenceName!==undefined)assert.match(evidenceName,/^[a-z0-9][a-z0-9-]{0,95}$/u);
+const evidenceDirectory=path.join(directory,"evidence",...(evidenceName?[evidenceName]:[]));
+if(evidenceName)await fs.mkdir(evidenceDirectory,{mode:0o700});
 const resources=path.resolve(path.dirname(executablePath),process.platform==="darwin"?"../Resources":"resources");
 const {_electron}=await import(pathToFileURL(path.join(resources,"browser-controller/node_modules/playwright-core/index.mjs")));
 await fs.mkdir(path.join(directory,"controller-native-profile"),{recursive:true,mode:0o700});
@@ -233,11 +237,11 @@ try{
     const page=webContents.getAllWebContents().find(page=>page.getURL()==="https://controller.fixture.test/");
     return (await page.capturePage()).toPNG().toString("base64");
   });
-  await fs.writeFile(path.join(directory,"evidence/controller-packaged-task-page.png"),Buffer.from(pageCapture,"base64"));
+  await fs.writeFile(path.join(evidenceDirectory,"controller-packaged-task-page.png"),Buffer.from(pageCapture,"base64"));
   const capture=await application.evaluate(async({BrowserWindow})=>(await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString("base64"));
-  await fs.writeFile(path.join(directory,"evidence/controller-packaged-workbench.png"),Buffer.from(capture,"base64"));
+  await fs.writeFile(path.join(evidenceDirectory,"controller-packaged-workbench.png"),Buffer.from(capture,"base64"));
   if(process.env.SPARKCLAW_CONTROLLER_UI_OBSERVE==="1"){
-    const resume=path.join(directory,"evidence/controller-ui-observed");
+    const resume=path.join(evidenceDirectory,"controller-ui-observed");
     await fs.rm(resume,{force:true});
     console.log("packaged_native_UI_ready_for_visual_observation");
     await until(async()=>fs.access(resume).then(()=>true,()=>false),"visual observation",90000);
@@ -278,7 +282,7 @@ try{
     evidence.renderer_crash.recovered_pid=await application.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].webContents.getOSProcessId());
     assert.notEqual(evidence.renderer_crash.recovered_pid,evidence.renderer_crash.renderer_pid);
     if(process.env.SPARKCLAW_CONTROLLER_UI_RECOVERY_OBSERVE==="1"){
-      const resume=path.join(directory,"evidence/controller-ui-recovered");await fs.rm(resume,{force:true});
+      const resume=path.join(evidenceDirectory,"controller-ui-recovered");await fs.rm(resume,{force:true});
       console.log("packaged_recovered_UI_ready_for_visual_observation");
       await until(async()=>fs.access(resume).then(()=>true,()=>false),"recovered UI observation",90000);
     }
@@ -357,7 +361,7 @@ try{
   evidence.error=error.stack||String(error);console.error(evidence.error);
   evidence.observed_targets=application?.windows().map(page=>page.url());
   if(application)evidence.native_targets=await application.evaluate(({webContents})=>webContents.getAllWebContents().map(page=>({url:page.getURL(),loading:page.isLoading(),type:page.getType()}))).catch(()=>null);
-  if(window){evidence.connection=await evaluateWorkbench(()=>window.sparkclawDesktop.localConnection()).catch(()=>null);evidence.body=await evaluateWorkbench(()=>document.body.innerText).catch(()=>"");evidence.desktop=await evaluateWorkbench(()=>window.sparkclawDesktop.state()).catch(()=>null);await window.screenshot({path:path.join(directory,"evidence/controller-packaged-failure.png")}).catch(()=>{});}
+  if(window){evidence.connection=await evaluateWorkbench(()=>window.sparkclawDesktop.localConnection()).catch(()=>null);evidence.body=await evaluateWorkbench(()=>document.body.innerText).catch(()=>"");evidence.desktop=await evaluateWorkbench(()=>window.sparkclawDesktop.state()).catch(()=>null);await window.screenshot({path:path.join(evidenceDirectory,"controller-packaged-failure.png")}).catch(()=>{});}
 }finally{
   if(pausedRelay)execFileSync("docker",["unpause",pausedRelay]);
   if(application){
@@ -369,8 +373,8 @@ try{
     evidence.checks.normal_quit_stops_packaged_children=remaining.length===0;
     if(remaining.length){evidence.remaining_processes=remaining;evidence.passed=false;}
   }
-  await fs.writeFile(path.join(directory,"evidence/controller-packaged.json"),JSON.stringify(evidence,null,2)+"\n",{mode:0o600});
-  console.log(JSON.stringify({passed:evidence.passed,checks:evidence.checks}));
+  await fs.writeFile(path.join(evidenceDirectory,"controller-packaged.json"),JSON.stringify(evidence,null,2)+"\n",{mode:0o600});
+  console.log(JSON.stringify({passed:evidence.passed,checks:evidence.checks,evidence_directory:evidenceDirectory}));
   if(!evidence.passed)process.exitCode=1;
 }
 }

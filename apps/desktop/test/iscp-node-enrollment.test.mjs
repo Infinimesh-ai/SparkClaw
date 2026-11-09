@@ -11,7 +11,7 @@ import { PassThrough, Writable } from "node:stream";
 import { DesktopAuth } from "../src/main/desktop-auth.mjs";
 import { parseBackendDescriptor } from "../src/main/local-backend.mjs";
 import { ISCP_CONNECTION_PREFIX, parseISCPConnectionCredential } from "../src/main/iscp-connection-credential.mjs";
-import { enrollNodeISCP } from "../src/main/iscp-node-enrollment.mjs";
+import { enrollNodeISCP, hasPendingNodeEnrollment } from "../src/main/iscp-node-enrollment.mjs";
 import { loadISCPProfile } from "../src/main/iscp-profile.mjs";
 import { resolveISCPLaunchProfile } from "../src/main/iscp-launch-profile.mjs";
 import { SecureCredentialStore } from "../src/main/secure-credential-store.mjs";
@@ -257,8 +257,38 @@ test("expired invitations reject fresh enrollment and permit only the original p
   const bindingFile = path.join(directory, "enrollment.binding.json"), identityFile = path.join(identityDirectory, "device.identity.json");
   await fs.writeFile(bindingFile, JSON.stringify({ credential_digest: crypto.randomBytes(32).toString("base64url"), installation_id: installationID, key_backend: "keyring", keyring_service: `ai.infinimesh.sparkx.iscp.${installationID}` }), { mode: 0o600 });
   await fs.writeFile(identityFile, JSON.stringify(identity("desktop")), { mode: 0o600 });
-  await fs.chmod(identityFile, 0o644); await assert.rejects(f.auth.enroll(expired), /expired/); await fs.chmod(identityFile, 0o600);
+  for (const [filename, unsafe, restored] of [[bindingFile, 0o644, 0o600], [identityFile, 0o664, 0o600], [identityDirectory, 0o755, 0o700]]) {
+    await fs.chmod(filename, unsafe); await assert.rejects(f.auth.enroll(expired), /expired/); await fs.chmod(filename, restored);
+  }
+  // GenerateEnrollmentRequestWithKeyBackend writes this public-key identity as
+  // 0644 inside the private directory. Existing native profiles retain that mode.
+  await fs.chmod(identityFile, 0o644);
+  const publicBytes = await fs.readFile(identityFile);
   assert.equal((await f.auth.enroll(expired)).state, "connected"); assert.equal(f.calls.length, 1); assert.equal(f.calls[0].credential, expired);
+  assert.deepEqual(await fs.readFile(identityFile), publicBytes); assert.equal((await fs.stat(identityFile)).mode & 0o777, 0o644);
+});
+
+test("pending enrollment still rejects public identity symlinks, foreign bindings and shared parents", async t => {
+  const f = await fixture(t), directory = path.join(f.directory, "pending"), identityDirectory = path.join(directory, "identity");
+  await fs.mkdir(identityDirectory, { recursive: true, mode: 0o700 });
+  const identityFile = path.join(identityDirectory, "device.identity.json"), bindingFile = path.join(directory, "enrollment.binding.json");
+  const binding = { credential_digest: crypto.randomBytes(32).toString("base64url"), installation_id: installationID,
+    key_backend: "keyring", keyring_service: `ai.infinimesh.sparkx.iscp.${installationID}` };
+  await fs.writeFile(identityFile, JSON.stringify(identity("desktop")), { mode: 0o644 });
+  await fs.chmod(identityFile, 0o644);
+  await fs.writeFile(bindingFile, JSON.stringify(binding), { mode: 0o600 });
+  assert.equal(await hasPendingNodeEnrollment(directory, installationID, "domain"), true);
+  assert.equal(await hasPendingNodeEnrollment(directory, "other-installation", "domain"), false);
+  assert.equal(await hasPendingNodeEnrollment(directory, installationID, "other-domain"), false);
+  await fs.writeFile(bindingFile, JSON.stringify({ ...binding, key_backend: "file" }));
+  assert.equal(await hasPendingNodeEnrollment(directory, installationID, "domain"), false);
+  await fs.writeFile(bindingFile, JSON.stringify(binding));
+  await fs.chmod(directory, 0o755); assert.equal(await hasPendingNodeEnrollment(directory, installationID, "domain"), false); await fs.chmod(directory, 0o700);
+  await fs.rename(identityFile, identityFile + ".original"); await fs.symlink(identityFile + ".original", identityFile);
+  assert.equal(await hasPendingNodeEnrollment(directory, installationID, "domain"), false);
+  await fs.rm(identityFile); await fs.rename(identityFile + ".original", identityFile);
+  await fs.rename(bindingFile, bindingFile + ".original"); await fs.symlink(bindingFile + ".original", bindingFile);
+  assert.equal(await hasPendingNodeEnrollment(directory, installationID, "domain"), false);
 });
 
 test("an explicitly isolated native userData resolves only its own production selection and keeps the default launch choice untouched", async t => {

@@ -1772,3 +1772,37 @@ TEST1, offline/installed, actual Dock, WAN, P3/D2/P4 and final owner acceptance 
 All activity services, candidate processes, control/tunnel, private display and temporary policies
 are stopped/removed, with Relay unpaused. Post-recovery production checks pass with 4,701,032,448
 bytes free; keep the unchanged reserve guard and the historical PostgreSQL incident.
+
+The unchanged `7c7dd816` packages subsequently pass normal operation (Mac six checks/Linux
+seven, including renderer namespace isolation) and cancellation (six each). Original panel,
+tabs, hide/reopen and width interactions remain operational; approved Alice fills once and the
+result view stays sandboxed with its debugger detached. Workbench frame screenshots and separate
+task-page screenshots are retained: the former do not capture the native WebContentsView surface.
+Cancellation retires the approval, cleans owned execution, records the durable cancellation marker,
+and permits a fresh task in the same conversation. The original canceled executions remain
+`unknown`; that execution state is not reported as a confirmed canceled result.
+
+Stopped cross-host reads match 18 completed mutation receipts and retain two additional Gateway-only
+failed receipts with no local admission. The first verifier incorrectly required identical receipt
+sets; retain its failure and the corrected exact command/digest/scope verification. Receipt data
+does not identify those additional operations, so no operation name is inferred. Prior browser
+unknowns remain Mac nine/Linux eight. Unique opt-in evidence directories prevent repeated fixture
+runs from overwriting earlier observations.
+
+The first Settings-lock qualification stops at a read-only credential preflight, before submitting
+a task or logging out. It exposes an existing enrollment inconsistency: the native helper writes
+public-key identity metadata as `0644`, while desktop recovery required `0600`. Consequently the
+original expired invitation cannot reach same-identity reconciliation. The source repair accepts
+`0600` or `0644` only for that public metadata; private binding stays `0600`, both parent directories
+stay owner-only `0700`, and owner, canonical path, symlink, installation, domain and native-keyring
+checks remain enforced. It changes no stored bytes, permissions, credential validity or helper
+authentication. Writable metadata, shared parents, foreign bindings and symlinks remain rejected.
+
+The two initial red tests are retained; focused enrollment/auth tests pass 27, and the full Desktop
+suite passes 671 with one skip. A read-only check of the original Mac profile now admits its exact
+unchanged metadata. This is source validation, not native unlock evidence: new clean packages and
+actual lock/restart/unlock qualification remain required. Permanent revocation must use a separate
+disposable device. All activity services and the data forward are stopped; candidate processes,
+private display and temporary policies are absent, Relay is unpaused, and production matches the
+post-recovery baseline with 4,536,299,520 bytes free. The historical disk incident and other open
+release gates remain recorded.

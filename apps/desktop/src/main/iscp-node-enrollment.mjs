@@ -69,9 +69,13 @@ export async function hasPendingNodeEnrollment(directory, installationID, domain
       if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o777) !== 0o700 || await fs.realpath(parent) !== parent || process.getuid && info.uid !== process.getuid()) return false;
     }
     const values = [];
-    for (const filename of [path.join(directory, "enrollment.binding.json"), path.join(identityDirectory, "device.identity.json")]) {
+    // The helper writes the public-key identity as 0644. Its containing
+    // directories remain owner-only; the credential binding stays 0600.
+    // This read-only check never changes permissions or admits writable metadata.
+    for (const [filename, modes] of [[path.join(directory, "enrollment.binding.json"), [0o600]],
+      [path.join(identityDirectory, "device.identity.json"), [0o600, 0o644]]]) {
       const info = await fs.lstat(filename);
-      if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o777) !== 0o600 || info.size > 8192 || process.getuid && info.uid !== process.getuid()) return false;
+      if (!info.isFile() || info.isSymbolicLink() || !modes.includes(info.mode & 0o777) || info.size > 8192 || process.getuid && info.uid !== process.getuid()) return false;
       values.push(parseStrictJSON(await fs.readFile(filename, "utf8")));
     }
     const [binding, identity] = values;

@@ -3,6 +3,7 @@ package toolhub
 import (
 	"fmt"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/docindex"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
 // Resolve ordering locally instead of asking a model to perform ordering over
@@ -15,12 +16,18 @@ func selectedSourceLocationRelations(index *docindex.Index, ids []string) []stri
 	}
 	locations := map[string]string{}
 	for _, node := range index.Nodes {
+		if index.Structure.SchemaVersion >= 2 && !node.IsContainer() {
+			continue
+		}
 		if node.Title != "" {
 			locations[node.ID] = fmt.Sprintf("%q (%s)", node.Title, node.Locator.Block)
 		}
 	}
 	facts := []string{}
 	for position, node := range index.Nodes {
+		if index.Structure.SchemaVersion >= 2 && !node.IsContainer() {
+			continue
+		}
 		if !wanted[node.ID] || node.Title == "" {
 			continue
 		}
@@ -30,6 +37,9 @@ func selectedSourceLocationRelations(index *docindex.Index, ids []string) []stri
 		}
 		before, after := []string{}, []string{}
 		for i, sibling := range index.Nodes {
+			if index.Structure.SchemaVersion >= 2 && !sibling.IsContainer() {
+				continue
+			}
 			if sibling.ID == node.ID || sibling.Title == "" || sibling.ParentID != node.ParentID {
 				continue
 			}
@@ -68,11 +78,29 @@ func summarySourceLocations(index *docindex.Index, unit *docindex.SummaryUnit) [
 		}
 	}
 	locations := []map[string]any{}
+	var selectedSpan document.StructureSpan
+	treeScope := false
+	if unit != nil {
+		selectedSpan, treeScope = index.SummarySpan(*unit)
+	}
 	for i, node := range index.Nodes {
-		if i < start || i >= end || node.Title == "" {
+		if index.Structure.SchemaVersion >= 2 && !node.IsContainer() {
 			continue
 		}
-		locations = append(locations, map[string]any{"title": node.Title, "block": node.Locator.Block, "parent_block": byID[node.ParentID], "page": node.Locator.Page})
+		inside := i >= start && i < end
+		if treeScope && node.Span != nil {
+			inside = node.Span.OrdinalStart >= selectedSpan.OrdinalStart && node.Span.OrdinalEnd <= selectedSpan.OrdinalEnd
+		}
+		if !inside || node.Title == "" || node.Kind == "document" || node.StructureSource == "physical" {
+			continue
+		}
+		location := map[string]any{"title": node.Title, "block": node.Locator.Block, "parent_block": byID[node.ParentID], "page": node.Locator.Page}
+		if node.IsContainer() {
+			location["node_id"] = node.ID
+			location["structure_source"] = node.StructureSource
+			location["span"] = node.Span
+		}
+		locations = append(locations, location)
 	}
 	return locations
 }

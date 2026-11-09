@@ -14,14 +14,20 @@ Gateway 上传会把附件原名直接保存在 `uploads/` 或 `media/` 下。�
 
 ## Workflow 边界
 
-`document.read` revision 8 读取或总结一个明确的受治理 workspace 文件。PDF、DOCX、PPTX、
+`document.read` revision 9 读取或总结一个明确的受治理 workspace 文件。PDF、DOCX、PPTX、
 XLSX、文本和 Markdown 无论大小都先提供结构；Fast 选择语义任务范围，runtime 绑定来源版本，
 在同一范围内续读，直至完整或明确部分完成。短文档全篇任务可能一次有界范围读取即可完成。
-图片保留视觉 reader；持久化的 revision 4/5/6/7 计划保留原执行契约。
+图片保留视觉 reader；持久化的 revision 4/5/6/7/8 计划保留原执行契约。
 Revision 7 展开选中的章节／工作表容器，将原文采集与模型证据预算分开，并为大提取任务
 提供有界原文片段筛选（每批最多 16 个片段、最多 24 批）。总结契约 3 将原始任务传入
 分节及合并处理，并按任务隔离缓存；revision 6 保留契约 2。未支持的视觉内容保持部分完成，同时可返回已读取的有用文字。
 详见[评估与当前限制](document-workflow-evaluation-20261105.md)。
+Revision 9 使用[绑定源文件的结构树](document-structure-tree-design.md)：首次 outline 展示完整的
+顶层范围，随后可通过 `node_id` 展开容器，再选择内容。首句和预览只用于导航，不计入内容获取。
+运行时记录展开路径与预算降级，结构预算占 Fast 阶段证据预算的
+`runtime.document_structure_share_percent`（默认 25）%。共享表头和合并锚点仍是必须补齐的读取依赖。
+revision 4–8 保留原始解析代次和 cursor。
+
 Revision 8 增加总结契约 4：原始标题、原生段落位置及父级位置绕过分节／合并压缩，
 直接进入最终回答。分节模型只总结当前原文，不能把本节没出现的内容判断为全文缺失。
 同名标题保留不同的原生定位；范围读取也携带定位元数据，但不据此声称对应正文已读。

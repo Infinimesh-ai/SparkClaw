@@ -16,6 +16,13 @@ func documentReadOutcomeAttributes(call app.ToolCall, output map[string]any) map
 			attributes[key] = stringValue(value)
 		}
 	}
+	if value, ok := output["expanded_node_id"]; ok {
+		attributes["expanded_node_id"] = stringValue(value)
+	}
+	if value, ok := output["structure_budget"]; ok {
+		raw, _ := json.Marshal(value)
+		attributes["structure_budget"] = string(raw)
+	}
 	for _, key := range []string{"task_mode", "scope_reason", "scope_extent", "cursor", "include_descendants"} {
 		if value, ok := call.Arguments[key]; ok {
 			attributes[key] = stringValue(value)
@@ -96,6 +103,25 @@ func (documentReadProfile) Assess(state *app.WorkflowState, outcome app.ToolOutc
 	if ref.Kind == documentOutlineResourceKind {
 		state.Route.Facts[documentReadFactPrefix+"structure_coverage"] = ref.Attributes["coverage"]
 		state.Route.Facts[documentReadFactPrefix+"outline_next_cursor"] = ref.Attributes["next_cursor"]
+		if state.Plan.ProfileRevision >= 9 {
+			facts := state.Route.Facts
+			id := ref.Attributes["expanded_node_id"]
+			facts[documentReadFactPrefix+"outline_node_id"] = id
+			var expanded []string
+			_ = json.Unmarshal([]byte(facts[documentReadFactPrefix+"expanded_node_ids"]), &expanded)
+			if id != "" {
+				expanded = append(expanded, id)
+			}
+			raw, _ := json.Marshal(expanded)
+			facts[documentReadFactPrefix+"expanded_node_ids"] = string(raw)
+			var budgets []json.RawMessage
+			_ = json.Unmarshal([]byte(facts[documentReadFactPrefix+"structure_budgets"]), &budgets)
+			if budget := ref.Attributes["structure_budget"]; json.Valid([]byte(budget)) {
+				budgets = append(budgets, json.RawMessage(budget))
+			}
+			raw, _ = json.Marshal(budgets)
+			facts[documentReadFactPrefix+"structure_budgets"] = string(raw)
+		}
 		assessment.Status, assessment.ReasonCode = app.AssessmentNeedsMoreEvidence, "document_structure_discovered"
 		return assessment
 	}

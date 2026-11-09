@@ -11,9 +11,16 @@ import (
 // range. Model-supplied replacements are discarded before ToolHub validation.
 func bindScopedDocumentReadArguments(state *app.WorkflowState, plan toolPlan, args map[string]any) (map[string]any, error) {
 	if !isScopedDocumentRead(state) {
+		delete(args, "structure_version")
+		delete(args, "node_id")
+		delete(args, "depth")
 		return args, nil
 	}
 	args["path"] = state.Route.Slots.TargetRef
+	delete(args, "structure_version")
+	if state.Plan.ProfileRevision >= 9 {
+		args["structure_version"] = 2
+	}
 	delete(args, "include_visuals")
 	delete(args, "include_source_locations")
 	if state.Plan.ProfileRevision >= 8 && (plan.Capability == app.ToolCapabilityDocumentReadRange || plan.Capability == app.ToolCapabilityDocumentSummarize) {
@@ -36,7 +43,15 @@ func bindScopedDocumentReadArguments(state *app.WorkflowState, plan toolPlan, ar
 		}
 	}
 	if plan.Capability == app.ToolCapabilityDocumentOutline {
-		if cursor := facts[documentReadFactPrefix+"outline_next_cursor"]; cursor != "" {
+		if state.Plan.ProfileRevision < 9 {
+			delete(args, "node_id")
+			delete(args, "depth")
+		}
+		requested := strings.TrimSpace(stringValue(args["node_id"]))
+		if requested == "<nil>" {
+			requested = ""
+		}
+		if cursor := facts[documentReadFactPrefix+"outline_next_cursor"]; cursor != "" && (state.Plan.ProfileRevision < 9 || requested == facts[documentReadFactPrefix+"outline_node_id"]) {
 			args["cursor"] = cursor
 		}
 		return args, nil
@@ -108,6 +123,13 @@ func bindScopedDocumentReadArguments(state *app.WorkflowState, plan toolPlan, ar
 
 func scopedDocumentReadModelArguments(run app.AgentRun, definition app.ToolDefinition) (map[string]bool, []string) {
 	bound := map[string]bool{}
+	if run.Workflow != nil && run.Workflow.Plan.ProfileID == app.WorkflowDocumentRead {
+		bound["structure_version"] = true
+		if run.Workflow.Plan.ProfileRevision < 9 {
+			bound["node_id"] = true
+			bound["depth"] = true
+		}
+	}
 	if !isScopedDocumentRead(run.Workflow) {
 		return bound, nil
 	}
@@ -128,6 +150,11 @@ func scopedDocumentReadModelArguments(run app.AgentRun, definition app.ToolDefin
 		bound["acquisition_max_bytes"] = true
 	}
 	bound["include_visuals"] = true
+	bound["structure_version"] = true
+	if run.Workflow.Plan.ProfileRevision < 9 {
+		bound["node_id"] = true
+		bound["depth"] = true
+	}
 	bound["include_source_locations"] = true
 	for _, key := range []string{"source_sha256", "structure_generation", "cursor", "contract_version"} {
 		bound[key] = true

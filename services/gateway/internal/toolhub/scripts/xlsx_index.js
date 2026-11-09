@@ -7,6 +7,7 @@ process.stdin.on("data", chunk => raw += chunk);
 process.stdin.on("end", async () => {
   try {
     const req = JSON.parse(raw);
+    const structureV2 = (req.structure_version ?? 1) >= 2;
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(req.path);
     const units = [];
@@ -19,6 +20,7 @@ process.stdin.on("end", async () => {
     workbook.eachSheet(sheet => {
       const sheetBlock = `workbook.sheet[${sheet.name}]`;
       add({text:sheet.name,title:sheet.name,kind:"sheet",heading_level:1,block:sheetBlock,
+        ...(structureV2 ? {structure_source:"sheet"} : {}),
         values:[{sheet_name:sheet.name,sheet_state:sheet.state}]});
       let firstRow = null;
       const headers = new Map();
@@ -36,6 +38,7 @@ process.stdin.on("end", async () => {
           // its value in traversal/calculation input.
           const alias = mergeAnchor && mergeAnchor !== cell.address;
           add({text:alias ? "" : text,kind:"cell",block,
+            ...(structureV2 ? {group_key:`${sheetBlock}.row[${rowNumber}]`} : {}),
             search_text:header && rowNumber !== firstRow ? header.text : "",
             dependencies:[...(header && rowNumber !== firstRow ? [header.block] : []),...(alias ? [`${sheetBlock}.cell[${mergeAnchor}]`] : [])],
             values:[{address:cell.address,type:cell.type,value:alias ? null : value,display_text:alias ? "" : text,

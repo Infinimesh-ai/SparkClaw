@@ -25,6 +25,19 @@ func scopedSummaryParts(index *docindex.Index, unit docindex.SummaryUnit, budget
 		end = min(start+1, len(index.Nodes))
 	}
 	nodes := index.Nodes[start:end]
+	if span, ok := index.SummarySpan(unit); ok {
+		nodes = nil
+		ordinal := 0
+		for _, node := range index.Nodes {
+			if node.IsContainer() {
+				continue
+			}
+			if ordinal >= span.OrdinalStart && ordinal < span.OrdinalEnd {
+				nodes = append(nodes, node)
+			}
+			ordinal++
+		}
+	}
 	structured := false
 	for _, node := range nodes {
 		if len(node.Values) > 0 || len(node.Dependencies) > 0 {
@@ -45,6 +58,9 @@ func scopedSummaryParts(index *docindex.Index, unit docindex.SummaryUnit, budget
 		}
 	}
 	for _, node := range nodes {
+		if node.IsContainer() {
+			continue
+		}
 		dependencies := []document.StructureNode{}
 		seen := map[string]bool{node.ID: true}
 		pending := append([]string(nil), node.Dependencies...)

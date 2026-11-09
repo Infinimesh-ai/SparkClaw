@@ -71,3 +71,20 @@ func TestDocumentExtractionBytesUsesLargestFinalizerWithinBounds(t *testing.T) {
 		t.Fatalf("extraction exceeded the hard ceiling: %d", got)
 	}
 }
+
+func TestDocumentStructureShareDefaultsAndNormalizes(t *testing.T) {
+	cfg := Default()
+	cfg.Model.Fast = contextBudgetProfile(32768, 4096, 4096)
+	if cfg.Runtime.DocumentStructureSharePercent != 25 || cfg.DocumentStructureBytes() != cfg.StageEvidenceBytes(cfg.Model.Fast)/4 {
+		t.Fatal("structure budget does not reserve a quarter of Fast evidence")
+	}
+	for _, invalid := range []int{-1, 0, 101} {
+		cfg.Runtime.DocumentStructureSharePercent = invalid
+		if err := normalizeRuntimeLimits(&cfg.Runtime); err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Runtime.DocumentStructureSharePercent != 25 {
+			t.Fatal("invalid share did not backfill")
+		}
+	}
+}

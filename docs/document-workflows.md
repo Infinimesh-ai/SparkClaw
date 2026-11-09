@@ -17,12 +17,12 @@ existing file: `report.pdf`, `report-2.pdf`, `report-3.pdf`, and so on.
 
 ## Workflow Boundary
 
-`document.read` revision 8 reads or summarizes one exact governed workspace
+`document.read` revision 9 reads or summarizes one exact governed workspace
 file. PDF, DOCX, PPTX, XLSX, text and Markdown first expose structure regardless
 of size. Fast selects the semantic task scope; runtime binds source versions
 and continues that same scope until complete or explicitly partial. A short
 whole-source task may fit one bounded range read. Images retain their visual
-reader; persisted revisions 4/5/6/7 retain their original execution contracts.
+reader; persisted revisions 4/5/6/7/8 retain their original execution contracts.
 Revision 7 expands selected section/sheet containers, separates canonical
 acquisition from model evidence budgets and supports bounded selection of original
 source fragments for large extraction tasks (at most 16 fragments per batch,
@@ -30,6 +30,14 @@ source fragments for large extraction tasks (at most 16 fragments per batch,
 processing and keys cached summaries by that task; revision 6 keeps contract 2. Unsupported visual content remains
 partial while useful acquired text can be presented. See the
 [evaluation and current limits](document-workflow-evaluation-20261105.md).
+Revision 9 uses the [source-bound structure tree](document-structure-tree-design.md):
+the first outline shows the whole top-level extent, and `node_id` expands a
+container before content selection. Bounded leads and previews are navigation,
+not acquisition. The runtime records expansion paths and budget degradation,
+using `runtime.document_structure_share_percent` (default 25) of the Fast
+stage evidence budget. Shared headers and merge anchors remain required read
+dependencies. Revisions 4–8 retain their original parser generations and cursors.
+
 Revision 8 adds summary contract 4: original heading titles, native paragraph
 blocks, and parent blocks bypass section/merge compression and reach the final
 answer together. A section worker summarizes only its supplied source; it cannot

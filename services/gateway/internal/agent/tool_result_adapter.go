@@ -924,6 +924,12 @@ func slicePersistedToolEvidenceForRequest(tool string, output any, mode workflow
 			case tool == "document.search":
 				return sliceDocumentSearchEvidence(outputMap, maxBytes)
 			case tool == "document.outline":
+				if _, tree := outputMap["structure_budget"]; tree {
+					// Tree discovery is already bounded by a share of the stage
+					// budget. Keep that complete level in compact/minimal variants;
+					// byte-prefix slicing would hide late ranges or break JSON.
+					return stringValue(outputMap["content"])
+				}
 				return boundedUTF8Prefix([]byte(stringValue(outputMap["content"])), maxBytes)
 			}
 		}

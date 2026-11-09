@@ -20,7 +20,7 @@ const (
 type documentReadProfile struct{}
 
 func (documentReadProfile) ID() app.WorkflowID           { return app.WorkflowDocumentRead }
-func (documentReadProfile) Revision() int                { return 8 }
+func (documentReadProfile) Revision() int                { return 9 }
 func (documentReadProfile) Capability() app.CapabilityID { return app.CapabilityDocumentRead }
 func (documentReadProfile) RoutingSemantics() workflowRoutingSemantics {
 	return documentReadRoutingSemantics()
@@ -103,6 +103,9 @@ func (documentReadProfile) StageContext(state *app.WorkflowState) workflowStageC
 	}
 	if state != nil && state.Plan.ProfileRevision >= 8 {
 		stage.Reason += "\nSearch is exploratory in revision 8 and does NOT freeze task_mode. Choose the content task mode again from the original request after searching. For a summary that must preserve several named topics, use document.summarize: it carries the original task through every section. A targeted read is adequate only if it includes the ACTUAL explanatory source for every requested topic. A checklist telling the reader to understand a topic or its limitations is not the explanation of that topic or those limitations. Acquire the explanatory sections too, not just the overview/checklist/search matches. Native source_locations are navigation metadata only; their presence does not mean those sections' bodies were acquired."
+	}
+	if state != nil && state.Plan.ProfileRevision >= 9 {
+		stage.Reason += "\nRevision 9 structure discovery is a source-bound tree. The initial outline shows the entire top-level extent; use document.outline with an exact node_id to expand a container before selecting content. depth limits breadth-first expansion; omit it for automatic budgeted depth. To continue a partial leaf list, expand that SAME node_id again; runtime supplies its cursor. Expanding another node starts that container's discovery. Physical groups are navigation windows, not inferred chapters. Leads and leaf previews are explicitly previews, never acquired evidence or coverage. Select section/group/sheet/slide container IDs for full subtree reads. Expansion and search do not freeze task_mode or a content selector. Runtime structure_budget records omitted leads, trimmed previews and grouped levels; a bounded outline is not proof of task sufficiency."
 	}
 	if state != nil {
 		facts := map[string]string{}

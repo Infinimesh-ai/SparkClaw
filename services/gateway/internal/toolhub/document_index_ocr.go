@@ -36,6 +36,7 @@ func (h *ToolHub) recognizeDocumentPages(ctx context.Context, metadata document.
 	}
 	target := h.documentIndexTarget(metadata)
 	target.SourceSHA256 = index.Manifest.SourceSHA256
+	target.StructureVersion = index.Structure.SchemaVersion
 	execution := documentOCRExecutionFromContext(ctx)
 	ownerID, err := h.ownerIDForSession(ctx, execution.SessionID)
 	if err != nil {

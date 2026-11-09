@@ -63,6 +63,7 @@
 | [文档 Workflow](document-workflows.md) | 结构化读取、受限编辑、enrichment、保真校验和格式覆盖 |
 | [大文档上下文](large-document-context-design.md) | 已在源码实现按上下文推导预算、结构优先检索、分析阶段 OCR、Office 索引和章节总结；不代表已部署 |
 | [统一文档结构与评估证据](document-structure-and-evaluation-design.md) | 本地已实现：所有支持大小均先获取结构，明确任务覆盖，内部证据显式启用、按需离线导出；待 owner 验收，程序不内置评审 |
+| [文档结构树与分层展开](document-structure-tree-design.md) | 设计提案，尚未实现：每个源版本一棵 canonical 结构树，只用原生结构、物理分组兜底、不推断标题，广度优先的有界目录、章节首句与按需容器展开 |
 | [外部集成](integrations.md) | LocalMind task MCP、Telegram、微信、语音转写和 Infinimesh Info |
 | [LocalMind Workflow](localmind-task-workflow-design.md) | 已实现显式文字委派、read/write Approval 拆分、有界状态查询完成、上下文 query 和 cancel |
 | [WebChat 语音输入闭环设计](webchat-voice-input-design.md) | Phase 1 稳定采集闭环，以及 Phase 2 native record-time ASR、partial/final reconciliation、silence stop 与 batch fallback 设计；LLM 润色推迟到 Phase 3 |

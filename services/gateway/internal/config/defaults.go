@@ -255,6 +255,7 @@ func Default() Config {
 			// model capacity (config/context_budget.go); a positive value is
 			// an operator ceiling below that derived budget.
 			StageEvidenceMaxBytes:         0,
+			DocumentStructureSharePercent: 25,
 			StageMaxDurationSeconds:       180,
 			StageMaxNoProgressActions:     3,
 			StageMaxObservationReads:      2,

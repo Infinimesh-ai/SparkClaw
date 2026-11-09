@@ -16,7 +16,7 @@ import (
 )
 
 func TestPersistedLegacyDocumentReadResumesOriginalPlan(t *testing.T) {
-	for _, revision := range []int{4, 5, 6} {
+	for _, revision := range []int{4, 5, 6, 7, 8} {
 		t.Run(fmt.Sprint(revision), func(t *testing.T) {
 			root := t.TempDir()
 			statePath := filepath.Join(root, "state.json")
@@ -77,8 +77,8 @@ func TestPersistedLegacyDocumentReadResumesOriginalPlan(t *testing.T) {
 				t.Fatalf("legacy workflow drifted after reopen: revision=%d handled=%v err=%v status=%s", revision, handled, err, result.Run.Workflow.Status)
 			}
 			calls, err := reopened.ListToolCalls(t.Context(), session.ID)
-			if revision == 6 {
-				if err != nil || len(calls) != 2 || calls[0].Tool != "document.outline" || calls[1].Tool != "document.read_range" || calls[1].Arguments["include_descendants"] != nil {
+			if revision >= 6 {
+				if err != nil || len(calls) != 2 || calls[0].Tool != "document.outline" || calls[1].Tool != "document.read_range" || (calls[1].Arguments["include_descendants"] == true) != (revision >= 7) || calls[0].Arguments["structure_version"] != nil {
 					t.Fatalf("legacy scoped read changed: %#v %v", calls, err)
 				}
 			} else if err != nil || len(calls) != 1 || calls[0].Tool != "files.read" || calls[0].Status != app.ToolCallStatusCompleted {

@@ -29,6 +29,7 @@ class BoundedUnits(list):
             self.append(unit)
 
 req = json.load(sys.stdin)
+structure_v2 = req.get("structure_version", 1) >= 2
 
 def text_of(value):
     return str(value if value is not None else "")
@@ -51,6 +52,33 @@ def heading_level(paragraph):
         pass
     return 0
 
+def heading_structure(paragraph):
+    # Only native styles and outline properties supply structure. Bold runs,
+    # numbering, font size and the paragraph text never create headings.
+    style = paragraph.style
+    name = style.name.strip() if style is not None else ""
+    if name.lower() == "title":
+        return 1, "native_style"
+    match = re.fullmatch(r"(heading|标题)\s*([1-9])", name, re.IGNORECASE)
+    if match:
+        return int(match.group(2)), "native_style"
+    properties = [paragraph._p.pPr]
+    seen = set()
+    while style is not None and style.style_id not in seen:
+        seen.add(style.style_id)
+        properties.append(style.element.pPr)
+        style = style.base_style
+    for prop in properties:
+        level = prop.find(qn("w:outlineLvl")) if prop is not None else None
+        if level is not None:
+            try:
+                value = int(level.get(qn("w:val")))
+            except (TypeError, ValueError):
+                return 0, ""
+            # A direct body-text outline level overrides inherited structure.
+            return (value + 1, "outline_level") if 0 <= value <= 8 else (0, "")
+    return 0, ""
+
 try:
     document = docx.Document(req["path"])
     units = BoundedUnits()
@@ -61,8 +89,12 @@ try:
             paragraph_index += 1
             paragraph = Paragraph(element, document)
             text = text_of(paragraph.text)
-            if text or heading_level(paragraph):
-                units.append({"text": text, "heading_level": heading_level(paragraph), "block": "document.p[%d]" % paragraph_index})
+            level, source = heading_structure(paragraph) if structure_v2 else (heading_level(paragraph), "")
+            if text or level:
+                unit = {"text": text, "heading_level": level, "block": "document.p[%d]" % paragraph_index}
+                if source:
+                    unit["structure_source"] = source
+                units.append(unit)
         elif element.tag == qn("w:tbl"):
             table_index += 1
             table = Table(element, document)
@@ -80,9 +112,12 @@ try:
                     value = text_of(cell.text)
                     cells.append(value if not alias else "")
                     values.append({"column": column, "text": value if not alias else "", "merge_anchor_column": anchor, "merge_anchor_row": anchor_row, "is_merge_alias": alias})
-                units.append({"text": "\t".join(cells), "kind": "table_row", "values": values,
+                unit = {"text": "\t".join(cells), "kind": "table_row", "values": values,
                     "dependencies": sorted(dependencies),
-                    "block": "document.table[%d].row[%d]" % (table_index, row_index)})
+                    "block": "document.table[%d].row[%d]" % (table_index, row_index)}
+                if structure_v2:
+                    unit["group_key"] = "document.table[%d]" % table_index
+                units.append(unit)
     for index, shape in enumerate(document.inline_shapes, start=1):
         units.append({"text": "", "kind": "image", "block": "document.inline_shape[%d]" % index,
             "availability": "unsupported", "reason": "visual_content_requires_separate_analysis"})

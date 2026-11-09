@@ -226,6 +226,9 @@ func gatewayAuthWarnings(gateway GatewayConfig) []string {
 // defaults so a partial runtime section in JSON cannot silently disable the
 // stage or run stop conditions.
 func normalizeRuntimeLimits(rt *RuntimeConfig) error {
+	if rt.DocumentStructureSharePercent <= 0 || rt.DocumentStructureSharePercent > 100 {
+		rt.DocumentStructureSharePercent = Default().Runtime.DocumentStructureSharePercent
+	}
 	defaults := Default().Runtime
 	if rt.ObservationSummaryMaxBytes <= 0 {
 		rt.ObservationSummaryMaxBytes = defaults.ObservationSummaryMaxBytes

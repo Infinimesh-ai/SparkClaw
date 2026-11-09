@@ -457,8 +457,9 @@ type StateConfig struct {
 }
 
 type RuntimeConfig struct {
-	ObservationSummaryMaxBytes int `json:"observation_summary_max_bytes"`
-	StageEvidenceMaxBytes      int `json:"workflow_stage_evidence_max_bytes"`
+	DocumentStructureSharePercent int `json:"document_structure_share_percent"`
+	ObservationSummaryMaxBytes    int `json:"observation_summary_max_bytes"`
+	StageEvidenceMaxBytes         int `json:"workflow_stage_evidence_max_bytes"`
 
 	// Stage budgets bound one workflow stage invocation (one model/tool
 	// step-loop entry inside a workflow scope revision).
@@ -484,8 +485,9 @@ type RuntimeConfig struct {
 // duration bounded a single stage and must not shrink the whole run.
 func (rt *RuntimeConfig) UnmarshalJSON(raw []byte) error {
 	var keys struct {
-		ObservationSummaryMaxBytes *int `json:"observation_summary_max_bytes"`
-		StageEvidenceMaxBytes      *int `json:"workflow_stage_evidence_max_bytes"`
+		DocumentStructureSharePercent *int `json:"document_structure_share_percent"`
+		ObservationSummaryMaxBytes    *int `json:"observation_summary_max_bytes"`
+		StageEvidenceMaxBytes         *int `json:"workflow_stage_evidence_max_bytes"`
 
 		StageMaxDurationSeconds       *int `json:"workflow_stage_max_duration_seconds"`
 		StageMaxNoProgressActions     *int `json:"workflow_stage_max_no_progress_actions"`
@@ -510,6 +512,9 @@ func (rt *RuntimeConfig) UnmarshalJSON(raw []byte) error {
 	}
 	if err := json.Unmarshal(raw, &keys); err != nil {
 		return err
+	}
+	if keys.DocumentStructureSharePercent != nil {
+		rt.DocumentStructureSharePercent = *keys.DocumentStructureSharePercent
 	}
 	if keys.ObservationSummaryMaxBytes != nil {
 		rt.ObservationSummaryMaxBytes = *keys.ObservationSummaryMaxBytes

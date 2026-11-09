@@ -14,11 +14,12 @@ func documentRetrievalToolProviders() []documentToolProvider {
 		{
 			Definition: app.ToolDefinition{
 				Name:        "document.outline",
-				Description: "Discover source-bound structure and native node IDs for a document of any supported size. Metadata is paginated; next_cursor continues discovery without reading all source text.",
-				InputSchema: schema("object", []string{"path"}, pathSchema),
+				Description: "Discover source-bound structure and exact node IDs. With node_id/depth or structure_version=2, expand the root or a container breadth first within the structure budget; leads and leaf previews are navigation only. next_cursor continues the same container's leaf list. Omitted tree arguments retain legacy linear metadata pagination.",
+				InputSchema: schema("object", []string{"path"}, documentScopeInputSchema(map[string]any{"path": stringSchema(), "node_id": stringSchema(), "depth": map[string]any{"type": "integer", "minimum": 0, "maximum": 8}})),
 				OutputSchema: objectSchema([]string{"path", "outline", "content", "untrusted"}, map[string]any{
 					"path": stringSchema(), "pages": integerSchema(), "chunks": integerSchema(), "unindexed_pages": arraySchema(integerSchema()),
 					"outline": arraySchema(objectValueSchema()), "content": stringSchema(), "untrusted": booleanSchema(), "nodes": arraySchema(objectValueSchema()), "structure": objectValueSchema(), "source_sha256": stringSchema(), "structure_generation": stringSchema(), "next_cursor": stringSchema(), "coverage": objectValueSchema(),
+					"node": objectValueSchema(), "path_nodes": arraySchema(objectValueSchema()), "structure_budget": objectValueSchema(), "expanded_node_id": stringSchema(),
 				}),
 				Risk: app.RiskRead, Idempotent: true, TimeoutMS: 125000, Sandbox: "forbidden", Audit: "always",
 			},
@@ -108,6 +109,7 @@ func documentRangeIDsSchema() map[string]any {
 // New optional fields preserve legacy callers while revision 6 binds versions
 // and requires a semantic task scope in its model-visible projection.
 func documentScopeInputSchema(properties map[string]any) map[string]any {
+	properties["structure_version"] = map[string]any{"type": "integer", "enum": []int{1, 2}, "description": "Runtime-owned structure contract; omitted retains legacy extraction. Version 2 supports layered expansion."}
 	properties["scope_extent"] = map[string]any{"type": "string", "enum": []string{"whole_document", "selected_range"}, "description": "Required by workflow revision 7. Use whole_document when the user requires the entire source, all records, or a whole-source summary; runtime traverses all nodes. Use selected_range for named sections, pages or targeted facts. Search hits and an outline page never define the scope of a whole-document request."}
 	properties["source_sha256"] = stringSchema()
 	properties["structure_generation"] = stringSchema()

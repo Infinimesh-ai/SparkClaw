@@ -44,7 +44,9 @@ func (h *ToolHub) ensureDocumentIndex(ctx context.Context, path string) (*docind
 		}
 	}
 	started := time.Now()
-	index, err := h.documentIndex.Ensure(ctx, h.documentIndexTarget(metadata), func() { reportToolProgress(ctx, documentIndexProgress) })
+	target := h.documentIndexTarget(metadata)
+	target.StructureVersion = docindex.StructureVersionFromContext(ctx)
+	index, err := h.documentIndex.Ensure(ctx, target, func() { reportToolProgress(ctx, documentIndexProgress) })
 	elapsed := time.Since(started)
 	if err != nil {
 		h.recordDocumentEvidenceSource(ctx, metadata)
@@ -108,6 +110,7 @@ func documentRetrievalPointer(h *ToolHub, index *docindex.Index, metadata docume
 }
 
 func (h *ToolHub) documentOutline(ctx context.Context, args map[string]any, _, _ string) (Result, error) {
+	ctx = documentStructureContext(ctx, args)
 	path, err := h.resolveReadPath(ctx, stringArg(args, "path", ""))
 	if err != nil {
 		return Result{}, err
@@ -115,6 +118,9 @@ func (h *ToolHub) documentOutline(ctx context.Context, args map[string]any, _, _
 	index, metadata, err := h.ensureDocumentIndex(ctx, path)
 	if err != nil {
 		return Result{}, err
+	}
+	if index.Structure.SchemaVersion == document.StructureSchemaVersion {
+		return h.documentTreeOutline(index, metadata, args)
 	}
 	maxBytes := h.documentRetrievalMaxBytes(args)
 	page, err := index.OutlinePage(docindex.OutlineRequest{Cursor: stringArg(args, "cursor", ""), SourceSHA256: stringArg(args, "source_sha256", ""), StructureGeneration: stringArg(args, "structure_generation", ""), Limit: intArg(args, "limit", 0), MaxBytes: maxBytes})
@@ -137,6 +143,7 @@ func (h *ToolHub) documentOutline(ctx context.Context, args map[string]any, _, _
 }
 
 func (h *ToolHub) documentSearch(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
+	ctx = documentStructureContext(ctx, args)
 	ctx = withDocumentOCRExecution(ctx, sessionID, runID)
 	path, err := h.resolveReadPath(ctx, stringArg(args, "path", ""))
 	if err != nil {
@@ -174,6 +181,7 @@ func (h *ToolHub) documentSearch(ctx context.Context, args map[string]any, sessi
 }
 
 func (h *ToolHub) documentReadRange(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
+	ctx = documentStructureContext(ctx, args)
 	ctx = withDocumentOCRExecution(ctx, sessionID, runID)
 	path, err := h.resolveReadPath(ctx, stringArg(args, "path", ""))
 	if err != nil {

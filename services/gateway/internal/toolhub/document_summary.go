@@ -44,6 +44,7 @@ type documentSummarizeSection struct {
 // map-reduce (design section 4.8): one cached summary per top-level
 // section, merged by the finalizer.
 func (h *ToolHub) documentSummarize(ctx context.Context, args map[string]any, sessionID, runID string) (Result, error) {
+	ctx = documentStructureContext(ctx, args)
 	if version := intArg(args, "contract_version", 1); version == 2 || version == 3 || version == 4 {
 		return h.documentSummarizeScoped(ctx, args, sessionID, runID)
 	}

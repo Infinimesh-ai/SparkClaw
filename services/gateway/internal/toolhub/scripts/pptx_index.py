@@ -23,9 +23,31 @@ class BoundedUnits(list):
             self.append(unit)
 
 req = json.load(sys.stdin)
+structure_v2 = req.get("structure_version", 1) >= 2
 
 def text_of(value):
     return str(value if value is not None else "")
+
+def section_outline(presentation):
+    # Native sections refer to presentation slide IDs, not slide part names
+    # or shape IDs. Read the actual extension XML; python-pptx has no section API.
+    p = "http://schemas.openxmlformats.org/presentationml/2006/main"
+    namespaces = (p, "http://schemas.microsoft.com/office/powerpoint/2010/main")
+    slide_ids = presentation._element.find("{%s}sldIdLst" % p)
+    pages = {item.get("id"): page for page, item in enumerate(slide_ids, start=1)} if slide_ids is not None else {}
+    outline = BoundedUnits()
+    for namespace in namespaces:
+        for sections in presentation._element.iter("{%s}sectionLst" % namespace):
+            for section in sections.findall("{%s}section" % namespace):
+                title = section.get("name", "")
+                members = section.find("{%s}sldIdLst" % namespace)
+                if not title.strip() or members is None:
+                    continue
+                section_pages = [pages[item.get("id")] for item in members.findall("{%s}sldId" % namespace) if item.get("id") in pages]
+                if section_pages:
+                    outline.append({"title": title, "level": 1, "page": min(section_pages)})
+    outline.sort(key=lambda entry: entry["page"])
+    return outline
 
 def shape_units(shape, slide_number, block):
     units = BoundedUnits()
@@ -60,7 +82,10 @@ try:
             if title and shape == slide.shapes.title:
                 continue
             body.extend(shape_units(shape, slide_number, "presentation.slide[%d].shape[%d]" % (slide_number, shape_index)))
-        units.append({"text": title, "title": title or "Slide %d" % slide_number, "kind": "slide", "heading_level": 1, "page": slide_number, "block": "presentation.slide[%d]" % slide_number})
+        unit = {"text": title, "title": title or "Slide %d" % slide_number, "kind": "slide", "heading_level": 1, "page": slide_number, "block": "presentation.slide[%d]" % slide_number}
+        if structure_v2:
+            unit["structure_source"] = "slide"
+        units.append(unit)
         units.extend(body)
         try:
             notes = text_of(slide.notes_slide.notes_text_frame.text) if slide.has_notes_slide else ""
@@ -68,7 +93,13 @@ try:
             notes = ""
         if notes:
             units.append({"text": notes, "kind": "notes", "page": slide_number, "block": "presentation.slide[%d].notes" % slide_number})
-    print(json.dumps({"units": units, "pages_total": len(presentation.slides), "limitations": ["Theme, layout, animation, chart values and visual reading order are not fully extracted."]}))
+    output = {"units": units, "pages_total": len(presentation.slides), "limitations": ["Theme, layout, animation, chart values and visual reading order are not fully extracted."]}
+    if structure_v2:
+        outline = section_outline(presentation)
+        if len(units) + len(outline) > 250000 or units.bytes + outline.bytes > (64 << 20):
+            raise ValueError("Document exceeds structure extraction admission")
+        output["outline"] = outline
+    print(json.dumps(output))
 except Exception as exc:
     print(str(exc), file=sys.stderr)
     sys.exit(1)

@@ -77,3 +77,13 @@ func (rt RuntimeConfig) capContentBudget(derived int) int {
 	}
 	return derived
 }
+
+// DocumentStructureBytes reserves a configurable share of the Fast evidence
+// channel for navigation. It never raises a small model's evidence budget.
+func (c Config) DocumentStructureBytes() int {
+	share := c.Runtime.DocumentStructureSharePercent
+	if share <= 0 || share > 100 {
+		share = 25
+	}
+	return c.StageEvidenceBytes(c.Model.Fast) * share / 100
+}

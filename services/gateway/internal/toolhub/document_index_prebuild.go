@@ -20,6 +20,10 @@ func (h *ToolHub) PrebuildDocumentIndex(path string) {
 		return
 	}
 	h.documentIndex.Enqueue(docindex.Prebuild{
-		Target: h.documentIndexTarget(metadata),
+		Target: func() docindex.Target {
+			target := h.documentIndexTarget(metadata)
+			target.StructureVersion = document.StructureSchemaVersion
+			return target
+		}(),
 	})
 }

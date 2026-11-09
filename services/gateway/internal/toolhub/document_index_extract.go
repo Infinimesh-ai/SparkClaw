@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -103,7 +104,11 @@ func extractDOCXIndexUnits(ctx context.Context, path string, emit func(docindex.
 // extractScriptIndexUnits runs one whole-document extractor that returns
 // {units, pages_total}; slide numbers arrive as unit pages.
 func extractScriptIndexUnits(ctx context.Context, path string, emit func(docindex.Unit) error, run adapterReadFunc) (docindex.SourceInfo, error) {
-	out, err := run(ctx, map[string]any{"path": path})
+	request := map[string]any{"path": path}
+	if version := docindex.StructureVersionFromContext(ctx); version >= 2 {
+		request["structure_version"] = version
+	}
+	out, err := run(ctx, request)
 	if err != nil {
 		return docindex.SourceInfo{}, err
 	}
@@ -120,12 +125,24 @@ func extractScriptIndexUnits(ctx context.Context, path string, emit func(docinde
 			return docindex.SourceInfo{}, err
 		}
 	}
-	return docindex.SourceInfo{Pages: intArg(out, "pages_total", 0), Limitations: outputStringArray(out["limitations"])}, nil
+	info := docindex.SourceInfo{Pages: intArg(out, "pages_total", 0), Limitations: outputStringArray(out["limitations"])}
+	if docindex.StructureVersionFromContext(ctx) >= 2 {
+		for _, raw := range documentAnySlice(out["outline"]) {
+			entry, _ := documentAnyMap(raw)
+			info.Outline = append(info.Outline, docindex.OutlineEntry{
+				Title: stringArg(entry, "title", ""), Level: intArg(entry, "level", 1), Page: intArg(entry, "page", 0),
+			})
+		}
+	}
+	return info, nil
 }
 
-// extractTextIndexUnits streams plain text as blank-line separated
-// paragraphs; Markdown `#` lines become headings.
+// The legacy extractor retains its exact line boundaries and heading behavior
+// for persisted workflows. Only v2 uses blank-line blocks and Markdown syntax.
 func extractTextIndexUnits(ctx context.Context, path string, emit func(docindex.Unit) error) (docindex.SourceInfo, error) {
+	if docindex.StructureVersionFromContext(ctx) >= 2 {
+		return extractTextBlockIndexUnits(ctx, path, emit)
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return docindex.SourceInfo{}, err
@@ -178,4 +195,162 @@ func extractTextIndexUnits(ctx context.Context, path string, emit func(docindex.
 			return docindex.SourceInfo{}, readErr
 		}
 	}
+}
+
+// textIndexBlockWriter retains source byte spans while separating native
+// Markdown headings from the blank-line blocks used by every text format.
+type textIndexBlockWriter struct {
+	emit                      func(docindex.Unit) error
+	block                     strings.Builder
+	offset, blockStart, count int
+	markdown, endsBlank       bool
+	fence                     byte
+	fenceLength               int
+}
+
+func (writer *textIndexBlockWriter) write(text string, start, level int, title string) error {
+	writer.count++
+	if writer.count > docindex.MaxSourceUnits {
+		return fmt.Errorf("text exceeds structure extraction admission")
+	}
+	unit := docindex.Unit{Text: text, Kind: "text", Block: fmt.Sprintf("text.bytes[%d:%d]", start, start+len(text)), ByteStart: start, ByteEnd: start + len(text)}
+	if level > 0 {
+		unit.Kind, unit.HeadingLevel, unit.Title, unit.StructureSource = "heading", level, title, "markdown_heading"
+	}
+	return writer.emit(unit)
+}
+
+func (writer *textIndexBlockWriter) flush() error {
+	if writer.block.Len() == 0 {
+		return nil
+	}
+	err := writer.write(writer.block.String(), writer.blockStart, 0, "")
+	writer.block.Reset()
+	return err
+}
+
+func (writer *textIndexBlockWriter) consume(text string) error {
+	start := writer.offset
+	writer.offset += len(text)
+	content := strings.TrimSuffix(strings.TrimSuffix(text, "\n"), "\r")
+	level, title := 0, ""
+	if writer.markdown {
+		marker, length, rest := markdownIndexFence(content)
+		if writer.fence != 0 {
+			if marker == writer.fence && length >= writer.fenceLength && strings.TrimSpace(rest) == "" {
+				writer.fence, writer.fenceLength = 0, 0
+			}
+		} else if marker != 0 && (marker != '`' || !strings.Contains(rest, "`")) {
+			writer.fence, writer.fenceLength = marker, length
+		} else {
+			level, title = markdownIndexHeading(content)
+		}
+	}
+	blank := strings.TrimSpace(content) == ""
+	if level > 0 || writer.endsBlank && !blank {
+		if err := writer.flush(); err != nil {
+			return err
+		}
+	}
+	if level > 0 {
+		writer.endsBlank = false
+		return writer.write(text, start, level, title)
+	}
+	if writer.block.Len() == 0 {
+		writer.blockStart = start
+	}
+	writer.block.WriteString(text)
+	writer.endsBlank = blank
+	return nil
+}
+
+func extractTextBlockIndexUnits(ctx context.Context, path string, emit func(docindex.Unit) error) (docindex.SourceInfo, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return docindex.SourceInfo{}, err
+	}
+	defer file.Close()
+	writer := textIndexBlockWriter{emit: emit, markdown: isMarkdownIndexPath(path)}
+	reader := bufio.NewReaderSize(file, textIndexMaxLineBytes)
+	var line []byte
+	bytes := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return docindex.SourceInfo{}, err
+		}
+		raw, readErr := reader.ReadSlice('\n')
+		bytes += len(raw)
+		if bytes > docindex.MaxExtractedBytes {
+			return docindex.SourceInfo{}, fmt.Errorf("text exceeds structure extraction admission")
+		}
+		line = append(line, raw...)
+		if readErr == bufio.ErrBufferFull {
+			continue
+		}
+		if len(line) > 0 {
+			if !utf8.Valid(line) {
+				return docindex.SourceInfo{}, fmt.Errorf("text is not valid UTF-8; lossless structural read unavailable")
+			}
+			if err := writer.consume(string(line)); err != nil {
+				return docindex.SourceInfo{}, err
+			}
+			line = line[:0]
+		}
+		if readErr == io.EOF {
+			if err := writer.flush(); err != nil {
+				return docindex.SourceInfo{}, err
+			}
+			if writer.count == 0 {
+				return docindex.SourceInfo{}, writer.write("", 0, 0, "")
+			}
+			return docindex.SourceInfo{}, nil
+		}
+		if readErr != nil {
+			return docindex.SourceInfo{}, readErr
+		}
+	}
+}
+
+func isMarkdownIndexPath(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".md", ".markdown", ".mdown", ".mkd", ".mkdn":
+		return true
+	default:
+		return false
+	}
+}
+
+func markdownIndexFence(line string) (byte, int, string) {
+	trimmed := strings.TrimLeft(line, " ")
+	if len(line)-len(trimmed) > 3 || len(trimmed) < 3 || trimmed[0] != '`' && trimmed[0] != '~' {
+		return 0, 0, ""
+	}
+	length := 1
+	for length < len(trimmed) && trimmed[length] == trimmed[0] {
+		length++
+	}
+	if length < 3 {
+		return 0, 0, ""
+	}
+	return trimmed[0], length, trimmed[length:]
+}
+
+func markdownIndexHeading(line string) (int, string) {
+	trimmed := strings.TrimLeft(line, " ")
+	if len(line)-len(trimmed) > 3 {
+		return 0, ""
+	}
+	level := 0
+	for level < len(trimmed) && trimmed[level] == '#' {
+		level++
+	}
+	if level == 0 || level > 6 || level < len(trimmed) && trimmed[level] != ' ' && trimmed[level] != '\t' {
+		return 0, ""
+	}
+	title := strings.TrimSpace(trimmed[level:])
+	withoutClosing := strings.TrimRight(title, "#")
+	if withoutClosing == "" || len(withoutClosing) < len(title) && (strings.HasSuffix(withoutClosing, " ") || strings.HasSuffix(withoutClosing, "\t")) {
+		title = strings.TrimSpace(withoutClosing)
+	}
+	return level, title
 }

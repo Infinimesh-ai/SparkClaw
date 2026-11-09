@@ -1309,3 +1309,29 @@ closed, and the new unknown execution is retained. The work2 post-recovery confi
 mounts and health audit passes with 8,240,865,280 bytes free; the earlier production PostgreSQL
 incident and runtime changes remain in the record. TEST1, remaining fault/native/offline/WAN
 gates, paired cutover and D2 deletion remain unqualified.
+
+A second failed cross-machine attempt enables the installed helper's existing private latency
+trace and records bounded, content-free desktop chunk timings. All 195 observed chunk RPC IDs
+match four helper stages; 6,389,760 raw bytes return before the unchanged budget ends. Negotiation
+actually grants four chunks in flight at 32 KiB each. In this one run, request authorization
+averages 230.94 ms and send authorization 253.23 ms; the helper's handler averages 1.94 ms, and
+the desktop forwarder 0.284 ms. Authorization durations include mutex waiting, network and proof
+verification. They overlap across calls and are not added or described as network RTT; Gateway
+stages are not captured. The analyzer reports complete correlation for the observed chunks while
+preserving `native_qualification_passed: false`.
+
+The retained helper configuration identifies this route as **local-test/local-lab**. Its
+`GrantLifecycleClient` serializes fresh authorization network checks under a mutex. This is a
+measured bottleneck in that test route; the production `node-managed` client instead has a
+separate implementation that coalesces overlapping fresh checks of one authority generation.
+The local-test result neither qualifies nor disproves node-managed maximum-size performance.
+Keep both native failures, all unknown execution rows and the unmodified limits. Do not change
+the production authority contract or optimize the legacy test route merely to turn its check
+green. The next required performance evidence must identify its actual authorization mode and
+include the node-managed path; TEST1 remains independently required.
+
+Opt-in `SPARKCLAW_CONTROLLER_CHUNK_TRACE=1` observations and
+`analyze-client-controller-chunk-trace.py` now preserve this distinction in reusable tooling.
+The analyzer reads existing evidence without changing application or Gateway state. The isolated
+Gateway is restored/stopped, forwarding is closed, and post-recovery work2 checks pass with
+8,194,330,624 bytes free. No product binary, UI, timeout or authorization check is changed.

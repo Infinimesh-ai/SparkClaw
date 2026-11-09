@@ -133,7 +133,7 @@ try {
   }, mode);
   if (mode === "cache_full") evidence.packaged_UDS_boundary = await probePackagedResponseBoundary(application);
   await installResultFaults(application, mode);
-  await installLimitTransfer(application, mode);
+  await installLimitTransfer(application, mode, { diagnostic: process.env.SPARKCLAW_CONTROLLER_CHUNK_TRACE === "1" });
   const title = `Packaged chunks ${mode} ${Date.now()}`;
   const conversation = await window.evaluate(title => window.sparkclawClientStore.create(title), title);
   await window.evaluate(id => window.sparkclawDesktop.selectConversation(id), conversation.id);

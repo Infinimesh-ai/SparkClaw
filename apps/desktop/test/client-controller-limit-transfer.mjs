@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 
 // Explicit synthetic padding AFTER the real native action/validation. This
 // tests the exact cache/wire limit, not MCP's smaller output budget or UDS input.
-export async function installLimitTransfer(application, mode) {
+export async function installLimitTransfer(application, mode, { diagnostic = false } = {}) {
   if (mode !== "exact_limit") return;
-  await application.evaluate(({ app }) => {
+  await application.evaluate(({ app }, diagnostic) => {
     const require = process.getBuiltinModule("node:module").createRequire(app.getAppPath() + "/package.json");
     const assert = require("node:assert/strict"), crypto = require("node:crypto");
     const { ControllerResults, RESULT_LIMIT } = require(app.getAppPath() + "/src/browser/controller-results.mjs");
@@ -42,6 +42,13 @@ export async function installLimitTransfer(application, mode) {
         limit.follow_up_operation ||= request.body.operation;
       }
       const reply = await dispatch.call(this, request, authority);
+      if (diagnostic && request.operation === "browser.controller.status") trace.diagnostic_limits = reply.body?.limits;
+      if (diagnostic && request.operation === "browser.controller.chunk" && trace.limit?.command_id === request.body.command_id) {
+        trace.limit.diagnostic_chunks ||= [];
+        assert.ok(trace.limit.diagnostic_chunks.length < 400);
+        trace.limit.diagnostic_chunks.push({ rpc_id: request.id, offset: request.body.offset, received_ms: received,
+          reply_ready_ms: performance.now() });
+      }
       if (limit && request.body?.binding?.local_task_id === limit.local_task_id &&
           request.operation === "browser.controller.execute" && request.body.operation !== "page.fill") {
         limit.follow_up_reply = { command_id: request.body.command_id, outcome: reply.body?.outcome,
@@ -67,7 +74,7 @@ export async function installLimitTransfer(application, mode) {
       }
       return reply;
     };
-  });
+  }, diagnostic);
 }
 
 export function verifyLimitTransfer(evidence) {

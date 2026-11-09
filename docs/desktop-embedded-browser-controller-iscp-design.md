@@ -330,6 +330,10 @@ proposal's contradictory 8 MiB total. Reserve capacity before dispatch, with bou
 response parsing and allocation accounting; no eviction of live results to admit a new write.
 If unavailable, reject before dispatch with typed capacity failure. A response beyond 10 MiB
 fails explicitly, never truncates or silently changes format.
+Each execute reserves the full 10 MiB worst case. A retained maximum-size result plus earlier
+live results can therefore prevent the next execute even before the 20 MiB cache is full.
+Qualify maximum-size transfer separately from workflow success under that capacity pressure;
+do not evict live bytes, extend deadlines or count a delivered blocked answer as task success.
 The large-result reservation applies to execute. Status/acquire/release use bounded small
 responses within the wire budget and no blob reservation; a full result cache must not prevent
 release or read-only receipt/reconciliation. Temporary parse/base64 buffers also have bounded
@@ -1272,3 +1276,36 @@ services active. In the preceding 30 minutes, retained executor rows record 29 G
 and 29 QQ `collect_page` completions, with zero pending releases. These aggregate process/ledger
 checks establish continuing acquisition activity after recovery, not inbound-message completeness,
 mail delivery or a replay of interrupted work. No mail operation was dispatched by this check.
+
+Maximum-size encrypted transfer is now measured separately from the earlier UDS/parser proof.
+An opt-in fixture pads the result-cache title after one real approved fill and its completed
+journal, producing exactly 10,485,760 bytes. This is explicitly synthetic cache data, not a
+10 MiB native browser/MCP output. The unchanged `c6948132` installed Mac and work2 Linux packages
+each pass 6 checks: 320 real encrypted 32 KiB chunk replies, complete hash/size verification,
+one native fill, retained write records, release, and unrelated ISCP reads. A subsequent page
+read is refused before native dispatch because earlier live results plus the maximum result
+leave less than the next 10 MiB reservation. The delivered blocked answer is not workflow success.
+Retain the first Mac failure, whose fixture incorrectly required that workflow to succeed.
+
+Two Mac samples take 12,893 and 12,827 ms; one colocated work2 sample takes 9,717 ms, measured from
+the desktop descriptor becoming ready to receipt of the next same-task execute. This includes
+Gateway verification and downstream scheduling, not just network time. The largest measured
+encoded envelope is 44,008 bytes. These samples do not establish WAN percentiles or TEST1 results.
+Independent stopped-state readers verify both completed write records and the subsequent
+pre-dispatch refusal. Six focused source boundary/wire tests and the 145-file docs check pass;
+product binaries, limits and original UI remain unchanged.
+
+The same maximum-size fixture **fails** across the retained Mac-to-work2 isolated route with
+SSH loopback forwarding. Only 194 chunk replies / 6,356,992 raw bytes are observed before the
+existing approximately 30-second budget ends; no complete hash-verified result or follow-up
+execute is observed. The actual fill occurs once, both durable write records remain completed,
+the enclosing execution is unknown, and release completes. Independent stopped-state checks
+confirm those outcomes without comparing wall clocks across hosts. This is a retained transfer
+qualification failure, not a successful large-result test and not proof of which network or
+transport component caused the delay. It leaves maximum-size cross-machine timing open.
+
+All tested isolated Gateways are stopped and restored to their prior binaries, the SSH forwards are
+closed, and the new unknown execution is retained. The work2 post-recovery configuration,
+mounts and health audit passes with 8,240,865,280 bytes free; the earlier production PostgreSQL
+incident and runtime changes remain in the record. TEST1, remaining fault/native/offline/WAN
+gates, paired cutover and D2 deletion remain unqualified.

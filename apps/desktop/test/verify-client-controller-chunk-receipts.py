@@ -13,7 +13,7 @@ import sys
 
 lab, output = map(Path, sys.argv[1:3])
 modes = sys.argv[3:] or ["out_of_order", "lost_final", "wrong_offset", "bad_hash"]
-assert modes and all(mode in ["out_of_order", "lost_final", "wrong_offset", "bad_hash", "cache_full", "expired_result"] for mode in modes)
+assert modes and all(mode in ["out_of_order", "lost_final", "wrong_offset", "bad_hash", "cache_full", "expired_result", "exact_limit"] for mode in modes)
 assert lab.is_absolute() and lab.name.startswith("sx-controller-iscp-")
 assert output.is_absolute() and not output.exists()
 
@@ -73,7 +73,19 @@ for mode in modes:
     # The observer uses millisecond Date precision; allow that rounding only.
     assert date(gateway["updated_at"]) <= date(fill["first_chunk_at"]) + datetime.timedelta(milliseconds=1)
     execution = next(row for row in control["fences"].values() if row["request_id"] == task["request_id"])
-    assert execution["state"] == ("delivered" if mode in ["out_of_order", "cache_full"] else "unknown")
+    assert execution["state"] == ("delivered" if mode in ["out_of_order", "cache_full", "exact_limit"] else "unknown")
+    if mode == "exact_limit":
+        limit = evidence["trace"]["limit"]
+        assert fill["descriptor"]["total_bytes"] == limit["raw_chunk_bytes"] == 10 << 20
+        assert limit["chunk_count"] == 320 and limit["reassembled_sha256"] == fill["descriptor"]["sha256"]
+        assert limit["follow_up_execute_received_ms"] >= limit["last_chunk_reply_ready_ms"]
+        refused = limit["follow_up_reply"]
+        assert refused["outcome"] == "not_dispatched" and refused["error_code"] == "browser_result_capacity"
+        assert limit["native_executes_after_descriptor"] == 0 and not refused["local_journal_present"]
+        assert re.fullmatch(r"[A-Za-z0-9_.:-]{1,160}", refused["command_id"])
+        assert not (lab / "controller-native-profile/workbench/browser-journal" / f"{refused['command_id']}.json").exists()
+        additional = {"exact_10_MiB_synthetic_wire_result": True, "following_read_refused_before_native_dispatch": True,
+                      "workflow_completed_successfully": False}
     assert evidence["trace"]["fill_calls"] == 1 and evidence["trace"]["http_attempts"] == 0
     rows.append({"mode": mode, "evidence_path": str(evidence_file), "evidence_sha256": digest(evidence_file),
                  "bytes": fill["descriptor"]["total_bytes"], "gateway_fence_sha256": digest(gateway_file),

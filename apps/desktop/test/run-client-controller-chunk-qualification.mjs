@@ -9,13 +9,14 @@ import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { installResultFaults, verifyCacheRecovery, verifyExpiredWriteReplay } from "./client-controller-result-faults.mjs";
 import { probePackagedResponseBoundary } from "./client-controller-response-boundaries.mjs";
+import { installLimitTransfer, verifyLimitTransfer } from "./client-controller-limit-transfer.mjs";
 
 const directory = process.env.SPARKCLAW_CONTROLLER_ISCP_LAB;
 const executablePath = process.env.SPARKCLAW_CONTROLLER_CANDIDATE;
 const mode = process.env.SPARKCLAW_CONTROLLER_CHUNK_MODE;
 assert.ok(path.isAbsolute(directory || "") && path.basename(directory).startsWith("sx-controller-iscp-"));
 assert.ok(path.isAbsolute(executablePath || "") && !executablePath.startsWith("/Applications/"));
-assert.ok(["out_of_order", "lost_final", "wrong_offset", "bad_hash", "cache_full", "expired_result"].includes(mode));
+assert.ok(["out_of_order", "lost_final", "wrong_offset", "bad_hash", "cache_full", "expired_result", "exact_limit"].includes(mode));
 const resources = path.resolve(path.dirname(executablePath), process.platform === "darwin" ? "../Resources" : "resources");
 const { _electron } = await import(pathToFileURL(path.join(resources, "browser-controller/node_modules/playwright-core/index.mjs")));
 const output = path.join(directory, `evidence/controller-chunks-${mode}-${Date.now()}.json`);
@@ -132,6 +133,7 @@ try {
   }, mode);
   if (mode === "cache_full") evidence.packaged_UDS_boundary = await probePackagedResponseBoundary(application);
   await installResultFaults(application, mode);
+  await installLimitTransfer(application, mode);
   const title = `Packaged chunks ${mode} ${Date.now()}`;
   const conversation = await window.evaluate(title => window.sparkclawClientStore.create(title), title);
   await window.evaluate(id => window.sparkclawDesktop.selectConversation(id), conversation.id);
@@ -168,7 +170,8 @@ try {
   assert.ok(pages.some(page => page.dom.value === "Alice" && page.dom.inputs === 1 && page.sandbox && !page.debugger));
   assert.deepEqual((await window.evaluate(() => window.sparkclawDesktop.state())).browser_host.unknown_writes.sort(byCommand), evidence.unknown_before.sort(byCommand));
   const fillChunks = evidence.trace.events.filter(row => row.operation.endsWith(".chunk") && row.command_id === evidence.trace.fill.command_id);
-  if (["out_of_order", "cache_full"].includes(mode)) {
+  if (["out_of_order", "cache_full", "exact_limit"].includes(mode)) {
+    if (mode === "exact_limit") verifyLimitTransfer(evidence);
     if (mode === "out_of_order") {
       assert.ok(fillChunks.length >= 3 && fillChunks[0].offset > 0 && fillChunks.some(row => row.offset === 0));
       assert.equal(evidence.terminal_task.status, "delivered");

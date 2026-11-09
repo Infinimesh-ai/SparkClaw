@@ -11,8 +11,10 @@ const output = path.join(root, "apps", "desktop", "dist");
 const args = process.argv.slice(2);
 if (args.length && (args.length !== 2 || args[0] !== "--arch" || !["arm64", "x64"].includes(args[1]))) throw new Error("Choose --arch arm64 or --arch x64");
 const architecture = args[1] || "arm64";
+const appImageArchitecture = architecture === "x64" ? "x86_64" : architecture;
+const debArchitecture = architecture === "x64" ? "amd64" : architecture;
 const entries = (await fs.readdir(output, { withFileTypes: true }))
-  .filter((entry) => entry.isFile() && (entry.name.endsWith(`-linux-${architecture}.AppImage`) || entry.name.endsWith(`-linux-${architecture}.deb`)))
+  .filter((entry) => entry.isFile() && (entry.name.endsWith(`-linux-${appImageArchitecture}.AppImage`) || entry.name.endsWith(`-linux-${debArchitecture}.deb`)))
   .map((entry) => entry.name)
   .sort();
 if (entries.length !== 2) throw new Error(`Expected one ${architecture} AppImage and one deb, found ${entries.length}`);
@@ -40,7 +42,7 @@ const dependency = async (name, fallback) => {
     return "unavailable";
   }
 };
-const controllerRoot = path.join(root, "apps/desktop/bin/browser-controller");
+const controllerRoot = path.join(output, architecture === "x64" ? "linux-unpacked" : "linux-arm64-unpacked", "resources/browser-controller");
 const controller = await verifyControllerBundle(controllerRoot);
 const manifest = {
   schema_version: 1,

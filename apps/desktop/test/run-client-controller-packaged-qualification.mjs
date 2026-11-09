@@ -16,6 +16,7 @@ const {_electron}=await import(pathToFileURL(path.join(resources,"browser-contro
 await fs.mkdir(path.join(directory,"controller-native-profile"),{recursive:true,mode:0o700});
 const evidence={schema_version:1,scope:"packaged_candidate_disposable_ISCP_mock_model",passed:false,checks:{},tasks:[]};
 let application,window;
+let pausedRelay;
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function until(check,label,timeout=60000){
   const end=performance.now()+timeout;
@@ -32,11 +33,15 @@ try{
     SPARKCLAW_DESKTOP_ISCP_LOCAL_TEST:"1",SPARKCLAW_DESKTOP_ISCP_CONFIG:path.join(directory,"desktop-profile.json"),
     SPARKCLAW_DESKTOP_USER_DATA_DIR:path.join(directory,"controller-native-profile")}});
   application.process().stderr.on("data",chunk=>process.stderr.write(chunk));
-  evidence.runtime=await application.evaluate(({app})=>({packaged:app.isPackaged,versions:process.versions,
-    executable:process.execPath,resources:process.resourcesPath,profile:app.getPath("userData"),pid:process.pid}));
+  evidence.runtime=await application.evaluate(({app,safeStorage})=>({packaged:app.isPackaged,versions:process.versions,
+    executable:process.execPath,resources:process.resourcesPath,profile:app.getPath("userData"),pid:process.pid,
+    secure_storage:{available:safeStorage.isEncryptionAvailable(),
+      backend:process.platform==="linux"?safeStorage.getSelectedStorageBackend():"native"}}));
   assert.equal(evidence.runtime.packaged,true);
   assert.equal(evidence.runtime.executable,executablePath);
   assert.equal(evidence.runtime.profile,path.join(directory,"controller-native-profile"));
+  assert.equal(evidence.runtime.secure_storage.available,true);
+  assert.ok(!["basic_text","unknown"].includes(evidence.runtime.secure_storage.backend));
   evidence.audit=JSON.parse(await fs.readFile(path.join(evidence.runtime.resources,"client-package-audit.json"),"utf8"));
   assert.equal(evidence.audit.browser_controller.files,207);
   evidence.checks.actual_packaged_runtime=true;
@@ -84,6 +89,21 @@ try{
   evidence.tasks.push(state);assert.equal(state.tasks.find(row=>row.request_id===task.request_id).status,"delivered");
   evidence.pages=await nativePages();
   assert.ok(evidence.pages.some(page=>page.value==="Alice"&&!page.debugger&&page.sandbox));
+  if(process.platform==="linux"){
+    const mainNamespace=await fs.readlink(`/proc/${evidence.runtime.pid}/ns/user`);
+    const renderers=await application.evaluate(({webContents})=>webContents.getAllWebContents()
+      .filter(page=>page.getURL()==="https://controller.fixture.test/")
+      .map(page=>page.getOSProcessId()));
+    assert.ok(renderers.length>0);
+    evidence.renderer_isolation=await Promise.all(renderers.map(async pid=>{
+      const status=await fs.readFile(`/proc/${pid}/status`,"utf8");
+      const userNamespace=await fs.readlink(`/proc/${pid}/ns/user`);
+      assert.match(status,/^NoNewPrivs:\s+1$/mu);assert.match(status,/^Seccomp:\s+2$/mu);
+      assert.notEqual(userNamespace,mainNamespace);
+      return {pid,user_namespace:userNamespace,main_user_namespace:mainNamespace,no_new_privs:true,seccomp_filter:true};
+    }));
+    evidence.checks.linux_renderer_isolation=true;
+  }
   assert.equal(approved,true);
   evidence.checks.approved_fill_and_retained_sandboxed_native_view=true;
   const unknown=(await window.evaluate(()=>window.sparkclawDesktop.state())).browser_host.unknown_writes;
@@ -104,6 +124,14 @@ try{
   await until(async()=>(await window.evaluate(()=>window.sparkclawDesktop.state())).presentation.panel_bounds.width>normal.width,"native panel widening");
   await window.getByRole("button",{name:/^(恢复浏览器宽度|Restore browser width)$/u}).click();
   await until(async()=>(await window.evaluate(()=>window.sparkclawDesktop.state())).presentation.panel_bounds.width===normal.width,"native panel width restoration");
+  await window.bringToFront();
+  await application.evaluate(({BrowserWindow})=>{const main=BrowserWindow.getAllWindows()[0];main.show();main.focus();});
+  await window.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  const pageCapture=await application.evaluate(async({webContents})=>{
+    const page=webContents.getAllWebContents().find(page=>page.getURL()==="https://controller.fixture.test/");
+    return (await page.capturePage()).toPNG().toString("base64");
+  });
+  await fs.writeFile(path.join(directory,"evidence/controller-packaged-task-page.png"),Buffer.from(pageCapture,"base64"));
   const capture=await application.evaluate(async({BrowserWindow})=>(await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString("base64"));
   await fs.writeFile(path.join(directory,"evidence/controller-packaged-workbench.png"),Buffer.from(capture,"base64"));
   if(process.env.SPARKCLAW_CONTROLLER_UI_OBSERVE==="1"){
@@ -120,6 +148,27 @@ try{
   await window.locator(".desktopTabSelect").filter({hasText:"Packaged Controller"}).click();
   await until(async()=>(await window.evaluate(()=>window.sparkclawDesktop.state())).presentation.presented_page_ref===taskPage.page_ref,"native panel reopening");
   evidence.checks.original_panel_tabs_hide_reopen_widen_restore=true;
+  if(process.env.SPARKCLAW_CONTROLLER_RELAY_FAULT==="1"){
+    const metadata=JSON.parse(await fs.readFile(path.join(directory,"run.json"),"utf8"));
+    const container=JSON.parse(execFileSync("docker",["inspect",metadata.relay_container],{encoding:"utf8"}))[0];
+    assert.equal(container.Config.Labels?.["io.sparkclaw.iscp.lab"],metadata.lab_id);
+    assert.equal(container.State.Running,true);
+    const personal=(await window.evaluate(()=>window.sparkclawDesktop.state())).pages.filter(page=>page.role==="personal").map(page=>page.page_ref);
+    execFileSync("docker",["pause",container.Id]);pausedRelay=container.Id;
+    const interrupted=await window.evaluate(()=>fetch(window.sparkclawDesktop.gatewayBase+"/api/owner",{signal:AbortSignal.timeout(2000)}).then(response=>response.ok,()=>false));
+    assert.equal(interrupted,false);
+    execFileSync("docker",["unpause",pausedRelay]);pausedRelay=undefined;
+    const reconnected=await window.evaluate(()=>window.sparkclawDesktop.retryLocalConnection());
+    assert.equal(reconnected.state,"connected");
+    const original=await window.evaluate(id=>window.sparkclawClientStore.read(id),conversation.id);
+    assert.equal(original.tasks.filter(row=>row.request_id===task.request_id).length,1);
+    assert.equal(original.tasks.find(row=>row.request_id===task.request_id).status,"delivered");
+    const restored=await window.evaluate(()=>window.sparkclawDesktop.state());
+    assert.ok(personal.every(ref=>restored.pages.some(page=>page.page_ref===ref&&page.role==="personal")));
+    assert.deepEqual([...restored.browser_host.unknown_writes].sort(byCommand),[...evidence.unknown_before].sort(byCommand));
+    assert.equal(await window.evaluate(()=>fetch(window.sparkclawDesktop.gatewayBase+"/api/owner").then(response=>response.status)),200);
+    evidence.checks.relay_block_has_no_bypass_and_same_profile_recovers=true;
+  }
   evidence.direct_business_http_attempts=await application.evaluate(()=>globalThis.__controllerQualificationHTTP);
   assert.equal(evidence.direct_business_http_attempts,0);
   evidence.passed=true;
@@ -129,6 +178,7 @@ try{
   if(application)evidence.native_targets=await application.evaluate(({webContents})=>webContents.getAllWebContents().map(page=>({url:page.getURL(),loading:page.isLoading(),type:page.getType()}))).catch(()=>null);
   if(window){evidence.connection=await window.evaluate(()=>window.sparkclawDesktop.localConnection()).catch(()=>null);evidence.body=await window.locator("body").innerText().catch(()=>"");await window.screenshot({path:path.join(directory,"evidence/controller-packaged-failure.png")}).catch(()=>{});}
 }finally{
+  if(pausedRelay)execFileSync("docker",["unpause",pausedRelay]);
   if(application){
     await application.close().catch(error=>{evidence.passed=false;evidence.quit_error=String(error);});
     const remaining=execFileSync("ps",["-axo","pid,ppid,pgid,command"],{encoding:"utf8"}).split("\n")

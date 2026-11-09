@@ -413,8 +413,8 @@ UI behavior as well as the new transport; functional tests alone do not establis
 
 | Phase | Work and exit evidence | Current status |
 |---|---|---|
-| P0 Feasibility | Actual packaged Electron Node/API/fuse checks; Mac adapter; generic MCP without optional imports; fixtures for frame/popup/ref/input/capture; cold-start and full-tool/chunk timings on Mac ↔ work2 | Local source fixture passed; packaged/remote pending |
-| P1 Local runtime | Reproducible manifest, client entry, process supervision, association map, retained-view lifecycle; installed package runs local fixtures offline | Source lifecycle passed; package pending |
+| P0 Feasibility | Actual packaged Electron Node/API/fuse checks; Mac adapter; generic MCP without optional imports; fixtures for frame/popup/ref/input/capture; cold-start and full-tool/chunk timings on Mac ↔ work2 | Source and Mac/Linux packaged runtime passed; full remote timing gate open |
+| P1 Local runtime | Reproducible manifest, client entry, process supervision, association map, retained-view lifecycle; installed package runs local fixtures offline | Source lifecycle and isolated Mac/work2 x64 packages passed; installed/offline matrix remains |
 | P2 ISCP | Registry/projections, service/client/host, strict forwarder, journal/fence integration, chunks; isolated Relay failure-injection and no business bypass | Integrated; fault recovery gate open |
 | P3 Native acceptance | Installed Mac and work2 Linux desktop through TEST1 to real work2; G1–G4 of the [ISCP expansion design](desktop-iscp-capability-expansion-design.md), §11 matrix, latency versus recorded old-path baseline | Pending |
 | P4 Cutover | Paired Gateway + Mac/Linux packages, old-path deletion, verified rollback and retained-data checks | Pending |
@@ -613,3 +613,29 @@ passes the fix; all 596 WebChat tests pass. Work2 read-only preflight confirms x
 active desktop session; a matched x64 packaging entry and per-architecture manifests were added.
 Remote candidate qualification is continuing; production services and the installed Mac app
 have not been replaced, and D2 deletion remains gated by P3.
+
+Source-native crash injection now passes 12 checks: observe the approved fill, discard its local
+reply before durable completion, kill the actual Controller, retain an unknown outcome without
+replay, close only owned task views, preserve the personal tab and all earlier fences, reconcile
+the observed effect through the original IPC, then execute a fresh task in a new incarnation.
+The first crash run failed its baseline assertion because it sampled before remote fence
+synchronization; the fixture now waits for that synchronization and retains the failed evidence.
+
+The actual Mac package also passes a blocked-Relay/reconnect run (seven grouped checks). Work2's
+hash-verified x64 AppImage extraction passes eight groups through its own isolated Relay/Gateway:
+packaged Controller/MCP, approval and native effect, original panel controls, retained fences,
+blocked transport without business HTTP rescue, same-profile recovery and Quit cleanup. Linux
+uses `gnome_libsecret`; the actual task renderer has Seccomp filter mode, NoNewPrivs and a user
+namespace distinct from main. Keyring, Go and buildx dependencies are extracted into the private
+test directory. A temporary AppArmor rule matches only the candidate executable; no
+`--no-sandbox` or plaintext credential fallback is used. Initial missing BuildKit, cold Go build
+timeout and sandbox-start failures remain recorded. Gateway/WebChat/PostgreSQL IDs, images,
+configuration, complete mount records, networks and start times remain equal to the pre-test
+snapshot; an order-only mount-array comparison failure is retained separately. These runs use
+the mock model and disposable Relay, not TEST1 or live-provider acceptance.
+
+Work2's existing GNOME session remains locked. Its screenshot interface cannot capture that
+locked desktop, and a main-WebContents capture omits the native child view. A separate private
+X11 display therefore supplies the composed-window visual evidence: the original sidebar,
+conversation, browser tab, read-only header and native `Alice` form are visible together. The
+same candidate/profile passes all eight groups there; the user desktop is not unlocked.

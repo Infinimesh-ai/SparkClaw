@@ -359,8 +359,8 @@ Electron adapter 将 debugger 限制在任务持有的页面／frame／弹窗，
 
 | 阶段 | 工作与完成证据 | 当前状态 |
 |---|---|---|
-| P0 可行性 | 真实随包 Electron Node／API／fuse 验证；Mac adapter；无可选导入的通用 MCP；frame／弹窗／ref／输入／截图 fixture；Mac ↔ work2 冷启动、完整工具与分块计时 | 本地源码 fixture 通过；包／远程待验 |
-| P1 本地 runtime | 可复现 manifest、客户端入口、进程监管、归属映射和保留视图生命周期；已安装包离线跑通本地 fixture | 源码生命周期通过；包待验 |
+| P0 可行性 | 真实随包 Electron Node／API／fuse 验证；Mac adapter；无可选导入的通用 MCP；frame／弹窗／ref／输入／截图 fixture；Mac ↔ work2 冷启动、完整工具与分块计时 | 源码及 Mac／Linux 随包 runtime 通过；完整远程计时门槛仍开放 |
+| P1 本地 runtime | 可复现 manifest、客户端入口、进程监管、归属映射和保留视图生命周期；已安装包离线跑通本地 fixture | 源码生命周期及隔离 Mac／work2 x64 包通过；完整安装／离线矩阵待验 |
 | P2 ISCP | 注册／投影、service／client／host、严格转发器、journal／fence、分块；隔离 Relay 故障注入与无业务旁路 | 已接入；故障恢复门槛未关闭 |
 | P3 原生验收 | 已安装 Mac 和 work2 Linux 桌面经 TEST1 连接真实 work2；满足 [ISCP 扩展设计](desktop-iscp-capability-expansion-design.md) G1–G4、§11 矩阵，并与旧路径记录比较延迟 | 待完成 |
 | P4 切换 | Gateway 与 Mac／Linux 包成对发布，删除旧路径，验证回滚与数据保留 | 待完成 |
@@ -523,3 +523,23 @@ shield target 当作首个窗口、要求正常 release 后 MCP 继续存活、�
 拒绝迟到的选择回调，同时保留已创建标签；新回归在旧源码失败、修复后通过，全部 596 项
 WebChat 测试通过。work2 只读预检确认 x86_64 且桌面会话运行，已增加匹配的 x64 打包入口和
 分架构清单。远程候选验证继续进行；尚未替换生产服务或已安装 Mac 应用，D2 删除仍受 P3 门槛约束。
+
+源码原生崩溃注入现通过 12 项检查：观察审批后的实际填写，在持久完成前丢弃本地回执并强制终止
+真实 Controller，保留未知结果且不重放，只关闭自有任务视图，个人标签和早期 fence 均保留；
+经原 IPC 核对观察到的效果后，新 incarnation 可以执行后续任务。首次崩溃运行在远程 fence
+同步完成前采集基线，导致基线断言失败；fixture 现明确等待同步，失败证据继续保留。
+
+实际 Mac 包另通过封锁 Relay／重连场景（七组检查）。work2 的 x64 AppImage 经哈希校验后解包，
+通过其独立 Relay／Gateway 完成八组检查：随包 Controller／MCP、审批及原生效果、原面板交互、
+fence 保留、传输受阻且无业务 HTTP 救援、原 profile 恢复及 Quit 清理。Linux 使用
+`gnome_libsecret`；实际任务 renderer 启用 Seccomp filter、NoNewPrivs，且用户命名空间与 main
+不同。密钥环、Go 和 buildx 依赖仅解包到私有测试目录；临时 AppArmor 规则只匹配候选程序路径，
+未使用 `--no-sandbox` 或明文凭据回退。初始缺少 BuildKit、Go 冷构建超时及沙箱启动失败均保留。
+Gateway／WebChat／PostgreSQL 的 ID、镜像、配置、完整挂载记录、网络和启动时间与测试前快照
+一致；仅挂载数组顺序不同造成的初始比较失败单独保留。这些场景使用 mock 模型和一次性 Relay，
+不代表 TEST1 或真实 provider 已验收。
+
+work2 原有 GNOME 会话持续锁屏，其截图接口无法捕获锁定桌面；主 WebContents 截图也不包含
+原生子视图。因此另用私有 X11 显示取得完整窗口视觉证据：原侧栏、会话、浏览器标签、只读标题
+和已填写 `Alice` 的原生表单同时可见。同一候选包及 profile 在该显示中通过全部八组检查，
+未解锁用户现有桌面。

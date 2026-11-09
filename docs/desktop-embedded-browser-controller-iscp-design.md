@@ -572,9 +572,9 @@ completed goal before any field action. Mock arguments now follow the current sh
 form drafts always assess visible goals before selecting or completing field actions. Regression
 tests retain the existing approval and no-submit boundary. A fresh fixture profile also failed to reach the workbench; the test continues with its original identity and preserves old fences.
 
-Current automated evidence: Linux Go 6,269 test nodes passed / 216 skipped, build and vet passed;
-focused browser packages passed with the race detector; desktop 648 passed / 1 skipped; WebChat
-595 passed and build passed; Controller 358 passed / 151 skipped. The Controller rerun uses a
+Current automated evidence: Linux Go 6,270 test nodes passed / 216 skipped, build and vet passed;
+focused browser packages passed with the race detector; desktop 649 passed / 1 skipped; WebChat
+596 passed and build passed; Controller 358 passed / 151 skipped. The Controller rerun uses a
 canonical private temp directory; WebChat uses Node 26 with native Web Storage disabled so jsdom
 owns `localStorage`. Initial environment failures remain recorded. Remaining gates include the
 complete fault matrix, Mac/Linux packaged and original-UI acceptance, TEST1/work2 measurements,
@@ -590,3 +590,26 @@ reconciles only the injected command after its effect is observed. Earlier unres
 remain exact. Initial fixture failures (waiting for delivered instead of unknown, and comparing
 unordered fences as an ordered array) remain recorded. This closes the observed delay defect;
 the rest of the fault matrix and packaged/remote acceptance gates remain separate.
+
+Mac candidate packaging caught and fixed a builder omission: a separate resource fileset is
+required for the private Controller's root `node_modules`. A regression uses the actual builder
+copy filters, and both Mac and Linux audits verify all 207 files / 18,734,326 bytes. Linux ARM64
+AppImage/deb artifacts build; its packaged Electron runs offline in a Linux container with the
+expected Node/Chromium versions, SQLite, fetch and WebSocket. This does not qualify its GUI.
+
+The Mac packaged candidate passes six native checks through a separate disposable encrypted
+Relay: actual packaged main/resources, live packaged Controller/MCP, one approved form fill,
+retained sandboxed view, baseline fences, original panel/tab/hide/reopen/widen/restore, and Quit
+cleanup (grouped checks). Workbench selection after reload uses the original sidebar. Native AX
+and visual inspection show the filled `Alice` task page under the original read-only panel.
+Initial harness failures are retained: developer-profile credential unlock, choosing the shield
+target as the first window, expecting MCP to survive normal release, missing the sidebar refresh,
+looking for titlebar-portalled controls inside the panel, and an expired observation pause.
+
+Native inspection also exposed a real selection race: a pending personal blank could override
+a later explicit task selection and hide it. The existing component now rejects that stale
+selection callback while retaining the created tab. The new regression fails old source and
+passes the fix; all 596 WebChat tests pass. Work2 read-only preflight confirms x86_64 with an
+active desktop session; a matched x64 packaging entry and per-architecture manifests were added.
+Remote candidate qualification is continuing; production services and the installed Mac app
+have not been replaced, and D2 deletion remains gated by P3.

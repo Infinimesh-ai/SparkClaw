@@ -493,8 +493,8 @@ journal 完结落盘失败时保留可见 unknown fence，同时允许 release �
 始终先评估可见目标，再选择或完成字段操作。回归保留既有审批和不提交边界。
 新建 fixture profile 也曾未能进入工作台；测试继续沿用原身份并保留旧 fence。
 
-当前自动化证据：Linux Go 6269 个测试节点通过／216 跳过，build、vet 通过；浏览器相关包 race
-通过；桌面 648 通过／1 跳过；WebChat 595 通过且构建通过；Controller 358 通过／151 跳过。
+当前自动化证据：Linux Go 6270 个测试节点通过／216 跳过，build、vet 通过；浏览器相关包 race
+通过；桌面 649 通过／1 跳过；WebChat 596 通过且构建通过；Controller 358 通过／151 跳过。
 Controller 重跑使用规范化私有临时目录；WebChat 在 Node 26 禁用原生 Web Storage，使 jsdom
 持有 `localStorage`。初始环境失败记录保留。剩余门槛包括完整故障矩阵、Mac／Linux 安装包及
 原界面验收、TEST1／work2 计时、成对回滚数据保留，以及 P3 之后删除旧路径。
@@ -506,3 +506,20 @@ Controller 重跑使用规范化私有临时目录；WebChat 在 Node 26 禁用�
 通过原 IPC 只核对本次注入命令，早期未决 fence 完整保留。fixture 初始错误（等待 delivered 而非
 unknown、把无序 fence 集合按数组顺序比较）也保留记录。本次已关闭观察到的延迟缺陷，完整故障
 矩阵和安装包／远程验收仍为独立门槛。
+
+Mac 候选打包发现并修复了构建器漏包：必须为 Controller 根目录下的 `node_modules` 单独设置
+资源复制规则。回归直接使用实际构建器过滤器；Mac 和 Linux 审计均验证全部 207 个文件、
+18,734,326 字节。Linux ARM64 AppImage／deb 已构建，包内 Electron 在断网 Linux 容器通过
+Node／Chromium 版本、SQLite、fetch 和 WebSocket 检查；这不代表 Linux GUI 已验收。
+
+Mac 候选包经独立一次性加密 Relay 通过六组原生检查：实际包内 main／资源、运行中的随包
+Controller／MCP、一次审批后填写、保留的沙箱任务页、基线 fence、原面板／标签／隐藏／重开／
+加宽／恢复，以及 Quit 清理（按组计数）。重载后经原侧栏选择会话；原生 AX 和视觉检查显示
+原只读面板中的任务页已填写 `Alice`。保留初始 harness 失败：开发版 profile 凭据解锁、误将
+shield target 当作首个窗口、要求正常 release 后 MCP 继续存活、未刷新侧栏、在面板内寻找
+已 portal 到标题栏的控件，以及视觉观察等待超时。
+
+原生检查还发现真实选页竞态：待创建的个人空白页会覆盖后续显式任务选择并隐藏它。现有组件
+拒绝迟到的选择回调，同时保留已创建标签；新回归在旧源码失败、修复后通过，全部 596 项
+WebChat 测试通过。work2 只读预检确认 x86_64 且桌面会话运行，已增加匹配的 x64 打包入口和
+分架构清单。远程候选验证继续进行；尚未替换生产服务或已安装 Mac 应用，D2 删除仍受 P3 门槛约束。

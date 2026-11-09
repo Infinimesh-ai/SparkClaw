@@ -26,3 +26,23 @@ export function verifyQualificationAuthorization(connection, env = process.env) 
     assert.equal(connection.backend.test_mode, true);
   }
 }
+
+// The initial connected projection precedes the authenticated fence refresh.
+// Observe the existing owner, await that read, and preserve prior failed runs.
+export async function synchronizeQualificationFences(application) {
+  return application.evaluate(async ({ app, webContents }) => {
+    const require = process.getBuiltinModule("node:module").createRequire(app.getAppPath() + "/package.json");
+    const { BrowserControllerForwarder } = require(app.getAppPath() + "/src/browser/controller-forwarder.mjs");
+    const snapshot = BrowserControllerForwarder.prototype.snapshot;
+    let owner;
+    BrowserControllerForwarder.prototype.snapshot = function(...args) { owner = this; return snapshot.apply(this, args); };
+    try {
+      const workbench = webContents.getAllWebContents().find(page => page.getURL() === "sparkclaw-app://workbench/index.html");
+      await workbench.executeJavaScript("window.sparkclawDesktop.state()");
+    } finally { BrowserControllerForwarder.prototype.snapshot = snapshot; }
+    if (!owner) throw Error("Qualification browser fence owner unavailable");
+    await owner.connecting;
+    await owner.refreshFences();
+    return owner.snapshot().unknown_writes;
+  });
+}

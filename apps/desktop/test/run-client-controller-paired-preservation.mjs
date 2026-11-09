@@ -7,6 +7,7 @@ import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { qualificationLaunchEnvironment, verifyQualificationAuthorization } from "./client-controller-qualification-launch.mjs";
 
 const directory = process.env.SPARKCLAW_CONTROLLER_ISCP_LAB;
 const executablePath = process.env.SPARKCLAW_CONTROLLER_CANDIDATE;
@@ -22,6 +23,7 @@ const checkpointPath = path.join(directory, "evidence/controller-paired-checkpoi
 const upgradedCheckpointPath = path.join(directory, "evidence/controller-paired-upgraded-checkpoint.json");
 const output = path.join(directory, `evidence/controller-paired-${phase}-${Date.now()}.json`);
 const origin = "https://controller.fixture.test";
+const attachmentText = "Synthetic attachment retained through paired candidate upgrade and rollback.\n";
 const hash = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
 const evidence = { schema_version: 1, phase, scope: "actual_candidates_same_profile_and_encrypted_ISCP", passed: false, checks: {} };
 let application, window, checkpoint;
@@ -83,8 +85,8 @@ try {
     requireRetained(checkpoint.retained, await retained());
     evidence.checks.cold_identity_history_draft_cancel_and_fences_preserved = true;
   }
-  application = await _electron.launch({ executablePath, timeout: 45000, chromiumSandbox: true, env: { ...process.env,
-    SPARKCLAW_DESKTOP_ISCP_LOCAL_TEST: "1", SPARKCLAW_DESKTOP_ISCP_CONFIG: path.join(directory, "desktop-profile.json"), SPARKCLAW_DESKTOP_USER_DATA_DIR: profile } });
+  application = await _electron.launch({ executablePath, timeout: 45000, chromiumSandbox: true,
+    env: qualificationLaunchEnvironment(directory) });
   application.process().stderr.on("data", bytes => process.stderr.write(bytes));
   evidence.runtime = await application.evaluate(({ app, safeStorage }) => ({ packaged: app.isPackaged, executable: process.execPath, profile: app.getPath("userData"), versions: process.versions, secure_storage: safeStorage.isEncryptionAvailable() }));
   assert.equal(evidence.runtime.packaged, true); assert.equal(evidence.runtime.executable, executablePath);
@@ -92,6 +94,8 @@ try {
   await until(() => (window = application.windows().find(page => page.url() === "sparkclaw-app://workbench/index.html")), "workbench");
   await window.waitForSelector(".localWorkbench");
   await until(async () => (await window.evaluate(() => window.sparkclawDesktop.localConnection())).state === "connected", "connection");
+  evidence.connection = await window.evaluate(() => window.sparkclawDesktop.localConnection());
+  verifyQualificationAuthorization(evidence.connection);
   await application.evaluate(async ({ app, session, net, webContents }, { origin, inject }) => {
     const require = process.getBuiltinModule("node:module").createRequire(app.getAppPath() + "/package.json");
     const { ClientControllerRuntime } = require(app.getAppPath() + "/src/browser/controller-runtime.mjs");
@@ -124,12 +128,14 @@ try {
     });
   }, { origin, inject: phase === "prepare" });
   if (phase === "prepare") {
-    const draft = await window.evaluate(async () => {
+    const draft = await window.evaluate(async text => {
       const store = window.sparkclawClientStore, conversation = await store.create("Paired upgrade retained draft"), draft = await store.draft(conversation.id);
-      await store.saveDraft(conversation.id, "Retain this unsent draft through upgrade and rollback.", [], draft.revision, draft.scope_key); return conversation;
-    });
+      const file = await store.saveFile(conversation.id, "paired-retained.txt", new TextEncoder().encode(text));
+      await store.saveDraft(conversation.id, "Retain this unsent draft through upgrade and rollback.", [file.id], draft.revision, draft.scope_key);
+      return { id: conversation.id, file_id: file.id };
+    }, attachmentText);
     await application.evaluate(async ({ session }, origin) => { const browser = session.fromPartition("persist:sparkclaw-browser-default"); await browser.cookies.set({ url: origin, name: "controller-paired-marker", value: "preserved", expirationDate: Date.now() / 1000 + 86400 }); await browser.cookies.flushStore(); }, origin);
-    checkpoint = { draft_id: draft.id };
+    checkpoint = { draft_id: draft.id, file_id: draft.file_id, file_sha256: hash(Buffer.from(attachmentText)) };
   } else {
     const cookies = await application.evaluate(({ session }) => session.fromPartition("persist:sparkclaw-browser-default").cookies.get({ name: "controller-paired-marker" }));
     assert.ok(cookies.some(row => row.value === "preserved"));
@@ -141,6 +147,12 @@ try {
     evidence.checks.reopen_exposes_unknown_without_automatic_native_replay = true;
     evidence.checks.personal_cookie_preserved = true;
   }
+  const file = await window.evaluate(id => window.sparkclawClientStore.readFile(id), checkpoint.file_id);
+  assert.equal(hash(Buffer.from(Object.values(file.bytes))), checkpoint.file_sha256);
+  const draft = await window.evaluate(id => window.sparkclawClientStore.draft(id), checkpoint.draft_id);
+  assert.equal(draft.content, "Retain this unsent draft through upgrade and rollback.");
+  assert.ok(draft.local_file_ids.includes(checkpoint.file_id));
+  evidence.checks.original_file_and_draft_IPC_preserve_attachment_bytes = true;
   // A separate explicit task stays available; the unresolved original is never
   // retried or reconciled merely to allow the candidate comparison to pass.
   const conversation = await window.evaluate(title => window.sparkclawClientStore.create(title), `Paired ${phase} ${Date.now()}`);

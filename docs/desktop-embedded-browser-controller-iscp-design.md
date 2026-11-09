@@ -1492,3 +1492,28 @@ FIFO and cancellation checks pass (23 focused checks), and desktop tests pass 66
 skip. Initial test-constructor/projection setup errors and an outdated transient-notification
 count are retained separately. Clean rebuilt artifacts and native cancellation verification
 are required before this repair is qualified; paired transition testing is deferred until then.
+
+Clean `80563081` Mac DMG/ZIP and Linux AppImage/deb are now built. Independent readonly-DMG
+installation and the private Linux AppImage payload both pass cancellation recovery (six checks
+each), followed by real-model normal/browser-panel checks (Mac six, Linux seven). Old approvals
+remain unusable, cancellation intent is durable, a new task in the same conversation opens its
+page, personal data survives, and owned children exit. Viewed workbench/task captures show the
+original UI and Alice. Of 6,516 Mac / 6,566 Linux ASAR files, only `controller-runtime.mjs` changes;
+all 207 Controller payload file hashes remain equal to the predecessor.
+
+The first new-Mac run already restores the new page, but its fence baseline is sampled before
+the authenticated initial refresh and later comparison fails. Preserve that result. The fixture
+now awaits the actual forwarder's connection and receipt read before recording the baseline;
+its first observer mistakenly captures a restricted facade and fails before creating a task.
+That fixture error and the initial wrong-working-directory build (terminated; no artifacts
+qualified) are also retained. The passing reruns preserve both earlier Mac unknown release
+fences and the earlier Linux one. Independent stopped-state reads prove new cancellation
+cleanup receipts are failed rather than unknown, fresh-task receipts are completed and the new
+execution is delivered; no earlier unknown is reconciled or deleted to make this pass.
+
+The same node issuer/Gateway binaries and identities remain retained. Activity services, tunnel,
+candidate processes, temporary policy and private display are stopped; production matches the
+post-recovery baseline with 5,570,560,000 bytes free. No production application was replaced.
+Native paired-transition tests, refreshed lifecycle/fault/offline coverage, TEST1, remaining WAN
+evidence and P3-gated D2 deletion remain open. The paired fixture now supports node-managed
+profiles and an actual retained attachment, but its new transition runs are not yet qualified.

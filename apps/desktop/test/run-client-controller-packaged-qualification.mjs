@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { qualifyPackagedOperations } from "./client-controller-packaged-operations.mjs";
 import { qualifyPackagedScreenshot } from "./client-controller-packaged-screenshot.mjs";
-import { qualificationLaunchEnvironment, verifyQualificationAuthorization } from "./client-controller-qualification-launch.mjs";
+import { qualificationLaunchEnvironment, verifyQualificationAuthorization, synchronizeQualificationFences } from "./client-controller-qualification-launch.mjs";
 
 const directory=process.env.SPARKCLAW_CONTROLLER_ISCP_LAB;
 const executablePath=process.env.SPARKCLAW_CONTROLLER_CANDIDATE;
@@ -133,7 +133,7 @@ try{
   const connection=await window.evaluate(()=>window.sparkclawDesktop.localConnection());
   evidence.connection=connection;
   verifyQualificationAuthorization(connection);assert.equal(connection.capabilities.browser,true);
-  evidence.unknown_before=(await window.evaluate(()=>window.sparkclawDesktop.state())).browser_host.unknown_writes;
+  evidence.unknown_before=await synchronizeQualificationFences(application);
   await application.evaluate(async({session,net})=>{
     globalThis.__controllerQualificationHTTP=0;
     const original=net.fetch.bind(net);

@@ -33,7 +33,18 @@ export class ElectronChromeAPI {
   }
 
   dispose() {
+    const connection = this.registry.connections.get(this.connectionID);
+    for (const tabID of connection?.tabIDs ?? []) {
+      const record = this.registry.records.get(tabID);
+      if (record) this.releaseDebugger(record);
+    }
     this.downloadRegistry.releaseConnection(this.connectionID);
+  }
+
+  releaseDebugger(record) {
+    this.#removeDebuggerListeners(record);
+    if (record.attached && !record.webContents.isDestroyed()) record.webContents.debugger.detach();
+    this.notifyDebuggerDetach(record, "canceled_by_user");
   }
 
   notifyDebuggerDetach(record, reason) {
@@ -57,7 +68,7 @@ export class ElectronChromeAPI {
     const ids = Array.isArray(candidate) ? candidate : [candidate];
     if (!ids.length) throw new Error("Tab is outside the task allowlist");
     for (const tabID of ids) this.registry.get(this.connectionID, tabID);
-    for (const tabID of ids) this.registry.destroy(tabID, "canceled_by_user");
+    for (const tabID of ids) this.registry.removeTaskPage(this.connectionID, tabID);
   }
 
   async #attach(target, version) {

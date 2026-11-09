@@ -64,6 +64,7 @@ export class RelayConnection {
     this.ontabdetached = null;
     this.onhandoff = null;
     this.onhandoffcomplete = null;
+    this.ontabselected = null;
     this.downloads = new TaskDownloads({ chromeAPI, send: message => this.#send(message),
       ownsTab: tabId => this.allowedTabs.has(tabId) && this.attachedTabs.has(tabId) });
     this.#installEventForwarders();
@@ -202,6 +203,7 @@ export class RelayConnection {
       await this.chrome.debugger.sendCommand(args[0], "Emulation.setFocusEmulationEnabled", { enabled: true });
     }
     if (method === "Page.bringToFront") {
+      this.ontabselected?.(tabId);
       if (!this.allowTaskHandoff) return {};
       if (!this.handoffGrants.delete(tabId)) return {};
       this.onhandoff?.(tabId);

@@ -49,6 +49,7 @@
       "src/**/*",
       "bin/**/*",
       "!bin/iscp-workbench*",
+      "!bin/browser-controller{,/**/*}",
       "package.json"
     ],
     "extraResources": [
@@ -66,6 +67,13 @@
       {
         "from": "../webchat/dist-preview",
         "to": "local-preview",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "bin/browser-controller",
+        "to": "browser-controller",
         "filter": [
           "**/*"
         ]
@@ -130,6 +138,7 @@
         "src/**/*",
         "bin/**/*",
         "!bin/iscp-workbench*",
+        "!bin/browser-controller{,/**/*}",
         "package.json",
         "!node_modules/@deepseek-ai/libreoffice-kit-wasm/**/*"
       ]

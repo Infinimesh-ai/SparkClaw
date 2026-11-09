@@ -6,6 +6,7 @@ import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { createPackage } from "@electron/asar";
 import auditPackage, { auditApplicationEntries, auditRuntimeEntries, requiredRuntimeEntries } from "../scripts/audit-package.mjs";
+import { syntheticControllerBundle } from "./controller-bundle-fixture.mjs";
 
 test("package audit rejects missing converter, parser and guardian runtime files", () => {
   for (const platform of ['darwin', 'linux']) {
@@ -58,10 +59,14 @@ test("afterPack audits a synthetic ASAR/resources tree without compiling any Mac
   await fs.writeFile(helperPath, "synthetic helper", { mode: 0o600 });
   await assert.rejects(auditPackage(context), /executable ISCP helper/);
   await fs.chmod(helperPath, 0o755);
+  await assert.rejects(auditPackage(context), /ENOENT/);
+  await syntheticControllerBundle(path.join(resources, "browser-controller"));
   await auditPackage(context);
   const result = JSON.parse(await fs.readFile(path.join(resources, "client-package-audit.json")));
   assert.equal(result.platform, "darwin"); assert.equal(result.ui_files, 2);
   assert.match(result.iscp_helper_sha256, /^[a-f0-9]{64}$/u);
+  assert.equal(result.browser_controller.protocol, "browser.controller.v1");
+  assert.match(result.browser_controller.manifest_sha256, /^[a-f0-9]{64}$/u);
   await fs.writeFile(path.join(resources, "webchat", "backend.json"), "{}");
   await assert.rejects(auditPackage(context), /allowlist/);
 });

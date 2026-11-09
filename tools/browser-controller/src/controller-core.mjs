@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import operations from "./generic-operations.json" with { type: "json" };
 
 import { ControllerError, invalidRequest } from "./errors.mjs";
 import {
@@ -15,36 +16,8 @@ import {
 } from "./protocol.mjs";
 
 const DEFAULT_SESSION_TTL_MS = 2 * 60_000;
-const GENERIC_OPERATIONS = new Set([
-  "ai_chat.export",
-  "ai_platform.check",
-  "page.click",
-  "page.fill",
-  "page.info",
-  "page.navigate",
-  "page.read",
-  "page.screenshot",
-  "page.select",
-  "page.snapshot",
-  "page.type",
-  "page.wait",
-  "tabs.close",
-  "tabs.handoff",
-  "tabs.list",
-  "tabs.new",
-]);
-const PAGE_MUTATING_OPERATIONS = new Set([
-  "ai_chat.export",
-  "ai_platform.check",
-  "page.click",
-  "page.fill",
-  "page.navigate",
-  "page.select",
-  "page.type",
-  "tabs.close",
-  "tabs.handoff",
-  "tabs.new",
-]);
+const GENERIC_OPERATIONS = new Set(Object.keys(operations));
+const PAGE_MUTATING_OPERATIONS = new Set(Object.entries(operations).filter(([, spec]) => spec.mutation).map(([name]) => name));
 
 export class BrowserController {
   constructor({

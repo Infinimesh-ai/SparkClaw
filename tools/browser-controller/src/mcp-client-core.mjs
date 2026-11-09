@@ -82,6 +82,7 @@ export class PlaywrightMCPClientFactory {
     this.extraEnv = options.extraEnv ?? {};
     this.operationHandlers = options.operationHandlers ?? {};
     this.electronAdapter = options.electronAdapter ?? null;
+    this.adoptRetainedPage = Boolean(options.adoptRetainedPage);
     this.outputRoot = options.outputRoot ?? path.join(os.tmpdir(), "sparkclaw-browser-controller", "mcp-output");
     validateOutputRoot(this.outputRoot);
     this.outputReady = prepareOutputRoot(this.outputRoot);
@@ -164,6 +165,7 @@ export class PlaywrightMCPClientFactory {
     const client = new PlaywrightMCPClient(child, rpc, outputDir, {
       adoptTaskPopups: Boolean(this.electronAdapter),
       operationHandlers: this.operationHandlers,
+      adoptRetainedPage: this.adoptRetainedPage,
     });
     try {
       await rpc.request("initialize", {
@@ -185,7 +187,7 @@ export class PlaywrightMCPClientFactory {
 }
 
 export class PlaywrightMCPClient {
-  constructor(child, rpc, outputDir, { adoptTaskPopups = false, operationHandlers = {} } = {}) {
+  constructor(child, rpc, outputDir, { adoptTaskPopups = false, operationHandlers = {}, adoptRetainedPage = false } = {}) {
     this.child = child;
     this.rpc = rpc;
     this.outputDir = outputDir;
@@ -197,6 +199,7 @@ export class PlaywrightMCPClient {
     this.closePromise = null;
     this.adoptTaskPopups = adoptTaskPopups;
     this.operationHandlers = operationHandlers;
+    this.adoptRetainedPage = adoptRetainedPage;
     this.lastProviderTabs = null;
   }
 
@@ -223,7 +226,10 @@ export class PlaywrightMCPClient {
         status: 409,
       });
     }
-    await this.#newTaskPage("about:blank");
+    // Client main may supply its retained conversation view at tabs.create.
+    // Omitting navigation preserves that view; the adapter creates a blank
+    // page itself when there is nothing to adopt. Backend behavior is unchanged.
+    await this.#newTaskPage(this.adoptRetainedPage ? "" : "about:blank");
   }
 
   async closeTaskPage() {

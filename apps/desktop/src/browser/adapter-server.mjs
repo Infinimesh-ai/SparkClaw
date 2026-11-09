@@ -23,7 +23,7 @@ const REGISTRATION_TTL_MS = 15_000;
 
 export class ElectronAdapterServer {
   constructor({ socketPath, secretPath, downloadRoot, runtimeGeneration, registry, browserSession, scriptHost, clipboard, lifecycle,
-    qualification = false }) {
+    qualification = false, controllerIncarnation = "" }) {
     this.socketPath = socketPath;
     this.secretPath = secretPath;
     this.runtimeGeneration = runtimeGeneration;
@@ -33,10 +33,13 @@ export class ElectronAdapterServer {
     this.clipboard = clipboard;
     this.lifecycle = lifecycle;
     this.qualification = qualification;
+    this.controllerIncarnation = controllerIncarnation;
+    this.controllerTasks = new Map();
     this.downloadRegistry = new ElectronDownloadRegistry(browserSession, registry, downloadRoot);
     this.registrations = new Map();
     this.relays = new Map();
     this.server = null;
+    this.clients = new Set();
     this.runtimeSecret = crypto.randomBytes(32).toString("base64url");
   }
 
@@ -61,19 +64,24 @@ export class ElectronAdapterServer {
     await new Promise((resolve, reject) => {
       const failed = (error) => reject(error);
       this.server.once("error", failed);
-      this.server.listen(this.socketPath, () => {
-        this.server.removeListener("error", failed);
-        resolve();
-      });
+      const previous = process.umask(0o077);
+      try {
+        this.server.listen(this.socketPath, () => {
+          this.server.removeListener("error", failed);
+          resolve();
+        });
+      } finally { process.umask(previous); }
     });
     await fs.chmod(this.socketPath, 0o600);
     return this;
   }
 
   async close() {
+    this.revokeControllerTasks("adapter_stopped");
     for (const relay of this.relays.values()) relay.close("Electron runtime stopped");
     this.relays.clear();
     this.registrations.clear();
+    for (const client of this.clients) client.destroy();
     if (this.server) {
       await new Promise((resolve) => this.server.close(() => resolve()));
       this.server = null;
@@ -84,10 +92,47 @@ export class ElectronAdapterServer {
     this.runtimeSecret = "";
   }
 
+  // Called only by the authenticated main-process forwarder, never a remote
+  // adapter operation. The unguessable task ID is consumed exactly once.
+  prepareControllerTask(binding, incarnation) {
+    if (!this.controllerIncarnation || incarnation !== this.controllerIncarnation || !this.server?.listening ||
+        !binding?.local_conversation_id || !binding.local_task_id || this.controllerTasks.size) throw new Error("Controller task association is unavailable");
+    const taskID = `task_${crypto.randomBytes(24).toString("hex")}`;
+    const token = crypto.randomBytes(32).toString("base64url");
+    this.controllerTasks.set(taskID, { taskID, incarnation, binding: Object.freeze({ ...binding }),
+      tokenHash: crypto.createHash("sha256").update(token).digest("hex"), state: "pending", expiresAt: Date.now() + 25000 });
+    return { taskID, token };
+  }
+
+  beginControllerRelease(taskID) {
+    const association = this.controllerTasks.get(taskID);
+    if (association?.state !== "connected" || !association.connectionID) throw new Error("Controller task association is stale");
+    this.registry.beginControllerRelease(association.connectionID);
+  }
+
+  revokeControllerTask(taskID, reason = "controller_task_revoked") {
+    const association = this.controllerTasks.get(taskID);
+    if (!association) return;
+    association.state = "revoked";
+    this.controllerTasks.delete(taskID);
+    for (const [credential, registration] of this.registrations) if (registration.association === association) this.registrations.delete(credential);
+    if (association.connectionID) {
+      this.registry.closeConnection(association.connectionID, reason);
+      this.relays.get(association.connectionID)?.close(reason);
+      this.relays.delete(association.connectionID);
+    }
+  }
+
+  revokeControllerTasks(reason) {
+    for (const taskID of this.controllerTasks.keys()) this.revokeControllerTask(taskID, reason);
+  }
+
   #handleClient(client) {
+    this.clients.add(client);
     client.setEncoding("utf8");
     let input = "";
     const timer = setTimeout(() => client.destroy(), 10_000);
+    client.once("close", () => { clearTimeout(timer); this.clients.delete(client); });
     timer.unref?.();
     client.on("data", (chunk) => {
       input += chunk;
@@ -149,10 +194,18 @@ export class ElectronAdapterServer {
       throw new Error("Electron adapter authentication failed");
     }
     this.#expireRegistrations();
+    let association;
+    if (this.controllerIncarnation) {
+      association = this.controllerTasks.get(request.binding.task_id);
+      if (!association || association.state !== "pending" || association.expiresAt < Date.now() ||
+          association.incarnation !== this.controllerIncarnation || !secureEqual(association.tokenHash, request.tokenHash)) throw new Error("Controller task association is invalid");
+      association.state = "registered";
+    }
     const credential = crypto.randomBytes(32).toString("base64url");
     this.registrations.set(credential, {
       tokenHash: request.tokenHash,
       binding: request.binding,
+      association,
       expiresAt: Date.now() + REGISTRATION_TTL_MS,
     });
     return {
@@ -174,20 +227,30 @@ export class ElectronAdapterServer {
         !bindingEquals(registration.binding, request.binding)) {
       throw new Error("Electron adapter credential is invalid");
     }
+    const association = registration.association;
+    const checkAssociation = () => {
+      if (this.controllerIncarnation && (!association || !["registered", "connected"].includes(association.state) ||
+          association.incarnation !== this.controllerIncarnation || this.controllerTasks.get(association.taskID) !== association)) throw new Error("Controller task association is stale");
+    };
+    checkAssociation();
     const connectionInfo = parsePlaywrightConnectionURL(request.connectionURL);
     if (!secureEqual(connectionInfo.tokenHash, registration.tokenHash)) {
       throw new Error("Electron adapter token is invalid");
     }
 
     const connectionID = crypto.randomUUID();
-    const connection = { id: connectionID, binding: request.binding, clientName: connectionInfo.clientName };
+    if (association) { association.state = "connected"; association.connectionID = connectionID; }
+    const connection = { id: connectionID, binding: request.binding, clientName: connectionInfo.clientName, association };
     this.registry.registerConnection(connection);
     let initialRecord;
     let socket;
     try {
       await this.downloadRegistry.registerConnection(connectionID);
+      checkAssociation();
       initialRecord = await this.registry.createInitialTaskPage(connectionID);
+      checkAssociation();
       socket = await openWebSocket(connectionInfo.relayURL);
+      checkAssociation();
       const chromeAPI = new ElectronChromeAPI({
         registry: this.registry,
         connectionID,
@@ -201,9 +264,11 @@ export class ElectronAdapterServer {
         taskWindowID: 1,
         allowTaskHandoff: false,
       });
+      relay.ontabselected = tabID => this.registry.selectTaskPage(connectionID, tabID);
       relay.onclose = () => {
         this.relays.delete(connectionID);
         this.registry.closeConnection(connectionID, "relay_closed");
+        if (association) this.revokeControllerTask(association.taskID, "relay_closed");
       };
       this.relays.set(connectionID, relay);
       relay.attachInitialTab(publicTab(initialRecord));
@@ -221,6 +286,7 @@ export class ElectronAdapterServer {
       socket?.close();
       this.registry.closeConnection(connectionID, "connection_failed");
       this.downloadRegistry.releaseConnection(connectionID);
+      if (association) this.revokeControllerTask(association.taskID, "connection_failed");
       throw error;
     }
   }

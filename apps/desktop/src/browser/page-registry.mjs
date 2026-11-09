@@ -122,10 +122,63 @@ export class PageRegistry {
   }
 
   createTaskPage(connectionID, url = "about:blank", openerTabID) {
+    const connection = this.requireConnection(connectionID);
+    if (connection.association && !connection.adopted) {
+      connection.adopted = true;
+      const retained = this.conversationPages.get(connection.association.binding.local_conversation_id);
+      if (retained && !retained.destroyed) {
+        if (retained.connectionID) throw new Error("Conversation already has a browser controller");
+        retained.connectionID = connectionID;
+        retained.binding = connection.binding;
+        retained.localGeneration++;
+        connection.tabIDs.add(retained.tabID);
+        this.#bindControllerPage(retained, connection);
+        this.selectTaskPage(connectionID, retained.tabID);
+        return retained;
+      }
+    }
     const record = this.#createRecord({ role: "task", connectionID, url, openerTabID });
     void record.webContents.loadURL(url || "about:blank").catch(() => this.destroy(record.tabID, "load_failed"));
+    this.selectTaskPage(connectionID, record.tabID);
     this.#changed();
     return record;
+  }
+
+  selectTaskPage(connectionID, tabID) {
+    const record = this.get(connectionID, tabID);
+    if (record.hostConversationID && !record.initial) {
+      this.conversationPages.set(record.hostConversationID, record);
+      if (this.selectedConversationID === record.hostConversationID) this.presentation.showTask(record);
+      this.#changed();
+    }
+    return publicTab(record);
+  }
+
+  beginControllerRelease(connectionID) {
+    const connection = this.requireConnection(connectionID);
+    if (!connection.association || connection.retiring) throw new Error("Controller release is invalid");
+    const retained = this.conversationPages.get(connection.association.binding.local_conversation_id);
+    connection.retiring = true;
+    connection.retainTabID = retained?.connectionID === connectionID ? retained.tabID : null;
+  }
+
+  removeTaskPage(connectionID, tabID) {
+    const record = this.get(connectionID, tabID);
+    const connection = this.requireConnection(connectionID);
+    if (connection.retiring && connection.retainTabID === tabID && !record.initial) {
+      // The main process has explicitly authorized normal release. Removing the
+      // tab from MCP revokes all debugger authority but leaves the local view.
+      connection.facade?.releaseDebugger(record);
+      connection.tabIDs.delete(tabID);
+      record.connectionID = null;
+      record.binding = null;
+      record.hostBinding = null;
+      record.localGeneration++;
+      connection.facade?.tabs.onRemoved.emit(tabID, { isWindowClosing: false });
+      this.#changed();
+      return true;
+    }
+    return this.destroy(tabID, "canceled_by_user");
   }
 
   async createPersonalPage(url = "about:blank") {
@@ -379,7 +432,16 @@ export class PageRegistry {
     this.presentation.add(record);
     this.scriptHost?.bind(record);
     this.#secureRecord(record);
+    if (connection?.association && !initial) this.#bindControllerPage(record, connection);
     return record;
+  }
+
+  #bindControllerPage(record, connection) {
+    const binding = connection.association.binding;
+    record.hostConversationID = binding.local_conversation_id;
+    record.hostBinding = binding;
+    record.controllerOwned = true;
+    if (!this.conversationPages.has(record.hostConversationID)) this.conversationPages.set(record.hostConversationID, record);
   }
 
   #secureRecord(record) {
@@ -428,7 +490,7 @@ export class PageRegistry {
       if (!record.destroyed) this.destroy(record.tabID, "target_closed");
     });
     webContents.setWindowOpenHandler((details) => {
-      if (record.destroyed || record.hostConversationID) return { action: "deny" };
+      if (record.destroyed || record.hostConversationID && (!record.controllerOwned || !record.connectionID)) return { action: "deny" };
       queueMicrotask(() => {
         try {
           const popup = this.#createRecord({

@@ -2,8 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> 日期：2026-11-09。状态：实施所需设计已补齐；运行时改动及 P0–P4 验收仍待完成。
-> §12 保留所有者决定 D1–D3。本次补齐传输、归属、恢复和切换契约，不代表已有可行性验证证据。
+> 日期：2026-11-09。状态：实施推进中。§14 记录 Mac 本地装配与生命周期证据；
+> 生产 ISCP 接入和 P0–P4 完整验收仍未完成。§12 保留所有者决定 D1–D3。
 > 已核对源码：`main` 的 `e031a453`（初版提案）；浏览器／ISCP／桌面实现基线仍为 `b5c21e14`。
 > 本次仅涉及 SparkClaw，不执行项目簇协调流程。
 > 范围：SparkX 经 ISCP 的通用浏览器自动化。邮件、provider 脚本和 AI 对话导出保持现有路径。
@@ -440,3 +440,30 @@ P0 未知项属于验证门槛，不是缺少产品决定：随包 Electron runt
 
 依赖顺序为 P0 → 本地装配／生命周期 → 传输／回执 → 原生验收 → 删除旧路径。
 可选处理器的机械提取与传输／行为改动分开提交，全程保持后端采集测试通过。
+
+## 14. 实施检查点 — 2026-11-09
+
+通用 Controller／MCP 核心和 Unix 服务基础能力已由明确的后端、客户端装配共享；后端继续注入
+邮件与 AI 处理器。客户端 lockfile 只锁定 MCP、Playwright 和 Playwright Core。
+`build:client-controller` 构建专用载荷；Mac／Linux 打包入口将其放在 ASAR 外，`afterPack`
+检查文件清单、执行权限、锁定版本和 manifest 哈希。尚未发布安装包。
+
+`ClientControllerRuntime` 在惰性启动前校验文件，以固定环境使用 Electron 的 Node，检查私有短
+socket 路径，通过独立进程组执行有界退出。生产模式 adapter 只接受 main 签发的一次性任务关联。
+PageRegistry 支持显式正常释放保留、新 lease 接管，以及不切换前台焦点的逻辑选页。这些组件已由
+原生 fixture 验证；此检查点尚未切换生产 `main.mjs` 和 Gateway 路由。
+
+Mac ARM64 本地证据使用 Electron 44.4.3／Node 24.21.0／Chromium 152.0.7977.130，隔离 profile，
+子进程 PATH 为 `/usr/bin:/bin`。12 项原生检查全部通过：读取／填写／点击／选择／快照／截图、
+renderer sandbox、不依赖系统 Node、iframe 引用及效果、归属弹窗、正常释放保留、新 lease 接管、
+显式关闭、崩溃撤权与子进程清理、新 incarnation 和正常退出。这是单个源码运行时场景，
+不代表安装包或延迟验收完成。
+
+保留初始失败证据：JS 与 Go 均拒绝 `f1e2` 框架引用；macOS 长临时路径被拒绝；非活动弹窗覆盖了
+应保留视图；acquire 将接管的视图导航到 `about:blank`。修复保留 frame 命名空间、使用规定短路径、
+跟踪逻辑选页而不激活窗口，并只在客户端装配中省略首次导航。后端任务页面创建行为不变。
+
+验证：Controller 358 通过／151 跳过；桌面 632 通过／1 跳过；共享 MCP、relay、关联、包、运行时和
+页面生命周期定向检查通过；Go browserautomation 含框架引用覆盖通过。上述计数在完整传输接入之前。
+后续门槛：ISCP 契约／客户端／转发器、持久重复请求 fence、取消／队列／分块边界、真实 Mac／Linux
+安装包验收、经 TEST1 连接 work2，以及 P3 之后删除旧路径。

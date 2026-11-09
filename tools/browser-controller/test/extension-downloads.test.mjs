@@ -68,6 +68,10 @@ test('pinned Playwright hooks are installed, idempotent, and reject drift', asyn
   await installDownloads({ check: true });
   const source = await fs.readFile(new URL('../node_modules/playwright-core/lib/coreBundle.js', import.meta.url), 'utf8');
   assert.equal(patchedBundle(source), source);
+  const generic = patchedBundle(source, { genericOnly: true });
+  assert.doesNotMatch(generic, /require\("\.\.\/\.\.\/\.\.\/src\/(?:awaited-mail-read|application-hook)\.cjs"\)/u);
+  assert.equal(patchedBundle(generic, { genericOnly: true }), generic);
+  assert.equal(patchedBundle(generic), source);
   assert.throws(() => patchedBundle('upstream changed'), /hook changed/);
 });
 

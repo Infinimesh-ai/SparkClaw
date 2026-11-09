@@ -2,9 +2,9 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> Date: 2026-11-09. Status: design complete for implementation; runtime changes and P0–P4
-> qualification remain pending. Owner decisions D1–D3 are retained in §12. This revision closes
-> the transport, ownership, recovery and cutover contracts; it does not claim feasibility evidence.
+> Date: 2026-11-09. Status: implementation in progress. Local Mac assembly/lifecycle evidence is
+> recorded in §14; production ISCP integration and P0–P4 acceptance remain open.
+> Owner decisions D1–D3 are retained in §12.
 > Source reviewed: `main` at `e031a453` (initial proposal); browser/ISCP/desktop implementation
 > baseline remains `b5c21e14`. This is SparkClaw-local work, with no project-cluster coordination.
 > Scope: generic browser automation in SparkX through ISCP. Mail, provider scripts and AI chat
@@ -504,3 +504,36 @@ Paths are repository-relative; new names below are proposed, not present impleme
 Dependencies are P0 → local assembly/lifecycle → transport/receipts → native acceptance → deletion.
 Keep mechanical optional-handler extraction separate from transport/behavior changes, and keep
 backend acquisition tests green throughout.
+
+## 14. Implementation checkpoint — 2026-11-09
+
+The generic Controller/MCP core and Unix-server primitives are now shared by explicit backend
+and client assemblies. The backend still injects mail and AI handlers. The client lockfile pins
+only MCP, Playwright and Playwright Core. `build:client-controller` builds the private client
+payload; Mac/Linux package entry points include it outside ASAR, and `afterPack` checks its
+inventory, executable bits, pinned versions and manifest hash. No installer is released yet.
+
+`ClientControllerRuntime` verifies files before lazy startup, uses Electron as Node with a fixed
+environment, checks private short socket paths, and owns a separate process group with bounded
+shutdown. The production-mode adapter accepts only a one-use main-issued task association.
+PageRegistry supports explicit normal-release retention, fresh-lease adoption and logical tab
+selection without foreground handoff. These components are exercised by the native fixture;
+production `main.mjs` and Gateway routing are not switched at this checkpoint.
+
+Local Mac ARM64 evidence uses Electron 44.4.3 / Node 24.21.0 / Chromium 152.0.7977.130 with a
+disposable profile and `/usr/bin:/bin` child PATH. All 12 native checks pass: read/fill/click/select/
+snapshot/capture; renderer sandbox; no system Node; iframe refs/effects; owned popup; normal
+retention; fresh adoption; explicit close; crash revocation and child cleanup; new incarnation;
+and clean stop. This is one source-runtime scenario, not installed-package or latency acceptance.
+
+Initial failed attempts remain diagnostic evidence: `f1e2` frame refs were rejected by both JS
+and Go parsers; a long macOS temporary path was rejected; an inactive popup displaced the retained
+view; acquire navigated the adopted view to `about:blank`. The fixes preserve frame namespaces,
+use the specified short path, track logical selection without activating a window, and omit
+initial navigation only in the client assembly. Backend task-page creation remains unchanged.
+
+Validation: Controller 358 passed / 151 skipped; desktop 632 passed / 1 skipped; focused shared
+MCP, relay, association, package, runtime and page-lifecycle checks pass. Go browserautomation
+passes with child-frame coverage. These counts precede full transport integration. Next gates:
+ISCP contract/client/forwarder, durable duplicate fences, cancellation/queue/chunk limits, actual
+Mac/Linux packaged acceptance, work2 through TEST1, and P3-gated old-path deletion.

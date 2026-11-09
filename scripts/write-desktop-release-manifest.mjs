@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { verifyControllerBundle } from "../apps/desktop/src/browser/controller-bundle.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const output = path.join(root, "apps", "desktop", "dist");
@@ -32,6 +33,8 @@ const dependency = async (name, fallback) => {
     return "unavailable";
   }
 };
+const controllerRoot = path.join(root, "apps/desktop/bin/browser-controller");
+const controller = await verifyControllerBundle(controllerRoot);
 const manifest = {
   schema_version: 1,
   product: "SparkX Desktop",
@@ -41,9 +44,11 @@ const manifest = {
   runtime: { electron: versions.electron, chromium: versions.chrome, node: versions.node },
   control: {
     browser_bridge: await dependency("@sparkclaw/browser-bridge", "tools/browser-bridge"),
-    playwright_mcp: await dependency("@playwright/mcp", "tools/browser-controller/node_modules/@playwright/mcp"),
-    playwright_cli: await dependency("@playwright/cli", "tools/browser-controller/node_modules/@playwright/cli"),
-    playwright: await dependency("playwright", "tools/browser-controller/node_modules/playwright"),
+    controller_protocol: controller.protocol,
+    controller_manifest_sha256: crypto.createHash("sha256").update(await fs.readFile(path.join(controllerRoot, "manifest.json"))).digest("hex"),
+    playwright_mcp: controller.versions["@playwright/mcp"],
+    playwright: controller.versions.playwright,
+    playwright_core: controller.versions["playwright-core"],
   },
   artifacts,
 };

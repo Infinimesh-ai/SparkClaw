@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import { verifyControllerBundle } from "../src/browser/controller-bundle.mjs";
 
 const privatePattern = /(?:^|\/)(?:\.git|\.env(?:\.[^/]*)?|data|runtime|qualifications?|private|credentials?|\.tools|services|configs|InfiniCenter)(?:\/|$)|(?:^|\/)(?:desktop-client|desktop-profile|iscp-launch-profile|local-workbench|desktop-connection|backend|credential)\.(?:json|bin)$|\.(?:pem|key|sqlite(?:-wal|-shm)?|db|dump)$/iu;
 const desktopRoots = ["package.json", "src", "bin", "node_modules"];
@@ -35,7 +36,7 @@ export function auditApplicationEntries(entries) {
   for (const raw of entries) {
     const entry = raw.replaceAll("\\", "/").replace(/^\//u, "");
     const parts = entry.split("/");
-    if (!entry || parts.some((part) => part === ".." || part === ".") || !desktopRoots.includes(parts[0]) || parts[0] !== "node_modules" && privatePattern.test(entry)) {
+    if (!entry || entry === "bin/browser-controller" || entry.startsWith("bin/browser-controller/") || parts.some((part) => part === ".." || part === ".") || !desktopRoots.includes(parts[0]) || parts[0] !== "node_modules" && privatePattern.test(entry)) {
       throw new Error("Installation package contains a file outside the public client allowlist");
     }
     if (parts[0] === "node_modules") {
@@ -102,12 +103,16 @@ export default async function auditPackage(context) {
   // can silently omit dependencies when a checkout uses linked installations.
   const architecture = typeof context.arch === 'string' ? context.arch : ({ 1: 'x64', 3: 'arm64' }[context.arch] || process.arch);
   auditRuntimeEntries(listPackage(path.join(resources, "app.asar")), context.electronPlatformName, architecture);
+  const controller = await verifyControllerBundle(path.join(resources, "browser-controller"));
+  const controllerManifestSHA256 = crypto.createHash("sha256").update(await fs.readFile(path.join(resources, "browser-controller/manifest.json"))).digest("hex");
   await fs.writeFile(path.join(resources, "client-package-audit.json"), JSON.stringify({
     schema_version: 1, platform: context.electronPlatformName,
     client_scope: "public_client_source_and_ui", application_entries: listPackage(path.join(resources, "app.asar")).length,
     ui_files: entries.length,
     preview_files: previewEntries.length,
     iscp_helper_sha256: helperSHA256,
+    browser_controller: { protocol: controller.protocol, source_revision: controller.source_revision,
+      versions: controller.versions, files: Object.keys(controller.files).length, bytes: controller.bytes, manifest_sha256: controllerManifestSHA256 },
   }), { mode: 0o644 });
 }
 

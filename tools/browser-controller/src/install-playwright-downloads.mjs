@@ -3,7 +3,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const coreRoot = path.join(packageRoot, 'node_modules/playwright-core');
 const expectedVersion = '1.63.0-alpha-2026-08-31';
 const patches = [
   // The MCP relay resolves replies through several async forwarding layers,
@@ -47,23 +46,29 @@ const patches = [
 const applicationWaitBefore = 'try {\n          await require("../../../src/awaited-mail-read.cjs").waitForMailRead(tab2, params2, async () => {\n            context.__fn__ = import_vm.default.runInContext';
 const applicationWaitAfter = 'try {\n          await require("../../../src/application-hook.cjs").waitForCompletion(tab2, params2, async () => {\n            context.__fn__ = import_vm.default.runInContext';
 
-export function patchedBundle(source) {
+export function patchedBundle(source, { genericOnly = false } = {}) {
   // Accept the previous pinned hook while replacing it as one matched release.
   let result = source.replace(applicationWaitAfter, applicationWaitBefore);
   for (const [before, after] of patches) {
+    if (genericOnly && after.includes("awaited-mail-read.cjs")) {
+      result = result.replace(after, before);
+      if (result.split(before).length !== 2) throw new Error('Pinned Playwright generic completion hook changed');
+      continue;
+    }
     if (result.split(after).length === 2) continue;
     if (result.split(before).length !== 2) throw new Error('Pinned Playwright download hook changed');
     result = result.replace(before, after);
   }
-  return result.replace(applicationWaitBefore, applicationWaitAfter);
+  return genericOnly ? result : result.replace(applicationWaitBefore, applicationWaitAfter);
 }
 
-export async function installDownloads({ check = false } = {}) {
+export async function installDownloads({ check = false, packageDirectory = packageRoot, genericOnly = false } = {}) {
+  const coreRoot = path.join(packageDirectory, "node_modules/playwright-core");
   const metadata = JSON.parse(await fs.readFile(path.join(coreRoot, 'package.json'), 'utf8'));
   if (metadata.version !== expectedVersion) throw new Error('Unsupported Playwright download hook version');
   const bundle = path.join(coreRoot, 'lib/coreBundle.js');
   const source = await fs.readFile(bundle, 'utf8');
-  const result = patchedBundle(source);
+  const result = patchedBundle(source, { genericOnly });
   if (check && source !== result) throw new Error('Playwright download hooks are not installed');
   if (source !== result) await fs.writeFile(bundle, result);
 }

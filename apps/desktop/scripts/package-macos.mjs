@@ -17,6 +17,7 @@ const buildEnvironment = { ...process.env, VITE_SPARKCLAW_API_TOKEN: "", VITE_SP
 for (const args of [
   ["run", "build:desktop-ui"],
   ["run", "build:iscp-helper", "--", "darwin", argument[1]],
+  ["run", "build:client-controller"],
   ["run", "check:desktop-managed-scripts"],
   ["--workspace", "@sparkclaw/desktop", "exec", "--", "electron-builder", "--mac", "dmg", "zip", `--${argument[1]}`, "--publish", "never"],
 ]) {

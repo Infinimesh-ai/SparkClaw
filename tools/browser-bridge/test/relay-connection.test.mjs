@@ -103,6 +103,8 @@ test("foreground activation requires and consumes the exact handoff marker", asy
 test("Electron task mode rejects handoff while keeping background page selection inert", async () => {
   const fixture = createFixture();
   const relay = new RelayConnection({ ...fixture.options, allowTaskHandoff: false });
+  const selected = [];
+  relay.ontabselected = tabID => selected.push(tabID);
   await relay.handleCommand({ id: 1, method: "chrome.debugger.attach", params: [{ tabId: 2 }, "1.3"] });
   await assert.rejects(relay.handleCommand({
     id: 2,
@@ -115,6 +117,7 @@ test("Electron task mode rejects handoff while keeping background page selection
     params: [{ tabId: 2 }, "Page.bringToFront", {}],
   }), {});
   assert.deepEqual(fixture.calls.sendCommand, []);
+  assert.deepEqual(selected, [2]);
 });
 
 test("background input enables only the owned renderer and never grants window handoff", async () => {

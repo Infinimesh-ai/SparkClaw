@@ -95,21 +95,23 @@ type OutlineNode struct {
 // Unit is one piece of extracted text in document order: a paragraph, a
 // heading, a table row or a page. HeadingLevel is positive for headings.
 type Unit struct {
-	NodeID       string                    `json:"node_id,omitempty"`
-	Kind         string                    `json:"kind,omitempty"`
-	Title        string                    `json:"title,omitempty"`
-	SearchText   string                    `json:"search_text,omitempty"`
-	ByteStart    int                       `json:"byte_start,omitempty"`
-	ByteEnd      int                       `json:"byte_end,omitempty"`
-	Values       []map[string]any          `json:"values,omitempty"`
-	Dependencies []string                  `json:"dependencies,omitempty"`
-	Availability document.NodeAvailability `json:"availability,omitempty"`
-	Provenance   string                    `json:"provenance,omitempty"`
-	Reason       string                    `json:"reason,omitempty"`
-	Text         string                    `json:"text"`
-	Page         int                       `json:"page,omitempty"`
-	HeadingLevel int                       `json:"heading_level,omitempty"`
-	Block        string                    `json:"block,omitempty"`
+	StructureSource string                    `json:"structure_source,omitempty"`
+	GroupKey        string                    `json:"group_key,omitempty"`
+	NodeID          string                    `json:"node_id,omitempty"`
+	Kind            string                    `json:"kind,omitempty"`
+	Title           string                    `json:"title,omitempty"`
+	SearchText      string                    `json:"search_text,omitempty"`
+	ByteStart       int                       `json:"byte_start,omitempty"`
+	ByteEnd         int                       `json:"byte_end,omitempty"`
+	Values          []map[string]any          `json:"values,omitempty"`
+	Dependencies    []string                  `json:"dependencies,omitempty"`
+	Availability    document.NodeAvailability `json:"availability,omitempty"`
+	Provenance      string                    `json:"provenance,omitempty"`
+	Reason          string                    `json:"reason,omitempty"`
+	Text            string                    `json:"text"`
+	Page            int                       `json:"page,omitempty"`
+	HeadingLevel    int                       `json:"heading_level,omitempty"`
+	Block           string                    `json:"block,omitempty"`
 }
 
 // OutlineEntry is a heading reported by the format itself, such as a PDF

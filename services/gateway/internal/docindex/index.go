@@ -27,6 +27,7 @@ type Index struct {
 	Outline      []OutlineNode
 	Chunks       []Chunk
 	keywords     keywordIndex
+	tree         *treeNavigation
 }
 
 // SearchRequest searches the whole document, or one outline node and its

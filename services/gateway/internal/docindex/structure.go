@@ -17,33 +17,13 @@ func structureHash(value any) string {
 }
 
 func buildStructure(sourceSHA, format, enrichment string, units []Unit, info SourceInfo) ([]Unit, []document.StructureNode, document.StructureManifest) {
-	units = append([]Unit(nil), units...)
-	// Physical PDF pages are known even when native extraction and OCR fail.
-	if format == "pdf" {
-		present := map[int]bool{}
-		for _, unit := range units {
-			present[unit.Page] = true
-		}
-		for page := 1; page <= info.Pages; page++ {
-			if !present[page] {
-				units = append(units, Unit{Page: page, Kind: "page", Block: fmt.Sprintf("document.page[%d]", page), Availability: document.NodeUnrecognized, Reason: "no_native_text"})
-			}
-		}
-		sort.SliceStable(units, func(i, j int) bool { return units[i].Page < units[j].Page })
-	}
+	units = prepareStructureUnits(format, units, info)
 	nodes := make([]document.StructureNode, 0, len(units))
 	seen := map[string]int{}
 	blocks := map[string]string{}
 	headings := []string{}
 	for i := range units {
 		unit := &units[i]
-		if len(unit.Values) > 0 {
-			raw, _ := json.Marshal(unit.Values)
-			unit.SearchText += " " + string(raw)
-		}
-		if unit.Block == "" {
-			unit.Block = fmt.Sprintf("unit[%d]", i+1)
-		}
 		kind := unit.Kind
 		if kind == "" {
 			if unit.HeadingLevel > 0 {
@@ -54,7 +34,7 @@ func buildStructure(sourceSHA, format, enrichment string, units []Unit, info Sou
 		}
 		key := unit.Block + "\x00" + kind
 		seen[key]++
-		unit.NodeID = "d" + structureHash([]any{sourceSHA, document.StructureSchemaVersion, document.StructureParserVersion, key, seen[key]})[:24]
+		unit.NodeID = "d" + structureHash([]any{sourceSHA, document.LegacyStructureSchemaVersion, document.LegacyStructureParserVersion, key, seen[key]})[:24]
 		blocks[unit.Block] = unit.NodeID
 		parent := ""
 		if unit.HeadingLevel > 0 {
@@ -107,8 +87,8 @@ func buildStructure(sourceSHA, format, enrichment string, units []Unit, info Sou
 	}
 	limitations := append([]string{}, info.Limitations...)
 	limitations = append(limitations, "Native text and typed values are parser observations; layout, visual objects and reading order are not fully verified.")
-	generation := structureHash([]any{document.StructureParserVersion, enrichment, nodes})
-	manifest := document.StructureManifest{SchemaVersion: document.StructureSchemaVersion, ParserVersion: document.StructureParserVersion, SourceSHA256: sourceSHA, StructureGeneration: generation, EnrichmentVersion: enrichment, Format: format, Nodes: len(nodes), Capabilities: []string{"outline", "search", "node_read", "traverse"}, Limitations: limitations, Coverage: coverage}
+	generation := structureHash([]any{document.LegacyStructureParserVersion, enrichment, nodes})
+	manifest := document.StructureManifest{SchemaVersion: document.LegacyStructureSchemaVersion, ParserVersion: document.LegacyStructureParserVersion, SourceSHA256: sourceSHA, StructureGeneration: generation, EnrichmentVersion: enrichment, Format: format, Nodes: len(nodes), Capabilities: []string{"outline", "search", "node_read", "traverse"}, Limitations: limitations, Coverage: coverage}
 	return units, nodes, manifest
 }
 
@@ -123,6 +103,9 @@ func (index *Index) ValidateVersion(sourceSHA, generation string) error {
 }
 
 func (index *Index) nodeMap() map[string]int {
+	if index.tree != nil {
+		return index.tree.byID
+	}
 	nodes := make(map[string]int, len(index.Nodes))
 	for i, node := range index.Nodes {
 		nodes[node.ID] = i
@@ -166,6 +149,9 @@ func (index *Index) SelectedPages(request RangeRequest) ([]int, error) {
 }
 
 func (index *Index) selectedNodes(request RangeRequest) ([]int, error) {
+	if index.isTree() {
+		return index.treeSelectedNodes(request)
+	}
 	selected := map[int]bool{}
 	byID := index.nodeMap()
 	switch {
@@ -256,4 +242,32 @@ func (index *Index) selectedNodes(request RangeRequest) ([]int, error) {
 	}
 	sort.Ints(ordinals)
 	return ordinals, nil
+}
+
+func prepareStructureUnits(format string, units []Unit, info SourceInfo) []Unit {
+	units = append([]Unit(nil), units...)
+	// Physical PDF pages are known even when native extraction and OCR fail.
+	if format == "pdf" {
+		present := map[int]bool{}
+		for _, unit := range units {
+			present[unit.Page] = true
+		}
+		for page := 1; page <= info.Pages; page++ {
+			if !present[page] {
+				units = append(units, Unit{Page: page, Kind: "page", Block: fmt.Sprintf("document.page[%d]", page), Availability: document.NodeUnrecognized, Reason: "no_native_text"})
+			}
+		}
+		sort.SliceStable(units, func(i, j int) bool { return units[i].Page < units[j].Page })
+	}
+	for i := range units {
+		unit := &units[i]
+		if len(unit.Values) > 0 {
+			raw, _ := json.Marshal(unit.Values)
+			unit.SearchText += " " + string(raw)
+		}
+		if unit.Block == "" {
+			unit.Block = fmt.Sprintf("unit[%d]", i+1)
+		}
+	}
+	return units
 }

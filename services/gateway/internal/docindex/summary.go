@@ -32,7 +32,10 @@ type SummaryUnit struct {
 func (index *Index) SummaryUnits(limit int) []SummaryUnit {
 	limit = max(1, limit)
 	top := index.topLevelNodes()
-	if len(top) < 2 {
+	if len(top) == 0 {
+		return index.windowUnits(limit)
+	}
+	if len(top) < 2 && !index.isTree() {
 		return index.windowUnits(limit)
 	}
 	units := []SummaryUnit{}
@@ -134,7 +137,8 @@ type cachedSummary struct {
 
 // CachedSummary returns a summary stored for key in index's directory.
 func (s *Service) CachedSummary(target Target, index *Index, key string) (string, bool) {
-	raw, err := os.ReadFile(filepath.Join(Dir(target.WorkspaceRoot, index.Manifest.SourceSHA256), summariesDirName, key+".json"))
+	target.StructureVersion = index.Structure.SchemaVersion
+	raw, err := os.ReadFile(filepath.Join(target.indexDir(index.Manifest.SourceSHA256), summariesDirName, key+".json"))
 	if err != nil {
 		return "", false
 	}
@@ -147,7 +151,8 @@ func (s *Service) CachedSummary(target Target, index *Index, key string) (string
 
 // StoreSummary caches a summary for key next to the index it was made from.
 func (s *Service) StoreSummary(target Target, index *Index, key, summary string) error {
-	dir := filepath.Join(Dir(target.WorkspaceRoot, index.Manifest.SourceSHA256), summariesDirName)
+	target.StructureVersion = index.Structure.SchemaVersion
+	dir := filepath.Join(target.indexDir(index.Manifest.SourceSHA256), summariesDirName)
 	if err := os.MkdirAll(dir, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
 		return err
 	}

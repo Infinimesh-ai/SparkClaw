@@ -223,11 +223,16 @@ func loadIndex(dir string, manifest Manifest) (*Index, error) {
 		Manifest     document.StructureManifest `json:"manifest"`
 		Nodes        []document.StructureNode   `json:"nodes"`
 	}
-	if json.Unmarshal(rawStructure, &saved) != nil || saved.Manifest.SourceSHA256 != manifest.SourceSHA256 || saved.Manifest.StructureGeneration != manifest.StructureGeneration || saved.Manifest.Nodes != len(saved.Nodes) || len(saved.CursorSecret) != 64 || saved.Manifest.StructureGeneration != structureHash([]any{document.StructureParserVersion, saved.Manifest.EnrichmentVersion, saved.Nodes}) {
+	version, parser := document.LegacyStructureSchemaVersion, document.LegacyStructureParserVersion
+	if manifest.BuilderVersion == (Target{StructureVersion: document.StructureSchemaVersion}).builderVersion() {
+		version, parser = document.StructureSchemaVersion, document.StructureParserVersion
+	}
+	if json.Unmarshal(rawStructure, &saved) != nil || saved.Manifest.SchemaVersion != version || saved.Manifest.ParserVersion != parser || saved.Manifest.SourceSHA256 != manifest.SourceSHA256 || saved.Manifest.StructureGeneration != manifest.StructureGeneration || saved.Manifest.Nodes != len(saved.Nodes) || len(saved.CursorSecret) != 64 || saved.Manifest.StructureGeneration != structureHash([]any{parser, saved.Manifest.EnrichmentVersion, saved.Nodes}) {
 		return nil, errors.New("invalid document structure cache")
 	}
 	index.Structure, index.Nodes = saved.Manifest, saved.Nodes
 	index.cursorSecret = saved.CursorSecret
+	index.initTreeNavigation()
 	return index, nil
 }
 

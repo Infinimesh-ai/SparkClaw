@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 )
 
 const (
@@ -30,6 +32,8 @@ const (
 // Target names one workspace document. RelPath is relative to
 // WorkspaceRoot, which also scopes the index directory.
 type Target struct {
+	// Zero retains the v1 contract for existing direct callers.
+	StructureVersion  int
 	WorkspaceRoot     string
 	RelPath           string
 	Format            string
@@ -160,7 +164,7 @@ func (s *Service) CacheRecognizedPages(target Target, pages map[int]string) erro
 	if target.SourceSHA256 != "" && sum != target.SourceSHA256 {
 		return errors.New("document source changed during OCR")
 	}
-	dir := Dir(target.WorkspaceRoot, sum)
+	dir := target.indexDir(sum)
 	for page, text := range pages {
 		if page <= 0 || page > MaxSourcePages || len(text) > MaxExtractedBytes {
 			return errors.New("OCR page exceeds structure admission")
@@ -180,6 +184,9 @@ func (s *Service) ensure(ctx context.Context, target Target, prebuild *Prebuild,
 // rebuild waits for any build in flight first, so its own merge of cached
 // pages is never answered by an older build.
 func (s *Service) build(ctx context.Context, target Target, prebuild *Prebuild, waiting func(), force bool) (*Index, error) {
+	if target.StructureVersion < 0 || target.StructureVersion > document.StructureSchemaVersion {
+		return nil, errors.New("unsupported document structure version")
+	}
 	path, err := targetPath(target)
 	if err != nil {
 		return nil, err
@@ -191,7 +198,7 @@ func (s *Service) build(ctx context.Context, target Target, prebuild *Prebuild, 
 	if target.SourceSHA256 != "" && target.SourceSHA256 != sum {
 		return nil, errors.New("document source version changed")
 	}
-	dir := Dir(target.WorkspaceRoot, sum)
+	dir := target.indexDir(sum)
 	notified := false
 	for {
 		s.mu.Lock()
@@ -252,7 +259,7 @@ func (s *Service) build(ctx context.Context, target Target, prebuild *Prebuild, 
 // version and records the requesting path as one of its sources.
 func (s *Service) loadReadyLocked(dir string, target Target) (*Index, bool) {
 	manifest, ok, err := readManifest(dir)
-	if err != nil || !ok || !manifest.State.Usable() || manifest.BuilderVersion != BuilderVersion || manifest.SchemaVersion != SchemaVersion || manifest.Format != target.Format || manifest.EnrichmentVersion != target.EnrichmentVersion {
+	if err != nil || !ok || !manifest.State.Usable() || manifest.BuilderVersion != target.builderVersion() || manifest.SchemaVersion != SchemaVersion || manifest.Format != target.Format || manifest.EnrichmentVersion != target.EnrichmentVersion {
 		return nil, false
 	}
 	relPath := target.RelPath
@@ -292,10 +299,11 @@ func (s *Service) run(call *buildCall, dir string, target Target, sum string, si
 func (s *Service) buildIndex(dir string, target Target, sum string, size int64, prebuild *Prebuild, reuseSource bool) (result *Index, resultErr error) {
 	buildCtx, cancel := context.WithTimeout(s.ctx, 5*time.Minute)
 	defer cancel()
+	buildCtx = WithStructureVersion(buildCtx, target.StructureVersion)
 	previous, _, _ := readManifest(dir)
 	now := s.now().UTC()
 	manifest := Manifest{
-		SchemaVersion: SchemaVersion, BuilderVersion: BuilderVersion, SourceSHA256: sum, SourceBytes: size,
+		SchemaVersion: SchemaVersion, BuilderVersion: target.builderVersion(), SourceSHA256: sum, SourceBytes: size,
 		EnrichmentVersion: target.EnrichmentVersion, Format: target.Format, SourcePaths: []string{target.RelPath}, State: StateBuilding,
 		Attempts: previous.Attempts + 1, UpdatedAt: now, LastUsedAt: now,
 	}
@@ -315,7 +323,7 @@ func (s *Service) buildIndex(dir string, target Target, sum string, size int64, 
 		return nil, buildErr
 	}
 	source, reused := extractedSource{}, false
-	if reuseSource && previous.SchemaVersion == SchemaVersion && previous.BuilderVersion == BuilderVersion && previous.Format == target.Format {
+	if reuseSource && previous.SchemaVersion == SchemaVersion && previous.BuilderVersion == target.builderVersion() && previous.Format == target.Format {
 		if stored, ok, err := readSource(dir); err == nil && ok {
 			source, reused = stored, true
 		}
@@ -386,12 +394,26 @@ func (s *Service) buildIndex(dir string, target Target, sum string, size int64, 
 			return fail(errors.New("enriched document exceeds structure admission"))
 		}
 	}
-	units, nodes, structure := buildStructure(sum, target.Format, target.EnrichmentVersion, units, info)
-	assembler := &assembler{}
-	for _, unit := range units {
-		assembler.add(unit)
+	var nodes []document.StructureNode
+	var structure document.StructureManifest
+	if target.StructureVersion == document.StructureSchemaVersion {
+		units, nodes, structure, err = buildStructureTree(sum, target.Format, target.EnrichmentVersion, units, info)
+		if err != nil {
+			return fail(err)
+		}
+	} else {
+		units, nodes, structure = buildStructure(sum, target.Format, target.EnrichmentVersion, units, info)
 	}
-	chunks, outline := assembler.finish(info)
+	builder := &assembler{}
+	for _, unit := range units {
+		builder.add(unit)
+	}
+	chunks, outline := builder.chunks, []OutlineNode{}
+	if target.StructureVersion == document.StructureSchemaVersion {
+		outline = projectTreeOutline(nodes, chunks)
+	} else {
+		chunks, outline = builder.finish(info)
+	}
 	if len(nodes) == 0 {
 		return fail(errors.New("document has no extractable text"))
 	}
@@ -418,12 +440,14 @@ func (s *Service) buildIndex(dir string, target Target, sum string, size int64, 
 	if structure.Coverage.Missing > 0 {
 		manifest.State = StatePartial
 	}
-	manifest.Pages, manifest.Chunks, manifest.TextBytes = info.Pages, len(chunks), assembler.textBytes
+	manifest.Pages, manifest.Chunks, manifest.TextBytes = info.Pages, len(chunks), builder.textBytes
 	manifest.UnindexedPages, manifest.IndexBytes, manifest.UpdatedAt = info.UnindexedPages, indexBytes, s.now().UTC()
 	if err := writeManifest(dir, manifest); err != nil {
 		return fail(err)
 	}
-	return &Index{cursorSecret: cursorSecret, Manifest: manifest, Structure: structure, Nodes: nodes, Outline: outline, Chunks: chunks, keywords: keywords}, nil
+	index := &Index{cursorSecret: cursorSecret, Manifest: manifest, Structure: structure, Nodes: nodes, Outline: outline, Chunks: chunks, keywords: keywords}
+	index.initTreeNavigation()
+	return index, nil
 }
 
 // mergeRecognizedPages adds cached OCR text for text-less pages to the
@@ -514,4 +538,17 @@ func (s *Service) touchCachedLocked(dir string, index *Index, relPath string) *I
 		return &copy
 	}
 	return index
+}
+
+func (target Target) builderVersion() string {
+	if target.StructureVersion == document.StructureSchemaVersion {
+		return "docindex_structure_tree_bm25_v1"
+	}
+	return BuilderVersion
+}
+func (target Target) indexDir(sum string) string {
+	if target.StructureVersion == document.StructureSchemaVersion {
+		sum += "-tree-v1"
+	}
+	return Dir(target.WorkspaceRoot, sum)
 }

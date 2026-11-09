@@ -316,6 +316,8 @@ func (index *Index) readNodes(request RangeRequest) (RangeResult, error) {
 type OutlineRequest struct {
 	Cursor, SourceSHA256, StructureGeneration string
 	MaxBytes, Limit                           int
+	NodeID                                    string
+	Depth, SharePercent                       int
 }
 type OutlineResult struct {
 	Nodes               []document.StructureNode   `json:"nodes"`

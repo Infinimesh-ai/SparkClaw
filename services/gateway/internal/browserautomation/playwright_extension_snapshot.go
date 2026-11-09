@@ -36,7 +36,7 @@ func (a *PlaywrightExtensionAdapter) takeSnapshotLocked(ctx context.Context, arg
 	allRefs := buildBrowserSnapshotRefs(refs, goal)
 	rawTreeBytes, _ := json.Marshal(output["snapshot"])
 	rawTree := string(rawTreeBytes)
-	contentDigest := digestBrowserStableContent(title, pageText)
+	contentDigest := digestBrowserRenderedContent(title, pageText, output["snapshot"])
 	digest := digestBrowserSnapshot(url, title, rawTree, pageText, allRefs)
 	previous := a.snapshots[pageID]
 	previousID := ""
@@ -62,10 +62,13 @@ func (a *PlaywrightExtensionAdapter) takeSnapshotLocked(ctx context.Context, arg
 	state := &browserSnapshotState{
 		SnapshotID: snapshotID, PageID: pageID, URL: url, Digest: digest,
 		ContentDigest: contentDigest, Refs: map[string]*browserSnapshotRef{},
+		HasFrames: len(browserFrameEvidence(output["snapshot"])) > 0,
 	}
 	controls := make([]any, 0, len(ranked))
+	truncated := len(allRefs) > len(ranked)
 	actionRefs := make([]string, 0, len(ranked))
 	for _, descriptor := range ranked {
+		truncated = truncated || descriptor.Truncated
 		descriptor.ExternalRef = snapshotID + ":" + descriptor.RawRef + ":" + descriptor.Fingerprint[:16]
 		state.Refs[descriptor.ExternalRef] = descriptor
 		controls = append(controls, browserSnapshotControl(descriptor))
@@ -82,7 +85,7 @@ func (a *PlaywrightExtensionAdapter) takeSnapshotLocked(ctx context.Context, arg
 		"schema_version": "browser_interaction_snapshot_v1", "snapshot_id": snapshotID,
 		"previous_snapshot_id": previousID, "page_id": pageID, "url": url, "title": title,
 		"interaction_goal": goal, "digest": digest, "content_digest": contentDigest, "repeated": repeated,
-		"controls_total": len(allRefs), "controls_returned": len(controls), "truncated": len(allRefs) > len(controls),
+		"controls_total": len(allRefs), "controls_returned": len(controls), "truncated": truncated,
 		"browser_page_auth_state":      firstStringValue(auth, "authState"),
 		"browser_page_auth_confidence": firstStringValue(auth, "authConfidence"),
 		"browser_page_auth_signals":    firstStringSliceValue(auth["authSignals"]),
@@ -289,9 +292,11 @@ func playwrightSnapshotRefs(snapshot any) map[string]any {
 			ref := firstStringValue(typed, "ref")
 			if browserRefNumber(ref) > 0 {
 				role := firstNonEmptyBrowserString(firstStringValue(typed, "role"), "control")
+				evidence, truncated := playwrightControlEvidence(typed)
 				refs[ref] = map[string]any{
 					"role": role, "name": firstStringValue(typed, "name", "accessible_name"),
-					"clickable": boolValue(typed["clickable"]) || browserInteractiveRole(strings.ToLower(role)),
+					"clickable": !boolValue(typed["disabled"]) && (boolValue(typed["clickable"]) || browserInteractiveRole(strings.ToLower(role))),
+					"evidence":  evidence, "evidence_truncated": truncated,
 				}
 			}
 			for key, item := range typed {

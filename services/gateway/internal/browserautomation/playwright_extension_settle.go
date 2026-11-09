@@ -76,9 +76,20 @@ func (a *PlaywrightExtensionAdapter) waitForStableStateLocked(ctx context.Contex
 		}
 		if err == nil {
 			page := mapValue(read["page"])
+			var frameSnapshot any
+			prior := a.snapshots[firstStringValue(page, "page_id")]
+			if prior != nil && prior.HasFrames || strings.Contains(strings.ToLower(firstStringValue(page, "html")), "<iframe") {
+				// Outer innerText omits frame contents. Observe fresh frame semantics
+				// without counting opaque ref renumbering as a rendered change.
+				snapshot, snapshotErr := a.executeControllerLocked(settleCtx, "page.snapshot", optionalPageArgs(firstStringValue(page, "page_id")))
+				if snapshotErr != nil {
+					return nil, snapshotErr
+				}
+				frameSnapshot = snapshot["snapshot"]
+			}
 			observation := browserStableObservation{
 				URL: firstStringValue(page, "url"), Title: firstStringValue(page, "title"),
-				Digest: digestBrowserStableContent(firstStringValue(page, "title"), firstStringValue(page, "text")),
+				Digest: digestBrowserRenderedContent(firstStringValue(page, "title"), firstStringValue(page, "text"), frameSnapshot),
 			}
 			observations++
 			rebound := ""

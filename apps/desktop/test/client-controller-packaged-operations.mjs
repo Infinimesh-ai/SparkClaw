@@ -74,6 +74,18 @@ export async function qualifyPackagedOperations({ application, window, evidence,
       await window.evaluate(id => window.sparkclawClientStore.reconcile(id), task.request_id);
       state = await window.evaluate(id => window.sparkclawClientStore.read(id), conversation.id);
       observation.state = state;
+      if (scenario.name === "popup" && !observation.popup_during_task) {
+        const popup = await application.evaluate(({ webContents }, url) => {
+          const page = webContents.getAllWebContents().find(item => item.getURL() === url);
+          return page && { id: page.id, sandbox: page.getLastWebPreferences().sandbox };
+        }, origin + "/opened");
+        if (popup) {
+          const desktop = await window.evaluate(() => window.sparkclawDesktop.state());
+          assert.ok(desktop.pages.some(page => page.role === "task" && page.local_conversation_id === conversation.id && page.url === origin + "/opened"));
+          assert.equal(popup.sandbox, true);
+          observation.popup_during_task = popup;
+        }
+      }
       const current = state.tasks.find(row => row.request_id === task.request_id);
       const approval = current?.approvals?.find(row => row.state === "pending" && row.actionable);
       if (approval) {
@@ -109,9 +121,11 @@ export async function qualifyPackagedOperations({ application, window, evidence,
     if (scenario.name === "frame") { assert.match(observation.pages.frame?.text || "", /Frame applied/u); assert.notEqual(observation.pages.frame.pid, observation.pages.pid); }
     const desktop = await window.evaluate(() => window.sparkclawDesktop.state());
     if (scenario.name === "popup") {
-      assert.equal(observation.pages.popups.length, 1);
-      assert.ok(observation.pages.popups.every(page => page.sandbox && !page.debugger));
-      assert.ok(desktop.pages.filter(page => page.role === "task" && page.local_conversation_id === conversation.id).length >= 2);
+      assert.ok(observation.popup_during_task, "owned popup must be observed during the task");
+      // Normal release keeps the current conversation view and cleans other
+      // owned tabs. The workflow returns to the parent to verify its effect.
+      assert.equal(observation.pages.popups.length, 0);
+      assert.equal(desktop.pages.filter(page => page.role === "task" && page.local_conversation_id === conversation.id).length, 1);
     }
     assert.ok(desktop.pages.some(page => page.page_ref === personal && page.role === "personal"));
     const byCommand = (a, b) => a.command_id.localeCompare(b.command_id);

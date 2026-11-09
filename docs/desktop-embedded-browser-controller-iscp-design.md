@@ -140,6 +140,13 @@ its DOM and control state. It must not create a second tab or navigate the resul
 A missing page or changed route fails closed. Explicit new opens and backend acquisition keep
 their existing tab semantics; this adaptation does not change the selected conversation or UI.
 
+Snapshot projection preserves bounded rendered text, values, selected options and control states
+already supported by the workflow consumer. Disabled controls are not offered as click actions;
+truncated evidence is marked. Frame stability includes fresh owned-frame semantic evidence in
+the same content digest used by snapshots. Opaque ref IDs and focus bookkeeping are excluded
+from that digest. Pages without frames retain the existing read-only polling path and digest;
+the quiet period, overall deadline and frozen-route checks remain unchanged.
+
 The common host interface remains role-explicit. Readiness, release, lease-active checks and
 fence ownership must stay callable after old transport deletion. “Unchanged UI/tool semantics”
 is an acceptance requirement, not a claim that today's `ScopedAdapter` already supports this.
@@ -929,3 +936,26 @@ delivered tasks or success text do not establish workflow completion. The first 
 also incorrectly required approval for every low-risk click; another incorrectly assumed two
 cross-origin subdomains must use different renderer processes. Both failed observations are
 retained, and separate-site frame qualification remains pending. No production binary changed.
+
+The subsequent Gateway repair preserves those snapshot fields and includes frame semantics in
+stable waits. Deterministic red/green tests cover lost text/selection/disabled state and a frame
+effect versus ref-only changes. Browser packages, race checks, all browser agent/ToolHub tests,
+vet and Linux build pass. Initial focused host tests without the canonical `TMPDIR` hit the
+existing private-path guard; the corrected environment passes and both logs remain.
+
+Actual `05fa3c1a` Linux AppImage and independently installed Mac ARM64 candidates now each pass
+six groups against real work2 providers: runtime, dropdown, delayed dynamic control, cross-site
+iframe with separate renderer PID, owned popup lifecycle and normal exit. All four operations
+verify both native effects and workflow completion, preserve personal pages/prior fences and
+attempt zero direct business HTTP. These final runs do not enable the diagnostic Controller
+observer. They use the same isolated Gateway repair (SHA-256 recorded privately); the desktop
+artifacts remain unchanged. The Mac route uses the separately enrolled lab and SSH loopback
+forwards, not TEST1. Individual task durations are observations, not percentile benchmarks.
+
+The intermediate popup check incorrectly required every owned tab to survive normal release;
+§5.4 retains the current conversation view and cleans other tabs. The corrected check observes
+the sandboxed task-owned popup while running, then verifies its cleanup and retained parent.
+Earlier failed attempts remain archived. Both candidate Gateways are stopped, SSH forwards and
+temporary AppArmor/display/keyring/process resources are removed, and all three work2 production
+baselines still match with GNOME locked. TEST1, the rest of the operation/peer/install matrix,
+WAN/chunk timing and paired rollback/P3 cutover remain open.

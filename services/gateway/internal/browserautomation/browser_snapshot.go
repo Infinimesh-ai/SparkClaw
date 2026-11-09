@@ -35,6 +35,8 @@ type browserSnapshotRef struct {
 	Ordinal     int
 	Score       int
 	Index       int
+	Evidence    map[string]any
+	Truncated   bool
 }
 
 type browserSnapshotState struct {
@@ -45,6 +47,7 @@ type browserSnapshotState struct {
 	ContentDigest string
 	ActionTaken   bool
 	Refs          map[string]*browserSnapshotRef
+	HasFrames     bool
 }
 
 func browserSnapshotID(generation uint64, pageID string, sequence uint64) string {
@@ -62,6 +65,9 @@ func browserSnapshotControl(descriptor *browserSnapshotRef) map[string]any {
 	}
 	if descriptor.Ordinal > 1 {
 		control["ordinal"] = descriptor.Ordinal
+	}
+	for key, value := range descriptor.Evidence {
+		control[key] = value
 	}
 	return control
 }
@@ -262,6 +268,7 @@ func buildBrowserSnapshotRefs(refs map[string]any, goal string) []*browserSnapsh
 		result = append(result, &browserSnapshotRef{
 			RawRef: rawRef, Fingerprint: fingerprint, Role: role, Name: name, Clickable: clickable,
 			Ordinal: ordinal, Score: scoreBrowserRef(role, name, goal, clickable), Index: index,
+			Evidence: mapValue(values["evidence"]), Truncated: boolValue(values["evidence_truncated"]),
 		})
 	}
 	return result

@@ -296,9 +296,9 @@ func mockBrowserInteractionAction(prompt, goal, stage string) string {
 	case "snapshot_before_action", "snapshot_after_action":
 		return mockWorkflowStepAction("browser.snapshot", map[string]any{})
 	case "choose_and_draft":
-		snapshotID, pageID, elementRef := mockLatestBrowserSnapshot(prompt)
+		elementRef := mockProjectedBrowserControl(prompt, "textbox", "searchbox", "combobox")
 		return mockWorkflowStepAction("browser.type", map[string]any{
-			"page_id": pageID, "snapshot_id": snapshotID, "uid": elementRef, "text": mockBrowserDraftValue(goal),
+			"uid": elementRef, "text": mockBrowserDraftValue(goal),
 		})
 	case "choose_and_click":
 		snapshotID, pageID, elementRef := mockLatestBrowserSnapshot(prompt)
@@ -307,18 +307,42 @@ func mockBrowserInteractionAction(prompt, goal, stage string) string {
 			"expected_effect": "Advance the frozen browser interaction goal.",
 		})
 	case "assess_goal_initial", "assess_goal_after_action", "assess_goal_visible":
-		snapshotID, _, elementRef := mockLatestBrowserSnapshot(prompt)
+		elementRef := mockProjectedBrowserControl(prompt, "textbox", "searchbox", "combobox", "button", "link")
 		verdict := "satisfied"
 		if stage == "assess_goal_initial" {
 			verdict = "progress"
 		}
 		return mockWorkflowStepAction("browser.assess_goal", map[string]any{
-			"snapshot_id": snapshotID, "verdict": verdict,
+			"verdict":       verdict,
 			"evidence_refs": []string{elementRef},
-			"reason":        "The cited control in the current snapshot supports the bounded goal assessment.",
 		})
 	}
 	return `{"type":"final","answer":"The browser interaction workflow could not select its required next action."}`
+}
+
+// The current model projection contains opaque short refs; runtime binds the
+// page/snapshot/generations. Mock fixtures must obey that same visible schema.
+func mockProjectedBrowserControl(prompt string, roles ...string) string {
+	var controls []map[string]any
+	for _, line := range strings.Split(prompt, "\n") {
+		var projection struct {
+			Controls []map[string]any `json:"controls"`
+		}
+		if json.Unmarshal([]byte(strings.TrimSpace(line)), &projection) == nil && len(projection.Controls) > 0 {
+			controls = projection.Controls
+		}
+	}
+	for _, role := range roles {
+		for _, control := range controls {
+			if control["role"] == role {
+				if ref, ok := control["ref"].(string); ok && ref != "" {
+					return ref
+				}
+			}
+		}
+	}
+	_, _, ref := mockLatestBrowserSnapshot(prompt)
+	return ref
 }
 
 func mockBrowserDraftValue(goal string) string {

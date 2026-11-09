@@ -1229,3 +1229,21 @@ index. Owned Gateways are stopped and temporary native/AppArmor resources are cl
 work2 audit verifies post-recovery stability and original configuration/mounts, explicitly retaining
 the earlier PostgreSQL start/network changes and failed preservation audit. Free disk space is
 8,281,169,920 bytes. TEST1, remaining fault/native/offline/WAN evidence and P3/D2 cutover remain open.
+
+The same packages additionally pass terminal-journal-failure qualification on Mac and work2
+(7 checks each). This fault rejects the journal's terminal persistence method for one approved
+fill, including its attempted unknown finalization; it does not fill a filesystem. The page
+receives exactly one input event while its durable row is still dispatched. Concurrent local
+duplicate-command and changed-digest probes share the unknown outcome or are fenced, with no
+second native write. The encrypted original reply cannot report success; owned execution stops,
+and a fresh command ID in the affected conversation is refused before native admission.
+
+After a clean close, the original dispatched row is still on disk. Reopening the same installed
+application and profile promotes it to durable unknown with identical command/digest/owner/task
+identity. No native calls occur on reopen, the fresh-command refusal persists, prior unknown
+fences remain, and unrelated ISCP reads work. Independent stopped-state readers verify the
+Gateway action fence, desktop journal and enclosing execution are all unknown. Duplicate/fresh-ID
+probes are explicitly local; only the original workflow uses encrypted transport. Both test
+Gateways are stopped and restored, temporary native/AppArmor resources are absent, and work2's
+post-recovery health/configuration checks pass with 8,298,221,568 bytes free. These opt-in fixtures
+change no product binary or UI and do not complete the remaining acceptance/cutover gates.

@@ -2,8 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> 日期：2026-11-09。状态：实施推进中。§14 记录 Mac 本地装配与生命周期证据；
-> 生产 ISCP 接入和 P0–P4 完整验收仍未完成。§12 保留所有者决定 D1–D3。
+> 日期：2026-11-09。状态：实施推进中。§14 记录源码接入、Mac 生命周期和隔离加密 Relay 证据；
+> 安装包／远程验收和最终切换仍未完成。§12 保留所有者决定 D1–D3。
 > 已核对源码：`main` 的 `e031a453`（初版提案）；浏览器／ISCP／桌面实现基线仍为 `b5c21e14`。
 > 本次仅涉及 SparkClaw，不执行项目簇协调流程。
 > 范围：SparkX 经 ISCP 的通用浏览器自动化。邮件、provider 脚本和 AI 对话导出保持现有路径。
@@ -359,14 +359,14 @@ Electron adapter 将 debugger 限制在任务持有的页面／frame／弹窗，
 
 | 阶段 | 工作与完成证据 | 当前状态 |
 |---|---|---|
-| P0 可行性 | 真实随包 Electron Node／API／fuse 验证；Mac adapter；无可选导入的通用 MCP；frame／弹窗／ref／输入／截图 fixture；Mac ↔ work2 冷启动、完整工具与分块计时 | 待完成 |
-| P1 本地 runtime | 可复现 manifest、客户端入口、进程监管、归属映射和保留视图生命周期；已安装包离线跑通本地 fixture | 待完成 |
-| P2 ISCP | 注册／投影、service／client／host、严格转发器、journal／fence、分块；隔离 Relay 故障注入与无业务旁路 | 待完成 |
+| P0 可行性 | 真实随包 Electron Node／API／fuse 验证；Mac adapter；无可选导入的通用 MCP；frame／弹窗／ref／输入／截图 fixture；Mac ↔ work2 冷启动、完整工具与分块计时 | 本地源码 fixture 通过；包／远程待验 |
+| P1 本地 runtime | 可复现 manifest、客户端入口、进程监管、归属映射和保留视图生命周期；已安装包离线跑通本地 fixture | 源码生命周期通过；包待验 |
+| P2 ISCP | 注册／投影、service／client／host、严格转发器、journal／fence、分块；隔离 Relay 故障注入与无业务旁路 | 已接入；故障恢复门槛未关闭 |
 | P3 原生验收 | 已安装 Mac 和 work2 Linux 桌面经 TEST1 连接真实 work2；满足 [ISCP 扩展设计](desktop-iscp-capability-expansion-design.md) G1–G4、§11 矩阵，并与旧路径记录比较延迟 | 待完成 |
 | P4 切换 | Gateway 与 Mac／Linux 包成对发布，删除旧路径，验证回滚与数据保留 | 待完成 |
 
 删除前记录旧路径性能／UI 基线。P0–P3 可使用隔离候选构建；生产不保留双路径 runtime 选择器。
-推送、安装和部署不属于本次文档任务，执行时遵循所有者当时已给出的授权。
+所有者已要求持续实施并保留最终验收；候选版本准备正在推进，生产发布遵循执行时的所有者授权。
 
 P4 删除活动 `browser.command` 注册／生成项、`Broker` 反向分发、桌面处理器／原生执行器／
 `host-socket.mjs`、LAN host grant／connect／revoke／fences 路由及专属 grant／心跳机制。
@@ -383,7 +383,7 @@ P4 删除活动 `browser.command` 注册／生成项、`Broker` 反向分发、�
 
 ## 11. 验收矩阵与证据
 
-下列每行都需要证据，当前均待完成。记录源码／包哈希、架构、Electron／Node 版本、fixture／provider、
+下列每行都需要完整验收证据；§14 区分当前源码／fixture 覆盖与剩余门槛。记录源码／包哈希、架构、Electron／Node 版本、fixture／provider、
 脱敏的精确请求 ID、预期／实际结果、延迟和失败产物。
 源码测试、原生 fixture、已安装包、真实 provider 是不同证据范围。报告失败和跳过，不可用平台不能记为通过。
 
@@ -406,7 +406,7 @@ P4 删除活动 `browser.command` 注册／生成项、`Broker` 反向分发、�
 随实现改动运行 Go `browsercontrol/browserhost/browserautomation/iscpworkbench/gateway` 定向测试、
 Controller Node 测试、桌面 transport／journal／registry／presentation 测试、注册投影检查、包审计及
 双语文档检查。可选装配提取需补后端邮件／AI 处理器回归。
-实现集成以全仓检查为门槛；本次文档修订只运行文档／链接检查，不建立任何原生测试通过结论。
+实现集成以全仓检查为门槛；初始文档修订不建立原生测试结论，当前实现证据范围见 §14。
 P0 计时记录样本数、冷／热启动、完整工具子调用数、负载大小、中位／尾部延迟与分块吞吐；
 单次 RPC 成功不是端到端性能结论。
 
@@ -425,17 +425,17 @@ P0 未知项属于验证门槛，不是缺少产品决定：随包 Electron runt
 
 ## 13. 实施归属与源码索引
 
-以下为仓库相对路径；新增名称是设计建议，不代表已有实现。
+以下为仓库相对路径；Controller 客户端、host、监管器与转发器已进入源码，打包和原生验收仍是独立门槛。
 
-| 区域 | 现有源码／计划新增 |
+| 区域 | 源码归属 |
 |---|---|
-| 客户端契约 | `services/gateway/internal/browsercontrol/client.go`、`runtime_session.go`；计划新增 `iscp_client.go` 与会话绑定 service |
-| 作用域、代次、fence | `services/gateway/internal/browserhost/adapter.go`、`reverse.go`、`fences.go`；计划新增 `client_controller_host.go` |
+| 客户端契约 | `services/gateway/internal/browsercontrol/client.go`、`runtime_session.go`；`iscp_client.go` 与 `iscp_session.go` |
+| 作用域、代次、fence | `services/gateway/internal/browserhost/adapter.go`、`reverse.go`、`fences.go`；`client_controller_host.go` |
 | 共享工具语义 | `services/gateway/internal/browserautomation/playwright_extension_{adapter,session,snapshot,settle}.go` |
 | 传输集成 | `services/gateway/internal/gateway/workbench_iscp_browser.go`、`internal/iscpworkbench/{reverse_session.go,operations.json,negotiation.go}` |
-| Main 归属 | `apps/desktop/src/main/{main,iscp-transport,iscp-capabilities}.mjs`；计划新增浏览器 Controller 监管／转发器模块 |
+| Main 归属 | `apps/desktop/src/main/{main,iscp-transport,iscp-capabilities}.mjs`；`browser/{controller-runtime,controller-forwarder}.mjs` |
 | 页面／journal 生命周期 | `apps/desktop/src/browser/{adapter-server,page-registry,host-agent,host-journal}.mjs` |
-| Controller 装配 | `tools/browser-controller/src/{controller,mcp-client,http-server,electron-adapter-client}.mjs`；计划新增 `client-main.mjs` 与客户端包 manifest／lockfile |
+| Controller 装配 | `tools/browser-controller/src/{controller,mcp-client,http-server,electron-adapter-client}.mjs`；`client-main.mjs` 与客户端包 manifest／lockfile |
 | 打包 | `apps/desktop/package.json`、`apps/desktop/scripts/{package-macos,audit-package}.mjs`、根目录桌面构建脚本 |
 
 依赖顺序为 P0 → 本地装配／生命周期 → 传输／回执 → 原生验收 → 删除旧路径。
@@ -451,7 +451,7 @@ P0 未知项属于验证门槛，不是缺少产品决定：随包 Electron runt
 `ClientControllerRuntime` 在惰性启动前校验文件，以固定环境使用 Electron 的 Node，检查私有短
 socket 路径，通过独立进程组执行有界退出。生产模式 adapter 只接受 main 签发的一次性任务关联。
 PageRegistry 支持显式正常释放保留、新 lease 接管，以及不切换前台焦点的逻辑选页。这些组件已由
-原生 fixture 验证；此检查点尚未切换生产 `main.mjs` 和 Gateway 路由。
+原生 fixture 验证；该初始检查点早于下文记录的 `main.mjs` 和 Gateway 接入。
 
 Mac ARM64 本地证据使用 Electron 44.4.3／Node 24.21.0／Chromium 152.0.7977.130，隔离 profile，
 子进程 PATH 为 `/usr/bin:/bin`。12 项原生检查全部通过：读取／填写／点击／选择／快照／截图、
@@ -464,6 +464,45 @@ renderer sandbox、不依赖系统 Node、iframe 引用及效果、归属弹窗�
 跟踪逻辑选页而不激活窗口，并只在客户端装配中省略首次导航。后端任务页面创建行为不变。
 
 验证：Controller 358 通过／151 跳过；桌面 632 通过／1 跳过；共享 MCP、relay、关联、包、运行时和
-页面生命周期定向检查通过；Go browserautomation 含框架引用覆盖通过。上述计数在完整传输接入之前。
-后续门槛：ISCP 契约／客户端／转发器、持久重复请求 fence、取消／队列／分块边界、真实 Mac／Linux
-安装包验收、经 TEST1 连接 work2，以及 P3 之后删除旧路径。
+页面生命周期定向检查通过；Go browserautomation 含框架引用覆盖通过。上述为传输接入前的本地装配计数。
+
+源码链路现已使用 `ClientControllerHost` 与保留完整参数的共享 Playwright adapter，经
+`ISCPControllerClient`、五个已注册的 `browser.controller.*` 操作和桌面转发器执行。
+生产 main 惰性启动随包运行时；就绪探测不获取页面，旧 peer 不回退 LAN host。
+旧命令／原生执行实现暂留至 P3 删除门槛；后端采集／邮件装配和原 UI 组件保留。
+
+线协议验证完整可信作用域、代次、incarnation 和规范摘要。写入前持久化 fence，排队与执行共用
+截止时间。结果采用 10 MiB／20 MiB 执行／缓存上限，写前预留容量、不可变分块与有界下载并发。
+完成回执之后丢失输出仍保持 completed，不能重做；内联重取也共享同一有界字节缓存。
+journal 完结落盘失败时保留可见 unknown fence，同时允许 release 清理。
+
+普通 Quit 现在等待自有资源清理；Electron 本身不会等待异步 `before-quit` 回调。
+私有父进程存活管道也会在桌面主进程死亡时结束 Controller／MCP。源码原生检查已覆盖普通退出
+和强制终止主进程；一次强制终止样本中进程组约 52 ms 消失，不能视为延迟分位数。
+本地转发器 fixture 已通过 14 项检查，包括真实大截图的分块重组／哈希及末块重读。
+
+一次性 Docker Relay／Gateway 配合真实桌面 main，以 mock 模型完成经加密 ISCP 的打开和填写。
+原有每字段审批约束单次 fill；DOM 输入值和显示文本均变为 `Alice`。释放后保留视图并解绑
+调试器，sandbox 保持启用，普通 Quit 结束 Controller。另一个大页面场景成功执行 84 次分块读取，
+直连业务 HTTP 尝试为零。fixture 沿用原 installation，保留早期未决 fence；成功运行前后该记录
+完全一致，没有新增未知写入。这些证据覆盖传输和原生效果，不代表真实模型质量、已安装包、
+远程 TEST1／work2 或完整原 UI 矩阵已经通过。
+
+保留的失败尝试暴露了两个独立的 mock／工作流缺陷：向模型可见参数输出旧运行时字段，以及在
+尚未填写时把可见草稿内容未变化当成目标完成。mock 参数现遵循当前短 ref schema；表单草稿
+始终先评估可见目标，再选择或完成字段操作。回归保留既有审批和不提交边界。
+新建 fixture profile 也曾未能进入工作台；测试继续沿用原身份并保留旧 fence。
+
+当前自动化证据：Linux Go 6269 个测试节点通过／216 跳过，build、vet 通过；浏览器相关包 race
+通过；桌面 648 通过／1 跳过；WebChat 595 通过且构建通过；Controller 358 通过／151 跳过。
+Controller 重跑使用规范化私有临时目录；WebChat 在 Node 26 禁用原生 Web Storage，使 jsdom
+持有 `localStorage`。初始环境失败记录保留。剩余门槛包括完整故障矩阵、Mac／Linux 安装包及
+原界面验收、TEST1／work2 计时、成对回滚数据保留，以及 P3 之后删除旧路径。
+
+首次注入 31 秒写入回执延迟失败：长进度流结束后的迟到 cancel 被套用新建订阅时间窗口，导致
+会话断开。现按当前认证会话保留已结束订阅的原始开启时间边界；完全匹配的迟到取消可安全结束，
+身份变化和未知的过期取消仍被拒绝。完整 `iscpworkbench` race 通过。修正后的原生重跑通过
+11 项检查：真实 fill 仅一次、任务进入 `unknown`、不重放、其他加密读取成功；观察到实际效果后，
+通过原 IPC 只核对本次注入命令，早期未决 fence 完整保留。fixture 初始错误（等待 delivered 而非
+unknown、把无序 fence 集合按数组顺序比较）也保留记录。本次已关闭观察到的延迟缺陷，完整故障
+矩阵和安装包／远程验收仍为独立门槛。

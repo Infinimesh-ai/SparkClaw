@@ -2,8 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> Date: 2026-11-09. Status: implementation in progress. Local Mac assembly/lifecycle evidence is
-> recorded in §14; production ISCP integration and P0–P4 acceptance remain open.
+> Date: 2026-11-09. Status: implementation in progress. Source integration, local Mac lifecycle
+> and isolated encrypted-Relay evidence are recorded in §14. Packaged/remote acceptance and cutover remain open.
 > Owner decisions D1–D3 are retained in §12.
 > Source reviewed: `main` at `e031a453` (initial proposal); browser/ISCP/desktop implementation
 > baseline remains `b5c21e14`. This is SparkClaw-local work, with no project-cluster coordination.
@@ -413,15 +413,16 @@ UI behavior as well as the new transport; functional tests alone do not establis
 
 | Phase | Work and exit evidence | Current status |
 |---|---|---|
-| P0 Feasibility | Actual packaged Electron Node/API/fuse checks; Mac adapter; generic MCP without optional imports; fixtures for frame/popup/ref/input/capture; cold-start and full-tool/chunk timings on Mac ↔ work2 | Pending |
-| P1 Local runtime | Reproducible manifest, client entry, process supervision, association map, retained-view lifecycle; installed package runs local fixtures offline | Pending |
-| P2 ISCP | Registry/projections, service/client/host, strict forwarder, journal/fence integration, chunks; isolated Relay failure-injection and no business bypass | Pending |
+| P0 Feasibility | Actual packaged Electron Node/API/fuse checks; Mac adapter; generic MCP without optional imports; fixtures for frame/popup/ref/input/capture; cold-start and full-tool/chunk timings on Mac ↔ work2 | Local source fixture passed; packaged/remote pending |
+| P1 Local runtime | Reproducible manifest, client entry, process supervision, association map, retained-view lifecycle; installed package runs local fixtures offline | Source lifecycle passed; package pending |
+| P2 ISCP | Registry/projections, service/client/host, strict forwarder, journal/fence integration, chunks; isolated Relay failure-injection and no business bypass | Integrated; fault recovery gate open |
 | P3 Native acceptance | Installed Mac and work2 Linux desktop through TEST1 to real work2; G1–G4 of the [ISCP expansion design](desktop-iscp-capability-expansion-design.md), §11 matrix, latency versus recorded old-path baseline | Pending |
 | P4 Cutover | Paired Gateway + Mac/Linux packages, old-path deletion, verified rollback and retained-data checks | Pending |
 
 Capture the old-path performance/UI baseline before deletion. P0–P3 may use isolated candidate
-builds; production has no dual-path runtime selector. Publish/installation/deployment is outside
-this documentation task and follows the owner's actual authorization at execution time.
+builds; production has no dual-path runtime selector. The owner requested continued implementation
+and final owner acceptance. Candidate preparation is active; production rollout follows the
+owner's authorization at execution time.
 
 P4 removes active `browser.command` registry/generated entries, `Broker` reverse dispatch,
 desktop handler/native executor/`host-socket.mjs`, LAN host grant/connect/revoke/fences routes
@@ -441,7 +442,7 @@ per-command fallback substitutes for rollback.
 
 ## 11. Acceptance matrix and evidence
 
-Every row is required evidence, currently pending. Record source/package hashes, architecture,
+Every row requires complete acceptance evidence; §14 records partial source/fixture coverage. Record source/package hashes, architecture,
 Electron/Node versions, fixture/provider, exact request IDs (redacted), expected/actual outcomes,
 latencies and failure artifacts. Source tests, native fixture, installed package and live provider
 are separate evidence scopes. Report failures and skips; do not turn an unavailable platform
@@ -467,7 +468,7 @@ Run focused Go `browsercontrol/browserhost/browserautomation/iscpworkbench/gatew
 Node and desktop transport/journal/registry/presentation tests, registry projection check, package
 audit and bilingual docs checks as their code changes land. Add backend mail/AI-handler regressions
 for optional assembly extraction. Full repository checks gate implementation integration; this
-documentation revision runs documentation/link checks only and establishes no native test result.
+initial design revision established no native test result; current implementation evidence is scoped in §14.
 P0 timing records include sample count, cold/warm starts, full tool subcall count, payload sizes,
 median/tail latency and chunk throughput; a single successful RPC is not an end-to-end benchmark.
 
@@ -488,17 +489,17 @@ or a unit test complete.
 
 ## 13. Implementation ownership and source map
 
-Paths are repository-relative; new names below are proposed, not present implementation.
+Paths are repository-relative. The Controller client, host, supervisor and forwarder below are now present in source; packaging and native acceptance remain separate gates.
 
-| Area | Existing source / proposed addition |
+| Area | Source ownership |
 |---|---|
-| Client contract | `services/gateway/internal/browsercontrol/client.go`, `runtime_session.go`; proposed `iscp_client.go` and session-bound service |
-| Scope, generations, fences | `services/gateway/internal/browserhost/adapter.go`, `reverse.go`, `fences.go`; proposed `client_controller_host.go` |
+| Client contract | `services/gateway/internal/browsercontrol/client.go`, `runtime_session.go`; `iscp_client.go` and `iscp_session.go` |
+| Scope, generations, fences | `services/gateway/internal/browserhost/adapter.go`, `reverse.go`, `fences.go`; `client_controller_host.go` |
 | Shared tool semantics | `services/gateway/internal/browserautomation/playwright_extension_{adapter,session,snapshot,settle}.go` |
 | Transport integration | `services/gateway/internal/gateway/workbench_iscp_browser.go`, `internal/iscpworkbench/{reverse_session.go,operations.json,negotiation.go}` |
-| Main ownership | `apps/desktop/src/main/{main,iscp-transport,iscp-capabilities}.mjs`; proposed browser Controller supervisor/forwarder modules |
+| Main ownership | `apps/desktop/src/main/{main,iscp-transport,iscp-capabilities}.mjs`; `browser/{controller-runtime,controller-forwarder}.mjs` |
 | Page/journal lifecycle | `apps/desktop/src/browser/{adapter-server,page-registry,host-agent,host-journal}.mjs` |
-| Controller assembly | `tools/browser-controller/src/{controller,mcp-client,http-server,electron-adapter-client}.mjs`; proposed `client-main.mjs` and client package manifest/lockfile |
+| Controller assembly | `tools/browser-controller/src/{controller,mcp-client,http-server,electron-adapter-client}.mjs`; `client-main.mjs` and client package manifest/lockfile |
 | Packaging | `apps/desktop/package.json`, `apps/desktop/scripts/{package-macos,audit-package}.mjs`, root desktop build scripts |
 
 Dependencies are P0 → local assembly/lifecycle → transport/receipts → native acceptance → deletion.
@@ -518,7 +519,7 @@ environment, checks private short socket paths, and owns a separate process grou
 shutdown. The production-mode adapter accepts only a one-use main-issued task association.
 PageRegistry supports explicit normal-release retention, fresh-lease adoption and logical tab
 selection without foreground handoff. These components are exercised by the native fixture;
-production `main.mjs` and Gateway routing are not switched at this checkpoint.
+that initial checkpoint preceded the `main.mjs` and Gateway integration described below.
 
 Local Mac ARM64 evidence uses Electron 44.4.3 / Node 24.21.0 / Chromium 152.0.7977.130 with a
 disposable profile and `/usr/bin:/bin` child PATH. All 12 native checks pass: read/fill/click/select/
@@ -534,6 +535,58 @@ initial navigation only in the client assembly. Backend task-page creation remai
 
 Validation: Controller 358 passed / 151 skipped; desktop 632 passed / 1 skipped; focused shared
 MCP, relay, association, package, runtime and page-lifecycle checks pass. Go browserautomation
-passes with child-frame coverage. These counts precede full transport integration. Next gates:
-ISCP contract/client/forwarder, durable duplicate fences, cancellation/queue/chunk limits, actual
-Mac/Linux packaged acceptance, work2 through TEST1, and P3-gated old-path deletion.
+passes with child-frame coverage. These were the initial local-assembly counts, before the transport integration below.
+
+The source path now uses `ClientControllerHost` and the shared typed Playwright adapter through
+`ISCPControllerClient`, the five registered `browser.controller.*` operations and the desktop
+forwarder. Production main uses the packaged runtime lazily. Readiness does not acquire a page;
+legacy peers cannot fall back to a LAN host. The old command/native implementation remains only
+until the P3 deletion gate. Backend acquisition/mail assembly and original UI components remain.
+
+The wire validates full trusted scope, generation, incarnation and canonical digest. Durable
+mutation fences precede dispatch; queueing and execution share a deadline. Result bytes have
+10 MiB/20 MiB execution/cache limits and a reservation before mutation, immutable chunks and
+bounded download concurrency. Missing output after a completed receipt stays completed and is
+not replayed. Inline retries share the same bounded byte cache. A failed terminal journal write
+retains a visible unknown fence. Release remains possible behind that fence.
+
+Normal application Quit now waits for owned cleanup; Electron does not await an asynchronous
+`before-quit` callback by itself. A private parent-liveness pipe also ends Controller/MCP when
+the desktop main process dies. Source-native tests pass both normal Quit and forced main-process
+death; one forced-death sample observed process-group disappearance in about 52 ms. This is not
+a latency percentile. The local forwarder fixture now passes 14 checks, including native large
+screenshot chunk reconstruction/hash and final-chunk reread.
+
+A disposable Docker Relay/Gateway and the real desktop main entry complete opening and form
+filling through encrypted ISCP with the mock model. The original per-field approval gates the
+single fill; DOM value and displayed text both become `Alice`. Release retains the view without
+a debugger, sandbox stays enabled, and normal Quit stops the Controller. A separate large-page
+run performs 84 chunk reads successfully. Direct business HTTP attempts remain zero. The fixture
+retains its original installation and earlier unresolved fence; successful runs preserve that
+fence exactly and add no unknown writes. These results qualify transport/native effects, not
+real-model quality, installed packages, remote TEST1/work2 or the full original-UI matrix.
+
+The retained failing attempts exposed two independent mock/workflow defects: obsolete runtime
+fields in model-visible arguments, and treating unchanged visible draft content as proof of a
+completed goal before any field action. Mock arguments now follow the current short-ref schema;
+form drafts always assess visible goals before selecting or completing field actions. Regression
+tests retain the existing approval and no-submit boundary. A fresh fixture profile also failed to reach the workbench; the test continues with its original identity and preserves old fences.
+
+Current automated evidence: Linux Go 6,269 test nodes passed / 216 skipped, build and vet passed;
+focused browser packages passed with the race detector; desktop 648 passed / 1 skipped; WebChat
+595 passed and build passed; Controller 358 passed / 151 skipped. The Controller rerun uses a
+canonical private temp directory; WebChat uses Node 26 with native Web Storage disabled so jsdom
+owns `localStorage`. Initial environment failures remain recorded. Remaining gates include the
+complete fault matrix, Mac/Linux packaged and original-UI acceptance, TEST1/work2 measurements,
+paired rollback preservation and P3-gated deletion of the old path.
+
+The first 31-second delayed-write-reply injection failed: a late cancel of a completed long
+progress stream was checked against the new-open time window and disconnected the session.
+Completed stream identities now retain their original opening horizon for that authenticated
+session; exact late cancels are harmless, while changed identities and unknown expired cancels
+remain invalid. Full `iscpworkbench` race tests pass. The corrected native rerun passes 11 checks:
+one real fill, task `unknown`, no replay, unrelated encrypted read succeeds, and original IPC
+reconciles only the injected command after its effect is observed. Earlier unresolved fences
+remain exact. Initial fixture failures (waiting for delivered instead of unknown, and comparing
+unordered fences as an ordered array) remain recorded. This closes the observed delay defect;
+the rest of the fault matrix and packaged/remote acceptance gates remain separate.

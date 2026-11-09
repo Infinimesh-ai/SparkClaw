@@ -2,11 +2,11 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> Date: 2026-11-10. Status: implementation in progress. Clean-source `ac57fa8b` candidates repair
-> local availability and legacy-peer negotiation; recorded Mac/Linux mixed-peer and large-result fault checks pass.
-> Screenshot qualification exposed two additional defects; source fixes await clean-package qualification.
-> Source, isolated encrypted-Relay and real work2 provider evidence is recorded in §14.
-> TEST1, the remaining acceptance matrix and paired cutover remain open; no production replacement.
+> Date: 2026-11-10. Status: implementation in progress. Clean-source `c6948132` candidates fix
+> visual snapshot binding and hidden screenshot rendering; scoped Mac/work2 native checks pass.
+> A shared-disk exhaustion incident interrupted work2 PostgreSQL; original service recovered,
+> with the failed preservation audit and changed runtime baseline retained in §14.
+> TEST1, the remaining acceptance matrix and paired cutover remain open; no production package replacement.
 > Owner decisions D1–D3 are retained in §12.
 > Source reviewed: `main` at `e031a453` (initial proposal); browser/ISCP/desktop implementation
 > started at `b5c21e14`. This is SparkClaw-local work, with no project-cluster coordination.
@@ -1169,3 +1169,35 @@ retain environment failures: overlong Unix socket paths, then a symlinked `/tmp`
 short path passes `cmd/sparkclaw`. Linux-only `/dev/shm` tests remain unsupported on Mac. Desktop
 passes 663 tests with one skip, WebChat builds, and bilingual docs check 145 files. Mac native
 visual observation is blocked by the locked desktop; its timeout is retained separately.
+
+
+Clean `c6948132` candidates pass the Mac DMG screenshot scenario (7 checks), three separate
+work2 Linux AppImage launches (7 screenshot checks each), and the original workflow/Relay/UI
+regressions (Mac 9, Linux 8). Mac's 391,703-byte PNG uses 16 chunks; Linux's 412,276-byte PNG
+uses 17, with all three Linux image hashes equal. Each delivered file matches the actual CDP
+PNG, and hidden view, panel, window and focus remain unchanged during capture. Native child
+cleanup, retained task views, prior unknown-write fences and zero business-HTTP bypass pass.
+The final refinement passes 664 desktop tests with one skip. Its Gateway source and both Linux
+Gateway binaries are byte-identical to the fully tested `d5fb3d80` versions. Four candidate
+artifacts, hashes and scoped receipts are indexed in `candidate-c6948132-index.json`. The private
+deb payload matches the extracted AppImage; this does not qualify system package installation.
+Controller manifest SHA-256: `1194ecb3c1ea9fff2fc0afb89b06f21463b578f248f217c22c0719941f3ac31c`.
+
+**Environment incident:** the work2 shared root filesystem filled during candidate extraction.
+Test-cache growth materially contributed. PostgreSQL reports ENOSPC at 17:43:14 UTC on November 9,
+then a checkpointer PANIC at 17:44:07; Docker's automatic restart also failed for lack of space.
+Twelve owned, reproducible unpacked app/deb trees were removed only after verifying stopped
+processes and retained source archives with hashes, freeing 8,769,241,088 bytes. Profiles,
+evidence and compressed artifacts remain. The final preservation audit detected the stopped
+production database; retain that failed audit instead of claiming unchanged production.
+
+After checking the exact original container ID, image, configuration and full mounts, the same
+PostgreSQL container was started at 17:49:57 UTC. It is healthy and a read-only transaction returns
+`1` and `pg_is_in_recovery() = false`. Gateway/WebChat runtime baselines remain equal; PostgreSQL's
+start time, endpoint ID and MAC changed. No container recreation, schema/volume change or
+transaction replay was performed. These checks establish availability, not completeness of
+interrupted business requests. Recovery logs and before/after receipts remain in the candidate
+inventory. Owned test Gateways are stopped, temporary native/AppArmor resources are cleared,
+and the original GNOME session remains locked. Check shared-disk reserve and production health
+immediately on ENOSPC; retain at least 4 GiB before extracting further candidates. TEST1,
+10 MiB/capacity/expiry, remaining fault/native/offline/WAN gates and P3/D2 cutover stay open.

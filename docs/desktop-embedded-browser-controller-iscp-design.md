@@ -2,11 +2,13 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> Date: 2026-11-09. Status: implementation in progress. Source integration, local Mac lifecycle
-> and isolated encrypted-Relay evidence are recorded in §14. Packaged/remote acceptance and cutover remain open.
+> Date: 2026-11-09. Status: implementation in progress. Candidate source `05fa3c1a` is qualified
+> in the recorded Mac ARM64/Linux x64 package scopes, including durable task cancellation.
+> Source, isolated encrypted-Relay and real work2 provider evidence is recorded in §14.
+> TEST1, the remaining acceptance matrix and paired cutover remain open; no production replacement.
 > Owner decisions D1–D3 are retained in §12.
 > Source reviewed: `main` at `e031a453` (initial proposal); browser/ISCP/desktop implementation
-> baseline remains `b5c21e14`. This is SparkClaw-local work, with no project-cluster coordination.
+> started at `b5c21e14`. This is SparkClaw-local work, with no project-cluster coordination.
 > Scope: generic browser automation in SparkX through ISCP. Mail, provider scripts and AI chat
 > export retain their current paths.
 
@@ -40,7 +42,9 @@ execution interface. No remote JavaScript, CDP, selector or Playwright-code API 
 
 ## 2. Source baseline and gaps
 
-| Boundary | Current source fact | Required change |
+This table records the proposal's source baseline, not the current implementation status (§10/§14).
+
+| Boundary | Proposal baseline fact | Required change |
 |---|---|---|
 | Backend acquisition | `AcquisitionAdapter` → `BackendHost` → `PlaywrightExtensionAdapter` → `browsercontrol.Service` → Unix-socket `HTTPControllerClient` | Keep this role and path |
 | Client embedded | `Broker.ForScope` → `ScopedAdapter` → reverse `browser.command` → `BrowserHostAgent` → `native-page-commands.mjs` | Replace its executor and transport |
@@ -60,7 +64,7 @@ this document governs the new client control hop. Source locations are listed in
 
 ## 3. Scope
 
-Included: macOS ARM64/x64 and Linux ARM64 packaging; production Electron adapter startup;
+Included: macOS ARM64/x64 and Linux ARM64/x64 packaging; production Electron adapter startup;
 ISCP forwarder/client/service; the existing `browser.status`, `open`, `navigate`, `read`,
 `snapshot`, `click`, `type`, `select`, `screenshot`, `wait`, `list_tabs`, `focus`, `close` tools;
 client task-page presentation and recovery. The work2 colocated desktop is also a client (D3).
@@ -129,6 +133,12 @@ current lossy `ref/value` native-command projection into Playwright or trust mod
 | list_tabs | No implicit acquisition when no task lease exists; thereafter project only task-owned pages, never connection/bootstrap pages |
 | focus | Keep current client logical focus/explicit user presentation; never map to shared adapter `tabs.handoff` or change selected conversation |
 | close | Preserve the current client close/release behavior; do not inherit the backend adapter's replacement-blank-tab workaround |
+
+Workflow result presentation uses `browser.open` with `reason=workflow_result_presentation`.
+In the client role this must observe/select the existing task page through `page.info`, retaining
+its DOM and control state. It must not create a second tab or navigate the result URL again.
+A missing page or changed route fails closed. Explicit new opens and backend acquisition keep
+their existing tab semantics; this adaptation does not change the selected conversation or UI.
 
 The common host interface remains role-explicit. Readiness, release, lease-active checks and
 fence ownership must stay callable after old transport deletion. “Unchanged UI/tool semantics”
@@ -905,3 +915,17 @@ hard-main-kill and full offline GUI were not repeated; previous results remain s
 original revision. TEST1, remaining packaged operations/peer matrix, native visual/offline GUI,
 WAN/chunks and paired rollback with cancellation-marker preservation remain open. D2 deletion
 still follows P3.
+
+Expanded real-provider packaged operation checks expose an additional Gateway presentation bug:
+`workflow_result_presentation` opened a second page at the same URL and discarded the verified
+DOM state. The client adapter now observes/selects the existing page, refuses missing/changed
+routes, and leaves explicit-open and backend semantics intact. Red regressions reproduce the
+replacement; focused browser packages, race checks, workflow tests, vet and Linux build pass.
+The unchanged `05fa3c1a` Linux package with this isolated Gateway repair retains the actual
+dropdown and delayed-click effects. That run still fails overall: raw Controller snapshots have
+paragraph text and selected options that the public projection drops, and iframe clicks change
+the frame while the stable wait observes only the outer page. Those defects remain under repair;
+delivered tasks or success text do not establish workflow completion. The first operation fixture
+also incorrectly required approval for every low-risk click; another incorrectly assumed two
+cross-origin subdomains must use different renderer processes. Both failed observations are
+retained, and separate-site frame qualification remains pending. No production binary changed.

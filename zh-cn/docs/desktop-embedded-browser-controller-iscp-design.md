@@ -2,9 +2,10 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> 日期：2026-11-09。状态：实施推进中。§14 记录源码接入、Mac 生命周期和隔离加密 Relay 证据；
-> 安装包／远程验收和最终切换仍未完成。§12 保留所有者决定 D1–D3。
-> 已核对源码：`main` 的 `e031a453`（初版提案）；浏览器／ISCP／桌面实现基线仍为 `b5c21e14`。
+> 日期：2026-11-09。状态：实施推进中。候选源码 `05fa3c1a` 已在记录的 Mac ARM64／Linux x64
+> 安装包范围通过验证，包含持久任务取消。§14 记录源码、隔离加密 Relay 及 work2 真实 provider
+> 证据。TEST1、其余验收矩阵和成对切换仍未完成，未替换生产版本。§12 保留所有者决定 D1–D3。
+> 已核对源码：`main` 的 `e031a453`（初版提案）；浏览器／ISCP／桌面实现起点为 `b5c21e14`。
 > 本次仅涉及 SparkClaw，不执行项目簇协调流程。
 > 范围：SparkX 经 ISCP 的通用浏览器自动化。邮件、provider 脚本和 AI 对话导出保持现有路径。
 
@@ -36,7 +37,9 @@ flowchart LR
 
 ## 2. 源码基线与缺口
 
-| 边界 | 当前源码事实 | 必需改动 |
+下表记录提案时的源码基线，不代表当前实施状态；实施状态见 §10／§14。
+
+| 边界 | 提案基线事实 | 必需改动 |
 |---|---|---|
 | 后端采集 | `AcquisitionAdapter` → `BackendHost` → `PlaywrightExtensionAdapter` → `browsercontrol.Service` → Unix socket 上的 `HTTPControllerClient` | 保留角色和路径 |
 | 客户端内嵌 | `Broker.ForScope` → `ScopedAdapter` → 反向 `browser.command` → `BrowserHostAgent` → `native-page-commands.mjs` | 更换执行器和传输 |
@@ -56,7 +59,7 @@ flowchart LR
 
 ## 3. 范围
 
-包含：macOS ARM64／x64 和 Linux ARM64 打包、生产 Electron adapter 启动、ISCP 转发器／客户端／
+包含：macOS ARM64／x64 和 Linux ARM64／x64 打包、生产 Electron adapter 启动、ISCP 转发器／客户端／
 service，以及现有 `browser.status`、`open`、`navigate`、`read`、`snapshot`、`click`、`type`、
 `select`、`screenshot`、`wait`、`list_tabs`、`focus`、`close` 工具、客户端任务页呈现与恢复。
 work2 同机桌面也属于客户端（D3）。
@@ -117,6 +120,11 @@ Scoped 边界继续从任务派生身份、拒绝外部页面并检查 fence。�
 | list_tabs | 没有任务租约时不能隐式 acquire；有租约后仅投影其任务页，排除连接／引导页 |
 | focus | 保留当前客户端逻辑 focus 和用户显式呈现，不能走共享 adapter 的 `tabs.handoff` 或更改选中会话 |
 | close | 保留当前客户端 close／release 行为，不引入后端 adapter 的替补空白页处理 |
+
+工作流通过带 `reason=workflow_result_presentation` 的 `browser.open` 展示结果。客户端此时
+必须用 `page.info` 观察／选取已有任务页，保留 DOM 和控件状态，不能另开同地址标签页或再次
+导航结果 URL。页面缺失或路由变化时明确拒绝。显式新打开和后端采集继续保持原标签页语义；
+该适配不改变选中会话或界面。
 
 公共 host 接口继续显式区分角色。旧传输删除后，就绪、释放、租约有效性检查和 fence 服务仍须可用。
 “界面／工具语义不变”是验收要求，不代表现有 `ScopedAdapter` 已经具备这些适配能力。
@@ -741,3 +749,13 @@ deb 的可执行文件、ASAR 和 Controller manifest 与 AppImage 相同。四�
 当前包的主进程强制终止和完整离线 GUI，先前结果继续限定于其原版本。TEST1、剩余安装包
 操作／新旧节点矩阵、原生目视／离线 GUI、广域网／分块及保留取消标记的成对回滚仍待完成；
 D2 旧路径删除仍须在 P3 之后。
+
+扩展的真实 provider 安装包操作检查发现另一处 Gateway 展示缺陷：
+`workflow_result_presentation` 会另开同地址页面，丢失已验证的 DOM 状态。客户端适配器现观察／
+选取已有页面，拒绝缺失或已变路由，显式新打开和后端语义保持不变。回归用例先复现替换问题；
+修复后浏览器相关包、race、工作流测试、vet 及 Linux 构建通过。未改动的 `05fa3c1a` Linux
+安装包配合该隔离 Gateway 修复，能够保留下拉框和延迟点击的真实效果，但整体运行仍失败：
+Controller 原始快照中的段落文字及选中项在公开投影中丢失，iframe 点击改变了 frame，而稳定
+等待只观察外层页面。这些缺陷仍在修复，任务交付或成功文案不构成工作流完成证明。首版操作
+fixture 还错误要求每次低风险点击都必须审批；另一处错误假设跨源子域必定使用不同 renderer
+进程。两项失败观察均保留，跨站 frame 的验证待完成，生产二进制没有变化。

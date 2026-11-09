@@ -1,6 +1,27 @@
 package browserautomation
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
+
+// Presentation compares document routes without treating path/query case or
+// trailing path separators as interchangeable. Only an empty origin path is /.
+func sameClientPresentationURL(expected, observed string) bool {
+	normalize := func(raw string) string {
+		value, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil || value.Host == "" || (value.Scheme != "http" && value.Scheme != "https") {
+			return ""
+		}
+		value.Scheme, value.Host = strings.ToLower(value.Scheme), strings.ToLower(value.Host)
+		if value.Path == "" {
+			value.Path = "/"
+		}
+		return value.String()
+	}
+	left, right := normalize(expected), normalize(observed)
+	return left != "" && left == right
+}
 
 func sameBrowserReadURL(left, right string) bool {
 	left = strings.TrimSuffix(strings.TrimSpace(left), "/")

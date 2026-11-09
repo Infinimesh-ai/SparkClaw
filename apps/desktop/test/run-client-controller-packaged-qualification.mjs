@@ -6,6 +6,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { qualifyPackagedOperations } from "./client-controller-packaged-operations.mjs";
 
 const directory=process.env.SPARKCLAW_CONTROLLER_ISCP_LAB;
 const executablePath=process.env.SPARKCLAW_CONTROLLER_CANDIDATE;
@@ -141,6 +142,12 @@ try{
     });
     session.fromPartition("persist:sparkclaw-workbench-default").webRequest.onBeforeRequest({urls:["http://*/*","https://*/*","ws://*/*","wss://*/*"]},(_request,callback)=>{globalThis.__controllerQualificationHTTP++;callback({cancel:true});});
   });
+  if(process.env.SPARKCLAW_CONTROLLER_OPERATIONS==="1"){
+    await qualifyPackagedOperations({application,window,evidence,until});
+    evidence.direct_business_http_attempts=await application.evaluate(()=>globalThis.__controllerQualificationHTTP);
+    assert.equal(evidence.direct_business_http_attempts,0);
+    evidence.passed=true;return;
+  }
   const title=`Packaged Controller ${Date.now()}`;
   const conversation=await window.evaluate(title=>window.sparkclawClientStore.create(title),title);
   evidence.conversation_id=conversation.id;
@@ -335,6 +342,7 @@ try{
 }finally{
   if(pausedRelay)execFileSync("docker",["unpause",pausedRelay]);
   if(application){
+    if(evidence.instrumented_operation_observer)evidence.operation_trace=await application.evaluate(()=>globalThis.__controllerOperationTrace).catch(()=>null);
     await application.close().catch(error=>{evidence.passed=false;evidence.quit_error=String(error);});
     const remaining=execFileSync("ps",["-axo","pid,ppid,pgid,command"],{encoding:"utf8"}).split("\n")
       .filter(line=>line.includes(evidence.runtime?.resources+"/browser-controller/"));

@@ -206,6 +206,20 @@ func (a *PlaywrightExtensionAdapter) executeLocked(ctx context.Context, tool str
 		if url == "" {
 			return "", nil, errors.New("browser.open requires url")
 		}
+		if a.clientEmbedded && stringArg(args, "reason") == "workflow_result_presentation" {
+			// Present the page whose result the workflow already verified. A new
+			// tab at the same URL would discard its click/form state.
+			output, err := a.executeControllerLocked(ctx, "page.info", optionalPageArgs(normalizePlaywrightPageID(stringArg(args, "page_id"))))
+			if err != nil {
+				return "playwright_mcp.page.info", nil, err
+			}
+			page := cloneArgs(mapValue(output["page"]))
+			if !sameClientPresentationURL(url, firstStringValue(page, "url")) {
+				return "playwright_mcp.page.info", nil, errorsForPlaywrightSnapshot("result presentation target changed")
+			}
+			page["selected"] = true
+			return "playwright_mcp.page.info", normalizedPagesOutput([]any{page}), nil
+		}
 		output, err := a.openURLLocked(ctx, url)
 		return "playwright_mcp.tabs.new", normalizedPagesOutput(extractPages(output)), err
 	case "browser.focus":

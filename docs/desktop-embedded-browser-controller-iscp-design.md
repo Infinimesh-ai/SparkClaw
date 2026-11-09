@@ -2,8 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> Date: 2026-11-09. Status: implementation in progress. Clean-source `d4eae4c6` candidates include
-> the Gateway presentation/semantic repair and pass recorded paired upgrade/rollback scopes.
+> Date: 2026-11-10. Status: implementation in progress. Clean-source `81f796f4` candidates repair
+> local availability notifications; Mac renderer/Relay and Linux real-provider checks pass.
 > Source, isolated encrypted-Relay and real work2 provider evidence is recorded in §14.
 > TEST1, the remaining acceptance matrix and paired cutover remain open; no production replacement.
 > Owner decisions D1–D3 are retained in §12.
@@ -541,7 +541,7 @@ Dependencies are P0 → local assembly/lifecycle → transport/receipts → nati
 Keep mechanical optional-handler extraction separate from transport/behavior changes, and keep
 backend acquisition tests green throughout.
 
-## 14. Implementation checkpoint — 2026-11-09
+## 14. Implementation checkpoint — 2026-11-10
 
 The generic Controller/MCP core and Unix-server primitives are now shared by explicit backend
 and client assemblies. The backend still injects mail and AI handlers. The client lockfile pins
@@ -1035,3 +1035,21 @@ the Controller and projected availability again. A bounded regression reproduces
 lifecycle calls. Source now publishes local capability changes separately from connection lifecycle
 events; 28 focused tests and Desktop 662 pass / 1 skip. This repair still needs a new clean package
 and repetition of the combined renderer/Relay test. Retain the failed package, logs and evidence.
+
+Clean-source `81f796f4` rebuilds all four artifacts. The independently installed Mac DMG passes
+the same combined renderer recovery, close/activate, blocked-Relay recovery and original-panel
+scenario (9 groups); work2 x64 passes its real-provider normal/Relay/sandbox scenario (8 groups).
+Both platforms repeat actual missing/corrupt/restored-copy checks (5/5/4) against the same retained
+attachment checkpoint; the original entry, draft, file bytes and durable fences survive. The test
+can explicitly reuse that checkpoint across later packages without replacing its data. The new
+deb's privately extracted executable, ASAR, helper and Controller manifest equal the AppImage;
+this is not a system dpkg-install result. Clean Gateway builds remain byte-identical to `d4eae4c6`.
+
+`candidate-81f796f4-index.json` records the four package hashes, clean revision, Gateway hashes and
+scoped evidence. Controller manifest SHA-256 is
+`cf2ff9f9fc8b9bdc4c78abbf1c4edffec21b264129d035929dc7dcf7512d4e7b`.
+Owned test Gateways are stopped; candidate processes, private X107 display and exact temporary
+AppArmor profiles are gone. All three work2 production containers retain their original IDs,
+images, configuration, HostConfig, full mounts, networks and start times; real-provider config
+and locked GNOME seat are preserved. TEST1, old/mixed-peer/LAN matrix, remaining native/offline
+and timing gates, complete P3 and D2 deletion are still open. No production installation or push.

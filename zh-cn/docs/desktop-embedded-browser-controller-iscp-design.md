@@ -2,8 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> 日期：2026-11-09。状态：实施推进中。干净源码 `d4eae4c6` 候选包含 Gateway 结果展示／语义
-> 修复，并通过记录范围内的成对升级回退验证。§14 记录源码、隔离加密 Relay 及 work2 真实 provider
+> 日期：2026-11-10。状态：实施推进中。干净源码 `81f796f4` 候选修复本地能力通知，Mac 渲染恢复／
+> Relay 和 Linux 真实 provider 检查通过。§14 记录源码、隔离加密 Relay 及 work2 真实 provider
 > 证据。TEST1、其余验收矩阵和成对切换仍未完成，未替换生产版本。§12 保留所有者决定 D1–D3。
 > 已核对源码：`main` 的 `e031a453`（初版提案）；浏览器／ISCP／桌面实现起点为 `b5c21e14`。
 > 本次仅涉及 SparkClaw，不执行项目簇协调流程。
@@ -470,7 +470,7 @@ P0 未知项属于验证门槛，不是缺少产品决定：随包 Electron runt
 依赖顺序为 P0 → 本地装配／生命周期 → 传输／回执 → 原生验收 → 删除旧路径。
 可选处理器的机械提取与传输／行为改动分开提交，全程保持后端采集测试通过。
 
-## 14. 实施检查点 — 2026-11-09
+## 14. 实施检查点 — 2026-11-10
 
 通用 Controller／MCP 核心和 Unix 服务基础能力已由明确的后端、客户端装配共享；后端继续注入
 邮件与 AI 处理器。客户端 lockfile 只锁定 MCP、Playwright 和 Playwright Core。
@@ -842,3 +842,18 @@ SHA-256 为 `11b27d84cdd6cb110272d2e7143d7e1ef2bf6c7d633919325e362bd0c11fa663`�
 该处理再次暂停 Controller 并重新投影能力。有限回归测试复现了 20 次多余生命周期调用。源码
 已分开本地能力通知与连接生命周期事件；28 项专项测试及 Desktop 662 项通过／1 跳过。此修复
 仍须重新构建干净安装包，并重复组合的渲染恢复／Relay 检查；保留失败包、日志和证据。
+
+干净源码 `81f796f4` 已重建四份产物。独立安装的 Mac DMG 通过相同的渲染恢复、关闭／激活、
+Relay 阻断恢复及原面板组合场景（9 组）；work2 x64 通过真实 provider 普通任务／Relay／沙箱
+场景（8 组）。两平台均基于同一附件检查点重跑实际缺失／损坏／恢复副本（5／5／4 项），原
+入口、草稿、附件字节及持久化 fence 均保留。测试现在可显式复用该检查点，在后续候选间验证
+而不替换数据。新 deb 私有解包后的可执行文件、ASAR、helper 和 Controller manifest 与 AppImage
+一致；这不等于系统 dpkg 安装验证。干净构建的 Gateway 与 `d4eae4c6` 二进制仍逐字节一致。
+
+`candidate-81f796f4-index.json` 记录四份包哈希、干净源码版本、Gateway 哈希及分范围证据。
+Controller manifest SHA-256 为
+`cf2ff9f9fc8b9bdc4c78abbf1c4edffec21b264129d035929dc7dcf7512d4e7b`。测试专属 Gateway 已
+停止，候选进程、私有 X107 显示及精确临时 AppArmor 规则均已清理。work2 三个生产容器的 ID、
+镜像、配置、HostConfig、完整挂载、网络和启动时间均与原始基线一致，真实 provider 配置及
+锁定的 GNOME 会话保留。TEST1、旧／混合 peer／LAN 矩阵、剩余原生／离线及计时门禁、完整
+P3 和 D2 删除仍未完成。未安装到生产环境，也未推送。

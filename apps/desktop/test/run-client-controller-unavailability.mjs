@@ -11,6 +11,7 @@ import { pathToFileURL } from "node:url";
 const directory = process.env.SPARKCLAW_CONTROLLER_ISCP_LAB;
 const executablePath = process.env.SPARKCLAW_CONTROLLER_CANDIDATE;
 const phase = process.env.SPARKCLAW_CONTROLLER_UNAVAILABILITY_PHASE;
+const reuseCheckpoint = process.env.SPARKCLAW_CONTROLLER_UNAVAILABILITY_REUSE_CHECKPOINT === "1";
 assert.ok(path.isAbsolute(directory || "") && path.basename(directory).startsWith("sx-controller-iscp-"));
 assert.ok(path.isAbsolute(executablePath || "") && !executablePath.startsWith("/Applications/"));
 assert.ok(["missing", "corrupt", "recovered", "rollback"].includes(phase));
@@ -23,7 +24,7 @@ const checkpointFile = path.join(directory, "evidence/controller-unavailability-
 const output = path.join(directory, `evidence/controller-unavailability-${phase}-${Date.now()}.json`);
 const text = "Synthetic retained attachment: new candidate to recovered and rollback packages.\n";
 const hash = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
-const evidence = { schema_version: 1, phase, platform: process.platform, scope: "actual_candidate_encrypted_ISCP", passed: false, checks: {} };
+const evidence = { schema_version: 1, phase, reuse_checkpoint: reuseCheckpoint, platform: process.platform, scope: "actual_candidate_encrypted_ISCP", passed: false, checks: {} };
 let application, window, checkpoint;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(predicate, label) {
@@ -52,7 +53,7 @@ try {
   const manifest = await fs.readFile(path.join(resources, "browser-controller/manifest.json")).catch(error => { if (error.code === "ENOENT") return null; throw error; });
   evidence.controller_manifest_sha256 = manifest && hash(manifest);
   evidence.before = await retained();
-  if (phase === "missing") await assert.rejects(fs.stat(checkpointFile), { code: "ENOENT" });
+  if (phase === "missing" && !reuseCheckpoint) await assert.rejects(fs.stat(checkpointFile), { code: "ENOENT" });
   else checkpoint = JSON.parse(await fs.readFile(checkpointFile, "utf8"));
   application = await _electron.launch({ executablePath, timeout: 45000, chromiumSandbox: true, env: { ...process.env,
     SPARKCLAW_DESKTOP_ISCP_LOCAL_TEST: "1", SPARKCLAW_DESKTOP_ISCP_CONFIG: path.join(directory, "desktop-profile.json"), SPARKCLAW_DESKTOP_USER_DATA_DIR: profile } });
@@ -81,7 +82,7 @@ try {
     assert.equal(await window.evaluate(() => window.sparkclawDesktop.createPersonal().then(() => false, () => true)), true);
     evidence.checks.original_browser_IPC_refuses_unavailable_operation = true;
   }
-  if (phase === "missing") {
+  if (phase === "missing" && !reuseCheckpoint) {
     checkpoint = await window.evaluate(async text => {
       const store = window.sparkclawClientStore, conversation = await store.create("Controller unavailable retained attachment");
       const file = await store.saveFile(conversation.id, "paired-retained.txt", new TextEncoder().encode(text));

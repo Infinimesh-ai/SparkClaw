@@ -5,9 +5,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { BrowserControllerForwarder } from "../src/browser/controller-forwarder.mjs";
 import { ISCPTransport } from "../src/main/iscp-transport.mjs";
 import { ClientControllerRuntime } from "../src/browser/controller-runtime.mjs";
+import { HostJournal } from "../src/browser/host-journal.mjs";
 
 const directory = process.env.SPARKCLAW_CONTROLLER_ISCP_LAB;
 if (!directory?.startsWith("/private/tmp/sx-controller-iscp-") || !path.isAbsolute(directory)) throw new Error("Private Controller ISCP lab required");
@@ -45,24 +47,40 @@ BrowserControllerForwarder.prototype.start = function(...args) {
   return startForwarder.apply(this,args);
 };
 const fault = process.env.SPARKCLAW_CONTROLLER_ISCP_FAULT;
-const crashFault = fault === "controller-crash-after-fill";
-if (fault && !["late-write-reply", "controller-crash-after-fill"].includes(fault)) throw new Error("Unsupported fixture fault");
+const crashFault = ["controller-crash-after-fill","mcp-crash-after-fill"].includes(fault);
+const teardownFault = crashFault || fault === "terminal-journal-failure";
+if (fault && fault !== "late-write-reply" && !teardownFault) throw new Error("Unsupported fixture fault");
 let pendingFill;
 const localRequest = ClientControllerRuntime.prototype.request;
 ClientControllerRuntime.prototype.request = async function(action, body, options) {
   const response = await localRequest.call(this, action, body, options);
-  if (crashFault && !evidence.fault && action === "execute" && body.operation === "page.fill") {
+  if (teardownFault && !evidence.fault && action === "execute" && body.operation === "page.fill") {
     const page = webContents.getAllWebContents().find(page => page.getURL() === "https://controller.fixture.test/");
     assert.ok(page);
     evidence.observed_before_crash = await page.executeJavaScript('({value:document.querySelector("input").value,text:document.querySelector("#draft").textContent})');
     evidence.sandbox_before_crash = page.getLastWebPreferences().sandbox;
+    let crashPID=this.child.pid;
+    if(fault==="mcp-crash-after-fill"){
+      const rows=execFileSync("ps",["-axo","pid,pgid,command"],{encoding:"utf8"}).split("\n")
+        .map(line=>line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/u))
+        .filter(row=>row&&Number(row[2])===this.child.pid&&row[3].includes(path.join(this.bundleRoot,"node_modules/@playwright/mcp/cli.js")));
+      assert.equal(rows.length,1,"exactly one owned MCP process is required");
+      crashPID=Number(rows[0][1]);
+    }
     evidence.fault = {kind:fault, command_id:pendingFill.command_id, digest:pendingFill.digest,
-      boundary:"local effect completed; UDS reply discarded before durable completion", pid:this.child.pid,
+      boundary:crashFault?"local effect completed; UDS reply discarded before durable completion":"local effect completed; terminal journal writes rejected", pid:crashPID,controller_pid:this.child.pid,
       supervisor_incarnation:this.incarnation};
-    process.kill(this.child.pid, "SIGKILL");
-    throw new Error("Injected Controller crash and local reply loss");
+    if(crashFault){
+      process.kill(crashPID, "SIGKILL");
+      throw new Error("Injected owned-process crash and local reply loss");
+    }
   }
   return response;
+};
+const finishJournal = HostJournal.prototype.finish;
+HostJournal.prototype.finish = async function(id,state) {
+  if(fault==="terminal-journal-failure"&&id===evidence.fault?.command_id)throw new Error("Injected terminal journal persistence failure");
+  return finishJournal.call(this,id,state);
 };
 BrowserControllerForwarder.prototype.handleReverse = async function(request, authority) {
   ownedRuntimes.add(this.runtime);
@@ -114,7 +132,7 @@ void app.whenReady().then(async () => {
     await until(()=>forwarders.size>0&&[...forwarders].every(forwarder=>forwarder.state==="connected"),"initial Controller fence synchronization");
     for(const forwarder of forwarders){await forwarder.connecting;await forwarder.refreshFences();}
     evidence.unknown_fences_before=(await evaluate("window.sparkclawDesktop.state()")).browser_host.unknown_writes;
-    if (crashFault) evidence.personal_page_ref=(await evaluate("window.sparkclawDesktop.createPersonal()")).page_ref;
+    if (teardownFault) evidence.personal_page_ref=(await evaluate("window.sparkclawDesktop.createPersonal()")).page_ref;
     const browserSession=session.fromPartition("persist:sparkclaw-browser-default");
     await browserSession.protocol.handle("https", request => {
       const url=new URL(request.url);
@@ -153,15 +171,15 @@ void app.whenReady().then(async () => {
     evidence.native_pages=await Promise.all(webContents.getAllWebContents().filter(page=>page.getURL()==="https://controller.fixture.test/").map(async page=>({id:page.id,value:await page.executeJavaScript('document.querySelector("input").value')})));
     assert.ok(evidence.wire_events.some(event=>event.inner_operation==="page.fill"),"form workflow dispatched no fill action");
     const page=webContents.getAllWebContents().find(page=>evidence.native_pages.some(row=>row.id===page.id&&row.value==="Alice"));
-    if (!crashFault) assert.ok(page,"task page was not retained");
-    const value=crashFault ? evidence.observed_before_crash : await page.executeJavaScript('({value:document.querySelector("input").value,text:document.querySelector("#draft").textContent})');
+    if (!teardownFault) assert.ok(page,"task page was not retained");
+    const value=teardownFault ? evidence.observed_before_crash : await page.executeJavaScript('({value:document.querySelector("input").value,text:document.querySelector("#draft").textContent})');
     assert.deepEqual(value,{value:"Alice",text:"Alice"});
-    if (!crashFault) assert.equal(page.debugger.isAttached(),false);
+    if (!teardownFault) assert.equal(page.debugger.isAttached(),false);
     else {
       assert.equal(evidence.native_pages.length,0,"abnormal teardown retained an owned task page");
       assert.ok(evidence.desktop.pages.some(page=>page.page_ref===evidence.personal_page_ref&&page.role==="personal"));
       await until(()=>[...ownedRuntimes].every(runtime=>runtime.child===null&&runtime.state==="stopped"),"crashed process group cleanup");
-      evidence.checks.controller_crash_closes_owned_views_preserves_personal=true;
+      evidence.checks.uncertain_completion_closes_task_views_preserves_personal=true;
     }
     if(fault){
       assert.ok(evidence.fault,"write fault was not exercised");
@@ -169,12 +187,19 @@ void app.whenReady().then(async () => {
       for(const forwarder of forwarders)await forwarder.refreshFences();
       const uncertain=(await evaluate("window.sparkclawDesktop.state()")).browser_host.unknown_writes;
       assert.ok(uncertain.some(row=>row.command_id===evidence.fault.command_id&&row.digest===evidence.fault.digest));
+      if(fault==="terminal-journal-failure"){
+        const journal=[...forwarders].find(forwarder=>forwarder.journal.rows.has(evidence.fault.command_id)).journal;
+        assert.equal(journal.rows.get(evidence.fault.command_id).state,"unknown");
+        const durable=JSON.parse(await fs.readFile(path.join(journal.root,evidence.fault.command_id+".json"),"utf8"));
+        assert.equal(durable.state,"dispatched");assert.equal(durable.digest,evidence.fault.digest);
+        evidence.checks.failed_journal_keeps_durable_dispatch_and_visible_unknown=true;
+      }
       assert.equal(await evaluate('fetch(window.sparkclawDesktop.gatewayBase+"/api/owner").then(response=>response.status)'),200);
       await evaluate(`window.sparkclawDesktop.reconcileBrowserHost(${JSON.stringify(evidence.fault.command_id)},${JSON.stringify(evidence.fault.digest)},"observed_completed")`);
-      evidence.checks[crashFault?"controller_crash_is_unknown_without_replay":"late_write_reply_is_unknown_without_replay"]=true;
+      evidence.checks[teardownFault?"uncertain_completion_is_unknown_without_replay":"late_write_reply_is_unknown_without_replay"]=true;
       evidence.checks.unrelated_iscp_read_survives_write_failure=true;
       evidence.checks.observed_effect_reconciled_through_original_ipc=true;
-      if(crashFault){
+      if(teardownFault){
         const recovery=await evaluate("window.sparkclawClientStore.create('Controller crash recovery')");
         await evaluate(`window.sparkclawDesktop.selectConversation(${JSON.stringify(recovery.id)})`);
         const recoveryTask=await evaluate(`(async()=>{const s=window.sparkclawClientStore;const t=await s.enqueue(${JSON.stringify(recovery.id)},"打开 https://controller.fixture.test/ 网页",[]);await s.submit(t.request_id);return t;})()`);
@@ -199,8 +224,8 @@ void app.whenReady().then(async () => {
     evidence.checks[fault?"original_workbench_unknown_task_recorded":"original_workbench_and_task_delivery"]=true;
     evidence.checks.shared_adapter_typed_form_and_native_effect=true;
     evidence.checks.original_per_field_approval=evidence.approvals.length===1;
-    if (!crashFault) evidence.checks.task_release_retains_view_without_debugger=true;
-    evidence.checks.sandbox=(crashFault?evidence.sandbox_before_crash:page.getLastWebPreferences().sandbox)===true;
+    if (!teardownFault) evidence.checks.task_release_retains_view_without_debugger=true;
+    evidence.checks.sandbox=(teardownFault?evidence.sandbox_before_crash:page.getLastWebPreferences().sandbox)===true;
     if(process.env.SPARKCLAW_CONTROLLER_ISCP_LARGE === "1"){
       assert.ok(evidence.wire_events.some(event=>event.operation==="browser.controller.chunk"));
       evidence.checks.large_native_result_over_encrypted_iscp=true;

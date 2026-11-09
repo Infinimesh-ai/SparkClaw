@@ -639,3 +639,23 @@ locked desktop, and a main-WebContents capture omits the native child view. A se
 X11 display therefore supplies the composed-window visual evidence: the original sidebar,
 conversation, browser tab, read-only header and native `Alice` form are visible together. The
 same candidate/profile passes all eight groups there; the user desktop is not unlocked.
+
+Additional recovery evidence: actual MCP-child crash passes 12 native checks; injected rejection
+of both terminal journal writes passes 13, including the durable `dispatched` row, visible
+`unknown`, no replay and a fresh incarnation after explicit reconciliation. An initial injector
+incorrectly threw synchronously instead of returning the journal API's rejected Promise; that
+failure and its unresolved fence are retained. The corrected run preserves every prior fence.
+Gateway chunk race tests also cover lost final chunks, foreign command/result IDs, wrong offsets
+and totals, duplicate content, and deliberately out-of-order assembly; completed mutations stay
+completed and execute only once.
+
+Work2 then runs the same candidate/profile against its configured `sparkclaw-product-v1` real
+provider (`mock: false`), still through the disposable encrypted Relay. All eight groups pass,
+including the approved fill, original controls and blocked-Relay recovery. One complete workflow
+takes 32,828 ms, including model calls, automated approval and reconciliation polling; this is
+not a transport percentile or old/new-path comparison. The first real-provider startup failed
+because the isolated network could not resolve the provider; only the owned candidate Gateway
+was attached to its lab ingress network before restart, with no business port published. The
+three production container/configuration/mount/network/start baselines still match afterward.
+TEST1 authentication, Mac-to-work2 live-provider coverage, full latency comparison, remaining
+installed/offline and fault scenarios, and paired rollback/cutover remain open.

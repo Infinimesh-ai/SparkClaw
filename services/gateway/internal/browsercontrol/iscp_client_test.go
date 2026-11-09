@@ -22,6 +22,9 @@ type controllerWireFixture struct {
 	command                                 string
 	executions, chunks, concurrent, maximum int
 	receipts                                []string
+	chunkOffsets                            []int
+	nonzeroChunkDone                        chan struct{}
+	firstNonzero                            sync.Once
 }
 
 func wireJSON(value any) json.RawMessage { raw, _ := json.Marshal(value); return raw }
@@ -85,7 +88,7 @@ func (f *controllerWireFixture) ControllerCall(ctx context.Context, operation st
 			return nil, ctx.Err()
 		case <-time.After(time.Millisecond):
 		}
-		if mode == "lost_chunk" {
+		if mode == "lost_chunk" || mode == "lost_final_chunk" && offset+length == len(f.payload) {
 			return nil, errors.New("lost chunk")
 		}
 		if offset < 0 || length <= 0 || offset+length > len(f.payload) {
@@ -98,7 +101,35 @@ func (f *controllerWireFixture) ControllerCall(ctx context.Context, operation st
 		if mode == "short_chunk" {
 			bytes = bytes[:len(bytes)-1]
 		}
-		return wireJSON(map[string]any{"schema_version": 1, "command_id": input["command_id"], "result_id": input["result_id"], "offset": offset, "total_bytes": len(f.payload), "data_base64": base64.StdEncoding.EncodeToString(bytes)}), nil
+		if mode == "out_of_order" && offset == 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-f.nonzeroChunkDone:
+			}
+		}
+		f.mu.Lock()
+		f.chunkOffsets = append(f.chunkOffsets, offset)
+		f.mu.Unlock()
+		if mode == "out_of_order" && offset > 0 {
+			f.firstNonzero.Do(func() { close(f.nonzeroChunkDone) })
+		}
+		reply := map[string]any{"schema_version": 1, "command_id": input["command_id"], "result_id": input["result_id"], "offset": offset, "total_bytes": len(f.payload), "data_base64": base64.StdEncoding.EncodeToString(bytes)}
+		switch mode {
+		case "foreign_command":
+			reply["command_id"] = "cmd_foreign"
+		case "foreign_result":
+			reply["result_id"] = "result_foreign"
+		case "wrong_offset":
+			reply["offset"] = offset + 1
+		case "wrong_total":
+			reply["total_bytes"] = len(f.payload) + 1
+		case "duplicate_first_chunk":
+			if offset > 0 {
+				reply["data_base64"] = base64.StdEncoding.EncodeToString(f.payload[:length])
+			}
+		}
+		return wireJSON(reply), nil
 	}
 	var body map[string]any
 	_ = json.Unmarshal(raw, &body)
@@ -173,7 +204,7 @@ func TestISCPControllerRecordsEffectBeforeBoundedChunkAssembly(t *testing.T) {
 }
 
 func TestISCPControllerPayloadFailureCannotReplayCompletedMutation(t *testing.T) {
-	for _, mode := range []string{"lost_chunk", "bad_hash", "short_chunk"} {
+	for _, mode := range []string{"lost_chunk", "lost_final_chunk", "bad_hash", "short_chunk", "foreign_command", "foreign_result", "wrong_offset", "wrong_total", "duplicate_first_chunk"} {
 		t.Run(mode, func(t *testing.T) {
 			f, client := newControllerWireFixture(t)
 			lease := acquireWire(t, client)
@@ -189,6 +220,23 @@ func TestISCPControllerPayloadFailureCannotReplayCompletedMutation(t *testing.T)
 				t.Fatal("stable session could not release after payload loss", err)
 			}
 		})
+	}
+}
+
+func TestISCPControllerAssemblesOutOfOrderChunksWithoutRepeatingMutation(t *testing.T) {
+	f, client := newControllerWireFixture(t)
+	lease := acquireWire(t, client)
+	f.mode, f.nonzeroChunkDone = "out_of_order", make(chan struct{})
+	result, err := client.Execute(t.Context(), ExecuteRequest{Lease: lease, Operation: "page.fill", Arguments: map[string]any{"ref": "e2", "text": "once"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.chunkOffsets) < 4 || f.chunkOffsets[0] == 0 || f.executions != 1 || result.PageGeneration != lease.PageGeneration+1 {
+		t.Fatalf("unordered assembly did not preserve the effect: offsets=%v calls=%d", f.chunkOffsets, f.executions)
+	}
+	var execution ExecutionResult
+	if err := json.Unmarshal(f.payload, &execution); err != nil || string(execution.Result) != string(result.Result) {
+		t.Fatal("assembled bytes differ from the original result", err)
 	}
 }
 

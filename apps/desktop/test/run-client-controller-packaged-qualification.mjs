@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
+import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
@@ -14,7 +15,7 @@ assert.ok(!executablePath.startsWith("/Applications/"),"Qualification requires a
 const resources=path.resolve(path.dirname(executablePath),process.platform==="darwin"?"../Resources":"resources");
 const {_electron}=await import(pathToFileURL(path.join(resources,"browser-controller/node_modules/playwright-core/index.mjs")));
 await fs.mkdir(path.join(directory,"controller-native-profile"),{recursive:true,mode:0o700});
-const evidence={schema_version:1,scope:"packaged_candidate_disposable_ISCP_mock_model",passed:false,checks:{},tasks:[]};
+const evidence={schema_version:1,scope:"packaged_candidate_disposable_ISCP",passed:false,checks:{},tasks:[]};
 let application,window;
 let pausedRelay;
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -29,6 +30,15 @@ const nativePages=()=>application.evaluate(async({webContents})=>Promise.all(web
     debugger:page.debugger.isAttached(),sandbox:page.getLastWebPreferences().sandbox}))));
 const byCommand=(a,b)=>a.command_id.localeCompare(b.command_id);
 try{
+  const configBytes=await fs.readFile(path.join(directory,"gateway-config.json"));
+  const catalogBytes=await fs.readFile(path.join(directory,"model.profiles.json"));
+  const config=JSON.parse(configBytes),catalog=JSON.parse(catalogBytes);
+  const capacity=catalog.profiles[config.model.capacity_profile];
+  assert.equal(capacity.executable,true);assert.equal(typeof capacity.mock,"boolean");
+  evidence.provider={capacity_profile:config.model.capacity_profile,mock:capacity.mock,
+    fast_model:config.model.fast.model,deep_model:config.model.deep.model,
+    config_sha256:crypto.createHash("sha256").update(configBytes).digest("hex"),
+    catalog_sha256:crypto.createHash("sha256").update(catalogBytes).digest("hex")};
   application=await _electron.launch({executablePath,timeout:45000,chromiumSandbox:true,env:{...process.env,
     SPARKCLAW_DESKTOP_ISCP_LOCAL_TEST:"1",SPARKCLAW_DESKTOP_ISCP_CONFIG:path.join(directory,"desktop-profile.json"),
     SPARKCLAW_DESKTOP_USER_DATA_DIR:path.join(directory,"controller-native-profile")}});
@@ -66,6 +76,7 @@ try{
   const conversation=await window.evaluate(title=>window.sparkclawClientStore.create(title),title);
   evidence.conversation_id=conversation.id;
   await window.evaluate(id=>window.sparkclawDesktop.selectConversation(id),conversation.id);
+  const taskStarted=performance.now();
   const task=await window.evaluate(async id=>{const s=window.sparkclawClientStore;const t=await s.enqueue(id,"在 https://controller.fixture.test/ 页面 Display name 字段填写 Alice。",[]);await s.submit(t.request_id);return t;},conversation.id);
   let state,approved=false;
   await until(async()=>{
@@ -86,6 +97,7 @@ try{
     }
     return current&&["delivered","failed","canceled","unknown"].includes(current.status);
   },"packaged browser task delivery",90000);
+  evidence.workflow_duration_ms=Math.round(performance.now()-taskStarted);
   evidence.tasks.push(state);assert.equal(state.tasks.find(row=>row.request_id===task.request_id).status,"delivered");
   evidence.pages=await nativePages();
   assert.ok(evidence.pages.some(page=>page.value==="Alice"&&!page.debugger&&page.sandbox));

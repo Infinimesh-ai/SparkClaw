@@ -8,6 +8,7 @@ import { classifyProcessExit } from "../src/cli-runtime.mjs";
 import {
   NO_OPEN_TABS_TEXT,
   collectSnapshotRefs,
+  comparePlaywrightRefs,
   parseTabsMarkdown,
   renderTabLine,
 } from "../src/playwright-output.mjs";
@@ -169,4 +170,13 @@ test("CLI exit classification matches recorded and pinned Playwright messages", 
     assert.equal(bundle.includes(literal), true, literal);
     assert.equal(classifyProcessExit("", sample).reason, reason, literal);
   }
+});
+
+test("child-frame refs retain their namespace and sort deterministically", () => {
+  const snapshot = [{ role: "iframe", ref: "e8", children: [
+    { role: "button", name: "Frame action", ref: "f1e2" },
+    { role: "button", name: "Other frame", ref: "f2e1" },
+    { ref: "css=button" }, { ref: "f0e1" }, { ref: "f1e0" },
+  ] }];
+  assert.deepEqual([...collectSnapshotRefs(snapshot)].sort(comparePlaywrightRefs), ["e8", "f1e2", "f2e1"]);
 });

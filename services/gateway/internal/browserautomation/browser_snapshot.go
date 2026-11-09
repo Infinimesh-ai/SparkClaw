@@ -237,7 +237,14 @@ func buildBrowserSnapshotRefs(refs map[string]any, goal string) []*browserSnapsh
 			keys = append(keys, rawRef)
 		}
 	}
-	sort.Slice(keys, func(i, j int) bool { return browserRefNumber(keys[i]) < browserRefNumber(keys[j]) })
+	sort.Slice(keys, func(i, j int) bool {
+		leftFrame, leftRef := browserRefParts(keys[i])
+		rightFrame, rightRef := browserRefParts(keys[j])
+		if leftFrame != rightFrame {
+			return leftFrame < rightFrame
+		}
+		return leftRef < rightRef
+	})
 	ordinals := map[string]int{}
 	result := make([]*browserSnapshotRef, 0, len(keys))
 	for index, rawRef := range keys {
@@ -324,12 +331,31 @@ func digestBrowserSnapshot(url, title, tree, pageText string, refs []*browserSna
 	return hex.EncodeToString(digest[:])
 }
 
-func browserRefNumber(value string) int {
-	number, err := strconv.Atoi(strings.TrimPrefix(strings.ToLower(strings.TrimSpace(value)), "e"))
-	if err != nil {
-		return 0
+var browserElementRefPattern = regexp.MustCompile(`^(?:f([1-9][0-9]*))?e([1-9][0-9]*)$`)
+
+func browserRefParts(value string) (int, int) {
+	parts := browserElementRefPattern.FindStringSubmatch(value)
+	if parts == nil {
+		return 0, 0
 	}
-	return number
+	frame := 0
+	if parts[1] != "" {
+		var err error
+		frame, err = strconv.Atoi(parts[1])
+		if err != nil {
+			return 0, 0
+		}
+	}
+	element, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return 0, 0
+	}
+	return frame, element
+}
+
+func browserRefNumber(value string) int {
+	_, element := browserRefParts(value)
+	return element
 }
 
 func nonEmptyStrings(values ...string) []string {

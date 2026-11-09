@@ -7,7 +7,8 @@
 // test/fixtures/record-playwright-golden.mjs after a version bump.
 
 export const NO_OPEN_TABS_TEXT = "No open tabs. Navigate to a URL to create one.";
-export const PLAYWRIGHT_REF_PATTERN = /^e[1-9][0-9]*$/u;
+// The pinned provider prefixes child-frame refs with its frame sequence.
+export const PLAYWRIGHT_REF_PATTERN = /^(?:f[1-9][0-9]*)?e[1-9][0-9]*$/u;
 
 const TAB_LINE_PATTERN = /^- ([0-9]+):( \(current\))? \[(.*)\]\((.*)\)( \[crashed\])?$/u;
 
@@ -60,5 +61,8 @@ export function collectSnapshotRefs(value, refs = new Set()) {
 }
 
 export function comparePlaywrightRefs(left, right) {
-  return Number(left.slice(1)) - Number(right.slice(1));
+  const parts = value => value.match(/^(?:f([1-9][0-9]*))?e([1-9][0-9]*)$/u);
+  const a = parts(left), b = parts(right);
+  const frame = Number(a?.[1] ?? 0) - Number(b?.[1] ?? 0);
+  return frame || Number(a?.[2] ?? 0) - Number(b?.[2] ?? 0);
 }

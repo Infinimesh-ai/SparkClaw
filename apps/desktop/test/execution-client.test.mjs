@@ -41,6 +41,40 @@ function result(content = "answer", files = []) {
   return { sequence: 1, digest: hash(payload), payload };
 }
 
+test("cancel fences local browser work after durable intent and before sending Gateway cancellation", async t => {
+  const order = [];
+  const f = fixture(t, async (url) => {
+    assert.ok(url.endsWith('/cancel'));
+    order.push('remote');
+    return new Response(JSON.stringify(event(f, 'canceled')));
+  });
+  f.store.markSubmitted(scope, f.task.request_id);
+  f.store.setExecutionState(scope, f.task.request_id, 'running');
+  f.client.onCancelTask = binding => {
+    assert.equal(f.store.request(scope, f.task.request_id).status, 'cancel_pending');
+    assert.equal(f.store.hasCancellation(scope, f.task.id), true);
+    assert.deepEqual(binding, { owner_id: scope.owner_id, client_id: scope.client_id, installation_id: f.store.installationID,
+      local_conversation_id: f.conversation.id, local_task_id: f.task.id });
+    order.push('local');
+  };
+  await f.client.cancel(scope, f.task.request_id);
+  assert.deepEqual(order, ['local', 'remote']);
+});
+
+test("lost cancellation cannot erase local stop intent on running reconciliation or restart", async t => {
+  const f = fixture(t, async url => {
+    if (url.endsWith('/cancel')) throw new Error('cancel response lost');
+    return new Response(JSON.stringify(event(f, 'running')));
+  });
+  f.store.markSubmitted(scope, f.task.request_id);
+  f.store.setExecutionState(scope, f.task.request_id, 'running');
+  await assert.rejects(f.client.cancel(scope, f.task.request_id), /response lost/);
+  assert.equal(f.store.request(scope, f.task.request_id).status, 'running');
+  f.restart();
+  assert.equal(f.store.hasCancellation(scope, f.task.id), true);
+  assert.equal(f.store.hasCancellation({ ...scope, client_id: 'foreign' }, f.task.id), false);
+});
+
 test("old unsent envelopes retain their original bytes and unknown requests use lookup only", async t => {
   const calls = [];
   const f = fixture(t, async (url, init = {}) => {

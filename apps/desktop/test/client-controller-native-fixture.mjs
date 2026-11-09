@@ -136,6 +136,31 @@ try {
       token: task.token, wait_timeout_ms: 0, session_ttl_ms: 60000 });
   };
   let lease = await acquire();
+  if (process.env.SPARKCLAW_TEST_CONTROLLER_QUEUE_FULL === "1") {
+    assert.ok(useForwarder);
+    const pid = runtime.child.pid, incarnation = runtime.incarnation;
+    const queued = Array.from({ length: 33 }, (_, index) => {
+      const body = { schema_version: 1, command_id: `queued_${crypto.randomUUID()}`, digest: "", timeout_ms: 10000,
+        wait_timeout_ms: 10000, session_ttl_ms: 60000, binding: { ...binding, local_conversation_id: `queue-${index}`,
+          local_task_id: `task-${index}`, lease_id: `lease-${index}`, page_id: `page-${index}` } };
+      body.digest = controllerDigest("browser.controller.acquire", body);
+      return { type: "task.invoke", profile: "sparkclaw.workbench.transport.v2", id: crypto.randomUUID(),
+        operation: "browser.controller.acquire", installation_id: binding.installation_id, body };
+    });
+    const pending = queued.slice(0,32).map(request => forwarder.handleReverse(request, forwarder.auth.transport.capabilities));
+    await until(() => forwarder.admission.queue.length === 32, 3000);
+    const overflow = await forwarder.handleReverse(queued[32], forwarder.auth.transport.capabilities);
+    assert.equal(overflow.body.outcome,"not_dispatched");assert.equal(overflow.body.error_code,"browser_busy");
+    for (const request of queued) assert.equal(forwarder.journal.rows.has(request.body.command_id),false);
+    for (const request of queued.slice(0,32)) forwarder.cancelTask(request.body.binding);
+    for (const reply of await Promise.all(pending)) assert.equal(reply.body.outcome,"not_dispatched");
+    assert.equal(forwarder.admission.queue.length,0);
+    for (const request of queued) assert.equal(forwarder.journal.rows.has(request.body.command_id),false);
+    assert.equal(runtime.child.pid,pid);assert.equal(runtime.incarnation,incarnation);
+    assert.deepEqual(forwarder.lease.binding,binding);
+    evidence.checks.native_fifo_32_waiters_rejects_33rd_before_dispatch = true;
+    evidence.checks.cancel_all_waiters_preserves_active_native_lease = true;
+  }
   const execute = async (operation, args = {}) => {
     const response = useForwarder ? await sendWire("execute", { lease, operation, arguments: args }) : await request("execute", { session_id: lease.session_id, controller_generation: lease.controller_generation,
       session_generation: lease.session_generation, page_generation: lease.page_generation, operation, arguments: args });

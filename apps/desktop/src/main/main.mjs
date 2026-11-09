@@ -299,7 +299,8 @@ async function start() {
     const localChanged = () => {
       if (window && !window.isDestroyed()) window.webContents.send("sparkclaw-client-store:changed");
     };
-    executionClient = new ExecutionClient({ auth: desktopAuth, store: localStore, getIdentity: localIdentity, onChange: localChanged }).start();
+    executionClient = new ExecutionClient({ auth: desktopAuth, store: localStore, getIdentity: localIdentity, onChange: localChanged,
+      onCancelTask: binding => browserHost?.cancelTask?.(binding) }).start();
     iscpEvents = new ISCPEventClient({ auth: desktopAuth, store: localStore, execution: executionClient, getIdentity: localIdentity,
       onEvents: (event) => { localChanged(); if (event.categories.includes("medicine")) void medicineClient?.sync().catch(() => {}); if(window&&!window.isDestroyed())window.webContents.send("sparkclaw-backend-events",event); } });
     if(desktopAuth.status.capabilities?.events)iscpEvents.start();
@@ -404,6 +405,10 @@ async function start() {
     browserHost = new BrowserControllerForwarder({
       auth: desktopAuth, registry, userDataDir: app.getPath("userData"),
       runtime: controller,
+      isTaskCanceled: binding => {
+        const identity = localIdentity();
+        return !identity || localStore.hasCancellation(identity, binding.local_task_id);
+      },
       onChange: () => desktopCapability?.changed(),
     });
     await prepareBrowserHostScope().catch(() => {});

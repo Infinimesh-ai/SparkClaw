@@ -829,6 +829,22 @@ export class ClientStore {
     return this.request(scope, requestID);
   }
 
+  requestCancellation(scope, requestID) {
+    return this.#transaction(() => {
+      const task = this.setExecutionState(scope, requestID, "cancel_pending");
+      // A later lookup can still report running after a lost cancel request.
+      // Keep the user's local stop intent independently of server projections.
+      this.db.prepare("INSERT OR IGNORE INTO metadata(key,value) VALUES(?, '1')").run(`execution_cancel:${task.id}`);
+      return task;
+    });
+  }
+
+  hasCancellation(scope, taskID) {
+    uuid(taskID);
+    return Boolean(this.db.prepare(`SELECT 1 FROM tasks t JOIN conversations c ON c.id=t.conversation_id
+      JOIN metadata m ON m.key='execution_cancel:' || t.id WHERE t.id=? AND c.scope=?`).get(taskID, scopeKey(scope)));
+  }
+
   receipt(scope, requestID) {
     this.request(scope, requestID);
     const receipt = this.db.prepare("SELECT sequence,digest,acknowledged FROM deliveries WHERE request_id=? ORDER BY sequence DESC LIMIT 1").get(requestID);

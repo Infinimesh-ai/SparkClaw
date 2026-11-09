@@ -11,6 +11,7 @@ import { ISCPTransport } from "../src/main/iscp-transport.mjs";
 import { ClientControllerRuntime } from "../src/browser/controller-runtime.mjs";
 import { HostJournal } from "../src/browser/host-journal.mjs";
 import { concurrentScenario } from "./client-controller-concurrency-scenario.mjs";
+import { activeCancelScenario } from "./client-controller-active-cancel-scenario.mjs";
 import { captureMainCrash, recoverMainCrash } from "./client-controller-main-restart-scenario.mjs";
 
 const directory = process.env.SPARKCLAW_CONTROLLER_ISCP_LAB;
@@ -50,7 +51,8 @@ BrowserControllerForwarder.prototype.start = function(...args) {
 };
 const fault = process.env.SPARKCLAW_CONTROLLER_ISCP_FAULT;
 const concurrency = process.env.SPARKCLAW_CONTROLLER_ISCP_CONCURRENCY === "1" ? concurrentScenario({evidence,until,
-  expireWaiter:process.env.SPARKCLAW_CONTROLLER_ISCP_CONCURRENCY_EXPIRE==="1"}) : null;
+  expireWaiter:process.env.SPARKCLAW_CONTROLLER_ISCP_CONCURRENCY_EXPIRE==="1",
+  cancelWaiter:process.env.SPARKCLAW_CONTROLLER_ISCP_CONCURRENCY_CANCEL==="1"}) : null;
 if (concurrency && fault) throw new Error("Run concurrency and fault scenarios separately");
 const mainCrash = fault === "main-crash-after-fill";
 const crashFault = ["controller-crash-after-fill","mcp-crash-after-fill"].includes(fault) || mainCrash;
@@ -157,6 +159,9 @@ void app.whenReady().then(async () => {
       return;
     }
     if(concurrency){await concurrency.run({evaluate,forwarders});return;}
+    if(process.env.SPARKCLAW_CONTROLLER_ISCP_ACTIVE_CANCEL==="1"){
+      await activeCancelScenario({evidence,until,evaluate,forwarders});return;
+    }
     let conversation;
     const prompts = ["打开 https://controller.fixture.test/ 网页", "在 https://controller.fixture.test/ 页面 Display name 字段填写 Alice。"];
     for (const prompt of process.env.SPARKCLAW_CONTROLLER_ISCP_FORM_ONLY === "1" ? prompts.slice(1) : prompts){

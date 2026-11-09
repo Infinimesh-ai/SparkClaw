@@ -12,10 +12,11 @@ const INLINE_LIMIT = 48 << 10;
 const INLINE_RESULT = Symbol("inline-result-descriptor");
 
 export class BrowserControllerForwarder {
-  constructor({ auth, registry, runtime, userDataDir, onChange = () => {} }) {
-    Object.assign(this, { auth, registry, runtime, onChange });
+  constructor({ auth, registry, runtime, userDataDir, onChange = () => {}, isTaskCanceled = () => false }) {
+    Object.assign(this, { auth, registry, runtime, onChange, isTaskCanceled });
     this.journal = new HostJournal(path.join(userDataDir, "workbench/browser-journal"));
     this.remoteFences = new Map(); this.flights = new Map(); this.results = new ControllerResults();
+    this.cancelledTasks = new Set();
     this.generation = 0; this.state = "ungranted"; this.admission = new ControllerAdmission();
     this.receiptTimeoutMS = 5000;
     this.authority = new AbortController(); this.lease = null;
@@ -40,6 +41,24 @@ export class BrowserControllerForwarder {
       command_id: row.command_id, digest: row.digest, local_conversation_id: row.local_conversation_id, local_task_id: row.local_task_id })) };
   }
   autoConnect() { void this.#connect(this.auth.transport?.capabilities).catch(() => {}); }
+  cancelTask(binding) {
+    if (!this.scope || !["owner_id", "client_id", "installation_id"].every(key => binding?.[key] === this.scope[key]) ||
+        !ID.test(binding?.local_conversation_id) || !ID.test(binding?.local_task_id)) return;
+    const key = taskKey(binding);
+    if (this.cancelledTasks.size >= 1024 && !this.cancelledTasks.has(key)) {
+      this.state = "unavailable"; this.authority.abort(); this.admission.close();
+    } else this.cancelledTasks.add(key);
+    for (const flight of this.flights.values()) if (flight.taskKey === key) flight.abort.abort();
+    if (this.state === "unavailable" || this.lease && taskKey(this.lease.binding) === key) {
+      const generation = this.generation;
+      const failed = () => {
+        if (generation !== this.generation) return;
+        this.state = "unavailable"; this.authority.abort(); this.admission.close(); this.onChange();
+      };
+      try { return this.runtime.stop("task_canceled").catch(failed); }
+      catch { failed(); }
+    }
+  }
   async stop() { await this.suspend(); this.scope = undefined; this.remoteFences.clear(); this.state = "ungranted"; }
   async suspend() {
     this.generation++; this.authority.abort(); this.admission.close();
@@ -77,6 +96,7 @@ export class BrowserControllerForwarder {
       await this.suspend();
       if (!this.#authorized(session, true)) throw failure("capability_unavailable");
       this.authority = new AbortController(); this.admission = new ControllerAdmission();
+      this.cancelledTasks.clear();
       this.session = Object.freeze({ session_id: session.session_id, authorization_revision: session.authorization_revision });
       this.state = "connected";
       try { await this.refreshFences(); }
@@ -135,11 +155,12 @@ export class BrowserControllerForwarder {
     // Publish a command slot before any await, including the durable journal.
     // Terminal slots have bounded TTL; mutations remain fenced by the journal.
     if (this.flights.size >= 1024) return { status: 200, body: result(command, this.runtime.incarnation, "not_dispatched", "browser_busy") };
-    const flight = { digest: command.digest };
+    const flight = { digest: command.digest, taskKey: taskKey(command.binding), abort: new AbortController() };
+    if (this.cancelledTasks.has(flight.taskKey)) flight.abort.abort();
     this.flights.set(command.command_id, flight);
     const generation = this.generation;
     const deadline = received + command.timeout_ms;
-    const pending = Promise.resolve().then(() => this.#dispatch(request, { mutation, generation, deadline, limit }))
+    const pending = Promise.resolve().then(() => this.#dispatch(request, { mutation, generation, deadline, limit, signal: flight.abort.signal }))
       .catch(() => result(command, this.runtime.incarnation, "unknown", "browser_write_outcome_unknown"))
       .then(body => {
         flight.inline = body[INLINE_RESULT];
@@ -159,10 +180,11 @@ export class BrowserControllerForwarder {
 
   async #dispatch(request, context) {
     const command = request.body, action = request.operation.slice("browser.controller.".length);
-    const signal = AbortSignal.any([this.authority.signal, AbortSignal.timeout(Math.max(1, Math.ceil(context.deadline - performance.now())))]);
+    const signal = AbortSignal.any([this.authority.signal, context.signal, AbortSignal.timeout(Math.max(1, Math.ceil(context.deadline - performance.now())))]);
     let begun = false, dispatched = false, completed = false, reservation, acquiredSlot, task, local, incarnation = this.runtime.incarnation;
     const current = () => {
       if (signal.aborted || performance.now() >= context.deadline || context.generation !== this.generation || this.state !== "connected" || !this.#authorized(this.session)) throw failure("command_fenced");
+      if (this.isTaskCanceled(command.binding)) throw failure("command_fenced");
       if (context.mutation && action !== "release" && this.#hasUnknown(command.binding, command.command_id)) throw failure("browser_write_outcome_unknown");
     };
     const work = async () => {
@@ -278,8 +300,19 @@ export class BrowserControllerForwarder {
   }
   #retireLease() {
     const active = this.lease; this.lease = null;
-    if (active) { clearTimeout(active.timer); this.admission.release(active.slot); }
+    if (active) {
+      clearTimeout(active.timer);
+      const admission = this.admission;
+      // onStopped runs inside cleanup, before the supervisor's stop promise
+      // settles. A queued acquire must not start in that final stopping window.
+      if (this.runtime.stopping) void this.runtime.stopping.then(() => admission.release(active.slot), () => {});
+      else admission.release(active.slot);
+    }
   }
+}
+
+function taskKey(binding) {
+  return JSON.stringify([binding.owner_id, binding.client_id, binding.installation_id, binding.local_conversation_id, binding.local_task_id]);
 }
 
 function validateExecution(payload, command, lease, mutation) {

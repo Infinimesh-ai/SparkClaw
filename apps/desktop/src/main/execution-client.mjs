@@ -16,8 +16,8 @@ const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex"
 // The main process owns credentials and immutable requests. Timers can only
 // look up explicitly submitted IDs and retry durable ACKs; they never POST work.
 export class ExecutionClient {
-  constructor({ auth, store, getIdentity, intervalMS = 5000, onChange = () => {} }) {
-    Object.assign(this, { auth, store, getIdentity, intervalMS, onChange });
+  constructor({ auth, store, getIdentity, intervalMS = 5000, onChange = () => {}, onCancelTask = () => {} }) {
+    Object.assign(this, { auth, store, getIdentity, intervalMS, onChange, onCancelTask });
     this.operations = new Map();
     this.acknowledgements = new Map();
     this.presentationAcknowledgements = new Map();
@@ -110,7 +110,9 @@ export class ExecutionClient {
     return this.#serialized(scope, requestID, async () => {
       const task = this.store.request(scope, requestID);
       if (!task.explicitly_submitted || !["submission_pending", "accepted", "running", "cancel_pending"].includes(task.status)) throw new Error("Task cannot be canceled");
-      this.store.setExecutionState(scope, requestID, "cancel_pending");
+      this.store.requestCancellation(scope, requestID);
+      this.onCancelTask({ owner_id: scope.owner_id, client_id: scope.client_id, installation_id: this.store.installationID,
+        local_conversation_id: task.conversation_id, local_task_id: task.id });
       try {
         const response = await this.#fetch(scope, `/api/v1/executions/${requestID}/cancel`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",

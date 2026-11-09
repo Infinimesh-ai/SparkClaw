@@ -280,7 +280,19 @@ same-ID input before execution. Reserve a per-ID slot atomically before awaiting
 | Cleanup | Separate bounded cleanup budget (5 s grace before forced child termination); cleanup never permits continued remote input |
 
 Queue expiry/cancellation removes the entry before it can acquire. Recheck task, authority,
-incarnation and remaining time immediately before dispatch. Reserve cleanup/response headroom;
+incarnation and remaining time immediately before dispatch. The original local cancel action
+atomically persists `cancel_pending` and a content-free `execution_cancel:<local-task-id>`
+marker in existing ClientStore metadata, then synchronously signals the exact owner/client/installation/
+conversation/task before requesting Gateway cancellation. Abort matching queued/in-flight calls;
+stop an active matching lease, and grant the next FIFO slot only after runtime cleanup settles.
+Retain canceled task keys for the authority generation (maximum 1,024; exhaustion disables
+Controller admission until a new authority session). Every subsequent dispatch also checks the
+scoped durable marker, so a running server projection, reconnect or main restart cannot erase
+the user's local stop intent. Wire operations and database schema version stay unchanged.
+A Gateway cancellation may still yield an unknown fence if it stopped waiting
+before the not-dispatched reply; local cancellation never clears that authoritative fence.
+
+Reserve cleanup/response headroom;
 expiry cannot merely stop waiting on a still-running child. Late acquires are released and fenced,
 not handed to a replacement session. Preserve the request deadline through acquisition: today's
 Playwright adapter uses `context.WithoutCancel`; separate acquisition context from the longer-lived
@@ -852,3 +864,24 @@ complete mount entries, networks and start times match the baseline. An initial 
 order comparison failed; comparing every complete entry by destination proves only ordering
 changed. TEST1, the remaining matrix, native visual/offline GUI, WAN/chunks and paired rollback
 with P3-gated deletion remain open.
+
+Further A04 qualification found a real gap after `9e372018`: an original ClientStore cancel of
+a queued task still allowed its native acquire to complete later. The local cancel signal now
+removes that waiter and suppresses subsequent commands for the canceled task; a separate task
+continues normally. A second deterministic red regression showed that handing off inside
+`onStopped` could encounter the supervisor's still-pending stop promise. FIFO release now waits
+for that promise to settle. Desktop tests pass 659/1 skipped. The encrypted native queued-cancel
+scenario passes nine groups, and active cancellation during approval passes six groups while
+another queued task completes with a new Controller and no field fill. The direct native fixture
+passes 18 groups, including 32 waiting acquires, refusal of the 33rd before journal/dispatch,
+cancellation of all waiters without stopping the active lease, and cross-origin dynamic effects.
+
+Retain both failed cancellation attempts and the intermediate fixture failure: Gateway cancel
+can produce `unknown`, and transport delivery alone does not prove a fresh task acquired a page.
+The successful fixture reconciles only the exact canceled acquire after proving no native
+dispatch, then checks the new task's actual page; all earlier unknown fences remain. This repair
+is source-only until a later candidate refresh; the qualified `9e372018` packages do not contain it.
+The original task's cancellation marker survives running reconciliation and store reopen;
+foreign identities cannot read it, and a new authority session still refuses that task. A new
+explicit task has a distinct local ID. Paired rollback must preserve this stop intent as well as
+the existing write fences; an older binary that ignores cancellation metadata is not qualified.

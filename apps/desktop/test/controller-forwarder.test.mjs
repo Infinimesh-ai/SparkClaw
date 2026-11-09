@@ -190,3 +190,84 @@ for (const reconnect of [true, false]) for (const operation of ["page.read", "pa
     assert.equal((await f.send(command("release", newBinding, { lease: lease.value }))).body.outcome, "completed");
   });
 }
+
+test("local task cancellation removes only its queued acquire and fences later commands for that task", async t => {
+  const f = await fixture(t), a = binding("A"), b = binding("B");
+  const lease = await f.acquireTask(a);
+  const queued = command("acquire", b, { wait_timeout_ms: 10000, session_ttl_ms: 600000 });
+  const pending = f.send(queued);
+  while (!f.forwarder.admission.queue.length) await new Promise(resolve => setImmediate(resolve));
+  f.forwarder.cancelTask({ ...b, client_id: "foreign-client" });
+  assert.equal(f.forwarder.admission.queue.length, 1);
+  f.forwarder.cancelTask(b);
+  assert.equal((await pending).body.outcome, "not_dispatched");
+  assert.equal(f.forwarder.admission.queue.length, 0);
+  assert.equal(f.forwarder.journal.rows.has(queued.body.command_id), false);
+  assert.equal(f.forwarder.lease.binding, a);
+  assert.equal(f.runtime.state, "busy");
+  await f.send(command("release", a, { lease }));
+  assert.equal((await f.send(command("acquire", b, { wait_timeout_ms: 0, session_ttl_ms: 600000 }))).body.outcome, "not_dispatched");
+  assert.equal(f.calls.filter(row => row.action === "acquire").length, 1);
+  await f.acquireTask({ ...b, local_task_id: "fresh-task-B", lease_id: "fresh-lease-B", page_id: "fresh-page-B" });
+});
+
+test("active task cancellation hands off the FIFO only after runtime cleanup has settled", async t => {
+  const f = await fixture(t), a = binding("A"), b = binding("B");
+  await f.acquireTask(a);
+  let finishCleanup;
+  const cleanup = new Promise(resolve => { finishCleanup = resolve; });
+  const start = f.runtime.start;
+  f.runtime.start = function() {
+    if (this.stopping) throw new Error("Controller is stopping");
+    return start.call(this);
+  };
+  f.runtime.stop = function(reason) {
+    if (this.stopping) return this.stopping;
+    this.state = "stopping";
+    this.stopping = (async () => {
+      await cleanup;
+      this.incarnation = "";
+      this.onStopped?.(reason);
+      this.state = "stopped";
+    })().finally(() => { this.stopping = null; });
+    return this.stopping;
+  };
+  const queued = f.send(command("acquire", b, { wait_timeout_ms: 10000, session_ttl_ms: 600000 }));
+  while (!f.forwarder.admission.queue.length) await new Promise(resolve => setImmediate(resolve));
+  f.forwarder.cancelTask(a);
+  assert.equal(f.forwarder.admission.queue.length, 1);
+  finishCleanup();
+  assert.equal((await queued).body.outcome, "completed");
+  assert.equal(f.forwarder.lease.binding, b);
+});
+
+test("canceling a dispatched write preserves unknown while another task can acquire", async t => {
+  let entered;
+  const dispatched = new Promise(resolve => { entered = resolve; });
+  const f = await fixture(t, { execute: (_body, { signal }) => new Promise((_, reject) => {
+    entered(); signal.addEventListener("abort", () => reject(new Error("task canceled")), { once: true });
+  }) });
+  const a = binding("A"), lease = await f.acquireTask(a);
+  const request = command("execute", a, { lease, operation: "page.fill", arguments: { ref: "e2", text: "fixture" } });
+  const pending = f.send(request); await dispatched;
+  await f.forwarder.cancelTask(a);
+  const b = binding("B"); await f.acquireTask(b);
+  const incarnation = f.runtime.incarnation;
+  assert.equal((await pending).body.outcome, "unknown");
+  assert.equal(f.forwarder.journal.rows.get(request.body.command_id).state, "unknown");
+  assert.equal(f.forwarder.lease.binding, b);
+  assert.equal(f.runtime.incarnation, incarnation);
+});
+
+test("durable local cancellation still refuses the same task after a fresh authority session", async t => {
+  const f = await fixture(t);
+  f.forwarder.isTaskCanceled = binding => binding.local_task_id === "task-B";
+  await f.acquireTask(binding("A"));
+  await f.forwarder.suspend();
+  f.auth.transport.capabilities = { ...manifest(), session_id: "session-b" };
+  const b = binding("B", f.auth.transport.capabilities);
+  const commandCount = f.calls.length;
+  assert.equal((await f.send(command("acquire", b, { wait_timeout_ms: 0, session_ttl_ms: 600000 }))).body.outcome,"not_dispatched");
+  assert.equal(f.calls.length,commandCount);
+  await f.acquireTask({ ...b, local_task_id: "fresh-B" });
+});

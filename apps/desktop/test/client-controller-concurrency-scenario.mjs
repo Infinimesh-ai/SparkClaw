@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 
 // Invoked only by the opt-in native fixture. All work still enters the actual
 // Gateway through ClientStore and reaches this observer over encrypted ISCP.
-export function concurrentScenario({ evidence, until, expireWaiter = false }) {
+export function concurrentScenario({ evidence, until, expireWaiter = false, cancelWaiter = false }) {
+  assert.ok(!(expireWaiter && cancelWaiter));
   let firstAcquire;
+  let cancelQueued;
   let heldRead = false;
-  const arrivals = [], completions = [], refusals = [], active = new Set();
+  const arrivals = [], completions = [], refusals = [], settlements = [], active = new Set();
   const observationErrors = [];
   let maximum = 0;
   return {
@@ -17,6 +19,7 @@ export function concurrentScenario({ evidence, until, expireWaiter = false }) {
     },
     async after(request, reply, forwarder) {
       const owner = request.body?.binding?.local_conversation_id;
+      if (request.operation === "browser.controller.acquire") settlements.push({command_id:request.body.command_id,conversation_id:owner,outcome:reply.body?.outcome});
       if (request.operation === "browser.controller.acquire" && reply.body?.outcome === "completed") {
         active.add(owner); maximum = Math.max(maximum, active.size);
         completions.push({command_id:request.body.command_id,conversation_id:owner});
@@ -27,6 +30,11 @@ export function concurrentScenario({ evidence, until, expireWaiter = false }) {
           try {
             await until(() => forwarder.admission.queue.length === 1, "second task in native FIFO", 8000);
             evidence.checks.second_conversation_waits_in_controller_fifo = true;
+            if (cancelWaiter) {
+              await until(() => Boolean(cancelQueued), "submitted task available for cancellation", 1000);
+              await cancelQueued(arrivals[1].conversation_id);
+              evidence.checks.original_cancel_requested_while_native_acquire_queued = true;
+            }
           } catch (error) {
             // A failed observation must not discard a successful acquire reply
             // and manufacture an unrelated unknown outcome in the application.
@@ -58,6 +66,12 @@ export function concurrentScenario({ evidence, until, expireWaiter = false }) {
         const task=await store.enqueue(${JSON.stringify(conversation.id)},${JSON.stringify(`打开 https://controller.fixture.test/${index ? "b" : "a"} 网页`)},[]);
         await store.submit(task.request_id);return task;
       })()`)));
+      let canceledIndex = -1;
+      cancelQueued = async owner => {
+        canceledIndex = conversations.findIndex(conversation => conversation.id === owner);
+        assert.ok(canceledIndex >= 0);
+        await evaluate(`window.sparkclawClientStore.cancel(${JSON.stringify(jobs[canceledIndex].request_id)})`);
+      };
       let states;
       await until(async () => {
         await Promise.all(jobs.map(job => evaluate(`window.sparkclawClientStore.reconcile(${JSON.stringify(job.request_id)})`)));
@@ -65,15 +79,39 @@ export function concurrentScenario({ evidence, until, expireWaiter = false }) {
         return states.every((state, index) => ["delivered", "failed", "canceled", "unknown"].includes(state.tasks.find(task => task.request_id === jobs[index].request_id)?.status));
       }, "two native conversation tasks", 90000);
       evidence.tasks.push(...states);
-      for (let index = 0; index < jobs.length; index++) assert.equal(states[index].tasks.find(task => task.request_id === jobs[index].request_id).status, "delivered");
+      for (let index = 0; index < jobs.length; index++) {
+        const status = states[index].tasks.find(task => task.request_id === jobs[index].request_id).status;
+        if (index === canceledIndex) assert.ok(["canceled", "unknown"].includes(status));
+        else assert.equal(status, "delivered");
+      }
+      if (cancelWaiter) {
+        await until(() => settlements.length === arrivals.length, "every acquire settles after cancellation", 30000);
+        evidence.concurrency = { acquire_arrivals: arrivals, acquire_completions: completions, refused_before_dispatch: refusals, settlements, maximum_active: maximum };
+        assert.equal(completions.some(row => row.conversation_id === conversations[canceledIndex].id), false, "canceled queued task acquired a native Controller lease");
+        const canceled = arrivals.find(row => row.conversation_id === conversations[canceledIndex].id);
+        assert.equal([...forwarders][0].journal.rows.has(canceled.command_id),false,"canceled queued acquire reached the native dispatch journal");
+        evidence.checks.canceled_native_acquire_never_starts_later = true;
+      }
       assert.equal(maximum, 1); assert.equal(active.size, 0);
       const forwarder = [...forwarders][0];
-      if(expireWaiter)assert.equal(refusals.length,1,"the forced waiter did not expire");
+      if(expireWaiter||cancelWaiter)assert.equal(refusals.length,1,"the forced waiter did not retire");
       if(refusals.length){
         // An expired waiter must never start later; a separate explicit task may.
-        assert.equal(refusals.length,1);assert.equal(refusals[0].error_code,"browser_busy");
+        assert.equal(refusals.length,1);assert.ok((cancelWaiter ? ["browser_busy", "command_fenced"] : ["browser_busy"]).includes(refusals[0].error_code));
         const index=conversations.findIndex(conversation=>conversation.id===refusals[0].conversation_id);
         assert.ok(index>=0);assert.equal(forwarder.registry.conversationPages.has(conversations[index].id),false);
+        if (cancelWaiter) {
+          await forwarder.refreshFences();
+          const fence = forwarder.snapshot().unknown_writes.find(row => row.command_id === refusals[0].command_id);
+          if (fence) {
+            // Gateway cancellation can stop waiting before the authenticated
+            // not-dispatched response arrives. Reconcile only this exact
+            // fixture command, whose absence from native dispatch was proved.
+            assert.equal(forwarder.journal.rows.has(fence.command_id), false);
+            await evaluate(`window.sparkclawDesktop.reconcileBrowserHost(${JSON.stringify(fence.command_id)},${JSON.stringify(fence.digest)},"observed_not_applied")`);
+            evidence.canceled_acquire_reconciled = { command_id: fence.command_id, digest: fence.digest, outcome: "observed_not_applied" };
+          }
+        }
         const prompt = `打开 https://controller.fixture.test/${index ? "b" : "a"} 网页`;
         const fresh=await evaluate(`(async()=>{const s=window.sparkclawClientStore;const t=await s.enqueue(${JSON.stringify(conversations[index].id)},${JSON.stringify(prompt)},[]);await s.submit(t.request_id);return t;})()`);
         let state;
@@ -83,7 +121,7 @@ export function concurrentScenario({ evidence, until, expireWaiter = false }) {
           return ["delivered","failed","canceled","unknown"].includes(state.tasks.find(task=>task.request_id===fresh.request_id)?.status);
         },"fresh task after the queued request expired",60000);
         assert.equal(state.tasks.find(task=>task.request_id===fresh.request_id).status,"delivered");
-        evidence.tasks.push(state);evidence.checks.expired_native_acquire_never_starts_later=true;
+        evidence.tasks.push(state);
       }
       assert.deepEqual(completions, arrivals.filter(row=>!refusals.some(refusal=>refusal.command_id===row.command_id)));
       assert.equal(completions.length, 2);
@@ -99,6 +137,7 @@ export function concurrentScenario({ evidence, until, expireWaiter = false }) {
         assert.equal(pages[index].webContents.debugger.isAttached(), false);
         assert.equal(pages[index].webContents.getLastWebPreferences().sandbox, true);
       }
+      if (refusals.length) evidence.checks[cancelWaiter ? "fresh_explicit_task_after_cancel_reconciliation_can_acquire" : "expired_native_acquire_never_starts_later"]=true;
       const desktop = await evaluate("window.sparkclawDesktop.state()");
       assert.ok(desktop.pages.some(page => page.page_ref === personal && page.role === "personal"));
       const byCommand = (a,b) => a.command_id.localeCompare(b.command_id);

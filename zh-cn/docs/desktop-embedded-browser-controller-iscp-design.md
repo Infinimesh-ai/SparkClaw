@@ -3,7 +3,7 @@
 > 语言：简体中文 | [English](../../docs/desktop-embedded-browser-controller-iscp-design.md)
 >
 > 日期：2026-11-10。状态：实施推进中。干净源码 `ac57fa8b` 候选修复本地能力通知和旧 peer 协商，
-> 记录范围内的 Mac／Linux 混合 peer 检查通过。§14 记录源码、隔离加密 Relay 及 work2 真实 provider
+> 记录范围内的 Mac／Linux 混合 peer 及大结果故障检查通过。§14 记录源码、隔离加密 Relay 及 work2 真实 provider
 > 证据。TEST1、其余验收矩阵和成对切换仍未完成，未替换生产版本。§12 保留所有者决定 D1–D3。
 > 已核对源码：`main` 的 `e031a453`（初版提案）；浏览器／ISCP／桌面实现起点为 `b5c21e14`。
 > 本次仅涉及 SparkClaw，不执行项目簇协调流程。
@@ -890,3 +890,28 @@ ASAR 与 `81f796f4` 逐字节一致，helper 和 Gateway 包含协商修复。Li
 payload 一致性检查。测试 Gateway 已停止，候选／X107／keyring 进程及精确临时 AppArmor 规则
 已清理，三个生产容器基线、provider 配置及锁定的 GNOME 会话保持一致。TEST1、LAN-only、剩余
 故障／原生／离线／计时门禁及 P3／D2 切换仍未完成。
+
+未改动的 `ac57fa8b` 包新增通过 Mac（mock provider）和 work2 Linux（真实 provider）各四种
+加密 ISCP 场景：乱序分块、将末块响应延迟 31 秒使其超过 Gateway 期限、返回错误 offset，以及
+篡改分块字节使结果哈希校验失败。显式启用的 `run-client-controller-chunk-qualification.mjs`
+在实际包主进程中注入响应故障，未替换 ASAR、Controller 或 Gateway 文件。合成页面在审批后
+实际填入时改变标题，使真实写操作返回 79,434–79,436 字节、包含 JSON 转义字符的结果。正常
+乱序传输完成工作流；三种失败均仅发生一次实际 fill／input 事件，保留沙箱页面并释放 lease，
+原请求持久化为 `unknown`，没有助手成功答复，也没有自动重放写入。reconcile 读取同一请求，
+没有提交新任务。其他 ISCP 读取成功，业务 HTTP 尝试为零。
+
+`verify-client-controller-chunk-receipts.py` 在两端程序停止后独立读取保留文件。回执核对确认：
+Gateway 与桌面写操作记录仍为 `completed`，原任务／digest 一致，
+Gateway 完成时间早于首次 chunk 请求。这一已完成动作与保守的工作流 unknown 结果分别记录。
+通过实际包 forwarder 的本地探针另验证了重复命令复用 descriptor、不同 digest 被 fence 拒绝、
+末块可重复读取，以及其他任务／命令／结果或越界 offset 被拒绝；明确不把这些本地探针计为
+额外的加密传输请求。源码检查中 16 项 forwarder 测试及 Gateway `TestISCPController` 组通过。
+
+保留首轮夹具失败：已有执行路径返回持久化 unknown，夹具却要求失败文本，后续又错误等待
+另一种终态；Linux 首轮还在认证连接完成前读取桌面状态。修正后的断言核对实际持久化任务及
+写操作回执，启动时等待原连接状态。独立回执读取脚本另适配了 Python 3.9 对 Go 纳秒时间戳的
+解析限制。八份最终原生结果、两份持久化回执比较及清理／保留证明已索引到
+`candidate-ac57fa8b-index.json`。两个测试 Gateway 均停止，候选／X107／keyring 及临时 AppArmor
+资源已清理；生产容器、provider 配置和锁定的 GNOME 会话保持原始基线。本轮只补充 A07／A08
+中的转义大写操作结果范围，不代表截图、10 MiB、容量、过期、所有故障组合、TEST1、离线／原生
+安装或公网 WAN 时延门禁已完成。

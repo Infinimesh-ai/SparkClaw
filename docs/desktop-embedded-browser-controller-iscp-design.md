@@ -3,7 +3,7 @@
 > Language: English | [简体中文](../zh-cn/docs/desktop-embedded-browser-controller-iscp-design.md)
 >
 > Date: 2026-11-10. Status: implementation in progress. Clean-source `ac57fa8b` candidates repair
-> local availability and legacy-peer negotiation; recorded Mac/Linux mixed-peer checks pass.
+> local availability and legacy-peer negotiation; recorded Mac/Linux mixed-peer and large-result fault checks pass.
 > Source, isolated encrypted-Relay and real work2 provider evidence is recorded in §14.
 > TEST1, the remaining acceptance matrix and paired cutover remain open; no production replacement.
 > Owner decisions D1–D3 are retained in §12.
@@ -1098,3 +1098,36 @@ Linux deb payload equality passes as private extraction only. Test Gateways are 
 candidate/X107/keyring processes and exact temporary AppArmor profiles are cleared, and the
 three production container baselines, provider configuration and locked GNOME seat remain exact.
 TEST1, LAN-only and remaining fault/native/offline/timing gates and P3/D2 cutover remain open.
+
+The unchanged `ac57fa8b` packages now pass four additional encrypted-ISCP scenarios on Mac
+(mock provider) and work2 Linux (real provider): out-of-order chunks, a final reply held for
+31 seconds to exceed the Gateway deadline, an incorrect returned offset, and changed chunk bytes
+that fail the result hash. The opt-in `run-client-controller-chunk-qualification.mjs` instruments
+reverse replies in the actual packaged main; no ASAR, Controller or Gateway file is replaced.
+The synthetic page changes its title after the approved fill, producing a real 79,434–79,436-byte
+mutation result containing JSON-escaped characters. Normal unordered transfer completes the
+workflow. Each failed transfer preserves one actual fill/input event and the retained sandboxed
+view, releases the lease, and leaves the original request durably `unknown` with no assistant
+success answer or automatic write replay. Reconciliation reads that same request; it does not
+submit a new task. Unrelated ISCP reads succeed with zero direct business HTTP.
+
+`verify-client-controller-chunk-receipts.py` independently checks retained files while both apps
+are stopped. The receipts verify that Gateway and desktop write records remain `completed`
+with the original task/digest, and that the Gateway completion timestamp precedes the first
+chunk request. This completed action is distinct from the conservative unknown workflow result.
+Local probes through the packaged forwarder additionally verify duplicate-command descriptor
+reuse, changed-digest fencing, repeated final-chunk reads and rejection of another task, command,
+result or out-of-range offset. These probes are explicitly not claimed as extra encrypted-wire
+requests. Source checks pass: 16 forwarder tests and the Gateway `TestISCPController` group.
+
+Retain the initial fixture failures: it first required failure text although the existing execution
+path returns a durable unknown task, and then waited for a different terminal state; Linux also
+sampled desktop state before authentication connected. The corrected assertions check actual
+durable execution and write records, and startup waits for the original connection state. A
+receipt-reader timestamp parser was separately adapted to nanosecond Go timestamps on Python 3.9.
+The eight final native receipts, two durable-receipt comparisons and cleanup/preservation receipts
+are indexed in `candidate-ac57fa8b-index.json`. Both owned Gateways are stopped; candidate,
+X107/keyring and temporary AppArmor resources are cleared. Production containers, provider
+configuration and the locked GNOME session retain their baselines. This is scoped A07/A08
+evidence for large escaped mutation results; it does not complete screenshot, 10 MiB, capacity,
+expiry, every fault combination, TEST1, offline/native installation or public-WAN timing gates.

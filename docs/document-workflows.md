@@ -17,12 +17,12 @@ existing file: `report.pdf`, `report-2.pdf`, `report-3.pdf`, and so on.
 
 ## Workflow Boundary
 
-`document.read` revision 7 reads or summarizes one exact governed workspace
+`document.read` revision 8 reads or summarizes one exact governed workspace
 file. PDF, DOCX, PPTX, XLSX, text and Markdown first expose structure regardless
 of size. Fast selects the semantic task scope; runtime binds source versions
 and continues that same scope until complete or explicitly partial. A short
 whole-source task may fit one bounded range read. Images retain their visual
-reader; persisted revisions 4/5/6 retain their original execution contracts.
+reader; persisted revisions 4/5/6/7 retain their original execution contracts.
 Revision 7 expands selected section/sheet containers, separates canonical
 acquisition from model evidence budgets and supports bounded selection of original
 source fragments for large extraction tasks (at most 16 fragments per batch,
@@ -30,6 +30,25 @@ source fragments for large extraction tasks (at most 16 fragments per batch,
 processing and keys cached summaries by that task; revision 6 keeps contract 2. Unsupported visual content remains
 partial while useful acquired text can be presented. See the
 [evaluation and current limits](document-workflow-evaluation-20261105.md).
+Revision 8 adds summary contract 4: original heading titles, native paragraph
+blocks, and parent blocks bypass section/merge compression and reach the final
+answer together. A section worker summarizes only its supplied source; it cannot
+infer whole-document absence from a local part. Duplicate titles retain distinct
+native locations. Range reads carry the same navigation metadata without
+claiming those bodies were read. Location maps consume the same bounded evidence budget.
+
+PPTX range reads and summaries also inspect rendered images of the selected
+slides, up to eight pages (or the configured smaller renderer page cap). The
+shared `adapters.pptxVisualQA.baseUrl` and `allowedHosts` must be configured;
+endpoint validation applies even when mutation visual QA has `phase=disabled`.
+A pinned renderer consumes an immutable source snapshot. Captured image calls
+bind the source hash, PDF/PNG hashes, page, and model call. `visual_coverage`
+records processed/missing pages separately from native shape coverage. Model
+observations do not certify exact object parsing or semantic completeness.
+Unavailable rendering and unprocessed pages remain explicit; source changes or
+render integrity failures stop the read. Continuations do not repeat image calls.
+See the [location and visual evaluation](document-workflow-evaluation-20261109.md).
+
 See [Unified structure and evaluation evidence](document-structure-and-evaluation-design.md).
 `document.edit` revision 7 reads one exact
 file, resolves one supported

@@ -14,14 +14,27 @@ Gateway 上传会把附件原名直接保存在 `uploads/` 或 `media/` 下。�
 
 ## Workflow 边界
 
-`document.read` revision 7 读取或总结一个明确的受治理 workspace 文件。PDF、DOCX、PPTX、
+`document.read` revision 8 读取或总结一个明确的受治理 workspace 文件。PDF、DOCX、PPTX、
 XLSX、文本和 Markdown 无论大小都先提供结构；Fast 选择语义任务范围，runtime 绑定来源版本，
 在同一范围内续读，直至完整或明确部分完成。短文档全篇任务可能一次有界范围读取即可完成。
-图片保留视觉 reader；持久化的 revision 4/5/6 计划保留原执行契约。
+图片保留视觉 reader；持久化的 revision 4/5/6/7 计划保留原执行契约。
 Revision 7 展开选中的章节／工作表容器，将原文采集与模型证据预算分开，并为大提取任务
 提供有界原文片段筛选（每批最多 16 个片段、最多 24 批）。总结契约 3 将原始任务传入
 分节及合并处理，并按任务隔离缓存；revision 6 保留契约 2。未支持的视觉内容保持部分完成，同时可返回已读取的有用文字。
 详见[评估与当前限制](document-workflow-evaluation-20261105.md)。
+Revision 8 增加总结契约 4：原始标题、原生段落位置及父级位置绕过分节／合并压缩，
+直接进入最终回答。分节模型只总结当前原文，不能把本节没出现的内容判断为全文缺失。
+同名标题保留不同的原生定位；范围读取也携带定位元数据，但不据此声称对应正文已读。
+定位表计入同一证据预算。
+
+PPTX 范围读取与总结还会读取选定页的渲染图像，每次最多八页（或 renderer 配置的更小页数上限）。
+需配置共享的 `adapters.pptxVisualQA.baseUrl` 与 `allowedHosts`；即使修改视觉 QA 的
+`phase=disabled`，读取也独立校验端点。固定版本 renderer 读取不可变来源快照，采集的图像调用
+绑定来源哈希、PDF/PNG 哈希、页码及模型调用。`visual_coverage` 单独记录已处理／未处理页，
+不改写原生 shape 覆盖率；模型观察不保证逐对象精确解析或语义完整。
+渲染不可用、未处理页保持显式限制；来源变化或渲染完整性错误会停止读取。续读不重复图像调用。
+详见[定位与图形评估](document-workflow-evaluation-20261109.md)。
+
 详见[统一结构与评估证据](document-structure-and-evaluation-design.md)。
 `document.edit` revision 7 读取一个明确文件，通过显式 Workflow 决策节点解析一个受支持
 operation、为 reversible edit 获取 approval，并写入新的同级

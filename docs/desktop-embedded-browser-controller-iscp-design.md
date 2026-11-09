@@ -1583,3 +1583,36 @@ policies are stopped. Production still matches its post-recovery baseline with 5
 bytes free; the historical PostgreSQL incident remains recorded. Packages and product UI are
 unchanged. TEST1, Mac offline/actual Dock interaction, the original read-failure diagnosis,
 remaining faults/WAN evidence, P3/D2/P4 and owner acceptance remain incomplete.
+
+Unchanged `80563081` Mac/Linux packages each additionally pass six write-boundary interruption
+checks. A real-model task receives one fill approval; Alice and exactly one input event are
+observed. After the desktop completed receipt is durable, the fixture pauses the owned isolated
+Relay before handing the reverse reply to the helper. Linux/Mac observe service_unavailable
+after 15,918/15,035 ms and retire owned execution. The old-generation reply is released only
+after recovery: the original execution is unknown with no assistant success message, Gateway
+holds unknown for the same command/digest, and the desktop completed row remains exact.
+The test neither overwrites the local fact nor acknowledges the remote fence to make them agree.
+
+Fresh-command-ID local acquire probes are rejected with browser_write_outcome_unknown and
+zero added native calls on both platforms; the personal page survives. Same-profile restarts
+still expose remote unknown, make no native calls, retain the workbench and allow an unrelated
+ISCP safe read, with zero direct business HTTP. Prior unknowns remain: Mac increases from three
+to four and Linux from two to three. Independent stopped-state reads match both local completed,
+remote unknown and execution unknown records by command/digest/identity. The disconnection
+is real, but its injection boundary follows local terminal persistence; it does not replace
+crash/disconnection coverage while the local row is still dispatched.
+
+Retain the initial Linux launcher filename error before native app startup, the Mac control-shim
+newline error interrupted before authentication, and the overlong Unix socket path failure.
+The passing Mac control channel permits only inspect/pause/unpause for that exact isolated Relay
+through a private socket; it and the SSH tunnel are closed. The Relay is unpaused; activity services,
+candidate processes, temporary policies and private display are stopped. Production matches its
+post-recovery baseline with 5,550,161,920 bytes free and the historical incident retained. Only
+qualification fixtures/docs change; product packages and UI are unchanged. TEST1, Mac offline/Dock,
+the original read-failure cause, remaining faults/WAN and P3/D2/P4 remain open.
+
+The new opt-in `run-client-controller-write-disconnect.mjs` requires node-managed configuration
+and disposable Relay metadata selected by `SPARKCLAW_CONTROLLER_RELAY_METADATA`; it verifies
+the full container ID and ownership label before pausing. The final fixture also explicitly checks
+userData and continues native-app cleanup if Relay cleanup fails. The executed frozen fixture
+and these final cleanup/assertion additions are recorded separately in the candidate index.

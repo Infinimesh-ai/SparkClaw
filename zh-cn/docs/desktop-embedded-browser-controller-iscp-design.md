@@ -1264,3 +1264,29 @@ delivered，既有 unknown 保留。活动服务、候选进程、SSH 转发、�
 生产仍符合恢复后基线，可用空间 5,538,721,792 字节；历史 PostgreSQL 事故继续保留。
 包及产品 UI 未修改。TEST1、Mac 离线／实际 Dock 点击、原查询失败诊断、剩余故障和 WAN
 证据、P3／D2／P4 及所有者最终验收仍未完成。
+
+未改动的 `80563081` Mac／Linux 包又各通过 6 组写入边界断链检查。真实模型获得一次
+填写审批，页面观测为 Alice 且 input 事件仅一次；桌面 completed 回执已经落盘后，
+夹具在 reverse 回复交给 helper 前暂停归属明确的隔离 Relay。Linux／Mac 分别在
+15,918／15,035 ms 观察到 service_unavailable，自有执行被清理。恢复后才释放旧代次的
+迟到回复：原执行为 unknown，无助手成功消息，Gateway 的同命令／摘要为 unknown，
+桌面 completed 回执保持原样。不会为了让两端状态相同而覆盖本地事实或自动核销远端记录。
+
+两端换命令 ID 的本地 acquire 探测均被 browser_write_outcome_unknown 拒绝，原生调用
+增加为零；个人页面保留。同 profile 重启后仍展示远端 unknown、没有任何原生调用，
+原工作台和无关 ISCP 只读请求可用，零直接业务 HTTP。已有 unknown 保留，Mac 从 3 条
+增至 4 条，Linux 从 2 条增至 3 条。停止后的独立读取确认两条本地 completed、远端
+unknown 及执行 unknown 的命令／摘要／身份完全对应。此项覆盖真实断链，但注入点在
+本地 completed 持久化之后，不替代 dispatched 尚未完结时的崩溃／断链覆盖。
+
+保留 Linux 首次启动器文件名错误（未启动原生应用）、Mac 控制 shim 的换行错误
+（认证前中止）及 Unix socket 路径过长失败。通过的 Mac 控制通道仅允许同一隔离 Relay
+的 inspect／pause／unpause，使用独立私有 socket，并已与 SSH 转发一起关闭。Relay 已
+解除暂停；活动服务、候选进程、临时策略和私有显示已停止。生产符合恢复后基线，可用
+空间 5,550,161,920 字节，历史事故记录不变。仅新增验收夹具和文档，产品包及 UI 未改动；
+TEST1、Mac 离线／Dock、原查询失败原因、剩余故障与 WAN、P3／D2／P4 仍开放。
+
+新增显式启用的 `run-client-controller-write-disconnect.mjs`，要求 node-managed 配置及
+`SPARKCLAW_CONTROLLER_RELAY_METADATA` 指定的隔离 Relay 元数据；暂停前验证完整容器
+ID 与归属 label。最终夹具还显式核对 userData 路径，并在 Relay 清理失败时继续尝试关闭
+原生应用；实际运行的冻结夹具与这两处清理／断言补强分别保留在候选索引中。

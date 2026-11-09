@@ -315,14 +315,29 @@ try{
     }
   }
   if(process.env.SPARKCLAW_CONTROLLER_RELAY_FAULT==="1"){
-    const metadata=JSON.parse(await fs.readFile(path.join(directory,"run.json"),"utf8"));
-    const container=JSON.parse(execFileSync("docker",["inspect",metadata.relay_container],{encoding:"utf8"}))[0];
-    assert.equal(container.Config.Labels?.["io.sparkclaw.iscp.lab"],metadata.lab_id);
+    const nodeManaged=process.env.SPARKCLAW_CONTROLLER_NODE_MANAGED==="1";
+    const metadataPath=nodeManaged?process.env.SPARKCLAW_CONTROLLER_RELAY_METADATA:path.join(directory,"run.json");
+    assert.ok(path.isAbsolute(metadataPath||""),"Node Relay faults require explicit disposable metadata");
+    const metadata=JSON.parse(await fs.readFile(metadataPath,"utf8"));
+    const container=JSON.parse(execFileSync("docker",["inspect",nodeManaged?metadata.id:metadata.relay_container],{encoding:"utf8"}))[0];
+    const ownershipLabel=nodeManaged?"io.sparkclaw.node-lab":"io.sparkclaw.iscp.lab";
+    assert.equal(typeof metadata.lab_id,"string");assert.ok(metadata.lab_id.length>0);
+    assert.equal(container.Config.Labels?.[ownershipLabel],metadata.lab_id);
     assert.equal(container.State.Running,true);
+    evidence.relay_fault={container_id:container.Id,ownership_label:ownershipLabel,lab_id:metadata.lab_id};
     const personal=(await evaluateWorkbench(()=>window.sparkclawDesktop.state())).pages.filter(page=>page.role==="personal").map(page=>page.page_ref);
     execFileSync("docker",["pause",container.Id]);pausedRelay=container.Id;
-    const interrupted=await evaluateWorkbench(()=>fetch(window.sparkclawDesktop.gatewayBase+"/api/owner",{signal:AbortSignal.timeout(2000)}).then(response=>response.ok,()=>false));
+    const sustained=process.env.SPARKCLAW_CONTROLLER_RELAY_SUSTAINED==="1";
+    const blockedAt=performance.now();
+    const interrupted=await evaluateWorkbench(timeout=>fetch(window.sparkclawDesktop.gatewayBase+"/api/owner",{signal:AbortSignal.timeout(timeout)}).then(response=>response.ok,()=>false),sustained?40000:2000);
     assert.equal(interrupted,false);
+    evidence.relay_fault.blocked_probe_ms=Math.round(performance.now()-blockedAt);
+    evidence.relay_fault.sustained=sustained;
+    if(sustained){
+      await until(async()=>(await evaluateWorkbench(()=>window.sparkclawDesktop.localConnection())).state!=="connected","connection becomes unavailable during sustained Relay pause",15000);
+      evidence.relay_fault.unavailable_state=(await evaluateWorkbench(()=>window.sparkclawDesktop.localConnection())).state;
+      assert.equal(JSON.parse(execFileSync("docker",["inspect",pausedRelay],{encoding:"utf8"}))[0].State.Paused,true);
+    }
     execFileSync("docker",["unpause",pausedRelay]);pausedRelay=undefined;
     const reconnected=await evaluateWorkbench(()=>window.sparkclawDesktop.retryLocalConnection());
     assert.equal(reconnected.state,"connected");

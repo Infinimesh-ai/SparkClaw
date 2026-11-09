@@ -1554,3 +1554,32 @@ bridges, candidate processes, private display and temporary policies are stopped
 matches its post-recovery baseline with 5,639,798,784 bytes free; the earlier PostgreSQL incident
 remains recorded. Product packages are unchanged. The first Linux restore-read failure,
 remaining faults, Mac offline GUI, TEST1, WAN, P3 and D2 gates remain open.
+
+A frozen metadata observer investigates the first Linux restore-read failure on unchanged
+`80563081` packages. Linux runs alone and alongside Mac each pass seven checks, recording
+479/542 events without observed fetch errors, transport closure or diagnostic loss. Mac passes
+eight checks, including renderer-crash view hiding, original conversation/task recovery, and
+window reopening through the original activate handler; its 480 events contain none of those
+anomalies. The original failed task eventually returns a browser-environment-unavailable blocked
+answer. That failure remains unreproduced and unclassified; successful new tasks do not turn it
+into a pass. Native CUA inspection finds the Mac locked, so an actual Dock click remains unverified
+and a manual-unlock request is pending.
+
+The native fixture now accepts explicit disposable node metadata and checks its fixed ownership
+label before pausing a node-managed Relay. Sustained interruption changes only the fixture's
+observation wait, not product timeouts. Short and sustained pauses each pass eight Linux checks
+on the same package. The short pause cancels the renderer's two-second read; its underlying call
+returns 200 after unpausing at about 2,138 ms without rebuilding the session. Sustained interruption
+observes helper disconnected and client service_unavailable after 15,027 ms, closing transport
+generations 1/2; recovered reads use generation 3. Original task, personal pages, unknown fences
+and panel interactions are retained, with zero direct business HTTP and the Relay unpaused.
+This occurs after the fill task completes; it does not qualify disconnection during an applied
+write or establish the cause of the earlier read failure.
+
+Independent stopped-state reads match all 20 completed mutation receipts for these five
+successful tasks across desktop and Gateway, with delivered executions and prior unknowns
+retained. Activity services, candidate processes, SSH tunnel, private display and temporary
+policies are stopped. Production still matches its post-recovery baseline with 5,538,721,792
+bytes free; the historical PostgreSQL incident remains recorded. Packages and product UI are
+unchanged. TEST1, Mac offline/actual Dock interaction, the original read-failure diagnosis,
+remaining faults/WAN evidence, P3/D2/P4 and owner acceptance remain incomplete.

@@ -1336,3 +1336,33 @@ Controller／MCP 的单次清理观测分别为 Mac 117／119 ms、Linux 123／1
 
 隔离活动服务、候选进程、SSH 转发、私有显示和临时策略均已停止，Relay 未暂停。生产符合
 恢复后基线，可用空间 5,545,435,136 字节；历史 PostgreSQL 事故继续保留在证据中。
+
+`run-client-controller-packaged-gateway-crash.mjs` 在未改动的 `80563081` Mac／Linux
+包上补充实际 node-managed Gateway 故障验证，各通过 9 组。要求显式指定隔离 Gateway
+元数据，核对完整容器 ID／归属 label，并在同一容器 SIGKILL／重启前后比较镜像、配置和
+挂载。两端串行测试。一次审批后的 Alice 填写已生效，真实成功原生回复暂存，此时本地
+记录仍为 dispatched；Gateway 退出使自有执行、文件和任务视图被清理，个人页保留，
+受保护的桌面状态 IPC 被锁定。恢复后建立不同的已认证会话。
+
+另一个任务在新 Controller 运行代次中进入独立审批，再释放真实旧回复。旧调用收束为
+unknown／command_fenced，没有改变新 Controller 的 PID、运行代次或当前任务租约。
+旧授权和旧绑定的本地探测均返回 503，当前授权下的旧租约被 browser_session_stale
+拒绝，原生调用增加均为零。新任务经独立审批后仅填写一次 Bob 并完成。同 profile 重启
+保留原未知任务／身份、Cookie、附件字节、草稿和全部旧 fence，没有自动原生调用或直接
+业务 HTTP。终止后的观察区间为 Mac 18 ms／Linux 142 ms，不含 kill、inspect 和 SSH
+耗时，不作为恢复延迟指标。
+
+保留首次 Linux 观察失败：Gateway 已退出且自有运行时已清理，但会话锁定后，夹具的
+renderer 状态 IPC 正确遭到拒绝。修正后显式断言该拒绝，并通过主进程 registry 只读
+检查个人页保留，不修改产品授权。该失败的原任务未重提；停止后的独立读取确认它及
+两个通过样本的桌面／Gateway／执行 unknown 均保留，同时核对两个恢复任务共 8 条
+completed 变更回执及 delivered 执行。两个 profile 现在各有 8 条 unknown，没有核销
+或删除。Mac 私有 SSH 控制 socket 仅允许对同一隔离 Gateway 执行 inspect／kill／start，
+与固定 TLS ISCP 转发分开；源码、失败尝试、控制脚本和回执均留存。
+
+本项验证填写已生效时的 Gateway 重启及旧调用迟到边界。审批／锁定／撤权变体、TEST1、
+离线／安装矩阵、实际 Dock 交互、此前无关的查询失败、WAN 及 P3／D2／P4 仍是独立门槛。
+产品二进制、UI 和超时未改动。
+
+活动服务、候选进程、私有显示／策略、控制 socket 和 SSH 转发均已停止或移除，Relay
+未暂停。生产符合恢复后基线，可用空间 5,539,479,552 字节，历史 PostgreSQL 事故保留。

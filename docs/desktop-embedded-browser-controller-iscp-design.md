@@ -1671,3 +1671,38 @@ matrix, actual Dock interaction, original read-failure diagnosis, WAN and P3/D2/
 All isolated activity services, candidate processes, SSH forwarding, private display and temporary
 policies are stopped, with the Relay unpaused. Production matches its post-recovery baseline with
 5,545,435,136 bytes free; the historical PostgreSQL incident remains part of the evidence.
+
+`run-client-controller-packaged-gateway-crash.mjs` adds actual node-managed Gateway failure
+qualification on the unchanged `80563081` Mac/Linux packages, each passing nine checks. It requires
+explicit disposable Gateway metadata, verifies its full container ID/ownership label and compares
+image, configuration and mounts across SIGKILL/restart of the same container. Tests run serially.
+After one approved Alice fill, the real successful native reply is held while the local journal is
+still dispatched. Gateway loss closes owned execution/files/task views, retains the personal page,
+and locks protected desktop state IPC. Recovery establishes a different authenticated session.
+
+A separate task reaches its own approval in a new Controller incarnation before the real old
+reply is released. That late continuation becomes unknown/command_fenced without changing the
+new Controller PID, incarnation or active task lease. Old authority and old binding probes each
+return 503, and an old lease under current authority is browser_session_stale; all are local probes
+with zero native calls. The separately approved task fills Bob once and is delivered. Same-profile
+restart retains the original unknown task/identity, cookie, attachment bytes, draft and prior fences,
+with zero automatic native calls and zero direct business HTTP. Post-kill observation intervals
+are Mac 18 ms/Linux 142 ms; they exclude the kill/inspection/SSH time and are not recovery latency.
+
+Preserve the first Linux failed observation: after successfully killing Gateway and cleaning the
+owned runtime, its renderer state IPC was correctly refused because the session was locked.
+The corrected fixture asserts that refusal and observes personal-page retention through the
+main registry. It changes no product authorization. That original failed task is not resubmitted;
+independent stopped reads retain its desktop/Gateway/execution unknown alongside the two passing
+runs' unknowns. They also match all eight completed mutation receipts for the two delivered recovery
+tasks. Both profiles now expose eight unknowns; none was acknowledged or removed. Mac uses a private
+SSH-backed control socket restricted to inspect/kill/start of the exact isolated Gateway, separate
+from its fixed TLS ISCP forward. Source, failed attempts, control scripts and receipts are retained.
+
+This qualifies this applied-write Gateway restart and late-continuation boundary. Approval/lock/
+revocation variants, TEST1, offline/installed matrix, actual Dock interaction, the original unrelated
+read failure, WAN and P3/D2/P4 remain separate gates. Product binaries, UI and timeouts are unchanged.
+
+Activity services, candidate processes, private display/policies, control socket and SSH forward
+are stopped/removed; the Relay remains unpaused. Production matches its post-recovery baseline,
+with 5,539,479,552 bytes free and the historical PostgreSQL incident retained.

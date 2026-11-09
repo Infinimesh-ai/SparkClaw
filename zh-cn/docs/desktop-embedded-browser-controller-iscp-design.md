@@ -596,3 +596,19 @@ TEST1 认证、验收矩阵其余场景、安装／离线覆盖、完整性能�
 仍将原 target 永久视为崩溃；草稿／列表尚未恢复时的选择不能证明交互已恢复。修正后通过 main
 的 WebContents 观察替换 renderer，等待原控件就绪，不主动重载或修复应用；取消观察暂停后，
 新运行仍通过。本机锁屏期间无法补做此次恢复的原生目视检查，先前完整窗口证据保持独立范围。
+
+已校验的 Mac DMG 另以只读方式挂载并复制到独立的用户 Applications 位置。实际安装候选使用
+原 profile，通过七组普通安装包检查，现有系统应用保持不变。在 `PATH=/usr/bin:/bin` 下，
+其 Electron Node 运行时通过 SQLite／fetch／WebSocket 探针；Seatbelt 外层规则仅允许 loopback，
+非 loopback 连接返回 `EPERM`。将该规则应用于完整 GUI 时，与 Chromium 的 GPU／network
+service 内层 sandbox 初始化冲突，GUI 尝试失败并保留记录，未关闭 Chromium sandbox。
+普通安装位置 GUI 与受限 Node 探针分别计证，不合并宣称 Mac 离线 GUI 门槛通过。
+
+work2 将已校验的 Linux deb 载荷解压到私有前缀，实际包的 main 在仅含 loopback、没有外部路由
+的网络命名空间中运行，外部连接返回 `ENETUNREACH`。固定私有 Unix socket 桥仅转发 lab 的
+Relay／issuer 端口，加密 ISCP 协议保持不变。mock Gateway 场景八组通过，包含审批后的原生填写、
+原控件及 Relay 封锁恢复，业务 HTTP 直连为零；renderer 的 Seccomp 2、NoNewPrivs 及独立用户
+命名空间仍验证通过。排除系统 Node 的 PATH 下，包内 Node API 探针也通过。该项验证 deb
+载荷，不代表包管理器安装或维护脚本已验证。自有桥接进程／socket／显示／密钥环及精确候选
+AppArmor 规则均清理；隔离 Gateway 恢复真实 provider 配置后在空闲时停止。生产容器、配置、
+挂载、网络及启动时间仍与基线一致。A11 增加了安装／离线覆盖，但尚未跨全部目标环境关闭。

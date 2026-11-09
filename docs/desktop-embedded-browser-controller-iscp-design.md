@@ -714,3 +714,26 @@ The corrected fixture observes the replacement renderer through main's WebConten
 for the original controls to become ready; it does not reload or repair the app itself. A fresh
 run passes without an observation pause. Native visual inspection of this latest recovery is
 unavailable while the Mac is locked; prior composed-window evidence remains separately scoped.
+
+The verified Mac DMG is also mounted read-only and copied to a separate user Applications
+location. That actual installed candidate passes seven normal packaged groups with the same
+profile; the existing system application remains untouched. With `PATH=/usr/bin:/bin`, its
+Electron Node runtime passes SQLite/fetch/WebSocket probes under an outbound-denying Seatbelt
+profile, with loopback allowed and a non-loopback connection rejected with `EPERM`. Applying
+that outer profile to the full GUI conflicts with Chromium's nested GPU/network-service
+sandbox initialization, so the GUI attempt fails and remains recorded. No Chromium sandbox is
+disabled. The normal installed GUI and restricted Node probe are separate evidence, not a
+completed Mac offline GUI gate.
+
+On work2, the verified Linux deb payload is extracted into a private prefix and its actual
+packaged main runs inside a network namespace containing only loopback, no external routes,
+and an `ENETUNREACH` result for an external connection. Fixed private Unix-socket bridges carry
+only the lab Relay/issuer ports; encrypted ISCP is unchanged. Eight groups pass with the mock
+Gateway, including approved native fill, original controls and blocked-Relay recovery, with
+zero direct business HTTP. Renderer Seccomp mode 2, NoNewPrivs and a separate user namespace
+remain verified. The bundled Node API probe also passes with the system-Node-free PATH.
+This verifies the deb payload, not package-manager installation or its maintainer scripts.
+Owned bridges/sockets/display/keyring and the exact candidate AppArmor rule are cleaned;
+the isolated Gateway's real-provider configuration is restored and it is stopped when idle.
+Production container/configuration/mount/network/start baselines still match. A11 therefore
+has additional installed/offline coverage but is not closed across all target environments.

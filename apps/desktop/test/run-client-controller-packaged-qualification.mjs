@@ -9,9 +9,11 @@ import { pathToFileURL } from "node:url";
 
 const directory=process.env.SPARKCLAW_CONTROLLER_ISCP_LAB;
 const executablePath=process.env.SPARKCLAW_CONTROLLER_CANDIDATE;
+const launcher=process.env.SPARKCLAW_CONTROLLER_LAUNCHER;
 assert.ok(directory&&path.isAbsolute(directory)&&path.basename(directory).startsWith("sx-controller-iscp-"));
 assert.ok(executablePath&&path.isAbsolute(executablePath));
 assert.ok(!executablePath.startsWith("/Applications/"),"Qualification requires a separate candidate");
+if(launcher){assert.ok(path.isAbsolute(launcher));assert.ok((await fs.stat(launcher)).isFile());}
 const resources=path.resolve(path.dirname(executablePath),process.platform==="darwin"?"../Resources":"resources");
 const {_electron}=await import(pathToFileURL(path.join(resources,"browser-controller/node_modules/playwright-core/index.mjs")));
 await fs.mkdir(path.join(directory,"controller-native-profile"),{recursive:true,mode:0o700});
@@ -69,7 +71,8 @@ try{
     fast_model:config.model.fast.model,deep_model:config.model.deep.model,
     config_sha256:crypto.createHash("sha256").update(configBytes).digest("hex"),
     catalog_sha256:crypto.createHash("sha256").update(catalogBytes).digest("hex")};
-  application=await _electron.launch({executablePath,timeout:45000,chromiumSandbox:true,env:{...process.env,
+  if(launcher)evidence.launcher={path:launcher,sha256:crypto.createHash("sha256").update(await fs.readFile(launcher)).digest("hex")};
+  application=await _electron.launch({executablePath:launcher||executablePath,timeout:45000,chromiumSandbox:true,env:{...process.env,
     SPARKCLAW_DESKTOP_ISCP_LOCAL_TEST:"1",SPARKCLAW_DESKTOP_ISCP_CONFIG:path.join(directory,"desktop-profile.json"),
     SPARKCLAW_DESKTOP_USER_DATA_DIR:path.join(directory,"controller-native-profile")}});
   application.process().stderr.on("data",chunk=>process.stderr.write(chunk));

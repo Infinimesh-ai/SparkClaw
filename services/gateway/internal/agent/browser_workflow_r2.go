@@ -938,6 +938,12 @@ func browserPresentationEquivalent(state *app.WorkflowState, refs []app.Resource
 	if state == nil || state.Browser == nil || state.Browser.Result == nil {
 		return app.ResourceRef{}, false
 	}
+	// Drafts present the page before any approved field action. Their hidden
+	// assessment can mean progress, so unchanged content cannot prove the goal.
+	// Always assess the visible draft before selecting or completing an action.
+	if state.Plan.ProfileID == app.WorkflowBrowserFormDraft {
+		return app.ResourceRef{}, false
+	}
 	result := state.Browser.Result
 	page, snapshot, ok := browserSnapshotRefs(refs)
 	if !ok || result.GoalAssessmentCallID == "" || result.HiddenContentDigest == "" ||

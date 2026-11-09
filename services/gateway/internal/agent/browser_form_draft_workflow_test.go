@@ -63,6 +63,36 @@ func TestBrowserFormDraftStopsBeforeSixthAction(t *testing.T) {
 	}
 }
 
+func TestBrowserFormDraftEquivalentEmptyPageStillRequiresVisibleGoalAssessment(t *testing.T) {
+	const nodeID app.WorkflowNodeID = "browser_form_draft"
+	state := &app.WorkflowState{
+		Plan:          browserFormDraftPlan(),
+		Route:         app.RouteDecision{Slots: app.RouteSlots{Query: "Fill Name with Alice", TargetKind: "url", TargetRef: "https://example.com/form"}},
+		ActiveNodeIDs: []app.WorkflowNodeID{nodeID},
+		Nodes:         map[app.WorkflowNodeID]app.WorkflowNodeState{nodeID: {Stage: browserStageSnapshotVisible}},
+		Browser: &app.BrowserWorkflowState{Target: app.BrowserTargetDescriptor{CanonicalURL: "https://example.com/form"}, Result: &app.BrowserResultEvidence{
+			GoalAssessmentCallID: "initial_progress", HiddenContentDigest: "empty-form",
+			HiddenSession: app.BrowserSessionRef{OwnerID: "owner", ProfileID: "profile"},
+		}},
+	}
+	refs := []app.ResourceRef{
+		{Kind: "browser_page", Ref: "page_1", Attributes: map[string]string{"url": "https://example.com/form", "owner_id": "owner", "profile_id": "profile"}},
+		{Kind: "browser_snapshot", Ref: "snapshot_2", Attributes: map[string]string{"page_id": "page_1", "digest": "snapshot-digest", "content_digest": "empty-form", "session_generation": "1", "presentation": "visible"}},
+		{Kind: "browser_element", Ref: "snapshot_2:e4:name", Attributes: map[string]string{"snapshot_id": "snapshot_2", "role": "textbox", "name": "Name"}},
+	}
+	assessment := (browserFormDraftProfile{}).Assess(state, app.ToolOutcome{NodeID: nodeID, ToolCallID: "visible_snapshot", Signals: []app.OutcomeSignal{app.OutcomeSignalSnapshotAvailable}, Refs: refs})
+	if assessment.Status != app.AssessmentNeedsMoreEvidence || assessment.ReasonCode != browserStageAssessGoalVisible || state.Browser.Result.PresentationEquivalent {
+		t.Fatalf("unchanged empty form bypassed visible assessment: %#v", assessment)
+	}
+	node := state.Nodes[nodeID]
+	node.Stage, node.OutcomeRefs = browserStageAssessGoalVisible, assessment.SelectedRefs
+	state.Nodes[nodeID] = node
+	assessment = (browserFormDraftProfile{}).Assess(state, app.ToolOutcome{NodeID: nodeID, Signals: []app.OutcomeSignal{app.OutcomeSignalInteractionProgress}})
+	if assessment.Status != app.AssessmentNeedsMoreEvidence || assessment.ReasonCode != browserStageChooseAndDraft {
+		t.Fatalf("unfilled visible control did not reach draft selection: %#v", assessment)
+	}
+}
+
 func TestBrowserFormDraftSettleAllowsRedactedValueDigestToRemainStable(t *testing.T) {
 	state := &app.WorkflowState{
 		ActiveNodeIDs: []app.WorkflowNodeID{"browser_form_draft"},

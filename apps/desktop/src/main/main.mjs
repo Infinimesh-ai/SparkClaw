@@ -185,7 +185,7 @@ async function start() {
         if (status.backend?.transport !== "iscp" || status.capabilities?.mail === true) mailClient?.start();
         else mailClient?.close();
         if (status.backend?.transport === "iscp") void prepareBrowserHostScope().catch(() => {});
-        else void browserHost?.suspend();
+        else void browserHost?.suspend().catch(() => {});
       } else {
         const temporaryStreamLoss = status.backend?.transport === "iscp" && !desktopAuth.authorizationRevoked &&
           ["reconnecting", "service_unavailable"].includes(status.state);
@@ -196,7 +196,7 @@ async function start() {
         iscpRecording?.close();
         scheduleClient?.close();
         mailClient?.close(); medicineClient?.close();
-        void browserHost?.suspend();
+        void browserHost?.suspend().catch(() => {});
       }
       publishBackendState(status);
     },
@@ -364,7 +364,7 @@ async function start() {
     executionClient?.close();
     scheduleClient?.close();
     mailClient?.close(); medicineClient?.close();
-    void browserHost?.suspend();
+    void browserHost?.suspend().catch(() => {});
   });
   powerMonitor.on("resume", () => {
     suspended = false;

@@ -2,8 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> Date: 2026-11-10. Status: implementation in progress. Clean-source `c6948132` candidates fix
-> visual snapshot binding and hidden screenshot rendering; scoped Mac/work2 native checks pass.
+> Date: 2026-11-10. Status: implementation in progress. Current `80563081` packages include
+> visual capture and cancellation fixes; a further process-exit repair awaits rebuilt native qualification.
 > A shared-disk exhaustion incident interrupted work2 PostgreSQL; original service recovered,
 > with the failed preservation audit and changed runtime baseline retained in §14.
 > TEST1, the remaining acceptance matrix and paired cutover remain open; no production package replacement.
@@ -1706,3 +1706,41 @@ read failure, WAN and P3/D2/P4 remain separate gates. Product binaries, UI and t
 Activity services, candidate processes, private display/policies, control socket and SSH forward
 are stopped/removed; the Relay remains unpaused. Production matches its post-recovery baseline,
 with 5,539,479,552 bytes free and the historical PostgreSQL incident retained.
+
+`run-client-controller-packaged-preapproval-gateway.mjs` covers Gateway loss while the original
+fill approval is pending. The unchanged Linux `80563081` package passes eight checks: original
+page/input and native fill counts stay zero, Gateway loss cleans owned execution and locks protected
+IPC, the same Gateway recovers under new authority, and the original approval becomes non-actionable.
+Old authority/binding and current-authority old-lease probes are local and cause zero native calls.
+A separately approved task fills Bob once, is delivered and retains its sandboxed view. Same-profile
+restart preserves identity, all eight prior unknowns, cookie, attachment bytes and draft, with no
+automatic native calls or direct business HTTP. Stopped reads match two original completed receipts
+and four recovery receipts; the original execution is failed and the recovery is delivered.
+
+Mac qualification remains failed. Its first attempt fails on an execution lookup before the fault,
+with zero native fill; the underlying read failure is unclassified. Preserve that original execution
+as unknown and the additional exact Gateway-only unknown receipt without a local admission record.
+The first stopped verifier incorrectly required identical receipt sets and failed; its successor
+verifies the two matched completed receipts and that additional unknown separately. None is cleared
+or resubmitted. The Mac profile now projects nine unknowns. The second attempt verifies approval
+retirement and zero fill after Gateway restart, but the native log records `kill EPERM` during group
+exit polling and an unhandled suspension rejection. Its separate recovery task never reaches approval:
+it delivers a blocked answer with zero browser mutation receipts, not a successful workflow. Bounded
+fixture observations record no transport-fetch errors or dropped observations in that second run;
+this does not explain the first failure. Retain both failures and the original immutable identities.
+
+The source repair treats `EPERM` from a group signal or existence probe as inconclusive and keeps
+the existing bounded cleanup sequence. Only `ESRCH` proves group absence; persistent denial still
+fails cleanup and permanently disables that runtime. No timeout or privilege is increased. Background
+suspension callers consume the rejection after the runtime has published its unavailable state;
+explicit awaited cleanup retains its rejection. Real-child regressions cover denial followed by
+verified absence and persistent denial of both signals and probes with the child still alive. Initial
+red and intermediate failing runs are retained; the final focused run passes 22, the complete Desktop
+suite passes 670 with one skip, and the strengthened persistent-denial test is rechecked separately.
+This is source validation only: rebuilding and actual Mac/Linux repetition are required before
+replacing the `80563081` candidate. Original UI, stored data and authority boundaries are unchanged.
+
+Isolated activity services, candidate processes, private display/policies, SSH forwarding and the
+control socket are stopped/removed; the Relay remains unpaused. Production matches its post-recovery
+baseline with 5,529,681,920 bytes free. The historical PostgreSQL incident, unrelated read failure,
+lock/revocation, TEST1, offline/installed and actual Dock coverage, WAN and P3/D2/P4 gates remain open.

@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import test from "node:test";
+import { spawn } from "node:child_process";
 import { ClientControllerRuntime, createControllerDirectory, controllerRequest } from "../src/browser/controller-runtime.mjs";
 import { syntheticControllerBundle } from "./controller-bundle-fixture.mjs";
 
@@ -51,6 +52,55 @@ test("failed runtime cleanup notifies only after permanent unavailability is vis
   await assert.rejects(runtime.stop("task_canceled"), /cleanup denied/);
   assert.deepEqual(observed, [{ reason: "task_canceled", state: "unavailable", closed: true, stopping: null, available: false }]);
   await assert.rejects(runtime.start(), /stopping/);
+});
+
+test("group exit polling waits through EPERM and still requires ESRCH before availability", async t => {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
+  const exited = new Promise(resolve => child.once("exit", resolve));
+  const kill = process.kill;
+  let denied = false, absent = false;
+  const observed = [];
+  const runtime = new ClientControllerRuntime({ graceMS: 1000, onStopped: () => observed.push(runtime.snapshot()) });
+  runtime.manifest = { versions: {} }; runtime.child = child; runtime.exit = exited;
+  process.kill = function(pid, signal) {
+    if (pid === -child.pid && signal === 0) {
+      if (!denied) { denied = true; throw Object.assign(new Error("kill EPERM"), { code: "EPERM" }); }
+      try { return kill.call(process, pid, signal); }
+      catch (error) { if (error.code === "ESRCH") absent = true; throw error; }
+    }
+    return kill.call(process, pid, signal);
+  };
+  t.after(async () => {
+    process.kill = kill;
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await exited;
+  });
+  await runtime.stop("authority_changed");
+  assert.equal(denied, true); assert.equal(absent, true);
+  assert.equal(runtime.child, null); assert.equal(runtime.closed, false);
+  assert.equal(observed.length, 1); assert.equal(observed[0].process_state, "stopped"); assert.equal(observed[0].available, true);
+});
+
+test("persistent EPERM never proves group exit or restores availability", async t => {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
+  const exited = new Promise(resolve => child.once("exit", resolve));
+  const kill = process.kill;
+  let probes = 0;
+  const runtime = new ClientControllerRuntime({ graceMS: 0 });
+  runtime.manifest = { versions: {} }; runtime.child = child; runtime.exit = exited;
+  process.kill = function(pid, signal) {
+    if (pid === -child.pid) { if (signal === 0) probes++; throw Object.assign(new Error("kill EPERM"), { code: "EPERM" }); }
+    return kill.call(process, pid, signal);
+  };
+  t.after(async () => {
+    process.kill = kill;
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await exited;
+  });
+  await assert.rejects(runtime.stop("authority_changed"), /Controller process cleanup is unproved/);
+  assert.ok(probes > 1); assert.equal(runtime.closed, true); assert.equal(runtime.snapshot().available, false);
+  assert.equal(runtime.child, child);
+  assert.equal(child.exitCode, null); assert.equal(child.signalCode, null);
 });
 
 test("UDS client bounds total response time, bytes and request cancellation", async t => {

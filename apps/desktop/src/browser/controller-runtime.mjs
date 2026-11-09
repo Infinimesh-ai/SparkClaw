@@ -197,12 +197,19 @@ export function controllerRequest(socketPath, action, body, { signal, timeoutMS 
 
 function signalGroup(pid, signal) {
   if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) throw new Error("Controller process group is invalid");
-  try { process.kill(-pid, signal); } catch (error) { if (error.code !== "ESRCH") throw error; }
+  // A denied signal is not proof of delivery or exit. Cleanup still polls for
+  // ESRCH and fails closed at its existing deadline if absence cannot be proved.
+  try { process.kill(-pid, signal); } catch (error) { if (!["ESRCH", "EPERM"].includes(error.code)) throw error; }
 }
 async function waitForGroupExit(pid, timeoutMS) {
   const deadline = performance.now() + timeoutMS;
   do {
-    try { process.kill(-pid, 0); } catch (error) { if (error.code === "ESRCH") return true; throw error; }
+    try { process.kill(-pid, 0); } catch (error) {
+      if (error.code === "ESRCH") return true;
+      // EPERM does not prove absence. Keep waiting under the original deadline;
+      // an exiting group can become observable as absent on a later poll.
+      if (error.code !== "EPERM") throw error;
+    }
     await new Promise(resolve => setTimeout(resolve, 25));
   } while (performance.now() < deadline);
   return false;

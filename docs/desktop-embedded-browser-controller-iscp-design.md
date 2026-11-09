@@ -1423,3 +1423,23 @@ Signed validity, identity, scopes and generation history remain unchanged. Zero/
 seed regressions fail before repair; each repaired case checks two real consecutive signed
 control issuances and installed predecessor receipts in the same second. Refreshed isolated
 issuer/native validation is pending at this checkpoint.
+
+
+The clean `3afcbe68` issuer is now qualified in the same isolated node deployment, with the
+unchanged `c6948132` Gateway/forwarder and installed `98cb57a0` clients. Two new Linux native
+registrations succeed on the first attempt (four checks each). Independent stopped-state
+comparison proves both exercise the actual fractional-seed/whole-second successor case:
+client and registry contain the exact same successor Grant, with authorization revision still 1.
+The original failed Linux installation/device also reconciles successfully (four checks), and
+its normal real-model browser task, original panel interactions, renderer isolation and child
+cleanup pass seven checks. Mac reopens its original selected profile against the updated issuer
+(four checks). All preserve zero direct business HTTP.
+
+The isolated Gateway, issuer and forwarder are stopped; SSH forwarding, candidate processes,
+private X display and temporary AppArmor policy are closed. The repaired issuer binary and
+original predecessor are retained with the same node identities, configuration and durable
+history. Production configuration, mounts, health and start times match the post-recovery
+baseline; free space is 6,679,068,672 bytes. The earlier production PostgreSQL incident remains
+part of the record. Both fixes, four install artifacts, failed attempts, diagnostics and native
+receipts are indexed as a partial candidate. TEST1, remaining native/fault/offline/WAN evidence,
+paired cutover and P3-gated D2 deletion remain open; this is not release acceptance.

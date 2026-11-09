@@ -3,7 +3,7 @@
 > Language: English | [简体中文](../zh-cn/docs/desktop-embedded-browser-controller-iscp-design.md)
 >
 > Date: 2026-11-10. Status: implementation in progress. Current `b175325b` packages include
-> original-credential recovery; Mac/Linux native lock/restart/unlock passes within §14's scope.
+> original-credential recovery; Mac/Linux lock recovery and disposable-device revocation pass within §14's scope.
 > A shared-disk exhaustion incident interrupted work2 PostgreSQL; original service recovered,
 > with the failed preservation audit and changed runtime baseline retained in §14.
 > TEST1, the remaining acceptance matrix and paired cutover remain open; no production package replacement.
@@ -1848,3 +1848,35 @@ were preserved. The four-GiB reserve guard remains unchanged. Activity services,
 candidate processes, private display and temporary sandbox policies are stopped/removed; Relay
 remains unpaused. Post-recovery production stability is checked separately from the historical
 PostgreSQL incident.
+
+The unchanged installed/private `b175325b` packages each pass six permanent-revocation checks.
+`run-client-controller-packaged-revocation.mjs` requires a newly issued, dedicated invitation and
+fresh profile, verifies the expected Client and package hash, and enrolls through the original
+login form with the native keyring. It refuses to reuse an existing profile. After one independently
+approved Alice fill, the real successful runtime reply is held before local terminal persistence;
+no native error is fabricated. Original Settings/Devices deletion and its confirmation revoke only
+that disposable device. The verified deletion receipt advances authorization revision 1 to 2.
+Owned task views, process group, runtime files and lease are removed, while the personal page remains.
+
+Releasing the real late reply yields unknown/command_fenced. The exact applied command/digest stays
+unknown on disk, and old authority returns 503 with zero additional native calls. Revoked restart
+preserves the deletion receipt, installation/history, draft, attachment bytes, cookie and unknown
+journal. Business IPC/HTTP and reconnect remain refused; checking for a newer authorization cannot
+restore one when none is installed. Restart makes zero native Controller calls. Captures of the
+original revoked UI are retained and visually checked on both platforms. This qualifies explicit
+Settings deletion at the applied-write boundary, not every administrative revocation transport fault.
+
+Stopped reads independently match four completed receipts and the two applied unknown writes.
+Each task also has one exact Gateway-only unknown receipt with no local admission; preserve these
+separately without inventing an operation name. Both original executions remain unknown. Read-only
+decryption of four owned isolated issuer rows confirms the two new devices are revoked at revision
+2, their operation IDs match the native deletion receipts, and their Relay revocation is recorded.
+The two shared qualification devices remain active at revision 1, and all Mac nine/Linux eight prior
+browser unknowns remain intact. Retain the initial read-only decoder failure; its corrected reader
+uses the SDK's ChaCha20-Poly1305 format and exports no private material.
+
+No product binary, UI, timeout or production installation changes in this step. Disposable revoked
+profiles and receipts are retained. Activity services, data forward, candidate processes, private
+display and temporary policies are stopped/removed; Relay is unpaused and post-recovery production
+stability is checked. TEST1, remaining native/offline/installed and actual Dock coverage, WAN,
+P3/D2/P4 and final owner acceptance remain open.

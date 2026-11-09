@@ -64,6 +64,7 @@
     "build:desktop-ui": "node scripts/build-desktop-ui.mjs",
     "check:desktop-managed-scripts": "node scripts/build-desktop-managed-preload.mjs --check",
     "package:desktop": "npm run build:desktop-ui && npm run build:iscp-helper -- linux arm64 && npm run build:client-controller && npm run check:desktop-managed-scripts && npm --workspace @sparkclaw/desktop run dist:linux-arm64 && node scripts/write-desktop-release-manifest.mjs",
+    "package:desktop:linux-x64": "npm run build:desktop-ui && npm run build:iscp-helper -- linux x64 && npm run build:client-controller && npm run check:desktop-managed-scripts && npm --workspace @sparkclaw/desktop run dist:linux-x64 && node scripts/write-desktop-release-manifest.mjs --arch x64",
     "qualify:desktop-artifacts": "node scripts/qualify-desktop-artifacts.mjs",
     "qualify:local-shared-backend": "bash scripts/qualify-local-shared-backend.sh",
     "build:webchat": "npm --workspace @sparkclaw/webchat run build",

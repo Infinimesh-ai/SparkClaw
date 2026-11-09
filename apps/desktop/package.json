@@ -18,6 +18,7 @@
     "qualify:host": "node test/run-host-native-qualification.mjs",
     "qualify:mac-client": "node test/run-mac-client-native-qualification.mjs",
     "dist:linux-arm64": "electron-builder --linux AppImage deb --arm64 --publish never",
+    "dist:linux-x64": "electron-builder --linux AppImage deb --x64 --publish never",
     "dist:mac-arm64": "node scripts/package-macos.mjs --arch arm64",
     "dist:mac-x64": "node scripts/package-macos.mjs --arch x64"
   },

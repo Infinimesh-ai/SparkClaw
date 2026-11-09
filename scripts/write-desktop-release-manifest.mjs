@@ -8,11 +8,14 @@ import { verifyControllerBundle } from "../apps/desktop/src/browser/controller-b
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const output = path.join(root, "apps", "desktop", "dist");
+const args = process.argv.slice(2);
+if (args.length && (args.length !== 2 || args[0] !== "--arch" || !["arm64", "x64"].includes(args[1]))) throw new Error("Choose --arch arm64 or --arch x64");
+const architecture = args[1] || "arm64";
 const entries = (await fs.readdir(output, { withFileTypes: true }))
-  .filter((entry) => entry.isFile() && (/\.AppImage$/u.test(entry.name) || /\.deb$/u.test(entry.name)))
+  .filter((entry) => entry.isFile() && (entry.name.endsWith(`-linux-${architecture}.AppImage`) || entry.name.endsWith(`-linux-${architecture}.deb`)))
   .map((entry) => entry.name)
   .sort();
-if (entries.length !== 2) throw new Error(`Expected one ARM64 AppImage and one deb, found ${entries.length}`);
+if (entries.length !== 2) throw new Error(`Expected one ${architecture} AppImage and one deb, found ${entries.length}`);
 
 const artifacts = [];
 for (const name of entries) {
@@ -44,7 +47,7 @@ const manifest = {
   product: "SparkX Desktop",
   version: packageVersion,
   platform: "linux",
-  architecture: "arm64",
+  architecture,
   runtime: { electron: versions.electron, chromium: versions.chrome, node: versions.node },
   control: {
     browser_bridge: await dependency("@sparkclaw/browser-bridge", "tools/browser-bridge"),
@@ -56,6 +59,8 @@ const manifest = {
   },
   artifacts,
 };
-await fs.writeFile(path.join(output, "release-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 });
-await fs.writeFile(path.join(output, "SHA256SUMS"), `${artifacts.map((item) => `${item.sha256}  ${item.name}`).join("\n")}\n`, { mode: 0o644 });
+const manifestName = architecture === "arm64" ? "release-manifest.json" : `release-manifest-linux-${architecture}.json`;
+const sumsName = architecture === "arm64" ? "SHA256SUMS" : `SHA256SUMS-linux-${architecture}`;
+await fs.writeFile(path.join(output, manifestName), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 });
+await fs.writeFile(path.join(output, sumsName), `${artifacts.map((item) => `${item.sha256}  ${item.name}`).join("\n")}\n`, { mode: 0o644 });
 process.stdout.write(`${JSON.stringify({ event: "sparkclaw_desktop_release_manifest", manifest })}\n`);

@@ -166,6 +166,8 @@ Gateway 或日志。
 有界等待 MCP／Controller 退出，终止剩余的自有子进程，再清理 runtime 文件。socket 关闭不证明清理完成。
 清理未经证实时继续阻止准入。Controller／MCP 崩溃使该启动代次及在途写入失效，仅后续 acquire 才重启。
 ISCP 丢失、授权变更、锁定或撤销使对应租约失效，正常授权恢复不能复活旧租约。
+延迟失败请求的清理必须绑定原授权 generation 和 Controller incarnation；旧写入 journal
+仍需落盘，但不得停止替换后的运行时。
 不删除个人页／profile 数据。
 
 ### 5.4 会话归属与视图保留
@@ -657,3 +659,44 @@ Linux x64 通过八组真实 provider AppImage 检查、主进程终止清理，
 密钥环和桥接进程均清理，SSH 转发已关闭。三个生产容器、配置、挂载、网络及启动时间仍与
 基线一致，GNOME 保持锁屏。TEST1 公网 Relay／认证、矩阵其余场景、广域网／分块计时、
 Mac 恢复及 Dock 原生目视检查、成对回滚与 P3 后旧路径删除仍待完成。
+
+源码 `9e372018` 增加真实 Gateway 强制重启和授权生命周期验证。旧读写请求延迟报错时，
+原清理逻辑可能停止替换后的 Controller；四个先红后绿的回归用例覆盖 ISCP 重连和运行时退役。
+清理现同时核对原授权 generation 与 Controller incarnation，旧写入仍按原 journal 记录不确定
+状态。四个回归均通过，完整桌面测试 653 通过／1 跳过，原生 forwarder 的 14 组通过。
+
+源码原有 profile 对应的精确标记 Gateway 容器经强制重启后，等待中的审批转为终态且不能填写。
+另一轮先观察到 `Alice`，但暂缓终态 journal 落盘；重启后，在旧回复仍暂缓时，另一新任务已
+打开原生页面。释放旧失败延续不会停止新 Controller 或页面，旧写入持久保持 `unknown`，
+旧授权和旧 binding 均被拒绝。只核对解除本次已观察到的 fixture 效果，原有 fence、个人页面
+保留，业务 HTTP 直连为零。首轮审批前重启后，新任务虽交付但报告受阻，该失败继续保留；
+后续原生运行通过，但独立可复现的清理回归不能确证首轮失败的具体原因。
+
+另一个独立注册的一次性授权 lab 使用原设置／设备控件：审批等待时退出登录，决策被拒且没有
+填写；观察到填写后删除授权，取得签名撤销回执，清理任务页面、进程和运行时文件，保留个人
+页面、持久 Cookie、不可变本地历史及安装身份，原写入仍为 `unknown` 且不重放。使用同一
+profile 新启 main，撤销状态、历史、Cookie 和 unknown journal 均保留，不启动 Controller，
+没有安装新授权时检查新授权也被拒绝。该证据属于 local-test profile；退出后再次以 local-test
+启动不证明 node-managed 模式的锁定重启语义。最初 lab 配置未开启浏览器工具，作为 fixture
+配置失败保留；修正后开启的是工具本身。
+
+以上为源码 main、mock Gateway 和本地加密 Relay 的证据，不代表 TEST1 或安装包 A06 全部
+完成。`4615ad82` 的四个制品按原摘要保留，尚不包含本次清理修复；刷新候选的验证另行记录。
+
+刷新后的 `9e372018` Mac ARM64、Linux x64 候选包含相同的 207 文件 Controller 清单
+（18,737,017 字节）。Mac 通过九组 renderer／activation／Relay 检查、主进程强制终止清理，
+以及用户 Applications 中独立 DMG 安装副本的七组同 profile 检查；受限包内 Node 探针也通过。
+Linux AppImage 通过八组 work2 真实 provider 检查及主进程强制终止清理。新 deb 的可执行文件、
+ASAR 和 Controller manifest 与该 AppImage 相同，不宣称已验证包管理器安装或再次完整运行
+离线 GUI。系统 Mac 应用未更换。新制品和证据摘要已集中索引，先前性能、离线及跨机证据继续
+限定于各自原候选。
+
+另一个源码原生 fixture 通过 16 组检查，包含独立 renderer 进程中的跨源 HTTPS iframe。
+Controller 点击后异步创建字段，在有期限的 snapshot 轮询中取得 ref，`page.type` 输入后
+观察到该 frame 内真实值正确。个人页面不出现在任务 tab 清单，也未附加调试器；自有 popup、
+页面保留／接管及清理仍通过。前两次将固定 350 ms 等待视为动态就绪依据，未找到字段而失败，
+继续保留记录。该项扩展 A02／A03 源码覆盖，不代表完整安装包站点／操作矩阵通过。work2
+候选 Gateway 已再次停止，真实 provider 配置保持完整，临时 AppArmor、显示及密钥环资源
+均清理，GNOME 保持锁屏。生产身份、镜像、配置、完整挂载条目、网络及启动时间仍与基线一致。
+最初按挂载列表顺序比较失败，按目标路径逐一比较完整条目确认只有顺序变化。TEST1、矩阵
+剩余项、原生目视／离线 GUI、广域网／分块及成对回滚与 P3 后旧路径删除仍待完成。

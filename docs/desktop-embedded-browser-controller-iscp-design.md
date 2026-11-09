@@ -187,6 +187,8 @@ closure alone does not prove cleanup. Admission remains blocked while cleanup is
 Controller/MCP crash invalidates its incarnation and in-flight writes; restart occurs on a later
 acquire. ISCP loss, authorization change, lock or revocation invalidates the corresponding leases;
 normal authority recovery does not resurrect them. Personal pages/profile data are not deleted.
+Late request failure cleanup is bound to its original authority generation and Controller
+incarnation. It must settle the old write journal without stopping a replacement runtime.
 
 ### 5.4 Conversation ownership and retained views
 
@@ -796,3 +798,57 @@ rules/private display/keyring/bridges are gone and the SSH forwards are closed. 
 production container/configuration/mount/network/start baselines still match; GNOME remains
 locked. TEST1 public Relay/authentication, the remaining matrix, WAN/chunk timing, native
 Mac recovery/Dock visual inspection and paired rollback/P3-gated deletion remain open.
+
+Source `9e372018` adds actual Gateway hard-restart and authorization lifecycle qualification.
+A delayed old read/write failure could previously stop a replacement Controller; four red
+regressions reproduce that across ISCP reconnect and runtime retirement. Cleanup now checks
+both authority generation and incarnation while still persisting uncertain writes. All four
+regressions pass, full desktop tests pass 653/1 skipped, and the native forwarder passes 14 groups.
+
+The existing source profile survives hard restart of its exact labelled Gateway container.
+An awaiting approval becomes terminal and cannot fill. In a second run, `Alice` is observed
+before terminal journal persistence; after restart, a separate new task opens a native page
+while the old reply remains held. Releasing that failed continuation preserves the replacement
+Controller and page, leaves the old write durable `unknown`, and rejects both the old authority
+and old binding. Only that observed fixture effect is reconciled; prior fences and personal
+pages remain. No direct business HTTP is used. The first pre-approval restart attempt had a
+delivered-but-blocked fresh task; its failure is retained, and later native runs pass. Its exact
+cause is not established by the separate deterministic cleanup regression.
+
+A separately enrolled disposable authorization lab uses the original Settings/Devices controls.
+Logout during pending approval blocks the decision and performs no fill. Authorization deletion
+after an observed fill obtains a signed revocation receipt, removes task pages/processes/runtime
+files, preserves personal pages, persistent cookies and immutable local history/installation,
+and leaves the original write `unknown` without replay. A fresh main using that same profile
+retains the revoked state, history, cookie and unknown journal, starts no Controller, and rejects
+checking for a newer authorization when none is installed. This is local-test profile evidence;
+logout followed by a local-test launch is not evidence of node-managed locked restart semantics.
+The initial lab attempt had the browser tool disabled in its disposable configuration and is
+retained as a failed fixture setup; the corrected configuration enables the tool itself.
+
+These are source-main observations against mock Gateway/local encrypted Relay, not TEST1 or
+packaged A06 completion. The four `4615ad82` artifacts are retained with verified hashes and
+predate this cleanup repair; refreshed candidate qualification is tracked separately.
+
+The refreshed `9e372018` Mac ARM64 and Linux x64 packages carry the same 207-file Controller
+inventory (18,737,017 bytes). Mac passes nine renderer/activation/Relay groups, hard-parent-exit
+cleanup and seven same-profile groups from a separate DMG installation in user Applications;
+the restricted bundled-Node probe passes too. Linux AppImage passes eight real-work2-provider
+groups and hard-parent-exit cleanup. The new deb's executable, ASAR and Controller manifest
+match that AppImage, but its package-manager installation and a repeated full offline GUI run
+are not claimed. The system Mac app is unchanged. New artifact/evidence hashes are indexed;
+earlier benchmarks/offline/cross-machine evidence remains scoped to its original candidate.
+
+An additional source-native fixture passes 16 groups with a cross-origin HTTPS iframe in a
+separate renderer process. Controller click creates an asynchronous field, bounded snapshot
+polling finds its ref, and `page.type` produces the observed value inside that frame. A personal
+page stays outside the task's tab inventory and never attaches its debugger; owned popups,
+retention/adoption and teardown still pass. Two earlier attempts assumed a fixed 350 ms wait
+proved dynamic readiness and failed to find the field; they remain retained. This extends A02/A03
+source coverage, not the full packaged site/operation matrix. The work2 candidate Gateway is
+stopped again, its real-provider configuration remains intact, temporary AppArmor/display/keyring
+resources are gone and GNOME remains locked. Production identities/images/configuration,
+complete mount entries, networks and start times match the baseline. An initial mount-list
+order comparison failed; comparing every complete entry by destination proves only ordering
+changed. TEST1, the remaining matrix, native visual/offline GUI, WAN/chunks and paired rollback
+with P3-gated deletion remain open.

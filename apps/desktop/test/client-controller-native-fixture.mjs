@@ -23,6 +23,7 @@ const evidence = { schema_version: 1, scope: "disposable_native_local_controller
   architecture: process.arch, versions: process.versions, checks: {}, timings_ms: {} };
 let window, adapter, registry, runtime, fixture, forwarder;
 const useForwarder = process.env.SPARKCLAW_TEST_CONTROLLER_FORWARDER === "1";
+const crossOrigin = process.env.SPARKCLAW_TEST_CONTROLLER_CROSS_ORIGIN === "1";
 if (useForwarder) evidence.scope = "disposable_native_controller_forwarder_wire";
 
 const bundle = process.env.SPARKCLAW_TEST_CONTROLLER_BUNDLE || path.join(root, "apps/desktop/bin/browser-controller");
@@ -39,6 +40,12 @@ try {
   console.log("client_controller_fixture: verifying bundle");
   evidence.bundle = await verifyControllerBundle(bundle).then(({ bytes, source_revision, versions }) => ({ bytes, source_revision, versions }));
   const browserSession = session.fromPartition(`p0-${crypto.randomUUID()}`);
+  if (crossOrigin) browserSession.protocol.handle("https", request => {
+    assert.equal(request.url, "https://cross.controller.fixture.test/frame");
+    return new Response(`<!doctype html><title>Cross-origin task frame</title>
+      <button onclick="document.body.dataset.clicked='1';setTimeout(()=>{this.insertAdjacentHTML('afterend','<label>Dynamic field<input aria-label=&quot;Dynamic field&quot;></label>');this.disabled=true},250)">Add dynamic field</button>`,
+    { headers: { "content-type": "text/html" } });
+  });
   browserSession.protocol.handle("sparkclaw-internal", () => new Response("<!doctype html><title>Local adapter</title>"));
   window = new BrowserWindow({ show: false, width: 1100, height: 800, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
   await window.loadURL("data:text/html,<title>Client Controller native fixture</title>");
@@ -69,6 +76,7 @@ try {
       <label>Name<input aria-label="Name"></label><button onclick="document.querySelector('#count').textContent=String(++window.count)">Increment</button>
       <p id="count">0</p><select aria-label="Choice"><option value="one">One</option><option value="two">Two</option></select>
       <button onclick="window.open('/popup')">Open popup</button><iframe title="Owned frame" src="/frame"></iframe>
+      ${crossOrigin ? '<iframe title="Cross-origin frame" src="https://cross.controller.fixture.test/frame"></iframe>' : ''}
       ${useForwarder ? '<canvas width="700" height="500"></canvas>' : ''}
       <script>window.count=0;const c=document.querySelector('canvas');if(c){const x=c.getContext('2d'),d=x.createImageData(700,500);let s=7;for(let i=0;i<d.data.length;i++){s=(s*1664525+1013904223)>>>0;d.data[i]=i%4===3?255:s>>>24;}x.putImageData(d,0,0);}</script></body></html>`);
   });
@@ -167,6 +175,35 @@ try {
   if (evidence.checks.frame_ref) {
     await execute("page.click", { ref: findRef(snapshot.snapshot, "Frame action") });
     evidence.checks.frame_effect = await page.webContents.executeJavaScript('document.querySelector("iframe").contentDocument.body.textContent.includes("Frame applied")');
+  }
+  if (crossOrigin) {
+    snapshot = await execute("page.snapshot");
+    evidence.cross_origin_snapshot = snapshot.snapshot;
+    const ref = findRef(snapshot.snapshot, "Add dynamic field"); assert.ok(ref);
+    await execute("page.click", { ref });
+    await execute("page.wait", { duration_ms: 350 });
+    await until(async () => {
+      snapshot = await execute("page.snapshot");
+      evidence.cross_dynamic_snapshot = snapshot.snapshot;
+      return Boolean(findRef(snapshot.snapshot, "Dynamic field"));
+    }, 5000);
+    evidence.cross_dynamic_snapshot = snapshot.snapshot;
+    evidence.cross_dynamic_frames = await Promise.all(page.webContents.mainFrame.framesInSubtree.map(async frame => ({
+      url: frame.url, pid: frame.osProcessId, text: await frame.executeJavaScript('document.body.innerHTML'),
+    })));
+    const field = findRef(snapshot.snapshot, "Dynamic field"); assert.ok(field);
+    await execute("page.type", { ref: field, text: "Cross-origin effect", submit: false });
+    const frame = page.webContents.mainFrame.framesInSubtree.find(frame => frame.url === "https://cross.controller.fixture.test/frame");
+    assert.ok(frame);
+    assert.equal(await frame.executeJavaScript('document.querySelector("input").value'), "Cross-origin effect");
+    evidence.cross_origin_processes = { main: page.webContents.mainFrame.osProcessId, frame: frame.osProcessId };
+    evidence.checks.cross_origin_dynamic_field_effect = true;
+    const personal = await registry.createPersonalPage(origin + "/popup");
+    const scoped = await execute("tabs.list");
+    assert.ok(scoped.pages.every(item => item.url !== origin + "/popup"));
+    assert.equal(personal.webContents.debugger.isAttached(), false);
+    evidence.checks.personal_page_excluded_from_controller_targets = true;
+    registry.destroy(personal.tabID, "fixture_personal_cleanup");
   }
   snapshot = await execute("page.snapshot");
   await execute("page.click", { ref: findRef(snapshot.snapshot, "Open popup") });

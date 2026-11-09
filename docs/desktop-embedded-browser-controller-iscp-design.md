@@ -737,3 +737,43 @@ Owned bridges/sockets/display/keyring and the exact candidate AppArmor rule are 
 the isolated Gateway's real-provider configuration is restored and it is stopped when idle.
 Production container/configuration/mount/network/start baselines still match. A11 therefore
 has additional installed/offline coverage but is not closed across all target environments.
+
+A source-main comparison now runs the same independently approved form task through two local
+encrypted Relays and mock Gateways. The legacy native executor remains at `e031a453`, with
+only the same mock-schema and form-completion corrections applied to both sides; the exact
+two-file patch is archived. Uncorrected legacy attempts returned success without a fill and
+are retained as failed attempts, not fast samples. Each measured sample verifies one approval,
+one native `Alice` fill, sandbox, detached debugger, retained fences and owned shutdown. Times
+span enqueue/submit through durable delivery and observed page effect, including automated
+approval and reconciliation polling. The first task uses a freshly launched main with the
+lab's existing enrolled profile; the following nine use that same main.
+
+| Local mock form path | Samples | First task | Median, all 10 | p95, nearest rank | Median, following 9 | Reverse calls/task |
+| --- | --- | --- | --- | --- | --- | --- |
+| Legacy native executor with shared corrections | 10 | 2,747 ms | 2,684 ms | 2,764 ms | 2,667 ms | 11 |
+| Controller before settle adjustment | 10 | 17,865 ms | 16,587 ms | 17,865 ms | 16,562 ms | 36 |
+| Controller with client MCP settle set to zero | 10 | 5,440 ms | 4,281 ms | 5,440 ms | 4,267 ms | 36 |
+
+The main measured overhead was the MCP's fixed 500 ms delay on every observation: 21 reads
+per task consumed about 10.8 seconds locally, in addition to the shared Gateway adapter's
+quiet-period polling. Only the client entry now selects zero MCP settle delay; the Gateway's
+ready-state, quiet-period, route and deadline checks stay unchanged, and backend/mail factories
+retain their 500 ms default. The adjusted median is about 74% lower, still about 60% above
+the corrected legacy path. Median decoded request/response totals before adjustment are
+12,364/17,252 bytes for legacy and 47,999/53,807 for Controller. Per-operation dispatch times
+and bytes are retained; these local handler timings exclude encrypted framing and Gateway
+round-trip time. Ten samples make the reported nearest-rank p95 the observed maximum, not a
+production tail estimate. TEST1/WAN timing, chunk throughput and the full operation matrix
+remain open. Existing `9c7905aa` packages predate this source adjustment and need a refresh.
+
+Three additional tasks delay the fixture's visible draft update by 250 ms after input. All
+pass, and the post-write snapshot starts only after the updated text has exceeded the unchanged
+500 ms quiet period. The direct native forwarder fixture also passes all 14 groups, including
+frame effects, owned popup, retained-page adoption, explicit close and crash cleanup. Full
+Controller tests pass 362/151 skipped and desktop tests remain 649/1 skipped. These source
+checks validate the settle adjustment; they do not qualify it inside the older packages.
+Normal two-task FIFO execution passes six groups. A separate completed-read reply hold forces
+the other task's unchanged 10-second acquire budget to expire; seven groups verify no journal
+entry/late dispatch and success only for a separately submitted task. Post-fill main SIGKILL
+and same-profile recovery pass again, preserving unknown fences without replay and removing
+owned processes/files (one 92 ms cleanup observation).

@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 
 // Invoked only by the opt-in native fixture. All work still enters the actual
 // Gateway through ClientStore and reaches this observer over encrypted ISCP.
-export function concurrentScenario({ evidence, until }) {
+export function concurrentScenario({ evidence, until, expireWaiter = false }) {
   let firstAcquire;
+  let heldRead = false;
   const arrivals = [], completions = [], refusals = [], active = new Set();
   const observationErrors = [];
   let maximum = 0;
@@ -37,6 +38,14 @@ export function concurrentScenario({ evidence, until }) {
         refusals.push({command_id:request.body.command_id,conversation_id:owner,error_code:reply.body.error_code});
         assert.equal(forwarder.journal.rows.has(request.body.command_id),false,"expired acquire reached the local journal");
       }
+      if(expireWaiter&&!heldRead&&request.body?.operation==="page.read"&&reply.body?.outcome==="completed") {
+        heldRead=true;
+        // Hold a completed observation, not the acquire reply or a write. This
+        // keeps the active task inside its read deadline while the other task's
+        // unchanged 10-second admission budget expires, even on a fast client.
+        try { await until(()=>refusals.length===1&&forwarder.admission.queue.length===0,"queued acquire expiry",12500); }
+        catch(error) { observationErrors.push(String(error)); }
+      }
       if (request.operation === "browser.controller.release" && reply.body?.outcome === "completed") active.delete(owner);
     },
     async run({ evaluate, forwarders }) {
@@ -59,9 +68,9 @@ export function concurrentScenario({ evidence, until }) {
       for (let index = 0; index < jobs.length; index++) assert.equal(states[index].tasks.find(task => task.request_id === jobs[index].request_id).status, "delivered");
       assert.equal(maximum, 1); assert.equal(active.size, 0);
       const forwarder = [...forwarders][0];
+      if(expireWaiter)assert.equal(refusals.length,1,"the forced waiter did not expire");
       if(refusals.length){
-        // The fixed wait budget is shorter than a whole browser workflow. An
-        // expired waiter must never start later; a separate explicit task may.
+        // An expired waiter must never start later; a separate explicit task may.
         assert.equal(refusals.length,1);assert.equal(refusals[0].error_code,"browser_busy");
         const index=conversations.findIndex(conversation=>conversation.id===refusals[0].conversation_id);
         assert.ok(index>=0);assert.equal(forwarder.registry.conversationPages.has(conversations[index].id),false);

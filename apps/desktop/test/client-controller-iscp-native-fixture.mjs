@@ -49,7 +49,8 @@ BrowserControllerForwarder.prototype.start = function(...args) {
   return startForwarder.apply(this,args);
 };
 const fault = process.env.SPARKCLAW_CONTROLLER_ISCP_FAULT;
-const concurrency = process.env.SPARKCLAW_CONTROLLER_ISCP_CONCURRENCY === "1" ? concurrentScenario({evidence,until}) : null;
+const concurrency = process.env.SPARKCLAW_CONTROLLER_ISCP_CONCURRENCY === "1" ? concurrentScenario({evidence,until,
+  expireWaiter:process.env.SPARKCLAW_CONTROLLER_ISCP_CONCURRENCY_EXPIRE==="1"}) : null;
 if (concurrency && fault) throw new Error("Run concurrency and fault scenarios separately");
 const mainCrash = fault === "main-crash-after-fill";
 const crashFault = ["controller-crash-after-fill","mcp-crash-after-fill"].includes(fault) || mainCrash;

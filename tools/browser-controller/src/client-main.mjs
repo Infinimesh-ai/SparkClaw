@@ -32,6 +32,10 @@ const clientFactory = new PlaywrightMCPClientFactory({
   connectTimeoutMS: 15000,
   actionTimeoutMS: 10000,
   navigationTimeoutMS: 20000,
+  // The shared Gateway adapter owns ready-state, quiet-period and route checks.
+  // A fixed MCP delay on every read otherwise multiplies that polling window.
+  // Backend/mail factories retain their existing 500 ms default.
+  settleTimeoutMS: 0,
   spawn(...args) {
     if (closing || parentLost) throw new Error("Client Controller is stopping");
     const child = spawn(...args);

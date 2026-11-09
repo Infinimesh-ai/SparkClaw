@@ -48,6 +48,7 @@ test("MCP client passes the extension token only through a scrubbed environment"
   assert.equal(started.argv.includes("--extension"), true);
   assert.deepEqual(started.argv.slice(started.argv.indexOf("--browser"), started.argv.indexOf("--browser") + 2), ["--browser", "chromium"]);
   assert.equal(started.argv.includes("--headless"), false);
+  assert.deepEqual(started.argv.slice(started.argv.indexOf("--timeout-settle"), started.argv.indexOf("--timeout-settle") + 2), ["--timeout-settle", "500"]);
   assert.equal(started.argv.includes(token), false);
   assert.equal(started.debug_namespace, "pw:mcp:relay");
   assert.deepEqual(started.argv.slice(started.argv.indexOf("--image-responses"), started.argv.indexOf("--image-responses") + 2), ["--image-responses", "allow"]);
@@ -63,6 +64,25 @@ test("MCP client passes the extension token only through a scrubbed environment"
   );
   assert.equal((await fs.readFile(logPath, "utf8")).includes(token), false);
   assert.deepEqual(await fs.readdir(outputRoot), []);
+});
+
+test("MCP permits explicit zero settle for the client without changing its backend default", async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-browser-mcp-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const logPath = path.join(dir, "fake-mcp.log");
+  const factory = new PlaywrightMCPClientFactory({
+    entryPoint: fixture, cwd: dir, outputRoot: path.join(dir, "mcp-output"),
+    settleTimeoutMS: 0, extraEnv: { FAKE_MCP_LOG: logPath, PLAYWRIGHT_MCP_TIMEOUT_SETTLE: "9000" },
+  });
+  const client = await factory.open({ token: "fixture-private-token", sessionID: "zero-settle" });
+  await client.close();
+  const started = JSON.parse((await fs.readFile(logPath, "utf8")).split("\n")[0]);
+  const index = started.argv.indexOf("--timeout-settle");
+  assert.deepEqual(started.argv.slice(index, index + 2), ["--timeout-settle", "0"]);
+  assert.equal(started.inherited_forbidden_env_present, false);
+  for (const value of [-1, 10001, 0.5, NaN, Infinity, "0"]) {
+    assert.throws(() => new PlaywrightMCPClientFactory({ settleTimeoutMS: value }), /MCP settle timeout/u);
+  }
 });
 
 test("MCP client exposes only task pages and binds actions to fresh snapshot refs", async () => {

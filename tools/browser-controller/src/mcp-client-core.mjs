@@ -78,6 +78,10 @@ export class PlaywrightMCPClientFactory {
     this.actionTimeoutMS = options.actionTimeoutMS ?? 10_000;
     this.navigationTimeoutMS = options.navigationTimeoutMS ?? 30_000;
     this.connectTimeoutMS = options.connectTimeoutMS ?? 15_000;
+    this.settleTimeoutMS = options.settleTimeoutMS ?? 500;
+    if (!Number.isInteger(this.settleTimeoutMS) || this.settleTimeoutMS < 0 || this.settleTimeoutMS > 10_000) {
+      throw new TypeError("MCP settle timeout must be an integer between 0 and 10000 ms");
+    }
     this.spawn = options.spawn ?? spawn;
     this.extraEnv = options.extraEnv ?? {};
     this.operationHandlers = options.operationHandlers ?? {};
@@ -138,7 +142,7 @@ export class PlaywrightMCPClientFactory {
       "--timeout-navigation",
       String(this.navigationTimeoutMS),
       "--timeout-settle",
-      "500",
+      String(this.settleTimeoutMS),
     ];
     if (this.executablePath) args.push("--executable-path", this.executablePath);
     if (this.userDataDir) args.push("--user-data-dir", this.userDataDir);

@@ -7,6 +7,22 @@ import { spawnSync } from "node:child_process";
 import { createPackage } from "@electron/asar";
 import auditPackage, { auditApplicationEntries, auditRuntimeEntries, requiredRuntimeEntries } from "../scripts/audit-package.mjs";
 import { syntheticControllerBundle } from "./controller-bundle-fixture.mjs";
+import { verifyControllerBundle } from "../src/browser/controller-bundle.mjs";
+
+test("builder resource copying preserves the complete private Controller dependency tree", async t => {
+  const { getFileMatchers, copyFiles } = await import("app-builder-lib/out/fileMatcher.js");
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-controller-copy-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const source = path.join(directory, "source"), output = path.join(directory, "output");
+  const expected = await syntheticControllerBundle(path.join(source, "bin/browser-controller"));
+  const pkg = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url)));
+  const extraResources = pkg.build.extraResources.filter(item => item.from.startsWith("bin/browser-controller"));
+  const matchers = getFileMatchers({ extraResources }, "extraResources", output, {
+    defaultSrc: source, macroExpander: value => value, customBuildOptions: {}, globalOutDir: output,
+  });
+  await copyFiles(matchers, undefined, false);
+  assert.deepEqual(await verifyControllerBundle(path.join(output, "browser-controller")), expected);
+});
 
 test("package audit rejects missing converter, parser and guardian runtime files", () => {
   for (const platform of ['darwin', 'linux']) {

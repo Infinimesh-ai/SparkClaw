@@ -77,6 +77,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "bin/browser-controller/node_modules",
+        "to": "browser-controller/node_modules",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "linux": {

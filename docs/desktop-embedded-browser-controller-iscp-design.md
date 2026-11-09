@@ -1443,3 +1443,35 @@ baseline; free space is 6,679,068,672 bytes. The earlier production PostgreSQL i
 part of the record. Both fixes, four install artifacts, failed attempts, diagnostics and native
 receipts are indexed as a partial candidate. TEST1, remaining native/fault/offline/WAN evidence,
 paired cutover and P3-gated D2 deletion remain open; this is not release acceptance.
+
+The refreshed `98cb57a0` client / `3afcbe68` issuer pair now passes two further installed-Mac
+10 MiB synthetic-cache transfer runs over the same work2 node-managed SSH route (six checks
+each). Both deliver all 320 encrypted 32 KiB chunks with matching full hashes. Descriptor-ready
+to subsequent-execute intervals are 25,266 / 25,387 ms; these include Gateway verification and
+downstream work, not network RTT or WAN percentiles. All 320 RPC IDs in each run correlate with
+the four helper trace stages. Each approved fill runs once; the following same-task execute is
+capacity-refused before native dispatch, normal release succeeds, and the blocked answer is
+delivered. This is synthetic cache/wire evidence, not native MCP 10 MiB output or workflow success.
+
+The unchanged Linux AppImage payload also passes seven native GUI checks inside a fresh network
+namespace with only `lo`, no routes and external connects returning `ENETUNREACH`. One private
+Unix-socket bridge carries only the existing pinned-TLS ISCP origin to the isolated node outside
+the namespace; it provides no general internet route. The packaged Electron runtime, Controller
+and MCP are observed in that namespace. The runtime probe uses PATH `/usr/bin:/bin` and verifies
+SQLite, fetch and WebSocket; the separate test driver uses an explicit host-Node path. Native
+libsecret, real-model approved fill, original panel tabs/hide/reopen/width, renderer Seccomp /
+NoNewPrivs / distinct user namespace and normal quit all pass with zero direct business HTTP.
+Viewed captures preserve the original workbench and the separate task view containing Alice.
+This verifies the current Linux payload's offline dependencies and GUI startup, not dpkg
+installation, Mac offline GUI or TEST1 connectivity.
+
+Stopped-state readers independently match both Mac completed fill receipts and all four Linux
+mutation receipts with their original tasks/digests; execution records are delivered. The first
+reader wrongly expected one mutation receipt for the whole Linux task. Its failure is retained;
+the corrected read-only check compares the complete local/Gateway mutation sets, including
+lifecycle commands, without rerunning the task. Isolated activity containers, SSH forwarding,
+bridge, candidate processes, private display and temporary AppArmor policy are closed. Production
+configuration, mounts, health and start times match the post-recovery baseline; free space is
+6,623,543,296 bytes. Prior PostgreSQL incident evidence remains retained. No product binary or UI
+changed in this checkpoint. TEST1 authentication, remaining native/fault/WAN and Mac offline
+evidence, paired cutover, P3 and D2 remain open.

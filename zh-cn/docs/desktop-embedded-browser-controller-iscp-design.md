@@ -1155,3 +1155,30 @@ AppArmor 策略已关闭。保留修复后 issuer 与前版本二进制，以及
 此前生产 PostgreSQL 事故仍保留在记录中。两个修复、四个安装产物、失败尝试、诊断及
 原生回执纳入部分候选索引。TEST1、剩余原生／故障／离线／WAN 证据、配对切换和 P3
 之后的 D2 删除继续开放，尚非发布验收完成。
+
+更新后的 `98cb57a0` 客户端／`3afcbe68` issuer 组合又通过两轮已安装 Mac 的 10 MiB
+合成缓存传输（各 6 组），仍经同一 work2 节点管理 SSH 路径。两轮均完整传输 320 个
+加密 32 KiB 分块，总体哈希一致。descriptor 就绪至后续 execute 的区间分别为
+25,266／25,387 ms，包含 Gateway 校验及后续处理，不是网络 RTT 或 WAN 分位数。
+每轮全部 320 个 RPC ID 都与 helper 的四个 trace 阶段匹配。审批填写仅执行一次；
+同任务后续 execute 在原生分派前因容量不足被拒绝，正常 release 成功，阻塞说明以
+delivered 返回。这是合成缓存／线协议证据，不是原生 MCP 输出 10 MiB 或工作流成功。
+
+同一 Linux AppImage 载荷还在新网络命名空间内通过 7 组原生 GUI 检查：仅有 `lo`、
+无路由，外部连接返回 `ENETUNREACH`。一个私有 Unix socket 桥仅将原有固定 TLS
+ISCP origin 接至命名空间外的隔离节点，不提供通用外网路由。观察到随包 Electron
+运行时、Controller 和 MCP 均处于该命名空间。运行时探针 PATH 为 `/usr/bin:/bin`，
+验证 SQLite、fetch 与 WebSocket；独立测试驱动使用明确的宿主 Node 路径。原生
+libsecret、真实模型审批填写、原面板标签／收起／重开／宽度、renderer 的 Seccomp／
+NoNewPrivs／独立用户命名空间及正常退出均通过，零直接业务 HTTP。已查看原工作台
+及含 Alice 的独立任务页截图。此项证明当前 Linux 载荷的离线依赖与 GUI 启动，
+不代表 dpkg 安装、Mac 离线 GUI 或 TEST1 连通性。
+
+停止后的独立读取核对了两轮 Mac completed 填写回执，以及 Linux 全部 4 条变更回执，
+均匹配原任务与摘要，执行记录为 delivered。首版读取器误认为 Linux 整个任务只有一条
+变更回执；保留其失败，修正后的只读核对比较两端包含生命周期命令的完整变更集合，
+没有重跑任务。隔离活动容器、SSH 转发、桥接、候选进程、私有显示及临时 AppArmor
+策略均已关闭。生产配置、挂载、健康与启动时间符合恢复后基线，可用空间
+6,623,543,296 字节；此前 PostgreSQL 事故证据继续保留。本检查点没有修改产品二进制
+或 UI。TEST1 认证、其余原生／故障／WAN 与 Mac 离线证据、成对切换、P3 和 D2
+仍未关闭。

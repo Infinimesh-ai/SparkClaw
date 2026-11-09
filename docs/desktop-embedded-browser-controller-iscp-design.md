@@ -1880,3 +1880,81 @@ profiles and receipts are retained. Activity services, data forward, candidate p
 display and temporary policies are stopped/removed; Relay is unpaused and post-recovery production
 stability is checked. TEST1, remaining native/offline/installed and actual Dock coverage, WAN,
 P3/D2/P4 and final owner acceptance remain open.
+
+## 15. Acceptance closeout ledger — 2026-11-10
+
+This section maps the historical checkpoints in §14 to the fixed gates in §11; it adds no fault
+combinations and changes none of D1–D3. The product candidate is `b175325b`, with latest fixture/docs
+at `a5a51c49`. The revocation checkpoint is frozen as
+`candidate-b175325b-index-revocation-v1.json`, SHA-256
+`04d81c59da5d5fa88fff120190198f02261d4506859895da8f3abcfbb6aeb45f`.
+It contains 38 evidence files, 19 frozen qualification sources and four artifacts; the preceding
+39 records were rechecked. Existing evidence below retains its original version, platform and
+topology. An old package run must not silently become a current package run.
+
+| Gate | Existing evidence scope | Closeout |
+|---|---|---|
+| A01 | `81f796f4` missing/corrupt/restored bundle; `ac57fa8b` both directions with frozen old peers; `c6948132` LAN personal browsing/automation denial on both platforms | R03 inheritance review; R01 target topology |
+| A02 | Native read/fill/click/select/snapshot/capture; real-model form and four operation cases; `c6948132` large captures on both platforms | R03 per-tool coverage against all public tools in §3; R02 timing |
+| A03 | Cross-origin frames, dynamic controls, owned popup effects and personal-page exclusion | R03 associate source-native and packaged effects separately; rerun only missing cases |
+| A04 | Native 32 waiters/33rd rejection and queue cancellation; repaired packaged cancellation/new tasks on both platforms | R03 both-platform cold-start/expiry/cancellation coverage with version boundaries |
+| A05 | Journal finalization failures, same-ID/changed-digest probes, lost replies and restart unknown on both platforms; fresh IDs cannot evade fences | R01 real route; local duplicate probes are not extra wire requests |
+| A06 | Controller/MCP/main/Gateway failures on both platforms; Relay reconnect; original Settings lock/original-credential recovery and dedicated-device permanent revocation | R01 target topology; these verified boundaries leave the generic remaining-fault list |
+| A07 | Inline/escaped boundaries, large PNGs, full/expired caches; native parser and synthetic-cache 10 MiB boundaries | R02 complete tool/chunk statistics on the target route; do not bypass MCP's separate 8 MiB limit to manufacture native 10 MiB output |
+| A08 | Lost/duplicate/reordered chunks and scope/offset/hash rejection; lost results never redo completed writes | R03 separate real wire calls from local probes; R01 target route |
+| A09 | Retained views after normal release, reacquisition, explicit close and abnormal cleanup; old lease/authority adds zero native calls | R03 associate native/package evidence per case; normal completion is not explicit close |
+| A10 | Original panel/tabs/hide/width, renderer recovery and activate handler | R04 actual Mac Dock click; emitting the handler does not qualify pointer interaction |
+| A11 | Separate Mac ARM64 installation, private Linux x64 package; Linux offline GUI, bundled Node, exit/manifest rejection | R05 four-architecture artifacts and installation/offline coverage; private deb extraction is not dpkg installation |
+| A12 | Mac/co-located Linux through isolated node-managed Relay to real work2 provider; faults with zero business HTTP fallback | R01 TEST1, observation of all relevant processes, preserved backend acquisition/personal-script paths |
+| A13 | Client upgrade/rollback with original data and unknowns; fixed Gateway/issuer and unchanged identity | R07 complete paired cutover/rollback and zero active legacy references after P3 |
+
+Remaining work follows only these IDs. A newly discovered defect may add a specific failure;
+an unbounded Cartesian product of faults is not an acceptance requirement.
+
+| ID | Next step and closure condition | Dependency |
+|---|---|---|
+| R01 | Native positive work, Relay block/recovery, zero bypass across all relevant processes and device ownership on both platforms through TEST1; record G1–G4 | Current TEST1 authentication/entry remains unavailable; work2 credentials do not imply TEST1 access |
+| R02 | Compare old path and candidate on the same topology/load; report cold/warm counts, full-tool subcalls, bytes, median/tail and throughput; retain failures | R01; SSH/synthetic-cache measurements do not replace WAN statistics |
+| R03 | Associate every §3 public tool and A01–A09 case with exact evidence/version; inspect relevant source deltas and verify only missing effects/platforms | Local work can proceed; do not generalize completed lock/revocation/crash cases back into open work |
+| R04 | Actual Dock close/reopen and original-UI visual acceptance after unlock, retaining data/selection and geometry evidence | Manual Mac unlock already requested |
+| R05 | Artifacts for all four architectures are built; complete corresponding installation qualification, Mac offline GUI and Linux package-manager installation, recording unavailable environments separately | Matching runtime hosts; retain the Chromium sandbox |
+| R06 | Investigate the original Linux restore and Mac preapproval lookup failures; provide reproducible cause/regression or an explicit evidence-limited diagnosis | Preserve original requests/unknowns; no resubmission or ledger clearing |
+| R07 | After P3, remove §10 active legacy paths, verify paired Gateway/issuer/helper/client upgrade and complete rollback, then publish within authorization | Applicable R01–R06 gates and D2; no current production installation replacement |
+| R08 | Provide the owner a concrete candidate, acceptance steps and open items; record final acceptance | Technical candidate preparation; automated checks do not substitute for owner sign-off |
+
+Native authorization/revocation for G1 and write boundaries for G3 have isolated evidence; so do
+G2 real-model persistent effects and G4 zero bypass. They do not automatically close this design's
+additional TEST1/P3 requirement. Remaining P0 work maps to R02, P1 to R05 and P2 review to R03.
+P3 collects the applicable R01–R06 gates; P4 maps to R07. Retain the historical PostgreSQL disk
+incident and unclassified lookup failures; later successes cannot erase them or turn them into passes.
+
+The first R03 source review finds no changes from `c6948132` to `b175325b` in Go
+browserautomation/browserhost/browsercontrol or Controller source. All 207 file digests in the
+current Controller manifest match `c6948132`, `ac57fa8b` and `d4eae4c6` separately. Only desktop
+runtime, main and native enrollment source changed; lifecycle/authority checks retain their actual
+version scopes. Equal digests do not mean every test was rerun. The public inventory has 13 tools.
+Specific evidence followups are public focus without changing the selected conversation or issuing
+`tabs.handoff`; public close without a replacement blank page and with lease release; actual
+focused typing/submit versus ref fill; expired refs/frozen-target redirects; public wait fields
+and list_tabs without implicit acquisition before a lease.
+
+The same clean `b175325b` now also produces Linux ARM64 AppImage/deb and Mac x64 DMG/ZIP, for eight
+artifacts in total. Linux executable/helper/AppImage runtime ELF headers are AArch64; all 7,008 deb
+application file/link entries match the build directory. ASAR, 207 Controller files, 24 WebChat and
+224 preview resources match the qualified x64 payload. New `verify-linux-controller-package.py`
+inspects archives and architecture without installing or executing them. The Linux runtime version
+manifest comes from build-host Electron, not an observed target runtime.
+
+Mac x64 uses Node 26.2.0 x64 verified against the official SHA-256, building through translation on
+the ARM64 host. Executable/helper/Koffi are x86_64; bundled Electron's Node mode actually reports
+x64, Electron 44.4.3 and Node 24.21.0. Of 6,516 ASAR files, 5,715 shared files match across
+architectures; only native LibreOffice/Koffi architecture packages may differ. Controller and
+original UI bytes match. All 7,156 file/link entries in both ZIP and read-only mounted DMG match
+the assembled application; the mount is detached and its temporary directory removed. Retain the
+initial comparator omission of Koffi and the host Python's unsupported tar-filter failure. Neither
+required product or package changes.
+
+This is new-architecture build/static audit and a translated Mac Node probe, not Intel Mac/Linux
+ARM64 native GUI, package-manager installation or offline qualification. No new package was sent
+to work2, no production application was replaced, no new task was run and no existing profile was
+modified. Native platform gates remain under R05.

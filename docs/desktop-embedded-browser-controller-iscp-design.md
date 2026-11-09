@@ -2,8 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> Date: 2026-11-10. Status: implementation in progress. Clean-source `81f796f4` candidates repair
-> local availability notifications; Mac renderer/Relay and Linux real-provider checks pass.
+> Date: 2026-11-10. Status: implementation in progress. Clean-source `ac57fa8b` candidates repair
+> local availability and legacy-peer negotiation; recorded Mac/Linux mixed-peer checks pass.
 > Source, isolated encrypted-Relay and real work2 provider evidence is recorded in §14.
 > TEST1, the remaining acceptance matrix and paired cutover remain open; no production replacement.
 > Owner decisions D1–D3 are retained in §12.
@@ -1074,3 +1074,27 @@ bidirectional admission checks, unrelated-file capability checks, complete `iscp
 targeted race, vet and Gateway ISCP tests. The first Gateway run fails the existing bounded receipt
 sweep at 274/276; its isolated rerun and the complete ISCP rerun pass without receipt code changes.
 The initial failure remains unclassified. New clean packages and native mixed-peer reruns are pending.
+
+Clean `ac57fa8b` packages and Gateways now pass the same-generation Mac renderer/Relay scenario
+(9 groups) and Linux real-provider/sandbox/Relay scenario (8). Native cross-version checks use
+the actual pre-Controller `b5c21e14` desktop and Gateway binaries: new client/old Gateway and old
+client/new Gateway each pass 5 checks on both platforms. Only browser is disabled; its original
+entry and refusal remain, while files/settings, attachment bytes, draft and prior durable fences
+are preserved without business HTTP. Returning to the new pair re-enables the entry and passes
+the 4-check attachment/preservation scenario on both platforms.
+
+Use a qualification inventory supported by each binary. The first Mac legacy-client attempt
+used the new private helper configuration, whose five unknown operation names fail old strict
+configuration validation; retain that fixture failure. The corrected old-peer launchers omit
+exactly those names, retain identity/authorization/data, and restore the original helper files
+afterward. Validation was not relaxed. These results name the frozen `b5c21e14` compatibility
+baseline; they do not claim arbitrary intermediate development builds are mutually compatible.
+
+Four artifact hashes and scoped test/setup-restoration/cleanup evidence are indexed in
+`candidate-ac57fa8b-index.json`; Controller manifest SHA-256 is
+`f8e7eac1ae2aa805c5b70a015723d231f77e5bc8b5838329ef021a1e9b18fd4f`.
+The ASAR is byte-identical to `81f796f4`; helper and Gateway carry the negotiation repair.
+Linux deb payload equality passes as private extraction only. Test Gateways are stopped,
+candidate/X107/keyring processes and exact temporary AppArmor profiles are cleared, and the
+three production container baselines, provider configuration and locked GNOME seat remain exact.
+TEST1, LAN-only and remaining fault/native/offline/timing gates and P3/D2 cutover remain open.

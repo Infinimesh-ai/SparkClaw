@@ -2,8 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> 日期：2026-11-10。状态：实施推进中。干净源码 `81f796f4` 候选修复本地能力通知，Mac 渲染恢复／
-> Relay 和 Linux 真实 provider 检查通过。§14 记录源码、隔离加密 Relay 及 work2 真实 provider
+> 日期：2026-11-10。状态：实施推进中。干净源码 `ac57fa8b` 候选修复本地能力通知和旧 peer 协商，
+> 记录范围内的 Mac／Linux 混合 peer 检查通过。§14 记录源码、隔离加密 Relay 及 work2 真实 provider
 > 证据。TEST1、其余验收矩阵和成对切换仍未完成，未替换生产版本。§12 保留所有者决定 D1–D3。
 > 已核对源码：`main` 的 `e031a453`（初版提案）；浏览器／ISCP／桌面实现起点为 `b5c21e14`。
 > 本次仅涉及 SparkClaw，不执行项目簇协调流程。
@@ -872,3 +872,21 @@ helper 拒绝完整的旧操作表，导致始终未连接。私有响应端配�
 完整 `iscpworkbench`、专项 race、vet 及 Gateway ISCP 测试通过。首轮 Gateway 测试中已有的有界
 回执清理测试停在 274／276；未修改回执代码，单项及整个 ISCP 组复跑通过，首轮失败原因仍未
 确认。新的干净安装包及原生混合 peer 复验待完成。
+
+干净 `ac57fa8b` 包及 Gateway 已通过同代 Mac 渲染恢复／Relay 场景（9 组）和 Linux 真实 provider／
+沙箱／Relay 场景（8 组）。原生跨版本检查使用实际的 Controller 引入前 `b5c21e14` 客户端与 Gateway
+二进制：新客户端／旧 Gateway、旧客户端／新 Gateway 在两平台各通过 5 项。仅禁用浏览器，
+保留原入口与拒绝操作；文件／设置、附件字节、草稿及原持久化 fence 均保留，未发生业务 HTTP。
+恢复为新版本组合后，入口重新启用，两平台均通过 4 项附件与数据保留检查。
+
+每个二进制须使用它支持的资格操作清单。Mac 旧客户端首轮用了新的私有 helper 配置，五个未知
+操作名触发旧版严格配置校验失败；保留该夹具失败。修正后的旧 peer 启动配置只去掉这五项，身份、
+授权和数据不变，测试后恢复原 helper 文件；未放宽校验。上述结果明确以冻结的 `b5c21e14` 为
+兼容基线，不声称任意中间开发包均可相互兼容。
+
+四份产物哈希及分范围测试／配置恢复／清理证据收录于 `candidate-ac57fa8b-index.json`；Controller
+manifest SHA-256 为 `f8e7eac1ae2aa805c5b70a015723d231f77e5bc8b5838329ef021a1e9b18fd4f`。
+ASAR 与 `81f796f4` 逐字节一致，helper 和 Gateway 包含协商修复。Linux deb 仅完成私有解包后的
+payload 一致性检查。测试 Gateway 已停止，候选／X107／keyring 进程及精确临时 AppArmor 规则
+已清理，三个生产容器基线、provider 配置及锁定的 GNOME 会话保持一致。TEST1、LAN-only、剩余
+故障／原生／离线／计时门禁及 P3／D2 切换仍未完成。

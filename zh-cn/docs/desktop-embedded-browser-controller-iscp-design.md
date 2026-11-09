@@ -1290,3 +1290,24 @@ TEST1、Mac 离线／Dock、原查询失败原因、剩余故障与 WAN、P3／D
 `SPARKCLAW_CONTROLLER_RELAY_METADATA` 指定的隔离 Relay 元数据；暂停前验证完整容器
 ID 与归属 label。最终夹具还显式核对 userData 路径，并在 Relay 清理失败时继续尝试关闭
 原生应用；实际运行的冻结夹具与这两处清理／断言补强分别保留在候选索引中。
+
+新增显式启用的 `run-client-controller-packaged-main-crash.mjs`，在相同 `80563081`
+Mac／Linux 包上各通过 7 组，补上更早的崩溃边界。一次审批后的原生填写产生 Alice 和
+恰好一次 input 事件；夹具在桌面持久化记录仍为 dispatched 时挂起原生回复，再对实际
+安装包的主进程发送 SIGKILL。自有 Controller／MCP 进程组和私有运行目录分别在
+148／160 ms 内消失（单次样本）。重启前独立冷读仍与原 dispatched 记录完全相同，
+没有提前写入终态回执。
+
+同 profile 重启保留 installation、原任务身份、输入摘要、上下文和创建时间，原任务
+仍只有一条且没有助手成功消息。启动将原记录持久化为 unknown，原执行也变为 unknown。
+已有 unknown 保留，Mac 从 4 条增至 5 条，Linux 从 3 条增至 4 条。换命令 ID 的本地
+acquire 探测被 browser_write_outcome_unknown 拒绝且没有原生派发；两端重启过程的
+原生调用均为零。原 ClientStore IPC 能读取相同附件字节和未发送草稿，个人浏览器 Cookie
+保留，无关 ISCP 只读请求返回 200，零直接业务 HTTP。本地探测不记作新增加密线调用。
+
+停止后的独立读取确认两端桌面／Gateway 的 unknown 回执及执行 unknown，命令、摘要和
+身份完全对应。活动服务、候选进程、SSH 转发、私有显示及临时策略均关闭，隔离 Relay
+未暂停。生产符合恢复后基线，可用空间 5,564,301,312 字节；历史 PostgreSQL 事故继续
+保留。运行夹具与提交源码一致，产品二进制和 UI 未改动。本项补齐填写已生效时的主进程
+崩溃边界，尚不代表整个验收矩阵完成：TEST1、Mac 离线／实际 Dock 点击、原查询失败、
+剩余故障与 WAN 证据、P3／D2／P4 仍需验证。

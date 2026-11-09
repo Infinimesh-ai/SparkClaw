@@ -1616,3 +1616,29 @@ and disposable Relay metadata selected by `SPARKCLAW_CONTROLLER_RELAY_METADATA`;
 the full container ID and ownership label before pausing. The final fixture also explicitly checks
 userData and continues native-app cleanup if Relay cleanup fails. The executed frozen fixture
 and these final cleanup/assertion additions are recorded separately in the candidate index.
+
+The opt-in `run-client-controller-packaged-main-crash.mjs` now qualifies the earlier crash
+boundary on the same `80563081` packages, with seven checks passing on both Mac and Linux.
+After one approved native fill produces Alice and exactly one input event, the fixture holds
+the native reply while the durable desktop journal still says dispatched, then sends SIGKILL
+to the actual packaged main process. The owned Controller/MCP process group and private runtime
+directory disappear in 148/160 ms respectively (single samples). An independent cold read before
+restart still matches the original dispatched row exactly; no terminal receipt was persisted.
+
+Reopening the same profile preserves the installation and original task identity, input digest,
+context and creation time, with one task and no assistant success message. Startup promotes the
+original journal row to durable unknown; the original execution also becomes unknown. Prior
+unknowns remain, increasing Mac from four to five and Linux from three to four. Fresh-command-ID
+local acquire probes are denied with browser_write_outcome_unknown and zero native dispatch;
+neither restart performs any native calls. The original ClientStore IPC retains attachment bytes
+and the unsent draft, the personal-browser cookie survives, and an unrelated ISCP read returns
+200 with zero direct business HTTP. These probes do not claim additional encrypted wire calls.
+
+Independent stopped-state reads confirm both desktop/Gateway unknown receipts and execution
+unknown with the same command, digest and identity. Activity services, candidate processes,
+SSH tunnel, private display and temporary policies are stopped; the isolated Relay is unpaused.
+Production matches the post-recovery baseline with 5,564,301,312 bytes free; the historical
+PostgreSQL incident remains recorded. The executed fixture equals the committed source, and
+product binaries/UI are unchanged. This closes this specific applied-fill main-crash boundary,
+not the whole acceptance matrix: TEST1, Mac offline/actual Dock interaction, the original read
+failure, remaining faults/WAN evidence and P3/D2/P4 still require qualification.

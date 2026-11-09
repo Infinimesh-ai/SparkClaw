@@ -160,3 +160,33 @@ test("presentation evidence comes from the local adapter rather than the request
   f.runtime.adapter.controllerSurfaceVisible = () => true;
   assert.equal((await f.send(command("execute", b, { lease, operation: "page.info", arguments: {} }))).body.payload.result.surface_visible, true);
 });
+
+for (const reconnect of [true, false]) for (const operation of ["page.read", "page.fill"]) {
+  test(`late ${operation} failure cannot stop a replacement Controller after ${reconnect ? "ISCP reconnect" : "runtime retirement"}`, async t => {
+    let dispatched, failOld;
+    const entered = new Promise(resolve => { dispatched = resolve; });
+    const held = new Promise((_, reject) => { failOld = reject; });
+    const f = await fixture(t, { execute: async () => { dispatched(); return held; } });
+    const oldBinding = binding(), oldLease = await f.acquireTask(oldBinding);
+    const request = command("execute", oldBinding, { lease: oldLease, operation,
+      arguments: operation === "page.fill" ? { ref: "e2", text: "fixture" } : {} });
+    const pending = f.send(request);
+    await entered;
+    if (reconnect) {
+      await f.forwarder.suspend();
+      f.auth.transport.capabilities = { ...manifest(), session_id: "session-b" };
+    } else await f.runtime.stop("controller_exited");
+    const newBinding = binding("B", f.auth.transport.capabilities);
+    await f.acquireTask(newBinding);
+    const incarnation = f.runtime.incarnation, lease = f.forwarder.lease, stops = f.lifecycle.length;
+    failOld(new Error("old process reply was lost"));
+    const reply = await pending;
+    assert.equal(reply.body.outcome, operation === "page.fill" ? "unknown" : "failed");
+    if (operation === "page.fill") assert.equal(f.forwarder.journal.rows.get(request.body.command_id).state, "unknown");
+    assert.equal(f.lifecycle.length, stops);
+    assert.equal(f.runtime.incarnation, incarnation);
+    assert.equal(f.runtime.state, "busy");
+    assert.equal(f.forwarder.lease, lease);
+    assert.equal((await f.send(command("release", newBinding, { lease: lease.value }))).body.outcome, "completed");
+  });
+}

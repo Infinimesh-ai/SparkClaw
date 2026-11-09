@@ -253,10 +253,13 @@ export class BrowserControllerForwarder {
       // A local timeout must revoke the adapter and stop owned execution. It
       // cannot leave a delayed write running behind a returned error.
       if (begun && !completed) await this.journal.finish(command.command_id, dispatched ? "unknown" : "failed").catch(() => this.journal.markUncertain(command.command_id));
-      if (dispatched && !completed || action === "acquire" && acquiredSlot && !completed) {
+      // Authority loss/retirement already cleans the old process. A late reply
+      // must still settle its journal, but cannot tear down a replacement.
+      const ownsRuntime = context.generation === this.generation && (!incarnation || incarnation === this.runtime.incarnation);
+      if (ownsRuntime && (dispatched && !completed || action === "acquire" && acquiredSlot && !completed)) {
         await this.runtime.stop("controller_call_failed").catch(() => {});
       }
-      if (task && !this.lease) this.runtime.adapter?.revokeControllerTask(task.taskID);
+      if (ownsRuntime && task && !this.lease) this.runtime.adapter?.revokeControllerTask(task.taskID);
       if (acquiredSlot && this.lease?.slot !== acquiredSlot && !this.runtime.closed) this.admission.release(acquiredSlot);
       const outcome = completed ? "completed" : dispatched && context.mutation ? "unknown" : dispatched ? "failed" : "not_dispatched";
       return result(command, incarnation, outcome, completed ? "browser_result_unavailable" : error.code || (dispatched ? "browser_write_outcome_unknown" : "browser_busy"));

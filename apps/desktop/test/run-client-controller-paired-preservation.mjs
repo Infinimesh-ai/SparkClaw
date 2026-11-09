@@ -1,5 +1,6 @@
-// Opt-in same-profile candidate upgrade/rollback proof. The operator switches
-// only the labelled disposable Gateway while both application writers are off.
+// Opt-in same-profile candidate upgrade/rollback proof. The operator selects
+// candidate clients and compatible disposable services with all writers stopped
+// between switches; evidence must name which binaries actually changed.
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";

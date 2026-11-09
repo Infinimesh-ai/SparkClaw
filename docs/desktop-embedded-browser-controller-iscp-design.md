@@ -1517,3 +1517,40 @@ post-recovery baseline with 5,570,560,000 bytes free. No production application 
 Native paired-transition tests, refreshed lifecycle/fault/offline coverage, TEST1, remaining WAN
 evidence and P3-gated D2 deletion remain open. The paired fixture now supports node-managed
 profiles and an actual retained attachment, but its new transition runs are not yet qualified.
+
+The same `80563081` packages additionally pass three main-process termination checks on each
+platform. SIGKILL before fill approval removes the owned Controller/MCP process group and
+runtime directory; single cleanup observations are 151 ms on Mac and 154 ms on Linux.
+Same-profile normal restarts pass six/seven checks. Read-only SQLite verification preserves the
+original installation, task/request IDs, input digest, context and creation time without duplicate
+tasks. The original tasks remain running: this proves pre-approval cleanup and record retention,
+not recovery after an applied fill or all of A06.
+
+Both platforms then run `98cb57a0` prepare, `80563081` upgrade and `98cb57a0` rollback against
+the same profiles, passing five/eight/eight checks. Preparation performs one approved fill, injects
+local result loss and persists unknown. Upgrade and rollback preserve that row, existing history,
+cancellation markers, identity, cookies, attachment bytes and draft. Original file/draft IPC reads
+the attachment; a new conversation executes normally, while fresh command IDs cannot bypass
+unknown or cancellation fences. Only desktop candidates change; Gateway `c6948132` and issuer
+`3afcbe68` stay fixed. This is data compatibility evidence, not P4 completion or qualification of
+the older candidate's cancellation defect.
+
+Restoring the new Mac candidate passes six normal checks. The first Linux restore fails during
+a reconcile read with `Backend request is unavailable`; the failure, original task and bounded
+logs are retained, with cause unclassified. After stopping, that execution is delivered but has
+no browser mutation receipts, so it does not prove a successful fill. The same Linux payload and
+profile subsequently pass seven checks in a network namespace with only loopback, no routes
+and ENETUNREACH for an external connection. The packaged runtime, Controller and MCP share
+that namespace; a private bridge carries ISCP only to the fixed TLS origin. Runtime PATH excludes
+host Node. Native libsecret, renderer isolation, real-model approved fill, original panel interaction
+and exit cleanup pass; both original workbench and Alice-filled task-page screenshots were
+inspected. This is a separate successful new task, not reclassification of the failure, deb
+installation evidence or Mac offline GUI coverage.
+
+Independent stopped-state reads preserve each new unknown command/digest and match all
+20 mutation receipts for six successful upgrade/rollback/restore tasks across desktop and
+Gateway as completed, with delivered executions. Isolated activity services, SSH tunnel,
+bridges, candidate processes, private display and temporary policies are stopped. Production
+matches its post-recovery baseline with 5,639,798,784 bytes free; the earlier PostgreSQL incident
+remains recorded. Product packages are unchanged. The first Linux restore-read failure,
+remaining faults, Mac offline GUI, TEST1, WAN, P3 and D2 gates remain open.

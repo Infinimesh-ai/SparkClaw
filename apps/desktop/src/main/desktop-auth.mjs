@@ -17,8 +17,8 @@ import { traceISCPRead } from "./iscp-read-diagnostics.mjs";
 const ISCP_STARTUP_READS = new Set(["/api/config", "/readyz", "/api/owner", "/api/notifications", "/api/clients", "/api/workbench/identity", "/api/email/sync-status"]);
 
 export class DesktopAuth {
-  constructor({ readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification = false, requireLAN = false, fetcher, iscpProfilePath, allowLocalISCPTest = false, allowNodeManagedISCP = false, nodeEnroller = enrollNodeISCP, launchSelectionPath, userDataDirectory, selectionWriter = persistNodeISCPLaunchProfile, packaged = false, resourcesPath, transportFactory = (options) => new ISCPTransport(options), onChange = () => {}, onLock = () => {}, onReverse, browserRuntimeAvailable = true }) {
-    Object.assign(this, { readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification, requireLAN, fetcher, iscpProfilePath, allowLocalISCPTest, allowNodeManagedISCP, nodeEnroller, launchSelectionPath, userDataDirectory, selectionWriter, packaged, resourcesPath, transportFactory, onChange, onLock, onReverse });
+  constructor({ readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification = false, requireLAN = false, fetcher, iscpProfilePath, allowLocalISCPTest = false, allowNodeManagedISCP = false, nodeEnroller = enrollNodeISCP, launchSelectionPath, userDataDirectory, selectionWriter = persistNodeISCPLaunchProfile, packaged = false, resourcesPath, transportFactory = (options) => new ISCPTransport(options), onChange = () => {}, onCapabilitiesChanged = onChange, onLock = () => {}, onReverse, browserRuntimeAvailable = true }) {
+    Object.assign(this, { readLocalFile, vault, descriptorPath, qualificationPaths, installationID, qualification, requireLAN, fetcher, iscpProfilePath, allowLocalISCPTest, allowNodeManagedISCP, nodeEnroller, launchSelectionPath, userDataDirectory, selectionWriter, packaged, resourcesPath, transportFactory, onChange, onCapabilitiesChanged, onLock, onReverse });
     this.requests = new Set();
     this.defaultVault = vault;
     this.generation = 0;
@@ -31,7 +31,9 @@ export class DesktopAuth {
     if (typeof available !== "boolean") throw new Error("Browser runtime availability must be boolean");
     if (this.browserRuntimeAvailable === available) return;
     this.browserRuntimeAvailable = available;
-    if (this.descriptor?.transport === "iscp") this.#set(this.status.state);
+    // A local readiness change must update the UI without restarting transport
+    // lifecycle handlers (which may themselves be stopping the Controller).
+    if (this.descriptor?.transport === "iscp") this.#set(this.status.state, this.onCapabilitiesChanged);
   }
 
   async initialize() {
@@ -712,7 +714,7 @@ export class DesktopAuth {
     } catch (error) { return { state: isTLSIdentityError(error) ? "identity_conflict" : "service_unavailable" }; }
   }
 
-  #set(state) {
+  #set(state, notify = this.onChange) {
     this.status = Object.freeze({ schema_version: 1, state, ...(this.transport?.capabilities?.authorization_revision ? {authorization_revision:this.transport.capabilities.authorization_revision} : {}), ...(this.deletionIntent ? { authorization_deletion: { state: this.deletionIntent.state, operation_id: this.deletionIntent.operation_id } } : {}), ...(this.descriptor ? { backend: {
       schema_version: this.descriptor.schemaVersion || 1,
       origin: this.descriptor.origin, deployment_id: this.descriptor.deploymentID,
@@ -724,7 +726,7 @@ export class DesktopAuth {
     } } : {}), ...(this.descriptor?.transport === "iscp" ? { transport_stage: this.authorizationRevoked ? "authorization_revoked" : this.transportStage, test_mode: this.descriptor.testMode, ...(this.descriptor.mode ? { mode: this.descriptor.mode } : {}),
       capabilities: projectISCPCapabilities(this.transport?.capabilities, this.capabilityReport, Date.now(), this.browserRuntimeAvailable) } : {}), ...(this.connection && (this.connection.transport !== "iscp" || this.connection.identityVerified) ? { client_id: this.connection.clientID, owner_id: this.connection.ownerID } : {}) });
     this.#scheduleCapabilityExpiry();
-    this.onChange(this.status);
+    notify(this.status);
     return this.status;
   }
 }

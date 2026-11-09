@@ -1020,3 +1020,18 @@ verification; invalidating that cache fixes it. Three red cases become green; De
 1 skip and the 38 existing LocalWorkbench tests pass. This is a source repair awaiting refreshed
 package/native missing/corrupt/recovery qualification; the prior `d4eae4c6` package claims do not
 include it. No UI component or wire/database schema changes.
+
+The refreshed clean-source `a9dcbb98` Mac and Linux packages pass actual missing-manifest,
+corrupt-file and restored-package checks (5/5/4 assertions per platform). The original browser
+entry is retained and correctly disabled, while original file/draft IPC preserves a newly saved
+attachment with SHA-256 `11b27d84cdd6cb110272d2e7143d7e1ef2bf6c7d633919325e362bd0c11fa663`.
+Mac paired rollback to `05fa3c1a` and its old Gateway preserves those bytes and the prior durable
+unknown-write/cancellation fences. Linux paired rollback to the same old desktop and its original Gateway also passes (4 assertions).
+
+Do not mark `a9dcbb98` ready: its Mac renderer crash/reload and close/activate checks pass, but
+the subsequent Relay interruption causes an availability notification feedback loop and renderer
+OOM. Local capability reprojection was invoking the connection lifecycle handler, which suspended
+the Controller and projected availability again. A bounded regression reproduces 20 unwanted
+lifecycle calls. Source now publishes local capability changes separately from connection lifecycle
+events; 28 focused tests and Desktop 662 pass / 1 skip. This repair still needs a new clean package
+and repetition of the combined renderer/Relay test. Retain the failed package, logs and evidence.

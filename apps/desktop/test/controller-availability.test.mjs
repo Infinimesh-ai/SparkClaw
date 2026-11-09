@@ -3,6 +3,44 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { DesktopAuth } from "../src/main/desktop-auth.mjs";
 import { ISCP_SURFACES } from "../src/main/iscp-capabilities.mjs";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { ClientControllerRuntime } from "../src/browser/controller-runtime.mjs";
+import { BrowserControllerForwarder } from "../src/browser/controller-forwarder.mjs";
+import { syntheticControllerBundle } from "./controller-bundle-fixture.mjs";
+
+test("local availability notifications do not re-enter transport suspension", async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "sx-availability-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await syntheticControllerBundle(root);
+  const runtime = new ClientControllerRuntime({ bundleRoot: root, adapterFactory: () => assert.fail("suspension started an adapter") });
+  await runtime.prepare();
+  let connectionUpdates = 0;
+  const capabilityUpdates = [], pending = [];
+  const auth = new DesktopAuth({
+    onChange: () => {
+      connectionUpdates++;
+      // Bound the old feedback loop so this regression fails without exhausting memory.
+      if (connectionUpdates < 20) pending.push(forwarder.suspend());
+    },
+    onCapabilitiesChanged: status => capabilityUpdates.push(status),
+  });
+  t.after(() => auth.close());
+  auth.descriptor = { transport: "iscp" };
+  auth.status = Object.freeze({ schema_version: 1, state: "service_unavailable" });
+  const forwarder = new BrowserControllerForwarder({ auth, runtime, userDataDir: root,
+    registry: { closeHostPages() {} },
+    onChange: () => auth.setBrowserRuntimeAvailable(runtime.snapshot().available),
+  });
+  await forwarder.suspend();
+  for (let index = 0; index < pending.length; index++) await pending[index];
+  assert.equal(connectionUpdates, 0, "local capability projection must not restart connection lifecycle handlers");
+  assert.equal(forwarder.generation, 1);
+  assert.equal(capabilityUpdates.length, 2);
+  assert.ok(capabilityUpdates.every(status => status.state === "service_unavailable"));
+  assert.equal(runtime.state, "stopped");
+});
 
 test("local Controller availability reprojects the existing connection once per change and cannot restore expired authority", t => {
   const updates = [];

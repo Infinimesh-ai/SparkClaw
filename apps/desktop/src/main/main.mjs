@@ -127,6 +127,11 @@ let iscpSpeech;
 let iscpRecording;
 const backendStateWaiters = new Set();
 
+function publishBackendState(status) {
+  for (const waiter of [...backendStateWaiters]) waiter();
+  if (!quitting && window && !window.isDestroyed()) window.webContents.send("sparkclaw-local-backend:state", status);
+}
+
 async function start() {
   const internalProtocolHandler = (request) => {
     const url = new URL(request.url);
@@ -166,8 +171,8 @@ async function start() {
     launchSelectionPath: path.join(launchSelectionDirectory, "iscp-launch-profile.json"), userDataDirectory: app.getPath("userData"),
     packaged: app.isPackaged, resourcesPath: process.resourcesPath,
     browserRuntimeAvailable: false,
+    onCapabilitiesChanged: publishBackendState,
     onChange: (status) => {
-      for (const waiter of [...backendStateWaiters]) waiter();
       if (quitting) return;
       localFilesService?.refreshIdentity();
       if (status.state === "connected" && !suspended) {
@@ -193,7 +198,7 @@ async function start() {
         mailClient?.close(); medicineClient?.close();
         void browserHost?.suspend();
       }
-      if (window && !window.isDestroyed()) window.webContents.send("sparkclaw-local-backend:state", status);
+      publishBackendState(status);
     },
     onReverse: async (request, session) => {
       await prepareBrowserHostScope();

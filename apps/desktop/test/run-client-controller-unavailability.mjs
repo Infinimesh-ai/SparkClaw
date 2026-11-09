@@ -23,7 +23,7 @@ const checkpointFile = path.join(directory, "evidence/controller-unavailability-
 const output = path.join(directory, `evidence/controller-unavailability-${phase}-${Date.now()}.json`);
 const text = "Synthetic retained attachment: new candidate to recovered and rollback packages.\n";
 const hash = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
-const evidence = { schema_version: 1, phase, scope: "actual_Mac_candidate_local_encrypted_ISCP", passed: false, checks: {} };
+const evidence = { schema_version: 1, phase, platform: process.platform, scope: "actual_candidate_encrypted_ISCP", passed: false, checks: {} };
 let application, window, checkpoint;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(predicate, label) {
@@ -47,6 +47,10 @@ async function retained() {
   return JSON.parse(JSON.stringify(rows));
 }
 try {
+  evidence.gateway_sha256 = hash(await fs.readFile(path.join(directory, "bin/gateway-linux")));
+  evidence.asar_sha256 = hash(await fs.readFile(path.join(resources, "app.asar")));
+  const manifest = await fs.readFile(path.join(resources, "browser-controller/manifest.json")).catch(error => { if (error.code === "ENOENT") return null; throw error; });
+  evidence.controller_manifest_sha256 = manifest && hash(manifest);
   evidence.before = await retained();
   if (phase === "missing") await assert.rejects(fs.stat(checkpointFile), { code: "ENOENT" });
   else checkpoint = JSON.parse(await fs.readFile(checkpointFile, "utf8"));
@@ -65,11 +69,6 @@ try {
   assert.equal(await button.count(), 1); assert.equal(await button.isDisabled(), unavailable);
   assert.ok(await window.locator(".sessionSelect").count() > 0);
   evidence.checks.original_entry_and_history_retained_with_correct_disabled_state = true;
-  if (unavailable) {
-    assert.ok(evidence.connection.capabilities.surfaces.browser.reason);
-    assert.equal(await window.evaluate(() => window.sparkclawDesktop.createPersonal().then(() => false, () => true)), true);
-    evidence.checks.original_browser_IPC_refuses_unavailable_operation = true;
-  }
   await application.evaluate(({ net, session }) => {
     globalThis.__unavailableBusinessHTTP = 0;
     const original = net.fetch.bind(net);
@@ -77,6 +76,11 @@ try {
     globalThis.fetch = () => { globalThis.__unavailableBusinessHTTP++; throw Error("Business HTTP forbidden"); };
     session.fromPartition("persist:sparkclaw-workbench-default").webRequest.onBeforeRequest({ urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"] }, (_request, callback) => { globalThis.__unavailableBusinessHTTP++; callback({ cancel: true }); });
   });
+  if (unavailable) {
+    assert.equal(evidence.connection.capabilities.surfaces.browser.reason, "local_runtime_unavailable");
+    assert.equal(await window.evaluate(() => window.sparkclawDesktop.createPersonal().then(() => false, () => true)), true);
+    evidence.checks.original_browser_IPC_refuses_unavailable_operation = true;
+  }
   if (phase === "missing") {
     checkpoint = await window.evaluate(async text => {
       const store = window.sparkclawClientStore, conversation = await store.create("Controller unavailable retained attachment");

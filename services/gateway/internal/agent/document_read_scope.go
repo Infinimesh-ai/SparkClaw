@@ -99,7 +99,9 @@ func (documentReadProfile) Assess(state *app.WorkflowState, outcome app.ToolOutc
 		assessment.Status, assessment.ReasonCode = app.AssessmentNeedsMoreEvidence, "document_structure_discovered"
 		return assessment
 	}
-	if !freezeDocumentReadMode(state, ref.Attributes, outcome.ToolCallID) {
+	// Locating evidence is not a task-scope commitment. In r8 the content
+	// decision can switch from exploratory search to whole-source summary.
+	if !(state.Plan.ProfileRevision >= 8 && ref.Kind == documentSearchResourceKind) && !freezeDocumentReadMode(state, ref.Attributes, outcome.ToolCallID) {
 		assessment.ReasonCode = "document_task_scope_invalid"
 		return assessment
 	}
@@ -215,6 +217,12 @@ func documentScopedReadMessage(state *app.WorkflowState, goal string) string {
 	}
 	coverage := map[string]any{}
 	_ = json.Unmarshal([]byte(state.Route.Facts[documentReadFactPrefix+"coverage"]), &coverage)
+	if state.Plan.ProfileRevision >= 8 && state.Route.Facts["document_format"] == app.DocumentFormatPPTX {
+		if chineseRequest(goal) {
+			return "幻灯片的原生对象解析尚不完整；以下结论需结合已读取的文字、页图像及各自的限制。"
+		}
+		return "Native slide-object parsing is incomplete; conclusions depend on the acquired text, slide images and their respective limitations."
+	}
 	remaining := strings.TrimSpace(stringValue(coverage["missing"]))
 	if remaining == "" || remaining == "<nil>" || coverage["denominator_known"] != true || remaining == "0" && coverage["status"] != "complete" {
 		remaining = "unknown"

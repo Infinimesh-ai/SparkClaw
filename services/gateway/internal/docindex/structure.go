@@ -130,6 +130,41 @@ func (index *Index) nodeMap() map[string]int {
 	return nodes
 }
 
+// SelectedPages returns the native pages of the validated initial scope. It
+// never expands a targeted read to neighboring slides or a continuation batch.
+func (index *Index) SelectedPages(request RangeRequest) ([]int, error) {
+	if request.Cursor != "" {
+		return nil, fmt.Errorf("page selection requires an initial range")
+	}
+	if err := index.ValidateVersion(request.SourceSHA256, request.StructureGeneration); err != nil {
+		return nil, err
+	}
+	selectors := 0
+	for _, selected := range []bool{len(request.NodeIDs) > 0, request.All, len(request.ChunkIDs) > 0, request.PageStart > 0, request.Section != ""} {
+		if selected {
+			selectors++
+		}
+	}
+	if selectors != 1 {
+		return nil, fmt.Errorf("select exactly one source range before selecting pages")
+	}
+	ordinals, err := index.selectedNodes(request)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[int]bool{}
+	pages := []int{}
+	for _, ordinal := range ordinals {
+		page := index.Nodes[ordinal].Locator.Page
+		if page > 0 && !seen[page] {
+			seen[page] = true
+			pages = append(pages, page)
+		}
+	}
+	sort.Ints(pages)
+	return pages, nil
+}
+
 func (index *Index) selectedNodes(request RangeRequest) ([]int, error) {
 	selected := map[int]bool{}
 	byID := index.nodeMap()

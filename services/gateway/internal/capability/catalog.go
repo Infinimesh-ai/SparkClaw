@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultCatalogRevision = "2026-11-02.v29"
+	DefaultCatalogRevision = "2026-11-09.v30"
 	RootID                 = app.CapabilityID("capability")
 )
 
@@ -179,7 +179,7 @@ func DefaultCatalog() (Catalog, error) {
 		leaf("ai_chat.gemini", "ai_chat", "Export one existing gemini conversation through RevivalStack and save original JSON into workspace. Do not send prompts or generate summaries.", RouteContract{Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"url"}, RequireTarget: true}),
 		leaf("ai_chat.grok", "ai_chat", "Export one existing grok conversation through RevivalStack and save original JSON into workspace. Do not send prompts or generate summaries.", RouteContract{Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"url"}, RequireTarget: true}),
 		branch("document", string(RootID), "Read or edit one explicitly identified governed document."),
-		leafRevision(string(app.CapabilityDocumentRead), "document", "Read one explicitly identified governed file through its structure and task-scoped ranges, with explicit coverage and optional OCR.", 7, RouteContract{
+		leafRevision(string(app.CapabilityDocumentRead), "document", "Read one explicitly identified governed file through its structure and task-scoped ranges, with explicit coverage and optional OCR.", 8, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationRead}, TargetKinds: []string{"workspace_path"}, RequireQuery: true, RequireTarget: true, RequiredFacts: []string{"path"},
 		}),
 		leafRevision(string(app.CapabilityDocumentEdit), "document", "Edit a copy of one explicitly identified governed document.", 7, RouteContract{

@@ -14,6 +14,12 @@ func bindScopedDocumentReadArguments(state *app.WorkflowState, plan toolPlan, ar
 		return args, nil
 	}
 	args["path"] = state.Route.Slots.TargetRef
+	delete(args, "include_visuals")
+	delete(args, "include_source_locations")
+	if state.Plan.ProfileRevision >= 8 && (plan.Capability == app.ToolCapabilityDocumentReadRange || plan.Capability == app.ToolCapabilityDocumentSummarize) {
+		args["include_visuals"] = true
+		args["include_source_locations"] = true
+	}
 	for _, key := range []string{"source_sha256", "structure_generation", "cursor", "contract_version"} {
 		delete(args, key)
 	}
@@ -41,6 +47,9 @@ func bindScopedDocumentReadArguments(state *app.WorkflowState, plan toolPlan, ar
 		args["contract_version"] = 2
 		if state.Plan.ProfileRevision >= 7 {
 			args["contract_version"] = 3
+		}
+		if state.Plan.ProfileRevision >= 8 {
+			args["contract_version"] = 4
 		}
 	}
 	if frozen := facts[documentReadFactPrefix+"task_mode"]; frozen != "" {
@@ -118,6 +127,8 @@ func scopedDocumentReadModelArguments(run app.AgentRun, definition app.ToolDefin
 		bound["include_descendants"] = true
 		bound["acquisition_max_bytes"] = true
 	}
+	bound["include_visuals"] = true
+	bound["include_source_locations"] = true
 	for _, key := range []string{"source_sha256", "structure_generation", "cursor", "contract_version"} {
 		bound[key] = true
 	}

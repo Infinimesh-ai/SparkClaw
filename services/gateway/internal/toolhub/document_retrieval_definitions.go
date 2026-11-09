@@ -56,8 +56,10 @@ func documentRetrievalToolProviders() []documentToolProvider {
 				InputSchema: schema("object", []string{"path"}, documentScopeInputSchema(map[string]any{
 					"path": stringSchema(), "chunk_ids": documentRangeIDsSchema(), "page_start": integerSchema(), "page_end": integerSchema(),
 					"section": stringSchema(), "context": integerSchema(), "node_ids": documentRangeIDsSchema(), "all": booleanSchema(),
-					"include_descendants":   booleanSchema(),
-					"acquisition_max_bytes": map[string]any{"type": "integer", "minimum": 1024, "maximum": docindex.MaxReadBytes, "description": "Canonical acquisition budget, independent of model-visible evidence; runtime-owned in revision 7."},
+					"include_descendants":      booleanSchema(),
+					"include_visuals":          booleanSchema(),
+					"include_source_locations": booleanSchema(),
+					"acquisition_max_bytes":    map[string]any{"type": "integer", "minimum": 1024, "maximum": docindex.MaxReadBytes, "description": "Canonical acquisition budget, independent of model-visible evidence; runtime-owned in revision 7."},
 				})),
 				OutputSchema: objectSchema([]string{"path", "content", "bytes", "spans", "truncated", "untrusted"}, map[string]any{
 					"path": stringSchema(), "rel_path": stringSchema(), "kind": stringSchema(), "content": stringSchema(), "bytes": integerSchema(),
@@ -113,6 +115,8 @@ func documentScopeInputSchema(properties map[string]any) map[string]any {
 	properties["limit"] = integerSchema()
 	properties["max_bytes"] = integerSchema()
 	properties["contract_version"] = integerSchema()
+	properties["include_visuals"] = booleanSchema()
+	properties["include_source_locations"] = booleanSchema()
 	properties["task_goal"] = stringSchema()
 	properties["task_mode"] = map[string]any{"type": "string", "enum": []string{"targeted", "exhaustive", "whole_summary", "comparison", "calculation"}}
 	properties["scope_reason"] = stringSchema()

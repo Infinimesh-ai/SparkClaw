@@ -236,7 +236,7 @@ func (h *ToolHub) documentReadRange(ctx context.Context, args map[string]any, se
 	}
 	sourcePinned := request.SourceSHA256 != "" || len(request.NodeIDs) > 0 || request.Cursor != ""
 	generationPinned := request.StructureGeneration != "" || request.Cursor != ""
-	return Result{Output: map[string]any{
+	output := map[string]any{
 		"path": metadata.Relative, "rel_path": metadata.Relative, "kind": metadata.Format,
 		"include_descendants": request.IncludeDescendants,
 		"content":             result.Text, "bytes": len(result.Text), "spans": documentJSONValue(result.Spans), "truncated": result.Truncated,
@@ -246,7 +246,15 @@ func (h *ToolHub) documentReadRange(ctx context.Context, args map[string]any, se
 		"generation_rebased": generationRebased, "previous_structure_generation": previousGeneration,
 		"next_chunk_id": result.NextChunkID, "read_complete": result.Coverage.Status == "complete", "unrecognized_pages_count": unrecognizedCount, "unrecognized_pages_truncated": unrecognizedTruncated, "unrecognized_pages": boundedDocumentPages(unrecognized),
 		"missing_page_indexes": boundedDocumentPages(unrecognized), "untrusted": true,
-	}}, nil
+	}
+	if boolArg(args, "include_source_locations", false) && request.Cursor == "" {
+		output["source_locations"] = summarySourceLocations(index, nil)
+		output["source_location_relations"] = selectedSourceLocationRelations(index, request.NodeIDs)
+	}
+	if err := h.addDocumentSlideVisuals(ctx, args, metadata, index, request, output, sessionID, runID); err != nil {
+		return Result{}, err
+	}
+	return Result{Output: output}, nil
 }
 
 func pageList(pages []int) string {

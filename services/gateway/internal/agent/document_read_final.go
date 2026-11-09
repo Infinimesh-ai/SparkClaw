@@ -73,6 +73,25 @@ func applyDocumentScopeToFinalProjection(run app.AgentRun, projection *workflowF
 // Values and their required context form one semantic object. Headings may
 // carry units or qualifications even when the source node is plain text.
 func scopedDocumentFinalEvidence(output map[string]any, text string, budget int) (string, bool) {
+	if output["source_locations"] != nil || output["visual_coverage"] != nil {
+		supplement := map[string]any{"source_sha256": output["source_sha256"], "structure_generation": output["structure_generation"]}
+		base := map[string]any{}
+		for key, value := range output {
+			base[key] = value
+		}
+		for _, key := range []string{"source_locations", "source_location_relations", "visual_coverage", "visual_evidence"} {
+			if value, ok := output[key]; ok {
+				supplement[key] = value
+			}
+			delete(base, key)
+		}
+		raw, err := json.Marshal(supplement)
+		if err != nil || len(raw)+2 > budget {
+			return boundedUTF8Prefix([]byte("[Source-location or slide-visual evidence exceeds the final model budget. Do not infer chapter locations, diagram relationships, or chart values.]"), max(0, budget)), true
+		}
+		body, truncated := scopedDocumentFinalEvidence(base, text, budget-len(raw)-2)
+		return string(raw) + "\n\n" + body, truncated
+	}
 	structured := len(anySlice(output["dependencies"])) > 0
 	for _, key := range []string{"nodes", "dependencies"} {
 		for _, raw := range anySlice(output[key]) {

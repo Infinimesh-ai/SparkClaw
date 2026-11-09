@@ -20,7 +20,7 @@ const (
 type documentReadProfile struct{}
 
 func (documentReadProfile) ID() app.WorkflowID           { return app.WorkflowDocumentRead }
-func (documentReadProfile) Revision() int                { return 7 }
+func (documentReadProfile) Revision() int                { return 8 }
 func (documentReadProfile) Capability() app.CapabilityID { return app.CapabilityDocumentRead }
 func (documentReadProfile) RoutingSemantics() workflowRoutingSemantics {
 	return documentReadRoutingSemantics()
@@ -100,6 +100,9 @@ func (documentReadProfile) StageContext(state *app.WorkflowState) workflowStageC
 	stage.EvidenceRequirements = []workflowEvidenceRequirement{
 		{ResourceKind: documentOutlineResourceKind, Mode: workflowEvidenceStructured, Optional: true},
 		{ResourceKind: documentSearchResourceKind, Mode: workflowEvidenceStructured, Optional: true},
+	}
+	if state != nil && state.Plan.ProfileRevision >= 8 {
+		stage.Reason += "\nSearch is exploratory in revision 8 and does NOT freeze task_mode. Choose the content task mode again from the original request after searching. For a summary that must preserve several named topics, use document.summarize: it carries the original task through every section. A targeted read is adequate only if it includes the ACTUAL explanatory source for every requested topic. A checklist telling the reader to understand a topic or its limitations is not the explanation of that topic or those limitations. Acquire the explanatory sections too, not just the overview/checklist/search matches. Native source_locations are navigation metadata only; their presence does not mean those sections' bodies were acquired."
 	}
 	if state != nil {
 		facts := map[string]string{}

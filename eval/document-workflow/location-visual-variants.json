@@ -1,0 +1,79 @@
+[
+  {
+    "id": "chapter_before_summary",
+    "request": "概括 chapter-before.docx 全文。请用原文标题及段落位置说明“最后的自我检查”的归属，并说明它与两份附录的先后顺序。原文没有的章节编号不要推测，不要联网。",
+    "workflow": "document.read",
+    "contains": [
+      [
+        "收尾检查"
+      ],
+      [
+        "断电"
+      ],
+      [
+        "之前",
+        "前"
+      ],
+      [
+        "无",
+        "没有",
+        "未"
+      ]
+    ],
+    "review_requirements": [
+      "Checklist p3 belongs to unnumbered heading p1 and precedes appendices p5/p7.",
+      "Do not turn old-version section 21 or appendix numbering into current chapter/order."
+    ]
+  },
+  {
+    "id": "visual_reversed",
+    "request": "查看 visual-reversed.pptx 的唯一一页，仅依据图形说明箭头的起点和终点，并注明页码；不要按名称或文字排列猜测，不要联网。",
+    "workflow": "document.read",
+    "allow_partial": true,
+    "contains": [
+      [
+        "DELTA"
+      ],
+      [
+        "GAMMA"
+      ],
+      [
+        "1"
+      ]
+    ],
+    "review_requirements": [
+      "Actual dispatched page 1 image supports DELTA to GAMMA; do not reuse first fixture direction."
+    ]
+  },
+  {
+    "id": "crawler_section_order",
+    "request": "总结 crawler.docx 的学习路线，保留最后的自我检查七项与 CloakBrowser 的限制；给出原标题和段落定位，明确这份最终清单所属标题，以及位于附录前还是后。不要联网。",
+    "workflow": "document.read",
+    "contains": [
+      [
+        "快速复习与仓库阅读路线"
+      ],
+      [
+        "641"
+      ],
+      [
+        "附录"
+      ],
+      [
+        "之后",
+        "后"
+      ],
+      [
+        "许可"
+      ],
+      [
+        "先实现哪一层",
+        "开始写代码"
+      ]
+    ],
+    "review_requirements": [
+      "Final checklist p641 belongs to p580 and follows appendices, including appendix C p630.",
+      "Retain all seven items p642-p648 and actual CloakBrowser restrictions in sections 17-20; mentioning that restrictions should be learned is insufficient."
+    ]
+  }
+]

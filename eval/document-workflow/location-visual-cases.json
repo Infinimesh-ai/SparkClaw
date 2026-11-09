@@ -1,0 +1,76 @@
+[
+  {
+    "id": "chapter_order_summary",
+    "request": "总结 chapter-order.docx 全文，区分两处同名的“最后的自我检查”，完整保留最后一处清单和 Orbit 的限制。给出原标题与段落定位，说明最后清单在附录之前还是之后，是否属于第21节。不要联网。",
+    "workflow": "document.read",
+    "contains": [
+      [
+        "授权"
+      ],
+      [
+        "证据"
+      ],
+      [
+        "采集"
+      ],
+      [
+        "Orbit"
+      ],
+      [
+        "之后",
+        "后"
+      ]
+    ],
+    "review_requirements": [
+      "Distinguish native headings p3 and p11 and parents p1 and p9.",
+      "Final checklist follows appendices p5/p7, outside numbered section 21.",
+      "Preserve all three final items and actual Orbit isolation/no-production restriction."
+    ]
+  },
+  {
+    "id": "visual_arrow",
+    "request": "只根据 visual-relations.pptx 第1页的图形，说明流程箭头由哪个节点指向哪个节点，区分装饰矩形和流程关系，注明页码。无法读取图形时明确说明，不要用文字排列顺序猜测，不要联网。",
+    "workflow": "document.read",
+    "allow_partial": true,
+    "contains": [
+      [
+        "BETA"
+      ],
+      [
+        "ALPHA"
+      ],
+      [
+        "1"
+      ]
+    ],
+    "review_requirements": [
+      "Actual dispatched PNG for page 1 supports BETA to ALPHA, contrary to text order.",
+      "Decorative grouped rectangle must not be described as a flow edge."
+    ]
+  },
+  {
+    "id": "visual_chart",
+    "request": "读取 visual-relations.pptx 第2页图片里的柱状图，列出 KAPPA 和 LAMBDA 的准确数值、单位并计算差值，只引用第2页。无法读取时明确说明，不要联网。",
+    "workflow": "document.read",
+    "allow_partial": true,
+    "contains": [
+      [
+        "37"
+      ],
+      [
+        "82"
+      ],
+      [
+        "45"
+      ]
+    ],
+    "not_contains": [
+      "999",
+      "111"
+    ],
+    "review_requirements": [
+      "Actual dispatched page 2 image has KAPPA 37 and LAMBDA 82 units/hour; difference 45.",
+      "Do not use neighboring page values 999/111 or certify native object parsing."
+    ]
+  }
+]

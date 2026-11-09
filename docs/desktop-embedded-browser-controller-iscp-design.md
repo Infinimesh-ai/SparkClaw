@@ -1201,3 +1201,31 @@ inventory. Owned test Gateways are stopped, temporary native/AppArmor resources 
 and the original GNOME session remains locked. Check shared-disk reserve and production health
 immediately on ENOSPC; retain at least 4 GiB before extracting further candidates. TEST1,
 10 MiB/capacity/expiry, remaining fault/native/offline/WAN gates and P3/D2 cutover stay open.
+
+The unchanged `c6948132` installed Mac and private work2 Linux packages now pass two more
+result-state scenarios: full cache (7 checks per platform) and expired result (6). Explicit
+synthetic occupancy fills the real 20 MiB cache without changing its limits. The approved fill
+is refused before native dispatch and before a local journal row exists; its Gateway action
+fence is `failed`, while the enclosing execution remains conservatively `unknown`. Release and
+unrelated ISCP reads still work. After the original 60-second wall-clock expiry, expired buffers
+are zeroed and a newly submitted, separately approved task completes with exactly one fill.
+The original task is never replayed.
+
+For result expiry, the real approved fill completes and its journal is durable before only the
+cache clock is advanced by 60,001 ms. The clock is immediately restored. Encrypted chunk reads
+return unavailable, the workflow becomes unknown, and both durable write records stay completed.
+After the original command slot's real wall-clock TTL also expires, a local duplicate-command
+probe still returns completed/result-unavailable without redispatch. That last probe is not an
+additional encrypted-wire request. Independent readers verify both platforms' retained Gateway
+and desktop files after the applications stop, including the capacity refusal's absent local row.
+
+Separate synthetic UDS replies exercise the actual installed Electron/ASAR parser: 10,485,760
+bytes of UTF-8 JSON are accepted; one extra streamed byte is rejected without truncated success,
+and a later health request works. This does not claim a 10 MiB browser/MCP result or transfer over
+ISCP; MCP's 8 MiB inner budget is unchanged. Two new source regressions cover this boundary and
+fixed-expiry cache accounting. Desktop now passes 666 tests with one skip. Product binaries and
+the original UI are unchanged; scoped receipts and fixture hashes are added to the same candidate
+index. Owned Gateways are stopped and temporary native/AppArmor resources are cleared. The new
+work2 audit verifies post-recovery stability and original configuration/mounts, explicitly retaining
+the earlier PostgreSQL start/network changes and failed preservation audit. Free disk space is
+8,281,169,920 bytes. TEST1, remaining fault/native/offline/WAN evidence and P3/D2 cutover remain open.

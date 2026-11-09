@@ -7,13 +7,15 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { installResultFaults, verifyCacheRecovery, verifyExpiredWriteReplay } from "./client-controller-result-faults.mjs";
+import { probePackagedResponseBoundary } from "./client-controller-response-boundaries.mjs";
 
 const directory = process.env.SPARKCLAW_CONTROLLER_ISCP_LAB;
 const executablePath = process.env.SPARKCLAW_CONTROLLER_CANDIDATE;
 const mode = process.env.SPARKCLAW_CONTROLLER_CHUNK_MODE;
 assert.ok(path.isAbsolute(directory || "") && path.basename(directory).startsWith("sx-controller-iscp-"));
 assert.ok(path.isAbsolute(executablePath || "") && !executablePath.startsWith("/Applications/"));
-assert.ok(["out_of_order", "lost_final", "wrong_offset", "bad_hash"].includes(mode));
+assert.ok(["out_of_order", "lost_final", "wrong_offset", "bad_hash", "cache_full", "expired_result"].includes(mode));
 const resources = path.resolve(path.dirname(executablePath), process.platform === "darwin" ? "../Resources" : "resources");
 const { _electron } = await import(pathToFileURL(path.join(resources, "browser-controller/node_modules/playwright-core/index.mjs")));
 const output = path.join(directory, `evidence/controller-chunks-${mode}-${Date.now()}.json`);
@@ -64,6 +66,7 @@ try {
       return request.call(this, action, body, options);
     };
     const original = BrowserControllerForwarder.prototype.handleReverse;
+    globalThis.__chunkRawDispatch = original;
     BrowserControllerForwarder.prototype.handleReverse = async function(request, authority) {
       const reply = await original.call(this, request, authority);
       const row = { operation: request.operation, inner_operation: request.body?.operation, command_id: request.body?.command_id,
@@ -85,6 +88,10 @@ try {
         trace.fill.first_chunk_at ||= new Date().toISOString();
         const { offset, length } = request.body;
         Object.assign(row, { offset, length, returned_offset: reply.body?.offset, wire_bytes: wireBytes(reply) });
+        if (mode === "expired_result") {
+          assert.equal(reply.status, 404); assert.equal(reply.error_code, "not_found");
+          trace.events.push(row); return reply;
+        }
         assert.equal(reply.status, 200);
         const final = offset + length === trace.fill.descriptor.total_bytes;
         if (final) {
@@ -123,6 +130,8 @@ try {
       return new Response('<!doctype html><meta charset="utf-8"><title>Packaged chunk fixture</title><h1>Chunk result qualification</h1><label>Display name<input aria-label="Display name"></label><p id="draft">Empty draft</p><script>window.fixtureInputs=0;document.querySelector("input").addEventListener("input",e=>{window.fixtureInputs++;document.querySelector("#draft").textContent=e.target.value;document.title="Packaged chunk fixture "+"A".repeat(70000)+"<>&".repeat(3000)})</script>', { headers: { "content-type": "text/html" } });
     });
   }, mode);
+  if (mode === "cache_full") evidence.packaged_UDS_boundary = await probePackagedResponseBoundary(application);
+  await installResultFaults(application, mode);
   const title = `Packaged chunks ${mode} ${Date.now()}`;
   const conversation = await window.evaluate(title => window.sparkclawClientStore.create(title), title);
   await window.evaluate(id => window.sparkclawDesktop.selectConversation(id), conversation.id);
@@ -147,7 +156,9 @@ try {
   evidence.terminal_task = state.tasks.find(row => row.request_id === task.request_id);
   evidence.assistant_messages = state.messages.filter(row => row.role === "assistant").map(row => row.content);
   evidence.trace = await application.evaluate(() => globalThis.__chunkQualification);
-  assert.equal(approvals, 1); assert.equal(evidence.trace.fill_calls, 1);
+  assert.equal(approvals, 1);
+  if (mode === "cache_full") await verifyCacheRecovery({ application, window, evidence, until, conversation });
+  assert.equal(evidence.trace.fill_calls, 1);
   assert.ok(evidence.trace.fill); assert.equal(evidence.trace.fill.journal_before_chunk, "completed");
   assert.equal(evidence.trace.http_attempts, 0);
   const pages = await application.evaluate(async ({ webContents }) => Promise.all(webContents.getAllWebContents()
@@ -157,11 +168,13 @@ try {
   assert.ok(pages.some(page => page.dom.value === "Alice" && page.dom.inputs === 1 && page.sandbox && !page.debugger));
   assert.deepEqual((await window.evaluate(() => window.sparkclawDesktop.state())).browser_host.unknown_writes.sort(byCommand), evidence.unknown_before.sort(byCommand));
   const fillChunks = evidence.trace.events.filter(row => row.operation.endsWith(".chunk") && row.command_id === evidence.trace.fill.command_id);
-  if (mode === "out_of_order") {
-    assert.ok(fillChunks.length >= 3 && fillChunks[0].offset > 0 && fillChunks.some(row => row.offset === 0));
-    assert.equal(evidence.terminal_task.status, "delivered");
-    assert.ok(!evidence.assistant_messages.some(message => /workflow (?:stopped|is blocked)/iu.test(message)));
-    evidence.checks.out_of_order_large_fill_result_completes_workflow = true;
+  if (["out_of_order", "cache_full"].includes(mode)) {
+    if (mode === "out_of_order") {
+      assert.ok(fillChunks.length >= 3 && fillChunks[0].offset > 0 && fillChunks.some(row => row.offset === 0));
+      assert.equal(evidence.terminal_task.status, "delivered");
+      assert.ok(!evidence.assistant_messages.some(message => /workflow (?:stopped|is blocked)/iu.test(message)));
+      evidence.checks.out_of_order_large_fill_result_completes_workflow = true;
+    }
   } else {
     assert.ok(evidence.trace.fault);
     // A failed approved workflow intentionally becomes a durable unknown task;
@@ -179,7 +192,8 @@ try {
     evidence.checks.failed_result_stops_workflow_without_repeating_completed_write = true;
   }
   assert.equal(evidence.trace.probes.same_command_reuses_descriptor_and_changed_digest_is_fenced, true);
-  if (mode !== "wrong_offset") assert.equal(evidence.trace.probes.final_chunk_is_repeatable_and_foreign_scope_or_range_is_denied, true);
+  if (mode === "expired_result") await verifyExpiredWriteReplay({ application, evidence, until });
+  if (!["wrong_offset", "expired_result"].includes(mode)) assert.equal(evidence.trace.probes.final_chunk_is_repeatable_and_foreign_scope_or_range_is_denied, true);
   assert.equal(await window.evaluate(() => fetch(window.sparkclawDesktop.gatewayBase + "/api/owner").then(response => response.status)), 200);
   evidence.checks.approved_mutation_runs_once_and_completed_journal_precedes_chunk_reads = true;
   evidence.checks.original_fences_and_retained_sandboxed_view_survive = true;

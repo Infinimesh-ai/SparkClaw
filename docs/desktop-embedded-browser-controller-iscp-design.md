@@ -764,7 +764,8 @@ the corrected legacy path. Median decoded request/response totals before adjustm
 and bytes are retained; these local handler timings exclude encrypted framing and Gateway
 round-trip time. Ten samples make the reported nearest-rank p95 the observed maximum, not a
 production tail estimate. TEST1/WAN timing, chunk throughput and the full operation matrix
-remain open. Existing `9c7905aa` packages predate this source adjustment and need a refresh.
+remain open. Archived `9c7905aa` packages predate this source adjustment; refreshed evidence
+follows below.
 
 Three additional tasks delay the fixture's visible draft update by 250 ms after input. All
 pass, and the post-write snapshot starts only after the updated text has exceeded the unchanged
@@ -777,3 +778,21 @@ the other task's unchanged 10-second acquire budget to expire; seven groups veri
 entry/late dispatch and success only for a separately submitted task. Post-fill main SIGKILL
 and same-profile recovery pass again, preserving unknown fences without replay and removing
 owned processes/files (one 92 ms cleanup observation).
+
+Both candidates are now refreshed from `4615ad82` with the same verified 207-file Controller
+manifest (18,737,017 bytes). Mac passes nine packaged renderer/activation/Relay groups and
+parent-exit cleanup; a separate copy from the verified DMG in user Applications then passes
+seven same-profile restart groups. That installed copy also passes six real-provider groups
+against the existing independently enrolled work2 lab via SSH loopback forwards. Linux x64
+passes eight real-provider AppImage groups, parent-exit cleanup, then eight same-profile
+offline deb-payload groups in the isolated network namespace. The restricted bundled-Node
+API probes pass again on both platforms. The Mac full offline GUI limitation and private-prefix
+deb installation scope remain unchanged; neither result closes the entire A11 row.
+
+The previous four artifacts remain archived with their original hashes. New artifact hashes,
+private evidence paths and open gates are indexed together. Both work2 candidate Gateways are
+stopped when idle, the original real-provider configuration is restored, temporary AppArmor
+rules/private display/keyring/bridges are gone and the SSH forwards are closed. The three
+production container/configuration/mount/network/start baselines still match; GNOME remains
+locked. TEST1 public Relay/authentication, the remaining matrix, WAN/chunk timing, native
+Mac recovery/Dock visual inspection and paired rollback/P3-gated deletion remain open.

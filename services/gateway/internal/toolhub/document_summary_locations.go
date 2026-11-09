@@ -10,6 +10,14 @@ import (
 // a long outline. Relations refer only to native siblings and include at most
 // eight neighbors on each side. They are navigation facts, not body coverage.
 func selectedSourceLocationRelations(index *docindex.Index, ids []string) []string {
+	return sourceLocationRelations(index, ids, false)
+}
+
+// rootAware is the model-view contract: the document root is not a heading.
+// Its locator is the first source block, which can equal the first heading's
+// block, so naming it as a parent heading makes "top level" and "under the
+// first heading" indistinguishable.
+func sourceLocationRelations(index *docindex.Index, ids []string, rootAware bool) []string {
 	wanted := map[string]bool{}
 	for _, id := range ids {
 		wanted[id] = true
@@ -19,8 +27,14 @@ func selectedSourceLocationRelations(index *docindex.Index, ids []string) []stri
 		if index.Structure.SchemaVersion >= 2 && !node.IsContainer() {
 			continue
 		}
-		if node.Title != "" {
+		if node.Title != "" && !(rootAware && node.Kind == "document") {
 			locations[node.ID] = fmt.Sprintf("%q (%s)", node.Title, node.Locator.Block)
+		}
+	}
+	roots := map[string]bool{}
+	for _, node := range index.Nodes {
+		if node.Kind == "document" {
+			roots[node.ID] = true
 		}
 	}
 	facts := []string{}
@@ -34,6 +48,8 @@ func selectedSourceLocationRelations(index *docindex.Index, ids []string) []stri
 		subject := locations[node.ID]
 		if parent := locations[node.ParentID]; parent != "" {
 			facts = append(facts, subject+" belongs to parent heading "+parent+".")
+		} else if rootAware && roots[node.ParentID] {
+			facts = append(facts, subject+" is a top-level heading; it belongs to no parent heading.")
 		}
 		before, after := []string{}, []string{}
 		for i, sibling := range index.Nodes {
@@ -62,8 +78,15 @@ func selectedSourceLocationRelations(index *docindex.Index, ids []string) []stri
 // This map is copied from native structure, never from model prose or summary
 // unit ordinals. Duplicate titles remain distinct through their native blocks.
 func summarySourceLocations(index *docindex.Index, unit *docindex.SummaryUnit) []map[string]any {
+	return sourceLocations(index, unit, false)
+}
+
+func sourceLocations(index *docindex.Index, unit *docindex.SummaryUnit, rootAware bool) []map[string]any {
 	byID := map[string]string{}
 	for _, node := range index.Nodes {
+		if rootAware && node.Kind == "document" {
+			continue
+		}
 		byID[node.ID] = node.Locator.Block
 	}
 	start, end := 0, len(index.Nodes)
@@ -95,6 +118,9 @@ func summarySourceLocations(index *docindex.Index, unit *docindex.SummaryUnit) [
 			continue
 		}
 		location := map[string]any{"title": node.Title, "block": node.Locator.Block, "parent_block": byID[node.ParentID], "page": node.Locator.Page}
+		if rootAware && byID[node.ParentID] == "" {
+			location["top_level"] = true
+		}
 		if node.IsContainer() {
 			location["node_id"] = node.ID
 			location["structure_source"] = node.StructureSource

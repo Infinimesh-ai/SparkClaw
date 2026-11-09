@@ -332,3 +332,84 @@ selection, validation and compatibility helpers remain separate files/functions.
 This checkout has no `test-files/` directory, so owner-copy checks were not run.
 No new real-model evaluation was performed; no model-selection improvement is
 claimed. This is local source work, without push, installation or deployment.
+
+## 13. Revision 10: Model View And One Size Measure
+
+The revision 9 evaluation (2026-11-09) found that model prompts carried the
+program's records. A whole-source read of a 649-paragraph DOCX sent complete
+node JSON to the final model: 169,100 prompt tokens, of which source text was
+about 7–8% of the characters. IDs, dependency ID lists, parent IDs, offsets,
+availability, provenance and duplicated table values made up the rest. The
+outline estimated the same source as about 21,000 tokens from text bytes alone,
+so navigation and delivery used different measures.
+
+Revision 10 separates the two roles:
+
+- **Program records stay complete.** Tool outputs, persisted facts, cursors,
+  coverage and execution evidence keep node IDs, hashes, offsets and
+  availability. Nothing that records what was read is removed.
+- **Models read a model view** (`document.ModelView`, `document_model_view_v1`).
+  Native headings are `#` lines with their locator; every other node is one
+  `[native locator] text` line in source order. Dependencies appear once, marked
+  `(context)` when they are not selected content. A continued node is marked
+  `partial text bytes a-b`. Unsupported or unavailable nodes state their status
+  and reason. Typed values keep only facts that change meaning (formula, cached
+  result and recalculation state, hidden rows/columns, merged-from cells); parser
+  bookkeeping and copies of visible text are dropped.
+- The view is used by the final answer evidence, the bounded task-selection
+  batches (aliases remain `n1`, `n2`; the runtime maps them back to nodes) and
+  summary contract 5 section inputs. Source locations keep `block`,
+  `parent_block`, range, page and title; node IDs, ordinals and structure
+  provenance are omitted. Slide visual observations omit source/PDF/PNG hashes
+  and model call IDs, which remain in the tool output.
+- The outline stays a navigation surface. With runtime-bound `model_view`, its
+  content is an indented text tree. Node IDs remain because they are the handles
+  for `node_id` and `node_ids`; parent IDs, ordinals and zero counters stay in the
+  structured output.
+
+One size measure: each outline container reports `read_tokens`, computed from
+the model-view bytes of its canonical leaves (`Index.ModelViewBytes`, cached with
+the immutable navigation maps) divided by 3 bytes per token. The structure
+tree, its stats and its generation are unchanged, so revision 9 cursors and
+outputs stay valid. A deterministic test checks that the whole-document
+estimate equals the bytes of a delivered whole-source read, and that a
+subtree estimate plus its ancestor heading context equals that subtree's read.
+
+The first revision 10 run exposed a source-location ambiguity that the JSON
+view had also carried. The document root is not a heading, but its locator is
+the first source block, so top-level headings reported
+`parent_block=document.p[1]` — the same block as a first heading such as
+“Section 21”. One answer concluded that a later checklist belonged to that
+section. Under `model_view`, location maps omit the root as a parent and mark
+`parent_block=none(top-level heading)`, and relations state that a top-level
+heading belongs to no parent heading. Calls without `model_view` keep the
+previous map and relations.
+
+Compatibility: revision 9 is frozen as a legacy profile and still binds summary
+contract 4 and the JSON outline; revisions 4–8 are unchanged. Revision 10 binds
+contract 5 (cache key `document_section_summary_v5`). Final-answer budgets,
+truncation markers and task-selection triggers keep their meaning; they are
+measured on the delivered view. The final-answer byte budget still assumes 3
+bytes per token, which is conservative for the text view.
+
+Validation on 2026-11-09 (local source, not committed):
+
+- New deterministic tests cover the model view (heading depth, deduplicated
+  context, partial fragments, gaps, typed values, table merges), the
+  estimate-equals-delivery invariant, revision 10 final evidence and task
+  selection without node IDs, frozen revision 9 projections and bindings,
+  contract 5 parts (context once, typed atomicity, lossless text split), the
+  outline model view and the top-level location contract.
+- macOS: `document`, `docindex`, `toolhub`, `agent`, `capability`, `config`
+  passed; `go build ./...` and `go vet ./internal/...` passed. The full macOS run
+  passed 79 packages and retained the known `cmd/sparkclaw`, `browserhost` and
+  `gateway` host/temporary-path failures, which also fail at the unmodified
+  commit. Linux full qualification was not rerun.
+- Real model, the same 20 read requests as the revision 9 evaluation, one
+  attempt each: total prompt tokens fell from 1,078,690 to 491,432; the largest
+  final call (whole-source summary of the 649-paragraph DOCX) fell from 169,100
+  to 27,098 tokens; total elapsed time fell from 655 s to 510 s. Coarse checks
+  passed 20/20 and source review accepted 18/20 (revision 9: 16/20). One
+  compound request still under-read the explanatory section and made an
+  unsupported absence claim; one summary still repeats runtime extraction
+  limitations. These are single attempts and not an accuracy estimate.

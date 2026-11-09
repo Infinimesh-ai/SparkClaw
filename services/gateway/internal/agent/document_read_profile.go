@@ -20,7 +20,7 @@ const (
 type documentReadProfile struct{}
 
 func (documentReadProfile) ID() app.WorkflowID           { return app.WorkflowDocumentRead }
-func (documentReadProfile) Revision() int                { return 9 }
+func (documentReadProfile) Revision() int                { return 10 }
 func (documentReadProfile) Capability() app.CapabilityID { return app.CapabilityDocumentRead }
 func (documentReadProfile) RoutingSemantics() workflowRoutingSemantics {
 	return documentReadRoutingSemantics()
@@ -106,6 +106,9 @@ func (documentReadProfile) StageContext(state *app.WorkflowState) workflowStageC
 	}
 	if state != nil && state.Plan.ProfileRevision >= 9 {
 		stage.Reason += "\nRevision 9 structure discovery is a source-bound tree. The initial outline shows the entire top-level extent; use document.outline with an exact node_id to expand a container before selecting content. depth limits breadth-first expansion; omit it for automatic budgeted depth. To continue a partial leaf list, expand that SAME node_id again; runtime supplies its cursor. Expanding another node starts that container's discovery. Physical groups are navigation windows, not inferred chapters. Leads and leaf previews are explicitly previews, never acquired evidence or coverage. Select section/group/sheet/slide container IDs for full subtree reads. Expansion and search do not freeze task_mode or a content selector. Runtime structure_budget records omitted leads, trimmed previews and grouped levels; a bounded outline is not proof of task sufficiency."
+	}
+	if documentUsesModelView(state) {
+		stage.Reason += "\nRevision 10: outline lines show read_tokens, the approximate size of a full read of that subtree as it will be delivered to you (# heading lines and [native locator] source text lines). Use it, not leaf counts or byte counts, to judge whether a whole-source read is short. Runtime records node IDs, hashes, offsets and coverage; read evidence contains only source text, native locators, typed values and explicit gaps."
 	}
 	if state != nil {
 		facts := map[string]string{}

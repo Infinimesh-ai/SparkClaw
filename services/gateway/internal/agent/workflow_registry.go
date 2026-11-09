@@ -258,6 +258,7 @@ func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 		legacyWorkflowProfile{workflowProfile: documentReadProfile{}, revision: 6},
 		legacyWorkflowProfile{workflowProfile: documentReadProfile{}, revision: 7},
 		legacyWorkflowProfile{workflowProfile: documentReadProfile{}, revision: 8},
+		legacyWorkflowProfile{workflowProfile: documentReadProfile{}, revision: 9},
 		documentReadProfile{},
 		legacyWorkflowProfile{workflowProfile: documentEditProfile{}, revision: 6},
 		documentEditProfile{},

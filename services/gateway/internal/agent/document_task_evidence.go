@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelcapacity"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 )
@@ -79,7 +80,11 @@ func (r Runtime) selectDocumentTaskEvidence(ctx context.Context, run app.AgentRu
 	}
 	// Bound work before making a model call; don't spend half a task's budget
 	// and then silently sample the rest of the source.
-	batches, err := documentTaskBatches(candidates, lookup, min(budget, r.tools.Config().StageEvidenceBytes(r.tools.Config().Model.Fast)))
+	render := documentTaskBatchPayload
+	if documentUsesModelView(run.Workflow) {
+		render = documentTaskBatchViewPayload
+	}
+	batches, err := documentTaskBatchesWith(candidates, lookup, min(budget, r.tools.Config().StageEvidenceBytes(r.tools.Config().Model.Fast)), render)
 	if err != nil || len(batches) > documentTaskEvidenceMaxBatches {
 		return inputs, nil, nil
 	}
@@ -89,7 +94,7 @@ func (r Runtime) selectDocumentTaskEvidence(ctx context.Context, run app.AgentRu
 		if err := ctx.Err(); err != nil {
 			return inputs, nil, err
 		}
-		payload, err := documentTaskBatchPayload(batch, lookup)
+		payload, err := render(batch, lookup)
 		if err != nil {
 			return inputs, nil, err
 		}
@@ -197,12 +202,59 @@ func documentTaskBatchPayload(batch []documentTaskCandidate, lookup map[string]m
 	return string(raw), err
 }
 
+type documentTaskPayloadRenderer func([]documentTaskCandidate, map[string]map[string]any) (string, error)
+
 func documentTaskBatches(candidates []documentTaskCandidate, lookup map[string]map[string]any, budget int) ([][]documentTaskCandidate, error) {
+	return documentTaskBatchesWith(candidates, lookup, budget, documentTaskBatchPayload)
+}
+
+// documentTaskBatchViewPayload gives the selection model the source it must
+// classify: required headings/context once, then one aliased line per
+// candidate. Node IDs and dependency lists stay with the runtime lookup.
+func documentTaskBatchViewPayload(batch []documentTaskCandidate, lookup map[string]map[string]any) (string, error) {
+	nodes := []map[string]any{}
+	for _, candidate := range batch {
+		nodes = append(nodes, candidate.Node)
+	}
+	dependencies, err := documentTaskDependencies(nodes, lookup)
+	if err != nil {
+		return "", err
+	}
+	var out strings.Builder
+	context := document.NewModelView()
+	for _, raw := range dependencies {
+		if fragment, ok := documentModelViewFragment(raw, true); ok {
+			context.Add(fragment)
+		}
+	}
+	if !context.Empty() {
+		out.WriteString("Required context (headings and dependencies of these fragments; not candidates):\n")
+		out.WriteString(context.String())
+		out.WriteString("\n\n")
+	}
+	out.WriteString("Candidate fragments (classify every alias):\n")
+	for i, candidate := range batch {
+		fragment, ok := documentModelViewFragment(candidate.Node, false)
+		if !ok {
+			return "", fmt.Errorf("source fragment cannot be rendered")
+		}
+		view := document.NewModelView()
+		view.Add(fragment)
+		line := view.String()
+		if line == "" {
+			line = "[" + document.ModelViewLocator(fragment.Node.Locator) + "] (no text)"
+		}
+		fmt.Fprintf(&out, "n%d: %s\n", i+1, line)
+	}
+	return out.String(), nil
+}
+
+func documentTaskBatchesWith(candidates []documentTaskCandidate, lookup map[string]map[string]any, budget int, render documentTaskPayloadRenderer) ([][]documentTaskCandidate, error) {
 	result := [][]documentTaskCandidate{}
 	batch := []documentTaskCandidate{}
 	for _, candidate := range candidates {
 		trial := append(append([]documentTaskCandidate(nil), batch...), candidate)
-		payload, err := documentTaskBatchPayload(trial, lookup)
+		payload, err := render(trial, lookup)
 		if err != nil {
 			return nil, err
 		}
@@ -212,7 +264,7 @@ func documentTaskBatches(candidates []documentTaskCandidate, lookup map[string]m
 			}
 			result = append(result, batch)
 			batch = nil
-			payload, err = documentTaskBatchPayload([]documentTaskCandidate{candidate}, lookup)
+			payload, err = render([]documentTaskCandidate{candidate}, lookup)
 			if err != nil || len(payload) > budget {
 				return nil, fmt.Errorf("source fragment and dependencies exceed task selection budget")
 			}

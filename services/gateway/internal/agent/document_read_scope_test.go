@@ -35,7 +35,7 @@ func TestScopedDocumentReadStartsWithStructureForShortSource(t *testing.T) {
 		t.Fatalf("short document bypassed structure: %v", names)
 	}
 	facts := result.Run.Workflow.Route.Facts
-	if result.Run.Workflow.Plan.ProfileRevision != 9 || result.Run.Workflow.Status != app.WorkflowStatusSucceeded || facts[documentReadFactPrefix+"scope_status"] != "complete" || facts[documentReadFactPrefix+"source_sha256"] == "" || facts[documentReadFactPrefix+"scope_selector"] != `{"all":true}` {
+	if result.Run.Workflow.Plan.ProfileRevision != 10 || result.Run.Workflow.Status != app.WorkflowStatusSucceeded || facts[documentReadFactPrefix+"scope_status"] != "complete" || facts[documentReadFactPrefix+"source_sha256"] == "" || facts[documentReadFactPrefix+"scope_selector"] != `{"all":true}` {
 		t.Fatalf("declared source scope missing: %#v", result.Run.Workflow)
 	}
 }
@@ -243,7 +243,7 @@ func TestScopedDocumentReadKeepsImageFormatOnVisualAdapter(t *testing.T) {
 	profile := documentReadProfile{}
 	route := app.RouteDecision{Facts: map[string]string{"document_format": app.DocumentFormatImage}}
 	_, plan, err := profile.Resolve(route, "turn")
-	if err != nil || plan.ProfileRevision != 9 || plan.Nodes[1].InitialStage != documentReadStage || plan.Nodes[1].InitialScope.Requirements[0].Qualifiers[app.CapabilityQualifierFormat] != app.DocumentFormatImage {
+	if err != nil || plan.ProfileRevision != 10 || plan.Nodes[1].InitialStage != documentReadStage || plan.Nodes[1].InitialScope.Requirements[0].Qualifiers[app.CapabilityQualifierFormat] != app.DocumentFormatImage {
 		t.Fatalf("image format lost its visual capability: %#v %v", plan, err)
 	}
 }

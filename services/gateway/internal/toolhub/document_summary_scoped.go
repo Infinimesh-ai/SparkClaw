@@ -60,7 +60,7 @@ func (h *ToolHub) documentSummarizeScoped(ctx context.Context, args map[string]a
 	result := scopedSummaryResult(metadata, index, previousGeneration, sections, required, covered, missing)
 	result.Output.(map[string]any)["contract_version"] = version
 	if version >= 4 {
-		result.Output.(map[string]any)["source_locations"] = summarySourceLocations(index, nil)
+		result.Output.(map[string]any)["source_locations"] = sourceLocations(index, nil, version >= 5)
 		if err := h.addDocumentSlideVisuals(ctx, args, metadata, index, docindex.RangeRequest{All: true}, result.Output.(map[string]any), sessionID, runID); err != nil {
 			return Result{}, err
 		}
@@ -72,7 +72,15 @@ func (h *ToolHub) summarizeScopedUnit(ctx context.Context, sessionID, runID stri
 	section := documentSummarizeSection{ID: unit.ID, Title: unit.Title, Page: unit.Page, PageEnd: unit.PageEnd, Unrecognized: index.UnindexedPagesInUnit(unit)}
 	budget := h.cfg.FinalEvidenceBytes(h.cfg.Model.Fast)
 	locationPrefix := ""
-	if version >= 4 {
+	if version >= 5 {
+		// Contract 5 delivers the model view: native locators and text only.
+		// Node IDs and ordinals stay in the index and tool output.
+		locationPrefix = "Authoritative source locations (source order, not chapter numbering):\n" + document.ModelViewSourceLocations(sourceLocations(index, &unit, true)) + "\n\n" + documentSummaryModelViewHeader + "\n"
+		if len(locationPrefix) >= budget {
+			section.Summary, section.Sampled = "[Source locations exceed this section's bounded context.]", true
+			return section, 1, []string{unit.ID + ":source_locations_exceed_budget"}, nil
+		}
+	} else if version >= 4 {
 		// Native headings bypass lossy part summaries and the merge model. The
 		// same source-bound map is also delivered directly to the finalizer.
 		locations, _ := json.Marshal(summarySourceLocations(index, &unit))
@@ -82,7 +90,12 @@ func (h *ToolHub) summarizeScopedUnit(ctx context.Context, sessionID, runID stri
 			return section, 1, []string{unit.ID + ":source_locations_exceed_budget"}, nil
 		}
 	}
-	parts, missing := scopedSummaryParts(index, unit, budget-len(locationPrefix))
+	var parts, missing []string
+	if version >= 5 {
+		parts, missing = scopedSummaryViewParts(index, unit, budget-len(locationPrefix))
+	} else {
+		parts, missing = scopedSummaryParts(index, unit, budget-len(locationPrefix))
+	}
 	for i := range parts {
 		parts[i] = locationPrefix + parts[i]
 	}
@@ -180,7 +193,7 @@ func (h *ToolHub) cachedScopedSectionSummary(ctx context.Context, sessionID, run
 // or qualification can never be reused as if it met this user's requirements.
 // Version 2 remains byte-for-byte compatible with persisted revision 6 plans.
 func (h *ToolHub) cachedTaskSectionSummary(ctx context.Context, sessionID, runID string, metadata document.Metadata, index *docindex.Index, title, text string, version int, taskGoal string) (string, error) {
-	if version != 3 && version != 4 {
+	if version < 3 || version > 5 {
 		return h.cachedScopedSectionSummary(ctx, sessionID, runID, metadata, index, title, text)
 	}
 	payload, err := json.Marshal(map[string]string{"task_goal": taskGoal, "section_source": text})
@@ -191,7 +204,13 @@ func (h *ToolHub) cachedTaskSectionSummary(ctx context.Context, sessionID, runID
 	cacheVersion := "document_section_summary_v3"
 	if version >= 4 {
 		cacheVersion = "document_section_summary_v4"
+		if version >= 5 {
+			cacheVersion = "document_section_summary_v5"
+		}
 		system += " You are summarizing ONLY this supplied section or part, not answering the whole-document task. The task_goal may mention content in OTHER sections. Do not declare that content absent, missing, contradictory or impossible merely because this part does not contain it; simply summarize the local source. Never use conventional document order or prior knowledge to override the source. Source locations are authoritative native headings and parent blocks, in source order. Copy exact original titles and paragraph blocks. Never convert a summary-unit number, part number, or source-order number into a chapter number. Do not infer before/after or parent membership from a grouped summary title. Omit a location claim if the source does not establish it."
+		if version >= 5 {
+			system += " In section_source, lines starting with # are native headings and every other line is [native locator] source text; cite those locators exactly."
+		}
 	}
 	return h.cachedSectionSummaryVersion(ctx, sessionID, runID, metadata, index, title, string(payload), cacheVersion, system, false)
 }

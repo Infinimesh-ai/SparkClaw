@@ -10,6 +10,7 @@ import (
 // Only values from persisted tool outcomes may select a version or resume a
 // range. Model-supplied replacements are discarded before ToolHub validation.
 func bindScopedDocumentReadArguments(state *app.WorkflowState, plan toolPlan, args map[string]any) (map[string]any, error) {
+	delete(args, "model_view")
 	if !isScopedDocumentRead(state) {
 		delete(args, "structure_version")
 		delete(args, "node_id")
@@ -20,6 +21,9 @@ func bindScopedDocumentReadArguments(state *app.WorkflowState, plan toolPlan, ar
 	delete(args, "structure_version")
 	if state.Plan.ProfileRevision >= 9 {
 		args["structure_version"] = 2
+	}
+	if documentUsesModelView(state) && (plan.Capability == app.ToolCapabilityDocumentOutline || plan.Capability == app.ToolCapabilityDocumentReadRange || plan.Capability == app.ToolCapabilityDocumentSummarize) {
+		args["model_view"] = true
 	}
 	delete(args, "include_visuals")
 	delete(args, "include_source_locations")
@@ -65,6 +69,9 @@ func bindScopedDocumentReadArguments(state *app.WorkflowState, plan toolPlan, ar
 		}
 		if state.Plan.ProfileRevision >= 8 {
 			args["contract_version"] = 4
+		}
+		if documentUsesModelView(state) {
+			args["contract_version"] = 5
 		}
 	}
 	if frozen := facts[documentReadFactPrefix+"task_mode"]; frozen != "" {
@@ -125,6 +132,7 @@ func scopedDocumentReadModelArguments(run app.AgentRun, definition app.ToolDefin
 	bound := map[string]bool{}
 	if run.Workflow != nil && run.Workflow.Plan.ProfileID == app.WorkflowDocumentRead {
 		bound["structure_version"] = true
+		bound["model_view"] = true
 		if run.Workflow.Plan.ProfileRevision < 9 {
 			bound["node_id"] = true
 			bound["depth"] = true

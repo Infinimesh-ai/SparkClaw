@@ -13,6 +13,9 @@ type treeNavigation struct {
 	byID     map[string]int
 	children map[string][]int
 	leaves   []int
+	// viewPrefix[i] is the model-view byte size of canonical leaves before
+	// ordinal i. Estimates use the same rendering that delivers content.
+	viewPrefix []int
 }
 
 // Built/loaded indexes are immutable and shared by readers. Compute navigation
@@ -37,7 +40,49 @@ func (index *Index) treeNavigation() *treeNavigation {
 			navigation.leaves = append(navigation.leaves, i)
 		}
 	}
+	navigation.viewPrefix = make([]int, len(navigation.leaves)+1)
+	depths := map[string]int{}
+	var headingDepth func(position int, seen map[int]bool) int
+	// Same rule as document.ModelView: one more than the deepest heading
+	// dependency. A full subtree read carries those headings as dependencies.
+	headingDepth = func(position int, seen map[int]bool) int {
+		node := index.Nodes[position]
+		if depth, ok := depths[node.ID]; ok {
+			return depth
+		}
+		if seen[position] {
+			return 1
+		}
+		seen[position] = true
+		depth := 1
+		for _, id := range node.Dependencies {
+			if dependency, ok := navigation.byID[id]; ok && index.Nodes[dependency].Kind == "heading_label" {
+				depth = max(depth, headingDepth(dependency, seen)+1)
+			}
+		}
+		depths[node.ID] = depth
+		return depth
+	}
+	for ordinal, position := range navigation.leaves {
+		node := index.Nodes[position]
+		navigation.viewPrefix[ordinal+1] = navigation.viewPrefix[ordinal] + document.ModelViewNodeBytes(node, headingDepth(position, map[int]bool{}))
+	}
 	return navigation
+}
+
+// ModelViewBytes is the size of a container's canonical leaves as rendered by
+// document.ModelView: what a full read of that subtree delivers to a model,
+// excluding ancestor headings carried as context.
+func (index *Index) ModelViewBytes(node document.StructureNode) (int, bool) {
+	if node.Span == nil {
+		return 0, false
+	}
+	navigation := index.treeNavigation()
+	start, end := node.Span.OrdinalStart, node.Span.OrdinalEnd
+	if start < 0 || end < start || end >= len(navigation.viewPrefix) {
+		return 0, false
+	}
+	return navigation.viewPrefix[end] - navigation.viewPrefix[start], true
 }
 
 // Reject malformed trees before publishing a generation. The preorder and

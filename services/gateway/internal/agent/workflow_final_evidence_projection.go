@@ -62,7 +62,7 @@ func buildWorkflowFinalEvidenceProjection(
 			if output, ok := anyMap(call.Result); ok && toolCallCompleted(call) && documentContentCapability(call.Capability) && firstNonEmptyString(output["content"], output["summary"], output["description"], output["text"]) != "" {
 				remainingDocumentCalls++
 				if run.Workflow.Plan.ProfileRevision >= 7 {
-					full, _ := scopedDocumentFinalEvidence(output, firstNonEmptyString(output["content"], output["summary"], output["description"], output["text"]), int(^uint(0)>>1))
+					full, _ := documentFinalEvidence(run.Workflow, output, firstNonEmptyString(output["content"], output["summary"], output["description"], output["text"]), int(^uint(0)>>1))
 					remainingDocumentBytes += len(full)
 				}
 			}
@@ -108,7 +108,7 @@ func buildWorkflowFinalEvidenceProjection(
 			remainingDocumentCalls--
 		}
 		if remainingDocumentBytes > 0 {
-			full, _ := scopedDocumentFinalEvidence(result, text, int(^uint(0)>>1))
+			full, _ := documentFinalEvidence(run.Workflow, result, text, int(^uint(0)>>1))
 			cost := len(full)
 			if remainingDocumentBytes <= remaining {
 				callBudget = cost
@@ -120,7 +120,7 @@ func buildWorkflowFinalEvidenceProjection(
 		projected := sampledDocumentEvidence(text, callBudget)
 		modelTruncated := projected != text
 		if isScopedDocumentRead(run.Workflow) {
-			projected, modelTruncated = scopedDocumentFinalEvidence(result, text, callBudget)
+			projected, modelTruncated = documentFinalEvidence(run.Workflow, result, text, callBudget)
 		}
 		remaining -= len([]byte(projected))
 		limitationRequired := !sourceComplete || modelTruncated

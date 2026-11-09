@@ -256,8 +256,9 @@ func (h *ToolHub) documentReadRange(ctx context.Context, args map[string]any, se
 		"missing_page_indexes": boundedDocumentPages(unrecognized), "untrusted": true,
 	}
 	if boolArg(args, "include_source_locations", false) && request.Cursor == "" {
-		output["source_locations"] = summarySourceLocations(index, nil)
-		output["source_location_relations"] = selectedSourceLocationRelations(index, request.NodeIDs)
+		rootAware := boolArg(args, "model_view", false)
+		output["source_locations"] = sourceLocations(index, nil, rootAware)
+		output["source_location_relations"] = sourceLocationRelations(index, request.NodeIDs, rootAware)
 	}
 	if err := h.addDocumentSlideVisuals(ctx, args, metadata, index, request, output, sessionID, runID); err != nil {
 		return Result{}, err

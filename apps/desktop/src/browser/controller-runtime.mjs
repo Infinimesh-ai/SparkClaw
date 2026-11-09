@@ -103,6 +103,7 @@ export class ClientControllerRuntime {
       // cleanup, so this must not recursively wait for stop().
       await this.#cleanup("start_failed");
       this.state = "unavailable";
+      if (!this.stopping) this.onStopped("start_failed");
       throw error;
     }
   }
@@ -123,7 +124,12 @@ export class ClientControllerRuntime {
       await this.#cleanup(reason);
       this.state = "stopped";
     })().catch(error => { this.state = "unavailable"; this.closed = true; throw error; })
-      .finally(() => { this.stopping = null; });
+      .finally(() => {
+        // Availability observers and queued acquisitions must see the settled
+        // state. Cleanup's transient "stopping" state is not a reusable runtime.
+        this.stopping = null;
+        this.onStopped(reason);
+      });
     return this.stopping;
   }
 
@@ -145,7 +151,6 @@ export class ClientControllerRuntime {
     this.directory = "";
     this.controllerGeneration = 0;
     this.incarnation = "";
-    this.onStopped(reason);
   }
 }
 

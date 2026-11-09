@@ -38,6 +38,21 @@ test("runtime directories reject shared permissions, symlinks and overlong Unix 
   await assert.rejects(createControllerDirectory(path.join(temporary, "x".repeat(75))), /too long/);
 });
 
+test("failed runtime cleanup notifies only after permanent unavailability is visible", async t => {
+  const root = await fs.mkdtemp(path.join(await fs.realpath("/tmp"), "sx-runtime-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await syntheticControllerBundle(root);
+  const observed = [];
+  const runtime = new ClientControllerRuntime({ bundleRoot: root, adapterFactory: () => assert.fail("cleanup started an adapter"),
+    onStopped: reason => observed.push({ reason, state: runtime.state, closed: runtime.closed,
+      stopping: runtime.stopping, available: runtime.snapshot().available }) });
+  await runtime.prepare();
+  runtime.adapter = { revokeControllerTasks() {}, async close() { throw Error("cleanup denied"); } };
+  await assert.rejects(runtime.stop("task_canceled"), /cleanup denied/);
+  assert.deepEqual(observed, [{ reason: "task_canceled", state: "unavailable", closed: true, stopping: null, available: false }]);
+  await assert.rejects(runtime.start(), /stopping/);
+});
+
 test("UDS client bounds total response time, bytes and request cancellation", async t => {
   const temporary = await fs.mkdtemp(path.join(await fs.realpath("/tmp"), "sx-runtime-"));
   const socketPath = path.join(temporary, "controller.sock");

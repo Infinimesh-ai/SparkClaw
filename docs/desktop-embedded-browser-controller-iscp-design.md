@@ -1475,3 +1475,20 @@ configuration, mounts, health and start times match the post-recovery baseline; 
 6,623,543,296 bytes. Prior PostgreSQL incident evidence remains retained. No product binary or UI
 changed in this checkpoint. TEST1 authentication, remaining native/fault/WAN and Mac offline
 evidence, paired cutover, P3 and D2 remain open.
+
+Further cancellation qualification on the same installed `98cb57a0` clients fails on both
+Mac and Linux: the original approval is retired and the cancellation marker persists, but a
+new task in the same conversation cannot open its page. A separate unchanged-Mac observer
+shows cleanup reporting `onStopped` while runtime state is still `stopping`; the projected
+browser capability becomes false. The subsequent release receives 503, leaving a Gateway
+unknown fence, while later status probes succeed and no new acquire reaches the desktop.
+Preserve all three failed native runs and their original task/fence identities.
+
+Runtime stop notification now follows cleanup, final state assignment and clearing the stop
+promise; startup-failure notification likewise follows the unavailable state. Queued work
+therefore observes a settled runtime, and failed cleanup remains permanently unavailable.
+The availability regression fails before repair; settled/expired-authority, cleanup failure,
+FIFO and cancellation checks pass (23 focused checks), and desktop tests pass 668 with one
+skip. Initial test-constructor/projection setup errors and an outdated transient-notification
+count are retained separately. Clean rebuilt artifacts and native cancellation verification
+are required before this repair is qualified; paired transition testing is deferred until then.

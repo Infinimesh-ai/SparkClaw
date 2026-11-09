@@ -114,6 +114,12 @@ func enrollNode(ctx context.Context, input io.Reader, output io.Writer, director
 	if result.InstallationID != installation {
 		return errors.New("issuer result differs from local installation")
 	}
+	// Enroll authenticated and durably retained this exact result. The issuer's
+	// clock may be slightly ahead of ours; wait within the original deadline
+	// before strict runtime validation instead of replacing the signed Grant.
+	if err = waitForEnrollmentActivation(ctx, result.Grant.NotBefore); err != nil {
+		return err
+	}
 	paths := map[string]any{"relay.enrollment.json": result.Enrollment, "grant.json": result.Grant, "peer.identity.json": result.ResponderIdentity, "issuer.identity.json": result.IssuerIdentity, "invitation.identity.json": result.InvitationSignerIdentity, "issuer.control.json": client.StoredConfig()}
 	for name, value := range paths {
 		raw, e := json.Marshal(value)
@@ -138,6 +144,9 @@ func enrollNode(ctx context.Context, input io.Reader, output io.Writer, director
 	if _, err = iscpworkbench.LoadConfig(helperPath); err != nil {
 		return errors.New("node-managed enrollment result failed private runtime validation")
 	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
 	descriptor := nodeConnectionDescriptor{4, "iscp", "node-managed", false, "https://iscp.invalid", result.Binding.DeploymentID, result.Binding.OwnerID, result.Binding.ClientID, result.Identity.DomainID, result.Identity.DeviceID, result.ResponderIdentity.DeviceID, result.ResponderIdentity.PublicKey.KID, result.Enrollment.RelayBaseURL, iscpbridge.ProfileProduction}
 	profilePath := filepath.Join(directory, "connection.profile.json")
 	raw, _ = json.Marshal(struct {
@@ -159,6 +168,26 @@ func enrollNode(ctx context.Context, input io.Reader, output io.Writer, director
 }
 
 var helperUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+func waitForEnrollmentActivation(ctx context.Context, notBefore time.Time) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		delay := time.Until(notBefore)
+		if delay <= 0 {
+			return nil
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+			// Recheck wall time in case the local clock moved while waiting.
+		}
+	}
+}
 
 func uuidPatternCLI(s string) bool { return helperUUIDPattern.MatchString(s) }
 func newHelperUUID() string {

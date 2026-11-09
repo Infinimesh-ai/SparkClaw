@@ -1378,3 +1378,25 @@ and database/history/profiles remain retained. Production configuration, mounts,
 runtime start times match the **post-recovery** baseline, with 7,867,572,224 bytes free; the
 earlier production PostgreSQL incident remains recorded. Installed Linux node-managed UI,
 TEST1, remaining fault/offline/WAN gates, paired cutover and D2 deletion remain open.
+
+
+A fresh installed-Mac diagnostic reproduces first enrollment failing private runtime validation.
+The unchanged helper writes its runtime configuration at 19:38:42.009 UTC, before the original
+signed Grant's NotBefore of 19:38:42.038371808 UTC; an immediate read-only check starts at
+19:38:42.042 and succeeds. This establishes the activation race for this new reproduction;
+it does not reconstruct the overwritten timestamps of the earlier attempt. The same signed
+result, native key and pending identity remain retained.
+
+The helper now waits for that already authenticated Grant's NotBefore within the original
+enrollment context, then performs the unchanged strict runtime checks. Cancellation/deadline
+publishes no new connection profile; retry reuses the original encrypted pending result,
+installation, device and Grant. There is no clock-skew allowance, re-registration, widened
+validity or UI change. Two regressions reproduce the failure before repair; the helper package,
+existing expiry recovery and focused race checks pass, as do node-client/workbench packages,
+full Go build and vet. Initial test-fixture permission/encrypted-storage assumptions remain
+recorded separately. Refreshed packaged/native verification is still pending.
+
+A separate unchanged Linux native-keyring attempt completes the helper enrollment and writes
+a valid connection profile, but fails subsequent desktop activation. Preserve its original
+invitation/device and failure evidence; this is a different boundary and is not qualified by
+the Mac activation repair. Linux node-managed native acceptance remains open.

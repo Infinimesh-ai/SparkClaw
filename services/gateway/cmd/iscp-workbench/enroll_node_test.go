@@ -18,6 +18,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
 	control "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpcontrol"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeclient"
 	n "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeissuer"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 	c "github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
@@ -58,6 +59,7 @@ type helperRegistration struct {
 	receipts   map[string]n.RegistrationReceipt
 	commits    int
 	recoveries int
+	ttl        time.Duration
 }
 
 func (r *helperRegistration) Prepare(_ context.Context, p n.RegistrationPreparation) error {
@@ -74,7 +76,7 @@ func (r *helperRegistration) Commit(_ context.Context, p n.RegistrationCommit) (
 	}
 	prep := r.prepared[p.OperationID]
 	r.commits++
-	receipt, e := helperReceipt(prep.OperationID, prep.BindingDigest, prep.ReceiptWrapPublicKey, prep.Identity, time.Second)
+	receipt, e := helperReceipt(prep.OperationID, prep.BindingDigest, prep.ReceiptWrapPublicKey, prep.Identity, r.ttl)
 	r.receipts[p.OperationID] = receipt
 	return receipt, e
 }
@@ -99,7 +101,8 @@ func helperReceipt(op, digest, wrap string, id identity.DeviceIdentity, ttl time
 	return n.SealRegistrationReceipt(n.RegistrationReceipt{OperationID: op, BindingDigest: digest, IssuedAt: now}, wrap, id, n.RelayCredentials{Access: iscpbridge.RelayCredential{DomainID: id.DomainID, DeviceID: id.DeviceID, Token: "synthetic-access-private", ExpiresAt: now.Add(ttl)}, Refresh: iscpbridge.RelayCredential{DomainID: id.DomainID, DeviceID: id.DeviceID, Token: "synthetic-refresh-private", ExpiresAt: now.Add(ttl)}})
 }
 
-func TestHelperNodeEnrollmentReplayExpiredResultAndPrivateActivation(t *testing.T) {
+func helperEnrollmentFixture(t *testing.T, drop bool, grantTTL time.Duration) (string, *n.Issuer, *helperRegistration, string) {
+	t.Helper()
 	device := func(id string) identity.Device {
 		d, e := identity.NewDevice(c.NewProvider(), "domain", id, time.Now().UTC())
 		if e != nil {
@@ -110,7 +113,6 @@ func TestHelperNodeEnrollmentReplayExpiredResultAndPrivateActivation(t *testing.
 	signer, inviter, responder, relay := device("issuer"), device("inviter"), device("responder"), device("relay-signer")
 	var issuer *n.Issuer
 	var controlHandler http.Handler
-	drop := true
 	var server *httptest.Server
 	server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/v2/control/") {
@@ -155,12 +157,12 @@ func TestHelperNodeEnrollmentReplayExpiredResultAndPrivateActivation(t *testing.
 		}
 		_ = json.NewEncoder(w).Encode(out)
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
 	management := &helperManagement{active: map[string]bool{}}
-	registration := &helperRegistration{prepared: map[string]n.RegistrationPreparation{}, receipts: map[string]n.RegistrationReceipt{}}
+	registration := &helperRegistration{prepared: map[string]n.RegistrationPreparation{}, receipts: map[string]n.RegistrationReceipt{}, ttl: grantTTL}
 	controlRelay := &helperControlRelay{signer: relay, actor: device("issuer-service-actor"), registration: registration, records: map[string]*control.Record{}, generations: map[string]uint64{}}
 	var err error
-	issuerConfig := n.Config{EnableControlV2: true, ControlRelay: controlRelay, Template: n.Credential{Origin: server.URL, TLSCertificatePEM: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})), DomainID: "domain", RelayID: "relay", RelaySignerIdentity: relay.Identity, IssuerIdentity: signer.Identity, InvitationSignerIdentity: inviter.Identity, IssuerRoute: "work2-node", ResponderIdentity: responder.Identity, DeploymentID: "deployment", OwnerID: "owner"}, Issuer: signer, InvitationSigner: inviter, GrantTTL: time.Second}
+	issuerConfig := n.Config{EnableControlV2: true, ControlRelay: controlRelay, Template: n.Credential{Origin: server.URL, TLSCertificatePEM: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})), DomainID: "domain", RelayID: "relay", RelaySignerIdentity: relay.Identity, IssuerIdentity: signer.Identity, InvitationSignerIdentity: inviter.Identity, IssuerRoute: "work2-node", ResponderIdentity: responder.Identity, DeploymentID: "deployment", OwnerID: "owner"}, Issuer: signer, InvitationSigner: inviter, GrantTTL: grantTTL}
 	issuerStore := n.NewMemoryStore()
 	issuer, err = n.New(issuerConfig, issuerStore, management, registration)
 	if err != nil {
@@ -181,6 +183,105 @@ func TestHelperNodeEnrollmentReplayExpiredResultAndPrivateActivation(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	return encoded, issuer, registration, server.URL
+}
+
+func TestHelperNodeEnrollmentWaitsForSignedGrantActivation(t *testing.T) {
+	encoded, issuer, registration, _ := helperEnrollmentFixture(t, false, time.Minute)
+	activation := time.Now().UTC().Add(300 * time.Millisecond)
+	issuer.Now = func() time.Time { return activation }
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	var stdout bytes.Buffer
+	if err := enrollNode(ctx, strings.NewReader(encoded+"\n"), &stdout, dir, "file", "", newHelperUUID()); err != nil {
+		t.Fatal("slightly future signed Grant requires a second enrollment attempt", err)
+	}
+	if time.Now().Before(activation) || stdout.Len() == 0 {
+		t.Fatal("connection activated before the original signed NotBefore")
+	}
+	registration.mu.Lock()
+	defer registration.mu.Unlock()
+	if registration.commits != 1 || registration.recoveries != 0 {
+		t.Fatal("activation wait reissued credentials or registration")
+	}
+}
+
+func TestHelperNodeEnrollmentActivationDeadlineRetainsOriginalIdentity(t *testing.T) {
+	encoded, issuer, registration, _ := helperEnrollmentFixture(t, false, time.Minute)
+	activation := time.Now().UTC().Add(700 * time.Millisecond)
+	issuer.Now = func() time.Time { return activation }
+	dir, installation := t.TempDir(), newHelperUUID()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 350*time.Millisecond)
+	defer cancel()
+	var stdout bytes.Buffer
+	if err := enrollNode(ctx, strings.NewReader(encoded+"\n"), &stdout, dir, "file", "", installation); !errors.Is(err, context.DeadlineExceeded) || stdout.Len() != 0 {
+		t.Fatal("activation did not preserve the original deadline", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "connection.profile.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("deadline published a connection profile", err)
+	}
+	identityFile := filepath.Join(dir, "identity", iscpbridge.IdentityFileName)
+	before, err := os.ReadFile(identityFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingFile := filepath.Join(dir, "identity", "node-control", "enrollment.pending")
+	pendingBefore, err := os.ReadFile(pendingFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	device, err := iscpbridge.LoadDeviceWithKeyBackend(identityFile, filepath.Join(dir, "identity", iscpbridge.IdentityKeyFileName), "file", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := iscpnodeclient.New(encoded, device, filepath.Dir(pendingFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = client.SetInstallationID(installation); err != nil {
+		t.Fatal(err)
+	}
+	// The expired context cannot make another network attempt. Only the
+	// authenticated result already retained in encrypted storage can succeed.
+	retained, err := client.Enroll(ctx)
+	if err != nil || !retained.Grant.NotBefore.Equal(activation) {
+		t.Fatal("deadline did not retain the authenticated future result")
+	}
+	retry, stop := context.WithTimeout(t.Context(), 5*time.Second)
+	defer stop()
+	if err = enrollNode(retry, strings.NewReader(encoded+"\n"), &stdout, dir, "file", "", installation); err != nil {
+		t.Fatal("same invitation failed to reconcile the original result", err)
+	}
+	after, _ := os.ReadFile(identityFile)
+	if !bytes.Equal(before, after) || stdout.Len() == 0 {
+		t.Fatal("activation recovery replaced the original device")
+	}
+	pendingAfter, err := os.ReadFile(pendingFile)
+	if err != nil || !bytes.Equal(pendingBefore, pendingAfter) {
+		t.Fatal("activation recovery changed the retained enrollment", err)
+	}
+	grantRaw, err := os.ReadFile(filepath.Join(dir, "grant.json"))
+	expectedGrant, _ := json.Marshal(retained.Grant)
+	if err != nil || !bytes.Equal(grantRaw, expectedGrant) {
+		t.Fatal("activation recovery changed the signed Grant", err)
+	}
+	registration.mu.Lock()
+	defer registration.mu.Unlock()
+	if registration.commits != 1 || registration.recoveries != 0 {
+		t.Fatal("deadline retry replaced the original registration")
+	}
+}
+
+func TestHelperNodeEnrollmentReplayExpiredResultAndPrivateActivation(t *testing.T) {
+	encoded, issuer, registration, relayURL := helperEnrollmentFixture(t, true, time.Second)
+	var err error
 	dir := t.TempDir()
 	_ = os.Chmod(dir, 0700)
 	installation := newHelperUUID()
@@ -210,7 +311,7 @@ func TestHelperNodeEnrollmentReplayExpiredResultAndPrivateActivation(t *testing.
 		ProfilePath string                   `json:"profile_path"`
 		Descriptor  nodeConnectionDescriptor `json:"descriptor"`
 	}
-	if json.Unmarshal(stdout.Bytes(), &frame) != nil || frame.IPCVersion != 1 || frame.Type != "enrollment" || frame.Descriptor.SchemaVersion != 4 || frame.Descriptor.TestMode || frame.Descriptor.RelayURL != server.URL {
+	if json.Unmarshal(stdout.Bytes(), &frame) != nil || frame.IPCVersion != 1 || frame.Type != "enrollment" || frame.Descriptor.SchemaVersion != 4 || frame.Descriptor.TestMode || frame.Descriptor.RelayURL != relayURL {
 		t.Fatal("public enrollment frame differs")
 	}
 	if strings.Contains(stdout.String(), encoded) || strings.Contains(stdout.String(), "synthetic-access-private") || strings.Contains(stdout.String(), "synthetic-refresh-private") || strings.Contains(stdout.String(), "bootstrap_secret") {

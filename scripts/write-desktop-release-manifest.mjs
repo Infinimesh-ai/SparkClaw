@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import electronExecutable from "electron";
 import { verifyControllerBundle } from "../apps/desktop/src/browser/controller-bundle.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -19,10 +20,13 @@ for (const name of entries) {
   const content = await fs.readFile(filename);
   artifacts.push({ name, bytes: content.length, sha256: crypto.createHash("sha256").update(content).digest("hex") });
 }
-const versions = JSON.parse(execFileSync(path.join(root, "node_modules", "electron", "dist", "electron"), [
+// electron-builder can produce Linux artifacts on macOS; resolve the locked
+// build-host runtime through Electron's package instead of a Linux-only path.
+const versions = JSON.parse(execFileSync(electronExecutable, [
   "-e", "console.log(JSON.stringify(process.versions))",
 ], { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, encoding: "utf8" }));
 const lock = JSON.parse(await fs.readFile(path.join(root, "package-lock.json"), "utf8"));
+if (versions.electron !== lock.packages["node_modules/electron"].version) throw new Error("Release runtime differs from the locked Electron version");
 const packageVersion = JSON.parse(await fs.readFile(path.join(root, "apps", "desktop", "package.json"), "utf8")).version;
 const dependency = async (name, fallback) => {
   const locked = lock.packages?.[`node_modules/${name}`]?.version;

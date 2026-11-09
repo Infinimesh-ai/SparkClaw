@@ -54,8 +54,21 @@ assert all(set(row) == set(stages) for row in by_id.values()), "incomplete match
 # Only the non-secret transport mode is projected from the retained profile.
 profile = Path(evidence["runtime"]["profile"])
 assert profile.name == "controller-native-profile" and profile.parent.name.startswith("sx-controller-iscp-")
-helper_file = profile.parent / "desktop-helper.json"
+backend = evidence["connection"]["backend"]
+if backend.get("mode") == "node-managed":
+    selection = json.loads((profile / "iscp-launch-profile.json").read_text())
+    assert selection["mode"] == "node-managed" and selection["user_data_directory"] == str(profile)
+    connection_file = Path(selection["profile_path"])
+    assert connection_file.is_absolute() and profile in connection_file.parents
+    connection = json.loads(connection_file.read_text())
+    assert connection["mode"] == "node-managed" and connection["backend"] == backend
+    helper_file = Path(connection["helper_config"])
+    assert helper_file.is_absolute() and helper_file.parent == connection_file.parent
+else:
+    helper_file = profile.parent / "desktop-helper.json"
 helper = json.loads(helper_file.read_text())
+assert helper["mode"] == ("node-managed" if backend.get("mode") == "node-managed" else "local-test")
+assert helper["relay_profile"] == backend["relay_profile"]
 report = {
     "schema_version": 1,
     "analysis_complete_for_observed_chunks": True,

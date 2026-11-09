@@ -1335,3 +1335,46 @@ Opt-in `SPARKCLAW_CONTROLLER_CHUNK_TRACE=1` observations and
 The analyzer reads existing evidence without changing application or Gateway state. The isolated
 Gateway is restored/stopped, forwarding is closed, and post-recovery work2 checks pass with
 8,194,330,624 bytes free. No product binary, UI, timeout or authorization check is changed.
+
+The next qualification uses a new, isolated **node-managed/production** deployment on work2.
+An independently built ISCP `f6037224` public duplex Relay runs with persistent PostgreSQL,
+separate signing identities, pinned TLS, operator-approved service registrations, encrypted
+issuer forwarding and ControlV2. The issuer, forwarder, Gateway and installed clients retain
+the clean `c6948132` source/binaries. This uses SSH loopback forwarding to work2; it is not TEST1.
+No production package or production authorization database is replaced.
+
+The unchanged Linux packaged helper completes invitation enrollment with an explicitly
+file-backed qualification key. Separately, the installed Mac completes native-keyring
+enrollment/reconciliation and reopens the same selected profile, original workbench and
+client Controller; four native readiness/storage checks pass with no business HTTP.
+Retain the initial setup failures: PostgreSQL 18 data-mount layout, fixture configuration
+encoding/schema mistakes, waiting for a signed-in workbench before enrollment, and reading a
+stale capability snapshot. One native enrollment attempt fails after registration and before
+the connection profile is written; its cause is unclassified. Reconciliation uses the same
+invitation, installation and device key, without a replacement identity or authorization.
+The successful restart does not establish the cause of that earlier failure.
+
+Two Mac-to-work2 node-managed maximum-result runs each pass six checks: 320 encrypted 32 KiB
+chunks, verified 10,485,760-byte result, one real approved fill, durable completed write records,
+normal release and unrelated reads. The result is still **synthetically padded after the
+native fill**, not a 10 MiB MCP output. The next read is capacity-refused before native dispatch;
+the delivered blocked answer is not workflow success. Descriptor-ready to next same-task
+execute takes 25,118 and 25,394 ms, including Gateway verification and subsequent scheduling.
+Both fit the unchanged transfer budget; two samples are not WAN percentiles.
+
+Private traces match all 320 chunk RPCs per run and identify the actual node-managed helper
+configuration. In the first sample, mean request/send authorization durations are 56.69/82.67 ms;
+these overlap and include local waiting, network and proof verification, so they are neither
+summed nor labeled RTT. The prior local-test failures remain failures. The native runners now
+accept `SPARKCLAW_CONTROLLER_NODE_MANAGED=1` only without local-test environment selection,
+reopen the profile saved by native enrollment, and assert the observed production mode.
+The analyzer resolves that selected helper; the independent receipt reader supports
+`--cross-host` without comparing clocks or claiming cross-host timestamp ordering.
+
+Both samples' stopped Gateway records and Mac journals independently preserve the original
+task/digest and completed write; enclosing executions are delivered. The isolated Gateway,
+issuer and forwarder are stopped, Mac candidate processes and SSH forwarding are closed,
+and database/history/profiles remain retained. Production configuration, mounts, health and
+runtime start times match the **post-recovery** baseline, with 7,867,572,224 bytes free; the
+earlier production PostgreSQL incident remains recorded. Installed Linux node-managed UI,
+TEST1, remaining fault/offline/WAN gates, paired cutover and D2 deletion remain open.

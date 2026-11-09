@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Read retained lab evidence and independently check both durable write records.
 
-Usage: python3 verify-client-controller-chunk-receipts.py LAB NEW_RECEIPT_JSON [MODE ...]
+Usage: python3 verify-client-controller-chunk-receipts.py LAB NEW_RECEIPT_JSON [--cross-host] [MODE ...]
 Neither the app nor Gateway needs to be running. No state is changed or restored.
+For --cross-host, copy stopped Gateway records into the lab without changing
+their bytes. Their hashes and bindings are checked, but host clocks are not compared.
 """
 import datetime
 import hashlib
@@ -12,7 +14,10 @@ import re
 import sys
 
 lab, output = map(Path, sys.argv[1:3])
-modes = sys.argv[3:] or ["out_of_order", "lost_final", "wrong_offset", "bad_hash"]
+arguments = sys.argv[3:]
+cross_host = "--cross-host" in arguments
+assert arguments.count("--cross-host") <= 1
+modes = [arg for arg in arguments if arg != "--cross-host"] or ["out_of_order", "lost_final", "wrong_offset", "bad_hash"]
 assert modes and all(mode in ["out_of_order", "lost_final", "wrong_offset", "bad_hash", "cache_full", "expired_result", "exact_limit"] for mode in modes)
 assert lab.is_absolute() and lab.name.startswith("sx-controller-iscp-")
 assert output.is_absolute() and not output.exists()
@@ -69,9 +74,9 @@ for mode in modes:
     assert gateway["digest"] == journal["digest"] == fill["digest"]
     assert gateway["scope"]["local_task_id"] == journal["local_task_id"] == task["local_task_id"]
     assert gateway["scope"]["local_conversation_id"] == journal["local_conversation_id"] == task["conversation_id"]
-    # Both timestamps are from the same lab host (Gateway runs in its container).
-    # The observer uses millisecond Date precision; allow that rounding only.
-    assert date(gateway["updated_at"]) <= date(fill["first_chunk_at"]) + datetime.timedelta(milliseconds=1)
+    if not cross_host:
+        # Same lab host only. Allow the observer's millisecond Date rounding.
+        assert date(gateway["updated_at"]) <= date(fill["first_chunk_at"]) + datetime.timedelta(milliseconds=1)
     execution = next(row for row in control["fences"].values() if row["request_id"] == task["request_id"])
     assert execution["state"] == ("delivered" if mode in ["out_of_order", "cache_full", "exact_limit"] else "unknown")
     if mode == "exact_limit":
@@ -91,7 +96,8 @@ for mode in modes:
                  "bytes": fill["descriptor"]["total_bytes"], "gateway_fence_sha256": digest(gateway_file),
                  "local_journal_sha256": digest(journal_file), "command_id": command,
                  "gateway_and_local_completed": True, "same_original_task_and_digest": True,
-                 "gateway_completed_before_first_chunk": True, "durable_execution_state": execution["state"],
+                 **({"cross_host_timestamps_not_compared": True} if cross_host else {"gateway_completed_before_first_chunk": True}),
+                 "durable_execution_state": execution["state"],
                  "native_write_calls": evidence["trace"]["fill_calls"], **additional})
 
 receipt = {"schema_version": 1, "passed": True, "lab_id": json.loads((lab / "run.json").read_text())["lab_id"], "checks": rows}

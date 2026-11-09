@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { qualifyPackagedOperations } from "./client-controller-packaged-operations.mjs";
 import { qualifyPackagedScreenshot } from "./client-controller-packaged-screenshot.mjs";
+import { qualificationLaunchEnvironment, verifyQualificationAuthorization } from "./client-controller-qualification-launch.mjs";
 
 const directory=process.env.SPARKCLAW_CONTROLLER_ISCP_LAB;
 const executablePath=process.env.SPARKCLAW_CONTROLLER_CANDIDATE;
@@ -110,9 +111,8 @@ try{
     config_sha256:crypto.createHash("sha256").update(configBytes).digest("hex"),
     catalog_sha256:crypto.createHash("sha256").update(catalogBytes).digest("hex")};
   if(launcher)evidence.launcher={path:launcher,sha256:crypto.createHash("sha256").update(await fs.readFile(launcher)).digest("hex")};
-  application=await _electron.launch({executablePath:launcher||executablePath,timeout:45000,chromiumSandbox:true,env:{...process.env,
-    SPARKCLAW_DESKTOP_ISCP_LOCAL_TEST:"1",SPARKCLAW_DESKTOP_ISCP_CONFIG:path.join(directory,"desktop-profile.json"),
-    SPARKCLAW_DESKTOP_USER_DATA_DIR:path.join(directory,"controller-native-profile")}});
+  application=await _electron.launch({executablePath:launcher||executablePath,timeout:45000,chromiumSandbox:true,
+    env:qualificationLaunchEnvironment(directory)});
   application.process().stderr.on("data",chunk=>process.stderr.write(chunk));
   evidence.runtime=await application.evaluate(({app,safeStorage})=>({packaged:app.isPackaged,versions:process.versions,
     executable:process.execPath,resources:process.resourcesPath,profile:app.getPath("userData"),pid:process.pid,
@@ -131,7 +131,8 @@ try{
   await until(async()=>(await window.evaluate(()=>window.sparkclawDesktop.localConnection())).state==="connected","ISCP connection");
   await until(async()=>(await window.evaluate(()=>window.sparkclawDesktop.state())).browser_host.state==="connected","Controller readiness before fence baseline");
   const connection=await window.evaluate(()=>window.sparkclawDesktop.localConnection());
-  assert.equal(connection.backend.transport,"iscp");assert.equal(connection.capabilities.browser,true);
+  evidence.connection=connection;
+  verifyQualificationAuthorization(connection);assert.equal(connection.capabilities.browser,true);
   evidence.unknown_before=(await window.evaluate(()=>window.sparkclawDesktop.state())).browser_host.unknown_writes;
   await application.evaluate(async({session,net})=>{
     globalThis.__controllerQualificationHTTP=0;

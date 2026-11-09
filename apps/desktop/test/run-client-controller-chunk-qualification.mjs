@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 import { installResultFaults, verifyCacheRecovery, verifyExpiredWriteReplay } from "./client-controller-result-faults.mjs";
 import { probePackagedResponseBoundary } from "./client-controller-response-boundaries.mjs";
 import { installLimitTransfer, verifyLimitTransfer } from "./client-controller-limit-transfer.mjs";
+import { qualificationLaunchEnvironment, verifyQualificationAuthorization } from "./client-controller-qualification-launch.mjs";
 
 const directory = process.env.SPARKCLAW_CONTROLLER_ISCP_LAB;
 const executablePath = process.env.SPARKCLAW_CONTROLLER_CANDIDATE;
@@ -40,9 +41,8 @@ try {
   evidence.gateway_sha256 = hash(await fs.readFile(path.join(directory, "bin/gateway-linux")));
   evidence.asar_sha256 = hash(await fs.readFile(path.join(resources, "app.asar")));
   evidence.controller_manifest_sha256 = hash(await fs.readFile(path.join(resources, "browser-controller/manifest.json")));
-  application = await _electron.launch({ executablePath, timeout: 45000, chromiumSandbox: true, env: { ...process.env,
-    SPARKCLAW_DESKTOP_ISCP_LOCAL_TEST: "1", SPARKCLAW_DESKTOP_ISCP_CONFIG: path.join(directory, "desktop-profile.json"),
-    SPARKCLAW_DESKTOP_USER_DATA_DIR: path.join(directory, "controller-native-profile") } });
+  application = await _electron.launch({ executablePath, timeout: 45000, chromiumSandbox: true,
+    env: qualificationLaunchEnvironment(directory) });
   application.process().stderr.on("data", bytes => process.stderr.write(bytes));
   evidence.runtime = await application.evaluate(({ app, safeStorage }) => ({ packaged: app.isPackaged, executable: process.execPath,
     profile: app.getPath("userData"), versions: process.versions, secure_storage: safeStorage.isEncryptionAvailable() }));
@@ -52,7 +52,7 @@ try {
   await until(async () => (await window.evaluate(() => window.sparkclawDesktop.localConnection())).state === "connected", "ISCP connection");
   await until(async () => (await window.evaluate(() => window.sparkclawDesktop.state())).browser_host.state === "connected", "Controller readiness");
   evidence.connection = await window.evaluate(() => window.sparkclawDesktop.localConnection());
-  assert.equal(evidence.connection.backend.transport, "iscp"); assert.equal(evidence.connection.capabilities.browser, true);
+  verifyQualificationAuthorization(evidence.connection); assert.equal(evidence.connection.capabilities.browser, true);
   evidence.unknown_before = (await window.evaluate(() => window.sparkclawDesktop.state())).browser_host.unknown_writes;
   await application.evaluate(async ({ app, net, session }, mode) => {
     const require = process.getBuiltinModule("node:module").createRequire(app.getAppPath() + "/package.json");

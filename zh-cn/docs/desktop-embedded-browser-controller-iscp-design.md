@@ -1121,3 +1121,22 @@ Go build／vet 通过。初始测试夹具的目录权限和加密存储假设�
 另一次未修改的 Linux 原生 keyring 注册已完成 helper 阶段并写出有效连接配置，但后续
 桌面激活失败。保留原邀请／设备及失败证据；此处是不同边界，不能由 Mac 激活修复代替验收。
 Linux node-managed 原生验收继续保持开放。
+
+
+已构建干净 `98cb57a0` Mac DMG／ZIP 与 Linux AppImage／deb。两平台 ASAR 及全部 207 个
+Controller 文件哈希均与前候选一致；仅 helper 代码及 manifest 源版本改变。独立安装的 Mac
+首次注册、对原失败身份的恢复各通过 4 组；随后真实模型审批填写任务及原面板标签／收起／
+重开／宽度恢复、正常退出通过 6 组。原生截图分别核对原工作台与含 Alice 的任务视图。
+Linux 首次激活仍失败。
+
+仅用于诊断的 Gateway（运行后已恢复）确认两次新的 Linux 失败均为
+`workbench initiator grant ID mismatch`：持久化 peer registry 选中 NotBefore 为
+19:59:35.515992712／19:59:48.171669037 的初始 Grant，而客户端持有后续 ControlV2
+代数对应的整秒 Grant（19:59:35／19:59:48）。按 NotBefore 比较错误地将带小数秒的注册
+种子当成更新授权。另两次诊断尝试成功，不覆盖失败记录，也不作为诊断二进制的发布验收。
+
+issuer 投影现按已成功完成的最大 ControlV2 凭据代数选择 Grant，不依赖时间戳精度。
+待处理／失败结果不替换最后成功 Grant；尚无成功 control 签发时保留 legacy 投影。
+签名有效期、身份、权限范围及代数历史不变。整秒／小数秒种子两个回归在修复前失败，修复后
+分别验证同一秒内两次真实签名 control 签发与前序 installed 回执。更新的隔离 issuer 及
+原生验证在本检查点仍待完成。

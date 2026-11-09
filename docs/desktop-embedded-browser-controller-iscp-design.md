@@ -1400,3 +1400,26 @@ A separate unchanged Linux native-keyring attempt completes the helper enrollmen
 a valid connection profile, but fails subsequent desktop activation. Preserve its original
 invitation/device and failure evidence; this is a different boundary and is not qualified by
 the Mac activation repair. Linux node-managed native acceptance remains open.
+
+
+Clean `98cb57a0` Mac DMG/ZIP and Linux AppImage/deb are built. Both platforms retain the
+previous ASAR and all 207 Controller payload hashes; only helper code and manifest source
+revision change. The separately installed Mac passes first enrollment and reconciliation of
+the original failed identity (four checks each), then a real-model approved fill with original
+panel tabs/hide/reopen/width and clean quit (six checks). Native captures verify the original
+workbench and the separate task view containing Alice. Linux first activation still fails.
+
+A diagnostic-only Gateway (restored afterward) identifies two fresh Linux failures as
+`workbench initiator grant ID mismatch`. The durable peer registry chooses the initial Grant
+at 19:59:35.515992712 / 19:59:48.171669037, while the client holds the later ControlV2 generation
+signed at 19:59:35 / 19:59:48. Comparing NotBefore incorrectly treats the fractional enrollment
+seed as newer than the whole-second control result. Two diagnostic attempts also succeed;
+those successes do not erase the failures or qualify the diagnostic binary for release.
+
+The issuer projection now selects the highest successfully completed ControlV2 credential
+generation, independently of timestamp precision. Pending/failed results do not displace the
+last successful Grant; legacy projection applies until a successful control issuance exists.
+Signed validity, identity, scopes and generation history remain unchanged. Zero/fractional-second
+seed regressions fail before repair; each repaired case checks two real consecutive signed
+control issuances and installed predecessor receipts in the same second. Refreshed isolated
+issuer/native validation is pending at this checkpoint.

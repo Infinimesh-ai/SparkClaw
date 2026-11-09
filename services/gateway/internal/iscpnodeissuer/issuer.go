@@ -517,11 +517,19 @@ func (i *Issuer) Registry(ctx context.Context) (PeerRegistry, error) {
 			}
 		}
 		if s.Control != nil {
+			// ControlV2 orders issuance by its durable generation. Its whole-
+			// second NotBefore may precede the enrollment's fractional timestamp,
+			// and multiple completed generations may share the same timestamp.
+			var latestGeneration uint64
 			for _, record := range s.Control.Records {
 				if record.State == "succeeded" && record.Result != nil && record.Result.Payload.Body.Grant != nil {
-					g := record.Result.Payload.Body.Grant
-					if g.NotBefore.After(grant.NotBefore) {
-						grant = *g
+					generation, err := record.Generation.Uint64()
+					if err != nil || generation == 0 || record.Result.Payload.CredentialGeneration != record.Generation {
+						return out, ErrInvalid
+					}
+					if generation > latestGeneration {
+						latestGeneration = generation
+						grant = *record.Result.Payload.Body.Grant
 					}
 				}
 			}

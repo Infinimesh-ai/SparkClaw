@@ -83,6 +83,52 @@ func TestControlRenewalStoresStableResultAndSignedExpiredDisposition(t *testing.
 		t.Fatal("predecessor was dropped or changed")
 	}
 }
+
+func TestRegistryProjectsLatestControlGenerationWithinEnrollmentSecond(t *testing.T) {
+	for _, fraction := range []time.Duration{0, 500 * time.Millisecond} {
+		t.Run(fraction.String(), func(t *testing.T) {
+			store := NewMemoryStore()
+			f, request := controlFixture(t, store)
+			ctx := t.Context()
+			now := time.Now().UTC().Truncate(time.Second)
+			f.issuer.Now = func() time.Time { return now }
+			if err := store.Update(ctx, f.credential.InvitationID, func(s *State) error {
+				seed, err := f.issuer.signGrant(s, f.client.Identity, now.Add(fraction))
+				if err != nil {
+					return err
+				}
+				s.BoundOperation = "original-enrollment"
+				s.Operations[s.BoundOperation] = &Operation{Result: &EnrollmentResult{Grant: seed, Binding: Binding{DeploymentID: f.credential.DeploymentID, OwnerID: f.credential.OwnerID, ClientID: f.credential.ClientID}, Scopes: f.credential.Scopes, InstallationID: "ae79ea35-2871-4405-a85b-004956ebc31b"}}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			for _, generation := range []control.Counter{"2", "3"} {
+				out, err := f.issuer.Execute(ctx, request, f.client.Identity, "")
+				if err != nil || out.Result == nil || out.Result.Payload.CredentialGeneration != generation {
+					t.Fatalf("control issuance failed: %+v %v", out, err)
+				}
+				registry, err := f.issuer.Registry(ctx)
+				if err != nil || len(registry.Peers) != 1 || Digest(registry.Peers[0].Grant) != Digest(*out.Result.Payload.Body.Grant) {
+					t.Fatalf("registry did not publish accepted generation %s in the same second: %v", generation, err)
+				}
+				ack := request
+				ack.Action, ack.Intent, ack.Delivery = "ack", nil, nil
+				ack.Ack = &control.Ack{ResultDigest: out.Result.ResultDigest, Disposition: "installed", CredentialGeneration: generation, RecordedAt: now}
+				closed, err := f.issuer.Execute(ctx, ack, f.client.Identity, "")
+				if err != nil || closed.Disposition == nil {
+					t.Fatal("could not retain installed predecessor", err)
+				}
+				next := *request.Intent
+				next.OperationID += "-next"
+				next.Preconditions.CredentialGeneration = generation
+				request.Intent = &next
+				request.Key.OperationID = next.OperationID
+				request.SemanticDigest, _ = control.Digest("ISCP-OPERATION-INTENT-V2\x00", next)
+			}
+		})
+	}
+}
 func TestControlHistoryMissingAndClosingNeverAdmitOrDisclose(t *testing.T) {
 	store := NewMemoryStore()
 	f, r := controlFixture(t, store)

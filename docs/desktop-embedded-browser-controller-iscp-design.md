@@ -885,3 +885,23 @@ The original task's cancellation marker survives running reconciliation and stor
 foreign identities cannot read it, and a new authority session still refuses that task. A new
 explicit task has a distinct local ID. Paired rollback must preserve this stop intent as well as
 the existing write fences; an older binary that ignores cancellation metadata is not qualified.
+
+Refreshed `05fa3c1a` Mac ARM64 and Linux x64 candidates now contain the cancellation repair.
+Both pass six packaged cancellation groups: the original pending approval is rejected, owned
+execution is removed, the cancellation marker is read from the actual packaged SQLite store,
+and a distinct task succeeds while personal pages and prior fences remain. Mac also passes
+nine renderer/activation/Relay groups and seven same-profile groups from a separate verified
+DMG copy in user Applications; its restricted bundled-Node probe passes. Linux AppImage passes
+eight real-work2-provider groups with renderer sandbox checks. Its deb executable, ASAR and
+Controller manifest match the AppImage. Four artifact hashes and 17 evidence files are indexed
+privately. The initial packaged cancellation observer used unsupported dynamic import inside
+Playwright's evaluation VM; that failed attempt is retained, and the corrected observer reads
+the built-in SQLite module without changing product execution.
+
+The system Mac app and three work2 production container/configuration/mount/network/start
+baselines remain unchanged. The owned candidate Gateway is stopped; temporary AppArmor,
+display, keyring and candidate processes are absent, and GNOME remains locked. Current-package
+hard-main-kill and full offline GUI were not repeated; previous results remain scoped to their
+original revision. TEST1, remaining packaged operations/peer matrix, native visual/offline GUI,
+WAN/chunks and paired rollback with cancellation-marker preservation remain open. D2 deletion
+still follows P3.

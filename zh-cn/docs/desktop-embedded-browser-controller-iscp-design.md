@@ -726,3 +726,18 @@ acquire，再检查新任务真实页面；此前所有 unknown fence 保留。�
 原任务的取消标记在 running 核对及存储重开后仍保留，其他身份不能读取，新授权会话仍拒绝
 该任务；新的显式任务使用不同本地 ID。成对回滚除既有写入 fence 外，还必须保留停止意图；
 忽略取消 metadata 的旧二进制尚未取得回滚资格。
+
+刷新后的 `05fa3c1a` Mac ARM64 和 Linux x64 候选现已包含取消修复，两端六组安装包取消检查
+均通过：原待审批请求被拒，自有执行资源清理，从实际包内 SQLite 存储读到持久取消标记，
+另一显式任务成功且个人页面、既有 fence 保留。Mac 另通过九组 renderer／activation／Relay
+检查，以及用户 Applications 中独立且校验过的 DMG 副本七组同 profile 检查，受限包内 Node
+探针也通过。Linux AppImage 通过八组 work2 真实 provider 检查，包含 renderer 沙箱验证；
+deb 的可执行文件、ASAR 和 Controller manifest 与 AppImage 相同。四个制品摘要及 17 份证据
+已建立私有索引。首轮安装包取消观察器在 Playwright 求值 VM 中使用了不支持的动态 import，
+该失败记录保留；修正后直接读取内置 SQLite 模块，未改变产品执行。
+
+系统 Mac 应用及 work2 三个生产容器、配置、挂载、网络、启动时间基线均未变化。候选 Gateway
+已停止，临时 AppArmor、显示、密钥环及候选进程均已清理，GNOME 保持锁屏。本轮未重复
+当前包的主进程强制终止和完整离线 GUI，先前结果继续限定于其原版本。TEST1、剩余安装包
+操作／新旧节点矩阵、原生目视／离线 GUI、广域网／分块及保留取消标记的成对回滚仍待完成；
+D2 旧路径删除仍须在 P3 之后。

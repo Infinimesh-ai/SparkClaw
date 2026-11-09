@@ -32,6 +32,42 @@ const nativePages=()=>application.evaluate(async({webContents})=>Promise.all(web
   .map(async page=>({id:page.id,value:await page.executeJavaScript('document.querySelector("input").value'),
     debugger:page.debugger.isAttached(),sandbox:page.getLastWebPreferences().sandbox}))));
 const byCommand=(a,b)=>a.command_id.localeCompare(b.command_id);
+async function qualifyCancellation(conversation, task, approval) {
+  const personal=(await window.evaluate(()=>window.sparkclawDesktop.createPersonal())).page_ref;
+  await window.evaluate(id=>window.sparkclawClientStore.cancel(id),task.request_id);
+  await until(async()=>{
+    const pages=await nativePages();
+    const children=execFileSync("ps",["-axo","command="],{encoding:"utf8"}).split("\n").filter(line=>line.includes(evidence.runtime.resources+"/browser-controller/"));
+    return pages.length===0&&children.length===0;
+  },"packaged canceled task cleanup",15000);
+  assert.equal(await window.evaluate(({request,approval})=>window.sparkclawClientStore.decideApproval(request,approval.approval_id,approval.digest,"approve").then(()=>false,()=>true),{request:task.request_id,approval}),true);
+  const marker=await application.evaluate(({app},id)=>{
+    const {DatabaseSync}=process.getBuiltinModule("node:sqlite");
+    const {join}=process.getBuiltinModule("node:path");
+    const db=new DatabaseSync(join(app.getPath("userData"),"workbench/client.sqlite"),{readOnly:true});
+    try{return db.prepare("SELECT value FROM metadata WHERE key=?").get(`execution_cancel:${id}`)?.value;}
+    finally{db.close();}
+  },task.id);
+  assert.equal(marker,"1");
+  evidence.checks.packaged_cancel_retires_original_approval_and_owned_execution=true;
+  evidence.checks.packaged_cancel_intent_is_durable=true;
+  const fresh=await window.evaluate(async id=>{const s=window.sparkclawClientStore,t=await s.enqueue(id,"打开 https://controller.fixture.test/ 网页",[]);await s.submit(t.request_id);return t;},conversation.id);
+  let state;
+  await until(async()=>{
+    await window.evaluate(id=>window.sparkclawClientStore.reconcile(id),fresh.request_id);
+    state=await window.evaluate(id=>window.sparkclawClientStore.read(id),conversation.id);
+    return ["delivered","failed","canceled","unknown"].includes(state.tasks.find(row=>row.request_id===fresh.request_id)?.status);
+  },"packaged new task after cancellation",90000);
+  evidence.tasks.push(state);assert.equal(state.tasks.find(row=>row.request_id===fresh.request_id).status,"delivered");
+  evidence.pages=await nativePages();assert.equal(evidence.pages.length,1);
+  assert.ok(evidence.pages.every(page=>page.value===""&&!page.debugger&&page.sandbox));
+  const desktop=await window.evaluate(()=>window.sparkclawDesktop.state());
+  assert.ok(desktop.pages.some(page=>page.page_ref===personal&&page.role==="personal"));
+  assert.deepEqual([...desktop.browser_host.unknown_writes].sort(byCommand),[...evidence.unknown_before].sort(byCommand));
+  evidence.checks.packaged_fresh_task_and_personal_data_survive_cancellation=true;
+  evidence.direct_business_http_attempts=await application.evaluate(()=>globalThis.__controllerQualificationHTTP);
+  assert.equal(evidence.direct_business_http_attempts,0);evidence.cancellation=true;
+}
 async function qualifyParentExit() {
   const rows=evidence.processes.map(line=>line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/u));
   const controllers=rows.filter(row=>row&&row[4].includes(evidence.runtime.resources+"/browser-controller/src/client-main.mjs"));
@@ -125,6 +161,9 @@ try{
       assert.ok(evidence.processes.some(line=>line.includes("src/client-main.mjs")));
       assert.ok(evidence.processes.some(line=>line.includes("@playwright/mcp/cli.js")));
       evidence.checks.controller_and_MCP_from_package=true;
+      if(process.env.SPARKCLAW_CONTROLLER_CANCELLATION==="1"){
+        await qualifyCancellation(conversation,task,approval);return true;
+      }
       if(process.env.SPARKCLAW_CONTROLLER_PARENT_EXIT==="1"){
         evidence.direct_business_http_attempts=await application.evaluate(()=>globalThis.__controllerQualificationHTTP);
         assert.equal(evidence.direct_business_http_attempts,0);
@@ -136,6 +175,7 @@ try{
     return current&&["delivered","failed","canceled","unknown"].includes(current.status);
   },"packaged browser task delivery",90000);
   if(evidence.parent_exit){evidence.passed=true;return;}
+  if(evidence.cancellation){evidence.passed=true;return;}
   evidence.workflow_duration_ms=Math.round(performance.now()-taskStarted);
   evidence.tasks.push(state);assert.equal(state.tasks.find(row=>row.request_id===task.request_id).status,"delivered");
   evidence.pages=await nativePages();

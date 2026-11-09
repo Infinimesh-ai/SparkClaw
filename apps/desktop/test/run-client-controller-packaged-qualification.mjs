@@ -128,6 +128,7 @@ try{
   await until(async()=>{window=application.windows().find(page=>page.url()==="sparkclaw-app://workbench/index.html");return Boolean(window);},"packaged workbench target");
   await window.waitForSelector(".localWorkbench");
   await until(async()=>(await window.evaluate(()=>window.sparkclawDesktop.localConnection())).state==="connected","ISCP connection");
+  await until(async()=>(await window.evaluate(()=>window.sparkclawDesktop.state())).browser_host.state==="connected","Controller readiness before fence baseline");
   const connection=await window.evaluate(()=>window.sparkclawDesktop.localConnection());
   assert.equal(connection.backend.transport,"iscp");assert.equal(connection.capabilities.browser,true);
   evidence.unknown_before=(await window.evaluate(()=>window.sparkclawDesktop.state())).browser_host.unknown_writes;

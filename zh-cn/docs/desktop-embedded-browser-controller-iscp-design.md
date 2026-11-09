@@ -2,8 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> 日期：2026-11-09。状态：实施推进中。候选源码 `05fa3c1a` 已在记录的 Mac ARM64／Linux x64
-> 安装包范围通过验证，包含持久任务取消。§14 记录源码、隔离加密 Relay 及 work2 真实 provider
+> 日期：2026-11-09。状态：实施推进中。干净源码 `d4eae4c6` 候选包含 Gateway 结果展示／语义
+> 修复，并通过记录范围内的成对升级回退验证。§14 记录源码、隔离加密 Relay 及 work2 真实 provider
 > 证据。TEST1、其余验收矩阵和成对切换仍未完成，未替换生产版本。§12 保留所有者决定 D1–D3。
 > 已核对源码：`main` 的 `e031a453`（初版提案）；浏览器／ISCP／桌面实现起点为 `b5c21e14`。
 > 本次仅涉及 SparkClaw，不执行项目簇协调流程。
@@ -782,3 +782,39 @@ fixture 还错误要求每次低风险点击都必须审批；另一处错误假
 此前失败尝试均已归档。两个候选 Gateway 已停止，SSH 转发及临时 AppArmor／显示／密钥环／
 进程资源均清理；work2 三个生产基线仍完全一致，GNOME 保持锁屏。TEST1、其余操作／新旧节点／
 安装矩阵、广域网／分块计时及成对回滚／P3 切换仍待完成。
+
+现已从干净的 detached 源码 `d4eae4c6` 组装匹配的 Mac ARM64 DMG／ZIP、Linux x64
+AppImage／deb 与 Gateway 二进制。Controller 仍为 207 文件／18,737,017 字节，manifest 为
+`2f7d00277cda633773229752661989942cffcead15997c2ed11ea5d6e4dc048a`。独立安装的 Mac 副本
+与 `05fa3c1a` 的 ASAR、WebChat、local-preview 和 Controller 文件哈希完全相同；变化为 helper
+及 manifest 的源码版本。系统应用未替换。Mac 安装后通过 7 组验证，覆盖原面板／标签／隐藏／
+加宽交互与 Relay 阻断恢复。
+
+实际新旧候选已完成同一 profile 的成对升级回退：Mac 经过本地加密 Relay、使用 mock provider；
+同机 Linux 经过 work2 隔离实验环境、使用真实 provider。旧桌面版本为 `05fa3c1a`，回退时恢复
+各实验环境原 Gateway。新 Gateway 哈希分别为
+`383a7fedbe8a58d467a301ca792f8418dee93a016cec85f5f2ef91d22f9e0b27`（Mac 实验环境的 Linux ARM64）
+和 `25edecb42da4885fdfaf3d509c7cc2d365f5c43d1582b27e6a12eed6e4d89124`（Linux x64）。替换前先
+停止写入方，没有用旧副本覆盖身份、数据库、凭据或回执状态。两端各准备阶段通过 4 组、升级和
+回退各通过 7 组。已实际填写的字段因本地响应丢失形成 unknown，并贯穿整个过程保留。冷态及
+重启检查保留 installation、包含升级后新增消息的历史、未发送草稿、个人 Cookie、
+journal 行与取消标记；本轮原有文件清单为空，不据此声称附件内容已验收。不同的新显式任务仍可完成。在实际安装包 forwarder 上构造新 acquire
+命令 ID，仍无法绕过原 unknown 或取消任务，原生调用增量为零。这只覆盖所测版本组合，早于
+取消修复的桌面版本仍不具备回退资格；完整 A13／P4 切换仍依赖 P3 和 D2 删除。
+
+保留干净组装时遗漏 workspace 依赖副本、夹具草稿 scope 字段错误、过早读取观察器以及 Linux
+在 Controller 就绪前采样 fences 的失败。另一次真实 provider 的打开网页任务返回工作流准备
+失败，未发出原生调用；确切原因尚未建立，独立诊断 Gateway 尝试及随后未改动的干净候选均
+成功。诊断产物单独归档，最终升级／回退使用干净发布二进制。已送达的失败消息不计为浏览器
+动作成功，也未为让比较通过而核销 unknown。TEST1、其余矩阵／原生界面／离线／WAN 门禁及
+生产验收仍保持未完成。
+
+刷新后的 Linux AppImage 另通过 8 组常规真实 provider 验证，覆盖 renderer 的 Seccomp／
+NoNewPrivs／用户命名空间隔离、实际审批填写、原界面与 Relay 恢复。首次常规运行在 Controller
+加载前取到了空 fence 基线；夹具改为等待 Controller 就绪后通过，原 unknown 始终保留。deb
+私有解包后的可执行文件、ASAR、helper、manifest 与 AppImage 相同，不等同于包管理器安装
+验收。work2 两个候选 Gateway 与本地 Mac 候选 Gateway 已停止；候选／X11／keyring 进程及
+两个精确的临时 AppArmor profile 均已清理。生产容器 ID／镜像／配置／HostConfig／完整挂载／
+网络／启动时间及真实 provider 配置均与原始基线一致，原 GNOME 会话仍锁定。四份产物哈希与
+分范围的成功／失败证据记录于私有 `candidate-d4eae4c6-index.json`；未部署、未替换系统应用，
+也未删除旧路径。

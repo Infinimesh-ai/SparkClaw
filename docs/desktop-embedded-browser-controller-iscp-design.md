@@ -2,8 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> Date: 2026-11-09. Status: implementation in progress. Candidate source `05fa3c1a` is qualified
-> in the recorded Mac ARM64/Linux x64 package scopes, including durable task cancellation.
+> Date: 2026-11-09. Status: implementation in progress. Clean-source `d4eae4c6` candidates include
+> the Gateway presentation/semantic repair and pass recorded paired upgrade/rollback scopes.
 > Source, isolated encrypted-Relay and real work2 provider evidence is recorded in §14.
 > TEST1, the remaining acceptance matrix and paired cutover remain open; no production replacement.
 > Owner decisions D1–D3 are retained in §12.
@@ -959,3 +959,49 @@ Earlier failed attempts remain archived. Both candidate Gateways are stopped, SS
 temporary AppArmor/display/keyring/process resources are removed, and all three work2 production
 baselines still match with GNOME locked. TEST1, the rest of the operation/peer/install matrix,
 WAN/chunk timing and paired rollback/P3 cutover remain open.
+
+Clean detached source `d4eae4c6` now produces matching Mac ARM64 DMG/ZIP, Linux x64
+AppImage/deb and Gateway binaries. The Controller inventory remains 207 files / 18,737,017
+bytes, manifest `2f7d00277cda633773229752661989942cffcead15997c2ed11ea5d6e4dc048a`.
+The independently installed Mac copy has exactly the same ASAR, WebChat, local-preview and
+Controller file hashes as `05fa3c1a`; the helper and manifest source revision change. No system
+application is replaced. Mac installed qualification passes seven groups, including original
+panel/tab/hide/widen behavior and blocked-Relay recovery.
+
+The actual old/new candidates now pass a paired same-profile upgrade and rollback: Mac through
+the local encrypted Relay with the mock provider, and colocated Linux through the work2 lab
+with the real provider. The old desktop is `05fa3c1a`; each original lab Gateway is restored
+for rollback. New Gateway hashes are `383a7fedbe8a58d467a301ca792f8418dee93a016cec85f5f2ef91d22f9e0b27`
+(Linux ARM64 for the Mac lab) and `25edecb42da4885fdfaf3d509c7cc2d365f5c43d1582b27e6a12eed6e4d89124`
+(Linux x64). Writers stop before replacement; no identity, database, credentials or receipt
+state is restored from an older copy. Each preparation passes four groups; upgrade and rollback
+pass seven each. An actually applied fill loses its local reply and remains unknown throughout.
+Cold and reopened checks preserve installation, history including newer messages, an unsent
+draft, personal cookie, journal rows and cancellation markers. The retained file inventory is
+empty, so this run makes no attachment-payload preservation claim. Distinct explicit
+tasks still complete. Synthetic fresh acquire IDs at the actual packaged forwarder cannot
+bypass either the original unknown or canceled task, and make zero native calls. This covers
+these candidate pairs only; pre-cancellation desktops remain unqualified rollback targets,
+and the complete A13/P4 cutover still depends on P3 and D2 deletion.
+
+Retained failures include a missing workspace dependency copy during clean assembly, the
+fixture's wrong draft scope field and prematurely sampled observer, and Linux fence sampling
+before Controller readiness. A separate real-provider open task returned a workflow setup
+failure without native dispatch. Its exact cause is unestablished: an isolated diagnostic
+Gateway attempt and then the unchanged clean candidate both succeeded. Diagnostic artifacts
+are separate; final upgrade/rollback uses the clean release binary. A delivered failure message
+is never counted as a successful browser action, and no unknown was reconciled to make the
+comparison pass. TEST1, remaining matrix/native/offline/WAN gates and production acceptance
+remain open.
+
+The refreshed Linux AppImage also passes eight normal real-provider groups, including renderer
+Seccomp/NoNewPrivs/user-namespace isolation, actual approved fill, original UI and Relay recovery.
+Its first normal run captured an empty fence baseline before the Controller had loaded; waiting
+for Controller readiness fixes the fixture, and the original unknown remains intact. The deb
+private payload has identical executable, ASAR, helper and manifest; this is not a package-manager
+installation claim. Both work2 candidate Gateways and the local Mac candidate Gateway are stopped.
+Owned candidate/X11/keyring processes and both exact temporary AppArmor profiles are absent;
+production container IDs/images/configuration/HostConfig/full mounts/networks/start times and
+real-provider configuration remain equal to their original baselines. The original GNOME seat
+is still locked. Four artifact hashes and scoped success/failure evidence are in the private
+`candidate-d4eae4c6-index.json`; no deploy, system application replacement or old-path deletion.

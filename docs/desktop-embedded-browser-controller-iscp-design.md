@@ -496,7 +496,7 @@ into a pass.
 
 | ID | Scenario | Required observation |
 |---|---|---|
-| A01 | Old/new peer and missing capability; LAN-only; Controller absent | Original entry retained/disabled, typed unavailability, no backend fallback; other features unaffected |
+| A01 | Old/new peer and missing capability; LAN-only; Controller absent | Unavailable automation entry retained/disabled, typed refusal, no backend fallback; LAN personal browsing stays authorized (§3), other features unaffected |
 | A02 | Open/read/snapshot/fill/type/click/select/wait/capture | Same public schemas and actual page effects; stale ref rejection; redirects/frozen-target rules preserved |
 | A03 | Iframe, cross-origin frame, popup, dynamic controls | Owned target scope, correct refs/effects, no personal/foreign target enumeration; unsupported cases explicitly block release |
 | A04 | Two tasks/conversations, queue full/expiry/cancel, cold start | One active Controller session; no expired request starts later; no conversation switch; bounded queue and cleanup |
@@ -1247,3 +1247,28 @@ probes are explicitly local; only the original workflow uses encrypted transport
 Gateways are stopped and restored, temporary native/AppArmor resources are absent, and work2's
 post-recovery health/configuration checks pass with 8,298,221,568 bytes free. These opt-in fixtures
 change no product binary or UI and do not complete the remaining acceptance/cutover gates.
+
+LAN-only qualification of the unchanged `c6948132` packages now passes 5 groups on each platform.
+An isolated, pinned HTTPS identity backend and a dedicated retained LAN profile exercise actual
+main/preload/UI code. Original personal tabs, address navigation, hide/reopen and width controls
+work; the page remains sandboxed with no debugger attached. Local probes of Controller status
+and the old reverse command return typed 503/403 refusals, with no Controller start or adapter.
+No browser-host grant or execution dispatch reaches the synthetic backend. Reopening the same
+profile retains its installation, encrypted login, attachment bytes and unsent draft, and an
+ordinary LAN owner read succeeds. This is client-side LAN admission/personal-browsing evidence,
+not a real-Gateway workflow or TEST1 run. The existing ISCP profiles are untouched. A01 now
+explicitly distinguishes the authorized personal-browsing exception already specified in §3;
+disabling that entry on LAN would violate the design.
+
+Retain the first Mac/Linux navigation timeouts: opening the panel already creates a blank tab,
+and the fixture submitted while its separately requested tab was still being selected. Waiting
+for that new renderer tab selection makes the unchanged packages pass. A Linux launcher attempt
+also failed before app startup because a version substitution left the wrong fixture filename.
+Both failures remain separate from successful native evidence. Private TLS listeners, candidate
+processes and temporary AppArmor/X11 resources are gone; production post-recovery checks pass.
+
+A separate read-only work2 observation finds its backend browser, Controller and App-CLI executor
+services active. In the preceding 30 minutes, retained executor rows record 29 Gmail, 25 Outlook
+and 29 QQ `collect_page` completions, with zero pending releases. These aggregate process/ledger
+checks establish continuing acquisition activity after recovery, not inbound-message completeness,
+mail delivery or a replay of interrupted work. No mail operation was dispatched by this check.

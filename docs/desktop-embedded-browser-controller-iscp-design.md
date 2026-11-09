@@ -2,8 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> Date: 2026-11-10. Status: implementation in progress. Current `80563081` packages include
-> visual capture and cancellation fixes; a further process-exit repair awaits rebuilt native qualification.
+> Date: 2026-11-10. Status: implementation in progress. Current `7c7dd816` packages include
+> the process-exit repair; Mac/Linux preapproval Gateway restart qualification passes within §14's scope.
 > A shared-disk exhaustion incident interrupted work2 PostgreSQL; original service recovered,
 > with the failed preservation audit and changed runtime baseline retained in §14.
 > TEST1, the remaining acceptance matrix and paired cutover remain open; no production package replacement.
@@ -1744,3 +1744,31 @@ Isolated activity services, candidate processes, private display/policies, SSH f
 control socket are stopped/removed; the Relay remains unpaused. Production matches its post-recovery
 baseline with 5,529,681,920 bytes free. The historical PostgreSQL incident, unrelated read failure,
 lock/revocation, TEST1, offline/installed and actual Dock coverage, WAN and P3/D2/P4 gates remain open.
+
+The subsequent clean `7c7dd816` build produces Mac ARM64 DMG/ZIP and Linux x64 AppImage/deb.
+Compared with `80563081`, only `controller-runtime.mjs` and `main.mjs` change among 6,516 Mac and
+6,566 Linux ASAR files. All 207 Controller payload files and 24 WebChat resources are byte-identical;
+the Controller manifest updates source provenance. Both helpers are byte-identical with unchanged
+Go source. Preserve the initial verifier failure that assumed an embedded Git stamp: neither old
+nor new helper contains one, so qualification uses exact bytes and the clean source tree. Also retain
+the first build's missing nested-workspace dependencies; complete lockfile installation fixes setup.
+
+The separate per-user Mac installation matches all 8,241 entries of its read-only DMG; Linux uses
+the hash-verified private AppImage extraction with a temporary exact-path sandbox policy. Neither
+replaces production. Both packages now pass all eight preapproval Gateway checks on the original
+node-managed profiles: zero original fills, retired approvals, rejected old authority/binding/lease,
+one separately approved Bob fill, same-profile restart and original data retention. Mac keeps nine
+unknowns and Linux eight. Stopped reads match all 12 completed receipts, two failed original executions
+and two delivered recovery executions. The original Mac failed tasks, their four completed receipts
+and the Gateway-only unknown remain intact. No original failed request is resubmitted or reconciled.
+
+Neither new native run records `kill EPERM` or an unhandled suspension rejection. This scoped
+repetition plus the bounded-denial regressions supports the repair; it does not claim the original
+OS denial's cause or a failure frequency. Post-kill cleanup observations are Mac 1,197 ms/Linux
+764 ms, excluding kill/inspection/SSH, not end-to-end recovery timing. The new packages still need
+the remaining normal/cancellation and lifecycle matrix. Lock/revocation, unresolved lookup failures,
+TEST1, offline/installed, actual Dock, WAN, P3/D2/P4 and final owner acceptance remain open.
+
+All activity services, candidate processes, control/tunnel, private display and temporary policies
+are stopped/removed, with Relay unpaused. Post-recovery production checks pass with 4,701,032,448
+bytes free; keep the unchanged reserve guard and the historical PostgreSQL incident.

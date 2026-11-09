@@ -2,8 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> 日期：2026-11-10。状态：实施推进中。当前 `80563081` 安装包包含视觉捕获和取消恢复修复，
-> 新的进程退出修复待重新打包及原生验证。work2 共享磁盘耗尽曾中断 PostgreSQL，原服务已恢复；
+> 日期：2026-11-10。状态：实施推进中。当前 `7c7dd816` 包含进程退出修复，
+> Mac／Linux 审批前 Gateway 重启验证在 §14 所述范围内通过。work2 共享磁盘耗尽曾中断 PostgreSQL，原服务已恢复；
 > §14 保留失败的环境保持检查及发生变化的运行基线。TEST1、其余验收矩阵和成对切换仍未完成，
 > 未替换生产安装包。§12 保留所有者决定 D1–D3。
 > 已核对源码：`main` 的 `e031a453`（初版提案）；浏览器／ISCP／桌面实现起点为 `b5c21e14`。
@@ -1395,3 +1395,27 @@ Mac 验证仍为失败。首次在触发故障前的执行状态查询失败，�
 隔离活动服务、候选进程、私有显示／策略、SSH 转发和控制 socket 已停止或移除，Relay 未暂停。
 生产符合恢复后基线，可用空间 5,529,681,920 字节。历史 PostgreSQL 事故、无关查询失败、
 锁定／撤权、TEST1、离线／安装及实际 Dock 覆盖、WAN 与 P3／D2／P4 门槛仍未关闭。
+
+后续从干净 `7c7dd816` 构建了 Mac ARM64 DMG／ZIP 和 Linux x64 AppImage／deb。相较
+`80563081`，Mac 6,516、Linux 6,566 个 ASAR 文件中仅 `controller-runtime.mjs` 和 `main.mjs`
+变化；Controller 的 207 个 payload 文件及 WebChat 的 24 个资源逐字节相同，Controller
+manifest 只更新源码来源。两端 helper 字节相同，Go 源码未变化。保留首次验证器错误假定
+helper 含 Git 版本戳的失败：新旧 helper 均无此戳，实际改用字节相等和干净源码树证明来源。
+同时保留首次构建缺失嵌套 workspace 依赖的失败；按完整锁文件安装后修复构建环境。
+
+独立用户目录中的 Mac 安装与只读 DMG 全部 8,241 个条目一致；Linux 使用哈希核对的私有
+AppImage 解包目录及临时精确路径沙箱策略，均未替换生产安装。新包在原 node-managed
+profile 上各通过八项审批前 Gateway 检查：原填写为零、旧审批失效、旧授权／绑定／租约被拒、
+单独审批的 Bob 仅填写一次，以及同 profile 重启和原数据保留。Mac 保留九条 unknown，Linux
+保留八条。停机读取匹配全部 12 条 completed 回执、两条 failed 原执行和两条 delivered 恢复
+执行。此前 Mac 失败任务、四条 completed 回执和 Gateway-only unknown 完整保留，未重提
+或确认任何原失败请求。
+
+新包两次原生运行均未记录 `kill EPERM` 或未处理的暂停拒绝。本范围复验结合有界拒绝回归
+支持修复，不声称确定了原操作系统拒绝的原因或故障频率。kill 后清理观察为 Mac 1,197 ms、
+Linux 764 ms，排除 kill／检查／SSH，不是完整恢复耗时。新包仍需剩余常规／取消及生命周期
+矩阵。锁定／撤权、未分类查询失败、TEST1、离线／安装、实际 Dock、WAN、P3／D2／P4 和所有者
+最终验收仍未完成。
+
+活动服务、候选进程、控制／转发、私有显示和临时策略均已停止或移除，Relay 未暂停。恢复后
+生产检查通过，可用空间 4,701,032,448 字节；继续保持原空间余量检查并保留历史 PostgreSQL 事故。

@@ -1958,3 +1958,19 @@ This is new-architecture build/static audit and a translated Mac Node probe, not
 ARM64 native GUI, package-manager installation or offline qualification. No new package was sent
 to work2, no production application was replaced, no new task was run and no existing profile was
 modified. Native platform gates remain under R05.
+
+R06 read-only review now defines the evidence limit: both original errors are the
+`Backend request is unavailable` wrapper produced by `DesktopAuth` for multiple underlying
+exceptions. The original samples lack sufficient raw error, HTTP status and helper-stage data;
+the wrapper cannot establish HTTP 503, a Relay failure or a located product defect. The Mac sample
+exits at `pendingApproval/readTask` before Gateway SIGKILL is reached; its recorded native calls
+contain no fill. Stopped Linux records show delivered with zero browser mutation receipts; a
+delivered blocked explanation is not browser workflow success. Original Gateway logs contain only
+five email-retry warnings; issuer/forwarder logs are empty. They do not establish a lookup cause.
+
+The later bounded observer samples contain 479/542/480 events without fetch errors or transport
+closes, but do not diagnose or repair the originals. The frozen read observer already covers
+execution reads and helper metadata. If a separate new qualification task reproduces the failure,
+use that observer for the pre-wrapper error and phase instead of relying only on static startup-read
+logs. R06 is reviewed with cause unclassified, not passed. No original request was resubmitted,
+profile/ledger changed, exception swallowed or budget extended.

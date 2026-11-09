@@ -1567,3 +1567,16 @@ LibreOffice/Koffi 架构包；Controller 和原 UI 字节相同。ZIP 和只读�
 这些是新增架构的构建/静态审计和 Mac 转译 Node 探测，不代表 Intel Mac/Linux ARM64 原生
 GUI、包管理器安装或离线资格。没有写入 work2 新包、替换生产应用、运行新任务或改动既有
 profile。原生平台门槛仍属于 R05。
+
+R06 的只读复核已明确证据边界：两次原错误均为 `DesktopAuth` 将底层异常归一化后的
+`Backend request is unavailable`，原样本没有保留足够的原始错误、HTTP 状态或 helper
+阶段，因此不能据此推断为 HTTP 503、Relay 故障或已定位的产品缺陷。Mac 样本在
+`pendingApproval/readTask` 即退出，尚未执行 Gateway SIGKILL；已记录的原生调用无 fill。
+Linux 原执行在停机读取得到 delivered、零浏览器 mutation receipt，不能把交付阻塞说明
+改记为浏览器业务成功。原 Gateway 日志仅有五条邮件重试警告，issuer/forwarder 日志为空，
+这些不足以证明查询失败原因。
+
+之后三个有界观察样本的 479/542/480 条事件未出现 fetch error 或 transport close，但不构成
+原失败的诊断或修复。已有冻结 read observer 能观察 execution 读取和 helper 元数据；后续
+独立新验收任务若复现，沿用它记录包装前错误和阶段，不只依靠静态启动读取日志。R06 当前为
+“已复核、原因未分类”，不是通过；没有重提原请求、修改 profile/账本、吞掉异常或延长预算。

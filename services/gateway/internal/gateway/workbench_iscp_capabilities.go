@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserhost"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpobjects"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
@@ -59,7 +58,7 @@ func (a *iscpDomainAdapter) capabilitiesWithSession(ctx context.Context, request
 		{"mail_attachments", []string{iscpworkbench.OperationMailAttachment, iscpworkbench.OperationObjectRead}, a.server.emailManagement != nil},
 		{"mail_send", []string{iscpworkbench.OperationMailDraftsList, iscpworkbench.OperationMailDraftsSave, iscpworkbench.OperationMailDraftsSend, iscpworkbench.OperationMailDraftsReconcile, iscpworkbench.OperationMailDraftsResolve}, mailSend},
 		{"mail_send_attachments", []string{iscpworkbench.OperationMailDraftsList, iscpworkbench.OperationMailDraftsSave, iscpworkbench.OperationMailDraftsSend, iscpworkbench.OperationMailDraftsReconcile, iscpworkbench.OperationMailDraftsResolve, iscpworkbench.OperationTransferOpen, iscpworkbench.OperationTransferChunk, iscpworkbench.OperationTransferCommit, iscpworkbench.OperationTransferStatus, iscpworkbench.OperationTransferAbort, iscpworkbench.OperationObjectDescribe, iscpworkbench.OperationObjectRelease}, mailSend && a.server.emailManagement.ComposeCapabilities().WorkspaceAttachments},
-		{"browser", []string{iscpworkbench.OperationBrowserCommand, iscpworkbench.OperationBrowserReceipt, iscpworkbench.OperationBrowserReconcile}, browserReady},
+		{"browser", []string{iscpworkbench.OperationBrowserControllerStatus, iscpworkbench.OperationBrowserControllerAcquire, iscpworkbench.OperationBrowserControllerExecute, iscpworkbench.OperationBrowserControllerRelease, iscpworkbench.OperationBrowserControllerChunk, iscpworkbench.OperationBrowserReceipt, iscpworkbench.OperationBrowserReconcile}, browserReady},
 		{"speech_recording", []string{iscpworkbench.OperationSpeechStatus, iscpworkbench.OperationSpeechTranscribe, iscpworkbench.OperationTransferOpen, iscpworkbench.OperationTransferChunk, iscpworkbench.OperationTransferCommit, iscpworkbench.OperationTransferStatus, iscpworkbench.OperationTransferAbort, iscpworkbench.OperationObjectRelease}, speechReady},
 		{"speech_realtime", []string{iscpworkbench.OperationSpeechSessionOpen, iscpworkbench.OperationSpeechSessionFrame, iscpworkbench.OperationSpeechSessionFinish, iscpworkbench.OperationSpeechSessionCancel, iscpworkbench.OperationSpeechSessionEvents}, speechStreaming},
 		{"settings_owner", []string{iscpworkbench.OperationSettingsOwnerGet, iscpworkbench.OperationSettingsOwnerPatch}, true},
@@ -115,7 +114,7 @@ func (a *iscpDomainAdapter) capabilityLimits() map[string]any {
 		"purpose_bytes":        map[string]int64{"context": 1 << 20, "request_body": 8 << 20, "execution_request": execution.ContextBytes, "execution_input": execution.ResultBytes, "execution_result": execution.ResultBytes, "file": limits.MaxObjectBytes, "mail_attachment": limits.MaxObjectBytes, app.EmailSendAttachmentPurpose: app.EmailSendMaxAttachmentBytes, "event_snapshot": 8 << 20, "browser_capture": 8 << 20, "speech_recording": min(25<<20, a.server.cfg.Speech.MaxUploadBytes), "speech_audio": min(25<<20, a.server.cfg.Speech.MaxUploadBytes)},
 		"speech_frame_samples": speech.RealtimeFrameSamples, "speech_frame_ms": speech.RealtimeFrameMS, "speech_unacked_ms": speech.RealtimeMaxUnackedMS,
 		"mail_send_attachment_supported": true, "mail_send_max_attachments": app.EmailSendMaxAttachments, "mail_send_attachment_bytes": app.EmailSendMaxAttachmentBytes,
-		"browser_capture_effective_bytes": browserhost.MaxCaptureBytes, "browser_reply_json_bytes": browserhost.MaxResultBytes,
+		"browser_reply_json_bytes": 10 << 20, "browser_reply_wire_bytes": 63488, "browser_reply_chunk_bytes": 32 << 10,
 		"event_unacked_packets": 1, "event_packet_items": 100, "event_cursor_ttl_seconds": 86400,
 	}
 }

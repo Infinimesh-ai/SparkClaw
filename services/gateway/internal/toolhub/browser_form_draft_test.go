@@ -46,6 +46,17 @@ func TestBrowserFormDraftAcceptsOnlyLatestExactOwnerBoundAction(t *testing.T) {
 	}
 }
 
+func TestBrowserFormDraftCannotSubmitThroughSharedController(t *testing.T) {
+	for _, submit := range []any{true, "true", 1, nil} {
+		_, hub, adapter, ref := newBrowserFormDraftHub(t, "textbox", "Display name", "Alice Example")
+		args := browserFormDraftArgs(ref, "text", "Alice Example")
+		args["submit"] = submit
+		if _, err := hub.Execute(t.Context(), "browser.type", args, "session", "run"); err == nil || adapter.calls != 0 {
+			t.Fatal("form draft submitted", submit, err)
+		}
+	}
+}
+
 func TestBrowserFormDraftRejectsForeignOrStaleSnapshotBindings(t *testing.T) {
 	tests := []struct {
 		name   string

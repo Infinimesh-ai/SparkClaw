@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browsercontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserhost"
 	wb "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 )
@@ -29,18 +30,31 @@ func TestISCPBrowserHasNoPollingHostOperations(t *testing.T) {
 		Limits       map[string]any         `json:"limits"`
 	}
 	f.must(json.Unmarshal(result.body, &body))
-	if body.Limits["browser_reply_json_bytes"] != float64(browserhost.MaxResultBytes) {
+	if body.Limits["browser_reply_json_bytes"] != float64(10<<20) || body.Limits["browser_reply_wire_bytes"] != float64(63488) {
 		t.Fatalf("browser result budget %v", body.Limits["browser_reply_json_bytes"])
 	}
 	for _, capability := range body.Capabilities {
 		if capability.ID == "browser" {
-			if !slices.Equal(capability.Operations, []string{wb.OperationBrowserCommand, wb.OperationBrowserReceipt, wb.OperationBrowserReconcile}) || !capability.Supported {
+			if !slices.Equal(capability.Operations, []string{wb.OperationBrowserControllerStatus, wb.OperationBrowserControllerAcquire, wb.OperationBrowserControllerExecute, wb.OperationBrowserControllerRelease, wb.OperationBrowserControllerChunk, wb.OperationBrowserReceipt, wb.OperationBrowserReconcile}) || !capability.Supported {
 				t.Fatalf("browser capability %+v", capability)
 			}
 			return
 		}
 	}
 	t.Fatal("browser capability missing")
+}
+
+func TestControllerReverseOutcomeRequiresLocalNotSentProof(t *testing.T) {
+	for _, err := range []error{wb.ErrPeerUnavailable, &wb.TransportError{NotSent: true, Code: wb.ErrorThrottled}} {
+		if _, got := controllerReverseOutcome(wb.Response{}, err); !errors.Is(got, browsercontrol.ErrControllerNotSent) {
+			t.Fatal(got)
+		}
+	}
+	for _, response := range []wb.Response{{Status: 403, Code: wb.ErrorPermissionDenied}, {Status: 503, Code: wb.ErrorCapabilityUnavailable}, {Status: 413, Code: wb.ErrorResourceLimit}} {
+		if _, err := controllerReverseOutcome(response, nil); err == nil || errors.Is(err, browsercontrol.ErrControllerNotSent) {
+			t.Fatal(response, err)
+		}
+	}
 }
 
 func TestISCPBrowserRoutesFindTheInstallationSession(t *testing.T) {

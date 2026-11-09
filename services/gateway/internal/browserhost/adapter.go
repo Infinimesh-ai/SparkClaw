@@ -253,7 +253,23 @@ const EmbeddedProfileID = "client_embedded"
 
 const stableRouteRebindLimit = 2
 
-func (b *Broker) ForScope(scope Scope) browserautomation.Adapter { return NewScopedAdapter(b, scope) }
+func (b *Broker) ForScope(scope Scope) browserautomation.Adapter {
+	b.mu.Lock()
+	host := b.controller
+	b.mu.Unlock()
+	if host != nil {
+		return NewScopedAdapter(host, scope)
+	}
+	return NewScopedAdapter(b, scope)
+}
+
+// The Controller path shares the full tool adapter; the older host projection
+// below remains only until native cutover qualification.
+type controllerToolHost interface {
+	CallTool(context.Context, Binding, string, map[string]any) (browserautomation.Result, error)
+	ReadTool(context.Context, Binding, string, map[string]any) (browserautomation.PageReadResult, error)
+}
+
 func NewScopedAdapter(host BrowserHostAdapter, scope Scope) *ScopedAdapter {
 	return &ScopedAdapter{host: host, scope: scope}
 }
@@ -284,8 +300,7 @@ func (a *ScopedAdapter) dispatch(ctx context.Context, binding Binding, operation
 	return output, err
 }
 
-// Health reads local readiness only. It never acquires a page or sends a
-// command; the first tool call does that.
+// Health probes readiness without acquiring a page or starting the Controller.
 func (a *ScopedAdapter) Health(ctx context.Context, _ map[string]any) (browserautomation.Result, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -315,6 +330,9 @@ func (a *ScopedAdapter) Call(ctx context.Context, tool string, args map[string]a
 	return a.callLocked(ctx, tool, args)
 }
 func (a *ScopedAdapter) callLocked(ctx context.Context, tool string, args map[string]any) (browserautomation.Result, error) {
+	if host, ok := a.host.(controllerToolHost); ok {
+		return a.callControllerLocked(ctx, host, tool, args)
+	}
 	presentation, _ := args["presentation"].(string)
 	if presentation != "hidden" && presentation != "visible" {
 		presentation = "visible"
@@ -439,6 +457,40 @@ func (a *ScopedAdapter) callLocked(ctx context.Context, tool string, args map[st
 	return result, nil
 }
 
+func (a *ScopedAdapter) callControllerLocked(ctx context.Context, host controllerToolHost, tool string, args map[string]any) (browserautomation.Result, error) {
+	if a.closed || !a.scope.valid() {
+		return browserautomation.Result{}, ErrFence
+	}
+	if tool == "browser.list_tabs" && a.binding == nil {
+		return browserautomation.Result{Tool: tool, Output: map[string]any{"pages": []any{}}, Pages: []any{}, Untrusted: true, Provider: "playwright-extension"}, nil
+	}
+	binding, err := a.acquire(ctx)
+	if err != nil {
+		return browserautomation.Result{}, err
+	}
+	result, err := host.CallTool(ctx, binding, tool, args)
+	if tool == "browser.close" && err == nil {
+		// Explicit close destroys the requested page before relinquishing the
+		// task's remaining authority. Normal task release may retain its view.
+		releaseErr := a.host.Release(ctx, binding)
+		a.binding, a.activeURL = nil, ""
+		return result, releaseErr
+	}
+	if err != nil {
+		a.forgetInactiveControllerBinding(binding, err)
+	}
+	return result, err
+}
+
+func (a *ScopedAdapter) forgetInactiveControllerBinding(binding Binding, err error) {
+	if errors.Is(err, ErrUnknown) {
+		return
+	}
+	if leases, ok := a.host.(interface{ LeaseActive(Binding) bool }); ok && !leases.LeaseActive(binding) {
+		a.binding, a.activeURL = nil, ""
+	}
+}
+
 // stableWait lets the host decide stability inside the page, then applies the
 // frozen-target route rule here, rebinding a same-origin route at most twice.
 func (a *ScopedAdapter) stableWait(ctx context.Context, binding Binding, args map[string]any, presentation string) (map[string]any, error) {
@@ -530,6 +582,20 @@ func (a *ScopedAdapter) ReadPage(ctx context.Context, targetURL string, args map
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	reuse, _ := args["reuse_active_page"].(bool)
+	if host, ok := a.host.(controllerToolHost); ok {
+		if reuse && (a.closed || a.binding == nil) {
+			return browserautomation.PageReadResult{}, ErrFence
+		}
+		binding, err := a.acquire(ctx)
+		if err != nil {
+			return browserautomation.PageReadResult{}, err
+		}
+		result, err := host.ReadTool(ctx, binding, targetURL, args)
+		if err != nil {
+			a.forgetInactiveControllerBinding(binding, err)
+		}
+		return result, err
+	}
 	if reuse {
 		// Reuse is a bound read, not permission to navigate or reacquire after
 		// losing a lease. Dispatch still verifies that this binding is live.
@@ -597,7 +663,7 @@ func (a *ScopedAdapter) ReleaseSession(_ map[string]any) error {
 	if a.binding == nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := a.host.Release(ctx, *a.binding)
 	a.binding = nil

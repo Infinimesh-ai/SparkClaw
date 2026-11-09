@@ -19,6 +19,8 @@ const (
 	CodeScriptUnavailable     = "browser_script_unavailable"
 	CodeScriptTimeout         = "browser_script_timeout"
 	CodeVaultUnavailable      = "browser_control_vault_unavailable"
+	CodeWriteUnknown          = "browser_write_outcome_unknown"
+	CodeResultUnavailable     = "browser_result_unavailable"
 )
 
 type Error struct {
@@ -53,6 +55,10 @@ func (e *Error) Error() string {
 		return "encrypted browser credential storage is unavailable"
 	case CodeControllerUnavailable:
 		return "browser controller is temporarily unavailable"
+	case CodeWriteUnknown:
+		return "browser action outcome requires reconciliation; do not repeat the action"
+	case CodeResultUnavailable:
+		return "browser operation completed but its result is unavailable; do not repeat the action"
 	default:
 		return "browser control operation failed"
 	}

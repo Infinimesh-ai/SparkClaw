@@ -110,6 +110,15 @@ export class ElectronAdapterServer {
     this.registry.beginControllerRelease(association.connectionID);
   }
 
+  controllerSurfaceVisible(taskID) {
+    const association = this.controllerTasks.get(taskID);
+    if (association?.state !== "connected") return false;
+    const record = this.registry.conversationPages.get(association.binding.local_conversation_id);
+    return Boolean(record && !record.destroyed && record.connectionID === association.connectionID &&
+      this.registry.presentation.presented === record && record.view.getVisible?.() === true &&
+      this.registry.presentation.window.isVisible?.() === true && !this.registry.presentation.window.isMinimized?.());
+  }
+
   revokeControllerTask(taskID, reason = "controller_task_revoked") {
     const association = this.controllerTasks.get(taskID);
     if (!association) return;

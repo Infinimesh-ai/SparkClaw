@@ -162,7 +162,11 @@ func (a *PlaywrightExtensionAdapter) typeLocked(ctx context.Context, args map[st
 		if err != nil {
 			return nil, "playwright_mcp.page.fill", err
 		}
-		output, err := a.executeControllerLocked(ctx, "page.fill", map[string]any{"page_id": pageID, "ref": rawRef, "text": text})
+		input := map[string]any{"page_id": pageID, "ref": rawRef, "text": text}
+		if submit, ok := args["submit"].(bool); ok {
+			input["submit"] = submit
+		}
+		output, err := a.executeControllerLocked(ctx, "page.fill", input)
 		if err != nil {
 			return nil, "playwright_mcp.page.fill", err
 		}
@@ -177,6 +181,9 @@ func (a *PlaywrightExtensionAdapter) typeLocked(ctx context.Context, args map[st
 		return nil, "playwright_mcp.page.type", errors.New("browser.type requires a snapshot ref or a focused-input mode")
 	}
 	input := map[string]any{"text": text, "focused": true}
+	if submit, ok := args["submit"].(bool); ok {
+		input["submit"] = submit
+	}
 	if pageID := normalizePlaywrightPageID(stringArg(args, "page_id")); pageID != "" {
 		input["page_id"] = pageID
 	}

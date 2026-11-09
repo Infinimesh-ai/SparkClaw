@@ -22,6 +22,9 @@ func (h *ToolHub) selectBrowserFormDraft(ctx context.Context, args map[string]an
 }
 
 func (h *ToolHub) executeBrowserFormDraft(ctx context.Context, operation string, args map[string]any, sessionID, runID string) (Result, error) {
+	if submit, present := args["submit"]; present && submit != false {
+		return Result{}, draftForbiddenError("browser form drafts cannot submit a form")
+	}
 	run, ok, err := h.store.GetRun(ctx, runID)
 	if err != nil {
 		return Result{}, draftForbiddenError("browser form workflow state is unavailable")

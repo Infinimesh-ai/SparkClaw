@@ -27,6 +27,18 @@ const runtime = await startClientUnixServer({ socketPath, controller });
 process.stdout.write(`${JSON.stringify({ event: "client_controller_ready", controller_generation: controller.controllerGeneration,
   node_version: process.versions.node, electron_version: process.versions.electron ?? "", versions: clientFactory.info() })}\n`);
 let closing;
-const close = () => closing ??= runtime.close().then(() => { process.exitCode = 0; }, () => { process.exitCode = 1; });
+const close = () => closing ??= (async () => {
+  const force = setTimeout(() => {
+    // Main launches this entry as a dedicated process-group leader. This also
+    // bounds cleanup after main itself crashed and cannot supervise us.
+    try { process.kill(-process.pid, "SIGKILL"); } finally { process.exit(1); }
+  }, 5000);
+  try { await runtime.close(); process.exitCode = 0; }
+  catch { process.exitCode = 1; }
+  finally { clearTimeout(force); process.stdin.destroy(); }
+})();
 process.on("SIGTERM", () => void close());
 process.on("SIGINT", () => void close());
+process.stdin.on("end", () => void close());
+process.stdin.on("error", () => void close());
+process.stdin.resume();

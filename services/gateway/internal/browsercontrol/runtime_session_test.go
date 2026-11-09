@@ -2,6 +2,7 @@ package browsercontrol
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +10,55 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/credential"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
+
+type deadlineController struct {
+	*fakeControllerClient
+	acquire func(context.Context, AcquireRequest, []byte) (SessionLease, error)
+}
+
+func (c *deadlineController) Acquire(ctx context.Context, input AcquireRequest, token []byte) (SessionLease, error) {
+	return c.acquire(ctx, input, token)
+}
+
+func TestAcquisitionDeadlineIsIndependentOfSuccessfulSessionLifetime(t *testing.T) {
+	base := &fakeControllerClient{result: validationResult(41, 1, 1)}
+	controller := &deadlineController{fakeControllerClient: base}
+	controller.acquire = func(ctx context.Context, input AcquireRequest, token []byte) (SessionLease, error) {
+		if _, ok := ctx.Deadline(); !ok {
+			t.Fatal("acquisition lost the tool deadline")
+		}
+		return base.Acquire(ctx, input, token)
+	}
+	vault := credential.New(store.NewMemoryStore(), credential.Options{Key: strings.Repeat("l", 32)})
+	service := New(vault, controller, "default")
+	service.Initialize(t.Context())
+	if _, err := service.SaveToken(t.Context(), []byte("runtime-extension-token")); err != nil {
+		t.Fatal(err)
+	}
+	acquireCtx, cancelAcquire := context.WithTimeout(t.Context(), time.Second)
+	defer cancelAcquire()
+	lifetime, cancelLifetime := context.WithCancel(t.Context())
+	defer cancelLifetime()
+	session, err := service.AcquireSessionWithLifetime(acquireCtx, lifetime, "task-lifetime", 0, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelAcquire()
+	if _, err := session.Execute(t.Context(), "tabs.list", map[string]any{}); err != nil {
+		t.Fatalf("tool completion ended task lifetime: %v", err)
+	}
+	cancelLifetime()
+	waitForControllerCalls(t, func() bool { return service.Status(t.Context()).SessionGeneration == 0 })
+	controller.acquire = func(ctx context.Context, _ AcquireRequest, _ []byte) (SessionLease, error) {
+		<-ctx.Done()
+		return SessionLease{}, ctx.Err()
+	}
+	blocked, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := service.AcquireSessionWithLifetime(blocked, t.Context(), "task-blocked", 0, time.Minute); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("blocked acquisition: %v", err)
+	}
+}
 
 func TestRuntimeSessionOpensVaultCredentialForBoundedAcquireAndTracksGenerations(t *testing.T) {
 	vault := credential.New(store.NewMemoryStore(), credential.Options{Key: strings.Repeat("r", 32)})

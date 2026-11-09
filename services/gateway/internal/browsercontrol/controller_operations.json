@@ -1,0 +1,18 @@
+{
+  "ai_chat.export": { "mutation": true, "client": false, "required": ["provider", "url"], "optional": ["page_id"] },
+  "ai_platform.check": { "mutation": true, "client": false, "required": ["provider"], "optional": ["page_id"] },
+  "page.click": { "mutation": true, "client": true, "required": ["ref"], "optional": ["page_id", "double_click", "button", "modifiers"] },
+  "page.fill": { "mutation": true, "client": true, "required": ["ref", "text"], "optional": ["page_id", "submit"] },
+  "page.info": { "mutation": false, "client": true, "required": [], "optional": ["page_id"] },
+  "page.navigate": { "mutation": true, "client": true, "required": ["url"], "optional": ["page_id"] },
+  "page.read": { "mutation": false, "client": true, "required": [], "optional": ["page_id", "max_chars", "ref"] },
+  "page.screenshot": { "mutation": false, "client": true, "required": [], "optional": ["page_id", "full_page", "type"] },
+  "page.select": { "mutation": true, "client": true, "required": ["ref"], "optional": ["page_id", "value", "values"] },
+  "page.snapshot": { "mutation": false, "client": true, "required": [], "optional": ["page_id", "depth", "boxes"] },
+  "page.type": { "mutation": true, "client": true, "required": ["text"], "optional": ["page_id", "ref", "focused", "submit"] },
+  "page.wait": { "mutation": false, "client": true, "required": [], "optional": ["page_id", "duration_ms", "text", "text_gone"] },
+  "tabs.close": { "mutation": true, "client": true, "required": [], "optional": ["page_id"] },
+  "tabs.handoff": { "mutation": true, "client": false, "required": ["page_id"], "optional": [] },
+  "tabs.list": { "mutation": false, "client": true, "required": [], "optional": [] },
+  "tabs.new": { "mutation": true, "client": true, "required": [], "optional": ["url"] }
+}

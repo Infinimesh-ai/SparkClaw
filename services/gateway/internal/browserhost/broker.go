@@ -49,13 +49,14 @@ func (h *hostConnection) send(value any) error {
 func (h *hostConnection) close() { h.once.Do(func() { close(h.closed); h.conn.Close() }) }
 
 type Broker struct {
-	mu      sync.Mutex
-	root    string
-	grants  map[string]*hostGrant
-	hosts   map[string]*hostConnection
-	fences  map[string]Fence
-	now     func() time.Time
-	reverse ReverseRouter
+	mu         sync.Mutex
+	root       string
+	grants     map[string]*hostGrant
+	hosts      map[string]*hostConnection
+	fences     map[string]Fence
+	now        func() time.Time
+	reverse    ReverseRouter
+	controller *ClientControllerHost
 }
 
 func NewBroker(root string) (*Broker, error) {
@@ -122,7 +123,6 @@ func (b *Broker) RevokeGrant(identity Identity, hostID string) error {
 }
 func (b *Broker) RevokeClientHosts(clientID string) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	for id, g := range b.grants {
 		if g.Identity.ClientID == clientID {
 			delete(b.grants, id)
@@ -133,14 +133,23 @@ func (b *Broker) RevokeClientHosts(clientID string) {
 			h.close()
 		}
 	}
+	controller := b.controller
+	b.mu.Unlock()
+	if controller != nil {
+		controller.closeClient(clientID)
+	}
 }
 func (b *Broker) Close() error {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	for _, host := range b.hosts {
 		host.close()
 	}
 	b.grants = map[string]*hostGrant{}
+	controller := b.controller
+	b.mu.Unlock()
+	if controller != nil {
+		controller.closeClient("")
+	}
 	return nil
 }
 

@@ -23,7 +23,8 @@ import {
 import { ElectronAdapterServer } from "../browser/adapter-server.mjs";
 import { ManagedScriptHost } from "../browser/managed-script-host.mjs";
 import { PageRegistry } from "../browser/page-registry.mjs";
-import { BrowserHostAgent } from "../browser/host-agent.mjs";
+import { BrowserControllerForwarder } from "../browser/controller-forwarder.mjs";
+import { ClientControllerRuntime } from "../browser/controller-runtime.mjs";
 import { adapterSecretPath, adapterSocketPath } from "../browser/protocol.mjs";
 import { BrowserPresentation } from "./presentation.mjs";
 import { DesktopCapability, isDesktopSessionAuthorized } from "./desktop-capability.mjs";
@@ -55,6 +56,7 @@ import { configureWorkbenchPermissions } from "./workbench-permissions.mjs";
 import { proxyAPIAllowed, settledBackendState } from "./workbench-proxy-policy.mjs";
 import { bindWorkbenchActivation } from "./workbench-activation.mjs";
 import { bindWindowChrome } from "./window-chrome.mjs";
+import { bindDesktopShutdown } from "./shutdown.mjs";
 import { resolveISCPLaunchProfile } from "./iscp-launch-profile.mjs";
 
 // Packagers must never silently turn isolation off when user namespaces are
@@ -176,7 +178,7 @@ async function start() {
         else medicineClient?.close();
         if (status.backend?.transport !== "iscp" || status.capabilities?.mail === true) mailClient?.start();
         else mailClient?.close();
-        if (status.backend?.transport !== "iscp" || status.capabilities?.browser === true) void prepareBrowserHostScope().catch(() => {});
+        if (status.backend?.transport === "iscp") void prepareBrowserHostScope().catch(() => {});
         else void browserHost?.suspend();
       } else {
         const temporaryStreamLoss = status.backend?.transport === "iscp" && !desktopAuth.authorizationRevoked &&
@@ -192,7 +194,10 @@ async function start() {
       }
       if (window && !window.isDestroyed()) window.webContents.send("sparkclaw-local-backend:state", status);
     },
-    onReverse: (request, session) => browserHost?.handleReverse(request, session),
+    onReverse: async (request, session) => {
+      await prepareBrowserHostScope();
+      return browserHost?.handleReverse(request, session);
+    },
     onLock: async () => {
       localFilesService?.refreshIdentity();
       executionClient?.close();
@@ -388,8 +393,17 @@ async function start() {
   });
   scriptHost.setRegistry(registry);
   if (!qualification) {
-    browserHost = new BrowserHostAgent({
+    const controller = new ClientControllerRuntime({
+      bundleRoot: app.isPackaged ? path.join(process.resourcesPath, "browser-controller") : path.resolve(MODULE_DIR, "../../bin/browser-controller"),
+      adapterFactory: async ({ directory, incarnation }) => new ElectronAdapterServer({
+        socketPath: path.join(directory, "electron-adapter.sock"), secretPath: path.join(directory, "adapter-secret"),
+        downloadRoot: path.join(directory, "downloads"), runtimeGeneration, registry, browserSession,
+        scriptHost, clipboard, controllerIncarnation: incarnation,
+      }).start(),
+    });
+    browserHost = new BrowserControllerForwarder({
       auth: desktopAuth, registry, userDataDir: app.getPath("userData"),
+      runtime: controller,
       onChange: () => desktopCapability?.changed(),
     });
     await prepareBrowserHostScope().catch(() => {});
@@ -422,9 +436,8 @@ async function start() {
     authorizeSession: () => qualification || isDesktopSessionAuthorized(desktopAuth),
     getCapabilities: () => desktopAuth?.status.capabilities,
   }).start();
-  // The UDS adapter is a frozen Linux qualification transport. Production
-  // browser execution uses the automatically connected outbound Host transport. macOS
-  // never reads Linux adapter secrets or starts the qualification owner service.
+  // Keep the frozen legacy fixture until P3. Production owns a private adapter
+  // per packaged Controller incarnation, created lazily by the supervisor.
   if (qualification && process.platform === "linux") {
   adapter = new ElectronAdapterServer({
     socketPath: adapterSocketPath(),
@@ -449,7 +462,7 @@ async function start() {
     runtime_kind: "electron",
     runtime_generation: runtimeGeneration,
     ...(adapter ? { adapter_socket: adapterSocketPath() } : {}),
-    browser_execution: adapter ? "legacy_qualification" : "host_grant_required",
+    browser_execution: adapter ? "legacy_qualification" : "client_controller_iscp",
     electron_version: process.versions.electron,
     chromium_version: process.versions.chrome,
     node_version: process.versions.node,
@@ -460,9 +473,10 @@ async function start() {
 
   bindWorkbenchActivation(app, () => window);
   app.on("window-all-closed", () => {});
-  app.on("before-quit", () => { quitting = true; desktopAuth.close(); executionClient?.close(); scheduleClient?.close(); mailClient?.close(); medicineClient?.close(); });
-  process.on("SIGINT", () => void shutdown());
-  process.on("SIGTERM", () => void shutdown());
+  const shutdownError = () => { quitting = false; process.stderr.write("SparkX could not complete owned runtime cleanup; quit again to retry.\n"); };
+  const requestShutdown = bindDesktopShutdown(app, shutdown, shutdownError);
+  process.on("SIGINT", () => void requestShutdown().catch(shutdownError));
+  process.on("SIGTERM", () => void requestShutdown().catch(shutdownError));
 }
 
 async function waitForWorkbench() {
@@ -541,9 +555,8 @@ async function waitForWorkbench() {
 }
 
 async function shutdown() {
-  desktopAuth?.close();
-  if (quitting) return;
   quitting = true;
+  desktopAuth?.close();
   executionClient?.close();
   scheduleClient?.close();
   mailClient?.close(); medicineClient?.close();
@@ -561,7 +574,6 @@ async function shutdown() {
   await scriptHost?.close().catch(() => {});
   desktopCapability?.close();
   ownerBrowserServices?.close();
-  app.quit();
 }
 
 async function qualificationLifecycle(action) {
@@ -787,15 +799,14 @@ function localIdentity() {
 
 function prepareBrowserHostScope() {
   browserHostPreparation = browserHostPreparation.catch(() => {}).then(async () => {
-    if (quitting || !browserHost || !localStore || desktopAuth.status.state !== "connected" || desktopAuth.descriptor?.transport === "iscp" && !desktopAuth.status.capabilities?.browser) return;
+    if (quitting || !browserHost || !localStore || desktopAuth.status.state !== "connected" || desktopAuth.descriptor?.transport !== "iscp") return;
     const connection = desktopAuth.connection;
     const scope = browserHost.scope;
     if (scope?.installation_id !== localStore.installationID || scope.owner_id !== connection.ownerID || scope.client_id !== connection.clientID) {
       await browserHost.start({ installation_id: localStore.installationID });
     }
-    // LAN connects its host socket automatically and owns transient retries.
-    // ISCP only binds to the current session and reads its fences once; the
-    // Gateway sends commands over that session when it automates a task.
+    // Bind before the browser UI is ready so a side-effect-free status probe
+    // can bootstrap capability checks. Task dispatch still requires readiness.
     browserHost.autoConnect();
     desktopCapability?.changed();
   });

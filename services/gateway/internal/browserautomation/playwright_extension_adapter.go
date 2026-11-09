@@ -25,25 +25,39 @@ type playwrightControllerChecker interface {
 	Check(context.Context) (browsercontrol.Status, error)
 }
 
-type PlaywrightExtensionAdapter struct {
-	cfg        config.Config
-	controller PlaywrightController
+type playwrightControllerLifetime interface {
+	AcquireSessionWithLifetime(context.Context, context.Context, string, time.Duration, time.Duration) (browsercontrol.Session, error)
+}
 
-	mu                 sync.Mutex
-	session            browsercontrol.Session
-	sessionCancel      context.CancelFunc
-	scope              string
-	providerSessionRef string
-	nextTaskID         uint64
-	nextSnapshotID     uint64
-	snapshots          map[string]*browserSnapshotState
-	activeSnapshotPage string
+type PlaywrightExtensionAdapter struct {
+	cfg            config.Config
+	controller     PlaywrightController
+	clientEmbedded bool
+
+	mu                   sync.Mutex
+	session              browsercontrol.Session
+	sessionCancel        context.CancelFunc
+	scope                string
+	providerSessionRef   string
+	nextTaskID           uint64
+	nextSnapshotID       uint64
+	snapshots            map[string]*browserSnapshotState
+	activeSnapshotPage   string
+	clientSurfaceVisible bool
 }
 
 func NewPlaywrightExtensionAdapter(cfg config.Config, controller PlaywrightController) Adapter {
 	return &PlaywrightExtensionAdapter{
 		cfg: cfg, controller: controller, snapshots: map[string]*browserSnapshotState{},
 	}
+}
+
+// Client focus remains logical, and explicit close must not create a backend
+// replacement blank page. All other operations retain the shared semantics.
+func NewClientPlaywrightExtensionAdapter(cfg config.Config, controller PlaywrightController) *PlaywrightExtensionAdapter {
+	adapter := NewPlaywrightExtensionAdapter(cfg, controller).(*PlaywrightExtensionAdapter)
+	adapter.clientEmbedded = true
+	return adapter
 }
 
 func (a *PlaywrightExtensionAdapter) Health(ctx context.Context, args map[string]any) (Result, error) {
@@ -89,6 +103,9 @@ func (a *PlaywrightExtensionAdapter) Call(ctx context.Context, tool string, args
 	rawTool, output, err := a.executeLocked(ctx, tool, args)
 	if err != nil {
 		return Result{}, err
+	}
+	if a.clientEmbedded {
+		metadata.SurfaceVisible = a.clientSurfaceVisible
 	}
 	output = a.withSessionMetadataLocked(output, metadata, args)
 	lease := a.session.Lease()
@@ -157,6 +174,9 @@ func (a *PlaywrightExtensionAdapter) ReadPage(ctx context.Context, targetURL str
 		return PageReadResult{}, errors.New("playwright extension session was lost while reading the page")
 	}
 	lease := a.session.Lease()
+	if a.clientEmbedded {
+		metadata.SurfaceVisible = a.clientSurfaceVisible
+	}
 	result := PageReadResult{
 		URL: targetURL, FinalURL: firstNonEmptyBrowserString(firstStringValue(page, "url"), targetURL),
 		Title: firstStringValue(page, "title"), HTML: firstStringValue(page, "html"), Text: firstStringValue(page, "text"),
@@ -193,14 +213,26 @@ func (a *PlaywrightExtensionAdapter) executeLocked(ctx context.Context, tool str
 		if err != nil {
 			return "", nil, err
 		}
-		output, err := a.executeControllerLocked(ctx, "tabs.handoff", map[string]any{"page_id": pageID})
+		operation := "tabs.handoff"
+		if a.clientEmbedded {
+			operation = "page.info"
+		}
+		output, err := a.executeControllerLocked(ctx, operation, map[string]any{"page_id": pageID})
 		if err == nil {
 			a.invalidateSnapshotsLocked()
 		}
 		page := cloneArgs(mapValue(output["page"]))
 		page["selected"] = true
-		return "playwright_mcp.tabs.handoff", page, err
+		return "playwright_mcp." + operation, page, err
 	case "browser.close":
+		if a.clientEmbedded {
+			input := optionalPageArgs(normalizePlaywrightPageID(stringArg(args, "page_id")))
+			output, err := a.executeControllerLocked(ctx, "tabs.close", input)
+			if err == nil {
+				a.invalidateSnapshotsLocked()
+			}
+			return "playwright_mcp.tabs.close", normalizedPagesOutput(extractPages(output)), err
+		}
 		pageID, err := playwrightPageIDArg(args)
 		if err != nil {
 			return "", nil, err

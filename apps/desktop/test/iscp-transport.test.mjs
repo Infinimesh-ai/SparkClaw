@@ -1015,3 +1015,39 @@ test('reverse browser.command without a browser handler is refused before execut
   const reply = f.calls.find(call => call.type === 'reverse_response');
   assert.equal(reply.response.status, 503); assert.equal(reply.response.error_code, 'capability_unavailable');
 });
+
+test('Controller reverse operations use an exact negotiated whitelist, bounded chunks and full-wire response checks', async t => {
+  const operations = ['status', 'acquire', 'execute', 'release', 'chunk'].map(name => `browser.controller.${name}`);
+  const capabilities = { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session-controller', authorization_revision: 7,
+    expires_at: new Date(Date.now() + 60000).toISOString(), binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' }, operations,
+    limits: { concurrent: 4, response_bytes: 65536 } };
+  const releases = [], seen = [];
+  const f = fixture(t, () => {}, { onReverse: async request => {
+    seen.push(request.operation);
+    if (request.body.hold) await new Promise(resolve => releases.push(resolve));
+    return { status: 200, body: { value: request.body.large ? '<'.repeat(12000) : 'ok' } };
+  } });
+  await f.transport.start(); f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities });
+  let sequence = 0;
+  const send = (operation, body = {}) => {
+    const id = `77777777-7777-4777-8777-${String(++sequence).padStart(12, '0')}`;
+    f.children[0].send({ ipc_version: 1, type: 'reverse_request', id, request: { type: 'task.invoke', profile: capabilities.profile, id, operation, body } });
+    return id;
+  };
+  for (const operation of operations) send(operation);
+  const unknown = send('browser.controller.script');
+  const legacy = send('browser.command');
+  const oversized = send('browser.controller.execute', { large: true });
+  await new Promise(resolve => setTimeout(resolve, 10));
+  const response = id => f.calls.find(call => call.type === 'reverse_response' && call.id === id)?.response;
+  assert.deepEqual(seen.slice(0, 5), operations);
+  assert.equal(response(unknown).status, 403); assert.equal(response(legacy).status, 503);
+  assert.equal(response(oversized).status, 413, 'Go JSON escaping is part of the whole-wire budget');
+  const chunks = Array.from({ length: 5 }, () => send('browser.controller.chunk', { hold: true }));
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(releases.length, 4); assert.equal(response(chunks[4]).status, 429);
+  for (const release of releases) release();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(chunks.slice(0, 4).every(id => response(id).status === 200));
+  assert.equal(f.transport.state, 'transport_ready');
+});

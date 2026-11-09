@@ -24,6 +24,7 @@ func (s *Server) browserHostBroker() (*browserhost.Broker, error) {
 		return nil, execution.ErrUnavailable
 	}
 	broker.SetReverseRouter(&s.browserRoutes)
+	broker.EnableClientController(s.cfg)
 	s.browserBroker = broker
 	ctx := s.executionContext()
 	go func() { <-ctx.Done(); _ = broker.Close() }()

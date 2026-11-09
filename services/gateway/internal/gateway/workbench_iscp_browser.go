@@ -6,13 +6,14 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browsercontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserhost"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 )
 
 // The embedded browser has no ISCP host lifecycle. The desktop only reads its
-// write fences and reconciles them; commands arrive as reverse browser.command
-// calls on the session that already authenticates the device.
+// write fences and reconciles them; Controller operations use the session
+// that already authenticates the device.
 func (a *iscpDomainAdapter) browser(ctx context.Context, request iscpworkbench.Request) iscpDomainResult {
 	principal, _, err := a.executionIdentity(ctx, request)
 	if err != nil {
@@ -121,6 +122,27 @@ type browserPeerSession struct{ session iscpworkbench.PeerSession }
 func (p browserPeerSession) SessionID() string             { return p.session.ID }
 func (p browserPeerSession) AuthorizationRevision() uint64 { return p.session.AuthorizationRevision }
 func (p browserPeerSession) Done() <-chan struct{}         { return p.session.Done }
+
+func (p browserPeerSession) ControllerCall(ctx context.Context, operation string, body json.RawMessage) (json.RawMessage, error) {
+	response, err := p.session.Command(ctx, operation, body)
+	return controllerReverseOutcome(response, err)
+}
+
+func controllerReverseOutcome(response iscpworkbench.Response, err error) (json.RawMessage, error) {
+	var transport *iscpworkbench.TransportError
+	if errors.Is(err, iscpworkbench.ErrPeerUnavailable) || errors.As(err, &transport) && transport.NotSent {
+		return nil, browsercontrol.ErrControllerNotSent
+	}
+	if err != nil {
+		return nil, err
+	}
+	if response.Status == 200 {
+		return response.Body, nil
+	}
+	// A remote status alone cannot prove that a submitted mutation did not
+	// execute. Only an authenticated Controller envelope carries that proof.
+	return nil, errors.New("browser Controller response outcome is unavailable")
+}
 
 // Command maps the reverse call onto the broker's outcome rules: only a local
 // refusal before sending, or the desktop's own refusal before executing,

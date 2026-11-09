@@ -40,10 +40,16 @@ export class HostJournal {
     if (!["completed", "unknown", "failed"].includes(state) || !this.rows.has(id)) throw new Error("Browser journal transition is invalid");
     await this.#store({ ...this.rows.get(id), state, updated_at: new Date().toISOString() });
   }
+  markUncertain(id) {
+    const row = this.rows.get(id);
+    // The durable dispatched row already fences restart. Keep the same fence
+    // visible in this process when persisting its terminal state fails.
+    if (row?.state === "dispatched") this.rows.set(id, Object.freeze({ ...row, state: "unknown" }));
+  }
   unknown(scope) { return [...this.rows.values()].filter((row) => row.state === "unknown" && row.installation_id === scope.installation_id && row.owner_id === scope.owner_id && row.client_id === scope.client_id); }
   async reconcile(id, digest, outcome, remoteUnknown = false) {
     const row = this.rows.get(id);
-    if (!row || !(row.state === "unknown" || remoteUnknown && row.state === "completed" || row.state === outcome) || row.digest !== digest || !["observed_completed", "observed_not_applied"].includes(outcome)) throw new Error("Browser reconciliation is invalid");
+    if (!row || !(row.state === "unknown" || remoteUnknown && ["completed", "dispatched"].includes(row.state) || row.state === outcome) || row.digest !== digest || !["observed_completed", "observed_not_applied"].includes(outcome)) throw new Error("Browser reconciliation is invalid");
     await this.#store({ ...row, state: outcome, updated_at: new Date().toISOString() });
   }
   async recordReconciled(fence, outcome) {

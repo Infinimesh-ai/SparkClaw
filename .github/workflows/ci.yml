@@ -242,7 +242,10 @@ jobs:
       - name: Install browser controller test runtime
         run: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --prefix tools/browser-controller --ignore-scripts
       - name: Test browser controller
-        run: npm test --prefix tools/browser-controller
+        run: |
+          node scripts/sync-controller-operations.mjs --check
+          node scripts/sync-iscp-operations.mjs --check
+          npm test --prefix tools/browser-controller
       - name: Test browser bridge
         run: npm test --prefix tools/browser-bridge
       - name: Test browser email provider scripts

@@ -10,6 +10,8 @@ import { PageRegistry } from "../src/browser/page-registry.mjs";
 import { BrowserPresentation } from "../src/main/presentation.mjs";
 import { verifyControllerBundle } from "../src/browser/controller-bundle.mjs";
 import { ClientControllerRuntime } from "../src/browser/controller-runtime.mjs";
+import { BrowserControllerForwarder } from "../src/browser/controller-forwarder.mjs";
+import { CONTROLLER_OPERATIONS, controllerDigest, iscpHostID, iscpAuthorizationDigest } from "../src/browser/controller-wire.mjs";
 
 // Disposable native main process; never reads the installed app's profile or authority.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -19,7 +21,9 @@ app.setPath("userData", path.join(directory, "profile"));
 protocol.registerSchemesAsPrivileged([{ scheme: "sparkclaw-internal", privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 const evidence = { schema_version: 1, scope: "disposable_native_local_controller", passed: false, platform: process.platform,
   architecture: process.arch, versions: process.versions, checks: {}, timings_ms: {} };
-let window, adapter, registry, runtime, fixture;
+let window, adapter, registry, runtime, fixture, forwarder;
+const useForwarder = process.env.SPARKCLAW_TEST_CONTROLLER_FORWARDER === "1";
+if (useForwarder) evidence.scope = "disposable_native_controller_forwarder_wire";
 
 const bundle = process.env.SPARKCLAW_TEST_CONTROLLER_BUNDLE || path.join(root, "apps/desktop/bin/browser-controller");
 let controllerSocket;
@@ -65,7 +69,8 @@ try {
       <label>Name<input aria-label="Name"></label><button onclick="document.querySelector('#count').textContent=String(++window.count)">Increment</button>
       <p id="count">0</p><select aria-label="Choice"><option value="one">One</option><option value="two">Two</option></select>
       <button onclick="window.open('/popup')">Open popup</button><iframe title="Owned frame" src="/frame"></iframe>
-      <script>window.count=0</script></body></html>`);
+      ${useForwarder ? '<canvas width="700" height="500"></canvas>' : ''}
+      <script>window.count=0;const c=document.querySelector('canvas');if(c){const x=c.getContext('2d'),d=x.createImageData(700,500);let s=7;for(let i=0;i<d.data.length;i++){s=(s*1664525+1013904223)>>>0;d.data[i]=i%4===3?255:s>>>24;}x.putImageData(d,0,0);}</script></body></html>`);
   });
   await new Promise(resolve => fixture.listen(0, "127.0.0.1", resolve));
   const origin = `http://127.0.0.1:${fixture.address().port}`;
@@ -73,21 +78,69 @@ try {
   const binding = { owner_id: "fixture-owner", client_id: "fixture-client", installation_id: "fixture-installation", local_conversation_id: "conversation-A",
     local_task_id: "fixture-task", host_id: "fixture-host", runtime_generation: "iscp_fixture", connection_epoch: "epoch_fixture", lease_id: "lease_fixture",
     page_id: "page_fixture", page_generation: 1, authorization_digest: "fixture-digest" };
+  let sendWire;
+  if (useForwarder) {
+    const manifest = { schema_version: 2, profile: "sparkclaw.workbench.transport.v2", session_id: "fixture_session", authorization_revision: 1,
+      expires_at: new Date(Date.now()+300000).toISOString(), operations: [...CONTROLLER_OPERATIONS, "browser.receipt", "browser.reconcile"],
+      limits: { body_bytes: 63488, response_bytes: 63488, concurrent: 8 } };
+    const auth = { descriptor: { transport: "iscp" }, connection: { ownerID: binding.owner_id, clientID: binding.client_id },
+      status: { state: "connected", capabilities: { browser: true } }, transport: { capabilities: manifest },
+      invokeISCP: async () => ({ fences: [] }) };
+    Object.assign(binding, { host_id: iscpHostID(binding, manifest.session_id), runtime_generation: `iscp_${manifest.session_id}`,
+      connection_epoch: manifest.session_id, authorization_digest: iscpAuthorizationDigest(manifest.session_id, 1), lease_expires_at: "0001-01-01T00:00:00Z" });
+    forwarder = new BrowserControllerForwarder({ auth, registry, runtime, userDataDir: app.getPath("userData") });
+    await forwarder.start(binding);
+    sendWire = async (action, fields) => {
+      const operation = `browser.controller.${action}`;
+      const body = ["status", "chunk"].includes(action) ? fields : { schema_version: 1, command_id: `cmd_${crypto.randomUUID()}`,
+        binding, digest: "", timeout_ms: 25000, ...fields };
+      if (!["status", "chunk"].includes(action)) body.digest = controllerDigest(operation, body);
+      const reply = await forwarder.handleReverse({ type: "task.invoke", profile: manifest.profile, id: crypto.randomUUID(), operation,
+        installation_id: binding.installation_id, body }, manifest);
+      assert.equal(reply.status, 200, JSON.stringify(reply));
+      if (["status", "chunk"].includes(action)) return reply.body;
+      assert.equal(reply.body.outcome, "completed", JSON.stringify(reply));
+      if (reply.body.payload) return reply.body.payload;
+      const descriptor = reply.body.result;
+      assert.ok(descriptor, JSON.stringify(reply));
+      const bytes = [];
+      for (let offset = 0; offset < descriptor.total_bytes; offset += 32768) {
+        const input = { schema_version: 1, binding, command_id: body.command_id, result_id: descriptor.result_id, offset,
+          length: Math.min(32768, descriptor.total_bytes-offset) };
+        const chunk = await sendWire("chunk", input);
+        assert.deepEqual(await sendWire("chunk", input), chunk);
+        bytes.push(Buffer.from(chunk.data_base64, "base64"));
+      }
+      const assembled = Buffer.concat(bytes);
+      assert.equal(crypto.createHash("sha256").update(assembled).digest("hex"), descriptor.sha256);
+      evidence.checks.chunked_native_payload_hash_and_retry = true;
+      return JSON.parse(assembled);
+    };
+    const status = await sendWire("status", { schema_version: 1 });
+    assert.equal(status.process_state, "stopped"); assert.equal(runtime.child, null);
+    evidence.checks.status_wire_does_not_start_controller = true;
+  }
   let task;
   const acquire = async () => {
+    if (useForwarder) return sendWire("acquire", { wait_timeout_ms: 0, session_ttl_ms: 60000 });
     task = adapter.prepareControllerTask(binding, runtime.incarnation);
     return request("acquire", { profile_id: "client_embedded", lane: "mcp", task_id: task.taskID, credential_generation: 1,
       token: task.token, wait_timeout_ms: 0, session_ttl_ms: 60000 });
   };
   let lease = await acquire();
   const execute = async (operation, args = {}) => {
-    const response = await request("execute", { session_id: lease.session_id, controller_generation: lease.controller_generation,
+    const response = useForwarder ? await sendWire("execute", { lease, operation, arguments: args }) : await request("execute", { session_id: lease.session_id, controller_generation: lease.controller_generation,
       session_generation: lease.session_generation, page_generation: lease.page_generation, operation, arguments: args });
     lease = { ...lease, page_generation: response.page_generation };
     return response.result;
   };
   console.log("client_controller_fixture: navigating");
   await execute("page.navigate", { url: origin });
+  if (process.env.SPARKCLAW_TEST_CONTROLLER_PARENT_CRASH === "1") {
+    console.log(JSON.stringify({ event: "controller_parent_crash_ready", main_pid: process.pid, controller_pid: runtime.child.pid, directory }));
+    process.kill(process.pid, "SIGKILL");
+    return;
+  }
   let snapshot = await execute("page.snapshot", { boxes: true });
   const nameRef = findRef(snapshot.snapshot, "Name"); assert.ok(nameRef);
   await execute("page.fill", { ref: nameRef, text: "Local Electron" });
@@ -125,6 +178,7 @@ try {
   await execute("page.read", { page_id: mainPage.page_id });
   evidence.before_release = registry.desktopSnapshot();
   const release = async () => {
+    if (useForwarder) return sendWire("release", { lease });
     adapter.beginControllerRelease(task.taskID);
     await request("release", { session_id: lease.session_id, controller_generation: lease.controller_generation, session_generation: lease.session_generation });
     adapter.revokeControllerTask(task.taskID, "normal_release");
@@ -158,6 +212,7 @@ try {
   evidence.runtime_state = runtime?.snapshot();
 } finally {
   clearTimeout(killTimer);
+  await forwarder?.stop().catch(error => { evidence.cleanup_error = String(error); evidence.passed = false; });
   await runtime?.stop("fixture_cleanup", { permanent: true }).catch(error => { evidence.cleanup_error = String(error); evidence.passed = false; });
   for (const record of registry?.records.values() || []) registry.destroy(record.tabID);
   fixture?.closeAllConnections(); await new Promise(resolve => fixture ? fixture.close(resolve) : resolve());

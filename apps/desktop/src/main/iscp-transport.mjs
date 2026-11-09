@@ -7,6 +7,7 @@ import { mapV2Route, requireOperation } from "./iscp-routes.mjs";
 import { ISCPMutationJournal } from "./iscp-mutation-journal.mjs";
 import { LocalMailAttachmentError, localAttachmentErrorResponse, prepareMailAttachments } from "./iscp-mail-attachments.mjs";
 import { ISCPObjectClient } from "./iscp-object-client.mjs";
+import { CONTROLLER_OPERATIONS, wireBytes } from "../browser/controller-wire.mjs";
 export const ISCP_V2_PROFILE = "sparkclaw.workbench.transport.v2";
 
 export const ISCP_PROFILE = "sparkclaw.workbench.transport.v1";
@@ -688,25 +689,39 @@ export class ISCPTransport {
   }
 
   // The Gateway reaches the embedded browser only through reverse calls on
-  // this authenticated session. Only browser.command is accepted; anything
-  // else is refused without disturbing the session. A reply belonging to a
+  // this authenticated session. Exact registered Controller operations are
+  // accepted alongside the old command until P3 cutover. A reply belonging to a
   // closed or replaced helper is dropped, and the Gateway sees it as unknown.
   async #reverse(request) {
     const generation = this.generation;
     const capabilities = this.capabilities;
     const session = capabilities ? { session_id: capabilities.session_id, authorization_revision: capabilities.authorization_revision } : undefined;
     let reply;
-    if (request.operation !== "browser.command" || request.profile !== ISCP_V2_PROFILE) reply = { status: 403, error_code: "permission_denied", error: "Reverse operation is not accepted" };
-    else if (!session || typeof this.onReverse !== "function") reply = { status: 503, error_code: "capability_unavailable", error: "Browser is unavailable" };
+    if (!["browser.command", ...CONTROLLER_OPERATIONS].includes(request.operation) || request.profile !== ISCP_V2_PROFILE) reply = { status: 403, error_code: "permission_denied", error: "Reverse operation is not accepted" };
+    else if (!session || Date.parse(capabilities.expires_at) <= Date.now() || !capabilities.operations.includes(request.operation) || typeof this.onReverse !== "function") reply = { status: 503, error_code: "capability_unavailable", error: "Browser is unavailable" };
     else {
-      try { reply = await this.onReverse(request, session); }
+      if (this.reverseChunkState?.generation !== generation) this.reverseChunkState = { generation, active: 0 };
+      const chunks = this.reverseChunkState;
+      const chunk = request.operation === "browser.controller.chunk";
+      const limit = Math.min(4, capabilities.limits?.concurrent || 4);
+      try {
+        if (chunk && chunks.active >= limit) reply = { status: 429, error_code: "throttled", error: "Browser result capacity is unavailable" };
+        else {
+          if (chunk) chunks.active++;
+          try { reply = await this.onReverse(request, session); }
+          finally { if (chunk) chunks.active--; }
+        }
+      }
       catch { reply = { status: 500, error_code: "internal_error", error: "Browser command failed" }; }
       reply ??= { status: 503, error_code: "capability_unavailable", error: "Browser is unavailable" };
     }
     if (generation !== this.generation || !this.child) return;
-    const response = { type: "task.result", profile: request.profile, id: request.id, status: reply.status,
+    let response = { type: "task.result", profile: request.profile, id: request.id, status: reply.status,
       ...(reply.body !== undefined ? { body: reply.body } : {}),
       ...(request.profile === ISCP_V2_PROFILE && reply.error_code ? { error_code: reply.error_code } : {}), ...(reply.error ? { error: reply.error } : {}) };
+    if (wireBytes(response) > Math.min(MAX_BYTES, capabilities?.limits?.response_bytes || MAX_BYTES)) {
+      response = { type: "task.result", profile: request.profile, id: request.id, status: 413, error_code: "resource_limit", error: "Browser response exceeds negotiated capacity" };
+    }
     try { this.child.stdin.write(`${JSON.stringify({ ipc_version: 1, type: "reverse_response", id: request.id, response })}\n`); }
     catch { this.#fail("disconnected"); }
   }

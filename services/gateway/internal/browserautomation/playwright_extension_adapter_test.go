@@ -14,6 +14,40 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 )
 
+type lifetimePlaywrightController struct {
+	*fakePlaywrightController
+	acquisition, lifetime context.Context
+}
+
+func (c *lifetimePlaywrightController) AcquireSessionWithLifetime(acquisition, lifetime context.Context, taskID string, wait, ttl time.Duration) (browsercontrol.Session, error) {
+	c.acquisition, c.lifetime = acquisition, lifetime
+	return c.fakePlaywrightController.AcquireSession(lifetime, taskID, wait, ttl)
+}
+
+func TestPlaywrightPreservesAcquisitionDeadlineAndSeparateTaskLifetime(t *testing.T) {
+	controller := &lifetimePlaywrightController{fakePlaywrightController: newFakePlaywrightController()}
+	adapter := NewPlaywrightExtensionAdapter(playwrightAdapterTestConfig(), controller).(*PlaywrightExtensionAdapter)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if _, err := adapter.Call(ctx, "browser.list_tabs", map[string]any{"owner_id": "owner-1"}); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := ctx.Deadline()
+	if got, ok := controller.acquisition.Deadline(); !ok || !got.Equal(want) {
+		t.Fatal("acquisition deadline was replaced")
+	}
+	cancel()
+	if controller.lifetime.Err() != nil {
+		t.Fatal("successful task was bound to one tool deadline")
+	}
+	if err := adapter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if controller.lifetime.Err() == nil {
+		t.Fatal("task lifetime was not canceled by release")
+	}
+}
+
 func TestPlaywrightExtensionAdapterTabLifecycleAndRelease(t *testing.T) {
 	controller := newFakePlaywrightController()
 	adapter := NewPlaywrightExtensionAdapter(playwrightAdapterTestConfig(), controller).(*PlaywrightExtensionAdapter)

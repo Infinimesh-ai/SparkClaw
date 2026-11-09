@@ -1,0 +1,43 @@
+[
+  {
+    "operation": "browser.controller.execute",
+    "body": {
+      "schema_version": 1,
+      "command_id": "command-unicode",
+      "digest": "",
+      "timeout_ms": 25000,
+      "operation": "page.fill",
+      "arguments": {
+        "ref": "f1e2",
+        "text": "中文 <>&   😀 \\\"\n"
+      },
+      "nested": {
+        "": "BMP",
+        "😀": "astral",
+        "a": [
+          null,
+          true,
+          0,
+          9007199254740991
+        ]
+      }
+    },
+    "digest": "f4d391dce55b0fb5ce9d5206d6dd9187f7e6cadbd90bc52d7d4ce35dce171f6f"
+  },
+  {
+    "operation": "browser.controller.acquire",
+    "body": {
+      "schema_version": 1,
+      "command_id": "command-order",
+      "digest": "ignored",
+      "wait_timeout_ms": 0,
+      "session_ttl_ms": 600000,
+      "timeout_ms": 25000,
+      "binding": {
+        "z": "last",
+        "a": "first"
+      }
+    },
+    "digest": "492b627513e0f9b2f96543915838b330ee47122d0c021866cacbed03e20006c7"
+  }
+]

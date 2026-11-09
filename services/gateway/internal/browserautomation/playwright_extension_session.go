@@ -14,9 +14,13 @@ import (
 )
 
 func (a *PlaywrightExtensionAdapter) Close() error {
+	return a.CloseContext(context.Background())
+}
+
+func (a *PlaywrightExtensionAdapter) CloseContext(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.releaseLocked(context.Background())
+	return a.releaseLocked(ctx)
 }
 
 func (a *PlaywrightExtensionAdapter) ReleaseSession(args map[string]any) error {
@@ -43,7 +47,15 @@ func (a *PlaywrightExtensionAdapter) acquireSessionLocked(ctx context.Context, a
 	taskID := playwrightTaskID(scope, a.nextTaskID)
 	sessionCtx, sessionCancel := context.WithCancel(context.WithoutCancel(ctx))
 	acquireWait := time.Duration(a.cfg.Adapters.BrowserAutomation.StartupTimeoutMS) * time.Millisecond
-	session, err := a.controller.AcquireSession(sessionCtx, taskID, acquireWait, playwrightExtensionSessionTTL)
+	var session browsercontrol.Session
+	var err error
+	if scoped, ok := a.controller.(playwrightControllerLifetime); ok {
+		session, err = scoped.AcquireSessionWithLifetime(ctx, sessionCtx, taskID, acquireWait, playwrightExtensionSessionTTL)
+	} else {
+		// Compatibility for incumbent external implementations. Both built-in
+		// Controller services implement the separate acquisition deadline.
+		session, err = a.controller.AcquireSession(sessionCtx, taskID, acquireWait, playwrightExtensionSessionTTL)
+	}
 	if err != nil {
 		sessionCancel()
 		return nil, err
@@ -69,6 +81,7 @@ func (a *PlaywrightExtensionAdapter) releaseLocked(ctx context.Context) error {
 	a.providerSessionRef = ""
 	a.snapshots = map[string]*browserSnapshotState{}
 	a.activeSnapshotPage = ""
+	a.clientSurfaceVisible = false
 	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	err := session.Release(releaseCtx)
@@ -85,10 +98,13 @@ func (a *PlaywrightExtensionAdapter) executeControllerLocked(ctx context.Context
 	output, err := a.session.Execute(ctx, operation, args)
 	if err != nil {
 		switch browsercontrol.ErrorCode(err) {
-		case browsercontrol.CodeControllerStale, browsercontrol.CodeSessionNotFound, browsercontrol.CodeSessionStale:
+		case browsercontrol.CodeControllerStale, browsercontrol.CodeSessionNotFound, browsercontrol.CodeSessionStale, browsercontrol.CodeResultUnavailable, browsercontrol.CodeWriteUnknown:
 			_ = a.releaseLocked(context.Background())
 		}
 		return nil, err
+	}
+	if a.clientEmbedded {
+		a.clientSurfaceVisible = boolValue(output["surface_visible"])
 	}
 	return output, nil
 }
@@ -114,6 +130,9 @@ func (a *PlaywrightExtensionAdapter) withSessionMetadataLocked(output map[string
 	output["presentation"] = metadata.Presentation
 	output["owner_id"] = ownerID
 	output["profile_id"] = profileID
+	if a.clientEmbedded {
+		output["surface_visible"] = a.clientSurfaceVisible
+	}
 	if pages := extractPages(output); len(pages) > 0 {
 		annotated := make([]any, 0, len(pages))
 		for _, raw := range pages {

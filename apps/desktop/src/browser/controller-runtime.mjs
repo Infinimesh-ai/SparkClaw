@@ -60,11 +60,14 @@ export class ClientControllerRuntime {
       await fs.writeFile(launcher, `#!/bin/sh\nexec ${quote(this.executable)} ${quote(path.join(this.bundleRoot, "bin/sparkclaw-electron-browser.mjs"))} "$@"\n`, { mode: 0o700, flag: "wx" });
       if (this.stopping || this.closed) throw new Error("Controller is stopping");
       const child = this.child = spawn(this.executable, [path.join(this.bundleRoot, "src/client-main.mjs")], {
-        cwd: this.bundleRoot, detached: true, stdio: ["ignore", "pipe", "pipe"],
+        cwd: this.bundleRoot, detached: true, stdio: ["pipe", "pipe", "pipe"],
         env: { PATH: "/usr/bin:/bin", HOME: this.directory, TMPDIR: this.directory, ELECTRON_RUN_AS_NODE: "1",
           SPARKCLAW_BROWSER_CONTROLLER_SOCKET: this.socketPath, SPARKCLAW_CLIENT_BROWSER_LAUNCHER: launcher,
           SPARKCLAW_ELECTRON_ADAPTER_SOCKET: this.adapter.socketPath, SPARKCLAW_ELECTRON_ADAPTER_SECRET_FILE: this.adapter.secretPath },
       });
+      // This unused input pipe is the parent-liveness channel. Controller
+      // closes its whole process group if main exits without running cleanup.
+      child.stdin.on("error", () => {});
       this.exit = new Promise(resolve => { child.once("exit", resolve); child.once("error", resolve); });
       // Never retain stderr/page text or tokens in main-process diagnostics.
       child.stderr.resume();
@@ -114,6 +117,7 @@ export class ClientControllerRuntime {
     if (this.stopping) return this.stopping;
     this.state = "stopping";
     this.adapter?.revokeControllerTasks(reason);
+    if (this.child?.pid) signalGroup(this.child.pid, "SIGTERM");
     this.stopping = (async () => {
       await this.starting?.catch(() => {});
       await this.#cleanup(reason);

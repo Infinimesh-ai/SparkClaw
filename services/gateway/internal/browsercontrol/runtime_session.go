@@ -48,6 +48,12 @@ func (s *Service) AcquireSession(
 	waitTimeout time.Duration,
 	sessionTTL time.Duration,
 ) (Session, error) {
+	return s.AcquireSessionWithLifetime(ctx, ctx, taskID, waitTimeout, sessionTTL)
+}
+
+// Acquisition keeps the caller's deadline while a successful task lease can
+// outlive that individual tool call. Lifetime cancellation still releases it.
+func (s *Service) AcquireSessionWithLifetime(ctx, lifetime context.Context, taskID string, waitTimeout, sessionTTL time.Duration) (Session, error) {
 	release, err := s.acquireOperations(ctx, true)
 	if err != nil {
 		return nil, err
@@ -111,7 +117,7 @@ func (s *Service) AcquireSession(
 
 	go func() {
 		select {
-		case <-ctx.Done():
+		case <-lifetime.Done():
 			releaseCtx, cancel := context.WithTimeout(context.Background(), deferredReleaseTimeout)
 			defer cancel()
 			_ = runtime.Release(releaseCtx)

@@ -56,7 +56,7 @@
     "install:desktop-launcher": "bash scripts/install-desktop-launcher.sh",
     "dev:webchat:host": "npm --workspace @sparkclaw/webchat run dev",
     "check:workbench-contract": "node scripts/sync-workbench-contract.mjs --check",
-    "test:desktop": "npm run check:workbench-contract && npm --workspace @sparkclaw/desktop run test",
+    "test:desktop": "npm run check:workbench-contract && npm run check:controller-operations && npm --workspace @sparkclaw/desktop run test",
     "qualify:desktop": "npm --workspace @sparkclaw/desktop run qualify",
     "qualify:desktop-host": "npm --workspace @sparkclaw/desktop run qualify:host",
     "qualify:desktop-mac-client": "npm --workspace @sparkclaw/desktop run qualify:mac-client",
@@ -88,7 +88,9 @@
     "test:credentials": "node --test scripts/test/credentials.test.mjs",
     "build:local-preview": "node scripts/build-local-preview.mjs",
     "build:client-controller": "node scripts/build-client-controller.mjs",
-    "check:client-controller": "node scripts/build-client-controller.mjs --check"
+    "check:client-controller": "node scripts/build-client-controller.mjs --check",
+    "sync:controller-operations": "node scripts/sync-controller-operations.mjs",
+    "check:controller-operations": "node scripts/sync-controller-operations.mjs --check"
   },
   "engines": {
     "node": ">=26 <27",

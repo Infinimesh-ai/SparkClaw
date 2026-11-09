@@ -107,6 +107,27 @@ test("hidden screenshot primes a tiny native surface and preserves the exact CDP
   await assert.rejects(api.debugger.sendCommand(target, "Page.captureScreenshot", params), /CDP capture failed/);
 });
 
+test("hidden frame hints last until the single CDP capture settles and never overlap or outlive it", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let captures = 0, commands = 0, finishCapture, finishCDP, rejectCDP;
+  const record = { attached: true, childSessions: new Set(), view: { getVisible: () => false }, webContents: {
+    capturePage() { captures++; return new Promise(resolve => { finishCapture = resolve; }); },
+    debugger: { sendCommand() { commands++; return new Promise((resolve, reject) => { finishCDP = resolve; rejectCDP = reject; }); } },
+  } };
+  const api = new ElectronChromeAPI({ connectionID: "task", registry: { get: () => record }, downloadRegistry: emptyDownloads() });
+  const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
+  const pending = api.debugger.sendCommand({ tabId: 17 }, "Page.captureScreenshot", { format: "png" });
+  t.mock.timers.tick(1000); assert.equal(captures, 1);
+  finishCapture(); await flush(); t.mock.timers.tick(50); assert.equal(captures, 2);
+  finishCapture(); await flush(); t.mock.timers.tick(50); assert.equal(captures, 3);
+  finishCDP({ data: "original" }); assert.deepEqual(await pending, { data: "original" });
+  finishCapture(); await flush(); t.mock.timers.tick(1000); assert.equal(captures, 3); assert.equal(commands, 1);
+  const failed = api.debugger.sendCommand({ tabId: 17 }, "Page.captureScreenshot", { format: "png" });
+  const rejected = assert.rejects(failed, /deadline/);
+  rejectCDP(new Error("deadline")); await rejected;
+  finishCapture(); await flush(); t.mock.timers.tick(1000); assert.equal(captures, 4); assert.equal(commands, 2);
+});
+
 test("Electron downloads are visible only to the connection that owns the initiating page", async () => {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-electron-download-test-"));
   const browserSession = new EventEmitter();

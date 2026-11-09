@@ -1152,3 +1152,20 @@ original CDP parameters, image, errors and deadline remain authoritative. No pan
 window visibility operation is added. The opt-in packaged screenshot fixture records capture
 metadata, MIME/dimensions, chunk reassembly/file hashes and presentation preservation. Keep the
 failed attempts and diagnostic overrides distinct from qualification of the pending clean pair.
+
+
+Clean `d5fb3d80` Mac DMG installation passes all 7 screenshot checks, including unchanged
+hidden view/panel/window/focus and exact delivered PNG. Linux's first clean-package screenshot
+still times out; a second run observing native captures passes, with a 1×1 hint completing in
+4 ms and CDP in 87 ms. Preserve both: a single hint is not sufficiently reliable. Source now
+keeps non-overlapping 1×1 hints 50 ms apart until the original CDP command resolves or rejects;
+late native results cannot schedule another hint. The image, format, clip and MCP deadline still
+come from that single original command. A bounded lifecycle regression covers pending hints,
+completion and failure. Clean-package reruns of this refinement remain pending.
+
+The unchanged Gateway code passes the complete Linux suite (6,301 test nodes, 216 skips),
+build and vet, with all 3,409 frozen source files verified before/after. Mac full-suite attempts
+retain environment failures: overlong Unix socket paths, then a symlinked `/tmp`; the canonical
+short path passes `cmd/sparkclaw`. Linux-only `/dev/shm` tests remain unsupported on Mac. Desktop
+passes 663 tests with one skip, WebChat builds, and bilingual docs check 145 files. Mac native
+visual observation is blocked by the locked desktop; its timeout is retained separately.

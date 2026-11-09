@@ -131,15 +131,10 @@ export class ElectronChromeAPI {
     if (sessionID !== undefined && (!record.childSessions.has(sessionID) || typeof sessionID !== "string")) {
       throw new Error("Nested debugger session is outside the task");
     }
-    if (method === "Page.captureScreenshot" && record.view?.getVisible?.() === false) {
-      // A never-presented Linux view can stall CDP capture without a native
-      // frame request. Prime one pixel while keeping presentation/focus hidden;
-      // only the original CDP capture supplies the image, clip and format.
-      // This hint neither retries that command nor extends its MCP deadline.
-      void record.webContents.capturePage({ x: 0, y: 0, width: 1, height: 1 },
-        { stayHidden: true, stayAwake: true }).catch(() => {});
-    }
-    return await record.webContents.debugger.sendCommand(method, commandParams, sessionID);
+    const stopRendering = method === "Page.captureScreenshot" && record.view?.getVisible?.() === false
+      ? requestHiddenFrames(record.webContents) : null;
+    try { return await record.webContents.debugger.sendCommand(method, commandParams, sessionID); }
+    finally { stopRendering?.(); }
   }
 
   #record(target) {
@@ -156,6 +151,24 @@ export class ElectronChromeAPI {
     record.debuggerMessage = null;
     record.debuggerDetach = null;
   }
+}
+
+function requestHiddenFrames(page) {
+  // A never-presented Linux view can stall CDP capture without native frame
+  // requests. One hint can finish before CDP is ready, so keep requesting a
+  // single pixel until that original command settles. Never overlap hints,
+  // reveal/focus the view, retry CDP or extend its existing MCP deadline.
+  let stopped = false, timer;
+  const capture = async () => {
+    if (stopped || page.isDestroyed?.()) return;
+    try { await page.capturePage({ x: 0, y: 0, width: 1, height: 1 }, { stayHidden: true, stayAwake: true }); }
+    catch { /* The original CDP image/error remains authoritative. */ }
+    finally {
+      if (!stopped) { timer = setTimeout(capture, 50); timer.unref?.(); }
+    }
+  };
+  void capture();
+  return () => { stopped = true; clearTimeout(timer); };
 }
 
 export class ElectronDownloadRegistry {

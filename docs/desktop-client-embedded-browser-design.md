@@ -2,6 +2,11 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-client-embedded-browser-design.md)
 
+> Latest client control design (2026-11-09): [packaged Controller over ISCP](desktop-embedded-browser-controller-iscp-design.md)
+> specifies the next Mac/Linux generic automation chain, recovery and UI-preserving cutover.
+> Design complete, implementation/qualification pending; it supersedes earlier client LAN control
+> routing below while retaining backend acquisition and existing personal-page capabilities.
+
 > Historical design: current workbench behavior and clean-start paths are defined by the [architecture](architecture.md), [implementation ledger](workbench-convergence-implementation.md) and [release guide](workbench-release.md). The dated rationale and qualification evidence below remain historical.
 
 > Status: architecture accepted by the owner on 2026-09-21. All software-only

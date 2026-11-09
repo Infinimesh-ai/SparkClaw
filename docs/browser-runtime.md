@@ -2,6 +2,11 @@
 
 > Language: English | [简体中文](../zh-cn/docs/browser-runtime.md)
 
+> Client control design (2026-11-09): the [client-embedded Controller over ISCP](desktop-embedded-browser-controller-iscp-design.md)
+> defines the next generic automation path for Mac and Linux SparkX, including the colocated desktop.
+> Its design is complete; implementation and native acceptance remain pending. Backend acquisition
+> and mail keep their existing path. Earlier LAN/standalone descriptions below are historical for clients.
+
 > R3 ownership update (2026-09-30): [Client/backend R3](client-backend-architecture-design.md)
 > separates the backend acquisition browser from each client's embedded browser.
 > Client automation is embedded-only, and profiles/non-mail user data are client-local.

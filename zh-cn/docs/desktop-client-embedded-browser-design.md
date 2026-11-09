@@ -2,6 +2,10 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-client-embedded-browser-design.md)
 
+> 最新客户端控制设计（2026-11-09）：[随包 Controller 经 ISCP](desktop-embedded-browser-controller-iscp-design.md)
+> 明确下一版 Mac／Linux 通用自动化链路、恢复和保留原界面的切换方式。设计已补齐，实现／验收仍待完成。
+> 它取代下文早期客户端 LAN 控制路由设计，保留后端采集及已有个人页能力。
+
 > 历史设计：当前工作台行为与全新初始化路径以[架构](architecture.md)、[实施记录](workbench-convergence-implementation.md)和[发布指南](workbench-release.md)为准。下文保留原有日期下的设计理由与验收证据。
 
 > 状态：用户于 2026-09-21 确立架构。纯软件实施阶段已完成，ARM64 候选版本已通过

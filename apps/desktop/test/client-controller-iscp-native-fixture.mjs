@@ -10,6 +10,8 @@ import { BrowserControllerForwarder } from "../src/browser/controller-forwarder.
 import { ISCPTransport } from "../src/main/iscp-transport.mjs";
 import { ClientControllerRuntime } from "../src/browser/controller-runtime.mjs";
 import { HostJournal } from "../src/browser/host-journal.mjs";
+import { concurrentScenario } from "./client-controller-concurrency-scenario.mjs";
+import { captureMainCrash, recoverMainCrash } from "./client-controller-main-restart-scenario.mjs";
 
 const directory = process.env.SPARKCLAW_CONTROLLER_ISCP_LAB;
 if (!directory?.startsWith("/private/tmp/sx-controller-iscp-") || !path.isAbsolute(directory)) throw new Error("Private Controller ISCP lab required");
@@ -47,7 +49,10 @@ BrowserControllerForwarder.prototype.start = function(...args) {
   return startForwarder.apply(this,args);
 };
 const fault = process.env.SPARKCLAW_CONTROLLER_ISCP_FAULT;
-const crashFault = ["controller-crash-after-fill","mcp-crash-after-fill"].includes(fault);
+const concurrency = process.env.SPARKCLAW_CONTROLLER_ISCP_CONCURRENCY === "1" ? concurrentScenario({evidence,until}) : null;
+if (concurrency && fault) throw new Error("Run concurrency and fault scenarios separately");
+const mainCrash = fault === "main-crash-after-fill";
+const crashFault = ["controller-crash-after-fill","mcp-crash-after-fill"].includes(fault) || mainCrash;
 const teardownFault = crashFault || fault === "terminal-journal-failure";
 if (fault && fault !== "late-write-reply" && !teardownFault) throw new Error("Unsupported fixture fault");
 let pendingFill;
@@ -59,6 +64,7 @@ ClientControllerRuntime.prototype.request = async function(action, body, options
     assert.ok(page);
     evidence.observed_before_crash = await page.executeJavaScript('({value:document.querySelector("input").value,text:document.querySelector("#draft").textContent})');
     evidence.sandbox_before_crash = page.getLastWebPreferences().sandbox;
+    if (mainCrash) await captureMainCrash({ directory, evidence, runtime: this, forwarders, command: pendingFill });
     let crashPID=this.child.pid;
     if(fault==="mcp-crash-after-fill"){
       const rows=execFileSync("ps",["-axo","pid,pgid,command"],{encoding:"utf8"}).split("\n")
@@ -83,12 +89,16 @@ HostJournal.prototype.finish = async function(id,state) {
   return finishJournal.call(this,id,state);
 };
 BrowserControllerForwarder.prototype.handleReverse = async function(request, authority) {
+  const started=performance.now();
   ownedRuntimes.add(this.runtime);
   forwarders.add(this);
+  concurrency?.before(request);
   if (request.body?.operation === "page.fill") pendingFill = request.body;
   const reply = await dispatch.call(this, request, authority);
+  await concurrency?.after(request,reply,this);
   evidence.wire_events.push({ operation: request.operation, inner_operation: request.body?.operation, status: reply.status,
     outcome: reply.body?.outcome, error_code: reply.body?.error_code, command_id: request.body?.command_id,
+    elapsed_ms:Math.round((performance.now()-started)*1000)/1000,
     ...(request.operation.endsWith(".chunk") ? {offset:request.body.offset,length:request.body.length} : {}) });
   if(fault === "late-write-reply" && !evidence.fault && request.body?.operation === "page.fill" && reply.body?.outcome === "completed"){
     evidence.fault={kind:fault,command_id:request.body.command_id,digest:request.body.digest};
@@ -141,12 +151,18 @@ void app.whenReady().then(async () => {
       return new Response('<!doctype html><meta charset="utf-8"><title>Controller ISCP fixture</title><h1>Controller transport evidence</h1><label>Display name<input aria-label="Display name"></label><p id="draft">Empty draft</p>'+large+'<script>document.querySelector("input").addEventListener("input",e=>document.querySelector("#draft").textContent=e.target.value)</script>',{headers:{"content-type":"text/html"}});
     });
     window.webContents.session.webRequest.onBeforeRequest({urls:["http://*/*","https://*/*","ws://*/*","wss://*/*"]}, (_request,callback)=>{evidence.direct_business_http_attempts++;callback({cancel:true});});
+    if (process.env.SPARKCLAW_CONTROLLER_RESTART_PHASE === "recover") {
+      await recoverMainCrash({ directory, evidence, evaluate, until, forwarders });
+      return;
+    }
+    if(concurrency){await concurrency.run({evaluate,forwarders});return;}
     let conversation;
     const prompts = ["打开 https://controller.fixture.test/ 网页", "在 https://controller.fixture.test/ 页面 Display name 字段填写 Alice。"];
     for (const prompt of process.env.SPARKCLAW_CONTROLLER_ISCP_FORM_ONLY === "1" ? prompts.slice(1) : prompts){
       conversation=await evaluate("window.sparkclawClientStore.create('Controller ISCP native')");
       await evaluate(`window.sparkclawDesktop.selectConversation(${JSON.stringify(conversation.id)})`);
       const task=await evaluate(`(async()=>{const s=window.sparkclawClientStore;const t=await s.enqueue(${JSON.stringify(conversation.id)},${JSON.stringify(prompt)},[]);await s.submit(t.request_id);return t;})()`);
+      evidence.active_task = { conversation_id: conversation.id, request_id: task.request_id };
       let state;
       await until(async()=>{
         try { await evaluate(`window.sparkclawClientStore.reconcile(${JSON.stringify(task.request_id)})`); }

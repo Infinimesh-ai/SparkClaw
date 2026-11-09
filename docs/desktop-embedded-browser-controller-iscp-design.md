@@ -659,3 +659,24 @@ was attached to its lab ingress network before restart, with no business port pu
 three production container/configuration/mount/network/start baselines still match afterward.
 TEST1 authentication, Mac-to-work2 live-provider coverage, full latency comparison, remaining
 installed/offline and fault scenarios, and paired rollback/cutover remain open.
+
+Two source-native conversations also pass seven grouped checks: one active lease, observed FIFO
+waiting, the unchanged 10-second acquire budget expiring without journal entry or late dispatch,
+and a separate explicitly submitted task succeeding after release. Distinct sandboxed task views
+retain their conversation ownership without changing the selected conversation; personal pages
+and every prior unknown fence remain intact. A transport-level `delivered` blocked response is
+not counted as successful browser work. The first fixture incorrectly expected both initial
+workflows to finish within the queue budget; that failed evidence is retained.
+
+An actual main-process SIGKILL after the approved native fill but before terminal journal
+persistence exposed a cleanup defect: the child group exited at its watchdog deadline, but
+private sockets, adapter secret and output directories remained. The client-only entry now
+retires its MCP children before shutdown when its parent-liveness pipe ends, then removes only
+the original private directory after verifying its inode/device identity. Normal main-owned
+shutdown and backend assembly retain their existing cleanup paths. The same-profile restart
+test now passes: no owned process/files remain, the durable `dispatched` row becomes `unknown`,
+task history and earlier fences survive, no fill is replayed, and a new incarnation works after
+explicit reconciliation of the observed effect. One cleanup sample is 90 ms, not a percentile.
+The initial failure remains archived. Lifecycle tests reject shared/symlinked/split directories
+and preserve a replaced directory. Controller tests pass 361/151 skipped; desktop remains
+649/1 skipped. These latest cleanup changes still require refreshed packaged candidates.

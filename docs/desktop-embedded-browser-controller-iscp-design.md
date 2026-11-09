@@ -1642,3 +1642,32 @@ PostgreSQL incident remains recorded. The executed fixture equals the committed 
 product binaries/UI are unchanged. This closes this specific applied-fill main-crash boundary,
 not the whole acceptance matrix: TEST1, Mac offline/actual Dock interaction, the original read
 failure, remaining faults/WAN evidence and P3/D2/P4 still require qualification.
+
+The same packages now also pass nine checks for each Controller and MCP crash on both platforms.
+`run-client-controller-packaged-child-crash.mjs` selects the owned child through
+`SPARKCLAW_CONTROLLER_CRASH_TARGET=controller|mcp`. It verifies the candidate executable,
+parent/process-group ownership and private runtime directory before sending SIGKILL. The fixture
+holds the real Input.insertText CDP reply after observing Alice and one input event while the
+native call is pending and its journal is dispatched. It does not replace the native result with
+an injected error: Controller death produces ECONNRESET and MCP death produces native status 503.
+
+Both failures become durable unknown before restart, remove the owned group/runtime files and
+task view, and preserve the personal page. Single observed cleanup times are Mac 117/119 ms and
+Linux 123/123 ms (Controller/MCP). Same-profile restart preserves original task identity, cookie,
+attachment bytes, draft and every prior fence, with no automatic native calls or success message.
+A fresh ID cannot bypass the unknown conversation. While a separately submitted task awaits its
+own fill approval in a new incarnation, a local read using the old lease under current transport
+authority is rejected with browser_session_stale and zero native calls. That separately approved
+task then fills Bob once, is delivered, and retains its sandboxed view after detaching the debugger.
+
+Independent stopped-state reads verify four original executions and desktop/Gateway receipts
+remain unknown, plus all 16 completed mutation receipts for the four delivered recovery tasks.
+No unknown is acknowledged or removed: Mac increases from five to seven, Linux from four to six.
+The executed frozen fixture matches source; product binaries, UI and timeouts are unchanged.
+This adds actual child-failure propagation evidence to the earlier source fixture's combined
+process-crash/reply-loss injection. Remaining authority/Gateway recovery, TEST1, offline/installed
+matrix, actual Dock interaction, original read-failure diagnosis, WAN and P3/D2/P4 stay open.
+
+All isolated activity services, candidate processes, SSH forwarding, private display and temporary
+policies are stopped, with the Relay unpaused. Production matches its post-recovery baseline with
+5,545,435,136 bytes free; the historical PostgreSQL incident remains part of the evidence.

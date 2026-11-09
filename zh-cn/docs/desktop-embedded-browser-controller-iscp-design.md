@@ -1311,3 +1311,28 @@ acquire 探测被 browser_write_outcome_unknown 拒绝且没有原生派发；�
 保留。运行夹具与提交源码一致，产品二进制和 UI 未改动。本项补齐填写已生效时的主进程
 崩溃边界，尚不代表整个验收矩阵完成：TEST1、Mac 离线／实际 Dock 点击、原查询失败、
 剩余故障与 WAN 证据、P3／D2／P4 仍需验证。
+
+相同包又在两端分别通过 Controller 和 MCP 崩溃各 9 组检查。
+`run-client-controller-packaged-child-crash.mjs` 通过
+`SPARKCLAW_CONTROLLER_CRASH_TARGET=controller|mcp` 选择自有子进程；发送 SIGKILL 前核对
+候选可执行文件、父进程／进程组归属和私有运行目录。夹具观察到 Alice 与一次 input 事件后
+挂起真实 Input.insertText CDP 回复，此时原生调用仍在等待，持久化记录为 dispatched。
+夹具不人工替换原生结果：Controller 退出实际产生 ECONNRESET，MCP 退出实际返回 503。
+
+两种失败均在重启前持久化为 unknown，清理自有进程组、运行文件和任务视图，保留个人页。
+Controller／MCP 的单次清理观测分别为 Mac 117／119 ms、Linux 123／123 ms。同 profile
+重启保留原任务身份、Cookie、附件字节、草稿及此前全部 fence，没有自动原生调用或成功
+消息。换命令 ID 不能绕过未知结果所在会话。另行提交的新任务在新运行代次中等待填写审批
+时，使用当前传输授权但携带旧租约的本地读取被 browser_session_stale 拒绝，原生调用
+增加为零。该新任务经独立审批后仅填写一次 Bob，执行 delivered，完成后的原任务视图
+保留 sandbox 且 debugger 已分离。
+
+停止后的独立读取核对四个原执行及桌面／Gateway 回执仍为 unknown，并匹配四个恢复任务
+共 16 条 completed 变更回执及 delivered 执行。未核销或删除任何 unknown：Mac 从 5 条
+增至 7 条，Linux 从 4 条增至 6 条。运行的冻结夹具与源码相同，产品二进制、UI 和超时
+未改动。此项在此前源码夹具“进程崩溃加回复丢失”注入之外，补充真实子进程故障传播证据。
+剩余授权／Gateway 恢复、TEST1、离线／安装矩阵、实际 Dock 交互、原查询失败诊断、WAN
+及 P3／D2／P4 仍开放。
+
+隔离活动服务、候选进程、SSH 转发、私有显示和临时策略均已停止，Relay 未暂停。生产符合
+恢复后基线，可用空间 5,545,435,136 字节；历史 PostgreSQL 事故继续保留在证据中。

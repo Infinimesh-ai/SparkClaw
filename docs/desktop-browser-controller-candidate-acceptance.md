@@ -3,9 +3,9 @@
 > Language: English | [简体中文](../zh-cn/docs/desktop-browser-controller-candidate-acceptance.md)
 >
 > Updated: 2026-11-10. Product source: `1f7f20ee27f45efe5dbf15e43c612a4d0cff88d6`.
-> Status: engineering candidate. The owner has decided to accept current performance and adopt
-> the new path and signed off the candidate experience within the scope in §8. D2 removal and
-> paired release remain open.
+> Status: the owner accepted the `1f7f20ee` candidate within §8's scope. D2 source `50300074`
+> passed a paired Mac/Linux ARM64 upgrade and rollback rehearsal. See §9 for the artifacts.
+> Production rollout has a separate authorization decision.
 > Final native scope is Mac ARM64 and Linux ARM64. Intel Mac is excluded.
 
 This handbook is for the owner's remaining work: read status and performance first, then follow
@@ -20,14 +20,14 @@ and full evidence boundaries.
 | Item | Status | Notes |
 |---|---|---|
 | Source wiring | Done | Gateway always enables `ClientControllerHost`; desktop main assembles only the Controller forwarder |
-| Old path | Inactive at runtime, code not removed | `host-agent.mjs`, `native-page-commands.mjs`, `host-socket.mjs` and the `browser.command` registration remain until D2 |
+| Old path | Removed in D2 | `50300074` removes the old reverse command and LAN browser transport and preserves the original workbench receipt and reconciliation controls |
 | R01 TEST1 native path | Done | Mac ARM64 nine checks, Linux ARM64 eight, including fault recovery and zero bypass |
 | R02 performance | New path measured, see §2 | Owner accepts the shortfall; the old path has no WAN measurement, only an estimate |
 | R03 tool semantics | Done | Evidence for each of the 13 public tools |
 | R04 Mac Dock | Mouse close and Dock reopen passed | Owner confirmed the original conversation, tab and window dimensions. The same candidate process was still running after reopen |
 | R05 host integration | Candidate checks passed within scope | Linux ARM64 actual GNOME/X11 session and private-root install/offline/purge with the current deb. Mac ARM64 separate candidate on the host and process-scoped offline run |
 | R06 intermittent ISCP failure | Evidence-limited diagnosis and source instrumentation | New submit failure located at response authorization. Earlier read failures and the underlying cause remain unclassified |
-| R07 D2 removal and paired cutover | Not started | See §6 |
+| R07 D2 removal and paired cutover | Isolated rehearsal passed | See §9 for the two platforms, rollback and checksums. Production rollout awaits authorization |
 | R08 owner sign-off | Accepted within the recorded scope | 2026-11-10. The owner approved an isolated D2 rehearsal. Active mail account and personal-script review are tracked in §8 |
 
 Branch `codex/client-browser-controller` was pushed to the configured repository with owner
@@ -227,15 +227,14 @@ test page with no real business submission.
 
 ## 6. Next tasks
 
-The first three items are independent. D2 follows the applicable P3 checks and owner experience
-acceptance. Package rollout follows an isolated paired upgrade and rollback rehearsal.
+This is the delivery sequence. §9 records the completed isolated upgrade and rollback.
 
 1. **Branch and evidence.** The branch is published and the verified private copy is in §3.2.
 2. **Experience acceptance.** The owner confirmed the Dock check (R04) and accepted the
    candidate experience (R08) within §8's scope.
 3. **Intermittent submit failure.** Keep fail-closed behavior and preserve original requests.
    Use the error classes in `b7551a9a` to diagnose a recurrence in the next build.
-4. **D2 removal of the old path (R07).** Design §10 is authoritative for scope:
+4. **D2 removal of the old path (R07, complete).** Design §10 is authoritative for scope:
    - Remove: the `browser.command` registration and generated entries (`operations.json` on both
      sides), `Broker` reverse dispatch,
      `apps/desktop/src/browser/{host-agent,native-page-commands,host-socket}.mjs`, acceptance of
@@ -245,14 +244,13 @@ acceptance. Package rollout follows an isolated paired upgrade and rollback rehe
      backend `BackendHost`, shared page/isolation helpers.
    - Migrate helpers still in use before deleting files. Active runtime and build references
      must reach zero; historical documents need no edits.
-5. **Rebuild and rehearse the paired upgrade.** Stage the matching Gateway, helper and both
+5. **Rebuild and rehearse the paired upgrade (passed).** Stage the matching Gateway, helper and both
    ARM64 clients. Stop new browser admission, drain active tasks, retain pending fences and the
    original ClientStore/profile/installation binding, install the matched versions and verify
    capability before enabling.
-6. **Verify rollback and record rollout authorization.** Stop admission and child processes,
-   restore the complete previous Gateway/client/helper and compatible receipt data, then verify
-   the original connection and UI. Test rollback with existing installation identity and
-   pending fences.
+6. **Verify rollback (passed).** Stop admission and child processes and restore the previous
+   Gateway, helper and clients. Verify the original installation identity, profile and pending
+   fences. Use the rehearsal record in §9 for the separate production rollout decision.
 7. **Wrap up after rollout and evidence handoff.** Stop the dedicated acceptance services after
    the rollback record and outstanding outcomes are preserved. Reclaim rebuildable cache data
    after checking the independent copies and retaining the indexes and unknown receipts.
@@ -299,6 +297,52 @@ Gateway and real model. Offline checks used synthetic local authority.
 | Accepted performance | Form task median 26.3 s on Mac ARM64. The roughly 7 s WAN gap is an estimate. Owner acceptance dated 2026-11-10 |
 | Open issue | §3.1 response authorization failure. Existing unknowns remain fenced. Source adds diagnostics for a future recurrence |
 | Candidate experience decision | **R08 accepted**. On 2026-11-10 the owner accepted the documented scope and approved an isolated D2 upgrade and rollback rehearsal. Active mail account and personal-script operation remain for owner review |
-| Paired release decision | **Pending D2 and paired upgrade/rollback evidence (R07)** |
+| Paired release decision | **R07 isolated rehearsal passed. Production rollout awaits separate authorization** |
 
 Record the owner and the accepted scope when signing. Production rollout has a separate decision.
+
+## 9. D2 delivery and paired rehearsal
+
+On 2026-11-10, source `50300074` removed `browser.command`, old Broker dispatch and the LAN
+browser grant, connection, heartbeat and receipt routes. The original workbench IPC continues to
+display and reconcile write receipts. Reconciliation submits over ISCP and its controls stay
+visible but disabled on LAN. Existing receipt formats and backend acquisition remain in use.
+
+The four clients and matching Gateway are in `d2-50300074/artifacts/` under the handoff in §3.2.
+
+| Artifact | SHA-256 |
+|---|---|
+| `SparkX-0.1.0-mac-arm64.dmg` | `fa510efa8be13fba0ed9c08852d661ce0dc4e0beef5edf9334b0f27770cc22ce` |
+| `SparkX-0.1.0-mac-arm64.zip` | `49c6a78627c90d98c0d55bad9f988cca0ba2328b0e012396e604011d82254b94` |
+| `SparkX-0.1.0-linux-arm64.deb` | `f188860cd801f2d5d16e9cc271397dea54c1113bfb63ea8ae4d9c60fbc1e04b8` |
+| `SparkX-0.1.0-linux-arm64.AppImage` | `9fcad734b586256d1256494ef7f1e7aef6cddc655a3b1b1ceec0930724f94b79` |
+| `gateway-d2-50300074` (work2, Linux amd64) | `8c2770abfb964de38cfaf8bf167f1e11df19a5dff420bc384375e64d2c12a03e` |
+
+Mac ran the separate candidate installed from the read-only DMG, with 7,156 files and symlinks
+verified. Linux ran a private deb extraction with the sandbox enabled. The current deb separately
+passed private-root dpkg installation, offline execution and purge with 7,011 verified entries.
+Both platforms connected
+through TEST1 to the dedicated Gateway and passed prepare, upgrade and rollback in the sequence
+`1f7f20ee` → `50300074` → `1f7f20ee`. Upgrade and rollback each passed eight checks per platform,
+including the same installation identity, original history, draft, attachment, cookie, cancellation
+records and unknown write. New commands for the unknown and canceled tasks were refused before
+native dispatch. Separate new tasks delivered.
+
+The final package rehearsal preserved 134 existing Gateway receipts byte for byte on upgrade
+and 140 on rollback. The final read matched the original unknowns from both clients by command, digest and
+complete scope. Production containers and the dedicated issuer kept their configurations and
+start times. The dedicated Gateway is back on the previous binary and passed its health check.
+See `paired-summary.json` and the `gateway/`, `mac/` and `linux/` evidence directories.
+
+The first Gateway switch encountered an evidence writer error. A subsequent audit treated
+Docker's variable mount order as a change. The repeated switches passed with a stable mount
+comparison. The initial Linux upgrade stopped at keyring socket setup, then passed with a
+shorter private runtime path. The first package build used restrictive installation directory
+modes. Private extraction ran successfully and the ordinary-user launch after root installation
+failed. Rebuilding all four clients under `umask 022` passed installation and the paired rehearsal.
+The first Mac rollback with the final packages hit a backend error on a reconciliation read.
+A later read-only check found the original task delivered, and the separate new task passed.
+The first result and the unclassified read failure remain in the evidence.
+
+Validation passed for 82 Go packages on Linux and `go vet`, 631 desktop tests with one skip,
+597 WebChat tests, and the native browser panel's 48 layout cases and 12 task-page cases.

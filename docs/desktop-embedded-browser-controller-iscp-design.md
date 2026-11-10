@@ -5,8 +5,8 @@
 > Date: 2026-11-10. Status: engineering candidate `1f7f20ee`; the owner has decided to accept
 > current performance and adopt the new path. The TEST1 native route passes on both ARM64
 > platforms (§15.5) and WAN performance of the new path is measured (§15.6).
-> The owner confirmed the Mac Dock reopen, and Linux ARM64 host and isolated installer
-> checks passed. D2 removal, paired cutover and final owner sign-off remain open. §14 is a
+> The owner accepted the recorded candidate scope. Source `50300074` implements D2 and passed
+> the isolated paired upgrade and rollback. Production rollout awaits authorization. §14 is a
 > chronological log of historical checkpoints, including
 > the work2 PostgreSQL disk incident and retained failures; §10, §15 and the acceptance handbook
 > hold current status. Owner decisions D1–D3 are retained in §12.
@@ -471,8 +471,8 @@ Failed re-verification clears cached bundle proof; subsequent cleanup cannot res
 | P0 Feasibility | Actual packaged Electron Node/API/fuse checks; Mac adapter; generic MCP without optional imports; fixtures for frame/popup/ref/input/capture; cold-start and full-tool/chunk timings on Mac ↔ work2 | Source and Mac/Linux packaged runtime passed; Mac WAN full-tool timing in §15.6, chunk throughput not timed |
 | P1 Local runtime | Reproducible manifest, client entry, process supervision, association map, retained-view lifecycle; installed package runs local fixtures offline | Current ARM64 offline fixtures pass. Linux dpkg installation and purge pass in a private root |
 | P2 ISCP | Registry/projections, service/client/host, strict forwarder, journal/fence integration, chunks; isolated Relay failure-injection and no business bypass | Integrated; process-scoped Relay failure and original-request recovery pass through TEST1 on both ARM64 platforms (§15.5) |
-| P3 Native acceptance | Installed Mac ARM64 and Linux ARM64 desktop through TEST1 to real work2; G1–G4 of the [ISCP expansion design](desktop-iscp-capability-expansion-design.md), §11 matrix, latency versus recorded old-path baseline | TEST1 route, Mac Dock and Linux host checks pass within scope. The owner accepted the measured performance. Candidate experience sign-off is tracked separately under R08 |
-| P4 Cutover | Paired Gateway + Mac/Linux packages, old-path deletion, verified rollback and retained-data checks | Pending |
+| P3 Native acceptance | Installed Mac ARM64 and Linux ARM64 desktop through TEST1 to real work2; G1–G4 of the [ISCP expansion design](desktop-iscp-capability-expansion-design.md), §11 matrix, latency versus recorded old-path baseline | TEST1 route, Mac Dock and Linux host checks pass within scope. The owner accepted performance and signed off the recorded candidate scope |
+| P4 Cutover | Paired Gateway + Mac/Linux packages, old-path deletion, verified rollback and retained-data checks | D2 source and isolated paired rehearsal complete. See the [acceptance handbook](desktop-browser-controller-candidate-acceptance.md) §9. Production rollout awaits authorization |
 
 Capture the old-path performance/UI baseline before deletion. P0–P3 may use isolated candidate
 builds; production has no dual-path runtime selector. The owner requested continued implementation
@@ -1927,8 +1927,8 @@ an unbounded Cartesian product of faults is not an acceptance requirement.
 | R04 | Owner confirmed actual mouse close and Dock reopen with the original conversation, selected tab and window dimensions retained | Current Mac candidate and dedicated TEST1 profile. The [acceptance handbook](desktop-browser-controller-candidate-acceptance.md) §8 records the result |
 | R05 | Current deb passes actual GNOME/X11 candidate work and separately private-root installation, offline launch and purge. Current Mac native offline effects pass (§15.5) | Paired system installation is part of R07. Preserve the renderer sandbox and existing installed host state |
 | R06 | §15.6 locates a later submit failure at the client's response authorization check. Source `b7551a9a` adds private, correlated classes for future occurrences | Earlier reads and the later root cause remain unclassified. Preserve original requests and unknowns |
-| R07 | After P3, remove §10 active legacy paths, verify paired Gateway/issuer/helper/client upgrade and complete rollback, then publish within authorization | Applicable R01–R06 gates and D2; no current production installation replacement |
-| R08 | Candidate, hashes, engineering prerequisites and owner steps prepared in the [acceptance guide](desktop-browser-controller-candidate-acceptance.md); final decision pending | Technical gates remain; automated checks do not substitute for owner sign-off |
+| R07 | Source `50300074` removes the §10 legacy paths. Matching Gateway, helpers and both clients passed isolated upgrade and rollback with the original data and pending fences | The existing issuer stayed in service during rehearsal. Production rollout awaits authorization |
+| R08 | Owner accepted the recorded candidate scope on 2026-11-10 and approved the isolated rehearsal | See the [acceptance handbook](desktop-browser-controller-candidate-acceptance.md) §8 for the signed scope and outstanding account checks |
 
 Native authorization/revocation for G1 and write boundaries for G3 have isolated evidence; so do
 G2 real-model persistent effects and G4 zero bypass. They do not automatically close this design's

@@ -4,8 +4,8 @@
 >
 > 日期：2026-11-10。状态：工程候选 `1f7f20ee`，所有者已决定接受当前性能并接入新链路。
 > 两类 ARM64 的 TEST1 原生链路通过（§15.5），新链路公网性能已实测（§15.6）。
-> Mac Dock 重开已由所有者确认，Linux ARM64 宿主和隔离安装检查通过。D2 删除旧路径、
-> 成对切换和所有者最终签收仍待完成。
+> 所有者已按记录范围签收。源码 `50300074` 完成 D2，并通过隔离成对升级和回滚。
+> 生产发布待单独授权。
 > §14 是按时间顺序的历史检查点，含 work2 PostgreSQL 磁盘事故及保留的失败；当前状态以
 > §10、§15 和验收手册为准。§12 保留所有者决定 D1–D3。
 > 已核对源码：`main` 的 `e031a453`（初版提案）；浏览器／ISCP／桌面实现起点为 `b5c21e14`。
@@ -407,8 +407,8 @@ Electron adapter 将 debugger 限制在任务持有的页面／frame／弹窗，
 | P0 可行性 | 真实随包 Electron Node／API／fuse 验证；Mac adapter；无可选导入的通用 MCP；frame／弹窗／ref／输入／截图 fixture；Mac ↔ work2 冷启动、完整工具与分块计时 | 源码及 Mac／Linux 随包 runtime 通过；Mac 公网完整工具计时见 §15.6，分块吞吐未计时 |
 | P1 本地 runtime | 可复现 manifest、客户端入口、进程监管、归属映射和保留视图生命周期；已安装包离线跑通本地 fixture | 两端当前 ARM64 离线检查通过。Linux 在私有根目录通过 dpkg 安装及卸载 |
 | P2 ISCP | 注册／投影、service／client／host、严格转发器、journal／fence、分块；隔离 Relay 故障注入与无业务旁路 | 已接入。两端 ARM64 经 TEST1 通过进程级 Relay 断线和原请求恢复（§15.5） |
-| P3 原生验收 | 已安装 Mac ARM64 和 Linux ARM64 桌面经 TEST1 连接真实 work2；满足 [ISCP 扩展设计](desktop-iscp-capability-expansion-design.md) G1–G4、§11 矩阵，并与旧路径记录比较延迟 | TEST1 链路、Mac Dock 和 Linux 宿主检查在各自范围内通过。所有者已接受实测性能，体验签收由 R08 单独记录 |
-| P4 切换 | Gateway 与 Mac／Linux 包成对发布，删除旧路径，验证回滚与数据保留 | 待完成 |
+| P3 原生验收 | 已安装 Mac ARM64 和 Linux ARM64 桌面经 TEST1 连接真实 work2；满足 [ISCP 扩展设计](desktop-iscp-capability-expansion-design.md) G1–G4、§11 矩阵，并与旧路径记录比较延迟 | TEST1 链路、Mac Dock 和 Linux 宿主检查在各自范围内通过。所有者已接受实测性能并签收记录范围 |
+| P4 切换 | Gateway 与 Mac／Linux 包成对发布，删除旧路径，验证回滚与数据保留 | D2 和隔离成对演练已完成，见 [验收手册](desktop-browser-controller-candidate-acceptance.md) §9。生产发布待授权 |
 
 删除前记录旧路径性能／UI 基线。P0–P3 可使用隔离候选构建；生产不保留双路径 runtime 选择器。
 所有者已要求持续实施并保留最终验收；候选版本准备正在推进，生产发布遵循执行时的所有者授权。
@@ -1542,8 +1542,8 @@ TEST1、剩余原生/离线/安装和真实 Dock 覆盖、WAN、P3/D2/P4、所�
 | R04 | 所有者完成实际鼠标关闭和 Dock 重开，确认保留原会话、标签及窗口尺寸 | 当前 Mac 候选和独立 TEST1 档案，见 [验收手册](desktop-browser-controller-candidate-acceptance.md) §8 |
 | R05 | 当前 deb 在实际 GNOME/X11 桌面通过候选任务，并在私有根目录通过安装、离线启动及卸载。当前 Mac 原生离线操作通过（§15.5） | 系统安装随 R07 成对验证，保留渲染沙箱和宿主现有安装 |
 | R06 | §15.6 将后续提交失败定位到客户端响应授权检查。源码 `b7551a9a` 为后续复现记录私有错误类别 | 早期读取失败及后续失败的底层原因均未分类，保留原请求及 unknown |
-| R07 | P3 完成后删除 §10 列出的活动旧路径，验证成对 Gateway/issuer/helper/客户端升级和整套回滚；最后按授权发布 | R01–R06 的相关门槛及 D2；当前不替换生产安装 |
-| R08 | [验收指南](desktop-browser-controller-candidate-acceptance.md) 已提供候选、摘要、工程前置条件及所有者步骤；最终决定待记录 | 技术门槛仍待关闭；自动检查不代替所有者签收 |
+| R07 | 源码 `50300074` 删除 §10 的活动旧路径。匹配的 Gateway、helper 及两端客户端通过原数据和未决 fence 下的隔离升级及回滚 | 演练沿用原 issuer，生产发布待单独授权 |
+| R08 | 所有者于 2026-11-10 按记录范围签收，并允许进入隔离演练 | 签收范围与待复核的账号操作见 [验收手册](desktop-browser-controller-candidate-acceptance.md) §8 |
 
 G1 的原生授权/撤权和 G3 的各写入边界已有隔离证据；G2 的真实模型和持久效果、G4 的零旁路
 也有隔离证据。它们不自动关闭本设计另行要求的 TEST1/P3。P0 的剩余项归 R02，P1 归 R05，

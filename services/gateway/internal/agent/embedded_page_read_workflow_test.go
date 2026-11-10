@@ -2,15 +2,13 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserhost"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 )
 
 type embeddedPageReadHost struct {
@@ -20,32 +18,43 @@ type embeddedPageReadHost struct {
 	finalURL      string
 }
 
-func (*embeddedPageReadHost) Capabilities() browserhost.Capabilities {
-	return browserhost.Capabilities{Role: browserhost.ClientEmbedded}
+func (*embeddedPageReadHost) Health(context.Context, map[string]any) (browserautomation.Result, error) {
+	return browserautomation.Result{Tool: "browser.status", Output: map[string]any{
+		"ok": true, "configured": true, "status": "ready", "role": "client_embedded",
+	}, Provider: "browser_host", Untrusted: true}, nil
 }
-func (*embeddedPageReadHost) Acquire(_ context.Context, scope browserhost.Scope) (browserhost.Binding, error) {
-	return browserhost.Binding{Scope: scope, HostID: "host", RuntimeGeneration: "runtime", ConnectionEpoch: "epoch", LeaseID: "lease", PageID: "page", PageGeneration: 1, LeaseExpiresAt: time.Now().Add(time.Minute)}, nil
-}
-func (*embeddedPageReadHost) Renew(_ context.Context, binding browserhost.Binding) (browserhost.Binding, error) {
-	return binding, nil
-}
-func (h *embeddedPageReadHost) Dispatch(_ context.Context, binding browserhost.Binding, _ string, operation string, args map[string]any) (json.RawMessage, error) {
-	h.operations = append(h.operations, operation)
-	if operation == "navigate" {
-		if h.navigateError != nil {
-			return nil, h.navigateError
-		}
-		h.url, _ = args["url"].(string)
-		if h.finalURL != "" {
-			h.url = h.finalURL
-		}
-		return json.Marshal(map[string]any{"page_id": binding.PageID, "url": h.url, "title": "Embedded page", "page_generation": binding.PageGeneration})
+
+func (h *embeddedPageReadHost) Call(_ context.Context, tool string, args map[string]any) (browserautomation.Result, error) {
+	if tool != "browser.open" && tool != "browser.navigate" {
+		return browserautomation.Result{}, errors.New("unexpected browser tool")
 	}
-	if operation == "read" {
-		return json.Marshal(map[string]any{"url": h.url, "final_url": h.url, "title": "Embedded page", "text": "Verified embedded content", "rendered": true})
+	h.operations = append(h.operations, "navigate")
+	if h.navigateError != nil {
+		return browserautomation.Result{}, h.navigateError
 	}
-	return nil, browserhost.ErrFence
+	h.url, _ = args["url"].(string)
+	if h.finalURL != "" {
+		h.url = h.finalURL
+	}
+	presentation, _ := args["presentation"].(string)
+	page := map[string]any{"page_id": "page", "url": h.url, "title": "Embedded page", "selected": true,
+		"session_generation": 1, "page_generation": 1, "provider_session_ref": "browser_host:lease",
+		"owner_id": "owner", "profile_id": "client_embedded", "presentation": presentation}
+	return browserautomation.Result{Tool: tool, RawTool: "navigate", Output: page, Pages: []any{page},
+		SessionGeneration: 1, Provider: "browser_host", Presentation: presentation, Untrusted: true}, nil
 }
+
+func (h *embeddedPageReadHost) ReadPage(_ context.Context, target string, args map[string]any) (browserautomation.PageReadResult, error) {
+	h.operations = append(h.operations, "read")
+	if target != h.url || args["reuse_active_page"] != true {
+		return browserautomation.PageReadResult{}, errors.New("read must reuse the opened page")
+	}
+	return browserautomation.PageReadResult{URL: target, FinalURL: target, Title: "Embedded page",
+		Text: "Verified embedded content", Rendered: true, SessionGeneration: 1, Provider: "browser_host",
+		ReadSource: "client_embedded_webcontents", Untrusted: true, Actions: []string{}}, nil
+}
+
+func (*embeddedPageReadHost) Close() error { return nil }
 
 func TestEmbeddedPageReadPreservesNavigationFailureAndRejectsDifferentFinalRoute(t *testing.T) {
 	for _, test := range []struct {
@@ -65,9 +74,8 @@ func TestEmbeddedPageReadPreservesNavigationFailureAndRejectsDifferentFinalRoute
 			if test.code != "" {
 				host.navigateError = &app.CodedToolError{Code: test.code, Err: errors.New("bounded navigation failure")}
 			}
-			adapter := browserhost.NewScopedAdapter(host, browserhost.Scope{Identity: browserhost.Identity{OwnerID: "owner", ClientID: "client", InstallationID: "installation"}, ConversationID: "conversation", TaskID: "task"})
 			runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
-				cfg.browserAdapter = adapter
+				cfg.browserAdapter = host
 				cfg.config.Tools.BrowserAutomation.Enabled = true
 				cfg.config.Security.BrowserReadAllowHosts = []string{"example.com"}
 			})
@@ -86,13 +94,11 @@ func TestEmbeddedPageReadPreservesNavigationFailureAndRejectsDifferentFinalRoute
 		})
 	}
 }
-func (*embeddedPageReadHost) Release(context.Context, browserhost.Binding) error { return nil }
 
-func TestExecutionEmbeddedPageReadUsesScopedAdapterThroughWorkflow(t *testing.T) {
+func TestExecutionEmbeddedPageReadUsesOpenedPageThroughWorkflow(t *testing.T) {
 	host := &embeddedPageReadHost{}
-	adapter := browserhost.NewScopedAdapter(host, browserhost.Scope{Identity: browserhost.Identity{OwnerID: "owner", ClientID: "client", InstallationID: "installation"}, ConversationID: "conversation", TaskID: "task"})
 	runtime, st, session, closeRuntime := newWorkflowE2ERuntime(t, func(cfg *testRuntimeConfig) {
-		cfg.browserAdapter = adapter
+		cfg.browserAdapter = host
 		cfg.config.Tools.BrowserAutomation.Enabled = true
 		cfg.config.Security.BrowserReadAllowHosts = []string{"example.com"}
 	})

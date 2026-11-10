@@ -54,10 +54,16 @@ const tool = async (name, args = {}, expectedError = false) => {
 const inspect = () => application.evaluate(async () => {
   const { registry, runtime, forwarder } = globalThis.__publicSemantics;
   const record = registry.conversationPages.get("semantic-A");
+  let kernelSandbox;
+  if (record && process.platform === "linux") {
+    const status = await process.getBuiltinModule("node:fs/promises").readFile(`/proc/${record.webContents.getOSProcessId()}/status`, "utf8");
+    kernelSandbox = { no_new_privileges: Number(status.match(/^NoNewPrivs:\s+(\d+)$/mu)?.[1]),
+      seccomp: Number(status.match(/^Seccomp:\s+(\d+)$/mu)?.[1]) };
+  }
   return { selected: registry.selectedConversationID, presented: registry.presentation.presented?.pageRef ?? null,
     pages: registry.desktopSnapshot(), runtime: runtime.snapshot(), controller_pid: runtime.child?.pid ?? null,
     lease: forwarder.lease?.value ?? null, journal: [...forwarder.journal.rows.values()],
-    effect: record && { sandbox: record.webContents.getLastWebPreferences().sandbox,
+    effect: record && { sandbox: record.webContents.getLastWebPreferences().sandbox, kernel_sandbox: kernelSandbox,
       debugger: record.webContents.debugger.isAttached(), dom: await record.webContents.executeJavaScript(
         '({value:document.querySelector("input").value,inputs:window.inputs,submits:window.submits,text:document.querySelector("#state").textContent})') } };
 });
@@ -212,6 +218,7 @@ try {
   assert.ok(ref && pageID && shot.snapshot_id);
   await tool("browser.type", { page_id: pageID, ref, snapshot_id: shot.snapshot_id, text: "Alice", submit: false });
   const filled = await inspect(); assert.equal(filled.effect.dom.value, "Alice"); assert.equal(filled.effect.dom.submits, 0);
+  if (process.platform === "linux") assert.deepEqual(filled.effect.kernel_sandbox, { no_new_privileges: 1, seccomp: 2 });
   const beforeFocus = evidence.reverse.length;
   await tool("browser.focus", { page_id: pageID, presentation: "visible" });
   assert.deepEqual(evidence.reverse.slice(beforeFocus).map(row => row.inner_operation), ["page.info"]);

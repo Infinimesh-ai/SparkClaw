@@ -1533,7 +1533,7 @@ TEST1、剩余原生/离线/安装和真实 Dock 覆盖、WAN、P3/D2/P4、所�
 | R02 | 同一拓扑/负载比较旧路径与候选，报告冷/热样本数、完整工具子调用、字节数、中位/尾部及吞吐；保留失败样本 | R01；现有 SSH/合成缓存计时不能顶替 WAN 统计 |
 | R03 | 隔离范围内复核完成：§15.2 对应全部 13 个工具，§15 对应 A01–A09；源码继承和缺少的原生语义边界已核对 | TEST1 及未验收平台/UI/安装仍归各自编号，不自动提升为 P3 完成 |
 | R04 | 解锁后的实际 Dock 关闭/重开及原 UI 目视验收，保存原数据/选择和几何证据 | Mac 人工解锁请求已发出 |
-| R05 | 四架构制品已齐备；完成对应安装资格、Mac 离线 GUI 和 Linux 包管理器安装验证，各项分别记录不可用环境 | 对应运行宿主；不能放宽 Chromium 沙箱 |
+| R05 | 八份制品齐备；§15.3 完成 Linux x64 独立根目录 dpkg 安装/离线 GUI/卸载；其余平台安装及 Mac 离线 GUI 仍未关闭 | 对应运行宿主；隔离安装不替代宿主桌面/所有者验收，不能放宽 Chromium 沙箱 |
 | R06 | 核对原 Linux restore 和 Mac preapproval 查询失败，给出可重现原因/回归，或明确证据不足的诊断边界 | 保留原请求/unknown，不重提原任务、不清账本 |
 | R07 | P3 完成后删除 §10 列出的活动旧路径，验证成对 Gateway/issuer/helper/客户端升级和整套回滚；最后按授权发布 | R01–R06 的相关门槛及 D2；当前不替换生产安装 |
 | R08 | 向所有者提供具体候选、验收步骤和未关闭项，记录最终验收结果 | 技术候选准备完成；自动检查不代替所有者签收 |
@@ -1643,3 +1643,35 @@ E03 记录的六份精确 Go 源码摘要仍与当前候选一致；对原 `05fa
 207 份 Controller 文件分别重新计算摘要，也全部相同。这扩展了此前继承复核，不把历史运行
 冒充当前版本重跑。R03 的有限证据复核完成；R01/R02/R04/R05/R06/R07/R08 保留各自状态，
 P3、生产上线和所有者最终验收仍未完成。
+
+### 15.3 Linux 包管理器安装及离线运行
+
+未改动的 `b175325b` amd64 deb 在 work2 Ubuntu 26.04 的两个全新独立根目录中由真实 `dpkg`
+安装、配置并卸载。独立 mount、PID、network namespace 保证宿主包数据库/桌面入口不变；
+测试根目录通过私有写时复制层只读使用宿主 OS 库，并复制 dpkg 数据库。缺少的 `libxss1` 和
+`xdg-utils` 经 APT 下载后仅安装于该根目录，没有绕过依赖校验。
+
+最终 v2 通过七项安装检查和八项原生公开工具检查。`dpkg-query` 返回
+`sparkclaw|install ok installed|0.1.0|amd64`，alternatives 将 `/usr/bin/sparkx` 指向
+`/opt/SparkX/sparkx`，桌面入口/图标存在；包中全部 7,011 个文件/链接与 deb 一致。只读
+securityfs 使安装脚本实际进入 AppArmor 配置分支，写入文件与随包源文件一致，chroot 保护
+阻止实时修改内核策略。首轮 v1 未暴露 securityfs，按其较窄覆盖保留。
+
+安装后的启动入口以 UID 1000 运行，使用独立 Xvfb、DBus/keyring 和 profile；网络仅有回环，
+无路由。实际 Controller/MCP 操作先得到 `Alice`，再得到 `AliceBob` 并只提交一次，原有
+focus/ref/wait/close 语义保持。夹具除确认无 `--no-sandbox`，还独立读取渲染进程内核状态
+`NoNewPrivs=1`、`Seccomp=2`。安装脚本选择的标准 `chrome-sandbox` 模式为 `4755`，未被
+覆盖；临时精确路径 AppArmor 规则只用于验收路径，结束后删除。这是本地合成桥的离线原生
+执行，不是加密 ISCP 或 provider 证据。
+
+purge 删除程序、alternatives、桌面/图标入口及私有 AppArmor 文件，关闭后的 profile 共
+136 个文件逐字节保留。独立停机比对每次六对 completed mutation receipt 一致。宿主包/
+桌面/MIME 指纹及内核 AppArmor 清单恢复，namespace 进程、挂载、临时策略均不存在。
+最终磁盘监视采样最低 4,653,088,768 字节，高于未改变的 4 GiB 预留。安装前仅回收可重建的
+`squashfs-root`；已验证的 AppImage 归档及解包日志保留，既有设备 profile 从未挂入测试根。
+
+保留首次回收前保护失败（父目录还含 `extract.log`），以及两次清理校验器对原 Linux fence
+清单的错误假设。严格历史比对确认 Gateway 八条 unknown 均保留：六条本地 unknown、
+一条与历史完全一致的本地 completed、另一条无本地回执，没有清账或重试。生产服务相对事故
+恢复后的基线仍健康，历史 PostgreSQL 事故继续保留。Intel Mac/Linux ARM64 原生宿主、
+Mac 离线 GUI、宿主桌面集成和最终验收不属于此次独立根目录资格；产品二进制和原 UI 未改动。

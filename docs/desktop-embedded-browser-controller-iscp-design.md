@@ -1917,7 +1917,7 @@ an unbounded Cartesian product of faults is not an acceptance requirement.
 | R02 | Compare old path and candidate on the same topology/load; report cold/warm counts, full-tool subcalls, bytes, median/tail and throughput; retain failures | R01; SSH/synthetic-cache measurements do not replace WAN statistics |
 | R03 | Review complete within the isolated scope: §15.2 maps all 13 tools; §15 maps A01–A09; source inheritance and missing native semantic boundaries checked | TEST1 and unqualified platform/UI/install gates remain under their own IDs; no automatic P3 promotion |
 | R04 | Actual Dock close/reopen and original-UI visual acceptance after unlock, retaining data/selection and geometry evidence | Manual Mac unlock already requested |
-| R05 | Artifacts for all four architectures are built; complete corresponding installation qualification, Mac offline GUI and Linux package-manager installation, recording unavailable environments separately | Matching runtime hosts; retain the Chromium sandbox |
+| R05 | Eight artifacts built; Linux x64 private-root dpkg install/offline GUI/purge qualified in §15.3; remaining platform installation and Mac offline GUI still open | Matching runtime hosts; isolated installation does not replace host desktop/owner acceptance; retain Chromium sandbox |
 | R06 | Investigate the original Linux restore and Mac preapproval lookup failures; provide reproducible cause/regression or an explicit evidence-limited diagnosis | Preserve original requests/unknowns; no resubmission or ledger clearing |
 | R07 | After P3, remove §10 active legacy paths, verify paired Gateway/issuer/helper/client upgrade and complete rollback, then publish within authorization | Applicable R01–R06 gates and D2; no current production installation replacement |
 | R08 | Provide the owner a concrete candidate, acceptance steps and open items; record final acceptance | Technical candidate preparation; automated checks do not substitute for owner sign-off |
@@ -2046,3 +2046,43 @@ files in the old `05fa3c1a` installation and current candidate were independentl
 match. This extends the prior inheritance review without presenting historical runs as current
 executions. R03's finite evidence review is complete; R01/R02/R04/R05/R06/R07/R08 retain their
 stated status. P3, production rollout and owner acceptance are not complete.
+
+### 15.3 Linux package-manager installation and offline runtime
+
+Unchanged `b175325b` amd64 deb was installed and configured by actual `dpkg`, then purged, in
+two fresh private roots on work2 Ubuntu 26.04. Separate mount, PID and network namespaces keep
+the host package database/desktop entries unchanged. The root uses host OS libraries read-only
+under private copy-on-write layers and a copied dpkg database; missing `libxss1` and `xdg-utils`
+were downloaded through APT and installed only there. No dependency checks were bypassed.
+
+The final v2 run passes seven installation checks plus eight native public-tool checks. `dpkg-query`
+reports `sparkclaw|install ok installed|0.1.0|amd64`; alternatives resolve `/usr/bin/sparkx` to
+`/opt/SparkX/sparkx`, with the packaged desktop entry/icon. All 7,011 package file/link entries
+match the deb. Read-only securityfs enables the real AppArmor configuration branch; the installed
+profile matches the packaged source, while the chroot guard prevents live kernel-policy changes.
+The initial v1 run did not expose securityfs and is retained with that narrower coverage.
+
+The installed launcher runs as UID 1000 with private Xvfb, DBus/keyring and profile. Only loopback
+exists and there is no network route. Actual Controller/MCP operations produce `Alice`, then
+`AliceBob` with one submit, and retain the existing focus/ref/wait/close semantics. The fixture
+now independently reads the renderer's `NoNewPrivs=1` and `Seccomp=2`, in addition to checking
+the absence of `--no-sandbox`. The install script selected its standard `chrome-sandbox` mode
+`4755`; it was not overridden. Temporary exact-path AppArmor rules authorize only qualification
+paths and are removed afterward. This is offline native execution with a local synthetic bridge,
+not encrypted-ISCP or provider evidence.
+
+Purge removes the executable, alternatives, desktop/icon entries and private AppArmor file while
+preserving the closed profile's 136 files byte-for-byte. Independent stopped-file comparison
+matches six completed mutation pairs per run. Host package/desktop/MIME fingerprints and kernel
+AppArmor inventory are restored; namespace processes, mounts and temporary policy are absent.
+The final disk monitor sampled a minimum 4,653,088,768 bytes, above the unchanged 4 GiB reserve.
+The verified AppImage archive and extraction log remain; only its rebuildable `squashfs-root`
+was reclaimed before installation. Existing device profiles were never mounted into the roots.
+
+Preserve the pre-reclamation guard failure (the parent also contained `extract.log`) and two
+cleanup-verifier assumptions about the shared Linux fence inventory. Strict historical comparison
+confirms all eight Gateway unknowns: six matching desktop unknowns, one exact old completed
+desktop receipt and one without a desktop receipt. These were not cleared or retried. The
+post-recovery production baseline remains healthy; the historical PostgreSQL incident still stands.
+Intel Mac/Linux ARM64 native hosts, Mac offline GUI, host desktop integration and final acceptance
+remain outside this private-root qualification. Product binaries and original UI are unchanged.

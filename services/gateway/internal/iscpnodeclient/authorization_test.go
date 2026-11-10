@@ -267,8 +267,13 @@ func TestAuthorityFailuresAreSharedOnlyInFlightAndNotChangedToRevocation(t *test
 				want = n.ErrDenied
 			}
 			for _, d := range []<-chan policyAnswer{one, two} {
-				if answer := receivePolicy(t, d); !errors.Is(answer.err, want) || errors.Is(answer.err, iscpbridge.ErrAuthorizationRevoked) {
+				answer := receivePolicy(t, d)
+				if !errors.Is(answer.err, want) || errors.Is(answer.err, iscpbridge.ErrAuthorizationRevoked) {
 					t.Fatal("authority failure changed classification", answer.err)
+				}
+				var exchange *ExchangeError
+				if !errors.As(answer.err, &exchange) || exchange.StatusCode != status {
+					t.Fatal("authority failure lost its HTTP status class", answer.err)
 				}
 			}
 			if _, err := cl.AuthorizationPolicy(context.Background()); err != nil || len(g.checks()) != 2 {

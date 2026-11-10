@@ -3,6 +3,7 @@ package iscpworkbench
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpauth"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeissuer"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/latencytrace"
 )
 
@@ -34,7 +37,19 @@ func TestPrivateLatencyTraceCorrelatesEncryptedRPC(t *testing.T) {
 	if err != nil || response.Status != 200 {
 		t.Fatal("trace changed encrypted call result", err)
 	}
+	failed, failedSession := responseUnitEndpoint(t, func(context.Context) (iscpauth.Policy, error) {
+		return iscpauth.Policy{}, errors.Join(iscpnodeissuer.ErrDenied, errors.New("private issuer detail"))
+	})
+	failedID, call := responsePending(failed, t.Context())
+	call.trace = latencytrace.Fields{Role: RoleInitiator, RPCID: failedID, RequestID: requestID, Operation: OperationLookup}
+	if err := failed.acceptResponse(failedSession.ctx, responseBytes(failedID, "never traced"), failedSession.id, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if answer := awaitResponseResult(t, call.result); answer.err == nil {
+		t.Fatal("trace changed denied response outcome")
+	}
 	want := map[string]bool{"rpc.call.start": false, "rpc.call": false, "rpc.send_authorization": false, "rpc.request_received": false, "rpc.request_authorization": false, "rpc.handler": false, "rpc.encrypted_received": false, "rpc.response_authorization": false, "rpc.delivered": false}
+	failureClassSeen := false
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		files, err := filepath.Glob(filepath.Join(os.Getenv(latencytrace.Environment), "*.ndjson"))
@@ -46,7 +61,7 @@ func TestPrivateLatencyTraceCorrelatesEncryptedRPC(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(raw), "never traced") || strings.Contains(string(raw), "fixture-access") {
+		if strings.Contains(string(raw), "never traced") || strings.Contains(string(raw), "fixture-access") || strings.Contains(string(raw), "private issuer detail") {
 			t.Fatal("trace leaked business data")
 		}
 		for _, line := range strings.Split(string(raw), "\n") {
@@ -55,12 +70,19 @@ func TestPrivateLatencyTraceCorrelatesEncryptedRPC(t *testing.T) {
 				RPCID     string `json:"rpc_id"`
 				RequestID string `json:"request_id"`
 				Operation string `json:"operation"`
+				Status    string `json:"status"`
 			}
-			if json.Unmarshal([]byte(line), &row) != nil || row.RPCID != rpcID {
+			if json.Unmarshal([]byte(line), &row) != nil || (row.RPCID != rpcID && row.RPCID != failedID) {
 				continue
 			}
 			if row.RequestID != requestID || row.Operation != OperationLookup {
 				t.Fatal("trace lost original execution correlation")
+			}
+			if row.RPCID == failedID {
+				if row.Stage == "rpc.response_authorization.denied" && row.Status == "error" {
+					failureClassSeen = true
+				}
+				continue
 			}
 			if _, tracked := want[row.Stage]; tracked {
 				want[row.Stage] = true
@@ -70,10 +92,10 @@ func TestPrivateLatencyTraceCorrelatesEncryptedRPC(t *testing.T) {
 		for _, found := range want {
 			complete = complete && found
 		}
-		if complete {
+		if complete && failureClassSeen {
 			return
 		}
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatal("missing correlated stages", want)
+	t.Fatal("missing correlated stages", want, "failure class recorded", failureClassSeen)
 }

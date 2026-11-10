@@ -6,8 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"time"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeclient"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeissuer"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/latencytrace"
 )
 
@@ -48,6 +52,9 @@ func (e *Endpoint) authorizeResponse(ctx context.Context, s *activeSession, call
 	started := latencytrace.Clock()
 	err := e.checkAuthorization(ctx)
 	latencytrace.Record(ctx, "rpc.response_authorization", started, err, 0)
+	if err != nil && !started.IsZero() {
+		latencytrace.Record(ctx, "rpc.response_authorization."+responseAuthorizationErrorClass(err), time.Time{}, err, 0)
+	}
 	e.mu.Lock()
 	// The pending object owns its original channel and deadline. Both it and
 	// the original session must still match: a stale worker cannot complete a
@@ -80,6 +87,35 @@ func (e *Endpoint) authorizeResponse(ctx context.Context, s *activeSession, call
 	call.result <- callResult{response: response}
 	latencytrace.Record(ctx, "rpc.delivered", time.Time{}, nil, 0)
 	e.mu.Unlock()
+}
+
+// Use only stable classes and numeric HTTP statuses in the private trace.
+// Error strings can include request context and must never be recorded.
+func responseAuthorizationErrorClass(err error) string {
+	var exchange *iscpnodeclient.ExchangeError
+	switch {
+	case errors.As(err, &exchange):
+		if exchange.StatusCode >= 100 && exchange.StatusCode <= 599 {
+			return "issuer_http_" + strconv.Itoa(exchange.StatusCode)
+		}
+		return "issuer_transport"
+	case errors.Is(err, iscpbridge.ErrAuthorizationRevoked):
+		return "revoked"
+	case errors.Is(err, iscpnodeissuer.ErrDenied):
+		return "denied"
+	case errors.Is(err, iscpnodeissuer.ErrInvalid):
+		return "invalid"
+	case errors.Is(err, iscpnodeissuer.ErrConflict):
+		return "conflict"
+	case errors.Is(err, iscpnodeissuer.ErrExpired):
+		return "expired"
+	case errors.Is(err, iscpnodeissuer.ErrUnavailable):
+		return "unavailable"
+	case callContextError(err) != nil:
+		return "context"
+	default:
+		return "unclassified"
+	}
 }
 
 func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) error {

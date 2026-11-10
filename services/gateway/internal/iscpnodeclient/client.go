@@ -37,6 +37,17 @@ type StoredConfig struct {
 	Scopes              []string                `json:"scopes"`
 	RelayID             string                  `json:"relay_id"`
 }
+
+// ExchangeError preserves the normalized cause while distinguishing an HTTP
+// response from failure to get one. It carries no request or response text.
+type ExchangeError struct {
+	StatusCode int // Zero means the HTTP request failed before a response.
+	cause      error
+}
+
+func (e *ExchangeError) Error() string { return e.cause.Error() }
+func (e *ExchangeError) Unwrap() error { return e.cause }
+
 type PendingEnrollment struct {
 	InstallationID   string                           `json:"installation_id"`
 	Version          int                              `json:"version"`
@@ -174,7 +185,7 @@ func (cl *Client) exchange(ctx context.Context, operation, step string, frame an
 	req.Header.Set("Content-Type", "application/json")
 	res, e := cl.http.Do(req)
 	if e != nil {
-		return iscpnodeissuer.ErrUnavailable
+		return &ExchangeError{cause: iscpnodeissuer.ErrUnavailable}
 	}
 	defer res.Body.Close()
 	b, e := io.ReadAll(io.LimitReader(res.Body, iscpnodeissuer.MaxFrameBytes+1))
@@ -182,18 +193,18 @@ func (cl *Client) exchange(ctx context.Context, operation, step string, frame an
 		return iscpnodeissuer.ErrInvalid
 	}
 	if res.StatusCode != 200 {
+		cause := iscpnodeissuer.ErrUnavailable
 		switch res.StatusCode {
 		case 400:
-			return iscpnodeissuer.ErrInvalid
+			cause = iscpnodeissuer.ErrInvalid
 		case 401, 403:
-			return iscpnodeissuer.ErrDenied
+			cause = iscpnodeissuer.ErrDenied
 		case 409:
-			return iscpnodeissuer.ErrConflict
+			cause = iscpnodeissuer.ErrConflict
 		case 410:
-			return iscpnodeissuer.ErrExpired
-		default:
-			return iscpnodeissuer.ErrUnavailable
+			cause = iscpnodeissuer.ErrExpired
 		}
+		return &ExchangeError{StatusCode: res.StatusCode, cause: cause}
 	}
 	var xr iscpnodeissuer.ExchangeResponse
 	if iscpnodeissuer.StrictDecode(b, &xr) != nil || xr.Version != 1 || xr.OperationID != operation || xr.Step != step {

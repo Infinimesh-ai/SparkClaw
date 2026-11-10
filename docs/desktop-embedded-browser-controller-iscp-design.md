@@ -2,12 +2,14 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> Date: 2026-11-10. Status: implementation in progress. Current `b175325b` packages include
-> original-credential recovery; Mac/Linux lock recovery and disposable-device revocation pass within §14's scope.
-> A shared-disk exhaustion incident interrupted work2 PostgreSQL; original service recovered,
-> with the failed preservation audit and changed runtime baseline retained in §14.
-> TEST1, the remaining acceptance matrix and paired cutover remain open; no production package replacement.
-> Owner decisions D1–D3 are retained in §12.
+> Date: 2026-11-10. Status: engineering candidate `1f7f20ee`; the owner has decided to accept
+> current performance and adopt the new path. The TEST1 native route passes on both ARM64
+> platforms (§15.5) and WAN performance of the new path is measured (§15.6).
+> The owner confirmed the Mac Dock reopen, and Linux ARM64 host and isolated installer
+> checks passed. D2 removal, paired cutover and final owner sign-off remain open. §14 is a
+> chronological log of historical checkpoints, including
+> the work2 PostgreSQL disk incident and retained failures; §10, §15 and the acceptance handbook
+> hold current status. Owner decisions D1–D3 are retained in §12.
 > Source reviewed: `main` at `e031a453` (initial proposal); browser/ISCP/desktop implementation
 > started at `b5c21e14`. This is SparkClaw-local work, with no project-cluster coordination.
 > Scope: generic browser automation in SparkX through ISCP. Mail, provider scripts and AI chat
@@ -466,10 +468,10 @@ Failed re-verification clears cached bundle proof; subsequent cleanup cannot res
 
 | Phase | Work and exit evidence | Current status |
 |---|---|---|
-| P0 Feasibility | Actual packaged Electron Node/API/fuse checks; Mac adapter; generic MCP without optional imports; fixtures for frame/popup/ref/input/capture; cold-start and full-tool/chunk timings on Mac ↔ work2 | Source and Mac/Linux packaged runtime passed; full remote timing gate open |
-| P1 Local runtime | Reproducible manifest, client entry, process supervision, association map, retained-view lifecycle; installed package runs local fixtures offline | Source lifecycle and isolated Mac/work2 x64 packages passed; installed/offline matrix remains |
-| P2 ISCP | Registry/projections, service/client/host, strict forwarder, journal/fence integration, chunks; isolated Relay failure-injection and no business bypass | Integrated; fault recovery gate open |
-| P3 Native acceptance | Installed Mac ARM64 and Linux ARM64 desktop through TEST1 to real work2; G1–G4 of the [ISCP expansion design](desktop-iscp-capability-expansion-design.md), §11 matrix, latency versus recorded old-path baseline | Pending |
+| P0 Feasibility | Actual packaged Electron Node/API/fuse checks; Mac adapter; generic MCP without optional imports; fixtures for frame/popup/ref/input/capture; cold-start and full-tool/chunk timings on Mac ↔ work2 | Source and Mac/Linux packaged runtime passed; Mac WAN full-tool timing in §15.6, chunk throughput not timed |
+| P1 Local runtime | Reproducible manifest, client entry, process supervision, association map, retained-view lifecycle; installed package runs local fixtures offline | Current ARM64 offline fixtures pass. Linux dpkg installation and purge pass in a private root |
+| P2 ISCP | Registry/projections, service/client/host, strict forwarder, journal/fence integration, chunks; isolated Relay failure-injection and no business bypass | Integrated; process-scoped Relay failure and original-request recovery pass through TEST1 on both ARM64 platforms (§15.5) |
+| P3 Native acceptance | Installed Mac ARM64 and Linux ARM64 desktop through TEST1 to real work2; G1–G4 of the [ISCP expansion design](desktop-iscp-capability-expansion-design.md), §11 matrix, latency versus recorded old-path baseline | TEST1 route, Mac Dock and Linux host checks pass within scope. The owner accepted the measured performance. Candidate experience sign-off is tracked separately under R08 |
 | P4 Cutover | Paired Gateway + Mac/Linux packages, old-path deletion, verified rollback and retained-data checks | Pending |
 
 Capture the old-path performance/UI baseline before deletion. P0–P3 may use isolated candidate
@@ -1920,11 +1922,11 @@ an unbounded Cartesian product of faults is not an acceptance requirement.
 | ID | Next step and closure condition | Dependency |
 |---|---|---|
 | R01 | Target-route positive work, bounded Relay block/recovery, all required process coverage and zero bypass now pass on both ARM64 platforms in §15.5; retain scoped G1–G4 evidence | TEST1 access restored; dedicated acceptance node active; this does not close R02 or the other P3 gates |
-| R02 | Compare old path and candidate on the same topology/load; report cold/warm counts, full-tool subcalls, bytes, median/tail and throughput; retain failures | R01; SSH/synthetic-cache measurements do not replace WAN statistics |
+| R02 | §15.6 measures the new path on Mac over the WAN, 12 samples with a per-call breakdown; the old path's WAN figure is an estimate. The owner accepts the shortfall, so this no longer gates adoption | Linux multi-sample, screenshot/chunk throughput and an old-path WAN measurement were not done |
 | R03 | Review complete within the isolated scope: §15.2 maps all 13 tools; §15 maps A01–A09; source inheritance and missing native semantic boundaries checked | TEST1 and unqualified platform/UI/install gates remain under their own IDs; no automatic P3 promotion |
-| R04 | Actual Dock close/reopen and original-UI visual acceptance after unlock, retaining data/selection and geometry evidence | Mac unlocked; cached original-UI observation below; CUA Dock reads time out, so actual Dock acceptance remains |
-| R05 | Four refreshed ARM64 artifacts; inherited Linux ARM64 private-root installation/offline/purge evidence (§15.4); Mac native offline effects now pass (§15.5); host integration remains | Isolated installation and process-scoped offline checks do not replace host desktop/owner acceptance; retain Chromium sandbox |
-| R06 | Investigate the original Linux restore and Mac preapproval lookup failures; provide reproducible cause/regression or an explicit evidence-limited diagnosis | Preserve original requests/unknowns; no resubmission or ledger clearing |
+| R04 | Owner confirmed actual mouse close and Dock reopen with the original conversation, selected tab and window dimensions retained | Current Mac candidate and dedicated TEST1 profile. The [acceptance handbook](desktop-browser-controller-candidate-acceptance.md) §8 records the result |
+| R05 | Current deb passes actual GNOME/X11 candidate work and separately private-root installation, offline launch and purge. Current Mac native offline effects pass (§15.5) | Paired system installation is part of R07. Preserve the renderer sandbox and existing installed host state |
+| R06 | §15.6 locates a later submit failure at the client's response authorization check. Source `b7551a9a` adds private, correlated classes for future occurrences | Earlier reads and the later root cause remain unclassified. Preserve original requests and unknowns |
 | R07 | After P3, remove §10 active legacy paths, verify paired Gateway/issuer/helper/client upgrade and complete rollback, then publish within authorization | Applicable R01–R06 gates and D2; no current production installation replacement |
 | R08 | Candidate, hashes, engineering prerequisites and owner steps prepared in the [acceptance guide](desktop-browser-controller-candidate-acceptance.md); final decision pending | Technical gates remain; automated checks do not substitute for owner sign-off |
 
@@ -2239,5 +2241,44 @@ production PostgreSQL disk incident remains historical. The new TEST1 node and d
 issuer/Gateway remain active for further qualification; the old isolated lab activities remain
 stopped. Evidence is indexed in `candidate-1f7f20ee-index-test1-v1.json` under the private cache,
 with the immutable `b175325b` index as parent. No passwords, tokens or private keys belong in it.
-R02 same-topology performance, R04 actual Dock interaction, remaining host integration, P3-gated
-R07/D2 and R08 owner acceptance remain open. Do not reopen completed R03 or add Intel Mac gates.
+At this checkpoint, performance, actual Dock interaction, host integration, D2 and owner experience
+were pending. See §15.6 and the [acceptance handbook](desktop-browser-controller-candidate-acceptance.md)
+for subsequent results.
+
+
+### 15.6 WAN performance measurement and submit-failure location
+
+The owner decided to accept the new path's performance shortfall and adopt it. This section
+records the measurements; the [acceptance handbook](desktop-browser-controller-candidate-acceptance.md)
+§2, §3 and §6 hold the full tables, the rerun command and the next tasks.
+
+The unmodified `1f7f20ee` Mac ARM64 candidate ran 12 consecutive, independently approved
+form-fill tasks through the public TEST1 Relay to the dedicated work2 acceptance Gateway and the
+real model; all succeeded. Full-task median is 26.3 s, range 25.5–27.7 s; the first task took
+27.7 s and the following 11 have a 26.3 s median. Each task makes 35 reverse calls. Median
+breakdown: 8.9 s from submit to the first browser call; about 8 s for the 23 calls before
+approval; about 3.9 s waiting for and granting the approval; 5.4 s for the 12 calls after
+approval through delivery. The client performs two fresh issuer authorization checks per reverse
+call, medians 66 ms and 70 ms, 4.8 s per task; actual Controller/MCP/page execution has a 14 ms
+median, 1.0 s per task; the gap between calls has a 170 ms median, about 4.3 s per task after
+excluding three long waits. Transport overhead of the new path is about 10 s, about 38%. The old
+path was not measured over the WAN; at the same per-call cost and 11 calls it is estimated at
+about 3 s, so the new path is about 7 s slower. Linux ARM64 multi-sample, screenshot and chunk
+throughput were not timed, and the maximum of 12 samples is not a tail estimate.
+
+An earlier run with the same configuration hit `Backend request is unavailable` on its fourth
+submit: once in 16 submits across both runs. The latency trace shows the encrypted
+`execution.submit` response had arrived, the client helper's response authorization check
+returned an error after 47 ms, and the response was discarded. The Gateway accepted the task while
+the client treated it as failed. It
+was not resubmitted. `authorizeResponse` in `endpoint_rpc.go` records only success or failure,
+so the root cause stays open. This is a node-managed ISCP forward call. The retained Mac
+preapproval read is a separate original request with its own evidence and outcome. Source
+`b7551a9a` adds a private error-class event correlated to the original RPC, including issuer HTTP
+status or transport failure when available, while retaining fail-closed response handling.
+
+Evidence is archived in the private cache as
+`test1-native-v1/mac-bench-r02-evidence-v1.tar.gz`, SHA-256
+`b631a6ef026fad7b8f8ba07b13f8209aaf81afa61067471a92e65a3724e1da60`. No product source, artifact
+or production installation changed; the acceptance Gateway gained 16 task records, one of which
+exists only on the Gateway.

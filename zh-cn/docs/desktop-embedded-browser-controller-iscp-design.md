@@ -2,10 +2,12 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-embedded-browser-controller-iscp-design.md)
 >
-> 日期：2026-11-10。状态：实施推进中。当前 `b175325b` 包含原凭据恢复修复，
-> Mac／Linux 锁定恢复及独立设备撤权验证在 §14 所述范围内通过。work2 共享磁盘耗尽曾中断 PostgreSQL，原服务已恢复；
-> §14 保留失败的环境保持检查及发生变化的运行基线。TEST1、其余验收矩阵和成对切换仍未完成，
-> 未替换生产安装包。§12 保留所有者决定 D1–D3。
+> 日期：2026-11-10。状态：工程候选 `1f7f20ee`，所有者已决定接受当前性能并接入新链路。
+> 两类 ARM64 的 TEST1 原生链路通过（§15.5），新链路公网性能已实测（§15.6）。
+> Mac Dock 重开已由所有者确认，Linux ARM64 宿主和隔离安装检查通过。D2 删除旧路径、
+> 成对切换和所有者最终签收仍待完成。
+> §14 是按时间顺序的历史检查点，含 work2 PostgreSQL 磁盘事故及保留的失败；当前状态以
+> §10、§15 和验收手册为准。§12 保留所有者决定 D1–D3。
 > 已核对源码：`main` 的 `e031a453`（初版提案）；浏览器／ISCP／桌面实现起点为 `b5c21e14`。
 > 本次仅涉及 SparkClaw，不执行项目簇协调流程。
 > 范围：SparkX 经 ISCP 的通用浏览器自动化。邮件、provider 脚本和 AI 对话导出保持现有路径。
@@ -402,10 +404,10 @@ Electron adapter 将 debugger 限制在任务持有的页面／frame／弹窗，
 
 | 阶段 | 工作与完成证据 | 当前状态 |
 |---|---|---|
-| P0 可行性 | 真实随包 Electron Node／API／fuse 验证；Mac adapter；无可选导入的通用 MCP；frame／弹窗／ref／输入／截图 fixture；Mac ↔ work2 冷启动、完整工具与分块计时 | 源码及 Mac／Linux 随包 runtime 通过；完整远程计时门槛仍开放 |
-| P1 本地 runtime | 可复现 manifest、客户端入口、进程监管、归属映射和保留视图生命周期；已安装包离线跑通本地 fixture | 源码生命周期及隔离 Mac／work2 x64 包通过；完整安装／离线矩阵待验 |
-| P2 ISCP | 注册／投影、service／client／host、严格转发器、journal／fence、分块；隔离 Relay 故障注入与无业务旁路 | 已接入；故障恢复门槛未关闭 |
-| P3 原生验收 | 已安装 Mac ARM64 和 Linux ARM64 桌面经 TEST1 连接真实 work2；满足 [ISCP 扩展设计](desktop-iscp-capability-expansion-design.md) G1–G4、§11 矩阵，并与旧路径记录比较延迟 | 待完成 |
+| P0 可行性 | 真实随包 Electron Node／API／fuse 验证；Mac adapter；无可选导入的通用 MCP；frame／弹窗／ref／输入／截图 fixture；Mac ↔ work2 冷启动、完整工具与分块计时 | 源码及 Mac／Linux 随包 runtime 通过；Mac 公网完整工具计时见 §15.6，分块吞吐未计时 |
+| P1 本地 runtime | 可复现 manifest、客户端入口、进程监管、归属映射和保留视图生命周期；已安装包离线跑通本地 fixture | 两端当前 ARM64 离线检查通过。Linux 在私有根目录通过 dpkg 安装及卸载 |
+| P2 ISCP | 注册／投影、service／client／host、严格转发器、journal／fence、分块；隔离 Relay 故障注入与无业务旁路 | 已接入。两端 ARM64 经 TEST1 通过进程级 Relay 断线和原请求恢复（§15.5） |
+| P3 原生验收 | 已安装 Mac ARM64 和 Linux ARM64 桌面经 TEST1 连接真实 work2；满足 [ISCP 扩展设计](desktop-iscp-capability-expansion-design.md) G1–G4、§11 矩阵，并与旧路径记录比较延迟 | TEST1 链路、Mac Dock 和 Linux 宿主检查在各自范围内通过。所有者已接受实测性能，体验签收由 R08 单独记录 |
 | P4 切换 | Gateway 与 Mac／Linux 包成对发布，删除旧路径，验证回滚与数据保留 | 待完成 |
 
 删除前记录旧路径性能／UI 基线。P0–P3 可使用隔离候选构建；生产不保留双路径 runtime 选择器。
@@ -1535,11 +1537,11 @@ TEST1、剩余原生/离线/安装和真实 Dock 覆盖、WAN、P3/D2/P4、所�
 | 编号 | 下一步和关闭条件 | 依赖 |
 |---|---|---|
 | R01 | §15.5 已完成两类 ARM64 在目标链路的原生正向、限定 Relay 阻断/恢复、全部必需进程覆盖及零旁路；保留 G1–G4 的证据范围 | TEST1 访问已恢复，专用验收节点运行中；不因此关闭 R02 或其他 P3 门禁 |
-| R02 | 同一拓扑/负载比较旧路径与候选，报告冷/热样本数、完整工具子调用、字节数、中位/尾部及吞吐；保留失败样本 | R01；现有 SSH/合成缓存计时不能顶替 WAN 统计 |
+| R02 | §15.6 已实测 Mac 新链路公网 12 样本及逐调用分解；旧路径公网值仅为估算。所有者已接受性能不足，不再作为接入门槛 | Linux 多样本、截图/分块吞吐及旧路径公网实测未做 |
 | R03 | 隔离范围内复核完成：§15.2 对应全部 13 个工具，§15 对应 A01–A09；源码继承和缺少的原生语义边界已核对 | TEST1 及未验收平台/UI/安装仍归各自编号，不自动提升为 P3 完成 |
-| R04 | 解锁后的实际 Dock 关闭/重开及原 UI 目视验收，保存原数据/选择和几何证据 | Mac 已解锁；CUA 读取 Dock 超时，实际鼠标/Dock 验证仍待完成 |
-| R05 | 四份 ARM64 制品已刷新；继承 §15.4 的 Linux ARM64 独立根目录安装/离线/卸载证据；§15.5 已通过 Mac 原生离线操作；宿主集成仍待完成 | 隔离安装和仅限候选进程的离线检查不替代宿主桌面/所有者验收，不能放宽 Chromium 沙箱 |
-| R06 | 核对原 Linux restore 和 Mac preapproval 查询失败，给出可重现原因/回归，或明确证据不足的诊断边界 | 保留原请求/unknown，不重提原任务、不清账本 |
+| R04 | 所有者完成实际鼠标关闭和 Dock 重开，确认保留原会话、标签及窗口尺寸 | 当前 Mac 候选和独立 TEST1 档案，见 [验收手册](desktop-browser-controller-candidate-acceptance.md) §8 |
+| R05 | 当前 deb 在实际 GNOME/X11 桌面通过候选任务，并在私有根目录通过安装、离线启动及卸载。当前 Mac 原生离线操作通过（§15.5） | 系统安装随 R07 成对验证，保留渲染沙箱和宿主现有安装 |
+| R06 | §15.6 将后续提交失败定位到客户端响应授权检查。源码 `b7551a9a` 为后续复现记录私有错误类别 | 早期读取失败及后续失败的底层原因均未分类，保留原请求及 unknown |
 | R07 | P3 完成后删除 §10 列出的活动旧路径，验证成对 Gateway/issuer/helper/客户端升级和整套回滚；最后按授权发布 | R01–R06 的相关门槛及 D2；当前不替换生产安装 |
 | R08 | [验收指南](desktop-browser-controller-candidate-acceptance.md) 已提供候选、摘要、工程前置条件及所有者步骤；最终决定待记录 | 技术门槛仍待关闭；自动检查不代替所有者签收 |
 
@@ -1795,5 +1797,32 @@ work2 三个生产容器的恢复后 ID/镜像/配置/挂载、健康和启动�
 5.2 GB，满足 4 GiB 余量；此前生产 PostgreSQL 磁盘事故继续保留为历史记录。新 TEST1 节点及
 独立 work2 issuer/Gateway 保持运行以继续验收，旧隔离实验活动仍停用。私有缓存的
 `candidate-1f7f20ee-index-test1-v1.json` 索引新证据，以不可变 `b175325b` 索引为父记录，
-不得包含密码、令牌或私钥。R02 同拓扑性能、R04 实际 Dock 交互、剩余宿主集成、受 P3 门禁
-约束的 R07/D2 和 R08 所有者验收仍待完成，不重开 R03，也不新增 Intel Mac 门禁。
+不得包含密码、令牌或私钥。此检查点后继续执行性能、Dock、宿主集成、D2 和所有者体验验收，
+后续结果见 §15.6 和 [验收手册](desktop-browser-controller-candidate-acceptance.md)。
+
+
+### 15.6 公网性能实测及提交失败定位
+
+所有者决定接受新链路的性能不足并接入。本节记录实测值，完整表格、复测命令和后续任务见
+[验收手册](desktop-browser-controller-candidate-acceptance.md) §2、§3、§6。
+
+未改动的 `1f7f20ee` Mac ARM64 候选经公网 TEST1 Relay 连接 work2 专用验收 Gateway 和
+真实模型，连续 12 个独立审批的表单填写任务全部成功。完整任务中位数 26.3 s，范围
+25.5–27.7 s；首个任务 27.7 s，后续 11 个中位数 26.3 s。每任务 35 次反向调用。
+中位数分解：提交到首次浏览器调用 8.9 s；审批前 23 次调用约 8 s；等待并批准审批约 3.9 s；
+批准后 12 次调用到交付 5.4 s。客户端每次反向调用做两次 issuer 新鲜授权检查，中位数
+66 ms 和 70 ms，每任务合计 4.8 s；Controller/MCP/页面实际执行中位数 14 ms，每任务 1.0 s；
+调用间隔中位数 170 ms，扣除三次长等待后每任务约 4.3 s。新链路传输开销约 10 s，
+约占 38%。旧路径未在公网实测；按相同单次开销和 11 次调用估算约 3 s，即新链路慢约 7 s。
+Linux ARM64 多样本、截图及分块吞吐未计时，12 个样本的最大值不代表尾延迟。
+
+前一轮同配置运行在第 4 次提交时出现 `Backend request is unavailable`，两轮 16 次提交
+共 1 次。延迟追踪显示 `execution.submit` 的加密响应已到达，客户端 helper 的响应授权检查
+47 ms 后返回错误，响应被丢弃。Gateway 已受理该任务，客户端视为失败，原请求未重提。
+`authorizeResponse` 只记录成功或失败，根因仍未定。这是一次 node-managed ISCP 正向调用。
+Mac 审批前读取另有独立的原请求、证据和结果。源码 `b7551a9a` 为后续复现增加关联原 RPC 的
+私有错误类别，在可用时记录 issuer HTTP 状态或传输失败，并保留授权失败即拒绝响应的行为。
+
+证据归档为私有缓存 `test1-native-v1/mac-bench-r02-evidence-v1.tar.gz`，SHA-256
+`b631a6ef026fad7b8f8ba07b13f8209aaf81afa61067471a92e65a3724e1da60`。本次未修改产品源码、
+制品或生产安装；验收 Gateway 新增 16 条任务记录，其中一条仅存在于 Gateway。

@@ -405,7 +405,7 @@ Electron adapter 将 debugger 限制在任务持有的页面／frame／弹窗，
 | P0 可行性 | 真实随包 Electron Node／API／fuse 验证；Mac adapter；无可选导入的通用 MCP；frame／弹窗／ref／输入／截图 fixture；Mac ↔ work2 冷启动、完整工具与分块计时 | 源码及 Mac／Linux 随包 runtime 通过；完整远程计时门槛仍开放 |
 | P1 本地 runtime | 可复现 manifest、客户端入口、进程监管、归属映射和保留视图生命周期；已安装包离线跑通本地 fixture | 源码生命周期及隔离 Mac／work2 x64 包通过；完整安装／离线矩阵待验 |
 | P2 ISCP | 注册／投影、service／client／host、严格转发器、journal／fence、分块；隔离 Relay 故障注入与无业务旁路 | 已接入；故障恢复门槛未关闭 |
-| P3 原生验收 | 已安装 Mac 和 work2 Linux 桌面经 TEST1 连接真实 work2；满足 [ISCP 扩展设计](desktop-iscp-capability-expansion-design.md) G1–G4、§11 矩阵，并与旧路径记录比较延迟 | 待完成 |
+| P3 原生验收 | 已安装 Mac ARM64 和 Linux ARM64 桌面经 TEST1 连接真实 work2；满足 [ISCP 扩展设计](desktop-iscp-capability-expansion-design.md) G1–G4、§11 矩阵，并与旧路径记录比较延迟 | 待完成 |
 | P4 切换 | Gateway 与 Mac／Linux 包成对发布，删除旧路径，验证回滚与数据保留 | 待完成 |
 
 删除前记录旧路径性能／UI 基线。P0–P3 可使用隔离候选构建；生产不保留双路径 runtime 选择器。
@@ -443,7 +443,7 @@ P4 删除活动 `browser.command` 注册／生成项、`Broker` 反向分发、�
 | A09 | 正常完成、显式关闭与异常清理 | 完成后保留会话视图，接管时全新 ref，显式关闭生效，旧 debugger 凭据失效 |
 | A10 | 原面板／标签／选择／隐藏／加宽／核对、renderer 崩溃、Mac Dock 重开 | 原视觉、几何与原生交互保留，无新增常驻状态 |
 | A11 | 已安装离线包与进程退出 | 不依赖系统 Node／下载，自有子进程和 socket 文件清理，manifest／权限失败关闭能力 |
-| A12 | Mac 与同机 Linux 经 TEST1 到真实 work2；封锁 Relay | 正确设备执行，无直连业务 HTTP／WS 回退，后端邮件路径和个人脚本仍正常 |
+| A12 | Mac ARM64 与 Linux ARM64 经 TEST1 到真实 work2；封锁 Relay | 正确设备执行，无直连业务 HTTP／WS 回退，后端邮件路径和个人脚本仍正常 |
 | A13 | 有未决 fence 时成对升级／回滚 | 原 installation／profile／数据保留，新旧写入不能逃过核对，旧活动源码引用清零 |
 
 随实现改动运行 Go `browsercontrol/browserhost/browserautomation/iscpworkbench/gateway` 定向测试、
@@ -455,7 +455,9 @@ P0 计时记录样本数、冷／热启动、完整工具子调用数、负载�
 
 ## 12. 已记录的所有者决定
 
-记录于 2026-11-09；本次不增加新的所有者批准。
+D1–D3 记录于 2026-11-09。2026-11-10 所有者将最终原生验收限定为 Mac ARM64 和
+Linux ARM64，提供 Linux ARM64 主机，并明确无需 Intel Mac 验证。已有 x64 制品和证据保留
+为历史覆盖，不再作为新增最终门槛。该调整只改变验收目标，D1–D3 及 TEST1/传输要求继续有效。
 
 | ID | 决定 | 影响 |
 |---|---|---|
@@ -1532,11 +1534,11 @@ TEST1、剩余原生/离线/安装和真实 Dock 覆盖、WAN、P3/D2/P4、所�
 
 | 编号 | 下一步和关闭条件 | 依赖 |
 |---|---|---|
-| R01 | 在 TEST1 目标拓扑完成两端原生正向、Relay 阻断/恢复、全部相关进程零旁路及设备归属；记录 G1–G4 结果 | TEST1 当前认证/入口仍待恢复；work2 凭据不推定适用于 TEST1 |
+| R01 | 在 TEST1 目标拓扑完成 Mac ARM64/Linux ARM64 原生正向、Relay 阻断/恢复、全部相关进程零旁路及设备归属；记录 G1–G4 结果 | TEST1 当前认证/入口仍待恢复；work2 凭据不推定适用于 TEST1 |
 | R02 | 同一拓扑/负载比较旧路径与候选，报告冷/热样本数、完整工具子调用、字节数、中位/尾部及吞吐；保留失败样本 | R01；现有 SSH/合成缓存计时不能顶替 WAN 统计 |
 | R03 | 隔离范围内复核完成：§15.2 对应全部 13 个工具，§15 对应 A01–A09；源码继承和缺少的原生语义边界已核对 | TEST1 及未验收平台/UI/安装仍归各自编号，不自动提升为 P3 完成 |
-| R04 | 解锁后的实际 Dock 关闭/重开及原 UI 目视验收，保存原数据/选择和几何证据 | Mac 人工解锁请求已发出 |
-| R05 | 八份制品齐备；§15.3 完成 Linux x64 独立根目录 dpkg 安装/离线 GUI/卸载；其余平台安装及 Mac 离线 GUI 仍未关闭 | 对应运行宿主；隔离安装不替代宿主桌面/所有者验收，不能放宽 Chromium 沙箱 |
+| R04 | 解锁后的实际 Dock 关闭/重开及原 UI 目视验收，保存原数据/选择和几何证据 | Mac 已解锁；CUA 读取 Dock 超时，实际鼠标/Dock 验证仍待完成 |
+| R05 | 八份制品齐备；§15.3 完成 Linux x64 独立根目录 dpkg 安装/离线 GUI/卸载；§15.4 已完成 Linux ARM64 独立根目录原生安装/离线/卸载；Mac ARM64 离线 GUI 及宿主集成仍待完成 | Linux ARM64 宿主访问已提供；隔离安装不替代宿主桌面/所有者验收，不能放宽 Chromium 沙箱 |
 | R06 | 核对原 Linux restore 和 Mac preapproval 查询失败，给出可重现原因/回归，或明确证据不足的诊断边界 | 保留原请求/unknown，不重提原任务、不清账本 |
 | R07 | P3 完成后删除 §10 列出的活动旧路径，验证成对 Gateway/issuer/helper/客户端升级和整套回滚；最后按授权发布 | R01–R06 的相关门槛及 D2；当前不替换生产安装 |
 | R08 | [验收指南](desktop-browser-controller-candidate-acceptance.md) 已提供候选、摘要、工程前置条件及所有者步骤；最终决定待记录 | 技术门槛仍待关闭；自动检查不代替所有者签收 |
@@ -1678,3 +1680,55 @@ purge 删除程序、alternatives、桌面/图标入口及私有 AppArmor 文件
 一条与历史完全一致的本地 completed、另一条无本地回执，没有清账或重试。生产服务相对事故
 恢复后的基线仍健康，历史 PostgreSQL 事故继续保留。Intel Mac/Linux ARM64 原生宿主、
 Mac 离线 GUI、宿主桌面集成和最终验收不属于此次独立根目录资格；产品二进制和原 UI 未改动。
+
+
+### 15.4 所有者范围更新及 Linux ARM64 原生安装
+
+所有者提供已有 Linux ARM64 主机，将最终原生验收限定为 Linux ARM64 和 Mac ARM64。
+Intel Mac 明确排除；已有 x64 证据保留原范围，不再增加最终门槛。D1–D3 保持不变。
+
+未改动的 `b175325b` ARM64 deb 在 Ubuntu 24.04.5、`6.17.0-1032-nvidia` 内核的 aarch64
+主机上，通过独立 mount/PID/network 根目录完成真实安装、配置及卸载。最终 v5 通过七项
+安装检查和八项原生公开工具检查。全部 7,011 个整包文件匹配，其中应用文件 7,008 个，另有
+图标、桌面入口和 changelog。已安装 alternatives 指向 `/opt/SparkX/sparkx`；UID 1000
+实际运行 ARM64 Electron 44.4.3、Node 24.21.0。宿主已有依赖齐备，没有向宿主安装依赖。
+
+复制的 dpkg 数据库和私有 COW `/usr`/`/etc` 支持执行真实维护脚本。安装候选前仅从独立
+根目录移除原 SparkX 包；只读 securityfs 和 chroot 保护使随包 AppArmor 配置分支执行，
+但不改动宿主已有的 `sparkx` 策略。唯一临时策略只绑定本次独有的暂存路径，没有替换生产
+`/opt/SparkX/sparkx` 路径对应的策略。
+
+网络 namespace 仅有回环且无路由。私有 Xvfb/DBus/keyring 会话通过相同的生产 Go 公开
+适配器夹具，运行真实安装入口、随包 Controller 和 MCP。实际 fill 得到 `Alice`，焦点输入
+得到 `AliceBob`，仅提交一次。逻辑 focus、wait 字段、失效 ref 拒绝、显式 close 和个人页
+保留均通过。独立读取渲染进程确认 `NoNewPrivs=1`、`Seccomp=2`，无 `--no-sandbox`；
+安装脚本选择的 SUID helper 模式 `4755` 未被覆盖。
+
+测试驱动也使用随包 Electron Node。仅驱动自身进程关闭 ASAR 拦截以读取原始归档摘要，
+另行启动的产品仍采用正常 ASAR 行为。此前 Xvfb 启动崩溃后，最终私有显示关闭 GLX；这是
+软件显示环境验证，不代表物理 GNOME/GPU/合成器或完整原 UI 验收。传输和授权仍为本地合成
+夹具，不是 TEST1、加密 ISCP 或真实 provider。
+
+purge 删除私有程序、启动入口、桌面/图标及 AppArmor 文件，关闭后的 136 个 profile 文件
+逐字节保留。独立停机读取匹配六对 completed broker/桌面回执，无 unknown。五次尝试的
+namespace 监管进程均已退出，自有原生进程和宿主私有挂载均不存在。原安装应用的 78 个
+文件/链接完全一致，包/桌面指纹不变，全部 206 条内核策略恢复。最终空闲空间超过 165 GB，
+高于未改变的 4 GiB 预留。
+
+保留失败尝试：v1 混淆应用文件数与整包文件数；v2 使用 basename 调用 `chroot`，而 Ubuntu
+24.04 的净化 PATH 不含其目录；v3 在产品启动前遇到 Electron Node 的 ASAR 拦截；v4 在
+产品启动前发生 Xvfb 崩溃。修正仅涉及验收环境。原 Gateway 在候选活动前已处于重启循环，
+目前仍如此；其配置及其他原有服务基线均保留，本次不宣称修复该既有服务问题。
+
+60 份证据保存在 `arm64-dpkg-evidence-v1.tar.gz`，35,831 字节，SHA-256 为
+`eea73b93aa3969f30ecf454248891fc4d47bc46268d95eb33834d6d1f24c2f04`。Mac 现已解锁，
+但 CUA 读取 Dock 可访问性信息超时，真实 Dock 点击仍未验收。TEST1/WAN、其余 ARM64
+原 UI/离线集成、P3 门槛后的 R07 以及所有者最终签收仍未完成。
+
+
+解锁后，CUA 使用已有隔离 profile 检查了已安装 Mac ARM64 候选。原工作台/历史、
+`Keep this unsent draft.` 草稿和 `approval-retained.txt` 附件可见；不可用的浏览器/上传/发送
+入口仍保留并禁用。原生正常退出后，107 个浏览器回执文件逐字节一致，无候选进程残留。
+已点击原关闭按钮，但随后的 CUA 状态读取又显示同一可见窗口，没有独立观察到隐藏过程。
+三次 Dock 可访问性读取超时，因此不宣称真实 Dock 重开、物理离线 GUI 或在线浏览器操作
+通过。观察器的首窗口 DOM 探针为空，不用它证明 UI 保留；CUA 可访问性树与截图另作目视证据。

@@ -469,7 +469,7 @@ Failed re-verification clears cached bundle proof; subsequent cleanup cannot res
 | P0 Feasibility | Actual packaged Electron Node/API/fuse checks; Mac adapter; generic MCP without optional imports; fixtures for frame/popup/ref/input/capture; cold-start and full-tool/chunk timings on Mac ↔ work2 | Source and Mac/Linux packaged runtime passed; full remote timing gate open |
 | P1 Local runtime | Reproducible manifest, client entry, process supervision, association map, retained-view lifecycle; installed package runs local fixtures offline | Source lifecycle and isolated Mac/work2 x64 packages passed; installed/offline matrix remains |
 | P2 ISCP | Registry/projections, service/client/host, strict forwarder, journal/fence integration, chunks; isolated Relay failure-injection and no business bypass | Integrated; fault recovery gate open |
-| P3 Native acceptance | Installed Mac and work2 Linux desktop through TEST1 to real work2; G1–G4 of the [ISCP expansion design](desktop-iscp-capability-expansion-design.md), §11 matrix, latency versus recorded old-path baseline | Pending |
+| P3 Native acceptance | Installed Mac ARM64 and Linux ARM64 desktop through TEST1 to real work2; G1–G4 of the [ISCP expansion design](desktop-iscp-capability-expansion-design.md), §11 matrix, latency versus recorded old-path baseline | Pending |
 | P4 Cutover | Paired Gateway + Mac/Linux packages, old-path deletion, verified rollback and retained-data checks | Pending |
 
 Capture the old-path performance/UI baseline before deletion. P0–P3 may use isolated candidate
@@ -514,7 +514,7 @@ into a pass.
 | A09 | Normal completion versus explicit close and abnormal teardown | Retained conversation view on completion, fresh refs on adoption, explicit close honored, old debugger credentials unusable |
 | A10 | Original panel/tabs/select/hide/widen/reconcile; renderer crash; Mac Dock reopen | Original visuals, geometry and native interaction preserved; no permanent status additions |
 | A11 | Installed offline package and process exit | No system Node/download dependency; all owned children/socket files cleaned; manifest/permission failures fail closed |
-| A12 | Real work2 over TEST1, Mac and colocated Linux; blocked Relay | Correct device executes; no direct business HTTP/WS fallback; backend mail path and personal scripts remain operational |
+| A12 | Real work2 over TEST1, Mac ARM64 and Linux ARM64; blocked Relay | Correct device executes; no direct business HTTP/WS fallback; backend mail path and personal scripts remain operational |
 | A13 | Paired upgrade/rollback with pending fences | Same installation/profile/data; old/new writes cannot escape reconciliation; obsolete active source references gone |
 
 Run focused Go `browsercontrol/browserhost/browserautomation/iscpworkbench/gateway`, Controller
@@ -527,7 +527,10 @@ median/tail latency and chunk throughput; a single successful RPC is not an end-
 
 ## 12. Recorded owner decisions
 
-Recorded on 2026-11-09; this revision does not add new owner approvals.
+D1–D3 were recorded on 2026-11-09. On 2026-11-10, the owner limited final native acceptance
+to Mac ARM64 and Linux ARM64, supplied the Linux ARM64 host, and explicitly excluded Intel Mac
+validation. Existing x64 artifacts/evidence remain historical coverage, not additional final gates.
+This changes acceptance targets; D1–D3 and the TEST1/transport requirements remain in force.
 
 | ID | Decision | Consequence |
 |---|---|---|
@@ -1916,11 +1919,11 @@ an unbounded Cartesian product of faults is not an acceptance requirement.
 
 | ID | Next step and closure condition | Dependency |
 |---|---|---|
-| R01 | Native positive work, Relay block/recovery, zero bypass across all relevant processes and device ownership on both platforms through TEST1; record G1–G4 | Current TEST1 authentication/entry remains unavailable; work2 credentials do not imply TEST1 access |
+| R01 | Native positive work, Relay block/recovery, zero bypass across all relevant processes and device ownership on Mac ARM64 and Linux ARM64 through TEST1; record G1–G4 | Current TEST1 authentication/entry remains unavailable; work2 credentials do not imply TEST1 access |
 | R02 | Compare old path and candidate on the same topology/load; report cold/warm counts, full-tool subcalls, bytes, median/tail and throughput; retain failures | R01; SSH/synthetic-cache measurements do not replace WAN statistics |
 | R03 | Review complete within the isolated scope: §15.2 maps all 13 tools; §15 maps A01–A09; source inheritance and missing native semantic boundaries checked | TEST1 and unqualified platform/UI/install gates remain under their own IDs; no automatic P3 promotion |
-| R04 | Actual Dock close/reopen and original-UI visual acceptance after unlock, retaining data/selection and geometry evidence | Manual Mac unlock already requested |
-| R05 | Eight artifacts built; Linux x64 private-root dpkg install/offline GUI/purge qualified in §15.3; remaining platform installation and Mac offline GUI still open | Matching runtime hosts; isolated installation does not replace host desktop/owner acceptance; retain Chromium sandbox |
+| R04 | Actual Dock close/reopen and original-UI visual acceptance after unlock, retaining data/selection and geometry evidence | Mac unlocked; cached original-UI observation below; CUA Dock reads time out, so actual Dock acceptance remains |
+| R05 | Eight artifacts built; Linux x64 private-root dpkg install/offline GUI/purge qualified in §15.3; Linux ARM64 private-root native install/offline/purge now passes in §15.4; Mac ARM64 offline GUI and host integration remain | ARM64 Linux host access supplied; isolated installation does not replace host desktop/owner acceptance; retain Chromium sandbox |
 | R06 | Investigate the original Linux restore and Mac preapproval lookup failures; provide reproducible cause/regression or an explicit evidence-limited diagnosis | Preserve original requests/unknowns; no resubmission or ledger clearing |
 | R07 | After P3, remove §10 active legacy paths, verify paired Gateway/issuer/helper/client upgrade and complete rollback, then publish within authorization | Applicable R01–R06 gates and D2; no current production installation replacement |
 | R08 | Candidate, hashes, engineering prerequisites and owner steps prepared in the [acceptance guide](desktop-browser-controller-candidate-acceptance.md); final decision pending | Technical gates remain; automated checks do not substitute for owner sign-off |
@@ -2089,3 +2092,66 @@ desktop receipt and one without a desktop receipt. These were not cleared or ret
 post-recovery production baseline remains healthy; the historical PostgreSQL incident still stands.
 Intel Mac/Linux ARM64 native hosts, Mac offline GUI, host desktop integration and final acceptance
 remain outside this private-root qualification. Product binaries and original UI are unchanged.
+
+
+### 15.4 Owner scope update and Linux ARM64 native installation
+
+The owner supplied an existing Linux ARM64 host and limited final native acceptance to Linux
+ARM64 and Mac ARM64. Intel Mac is explicitly excluded; previous x64 evidence remains valid
+within its original scope without becoming a new final gate. D1–D3 remain unchanged.
+
+The unchanged `b175325b` ARM64 deb was actually installed/configured and purged in a private
+mount/PID/network root on Ubuntu 24.04.5, kernel `6.17.0-1032-nvidia`, aarch64. The final v5 run
+passes seven installation checks and eight native public-tool checks. All 7,011 package files
+match, comprising 7,008 application files plus the icon, desktop entry and changelog. The installed
+alternatives entry resolves to `/opt/SparkX/sparkx`; UID 1000 executes native ARM64 Electron
+44.4.3 and Node 24.21.0. Existing host dependencies suffice; none were installed on the host.
+
+A copied dpkg database and private COW `/usr`/`/etc` support real maintainer scripts. The old
+SparkX package is removed only from that private root before candidate installation. Read-only
+securityfs and the chroot guard exercise packaged AppArmor configuration without updating the
+host's existing `sparkx` policy. One temporary profile attaches only to the unique staged path;
+there is no replacement policy for the production `/opt/SparkX/sparkx` path.
+
+The network namespace has only loopback and no routes. A private Xvfb/DBus/keyring session
+runs the real installed executable, bundled Controller and MCP through the same production Go
+public adapter fixture. Actual fill yields `Alice`, focused typing yields `AliceBob`, and submit
+occurs once. Logical focus, wait fields, stale-ref refusal, explicit close and personal-page
+preservation pass. Renderer status independently reports `NoNewPrivs=1` and `Seccomp=2`, with
+no `--no-sandbox`. The installer-selected SUID helper mode remains `4755`.
+
+The driver also runs with bundled Electron Node. Its own process disables ASAR interception
+solely to hash raw package bytes; the separately launched product retains normal ASAR handling.
+The final private Xvfb disables GLX after an earlier Xvfb startup crash; this is software-display
+qualification, not physical GNOME/GPU/compositor or full original-UI acceptance. The transport
+and authority are local synthetic fixtures, not TEST1, encrypted ISCP or a real provider.
+
+Purge removes the private application, launcher, desktop/icon and AppArmor file while preserving
+all 136 closed-profile files byte-for-byte. Independent stopped reads match six completed
+broker/desktop receipts with no unknowns. All five attempted namespace supervisors have exited;
+there are no owned native processes or host private mounts. The original installed application's
+78 files/links are exact, package/desktop fingerprints remain unchanged and all 206 kernel policy
+entries are restored. Final free space exceeds 165 GB, above the unchanged 4 GiB reserve.
+
+Keep failed attempts: v1 confused application and whole-package entry counts; v2 used a `chroot`
+basename absent from the sanitized Ubuntu 24.04 PATH; v3 encountered Electron Node's ASAR
+interception before launching the product; v4 Xvfb crashed before product launch. Corrections
+are confined to qualification setup. The original Gateway was already restarting before any
+candidate activity and remains so; its configuration and the other existing service baselines
+are preserved. This check does not claim recovery of that pre-existing service problem.
+
+Sixty evidence files are preserved in `arm64-dpkg-evidence-v1.tar.gz` (35,831 bytes, SHA-256
+`eea73b93aa3969f30ecf454248891fc4d47bc46268d95eb33834d6d1f24c2f04`). Mac is now unlocked,
+but CUA Dock accessibility reads time out; actual Dock clicking remains unqualified. TEST1/WAN,
+remaining ARM64 original-UI/offline integration, P3-gated R07 and final owner signoff remain open.
+
+
+After unlock, CUA inspected the installed Mac ARM64 candidate using the existing isolated profile.
+The original workbench/history, `Keep this unsent draft.` and `approval-retained.txt` were visible;
+unavailable browser/upload/send entries remained present and disabled. Normal native quit left
+all 107 browser receipt files byte-identical and no candidate process. The original close button
+was clicked, but the subsequent CUA state read showed the same visible window; the hidden
+transition was not independently observed. Three Dock accessibility reads timed out. Do not
+claim actual Dock reopening, physically offline GUI or live browser operations from this check.
+The observer's first-window DOM probe was empty and is not used as UI preservation evidence;
+the CUA accessibility tree and screenshot are the separate visual observations.

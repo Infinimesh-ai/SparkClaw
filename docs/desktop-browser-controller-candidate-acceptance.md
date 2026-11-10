@@ -5,6 +5,8 @@
 > Prepared: 2026-11-10. Engineering candidate; final owner acceptance is pending.
 > Product source: `b175325b9e4c2976398288089e310dc2ea28a012`.
 > This handoff does not close P3 or authorize production cutover.
+> Owner scope update, 2026-11-10: final native acceptance covers Mac ARM64 and Linux ARM64.
+> Intel Mac is explicitly excluded; existing x64 results remain historical evidence.
 
 The candidate embeds Controller and Playwright MCP in SparkX and carries generic browser
 commands over authenticated ISCP. The existing workbench and browser panel remain the acceptance
@@ -48,9 +50,9 @@ all eight archives and the installed Mac ASAR for this handoff. No credential is
 | Platform | Qualified scope | Still required |
 |---|---|---|
 | Mac ARM64 | Separate installed candidate; native semantics, routes and scoped encrypted-ISCP/lifecycle evidence | TEST1, actual Dock/original UI, Mac offline GUI |
-| Linux x64 | Native work2 evidence; isolated-root real dpkg install/configure/offline GUI/purge, final 7 installation + 8 native checks | TEST1 and host desktop/install integration |
-| Mac x64 | DMG/ZIP and architecture/resource audit; bundled Node executes under translation on ARM64 | Intel Mac native installation/GUI/offline checks |
-| Linux ARM64 | AppImage/deb, architecture and resource audit | ARM64 host native installation/GUI/offline checks |
+| Linux x64 | Native work2 evidence; isolated-root real dpkg install/configure/offline GUI/purge, final 7 installation + 8 native checks | Historical scope; no additional x64 final gate |
+| Mac x64 | DMG/ZIP and architecture/resource audit; bundled Node executes under translation on ARM64 | Excluded from final acceptance by the owner |
+| Linux ARM64 | Native ARM64 private-root dpkg install/offline public-tool execution/purge, 7 + 8 checks; archive/resource audit | TEST1 and host original-UI integration |
 
 ## Engineering preparation
 
@@ -60,7 +62,8 @@ final experience review; the owner is not expected to run fault fixtures.
 1. Restore TEST1 access and record its deployment/configuration baseline. Complete R01 on the
    required topology, then R02's same-topology old/new timing and transfer measurements. A
    reachable SSH port or successful work2 lab run does not close these gates.
-2. Complete R04 after manual Mac unlock and the remaining R05 checks on corresponding hosts.
+2. Complete R04 now that Mac is unlocked. CUA Dock reads currently time out; keep actual Dock
+   interaction pending and finish the remaining R05 checks on the accepted ARM64 platforms.
    Keep Chromium sandboxing enabled; static archive audits do not establish native passes.
 3. Start the exact candidate with an explicitly selected acceptance profile; verify installation,
    device and connection before presenting its window. Preserve existing profile authority.
@@ -74,7 +77,9 @@ final experience review; the owner is not expected to run fault fixtures.
    Gateway/issuer/helper/client upgrade and rollback rehearsal. Present the final candidate and
    evidence before requesting any separately authorized production publication.
 
-At this handoff, TEST1's known SSH entry rejects the local key and CUA reports the Mac locked.
+At the original handoff, TEST1's known SSH entry rejected the local key and CUA reported the Mac locked.
+The owner has since supplied Linux ARM64 host access; its scoped native installation/offline qualification is recorded in design §15.4. Mac is now unlocked;
+actual Dock interaction remains unqualified because CUA Dock reads time out.
 No work2 password was tried on TEST1. Isolated lab activity is stopped; opening the app alone
 neither restores that lab nor establishes TEST1 connectivity. The remote b175 AppImage archive
 is retained, but its extracted tree was reclaimed. Re-extraction requires the existing 4 GiB

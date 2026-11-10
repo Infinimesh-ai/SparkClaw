@@ -98,6 +98,8 @@ Relay 分配随机 connection ID 和 owner generation。同一认证 domain/devi
 
 `not_after` 是客户端首次入队时固定的绝对发送截止时间，随原信封保存；它与 history ID 一起属于不可变受理元数据，但不改动加密信封。首次受理要求服务端时间小于 not_after，且 not_after 不晚于当前时间加信封 TTL；`expires_at=min(not_after, accepted_at+ttl_seconds)`。重复提交不得更改 not_after，也不得重算 TTL。与已存记录匹配的查询/重复回执在过期后仍可返回，不再重新排队。
 
+TTL 大于 1 秒时，客户端在以整秒精度编码首次截止时间前预留 1 秒余量，使客户端时钟领先 Relay 不超过 1 秒时仍满足原受理上界。1 秒 TTL 保留既有预算，不提供这项余量。这只缩短首次发送窗口，不校准时钟，也不延长重试期限；更大的时钟偏差仍按原规则拒绝。TEST1 原生验收曾在两端均报告 NTP 已同步、实测 Linux 客户端领先 32–75 毫秒时反复出现 `deadline_expired`。
+
 `receipt` 使用新的 `iscp.relay.acceptance.v1` 对象，字段固定为 `type, receipt_id, relay_id, domain_id, history_id, message_id, sender_device_id, recipient_device_id, envelope_digest, not_after, accepted_at, expires_at, signature`。receipt ID 为 16 字节随机值的 B64，signature 沿用 Ed25519 的 `alg/kid/value` 对象及 ISCP 签名规范。它由原持久 Relay signer 签名并原样持久保存；不能用会随投递改变 status 的旧 delivery receipt 代替。accepted 与重复查询返回同一份签名对象。
 
 `submit.status` 通常回答 query；若 submit 的事务提交结果不确定，也可用同 request ID 返回 state=unknown，reason=`commit_unknown`。这不是 rejected。其他 unknown reason 固定为 `history_unavailable, legacy_record, barrier_timeout`，只能描述传输历史，不泄露其他主体记录。命中其他 sender 或同键不同摘要/截止时间时返回 rejected/code=`message_conflict`，query 同样适用。

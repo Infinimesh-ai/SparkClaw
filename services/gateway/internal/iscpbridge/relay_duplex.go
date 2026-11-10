@@ -164,8 +164,20 @@ func (c *RelayClient) Enqueue(ctx context.Context, value any) (*ReceiptFuture, e
 	if s == nil {
 		return nil, &NotSent{Cause: errors.New("Relay is not ready")}
 	}
-	sub := RelaySubmission{MessageID: env.MessageID, EnvelopeDigest: digest, HistoryID: s.ready.HistoryID, NotAfter: duplex.Timestamp(time.Now().Add(time.Duration(env.Route.TTLSeconds) * time.Second)), SessionID: env.SessionID, Envelope: raw}
+	sub := RelaySubmission{MessageID: env.MessageID, EnvelopeDigest: digest, HistoryID: s.ready.HistoryID, NotAfter: relaySubmissionDeadline(time.Now(), env.Route.TTLSeconds), SessionID: env.SessionID, Envelope: raw}
 	return s.enqueue(sub, false)
+}
+
+func relaySubmissionDeadline(now time.Time, ttlSeconds int) string {
+	// The Relay rejects a first admission above its own now+TTL. Timestamp's
+	// second truncation alone does not tolerate even a small client clock lead
+	// at a second boundary. Reserve one second where the TTL permits it; never
+	// extend an existing submission or change the envelope's TTL. A one-second
+	// TTL retains its original budget and cannot absorb this clock margin.
+	if ttlSeconds > 1 {
+		ttlSeconds--
+	}
+	return duplex.Timestamp(now.Add(time.Duration(ttlSeconds) * time.Second))
 }
 
 // Reconcile keeps the original deadline, digest, ciphertext and history. Absent

@@ -1580,3 +1580,30 @@ Linux 原执行在停机读取得到 delivered、零浏览器 mutation receipt�
 原失败的诊断或修复。已有冻结 read observer 能观察 execution 读取和 helper 元数据；后续
 独立新验收任务若复现，沿用它记录包装前错误和阶段，不只依靠静态启动读取日志。R06 当前为
 “已复核、原因未分类”，不是通过；没有重提原请求、修改 profile/账本、吞掉异常或延长预算。
+
+### 15.1 公开工具原生语义检查点
+
+新增 `controller_tool_fixture.go` 执行生产 Go scoped adapter，包括单独的 `ReadPage` 入口。
+`run-client-controller-public-semantics.mjs` 通过本地 JSON 测试桥和合成授权，将它连接到未改动的
+`b175325b` 实际 Electron/Controller 候选包。最终冻结夹具 v7 在 Mac ARM64（运行 v7）和
+work2 Linux x64（运行 v3）各通过八项检查，启用 Chromium 沙箱并使用独立临时 profile。
+每次覆盖九个公开工具、13 次调用、20 次桥接调用；它们不是加密 ISCP、入网、真实 provider、
+TEST1 或原工作台交互证据。
+
+- 无租约 `list_tabs` 不发反向调用，status 不启动 Controller 进程。
+- 导航、绑定读取和快照操作真实页面；ref fill 得到 `Alice` 且不提交，focused type 追加
+  `Bob` 并只提交一次，实际仅发一次 fill 和一次 type。
+- 公开 focus 只发 `page.info`，保留夹具 registry 所选会话和呈现；文本及时间 wait 字段原样
+  到达 Controller。
+- 已失效快照 ref 在新增反向调用或 DOM 改动前被拒绝。
+- 公开 close 执行关闭/释放，不建替补空白页，清除任务租约/页面并保留个人页；自身 runtime
+  进程、视图和临时运行目录清理完成。
+
+独立停机文件比对按 command ID、digest、state、scope 核对每个最终运行的六对 completed
+mutation receipt。全部保留运行共核对 Mac 26 对、Linux 12 对，其中包括前两次 Mac 的两条
+unknown。保留夹具失败：generation 格式错误、遗漏内部协议 handler、读取入口接错，以及
+同 URL 双页面时观察错了第一个页面。Mac v5 只计语义预检：Linux 生产启动保护发现夹具遗漏
+沙箱启动配置后，两端均启用沙箱重跑；v7 还明确断言无 `--no-sandbox` 且未决 fence 列表为空。
+
+没有修改产品源码、UI、制品或既有设备 profile。R03 仍需完成精确的 13 工具证据表及冻结目标/
+重定向边界核对；本检查点不重开已完成的生命周期场景，也不关闭 R01/R02/R04/R05/R07/R08。

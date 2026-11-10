@@ -1974,3 +1974,34 @@ execution reads and helper metadata. If a separate new qualification task reprod
 use that observer for the pre-wrapper error and phase instead of relying only on static startup-read
 logs. R06 is reviewed with cause unclassified, not passed. No original request was resubmitted,
 profile/ledger changed, exception swallowed or budget extended.
+
+### 15.1 Public-tool native semantics checkpoint
+
+The new `controller_tool_fixture.go` runs the production scoped Go adapter, including the
+separate `ReadPage` entry. `run-client-controller-public-semantics.mjs` connects it to the actual
+unchanged `b175325b` packaged Electron/Controller through a local JSON test bridge and synthetic
+authority. Final frozen fixture v7 passes eight checks on Mac ARM64 (run v7) and work2 Linux x64
+(run v3), with Chromium sandbox enabled and fresh disposable profiles. These are nine public
+tools, 13 invocations and 20 bridge calls per run; they are not encrypted ISCP, enrollment,
+real-provider, TEST1 or original-workbench interaction evidence.
+
+- `list_tabs` before a lease makes no reverse call; status starts no Controller process.
+- Navigate, bound read and snapshot reach the real page. Ref fill produces `Alice` without
+  submit; focused type appends `Bob` and submits once. Exactly one fill and one type are issued.
+- Public focus uses only `page.info`, preserving the fixture registry's selected conversation
+  and presentation. Text and duration wait fields reach the Controller unchanged.
+- The invalidated snapshot ref is rejected before another reverse call or DOM change.
+- Public close issues close/release without a replacement blank page, clears the task lease/page
+  and retains the personal page. Owned runtime processes, views and runtime directory are cleaned.
+
+Independent stopped-file comparison matches six completed mutation receipts on both sides for
+each final run, by command ID, digest, state and scope. Across all retained runs it matches 26 Mac
+and 12 Linux pairs, including the first two Mac unknowns. Preserve fixture failures: invalid
+generation format, missing internal protocol handler, incorrect read entry and observing the first
+of two same-URL pages. Mac v5 is only a semantic precheck: omitted sandbox launch configuration
+was caught by Linux's production startup guard. Both platforms were rerun with sandbox enabled;
+v7 additionally asserts the absence of `--no-sandbox` and an empty outstanding-fence list.
+
+No product source, UI, package or existing device profile changed. R03 still needs the exact
+13-tool/evidence inventory and frozen-target/redirect boundary review; this checkpoint does not
+reopen completed lifecycle cases or close R01/R02/R04/R05/R07/R08.

@@ -4,8 +4,8 @@
 >
 > Updated: 2026-11-10. Product source: `1f7f20ee27f45efe5dbf15e43c612a4d0cff88d6`.
 > Status: engineering candidate. The owner has decided to accept current performance and adopt
-> the new path. The remaining P3 items, D2 removal, paired release and final sign-off have not
-> been carried out; production is unchanged.
+> the new path and signed off the candidate experience within the scope in §8. D2 removal and
+> paired release remain open.
 > Final native scope is Mac ARM64 and Linux ARM64. Intel Mac is excluded.
 
 This handbook is for the owner's remaining work: read status and performance first, then follow
@@ -28,7 +28,7 @@ and full evidence boundaries.
 | R05 host integration | Candidate checks passed within scope | Linux ARM64 actual GNOME/X11 session and private-root install/offline/purge with the current deb. Mac ARM64 separate candidate on the host and process-scoped offline run |
 | R06 intermittent ISCP failure | Evidence-limited diagnosis and source instrumentation | New submit failure located at response authorization. Earlier read failures and the underlying cause remain unclassified |
 | R07 D2 removal and paired cutover | Not started | See §6 |
-| R08 owner sign-off | Pending | See §7 |
+| R08 owner sign-off | Accepted within the recorded scope | 2026-11-10. The owner approved an isolated D2 rehearsal. Active mail account and personal-script review are tracked in §8 |
 
 Branch `codex/client-browser-controller` was pushed to the configured repository with owner
 authorization. Product artifacts in §4 remain at `1f7f20ee`.
@@ -231,8 +231,8 @@ The first three items are independent. D2 follows the applicable P3 checks and o
 acceptance. Package rollout follows an isolated paired upgrade and rollback rehearsal.
 
 1. **Branch and evidence.** The branch is published and the verified private copy is in §3.2.
-2. **Experience acceptance.** The owner confirmed the Dock check (R04). Record the separate
-   candidate experience decision (R08) in §8.
+2. **Experience acceptance.** The owner confirmed the Dock check (R04) and accepted the
+   candidate experience (R08) within §8's scope.
 3. **Intermittent submit failure.** Keep fail-closed behavior and preserve original requests.
    Use the error classes in `b7551a9a` to diagnose a recurrence in the next build.
 4. **D2 removal of the old path (R07).** Design §10 is authoritative for scope:
@@ -298,7 +298,7 @@ Gateway and real model. Offline checks used synthetic local authority.
 |---|---|
 | Accepted performance | Form task median 26.3 s on Mac ARM64. The roughly 7 s WAN gap is an estimate. Owner acceptance dated 2026-11-10 |
 | Open issue | §3.1 response authorization failure. Existing unknowns remain fenced. Source adds diagnostics for a future recurrence |
-| Candidate experience decision | **Awaiting owner sign-off (R08)** |
+| Candidate experience decision | **R08 accepted**. On 2026-11-10 the owner accepted the documented scope and approved an isolated D2 upgrade and rollback rehearsal. Active mail account and personal-script operation remain for owner review |
 | Paired release decision | **Pending D2 and paired upgrade/rollback evidence (R07)** |
 
 Record the owner and the accepted scope when signing. Production rollout has a separate decision.

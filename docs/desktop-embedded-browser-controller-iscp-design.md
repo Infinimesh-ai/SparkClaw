@@ -13,6 +13,9 @@
 > Scope: generic browser automation in SparkX through ISCP. Mail, provider scripts and AI chat
 > export retain their current paths.
 
+Candidate locations, hashes, engineering prerequisites and final owner steps are in the
+[candidate acceptance guide](desktop-browser-controller-candidate-acceptance.md).
+
 ## 1. Decision
 
 Move the generic Browser Controller and Playwright MCP into each SparkX package. Carry the
@@ -1920,7 +1923,7 @@ an unbounded Cartesian product of faults is not an acceptance requirement.
 | R05 | Eight artifacts built; Linux x64 private-root dpkg install/offline GUI/purge qualified in §15.3; remaining platform installation and Mac offline GUI still open | Matching runtime hosts; isolated installation does not replace host desktop/owner acceptance; retain Chromium sandbox |
 | R06 | Investigate the original Linux restore and Mac preapproval lookup failures; provide reproducible cause/regression or an explicit evidence-limited diagnosis | Preserve original requests/unknowns; no resubmission or ledger clearing |
 | R07 | After P3, remove §10 active legacy paths, verify paired Gateway/issuer/helper/client upgrade and complete rollback, then publish within authorization | Applicable R01–R06 gates and D2; no current production installation replacement |
-| R08 | Provide the owner a concrete candidate, acceptance steps and open items; record final acceptance | Technical candidate preparation; automated checks do not substitute for owner sign-off |
+| R08 | Candidate, hashes, engineering prerequisites and owner steps prepared in the [acceptance guide](desktop-browser-controller-candidate-acceptance.md); final decision pending | Technical gates remain; automated checks do not substitute for owner sign-off |
 
 Native authorization/revocation for G1 and write boundaries for G3 have isolated evidence; so do
 G2 real-model persistent effects and G4 zero bypass. They do not automatically close this design's

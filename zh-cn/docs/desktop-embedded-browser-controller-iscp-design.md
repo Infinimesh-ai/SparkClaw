@@ -10,6 +10,9 @@
 > 本次仅涉及 SparkClaw，不执行项目簇协调流程。
 > 范围：SparkX 经 ISCP 的通用浏览器自动化。邮件、provider 脚本和 AI 对话导出保持现有路径。
 
+候选路径、摘要、工程前置条件及所有者最终步骤见
+[候选验收指南](desktop-browser-controller-candidate-acceptance.md)。
+
 ## 1. 决策
 
 将通用 Browser Controller 和 Playwright MCP 放入每个 SparkX 安装包，使用现有已认证的
@@ -1536,7 +1539,7 @@ TEST1、剩余原生/离线/安装和真实 Dock 覆盖、WAN、P3/D2/P4、所�
 | R05 | 八份制品齐备；§15.3 完成 Linux x64 独立根目录 dpkg 安装/离线 GUI/卸载；其余平台安装及 Mac 离线 GUI 仍未关闭 | 对应运行宿主；隔离安装不替代宿主桌面/所有者验收，不能放宽 Chromium 沙箱 |
 | R06 | 核对原 Linux restore 和 Mac preapproval 查询失败，给出可重现原因/回归，或明确证据不足的诊断边界 | 保留原请求/unknown，不重提原任务、不清账本 |
 | R07 | P3 完成后删除 §10 列出的活动旧路径，验证成对 Gateway/issuer/helper/客户端升级和整套回滚；最后按授权发布 | R01–R06 的相关门槛及 D2；当前不替换生产安装 |
-| R08 | 向所有者提供具体候选、验收步骤和未关闭项，记录最终验收结果 | 技术候选准备完成；自动检查不代替所有者签收 |
+| R08 | [验收指南](desktop-browser-controller-candidate-acceptance.md) 已提供候选、摘要、工程前置条件及所有者步骤；最终决定待记录 | 技术门槛仍待关闭；自动检查不代替所有者签收 |
 
 G1 的原生授权/撤权和 G3 的各写入边界已有隔离证据；G2 的真实模型和持久效果、G4 的零旁路
 也有隔离证据。它们不自动关闭本设计另行要求的 TEST1/P3。P0 的剩余项归 R02，P1 归 R05，

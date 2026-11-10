@@ -1,90 +1,68 @@
-# Browser Controller candidate acceptance — b175325b
+# Browser Controller candidate acceptance — 1f7f20ee
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-browser-controller-candidate-acceptance.md)
 >
-> Prepared: 2026-11-10. Engineering candidate; final owner acceptance is pending.
-> Product source: `b175325b9e4c2976398288089e310dc2ea28a012`.
-> This handoff does not close P3 or authorize production cutover.
-> Owner scope update, 2026-11-10: final native acceptance covers Mac ARM64 and Linux ARM64.
-> Intel Mac is explicitly excluded; existing x64 results remain historical evidence.
+> Updated: 2026-11-10. Work stopped at the owner's request after this checkpoint.
+> Product source: `1f7f20ee27f45efe5dbf15e43c612a4d0cff88d6`.
+> Engineering candidate; P3 and final owner acceptance remain incomplete. No production cutover.
+> Final native scope is Mac ARM64 and Linux ARM64. Intel Mac is excluded.
 
 The candidate embeds Controller and Playwright MCP in SparkX and carries generic browser
 commands over authenticated ISCP. The existing workbench and browser panel remain the acceptance
 surface. Mail, backend acquisition and personal scripts retain their current paths.
 The [design](desktop-embedded-browser-controller-iscp-design.md) defines D1–D3 and the evidence
-boundaries; its §15 is the finite engineering closeout ledger.
+boundaries; §15.5 records the TEST1 checkpoint and retained failures.
 
 ## Candidate and evidence
 
-Installed Mac ARM64 candidate:
-`/Users/dev/Applications/SparkX Controller Candidate b175325b.app`.
-Its `Contents/Resources/app.asar` SHA-256 is
-`f2deabcc9532e0f2ccc65a1f04903f06dd5e910f5bd0215418b78446041d1a8c`.
-The production application at `/Applications/SparkX.app` has not been replaced.
+Separate Mac ARM64 candidate: `/Users/dev/Applications/SparkX Controller Candidate 1f7f20ee.app`.
+Its ASAR SHA-256 remains `f2deabcc9532e0f2ccc65a1f04903f06dd5e910f5bd0215418b78446041d1a8c`.
+The new helper reserves a bounded initial Relay deadline margin. ASAR, Controller, original UI
+and preview resources remain byte-identical to `b175325b`; its manifest provenance is retained.
+The production `/Applications/SparkX.app` is unchanged.
 
-All eight archives live below `/Users/dev/.cache/sparkclaw-controller-20261109/`.
-Directory keys expand to:
+The four current archives are under
+`/Users/dev/.cache/sparkclaw-controller-20261109/assembly-test1-clock-arm64/apps/desktop/dist/`:
 
-- A: `assembly-enrollment-b175325b/apps/desktop/dist/`
-- B: `assembly-mac-x64-b175325b/apps/desktop/dist/`
-- C: `assembly-linux-arm64-b175325b/apps/desktop/dist/`
+| Artifact | SHA-256 |
+|---|---|
+| `SparkX-0.1.0-mac-arm64.dmg` | `b502cf6e836034a1ea477ec36aa9e9f7757b47c437dff67415e791eec9265ccb` |
+| `SparkX-0.1.0-mac-arm64.zip` | `0afe858d840d8f1bb90a25b6f347924d23e2fc096caf8e461e51462a90a9f9c1` |
+| `SparkX-0.1.0-linux-arm64.deb` | `0f8849172d1f84f2b5224572aa9798c16121c834b47cfba6a8d6f6d507b1c2b8` |
+| `SparkX-0.1.0-linux-arm64.AppImage` | `94ba0c0aef8b774d6fa94048842ecbd032a9c84723831eb54302305e836c9a37` |
 
-| Directory | Artifact | SHA-256 |
-|---|---|---|
-| A | `SparkX-0.1.0-mac-arm64.dmg` | `416aca39a8566f61c1cf632cdeecdeb0db053f2240ba07bd773cae163069d19f` |
-| A | `SparkX-0.1.0-mac-arm64.zip` | `286a01b7e182480d7676a1d8b7a5436dcfc30c5960eb2f7a3e1ed7897d1bafc0` |
-| A | `SparkX-0.1.0-linux-amd64.deb` | `bec9fe88f7251b962472ff2c8168611dc0e97334c59f5244a87e6a7cc448abc4` |
-| A | `SparkX-0.1.0-linux-x86_64.AppImage` | `6acc14114327e07f417bd29b807a5f5e72caa0c03d8c21ab8179934ef2b05219` |
-| B | `SparkX-0.1.0-mac-x64.dmg` | `083090d7c1063e8948374a48046e53cc8b2d3d51563bf8cfb286c90a90e15ba7` |
-| B | `SparkX-0.1.0-mac-x64.zip` | `821df2593be0be6f71b7f2b816a004e39cbeefb843b3a6a2b00fdbdec26a27c2` |
-| C | `SparkX-0.1.0-linux-arm64.AppImage` | `06eab873edd5a744f2cc6698545ef14af23eba0b0e9e68ffc54a1b674a8380ba` |
-| C | `SparkX-0.1.0-linux-arm64.deb` | `6febe43b75d284dbea86a1d51bd3411213e8c5c754d70b873667cec4fb77a6fa` |
+The private checkpoint index is
+`/Users/dev/.cache/sparkclaw-controller-20261109/candidate-1f7f20ee-index-test1-v1.json`.
+Its immutable parent is `candidate-b175325b-index-arm64-native-v1.json`; the parent's eight
+archives and earlier isolated checks remain historical evidence. Current native Mac runs use
+the separate assembled application; Linux uses the new deb's private extraction. Earlier actual
+dpkg installation/purge evidence retains its exact `b175325b` scope.
 
-The frozen index is `candidate-b175325b-index-dpkg-native-v1.json` under that cache root:
-99,080 bytes, SHA-256 `9028d24efe1f672a5b42e32e476cee52673e3b286af2b62b0a265d54f5c96b42`.
-It records 136 evidence files, 61 frozen qualification sources and eight artifacts;
-qualification source/docs are at `eea088a8`. These are private local evidence paths, not published
-URLs. `node-lab-v1/candidate-owner-handoff-artifacts-b175325b-v1.json` independently rechecks
-all eight archives and the installed Mac ASAR for this handoff. No credential is included.
+Both ARM64 platforms pass TEST1 real-provider approval/fill, original-panel interaction,
+process-scoped Relay fault/recovery and zero-bypass checks. Mac also passes offline native
+semantics with synthetic local authority. The final network runs observe all 14 required PIDs
+per platform. Stopped clients retain 34 matched completed receipt pairs and one separate
+Gateway-only unknown. The latter belongs to a failed Mac preapproval read whose cause remains
+unclassified; later success does not convert that original request into a pass.
 
-| Platform | Qualified scope | Still required |
-|---|---|---|
-| Mac ARM64 | Separate installed candidate; native semantics, routes and scoped encrypted-ISCP/lifecycle evidence | TEST1, actual Dock/original UI, Mac offline GUI |
-| Linux x64 | Native work2 evidence; isolated-root real dpkg install/configure/offline GUI/purge, final 7 installation + 8 native checks | Historical scope; no additional x64 final gate |
-| Mac x64 | DMG/ZIP and architecture/resource audit; bundled Node executes under translation on ARM64 | Excluded from final acceptance by the owner |
-| Linux ARM64 | Native ARM64 private-root dpkg install/offline public-tool execution/purge, 7 + 8 checks; archive/resource audit | TEST1 and host original-UI integration |
+TEST1's additive acceptance node and the dedicated work2 issuer/Gateway remain running, with
+identity and receipt state preserved for later continuation. Native fixtures, injected observers,
+private displays, temporary firewall/AppArmor resources and diagnostic processes have exited.
+Work stopped without publication, production installation replacement or active legacy removal.
 
-## Engineering preparation
+## Engineering preparation still outstanding
 
-The engineer owns these steps. The owner supplies unavailable access/hosts and performs the
-final experience review; the owner is not expected to run fault fixtures.
-
-1. Restore TEST1 access and record its deployment/configuration baseline. Complete R01 on the
-   required topology, then R02's same-topology old/new timing and transfer measurements. A
-   reachable SSH port or successful work2 lab run does not close these gates.
-2. Complete R04 now that Mac is unlocked. CUA Dock reads currently time out; keep actual Dock
-   interaction pending and finish the remaining R05 checks on the accepted ARM64 platforms.
-   Keep Chromium sandboxing enabled; static archive audits do not establish native passes.
-3. Start the exact candidate with an explicitly selected acceptance profile; verify installation,
-   device and connection before presenting its window. Preserve existing profile authority.
-   TEST1 needs a correctly enrolled TEST1 acceptance device: do not retag the isolated work2
-   identity, reuse a revoked device or launch against default production user data. Preserve
-   history, drafts, files, cookies and unknown-write fences.
-4. Keep R06 classified as evidence-limited: original lookup errors lack raw cause/status/helper
-   stage. The review is available; the original runs did not pass. If a new run reproduces it,
-   use the existing bounded read observer and retain both runs.
-5. After applicable P3 gates pass, complete R07: D2 legacy-path removal and paired
-   Gateway/issuer/helper/client upgrade and rollback rehearsal. Present the final candidate and
-   evidence before requesting any separately authorized production publication.
-
-At the original handoff, TEST1's known SSH entry rejected the local key and CUA reported the Mac locked.
-The owner has since supplied Linux ARM64 host access; its scoped native installation/offline qualification is recorded in design §15.4. Mac is now unlocked;
-actual Dock interaction remains unqualified because CUA Dock reads time out.
-No work2 password was tried on TEST1. Isolated lab activity is stopped; opening the app alone
-neither restores that lab nor establishes TEST1 connectivity. The remote b175 AppImage archive
-is retained, but its extracted tree was reclaimed. Re-extraction requires the existing 4 GiB
-free-space reserve. Earlier shared-disk exhaustion interrupted production PostgreSQL; recovery
-and the changed runtime baseline remain recorded in the design and evidence index.
+1. R02: measure old and candidate paths on the same topology/load, including cold/warm samples,
+   full-tool subcalls, byte counts, percentiles and throughput. The individual TEST1 workflow
+   durations are not a comparative performance result.
+2. R04/R05: complete actual Mac Dock interaction and remaining host desktop integration.
+   Earlier Dock accessibility reads timed out; process-scoped offline checks are now recorded.
+3. Keep original profiles, authority, data and unknown fences. The TEST1 acceptance identities
+   are dedicated devices; do not retag an old isolated or revoked device.
+4. R06: retain the explicit evidence-limited diagnosis for older lookup failures and the new Mac
+   preapproval failure. The proven Linux deadline bug is separately fixed and regression-tested.
+5. After applicable P3 gates, complete R07's D2 removal and full paired cutover/rollback. R08
+   remains the owner's final experience decision. No further work runs while this task is stopped.
 
 ## Owner experience review
 

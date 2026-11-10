@@ -1919,11 +1919,11 @@ an unbounded Cartesian product of faults is not an acceptance requirement.
 
 | ID | Next step and closure condition | Dependency |
 |---|---|---|
-| R01 | Native positive work, Relay block/recovery, zero bypass across all relevant processes and device ownership on Mac ARM64 and Linux ARM64 through TEST1; record G1–G4 | Current TEST1 authentication/entry remains unavailable; work2 credentials do not imply TEST1 access |
+| R01 | Target-route positive work, bounded Relay block/recovery, all required process coverage and zero bypass now pass on both ARM64 platforms in §15.5; retain scoped G1–G4 evidence | TEST1 access restored; dedicated acceptance node active; this does not close R02 or the other P3 gates |
 | R02 | Compare old path and candidate on the same topology/load; report cold/warm counts, full-tool subcalls, bytes, median/tail and throughput; retain failures | R01; SSH/synthetic-cache measurements do not replace WAN statistics |
 | R03 | Review complete within the isolated scope: §15.2 maps all 13 tools; §15 maps A01–A09; source inheritance and missing native semantic boundaries checked | TEST1 and unqualified platform/UI/install gates remain under their own IDs; no automatic P3 promotion |
 | R04 | Actual Dock close/reopen and original-UI visual acceptance after unlock, retaining data/selection and geometry evidence | Mac unlocked; cached original-UI observation below; CUA Dock reads time out, so actual Dock acceptance remains |
-| R05 | Eight artifacts built; Linux x64 private-root dpkg install/offline GUI/purge qualified in §15.3; Linux ARM64 private-root native install/offline/purge now passes in §15.4; Mac ARM64 offline GUI and host integration remain | ARM64 Linux host access supplied; isolated installation does not replace host desktop/owner acceptance; retain Chromium sandbox |
+| R05 | Four refreshed ARM64 artifacts; inherited Linux ARM64 private-root installation/offline/purge evidence (§15.4); Mac native offline effects now pass (§15.5); host integration remains | Isolated installation and process-scoped offline checks do not replace host desktop/owner acceptance; retain Chromium sandbox |
 | R06 | Investigate the original Linux restore and Mac preapproval lookup failures; provide reproducible cause/regression or an explicit evidence-limited diagnosis | Preserve original requests/unknowns; no resubmission or ledger clearing |
 | R07 | After P3, remove §10 active legacy paths, verify paired Gateway/issuer/helper/client upgrade and complete rollback, then publish within authorization | Applicable R01–R06 gates and D2; no current production installation replacement |
 | R08 | Candidate, hashes, engineering prerequisites and owner steps prepared in the [acceptance guide](desktop-browser-controller-candidate-acceptance.md); final decision pending | Technical gates remain; automated checks do not substitute for owner sign-off |
@@ -2155,3 +2155,89 @@ transition was not independently observed. Three Dock accessibility reads timed 
 claim actual Dock reopening, physically offline GUI or live browser operations from this check.
 The observer's first-window DOM probe was empty and is not used as UI preservation evidence;
 the CUA accessibility tree and screenshot are the separate visual observations.
+
+
+### 15.5 TEST1 native ARM64 route and bounded clock-margin repair
+
+TEST1 access is restored with explicitly supplied credentials. A new acceptance node,
+`sx-controller-test1-work2-20261110-v1`, uses the existing public Relay at
+`https://210.16.177.239:18443`, its pinned signer/TLS certificate, a dedicated work2 issuer and
+Gateway, and a separate database. Both desktop profiles were enrolled normally against this
+node; existing devices, profiles and production applications were not retagged or replaced.
+Business traffic uses the public encrypted route, without SSH data forwarding. G1's active
+ownership/consent checks, G2's real-provider/native effect, G3's original-request recovery and
+G4's process-scoped no-bypass checks now have target-route evidence. Earlier revocation and
+commit-boundary evidence retains its isolated scope; this does not promote all P3 gates.
+
+TEST1's original five authority bindings and 34 ownership rows are preserved. The added node
+and five service/client devices produce six authorities and 39 ownership/authority rows. Sixteen
+original device rows advanced only credential generation/state version; identity, authorization
+revision and revocation state remain equal. Do not describe renewable generations as byte-identical.
+The unchanged Relay binary restarted once to load the additive route. Its dependent forwarder
+also restarted. The first forwarder configuration attempt failed because its new private state
+was outside the unit's writable sandbox; automatic rollback restored the original configuration.
+Moving only the new broker's writable files under the existing allowed node-state directory
+allowed the unchanged forwarder binary/unit to start. Existing nginx and PostgreSQL were not
+restarted. Preserve both activation attempts and the initial bootstrap-schema/TTL fixture errors.
+
+Native Linux ARM64 exposed repeated Relay `deadline_expired` rejections with a client clock
+32–75 ms ahead of TEST1. Both hosts reported NTP synchronization. Independent SSH clock bounds,
+redacted helper diagnostics with `not_after`/TTL and a deterministic regression establish that
+the Relay's future deadline bound can reject the original `now+TTL` calculation near a second
+boundary. Source `1f7f20ee` reserves one second at initial enqueue for TTLs above one second;
+TTL=1 keeps its existing budget. It never extends an existing deadline, changes ciphertext or
+recreates an uncertain operation. Relay validation and host clocks are unchanged. The test first
+fails at 32 ms lead and then passes across each millisecond of a second and the TTL boundaries.
+ISCP bridge/duplex/workbench race tests and vet pass. Qualification commit `c6e62b2a` separately
+prevents a bundled-Electron Node test driver from launching the actual GUI in Node mode.
+
+Four clean `1f7f20ee` ARM64 artifacts are available. Mac ASAR, 6,428 unpacked files, 208 Controller
+files (207 manifest entries plus manifest), 24 UI and 224 preview files equal the preceding package.
+Linux ASAR/Controller/UI/preview are likewise equal, and all 7,008 deb application entries match
+the assembled payload. The Controller manifest intentionally retains its unchanged `b175325b`
+source provenance. Only the product ISCP helper changed. The separate Mac application and privately
+extracted Linux deb use these new helpers. The dedicated acceptance Gateway was also updated to
+`1f7f20ee`; its container identity/configuration and all 27 pre-update browser receipts were retained.
+Its new start time is recorded. No production Gateway, issuer or application package was replaced.
+
+The final same-generation TEST1 runs pass nine Mac and eight Linux native checks: real-model
+approval, actual `Alice` fill, retained sandboxed task view, original panel/tabs/hide/width behavior,
+existing unknown fences, directed Relay loss and original-request recovery, and clean native exit.
+Each has 14 required observed PIDs including main, helper, Controller/MCP and Chromium processes.
+Mac's private injected observer covers connect/connectx/sendto/sendmsg and refuses other external
+addresses; Linux uses a temporary kernel nftables rule for a previously unused GID, covering TCP
+and UDP for the whole owned process tree. There are zero non-Relay attempts/packets. Fault injection
+affects only that candidate, never pauses the shared Relay, makes an owner read unavailable, then
+recovers the same profile/authority and single original task. All Linux firewall tables, temporary
+AppArmor policies, Xvfb/keyring and owned process groups are cleaned. The final workflow durations
+are 27,024 ms Mac and 26,126 ms Linux: individual workflow observations, not R02 percentiles.
+
+Retain the network-fixture failures: Linux v1 missed one short-lived reconnect helper; v2 captured
+all required PIDs but its all-session UID assertion also matched a desktop-portal `fusermount3`
+setuid helper. Kernel isolation depends on its unchanged GID, and all required product PIDs remain
+UID 1000. An immutable-evidence review records that distinction; final v3 passes directly with the
+correct scope. Mac's expanded observer v2 encountered a new preapproval read failure. Read-only
+reconciliation preserves that original request as `unknown`, two completed receipt pairs and one
+Gateway-only unknown command with no local admission. No field approval or write was replayed.
+Ninety later owner reads under a diagnostic helper did not reproduce a cause; the original cause
+remains unclassified, distinct from the proven Linux deadline bug and older R06 failures. The final
+Mac v3 pass preserves this exact unknown fence. Diagnostic helpers are never qualification packages.
+
+With both native clients stopped, independent metadata comparison matches 18 Mac and 16 Linux
+completed receipts by command, digest and full scope. The one additional Gateway-only unknown
+is retained separately. The running but quiescent Gateway's 35 receipt files are unchanged across
+two reads; this is not a stopped-Gateway claim. Mac additionally passes ten offline native checks:
+a fresh profile, package-bundled runtime, actual `Alice` to `AliceBob`/one submit, logical focus,
+wait/stale-ref/close/personal-page behavior and cleanup, with all 11 required native PIDs covered
+and zero external attempts. Six stopped synthetic broker/desktop receipt pairs match. This is
+process-scoped offline qualification with synthetic local authority, not encrypted ISCP or a
+claim that the whole Mac host was disconnected.
+
+work2's three production containers retain their post-recovery IDs/images/configuration/mounts,
+health and start-time baselines. Free space remains above 5.2 GB and the 4 GiB reserve. The earlier
+production PostgreSQL disk incident remains historical. The new TEST1 node and dedicated work2
+issuer/Gateway remain active for further qualification; the old isolated lab activities remain
+stopped. Evidence is indexed in `candidate-1f7f20ee-index-test1-v1.json` under the private cache,
+with the immutable `b175325b` index as parent. No passwords, tokens or private keys belong in it.
+R02 same-topology performance, R04 actual Dock interaction, remaining host integration, P3-gated
+R07/D2 and R08 owner acceptance remain open. Do not reopen completed R03 or add Intel Mac gates.

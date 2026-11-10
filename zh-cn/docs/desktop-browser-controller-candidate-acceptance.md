@@ -1,79 +1,61 @@
-# Browser Controller 候选验收指南 — b175325b
+# Browser Controller 候选验收指南 — 1f7f20ee
 
 > 语言：简体中文 | [English](../../docs/desktop-browser-controller-candidate-acceptance.md)
 >
-> 准备日期：2026-11-10。当前为工程候选，所有者最终验收待完成。
-> 产品源码：`b175325b9e4c2976398288089e310dc2ea28a012`。
-> 本交接不关闭 P3，也不代表已授权切换生产。
-> 2026-11-10 所有者范围更新：最终原生验收仅含 Mac ARM64 和 Linux ARM64。
-> Intel Mac 明确排除，已有 x64 结果保留为历史证据。
+> 更新日期：2026-11-10。本检查点收尾后，按所有者要求停止推进。
+> 产品源码：`1f7f20ee27f45efe5dbf15e43c612a4d0cff88d6`。
+> 当前为工程候选，P3 和所有者最终验收未完成，未切换生产。
+> 最终原生范围为 Mac ARM64、Linux ARM64，排除 Intel Mac。
 
 候选将 Controller 和 Playwright MCP 放入 SparkX，经已认证 ISCP 承载通用浏览器命令。
 验收继续使用原工作台和浏览器面板；邮件、后端采集及个人脚本保持现有路径。
-[设计文档](desktop-embedded-browser-controller-iscp-design.md) 定义 D1–D3 和证据边界，
-其中 §15 是固定的工程收口清单。
+[设计文档](desktop-embedded-browser-controller-iscp-design.md) 定义 D1–D3，§15.5 记录
+TEST1 检查点、证据边界及保留的失败。
 
 ## 候选与证据入口
 
-已安装的 Mac ARM64 候选：
-`/Users/dev/Applications/SparkX Controller Candidate b175325b.app`。
-其 `Contents/Resources/app.asar` 的 SHA-256 为
-`f2deabcc9532e0f2ccc65a1f04903f06dd5e910f5bd0215418b78446041d1a8c`。
-生产应用 `/Applications/SparkX.app` 未被替换。
+独立 Mac ARM64 候选：`/Users/dev/Applications/SparkX Controller Candidate 1f7f20ee.app`。
+ASAR SHA-256 仍为 `f2deabcc9532e0f2ccc65a1f04903f06dd5e910f5bd0215418b78446041d1a8c`。
+新 helper 为 Relay 首次发送截止时间预留限定余量；ASAR、Controller、原 UI 和预览资源
+均与 `b175325b` 逐字节一致，清单保留原源码归属。生产 `/Applications/SparkX.app` 未替换。
 
-八份归档均位于 `/Users/dev/.cache/sparkclaw-controller-20261109/` 下，目录代号对应：
+四份当前归档位于：
+`/Users/dev/.cache/sparkclaw-controller-20261109/assembly-test1-clock-arm64/apps/desktop/dist/`。
 
-- A：`assembly-enrollment-b175325b/apps/desktop/dist/`
-- B：`assembly-mac-x64-b175325b/apps/desktop/dist/`
-- C：`assembly-linux-arm64-b175325b/apps/desktop/dist/`
+| 制品 | SHA-256 |
+|---|---|
+| `SparkX-0.1.0-mac-arm64.dmg` | `b502cf6e836034a1ea477ec36aa9e9f7757b47c437dff67415e791eec9265ccb` |
+| `SparkX-0.1.0-mac-arm64.zip` | `0afe858d840d8f1bb90a25b6f347924d23e2fc096caf8e461e51462a90a9f9c1` |
+| `SparkX-0.1.0-linux-arm64.deb` | `0f8849172d1f84f2b5224572aa9798c16121c834b47cfba6a8d6f6d507b1c2b8` |
+| `SparkX-0.1.0-linux-arm64.AppImage` | `94ba0c0aef8b774d6fa94048842ecbd032a9c84723831eb54302305e836c9a37` |
 
-| 目录 | 制品 | SHA-256 |
-|---|---|---|
-| A | `SparkX-0.1.0-mac-arm64.dmg` | `416aca39a8566f61c1cf632cdeecdeb0db053f2240ba07bd773cae163069d19f` |
-| A | `SparkX-0.1.0-mac-arm64.zip` | `286a01b7e182480d7676a1d8b7a5436dcfc30c5960eb2f7a3e1ed7897d1bafc0` |
-| A | `SparkX-0.1.0-linux-amd64.deb` | `bec9fe88f7251b962472ff2c8168611dc0e97334c59f5244a87e6a7cc448abc4` |
-| A | `SparkX-0.1.0-linux-x86_64.AppImage` | `6acc14114327e07f417bd29b807a5f5e72caa0c03d8c21ab8179934ef2b05219` |
-| B | `SparkX-0.1.0-mac-x64.dmg` | `083090d7c1063e8948374a48046e53cc8b2d3d51563bf8cfb286c90a90e15ba7` |
-| B | `SparkX-0.1.0-mac-x64.zip` | `821df2593be0be6f71b7f2b816a004e39cbeefb843b3a6a2b00fdbdec26a27c2` |
-| C | `SparkX-0.1.0-linux-arm64.AppImage` | `06eab873edd5a744f2cc6698545ef14af23eba0b0e9e68ffc54a1b674a8380ba` |
-| C | `SparkX-0.1.0-linux-arm64.deb` | `6febe43b75d284dbea86a1d51bd3411213e8c5c754d70b873667cec4fb77a6fa` |
+私有检查点索引为
+`/Users/dev/.cache/sparkclaw-controller-20261109/candidate-1f7f20ee-index-test1-v1.json`，
+不可变父索引为 `candidate-b175325b-index-arm64-native-v1.json`。父记录的八份归档及既有隔离
+测试保留为历史证据。当前 Mac 原生运行使用独立组装应用，Linux 使用新 deb 私有解包。
+此前实际 dpkg 安装/卸载证据仍严格属于 `b175325b`。
 
-同一缓存根目录下的冻结索引为 `candidate-b175325b-index-dpkg-native-v1.json`：
-99,080 字节，SHA-256 为 `9028d24efe1f672a5b42e32e476cee52673e3b286af2b62b0a265d54f5c96b42`。
-它记录 136 份证据、61 份冻结验证源文件和八份制品，验证源码/文档版本为 `eea088a8`。
-索引路径指向本机私有证据，不是公开下载地址。
-`node-lab-v1/candidate-owner-handoff-artifacts-b175325b-v1.json` 为本次交接独立复核八份归档
-和已安装 Mac ASAR 的记录，不包含凭据。
+两类 ARM64 均通过 TEST1 真实模型审批/填表、原面板交互、仅限候选进程的 Relay 断线恢复和
+零旁路检查，最终网络运行每端覆盖全部 14 个必需 PID。Mac 另通过本地合成授权下的离线原生
+操作。客户端退出后，34 组完成回执匹配，另保留一条 Gateway-only unknown：它属于一次原因
+尚未分类的 Mac 审批前读取失败；后续通过不把原请求改判为成功。
 
-| 平台 | 已验证范围 | 尚需完成 |
-|---|---|---|
-| Mac ARM64 | 独立安装候选；原生语义、路由及限定范围的加密 ISCP/生命周期证据 | TEST1、真实 Dock/原 UI、Mac 离线 GUI |
-| Linux x64 | work2 原生证据；独立根目录真实 dpkg 安装/配置/离线 GUI/卸载，最终 7 项安装 + 8 项原生检查 | 历史覆盖，不再增加 x64 最终门槛 |
-| Mac x64 | DMG/ZIP、架构/资源审计；ARM64 转译环境下运行随包 Node | 所有者已明确排除其最终验收 |
-| Linux ARM64 | ARM64 独立根目录真实 dpkg 安装/离线公开工具/卸载，7 + 8 项通过；归档/资源审计 | TEST1 及宿主原 UI 集成 |
+TEST1 新增验收节点及独立 work2 issuer/Gateway 保留运行，身份和回执状态保留以供后续继续。
+原生验证、注入观察器、私有显示、临时防火墙/AppArmor 和诊断进程均已退出。
+本次停止未发布、未替换生产安装，也未移除活动旧路径。
 
-## 工程准备
+## 尚未完成的工程准备
 
-以下由工程方完成。所有者提供缺少的访问条件/宿主，并做最终体验验收，无须运行故障夹具。
-
-1. 恢复 TEST1 访问，记录部署/配置基线。在要求的拓扑完成 R01，再完成 R02 同拓扑新旧链路
-   计时和传输统计。SSH 端口可达或 work2 实验成功均不关闭这些门槛。
-2. Mac 已解锁，继续完成 R04；CUA 读取 Dock 超时，该项保留待验。按当前范围补齐 R05。保持 Chromium 沙箱；静态归档审计
-   不记作原生通过。
-3. 用显式指定的验收 profile 启动准确候选，核对安装、设备及连接后再呈现窗口。保留已有
-   profile 的原授权。TEST1 使用正确入网的 TEST1 验收设备：不得改写隔离 work2 身份、
-   复用已撤权设备或使用默认生产用户目录启动。保留历史、草稿、文件、cookie 和 unknown 写入保护记录。
-4. R06 保持“证据不足”分类：原查询错误缺少底层原因/状态/helper 阶段。复核已有结论，
-   原运行没有通过。若独立新运行复现，使用现有有界读取观察器并保留前后记录。
-5. 适用 P3 门槛通过后完成 R07：按 D2 删除活动旧路径，并演练 Gateway/issuer/helper/客户端
-   成对升级及回滚。请求另行授权的生产发布前，提供最终候选和证据。
-
-初次交接时，TEST1 已知 SSH 入口拒绝本机密钥，CUA 报告 Mac 锁屏。所有者现已提供 Linux
-ARM64 宿主访问，限定范围的原生安装/离线验收见设计 §15.4。Mac 已解锁，实际 Dock 交互因
-CUA 读取超时仍待验收。未将 work2 密码用于
-TEST1。隔离实验活动已停止，单独打开应用不会恢复实验服务，也不代表已连接 TEST1。
-远端保留 b175 AppImage 归档，其解压树已回收；再次解压必须满足已有 4 GiB 磁盘预留。
-此前共享磁盘耗尽曾中断生产 PostgreSQL；恢复及变化后的运行基线继续保留于设计和证据索引。
+1. R02：同拓扑/负载比较新旧路径，记录冷/热样本、完整工具子调用、字节数、分位和吞吐。
+   当前单次 TEST1 工作流耗时不构成性能对比。
+2. R04/R05：实际 Mac Dock 交互和剩余宿主桌面集成。此前 Dock 辅助功能读取超时；
+   仅限候选进程的离线检查现已记录。
+3. 保留原配置、身份、数据和 unknown 栅栏。TEST1 使用独立验收设备，不重标记旧实验或
+   已撤销设备。
+4. R06：保留更早读取失败及新 Mac 审批前失败的证据不足结论。Linux 截止时间缺陷
+   已单独确定原因、修复并完成回归。
+5. 满足适用 P3 门禁后，才继续 R07 的 D2 删除及完整成对切换/回退；R08 仍需所有者最终
+   体验验收。任务停止期间不再推进。
 
 ## 所有者体验验收
 

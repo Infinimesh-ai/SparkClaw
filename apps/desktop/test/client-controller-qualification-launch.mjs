@@ -7,6 +7,7 @@ export function qualificationLaunchEnvironment(directory, env = process.env) {
   const nodeManaged = env.SPARKCLAW_CONTROLLER_NODE_MANAGED === "1";
   assert.ok(env.SPARKCLAW_CONTROLLER_NODE_MANAGED === undefined || nodeManaged);
   const selected = { ...env, SPARKCLAW_DESKTOP_USER_DATA_DIR: path.join(directory, "controller-native-profile") };
+  delete selected.ELECTRON_RUN_AS_NODE;
   if (nodeManaged) {
     assert.equal(env.SPARKCLAW_DESKTOP_ISCP_CONFIG, undefined);
     assert.equal(env.SPARKCLAW_DESKTOP_ISCP_LOCAL_TEST, undefined);

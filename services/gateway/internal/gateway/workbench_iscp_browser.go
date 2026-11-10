@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"sync"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browsercontrol"
@@ -15,6 +16,22 @@ import (
 // write fences and reconciles them; Controller operations use the session
 // that already authenticates the device.
 func (a *iscpDomainAdapter) browser(ctx context.Context, request iscpworkbench.Request) iscpDomainResult {
+	if request.Operation == iscpworkbench.OperationBrowserReceipt {
+		if !domainEmpty(request.Body) {
+			return domainError(400, "invalid_input")
+		}
+		r := (&http.Request{Header: make(http.Header)}).WithContext(ctx)
+		r.Header.Set("X-SparkClaw-Installation", request.InstallationID)
+		principal, _, err := a.server.executionReadPrincipal(r)
+		if err != nil {
+			return domainError(403, "installation_required")
+		}
+		fences, err := a.server.browserFences(browserhost.Identity{OwnerID: principal.OwnerID, ClientID: principal.ClientID, InstallationID: request.InstallationID})
+		if err != nil {
+			return domainError(503, "browser_unavailable")
+		}
+		return domainJSON(200, map[string]any{"fences": fences})
+	}
 	principal, _, err := a.executionIdentity(ctx, request)
 	if err != nil {
 		return domainError(403, "installation_required")
@@ -25,11 +42,6 @@ func (a *iscpDomainAdapter) browser(ctx context.Context, request iscpworkbench.R
 	}
 	identity := browserhost.Identity{OwnerID: principal.OwnerID, ClientID: principal.ClientID, InstallationID: request.InstallationID}
 	switch request.Operation {
-	case iscpworkbench.OperationBrowserReceipt:
-		if !domainEmpty(request.Body) {
-			return domainError(400, "invalid_input")
-		}
-		return domainJSON(200, map[string]any{"fences": broker.Fences(identity)})
 	case iscpworkbench.OperationBrowserReconcile:
 		var input struct {
 			CommandID string `json:"command_id"`
@@ -142,28 +154,6 @@ func controllerReverseOutcome(response iscpworkbench.Response, err error) (json.
 	// A remote status alone cannot prove that a submitted mutation did not
 	// execute. Only an authenticated Controller envelope carries that proof.
 	return nil, errors.New("browser Controller response outcome is unavailable")
-}
-
-// Command maps the reverse call onto the broker's outcome rules: only a local
-// refusal before sending, or the desktop's own refusal before executing,
-// proves the page was untouched. Every other failure is unknown.
-func (p browserPeerSession) Command(ctx context.Context, body json.RawMessage) (json.RawMessage, error) {
-	return reverseCommandOutcome(p.session.Command(ctx, iscpworkbench.OperationBrowserCommand, body))
-}
-func reverseCommandOutcome(response iscpworkbench.Response, err error) (json.RawMessage, error) {
-	if errors.Is(err, iscpworkbench.ErrPeerUnavailable) {
-		return nil, browserhost.ErrNotDispatched
-	}
-	if err != nil {
-		return nil, err
-	}
-	if response.Status == 200 {
-		return response.Body, nil
-	}
-	if (response.Status == 403 && response.Code == iscpworkbench.ErrorPermissionDenied) || (response.Status == 503 && response.Code == iscpworkbench.ErrorCapabilityUnavailable) {
-		return nil, browserhost.ErrNotDispatched
-	}
-	return nil, errors.New("browser command outcome is unknown")
 }
 
 var _ browserhost.ReverseRouter = (*workbenchBrowserRoutes)(nil)

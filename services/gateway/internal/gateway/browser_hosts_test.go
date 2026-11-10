@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserhost"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
@@ -61,32 +59,13 @@ func TestExecutionInstalledClientControlHTTPMatchesClosedRequestShapes(t *testin
 		}
 		return res.StatusCode, raw
 	}
-	if code, _ := request("/api/v1/browser/hosts/grants", `{}`, installation); code != 403 {
-		t.Fatal("unbound install", code)
-	}
 	if code, _ := request("/api/v1/installations", `{"schema_version":1,"installation_id":"`+installation+`"}`, ""); code != 200 {
 		t.Fatal("bind", code)
 	}
-	if code, _ := request("/api/v1/browser/hosts/grants", `{}`, ""); code != 403 {
-		t.Fatal("missing install header", code)
-	}
-	if code, raw := request("/api/v1/browser/hosts/grants", `{"installation_id":"`+installation+`"}`, installation); code != 400 {
-		t.Fatalf("body broadening: %d %s", code, raw)
-	}
-	code, raw := request("/api/v1/browser/hosts/grants", `{}`, installation)
-	var grant browserhost.Grant
-	if err := json.Unmarshal(raw, &grant); err != nil || code != 200 || grant.HostID == "" {
-		t.Fatalf("grant: %d %s %v", code, raw, err)
-	}
-	if code, _ := request("/api/v1/browser/hosts/"+grant.HostID+"/revoke", `{}`, installation); code != 200 {
-		t.Fatal("revoke", code)
-	}
-	if code, _ := request("/api/v1/browser/hosts/reconcile", `{"installation_id":"`+installation+`","command_id":"fixture","digest":"bad","outcome":"observed_completed"}`, installation); code != 400 {
-		t.Fatal("reconcile broadening", code)
-	}
-	for _, invalid := range []string{`null`, `{} {}`, `{"unsafe":true}`} {
-		if code, _ := request("/api/v1/browser/hosts/grants", invalid, installation); code != 400 {
-			t.Fatal("invalid grant shape", invalid, code)
+	for _, path := range []string{"grants", "connect", "fences", "reconcile", "old-host/revoke"} {
+		route := "/api/v1/browser/hosts/" + path
+		if code, body := request(route, `{}`, installation); code != http.StatusNotFound {
+			t.Fatalf("removed browser host route %s: %d %s", route, code, body)
 		}
 	}
 	// Scheduled work is owned by the host scheduler; the removed installed

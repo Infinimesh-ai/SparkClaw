@@ -12,16 +12,9 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
 )
 
-// The old reverse Command is retained only until P3. Production Controller
-// calls require this typed operation boundary; there is no LAN fallback.
-type ControllerReverseSession interface {
-	ReverseSession
-	browsercontrol.ISCPControllerTransport
-}
-
 type controllerHostLease struct {
 	binding  Binding
-	peer     ControllerReverseSession
+	peer     ReverseSession
 	adapter  *browserautomation.PlaywrightExtensionAdapter
 	done     chan struct{}
 	retiring bool
@@ -40,10 +33,7 @@ func (b *Broker) EnableClientController(cfg config.Config) {
 		b.controller = &ClientControllerHost{broker: b, cfg: cfg, leases: map[string]*controllerHostLease{}}
 	}
 }
-func (*ClientControllerHost) Capabilities() Capabilities {
-	return Capabilities{Role: ClientEmbedded, Operations: []string{"acquire", "execute", "release", "status", "chunk"}}
-}
-func (h *ClientControllerHost) peer(identity Identity) (ControllerReverseSession, error) {
+func (h *ClientControllerHost) peer(identity Identity) (ReverseSession, error) {
 	if !identity.valid() {
 		return nil, ErrFence
 	}
@@ -57,18 +47,14 @@ func (h *ClientControllerHost) peer(identity Identity) (ControllerReverseSession
 	if err != nil || peer == nil || sessionDone(peer) || !idPattern.MatchString(peer.SessionID()) || peer.AuthorizationRevision() == 0 || peer.AuthorizationRevision() > 1<<53-1 {
 		return nil, ErrUnavailable
 	}
-	typed, ok := peer.(ControllerReverseSession)
-	if !ok {
-		return nil, ErrUnavailable
-	}
-	return typed, nil
+	return peer, nil
 }
-func controllerBinding(scope Scope, peer ControllerReverseSession) Binding {
+func controllerBinding(scope Scope, peer ReverseSession) Binding {
 	return Binding{Scope: scope, HostID: reverseHostID(scope.Identity, peer.SessionID()), RuntimeGeneration: "iscp_" + peer.SessionID(),
 		ConnectionEpoch: peer.SessionID(), LeaseID: opaque("lease_"), PageID: opaque("page_"), PageGeneration: 1,
 		AuthorizationDigest: reverseAuthorizationDigest(peer.SessionID(), peer.AuthorizationRevision())}
 }
-func (h *ClientControllerHost) client(binding Binding, peer ControllerReverseSession) (*browsercontrol.ISCPControllerClient, error) {
+func (h *ClientControllerHost) client(binding Binding, peer ReverseSession) (*browsercontrol.ISCPControllerClient, error) {
 	raw, err := json.Marshal(binding)
 	if err != nil {
 		return nil, err
@@ -149,14 +135,6 @@ func (h *ClientControllerHost) LeaseActive(binding Binding) bool {
 	_, err := h.require(binding, false)
 	return err == nil
 }
-func (h *ClientControllerHost) Renew(_ context.Context, binding Binding) (Binding, error) {
-	_, err := h.require(binding, false)
-	return binding, err
-}
-func (*ClientControllerHost) Dispatch(context.Context, Binding, string, string, map[string]any) (json.RawMessage, error) {
-	return nil, ErrFence
-}
-
 func trustedControllerArgs(binding Binding, args map[string]any) map[string]any {
 	out := make(map[string]any, len(args)+5)
 	for key, value := range args {
@@ -298,5 +276,3 @@ func (h *ClientControllerHost) after(_ context.Context, binding Binding, intent 
 	b.fences[intent.CommandID] = fence
 	return nil
 }
-
-var _ BrowserHostAdapter = (*ClientControllerHost)(nil)

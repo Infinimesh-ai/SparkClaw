@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/development.md)
 
-Workbench entry points: `internal/workbench` selects bounded context; `internal/execution` controls admitted requests; `internal/browserhost` owns browser grants/transport; `internal/mailsync` projects authoritative mail. `agent.WithExecutionScope` reuses active providers, registry and policy. Host Store and desktop SQLite/files adapt persistence. Run `npm run check:workbench-contract`, `npm run test:desktop`, `npm run test:webchat` and the applicable Go checks; native coverage is `qualify:desktop-host`, `qualify:desktop-mac-client` on Mac and the separate `qualify:desktop` Linux fixture. See the [implementation ledger](workbench-convergence-implementation.md).
+Workbench entry points: `internal/workbench` selects bounded context; `internal/execution` controls admitted requests; `internal/browserhost` owns scoped Controller access and browser write receipts; `internal/mailsync` projects authoritative mail. `agent.WithExecutionScope` reuses active providers, registry and policy. Host Store and desktop SQLite/files adapt persistence. Run `npm run check:workbench-contract`, `npm run test:desktop`, `npm run test:webchat` and the applicable Go checks; native coverage includes `test:browser-layout` in the desktop workspace, `qualify:desktop-mac-client` on Mac and the separate `qualify:desktop` Linux fixture. See the [implementation ledger](workbench-convergence-implementation.md).
 
 Desktop conversations created by the original workbench use the first saved
 question as their title, with whitespace collapsed and a 42-code-point limit.

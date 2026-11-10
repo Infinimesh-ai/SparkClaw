@@ -18,9 +18,8 @@ func TestISCPBrowserHasNoPollingHostOperations(t *testing.T) {
 			t.Fatalf("polling host operation %s remains", name)
 		}
 	}
-	spec, ok := wb.LookupOperation(wb.OperationBrowserCommand)
-	if !ok || spec.Direction != "reverse" {
-		t.Fatal("reverse browser.command is missing")
+	if _, ok := wb.LookupOperation("browser.command"); ok {
+		t.Fatal("retired reverse command is registered")
 	}
 	server, f, cfg := newMailPopupFixture(t, "file")
 	adapter := &iscpDomainAdapter{server: server, config: cfg}
@@ -113,28 +112,5 @@ func TestISCPBrowserRoutesFindTheInstallationSession(t *testing.T) {
 	remove()
 	if _, err := routes.ReverseSession(identity); !errors.Is(err, browserhost.ErrUnavailable) {
 		t.Fatal("removed transport still routes", err)
-	}
-}
-
-func TestISCPBrowserCommandOutcomeOnlyProvesRefusalsBeforeExecution(t *testing.T) {
-	body := json.RawMessage(`{"schema_version":1}`)
-	if out, err := reverseCommandOutcome(wb.Response{Status: 200, Body: body}, nil); err != nil || string(out) != string(body) {
-		t.Fatal(out, err)
-	}
-	for _, refused := range []wb.Response{{Status: 403, Code: wb.ErrorPermissionDenied}, {Status: 503, Code: wb.ErrorCapabilityUnavailable}} {
-		if _, err := reverseCommandOutcome(refused, nil); !errors.Is(err, browserhost.ErrNotDispatched) {
-			t.Fatal(refused, err)
-		}
-	}
-	if _, err := reverseCommandOutcome(wb.Response{}, wb.ErrPeerUnavailable); !errors.Is(err, browserhost.ErrNotDispatched) {
-		t.Fatal(err)
-	}
-	for _, uncertain := range []wb.Response{{Status: 504, Code: wb.ErrorOutcomeUnknown}, {Status: 503, Code: wb.ErrorOutcomeUnknown}, {Status: 413, Code: wb.ErrorResourceLimit}, {Status: 500}} {
-		if _, err := reverseCommandOutcome(uncertain, nil); err == nil || errors.Is(err, browserhost.ErrNotDispatched) {
-			t.Fatal(uncertain, err)
-		}
-	}
-	if _, err := reverseCommandOutcome(wb.Response{}, errors.New("workbench session disconnected")); err == nil || errors.Is(err, browserhost.ErrNotDispatched) {
-		t.Fatal(err)
 	}
 }

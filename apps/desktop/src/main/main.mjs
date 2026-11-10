@@ -450,8 +450,8 @@ async function start() {
     authorizeSession: () => qualification || isDesktopSessionAuthorized(desktopAuth),
     getCapabilities: () => desktopAuth?.status.capabilities,
   }).start();
-  // Keep the frozen legacy fixture until P3. Production owns a private adapter
-  // per packaged Controller incarnation, created lazily by the supervisor.
+  // The Linux qualification fixture uses its own adapter. Packaged Controller
+  // processes start their private adapter lazily under the supervisor.
   if (qualification && process.platform === "linux") {
   adapter = new ElectronAdapterServer({
     socketPath: adapterSocketPath(),

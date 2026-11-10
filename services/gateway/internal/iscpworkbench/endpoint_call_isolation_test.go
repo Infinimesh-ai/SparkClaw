@@ -45,7 +45,7 @@ func TestCallDeadlineAndCancellationKeepConcurrentCallsAndLateResponsesIsolated(
 						op = OperationSettingsOwnerGet
 					}
 					if reverse {
-						caller, op = r, OperationBrowserCommand
+						caller, op = r, OperationBrowserControllerStatus
 					}
 					caller.mu.Lock()
 					original := caller.session

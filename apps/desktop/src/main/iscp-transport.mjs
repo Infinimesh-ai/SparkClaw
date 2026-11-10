@@ -697,7 +697,7 @@ export class ISCPTransport {
     const capabilities = this.capabilities;
     const session = capabilities ? { session_id: capabilities.session_id, authorization_revision: capabilities.authorization_revision } : undefined;
     let reply;
-    if (!["browser.command", ...CONTROLLER_OPERATIONS].includes(request.operation) || request.profile !== ISCP_V2_PROFILE) reply = { status: 403, error_code: "permission_denied", error: "Reverse operation is not accepted" };
+    if (!CONTROLLER_OPERATIONS.includes(request.operation) || request.profile !== ISCP_V2_PROFILE) reply = { status: 403, error_code: "permission_denied", error: "Reverse operation is not accepted" };
     else if (!session || Date.parse(capabilities.expires_at) <= Date.now() || !capabilities.operations.includes(request.operation) || typeof this.onReverse !== "function") reply = { status: 503, error_code: "capability_unavailable", error: "Browser is unavailable" };
     else {
       if (this.reverseChunkState?.generation !== generation) this.reverseChunkState = { generation, active: 0 };

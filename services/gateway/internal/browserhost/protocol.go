@@ -15,8 +15,6 @@ import (
 
 const LeaseDuration = 30 * time.Second
 const HeartbeatInterval = 10 * time.Second
-const GrantDuration = 15 * time.Minute
-const MaxMessageBytes = 128 << 10
 const MaxFences = 100000
 
 var ErrUnavailable = errors.New("workbench embedded browser host is unavailable")
@@ -51,12 +49,6 @@ func (s Scope) valid() bool {
 }
 func (i Identity) key() string { return i.OwnerID + "\x00" + i.ClientID + "\x00" + i.InstallationID }
 
-type Grant struct {
-	HostID    string    `json:"host_id"`
-	Token     string    `json:"grant_token"`
-	Digest    string    `json:"grant_digest"`
-	ExpiresAt time.Time `json:"expires_at"`
-}
 type Binding struct {
 	Scope
 	HostID              string    `json:"host_id"`
@@ -67,24 +59,6 @@ type Binding struct {
 	PageGeneration      uint64    `json:"page_generation"`
 	AuthorizationDigest string    `json:"authorization_digest"`
 	LeaseExpiresAt      time.Time `json:"lease_expires_at"`
-}
-type Command struct {
-	SchemaVersion int            `json:"schema_version"`
-	Type          string         `json:"type"`
-	CommandID     string         `json:"command_id"`
-	Binding       Binding        `json:"binding"`
-	Operation     string         `json:"operation"`
-	Arguments     map[string]any `json:"arguments"`
-	Digest        string         `json:"digest"`
-}
-type Message struct {
-	SchemaVersion int             `json:"schema_version"`
-	Type          string          `json:"type"`
-	CommandID     string          `json:"command_id,omitempty"`
-	Binding       *Binding        `json:"binding,omitempty"`
-	Status        string          `json:"status,omitempty"`
-	Output        json.RawMessage `json:"output,omitempty"`
-	ErrorCode     string          `json:"error_code,omitempty"`
 }
 
 func opaque(prefix string) string {
@@ -98,16 +72,6 @@ func digest(value any) string {
 	raw, _ := json.Marshal(value)
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
-}
-func commandDigest(command Command) string {
-	command.Digest = ""
-	raw, _ := json.Marshal(command)
-	var canonical any
-	_ = json.Unmarshal(raw, &canonical)
-	return digest(canonical)
-}
-func writeOperation(operation string) bool {
-	return operation == "click" || operation == "fill" || operation == "select"
 }
 func validateOperation(operation string, args map[string]any) error {
 	allowed := map[string][]string{"acquire": {}, "release": {}, "read": {"max_chars"}, "snapshot": {}, "navigate": {"url"}, "click": {"ref", "snapshot_id"}, "fill": {"ref", "snapshot_id", "value"}, "select": {"ref", "snapshot_id", "value"}, "screenshot": {}, "wait": {"milliseconds", "mode", "expected_url", "before_digest", "allow_no_change", "require_ready_state", "timeout_ms"}}

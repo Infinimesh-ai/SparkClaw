@@ -26,58 +26,6 @@ export class PageRegistry {
     this.changeListener = typeof listener === "function" ? listener : null;
   }
 
-  // workbench host pages retain one actual embedded view per local conversation.
-  // A lease binds exactly one controller; releasing it never selects another
-  // conversation or makes the page available to the legacy relay.
-  acquireHostPage(binding) {
-    const conversationID = binding.local_conversation_id;
-    let record = this.conversationPages.get(conversationID);
-    if (record && !record.destroyed && record.connectionID) throw new Error("Conversation already has a browser controller");
-    const connectionID = binding.lease_id;
-    const localBinding = {
-      task_id: binding.local_task_id,
-      session_id: `session_${binding.lease_id.replace(/^lease_/, "")}`,
-      controller_generation: binding.page_generation,
-      session_generation: binding.page_generation,
-      page_generation: binding.page_generation,
-    };
-    this.registerConnection({ id: connectionID, binding: localBinding });
-    if (!record || record.destroyed) {
-      record = this.#createRecord({ role: "task", connectionID, url: "about:blank" });
-      this.conversationPages.set(conversationID, record);
-      record.hostInitialLoad = record.webContents.loadURL("about:blank");
-    } else {
-      record.connectionID = connectionID;
-      record.binding = localBinding;
-      this.requireConnection(connectionID).tabIDs.add(record.tabID);
-    }
-    // Local ownership survives releasing the remote controller's lease.
-    record.hostConversationID = conversationID;
-    record.hostBinding = Object.freeze({ ...binding });
-    if (this.selectedConversationID === conversationID) this.presentation.showTask(record);
-    this.#changed();
-    return record;
-  }
-
-  requireHostPage(binding) {
-    const record = this.conversationPages.get(binding.local_conversation_id);
-    const expected = record?.hostBinding;
-    const keys = ["owner_id", "client_id", "installation_id", "local_conversation_id", "local_task_id", "host_id", "runtime_generation", "connection_epoch", "lease_id", "page_id", "page_generation", "authorization_digest"];
-    if (!record || record.destroyed || record.connectionID !== binding.lease_id || !expected || keys.some((key) => expected[key] !== binding[key])) throw new Error("Embedded page binding is stale");
-    return this.get(binding.lease_id, record.tabID);
-  }
-
-  releaseHostPage(binding) {
-    const record = this.requireHostPage(binding);
-    const connection = this.connections.get(binding.lease_id);
-    connection?.facade?.dispose();
-    this.connections.delete(binding.lease_id);
-    record.connectionID = null;
-    record.binding = null;
-    record.hostBinding = null;
-    this.#changed();
-  }
-
   closeHostPages(reason = "host_fenced") {
     for (const record of this.conversationPages.values()) {
       if (record.connectionID) this.closeConnection(record.connectionID, reason);

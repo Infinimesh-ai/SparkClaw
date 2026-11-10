@@ -51,9 +51,6 @@ func (b *bridge) write(value any) {
 func (b *bridge) SessionID() string             { return "semantic_session" }
 func (b *bridge) AuthorizationRevision() uint64 { return 1 }
 func (b *bridge) Done() <-chan struct{}         { return b.done }
-func (b *bridge) Command(context.Context, json.RawMessage) (json.RawMessage, error) {
-	return nil, errors.New("legacy reverse commands forbidden in Controller fixture")
-}
 func (b *bridge) ReverseSession(got browserhost.Identity) (browserhost.ReverseSession, error) {
 	if got != identity {
 		return nil, browserhost.ErrFence

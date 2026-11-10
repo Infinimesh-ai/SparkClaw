@@ -981,15 +981,15 @@ for (const deadline of [undefined, null, -1, 1.5, "100", Number.MAX_SAFE_INTEGER
   });
 }
 
-test('reverse browser.command calls reach the browser handler on this session only', async t => {
-  const capabilities = { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session-1', authorization_revision: 3, expires_at: new Date(Date.now() + 60000).toISOString(), binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' }, operations: ['browser.command', 'browser.receipt', 'browser.reconcile'] };
+test('reverse browser.controller.execute calls reach the browser handler on this session only', async t => {
+  const capabilities = { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session-1', authorization_revision: 3, expires_at: new Date(Date.now() + 60000).toISOString(), binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' }, operations: ['browser.controller.execute', 'browser.receipt', 'browser.reconcile'] };
   const seen = []; let release;
   const f = fixture(t, () => {}, { onReverse: async (request, session) => { seen.push({ request, session }); if (request.body.hold) await new Promise(resolve => { release = resolve; }); return { status: 200, body: { schema_version: 1, type: 'result', status: 'completed', echo: request.body.value } }; } });
   await f.transport.start(); f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities });
   const id = (n) => `5555555${n}-5555-4555-8555-555555555555`;
   const reverse = (n, operation, body) => f.children[0].send({ ipc_version: 1, type: 'reverse_request', id: id(n), request: { type: 'task.invoke', profile: capabilities.profile, id: id(n), operation, body } });
   const replies = () => f.calls.filter(call => call.type === 'reverse_response');
-  reverse(1, 'browser.command', { value: 'page' });
+  reverse(1, 'browser.controller.execute', { value: 'page' });
   reverse(2, 'settings.owner.get', {});
   await new Promise(resolve => setTimeout(resolve, 20));
   const [command, denied] = [replies().find(call => call.id === id(1)), replies().find(call => call.id === id(2))];
@@ -998,19 +998,19 @@ test('reverse browser.command calls reach the browser handler on this session on
   assert.deepEqual(seen.map(row => row.session), [{ session_id: 'session-1', authorization_revision: 3 }]);
   assert.equal(f.transport.state, 'transport_ready', 'a refused reverse operation does not end the session');
   // A reply for a helper that was replaced is dropped; the Gateway sees unknown.
-  reverse(3, 'browser.command', { hold: true });
+  reverse(3, 'browser.controller.execute', { hold: true });
   await new Promise(resolve => setTimeout(resolve, 10));
   f.transport.close(); release();
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.equal(replies().some(call => call.id === id(3)), false);
 });
 
-test('reverse browser.command without a browser handler is refused before executing', async t => {
-  const capabilities = { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session-1', authorization_revision: 3, expires_at: new Date(Date.now() + 60000).toISOString(), binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' }, operations: ['browser.command'] };
+test('reverse browser.controller.execute without a browser handler is refused before executing', async t => {
+  const capabilities = { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session-1', authorization_revision: 3, expires_at: new Date(Date.now() + 60000).toISOString(), binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' }, operations: ['browser.controller.execute'] };
   const f = fixture(t, () => {});
   await f.transport.start(); f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities });
   const id = '66666666-6666-4666-8666-666666666666';
-  f.children[0].send({ ipc_version: 1, type: 'reverse_request', id, request: { type: 'task.invoke', profile: capabilities.profile, id, operation: 'browser.command', body: {} } });
+  f.children[0].send({ ipc_version: 1, type: 'reverse_request', id, request: { type: 'task.invoke', profile: capabilities.profile, id, operation: 'browser.controller.execute', body: {} } });
   await new Promise(resolve => setTimeout(resolve, 10));
   const reply = f.calls.find(call => call.type === 'reverse_response');
   assert.equal(reply.response.status, 503); assert.equal(reply.response.error_code, 'capability_unavailable');
@@ -1041,7 +1041,7 @@ test('Controller reverse operations use an exact negotiated whitelist, bounded c
   await new Promise(resolve => setTimeout(resolve, 10));
   const response = id => f.calls.find(call => call.type === 'reverse_response' && call.id === id)?.response;
   assert.deepEqual(seen.slice(0, 5), operations);
-  assert.equal(response(unknown).status, 403); assert.equal(response(legacy).status, 503);
+  assert.equal(response(unknown).status, 403); assert.equal(response(legacy).status, 403);
   assert.equal(response(oversized).status, 413, 'Go JSON escaping is part of the whole-wire budget');
   const chunks = Array.from({ length: 5 }, () => send('browser.controller.chunk', { hold: true }));
   await new Promise(resolve => setTimeout(resolve, 10));

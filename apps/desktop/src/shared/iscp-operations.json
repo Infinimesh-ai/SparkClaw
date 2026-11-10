@@ -885,19 +885,6 @@
     "capacity_class": "business"
   },
   {
-    "name": "browser.command",
-    "constant": "OperationBrowserCommand",
-    "version": 2,
-    "direction": "reverse",
-    "scope": "browser.control",
-    "mutation": true,
-    "recovery": "operation_receipt",
-    "limit_bytes": 63488,
-    "dependencies": [],
-    "params": [],
-    "capacity_class": "business"
-  },
-  {
     "name": "browser.controller.status",
     "constant": "OperationBrowserControllerStatus",
     "version": 2,

@@ -463,7 +463,6 @@ func (s *Server) WaitForBackgroundWork(ctx context.Context) error {
 func (s *Server) routes() {
 	s.registerExecutionRoutes()
 	s.registerMailSyncRoutes()
-	s.registerBrowserHostRoutes()
 	s.mux.HandleFunc("GET /healthz", s.healthz)
 	s.mux.HandleFunc("GET /readyz", s.readyz)
 	s.mux.HandleFunc("GET /metrics", s.metrics)

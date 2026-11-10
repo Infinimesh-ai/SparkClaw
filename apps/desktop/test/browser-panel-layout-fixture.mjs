@@ -7,7 +7,6 @@ import { DesktopCapability } from "../src/main/desktop-capability.mjs";
 import { BrowserPresentation } from "../src/main/presentation.mjs";
 import { PageRegistry } from "../src/browser/page-registry.mjs";
 import { bindWorkbenchActivation } from "../src/main/workbench-activation.mjs";
-import { nativePageCommand } from "../src/browser/native-page-commands.mjs";
 import { LocalFilesService } from "../src/main/local-files-service.mjs";
 import { LocalFilesCapability } from "../src/main/local-files-capability.mjs";
 import { createLocalPreviewProtocolHandler, previewRequestAllowed, guardLocalPreviewNavigation } from "../src/main/local-preview-protocol.mjs";
@@ -247,11 +246,14 @@ app.whenReady().then(async () => {
     await check("split restored after close/reconnect");
     // A leased and a released task page use the same native panel geometry as
     // personal pages, including sizes below the former 640 x 720 threshold.
-    const binding = { local_conversation_id: "layout", local_task_id: "task_layout", lease_id: "lease_layout", page_id: "page_layout", page_generation: 1 };
+    const connectionID = "layout-controller";
     registry.selectConversation("layout");
-    const task = registry.acquireHostPage(binding);
-    await task.hostInitialLoad;
-    await task.webContents.loadURL("https://fixture.test/task");
+    registry.registerConnection({
+      id: connectionID,
+      binding: { session_id: connectionID, session_generation: 1 },
+      association: { binding: { local_conversation_id: "layout", local_task_id: "task_layout", page_generation: 1 } },
+    });
+    const task = registry.createTaskPage(connectionID, "https://fixture.test/task");
     await until(() => evaluate("Boolean(document.querySelector('.desktopTabSelect[title=\"Isolated page\"]'))"), "task tab missing");
     const selectTask = async () => {
       await until(() => evaluate("[...document.querySelectorAll('.desktopTabSelect')].some(button => button.querySelector('.lucide-eye'))"), "task tab missing");
@@ -262,7 +264,11 @@ app.whenReady().then(async () => {
     const taskID = task.webContents.id;
     const taskCases = [];
     for (const released of [false, true]) {
-      if (released) registry.releaseHostPage(binding);
+      if (released) {
+        registry.beginControllerRelease(connectionID);
+        registry.removeTaskPage(connectionID, task.tabID);
+        registry.closeConnection(connectionID);
+      }
       for (const [width, height] of [[1440,900], [1180,720], [1920,1080]]) {
         window.setContentSize(width, height);
         for (const zoom of [1, 1.5]) {
@@ -282,21 +288,14 @@ app.whenReady().then(async () => {
     assert.ok(taskCases.some(item => item.viewport.width < 640));
     assert.ok(taskCases.some(item => item.viewport.height < 720));
     window.webContents.setZoomFactor(1); window.setContentSize(1440,900); await pause(220); await check("task action layout");
-    await task.webContents.executeJavaScript("window.fixtureClicks=0;const button=document.createElement('button');button.textContent='Layout action';button.onclick=()=>window.fixtureClicks++;document.body.prepend(button)");
-    const oldSnapshot = await nativePageCommand(task, "snapshot", {}, binding, () => {});
-    const oldAction = oldSnapshot.snapshot.controls.find(item => item.name === "Layout action");
-    window.setContentSize(1440,580); await pause(220); await check("task action resized");
-    await assert.rejects(nativePageCommand(task, "click", { snapshot_id: oldSnapshot.snapshot_id, ref: oldAction.ref }, binding, () => {}), /viewport changed/);
-    assert.equal(await task.webContents.executeJavaScript("window.fixtureClicks"), 0);
-    const freshSnapshot = await nativePageCommand(task, "snapshot", {}, binding, () => {});
-    const freshAction = freshSnapshot.snapshot.controls.find(item => item.name === "Layout action");
-    await nativePageCommand(task, "click", { snapshot_id: freshSnapshot.snapshot_id, ref: freshAction.ref }, binding, () => {});
-    assert.equal(await task.webContents.executeJavaScript("window.fixtureClicks"), 1);
+    const previousLayoutRevision = task.layoutRevision;
+    window.setContentSize(1440,580); await pause(220); await check("task viewport resized");
+    assert.ok(task.layoutRevision > previousLayoutRevision);
     await evaluate("document.querySelector('#show-modal').click()");
     await until(() => !task.view.getVisible(), "task obscures modal");
     assert.equal(shieldView.getVisible(), false);
     await evaluate("document.querySelector('#close-modal').click()");
     await until(() => task.view.getVisible(), "task not restored after modal");
-    console.log(JSON.stringify({ event:"browser_panel_layout",passed:true,cases:cases.length,task_cases:taskCases,task_resize_stale_action_refused:true,real_component_css_preload_ipc:true,real_native_view:true,zoom:true,modal_occlusion:true,focus_layout:true,retained_page:true,divider_keyboard:true,divider_hide:true,window_reopen:true,closed_window_reconnect:true,renderer_reload:true,renderer_crash_recovery:true,aborted_redirect:true,redirected_new_page:true,redirected_popup:true,real_failure_reported:true,network:false,production_data:false }));
+    console.log(JSON.stringify({ event:"browser_panel_layout",passed:true,cases:cases.length,task_cases:taskCases,task_resize_revision_advanced:true,real_component_css_preload_ipc:true,real_native_view:true,zoom:true,modal_occlusion:true,focus_layout:true,retained_page:true,divider_keyboard:true,divider_hide:true,window_reopen:true,closed_window_reconnect:true,renderer_reload:true,renderer_crash_recovery:true,aborted_redirect:true,redirected_new_page:true,redirected_popup:true,real_failure_reported:true,network:false,production_data:false }));
   } finally { await filesCapability?.close(); capability?.close(); for (const record of registry?.records.values() ?? []) record.webContents.close(); window?.destroy(); }
 }).then(() => app.exit(0)).catch(error => { console.error(error); app.exit(1); });

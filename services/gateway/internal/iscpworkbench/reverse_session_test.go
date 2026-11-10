@@ -27,7 +27,7 @@ func TestPeerSessionCommandsTravelOnlyOnTheirOwnSession(t *testing.T) {
 	if session.AuthorizationRevision == 0 || session.ID == "" {
 		t.Fatalf("session %+v", session)
 	}
-	response, err := session.Command(context.Background(), OperationBrowserCommand, json.RawMessage(`{"probe":true}`))
+	response, err := session.Command(context.Background(), OperationBrowserControllerStatus, json.RawMessage(`{"probe":true}`))
 	if err != nil || response.Status != 200 || string(response.Body) != `{"host":true}` {
 		t.Fatalf("reverse command %+v %v", response, err)
 	}
@@ -40,11 +40,11 @@ func TestPeerSessionCommandsTravelOnlyOnTheirOwnSession(t *testing.T) {
 		t.Fatal("session end was not signalled")
 	}
 	started := time.Now()
-	if _, err := session.Command(context.Background(), OperationBrowserCommand, json.RawMessage(`{}`)); !errors.Is(err, ErrPeerUnavailable) || time.Since(started) > 100*time.Millisecond {
+	if _, err := session.Command(context.Background(), OperationBrowserControllerStatus, json.RawMessage(`{}`)); !errors.Is(err, ErrPeerUnavailable) || time.Since(started) > 100*time.Millisecond {
 		t.Fatalf("ended session accepted a command: %v", err)
 	}
 	// A replacement session never carries a command addressed to the old one.
-	if _, err := r.Call(context.WithValue(context.Background(), expectedSessionKey{}, "replaced-session"), Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: OperationBrowserCommand}); !errors.Is(err, ErrPeerUnavailable) {
+	if _, err := r.Call(context.WithValue(context.Background(), expectedSessionKey{}, "replaced-session"), Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: OperationBrowserControllerStatus}); !errors.Is(err, ErrPeerUnavailable) {
 		t.Fatalf("mismatched session call %v", err)
 	}
 }
@@ -62,7 +62,7 @@ func TestPeerSessionInFlightCommandEndsWithItsSession(t *testing.T) {
 	session := waitPeerSession(t, r)
 	result := make(chan error, 1)
 	go func() {
-		_, err := session.Command(context.Background(), OperationBrowserCommand, json.RawMessage(`{}`))
+		_, err := session.Command(context.Background(), OperationBrowserControllerStatus, json.RawMessage(`{}`))
 		result <- err
 	}()
 	time.Sleep(50 * time.Millisecond)

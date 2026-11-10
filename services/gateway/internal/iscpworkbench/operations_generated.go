@@ -58,7 +58,6 @@ const (
 	OperationMailDraftsSend = "mail.drafts.send"
 	OperationMailDraftsReconcile = "mail.drafts.reconcile"
 	OperationMailDraftsResolve = "mail.drafts.resolve"
-	OperationBrowserCommand = "browser.command"
 	OperationBrowserControllerStatus = "browser.controller.status"
 	OperationBrowserControllerAcquire = "browser.controller.acquire"
 	OperationBrowserControllerExecute = "browser.controller.execute"

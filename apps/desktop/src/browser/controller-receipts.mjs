@@ -4,9 +4,7 @@ import { ID, HASH } from "./controller-wire.mjs";
 export async function refreshBrowserFences(owner, conflict) {
     if (!owner.scope || owner.auth.status.state !== "connected") throw new Error("Browser reconciliation identity is unavailable");
     const generation = owner.generation; const scope = owner.scope;
-    const response = await fetchBrowserReceipt(owner, "browser.receipt", "/api/v1/browser/hosts/fences", { headers: { "X-SparkClaw-Installation": scope.installation_id } });
-    if (!response.ok) throw new Error("Browser write fences are unavailable");
-    const result = await response.json();
+    const result = await invokeBrowserReceipt(owner, "browser.receipt", {}, scope.installation_id);
     if (generation !== owner.generation || scope !== owner.scope) throw new Error("Browser reconciliation identity changed");
     if (!result || Object.keys(result).join() !== "fences" || !Array.isArray(result.fences) || result.fences.length > 1024) throw new Error("Browser fence response is invalid");
     const fences = new Map();
@@ -33,17 +31,15 @@ export async function reconcileBrowserFence(owner, commandID, digest, outcome) {
     const scopedKeys = ["owner_id", "client_id", "installation_id"];
     const localBound = local && local.digest === digest && scopedKeys.every((key) => local[key] === owner.scope?.[key]);
     if (!(remote?.digest === digest || localBound && local.state === "unknown") || local && !localBound) throw new Error("Browser write reconciliation is invalid");
-    const response = await fetchBrowserReceipt(owner, "browser.reconcile", "/api/v1/browser/hosts/reconcile", { method: "POST", headers: { "content-type": "application/json", "X-SparkClaw-Installation": owner.scope.installation_id }, body: JSON.stringify({ command_id: commandID, digest, outcome }) });
-    if (!response.ok) throw new Error("Backend write reconciliation failed");
+    const result = await invokeBrowserReceipt(owner, "browser.reconcile", { command_id: commandID, digest, outcome }, scope.installation_id);
+    if (result?.reconciled !== true) throw new Error("Backend write reconciliation failed");
     if (generation !== owner.generation || scope !== owner.scope) throw new Error("Browser reconciliation identity changed");
     if (local) await owner.journal.reconcile(commandID, digest, outcome, Boolean(remote));
     else await owner.journal.recordReconciled(remote, outcome);
     owner.remoteFences.delete(commandID); owner.onChange(); return owner.snapshot();
   }
 
-async function fetchBrowserReceipt(owner, operation, route, init) {
-    if(owner.auth.descriptor?.transport !== "iscp")return owner.auth.authorizedFetch(`${owner.auth.descriptor.origin}${route}`,init);
-    const body=init?.body?JSON.parse(init.body):{};
-    const result=await owner.auth.invokeISCP(operation,body,{installationID:owner.scope.installation_id, ...(owner.receiptTimeoutMS ? { timeoutMS: owner.receiptTimeoutMS } : {})});
-    return new Response(JSON.stringify(result),{status:200,headers:{'content-type':'application/json'}});
-  }
+function invokeBrowserReceipt(owner, operation, body, installationID) {
+  if (owner.auth.descriptor?.transport !== "iscp") throw new Error("Browser reconciliation requires ISCP");
+  return owner.auth.invokeISCP(operation, body, { installationID, timeoutMS: owner.receiptTimeoutMS });
+}

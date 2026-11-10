@@ -88,7 +88,7 @@ func TestReversePipeRemovesWindowQuotaAndKeepsResponseAndCancellationBinding(t *
 	defer cancel()
 	results := make(chan iscpworkbench.Response, count)
 	for j := 0; j < count; j++ {
-		request := iscpworkbench.Request{ID: fmt.Sprintf("reverse-%d", j), Operation: iscpworkbench.OperationBrowserCommand}
+		request := iscpworkbench.Request{ID: fmt.Sprintf("reverse-%d", j), Operation: iscpworkbench.OperationBrowserControllerStatus}
 		go func() { results <- bridge.handle(ctx, request) }()
 	}
 	requests := make([]iscpworkbench.Request, 0, count)

@@ -124,6 +124,7 @@ func loadConfig(path string, controlOnly bool) (Config, error) {
 // listed by configurations qualified before their removal. They are dropped on
 // load rather than rejected; any other unknown name still fails validation.
 var retiredOperations = []string{
+	"browser.command",
 	"browser.host.grant", "browser.host.revoke", "browser.host.register", "browser.host.poll",
 	"browser.host.reply", "browser.host.heartbeat", "browser.host.close",
 }

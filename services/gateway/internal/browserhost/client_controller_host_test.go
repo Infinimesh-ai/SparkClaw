@@ -14,7 +14,8 @@ import (
 )
 
 type controllerDesktop struct {
-	*fakeDesktop
+	id         string
+	done       chan struct{}
 	lock       sync.Mutex
 	lease      browsercontrol.SessionLease
 	operations []string
@@ -22,6 +23,23 @@ type controllerDesktop struct {
 	arguments  []map[string]any
 	fail       string
 }
+
+func (f *controllerDesktop) SessionID() string             { return f.id }
+func (f *controllerDesktop) AuthorizationRevision() uint64 { return 7 }
+func (f *controllerDesktop) Done() <-chan struct{}         { return f.done }
+
+type controllerRouter struct {
+	peer ReverseSession
+}
+
+func (r controllerRouter) ReverseSession(identity Identity) (ReverseSession, error) {
+	if identity != testIdentity || r.peer == nil {
+		return nil, ErrUnavailable
+	}
+	return r.peer, nil
+}
+
+var controllerScope = Scope{Identity: testIdentity, ConversationID: "conversation", TaskID: "task"}
 
 func controllerJSON(value any) json.RawMessage { raw, _ := json.Marshal(value); return raw }
 func (f *controllerDesktop) ControllerCall(_ context.Context, operation string, raw json.RawMessage) (json.RawMessage, error) {
@@ -78,11 +96,10 @@ func (f *controllerDesktop) ControllerCall(_ context.Context, operation string, 
 func controllerHostFixture(t *testing.T) (*Broker, *controllerDesktop, *ScopedAdapter) {
 	t.Helper()
 	b := newTestBroker(t)
-	desktop := &controllerDesktop{fakeDesktop: newFakeDesktop("session_controller")}
-	router := &fakeRouter{session: desktop}
-	b.SetReverseRouter(router)
+	desktop := &controllerDesktop{id: "session_controller", done: make(chan struct{})}
+	b.SetReverseRouter(controllerRouter{peer: desktop})
 	b.EnableClientController(config.Default())
-	return b, desktop, b.ForScope(reverseScope).(*ScopedAdapter)
+	return b, desktop, b.ForScope(controllerScope).(*ScopedAdapter)
 }
 func TestClientControllerHostPreservesTypedToolsAndTrustedScope(t *testing.T) {
 	b, desktop, adapter := controllerHostFixture(t)
@@ -123,12 +140,12 @@ func TestClientControllerHostPreservesTypedToolsAndTrustedScope(t *testing.T) {
 		}
 	}
 	for _, binding := range desktop.bindings {
-		if binding.Scope != reverseScope || binding.AuthorizationDigest != reverseAuthorizationDigest(desktop.id, 7) {
+		if binding.Scope != controllerScope || binding.AuthorizationDigest != reverseAuthorizationDigest(desktop.id, 7) {
 			t.Fatal(binding)
 		}
 	}
-	if adapter.binding != nil || desktop.count() != 0 || len(b.controller.leases) != 0 {
-		t.Fatal("legacy call or lease remained")
+	if adapter.binding != nil || len(b.controller.leases) != 0 {
+		t.Fatal("controller lease remained")
 	}
 	for _, fence := range b.fences {
 		if fence.State != "completed" || !fence.Write {
@@ -177,10 +194,11 @@ func TestClientControllerHostUnknownFenceSurvivesReleaseAndRestart(t *testing.T)
 		t.Fatal(err)
 	}
 }
-func TestClientControllerHostRejectsLegacyOnlyPeer(t *testing.T) {
-	b, _ := reverseBroker(t, newFakeDesktop("old_session"))
+func TestClientControllerHostRejectsMissingPeer(t *testing.T) {
+	b := newTestBroker(t)
+	b.SetReverseRouter(controllerRouter{})
 	b.EnableClientController(config.Default())
-	if _, err := b.ForScope(reverseScope).Call(t.Context(), "browser.navigate", map[string]any{"url": "https://example.test/"}); !errors.Is(err, ErrUnavailable) {
+	if _, err := b.ForScope(controllerScope).Call(t.Context(), "browser.navigate", map[string]any{"url": "https://example.test/"}); !errors.Is(err, ErrUnavailable) {
 		t.Fatal(err)
 	}
 }

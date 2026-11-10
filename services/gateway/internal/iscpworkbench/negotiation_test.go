@@ -81,11 +81,11 @@ func TestV2NegotiationKeepsExactV1ManifestAndDirections(t *testing.T) {
 	if err != nil || resp.Profile != ProfileV2 || string(resp.Body) != string(body) {
 		t.Fatalf("response %+v %v", resp, err)
 	}
-	resp, err = r.Call(context.Background(), Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: OperationBrowserCommand})
+	resp, err = r.Call(context.Background(), Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: OperationBrowserControllerStatus})
 	if err != nil || string(resp.Body) != `{"host":true}` {
 		t.Fatalf("reverse %+v %v", resp, err)
 	}
-	if _, err = i.Call(context.Background(), Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: OperationBrowserCommand}); err == nil {
+	if _, err = i.Call(context.Background(), Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: OperationBrowserControllerStatus}); err == nil {
 		t.Fatal("forward peer called reverse operation")
 	}
 	bus.mu.Lock()

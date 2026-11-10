@@ -205,7 +205,7 @@ describe("workbench local workbench", () => {
     } finally { await act(async () => root.unmount()); }
   });
 
-  it("keeps the uncertain browser write notice and both reconciliation actions over ISCP reverse commands", async () => {
+  it.each(["iscp", "lan"] as const)("keeps the uncertain browser write notice and both reconciliation actions on %s", async (transport) => {
     vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
     vi.spyOn(api, "ready").mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof api.ready>>);
     vi.spyOn(api, "owner").mockResolvedValue({ id: "owner", display_name: "Test", created_at: "", updated_at: "" });
@@ -221,7 +221,7 @@ describe("workbench local workbench", () => {
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, reconcileBrowserHost,
       state: vi.fn(async () => desktopState()), onState: vi.fn(() => () => {}), hideBrowser: vi.fn(async () => ({})),
       localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
-        backend: { schema_version: 3, transport: "iscp", deployment_id: "test", origin: "https://fixture.invalid" },
+        backend: transport === "iscp" ? { schema_version: 3, transport, deployment_id: "test", origin: "https://fixture.invalid" } : { schema_version: 2, deployment_id: "test", origin: "https://fixture.invalid" },
         capabilities: { operations: [], files: false, mail: false, browser: true, speech: false, approvals: false, settings: false, surfaces: { browser: { enabled: true, reason: "" } } } })) } as unknown as SparkClawDesktop;
     const host = document.createElement("div"), root = createRoot(host);
     try {
@@ -231,7 +231,11 @@ describe("workbench local workbench", () => {
       expect(notice?.textContent).toContain("Browser action outcome uncertain");
       const buttons = [...notice.querySelectorAll<HTMLButtonElement>(".localTaskActions button")];
       expect(buttons.map(button => button.textContent)).toEqual(["I verified the action completed", "I verified no change occurred"]);
-      expect(buttons.every(button => !button.disabled)).toBe(true);
+      expect(buttons.every(button => button.disabled === (transport === "lan"))).toBe(true);
+      if (transport === "lan") {
+        expect(reconcileBrowserHost).not.toHaveBeenCalled();
+        return;
+      }
       await act(async () => buttons[1].click());
       expect(reconcileBrowserHost).toHaveBeenCalledWith("cmd_click", unknown.digest, "observed_not_applied");
       expect(host.querySelector(".localUnknownWrite")).toBeNull();

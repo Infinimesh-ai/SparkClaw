@@ -1915,7 +1915,7 @@ an unbounded Cartesian product of faults is not an acceptance requirement.
 |---|---|---|
 | R01 | Native positive work, Relay block/recovery, zero bypass across all relevant processes and device ownership on both platforms through TEST1; record G1–G4 | Current TEST1 authentication/entry remains unavailable; work2 credentials do not imply TEST1 access |
 | R02 | Compare old path and candidate on the same topology/load; report cold/warm counts, full-tool subcalls, bytes, median/tail and throughput; retain failures | R01; SSH/synthetic-cache measurements do not replace WAN statistics |
-| R03 | Associate every §3 public tool and A01–A09 case with exact evidence/version; inspect relevant source deltas and verify only missing effects/platforms | Local work can proceed; do not generalize completed lock/revocation/crash cases back into open work |
+| R03 | Review complete within the isolated scope: §15.2 maps all 13 tools; §15 maps A01–A09; source inheritance and missing native semantic boundaries checked | TEST1 and unqualified platform/UI/install gates remain under their own IDs; no automatic P3 promotion |
 | R04 | Actual Dock close/reopen and original-UI visual acceptance after unlock, retaining data/selection and geometry evidence | Manual Mac unlock already requested |
 | R05 | Artifacts for all four architectures are built; complete corresponding installation qualification, Mac offline GUI and Linux package-manager installation, recording unavailable environments separately | Matching runtime hosts; retain the Chromium sandbox |
 | R06 | Investigate the original Linux restore and Mac preapproval lookup failures; provide reproducible cause/regression or an explicit evidence-limited diagnosis | Preserve original requests/unknowns; no resubmission or ledger clearing |
@@ -2005,3 +2005,44 @@ v7 additionally asserts the absence of `--no-sandbox` and an empty outstanding-f
 No product source, UI, package or existing device profile changed. R03 still needs the exact
 13-tool/evidence inventory and frozen-target/redirect boundary review; this checkpoint does not
 reopen completed lifecycle cases or close R01/R02/R04/R05/R07/R08.
+
+### 15.2 Frozen-target routes and complete tool inventory
+
+The route mode of the same fixture passes nine checks on unchanged Mac ARM64 and Linux x64
+`b175325b` candidates. It uses real native HTTP-302 handling within the private Electron protocol
+fixture, with the same local bridge/synthetic authority limit. Same-origin redirects rebind once
+to the frozen path/fragment while retaining the query. Explicit targets reject child-domain
+redirects; registered destinations allow that bounded child domain, but reject an unrelated host.
+Bound reads reject a changed URL without navigation. A stale wait session rejects before native
+dispatch. A repeated same-origin redirect stops after the existing two-rebind limit. Explicit close
+releases the lease, and independent stopped-file comparison matches 11 completed mutation pairs
+per platform. No product behavior, limit, UI or package changed.
+
+The hash-addressed `public-tool-inventory-b175325b-v1.json` records these evidence groups:
+E01 = §15.1 final public semantics; E02 = route fixture v1 on each platform; E03 = original
+`05fa3c1a` native clients with the separately paired semantic Gateway, Mac operations v1 and
+Linux operations v20; E04 = `c6948132` native PNG capture, Mac v1 and Linux v3, with its
+instrumented observer explicitly retained. E01/E02 are local bridge tests; E03/E04 are isolated
+encrypted-ISCP evidence. None is TEST1 evidence.
+
+| Public tool | Exact evidence group and observed behavior |
+|---|---|
+| `browser.status` | E01: no process or acquisition on status |
+| `browser.open` | E02: initial page open; E03: result presentation preserves applied page state |
+| `browser.navigate` | E01/E02: actual navigation and redirect routes |
+| `browser.read` | E01/E02: bound read through `ReadPage`; changed target rejection |
+| `browser.snapshot` | E01/E03: controls/refs and dynamic/frame semantic evidence |
+| `browser.click` | E03: dynamic field, cross-origin frame and owned-popup effects plus completed workflows |
+| `browser.type` | E01: fill versus focused append/submit and invalidated-ref rejection |
+| `browser.select` | E03: approved selection, actual value and completed workflow |
+| `browser.screenshot` | E04: native PNG MIME/hash/chunks and delivered file through original IPC |
+| `browser.wait` | E01/E02/E03: text/duration, frozen-target stable wait and frame effects |
+| `browser.list_tabs` | E01: no implicit acquisition and no personal-page exposure |
+| `browser.focus` | E01: logical `page.info`, unchanged fixture selection/presentation |
+| `browser.close` | E01/E02: close/release without blank replacement; personal page retained |
+
+All six exact Go source hashes recorded with E03 still match the candidate; all 207 Controller
+files in the old `05fa3c1a` installation and current candidate were independently rehashed and
+match. This extends the prior inheritance review without presenting historical runs as current
+executions. R03's finite evidence review is complete; R01/R02/R04/R05/R06/R07/R08 retain their
+stated status. P3, production rollout and owner acceptance are not complete.

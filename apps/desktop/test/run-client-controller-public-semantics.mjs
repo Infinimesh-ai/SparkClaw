@@ -13,6 +13,7 @@ const directory = process.env.SPARKCLAW_CONTROLLER_SEMANTIC_ROOT;
 const executable = process.env.SPARKCLAW_CONTROLLER_CANDIDATE;
 const driver = process.env.SPARKCLAW_CONTROLLER_TOOL_FIXTURE;
 const launcher = process.env.SPARKCLAW_CONTROLLER_LAUNCHER;
+const routeMode = process.env.SPARKCLAW_CONTROLLER_ROUTE_SEMANTICS === "1";
 assert.ok(path.isAbsolute(directory || "") && path.basename(directory).startsWith("sx-controller-semantics-"));
 assert.ok(path.isAbsolute(executable || "") && !executable.startsWith("/Applications/"));
 assert.ok(path.isAbsolute(driver || ""));
@@ -27,6 +28,7 @@ const { _electron } = await import(pathToFileURL(path.join(resources, "browser-c
 const evidence = { schema_version: 1, scope: "actual_package_public_Go_tools_native_effects_local_fixture_transport",
   encrypted_ISCP: false, real_provider: false, production_authority: false, passed: false,
   asar, driver: await record(driver), checks: {}, tools: [], reverse: [] };
+evidence.matrix = routeMode ? "frozen_target_routes" : "public_tool_effects";
 let application, child, lines, childExit;
 const pending = new Map();
 let sequence = 0, readyResolve;
@@ -46,6 +48,7 @@ const tool = async (name, args = {}, expectedError = false) => {
   evidence.tools.push(result);
   if (expectedError) assert.equal(typeof result.error, "string", JSON.stringify(result));
   else assert.equal(result.error, undefined, JSON.stringify(result));
+  if (expectedError instanceof RegExp) assert.match(result.error, expectedError);
   return result.result;
 };
 const inspect = () => application.evaluate(async () => {
@@ -75,9 +78,16 @@ try {
     await browser.protocol.handle("sparkclaw-internal", () => new Response("<!doctype html><title>Local adapter</title>"));
     await browser.protocol.handle("https", request => {
       const url = new URL(request.url);
-      if (url.origin !== "https://semantics.fixture.test") throw Error("Unexpected native fixture origin");
+      if (!["https://semantics.fixture.test", "https://child.semantics.fixture.test", "https://unrelated.fixture.test"].includes(url.origin)) throw Error("Unexpected native fixture origin");
+      const redirects = {
+        "/redirect-same": "https://semantics.fixture.test/alternate?receipt=fixture#/drift",
+        "/redirect-child": "https://child.semantics.fixture.test/form",
+        "/redirect-foreign": "https://unrelated.fixture.test/form",
+        "/bounce": "https://semantics.fixture.test/alternate",
+      };
+      if (url.origin === "https://semantics.fixture.test" && redirects[url.pathname]) return new Response(null, { status: 302, headers: { location: redirects[url.pathname] } });
       if (url.pathname === "/personal") return new Response("<!doctype html><title>Personal fixture</title><p>Personal retained</p>", { headers: { "content-type": "text/html" } });
-      if (url.pathname !== "/form") throw Error("Unexpected native fixture path");
+      if (!["/form", "/alternate"].includes(url.pathname)) throw Error("Unexpected native fixture path");
       return new Response('<!doctype html><meta charset="utf-8"><title>Public tool semantics</title><form><label>Name<input aria-label="Name"></label><button type="submit">Submit</button></form><p id="state">Draft</p><script>window.inputs=0;window.submits=0;document.querySelector("input").oninput=()=>window.inputs++;document.querySelector("form").onsubmit=e=>{e.preventDefault();window.submits++;document.querySelector("#state").textContent="Submitted"}</script>', { headers: { "content-type": "text/html" } });
     });
     // A hidden fixture window, separate from the unchanged original workbench.
@@ -140,6 +150,56 @@ try {
   assert.equal((await inspect()).controller_pid, null);
   assert.deepEqual(evidence.reverse.map(row => row.operation), ["browser.controller.status"]);
   evidence.checks.list_without_lease_and_status_do_not_start_native_runtime = true;
+  if (routeMode) {
+    const origin = "https://semantics.fixture.test";
+    const opened = await tool("browser.open", { url: `${origin}/form#/target` });
+    const pageID = opened.pages.find(page => page.selected)?.page_id || opened.pages[0]?.page_id;
+    assert.ok(pageID);
+    const wait = args => tool("browser.wait", { mode: "stable_state", page_id: pageID, allow_no_change: true,
+      timeout_ms: 3000, quiet_period_ms: 100, poll_interval_ms: 25, ...args });
+    const rejectWait = async (args, pattern) => {
+      const before = evidence.reverse.length;
+      await tool("browser.wait", { mode: "stable_state", page_id: pageID, allow_no_change: true,
+        timeout_ms: 3000, quiet_period_ms: 100, poll_interval_ms: 25, ...args }, pattern);
+      return evidence.reverse.slice(before);
+    };
+    await tool("browser.navigate", { page_id: pageID, url: `${origin}/redirect-same` });
+    const rebound = await wait({ expected_url: `${origin}/form#/target`, target_kind: "explicit_url" });
+    assert.equal(rebound.output.route_rebinds, 1);
+    assert.equal(rebound.output.url, `${origin}/form?receipt=fixture#/target`);
+    assert.equal(rebound.output.quiet_period_ms, 100);
+    assert.ok(rebound.output.observations >= 5);
+    evidence.checks.same_origin_redirect_rebind_preserves_query_and_frozen_path_fragment = true;
+    await tool("browser.navigate", { page_id: pageID, url: `${origin}/redirect-child` });
+    const denied = await rejectWait({ expected_url: `${origin}/`, target_kind: "explicit_url" }, /browser_route_diverged/);
+    assert.deepEqual(denied.map(row => row.inner_operation), ["page.read"]);
+    const registered = await wait({ expected_url: `${origin}/`, target_kind: "registered_destination" });
+    assert.equal(registered.output.url, "https://child.semantics.fixture.test/form");
+    assert.equal(registered.output.route_rebinds, 0);
+    evidence.checks.explicit_target_rejects_child_redirect_registered_destination_accepts = true;
+    await tool("browser.navigate", { page_id: pageID, url: `${origin}/redirect-foreign` });
+    const foreign = await rejectWait({ expected_url: `${origin}/`, target_kind: "registered_destination" }, /browser_route_diverged/);
+    assert.deepEqual(foreign.map(row => row.inner_operation), ["page.read"]);
+    const beforeRead = evidence.reverse.length;
+    await tool("browser.read", { url: `${origin}/form`, page_id: pageID, reuse_active_page: true }, /does not match bound read URL/);
+    assert.deepEqual(evidence.reverse.slice(beforeRead).map(row => row.inner_operation), ["page.info"]);
+    evidence.checks.foreign_redirect_and_bound_read_mismatch_reject_without_navigation = true;
+    const stale = await rejectWait({ session_generation: registered.session_generation + 1 }, /browser_session_stale/);
+    assert.deepEqual(stale, []);
+    evidence.checks.stale_wait_session_rejects_before_native_dispatch = true;
+    await tool("browser.navigate", { page_id: pageID, url: `${origin}/bounce#/target` });
+    const bounded = await rejectWait({ expected_url: `${origin}/bounce#/target`, target_kind: "explicit_url" }, /same-origin route rebind limit exceeded/);
+    const navigations = bounded.filter(row => row.inner_operation === "page.navigate");
+    assert.equal(navigations.length, 2);
+    assert.ok(navigations.every(row => row.arguments.url === `${origin}/bounce#/target`));
+    evidence.checks.repeated_same_origin_redirect_stops_at_existing_two_rebind_limit = true;
+    await tool("browser.close", { page_id: pageID });
+    evidence.after_close = await inspect();
+    assert.equal(evidence.after_close.lease, null);
+    assert.ok(evidence.after_close.pages.every(row => row.role !== "task"));
+    assert.ok(evidence.after_close.pages.some(row => row.page_ref === evidence.runtime.personal));
+    evidence.checks.route_failures_leave_no_lease_after_explicit_close = true;
+  } else {
   const opened = await tool("browser.navigate", { url: "https://semantics.fixture.test/form", presentation: "hidden" });
   const state = await inspect(); assert.ok(state.effect?.sandbox); assert.equal(state.selected, "semantic-selected-other");
   const read = await tool("browser.read", { url: "https://semantics.fixture.test/form", reuse_active_page: true, max_chars: 2000 }); assert.ok(JSON.stringify(read).includes("Name"));
@@ -183,6 +243,7 @@ try {
   assert.ok(evidence.reverse.slice(beforeClose).some(row => row.inner_operation === "tabs.close"));
   assert.ok(evidence.reverse.slice(beforeClose).some(row => row.operation === "browser.controller.release"));
   evidence.checks.public_close_releases_lease_without_blank_page_and_preserves_personal = true;
+  }
   evidence.shutdown = await request({ kind: "shutdown" });
   assert.deepEqual(evidence.shutdown.fences, []);
   evidence.driver_exit = await childExit; assert.equal(evidence.driver_exit.code, 0);

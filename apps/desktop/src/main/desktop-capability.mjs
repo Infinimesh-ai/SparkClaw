@@ -8,7 +8,7 @@ export function isDesktopSessionAuthorized(auth) {
 }
 
 export class DesktopCapability {
-  constructor({ ipcMain, window, registry, presentation, browserServices, runtimeGeneration, authorizeSession = () => true, getCapabilities = () => undefined, browserHost = null }) {
+  constructor({ ipcMain, window, registry, presentation, browserServices, runtimeGeneration, authorizeSession = () => true, getCapabilities = () => undefined, browserHost = null, getConversationPage = () => null }) {
     this.ipcMain = ipcMain;
     this.window = window;
     this.registry = registry;
@@ -18,6 +18,7 @@ export class DesktopCapability {
     this.authorizeSession = authorizeSession;
     this.getCapabilities = getCapabilities;
     this.browserHost = browserHost;
+    this.getConversationPage = getConversationPage;
     this.revision = 1;
     this.layoutRevision = 0;
     this.emitQueued = false;
@@ -74,7 +75,9 @@ export class DesktopCapability {
     switch (request.operation) {
       case "selectConversation":
         exactKeys(request, ["operation", "schema_version", "local_conversation_id"]);
-        return { page_ref: this.registry.selectConversation(request.local_conversation_id) };
+        return { page_ref: this.registry.selectConversation(request.local_conversation_id) ||
+          (request.local_conversation_id && this.getCapabilities()?.browser !== false
+            ? this.registry.restoreConversation?.(request.local_conversation_id, this.getConversationPage(request.local_conversation_id)) || "" : "") };
       case "reconcileBrowserHost":
         exactKeys(request, ["operation", "schema_version", "command_id", "digest", "outcome"]);
         if (!this.browserHost) throw new Error("Browser host is unavailable");
@@ -107,7 +110,7 @@ export class DesktopCapability {
         return { completed: true };
       case "observeTask":
         exactKeys(request, ["operation", "page_ref", "schema_version"]);
-        this.registry.showByRef(pageRef(request.page_ref), "task");
+        await this.registry.showByRef(pageRef(request.page_ref), "task");
         return { completed: true };
       case "hideBrowser":
         exactKeys(request, ["operation", "schema_version"]);

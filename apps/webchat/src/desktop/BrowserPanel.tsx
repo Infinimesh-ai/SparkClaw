@@ -84,7 +84,8 @@ export function BrowserPanel({ language, localConversationID, open = true,
   const selectionRequest = useRef(0);
   const [focusRequest, setFocusRequest] = useState(0);
   const focusedRequest = useRef(0);
-  const opened = useRef(false);
+  const opened = useRef<string | null>(null);
+  const seenTasks = useRef(new Set<string>());
   const [occluded, setOccluded] = useState(false);
 
   const run = useCallback((action: Promise<unknown>) => {
@@ -132,16 +133,49 @@ export function BrowserPanel({ language, localConversationID, open = true,
   }, [desktop]);
 
   useEffect(() => {
-    if (!open) { opened.current = false; setCollapsed(false); return; }
-    if (!state || opened.current || !desktop) return;
-    opened.current = true;
+    if (!open) { opened.current = null; setCollapsed(false); return; }
+    const conversation = localConversationID ?? "";
+    if (!state || opened.current === conversation || !desktop) return;
+    const switchingConversation = opened.current !== null;
+    opened.current = conversation;
     setCollapsed(false);
     setMenuOpen(false);
-    const blank = pages.find(page => page.role === "personal" && page.url === "about:blank" && !drafts.current.get(page.page_ref));
-    run(desktop.hideBrowser());
-    if (blank) { setSelectedPageRef(blank.page_ref); setAddress(""); setFocusRequest(value => value + 1); }
-    else void create();
-  }, [open, state, pages, desktop, create, run]);
+    const selection = ++selectionRequest.current;
+    void (async () => {
+      // The main process restores only this identity's verified local result.
+      // Refresh after selection because the panel may mount after task delivery
+      // or after the process/transport has discarded its native views.
+      if (conversation) await desktop.selectConversation?.(conversation);
+      const latest = await desktop.state();
+      if (selection !== selectionRequest.current || opened.current !== conversation) return;
+      setState(latest);
+      const task = latest.pages.find(page => page.role === "task" && page.local_conversation_id === conversation && conversation);
+      if (task) {
+        seenTasks.current.add(task.page_ref);
+        setSelectedPageRef(task.page_ref);
+      } else {
+        if (switchingConversation) return;
+        const blank = latest.pages.find(page => page.role === "personal" && page.url === "about:blank" && !drafts.current.get(page.page_ref));
+        await desktop.hideBrowser();
+        if (selection !== selectionRequest.current || opened.current !== conversation) return;
+        if (blank) { setSelectedPageRef(blank.page_ref); setAddress(""); setFocusRequest(value => value + 1); }
+        else void create();
+      }
+    })().catch(reason => { if (selection === selectionRequest.current) setError(message(reason)); });
+  }, [open, state, desktop, create, localConversationID]);
+
+  useEffect(() => {
+    if (!shown || !localConversationID) return;
+    const task = pages.find(page => page.role === "task" && page.local_conversation_id === localConversationID && page.url.startsWith("https://"));
+    if (!task || seenTasks.current.has(task.page_ref)) return;
+    seenTasks.current.add(task.page_ref);
+    // A completed task can arrive while the owner has the empty browser open.
+    // Preserve an active personal page or an address draft they are editing.
+    if ((!activePage || activePage.url === "about:blank") && !drafts.current.get(selectedPageRef)) {
+      selectionRequest.current++;
+      setSelectedPageRef(task.page_ref);
+    }
+  }, [shown, localConversationID, pages, activePage, selectedPageRef]);
 
   // Only an explicit open/new-tab action requests focus. State pushes and
   // unrelated task updates never overwrite a partially typed address.

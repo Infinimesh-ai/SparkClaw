@@ -224,6 +224,7 @@ export class ClientStore {
       }
       this.db.prepare("DELETE FROM message_clarifications WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=?)").run(conversationID);
       this.db.prepare("DELETE FROM message_files WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=?)").run(conversationID);
+      this.db.prepare("DELETE FROM metadata WHERE key IN (SELECT 'browser_page:' || id FROM tasks WHERE conversation_id=?)").run(conversationID);
       for (const table of ["tasks", "messages", "files"]) {
         this.db.prepare(`DELETE FROM ${table} WHERE conversation_id=?`).run(conversationID);
       }
@@ -638,6 +639,28 @@ export class ClientStore {
 
   context(scope, requestID) {
     return JSON.parse(this.request(scope, requestID).context_json);
+  }
+
+  saveBrowserPage(scope, binding, page) {
+    const row = this.db.prepare("SELECT request_id FROM tasks WHERE id=?").get(binding.local_task_id);
+    if (!row) throw new Error("Local browser task not found");
+    const task = this.request(scope, row.request_id);
+    if (binding.installation_id !== this.installationID || binding.owner_id !== scope.owner_id || binding.client_id !== scope.client_id ||
+        task.conversation_id !== binding.local_conversation_id || this.hasCancellation(scope, task.id)) throw new Error("Browser page task binding is invalid");
+    const url = new URL(boundedText(page.url, 4096, "Browser page URL"));
+    if (url.protocol !== "https:" || url.username || url.password || !/^[a-f0-9]{64}$/u.test(page.document_version)) throw new Error("Verified browser page is invalid");
+    const value = { schema_version: 1, local_task_id: task.id, url: url.href,
+      title: boundedText(page.title || "", 4096, "Browser page title"), document_version: page.document_version };
+    this.db.prepare("INSERT INTO metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+      .run(`browser_page:${task.id}`, JSON.stringify(value));
+  }
+
+  browserPage(scope, conversationID) {
+    this.#conversation(scope, conversationID);
+    const row = this.db.prepare(`SELECT m.value FROM tasks t JOIN metadata m ON m.key='browser_page:' || t.id
+      WHERE t.conversation_id=? AND t.status='delivered' AND NOT EXISTS (SELECT 1 FROM metadata c WHERE c.key='execution_cancel:' || t.id)
+      ORDER BY t.created_at DESC,t.rowid DESC LIMIT 1`).get(conversationID);
+    return row ? JSON.parse(row.value) : null;
   }
 
   request(scope, requestID) {

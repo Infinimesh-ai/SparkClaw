@@ -4,6 +4,38 @@ import test from "node:test";
 import { PageRegistry } from "../src/browser/page-registry.mjs";
 import { ElectronChromeAPI } from "../src/browser/electron-chrome-api.mjs";
 
+test("a saved conversation restores lazily as a new read-only page without Controller authority", async () => {
+  const loads = [], views = [];
+  const presentation = { add() {}, hidePresented() {}, showTask() {}, isPresented() { return false; }, remove() {} };
+  const registry = new PageRegistry({ runtimeGeneration: "new-runtime", presentation, createView: () => {
+    const wc = new EventEmitter(); let url = "about:blank";
+    Object.assign(wc, { getURL: () => url, getTitle: () => "", isLoading: () => false, isCrashed: () => false,
+      setWindowOpenHandler(handler) { this.popup = handler; }, isDestroyed: () => false, close() {},
+      loadURL: async value => { loads.push(value); url = value; } });
+    views.push(wc); return { webContents: wc };
+  } });
+  registry.selectConversation("A");
+  const saved = { url: "https://example.test/#/result", title: "Saved result", document_version: "a".repeat(64) };
+  const ref = registry.restoreConversation("A", saved);
+  assert.equal(registry.restoreConversation("A", saved), ref);
+  assert.deepEqual(loads, []);
+  assert.equal(registry.desktopSnapshot()[0].url, saved.url);
+  const record = registry.getByRef(ref);
+  assert.equal(record.connectionID, null);
+  assert.equal(record.binding, null);
+  assert.equal(views[0].popup({ url: "https://other.test/" }).action, "deny");
+  assert.throws(() => registry.get("old-controller", record.tabID), /outside/);
+  registry.selectConversation("B");
+  assert.throws(() => registry.showByRef(ref, "task"), /another conversation/);
+  registry.selectConversation("A");
+  await registry.showByRef(ref, "task");
+  assert.deepEqual(loads, [saved.url]);
+  registry.closeHostPages();
+  assert.throws(() => registry.getByRef(ref), /unavailable/);
+  const next = registry.restoreConversation("A", saved);
+  assert.notEqual(next, ref);
+});
+
 test("Controller release keeps exactly the selected conversation view and drops the old connection authority", async () => {
   const presentation = { presented: null, add() {}, hidePresented() { this.presented = null; },
     showTask(record) { this.presented = record; }, isPresented(record) { return this.presented === record; },

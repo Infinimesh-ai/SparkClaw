@@ -50,6 +50,44 @@ async function fixture(pages: DesktopPage[] = []) {
 }
 
 describe("desktop browser entry", () => {
+  it("selects the current conversation result on open and on conversation changes without a manual tab click", async () => {
+    const a = { ...page(1, "https://a.test/", "task"), local_conversation_id: "a" };
+    const b = { ...page(2, "https://b.test/", "task"), local_conversation_id: "b" };
+    const f = await fixture([a, b, page(3)]);
+    try {
+      await f.render(true, true, "a");
+      expect(f.host.querySelector('.desktopTabSelect[aria-selected="true"]')?.textContent).toBe(a.url);
+      expect(f.input().value).toBe(a.url);
+      await f.render(false, false, "a"); await f.render(true, true, "a");
+      expect(f.input().value).toBe(a.url);
+      await f.render(true, true, "b");
+      expect(f.input().value).toBe(b.url);
+      expect(f.desktop.createPersonal).not.toHaveBeenCalled();
+    } finally { await f.cleanup(); }
+  });
+
+  it("refreshes restored main-process pages on lazy open and shows a task arriving on an unused blank", async () => {
+    const f = await fixture([page(3)]);
+    const task = { ...page(1, "https://restored.test/", "task"), local_conversation_id: "a" };
+    try {
+      f.desktop.selectConversation = vi.fn(async () => {
+        f.push({ ...f.state(), pages: [...f.state().pages, task] });
+        return { page_ref: task.page_ref };
+      });
+      await f.render(true, true, "a");
+      expect(f.input().value).toBe(task.url);
+      await f.render(true, true, "b");
+      const b = { ...page(2, "https://arrived.test/", "task"), local_conversation_id: "b" };
+      await act(async () => f.push({ ...f.state(), pages: [...f.state().pages, b] }));
+      expect(f.input().value).toBe(b.url);
+      await act(async () => f.host.querySelector<HTMLButtonElement>('[aria-label="New tab"]')!.click());
+      await f.type("unsent address");
+      const next = { ...page(4, "https://next.test/", "task"), local_conversation_id: "b" };
+      await act(async () => f.push({ ...f.state(), pages: [...f.state().pages.filter(p => p !== b), next] }));
+      expect(f.input().value).toBe("unsent address");
+    } finally { await f.cleanup(); }
+  });
+
   it("opens a blank tab directly, retains existing personal/task pages and reuses an unused blank", async () => {
     const f = await fixture([page(1, "https://example.test"), page(2, "https://task.test", "task"), page(3)]);
     try {

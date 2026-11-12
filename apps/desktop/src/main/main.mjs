@@ -411,12 +411,17 @@ async function start() {
     browserHost = new BrowserControllerForwarder({
       auth: desktopAuth, registry, userDataDir: app.getPath("userData"),
       runtime: controller,
+      onVerifiedPage: (binding, page) => localStore.saveBrowserPage(localIdentity(), binding, page),
       isTaskCanceled: binding => {
         const identity = localIdentity();
         return !identity || localStore.hasCancellation(identity, binding.local_task_id);
       },
       onChange: () => {
         desktopAuth.setBrowserRuntimeAvailable(controller.snapshot().available);
+        if (browserHost?.state === "connected" && registry.selectedConversationID) {
+          try { registry.restoreConversation(registry.selectedConversationID, localStore.browserPage(localIdentity(), registry.selectedConversationID)); }
+          catch { /* A stale/foreign selection has no restorable page; explicit opening reports errors. */ }
+        }
         desktopCapability?.changed();
       },
     });
@@ -449,6 +454,7 @@ async function start() {
     runtimeGeneration,
     authorizeSession: () => qualification || isDesktopSessionAuthorized(desktopAuth),
     getCapabilities: () => desktopAuth?.status.capabilities,
+    getConversationPage: id => localStore?.browserPage(localIdentity(), id),
   }).start();
   // The Linux qualification fixture uses its own adapter. Packaged Controller
   // processes start their private adapter lazily under the supervisor.

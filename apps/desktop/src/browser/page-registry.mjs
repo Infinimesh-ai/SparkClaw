@@ -44,6 +44,24 @@ export class PageRegistry {
     return record?.pageRef || "";
   }
 
+  restoreConversation(conversationID, saved) {
+    if (!saved) return "";
+    if (conversationID !== this.selectedConversationID || !conversationID) throw new Error("Page belongs to another conversation");
+    const existing = this.conversationPages.get(conversationID);
+    if (existing && !existing.destroyed) return existing.pageRef;
+    const url = new URL(saved.url);
+    if (url.protocol !== "https:" || url.username || url.password || !/^[a-f0-9]{64}$/u.test(saved.document_version)) throw new Error("Saved browser page is invalid");
+    // This is a fresh read-only view, not a resurrected Controller connection or
+    // document. Load lazily when the owner opens this conversation's browser.
+    const record = this.#createRecord({ role: "task", url: url.href, restored: true });
+    record.hostConversationID = conversationID;
+    record.restoreURL = url.href;
+    record.restoreTitle = saved.title;
+    this.conversationPages.set(conversationID, record);
+    this.#changed();
+    return record.pageRef;
+  }
+
   registerConnection(connection) {
     if (!connection?.id || this.connections.has(connection.id)) throw new Error("Task connection is invalid");
     connection.tabIDs = new Set();
@@ -76,6 +94,8 @@ export class PageRegistry {
       const retained = this.conversationPages.get(connection.association.binding.local_conversation_id);
       if (retained && !retained.destroyed) {
         if (retained.connectionID) throw new Error("Conversation already has a browser controller");
+        if (retained.restoring) retained.webContents.stop();
+        retained.restoreURL = "";
         retained.connectionID = connectionID;
         retained.binding = connection.binding;
         retained.localGeneration++;
@@ -208,6 +228,21 @@ export class PageRegistry {
     if (role === "personal") this.presentation.showPersonal(record, true);
     else this.presentation.showTask(record, true);
     this.#changed();
+    if (record.restoreURL && !record.restoring) {
+      const generation = record.localGeneration;
+      let timer;
+      const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Browser page restore timed out")), 15000); });
+      record.restoring = Promise.race([record.webContents.loadURL(record.restoreURL), deadline]).then(() => {
+        if (record.destroyed) throw new Error("Browser page was closed");
+        if (generation === record.localGeneration) record.restoreURL = "";
+        this.#changed();
+        return record;
+      }).catch(error => {
+        if (generation === record.localGeneration && !record.destroyed) this.destroy(record.tabID, "restore_failed");
+        throw error;
+      }).finally(() => { clearTimeout(timer); record.restoring = null; });
+    }
+    if (record.restoring) return record.restoring;
     return record;
   }
 
@@ -252,8 +287,8 @@ export class PageRegistry {
       task_id: record.binding?.task_id ?? "",
       local_conversation_id: record.hostBinding?.local_conversation_id || [...this.conversationPages].find(([, page]) => page === record)?.[0] || "",
       page_generation: record.hostBinding?.page_generation || record.localGeneration,
-      title: record.webContents.getTitle(),
-      url: safeURL(record.webContents),
+      title: record.webContents.getTitle() || record.restoreTitle || "",
+      url: record.restoreURL || safeURL(record.webContents),
       presented: this.presentation.isPresented(record),
       loading: record.webContents.isLoading(),
       crashed: record.webContents.isCrashed(),
@@ -345,9 +380,9 @@ export class PageRegistry {
     return connection;
   }
 
-  #createRecord({ role, connectionID = null, url, openerTabID, initial = false }) {
+  #createRecord({ role, connectionID = null, url, openerTabID, initial = false, restored = false }) {
     if (!ALLOWED_ROLES.has(role)) throw new Error("Page role is invalid");
-    const connection = role === "task" ? this.requireConnection(connectionID) : null;
+    const connection = role === "task" && !restored ? this.requireConnection(connectionID) : null;
     const opener = openerTabID === undefined ? null : role === "task"
       ? this.get(connectionID, openerTabID)
       : this.records.get(openerTabID);

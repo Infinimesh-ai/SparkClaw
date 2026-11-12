@@ -12,8 +12,8 @@ const INLINE_LIMIT = 48 << 10;
 const INLINE_RESULT = Symbol("inline-result-descriptor");
 
 export class BrowserControllerForwarder {
-  constructor({ auth, registry, runtime, userDataDir, onChange = () => {}, isTaskCanceled = () => false }) {
-    Object.assign(this, { auth, registry, runtime, onChange, isTaskCanceled });
+  constructor({ auth, registry, runtime, userDataDir, onChange = () => {}, isTaskCanceled = () => false, onVerifiedPage = () => {} }) {
+    Object.assign(this, { auth, registry, runtime, onChange, isTaskCanceled, onVerifiedPage });
     this.journal = new HostJournal(path.join(userDataDir, "workbench/browser-journal"));
     this.remoteFences = new Map(); this.flights = new Map(); this.results = new ControllerResults();
     this.cancelledTasks = new Set();
@@ -243,6 +243,11 @@ export class BrowserControllerForwarder {
         this.runtime.state = "busy";
       } else if (action === "execute") {
         validateExecution(payload, command, this.lease.value, context.mutation);
+        if (command.operation === "page.snapshot" && payload.result?.page?.document_version) {
+          // Persist only native-verified snapshots under their authenticated task,
+          // never recover a navigation target by parsing assistant prose.
+          this.onVerifiedPage(command.binding, payload.result.page);
+        }
         if (payload.result && typeof payload.result === "object" && !Array.isArray(payload.result)) {
           payload.result.surface_visible = this.runtime.adapter.controllerSurfaceVisible?.(this.lease.taskID) === true;
         }

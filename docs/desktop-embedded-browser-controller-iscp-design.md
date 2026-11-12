@@ -195,6 +195,31 @@ This is a source/bundle change, not a production rollout record. Deploy Gateway 
 Controller support together; an older peer must reject the unsupported operation. Unit and
 contract tests do not establish WAN latency or production acceptance.
 
+### 4.5 Visible conversation results and restart recovery — 2026-11-12
+
+Opening the existing browser panel selects the current conversation's task page before an
+unused personal blank. A new task may replace the empty surface, but must not overwrite an
+address draft or an active personal page. Existing tabs, menus, layout and read-only shields remain.
+
+The desktop persists a bounded URL/title/document-version bookmark from an authenticated,
+native-verified `page.snapshot` in ClientStore metadata, tied to the original local task and
+installation. Reads validate deployment/owner/client/conversation scope; unfinished or canceled
+tasks cannot restore a result. Conversation deletion removes its bookmarks. This local
+presentation data is separate from execution receipts and does not change their schemas.
+
+After a process or authority-session reset, selecting a delivered conversation creates a new
+read-only view. Loading is deferred until the owner opens its browser, with a bounded deadline.
+Old Controller leases, debugger connections, refs and document versions are never restored;
+later tasks observe fresh documents under fresh authority. The original live page, when present,
+keeps its DOM state without navigating again. Historical results without a verified bookmark
+are not reconstructed from assistant text or replayed.
+
+The paired a65eb014 installation passed stability observation but exposed this presentation gap:
+opening selected a blank, and normal restart lost task pages. Successful task text and manually
+selecting a tab did not establish the default visible experience. Follow-up acceptance covers
+opening without a manual tab selection, collapse/reopen, conversation switching and normal
+restart using the real installed profile.
+
 ## 5. Desktop packaging, process and page ownership
 
 ### 5.1 Reproducible package

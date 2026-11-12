@@ -81,6 +81,19 @@ test("observation keeps authenticated arguments intact while narrowing the local
   assert.equal(request.body.digest, originalDigest);
 });
 
+test("verified snapshot persistence receives the frozen authenticated task before replying", async t => {
+  const page = { url: "https://example.test/", title: "Result", document_version: "a".repeat(64) };
+  const f = await fixture(t, { execute: async () => ({ page }) });
+  const writes = []; f.forwarder.onVerifiedPage = (scope, snapshot) => writes.push({ scope, snapshot });
+  const b = binding(), lease = await f.acquireTask(b);
+  const response = await f.send(command("execute", b, { lease, operation: "page.snapshot", arguments: { document_version: page.document_version } }));
+  assert.equal(response.body.outcome, "completed");
+  assert.deepEqual(writes, [{ scope: b, snapshot: page }]);
+  f.forwarder.onVerifiedPage = () => { throw new Error("disk unavailable"); };
+  const failed = await f.send(command("execute", b, { lease, operation: "page.snapshot", arguments: { document_version: page.document_version } }));
+  assert.notEqual(failed.body.outcome, "completed");
+});
+
 test("concurrent duplicate mutations share one durable slot, preserve typed fields and never replay after cache loss", async t => {
   const f = await fixture(t); const b = binding(); let lease = await f.acquireTask(b);
   const begin = f.forwarder.journal.begin.bind(f.forwarder.journal);

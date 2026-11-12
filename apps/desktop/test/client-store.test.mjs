@@ -16,6 +16,31 @@ function fixture(t) {
 }
 const digest = (text) => crypto.createHash("sha256").update(text).digest("hex");
 
+test("verified browser result survives restart within its original task scope and is removed with the conversation", t => {
+  const root = fixture(t); let store = new ClientStore(root);
+  const conversation = store.create(scope, "browser result"), other = store.create(scope, "other");
+  const task = store.enqueue(scope, conversation.id, "Open the page", []);
+  const binding = { installation_id: store.installationID, owner_id: scope.owner_id, client_id: scope.client_id,
+    local_conversation_id: conversation.id, local_task_id: task.id };
+  const page = { url: "https://example.test/#/result", title: "Result", document_version: "a".repeat(64) };
+  assert.throws(() => store.saveBrowserPage(scope, { ...binding, local_conversation_id: other.id }, page), /binding/);
+  assert.throws(() => store.saveBrowserPage({ ...scope, owner_id: "foreign" }, binding, page), /not found/);
+  assert.throws(() => store.saveBrowserPage(scope, binding, { ...page, url: "https://user:password@example.test/" }), /invalid/);
+  store.saveBrowserPage(scope, binding, page);
+  assert.equal(store.browserPage(scope, conversation.id), null, "unfinished tasks do not restore a result");
+  store.markSubmitted(scope, task.request_id);
+  const payload = JSON.stringify({ content: "Done", files: [] });
+  store.commitDelivery(scope, { request_id: task.request_id, sequence: 1, digest: digest(payload), payload }, new Map());
+  store.acknowledge(scope, task.request_id, 1, digest(payload));
+  store.close(); store = new ClientStore(root);
+  assert.equal(store.browserPage(scope, conversation.id).url, page.url);
+  assert.equal(store.browserPage(scope, other.id), null);
+  assert.throws(() => store.browserPage({ ...scope, client_id: "foreign" }, conversation.id), /not found/);
+  assert.equal(store.remove(scope, conversation.id).deleted, true);
+  assert.equal(store.db.prepare("SELECT 1 FROM metadata WHERE key=?").get(`browser_page:${task.id}`), undefined);
+  store.close();
+});
+
 test("recording application and draft commit together and survive lost ACK and schema upgrade", t => {
   const root = fixture(t); let store = new ClientStore(root);
   const conversation = store.create(scope, "Original"); const requestID = crypto.randomUUID();

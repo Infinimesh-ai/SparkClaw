@@ -30,6 +30,7 @@ import { BrowserPresentation } from "./presentation.mjs";
 import { DesktopCapability, isDesktopSessionAuthorized } from "./desktop-capability.mjs";
 import { DesktopAuth, authorizeWorkbenchSender } from "./desktop-auth.mjs";
 import { traceISCPRead } from "./iscp-read-diagnostics.mjs";
+import { prepareDefaultLatencyTrace } from "./latency-trace-directory.mjs";
 import { SecureCredentialStore } from "./secure-credential-store.mjs";
 import { OwnerBrowserServices } from "./owner-browser-services.mjs";
 import { linuxLoginStartup } from "./login-startup.mjs";
@@ -90,7 +91,8 @@ protocol.registerSchemesAsPrivileged([{
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
 }]);
 
-if (!app.requestSingleInstanceLock()) app.quit();
+const ownsProfile = app.requestSingleInstanceLock();
+if (!ownsProfile) app.quit();
 
 let quitting = false;
 let suspended = false;
@@ -133,6 +135,7 @@ function publishBackendState(status) {
 }
 
 async function start() {
+  if (ownsProfile && !qualification) await prepareDefaultLatencyTrace(app.getPath("userData"));
   const internalProtocolHandler = (request) => {
     const url = new URL(request.url);
     if (url.hostname !== "extension-connect" || url.pathname !== "") {

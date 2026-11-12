@@ -10,6 +10,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browsercontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/latencytrace"
 )
 
 type controllerHostLease struct {
@@ -69,18 +70,28 @@ func (h *ClientControllerHost) client(binding Binding, peer ReverseSession) (*br
 	})
 }
 func (h *ClientControllerHost) Ready(ctx context.Context, identity Identity) error {
+	ctx = latencytrace.WithFields(ctx, latencytrace.Fields{Role: "gateway", Operation: "browser.controller.status"})
+	started := latencytrace.Clock()
 	peer, err := h.peer(identity)
 	if err != nil {
+		latencytrace.RecordDetail(ctx, "browser.health_result", started, err, latencytrace.Detail{Reason: "no_peer_session"})
 		return err
 	}
 	client, err := h.client(controllerBinding(Scope{Identity: identity, ConversationID: "status", TaskID: "status"}, peer), peer)
 	if err != nil {
+		latencytrace.RecordDetail(ctx, "browser.health_result", started, err, latencytrace.Detail{Reason: "controller_binding"})
 		return err
 	}
 	status, err := client.ControllerStatus(ctx)
-	if err != nil || !status.Available {
+	if err != nil {
+		latencytrace.RecordDetail(ctx, "browser.health_result", started, err, latencytrace.Detail{Reason: "status_call_failed"})
 		return ErrUnavailable
 	}
+	if !status.Available {
+		latencytrace.RecordDetail(ctx, "browser.health_result", started, ErrUnavailable, latencytrace.Detail{Reason: "runtime_unavailable"})
+		return ErrUnavailable
+	}
+	latencytrace.Record(ctx, "browser.health_result", started, nil, 0)
 	return nil
 }
 func (h *ClientControllerHost) Acquire(ctx context.Context, scope Scope) (Binding, error) {

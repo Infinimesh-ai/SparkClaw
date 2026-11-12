@@ -24,19 +24,35 @@ func (e *Endpoint) acceptResponse(ctx context.Context, raw []byte, id string, ar
 	}
 	var response Response
 	if err := strictDecode(raw, &response); err != nil {
+		latencytrace.RecordDetail(ctx, "rpc.response_invalid", arrived, err, latencytrace.Detail{Reason: "decode"})
 		return errors.New("invalid workbench response")
 	}
 	if err := response.Validate(); err != nil {
+		latencytrace.RecordDetail(ctx, "rpc.response_invalid", arrived, err, latencytrace.Detail{Reason: "validation"})
 		return err
 	}
+	ctx = latencytrace.WithFields(ctx, latencytrace.Fields{Role: e.config.Role, RPCID: response.ID})
 	e.mu.Lock()
 	s, call := e.session, e.pending[response.ID]
+	if call != nil {
+		ctx = latencytrace.WithFields(ctx, call.trace)
+	}
+	latencytrace.RecordDetail(ctx, "rpc.response_received", time.Time{}, nil, responseTraceDetail(response))
 	if e.closed || e.authorizationRevoked || s == nil || s.id != id || ctx.Err() != nil || call == nil || call.ctx.Err() != nil || call.responseStarted {
+		reason := "session_ended"
+		switch {
+		case call == nil:
+			reason = "no_pending_call"
+		case call.ctx.Err() != nil:
+			reason = "call_ended"
+		case call.responseStarted:
+			reason = "duplicate"
+		}
 		e.mu.Unlock()
+		latencytrace.RecordDetail(ctx, "rpc.response_dropped", time.Time{}, nil, latencytrace.Detail{Reason: reason})
 		return nil
 	}
 	call.responseStarted = true
-	ctx = latencytrace.WithFields(ctx, call.trace)
 	latencytrace.At(ctx, "rpc.encrypted_received", arrived)
 	e.workers.Add(1)
 	e.mu.Unlock()
@@ -51,7 +67,7 @@ func (e *Endpoint) authorizeResponse(ctx context.Context, s *activeSession, call
 	defer func() { stop(); cancel() }()
 	started := latencytrace.Clock()
 	err := e.checkAuthorization(ctx)
-	latencytrace.Record(ctx, "rpc.response_authorization", started, err, 0)
+	traceAuthorization(ctx, "rpc.response_authorization", started, err)
 	if err != nil && !started.IsZero() {
 		latencytrace.Record(ctx, "rpc.response_authorization."+responseAuthorizationErrorClass(err), time.Time{}, err, 0)
 	}
@@ -61,10 +77,14 @@ func (e *Endpoint) authorizeResponse(ctx context.Context, s *activeSession, call
 	// reused RPC ID or disconnect a freshly authenticated replacement session.
 	if e.closed || e.authorizationRevoked || ctx.Err() != nil || call.ctx.Err() != nil || e.session != s || e.pending[response.ID] != call {
 		e.mu.Unlock()
+		latencytrace.RecordDetail(ctx, "rpc.response_dropped", time.Time{}, nil, latencytrace.Detail{Reason: "call_or_session_ended_during_authorization"})
 		return
 	}
 	if err == nil {
 		err = verifyGrant(e.config, e.grantMaterial(), time.Now().UTC())
+		if err != nil {
+			latencytrace.RecordDetail(ctx, "rpc.response_dropped", time.Time{}, err, latencytrace.Detail{Reason: "grant_validation"})
+		}
 	}
 	if err != nil {
 		if cause := callContextError(err); cause != nil {
@@ -85,8 +105,42 @@ func (e *Endpoint) authorizeResponse(ctx context.Context, s *activeSession, call
 	}
 	delete(e.pending, response.ID)
 	call.result <- callResult{response: response}
-	latencytrace.Record(ctx, "rpc.delivered", time.Time{}, nil, 0)
+	latencytrace.RecordDetail(ctx, "rpc.delivered", time.Time{}, nil, responseTraceDetail(response))
 	e.mu.Unlock()
+}
+
+func responseTraceDetail(response Response) latencytrace.Detail {
+	detail := latencytrace.Detail{HTTPStatus: response.Status}
+	if validErrorCode(response.Code) {
+		detail.Reason = string(response.Code)
+	}
+	return detail
+}
+
+func traceAuthorization(ctx context.Context, stage string, start time.Time, err error) {
+	detail := latencytrace.Detail{}
+	if err != nil && !start.IsZero() {
+		detail.Reason = responseAuthorizationErrorClass(err)
+	}
+	latencytrace.RecordDetail(ctx, stage, start, err, detail)
+}
+
+func traceRelayOutcome(ctx context.Context, stage string, start time.Time, err error) {
+	detail := latencytrace.Detail{}
+	var notSent *iscpbridge.NotSent
+	var rejected *iscpbridge.RejectedSubmission
+	var unknown *iscpbridge.UnknownAcceptance
+	switch {
+	case errors.As(err, &notSent):
+		detail.Reason = "not_sent"
+	case errors.As(err, &rejected):
+		detail.Reason = "relay_rejected"
+	case errors.As(err, &unknown):
+		detail.Reason = "acceptance_unknown"
+	case err != nil:
+		detail.Reason = "relay_transport"
+	}
+	latencytrace.RecordDetail(ctx, stage, start, err, detail)
 }
 
 // Use only stable classes and numeric HTTP statuses in the private trace.
@@ -111,20 +165,23 @@ func responseAuthorizationErrorClass(err error) string {
 		return "expired"
 	case errors.Is(err, iscpnodeissuer.ErrUnavailable):
 		return "unavailable"
-	case callContextError(err) != nil:
-		return "context"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
 	default:
 		return "unclassified"
 	}
 }
 
 func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) error {
-
 	var request Request
 	if err := strictDecode(raw, &request); err != nil {
+		latencytrace.RecordDetail(ctx, "rpc.request_invalid", time.Time{}, err, latencytrace.Detail{Reason: "decode"})
 		return errors.New("invalid workbench request")
 	}
 	if err := request.Validate(); err != nil {
+		latencytrace.RecordDetail(ctx, "rpc.request_invalid", time.Time{}, err, latencytrace.Detail{Reason: "validation"})
 		return err
 	}
 	if request.Operation == OperationExecutionProgressStream {
@@ -132,9 +189,13 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 	}
 	ctx = latencytrace.WithFields(ctx, requestTraceFields(e.config.Role, request))
 	latencytrace.Record(ctx, "rpc.request_received", time.Time{}, nil, 0)
+	reject := func(reason string, err error) error {
+		latencytrace.RecordDetail(ctx, "rpc.request_rejected", time.Time{}, err, latencytrace.Detail{Reason: reason})
+		return err
+	}
 	if e.config.Mode == "node-managed" && e.config.ExpectedInstallationID != "" {
 		if request.InstallationID != "" && request.InstallationID != e.config.ExpectedInstallationID {
-			return errors.New("request installation differs from enrolled device")
+			return reject("installation_mismatch", errors.New("request installation differs from enrolled device"))
 		}
 		if request.Operation == OperationBind {
 			var b struct {
@@ -142,14 +203,14 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 				InstallationID string `json:"installation_id"`
 			}
 			if strictDecode(request.Body, &b) != nil || b.InstallationID != e.config.ExpectedInstallationID {
-				return errors.New("installation bind differs from enrolled device")
+				return reject("installation_mismatch", errors.New("installation bind differs from enrolled device"))
 			}
 		}
 	}
 	e.mu.Lock()
 	if e.session == nil || e.session.id != id {
 		e.mu.Unlock()
-		return errors.New("request session was replaced")
+		return reject("session_replaced", errors.New("request session was replaced"))
 	}
 	profile := Profile
 	if e.session.capabilities != nil {
@@ -158,11 +219,11 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 	spec, _ := LookupOperation(request.Operation)
 	if (request.Profile == ProfileV2 && (profile != ProfileV2 || e.session.capabilities == nil || !time.Now().Before(e.session.capabilities.ExpiresAt))) || (e.config.Role == RoleInitiator && spec.Direction != "reverse") || (e.config.Role == RoleResponder && spec.Direction != "forward") {
 		e.mu.Unlock()
-		return errors.New("operation not admitted by negotiated direction/profile")
+		return reject("direction_or_profile", errors.New("operation not admitted by negotiated direction/profile"))
 	}
 	if (connectionSettingsOperation(request.Operation) || browserControllerOperation(request.Operation)) && (e.session.capabilities == nil || !slices.Contains(e.session.capabilities.Operations, request.Operation)) {
 		e.mu.Unlock()
-		return errors.New("application extension operation was not negotiated")
+		return reject("not_negotiated", errors.New("application extension operation was not negotiated"))
 	}
 	info := SessionInfo{SessionID: id, Profile: profile, GrantRevision: e.grantMaterial().grant.RevocationEpoch, Binding: e.config.Binding, QualifiedOperations: slices.Clone(e.config.QualifiedCapabilities)}
 	if e.session.capabilities != nil {
@@ -170,7 +231,7 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 	}
 	if _, ok := e.session.seenRequests[request.ID]; ok {
 		e.mu.Unlock()
-		return errors.New("replayed workbench request ID")
+		return reject("rpc_replay", errors.New("replayed workbench request ID"))
 	}
 	e.session.seenRequests[request.ID] = struct{}{}
 	e.mu.Unlock()
@@ -194,7 +255,7 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 		defer cancel()
 		started := latencytrace.Clock()
 		policy, policyErr := e.AuthorizationPolicy(callCtx)
-		latencytrace.Record(callCtx, "rpc.request_authorization", started, policyErr, 0)
+		traceAuthorization(callCtx, "rpc.request_authorization", started, policyErr)
 		if policyErr != nil {
 			return
 		}
@@ -212,7 +273,7 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 		if e.handler != nil {
 			started := latencytrace.Clock()
 			response = e.handler(callCtx, request)
-			latencytrace.Record(callCtx, "rpc.handler", started, callCtx.Err(), 0)
+			latencytrace.RecordDetail(callCtx, "rpc.handler", started, callCtx.Err(), responseTraceDetail(response))
 		}
 		response.Profile = request.Profile
 		response.ID = request.ID
@@ -224,7 +285,11 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 	return nil
 }
 
-func (e *Endpoint) sendResponse(ctx context.Context, id string, response Response) error {
+func (e *Endpoint) sendResponse(ctx context.Context, id string, response Response) (resultErr error) {
+	started := latencytrace.Clock()
+	defer func() {
+		latencytrace.RecordDetail(ctx, "rpc.response_send", started, resultErr, responseTraceDetail(response))
+	}()
 	response.Type = ResponseType
 	if response.Profile == "" {
 		response.Profile = Profile
@@ -272,7 +337,14 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (result Response, 
 	ctx = latencytrace.WithFields(ctx, requestTraceFields(e.config.Role, request))
 	started := latencytrace.Clock()
 	latencytrace.At(ctx, "rpc.call.start", started)
-	defer func() { latencytrace.Record(ctx, "rpc.call", started, resultErr, 0) }()
+	phase := "local_admission"
+	defer func() {
+		detail := responseTraceDetail(result)
+		if resultErr != nil {
+			detail.Reason = phase
+		}
+		latencytrace.RecordDetail(ctx, "rpc.call", started, resultErr, detail)
+	}()
 	raw, err := encodeRequest(request)
 	if err != nil || len(raw) > MaxRequestBytes {
 		return Response{}, errors.New("workbench request exceeds transport limit")
@@ -334,6 +406,7 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (result Response, 
 		}
 		e.mu.Unlock()
 	}()
+	phase = "request_send"
 	if err := e.sendPayload(ctx, RequestType, raw, id); err != nil {
 		if cause := ctx.Err(); cause != nil {
 			return Response{}, fmt.Errorf("workbench call deadline or cancellation: %w", cause)
@@ -355,8 +428,10 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (result Response, 
 	}
 	select {
 	case result := <-ch:
+		phase = "response_processing"
 		return result.response, result.err
 	case <-ctx.Done():
+		phase = "response_wait"
 		// End only this call. The authenticated receive owner and heartbeat
 		// detect connection loss independently. Do not replay a request whose
 		// result is unknown, or cancel unrelated calls sharing its session.

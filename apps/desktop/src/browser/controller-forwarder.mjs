@@ -2,6 +2,7 @@ import path from "node:path";
 import { HostJournal } from "./host-journal.mjs";
 import { ControllerAdmission } from "./controller-admission.mjs";
 import { ControllerResults } from "./controller-results.mjs";
+import { latencyNow, traceLatency } from "../main/latency-trace.mjs";
 import { refreshBrowserFences, reconcileBrowserFence } from "./controller-receipts.mjs";
 import { CONTROLLER_OPERATIONS, ID, exactObject, validateControllerBinding, validateControllerRequest, validateControllerLease,
   sameControllerBinding, sameControllerLease, wireBytes, positive } from "./controller-wire.mjs";
@@ -110,24 +111,33 @@ export class BrowserControllerForwarder {
 
   async handleReverse(request, session) {
     const received = performance.now();
+    const isStatus = request?.operation === "browser.controller.status";
+    const record = (reason, status, state) => {
+      if (isStatus) traceLatency("browser.controller_status", { rpc_id: request.id, operation: request.operation, reason, status, state, duration_ms: latencyNow() - received });
+    };
     if (!CONTROLLER_OPERATIONS.includes(request?.operation) || request.profile !== PROFILE) return rejected(403, "permission_denied");
-    if (request.installation_id !== this.scope?.installation_id || !this.#authorized(session, request.operation.endsWith(".status"))) return rejected(503, "capability_unavailable");
+    if (request.installation_id !== this.scope?.installation_id || !this.#authorized(session, request.operation.endsWith(".status"))) {
+      record("local_authorization", 503, this.state);
+      return rejected(503, "capability_unavailable");
+    }
     let mutation;
     try { mutation = validateControllerRequest(request.operation, request.body); }
-    catch { return rejected(400, "invalid_request"); }
+    catch { record("invalid_request", 400, this.state); return rejected(400, "invalid_request"); }
     try {
       if (request.operation !== "browser.controller.status") validateControllerBinding(request.body.binding, this.scope, session);
       await this.#connect(session);
-    } catch { return rejected(503, "capability_unavailable"); }
+    } catch { record("forwarder_not_ready", 503, this.state); return rejected(503, "capability_unavailable"); }
     const limit = Math.min(WIRE_LIMIT, this.auth.transport.capabilities.limits?.body_bytes || WIRE_LIMIT,
       this.auth.transport.capabilities.limits?.response_bytes || WIRE_LIMIT);
-    if (wireBytes(request) > limit) return rejected(413, "invalid_request");
+    if (wireBytes(request) > limit) { record("request_budget", 413, this.state); return rejected(413, "invalid_request"); }
     if (request.operation.endsWith(".status")) {
       const status = this.runtime.snapshot();
       const body = { schema_version: 1, ...status, limits: { ...status.limits, wire_bytes: limit, cache_bytes: 20 << 20,
         chunk_bytes: Math.max(1, Math.min(32 << 10, Math.floor((limit - 2048) * 3 / 4))),
         chunk_concurrency: Math.min(4, this.auth.transport.capabilities.limits?.concurrent || 4) } };
-      return fits(request, body, limit) ? { status: 200, body } : rejected(413, "result_budget_exceeded");
+      if (!fits(request, body, limit)) { record("response_budget", 413, status.process_state); return rejected(413, "result_budget_exceeded"); }
+      record(status.available ? "available" : "runtime_unavailable", 200, status.process_state);
+      return { status: 200, body };
     }
     if (request.operation.endsWith(".chunk")) {
       try {

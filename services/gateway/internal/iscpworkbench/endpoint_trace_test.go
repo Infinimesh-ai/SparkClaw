@@ -29,7 +29,16 @@ func TestPrivateLatencyTraceCorrelatesEncryptedRPC(t *testing.T) {
 		}
 		return
 	}
-	initiator, _, _, _ := testEndpoints(t, func(context.Context, Request) Response {
+	lateID := newUUID()
+	lateEntered, lateRelease := make(chan struct{}), make(chan struct{})
+	initiator, _, _, _ := testEndpoints(t, func(_ context.Context, request Request) Response {
+		if request.ID == lateID {
+			close(lateEntered)
+			select {
+			case <-lateRelease:
+			case <-t.Context().Done():
+			}
+		}
 		return Response{Status: 200, Body: json.RawMessage(`{"private":"never traced"}`)}
 	})
 	rpcID, requestID := newUUID(), newUUID()
@@ -37,6 +46,24 @@ func TestPrivateLatencyTraceCorrelatesEncryptedRPC(t *testing.T) {
 	if err != nil || response.Status != 200 {
 		t.Fatal("trace changed encrypted call result", err)
 	}
+	// Let an encrypted response arrive only after the caller has removed its
+	// pending slot. It must still be visible without reanimating the call.
+	lateCtx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	lateResult := make(chan error, 1)
+	go func() {
+		_, err := initiator.Call(lateCtx, Request{Type: RequestType, Profile: Profile, ID: lateID, Operation: OperationLookup, RequestID: requestID})
+		lateResult <- err
+	}()
+	select {
+	case <-lateEntered:
+	case err := <-lateResult:
+		t.Fatal("late fixture did not reach the handler", err)
+	}
+	if err := <-lateResult; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("expired call was completed", err)
+	}
+	close(lateRelease)
 	failed, failedSession := responseUnitEndpoint(t, func(context.Context) (iscpauth.Policy, error) {
 		return iscpauth.Policy{}, errors.Join(iscpnodeissuer.ErrDenied, errors.New("private issuer detail"))
 	})
@@ -50,6 +77,10 @@ func TestPrivateLatencyTraceCorrelatesEncryptedRPC(t *testing.T) {
 	}
 	want := map[string]bool{"rpc.call.start": false, "rpc.call": false, "rpc.send_authorization": false, "rpc.request_received": false, "rpc.request_authorization": false, "rpc.handler": false, "rpc.encrypted_received": false, "rpc.response_authorization": false, "rpc.delivered": false}
 	failureClassSeen := false
+	lateDropped := false
+	lateDelivered := false
+	lateDeadline := false
+	envelopesSent, envelopesReceived := map[string]string{}, map[string]string{}
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		files, err := filepath.Glob(filepath.Join(os.Getenv(latencytrace.Environment), "*.ndjson"))
@@ -71,8 +102,22 @@ func TestPrivateLatencyTraceCorrelatesEncryptedRPC(t *testing.T) {
 				RequestID string `json:"request_id"`
 				Operation string `json:"operation"`
 				Status    string `json:"status"`
+				Role      string `json:"role"`
+				Envelope  string `json:"envelope_id"`
+				Reason    string `json:"reason"`
 			}
-			if json.Unmarshal([]byte(line), &row) != nil || (row.RPCID != rpcID && row.RPCID != failedID) {
+			if json.Unmarshal([]byte(line), &row) != nil {
+				continue
+			}
+			if row.Stage == "rpc.envelope_received" {
+				envelopesReceived[row.Envelope] = row.Role
+			}
+			if row.RPCID == lateID {
+				lateDropped = lateDropped || row.Stage == "rpc.response_dropped" && row.Reason == "no_pending_call" && uuidPattern.MatchString(row.Envelope)
+				lateDelivered = lateDelivered || row.Stage == "rpc.delivered"
+				lateDeadline = lateDeadline || row.Stage == "rpc.call" && row.Reason == "response_wait" && row.Status == "deadline"
+			}
+			if row.RPCID != rpcID && row.RPCID != failedID {
 				continue
 			}
 			if row.RequestID != requestID || row.Operation != OperationLookup {
@@ -87,15 +132,23 @@ func TestPrivateLatencyTraceCorrelatesEncryptedRPC(t *testing.T) {
 			if _, tracked := want[row.Stage]; tracked {
 				want[row.Stage] = true
 			}
+			if row.Stage == "rpc.envelope_created" {
+				envelopesSent[row.Envelope] = row.Role
+			}
 		}
 		complete := true
 		for _, found := range want {
 			complete = complete && found
 		}
-		if complete && failureClassSeen {
+		correlated := len(envelopesSent) == 2
+		for id, sender := range envelopesSent {
+			receiver := envelopesReceived[id]
+			correlated = correlated && uuidPattern.MatchString(id) && receiver != "" && receiver != sender
+		}
+		if complete && failureClassSeen && correlated && lateDeadline && lateDropped && !lateDelivered {
 			return
 		}
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatal("missing correlated stages", want, "failure class recorded", failureClassSeen)
+	t.Fatal("missing correlated stages", want, "failure class", failureClassSeen, "sent envelopes", envelopesSent, "received envelopes", envelopesReceived, "deadline", lateDeadline, "late dropped", lateDropped, "late delivered", lateDelivered)
 }

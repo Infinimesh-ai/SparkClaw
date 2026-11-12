@@ -22,10 +22,18 @@ import (
 const Environment = "SPARKCLAW_PRIVATE_LATENCY_TRACE_DIR"
 
 type Fields struct {
-	Role      string `json:"role,omitempty"`
-	RPCID     string `json:"rpc_id,omitempty"`
-	RequestID string `json:"request_id,omitempty"`
-	Operation string `json:"operation,omitempty"`
+	Role       string `json:"role,omitempty"`
+	RPCID      string `json:"rpc_id,omitempty"`
+	RequestID  string `json:"request_id,omitempty"`
+	Operation  string `json:"operation,omitempty"`
+	EnvelopeID string `json:"envelope_id,omitempty"`
+}
+
+// Detail holds only protocol metadata. Reason must be a fixed classification
+// chosen by the caller, never an error message or arbitrary response text.
+type Detail struct {
+	Reason     string `json:"reason,omitempty"`
+	HTTPStatus int    `json:"http_status,omitempty"`
 }
 
 type event struct {
@@ -33,6 +41,7 @@ type event struct {
 	Time          time.Time `json:"time"`
 	Stage         string    `json:"stage"`
 	Fields
+	Detail
 	DurationMS float64 `json:"duration_ms"`
 	Status     string  `json:"status"`
 	Count      uint64  `json:"count,omitempty"`
@@ -58,10 +67,10 @@ type Health struct {
 }
 
 const traceByteLimit = 64 << 20
+const traceSegments = 3
 const (
 	lossQueueFull uint32 = 1 << iota
 	lossMetadata
-	lossLimit
 	lossWrite
 )
 
@@ -80,6 +89,7 @@ type recorder struct {
 	firstLoss        atomic.Uint32
 	stopped          atomic.Bool
 	observer         *slog.Logger
+	limit            int64
 }
 
 type traceSession struct {
@@ -90,12 +100,17 @@ type traceSession struct {
 var processSession = sync.OnceValue(func() traceSession { return startSession(os.Getenv(Environment)) })
 var uuid = regexp.MustCompile(`(?i)^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$`)
 var operationName = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,5}$`)
+var reasonName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
 func baseHealth() Health {
 	return Health{SchemaVersion: 1, Component: "go_latencytrace", Coverage: "instrumented_boundaries_only", Evidence: "incomplete"}
 }
 
 func startSession(directory string) traceSession {
+	return startSessionWithLimit(directory, traceByteLimit)
+}
+
+func startSessionWithLimit(directory string, limit int64) traceSession {
 	h := baseHealth()
 	h.State, h.Reason = "disabled", "not_enabled"
 	if directory != "" {
@@ -116,7 +131,7 @@ func startSession(directory string) traceSession {
 	if err != nil {
 		return failed()
 	}
-	r := &recorder{file: file, queue: make(chan event, 1024), done: make(chan struct{}), wake: make(chan struct{}, 1), observer: observer}
+	r := &recorder{file: file, queue: make(chan event, 1024), done: make(chan struct{}), wake: make(chan struct{}, 1), observer: observer, limit: limit}
 	go r.write()
 	return traceSession{recorder: r}
 }
@@ -125,8 +140,6 @@ func lossReason(value uint32) string {
 	switch {
 	case value&lossWrite != 0:
 		return "write_failed"
-	case value&lossLimit != 0:
-		return "size_limit"
 	case value&lossMetadata != 0:
 		return "invalid_metadata"
 	case value&lossQueueFull != 0:
@@ -190,7 +203,8 @@ func (r *recorder) noteLoss(reason uint32) {
 
 func (r *recorder) write() {
 	defer close(r.done)
-	defer r.file.Close()
+	file := r.file
+	defer func() { _ = file.Close() }()
 	observer := r.observer
 	if observer == nil {
 		observer = slog.Default()
@@ -207,7 +221,16 @@ func (r *recorder) write() {
 	}
 	defer observe()
 	write := func(raw []byte) bool {
-		n, err := r.file.Write(raw)
+		if bytes+int64(len(raw)) > r.limit {
+			next, err := rollTrace(file)
+			if err != nil {
+				r.stopped.Store(true)
+				r.noteLoss(lossWrite)
+				return false
+			}
+			file, bytes = next, 0
+		}
+		n, err := file.Write(raw)
 		bytes += int64(n)
 		if err != nil || n != len(raw) {
 			r.stopped.Store(true)
@@ -247,16 +270,6 @@ func (r *recorder) write() {
 			continue
 		}
 		raw = append(raw, '\n')
-		// Reserve enough bytes for the terminal loss marker, retaining the
-		// existing 64 MiB cap even when the last event would cross it.
-		if bytes+int64(len(raw))+512 > traceByteLimit {
-			r.stopped.Store(true)
-			r.lost.Add(1)
-			r.noteLoss(lossLimit)
-			marker, _ := json.Marshal(event{SchemaVersion: 1, Time: time.Now().UTC(), Stage: "trace.limit", Status: "incomplete"})
-			write(append(marker, '\n'))
-			continue
-		}
 		if !write(raw) {
 			r.lost.Add(1)
 			continue
@@ -264,6 +277,25 @@ func (r *recorder) write() {
 		r.written.Add(1)
 		r.lastWritten.Store(time.Now().UnixNano())
 	}
+}
+
+// Each process owns its exclusive active name and two older segments. Rename
+// whole files so readers never have to recover records split across segments.
+func rollTrace(file *os.File) (*os.File, error) {
+	name := file.Name()
+	segment := func(n int) string { return name + "." + strconv.Itoa(n) + ".ndjson" }
+	if err := file.Close(); err != nil {
+		return nil, err
+	}
+	for n := traceSegments - 1; n > 1; n-- {
+		if err := os.Rename(segment(n-1), segment(n)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
+	if err := os.Rename(name, segment(1)); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 }
 
 func (r *recorder) emit(value event) {
@@ -280,6 +312,11 @@ func (r *recorder) emit(value event) {
 	}
 	if cleaned := clean(value.Fields); cleaned != value.Fields {
 		value.Fields = cleaned
+		r.metadataRejected.Add(1)
+		r.noteLoss(lossMetadata)
+	}
+	if value.Reason != "" && !reasonName.MatchString(value.Reason) {
+		value.Reason = ""
 		r.metadataRejected.Add(1)
 		r.noteLoss(lossMetadata)
 	}
@@ -322,11 +359,14 @@ func WithFields(ctx context.Context, fields Fields) context.Context {
 	if fields.Operation != "" {
 		prior.Operation = fields.Operation
 	}
+	if fields.EnvelopeID != "" {
+		prior.EnvelopeID = fields.EnvelopeID
+	}
 	return context.WithValue(ctx, contextKey{}, prior)
 }
 
 func clean(fields Fields) Fields {
-	if fields.Role != "initiator" && fields.Role != "responder" && fields.Role != "gateway" && fields.Role != "relay" {
+	if fields.Role != "initiator" && fields.Role != "responder" && fields.Role != "gateway" && fields.Role != "relay" && fields.Role != "relay_client" {
 		fields.Role = ""
 	}
 	if !uuid.MatchString(fields.RPCID) {
@@ -334,6 +374,9 @@ func clean(fields Fields) Fields {
 	}
 	if !uuid.MatchString(fields.RequestID) {
 		fields.RequestID = ""
+	}
+	if !uuid.MatchString(fields.EnvelopeID) {
+		fields.EnvelopeID = ""
 	}
 	if len(fields.Operation) > 96 || !operationName.MatchString(fields.Operation) {
 		fields.Operation = ""
@@ -365,12 +408,23 @@ func status(err error) string {
 // Record uses time.Since's monotonic clock for a span. For instantaneous events
 // pass a zero start; At can retain the original arrival time after correlation.
 func Record(ctx context.Context, stage string, start time.Time, err error, count uint64) {
+	record(ctx, stage, start, err, count, Detail{})
+}
+
+func RecordDetail(ctx context.Context, stage string, start time.Time, err error, detail Detail) {
+	record(ctx, stage, start, err, 0, detail)
+}
+
+func record(ctx context.Context, stage string, start time.Time, err error, count uint64, detail Detail) {
 	r := processSession().recorder
 	if r == nil {
 		return
 	}
 	now := time.Now()
-	value := event{SchemaVersion: 1, Time: now.UTC(), Stage: stage, Status: status(err), Count: count}
+	if detail.HTTPStatus < 100 || detail.HTTPStatus > 599 {
+		detail.HTTPStatus = 0
+	}
+	value := event{SchemaVersion: 1, Time: now.UTC(), Stage: stage, Status: status(err), Count: count, Detail: detail}
 	value.Fields, _ = ctx.Value(contextKey{}).(Fields)
 	if !start.IsZero() {
 		value.DurationMS = float64(now.Sub(start)) / float64(time.Millisecond)

@@ -57,16 +57,16 @@ test('Desktop sink write errors are bounded observable evidence loss and never t
   });
 });
 
-test('Desktop record limit reports incomplete coverage and preserves cumulative loss', t => {
+test('Desktop rotates full trace files and keeps recording', t => {
   const f = fixture(t);
   process.env.SPARKCLAW_PRIVATE_LATENCY_TRACE_DIR = f.root;
   const write = fs.writeSync;
   t.mock.method(fs, 'writeSync', (fd, data, ...rest) => fd === 2 ? write(fd, data, ...rest) : Buffer.byteLength(data));
-  for (let i = 0; i < 100003; i++) trace.traceLatency('rpc.call');
+  for (let i = 0; i < 300003; i++) trace.traceLatency('rpc.call');
   const status = trace.latencyTraceStatus();
-  assert.equal(status.reason, 'record_limit'); assert.equal(status.state, 'degraded');
-  assert.equal(status.attempted, 100003); assert.equal(status.written, 100000); assert.equal(status.lost, 3);
-  assert.equal(f.events.filter(x => x.reason === 'record_limit').length, 1);
+  assert.equal(status.state, 'enabled');
+  assert.equal(status.attempted, 300003); assert.equal(status.written, 300003); assert.equal(status.lost, 0);
+  assert.equal(fs.readdirSync(f.root).length, 3);
 });
 
 test('Desktop rejects unsafe metadata and health observer failure cannot escape', t => {

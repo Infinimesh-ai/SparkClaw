@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/latencytrace"
 )
 
 // ErrPeerUnavailable means no authenticated, negotiated session currently
@@ -29,15 +31,21 @@ type PeerSession struct {
 // refusal before sending is ErrPeerUnavailable; any later failure leaves the
 // outcome unknown to the caller.
 func (s PeerSession) Command(ctx context.Context, operation string, body json.RawMessage) (Response, error) {
+	request := Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: operation, InstallationID: s.InstallationID, Body: body}
+	trace := func() {
+		traceCtx := latencytrace.WithFields(ctx, requestTraceFields(RoleResponder, request))
+		latencytrace.RecordDetail(traceCtx, "rpc.reverse_dispatch", time.Time{}, ErrPeerUnavailable, latencytrace.Detail{Reason: "peer_session_unavailable"})
+	}
 	if s.endpoint == nil {
+		trace()
 		return Response{}, ErrPeerUnavailable
 	}
 	select {
 	case <-s.Done:
+		trace()
 		return Response{}, ErrPeerUnavailable
 	default:
 	}
-	request := Request{Type: RequestType, Profile: ProfileV2, ID: newUUID(), Operation: operation, InstallationID: s.InstallationID, Body: body}
 	return s.endpoint.Call(context.WithValue(ctx, expectedSessionKey{}, s.ID), request)
 }
 

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/latencytrace"
 )
 
 // Only a transport failure proved to precede submission may use this sentinel.
@@ -85,13 +87,20 @@ func NewISCPControllerClient(transport ISCPControllerTransport, binding json.Raw
 	return &ISCPControllerClient{transport: transport, binding: append(json.RawMessage(nil), binding...), revision: int64(revision), hooks: hooks}, nil
 }
 
-func (c *ISCPControllerClient) ControllerStatus(ctx context.Context) (ClientControllerStatus, error) {
+func (c *ISCPControllerClient) ControllerStatus(ctx context.Context) (result ClientControllerStatus, resultErr error) {
+	started := latencytrace.Clock()
+	phase := "status_rpc"
+	defer func() {
+		traceCtx := latencytrace.WithFields(ctx, latencytrace.Fields{Role: "gateway", Operation: "browser.controller.status"})
+		latencytrace.RecordDetail(traceCtx, "browser.status_check", started, resultErr, latencytrace.Detail{Reason: phase})
+	}()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	raw, err := c.transport.ControllerCall(ctx, "browser.controller.status", json.RawMessage(`{"schema_version":1}`))
 	if err != nil {
 		return ClientControllerStatus{}, newError(CodeControllerUnavailable, true, err)
 	}
+	phase = "invalid_status_payload"
 	defer zero(raw)
 	var status ClientControllerStatus
 	if len(raw) > controllerWireLimit || strictControllerJSON(raw, &status) != nil || status.SchemaVersion != 1 || status.Protocol != ClientControllerProtocol ||
@@ -112,6 +121,10 @@ func (c *ISCPControllerClient) ControllerStatus(ctx context.Context) (ClientCont
 	c.mu.Lock()
 	c.limits = status.Limits
 	c.mu.Unlock()
+	phase = "runtime_unavailable"
+	if status.Available {
+		phase = "available"
+	}
 	return status, nil
 }
 

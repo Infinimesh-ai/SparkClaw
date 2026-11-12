@@ -1,0 +1,62 @@
+/* Keep comparison controls outside the real client, with no overlap. */
+body.clientTypographyPreview {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}
+/* Anchor the client's fixed overlays below this preview's toolbar as well. */
+.clientTypographyPreview #root { flex: 1; min-height: 0; contain: layout; }
+.clientTypographyPreview #root .clientWindow { height: 100%; }
+.clientTypographyPreview #root .clientContent { flex: 1; height: auto; }
+html[data-preview-fullscreen="true"] .clientWindow .clientWindowControls { display: none; }
+html[data-preview-fullscreen="true"] .clientWindow .clientTitlebarLeading { gap: 4px; padding-inline: 8px; }
+html[data-preview-fullscreen="true"] .clientWindow .clientSidebarControl { margin-left: 0; }
+.typographyPreview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--ui-divider);
+  background: var(--ui-solid);
+  color: var(--ui-ink);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.typographyPreviewHeading { display: grid; gap: 2px; }
+.typographyPreviewHeading strong { font-size: 13px; font-weight: 600; }
+.typographyPreviewHeading > span, .typographyPreviewControl small { color: var(--ui-muted); font-size: 11px; }
+.typographyPreviewControl { display: flex; align-items: center; gap: 8px; }
+.typographyPreviewControl input { width: 100px; min-height: 24px; margin: 0; accent-color: var(--ui-blue); }
+.typographyPreviewControl output { min-width: 30px; font-variant-numeric: tabular-nums; }
+.typographyPreviewActions { display: flex; gap: 6px; margin-left: auto; }
+.typographyPreviewActions button {
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid var(--ui-input-edge);
+  border-radius: 7px;
+  color: var(--ui-ink);
+  background: var(--ui-glass);
+  font: inherit;
+  cursor: pointer;
+}
+.typographyPreviewActions button:hover { background: var(--ui-glass-strong); }
+.typographyPreviewActions button[aria-pressed="true"] { color: var(--ui-blue); border-color: currentColor; }
+.typographyPreview :is(button, input):focus-visible { outline: 2px solid var(--ui-blue); outline-offset: 3px; }
+html[data-preview-original="true"] {
+  --client-sidebar-label-size: 14px;
+  --client-reading-ink: #252a32;
+  --client-composer-ink: #596572;
+}
+html[data-preview-original="true"][data-resolved-theme="dark"] {
+  --client-reading-ink: #edf2f8;
+  --client-composer-ink: #c4ccd6;
+}
+@media (max-width: 600px) {
+  .typographyPreview { gap: 8px 16px; padding: 8px 12px; }
+  .typographyPreviewHeading { flex-basis: 100%; display: flex; align-items: center; gap: 8px; }
+  .typographyPreviewControl { flex: 1; }
+  .typographyPreviewControl input { width: 68px; }
+  .typographyPreviewActions { margin-left: 0; }
+}

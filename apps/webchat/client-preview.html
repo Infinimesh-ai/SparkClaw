@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SparkX 客户端预览</title>
+    <!-- Development only: the real client entry with in-memory desktop, store and gateway fixtures. -->
+    <style>
+      /* macOS draws these over the inset title bar; the preview stands in for them. */
+      .clientWindowControls {
+        background:
+          radial-gradient(circle at 6px 50%, #ff5f57 5.5px, transparent 6px),
+          radial-gradient(circle at 26px 50%, #febc2e 5.5px, transparent 6px),
+          radial-gradient(circle at 46px 50%, #28c840 5.5px, transparent 6px);
+        background-repeat: no-repeat;
+      }
+    </style>
+  </head>
+  <body class="glassWorkbench clientTypographyPreview">
+    <div id="preview-controls"></div>
+    <div id="root"></div>
+    <script type="module">
+      // The fixtures must exist before the client entry evaluates its API base.
+      import "/src/dev/clientPreviewMocks.ts";
+      import "/src/main.tsx";
+      import "/src/dev/ClientTypographyPreview.tsx";
+    </script>
+  </body>
+</html>

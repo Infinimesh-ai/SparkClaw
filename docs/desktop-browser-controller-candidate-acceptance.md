@@ -6,6 +6,8 @@
 > Status: the owner accepted the `1f7f20ee` candidate within §8's scope. D2 source `50300074`
 > passed a paired Mac/Linux ARM64 upgrade and rollback rehearsal. See §9 for the artifacts.
 > Production rollout has a separate authorization decision.
+> Owner acceptance (§7–§8) and the performance figures (§2) were recorded on `1f7f20ee`. The
+> `50300074` packages have automated rehearsal checks only. See §9 for what remains open.
 > Final native scope is Mac ARM64 and Linux ARM64. Intel Mac is excluded.
 
 This handbook is for the owner's remaining work: read status and performance first, then follow
@@ -105,6 +107,9 @@ against roughly 19 s.
   were not timed.
 - The maximum of 12 samples is not a production tail estimate.
 - The old path's WAN figure is an estimate.
+- D2 removed the old path, so its baseline can no longer be measured from current source. The
+  `legacy` mode of `apps/desktop/test/controller-path-benchmark-fixture.mjs` still imports the
+  deleted `host-agent.mjs` and no longer runs. Its `controller` mode is unaffected.
 
 ### 2.6 Measuring again
 
@@ -165,6 +170,8 @@ To reproduce, run the §2.6 benchmark; `bench-test1-workflow-v1.mjs` stops at th
   `evidence-manifest.json` maps the frozen paths to the copies and records their SHA-256 digests.
   The handoff is on the same Mac disk. Credentials and enrolled profiles remain in their original
   private locations.
+  The D2 evidence in `d2-50300074/` is counted separately: 58 files listed in its own
+  `SHA256SUMS`, outside the 444 copies and `evidence-manifest.json`.
 - **Acceptance services are still running**: the TEST1 acceptance node
   `sx-controller-test1-work2-20261110-v1` and the dedicated work2 issuer and Gateway remain up;
   decide whether to stop them after acceptance.
@@ -173,7 +180,11 @@ To reproduce, run the §2.6 benchmark; `bench-test1-workflow-v1.mjs` stops at th
 - **Running tests on this machine**: the default `TMPDIR` passes through the `/var` symlink and
   makes `browserhost` and some Controller tests report unsafe paths; run
   `export TMPDIR=$(cd "$TMPDIR" && pwd -P)/` first. `gateway` package tests that need
-  `/dev/shm` must run on Linux.
+  `/dev/shm` must run on Linux. At `ca9ee6c3` on this Mac,
+  `TestExecutionRealWorkflowUsesOnlyClientContextAndNoLegacyPersistence` and
+  `TestReadyzProjectsFiveResidentServicesAndLatestCallStatus` in that package fail. Both test
+  files are unchanged since `1f7f20ee` and the package passes in the Linux log. The macOS
+  failures have not been diagnosed.
 
 ## 4. Candidate and evidence
 
@@ -219,6 +230,9 @@ the public Relay, without touching the production installation:
 ```bash
 SPARKCLAW_DESKTOP_USER_DATA_DIR=/private/tmp/sx-controller-iscp-test1-mac-arm64-20261110-v1/controller-native-profile "/Users/dev/Applications/SparkX Controller Candidate 1f7f20ee.app/Contents/MacOS/SparkX"
 ```
+
+This command starts the `1f7f20ee` candidate that the owner accepted. The `50300074` packages
+are in §9.
 
 The benchmark and the manual Mac Dock check used this separate profile. The
 `https://controller.fixture.test/` page used by the
@@ -298,6 +312,7 @@ Gateway and real model. Offline checks used synthetic local authority.
 | Open issue | §3.1 response authorization failure. Existing unknowns remain fenced. Source adds diagnostics for a future recurrence |
 | Candidate experience decision | **R08 accepted**. On 2026-11-10 the owner accepted the documented scope and approved an isolated D2 upgrade and rollback rehearsal. Active mail account and personal-script operation remain for owner review |
 | Paired release decision | **R07 isolated rehearsal passed. Production rollout awaits separate authorization** |
+| Build covered by sign-off | The §7 owner steps and the §2 performance figures apply to `1f7f20ee`. The `50300074` packages passed the automated checks in §9 and have no owner review or benchmark of their own |
 
 Record the owner and the accepted scope when signing. Production rollout has a separate decision.
 
@@ -342,7 +357,22 @@ modes. Private extraction ran successfully and the ordinary-user launch after ro
 failed. Rebuilding all four clients under `umask 022` passed installation and the paired rehearsal.
 The first Mac rollback with the final packages hit a backend error on a reconciliation read.
 A later read-only check found the original task delivered, and the separate new task passed.
-The first result and the unclassified read failure remain in the evidence.
+The first result and the unclassified read failure remain in the evidence. The failing client
+was the rolled-back `1f7f20ee` build, which predates the `b7551a9a` diagnostics, so this
+occurrence adds no error class. The `50300074` packages include those diagnostics.
 
 Validation passed for 82 Go packages on Linux and `go vet`, 631 desktop tests with one skip,
 597 WebChat tests, and the native browser panel's 48 layout cases and 12 task-page cases.
+The Go result is for `1a98a461`. The first Go run at `50300074` had three failing packages:
+`internal/agent` tests did not compile because they still called the removed
+`browserhost.NewScopedAdapter`, and one file-permission test failed in each of
+`internal/config` and `internal/latencytrace`. `1a98a461` changes only that agent test file,
+so the packaged binaries built from `50300074` are unaffected. The evidence does not record why
+the two permission tests passed on the second run. Both logs are in `validation/`.
+
+### 9.1 Open before production rollout
+
+- The owner has not run the §7 steps on a `50300074` package.
+- No benchmark has run on `50300074`. A §2.6 run on that build is also the next chance to
+  classify the §3.1 failure with the `b7551a9a` diagnostics.
+- The backend-unavailable read failure from the Mac rollback remains unclassified.

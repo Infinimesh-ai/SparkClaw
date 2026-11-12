@@ -5,6 +5,8 @@
 > 更新日期：2026-11-10。产品源码：`1f7f20ee27f45efe5dbf15e43c612a4d0cff88d6`。
 > 状态：所有者已按 §8 所列范围签收 `1f7f20ee` 候选。D2 源码 `50300074` 已通过
 > Mac/Linux ARM64 成对升级与回滚演练，交付制品见 §9。生产发布待单独授权。
+> 所有者验收（§7–§8）和性能数据（§2）记录的是 `1f7f20ee`。`50300074` 制品只有自动化
+> 演练检查，未决事项见 §9。
 > 最终原生范围为 Mac ARM64、Linux ARM64，排除 Intel Mac。
 
 本手册供所有者完成后续工作：先看状态和性能，再按“后续任务”顺序执行。
@@ -97,6 +99,9 @@ Gateway 和真实模型，连续执行 12 个独立任务。每个任务新建�
 - 只测了表单填写一种任务；截图、大结果分块和多页任务未计时。
 - 12 个样本的最大值不代表生产尾延迟。
 - 旧路径的公网数值是估算。
+- D2 已移除旧路径，当前源码无法再测其基线。
+  `apps/desktop/test/controller-path-benchmark-fixture.mjs` 的 `legacy` 模式仍导入已删除的
+  `host-agent.mjs`，不能再运行。`controller` 模式不受影响。
 
 ### 2.6 重新测量
 
@@ -150,12 +155,17 @@ issuer 的 HTTP 状态与传输失败，保留授权检查失败即拒绝结果�
   保留了索引、索引所列文件、制品和性能归档共 444 份校验副本。
   `evidence-manifest.json` 记录原路径、副本路径和 SHA-256。副本与缓存位于同一块 Mac 磁盘。
   凭据和已登记档案留在原私有位置。
+  `d2-50300074/` 的 D2 证据单独计数：58 个文件列在该目录自己的 `SHA256SUMS` 中，不在
+  444 份副本和 `evidence-manifest.json` 之内。
 - **验收服务仍在运行**：TEST1 新增验收节点 `sx-controller-test1-work2-20261110-v1`、
   work2 独立 issuer 和 Gateway 保持运行，验收结束后需要决定是否停用。
 - **Linux ARM64 主机原有 Gateway** 在候选活动前已处于重启循环，本工作未处理。
 - **本机跑测试**：默认 `TMPDIR` 经过 `/var` 符号链接，会让 `browserhost` 和部分
   Controller 测试误报路径不安全；先执行 `export TMPDIR=$(cd "$TMPDIR" && pwd -P)/`。
-  依赖 `/dev/shm` 的 `gateway` 包测试需在 Linux 运行。
+  依赖 `/dev/shm` 的 `gateway` 包测试需在 Linux 运行。在本机 `ca9ee6c3` 上，该包的
+  `TestExecutionRealWorkflowUsesOnlyClientContextAndNoLegacyPersistence` 和
+  `TestReadyzProjectsFiveResidentServicesAndLatestCallStatus` 失败。两个测试文件自
+  `1f7f20ee` 起未改动，Linux 日志中该包通过。macOS 上的失败原因尚未排查。
 
 ## 4. 候选与证据入口
 
@@ -197,6 +207,8 @@ Linux ARM64 当前候选从 deb 私有解包，在宿主现有 GNOME/X11 会话�
 ```bash
 SPARKCLAW_DESKTOP_USER_DATA_DIR=/private/tmp/sx-controller-iscp-test1-mac-arm64-20261110-v1/controller-native-profile "/Users/dev/Applications/SparkX Controller Candidate 1f7f20ee.app/Contents/MacOS/SparkX"
 ```
+
+此命令启动的是所有者已签收的 `1f7f20ee` 候选。`50300074` 制品见 §9。
 
 基准和手动 Dock 验证使用同一个独立档案。自动化测试使用的
 `https://controller.fixture.test/` 是脚本注入的页面，手动验收时不存在，需要自备一个
@@ -267,6 +279,7 @@ Node 24.21.0，在 Mac ARM64 独立候选及 Linux ARM64 GNOME/X11 宿主上执�
 | 待查问题 | §3.1 响应授权失败。保留已有 unknown fence，源码已补充复现诊断 |
 | 候选体验决定 | **R08 已签收**。所有者于 2026-11-10 接受上述范围，允许进入 D2 隔离升级及回滚演练。真实邮箱账号及个人脚本仍待复核 |
 | 成对发布决定 | **R07 隔离演练通过，生产发布待单独授权** |
+| 签收对应的构建 | §7 所有者步骤和 §2 性能数据对应 `1f7f20ee`。`50300074` 制品通过了 §9 的自动化检查，没有单独的所有者复验和基准测试 |
 
 签收时记录所有者及接受的范围。生产发布单独决定。
 
@@ -304,7 +317,20 @@ unknown 与 Gateway 的命令、摘要和完整作用域一致。生产容器及
 通过。首批制品的安装目录权限过严，私有解包通过，但 root 安装后的普通用户启动失败。
 以 `umask 022` 重新构建四份客户端制品后，安装验证及成对演练通过。最终制品的首次 Mac
 回滚在核对读取时遇到后端暂不可用，原任务随后只读确认已交付。保留该次失败记录，另起
-独立任务验证通过。读取失败的底层原因仍未分类。
+独立任务验证通过。读取失败的底层原因仍未分类。失败的客户端是回滚后的 `1f7f20ee`
+构建，早于 `b7551a9a` 的诊断，所以这次没有留下错误分类。`50300074` 制品包含该诊断。
 
 验证通过 82 个 Linux Go 包及 `go vet`、631 项桌面测试（另 1 项跳过）、597 项 WebChat
 测试，以及原生浏览器面板的 48 组布局和 12 组任务页检查。
+Go 结果对应 `1a98a461`。在 `50300074` 上的首轮 Go 测试有三个包失败：`internal/agent`
+的测试仍调用已删除的 `browserhost.NewScopedAdapter`，未能编译；`internal/config` 和
+`internal/latencytrace` 各有一项文件权限测试失败。`1a98a461` 只改了该 agent 测试文件，
+因此从 `50300074` 构建的制品不受影响。证据没有记录两项权限测试第二轮通过的原因。
+两轮日志都在 `validation/`。
+
+### 9.1 生产发布前的未决事项
+
+- 所有者尚未在 `50300074` 制品上执行 §7 的步骤。
+- `50300074` 上没有跑过基准。在该构建上按 §2.6 重测，也是借助 `b7551a9a` 诊断给 §3.1
+  故障分类的下一次机会。
+- Mac 回滚时的后端不可用读取失败仍未分类。

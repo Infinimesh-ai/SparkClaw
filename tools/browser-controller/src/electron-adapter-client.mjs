@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
+import { pageStale } from "./mcp-errors.mjs";
 
 const ADAPTER_PROTOCOL_VERSION = 1;
 const GENERATION = /^[0-9a-f]{32}$/u;
@@ -38,10 +39,23 @@ export async function registerElectronConnection({ adapter, token, binding }) {
   }
   return Object.freeze({
     socketPath: adapter.socketPath,
+    secretPath: adapter.secretPath,
     credential: response.connection_credential,
     binding: normalizeBinding(binding),
     runtimeGeneration: response.runtime_generation,
   });
+}
+
+// Fixed local read operations only; the authenticated Controller chooses a task
+// page first. Neither arbitrary scripts nor personal pages cross this boundary.
+export async function observeElectronPage(connection, options, capture = false) {
+  if (!connection) throw new Error("Client page observation is unavailable");
+  const result = await request(connection.socketPath, {
+    schema_version: 1, operation: capture ? "capturePage" : "observePage",
+    runtime_secret: await readPrivateSecret(connection.secretPath), binding: connection.binding, options,
+  }, capture ? 5000 : Math.min(22000, options.timeout_ms + 1000));
+  if (result?.schema_version !== 1 || !(capture ? ["captured"] : ["stable", "timeout", "failed"]).includes(result.status)) throw pageStale("Client page observation rejected");
+  return result;
 }
 
 export function electronConnectionEnvironment(connection) {
@@ -85,10 +99,10 @@ function normalizeBinding(binding) {
   };
 }
 
-async function request(socketPath, payload) {
+async function request(socketPath, payload, timeoutMS = 6000) {
   return await new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath);
-    const timer = setTimeout(() => socket.destroy(new Error("Electron adapter timeout")), 6000);
+    const timer = setTimeout(() => socket.destroy(new Error("Electron adapter timeout")), timeoutMS);
     timer.unref?.();
     let input = "";
     socket.setEncoding("utf8");
@@ -111,5 +125,6 @@ async function request(socketPath, payload) {
       clearTimeout(timer);
       reject(error);
     });
+    socket.on("close", () => { clearTimeout(timer); reject(new Error("Electron adapter closed")); });
   });
 }

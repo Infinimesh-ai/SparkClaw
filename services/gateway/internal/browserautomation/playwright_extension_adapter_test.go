@@ -440,14 +440,29 @@ func (s *fakePlaywrightSession) Execute(_ context.Context, operation string, arg
 			return nil, err
 		}
 		return map[string]any{"page": s.readPageMapLocked(*page)}, nil
-	case "page.snapshot":
-		// The controller returns only the page identity with a snapshot; URL and
-		// title are observed through page.read (see playwright-golden.json).
+	case "page.observe":
 		page, err := s.selectPageLocked(stringArg(arguments, "page_id"))
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"page": map[string]any{"page_id": page.ID}, "snapshot": s.snapshotLocked()}, nil
+		digest := digestBrowserRenderedContent(page.Title, fakePlaywrightPageText, s.snapshotLocked())
+		changed := stringArg(arguments, "before_digest") != digest
+		o := fakeClientObservation(page.ID, page.URL, intArg(arguments, "quiet_period_ms", 500))
+		o["state_digest"], o["state_changed"] = digest, changed
+		if !changed && !boolArg(arguments, "allow_no_change") {
+			o["status"] = "timeout"
+			o["reason_code"] = "browser_settle_timeout"
+		}
+		return map[string]any{"observation": o}, nil
+	case "page.snapshot":
+		page, err := s.selectPageLocked(stringArg(arguments, "page_id"))
+		if err != nil {
+			return nil, err
+		}
+		p := s.readPageMapLocked(*page)
+		p["document_version"], p["page_ref"] = strings.Repeat("d", 64), "page_"+strings.Repeat("a", 32)
+		p["observation_digest"] = digestBrowserRenderedContent(page.Title, fakePlaywrightPageText, s.snapshotLocked())
+		return map[string]any{"page": p, "snapshot": s.snapshotLocked()}, nil
 	case "page.click", "page.fill", "page.type", "page.select":
 		page, err := s.selectPageLocked(stringArg(arguments, "page_id"))
 		if err != nil {

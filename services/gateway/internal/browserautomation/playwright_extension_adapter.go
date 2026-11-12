@@ -44,6 +44,7 @@ type PlaywrightExtensionAdapter struct {
 	snapshots            map[string]*browserSnapshotState
 	activeSnapshotPage   string
 	clientSurfaceVisible bool
+	settledObservation   map[string]any
 }
 
 func NewPlaywrightExtensionAdapter(cfg config.Config, controller PlaywrightController) Adapter {

@@ -66,6 +66,7 @@ func (a *PlaywrightExtensionAdapter) acquireSessionLocked(ctx context.Context, a
 	a.providerSessionRef = playwrightProviderSessionRef(session.Lease().SessionID)
 	a.snapshots = map[string]*browserSnapshotState{}
 	a.activeSnapshotPage = ""
+	a.settledObservation = nil
 	return session, nil
 }
 
@@ -81,6 +82,7 @@ func (a *PlaywrightExtensionAdapter) releaseLocked(ctx context.Context) error {
 	a.providerSessionRef = ""
 	a.snapshots = map[string]*browserSnapshotState{}
 	a.activeSnapshotPage = ""
+	a.settledObservation = nil
 	a.clientSurfaceVisible = false
 	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()

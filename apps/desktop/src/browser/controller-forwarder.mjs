@@ -210,6 +210,13 @@ export class BrowserControllerForwarder {
           reservation = this.results.reserve();
           if (!reservation) throw failure("browser_result_capacity");
           Object.assign(local, { page_generation: active.value.page_generation, operation: command.operation, arguments: command.arguments });
+          if (command.operation === "page.observe") {
+            // Queueing and authorization consumed part of the outer deadline.
+            // Narrow the local budget; never restart the caller's clock.
+            local.arguments = { ...command.arguments, timeout_ms: Math.max(1,
+              Math.min(command.arguments.timeout_ms, Math.floor(context.deadline - performance.now()) -
+                Math.min(1000, Math.max(50, Math.floor(command.arguments.timeout_ms / 5))))) };
+          }
         }
       }
       if (wireBytes(local) > 48 << 10) throw failure("invalid_request");

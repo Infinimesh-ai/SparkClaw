@@ -7,11 +7,13 @@ import { RelayConnection } from "@sparkclaw/browser-bridge/relay-connection";
 
 import { ElectronChromeAPI, ElectronDownloadRegistry } from "./electron-chrome-api.mjs";
 import { publicTab } from "./page-registry.mjs";
+import { capturePageObservation, observePage, validateObservationOptions } from "./page-observation.mjs";
 import {
   ELECTRON_ADAPTER_PROTOCOL_VERSION,
   ELECTRON_ADAPTER_VERSION,
   MAX_ADAPTER_MESSAGE_BYTES,
   bindingEquals,
+  parseConnectionBinding,
   parseOpenRequest,
   parsePersonalRequest,
   parsePlaywrightConnectionURL,
@@ -156,7 +158,9 @@ export class ElectronAdapterServer {
       } catch {
         return this.#respond(client, { schema_version: 1, state: "rejected" });
       }
-      void this.#dispatch(request).then(
+      const abort = new AbortController();
+      client.once("close", () => abort.abort(new Error("Observation caller disconnected")));
+      void this.#dispatch(request, abort.signal).then(
         (response) => this.#respond(client, response),
         (error) => {
           if (this.qualification) {
@@ -169,7 +173,7 @@ export class ElectronAdapterServer {
     client.on("error", () => clearTimeout(timer));
   }
 
-  async #dispatch(request) {
+  async #dispatch(request, signal) {
     if (request?.schema_version === 1 && request.operation === "status" &&
         Object.keys(request).sort().join("\n") === "operation\nschema_version") {
       return {
@@ -183,6 +187,7 @@ export class ElectronAdapterServer {
     }
     if (request?.operation === "registerConnection") return this.#register(request);
     if (request?.operation === "openConnection") return await this.#open(request);
+    if (request?.operation === "observePage" || request?.operation === "capturePage") return await this.#observe(request, signal);
     if (request?.operation === "openPersonalPage") return await this.#openPersonal(request);
     if (request?.operation === "qualificationSnapshot") return this.#qualificationSnapshot(request);
     if (request?.operation === "qualificationShowTask") return this.#qualificationShowTask(request);
@@ -195,6 +200,32 @@ export class ElectronAdapterServer {
     if (request?.operation === "qualificationManagedScripts") return this.#qualificationManagedScripts(request);
     if (request?.operation === "qualificationInvokeScriptMenu") return this.#qualificationInvokeScriptMenu(request);
     throw new Error("Electron adapter request is invalid");
+  }
+
+  async #observe(request, signal) {
+    const keys = ["schema_version", "operation", "runtime_secret", "binding", "options"];
+    if (request.schema_version !== 1 || Object.keys(request).length !== keys.length || keys.some(k => !Object.hasOwn(request, k)) ||
+        !secureEqual(request.runtime_secret, this.runtimeSecret)) throw new Error("Observation authentication failed");
+    const binding = parseConnectionBinding(request.binding);
+    const association = this.controllerTasks.get(binding.task_id);
+    const connection = this.registry.connections.get(association?.connectionID);
+    if (!association || association.state !== "connected" || association.incarnation !== this.controllerIncarnation ||
+        !connection || !bindingEquals(binding, connection.binding)) throw new Error("Observation task is stale");
+    const record = this.registry.get(connection.id, connection.selectedTabID);
+    if (record.initial) throw new Error("Observation target is not a task page");
+    const assertCurrent = () => {
+      if (this.controllerTasks.get(association.taskID) !== association || association.state !== "connected" || connection.retiring ||
+          connection.selectedTabID !== record.tabID || this.registry.get(connection.id, record.tabID) !== record ||
+          record.webContents.isDestroyed()) throw new Error("Observation task is stale");
+    };
+    const capture = request.operation === "capturePage";
+    validateObservationOptions(request.options, capture);
+    if (!capture) return observePage({ assertCurrent, options: request.options, signal,
+      capture: readSignal => capturePageObservation(record, assertCurrent, readSignal) });
+    const result = await capturePageObservation(record, assertCurrent, signal);
+    if (request.options.page_ref && request.options.page_ref !== result.page_ref ||
+        request.options.document_version && request.options.document_version !== result.document_version) throw new Error("Observation document is stale");
+    return { schema_version: 1, status: "captured", ...result };
   }
 
   #register(raw) {

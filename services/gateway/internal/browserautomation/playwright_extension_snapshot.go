@@ -14,6 +14,13 @@ import (
 func (a *PlaywrightExtensionAdapter) takeSnapshotLocked(ctx context.Context, args map[string]any) (map[string]any, error) {
 	pageID := normalizePlaywrightPageID(stringArg(args, "page_id"))
 	input := optionalPageArgs(pageID)
+	settled := a.settledObservation
+	if a.clientEmbedded && settled != nil {
+		if pageID != "" && pageID != firstStringValue(settled, "page_id") {
+			return nil, errorsForPlaywrightSnapshot("settled page differs")
+		}
+		input["document_version"] = firstStringValue(settled, "document_version")
+	}
 	output, err := a.executeControllerLocked(ctx, "page.snapshot", input)
 	if err != nil {
 		return nil, err
@@ -23,7 +30,15 @@ func (a *PlaywrightExtensionAdapter) takeSnapshotLocked(ctx context.Context, arg
 	if pageID == "" {
 		return nil, errorsForPlaywrightSnapshot("controller omitted the active task page")
 	}
-	read, _ := a.executeControllerLocked(ctx, "page.read", map[string]any{"page_id": pageID, "max_chars": 120000})
+	read := map[string]any{"page": page}
+	if !a.clientEmbedded {
+		read, _ = a.executeControllerLocked(ctx, "page.read", map[string]any{"page_id": pageID, "max_chars": 120000})
+	} else if !observationHash.MatchString(firstStringValue(page, "document_version")) ||
+		!observationHash.MatchString(firstStringValue(page, "observation_digest")) || !observationPage.MatchString(firstStringValue(page, "page_ref")) ||
+		settled != nil && (firstStringValue(page, "document_version") != firstStringValue(settled, "document_version") ||
+			firstStringValue(page, "page_ref") != firstStringValue(settled, "page_ref") || firstStringValue(page, "url") != firstStringValue(settled, "url")) {
+		return nil, errorsForPlaywrightSnapshot("document changed after stable observation")
+	}
 	if a.session == nil {
 		return nil, errors.New("playwright extension session was lost while taking the snapshot")
 	}
@@ -37,6 +52,9 @@ func (a *PlaywrightExtensionAdapter) takeSnapshotLocked(ctx context.Context, arg
 	rawTreeBytes, _ := json.Marshal(output["snapshot"])
 	rawTree := string(rawTreeBytes)
 	contentDigest := digestBrowserRenderedContent(title, pageText, output["snapshot"])
+	if a.clientEmbedded {
+		contentDigest = firstStringValue(page, "observation_digest")
+	}
 	digest := digestBrowserSnapshot(url, title, rawTree, pageText, allRefs)
 	previous := a.snapshots[pageID]
 	previousID := ""
@@ -90,6 +108,10 @@ func (a *PlaywrightExtensionAdapter) takeSnapshotLocked(ctx context.Context, arg
 		"browser_page_auth_confidence": firstStringValue(auth, "authConfidence"),
 		"browser_page_auth_signals":    firstStringSliceValue(auth["authSignals"]),
 		"aria":                         safeTree, "controls": controls, "refs": controls, "action_refs": actionRefs,
+	}
+	if a.clientEmbedded {
+		snapshot["document_version"] = page["document_version"]
+		snapshot["page_ref"] = page["page_ref"]
 	}
 	return map[string]any{
 		"text": text, "snapshot_id": snapshotID, "page_id": pageID, "digest": digest,

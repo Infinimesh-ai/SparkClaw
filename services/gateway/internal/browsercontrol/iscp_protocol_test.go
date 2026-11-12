@@ -50,3 +50,25 @@ func TestClientControllerOperationProjectionIsClosedAndCurrent(t *testing.T) {
 		t.Fatal("accepted excessive wait")
 	}
 }
+
+func TestClientObservationRequiresBoundedCompleteSignals(t *testing.T) {
+	valid := map[string]any{"timeout_ms": 15000, "quiet_period_ms": 500, "poll_interval_ms": 100,
+		"signals": []string{"url", "ready_state", "rendered_content", "frames"}}
+	if mutation, err := ClientControllerOperation("page.observe", valid); err != nil || mutation {
+		t.Fatalf("valid read-only observation rejected: %v", err)
+	}
+	for _, patch := range []map[string]any{{"timeout_ms": 20001}, {"quiet_period_ms": 99}, {"poll_interval_ms": 501},
+		{"minimum_samples": 1}, {"signals": []string{"url"}}, {"timeout_ms": "1000"}, {"script": "untrusted"},
+		{"before_digest": "unbound"}, {"allow_no_change": "true"}} {
+		args := map[string]any{}
+		for key, value := range valid {
+			args[key] = value
+		}
+		for key, value := range patch {
+			args[key] = value
+		}
+		if _, err := ClientControllerOperation("page.observe", args); err == nil {
+			t.Fatalf("invalid observation admitted: %#v", patch)
+		}
+	}
+}

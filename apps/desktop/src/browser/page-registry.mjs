@@ -94,6 +94,7 @@ export class PageRegistry {
 
   selectTaskPage(connectionID, tabID) {
     const record = this.get(connectionID, tabID);
+    this.requireConnection(connectionID).selectedTabID = tabID;
     if (record.hostConversationID && !record.initial) {
       this.conversationPages.set(record.hostConversationID, record);
       if (this.selectedConversationID === record.hostConversationID) this.presentation.showTask(record);
@@ -364,6 +365,7 @@ export class PageRegistry {
       binding: connection?.binding ?? null,
       runtimeGeneration: this.runtimeGeneration,
       localGeneration: 1,
+      documentRevision: 1,
       openerTabID,
       initial,
       destroyed: false,
@@ -394,6 +396,11 @@ export class PageRegistry {
 
   #secureRecord(record) {
     const { webContents } = record;
+    // Includes same-URL reloads, same-document routes and subframe navigation.
+    // Never infer a document identity from the page's own JavaScript state.
+    for (const eventName of ["did-start-navigation", "did-frame-navigate", "did-navigate-in-page"]) {
+      webContents.on(eventName, () => { record.documentRevision++; });
+    }
     webContents.on("will-navigate", (event, url) => {
       if (!record.hostConversationID) return;
       try { const target = new URL(url); if (target.protocol !== "https:" || target.username || target.password) event.preventDefault(); }

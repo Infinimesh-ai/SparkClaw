@@ -41,8 +41,9 @@ lifecycle; “reuse” does not mean these files can remain byte-for-byte unchan
 acquisition Controller and its Unix socket remain independent.
 
 Each **Controller request** crosses ISCP once, excluding chunk retrieval. A public browser tool
-can issue several Controller requests: opening, reading, snapshotting and stable-state waits
-already do so. Measure the full tool latency rather than assuming one round trip per model tool.
+can issue several Controller requests. Client stable-state sampling now stays local (§4.4);
+route correction may still require another bounded wait. Measure the full tool latency rather
+than assuming one round trip per model tool.
 CDP stays local: tunnelling it would add many serial round trips and expose a much broader remote
 execution interface. No remote JavaScript, CDP, selector or Playwright-code API is added.
 
@@ -150,12 +151,49 @@ Snapshot projection preserves bounded rendered text, values, selected options an
 already supported by the workflow consumer. Disabled controls are not offered as click actions;
 truncated evidence is marked. Frame stability includes fresh owned-frame semantic evidence in
 the same content digest used by snapshots. Opaque ref IDs and focus bookkeeping are excluded
-from that digest. Pages without frames retain the existing read-only polling path and digest;
-the quiet period, overall deadline and frozen-route checks remain unchanged.
+from that digest. The client observation protocol below replaces remote polling for pages with
+and without frames; backend acquisition retains its existing polling implementation.
 
 The common host interface remains role-explicit. Readiness, release, lease-active checks and
 fence ownership must stay callable after old transport deletion. “Unchanged UI/tool semantics”
 is an acceptance requirement, not a claim that today's `ScopedAdapter` already supports this.
+
+### 4.4 Client stability observation — 2026-11-12 source change
+
+`browser.wait(mode=stable_state)` sends one non-mutating `page.observe` request with the owned
+page, timeout, quiet period, local sample interval and required signals (`url`, `ready_state`,
+`rendered_content`, `frames`). The Gateway deadline includes transfer and any frozen-route
+correction. The desktop narrows the local budget after queueing and authorization; it cannot
+renew the outer deadline. A required route correction uses the remaining deadline and existing
+rebind limit, not a retry of a timed-out observation.
+
+Electron main authenticates the private request against the runtime secret, Controller
+incarnation, task association and frozen connection binding. It samples the selected owned
+WebContents and every native frame locally. Samples include native loading state, URL,
+document readiness, bounded visible text and control state. Body text is limited to 120,000
+characters and controls to 2,048 per frame; missing frame access or more than 64 total frames
+fails closed. Every relevant sample change resets the monotonic quiet timer. The default
+500 ms quiet period / 100 ms interval normally needs six local samples, with no remote reads
+between them. Task release, selection changes, revocation and socket closure reject late evidence.
+
+The single result contains status/reason, logical/native page IDs, native document version,
+URL/title, state/frame digests, readiness, frame/sample counts, elapsed observation time and
+actual quiet duration. It contains no body or HTML. Native navigation revisions and frame
+identities distinguish same-URL reloads; no page-script variable supplies document authority.
+The Gateway validates this evidence inside the existing authenticated command/result envelope,
+including the requested page, signals, timing and before-digest effect. A bare `stable: true`
+cannot satisfy the contract.
+
+The next `page.snapshot` carries the successful document version. The Controller checks native
+identity before and after locally reading the MCP snapshot and content; navigation or changed
+signals during capture rejects the snapshot. One response carries text, snapshot and document
+binding, without duplicate HTML or a separate remote `page.read`. Snapshot-ref actions recheck
+the bound document before dispatch. The ordinary authorization, journal and mutation fences
+remain in force. Backend acquisition and UI flows retain their existing behavior.
+
+This is a source/bundle change, not a production rollout record. Deploy Gateway and desktop
+Controller support together; an older peer must reject the unsupported operation. Unit and
+contract tests do not establish WAN latency or production acceptance.
 
 ## 5. Desktop packaging, process and page ownership
 

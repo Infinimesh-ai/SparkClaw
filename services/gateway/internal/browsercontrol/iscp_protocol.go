@@ -72,6 +72,50 @@ func ClientControllerOperation(operation string, arguments map[string]any) (bool
 			}
 		}
 	}
+	if operation == "page.observe" {
+		limits := map[string]int64{}
+		bounded := func(key string, minimum, maximum int64, fallback int64) bool {
+			value, found := arguments[key]
+			if !found {
+				return fallback >= minimum && fallback <= maximum
+			}
+			encoded, _ := json.Marshal(value)
+			var number int64
+			valid := json.Unmarshal(encoded, &number) == nil && number >= minimum && number <= maximum
+			limits[key] = number
+			return valid
+		}
+		if !bounded("timeout_ms", 1, 20000, 0) || !bounded("quiet_period_ms", 100, 10000, 0) ||
+			!bounded("poll_interval_ms", 25, 10000, 0) || !bounded("minimum_samples", 2, 401, 2) ||
+			limits["poll_interval_ms"] > limits["quiet_period_ms"] {
+			return false, newError(CodeInvalidRequest, false, nil)
+		}
+		var signals []string
+		raw, _ := json.Marshal(arguments["signals"])
+		if json.Unmarshal(raw, &signals) != nil || len(signals) != 4 {
+			return false, newError(CodeInvalidRequest, false, nil)
+		}
+		seen := map[string]bool{}
+		for _, s := range signals {
+			seen[s] = true
+		}
+		for _, s := range []string{"url", "ready_state", "rendered_content", "frames"} {
+			if !seen[s] {
+				return false, newError(CodeInvalidRequest, false, nil)
+			}
+		}
+		if value, ok := arguments["before_digest"]; ok {
+			s, ok := value.(string)
+			if !ok || !controllerHash.MatchString(s) {
+				return false, newError(CodeInvalidRequest, false, nil)
+			}
+		}
+		if value, ok := arguments["allow_no_change"]; ok {
+			if _, ok := value.(bool); !ok {
+				return false, newError(CodeInvalidRequest, false, nil)
+			}
+		}
+	}
 	return spec.Mutation, nil
 }
 

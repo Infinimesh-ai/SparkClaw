@@ -48,6 +48,9 @@ func (a *PlaywrightExtensionAdapter) waitForReadyLocked(ctx context.Context, pag
 }
 
 func (a *PlaywrightExtensionAdapter) waitForStableStateLocked(ctx context.Context, args map[string]any) (map[string]any, error) {
+	if a.clientEmbedded {
+		return a.waitForClientStableStateLocked(ctx, args)
+	}
 	lease := a.session.Lease()
 	if requested := uint64Value(args["session_generation"]); requested != 0 && requested != uint64(lease.SessionGeneration) {
 		return nil, errors.New("browser_session_stale: requested session generation is no longer active")

@@ -32,8 +32,8 @@ const clientFactory = new PlaywrightMCPClientFactory({
   connectTimeoutMS: 15000,
   actionTimeoutMS: 10000,
   navigationTimeoutMS: 20000,
-  // The shared Gateway adapter owns ready-state, quiet-period and route checks.
-  // A fixed MCP delay on every read otherwise multiplies that polling window.
+  // The client observes ready-state and quiet time beside the real browser;
+  // the Gateway retains target routing and subsequent snapshot validation.
   // Backend/mail factories retain their existing 500 ms default.
   settleTimeoutMS: 0,
   spawn(...args) {

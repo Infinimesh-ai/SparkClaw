@@ -67,6 +67,20 @@ test("status bootstraps without browser-ready UI or process startup, while mixed
   assert.equal((await f.send(envelope("status", { schema_version: 1 }))).status, 503);
 });
 
+test("observation keeps authenticated arguments intact while narrowing the local deadline", async t => {
+  const f = await fixture(t), b = binding(), lease = await f.acquireTask(b);
+  const arguments_ = { timeout_ms: 1500, quiet_period_ms: 100, poll_interval_ms: 25, signals: ["url", "ready_state", "rendered_content", "frames"] };
+  const request = command("execute", b, { lease, operation: "page.observe", arguments: arguments_ }, { timeout: 1000 });
+  const originalDigest = request.body.digest;
+  const response = await f.send(request);
+  assert.equal(response.body.outcome, "completed");
+  const local = f.calls.at(-1).body.arguments;
+  assert.ok(local.timeout_ms > 0 && local.timeout_ms < 1000);
+  assert.deepEqual(local.signals, arguments_.signals);
+  assert.equal(request.body.arguments.timeout_ms, 1500);
+  assert.equal(request.body.digest, originalDigest);
+});
+
 test("concurrent duplicate mutations share one durable slot, preserve typed fields and never replay after cache loss", async t => {
   const f = await fixture(t); const b = binding(); let lease = await f.acquireTask(b);
   const begin = f.forwarder.journal.begin.bind(f.forwarder.journal);

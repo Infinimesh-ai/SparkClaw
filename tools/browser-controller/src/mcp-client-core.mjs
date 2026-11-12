@@ -7,7 +7,7 @@ import { ControllerError, invalidRequest } from "./errors.mjs";
 import { collectSnapshotRefs, comparePlaywrightRefs } from "./playwright-output.mjs";
 import { BACKGROUND_CLICK_FUNCTION, PAGE_READ_FUNCTION } from "./dom-actions.mjs";
 import { clientError, pageStale, clientContractError } from "./mcp-errors.mjs";
-import { electronConnectionEnvironment, registerElectronConnection } from "./electron-adapter-client.mjs";
+import { electronConnectionEnvironment, registerElectronConnection, observeElectronPage } from "./electron-adapter-client.mjs";
 import { MAX_MCP_RESPONSE_BYTES, StdioJSONRPC, waitForExit } from "./mcp-stdio-rpc.mjs";
 import {
   createSessionOutputDir,
@@ -170,6 +170,7 @@ export class PlaywrightMCPClientFactory {
       adoptTaskPopups: Boolean(this.electronAdapter),
       operationHandlers: this.operationHandlers,
       adoptRetainedPage: this.adoptRetainedPage,
+      electronConnection,
     });
     try {
       await rpc.request("initialize", {
@@ -191,7 +192,7 @@ export class PlaywrightMCPClientFactory {
 }
 
 export class PlaywrightMCPClient {
-  constructor(child, rpc, outputDir, { adoptTaskPopups = false, operationHandlers = {}, adoptRetainedPage = false } = {}) {
+  constructor(child, rpc, outputDir, { adoptTaskPopups = false, operationHandlers = {}, adoptRetainedPage = false, electronConnection = null } = {}) {
     this.child = child;
     this.rpc = rpc;
     this.outputDir = outputDir;
@@ -205,6 +206,7 @@ export class PlaywrightMCPClient {
     this.operationHandlers = operationHandlers;
     this.adoptRetainedPage = adoptRetainedPage;
     this.lastProviderTabs = null;
+    this.electronConnection = electronConnection;
   }
 
   get closed() {
@@ -283,8 +285,11 @@ export class PlaywrightMCPClient {
         exactArgs(args, ["url"], ["page_id"]);
         return this.#navigate(optionalPageID(args.page_id), requiredURL(args.url));
       case "page.snapshot":
-        exactArgs(args, [], ["page_id", "depth", "boxes"]);
+        exactArgs(args, [], ["page_id", "depth", "boxes", "document_version"]);
         return this.#snapshot(optionalPageID(args.page_id), args);
+      case "page.observe":
+        exactArgs(args, ["timeout_ms", "quiet_period_ms", "poll_interval_ms", "signals"], ["page_id", "minimum_samples", "before_digest", "allow_no_change"]);
+        return this.#observe(optionalPageID(args.page_id), args);
       case "page.click":
         exactArgs(args, ["ref"], ["page_id", "double_click", "button", "modifiers"]);
         return this.#click(optionalPageID(args.page_id), args);
@@ -444,6 +449,17 @@ export class PlaywrightMCPClient {
 
   async #snapshot(candidate, args) {
     const page = await this.#selectPage(candidate);
+    const expected = args.document_version;
+    if (expected !== undefined && (!/^[a-f0-9]{64}$/u.test(expected) || page.observation?.document_version !== expected ||
+        page.observation.status !== "stable")) throw pageStale("snapshot observation is stale");
+    let before;
+    if (this.electronConnection) {
+      before = await observeElectronPage(this.electronConnection, {
+        ...(page.nativePageRef ? { page_ref: page.nativePageRef } : {}),
+        ...(expected ? { document_version: expected } : {}),
+      }, true);
+      page.nativePageRef = before.page_ref;
+    } else if (expected !== undefined) throw pageStale("document-bound snapshots require the client browser");
     const depth = optionalInteger(args.depth, "depth", 1, 64);
     const boxes = optionalBoolean(args.boxes, "boxes");
     const result = await this.#callJSONTool("browser_snapshot", {
@@ -455,12 +471,35 @@ export class PlaywrightMCPClient {
     const snapshot = result.payload.snapshot;
     if (!Array.isArray(snapshot)) throw clientContractError();
     const refs = collectSnapshotRefs(snapshot);
+    let details = {};
+    if (this.electronConnection) {
+      const read = await this.#readPage(page.pageID, 120000);
+      const after = await observeElectronPage(this.electronConnection, { page_ref: before.page_ref, document_version: before.document_version }, true);
+      if (read.page.url !== after.url || before.url !== after.url || before.state_digest !== after.state_digest) {
+        page.refs = null;
+        throw pageStale("page changed while taking the snapshot");
+      }
+      const { html, html_length, html_truncated, ...content } = read.page;
+      details = { ...content, document_version: after.document_version, page_ref: after.page_ref,
+        observation_digest: after.state_digest, frame_count: after.frame_count };
+      page.snapshotDocument = after;
+    }
     page.refs = refs;
     return {
-      page: { page_id: page.pageID },
+      page: { ...details, page_id: page.pageID },
       snapshot,
       refs: [...refs].sort(comparePlaywrightRefs),
     };
+  }
+
+  async #observe(candidate, args) {
+    const page = await this.#selectPage(candidate);
+    const { page_id: ignored, ...options } = args;
+    const observation = await observeElectronPage(this.electronConnection, options);
+    if (observation.page_ref && page.nativePageRef && observation.page_ref !== page.nativePageRef) throw pageStale("observation page changed");
+    if (observation.page_ref) page.nativePageRef = observation.page_ref;
+    page.observation = observation;
+    return { observation: { ...observation, page_id: page.pageID } };
   }
 
   async #click(candidate, args) {
@@ -538,6 +577,12 @@ export class PlaywrightMCPClient {
     const page = await this.#selectPage(candidate);
     const rawRef = requiredRef(ref);
     if (!page.refs?.has(rawRef)) throw pageStale("snapshot reference is stale or unknown");
+    if (this.electronConnection) {
+      if (!page.snapshotDocument) throw pageStale("snapshot document is unavailable");
+      await observeElectronPage(this.electronConnection, {
+        page_ref: page.snapshotDocument.page_ref, document_version: page.snapshotDocument.document_version,
+      }, true);
+    }
     return page;
   }
 
@@ -614,7 +659,7 @@ export class PlaywrightMCPClient {
   }
 
   #invalidateSnapshots() {
-    for (const page of this.pages.values()) page.refs = null;
+    for (const page of this.pages.values()) { page.refs = null; page.observation = null; page.snapshotDocument = null; }
   }
 
   async #callJSONTool(name, args, timeoutMS, staleReadRef) {

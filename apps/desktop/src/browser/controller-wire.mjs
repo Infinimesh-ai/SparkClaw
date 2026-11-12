@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import operations from "./controller-operations.json" with { type: "json" };
+import { validateObservationOptions } from "./page-observation.mjs";
 
 export const CONTROLLER_OPERATIONS = Object.freeze(["status", "acquire", "execute", "release", "chunk"].map(name => `browser.controller.${name}`));
 export const BINDING_KEYS = Object.freeze(["owner_id", "client_id", "installation_id", "local_conversation_id", "local_task_id", "host_id", "runtime_generation", "connection_epoch", "lease_id", "page_id", "page_generation", "authorization_digest", "lease_expires_at"]);
@@ -51,6 +52,11 @@ export function validateControllerOperation(operation, args) {
   exactObject(args, spec.required, spec.optional);
   if (wireBytes(args) > 32 << 10) throw new Error("Controller arguments are too large");
   if (operation === "page.wait" && args.duration_ms !== undefined) positive(args.duration_ms, 15000, 0);
+  if (operation === "page.observe") {
+    const { page_id, ...options } = args;
+    if (page_id !== undefined && !ID.test(page_id)) throw new Error("Invalid observation page");
+    validateObservationOptions(options);
+  }
   return spec.mutation;
 }
 export function validateControllerRequest(operation, body) {

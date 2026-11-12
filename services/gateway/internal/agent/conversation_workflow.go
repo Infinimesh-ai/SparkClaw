@@ -244,6 +244,9 @@ func isMediaMessagePart(kind app.MessagePartKind) bool {
 }
 
 func (r Runtime) runWorkflowModelAnswerStep(ctx context.Context, sessionID string, run app.AgentRun, content string, contextSnapshot agentContextSnapshot, emit StreamHandler) workflowExecutionResult {
+	if run.Workflow != nil && run.Workflow.Route.Facts[websiteURLQuestionFact] != "" {
+		return workflowExecutionResult{FinalAnswer: run.Workflow.Route.Facts["url"], Completed: true}
+	}
 	if run.Workflow != nil && run.Workflow.Plan.ProfileID == app.WorkflowConversationAnswer && run.Workflow.Plan.ProfileRevision == 3 && run.MessageContext != nil && run.MessageContext.ResponseMedia != nil {
 		switch run.MessageContext.ResponseMedia.Status {
 		case app.ResponseMediaClarify:

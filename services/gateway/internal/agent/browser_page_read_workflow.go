@@ -33,9 +33,6 @@ func (browserPageReadProfile) RoutingSemantics() workflowRoutingSemantics {
 func (p browserPageReadProfile) Resolve(route app.RouteDecision, sourceTurnID string) (app.IntentEnvelope, app.WorkflowPlan, error) {
 	intent := singleObjectiveIntent(sourceTurnID, app.IntentDomainWeb, app.IntentOperationRead, browserRouteIntentTarget(route), app.DataScopePublic)
 	plan := browserPageReadPlan()
-	if route.Slots.TargetKind == string(app.TargetKindPublicNamedTarget) {
-		browserPageReadEnableTargetDiscovery(&plan)
-	}
 	return intent, plan, nil
 }
 func (browserPageReadProfile) Prepare(state *app.WorkflowState) (workflowPreparation, error) {
@@ -158,31 +155,4 @@ func browserPageReadPlan() app.WorkflowPlan {
 			AllowedRisks: []app.RiskLevel{app.RiskRead}, MaxAttempts: 5,
 		}},
 	}
-}
-
-func browserPageReadEnableTargetDiscovery(plan *app.WorkflowPlan) {
-	if plan == nil || len(plan.Nodes) != 1 {
-		return
-	}
-	node := &plan.Nodes[0]
-	baseScope := node.InitialScope
-	discoveryScope := baseScope
-	discoveryScope.Requirements = append(append([]app.CapabilityRequirement(nil), baseScope.Requirements...),
-		app.CapabilityRequirement{Name: app.ToolCapabilityWebDiscovery},
-		app.CapabilityRequirement{Name: app.ToolCapabilityBrowserPublicTarget},
-	)
-	node.InitialStage = browserPageReadStageDiscover
-	node.InitialScope = discoveryScope
-	node.Transitions = append([]app.ScopeTransition{
-		browserRevision2Transition("page_read_search_ready", browserPageReadStageIdentify, app.OutcomeSignalResultsAvailable, 1, discoveryScope),
-		browserRevision2Transition("page_read_target_identified", browserPageReadStageHealth, app.OutcomeSignalPublicTargetResolved, 1, baseScope),
-	}, node.Transitions...)
-	node.StageCapabilities = append([]app.StageCapabilityRule{
-		{Stage: browserPageReadStageDiscover, Capabilities: []string{app.ToolCapabilityWebDiscovery}},
-		{Stage: browserPageReadStageIdentify, Capabilities: []string{app.ToolCapabilityBrowserPublicTarget}},
-	}, node.StageCapabilities...)
-	node.ArgumentBindings = append(node.ArgumentBindings,
-		app.ArgumentBinding{Capability: app.ToolCapabilityWebDiscovery, Argument: "query", ResourceKind: "query", Source: app.ArgumentBindingRouteSlot, SourceKey: "target_ref"},
-		app.ArgumentBinding{Capability: app.ToolCapabilityBrowserOpen, Argument: "url", ResourceKind: "public_target_url", Source: app.ArgumentBindingOutcomeRef},
-	)
 }

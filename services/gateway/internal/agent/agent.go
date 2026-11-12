@@ -473,6 +473,19 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 		}
 		return r.completeTerminalRoute(ctx, run, visibleContent, returnRoute, controlRoute)
 	}
+	if route.Facts[websiteURLSourceFact] == "owner" && route.Slots.Query != "" {
+		executionContent = route.Slots.Query
+	}
+	route, err = r.resolveWebsiteURL(ctx, run, route)
+	if err != nil {
+		return Result{}, err
+	}
+	if route.Status == app.RouteClarify {
+		run.MessageContext.Route = route
+		run.MessageContext.ReturnRoute = envelope.ReturnRoute
+		run.MessageContext.ExternalSendApproval = nil
+		return r.completeTerminalRoute(ctx, run, agentContent, envelope.ReturnRoute, route)
+	}
 	run.MessageContext.Route = route
 	if route.Status == app.RouteMatched && routeTargetsCapability(route, app.CapabilityBrowserEmail) {
 		admitted, admissionErr := r.admitEmailRoute(ctx, run.SessionID, run.ID, envelope.OwnerID, agentContent, route)

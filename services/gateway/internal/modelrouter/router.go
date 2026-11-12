@@ -214,6 +214,9 @@ func (r Router) chatWithProfile(ctx context.Context, profile config.ModelProfile
 			capture.Prepared(map[string]any{"system": system, "user": user, "options": options, "max_tokens": maxTokens}, true)
 		}
 		content := mockResponse(lane, user)
+		if options.StrictJSONSchema != nil && options.StrictJSONSchema.Name == "website_url_lookup" {
+			content = `{"status":"unknown","url":""}`
+		}
 		promptTokens := estimateTokens(system) + estimateTokens(user)
 		responseTokens := estimateTokens(content)
 		return ChatResult{

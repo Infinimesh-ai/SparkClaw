@@ -3271,12 +3271,12 @@ func TestIntentRoutingKeepsQQMailSubgoalAsUnresolvedNamedTarget(t *testing.T) {
 	}
 }
 
-func TestIntentRoutingDefersUnknownNamedDestinationToInfoIdentifier(t *testing.T) {
+func TestIntentRoutingDefersUnknownNamedDestinationToURLLookup(t *testing.T) {
 	runtime := Runtime{capabilities: capability.MustDefaultCatalog()}
 	route := mustRouteIntent(t, runtime, "打开未知邮箱")
 	if route.Status != app.RouteMatched || len(route.CapabilityPath) != 2 || route.CapabilityPath[1] != app.CapabilityBrowserAutomation ||
 		route.Slots.TargetKind != string(app.TargetKindPublicNamedTarget) || route.Slots.TargetRef == "" {
-		t.Fatalf("unknown named destination did not defer URL resolution to the Info-backed Workflow stage: %#v", route)
+		t.Fatalf("unknown named destination did not defer URL lookup: %#v", route)
 	}
 }
 

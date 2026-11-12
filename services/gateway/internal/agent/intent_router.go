@@ -197,6 +197,17 @@ func (r Runtime) routeIntentWithHistory(ctx context.Context, sessionID, runID, o
 	if missingCurrent {
 		documents = documentContextResolution{Unavailable: true}
 	}
+	if selected == nil && !split.Deferred && len(resources) == 0 && len(locators) == 0 && !missingCurrent {
+		if !delivery.ExplicitExternal {
+			if followup, ok, err := r.websiteURLFollowup(ctx, run, businessContent, history); ok || err != nil {
+				return followup, err
+			}
+		}
+		if isWebsiteURLQuestion(businessContent) {
+			route := r.websiteURLAnswerRoute(businessContent)
+			return IntentRoutingOutput{Route: route, Delivery: delivery, ExpectedEndpoint: expectedEndpoint}, nil
+		}
+	}
 	if selected != nil && selected.option.Kind == "file" {
 		var valid bool
 		documents, valid = selectClarificationDocument(documents, selected.option)

@@ -36,9 +36,6 @@ func (p browserFormDraftProfile) Resolve(route app.RouteDecision, sourceTurnID s
 	if browserVisualReason(route) != "" {
 		browserRevision2EnableVisualInspection(&plan)
 	}
-	if route.Slots.TargetKind == string(app.TargetKindPublicNamedTarget) {
-		browserRevision2EnableTargetDiscovery(&plan)
-	}
 	return intent, plan, nil
 }
 func (browserFormDraftProfile) Prepare(state *app.WorkflowState) (workflowPreparation, error) {

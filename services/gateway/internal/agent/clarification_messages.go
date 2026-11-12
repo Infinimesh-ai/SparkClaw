@@ -54,6 +54,12 @@ func (m ownerFailureMessage) text(chinese, timer bool) string {
 // ("document_format_read_only: document format \"md\" is read-only"); only the
 // stable code before it selects the owner message.
 var routingFailureMessages = map[string]ownerFailureMessage{
+	websiteURLNeedsInput: {class: failureNeedsInput,
+		zh: "我不确定这个网页的网址。请提供完整的网址。",
+		en: "I'm not sure of the address for that page. Please provide the full URL."},
+	websiteURLUnavailable: {class: failureNeedsInput,
+		zh: "未能获取这个网页的网址。请提供完整的网址。",
+		en: "I couldn't get the address for that page. Please provide the full URL."},
 	// Unsupported: no capability serves this request in this place.
 	"document_operation_variant_conflicts_with_format": {class: failureUnsupported,
 		zh: "这种文件格式不支持这项操作。",

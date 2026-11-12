@@ -38,7 +38,7 @@ func (h *ToolHub) identifyPublicBrowserTarget(ctx context.Context, _ map[string]
 		return Result{}, &app.CodedToolError{Code: app.ToolErrorPublicTargetNotFound, Err: errors.New("Info target identification returned no structured result URLs")}
 	}
 
-	selection, unsafeCount, selected := selectInfoPublicBrowserTarget(ctx, sources, h.validatePublicBrowserTarget)
+	selection, unsafeCount, selected := selectInfoPublicBrowserTarget(ctx, sources, validatePublicBrowserTarget)
 	if selected {
 		ownerTarget, surface, storeErr := h.browserPublicTargetContext(ctx, runID)
 		if storeErr != nil {
@@ -140,7 +140,21 @@ func (h *ToolHub) browserPublicTargetContext(ctx context.Context, runID string) 
 	return strings.TrimSpace(run.Workflow.Route.Slots.TargetRef), surface, nil
 }
 
-func (h *ToolHub) validatePublicBrowserTarget(ctx context.Context, rawURL string) (string, []string, error) {
+// CheckSuggestedPublicBrowserURL applies the public HTTPS boundary to an
+// address supplied by a model. Only a navigation request may fetch the page.
+func CheckSuggestedPublicBrowserURL(ctx context.Context, rawURL string, navigation bool) (string, error) {
+	if navigation {
+		finalURL, _, err := validatePublicBrowserTarget(ctx, rawURL)
+		return finalURL, err
+	}
+	parsed, err := validatePublicHTTPSURL(ctx, rawURL)
+	if err != nil {
+		return "", err
+	}
+	return parsed.String(), nil
+}
+
+func validatePublicBrowserTarget(ctx context.Context, rawURL string) (string, []string, error) {
 	parsed, err := validatePublicHTTPSURL(ctx, rawURL)
 	if err != nil {
 		return "", nil, err

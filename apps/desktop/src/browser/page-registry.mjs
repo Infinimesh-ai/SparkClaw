@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 import { ELECTRON_CONNECT_URL } from "./protocol.mjs";
+import { PageInteractions, canInteract, drainPageWork } from "./page-interaction.mjs";
 import { loadPersonalPage } from "./personal-page-load.mjs";
 
 const ALLOWED_ROLES = new Set(["personal", "task"]);
@@ -20,6 +21,8 @@ export class PageRegistry {
     this.changeListener = null;
     this.conversationPages = new Map();
     this.selectedConversationID = "";
+    this.interactions = new PageInteractions(this);
+    this.cleanups = new Set();
   }
 
   setChangeListener(listener) {
@@ -27,9 +30,9 @@ export class PageRegistry {
   }
 
   closeHostPages(reason = "host_fenced") {
-    for (const record of this.conversationPages.values()) {
-      if (record.connectionID) this.closeConnection(record.connectionID, reason);
-      else this.destroy(record.tabID, reason);
+    for (const record of [...this.records.values()].filter(page => page.role === "task")) {
+      if (record.connectionID) this.closeConnection(record.connectionID, "host_fenced");
+      this.destroy(record.tabID, reason);
     }
     this.conversationPages.clear();
   }
@@ -50,13 +53,21 @@ export class PageRegistry {
     const existing = this.conversationPages.get(conversationID);
     if (existing && !existing.destroyed) return existing.pageRef;
     const url = new URL(saved.url);
-    if (url.protocol !== "https:" || url.username || url.password || !/^[a-f0-9]{64}$/u.test(saved.document_version)) throw new Error("Saved browser page is invalid");
-    // This is a fresh read-only view, not a resurrected Controller connection or
-    // document. Load lazily when the owner opens this conversation's browser.
+    const humanBookmark = saved.schema_version === 1 && saved.interaction_state === "human" && saved.binding?.local_conversation_id === conversationID;
+    if (url.protocol !== "https:" || url.username || url.password || !humanBookmark && !/^[a-f0-9]{64}$/u.test(saved.document_version)) throw new Error("Saved browser page is invalid");
+    // Restore a fresh document, never Controller authority. Legacy verified
+    // bookmarks stay read-only; proved human bookmarks retain user capabilities.
     const record = this.#createRecord({ role: "task", url: url.href, restored: true });
     record.hostConversationID = conversationID;
     record.restoreURL = url.href;
     record.restoreTitle = saved.title;
+    if (humanBookmark) {
+      record.hostBinding = Object.freeze({ ...saved.binding });
+      record.interaction = this.interactions.group(record.hostBinding);
+      record.interaction.state = "human";
+      record.interaction.pages.add(record);
+      record.executionClean = true;
+    }
     this.conversationPages.set(conversationID, record);
     this.#changed();
     return record.pageRef;
@@ -89,15 +100,16 @@ export class PageRegistry {
 
   createTaskPage(connectionID, url = "about:blank", openerTabID) {
     const connection = this.requireConnection(connectionID);
+    if (connection.fenced || connection.retiring) throw new Error("Controller execution is fenced");
     if (connection.association && !connection.adopted) {
       connection.adopted = true;
-      const retained = this.conversationPages.get(connection.association.binding.local_conversation_id);
-      if (retained && !retained.destroyed) {
-        if (retained.connectionID) throw new Error("Conversation already has a browser controller");
-        if (retained.restoring) retained.webContents.stop();
-        retained.restoreURL = "";
+      const group = this.interactions.group(connection.association.binding);
+      const candidates = [...group.pages].filter(page => !page.destroyed && !page.connectionID && page.executionClean);
+      const retained = candidates.find(page => page.tabID === group.selectedTabID) || candidates[0];
+      if (retained) {
         retained.connectionID = connectionID;
         retained.binding = connection.binding;
+        retained.executionClean = false;
         retained.localGeneration++;
         connection.tabIDs.add(retained.tabID);
         this.#bindControllerPage(retained, connection);
@@ -106,7 +118,10 @@ export class PageRegistry {
       }
     }
     const record = this.#createRecord({ role: "task", connectionID, url, openerTabID });
-    void record.webContents.loadURL(url || "about:blank").catch(() => this.destroy(record.tabID, "load_failed"));
+    const generation = record.localGeneration;
+    void record.webContents.loadURL(url || "about:blank").catch(() => {
+      if (record.connectionID === connectionID && record.localGeneration === generation) this.destroy(record.tabID, "load_failed");
+    });
     this.selectTaskPage(connectionID, record.tabID);
     this.#changed();
     return record;
@@ -115,9 +130,11 @@ export class PageRegistry {
   selectTaskPage(connectionID, tabID) {
     const record = this.get(connectionID, tabID);
     this.requireConnection(connectionID).selectedTabID = tabID;
+    if (record.interaction) record.interaction.selectedTabID = tabID;
     if (record.hostConversationID && !record.initial) {
       this.conversationPages.set(record.hostConversationID, record);
       if (this.selectedConversationID === record.hostConversationID) this.presentation.showTask(record);
+      if (this.presentation.isPresented(record)) record.retain = true;
       this.#changed();
     }
     return publicTab(record);
@@ -126,25 +143,16 @@ export class PageRegistry {
   beginControllerRelease(connectionID) {
     const connection = this.requireConnection(connectionID);
     if (!connection.association || connection.retiring) throw new Error("Controller release is invalid");
-    const retained = this.conversationPages.get(connection.association.binding.local_conversation_id);
+    const retained = this.records.get(connection.selectedTabID);
+    if (retained?.connectionID === connectionID) retained.retain = true;
     connection.retiring = true;
-    connection.retainTabID = retained?.connectionID === connectionID ? retained.tabID : null;
   }
 
   removeTaskPage(connectionID, tabID) {
     const record = this.get(connectionID, tabID);
     const connection = this.requireConnection(connectionID);
-    if (connection.retiring && connection.retainTabID === tabID && !record.initial) {
-      // The main process has explicitly authorized normal release. Removing the
-      // tab from MCP revokes all debugger authority but leaves the local view.
-      connection.facade?.releaseDebugger(record);
-      connection.tabIDs.delete(tabID);
-      record.connectionID = null;
-      record.binding = null;
-      record.hostBinding = null;
-      record.localGeneration++;
-      connection.facade?.tabs.onRemoved.emit(tabID, { isWindowClosing: false });
-      this.#changed();
+    if (connection.retiring && !record.initial && record.retain) {
+      this.#detachTaskPage(record, connection);
       return true;
     }
     return this.destroy(tabID, "canceled_by_user");
@@ -161,7 +169,7 @@ export class PageRegistry {
   get(connectionID, tabID) {
     const record = this.records.get(tabID);
     const connection = this.connections.get(connectionID);
-    if (!record || !connection || record.role !== "task" || record.connectionID !== connectionID ||
+    if (!record || !connection || connection.fenced || record.role !== "task" || record.connectionID !== connectionID ||
         record.runtimeGeneration !== this.runtimeGeneration || record.destroyed ||
         !connection.tabIDs.has(tabID) || record.binding.session_id !== connection.binding.session_id ||
         record.binding.session_generation !== connection.binding.session_generation) {
@@ -173,9 +181,9 @@ export class PageRegistry {
   getPersonal(pageRef) {
     const tabID = this.references.get(pageRef);
     const record = this.records.get(tabID);
-    if (!record || record.role !== "personal" || record.destroyed ||
+    if (!canInteract(record) ||
         record.runtimeGeneration !== this.runtimeGeneration) {
-      throw new Error("Personal page is unavailable");
+      throw new Error("Personal page is unavailable or task page is read-only");
     }
     return record;
   }
@@ -225,6 +233,9 @@ export class PageRegistry {
     const record = this.getByRef(pageRef);
     if (record.role !== role) throw new Error("Page role is invalid");
     if (record.hostConversationID && record.hostConversationID !== this.selectedConversationID) throw new Error("Page belongs to another conversation");
+    record.retain = true;
+    if (record.hostConversationID) this.conversationPages.set(record.hostConversationID, record);
+    if (canInteract(record) && !record.restoreURL) this.onHumanPage?.(record);
     if (role === "personal") this.presentation.showPersonal(record, true);
     else this.presentation.showTask(record, true);
     this.#changed();
@@ -254,6 +265,7 @@ export class PageRegistry {
 
   async navigatePersonal(pageRef, url) {
     const record = this.getPersonal(pageRef);
+    record.localGeneration++; record.restoreURL = "";
     await loadPersonalPage(record.webContents, url);
     this.#changed();
     return record;
@@ -261,6 +273,7 @@ export class PageRegistry {
 
   async personalNavigation(pageRef, action) {
     const record = this.getPersonal(pageRef);
+    record.localGeneration++; record.restoreURL = "";
     const history = record.webContents.navigationHistory;
     if (action === "back" && history.canGoBack()) history.goBack();
     else if (action === "forward" && history.canGoForward()) history.goForward();
@@ -272,7 +285,9 @@ export class PageRegistry {
 
   closePersonal(pageRef) {
     const record = this.getPersonal(pageRef);
-    return this.destroy(record.tabID, "closed_by_owner");
+    record.userCloseRequested = true;
+    record.webContents.close({ waitForBeforeUnload: true });
+    return true;
   }
 
   async flushBrowserState() {
@@ -284,7 +299,11 @@ export class PageRegistry {
     return [...this.records.values()].filter((record) => !record.destroyed && !record.initial).map((record) => ({
       page_ref: record.pageRef,
       role: record.role,
-      task_id: record.binding?.task_id ?? "",
+      task_id: record.hostBinding?.local_task_id || record.binding?.task_id || "",
+      page_group: record.interaction?.id || record.pageRef,
+      interaction_state: record.role === "personal" ? "human" : record.interaction?.state || "agent",
+      control_revision: record.interaction?.revision || 1,
+      capabilities: { interact: canInteract(record), navigate: canInteract(record), close: canInteract(record) },
       local_conversation_id: record.hostBinding?.local_conversation_id || [...this.conversationPages].find(([, page]) => page === record)?.[0] || "",
       page_generation: record.hostBinding?.page_generation || record.localGeneration,
       title: record.webContents.getTitle() || record.restoreTitle || "",
@@ -292,8 +311,8 @@ export class PageRegistry {
       presented: this.presentation.isPresented(record),
       loading: record.webContents.isLoading(),
       crashed: record.webContents.isCrashed(),
-      can_go_back: record.role === "personal" && record.webContents.navigationHistory.canGoBack(),
-      can_go_forward: record.role === "personal" && record.webContents.navigationHistory.canGoForward(),
+      can_go_back: canInteract(record) && record.webContents.navigationHistory.canGoBack(),
+      can_go_forward: canInteract(record) && record.webContents.navigationHistory.canGoForward(),
     }));
   }
 
@@ -331,7 +350,9 @@ export class PageRegistry {
   destroy(tabID, reason = "removed") {
     const record = this.records.get(tabID);
     if (!record || record.destroyed) return false;
+    if (reason === "target_closed" && record.userCloseRequested && canInteract(record)) this.onHumanPageClosed?.(record);
     record.destroyed = true;
+    this.interactions.remove(record);
     record.localGeneration++;
     this.records.delete(tabID);
     this.references.delete(record.pageRef);
@@ -350,11 +371,44 @@ export class PageRegistry {
 
   closeConnection(connectionID, reason = "connection_closed") {
     const connection = this.connections.get(connectionID);
-    if (!connection) return;
-    for (const tabID of [...connection.tabIDs]) this.destroy(tabID, reason);
+    if (!connection) return Promise.resolve();
+    connection.fenced = true;
+    const preserve = connection.association && !["host_fenced", "authentication_locked", "render_process_gone"].includes(reason);
+    const pending = [];
+    for (const tabID of [...connection.tabIDs]) {
+      const record = this.records.get(tabID);
+      if (preserve && record && !record.initial && (record.retain || connection.selectedTabID === tabID)) pending.push(this.#detachTaskPage(record, connection));
+      else this.destroy(tabID, reason);
+    }
     connection.facade?.dispose();
     this.connections.delete(connectionID);
+    const cleanup = Promise.all([...pending, ...this.cleanups]);
+    // Event callbacks may not await, but the adapter/supervisor always does.
+    void cleanup.catch(() => {});
+    return cleanup;
   }
+
+  #detachTaskPage(record, connection) {
+    record.executionClean = false;
+    // Detach before removing ownership: a failed detach must keep input locked.
+    let failure;
+    try { connection.facade?.releaseDebugger(record); } catch (error) { failure = error; }
+    connection.tabIDs.delete(record.tabID);
+    record.connectionID = null;
+    record.binding = null;
+    record.localGeneration++;
+    connection.facade?.tabs.onRemoved.emit(record.tabID, { isWindowClosing: false });
+    const cleanup = failure ? Promise.reject(failure) : drainPageWork(record);
+    record.executionCleanup = cleanup;
+    this.cleanups.add(cleanup);
+    void cleanup.then(() => this.cleanups.delete(cleanup), () => {});
+    this.#changed();
+    return cleanup;
+  }
+
+  changed() { this.#changed(); }
+  beginTaskEnd(binding, reason) { return this.interactions.begin(binding, reason); }
+  completeTaskEnd(groups) { return this.interactions.complete(groups); }
 
   snapshot() {
     return [...this.records.values()].map((record) => ({
@@ -382,8 +436,8 @@ export class PageRegistry {
 
   #createRecord({ role, connectionID = null, url, openerTabID, initial = false, restored = false }) {
     if (!ALLOWED_ROLES.has(role)) throw new Error("Page role is invalid");
-    const connection = role === "task" && !restored ? this.requireConnection(connectionID) : null;
-    const opener = openerTabID === undefined ? null : role === "task"
+    const connection = role === "task" && !restored && connectionID ? this.requireConnection(connectionID) : null;
+    const opener = openerTabID === undefined ? null : role === "task" && connectionID
       ? this.get(connectionID, openerTabID)
       : this.records.get(openerTabID);
     if (openerTabID !== undefined && (!opener || opener.role !== role || opener.destroyed)) {
@@ -411,6 +465,13 @@ export class PageRegistry {
       dialogError: "",
       requestedURL: url,
     };
+    if (opener && canInteract(opener) && role === "task") {
+      record.interaction = opener.interaction;
+      record.interaction.pages.add(record);
+      record.hostConversationID = opener.hostConversationID;
+      record.hostBinding = opener.hostBinding;
+      record.executionClean = true;
+    }
     this.records.set(record.tabID, record);
     this.references.set(record.pageRef, record.tabID);
     connection?.tabIDs.add(record.tabID);
@@ -425,6 +486,9 @@ export class PageRegistry {
     const binding = connection.association.binding;
     record.hostConversationID = binding.local_conversation_id;
     record.hostBinding = binding;
+    record.interaction = this.interactions.group(binding);
+    record.interaction.pages.add(record);
+    record.executionClean = false;
     record.controllerOwned = true;
     if (!this.conversationPages.has(record.hostConversationID)) this.conversationPages.set(record.hostConversationID, record);
   }
@@ -449,55 +513,68 @@ export class PageRegistry {
     webContents.on("will-attach-webview", (event) => event.preventDefault());
     webContents.on("devtools-opened", () => webContents.closeDevTools());
     webContents.on("context-menu", (event) => {
-      if (record.role === "task") event.preventDefault();
+      if (!canInteract(record)) event.preventDefault();
     });
     webContents.on("will-prevent-unload", (event) => {
-      if (record.role === "task") event.preventDefault();
+      if (!canInteract(record)) event.preventDefault();
+      else record.userCloseRequested = false;
     });
     webContents.on("select-bluetooth-device", (event, _devices, callback) => {
-      if (record.role === "task") {
+      if (!canInteract(record)) {
         event.preventDefault();
         callback("");
       }
     });
     webContents.on("before-input-event", (event) => {
-      if (record.role === "task") event.preventDefault();
+      if (!canInteract(record)) event.preventDefault();
     });
     webContents.on("focus", () => {
-      if (record.role === "task") this.presentation.redirectTaskFocus();
+      if (!canInteract(record)) this.presentation.redirectTaskFocus();
     });
     webContents.on("render-process-gone", () => {
       if (record.connectionID) this.closeConnection(record.connectionID, "render_process_gone");
       else this.destroy(record.tabID, "render_process_gone");
     });
     for (const eventName of ["did-start-loading", "did-stop-loading", "did-navigate", "did-navigate-in-page", "page-title-updated"]) {
-      webContents.on(eventName, () => this.#changed());
+      webContents.on(eventName, () => {
+        this.#changed();
+        if (canInteract(record) && record.role === "task" && !record.restoreURL) this.onHumanPage?.(record);
+      });
     }
-    if (record.role === "personal") {
-      webContents.on("did-stop-loading", () => void this.flushBrowserState().catch(() => {}));
-    }
+    webContents.on("did-stop-loading", () => { if (canInteract(record)) void this.flushBrowserState().catch(() => {}); });
     webContents.once("destroyed", () => {
       if (!record.destroyed) this.destroy(record.tabID, "target_closed");
     });
     webContents.setWindowOpenHandler((details) => {
-      if (record.destroyed || record.hostConversationID && (!record.controllerOwned || !record.connectionID)) return { action: "deny" };
+      if (record.destroyed || !canInteract(record) && (record.interaction && record.interaction.state !== "agent" || !record.connectionID)) return { action: "deny" };
+      try {
+        const target = record.hostConversationID ? new URL(details.url) : null;
+        if (target && (target.protocol !== "https:" || target.username || target.password)) return { action: "deny" };
+      } catch { return { action: "deny" }; }
+      const revision = record.interaction?.revision;
       queueMicrotask(() => {
         try {
+          if (record.destroyed || revision !== record.interaction?.revision) return;
           const popup = this.#createRecord({
             role: record.role,
             connectionID: record.connectionID,
             url: details.url,
             openerTabID: record.tabID,
           });
-          const loading = record.role === "personal"
+          popup.retain = true;
+          const loading = canInteract(record)
             ? loadPersonalPage(popup.webContents, details.url || "about:blank")
             : popup.webContents.loadURL(details.url || "about:blank");
-          void loading
-            .catch(() => this.destroy(popup.tabID, "load_failed"));
+          const generation = popup.localGeneration;
+          void loading.catch(() => {
+            if (popup.localGeneration === generation) this.destroy(popup.tabID, "load_failed");
+          });
           if (record.connectionID) {
             this.connections.get(record.connectionID)?.facade?.tabs.onCreated.emit(publicTab(popup));
           } else {
-            this.presentation.showPersonal(popup);
+            if (popup.hostConversationID) this.conversationPages.set(popup.hostConversationID, popup);
+            if (popup.role === "task") this.presentation.showTask(popup, true);
+            else this.presentation.showPersonal(popup, true);
           }
         } catch {
           // The opener or its connection may have disappeared before the queued creation.

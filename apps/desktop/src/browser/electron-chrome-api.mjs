@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { canInteract, trackPageWork } from "./page-interaction.mjs";
 import { publicTab } from "./page-registry.mjs";
 
 export class ElectronChromeAPI {
@@ -79,15 +80,16 @@ export class ElectronChromeAPI {
     record.webContents.debugger.attach(version);
     record.attached = true;
     record.debuggerMessage = (_event, method, params, sessionID) => {
+      if (record.connectionID !== undefined && record.connectionID !== this.connectionID) return;
       if (method === "Target.attachedToTarget" && typeof params?.sessionId === "string") {
         record.childSessions.add(params.sessionId);
         if (typeof params.targetInfo?.type === "string") record.childTargetTypes.add(params.targetInfo.type);
       } else if (method === "Target.detachedFromTarget" && typeof params?.sessionId === "string") {
         record.childSessions.delete(params.sessionId);
       } else if (method === "Page.javascriptDialogOpening") {
-        const dismissal = sessionID
+        const dismissal = trackPageWork(record, () => sessionID
           ? record.webContents.debugger.sendCommand("Page.handleJavaScriptDialog", { accept: false }, sessionID)
-          : record.webContents.debugger.sendCommand("Page.handleJavaScriptDialog", { accept: false });
+          : record.webContents.debugger.sendCommand("Page.handleJavaScriptDialog", { accept: false }));
         void dismissal
           .then(() => { record.dialogDismissals++; }, (error) => {
             record.dialogError = error instanceof Error ? error.message : "unknown error";
@@ -105,7 +107,7 @@ export class ElectronChromeAPI {
     };
     record.webContents.debugger.on("message", record.debuggerMessage);
     record.webContents.debugger.on("detach", record.debuggerDetach);
-    await record.webContents.debugger.sendCommand("Page.enable");
+    await trackPageWork(record, () => record.webContents.debugger.sendCommand("Page.enable"));
     return {};
   }
 
@@ -132,8 +134,15 @@ export class ElectronChromeAPI {
       throw new Error("Nested debugger session is outside the task");
     }
     const stopRendering = method === "Page.captureScreenshot" && record.view?.getVisible?.() === false
-      ? requestHiddenFrames(record.webContents) : null;
-    try { return await record.webContents.debugger.sendCommand(method, commandParams, sessionID); }
+      ? requestHiddenFrames(record) : null;
+    try {
+      const result = await trackPageWork(record, () => {
+        this.#record(target);
+        return record.webContents.debugger.sendCommand(method, commandParams, sessionID);
+      });
+      this.#record(target);
+      return result;
+    }
     finally { stopRendering?.(); }
   }
 
@@ -142,6 +151,7 @@ export class ElectronChromeAPI {
         Object.keys(target).some((key) => !["tabId", "sessionId"].includes(key))) {
       throw new Error("Task debugger target is invalid");
     }
+    if (this.registry.connections?.get(this.connectionID)?.retiring) throw new Error("Controller execution is retiring");
     return this.registry.get(this.connectionID, target.tabId);
   }
 
@@ -153,7 +163,8 @@ export class ElectronChromeAPI {
   }
 }
 
-function requestHiddenFrames(page) {
+function requestHiddenFrames(record) {
+  const page = record.webContents;
   // A never-presented Linux view can stall CDP capture without native frame
   // requests. One hint can finish before CDP is ready, so keep requesting a
   // single pixel until that original command settles. Never overlap hints,
@@ -161,7 +172,7 @@ function requestHiddenFrames(page) {
   let stopped = false, timer;
   const capture = async () => {
     if (stopped || page.isDestroyed?.()) return;
-    try { await page.capturePage({ x: 0, y: 0, width: 1, height: 1 }, { stayHidden: true, stayAwake: true }); }
+    try { await trackPageWork(record, () => page.capturePage({ x: 0, y: 0, width: 1, height: 1 }, { stayHidden: true, stayAwake: true })); }
     catch { /* The original CDP image/error remains authoritative. */ }
     finally {
       if (!stopped) { timer = setTimeout(capture, 50); timer.unref?.(); }
@@ -180,7 +191,10 @@ export class ElectronDownloadRegistry {
     this.connectionDirectories = new Map();
     this.cleanups = new Set();
     this.nextID = 1;
-    browserSession.on("will-download", (_event, item, webContents) => {
+    this.browserSession = browserSession;
+    this.onDownload = (_event, item, webContents) => {
+      const page = this.pageRegistry.recordForWebContents?.(webContents.id);
+      if (canInteract(page)) return;
       const id = this.nextID++;
       const connectionID = this.pageRegistry.downloadOwner(webContents.id);
       const directory = connectionID ? this.connectionDirectories.get(connectionID) : "";
@@ -201,6 +215,7 @@ export class ElectronDownloadRegistry {
         exists: true,
         fileSize: 0,
       };
+      if (page && !connectionID) { item.cancel(); return; }
       if (connectionID && (!directory || taskItems >= 100)) {
         record.state = "interrupted";
         record.exists = false;
@@ -223,7 +238,8 @@ export class ElectronDownloadRegistry {
         record.fileSize = item.getReceivedBytes();
       });
       if (rejected) item.cancel();
-    });
+    };
+    browserSession.on("will-download", this.onDownload);
   }
 
   async prepare() {
@@ -314,6 +330,7 @@ export class ElectronDownloadRegistry {
   }
 
   async close() {
+    this.browserSession.removeListener("will-download", this.onDownload);
     for (const connectionID of [...this.connectionDirectories.keys()]) this.releaseConnection(connectionID);
     await Promise.allSettled([...this.cleanups]);
     await fs.rm(this.downloadRoot, { recursive: true, force: true });

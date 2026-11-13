@@ -1,3 +1,4 @@
+import { canInteract } from "../browser/page-interaction.mjs";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -24,20 +25,20 @@ export class OwnerBrowserServices {
     await fs.mkdir(this.downloadsRoot, { recursive: true, mode: 0o700 });
     this.browserSession.on("will-download", (_event, item, webContents) => {
       const record = this.registry.recordForWebContents(webContents.id);
-      if (record?.role === "personal") this.#download(item, "personal", record.pageRef);
+      if (canInteract(record)) this.#download(item, "personal", record.pageRef);
     });
     this.workbenchSession.on("will-download", (_event, item, webContents) => {
       if (webContents === this.workbench.webContents) this.#download(item, "workbench", "");
     });
     this.browserSession.setPermissionCheckHandler((webContents, permission, origin, details) => {
       const record = webContents ? this.registry.recordForWebContents(webContents.id) : null;
-      return record?.role === "personal" && this.grants.has(permissionKey(origin, permission, details?.mediaType));
+      return canInteract(record) && this.grants.has(permissionKey(origin, permission, details?.mediaType));
     });
     this.browserSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
       const record = this.registry.recordForWebContents(webContents.id);
       const origin = secureOrigin(details?.requestingUrl || webContents.getURL());
       const mediaTypes = Array.isArray(details?.mediaTypes) ? details.mediaTypes.filter((value) => ["audio", "video"].includes(value)) : [];
-      if (record?.role !== "personal" || !origin || !SUPPORTED_PERMISSIONS.has(permission) ||
+      if (!canInteract(record) || !origin || !SUPPORTED_PERMISSIONS.has(permission) ||
           permission === "media" && mediaTypes.length === 0) {
         callback(false);
         return;
@@ -47,6 +48,7 @@ export class OwnerBrowserServices {
       timer.unref?.();
       this.permissions.set(permissionRef, {
         permissionRef, pageRef: record.pageRef, origin, permission, mediaTypes, callback, timer,
+        record, webContents, topOrigin: secureOrigin(webContents.getURL()), revision: record.interaction?.revision,
       });
       this.onChange();
     });
@@ -78,6 +80,8 @@ export class OwnerBrowserServices {
     if (typeof allow !== "boolean") throw new Error("Permission decision is invalid");
     const request = this.permissions.get(permissionRef);
     if (!request) throw new Error("Permission request is unavailable");
+    allow = allow && canInteract(request.record) && this.registry.recordForWebContents(request.webContents.id) === request.record &&
+      request.revision === request.record.interaction?.revision && secureOrigin(request.webContents.getURL()) === request.topOrigin;
     if (allow) {
       if (request.permission === "media") {
         for (const mediaType of request.mediaTypes) this.grants.add(permissionKey(request.origin, request.permission, mediaType));

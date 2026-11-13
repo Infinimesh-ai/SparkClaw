@@ -55,6 +55,7 @@ export class ClientControllerRuntime {
       this.directory = await createControllerDirectory(this.runtimeRoot);
       this.socketPath = path.join(this.directory, "controller.sock");
       this.adapter = await this.adapterFactory({ directory: this.directory, incarnation: this.incarnation });
+      this.adapter.onExecutionLost = () => { void this.stop("controller_exited").catch(() => {}); };
       const launcher = path.join(this.directory, "launcher");
       const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
       await fs.writeFile(launcher, `#!/bin/sh\nexec ${quote(this.executable)} ${quote(path.join(this.bundleRoot, "bin/sparkclaw-electron-browser.mjs"))} "$@"\n`, { mode: 0o700, flag: "wx" });
@@ -103,7 +104,7 @@ export class ClientControllerRuntime {
       // cleanup, so this must not recursively wait for stop().
       await this.#cleanup("start_failed");
       this.state = "unavailable";
-      if (!this.stopping) this.onStopped("start_failed");
+      if (!this.stopping) await this.onStopped("start_failed", true);
       throw error;
     }
   }
@@ -117,24 +118,25 @@ export class ClientControllerRuntime {
     if (permanent) this.closed = true;
     if (this.stopping) return this.stopping;
     this.state = "stopping";
-    this.adapter?.revokeControllerTasks(reason);
+    this.onStopping?.(reason);
+    void this.adapter?.revokeControllerTasks(reason);
     if (this.child?.pid) signalGroup(this.child.pid, "SIGTERM");
     this.stopping = (async () => {
       await this.starting?.catch(() => {});
       await this.#cleanup(reason);
       this.state = "stopped";
     })().catch(error => { this.state = "unavailable"; this.closed = true; throw error; })
-      .finally(() => {
+      .finally(async () => {
         // Availability observers and queued acquisitions must see the settled
         // state. Cleanup's transient "stopping" state is not a reusable runtime.
         this.stopping = null;
-        this.onStopped(reason);
+        await this.onStopped(reason, !this.closed && this.state === "stopped");
       });
     return this.stopping;
   }
 
   async #cleanup(reason) {
-    this.adapter?.revokeControllerTasks(reason);
+    const revoked = this.adapter?.revokeControllerTasks(reason);
     if (this.child?.pid) {
       const pid = this.child.pid;
       signalGroup(pid, "SIGTERM");
@@ -144,6 +146,7 @@ export class ClientControllerRuntime {
       }
       await this.exit;
     }
+    await revoked;
     await this.adapter?.close();
     this.adapter = null;
     this.child = null;

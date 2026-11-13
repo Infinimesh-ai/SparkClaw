@@ -1,3 +1,4 @@
+import { trackPageWork } from "./page-interaction.mjs";
 import crypto from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -41,7 +42,7 @@ export async function capturePageObservation(record, assertCurrent, signal) {
   for (const frame of frames) {
     assertCurrent(); signal?.throwIfAborted();
     let sample;
-    try { sample = await frame.executeJavaScript(READ_FRAME); }
+    try { sample = await trackPageWork(record, () => { assertCurrent(); signal?.throwIfAborted(); return frame.executeJavaScript(READ_FRAME); }); }
     catch (error) {
       if (revision !== record.documentRevision || frame.detached) throw Object.assign(new Error("Document changed"), { code: "document_changed" });
       throw error;

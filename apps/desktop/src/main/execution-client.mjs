@@ -16,8 +16,8 @@ const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex"
 // The main process owns credentials and immutable requests. Timers can only
 // look up explicitly submitted IDs and retry durable ACKs; they never POST work.
 export class ExecutionClient {
-  constructor({ auth, store, getIdentity, intervalMS = 5000, onChange = () => {}, onCancelTask = () => {} }) {
-    Object.assign(this, { auth, store, getIdentity, intervalMS, onChange, onCancelTask });
+  constructor({ auth, store, getIdentity, intervalMS = 5000, onChange = () => {}, onCancelTask = () => {}, onTaskTerminal = () => {} }) {
+    Object.assign(this, { auth, store, getIdentity, intervalMS, onChange, onCancelTask, onTaskTerminal });
     this.operations = new Map();
     this.acknowledgements = new Map();
     this.presentationAcknowledgements = new Map();
@@ -268,6 +268,14 @@ export class ExecutionClient {
     if (!event || event.schema_version !== 1 || event.request_id !== task.request_id ||
         event.input_digest !== task.input_digest || !SERVER_STATES.has(event.state)) throw new Error("Execution identity or digest mismatch");
     if (!this.store.acceptExecutionProjection(scope, event)) return;
+    if (["completed", "failed", "canceled", "unknown", "delivery_expired", "delivered"].includes(event.state)) {
+      // The authenticated, revision-checked workflow fact is distinct from
+      // delivery/ACK and browser cleanup. Never infer termination from prose.
+      const authority = scope[STREAM_AUTHORITY];
+      if (authority) void Promise.resolve(this.onTaskTerminal({ owner_id: scope.owner_id, client_id: scope.client_id,
+        installation_id: authority.installation, local_conversation_id: task.conversation_id, local_task_id: task.id,
+        connection_epoch: authority.session }, event.state)).catch(() => {});
+    }
     traceLatency("execution.projection", { request_id: task.request_id, state: event.state });
     const pending = event.pending_approvals ?? [];
     this.store.syncApprovals(scope, task.request_id, pending, event.state, event.execution_expires_at);

@@ -572,3 +572,29 @@ test('pending conversation handles upload only declared verified files and retai
   wrong = false; await f.client.reconcile(scope, task.request_id); assert.equal(calls, 1);
   f.restart(); await f.client.reconcile(scope, task.request_id); assert.equal(calls, 1, 'unknown outcome was resent after restart');
 });
+
+test("only authenticated current workflow terminal facts notify browser cleanup, independently of delivery", async t => {
+  let next;
+  const f = fixture(t, async () => new Response(JSON.stringify(next)));
+  f.auth.descriptor.transport = "iscp";
+  f.auth.transport = { capabilities: { session_id: "authority-A", authorization_revision: 1,
+    expires_at: new Date(Date.now() + 60000).toISOString() } };
+  const facts = [];
+  f.client.onTaskTerminal = (binding, state) => facts.push({ binding, state });
+  f.store.markSubmitted(scope, f.task.request_id);
+  next = { ...event(f, "running"), revision: 3 };
+  await f.client.reconcile(scope, f.task.request_id);
+  assert.equal(facts.length, 0);
+  next = { ...event(f, "completed", result()), revision: 2 };
+  await f.client.reconcile(scope, f.task.request_id);
+  assert.equal(facts.length, 0, "stale projection cannot release browser input");
+  next = { ...event(f, "failed"), revision: 4, input_digest: "foreign" };
+  await assert.rejects(f.client.reconcile(scope, f.task.request_id), /digest mismatch/);
+  assert.equal(facts.length, 0);
+  next = { ...event(f, "failed"), revision: 4 };
+  await f.client.reconcile(scope, f.task.request_id);
+  assert.deepEqual(facts, [{ state: "failed", binding: { owner_id: scope.owner_id, client_id: scope.client_id,
+    installation_id: f.store.installationID, local_conversation_id: f.conversation.id, local_task_id: f.task.id,
+    connection_epoch: "authority-A" } }]);
+  assert.equal(f.store.browserTaskEnded(scope, f.task.id), true);
+});

@@ -234,6 +234,12 @@ func documentEditRegistration(run toolExecutor, format, operation, summary strin
 // one entry here plus its definition in defaultDefinitions().
 var toolRegistry = func() map[string]toolRegistration {
 	registry := map[string]toolRegistration{
+		"mcd.selection.read":  mcdReadRegistration(),
+		"mcd.cart.read":       mcdCartRegistration("read"),
+		"mcd.cart.write":      mcdCartRegistration("write"),
+		"mcd.quote.prepare":   mcdCartRegistration("quote"),
+		"mcd.purchase.commit": mcdPurchaseRegistration(true),
+		"mcd.purchase.status": mcdPurchaseRegistration(false),
 		"observation.read": workflowRegistration(toolRegistration{run: ctxArgsSessionRun((*ToolHub).observationRead)}, app.ToolCapabilityObservationRead, nil, app.OutcomeAdapterGeneric,
 			"Read a bounded window from current-session persisted evidence.",
 			"Use only when a compacted observation points to an artifact and the active stage needs evidence not already provisioned.",

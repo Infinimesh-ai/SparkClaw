@@ -32,6 +32,7 @@ type Config struct {
 	ISCPPairing   ISCPPairingConfig          `json:"iscp_pairing"`
 	MCPAccess     MCPAccessConfig            `json:"mcp_access"`
 	MCPServers    map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
+	MCDSelection  MCDSelectionConfig         `json:"mcd_selection"`
 	Plugins       PluginsConfig              `json:"plugins"`
 	Tools         ToolsConfig                `json:"tools"`
 	Security      SecurityConfig             `json:"security"`
@@ -50,6 +51,14 @@ type Config struct {
 	// as a remote model endpoint configured without an API key. Load fills
 	// it and the entrypoint logs each entry.
 	Warnings []string `json:"-"`
+}
+
+type MCDSelectionConfig struct {
+	Enabled               bool   `json:"enabled"`
+	CartEnabled           bool   `json:"cart_enabled,omitempty"`
+	PurchaseEnabled       bool   `json:"purchase_enabled,omitempty"`
+	HelperPython          string `json:"helper_python,omitempty"`
+	RuntimeManifestSHA256 string `json:"runtime_manifest_sha256,omitempty"`
 }
 
 type JingSiLANConfig struct {

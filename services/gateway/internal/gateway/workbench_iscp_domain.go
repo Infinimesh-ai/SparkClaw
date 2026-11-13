@@ -74,6 +74,9 @@ func (a *iscpDomainAdapter) handle(ctx context.Context, request iscpworkbench.Re
 	if !principal.Authenticated || principal.ClientID == "" {
 		return respond(domainError(401, "authorization_required"))
 	}
+	if iscpworkbench.MCDSelectionOperation(request.Operation) {
+		return respond(a.mcd(ctx, request))
+	}
 	if request.Operation == iscpworkbench.OperationClientsList || request.Operation == iscpworkbench.OperationClientsIssue || request.Operation == iscpworkbench.OperationClientsRevoke || request.Operation == iscpworkbench.OperationClientsDelete {
 		// The issuer seals invitation authority and reconciles these operations.
 		// Never copy a one-use credential into the ordinary plaintext domain journal.

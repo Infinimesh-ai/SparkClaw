@@ -241,7 +241,7 @@ describe("Connection directory navigation", () => {
         />
       );
     });
-    expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(7);
+    expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(8);
     expect(container.textContent).toContain(dictionaries.en.settings.messaging);
     expect(container.textContent).toContain(dictionaries.en.settings.aiPlatformLogin);
     expect(container.textContent).toContain(dictionaries.en.settings.browserControl);
@@ -258,7 +258,7 @@ describe("Connection directory navigation", () => {
 
     const back = container.querySelector(".settingsBack") as HTMLButtonElement;
     await act(async () => back.click());
-    expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(7);
+    expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(8);
     await act(async () => root.unmount());
   });
 
@@ -281,7 +281,7 @@ describe("Connection directory navigation", () => {
     expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(2);
     const connections = findButton(container, dictionaries.en.settings.connections);
     await act(async () => connections.click());
-    expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(7);
+    expect(container.querySelectorAll(".settingsDirectoryRow")).toHaveLength(8);
     expect(container.textContent).toContain(dictionaries.en.settings.messaging);
     expect(container.textContent).toContain(dictionaries.en.settings.browserControl);
     expect(container.textContent).toContain(dictionaries.en.settings.externalMCP);
@@ -308,7 +308,7 @@ describe("Connection directory navigation", () => {
     expect(container.textContent).toContain("消息渠道");
     expect(container.textContent).toContain(dictionaries.zh.settings.weixinBinding);
     expect(container.textContent).toContain(dictionaries.zh.settings.telegramBinding);
-    expect(container.querySelectorAll(".settingsConnectionRow")).toHaveLength(8);
+    expect(container.querySelectorAll(".settingsConnectionRow")).toHaveLength(9);
 
     const telegram = findButton(container, dictionaries.zh.settings.telegramBinding);
     await act(async () => telegram.click());

@@ -65,6 +65,27 @@ export class SecureCredentialStore {
       !["basic_text", "unknown"].includes(this.safeStorage.getSelectedStorageBackend()));
   }
 
+  async loadMCDConnection(binding) {
+    if (!this.available() || !/^[a-f0-9]{64}$/u.test(binding)) throw new Error('Secure McDonald’s storage is unavailable');
+    await this.#directory();
+    const filename = path.join(this.directory, `mcd-${binding}.bin`);
+    try {
+      const info = await fs.lstat(filename);
+      if (!info.isFile() || info.isSymbolicLink() || info.mode & 0o077 || info.size > 160 * 1024 || this.uid !== undefined && info.uid !== this.uid) throw new Error();
+      const value = JSON.parse(this.safeStorage.decryptString(await fs.readFile(filename)));
+      if (value.type !== 'mcd-connection-v1' || value.binding !== binding) throw new Error();
+      return value.record;
+    } catch (error) { if (error.code === 'ENOENT') return undefined; throw new Error('Saved McDonald’s connection could not be unlocked'); }
+  }
+
+  async saveMCDConnection(binding, record) {
+    if (!this.available() || !/^[a-f0-9]{64}$/u.test(binding) || Buffer.byteLength(JSON.stringify(record)) > 128 * 1024) throw new Error('Secure McDonald’s storage is unavailable');
+    await this.#directory();
+    await this.#writeEncrypted(path.join(this.directory, `mcd-${binding}.bin`), { type: 'mcd-connection-v1', binding, record });
+    const directory = await fs.open(this.directory, 'r');
+    try { await directory.sync(); } finally { await directory.close(); }
+  }
+
   async load() {
     if (!this.available()) throw new Error("Secure credential storage is unavailable");
     try {

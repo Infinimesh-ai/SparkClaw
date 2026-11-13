@@ -150,4 +150,13 @@ const (
 	OperationMedicineItemsBatch = "medicine.items.batch"
 	OperationMedicineImport = "medicine.import"
 	OperationMedicineOperationsGet = "medicine.operations.get"
+	OperationMCDSessionProvision = "mcd.session.provision"
+	OperationMCDSessionRevoke = "mcd.session.revoke"
+	OperationMCDSessionStatus = "mcd.session.status"
+	OperationMCDAccountEnsure = "mcd.account.ensure"
+	OperationMCDCheckoutPrepare = "mcd.checkout.prepare"
+	OperationMCDCheckoutCommit = "mcd.checkout.commit"
+	OperationMCDCheckoutAbort = "mcd.checkout.abort"
+	OperationMCDOperationStatus = "mcd.operation.status"
+	OperationMCDOrdersQuery = "mcd.orders.query"
 )

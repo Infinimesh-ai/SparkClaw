@@ -18,6 +18,10 @@ const (
 	CapabilityCodingAgentManage     CapabilityID = "coding.agent_manage"
 )
 
+const CapabilityMCDRead CapabilityID = "dining.mcd_read"
+const WorkflowMCDRead WorkflowID = "dining.mcd_read"
+const ToolCapabilityMCDSelection = "dining.mcd.selection"
+
 type IntentDomain string
 
 const (

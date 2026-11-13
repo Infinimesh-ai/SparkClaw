@@ -21,6 +21,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationconfig"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/integrationrun"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscppairing"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcdintegration"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpintegration"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
@@ -29,6 +30,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/trace"
+	"path/filepath"
 )
 
 type gatewayServices struct {
@@ -37,6 +39,7 @@ type gatewayServices struct {
 	connectors        *connectorAssembly
 	reminderScheduler *reminder.Scheduler
 	mcpManager        *mcpintegration.Manager
+	mcdSelection      *mcdintegration.Manager
 	happyApprovals    *happyapproval.Service
 	integrations      *integrationconfig.Controller
 	browserControl    *browsercontrol.Service
@@ -127,6 +130,19 @@ func newGatewayServices(
 	if localMindManager != nil {
 		localMindManager.WithIntegrationRuns(integrationRuns)
 	}
+	var mcdSelection *mcdintegration.Manager
+	if cfg.MCDSelection.Enabled {
+		if !filepath.IsAbs(cfg.MCDSelection.HelperPython) {
+			return nil, fmt.Errorf("mcd_selection requires an absolute installed helper path")
+		}
+		if mcdintegration.VerifyRuntime(cfg.MCDSelection.HelperPython, cfg.MCDSelection.RuntimeManifestSHA256) != nil {
+			return nil, fmt.Errorf("mcd_selection requires a verified matching runtime bundle and pinned manifest")
+		}
+		mcdSelection, err = mcdintegration.NewManager(vault, mcdintegration.Helper{Python: cfg.MCDSelection.HelperPython, ManifestSHA256: cfg.MCDSelection.RuntimeManifestSHA256}, cfg.Gateway.DeploymentID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	integrations := integrationconfig.New(cfg, connectors.credentials, st, tools, localMindManager)
 	iscpPairing, err := newISCPPairingService(cfg, st)
 	if err != nil {
@@ -162,12 +178,14 @@ func newGatewayServices(
 			gateway.WithMessageDelivery(connectors.endpoints, providers, connectors.delivery),
 			gateway.WithStoreRuntime(storeRuntime),
 			gateway.WithCredentialVault(vault),
+			gateway.WithMCDSelection(mcdSelection),
 			gateway.WithJingSiRuntime(jingsiRuntime),
 		),
 		connectors:        connectors,
 		emailManagement:   emailManagement,
 		reminderScheduler: reminderScheduler,
 		mcpManager:        mcpManager,
+		mcdSelection:      mcdSelection,
 		happyApprovals:    happyApprovals,
 		integrations:      integrations,
 		browserControl:    browserControl,
@@ -200,6 +218,9 @@ func newISCPPairingService(cfg config.Config, st iscppairing.Repository) (*iscpp
 func (s *gatewayServices) Start(ctx context.Context) error {
 	s.server.BindLifecycleContext(ctx)
 	s.server.StartRetentionSweeps(ctx)
+	if s.mcdSelection != nil {
+		go s.mcdSelection.Run(ctx)
+	}
 	s.connectors.credentials.BindLifecycle(ctx)
 	s.integrations.Initialize(ctx)
 	s.browserControl.Initialize(ctx)

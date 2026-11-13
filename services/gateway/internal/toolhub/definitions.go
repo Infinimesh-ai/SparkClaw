@@ -6,6 +6,9 @@ import (
 
 func defaultDefinitions() []app.ToolDefinition {
 	definitions := defaultDefinitionsBeforeDocumentFormats()
+	definitions = append(definitions, mcdReadDefinition())
+	definitions = append(definitions, mcdCartDefinitions()...)
+	definitions = append(definitions, mcdPurchaseDefinitions()...)
 	definitions = append(definitions, medicineToolDefinitions()...)
 	definitions = append(definitions, documentToolDefinitions()...)
 	return append(definitions, defaultDefinitionsAfterDocumentFormats()...)

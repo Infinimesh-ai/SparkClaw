@@ -160,7 +160,7 @@ func (e *Endpoint) acceptRequest(ctx context.Context, raw []byte, id string) err
 		e.mu.Unlock()
 		return errors.New("operation not admitted by negotiated direction/profile")
 	}
-	if (connectionSettingsOperation(request.Operation) || browserControllerOperation(request.Operation)) && (e.session.capabilities == nil || !slices.Contains(e.session.capabilities.Operations, request.Operation)) {
+	if (connectionSettingsOperation(request.Operation) || browserControllerOperation(request.Operation) || MCDSelectionOperation(request.Operation) || MCDCheckoutOperation(request.Operation)) && (e.session.capabilities == nil || !slices.Contains(e.session.capabilities.Operations, request.Operation)) {
 		e.mu.Unlock()
 		return errors.New("application extension operation was not negotiated")
 	}
@@ -307,7 +307,7 @@ func (e *Endpoint) Call(ctx context.Context, request Request) (result Response, 
 		e.mu.Unlock()
 		return Response{}, errors.New("v2 profile is not negotiated")
 	}
-	if (connectionSettingsOperation(request.Operation) || browserControllerOperation(request.Operation)) && (e.session.capabilities == nil || !slices.Contains(e.session.capabilities.Operations, request.Operation)) {
+	if (connectionSettingsOperation(request.Operation) || browserControllerOperation(request.Operation) || MCDSelectionOperation(request.Operation) || MCDCheckoutOperation(request.Operation)) && (e.session.capabilities == nil || !slices.Contains(e.session.capabilities.Operations, request.Operation)) {
 		e.mu.Unlock()
 		return Response{}, errors.New("application extension operation was not negotiated")
 	}

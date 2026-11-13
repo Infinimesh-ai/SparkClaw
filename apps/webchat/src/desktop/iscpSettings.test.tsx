@@ -84,7 +84,7 @@ it("keeps the original connections directory and mounts only qualified provider 
   const render = async (enabled: boolean, section: WorkspaceSettingsSection = "connections") => act(async () => root.render(<SettingsPanel key={section} {...props} access={desktopSettingsAccess(connection(enabled), "en")} section={section} text={dictionaries.en} language="en" />));
   try {
     await render(false);
-    expect(host.querySelectorAll(".settingsConnectionRow")).toHaveLength(8);
+    expect(host.querySelectorAll(".settingsConnectionRow")).toHaveLength(9);
     expect(list).not.toHaveBeenCalled(); expect(integrations).not.toHaveBeenCalled();
     await act(async () => button(host, "Email").click());
     expect(host.querySelector(".settingsBack")).not.toBeNull();
@@ -105,7 +105,7 @@ it("keeps the original connections directory and mounts only qualified provider 
   } finally { await act(async () => root.unmount()); }
 });
 
-it.each(["lan", "iscp"] as const)("keeps all eight entries and prevents website sign-in over %s", async transport => {
+it.each(["lan", "iscp"] as const)("keeps all original entries alongside McDonald’s and prevents website sign-in over %s", async transport => {
   const providers = [{ provider: "outlook" as const, display_name: "Outlook", enabled: true, default: false,
     account: "default" as const, state: "ready" as const, version: 3 }];
   const list = vi.spyOn(api, "emailProviders").mockResolvedValue({ providers });
@@ -119,7 +119,7 @@ it.each(["lan", "iscp"] as const)("keeps all eight entries and prevents website 
   const host = document.createElement("div"), root = createRoot(host);
   try {
     await act(async () => root.render(<SettingsPanel {...props} section="connections" access={desktopSettingsAccess(qualifiedConnection(transport), "en")} text={dictionaries.en} language="en" />));
-    expect(host.querySelectorAll(".settingsConnectionRow")).toHaveLength(8);
+    expect(host.querySelectorAll(".settingsConnectionRow")).toHaveLength(9);
     await act(async () => button(host, "Email").click());
     expect(list).toHaveBeenCalledOnce();
     expect(host.querySelectorAll(".emailProviderRow")).toHaveLength(3);
@@ -141,7 +141,7 @@ it.each(["lan", "iscp"] as const)("keeps all eight entries and prevents website 
     expect(aiList).toHaveBeenCalledTimes(transport === "lan" ? 1 : 0);
     expect(button(host, dictionaries.en.settings.aiPlatformRefresh).disabled).toBe(transport === "iscp");
     await act(async () => host.querySelector<HTMLButtonElement>(".settingsBack")!.click());
-    expect(host.querySelectorAll(".settingsConnectionRow")).toHaveLength(8);
+    expect(host.querySelectorAll(".settingsConnectionRow")).toHaveLength(9);
     expect(integrations).toHaveBeenCalledOnce();
   } finally { await act(async () => root.unmount()); }
 });
@@ -207,7 +207,7 @@ it("does not load MCP or browser credentials when the connection has not qualifi
       expect(host.querySelector(".settingsBack")).not.toBeNull();
       expect(host.textContent).toContain("This action is unavailable through the current connection.");
       await act(async () => host.querySelector<HTMLButtonElement>(".settingsBack")!.click());
-      expect(host.querySelectorAll(".settingsConnectionRow")).toHaveLength(8);
+      expect(host.querySelectorAll(".settingsConnectionRow")).toHaveLength(9);
     }
     expect(browser).not.toHaveBeenCalled(); expect(mcp).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); }

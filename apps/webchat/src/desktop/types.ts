@@ -103,6 +103,9 @@ export type SparkClawDesktop = {
   pendingRecordings?(request: { session_id: string }): Promise<Array<{ session_id: string; request_id: string; operation_id: string; anchor: import("../hooks/useVoiceInput").VoiceDraftAnchor; result: import("../api/types").SpeechTranscriptionResult }>>;
   acknowledgeRecording?(request: { session_id: string; request_id: string; operation_id: string }): Promise<unknown>;
   loginStartup(enabled?: boolean): Promise<{ supported: boolean; enabled: boolean }>;
+  mcdStatus?(): Promise<MCDConnectionStatus>;
+  mcdConnect?(): Promise<unknown>;
+  mcdDisconnect?(): Promise<unknown>;
   onBackendEvents?(listener: (event: { categories: string[] }) => void): () => void;
   onLocalConnection(listener: (status: DesktopConnectionStatus) => void): () => void;
   state(): Promise<DesktopState>;
@@ -127,3 +130,5 @@ declare global {
     sparkclawDesktop?: SparkClawDesktop;
   }
 }
+
+export type MCDConnectionStatus = { available: boolean; disconnect_available?: boolean; state: string; checkout_enabled: false };

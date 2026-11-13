@@ -1,0 +1,46 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import {existsSync} from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import {spawn} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import {MCDHost,MCD_HOST_OPERATIONS} from '../src/main/mcd/host.mjs';
+import {MCDSession} from '../src/main/mcd/session.mjs';
+
+const repo=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../..');
+const python=path.join(repo,'.cache/ezmcd-adapter/venv/bin/python');
+const fixture=path.join(repo,'tools/ezmcd-adapter/tests/host_fixture.py');
+test('native chunk host imports into original Python ledger and commits once under persisted approval',{skip:!existsSync(python)},async t=>{
+ const temp=await fs.mkdtemp(path.join(os.tmpdir(),'sparkclaw-mcd-synthetic-'));t.after(()=>fs.rm(temp,{recursive:true,force:true}));const root=await fs.realpath(temp);
+ const fixtureErrors=[];
+ const call=(mode,request,options={})=>new Promise((resolve,reject)=>{
+  const child=spawn(python,['-B',fixture,mode,root],{stdio:['pipe','pipe','pipe'],env:{...process.env,PYTHONPATH:path.join(repo,'tools/ezmcd-adapter/src')}});let out='',err='';
+  child.stdout.on('data',b=>{out+=b;});child.stderr.on('data',b=>{err+=b;});child.on('error',reject);child.on('close',code=>{if(code!==0){fixtureErrors.push(err);reject(new Error(err));}else {try{resolve(JSON.parse(out));}catch(e){reject(e);}}});
+  options.signal?.addEventListener('abort',()=>child.kill('SIGKILL'),{once:true});child.stdin.end(request?JSON.stringify(request):'');
+ });
+ const f=await call('init');assert.equal(f.review.purchase_digest,f.envelope.purchase_digest);
+ const binding=Object.fromEntries(['deployment_id','owner_id','client_id','installation_id'].map(k=>[k,f.scope[k]]));
+ const identity={...binding,account_ref:f.scope.account_ref,member_digest:f.scope.member_digest};
+ let saved={schema_version:1,binding,identity,connection_id:'connection',state:'active',source:f.source,envelope:{identity,credential_revision:1,material_digest:f.material_digest,session_not_after_ms:Date.now()+300000},host_account:{account_json:f.account_json,material_digest:f.material_digest}};
+ const context={...binding,session_id:'session',authorization_revision:1,operations:[...MCD_HOST_OPERATIONS,'mcd.session.provision','mcd.session.revoke','mcd.session.status'],qualified_operations:[...MCD_HOST_OPERATIONS]};
+ const session=new MCDSession({context:()=>context,vault:{loadMCDConnection:async()=>structuredClone(saved),saveMCDConnection:async(_,row)=>{saved=structuredClone(row);}}});
+ const approval={approval_id:'approval',digest:'a'.repeat(64),tool:'mcd.purchase.commit',arguments:f.review,decision:'approve',state:'approved',expires_at:new Date(Date.now()+300000).toISOString()};
+ const makeHost=()=>new MCDHost({session,context:()=>context,approvals:()=>[approval],call:(request,options)=>call('request',request,options)});
+ let host=makeHost();t.after(()=>host.close());
+ const request=(op,body)=>host.handleReverse({operation:op,installation_id:'mac',body},{session_id:'session',authorization_revision:1});
+ const payload=Buffer.from(JSON.stringify(f.envelope)),hash=crypto.createHash('sha256').update(payload).digest('hex'),count=Math.ceil(payload.length/8192);
+ let prepared;
+ for(let index=0;index<count;index++)prepared=await request('mcd.checkout.prepare',{scope:f.scope,operation_key:'prepare',transfer:{digest:hash,size:payload.length,count,index,expires_at_ms:f.envelope.expires_at_ms,data:payload.subarray(index*8192,(index+1)*8192).toString('base64')}});
+ assert.equal(prepared.status,200,fixtureErrors.join("\n"));assert.equal(prepared.body.purchase_digest,f.review.purchase_digest);assert.equal(prepared.body.expires_at_ms,f.envelope.expires_at_ms);
+ const body={scope:f.scope,operation_key:'commit',purchase_id:'purchase',handoff_epoch:1,approval_id:'approval',review:f.review};
+ const paid=await request('mcd.checkout.commit',body);assert.equal(paid.status,200);assert.equal(paid.body.state,'PAID');assert.equal(paid.body.terminal_verified,true);
+ host.close();host=makeHost();
+ const replay=await request('mcd.checkout.commit',body);assert.equal(replay.status,200);assert.equal(replay.body.state,'PAID');
+ assert.equal(JSON.parse(replay.body.result_json).attempt_id,JSON.parse(paid.body.result_json).attempt_id);
+ const status=await request('mcd.operation.status',{scope:f.scope,operation_key:'commit'});assert.equal(status.body.state,'PAID');
+ const history=await request('mcd.orders.query',{scope:f.scope,limit:20,offset:0});assert.equal(JSON.parse(history.body.result_json).total,1);
+ assert.equal((await request('mcd.checkout.abort',{scope:f.scope,operation_key:'abort',purchase_id:'purchase',handoff_epoch:1,reason:'user_abandonment'})).body.state,'reconciliation_required');
+});

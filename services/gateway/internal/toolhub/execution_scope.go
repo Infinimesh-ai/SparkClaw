@@ -12,6 +12,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcddining"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/remindertarget"
 )
 
@@ -21,6 +22,7 @@ import (
 // The caller owns the workspace and artifact lifetime; the hub owns Browser.
 type ExecutionResources struct {
 	OwnerID             string
+	MCDSelection        *mcddining.Selection
 	WorkspaceRoot       string
 	Artifacts           artifact.Store
 	Browser             browserautomation.Adapter
@@ -96,6 +98,9 @@ func (h *ToolHub) WithExecutionScope(st Repository, resources ExecutionResources
 func (h *ToolHub) unavailableResource(name string) executionResource {
 	if h.resources == nil {
 		return ""
+	}
+	if strings.HasPrefix(name, "mcd.") && h.resources.MCDSelection == nil {
+		return resourceToolPermission
 	}
 	if h.resources.TextOnly {
 		return resourceToolExecution

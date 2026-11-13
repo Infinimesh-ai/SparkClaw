@@ -1,0 +1,79 @@
+package toolhub
+
+import (
+	"context"
+	"errors"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"reflect"
+)
+
+func mcdPurchaseDefinitions() []app.ToolDefinition {
+	props := map[string]any{}
+	keys := []string{"purchase_id", "purchase_digest", "currency", "payment_method", "store_code", "pickup_at", "eat_type", "store_name"}
+	for _, k := range keys {
+		props[k] = map[string]any{"type": "string", "maxLength": 128}
+	}
+	for _, k := range []string{"amount_cents", "credential_revision"} {
+		keys = append(keys, k)
+		props[k] = map[string]any{"type": "integer", "minimum": 1, "maximum": 1<<53 - 1}
+	}
+	props["items"] = map[string]any{"type": "array", "minItems": 1, "maxItems": 100, "items": objectValueSchema()}
+	props["discount_names"] = map[string]any{"type": "array", "maxItems": 100, "items": map[string]any{"type": "string", "maxLength": 512}}
+	keys = append(keys, "items", "discount_names")
+	return []app.ToolDefinition{
+		{Name: "mcd.purchase.commit", Description: "Submit exactly one imported McDonald's quote using the originating Mac's wallet (ARCHCARD), only after immutable user approval. Runtime binds the prepared quote; model prose cannot authorize payment. Unknown responses must be queried, never retried.", InputSchema: strictObjectSchema(keys, props), Risk: app.RiskDangerous, RequiresApproval: true, ArgumentsImmutable: true, Idempotent: false, TimeoutMS: 90000, OutputSchema: objectValueSchema(), Sandbox: "forbidden", Audit: "always"},
+		{Name: "mcd.purchase.status", Description: "Reconcile the original McDonald's handoff or unknown purchase without any ordering or payment writes; otherwise list original local orders. Never infer success or authorize retries from missing or stale status.", InputSchema: strictObjectSchema(nil, map[string]any{}), Risk: app.RiskRead, Idempotent: true, TimeoutMS: 90000, OutputSchema: objectValueSchema(), Sandbox: "forbidden", Audit: "always"},
+	}
+}
+func (h *ToolHub) MCDPurchaseArguments() (map[string]any, error) {
+	if h.resources == nil || h.resources.MCDSelection == nil {
+		return nil, errors.New("mcd_purchase_unavailable")
+	}
+	return h.resources.MCDSelection.PurchaseArguments()
+}
+func mcdPurchaseRegistration(commit bool) toolRegistration {
+	run := func(h *ToolHub, ctx context.Context, args map[string]any, session, run string) (Result, error) {
+		if h.resources == nil || h.resources.MCDSelection == nil {
+			return Result{}, errors.New("mcd_purchase_unavailable")
+		}
+		if !commit {
+			out, err := h.resources.MCDSelection.PurchaseStatus(ctx)
+			return Result{Output: out}, err
+		}
+		calls, err := h.store.ListToolCalls(ctx, session)
+		if err != nil {
+			return Result{}, err
+		}
+		approvalID := ""
+		for _, call := range calls {
+			if call.Tool != "mcd.purchase.commit" || call.RunID != run || call.SessionID != session || call.ApprovalID == "" || call.Status != app.ToolCallStatusRunningAfterApproval || !reflect.DeepEqual(call.Arguments, args) {
+				continue
+			}
+			a, ok, err := h.store.GetApproval(ctx, call.ApprovalID)
+			if err != nil {
+				return Result{}, err
+			}
+			if ok && a.ToolCallID == call.ID && a.RunID == run && a.SessionID == session && a.Tool == call.Tool && a.Status == app.ApprovalStatusApproved && a.ArgumentsImmutable && reflect.DeepEqual(a.Arguments, args) {
+				if approvalID != "" {
+					return Result{}, errors.New("mcd_ambiguous_authority")
+				}
+				approvalID = a.ID
+			}
+		}
+		if approvalID == "" {
+			return Result{}, errors.New("mcd_purchase_approval_required")
+		}
+		out, err := h.resources.MCDSelection.Commit(ctx, approvalID, args)
+		return Result{Output: out}, err
+	}
+	name := "mcd.purchase.status"
+	effect := app.ToolEffectExternalRead
+	if commit {
+		name = "mcd.purchase.commit"
+		effect = app.ToolEffectExternalInteract
+	}
+	return workflowRegistration(toolRegistration{enabled: func(c config.Config) bool {
+		return c.MCDSelection.Enabled && c.MCDSelection.CartEnabled && c.MCDSelection.PurchaseEnabled
+	}, run: ctxArgsSessionRun(run)}, name, nil, app.OutcomeAdapterGeneric, "Use the original authenticated Mac and durable operation.", "Purchase requires an exact prepared quote and immutable user approval.", "No alternate payment channel, speculative retries or replacement attempts.", effect)
+}

@@ -1,0 +1,304 @@
+[
+  {
+    "name": "base",
+    "envelope": {
+      "schema_version": 1,
+      "canonicalization": "mcd-json-v1",
+      "adapter_revision": "sparkclaw-mcd-p0-v2",
+      "scope": {
+        "deployment_id": "fixture",
+        "owner_id": "owner",
+        "client_id": "client",
+        "installation_id": "mac",
+        "account_ref": "fixture",
+        "member_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+        "credential_revision": 1,
+        "execution_id": "execution"
+      },
+      "source_quote_ref": "00000000000000000000000000000001",
+      "purchase_id": "purchase",
+      "quote_revision": 1,
+      "handoff_epoch": 1,
+      "generated_at_ms": 1700000000000,
+      "expires_at_ms": 1700000120000,
+      "currency": "CNY",
+      "payment_method": "ARCHCARD",
+      "cart_digest": "d81ace2c0fb0eab51570dc26fb415c13d00c3c2aaa722895b3e4a1b174ec82de",
+      "quote": {
+        "store_code": "9000001",
+        "store_name": "示例门店 1",
+        "pickup_at": "2099-01-01T10:00:00+08:00",
+        "eat_type": "locker-in",
+        "items": [
+          {
+            "product_code": "100001",
+            "name": "演示汉堡",
+            "quantity": 1,
+            "product_type": "1",
+            "components": [],
+            "configuration": {},
+            "coupon_fingerprint": null,
+            "amount_cents": 1000
+          }
+        ],
+        "amount_cents": 1000,
+        "regular_cents": 1000,
+        "discount_cents": 0,
+        "discount_names": [],
+        "body": {
+          "realTotalAmount": "10.00",
+          "uniCode": "",
+          "vehicleTypeCode": "",
+          "eatTypeCode": "locker-in",
+          "date": "2099-01-01",
+          "beCode": "",
+          "skipPriceChange": false,
+          "storeCode": "9000001",
+          "cartItems": [
+            {
+              "productImage": "",
+              "realSubtotal": "10.00",
+              "productCode": "100001",
+              "uniqueKey": "demo-cart-item",
+              "productType": "1",
+              "quantity": 1,
+              "productName": "演示汉堡",
+              "sequence": 1,
+              "productPrice": "10.00",
+              "changeQuantity": 0,
+              "status": 0,
+              "couponList": []
+            }
+          ],
+          "dayPartCode": "2",
+          "licensePlate": "",
+          "tablewareCode": "no",
+          "beType": "1",
+          "driveDuration": -1,
+          "time": "10:00",
+          "orderType": "1",
+          "vehicleColorCode": "",
+          "autoMatch": true,
+          "addressId": ""
+        },
+        "intent": "f2316c3d052b25243e725718ebe058bfc417de393981dcfb1abfdda78f4b32d5",
+        "checkout_digest": "8e278d2cdabfb118a49eda887b2baf8fa4281dd8cae6bba238391f9f61d80db4",
+        "daypart": "2",
+        "request": {
+          "account": "fixture",
+          "store_code": "9000001",
+          "pickup_at": "2099-01-01T10:00:00+08:00",
+          "max_amount_cny": "20.00",
+          "eat_type": "locker-in"
+        },
+        "wallet_before_cents": 10000,
+        "simulation": false
+      },
+      "pickup_receipt": null,
+      "purchase_digest": "5a04e36ecdec52f7dd9a56855ee1c38132a129f2dc150a77603bf58b987b4d64",
+      "envelope_digest": "4ec750b7169611ea508e839bcb075316c5a65cd3d7e268b30f2e3b6e67a9ed8a"
+    }
+  },
+  {
+    "name": "identical_content_refresh",
+    "envelope": {
+      "schema_version": 1,
+      "canonicalization": "mcd-json-v1",
+      "adapter_revision": "sparkclaw-mcd-p0-v2",
+      "scope": {
+        "deployment_id": "fixture",
+        "owner_id": "owner",
+        "client_id": "client",
+        "installation_id": "mac",
+        "account_ref": "fixture",
+        "member_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+        "credential_revision": 1,
+        "execution_id": "execution"
+      },
+      "source_quote_ref": "00000000000000000000000000000002",
+      "purchase_id": "purchase",
+      "quote_revision": 2,
+      "handoff_epoch": 2,
+      "generated_at_ms": 1700000060000,
+      "expires_at_ms": 1700000180000,
+      "currency": "CNY",
+      "payment_method": "ARCHCARD",
+      "cart_digest": "d81ace2c0fb0eab51570dc26fb415c13d00c3c2aaa722895b3e4a1b174ec82de",
+      "quote": {
+        "store_code": "9000001",
+        "store_name": "示例门店 1",
+        "pickup_at": "2099-01-01T10:00:00+08:00",
+        "eat_type": "locker-in",
+        "items": [
+          {
+            "product_code": "100001",
+            "name": "演示汉堡",
+            "quantity": 1,
+            "product_type": "1",
+            "components": [],
+            "configuration": {},
+            "coupon_fingerprint": null,
+            "amount_cents": 1000
+          }
+        ],
+        "amount_cents": 1000,
+        "regular_cents": 1000,
+        "discount_cents": 0,
+        "discount_names": [],
+        "body": {
+          "realTotalAmount": "10.00",
+          "uniCode": "",
+          "vehicleTypeCode": "",
+          "eatTypeCode": "locker-in",
+          "date": "2099-01-01",
+          "beCode": "",
+          "skipPriceChange": false,
+          "storeCode": "9000001",
+          "cartItems": [
+            {
+              "productImage": "",
+              "realSubtotal": "10.00",
+              "productCode": "100001",
+              "uniqueKey": "demo-cart-item",
+              "productType": "1",
+              "quantity": 1,
+              "productName": "演示汉堡",
+              "sequence": 1,
+              "productPrice": "10.00",
+              "changeQuantity": 0,
+              "status": 0,
+              "couponList": []
+            }
+          ],
+          "dayPartCode": "2",
+          "licensePlate": "",
+          "tablewareCode": "no",
+          "beType": "1",
+          "driveDuration": -1,
+          "time": "10:00",
+          "orderType": "1",
+          "vehicleColorCode": "",
+          "autoMatch": true,
+          "addressId": ""
+        },
+        "intent": "f2316c3d052b25243e725718ebe058bfc417de393981dcfb1abfdda78f4b32d5",
+        "checkout_digest": "8e278d2cdabfb118a49eda887b2baf8fa4281dd8cae6bba238391f9f61d80db4",
+        "daypart": "2",
+        "request": {
+          "account": "fixture",
+          "store_code": "9000001",
+          "pickup_at": "2099-01-01T10:00:00+08:00",
+          "max_amount_cny": "20.00",
+          "eat_type": "locker-in"
+        },
+        "wallet_before_cents": 10100,
+        "simulation": false
+      },
+      "pickup_receipt": null,
+      "purchase_digest": "5a04e36ecdec52f7dd9a56855ee1c38132a129f2dc150a77603bf58b987b4d64",
+      "envelope_digest": "b03390e8f07f88d0b92528e1be0d908921efb4b3df5636bf3157985ec5f3993d"
+    }
+  },
+  {
+    "name": "changed_benefit",
+    "envelope": {
+      "schema_version": 1,
+      "canonicalization": "mcd-json-v1",
+      "adapter_revision": "sparkclaw-mcd-p0-v2",
+      "scope": {
+        "deployment_id": "fixture",
+        "owner_id": "owner",
+        "client_id": "client",
+        "installation_id": "mac",
+        "account_ref": "fixture",
+        "member_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+        "credential_revision": 1,
+        "execution_id": "execution"
+      },
+      "source_quote_ref": "00000000000000000000000000000001",
+      "purchase_id": "purchase",
+      "quote_revision": 1,
+      "handoff_epoch": 1,
+      "generated_at_ms": 1700000000000,
+      "expires_at_ms": 1700000120000,
+      "currency": "CNY",
+      "payment_method": "ARCHCARD",
+      "cart_digest": "d81ace2c0fb0eab51570dc26fb415c13d00c3c2aaa722895b3e4a1b174ec82de",
+      "quote": {
+        "store_code": "9000001",
+        "store_name": "示例门店 1",
+        "pickup_at": "2099-01-01T10:00:00+08:00",
+        "eat_type": "locker-in",
+        "items": [
+          {
+            "product_code": "100001",
+            "name": "演示汉堡",
+            "quantity": 1,
+            "product_type": "1",
+            "components": [],
+            "configuration": {},
+            "coupon_fingerprint": null,
+            "amount_cents": 1000
+          }
+        ],
+        "amount_cents": 1000,
+        "regular_cents": 1000,
+        "discount_cents": 0,
+        "discount_names": [
+          "另一个优惠"
+        ],
+        "body": {
+          "realTotalAmount": "10.00",
+          "uniCode": "",
+          "vehicleTypeCode": "",
+          "eatTypeCode": "locker-in",
+          "date": "2099-01-01",
+          "beCode": "",
+          "skipPriceChange": false,
+          "storeCode": "9000001",
+          "cartItems": [
+            {
+              "productImage": "",
+              "realSubtotal": "10.00",
+              "productCode": "100001",
+              "uniqueKey": "demo-cart-item",
+              "productType": "1",
+              "quantity": 1,
+              "productName": "演示汉堡",
+              "sequence": 1,
+              "productPrice": "10.00",
+              "changeQuantity": 0,
+              "status": 0,
+              "couponList": []
+            }
+          ],
+          "dayPartCode": "2",
+          "licensePlate": "",
+          "tablewareCode": "no",
+          "beType": "1",
+          "driveDuration": -1,
+          "time": "10:00",
+          "orderType": "1",
+          "vehicleColorCode": "",
+          "autoMatch": true,
+          "addressId": ""
+        },
+        "intent": "f2316c3d052b25243e725718ebe058bfc417de393981dcfb1abfdda78f4b32d5",
+        "checkout_digest": "8e278d2cdabfb118a49eda887b2baf8fa4281dd8cae6bba238391f9f61d80db4",
+        "daypart": "2",
+        "request": {
+          "account": "fixture",
+          "store_code": "9000001",
+          "pickup_at": "2099-01-01T10:00:00+08:00",
+          "max_amount_cny": "20.00",
+          "eat_type": "locker-in"
+        },
+        "wallet_before_cents": 10000,
+        "simulation": false
+      },
+      "pickup_receipt": null,
+      "purchase_digest": "45ebad2603d6920136476315480014e9314e3443e0deabf4994391795114299f",
+      "envelope_digest": "982265cb72afa701b0ffa369a074d0b0074c2c4674c072a3394fd48c29ff72ef"
+    }
+  }
+]

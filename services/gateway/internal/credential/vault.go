@@ -405,6 +405,20 @@ func (v *Vault) OpenBindingVersion(ctx context.Context, bindingID, kind string) 
 // ReplaceBinding atomically creates or replaces the encrypted value at a
 // stable binding. Connector Seal semantics intentionally remain immutable.
 func (v *Vault) ReplaceBinding(ctx context.Context, bindingID, kind string, plaintext []byte) error {
+	return v.replaceBinding(ctx, bindingID, kind, plaintext, nil)
+}
+
+// CompareAndReplaceBinding replaces only the generation returned by
+// OpenBindingVersion. Zero means absent. A stale writer cannot restore a
+// revoked lease. The repository also arbitrates writers in other processes.
+func (v *Vault) CompareAndReplaceBinding(ctx context.Context, bindingID, kind string, plaintext []byte, generation int64) error {
+	if generation < 0 || generation > 1<<53-1 {
+		return credentialError(CodeInvalid, errors.New("credential generation is invalid"))
+	}
+	return v.replaceBinding(ctx, bindingID, kind, plaintext, &generation)
+}
+
+func (v *Vault) replaceBinding(ctx context.Context, bindingID, kind string, plaintext []byte, generation *int64) error {
 	if err := v.Ready(); err != nil {
 		return err
 	}
@@ -420,6 +434,11 @@ func (v *Vault) ReplaceBinding(ctx context.Context, bindingID, kind string, plai
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	intent := pendingCommand{mode: pendingReplace, bindingID: bindingID, kind: kind, fingerprint: fingerprint}
+	if generation != nil {
+		// Resolve uncertainty by observation, never replay an old conditional
+		// write before checking the caller's generation.
+		intent = pendingCommand{}
+	}
 	if _, completed, err := v.resolvePendingLocked(ctx, intent); err != nil || completed {
 		return err
 	}
@@ -427,6 +446,9 @@ func (v *Vault) ReplaceBinding(ctx context.Context, bindingID, kind string, plai
 	stored, found, err := v.repository.GetCredentialSecret(ctx, ref)
 	if err != nil {
 		return v.mapRepositoryError(err)
+	}
+	if generation != nil && (found && v.bindingGeneration(stored) != *generation || !found && *generation != 0) {
+		return credentialError(CodeInvalid, errors.New("credential generation changed"))
 	}
 	sealedValue, err := v.sealEnvelope(ref, kind, plaintext)
 	if err != nil {

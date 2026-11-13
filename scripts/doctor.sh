@@ -10,6 +10,14 @@ source "$ROOT/scripts/lib/browser-runtime.sh"
 echo "SparkClaw doctor"
 echo "root=$ROOT"
 
+if [[ -d "$ROOT/.cache/ezmcd-adapter" ]]; then
+  if python3 "$ROOT/scripts/setup-ezmcd-adapter.py" --check >/dev/null 2>&1; then
+    echo "ok  EzMcDonalds helper build (product/purchase qualification remains separate)"
+  else
+    echo "warn EzMcDonalds helper build is stale or incomplete; see docs/ezmcd-adapter-implementation.md"
+  fi
+fi
+
 DOCTOR_PROFILE="${SPARKCLAW_DOCTOR_PROFILE:-local}"
 PRODUCT_ENV="$ROOT/docker/env/sparkclaw.product.env"
 case "$DOCTOR_PROFILE" in

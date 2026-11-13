@@ -65,6 +65,8 @@
 | [统一文档结构与评估证据](document-structure-and-evaluation-design.md) | 本地已实现：所有支持大小均先获取结构，明确任务覆盖，内部证据显式启用、按需离线导出；待 owner 验收，程序不内置评审 |
 | [文档结构树与分层展开](document-structure-tree-design.md) | 设计提案，尚未实现：每个源版本一棵 canonical 结构树，只用原生结构、物理分组兜底、不推断标题，广度优先的有界目录、章节首句与按需容器展开 |
 | [外部集成](integrations.md) | LocalMind task MCP、Telegram、微信、语音转写和 Infinimesh Info |
+| [EzMcDonalds 分端接入](ezmcd-split-integration-design.md) | R2 设计：Mac 获取凭据并以麦当劳钱包下单付款，work2 加密保存选餐会话、处理购物车与报价；报价刷新和准备撤销契约 |
+| [EzMcDonalds 实现检查点](ezmcd-adapter-implementation.md) | 真实切换取餐 G2 已通过；加密会话基础和专项验证完成，G1 v5 与完整产品接入待完成，购买关闭 |
 | [LocalMind Workflow](localmind-task-workflow-design.md) | 已实现显式文字委派、read/write Approval 拆分、有界状态查询完成、上下文 query 和 cancel |
 | [WebChat 语音输入闭环设计](webchat-voice-input-design.md) | Phase 1 稳定采集闭环，以及 Phase 2 native record-time ASR、partial/final reconciliation、silence stop 与 batch fallback 设计；LLM 润色推迟到 Phase 3 |
 | [WebChat 语音 Phase 2 设计](webchat-voice-phase2-design.md) | 规范性的 native record-time Qwen ASR transport、revisioned partial/final output、silence auto-stop、完整 WAV fallback 与 acceptance gate |

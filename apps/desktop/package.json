@@ -50,7 +50,8 @@
       "bin/**/*",
       "!bin/iscp-workbench*",
       "!bin/browser-controller{,/**/*}",
-      "package.json"
+      "package.json",
+      "!bin/ezmcd*{,/**/*}"
     ],
     "extraResources": [
       {
@@ -147,7 +148,8 @@
         "!bin/iscp-workbench*",
         "!bin/browser-controller{,/**/*}",
         "package.json",
-        "!node_modules/@deepseek-ai/libreoffice-kit-wasm/**/*"
+        "!node_modules/@deepseek-ai/libreoffice-kit-wasm/**/*",
+        "!bin/ezmcd*{,/**/*}"
       ]
     },
     "asarUnpack": [

@@ -1,0 +1,30 @@
+{
+  "account_unchanged": true,
+  "binary_sha256": "c7684499ea491e20004a8b748be4fc1472ef3e2047b5f9656c7150daeb6b28e4",
+  "checked_at_ms": 1794562882075,
+  "live_v4_member_verified": true,
+  "live_v5_read_verified": true,
+  "observation_expired_by_project_policy": false,
+  "observation_time_changed": false,
+  "order_created": false,
+  "original_ledger_unchanged": true,
+  "passed": true,
+  "payment_attempted": false,
+  "product_qualified": false,
+  "schema_version": 1,
+  "scope": "current-build v4/v5 read-only G1; not product checkout qualification",
+  "upstream_patch_sha256": "9f2c369f4f633f55d7b843655ae9dadceba135c01e42874477feedc47ac93762",
+  "handoff_thread": "01a1d310-38f5-73a3-848d-ed9de44bfdf5",
+  "upstream_core_tests": {
+    "passed": 787,
+    "skipped": 2,
+    "total": 789
+  },
+  "historical_upstream_purchase": {
+    "verified_in_handoff": true,
+    "payment_method": "ARCHCARD",
+    "amount_cents": 1490,
+    "one_off_authority_consumed": true,
+    "sparkclaw_product_purchase_qualified": false
+  }
+}

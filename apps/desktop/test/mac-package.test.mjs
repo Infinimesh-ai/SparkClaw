@@ -5,7 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { createPackage } from "@electron/asar";
-import auditPackage, { auditApplicationEntries, auditRuntimeEntries, requiredRuntimeEntries } from "../scripts/audit-package.mjs";
+import auditPackageReal, { auditPackageWithRuntime, auditApplicationEntries, auditRuntimeEntries, requiredRuntimeEntries } from "../scripts/audit-package.mjs";
 import { syntheticControllerBundle } from "./controller-bundle-fixture.mjs";
 import { verifyControllerBundle } from "../src/browser/controller-bundle.mjs";
 
@@ -42,6 +42,7 @@ test("client package audit permits public sources and only locked desktop runtim
 });
 
 test("afterPack audits a synthetic ASAR/resources tree without compiling any Mac binary", async (t) => {
+  const auditPackage=context=>auditPackageWithRuntime(context,async(p,options)=>{assert.match(p,/ezmcd\/bin\/python3$/u);assert.equal(options.platform,'darwin');assert.equal(options.architecture,'arm64');return {manifest_sha256:'synthetic-only',files:1,bytes:1};});
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-package-audit-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const source = path.join(directory, "source");
@@ -77,9 +78,11 @@ test("afterPack audits a synthetic ASAR/resources tree without compiling any Mac
   await fs.chmod(helperPath, 0o755);
   await assert.rejects(auditPackage(context), /ENOENT/);
   await syntheticControllerBundle(path.join(resources, "browser-controller"));
+  await assert.rejects(auditPackageReal(context),/ENOENT/);
   await auditPackage(context);
   const result = JSON.parse(await fs.readFile(path.join(resources, "client-package-audit.json")));
   assert.equal(result.platform, "darwin"); assert.equal(result.ui_files, 2);
+  assert.equal(result.mcd_runtime.manifest_sha256,'synthetic-only');
   assert.match(result.iscp_helper_sha256, /^[a-f0-9]{64}$/u);
   assert.equal(result.browser_controller.protocol, "browser.controller.v1");
   assert.match(result.browser_controller.manifest_sha256, /^[a-f0-9]{64}$/u);

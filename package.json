@@ -42,6 +42,9 @@
     "undici@7": "7.29.1"
   },
   "scripts": {
+    "setup:ezmcd-adapter": "python3 scripts/setup-ezmcd-adapter.py",
+    "check:ezmcd-adapter": "python3 scripts/setup-ezmcd-adapter.py --check",
+    "test:ezmcd-adapter": "npm run check:ezmcd-adapter && .cache/ezmcd-adapter/venv/bin/python -m unittest discover -s tools/ezmcd-adapter/tests -v && node --test tools/ezmcd-adapter/tests/canonical.test.mjs",
     "deploy:local": "bash scripts/deploy_local.sh",
     "start:local": "bash scripts/start_local_compose.sh",
     "deploy:remote": "bash scripts/deploy_remote.sh",
@@ -90,7 +93,11 @@
     "build:client-controller": "node scripts/build-client-controller.mjs",
     "check:client-controller": "node scripts/build-client-controller.mjs --check",
     "sync:controller-operations": "node scripts/sync-controller-operations.mjs",
-    "check:controller-operations": "node scripts/sync-controller-operations.mjs --check"
+    "check:controller-operations": "node scripts/sync-controller-operations.mjs --check",
+    "sync:ezmcd-contract": "node scripts/sync-ezmcd-contract.mjs",
+    "check:ezmcd-contract": "node scripts/sync-ezmcd-contract.mjs --check",
+    "build:ezmcd-runtime": "node scripts/build-ezmcd-runtime.mjs",
+    "check:ezmcd-runtime": "node scripts/build-ezmcd-runtime.mjs --check"
   },
   "engines": {
     "node": ">=26 <27",

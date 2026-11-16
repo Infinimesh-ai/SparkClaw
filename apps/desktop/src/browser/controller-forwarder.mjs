@@ -1,7 +1,9 @@
+import { sameBrowserTask } from "./page-interaction.mjs";
 import path from "node:path";
 import { HostJournal } from "./host-journal.mjs";
 import { ControllerAdmission } from "./controller-admission.mjs";
 import { ControllerResults } from "./controller-results.mjs";
+import { latencyNow, traceLatency } from "../main/latency-trace.mjs";
 import { refreshBrowserFences, reconcileBrowserFence } from "./controller-receipts.mjs";
 import { CONTROLLER_OPERATIONS, ID, exactObject, validateControllerBinding, validateControllerRequest, validateControllerLease,
   sameControllerBinding, sameControllerLease, wireBytes, positive } from "./controller-wire.mjs";
@@ -13,6 +15,9 @@ const INLINE_RESULT = Symbol("inline-result-descriptor");
 
 export class BrowserControllerForwarder {
   constructor({ auth, registry, runtime, userDataDir, onChange = () => {}, isTaskCanceled = () => false, onVerifiedPage = () => {} }) {
+    if (!["beginTaskEnd", "completeTaskEnd", "closeHostPages"].every(method => typeof registry?.[method] === "function")) {
+      throw new Error("Browser page lifecycle is unavailable");
+    }
     Object.assign(this, { auth, registry, runtime, onChange, isTaskCanceled, onVerifiedPage });
     this.journal = new HostJournal(path.join(userDataDir, "workbench/browser-journal"));
     this.remoteFences = new Map(); this.flights = new Map(); this.results = new ControllerResults();
@@ -21,11 +26,27 @@ export class BrowserControllerForwarder {
     this.receiptTimeoutMS = 5000;
     this.authority = new AbortController(); this.lease = null;
     const stopped = runtime.onStopped;
-    runtime.onStopped = reason => { this.#retireLease(); stopped?.(reason); this.onChange(); };
+    let stoppedGroups = [];
+    runtime.onStopping = reason => {
+      if (["authority_changed", "controller_exited", "controller_lease_expired", "stopped"].includes(reason)) {
+        const binding = reason === "authority_changed" || reason === "stopped" ? null : this.runtimeBinding;
+        stoppedGroups = binding === undefined ? [] : this.registry.beginTaskEnd(binding, reason);
+        for (const group of stoppedGroups) this.#fenceTask(group.binding);
+      }
+    };
+    runtime.onStopped = async (reason, clean) => {
+      const groups = stoppedGroups; stoppedGroups = [];
+      if (clean === true) {
+        await this.registry.completeTaskEnd(groups);
+        this.#retireLease();
+      }
+      await stopped?.(reason, clean); this.onChange();
+    };
   }
   async start(scope) {
     await this.stop();
     await this.journal.load();
+    this.cancelledTasks.clear();
     this.scope = Object.freeze({ installation_id: scope?.installation_id, owner_id: this.auth.connection?.ownerID, client_id: this.auth.connection?.clientID });
     if (Object.values(this.scope).some(value => !ID.test(value))) throw new Error("Browser client identity is unavailable");
     await this.runtime.prepare();
@@ -41,31 +62,44 @@ export class BrowserControllerForwarder {
       command_id: row.command_id, digest: row.digest, local_conversation_id: row.local_conversation_id, local_task_id: row.local_task_id })) };
   }
   autoConnect() { void this.#connect(this.auth.transport?.capabilities).catch(() => {}); }
-  cancelTask(binding) {
-    if (!this.scope || !["owner_id", "client_id", "installation_id"].every(key => binding?.[key] === this.scope[key]) ||
-        !ID.test(binding?.local_conversation_id) || !ID.test(binding?.local_task_id)) return;
+  #fenceTask(binding) {
     const key = taskKey(binding);
     if (this.cancelledTasks.size >= 1024 && !this.cancelledTasks.has(key)) {
       this.state = "unavailable"; this.authority.abort(); this.admission.close();
     } else this.cancelledTasks.add(key);
-    for (const flight of this.flights.values()) if (flight.taskKey === key) flight.abort.abort();
-    if (this.state === "unavailable" || this.lease && taskKey(this.lease.binding) === key) {
-      const generation = this.generation;
-      const failed = () => {
-        if (generation !== this.generation) return;
-        this.state = "unavailable"; this.authority.abort(); this.admission.close(); this.onChange();
-      };
-      try { return this.runtime.stop("task_canceled").catch(failed); }
-      catch { failed(); }
+    for (const flight of this.flights.values()) if (flight.taskKey === key) {
+      flight.abort.abort(); delete flight.inline;
+      if (flight.reply) delete flight.reply.payload;
     }
+    this.results.discardTask(binding);
   }
-  async stop() { await this.suspend(); this.scope = undefined; this.remoteFences.clear(); this.state = "ungranted"; }
-  async suspend() {
+  cancelTask(binding) { return this.endTask(binding, "task_canceled"); }
+  async endTask(binding, reason = "task_ended") {
+    if (!this.scope || !["owner_id", "client_id", "installation_id"].every(key => binding?.[key] === this.scope[key]) ||
+        !ID.test(binding?.local_conversation_id) || !ID.test(binding?.local_task_id) ||
+        binding.connection_epoch && binding.connection_epoch !== this.session?.session_id) return;
+    this.#fenceTask(binding);
+    const groups = this.registry.beginTaskEnd(binding, reason);
+    const active = sameBrowserTask(this.lease?.binding, binding) || sameBrowserTask(this.runtimeBinding, binding);
+    try {
+      if (active) await this.runtime.stop(reason);
+      await this.registry.completeTaskEnd(groups);
+    } catch {
+      this.state = "unavailable"; this.authority.abort(); this.admission.close();
+    }
+    this.onChange();
+  }
+  async stop() { await this.suspend({ preserve: false }); this.scope = undefined; this.remoteFences.clear(); this.state = "ungranted"; }
+  async suspend({ preserve = true } = {}) {
     this.generation++; this.authority.abort(); this.admission.close();
     this.session = undefined; this.state = "suspended";
     this.results.clear(); this.flights.clear();
+    const groups = this.registry.beginTaskEnd(null, "host_disconnected");
+    for (const group of groups) this.#fenceTask(group.binding);
+    if (!preserve) this.registry.closeHostPages("host_fenced");
     await this.runtime.stop("authority_changed");
-    this.registry.closeHostPages("host_disconnected"); this.onChange();
+    if (preserve) await this.registry.completeTaskEnd(groups);
+    this.onChange();
   }
   refreshFences() { return refreshBrowserFences(this, () => { this.state = "reconciliation_conflict"; this.authority.abort(); void this.runtime.stop("reconciliation_conflict").catch(() => {}); }); }
   async reconcile(commandID, digest, outcome) {
@@ -96,7 +130,6 @@ export class BrowserControllerForwarder {
       await this.suspend();
       if (!this.#authorized(session, true)) throw failure("capability_unavailable");
       this.authority = new AbortController(); this.admission = new ControllerAdmission();
-      this.cancelledTasks.clear();
       this.session = Object.freeze({ session_id: session.session_id, authorization_revision: session.authorization_revision });
       this.state = "connected";
       try { await this.refreshFences(); }
@@ -110,24 +143,37 @@ export class BrowserControllerForwarder {
 
   async handleReverse(request, session) {
     const received = performance.now();
+    const isStatus = request?.operation === "browser.controller.status";
+    const record = (reason, status, state) => {
+      if (isStatus) traceLatency("browser.controller_status", { rpc_id: request.id, operation: request.operation, reason, status, state, duration_ms: latencyNow() - received });
+    };
     if (!CONTROLLER_OPERATIONS.includes(request?.operation) || request.profile !== PROFILE) return rejected(403, "permission_denied");
-    if (request.installation_id !== this.scope?.installation_id || !this.#authorized(session, request.operation.endsWith(".status"))) return rejected(503, "capability_unavailable");
+    if (request.installation_id !== this.scope?.installation_id || !this.#authorized(session, request.operation.endsWith(".status"))) {
+      record("local_authorization", 503, this.state);
+      return rejected(503, "capability_unavailable");
+    }
     let mutation;
     try { mutation = validateControllerRequest(request.operation, request.body); }
-    catch { return rejected(400, "invalid_request"); }
+    catch { record("invalid_request", 400, this.state); return rejected(400, "invalid_request"); }
     try {
       if (request.operation !== "browser.controller.status") validateControllerBinding(request.body.binding, this.scope, session);
       await this.#connect(session);
-    } catch { return rejected(503, "capability_unavailable"); }
+    } catch { record("forwarder_not_ready", 503, this.state); return rejected(503, "capability_unavailable"); }
     const limit = Math.min(WIRE_LIMIT, this.auth.transport.capabilities.limits?.body_bytes || WIRE_LIMIT,
       this.auth.transport.capabilities.limits?.response_bytes || WIRE_LIMIT);
-    if (wireBytes(request) > limit) return rejected(413, "invalid_request");
+    if (wireBytes(request) > limit) { record("request_budget", 413, this.state); return rejected(413, "invalid_request"); }
     if (request.operation.endsWith(".status")) {
       const status = this.runtime.snapshot();
       const body = { schema_version: 1, ...status, limits: { ...status.limits, wire_bytes: limit, cache_bytes: 20 << 20,
         chunk_bytes: Math.max(1, Math.min(32 << 10, Math.floor((limit - 2048) * 3 / 4))),
         chunk_concurrency: Math.min(4, this.auth.transport.capabilities.limits?.concurrent || 4) } };
-      return fits(request, body, limit) ? { status: 200, body } : rejected(413, "result_budget_exceeded");
+      if (!fits(request, body, limit)) { record("response_budget", 413, status.process_state); return rejected(413, "result_budget_exceeded"); }
+      record(status.available ? "available" : "runtime_unavailable", 200, status.process_state);
+      return { status: 200, body };
+    }
+    if (request.operation !== "browser.controller.status" && this.cancelledTasks.has(taskKey(request.body.binding))) {
+      return request.operation.endsWith(".chunk") ? rejected(404, "browser_result_unavailable") :
+        { status: 200, body: result(request.body, this.runtime.incarnation, "not_dispatched", "command_fenced") };
     }
     if (request.operation.endsWith(".chunk")) {
       try {
@@ -192,6 +238,7 @@ export class BrowserControllerForwarder {
       if (action === "acquire") {
         acquiredSlot = await this.admission.acquire({ deadline: context.deadline, waitMS: command.wait_timeout_ms, signal });
         current();
+        this.runtimeBinding = command.binding;
         await abortable(this.runtime.start(), signal);
         current(); incarnation = this.runtime.incarnation;
         task = this.runtime.adapter.prepareControllerTask(command.binding, incarnation);
@@ -255,10 +302,12 @@ export class BrowserControllerForwarder {
       } else {
         exactObject(payload, ["schema_version", "state", "profile_id", "controller_generation", "session_generation"]);
         if (payload?.schema_version !== 1 || payload.state !== "released" || payload.profile_id !== "client_embedded" || payload.controller_generation !== command.lease.controller_generation || payload.session_generation !== command.lease.session_generation) throw failure("browser_controller_unavailable");
-        this.runtime.adapter.revokeControllerTask(this.lease.taskID, "normal_release");
+        await this.runtime.adapter.revokeControllerTask(this.lease.taskID, "normal_release");
+        current();
       }
       if (context.mutation) await this.journal.finish(command.command_id, "completed");
       completed = true;
+      current(); // A terminal fact may have arrived during durable receipt I/O.
       if (action === "release") { this.#retireLease(); this.runtime.state = "ready"; }
       const inline = { ...result(command, incarnation, "completed"), payload };
       // Store immutable bytes even when sending inline, to account for retained
@@ -293,7 +342,7 @@ export class BrowserControllerForwarder {
       if (ownsRuntime && (dispatched && !completed || action === "acquire" && acquiredSlot && !completed)) {
         await this.runtime.stop("controller_call_failed").catch(() => {});
       }
-      if (ownsRuntime && task && !this.lease) this.runtime.adapter?.revokeControllerTask(task.taskID);
+      if (ownsRuntime && task && !this.lease) await this.runtime.adapter?.revokeControllerTask(task.taskID);
       if (acquiredSlot && this.lease?.slot !== acquiredSlot && !this.runtime.closed) this.admission.release(acquiredSlot);
       const outcome = completed ? "completed" : dispatched && context.mutation ? "unknown" : dispatched ? "failed" : "not_dispatched";
       return result(command, incarnation, outcome, completed ? "browser_result_unavailable" : error.code || (dispatched ? "browser_write_outcome_unknown" : "browser_busy"));
@@ -311,7 +360,8 @@ export class BrowserControllerForwarder {
       [...this.remoteFences.values()].some(row => row.scope.local_conversation_id === binding.local_conversation_id);
   }
   #retireLease() {
-    const active = this.lease; this.lease = null;
+    if (this.runtime.closed) return;
+    const active = this.lease; this.lease = null; this.runtimeBinding = undefined;
     if (active) {
       clearTimeout(active.timer);
       const admission = this.admission;

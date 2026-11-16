@@ -1,3 +1,4 @@
+import { canInteract } from "../browser/page-interaction.mjs";
 const INITIAL_BOUNDS = Object.freeze({ x: 780, y: 80, width: 640, height: 720 });
 
 export class BrowserPresentation {
@@ -56,6 +57,7 @@ export class BrowserPresentation {
   }
 
   showTask(record, explicit = false) {
+    if (canInteract(record)) return this.showPersonal(record, explicit);
     if (explicit) this.panelVisible = true;
     if (!this.panelVisible || (this.explicitSelection && !explicit && this.presented?.tabID !== record.tabID)) return;
     this.#hidePresented();
@@ -96,7 +98,7 @@ export class BrowserPresentation {
   }
 
   redirectTaskFocus() {
-    if (this.presented?.role === "task" && !this.shieldView.webContents.isDestroyed()) {
+    if (this.presented?.role === "task" && !canInteract(this.presented) && !this.shieldView.webContents.isDestroyed()) {
       this.shieldView.webContents.focus();
     }
   }

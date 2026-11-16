@@ -423,12 +423,23 @@ func (e *Endpoint) receive(ctx context.Context, raw json.RawMessage) error {
 	if err := strictDecode(raw, &env); err != nil {
 		return errors.New("invalid workbench envelope")
 	}
+	businessRPC := env.PayloadType == RequestType || env.PayloadType == ResponseType
+	if businessRPC {
+		ctx = latencytrace.WithFields(ctx, latencytrace.Fields{Role: e.config.Role, EnvelopeID: env.MessageID})
+		latencytrace.Record(ctx, "rpc.envelope_received", time.Time{}, nil, 0)
+	}
+	reject := func(reason string, err error) error {
+		if businessRPC {
+			latencytrace.RecordDetail(ctx, "rpc.envelope_rejected", time.Time{}, err, latencytrace.Detail{Reason: reason})
+		}
+		return err
+	}
 	b := e.material.enrollment
 	if env.Type != envelope.TypeSecureEnvelope || env.DomainID != b.DomainID || env.SenderDeviceID != e.material.peer.DeviceID || env.RecipientDeviceID != b.DeviceID || env.Route.RelayID != b.RelayID || env.Route.TTLSeconds <= 0 || env.Route.TTLSeconds > 30 || !uuidPattern.MatchString(env.SessionID) || !uuidPattern.MatchString(env.MessageID) {
-		return errors.New("workbench envelope identity or route mismatch")
+		return reject("identity_or_route", errors.New("workbench envelope identity or route mismatch"))
 	}
 	if err := verifyGrant(e.config, e.grantMaterial(), time.Now().UTC()); err != nil {
-		return err
+		return reject("grant_validation", err)
 	}
 	switch env.PayloadType {
 	case session.TypeHello:
@@ -443,7 +454,7 @@ func (e *Endpoint) receive(ctx context.Context, raw json.RawMessage) error {
 		return e.acceptReady(ctx, env)
 	case manifestType, RequestType, ResponseType, pingType, pongType, appstream.Type, appstream.ControlType:
 		if !e.matchesSession(env.SessionID) {
-			return nil
+			return reject("session_mismatch", nil)
 		}
 		return e.acceptEncrypted(ctx, env)
 	default:
@@ -604,7 +615,7 @@ func (e *Endpoint) enqueuePayload(ctx context.Context, payloadType string, raw [
 	if (payloadType == RequestType || payloadType == ResponseType) && ctx.Value(streamSendContextKey{}) == nil {
 		started := latencytrace.Clock()
 		err := e.checkAuthorization(ctx)
-		latencytrace.Record(ctx, "rpc.send_authorization", started, err, 0)
+		traceAuthorization(ctx, "rpc.send_authorization", started, err)
 		if err != nil {
 			return nil, err
 		}
@@ -638,44 +649,75 @@ func (e *Endpoint) enqueuePayload(ctx context.Context, payloadType string, raw [
 		e.mu.Unlock()
 		return nil, fmt.Errorf("encrypt workbench payload: %w", err)
 	}
+	trace := payloadType == RequestType || payloadType == ResponseType
+	traceCtx := ctx
+	if trace {
+		traceCtx = latencytrace.WithFields(ctx, latencytrace.Fields{Role: e.config.Role, EnvelopeID: env.MessageID})
+		latencytrace.Record(traceCtx, "rpc.envelope_created", time.Time{}, nil, 0)
+	}
+	queuedAt := latencytrace.Clock()
 	var wait func(context.Context) error
 	if sender, ok := e.relay.(interface {
 		Enqueue(context.Context, any) (*iscpbridge.ReceiptFuture, error)
 	}); ok {
 		future, err := sender.Enqueue(ctx, env)
 		e.mu.Unlock()
+		if trace {
+			traceRelayOutcome(traceCtx, "rpc.relay_enqueue", queuedAt, err)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("enqueue encrypted workbench payload: %w", err)
 		}
 		wait = func(ctx context.Context) error { _, err := future.Wait(ctx); return err }
 	} else {
 		e.mu.Unlock()
-		if err := e.relay.Submit(ctx, env); err != nil {
+		err := e.relay.Submit(ctx, env)
+		if trace {
+			traceRelayOutcome(traceCtx, "rpc.relay_submit", queuedAt, err)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("submit encrypted workbench payload: %w", err)
 		}
-		wait = func(context.Context) error { return nil }
+		return func(context.Context) error { return nil }, nil
 	}
 	return func(ctx context.Context) error {
 		ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 		defer cancel()
-		if err := wait(ctx); err != nil {
+		started := latencytrace.Clock()
+		err := wait(ctx)
+		if trace {
+			traceRelayOutcome(traceCtx, "rpc.relay_receipt", started, err)
+		}
+		if err != nil {
 			return fmt.Errorf("submit encrypted workbench payload: %w", err)
 		}
 		return nil
 	}, nil
 }
 
-func (e *Endpoint) acceptEncrypted(ctx context.Context, env envelope.SecureEnvelope) error {
+func (e *Endpoint) acceptEncrypted(ctx context.Context, env envelope.SecureEnvelope) (resultErr error) {
 	arrived := latencytrace.Clock()
+	businessRPC := env.PayloadType == RequestType || env.PayloadType == ResponseType
+	reason := ""
+	if businessRPC {
+		ctx = latencytrace.WithFields(ctx, latencytrace.Fields{Role: e.config.Role, EnvelopeID: env.MessageID})
+		defer func() {
+			if reason != "" {
+				latencytrace.RecordDetail(ctx, "rpc.envelope_rejected", arrived, resultErr, latencytrace.Detail{Reason: reason})
+			}
+		}()
+	}
 	e.mu.Lock()
 	s := e.session
 	if s == nil || s.id != env.SessionID {
 		e.mu.Unlock()
+		reason = "session_mismatch"
 		return nil
 	}
 	notReady := s.state == nil || !s.state.Ready()
 	if notReady || (env.PayloadType != manifestType && !s.manifest) {
 		e.mu.Unlock()
+		reason = "manifest_not_ready"
 		if e.config.EffectiveRelayProfile() == iscpbridge.ProfileLocalLab && e.config.Role == RoleResponder && notReady {
 			return nil
 		}
@@ -683,20 +725,26 @@ func (e *Endpoint) acceptEncrypted(ctx context.Context, env envelope.SecureEnvel
 	}
 	if err := authenticateEnvelope(e.provider, s.state, env); err != nil {
 		e.mu.Unlock()
+		reason = "envelope_authentication"
 		return errors.New("workbench payload authentication failed")
 	}
 	raw, err := envelope.Decrypt(e.provider, s.state, env)
 	if err != nil {
 		e.mu.Unlock()
+		reason = "decryption_or_replay"
 		return errors.New("workbench payload authentication or replay verification failed")
 	}
 	if len(raw) > MaxMessageBytes {
 		e.mu.Unlock()
+		reason = "plaintext_limit"
 		return errors.New("workbench plaintext exceeds limit")
 	}
 	s.timeReceived = time.Now().UTC()
 	sessionCtx := s.ctx
 	e.mu.Unlock()
+	if businessRPC {
+		sessionCtx = latencytrace.WithFields(sessionCtx, latencytrace.Fields{Role: e.config.Role, EnvelopeID: env.MessageID})
+	}
 	switch env.PayloadType {
 	case manifestType:
 		return e.acceptManifest(raw, env.SessionID)

@@ -15,6 +15,10 @@
 候选路径、摘要、工程前置条件及所有者最终步骤见
 [候选验收指南](desktop-browser-controller-candidate-acceptance.md)。
 
+[执行期间只读与结束后交还设计](desktop-browser-interaction-control-design.md)保留 agent 执行期间的任务页输入锁，
+仅在本次浏览器任务结束且执行清理完成后开放保留页的用户操作。本期不做共享交互或新增暂停／继续协议。
+源码实现与验证记录见该设计第 11 节，已安装客户端的发布验收仍待完成。本文的传输、授权和回执不变量继续保留。
+
 ## 1. 决策
 
 将通用 Browser Controller 和 Playwright MCP 放入每个 SparkX 安装包，使用现有已认证的

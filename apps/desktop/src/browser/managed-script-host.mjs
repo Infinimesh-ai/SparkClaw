@@ -1,3 +1,4 @@
+import { canInteract } from "./page-interaction.mjs";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -67,7 +68,7 @@ export class ManagedScriptHost {
       if (isMainFrame) this.#clearDocument(record.webContents.id);
     });
     record.webContents.on("context-menu", (event) => {
-      if (record.role !== "personal") return;
+      if (!canInteract(record)) return;
       const commands = [...(this.menus.get(record.webContents.id)?.values() ?? [])];
       if (!commands.length) return;
       event.preventDefault();

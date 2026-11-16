@@ -38,6 +38,7 @@
 | [消息与定时任务](messaging-and-scheduling.md) | 消息进入、Endpoint/Schedule Registry、Delivery Gateway、Web 直接发送和 Timer 执行 |
 | [浏览器 Runtime](browser-runtime.md) | 当前持久 Chromium、SparkClaw Browser Bridge、Owner-scoped Controller、Task-tab 所有权、登录 Handoff、部署与安全约束 |
 | [桌面客户端与内置浏览器设计](desktop-client-embedded-browser-design.md) | 既有 Electron／原生视图实现及 Controller / Playwright 适配基线；客户端本地存储与 LAN 宿主控制已实现，当前归属见架构指南 |
+| [内置浏览器执行期间只读与结束后交还设计](desktop-browser-interaction-control-design.md) | 源码已实现：执行期间保持任务页只读，任务结束并清理后开放用户操作；已记录回归证据，已安装客户端的发布验收待完成 |
 | [桌面端本地文件浏览设计](desktop-local-file-browser-design.md) | 设计与首版实现：登录内 Files 入口、整机本地文件树、隔离预览标签、离线渲染器与客户端边界；记录源码/候选包证据及剩余发布验收 |
 | [药箱界面参考 open-medkit 的适配设计](medicine-box-open-medkit-adaptation-design.md) | 定稿：统计、搜索、效期筛选、默认卡片、详情快速加减数量；字段为名称／有效期／数量／位置／用途／备注，含本机 v1→v2 迁移；照片和文字录入共用同一核对步骤；两个阶段已实现，尚未发布 |
 | [药箱查询与编辑路由设计](medicine-query-routing-design.md) | 设计稿第四版的本地源码实现：药箱数据改为 Gateway 存储、按邮箱方式同步到客户端；一级路由 `medicine` 下设药箱内容查询（记录与按症状建议）、支持批量新增／修改的药箱信息编辑（字段明确直接写，缺失或不明确时审批表单补全）、药品信息查询（Info 或直接调用模型，判断失败走 Info）；分三个阶段配对发布；已记录源码测试与浏览器交互验证，尚未部署或安装 |

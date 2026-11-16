@@ -40,6 +40,9 @@ const copy = {
   },
 } as const;
 
+const userAction = (page: DesktopPage | undefined, action: "interact" | "navigate" | "close") =>
+  Boolean(page && (page.capabilities ? page.capabilities[action] === true : page.role === "personal"));
+
 export type BrowserPanelProps = {
   language: Language;
   localConversationID?: string;
@@ -271,12 +274,15 @@ export function BrowserPanel({ language, localConversationID, open = true,
     if (!address.trim()) return;
     const target = resolveBrowserInput(address);
     drafts.current.delete(selectedPageRef);
-    if (activePage?.role === "personal") run(desktop.navigatePersonal(activePage.page_ref, target));
-    else void create(target);
+    if (userAction(activePage, "navigate") && activePage) run(desktop.navigatePersonal(activePage.page_ref, target));
+    else if (!activePage) void create(target);
   };
   const choose = (page: DesktopPage) => { selectionRequest.current++; setSelectedPageRef(page.page_ref); setMenuOpen(false); onShowBrowser?.(); };
   const browserSelected = !conversationInFront;
-  const close = (page: DesktopPage) => run(desktop.closePersonal(page.page_ref).then(() => {
+  const close = (page: DesktopPage) => run(desktop.closePersonal(page.page_ref).then(async () => {
+    // beforeunload can cancel close; retain the address draft and selection.
+    const latest = await desktop.state();
+    if (latest.pages.some(candidate => candidate.page_ref === page.page_ref)) return;
     drafts.current.delete(page.page_ref);
     if (page.page_ref === selectedPageRef) {
       const remaining = pages.filter(candidate => candidate.page_ref !== page.page_ref);
@@ -302,7 +308,7 @@ export function BrowserPanel({ language, localConversationID, open = true,
               {page.role === "task" ? <Eye size={12} aria-hidden="true" /> : <Globe2 size={12} aria-hidden="true" />}
               <span>{page.url === "about:blank" ? text.newTab : page.title || page.url || (page.role === "task" ? text.taskPage : text.newTab)}</span>
             </button>
-            {page.role === "personal" && <button type="button" className="desktopTabClose" onClick={() => close(page)} title={text.close} aria-label={text.close}><X size={12} /></button>}
+            {userAction(page, "close") && <button type="button" className="desktopTabClose" onClick={() => close(page)} title={text.close} aria-label={text.close}><X size={12} /></button>}
           </div>)}
         </div>
         <button type="button" className="desktopNewTab" onClick={() => { onShowBrowser?.(); void create(); }} title={text.newTab} aria-label={text.newTab}><Plus size={15} /></button>
@@ -314,12 +320,12 @@ export function BrowserPanel({ language, localConversationID, open = true,
         </div>
       </div></ClientTitlebarBrowser>
       <form className="desktopAddressBar" onSubmit={navigate}>
-        <button type="button" disabled={activePage?.role !== "personal" || !activePage.can_go_back} onClick={() => activePage?.role === "personal" && run(desktop.personalNavigation(activePage.page_ref, "back"))} title={text.back}><ArrowLeft size={15} /></button>
-        <button type="button" disabled={activePage?.role !== "personal" || !activePage.can_go_forward} onClick={() => activePage?.role === "personal" && run(desktop.personalNavigation(activePage.page_ref, "forward"))} title={text.forward}><ArrowRight size={15} /></button>
-        <button type="button" disabled={activePage?.role !== "personal"} onClick={() => activePage?.role === "personal" && run(desktop.personalNavigation(activePage.page_ref, "reload"))} title={text.reload}><RefreshCw size={14} /></button>
+        <button type="button" disabled={!userAction(activePage, "navigate") || !activePage?.can_go_back} onClick={() => activePage && userAction(activePage, "navigate") && run(desktop.personalNavigation(activePage.page_ref, "back"))} title={text.back}><ArrowLeft size={15} /></button>
+        <button type="button" disabled={!userAction(activePage, "navigate") || !activePage?.can_go_forward} onClick={() => activePage && userAction(activePage, "navigate") && run(desktop.personalNavigation(activePage.page_ref, "forward"))} title={text.forward}><ArrowRight size={15} /></button>
+        <button type="button" disabled={!userAction(activePage, "navigate")} onClick={() => activePage && userAction(activePage, "navigate") && run(desktop.personalNavigation(activePage.page_ref, "reload"))} title={text.reload}><RefreshCw size={14} /></button>
         <div className="desktopOmnibox">
           <input ref={addressRef} aria-label={text.address} placeholder={text.address} value={address} onChange={(event) => { setAddress(event.target.value); drafts.current.set(selectedPageRef, event.target.value); }} autoComplete="off" spellCheck={false} />
-          <button type="submit" disabled={!address.trim()} title={text.go} aria-label={text.go}><ArrowUpRight size={14} /></button>
+          <button type="submit" disabled={!address.trim() || Boolean(activePage && !userAction(activePage, "navigate"))} title={text.go} aria-label={text.go}><ArrowUpRight size={14} /></button>
         </div>
         <button type="button" className={`desktopTransfersButton ${showTransfers ? "selected" : ""}`} onClick={toggleTransfers} title={text.transfers} aria-label={text.transfers}>
           <Download size={14} />{(state?.downloads.length ?? 0) + (state?.permissions.length ?? 0) > 0 && <small>{(state?.downloads.length ?? 0) + (state?.permissions.length ?? 0)}</small>}
@@ -333,7 +339,7 @@ export function BrowserPanel({ language, localConversationID, open = true,
           </div>}
         </div>
       </form>
-      {activePage?.role === "task" && <div className="desktopTaskNotice" role="status"><LockKeyhole size={13} /><span>{text.readOnly}</span></div>}
+      {activePage?.role === "task" && !userAction(activePage, "interact") && <div className="desktopTaskNotice" role="status"><LockKeyhole size={13} /><span>{text.readOnly}</span></div>}
       {showTransfers && <div className="desktopTransfers">
         {(state?.permissions ?? []).map((request) => <div className="desktopPermissionRequest" key={request.permission_ref}>
           <ShieldCheck size={15} /><span><strong>{request.permission}</strong><small>{request.origin}{request.media_types.length ? ` · ${request.media_types.join(", ")}` : ""}</small></span>

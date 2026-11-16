@@ -18,6 +18,12 @@
 Candidate locations, hashes, engineering prerequisites and final owner steps are in the
 [candidate acceptance guide](desktop-browser-controller-candidate-acceptance.md).
 
+The [read-only execution and handback design](desktop-browser-interaction-control-design.md)
+retains the task-page input lock during agent execution and enables user interaction only after
+the browser task has ended and execution cleanup is complete. The source implementation and
+validation are recorded in section 11 of that design. Installed-client release qualification
+remains pending. This document's transport, authorization and receipt invariants continue to apply.
+
 ## 1. Decision
 
 Move the generic Browser Controller and Playwright MCP into each SparkX package. Carry the

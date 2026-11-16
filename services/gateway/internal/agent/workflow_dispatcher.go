@@ -196,6 +196,9 @@ func workflowAppliedToolCall(state *app.WorkflowState, toolCallID string) bool {
 }
 
 func (r Runtime) dispatchMatchedWorkflow(ctx context.Context, run app.AgentRun, route app.RouteDecision, returnRoute app.ReturnRoute, sourceTurnID string) (matchedWorkflowDispatch, error) {
+	if route.Slots.TargetKind == string(app.TargetKindPublicNamedTarget) {
+		return matchedWorkflowDispatch{}, errors.New("a named website must have an address before workflow dispatch")
+	}
 	resolved, err := r.profiles.Resolve(r.capabilities, route, sourceTurnID)
 	if err != nil {
 		return matchedWorkflowDispatch{}, err

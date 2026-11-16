@@ -17,7 +17,7 @@ try {
   delete environment.ELECTRON_RUN_AS_NODE;
   const result = await promisify(execFile)((await import("electron")).default,
     [path.join(root, "apps/desktop/test/browser-panel-layout-fixture.mjs")],
-    { cwd: root, env: environment, timeout: 45000, maxBuffer: 1 << 20 });
+    { cwd: root, env: environment, timeout: process.env.SPARKCLAW_LAYOUT_HANDBACK === "1" ? 90000 : 45000, maxBuffer: 1 << 20 });
   process.stdout.write(result.stdout);
 } finally {
   await fs.rm(temporary, { recursive: true, force: true });

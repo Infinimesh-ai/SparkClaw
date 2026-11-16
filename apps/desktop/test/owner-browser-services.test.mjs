@@ -61,3 +61,32 @@ function downloadItem(filename) {
   item.cancel = () => { item.canceled = true; };
   return item;
 }
+
+test("handed-back task permissions and downloads use human capabilities and revalidate pending requests", async t => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-human-task-services-"));
+  t.after(() => fs.rm(temporary, { recursive: true, force: true }));
+  const browserSession = sessionMock(), workbenchSession = sessionMock();
+  const record = { role: "task", pageRef: "page_task", interaction: { state: "agent", revision: 1 } };
+  let url = "https://example.test/form", allowed;
+  const wc = { id: 21, getURL: () => url };
+  const services = await new OwnerBrowserServices({ browserSession, workbenchSession, registry: { recordForWebContents: () => record },
+    workbench: { webContents: {} }, downloadsRoot: temporary, shell: {}, onChange() {} }).start();
+  t.after(() => services.close());
+  browserSession.permissionRequest(wc, "notifications", value => { allowed = value; }, {});
+  assert.equal(allowed, false);
+  record.interaction = { state: "human", revision: 2 };
+  const download = downloadItem("human.txt");
+  browserSession.emit("will-download", {}, download, wc);
+  assert.equal(services.snapshot().downloads.length, 1);
+  assert.equal(services.snapshot().downloads[0].page_ref, record.pageRef);
+  browserSession.permissionRequest(wc, "notifications", value => { allowed = value; }, {});
+  const pending = services.snapshot().permissions[0];
+  url = "https://other.test/";
+  services.respondPermission(pending.permission_ref, true);
+  assert.equal(allowed, false, "navigation invalidates the original permission prompt");
+  browserSession.permissionRequest(wc, "notifications", value => { allowed = value; }, {});
+  services.respondPermission(services.snapshot().permissions[0].permission_ref, true);
+  assert.equal(allowed, true);
+  record.interaction.state = "agent";
+  assert.equal(browserSession.permissionCheck(wc, "notifications", url), false);
+});

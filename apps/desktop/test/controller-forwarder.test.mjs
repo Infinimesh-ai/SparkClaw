@@ -28,7 +28,7 @@ async function fixture(t, { execute, acquire } = {}) {
     state: "stopped", incarnation: "", controllerGeneration: 0,
     async prepare() {}, snapshot() { return { available: true, protocol: "browser.controller.v1", process_state: this.state, supervisor_incarnation: this.incarnation, limits: {} }; },
     async start() { if (!this.incarnation) { this.incarnation = crypto.randomBytes(16).toString("hex"); this.controllerGeneration++; } this.state = "ready"; return this; },
-    async stop(reason) { lifecycle.push(reason); this.state = "stopped"; this.incarnation = ""; this.onStopped?.(reason); },
+    async stop(reason) { lifecycle.push(reason); this.state = "stopped"; this.incarnation = ""; this.onStopped?.(reason, true); },
     adapter: { prepareControllerTask() { return { taskID: "local-fixed-task", token: "private-token" }; }, beginControllerRelease() {}, revokeControllerTask() {} },
     async request(action, body, options) {
       calls.push({ action, body: { ...body } });
@@ -47,7 +47,7 @@ async function fixture(t, { execute, acquire } = {}) {
   const auth = { descriptor: { transport: "iscp" }, status: { state: "connected", capabilities: { browser: true } },
     connection: { ownerID: "owner", clientID: "client" }, transport: { capabilities: manifest() },
     async invokeISCP(operation) { if (operation === "browser.receipt") return { fences: [] }; return { reconciled: true }; } };
-  const forwarder = new BrowserControllerForwarder({ auth, runtime, registry: { closeHostPages() {} }, userDataDir: root });
+  const forwarder = new BrowserControllerForwarder({ auth, runtime, registry: { closeHostPages() {}, beginTaskEnd() { return []; }, async completeTaskEnd() {} }, userDataDir: root });
   t.after(() => forwarder.stop());
   await forwarder.start(scope);
   const send = request => forwarder.handleReverse(request, auth.transport.capabilities);
@@ -254,7 +254,7 @@ test("active task cancellation hands off the FIFO only after runtime cleanup has
     this.stopping = (async () => {
       await cleanup;
       this.incarnation = "";
-      this.onStopped?.(reason);
+      this.onStopped?.(reason, true);
       this.state = "stopped";
     })().finally(() => { this.stopping = null; });
     return this.stopping;
@@ -297,4 +297,36 @@ test("durable local cancellation still refuses the same task after a fresh autho
   assert.equal((await f.send(command("acquire", b, { wait_timeout_ms: 0, session_ttl_ms: 600000 }))).body.outcome,"not_dispatched");
   assert.equal(f.calls.length,commandCount);
   await f.acquireTask({ ...b, local_task_id: "fresh-B" });
+});
+
+test("terminal facts are epoch-bound and late journal completion cannot publish old observations", async t => {
+  const f = await fixture(t), b = binding(), lease = await f.acquireTask(b);
+  let finishJournal, entered;
+  const writing = new Promise(resolve => { entered = resolve; });
+  const finish = f.forwarder.journal.finish.bind(f.forwarder.journal);
+  f.forwarder.journal.finish = async (...args) => { entered(); await new Promise(resolve => { finishJournal = resolve; }); return finish(...args); };
+  const request = command("execute", b, { lease, operation: "page.fill", arguments: { ref: "e2", text: "private" } });
+  const pending = f.send(request); await writing;
+  await f.forwarder.endTask({ ...b, connection_epoch: "stale-epoch" }, "completed");
+  assert.equal(f.runtime.state, "busy");
+  await f.forwarder.endTask(b, "completed");
+  finishJournal(); const reply = await pending;
+  assert.equal(reply.body.outcome, "completed", "the original receipt still settles");
+  assert.equal(reply.body.payload, undefined);
+  assert.equal(f.forwarder.results.entries.size, 0);
+  assert.equal((await f.send(command("execute", b, { lease, operation: "page.read", arguments: {} }))).body.outcome, "not_dispatched");
+});
+
+test("failed task cleanup keeps its admission slot occupied and reports no handback", async t => {
+  const f = await fixture(t), b = binding();
+  await f.acquireTask(b);
+  const slot = f.forwarder.admission.active;
+  const completed = [];
+  f.forwarder.registry.beginTaskEnd = () => [{ binding: b }];
+  f.forwarder.registry.completeTaskEnd = groups => completed.push(groups);
+  f.runtime.stop = async reason => { f.runtime.closed = true; f.runtime.state = "unavailable"; await f.runtime.onStopped(reason, false); throw new Error("unproved cleanup"); };
+  await f.forwarder.endTask(b, "failed");
+  assert.equal(f.forwarder.admission.active, slot);
+  assert.equal(f.forwarder.state, "unavailable"); assert.equal(completed.length, 0);
+  f.runtime.stop = async () => {}; // fixture teardown cannot prove production cleanup.
 });

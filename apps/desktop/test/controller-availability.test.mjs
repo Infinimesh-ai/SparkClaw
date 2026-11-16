@@ -31,7 +31,7 @@ test("local availability notifications do not re-enter transport suspension", as
   auth.descriptor = { transport: "iscp" };
   auth.status = Object.freeze({ schema_version: 1, state: "service_unavailable" });
   const forwarder = new BrowserControllerForwarder({ auth, runtime, userDataDir: root,
-    registry: { closeHostPages() {} },
+    registry: { closeHostPages() {}, beginTaskEnd() { return []; }, async completeTaskEnd() {} },
     onChange: () => auth.setBrowserRuntimeAvailable(runtime.snapshot().available),
   });
   await forwarder.suspend();
@@ -83,7 +83,7 @@ test("runtime cleanup republishes settled availability without restoring expired
   auth.transport = { capabilities: manifest, close() {} };
   auth.capabilityReport = { ...manifest, capabilities: ISCP_SURFACES.map(id => ({ id, qualified: true, supported: true, permitted: true, dependencies_ready: true, enabled: true })) };
   auth.status = Object.freeze({ schema_version: 1, state: "connected" });
-  new BrowserControllerForwarder({ auth, runtime, userDataDir: root, registry: { closeHostPages() {} },
+  new BrowserControllerForwarder({ auth, runtime, userDataDir: root, registry: { closeHostPages() {}, beginTaskEnd() { return []; }, async completeTaskEnd() {} },
     onChange: () => auth.setBrowserRuntimeAvailable(runtime.snapshot().available) });
   auth.setBrowserRuntimeAvailable(runtime.snapshot().available);
   assert.equal(auth.status.capabilities.browser, true);

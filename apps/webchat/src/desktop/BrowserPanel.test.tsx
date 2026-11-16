@@ -32,6 +32,7 @@ async function fixture(pages: DesktopPage[] = []) {
     setBounds: vi.fn(async () => ({ completed: true })),
     presentPersonal: vi.fn(async () => ({ completed: true })), observeTask: vi.fn(async () => ({ completed: true })),
     navigatePersonal: vi.fn(async () => ({ completed: true })),
+    personalNavigation: vi.fn(async () => ({ completed: true })),
     closePersonal: vi.fn(async (ref: string) => { push({ ...state, pages: state.pages.filter(p => p.page_ref !== ref) }); return { completed: true }; }),
   } as unknown as SparkClawDesktop;
   window.sparkclawDesktop = desktop;
@@ -50,6 +51,38 @@ async function fixture(pages: DesktopPage[] = []) {
 }
 
 describe("desktop browser entry", () => {
+  it("uses main capabilities to unlock the same task tab while preserving its draft and original controls", async () => {
+    const task = { ...page(1, "https://example.test/result", "task"), local_conversation_id: "a", can_go_back: true,
+      interaction_state: "agent" as const, capabilities: { interact: false, navigate: false, close: false } };
+    const f = await fixture([task]);
+    try {
+      await f.render(true, true, "a");
+      vi.mocked(f.desktop.createPersonal).mockClear();
+      await f.type("https://example.test/user-draft");
+      expect(f.host.querySelector(".desktopTaskNotice")).not.toBeNull();
+      expect(f.host.querySelector<HTMLButtonElement>('[title="Reload"]')!.disabled).toBe(true);
+      await act(async () => { f.host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+      expect(f.desktop.navigatePersonal).not.toHaveBeenCalled();
+      expect(f.desktop.createPersonal).not.toHaveBeenCalled();
+      await act(async () => f.push({ ...f.state(), revision: 2, pages: [{ ...task, interaction_state: "releasing" }] }));
+      expect(f.host.querySelector(".desktopTaskNotice")).not.toBeNull();
+      await act(async () => f.push({ ...f.state(), revision: 3, pages: [{ ...task, interaction_state: "human",
+        capabilities: { interact: true, navigate: true, close: true } }] }));
+      expect(f.input().value).toBe("https://example.test/user-draft");
+      expect(f.host.querySelector(".desktopTaskNotice")).toBeNull();
+      expect(f.host.querySelector<HTMLButtonElement>('[title="Reload"]')!.disabled).toBe(false);
+      expect(f.host.querySelector(".desktopTabClose")).not.toBeNull();
+      await act(async () => { f.host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+      expect(f.desktop.navigatePersonal).toHaveBeenCalledWith(task.page_ref, "https://example.test/user-draft");
+      expect(f.desktop.createPersonal).not.toHaveBeenCalled();
+      f.desktop.closePersonal = vi.fn(async () => ({ completed: true as const }));
+      await f.type("cancel-close-draft");
+      await act(async () => { f.host.querySelector<HTMLButtonElement>(".desktopTabClose")!.click(); });
+      expect(f.input().value).toBe("cancel-close-draft");
+      expect(f.host.querySelector('.desktopTabSelect[aria-selected="true"]')).not.toBeNull();
+    } finally { await f.cleanup(); }
+  });
+
   it("selects the current conversation result on open and on conversation changes without a manual tab click", async () => {
     const a = { ...page(1, "https://a.test/", "task"), local_conversation_id: "a" };
     const b = { ...page(2, "https://b.test/", "task"), local_conversation_id: "b" };

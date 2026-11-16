@@ -142,33 +142,35 @@ func TestTraceWithFieldsRejectsMetadataOnProductionPath(t *testing.T) {
 	}
 }
 
-func TestTraceSizeLimitRetainsLossAndNeverExceedsBudget(t *testing.T) {
-	output := captureHealth(t)
-	r := testRecorder(privateTestDirectory(t))
+func TestTraceRotatesAndContinuesWithinBudget(t *testing.T) {
+	directory := privateTestDirectory(t)
+	const budget = 1024
+	r := startSessionWithLimit(directory, budget).recorder
 	value := event{SchemaVersion: 1, Time: time.Now().UTC(), Stage: "rpc.call", Status: "ok", Fields: Fields{Role: "gateway",
 		RPCID: "11111111-1111-4111-8111-111111111111", RequestID: "22222222-2222-4222-8222-222222222222", Operation: "execution.lookup"}}
-	// Feed the bounded queue deterministically, without pressure drops masking
-	// the real 64 MiB sink boundary. No production limit is reduced for testing.
-	for range 400000 {
+	for i := range 20 {
 		r.attempted.Add(1)
+		value.Count = uint64(i + 1)
 		r.queue <- value
 	}
 	close(r.queue)
 	<-r.done
-	limit := requireHealthReason(t, output, "size_limit")
-	if limit["state"] != "degraded" {
-		t.Fatal(limit)
-	}
-	got := r.health()
-	if got.Attempted != got.Written+got.Lost || got.Written == 0 || got.Lost == 0 || got.FirstLossReason != "size_limit" {
+	if got := r.health(); got.Written != 20 || got.Lost != 0 || got.State != "enabled" {
 		t.Fatal(got)
 	}
-	info, err := os.Stat(r.file.Name())
-	if err != nil || info.Size() > traceByteLimit {
-		t.Fatalf("trace budget violated: info=%v err=%v", info, err)
+	files, err := filepath.Glob(filepath.Join(directory, "*.ndjson"))
+	if err != nil || len(files) != traceSegments {
+		t.Fatalf("expected three retained segments: %v %v", files, err)
 	}
-	if strings.Count(output.String(), `"reason":"size_limit"`) != 1 {
-		t.Fatalf("limit logged per event: %s", output.String())
+	for _, file := range files {
+		info, err := os.Stat(file)
+		if err != nil || info.Size() > budget || info.Mode().Perm() != 0600 {
+			t.Fatalf("trace budget or permissions violated: info=%v err=%v", info, err)
+		}
+	}
+	raw, err := os.ReadFile(r.file.Name())
+	if err != nil || !strings.Contains(string(raw), `"count":20`) {
+		t.Fatalf("newest event missing after rotation: %v", err)
 	}
 }
 

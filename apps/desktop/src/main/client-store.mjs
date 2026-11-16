@@ -225,6 +225,8 @@ export class ClientStore {
       this.db.prepare("DELETE FROM message_clarifications WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=?)").run(conversationID);
       this.db.prepare("DELETE FROM message_files WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=?)").run(conversationID);
       this.db.prepare("DELETE FROM metadata WHERE key IN (SELECT 'browser_page:' || id FROM tasks WHERE conversation_id=?)").run(conversationID);
+      this.db.prepare("DELETE FROM metadata WHERE key IN (SELECT 'browser_view:' || id FROM tasks WHERE conversation_id=?)").run(conversationID);
+      this.db.prepare("DELETE FROM metadata WHERE key IN (SELECT 'browser_ended:' || id FROM tasks WHERE conversation_id=?)").run(conversationID);
       for (const table of ["tasks", "messages", "files"]) {
         this.db.prepare(`DELETE FROM ${table} WHERE conversation_id=?`).run(conversationID);
       }
@@ -655,8 +657,45 @@ export class ClientStore {
       .run(`browser_page:${task.id}`, JSON.stringify(value));
   }
 
+  #browserViewTask(scope, binding) {
+    const row = this.db.prepare("SELECT request_id FROM tasks WHERE id=?").get(binding.local_task_id);
+    if (!row) throw new Error("Local browser task not found");
+    const task = this.request(scope, row.request_id);
+    if (binding.installation_id !== this.installationID || binding.owner_id !== scope.owner_id || binding.client_id !== scope.client_id ||
+        task.conversation_id !== binding.local_conversation_id) throw new Error("Browser view task binding is invalid");
+    return task;
+  }
+
+  markBrowserTaskEnded(scope, binding) {
+    const task = this.#browserViewTask(scope, binding);
+    this.db.prepare("INSERT OR IGNORE INTO metadata(key,value) VALUES(?, '1')").run(`browser_ended:${task.id}`);
+  }
+
+  saveBrowserView(scope, binding, page) {
+    const task = this.#browserViewTask(scope, binding);
+    const url = new URL(boundedText(page.url, 4096, "Browser view URL"));
+    if (url.protocol !== "https:" || url.username || url.password) throw new Error("Browser view URL is invalid");
+    // Presentation history is separate from the verified task evidence. No
+    // lease, generation, CDP target, form state or authority survives restart.
+    const value = { schema_version: 1, interaction_state: "human", url: url.href,
+      title: boundedText(page.title || "", 4096, "Browser view title"),
+      binding: { owner_id: scope.owner_id, client_id: scope.client_id,
+        installation_id: this.installationID, local_conversation_id: task.conversation_id, local_task_id: task.id } };
+    this.db.prepare("INSERT INTO metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+      .run(`browser_view:${task.id}`, JSON.stringify(value));
+  }
+
+  closeBrowserView(scope, binding) {
+    const task = this.#browserViewTask(scope, binding);
+    this.db.prepare("INSERT INTO metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+      .run(`browser_view:${task.id}`, JSON.stringify({ schema_version: 1, closed: true }));
+  }
+
   browserPage(scope, conversationID) {
     this.#conversation(scope, conversationID);
+    const view = this.db.prepare(`SELECT m.value FROM tasks t JOIN metadata m ON m.key='browser_view:' || t.id
+      WHERE t.conversation_id=? ORDER BY t.created_at DESC,t.rowid DESC LIMIT 1`).get(conversationID);
+    if (view) { const saved = JSON.parse(view.value); return saved.closed ? null : saved; }
     const row = this.db.prepare(`SELECT m.value FROM tasks t JOIN metadata m ON m.key='browser_page:' || t.id
       WHERE t.conversation_id=? AND t.status='delivered' AND NOT EXISTS (SELECT 1 FROM metadata c WHERE c.key='execution_cancel:' || t.id)
       ORDER BY t.created_at DESC,t.rowid DESC LIMIT 1`).get(conversationID);
@@ -860,6 +899,16 @@ export class ClientStore {
       this.db.prepare("INSERT OR IGNORE INTO metadata(key,value) VALUES(?, '1')").run(`execution_cancel:${task.id}`);
       return task;
     });
+  }
+
+  browserTaskEnded(scope, taskID) {
+    uuid(taskID);
+    const task = this.db.prepare(`SELECT t.status FROM tasks t JOIN conversations c ON c.id=t.conversation_id
+      WHERE t.id=? AND c.scope=?`).get(taskID, scopeKey(scope));
+    return !task || this.hasCancellation(scope, taskID) ||
+      Boolean(this.db.prepare("SELECT 1 FROM metadata WHERE key=?").get(`browser_ended:${taskID}`)) ||
+      Boolean(this.db.prepare("SELECT 1 FROM metadata WHERE key=?").get(`browser_view:${taskID}`)) ||
+      !["submission_pending", "accepted", "running"].includes(task.status);
   }
 
   hasCancellation(scope, taskID) {

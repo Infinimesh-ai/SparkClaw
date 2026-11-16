@@ -37,6 +37,7 @@ export class ElectronAdapterServer {
     this.qualification = qualification;
     this.controllerIncarnation = controllerIncarnation;
     this.controllerTasks = new Map();
+    this.controllerCleanups = new Set();
     this.downloadRegistry = new ElectronDownloadRegistry(browserSession, registry, downloadRoot);
     this.registrations = new Map();
     this.relays = new Map();
@@ -79,7 +80,8 @@ export class ElectronAdapterServer {
   }
 
   async close() {
-    this.revokeControllerTasks("adapter_stopped");
+    await this.revokeControllerTasks("adapter_stopped");
+    await Promise.all([...this.controllerCleanups]);
     for (const relay of this.relays.values()) relay.close("Electron runtime stopped");
     this.relays.clear();
     this.registrations.clear();
@@ -123,19 +125,30 @@ export class ElectronAdapterServer {
 
   revokeControllerTask(taskID, reason = "controller_task_revoked") {
     const association = this.controllerTasks.get(taskID);
-    if (!association) return;
+    if (!association) {
+      const cleanup = Promise.all([...this.controllerCleanups]);
+      void cleanup.catch(() => {});
+      return cleanup;
+    }
     association.state = "revoked";
     this.controllerTasks.delete(taskID);
     for (const [credential, registration] of this.registrations) if (registration.association === association) this.registrations.delete(credential);
     if (association.connectionID) {
-      this.registry.closeConnection(association.connectionID, reason);
+      const cleanup = Promise.resolve(this.registry.closeConnection(association.connectionID, reason));
+      this.controllerCleanups.add(cleanup);
+      void cleanup.then(() => this.controllerCleanups.delete(cleanup), () => {});
       this.relays.get(association.connectionID)?.close(reason);
       this.relays.delete(association.connectionID);
+      return cleanup;
     }
+    return Promise.resolve();
   }
 
   revokeControllerTasks(reason) {
-    for (const taskID of this.controllerTasks.keys()) this.revokeControllerTask(taskID, reason);
+    const pending = [...this.controllerTasks.keys()].map(taskID => this.revokeControllerTask(taskID, reason));
+    const cleanup = Promise.all(pending);
+    void cleanup.catch(() => {});
+    return cleanup;
   }
 
   #handleClient(client) {
@@ -307,8 +320,11 @@ export class ElectronAdapterServer {
       relay.ontabselected = tabID => this.registry.selectTaskPage(connectionID, tabID);
       relay.onclose = () => {
         this.relays.delete(connectionID);
-        this.registry.closeConnection(connectionID, "relay_closed");
-        if (association) this.revokeControllerTask(association.taskID, "relay_closed");
+        if (association) {
+          const expected = connection.retiring || association.state === "revoked";
+          void this.revokeControllerTask(association.taskID, "relay_closed");
+          if (!expected) this.onExecutionLost?.();
+        } else this.registry.closeConnection(connectionID, "relay_closed");
       };
       this.relays.set(connectionID, relay);
       relay.attachInitialTab(publicTab(initialRecord));

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { qualifyHandback } from "./browser-handback-native.mjs";
 import { DesktopCapability } from "../src/main/desktop-capability.mjs";
 import { BrowserPresentation } from "../src/main/presentation.mjs";
 import { PageRegistry } from "../src/browser/page-registry.mjs";
@@ -15,7 +16,7 @@ const temporary = process.env.SPARKCLAW_LAYOUT_ROOT;
 const directory = path.dirname(fileURLToPath(import.meta.url));
 app.setName("SparkX isolated layout regression");
 app.setPath("userData", path.join(temporary, "profile"));
-protocol.registerSchemesAsPrivileged(["sparkclaw-app", "sparkclaw-preview"].map(scheme => ({ scheme, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } })));
+protocol.registerSchemesAsPrivileged(["sparkclaw-app", "sparkclaw-preview", "sparkclaw-internal"].map(scheme => ({ scheme, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } })));
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 app.whenReady().then(async () => {
   app.dock?.hide();
@@ -38,6 +39,7 @@ app.whenReady().then(async () => {
     window.on("close", event => { event.preventDefault(); window.hide(); });
     bindWorkbenchActivation(app, () => window);
     const browserSession = session.fromPartition("isolated-panel-native");
+    browserSession.protocol.handle("sparkclaw-internal", () => new Response("<!doctype html><title>Adapter</title>"));
     browserSession.protocol.handle("https", async ({ url }) => {
       if (url.endsWith("/slow")) await pause(500);
       if (url.endsWith("/failure")) return Response.error();
@@ -45,7 +47,7 @@ app.whenReady().then(async () => {
         ? '<html><img src="/slow"><script>setTimeout(() => location.replace("https://fixture.test/page"), 50)</script></html>'
         : "<html><title>Isolated page</title><body>Fixture <input value='retained native input'></body></html>", { headers: { "content-type": "text/html" } });
     });
-    browserSession.webRequest.onBeforeRequest(({ url }, callback) => callback({ cancel: !url.startsWith("https://fixture.test/") && url !== "about:blank" }));
+    browserSession.webRequest.onBeforeRequest(({ url }, callback) => callback({ cancel: !url.startsWith("https://fixture.test/") && url !== "about:blank" && !url.startsWith("sparkclaw-internal://") }));
     const shieldView = new WebContentsView({ webPreferences: { session: browserSession, sandbox: true, nodeIntegration: false, backgroundThrottling: false } });
     const presentation = new BrowserPresentation({ window, shieldView, explicitSelection: true });
     registry = new PageRegistry({ runtimeGeneration: "a".repeat(32), browserSession, presentation,
@@ -267,7 +269,7 @@ app.whenReady().then(async () => {
       if (released) {
         registry.beginControllerRelease(connectionID);
         registry.removeTaskPage(connectionID, task.tabID);
-        registry.closeConnection(connectionID);
+        await registry.closeConnection(connectionID, "normal_release");
       }
       for (const [width, height] of [[1440,900], [1180,720], [1920,1080]]) {
         window.setContentSize(width, height);
@@ -296,6 +298,12 @@ app.whenReady().then(async () => {
     assert.equal(shieldView.getVisible(), false);
     await evaluate("document.querySelector('#close-modal').click()");
     await until(() => task.view.getVisible(), "task not restored after modal");
-    console.log(JSON.stringify({ event:"browser_panel_layout",passed:true,cases:cases.length,task_cases:taskCases,task_resize_revision_advanced:true,real_component_css_preload_ipc:true,real_native_view:true,zoom:true,modal_occlusion:true,focus_layout:true,retained_page:true,divider_keyboard:true,divider_hide:true,window_reopen:true,closed_window_reconnect:true,renderer_reload:true,renderer_crash_recovery:true,aborted_redirect:true,redirected_new_page:true,redirected_popup:true,real_failure_reported:true,network:false,production_data:false }));
+    let handback;
+    if (process.env.SPARKCLAW_LAYOUT_HANDBACK === "1") {
+      registry.closeHostPages();
+      window.setContentSize(1440, 900); await pause(220);
+      handback = await qualifyHandback({ registry, browserSession, window, shieldView, evaluate, until, temporary });
+    }
+    console.log(JSON.stringify({ event:"browser_panel_layout",passed:true,handback,cases:cases.length,task_cases:taskCases,task_resize_revision_advanced:true,real_component_css_preload_ipc:true,real_native_view:true,zoom:true,modal_occlusion:true,focus_layout:true,retained_page:true,divider_keyboard:true,divider_hide:true,window_reopen:true,closed_window_reconnect:true,renderer_reload:true,renderer_crash_recovery:true,aborted_redirect:true,redirected_new_page:true,redirected_popup:true,real_failure_reported:true,network:false,production_data:false }));
   } finally { await filesCapability?.close(); capability?.close(); for (const record of registry?.records.values() ?? []) record.webContents.close(); window?.destroy(); }
 }).then(() => app.exit(0)).catch(error => { console.error(error); app.exit(1); });

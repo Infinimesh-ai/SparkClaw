@@ -67,9 +67,6 @@ func (p browserAutomationProfile) Resolve(route app.RouteDecision, sourceTurnID 
 	if browserVisualReason(route) != "" {
 		browserRevision2EnableVisualInspection(&plan)
 	}
-	if route.Slots.TargetKind == string(app.TargetKindPublicNamedTarget) {
-		browserRevision2EnableTargetDiscovery(&plan)
-	}
 	return intent, plan, nil
 }
 func (browserAutomationProfile) Prepare(state *app.WorkflowState) (workflowPreparation, error) {
@@ -123,9 +120,6 @@ func (p browserInteractionProfile) Resolve(route app.RouteDecision, sourceTurnID
 	plan := browserRevision2Plan(p.ID(), p.Revision(), true)
 	if browserVisualReason(route) != "" {
 		browserRevision2EnableVisualInspection(&plan)
-	}
-	if route.Slots.TargetKind == string(app.TargetKindPublicNamedTarget) {
-		browserRevision2EnableTargetDiscovery(&plan)
 	}
 	return intent, plan, nil
 }
@@ -248,34 +242,6 @@ func browserRevision2Plan(id app.WorkflowID, revision int, interaction bool) app
 			AllowedRisks:      []app.RiskLevel{app.RiskRead, app.RiskDraft}, MaxAttempts: 32,
 		}},
 	}
-}
-
-func browserRevision2EnableTargetDiscovery(plan *app.WorkflowPlan) {
-	if plan == nil || len(plan.Nodes) != 1 {
-		return
-	}
-	node := &plan.Nodes[0]
-	baseScope := node.InitialScope
-	discoveryScope := baseScope
-	discoveryScope.Requirements = append(append([]app.CapabilityRequirement(nil), baseScope.Requirements...),
-		app.CapabilityRequirement{Name: app.ToolCapabilityWebDiscovery},
-		app.CapabilityRequirement{Name: app.ToolCapabilityBrowserPublicTarget},
-	)
-	node.InitialStage = browserStageDiscoverTarget
-	node.InitialScope = discoveryScope
-	node.Transitions = append([]app.ScopeTransition{
-		browserRevision2Transition("target_search_ready", browserStageIdentifyTarget, app.OutcomeSignalResultsAvailable, 1, discoveryScope),
-		browserRevision2Transition("target_identified", browserStageHealthCheck, app.OutcomeSignalPublicTargetResolved, 1, baseScope),
-	}, node.Transitions...)
-	node.StageCapabilities = append([]app.StageCapabilityRule{
-		{Stage: browserStageDiscoverTarget, Capabilities: []string{app.ToolCapabilityWebDiscovery}},
-		{Stage: browserStageIdentifyTarget, Capabilities: []string{app.ToolCapabilityBrowserPublicTarget}},
-	}, node.StageCapabilities...)
-	node.ArgumentBindings = append(node.ArgumentBindings,
-		app.ArgumentBinding{Capability: app.ToolCapabilityWebDiscovery, Argument: "query", ResourceKind: "query", Source: app.ArgumentBindingRouteSlot, SourceKey: "target_ref"},
-		app.ArgumentBinding{Capability: app.ToolCapabilityBrowserOpen, Argument: "url", ResourceKind: "public_target_url", Source: app.ArgumentBindingOutcomeRef},
-		app.ArgumentBinding{Capability: app.ToolCapabilityBrowserNavigate, Argument: "url", ResourceKind: "public_target_url", Source: app.ArgumentBindingOutcomeRef},
-	)
 }
 
 func browserRevision2EnableVisualInspection(plan *app.WorkflowPlan) {
@@ -415,6 +381,9 @@ func browserTargetDescriptor(route app.RouteDecision) app.BrowserTargetDescripto
 		descriptor.TargetKind = app.BrowserTargetRegisteredDestination
 		descriptor.DestinationID = destination
 		descriptor.QueryProvenance = app.BrowserQueryDestinationStatic
+	}
+	if route.Facts[websiteURLSourceFact] == "model" {
+		descriptor.QueryProvenance = app.BrowserQueryProviderVolatile
 	}
 	return descriptor
 }

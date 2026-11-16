@@ -4,6 +4,10 @@ export type DesktopPage = {
   page_ref: string;
   role: DesktopPageRole;
   task_id: string;
+  page_group?: string;
+  interaction_state?: "agent" | "releasing" | "human";
+  control_revision?: number;
+  capabilities?: { interact: boolean; navigate: boolean; close: boolean };
   local_conversation_id?: string;
   title: string;
   url: string;

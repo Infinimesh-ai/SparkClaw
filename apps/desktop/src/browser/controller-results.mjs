@@ -1,3 +1,4 @@
+import { sameBrowserTask } from "./page-interaction.mjs";
 import crypto from "node:crypto";
 import { sameControllerBinding } from "./controller-wire.mjs";
 
@@ -49,6 +50,11 @@ export class ControllerResults {
   }
   expire() {
     for (const [id, entry] of this.entries) if (entry.expires <= this.now()) {
+      this.bytes -= entry.bytes.length; entry.bytes.fill(0); this.entries.delete(id);
+    }
+  }
+  discardTask(binding) {
+    for (const [id, entry] of this.entries) if (sameBrowserTask(entry.binding, binding)) {
       this.bytes -= entry.bytes.length; entry.bytes.fill(0); this.entries.delete(id);
     }
   }

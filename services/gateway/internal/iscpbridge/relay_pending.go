@@ -371,7 +371,7 @@ func (s *relaySocket) recoverPendingOnce() {
 		}
 		// Resubmission is the same immutable tuple. The writer rechecks the session
 		// fence immediately before committing this attempt to the socket.
-		retry, err := s.enqueueWithSession(sub, false, check)
+		retry, err := s.enqueueWithSession(sub, false, check, false)
 		if err != nil {
 			continue
 		}

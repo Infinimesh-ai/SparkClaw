@@ -5,6 +5,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { ISCPTransport, ISCP_OPERATIONS, ISCP_PROFILE, ISCPRequestNotSentError, mapISCPRequest, iscpHelperExecutable } from "../src/main/iscp-transport.mjs";
 import crypto from 'node:crypto';
+import { MCD_HOST_OPERATIONS } from "../src/main/mcd/host.mjs";
 import { SecureCredentialStore } from '../src/main/secure-credential-store.mjs';
 import fs, { readFileSync } from 'node:fs';
 import os from 'node:os';
@@ -981,29 +982,31 @@ for (const deadline of [undefined, null, -1, 1.5, "100", Number.MAX_SAFE_INTEGER
   });
 }
 
-test('reverse browser.controller.execute calls reach the browser handler on this session only', async t => {
-  const capabilities = { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session-1', authorization_revision: 3, expires_at: new Date(Date.now() + 60000).toISOString(), binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' }, operations: ['browser.controller.execute', 'browser.receipt', 'browser.reconcile'] };
-  const seen = []; let release;
-  const f = fixture(t, () => {}, { onReverse: async (request, session) => { seen.push({ request, session }); if (request.body.hold) await new Promise(resolve => { release = resolve; }); return { status: 200, body: { schema_version: 1, type: 'result', status: 'completed', echo: request.body.value } }; } });
-  await f.transport.start(); f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities });
-  const id = (n) => `5555555${n}-5555-4555-8555-555555555555`;
-  const reverse = (n, operation, body) => f.children[0].send({ ipc_version: 1, type: 'reverse_request', id: id(n), request: { type: 'task.invoke', profile: capabilities.profile, id: id(n), operation, body } });
-  const replies = () => f.calls.filter(call => call.type === 'reverse_response');
-  reverse(1, 'browser.controller.execute', { value: 'page' });
-  reverse(2, 'settings.owner.get', {});
-  await new Promise(resolve => setTimeout(resolve, 20));
-  const [command, denied] = [replies().find(call => call.id === id(1)), replies().find(call => call.id === id(2))];
-  assert.deepEqual(command.response, { type: 'task.result', profile: capabilities.profile, id: id(1), status: 200, body: { schema_version: 1, type: 'result', status: 'completed', echo: 'page' } });
-  assert.equal(denied.response.status, 403); assert.equal(denied.response.error_code, 'permission_denied');
-  assert.deepEqual(seen.map(row => row.session), [{ session_id: 'session-1', authorization_revision: 3 }]);
-  assert.equal(f.transport.state, 'transport_ready', 'a refused reverse operation does not end the session');
-  // A reply for a helper that was replaced is dropped; the Gateway sees unknown.
-  reverse(3, 'browser.controller.execute', { hold: true });
-  await new Promise(resolve => setTimeout(resolve, 10));
-  f.transport.close(); release();
-  await new Promise(resolve => setTimeout(resolve, 10));
-  assert.equal(replies().some(call => call.id === id(3)), false);
-});
+for (const operation of ["browser.controller.execute", ...MCD_HOST_OPERATIONS]) {
+  test(`reverse ${operation} reaches its handler on this session only`, async t => {
+    const capabilities = { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session-1', authorization_revision: 3, expires_at: new Date(Date.now() + 60000).toISOString(), binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' }, operations: [operation, 'browser.receipt', 'browser.reconcile'] };
+    const seen = []; let release;
+    const f = fixture(t, () => {}, { onReverse: async (request, session) => { seen.push({ request, session }); if (request.body.hold) await new Promise(resolve => { release = resolve; }); return { status: 200, body: { schema_version: 1, type: 'result', status: 'completed', echo: request.body.value } }; } });
+    await f.transport.start(); f.children[0].send({ ipc_version: 1, type: 'capabilities', capabilities });
+    const id = (n) => `5555555${n}-5555-4555-8555-555555555555`;
+    const reverse = (n, operation, body) => f.children[0].send({ ipc_version: 1, type: 'reverse_request', id: id(n), request: { type: 'task.invoke', profile: capabilities.profile, id: id(n), operation, body } });
+    const replies = () => f.calls.filter(call => call.type === 'reverse_response');
+    reverse(1, operation, { value: 'page' });
+    reverse(2, 'settings.owner.get', {});
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const [command, denied] = [replies().find(call => call.id === id(1)), replies().find(call => call.id === id(2))];
+    assert.deepEqual(command.response, { type: 'task.result', profile: capabilities.profile, id: id(1), status: 200, body: { schema_version: 1, type: 'result', status: 'completed', echo: 'page' } });
+    assert.equal(denied.response.status, 403); assert.equal(denied.response.error_code, 'permission_denied');
+    assert.deepEqual(seen.map(row => row.session), [{ session_id: 'session-1', authorization_revision: 3 }]);
+    assert.equal(f.transport.state, 'transport_ready', 'a refused reverse operation does not end the session');
+    // A reply for a helper that was replaced is dropped; the Gateway sees unknown.
+    reverse(3, operation, { hold: true });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    f.transport.close(); release();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(replies().some(call => call.id === id(3)), false);
+  });
+}
 
 test('reverse browser.controller.execute without a browser handler is refused before executing', async t => {
   const capabilities = { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session-1', authorization_revision: 3, expires_at: new Date(Date.now() + 60000).toISOString(), binding: { deployment_id: 'd', owner_id: 'o', client_id: 'c' }, operations: ['browser.controller.execute'] };

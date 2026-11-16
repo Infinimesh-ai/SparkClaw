@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpduplex"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/latencytrace"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/config"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/descriptor"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/envelope"
@@ -101,6 +102,7 @@ type relayRefreshHint struct {
 type relayWrite struct {
 	frame  duplex.Frame
 	future *ReceiptFuture
+	trace  bool
 }
 type relaySocket struct {
 	owner         *RelayClient
@@ -165,7 +167,7 @@ func (c *RelayClient) Enqueue(ctx context.Context, value any) (*ReceiptFuture, e
 		return nil, &NotSent{Cause: errors.New("Relay is not ready")}
 	}
 	sub := RelaySubmission{MessageID: env.MessageID, EnvelopeDigest: digest, HistoryID: s.ready.HistoryID, NotAfter: relaySubmissionDeadline(time.Now(), env.Route.TTLSeconds), SessionID: env.SessionID, Envelope: raw}
-	return s.enqueue(sub, false)
+	return s.enqueueWithSession(sub, false, nil, env.PayloadType == "task.invoke" || env.PayloadType == "task.result")
 }
 
 func relaySubmissionDeadline(now time.Time, ttlSeconds int) string {
@@ -214,9 +216,9 @@ func (c *RelayClient) Resubmit(ctx context.Context, sub RelaySubmission) (*Recei
 	return s.enqueue(sub, false)
 }
 func (s *relaySocket) enqueue(sub RelaySubmission, query bool) (*ReceiptFuture, error) {
-	return s.enqueueWithSession(sub, query, nil)
+	return s.enqueueWithSession(sub, query, nil, false)
 }
-func (s *relaySocket) enqueueWithSession(sub RelaySubmission, query bool, check func(string) bool) (*ReceiptFuture, error) {
+func (s *relaySocket) enqueueWithSession(sub RelaySubmission, query bool, check func(string) bool, trace bool) (*ReceiptFuture, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ctx.Err() != nil {
@@ -242,7 +244,7 @@ func (s *relaySocket) enqueueWithSession(sub RelaySubmission, query bool, check 
 	}
 	future := &ReceiptFuture{owner: s.owner, sessionCheck: check, Submission: sub, done: make(chan struct{})}
 	select {
-	case s.data <- relayWrite{frame: f, future: future}:
+	case s.data <- relayWrite{frame: f, future: future, trace: trace}:
 		s.queued[future] = len(raw)
 		s.bytes += len(raw)
 		return future, nil
@@ -455,6 +457,11 @@ func (s *relaySocket) writer() {
 // Allocate request IDs at the single writer, so control frames may overtake
 // paused data without causing the peer to observe decreasing request IDs.
 func (s *relaySocket) write(w relayWrite) error {
+	trace := func(reason string, err error) {
+		if w.trace {
+			traceRelayFrame("rpc.relay_write", w.frame.MessageID, reason, err)
+		}
+	}
 	if w.future != nil {
 		f := w.future
 		// Journal the original before any waiter may observe a potentially written
@@ -463,6 +470,7 @@ func (s *relaySocket) write(w relayWrite) error {
 		if f.completed {
 			f.mu.Unlock()
 			s.releaseQueued(f)
+			trace("canceled_before_write", nil)
 			return nil
 		}
 		if w.frame.Kind == "submit" {
@@ -470,12 +478,14 @@ func (s *relaySocket) write(w relayWrite) error {
 				f.mu.Unlock()
 				f.finish(nil, &NotSent{Cause: errors.New("original E2E session ended")})
 				s.releaseQueued(f)
+				trace("original_session_ended", nil)
 				return nil
 			}
 			if err := s.owner.journalBeforeWrite(f.Submission, f.uncertain); err != nil {
 				f.mu.Unlock()
 				f.finish(nil, &NotSent{Cause: err})
 				s.releaseQueued(f)
+				trace("journal_before_write", err)
 				return nil
 			}
 		}
@@ -500,7 +510,14 @@ func (s *relaySocket) write(w relayWrite) error {
 		}
 	}
 	s.mu.Unlock()
-	return writeDuplex(s.ws, w.frame)
+	err := writeDuplex(s.ws, w.frame)
+	trace("websocket_write", err)
+	return err
+}
+
+func traceRelayFrame(stage, messageID, reason string, err error) {
+	ctx := latencytrace.WithFields(context.Background(), latencytrace.Fields{Role: "relay_client", EnvelopeID: messageID})
+	latencytrace.RecordDetail(ctx, stage, time.Time{}, err, latencytrace.Detail{Reason: reason})
 }
 func (s *relaySocket) releaseQueued(f *ReceiptFuture) {
 	s.mu.Lock()
@@ -535,17 +552,23 @@ func (s *relaySocket) receive(f duplex.Frame) error {
 	case "closing":
 		return fmt.Errorf("Relay closed: %s", f.Code)
 	case "delivery":
+		traceOverflow := func() error {
+			err := errors.New("Relay delivery queue exhausted")
+			traceRelayFrame("rpc.relay_receive", f.MessageID, "delivery_queue_full", err)
+			return err
+		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if s.deliveryBytes+len(f.Envelope) > 8*duplex.MaxEnvelopeBytes {
-			return errors.New("Relay delivery queue exhausted")
+			return traceOverflow()
 		}
 		select {
 		case s.deliveries <- append(json.RawMessage(nil), f.Envelope...):
 			s.deliveryBytes += len(f.Envelope)
+			traceRelayFrame("rpc.relay_receive", f.MessageID, "websocket_received", nil)
 			return nil
 		default:
-			return errors.New("Relay delivery queue exhausted")
+			return traceOverflow()
 		}
 	case "reauth.challenge":
 		return s.respondReauth(f)
@@ -574,18 +597,25 @@ func (s *relaySocket) receive(f duplex.Frame) error {
 		}
 		s.mu.Unlock()
 		if future == nil {
-			return errors.New("uncorrelated Relay result")
+			err := errors.New("uncorrelated Relay result")
+			traceRelayFrame("rpc.relay_receipt_verify", f.MessageID, "uncorrelated_reply", err)
+			return err
 		}
 		if f.MessageID != future.Submission.MessageID || f.EnvelopeDigest != future.Submission.EnvelopeDigest {
-			return errors.New("Relay result key mismatch")
+			err := errors.New("Relay result key mismatch")
+			traceRelayFrame("rpc.relay_receipt_verify", future.Submission.MessageID, "result_key_mismatch", err)
+			return err
 		}
 		var err error
 		if f.Receipt != nil {
 			var env envelope.SecureEnvelope
 			if json.Unmarshal(future.Submission.Envelope, &env) != nil {
-				return errors.New("missing original envelope")
+				err := errors.New("missing original envelope")
+				traceRelayFrame("rpc.relay_receipt_verify", f.MessageID, "original_envelope_invalid", err)
+				return err
 			}
 			if e := duplex.VerifyReceipt(*f.Receipt, s.pin, future.Submission, s.owner.Enrollment().RelayID, env.DomainID, env.SenderDeviceID, env.RecipientDeviceID); e != nil {
+				traceRelayFrame("rpc.relay_receipt_verify", f.MessageID, "receipt_verification_failed", e)
 				return e
 			}
 		} else if f.Kind == "rejected" {

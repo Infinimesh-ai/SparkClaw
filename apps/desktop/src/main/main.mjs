@@ -33,6 +33,7 @@ import { BrowserPresentation } from "./presentation.mjs";
 import { DesktopCapability, isDesktopSessionAuthorized } from "./desktop-capability.mjs";
 import { DesktopAuth, authorizeWorkbenchSender } from "./desktop-auth.mjs";
 import { traceISCPRead } from "./iscp-read-diagnostics.mjs";
+import { prepareDefaultLatencyTrace } from "./latency-trace-directory.mjs";
 import { SecureCredentialStore } from "./secure-credential-store.mjs";
 import { OwnerBrowserServices } from "./owner-browser-services.mjs";
 import { linuxLoginStartup } from "./login-startup.mjs";
@@ -93,7 +94,8 @@ protocol.registerSchemesAsPrivileged([{
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
 }]);
 
-if (!app.requestSingleInstanceLock()) app.quit();
+const ownsProfile = app.requestSingleInstanceLock();
+if (!ownsProfile) app.quit();
 
 let quitting = false;
 let suspended = false;
@@ -138,6 +140,7 @@ function publishBackendState(status) {
 }
 
 async function start() {
+  if (ownsProfile && !qualification) await prepareDefaultLatencyTrace(app.getPath("userData"));
   const internalProtocolHandler = (request) => {
     const url = new URL(request.url);
     if (url.hostname !== "extension-connect" || url.pathname !== "") {
@@ -201,7 +204,7 @@ async function start() {
         iscpRecording?.close();
         scheduleClient?.close();
         mailClient?.close(); medicineClient?.close();
-        void browserHost?.suspend().catch(() => {});
+        void browserHost?.suspend({ preserve: temporaryStreamLoss }).catch(() => {});
       }
       publishBackendState(status);
     },
@@ -351,7 +354,8 @@ async function start() {
       if (window && !window.isDestroyed()) window.webContents.send("sparkclaw-client-store:changed");
     };
     executionClient = new ExecutionClient({ auth: desktopAuth, store: localStore, getIdentity: localIdentity, onChange: localChanged,
-      onCancelTask: binding => browserHost?.cancelTask?.(binding) }).start();
+      onCancelTask: binding => browserHost?.cancelTask?.(binding),
+      onTaskTerminal: (binding, reason) => browserHost?.endTask(binding, reason) }).start();
     iscpEvents = new ISCPEventClient({ auth: desktopAuth, store: localStore, execution: executionClient, getIdentity: localIdentity,
       onEvents: (event) => { localChanged(); if (event.categories.includes("medicine")) void medicineClient?.sync().catch(() => {}); if(window&&!window.isDestroyed())window.webContents.send("sparkclaw-backend-events",event); } });
     if(desktopAuth.status.capabilities?.events)iscpEvents.start();
@@ -444,6 +448,17 @@ async function start() {
     scriptHost,
     qualification,
   });
+  registry.onHumanPage = record => {
+    if (qualification || !localIdentity() || !record.hostBinding) return;
+    try { localStore.markBrowserTaskEnded(localIdentity(), record.hostBinding); } catch { /* Journals still fence uncertain writes. */ }
+    if (registry.conversationPages.get(record.hostConversationID) !== record) return;
+    try { localStore.saveBrowserView(localIdentity(), record.hostBinding, { url: record.webContents.getURL(), title: record.webContents.getTitle() }); }
+    catch { /* Bookmark persistence cannot change native page ownership. */ }
+  };
+  registry.onHumanPageClosed = record => {
+    if (qualification || !localIdentity() || !record.hostBinding || registry.conversationPages.get(record.hostConversationID) !== record) return;
+    try { localStore.closeBrowserView(localIdentity(), record.hostBinding); } catch { /* Preserve the live close outcome. */ }
+  };
   scriptHost.setRegistry(registry);
   if (!qualification) {
     const controller = new ClientControllerRuntime({
@@ -460,7 +475,7 @@ async function start() {
       onVerifiedPage: (binding, page) => localStore.saveBrowserPage(localIdentity(), binding, page),
       isTaskCanceled: binding => {
         const identity = localIdentity();
-        return !identity || localStore.hasCancellation(identity, binding.local_task_id);
+        return !identity || localStore.browserTaskEnded(identity, binding.local_task_id);
       },
       onChange: () => {
         desktopAuth.setBrowserRuntimeAvailable(controller.snapshot().available);

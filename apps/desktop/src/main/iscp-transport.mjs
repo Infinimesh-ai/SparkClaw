@@ -660,7 +660,11 @@ export class ISCPTransport {
         }
       } else if (frame.type === "reverse_request") {
         const request = frame.request;
-        if (!UUID.test(frame.id || "") || request?.type !== "task.invoke" || request.id !== frame.id || ![ISCP_PROFILE, ISCP_V2_PROFILE].includes(request.profile) || typeof request.operation !== "string") { this.#fail("disconnected"); return; }
+        if (!UUID.test(frame.id || "") || request?.type !== "task.invoke" || request.id !== frame.id || ![ISCP_PROFILE, ISCP_V2_PROFILE].includes(request.profile) || typeof request.operation !== "string") {
+          if (UUID.test(frame.id || "")) traceLatency("ipc.reverse_request_rejected", {rpc_id: frame.id, reason: "invalid_reverse_frame"});
+          this.#fail("disconnected");
+          return;
+        }
         void this.#reverse(request);
       } else if (frame.type === "stream_event") {
         const call = this.pending.get(frame.id);
@@ -694,12 +698,22 @@ export class ISCPTransport {
   // accepted alongside the old command until P3 cutover. A reply belonging to a
   // closed or replaced helper is dropped, and the Gateway sees it as unknown.
   async #reverse(request) {
+    const trace = { rpc_id: request.id, operation: request.operation };
+    const started = latencyNow();
+    traceLatency("ipc.reverse_request_received", trace);
     const generation = this.generation;
     const capabilities = this.capabilities;
     const session = capabilities ? { session_id: capabilities.session_id, authorization_revision: capabilities.authorization_revision } : undefined;
     let reply;
-    if ((!CONTROLLER_OPERATIONS.includes(request.operation) && !MCD_HOST_OPERATIONS.includes(request.operation)) || request.profile !== ISCP_V2_PROFILE) reply = { status: 403, error_code: "permission_denied", error: "Reverse operation is not accepted" };
-    else if (!session || Date.parse(capabilities.expires_at) <= Date.now() || !capabilities.operations.includes(request.operation) || typeof this.onReverse !== "function") reply = { status: 503, error_code: "capability_unavailable", error: "Browser is unavailable" };
+    let reason;
+    if ((!CONTROLLER_OPERATIONS.includes(request.operation) && !MCD_HOST_OPERATIONS.includes(request.operation)) || request.profile !== ISCP_V2_PROFILE) {
+      reason = "operation_or_profile";
+      reply = { status: 403, error_code: "permission_denied", error: "Reverse operation is not accepted" };
+    }
+    else if (!session || Date.parse(capabilities.expires_at) <= Date.now() || !capabilities.operations.includes(request.operation) || typeof this.onReverse !== "function") {
+      reason = "capability_not_ready";
+      reply = { status: 503, error_code: "capability_unavailable", error: "Browser is unavailable" };
+    }
     else {
       if (this.reverseChunkState?.generation !== generation) this.reverseChunkState = { generation, active: 0 };
       const chunks = this.reverseChunkState;
@@ -713,18 +727,29 @@ export class ISCPTransport {
           finally { if (chunk) chunks.active--; }
         }
       }
-      catch { reply = { status: 500, error_code: "internal_error", error: "Browser command failed" }; }
+      catch { reason = "handler_exception"; reply = { status: 500, error_code: "internal_error", error: "Browser command failed" }; }
       reply ??= { status: 503, error_code: "capability_unavailable", error: "Browser is unavailable" };
     }
-    if (generation !== this.generation || !this.child) return;
+    traceLatency("ipc.reverse_handler", {...trace, status: reply.status, reason, duration_ms: latencyNow() - started});
+    if (generation !== this.generation || !this.child) {
+      traceLatency("ipc.reverse_response_dropped", {...trace, reason: "helper_generation_changed"});
+      return;
+    }
     let response = { type: "task.result", profile: request.profile, id: request.id, status: reply.status,
       ...(reply.body !== undefined ? { body: reply.body } : {}),
       ...(request.profile === ISCP_V2_PROFILE && reply.error_code ? { error_code: reply.error_code } : {}), ...(reply.error ? { error: reply.error } : {}) };
     if (wireBytes(response) > Math.min(MAX_BYTES, capabilities?.limits?.response_bytes || MAX_BYTES)) {
       response = { type: "task.result", profile: request.profile, id: request.id, status: 413, error_code: "resource_limit", error: "Browser response exceeds negotiated capacity" };
     }
-    try { this.child.stdin.write(`${JSON.stringify({ ipc_version: 1, type: "reverse_response", id: request.id, response })}\n`); }
-    catch { this.#fail("disconnected"); }
+    try {
+      this.child.stdin.write(`${JSON.stringify({ ipc_version: 1, type: "reverse_response", id: request.id, response })}\n`, error => {
+        traceLatency("ipc.reverse_response_write", {...trace, status: response.status, ok: !error, reason: error ? "pipe_write_failed" : undefined});
+      });
+    }
+    catch {
+      traceLatency("ipc.reverse_response_write", {...trace, status: response.status, ok: false, reason: "pipe_write_failed"});
+      this.#fail("disconnected");
+    }
   }
 
   #fail(state) { this.close(); this.#state(state); }

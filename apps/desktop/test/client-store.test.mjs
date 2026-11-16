@@ -435,3 +435,26 @@ test('clarification record commits with its assistant message and reappears only
   assert.equal(store.db.prepare('SELECT count(*) AS n FROM message_clarifications').get().n, 1);
   store.close();
 });
+
+test("human browser history survives restart separately from task evidence and an explicit close suppresses restoration", t => {
+  const root = fixture(t); let store = new ClientStore(root);
+  const conversation = store.create(scope, "result"), task = store.enqueue(scope, conversation.id, "Browse");
+  const binding = { owner_id: scope.owner_id, client_id: scope.client_id, installation_id: store.installationID,
+    local_conversation_id: conversation.id, local_task_id: task.id, lease_id: "must-not-persist", connection_epoch: "old-authority" };
+  store.saveBrowserPage(scope, binding, { url: "https://example.test/evidence", title: "Evidence", document_version: "a".repeat(64) });
+  const evidence = store.db.prepare("SELECT value FROM metadata WHERE key=?").get(`browser_page:${task.id}`).value;
+  store.markBrowserTaskEnded(scope, binding);
+  assert.equal(store.browserTaskEnded(scope, task.id), true);
+  store.saveBrowserView(scope, binding, { url: "https://example.test/human", title: "User browsing" });
+  assert.equal(store.db.prepare("SELECT value FROM metadata WHERE key=?").get(`browser_page:${task.id}`).value, evidence);
+  assert.throws(() => store.saveBrowserView(scope, binding, { url: "file:///private/data" }), /invalid/);
+  assert.throws(() => store.saveBrowserView({ ...scope, owner_id: "foreign" }, binding, { url: "https://example.test/" }), /not found/);
+  store.close(); store = new ClientStore(root);
+  const saved = store.browserPage(scope, conversation.id);
+  assert.equal(saved.url, "https://example.test/human"); assert.equal(saved.interaction_state, "human");
+  assert.equal(saved.binding.lease_id, undefined); assert.equal(saved.binding.connection_epoch, undefined);
+  store.closeBrowserView(scope, binding);
+  assert.equal(store.browserPage(scope, conversation.id), null);
+  assert.equal(store.db.prepare("SELECT value FROM metadata WHERE key=?").get(`browser_page:${task.id}`).value, evidence);
+  store.close();
+});
